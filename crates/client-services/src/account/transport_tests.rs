@@ -916,6 +916,22 @@ fn a_google_challenge_without_a_target_asks_for_the_id_token_flow() {
 }
 
 #[test]
+fn a_login_challenge_preserves_an_unsupported_email_domain() {
+    let (origin, received) = serve(vec![error_response(
+        "400 Bad Request",
+        "unsupported_email_domain",
+        &[],
+    )]);
+    let failure = client(&origin)
+        .challenge_detailed("email", "person@bankwen.com")
+        .unwrap_err();
+    assert_eq!(failure.code(), "account_unsupported_email_domain");
+    assert_eq!(failure.status, Some(400));
+    let sent = received.recv().unwrap();
+    assert_eq!(sent.line(), "POST /v1/auth/challenges HTTP/1.1");
+}
+
+#[test]
 fn a_huawei_challenge_has_no_target_and_its_id_token_goes_to_login() {
     let (origin, received) = serve(vec![
         json_response(

@@ -22,7 +22,7 @@ Status: implemented
 
 - 引擎：`SessionOptions`、门面 `EngineOptions` 各多一个 `shuangpin_preedit_separated`，host-api 从偏好抄过去。`Session::snapshot_with_display_options` 在双拼原始按键且分隔时也走分词分支，取 `pinyin_segmentation_with_cases()`，也就是 `raw_segmentation`（带句中辅助码段和末尾隔音符）。`editing_text`、`caret_position` 和回车上屏仍是按键原文。字面输入（句中大写）、本地模式和专用英文与拼音分词一样不切。粤语双拼不读这个键，照旧跟随 `shuangpin_preedit_uses_raw`。
 - 光标：`preedit_caret`（[组字光标在 preedit 里的位置由引擎给出](../bug-fix/2026-11-02-engine-preedit-caret.md)）不用改。`ni'mf` 只是在 `nimf` 的字母之间加了隔音符，走的是全拼分词那条按字母数换算的路：光标在音节边界上时停在插入的隔音符前面，在第二个音节中间时越过它。只按字母数换算的宿主（macOS `MSIMEPreeditCaretPosition`、Windows `preedit_display_caret`）原本就会这样换算，结果和引擎给的一致。
-- 设置页：共享设置页（macOS、Linux、鸿蒙）的「双拼预编辑」下拉框按 原始按键 / 双拼分隔 / 拼音分词 排列，读写都经 `preedit-preferences.ts` 的 `shuangpinPreeditStyle`、`shuangpinPreeditPatch`，选拼音分词时把分隔一并写假，以后改回原始按键时它不会悄悄生效。Windows 现代设置和 Win7 设置共用 `InputSettingsModel.h` 的 `shuangpin_preedit_options` 与换算函数，顺序、文字与共享页相同；Win7 的 `valid` 只在这个键存在时要求它是布尔。iOS 在「双拼显示原始按键」下面加一个开关「原始按键按音节分隔」，只在上一项开着时列出，并加进桥接层交给运行中会话的字段。Android 没有「双拼预编辑」这一项（`HostCapabilities::shuangpin_preedit` 不含 Android），这次也不加。
+- 设置页：共享设置页（macOS、Linux、鸿蒙）的「双拼预编辑」下拉框按 原始按键 / 双拼分隔 / 拼音分词 排列，读写都经 `preedit-preferences.ts` 的 `shuangpinPreeditStyle`、`shuangpinPreeditPatch`，选拼音分词时把分隔一并写假，以后改回原始按键时它不会悄悄生效。Windows 现代设置和 Win7 设置共用 `InputSettingsModel.h` 的 `shuangpin_preedit_options` 与换算函数，顺序、文字与共享页相同；Win7 的 `valid` 只在这个键存在时要求它是布尔。iOS 在「双拼显示原始按键」下面加一个开关「原始按键按音节分隔」，只在上一项开着时列出，并加进桥接层交给运行中会话的字段。Android 当时没有「双拼预编辑」这一项（`HostCapabilities::shuangpin_preedit` 不含 Android），这次也没加；后来 #10557 给 Android 键盘页加上「双拼显示原始按键」时一并补上了这个开关，见 [粤语词图组句](2026-11-02-cantonese-word-lattice-sentence.md) 的「设置入口」。
 - 不改：IBus 和 Fcitx5 的「双拼原始预编辑」菜单开关仍只切 `shuangpin_preedit_uses_raw`，分隔与否留在文档里、由共享设置页改。macOS 账号同步的快照不加新键，冻结的 AppKit 回退设置窗口不加这一档。
 
 ## 兼容与同步

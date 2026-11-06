@@ -50,7 +50,7 @@ import java.io.OutputStream;
  *
  * <p>社区分类复用嵌入模式的 {@link CommunityFragment}，不再展示缓存预览和更多入口；皮肤页仍经 {@link CommunitySkinCatalogue} 刷新键盘皮肤面板用的缓存。
  *
- * <p>浅色和深色键盘各写自己的 `android_keyboard_skin_*` 短引用；缺槽时沿用旧的全局主题。我的设计引用本机设计库，候选窗仍用 `global_theme` 和它的候选皮肤包槽位。每次换皮肤都在统计里记一次 `record_skin`，并标记云同步的「皮肤」分类。水杉四季那张卡跟着应用主题当前的季节写成「水杉四季 · 秋杉」。卡片预览用与键盘相同的解析器（{@link HostStore#keyboardSkin(JSONObject, boolean, app.msime.android.AppThemePalette.Seed)}），跟随系统那张按应用主题的种子色画。
+ * <p>浅色和深色键盘各写自己的 `android_keyboard_skin_*` 短引用；缺槽时沿用旧的全局主题。我的设计引用本机设计库。键盘里的候选条、表情和手写面板按自己的明暗读同一份选择（#10749）；`global_theme` 只在缺槽时作为旧值读取，候选皮肤包槽位不变。每次换皮肤都在统计里记一次 `record_skin`，并标记云同步的「皮肤」分类。水杉四季那张卡跟着应用主题当前的季节写成「水杉四季 · 秋杉」。卡片预览用与键盘相同的解析器（{@link HostStore#keyboardSkin(JSONObject, boolean, app.msime.android.AppThemePalette.Seed)}），跟随系统那张按应用主题的种子色画。
  */
 public final class SkinsPage extends ReloadingDetailPage {
     /** 本地皮肤卡：`design` 为 null 是全局主题，否则是皮肤库里的设计。 */

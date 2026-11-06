@@ -289,6 +289,10 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 网页引擎的 npm 包 `@msime/web-engine` 也带 `msime-cantonese.db`（粤拼和粤语双拼用）：`scripts/build-web-engine.sh` 把 `resources/language-dictionaries.lock.json` 钉住的那份原样 gzip 成 `assets/msime-cantonese.db.gz`，随词库发布的 `msime-rime_cantonese_LICENSE.txt` 原名放在旁边，`npx @msime/web-engine copy` 把两者一起复制；`web-engine-NOTICE.md` 的「粤语词库」一节写明来源，仓库许可证全文一节收 `rime-cantonese-CC-BY-4.0.txt`（`scripts/web-engine-notice.sh`）。它和辅助码表一样只在 npm 包里，不进 `web-engine-vX.Y.Z` release 的文件和清单。
 
+### 粤语双拼的键位方案
+
+粤语双拼的键位方案由陳澍鋒（[swithinchan](https://github.com/swithinchan)）设计，即他的「粵語雙拼（自然碼兼容版）」（[swithinchan/rime-cantonese-shuangpin](https://github.com/swithinchan/rime-cantonese-shuangpin)），应他在 [#9799](https://github.com/metasequoiaime/msime/issues/9799) 的请求收入，并按他的要求在各平台「关于」里与开源许可列在一起致谢：一项「粤语双拼键位方案 · 陳澍鋒设计」，点开是设计者、来源和独立实现的说明。iOS 与 Android 的许可列表只打开随包文件，致谢是随包的 `resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt`（`platforms/ios/project.yml`、`platforms/android/build-apk.sh`）；共享设置页（macOS、Linux、HarmonyOS）的 `packages/ui/src/settings/cantonese-shuangpin-credit-row.tsx`、Windows 的 `platforms/windows/settings/AboutPageModel.h` 写着同样的话。选方案的面板里不署名。本项目的代码（`crates/engine/src/cantonese/shuangpin.rs`）是按同一套键位独立写的实现，不含那个仓库的任何文件（schema、映射表或词表）；那个仓库没有许可证文件。粤语双拼的候选来自上文的 `msime-cantonese.db`。
+
 ## 笔画的数据（rime-stroke）
 
 笔画方案（h 横、s 竖、p 撇、n 点、z 折）的笔顺码来自一份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `msime-stroke.db`，与 `msime-cantonese.db`、`msime-zhuyin.db` 放在同一个 `language-dictionaries/` 目录、同一个语言词库资源包里。数据库不在时，笔画方案显示为不可用。
@@ -448,6 +452,12 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | Linux | `platforms/linux/CMakeLists.txt` 在装了模型时装进声明目录（目前用的是 `platforms/linux/data/licenses/` 里同名的一份，开头一段写的是 Linux 包的路径，NOTICE 和许可证两段与共用的这份逐字相同，由上面的测试守着） | `share/doc/msime-client` 里的声明与 `THIRD_PARTY_NOTICES.txt` |
 | Windows | `platforms/windows/Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt`（所有版本都收：x64 宿主 DLL 都链着 ONNX Runtime，模型只在 full、pinyin 里） | 安装目录的 `THIRD_PARTY_NOTICES.txt` |
 | Android | 模型打包 PR 加一行：在 `build-native.sh` 里复制进 `assets/native-notices` | Android 关于页的「开源许可」自动列出 `native-notices` 里的文件 |
+
+## 桌面本地翻译
+
+`crates/local-translation` 的 `runtime` 特性通过 `llama-cpp-2` / `llama-cpp-sys-2` 0.1.162 嵌入 llama.cpp，不需要用户运行外部服务。Rust 绑定为 MIT OR Apache-2.0，固定 Git 来源提交 `0364f5da1c6a6ee37f507031f116ce4a09b28594`；该提交的 llama.cpp 子模块固定在 `8642541b255bfb5dc39cd351a178be09013a55d6`，MIT 许可证全文在 `resources/licenses/llama-cpp-MIT.txt`。关闭默认的 OpenMP 和服务工具特性；绑定自身仍启用底层 `common` 特性，发布链须检查它带入的原生依赖。macOS、现代 Windows x64 Server 和当前 Linux 发行构建启用 `host-api/local-translation`；Win7 和 Linux legacy 仍不启用。Rust 绑定的 Apache-2.0 全文在 `resources/licenses/llama-cpp-rs-Apache-2.0.txt`。
+
+[PLaMo 0.8B Q4_K_M](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/tree/dbeb0856cb0b004b484f190bb71dd65876297013) 的来源、大小和摘要由 `resources/local-translation-model.lock.json` 固定，权重不提交进仓库、不随安装包捆绑。Built with PLaMo。模型使用 PLaMo Community License，完整条款见 `resources/licenses/plamo-community-license.txt`；个人/非商业用途无需登记，商业用途有登记和营收条件，公开分发输出须注明模型来源，不能视作 Apache-2.0。macOS 复制许可到 `Contents/Resources/Licenses`，Linux 安装到 `share/doc/<client>`，Windows 收进 `THIRD_PARTY_NOTICES.txt`。
 
 ## 本地语音识别
 

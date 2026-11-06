@@ -895,7 +895,7 @@ final class KeyboardSkinTests: XCTestCase {
       let panel = KeyboardCandidatePanelView(
         candidates: ["你好"], preedit: "nihao",
         annotations: [KeyboardCandidateAnnotation(text: "hello", accessibilityDescription: "释义")],
-        display: { $0 }, menuElements: { _ in [] }, onSelect: { _ in }, onClose: {})
+        display: { $0 }, onSelect: { _ in }, onClose: {})
       panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
       panel.layoutIfNeeded()
       let glossed = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton, id)

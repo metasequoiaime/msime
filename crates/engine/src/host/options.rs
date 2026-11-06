@@ -18,7 +18,9 @@ use crate::types::{
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
     TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
-use crate::user_dictionary::generation::{merge_downloaded_wubi, prepare_runtime_paths_for};
+use crate::user_dictionary::generation::{
+    merge_downloaded_wubi, open_prepared_runtime_paths_for, prepare_runtime_paths_for,
+};
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
@@ -95,6 +97,8 @@ pub struct EngineOptions {
     pub show_helpcode: bool,
     /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
+    /// 十四／十八键网格辅助码（`SessionOptions::grid_helpcode`）；宿主按当前方案偏好的 `grid` 填，默认关。
+    pub grid_helpcode: bool,
     pub helpcode_schema: String,
     /// 辅助码前导标点；None 保留现有 Shift 加字母。
     pub helpcode_trigger_key: Option<u8>,
@@ -224,9 +228,53 @@ pub fn prepare_options_for(
         content_id,
         enabled_schemes,
     )?;
+    Ok(options_for_paths(&paths, enabled_schemes))
+}
+
+/// [`prepare_options_for`] 的只读版本：打开别的进程已经准备好的代次，不写 `user_data` 和代次（`open_prepared_runtime_paths_for`），产品默认值相同。给对共享状态目录没有写权限的宿主用（iOS 键盘没有完全访问）；代次没准备好或缺东西时报错，调用方改用 [`read_only_layout_options_for`]。
+pub fn open_prepared_options_for(
+    resources: &str,
+    user_data: &str,
+    cache: &str,
+    content_id: &str,
+    enabled_schemes: SchemeSet,
+) -> Result<EngineOptions> {
+    let paths = open_prepared_runtime_paths_for(
+        Path::new(resources),
+        Path::new(user_data),
+        Path::new(cache),
+        content_id,
+        enabled_schemes,
+    )?;
+    Ok(options_for_paths(&paths, enabled_schemes))
+}
+
+/// 只读布局：代次目录就是 `resources`，词库只读、不准备代次；`user_data` 和 `cache` 是宿主自己能写的目录，没有就建。给拿不到已准备代次的只读宿主用（iOS 键盘没有完全访问，App 还没准备过这个版本的代次）：打得出字，但没有用户词库和学到的东西。产品默认值与 [`prepare_options_for`] 相同。
+pub fn read_only_layout_options_for(
+    resources: &str,
+    user_data: &str,
+    cache: &str,
+    enabled_schemes: SchemeSet,
+) -> Result<EngineOptions> {
+    let paths = RuntimePaths {
+        resources: PathBuf::from(resources),
+        user_data: PathBuf::from(user_data),
+        cache: PathBuf::from(cache),
+        dictionaries: PathBuf::from(resources),
+    };
+    paths.validate()?;
+    msime_path_trust::reject_symlinked_components(&paths.user_data)?;
+    msime_path_trust::reject_symlinked_components(&paths.cache)?;
+    fs::create_dir_all(&paths.user_data)?;
+    fs::create_dir_all(&paths.cache)?;
+    Ok(options_for_paths(&paths, enabled_schemes))
+}
+
+/// `paths` 上的产品默认选项，见 [`prepare_options`]。
+fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> EngineOptions {
     // The C++ handed the paths back through `u8string()`; every root came in as UTF-8 and the generation only appends an ASCII content id, so the lossy conversion never actually replaces anything.
     let text = |path: &Path| path.to_string_lossy().into_owned();
-    Ok(EngineOptions {
+    EngineOptions {
         resources: text(&paths.resources),
         user_data: text(&paths.user_data),
         cache: text(&paths.cache),
@@ -255,6 +303,7 @@ pub fn prepare_options_for(
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
         helpcode_table: None,
@@ -314,7 +363,7 @@ pub fn prepare_options_for(
         stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         wubi_dictionary: String::new(),
-    })
+    }
 }
 
 /// `options_for`: map and validate (`UNSUPPORTED_INPUT_SCHEME`, `UNSUPPORTED_SHUANGPIN_PROFILE`, `UNSUPPORTED_WUBI_PROFILE`, `UNSUPPORTED_FREQUENCY_MODE`, `UNSUPPORTED_VIETNAMESE_METHOD`, `UNSUPPORTED_VIETNAMESE_TONE_STYLE`), and refresh the translations sidecar in the generation directory.
@@ -384,6 +433,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         helpcode: options.helpcode,
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,
         shuangpin_helpcode_modes: options.shuangpin_helpcode_modes,
+        grid_helpcode: options.grid_helpcode,
         chinese_punctuation: options.chinese_punctuation,
         paired_punctuation: options.paired_punctuation,
         punctuation_lock: i32::from(options.punctuation_lock),

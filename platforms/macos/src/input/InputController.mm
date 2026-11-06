@@ -9,7 +9,10 @@
 #import "../../../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #include "../../../common/HostApiString.h"
+#import "../cloud/EmbeddedTranslationBatch.h"
+#import "../translation/LocalTranslationWindow.h"
 #import "../candidate/CandidatePlacement.h"
+#import "../candidate/CandidateFontWeight.h"
 #import "../candidate/CandidateWindowLevel.h"
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
@@ -36,6 +39,7 @@
 #import "../voice/GlobalVoiceScopeMenu.h"
 #import "../voice/DoubaoVoiceRequest.h"
 #import "../voice/LocalVoiceRequest.h"
+#import "../voice/VoicePunctuation.h"
 #import "../voice/VoiceFailureMessages.h"
 #import "../core/SupportWindowController.h"
 #import "../backend/account/BackendAccountEntry.h"
@@ -768,7 +772,9 @@ static NSArray<NSDictionary *> *MSIMESessionTranslations(NSArray<NSDictionary *>
 static NSString *const MSIMEPinnedCandidatesPreferenceKey = @"MSIMEClientPinnedCandidates";
 
 static NSString *MSIMECandidatePinCode(NSDictionary *view) {
-    NSString *code = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : nil;
+    // 辅助码前导键只是显示，按下它不该换掉这个码下的置顶（#10731）。
+    NSString *code = [view[@"preedit"] isKindOfClass:NSString.class]
+        ? MSIMEPreeditWithoutHelpcodeTrigger(view[@"preedit"], view[@"editing_text"], view[@"helpcode_trigger"]) : nil;
     if (code.length == 0 && [view[@"editing_text"] isKindOfClass:NSString.class]) code = view[@"editing_text"];
     return code.length > 0 ? code : @"";
 }
@@ -1006,7 +1012,7 @@ static double MSIMEDecorationMotionMargin(const msime::mac::ResolvedSkin &skin) 
     return skin.decorationMotion != msime::mac::DecorationMotion::none ? msime::mac::kDecorationMotionMargin : 0.0;
 }
 
-// The reading in the candidate window's top row is set semibold (dc.html L1325) at the size the user picked for it. A resolved family is named by its face (Menlo-Regular), which pins the weight, so the face is swapped for the family and the fallback cascade is kept; a family whose nearest heavier face is bold draws bold, and one with no heavier face keeps its regular one.
+// 候选窗首行的拼音用半粗（dc.html L1325）、用户给它选的字号；候选字重选得比半粗更粗时跟到同一档（`MSIMECandidatePreeditFontWeightValue`）。解析出的字体以字面命名（Menlo-Regular），字面名会钉死字重，所以换回族名并保留回退链；族里最近的更粗字面是粗体就画粗体，没有更粗字面的保留它自己的字面。
 static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance) {
     const CGFloat size = appearance.preeditFontSize * MSIMECandidateScale(appearance);
     NSFont *regular = [appearance candidateFontOfSize:size englishFirst:YES];
@@ -1015,7 +1021,7 @@ static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance)
         [attributes removeObjectForKey:NSFontNameAttribute];
         attributes[NSFontFamilyAttribute] = regular.familyName;
     }
-    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(NSFontWeightSemibold)};
+    attributes[NSFontTraitsAttribute] = @{NSFontWeightTrait: @(MSIMECandidatePreeditFontWeightValue(appearance.candidateFontWeight))};
     return [NSFont fontWithDescriptor:[NSFontDescriptor fontDescriptorWithFontAttributes:attributes] size:size] ?: regular;
 }
 
@@ -1344,10 +1350,9 @@ static void MSIMEStartCapsLockHIDTracking() {
     IOHIDManagerRegisterDeviceMatchingCallback(manager, &MSIMECapsLockHIDDeviceMatched, nullptr);
     IOHIDManagerRegisterDeviceRemovalCallback(manager, &MSIMECapsLockHIDDeviceRemoved, nullptr);
     IOHIDManagerRegisterInputValueCallback(manager, &MSIMECapsLockHIDInputValue, nullptr);
-    IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+    // 同一个管理器只能调度一次：第二次 IOHIDManagerScheduleWithRunLoop 会在 IOKit 里以「Schedule failed queue: runLoop:」断言中止整个输入法进程（#10999）。CommonModes 已经包含默认模式，也覆盖事件跟踪和模态面板期间的模式。
     IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
     if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
-        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
         CFRelease(manager);
         return;
@@ -1991,9 +1996,13 @@ static NSImage *MSIMECandidateLogoImage() {
     // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
     BOOL _capsLockTapReleased;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
+    // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
+    NSTimer *_voiceHoldPollTimer;
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
     NSDictionary *_voiceThemePreferences;
+    // 本次录音的语音标点快照，与 generation 一起捕获；停采集和等待润色期间的偏好重载只影响下一次录音。
+    NSString *_voicePunctuationMode;
     NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
@@ -2044,6 +2053,7 @@ static NSImage *MSIMECandidateLogoImage() {
     // Bumped only when custom work is cancelled outright (the provider or its switch changed, or the controller went away); a reply from before that must not reach the cache, since the cache identity carries no credentials.
     uint64_t _customHardEpoch;
     NSTimer *_customTimer;
+    MSIMEEmbeddedTranslationBatch *_embeddedTranslationBatch;
     NSDictionary *_customQuery;
     NSDictionary *_customTranslationConfig;
     NSDictionary *_tencentTranslationConfig;
@@ -2440,6 +2450,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 }
 
 - (void)cancelCustomTranslations {
+    [_embeddedTranslationBatch cancel]; _embeddedTranslationBatch = nil;
     ++_customEpoch;
     ++_customHardEpoch;
     [_customTimer invalidate];
@@ -2456,6 +2467,7 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 }
 // The page moved on: nothing more is sent for it, but a request already paid for is left to land in the cache instead of being thrown away.
 - (void)detachCustomTranslations {
+    [_embeddedTranslationBatch cancel]; _embeddedTranslationBatch = nil;
     ++_customEpoch;
     [_customTimer invalidate];
     _customTimer = nil;
@@ -3250,6 +3262,8 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     NSDictionary *query = [self serviceSnapshotQuery];
     const BOOL command = MSIMEStrictBoolean(query[@"sentence"]);
     if (!candidateTranslations && !command) return nil;
+    if ([query[@"provider"] isEqual:@"local"])
+        return MSIMEEmbeddedTranslationIdentity(query, [self serviceSnapshotView]);
     NSDictionary *config = query[@"niutrans"];
     BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (!niuTrans) config = query[@"custom_translation"];
@@ -3668,6 +3682,7 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations ||
         (_glossEnabled && !_glossEnabled.boolValue)) return nil;
     NSDictionary *query = [self serviceSnapshotQuery];
+    if ([query[@"provider"] isEqual:@"local"]) return nil;
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || MSIMEStrictBoolean(query[@"translation_account"])) return nil;
     for (NSString *service in @[@"niutrans", @"custom_translation", @"tencent_tmt"]) {
         NSDictionary *config = query[service];
@@ -3804,6 +3819,25 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     [self stopAccountGloss];
     if ([_customQuery isEqual:query]) return;
     [self detachCustomTranslations];
+    if ([query[@"provider"] isEqual:@"local"]) {
+        _customQuery = query;
+        const uint64_t epoch = _customEpoch;
+        MSIMEClientSession *session = _session;
+        id client = _activeClient;
+        __weak MSIMEInputController *weakSelf = self;
+        _embeddedTranslationBatch = [[MSIMEEmbeddedTranslationBatch alloc] initWithQuery:query completion:^(NSArray<NSDictionary *> *results) {
+            MSIMEInputController *owner = weakSelf;
+            if (!owner || owner->_customEpoch != epoch || owner->_session != session || owner->_activeClient != client ||
+                ![[owner currentCustomTranslationRequest] isEqual:query]) return;
+            owner->_embeddedTranslationBatch = nil;
+            if (results) {
+                owner->_customResults = results;
+                [owner applyCandidateTranslationResults];
+            }
+        }];
+        [_embeddedTranslationBatch start];
+        return;
+    }
     // `/fy` translates one English sentence into the query's own target, Chinese, which the candidate target list does not name and the candidate plan refuses; it is its own plan item and is neither read from nor written to the gloss cache.
     const BOOL command = MSIMEStrictBoolean(query[@"command"]);
     NSArray<NSString *> *targets = command ? query[@"target_languages"] : MSIMETranslationTargets(query);
@@ -5407,11 +5441,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!view) { if (error) NSBeep(); return; }
         [self apply:@{@"view":view}];
     }
-    // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese. Returning to Chinese goes back to the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Set before the mode is saved so the resulting sync and toolbar refresh already see it.
+    // A Chinese/English switch puts punctuation back in step with the mode, as the reference's SyncPunctuationWithImeMode does: English mode gets English punctuation unless punctuation_lock pins Chinese, and Chinese mode gets the saved starting value, the macOS adaptation for the shared chinese_punctuation setting. Both directions only drop this application's toggle, because -runtimeChinesePunctuation already derives exactly that from the lock and the mode. A runtime override therefore only ever records the user's own Ctrl+. or toolbar choice. Writing English punctuation as an override here left it behind whenever the mode came back to Chinese some other way - Shift in another application under the global scope, leaving the English candidate mode, an application rule taking over again - and gave Chinese mode English punctuation (#10954). Done before the mode is saved so the resulting sync and toolbar refresh already see it.
     if (changed) {
         _englishPunctuation = {};
-        if (enabled) _appearance.runtimeChinesePunctuation = [_appearance.punctuationLock isEqual:@"chinese"];
-        else [_appearance resetRuntimePunctuationForActiveApplication];
+        [_appearance resetRuntimePunctuationForActiveApplication];
     }
     _appearance.englishMode = enabled;
     if (enabled && _englishOnlineCandidatesEnabled && !_session && _activeClient) [self prepareSession];
@@ -5678,6 +5711,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [[MSIMEUpdateController sharedController] checkForUpdates:nil];
     });
 }
+- (void)showLocalTranslationSettings:(id)sender {
+    (void)sender;
+    [MSIMELocalTranslationWindow showForDirectory:_preferencesDirectory ?: [self runtimeOptions][@"preferences_directory"]];
+}
 - (void)showVoiceSettings:(id)sender {
     (void)sender;
     MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Voice, NSWorkspace.sharedWorkspace, ^{
@@ -5706,6 +5743,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self stopPredictionMouseMonitoring];
     [self stopSettledScoring];
     [_capsLockTapTimer invalidate];
+    [_voiceHoldPollTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
@@ -5726,6 +5764,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyDoubaoFinalText:(NSString *)text request:(id<MSIMEStreamingVoiceRequest>)request {
     if (_doubaoVoiceRequest != request) return;
     if ([self ownsDoubaoVoiceFocus]) {
+        // 语音标点在润色之后处理；只剩标点、处理后为空时和识别结果为空一样提示没听到。
+        text = MSIMEVoicePunctuated(text, _voicePunctuationMode);
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_doubaoVoiceSession applyVoiceText:text generation:_doubaoVoiceGeneration error:nil] : nil;
         if (result) { _doubaoVoiceMarked = NO; [self applyVoiceResult:result route:_doubaoVoiceCommit]; }
@@ -5821,6 +5861,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _doubaoVoiceSession = _session;
     _doubaoVoiceClient = _activeClient;
     _doubaoVoiceGeneration = _voiceGeneration;
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _doubaoVoiceProcessing = NO;
     _doubaoVoiceMarked = NO;
     _doubaoVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
@@ -5929,6 +5970,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _httpVoiceClient = _activeClient;
     _httpVoiceCommit = MSIMECaptureVoiceCommit(options[@"commit_mode"], _activeClient);
     _httpVoiceGeneration = _voiceGeneration;
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _httpVoiceProcessing = NO;
     __weak MSIMEInputController *weakSelf = self;
     [self bindVoiceOverlayActions];
@@ -5988,6 +6030,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!controller || controller->_httpVoiceRequest != request) return;
         if (![controller voiceOwnsClient:client session:session] ||
             controller->_voiceGeneration != generation || !controller->_voiceService.active) { [controller cancelHTTPVoiceInput]; return; }
+        // 整句识别的结果已经过润色（HTTPVoiceRequest），这里再按语音标点处理；只剩标点、处理后为空时提示没听到。
+        if (!failure) text = MSIMEVoicePunctuated(text, controller->_voicePunctuationMode);
         if (failure || !text.length) { [controller reportVoiceFailure:failure ? MSIMEVoiceFailureProvider : MSIMEVoiceFailureNoSpeech detail:MSIMEVoiceFailureDetail(failure)]; return; }
         if (!failure && text.length && [controller voiceOwnsClient:client session:session] && controller->_voiceGeneration == generation && controller->_voiceService.active) {
             // Native host session methods are main-thread-only. Recheck the
@@ -6029,6 +6073,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self apply:finished];
     _liveVoiceToken = [NSObject new]; _liveVoiceSession = _session; _liveVoiceClient = _activeClient;
     _liveVoiceGeneration = _voiceGeneration; _liveVoiceSocket = [socket copy];
+    _voicePunctuationMode = MSIMEVoicePunctuationMode(_voiceThemePreferences[@"voice_input"]);
     _liveVoiceSocketLease = socket.length ? [options[@"generation"] unsignedLongLongValue] : 0;
     // External providers already own their optional polish stage. Snapshot local
     // settings at recording start through the shared native request adapter.
@@ -6071,6 +6116,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)applyLiveVoiceFinalText:(NSString *)text token:(id)token {
     if (!token || token != _liveVoiceToken) return;
     if ([self ownsLiveVoiceToken:token]) {
+        // 语音标点在润色之后处理；只剩标点、处理后为空时和识别结果为空一样提示没听到。
+        text = MSIMEVoicePunctuated(text, _voicePunctuationMode);
         if (!text.length) { [self reportVoiceFailure:MSIMEVoiceFailureNoSpeech]; return; }
         NSDictionary *result = text.length ? [_liveVoiceSession applyVoiceText:text generation:_liveVoiceGeneration error:nil] : nil;
         if (result) { _liveVoiceMarked = NO; [self applyVoiceResult:result route:_liveVoiceCommit]; }
@@ -6138,6 +6185,35 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         [weakSelf expireLiveVoice:token];
     });
+}
+// 松开的 flagsChanged 可能送不到输入法（2026-11-03 设备验收：松开后录音一直开着，只能杀进程）。按住期间每 0.1 秒拿会话里的修饰键状态问一次 MSIMEVoiceHoldShortcut::poll，确定抬起就和收到松开一样停下录音。
+// 用 CombinedSessionState 而不是 HID 状态：它同时包含实体键盘和别的进程合成的按键，合成的按住不会被误判成已经松开。
+- (void)syncVoiceHoldPoll {
+    if (!_voiceHoldShortcut.holding()) {
+        [_voiceHoldPollTimer invalidate];
+        _voiceHoldPollTimer = nil;
+        return;
+    }
+    if (_voiceHoldPollTimer) return;
+    __weak MSIMEInputController *weakSelf = self;
+    _voiceHoldPollTimer = [NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf pollVoiceHold];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_voiceHoldPollTimer forMode:NSRunLoopCommonModes];
+}
+- (void)pollVoiceHold {
+    const auto result = _voiceHoldShortcut.poll(MSIMEPhysicalModifierFlagsState(kCGEventSourceStateCombinedSessionState), _voiceService.active);
+    // 和事件路径的松开一样只停这次按住开始的录音；代次变了说明它已经结束。
+    if (result.action == MSIMEVoiceHoldShortcut::Action::Toggle && _voiceHoldGeneration == _voiceGeneration) [self toggleVoiceInput:nil];
+    [self syncVoiceHoldPoll];
+}
+// 按住状态要被清掉（同一客户端再次激活、没有客户端的按键），之后不会再有松开来结束这次按住开始、还没锁定的录音，所以先按松开把它停下。
+- (void)resetVoiceHoldFinishingRecording {
+    const BOOL finish = _voiceHoldShortcut.finishesOnRelease() && _voiceService.active && _voiceHoldGeneration == _voiceGeneration;
+    _voiceHoldShortcut.reset();
+    [self syncVoiceHoldPoll];
+    if (finish) [self toggleVoiceInput:nil];
 }
 - (void)finishVoiceInputForDisable {
     _voicePermissionToken = nil;
@@ -6446,7 +6522,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [self clearSmartPunctuationSpaceRevert];
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
-    _voiceHoldShortcut.reset();
+    [self resetVoiceHoldFinishingRecording];
     if (_activeClient && _activeClient != sender) [self cancelLiveVoiceInput];
     if (_activeClient && _activeClient != sender) [self cancelDoubaoVoiceInput];
     if (_activeClient && _activeClient != sender) [self cancelHTTPVoiceInput];
@@ -7862,7 +7938,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [_voiceOverlay dismissFailure];
         [self resetModifierTap];
         [self abandonCapsLockTap];
-        _voiceHoldShortcut.reset();
+        [self resetVoiceHoldFinishingRecording];
         _backspaceHoldArmed = NO;
         [self clearSmartPunctuationSpaceConversion];
         [self clearSmartPunctuationSpaceRevert];
@@ -7950,6 +8026,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     else if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::ChordCancel && _voiceHoldGeneration == _voiceGeneration) {
         [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
     }
+    [self syncVoiceHoldPoll];
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         [self toggleInputModeFromModifierTap];
@@ -10020,7 +10097,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     _expandedFirstRow = MIN(_expandedFirstRow, rows - 1);
 
     const BOOL pageControls = !skin.expandPanel.value_or(false) && _appearance.showsCandidatePageNumber;
-    NSFont *indicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    // 行号、页码和首行状态用系统字体，字重跟候选字重（#10748），与 Windows、Linux 一样；常规时与原来相同。
+    NSFont *indicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     // 「第几行 / 共几行」要知道总行数；自动适应按需排版，不显示行号，只留收起按钮。
     const BOOL rowIndicatorShown = pageControls && !adaptive;
     NSString *rowIndicator = [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(cursorRow + 1), (unsigned long)rows];
@@ -10418,7 +10496,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (adaptive || _filteredFixedPages) [self reportAdaptiveDisplayPage];
     // 「1 / 3」只在知道总页数时显示；自动适应只留 ‹ ›。
     const BOOL pageIndicatorShown = pageControls && !adaptive;
-    NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    // 页码、首行状态和光标后编辑提示用系统字体，字重跟候选字重（#10748），与 Windows、Linux 一样；常规时与原来相同。
+    NSFont *pageIndicatorFont = [NSFont monospacedDigitSystemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     NSString *pageIndicator = pageIndicatorShown ? [NSString stringWithFormat:@"%lu / %lu", (unsigned long)(page + 1), (unsigned long)pageCount] : @"";
     const CGFloat pageIndicatorWidth = pageIndicatorShown ? MSIMECandidateLabelWidth(pageIndicator, pageIndicatorFont) : 0;
     const CGFloat pageControlsWidth = (pageControls ? (pageIndicatorShown ? pageIndicatorWidth + indicatorGap : 0) + 2 * arrowWidth : 0) +
@@ -10438,7 +10517,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const BOOL statusVisible = _appearance.showsCandidateStatus && preedit.length;
     NSString *statusText = statusVisible ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
                                                                      _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
-    NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:NSFontWeightRegular];
+    NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     const CGFloat statusGap = 8 * scale;
     const CGFloat statusTextWidth = MSIMECandidateLabelWidth(statusText, statusFont);
     const CGFloat statusBlock = statusTextWidth > 0 ? 2 * statusGap + scale + statusTextWidth : 0;

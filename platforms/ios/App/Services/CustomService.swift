@@ -442,7 +442,7 @@ enum CustomServiceClient {
       }
     } else {
       guard text.count <= 10000 else { throw ServiceFailure(message: "每次最多处理一万字。") }
-      request.httpBody = try AppServicesBridge.polishBody(configuration.model, prompt: prompt, text: text)
+      request.httpBody = try AppServicesBridge.polishBody(configuration.model, endpoint: url, prompt: prompt, text: text)
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
     return request

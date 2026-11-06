@@ -23,6 +23,8 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
+        # 嵌入式翻译只接三个桌面的原生入口；AGENTS.md 禁止向 React 新增设置，入口随同草稿 PR 接线。
+        "local_translation",
         # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
         "smart_punctuation_migrated",
         # AI 辅助翻译统一成显式选择时的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
@@ -44,6 +46,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "dictionary_sync_webdav",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。
         "usage_reporting_consent",
+        # 候选字重（#10748）：packages/ui 迁移期只修缺陷，控件只在 Windows 原生设置页；macOS 随原生设置迁移再加，期间经 MCP 或偏好文档设置。
+        "candidate_font_weight",
         # 粤拼输出简体（#10435）只由 iOS、Android、HarmonyOS 键盘在粤拼方案下的简繁按钮切换，桌面没有对应入口，React 设置页不显示。
         "cantonese_simplified_output",
 
@@ -67,6 +71,10 @@ RUST_ONLY: dict[str, set[str]] = {
     "GameCompatibilityPreferences": {
         # Windows 游戏候选兜底点挪到客户区上部的开关，给聊天行在画面上沿的游戏（DNF）用；按设计没有设置界面入口（WinUI、React 页和 MCP 白名单都不含它），只能手改 preferences.json，见 .agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md。
         "overlay_anchor_top",
+    },
+    "HelpcodePreferences": {
+        # 14/18 键辅助码（上滑分词键放下分隔符）只有 Android 键盘有入口，开关只在 Android 原生「输入 › 辅助码」里；桌面没有字母网格，React 设置页不显示。见 .agents/notes/implemented/feature/2026-11-04-grid-helpcode.md。
+        "grid",
     },
 }
 

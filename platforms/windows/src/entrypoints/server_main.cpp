@@ -954,6 +954,11 @@ const char *foreground_presentation_name(
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
+  // 先析构会话和翻译 worker，再等待共享模型释放；不在 DLL 加载器锁内等待。
+  struct EmbeddedTranslationShutdown {
+    ~EmbeddedTranslationShutdown() { msime_client_local_translation_shutdown(); }
+  } embedded_translation_shutdown;
+
   // 登录任务的默认 Priority 7 把 CPU 调度类和内存优先级一起压低，看门狗和它拉起的
   // Server 都继承这个状态；TSF 拉起、手工启动和以后的拉起路径也可能带进来。复位放在
   // 任何业务线程创建之前，失败只记一行，不阻止启动。
@@ -1401,6 +1406,7 @@ int wmain(int argc, wchar_t **argv) {
           // 空格锁定固定为开（hotkey_hold_space_lock 保持默认的 true）：空格只在按住录音组合键期间才被拦下，平常打字不受影响，设置页也不再给这个开关（`voice_space_lock_switch`）。
           next.stream_inline_preedit = input.value("stream_inline_preedit", true);
           next.commit_mode = input.value("commit_mode", std::string{"tsf"});
+          next.punctuation_mode = input.value("punctuation_mode", std::string{"auto"});
           next.endpoint = input.value("asr_endpoint", std::string{});
           next.model = input.value("asr_model", std::string{});
           // Read before the tokens: the slot lookup is keyed on them.
@@ -1676,9 +1682,11 @@ int wmain(int argc, wchar_t **argv) {
         });
     startup_stage = "candidate_window";
     DesktopCandidateSettings candidate_settings;
+    // 启动配置里没有字重，先按常规画；读到偏好后字重随 candidate_font_settings 一起发过来。
     candidate_settings.fonts = {config.candidate_font, config.candidate_fallback_fonts,
         static_cast<unsigned>(config.candidate_font_size),
-        static_cast<unsigned>(config.candidate_preedit_font_size)};
+        static_cast<unsigned>(config.candidate_preedit_font_size),
+        candidate_regular_font_weight};
     candidate_settings.layout = CandidateLayoutSettings::decode(candidate_layout->load(std::memory_order_acquire));
     candidate_settings.mouse_wheel = candidate_mouse_wheel->load(std::memory_order_acquire);
     DesktopCandidates candidates({

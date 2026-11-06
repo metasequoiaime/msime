@@ -15,7 +15,7 @@ API 12 起鸿蒙的输入法扩展用独立沙箱，设置应用和键盘各有�
 
 两个进程照旧各管一份日志，「我的词条」经共享沙箱里的发布文件交换，收敛成同一组；规则在 Rust 的新 C 入口 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`），鸿蒙宿主只决定时机（`keyboard/UserWordsMirrorPolicy.ts`）。
 
-1. 交换的对象与 WebDAV 同步相同：日志里 `user_inserted` 而且没删的词条，身份是（词库类别、编码、词），读写都经 `dictionary_webdav` 的 `EngineDictionary`（一致的只读事务读、每批 128 项的批量写、每批之前取维护权）。权重、学习记录、固定位置不交换：设置应用不打字，那些只属于键盘。
+1. 交换的对象与 WebDAV 同步相同：日志里 `user_inserted` 而且没删的词条，身份是（词库类别、编码、词），读写都经 `dictionary_webdav` 的 `EngineDictionary`（一致的只读事务读、每批 128 项的批量写、每批之前取维护权）。权重、学习记录、固定位置不交换：设置应用不打字，那些只属于键盘。粤语个人词是唯一的例外：WebDAV 同步不收，这里交换（`EngineDictionary::with_cantonese`），见 [鸿蒙设置里加的粤语词同步到键盘](../bug-fix/2026-11-02-harmony-cantonese-user-words-mirror.md)。
 2. 每一边在自己私有的 `files/state/user-words/` 里给每个词条记一个「最后写入者胜」的寄存器（混合逻辑时钟的时间戳、在不在）和本机词库里实际有没有它（`applied`），并把寄存器表原子发布到 `<共享目录>/msime/<settings|keyboard>/user-words/words.json`。这个文件不进镜像的清单和指纹，由两边的 Rust 直接写、直接读，不在共享目录里建锁文件。
 3. 一次 `sync` 依次：把本机词库相对 `applied` 的变化记成带新时间戳的寄存器；合并对方的发布（时间戳大的胜，相同时「在」胜过「不在」），本机词库与胜出的值不一致时写进去；回收对方已经确认见过的墓碑；存盘，再发布。`publish` 只做第一步、存盘和发布，不写词库、不要维护权。
 4. 时机：

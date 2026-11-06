@@ -38,6 +38,8 @@ macOS、iOS、Linux 和 Windows 候选窗这次不改。它们打字时光标在
 
 宿主不用再猜展开拼写里的光标，以后哪个宿主想让光标在 `preedit` 里跟着移动，读这一项就行。代价是视图多一个字段，每次快照多一次换算（只扫一遍 `preedit` 和边界），门面的 `annotation_move_tests` 里那份参照快照也要跟着同步。光标在一个双拼单位中间时只能画在单位起点，和候选覆盖的范围一致，但看起来和按键的移动不是一格一格对应的：从末尾左移一格，光标就跳到上一个音节后面，再左移一格位置不变。显示音节和原文单位对不上的情况（例如末尾辅助码）仍放在末尾，不会跟着移动。
 
+Windows 候选窗拼音行后来也改读 `preedit_caret`，见 [Windows 候选窗拼音行按引擎给的位置画插入点](2026-11-04-windows-candidate-preedit-caret.md)。
+
 ## Existing notes audit
 
 检索 `MapPreeditCaret`、`preedit_display_caret`、`MSIMEPreeditCaretPosition`、`caret_position`、拼音分词。[Windows 预编辑文字与光标共用宿主快照](2026-10-22-windows-host-preedit-caret.md)负责 TSF 绘制从同一次宿主视图取文字和光标，以及 `SetCompositionCaret` 定位。本篇沿用这两点，只换掉其中「分词符映射保持现有规则」这一项在展开拼写上的做法，两篇是部分重叠。[macOS 行内组字的标记样式](2026-10-19-macos-inline-preedit-caret.md)只涉及标记属性，[字母按键光标画在显示分隔前面](2026-10-29-letter-caret-before-display-separator.md)是 Android 读音行在分隔两侧的取舍，本篇在全拼分隔上的规则（停在插入的隔音符前面）和它一致，与这两篇都没有共享决定。

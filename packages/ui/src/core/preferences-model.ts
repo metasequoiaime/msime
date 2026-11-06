@@ -101,6 +101,7 @@ export type Preferences = PunctuationPreferences &
     /** 用户明确选择水杉账号（api.msime.app）进行候选翻译；缺省表示未选择。 */
     translation_account?: boolean;
     translation_ai?: boolean;
+    local_translation?: { enabled: boolean; target_language: string };
     /** 各宿主共用的匿名用量上报（每日活跃、会话结束与崩溃摘要）；缺省为开启。 */
     usage_reporting?: boolean;
     /** 桌面应用检查更新跟的发布通道，关于页「版本与更新」里选；等于缺省的稳定版时 client-core 不写进文档。只属于本机，不进设置文件、不进账号同步。 */
@@ -245,7 +246,7 @@ export type Preferences = PunctuationPreferences &
     show_candidate_expand_button?: boolean;
     /** 候选窗、悬浮工具栏、菜单和触屏键盘共用的主题；`theme` 仍表示 `system` 和设置窗口跟随的明暗模式。 */
     global_theme?: GlobalTheme;
-    /** `custom` 全局主题由外部候选皮肤包、七个候选颜色选项与键盘编辑器设计组成。 */
+    /** `custom` 全局主题由外部候选皮肤包、八个候选颜色选项与键盘编辑器设计组成。 */
     custom_theme?: CustomTheme;
     learning: boolean;
     /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */

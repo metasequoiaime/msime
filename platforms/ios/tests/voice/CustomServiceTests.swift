@@ -135,7 +135,7 @@ final class CustomServiceTests: XCTestCase {
 
   func testEngineCodecsPreserveTextAndAudioAndRejectMalformedResponses() throws {
     let text = "你好\n\"测试\""
-    let data = try AppServicesBridge.polishBody("fixture", prompt: "润色", text: text)
+    let data = try AppServicesBridge.polishBody("fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: "润色", text: text)
     let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
     XCTAssertEqual(messages.last?["content"], text)

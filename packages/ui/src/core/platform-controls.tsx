@@ -642,25 +642,43 @@ export function PickerRow({
       hidden={hidden}
       data-settings-search-label={typeof title === "string" ? title : undefined}
     >
-      {/* 按内容（标题、描述、当前值）命名，而不是用 `aria-labelledby`：标题已经是隐藏控件的标签，同一个标签命名两个控件会让标签查找指向哪个控件变得含糊。 */}
-      <button
-        type="button"
-        className={style.pickerRow}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-      >
-        <span className={style.rowText}>
-          <span id={titleId} className={style.rowTitle} data-row-title="">
-            {title}
+      {disabled && description ? (
+        // 变灰的行点不开选项面板，说明就只剩「?」这一处能看到，而它往往正好在讲这一项为什么现在不能用。所以这时整行不做成按钮（按钮里不能再嵌按钮，被禁用的按钮也点不到里面的东西），「?」和 `Row` 一样放在标题旁。
+        <div className={style.pickerRowDisabled}>
+          <span className={style.rowText}>
+            <span className={style.rowTitleLine}>
+              <span id={titleId} className={style.rowTitle} data-row-title="">
+                {title}
+              </span>
+              <InfoTip subject={title}>{description}</InfoTip>
+            </span>
+            {detail && <span className={style.rowDescription}>{detail}</span>}
           </span>
-          {/* 说明不常驻在行里：点开行时写在选项面板的标题下面；这里只留给读屏的副本，行按钮仍按标题、说明和当前值命名。 */}
-          {detail && <span className={style.rowDescription}>{detail}</span>}
-          {description && <span className="sr-only">{description}</span>}
-        </span>
-        {value}
-      </button>
+          {value}
+          {/* 整行不再是 `disabled` 的按钮，读屏不会自己报出「不可用」，这里补上；只写在当前值后面，不给外层加禁用语义，免得「?」也被当成不可用。 */}
+          <span className="sr-only">不可用</span>
+        </div>
+      ) : (
+        // 按内容（标题、描述、当前值）命名，而不是用 `aria-labelledby`：标题已经是隐藏控件的标签，同一个标签命名两个控件会让标签查找指向哪个控件变得含糊。
+        <button
+          type="button"
+          className={style.pickerRow}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+        >
+          <span className={style.rowText}>
+            <span id={titleId} className={style.rowTitle} data-row-title="">
+              {title}
+            </span>
+            {/* 说明不常驻在行里：点开行时写在选项面板的标题下面；这里只留给读屏的副本，行按钮仍按标题、说明和当前值命名。 */}
+            {detail && <span className={style.rowDescription}>{detail}</span>}
+            {description && <span className="sr-only">{description}</span>}
+          </span>
+          {value}
+        </button>
+      )}
       {/* inert 让隐藏控件不受触摸、焦点和辅助技术的访问，用户遇到的唯一控件就是行按钮；它仍然保存值并接收变更。 */}
       <span className="sr-only" inert>
         {control(titleId)}

@@ -4,8 +4,8 @@
 use super::*;
 use msime_engine::ordering::{
     apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
-    rerank_pick_within, rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows,
-    SentenceScorer, StaticEvidence,
+    rerank_pick_within, rotate_to_front, runner_up_order_pooled, CandidateScorer,
+    ParallelOrderRows, SentenceScorer, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -45,6 +45,8 @@ pub enum Action {
     ChooseNineKeySpelling(NineKeySpellingId),
     /// 14 键的一键，`a`–`z` 里这一组的任一字母（宿主约定送首字母）。不在 14 键下时不处理。
     GridKey(u8),
+    /// 十四／十八键网格辅助码：放下分隔符、追加整组或确定字母、清除（`msime_engine::Session::grid_helpcode`）。放下分隔符后 [`Action::GridKey`] 一律不处理，字母键改送 `GridHelpcodeOp::Group`（十八键双拼的横滑送 `Exact`）；整串解释仍走 [`Action::ChooseNineKeySpelling`]。
+    GridHelpcode(GridHelpcodeOp),
     /// 九宫格候选的筛选：只留单字，以及首字笔顺的前缀（`hspnz`，空表示不按笔画）。没有九宫格组字时不处理。
     SetNineKeyFilter {
         single_character: bool,
@@ -1549,6 +1551,8 @@ impl<E: InputEngine> Runtime<E> {
             || self.generation.checked_add(1).is_none()
             // 落定重排按座位挪行，插件插入的行没有引擎下标，会被当成引擎的候选挪走；有插入的行时不做。
             || self.has_inserted_rows()
+            // 网格辅助码筛过的列表按匹配等级分组，落定模型不能跨组挪行。
+            || self.cached.grid_helpcode_constrained
     }
 
     /// 判断是否需要模型前向计算；提前退出的情况可留在会话线程处理。
@@ -1786,6 +1790,8 @@ impl<E: InputEngine> Runtime<E> {
             nine_key_reading: self.cached.nine_key_reading.clone(),
             nine_key_single_character: self.cached.nine_key_single_character,
             nine_key_strokes: self.cached.nine_key_strokes.clone(),
+            grid_helpcode_available: self.cached.grid_helpcode_available,
+            grid_helpcode_display: self.cached.grid_helpcode_display.clone(),
             touch_keyboard_layout: self.touch_keyboard_layout,
             character_width: self.character_width,
             punctuation_marks: self.punctuation_marks,
@@ -1811,6 +1817,7 @@ impl<E: InputEngine> Runtime<E> {
             display_reading: self.cached.display_reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
+            helpcode_trigger: self.cached.helpcode_trigger,
             preedit_caret: self.cached.preedit_caret,
             conversion: self.cached.conversion.clone(),
             conversion_focus_start: self.cached.conversion_focus_start,
@@ -3103,7 +3110,8 @@ impl<E: InputEngine> Runtime<E> {
 
     /// 内置的呈现排序：逐键重排、整句读法降位、在线候选的座位。refresh、展开和落定重排三处都走这里，免得三处的步骤漂移。返回是否挪动了候选。
     fn order_presentation(&mut self) -> bool {
-        if self.cached.prediction {
+        // 网格辅助码筛过的列表已经按匹配等级分好组，这里任何一步挪行都可能跨组。
+        if self.cached.prediction || self.cached.grid_helpcode_constrained {
             return false;
         }
         let mut moved = self.lift_opening_particle();
@@ -3249,10 +3257,17 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let Some(order) = runner_up_order_with(
+        // 引擎解码这张表时用的整句池：池让引擎挪过另一种切分的读法，降位才要连它们一起认（#10998）。键位网格的表不经整句池，与 `rerank` 一样给 0。
+        let pool = if snapshot.key_grid.is_none() {
+            self.sentence_pool()
+        } else {
+            0
+        };
+        let Some(order) = runner_up_order_pooled(
             snapshot.scheme,
             &order_rows(snapshot),
             &snapshot.candidate_touch_supported,
+            pool,
         ) else {
             return false;
         };
@@ -3379,6 +3394,9 @@ impl<E: InputEngine> Runtime<E> {
                     nine_key_reading: String::new(),
                     nine_key_single_character: false,
                     nine_key_strokes: String::new(),
+                    grid_helpcode_available: false,
+                    grid_helpcode_display: String::new(),
+                    grid_helpcode_constrained: false,
                     grid_composing: false,
                     candidate_annotations: Vec::new(),
                     candidate_codes: Vec::new(),
@@ -3404,6 +3422,7 @@ impl<E: InputEngine> Runtime<E> {
                     display_reading: String::new(),
                     editing_text: String::new(),
                     caret_position: 0,
+                    helpcode_trigger: None,
                     preedit_caret: 0,
                     segment_raw_boundaries: vec![],
                     candidates: Vec::new(),
@@ -3464,6 +3483,7 @@ impl<E: InputEngine> Runtime<E> {
         if cached.preedit != previous.preedit
             || cached.editing_text != previous.editing_text
             || cached.caret_position != previous.caret_position
+            || cached.helpcode_trigger != previous.helpcode_trigger
             || cached.reading != previous.reading
             || cached.display_reading != previous.display_reading
             || cached.conversion != previous.conversion
@@ -4156,6 +4176,7 @@ impl<E: InputEngine> Runtime<E> {
                 .clear_candidate_position(self.engine_index(id.index)),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
             Action::GridKey(letter) => self.engine.grid_key(letter),
+            Action::GridHelpcode(op) => self.engine.grid_helpcode(op),
             Action::SetNineKeyFilter {
                 single_character,
                 ref strokes,

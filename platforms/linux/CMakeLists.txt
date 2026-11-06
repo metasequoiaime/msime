@@ -594,6 +594,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
   target_link_libraries(linux-voice-provider-options-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-voice-provider-options COMMAND linux-voice-provider-options-test)
+  add_executable(linux-voice-punctuation-test tests/voice/voice_punctuation.cpp)
+  target_compile_options(linux-voice-punctuation-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-voice-punctuation-test PRIVATE src ../../crates/host-api/include)
+  target_link_libraries(linux-voice-punctuation-test PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+  add_test(NAME linux-voice-punctuation COMMAND linux-voice-punctuation-test)
   add_executable(linux-voice-hold-chord-test tests/voice/voice_hold_chord.cpp)
   target_compile_options(linux-voice-hold-chord-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-voice-hold-chord-test PRIVATE src)
@@ -662,6 +667,12 @@ if(BUILD_TESTING)
   target_include_directories(linux-caret-edit-suffix-test PRIVATE src)
   target_link_libraries(linux-caret-edit-suffix-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-caret-edit-suffix COMMAND linux-caret-edit-suffix-test)
+  # 辅助码前导键：两个宿主画按键原文时把它插回行内组字（HelpcodeTrigger.h，#10731）。
+  add_executable(linux-helpcode-trigger-test tests/core/helpcode_trigger.cpp)
+  target_compile_options(linux-helpcode-trigger-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-helpcode-trigger-test PRIVATE src)
+  target_link_libraries(linux-helpcode-trigger-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-helpcode-trigger COMMAND linux-helpcode-trigger-test)
   add_executable(linux-replaced-program-test tests/core/replaced_program.cpp)
   target_compile_options(linux-replaced-program-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-replaced-program-test PRIVATE src)
@@ -1283,6 +1294,7 @@ endif()
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+include(cmake/LocalTranslation.cmake)
 set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
@@ -1419,6 +1431,9 @@ endif()
 # 带新世纪表的 msime-wubi.db 从 byujiang/wubi06_rime 取单字编码，其 GPL-3.0 与整包一致，由 copyright 覆盖，不往下面的独立许可证列表再加一项。拼音与笔画库改编自 amzxyz/rime-wanxiang 的排序权重附署名、改动说明与 CC BY 4.0 全文。
 # 词库来源总声明从 msime-engine 原样带入，固定副本为 resources/licenses/msime-engine-dictionary-NOTICE.md，所有平台都分发；辅助码来源声明包括引擎带来的五种（ENGINE-NOTICE.md）和 jiajia（NOTICE.md）。
 set(MSIME_NOTICE_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-rs-Apache-2.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/plamo-community-license.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
@@ -1449,6 +1464,9 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
+  llama-cpp-MIT.txt
+  llama-cpp-rs-Apache-2.0.txt
+  plamo-community-license.txt
   copyright
   THIRD_PARTY_NOTICES.txt
   msime-engine-dictionary-NOTICE.md
@@ -1584,3 +1602,7 @@ foreach(msime_linux_target IN LISTS msime_linux_targets)
     target_compile_options(${msime_linux_target} PRIVATE -UNDEBUG)
   endif()
 endforeach()
+
+if(BUILD_TESTING)
+  include(../common/tests/embedded_translation.cmake)
+endif()

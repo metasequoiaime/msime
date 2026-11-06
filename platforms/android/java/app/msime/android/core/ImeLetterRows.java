@@ -597,7 +597,8 @@ final class ImeLetterRows {
                     cancelBackspaceRepeat();
                     button.setPressed(false);
                     if (target != BackspaceSwipePolicy.ClearTarget.NONE) {
-                        s.imeKeyFeedback.playFeedback(button);
+                        // 松手清空是确认，不是这次按键的删除：按下时的反馈不顶替它。
+                        s.imeKeyFeedback.confirm(button);
                         if (undo) s.undoQuickDelete();
                         else if (target == BackspaceSwipePolicy.ClearTarget.COMPOSITION) {
                             if (s.hasEngineComposition()) s.discardComposition();
@@ -1056,11 +1057,14 @@ final class ImeLetterRows {
             letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
             boolean last = rowIndex == rows.size() - 1;
             if (last) {
-                Button separator = s.keyId(s.keyboardKey(FourteenKeyLayout.separatorFace(composing),
+                // 能画角标的键：网格辅助码可用时右上角画「辅」，上滑放下分隔符（ImeGridHelpcodeEntry）。
+                Button separator = s.keyId(s.keyboardKey(new KeyHintButton(s),
+                    FourteenKeyLayout.separatorFace(composing),
                     FourteenKeyLayout.separatorDescription(composing), this::fourteenKeySeparator),
                     "SoftSymbol");
                 KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
                 if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+                ImeGridHelpcodeEntry.bind(s, separator);
                 fourteenSeparatorKey = separator;
                 row.addView(separator, LayoutPolicy.weightedMatchParentParams(
                     edgeWeight));
@@ -1183,10 +1187,16 @@ final class ImeLetterRows {
         }
         if (fourteenSeparatorKey == null) return;
         boolean composing = separatesSyllables();
+        boolean helpcode = ImeGridHelpcodeEntry.available(s);
+        if (fourteenSeparatorKey instanceof KeyHintButton hint)
+            hint.setCornerHint(GridHelpcodePolicy.cornerHint(helpcode));
         String face = FourteenKeyLayout.separatorFace(composing);
-        if (face.contentEquals(fourteenSeparatorKey.getText())) return;
+        String description = "按键 " + GridHelpcodePolicy.separatorDescription(
+            FourteenKeyLayout.separatorDescription(composing), helpcode);
+        if (face.contentEquals(fourteenSeparatorKey.getText())
+                && description.equals(String.valueOf(fourteenSeparatorKey.getContentDescription()))) return;
         fourteenSeparatorKey.setText(face);
-        fourteenSeparatorKey.setContentDescription("按键 " + FourteenKeyLayout.separatorDescription(composing));
+        fourteenSeparatorKey.setContentDescription(description);
     }
 
     /**
@@ -1357,9 +1367,9 @@ final class ImeLetterRows {
             }
             default -> { return null; }
         }
-        // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp，描述按 §2.8。
+        // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp（键窄时一行缩小，同底行的功能键），描述按 §2.8。
         key.setContentDescription(layerKey.description());
-        KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+        KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         return key;

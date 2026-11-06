@@ -58,6 +58,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         "Array.from(document.querySelectorAll('[role=tab]')).find(tab => "
         + "tab.textContent?.trim() === '我的')";
     private WebView web;
+    private boolean settingsSearchAnchor;
     private boolean skinDelete;
     private boolean vocabulary;
     private boolean noticeQueue;
@@ -68,6 +69,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean localVoicePause;
 
     @Override public void onCreate(Bundle arguments) {
+        settingsSearchAnchor = arguments != null && "true".equals(arguments.getString("settings-search-anchor"));
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
         vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
         noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
@@ -80,6 +82,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
+        if (settingsSearchAnchor) return "native settings search opens the matched row and section from both result groups";
         if (voiceTriggers) return "voice trigger combinations, existing settings and independent toolbar switches";
         if (localVoicePause) return "local voice pause and sensitivity settings save and survive page recreation";
         if (screenCapture) return "screen capture protection reaches the settings activity and dialog windows and clears when turned off";
@@ -91,6 +94,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (settingsSearchAnchor) {
+            new SettingsSearchAnchorDeviceChecks(this).run();
+            return;
+        }
         if (voiceTriggers) {
             new VoiceTriggersDeviceCheck(this).run();
             return;

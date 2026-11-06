@@ -205,6 +205,12 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         /// 已发布的 runtime-options.json；给了时把这次准备的代次写进去，见 [`publish_prepared_dictionaries`]。
         #[serde(default)]
         runtime_options: Option<String>,
+        /// 宿主对 `state_root` 没有写权限（iOS 键盘没有完全访问，#10945）：只读地准备，见 `read_only_state`。不能与 `runtime_options` 同时给。
+        #[serde(default)]
+        read_only_state: bool,
+        /// `read_only_state` 时必填：宿主自己能写、不在 `state_root` 里的目录（扩展自己的容器），放资源校验标记、缓存和只读布局的用户目录。
+        #[serde(default)]
+        private_root: Option<String>,
     }
     response(|| {
         if options.is_null() || length > 16384 {
@@ -227,6 +233,24 @@ pub unsafe extern "C" fn msime_client_prepare_host(
             None => msime_client_core::edition::Edition::full(),
             Some(id) => msime_client_core::edition::Edition::by_id(id).ok_or("unknown edition")?,
         };
+        if options.read_only_state {
+            let private = options
+                .private_root
+                .as_deref()
+                .map(std::path::Path::new)
+                .filter(|path| path.is_absolute())
+                .ok_or("a read-only host needs an absolute private root")?;
+            if published.is_some() {
+                return Err("a read-only host cannot publish runtime options".into());
+            }
+            let document =
+                crate::read_only_state::prepare_read_only_host(resources, state, private, edition)
+                    .map_err(|e| e.to_string())?;
+            return serde_json::from_str(&document).map_err(|e| e.to_string());
+        }
+        if options.private_root.is_some() {
+            return Err("a private root is only for a read-only host".into());
+        }
         let document = prepare_host_configuration_for_edition(resources, state, edition)
             .map_err(|e| e.to_string())?;
         let document: Value = serde_json::from_str(&document).map_err(|e| e.to_string())?;
@@ -2324,9 +2348,10 @@ enum MobileClipboardAction {
         replacement: String,
     },
     Clear,
+    ClearIfDisabled,
 }
 
-/// 移动端结构化剪贴板历史：`directory/MSIME` 存历史；可选的 `preferences_directory` 单独指定容量偏好所在目录，省略时沿用 `directory`。移动端访问由宿主权限控制，不读取或改变桌面自动记录开关。
+/// 移动端结构化剪贴板历史：`directory/MSIME` 存历史；`preferences_directory` 指定容量与开关的偏好目录，省略时沿用 `directory`。`clear_if_disabled` 在偏好锁内确认仍为关闭才清空；显式 `clear` 不受开关限制，其他动作保持原行为。
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]
@@ -2516,6 +2541,12 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     "limit": history.limit(),
                     "entries": history.entries()
                 }))
+            }
+            MobileClipboardAction::ClearIfDisabled => {
+                let cleared = PreferencesStore::new(preferences_root)
+                    .clear_disabled_clipboard_history_at(&root.join("MSIME/clipboard_history.json"))
+                    .map_err(|_| "mobile clipboard retention check failed")?;
+                Ok(json!({"cleared": cleared}))
             }
             MobileClipboardAction::Clear => {
                 history

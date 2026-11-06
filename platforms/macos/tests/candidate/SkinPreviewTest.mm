@@ -109,6 +109,43 @@ static void TestFallbackFonts(MSIMEAppearancePreferences *preferences, NSUserDef
     [NSNotificationCenter.defaultCenter removeObserver:observer];
 }
 
+// #10748：共享文档的 `candidate_font_weight` 作用于候选字体链，缺省是常规；macOS 还没有这一项的界面，只读不写回。
+static void TestCandidateFontWeight(MSIMEAppearancePreferences *preferences) {
+    NSString *family = preferences.fontFamily;
+    const auto bold = [](NSFont *font) { return (font.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) != 0; };
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Helvetica"}];
+    assert([preferences.candidateFontWeight isEqual:@"regular"]);
+    NSFont *regular = [preferences candidateFontOfSize:18];
+    assert([regular.familyName isEqual:@"Helvetica"] && !bold(regular));
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Helvetica", @"candidate_font_weight": @"bold"}];
+    assert([preferences.candidateFontWeight isEqual:@"bold"]);
+    NSFont *heavy = [preferences candidateFontOfSize:18];
+    assert([heavy.familyName isEqual:@"Helvetica"] && bold(heavy));
+    // 回退字体同样换到加粗的字面：链上每个族都按同一个字重解析。苹方没有粗体字面，落到它最粗的半粗，仍是苹方。
+    NSArray<NSString *> *fallbacks = preferences.fallbackFonts;
+    NSString *sans = [NSFont fontWithName:@"PingFangSC-Regular" size:18].familyName;
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Helvetica", @"candidate_fallback_fonts": @[sans], @"candidate_font_weight": @"bold"}];
+    NSAttributedString *han = [[NSAttributedString alloc] initWithString:@"合" attributes:@{NSFontAttributeName:[preferences candidateFontOfSize:18]}];
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)han);
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(CTLineGetGlyphRuns(line), 0);
+    NSFont *drawn = (__bridge NSFont *)CFDictionaryGetValue(CTRunGetAttributes(run), kCTFontAttributeName);
+    assert([drawn.familyName isEqual:sans]);
+    NSDictionary *traits = CFBridgingRelease(CTFontCopyTraits((__bridge CTFontRef)drawn));
+    assert([traits[(__bridge NSString *)kCTFontWeightTrait] doubleValue] >= NSFontWeightSemibold - 0.01);
+    CFRelease(line);
+    // 认不出的值不改现在画的字重。
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Helvetica", @"candidate_font_weight": @"italic"}];
+    assert([preferences.candidateFontWeight isEqual:@"bold"]);
+    // 合并回文档时不写这个键，文档里原来的值由合并保留。
+    assert(![preferences sharedPreferencesByMerging:@{}][@"candidate_font_weight"]);
+    // 文档里没有这个键就是常规，与这个设置出现之前的画法相同。
+    [preferences applySharedCandidatePreferences:@{@"candidate_font_family": @"Helvetica"}];
+    assert([preferences.candidateFontWeight isEqual:@"regular"]);
+    assert([[preferences candidateFontOfSize:18].fontName isEqual:regular.fontName]);
+    preferences.fontFamily = family;
+    preferences.fallbackFonts = fallbacks;
+}
+
 static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUserDefaults *defaults) {
     NSDictionary *original = MSIMECloudAppearanceSnapshot(defaults);
     [preferences applySharedCandidatePreferences:@{@"candidate_font_size": @12, @"candidate_page_size": @1,
@@ -750,6 +787,7 @@ int main(int argc, const char **argv) {
         assert([familyControl.stringValue isEqual:installedFamily]);
         preferences.fontFamily = @"Segoe UI";
         TestFallbackFonts(preferences, defaults);
+        TestCandidateFontWeight(preferences);
         TestCloudImportCache(preferences, defaults);
         TestCandidateWindowStyle(preferences, defaults);
         [preferences applySharedCandidatePreferences:@{@"navigation": @{@"minus_equal": @NO, @"brackets": @YES, @"arrows": @NO}}];
@@ -828,15 +866,17 @@ int main(int argc, const char **argv) {
         [preferences applySharedCandidatePreferences:@{@"custom_theme": Pickers(@{@"text": NSNull.null})}];
         assert(preferences.candidateTextColor == nil);
         NSDictionary *rowColors = @{@"text": @"#102030", @"number": @"#203040", @"accent": @"#304050", @"selected": @"#405060",
-            @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"};
+            @"selected_text": @"#7B3FBF", @"hover": @"#506070", @"surface": @"#607080", @"border": @"#708090"};
         [preferences applySharedCandidatePreferences:@{@"global_theme": @"custom", @"custom_theme": Pickers(rowColors)}];
         NSArray *pickedColors = @[preferences.candidateTextColor, preferences.candidateAccentColor,
-            preferences.candidateSelectedColor, preferences.candidateHoverColor, preferences.candidateSurfaceColor];
-        NSArray *expectedColors = @[@"#102030", @"#304050", @"#405060", @"#506070", @"#607080"];
+            preferences.candidateSelectedColor, preferences.candidateSelectedTextColor, preferences.candidateHoverColor,
+            preferences.candidateSurfaceColor];
+        NSArray *expectedColors = @[@"#102030", @"#304050", @"#405060", @"#7B3FBF", @"#506070", @"#607080"];
         assert([pickedColors isEqual:expectedColors]);
         {
             const msime::mac::SkinTokens tokens = [preferences resolvedSkinForDark:NO].tokens;
-            const msime::mac::Rgba drawn[] = {tokens.text, tokens.accent, tokens.selected, tokens.hover, tokens.surface};
+            const msime::mac::Rgba drawn[] = {tokens.text, tokens.accent, tokens.selected, tokens.selectedText, tokens.hover,
+                                              tokens.surface};
             for (NSUInteger index = 0; index < expectedColors.count; ++index) assert(TokenIs(drawn[index], expectedColors[index]));
             // 文档里的编号色和边框色在 macOS 上不读：编号色由文字颜色推出（约 62% 不透明），边框跟随主题，都不是文档里的值。
             assert(TokenIs(tokens.number, @"#102030", 0x9d / 255.0));

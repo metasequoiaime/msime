@@ -239,7 +239,7 @@ export function InputSettingsPage() {
                   false)
                 : undefined
             }
-            // 双拼预编辑放在方案组的双拼详情里，只在双拼方案下出现。有触屏方案的宿主（含鸿蒙二合一）方案组不画双拼各行，那里仍在候选窗口/候选栏页设置它；条件与候选窗口页一致。
+            // 双拼预编辑放在方案组的双拼详情里，只在双拼方案和粤拼方案选了粤语双拼时出现。有触屏方案的宿主（含鸿蒙二合一）方案组不画双拼各行，那里仍在候选窗口/候选栏页设置它；条件与候选窗口页一致。
             shuangpinPreedit={
               showShuangpinPreedit && !client.touchKeyboardSchemes
                 ? preeditControlState(draft).shuangpinStyle

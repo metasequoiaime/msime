@@ -174,6 +174,12 @@ final class ImeStyler {
         return KeyboardSpacingPolicy.layoutKeySpacing(s.touchKeySpacingTenths, s.displayedTouchLayout(s.view));
     }
 
+    /** 键区容器的左右内边距：设计的 6 dp 量到键帽边缘，键帽自己带半个键距的外边距，容器只补差值。 */
+    int keyAreaEdgePadding() {
+        return BoundsPolicy.nonNegative(
+            s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths()));
+    }
+
     void applyKeyboardGeometry(View node) {
         if (s.followsKeySpacing(node)
                 && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
@@ -573,6 +579,8 @@ final class ImeStyler {
             applySkinBackground(s.replyKeyboard);
         if (s.textEditPanel != null)
             applySkinBackground(s.textEditPanel);
+        if (s.imeGlossCard != null && s.imeGlossCard.root() != null)
+            applySkinBackground(s.imeGlossCard.root());
         if (s.handwritingCanvas != null) s.handwritingCanvas.applySkin(s.handwritingSkin);
         observeRoot();
         skippedHidden.clear();

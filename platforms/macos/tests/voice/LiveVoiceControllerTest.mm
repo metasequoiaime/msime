@@ -172,6 +172,18 @@ static int MSIMEBindSyntheticVoiceSocket(NSString *path)
     return YES;
 }
 @end
+static void ApplyPunctuationPreferences(MSIMEInputController *controller, NSString *mode) {
+    [NSApplication sharedApplication];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
+    NSMutableDictionary *arguments = [old mutableCopy] ?: [NSMutableDictionary dictionary];
+    arguments[@"MSIMEClientVoiceEnabled"] = @YES;
+    [defaults setVolatileDomain:arguments forName:NSArgumentDomain];
+    NSDictionary *voice = mode ? @{ @"punctuation_mode": mode } : @{};
+    [controller applySharedToolbarPreferences:@{@"voice_input": voice}];
+    [defaults setVolatileDomain:old forName:NSArgumentDomain];
+}
+
 int main(int argc, char **) {
     @autoreleasepool {
         MSIMEAssertVoiceRuntimeIsolation(LiveControllerFixture.class);
@@ -700,6 +712,73 @@ int main(int argc, char **) {
             [controller applyLiveVoiceText:@"synthetic routed" final:YES token:routeToken];
             assert(client.commits.count == imk && controller.externalCommits == external + 1);
         }
+        // 语音标点（#10597）在系统识别这条路线上同样只处理最终结果：省略所有标点时去掉标点上屏；整段只有标点时（期望上屏为空串）提示没听到并放开这次录音，下一次照常上屏。
+        ApplyPunctuationPreferences(controller, @"omit_all");
+        for (NSArray<NSString *> *pair in @[@[@"天啊，他是谁？", @"天啊他是谁"], @[@"。", @""], @[@"明天见，好吗？", @"明天见好吗"]]) {
+            NSString *recognised = pair[0], *expected = pair[1];
+            uint64_t punctuationGeneration = 0;
+            assert([capture startWithSession:session generation:&punctuationGeneration error:nil] && punctuationGeneration);
+            [controller setValue:@(punctuationGeneration) forKey:@"voiceGeneration"];
+            const NSUInteger commits = client.commits.count, failures = presentation.failures;
+            id punctuationToken = [controller beginLiveVoiceWithOptions:@{@"stream": @YES} socket:nil];
+            assert(punctuationToken && [[controller valueForKey:@"liveVoiceInline"] boolValue]);
+            [controller applyLiveVoiceText:recognised final:NO token:punctuationToken];
+            assert([client.marked isEqual:recognised]);
+            [controller applyLiveVoiceText:recognised final:YES token:punctuationToken];
+            assert(!client.marked.length && !capture.active && ![controller valueForKey:@"liveVoiceToken"]);
+            if (expected.length) {
+                assert(client.commits.count == commits + 1 && [client.commits.lastObject isEqual:expected]);
+                assert(presentation.failures == failures);
+            } else {
+                assert(client.commits.count == commits && presentation.failures == failures + 1);
+                assert(presentation.failure == MSIMEVoiceFailureNoSpeech);
+            }
+        }
+        ApplyPunctuationPreferences(controller, nil);
+        // 系统识别在录音中或停止采集后读到偏好，仍按本次 generation 的快照交付。
+        for (NSNumber *processing in @[@NO, @YES]) {
+            ApplyPunctuationPreferences(controller, @"omit_all");
+            uint64_t generation = 0;
+            assert([capture startWithSession:session generation:&generation error:nil]);
+            [controller setValue:@(generation) forKey:@"voiceGeneration"];
+            id token = [controller beginLiveVoiceWithOptions:@{@"stream": @YES} socket:nil];
+            assert(token);
+            if (processing.boolValue) [controller finishLiveVoiceInput];
+            ApplyPunctuationPreferences(controller, nil);
+            [controller applyLiveVoiceText:@"synthetic。" final:YES token:token];
+            assert([client.commits.lastObject isEqual:@"synthetic"] && !capture.active);
+            assert([capture startWithSession:session generation:&generation error:nil]);
+            [controller setValue:@(generation) forKey:@"voiceGeneration"];
+            id nextToken = [controller beginLiveVoiceWithOptions:@{@"stream": @YES} socket:nil];
+            const NSUInteger beforeObsolete = client.commits.count;
+            [controller applyLiveVoiceText:@"obsolete。" final:YES token:token];
+            assert(client.commits.count == beforeObsolete && capture.active);
+            [controller applyLiveVoiceText:@"synthetic。" final:YES token:nextToken];
+            assert(client.commits.count == beforeObsolete + 1 && [client.commits.lastObject isEqual:@"synthetic。"] && !capture.active);
+        }
+        // 系统识别的润色仍属同次录音；旧润色回调也不能借用下一代快照上屏。
+        controller.usePolishFixture = YES;
+        ApplyPunctuationPreferences(controller, @"omit_all");
+        uint64_t polishGeneration = 0;
+        assert([capture startWithSession:session generation:&polishGeneration error:nil]);
+        [controller setValue:@(polishGeneration) forKey:@"voiceGeneration"];
+        id polishToken = [controller beginLiveVoiceWithOptions:@{@"stream": @YES} socket:nil];
+        [controller applyLiveVoiceText:@"synthetic。" final:YES token:polishToken];
+        assert(controller.polishFixture.submissions == 1 && capture.active);
+        ApplyPunctuationPreferences(controller, nil);
+        controller.polishFixture.completion(@"synthetic。", nil);
+        assert([client.commits.lastObject isEqual:@"synthetic"] && !capture.active);
+        LivePolishFixture *obsoletePunctuationPolish = controller.polishFixture;
+        assert([capture startWithSession:session generation:&polishGeneration error:nil]);
+        [controller setValue:@(polishGeneration) forKey:@"voiceGeneration"];
+        id nextPolishToken = [controller beginLiveVoiceWithOptions:@{@"stream": @YES} socket:nil];
+        const NSUInteger beforeObsoletePolish = client.commits.count;
+        obsoletePunctuationPolish.completion(@"obsolete。", nil);
+        assert(client.commits.count == beforeObsoletePolish && capture.active);
+        [controller applyLiveVoiceText:@"synthetic。" final:YES token:nextPolishToken];
+        controller.polishFixture.completion(@"synthetic。", nil);
+        assert(client.commits.count == beforeObsoletePolish + 1 && [client.commits.lastObject isEqual:@"synthetic。"]);
+        controller.usePolishFixture = NO;
         {
             [defaults setVolatileDomain:@{
                 @"MSIMEClientVoiceEnabled": @YES, @"MSIMEClientVoiceHotkeyRightAlt": @YES,

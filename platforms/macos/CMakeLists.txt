@@ -112,7 +112,7 @@ target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crat
 # build of these same sources compiles that block out - UIKit's document proxy takes a plain string.
 # CoreAudio and AudioToolbox for host-api's microphone capture (cpal), which every consumer of the archive links whether or not it records.
 # reqwest 的 system-proxy 功能通过 SystemConfiguration 读取系统代理设置。
-set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration")
+set(MSIME_HOST_LIBRARY_FRAMEWORKS "-framework Foundation" "-framework Security" "-framework CoreText" "-framework CoreAudio" "-framework AudioToolbox" "-framework SystemConfiguration" "-framework Metal" "-framework MetalKit" "-framework Accelerate")
 target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} ${MSIME_HOST_LIBRARY_FRAMEWORKS} "-framework AppKit")
 target_sources(msime-voice-local PRIVATE src/voice/HelperCrashCapture.mm ../common/Telemetry.cpp)
 target_compile_definitions(msime-voice-local PRIVATE MSIME_VOICE_CRASH_CAPTURE)
@@ -315,6 +315,10 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST
 set(MSIME_LEGAL_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Licenses")
 file(MAKE_DIRECTORY "${MSIME_LEGAL_DIRECTORY}")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECTORY}/GPL-3.0.txt" COPYONLY)
+foreach(MSIME_TRANSLATION_LICENSE llama-cpp-MIT.txt llama-cpp-rs-Apache-2.0.txt plamo-community-license.txt)
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/${MSIME_TRANSLATION_LICENSE}"
+    "${MSIME_LEGAL_DIRECTORY}/${MSIME_TRANSLATION_LICENSE}" COPYONLY)
+endforeach()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/Licenses/THIRD_PARTY_NOTICES.txt" "${MSIME_LEGAL_DIRECTORY}/THIRD_PARTY_NOTICES.txt" COPYONLY)
 # 固定词库发布里的词库数据、stage-resources.sh 放进 EngineResources/helpcodes 的辅助码表的来源声明（Engine 带来的五套、加加和五笔 86），以及 zinnia（crates/engine/src/handwriting 移植了它的识别器，host-api 链接进来）。第一份和最后一份来自 resources/licenses，是各平台随包的同一份副本。
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md" "${MSIME_LEGAL_DIRECTORY}/msime-engine-dictionary-NOTICE.md" COPYONLY)
@@ -595,7 +599,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-stor
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust"
     ${MSIME_BACKEND_RUST_STORE_SOURCES} "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++
-    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
+    -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration -framework Metal -framework MetalKit -framework Accelerate
     -o "${CMAKE_CURRENT_BINARY_DIR}/backend-rust-session-store-test"
   DEPENDS ${MSIME_BACKEND_RUST_STORE_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/MSIMERustClient.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/rust/module.modulemap" "${MSIME_HOST_LIBRARY}" VERBATIM)
@@ -669,7 +673,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
-    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration
+    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework CoreAudio -framework AudioToolbox -framework AppKit -framework SystemConfiguration -framework Metal -framework MetalKit -framework Accelerate
     -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
   DEPENDS ${MSIME_EMOJI_SWIFT_HOST_SOURCES} apple-client "${MSIME_HOST_LIBRARY}" VERBATIM)
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
@@ -884,6 +888,10 @@ target_link_libraries(doubao-voice-request-test PRIVATE apple-client "-framework
 add_test(NAME doubao-voice-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/doubao_voice_fixture.py" "$<TARGET_FILE:doubao-voice-request-test>")
 # Above the fixture's own 60 s client limit plus the 3 s stack sample it takes of a hung client, so a hang reports where it is stuck instead of being killed silently.
 set_tests_properties(doubao-voice-request PROPERTIES TIMEOUT 80)
+add_executable(voice-punctuation-test tests/voice/VoicePunctuationTest.mm)
+target_compile_options(voice-punctuation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-punctuation-test PRIVATE apple-client "-framework Foundation")
+add_test(NAME voice-punctuation COMMAND voice-punctuation-test)
 add_executable(local-voice-request-test tests/voice/LocalVoiceRequestTest.mm src/voice/LocalVoiceRequest.mm)
 target_compile_options(local-voice-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(local-voice-request-test PRIVATE apple-client "-framework Foundation")
@@ -1704,3 +1712,21 @@ foreach(msime_test IN LISTS msime_tests)
     set_property(TEST ${msime_test} APPEND PROPERTY ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")
   endif()
 endforeach()
+
+# 控制器测试直接包含 InputController.mm，适配器随它们共用的 apple-client 链接。
+target_sources(apple-client PRIVATE src/cloud/EmbeddedTranslationBatch.mm src/translation/LocalTranslationWindow.mm)
+
+include(../common/tests/embedded_translation.cmake)
+
+add_executable(embedded-translation-batch-test tests/cloud/EmbeddedTranslationBatchTest.mm src/cloud/EmbeddedTranslationBatch.mm)
+target_include_directories(embedded-translation-batch-test PRIVATE ../../crates/host-api/include)
+target_compile_options(embedded-translation-batch-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(embedded-translation-batch-test PRIVATE "-framework Foundation")
+add_test(NAME embedded-translation-batch COMMAND embedded-translation-batch-test)
+
+add_executable(local-translation-window-test tests/translation/LocalTranslationWindowTest.mm src/translation/LocalTranslationWindow.mm)
+target_include_directories(local-translation-window-test PRIVATE ../../crates/host-api/include)
+target_compile_options(local-translation-window-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(local-translation-window-test PRIVATE "-framework AppKit")
+add_test(NAME local-translation-window COMMAND local-translation-window-test)
+set_tests_properties(local-translation-window PROPERTIES ENVIRONMENT "CFFIXED_USER_HOME=${MSIME_TEST_HOME}")
