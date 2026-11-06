@@ -9,7 +9,7 @@ import type {
 } from "../candidate/candidate-preferences";
 import type { PunctuationPreferences } from "../settings/punctuation-preferences";
 import type { KeybindingPreferences } from "../settings/keybinding-preferences";
-import type { WubiPreferences } from "../settings/wubi-preferences";
+import type { WubiPreferences, WubiProfile } from "../settings/wubi-preferences";
 import type { VietnamesePreferences } from "../settings/vietnamese-preferences";
 import type { CantonesePreferences } from "../settings/cantonese-preferences";
 import type { KoreanPreferences } from "../settings/korean-preferences";
@@ -101,6 +101,7 @@ export type Preferences = PunctuationPreferences &
     /** 用户明确选择水杉账号（api.msime.app）进行候选翻译；缺省表示未选择。 */
     translation_account?: boolean;
     translation_ai?: boolean;
+    local_translation?: { enabled: boolean; target_language: string };
     /** 各宿主共用的匿名用量上报（每日活跃、会话结束与崩溃摘要）；缺省为开启。 */
     usage_reporting?: boolean;
     /** 桌面应用检查更新跟的发布通道，关于页「版本与更新」里选；等于缺省的稳定版时 client-core 不写进文档。只属于本机，不进设置文件、不进账号同步。 */
@@ -206,8 +207,8 @@ export type Preferences = PunctuationPreferences &
     nine_key_shuangpin_profile?: "migala2" | "migala3" | "gushi2_low" | "custom";
     /** 九键双拼的自定义表，形状同 `shuangpin_custom_profile`，键是数字；空表不写进文档。 */
     nine_key_shuangpin_custom_profile?: ShuangpinCustomProfile;
-    /** 五笔用 86 还是 98 码表，只在方案为五笔时起作用；缺省为 86。 */
-    wubi_profile?: "wubi86" | "wubi98";
+    /** 五笔用哪一版码表（86、98 或新世纪 `wubixsj`），只在方案为五笔时起作用；缺省为 86。新世纪的选择暂不随账号同步，宿主不导出它。 */
+    wubi_profile?: WubiProfile;
     /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
     shuangpin_keymap_hint?: boolean;
     vietnamese?: VietnamesePreferences;
@@ -245,7 +246,7 @@ export type Preferences = PunctuationPreferences &
     show_candidate_expand_button?: boolean;
     /** 候选窗、悬浮工具栏、菜单和触屏键盘共用的主题；`theme` 仍表示 `system` 和设置窗口跟随的明暗模式。 */
     global_theme?: GlobalTheme;
-    /** `custom` 全局主题由外部候选皮肤包、七个候选颜色选项与键盘编辑器设计组成。 */
+    /** `custom` 全局主题由外部候选皮肤包、八个候选颜色选项与键盘编辑器设计组成。 */
     custom_theme?: CustomTheme;
     learning: boolean;
     /** 回车上屏英文时把该单词写入英文词库；Windows 出厂缺省为开启。 */

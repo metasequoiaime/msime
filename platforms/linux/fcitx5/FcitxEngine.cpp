@@ -1,5 +1,7 @@
+#include "../src/settings/LocalTranslationLauncher.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
+#include "../src/candidates/EmbeddedTranslation.h"
 #include "../../common/HostApiString.h"
 #ifdef MSIME_FCITX5_TELEMETRY
 #include "Telemetry.h"
@@ -97,6 +99,7 @@
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/CaretEditSuffix.h"
+#include "../src/core/HelpcodeTrigger.h"
 #include "../src/core/ClientInputModeMemory.h"
 #include "../src/core/AppInputModeRules.h"
 #include "../src/core/JapaneseConversion.h"
@@ -111,6 +114,7 @@
 #include "../src/voice/VoiceHoldChord.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
+#include "../src/voice/VoicePunctuation.h"
 #include "../src/overlay/WaveOverlayFeedback.h"
 #include "../src/overlay/WaveOverlayModel.h"
 #include "../src/overlay/WaveOverlaySurface.h"
@@ -1730,13 +1734,13 @@ public:
     msime_linux_diagnostic_configure(
         options_path_, diagnostic.is_object() && diagnostic.value("server", false));
   }
-  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the annotation belongs on the candidate row. This host appended it unconditionally, so turning either off changed nothing here.
-  // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither setting hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both settings.
+  // "在候选窗中显示辅助码" decides whether the annotation belongs on the candidate row. This host appended it unconditionally, so turning it off changed nothing here.
+  // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so the setting does not hide it. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow it.
+  // 五笔方案的注释由引擎决定：「五笔剩余编码」关掉时引擎不再给五笔原生候选附编码，拼音来的候选（混输拼音、`z` 反查）照旧附，与其他五个宿主相同（#10790），所以这里不再按这个开关整段隐藏，五笔方案和其他非拼音方案一样恒显示。
   bool showCandidateAnnotations() const {
     const auto local_mode = view_.value("local_mode", std::string("none"));
     if (local_mode == "command" || local_mode == "mention") return true;
     const auto scheme = msime::linux_host::strict_json_value(view_, "scheme", 0u);
-    if (scheme == 2) return preferences_.value("wubi_code_hint", true);
     if (scheme != 0 && scheme != 1) return true;
     const std::string section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     return preferences_.value(section, Json::object())
@@ -1803,13 +1807,14 @@ public:
     for (const auto *key : {"candidate_translations", "candidate_translation_scope", "candidate_english_gloss",
                             "candidate_pronunciation",
                             "translation_target_language", "translation_secondary_language",
-                            "translation_account", "custom_translation", "niutrans",
+                            "local_translation", "translation_account", "custom_translation", "niutrans",
                             "tencent_tmt"}) {
       if (before.value(key, Json(nullptr)) != after.value(key, Json(nullptr))) return true;
     }
     return false;
   }
   void invalidateTranslationRequests() {
+    embedded_translation_.cancel();
     ++translation_epoch_;
     translation_query_.clear();
     translation_pending_.clear();
@@ -2362,6 +2367,19 @@ public:
     translation_manual_sentence_ = manual_sentence;
     translation_session_ = session_;
     translation_job_epoch_ = translation_epoch_;
+    if (!glossStage && query.value("provider", std::string{}) == "local") {
+      auto token = embedded_translation_.begin(std::to_string(query.at("generation").get<uint64_t>()));
+      translation_job_ = detachedJob([query, encoded, token, fence = translation_socket_] {
+        auto raw = msime::linux_host::embedded_translation(query, token);
+        auto result = raw ? response(raw.release()) : Json::object();
+        if (!result.is_object()) result = Json::object();
+        result["query"] = encoded;
+        result["_socket"] = fence;
+        result["answered"] = result.contains("translations");
+        return result;
+      });
+      return;
+    }
     // 离线词典查询里的候选取自这份查询：「仅当前高亮」时主查询只有高亮那一个候选，不能换成视图的整页。
     const bool dictionary = offlineDictionary(query);
     auto glossRequest = Json{{"generation", msime::linux_host::strict_json_required_integer<uint64_t>(query.at("generation"))},
@@ -2479,7 +2497,7 @@ public:
   void translateSentence() {
     constexpr size_t kMaxSentenceChars = 512;
     if (!session_ || !ic_.hasFocus() || restricted() || privateInput() ||
-        translation_socket_.empty() || translation_job_.valid())
+        translation_job_.valid())
       return;
     try {
       auto query = response(msime_client_translation_query(session_));
@@ -2491,9 +2509,11 @@ public:
       const auto text = selected->value("text", std::string{});
       if (text.empty() || msime::linux_host::utf8_scalar_count(text) > kMaxSentenceChars)
         return;
-      query = sentenceTranslationQuery(
-          std::move(query), text,
-          preferences_.value("translation_target_language", std::string("en")));
+      const bool embedded = query.value("provider", std::string{}) == "local";
+      if (!embedded && translation_socket_.empty()) return;
+      const auto target = embedded ? query.at("target_language").get<std::string>()
+                                   : preferences_.value("translation_target_language", std::string("en"));
+      query = sentenceTranslationQuery(std::move(query), text, target);
       translation_pending_.clear();
       startTranslation(query, false, Json::array(), true);
     } catch (...) {}
@@ -2503,6 +2523,7 @@ public:
       const bool allowed = session_ && ic_.hasFocus() && !restricted() && !privateInput();
       const auto query = allowed ? response(msime_client_translation_query(session_)) : Json();
       const auto encodedQuery = query.is_object() ? query.dump() : std::string{};
+      embedded_translation_.observe(query.is_object() ? std::to_string(query.value("generation", uint64_t{0})) : std::string{});
       if (translation_job_.valid()) {
         if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = translation_job_.get();
@@ -3345,6 +3366,9 @@ public:
         }
         text = msime_voice_result_or_transcript(
             std::move(text), voice_transcript_, voice_preedit_);
+        // 语音标点在退回中间转写之后处理，只剩标点、处理后为空时提示没有识别到文字，而不是把带标点的中间转写上屏。
+        const bool recognisedBeforePunctuation = !text.empty();
+        text = msime::linux_host::voice_punctuated(std::move(text), voice_punctuation_mode_);
         voice_preedit_.clear();
         voice_transcript_.clear();
         hideVoiceOverlay();
@@ -3354,7 +3378,7 @@ public:
         voice_mailbox_.reset();
         if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
         const auto providerError = result.find("provider_error");
-        showVoiceFailure(providerError != result.end() && providerError->is_string()
+        showVoiceFailure(!recognisedBeforePunctuation && providerError != result.end() && providerError->is_string()
                              ? msime_voice_provider_failure_notice(providerError->get<std::string>())
                              : "未识别到文字，请重新录音");
         return false;
@@ -3413,6 +3437,8 @@ public:
     const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
     const auto language = voice_language_;
     const auto options = voice_options_;
+    // 与语音服务选项同时取下，录音中途改设置从下一次识别起作用。
+    voice_punctuation_mode_ = msime::linux_host::voice_punctuation_mode(preferences_);
     const auto host_options = msime::linux_host::voice_wants_hotwords(options) ? voice_host_options_ : Json();
     voice_generation_ = generation;
     voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
@@ -4325,6 +4351,7 @@ public:
   uint64_t translation_epoch_ = 0;
   uint64_t translation_job_epoch_ = 0;
   std::shared_future<Json> translation_job_;
+  msime::translation::EmbeddedState embedded_translation_;
   std::string clipboard_path_;
   Json clipboard_items_ = Json::array();
   uint64_t clipboard_generation_ = 0;
@@ -4434,6 +4461,8 @@ public:
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   std::string voice_preedit_;
   std::string voice_transcript_;
+  // 本次录音开始时的语音标点方式（VoicePunctuation.h）。
+  std::string voice_punctuation_mode_ = "auto";
   uint64_t voice_generation_ = 0;
   bool voice_partial_seen_ = false;
   bool voice_phase_seen_ = false;
@@ -4860,7 +4889,7 @@ public:
       : factory_(factory), index_(index), label_(label) {
     setCheckable(true);
   }
-  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」或「五笔 98」。
+  // 名字与 macOS 子菜单相同：双拼带键位方案，五笔跟随存储的码表版本显示「五笔 86」「五笔 98」或「五笔 新世纪」。
   std::string shortText(fcitx::InputContext *ic) const override {
     if (ic) return ic->propertyFor(factory_)->schemeMenuTitle(FcitxState::kSchemes[index_]);
     return label_;
@@ -5851,7 +5880,9 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (!state || state->restricted() ||
           (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)) return;
-      launchDesktopPanel(panel_);
+      if (std::strcmp(panel_, "local-translation") == 0)
+        msime::linux_host::launch_local_translation(state->options_path_);
+      else launchDesktopPanel(panel_);
     } catch (...) {}
   }
 private:
@@ -7307,6 +7338,7 @@ public:
              {&website_action_, MSIME_EDITION_FCITX5_ADDON "-website"},
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
+             {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
              {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
              {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
              {&scheme_quanpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-quanpin"},
@@ -7790,6 +7822,9 @@ public:
         {&keyboard_action_, true}, {&handwriting_action_, MSIME_EDITION_HANDWRITING != 0},
         // 语音要往有焦点的输入框里写，失焦后托盘上不列它。
         {&voice_action_, state->session_ && state->voice_enabled_ && focused}, {&voice_cancel_action_, focused},
+#ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
+        {&local_translation_action_, true},
+#endif
         {&settings_action_, true}, {&about_action_, true},
         {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
         {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
@@ -8146,6 +8181,7 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+  FcitxDesktopPanelAction local_translation_action_{&factory_, "local-translation", "本地模型翻译…"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
   FcitxToolbarAction toolbar_action_;
   fcitx::Menu toolbar_menu_;
@@ -8335,12 +8371,15 @@ void FcitxState::render() {
     if (msime::linux_host::composition_shows_reading(
             kana, msime::linux_host::strict_json_value(view_, "caret_position", size_t{}), editing.size()))
       reading = kana;
+    // 画的是按键原文时光标按原文的字节偏移放；原文里没有辅助码前导键，插回去时光标跟着后移（#10731）。
+    const bool drawsEditing = reading == editing;
+    auto caret = msime::linux_host::strict_json_value(view_, "caret_position", size_t{});
+    if (drawsEditing) msime::linux_host::insert_helpcode_trigger(view_, reading, caret);
     // The piece already picked for the phrase leads the reading, the way the reference draws
     // `word_for_creating_word`. fcitx5 takes the cursor as a byte offset into the string it is
     // given, which is why the offset comes from the same place the text does.
     const auto composed = msime::linux_host::compose_phrase_preedit(
-        view_.value("phrase_prefix", std::string{}), reading,
-        msime::linux_host::strict_json_value(view_, "caret_position", size_t{}));
+        view_.value("phrase_prefix", std::string{}), reading, caret);
     // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音加下划线并高亮，和上面整句改字的焦点子句同一种画法（phrase_preedit_has_clauses）。Fcitx5 没有粗下划线这种格式，`Bold` 在前端里是字形加粗，会把读音的字母画粗画宽，不是 macOS 那条加粗的下划线。没有已选段时整段照旧单下划线。
     fcitx::Text preedit;
     if (msime::linux_host::phrase_preedit_has_clauses(composed)) {
@@ -8350,7 +8389,7 @@ void FcitxState::render() {
     } else {
       preedit.append(composed.text, fcitx::TextFormatFlag::Underline);
     }
-    if (reading == editing)
+    if (drawsEditing)
       preedit.setCursor(static_cast<int>(composed.caret_bytes));
     // The caret always follows an inline composition; the runtime keeps no caret inside it.
     else if (alwaysInline)
@@ -8665,6 +8704,8 @@ bool FcitxState::renderNativeCanvas() {
     const auto preedit_size = preferences_.find("candidate_preedit_font_size");
     content.preedit_size = (preedit_size != preferences_.end() && preedit_size->is_number_integer() &&
                             *preedit_size >= 12 && *preedit_size <= 32 ? preedit_size->get<int>() : 15) * scale;
+    // 序号、释义、页码和拼音行的字重只取候选字重偏好，不取 classicui 的 Font 里用户自己写的样式词。
+    content.font_weight = host::read_candidate_font(preferences_).weight;
     // 横排为还没到的释义预留高度（translationReservedLines），韩文汉字列表再加训音一行。
     content.reserved_gloss_lines = translationReservedLines() + (host::korean_hanja_list_open(view_) ? 1 : 0);
     content.selection_context = view_.value("editing_text", std::string{}) + "\n" +

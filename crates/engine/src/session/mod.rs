@@ -12,6 +12,7 @@ mod composition;
 mod conversion;
 mod editing;
 mod glide;
+mod grid_helpcode;
 mod helpcode_entry;
 mod input;
 mod learning;
@@ -45,7 +46,7 @@ use crate::user_dictionary::ngram_store::{flush_journal, note_settled};
 use crate::types::FirstPageRows;
 pub use clock::{Clock, LocalClock};
 use input::InputSession;
-pub use options::{SessionOptions, SessionSnapshot};
+pub use options::{HelpcodeTrigger, SessionOptions, SessionSnapshot};
 
 pub struct Session {
     input: InputSession,
@@ -57,6 +58,8 @@ pub struct Session {
     shuangpin_preedit_separated: bool,
     /// `SessionOptions::learn_typed_spellings_on_enter`。
     learn_typed_spellings_on_enter: bool,
+    /// `SessionOptions::grid_helpcode`。
+    grid_helpcode: bool,
     prediction: prediction::Prediction,
     /// See [`Self::candidate_revision`].
     revision: u64,
@@ -114,6 +117,7 @@ impl Session {
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
             shuangpin_preedit_separated: options.shuangpin_preedit_separated,
             learn_typed_spellings_on_enter: options.learn_typed_spellings_on_enter,
+            grid_helpcode: options.grid_helpcode,
             prediction: prediction::Prediction::new(
                 options.next_word_prediction,
                 options.paths.dictionary(crate::assets::MAIN_DICTIONARY),
@@ -186,7 +190,12 @@ impl Session {
                 let result = self.nine_key.character(value);
                 return self.after_nine_key(result);
             }
-            return KeyResult::unhandled();
+            // 网格辅助码筛空时空格、数字这些会结束组字的键不交还宿主，免得它们先上屏、组字留在后面。
+            return if self.nine_key.grid_helpcode_blocks() {
+                KeyResult::handled()
+            } else {
+                KeyResult::unhandled()
+            };
         }
         self.input.pending_touch = touch;
         self.input.handle_character(value, shift_only)
@@ -445,6 +454,10 @@ impl Session {
         if !self.nine_key.active() {
             return self.input.handle_punctuation(value);
         }
+        // 网格辅助码筛空时标点不上屏，组字留着。
+        if self.nine_key.grid_helpcode_blocks() {
+            return KeyResult::handled();
+        }
         let mut result = self.input.handle_punctuation(value);
         if !result.handled {
             return result;
@@ -664,6 +677,11 @@ impl Session {
     /// 五笔拼音混输是否打开。
     pub fn wubi_mixed_pinyin(&self) -> bool {
         self.input.engine.wubi_input_options().mixed_pinyin
+    }
+
+    /// 当前组字是五笔 `z` 通配查询，见 `ImeSession::wubi_wildcard_query_active`。
+    pub(crate) fn wubi_wildcard_query_active(&self) -> bool {
+        self.input.engine.wubi_wildcard_query_active()
     }
 
     /// 把在线行（云候选、AI 候选）照原样放回当前组字的候选，不再核对查询，见 [`crate::host::Session::restore_online_rows`]。
@@ -904,6 +922,7 @@ impl Session {
                 hide_helpcode,
                 snapshot.scheme,
             );
+            snapshot.grid_helpcode_available = self.grid_helpcode_available();
             return snapshot;
         }
         let input = &self.input;
@@ -944,6 +963,16 @@ impl Session {
         } else {
             input.preedit()
         };
+        let helpcode_trigger = plain_composition
+            .then(|| input.helpcode_trigger_display())
+            .flatten();
+        // 前导键只插进给宿主画的显示快照（#10731）；`snapshot()` 的 `preedit` 是参考回放比对的按键原文，不动。
+        let preedit = match helpcode_trigger {
+            Some(trigger) if segmented_quanpin => {
+                input.preedit_with_helpcode_trigger(preedit, trigger)
+            }
+            _ => preedit,
+        };
         SessionSnapshot {
             prediction: false,
             scheme: input.scheme(),
@@ -955,6 +984,7 @@ impl Session {
             dedicated_english: input.dedicated_english,
             editing_text: input.editing_text(),
             caret_position: input.caret_position(),
+            helpcode_trigger,
             nine_key_spellings: input.zhuyin_spellings(),
             // 五笔 14 键的读音行显示首选的编码（就是预编辑），宿主 14 键的读音行照常读这一项。
             nine_key_reading: if input.wubi_grid_composing() {
@@ -964,6 +994,9 @@ impl Session {
             },
             nine_key_single_character: false,
             nine_key_strokes: String::new(),
+            grid_helpcode_available: false,
+            grid_helpcode_display: String::new(),
+            grid_helpcode_constrained: false,
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.kind.name().to_owned(),

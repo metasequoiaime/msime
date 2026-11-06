@@ -10,6 +10,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;
 FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNotification;
 /// Set to @YES in the userInfo of an MSIMEAppearanceDidChangeNotification that only moved the Chinese/English mode. The mode is not part of the shared preferences document, so observers refresh what they show but have nothing to save.
 FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
+// 只有明确的原生语音编辑才允许把本机语音值写回共享文档。
+FOUNDATION_EXPORT NSString *const MSIMEAppearanceVoicePreferencesKey;
 
 /// 某个输入源是否已在用户的输入法列表里。输入法进程启动时把它设成 `MSIMEInputSourceIsEnabled`；测试和其它链接了设置窗口的程序不设，「菜单栏入口」提示就不出现，设置窗口也因此不必链接 Carbon。
 extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
@@ -68,7 +70,7 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *lastSyncedInputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
-/// 五笔码表版本：`wubi86`（缺省）或 `wubi98`，对应共享偏好的 `wubi_profile`。
+/// 五笔码表版本：`wubi86`（缺省）、`wubi98` 或 `wubixsj`（新世纪），对应共享偏好的 `wubi_profile`；不认识的值读作 `wubi86`。
 @property(nonatomic, copy) NSString *wubiProfile;
 /// Allow Pinyin fallback when a Wubi code has no Wubi candidates.
 @property(nonatomic) BOOL wubiMixedPinyinEnabled;
@@ -79,6 +81,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 /// Optional leading face for Latin glyphs in the candidate cascade.
 @property(nonatomic, copy) NSString *candidateEnglishFont;
 @property(nonatomic, copy) NSArray<NSString *> *fallbackFonts;
+/// 共享偏好 `candidate_font_weight`：`regular`（缺省）、`medium`、`semibold` 或 `bold`，-candidateFontOfSize: 画出的全部候选窗文字都用它，预编辑行至少半粗。macOS 的设置界面还没有这一项，经 MCP 的 `update_preferences` 或偏好文档设置。
+@property(nonatomic, readonly) NSString *candidateFontWeight;
 - (NSFont *)candidateFontOfSize:(CGFloat)size;
 - (NSFont *)candidateFontOfSize:(CGFloat)size englishFirst:(BOOL)englishFirst;
 @property(nonatomic) NSUInteger preeditFontSize;
@@ -101,6 +105,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 /// `custom_theme.candidate_colors` 里的其余候选取色器，同样是「#rrggbb」字符串，用主题自己的颜色时为 nil。设置任何一个都会选中自定义主题（正在显示的主题成为它的底）；设为 nil 只清掉这一个槽位。候选窗用 -resolvedSkinForDark: 画，那里已经套用了它们。编号色和边框色不在其中：macOS 上它们固定跟随主题和皮肤。
 @property(nonatomic, copy) NSString *candidateAccentColor;
 @property(nonatomic, copy) NSString *candidateSelectedColor;
+/// 候选选中文字色（`custom_theme.candidate_colors.selected_text`，#10740）：选中行的文字颜色，压过由选中色、皮肤和强调色推出的颜色。
+@property(nonatomic, copy) NSString *candidateSelectedTextColor;
 @property(nonatomic, copy) NSString *candidateHoverColor;
 @property(nonatomic, copy) NSString *candidateSurfaceColor;
 /// 明暗选择：整个客户端取 system、dark 或 light；候选窗口取 follow、dark 或 light，可以覆盖全局那一项。悬浮工具栏、菜单和各面板一律跟随颜色模式。
@@ -120,7 +126,7 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (void)removeCustomCandidateSkin:(NSString *)skinId;
 /// 自定义主题不使用外部皮肤：两个槽位一起清，自定义主题的其他部分不动。
 - (void)clearCustomCandidateSkin;
-/// 这里存的自定义主题（底色、两个皮肤槽位和七个取色器），即宿主解析器要的形状。
+/// 这里存的自定义主题（底色、两个皮肤槽位和取色器），即宿主解析器要的形状。
 - (msime::mac::CustomTheme)customTheme;
 @property(nonatomic) NSUInteger pageSize;
 // Native routing preferences; English passes keys through without preparing Engine.

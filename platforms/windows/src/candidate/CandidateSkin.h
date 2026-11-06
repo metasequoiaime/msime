@@ -496,7 +496,7 @@ inline CandidateSkinToolbar candidate_skin_toolbar(const nlohmann::json &catalog
   return toolbar;
 }
 
-// 只叠加共享主题解析（msime_client_resolve_theme）不带的候选颜色槽位：表面、边框、文字、编号、强调、选中、悬停、释义和选中竖条开关已经按「底、皮肤包、取色器」的顺序解析好，这里不再覆盖。`pickers` 是自定义主题的 `custom_theme.candidate_colors`，取色器仍然优先：设了文字色时不叠皮肤的候选文字和预编辑文字，设了选中色时不叠皮肤的选中文字、选中编号和选中释义，保留解析层按亮度推出的可读颜色。画不出的值保持宿主默认。
+// 只叠加共享主题解析（msime_client_resolve_theme）不带的候选颜色槽位：表面、边框、文字、编号、强调、选中、悬停、释义和选中竖条开关已经按「底、皮肤包、取色器」的顺序解析好，这里不再覆盖。`pickers` 是自定义主题的 `custom_theme.candidate_colors`，取色器仍然优先：设了文字色时不叠皮肤的候选文字和预编辑文字，设了选中色或选中文字色时不叠皮肤的选中文字、选中编号和选中释义，保留解析层按亮度推出的可读颜色或用户选的选中文字色。画不出的值保持宿主默认。
 inline CandidatePalette apply_candidate_skin_extra_slots(
     CandidatePalette palette, const nlohmann::json &candidate,
     const nlohmann::json &pickers, bool dark);
@@ -540,7 +540,8 @@ inline CandidatePalette apply_candidate_skin_extra_slots(
     optional("candidate_text", palette.candidate_text);
     optional("preedit_text", palette.preedit_text);
   }
-  if (!picked("selected")) {
+  // 选中底色取色器和选中文字取色器（#10740）任一设了，选中行的三种前景都留给解析层：前者按底色推出黑白，后者就是用户选的颜色。
+  if (!picked("selected") && !picked("selected_text")) {
     apply("selected_text", palette.selected_text);
     apply("selected_number", palette.selected_number);
     optional("selected_translation", palette.selected_translation);

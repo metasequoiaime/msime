@@ -521,6 +521,7 @@ fn capi_options(options: &SessionOptions) -> Result<Value, String> {
             "profile": match options.wubi.profile {
                 WubiProfileKind::Wubi86 => "wubi86",
                 WubiProfileKind::Wubi98 => "wubi98",
+                WubiProfileKind::WubiXsj => "wubixsj",
             },
             "mixed_pinyin": options.wubi.mixed_pinyin,
             "z_wildcard": options.wubi.z_wildcard,

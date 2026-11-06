@@ -27,11 +27,16 @@ public final class OptionSheetDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         return keyFeedback == null ? "animation selection follows saved value, option sheet footer stays above system navigation and settings sheets open at full height"
             : "sound-only".equals(keyFeedback) ? "default key sound pack plays from the app even with system sound effects unloaded"
+            : "press-area".equals(keyFeedback) ? "key area reports the pressed key on touch-down and on release, settles after the click, and stays silent for disabled keys, cancels and glide takeover"
             : "nine-key preview lifecycle and immediate feedback preferences";
     }
 
     @SuppressWarnings("deprecation")
     @Override protected void runChecks() throws Exception {
+        if ("press-area".equals(keyFeedback)) {
+            KeyPressAreaDeviceChecks.run(this);
+            return;
+        }
         if (keyFeedback != null) {
             new KeyboardFeedbackDeviceChecks(this).run(keyFeedback);
             return;

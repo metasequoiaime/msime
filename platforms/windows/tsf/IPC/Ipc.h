@@ -59,6 +59,10 @@ uint64_t GetNamedpipeClientId();
 
 KeyEventSendResult SendKeyEventToUIProcess(_Out_opt_ uint64_t *requestId = nullptr);
 void DebugTsfKeyLatency(_In_z_ const wchar_t *stage, uint64_t requestId, double elapsedMs, HRESULT result);
+// 智能标点每次决议只记类别：前文是数字、字母还是别的（读不到记 none），本进程的前文影子
+// 当时是否有效，以及出的是 ASCII 还是中文标点。不记字符、不记按的是哪个键，与 macOS 的
+// `[smart-punctuation]` 同一条约定。QQ 这类读不回前文的宿主里，「时好时坏」只能靠它看出来。
+void DebugTsfSmartPunctuation(WCHAR preceding, bool shadowValid, bool asciiResult);
 void DebugTsfIssue47(_In_z_ const wchar_t *stage, uint64_t requestId, UINT code, WCHAR wch, UINT category,
                      UINT function, int eaten, BOOL composing, size_t virtualKeyLength, HRESULT result,
                      uint64_t correlationToken = 0);
@@ -105,6 +109,10 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
 // returns a non-TransportUnavailable empty frame for the caller to fall back.
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
                                                                        bool abortTransportOnTimeout);
+// 显式给出等待预算（毫秒）。两参数版本按 ServerReplyWaitBudgetMs(abortTransportOnTimeout) 取预算；Server 一定会回、回包又决定上屏哪个词的软回包（宿主会话里的数字选词）用这个版本等到第二级上限，等不到仍不拆管道。
+struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
+                                                                       bool abortTransportOnTimeout,
+                                                                       std::size_t waitBudgetMs);
 struct FanyImeNamedpipeDataToTsf *ReadDataFromServerViaNamedPipe(uint64_t expectedRequestId);
 
 //

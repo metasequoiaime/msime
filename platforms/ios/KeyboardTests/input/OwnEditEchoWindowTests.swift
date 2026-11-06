@@ -77,6 +77,17 @@ final class OwnEditEchoWindowTests: XCTestCase {
     return button.configuration?.title
   }
 
+  func testAHostChangeBeforeTheKeyboardAppearsDoesNotShowRuntimeDiagnostic() throws {
+    InputSchemePreference.scheme = .quanpin
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    controller.textWillChange(nil)
+    let diagnostic = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "diagnosticLabel" } as? UILabel)
+    XCTAssertTrue(diagnostic.isHidden, "收起状态的宿主回调不应显示运行时诊断：\(diagnostic.text ?? "")")
+  }
+
   func testAHostChangeFinishesTheComposition() throws {
     let controller = self.controller()
     let idle = try preedit(controller)

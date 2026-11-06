@@ -574,6 +574,59 @@ final class SpaceVoicePanelTests: XCTestCase {
 
   /// 从功能菜单的真实「语音输入」图块进入听写（iOS 工具栏不放语音按钮），结束后经真实会话通知自动上屏，不经过结果面板。
   func testMenuTileStartsDictationAndFinalTextEntersTheOriginalEditor() throws {
+    try withVoiceSession { channel, now in
+      let document = CursorDocument()
+      try attach(document)
+      let controller = makeController()
+      let more = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIControl)
+      more.sendActions(for: .primaryActionTriggered)
+      let tile = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-语音输入" } as? UIControl)
+      tile.sendActions(for: .primaryActionTriggered)
+      let command = try XCTUnwrap(channel.readCommand())
+      XCTAssertEqual(command.action, .start, "点语音入口应直接开始听写")
+      let panel = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardVoicePanelView }.first)
+      XCTAssertTrue(panel.orb.showsMascot, "功能菜单的语音入口是点按开始，指示区画水杉娘")
+      channel.publish(VoiceSessionState(phase: .listening, request: command.request, text: "合成",
+        heartbeat: now, expiresAt: now.addingTimeInterval(300)))
+      RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+      panel.finishButton.sendActions(for: .primaryActionTriggered)
+      XCTAssertEqual(channel.readCommand()?.action, .stop)
+      XCTAssertFalse(panel.finishButton.isEnabled)
+      XCTAssertEqual(document.insertions, [], "结束采集时仍等待最终转写")
+      channel.publish(VoiceSessionState(phase: .finished, request: command.request, text: "合成语音文字",
+        heartbeat: now, expiresAt: now.addingTimeInterval(300)))
+      RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+      XCTAssertEqual(document.insertions, ["合成语音文字"])
+      XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardVoicePanelView })
+    }
+  }
+
+  /// 语音标点（#10595）在开始聆听时从共享偏好读取，最终结果上屏前处理一次；只剩标点时不上屏、不存进语音交接，中间结果照原样显示。
+  func testVoicePunctuationAppliesOnceToTheFinalText() throws {
+    try withVoiceSession { channel, now in
+      XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences { VoicePunctuation.write("omit_trailing", into: &$0) })
+      let document = CursorDocument()
+      try attach(document)
+      let controller = makeController()
+      for (spoken, inserted) in [("合成语音文字。", ["合成语音文字"]), ("。", ["合成语音文字"])] {
+        let more = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIControl)
+        more.sendActions(for: .primaryActionTriggered)
+        let tile = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-语音输入" } as? UIControl)
+        tile.sendActions(for: .primaryActionTriggered)
+        let command = try XCTUnwrap(channel.readCommand())
+        XCTAssertEqual(command.action, .start)
+        channel.publish(VoiceSessionState(phase: .finished, request: command.request, text: spoken,
+          heartbeat: now, expiresAt: now.addingTimeInterval(300)))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(document.insertions, inserted, spoken)
+        XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardVoicePanelView })
+      }
+      XCTAssertNil(try VoiceTextHandoffStore().read(), "a punctuation-only result is not kept for 语音结果")
+    }
+  }
+
+  /// 打开完全访问、把 App Group 解析到隔离的合成数据目录，并发布一个就绪的语音会话；结束后恢复原样。
+  private func withVoiceSession(_ body: (VoiceSessionChannel, Date) throws -> Void) throws {
     let selector = #selector(getter: UIInputViewController.hasFullAccess)
     let method = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
     let original = method_getImplementation(method)
@@ -617,29 +670,7 @@ final class SpaceVoicePanelTests: XCTestCase {
     let channel = VoiceSessionChannel()
     let now = Date()
     channel.publish(VoiceSessionState(phase: .ready, request: nil, heartbeat: now, expiresAt: now.addingTimeInterval(300)))
-    let document = CursorDocument()
-    try attach(document)
-    let controller = makeController()
-    let more = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" } as? UIControl)
-    more.sendActions(for: .primaryActionTriggered)
-    let tile = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-语音输入" } as? UIControl)
-    tile.sendActions(for: .primaryActionTriggered)
-    let command = try XCTUnwrap(channel.readCommand())
-    XCTAssertEqual(command.action, .start, "点语音入口应直接开始听写")
-    let panel = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardVoicePanelView }.first)
-    XCTAssertTrue(panel.orb.showsMascot, "功能菜单的语音入口是点按开始，指示区画水杉娘")
-    channel.publish(VoiceSessionState(phase: .listening, request: command.request, text: "合成",
-      heartbeat: now, expiresAt: now.addingTimeInterval(300)))
-    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-    panel.finishButton.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(channel.readCommand()?.action, .stop)
-    XCTAssertFalse(panel.finishButton.isEnabled)
-    XCTAssertEqual(document.insertions, [], "结束采集时仍等待最终转写")
-    channel.publish(VoiceSessionState(phase: .finished, request: command.request, text: "合成语音文字",
-      heartbeat: now, expiresAt: now.addingTimeInterval(300)))
-    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-    XCTAssertEqual(document.insertions, ["合成语音文字"])
-    XCTAssertFalse(descendants(controller.view).contains { $0 is KeyboardVoicePanelView })
+    try body(channel, now)
   }
 
   private func makeController() -> KeyboardViewController {

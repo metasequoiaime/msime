@@ -3,6 +3,7 @@
 #include "ControlText.h"
 #include "ThemeData.h"
 #include "../VoiceSettings.h"
+#include <array>
 #include <commctrl.h>
 #include <functional>
 #include <map>
@@ -16,7 +17,7 @@ public:
     asr_endpoint, asr_model, asr_token, asr_app_key, auth_mode, resource, punc, itn, ddc, boosting,
     model_path, mirror, polish_enabled, polish_provider, polish_endpoint, polish_model, polish_token,
     polish_thinking, prompt_id, prompt_one, prompt_two, prompt_three, save, test_asr, test_polish,
-    test_result, show_secrets, stream_endpoint, devices, device_refresh, device_status, models_open };
+    test_result, show_secrets, stream_endpoint, devices, device_refresh, device_status, models_open, voice_punctuation };
   struct Command { bool handled = false; std::vector<Change> changes; std::optional<Json> request; std::wstring message; bool refresh_devices = false, models = false; };
   int create(const std::function<HWND(const wchar_t*, const wchar_t*, DWORD, int, int, int)>& row) {
     int top = 0;
@@ -32,6 +33,9 @@ public:
     combo(hold_key, L"长按录音快捷键"); for (const auto& key : voice::hold_keys) option(hold_key, key.label); option(hold_key, L"不使用");
     note(L"按住期间按空格锁定录音，再次按快捷键或点完成结束，Escape 取消。", 56);
     combo(commit, L"识别结果提交方式"); for (const auto title : {L"输入法会话", L"系统按键", L"剪贴板粘贴"}) option(commit, title);
+    // 语音标点（voice_input.punctuation_mode）：所有识别服务和润色结果上屏前处理一次；「豆包自动标点」只决定豆包请求要不要标点。
+    combo(voice_punctuation, L"语音标点"); for (const auto title : {L"智能添加", L"省略句末标点", L"省略所有标点", L"空格代替标点"}) option(voice_punctuation, title);
+    note(L"语音标点对所有识别服务和 AI 润色后的结果生效；「豆包自动标点」只对豆包生效。", 56);
     combo(asr_provider, L"识别服务"); option(asr_provider, L"正在读取服务列表…");
     combo(polish_provider, L"文本润色服务"); option(polish_provider, L"正在读取服务列表…");
     combo(auth_mode, L"豆包鉴权方式"); option(auth_mode, L"新版 API Key"); option(auth_mode, L"旧版 App ID + Access Token");
@@ -91,6 +95,8 @@ public:
     choose_catalog_entries();
     select(commit, saved_.value("commit_mode", std::string{}) == "sendinput" ? 1 : saved_.value("commit_mode", std::string{}) == "ctrl_v" ? 2 : 0);
     select(auth_mode, saved_.value("doubao_auth_mode", std::string{}) == "legacy" ? 1 : 0);
+    // 缺键和不认识的取值都按 auto 显示；不改这一项时保存不会写它，新版本存下的取值原样保留。
+    int punctuation = 0; for (size_t index = 0; index < punctuation_modes.size(); ++index) if (saved_.value("punctuation_mode", std::string{}) == punctuation_modes[index]) punctuation = static_cast<int>(index); select(voice_punctuation, punctuation);
     const auto thinking = saved_.value("polish_thinking", std::string{}); select(polish_thinking, thinking == "low" ? 1 : thinking == "high" ? 2 : thinking == "max" ? 3 : 0);
     const auto stored_prompt = control_text::wide(saved_.value("polish_prompt_id", std::string{}));
     const auto prompt = voice::polish_prompt_slot(stored_prompt);
@@ -162,6 +168,7 @@ public:
     if (dirty_.count(polish_enabled)) patch["polish_text"] = checked(polish_enabled);
     if (dirty_.count(commit)) patch["commit_mode"] = selected(commit) == 1 ? "sendinput" : selected(commit) == 2 ? "ctrl_v" : "tsf";
     if (dirty_.count(auth_mode)) patch["doubao_auth_mode"] = selected(auth_mode) == 1 ? "legacy" : "api_key";
+    const auto punctuation = selected(voice_punctuation); if (dirty_.count(voice_punctuation) && punctuation >= 0 && static_cast<size_t>(punctuation) < punctuation_modes.size()) patch["punctuation_mode"] = punctuation_modes[static_cast<size_t>(punctuation)];
     constexpr const char* levels[] = {"disabled", "low", "high", "max"}; const auto thinking = selected(polish_thinking); if (dirty_.count(polish_thinking) && thinking >= 0 && thinking < 4) patch["polish_thinking"] = levels[thinking];
     const auto prompt = selected(prompt_id); if (dirty_.count(prompt_id) && prompt >= 0 && static_cast<size_t>(prompt) < prompt_ids_.size()) patch["polish_prompt_id"] = control_text::utf8(prompt_ids_[static_cast<size_t>(prompt)]).value();
     const auto hold = selected(hold_key); const auto key = hold >= 0 && hold < 3 ? voice::hold_keys[static_cast<size_t>(hold)].key : voice::no_hold_key;
@@ -194,6 +201,8 @@ public:
     SetWindowTextW(get(device_status), devices_.empty() ? L"未检测到麦克风，语音输入不可用；连接设备后再刷新。" : L"麦克风列表已刷新，切换设备会立即保存。");
   }
 private:
+  // 与下拉框的选项一一对应，顺序同共享设置页的 voicePunctuationOptions。
+  static constexpr std::array<const char*, 4> punctuation_modes{"auto", "omit_trailing", "omit_all", "space"};
   struct Boolean { int id; const char* key; const wchar_t* title; };
   static const std::vector<Boolean>& booleans() {
     static const std::vector<Boolean> fields{{enabled,"enabled",L"启用语音输入"}, {sound,"sound_enabled",L"语音提示音"}, {mute,"mute_system_audio",L"录音时静音其他声音"},

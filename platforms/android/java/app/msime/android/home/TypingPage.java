@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -384,6 +385,11 @@ public final class TypingPage extends ReloadingDetailPage {
             boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
             aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选", null,
                 strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked)).help("关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选");
+            // 十四／十八键的网格辅助码（偏好 `grid`，默认关）：入口是上滑分词键，和下面只管 26 键的触发方式无关，所以排在共用的几行之后、触发方式之前。方案、候选栏显示和一码严格筛选对它同样生效。
+            boolean grid = helpcode != null && helpcode.optBoolean("grid", false);
+            aux.toggle(shuangpin ? "双拼 14/18 键辅助码" : "全拼 14/18 键辅助码", null,
+                grid, checked -> saveHelpcode(family, shuangpin, "grid", checked)).help("14 键、18 键组字后上滑「分词」键，再按字母键输入辅助码；不影响 26 键和九键");
+            if (shuangpin) helpcodeModeRows(aux, helpcode);
         }
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
@@ -930,6 +936,23 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
         savePreferences(values -> helpcodeObject(values, family, shuangpin).put(member, value));
+    }
+
+    /** 双拼辅助码的触发方式（#10624），各行、缺值读法和置灰规则见 {@link HelpcodeModesPolicy}。只写改的那一个字段，`modes` 里其他键（包括 macOS 同步来的 `manual_tab`）原样留着；保存后整页重读，显示 client-core 归一互斥后的值。 */
+    private void helpcodeModeRows(GroupCard aux, @Nullable JSONObject helpcode) {
+        JSONObject modes = helpcode == null ? null : helpcode.optJSONObject("modes");
+        Function<String, Boolean> stored =
+            field -> modes != null && modes.opt(field) instanceof Boolean value ? value : null;
+        boolean direct = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("direct"), stored);
+        boolean midSentence = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("mid_sentence"), stored);
+        boolean directHelpcode = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("direct_helpcode"), stored);
+        for (HelpcodeModesPolicy.Mode mode : HelpcodeModesPolicy.MODES) {
+            aux.toggle(mode.title(), null, HelpcodeModesPolicy.value(mode, stored),
+                checked -> savePreferences(values ->
+                    KeyboardSheets.child(helpcodeObject(values, "shuangpin_helpcode", true), "modes").put(mode.field(), checked)))
+                .help(mode.help())
+                .setEnabled(HelpcodeModesPolicy.enabled(mode, direct, midSentence, directHelpcode));
+        }
     }
 
     private void pickTranslationScope(CandidateTranslationPolicy.Scope selected) {

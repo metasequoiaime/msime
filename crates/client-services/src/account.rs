@@ -290,11 +290,33 @@ pub struct AccountDictionaryRevision {
     pub revision: i64,
 }
 
+/// 云词库的一条改动。改动前后的词条词库种类是这一版不认识的（更新的版本加的，例如新的五笔版本）时，那一侧读成 `None`：改动本身和它的修订号照常保留，翻页和「云端有没有改动」的判断不受影响，整页也不会读不了。
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AccountDictionaryChange {
     pub revision: i64,
+    #[serde(default, deserialize_with = "known_kind_entry")]
     pub previous: Option<AccountDictionaryEntry>,
+    #[serde(default, deserialize_with = "known_kind_entry")]
     pub replacement: Option<AccountDictionaryEntry>,
+}
+
+/// [`AccountDictionaryChange`] 的一侧：`kind` 是字符串但这一版不认识时为 `None`，其余不合规的写法照样报错。
+fn known_kind_entry<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<AccountDictionaryEntry>, D::Error> {
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    if value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| crate::cloud::dictionary::kind_from_path(kind).is_none())
+    {
+        return Ok(None);
+    }
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -586,6 +608,9 @@ impl AccountFailure {
             return "account_network";
         }
         let server = self.server_code.as_deref();
+        if server == Some("unsupported_email_domain") {
+            return "account_unsupported_email_domain";
+        }
         if server == Some("recent_login_required") {
             return "account_recent_login_required";
         }

@@ -828,6 +828,11 @@ fn real_dictionary_answers_common_readings() {
         "{:?}",
         words(&zhongguo)
     );
+    // #10842：真实词库里没有 gu'ga，guga 不能补全出 gu'gan 的骨干；打全 gugj 才有。
+    let guga = engine.query(&request("guga", false), None);
+    assert!(!words(&guga).contains(&"骨干"), "{:?}", words(&guga));
+    let gugan = engine.query(&request("gugj", false), None);
+    assert_eq!(words(&gugan).first(), Some(&"骨干"), "{:?}", words(&gugan));
 }
 
 #[test]
@@ -2161,4 +2166,37 @@ fn incomplete_tail_keeps_generated_prefix_and_its_input_span() {
     assert_eq!(words(&rows)[0], "你好科技清");
     assert_eq!(rows[0].source, CandidateSource::Database);
     assert_eq!(words(&rows)[1], "你好科技");
+}
+
+/// #10842：双拼两键已经定出音节，`guga` 是 gu'ga，不能把末尾的 ga 补全成 gan、gao；末尾单键仍按声母或零声母补全。
+#[test]
+fn two_key_tail_syllable_is_not_completed() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_g(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_1_g VALUES('gu', 'g', '骨', 900), ('ga', 'g', '嘎', 800);\
+         CREATE TABLE tbl_2_g(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+         INSERT INTO tbl_2_g VALUES('gu''gan', 'gg', '骨干', 1000), ('gu''gao', 'gg', '鼓高', 700), ('gu''ai', 'ga', '骨癌', 600);",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    for fuzzy in [0, fuzzy_rule::AN_ANG | fuzzy_rule::Z_ZH] {
+        let mut typed = request("guga", false);
+        typed.fuzzy_pinyin.rules = fuzzy;
+        let rows = engine.query(&typed, None);
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.word == "骨干" || row.word == "鼓高"),
+            "fuzzy={fuzzy}: {:?}",
+            words(&rows)
+        );
+        assert!(words(&rows).contains(&"骨"), "{:?}", words(&rows));
+    }
+    // 小鹤 j 是 an：gugj 打全了 gu'gan。
+    assert!(words(&engine.query(&request("gugj", false), None)).contains(&"骨干"));
+    // 末尾单键 g 只定了声母，照旧补全。
+    let trailing_initial = engine.query(&request("gug", false), None);
+    assert!(words(&trailing_initial).contains(&"骨干"));
+    assert!(words(&trailing_initial).contains(&"鼓高"));
+    // 末尾单键 a 是零声母音节的第一键，也照旧补全到 ai。
+    assert!(words(&engine.query(&request("gua", false), None)).contains(&"骨癌"));
 }

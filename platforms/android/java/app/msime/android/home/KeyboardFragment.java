@@ -24,6 +24,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
+import app.msime.android.HostDeepLink;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
@@ -250,6 +251,17 @@ public final class KeyboardFragment extends HomeTabFragment {
         SettingsNavigator.open(requireContext(), page, null);
     }
 
+    /** 打开一条搜索结果：命中了关键词时把它作为目标交给页面（{@link HostDeepLink#ARG_ROW}），页面切到它所在的分类并滚过去；查询命中结果标题时（{@link SettingsSearchAnchorPolicy#target}）和首页那一行一样打开。 */
+    private void openResult(PageId page, @Nullable String anchor) {
+        if (anchor == null) {
+            open(page);
+            return;
+        }
+        Bundle args = new Bundle();
+        args.putString(HostDeepLink.ARG_ROW, anchor);
+        SettingsNavigator.open(requireContext(), page, args);
+    }
+
     private void render() {
         View view = getView();
         if (view == null) return;
@@ -322,7 +334,9 @@ public final class KeyboardFragment extends HomeTabFragment {
                 if (!text.contains(query) && !entry.page().matches(query)) continue;
                 if (group == null) group = HomeNavGroup.add(results);
                 PageId page = entry.page();
-                group.add(entry.icon(), entry.title(), matchedKeyword(page, query, value), () -> open(page));
+                String keyword = SettingsSearchAnchorPolicy.anchor(page.keywords(), query);
+                String target = SettingsSearchAnchorPolicy.target(entry.title(), page.keywords(), query);
+                group.add(entry.icon(), entry.title(), keyword != null ? keyword : value, () -> openResult(page, target));
                 listed.add(page);
                 shown++;
             }
@@ -332,21 +346,13 @@ public final class KeyboardFragment extends HomeTabFragment {
                 if (listed.contains(page) || !page.searchable() || !page.matches(query)) continue;
                 if (page == PageId.KEY_LAYOUT_STYLES && !keyLayoutOffered) continue;
                 if (group == null) group = HomeNavGroup.add(results);
-                group.add(R.drawable.ic_search, page.title(), matchedKeyword(page, query, null),
-                    () -> open(page));
+                String target = SettingsSearchAnchorPolicy.target(page.title(), page.keywords(), query);
+                group.add(R.drawable.ic_search, page.title(), SettingsSearchAnchorPolicy.anchor(page.keywords(), query),
+                    () -> openResult(page, target));
                 shown++;
             }
         }
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_search_empty), active && shown == 0);
-    }
-
-    /** 搜索结果的副标题：命中的关键词；只命中标题时用这一行原来的值。 */
-    @Nullable private static CharSequence matchedKeyword(PageId page, String query,
-            @Nullable CharSequence fallback) {
-        for (String keyword : page.keywords()) {
-            if (TextPolicy.lowercase(keyword).contains(query)) return keyword;
-        }
-        return fallback;
     }
 
     // ---- status ----

@@ -9,6 +9,7 @@ use rusqlite::{params, Connection, OpenFlags, Row, ToSql};
 
 use crate::dictionary::english::ensure_english_schema;
 use crate::format;
+use crate::types::{PersonalDictionaryKind, WubiProfileKind};
 use crate::user_dictionary::journal::{open_database, BUSY_TIMEOUT_MS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -67,15 +68,23 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
     if attach(&main, english_db, "replay_english").is_err() {
         return fail(result, "cannot attach English dictionary database");
     }
-    // 资源目录不带 `msime-wubi.db`（macOS 发布包改为按需下载）时代次里没有五笔表：五笔行没有能写的表，与没有拼音库的代次一样计入 `skipped`，行留在日志里，码表并进来后的那次回放再写（`generation::merge_downloaded_wubi`）。只要有一张五笔表就照旧逐行写，缺另一张时仍算失败。
-    let wubi_tables = main_db.is_some()
-        && main
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name IN ('wubi86','wubi98'))",
-                [],
-                |row| row.get::<_, bool>(0),
-            )
-            .unwrap_or(true);
+    // 代次里有哪几张五笔表。资源目录不带 `msime-wubi.db`（macOS 发布包改为按需下载）时一张都没有，词库是还没有新世纪表的旧发布时缺 `wubixsj`：这一版的五笔行没有能写的表，与没有拼音库的代次一样计入 `skipped`，行留在日志里，码表并进来后的那次回放再写（`generation::merge_downloaded_wubi`）。只看这一行自己的表，别的五笔表在不在不影响它。读不出 schema 时当作表在，交给写入去报告。
+    let wubi_tables: Vec<&str> = if main_db.is_some() {
+        WubiProfileKind::ALL
+            .iter()
+            .map(|profile| profile.table())
+            .filter(|table| {
+                main.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1)",
+                    [table],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(true)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let Ok(mut rows) = journal.prepare(
         "SELECT dictionary,key,value,operation,weight,display FROM user_dictionary_operations ORDER BY updated_at,rowid",
     ) else {
@@ -93,12 +102,17 @@ fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> Rep
                 result.skipped += 1;
                 continue;
             }
-            if !wubi_tables && (operation.kind == b"wubi" || operation.kind == b"wubi98") {
+            if wubi_table(&operation.kind).is_some_and(|table| !wubi_tables.contains(&table)) {
                 result.skipped += 1;
                 continue;
             }
-            // 粤语词只记在日志里，粤语方案查词时直接读日志（`cantonese::UserWords`），工作库里没有它的表。计入 skipped：落进下面的未知种类会算失败，整次回放回滚。
+            // 粤语词只记在日志里，粤语方案查词时直接读日志（`cantonese::UserWords`），工作库里没有它的表，计入 skipped。这一版认识这个种类，它不在 `KNOWN_KINDS` 里只是因为回放不写它。
             if operation.kind == b"cantonese" {
+                result.skipped += 1;
+                continue;
+            }
+            // 这一版不认识的词库种类（更新的版本加的，例如降级前写下的新五笔版本）计入 `skipped`：行留在日志里不动，回到认识它的版本时照常回放。算作失败会让整次回放回滚、这个代次被拒，降级后输入法就用不了。
+            if !JournalRow::KNOWN_KINDS.contains(&operation.kind.as_slice()) {
                 result.skipped += 1;
                 continue;
             }
@@ -165,6 +179,11 @@ const MAX_REPLAY_OPERATION_BYTES: usize = 16;
 const MAX_REPLAY_DISPLAY_BYTES: usize = 4 * 1024;
 
 impl JournalRow {
+    /// [`JournalRow::apply`] 能写的词库种类，即日志 `dictionary` 列的全部已知取值（data-formats.md §6.2）。
+    const KNOWN_KINDS: [&'static [u8]; 6] = [
+        b"pinyin", b"wubi", b"wubi98", b"wubixsj", b"quick", b"english",
+    ];
+
     fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
         let text = |index: usize, maximum: usize| -> rusqlite::Result<Vec<u8>> {
             let bytes = row.get_ref(index)?.as_bytes()?;
@@ -183,13 +202,17 @@ impl JournalRow {
         })
     }
 
-    /// `Ok(false)` for a row that cannot be stored: an unknown dictionary or a malformed pinyin key.
+    /// 写不进去的行返回 `Ok(false)`：拼音键不合规，或者词库种类不在 [`JournalRow::KNOWN_KINDS`] 里（回放在调用之前已经跳过了这种行）。
     fn apply(&self, main: &Connection) -> rusqlite::Result<bool> {
         let delete = self.operation == b"delete";
         match self.kind.as_slice() {
             b"pinyin" => apply_pinyin(main, &self.key, &self.value, delete, self.weight),
-            b"wubi" => apply_simple(main, "wubi86", &self.key, &self.value, delete, self.weight),
-            b"wubi98" => apply_simple(main, "wubi98", &self.key, &self.value, delete, self.weight),
+            kind @ (b"wubi" | b"wubi98" | b"wubixsj") => match wubi_table(kind) {
+                Some(table) => {
+                    apply_simple(main, table, &self.key, &self.value, delete, self.weight)
+                }
+                None => Ok(false),
+            },
             b"quick" => apply_simple(
                 main,
                 "quick_parases",
@@ -209,6 +232,14 @@ impl JournalRow {
             _ => Ok(false),
         }
     }
+}
+
+/// 日志里五笔种类（`wubi`、`wubi98`、`wubixsj`）的行写到的码表；不是五笔种类时为 `None`。
+fn wubi_table(kind: &[u8]) -> Option<&'static str> {
+    std::str::from_utf8(kind)
+        .ok()
+        .and_then(PersonalDictionaryKind::from_journal_name)
+        .and_then(PersonalDictionaryKind::wubi_table)
 }
 
 /// Bytes bound as TEXT the way `sqlite3_bind_text` bound the reference's `std::string`, whatever their encoding; `&[u8]` alone would bind a BLOB, which never equals a stored text value.
@@ -379,6 +410,7 @@ pub(super) mod tests {
              CREATE TABLE tbl_others_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
              CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
              CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
              CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
         );
         sql(&journal, OPERATIONS_DDL);
@@ -398,11 +430,21 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn wubi_and_wubi98_rows_land_in_their_own_tables() {
+    fn each_wubi_kind_lands_in_its_own_table() {
         let fixture = fixture();
         journal_row(&fixture, "('wubi','kl','号','upsert',11,'',1)");
         journal_row(&fixture, "('wubi98','kg','号','upsert',12,'',2)");
-        replay(&fixture.journal, &fixture.main, &fixture.english);
+        journal_row(&fixture, "('wubixsj','ent','力','upsert',13,'',3)");
+        let result = replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!((result.applied, result.failed), (3, 0));
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubixsj WHERE key='ent'"),
+            Some(13)
+        );
+        assert_eq!(
+            weight(&fixture.main, "SELECT count(*) FROM wubi86 WHERE key='ent'"),
+            Some(0)
+        );
         assert_eq!(
             weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='kl'"),
             Some(11)
@@ -417,11 +459,14 @@ pub(super) mod tests {
         );
     }
 
-    /// 代次里没有任何五笔表（资源目录不带 `msime-wubi.db`）时五笔行跳过，其余行照常写；有一张五笔表时，缺的那张仍按失败回滚。
+    /// 代次里没有任何五笔表（资源目录不带 `msime-wubi.db`）时五笔行跳过，其余行照常写；只缺某一版的表（还没有新世纪表的旧发布）时，只跳过那一版的行，其余五笔行照常写。
     #[test]
     fn wubi_rows_are_skipped_when_the_generation_has_no_wubi_table() {
         let fixture = fixture();
-        sql(&fixture.main, "DROP TABLE wubi86; DROP TABLE wubi98;");
+        sql(
+            &fixture.main,
+            "DROP TABLE wubi86; DROP TABLE wubi98; DROP TABLE wubixsj;",
+        );
         journal_row(&fixture, "('wubi','kl','号','upsert',11,'',1)");
         journal_row(&fixture, "('wubi98','kg','号','upsert',12,'',2)");
         journal_row(&fixture, "('pinyin','ni''hao','您好','upsert',500,'',3)");
@@ -444,15 +489,71 @@ pub(super) mod tests {
         );
 
         let fixture = self::fixture();
-        sql(&fixture.main, "DROP TABLE wubi98;");
+        sql(&fixture.main, "DROP TABLE wubixsj;");
         journal_row(&fixture, "('wubi','kl','号','upsert',11,'',1)");
         journal_row(&fixture, "('wubi98','kg','号','upsert',12,'',2)");
+        journal_row(&fixture, "('wubixsj','ent','力','upsert',13,'',3)");
+        journal_row(&fixture, "('wubixsj','enb','办','delete',0,'',4)");
         let result = replay(&fixture.journal, &fixture.main, &fixture.english);
-        assert_eq!((result.applied, result.failed), (1, 1));
         assert_eq!(
-            weight(&fixture.main, "SELECT count(*) FROM wubi86"),
-            Some(0)
+            (
+                result.applied,
+                result.skipped,
+                result.failed,
+                result.error.as_str()
+            ),
+            (2, 2, 0, "")
         );
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='kl'"),
+            Some(11)
+        );
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi98 WHERE key='kg'"),
+            Some(12)
+        );
+        // 行留在日志里，等码表并进来再写。
+        assert_eq!(
+            weight(
+                &fixture.journal,
+                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj'"
+            ),
+            Some(2)
+        );
+    }
+
+    /// 更新的版本写下、这一版不认识的词库种类（例如以后加的五笔版本）计入 `skipped`，其余的行照常提交，行本身留在日志里。
+    #[test]
+    fn rows_of_an_unknown_dictionary_kind_are_skipped_not_failed() {
+        let fixture = fixture();
+        journal_row(&fixture, "('future_kind','ent','力','upsert',11,'',1)");
+        journal_row(&fixture, "('japanese','ni','无效词','upsert',10,'',2)");
+        journal_row(&fixture, "('future_kind','enb','办','delete',0,'',3)");
+        journal_row(&fixture, "('wubi','lt','力','upsert',12,'',4)");
+        let result = replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!(
+            (
+                result.applied,
+                result.skipped,
+                result.failed,
+                result.error.as_str()
+            ),
+            (1, 3, 0, "")
+        );
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='lt'"),
+            Some(12)
+        );
+        assert_eq!(
+            weight(
+                &fixture.journal,
+                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='future_kind'"
+            ),
+            Some(2)
+        );
+        // 没有拼音库的代次同样跳过它们。
+        let english = replay_english(&fixture.journal, &fixture.english);
+        assert_eq!((english.failed, english.error.as_str()), (0, ""));
     }
 
     #[test]
@@ -579,13 +680,12 @@ pub(super) mod tests {
     fn a_failed_row_rolls_the_whole_replay_back() {
         let fixture = fixture();
         journal_row(&fixture, "('pinyin','ni''hao','您好','upsert',500,'',1)");
-        // `@` has no table, an empty segment cannot be stored, and an unknown dictionary is not applied (runtime_isolation `@` fixture).
+        // `@` 没有对应的表，空音节存不进去（runtime_isolation 的 `@` 用例）。不认识的词库种类不算失败，见下一个用例。
         journal_row(&fixture, "('pinyin','@','无效词','upsert',10,'',2)");
         journal_row(&fixture, "('pinyin','ni''''hao','无效词','upsert',10,'',3)");
-        journal_row(&fixture, "('japanese','ni','无效词','upsert',10,'',4)");
         let result = replay(&fixture.journal, &fixture.main, &fixture.english);
         assert_eq!(result.applied, 1);
-        assert_eq!(result.failed, 3);
+        assert_eq!(result.failed, 2);
         assert_eq!(
             result.error,
             "one or more operations failed; changes were rolled back"

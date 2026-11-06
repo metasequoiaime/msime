@@ -58,6 +58,11 @@ public final class SettingsSearchIndexSmoke {
         }
         // #6132：搜「浮动」要找到键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("浮动"), "searching 浮动 finds the keyboard page");
+        // #10557：粤语双拼的展开显示跟随「双拼显示原始按键」，搜开关名、搜「粤拼」都要落到键盘页。
+        check(pages.get("KEYBOARD_OPTIONS").matches("双拼显示原始按键") && pages.get("KEYBOARD_OPTIONS").matches("粤拼"),
+            "searching 双拼显示原始按键 or 粤拼 finds the keyboard page");
+        // #10717：iOS 同组的「原始按键按音节分隔」在 Android 键盘页也有，搜「双拼分隔」要落到这里。
+        check(pages.get("KEYBOARD_OPTIONS").matches("双拼分隔"), "searching 双拼分隔 finds the keyboard page");
         // 功能面板的「键盘调整」在设置里没有同名的行，搜它要落到放着键盘高度和底部高度的键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("键盘调整"), "searching 键盘调整 finds the keyboard page");
         check(pages.containsKey("FUZZY_PINYIN") && pages.get("FUZZY_PINYIN").matches("前后鼻音"),
@@ -116,6 +121,11 @@ public final class SettingsSearchIndexSmoke {
 
     /** 行标题来自代码里其他表的设置行：InputFeatureToggle 的标题、输入页的语言表、键盘页的工具栏按钮表。 */
     private static void computedRows(Map<String, Page> pages, List<String> missing) {
+        // 双拼设置行由同一个构建器交给原生页，索引也按它实际给出的标题核对。
+        app.msime.android.ShuangpinPreeditSettings.addRows(app.msime.android.AppEdition.FULL,
+            (key, fallback) -> fallback, (key, value) -> {}, (title, checked, changed, help) -> {
+                if (!pages.get("KEYBOARD_OPTIONS").matches(title)) missing.add("KEYBOARD_OPTIONS: " + title);
+            });
         String[][] rows = {
             {"TYPING", "只出单字"}, {"TYPING", "云候选"},
             {"TYPING", "退格键回退已选候选词"},
@@ -123,6 +133,7 @@ public final class SettingsSearchIndexSmoke {
             {"TYPING", "藏语"}, {"TYPING", "在候选栏中显示双拼辅助码"}, {"TYPING", "在候选栏中显示全拼辅助码"},
             {"TYPING", "五笔拼音混输"}, {"TYPING", "候选显示剩余编码"}, {"TYPING", "第五码将首选上屏"},
             {"TYPING", "五笔四码唯一候选自动上屏"},
+            {"TYPING", "全拼 14/18 键辅助码"}, {"TYPING", "双拼 14/18 键辅助码"},
             {"EXPRESSION", "智能标点"}, {"EXPRESSION", "英文联想"},
             {"LEXICON", "记忆新词"},
             {"PRIVACY", "用水杉账号翻译候选"}, {"PRIVACY", "匿名使用统计"}, {"PRIVACY", "剪贴板历史"},
@@ -138,6 +149,11 @@ public final class SettingsSearchIndexSmoke {
             Page page = pages.get(row[0]);
             check(page != null, "PageId has " + row[0]);
             if (!page.matches(row[1])) missing.add(page.name() + " (" + page.className() + "): " + row[1]);
+        }
+        // 「输入 › 辅助码」里双拼辅助码触发方式的各行，标题来自 HelpcodeModesPolicy 的表（#10624）。
+        Page typing = pages.get("TYPING");
+        for (app.msime.android.home.HelpcodeModesPolicy.Mode mode : app.msime.android.home.HelpcodeModesPolicy.MODES) {
+            if (!typing.matches(mode.title())) missing.add(typing.name() + " (" + typing.className() + "): " + mode.title());
         }
     }
 

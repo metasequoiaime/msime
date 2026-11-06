@@ -5,11 +5,26 @@ import UniformTypeIdentifiers
 ///
 /// 「我的插件」按类型分组列出这台设备用得上的包（`PluginKind.phoneOrder`），点进详情启用、选用、编辑或删除；下面是「制作插件」（新建短语表、指令表、符号集或单词本）和「导入插件」（系统文件选择器选 `.zip`，手机上不导入文件夹）。特效包、音乐包和旋律音效包装着也不列，只用一行说明有几个。包装在 App Group 的 `<共享状态目录>/plugins`，键盘下次获得焦点时读到。
 struct PluginsSettingsView: View {
-  enum Segment: Hashable { case mine, community }
+  enum Segment: Hashable, CaseIterable {
+    case mine, community
+
+    var title: String {
+      switch self {
+      case .mine: "我的插件"
+      case .community: "社区插件"
+      }
+    }
+  }
 
   @StateObject private var library = PluginLibrary()
-  @State private var segment = Segment.mine
+  @State private var segment: Segment
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  /// `searchAnchor` 是设置搜索命中的关键词（`SettingsSearchAnchor`）：它是某一段的标题时从那一段开始，例如搜「社区插件」直接停在「社区插件」；其余情况从「我的插件」开始。
+  init(searchAnchor: String? = nil) {
+    let title = SettingsSearchAnchor.section(Segment.allCases.map(\.title), anchor: searchAnchor)
+    _segment = State(initialValue: Segment.allCases.first { $0.title == title } ?? .mine)
+  }
 
   var body: some View {
     Group {
@@ -19,7 +34,7 @@ struct PluginsSettingsView: View {
       }
     }
     .designPinnedSegments {
-      DesignSegmentedControl(items: [("我的插件", Segment.mine), ("社区插件", .community)],
+      DesignSegmentedControl(items: Segment.allCases.map { ($0.title, $0) },
                              selection: $segment, style: .rounded, identifierPrefix: "pluginsTab")
         .frame(maxWidth: horizontalSizeClass == .regular ? CommunityLayout.regularMaxWidth : .infinity)
         .frame(maxWidth: .infinity)

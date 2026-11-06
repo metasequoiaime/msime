@@ -52,7 +52,7 @@ use msime_engine::{
     validate_nine_key_shuangpin_table, validate_shuangpin_custom_profile, CandidateEdge,
     NineKeyShuangpinError, NineKeyShuangpinKeyHint, NineKeyShuangpinKind, NineKeyShuangpinTable,
     SchemeSet, SchemeType, ShuangpinCustomProfileError, ShuangpinCustomTable,
-    ShuangpinCustomTablePart, ShuangpinProfileKind,
+    ShuangpinCustomTablePart, ShuangpinProfileKind, TextConversion,
 };
 #[cfg(unix)]
 use msime_input_runtime::TranslationQuery;
@@ -60,8 +60,8 @@ use msime_input_runtime::TranslationQuery;
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
     Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, GlideKeyboard, GlidePoint,
-    KeyGrid, NineKeySpellingId, OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel,
-    Transition, TranslationService,
+    GridHelpcodeOp, KeyGrid, NineKeySpellingId, OnlineCandidate, OnlineQuery, Reranker, Runtime,
+    SentenceModel, Transition, TranslationService,
 };
 use msime_input_runtime::{EmojiPanelQuery, HandwritingQuery};
 use serde::{Deserialize, Serialize};
@@ -199,6 +199,8 @@ mod key_sound;
 // 生命周期核心；`pub` 是为了让集成测试（零分配断言）直接调用纯推导函数。
 pub mod lifecycle;
 mod plugin_tables;
+// 对共享状态目录没有写权限的宿主怎么准备运行时（iOS 键盘没有完全访问，#10945）。
+mod read_only_state;
 // 脚本插件：进程开关、每会话的实例和进程级的模块缓存、熔断。移动端是空壳。
 mod scripts;
 mod voice_capture;
@@ -370,8 +372,11 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
     lifecycle: Option<Box<lifecycle::LifecycleState>>,
+    /// 文档带 `read_only_state`（宿主对共享状态目录没有写权限，见 [`read_only_state`]）：不学习、回车也不学英文词，偏好变了重建 Engine 时也不打开它们；置顶、删除、固定排位和取消固定都拒绝。
+    read_only_state: bool,
     // Declared after runtime so the Engine is dropped before releasing access.
-    _dictionary_access: DictionaryAccess,
+    /// 只读宿主在只读布局下（词库就是随包资源，没有谁维护）不取租约，为 `None`；其余会话都持着。
+    _dictionary_access: Option<DictionaryAccess>,
     /// 资源是下载的词库代次时占用它，设置宿主回收旧版本时不会删掉会话还在读的目录；同样放在 runtime 之后，Engine 先关掉文件再放手。
     _generation_lease: Option<msime_client_providers::dictionary_updates::GenerationLease>,
 }
@@ -420,6 +425,15 @@ fn session_preferences_differ(requested: &Preferences, applied: &Preferences) ->
 /// 上屏后联想只在接好了显示和按键的宿主上交给 Engine（`HostPlatform::shows_next_word_prediction`）：别的宿主收到联想会把它当成组字，数字、空格或回车可能把用户没选的词上屏。偏好随同步到达这些宿主时一律按关。
 fn next_word_prediction_applies(preferences: &Preferences) -> bool {
     ffi::host::compiled_platform().shows_next_word_prediction() && preferences.next_word_prediction
+}
+
+/// 粤拼候选的输出转换：用户在粤拼下选了简体（`cantonese_simplified_output`）时交给 Engine 繁转简，转换和去重都在 Engine 里做完，视图的 `script_conversion` 对粤拼仍为 false，宿主不再转换。
+fn cantonese_output_conversion(preferences: &Preferences) -> Option<TextConversion> {
+    preferences
+        .cantonese_simplified_output
+        .then_some(TextConversion(
+            msime_client_core::chinese_conversion::cantonese_to_simplified,
+        ))
 }
 
 fn multilingual_languages_for(
@@ -890,17 +904,21 @@ impl HostSession {
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
         options.shuangpin_preedit_separated = preferences.shuangpin_preedit_separated;
         options.force_cantonese_shuangpin = force_cantonese_shuangpin(scheme, &preferences);
+        options.cantonese_output_conversion = cantonese_output_conversion(&preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
-        options.learning = preferences.learning;
+        options.learning = preferences.learning && !self.read_only_state;
         options.next_word_prediction = next_word_prediction_applies(&preferences);
-        options.learn_english_on_enter = preferences.enter_learns_english_word;
+        options.learn_english_on_enter =
+            preferences.enter_learns_english_word && !self.read_only_state;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
         options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
+        // 「候选显示剩余编码」关掉时，引擎也不再给五笔候选附完整码，宿主退回显示注释时就看不到编码（#10790）。
+        options.wubi_reverse_code = preferences.wubi_code_hint;
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
         options.frequency_linear_step = preferences.frequency.linear_step;
@@ -943,6 +961,7 @@ impl HostSession {
         let helpcode = helpcode_for_scheme(&preferences, scheme);
         options.helpcode = helpcode.enabled;
         options.strict_quanpin_helpcode = helpcode.strict_filter;
+        options.grid_helpcode = helpcode.grid;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
@@ -1389,6 +1408,12 @@ impl HostSession {
             .map_or(&self.applied, |previous| &previous.preferences);
         let translation_changed =
             translation_query_preferences_changed(previous_preferences, &snapshot.preferences);
+        if previous_preferences.local_translation.enabled
+            && !snapshot.preferences.local_translation.enabled
+        {
+            // 安全：空指针/零长度是该入口定义的取消全部并卸载操作，不读取内存。
+            unsafe { msime_client_local_translation_cancel(std::ptr::null(), 0) };
+        }
         if translation_changed && !self.runtime.is_idle() {
             // 释义配置与服务凭据变化时清掉旧释义，使旧代次的回包不能进入新配置。
             self.runtime
@@ -1868,6 +1893,7 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     match profile {
         WubiProfile::Wubi86 => 0,
         WubiProfile::Wubi98 => 1,
+        WubiProfile::WubiXsj => 2,
     }
 }
 
@@ -2317,6 +2343,9 @@ struct HostOptions {
     /// 产品版本（`Edition::HOST_OPTIONS_KEY`）。只有不是 full 的版本才写：full 的文档因此与引入版本之前逐字节相同，旧版输入法（本结构拒绝未知键）照样能读。缺省就是 full；不是版本表里的 id 时整份文档被拒，而不是猜成 full。
     #[serde(default, skip_serializing_if = "Option::is_none", with = "edition_id")]
     edition: Option<&'static Edition>,
+    /// `true`：宿主对共享状态目录（`preferences_directory`）没有写权限，只读地用别的进程准备好的代次，或者只读布局下的随包词库（iOS 键盘没有完全访问，#10945；见 [`read_only_state`]）。这样的会话不学习、不记选词统计和已载入的代次，词库租约只读打开已有的锁文件。只由 `msime_client_prepare_host` 在内存里交给宿主，不写进任何发布的 runtime-options.json：旧版输入法（本结构拒绝未知键）读不了带它的文档。缺省是能写。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    read_only_state: Option<bool>,
 }
 
 /// 宿主选项里的偏好副本用不了时，输入运行时改用的偏好：`preferences_directory` 下有实时的 preferences.json 就读它（读不了时在内存里救下认得的设置），没有就救副本自己的，默认值取文档记录的版本。文档里没有偏好副本、也没有实时文档时返回 `None`。读不了的偏好经诊断出口报告，盘上的文件不动。
@@ -2478,6 +2507,7 @@ impl HostOptions {
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             shuangpin_preedit_separated: self.preferences.shuangpin_preedit_separated,
             force_cantonese_shuangpin: force_cantonese_shuangpin(scheme, &self.preferences),
+            cantonese_output_conversion: cantonese_output_conversion(&self.preferences),
             single_character_only: self.preferences.single_character_only,
             caret_edit_suffix: caret_edit_suffix_applies(&self.preferences),
             learning: self.preferences.learning,
@@ -2489,6 +2519,7 @@ impl HostOptions {
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
             wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
+            wubi_reverse_code: self.preferences.wubi_code_hint,
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
@@ -2561,6 +2592,7 @@ impl HostOptions {
             show_helpcode: helpcode.show_in_candidate_window,
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
+            grid_helpcode: helpcode.grid,
             helpcode_schema: helpcode.schema.as_str().into(),
             helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(
@@ -3082,6 +3114,10 @@ fn prepare_host_with_updates(
     adopt_custom_helpcodes(state_root, &sources);
     if let Some((updated, selected)) = selected_update {
         if verify_resources_once(&updated, &selected, state_root, &[]).is_ok() {
+            // 下载代次的 `<代次>.lock` 同理先建好，只读的宿主才取得到它的租约。
+            drop(msime_client_providers::dictionary_updates::lease(
+                state_root, &updated,
+            ));
             let mut document: Value = serde_json::from_str(&prepare_shipped_host_configuration(
                 &updated,
                 state_root,
@@ -3089,38 +3125,13 @@ fn prepare_host_with_updates(
                 &[],
                 edition,
             )?)?;
-            // 随包的独立模型、音效和插件不属于主词库代次，保留原有入口。
-            let original = msime_client_providers::dictionary_updates::bundled_resources(
+            attach_bundle_beside_update(
+                &mut document,
+                resources,
                 state_root,
                 specification,
-            )
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| resources.to_path_buf());
-            for (key, name) in [
-                ("sound_packs", "sound-packs"),
-                ("plugin_packs", "plugin-packs"),
-            ] {
-                if let Some(path) = original
-                    .parent()
-                    .map(|p| p.join(name))
-                    .filter(|p| p.is_dir())
-                {
-                    document[key] = json!(path);
-                }
-            }
-            if let Some(model) = settled_model_beside(&original) {
-                document["settled_model"] = json!(model);
-            }
-            // 辅助码表也不在词库发布里，下载的代次目录没有 `helpcodes/`。这里直接记下当前安装包的目录：iOS 每次 App 更新都换安装路径，更新记录里的随包目录会失效，`helpcode_fallback_resources()` 只能从记录里找。
-            if original.join("helpcodes").is_dir() {
-                document["helpcode_fallback_resources"] = json!(original);
-            }
-            if let Some(languages) = dictionary_updates::languages(state_root, edition)
-                .and_then(|p| p.to_str().map(str::to_owned))
-                .or_else(|| installed_language_dictionaries(&original))
-            {
-                document["language_dictionaries"] = json!(languages);
-            }
+                edition,
+            );
             return Ok(serde_json::to_string_pretty(&document)?);
         }
     }
@@ -3135,6 +3146,46 @@ fn prepare_host_with_updates(
         ON_DEMAND_ARTIFACTS,
         edition,
     )
+}
+
+/// 资源换成下载代次时，把不属于主词库代次的随包内容（独立模型、音效、插件、辅助码表、语言词库）指回安装包。
+fn attach_bundle_beside_update(
+    document: &mut Value,
+    resources: &Path,
+    state_root: &Path,
+    specification: &ResourceSet,
+    edition: &'static Edition,
+) {
+    // 随包的独立模型、音效和插件不属于主词库代次，保留原有入口。
+    let original =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification)
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| resources.to_path_buf());
+    for (key, name) in [
+        ("sound_packs", "sound-packs"),
+        ("plugin_packs", "plugin-packs"),
+    ] {
+        if let Some(path) = original
+            .parent()
+            .map(|p| p.join(name))
+            .filter(|p| p.is_dir())
+        {
+            document[key] = json!(path);
+        }
+    }
+    if let Some(model) = settled_model_beside(&original) {
+        document["settled_model"] = json!(model);
+    }
+    // 辅助码表也不在词库发布里，下载的代次目录没有 `helpcodes/`。这里直接记下当前安装包的目录：iOS 每次 App 更新都换安装路径，更新记录里的随包目录会失效，`helpcode_fallback_resources()` 只能从记录里找。
+    if original.join("helpcodes").is_dir() {
+        document["helpcode_fallback_resources"] = json!(original);
+    }
+    if let Some(languages) = dictionary_updates::languages(state_root, edition)
+        .and_then(|p| p.to_str().map(str::to_owned))
+        .or_else(|| installed_language_dictionaries(&original))
+    {
+        document["language_dictionaries"] = json!(languages);
+    }
 }
 
 /// 状态目录里 `edition` 的偏好。还没有偏好文件时，先把此刻读到的偏好写成第一份文件（[`PreferencesStore::write_first_document`]），理由见 [`prepare_host_configuration_for_edition`]。必须在建用户词库代次之前调用：没有偏好文件时，状态目录有没有被准备过决定触屏键盘按新装还是按升级前的默认方案。
@@ -3197,9 +3248,31 @@ fn prepare_shipped_host_configuration(
         &specification.generation()?,
         engine_schemes(edition),
     )?;
+    // 两个租约锁文件在这里就建好：对状态目录没有写权限的宿主（iOS 键盘没有完全访问）只能只读打开已有的锁文件取租约，自己建不出来（#10945，见 `read_only_state`）。取到就放；正被维护占着时文件也已经在了。
+    let _ = DictionaryAccess::try_session(
+        Path::new(&prepared.user_data),
+        Path::new(&prepared.dictionaries),
+    );
     // 先记下状态目录属于哪个版本：之后只拿到这个目录的偏好存储（各平台的 C ABI、设置应用）靠它取本版本的默认偏好。full 什么也不写。
     edition.record_in(&state_root)?;
-    Ok(serde_json::to_string_pretty(&HostOptions {
+    Ok(serde_json::to_string_pretty(&prepared_host_options(
+        prepared,
+        &resources,
+        &state_root,
+        preferences,
+        edition,
+    )?)?)
+}
+
+/// 准备好的引擎路径上的宿主选项：可写的准备（[`prepare_shipped_host_configuration`]）和只读的准备（[`read_only_state`]）共用，`resources` 是校验过的资源目录。
+fn prepared_host_options(
+    prepared: msime_engine::host::EngineOptions,
+    resources: &Path,
+    state_root: &Path,
+    preferences: Preferences,
+    edition: &'static Edition,
+) -> Result<HostOptions, Box<dyn std::error::Error>> {
+    Ok(HostOptions {
         api_version: 1,
         resources: prepared.resources,
         helpcode_fallback_resources: None,
@@ -3229,12 +3302,13 @@ fn prepare_shipped_host_configuration(
         // Written only when a model has actually been installed as its own artifact; a host that
         // places one beside the dictionaries needs no configuration.
         sentence_model: None,
-        settled_model: settled_model_beside(&resources),
+        settled_model: settled_model_beside(resources),
         sound_packs: None,
         plugin_packs: None,
-        language_dictionaries: installed_language_dictionaries(&resources),
+        language_dictionaries: installed_language_dictionaries(resources),
         edition: (!edition.is_full()).then_some(edition),
-    })?)
+        read_only_state: None,
+    })
 }
 
 /// A runtime options refresh found that the recorded resource directory does not hold the resource set this build pins.
@@ -3915,6 +3989,10 @@ fn dispatch_value(
         // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
         let action = session.caps_lock_punctuation(action);
         let action = session.runtime.candidate_shortcut(action);
+        // 只读会话不改词库（#10945）：在快捷键改道之后拦，组字原样留着，见 `read_only_state::edits_dictionary`。
+        if session.read_only_state && read_only_state::edits_dictionary(&action) {
+            return Err(read_only_state::CANDIDATE_EDITING_UNAVAILABLE.to_owned());
+        }
         let currency_punctuation = matches!(
             action,
             Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
@@ -4015,6 +4093,7 @@ fn translation_query_preferences_changed(previous: &Preferences, next: &Preferen
         || previous.candidate_pronunciation != next.candidate_pronunciation
         || previous.translation_target_language != next.translation_target_language
         || previous.translation_secondary_language != next.translation_secondary_language
+        || previous.local_translation != next.local_translation
         || previous.translation_account != next.translation_account
         || previous.custom_translation != next.custom_translation
         || previous.tencent_tmt != next.tencent_tmt

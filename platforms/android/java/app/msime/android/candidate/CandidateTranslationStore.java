@@ -43,6 +43,8 @@ public final class CandidateTranslationStore {
     private String binding;
     // 主线程写，worker 在逐词请求之间读（见 Service#translate 的 stale），所以是 volatile。
     private volatile long requestEpoch;
+    // 缓存的代次：clear() 一次加一（换服务、换凭据、换账号都经它）。单独请求（request）只认它，不认 requestEpoch：整页刷新每次都推进 requestEpoch，单独请求不能因此作废。
+    private volatile long lineage;
 
     public CandidateTranslationStore(Context context, ExecutorService worker, Handler main,
                                      Listener listener) {
@@ -85,6 +87,11 @@ public final class CandidateTranslationStore {
         return false;
     }
 
+    /** 缓存此刻是否属于账号绑定 {@code key}（只读，不改绑定）；{@code key} 为 null 时不属于任何绑定。 */
+    public boolean boundTo(String key) {
+        return key != null && key.equals(binding);
+    }
+
     public void refresh(List<String> words, String target, long generation) {
         refresh(words, target == null ? List.of() : List.of(target), generation);
     }
@@ -120,8 +127,59 @@ public final class CandidateTranslationStore {
 
     public void clear() {
         cancel();
+        lineage = lineage == Long.MAX_VALUE ? 0 : lineage + 1;
         cache.clear();
         signature = null;
+    }
+
+    /**
+     * 释义卡片为一个候选单独请求一次（#10915）：只问缓存里还没有的目标语言，不经过防抖，也不取消排着的整页请求；回答照整页请求的规则清洗后进同一份缓存，之后整页刷新问到这个词时直接用。缓存清空（换服务、换凭据、换账号）之后才到的回答丢掉。
+     *
+     * <p>{@code executor} 由调用方给：整页请求的 worker 只排得下一个任务、新任务挤掉旧的，单独请求放在那里可能一声不响地被下一次按键挤掉，卡片就一直等着。{@code done} 在主线程上调用，参数是这次有没有新译文（缓存清空后才到的回答丢掉，参数为 false）；没有要问的（不是中文、每种语言都已经有了）时不发请求、不调用它并返回 false。
+     */
+    public boolean request(String word, List<String> targets, java.util.concurrent.Executor executor,
+                           java.util.function.Consumer<Boolean> done) {
+        if (!translatable(word) || targets == null) return false;
+        ArrayList<String> missing = new ArrayList<>(targets.size());
+        for (String target : targets) {
+            if (target != null && !target.isEmpty() && !missing.contains(target)
+                    && !cache.containsKey(key(target, word))) missing.add(target);
+        }
+        if (missing.isEmpty()) return false;
+        long requested = lineage;
+        BooleanSupplier stale = () -> requested != lineage;
+        try {
+            executor.execute(() -> {
+                java.util.LinkedHashMap<String, String> answers = new java.util.LinkedHashMap<>(missing.size());
+                for (String target : missing) {
+                    if (stale.getAsBoolean()) break;
+                    try {
+                        List<String> values = service.translate(List.of(word), target, stale);
+                        if (values != null && values.size() == 1) answers.put(target, values.get(0));
+                    } catch (Exception ignored) {
+                        // 和整页请求一样：可选的显示数据，失败不打扰输入，也不把回答写进日志。
+                    }
+                }
+                scheduler.post(() -> {
+                    // 缓存清空后才到的回答丢掉，但照样告诉调用方「没有新译文」，卡片不会一直停在请求中。
+                    if (stale.getAsBoolean()) {
+                        done.accept(false);
+                        return;
+                    }
+                    boolean arrived = false;
+                    for (Map.Entry<String, String> answer : answers.entrySet()) {
+                        String value = usable(answer.getValue(), word);
+                        if (value == null) continue;
+                        remember(key(answer.getKey(), word), value);
+                        arrived = true;
+                    }
+                    done.accept(arrived);
+                });
+            });
+        } catch (RuntimeException rejected) {
+            return false;
+        }
+        return true;
     }
 
     private void send(List<String> words, List<String> targets, long generation, long epoch) {
@@ -178,14 +236,19 @@ public final class CandidateTranslationStore {
         if (values == null || words.size() != values.size()) return;
         boolean arrived = false;
         for (int index = 0; index < words.size(); index++) {
-            String value = values.get(index);
-            value = TextPolicy.stripSpaceChars(value);
-            if (value == null || value.isEmpty() || value.equals(words.get(index))
-                    || TextPolicy.utf8Length(value) > 4096) continue;
+            String value = usable(values.get(index), words.get(index));
+            if (value == null) continue;
             remember(key(target, words.get(index)), value);
             arrived = true;
         }
         if (arrived) listener.onArrival(generation);
+    }
+
+    /** 去掉首尾空白后能进缓存的译文：不为空、不是原文、不超过 4096 字节；否则为 null。 */
+    private static String usable(String value, String word) {
+        String stripped = TextPolicy.stripSpaceChars(value);
+        return stripped == null || stripped.isEmpty() || stripped.equals(word)
+            || TextPolicy.utf8Length(stripped) > 4096 ? null : stripped;
     }
 
     private void remember(String cacheKey, String value) {

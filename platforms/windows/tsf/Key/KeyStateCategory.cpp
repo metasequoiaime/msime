@@ -125,7 +125,7 @@ HRESULT CKeyStateCategory::KeyStateHandler(KEYSTROKE_FUNCTION function, KeyHandl
         return _pTextService->_HandleSmartPunctuationConvert(dto.ec, dto.pContext);
 
     case FUNCTION_SMART_PUNCTUATION_REVERT:
-        return _pTextService->_HandleSmartPunctuationRevert(dto.ec, dto.pContext, dto.wch);
+        return _pTextService->_HandleSmartPunctuationRevert(dto.ec, dto.pContext, dto.code, dto.wch);
 
     case FUNCTION_CONVERT: {
         return HandleKeyConvert(dto);

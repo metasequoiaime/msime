@@ -14,8 +14,8 @@ int main() {
         const auto rc = NSEventModifierFlagControl | NX_DEVICERCTLKEYMASK;
         const auto lc = NSEventModifierFlagControl | NX_DEVICELCTLKEYMASK;
         const auto cmd = NSEventModifierFlagCommand | NX_DEVICELCMDKEYMASK;
-        auto step = [&](unsigned short key, NSEventModifierFlags flags, bool recording, Action action, bool consumed, NSEventType type = NSEventTypeFlagsChanged) {
-            const auto result = shortcut.observe(Event(key, flags, type), all, recording);
+        auto step = [&](unsigned short key, NSEventModifierFlags flags, bool recording, Action action, bool consumed, NSEventType type = NSEventTypeFlagsChanged, bool repeat = false) {
+            const auto result = shortcut.observe(Event(key, flags, type, repeat), all, recording);
             assert(result.action == action && result.consumed == consumed);
         };
         step(49, 0, false, Action::None, false, NSEventTypeKeyDown); // Plain space never starts voice.
@@ -29,7 +29,7 @@ int main() {
         step(49, ro, true, Action::None, true, NSEventTypeKeyDown);
         assert(shortcut.locked()); // The overlay shows its actions from here on.
         step(61, 0, true, Action::None, true); // Space lock survives modifier release.
-        step(49, 0, true, Action::None, true, NSEventTypeKeyDown);
+        step(49, 0, true, Action::None, true, NSEventTypeKeyDown, true); // 还按着的空格自动重复，和它的松开一起吞掉。
         step(49, 0, true, Action::None, true, NSEventTypeKeyUp);
         step(61, ro, true, Action::Toggle, true); // Next shortcut stops locked recording.
         assert(!shortcut.locked());
@@ -53,7 +53,7 @@ int main() {
         step(61, lo, true, Action::Toggle, true); // Left Option does not hide right release.
         shortcut.reset();
         step(53, 0, true, Action::Cancel, true, NSEventTypeKeyDown);
-        step(53, 0, false, Action::None, true, NSEventTypeKeyDown);
+        step(53, 0, false, Action::None, true, NSEventTypeKeyDown, true); // 取消之后 Esc 的自动重复和松开都不交给应用。
         step(53, 0, false, Action::None, true, NSEventTypeKeyUp);
         shortcut.reset();
         all = {false, false, true, true};
@@ -153,5 +153,83 @@ int main() {
         // 只按左 Option 不是按住说话，组合键与语音无关。
         step(58, lo, false, Action::None, false);
         keyStep(f10, lo, false, Action::None, false);
+
+        // 松开通知可能根本送不到输入法（2026-11-03 设备验收：松开后录音一直开着）。宿主在按住期间轮询会话里的修饰键状态，确定抬起就按松开结束。
+        auto pollStep = [&](NSEventModifierFlags sessionFlags, bool recording, Action action) {
+            const auto result = shortcut.poll(sessionFlags, recording);
+            assert(result.action == action && !result.consumed);
+            assert(action != Action::Toggle || result.onRelease);
+        };
+        shortcut.reset();
+        pollStep(0, true, Action::None); // 没在按住，轮询什么也不做。
+        step(61, ro, false, Action::Toggle, true);
+        assert(shortcut.holding());
+        pollStep(ro, true, Action::None);
+        pollStep(option, true, Action::None); // 只有通用 Option 位、看不出哪一侧时当作还按着：宁可晚停，不在按住时提前停。
+        pollStep(0, true, Action::Toggle);
+        assert(!shortcut.holding());
+        pollStep(0, true, Action::None); // 只结束一次。
+        step(61, 0, true, Action::None, true); // 迟到的松开仍然吞掉：应用从没收到过这次按下。
+        step(61, ro, false, Action::Toggle, true); // 下一次按下照常开始。
+        shortcut.reset();
+        // 松开通知始终没到，下一次按下也不能被当成上一轮的重复通知吞掉。
+        step(61, ro, false, Action::Toggle, true);
+        pollStep(0, true, Action::Toggle);
+        step(61, ro, false, Action::Toggle, true);
+        step(61, 0, true, Action::Toggle, true);
+        shortcut.reset();
+        // 左 Option 还按着时，带侧别位的状态能看出右侧已经抬起。
+        step(61, ro, false, Action::Toggle, true);
+        pollStep(lo, true, Action::Toggle);
+        shortcut.reset();
+        // 空格锁定的录音不随按住结束，按住本身照样收尾。
+        step(61, ro, false, Action::Toggle, true);
+        step(49, ro, true, Action::None, true, NSEventTypeKeyDown);
+        pollStep(0, true, Action::None);
+        assert(!shortcut.holding() && shortcut.locked());
+        step(61, ro, true, Action::Toggle, true); // 再按一次停下锁定的录音。
+        shortcut.reset();
+        // 按住开始时停掉的是之前的录音，抬起时没有自己的录音可停。
+        step(61, ro, true, Action::Toggle, true);
+        pollStep(0, false, Action::None);
+        shortcut.reset();
+        // 右 Control+右 Option：任一侧抬起都算松开。
+        step(62, rc, false, Action::None, false);
+        step(61, rc | ro, false, Action::Toggle, true);
+        pollStep(rc | ro, true, Action::None);
+        pollStep(ro, true, Action::Toggle);
+        shortcut.reset();
+        step(62, rc, false, Action::None, false);
+        step(61, rc | ro, false, Action::Toggle, true);
+        pollStep(lc | ro, true, Action::Toggle); // 换成左 Control 不算还按着右 Control。
+        shortcut.reset();
+        // Control+Command 用通用位判断。
+        step(59, lc, false, Action::None, false);
+        step(55, lc | cmd, false, Action::Toggle, true);
+        pollStep(lc | cmd, true, Action::None);
+        pollStep(cmd, true, Action::Toggle);
+
+        // Esc 被吞掉之后它的 keyUp 不一定送到。新的一次 Esc 按下（不是自动重复）说明上一次早已抬起：录音时照样取消，没在录音就交给应用，不能从此把 Esc 一直吞掉。
+        shortcut.reset();
+        step(53, 0, true, Action::Cancel, true, NSEventTypeKeyDown);
+        step(53, 0, true, Action::Cancel, true, NSEventTypeKeyDown);
+        step(53, 0, true, Action::None, true, NSEventTypeKeyDown, true);
+        shortcut.reset();
+        step(53, 0, true, Action::Cancel, true, NSEventTypeKeyDown);
+        step(53, 0, false, Action::None, false, NSEventTypeKeyDown);
+        step(53, 0, false, Action::None, false, NSEventTypeKeyUp);
+        // 空格锁定同理：锁定用的空格松开没送到，之后不在按住时的空格照常打字。
+        shortcut.reset();
+        step(61, ro, false, Action::Toggle, true);
+        step(49, ro, true, Action::None, true, NSEventTypeKeyDown);
+        step(61, 0, true, Action::None, true);
+        step(49, 0, false, Action::None, false, NSEventTypeKeyDown);
+        step(49, 0, false, Action::None, false, NSEventTypeKeyUp);
+        shortcut.reset();
+        step(61, ro, false, Action::Toggle, true);
+        step(49, ro, true, Action::None, true, NSEventTypeKeyDown);
+        step(49, ro, true, Action::None, true, NSEventTypeKeyDown, true); // 自动重复仍然吞掉。
+        step(49, ro, true, Action::None, true, NSEventTypeKeyDown); // 按住期间新按的空格还是锁定。
+        assert(shortcut.locked());
     }
 }

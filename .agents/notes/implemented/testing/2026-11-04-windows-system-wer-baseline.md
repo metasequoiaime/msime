@@ -21,7 +21,7 @@ Status: implemented
 
 ## Consequences
 
-- 2026-11-05 的析因对照在基线之外加了只登记 helper、最小空 helper 等模式，定位到 32 位系统 WerFault 的缺陷，x86 系统投递随之改为非阻塞，见[x86 系统投递非阻塞](2026-11-05-windows-system-wer-x86-nonblocking.md)。
+- 2026-11-05 的析因对照在基线之外加了只登记 helper、最小空 helper 等模式，定位到 32 位系统 WerFault 的缺陷，产品随之在 WOW64 宿主里不再登记 helper，x86 系统投递只跑本篇的 `baseline` 和走生产判定的 `wow64` 并阻塞，见[WOW64 宿主不做进程外采集](../feature/2026-11-06-windows-tsf-wer-skip-wow64.md)。
 - 每个架构增加一个负向样本，正常情况下增加约 30 秒稳定窗口；不更改产品逻辑或系统通用策略。
 - 当前基线只覆盖无排队的负向标志，不能推论带排队标志的正向样本。
 - 历史笔记审计：与停顿重试笔记部分重叠并互链；[TSF WER 采集](../feature/2026-11-01-windows-tsf-wer-capture.md) 的产品边界不变，其余决定不受影响。

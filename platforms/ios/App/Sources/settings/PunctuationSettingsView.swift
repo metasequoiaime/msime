@@ -44,22 +44,17 @@ struct PunctuationSettingsView: View {
       }
       .designRow()
       Section {
-        Toggle(isOn: stored("smart_punctuation_repeat", $repeatToChinese)) {
-          SettingsOptionLabel(title: "重复标点转中文", info: "输出英文标点后，2 秒内再次输入同一标点时替换为中文标点")
-        }.accessibilityIdentifier("smartPunctuationRepeat")
-        Toggle(isOn: stored("smart_punctuation_space_convert", $spaceConvert)) {
-          SettingsOptionLabel(title: "中文标点后按空格转换", info: "刚输入中文标点后按空格，转换为对应英文标点")
-        }.accessibilityIdentifier("smartPunctuationSpaceConvert")
-        Toggle(isOn: stored("smart_punctuation_direct_digit", $directDigit)) {
-          SettingsOptionLabel(title: "数字后直出", info: "数字后输入逗号、句点或冒号时保留英文标点")
-        }.accessibilityIdentifier("smartPunctuationDirectDigit")
-        Toggle(isOn: stored("smart_punctuation_direct_letter", $directLetter)) {
-          SettingsOptionLabel(title: "字母后直出", info: "字母后输入逗号、句点或冒号时保留英文标点")
-        }.accessibilityIdentifier("smartPunctuationDirectLetter")
+        smartRule("重复标点转中文", info: "输出英文标点后，2 秒内再次输入同一标点时替换为中文标点",
+                  isOn: stored("smart_punctuation_repeat", $repeatToChinese), identifier: "smartPunctuationRepeat")
+        smartRule("中文标点后按空格转换", info: "刚输入中文标点后按空格，转换为对应英文标点",
+                  isOn: stored("smart_punctuation_space_convert", $spaceConvert), identifier: "smartPunctuationSpaceConvert")
+        smartRule("数字后直出", info: "数字后输入逗号、句点或冒号时保留英文标点",
+                  isOn: stored("smart_punctuation_direct_digit", $directDigit), identifier: "smartPunctuationDirectDigit")
+        smartRule("字母后直出", info: "字母后输入逗号、句点或冒号时保留英文标点",
+                  isOn: stored("smart_punctuation_direct_letter", $directLetter), identifier: "smartPunctuationDirectLetter")
       } footer: {
         Text("以上规则在智能标点开启时生效。")
       }
-      .disabled(!smart)
       .designRow()
       Section {
         Toggle(isOn: stored("paired_punctuation", $paired)) {
@@ -100,6 +95,23 @@ struct PunctuationSettingsView: View {
     .designPage()
     .navigationTitle("标点").navigationBarTitleDisplayMode(.inline)
     .reloadOnAppearAndActive(reload)
+  }
+
+  /// 智能标点细则的一行。智能标点关着时只禁用开关，标题变灰，标题旁的「?」照样能点开。不要对整个分区用 `.disabled`：它沿视图树往下传，连「?」一起禁用。与 `DesignToggleRow` 的 `enabled` 同一规则。
+  @ViewBuilder private func smartRule(_ title: String, info: String, isOn: Binding<Bool>, identifier: String) -> some View {
+    if smart {
+      Toggle(isOn: isOn) {
+        SettingsOptionLabel(title: title, info: info)
+      }
+      .accessibilityIdentifier(identifier)
+    } else {
+      HStack(spacing: 12) {
+        SettingsOptionLabel(title: title, info: info).foregroundStyle(.secondary)
+        Spacer(minLength: 8)
+        Toggle(title, isOn: isOn).labelsHidden().disabled(true)
+          .accessibilityIdentifier(identifier)
+      }
+    }
   }
 
   /// A binding that writes the shared document as it changes; a refused write puts the stored value back so the page never shows a setting the keyboard does not have.

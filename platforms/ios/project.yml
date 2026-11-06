@@ -136,6 +136,9 @@ targets:
       # The Stroke scheme's stroke orders come from rime-stroke (LGPL-3.0, with the CNS11643 attribution); its notice travels the same way.
       - path: ../../resources/licenses/rime-stroke-LGPL-3.0.txt
         buildPhase: resources
+      # 粤语双拼的键位方案由陳澍鋒设计（#9799），致谢随许可列在关于页的「开源许可」里；它不是许可证，是设计者、来源和「独立实现」的说明，各平台共用这一份。
+      - path: ../../resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt
+        buildPhase: resources
       # 同一个 Engine 的越南文和藏文方案编入了 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用），它们的许可证全文随每个 Engine 构建分发。
       - path: ../../resources/licenses/vi-MIT.txt
         buildPhase: resources
@@ -173,7 +176,7 @@ targets:
       # 键盘扩展的 EngineResources 带着桌面词库（msime-pinyin.db、msime-wubi.db、msime-english.db、msime-others.db、msime-bigram.bin、msime-trigram.bin，日文词典按需下载），它们逐个来源的上游、提交与条款写在 msime-dictionary 的 NOTICE.md 里，这是它的副本，另有 msime 一侧加进同一批词库的来源：其中有 msime-bigram.bin 与 msime-trigram.bin 要求的中文维基百科（CC BY-SA 4.0）署名，以及 msime-wubi.db 各份码表的出处。
       - path: ../../resources/licenses/msime-engine-dictionary-NOTICE.md
         buildPhase: resources
-      # 水杉输入法本身以 GPL-3.0-only 发布，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 原样作为 App 资源分发（键盘扩展只随 App 一起安装），关于页列在第一项。Android 以 client-LICENSE.txt、HarmonyOS 以 resfile/licenses/GPL-3.0.txt 分发同一份文件。
+      # 水杉输入法本身以 GPL-3.0-only 发布，键盘扩展 EngineResources 里的 msime-pinyin.db 含 rime-ice 的 GPL-3.0 数据，带新世纪五笔表的词库版本里 msime-wubi.db 的新世纪单字码取自 byujiang/wubi06_rime（GPL-3.0 由那个仓库的维护者给出，码表本身的来源没有记录，已知情况随那一版词库的 msime-engine-dictionary-NOTICE.md 一起更新），同样由这份全文覆盖，不另带许可证文件；GPL-3.0 第 4、6 条要求随目标代码附上许可证全文，所以仓库根目录的 LICENSE 原样作为 App 资源分发（键盘扩展只随 App 一起安装），关于页列在第一项。Android 以 client-LICENSE.txt、HarmonyOS 以 resfile/licenses/GPL-3.0.txt 分发同一份文件。
       - path: ../../LICENSE
         buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
@@ -411,10 +414,15 @@ targets:
       - path: App/Sources/settings/SettingsSaveFailure.swift
       - path: App/Sources/settings/CandidatePreviewCard.swift
       - path: App/Sources/settings/CandidateSkinPreview.swift
-      # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们。
+      # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们；双拼触发方式的表和读写由 HelpcodeModesTests 测（#10624），页面的「?」标题要 SettingsOptionLabel。
       - path: App/Sources/settings/HelpcodeChoicePolicy.swift
       - path: App/Sources/settings/HelpcodeSettingsView.swift
+      - path: App/Sources/settings/SettingsOptionLabel.swift
+      # 「输入」页每门语言列哪些方案，InputLanguageTests 核对它与 Android 的 `TypingPage.Language` 一致。
+      - path: App/Sources/settings/InputLanguage.swift
       # 插件页的目录、标记、偏好写法和编辑器规则，以及社区插件的翻页，PluginCatalogTests 与 PluginEditorModelTests 直接测它们。
+      # 设置搜索结果带着命中的关键词打开页面的规则，SettingsSearchAnchorTests 直接测它。
+      - path: App/Sources/app/SettingsSearchAnchor.swift
       - path: App/Sources/plugins/PluginCatalog.swift
       - path: App/Sources/plugins/PluginEditorModel.swift
       - path: App/Services/CommunityPluginAPI.swift

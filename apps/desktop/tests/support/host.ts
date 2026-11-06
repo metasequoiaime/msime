@@ -67,6 +67,8 @@ export function testHost(
     fullwidth_chord: macos,
     voice_provider_settings: !android,
     voice_stream_preedit: !android,
+    // 与 client-core 一致：只有鸿蒙在上屏前处理 `voice_input.punctuation_mode`。
+    voice_punctuation: harmony,
     // 空格锁定和提示音细分只有 Android、iOS 还读存下的值，录音后端只有 Linux 有得选，与 `HostCapabilities::for_platform` 一致。
     voice_space_lock_switch: android || platform === "ios",
     voice_cue_switches: android || platform === "ios",

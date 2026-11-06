@@ -68,7 +68,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .dictionary: return ["词库", "自造词", "学习"]
     case .plugins: return ["短语表", "指令表", "符号集", "单词本", "音效包", "辅助码表", "社区插件"]
     case .layout: return ["键盘", "高度", "键盘调整", "底部高度", "键盘宽度", "间距", "按键布局", "数字行", "长空格", "表情键", "中/英键放在空格左边", NineKeySidebar.letterTitle, NineKeySidebar.digitTitle, "按键音", "振动", "手势", "滑行", "中英混合滑行", "AI", "润色", "回复模板", "端点", "模型", "提示词"]
-    case .voice: return ["语音", "识别"]
+    case .voice: return ["语音", "识别", "语音标点"]
     case .handwriting: return ["手写"]
     case .developer: return ["日志", "诊断", "重置"]
     }
@@ -92,7 +92,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
   }
 
-  @ViewBuilder var destination: some View {
+  /// 搜索 `query` 时这一页结果要带给页面的目标：查询命中页面标题时为 nil，否则是第一个命中的关键词（`SettingsSearchAnchor.target`）。
+  func searchAnchor(for query: String) -> String? {
+    SettingsSearchAnchor.target(title: title, keywords: keywords, query: query)
+  }
+
+  /// 这一页的视图；`searchAnchor` 来自搜索结果时，带分段的页面从命中的那一段开始（目前是插件页的「社区插件」）。
+  @ViewBuilder func destination(searchAnchor: String? = nil) -> some View {
     switch self {
     case .skin: SkinSettingsView()
     case .candidate: CandidateOptionsSettingsView()
@@ -101,7 +107,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .ai: ExpressionSettingsView()
     case .phrases: CommonPhrasesSettingsView()
     case .dictionary: DictionarySettingsView()
-    case .plugins: PluginsSettingsView()
+    case .plugins: PluginsSettingsView(searchAnchor: searchAnchor)
     case .layout: KeyboardLayoutSettingsView()
     case .voice: VoiceSettingsView()
     case .handwriting: HandwritingSettingsView()

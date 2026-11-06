@@ -13,7 +13,7 @@ NSURL *MetasequoiaCandidateSkinsDirectoryURL(void);
 NSString *MetasequoiaStoredGlobalTheme(void);
 /// Stores a global theme id and posts MetasequoiaCandidateSkinDidChangeNotification. An id outside the catalog is ignored.
 void MetasequoiaSetStoredGlobalTheme(NSString *themeId);
-/// 设置窗口存下的 `custom_theme`：底色、浅色与深色两个槽位的候选皮肤和七个取色器。
+/// 设置窗口存下的 `custom_theme`：底色、浅色与深色两个槽位的候选皮肤和取色器（macOS 读文字、强调、选中、选中文字、悬停和表面六个）。
 metasequoia::mac::CustomTheme MetasequoiaStoredCustomTheme(void);
 /// The stored global theme resolved for one mode and one candidate layout: a package is drawn only in the layouts its manifest declares.
 metasequoia::mac::ResolvedSkin MetasequoiaResolveStoredTheme(BOOL dark, BOOL vertical);

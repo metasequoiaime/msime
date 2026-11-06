@@ -1,4 +1,4 @@
-//! 五笔查码：给一段汉字列出它在 86 和 98 码表里的编码，供设置页的「五笔查码」使用。只读码表，不建会话、不碰用户数据；字根拆分没有授权数据，不在这里。
+//! 五笔查码：给一段汉字列出它在 86、98 和新世纪码表里的编码，供设置页的「五笔查码」使用。只读码表，不建会话、不碰用户数据；字根拆分没有授权数据，不在这里。
 
 use std::path::Path;
 
@@ -18,13 +18,17 @@ const MAX_CODES_PER_TABLE: i64 = 8;
 const CODES_SQL_86: &str = "SELECT \"key\" FROM wubi86 WHERE \"value\" = ?1 GROUP BY \"key\" ORDER BY length(\"key\") ASC, max(\"weight\") DESC, \"key\" ASC LIMIT ?2";
 /// 与 `CODES_SQL_86` 相同，只是读 `wubi98`。
 const CODES_SQL_98: &str = "SELECT \"key\" FROM wubi98 WHERE \"value\" = ?1 GROUP BY \"key\" ORDER BY length(\"key\") ASC, max(\"weight\") DESC, \"key\" ASC LIMIT ?2";
+/// 与 `CODES_SQL_86` 相同，只是读 `wubixsj`。
+const CODES_SQL_XSJ: &str = "SELECT \"key\" FROM wubixsj WHERE \"value\" = ?1 GROUP BY \"key\" ORDER BY length(\"key\") ASC, max(\"weight\") DESC, \"key\" ASC LIMIT ?2";
 
-/// 一段文字（一个字或整段词）在两个码表里的编码，各自短码在前。码表里没有这段文字时对应列表为空。
+/// 一段文字（一个字或整段词）在三个码表里的编码，各自短码在前。码表里没有这段文字（或者词库里没有这张表）时对应列表为空。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WubiTextCodes {
     pub text: String,
     pub wubi86: Vec<String>,
     pub wubi98: Vec<String>,
+    /// 新世纪五笔（`wubixsj`）。
+    pub wubixsj: Vec<String>,
 }
 
 /// 查码结果。`characters` 按文字里第一次出现的顺序列出每个不同的汉字；`phrase` 是整段文字作为一个词的编码，只在整段都是汉字、不止一个字、且至少一个码表有它时给出。
@@ -36,13 +40,14 @@ pub struct WubiCodeLookup {
     pub truncated: bool,
 }
 
-/// 在 `database`（含 `wubi86`/`wubi98` 两张表的五笔码表）里查 `text` 的编码。数据库打不开时每一项都没有编码；只缺一张表时只有那一列为空，旧的发布只带 `wubi86` 也照常可用。
+/// 在 `database`（含 `wubi86`/`wubi98`/`wubixsj` 三张表的五笔码表）里查 `text` 的编码。数据库打不开时每一项都没有编码；缺哪张表只有那一列为空，旧的发布只带 `wubi86`、或者还没有 `wubixsj` 也照常可用。
 pub fn lookup_codes(database: &Path, text: &str) -> WubiCodeLookup {
     let connection = open_read_only(database);
     let codes = |word: &str| WubiTextCodes {
         text: word.to_owned(),
         wubi86: table_codes(connection.as_ref(), CODES_SQL_86, word),
         wubi98: table_codes(connection.as_ref(), CODES_SQL_98, word),
+        wubixsj: table_codes(connection.as_ref(), CODES_SQL_XSJ, word),
     };
 
     let mut seen = ['\0'; MAX_LOOKUP_CHARACTERS];
@@ -57,7 +62,9 @@ pub fn lookup_codes(database: &Path, text: &str) -> WubiCodeLookup {
     let phrase =
         (length > 1 && length <= MAX_LOOKUP_PHRASE_CHARACTERS && trimmed.chars().all(is_han))
             .then(|| codes(trimmed))
-            .filter(|phrase| !phrase.wubi86.is_empty() || !phrase.wubi98.is_empty());
+            .filter(|phrase| {
+                !phrase.wubi86.is_empty() || !phrase.wubi98.is_empty() || !phrase.wubixsj.is_empty()
+            });
 
     WubiCodeLookup {
         phrase,
@@ -111,13 +118,17 @@ mod tests {
     const FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
         INSERT INTO wubi86 VALUES('wqiy','你',100),('wq','你',200),('wqi','你',50),('wq','你',10),('vbg','好',100),('vb','好',300),('wqvb','你好',300);
         CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
-        INSERT INTO wubi98 VALUES('wqiy','你',100),('wq','你',200),('vbg','好',100);";
+        INSERT INTO wubi98 VALUES('wqiy','你',100),('wq','你',200),('vbg','好',100);
+        CREATE TABLE wubixsj(key TEXT,value TEXT,weight INTEGER);
+        INSERT INTO wubixsj VALUES('wq','你',200),('vbg','好',100),('ent','力',100),('lent','男力',100);";
 
-    fn codes(text: &str, wubi86: &[&str], wubi98: &[&str]) -> WubiTextCodes {
+    fn codes(text: &str, wubi86: &[&str], wubi98: &[&str], wubixsj: &[&str]) -> WubiTextCodes {
+        let list = |codes: &[&str]| codes.iter().map(|code| (*code).into()).collect();
         WubiTextCodes {
             text: text.into(),
-            wubi86: wubi86.iter().map(|code| (*code).into()).collect(),
-            wubi98: wubi98.iter().map(|code| (*code).into()).collect(),
+            wubi86: list(wubi86),
+            wubi98: list(wubi98),
+            wubixsj: list(wubixsj),
         }
     }
 
@@ -198,12 +209,16 @@ mod tests {
         assert_eq!(
             lookup.characters,
             vec![
-                codes("你", &["wq", "wqi", "wqiy"], &["wq", "wqiy"]),
-                codes("好", &["vb", "vbg"], &["vbg"]),
+                codes("你", &["wq", "wqi", "wqiy"], &["wq", "wqiy"], &["wq"]),
+                codes("好", &["vb", "vbg"], &["vbg"], &["vbg"]),
             ]
         );
         // 整段是一个词：86 有它的码，98 没有。
-        assert_eq!(lookup.phrase, Some(codes("你好", &["wqvb"], &[])));
+        assert_eq!(lookup.phrase, Some(codes("你好", &["wqvb"], &[], &[])));
+        // 只有新世纪有的字和词也列出来。
+        let lookup = lookup_codes(&path, "男力");
+        assert_eq!(lookup.characters[1], codes("力", &[], &[], &["ent"]));
+        assert_eq!(lookup.phrase, Some(codes("男力", &[], &[], &["lent"])));
         assert!(!lookup.truncated);
     }
 
@@ -228,7 +243,7 @@ mod tests {
     fn a_character_the_tables_lack_is_listed_without_codes() {
         let (_root, path) = database(FIXTURE);
         let lookup = lookup_codes(&path, "你龘");
-        assert_eq!(lookup.characters[1], codes("龘", &[], &[]));
+        assert_eq!(lookup.characters[1], codes("龘", &[], &[], &[]));
         assert_eq!(lookup.phrase, None);
     }
 
@@ -240,12 +255,12 @@ mod tests {
         );
         assert_eq!(
             lookup_codes(&path, "你").characters,
-            vec![codes("你", &["wq"], &[])]
+            vec![codes("你", &["wq"], &[], &[])]
         );
         let missing = path.with_file_name("missing.db");
         assert_eq!(
             lookup_codes(&missing, "你").characters,
-            vec![codes("你", &[], &[])]
+            vec![codes("你", &[], &[], &[])]
         );
     }
 

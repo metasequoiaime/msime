@@ -1054,6 +1054,7 @@ fn load_onnx_reranker(directory: &Path) -> Option<msime_onnx_rerank::OnnxScorer>
 pub mod account;
 pub mod ai_skin;
 pub mod android_data;
+pub mod candidate_colors;
 pub mod candidates;
 pub mod chat_stream;
 pub mod cloud_dictionary;
@@ -1069,6 +1070,7 @@ pub mod host;
 pub mod input;
 pub mod ios_settings;
 pub mod lifecycle;
+pub mod local_translation;
 pub mod mcp;
 pub mod moderation;
 pub mod pack_downloads;
@@ -1094,12 +1096,14 @@ mod preference_schema_tests;
 // Every export has always been reachable at the crate root; the domain split
 // below is for readers, not for callers, so each module is flattened back out.
 pub use android_data::*;
+pub use candidate_colors::*;
 pub use candidates::*;
 pub use credentials::*;
 pub use dictionary_sync::*;
 pub use host::*;
 pub use input::*;
 pub use lifecycle::*;
+pub use local_translation::*;
 pub use mcp::*;
 pub use pack_downloads::*;
 pub use plugins::*;

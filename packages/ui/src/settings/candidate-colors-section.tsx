@@ -138,6 +138,15 @@ export function CandidateColorsSection({
             onChange={onChange}
             resetLabel="候选选中色跟随主题"
           />
+          {/* #10740 维护者特许：迁移期 packages/ui 不加新设置，这一行是例外。没设时选中行文字照旧由选中色、皮肤和强调色推出。 */}
+          <CandidateColorRow
+            title="候选选中文字色"
+            slot="selected_text"
+            value={preferences.selected_text}
+            fallback="#ffffff"
+            onChange={onChange}
+            resetLabel="候选选中文字色跟随主题"
+          />
         </>
       ) : (
         <SettingsGroupNote inline>当前宿主的候选窗口不支持强调或选中行颜色。</SettingsGroupNote>

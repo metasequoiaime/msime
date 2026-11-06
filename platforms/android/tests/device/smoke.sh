@@ -380,6 +380,7 @@ check "Shared voice catalog JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run
 # 用合成内存文档核对共享换槽和清空字段策略，不保存或发送凭据。
 check "Shared voice settings JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceProviderSettingsDeviceSmoke
 # 语音接口提示与运行时共用校验；只传合成地址，不保存或联网。
+check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
 check "组合语音入口设置验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e voice-triggers true
 check "Shared voice endpoint JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.VoiceEndpointSettingsDeviceSmoke
 check "Local voice pause settings acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e local-voice-pause true
@@ -502,6 +503,8 @@ check "Letter swipe option acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_inst
 check "English letter hold acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-hold true
 # 英文三排角标在两种方向上均应上屏，包含 D 的非 ASCII 符号和 #9995 改成下划线、反引号的 X、C。
 check "English symbol swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-swipe true
+# 按键区按下即反馈（#10757）：直接命中、空隙、回车让位、多指、不可用的键、CANCEL 和滑行接管时回调的键和时机；只用合成的按键区，不经输入法服务。复用选项面板的入口，不增加 instrumentation 数量。
+check "Key press area acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OptionSheetDeviceSmoke -e key-feedback press-area
 if [[ "$settings" == true ]]; then
   for suite in OptionSheetDeviceSmoke SettingsDeviceSmoke SettingsLifecycleSmoke AccountStorageDeviceSmoke CloudClipboardKeystoreDeviceSmoke CloudClipboardDriverDeviceSmoke CloudClipboardRelayDeviceSmoke; do
     check "Shared settings acceptance failed: $suite" MSIME_DEVICE_SMOKE_PASSED "$adb" -s "$serial" shell am instrument -w "app.msime.android.test/app.msime.android.test.$suite"

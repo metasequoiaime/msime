@@ -594,6 +594,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-voice-provider-options-test PRIVATE src)
   target_link_libraries(linux-voice-provider-options-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-voice-provider-options COMMAND linux-voice-provider-options-test)
+  add_executable(linux-voice-punctuation-test tests/voice/voice_punctuation.cpp)
+  target_compile_options(linux-voice-punctuation-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-voice-punctuation-test PRIVATE src ../../crates/host-api/include)
+  target_link_libraries(linux-voice-punctuation-test PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+  add_test(NAME linux-voice-punctuation COMMAND linux-voice-punctuation-test)
   add_executable(linux-voice-hold-chord-test tests/voice/voice_hold_chord.cpp)
   target_compile_options(linux-voice-hold-chord-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-voice-hold-chord-test PRIVATE src)
@@ -662,6 +667,12 @@ if(BUILD_TESTING)
   target_include_directories(linux-caret-edit-suffix-test PRIVATE src)
   target_link_libraries(linux-caret-edit-suffix-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-caret-edit-suffix COMMAND linux-caret-edit-suffix-test)
+  # 辅助码前导键：两个宿主画按键原文时把它插回行内组字（HelpcodeTrigger.h，#10731）。
+  add_executable(linux-helpcode-trigger-test tests/core/helpcode_trigger.cpp)
+  target_compile_options(linux-helpcode-trigger-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-helpcode-trigger-test PRIVATE src)
+  target_link_libraries(linux-helpcode-trigger-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-helpcode-trigger COMMAND linux-helpcode-trigger-test)
   add_executable(linux-replaced-program-test tests/core/replaced_program.cpp)
   target_compile_options(linux-replaced-program-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-replaced-program-test PRIVATE src)
@@ -1283,6 +1294,7 @@ endif()
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+include(cmake/LocalTranslation.cmake)
 set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
@@ -1410,8 +1422,18 @@ if(NOT MSIME_ENABLE_FCITX5)
   message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
                  "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
 endif()
-# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS), under which the package as a whole is distributed; the input engine (crates/engine and crates/path-trust) is this project's code under MPL-2.0, whose LICENSE files collect-notices.py puts in rust-crates-NOTICES.txt. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the Korean Hanja table, from libhangul's data/hanja/hanja.txt (BSD-3-Clause); the octagram reader, ported from librime-octagram (BSD-3-Clause) with darts-clone's double-array layout (BSD-2-Clause); the beam sorts reproduced from libc++ (Apache-2.0 WITH LLVM-exception); the LaTeX command table of symbol mode, this project's own data under MIT, whose text is installed whether or not the latex-symbols plugin pack is; the component reverse lookup table of 拆字反查 (C mode), adapted from kfcd/chaizi (CC BY 3.0, whose attribution and list of changes travel with it), with readings, ranks and traditional variants from the Unicode Han Database (Unicode License V3); the Jyutping and bopomofo data of the Cantonese and Zhuyin schemes, from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the stroke orders of the Stroke scheme, from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered; the MIT and Apache-2.0 data in the dictionaries msime-linux-setup downloads, whose licence texts have to accompany every copy: the single-character readings of msime-pinyin.db (mozillazg/pinyin-data), the English–Chinese glosses of msime-english.db (skywind3000/ECDICT), the kaomoji and the keyword phrase readings of msime-others.db (aoguai/rime_kaomoji_dict, mozillazg/python-pinyin) and the 86 Wubi table of msime-wubi.db (KyleBing/rime-wubi86-jidian, Apache-2.0); the ranking weights msime-pinyin.db and msime-stroke.db share with amzxyz/rime-wanxiang, adapted from it under CC BY 4.0, whose attribution and list of changes travel with them; the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
+# 许可证与第三方声明放在 Linux 的安装文档目录，对应 macOS 包内的 Resources/Licenses。普通 `cmake --install` 与打包一样分发宿主库，所以都要安装这些文件。
+# 整包以 GPL-3.0 发布，本项目许可证在这里名为 `copyright`（macOS 上为 GPL-3.0.txt）；引擎与路径信任层（crates/engine、crates/path-trust）的 MPL-2.0 声明由 collect-notices.py 收进 rust-crates-NOTICES.txt。
+# 引擎带入的外部内容仍保留各自声明：手写识别移植自 zinnia；@ 模式的地名来自 modood/Administrative-divisions-of-China（WTFPL）；韩语汉字表来自 libhangul 的 data/hanja/hanja.txt（BSD-3-Clause）。
+# octagram 读取器移植自 librime-octagram（BSD-3-Clause），使用 darts-clone 的双数组布局（BSD-2-Clause）；束搜索排序复现 libc++（Apache-2.0 WITH LLVM-exception）；LaTeX 符号表是本项目的 MIT 数据，无论是否安装 latex-symbols 插件都附带其许可证。
+# 拆字反查表改编自 kfcd/chaizi（CC BY 3.0，附署名与改动说明），读音、排序和繁体变体取自 Unihan（Unicode License V3）；粤拼、注音、笔画数据分别来自 rime-cantonese（CC BY 4.0）、libchewing-data（LGPL-2.1-or-later）和 rime-stroke（LGPL-3.0，附 CNS11643 署名），即使平台不提供这些方案，也随引擎分发声明。
+# msime-linux-setup 下载的词库也须附 MIT 与 Apache-2.0 许可证全文：拼音单字读音来自 mozillazg/pinyin-data，中英释义来自 skywind3000/ECDICT，颜文字与关键词读音来自 aoguai/rime_kaomoji_dict 和 mozillazg/python-pinyin，86 五笔来自 KyleBing/rime-wubi86-jidian（Apache-2.0）。
+# 带新世纪表的 msime-wubi.db 从 byujiang/wubi06_rime 取单字编码，其 GPL-3.0 与整包一致，由 copyright 覆盖，不往下面的独立许可证列表再加一项。拼音与笔画库改编自 amzxyz/rime-wanxiang 的排序权重附署名、改动说明与 CC BY 4.0 全文。
+# 词库来源总声明从 msime-engine 原样带入，固定副本为 resources/licenses/msime-engine-dictionary-NOTICE.md，所有平台都分发；辅助码来源声明包括引擎带来的五种（ENGINE-NOTICE.md）和 jiajia（NOTICE.md）。
 set(MSIME_NOTICE_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/llama-cpp-rs-Apache-2.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/plamo-community-license.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/msime-engine-dictionary-NOTICE.md"
@@ -1442,6 +1464,9 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-wanxiang-CC-BY-4.0.txt")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
+  llama-cpp-MIT.txt
+  llama-cpp-rs-Apache-2.0.txt
+  plamo-community-license.txt
   copyright
   THIRD_PARTY_NOTICES.txt
   msime-engine-dictionary-NOTICE.md
@@ -1577,3 +1602,7 @@ foreach(msime_linux_target IN LISTS msime_linux_targets)
     target_compile_options(${msime_linux_target} PRIVATE -UNDEBUG)
   endif()
 endforeach()
+
+if(BUILD_TESTING)
+  include(../common/tests/embedded_translation.cmake)
+endif()

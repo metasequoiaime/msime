@@ -2,6 +2,7 @@
 #import "VoiceCueFixture.h"
 #import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
+#import "VoiceRuntimeIsolationFixture.h"
 #include <cassert>
 
 @interface DoubaoRequestFixture : NSObject
@@ -65,6 +66,7 @@
 - (void)playStartCue;
 @end
 @implementation DoubaoPresentationFixture
+- (void)applyThemePreferences:(NSDictionary *)preferences { (void)preferences; }
 - (void)dismissProcessing { self.dismissed = YES; }
 - (void)setListening:(BOOL)listening { self.phase = listening ? 1 : 0; self.failure = 0; self.preview = @""; }
 - (void)setTranscript:(NSString *)text { self.preview = text; }
@@ -116,6 +118,8 @@
 @property NSUInteger externalCommits;
 @end
 @implementation DoubaoControllerFixture
+// 合成控制器不读取已安装应用的定位器，偏好轮询与保存都不能落到用户目录。
+- (NSDictionary *)runtimeOptions { return @{}; }
 - (MSIMEVoiceCommitOutcome)postVoiceText:(NSString *)text route:(const MSIMEVoiceCommitRoute &)route {
     assert([text isEqual:@"synthetic routed"] && ![route.mode isEqual:@"tsf"]);
     ++self.externalCommits; return MSIMEVoiceCommitOutcome::posted;
@@ -142,8 +146,21 @@ static void Pump(void) {
     [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
 }
 
+static void ApplyPunctuationPreferences(MSIMEInputController *controller, NSString *mode) {
+    [NSApplication sharedApplication];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *old = [defaults volatileDomainForName:NSArgumentDomain];
+    NSMutableDictionary *arguments = [old mutableCopy] ?: [NSMutableDictionary dictionary];
+    arguments[@"MSIMEClientVoiceEnabled"] = @YES;
+    [defaults setVolatileDomain:arguments forName:NSArgumentDomain];
+    NSDictionary *voice = mode ? @{ @"punctuation_mode": mode } : @{};
+    [controller applySharedToolbarPreferences:@{@"voice_input": voice}];
+    [defaults setVolatileDomain:old forName:NSArgumentDomain];
+}
+
 int main() {
     @autoreleasepool {
+        MSIMEAssertVoiceRuntimeIsolation(DoubaoControllerFixture.class);
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         // This fixture exercises finishing a Chinese composition before voice;
         // do not depend on the product's default (English) input mode.
@@ -313,6 +330,57 @@ int main() {
             assert(!capture.active && !controller.polishFixture.submissions && client.commits.count == beforeShort);
         }
         capture.capturedSeconds = 0.25;
+        controller.usePolishFixture = NO;
+        // 语音标点（#10597）：本地模型和豆包共用这条流式路线。省略所有标点时，行内预编辑里带标点的中间结果照原样显示，最终结果去掉标点后替换它上屏。
+        ApplyPunctuationPreferences(controller, @"omit_all");
+        const NSUInteger beforePunctuated = client.commits.count, beforePunctuatedFailures = presentation.failures;
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"天啊，他是谁？", NO, nil);
+        assert([client.marked isEqual:@"天啊，他是谁？"]);
+        controller.fixture.result(@"天啊，他是谁？", YES, nil);
+        assert(client.commits.count == beforePunctuated + 1 && [client.commits.lastObject isEqual:@"天啊他是谁"]);
+        assert(!client.marked.length && !capture.active && presentation.failures == beforePunctuatedFailures);
+        assert(![controller valueForKey:@"doubaoVoiceRequest"]);
+        // 整段只有标点：和空结果一样提示没听到，清掉行内预编辑、停掉录音、放开请求；下一次录音照常开始并上屏，不会卡在识别中。
+        assert(Start(controller, capture, session, YES));
+        DoubaoRequestFixture *punctuationOnly = controller.fixture;
+        punctuationOnly.result(@"。", NO, nil);
+        punctuationOnly.result(@"。", YES, nil);
+        assert(presentation.failure == MSIMEVoiceFailureNoSpeech && presentation.failures == beforePunctuatedFailures + 1);
+        assert(client.commits.count == beforePunctuated + 1 && !client.marked.length && !capture.active);
+        assert(![controller valueForKey:@"doubaoVoiceRequest"] && punctuationOnly.cancellations == 1);
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"明天见，好吗？", YES, nil);
+        assert(client.commits.count == beforePunctuated + 2 && [client.commits.lastObject isEqual:@"明天见好吗"]);
+        assert(!capture.active && ![controller valueForKey:@"doubaoVoiceRequest"]);
+        ApplyPunctuationPreferences(controller, nil);
+        // 录音中和停止采集后重载偏好都只改变下一次识别；当前结果继续使用开始时的方式。
+        for (NSNumber *processing in @[@NO, @YES]) {
+            ApplyPunctuationPreferences(controller, @"omit_all");
+            assert(Start(controller, capture, session, YES));
+            if (processing.boolValue) [controller finishDoubaoVoiceInput];
+            ApplyPunctuationPreferences(controller, nil);
+            controller.fixture.result(@"synthetic。", YES, nil);
+            assert([client.commits.lastObject isEqual:@"synthetic"] && !capture.active);
+            assert(Start(controller, capture, session, YES));
+            controller.fixture.result(@"synthetic。", YES, nil);
+            assert([client.commits.lastObject isEqual:@"synthetic。"] && !capture.active);
+        }
+        controller.usePolishFixture = YES;
+        ApplyPunctuationPreferences(controller, @"omit_all");
+        assert(Start(controller, capture, session, YES));
+        controller.fixture.result(@"synthetic。", YES, nil);
+        ApplyPunctuationPreferences(controller, nil);
+        controller.polishFixture.completion(@"synthetic。", nil);
+        assert([client.commits.lastObject isEqual:@"synthetic"] && !capture.active);
+        DoubaoPolishFixture *obsoletePolish = controller.polishFixture;
+        const NSUInteger beforeObsolete = client.commits.count;
+        assert(Start(controller, capture, session, YES));
+        obsoletePolish.completion(@"obsolete。", nil);
+        assert(client.commits.count == beforeObsolete && capture.active);
+        controller.fixture.result(@"synthetic。", YES, nil);
+        controller.polishFixture.completion(@"synthetic。", nil);
+        assert(client.commits.count == beforeObsolete + 1 && [client.commits.lastObject isEqual:@"synthetic。"]);
         controller.usePolishFixture = NO;
         for (NSString *mode in @[@"sendinput", @"ctrl_v"]) {
             uint64_t generation = 0;

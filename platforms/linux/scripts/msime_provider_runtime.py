@@ -1,4 +1,4 @@
-"""Shared Unix provider startup ownership and stale socket recovery."""
+"""共享 Unix 提供程序的启动归属和过期套接字恢复，以及两种提供程序共用的火山方舟模型规则。"""
 import errno
 import fcntl
 import os
@@ -6,6 +6,7 @@ import signal
 import socket
 import socketserver
 import stat
+import urllib.parse
 
 
 class _StopServing(Exception):
@@ -108,3 +109,37 @@ def open_server(server_class, path, handler):
     except Exception:
         os.close(lock)
         raise
+
+
+def volcengine_successor_model(successors, endpoint, model):
+    """火山方舟预设下的已下线模型对应的接替模型，没有就返回 None。
+
+    与 client-core 的 `volcengine_successor_model` 同一条规则：`successors` 是导出到 msime_voice_provider_catalog 的 VOLCENGINE_SUCCESSOR_MODELS；只在接口地址留空或主机属于 volces.com 时换，指向别家网关的地址那边可能真有同名模型，不动。偏好读出时已经换了名，私有凭据文件里绑的还是旧名字，两边照同一张表换才对得上，请求也发接替模型。
+    """
+    endpoint = endpoint.strip()
+    if endpoint:
+        try:
+            host = urllib.parse.urlsplit(endpoint).hostname
+        except ValueError:
+            return None
+        if not host or (host != "volces.com" and not host.endswith(".volces.com")):
+            return None
+    return successors.get(model.strip())
+
+
+def disables_ark_seed_thinking(provider, endpoint, model):
+    """火山方舟上的豆包 Seed 默认开着深度思考，联想、释义和润色这类短请求要显式发 thinking.type = disabled。
+
+    方舟深度思考文档（https://docs.volcengine.com/docs/82379/1449737 ，2026-11-05 查）列出的 doubao-seed-* 全部支持 disabled，同平台的别的模型不一定（glm-5-3-flash-260828 只支持 enabled），所以接口地址属于 volces.com（地址缺失时看 volcengine 标签）且模型属于这个系列才算。与 client-providers 的 `disables_ark_seed_thinking` 一致。
+    """
+    if not isinstance(endpoint, str) or not isinstance(model, str):
+        return False
+    if "://" in endpoint:
+        try:
+            host = urllib.parse.urlsplit(endpoint.strip()).hostname
+        except ValueError:
+            return False
+        ark = bool(host) and (host == "volces.com" or host.endswith(".volces.com"))
+    else:
+        ark = provider == "volcengine"
+    return ark and model.strip().lower().startswith("doubao-seed-")

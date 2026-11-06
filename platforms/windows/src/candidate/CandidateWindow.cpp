@@ -111,7 +111,7 @@ std::wstring tooltip_wide(const std::string &text) {
     return {};
   return result;
 }
-// Text width in device independent pixels. DirectWrite is the same engine the renderer draws with, so the card cannot be sized for a different shaping. `weight` is the weight the text is drawn at: the preedit is semibold.
+// Text width in device independent pixels. DirectWrite is the same engine the renderer draws with, so the card cannot be sized for a different shaping. `weight` 是这段文字画出来的字重：候选文字用 `candidate_font_weight`，预编辑至少半粗。
 double measured_width(msimeui::DeviceResources &device, const std::wstring &text,
                       const std::wstring &family, float size,
                       IDWriteFontFallback *fallback,
@@ -138,10 +138,10 @@ double measured_width(msimeui::DeviceResources &device, const std::wstring &text
 // 一行文字画出来有多高（DIP，向上取整），和 macOS 的 MSIMECandidateTextHeight 一样：回退字体的字形可能比主字体高，所以按要画的文字量；文字为空时量的是主字体自己的一行。量不了时按 1.35 倍字号估算。
 double measured_line_height(msimeui::DeviceResources &device, const std::wstring &text,
                             const std::wstring &family, float size,
-                            IDWriteFontFallback *fallback) {
+                            IDWriteFontFallback *fallback, DWRITE_FONT_WEIGHT weight) {
   auto *factory = device.GetDWriteFactory();
   auto *format = device.GetTextFormat(
-      family, size, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+      family, size, weight, DWRITE_TEXT_ALIGNMENT_LEADING,
       DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_WORD_WRAPPING_NO_WRAP);
   set_candidate_font_fallback(format, fallback);
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
@@ -166,12 +166,12 @@ std::wstring pager_label(const CandidatePresentation &value, bool shown) {
 // Height of text wrapped to `width` DIPs, with the same top aligned, wrapping format paint() draws a run below the first line with.
 double wrapped_height(msimeui::DeviceResources &device, const std::wstring &text,
                       const std::wstring &family, float size, double width,
-                      IDWriteFontFallback *fallback) {
+                      IDWriteFontFallback *fallback, DWRITE_FONT_WEIGHT weight) {
   if (text.empty() || size <= 0.0f || !(width > 0.0))
     return 0.0;
   auto *factory = device.GetDWriteFactory();
   auto *format = device.GetTextFormat(
-      family, size, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+      family, size, weight, DWRITE_TEXT_ALIGNMENT_LEADING,
       DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_WRAP);
   set_candidate_font_fallback(format, fallback);
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
@@ -184,7 +184,7 @@ double wrapped_height(msimeui::DeviceResources &device, const std::wstring &text
       layout && SUCCEEDED(layout->GetMetrics(&metrics)))
     return std::ceil(metrics.height);
   // Same fallback as the shipped presenter: whole lines of the estimated width.
-  return std::ceil(measured_width(device, text, family, size, fallback) / width) *
+  return std::ceil(measured_width(device, text, family, size, fallback, weight) / width) *
          static_cast<double>(size) * 1.25;
 }
 // 四个角各用自己圆角的矩形，依次是左上、右上、右下、左下，皮肤 `item_corners_follow_card` 的高亮用它。每个半径不超过短边的一半；建不出几何时为空，调用方退回普通圆角矩形。
@@ -585,6 +585,8 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
     font_settings_ = std::move(remembered);
     font_size_ = settings.size;
     preedit_font_size_ = settings.preedit_size;
+    font_weight_ = static_cast<DWRITE_FONT_WEIGHT>(settings.weight);
+    preedit_weight_ = static_cast<DWRITE_FONT_WEIGHT>(settings.preedit_weight());
     invalidate_geometry();
     return true;
   } catch (...) {
@@ -1146,7 +1148,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
     input.preedit_width =
         measured_width(device_, wide(value.preedit), font_family_,
                        static_cast<float>(preedit_font_size_), font_fallback_.Get(),
-                       DWRITE_FONT_WEIGHT_SEMI_BOLD) +
+                       preedit_weight_) +
         (value.preedit_caret != std::string::npos ? candidate_preedit_caret_slot : 0.0);
   // 翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。卷轴展开的皮肤不画翻页，`show_candidate_page_number` 关掉时也不画。
   input.page_width = input.skin.expand_panel
@@ -1154,11 +1156,11 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                          : measured_width(device_, pager_label(value, show_page_number_),
                                           font_family_,
                                           static_cast<float>(CandidateCardMetrics{}.pager_font),
-                                          font_fallback_.Get());
+                                          font_fallback_.Get(), font_weight_);
   // 首行右侧的提示（光标后编辑的「候选编辑：光标后」）和页码同一个字号；没有提示时宽度为 0，卡片和以前一样大。
   input.hint_width = measured_width(device_, wide(candidate_header_hint(value)), font_family_,
                                     static_cast<float>(CandidateCardMetrics{}.pager_font),
-                                    font_fallback_.Get());
+                                    font_fallback_.Get(), font_weight_);
   input.items = measure_items(value);
   input.wrapped = wrap_measure(value);
   // canvas：内容内边距让面板比这张卡片四边各大出 canvas_offset_，最小宽度按整块面板比。没有 canvas 时为 0。
@@ -1189,16 +1191,18 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       panel_width, panel_height, static_cast<double>(available_width) / scale,
       static_cast<double>(available_height) / scale -
           (decoration_image_.empty() ? 0.0 : decoration_top_));
-  shadow_insets_ = {margins.left + canvas_offset_.left, margins.top + canvas_offset_.top,
-                    margins.right + canvas_offset_.right,
-                    margins.bottom + canvas_offset_.bottom};
-  const auto shadow_left = static_cast<int64_t>(std::lround(margins.left * scale));
-  const auto shadow_top = static_cast<int64_t>(std::lround(margins.top * scale));
-  const auto shadow_right = static_cast<int64_t>(std::lround(margins.right * scale));
-  const auto shadow_bottom = static_cast<int64_t>(std::lround(margins.bottom * scale));
-  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。
+  // 透明边距按整像素留（candidate_shadow_pixels），卡片在窗口里的 DIP 位置也按这几个整像素换算，绘制时扣掉的就是窗口实际留出的边距（candidate_card_extent，#10856）。
+  shadow_pixels_ =
+      candidate_shadow_pixels({margins.left, margins.top, margins.right, margins.bottom}, scale);
+  const int64_t shadow_left = shadow_pixels_.left, shadow_top = shadow_pixels_.top,
+                shadow_right = shadow_pixels_.right, shadow_bottom = shadow_pixels_.bottom;
+  shadow_insets_ = {static_cast<double>(shadow_left) / scale + canvas_offset_.left,
+                    static_cast<double>(shadow_top) / scale + canvas_offset_.top,
+                    static_cast<double>(shadow_right) / scale + canvas_offset_.right,
+                    static_cast<double>(shadow_bottom) / scale + canvas_offset_.bottom};
+  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`，只容 `candidate_layout_fits` 这点浮点误差），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。前提是两侧的阴影边距在绘制时按同样的整像素扣掉（上面的 `shadow_pixels_`），否则边距四舍五入掉的零点几像素又会从卡片上扣回去（#10856）。
   const auto content_width =
-      (std::min)(static_cast<int64_t>(std::ceil(panel_width * scale)),
+      (std::min)(candidate_card_pixels(panel_width, scale),
                  (std::max)(int64_t{1},
                             available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
@@ -1212,7 +1216,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                            : static_cast<float>(decoration_top_);
   // 同上，高度也向上取整：量高度用的是量尺寸那次的折行结论，绘制少半个像素就可能多折一行。
   const auto content_height =
-      (std::min)(static_cast<int64_t>(std::ceil(panel_height * scale)) + decoration,
+      (std::min)(candidate_card_pixels(panel_height, scale) + decoration,
                  (std::max)(int64_t{1},
                             available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
@@ -1251,7 +1255,7 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
   for (const auto &candidate : value.candidates) {
     auto width = [&](const std::string &text, double size) {
       return measured_width(device_, wide(text), font_family_,
-                            static_cast<float>(size), font_fallback_.Get());
+                            static_cast<float>(size), font_fallback_.Get(), font_weight_);
     };
     const auto secondary = candidate_secondary_run(candidate);
     items.push_back({width(candidate_primary_text(candidate), font_size_),
@@ -1271,19 +1275,19 @@ double CandidateWindow::number_label_width(size_t count,
   double widest = 0.0;
   for (size_t number = 1; number <= (std::min)(count, size_t{9}); ++number)
     widest = (std::max)(widest, measured_width(device_, std::to_wstring(number), font_family_,
-                                               size, font_fallback_.Get()));
+                                               size, font_fallback_.Get(), font_weight_));
   return widest;
 }
 double CandidateWindow::candidate_line_height(const CandidatePresentation &value) {
   const auto size = static_cast<float>(font_size_);
   double tallest = measured_line_height(device_, std::wstring{}, font_family_, size,
-                                        font_fallback_.Get());
+                                        font_fallback_.Get(), font_weight_);
   // 候选文字和注释分开量：两段各自不超过 wide() 的上限，连起来可能超过。
   for (const auto &candidate : value.candidates)
     for (const auto &run : {candidate_primary_text(candidate), candidate_annotation_run(candidate)})
       if (!run.empty())
         tallest = (std::max)(tallest, measured_line_height(device_, wide(run), font_family_, size,
-                                                           font_fallback_.Get()));
+                                                           font_fallback_.Get(), font_weight_));
   return tallest;
 }
 size_t CandidateWindow::reserved_secondary_lines(
@@ -1306,7 +1310,7 @@ double CandidateWindow::reserved_secondary_height(size_t lines) {
     placeholder += L"\nX";
   return wrapped_height(device_, placeholder, font_family_,
                         static_cast<float>(metrics.translation_font), 8192.0,
-                        font_fallback_.Get());
+                        font_fallback_.Get(), font_weight_);
 }
 CandidateWrapMeasure
 CandidateWindow::wrap_measure(const CandidatePresentation &value) {
@@ -1334,7 +1338,7 @@ CandidateWindow::wrap_measure(const CandidatePresentation &value) {
                           : translation            ? item.translation
                                                    : item.annotation,
                           font_family_, translation ? translation_font : font,
-                          width, font_fallback_.Get());
+                          width, font_fallback_.Get(), font_weight_);
   };
 }
 void CandidateWindow::set_typing_effect_active(bool active) {
@@ -1506,18 +1510,26 @@ void CandidateWindow::paint() {
   const auto hint_label = wide(candidate_header_hint(*value));
   const double hint_width =
       measured_width(device_, hint_label, font_family_,
-                     static_cast<float>(CandidateCardMetrics{}.pager_font), font_fallback_.Get());
+                     static_cast<float>(CandidateCardMetrics{}.pager_font), font_fallback_.Get(),
+                     font_weight_);
   const auto metrics = candidate_card_metrics(
       font_size_, preedit_font_size_, show_preedit_, show_app_logo_, !label.empty(), skin,
       number_label_width(value->candidates.size(), skin), candidate_line_height(*value),
       hint_width > 0.0);
   // 卡片按窗口客户区排，和 card_bounds 定的窗口尺寸一致。渲染目标比窗口大（合成交换链按 64 像素分档、只增不减），按它的 GetSize() 排会把卡片右边和下边画到窗口外面裁掉。
   const auto size = device_.GetClientSize();
+  // 卡片的宽高从客户区像素算：扣掉 card_bounds 留的整像素阴影边距，用同一个 scale 换回 DIP，再扣 canvas 的内边距，全程 double。不走上面 float 的 GetClientSize：它和没取整的 DIP 边距相减，绘制时的卡片会比量出来的窄零点几 DIP，横排的最后一个候选折到第二行、画到卡片外面（#10856）。
+  RECT client{};
+  if (!GetClientRect(window_, &client))
+    throw std::runtime_error("Candidate client area unavailable");
+  const double client_scale = layout_scale(msime::windows::compat::window_dpi(window_));
   const auto frame = candidate_shadow_frame(
-      size.width -
-          static_cast<float>(shadow_insets_.left + shadow_insets_.right),
-      size.height - decoration_offset_ -
-          static_cast<float>(shadow_insets_.top + shadow_insets_.bottom),
+      candidate_card_extent(client.right, shadow_pixels_.left, shadow_pixels_.right,
+                            client_scale) -
+          canvas_offset_.left - canvas_offset_.right,
+      candidate_card_extent(client.bottom, shadow_pixels_.top, shadow_pixels_.bottom,
+                            client_scale) -
+          decoration_offset_ - canvas_offset_.top - canvas_offset_.bottom,
       decoration_offset_, shadow_insets_);
   const float motion_progress = skin_motion_progress();
   // 进场和选中用 ease-out，退场用 ease-in，和 macOS 的 SettleCurve 与退场曲线一样。
@@ -1584,7 +1596,9 @@ void CandidateWindow::paint() {
   // A run placed below the first line is top aligned and wraps, matching wrapped_height(); everything on a first line is centred in it and does not wrap. Candidate text wider than its column wraps too but stays centred in its measured box, as the shipped presenter draws it.
   auto format = [&](double points, DWRITE_TEXT_ALIGNMENT alignment,
                     bool wrap = false, bool centred = false,
-                    DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL) {
+                    std::optional<DWRITE_FONT_WEIGHT> chosen = std::nullopt) {
+    // 不指定字重的文字都按 `candidate_font_weight` 画，和量尺寸时一样。
+    const auto weight = chosen.value_or(font_weight_);
     auto *value = device_.GetTextFormat(
         font_family_, static_cast<float>(points), weight, alignment,
         wrap && !centred ? DWRITE_PARAGRAPH_ALIGNMENT_NEAR
@@ -1809,7 +1823,7 @@ void CandidateWindow::paint() {
                                 frame.card_width,
                                 measured_width(device_, label, font_family_,
                                                static_cast<float>(metrics.pager_font),
-                                               font_fallback_.Get()),
+                                               font_fallback_.Get(), font_weight_),
                                 metrics);
   if (pager) {
     compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target, label.c_str(), static_cast<UINT32>(label.size()),
@@ -1852,7 +1866,7 @@ void CandidateWindow::paint() {
     const double reading_width =
         show_preedit_ ? measured_width(device_, wide(value->preedit), font_family_,
                                        static_cast<float>(preedit_font_size_),
-                                       font_fallback_.Get(), DWRITE_FONT_WEIGHT_SEMI_BOLD)
+                                       font_fallback_.Get(), preedit_weight_)
                       : 0.0;
     if (static_cast<double>(preedit_rect.left) + reading_width + metrics.pager_gap + combo_width <=
         static_cast<double>(preedit_rect.right))
@@ -1878,7 +1892,7 @@ void CandidateWindow::paint() {
           brush(*palette_.preedit_divider));
     const auto text = wide(value->preedit);
     auto *preedit_format = format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING, false,
-                                  false, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+                                  false, preedit_weight_);
     auto *preedit_brush = brush(palette_.preedit_text.value_or(palette_.accent));
     const bool caret = value->preedit_caret != std::string::npos &&
                        value->preedit_caret <= value->preedit.size();
@@ -1892,7 +1906,7 @@ void CandidateWindow::paint() {
       const auto after = text.substr((std::min)(before.size(), text.size()));
       const auto place = candidate_preedit_caret(
           measured_width(device_, before, font_family_, static_cast<float>(preedit_font_size_),
-                         font_fallback_.Get(), DWRITE_FONT_WEIGHT_SEMI_BOLD),
+                         font_fallback_.Get(), preedit_weight_),
           !after.empty(), static_cast<double>(rect.right - rect.left));
       const float scroll = static_cast<float>(place.scroll);
       target->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_ALIASED);
@@ -2478,7 +2492,7 @@ std::vector<double> CandidateWindow::grid_widths(const ExpandGrid &grid) {
       found = grid_width_cache_
                   .emplace(text, measured_width(device_, wide(text), font_family_,
                                                 static_cast<float>(font_size_),
-                                                font_fallback_.Get()))
+                                                font_fallback_.Get(), font_weight_))
                   .first;
     widths.push_back(found->second);
   }
