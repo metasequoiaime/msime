@@ -36,7 +36,7 @@ fn new_presets_match_the_reference_endpoints() {
         volcengine.endpoint,
         "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     );
-    assert_eq!(volcengine.model, "doubao-seed-1.6-flash");
+    assert_eq!(volcengine.model, "doubao-seed-2-0-mini-260428");
 }
 
 #[test]

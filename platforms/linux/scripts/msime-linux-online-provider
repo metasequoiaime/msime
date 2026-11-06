@@ -27,7 +27,10 @@ from types import SimpleNamespace
 import urllib.parse
 import urllib.request
 
-from msime_provider_runtime import StoppableUnixStreamServer, open_server
+from msime_provider_runtime import (
+    StoppableUnixStreamServer, disables_ark_seed_thinking, open_server, volcengine_successor_model,
+)
+from msime_voice_provider_catalog import VOLCENGINE_SUCCESSOR_MODELS
 import msime_crash_capture
 
 
@@ -620,7 +623,8 @@ def ai(query, config):
                              "segmented_pinyin": segments, "context": context,
                              "candidate_limit": limit, "output_format": "json"},
                              ensure_ascii=False)}]}
-    if config["provider"] == "deepseek":
+    if config["provider"] == "deepseek" or disables_ark_seed_thinking(
+            config["provider"], config["endpoint"], config["model"]):
         body["thinking"] = {"type": "disabled"}
     result = fetch(config["endpoint"], AI_REQUEST_TIMEOUT, body, config["token"],
                    connect_timeout=AI_CONNECT_TIMEOUT)
@@ -697,7 +701,8 @@ def ai_translation(text, target, options, path):
                          {"role": "user", "content": json.dumps({
                              "source_language": source, "target_language": destination,
                              "text": text, "output_format": "json"}, ensure_ascii=False)}]}
-    if config["provider"] == "deepseek":
+    if config["provider"] == "deepseek" or disables_ark_seed_thinking(
+            config["provider"], config["endpoint"], config["model"]):
         body["thinking"] = {"type": "disabled"}
     result = fetch(config["endpoint"], AI_REQUEST_TIMEOUT, body, config["token"],
                    connect_timeout=AI_CONNECT_TIMEOUT)
@@ -1027,7 +1032,7 @@ def ai_credential_test(config, path):
         return False
     body = {"model": selected["model"], "stream": False, "max_tokens": 1,
             "messages": [{"role": "user", "content": "Reply OK"}]}
-    if provider == "deepseek":
+    if provider == "deepseek" or disables_ark_seed_thinking(provider, selected["endpoint"], selected["model"]):
         body["thinking"] = {"type": "disabled"}
     elif provider == "siliconflow":
         body["enable_thinking"] = False
@@ -1125,7 +1130,8 @@ def ai_polish_test(query, server):
     body = {"model": selected["model"], "stream": False, "temperature": 0.2,
             "messages": [{"role": "system", "content": prompt},
                          {"role": "user", "content": text}]}
-    if selected["provider"] == "deepseek":
+    if selected["provider"] == "deepseek" or disables_ark_seed_thinking(
+            selected["provider"], selected["endpoint"], selected["model"]):
         body["thinking"] = {"type": "disabled"}
     elif selected["provider"] == "siliconflow":
         body["enable_thinking"] = False
@@ -1333,6 +1339,10 @@ def load_ai_config(path):
             raise ValueError("invalid AI configuration")
         for key in ("provider", "endpoint", "model"):
             entry[key] = entry[key].strip(" \t\r\n")
+        # 设置页保存时把密钥绑在当时的模型上；偏好读出时已把火山方舟的下线模型换成接替模型，这里照同一张表换，ai_config_matches 才对得上，请求也发接替模型。文件不改写。
+        if entry["provider"] == "volcengine":
+            entry["model"] = (volcengine_successor_model(
+                VOLCENGINE_SUCCESSOR_MODELS, entry["endpoint"], entry["model"]) or entry["model"])
         if any(any(ord(character) < 32 or 127 <= ord(character) <= 159
                    for character in entry[key]) for key in ("provider", "endpoint", "model")):
             raise ValueError("invalid AI configuration")

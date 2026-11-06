@@ -333,10 +333,13 @@ describe("the HarmonyOS phone 表达 page", () => {
     expect(toggle.checked).toBe(false);
     // 说明来自共享组件，手机和电脑同一句：联想能点选、按数字键或空格上屏。
     expect(within(smart).getByText(/点选、按数字键或空格上屏/)).toBeTruthy();
-    const buttons = () => within(smart).getByRole("button", { name: /^联想栏按键/ });
-    expect(buttons().textContent).toContain("只有展开 ∨");
+    // 未启用时选择行按设计不可打开，但标题旁的「?」仍可访问。
+    expect(within(smart).getByRole("button", { name: /^联想栏按键的说明：/ })).toBeTruthy();
     fireEvent.click(toggle);
     expect((await saveAndRead(save, 0)).next_word_prediction).toBe(true);
+
+    const buttons = () => within(smart).getByRole("button", { name: /^联想栏按键/ });
+    expect(buttons().textContent).toContain("只有展开 ∨");
 
     fireEvent.click(buttons());
     fireEvent.click(
