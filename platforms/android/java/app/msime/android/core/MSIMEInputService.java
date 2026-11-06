@@ -3061,7 +3061,10 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
         quanpinShiftEnabled = quanpinShiftFrom(preferences);
         touchKeyStyles = touchKeyStylesFrom(preferences);
-        numberRowEnabled = numberRowFrom(preferences);
+        boolean nextNumberRow = numberRowFrom(preferences);
+        // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
+        automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
+        numberRowEnabled = nextNumberRow;
         twentySixSymbolFirst = symbolFirstFrom(preferences);
         numberPadSpace = numberPadSpaceFrom(preferences);
         nineKeySidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);
@@ -3913,6 +3916,8 @@ public final class MSIMEInputService extends InputMethodService {
         predictionButtons = nextPredictionButtons;
         // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
         touchKeyStyles = nextTouchKeyStyles;
+        // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
+        automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
         numberRowEnabled = nextNumberRow;
         // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
         twentySixSymbolFirst = nextSymbolFirst;
