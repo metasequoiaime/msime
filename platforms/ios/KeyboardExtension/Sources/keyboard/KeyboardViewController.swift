@@ -9115,7 +9115,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
     let annotationColor = (number == 1 || converting ? candidatePalette?.selectedTranslation : nil) ?? candidatePalette?.secondary ?? skin.secondary
-    if let palette = candidatePalette {
+    if let palette = candidatePalette, !palette.usesKeyboardStyle {
       // canvas 首选用选中色，其余透明；既有桌面配色保留「首选高亮」取色器的 hover 语义。
       configuration.background.customView = number == 1 && palette.showSelectedBar
         ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout,
@@ -9143,7 +9143,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let lines = (reading.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? []) + glosses
       + (pronunciation.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? [])
     // 键盘自己的配色下，首选（空格会上屏的那个）就是选中项：用皮肤的 `candidateAccent`、600 字重，其余候选用按键文字色、400 字重（dc.html `mobCands`）。浅色跟随系统时 `candidateAccent` 是加深到 WCAG AA 的强调色，其余皮肤就是强调色。桌面调色板改用选中底色标出首选。
-    let selected = candidatePalette == nil && number == 1
+    let selected = (candidatePalette?.usesKeyboardStyle ?? true) && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
     let pinned = markers.contains(where: \.pinned)
@@ -9154,7 +9154,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let captionColor = confidentCorrection
       ? (onSelectedFill ? candidatePalette?.selectedTranslation ?? candidatePalette?.selectedText : nil) ?? accent : annotationColor
     configuration.baseForegroundColor = pinned || selected
-      ? accent
+      ? (selected ? candidatePalette?.selectedText : nil) ?? accent
       : confidentCorrection ? (onSelectedFill ? candidatePalette?.selectedText : nil) ?? accent
       : (number == 1 ? candidatePalette?.selectedText : nil) ?? candidatePalette?.text ?? skin.keyForeground
     // 在线占位行画成次要色，和真候选区分开（#6888）。
