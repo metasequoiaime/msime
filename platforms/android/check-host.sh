@@ -2031,6 +2031,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeModesPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/ReorderPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/SettingsSearchAnchorPolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \
   "${test_sources[@]}"
 # 可选 OCR 模块的前后处理只用 Java 标准库，跟宿主的纯 Java 模型一起编译，由 tests/ocr/OcrPipelineSmoke.java 覆盖；模块里调用 ONNX Runtime 和 Android 图形接口的 OcrModule 只由 Gradle 编译。
