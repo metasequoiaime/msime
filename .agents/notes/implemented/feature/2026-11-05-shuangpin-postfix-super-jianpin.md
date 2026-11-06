@@ -17,7 +17,7 @@ Status: implemented
 - 高亮：以前单按 `/` 上屏的是宿主高亮的那一行（runtime 的 `finish_seat(self.highlighted)`），不一定是首选。高亮、重排和插件插进来的行都只在 runtime 里，所以 `/` 转换时由 runtime 记下转换前的组字和高亮的座位、文字、编码（`crates/input-runtime/src/runtime/jianpin_slash.rs`）：退格撤回时高亮回到那一行（候选没变就回原座位，变了按文字和编码找回）；`//` 先经引擎的退格撤回、刷新、放回高亮，再走普通标点的最后一步（`finish_with_punctuation`，从 `punctuation` 里拆出来、行为不变）从那一行结束组字并接上 `/`，结果与以前单按 `/` 逐字相同。标点、英文标点、字符三条路由的第二个 `/` 都走这里。判断「此刻会撤回」时 runtime 只看快照：记下过高亮、仍在超级简拼、预编辑是 `J` 加转换前的原文、引擎仍发布 `/`（J 模式自身不拿 `/` 拼写，发布 `/` 就说明引擎的 `super_jianpin_slash_escape_ready` 成立）。引擎自己的 `//` 仍上屏首选，只服务没有高亮的直接调用方（C ABI、golden、单测）。
 - 回车和无匹配时的兜底行都用 `local_raw_text()`：经 `/` 进入时去掉开头的 `J`，回车上屏 `nuu`，与组字中回车上屏原文一致；Shift+J 进入的 J 模式仍上屏带 `J` 的原文（#7616）。经 `/` 进入时那段原文记在 `InputSession::jianpin_slash_origin`（按内容比较，因为 J 模式能在光标处改字），`reset_composition` 清掉它。
 - 开关是 `local_modes.super_jianpin_slash`：依附 `super_jianpin`，不受 `shift_letter_entry` 管；出厂开，缺这个键的旧文档读作开，开着时不写进文档（与 `symbol`、`date_time_menu` 同一写法）。经 host-api 的 `EngineOptions::local_super_jianpin_slash` 进引擎的 `LocalModeOptions::super_jianpin_slash`；网页引擎写死关，与它关掉 `super_jianpin` 一致。`/` 被谁占用的规则另有偏好层的 `msime_client_core::jianpin_slash::super_jianpin_slash_conflict`，与引擎的让位条件一致。
-- 界面：Windows 原生设置（含 Win7 设置，共用 `InputSettingsModel.h` 的 `local_modes` 表）在「超级简拼(J 模式)」下加一行「组字后按 / 转超级简拼」，超级简拼关着时变灰；iOS 的快捷模式页加同名开关，同样跟着超级简拼置灰。说明都进「?」。
+- 界面：Windows 原生设置（含 Win7 设置，共用 `InputSettingsModel.h` 的 `local_modes` 表）在「超级简拼(J 模式)」下加一行「组字后按 / 转超级简拼」，超级简拼关着时变灰；iOS 的快捷模式页加同名开关，同样跟着超级简拼置灰。禁用只落在开关上，标题旁的「?」仍能打开说明；不能对包含说明按钮的整行使用 `.disabled`。说明都进「?」，其中再次按 `/` 明确写成上屏转换前高亮的候选，与 runtime 的实际行为一致。
 - 宿主不加按键路由：六个平台都按 View 的 `spelling_symbols` 把发布的符号当字符送进引擎，与万象式 `/` 走同一条路。
 
 ## Alternatives considered

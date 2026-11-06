@@ -12,7 +12,7 @@ struct LocalModeSettingsView: View {
     ("kaomoji", "颜文字", "输入关键词查找颜文字"),
     ("super_jianpin", "超级简拼", "按每个字的首字母查词"),
     // 后置超级简拼（#10860）：双拼组字末尾按 /，把已经打的字母改成超级简拼。它管的是符号面板和外接键盘上的 /，依附超级简拼，超级简拼关着时置灰。
-    ("super_jianpin_slash", "组字后按 / 转超级简拼", "双拼打了三个以上字母后按 /，把这串字母改成超级简拼查词；一两个字母时 / 照常上屏。转换后马上退格回到原来的输入，再按一次 / 上屏首选并输出 /。双拼辅助码用 / 结束四码或作前导键、或 / 输出顿号时，/ 归它们"),
+    ("super_jianpin_slash", "组字后按 / 转超级简拼", "双拼打了三个以上字母后按 /，把这串字母改成超级简拼查词；一两个字母时 / 照常上屏。转换后马上退格回到原来的输入，再按一次 / 上屏转换前高亮的候选并输出 /。双拼辅助码用 / 结束四码或作前导键、或 / 输出顿号时，/ 归它们"),
     ("temporary_english", "英文补全", "临时输入英文单词，不离开中文键盘"),
     ("temporary_japanese", "临时日语", "临时用罗马音输入日语"),
     ("chaizi", "拆字", "输入部件拼音找不会读的字，如 huohuohuo 得 焱"),
@@ -37,11 +37,21 @@ struct LocalModeSettingsView: View {
     Form {
       Section {
         ForEach(Self.modes, id: \.0) { key, title, detail in
-          Toggle(isOn: stored(key)) {
-            SettingsOptionLabel(title: title, info: detail)
+          if Self.available(key, in: enabled) {
+            Toggle(isOn: stored(key)) {
+              SettingsOptionLabel(title: title, info: detail)
+            }
+            .accessibilityIdentifier("localMode.\(key)")
+          } else {
+            HStack {
+              SettingsOptionLabel(title: title, info: detail).opacity(0.5)
+              Spacer(minLength: 12)
+              Toggle(title, isOn: stored(key))
+                .labelsHidden()
+                .disabled(true)
+                .accessibilityIdentifier("localMode.\(key)")
+            }
           }
-          .disabled(!Self.available(key, in: enabled))
-          .accessibilityIdentifier("localMode.\(key)")
         }
       } footer: {
         if saveFailed {
