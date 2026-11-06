@@ -1737,7 +1737,9 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'resource_pack_invalid' });
     }
     const mirror = LocalVoiceModelPolicy.mirror(client.loadPreferences(root));
-    const installRequest: Record<string, Object> = { state_root: root, pack: id };
+    const installRequest: Record<string, Object> = {};
+    installRequest['state_root'] = root;
+    installRequest['pack'] = id;
     if (mirror.length > 0) installRequest['sources'] = [mirror];
     const install = JSON.stringify(installRequest);
     return await client.resourcePackInstall(install,
