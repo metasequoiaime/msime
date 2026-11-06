@@ -635,26 +635,30 @@ fn a_read_only_session_refuses_candidate_edits_and_keeps_the_composition() {
         .unwrap_or_else(|| panic!("{texts:?}"));
     let resources_before = tree_digests(&resources);
     let private_before = tree_digests(&private);
-    let edits: [(&str, Box<dyn Fn() -> *mut c_char>); 4] = [
+    // 每一项各调一次，按顺序：置顶、删除、固定到第 1 位、取消固定。
+    let results = [
         (
             "pin",
-            Box::new(move || msime_client_pin_candidate(handle, generation, index)),
+            read(msime_client_pin_candidate(handle, generation, index)),
         ),
         (
             "remove",
-            Box::new(move || msime_client_remove_candidate(handle, generation, index)),
+            read(msime_client_remove_candidate(handle, generation, index)),
         ),
         (
             "fix",
-            Box::new(move || msime_client_fix_candidate_position(handle, generation, index, 1)),
+            read(msime_client_fix_candidate_position(
+                handle, generation, index, 1,
+            )),
         ),
         (
             "clear",
-            Box::new(move || msime_client_clear_candidate_position(handle, generation, index)),
+            read(msime_client_clear_candidate_position(
+                handle, generation, index,
+            )),
         ),
     ];
-    for (name, edit) in &edits {
-        let result = read(edit());
+    for (name, result) in &results {
         assert_eq!(result["ok"], false, "{name}: {result}");
         assert_eq!(
             result["error"],
