@@ -7558,12 +7558,15 @@ static void TestCapsLockTap() {
     assert(![controller handleEvent:capsOff(1.4) client:client]);
 
     // 再轻点一次切回中文。
+    // 这里切到已知的 HID 实体状态，避免上一段“未知状态”合成留下的旧状态位干扰重复轻点；未知状态的首次布防已由上一段覆盖。
+    gCapsHIDKnown = true; gCapsHIDHeld = true;
     gCapsNow = 2000; gCapsHeld = true;
     assert(![controller handleEvent:capsOn(2.0) client:client]);
-    gCapsNow = 2050; gCapsHeld = false;
+    gCapsNow = 2050; gCapsHeld = false; gCapsHIDHeld = false;
     // 这次用实际的 flagsChanged 松键事件推进，覆盖输入法收到松键通知的常规路径；前一段已经覆盖无松键通知时的轮询路径。
     assert([controller handleEvent:capsOff(2.05) client:client]);
     assert(gCapsReleases == 2 && !prefs.englishMode);
+    gCapsHIDKnown = false;
 
     // 长按：超过 300 毫秒还按着，大写锁定照常生效并报告给会话，不切换。
     gCapsNow = 3000; gCapsHeld = true;
