@@ -137,6 +137,11 @@ public final class SettingsSearchIndexSmoke {
             check(page != null, "PageId has " + row[0]);
             if (!page.matches(row[1])) missing.add(page.name() + " (" + page.className() + "): " + row[1]);
         }
+        // 「输入 › 辅助码」里双拼辅助码触发方式的各行，标题来自 HelpcodeModesPolicy 的表（#10624）。
+        Page typing = pages.get("TYPING");
+        for (app.msime.android.home.HelpcodeModesPolicy.Mode mode : app.msime.android.home.HelpcodeModesPolicy.MODES) {
+            if (!typing.matches(mode.title())) missing.add(typing.name() + " (" + typing.className() + "): " + mode.title());
+        }
     }
 
     private static Path repoRoot() {

@@ -63,6 +63,7 @@
 #include "FeedbackReport.h"
 #include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
+#include "HelpcodeModesModel.h"
 #include "HistoryPagination.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
@@ -14902,6 +14903,30 @@ private:
     // 共享页的这一行不随辅助码开关变灰。
     bool_row(group, 0xE8FD, L"在候选窗口中显示" + label + L"辅助码", L"",
              prefix + L".show_in_candidate_window", show_fallback);
+    // 「一码严格筛选」随辅助码开关变灰，缺字段时为关（client-core `strict_filter` 的默认值）。
+    bool_row(group, 0xE71C, label + L"一码严格筛选",
+             std::wstring(msime::settings::helpcode::strict_filter_description),
+             prefix + L".strict_filter", false, false, enabled);
+  }
+
+  // 双拼辅助码的触发方式（`shuangpin_helpcode.modes`），只画在当前方案是双拼时的主流程里，与共享页桌面形态相同：另一族收进「更多选项」时不带这几行。各行与缺值读法见 HelpcodeModesModel.h。互斥由 client-core 在写入端归一，所以每次改动都重画，界面显示归一后的值。
+  void helpcode_mode_rows(StackPanel const &group) {
+    namespace hm = msime::settings::helpcode;
+    const std::wstring prefix = L"shuangpin_helpcode.modes.";
+    const auto value = [this, &prefix](hm::Mode const &mode) {
+      return document_.Boolean(prefix + std::wstring(mode.field), mode.fallback);
+    };
+    const auto find = [](std::wstring_view field) -> hm::Mode const & {
+      return *std::find_if(hm::shuangpin_modes.begin(), hm::shuangpin_modes.end(),
+                           [field](hm::Mode const &mode) { return mode.field == field; });
+    };
+    const bool helpcode_on = document_.Boolean(L"shuangpin_helpcode.enabled", true);
+    const bool mid_sentence = value(find(L"mid_sentence"));
+    const bool direct_helpcode = value(find(L"direct_helpcode"));
+    for (auto const &mode : hm::shuangpin_modes)
+      bool_row(group, 0xE8CB, L"双拼" + std::wstring(mode.title), std::wstring(mode.description),
+               prefix + std::wstring(mode.field), mode.fallback, true,
+               hm::mode_enabled(mode, helpcode_on, mid_sentence, direct_helpcode));
   }
 
   // 方案下拉框的两份来源。自定义码表只读一次，与共享页一样；辅助码表插件每次进入「输入」页重读，在别处导入或删除的包下次进来就能看到。两者都在 UI 线程之外读，读完内容有变化才重画。
@@ -15620,7 +15645,7 @@ private:
              L"quanpin.autocorrect_transposition", true);
   }
 
-  // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的三行（双拼方案用双拼，其他方案用全拼），另一族的三行收在组末的「更多选项」里；搜索落到那几行时展开。
+  // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的四行（双拼方案用双拼，其他方案用全拼），双拼方案还接着画双拼辅助码的触发方式；另一族的四行收在组末的「更多选项」里，不带触发方式；搜索落到那几行时展开。
   void build_helpcode_group(StackPanel const &page) {
     if (!helpcode_offered())
       return;
@@ -15636,6 +15661,8 @@ private:
     };
     auto helpcode = add_group(page, L"辅助码");
     family(helpcode, shuangpin);
+    if (shuangpin)
+      helpcode_mode_rows(helpcode);
     auto more = add_fold(
         helpcode, L"更多选项", helpcode_more_open_ || fold_holds_focus(L"helpcode-more"),
         [this](bool expanded) { helpcode_more_open_ = expanded; });
