@@ -331,7 +331,8 @@ struct HelpcodeSettingsView: View {
 /// 触屏键盘在中文方案下把分号、反引号和 `/` 按字面上屏（数字九宫格只在本地模式和越南文、藏文里把拼写符号交给会话，#+= 层没有这三个键），用到它们的那几行在说明里写明要外接键盘；大写字母和直接接码在触屏上照常可用。
 extension HelpcodeSettingsView {
   struct Mode {
-    enum Parent { case none, midSentence, directHelpcode }
+    /// 一行受哪个总开关管：末尾间接的三枚触发键要末尾直接和逐音节直接都关着，句中三枚触发键随句中间接，两种结束方式随逐音节直接。
+    enum Parent { case none, endTrigger, midSentence, directHelpcode }
     let field: String
     let title: String
     let info: String
@@ -346,13 +347,13 @@ extension HelpcodeSettingsView {
   private static let touchBacktick = "。触屏键盘上的反引号直接上屏，这种触发要用外接键盘"
 
   static let modes: [Mode] = [
-    Mode(field: "direct", title: "双拼末尾直接辅助码", info: "完整音节后直接接辅助码", fallback: true, parent: .none),
+    Mode(field: "direct", title: "双拼末尾直接辅助码", info: "完整音节后直接接辅助码；打开时末尾间接触发不生效", fallback: true, parent: .none),
     Mode(field: "trigger_semicolon", title: "双拼末尾间接触发（分号）",
-         info: "完整音节后按分号，再输入一到两个辅助码字母；微软双拼的分号优先补全韵母" + touchSemicolon, fallback: true, parent: .none),
+         info: "完整音节后按分号，再输入一到两个辅助码字母；微软双拼的分号优先补全韵母" + touchSemicolon, fallback: true, parent: .endTrigger),
     Mode(field: "trigger_backtick", title: "双拼末尾间接触发（反引号）",
-         info: "完整音节后按反引号，再输入一到两个辅助码字母" + touchBacktick, fallback: false, parent: .none),
+         info: "完整音节后按反引号，再输入一到两个辅助码字母" + touchBacktick, fallback: false, parent: .endTrigger),
     Mode(field: "trigger_uppercase", title: "双拼末尾间接触发（大写字母）", info: "完整音节后输入大写字母作为辅助码",
-         fallback: false, parent: .none),
+         fallback: false, parent: .endTrigger),
     Mode(field: "mid_sentence", title: "双拼句中间接辅助码", info: "触发键把它前面的音节标上辅助码，约束带进整句，后面还能接着打",
          fallback: false, parent: .none),
     Mode(field: "mid_sentence_backtick", title: "双拼句中触发键（反引号）", info: "用反引号在句中标记辅助码" + touchBacktick,
@@ -374,11 +375,12 @@ extension HelpcodeSettingsView {
     stored[mode.field] as? Bool ?? mode.fallback
   }
 
-  /// 这一行能不能改：双拼辅助码关着时全部置灰，句中三枚触发键还要「句中间接辅助码」开着，两种结束方式还要「逐音节直接辅助码」开着，与共享页的 disabled 相同。
+  /// 这一行能不能改：双拼辅助码关着时全部置灰，末尾间接三枚触发键还要「末尾直接辅助码」和「逐音节直接辅助码」都关着（引擎 `apply_request_options` 的判据，只置灰、不改存的值），句中三枚触发键还要「句中间接辅助码」开着，两种结束方式还要「逐音节直接辅助码」开着，与共享页的 disabled 相同。
   static func modeEnabled(_ mode: Mode, helpcodeOn: Bool, stored: [String: Any]) -> Bool {
     guard helpcodeOn else { return false }
     switch mode.parent {
     case .none: return true
+    case .endTrigger: return !switchOn("direct", stored: stored) && !switchOn("direct_helpcode", stored: stored)
     case .midSentence: return switchOn("mid_sentence", stored: stored)
     case .directHelpcode: return switchOn("direct_helpcode", stored: stored)
     }

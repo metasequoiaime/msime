@@ -48,7 +48,7 @@ export class VoiceProviderCatalog {
       case "qwen":
         return "qwen-plus";
       case "volcengine":
-        return "doubao-seed-1.6-flash";
+        return "doubao-seed-2-0-mini-260428";
       case "openrouter":
         return "openrouter/auto";
       case "custom":
