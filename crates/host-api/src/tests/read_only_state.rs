@@ -543,3 +543,136 @@ fn a_read_only_layout_on_real_dictionaries_leaves_the_bundled_resources_untouche
         type_on_the_read_only_layout(&keyboard, root.path(), None, b"nihao", Some("你好"));
     assert!(difference.is_empty(), "{difference}");
 }
+
+/// 只读布局的会话：随包资源目录里带一张有两行（本地、拟好）的拼音表，词库就是它，用户目录和缓存在 `root/private`。`read_only` 为 false 时是同一份布局上的可写会话，作对照。
+fn layout_session_with_rows(root: &Path, read_only: bool) -> (u64, PathBuf, PathBuf) {
+    let resources = root.join("keyboard/EngineResources");
+    let private = root.join("private");
+    std::fs::create_dir_all(&resources).unwrap();
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             INSERT INTO tbl_2_n VALUES('ni''hao','nh','本地',100),('ni''hao','nh','拟好',80);
+             CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+             CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+        )
+        .unwrap();
+    for name in ["user", "cache"] {
+        std::fs::create_dir_all(private.join(name)).unwrap();
+    }
+    let preferences = Preferences {
+        default_ime_mode: msime_client_core::preferences::DefaultImeMode::Chinese,
+        ..Preferences::default()
+    };
+    let mut options = json!({
+        "api_version": 1,
+        "resources": resources,
+        "dictionaries": resources,
+        "user_data": private.join("user"),
+        "cache": private.join("cache"),
+        "preferences": preferences,
+    });
+    if read_only {
+        options["read_only_state"] = json!(true);
+    }
+    let created = create(&options);
+    assert_eq!(created["ok"], true, "{created}");
+    (
+        created["value"]["session"].as_u64().unwrap(),
+        resources,
+        private,
+    )
+}
+
+/// 打 nihao，返回候选文字和界面代次。
+fn type_nihao(handle: u64) -> (Vec<String>, u64) {
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut view = Value::Null;
+    for byte in b"nihao" {
+        let typed = read(msime_client_character(handle, *byte, false));
+        assert_eq!(typed["ok"], true, "{typed}");
+        view = typed["value"]["view"].clone();
+    }
+    let texts = view["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|candidate| candidate["text"].as_str().map(str::to_owned))
+        .collect();
+    (texts, view["generation"].as_u64().unwrap())
+}
+
+/// 只读会话不改词库：置顶、删除、固定排位和取消固定都以明确的错误拒绝，组字和候选原样留着，随包资源和私有目录一个字节也没变。改前置顶和删除直接改写随包的 `msime-pinyin.db`（只读布局下的词库就是它；模拟器上 App 包可写，之后资源校验再也过不去，真机上包只读，写失败只报一句「没存住」），固定排位写进只有键盘自己看得见、App 永远读不到的私有日志。可写的会话作对照：同一份布局上置顶照常改写词库。
+#[test]
+fn a_read_only_session_refuses_candidate_edits_and_keeps_the_composition() {
+    let root = tempfile::tempdir().unwrap();
+
+    let (writable, resources, _) = layout_session_with_rows(&root.path().join("writable"), false);
+    let dictionary = resources.join("msime-pinyin.db");
+    let before = std::fs::read(&dictionary).unwrap();
+    let (texts, generation) = type_nihao(writable);
+    let index = texts
+        .iter()
+        .position(|text| text == "拟好")
+        .unwrap_or_else(|| panic!("{texts:?}"));
+    let pinned = read(msime_client_pin_candidate(writable, generation, index));
+    assert_eq!(pinned["ok"], true, "{pinned}");
+    assert_ne!(
+        std::fs::read(&dictionary).unwrap(),
+        before,
+        "precondition: pinning on this layout rewrites the dictionary"
+    );
+    assert_eq!(read(msime_client_destroy(writable))["ok"], true);
+
+    let (handle, resources, private) =
+        layout_session_with_rows(&root.path().join("read-only"), true);
+    let (texts, generation) = type_nihao(handle);
+    let index = texts
+        .iter()
+        .position(|text| text == "拟好")
+        .unwrap_or_else(|| panic!("{texts:?}"));
+    let resources_before = tree_digests(&resources);
+    let private_before = tree_digests(&private);
+    let edits: [(&str, Box<dyn Fn() -> *mut c_char>); 4] = [
+        (
+            "pin",
+            Box::new(move || msime_client_pin_candidate(handle, generation, index)),
+        ),
+        (
+            "remove",
+            Box::new(move || msime_client_remove_candidate(handle, generation, index)),
+        ),
+        (
+            "fix",
+            Box::new(move || msime_client_fix_candidate_position(handle, generation, index, 1)),
+        ),
+        (
+            "clear",
+            Box::new(move || msime_client_clear_candidate_position(handle, generation, index)),
+        ),
+    ];
+    for (name, edit) in &edits {
+        let result = read(edit());
+        assert_eq!(result["ok"], false, "{name}: {result}");
+        assert_eq!(
+            result["error"],
+            crate::read_only_state::CANDIDATE_EDITING_UNAVAILABLE,
+            "{name}: {result}"
+        );
+    }
+    let view = read(msime_client_view(handle));
+    assert_eq!(view["ok"], true, "{view}");
+    assert_eq!(view["value"]["generation"], generation, "{view}");
+    let still: Vec<&str> = view["value"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|candidate| candidate["text"].as_str())
+        .collect();
+    assert_eq!(still, texts, "{view}");
+    assert_eq!(tree_digests(&resources), resources_before);
+    assert_eq!(tree_digests(&private), private_before);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}

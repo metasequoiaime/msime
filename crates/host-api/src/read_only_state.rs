@@ -9,7 +9,7 @@
 //! - 拿不到这样的代次（App 还没为这个版本准备过、锁文件不在、锁取不了）时用只读布局：词库就是扩展随包的资源，没有用户词库，但能打字；随包资源没有谁会改，用不着租约。
 //! - 资源校验标记、缓存和只读布局的用户目录放在宿主自己能写的 `private_root`（扩展自己的容器）。
 //!
-//! 准备出的文档带 `read_only_state: true`，会话据此不学习、不记选词统计和已载入的代次。
+//! 准备出的文档带 `read_only_state: true`，会话据此不学习、不记选词统计和已载入的代次，也不改词库：置顶、删除、固定排位和取消固定都以 [`CANDIDATE_EDITING_UNAVAILABLE`] 拒绝（[`edits_dictionary`]）。
 
 use std::path::Path;
 
@@ -17,7 +17,23 @@ use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{Preferences, PreferencesStore};
 use msime_client_core::resources::ResourceSet;
 use msime_client_services::dictionary::access::DictionaryAccess;
+use msime_input_runtime::Action;
 use serde_json::Value;
+
+/// 只读会话拒绝改词库的候选操作时的错误。
+pub(crate) const CANDIDATE_EDITING_UNAVAILABLE: &str =
+    "candidate editing needs write access to the shared state";
+
+/// 这个动作是不是改词库的候选操作（置顶、删除、固定排位、取消固定）。只读会话不派发它们：只读布局下词库就是随包资源，置顶和删除会改写它（模拟器上 App 包可写，之后资源校验再也过不去；真机上写失败），固定排位只写得进键盘私有目录里 App 永远读不到的日志；用 App 的代次时日志和词库都在只读的共享目录里，写必然失败。所以与学习一样整个不做，而不是让它半写半不写。
+pub(crate) fn edits_dictionary(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::PinCandidate(_)
+            | Action::RemoveCandidate(_)
+            | Action::FixCandidatePosition(..)
+            | Action::ClearCandidatePosition(_)
+    )
+}
 
 /// 只读地准备 `state_root` 上的宿主，返回 HostOptions 文档。`resources` 是宿主自己随包的资源，`private_root` 是它自己能写、不在 `state_root` 里的目录。
 pub(crate) fn prepare_read_only_host(

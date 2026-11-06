@@ -372,7 +372,7 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
     lifecycle: Option<Box<lifecycle::LifecycleState>>,
-    /// 文档带 `read_only_state`（宿主对共享状态目录没有写权限，见 [`read_only_state`]）：不学习、回车也不学英文词，偏好变了重建 Engine 时也不打开它们。
+    /// 文档带 `read_only_state`（宿主对共享状态目录没有写权限，见 [`read_only_state`]）：不学习、回车也不学英文词，偏好变了重建 Engine 时也不打开它们；置顶、删除、固定排位和取消固定都拒绝。
     read_only_state: bool,
     // Declared after runtime so the Engine is dropped before releasing access.
     /// 只读宿主在只读布局下（词库就是随包资源，没有谁维护）不取租约，为 `None`；其余会话都持着。
@@ -3981,6 +3981,10 @@ fn dispatch_value(
         // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
         let action = session.caps_lock_punctuation(action);
         let action = session.runtime.candidate_shortcut(action);
+        // 只读会话不改词库（#10945）：在快捷键改道之后拦，组字原样留着，见 `read_only_state::edits_dictionary`。
+        if session.read_only_state && read_only_state::edits_dictionary(&action) {
+            return Err(read_only_state::CANDIDATE_EDITING_UNAVAILABLE.to_owned());
+        }
         let currency_punctuation = matches!(
             action,
             Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
