@@ -334,7 +334,7 @@ for target in "${rust_targets[@]}"; do
   printf '%s\n' "$ort_library_sha" > "$ort_stamp"
 done
 MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server --features msime-host-api/onnx-rerank
+  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server --features msime-host-api/onnx-rerank,msime-host-api/local-translation
 # MSIME_HOST_LIBRARY is explicit: the CMake default is target/debug, which would link the debug Rust library into a Release bundle.
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
   -DMSIME_RELEASE_CRASH_SYMBOLS=ON \

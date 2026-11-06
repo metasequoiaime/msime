@@ -166,6 +166,9 @@ pub enum WubiVersion {
     Wubi86,
     #[serde(rename = "wubi98")]
     Wubi98,
+    /// 新世纪五笔。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
@@ -298,6 +301,7 @@ impl From<WubiProfile> for WubiVersion {
         match value {
             WubiProfile::Wubi86 => Self::Wubi86,
             WubiProfile::Wubi98 => Self::Wubi98,
+            WubiProfile::WubiXsj => Self::WubiXsj,
         }
     }
 }
@@ -307,6 +311,7 @@ impl From<WubiVersion> for WubiProfile {
         match value {
             WubiVersion::Wubi86 => Self::Wubi86,
             WubiVersion::Wubi98 => Self::Wubi98,
+            WubiVersion::WubiXsj => Self::WubiXsj,
         }
     }
 }
@@ -440,7 +445,7 @@ pub struct PreferencesView {
     pub smart_punctuation: bool,
     /// Output Traditional Chinese.
     pub traditional_chinese_output: bool,
-    /// 五笔用 86 还是 98 码表。
+    /// 五笔用 86、98 还是新世纪（`wubixsj`）码表。
     pub wubi_profile: WubiVersion,
     /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     pub wubi_mixed_pinyin: bool,
@@ -989,7 +994,11 @@ mod tests {
                 profile
             );
         }
-        for profile in [WubiProfile::Wubi86, WubiProfile::Wubi98] {
+        for profile in [
+            WubiProfile::Wubi86,
+            WubiProfile::Wubi98,
+            WubiProfile::WubiXsj,
+        ] {
             same(json!(WubiVersion::from(profile)), json!(profile));
             assert_eq!(WubiProfile::from(WubiVersion::from(profile)), profile);
         }

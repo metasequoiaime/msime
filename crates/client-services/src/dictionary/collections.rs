@@ -1376,6 +1376,7 @@ fn personal_kind(kind: crate::cloud::dictionary::DictionaryKind) -> PersonalWord
         DictionaryKind::Pinyin => PersonalWordKind::Pinyin,
         DictionaryKind::Wubi => PersonalWordKind::Wubi,
         DictionaryKind::Wubi98 => PersonalWordKind::Wubi98,
+        DictionaryKind::Wubixsj => PersonalWordKind::WubiXsj,
         DictionaryKind::Quick => PersonalWordKind::QuickPhrase,
         DictionaryKind::English => PersonalWordKind::English,
     }
@@ -1386,6 +1387,7 @@ fn import_kind(kind: PersonalWordKind) -> ImportKind {
         PersonalWordKind::Pinyin => ImportKind::Pinyin,
         PersonalWordKind::Wubi => ImportKind::Wubi,
         PersonalWordKind::Wubi98 => ImportKind::Wubi98,
+        PersonalWordKind::WubiXsj => ImportKind::Wubixsj,
         PersonalWordKind::QuickPhrase => ImportKind::QuickPhrase,
         PersonalWordKind::English => ImportKind::English,
         PersonalWordKind::Cantonese => ImportKind::Cantonese,
@@ -1834,12 +1836,12 @@ fn third_party_source(source: &CollectionSource) -> bool {
     matches!(source, CollectionSource::Import { format } if format == SCEL_FORMAT)
 }
 
-/// 核对第三方词库时比较的身份：种类（五笔 86 和 98 不分）、去掉音节分隔符和空白并转小写的编码、原样的词。
+/// 核对第三方词库时比较的身份：种类（五笔 86、98 和新世纪不分）、去掉音节分隔符和空白并转小写的编码、原样的词。
 type ThirdPartyIdentity = (PersonalWordKind, String, String);
 
 fn third_party_identity(word: &PersonalWord) -> ThirdPartyIdentity {
     let kind = match word.kind {
-        PersonalWordKind::Wubi98 => PersonalWordKind::Wubi,
+        PersonalWordKind::Wubi98 | PersonalWordKind::WubiXsj => PersonalWordKind::Wubi,
         kind => kind,
     };
     let key = word

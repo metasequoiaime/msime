@@ -62,6 +62,7 @@ final class ImeSidePad {
     private KeyboardKeyArea build() {
         Context context = s;
         KeyboardKeyArea area = new KeyboardKeyArea(context, s::followsKeySpacing);
+        area.setPressListener(s.imeKeyFeedback);
         area.setOrientation(LinearLayout.VERTICAL);
         area.setGravity(Gravity.BOTTOM);
         area.setTag(TAG);

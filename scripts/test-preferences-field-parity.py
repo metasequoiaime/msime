@@ -23,6 +23,8 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
+        # 嵌入式翻译只接三个桌面的原生入口；AGENTS.md 禁止向 React 新增设置，入口随同草稿 PR 接线。
+        "local_translation",
         # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
         "smart_punctuation_migrated",
         # AI 辅助翻译统一成显式选择时的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
@@ -44,6 +46,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "dictionary_sync_webdav",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。
         "usage_reporting_consent",
+        # 粤拼输出简体（#10435）只由 iOS、Android、HarmonyOS 键盘在粤拼方案下的简繁按钮切换，桌面没有对应入口，React 设置页不显示。
+        "cantonese_simplified_output",
 
     },
     "KeybindingPreferences": set(),

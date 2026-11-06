@@ -2,14 +2,15 @@ import Foundation
 import Darwin
 
 enum PersonalWordKind: String, Codable, CaseIterable, Identifiable, Sendable {
-  /// `wubi` 是 86 五笔的词条，`wubi98` 是 98 五笔的，两套码表的个人词条分开存。`cantonese` 是粤语词条，编码是不带声调的粤拼，只存在本机。
-  case pinyin, wubi, wubi98, quickPhrase, english, cantonese
+  /// `wubi` 是 86 五笔的词条，`wubi98` 是 98 五笔的，`wubixsj` 是新世纪五笔的，三套码表的个人词条分开存。新世纪词条暂不随账号或 WebDAV 同步（host-api 的同步种类里没有它），只存在本机。`cantonese` 是粤语词条，编码是不带声调的粤拼，只存在本机。
+  case pinyin, wubi, wubi98, wubixsj, quickPhrase, english, cantonese
   var id: String { rawValue }
   var title: String {
     switch self {
     case .pinyin: return "拼音"
     case .wubi: return "86 五笔"
     case .wubi98: return "98 五笔"
+    case .wubixsj: return "新世纪五笔"
     case .quickPhrase: return "快捷短语"
     case .english: return "英文"
     case .cantonese: return "粤语"

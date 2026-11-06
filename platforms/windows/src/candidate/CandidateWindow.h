@@ -363,6 +363,8 @@ private:
   float decoration_offset_ = 0.0f;
   // 内容卡片（行、首行和点击都按它的坐标排）四周的透明空白，DIP。没有 canvas 时就是阴影边距；canvas 时由 card_bounds 和 decoration_offset_ 一起算：面板四周的空白（阴影边距加外留白或挂件伸出去的距离）再加上 canvas_offset_。
   CandidateShadowInsets shadow_insets_{};
+  // 同一组空白里阴影边距那部分取整后的设备像素，card_bounds 按它给窗口留边；shadow_insets_ 的阴影部分就是它除回 DIP，绘制扣掉的也是它（candidate_card_extent）。
+  CandidateShadowPixels shadow_pixels_{};
   CandidateSkinCanvas canvas_;
   // canvas_ 的挂件按 z_index 分成面板之下和面板之上两层。
   CandidateCanvasLayers canvas_layers_;

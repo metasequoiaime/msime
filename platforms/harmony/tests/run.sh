@@ -341,7 +341,7 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
-# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的按键音、振动和键位统计；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
+# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的键位统计（振动在按下时由按键区给出，上屏只经 `keyFeedback` 去重，规则由 key-press-feedback.test.ts 覆盖，#10757）；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
 nine_hold_body=$(sed -n '/^  nineKeyHoldKey(key: NineKey) {$/,/^  }$/p' "$view")
 nine_swipe_body=$(sed -n '/^  private nineKeySwipeTouch(key: NineKey, event: TouchEvent): void {$/,/^  }$/p' "$view")
 nine_digit_body=$(sed -n '/^  private typeNineKeySwipeDigit(key: NineKey): void {$/,/^  }$/p' "$view")
@@ -360,7 +360,6 @@ if ! grep -qF 'nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nin
   || ! grep -qF 'this.openKeyHold(NineKeyLayout.holdOptions(key));' <<< "$nine_swipe_body" \
   || ! grep -qF 'this.typeNineKeySwipeDigit(key);' <<< "$nine_swipe_body" \
   || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));' <<< "$nine_digit_body" \
-  || ! grep -qF 'KeyboardSession.shared.holdFeedback();' <<< "$nine_digit_body" \
   || [[ $(grep -A1 -F 'KeyboardSession.shared.finishComposition();' <<< "$nine_digit_body" | grep -cF 'KeyboardSession.shared.insert(digit);') -ne 1 ]] \
   || ! grep -qF 'this.nineKeySwipes.clear();' <<< "$drop_nine_body" \
   || ! grep -qF 'nineKeyInput: this.symbols || shuangpin ? undefined : key.input,' "$view" \
@@ -844,7 +843,7 @@ if ! grep -qF '.onClick(() => this.toggleClipSelection(entry.text))' \
   echo "Harmony clipboard multi-selection must badge entries in tap order and insert 1 to 4 of them in one commit (#10411)" >&2
   exit 1
 fi
-# 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；离开时抬高、宽度、位置只存生效且动过的项（`KeyboardAdjustPolicy.saved`，与 Android `keyboardAdjustEdits` 相同），打开时记下原值；调整期间工具条和按键整块不进读屏，读屏只走遮罩上的柄和按钮；旧的高度条不再存在。
+# 键盘调整遮罩（取代高度条）：四项的范围、生效条件、外框换算、各边拖动约束、存放和面板高度含抬高由 keyboard-adjust.test.ts 覆盖。视图、会话和扩展能力是 ArkTS，这里钉住接线：离开键盘调整的唯一出口 `show` 在离开时保存（没有恢复快照的「取消」路径），收起键盘、换输入框、切应用（`onPanelHidden`）都经它离开；「确认」也走它；设置页中途重载不盖掉预览；根节点按 `adjustFrame` 让出两侧和底部，面板高度和冷启动第一帧都算进抬高；外框和左右沿拖动按量到的面板宽换算（停靠面板是建面板时的屏幕宽，转屏、折叠屏开合后与此刻的屏幕宽不同），中间一排按钮按外框宽缩放；离开时抬高、宽度、位置只存生效且动过的项（`KeyboardAdjustPolicy.saved`，与 Android `keyboardAdjustEdits` 相同），打开时记下原值；调整期间工具条和按键整块不进读屏，读屏只走遮罩上的柄和按钮（取舍由 candidate-gloss-card.test.ts 的 `keysAccessibilityLevel` 覆盖，释义卡片盖着时同样藏起来）；旧的高度条不再存在。
 adjust_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets"
 adjust_show=$(sed -n '/^  private show(surface: string): void {$/,/^  }$/p' "$adjust_view")
 adjust_hidden=$(sed -n '/^    KeyboardSession.shared.onPanelHidden = (): void => {$/,/^    };$/p' "$adjust_view")
@@ -883,7 +882,6 @@ if [[ -z "$adjust_show" ]] \
   || ! grep -qF 'KeyboardAdjustPolicy.saved(stored, this.adjustOriginal, this.adjustValues(),' <<< "$adjust_save" \
   || ! grep -qF 'saveKeyboardAdjust(saved.lift, saved.widthPercent, saved.positionX)' <<< "$adjust_save" \
   || ! grep -qF 'this.adjustOriginal = this.adjustValues();' <<< "$adjust_open" \
-  || ! grep -qF ".accessibilityLevel(this.surface === SURFACE_GEOMETRY ? 'no-hide-descendants' : 'auto')" <<< "$adjust_root" \
   || grep -qF 'HeightBar' "$adjust_view" \
   || [[ -e "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/faces/HeightBar.ets" ]]; then
   echo "The keyboard adjust overlay must save whenever it is left (confirm, another panel, hiding the keyboard, a new field, another app) with no restoring cancel path, keep its preview across a settings reload, inset the root by the adjust frame measured against the panel's real width (not the screen's), shrink the middle buttons to fit a narrow frame, save only the lift, width and position that are effective and changed (as Android does), hide the toolbar and keys from the screen reader while adjusting, count the bottom lift in every panel height, and replace HeightBar entirely" >&2

@@ -427,6 +427,8 @@ pub enum TranslationService {
     Off,
     #[serde(rename = "account")]
     Account,
+    /// 宿主内离线推理，不交给网络 Provider。
+    Local,
     Tencent,
     NiuTrans,
     Custom,
