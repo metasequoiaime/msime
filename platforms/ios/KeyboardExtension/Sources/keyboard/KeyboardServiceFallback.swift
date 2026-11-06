@@ -55,11 +55,15 @@ enum CustomServiceClient {
     request.timeoutInterval = 30
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONSerialization.data(withJSONObject: [
+    var body: [String: Any] = [
       "model": configuration.model,
       "messages": [["role": "user", "content": configuration.prompt + "\n" + text]],
       "stream": false
-    ])
+    ]
+    if let url = request.url, AppServicesBridge.disablesArkSeedThinking(endpoint: url, model: configuration.model) {
+      body["thinking"] = ["type": "disabled"]
+    }
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
     let session = URLSession(configuration: AIEndpointPolicy.sessionConfiguration(sessionConfiguration, for: request.url),
                              delegate: NoRedirects(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }

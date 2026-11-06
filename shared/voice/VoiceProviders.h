@@ -67,6 +67,9 @@ std::string recognize_cloud_asr(
     const std::shared_ptr<std::atomic_bool> &cancelled);
 // DeepSeek 思考强度档位：disabled | low | high | max；后三档在请求体里写成 reasoning_effort。其余值一律按 disabled 处理。
 bool valid_thinking_level(std::string_view level);
+// 火山方舟上的豆包 Seed 默认开着深度思考，润色要显式发 thinking.type = disabled。方舟深度思考文档（docs.volcengine.com/docs/82379/1449737，2026-11-05 查）列出的 doubao-seed-* 全部支持 disabled，同平台的别的模型不一定（glm-5-3-flash-260828 只支持 enabled），所以接口地址属于 volces.com（地址缺失时看 volcengine 标签）且模型属于这个系列才算；规则与 client-providers 的 disables_ark_seed_thinking 一致。
+bool disables_ark_seed_thinking(std::string_view provider, std::string_view endpoint,
+                                std::string_view model);
 // timeout_ms is the whole request budget - connection, upload and response - not a connect timeout. The default is the Windows one; a host that needs longer states its own. Getting this wrong is silent: callers keep the ASR text when polish fails, so a budget the service cannot meet means the transcript was uploaded and the answer thrown away with nothing shown. `thinking` 是 voice_input.polish_thinking 的档位，只有接口地址属于 DeepSeek 才写进请求体。
 std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
@@ -105,6 +108,7 @@ using windows::cloud_asr_status_message;
 using windows::cloud_asr_transport_message;
 using windows::recognize_cloud_asr;
 using windows::polish_cloud_text;
+using windows::disables_ark_seed_thinking;
 using windows::local_asr_available;
 using windows::recognize_local_asr;
 }
