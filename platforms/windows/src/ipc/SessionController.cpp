@@ -480,7 +480,8 @@ SessionController::request_page(const CandidatePage &page) {
                                           page.generation, page.previous,
                                           page.steps, page.from_wheel);
       if (transition) {
-        candidates_.action(page.lease, *transition);
+        // page_candidate 回的是整次转移（commit、view…），信箱要的是其中的 view，和上面的候选菜单动作一样取出来。整次转移交进去时信箱读不到 session，静默丢掉这一帧，候选窗就一直画着翻页前的那一页。
+        candidates_.action(page.lease, transition->at("view"));
         // Paging advances the Engine generation and replaces the visible
         // candidate set. Request translations for the new page immediately;
         // waiting for another key event would leave the page unannotated.

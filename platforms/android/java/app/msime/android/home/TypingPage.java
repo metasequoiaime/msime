@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -379,6 +380,7 @@ public final class TypingPage extends ReloadingDetailPage {
             boolean strictFilter = helpcode != null && helpcode.optBoolean("strict_filter", false);
             aux.toggle(shuangpin ? "双拼一码严格筛选" : "全拼一码严格筛选", null,
                 strictFilter, checked -> saveHelpcode(family, shuangpin, "strict_filter", checked)).help("关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选，两码始终严格筛选");
+            if (shuangpin) helpcodeModeRows(aux, helpcode);
         }
 
         GroupCard translation = GroupCard.add(sectionColumn(target, "翻译"), "翻译");
@@ -925,6 +927,23 @@ public final class TypingPage extends ReloadingDetailPage {
 
     private void saveHelpcode(String family, boolean shuangpin, String member, Object value) {
         savePreferences(values -> helpcodeObject(values, family, shuangpin).put(member, value));
+    }
+
+    /** 双拼辅助码的触发方式（#10624），各行、缺值读法和置灰规则见 {@link HelpcodeModesPolicy}。只写改的那一个字段，`modes` 里其他键（包括 macOS 同步来的 `manual_tab`）原样留着；保存后整页重读，显示 client-core 归一互斥后的值。 */
+    private void helpcodeModeRows(GroupCard aux, @Nullable JSONObject helpcode) {
+        JSONObject modes = helpcode == null ? null : helpcode.optJSONObject("modes");
+        Function<String, Boolean> stored =
+            field -> modes != null && modes.opt(field) instanceof Boolean value ? value : null;
+        boolean direct = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("direct"), stored);
+        boolean midSentence = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("mid_sentence"), stored);
+        boolean directHelpcode = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("direct_helpcode"), stored);
+        for (HelpcodeModesPolicy.Mode mode : HelpcodeModesPolicy.MODES) {
+            aux.toggle(mode.title(), null, HelpcodeModesPolicy.value(mode, stored),
+                checked -> savePreferences(values ->
+                    KeyboardSheets.child(helpcodeObject(values, "shuangpin_helpcode", true), "modes").put(mode.field(), checked)))
+                .help(mode.help())
+                .setEnabled(HelpcodeModesPolicy.enabled(mode, direct, midSentence, directHelpcode));
+        }
     }
 
     private void pickTranslationScope(CandidateTranslationPolicy.Scope selected) {

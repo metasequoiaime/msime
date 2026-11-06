@@ -624,7 +624,7 @@ pub enum TextEditButton {
     SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
+/// 从左列上到下，再到右列前三格，最后一个放在底排正中；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
     vec![
@@ -1778,6 +1778,12 @@ pub struct Preferences {
     pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
+    /// 嵌入式模型离线翻译；显式开启后独立使用本地目标语言。
+    #[serde(
+        default,
+        skip_serializing_if = "crate::local_translation::LocalTranslationPreferences::is_default"
+    )]
+    pub local_translation: crate::local_translation::LocalTranslationPreferences,
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
     #[serde(default)]
@@ -2463,6 +2469,29 @@ impl VoiceInputPreferences {
             self.asr_model.clear();
         }
     }
+}
+
+/// 预设「火山方舟 · 豆包」以前的默认模型 `doubao-seed-1.6-flash` 和备选 `doubao-seed-1.6`，以及方舟给它们指定的接替模型。方舟的 Seed 1.6 系列已在 2026-09-21 停止服务（模型下线公告第九批，docs.volcengine.com/docs/82379/1350667），现行模型列表里没有这两个名字，请求回 404。设置页选预设时会把默认模型写进文档，所以选过这个预设的人文档里存的就是旧名字。接替关系照公告：flash 接 `doubao-seed-2-0-mini-260428`，1.6 接 `doubao-seed-2-0-lite-260428`，两者都是 LTS。
+pub const RETIRED_VOLCENGINE_MODELS: [(&str, &str); 2] = [
+    ("doubao-seed-1.6-flash", "doubao-seed-2-0-mini-260428"),
+    ("doubao-seed-1.6", "doubao-seed-2-0-lite-260428"),
+];
+
+/// 火山方舟预设下存着的旧模型名对应的接替模型。只在接口地址留空（用预设地址）或主机属于 `volces.com` 时认：火山方舟槽位里填了别家网关的地址，那边可能真有同名模型，不能替用户换掉。模型名是别的值时返回 `None`，用户自己选的模型不动。Linux 的私有凭据文件（`ai-provider.json`、`voice-provider.json`）把密钥绑在保存时的模型上，桌面设置读它时也经这里换名，Linux 的两个 provider 脚本照同一张表（导出到 `msime_voice_provider_catalog.py`）换，凭据才不会因为偏好换了模型而对不上。
+pub fn volcengine_successor_model(endpoint: &str, model: &str) -> Option<&'static str> {
+    let endpoint = endpoint.trim();
+    if !endpoint.is_empty() {
+        let url = url::Url::parse(endpoint).ok()?;
+        let host = url.host_str()?.to_ascii_lowercase();
+        if host != "volces.com" && !host.ends_with(".volces.com") {
+            return None;
+        }
+    }
+    let model = model.trim();
+    RETIRED_VOLCENGINE_MODELS
+        .iter()
+        .find(|(retired, _)| *retired == model)
+        .map(|(_, successor)| *successor)
 }
 
 impl Default for VoiceInputPreferences {
@@ -4059,6 +4088,30 @@ impl Preferences {
         }
         self.keyboard_reranker_migrated = true;
     }
+
+    /// 读出文档时把火山方舟预设下存着的已下线模型换成接替模型（见 [`RETIRED_VOLCENGINE_MODELS`]）：文本润色的 `polish_model`、AI 联想当前的 `model` 和火山方舟槽位里记住的模型都看。只认那两个旧名字，用户自己填的其他模型原样保留。AI 联想的 `model` 留空会被当成没配置，所以这里写接替模型的名字而不是清空。只改内存里读到的这份，文件等下一次保存才改写。
+    fn retire_unavailable_volcengine_models(&mut self) {
+        let voice = &mut self.voice_input;
+        if voice.polish_provider == "volcengine" {
+            if let Some(successor) =
+                volcengine_successor_model(&voice.polish_endpoint, &voice.polish_model)
+            {
+                voice.polish_model = successor.into();
+            }
+        }
+        let ai = &mut self.ai_assistant;
+        if ai.provider == "volcengine" {
+            if let Some(successor) = volcengine_successor_model(&ai.endpoint, &ai.model) {
+                ai.model = successor.into();
+            }
+        }
+        let slot_endpoint = ai.endpoints.get("volcengine").cloned().unwrap_or_default();
+        if let Some(slot) = ai.models.get_mut("volcengine") {
+            if let Some(successor) = volcengine_successor_model(&slot_endpoint, slot) {
+                *slot = successor.into();
+            }
+        }
+    }
 }
 
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
@@ -4315,6 +4368,7 @@ impl Default for Preferences {
             next_word_prediction: false,
             next_word_prediction_buttons: NextWordPredictionButtons::default(),
             custom_translation: CustomTranslationPreferences::default(),
+            local_translation: crate::local_translation::LocalTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
@@ -5241,6 +5295,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidNiuTrans);
         }
+        if !self.local_translation.validate() {
+            return Err(PreferencesError::InvalidLocalTranslation);
+        }
         let translation = &self.custom_translation;
         if !crate::text::is_bounded_text(&translation.api_key, 4096)
             || (!translation.endpoint.is_empty()
@@ -5518,6 +5575,8 @@ pub enum PreferencesError {
     InvalidVoiceInput,
     #[error("本地识别停顿时间须为 500–5000 毫秒、步进 100，判停灵敏度须为 10–90")]
     InvalidVoicePause,
+    #[error("local translation target language is invalid")]
+    InvalidLocalTranslation,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
@@ -5785,6 +5844,40 @@ impl PreferencesStore {
         Ok(lock)
     }
 
+    /// 只读的几个入口（[`Self::load`]、[`Self::load_reusing`]、[`Self::load_for_runtime`]）取的锁。对目录或锁文件没有写权限时（iOS 键盘没有完全访问，App Group 只读）不取锁照读：写入方一律整份写进临时文件再改名（`atomic_write`），不持锁读到的也一定是某一次完整的写入；以前这里打不开锁文件就读不了偏好，键盘准备运行时失败（#10945）。目录不在、又建不了时同样不取锁，读到的是没有文件时的默认值。
+    ///
+    /// 打不开锁的目录记在进程里，以后读它不再去试：iOS 上每试一次，系统日志里就多一条沙盒拒绝，键盘每隔几秒就重读一次偏好。不取锁的读本来就是安全的，所以权限之后变回来也只是少取一把不需要的锁。
+    fn read_lock(&self) -> Result<Option<crate::file_lock::ScopedFileLock>, PreferencesError> {
+        static WITHOUT_LOCK: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+        let known = || {
+            WITHOUT_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&self.directory)
+        };
+        if known() {
+            return Ok(None);
+        }
+        match self.lock() {
+            Ok(lock) => Ok(Some(lock)),
+            Err(PreferencesError::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+                ) =>
+            {
+                let mut directories = WITHOUT_LOCK
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !directories.contains(&self.directory) {
+                    directories.push(self.directory.clone());
+                }
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn path(&self) -> PathBuf {
         self.directory.join("preferences.json")
     }
@@ -5849,6 +5942,7 @@ impl PreferencesStore {
             .preferences
             .voice_input
             .retire_unavailable_asr_model();
+        snapshot.preferences.retire_unavailable_volcengine_models();
         snapshot
             .preferences
             .settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
@@ -5863,7 +5957,7 @@ impl PreferencesStore {
     }
 
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
-        let _lock = self.lock()?;
+        let _lock = self.read_lock()?;
         self.read_locked()
     }
 
@@ -5937,7 +6031,7 @@ impl PreferencesStore {
         &self,
         previous: Option<LoadedPreferences>,
     ) -> Result<LoadedPreferences, PreferencesError> {
-        let _lock = self.lock()?;
+        let _lock = self.read_lock()?;
         let bytes = self.read_document_bytes()?;
         if let Some(previous) =
             previous.filter(|previous| bytes.is_some() && previous.bytes == bytes)
@@ -5957,7 +6051,17 @@ impl PreferencesStore {
     ///
     /// `format_version` 不是 1 的文档整份取默认值、不逐键救：更新的文档格式可能改了同名键的含义，按 v1 的含义应用它会悄悄做错事。
     pub fn load_for_runtime(&self) -> Result<RuntimePreferences, PreferencesError> {
-        let _lock = self.lock()?;
+        let _lock = self.read_lock()?;
+        self.runtime_preferences()
+    }
+
+    /// [`Self::load_for_runtime`]，但不取锁，也不建目录和锁文件：给明知对这个目录没有写权限的宿主用（iOS 键盘没有完全访问时的 App Group，#10945），它不该在共享目录里留下任何东西。不取锁也读得到完整的一份，理由见 `read_lock`。目录或文件不在时是本存储所属版本的默认值。
+    pub fn load_for_runtime_without_writing(&self) -> Result<RuntimePreferences, PreferencesError> {
+        self.runtime_preferences()
+    }
+
+    /// [`Self::load_for_runtime`] 的本体；调用方决定要不要持锁。
+    fn runtime_preferences(&self) -> Result<RuntimePreferences, PreferencesError> {
         let failure = match self.read_locked() {
             Ok(snapshot) => {
                 return Ok(RuntimePreferences {
@@ -6655,6 +6759,7 @@ impl Preferences {
             ..
         } = salvage_preferences(&document, default)?;
         preferences.voice_input.retire_unavailable_asr_model();
+        preferences.retire_unavailable_volcengine_models();
         if let Some(source) = document.get("preferences") {
             preferences.close_destinations_not_kept(source);
         }

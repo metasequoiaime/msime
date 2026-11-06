@@ -4,6 +4,7 @@
 #include "../../settings/win7/CommunitySkinData.h"
 #include "../../settings/win7/ControlText.h"
 #include "../../settings/win7/StatisticsData.h"
+#include "../../settings/win7/HelpcodeForm.h"
 #include "../../settings/InputSettingsModel.h"
 #include "../../../../shared/contracts/msime_edition.h"
 
@@ -962,6 +963,49 @@ int main() {
     assert(find_option(L"合成插件（插件）") == CB_ERR);
     assert(store.load().snapshot->revision() == revision);
     assert(store.load().snapshot->preferences().at("ai_assistant").at("tokens") == tokens);
+    // 一码严格筛选和双拼触发方式（#10624）：文档里没有这几项时按 client-core 的出厂值显示；改一项只改这一项，保存后显示写入端归一后的值。
+    const auto checked = [&](int id) { return SendMessageW(GetDlgItem(body, id), BM_GETCHECK, 0, 0) == BST_CHECKED; };
+    const auto enabled_control = [&](int id) { return IsWindowEnabled(GetDlgItem(body, id)) != FALSE; };
+    const int strict = helpcode_first + HelpcodeForm::strict_first;
+    // 下标见 HelpcodeModesModel.h：0 末尾直接、2 末尾反引号、4 句中间接、5 句中反引号、8 逐音节直接、9 逐音节 / 结束。
+    const int modes = helpcode_first + HelpcodeForm::modes_first;
+    assert(!store.load().snapshot->preferences().at("shuangpin_helpcode").contains("modes"));
+    assert(!checked(strict) && !checked(strict + 1));
+    assert(checked(modes) && !checked(modes + 2) && !checked(modes + 4) && checked(modes + 5) && checked(modes + 9));
+    if (!checked(helpcode_first + 3)) {
+      assert(!enabled_control(strict + 1) && !enabled_control(modes));
+      click(helpcode_first + 3);
+    }
+    assert(enabled_control(strict + 1) && enabled_control(modes) && enabled_control(modes + 4));
+    assert(!enabled_control(modes + 5) && !enabled_control(modes + 9));
+    // 末尾直接出厂开着，引擎这时不认末尾间接触发键（#11010），下标 1 到 3 的三行置灰，勾选状态照存的值显示。
+    const auto end_triggers_enabled = [&](bool expected) {
+      return enabled_control(modes + 1) == expected && enabled_control(modes + 2) == expected &&
+          enabled_control(modes + 3) == expected;
+    };
+    assert(end_triggers_enabled(false) && checked(modes + 1));
+    click(strict + 1);
+    saved = store.load();
+    assert(saved.snapshot->preferences().at("shuangpin_helpcode").at("strict_filter") == true);
+    assert(!saved.snapshot->preferences().at("quanpin_helpcode").value("strict_filter", false));
+    // 关掉末尾直接后三行可改，分号的出厂值仍是开。
+    click(modes);
+    assert(store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes").at("direct") == false);
+    assert(end_triggers_enabled(true) && checked(modes + 1));
+    click(modes + 2);
+    assert(store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes").at("trigger_backtick") == true);
+    assert(checked(modes + 2));
+    // 打开句中间接后反引号归句中：client-core 清掉末尾反引号，页面跟着显示关，句中的三枚触发键可改。
+    click(modes + 4);
+    const auto modes_saved = store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes");
+    assert(modes_saved.at("mid_sentence") == true && modes_saved.at("trigger_backtick") == false);
+    assert(modes_saved.at("direct") == false && modes_saved.at("trigger_semicolon") == true);
+    assert(!checked(modes + 2) && checked(modes + 4) && enabled_control(modes + 5));
+    // 打开逐音节直接：末尾间接三行重新置灰，存着的分号触发不被改写。
+    click(modes + 8);
+    const auto direct_helpcode_saved = store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes");
+    assert(direct_helpcode_saved.at("direct_helpcode") == true && direct_helpcode_saved.at("trigger_semicolon") == true);
+    assert(end_triggers_enabled(false) && checked(modes + 1));
   }
   select_tab(L"输入方案");
   const auto find_combo = [&](int id, const wchar_t* title) {
@@ -1097,10 +1141,36 @@ int main() {
     assert(store.load().snapshot->preferences().at("scheme") == "cantonese");
     assert((GetWindowLongPtrW(GetDlgItem(body, scheme_cantonese_method), GWL_STYLE) & WS_VISIBLE) != 0);
     assert(SendMessageW(GetDlgItem(body, scheme_cantonese_method), CB_GETCURSEL, 0, 0) == 0);
+    // 普通粤拼没有按键要展开，「双拼预编辑」只在选了粤语双拼时出现（#10557）。
+    const auto cantonese_preedit = GetDlgItem(body, scheme_cantonese_preedit);
+    assert((GetWindowLongPtrW(cantonese_preedit, GWL_STYLE) & WS_VISIBLE) == 0);
     select_value(scheme_cantonese_method, 1);
     assert(store.load().snapshot->preferences().at("cantonese").at("input_method") == "shuangpin");
+    // 与普通话双拼共用 shuangpin_preedit_uses_raw：下拉框显示文档里的当前值，改它写的也是这一项。
+    assert((GetWindowLongPtrW(cantonese_preedit, GWL_STYLE) & WS_VISIBLE) != 0);
+    assert(IsWindowEnabled(cantonese_preedit));
+    const bool raw = store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw").get<bool>();
+    assert(SendMessageW(cantonese_preedit, CB_GETCURSEL, 0, 0) == (raw ? 0 : 1));
+    select_value(scheme_cantonese_preedit, raw ? 1 : 0);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == !raw);
+    select_value(scheme_cantonese_preedit, raw ? 0 : 1);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == raw);
+    // 引擎的粤语双拼不读「双拼分隔」（#10717）：存着双拼分隔时这一行选中「原始按键」；选粤拼分词与普通话双拼那一行一样清掉分隔，改回原始按键时它不会悄悄生效。
+    saved = store.load();
+    const auto separated_seed = store.save(*saved.snapshot, {{{"shuangpin_preedit_uses_raw"}, true}, {{"shuangpin_preedit_separated"}, true}});
+    assert(separated_seed.outcome == Outcome::saved);
+    SendMessageW(host, WM_COMMAND, MAKEWPARAM(reload_settings, BN_CLICKED), 0);
+    pump_until([&] { return IsWindowEnabled(language) != FALSE; });
+    assert(SendMessageW(GetDlgItem(body, scheme_cantonese_preedit), CB_GETCURSEL, 0, 0) == 0);
+    select_value(scheme_cantonese_preedit, 1);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == false);
+    assert(store.load().snapshot->preferences().value("shuangpin_preedit_separated", false) == false);
+    select_value(scheme_cantonese_preedit, 0);
+    assert(store.load().snapshot->preferences().at("shuangpin_preedit_uses_raw") == true);
+    assert(store.load().snapshot->preferences().value("shuangpin_preedit_separated", false) == false);
     select_value(scheme_cantonese_method, 0);
     assert(store.load().snapshot->preferences().value("cantonese", Json::object()).value("input_method", std::string{"jyutping"}) == "jyutping");
+    assert((GetWindowLongPtrW(cantonese_preedit, GWL_STYLE) & WS_VISIBLE) == 0);
   }
   if (offered("vietnamese")) {
     if (IsWindowEnabled(GetDlgItem(body, scheme_language))) select_value(scheme_language, find_combo(scheme_language, L"越南文"));

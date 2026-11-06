@@ -206,7 +206,7 @@ private enum PersonalDictionaryBridgeFailure: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .invalid(.pinyin): "请填写完整拼音，用空格或英文单引号分隔音节，例如 ni hao。"
-    case .invalid(.wubi), .invalid(.wubi98): "五笔编码使用 1–4 个字母。"
+    case .invalid(.wubi), .invalid(.wubi98), .invalid(.wubixsj): "五笔编码使用 1–4 个字母。"
     case .invalid(.quickPhrase): "快捷短语编码只能包含英文字母，长度 1 到 32。"
     case .invalid(.english): "英文编码只能包含字母、连字符和撇号。"
     case .invalid(.cantonese): "请填写粤拼，每个字一个音节、用空格分隔，例如 nei hou。"

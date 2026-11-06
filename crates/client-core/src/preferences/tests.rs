@@ -1730,6 +1730,99 @@ fn voice_commit_mode_defaults_for_legacy_documents() {
 }
 
 #[test]
+fn retired_volcengine_models_read_as_their_ark_successors() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let load_with = |provider: &str, endpoint: &str, model: &str| {
+        let snapshot = store.load().unwrap();
+        let mut preferences = snapshot.preferences;
+        preferences.voice_input.polish_provider = provider.into();
+        preferences.voice_input.polish_endpoint = endpoint.into();
+        preferences.voice_input.polish_model = model.into();
+        preferences.ai_assistant.provider = provider.into();
+        preferences.ai_assistant.endpoint = endpoint.into();
+        preferences.ai_assistant.model = model.into();
+        store.save(snapshot.revision, preferences).unwrap();
+        let loaded = store.load().unwrap().preferences;
+        assert_eq!(loaded.voice_input.polish_model, loaded.ai_assistant.model);
+        loaded.ai_assistant.model
+    };
+    let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+    // 预设写下的旧默认和旧备选，地址留空或指向方舟，都换成公告里的接替模型。
+    assert_eq!(
+        load_with("volcengine", ark, "doubao-seed-1.6-flash"),
+        "doubao-seed-2-0-mini-260428"
+    );
+    assert_eq!(
+        load_with("volcengine", "", " doubao-seed-1.6 "),
+        "doubao-seed-2-0-lite-260428"
+    );
+    assert_eq!(
+        load_with(
+            "volcengine",
+            "https://ARK.cn-shanghai.volces.com/api/v3/chat/completions",
+            "doubao-seed-1.6-flash"
+        ),
+        "doubao-seed-2-0-mini-260428"
+    );
+    // 用户自己选的模型、火山方舟槽位里填的别家地址、别的服务下的同名模型，都不动。
+    assert_eq!(
+        load_with("volcengine", ark, "ep-20261105-synthetic"),
+        "ep-20261105-synthetic"
+    );
+    assert_eq!(
+        load_with(
+            "volcengine",
+            "https://gateway.example/v1/chat/completions",
+            "doubao-seed-1.6-flash"
+        ),
+        "doubao-seed-1.6-flash"
+    );
+    assert_eq!(
+        load_with(
+            "volcengine",
+            "https://volces.com.example/v1/chat/completions",
+            "doubao-seed-1.6"
+        ),
+        "doubao-seed-1.6"
+    );
+    assert_eq!(
+        load_with("custom", ark, "doubao-seed-1.6-flash"),
+        "doubao-seed-1.6-flash"
+    );
+
+    // 切走火山方舟后槽位里记住的旧模型，切回来时同样拿到接替模型。
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    preferences.ai_assistant.model = "deepseek-v4-flash".into();
+    preferences
+        .ai_assistant
+        .models
+        .insert("volcengine".into(), "doubao-seed-1.6".into());
+    store.save(snapshot.revision, preferences).unwrap();
+    let loaded = store.load().unwrap().preferences.ai_assistant;
+    assert_eq!(loaded.model, "deepseek-v4-flash");
+    assert_eq!(loaded.models["volcengine"], "doubao-seed-2-0-lite-260428");
+
+    // 偏好读不了、只能救下认得的设置时，结果也一样。
+    let (salvaged, _) = Preferences::salvaged_from(
+        serde_json::json!({
+            "voice_input": {"polish_provider": "volcengine", "polish_endpoint": ark, "polish_model": "doubao-seed-1.6-flash"},
+            "ai_assistant": {"provider": "volcengine", "endpoint": ark, "model": "doubao-seed-1.6"},
+        }),
+        Preferences::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        salvaged.voice_input.polish_model,
+        "doubao-seed-2-0-mini-260428"
+    );
+    assert_eq!(salvaged.ai_assistant.model, "doubao-seed-2-0-lite-260428");
+}
+
+#[test]
 fn oversized_preference_documents_are_rejected_before_loading() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("preferences.json");
@@ -11155,6 +11248,69 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         );
         assert_eq!(fs::read(store.path()).unwrap(), before);
     }
+}
+
+/// 对偏好目录没有写权限的进程（iOS 键盘没有完全访问时的 App Group）也读得到偏好：锁文件打不开就不取锁，读到的是完整写入的那一份；保存仍然要锁，照旧失败（#10945）。
+#[cfg(unix)]
+#[test]
+fn preferences_are_readable_from_a_directory_that_cannot_be_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("MSIME");
+    let store = PreferencesStore::new(&directory);
+    let preferences = Preferences {
+        learning: false,
+        ..Preferences::default()
+    };
+    let saved = store.save(0, preferences).unwrap();
+    let set = |path: &Path, mode| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    set(&directory.join("preferences.lock"), 0o444);
+    set(&directory, 0o555);
+    // 以 root 跑时权限位挡不住写，这条用例测不到什么。
+    let enforced = std::fs::File::create(directory.join("probe")).is_err();
+    let loaded = store.load();
+    let reused = store.load_reusing(None);
+    let runtime = store.load_for_runtime();
+    let written = store.save(saved.revision, Preferences::default());
+    set(&directory, 0o755);
+    set(&directory.join("preferences.lock"), 0o600);
+    if !enforced {
+        return;
+    }
+    assert_eq!(loaded.unwrap(), saved);
+    assert_eq!(reused.unwrap().snapshot, saved);
+    let runtime = runtime.unwrap();
+    assert!(runtime.load_error.is_none());
+    assert_eq!(runtime.snapshot, saved);
+    assert!(written.is_err());
+    // 目录本身不在也建不出来时读到默认值，不报错。
+    set(root.path(), 0o555);
+    let missing = PreferencesStore::new(root.path().join("absent")).load();
+    set(root.path(), 0o755);
+    assert_eq!(missing.unwrap().revision, 0);
+}
+
+/// 明知没有写权限的宿主读偏好时不在目录里留下任何东西：不建目录，不建锁文件。
+#[test]
+fn reading_preferences_without_writing_leaves_no_lock_file() {
+    let root = tempfile::tempdir().unwrap();
+    let absent = root.path().join("absent");
+    let loaded = PreferencesStore::new(&absent)
+        .load_for_runtime_without_writing()
+        .unwrap();
+    assert_eq!(loaded.snapshot.revision, 0);
+    assert!(!absent.exists());
+
+    let directory = root.path().join("MSIME");
+    let store = PreferencesStore::new(&directory);
+    let saved = store.save(0, Preferences::default()).unwrap();
+    std::fs::remove_file(directory.join("preferences.lock")).unwrap();
+    let loaded = store.load_for_runtime_without_writing().unwrap();
+    assert_eq!(loaded.snapshot, saved);
+    assert!(loaded.load_error.is_none());
+    assert!(!directory.join("preferences.lock").exists());
 }
 
 #[test]

@@ -49,6 +49,7 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
 import { CaretContextEcho } from './input/CaretContextEcho';
@@ -537,6 +538,17 @@ interface NativeReply<T> {
   ok: boolean;
   value: T;
   error: string;
+}
+
+/** `voicePunctuation` 的请求：最终识别文本和共享标点处理方式。 */
+interface VoicePunctuationRequest {
+  text: string;
+  mode: string;
+}
+
+/** `voicePunctuation` 的返回：处理后的文本。 */
+interface VoicePunctuationResult {
+  text: string;
 }
 
 /** What the shared ABI is asked to turn into a provider request. */
@@ -1459,6 +1471,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   // 当前录音的开始时间，以及上一次未取消的录音时长：即「统计」页的语音时长，在识别结果进入编辑框时记录（对应 Android 的 `elapsedMillis`）。
   private voiceRecordingStartedMs: number = 0;
   private voiceRecordedMs: number = 0;
+  private voicePunctuationAlreadyApplied: boolean = false;
   private voiceBehaviour: HarmonyVoiceRecordingBehaviour = new HarmonyVoiceRecordingBehaviour();
   // Key, melody, commit and achievement sounds. Configured off on a phone, which keeps its own key feedback.
   private readonly soundPlayer: KeySoundPlayer = new KeySoundPlayer();
@@ -5201,6 +5214,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.command(this.currentCandidates.length > 0 ? InputCommand.LAST_CANDIDATE : InputCommand.MOVE_END);
   }
 
+  /** 拼写菜单只移动组字光标；硬件 Home/End 有候选时另有翻页语义。 */
+  moveSpellingHome(): void {
+    this.command(InputCommand.MOVE_HOME);
+  }
+
+  moveSpellingEnd(): void {
+    this.command(InputCommand.MOVE_END);
+  }
+
   deleteForward(): void {
     this.command(InputCommand.DELETE_FORWARD);
   }
@@ -5452,6 +5474,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private vibratorFailed: boolean = false;
   /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
   private vibrationPending: boolean = false;
+  /** 按键区按下即振动（#10757）：按下时振过的按键，上屏时不再振第二次。 */
+  private readonly keyPress: KeyPressFeedback = new KeyPressFeedback();
   private traditional: boolean = false;
   /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
   private cantoneseSimplified: boolean = false;
@@ -6886,18 +6910,47 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 长按工具栏按钮、长按九键符号栏时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样。这是确认，不是一次按键的上屏，按下时的振动不顶替它。 */
+  holdFeedback(): void {
+    this.vibrateKey();
+  }
+
   /**
-   * Fires the feedback a key press asks for.
+   * 按键区里一根手指按下（#10757，规则见 `KeyPressFeedback`）：这时就振动，这次按下的上屏（`tapFeedback`）不再振第二次。视图只在画着按键时调用。
+   */
+  keyDown(finger: number): void {
+    this.keyPress.down(finger);
+    this.vibrateKey();
+  }
+
+  /** 按键区里按下过的手指抬起或被取消：等这次点击处理完再撤回它没被消耗的令牌，没有上屏的按下（Shift、切层、滑出去取消）不会吞掉之后的振动。 */
+  keyUp(finger: number): void {
+    const token: number | undefined = this.keyPress.up(finger);
+    if (token !== undefined) {
+      setTimeout((): void => this.keyPress.settle(token), KeyPressFeedback.RELEASE_GRACE_MS);
+    }
+  }
+
+  /** 不经会话上屏路径的按键补上点按会有的那一下振动，例如九键滑出的数字走字面上屏、`insert` 不振动；按下时已经振过就不再振。 */
+  keyFeedback(): void {
+    this.tapFeedback();
+  }
+
+  /** 一次按键上屏时的振动：按下时已经振过（`keyDown`）就不再振；读屏点击这类没有按下的上屏照常振。 */
+  private tapFeedback(): void {
+    if (this.keyPress.consume()) {
+      return;
+    }
+    this.vibrateKey();
+  }
+
+  /**
+   * Fires the vibration a key press asks for.
    *
    * Failures are logged once rather than per keystroke: a device without a vibrator would otherwise
    * fill the log with the same line at typing speed.
    */
-  /** 长按工具栏按钮时的那一下按键反馈，与 Android 长按工具栏打开编辑页时一样；九键滑动输入数字抬手时也用它补上点按会有的那一下振动（数字走字面上屏，`insert` 不振动）。 */
-  holdFeedback(): void {
-    this.tapFeedback();
-  }
-
-  private tapFeedback(): void {
+  private vibrateKey(): void {
     const settings: FeedbackSettings = this.feedbackCurrent;
     if (!settings.haptics || this.vibratorFailed || this.vibrationPending) {
       return;
@@ -8364,12 +8417,40 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.recordTypingStatistics(output, source);
   }
 
+  /** 只处理最终识别文本的标点；调用失败时保留原文，不能因为设置或桥接异常丢掉识别结果。 */
+  voicePunctuation(text: string): string {
+    if (text.length === 0) return text;
+    const mode: string = this.voiceInput.punctuation_mode ?? 'auto';
+    if (mode !== 'omit_trailing' && mode !== 'omit_all' && mode !== 'space') return text;
+    try {
+      const request: VoicePunctuationRequest = { text: text, mode: mode };
+      const response: NativeReply<VoicePunctuationResult> =
+        JSON.parse(client.voicePunctuation(JSON.stringify(request))) as NativeReply<VoicePunctuationResult>;
+      return response.ok === true && typeof response.value?.text === 'string'
+        ? response.value.text : text;
+    } catch (error) {
+      KeyboardLog.error(`voice punctuation unavailable: ${describeError(error)}`);
+      return text;
+    }
+  }
+
+  /** 视图已为显示结果处理过标点，随后插入时跳过第二次处理。 */
+  markVoicePunctuationApplied(): void {
+    this.voicePunctuationAlreadyApplied = true;
+  }
+
   /**
    * 识别结果进入编辑框：在打字统计里记为语音输入，并在隐私闸门允许时把这次录音的时长计入「统计」页的语音时长一次（`record_voice`，「语音达人」徽章），与 Android 的 `ImeVoiceEntry` 在提交后的做法相同。
    */
   insertVoiceResult(text: string): void {
-    if (this.inputClient === undefined || text.length === 0) return;
-    this.insertWithSource(text, 'voice');
+    if (this.inputClient === undefined || text.length === 0) {
+      this.voicePunctuationAlreadyApplied = false;
+      return;
+    }
+    const output: string = this.voicePunctuationAlreadyApplied ? text : this.voicePunctuation(text);
+    this.voicePunctuationAlreadyApplied = false;
+    if (output.length === 0) return;
+    this.insertWithSource(output, 'voice');
     const milliseconds: number = Math.min(this.voiceRecordedMs, KeyboardSession.MAX_VOICE_RECORD_MS);
     this.voiceRecordedMs = 0;
     if (milliseconds <= 0 || this.stateDirectory.length === 0
@@ -8525,6 +8606,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    // 收起时还按着的手指收不到抬起，它们的令牌不留到下一次显示。
+    this.keyPress.clear();
     this.flushTypingStatistics();
     this.pauseIdleDictionaryWork();
     // 候选释义按文件身份缓存在 UI 线程上的词库连接和自定义译文，隐藏的键盘不留着它们（关掉释义以后也不会一直占着）；下一次显示后的第一次查询重新打开。

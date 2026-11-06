@@ -1,3 +1,4 @@
+use super::fuzzy_row_projection_tests::legacy_dict_rows;
 use super::*;
 use crate::ime::personal_rerank::allocations::count;
 use crate::quanpin::fixture::Fixture;
@@ -70,7 +71,7 @@ fn legacy_typed_append_cached_fuzzy_rows(
     let hash = fuzzy_row_cache_hash(rules, limit, &typed);
     if let Some(cached) = cache.get_ref(&hash) {
         if fuzzy_row_cache_key_matches(cached, rules, limit, &typed) {
-            legacy_typed_append_fuzzy_items(cached.rows.iter().cloned(), typed, result);
+            legacy_typed_append_fuzzy_items(legacy_dict_rows(&cached.rows), typed, result);
             return;
         }
     }
@@ -80,9 +81,9 @@ fn legacy_typed_append_cached_fuzzy_rows(
         CachedFuzzyRows {
             rules,
             limit,
-            typed: typed.clone(),
+            typed: typed.as_str().into(),
             path_count: paths.len(),
-            rows: rows.clone(),
+            rows: rows.iter().cloned().map(FuzzyRow::from).collect(),
         },
     );
     legacy_typed_append_fuzzy_items(rows.into_iter(), typed, result);
@@ -290,7 +291,10 @@ fn full_fuzzy_queries_own_typed_prefixes_only_for_real_consumers() {
                     let saved = if mode == 2 {
                         0
                     } else {
-                        unused + input_copies + skipped
+                        unused
+                            + input_copies
+                            + skipped
+                            + super::fuzzy_row_projection_tests::SHARED_ROW_SAVINGS * actual.len()
                     };
                     saw_empty_page |=
                         rules != 0 && plan.iter().any(|(_, _, paths)| *paths) && actual.is_empty();
@@ -316,8 +320,9 @@ fn full_fuzzy_queries_own_typed_prefixes_only_for_real_consumers() {
     assert!(saw_budget_stop && saw_empty_page && saw_no_path);
 }
 
+// 调用方交来带余量的读音时，缓存按长度复制一份，各行与缓存共用它，不再由首行接管调用方的缓冲区（#10457）。所以与钉住的旧实现相比，每个非空页比别处少省一次。
 #[test]
-fn supplied_owned_typed_keeps_first_row_capacity_and_cold_cache_capacity() {
+fn supplied_owned_typed_is_copied_exactly_and_shared_by_rows_and_cache() {
     for rows in [0, 1, 8] {
         let fixture = fixture(rows);
         let old_database = PinyinDatabase::open(&fixture.database());
@@ -361,13 +366,20 @@ fn supplied_owned_typed_keeps_first_row_capacity_and_cold_cache_capacity() {
                     );
                 }
             });
-            assert_rows(&actual, &expected);
-            assert_eq!(new_count, old_count);
-            if let Some(first) = actual.first() {
-                assert_eq!(first.pinyin.capacity(), 256);
-            }
+            assert_eq!(actual, expected);
+            assert_eq!(actual.capacity(), expected.capacity());
+            assert_eq!(
+                new_count + super::fuzzy_row_projection_tests::SHARED_ROW_SAVINGS * actual.len(),
+                old_count + usize::from(!actual.is_empty())
+            );
             let hash = fuzzy_row_cache_hash(options.rules, 64, "zan");
-            assert_eq!(after.get_ref(&hash).unwrap().typed.capacity(), 3);
+            let cached = after.get_ref(&hash).unwrap();
+            assert_eq!(cached.typed.capacity(), 3);
+            for (row, item) in cached.rows.iter().zip(&actual) {
+                assert!(item.pinyin.shares_storage_with(&cached.typed));
+                assert!(item.canonical_pinyin.shares_storage_with(&row.key));
+                assert!(item.word.shares_storage_with(&row.value));
+            }
             assert_eq!(
                 after.get_ref(&hash).unwrap().typed,
                 before.get_ref(&hash).unwrap().typed
@@ -425,8 +437,8 @@ fn distinct_queries_empty_pages_fifo_and_invalidation_keep_the_old_state() {
     assert_rows(&actual, &expected);
     assert!(actual.iter().any(|item| item.word == "合成外部写入"));
     assert_eq!(
-        new_count + 2,
+        new_count + 2 + super::fuzzy_row_projection_tests::SHARED_ROW_SAVINGS * actual.len(),
         old_count,
-        "每个前缀都有候选，仍省去两个输入音节副本"
+        "每个前缀都有候选，仍省去两个输入音节副本，投影的行与缓存页共用文字字段"
     );
 }

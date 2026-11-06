@@ -215,4 +215,12 @@ inline InstallerTrust installer_trust(std::optional<bool> is_signed, std::wstrin
   return trust;
 }
 
+// 「许可与隐私」里对粤语双拼键位方案设计者陳澍鋒的致谢（#9799），WinUI 设置和 Win7 设置共用，措辞与共享页 `cantonese-shuangpin-credit-row.tsx`、iOS 与 Android 随包的 `resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt` 相同。署名属于致谢和许可，不放在选方案的地方。
+inline constexpr std::wstring_view cantonese_shuangpin_credit_title = L"粤语双拼键位方案";
+inline constexpr std::wstring_view cantonese_shuangpin_credit_designer = L"陳澍鋒设计";
+inline constexpr std::wstring_view cantonese_shuangpin_credit_text =
+    L"粤语双拼的键位方案由陳澍鋒（swithinchan）设计，即他的「粵語雙拼（自然碼兼容版）」，经他在 #9799 提议收入水杉输入法。水杉输入法的粤语双拼按同一套键位独立编写，不含方案仓库里的文件。";
+inline constexpr const wchar_t *cantonese_shuangpin_scheme_repository =
+    L"https://github.com/swithinchan/rime-cantonese-shuangpin";
+
 } // namespace msime::settings

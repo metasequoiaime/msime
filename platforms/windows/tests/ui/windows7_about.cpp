@@ -44,6 +44,10 @@ int main() {
     assert(!IsWindowEnabled(control(AboutForm::download)) && requests == 0);
     assert(text(AboutForm::update_status).find("尚未检查更新") != std::string::npos);
     assert(store.load().snapshot->revision() == initial.snapshot->revision());
+    // 粤语双拼键位方案的致谢（#9799）写在第三方组件许可下面，旁边的按钮打开设计者的方案仓库。
+    assert(text(AboutForm::cantonese_shuangpin_credit).find("陳澍鋒设计") != std::string::npos);
+    assert(text(AboutForm::cantonese_shuangpin_credit).find("#9799") != std::string::npos);
+    assert(IsWindowEnabled(control(AboutForm::cantonese_shuangpin_repository)));
     click(AboutForm::check_update); assert(requests == 1 && text(AboutForm::update_status).find("暂无可用") != std::string::npos);
     Json update{{"version", {{"display", "999.0.0"}, {"parts", {999u, 0u, 0u}}}}, {"release_url", "https://github.com/metasequoiaime/msime/releases/tag/windows7-v999.0.0"},
         {"installer_name", name}, {"installer_sha256", std::string(64, 'a')}, {"signed", false}};

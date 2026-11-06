@@ -53,6 +53,7 @@ uint32_t msime_client_abi_version(void);
  * preparation. Caller publishes the returned config atomically after success.
  * 可选的 edition 是版本 id（shared/contracts/editions.json），缺省为 full；不是 full 时返回的 HostOptions 带 edition 键，未知 id 返回错误。
  * 可选的 runtime_options 是已发布的 runtime-options.json 的绝对路径：准备成功后，文件里的 dictionaries 不是这次准备的代次时改写成它，其余键不动；改写失败只记诊断，不影响返回值。Windows Server 每次启动都重新准备、会话用返回的文档，靠它让照这份文件工作的设置窗口和 TIP 跟上同一个代次。
+ * read_only_state 为 true 时宿主对 state_root 没有写权限（iOS 键盘没有完全访问）：只读地准备，state_root 里一个字节也不写，必须同时给 private_root（宿主自己能写、不在 state_root 里的绝对路径），不能给 runtime_options。偏好从 state_root 读；别的进程准备好了这个版本的代次、两把租约锁文件也在时用它，否则用 resources 的只读布局（没有用户词库）。返回的 HostOptions 带 read_only_state: true，只放在内存里，建出的会话不学习、租约只读打开已有的锁文件，msime_client_pin_candidate、msime_client_remove_candidate、msime_client_fix_candidate_position、msime_client_clear_candidate_position 一律以 "candidate editing needs write access to the shared state" 失败，组字不变。
  */
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
 /* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. It also keeps language_dictionaries in step with the Cantonese, Zhuyin and Stroke dictionaries installed beside the resources, whatever the generation; only an input method host may call it, because a host older than this library rejects that key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */
@@ -713,6 +714,28 @@ char *msime_client_voice_model_setting_check(const uint8_t *request, size_t leng
 typedef void (*msime_client_resource_pack_progress_callback)(void *context, const char *phase,
                                                              uint64_t done, uint64_t total);
 char *msime_client_resource_packs(const uint8_t *request, size_t length);
+/* 桌面嵌入式翻译：目录不联网，返回 {available,pack,model,size,languages:[{code,name}]}。
+ * 模型通过 resource_pack_install/import 安装，pack 为 local-translation。
+ * 翻译请求 <=16 KiB：{state_root,request_id,text,target_language,timeout_ms?} -> {translation}。
+ * state_root 是偏好根目录；request_id 是 <=64 字节的字母、数字、横线或下划线，进程内在途唯一。
+ * text <=256 字符；timeout_ms 默认 30000，范围 1..120000。阻塞等待，只能在后台线程调用。
+ * 取消函数可在输入线程调用，传原始 UTF-8 请求 ID；NULL/0 取消所有任务并卸载模型。
+ * 缺模型、未编译运行库或推理失败均报 local_translation_*，不回退联网。 */
+char *msime_client_local_translation_catalog(void);
+char *msime_client_local_translation(const uint8_t *request, size_t length);
+/* 批次请求用 candidates 字符串数组替代 text（1–10 项），共享一个 request_id 和截止时间。
+ * 返回 {translations:[...]}，与输入顺序一致。只能在后台线程调用。 */
+char *msime_client_local_translation_batch(const uint8_t *request, size_t length);
+/* translation_query 文档加 request_id，provider 必须是 local；返回 {translations:[{text,translation}]}。
+ * 宿主后台线程使用，与单条/批次接口共享取消与截止时间。 */
+char *msime_client_local_translation_query(const uint8_t *request, size_t length);
+/* {directory,update?:{expected_revision,enabled,target_language}}，directory 为偏好目录。
+ * 返回 {revision,local_translation}。显式开启时停用云翻译选择但保留凭据；关闭不恢复云服务。
+ * 保存使用修订号比较并交换；只在后台线程调用。 */
+char *msime_client_local_translation_settings(const uint8_t *request, size_t length);
+void msime_client_local_translation_cancel(const uint8_t *request_id, size_t length);
+/* 正常退出时等待推理线程释放权重；Windows 必须在宿主 DLL 卸载前调用，不能放在 DllMain。 */
+void msime_client_local_translation_shutdown(void);
 /* 主动检查语法模型目录，不下载：{state_root,channel?} -> [{pack,source_commit,size}]。 */
 char *msime_client_resource_pack_check_grammar_updates(const uint8_t *request, size_t length);
 char *msime_client_resource_pack_install(const uint8_t *request, size_t length,
