@@ -1050,6 +1050,7 @@
 		E05B05F202BA8A07BA226379 /* KeyboardKeyLayoutSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48A3043BEB523A667119A0CF /* KeyboardKeyLayoutSettingsView.swift */; };
 		E07B9C232FA2C667E6FFDF7F /* VoiceSessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0599204316B90477F99B85 /* VoiceSessionService.swift */; };
 		E091B0A3BCEA0BA797F0657F /* NineKeyKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */; };
+		507A5CB750A1CC3461B405EF /* ReadOnlySharedStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DA22035EF0C5E32385A6B31 /* ReadOnlySharedStateTests.swift */; };
 		E0CD75E6677580B215B008D4 /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD11D99530807021B657EBC3 /* VoiceSettingsView.swift */; };
 		E0DA5C33FC119BC15C2FB43D /* FuzzyPinyinPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4D40C7A42E722D65076156 /* FuzzyPinyinPreference.swift */; };
 		E1049F94B468A635998F2C1D /* CommunityGalleryStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EEB3D67B2FC69BE6BA2F345 /* CommunityGalleryStyle.swift */; };
@@ -1313,6 +1314,7 @@
 		1A17C6C604B27FD55632171E /* KeyboardStickerCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardStickerCatalogTests.swift; sourceTree = "<group>"; };
 		1A5447CB7E52E5F1AB20940B /* VoiceTextHandoffStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextHandoffStore.swift; sourceTree = "<group>"; };
 		1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NineKeyKeyboardTests.swift; sourceTree = "<group>"; };
+		8DA22035EF0C5E32385A6B31 /* ReadOnlySharedStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlySharedStateTests.swift; sourceTree = "<group>"; };
 		1B520BB5EF76EE18DB6FF4CB /* BackendRustClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendRustClient.swift; sourceTree = "<group>"; };
 		1C8710BA4EC739ADB8A35535 /* MLKitStatsOptOut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLKitStatsOptOut.swift; sourceTree = "<group>"; };
 		1CBE9695A9999FED54F35DC6 /* InputBridgeResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputBridgeResponseTests.swift; sourceTree = "<group>"; };
@@ -2181,6 +2183,7 @@
 				D380F60212DADCCC4AC34A5C /* LocalModeSettingsTests.swift */,
 				8D91196B66808B1D5F14A605 /* MorePanelFoldTests.swift */,
 				1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */,
+				8DA22035EF0C5E32385A6B31 /* ReadOnlySharedStateTests.swift */,
 				C8E0101E5D14B1A430D7408D /* NineKeySidebarSettingsTests.swift */,
 				48AB1E7A5D30BF8A8B9B3AD6 /* OneHandModeTests.swift */,
 				9193DB05DC287621A66825EB /* PersonalDictionaryHansImportTests.swift */,
@@ -3649,6 +3652,7 @@
 				2D57808EFA5CE226199A1AB7 /* NextWordPredictionPreference.swift in Sources */,
 				D32B682349AB8AB97334061E /* NextWordPredictionTests.swift in Sources */,
 				E091B0A3BCEA0BA797F0657F /* NineKeyKeyboardTests.swift in Sources */,
+				507A5CB750A1CC3461B405EF /* ReadOnlySharedStateTests.swift in Sources */,
 				866795ED40842DC6D506E43A /* NineKeyShuangpinLayout.swift in Sources */,
 				BE7D545F820D729B5D0B53F3 /* NineKeyShuangpinTests.swift in Sources */,
 				8E993BE379D998F244793BD4 /* NineKeySidebarPreference.swift in Sources */,

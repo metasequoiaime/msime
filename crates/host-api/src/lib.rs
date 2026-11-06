@@ -199,6 +199,8 @@ mod key_sound;
 // 生命周期核心；`pub` 是为了让集成测试（零分配断言）直接调用纯推导函数。
 pub mod lifecycle;
 mod plugin_tables;
+// 对共享状态目录没有写权限的宿主怎么准备运行时（iOS 键盘没有完全访问，#10945）。
+mod read_only_state;
 // 脚本插件：进程开关、每会话的实例和进程级的模块缓存、熔断。移动端是空壳。
 mod scripts;
 mod voice_capture;
@@ -370,8 +372,11 @@ struct HostSession {
     settled_model_loading: Option<SettledModelSlot>,
     /// 生命周期核心的状态，只由 `msime_client_set_lifecycle` 设上。为 `None` 时（移动端宿主从不调用它）不推导任何事件，transition JSON 逐字节不变。
     lifecycle: Option<Box<lifecycle::LifecycleState>>,
+    /// 文档带 `read_only_state`（宿主对共享状态目录没有写权限，见 [`read_only_state`]）：不学习、回车也不学英文词，偏好变了重建 Engine 时也不打开它们；置顶、删除、固定排位和取消固定都拒绝。
+    read_only_state: bool,
     // Declared after runtime so the Engine is dropped before releasing access.
-    _dictionary_access: DictionaryAccess,
+    /// 只读宿主在只读布局下（词库就是随包资源，没有谁维护）不取租约，为 `None`；其余会话都持着。
+    _dictionary_access: Option<DictionaryAccess>,
     /// 资源是下载的词库代次时占用它，设置宿主回收旧版本时不会删掉会话还在读的目录；同样放在 runtime 之后，Engine 先关掉文件再放手。
     _generation_lease: Option<msime_client_providers::dictionary_updates::GenerationLease>,
 }
@@ -902,9 +907,10 @@ impl HostSession {
         options.cantonese_output_conversion = cantonese_output_conversion(&preferences);
         options.single_character_only = preferences.single_character_only;
         options.caret_edit_suffix = caret_edit_suffix_applies(&preferences);
-        options.learning = preferences.learning;
+        options.learning = preferences.learning && !self.read_only_state;
         options.next_word_prediction = next_word_prediction_applies(&preferences);
-        options.learn_english_on_enter = preferences.enter_learns_english_word;
+        options.learn_english_on_enter =
+            preferences.enter_learns_english_word && !self.read_only_state;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
@@ -2330,6 +2336,9 @@ struct HostOptions {
     /// 产品版本（`Edition::HOST_OPTIONS_KEY`）。只有不是 full 的版本才写：full 的文档因此与引入版本之前逐字节相同，旧版输入法（本结构拒绝未知键）照样能读。缺省就是 full；不是版本表里的 id 时整份文档被拒，而不是猜成 full。
     #[serde(default, skip_serializing_if = "Option::is_none", with = "edition_id")]
     edition: Option<&'static Edition>,
+    /// `true`：宿主对共享状态目录（`preferences_directory`）没有写权限，只读地用别的进程准备好的代次，或者只读布局下的随包词库（iOS 键盘没有完全访问，#10945；见 [`read_only_state`]）。这样的会话不学习、不记选词统计和已载入的代次，词库租约只读打开已有的锁文件。只由 `msime_client_prepare_host` 在内存里交给宿主，不写进任何发布的 runtime-options.json：旧版输入法（本结构拒绝未知键）读不了带它的文档。缺省是能写。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    read_only_state: Option<bool>,
 }
 
 /// 宿主选项里的偏好副本用不了时，输入运行时改用的偏好：`preferences_directory` 下有实时的 preferences.json 就读它（读不了时在内存里救下认得的设置），没有就救副本自己的，默认值取文档记录的版本。文档里没有偏好副本、也没有实时文档时返回 `None`。读不了的偏好经诊断出口报告，盘上的文件不动。
@@ -3097,6 +3106,10 @@ fn prepare_host_with_updates(
     adopt_custom_helpcodes(state_root, &sources);
     if let Some((updated, selected)) = selected_update {
         if verify_resources_once(&updated, &selected, state_root, &[]).is_ok() {
+            // 下载代次的 `<代次>.lock` 同理先建好，只读的宿主才取得到它的租约。
+            drop(msime_client_providers::dictionary_updates::lease(
+                state_root, &updated,
+            ));
             let mut document: Value = serde_json::from_str(&prepare_shipped_host_configuration(
                 &updated,
                 state_root,
@@ -3104,38 +3117,13 @@ fn prepare_host_with_updates(
                 &[],
                 edition,
             )?)?;
-            // 随包的独立模型、音效和插件不属于主词库代次，保留原有入口。
-            let original = msime_client_providers::dictionary_updates::bundled_resources(
+            attach_bundle_beside_update(
+                &mut document,
+                resources,
                 state_root,
                 specification,
-            )
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| resources.to_path_buf());
-            for (key, name) in [
-                ("sound_packs", "sound-packs"),
-                ("plugin_packs", "plugin-packs"),
-            ] {
-                if let Some(path) = original
-                    .parent()
-                    .map(|p| p.join(name))
-                    .filter(|p| p.is_dir())
-                {
-                    document[key] = json!(path);
-                }
-            }
-            if let Some(model) = settled_model_beside(&original) {
-                document["settled_model"] = json!(model);
-            }
-            // 辅助码表也不在词库发布里，下载的代次目录没有 `helpcodes/`。这里直接记下当前安装包的目录：iOS 每次 App 更新都换安装路径，更新记录里的随包目录会失效，`helpcode_fallback_resources()` 只能从记录里找。
-            if original.join("helpcodes").is_dir() {
-                document["helpcode_fallback_resources"] = json!(original);
-            }
-            if let Some(languages) = dictionary_updates::languages(state_root, edition)
-                .and_then(|p| p.to_str().map(str::to_owned))
-                .or_else(|| installed_language_dictionaries(&original))
-            {
-                document["language_dictionaries"] = json!(languages);
-            }
+                edition,
+            );
             return Ok(serde_json::to_string_pretty(&document)?);
         }
     }
@@ -3150,6 +3138,46 @@ fn prepare_host_with_updates(
         ON_DEMAND_ARTIFACTS,
         edition,
     )
+}
+
+/// 资源换成下载代次时，把不属于主词库代次的随包内容（独立模型、音效、插件、辅助码表、语言词库）指回安装包。
+fn attach_bundle_beside_update(
+    document: &mut Value,
+    resources: &Path,
+    state_root: &Path,
+    specification: &ResourceSet,
+    edition: &'static Edition,
+) {
+    // 随包的独立模型、音效和插件不属于主词库代次，保留原有入口。
+    let original =
+        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification)
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| resources.to_path_buf());
+    for (key, name) in [
+        ("sound_packs", "sound-packs"),
+        ("plugin_packs", "plugin-packs"),
+    ] {
+        if let Some(path) = original
+            .parent()
+            .map(|p| p.join(name))
+            .filter(|p| p.is_dir())
+        {
+            document[key] = json!(path);
+        }
+    }
+    if let Some(model) = settled_model_beside(&original) {
+        document["settled_model"] = json!(model);
+    }
+    // 辅助码表也不在词库发布里，下载的代次目录没有 `helpcodes/`。这里直接记下当前安装包的目录：iOS 每次 App 更新都换安装路径，更新记录里的随包目录会失效，`helpcode_fallback_resources()` 只能从记录里找。
+    if original.join("helpcodes").is_dir() {
+        document["helpcode_fallback_resources"] = json!(original);
+    }
+    if let Some(languages) = dictionary_updates::languages(state_root, edition)
+        .and_then(|p| p.to_str().map(str::to_owned))
+        .or_else(|| installed_language_dictionaries(&original))
+    {
+        document["language_dictionaries"] = json!(languages);
+    }
 }
 
 /// 状态目录里 `edition` 的偏好。还没有偏好文件时，先把此刻读到的偏好写成第一份文件（[`PreferencesStore::write_first_document`]），理由见 [`prepare_host_configuration_for_edition`]。必须在建用户词库代次之前调用：没有偏好文件时，状态目录有没有被准备过决定触屏键盘按新装还是按升级前的默认方案。
@@ -3212,9 +3240,31 @@ fn prepare_shipped_host_configuration(
         &specification.generation()?,
         engine_schemes(edition),
     )?;
+    // 两个租约锁文件在这里就建好：对状态目录没有写权限的宿主（iOS 键盘没有完全访问）只能只读打开已有的锁文件取租约，自己建不出来（#10945，见 `read_only_state`）。取到就放；正被维护占着时文件也已经在了。
+    let _ = DictionaryAccess::try_session(
+        Path::new(&prepared.user_data),
+        Path::new(&prepared.dictionaries),
+    );
     // 先记下状态目录属于哪个版本：之后只拿到这个目录的偏好存储（各平台的 C ABI、设置应用）靠它取本版本的默认偏好。full 什么也不写。
     edition.record_in(&state_root)?;
-    Ok(serde_json::to_string_pretty(&HostOptions {
+    Ok(serde_json::to_string_pretty(&prepared_host_options(
+        prepared,
+        &resources,
+        &state_root,
+        preferences,
+        edition,
+    )?)?)
+}
+
+/// 准备好的引擎路径上的宿主选项：可写的准备（[`prepare_shipped_host_configuration`]）和只读的准备（[`read_only_state`]）共用，`resources` 是校验过的资源目录。
+fn prepared_host_options(
+    prepared: msime_engine::host::EngineOptions,
+    resources: &Path,
+    state_root: &Path,
+    preferences: Preferences,
+    edition: &'static Edition,
+) -> Result<HostOptions, Box<dyn std::error::Error>> {
+    Ok(HostOptions {
         api_version: 1,
         resources: prepared.resources,
         helpcode_fallback_resources: None,
@@ -3244,12 +3294,13 @@ fn prepare_shipped_host_configuration(
         // Written only when a model has actually been installed as its own artifact; a host that
         // places one beside the dictionaries needs no configuration.
         sentence_model: None,
-        settled_model: settled_model_beside(&resources),
+        settled_model: settled_model_beside(resources),
         sound_packs: None,
         plugin_packs: None,
-        language_dictionaries: installed_language_dictionaries(&resources),
+        language_dictionaries: installed_language_dictionaries(resources),
         edition: (!edition.is_full()).then_some(edition),
-    })?)
+        read_only_state: None,
+    })
 }
 
 /// A runtime options refresh found that the recorded resource directory does not hold the resource set this build pins.
@@ -3930,6 +3981,10 @@ fn dispatch_value(
         // 大写锁定改道先于其余处理，后面看到的都是改道后的动作。
         let action = session.caps_lock_punctuation(action);
         let action = session.runtime.candidate_shortcut(action);
+        // 只读会话不改词库（#10945）：在快捷键改道之后拦，组字原样留着，见 `read_only_state::edits_dictionary`。
+        if session.read_only_state && read_only_state::edits_dictionary(&action) {
+            return Err(read_only_state::CANDIDATE_EDITING_UNAVAILABLE.to_owned());
+        }
         let currency_punctuation = matches!(
             action,
             Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
