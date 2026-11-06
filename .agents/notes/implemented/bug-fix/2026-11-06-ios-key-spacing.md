@@ -26,5 +26,5 @@ iOS 26 键竖屏把 44pt 字母键帽收紧后，额外在键区上下和每个�
 
 - `git diff --check`
 - `pnpm run verify-notes`
-- iOS 定向测试：远端 iOS 27 模拟器完成资源准备、原生编译；`KeyboardFormFactorTests`、`KeyLayoutStyleTests`、`MorePanelFoldTests` 共 118 项全部通过（0 failures）。
+- iOS 定向测试：远端 iOS 27 模拟器完成资源准备、原生编译；`KeyboardFormFactorTests`、`KeyLayoutStyleTests`、`MorePanelFoldTests` 及工具栏布局回归共 119 项全部通过（0 failures）。
 
