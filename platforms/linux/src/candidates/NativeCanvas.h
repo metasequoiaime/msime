@@ -272,6 +272,8 @@ struct NativeCanvasContent {
   std::function<void(bool)> expand;
   // 以下只有 chrome 用。拼音的字号（已乘缩放的 candidate_preedit_font_size，0 跟随候选字号）；首行打头的 logo；当前页和总页数（「1 / 3」）。
   double preedit_size = 0;
+  // 候选字重 candidate_font_weight 的 OpenType 字重（read_candidate_font 的 weight）：序号、释义和页码按它画，拼音行至少半粗。只取偏好、不取 font 描述里带的字重，Fcitx5 的描述来自 classicui 的 Font，用户在桌面配置里写的样式词不该带到这几段上。
+  int font_weight = 400;
   // 底部一行右端的提示（光标后编辑的「候选编辑：光标后」），和左边的 auxiliary 同一行、同一种颜色，不能点。canvas 包没有底部一行，提示在 auxiliary 里跟着辅助行走。
   std::string auxiliary_hint;
   NativeCanvasImage logo = {};
