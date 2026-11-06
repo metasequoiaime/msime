@@ -26,6 +26,8 @@ extern "C" HRESULT msime_test_wer_register(PCWSTR, PVOID);
 extern "C" HRESULT msime_test_wer_unregister(PCWSTR, PVOID);
 extern "C" void msime_test_tsf_after_refresh();
 extern "C" void msime_test_tsf_before_publish();
+// 专项拿到系统给出的真实结果，再决定是否改写，让 x64 runner 也能覆盖 WOW64 分支、x86 runner 也能覆盖非 WOW64 分支。
+extern "C" BOOL msime_test_wow64_process(BOOL actual);
 #endif
 
 namespace msime::tsf {
@@ -377,14 +379,24 @@ void CALLBACK observe(PTP_CALLBACK_INSTANCE instance, void *context) noexcept {
   }
 }
 
-// AppContainer 与低完整性宿主（开始菜单、搜索、商店应用、受保护模式阅读器）读不到用户状态目录和偏好锁，WER helper 冒用其令牌也写不出记录；直接不建观察者，免得每个这样的进程都永远重试。令牌在进程一生里不变，查一次即可。本 DLL 用 /Zc:threadSafeInit- 编译，缓存放在常量初始化的原子量里（0 未查，1 支持，2 不支持），并发首次查询各自算出同一个值。分配失败抛出的异常交给 acquire 的 try 收住。
+// 32 位宿主跑在 WOW64 里（x64 和 ARM64 上的 x86 进程都是）时，登记了 helper 的故障改由 SysWOW64\WerFault.exe 处理，它会自身堆损坏或在堆锁上死锁：用户看到经典的应用程序错误框，或者崩溃的应用一直挂着不退出。没有 CRT 的空 helper 一样触发，不登记时从不触发，见 #10865。输入法不能把第三方应用的崩溃变成挂起，所以 WOW64 宿主不做进程外采集。IsWow64Process 在 ARM64 上对 x86 进程同样返回 TRUE，XP SP2 起就有，Win7 TIP 也能直接导入；查询失败按 WOW64 处理，不冒险登记。
+bool wow64_process() {
+  BOOL wow64 = TRUE;
+  if (!IsWow64Process(GetCurrentProcess(), &wow64)) wow64 = TRUE;
+#if defined(MSIME_TSF_CRASH_CAPTURE_TEST)
+  wow64 = msime_test_wow64_process(wow64);
+#endif
+  return wow64 != FALSE;
+}
+
+// AppContainer 与低完整性宿主（开始菜单、搜索、商店应用、受保护模式阅读器）读不到用户状态目录和偏好锁，WER helper 冒用其令牌也写不出记录；WOW64 宿主见上。两类都直接不建观察者，既不读授权也不登记 helper，免得每个这样的进程都永远重试。令牌和进程架构在进程一生里不变，查一次即可。本 DLL 用 /Zc:threadSafeInit- 编译，缓存放在常量初始化的原子量里（0 未查，1 支持，2 不支持），并发首次查询各自算出同一个值。分配失败抛出的异常交给 acquire 的 try 收住。
 bool capture_supported_host() {
   static std::atomic<int> cached{0};
   int value = cached.load(std::memory_order_relaxed);
   if (value) return value == 1;
   bool supported = false;
   HANDLE token = nullptr;
-  if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+  if (!wow64_process() && OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
     DWORD app_container = 1, size = 0;
     if (!GetTokenInformation(token, TokenIsAppContainer, &app_container, sizeof(app_container), &size))
       // Win7 不认识这个信息类，那里没有 AppContainer。
