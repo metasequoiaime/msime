@@ -213,14 +213,14 @@ struct InputSettingsView: View {
     return scheme == .wubi ? .wubi(wubiProfile) : .scheme(scheme)
   }
 
-  /// 语言的选项面板：按顺序直接列出它的方案，双拼列小鹤、自然码等，五笔列 86 和 98，不再各开一层二级面板（那样「双拼」行、方案面板、双拼面板就成了三层）；不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id，五笔版本是 `inputScheme_wubi_<profile>`。
+  /// 语言的选项面板：按顺序直接列出它的方案，双拼列小鹤、自然码等，五笔列 86、98 和新世纪，不再各开一层二级面板（那样「双拼」行、方案面板、双拼面板就成了三层）；不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id，五笔版本是 `inputScheme_wubi_<profile>`。
   private func options(for language: InputLanguage) -> [DesignOption<LanguageChoice>] {
     let schemes = available(language)
     var options: [DesignOption<LanguageChoice>] = []
     for scheme in schemes {
       if scheme == .wubi {
         options += WubiProfilePreference.profiles.map { profile in
-          DesignOption(title: profile == "wubi98" ? "五笔 98" : "五笔 86", value: .wubi(profile),
+          DesignOption(title: WubiProfilePreference.shortTitle(profile), value: .wubi(profile),
                        identifier: "inputScheme_wubi_\(profile)")
         }
       } else {
@@ -541,7 +541,7 @@ struct InputSettingsView: View {
           .accessibilityIdentifier("wubiAutoCommitUnique")
         DesignDivider()
         // 五笔查码（#6789）：与三个五笔开关一样，只在启用了五笔时列出。
-        navRow("五笔查码", info: "查汉字的 86、98 五笔编码", identifier: "wubiCodeLookupLink") {
+        navRow("五笔查码", info: "查汉字的 86、98 和新世纪五笔编码", identifier: "wubiCodeLookupLink") {
           WubiCodeLookupView(profile: wubiProfile)
         }
         DesignDivider()

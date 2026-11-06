@@ -70,7 +70,7 @@ describe("dictionary pagination status", () => {
 });
 
 describe("personal dictionary JSON", () => {
-  it.each(["pinyin", "wubi", "wubi98", "quickPhrase", "english"])(
+  it.each(["pinyin", "wubi", "wubi98", "wubixsj", "quickPhrase", "english"])(
     "%s 词条在预览前拒绝共享层不允许的全部控制字符",
     (kind) => {
       const controlPoints = [

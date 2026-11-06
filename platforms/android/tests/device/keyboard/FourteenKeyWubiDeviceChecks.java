@@ -68,9 +68,11 @@ final class FourteenKeyWubiDeviceChecks {
             absent(t.key("q"));
 
             // QW QW 的组码是 qq，可能的五笔码是 qq、qw、wq、ww；读音行显示首选的编码，不显示内部组码，也不写进输入框。
+            // 五笔 14 键网格组字不能编辑拼写（#10591，与 iOS 一致）：读音不可点，读屏念的是编码本身，不是「编辑拼写」。
             t.stage = "fourteen wubi code";
             groups("Q W", "Q W");
-            t.await(code());
+            t.await(code().and(node -> !node.isClickable()
+                && DeviceSmoke.equalsText(node.getText().toString(), node.getContentDescription())));
             // 组码是各组的代表字母，不是用户打的码，读音行不提供拼写编辑（#10591，与 iOS 相同）。
             t.stage = "fourteen wubi reading is not a spelling editor";
             absent(t.described("编辑拼写"));
@@ -151,7 +153,9 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.key("五98"));
             t.awaitStableBounds(t.described("按键 Q W"));
             groups("Q W", "Q W");
-            t.await(code());
+            t.await(code().and(node -> !node.isClickable()
+                && DeviceSmoke.equalsText(node.getText().toString(), node.getContentDescription())));
+            absent(t.described("编辑拼写"));
             t.tap(t.describedPrefix("候选 1："));
             t.await(t.field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().length() > before.length()));

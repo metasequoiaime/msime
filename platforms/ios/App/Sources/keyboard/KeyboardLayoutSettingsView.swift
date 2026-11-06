@@ -114,7 +114,7 @@ struct KeyboardLayoutSettingsView: View {
     return VStack(spacing: 6) {
       grip
       KeyboardSkinPreview(
-        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid, gridSplitsSyllables: face.gridSplitsSyllables,
+        skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
         heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
       )
@@ -215,7 +215,7 @@ struct KeyboardLayoutSettingsView: View {
         DesignDivider()
         DesignSelectRow(
           title: "五笔键盘",
-          info: "五笔使用的字母键布局，86 和 98 五笔共用",
+          info: "五笔使用的字母键布局，86、98 和新世纪五笔共用",
           options: TouchWubiLayoutPreference.Layout.allCases.map {
             DesignOption(title: $0.title, value: $0, identifier: "wubiKeyboard\($0.rawValue)")
           },

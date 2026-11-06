@@ -11,6 +11,7 @@
 #include "Define.h"
 #include "../HostConfiguration.h"
 #include "../HostSessionMaintenance.h"
+#include "../HostSessionStart.h"
 #include "../../common/DictionaryQuiesceLease.h"
 #include <msctf.h>
 #include <string>
@@ -207,11 +208,12 @@ CCompositionProcessorEngine::~CCompositionProcessorEngine()
 }
 
 bool CCompositionProcessorEngine::InitializeHostSession(const std::string &options,
+                                                         const std::string &preferenceSnapshot,
                                                          std::string *error)
 {
     if (!_hostEngineAdapter)
         _hostEngineAdapter = std::make_unique<msime::tsf::EngineSessionAdapter>();
-    return _hostEngineAdapter->create(options, error);
+    return msime::tsf::create_host_session(*_hostEngineAdapter, options, preferenceSnapshot, error);
 }
 
 bool CCompositionProcessorEngine::RefreshHostSessionForDictionaryMaintenance(bool composing)
@@ -229,15 +231,12 @@ bool CCompositionProcessorEngine::RefreshHostSessionForDictionaryMaintenance(boo
         return false;
     case msime::tsf::HostSessionMaintenanceStep::Restore: {
         std::string error;
-        if (!InitializeHostSession(configuration->hostOptions, &error))
+        if (!InitializeHostSession(configuration->hostOptions, configuration->preferenceSnapshot, &error))
         {
             _hostSessionAwaitsDictionaryMaintenance = msime::tsf::host_session_waits_for_maintenance(error);
             return false;
         }
         _hostSessionAwaitsDictionaryMaintenance = false;
-        std::string ignored;
-        if (!configuration->preferenceSnapshot.empty())
-            (void)_hostEngineAdapter->update_preferences(configuration->preferenceSnapshot, &ignored, &error);
         return true;
     }
     case msime::tsf::HostSessionMaintenanceStep::Keep:
@@ -296,11 +295,12 @@ BOOL CCompositionProcessorEngine::SetupLanguageProfile(LANGID langid, REFGUID gu
     if (_hostEngineAdapter && !_hostEngineAdapter->valid()) {
         const auto configuration = msime::tsf::cached_host_configuration();
         const std::string options = configuration ? configuration->hostOptions : std::string{};
+        const std::string preferences = configuration ? configuration->preferenceSnapshot : std::string{};
         std::string error;
         // 词库维护期间不建宿主会话：它会以共享方式拿住词库锁，让维护者等不到独占锁。租约撤掉后由偏好定时器补建。
         if (!options.empty() && msime::windows::dictionary_quiesced(configuration->userData))
             _hostSessionAwaitsDictionaryMaintenance = true;
-        else if (!options.empty() && !InitializeHostSession(options, &error))
+        else if (!options.empty() && !InitializeHostSession(options, preferences, &error))
             _hostSessionAwaitsDictionaryMaintenance = msime::tsf::host_session_waits_for_maintenance(error);
     } else if (_hostEngineAdapter && _hostEngineAdapter->valid()) {
         std::string error, ignored;

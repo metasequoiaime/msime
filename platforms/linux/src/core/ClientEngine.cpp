@@ -1,5 +1,7 @@
+#include "../settings/LocalTranslationLauncher.h"
 #include "ClientEngine.h"
 #include "../../../common/HostApiString.h"
+#include "../candidates/EmbeddedTranslation.h"
 #include "LinuxEdition.h"
 #include "KeyRouterAdapter.h"
 #include "ToggleHotkeyChord.h"
@@ -729,10 +731,12 @@ struct State {
   bool translation_reset_pending = false;
   uint64_t sentence_translation_generation = 0;
   std::string translation_target_language = "en";
+  msime::translation::EmbeddedState embedded_translation;
   uint64_t provider_epoch = 0;
   std::string translation_dispatched_query;
   std::array<std::string, 2> online_dispatched_query;
   void invalidate_providers() {
+    embedded_translation.cancel();
     if (online_delay_source) {
       const auto source = online_delay_source;
       online_delay_source = 0;
@@ -1637,6 +1641,8 @@ void dismiss_mode_badge(const IBusEngine *engine);
 #endif
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
+  if (panel && std::string_view(panel) == "local-translation")
+    return msime::linux_host::launch_local_translation(configured.value("preferences_directory", std::string{}));
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
     command = MSIME_EDITION_SETTINGS_PROGRAM;
@@ -1684,6 +1690,9 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/CloudDictionary", "cloud-dictionary", msime::linux_host::menu_label::kCloudDictionary, DesktopPanelSlot::Top},
     {"DesktopTools/Keyboard", "keyboard", msime::linux_host::menu_label::kScreenKeyboard, DesktopPanelSlot::Top},
     {"DesktopTools/Handwriting", "handwriting", msime::linux_host::menu_label::kHandwriting, DesktopPanelSlot::Top},
+#ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
+    {"DesktopTools/LocalTranslation", "local-translation", "本地模型翻译…", DesktopPanelSlot::Footer},
+#endif
     {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
     {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},
     {"DesktopTools/Dictionary", "dictionary", msime::linux_host::menu_label::kDictionary, DesktopPanelSlot::Extra},
@@ -2254,6 +2263,7 @@ struct TranslationTask {
   std::string target_language = {};
   std::string pronunciation_root = {};
   Json pronunciations = Json::object();
+  msime::translation::EmbeddedState::Token local_cancel = {};
 };
 // prefer_online_glosses over the JSON translation lists the host API exchanges.
 Json prefer_online_translations(const Json &glosses, const Json &online) {
@@ -2331,7 +2341,9 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
   g_task_set_task_data(task, task_data, [](gpointer value) { delete static_cast<TranslationTask *>(value); });
   g_task_run_in_thread(task, [](GTask *task, gpointer, gpointer data, GCancellable *) {
     auto &request = *static_cast<TranslationTask *>(data);
-    auto *raw = request.offline
+    auto *raw = request.local_cancel
+        ? msime::linux_host::embedded_translation(Json::parse(request.query), request.local_cancel).release()
+        : request.offline
         ? msime_client_candidate_gloss_request(
               reinterpret_cast<const uint8_t *>(request.gloss_query.data()), request.gloss_query.size(),
               reinterpret_cast<const uint8_t *>(request.resources.data()), request.resources.size())
@@ -2380,6 +2392,12 @@ void start_translation_task(IBusEngine *engine, TranslationTask request) {
 // 把一份翻译查询文档变成一次查询：目标语言是英语、或装了目标语言的离线词典时先查离线词典，候选词翻译开着、查询点名了服务时再把没查到的交给 provider。gloss 为真时这份是 gloss_query（整页离线释义）：走同一条路径，但不连 provider，回答标 "gloss": true。两样都用不上时没有这次查询。
 std::optional<TranslationTask> translation_task(IBusEngine *engine, Json query, bool gloss) {
   auto &s = state(engine);
+  if (!gloss && query.value("provider", std::string{}) == "local") {
+    TranslationTask task{s.session, s.provider_epoch, query.dump(), {}, {}, "{}"};
+    task.local_cancel = s.embedded_translation.begin(std::to_string(query.at("generation").get<uint64_t>()));
+    task.answer_key = msime::linux_host::translation_answer_key(query);
+    return task;
+  }
   const bool online_translation = !gloss && s.candidate_translations &&
       !s.translation_provider_socket.empty() &&
       msime::linux_host::translation_query_reaches_service(query);
@@ -2423,6 +2441,12 @@ void translation_dispatch(IBusEngine *engine) {
     // /fy asks the selected service alone, in the query's own target language, and answers with a row rather than a gloss (CandidateTranslationPolicy.h): no offline dictionary, no other service, no gloss cache.
     if (msime::linux_host::command_translation_query(local_mode,
                                                      query.value("sentence", false))) {
+      if (query.value("provider", std::string{}) == "local") {
+        if (query.dump() == s.translation_dispatched_query) return;
+        s.translation_dispatched_query = query.dump();
+        if (auto task = translation_task(engine, query, false)) start_translation_task(engine, std::move(*task));
+        return;
+      }
       if (s.translation_provider_socket.empty()) return;
       auto texts = Json::array();
       for (const auto &candidate : query.at("candidates"))
@@ -2480,7 +2504,7 @@ void translate_sentence(IBusEngine *engine) {
   constexpr size_t kMaxSentenceChars = 512;
   auto &s = state(engine);
   if (s.translation_loading || !s.session || !s.focused || s.blocked ||
-      !s.input_enabled || s.private_input || s.translation_provider_socket.empty())
+      !s.input_enabled || s.private_input)
     return;
   try {
     auto query = response(msime_client_translation_query(s.session));
@@ -2493,6 +2517,15 @@ void translate_sentence(IBusEngine *engine) {
     const auto text = selected->value("text", std::string{});
     if (text.empty() || msime::linux_host::utf8_scalar_count(text) > kMaxSentenceChars)
       return;
+    if (query.value("provider", std::string{}) == "local") {
+      query["sentence"] = true;
+      query["candidates"] = Json::array({Json{{"text", text}}});
+      query.erase("gloss_query");
+      s.sentence_translation_generation = query.at("generation").get<uint64_t>();
+      if (auto task = translation_task(engine, query, false)) start_translation_task(engine, std::move(*task));
+      return;
+    }
+    if (s.translation_provider_socket.empty()) return;
     query["sentence"] = true;
     query["target_language"] = s.translation_target_language;
     query["candidates"] = Json::array({text});
@@ -2562,6 +2595,7 @@ void settled_rerank_schedule(IBusEngine *engine) {
 
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
+  s.embedded_translation.observe(std::to_string(s.view.value("generation", uint64_t{0})));
   if (s.translation_delay_source) {
     const auto source = s.translation_delay_source;
     s.translation_delay_source = 0;
@@ -4462,17 +4496,15 @@ void render(IBusEngine *engine, const Json &view) {
     tail += msime::linux_host::candidate_fixed_position_marker(
         static_cast<std::uint64_t>(std::max(0, fixed_position)));
     const auto annotation = candidate.value("annotation", std::string{});
-    // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither the helpcode switch nor the wubi code hint hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both switches.
+    // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so the helpcode switch does not hide it. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow it.
+    // 五笔方案的注释由引擎决定：「五笔剩余编码」关掉时引擎不再给五笔原生候选附编码，拼音来的候选（混输拼音、`z` 反查）照旧附，与其他五个宿主相同（#10790），所以这里不再按这个开关整段隐藏；五笔方案的 show_helpcode_in_candidate_window 恒为真。
     const auto local_mode = view.value("local_mode", std::string("none"));
     const bool local_mode_annotation =
         local_mode == "command" || local_mode == "mention";
-    const bool wubi_annotation = view.value("scheme", 255) != 2 ||
-                                 state(engine).wubi_code_hint;
     // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
     // 注释括起来紧贴候选字，云和 AI 角标隔一个空格跟在后面，与 macOS 候选窗和 Fcitx5 宿主的写法相同（CandidateRowText.h）。
     if (!annotation.empty() && hanja_gloss.empty() &&
-        (local_mode_annotation ||
-         (state(engine).show_helpcode_in_candidate_window && wubi_annotation)))
+        (local_mode_annotation || state(engine).show_helpcode_in_candidate_window))
       value += msime::linux_host::candidate_annotation_text(annotation);
     value += msime::linux_host::candidate_source_badge(static_cast<std::uint64_t>(source));
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
@@ -6098,9 +6130,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         save_menu_preference(engine, MenuPreference::WubiCodeHint, enabled);
         return;
       }
+      // 这个开关现在由引擎判定要不要给五笔候选附编码，没有偏好目录就不会重读，和下面的四码唯一自动上屏一样只能重建会话把 override 交给它。
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
       s.wubi_code_hint_override = enabled;
-      s.wubi_code_hint = enabled;
-      render(engine, s.view);
+      s.open();
+      if (s.session)
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
@@ -8830,7 +8867,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
     for (const auto *key : {"candidate_translations", "candidate_english_gloss",
                             "candidate_pronunciation",
                             "translation_target_language",
-                            "translation_secondary_language", "translation_account",
+                            "translation_secondary_language", "local_translation", "translation_account",
                             "custom_translation", "niutrans", "tencent_tmt"}) {
       if (s.applied_preferences_snapshot.value(key, Json(nullptr)) ==
           preferences.value(key, Json(nullptr)))

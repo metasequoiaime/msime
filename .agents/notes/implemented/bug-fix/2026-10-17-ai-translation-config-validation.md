@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-AI 翻译描述器在构造凭据请求前复用 `AI_PROVIDERS` 白名单，并要求 `model` 非空且不超过 256 个 Unicode 字节边界文本上限，与普通 AI 请求体保持一致；不合规配置返回 `InvalidConfiguration`，不构造请求。
+AI 翻译描述器在构造凭据请求前复用 `AI_PROVIDERS` 白名单，并要求 `model` 非空且不超过 256 个 Unicode 字节边界文本上限，与普通 AI 请求体保持一致；接口地址独立调用 `ai::endpoint::validate` 校验，不依赖读取 Token 时的间接校验。Ollama 不读取 Token，因此这一步对它同样必需。本机与局域网 HTTP 仍可使用，公网 HTTP、非 HTTP(S) 协议、内嵌凭据和片段被拒绝。不合规配置返回 `InvalidConfiguration`，不构造请求。
 
 ## Alternatives considered
 
@@ -23,3 +23,5 @@ AI 翻译描述器在构造凭据请求前复用 `AI_PROVIDERS` 白名单，并�
 ## Verification
 
 新增 `translation_descriptor_rejects_invalid_provider_and_model` 回归测试，先在旧实现上失败，再在修复后通过；`cargo test -p msime-client-providers --locked translation_descriptor_rejects_invalid_provider_and_model` 通过。
+
+`translation_without_token_enforces_the_ai_endpoint_policy` 覆盖无 Token 的本机、IPv6 回环、局域网翻译请求，以及公网 HTTP、非法协议、内嵌凭据和片段的拒绝。该用例在修复前因公网 HTTP 被接受而失败。

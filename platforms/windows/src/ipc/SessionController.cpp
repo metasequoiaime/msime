@@ -172,6 +172,10 @@ SessionController::SessionController(
            [this](const std::string &line) {
              if (presentation_.rejected)
                presentation_.rejected(line);
+           },
+           [this](const FocusLease &lease) {
+             if (presentation_.mode_event)
+               presentation_.mode_event(lease);
            }},
           transactions_) {
   if (!event_ || !healthy_ || !stop_service_ || interval.count() < 1 ||
@@ -267,7 +271,7 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
       if (!stopping_ && transport_.current(lease.transport))
         pending = state.select_candidate(lease, session, generation, index,
                                          translation_page, expanded_text);
-    });
+    }, InputTaskPriority::Foreground);
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
     if (!pending)
@@ -306,7 +310,7 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
         if (delivered)
           refresh_expansion(lease);
       }
-    });
+    }, InputTaskPriority::Foreground);
     if (!confirmed || confirmed->get() != InputTaskStatus::Completed ||
         !delivered)
       return fail();
@@ -401,6 +405,9 @@ CandidateActionRequestResult SessionController::request_candidate_action(
                                      index))
       return CandidateActionRequestResult::Rejected;
     std::optional<nlohmann::json> transition;
+    // 上游 #1329（d56e7d2f48）把置顶、删除、固定、清除从 UserAction 挪进 Foreground，为的是
+    // 候选操作与会话重建的 IPC 顺序；本仓库的输入队列本来就是先进先出，这里保留 Foreground
+    // 只是为了提权，和上游的顺序动机无关。
     auto prepared = input_.submit([&](InputState &state) {
       if (!stopping_ && transport_.current(lease.transport))
         transition = state.candidate_action(lease, session, generation, index,
@@ -414,7 +421,7 @@ CandidateActionRequestResult SessionController::request_candidate_action(
           (void)translations_.submit(lease, std::move(*query));
         refresh_expansion(lease);
       }
-    });
+    }, InputTaskPriority::Foreground);
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
     return transition ? CandidateActionRequestResult::Sent
@@ -473,7 +480,8 @@ SessionController::request_page(const CandidatePage &page) {
                                           page.generation, page.previous,
                                           page.steps, page.from_wheel);
       if (transition) {
-        candidates_.action(page.lease, *transition);
+        // page_candidate 回的是整次转移（commit、view…），信箱要的是其中的 view，和上面的候选菜单动作一样取出来。整次转移交进去时信箱读不到 session，静默丢掉这一帧，候选窗就一直画着翻页前的那一页。
+        candidates_.action(page.lease, transition->at("view"));
         // Paging advances the Engine generation and replaces the visible
         // candidate set. Request translations for the new page immediately;
         // waiting for another key event would leave the page unannotated.
@@ -481,7 +489,7 @@ SessionController::request_page(const CandidatePage &page) {
           (void)translations_.submit(page.lease, std::move(*query));
         refresh_expansion(page.lease);
       }
-    });
+    }, InputTaskPriority::Foreground);
     if (!prepared || prepared->get() != InputTaskStatus::Completed)
       return fail();
     return transition ? CandidatePageRequestResult::Sent
@@ -773,9 +781,11 @@ bool SessionController::deactivate_terminal(uint64_t client, uint64_t token) {
   if (!client || !token || stopping_.load())
     return false;
   auto result = std::make_shared<std::atomic<bool>>(false);
+  // DLL 只等 150 ms；上游把 ClientDeactivated 归在 Foreground（event_listener_task_class.cpp），
+  // 这条兜底同样属于用户正在等的焦点切换。
   auto submitted = input_.submit([client, token, result](InputState &state) {
     result->store(state.deactivate_terminal(client, token));
-  });
+  }, InputTaskPriority::Foreground);
   // A full or stopped queue is not a deactivation. Answering anyway would tell
   // the DLL a teardown happened when the request never even ran.
   if (!submitted)

@@ -17,6 +17,7 @@ void require(bool condition, const char *message)
 
 @interface PreferencesTarget : NSObject
 @property(nonatomic) BOOL preferencesShown;
+@property(nonatomic) BOOL localTranslationShown;
 @property(nonatomic) BOOL updateCheckStarted;
 @property(nonatomic) BOOL characterPaletteOpened;
 @property(nonatomic) BOOL chineseSelected;
@@ -28,6 +29,11 @@ void require(bool condition, const char *message)
 @end
 
 @implementation PreferencesTarget
+- (void)showLocalTranslationSettings:(id)sender
+{
+    (void)sender;
+    self.localTranslationShown = YES;
+}
 - (void)showVoicePanel
 {
     self.voicePanelShown = YES;
@@ -98,7 +104,7 @@ int main()
         ApplyMetasequoiaMenuTheme(menu, @{@"theme": @"dark", @"menu_theme": @"invalid"});
         assert([[menu.appearance name] isEqualToString:NSAppearanceNameDarkAqua]);
 
-        require(menu.numberOfItems == 12,
+        require(menu.numberOfItems == 13,
                 "The input menu did not contain input modes, output character sets, character palette, update, and "
                 "settings actions.");
         NSMenuItem *chineseItem = [menu itemAtIndex:0];
@@ -145,8 +151,10 @@ int main()
         require(settingsItem.target == target, "The settings action did not target the input controller.");
         require(settingsItem.enabled, "The settings action was unexpectedly disabled.");
 
-        [menu performActionForItemAtIndex:10];
+        [menu performActionForItemAtIndex:9];
+        require(target.localTranslationShown, "本地翻译入口没有调用模型管理窗口。");
         [menu performActionForItemAtIndex:11];
+        [menu performActionForItemAtIndex:12];
         require(target.voicePanelShown && target.voiceSettingsShown, "Voice menu actions were not dispatched.");
         [menu performActionForItemAtIndex:1];
         require(target.englishSelected, "The English input mode action was not dispatched.");

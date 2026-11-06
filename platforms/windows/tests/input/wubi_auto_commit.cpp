@@ -23,7 +23,7 @@ struct Cleanup {
 };
 
 void scenario(const std::filesystem::path &fixture, TsfPreeditStyle style,
-              bool uiless, bool wubi98, bool unique, bool top,
+              bool uiless, const std::string &profile, bool unique, bool top,
               const std::string &input, const std::string &expected,
               const std::string &remainder, bool select = false,
               std::size_t expected_commits = 1,
@@ -37,7 +37,7 @@ void scenario(const std::filesystem::path &fixture, TsfPreeditStyle style,
   auto &preferences = options["preferences"];
   preferences["scheme"] = "wubi";
   preferences["default_ime_mode"] = "chinese";
-  preferences["wubi_profile"] = wubi98 ? "wubi98" : "wubi86";
+  preferences["wubi_profile"] = profile;
   preferences["wubi_mixed_pinyin"] = false;
   preferences["wubi_auto_commit_unique"] = unique;
   preferences["wubi_fifth_code_top_commit"] = top;
@@ -115,8 +115,8 @@ void scenario(const std::filesystem::path &fixture, TsfPreeditStyle style,
     check_views();
   }
   if (inserted != expected || counted != expected)
-    std::fprintf(stderr, "scenario input=%s style=%u uiless=%d wubi98=%d unique=%d top=%d inserted=%s counted=%s expected=%s\n",
-        input.c_str(), static_cast<unsigned>(style), uiless, wubi98, unique, top,
+    std::fprintf(stderr, "scenario input=%s style=%u uiless=%d profile=%s unique=%d top=%d inserted=%s counted=%s expected=%s\n",
+        input.c_str(), static_cast<unsigned>(style), uiless, profile.c_str(), unique, top,
         inserted.c_str(), counted.c_str(), expected.c_str());
   require(inserted == expected && counted == expected,
           "automatic commit text is inserted and counted exactly once");
@@ -279,22 +279,25 @@ int main(int argc, char **argv) {
     declined_capital_scenario(argv[1], "quanpin", true, "nA", "", "nA");
     for (auto style : {TsfPreeditStyle::Local, TsfPreeditStyle::Pinyin, TsfPreeditStyle::Empty})
       for (bool uiless : {false, true})
-        for (bool wubi98 : {false, true}) {
-          scenario(argv[1], style, uiless, wubi98, true, true, "wqaa", "合成甲", "");
-          scenario(argv[1], style, uiless, wubi98, true, true, "wqaawqaa", "合成甲合成甲", "", false, 2);
+        for (const std::string profile : {"wubi86", "wubi98", "wubixsj"}) {
+          scenario(argv[1], style, uiless, profile, true, true, "wqaa", "合成甲", "");
+          scenario(argv[1], style, uiless, profile, true, true, "wqaawqaa", "合成甲合成甲", "", false, 2);
           // 顶字不是造词中途的选词：顶下来的词立即写入文档，不进暂存词段（#10480）。
-          scenario(argv[1], style, uiless, wubi98, true, true, "wqabw", "合成乙", "w", false, 1, "");
-          scenario(argv[1], style, uiless, wubi98, true, true, "wqabA", "合成乙A", "");
-          scenario(argv[1], style, uiless, wubi98, false, true, "wqaaw", "合成甲", "w", false, 1, "");
-          scenario(argv[1], style, uiless, wubi98, false, false, "wqaa", "", "wqaa", true);
+          scenario(argv[1], style, uiless, profile, true, true, "wqabw", "合成乙", "w", false, 1, "");
+          scenario(argv[1], style, uiless, profile, true, true, "wqabA", "合成乙A", "");
+          scenario(argv[1], style, uiless, profile, false, true, "wqaaw", "合成甲", "w", false, 1, "");
+          scenario(argv[1], style, uiless, profile, false, false, "wqaa", "", "wqaa", true);
           // #9696：没有组字时 Shift+T、Shift+U 在五笔下进入日期时间和 Unicode 模式，两边会话都把后面的字母留在模式里，不当五笔码组字，也不走四码自动上屏和顶字；空格上屏模式的首选。临时英文要英文词库，这份合成表没有，由 Engine 的回归覆盖。
-          scenario(argv[1], style, uiless, wubi98, true, true, "Tdate", "", "Tdate");
-          scenario(argv[1], style, uiless, wubi98, true, true, "Uabcd", "", "Uabcd", true, 1, "", "\xEA\xAF\x8D");
+          scenario(argv[1], style, uiless, profile, true, true, "Tdate", "", "Tdate");
+          scenario(argv[1], style, uiless, profile, true, true, "Uabcd", "", "Uabcd", true, 1, "", "\xEA\xAF\x8D");
+          // 只在新世纪表里的四码：选着新世纪时唯一候选自动上屏，说明会话读的是 wubixsj 表而不是 86 表。
+          if (profile == "wubixsj")
+            scenario(argv[1], style, uiless, profile, true, true, "ytny", "为", "");
         }
   } catch (const std::exception &error) {
     std::fprintf(stderr, "FAIL: %s\n", error.what());
     return EXIT_FAILURE;
   }
-  std::puts("Wubi auto commit: 86/98, preferences, Server final text and legacy continuation passed");
+  std::puts("Wubi auto commit: 86/98/new century, preferences, Server final text and legacy continuation passed");
   return EXIT_SUCCESS;
 }

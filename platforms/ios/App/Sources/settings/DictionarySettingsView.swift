@@ -428,7 +428,7 @@ private struct DictionaryInfoView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 28) {
         DesignGroup(title: "已安装词库") {
-          DictionaryInfoText("内置离线多方案词库", detail: "支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86／98 五笔、日语罗马字、韩语两套式、粤拼、大千注音（繁体输出）、越南语 Telex／VNI、藏文威利转写（EWTS）和笔画（横竖撇点折五键加通配）；粤拼、注音和笔画需要安装包里带有对应的语言词库，默认不启用，可在方案设置里打开；提供英文补全、快捷短语、表情及颜文字。")
+          DictionaryInfoText("内置离线多方案词库", detail: "支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86／98／新世纪五笔、日语罗马字、韩语两套式、粤拼、大千注音（繁体输出）、越南语 Telex／VNI、藏文威利转写（EWTS）和笔画（横竖撇点折五键加通配）；粤拼、注音和笔画需要安装包里带有对应的语言词库，默认不启用，可在方案设置里打开；提供英文补全、快捷短语、表情及颜文字。")
           DesignDivider(leading: 20)
           DesignValueRow(title: "更新方式", value: "随 App 更新")
         }

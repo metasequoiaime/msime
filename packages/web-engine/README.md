@@ -104,7 +104,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 下载并初始化引擎，完成后返回 `MsimeEngine`。选项：
 
-- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`。`xiaohe`、`ziranma`、`shoudao`、`microsoft` 是小鹤、自然码、手到和微软双拼，每个字两键，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing（`b;` 是 bing），只能作音节的第二键，别处仍是分号。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。`jyutping` 是粤拼（香港语言学学会粤语拼音，不打声调，如 `neihou` 是 你好），`'` 分开音节，前两键不是完整音节、又能读成粤语双拼时自动按双拼读；`cantonese_shuangpin` 是粤语双拼，每个字两键，先声母后韵母（gw、kw、ng、j 打 i、u、v、y，零声母打 o，`;` 是韵母 ing/ik，如 `nzhb` 是 你好），键位与桌面版和触屏版的粤语双拼相同。两者只下载引擎和粤语词库，候选是繁体、按词库的顺序，不用整句模型和辅助码；选中只覆盖前几个音节的候选时上屏它，剩下的接着组字。
+- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"shoudao"`、`"microsoft"`、`"wubi86"`、`"japanese"`、`"korean"`。`xiaohe`、`ziranma`、`shoudao`、`microsoft` 是小鹤、自然码、手到和微软双拼，每个字两键，和全拼共用拼音库；微软双拼的 `;` 是韵母 ing（`b;` 是 bing），只能作音节的第二键，别处仍是分号。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。`jyutping` 是粤拼（香港语言学学会粤语拼音，不打声调，如 `neihou` 是 你好），`'` 分开音节，前两键不是完整音节、又能读成粤语双拼时自动按双拼读；`cantonese_shuangpin` 是粤语双拼（键位方案由陳澍鋒设计，[swithinchan/rime-cantonese-shuangpin](https://github.com/swithinchan/rime-cantonese-shuangpin)；本包是按同一套键位独立写的实现），每个字两键，先声母后韵母（gw、kw、ng、j 打 i、u、v、y，零声母打 o，`;` 是韵母 ing/ik，如 `nzhb` 是 你好），键位与桌面版和触屏版的粤语双拼相同。两者只下载引擎和粤语词库，候选是繁体、按词库的顺序，不用整句模型和辅助码；选中只覆盖前几个音节的候选时上屏它，剩下的接着组字。
 - `assetBase`：资源目录的 URL，相对地址按页面解析。
 - `model`：拼音方案是否下载整句模型，默认 `true`。
 - `helpcode`：辅助码方案（`HELPCODES` 里的一个名字），默认 `null`，即关闭。只对全拼和双拼起作用，其他方案忽略它、也不下载表。

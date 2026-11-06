@@ -4,7 +4,7 @@ import * as settings from "../settings-style";
 import { SettingsManagerBlock } from "../settings-manager-block";
 import type { LocalDictionaryKind, DictionaryPageFormat } from "../../index";
 import {
-  localDictionaryKinds,
+  shownLocalDictionaryKinds,
   resourceDictionaryFromOption,
   resourceDictionaryKinds,
   resourceDictionaryOption,
@@ -229,7 +229,7 @@ export function DictionarySettingsPage() {
                 setPhrases([]);
               }}
             >
-              {localDictionaryKinds.map(([kind, label]) => (
+              {shownLocalDictionaryKinds(harmonyPlatform).map(([kind, label]) => (
                 <option key={kind} value={kind}>
                   {label}
                 </option>
@@ -344,7 +344,7 @@ export function DictionarySettingsPage() {
                     setDictionaryFormat("standard");
                 }}
               >
-                {localDictionaryKinds.map(([kind, label]) => (
+                {shownLocalDictionaryKinds(harmonyPlatform).map(([kind, label]) => (
                   <option key={kind} value={kind}>
                     {label}
                   </option>
