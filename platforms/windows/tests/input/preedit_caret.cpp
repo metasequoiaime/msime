@@ -1,5 +1,6 @@
 #include "CandidatePresentation.h"
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -24,6 +25,25 @@ nlohmann::json view(const std::string &preedit, const std::string &editing,
       {"editing_text", editing},
       {"caret_position", caret},
       {"candidates", nlohmann::json::array()}};
+}
+// 引擎给出 View.preedit_caret（光标在 preedit 里的位置，Unicode 标量）的视图，和 host-api 实际交给 Server 的一样。
+nlohmann::json engine_view(const std::string &preedit, const std::string &editing, int caret,
+                           int preedit_caret) {
+  auto value = view(preedit, editing, caret);
+  value["preedit_caret"] = preedit_caret;
+  return value;
+}
+// 按键送达那条路径（ReplyComposer 的回复确认之后）的投影：每次打字、移光标，候选窗画的都是它。
+CandidatePresentation delivered(const FocusLease &lease, const nlohmann::json &value,
+                                const std::string &next_prefix = {}) {
+  PendingReply reply{};
+  reply.source = {42, 1, 7, true, nlohmann::json{{"view", value}}};
+  reply.next_prefix = next_prefix;
+  FanyImeNamedpipeData packet{};
+  packet.client_id = 42;
+  packet.request_id = 7;
+  packet.event_type = FanyImePipeEventType::KeyEvent;
+  return candidate_presentation(lease, reply, packet);
 }
 } // namespace
 int main() {
@@ -152,6 +172,72 @@ int main() {
       const auto unpaged =
           candidate_presentation_from_view(lease, view("ni", "ni", 2), 0, 0, "");
       require(unpaged.page == 0 && unpaged.page_count == 0);
+    }
+
+    // 按键送达的投影和异步刷新的投影放同一个插入点。以前只有刷新那条路径带光标，每次按键送达的投影都把它丢掉，候选窗拼音行打字、左右移光标时从来看不到插入点，只有释义、云候选这类异步结果回来重画时才偶尔出现。
+    {
+      const auto out = delivered(lease, view("nihao", "nihao", 2));
+      require(out.visible && out.preedit == "nihao");
+      require(out.preedit_caret == 2);
+      require(delivered(lease, view("nihao", "nihao", 5)).preedit_caret == 5);
+      // 已选词段的前缀画在拼音前面，光标跟着后移。
+      const auto prefixed = delivered(lease, view("hao", "hao", 1), "你");
+      require(prefixed.preedit == "你hao");
+      require(prefixed.preedit_caret == std::string("你").size() + 1);
+    }
+    // 引擎给了 View.preedit_caret 时按它放，两条投影一样。双拼分隔（ni'mf，按键 nimf）：光标在末尾、按左键后在 mf 中间、在音节边界上落在隔音符前面、在开头。
+    {
+      const int raw[] = {4, 3, 2, 0};
+      const int display[] = {5, 4, 2, 0};
+      for (int index = 0; index < 4; ++index) {
+        const auto value = engine_view("ni'mf", "nimf", raw[index], display[index]);
+        require(delivered(lease, value).preedit_caret == static_cast<size_t>(display[index]));
+        require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret ==
+                static_cast<size_t>(display[index]));
+      }
+    }
+    // 双拼「拼音分词」展开的全拼（按键 uiui，显示 shi'shi）字母数和按键对不上，宿主自己数字母只能放弃；引擎按音节换好的位置可以直接画：光标在第一个双拼单位后面，落在第一个音节后、隔音符前。
+    {
+      const auto value = engine_view("shi'shi", "uiui", 2, 3);
+      require(delivered(lease, value).preedit_caret == 3);
+      require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret == 3);
+      require(delivered(lease, engine_view("shi'shi", "uiui", 4, 7)).preedit_caret == 7);
+    }
+    // 引擎的位置按 Unicode 标量计，宿主按 UTF-8 字节画：韩文音节组字时光标在末尾，是三个字节之后。
+    {
+      const auto value = engine_view("\xED\x95\x9C", "gks", 3, 1);
+      require(delivered(lease, value).preedit_caret == 3);
+      require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret == 3);
+    }
+    // 引擎的位置越过 preedit 时两边对不上，不猜，不画。
+    {
+      require(delivered(lease, engine_view("ni", "ni", 2, 3)).preedit_caret == std::string::npos);
+      require(candidate_presentation_from_view(lease, engine_view("ni", "ni", 2, 3), 0, 0, "")
+                  .preedit_caret == std::string::npos);
+    }
+
+    // 只有缺字段才兼容旧协议；明确给出的非法位置不能猜成原始按键的光标。
+    {
+      const nlohmann::json invalid_positions[] = {
+          nullptr, false, true, 1.5, 1.0, "1", -1,
+          nlohmann::json::array(), nlohmann::json::object(),
+          uint64_t{1} << 32, uint64_t{1} << 63,
+          std::numeric_limits<uint64_t>::max()};
+      for (const auto &position : invalid_positions) {
+        auto value = view("ni", "ni", 1);
+        value["preedit_caret"] = position;
+        require(delivered(lease, value).preedit_caret == std::string::npos);
+        require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret ==
+                std::string::npos);
+      }
+      // 合法无符号位置继续按 Unicode 标量转换，不能与非法大整数一起拒绝。
+      for (uint64_t position = 0; position <= 2; ++position) {
+        auto value = view("ni", "ni", 1);
+        value["preedit_caret"] = position;
+        require(delivered(lease, value).preedit_caret == position);
+        require(candidate_presentation_from_view(lease, value, 0, 0, "").preedit_caret ==
+                position);
+      }
     }
 
     std::cout << "Preedit caret: placed only where the offset really means it\n";

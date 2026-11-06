@@ -188,6 +188,11 @@ private:
   std::unordered_map<uint64_t, Client> clients_;
 };
 
+// 输入队列里的任务分级。只有用户正等着结果的任务（按键、按键引发的界面变化、
+// 点选和翻页）会在执行期间把工作线程临时提到 Above normal；维护、偏好发布和
+// 富化结果回填保持进程的 Normal，不能靠提高优先级抢在按键前面。
+enum class InputTaskPriority { Background, Foreground };
+
 enum class InputTaskStatus { Completed, Failed, Cancelled };
 struct InputQueueStats {
   size_t queued = 0;
@@ -211,7 +216,9 @@ public:
   // Nonblocking admission. Full/stopped/empty task returns null. Every accepted
   // task settles its future, including cancellation. No silent input dropping:
   // caller must invalidate affected transport/focus on failed admission.
-  std::optional<std::future<InputTaskStatus>> submit(Task task);
+  // submit 只记录任务分级；优先级在 run() 里按它决定。
+  std::optional<std::future<InputTaskStatus>>
+  submit(Task task, InputTaskPriority priority = InputTaskPriority::Background);
   void request_stop(); // May be called from a task; does not join.
   void stop();         // External control thread only; idempotent, joins.
   InputQueueStats stats() const;
@@ -223,6 +230,7 @@ public:
 private:
   struct Job {
     Task task;
+    InputTaskPriority priority;
     std::promise<InputTaskStatus> completion;
     std::chrono::steady_clock::time_point enqueued_at;
   };

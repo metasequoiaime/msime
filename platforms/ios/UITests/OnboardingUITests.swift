@@ -1286,7 +1286,7 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["designOptionSheetCancel"].tap()
   }
 
-  /// 五笔查码（#6789）：选用 98 五笔后，输入 页「更多」里出现 五笔查码；查「段舞」列出两个字在 86 和 98 码表里的编码，98 那一列标「（当前）」。编码来自键盘扩展包里的随包码表，App 进程直接读。
+  /// 五笔查码（#6789）：选用 98 五笔后，输入 页「更多」里出现 五笔查码；查「段舞」列出两个字在 86、98 和新世纪码表里的编码，98 那一列标「（当前）」。编码来自键盘扩展包里的随包码表，App 进程直接读。新世纪那一列取决于随包词库带不带 `wubixsj` 表，这里只看它在。
   @MainActor
   func testWubiCodeLookupListsBothTables() {
     let app = XCUIApplication()
@@ -1308,9 +1308,9 @@ final class OnboardingUITests: XCTestCase {
     app.buttons["wubiCodeLookupButton"].tap()
     let first = app.descendants(matching: .any)["wubiCodeLookupRow-0"]
     XCTAssertTrue(first.waitForExistence(timeout: 10), visible(app))
-    XCTAssertEqual(first.label, "段，86 五笔 wdm wdmc，98 五笔（当前） th thdc")
-    XCTAssertEqual(app.descendants(matching: .any)["wubiCodeLookupRow-1"].label,
-                   "舞，86 五笔 rlg rlgh，98 五笔（当前） tgl tglg")
+    XCTAssertTrue(first.label.hasPrefix("段，86 五笔 wdm wdmc，98 五笔（当前） th thdc，新世纪五笔 "), first.label)
+    let second = app.descendants(matching: .any)["wubiCodeLookupRow-1"].label
+    XCTAssertTrue(second.hasPrefix("舞，86 五笔 rlg rlgh，98 五笔（当前） tgl tglg，新世纪五笔 "), second)
     let screenshot = XCTAttachment(screenshot: app.screenshot())
     screenshot.name = "Wubi code lookup"
     screenshot.lifetime = .deleteOnSuccess
@@ -1324,6 +1324,98 @@ final class OnboardingUITests: XCTestCase {
     wubi86.tap()
     XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
     app.buttons["inputScheme_quanpin"].tap()
+  }
+
+  /// 新世纪五笔是五笔面板里的第三项（`inputScheme_wubi_wubixsj`）：选上以后方案行写「五笔 新世纪」，再打开面板时它是选中的那一项；查码页的新世纪那一列标「（当前）」。最后换回 86 五笔和全拼。
+  @MainActor
+  func testWubiXsjIsTheThirdWubiProfile() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    defer { restoreSchemeVisibility(in: app) }
+    reachSettingsLink("inputSettingsLink", in: app)
+    settingsEntry("inputSettingsLink", in: app).tap()
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
+    let xsj = app.buttons["inputScheme_wubi_wubixsj"]
+    XCTAssertTrue(xsj.waitForExistence(timeout: 5))
+    XCTAssertEqual(xsj.label, "五笔 新世纪")
+    XCTAssertEqual(app.buttons["inputScheme_wubi_wubi86"].label, "五笔 86")
+    XCTAssertEqual(app.buttons["inputScheme_wubi_wubi98"].label, "五笔 98")
+    xsj.tap()
+    let row = app.buttons["inputLanguage_\(InputLanguageRow.wubi.rawValue)"]
+    XCTAssertTrue(row.waitForExistence(timeout: 5))
+    XCTAssertEqual(row.value as? String, "五笔 新世纪")
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
+    XCTAssertTrue(app.buttons["inputScheme_wubi_wubixsj"].isSelected)
+    app.buttons["designOptionSheetCancel"].tap()
+
+    tapRevealed("wubiCodeLookupLink", in: app)
+    XCTAssertTrue(app.navigationBars["五笔查码"].waitForExistence(timeout: 5))
+    let field = app.descendants(matching: .any)["wubiCodeLookupText"]
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.tap()
+    field.typeText("力")
+    app.buttons["wubiCodeLookupButton"].tap()
+    let first = app.descendants(matching: .any)["wubiCodeLookupRow-0"]
+    XCTAssertTrue(first.waitForExistence(timeout: 10), visible(app))
+    XCTAssertTrue(first.label.hasPrefix("力，86 五笔 "), first.label)
+    XCTAssertTrue(first.label.contains("，98 五笔 "), first.label)
+    XCTAssertTrue(first.label.contains("，新世纪五笔（当前） "), first.label)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "Wubi code lookup on 新世纪"
+    screenshot.lifetime = .deleteOnSuccess
+    add(screenshot)
+
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(openSchemeSheet(.wubi, in: app))
+    let wubi86 = app.buttons["inputScheme_wubi_wubi86"]
+    XCTAssertTrue(wubi86.waitForExistence(timeout: 5))
+    wubi86.tap()
+    XCTAssertEqual(row.value as? String, "五笔 86")
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+  }
+
+  /// 「输入」页全拼一行列出全拼 18 键（#9653 漏掉过）：选了它，全拼一行标「默认」、面板里它打勾；移除全拼时它一起停用，键盘回落到剩下的双拼，双拼一行成为默认。结束时加回全拼、选回 26 键并恢复方案列表。
+  @MainActor
+  func testQuanpinRowOffersEighteenKeyAndRemovesIt() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES", "--reset-input-schemes-for-ui-tests"]
+    app.launch()
+    defer { restoreSchemeVisibility(in: app) }
+    reachSettingsLink("inputSettingsLink", in: app)
+    settingsEntry("inputSettingsLink", in: app).tap()
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    let eighteen = app.buttons["inputScheme_eighteenKey"]
+    XCTAssertTrue(eighteen.waitForExistence(timeout: 5), "全拼 18 键 is not offered: \(visible(app))")
+    eighteen.tap()
+
+    let quanpin = app.buttons["inputLanguage_\(InputLanguageRow.quanpin.rawValue)"]
+    XCTAssertTrue(wait(quanpin, until: "label == '全拼，默认'"), "the 全拼 row reads \(quanpin.label)")
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    XCTAssertTrue(app.buttons["inputScheme_eighteenKey"].isSelected, "the panel ticks 全拼 18 键")
+    XCTAssertFalse(app.buttons["inputScheme_quanpin"].isSelected)
+    let ticked = XCTAttachment(screenshot: app.screenshot())
+    ticked.name = "全拼面板 18 键"
+    ticked.lifetime = .keepAlways
+    add(ticked)
+
+    app.buttons["removeInputLanguage_quanpin"].tap()
+    XCTAssertTrue(quanpin.waitForNonExistence(timeout: 5), "the 全拼 row is still there")
+    let shuangpin = app.buttons["inputLanguage_\(InputLanguageRow.shuangpin.rawValue)"]
+    XCTAssertTrue(wait(shuangpin, until: "label == '双拼，默认'"),
+                  "removing 全拼 left the keyboard on 18 keys: the 双拼 row reads \(shuangpin.label)")
+
+    // 加回全拼并选回 26 键，后面的用例不受这里选的方案影响。
+    let add = app.buttons["addInputLanguageButton"]
+    reveal(add, in: app)
+    add.tap()
+    let addQuanpin = app.buttons["addInputLanguage_quanpin"]
+    XCTAssertTrue(addQuanpin.waitForExistence(timeout: 5))
+    addQuanpin.tap()
+    XCTAssertTrue(openSchemeSheet(.quanpin, in: app))
+    app.buttons["inputScheme_quanpin"].tap()
+    XCTAssertTrue(wait(quanpin, until: "label == '全拼，默认'"))
   }
 
   /// 输入 页 语言与方案卡片里的各行，以其无障碍标识符的后缀表示。

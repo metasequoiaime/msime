@@ -131,7 +131,14 @@ fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> FuzzySyllable
     result
 }
 
+/// 一个音节在 `options` 下的读法个数（原音节自己也算一个），即 [`fuzzy_segmentations`] 在这一层的分叉数。
+pub(crate) fn fuzzy_variant_count(syllable: &str, options: FuzzyPinyinOptions) -> usize {
+    fuzzy_syllables(syllable, options).count
+}
+
 /// 每轮受 `limit` 限制的 beam 笛卡尔积，排除原切分（FZ:71-94）。
+///
+/// 每一层都按「原路径在前、读法依次在后」的字典序截取前 `limit` 条，所以结果恰好是全部组合按字典序的前 `min(limit, P)` 条去掉第一条（原切分），其中 `P` 是各音节读法个数（[`fuzzy_variant_count`]）之积：同一组音节在 `limit` 不小于 `P` 时，不论 `limit` 取多少，结果都一样。
 pub fn fuzzy_segmentations<S: AsRef<str>>(
     segments: &[S],
     options: FuzzyPinyinOptions,
@@ -372,6 +379,39 @@ mod tests {
         )
         .is_empty());
         assert!(fuzzy_segmentations(&typed, rules(fuzzy_rule::ALL), 0).is_empty());
+    }
+
+    /// 行缓存按「上限不小于组合数时一律同一项」归并键（#10457），依据是这里的性质：结果是全部组合按字典序的前 `min(limit, P)` 条去掉原切分。逐个上限与完整展开对照，核对条数与内容。
+    #[test]
+    fn beam_result_depends_only_on_the_smaller_of_limit_and_combinations() {
+        let cases: [&[&str]; 6] = [
+            &["zan"],
+            &["zan", "hao"],
+            &["zan", "lan", "fan"],
+            &["ni", "hao", "ma"],
+            &["zan", "can", "san", "lan", "fan"],
+            &["", "zan", "zhuang"],
+        ];
+        for segments in cases {
+            for mask in [
+                fuzzy_rule::Z_ZH,
+                fuzzy_rule::N_L | fuzzy_rule::AN_ANG,
+                fuzzy_rule::ALL,
+            ] {
+                let options = rules(mask);
+                let combinations = segments.iter().fold(1usize, |product, syllable| {
+                    product.saturating_mul(fuzzy_variant_count(syllable, options))
+                });
+                let full = fuzzy_segmentations(segments, options, usize::MAX);
+                assert_eq!(full.len(), combinations - 1, "{segments:?}/{mask}");
+                for limit in 2..=FUZZY_SEGMENTATION_LIMIT {
+                    let paths = fuzzy_segmentations(segments, options, limit);
+                    let expected = combinations.min(limit) - 1;
+                    assert_eq!(paths.len(), expected, "{segments:?}/{mask}/{limit}");
+                    assert_eq!(paths, full[..expected], "{segments:?}/{mask}/{limit}");
+                }
+            }
+        }
     }
 
     #[test]

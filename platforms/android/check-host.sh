@@ -2036,6 +2036,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/java/app/msime/android/home/LoginConsentPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeChoicePolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/HelpcodeModesPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/KeyLayoutStylesPolicy.java" \
   "$repo_root/platforms/android/java/app/msime/android/home/ReorderPolicy.java" \
   "$repo_root/platforms/android/gradle-app/ocr-module/src/main/java/app/msime/ocr/module/OcrPipeline.java" \

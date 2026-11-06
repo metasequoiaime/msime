@@ -21,6 +21,8 @@ Windows 原生设置作业在同一台 runner 顺序构建 Rust 宿主、WinUI�
 
 ## Consequences
 
+x86 真实系统投递之后一度改为非阻塞（[x86 系统投递非阻塞](../../archived/testing/2026-11-05-windows-system-wer-x86-nonblocking.md)）；产品在 WOW64 宿主里不再登记 helper 后，x86 只跑 `baseline` 和 `wow64` 两个用例并恢复阻塞，见[WOW64 宿主不做进程外采集](../feature/2026-11-06-windows-tsf-wer-skip-wow64.md)。
+
 两组验收并行执行，设置作业收回约五分钟余量，失败归属更清楚。代价是多一次 Windows runner 启动和小型头文件安装；不重复构建 Rust、WinUI 或完整产品。
 
 本地使用 `actionlint` 检查 workflow，比较移动前后的 WER 命令与上传路径，确认除了依赖目录迁移以外没有改变验收步骤。本机没有可连接的 Windows MSVC 主机，真实 Windows 作业结果以本 PR 的两个独立作业为准，未通过前不合并。

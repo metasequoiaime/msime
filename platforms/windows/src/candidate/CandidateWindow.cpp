@@ -1189,16 +1189,18 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       panel_width, panel_height, static_cast<double>(available_width) / scale,
       static_cast<double>(available_height) / scale -
           (decoration_image_.empty() ? 0.0 : decoration_top_));
-  shadow_insets_ = {margins.left + canvas_offset_.left, margins.top + canvas_offset_.top,
-                    margins.right + canvas_offset_.right,
-                    margins.bottom + canvas_offset_.bottom};
-  const auto shadow_left = static_cast<int64_t>(std::lround(margins.left * scale));
-  const auto shadow_top = static_cast<int64_t>(std::lround(margins.top * scale));
-  const auto shadow_right = static_cast<int64_t>(std::lround(margins.right * scale));
-  const auto shadow_bottom = static_cast<int64_t>(std::lround(margins.bottom * scale));
-  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。
+  // 透明边距按整像素留（candidate_shadow_pixels），卡片在窗口里的 DIP 位置也按这几个整像素换算，绘制时扣掉的就是窗口实际留出的边距（candidate_card_extent，#10856）。
+  shadow_pixels_ =
+      candidate_shadow_pixels({margins.left, margins.top, margins.right, margins.bottom}, scale);
+  const int64_t shadow_left = shadow_pixels_.left, shadow_top = shadow_pixels_.top,
+                shadow_right = shadow_pixels_.right, shadow_bottom = shadow_pixels_.bottom;
+  shadow_insets_ = {static_cast<double>(shadow_left) / scale + canvas_offset_.left,
+                    static_cast<double>(shadow_top) / scale + canvas_offset_.top,
+                    static_cast<double>(shadow_right) / scale + canvas_offset_.right,
+                    static_cast<double>(shadow_bottom) / scale + canvas_offset_.bottom};
+  // 卡片的像素尺寸向上取整，**不要**四舍五入。窗口定下来之后，绘制是拿客户区像素除回 DIP 当作卡片宽度再排一次版（`frame.card_width`），四舍五入向下的那半个像素会让绘制时的可用宽度比量出来的窄一点点；而「这一页能不能排成一行」是个硬判断（`candidate_single_line_columns` 比较 `natural_total <= line_width`，只容 `candidate_layout_fits` 这点浮点误差），差半个像素就会翻面：量尺寸时认定一行放得下、于是只给了一行的高度，绘制时却判定放不下而折行，第二行的候选就画在卡片外面了（打半个拼音时候选最宽，正好卡在这个边界上）。向上取整让绘制拿到的宽度永远不小于量出来的，两次排版的结论因此一致。前提是两侧的阴影边距在绘制时按同样的整像素扣掉（上面的 `shadow_pixels_`），否则边距四舍五入掉的零点几像素又会从卡片上扣回去（#10856）。
   const auto content_width =
-      (std::min)(static_cast<int64_t>(std::ceil(panel_width * scale)),
+      (std::min)(candidate_card_pixels(panel_width, scale),
                  (std::max)(int64_t{1},
                             available_width - shadow_left - shadow_right));
   // The window has to be tall enough to hold the mascot as well, or the
@@ -1212,7 +1214,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                            : static_cast<float>(decoration_top_);
   // 同上，高度也向上取整：量高度用的是量尺寸那次的折行结论，绘制少半个像素就可能多折一行。
   const auto content_height =
-      (std::min)(static_cast<int64_t>(std::ceil(panel_height * scale)) + decoration,
+      (std::min)(candidate_card_pixels(panel_height, scale) + decoration,
                  (std::max)(int64_t{1},
                             available_height - shadow_top - shadow_bottom));
   // A vertical list grows as the user keeps typing. Deciding the flip from the
@@ -1513,11 +1515,18 @@ void CandidateWindow::paint() {
       hint_width > 0.0);
   // 卡片按窗口客户区排，和 card_bounds 定的窗口尺寸一致。渲染目标比窗口大（合成交换链按 64 像素分档、只增不减），按它的 GetSize() 排会把卡片右边和下边画到窗口外面裁掉。
   const auto size = device_.GetClientSize();
+  // 卡片的宽高从客户区像素算：扣掉 card_bounds 留的整像素阴影边距，用同一个 scale 换回 DIP，再扣 canvas 的内边距，全程 double。不走上面 float 的 GetClientSize：它和没取整的 DIP 边距相减，绘制时的卡片会比量出来的窄零点几 DIP，横排的最后一个候选折到第二行、画到卡片外面（#10856）。
+  RECT client{};
+  if (!GetClientRect(window_, &client))
+    throw std::runtime_error("Candidate client area unavailable");
+  const double client_scale = layout_scale(msime::windows::compat::window_dpi(window_));
   const auto frame = candidate_shadow_frame(
-      size.width -
-          static_cast<float>(shadow_insets_.left + shadow_insets_.right),
-      size.height - decoration_offset_ -
-          static_cast<float>(shadow_insets_.top + shadow_insets_.bottom),
+      candidate_card_extent(client.right, shadow_pixels_.left, shadow_pixels_.right,
+                            client_scale) -
+          canvas_offset_.left - canvas_offset_.right,
+      candidate_card_extent(client.bottom, shadow_pixels_.top, shadow_pixels_.bottom,
+                            client_scale) -
+          decoration_offset_ - canvas_offset_.top - canvas_offset_.bottom,
       decoration_offset_, shadow_insets_);
   const float motion_progress = skin_motion_progress();
   // 进场和选中用 ease-out，退场用 ease-in，和 macOS 的 SettleCurve 与退场曲线一样。

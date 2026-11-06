@@ -122,6 +122,8 @@ public final class DictionarySnapshotWords {
             case "pinyin":
             case "wubi":
             case "wubi98":
+            // 新世纪五笔的词只在本地备份里（云同步上传的快照不带它），漏掉它的话本地恢复会悄悄丢掉它们。
+            case "wubixsj":
             case "english":
                 return snapshotKind;
             // 快照和本机 export_snapshot 写的都是 `quick`；漏掉它的话本地恢复会悄悄丢掉全部快捷短语。

@@ -120,6 +120,7 @@ fn read_state(file: &Path, emit: &mut dyn FnMut(&DictionaryStateRecord) -> bool)
                         .get::<_, Option<i64>>(11)?
                         .is_some_and(|length| (0..=16).contains(&length)),
             )?;
+            // 这一版不认识的种类（更新的版本写下的，降级后读到）仍让整份状态失败，不像回放那样跳过：云同步上传是整份替换云端快照，悄悄少掉这些行的快照传上去，会把别的设备的这些词从云端删掉。代价是降级的设备上依赖整份状态的功能（快照准备和激活、WebDAV 读本机词库）停到升级回去为止。
             let kind = PersonalDictionaryKind::from_journal_name(&row.get::<_, String>(0)?)
                 .ok_or_else(invalid_state)?;
             // `sqlite3_column_int64` reads NULL as 0; legacy journals built without NOT NULL can hold one.
@@ -602,7 +603,6 @@ pub fn merge_dictionary_state(
     maximum_records: usize,
 ) -> Result<DictionaryStateMerge> {
     use super::personal::open_edit_connection;
-    use super::replay::{apply_english, apply_pinyin, apply_simple};
     use rusqlite::OptionalExtension;
 
     paths.validate()?;
@@ -665,39 +665,15 @@ pub fn merge_dictionary_state(
                     }
                     let (key_bytes, value_bytes) = (key.as_bytes(), value.as_bytes());
                     // 编码拼不出表名（`Ok(false)`），或这一代词库里没有那张表（准备语句时报 no such table，什么也没执行），这一行就存不下，计入 skipped。别的 SQL 错误（磁盘满、I/O 失败、库损坏、约束）照常上抛，整个合并回滚，调用方留着待合并的文件下次再试，而不是把没写进去的记录当成跳过。
-                    let applied = match kind {
-                        PersonalDictionaryKind::Pinyin => {
-                            apply_pinyin(&transaction, key_bytes, value_bytes, *deleted, *weight)
-                        }
-                        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
-                            apply_simple(
-                                &transaction,
-                                kind.wubi_table().unwrap_or_default(),
-                                key_bytes,
-                                value_bytes,
-                                *deleted,
-                                *weight,
-                            )
-                        }
-                        PersonalDictionaryKind::QuickPhrase => apply_simple(
-                            &transaction,
-                            "quick_parases",
-                            key_bytes,
-                            value_bytes,
-                            *deleted,
-                            *weight,
-                        ),
-                        PersonalDictionaryKind::English => apply_english(
-                            &transaction,
-                            key_bytes,
-                            value_bytes,
-                            *deleted,
-                            *weight,
-                            display.as_bytes(),
-                        ),
-                        // 粤语词没有工作表：用户自己加的和打字造的词上面已经按词计数；走到这里的是删除留下的墓碑和调频写下的权重，快照本来不收粤语，计入 skipped。
-                        PersonalDictionaryKind::Cantonese => Ok(false),
-                    };
+                    let applied = apply_entry(
+                        &transaction,
+                        *kind,
+                        key_bytes,
+                        value_bytes,
+                        *deleted,
+                        *weight,
+                        display.as_bytes(),
+                    );
                     let applied = match applied {
                         Ok(applied) => applied,
                         Err(error) if missing_table(&error) => false,
@@ -759,6 +735,144 @@ pub fn merge_dictionary_state(
     }
     transaction.commit()?;
     Ok(merge)
+}
+
+/// 整份换上云端快照时（host-api 的云同步「下载」激活），把旧的一代 `active` 日志里 `kinds` 这几种词库的行并进新的一代 `staged`。这几种是云同步还不收的（新世纪五笔）：云端快照里没有它们，不并过来的话每一次下载都会把它们删掉，连用户自己的词在内，而 [`merge_dictionary_state`] 不写用户自己的词。
+///
+/// 规则：新的一代日志里已有同一个词（`dictionary,key,value`）时保留新的一代；其余的行连同 `operation`、`weight`、`display`、`user_inserted`、`updated_at` 原样写进日志，并按回放的写法改工作词库（与 [`merge_dictionary_state`] 相同）。这一代没有那张表（还没并进新世纪表的代次，或没有 `msime-pinyin.db` 的版本）时只写日志，码表并进来后的那次回放再写（`generation::merge_downloaded_wubi`）；编码存不进去的行和 `operation` 不认识的行跳过。全部在一个 IMMEDIATE 事务里，写库出错整体回滚。旧的一代没有日志、或日志里没有这几种的行时不打开新的一代。返回写进来的行数。
+///
+/// 调用方必须持有词库的独占维护权，新的一代还没换入。
+pub fn carry_dictionary_rows(
+    active: &RuntimePaths,
+    staged: &RuntimePaths,
+    main_dictionary: bool,
+    kinds: &[PersonalDictionaryKind],
+) -> Result<usize> {
+    use super::personal::open_edit_connection;
+    use rusqlite::OptionalExtension;
+
+    active.validate()?;
+    staged.validate()?;
+    let source = active.user(assets::USER_JOURNAL);
+    if kinds.is_empty() || !source.exists() {
+        return Ok(0);
+    }
+    // 先把要带的行读出来，再打开新的一代：大多数用户没有这几种的行，什么也不碰。
+    let mut rows = Vec::new();
+    {
+        let connection = open_database(&source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mut statement = connection.prepare(
+            "SELECT key,value,operation,weight,display,user_inserted,updated_at
+             FROM user_dictionary_operations WHERE dictionary=?1 ORDER BY updated_at,rowid",
+        )?;
+        for kind in kinds {
+            let mut cursor = statement.query([kind.journal_name()])?;
+            while let Some(row) = cursor.next()? {
+                let operation: String = row.get(2)?;
+                if operation != "upsert" && operation != "delete" {
+                    continue;
+                }
+                rows.push((
+                    *kind,
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    operation,
+                    row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                    row.get::<_, Option<i64>>(6)?,
+                ));
+            }
+        }
+    }
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let mut connection = open_edit_connection(staged, main_dictionary)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut carried = 0usize;
+    {
+        let mut existing = transaction.prepare(
+            "SELECT 1 FROM personal_journal.user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3",
+        )?;
+        let mut journal = transaction.prepare(
+            "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,COALESCE(?8,unixepoch()))",
+        )?;
+        for (kind, key, value, operation, weight, display, user_inserted, updated_at) in &rows {
+            let name = kind.journal_name();
+            if existing
+                .query_row(params![name, key, value], |_| Ok(()))
+                .optional()?
+                .is_some()
+            {
+                continue;
+            }
+            let applied = match apply_entry(
+                &transaction,
+                *kind,
+                key.as_bytes(),
+                value.as_bytes(),
+                operation == "delete",
+                *weight,
+                display.as_bytes(),
+            ) {
+                Ok(applied) => applied,
+                // 没有那张表时行照样记进日志，回放在表并进来以后再写；回放对没有表的行同样只是跳过，不会因此失败。
+                Err(error) if missing_table(&error) => true,
+                Err(error) => return Err(error.into()),
+            };
+            if !applied {
+                continue;
+            }
+            journal.execute(params![
+                name,
+                key,
+                value,
+                operation,
+                weight,
+                display,
+                user_inserted,
+                updated_at
+            ])?;
+            carried += 1;
+        }
+    }
+    transaction.commit()?;
+    Ok(carried)
+}
+
+/// 按回放的写法把一行改进工作词库（`transaction` 是 `open_edit_connection` 打开的连接）：编码拼不出表名时 `Ok(false)`，这一代没有那张表时是准备语句报的 no such table（[`missing_table`]）。
+fn apply_entry(
+    transaction: &rusqlite::Connection,
+    kind: PersonalDictionaryKind,
+    key: &[u8],
+    value: &[u8],
+    deleted: bool,
+    weight: i64,
+    display: &[u8],
+) -> rusqlite::Result<bool> {
+    use super::replay::{apply_english, apply_pinyin, apply_simple};
+    match kind {
+        PersonalDictionaryKind::Pinyin => apply_pinyin(transaction, key, value, deleted, weight),
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::WubiXsj => apply_simple(
+            transaction,
+            kind.wubi_table().unwrap_or_default(),
+            key,
+            value,
+            deleted,
+            weight,
+        ),
+        PersonalDictionaryKind::QuickPhrase => {
+            apply_simple(transaction, "quick_parases", key, value, deleted, weight)
+        }
+        PersonalDictionaryKind::English => {
+            apply_english(transaction, key, value, deleted, weight, display)
+        }
+        // 粤语词没有工作表：用户自己加的和打字造的词由 `merge_dictionary_state` 按词计数；删除留下的墓碑和调频写下的权重不进快照，计入 skipped。
+        PersonalDictionaryKind::Cantonese => Ok(false),
+    }
 }
 
 /// 把粤语行（用户加的和打字造的词，以及调频学到的权重）写进 `paths` 的日志，日志里已有同一个词（同一 `dictionary,key,value`）的保留已有的那一行，返回写进去的条数。`user_inserted` 照原样写：学到的权重仍不进「我的词条」。

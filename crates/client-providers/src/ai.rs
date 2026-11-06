@@ -259,7 +259,8 @@ pub fn chat_translation_http_request(
         return Ok(None);
     }
     request.validate()?;
-    if !AI_PROVIDERS.contains(&config.provider.as_str())
+    if endpoint::validate(&config.endpoint).is_err()
+        || !AI_PROVIDERS.contains(&config.provider.as_str())
         || config.model.is_empty()
         || !crate::text::is_bounded_text(&config.model, 256)
     {
@@ -999,6 +1000,49 @@ mod tests {
             chat_translation_http_request(&config, &request),
             Err(AiError::InvalidConfiguration)
         );
+    }
+
+    #[test]
+    fn translation_without_token_enforces_the_ai_endpoint_policy() {
+        let mut config = crate::preferences::AiAssistantPreferences {
+            enabled: true,
+            provider: "ollama".into(),
+            model: "synthetic-model".into(),
+            ..Default::default()
+        };
+        let request = AiTranslationRequest {
+            text: "合成文本".into(),
+            source_language: "zh".into(),
+            target_language: "en".into(),
+        };
+        for endpoint in [
+            "http://localhost:11434/v1/chat/completions",
+            "http://127.0.0.1:1234/v1/chat/completions",
+            "http://[::1]:11434/v1/chat/completions",
+            "http://192.168.1.2:11434/v1/chat/completions",
+        ] {
+            config.endpoint = endpoint.into();
+            let descriptor = chat_translation_http_request(&config, &request)
+                .unwrap()
+                .unwrap();
+            assert_eq!(descriptor["url"], endpoint);
+            assert!(descriptor["headers"].get("Authorization").is_none());
+        }
+        for endpoint in [
+            "http://synthetic.invalid/v1/chat/completions",
+            "http://8.8.8.8/v1/chat/completions",
+            "file:///synthetic-model",
+            "http://localhost:11434/v1/chat/completions#fragment",
+            "http://user:password@localhost:11434/v1/chat/completions",
+            "not a url",
+        ] {
+            config.endpoint = endpoint.into();
+            assert_eq!(
+                chat_translation_http_request(&config, &request),
+                Err(AiError::InvalidConfiguration),
+                "{endpoint}"
+            );
+        }
     }
 
     #[test]

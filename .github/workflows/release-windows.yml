@@ -308,7 +308,7 @@ jobs:
           $rust = Join-Path $supplemental 'rust-crates-NOTICES.txt'
           $frontend = Join-Path $supplemental 'frontend-npm-NOTICES.txt'
           # The x64 host DLL is built with onnx-rerank (Build-RustOutputs.ps1), which brings in ort and ort-sys; resolve it with that feature so their notices are collected.
-          python -X utf8 platforms/linux/collect-notices.py cargo $rust msime-host-api:onnx-rerank msime-engine msime-mcp-server msime-desktop:tauri/custom-protocol
+          python -X utf8 platforms/linux/collect-notices.py cargo $rust msime-host-api:onnx-rerank,local-translation msime-engine msime-mcp-server msime-desktop:tauri/custom-protocol
           if ($LASTEXITCODE -ne 0) { throw 'Rust crate notice collection failed' }
           # The npm collector reads the installed node_modules, which the rust job, not this one, installed.
           pnpm install --frozen-lockfile
