@@ -50,8 +50,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private var confidentCorrections: Set<Int>
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
-  /// 长按候选块时提供的菜单。与候选条共用：在候选条里能管理词条的长按，展开列表后不应失效。
-  private let menuElements: (Int) -> [UIMenuElement]
+  /// 长按候选块：打开释义卡片（#10915），参数是候选在列表里的位置。与候选条共用：在候选条里能看释义、管理词条的长按，展开列表后不应失效。
+  private let onLongPress: (Int) -> Void
   /// 以选中样式绘制的候选（`accentSoft` 底、强调色半粗体文字），即候选条中高亮的那个，默认是第一个。
   private let selectedIndex: Int
   private let showsHeader: Bool
@@ -98,7 +98,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
        selectedIndex: Int = 0, showsHeader: Bool = true, palette: CandidatePalette? = nil,
        canvas: ExternalCandidateSkin.Canvas? = nil,
        display: @escaping (String) -> String,
-       menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
+       onLongPress: @escaping (Int) -> Void = { _ in },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
        columns: (leading: UIView, trailing: UIView)? = nil) {
     self.candidates = candidates
@@ -109,7 +109,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.aiPlaceholders = aiPlaceholders
     self.confidentCorrections = confidentCorrections
     self.display = display
-    self.menuElements = menuElements
+    self.onLongPress = onLongPress
     self.onSelect = onSelect
     self.selectedIndex = selectedIndex
     self.showsHeader = showsHeader
@@ -410,13 +410,26 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       let action = UIAction.Identifier("candidateSelect")
       chip.removeAction(identifiedBy: action, for: .primaryActionTriggered)
       chip.addAction(UIAction(identifier: action) { [weak self] _ in self?.onSelect(index) }, for: .primaryActionTriggered)
-      chip.menu = UIMenu(children: [
-        UIDeferredMenuElement.uncached { [weak self] completion in
-          completion(self?.menuElements(index) ?? [])
-        }
-      ])
+      chip.candidateIndex = index
+      if chip.gestureRecognizers?.contains(where: { $0 is UILongPressGestureRecognizer }) != true {
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(holdCandidate(_:)))
+        hold.minimumPressDuration = 0.5
+        chip.addGestureRecognizer(hold)
+      }
+      chip.accessibilityCustomActions = [
+        UIAccessibilityCustomAction(name: "查看释义") { [weak self, weak chip] _ in
+          guard let self, let chip else { return false }
+          onLongPress(chip.candidateIndex)
+          return true
+        },
+      ]
     }
     return chip
+  }
+
+  @objc private func holdCandidate(_ hold: UILongPressGestureRecognizer) {
+    guard hold.state == .began, let chip = hold.view as? CandidateGridButton else { return }
+    onLongPress(chip.candidateIndex)
   }
 
   private static func semibold(_ font: UIFont) -> UIFont {
@@ -485,6 +498,8 @@ private final class CandidateGridLayout: UICollectionViewLayout {
 
 /// 网格中的一个格子：类似按键的按钮，标题保持行数，阴影跟随键盘的按键阴影。
 private final class CandidateGridButton: UIButton {
+  /// 格子随单元格复用，长按时按它找到当前显示的是哪个候选。
+  var candidateIndex = 0
   /// 第一行加上格子内边距后的宽度，决定占几列。
   var titleWidth: CGFloat = 0
   var titleLineHeight: CGFloat = 0

@@ -9007,6 +9007,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_twenty_six_key_number_layout",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",
+    "voice_input.hotkey_global",
     "voice_input.hotkey_hold_space_lock",
     "voice_input.hotkey_ralt",
     "voice_input.hotkey_rctrl_ralt",

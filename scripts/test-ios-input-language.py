@@ -60,6 +60,8 @@ func expect(_ condition: Bool, _ message: String) {
 }
 expect(InputLanguage.cantonese.schemes == [.cantonese, .cantoneseShuangpin], "添加语言的粤拼选项必须提供两个入口")
 expect(InputLanguage.of(.cantoneseShuangpin) == .cantonese, "粤语双拼必须归入粤拼语言")
+expect(InputLanguage.quanpin.schemes == [.quanpin, .fourteenKey, .eighteenKey, .nineKey], "全拼一行列 26、14、18、9 键，与 Android 的 Language.QUANPIN 同序")
+expect(ChineseInputScheme.allCases.allSatisfy { scheme in InputLanguage.allCases.filter { $0.schemes.contains(scheme) }.count == 1 }, "每个触屏方案恰好属于一门语言")
 expect(InputLanguage.installedDictionarySchemes.isEmpty, "没有词典或下载包时不能提供词典能力")
 IOSResourcePacks.installed = true
 expect(InputLanguage.installedDictionarySchemes == [.cantonese, .cantoneseShuangpin, .zhuyin, .stroke], "下载语言词典必须同时解锁粤拼和粤语双拼")
@@ -74,7 +76,7 @@ expect(ChineseInputScheme.represented(among: shuangpinSchemes, enabled: [.quanpi
 expect(ChineseInputScheme.represented(among: InputLanguage.wubi.schemes, enabled: [.quanpin, .wubi], current: .quanpin) == .wubi, "键盘在全拼时，五笔面板仍要标出五笔")
 expect(ChineseInputScheme.represented(among: shuangpinSchemes, enabled: [.quanpin], current: .quanpin) == nil, "双拼一个方案都没启用时不标任何选项")
 if failures != 0 { exit(1) }
-print("iOS input language: 11 checks passed")
+print("iOS input language: 13 checks passed")
 ''')
         executable = directory / "input-language"
         sources = [

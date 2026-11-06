@@ -86,6 +86,8 @@ pub struct EngineOptions {
     pub wubi_z_wildcard: bool,
     /// 0 是 86 五笔，1 是 98 五笔，2 是新世纪五笔（`WubiProfileKind`）。
     pub wubi_profile: u8,
+    /// 五笔方案里给五笔原生候选的注释附上完整五笔码（反查码）。只管显示，不影响候选的 `code` 字段，宿主照旧用它算剩余编码。宿主按共享偏好 `wubi_code_hint` 填：用户关掉「候选显示剩余编码」时，五笔候选旁不该再出现五笔码。拼音来的候选（混输拼音和 `z` 引导的临时拼音反查）附的是用拼音查到的五笔码，不是剩余编码，不受它管；`z` 通配查出的五笔候选也不受它管，那里的完整码回答的是 `z` 那一位是什么。默认开。
+    pub wubi_reverse_code: bool,
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
     pub strict_quanpin_helpcode: bool,
@@ -248,6 +250,7 @@ pub fn prepare_options_for(
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
+        wubi_reverse_code: true,
         helpcode: true,
         strict_quanpin_helpcode: false,
         show_helpcode: true,

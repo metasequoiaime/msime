@@ -1,11 +1,23 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+
+#include "../../../../shared/contracts/windows_ipc.h"
 
 namespace msime::windows::tsf
 {
 // 必须确认的回包路径至少留出两倍于现场最高 61ms 回包时间的余量；软回包路径仍使用调用方自己的预算。
 inline constexpr std::size_t kServerReplyWaitTimeoutMs = 100;
+
+// 软等待（abortTransportOnTimeout=false）没等到这个请求的回包时交给调用方的帧。按键已经送到 Server，它做过或稍后会做这个键的决定，只是这一次读不到；调用方按「读不到回复」走本地退路，不能把它当成 Server 的决定。
+inline FanyImeNamedpipeDataToTsf SoftReplyMiss(std::uint64_t requestId) noexcept
+{
+    FanyImeNamedpipeDataToTsf frame{};
+    frame.msg_type = FanyImeReplyType::ReplyMissed;
+    frame.request_id = requestId;
+    return frame;
+}
 
 // 必须确认的回包（选词、带候选的标点提交、联想选择）超过第一级预算后，只要管道没有报错就继续等到这个上限才判定传输失败。管道真断时重叠读会立刻以失败返回，不会走到这里；超时只说明 Server 还连着但没来得及回，CPU 被占满时就是这样（#10826）。把慢回包当断线会拆管道、重连、把整串组字连同选词键一起重放，代价远大于多等这几百毫秒。
 inline constexpr std::size_t kServerReplyStallBudgetMs = 1000;
