@@ -35,6 +35,15 @@ final class ImeTextEditPanel {
     private boolean liveTrackpadPreferencesLoaded;
     private TextTrackpadView trackpad;
     private Button trackpadSelect;
+    private LinearLayout header;
+    private Button backButton;
+    private Button undoButton;
+    private Button redoButton;
+    private final java.util.List<Button> headerButtons = new java.util.ArrayList<>();
+    private android.widget.TextView title;
+    private LinearLayout recentClip;
+    private View coveredRow;
+    private int coveredRowHeight;
     private boolean modeSaving;
     private boolean destroyed;
     private long modeSaveGeneration;
@@ -61,12 +70,12 @@ final class ImeTextEditPanel {
         previewReads = new TextTrackpadReadQueue<>(trackpadWorker, s.main::post);
     }
 
-    /** 所有操作同屏可见；只有中央十字下方两个角留白，父面板拦截空白处触摸。 */
+    /** 所有操作同屏可见，网格没有空格，父面板拦截其余空白处的触摸。顶上是盖住工具栏那一行的标题行，所以上边不留内边距。 */
     LinearLayout build() {
         LinearLayout panel = LayoutPolicy.column(s);
         panel.setContentDescription("文本编辑面板");
         int padding = s.pixels(4);
-        ViewPolicy.setPadding(panel, padding, padding, padding, padding);
+        ViewPolicy.setPadding(panel, padding, 0, padding, padding);
         ViewPolicy.setClickable(panel, true);
         populate(panel);
         ViewPolicy.hide(panel);
@@ -82,6 +91,8 @@ final class ImeTextEditPanel {
         stopRepeat();
         buttons.clear();
         panel.removeAllViews();
+        panel.addView(buildHeader(), LayoutPolicy.matchWidthHeightPx(
+            coveredRowHeight > 0 ? coveredRowHeight : s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
         FrameLayout movement = new FrameLayout(s);
         TextEditPanelGrid grid = new TextEditPanelGrid(s);
         grid.setSkin(s.imeStyler.themed(s.skin));
@@ -129,7 +140,121 @@ final class ImeTextEditPanel {
             chipParams.topMargin = chip.top();
             currentSelect.setLayoutParams(chipParams);
         });
-        panel.addView(movement, LayoutPolicy.weightedWidthParams(1));
+        LinearLayout.LayoutParams movementParams = LayoutPolicy.weightedWidthParams(1);
+        movementParams.topMargin = s.pixels(4);
+        panel.addView(movement, movementParams);
+    }
+
+    /**
+     * 标题行：返回、标题、撤销、重做，盖在工具栏那一行上，高度、两端按钮宽度和图标缩放都跟工具栏一致。有最近复制时标题换成最近复制的预览、快捷键和 ×，与普通键盘上最近复制代替工具栏一致；返回、撤销、重做不动。
+     */
+    private LinearLayout buildHeader() {
+        header = LayoutPolicy.row(s);
+        ViewPolicy.setCenteredVertically(header);
+        header.setContentDescription("文本编辑标题栏");
+        headerButtons.clear();
+        TextEditIconButton back = new TextEditIconButton(s, KeyboardIconPaths.Icon.CHEVRON, 90);
+        back.setText("返回键盘");
+        back.setContentDescription("返回键盘");
+        back.setKeyboardRole(KeyboardKeyRole.PLAIN);
+        back.setGlyphSize(24);
+        s.imeStyler.styleButton(back, false);
+        s.bindCountedAction(back, this::backToKeyboard);
+        header.addView(back, headerCell());
+        backButton = back;
+        FrameLayout middle = new FrameLayout(s);
+        title = ViewPolicy.textLabel(s, "文本编辑", 16);
+        title.setSingleLine(true);
+        ViewPolicy.clearFontPadding(title);
+        KeyboardTypographyPolicy.setFittedKeyTextSize(title, 10, 16);
+        ViewPolicy.setCenteredVertically(title);
+        ViewPolicy.setTextColor(title, android.graphics.Color.parseColor(s.imeStyler.themed(s.skin).keyForeground()));
+        middle.addView(title, LayoutPolicy.frameMatchParentParams());
+        recentClip = LayoutPolicy.row(s);
+        ViewPolicy.setCenteredVertically(recentClip);
+        recentClip.setContentDescription("最近复制");
+        ImeToolbar.RecentClipViews chip = s.imeToolbar.addRecentClipChip(recentClip);
+        for (Button button : new Button[] {chip.paste(), chip.action(), chip.dismiss()})
+            s.imeStyler.styleButton(button, ((KeyboardPressButton) button).keyboardRole(), s.skin);
+        middle.addView(recentClip, LayoutPolicy.frameMatchParentParams());
+        header.addView(middle, LayoutPolicy.weightedMatchParentParams(1));
+        undoButton = historyButton(false);
+        redoButton = historyButton(true);
+        showRecentClip(s.imeToolbar.bindTextEditRecentClip(chip));
+        resizeHeader(s.imeToolbar.edgeButtonWidth(), s.imeToolbar.edgeDrawPercent());
+        return header;
+    }
+
+    private Button historyButton(boolean redo) {
+        String label = redo ? "重做" : "撤销";
+        Button button = s.shortcutButton(header, label,
+            redo ? KeyboardShortcutIconPolicy.Icon.REDO : KeyboardShortcutIconPolicy.Icon.UNDO,
+            () -> s.imeToolbar.performHistory(redo));
+        button.setContentDescription(label);
+        button.setLayoutParams(headerCell());
+        headerButtons.add(button);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams headerCell() {
+        return LayoutPolicy.linearParamsPx(s.imeToolbar.edgeButtonWidth(), LinearLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** 返回只关面板回到键盘，光标和选区留在编辑器里。 */
+    private void backToKeyboard() {
+        s.closeToolbarPanels();
+        s.render();
+    }
+
+    /** 有最近复制时标题让位给它，没有时显示标题。 */
+    void showRecentClip(boolean visible) {
+        if (title == null || recentClip == null) return;
+        ViewPolicy.setVisible(recentClip, visible);
+        ViewPolicy.setVisible(title, !visible);
+    }
+
+    /** 跟着工具栏的尺寸：两端按钮宽度、图标缩放。 */
+    void resizeHeader(int buttonWidth, int drawPercent) {
+        if (header == null) return;
+        for (View button : new View[] {backButton, undoButton, redoButton}) {
+            if (button == null || button.getLayoutParams() == null) continue;
+            if (button.getLayoutParams().width != buttonWidth) {
+                button.getLayoutParams().width = buttonWidth;
+                button.requestLayout();
+            }
+            if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+        }
+        if (backButton instanceof TextEditIconButton back) back.setGlyphSize(24 * drawPercent / 100f);
+    }
+
+    /** 每次 render 末尾随工具栏上色：撤销、重做用工具栏的图标色，返回和标题用键面文字色；顺便按当前输入框刷新撤销、重做能不能点。 */
+    void styleHeader(int iconColor, int activeIconColor, int activeBackgroundColor, int foregroundColor) {
+        for (Button button : headerButtons) {
+            if (button instanceof KeyboardShortcutButton shortcut) {
+                shortcut.setActiveFill(activeBackgroundColor);
+                shortcut.setIconColors(iconColor, activeIconColor);
+            }
+            ViewPolicy.setEnabled(button, s.imeToolbar.canDispatchHistory());
+        }
+        if (title != null) ViewPolicy.setTextColor(title, foregroundColor);
+        if (backButton != null) backButton.setTextColor(foregroundColor);
+    }
+
+    /** 记下被标题行盖住的顶部一行和它的高度：标题行跟它一样高；面板开着时它从无障碍树里藏起来。 */
+    void coverTopRow(View row, int height) {
+        coveredRow = row;
+        if (height <= 0 || height == coveredRowHeight) return;
+        coveredRowHeight = height;
+        if (header != null && header.getLayoutParams() != null && header.getLayoutParams().height != height) {
+            header.getLayoutParams().height = height;
+            header.requestLayout();
+        }
+    }
+
+    private void coverTopRowForAccessibility(boolean covered) {
+        if (coveredRow == null) return;
+        ViewPolicy.setImportantForAccessibility(coveredRow, covered
+            ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
     }
 
     /** 侧键沿用普通键帽；中央方向区的键由 {@link TextEditPanelGrid} 画公共底面，方向和文档首尾画矢量尖括号。 */
@@ -260,6 +385,7 @@ final class ImeTextEditPanel {
         s.imeStyler.applySkinBackground(s.textEditPanel);
         configureTrackpad();
         ViewPolicy.show(s.textEditPanel);
+        coverTopRowForAccessibility(true);
     }
 
     void close() {
@@ -272,6 +398,7 @@ final class ImeTextEditPanel {
         setPreviewActive(false);
         selecting = false;
         if (s.textEditPanel != null) ViewPolicy.hide(s.textEditPanel);
+        coverTopRowForAccessibility(false);
     }
 
     private void renderState() {
@@ -484,6 +611,7 @@ final class ImeTextEditPanel {
                 renderState();
                 s.imeStyler.applySkinBackground(s.textEditPanel);
                 ViewPolicy.show(s.textEditPanel);
+                coverTopRowForAccessibility(true);
                 s.textEditPanel.bringToFront();
                 s.render();
                 s.imeKeyFeedback.playFeedback(button);
@@ -554,7 +682,10 @@ final class ImeTextEditPanel {
             selecting = restore && previousSelecting;
             configureTrackpad();
             renderState();
-            if (s.textEditPanel != null && (!restore || !previouslyOpen)) ViewPolicy.hide(s.textEditPanel);
+            if (s.textEditPanel != null && (!restore || !previouslyOpen)) {
+                ViewPolicy.hide(s.textEditPanel);
+                coverTopRowForAccessibility(false);
+            }
             if (restore) s.render();
         }
     }

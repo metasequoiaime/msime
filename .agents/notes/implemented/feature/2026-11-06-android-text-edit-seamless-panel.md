@@ -34,6 +34,12 @@ Status: implemented
 
 触控板模式的「选择」开关压在触控板右上角（`TextEditPanelModel.trackpadSelectBounds`：优先 64 × 32 dp、四周留 4 dp，触控板太小时缩小，不越出触控板），只在触控板模式显示；它比触控板后加进同一个 `FrameLayout`，落在它上面的触摸归开关。
 
+### 标题行与最近复制
+
+面板顶边对齐顶部一行（候选区）的上沿而不是下沿，第一行是标题行，正好盖住工具栏：返回、标题「文本编辑」、撤销、重做。标题行的高度取被盖住那一行的实际高度（`MSIMEInputService.alignOverlaysBelowTopRow` 交给 `ImeTextEditPanel.coverTopRow`），网格的上沿仍在原来工具栏的下沿再往下 4 dp，键区位置和高度都不变。两端三个按钮的宽度和图标缩放跟工具栏的两端按钮一致（`ImeToolbar.applyShortcutSize` 转给 `resizeHeader`），配色在每次 render 末尾随工具栏一起上（`styleHeader`）。返回关掉面板回到键盘，光标和选区留在编辑器里；撤销、重做调工具栏同一个 `performHistory`，能不能点由 `ImeToolbar.canDispatchHistory` 统一判断（没有输入框或在密码框里不能点），工具栏上的撤销、重做也改用它。面板开着时被盖住的顶部一行设为 `IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS`，读屏不会摸到底下的工具栏，关面板时恢复。
+
+有最近复制时，标题让位给最近复制：预览（点按粘贴）、分词或分类快捷键和 ×，返回、撤销、重做不动。这三个控件和工具栏「最近复制」一行用同一个构造方法 `ImeToolbar.addRecentClipChip`，内容由 `updateRecentClipRow` 同时填两份（`applyRecentClip`），面板重建时用 `bindTextEditRecentClip` 立即按当前这一条填好。显不显示、过期、敏感内容、开关和点按后的行为仍全部由原来的最近复制逻辑决定。
+
 ### 网格与绘制
 
 `TextEditPanelModel.bounds` 同时给出测量、摆放和点击范围，`TextEditPanelGrid` 按它摆子视图，不再用按行的 `LinearLayout` 加权。侧键四周留 3 dp 键距；方向区外框上下与侧键首尾齐平，左右各让一个键距。方向区的横缝 `seam(row)` 对齐下一排侧键的上边，所以底排三格与同排侧键等高，上面三行只差整数像素舍入。网格画方向区的圆角底面、外框和中性细线（两条竖缝贯穿四行，两条横缝只在中列），线画在子视图之后；中央键是 `TextEditPanelButton`，只画按下和选中的填充，选中用皮肤强调色。换肤时 `ImeStyler.applySkinToView` 调 `TextEditPanelGrid.setSkin` 更新底面、线色和强调色。
@@ -56,7 +62,9 @@ Status: implemented
 - [四行网格](../bug-fix/2026-11-06-android-text-edit-panel-four-rows.md)：部分取代。底排正中改放触控板开关，第八个侧键不再显示；触控板位置改由网格模型推出。
 - [触控板与放大镜](2026-10-23-android-text-edit-trackpad.md)：手势、模式持久化、临时入口、预览与取消生命周期不变，只改覆盖区域和多了一个网格内的开关。
 - [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md)：默认排列不写进文件的决定不变；其中「旧版本的七个动作补齐后就是现在的默认排列」一句已就地改为经旧默认排列换算。
-- [原文本编辑面板](2026-10-08-android-text-edit-panel.md)、[最近复制预览](2026-10-15-android-recent-copy-in-text-edit.md)、[光标边界保护](../bug-fix/2026-10-29-android-text-edit-cursor-edges.md)、[排序面板拖动](2026-10-31-android-order-sheets-drag.md)：无关或只沿用，编辑器权限、复制、预览和拖动排序不受影响。
+- [文本编辑面板实时显示最近复制](2026-10-15-android-recent-copy-in-text-edit.md)：部分取代。面板开着时最近复制从工具栏那一行移进标题行，代替标题；返回键盘由标题行的返回键负责。放行文本编辑面板显示最近复制、粘贴和关闭不关面板的决定不变。
+- [系统内联自动填充](2026-10-21-android-inline-autofill.md)：它占用工具栏那一行；文本编辑面板开着时那一行被标题行盖住，内联填充建议看不到，关面板后照旧。
+- [原文本编辑面板](2026-10-08-android-text-edit-panel.md)、[光标边界保护](../bug-fix/2026-10-29-android-text-edit-cursor-edges.md)、[排序面板拖动](2026-10-31-android-order-sheets-drag.md)：无关或只沿用，编辑器权限、复制、预览和拖动排序不受影响。
 
 ## Alternatives considered
 
@@ -64,6 +72,8 @@ Status: implemented
 - **在固定的七格之外让选择行也能被拖进可见位置**：用户可以自己决定要不要选择行。但排序页就得表达「哪些显示、哪些藏起来」，网格位置数也随之变化；维护者的设计明确不常驻这三个键，所以它们不参与排序。
 - **只换默认值，不处理旧默认排列**：改动只有一行。但已发布版本写下的旧顺序会一直留着，新布局只到全新安装的用户；新版本存盘时把旧顺序写成八项，退回只认识七个动作的版本就整份读不了，`a_default_text_edit_order_is_left_out_of_the_file` 守的正是这件事。
 - **保留用户文档里的旧顺序，排列以选择行结尾时只写前七项**：有意排成旧顺序的用户不会被改，退回旧版本也读得了。但已发布版本把默认值明文写进了所有用户的文档，等于绝大多数用户都留在旧布局上，和换默认值的目的相反。
+- **最近复制放进系统底栏的中间**：底栏已经有输入法切换和剪贴板两个入口，预览放在中间顺手。但浮动、横屏和部分设备不显示公共底栏，最近复制在这些模式下就没了；底栏中间还有左右滑动移动光标的区域，两者会抢同一块地方。标题行在所有模式下都有，和普通键盘上最近复制代替工具栏的位置一致。
+- **标题行里复制一套最近复制控件，由面板自己更新**：面板不必碰工具栏的代码。但预览文字、读屏描述、快捷键显隐要写两遍，改一处忘一处；所以把构造和填充抽成工具栏里的一个方法，两处共用。
 - **保留模式行，键面写「切换为触控板」「切换为方向键」**：[固定网格](2026-10-24-android-text-edit-layout.md)为 #10058 选这种写法，是怕只写模式名会被当成当前状态的标签。现在开关就在网格里、用选中样式和读屏的开关状态表达开着与否，「触控板」三个字本来就是状态标签；保留模式行还要多占 32 dp，六个字在窄窗口里只能缩字。
 - **触控板模式的「选择」放回网格（比如盖住某个侧键）**：不占触控板面积。但侧键约定始终可用，盖掉哪个都不对；放进触控板角落只让出一小块，手指从别处起滑不受影响。
 - **触控板上保留两行全色说明，或把方向键画成淡色背景**：新用户一眼看得出能做什么。但全色文字和按键文字抢视线，方向键的淡色背景又像是能点的键；只留一句淡色提示，配合点阵表示「这一块可以滑」。
@@ -71,12 +81,13 @@ Status: implemented
 
 ## Consequences
 
-方向区是一整块连续的目标，← 和 → 的高度是原来的三倍；网格没有空格，触控板位置不再和网格各写一套比例。去掉 32 dp 的模式行，这部分高度还给网格；开关键只写三个字，不再有「切换为触控板」六个字在窄窗口里缩字或折行的问题。没排过顺序的用户升级后直接换到新的侧键顺序，退回已发布版本仍然读得了偏好。
+方向区是一整块连续的目标，← 和 → 的高度是原来的三倍；网格没有空格，触控板位置不再和网格各写一套比例。去掉 32 dp 的模式行，这部分高度还给网格；标题行盖住工具栏，返回、撤销、重做和最近复制都在面板自己的一行里，不再依赖工具栏那一行的状态。开关键只写三个字，不再有「切换为触控板」六个字在窄窗口里缩字或折行的问题。没排过顺序的用户升级后直接换到新的侧键顺序，退回已发布版本仍然读得了偏好。
 
-代价：选择行、行首、行尾失去可见入口，只剩动作身份和适配代码，以后要恢复得另找手势或位置。有意把侧键排成旧默认顺序的用户也会被换成新默认，文档里分不出两者。触控板上不再写长按、双击、三击怎么用，只能靠设置页的说明和读屏公告发现。开关键面不再写出点了会切到哪种模式，只靠选中样式和读屏状态表达开、关；触控板模式的「选择」占掉触控板右上角一小块。中央键不再是独立键帽，换肤和按下反馈依赖 `TextEditPanelGrid` 与 `TextEditPanelButton` 同步；无障碍节点和点击范围仍按键分开。
+代价：选择行、行首、行尾失去可见入口，只剩动作身份和适配代码，以后要恢复得另找手势或位置。有意把侧键排成旧默认顺序的用户也会被换成新默认，文档里分不出两者。面板开着时工具栏上的其他按钮（表情、剪贴板、语音等）和系统内联填充建议都被标题行盖住，要先返回键盘；从工具栏的文本编辑按钮按住临时打开触控板时，按住的那个按钮也被标题行盖住，手势照旧归它。标题行里最近复制的预览比工具栏那一行窄（两边多了撤销、重做），长内容截得更早。触控板上不再写长按、双击、三击怎么用，只能靠设置页的说明和读屏公告发现。开关键面不再写出点了会切到哪种模式，只靠选中样式和读屏状态表达开、关；触控板模式的「选择」占掉触控板右上角一小块。中央键不再是独立键帽，换肤和按下反馈依赖 `TextEditPanelGrid` 与 `TextEditPanelButton` 同步；无障碍节点和点击范围仍按键分开。
 
 ## Verification
 
 - `cargo test -p msime-client-core`（800 项）在 WSL 通过，包括新增的 `an_untouched_old_default_text_edit_order_moves_to_the_new_default`（七项、八项旧默认读成新默认，只差一个位置的排列原样保留）、`a_default_text_edit_order_is_left_out_of_the_file`（各已发布版本的文档存一次后不再写出这个键）；`msime-client-services` 的 `desktop_settings_sync_works_on_a_document_from_a_newer_version` 和 `msime-host-api` 的偏好保存、读不了的文档两项通过；`cargo fmt --check` 通过。
 - Android：按 `check-host.sh` 的同一份源码规则编译 859 份生产和测试源码（`-Xlint:all -Werror`），`TextEditPanelModelSmoke` 通过：十六个键互不重叠、网格无空格，正序、逆序和选择行排在中间时侧键都按可见顺序摆放，排序草稿合并保留选择行位置、残缺草稿被拒，三种尺寸下中央键正好铺满方向区且底排与侧键齐平，触控板模式的选择开关贴右上角、触控板太小时不越界；`TextTrackpadSurfaceSmoke` 覆盖点阵居中、长度不够或参数无效时不画点，以及提示文字的等比缩小和隐藏条件；`TextTrackpadGestureSmoke`、`TextTrackpadHoldSmoke` 照旧通过；271 份设备源码编译通过；`generate_keyboard_icons.py --check` 通过。
-- 未覆盖：完整 `check-host.sh`、Gradle 编译（`TextEditOrderSheet` 引用 androidx，只有 Gradle 编得到）、模拟器设备验收都还没跑；`TextEditRecentClipboardDeviceSmoke` 仍按旧布局断言「选择」文字和底排键数，它和 `TextEditLineDeviceChecks`、`TextTrackpadDeviceChecks` 也还在点「切换为触控板」「切换为方向键」，都要随布局更新后再跑。
+- 标题行这一步之后，`check-host.sh` 在 WSL 里对 LF 副本跑完了全部源码契约检查、334 项 JVM 冒烟和 271 份设备源码编译；停在资源清单一步，因为借用的是 Windows 的 SDK，没有 Linux 版 `aapt2`。`TimestampDisplayPolicySmoke` 在本机两个 JDK 21 上都失败（「extreme developer timestamps are ignored」），本分支没有改它和 `TimestampDisplayPolicy`，副本里拿掉它才跑完其余冒烟。
+- 未覆盖：资源清单检查、Gradle 编译（`TextEditOrderSheet` 引用 androidx，只有 Gradle 编得到）、模拟器设备验收都还没跑；`TextEditRecentClipboardDeviceSmoke` 仍按旧布局断言「选择」文字和底排键数，它和 `TextEditLineDeviceChecks`、`TextTrackpadDeviceChecks` 也还在点「切换为触控板」「切换为方向键」，都要随布局更新后再跑。
