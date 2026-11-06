@@ -83,6 +83,7 @@ export function useTranslationSettings({
       ? "none"
       : storedProvider;
   const onDeviceTranslationInUse =
+    !preferences?.local_translation?.enabled &&
     macos &&
     candidateTranslations &&
     (translationProvider === "none" || (translationProvider === "tencent" && !tencentConfigured));
@@ -114,6 +115,9 @@ export function useTranslationSettings({
     setTencentChosen(provider === "tencent");
     onChange({
       ...preferences,
+      ...(preferences.local_translation
+        ? { local_translation: { ...preferences.local_translation, enabled: false } }
+        : {}),
       custom_translation: { ...customTranslation, enabled: provider === "custom" },
       tencent_tmt: { ...tencentTranslation, enabled: provider === "tencent" },
       niutrans: { ...niutrans, enabled: provider === "niutrans" },

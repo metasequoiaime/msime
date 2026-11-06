@@ -104,4 +104,6 @@ test("touch preedit offers only the shuangpin choice", () => {
   ).toEqual(["双拼预编辑"]);
   expect(screen.queryByLabelText("行内预编辑")).toBeNull();
   expect(screen.queryByLabelText("候选栏预编辑")).toBeNull();
+  // 鸿蒙手机在「候选栏 › 更多选项」里只有这一行，粤语双拼也跟随它（#10557），说明要写明。
+  expect(screen.getByText(/粤语双拼/)).toBeTruthy();
 });

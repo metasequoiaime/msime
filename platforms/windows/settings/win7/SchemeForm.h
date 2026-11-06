@@ -116,6 +116,11 @@ public:
       const int start = top;
       cantonese_method_ = choice(scheme_cantonese_method, L"粤拼方案", {{"jyutping", L"粤拼"}, {"shuangpin", L"粤语双拼"}});
       heights_[static_cast<size_t>(section)] = top - start;
+      // 粤语双拼的预编辑跟随与普通话双拼同一个偏好 shuangpin_preedit_uses_raw（#10557），展开的是粤拼；普通粤拼没有按键要展开，这一行只在选了粤语双拼时出现。
+      section = Section::cantonese_shuangpin;
+      const int preedit_start = top;
+      cantonese_preedit_ = choice(scheme_cantonese_preedit, L"双拼预编辑", {{"raw", L"原始按键"}, {"pinyin", L"粤拼分词"}});
+      heights_[static_cast<size_t>(section)] = top - preedit_start;
     }
     height_ = top;
     return top;
@@ -207,6 +212,7 @@ public:
       SendMessageW(vietnamese_tone_, CB_SETCURSEL, preferences.at("vietnamese").at("tone_style") == "classic" ? 1 : 0, 0);
     }
     if (cantonese_method_) SendMessageW(cantonese_method_, CB_SETCURSEL, cantonese_shuangpin(preferences) ? 1 : 0, 0);
+    if (cantonese_preedit_) SendMessageW(cantonese_preedit_, CB_SETCURSEL, preferences.at("shuangpin_preedit_uses_raw").get<bool>() ? 0 : 1, 0);
   }
 
   void enable(bool enabled) {
@@ -221,12 +227,13 @@ public:
     for (const auto control : {second_, third_}) if (control) EnableWindow(control, keys);
     for (const auto control : {vietnamese_method_, vietnamese_tone_}) if (control) EnableWindow(control, enabled && scheme == "vietnamese");
     if (cantonese_method_) EnableWindow(cantonese_method_, enabled && scheme == "cantonese");
+    if (cantonese_preedit_) EnableWindow(cantonese_preedit_, enabled && scheme == "cantonese" && cantonese_shuangpin(preferences_));
     update_keys();
   }
 
   Command command(WPARAM event) {
     const int id = LOWORD(event), notification = HIWORD(event);
-    if (id < scheme_language || id > scheme_cantonese_method) return {};
+    if (id < scheme_language || id > scheme_cantonese_preedit) return {};
     Command result{true, {}, {}, std::nullopt};
     if (!enabled_) return result;
     if ((id == scheme_wubi_second || id == scheme_wubi_third) && notification == EN_CHANGE) { update_keys(); return result; }
@@ -262,6 +269,14 @@ public:
         const auto selected = SendMessageW(preedit_, CB_GETCURSEL, 0, 0);
         if (selected >= 0 && static_cast<size_t>(selected) < input::shuangpin_preedit_options.size()) {
           const auto style = input::shuangpin_preedit_options[static_cast<size_t>(selected)].style;
+          result.changes.push_back({{"shuangpin_preedit_uses_raw"}, input::shuangpin_preedit_uses_raw(style)});
+          result.changes.push_back({{"shuangpin_preedit_separated"}, input::shuangpin_preedit_separated(style)});
+        }
+      } else if (id == scheme_cantonese_preedit && IsWindowEnabled(cantonese_preedit_)) {
+        // 粤语双拼这一行只有原始按键 / 粤拼分词两项（引擎的粤语双拼不读双拼分隔），写回与上面同一套换算，选粤拼分词时分隔一并清掉。
+        const auto selected = SendMessageW(cantonese_preedit_, CB_GETCURSEL, 0, 0);
+        if (selected == 0 || selected == 1) {
+          const auto style = selected == 0 ? input::ShuangpinPreedit::raw : input::ShuangpinPreedit::pinyin;
           result.changes.push_back({{"shuangpin_preedit_uses_raw"}, input::shuangpin_preedit_uses_raw(style)});
           result.changes.push_back({{"shuangpin_preedit_separated"}, input::shuangpin_preedit_separated(style)});
         }
@@ -336,16 +351,17 @@ public:
   }
 
 private:
-  enum class Section { common, shuangpin, wubi, vietnamese, cantonese };
+  enum class Section { common, shuangpin, wubi, vietnamese, cantonese, cantonese_shuangpin };
   struct RowPosition { HWND control; int top; Section section; };
   bool visible(Section section) const {
     const auto scheme = preferences_.value("scheme", std::string{});
     return section == Section::common || (section == Section::shuangpin && scheme == "shuangpin") ||
         (section == Section::wubi && scheme == "wubi") || (section == Section::vietnamese && scheme == "vietnamese") ||
-        (section == Section::cantonese && scheme == "cantonese");
+        (section == Section::cantonese && scheme == "cantonese") ||
+        (section == Section::cantonese_shuangpin && scheme == "cantonese" && cantonese_shuangpin(preferences_));
   }
   std::vector<RowPosition> rows_;
-  std::array<int, 5> heights_{};
+  std::array<int, 6> heights_{};
   int height_ = 0;
   struct Option { std::string value; const wchar_t* label; };
   static bool chinese(const std::string& scheme) {
@@ -400,7 +416,7 @@ private:
   HWND selection_ = nullptr, second_ = nullptr, third_ = nullptr, keys_save_ = nullptr, keys_description_ = nullptr;
   HWND lookup_ = nullptr, lookup_button_ = nullptr, lookup_result_ = nullptr;
   HWND vietnamese_method_ = nullptr, vietnamese_tone_ = nullptr;
-  HWND cantonese_method_ = nullptr;
+  HWND cantonese_method_ = nullptr, cantonese_preedit_ = nullptr;
   std::vector<Option> languages_, chinese_;
   Json preferences_ = Json::object();
   std::optional<Json> saved_keys_;

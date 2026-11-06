@@ -435,6 +435,8 @@ def main() -> int:
     check('features.neural_keyboard' in package_text, "package-release.sh does not decide the rerank models by the edition's neural_keyboard feature")
     cmake = "\n".join(live_lines(ROOT / "platforms/macos/CMakeLists.txt"))
     check("scripts/fetch_rerank_model.py" in cmake, "CMakeLists.txt does not fetch the locked rerank models into the input method bundle")
+    # 输入法 bundle 和设置 App 用同一个图标文件。按 macOS 图标网格留边、带 1024 尺寸的只有设置 App 那一份；满画布的图标在 macOS 26 起的 Finder 和系统设置里会被套上灰底板。
+    check((ROOT / "platforms/macos/resources/MSIMEClientInputMethod.icns").read_bytes() == (ROOT / "apps/desktop/src-tauri/icons/icon.icns").read_bytes(), "platforms/macos/resources/MSIMEClientInputMethod.icns differs from apps/desktop/src-tauri/icons/icon.icns; copy the settings app icon so the input method keeps the macOS icon grid")
     # 包内检查要逐个确认按需文件不在 EngineResources 里，名单多了一个文件时这里跟着要求多一行。
     for name in EXPECTED_ON_DEMAND:
         check(f'test ! -e "$resources_dir/EngineResources/{name}"' in package_text, f"package-release.sh does not check that {name} stays out of EngineResources")
