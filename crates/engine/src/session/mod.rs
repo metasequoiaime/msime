@@ -12,6 +12,7 @@ mod composition;
 mod conversion;
 mod editing;
 mod glide;
+mod grid_helpcode;
 mod helpcode_entry;
 mod input;
 mod learning;
@@ -57,6 +58,8 @@ pub struct Session {
     shuangpin_preedit_separated: bool,
     /// `SessionOptions::learn_typed_spellings_on_enter`。
     learn_typed_spellings_on_enter: bool,
+    /// `SessionOptions::grid_helpcode`。
+    grid_helpcode: bool,
     prediction: prediction::Prediction,
     /// See [`Self::candidate_revision`].
     revision: u64,
@@ -114,6 +117,7 @@ impl Session {
             shuangpin_preedit_uses_raw: options.shuangpin_preedit_uses_raw,
             shuangpin_preedit_separated: options.shuangpin_preedit_separated,
             learn_typed_spellings_on_enter: options.learn_typed_spellings_on_enter,
+            grid_helpcode: options.grid_helpcode,
             prediction: prediction::Prediction::new(
                 options.next_word_prediction,
                 options.paths.dictionary(crate::assets::MAIN_DICTIONARY),
@@ -186,7 +190,12 @@ impl Session {
                 let result = self.nine_key.character(value);
                 return self.after_nine_key(result);
             }
-            return KeyResult::unhandled();
+            // 网格辅助码筛空时空格、数字这些会结束组字的键不交还宿主，免得它们先上屏、组字留在后面。
+            return if self.nine_key.grid_helpcode_blocks() {
+                KeyResult::handled()
+            } else {
+                KeyResult::unhandled()
+            };
         }
         self.input.pending_touch = touch;
         self.input.handle_character(value, shift_only)
@@ -444,6 +453,10 @@ impl Session {
         self.input.pending_touch = None;
         if !self.nine_key.active() {
             return self.input.handle_punctuation(value);
+        }
+        // 网格辅助码筛空时标点不上屏，组字留着。
+        if self.nine_key.grid_helpcode_blocks() {
+            return KeyResult::handled();
         }
         let mut result = self.input.handle_punctuation(value);
         if !result.handled {
@@ -909,6 +922,7 @@ impl Session {
                 hide_helpcode,
                 snapshot.scheme,
             );
+            snapshot.grid_helpcode_available = self.grid_helpcode_available();
             return snapshot;
         }
         let input = &self.input;
@@ -980,6 +994,9 @@ impl Session {
             },
             nine_key_single_character: false,
             nine_key_strokes: String::new(),
+            grid_helpcode_available: false,
+            grid_helpcode_display: String::new(),
+            grid_helpcode_constrained: false,
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.kind.name().to_owned(),

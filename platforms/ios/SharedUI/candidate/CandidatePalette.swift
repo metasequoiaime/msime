@@ -19,6 +19,8 @@ struct CandidatePalette: Equatable {
   var selectedBar: UIColor? = nil
   var showSelectedBar = false
   var layout: CandidateSkinLayout? = nil
+  /// 仅覆盖首选文字时继续用键盘原生底板和字重，不切换到桌面候选布局。
+  var usesKeyboardStyle = false
 
   static let followsDesktopKey = "candidate_palette_follows_desktop"
   static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
@@ -57,6 +59,10 @@ struct CandidatePalette: Equatable {
   static func palette(_ resolved: ResolvedTheme) -> CandidatePalette {
     let keyboard = KeyboardTheme(id: resolved.id, palette: resolved.keyboard, appearance: resolved.appearance, design: nil)
     let candidate = resolved.candidate
+    let nativeTextOverride = candidate?.selectedText != nil
+      && [candidate?.surface, candidate?.border, candidate?.text, candidate?.number,
+          candidate?.secondary, candidate?.accent, candidate?.selected, candidate?.hover].allSatisfy { $0 == nil }
+      && candidate?.showSelectedBar != true && resolved.candidateLayout == nil
     return CandidatePalette(
       text: candidate?.text ?? keyboard.keyForeground,
       number: candidate?.number ?? keyboard.secondary,
@@ -67,7 +73,8 @@ struct CandidatePalette: Equatable {
       surface: candidate?.surface ?? keyboard.background,
       border: candidate?.border ?? .clear, selectedText: candidate?.selectedText,
       selectedTranslation: resolved.candidateDetails?.selectedTranslation, preeditText: resolved.candidateDetails?.preeditText,
-      selectedBar: resolved.candidateDetails?.selectedBar, showSelectedBar: candidate?.showSelectedBar ?? false, layout: resolved.candidateLayout)
+      selectedBar: resolved.candidateDetails?.selectedBar, showSelectedBar: candidate?.showSelectedBar ?? false,
+      layout: resolved.candidateLayout, usesKeyboardStyle: nativeTextOverride)
   }
 
   /// `candidate_theme` first, then the app's light or dark mode (`theme`), then the system.

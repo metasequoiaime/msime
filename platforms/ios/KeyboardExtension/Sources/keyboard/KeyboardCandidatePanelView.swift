@@ -375,12 +375,13 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     if aiPlaceholder { configuration.baseForegroundColor = secondary }
     configuration.contentInsets = palette?.layout?.chipInsets(fontSize: font.pointSize, fallback: Self.cellInsets) ?? Self.cellInsets
     configuration.background.cornerRadius = skin.cornerRadius
-    let fill = selected ? palette?.selected ?? skin.accentSoft : palette != nil ? UIColor.clear : skin.keyBackground
+    let nativeStyle = palette?.usesKeyboardStyle ?? true
+    let fill = selected ? palette?.selected ?? skin.accentSoft : nativeStyle ? skin.keyBackground : UIColor.clear
     configuration.background.backgroundColor = fill
     if selected, let palette, palette.showSelectedBar {
       configuration.background.customView = CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout, fontSize: font.pointSize)
     }
-    configuration.background.strokeWidth = palette == nil ? 0 : palette?.layout?.borderWidth ?? 1
+    configuration.background.strokeWidth = nativeStyle ? 0 : palette?.layout?.borderWidth ?? 1
     configuration.background.strokeColor = palette?.border ?? .clear
     configuration.background.cornerRadius = palette?.layout?.itemRadius ?? canvas?.itemCornerRadius ?? skin.cornerRadius
     // 格子随单元格复用，被手指按过的格子再套用 configuration 时 UIKit 会给标题挂 0.25s 的淡入淡出（`CATransition` fade），面板重新载入后新旧两个词叠着渐变。候选按 #10330 立即呈现，换字放在不带动画的块里做完；只用来量尺寸的格子不上屏，不必立即布局。
@@ -396,7 +397,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     chip.glossLines = glossLines
     chip.titleLineCount = 1 + glossLines
     // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。
-    chip.drawsKeyShadow = palette == nil && !selected && skin.hasShadow
+    chip.drawsKeyShadow = nativeStyle && !selected && skin.hasShadow
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"

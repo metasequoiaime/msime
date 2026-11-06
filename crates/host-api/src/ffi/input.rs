@@ -370,6 +370,19 @@ pub extern "C" fn msime_client_grid_key(handle: u64, letter: u8) -> *mut c_char 
     dispatch(handle, Action::GridKey(letter))
 }
 
+/// 十四／十八键网格辅助码：`op` 为 0 放下分隔符、1 追加确定字母 `letter`、2 清除、3 追加 `letter` 所在键的整组，见头文件。其他 `op` 报错。
+#[no_mangle]
+pub extern "C" fn msime_client_grid_helpcode(handle: u64, op: u8, letter: u8) -> *mut c_char {
+    let op = match op {
+        0 => GridHelpcodeOp::Begin,
+        1 => GridHelpcodeOp::Exact(letter),
+        2 => GridHelpcodeOp::Clear,
+        3 => GridHelpcodeOp::Group(letter),
+        _ => return response(|| Err("invalid grid helpcode operation".into())),
+    };
+    dispatch(handle, Action::GridHelpcode(op))
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char {
     let action = match command {

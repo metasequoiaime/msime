@@ -48,6 +48,7 @@ fn options(root: &Path) -> EngineOptions {
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,

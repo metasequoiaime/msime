@@ -3,6 +3,7 @@
 #include "ChineseTextConversion.h"
 #include "PolishPrompt.h"
 #include "VoiceHotwordTexts.h"
+#include "VoicePunctuation.h"
 #include "VoiceRequestCancellation.h"
 
 #include "LocalAsr.h"
@@ -1085,11 +1086,20 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
       final_text = text;
     }
   }
+  // 语音标点：所有识别服务和润色之后、繁体转换和上屏之前按设置处理一次，面板的审阅录音拿到的也是处理后的文字。auto 不调用共享层。
+  final_text = voice_punctuated(final_text, config.punctuation_mode, [](const std::string &request) {
+    return host_value(msime_client_voice_punctuation(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+  });
   if (session_.load() != session || cancel_requested_.load() ||
       final_text.empty()) {
     cancel_inline();
     clear_current_overlay();
     release_doubao();
+    // 识别出的文字只有标点、处理后为空：和识别结果为空一样提示没听到，而不是让浮层一声不响地消失。
+    if (final_text.empty() && !review && session_.load() == session &&
+        !cancel_requested_.load())
+      report_failure(voice_failure_notice(VoiceFailure::NoSpeech), session);
     return;
   }
   // 模拟按键和粘贴只能投给前台窗口，目标是焦点租约所属的 TSF 客户端进程或开始录音时的前台窗口；前台已经换成别处、或者焦点租约已经失效（换了输入框）时文字直接丢弃，和 macOS 的 stale 一样不写进别的应用或别的输入框。每次核对都重新验租约，不等控制循环下一轮的 maintain()。

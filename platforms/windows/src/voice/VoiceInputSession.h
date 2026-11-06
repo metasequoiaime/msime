@@ -40,6 +40,8 @@ struct VoiceInputConfig {
   bool hotkey_hold_space_lock = true;
   bool stream_inline_preedit = true;
   std::string commit_mode = "tsf";
+  // voice_input.punctuation_mode：最终结果上屏前怎么处理标点，缺键为 auto（原样），交给 msime_client_voice_punctuation。
+  std::string punctuation_mode = "auto";
   // 原生语音上屏前是否转成繁体：traditional_chinese_output 打开，而且正在运行的方案做简繁转换（scheme::ScriptConversionApplies，日文等方案原样上屏），与候选和上屏的 traditional_projection 同一规则。
   bool traditional_output = false;
   std::string asr_provider = "local";

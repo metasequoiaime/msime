@@ -178,6 +178,15 @@ pub trait InputEngine {
             "Nine-key spelling selection is unsupported".into(),
         ))
     }
+    /// 十四／十八键网格辅助码的分隔符、确定字母和清除；没有网格辅助码的引擎不处理。
+    fn grid_helpcode(&mut self, _op: GridHelpcodeOp) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            has_commit: false,
+            commit: String::new(),
+            diagnostic: String::new(),
+        })
+    }
     /// 九宫格候选只留单字、按笔顺前缀筛选；没有九宫格的引擎不支持。
     fn set_nine_key_filter(
         &mut self,
@@ -466,6 +475,9 @@ impl InputEngine for Session {
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::choose_nine_key_spelling(self, index)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn grid_helpcode(&mut self, op: GridHelpcodeOp) -> Result<EngineResult, RuntimeError> {
+        Session::grid_helpcode(self, op).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn set_nine_key_filter(
         &mut self,
