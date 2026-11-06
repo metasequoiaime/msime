@@ -58,6 +58,11 @@ public final class SettingsSearchIndexSmoke {
         }
         // #6132：搜「浮动」要找到键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("浮动"), "searching 浮动 finds the keyboard page");
+        // #10557：粤语双拼的展开显示跟随「双拼显示原始按键」，搜开关名、搜「粤拼」都要落到键盘页。
+        check(pages.get("KEYBOARD_OPTIONS").matches("双拼显示原始按键") && pages.get("KEYBOARD_OPTIONS").matches("粤拼"),
+            "searching 双拼显示原始按键 or 粤拼 finds the keyboard page");
+        // #10717：iOS 同组的「原始按键按音节分隔」在 Android 键盘页也有，搜「双拼分隔」要落到这里。
+        check(pages.get("KEYBOARD_OPTIONS").matches("双拼分隔"), "searching 双拼分隔 finds the keyboard page");
         // 功能面板的「键盘调整」在设置里没有同名的行，搜它要落到放着键盘高度和底部高度的键盘页。
         check(pages.get("KEYBOARD_OPTIONS").matches("键盘调整"), "searching 键盘调整 finds the keyboard page");
         check(pages.containsKey("FUZZY_PINYIN") && pages.get("FUZZY_PINYIN").matches("前后鼻音"),
@@ -116,6 +121,11 @@ public final class SettingsSearchIndexSmoke {
 
     /** 行标题来自代码里其他表的设置行：InputFeatureToggle 的标题、输入页的语言表、键盘页的工具栏按钮表。 */
     private static void computedRows(Map<String, Page> pages, List<String> missing) {
+        // 双拼设置行由同一个构建器交给原生页，索引也按它实际给出的标题核对。
+        app.msime.android.ShuangpinPreeditSettings.addRows(app.msime.android.AppEdition.FULL,
+            (key, fallback) -> fallback, (key, value) -> {}, (title, checked, changed, help) -> {
+                if (!pages.get("KEYBOARD_OPTIONS").matches(title)) missing.add("KEYBOARD_OPTIONS: " + title);
+            });
         String[][] rows = {
             {"TYPING", "只出单字"}, {"TYPING", "云候选"},
             {"TYPING", "退格键回退已选候选词"},
