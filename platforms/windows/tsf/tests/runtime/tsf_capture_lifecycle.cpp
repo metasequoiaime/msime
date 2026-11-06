@@ -101,6 +101,7 @@ void tests() {
   const auto resume = load<void (*)()>(host, "msime_test_host_resume");
   const auto preparations = load<unsigned (*)()>(host, "msime_test_host_preparations");
   const auto invalid = load<unsigned (*)()>(host, "msime_test_host_invalid");
+  const auto invalid_reason = load<const char *(*)()>(host, "msime_test_host_invalid_reason");
   const auto consent_reads = load<unsigned (*)()>(host, "msime_test_host_consent_reads");
   const auto root = temporary.u8string();
   initialize(root.c_str());
@@ -338,7 +339,8 @@ void tests() {
     tip.unload();
     until([] { return GetModuleHandleW(L"MetasequoiaImeTsfLeaseTest.dll") == nullptr; }, "repeated unload leaked observer");
   }
-  require(invalid() == 0, "capture used invalid shared ABI request or barrier timed out");
+  const auto violation = std::string("capture broke the shared ABI contract: ") + invalid_reason();
+  require(invalid() == 0, violation.c_str());
   FreeLibrary(helper); finish(); FreeLibrary(host);
   std::puts("PASS TSF directory notifications, idle reads, shared leases, authorization, WOW64 exclusion and repeated DLL unload");
 }

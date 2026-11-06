@@ -26,6 +26,7 @@ CI 上这只是红灯；落到用户那里，就是开启崩溃上报的用户�
 测试边界与 `msime_test_wer_register` 同一个模式：`MSIME_TSF_CRASH_CAPTURE_TEST` 下，生产查询把系统的真实结果交给夹具的 `msime_test_wow64_process(actual)`，夹具按 `MSIME_TSF_TEST_WOW64`（`1` 假装 WOW64，`0` 假装不是，未设置照用真实结果）改写，并记下真实结果供用例核对。
 
 - `tsf_capture_lifecycle.cpp` 先把它设成 `0`，原有采集用例在 x86 runner 上照旧覆盖；随后假装 WOW64，断言整轮没有快照、没有登记、没有授权读取和准备，且 DLL 立即卸载；再取消改写，断言夹具收到的真实结果与 `IsWow64Process` 一致，并按真实结果断言 x86 不武装、x64 武装并登记一次。
+- 合成 Host API（`tsf_capture_host.cpp`）原来在清理请求到达时按当前授权判违约，而生产代码读到「已关闭」先解除武装、再请求清理；生命周期用例一看到解除武装就重新开启授权，清理晚一步到达就被误记一次违约。本 PR 的 x86 生命周期失败过一次（作业 127682113843），失败信息只有聚合计数：那次运行只用了 6.4 秒，10 秒的屏障超时不可能发生，begin 请求字段是确定的，剩下的只有这条清理竞态和写授权标记文件失败两种，前者是已知的时序窗口。现在按最近一次授权读取判断，这才是生产代码要守的契约；违约计数同时记下第一次违约的原因，再失败时信息里直接写出是哪一类。
 - `tsf_capture_system.cpp` 新增 `wow64` 用例：在真实 WOW64 进程里不改写查询，确认 TIP 不登记后触发 TIP 自有故障，要求系统以 `0xC0000005` 结束进程、不留记录。`Invoke-SystemWer.ps1` 加 `-Cases` 参数，默认仍是原来的八个用例。
 
 `ci-platforms.yml` 的 `Windows TSF system WER` 作业里，x86 系统投递改名为 `Run TSF system WER delivery (x86, WOW64 exclusion)`，只跑 `-Cases baseline, wow64`，去掉 `continue-on-error` 和报告步骤，恢复阻塞。x64 仍跑默认八个用例并阻塞。x86 测试进程本身就是 WOW64，生产判定下其余用例不会武装，所以不再在 x86 上跑；不登记 helper 时碰不到那个系统缺陷，这两个用例可以确定地阻塞。

@@ -15,8 +15,17 @@
 namespace {
 std::mutex lock;
 bool enabled = true, readable = true;
+// 生产代码只在读到「已关闭」之后才请求清理；按最近一次读取判断，测试在读取与清理之间重新开启授权不算违约。
+bool read_disabled = false;
 unsigned epoch = 1;
 std::atomic<unsigned> preparations{0}, invalid{0}, consent_reads{0};
+// 第一次违约的原因，失败信息里要能看出是哪一类，而不是只有一个计数。
+std::atomic<const char *> invalid_reason{nullptr};
+void fail(const char *reason) {
+  const char *expected = nullptr;
+  invalid_reason.compare_exchange_strong(expected, reason);
+  ++invalid;
+}
 std::atomic<int> block{0};
 HANDLE entered = nullptr, resumed = nullptr;
 std::string root;
@@ -27,7 +36,7 @@ void notify() {
   std::ofstream stream(path, std::ios::binary | std::ios::trunc);
   stream << ++marker;
   stream.close();
-  if (stream.fail()) ++invalid;
+  if (stream.fail()) fail("consent marker write failed");
 }
 char *response(nlohmann::json value) {
   const auto body = nlohmann::json{{"ok", true}, {"value", std::move(value)}}.dump();
@@ -39,7 +48,7 @@ void barrier(int phase) {
   int expected = phase;
   if (block.compare_exchange_strong(expected, 0)) {
     SetEvent(entered);
-    if (WaitForSingleObject(resumed, 10000) != WAIT_OBJECT_0) ++invalid;
+    if (WaitForSingleObject(resumed, 10000) != WAIT_OBJECT_0) fail("barrier timed out");
   }
 }
 }
@@ -78,17 +87,24 @@ bool msime_test_host_wait(DWORD timeout) { return WaitForSingleObject(entered, t
 void msime_test_host_resume() { SetEvent(resumed); }
 unsigned msime_test_host_preparations() { return preparations.load(); }
 unsigned msime_test_host_invalid() { return invalid.load(); }
+const char *msime_test_host_invalid_reason() {
+  const char *reason = invalid_reason.load();
+  return reason ? reason : "none";
+}
 unsigned msime_test_host_consent_reads() { return consent_reads.load(); }
 char *msime_client_telemetry_consent(const uint8_t *, size_t) {
   barrier(1);
   ++consent_reads;
   std::lock_guard<std::mutex> guard(lock);
-  return readable ? response({{"enabled", enabled}, {"epoch", std::to_string(epoch)}}) : nullptr;
+  if (!readable) return nullptr;
+  read_disabled = !enabled;
+  return response({{"enabled", enabled}, {"epoch", std::to_string(epoch)}});
 }
 char *msime_client_telemetry_begin(const uint8_t *request, size_t length) {
   const auto value = nlohmann::json::parse(request, request + length);
   if (!value.value("capture_only", false) || value.value("component", "") != "tsf" ||
-      value.value("platform", "") != "windows" || value.contains("enabled") || !value.contains("preferences_directory")) ++invalid;
+      value.value("platform", "") != "windows" || value.contains("enabled") || !value.contains("preferences_directory"))
+    fail("invalid begin request");
   nlohmann::json result;
   {
     std::lock_guard<std::mutex> guard(lock);
@@ -106,7 +122,7 @@ char *msime_client_telemetry_begin(const uint8_t *request, size_t length) {
 }
 char *msime_client_telemetry_clear(const uint8_t *, size_t) {
   std::lock_guard<std::mutex> guard(lock);
-  if (enabled) ++invalid;
+  if (!read_disabled) fail("clear without a disabled consent read");
   return response(!enabled);
 }
 void msime_client_string_free(char *value) { std::free(value); }
