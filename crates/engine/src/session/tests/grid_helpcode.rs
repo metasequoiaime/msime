@@ -359,6 +359,40 @@ fn backspace_takes_slots_then_the_separator_before_the_code() {
     }
 }
 
+/// 选过整串解释后退格：去掉第二槽，第一槽回到按键时的整组，不留着选中的字母。单字母键（十八键的 A）按下时就已确定，照旧确定。
+#[test]
+fn backspace_after_a_whole_choice_reopens_the_remaining_slot() {
+    for grid in layouts() {
+        let fixture = Fixture::new(SQL);
+        let mut session = typed(&fixture, grid, false);
+        apply(&mut session, Op::Begin);
+        apply(&mut session, Op::Group(b'a'));
+        let one_slot = session.snapshot();
+        apply(&mut session, Op::Group(b'e'));
+        let index = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|choice| choice.eq_ignore_ascii_case("ae"))
+            .expect("A E 的整串解释");
+        assert!(session.choose_nine_key_spelling(index).handled, "{grid:?}");
+        assert!(session.command(Command::Backspace).handled);
+        let back = session.snapshot();
+        let display = match (eighteen(grid), shuangpin(grid)) {
+            (false, false) => "|[AS]",
+            (false, true) => "|[as]",
+            (true, false) => "|A",
+            (true, true) => "|a",
+        };
+        assert_eq!(back.grid_helpcode_display, display, "{grid:?}");
+        assert_eq!(
+            back.nine_key_spellings, one_slot.nine_key_spellings,
+            "{grid:?}"
+        );
+        assert_eq!(composition(&back), composition(&one_slot), "{grid:?}");
+    }
+}
+
 #[test]
 fn the_split_key_clears_the_helpcode_and_then_splits() {
     for grid in layouts() {

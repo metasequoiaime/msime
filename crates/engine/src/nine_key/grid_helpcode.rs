@@ -3,9 +3,7 @@
 //! 状态只在组码会话里，不写进组码、预编辑、上屏文字或句子种子；分隔符和辅助码由宿主按快照另画。九键与九键双拼没有接入，进入时被拒绝。决策见 `.agents/notes/implemented/feature/2026-11-04-grid-helpcode.md`。
 
 use super::*;
-use crate::helpcode::{
-    match_single_helpcode, matches_double_helpcodes, SharedKeymap, SingleHelpcodeMatch,
-};
+use crate::helpcode::{helpcode_ends, SharedKeymap};
 
 /// 最多两槽，与单字的两码、词语的首尾码对应。
 const SLOTS: usize = 2;
@@ -23,10 +21,11 @@ pub enum GridHelpcodeOp {
     Clear,
 }
 
-/// 一槽：键面上的整组字母，确定了其中一个时只认它。
+/// 一槽：键面上的整组字母，确定了其中一个时只认它。`typed` 是按键时就确定的字母（精确手势、单字母键），`exact` 另外算上从整串解释里选定的；退格去掉一槽时其余各槽回到 `typed`。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct HelpcodeSlot {
     letters: &'static str,
+    typed: Option<u8>,
     exact: Option<u8>,
 }
 
@@ -110,27 +109,17 @@ impl GridHelpcode {
         candidates.extend(graded.into_iter().map(|(item, _)| item));
     }
 
-    /// 越小越靠前，`None` 是筛掉。槽里多个字母按并集算，任一个命中即可。两码按码序严格匹配。一码不严格时首码（或首尾都）命中、只有尾码命中、都不中依次排；严格时都不中的筛掉，全拼只筛不排（与 26 键相同），双拼仍让首码命中的在前。
+    /// 越小越靠前，`None` 是筛掉。槽里多个字母按并集算，任一个命中即可；每个词只查一次码表（`helpcode_ends`），与 26 键的 `match_single_helpcode`、`matches_double_helpcodes` 同一套取码。两码按码序严格匹配。一码不严格时首码（或首尾都）命中、只有尾码命中、都不中依次排；严格时都不中的筛掉，全拼只筛不排（与 26 键相同），双拼仍让首码命中的在前。
     fn grade(&self, word: &str, shuangpin: bool) -> Option<u8> {
         let first = self.slots.first()?.allowed();
+        let ends = helpcode_ends(word, &self.table);
+        let hits =
+            |letters: &[u8], letter: Option<u8>| letter.is_some_and(|l| letters.contains(&l));
         if let Some(second) = self.slots.get(1) {
-            let second = second.allowed();
-            let matched = first.iter().any(|&a| {
-                second
-                    .iter()
-                    .any(|&b| matches_double_helpcodes(word, ascii(&[a, b]), &self.table))
-            });
+            let matched = ends.pair && hits(first, ends.first) && hits(second.allowed(), ends.last);
             return matched.then_some(0);
         }
-        let (mut leading, mut trailing) = (false, false);
-        for &letter in first {
-            match match_single_helpcode(word, ascii(&[letter]), &self.table) {
-                SingleHelpcodeMatch::First => leading = true,
-                SingleHelpcodeMatch::Last => trailing = true,
-                SingleHelpcodeMatch::Both => (leading, trailing) = (true, true),
-                SingleHelpcodeMatch::None => {}
-            }
-        }
+        let (leading, trailing) = (hits(first, ends.first), hits(first, ends.last));
         match (leading, trailing) {
             (false, false) if self.strict => None,
             (false, false) => Some(2),
@@ -148,10 +137,6 @@ fn shown(letter: u8, index: usize, shuangpin: bool) -> char {
     } else {
         letter.to_ascii_uppercase()
     })
-}
-
-fn ascii(letters: &[u8]) -> &str {
-    std::str::from_utf8(letters).unwrap_or_default()
 }
 
 impl NineKeySession {
@@ -232,9 +217,11 @@ impl NineKeySession {
         else {
             return false;
         };
+        let typed = (exact || letters.len() == 1).then_some(letter);
         helpcode.slots.push(HelpcodeSlot {
             letters,
-            exact: (exact || letters.len() == 1).then_some(letter),
+            typed,
+            exact: typed,
         });
         self.refresh();
         true
@@ -269,7 +256,7 @@ impl NineKeySession {
         Some(true)
     }
 
-    /// 有分隔符时先处理的命令：退格先删槽、再去掉分隔符，这两次都不删组码；筛空时首选上屏吞掉，原样上屏（宿主在插入别的内容之前用它结束组字）丢掉这次组字、什么也不上屏，免得只剩组码字母的组码被当原文上屏；移光标和向后删除走进主码编辑，先去掉辅助码。返回 `None` 时照常处理。
+    /// 有分隔符时先处理的命令：退格先删槽（留下的槽撤销选过的整串解释）、再去掉分隔符，这两次都不删组码；筛空时首选上屏吞掉，原样上屏（宿主在插入别的内容之前用它结束组字）丢掉这次组字、什么也不上屏，免得只剩组码字母的组码被当原文上屏；移光标和向后删除走进主码编辑，先去掉辅助码。返回 `None` 时照常处理。
     pub(super) fn grid_helpcode_command(&mut self, command: Command) -> Option<KeyResult> {
         let constrained = self.helpcode.as_ref()?.constrains();
         match command {
@@ -278,6 +265,10 @@ impl NineKeySession {
                     self.helpcode = None;
                 } else if let Some(helpcode) = self.helpcode.as_mut() {
                     helpcode.slots.pop();
+                    // 整串解释是对全部槽选的，去掉一槽后不再成立，留下的槽回到按键时的样子。
+                    for slot in &mut helpcode.slots {
+                        slot.exact = slot.typed;
+                    }
                 }
                 if constrained {
                     self.refresh();

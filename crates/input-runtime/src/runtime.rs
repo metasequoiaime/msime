@@ -45,7 +45,7 @@ pub enum Action {
     ChooseNineKeySpelling(NineKeySpellingId),
     /// 14 键的一键，`a`–`z` 里这一组的任一字母（宿主约定送首字母）。不在 14 键下时不处理。
     GridKey(u8),
-    /// 十四／十八键网格辅助码：放下分隔符、追加确定字母或清除（`msime_engine::Session::grid_helpcode`）。整组字母仍走 [`Action::GridKey`]，整串解释仍走 [`Action::ChooseNineKeySpelling`]。
+    /// 十四／十八键网格辅助码：放下分隔符、追加整组或确定字母、清除（`msime_engine::Session::grid_helpcode`）。放下分隔符后 [`Action::GridKey`] 一律不处理，字母键改送 `GridHelpcodeOp::Group`（十八键双拼的横滑送 `Exact`）；整串解释仍走 [`Action::ChooseNineKeySpelling`]。
     GridHelpcode(GridHelpcodeOp),
     /// 九宫格候选的筛选：只留单字，以及首字笔顺的前缀（`hspnz`，空表示不按笔画）。没有九宫格组字时不处理。
     SetNineKeyFilter {
