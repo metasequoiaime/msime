@@ -60,6 +60,9 @@ import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateDecorationLayout, CandidateDecorationRect } from './candidate/CandidateDecorationLayout';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
+import { ReadingRowEditMenu } from './candidate/ReadingRowEditMenu';
+import { ReadingRowEditAction, ReadingRowEditMenuPolicy } from './candidate/ReadingRowEditMenuPolicy';
+import { ReadingRowEditPolicy } from './candidate/ReadingRowEditPolicy';
 import { CandidateTranslationStyle } from './candidate/CandidateTranslationStyle';
 import { CandidateLayoutPolicy, CandidateSkinGeometry, CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
@@ -301,6 +304,8 @@ const READING_WITH_SPELLINGS_MAX_WIDTH: string = '50%';
 const READING_SPELLING_FONT_SIZE: number = 13;
 const READING_SPELLING_PADDING_VP: number = 6;
 const READING_SPELLING_GAP_VP: number = 8;
+/** 读音行可点开编辑时拼写提示的不透明度，比照常画出的读音淡，表明拼写正在输入框里。 */
+const READING_HINT_OPACITY: number = 0.5;
 const CANDIDATE_BAR_GAP_VP: number = 2;
 const CHIP_HEIGHT_VP: number = 34;
 const CHIP_MIN_WIDTH_VP: number = 30;
@@ -543,6 +548,9 @@ struct KeyboardView {
   @State phrasePrefix: string = '';
   /** 手机上拼写正写在输入框里，候选栏不画读音；见 `KeyboardSession.compositionInField`。 */
   @State compositionInField: boolean = false;
+  /** 点手机读音行后，把正写在输入框里的拼写也展开到候选栏，方便继续修改。 */
+  @State compositionEditing: boolean = false;
+  @State compositionEditMenu: boolean = false;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
@@ -1124,8 +1132,10 @@ struct KeyboardView {
       this.enumerationCommaBackslash = state.enumerationCommaBackslash;
       this.enumerationCommaSlash = state.enumerationCommaSlash;
       this.engineScheme = state.scheme;
+      this.compositionEditing = ReadingRowEditPolicy.keepsExpanded(this.compositionEditing, this.touchReadingRowEditable());
       // 切到粤拼时简繁磁贴改看粤拼自己的字形（`cantonese_simplified_output`），切回来再看全局开关。
       this.traditional = KeyboardSession.shared.showsTraditional();
+      this.compositionEditMenu = this.compositionEditMenu && this.touchReadingRowEditable();
       this.candidateListOpen = state.candidateListOpen;
       this.prediction = state.prediction;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -3868,6 +3878,24 @@ struct KeyboardView {
       this.phrasePrefix, this.editing, this.localMode);
   }
 
+  /** 候选栏读音行画出来的组字：未点开时与 `visibleComposition` 相同，手机读音行点开后画出拼写和光标；见 ReadingRowEditPolicy。 */
+  private touchVisibleComposition(): VisibleComposition {
+    return ReadingRowEditPolicy.visible(KeyboardFormFactor.isDesktop(), this.settings.candidateShowPreedit,
+      this.compositionInField, this.compositionEditing, this.phrasePrefix, this.editing, this.localMode);
+  }
+
+  /** 读音行能不能点开编辑拼写，见 ReadingRowEditPolicy.editable。 */
+  private touchReadingRowEditable(): boolean {
+    return ReadingRowEditPolicy.editable(KeyboardFormFactor.isDesktop(), this.compositionInField, this.editing,
+      SchemeTraits.locksCaret(this.engineScheme), this.localMode, this.phrasePrefix);
+  }
+
+  /** 读音行可点开但还没点开时弱化画出的拼写提示，见 ReadingRowEditPolicy.hint。 */
+  private readingRowHint(): string {
+    return ReadingRowEditPolicy.hint(this.touchReadingRowEditable(), this.compositionEditing, this.phrasePrefix,
+      this.editing, this.touchVisibleComposition());
+  }
+
   /** One candidate row without the reserved gloss line; see KeyboardMetrics.candidateRowHeightVp. */
   private candidateLineHeight(): number {
     return KeyboardMetrics.candidateRowHeightVp(this.settings.candidateFontSize, KeyboardFormFactor.isDesktop());
@@ -4002,8 +4030,8 @@ struct KeyboardView {
       secondary: this.skin.secondary,
       accent: this.skin.accent,
       selected: TRANSPARENT,
-      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）。
-      selectedText: this.skin.candidateAccent,
+      // 首选画在字母键色的底片上，字用皮肤的首选字色（浅色季节配色加深到 WCAG AA）；自定义主题设了候选选中文字色时用它（#10740）。
+      selectedText: this.settings.candidateTouchSelectedText ?? this.skin.candidateAccent,
       selectedNumber: this.skin.accent,
       hover: TRANSPARENT,
       showSelectedBar: false
@@ -4156,8 +4184,9 @@ struct KeyboardView {
 
   /** 候选条的读音行要不要占位。没有 canvas 时一直占位，候选不会因为它出现、消失而上下移动；有 canvas 时只在有东西显示时占位，见 `stripCanvasContentHeight`。 */
   private readingRowShown(): boolean {
-    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || this.visibleComposition().caret
-      || this.visibleComposition().text.length > 0 || this.readingRowSpellings();
+    const composition: VisibleComposition = this.touchVisibleComposition();
+    return this.settings.candidateCanvas === null || this.diagnostic.length > 0 || composition.caret
+      || composition.text.length > 0 || this.readingRowHint().length > 0 || this.readingRowSpellings();
   }
 
   /** canvas 在候选条里至少要让出的内容高度：34vp 的候选通道，读音行占位时再加它和间距，都按「候选栏大小」缩放。皮肤的留白按它缩放，高亮因此不会画到面板外面。 */
@@ -4985,7 +5014,7 @@ struct KeyboardView {
               .fontFamily(this.candidateFontFamily())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-          } else if (this.visibleComposition().caret) {
+          } else if (this.touchVisibleComposition().caret) {
             // 分段键移动的光标，与 2in1 组合行上的一样。
             Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
               .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
@@ -5006,7 +5035,7 @@ struct KeyboardView {
               .maxLines(1)
           } else {
             // 拼写写在输入框里：这一行保留位置但不画拼写，候选不会因此上下移动；短语中已选定的部分和本地模式的触发符仍会显示。
-            Text(this.visibleComposition().text)
+            Text(this.touchVisibleComposition().text)
               .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
               .letterSpacing(PREEDIT_LETTER_SPACING)
               .fontColor(this.skin.secondary)
@@ -5014,6 +5043,18 @@ struct KeyboardView {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .constraintSize({ maxWidth: this.readingRowSpellings() ? READING_WITH_SPELLINGS_MAX_WIDTH : '100%' })
+            if (this.readingRowHint().length > 0) {
+              // 可以点开编辑时弱化画出拼写，用户看得见这一行能点；点开后由上面的分支照常画拼写和光标。
+              Text(this.readingRowHint())
+                .fontSize(this.stripSized(PREEDIT_FONT_SIZE))
+                .letterSpacing(PREEDIT_LETTER_SPACING)
+                .fontColor(this.skin.secondary)
+                .opacity(READING_HINT_OPACITY)
+                .fontFamily(this.candidateFontFamily())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .flexShrink(1)
+            }
           }
           if (this.readingRowSpellings()) {
             // 14 键的拼音选择条在读音右侧横向滚动，不盖住下面的候选，三端位置相同。内容与九键左列相同：先完整音节，再列下一键上能作声母的大写字母；点音节锁定，退格先撤销锁定。
@@ -5045,6 +5086,19 @@ struct KeyboardView {
         .height(this.stripSized(PREEDIT_LINE_VP))
         .padding({ left: PREEDIT_INDENT_VP })
         .clip(true)
+        .onClick((): void => {
+          if (this.touchReadingRowEditable()) {
+            this.compositionEditing = true;
+            this.compositionEditMenu = true;
+          }
+        })
+        .responseRegion({ x: 0, y: 0, width: '100%', height: this.stripSized(PREEDIT_LINE_VP + CANDIDATE_BAR_GAP_VP) })
+        .bindMenu(this.compositionEditMenu, this.touchReadingRowEditable()
+          ? ReadingRowEditMenu.items(this.editing, this.editingCaret, (action: ReadingRowEditAction): void => {
+            if (this.touchReadingRowEditable()) ReadingRowEditMenuPolicy.dispatch(action, KeyboardSession.shared);
+            this.compositionEditMenu = false;
+          }) : [], { title: '编辑拼写', placement: Placement.BottomLeft, showInSubWindow: false,
+          onDisappear: (): void => { this.compositionEditMenu = false; } })
         // canvas 在 50vp 的条里只留得出候选通道那么高，空着的读音行这时不占位（`None` 不参与布局）；有东西显示时照常占位，边框跟着再缩一些，见 `stripCanvasContentHeight`。
         .visibility(this.readingRowShown() ? Visibility.Visible : Visibility.None)
 

@@ -1105,6 +1105,7 @@ impl InputEngine for Fixture {
             editing_text: self.text.clone(),
             multilingual_conversion: self.multilingual_conversion.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: vec![],
             candidates: if self.text.is_empty() {
                 vec![]
@@ -2791,6 +2792,7 @@ impl InputEngine for PhraseEngine {
             display_reading: String::new(),
             editing_text: self.reading.clone(),
             caret_position: self.caret.min(self.reading.len()),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             conversion: self.conversion.clone(),
             candidates: if self.reading.is_empty() {
@@ -5859,6 +5861,47 @@ fn temporary_japanese_long_vowels_are_spelling_on_both_host_routes() {
     }
 }
 
+/// #10731：辅助码前导键进了视图，宿主画按键原文时才能把它插回去；两位码齐了就从 JSON 里消失。
+#[test]
+fn helpcode_trigger_reaches_the_view_json() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = real_engine_options(directory.path());
+    options.helpcode = true;
+    options.helpcode_trigger_key = Some(b';');
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    let mut press = |value: u8| {
+        runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap()
+    };
+    press(b'n');
+    let typed = press(b'i');
+    assert!(serde_json::to_value(&typed.view).unwrap()["helpcode_trigger"].is_null());
+    let entered = press(b';');
+    assert!(entered.handled);
+    assert_eq!(entered.view.editing_text, "ni");
+    assert_eq!(entered.view.preedit, "ni;");
+    assert_eq!(entered.view.preedit_caret, 3);
+    assert_eq!(
+        serde_json::to_value(&entered.view).unwrap()["helpcode_trigger"],
+        serde_json::json!({"key": ";", "position": 2})
+    );
+    let one = press(b'f');
+    assert_eq!(one.view.editing_text, "niF");
+    assert_eq!(one.view.preedit, "ni';F");
+    let two = press(b'r');
+    assert_eq!(two.view.helpcode_trigger, None);
+    assert!(serde_json::to_value(&two.view)
+        .unwrap()
+        .get("helpcode_trigger")
+        .is_none());
+}
+
 #[test]
 fn bare_shortcut_rejected_capitals_stay_in_the_runtime_composition() {
     for (entry, continuation) in [(b'U', b'V'), (b'U', b'I'), (b'K', b'A'), (b'T', b'A')] {
@@ -6599,6 +6642,7 @@ impl InputEngine for DigitCommitsEngine {
             display_reading: self.reading.clone(),
             editing_text: self.reading.clone(),
             caret_position: self.reading.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: words,
             ..EngineSnapshot::default()
@@ -7751,6 +7795,7 @@ impl InputEngine for WubiMixedEngine {
             display_reading: String::new(),
             editing_text: self.reading.clone(),
             caret_position: self.reading.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: words,
             caret_edit_suffix: self.caret_edit_suffix && count > 0,
@@ -8899,6 +8944,7 @@ impl InputEngine for SpellingMarksEngine {
             display_reading: String::new(),
             editing_text: self.text.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             segment_raw_boundaries: Vec::new(),
             candidates: Vec::new(),
             ..EngineSnapshot::default()

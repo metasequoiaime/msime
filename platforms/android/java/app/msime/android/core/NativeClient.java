@@ -49,6 +49,14 @@ public final class NativeClient {
     public static String migrateKeyLayout(String request) { return TextPolicy.utf8(migrateKeyLayoutRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** The global theme picker entries: ids, titles, appearance and built-in palettes, in picker order. */
     public static String themeCatalog() { return TextPolicy.utf8(themeCatalogRaw()); }
+    /** 共享候选选中文字色补丁；仅传当前主题和用户本次选择，不传整份偏好。 */
+    public static String candidateColorUpdate(String request) {
+        if (request == null) throw new IllegalArgumentException("invalid candidate color request");
+        byte[] payload = request.getBytes(StandardCharsets.UTF_8);
+        if (payload.length == 0 || payload.length > 1024)
+            throw new IllegalArgumentException("invalid candidate color request");
+        return TextPolicy.utf8(candidateColorUpdateRaw(payload));
+    }
     /** 解析当前主题的单种明暗配色；带 `skins_directory` 的请求会校验包资源，必须在工作线程调用。 */
     public static String resolveTheme(String request) { return TextPolicy.utf8(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
     public static String skinPackage(String request) { return TextPolicy.utf8(skinPackageRaw(request.getBytes(StandardCharsets.UTF_8))); }
@@ -1139,6 +1147,7 @@ public final class NativeClient {
     private static native byte[] flushAllRaw();
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();
+    private static native byte[] candidateColorUpdateRaw(byte[] request);
     private static native byte[] resolveThemeRaw(byte[] request);
     private static native byte[] skinPackageRaw(byte[] request);
     private static native byte[] skinResourceRaw(byte[] request);

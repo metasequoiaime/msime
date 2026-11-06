@@ -14,6 +14,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 
+pub mod candidate_color;
+
 mod reporting_authority;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
@@ -966,6 +968,10 @@ impl CustomTheme {
                 &colors.selected,
                 PreferencesError::InvalidCandidateSelectedColor,
             ),
+            (
+                &colors.selected_text,
+                PreferencesError::InvalidCandidateSelectedTextColor,
+            ),
             (&colors.hover, PreferencesError::InvalidCandidateHoverColor),
             (
                 &colors.surface,
@@ -1006,7 +1012,7 @@ impl CustomTheme {
     }
 }
 
-/// The seven candidate colour pickers, each `#RRGGBB` or unset.
+/// 八个候选颜色取色器，每项为 `#RRGGBB` 或未设置。
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomCandidateColors {
@@ -1018,6 +1024,9 @@ pub struct CustomCandidateColors {
     pub accent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
+    /// 选中候选（高亮行）的文字颜色（#10740）。没设时照旧推导：设了选中底色取色器时按底色亮度取黑或白，否则取皮肤包的 `selected_text`，再没有时内置底上取强调色；设了它就压过这几项，选中编号取同色的 `9D` 透明度。取值顺序见 `skin::theme::resolve`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hover: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2108,6 +2117,9 @@ pub struct Preferences {
     pub candidate_english_font: Option<String>,
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
+    /// 桌面候选窗文字的字重（#10748），作用于主字体、英文字体和回退字体画的全部候选窗文字；预编辑行至少半粗，见 [`CandidateFontWeight::preedit_value`]。字体族没有这一档字面时由宿主按就近的字面画。macOS、Windows 和 Linux 的候选窗读它，移动端键盘不读。默认常规，等于这个字段出现之前的画法，默认时不写进文档。
+    #[serde(default, skip_serializing_if = "is_default_candidate_font_weight")]
+    pub candidate_font_weight: CandidateFontWeight,
     pub learning: bool,
     /// 回车上屏英文时把该英文单词写入英文词库，之后可作为候选出现（Windows `input.enter_learns_english_word`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `true`，所以等于出厂值时文档里不写这个键，没有它的旧版本照样按开启读；关掉后回车照常上屏，只是不学词。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
@@ -2469,6 +2481,29 @@ impl VoiceInputPreferences {
             self.asr_model.clear();
         }
     }
+}
+
+/// 预设「火山方舟 · 豆包」以前的默认模型 `doubao-seed-1.6-flash` 和备选 `doubao-seed-1.6`，以及方舟给它们指定的接替模型。方舟的 Seed 1.6 系列已在 2026-09-21 停止服务（模型下线公告第九批，docs.volcengine.com/docs/82379/1350667），现行模型列表里没有这两个名字，请求回 404。设置页选预设时会把默认模型写进文档，所以选过这个预设的人文档里存的就是旧名字。接替关系照公告：flash 接 `doubao-seed-2-0-mini-260428`，1.6 接 `doubao-seed-2-0-lite-260428`，两者都是 LTS。
+pub const RETIRED_VOLCENGINE_MODELS: [(&str, &str); 2] = [
+    ("doubao-seed-1.6-flash", "doubao-seed-2-0-mini-260428"),
+    ("doubao-seed-1.6", "doubao-seed-2-0-lite-260428"),
+];
+
+/// 火山方舟预设下存着的旧模型名对应的接替模型。只在接口地址留空（用预设地址）或主机属于 `volces.com` 时认：火山方舟槽位里填了别家网关的地址，那边可能真有同名模型，不能替用户换掉。模型名是别的值时返回 `None`，用户自己选的模型不动。Linux 的私有凭据文件（`ai-provider.json`、`voice-provider.json`）把密钥绑在保存时的模型上，桌面设置读它时也经这里换名，Linux 的两个 provider 脚本照同一张表（导出到 `msime_voice_provider_catalog.py`）换，凭据才不会因为偏好换了模型而对不上。
+pub fn volcengine_successor_model(endpoint: &str, model: &str) -> Option<&'static str> {
+    let endpoint = endpoint.trim();
+    if !endpoint.is_empty() {
+        let url = url::Url::parse(endpoint).ok()?;
+        let host = url.host_str()?.to_ascii_lowercase();
+        if host != "volces.com" && !host.ends_with(".volces.com") {
+            return None;
+        }
+    }
+    let model = model.trim();
+    RETIRED_VOLCENGINE_MODELS
+        .iter()
+        .find(|(retired, _)| *retired == model)
+        .map(|(_, successor)| *successor)
 }
 
 impl Default for VoiceInputPreferences {
@@ -2910,6 +2945,43 @@ fn default_candidate_max_width() -> u16 {
 
 fn default_candidate_columns() -> u8 {
     6
+}
+
+/// 候选窗文字的字重。只有这四档：中文字体的字面大多落在这几档之间，更细或更轻的档位多数字体没有，选了也只会落到同一个字面上；斜体不提供，汉字没有真斜体，系统只能把字形硬倾斜。宿主各抄了一份字重表（macOS、Windows、Linux），scripts/test-candidate-font-weight-parity.py 核对它们的取值、数值和预编辑下限与这里一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateFontWeight {
+    #[default]
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+impl CandidateFontWeight {
+    /// OpenType / CSS 的数值字重，DirectWrite 和 Pango 直接用这个刻度；macOS 换成对应的 `NSFontWeight`。
+    pub const fn value(self) -> u16 {
+        match self {
+            Self::Regular => 400,
+            Self::Medium => 500,
+            Self::Semibold => 600,
+            Self::Bold => 700,
+        }
+    }
+
+    /// 预编辑行的字重：一直是半粗，候选文字选得更粗时跟到同一档，首行不会比候选还细。
+    pub const fn preedit_value(self) -> u16 {
+        let value = self.value();
+        if value > 600 {
+            value
+        } else {
+            600
+        }
+    }
+}
+
+fn is_default_candidate_font_weight(value: &CandidateFontWeight) -> bool {
+    *value == CandidateFontWeight::default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -4065,6 +4137,30 @@ impl Preferences {
         }
         self.keyboard_reranker_migrated = true;
     }
+
+    /// 读出文档时把火山方舟预设下存着的已下线模型换成接替模型（见 [`RETIRED_VOLCENGINE_MODELS`]）：文本润色的 `polish_model`、AI 联想当前的 `model` 和火山方舟槽位里记住的模型都看。只认那两个旧名字，用户自己填的其他模型原样保留。AI 联想的 `model` 留空会被当成没配置，所以这里写接替模型的名字而不是清空。只改内存里读到的这份，文件等下一次保存才改写。
+    fn retire_unavailable_volcengine_models(&mut self) {
+        let voice = &mut self.voice_input;
+        if voice.polish_provider == "volcengine" {
+            if let Some(successor) =
+                volcengine_successor_model(&voice.polish_endpoint, &voice.polish_model)
+            {
+                voice.polish_model = successor.into();
+            }
+        }
+        let ai = &mut self.ai_assistant;
+        if ai.provider == "volcengine" {
+            if let Some(successor) = volcengine_successor_model(&ai.endpoint, &ai.model) {
+                ai.model = successor.into();
+            }
+        }
+        let slot_endpoint = ai.endpoints.get("volcengine").cloned().unwrap_or_default();
+        if let Some(slot) = ai.models.get_mut("volcengine") {
+            if let Some(successor) = volcengine_successor_model(&slot_endpoint, slot) {
+                *slot = successor.into();
+            }
+        }
+    }
 }
 
 /// Three voice switches the source ships on and the shared document had off: muting other audio while recording, Doubao's semantic smoothing (DDC), and polishing the recognized text.
@@ -4427,6 +4523,7 @@ impl Default for Preferences {
             candidate_font_family: default_candidate_font_family(),
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
+            candidate_font_weight: CandidateFontWeight::default(),
             learning: true,
             enter_learns_english_word: true,
             quanpin: QuanpinPreferences::default(),
@@ -5578,6 +5675,8 @@ pub enum PreferencesError {
     InvalidCandidateAccentColor,
     #[error("candidate selected color must be #RRGGBB or omitted")]
     InvalidCandidateSelectedColor,
+    #[error("candidate selected text color must be #RRGGBB or omitted")]
+    InvalidCandidateSelectedTextColor,
     #[error("candidate hover color must be #RRGGBB or omitted")]
     InvalidCandidateHoverColor,
     #[error("candidate surface color must be #RRGGBB or omitted")]
@@ -5895,6 +5994,7 @@ impl PreferencesStore {
             .preferences
             .voice_input
             .retire_unavailable_asr_model();
+        snapshot.preferences.retire_unavailable_volcengine_models();
         snapshot
             .preferences
             .settle_smart_punctuation_default(SMART_PUNCTUATION_WAS_OFF_BY_DEFAULT);
@@ -6711,6 +6811,7 @@ impl Preferences {
             ..
         } = salvage_preferences(&document, default)?;
         preferences.voice_input.retire_unavailable_asr_model();
+        preferences.retire_unavailable_volcengine_models();
         if let Some(source) = document.get("preferences") {
             preferences.close_destinations_not_kept(source);
         }

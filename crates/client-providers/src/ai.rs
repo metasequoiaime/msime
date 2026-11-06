@@ -92,6 +92,8 @@ enum ChatVendor {
     SiliconFlow,
     Groq,
     OpenAi,
+    /// 火山方舟（`volces.com`）。
+    Ark,
 }
 
 /// scheme://[user[:pass]@]host[:port]/path 里只有主机说明厂商；子域名也算归属。
@@ -120,6 +122,8 @@ fn vendor_from_chat_endpoint(endpoint: &str) -> ChatVendor {
         ChatVendor::Groq
     } else if owned_by("openai.com") {
         ChatVendor::OpenAi
+    } else if owned_by("volces.com") {
+        ChatVendor::Ark
     } else {
         ChatVendor::Other
     }
@@ -139,8 +143,18 @@ fn chat_vendor(provider: &str, endpoint: &str) -> ChatVendor {
         "siliconflow" => ChatVendor::SiliconFlow,
         "groq" => ChatVendor::Groq,
         "openai" => ChatVendor::OpenAi,
+        "volcengine" => ChatVendor::Ark,
         _ => ChatVendor::Other,
     }
+}
+
+/// 火山方舟上的豆包 Seed 模型默认开着深度思考，联想、翻译、润色这类短请求要显式发 `thinking.type = disabled`。方舟深度思考文档（https://docs.volcengine.com/docs/82379/1449737 ，2026-11-05 查，页面更新于 2026-11-03）列出的 `doubao-seed-*` 模型全部支持 enabled（默认）和 disabled；同一平台上别的模型不一定，例如 `glm-5-3-flash-260828` 只支持 enabled，`kimi-k3-1-pro-261024` 不认 `thinking`，所以按接口地址和模型系列两头判断，不按主机一律发。`ep-` 开头的接入点 ID 看不出背后是哪个模型，不发。
+pub(crate) fn disables_ark_seed_thinking(provider: &str, endpoint: &str, model: &str) -> bool {
+    chat_vendor(provider, endpoint) == ChatVendor::Ark
+        && model
+            .trim()
+            .to_ascii_lowercase()
+            .starts_with("doubao-seed-")
 }
 
 /// DeepSeek 厂商且档位不是 disabled；其余一律不开发送思考。
@@ -191,8 +205,10 @@ pub fn chat_completion_body(
     if uses_thinking {
         body["thinking"] = serde_json::json!({"type":"enabled"});
         body["reasoning_effort"] = serde_json::Value::String(thinking.to_owned());
-    } else if chat_vendor(provider, endpoint) == ChatVendor::DeepSeek {
-        // DeepSeek 的思考会给联想多出几百个推理 token、明显变慢；其他服务拿普通请求。
+    } else if chat_vendor(provider, endpoint) == ChatVendor::DeepSeek
+        || disables_ark_seed_thinking(provider, endpoint, model)
+    {
+        // DeepSeek 和方舟的豆包 Seed 的思考会给联想多出几百个推理 token、明显变慢；其他服务拿普通请求。
         body["thinking"] = serde_json::json!({"type":"disabled"});
     }
     Ok(body)
@@ -284,7 +300,9 @@ pub fn chat_translation_http_request(
             {"role": "user", "content": serde_json::to_string(&user).map_err(|_| AiError::InvalidConfiguration)?},
         ]
     });
-    if config.provider == "deepseek" {
+    if config.provider == "deepseek"
+        || disables_ark_seed_thinking(&config.provider, &config.endpoint, &config.model)
+    {
         body["thinking"] = serde_json::json!({"type": "disabled"});
     }
     if serde_json::to_vec(&body)
@@ -754,6 +772,89 @@ mod tests {
         )
         .unwrap()
         .unwrap();
+        assert!(descriptor["body"].get("thinking").is_none());
+    }
+
+    #[test]
+    fn ark_seed_models_get_thinking_disabled() {
+        let request = AiSuggestionRequest {
+            mode: AiInputMode::Pinyin,
+            input: String::new(),
+            segmented_pinyin: vec!["ni".into()],
+            context: String::new(),
+            candidate_limit: 3,
+        };
+        let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+        let thinking = |provider: &str, endpoint: &str, model: &str| {
+            chat_completion_body(&request, provider, endpoint, model, "prompt", "high")
+                .unwrap()
+                .get("thinking")
+                .cloned()
+        };
+        let disabled = serde_json::json!({"type":"disabled"});
+        // 方舟上的豆包 Seed：关思考，不带 reasoning_effort，输出上限不变。
+        for (provider, endpoint, model) in [
+            ("volcengine", ark, "doubao-seed-2-0-mini-260428"),
+            ("volcengine", ark, "doubao-seed-2-0-lite-260428"),
+            (
+                "custom",
+                "https://ark.cn-shanghai.volces.com/api/v3/chat/completions",
+                "Doubao-Seed-2-1-turbo-260628",
+            ),
+            ("volcengine", "", "doubao-seed-2-0-mini-260428"),
+        ] {
+            assert_eq!(
+                thinking(provider, endpoint, model).as_ref(),
+                Some(&disabled),
+                "{model}"
+            );
+            let body = chat_completion_body(&request, provider, endpoint, model, "prompt", "high")
+                .unwrap();
+            assert!(body.get("reasoning_effort").is_none());
+            assert_eq!(body["max_tokens"], 512);
+        }
+        // 方舟上的其他模型、看不出模型的接入点 ID、别家网关上的同名模型都不发。
+        for (provider, endpoint, model) in [
+            ("volcengine", ark, "glm-5-3-flash-260828"),
+            ("volcengine", ark, "ep-20261105123456-abcde"),
+            (
+                "volcengine",
+                "https://gateway.example/v1/chat/completions",
+                "doubao-seed-2-0-mini-260428",
+            ),
+            (
+                "custom",
+                "https://volces.com.example/v1/chat/completions",
+                "doubao-seed-2-0-mini-260428",
+            ),
+        ] {
+            assert_eq!(
+                thinking(provider, endpoint, model),
+                None,
+                "{endpoint} {model}"
+            );
+        }
+        // 释义翻译走同一条规则。
+        let mut ai = crate::preferences::Preferences::default().ai_assistant;
+        ai.enabled = true;
+        ai.provider = "volcengine".into();
+        ai.endpoint = ark.into();
+        ai.model = "doubao-seed-2-0-mini-260428".into();
+        ai.tokens
+            .insert("https://ark.cn-beijing.volces.com:443".into(), "t".into());
+        let translation = AiTranslationRequest {
+            text: "合成".into(),
+            source_language: "zh".into(),
+            target_language: "en".into(),
+        };
+        let descriptor = chat_translation_http_request(&ai, &translation)
+            .unwrap()
+            .unwrap();
+        assert_eq!(descriptor["body"]["thinking"], disabled);
+        ai.model = "glm-5-3-flash-260828".into();
+        let descriptor = chat_translation_http_request(&ai, &translation)
+            .unwrap()
+            .unwrap();
         assert!(descriptor["body"].get("thinking").is_none());
     }
 

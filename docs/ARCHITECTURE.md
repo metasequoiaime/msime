@@ -53,7 +53,7 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 
 云候选服务的 HTTP 配置、模板、响应路径和缓存由 `client-core::cloud::candidates` 持有，Host API 将请求描述符附在在线查询上，各宿主只执行传输；Linux 的在线服务返回原始 JSON 给共享层解析。完整配置和隐私边界见[云候选服务](cloud-candidates.md)。
 
-**macOS 的 AppKit 设置窗口冻结为回退。** `platforms/macos/src/settings/` 的原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm` 等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口。它们只保留为设置应用无法启动时的最小回退，不加新功能；macOS 上的新设置只进共享 React 设置页。
+**macOS 的 AppKit 设置窗口冻结为回退。** `platforms/macos/src/settings/` 的原生设置窗口，以及 `AISettingsWindow.mm`、`TranslationSettingsWindow.mm`、`VoiceProviderSettings.mm` 等独立窗口，只在设置应用找不到、启动失败或 options 路径不是绝对路径时由 `DesktopSettingsLauncher.h` 的回退分支打开，另有以 `--preferences` 启动输入法 bundle 的独立设置窗口。它们只保留为设置应用无法启动时的最小回退，不加新功能。macOS 上的新设置按上面的迁移约定先把规则写进共享 Rust，界面随 macOS 原生设置的迁移实现，迁移前共享 React 设置页只修缺陷。
 
 新增的桌面离线翻译遵循原生迁移方向，入口独立于上述旧设置容器：macOS 输入菜单打开 `src/translation/LocalTranslationWindow.mm`，Linux IBus/Fcitx5 菜单启动 GTK4 的 `msime-linux-local-translation`，Windows 原生翻译页打开 `settings/LocalTranslationWindow.cpp`。语言目录、设置 CAS、资源包和推理由共享 Rust 持有，经 Host API 调用；没有扩展冻结的 AppKit 回退设置或增加 React 入口。运行库在现代 macOS、Windows x64 和当前 Linux 发行构建中启用，Win7 与 Linux legacy 不包含；详情见[桌面离线翻译](../.agents/notes/implemented/feature/2026-11-05-embedded-desktop-translation.md)。
 
@@ -70,6 +70,8 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 - 宿主限制：当前平台或桌面下这一组设置不起作用的说明，它就是这一组的内容。
 - 空列表和截断提示：「还没有应用例外」「只显示前 20 条」。
 - 紧贴按钮、讲这个按钮后果的一句话（「改回水杉账号会清除…」「卸载后默认保留词库」）和风险警告。
+
+一项暂时不能用、整行变灰时，「?」照样能点开：说明往往正好在讲它为什么不能用。只禁用开关、选择或步进器本身，不要把整行（或包着几行的分组）一起禁用；iOS 的 SwiftUI `.disabled` 会传到行里的「?」，用 `DesignToggleRow`、`DesignSelectRow` 的 `enabled` 参数，`scripts/test-ios-disabled-row-info-tip.py` 检查这一条。HarmonyOS 手机上整行是按钮的 `PickerRow` 平时把说明写在选项面板里，变灰时面板打不开，所以这时它不做成按钮，「?」放在标题旁。
 
 说明文字对读屏仍然可读：它以视觉隐藏的形式留在原处，控件通过 `aria-describedby`（或各平台的等价属性）读到它。「?」自己的读屏名称四端一致：有标题时是「<标题>的说明：<正文>」，没有标题时是「说明：<正文>」。
 

@@ -39,3 +39,5 @@ Linux、Windows、鸿蒙之间这几项设置开始同步，Android 和这些宿
 ## Related notes
 
 检索了活跃笔记里的账号设置同步、`export_desktop_settings`、`insert_input_settings` 与字段表：[Windows 原生设置经 host-api 使用账号](2026-10-11-windows-settings-account-host-api.md) 部分重叠，本篇沿用它「原生设置窗口与共享应用调用同一份 client-services」的结构，只扩展导出的键；没有被本篇吸收或需要否决的旧笔记。
+
+[macOS 共享账号页补上设置同步](../bug-fix/2026-11-03-macos-account-settings-sync-entry.md) 在本篇之后给 `DesktopHost` 加了 `MacOS`：macOS 的共享设置页也经 `export_desktop_settings` 同步，键集与 Linux 相同；上文「macOS 上传 `platform.macos.*`，不经过这里」现在只对原生回退窗口成立。

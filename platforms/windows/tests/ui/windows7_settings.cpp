@@ -978,10 +978,20 @@ int main() {
     }
     assert(enabled_control(strict + 1) && enabled_control(modes) && enabled_control(modes + 4));
     assert(!enabled_control(modes + 5) && !enabled_control(modes + 9));
+    // 末尾直接出厂开着，引擎这时不认末尾间接触发键（#11010），下标 1 到 3 的三行置灰，勾选状态照存的值显示。
+    const auto end_triggers_enabled = [&](bool expected) {
+      return enabled_control(modes + 1) == expected && enabled_control(modes + 2) == expected &&
+          enabled_control(modes + 3) == expected;
+    };
+    assert(end_triggers_enabled(false) && checked(modes + 1));
     click(strict + 1);
     saved = store.load();
     assert(saved.snapshot->preferences().at("shuangpin_helpcode").at("strict_filter") == true);
     assert(!saved.snapshot->preferences().at("quanpin_helpcode").value("strict_filter", false));
+    // 关掉末尾直接后三行可改，分号的出厂值仍是开。
+    click(modes);
+    assert(store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes").at("direct") == false);
+    assert(end_triggers_enabled(true) && checked(modes + 1));
     click(modes + 2);
     assert(store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes").at("trigger_backtick") == true);
     assert(checked(modes + 2));
@@ -989,8 +999,13 @@ int main() {
     click(modes + 4);
     const auto modes_saved = store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes");
     assert(modes_saved.at("mid_sentence") == true && modes_saved.at("trigger_backtick") == false);
-    assert(modes_saved.at("direct") == true && modes_saved.at("trigger_semicolon") == true);
+    assert(modes_saved.at("direct") == false && modes_saved.at("trigger_semicolon") == true);
     assert(!checked(modes + 2) && checked(modes + 4) && enabled_control(modes + 5));
+    // 打开逐音节直接：末尾间接三行重新置灰，存着的分号触发不被改写。
+    click(modes + 8);
+    const auto direct_helpcode_saved = store.load().snapshot->preferences().at("shuangpin_helpcode").at("modes");
+    assert(direct_helpcode_saved.at("direct_helpcode") == true && direct_helpcode_saved.at("trigger_semicolon") == true);
+    assert(end_triggers_enabled(false) && checked(modes + 1));
   }
   select_tab(L"输入方案");
   const auto find_combo = [&](int id, const wchar_t* title) {

@@ -5,18 +5,28 @@ enum AppServicesBridge {
   private static let maximumPolishTextBytes = 32 * 1024
   private static let maximumVoiceAudioBytes = 2_100_000
 
-  static func polishBody(_ model: String, prompt: String, text: String) throws -> Data {
+  static func polishBody(_ model: String, endpoint: URL, prompt: String, text: String) throws -> Data {
     guard prompt.utf8.count <= maximumPolishTextBytes else {
       throw ServiceFailure(message: "润色提示词过长。")
     }
     guard text.utf8.count <= maximumPolishTextBytes else {
       throw ServiceFailure(message: "润色文本过长。")
     }
-    return try JSONSerialization.data(withJSONObject: [
+    var body: [String: Any] = [
       "model": model,
       "messages": [["role": "system", "content": prompt], ["role": "user", "content": text]],
       "stream": false
-    ])
+    ]
+    if disablesArkSeedThinking(endpoint: endpoint, model: model) { body["thinking"] = ["type": "disabled"] }
+    return try JSONSerialization.data(withJSONObject: body)
+  }
+
+  /// 火山方舟上的豆包 Seed 默认开着深度思考，润色和键盘里的 AI 回复这类短请求要显式发 thinking.type = disabled。方舟深度思考文档（https://docs.volcengine.com/docs/82379/1449737 ，2026-11-05 查）列出的 doubao-seed-* 全部支持 disabled，同平台的别的模型不一定（glm-5-3-flash-260828 只支持 enabled），所以接口地址属于 volces.com 且模型属于这个系列才算。与 client-providers 的 disables_ark_seed_thinking 一致。
+  static func disablesArkSeedThinking(endpoint: URL, model: String) -> Bool {
+    guard let host = endpoint.host?.lowercased(), host == "volces.com" || host.hasSuffix(".volces.com") else {
+      return false
+    }
+    return model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("doubao-seed-")
   }
 
   static func transcriptionBody(_ wav: Data, model: String, language: String? = nil) throws -> [String: Any] {

@@ -645,7 +645,10 @@ int main(int argc, char **argv) {
         invoke("PropertyActivate", g_variant_new("(su)", scheme, PROP_STATE_CHECKED));
         const char trigger = std::string(scheme) == "Scheme/Quanpin" ? '/' : ';';
         require(key('n') && key('i') && key(trigger), "辅助码前导键未被 IBus 接收");
-        require(seen.preedit == "ni" && seen.committed.empty(), "前导键不应上屏或写入拼音");
+        // 前导键不进按键原文、不上屏，但行内原始按键样式把它插回组字末尾显示（#10731）。
+        require(seen.preedit == std::string("ni") + trigger && seen.committed.empty(),
+                ("前导键应显示在行内组字末尾，且不上屏：" + nlohmann::json{{"preedit", seen.preedit},
+                    {"committed", seen.committed}, {"scheme", scheme}}.dump()).c_str());
         require(key('f') && key('r'), "辅助码字母未被 IBus 接收");
         require(seen.preedit == (trigger == ';' ? "nifR" : "niFR") && seen.lookup_visible && !seen.candidates.empty() && seen.candidates.front() == "拟",
                 "IBus 的前导键没有触发双辅助码筛选");

@@ -213,6 +213,73 @@ test("the HarmonyOS phone 候选栏 group offers 候选栏大小 right after the
   expect(screen.queryByRole("slider", { name: "整体大小" })).toBeNull();
 });
 
+// #10740：手机候选条只照画自定义主题的候选选中文字色，主题页（只有网格）不给取色器，所以这一行在候选栏页；其余候选取色器不出现。
+test("the HarmonyOS phone 候选栏 group offers only the 候选选中文字色 picker, and picking selects the custom theme", () => {
+  let draft = {
+    scheme: "quanpin",
+    candidate_page_size: 5,
+    candidate_font_size: 18,
+    navigation,
+    global_theme: "spring",
+  } as unknown as Preferences;
+  const setDraft = vi.fn((update: (current: Preferences) => Preferences) => {
+    draft = update(draft);
+  });
+  render(
+    <SettingsFormContext.Provider value={appearanceForm(setDraft)}>
+      <div data-platform="harmony">
+        <AppearanceSettingsPage />
+      </div>
+    </SettingsFormContext.Provider>,
+  );
+  const candidate = groupTitled("候选栏");
+  const picker = within(candidate).getByLabelText("候选选中文字色") as HTMLInputElement;
+  expect(picker.type).toBe("color");
+  expect(picker.closest("details")).toBeNull();
+  expect(
+    within(candidate)
+      .getByRole("button", { name: "候选选中文字色跟随主题" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  for (const other of ["候选文字颜色", "候选强调色", "候选选中色", "候选表面色", "候选编号颜色"]) {
+    expect(screen.queryByLabelText(other)).toBeNull();
+  }
+
+  fireEvent.change(picker, { target: { value: "#7b3fbf" } });
+  expect(draft.global_theme).toBe("custom");
+  expect(draft.custom_theme?.base).toBe("spring");
+  expect(draft.custom_theme?.candidate_colors?.selected_text).toBe("#7b3fbf");
+});
+
+// #10740：选了内置主题时取色器不作用于候选条，这一行按跟随主题显示，存着的值不被清掉。
+test("the HarmonyOS phone 候选选中文字色 row follows the theme when the custom theme is not selected", () => {
+  let draft = {
+    scheme: "quanpin",
+    candidate_page_size: 5,
+    candidate_font_size: 18,
+    navigation,
+    global_theme: "spring",
+    custom_theme: { base: "spring", candidate_colors: { selected_text: "#7b3fbf" } },
+  } as unknown as Preferences;
+  const setDraft = vi.fn((update: (current: Preferences) => Preferences) => {
+    draft = update(draft);
+  });
+  render(
+    <SettingsFormContext.Provider value={{ ...appearanceForm(setDraft), draft }}>
+      <div data-platform="harmony">
+        <AppearanceSettingsPage />
+      </div>
+    </SettingsFormContext.Provider>,
+  );
+  const candidate = groupTitled("候选栏");
+  const picker = within(candidate).getByLabelText("候选选中文字色") as HTMLInputElement;
+  expect(picker.value).not.toBe("#7b3fbf");
+  const reset = within(candidate).getByRole("button", { name: "候选选中文字色跟随主题" });
+  expect(reset.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(reset);
+  expect(draft.custom_theme?.candidate_colors?.selected_text).toBe("#7b3fbf");
+});
+
 // ---- 外接键盘快捷键 ----
 
 function shortcuts(

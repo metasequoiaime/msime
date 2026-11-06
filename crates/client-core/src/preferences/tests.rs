@@ -1730,6 +1730,99 @@ fn voice_commit_mode_defaults_for_legacy_documents() {
 }
 
 #[test]
+fn retired_volcengine_models_read_as_their_ark_successors() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let load_with = |provider: &str, endpoint: &str, model: &str| {
+        let snapshot = store.load().unwrap();
+        let mut preferences = snapshot.preferences;
+        preferences.voice_input.polish_provider = provider.into();
+        preferences.voice_input.polish_endpoint = endpoint.into();
+        preferences.voice_input.polish_model = model.into();
+        preferences.ai_assistant.provider = provider.into();
+        preferences.ai_assistant.endpoint = endpoint.into();
+        preferences.ai_assistant.model = model.into();
+        store.save(snapshot.revision, preferences).unwrap();
+        let loaded = store.load().unwrap().preferences;
+        assert_eq!(loaded.voice_input.polish_model, loaded.ai_assistant.model);
+        loaded.ai_assistant.model
+    };
+    let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+    // 预设写下的旧默认和旧备选，地址留空或指向方舟，都换成公告里的接替模型。
+    assert_eq!(
+        load_with("volcengine", ark, "doubao-seed-1.6-flash"),
+        "doubao-seed-2-0-mini-260428"
+    );
+    assert_eq!(
+        load_with("volcengine", "", " doubao-seed-1.6 "),
+        "doubao-seed-2-0-lite-260428"
+    );
+    assert_eq!(
+        load_with(
+            "volcengine",
+            "https://ARK.cn-shanghai.volces.com/api/v3/chat/completions",
+            "doubao-seed-1.6-flash"
+        ),
+        "doubao-seed-2-0-mini-260428"
+    );
+    // 用户自己选的模型、火山方舟槽位里填的别家地址、别的服务下的同名模型，都不动。
+    assert_eq!(
+        load_with("volcengine", ark, "ep-20261105-synthetic"),
+        "ep-20261105-synthetic"
+    );
+    assert_eq!(
+        load_with(
+            "volcengine",
+            "https://gateway.example/v1/chat/completions",
+            "doubao-seed-1.6-flash"
+        ),
+        "doubao-seed-1.6-flash"
+    );
+    assert_eq!(
+        load_with(
+            "volcengine",
+            "https://volces.com.example/v1/chat/completions",
+            "doubao-seed-1.6"
+        ),
+        "doubao-seed-1.6"
+    );
+    assert_eq!(
+        load_with("custom", ark, "doubao-seed-1.6-flash"),
+        "doubao-seed-1.6-flash"
+    );
+
+    // 切走火山方舟后槽位里记住的旧模型，切回来时同样拿到接替模型。
+    let snapshot = store.load().unwrap();
+    let mut preferences = snapshot.preferences;
+    preferences.ai_assistant.provider = "deepseek".into();
+    preferences.ai_assistant.endpoint = "https://api.deepseek.com/chat/completions".into();
+    preferences.ai_assistant.model = "deepseek-v4-flash".into();
+    preferences
+        .ai_assistant
+        .models
+        .insert("volcengine".into(), "doubao-seed-1.6".into());
+    store.save(snapshot.revision, preferences).unwrap();
+    let loaded = store.load().unwrap().preferences.ai_assistant;
+    assert_eq!(loaded.model, "deepseek-v4-flash");
+    assert_eq!(loaded.models["volcengine"], "doubao-seed-2-0-lite-260428");
+
+    // 偏好读不了、只能救下认得的设置时，结果也一样。
+    let (salvaged, _) = Preferences::salvaged_from(
+        serde_json::json!({
+            "voice_input": {"polish_provider": "volcengine", "polish_endpoint": ark, "polish_model": "doubao-seed-1.6-flash"},
+            "ai_assistant": {"provider": "volcengine", "endpoint": ark, "model": "doubao-seed-1.6"},
+        }),
+        Preferences::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        salvaged.voice_input.polish_model,
+        "doubao-seed-2-0-mini-260428"
+    );
+    assert_eq!(salvaged.ai_assistant.model, "doubao-seed-2-0-lite-260428");
+}
+
+#[test]
 fn oversized_preference_documents_are_rejected_before_loading() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("preferences.json");
@@ -4393,6 +4486,7 @@ fn custom_theme_round_trips_every_part() {
             number: Some("#202020".into()),
             accent: Some("#303030".into()),
             selected: Some("#404040".into()),
+            selected_text: Some("#454545".into()),
             hover: Some("#505050".into()),
             surface: Some("#606060".into()),
             border: Some("#707070".into()),
@@ -4425,8 +4519,17 @@ fn custom_theme_round_trips_every_part() {
         custom_theme
     );
 
+    // 选中文字色是取色器槽位（#10740），原样往返；选中编号色没有取色器，仍当未知字段丢掉。
+    let mut picked = serde_json::to_value(&custom_theme).unwrap();
+    picked["candidate_colors"]["selected_text"] = "#7B3FBF".into();
+    let read = serde_json::from_value::<CustomTheme>(picked.clone()).unwrap();
+    assert_eq!(
+        read.candidate_colors.selected_text.as_deref(),
+        Some("#7B3FBF")
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), picked);
     let mut unknown = serde_json::to_value(&custom_theme).unwrap();
-    unknown["candidate_colors"]["selected_text"] = "#000000".into();
+    unknown["candidate_colors"]["selected_number"] = "#000000".into();
     let (read, ignored) = deserialize_keeping_unknown::<CustomTheme>(&unknown, &[]).unwrap();
     assert_eq!(read, custom_theme);
     assert_eq!(ignored.len(), 1);
@@ -6676,6 +6779,7 @@ fn candidate_appearance_colors_accept_hex_and_reject_unsafe_values() {
     check!(number, InvalidCandidateNumberColor);
     check!(accent, InvalidCandidateAccentColor);
     check!(selected, InvalidCandidateSelectedColor);
+    check!(selected_text, InvalidCandidateSelectedTextColor);
     check!(hover, InvalidCandidateHoverColor);
     check!(surface, InvalidCandidateSurfaceColor);
     check!(border, InvalidCandidateBorderColor);

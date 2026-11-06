@@ -55,19 +55,31 @@ int main() {
   check(mode(L"direct_helpcode").title == L"逐音节直接辅助码", "per-syllable title");
   check(mode(L"direct_helpcode_uppercase").title == L"逐音节直接（第二码大写结束）", "per-syllable uppercase title");
 
-  // 置灰：辅助码关着时全部不可改；句中三枚触发键随句中间接，两种结束方式随逐音节直接，其余只看辅助码开关。
+  // 置灰：辅助码关着时全部不可改；末尾间接三枚触发键要末尾直接和逐音节直接都关着，句中三枚触发键随句中间接，两种结束方式随逐音节直接，其余只看辅助码开关。参数依次是辅助码、末尾直接、句中间接、逐音节直接。
   for (auto const &entry : shuangpin_modes)
-    check(!mode_enabled(entry, false, true, true), "every mode is greyed while helpcode is off");
-  check(mode_enabled(mode(L"direct"), true, false, false), "direct only needs helpcode");
-  check(mode_enabled(mode(L"mid_sentence"), true, false, false), "the mid-sentence switch only needs helpcode");
-  check(mode_enabled(mode(L"direct_helpcode"), true, false, false), "the per-syllable switch only needs helpcode");
+    check(!mode_enabled(entry, false, false, true, true), "every mode is greyed while helpcode is off");
+  check(mode_enabled(mode(L"direct"), true, true, false, true), "direct only needs helpcode");
+  check(mode_enabled(mode(L"mid_sentence"), true, true, false, false), "the mid-sentence switch only needs helpcode");
+  check(mode_enabled(mode(L"direct_helpcode"), true, true, false, false), "the per-syllable switch only needs helpcode");
+  // 引擎只在末尾直接和逐音节直接都关着时认末尾间接触发键（`apply_request_options`），出厂值的末尾直接开着，所以这三行出厂时置灰。
+  for (auto const field : {L"trigger_semicolon", L"trigger_backtick", L"trigger_uppercase"}) {
+    check(mode(field).parent == ModeParent::end_trigger, "end triggers hang off direct and direct_helpcode");
+    check(!mode_enabled(mode(field), true, true, false, false), "end triggers are greyed while direct is on");
+    check(!mode_enabled(mode(field), true, false, false, true), "end triggers are greyed while direct_helpcode is on");
+    check(!mode_enabled(mode(field), true, true, false, true), "end triggers are greyed while both are on");
+    check(mode_enabled(mode(field), true, false, false, false), "end triggers open when direct and direct_helpcode are off");
+    check(mode_enabled(mode(field), true, false, true, false), "mid_sentence does not grey the end triggers");
+    check(!mode_enabled(mode(field), false, false, false, false), "end triggers still follow helpcode");
+  }
+  check(mode(L"direct").description == L"完整音节后直接接辅助码；打开时末尾间接触发不生效",
+        "the direct row says it turns the end triggers off");
   for (auto const field : {L"mid_sentence_backtick", L"mid_sentence_semicolon", L"mid_sentence_uppercase"}) {
-    check(!mode_enabled(mode(field), true, false, true), "mid-sentence keys follow mid_sentence");
-    check(mode_enabled(mode(field), true, true, false), "mid-sentence keys open with mid_sentence");
+    check(!mode_enabled(mode(field), true, false, false, true), "mid-sentence keys follow mid_sentence");
+    check(mode_enabled(mode(field), true, true, true, false), "mid-sentence keys open with mid_sentence");
   }
   for (auto const field : {L"direct_helpcode_slash", L"direct_helpcode_uppercase"}) {
-    check(!mode_enabled(mode(field), true, true, false), "terminators follow direct_helpcode");
-    check(mode_enabled(mode(field), true, false, true), "terminators open with direct_helpcode");
+    check(!mode_enabled(mode(field), true, false, true, false), "terminators follow direct_helpcode");
+    check(mode_enabled(mode(field), true, true, false, true), "terminators open with direct_helpcode");
   }
 
   check(strict_filter_description == L"关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选。两码本来就是严格筛选。",
