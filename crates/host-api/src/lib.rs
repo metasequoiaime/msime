@@ -1407,6 +1407,12 @@ impl HostSession {
             .map_or(&self.applied, |previous| &previous.preferences);
         let translation_changed =
             translation_query_preferences_changed(previous_preferences, &snapshot.preferences);
+        if previous_preferences.local_translation.enabled
+            && !snapshot.preferences.local_translation.enabled
+        {
+            // 安全：空指针/零长度是该入口定义的取消全部并卸载操作，不读取内存。
+            unsafe { msime_client_local_translation_cancel(std::ptr::null(), 0) };
+        }
         if translation_changed && !self.runtime.is_idle() {
             // 释义配置与服务凭据变化时清掉旧释义，使旧代次的回包不能进入新配置。
             self.runtime
@@ -4085,6 +4091,7 @@ fn translation_query_preferences_changed(previous: &Preferences, next: &Preferen
         || previous.candidate_pronunciation != next.candidate_pronunciation
         || previous.translation_target_language != next.translation_target_language
         || previous.translation_secondary_language != next.translation_secondary_language
+        || previous.local_translation != next.local_translation
         || previous.translation_account != next.translation_account
         || previous.custom_translation != next.custom_translation
         || previous.tencent_tmt != next.tencent_tmt

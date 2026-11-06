@@ -17,6 +17,7 @@ export function VoiceSettingsPage() {
     showVoiceCommitMode,
     showVoiceProviderSettings,
     showVoiceStreamPreedit,
+    showVoicePunctuation,
     showVoiceCaptureDevices,
     showVoiceSpaceLockSwitch,
     showVoiceCueSwitches,
@@ -93,6 +94,7 @@ export function VoiceSettingsPage() {
       showCredentialTests={Boolean(client.testApiCredential)}
       showVoiceProviderSettings={showVoiceProviderSettings}
       showVoiceStreamPreedit={showVoiceStreamPreedit}
+      showVoicePunctuation={showVoicePunctuation}
       showVoiceCommitMode={showVoiceCommitMode}
       showVoiceCaptureDevices={showVoiceCaptureDevices}
       showVoiceSpaceLockSwitch={showVoiceSpaceLockSwitch}

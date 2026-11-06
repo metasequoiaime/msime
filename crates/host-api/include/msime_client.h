@@ -714,6 +714,28 @@ char *msime_client_voice_model_setting_check(const uint8_t *request, size_t leng
 typedef void (*msime_client_resource_pack_progress_callback)(void *context, const char *phase,
                                                              uint64_t done, uint64_t total);
 char *msime_client_resource_packs(const uint8_t *request, size_t length);
+/* 桌面嵌入式翻译：目录不联网，返回 {available,pack,model,size,languages:[{code,name}]}。
+ * 模型通过 resource_pack_install/import 安装，pack 为 local-translation。
+ * 翻译请求 <=16 KiB：{state_root,request_id,text,target_language,timeout_ms?} -> {translation}。
+ * state_root 是偏好根目录；request_id 是 <=64 字节的字母、数字、横线或下划线，进程内在途唯一。
+ * text <=256 字符；timeout_ms 默认 30000，范围 1..120000。阻塞等待，只能在后台线程调用。
+ * 取消函数可在输入线程调用，传原始 UTF-8 请求 ID；NULL/0 取消所有任务并卸载模型。
+ * 缺模型、未编译运行库或推理失败均报 local_translation_*，不回退联网。 */
+char *msime_client_local_translation_catalog(void);
+char *msime_client_local_translation(const uint8_t *request, size_t length);
+/* 批次请求用 candidates 字符串数组替代 text（1–10 项），共享一个 request_id 和截止时间。
+ * 返回 {translations:[...]}，与输入顺序一致。只能在后台线程调用。 */
+char *msime_client_local_translation_batch(const uint8_t *request, size_t length);
+/* translation_query 文档加 request_id，provider 必须是 local；返回 {translations:[{text,translation}]}。
+ * 宿主后台线程使用，与单条/批次接口共享取消与截止时间。 */
+char *msime_client_local_translation_query(const uint8_t *request, size_t length);
+/* {directory,update?:{expected_revision,enabled,target_language}}，directory 为偏好目录。
+ * 返回 {revision,local_translation}。显式开启时停用云翻译选择但保留凭据；关闭不恢复云服务。
+ * 保存使用修订号比较并交换；只在后台线程调用。 */
+char *msime_client_local_translation_settings(const uint8_t *request, size_t length);
+void msime_client_local_translation_cancel(const uint8_t *request_id, size_t length);
+/* 正常退出时等待推理线程释放权重；Windows 必须在宿主 DLL 卸载前调用，不能放在 DllMain。 */
+void msime_client_local_translation_shutdown(void);
 /* 主动检查语法模型目录，不下载：{state_root,channel?} -> [{pack,source_commit,size}]。 */
 char *msime_client_resource_pack_check_grammar_updates(const uint8_t *request, size_t length);
 char *msime_client_resource_pack_install(const uint8_t *request, size_t length,

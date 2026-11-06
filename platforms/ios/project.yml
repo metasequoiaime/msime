@@ -414,9 +414,10 @@ targets:
       - path: App/Sources/settings/SettingsSaveFailure.swift
       - path: App/Sources/settings/CandidatePreviewCard.swift
       - path: App/Sources/settings/CandidateSkinPreview.swift
-      # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们。
+      # 辅助码页导入码表的选择规则和导入、删除流程（#7176），HelpcodeChoicePolicyTests 与 HelpcodeSettingsTests 直接测它们；双拼触发方式的表和读写由 HelpcodeModesTests 测（#10624），页面的「?」标题要 SettingsOptionLabel。
       - path: App/Sources/settings/HelpcodeChoicePolicy.swift
       - path: App/Sources/settings/HelpcodeSettingsView.swift
+      - path: App/Sources/settings/SettingsOptionLabel.swift
       # 「输入」页每门语言列哪些方案，InputLanguageTests 核对它与 Android 的 `TypingPage.Language` 一致。
       - path: App/Sources/settings/InputLanguage.swift
       # 插件页的目录、标记、偏好写法和编辑器规则，以及社区插件的翻页，PluginCatalogTests 与 PluginEditorModelTests 直接测它们。
