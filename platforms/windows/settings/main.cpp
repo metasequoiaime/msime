@@ -14408,6 +14408,16 @@ private:
     return L"missing";
   }
 
+  // 安装或删除成功后先把这一包的状态改成结果，再等重读：重读回来之前行上若还按旧状态画「下载」「更新」，刚装好的模型又像没装，用户会再点一次（#10839）。重读回来后以读到的为准。
+  void set_sentence_pack_state(std::wstring const &id, std::wstring const &state) {
+    for (auto &status : sentence_pack_statuses_)
+      if (status.id == id) {
+        status.state = state;
+        return;
+      }
+    sentence_pack_statuses_.push_back({id, state, {}});
+  }
+
   // 同一时间只发一次读取：读的途中又要读（安装或删除刚结束、又进了这一页）时，读回后再读一次（SentencePackModel.h 的 `Catalog`）。读失败按失败记，行上给「重试」，不再当成「没装」。
   void refresh_sentence_packs() {
     if (!spk::begin_read(sentence_packs_))
@@ -14569,6 +14579,7 @@ private:
               sentence_pack_errors_[id] = *message;
           } else {
             grammar_updates_available_.erase(id);
+            set_sentence_pack_state(id, L"installed");
           }
           refresh_sentence_packs();
           redraw_sentence_packs();
@@ -14605,6 +14616,8 @@ private:
           sentence_pack_removing_.erase(id);
           if (!response.ok)
             show_notice(L"模型正在使用或无法删除，请先切换输入框后重试。", InfoBarSeverity::Error);
+          else
+            set_sentence_pack_state(id, L"missing");
           refresh_sentence_packs();
           redraw_sentence_packs();
         });
