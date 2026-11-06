@@ -359,7 +359,7 @@ final class CustomServiceTests: XCTestCase {
 
   func testEngineCodecsPreserveTextAndAudioAndRejectMalformedResponses() throws {
     let text = "你好\n\"测试\""
-    let data = try AppServicesBridge.polishBody("fixture", prompt: "润色", text: text)
+    let data = try AppServicesBridge.polishBody("fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: "润色", text: text)
     let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
     XCTAssertEqual(messages.last?["content"], text)
@@ -430,14 +430,28 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(polish, voice: false))
   }
 
+  func testPolishBodyTurnsOffThinkingOnlyForArkSeedModels() throws {
+    func thinking(_ endpoint: String, _ model: String) throws -> [String: String]? {
+      let data = try AppServicesBridge.polishBody(model, endpoint: XCTUnwrap(URL(string: endpoint)), prompt: "润色", text: "合成文本")
+      return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])["thinking"] as? [String: String]
+    }
+    let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    XCTAssertEqual(try thinking(ark, "doubao-seed-2-0-mini-260428"), ["type": "disabled"])
+    XCTAssertEqual(try thinking("https://ark.cn-shanghai.volces.com/api/v3/chat/completions", "Doubao-Seed-2-0-lite-260428"), ["type": "disabled"])
+    XCTAssertNil(try thinking(ark, "glm-5-3-flash-260828"))
+    XCTAssertNil(try thinking(ark, "ep-20261105123456-abcde"))
+    XCTAssertNil(try thinking("https://volces.com.example/v1/chat/completions", "doubao-seed-2-0-mini-260428"))
+    XCTAssertNil(try thinking("https://fixture.invalid/v1/chat/completions", "doubao-seed-2-0-mini-260428"))
+  }
+
   func testPolishBodyRejectsAnOversizedPromptBeforeBuildingTheRequest() {
     XCTAssertThrowsError(try AppServicesBridge.polishBody(
-      "fixture", prompt: String(repeating: "提示", count: 16_385), text: "合成文本"))
+      "fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: String(repeating: "提示", count: 16_385), text: "合成文本"))
   }
 
   func testPolishBodyRejectsAnOversizedUnicodeTextBeforeBuildingTheRequest() {
     XCTAssertThrowsError(try AppServicesBridge.polishBody(
-      "fixture", prompt: "润色", text: String(repeating: "😀", count: 8_193)))
+      "fixture", endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!, prompt: "润色", text: String(repeating: "😀", count: 8_193)))
   }
 
   func testTranscriptionBodyRejectsOversizedAudioBeforeBuildingTheRequest() {

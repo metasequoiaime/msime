@@ -77,7 +77,7 @@ EXPECTED = {
             "kimi": "kimi-k2-0905-preview",
             "zhipu": "glm-4-flash",
             "qwen": "qwen-plus",
-            "volcengine": "doubao-seed-1.6-flash",
+            "volcengine": "doubao-seed-2-0-mini-260428",
             "openrouter": "openrouter/auto",
             "custom": ""
         }
@@ -150,6 +150,7 @@ class ProviderCatalog(unittest.TestCase):
             "polish": {"synthetic-polish": "合成润色模型😀"},
         }
         catalog.REQUEST_FORMATS = {"synthetic-asr": "chat_audio"}
+        catalog.VOLCENGINE_SUCCESSOR_MODELS = {}
         with patch.dict(sys.modules, {"msime_voice_provider_catalog": catalog}):
             consumer = load_provider("voice_provider_catalog_synthetic")
         self.assertEqual(consumer.ASR_PROVIDERS, catalog.ASR_PROVIDERS,

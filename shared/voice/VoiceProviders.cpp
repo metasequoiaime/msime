@@ -168,7 +168,7 @@ std::string default_polish_model(std::string_view provider) {
   if (id == "qwen" || id == "dashscope")
     return "qwen-plus";
   if (id == "volcengine")
-    return "doubao-seed-1.6-flash";
+    return "doubao-seed-2-0-mini-260428";
   if (id == "openrouter")
     return "openrouter/auto";
   if (id == "custom")
@@ -543,7 +543,7 @@ bool valid_thinking_level(std::string_view level) {
 
 namespace {
 // 应答服务的归属方：厂商字段（DeepSeek 的 thinking.type、SiliconFlow 的 enable_thinking）按接口地址的主机判断，不按设置页标签——槽位可以装任何 OpenAI 兼容地址，给不认这个字段的服务发出去会被整个拒绝（MiniMax 报 requires adaptive thinking）。
-enum class ChatVendor { other, deepseek, siliconflow };
+enum class ChatVendor { other, deepseek, siliconflow, ark };
 
 ChatVendor vendor_from_chat_endpoint(std::string_view endpoint) {
   const auto scheme = endpoint.find("://");
@@ -561,6 +561,7 @@ ChatVendor vendor_from_chat_endpoint(std::string_view endpoint) {
   };
   if (owned_by("deepseek.com")) return ChatVendor::deepseek;
   if (owned_by("siliconflow.cn")) return ChatVendor::siliconflow;
+  if (owned_by("volces.com")) return ChatVendor::ark;
   return ChatVendor::other;
 }
 
@@ -571,9 +572,21 @@ ChatVendor vendor_for_request(std::string_view provider, std::string_view endpoi
   if (endpoint.find("://") != std::string_view::npos) return ChatVendor::other;
   if (provider == "deepseek") return ChatVendor::deepseek;
   if (provider == "siliconflow") return ChatVendor::siliconflow;
+  if (provider == "volcengine") return ChatVendor::ark;
   return ChatVendor::other;
 }
+
 } // namespace
+
+bool disables_ark_seed_thinking(std::string_view provider, std::string_view endpoint,
+                                std::string_view model) {
+  if (vendor_for_request(normalize_voice_provider(provider), endpoint) != ChatVendor::ark) return false;
+  constexpr std::string_view prefix = "doubao-seed-";
+  if (model.size() < prefix.size()) return false;
+  for (std::size_t index = 0; index < prefix.size(); ++index)
+    if (std::tolower(static_cast<unsigned char>(model[index])) != prefix[index]) return false;
+  return true;
+}
 
 std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
@@ -602,7 +615,7 @@ std::string polish_cloud_text(
            thinking != "disabled") {
     body["thinking"] = {{"type", "enabled"}};
     body["reasoning_effort"] = std::string(thinking);
-  } else if (vendor == ChatVendor::deepseek)
+  } else if (vendor == ChatVendor::deepseek || disables_ark_seed_thinking(id, endpoint, model))
     body["thinking"] = {{"type", "disabled"}};
   const std::string payload = body.dump();
   initialize_curl();
