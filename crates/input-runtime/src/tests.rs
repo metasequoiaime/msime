@@ -53,6 +53,8 @@ struct Fixture {
     multilingual_conversion: Option<msime_engine::host::session::MultilingualComposition>,
     /// 边缘选字回归直接给出引擎已确认的字符，不在夹具里复制汉字判断。
     edge_commits: Option<[String; 2]>,
+    /// 引擎快照的 `grid_helpcode_constrained`：候选是网格辅助码筛过的。
+    grid_helpcode_constrained: bool,
 }
 
 #[cfg(unix)]
@@ -1065,6 +1067,7 @@ impl InputEngine for Fixture {
             nine_key_reading: String::new(),
             nine_key_single_character: false,
             nine_key_strokes: String::new(),
+            grid_helpcode_constrained: self.grid_helpcode_constrained,
             candidate_codes: self.codes.clone(),
             candidate_annotations: self
                 .words
@@ -1806,6 +1809,7 @@ fn runtime() -> Runtime<Fixture> {
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         5,
     )
@@ -1866,6 +1870,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 grid_limit: 0,
                 multilingual_conversion: None,
                 edge_commits: None,
+                grid_helpcode_constrained: false,
             },
             9,
         )
@@ -2117,6 +2122,7 @@ fn promoted_english_candidate_keeps_the_first_seat_with_cloud_and_ai() {
                 grid_limit: 0,
                 multilingual_conversion: None,
                 edge_commits: None,
+                grid_helpcode_constrained: false,
             },
             9,
         )
@@ -2457,6 +2463,7 @@ fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
                 grid_limit: 0,
                 multilingual_conversion: None,
                 edge_commits: None,
+                grid_helpcode_constrained: false,
             },
             5,
         )
@@ -2565,6 +2572,7 @@ fn a_phrase_piece_survives_the_reading_being_deleted() {
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         5,
     )
@@ -3445,6 +3453,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         2,
     )
@@ -5485,6 +5494,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -7929,6 +7939,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             grid_limit: 0,
             multilingual_conversion: None,
             edge_commits: None,
+            grid_helpcode_constrained: false,
         },
         page_size,
     )
@@ -10919,6 +10930,7 @@ mod candidate_scorer;
 mod prediction_rerank;
 
 mod deferred_scorer;
+mod grid_helpcode;
 mod sentence_pool;
 mod sentence_start;
 

@@ -1022,4 +1022,24 @@ assert "menuTarget()" in vocabulary_activate and "restricted()" in vocabulary_ac
 assert "ibus_prop_list_append(items, vocabulary_due_property(engine));" in body(ibus_source, "IBusProperty *desktop_tools_property(IBusEngine *engine) {", "\n}\n")
 assert "sync_vocabulary_row(engine);" in body(ibus_source, "void render(IBusEngine *engine, const Json &view) {", "\n}\n")
 
+
+# 语音标点（VoicePunctuation.h）：最终文本先退回中间转写，再按语音标点处理，之后才判空、交给 Engine 和上屏；处理成空串时提示没识别到文字，不报识别服务出错。挪到退回转写之前会让带标点的中间转写原样上屏，挪到上屏之后则不起作用。
+fcitx_voice = source[source.index("text = msime_voice_result_or_transcript(") :]
+assert (
+    fcitx_voice.index("msime_voice_result_or_transcript(")
+    < fcitx_voice.index("msime::linux_host::voice_punctuated(")
+    < fcitx_voice.index("if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice)")
+)
+assert "showVoiceFailure(!recognisedBeforePunctuation && providerError" in fcitx_voice
+assert "voice_punctuation_mode_ = msime::linux_host::voice_punctuation_mode(preferences_);" in source
+ibus_voice = ibus_source[ibus_source.index("auto recognised_text = msime_voice_result_or_transcript(") :]
+assert (
+    ibus_voice.index("msime_voice_result_or_transcript(")
+    < ibus_voice.index("msime::linux_host::voice_punctuated(")
+    < ibus_voice.index("if (text.empty()) {")
+    < ibus_voice.index("msime_client_voice_apply(")
+)
+assert "result->provider_failed && !recognised_before_punctuation" in ibus_voice
+assert "result->punctuation_mode = punctuation_mode;" in ibus_source
+
 print("Fcitx5 addon metadata passed")

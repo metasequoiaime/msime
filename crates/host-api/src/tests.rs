@@ -7,6 +7,7 @@ use super::*;
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
 mod local_translation;
+mod mobile_clipboard_retention;
 
 #[test]
 fn telemetry_test_origin_rejects_before_storage_or_network() {
@@ -368,6 +369,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         strict_quanpin_helpcode: false,
         show_helpcode: false,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -5693,6 +5695,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
             strict_filter: false,
+            grid: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         shuangpin_helpcode: HelpcodePreferences {
@@ -5701,6 +5704,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
             strict_filter: false,
+            grid: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         ..Preferences::default()

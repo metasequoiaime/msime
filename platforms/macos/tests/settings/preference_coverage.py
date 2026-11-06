@@ -94,7 +94,6 @@ NOT_APPLICABLE = {
     "wubi_candidate_selection.third_key": "同上：与 `second_key` 一起交给 `slot()` 决定第二、第三候选的取词键",
     "voice_input.pause_millis": "只有触屏键盘点按开始的本地识别按停顿结束录音（鸿蒙读共享文档，iOS 主 App 读共享文档，Android 在本机设置里）；macOS 的语音由按住或再按快捷键结束，没有停顿自动结束，共享设置页只在报告 `voice_pause_settings` 的鸿蒙手机和平板上给出此滑块",
     "voice_input.stop_sensitivity": "判停灵敏度只配合按停顿结束的本地识别调整 VAD 阈值；macOS 没有停顿自动结束，共享设置页只在报告 `voice_pause_settings` 的鸿蒙手机和平板上给出此滑块",
-    "voice_input.punctuation_mode": "语音标点目前只有 Android 和 iOS 在上屏前按它处理（#10558、#10595）；macOS 宿主和共享设置页还没接上，见 #10597，接上后删掉这一条",
     "smart_punctuation_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old macOS default (smart punctuation off) on; the host reads the migrated values through msime_client_load_preferences",
     "translation_ai_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document; only Android and iOS turn their old implicit AI translation into an explicit translation_ai choice before setting it, macOS just sets it",
     "keyboard_reranker_migrated": "not a setting: the one-time marker client-core's PreferencesStore sets while reading the document, after turning the old default 标准 (sentence_association.neural_keyboard off) into 增强 where the word lattice is on; the host reads the migrated value through msime_client_load_preferences",

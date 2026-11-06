@@ -5231,13 +5231,29 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
+    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
+        int helpcode = GridHelpcodePolicy.letterOp(gridHelpcodeDisplay(), letter);
+        if (helpcode != GridHelpcodePolicy.NONE) return gridHelpcode(helpcode, Character.toLowerCase(letter));
         clearQuickDeleteUndo();
         if (session == 0) return false;
         try {
             return apply(timedEngineCall(() -> NativeClient.gridKey(session, letter)));
         } catch (JSONException | LinkageError error) { fail(error); return true; }
+    }
+
+    /** 十四／十八键网格辅助码的一个操作（{@link GridHelpcodePolicy}）；引擎不收时什么也不变。 */
+    boolean gridHelpcode(int op, char letter) {
+        clearQuickDeleteUndo();
+        if (session == 0) return false;
+        try {
+            return apply(timedEngineCall(() -> NativeClient.gridHelpcode(session, op, letter)));
+        } catch (JSONException | LinkageError error) { fail(error); return true; }
+    }
+
+    /** 视图里放下分隔符后的辅助码显示，空串是没有分隔符。 */
+    String gridHelpcodeDisplay() {
+        return view == null ? "" : InputViewValuePolicy.textOr(view, "grid_helpcode_display", "");
     }
 
     private boolean helpcodeCompositionEligible() {
@@ -6465,6 +6481,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (japaneseConversionIndex != null && command(1)) return;
             if (command(11)) return;
         }
+        // 网格辅助码筛空时回车和空格、标点一样留着组字；引擎这时的原样上屏会丢掉组字。
+        JSONArray gridCandidates = view == null ? null : view.optJSONArray("candidates");
+        if (GridHelpcodePolicy.holdsEnter(gridHelpcodeDisplay(),
+                gridCandidates == null ? 0 : gridCandidates.length())) return;
         if (command(2)) return;
         EditorInfo info = getCurrentInputEditorInfo();
         int action = info == null ? EditorInfo.IME_ACTION_NONE : info.imeOptions & EditorInfo.IME_MASK_ACTION;
@@ -6571,6 +6591,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (keyCode == KeyEvent.KEYCODE_BACK && imeGlossCard.visible()) {
             imeGlossCard.close();
+            return true;
+        }
+        // 放下了网格辅助码的分隔符时，第一次返回只清辅助码，组字和键盘留着。
+        if (keyCode == KeyEvent.KEYCODE_BACK && GridHelpcodePolicy.backClears(gridHelpcodeDisplay(),
+                isInputViewShown(), candidatePanelOpen || ViewPolicy.isVisible(symbolPanel))) {
+            gridHelpcode(GridHelpcodePolicy.CLEAR, (char) 0);
             return true;
         }
         if (event.getRepeatCount() == 0
@@ -6988,7 +7014,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     KeyboardPressButton keyboardKey(String label, String description, Runnable action) {
-        KeyboardPressButton button = new KeyboardPressButton(this);
+        return keyboardKey(new KeyboardPressButton(this), label, description, action);
+    }
+
+    /** 同上，键是调用方给的（例如要画角标的 {@link KeyHintButton}）。 */
+    <T extends KeyboardPressButton> T keyboardKey(T button, String label, String description, Runnable action) {
         KeyboardTypographyPolicy.normalizeKeyCap(button);
         KeyboardTypographyPolicy.setKeyTextSize(button, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         ViewPolicy.setAllCapsFalse(button);
@@ -12418,6 +12448,8 @@ public final class MSIMEInputService extends InputMethodService {
                     && drawsKeyGrid(displayedTouchLayout(view))) {
                 nineKeyPreedit = InputViewValuePolicy.textOr(view, "nine_key_reading", "");
                 if (nineKeyPreedit.isEmpty()) nineKeyPreedit = InputViewValuePolicy.textOr(view, "preedit", "");
+                // 网格辅助码只画在读音行上，不进输入框的组字区。
+                nineKeyPreedit = GridHelpcodePolicy.reading(nineKeyPreedit, gridHelpcodeDisplay());
             }
             String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
                 : reading.isEmpty() ? editingText : reading;

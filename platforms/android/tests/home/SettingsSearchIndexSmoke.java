@@ -131,6 +131,7 @@ public final class SettingsSearchIndexSmoke {
             {"TYPING", "退格键回退已选候选词"},
             {"TYPING", "普通话"}, {"TYPING", "粤语"}, {"TYPING", "日语"}, {"TYPING", "韩语"}, {"TYPING", "越南语"},
             {"TYPING", "藏语"}, {"TYPING", "在候选栏中显示双拼辅助码"}, {"TYPING", "在候选栏中显示全拼辅助码"},
+            {"TYPING", "全拼 14/18 键辅助码"}, {"TYPING", "双拼 14/18 键辅助码"},
             {"EXPRESSION", "智能标点"}, {"EXPRESSION", "英文联想"},
             {"LEXICON", "记忆新词"},
             {"PRIVACY", "用水杉账号翻译候选"}, {"PRIVACY", "匿名使用统计"}, {"PRIVACY", "剪贴板历史"},
