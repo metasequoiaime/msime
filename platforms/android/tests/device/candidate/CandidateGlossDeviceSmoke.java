@@ -113,6 +113,16 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
         // 「加入生词本」只在显示着可上屏的释义时出现，「你好」有 hello。
         await(described("加入生词本"));
 
+        // 有英文释义时，朗读入口是否出现取决于设备实际安装的 TTS 服务；不把模拟器缺引擎当成免验条件。
+        stage = "gloss card read aloud availability";
+        boolean speechEngineInstalled = !getTargetContext().getPackageManager().queryIntentServices(
+            new android.content.Intent(android.speech.tts.TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE), 0).isEmpty();
+        if (speechEngineInstalled) {
+            await(described("朗读").and(AccessibilityNodeInfo::isEnabled));
+        } else {
+            awaitGone(described("朗读"));
+        }
+
         stage = "gloss card removal asks in place";
         tap(described("删除词条…"));
         await(described("确认删除此词条"));
