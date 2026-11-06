@@ -98,9 +98,10 @@ int main(int argc, char **argv)
           "读不回文档又被打断时只插入普通空格");
     check(composition.find("if (preceding == 0 && _QueueSmartPunctuationRewrite(ascii))") != std::string::npos,
           "读不回文档且没被打断时才盲删一个字符");
-    check(composition.find("CStringRange typed;") != std::string::npos &&
-              composition.find("typed.Set(&wch, 1);") != std::string::npos,
-          "重复标点的武装在排队期间过期时按用户按下的字写入，不丢这颗键");
+    // 过期之后的结果（和普通标点路径一致、前文影子更新）由 scripts/test-windows-smart-punctuation-revert.py 编译真实函数执行。
+    check(composition.find("return _HandleCompositionPunctuation(ec, pContext, code, wch, FANY_IME_NO_REQUEST_ID,") !=
+              std::string::npos,
+          "重复标点的武装在排队期间过期时按普通标点处理，不丢这颗键");
     check(read(root + "/IME/MetasequoiaIME.cpp").find("_NoteSmartPunctuationDocumentText(_wch)") != std::string::npos,
           "排队等回放的应用文本写进文档时才记前文");
 
