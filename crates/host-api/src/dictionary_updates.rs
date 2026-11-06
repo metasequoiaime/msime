@@ -199,17 +199,31 @@ fn empty_then_remove(parent: &Path, name: &str, access: crate::DictionaryAccess)
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return,
     }
-    if let Ok(entries) = std::fs::read_dir(&path) {
-        for entry in entries.flatten() {
-            if entry.file_name() == LOCK_FILE {
-                continue;
-            }
-            let entry = entry.path();
-            if std::fs::symlink_metadata(&entry).is_ok_and(|metadata| metadata.is_dir()) {
-                let _ = std::fs::remove_dir_all(&entry);
-            } else {
-                let _ = std::fs::remove_file(&entry);
-            }
+    // 删锁文件的前提是所有数据都已清空。读取目录或删除数据失败时保留同一把协调锁，
+    // 不能把仍有数据的代次误当空壳，让其他进程在下一轮取到另一把锁。
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        return;
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            return;
+        };
+        if entry.file_name() == LOCK_FILE {
+            continue;
+        }
+        let entry = entry.path();
+        let metadata = match std::fs::symlink_metadata(&entry) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return,
+        };
+        let removed = if metadata.is_dir() {
+            std::fs::remove_dir_all(&entry)
+        } else {
+            std::fs::remove_file(&entry)
+        };
+        if removed.is_err_and(|error| error.kind() != std::io::ErrorKind::NotFound) {
+            return;
         }
     }
     drop(access);
@@ -742,6 +756,43 @@ mod tests {
         assert!(!empty.exists(), "空目录的空壳被收掉");
         assert!(kept.join("msime-pinyin.db").is_file());
         assert!(kept.join(GENERATION_READY).is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn emptying_reclaim_keeps_the_lock_until_all_data_was_removed() {
+        use msime_engine::access::LOCK_FILE;
+        use msime_engine::assets::GENERATION_READY;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let name = "a".repeat(64);
+        let generation = root.path().join(&name);
+        std::fs::create_dir(&generation).unwrap();
+        let data = generation.join("synthetic.db");
+        std::fs::write(&data, b"synthetic working data").unwrap();
+        std::fs::write(generation.join(GENERATION_READY), b"ready\n").unwrap();
+        // 模拟杀毒扫描等未共享删除权限的外部读者：回收拿得到租约，但删不了这个文件。
+        let reader = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2)
+            .open(&data)
+            .unwrap();
+        let lease = crate::DictionaryAccess::try_maintenance(&generation, &generation)
+            .unwrap()
+            .unwrap();
+        empty_then_remove(root.path(), &name, lease);
+        assert!(data.is_file(), "外部句柄仍阻止数据文件删除");
+        assert!(
+            generation.join(LOCK_FILE).is_file(),
+            "仍有数据时必须保留原协调锁，不能让下一轮取到另一把锁"
+        );
+        drop(reader);
+        let lease = crate::DictionaryAccess::try_maintenance(&generation, &generation)
+            .unwrap()
+            .unwrap();
+        empty_then_remove(root.path(), &name, lease);
+        assert!(!generation.exists(), "外部读者退出后下一轮回收成功");
     }
 
     /// #10735：Linux 上自己下载的词库在升级换锁后刷新报 `dictionary_outdated`，宿主继续用 runtime-options.json 记着的旧锁代次。Fcitx5 失焦就销毁会话，此刻没有任何会话持锁，这一代也既不是新的随包代次、也不是下载版本；只有宿主配置记着它，删了输入法就再也建不了会话。
