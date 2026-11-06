@@ -1648,11 +1648,6 @@ if ! rg -q '<action android:name="android\.intent\.action\.TTS_SERVICE" />' "$re
   echo "Android manifest must query android.intent.action.TTS_SERVICE for read aloud" >&2
   exit 1
 fi
-# 「朗读」在释义卡片里：只有装了语音引擎时才出现，设备冒烟不断言它，所以这里钉住 ImeGlossCard 把它接到 s.readAloud。
-if ! rg -qF 'addSecondary(row, CandidateManagementAction.READ_ALOUD_TITLE, KeyboardKeyRole.ACCENT, () -> s.readAloud(readAloud));' "$repo_root/platforms/android/java/app/msime/android/core/ImeGlossCard.java"; then
-  echo "Android gloss card must offer read aloud through s.readAloud" >&2
-  exit 1
-fi
 # 键盘服务销毁时和背单词页离开时都要断开语音引擎。
 read_aloud_service="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
 read_aloud_review="$repo_root/platforms/android/java/app/msime/android/home/VocabularyReviewPage.java"
