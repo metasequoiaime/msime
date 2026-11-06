@@ -143,7 +143,8 @@ final class KeyboardSkinDocumentTests: XCTestCase {
   func testResettingCandidateColorsKeepsSlotsTheAppDoesNotEdit() throws {
     var document: [String: Any] = [
       "global_theme": "custom",
-      "custom_theme": ["base": "ink", "candidate_colors": ["number": "#112233", "text": "#445566", "hover": "#778899"]],
+      "custom_theme": ["base": "ink", "candidate_colors": ["number": "#112233", "text": "#445566", "hover": "#778899",
+                                                           "selected_text": "#7B3FBF"]],
     ]
     GlobalThemePreference.clearingCandidateColors(&document)
     let custom = GlobalThemePreference.customTheme(in: document)
@@ -152,6 +153,7 @@ final class KeyboardSkinDocumentTests: XCTestCase {
     XCTAssertEqual(colors["number"] as? String, "#112233")
     XCTAssertNil(colors["text"])
     XCTAssertNil(colors["hover"])
+    XCTAssertNil(colors["selected_text"])
     XCTAssertEqual(document["global_theme"] as? String, "custom")
 
     // With only editable slots set, the reset leaves no empty object behind.
