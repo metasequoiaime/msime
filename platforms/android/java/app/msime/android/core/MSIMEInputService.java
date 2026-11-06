@@ -210,6 +210,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button clipboardBackToTop;
     /** 删除（单条或多选）后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073、#10080）；没有可撤销的记录时收起。 */
     Button clipboardUndoButton;
+    /** 剪贴板「更多」菜单的浮层（#10969）：盖在顶行下面的整个列表区上，菜单贴右上角画在里面，不占列表的位置；点菜单以外的地方收起菜单。菜单收着时隐藏。 */
+    FrameLayout clipboardMoreOverlay;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -3059,7 +3061,10 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
         quanpinShiftEnabled = quanpinShiftFrom(preferences);
         touchKeyStyles = touchKeyStylesFrom(preferences);
-        numberRowEnabled = numberRowFrom(preferences);
+        boolean nextNumberRow = numberRowFrom(preferences);
+        // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
+        automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
+        numberRowEnabled = nextNumberRow;
         twentySixSymbolFirst = symbolFirstFrom(preferences);
         numberPadSpace = numberPadSpaceFrom(preferences);
         nineKeySidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);
@@ -3911,6 +3916,8 @@ public final class MSIMEInputService extends InputMethodService {
         predictionButtons = nextPredictionButtons;
         // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
         touchKeyStyles = nextTouchKeyStyles;
+        // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
+        automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
         numberRowEnabled = nextNumberRow;
         // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
         twentySixSymbolFirst = nextSymbolFirst;
@@ -11174,6 +11181,15 @@ public final class MSIMEInputService extends InputMethodService {
         undoParams.bottomMargin = pixels(8);
         ViewPolicy.hide(clipboardUndoButton);
         clipboardSurface.addView(clipboardUndoButton, undoParams);
+        // 「更多」菜单不再作为列表的第一行插进去（那样左边空一大块、下面的卡片整体被推下去，#10969），改成浮在列表上面，像系统的溢出菜单。仍然只是同一窗口里的一层 FrameLayout，不弹 PopupWindow：输入法没有 Activity 的窗口令牌，弹窗会让键盘进程崩掉或抢走编辑器焦点（#5605、#5653）。浮层最后加入、再抬高一层，菜单盖得住「返回顶部」和「撤销」，点到它们所在的位置也只是收起菜单；开着时浮层接住列表区的所有触摸，点不到下面的卡片。顶行不被盖住，「更多 ▴」「多选」「本机 ▾」照常可点，它们各自会收起菜单。
+        clipboardMoreOverlay = new FrameLayout(this);
+        clipboardMoreOverlay.setContentDescription("收起剪贴板菜单");
+        ViewPolicy.bindClick(clipboardMoreOverlay, imePanels::closeClipboardMoreMenu);
+        ViewPolicy.setElevation(clipboardMoreOverlay, pixels(8));
+        ViewPolicy.hide(clipboardMoreOverlay);
+        FrameLayout.LayoutParams moreOverlayParams = LayoutPolicy.frameMatchParentParams();
+        moreOverlayParams.topMargin = pixels(32);
+        clipboardSurface.addView(clipboardMoreOverlay, moreOverlayParams);
         clipboardScroll.setOnScrollChangeListener((view, x, y, oldX, oldY) -> imePanels.updateClipboardBackToTop());
         ViewPolicy.hide(clipboardSurface);
         keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
@@ -12478,8 +12494,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 「键盘调整」的遮罩盖在照常画出的键盘上：工具栏、候选行和按键区都不为它让位，下面画的就是调整后的样子。
         if (keyboardAdjustOverlay != null) {
             ViewPolicy.setVisible(keyboardAdjustOverlay, keyboardAdjustActive);
+            if (floatingBar != null) floatingBar.setGripShown(!keyboardAdjustActive);
             if (keyboardAdjustActive) {
                 keyboardAdjustOverlay.setAvailability(keyboardAdjustAvailability());
+                // 浮动键盘是圆角卡片（ImeStyler.applyKeyboardSurfaceGeometry 按这个半径裁外框），括号的拐角要顺着它弯，否则被裁掉。
+                keyboardAdjustOverlay.setCornerRadius(overlayDrawn() ? pixels(FloatingKeyboardPolicy.CORNER_RADIUS_DP) : 0);
                 // 外框里排在遮罩后面加进来的面板（建视图时的各个面板、第一次打开才建的表情和符号面板）会盖在它上面，打开期间让它保持在最上层。
                 if (keyboardSurface.getChildAt(keyboardSurface.getChildCount() - 1) != keyboardAdjustOverlay)
                     keyboardAdjustOverlay.bringToFront();

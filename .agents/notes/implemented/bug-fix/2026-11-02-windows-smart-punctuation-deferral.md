@@ -22,7 +22,9 @@ Status: implemented
 3. 已经武装的空格转换只在焦点会话令牌变了或前台窗口变了时丢（`Global::SmartPunctuationArmStillBelongsToDocument`），会话暂时没就绪不再丢，是否就绪留到空格那一刻再判。不加时限：其他宿主的空格转换也没有时限，新增时限是用户能感知的行为变化。退格直接作废武装（与 macOS 下一个键就消费武装一致）；只按修饰键不算打断。
 4. 读不回文档又被打断时只插入普通空格。盲删会删掉用户后来打的字；原地改写（`ShiftStart(-1)` + `SetText`）在终端代理存储里会报成功却什么都不改，空格就被吞了。
 5. 新增 TSF 诊断记录 `[msime][smart-punctuation] before=digit|letter|other|none shadow=yes|no result=ascii|chinese process=…`：只记类别、不记字符、不记按了哪个键，与 macOS 的 `[smart-punctuation]` 同一约定。
-6. 认领发生在入队、执行在排空之后，中间可能过期：重复标点的武装只有 2 秒窗口，排空时已被 `_NoteKeyForSmartPunctuation` 清掉的话，`_HandleSmartPunctuationRevert` 不再返回 `E_INVALIDARG` 把那颗键丢掉，而是按用户实际按下的字写进文档。空格那一侧的过期只会退化成普通空格，本身不丢键。
+6. 认领发生在入队、执行在排空之后，中间可能过期：重复标点的武装只有 2 秒窗口，排空时已被 `_NoteKeyForSmartPunctuation` 清掉的话，`_HandleSmartPunctuationRevert` 不再返回 `E_INVALIDARG` 把那颗键丢掉，而是按这颗键没被认领时 `_IsKeyEaten` 会给它的分类处理：中文标点开着就走 `_HandleCompositionPunctuation`（预取文本与按键线程同一个函数 `_PrefetchPunctuationCommitText`），只开全角就走 `_HandleCompositionDoubleSingleByte`，都没开才原样写下按的字并记进前文影子。空格那一侧的过期只会退化成普通空格，本身不丢键。
+
+   2026-11-06 补充（#10679 之后）：最初的退路是直接用 `_AddCharAndFinalize` 写下 ASCII 字符 `wch`，没经过标点决议，也不更新前文影子。中文标点模式下打出「1.」后在屏障里再按 `.`、排队超过 2 秒，得到的是「1..」；不经过屏障时这颗 `.` 由 `_ResolveSmartPunctuation(wch, 前文)` 决议，前文是 `.` 不是数字，得到「1.。」，并且记下影子、武装空格转换。这违背了本笔记自己的原则：同一颗键进不进屏障，行为一致。现在过期分支直接调普通标点路径的函数，不另写决议规则；`_HandleSmartPunctuationRevert` 因此多带一个虚拟键参数，小键盘的点才能照常出 ASCII。认领时 `_NoteKeyForSmartPunctuation` 提前返回、跳过的那段记账（影子、配对标点、重复标点历史），在回放经过 `_DispatchKeyDown` 时由同一函数再记一次，过期分支不用补。
 
 ## Alternatives considered
 
@@ -35,7 +37,7 @@ Status: implemented
 
 - 屏障窗口里数字/字母后的 `,` `.` `:` 仍按前文出 ASCII；读不回前文的宿主不再因为「有没有屏障」时好时坏。
 - 屏障窗口里中文标点后的空格仍能转换，重复按同一标点仍能换回中文；标点和空格在同一次屏障里先后排队也一样（认领在排空重分类时补上）。
-- 重复标点的武装在排队期间过期时，那颗键按用户按下的字写进文档，不再静默消失。
+- 重复标点的武装在排队期间过期时，那颗键和没进屏障时一样按普通标点决议（「1.」后再按 `.` 得到「1.。」），前文影子与空格转换照常更新，不再静默消失，也不再写成 ASCII。
 - 英文模式与韩文等自己组字的方案在屏障内外行为一致（都不认领）。
 - 读不回前文时，标点后按过别的键就只插入空格，不会再盲删或盲改用户的字。
 - 诊断日志只在 `diagnostic_log.tsf` 打开时写，一次标点一行，只含类别、不含任何用户文本。
@@ -47,5 +49,6 @@ Status: implemented
 - `cmake --build target/windows-full/x64 --config RelWithDebInfo --target msime-tsf` 与同一条 x86 构建通过：改动在真实 TSF 编译单元里成立（Arm64X 这一轮没有重跑，改动不涉及平台差异）。
 - `python scripts/test-windows-application-key-replay.py` 204 项全过。
 - `python scripts/test-windows-native-run.py`：146 项通过，2 项按宿主差异排除，0 失败。
+- `scripts/test-windows-smart-punctuation-revert.py`（2026-11-06 新增）：编译执行真实的 `_HandleSmartPunctuationRevert`、`_HandleCompositionPunctuation`、`_PrefetchPunctuationCommitText`、`_ResolveSmartPunctuation` 与 `ResolvePunctuation`，断言武装过期后「1.」再按 `.` 得到「1.。」、影子记下「。」、空格转换照常武装，并逐项与普通标点路径比对文档、影子、空格武装与重复标点历史（读得回与读不回前文、数字后、非智能标点键、小键盘的点、智能标点关闭）；排队期间切成英文标点时全角照写全角、否则原样写下并记影子；武装换成别的键时按普通标点处理；窗口内的重复标点仍原地换回中文。反向验证：把过期分支换回直接写 `wch`，62 项里 30 项失败；修复后全部通过。
 - `pnpm run verify-notes`、`git diff --check` 通过。
 - **已在本机手动验证通过**（维护者验收）：数字后的 `.` `,` `:` 直出与「中文标点 + 空格」转换都正常。复验手段保留：打开 `diagnostic_log.tsf`，在 QQ 里打 `1.2`、以及「中文标点 + 空格」，看 `logs\server.log` 里 `[msime][smart-punctuation]` 是否稳定为 `shadow=yes result=ascii`，以及屏障事件（`keydown-deferred-queued`）附近是否还有 `result=chinese`。

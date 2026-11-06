@@ -1,6 +1,7 @@
 # Agent Note: x86 系统 WER 投递改为非阻塞观测，只有 x64 系统投递阻塞
 
 Status: implemented
+Archived: 2026-11-06
 
 ## Problem
 

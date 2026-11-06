@@ -73,6 +73,16 @@ final class VoiceHoldDeviceChecks {
             if (!hold.contains((int) x, (int) y)) throw new AssertionError("Held space is not over 松开发送: " + hold);
             Rect send = bounds(t.described("发送本次语音"));
             if (y < send.top || y >= send.bottom) throw new AssertionError("Send is not in the held row: " + send);
+            t.stage = "hold panel keys keep key and row spacing";
+            // 操作区按钮与键区一样带键距、行距，左右相邻和上下相邻的键帽之间都要留出缝隙（#10966）。
+            Rect lockKey = bounds(t.described("滑到此处松手锁定录音"));
+            if (hold.left <= lockKey.right || send.left <= hold.right)
+                throw new AssertionError("Held row keys touch: " + lockKey + " " + hold + " " + send);
+            Rect cancelKey = bounds(t.described("取消本次语音"));
+            Rect symbolKey = bounds(t.described("锁定语音中打开符号"));
+            if (symbolKey.top <= cancelKey.bottom || lockKey.top <= symbolKey.bottom)
+                throw new AssertionError("Hold panel rows touch: " + cancelKey + " " + symbolKey + " " + lockKey);
+            t.stage = "horizontal right slide from the space releases on send";
             move(send.centerX(), y);
             end(MotionEvent.ACTION_UP);
             text("合成语音");

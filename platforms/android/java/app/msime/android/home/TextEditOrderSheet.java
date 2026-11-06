@@ -23,7 +23,7 @@ final class TextEditOrderSheet {
         this.owner = owner;
         this.saved = saved;
         Context context = owner.requireContext();
-        sheet = new SettingsSheet(context, "文本编辑按键顺序", "位置 1–4 是左列从上到下，5–7 是右列前三格，第 8 个在左下方；换行固定在右下角。按住右侧把手拖动调整，点击保存后生效。");
+        sheet = new SettingsSheet(context, "文本编辑按键顺序", "位置 1–4 是左列从上到下，5–7 是右列前三格，第 8 个在底排正中；换行固定在右下角。按住右侧把手拖动调整，点击保存后生效。");
         rows = new ReorderList<>(context, TextEditButtonOrder.fromPreferences(preferences),
             item -> TextEditPanelModel.key(item).label());
         sheet.add(rows.view());

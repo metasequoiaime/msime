@@ -10,6 +10,8 @@ Status: implemented
 
 Android 宿主为数字行维护仅在进程内存中的自动开启状态：进入文字或数字密码框、ConnectBot 或 JuiceSSH 时开启，普通输入框和隐藏键盘不清除；系统选中的输入法发生变化时清除。设置页保存的数字行开关不变，实际布局使用「手动开启或自动开启」。服务销毁时状态自然结束。
 
+保留范围后来因 #10878 收窄：离开触发应用、把「顶部数字行」开关从开改成关时也复位，见 [Android 自动数字行离开触发应用即复位](../bug-fix/2026-11-05-android-automatic-number-row-reset.md)。
+
 使用 `EditorPolicy.password` 识别密码，不读取输入内容；SSH 工具按 `EditorInfo.packageName` 精确匹配 `org.connectbot` 和 `com.sonelli.juicessh`，不把所有关闭建议的输入框当作终端。数字行仍遵循现有键面与高度约束，数字密码使用已有数字键盘，九键、手写与过矮窗口不强塞一行。符号页的补充行与字母页使用同一有效值。
 
 监听 `Settings.Secure.DEFAULT_INPUT_METHOD`，只读取当前选中的输入法，绝不写入系统设置。观察者随服务注册与注销。切回本输入法且当前仍为目标输入框时按该输入框重新开启，输入视图开始显示时再次核对，避免异步通知先于窗口显示而抹掉新编辑器的状态。
