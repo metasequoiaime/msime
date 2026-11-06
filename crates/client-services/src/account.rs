@@ -608,6 +608,9 @@ impl AccountFailure {
             return "account_network";
         }
         let server = self.server_code.as_deref();
+        if server == Some("unsupported_email_domain") {
+            return "account_unsupported_email_domain";
+        }
         if server == Some("recent_login_required") {
             return "account_recent_login_required";
         }

@@ -24,6 +24,8 @@ export function accountMessage(error: unknown): string {
   switch (errorCode(error)) {
     case "account_invalid":
       return "填写的内容无效，请检查后重试。";
+    case "account_unsupported_email_domain":
+      return "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号。";
     case "account_avatar_invalid":
       return "请选择 1 MiB 以内的 PNG 或 JPEG 图片。";
     case "account_unauthorized":
