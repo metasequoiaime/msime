@@ -1012,7 +1012,7 @@ impl CustomTheme {
     }
 }
 
-/// The eight candidate colour pickers, each `#RRGGBB` or unset.
+/// 八个候选颜色取色器，每项为 `#RRGGBB` 或未设置。
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomCandidateColors {

@@ -6,7 +6,7 @@ Status: implemented
 
 #10740：macOS 0.57.0 的用户把「候选文字颜色」设成紫色，高亮的第一个候选仍是主题自带的绿色。自定义主题的取色器里没有「选中候选的文字颜色」这一项，选中行的文字色只能从别的颜色推出来：设了「候选选中色」时按那个底色的亮度取黑或白，否则取皮肤包的 `selected_text`，再没有时在内置底上取强调色。`CustomCandidateColors` 没有这个槽位，`Overrides::from_pickers` 把 `selected_text` 写死成 `None`，`preferences/tests.rs` 还断言这个键会被当成未知字段丢掉。
 
-维护者 2026-11-03 拍板：加「候选选中文字色」取色器，字段放在共享 Rust 的 `custom_theme.candidate_colors.selected_text`，缺字段时照现在推导；所有画候选选中行的宿主都要照它画；Windows、Android、iOS、鸿蒙手机和 macOS 原生回退页都给取色器；`packages/ui` 这一行是迁移期规则的明确例外。
+维护者于 2026-11-06 在本轮审查会话中明确回复「批准这两项有限例外」，授权 #10803 与 #10791 按当前范围继续验收；记录见 [PR 授权段](https://github.com/metasequoiaime/msime/pull/10803#2026-11-06-维护者有限例外授权)。本项新增「候选选中文字色」取色器，字段放在共享 Rust 的 `custom_theme.candidate_colors.selected_text`，缺字段时保持既有推导；各宿主接入绘制和设置入口，`packages/ui` 这一行及 macOS 原生回退取色器属于该有限例外。授权不扩展到其他新设置，不免除设备、截图和检查。
 
 ## Decision
 

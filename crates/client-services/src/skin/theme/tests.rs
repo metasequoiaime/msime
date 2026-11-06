@@ -777,7 +777,7 @@ fn a_selected_text_picker_beats_every_derived_selected_text() {
         ..CustomCandidateColors::default()
     };
 
-    // Over a built-in base it beats the accent; the selected row still follows the accent.
+    // 内置底色上，选中文字取色器优先于强调色；选中行底色仍跟随强调色。
     let paper = resolve_picked(GlobalTheme::Paper, only_text(), None);
     assert_eq!(paper.selected_text.as_deref(), Some("#7B3FBF"));
     assert_eq!(paper.selected_number.as_deref(), Some("#7B3FBF9D"));
@@ -787,7 +787,7 @@ fn a_selected_text_picker_beats_every_derived_selected_text() {
     );
     assert_eq!(paper.accent.as_deref(), Some("#2C7A4B"));
 
-    // It beats the black or white a selected picker derives.
+    // 选中文字取色器优先于选中底色推导出的黑白文字。
     let with_fill = resolve_picked(
         GlobalTheme::Paper,
         CustomCandidateColors {
@@ -800,7 +800,7 @@ fn a_selected_text_picker_beats_every_derived_selected_text() {
     assert_eq!(with_fill.selected_text.as_deref(), Some("#7B3FBF"));
     assert_eq!(with_fill.selected_number.as_deref(), Some("#7B3FBF9D"));
 
-    // It beats a package's own selected text and numbers.
+    // 选中文字取色器优先于皮肤包的选中文字与编号色。
     let mut packaged = package(GlobalTheme::Light, true, false);
     let palette = packaged.light.as_mut().unwrap();
     palette.selected_text = Some("#112233".into());
@@ -815,7 +815,7 @@ fn a_selected_text_picker_beats_every_derived_selected_text() {
     assert_eq!(over_package.selected_text.as_deref(), Some("#7B3FBF"));
     assert_eq!(over_package.selected_number.as_deref(), Some("#7B3FBF9D"));
 
-    // Over system it is drawn on the platform's own selected row, which stays with the platform.
+    // 系统底色上只替换选中文字，选中行底色仍由平台绘制。
     let system = resolve_picked(GlobalTheme::System, only_text(), None);
     assert_eq!(system.selected_text.as_deref(), Some("#7B3FBF"));
     assert_eq!(system.selected_number.as_deref(), Some("#7B3FBF9D"));
