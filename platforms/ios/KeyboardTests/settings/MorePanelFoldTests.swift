@@ -129,20 +129,20 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(small.scale, 1)
   }
 
-  /// 面板装在键区里（`installPanel`：顶栏底边到键盘根视图底边，26 键竖屏再减去 4pt 的补偿留白），高度是顶栏下的间隔加按键区再加高度调整。两种选择面板都按这个真实高度排布：格子各行放得进滚动区、不能上下拖动，所有格子一样高，页码圆点不出面板。
+  /// 面板装在键区里（`installPanel`：顶栏底边到键盘根视图底边，26 键竖屏再减去 16pt 的补偿留白），高度是顶栏下的间隔加按键区再加高度调整。两种选择面板都按这个真实高度排布：格子各行放得进滚动区、不能上下拖动，所有格子一样高，页码圆点不出面板。
   ///
-  /// 最矮的手机竖屏是 26 键、行距 4pt、高度调到 -12pt：4 + 220 - 12 - 4 = 208pt，减去上下边距 14pt 和圆点 14pt 后格子正好是三行满尺寸的 180pt，不用缩；九键同样设置下是 212pt。比它再矮的面板（下面的 202pt）三行等比缩到约 50.3pt。手机横屏最矮是 140pt，两行缩到 112 / 120。
+  /// 最矮的手机竖屏是 26 键、行距 4pt、高度调到 -12pt：4 + 220 - 12 - 16 = 196pt，减去上下边距 14pt 和圆点 14pt 后格子只有 168pt，比三行满尺寸的 180pt 矮，于是三行等比缩到约 48.3pt；九键同样设置下是 212pt，放得下满尺寸。手机横屏最矮是 140pt，两行缩到 112 / 120。
   func testPickerPanelsFitTheRealKeyAreaHeight() throws {
     let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
     func panelHeight(_ form: KeyboardFormFactor, landscape: Bool, letterKeys: Bool, rowSpacing: CGFloat, adjustment: CGFloat) -> CGFloat {
       form.topRowGap
         + KeyboardHeightPercent.keyBlockHeight(keyHeight: form.keyHeight(landscape: landscape, handwriting: false), rows: 4, rowSpacing: rowSpacing)
-        + adjustment - (form == .phone && letterKeys && !landscape ? KeyboardFormFactor.phoneLetterVerticalPadding : 0)
+        + adjustment - (form == .phone && letterKeys && !landscape
+          ? KeyboardFormFactor.phoneLetterVerticalPadding(rows: 4) : 0)
     }
     let shortest = KeyboardHeightPercent.adjustmentRange.lowerBound
     let cases: [(form: KeyboardFormFactor, landscape: Bool, width: CGFloat, height: CGFloat, rows: Int, scaled: Bool)] = [
-      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 3, false),
-      (.phone, false, 375, 202, 3, true),
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 3, true),
       (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: false, rowSpacing: 4, adjustment: shortest), 3, false),
       (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 7, adjustment: 0), 3, false),
       (.phone, true, 812, panelHeight(.phone, landscape: true, letterKeys: true, rowSpacing: 4, adjustment: shortest), 2, true),
@@ -151,8 +151,8 @@ final class MorePanelFoldTests: XCTestCase {
       // 比任何真实键盘都矮：三行要缩到 44pt 以下，改排满尺寸的两行。
       (.phone, false, 375, 150, 2, false),
     ]
-    XCTAssertEqual(cases[0].height, 208)
-    XCTAssertEqual(cases[4].height, 140)
+    XCTAssertEqual(cases[0].height, 196)
+    XCTAssertEqual(cases[3].height, 140)
     for item in cases {
       for build in [{ KeyboardMorePickerView(tools: tools, formFactor: item.form, landscape: item.landscape) as UIView },
                     { KeyboardSchemePickerView(selected: .quanpin, showsHeader: false, formFactor: item.form, landscape: item.landscape,
@@ -652,7 +652,7 @@ final class MorePanelFoldTests: XCTestCase {
       let lines = top.subviews.map { $0.convert($0.bounds, to: controller.view) }
       XCTAssertEqual(lines.count, 3)
       let bar = try view("keyboardShortcutBar", in: controller)
-      let icons = bar.subviews.filter { !$0.isHidden && $0.bounds.width > 0 }.map { button -> CGRect in
+      let icons = bar.subviews.filter { !$0.isHidden && $0.bounds.width > 0 && $0 is UIButton }.map { button -> CGRect in
         let design = button is KeyboardBrandMarkButton ? KeyboardBrandMarkButton.discSide : KeyboardToolbarButton.iconSide
         let side = design * KeyboardToolbarButton.contentScale(rowHeight: button.bounds.height)
         let frame = button.convert(button.bounds, to: controller.view)

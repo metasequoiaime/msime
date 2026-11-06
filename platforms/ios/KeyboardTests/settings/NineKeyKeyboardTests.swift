@@ -1202,7 +1202,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try XCTUnwrap(try button("moreShortcut", in: controller) as? KeyboardBrandMarkButton)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
-      XCTAssertEqual(toolbar.distribution, .fillEqually)
+      XCTAssertEqual(toolbar.distribution, .fill)
+      XCTAssertEqual(toolbar.spacing, 8)
+      XCTAssertTrue(toolbar.arrangedSubviews[1] is UIView)
       // 表情、剪贴板、皮肤 和 iOS 额外按钮跟随共享的 工具栏按钮 设置，常用语 和 输入方式 跟随本机自己的开关，收起 用于关闭这一行。
       let pinned = TouchToolbarPreference(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
       var expected = ["moreShortcut"]
@@ -1218,10 +1220,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       expected.append("dismissShortcut")
       let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
       XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), expected)
-      for item in visible {
+      for item in visible where item is UIButton {
         XCTAssertEqual(item.bounds.width, visible[0].bounds.width, accuracy: 0.5, item.accessibilityIdentifier ?? "")
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
       }
+      let visibleButtons = visible.filter { $0 is UIButton }
+      XCTAssertEqual(visibleButtons.first?.accessibilityIdentifier, "moreShortcut")
+      XCTAssertLessThanOrEqual(visibleButtons.first?.frame.maxX ?? .greatestFiniteMagnitude,
+                               visibleButtons.dropFirst().first?.frame.minX ?? -.greatestFiniteMagnitude)
       XCTAssertNil(more.menu)
       XCTAssertNotNil(descendants(more).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
       // 设计稿的线框图标自己绘制：没有一个带着会被皮肤处理画成键帽的 configuration。
@@ -1541,7 +1547,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(frame(letter).minY, gridTop, accuracy: 0.5, "\(scheme)")
       XCTAssertEqual(frame(try button("returnKey", in: controller)).maxY, nineKeyBottom, accuracy: 0.5, "\(scheme)")
       // 四排 52pt 键帽、7pt 排距的高度由四排字母键和 11pt 排距填满。
-      XCTAssertEqual(letter.bounds.height, 49, accuracy: 0.5, "\(scheme)")
+      XCTAssertEqual(letter.bounds.height, 52, accuracy: 0.5, "\(scheme)")
     }
   }
 
@@ -2822,9 +2828,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
-    // 第 14 个是 26 键「长空格」时才显示的符号入口（`symbolsShortcut`），长按同样打开工具栏设置。
-    XCTAssertEqual(toolbar.arrangedSubviews.count, 14)
-    for item in toolbar.arrangedSubviews {
+    // 工具栏包含一个用于把按钮推到右侧的 spacer；14 个按钮（含 26 键「长空格」时才显示的符号入口）长按都打开工具栏设置。
+    XCTAssertEqual(toolbar.arrangedSubviews.count, 15)
+    let buttons = toolbar.arrangedSubviews.compactMap { $0 as? UIButton }
+    XCTAssertEqual(buttons.count, 14)
+    for item in buttons {
       let id = item.accessibilityIdentifier ?? "\(item)"
       let hold = try XCTUnwrap(item.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }
         .first { $0.name == "toolbarEditorHold" }, id)
