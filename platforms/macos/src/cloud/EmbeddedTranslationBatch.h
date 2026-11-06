@@ -6,7 +6,8 @@ NS_ASSUME_NONNULL_BEGIN
 NSDictionary * _Nullable MSIMEEmbeddedTranslationIdentity(NSDictionary *query, NSDictionary *view);
 
 @interface MSIMEEmbeddedTranslationBatch : NSObject
-- (instancetype)initWithQuery:(NSDictionary *)query completion:(void (^)(NSArray<NSDictionary *> *))completion;
+// 非取消的失败以 nil 结束；忙碌重试仍受整批 30 秒预算约束。
+- (instancetype)initWithQuery:(NSDictionary *)query completion:(void (^)(NSArray<NSDictionary *> * _Nullable))completion;
 - (void)start;
 - (void)cancel;
 @end

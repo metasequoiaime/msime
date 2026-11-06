@@ -3822,9 +3822,11 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
             MSIMEInputController *owner = weakSelf;
             if (!owner || owner->_customEpoch != epoch || owner->_session != session || owner->_activeClient != client ||
                 ![[owner currentCustomTranslationRequest] isEqual:query]) return;
-            owner->_customResults = results;
-            [owner applyCandidateTranslationResults];
             owner->_embeddedTranslationBatch = nil;
+            if (results) {
+                owner->_customResults = results;
+                [owner applyCandidateTranslationResults];
+            }
         }];
         [_embeddedTranslationBatch start];
         return;
