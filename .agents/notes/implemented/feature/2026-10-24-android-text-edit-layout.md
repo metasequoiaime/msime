@@ -16,6 +16,8 @@ Status: implemented
 
 上排两个空角与触控板覆盖前三行的决定由[行边界与换行长按符号](2026-10-25-android-text-edit-line-keys.md)部分取代：当前十七键同屏，上排增加行首、行尾，触控区覆盖中央第二、三行。七键顺序、固定网格与下排两角留白继续成立。
 
+网格形状、默认顺序和触控板覆盖范围又由[无缝方向区与七个侧键](2026-11-06-android-text-edit-seamless-panel.md)取代：中央是一整块方向区，← 和 → 跨三行，底排是 ⇤、触控板开关、⇥，网格不再留白；默认顺序换成左列复制、剪切、粘贴、全选，右列退格、数字、空格。七个侧键存在共享偏好、默认值和校验归 `client-core`、排序页先改草稿再保存仍按本篇。
+
 ## Related notes audit
 
 [原文本编辑面板](../../implemented/feature/2026-10-08-android-text-edit-panel.md)持有编辑器动作和旧滚动布局，本篇只替代布局及滚动访问的决定；[最近复制预览](../../implemented/feature/2026-10-15-android-recent-copy-in-text-edit.md)继续持有预览和返回行为。[工具栏顺序](../../implemented/feature/2026-10-15-android-toolbar-order.md)提供排序交互参照，但工具栏与文本编辑键位分别持久化。

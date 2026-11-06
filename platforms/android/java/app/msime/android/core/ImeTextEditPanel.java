@@ -4,7 +4,6 @@ import app.msime.android.LayoutPolicy;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -14,7 +13,6 @@ import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import java.util.List;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -94,9 +92,13 @@ final class ImeTextEditPanel {
         modes.addView(trackpadSelect, LayoutPolicy.weightedMatchParentParams(1));
         panel.addView(modes, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
         FrameLayout movement = new FrameLayout(s);
-        LinearLayout grid = LayoutPolicy.column(s);
+        TextEditPanelGrid grid = new TextEditPanelGrid(s);
+        grid.setSkin(s.imeStyler.themed(s.skin));
+        org.json.JSONObject preferences = s.preferencesSnapshot == null
+            ? null : s.preferencesSnapshot.optJSONObject("preferences");
+        for (TextEditPanelModel.Key spec : TextEditPanelModel.keys(TextEditButtonOrder.fromPreferences(preferences)))
+            grid.addKey(spec, key(spec));
         movement.addView(grid, LayoutPolicy.frameMatchParentParams());
-        populateGrid(grid);
         trackpad = new TextTrackpadView(s, new TextTrackpadView.Listener() {
             @Override public Object target() { return s.connection; }
             @Override public boolean move(TextTrackpadGesture.Steps steps) { return moveTrackpad(steps); }
@@ -111,47 +113,25 @@ final class ImeTextEditPanel {
         });
         TextTrackpadView currentTrackpad = trackpad;
         movement.addView(currentTrackpad, new FrameLayout.LayoutParams(1, 1));
-        // 触控板替代中央第二、三行，横向只占十个半格里的第 3–8 个；上排行首尾、左右两列侧键、底排的文档首尾、第八个侧键和换行都在它外面，保持可用。
+        // 触控板盖住方向区底排以上的三行，边界和网格用同一套模型算；左右两列侧键和底排的文档首尾、触控板开关都在它外面，保持可用。
         movement.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
-            int width = right - left, height = bottom - top, margin = s.pixels(3);
+            int width = right - left, height = bottom - top;
+            TextEditPanelModel.Bounds area = TextEditPanelModel.centralBounds(width, height, grid.keyMargin());
+            int areaBottom = TextEditPanelModel.seam(TextEditPanelModel.ROWS - 1, height, grid.keyMargin());
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                Math.max(1, width * 6 / 10 - 2 * margin), Math.max(1, height / 2 - 2 * margin));
-            params.leftMargin = width * 2 / 10 + margin;
-            params.topMargin = height / 4 + margin;
+                Math.max(1, area.width()), Math.max(1, areaBottom - area.top()));
+            params.leftMargin = area.left();
+            params.topMargin = area.top();
             currentTrackpad.setLayoutParams(params);
         });
         panel.addView(movement, LayoutPolicy.weightedWidthParams(1));
     }
 
-    private void populateGrid(LinearLayout panel) {
-        org.json.JSONObject preferences = s.preferencesSnapshot == null
-            ? null : s.preferencesSnapshot.optJSONObject("preferences");
-        List<TextEditPanelModel.Key> keys = TextEditPanelModel.keys(TextEditButtonOrder.fromPreferences(preferences));
-        for (int rowIndex = 0; rowIndex < TextEditPanelModel.ROWS; rowIndex++) {
-            LinearLayout row = LayoutPolicy.row(s);
-            int column = 0;
-            for (TextEditPanelModel.Key spec : keys) {
-                if (spec.row() != rowIndex) continue;
-                if (spec.column() > column) row.addView(new View(s), LayoutPolicy.weightedMatchParentParams(spec.column() - column));
-                FrameLayout slot = new FrameLayout(s);
-                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-                int margin = s.pixels(3);
-                params.setMargins(margin, margin, margin, margin);
-                slot.addView(key(spec.action()), params);
-                row.addView(slot, LayoutPolicy.weightedMatchParentParams(spec.columnSpan()));
-                column = spec.column() + spec.columnSpan();
-            }
-            if (column < TextEditPanelModel.COLUMNS)
-                row.addView(new View(s), LayoutPolicy.weightedMatchParentParams(TextEditPanelModel.COLUMNS - column));
-            panel.addView(row, LayoutPolicy.weightedWidthParams(1));
-        }
-    }
-
-    private Button key(TextEditPanelModel.Action action) {
-        TextEditPanelModel.Key spec = TextEditPanelModel.key(action);
-        Runnable run = () -> perform(action);
+    /** 侧键沿用普通键帽；中央方向区的键由 {@link TextEditPanelGrid} 画公共底面，方向和文档首尾画矢量尖括号。 */
+    private Button key(TextEditPanelModel.Key spec) {
+        TextEditPanelModel.Action action = spec.action();
+        Runnable run = action == TextEditPanelModel.Action.TRACKPAD ? this::toggleTrackpad : () -> perform(action);
         Button button;
         if (action == TextEditPanelModel.Action.DELETE) {
             button = s.backspaceKey(run);
@@ -168,14 +148,38 @@ final class ImeTextEditPanel {
                 s.imePanels.showSymbolPanel();
                 return true;
             });
+        } else if (isCursorMove(action) || action == TextEditPanelModel.Action.DOCUMENT_START
+                || action == TextEditPanelModel.Action.DOCUMENT_END) {
+            boolean documentEdge = !isCursorMove(action);
+            float rotation = switch (action) {
+                case UP -> 180;
+                case LEFT -> 90;
+                case RIGHT -> -90;
+                case DOCUMENT_END -> 180;
+                default -> 0;
+            };
+            TextEditIconButton icon = new TextEditIconButton(s,
+                documentEdge ? KeyboardIconPaths.Icon.EDIT_DOCUMENT_START : KeyboardIconPaths.Icon.CHEVRON, rotation);
+            icon.setGlyphSize(28);
+            icon.setText(spec.description());
+            icon.setKeyboardRole(KeyboardKeyRole.PLAIN);
+            s.imeStyler.styleButton(icon, false);
+            s.bindCountedAction(icon, run);
+            if (spec.repeats()) bindRepeat(icon, run);
+            button = icon;
+        } else if (action == TextEditPanelModel.Action.SELECT || action == TextEditPanelModel.Action.TRACKPAD) {
+            TextEditPanelButton cell = new TextEditPanelButton(s);
+            KeyboardTypographyPolicy.normalizeKeyCap(cell);
+            ViewPolicy.setAllCapsFalse(cell);
+            cell.setText(spec.label());
+            cell.setKeyboardRole(KeyboardKeyRole.PLAIN);
+            s.imeStyler.styleButton(cell, false);
+            s.bindCountedAction(cell, run);
+            KeyboardTypographyPolicy.setFittedKeyTextSize(cell, 11, 16);
+            button = cell;
         } else {
             button = s.keyboardKey(spec.label(), spec.description(), run);
-            if (isArrow(action)) {
-                // 系统默认按钮字号和字重让方向箭头显得细小；编辑面板的箭头是主要操作，统一放大并加粗。
-                KeyboardTypographyPolicy.setKeyTextSize(button, isDocumentEdge(action) ? 36 : 24);
-                button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            } else if (action == TextEditPanelModel.Action.SELECT || spec.label().length() > 1)
-                KeyboardTypographyPolicy.setKeyTextSize(button, 16);
+            if (spec.label().length() > 1) KeyboardTypographyPolicy.setKeyTextSize(button, 16);
             if (spec.repeats()) bindRepeat(button, run);
         }
         ViewPolicy.clearPadding(button);
@@ -187,21 +191,6 @@ final class ImeTextEditPanel {
     private static boolean isCursorMove(TextEditPanelModel.Action action) {
         return action == TextEditPanelModel.Action.LEFT || action == TextEditPanelModel.Action.UP
             || action == TextEditPanelModel.Action.DOWN || action == TextEditPanelModel.Action.RIGHT;
-    }
-
-    private static boolean isArrow(TextEditPanelModel.Action action) {
-        return action == TextEditPanelModel.Action.LEFT
-            || action == TextEditPanelModel.Action.UP
-            || action == TextEditPanelModel.Action.DOWN
-            || action == TextEditPanelModel.Action.RIGHT
-            || action == TextEditPanelModel.Action.DOCUMENT_START
-            || action == TextEditPanelModel.Action.DOCUMENT_END;
-    }
-
-    /** `⇤` / `⇥` 的字面框比方向箭头窄，同字号绘制时视觉尺寸明显偏小。 */
-    private static boolean isDocumentEdge(TextEditPanelModel.Action action) {
-        return action == TextEditPanelModel.Action.DOCUMENT_START
-            || action == TextEditPanelModel.Action.DOCUMENT_END;
     }
 
     /** 按下立即执行一次，按住按 {@link BackspaceRepeatPolicy} 的节奏连发，松手或滑出键停止。 */
@@ -283,7 +272,7 @@ final class ImeTextEditPanel {
     private void renderState() {
         Button select = buttons.get(TextEditPanelModel.Action.SELECT);
         if (select == null) return;
-        select.setText(selecting ? "取消选择" : "选择");
+        select.setText(selecting ? "取消选择" : "开始选择");
         select.setContentDescription(selecting ? "取消选择" : "选择模式");
         ViewPolicy.setSelected(select, selecting);
         select.setActivated(selecting);
@@ -437,8 +426,11 @@ final class ImeTextEditPanel {
         ViewPolicy.setVisible(trackpadSelect, enabled);
         modeButton.setText(enabled ? "切换为方向键" : "切换为触控板");
         modeButton.setContentDescription(enabled ? "切换为方向键" : "切换为触控板");
-        ViewPolicy.setEnabled(modeButton, trackpadSettings != null && !modeSaving && !temporaryTrackpad
-            && !preferencesDirectory().isEmpty());
+        boolean switchable = trackpadSettings != null && !modeSaving && !temporaryTrackpad
+            && !preferencesDirectory().isEmpty();
+        ViewPolicy.setEnabled(modeButton, switchable);
+        Button toggle = buttons.get(TextEditPanelModel.Action.TRACKPAD);
+        if (toggle != null) ViewPolicy.setEnabled(toggle, switchable);
     }
 
     /** 触摸仍归原工具按钮，越过按钮边界后显式转交触控板，避免丢掉松手事件。 */

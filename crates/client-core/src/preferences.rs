@@ -624,15 +624,15 @@ pub enum TextEditButton {
     SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格，最后一个放在底排正中；换行固定在右下角。
+/// Android 面板从左列上到下摆前四个，再摆右列前三格：左列复制、剪切、粘贴、全选，右列退格、数字、空格；换行固定在右下角。「选择行」仍是排列里的一项，面板不显示它，排序页也不让它参与排序，留着是为了已保存的排列和旧版本读得回来。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
     vec![
-        Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine,
+        Copy, Cut, Paste, SelectAll, Delete, NumberPad, Space, SelectLine,
     ]
 }
 
-/// 读进来的排列总能变成一份完整的排列：本版本认识的动作按第一次出现的位置保留，不认识的名字（更新的版本加的动作）、重复的动作和不是字符串的元素丢掉，缺的动作按默认排列的先后接在末尾，用户排好的顺序不动。
+/// 读进来的排列总能变成一份完整的排列：本版本认识的动作按第一次出现的位置保留，不认识的名字（更新的版本加的动作）、重复的动作和不是字符串的元素丢掉，缺的动作按默认排列的先后接在末尾，用户排好的顺序不动。补齐后正好是旧默认排列的，换成现在的默认排列（见 [`LEGACY_DEFAULT_TEXT_EDIT_BUTTON_ORDER`]）。
 ///
 /// 这只是面板上按钮的先后，却在偏好文档里和输入方案放在一起：#9802 加了「选择行」以后，旧文档只列着七个动作，整份偏好通不过 [`Preferences::validate`]，iOS 键盘、HarmonyOS 和 Windows 的 Server 都准备不了运行时，用户打不了字（#9975 先补上了缺的动作）。反过来，旧版本读到新版本写的排列，会因为不认识新动作同样整份读不了。所以读的时候一律放宽：丢掉一个本版本画不出来的按钮，更新的版本读回去时会把它接在末尾补上。不是数组时照旧报错。直接交给 [`Preferences::validate`] 的结构体仍按完整、不重复的排列严格校验。
 fn deserialize_text_edit_button_order<'de, D>(d: D) -> Result<Vec<TextEditButton>, D::Error>
@@ -652,8 +652,19 @@ where
             order.push(button);
         }
     }
+    if order == LEGACY_DEFAULT_TEXT_EDIT_BUTTON_ORDER {
+        return Ok(default_text_edit_button_order());
+    }
     Ok(order)
 }
+
+/// 换成现在的默认排列之前的默认排列。已经发出去的版本把它明文写进偏好（Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0、Linux 0.14.0 写前七个，Windows 7 0.3.0 写全八个），补齐后都等于它；读到它就当作没排过顺序，换成现在的默认排列，存盘时按默认排列省掉，那些版本读回去照样读得了。代价是有意排成这个顺序的用户也会被换成新默认，两者在文档里分不出来。
+const LEGACY_DEFAULT_TEXT_EDIT_BUTTON_ORDER: [TextEditButton; 8] = {
+    use TextEditButton::*;
+    [
+        Copy, Paste, SelectAll, Cut, Space, NumberPad, Delete, SelectLine,
+    ]
+};
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

@@ -75,7 +75,7 @@ Status: implemented
 `touch_text_edit_button_order` 等于默认排列时，`PreferencesStore` 写盘（`save`、`recover`，经 `document_for_disk`）不写出这个键。
 
 - 已经发出去的 Android 0.6.0、HarmonyOS 0.3.0-beta、macOS 0.55.0 和 Linux 0.14.0 只认识七个动作，读到带 `select_line` 的排列就整份读不了，Linux 和 HarmonyOS 因此打不了字。它们给这个字段配了 `#[serde(default = "default_text_edit_button_order")]`（在各自标签上核对过），缺这个键时用自己的七个动作。
-- 旧版本写下的七个动作补齐后正好就是现在的默认排列，所以从旧版本升级上来、没在 Android 上排过顺序的用户，存一次以后文件里就没有这个键，退回旧版本也读得了。
+- 旧版本写下的七个动作补齐后是旧默认排列；读入时等于旧默认排列的换成现在的默认排列（[无缝方向区与七个侧键](../feature/2026-11-06-android-text-edit-seamless-panel.md)），所以从旧版本升级上来、没在 Android 上排过顺序的用户，存一次以后文件里就没有这个键，退回旧版本也读得了。
 - 只省在盘上：经 FFI 交给宿主的快照（`load`、`default_preferences`）照旧带着完整排列。Android 的 `TextEditButtonOrder.defaults()` 对默认偏好用 `getJSONArray` 取这个键，在 serde 层 `skip_serializing_if` 会让它抛异常，所以不放在 serde 上，Java 也不用改。
 - 磁盘格式本来就是「等于默认值的键不写出」：`network`、`multilingual_input` 等几十个字段都带 `skip_serializing_if`，产品读取方一律由共享层补默认值。这一条只是让排列也照此办理。
 - 用户在 Android 上排过顺序的排列照常写出，旧版本仍读不了，见「已知上限」。
