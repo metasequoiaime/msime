@@ -231,6 +231,26 @@ pub fn open_private_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
     ensure_regular(options.open(path)?)
 }
 
+/// 只读打开已有的锁文件，不建、不跟随符号链接。给对锁文件所在目录没有写权限、只取共享锁的一方用（iOS 键盘没有完全访问时的 App Group）：flock 不要求描述符可写，取到的锁与读写打开的一方是同一把。文件不在是 `NotFound`。
+pub fn open_existing_lock_file_read_only(path: impl AsRef<Path>) -> io::Result<File> {
+    let path = path.as_ref();
+    crate::storage::reject_symlink(path)?;
+    let mut options = File::options();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    ensure_regular(options.open(path)?)
+}
+
 fn ensure_regular(file: File) -> io::Result<File> {
     let metadata = file.metadata()?;
     if !metadata.is_file() || !has_single_link(&file)? {

@@ -158,6 +158,72 @@ pub fn prepare_runtime_paths_for(
     }
 }
 
+/// 只读地打开别的进程已经准备好的代次：对 `user_data` 和代次目录没有写权限的宿主用（iOS 键盘没有完全访问时，App Group 只读）。校验与 [`prepare_runtime_paths_for`] 相同，只建可写的 `cache`；`user_data` 和代次一个字节也不写：不清暂存目录、不放回重置途中挪开的词库、不并五笔表、不补 n-gram 表、不建反查索引、不回放日志。
+///
+/// 代次还没准备、缺了这些步骤要补的东西（重置途中被杀挪开的主库、还没并进来的五笔表、资源目录带着而代次里没有的 n-gram 表），或者主库格式比这个引擎新，都报 `INCOMPLETE_RUNTIME_GENERATION`（格式报格式错误），调用方改用别的布局，而不是带着缺东西的代次建会话。日志不回放：准备这个代次的一方（App、有完全访问的键盘）已经回放过，学习本来也只经能写的一方落进代次。
+pub fn open_prepared_runtime_paths_for(
+    resources: &Path,
+    user_data: &Path,
+    cache: &Path,
+    content_id: &str,
+    schemes: SchemeSet,
+) -> Result<RuntimePaths> {
+    let main_dictionary = schemes.reads_main_dictionary();
+    let english_required = main_dictionary || schemes.requires_english_dictionary();
+    if !valid_content_id(content_id) {
+        return Err(EngineError::invalid(
+            diagnostics::INVALID_RUNTIME_CONTENT_ID,
+        ));
+    }
+    let result = RuntimePaths {
+        resources: resources.to_owned(),
+        user_data: user_data.to_owned(),
+        cache: cache.to_owned(),
+        dictionaries: user_data.join("dictionaries").join(content_id),
+    };
+    result.validate()?;
+    let resource_root = weakly_canonical(resources)?;
+    let user_root = weakly_canonical(user_data)?;
+    let cache_root = weakly_canonical(cache)?;
+    if roots_overlap(&resource_root, &user_root)
+        || roots_overlap(&resource_root, &cache_root)
+        || roots_overlap(&user_root, &cache_root)
+    {
+        return Err(EngineError::invalid(diagnostics::RUNTIME_ROOTS_OVERLAP));
+    }
+    reject_redirected_directory(user_data)?;
+    reject_redirected_directory(&result.dictionaries)?;
+    reject_redirected_directory(cache)?;
+    fs::create_dir_all(cache)?;
+    reject_redirected_directory(cache)?;
+    let incomplete = || EngineError::failed(diagnostics::INCOMPLETE_RUNTIME_GENERATION);
+    if !generation_ready(&result.dictionaries.join(assets::GENERATION_READY))? {
+        return Err(incomplete());
+    }
+    if main_dictionary {
+        let main_db = result.dictionary(assets::MAIN_DICTIONARY);
+        if !is_real_file(&main_db) {
+            return Err(incomplete());
+        }
+        check_dictionary_format(&main_db, assets::MAIN_DICTIONARY)?;
+        let wubi = resources.join(assets::WUBI_DICTIONARY);
+        // 随包码表里有、工作主词库里还没并进来的五笔表（例如升级后新加的新世纪表）要等能写的一方准备代次时并入，只读的这边不能当它就绪。
+        if is_real_file(&wubi) && lacks_split_wubi_tables(&main_db, &wubi)? {
+            return Err(incomplete());
+        }
+    }
+    if english_required && !is_real_file(&result.dictionary(assets::ENGLISH_DICTIONARY)) {
+        return Err(incomplete());
+    }
+    if GENERATION_COPIES
+        .iter()
+        .any(|name| is_real_file(&resources.join(name)) && !is_real_file(&result.dictionary(name)))
+    {
+        return Err(incomplete());
+    }
+    Ok(result)
+}
+
 /// 代次目录里是不是一个普通文件的 `.ready`。目录、设备或符号链接不算完成的代次，也不跟随、不去替换它所在的代次。
 fn generation_ready(marker: &Path) -> Result<bool> {
     match fs::symlink_metadata(marker) {

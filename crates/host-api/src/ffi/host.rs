@@ -205,6 +205,12 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         /// 已发布的 runtime-options.json；给了时把这次准备的代次写进去，见 [`publish_prepared_dictionaries`]。
         #[serde(default)]
         runtime_options: Option<String>,
+        /// 宿主对 `state_root` 没有写权限（iOS 键盘没有完全访问，#10945）：只读地准备，见 `read_only_state`。不能与 `runtime_options` 同时给。
+        #[serde(default)]
+        read_only_state: bool,
+        /// `read_only_state` 时必填：宿主自己能写、不在 `state_root` 里的目录（扩展自己的容器），放资源校验标记、缓存和只读布局的用户目录。
+        #[serde(default)]
+        private_root: Option<String>,
     }
     response(|| {
         if options.is_null() || length > 16384 {
@@ -227,6 +233,24 @@ pub unsafe extern "C" fn msime_client_prepare_host(
             None => msime_client_core::edition::Edition::full(),
             Some(id) => msime_client_core::edition::Edition::by_id(id).ok_or("unknown edition")?,
         };
+        if options.read_only_state {
+            let private = options
+                .private_root
+                .as_deref()
+                .map(std::path::Path::new)
+                .filter(|path| path.is_absolute())
+                .ok_or("a read-only host needs an absolute private root")?;
+            if published.is_some() {
+                return Err("a read-only host cannot publish runtime options".into());
+            }
+            let document =
+                crate::read_only_state::prepare_read_only_host(resources, state, private, edition)
+                    .map_err(|e| e.to_string())?;
+            return serde_json::from_str(&document).map_err(|e| e.to_string());
+        }
+        if options.private_root.is_some() {
+            return Err("a private root is only for a read-only host".into());
+        }
         let document = prepare_host_configuration_for_edition(resources, state, edition)
             .map_err(|e| e.to_string())?;
         let document: Value = serde_json::from_str(&document).map_err(|e| e.to_string())?;
