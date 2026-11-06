@@ -920,6 +920,14 @@ else()
 endif()
 add_test(NAME windows-floating-toolbar-size-model COMMAND windows-floating-toolbar-size-model)
 set_tests_properties(windows-floating-toolbar-size-model PROPERTIES TIMEOUT 10)
+add_executable(windows-sentence-pack-model tests/ui/sentence_pack_model.cpp)
+if(MSVC)
+  target_compile_options(windows-sentence-pack-model PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-sentence-pack-model PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-sentence-pack-model COMMAND windows-sentence-pack-model)
+set_tests_properties(windows-sentence-pack-model PROPERTIES TIMEOUT 10)
 add_executable(windows-settings-state-directory tests/ui/settings_state_directory.cpp)
 if(MSVC)
   target_compile_options(windows-settings-state-directory PRIVATE /W4 /WX /utf-8)
@@ -961,6 +969,20 @@ else()
 endif()
 add_test(NAME windows-watchdog-policy COMMAND windows-watchdog-policy)
 set_tests_properties(windows-watchdog-policy PROPERTIES TIMEOUT 10)
+# 进程与线程优先级只有在真机上才谈得上：测试先把目标状态写进去再读回来，环境策略
+# 不允许时以 77 跳过，而不是假通过。
+add_executable(windows-process-priority tests/runtime/process_priority.cpp src/system/ProcessPriority.cpp)
+add_executable(windows-thread-priority tests/runtime/thread_priority.cpp src/system/ThreadPriority.cpp)
+foreach(priority_test windows-process-priority windows-thread-priority)
+  target_include_directories(${priority_test} PRIVATE src)
+  if(MSVC)
+    target_compile_options(${priority_test} PRIVATE /W4 /WX /utf-8)
+  else()
+    target_compile_options(${priority_test} PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME ${priority_test} COMMAND ${priority_test})
+  set_tests_properties(${priority_test} PROPERTIES TIMEOUT 10 SKIP_RETURN_CODE 77)
+endforeach()
 # host-api 诊断行只留类别写进 server.log 的规则，只有头文件。
 add_executable(windows-host-api-diagnostic-line tests/runtime/host_api_diagnostic_line.cpp)
 target_include_directories(windows-host-api-diagnostic-line PRIVATE src/system)
@@ -1215,7 +1237,7 @@ add_library(msime-windows-composer STATIC src/ipc/ReplyComposer.cpp src/input/Ch
 target_link_libraries(msime-windows-composer PUBLIC msime-windows-session msime-windows-replies)
 add_library(msime-windows-focused STATIC src/input/FocusedSession.cpp)
 target_link_libraries(msime-windows-focused PUBLIC msime-windows-composer)
-add_library(msime-windows-input STATIC src/input/InputQueue.cpp)
+add_library(msime-windows-input STATIC src/input/InputQueue.cpp src/system/ThreadPriority.cpp)
 target_link_libraries(msime-windows-input PUBLIC msime-windows-focused)
 add_executable(windows-dedicated-english tests/input/dedicated_english.cpp)
 target_link_libraries(windows-dedicated-english PRIVATE msime-windows-input)
@@ -1388,6 +1410,17 @@ else()
 endif()
 add_test(NAME windows-shuangpin-paged-selection COMMAND windows-shuangpin-paged-selection ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-shuangpin-paging.db)
 set_tests_properties(windows-shuangpin-paged-selection PROPERTIES TIMEOUT 30)
+# TIP 新建的宿主会话立即套上用户当前的偏好快照，不停在 runtime-options.json 的版本默认方案（#10867）：同一份全拼宿主选项，只建不套是全拼、带上双拼快照是双拼。真实会话，合成词库。
+add_executable(windows-host-session-preferences tests/input/host_session_preferences.cpp
+               tsf/EngineSessionAdapter.cpp tsf/EngineResponse.cpp)
+target_link_libraries(windows-host-session-preferences PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-host-session-preferences PRIVATE /W4 /WX /UNDEBUG /utf-8)
+else()
+  target_compile_options(windows-host-session-preferences PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-host-session-preferences COMMAND windows-host-session-preferences ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/msime-shuangpin-paging.db)
+set_tests_properties(windows-host-session-preferences PROPERTIES TIMEOUT 30)
 # TIP 续接时候选不在本会话的当前页上（Server 卷轴展开网格里的候选）：到完整候选列表里按文字找唯一的一个、按全局下标选。只模拟宿主边界，不链接共享库。
 add_executable(windows-host-candidate-continuation tests/input/host_candidate_continuation.cpp
                tsf/EngineResponse.cpp)
@@ -1610,7 +1643,7 @@ add_test(NAME windows-input-queue COMMAND windows-input-queue)
 set_tests_properties(windows-input-queue PROPERTIES TIMEOUT 30)
 # 接入生命周期核心后宿主库的调用顺序：测试自己实现 Server 用到的 msime_client_* 并逐条记录，所以直接编 Server 的源文件（含 InputState，核对字段属性记在客户端上），不链共享宿主库。
 add_executable(windows-lifecycle-call-order tests/input/lifecycle_call_order.cpp src/input/FocusedSession.cpp
-               src/input/InputQueue.cpp src/ipc/ServerSession.cpp src/ipc/ReplyComposer.cpp
+               src/input/InputQueue.cpp src/system/ThreadPriority.cpp src/ipc/ServerSession.cpp src/ipc/ReplyComposer.cpp
                src/input/ChineseTextConversion.cpp)
 target_include_directories(windows-lifecycle-call-order PRIVATE src ../../crates/host-api/include ../../shared/contracts)
 target_link_libraries(windows-lifecycle-call-order PRIVATE msime-windows-replies nlohmann_json::nlohmann_json Threads::Threads)
@@ -2059,7 +2092,7 @@ if(WIN32)
   # 候选窗、悬浮状态栏和托盘卡片共用的 UI Automation 提供者（读屏）；UiaReturnRawElementProvider 等在 uiautomationcore，BSTR 与 SAFEARRAY 在 oleaut32。
   target_sources(msime-windows-server PRIVATE src/candidate/AccessibleWindow.cpp)
   target_link_libraries(msime-windows-server PUBLIC uiautomationcore oleaut32)
-  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp src/system/SystemAccent.cpp src/system/UpdateNotifier.cpp src/system/DictionarySyncWorker.cpp
+  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/candidate/InputModeHudWindow.cpp src/candidate/ShuangpinKeymapWindow.cpp src/candidate/TypingEffectOverlay.cpp src/system/ShellLauncher.cpp src/system/DiagnosticLog.cpp src/system/SystemAccent.cpp src/system/UpdateNotifier.cpp src/system/DictionarySyncWorker.cpp src/system/ProcessPriority.cpp
                  src/voice/WaveOverlay.cpp src/voice/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
                  src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
                  src/voice/SystemAsrStream.cpp src/voice/SystemSpeech.cpp

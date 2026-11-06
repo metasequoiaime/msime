@@ -17,6 +17,9 @@ pub enum WordKind {
     Quick,
     Wubi,
     Wubi98,
+    /// 新世纪五笔。按字节比 `wubi98` < `wubixsj`，追加在末尾仍是字母顺序。WebDAV 同步暂不收它，见 [`WordKind::from_synced_name`]。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
 }
 
 impl WordKind {
@@ -27,6 +30,7 @@ impl WordKind {
             Self::Quick => "quick",
             Self::Wubi => "wubi",
             Self::Wubi98 => "wubi98",
+            Self::WubiXsj => "wubixsj",
         }
     }
 
@@ -37,8 +41,16 @@ impl WordKind {
             "quick" => Self::Quick,
             "wubi" => Self::Wubi,
             "wubi98" => Self::Wubi98,
+            "wubixsj" => Self::WubiXsj,
             _ => return None,
         })
+    }
+
+    /// 从网盘读到的事件和检查点里认的类别：[`WordKind::from_name`] 去掉这一版还不经 WebDAV 同步的新世纪五笔，读到它与读到不认识的类别一样只跳过那一条。
+    ///
+    /// 两个方向必须一致。本机这一侧（host-api `dictionary_webdav::word_kind`）不把新世纪的词交给同步；网盘这一侧要是照收，写进本机的词下一轮就不在本机的「我的词条」里，核对会把它当成本机删掉的，向共享日志发出删除，所有设备上的这个词都会被删。打开同步时这里和宿主那一侧一起改。
+    pub fn from_synced_name(name: &str) -> Option<Self> {
+        Self::from_name(name).filter(|kind| *kind != Self::WubiXsj)
     }
 }
 
@@ -76,7 +88,9 @@ impl WordKey {
                 WordKind::Pinyin => code
                     .split('\'')
                     .all(|syllable| !syllable.is_empty() && syllable.bytes().all(letter)),
-                WordKind::Wubi | WordKind::Wubi98 => code.len() <= 4 && code.bytes().all(letter),
+                WordKind::Wubi | WordKind::Wubi98 | WordKind::WubiXsj => {
+                    code.len() <= 4 && code.bytes().all(letter)
+                }
                 WordKind::Quick => {
                     code.len() <= 32
                         && code
@@ -173,6 +187,7 @@ mod tests {
             (WordKind::Pinyin, "shui1", "水"),
             (WordKind::Wubi, "abcde", "词"),
             (WordKind::Wubi98, "a1", "词"),
+            (WordKind::WubiXsj, "abcde", "词"),
             (WordKind::Quick, &"a".repeat(33), "词"),
             (WordKind::Quick, "a_b", "词"),
             (WordKind::English, &"a".repeat(65), "word"),
@@ -204,6 +219,7 @@ mod tests {
     #[test]
     fn kinds_round_trip_through_their_names_and_sort_by_name() {
         let mut kinds = [
+            WordKind::WubiXsj,
             WordKind::Wubi98,
             WordKind::Pinyin,
             WordKind::English,
@@ -217,6 +233,7 @@ mod tests {
         assert_eq!(names, sorted);
         for kind in kinds {
             assert_eq!(WordKind::from_name(kind.name()), Some(kind));
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.name());
         }
         assert_eq!(WordKind::from_name("bundled"), None);
     }

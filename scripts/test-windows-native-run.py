@@ -57,6 +57,7 @@ ARGUMENTS = {
     "input/wubi_commit_owner.cpp": ["platforms/windows/tests/input/fixtures/msime-wubi-commit-owner.db"],
     "input/backspace_selected_phrase.cpp": ["platforms/windows/tests/input/fixtures/msime-phrase-backspace.db"],
     "input/shuangpin_paged_selection.cpp": ["platforms/windows/tests/input/fixtures/msime-shuangpin-paging.db"],
+    "input/host_session_preferences.cpp": ["platforms/windows/tests/input/fixtures/msime-shuangpin-paging.db"],
     "input/host_online_candidates.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "input/cloud_seat_navigation.cpp": ["platforms/windows/tests/input/fixtures/msime-pinyin-online.db"],
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
@@ -101,6 +102,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
          "src/input/ChineseTextConversion.cpp", "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"],
         True,
     ),
+    # TIP 新建宿主会话时立即套上偏好快照（#10867）：真实会话，合成词库。
+    "input/host_session_preferences.cpp": (["tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True),
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),

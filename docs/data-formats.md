@@ -106,7 +106,7 @@ user_data/
 
 **工作副本**是用户可写的持久数据，不是缓存：学习、删词、个人词典编辑直接写它，日志同时记一份；换代次时由日志回放补齐。工作副本保持回滚日志模式（不切 WAL），因为重置学习数据把它们挪作备份时不带旁路文件。
 
-**五笔反查索引**：`CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86("value")` 和 `idx_wubi98_value`，只在代次副本里补建；失败只记日志，反查照常正确，只是慢。
+**五笔反查索引**：`CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86("value")`、`idx_wubi98_value` 和 `idx_wubixsj_value`，表在才建，只在代次副本里补建；失败只记日志，反查照常正确，只是慢。
 
 ## 4. `msime-pinyin.db`
 
@@ -261,11 +261,12 @@ CREATE TABLE IF NOT EXISTS user_dictionary_operations(
 | `pinyin` | 主库的全拼表（按 [§4.1](#41-拼音表) 的规则选表，同时写 `jp`） | `'` 分隔的全拼 |
 | `wubi` | 主库的 `wubi86` | 1 到 4 个 `a`-`y` |
 | `wubi98` | 主库的 `wubi98` | 同上 |
+| `wubixsj` | 主库的 `wubixsj`（新世纪五笔） | 同上 |
 | `quick` | 主库的 `quick_parases` | 1 到 32 个字母或数字 |
 | `english` | 英文库的 `english_words`，`display` 列是展示形式 | 1 到 64 个字母 |
 | `cantonese` | 不回放，计为跳过：粤语方案查词时直接读日志里的 upsert 行，并进 `msime-cantonese.db` 的候选（`cantonese::UserWords`），同一个词两边都有时取较大的权重。`user_inserted=1` 是用户加的词和打字造的词，`user_inserted=0` 是粤语调频写下的权重（`cantonese::learning`）。词库快照不收这些行，整份换上快照时宿主从旧日志抄进新的一代（`add_cantonese_words`，`user_inserted` 照原样） | 不带声调的粤拼音节，单个空格分隔（与 [§13](#13-语言词库msime-cantonesedbmsime-zhuyindbmsime-strokedb) 的 `entries.key` 同一写法） |
 
-`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行）计为跳过，留在日志里。**未知的 `dictionary` 值和存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒**，所以新增取值必须先让引擎认得它，再往日志里写。`cantonese` 是这样加进来的最近一个取值：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
+`operation='delete'` 是墓碑，回放时删除对应行；`user_inserted=1` 表示用户自己加的词（删除后仍记着它曾是用户的）。权重低于 1 的 `pinyin` upsert 是旧版调频留下的，回放时跳过，`ensure_user_database` 会把它们删掉。代次里没有对应表的行（只读英文库的代次里的非英文行，还没有五笔表时的五笔行，词库还没有 `wubixsj` 表时的新世纪行；只看这一行自己的表）计为跳过，留在日志里。`wubixsj` 行只出自选着新世纪五笔的用户：新世纪方案下的调频、删词和手动加的词，以及选着新世纪时拼音造词派生的五笔词（`user_dictionary::wubi_learning`）；86/98 用户的日志里不会出现它。这一版不认识的 `dictionary` 值（更新的版本加的种类，降级后读到）同样计为跳过、留在日志里，回到认识它的版本时照常回放。**存不进去的 `key` 算失败行，任何一行失败整次回放回滚、代次准备被拒。** 跳过未知取值是从 2026-11 的版本开始的，更早发布的引擎仍把未知取值算失败行，所以新增取值时要说明降级到那些版本不受支持，或者等宽松读取的版本覆盖了足够多的用户再往日志里写。`cantonese` 加进来时还没有这条宽松读取：认得它之前的引擎（降级安装）遇到用户加过粤语词的日志会拒绝准备新代次。
 
 ### 6.3 其余表
 

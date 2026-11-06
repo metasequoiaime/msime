@@ -924,7 +924,7 @@ final class ImeLayoutRows {
         if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
         s.imeStyler.styleButton(key, role, s.skin);
-        if (role == KeyboardKeyRole.ACCENT) KeyboardTypographyPolicy.setKeyTextSize(key, 15);
+        if (role == KeyboardKeyRole.ACCENT) KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
         ViewPolicy.show(key);
         addNineKey(parent, key);
     }

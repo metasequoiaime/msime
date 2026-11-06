@@ -17,7 +17,7 @@ class AboutForm {
 public:
   enum Id { version = 2700, check_update, update_status, update_detail, download, mirror, system_info, copy_system,
     usage_reporting, license, privacy, notices, help, feedback_kind, feedback_detail, feedback_preview,
-    copy_feedback, submit_feedback, github, telegram, notice };
+    copy_feedback, submit_feedback, github, telegram, notice, cantonese_shuangpin_credit, cantonese_shuangpin_repository };
   struct Command { bool handled = false, update = false, notices = false; std::vector<Change> changes; std::optional<std::wstring> link, copy; };
   int create(const std::function<HWND(const wchar_t*, const wchar_t*, DWORD, int, int, int)>& row, std::string app_version) {
     app_version_ = std::move(app_version); int top = 0;
@@ -36,7 +36,11 @@ public:
     add(system_info, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 140);
     button(copy_system, L"复制系统信息");
     add(-1, L"STATIC", L"许可与隐私", SS_LEFT);
-    button(license, L"查看 GPL-3.0 开源许可"); button(notices, L"打开随包第三方组件许可"); button(privacy, L"查看隐私政策");
+    button(license, L"查看 GPL-3.0 开源许可"); button(notices, L"打开随包第三方组件许可");
+    // 粤语双拼键位方案设计者的致谢（#9799），措辞与 WinUI 设置相同（AboutPageModel.h）；这里没有弹窗，说明直接写在第三方组件许可下面。
+    add(cantonese_shuangpin_credit, L"STATIC", (std::wstring(cantonese_shuangpin_credit_title) + L"（" + std::wstring(cantonese_shuangpin_credit_designer) +
+        L"）\r\n" + std::wstring(cantonese_shuangpin_credit_text)).c_str(), SS_LEFT, 76);
+    button(cantonese_shuangpin_repository, L"打开粤语双拼方案仓库"); button(privacy, L"查看隐私政策");
     add(usage_reporting, L"BUTTON", L"匿名使用统计", WS_TABSTOP | BS_AUTOCHECKBOX);
     add(-1, L"STATIC", L"每天最多一条活跃记录；进程退出或崩溃后发送会话记录，崩溃时附错误摘要和仅含模块文件名的调用栈。包含随机事件 id、平台、版本和本机随机安装 id；不含输入内容、候选、剪贴板、账号、硬件信息或用户目录。默认开启，可关闭；失败最多暂存 64 条，关闭后不再发送并清空待发送记录。发送到 https://api.msime.app/v1/telemetry/events。", SS_LEFT, 180);
     add(-1, L"STATIC", L"帮助与反馈", SS_LEFT);
@@ -116,6 +120,7 @@ public:
     else if (id == license) action.link = L"https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
     else if (id == privacy) action.link = L"https://msime.app/privacy/";
     else if (id == notices) action.notices = true;
+    else if (id == cantonese_shuangpin_repository) action.link = std::wstring(cantonese_shuangpin_scheme_repository);
     else if (id == usage_reporting) action.changes.push_back({{"usage_reporting"}, SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED});
     return action;
   }

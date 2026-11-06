@@ -128,7 +128,9 @@ import {
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
 } from './candidate/TranslationPolicy';
 import { TranslationSensePolicy } from './candidate/TranslationSensePolicy';
+import { CandidateGlossCardPolicy, GlossCardAnswer, GlossCardLookup } from './candidate/CandidateGlossCardPolicy';
 import pasteboard from '@ohos.pasteboard';
+import { BusinessError } from '@ohos.base';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
@@ -516,6 +518,8 @@ export interface ExpandedCandidate {
   readonly hunEum: string;
   /** 同 CandidateEntry.confidentCorrection。 */
   readonly confidentCorrection: boolean;
+  /** 释义卡片拿去查译文的 Engine 原文和来源（显示的 `text` 可能已转成繁体）。只用于查译文，不是管理操作的序号。 */
+  readonly subject: TranslationCandidate;
 }
 
 interface CandidateSnapshot {
@@ -933,7 +937,7 @@ interface PreparedPreferences {
   touch_wubi_layout?: string;
   nine_key_shuangpin_profile?: string;
   nine_key_shuangpin_custom_profile?: Object;
-  /** `wubi86` 或 `wubi98`；旧文档里没有这个键，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
+  /** `wubi86`、`wubi98` 或 `wubixsj`（新世纪五笔）；旧文档里没有这个键、或者是不认识的值，按 86 版。引擎自己从转交的整份文档里读它选表，这里只用来给五笔方案起名。 */
   wubi_profile?: string;
   touch_keyboard_layout: string;
   /** The shared global theme id; the ids and their palettes come from the theme catalog. */
@@ -977,6 +981,8 @@ interface PreparedPreferences {
   menu_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
+  /** 粤拼和粤语双拼输出简体，繁转简在 Engine 里做；关着时文档里没有这个键。 */
+  cantonese_simplified_output?: boolean;
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
@@ -1160,9 +1166,9 @@ export interface KeyboardPreferences {
   readonly shuangpinProfile: string;
   /** `touch_shuangpin_layout`：双拼手机键盘的 26 / 14 / 18 键布局。 */
   readonly shuangpinLayout: string;
-  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换 86 / 98 版后保留。 */
+  /** `touch_wubi_layout`：五笔手机键盘的 26 / 14 键布局，切换五笔版本后保留。 */
   readonly wubiLayout: string;
-  /** 归一后的五笔版本，决定五笔方案显示「86 五笔」还是「98 五笔」。 */
+  /** 归一后的五笔版本，决定五笔方案显示「86 五笔」「98 五笔」还是「新世纪五笔」。 */
   readonly wubiProfile: string;
   readonly layout: string;
   /** Shared touch-scheme ids enabled in the native picker, in shared declaration order. */
@@ -2195,6 +2201,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
+      this.cantoneseSimplified = preferences.cantonese_simplified_output === true;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
@@ -2538,6 +2545,17 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Whether the Engine's output is being converted to traditional. */
   usesTraditional(): boolean {
     return this.traditional;
+  }
+
+  /** 简繁按钮和功能面板「繁」显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  showsTraditional(): boolean {
+    return ChineseOutputPolicy.showsTraditional(this.characterSetFollowsCantonese(), this.traditional,
+      this.cantoneseSimplified);
+  }
+
+  /** 见 `ChineseOutputPolicy.switchFollowsCantonese`。 */
+  private characterSetFollowsCantonese(): boolean {
+    return ChineseOutputPolicy.switchFollowsCantonese(this.schemeName, this.englishMode);
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -3346,7 +3364,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       capsLock: this.capsLock,
       // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written. 固定标点锁定时按锁定值显示（usesChinesePunctuation）。
       chinesePunctuation: this.usesChinesePunctuation() && !this.writesAsciiPunctuation(),
-      fullWidth: this.fullWidth, traditional: this.traditional
+      fullWidth: this.fullWidth, traditional: this.showsTraditional()
     };
   }
 
@@ -3457,6 +3475,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * The switch moves only once the store has taken the write: the reload that follows skips this session's own revision, so a refused write that still flipped the flag would convert output the settings page says is off. Returns the state now in effect.
    */
   toggleCharacterSet(): boolean {
+    if (this.characterSetFollowsCantonese()) {
+      // 繁转简在 Engine 里做：偏好交给会话后 Engine 在空闲时重建，组字中切换时等这段组字结束才生效。
+      this.cantoneseSimplified = ChineseOutputPolicy.toggledCantoneseSimplified(this.cantoneseSimplified,
+        (key: string, value: boolean): boolean => this.writePreference(key, value));
+      return this.showsTraditional();
+    }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
       return this.traditional;
     }
@@ -5429,6 +5453,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 上一下按键振动还没交给振动服务。这时再按一下就不振了：排队的振动会在手指离开后才一串串地振。 */
   private vibrationPending: boolean = false;
   private traditional: boolean = false;
+  /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
+  private cantoneseSimplified: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
@@ -6218,6 +6244,123 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
     }
     return result;
+  }
+
+  /** 候选栏这一页第 `index` 个候选交给翻译通路的样子（Engine 原文和来源），释义卡片按它查；序号不在这一页时为 null。 */
+  pageTranslationCandidate(index: number): TranslationCandidate | null {
+    const engineIndex: number = this.engineCandidateIndex(index);
+    if (engineIndex < 0 || engineIndex >= this.currentCandidates.length) return null;
+    const candidate: Candidate = this.currentCandidates[engineIndex];
+    return { text: candidate.text, source: candidate.source };
+  }
+
+  /**
+   * 释义卡片（#10915）：长按的这一个候选在各目标语言下本机已经有的答案，不联网。
+   *
+   * 离线英文释义和各语言的离线释义词典现查；在线服务只看候选栏此前答过、还在缓存里的译文，没答过也不在失败冷却期里的记成还要问（`wanted`），由 `glossCardFetch` 去问。候选翻译和离线释义都没开（共享层不给查询）时为 null。
+   */
+  glossCardLookup(subject: TranslationCandidate): GlossCardLookup | null {
+    const query: TranslationQuery | null = this.glossCardQuery(subject);
+    if (query === null) return null;
+    const english: TranslationEntry[] = [];
+    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
+      this.appendOfflineGloss(query, english);
+    }
+    const offline: Map<string, TranslationEntry[]> = this.offlineTargetGlosses(query);
+    const provider: string = TranslationPolicy.provider(query);
+    const answers: GlossCardAnswer[] = [];
+    for (const target of TranslationPolicy.targets(query)) {
+      const englishGloss: string | null = target === 'en'
+        ? CandidateGlossCardPolicy.translationOf(english, subject.text) : null;
+      let online: string | null = null;
+      let wanted: boolean = false;
+      if (CandidateGlossCardPolicy.asksProvider(provider, target, query.english_gloss, englishGloss)) {
+        for (const item of this.glossCardPlan(query, target)) {
+          const key: string = TranslationPolicy.cacheKey(query, target, item);
+          const cached: string | undefined = this.translationCache.get(key);
+          if (cached !== undefined) {
+            online = cached;
+            continue;
+          }
+          const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
+          if (negativeUntil === undefined || negativeUntil <= Date.now()) wanted = true;
+        }
+      }
+      answers.push({
+        target: target,
+        english: englishGloss,
+        offline: CandidateGlossCardPolicy.translationOf(offline.get(target) ?? [], subject.text),
+        online: online,
+        wanted: wanted && online === null
+      });
+    }
+    return { provider: provider, answers: answers };
+  }
+
+  /**
+   * 释义卡片：为 `lookup` 里还要问的那几种语言各请求一次在线服务，只问这一个候选。
+   *
+   * 走候选栏同一条 `fetchTargetTranslations`：同一份翻译计划、缓存和失败冷却，同样先问隐私政策授权，答到的写进缓存，候选栏之后直接用。候选栏换了一页、键盘换了会话或服务换了时作废，答 null。
+   */
+  async glossCardFetch(subject: TranslationCandidate, lookup: GlossCardLookup): Promise<GlossCardLookup | null> {
+    const query: TranslationQuery | null = this.glossCardQuery(subject);
+    if (query === null || TranslationPolicy.provider(query) !== lookup.provider) return null;
+    const epoch: number = this.translationEpoch;
+    const handle: number = this.handle;
+    const deadline: number = Date.now() + 6000;
+    const answers: GlossCardAnswer[] = [];
+    for (const answer of lookup.answers) {
+      if (!answer.wanted) {
+        answers.push(answer);
+        continue;
+      }
+      const covered: TranslationEntry[] = answer.english === null ? []
+        : [{ text: subject.text, translation: answer.english }];
+      const answered: TranslationEntry[] = [];
+      const result: TranslationFetchResult = await this.fetchTargetTranslations(query, answer.target,
+        lookup.provider, covered, answered, epoch, handle, deadline);
+      if (!result.current) return null;
+      answers.push(CandidateGlossCardPolicy.answered(answer,
+        CandidateGlossCardPolicy.translationOf(answered, subject.text)));
+    }
+    return { provider: lookup.provider, answers: answers };
+  }
+
+  /** 把一段文字写进系统剪贴板；成功时答 null，失败时答剪贴板服务的错误码（没有码时为 undefined）。 */
+  async copyText(text: string): Promise<number | undefined | null> {
+    try {
+      await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text));
+      return null;
+    } catch (error) {
+      KeyboardLog.error(`clipboard write failed: ${describeError(error)}`);
+      return (error as BusinessError).code;
+    }
+  }
+
+  /** 释义卡片的查询文档：共享层此刻的翻译查询，换成只问这一个候选（`CandidateGlossCardPolicy.cardQuery`）。 */
+  private glossCardQuery(subject: TranslationCandidate): TranslationQuery | null {
+    if (this.handle === 0) return null;
+    try {
+      const reply: NativeReply<TranslationQuery | null> =
+        JSON.parse(client.translationQuery(this.handle)) as NativeReply<TranslationQuery | null>;
+      const query: TranslationQuery | null = NativeReplyPolicy.successfulValue<TranslationQuery>(reply);
+      return query === null ? null : CandidateGlossCardPolicy.cardQuery(query, subject);
+    } catch (error) {
+      KeyboardLog.error(`gloss card query unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** 这一个候选在 `target` 下的翻译计划，与候选栏问服务前算的是同一份。 */
+  private glossCardPlan(query: TranslationQuery, target: string): TranslationPlanItem[] {
+    try {
+      const reply: NativeReply<TranslationPlanItem[]> = JSON.parse(
+        client.translationPlan(TranslationPolicy.planRequest(target, query.candidates))) as NativeReply<TranslationPlanItem[]>;
+      return reply.ok === true && Array.isArray(reply.value) ? reply.value : [];
+    } catch (error) {
+      KeyboardLog.error(`gloss card plan unavailable: ${describeError(error)}`);
+      return [];
+    }
   }
 
   /** 只传当前笔画到原生工作线程；不截图、不联网、不保留文字或笔画日志。 */
@@ -8444,7 +8587,8 @@ export class KeyboardSession implements HardwareKeyTarget {
             TranslationPolicy.sourceGetsNoGloss(candidate.source) ? null : candidate.translation ?? null,
             this.candidateGlossEnabled),
           hunEum: CandidateGlossPolicy.hunEum(hanja, candidate.annotation),
-          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction)
+          confidentCorrection: CorrectionMarkPolicy.confident(candidate.confident_correction),
+          subject: { text: candidate.text, source: candidate.source }
         });
       }
       return entries;

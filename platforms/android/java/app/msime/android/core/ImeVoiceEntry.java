@@ -474,37 +474,43 @@ final class ImeVoiceEntry {
     private void buildHoldActions() {
         if (!(listeningPanel instanceof LinearLayout column)) return;
         if (actionsRow != null) column.removeView(actionsRow);
+        // 面板在键区几何那一遍之后才建，又挂在键行和功能行之外，键帽的键距、行距要在这里自己套（#10966）。外边距占在每行原来的高度里：按钮减去上下两份半行距，整行外框不变，上方聆听区不被挤小，控制行仍与原功能行等高。
+        int rowInsets = s.halfSpacingPixels(s.touchRowSpacingTenths) * 2;
+        int buttonHeight = BoundsPolicy.atLeast(s.pixels(44) - rowInsets, 1);
         LinearLayout actions = LayoutPolicy.column(s);
         LinearLayout cancelRow = LayoutPolicy.row(s);
         cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
         holdCancelButton = holdButton("取消", "取消本次语音", this::cancel);
-        cancelRow.addView(holdCancelButton, new LinearLayout.LayoutParams(0, s.pixels(44), 2));
+        cancelRow.addView(holdCancelButton, new LinearLayout.LayoutParams(0, buttonHeight, 2));
         cancelRow.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
         actions.addView(cancelRow, LayoutPolicy.matchWidthWrapParams());
         LinearLayout utilities = LayoutPolicy.row(s);
         utilities.addView(holdButton("符", "锁定语音中打开符号", () -> {
             if (locked) s.imePanels.showSymbolPanel();
-        }), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
-        utilities.addView(holdPunctuation("！", "？"), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        }), new LinearLayout.LayoutParams(0, buttonHeight, 1));
+        utilities.addView(holdPunctuation("！", "？"), new LinearLayout.LayoutParams(0, buttonHeight, 1));
         utilities.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
-        utilities.addView(holdPunctuation("，", "。"), new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        utilities.addView(holdPunctuation("，", "。"), new LinearLayout.LayoutParams(0, buttonHeight, 1));
         Button other = holdButton("其他", "锁定语音编辑操作", this::toggleEditPopup);
-        utilities.addView(other, new LinearLayout.LayoutParams(0, s.pixels(44), 1));
+        utilities.addView(other, new LinearLayout.LayoutParams(0, buttonHeight, 1));
         holdUtilities = utilities;
         enableHoldUtilities(false);
         actions.addView(utilities, LayoutPolicy.matchWidthWrapParams());
         int rowHeight = coveredActionRow != null && coveredActionRow.getHeight() > 0
             ? coveredActionRow.getHeight() : s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP);
+        int controlHeight = BoundsPolicy.atLeast(rowHeight - rowInsets, 1);
         LinearLayout controls = LayoutPolicy.row(s);
         holdLockButton = holdButton("🔓", "滑到此处松手锁定录音", () -> {});
-        controls.addView(holdLockButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        controls.addView(holdLockButton, new LinearLayout.LayoutParams(0, controlHeight, 1));
         holdSpaceButton = holdButton("松开发送", "长按模式，松开发送", () -> {});
-        controls.addView(holdSpaceButton, new LinearLayout.LayoutParams(0, rowHeight, 3));
+        controls.addView(holdSpaceButton, new LinearLayout.LayoutParams(0, controlHeight, 3));
         holdSendButton = holdButton("发送", "发送本次语音", this::finishListening);
         finishButton = holdSendButton;
-        controls.addView(holdSendButton, new LinearLayout.LayoutParams(0, rowHeight, 1));
+        controls.addView(holdSendButton, new LinearLayout.LayoutParams(0, controlHeight, 1));
         actions.addView(controls, LayoutPolicy.matchWidthWrapParams());
         column.addView(actions, LayoutPolicy.matchWidthWrapParams());
+        s.imeStyler.applyKeyboardGeometry(actions);
+        ViewPolicy.setHorizontalPaddingPreservingVertical(actions, s.imeStyler.keyAreaEdgePadding());
         actionsRow = actions;
     }
 

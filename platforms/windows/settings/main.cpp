@@ -73,6 +73,7 @@
 #include "PreferencePath.h"
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
+#include "SentencePackModel.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
 #include "SettingsNavIcons.h"
@@ -149,6 +150,7 @@ namespace ais = msime::settings::ai;
 namespace am = msime::settings::account;
 namespace mc = msime::settings::mcp;
 namespace ds = msime::settings::dictionary_sync;
+namespace spk = msime::settings::sentence_pack;
 
 struct Response {
   std::string text;
@@ -377,7 +379,7 @@ std::wstring lexicon_kind_label(std::wstring_view kind) {
 
 // What a code looks like in each dictionary, as the shared page hints it.
 std::wstring lexicon_key_hint(std::wstring_view kind) {
-  if (kind == L"wubi" || kind == L"wubi98")
+  if (kind == L"wubi" || kind == L"wubi98" || kind == L"wubixsj")
     return L"1–4 个字母";
   if (kind == L"quick_phrase")
     return L"1–32 个字母";
@@ -419,7 +421,7 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
   if (code == L"dictionary_invalid_entry") {
     if (kind == L"pinyin")
       return L"拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
-    if (kind == L"wubi" || kind == L"wubi98")
+    if (kind == L"wubi" || kind == L"wubi98" || kind == L"wubixsj")
       return L"五笔编码须为 1 到 4 个字母。";
     if (kind == L"quick_phrase")
       return L"快捷短语编码只能包含英文字母，长度 1 到 32。";
@@ -4340,9 +4342,11 @@ private:
     flush_pending();
     if (id == current_page_ && focus_row_.empty())
       return;
-    // 每次进入「输入」页都重读已安装的辅助码表插件。
-    if (id == "typing" && id != current_page_)
+    // 每次进入「输入」页都重读已安装的辅助码表插件和整句模型资源包状态（模型可能在别处装上或删掉，上次读失败的也借此重试）。
+    if (id == "typing" && id != current_page_) {
       helpcode_packs_stale_ = true;
+      spk::page_entered(sentence_packs_);
+    }
     // 与共享页一样，每次进入「剪贴板」页都重读历史，并重新查一次能否发到云剪贴板。
     if (id == "clip" && id != current_page_) {
       reset_cloud_clipboard_draft();
@@ -13547,10 +13551,10 @@ private:
 
   // ---- 输入 ----
 
-  // One text's codes in the 86 and 98 tables, as `wubi_codes` answers them, short codes first.
+  // 一段文字在各码表里的编码，顺序同 `ism::wubi_profiles`（86、98、新世纪），由 `wubi_codes` 回答，短码在前。
   struct WubiTextCodes {
     std::wstring text;
-    std::vector<std::wstring> wubi86, wubi98;
+    std::array<std::vector<std::wstring>, ism::wubi_profiles.size()> codes;
   };
 
   struct WubiCodeLookup {
@@ -13559,7 +13563,7 @@ private:
     bool truncated = false;
   };
 
-  // 五笔查码, as the shared page's WubiCodeLookupSection (packages/ui/src/settings/wubi-code-lookup-section.tsx): the text goes to the dictionary request `wubi_codes`, read-only, and every distinct character (and the whole text as one word) is listed with its 86 and 98 codes, short codes first.
+  // 五笔查码与共享页的 `WubiCodeLookupSection`（`packages/ui/src/settings/wubi-code-lookup-section.tsx`）一致：文字交给只读的 `wubi_codes` 请求，列出每个不同的字和整段词在 86、98、新世纪表里的编码，短码在前。
   void build_wubi_code_lookup(StackPanel const &page) {
     auto group = add_group(page, L"五笔查码");
     TextBox input;
@@ -13610,22 +13614,24 @@ private:
             12, palette_.sub));
     }
     add_row(group, 0xE721, L"查汉字的五笔编码",
-            L"输入或粘贴汉字，列出每个字的 86 和 98 五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。",
+            L"输入或粘贴汉字，列出每个字的 86、98 和新世纪五笔编码，简码在前、全码在后。打字时也能查：五笔拼音混输关闭时先按 z 再打拼音，候选后面标着它的五笔编码。",
             nullptr, below);
   }
 
-  // The result table: 文字, then the 86 and 98 columns, the chosen table marked （当前）; a table without the text's codes shows —.
+  // 结果表先列文字，再按 `ism::wubi_profiles` 顺序始终列出三个码表；选用的表标「（当前）」，存储值未知时与引擎一样标 86，没有编码的表显示「—」。
   FrameworkElement wubi_code_table(std::vector<WubiTextCodes> const &rows) {
     Grid table;
     table.ColumnSpacing(16);
     table.RowSpacing(6);
-    for (auto width : {GridLength{1, GridUnitType::Auto}, GridLength{1, GridUnitType::Star},
-                       GridLength{1, GridUnitType::Star}}) {
+    ColumnDefinition text_column;
+    text_column.Width(GridLength{1, GridUnitType::Auto});
+    table.ColumnDefinitions().Append(text_column);
+    for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i) {
       ColumnDefinition column;
-      column.Width(width);
+      column.Width(GridLength{1, GridUnitType::Star});
       table.ColumnDefinitions().Append(column);
     }
-    const auto profile = document_.String(L"wubi_profile", L"wubi86");
+    const auto current = ism::wubi_profile_index(document_.String(L"wubi_profile", L"wubi86"));
     const auto place = [&table](FrameworkElement const &cell, int32_t row, int32_t column) {
       Grid::SetRow(cell, row);
       Grid::SetColumn(cell, column);
@@ -13638,8 +13644,10 @@ private:
     };
     add_row_definition();
     place(make_text(L"文字", 12, palette_.sub), 0, 0);
-    place(make_text(profile == L"wubi86" ? L"86 五笔（当前）" : L"86 五笔", 12, palette_.sub), 0, 1);
-    place(make_text(profile == L"wubi98" ? L"98 五笔（当前）" : L"98 五笔", 12, palette_.sub), 0, 2);
+    for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i)
+      place(make_text(std::wstring(ism::wubi_profiles[i].title) + (i == current ? L"（当前）" : L""), 12,
+                      palette_.sub),
+            0, static_cast<int32_t>(i) + 1);
     const auto joined = [](std::vector<std::wstring> const &codes) {
       if (codes.empty())
         return std::wstring(L"—");
@@ -13654,11 +13662,11 @@ private:
       auto word = make_text(item.text, 14, palette_.text);
       word.IsTextSelectionEnabled(true);
       place(word, row, 0);
-      for (int32_t column = 1; column <= 2; ++column) {
-        auto codes = make_text(joined(column == 1 ? item.wubi86 : item.wubi98), 14, palette_.text);
+      for (std::size_t i = 0; i < item.codes.size(); ++i) {
+        auto codes = make_text(joined(item.codes[i]), 14, palette_.text);
         codes.FontFamily(FontFamily(L"Consolas"));
         codes.IsTextSelectionEnabled(true);
-        place(codes, row, column);
+        place(codes, row, static_cast<int32_t>(i) + 1);
       }
       ++row;
     }
@@ -13692,12 +13700,16 @@ private:
             if (!response.ok)
               throw std::runtime_error("wubi_codes refused");
             const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+            // 较早的宿主没有新增码表的键，直接 `GetNamedArray` 会抛异常；缺少的那一列保持为空并显示「—」。
             const auto read = [](JsonObject const &object) {
-              WubiTextCodes codes{named_string(object, L"text"), {}, {}};
-              for (auto const &code : object.GetNamedArray(L"wubi86"))
-                codes.wubi86.emplace_back(code.GetString().c_str());
-              for (auto const &code : object.GetNamedArray(L"wubi98"))
-                codes.wubi98.emplace_back(code.GetString().c_str());
+              WubiTextCodes codes{named_string(object, L"text"), {}};
+              for (std::size_t i = 0; i < ism::wubi_profiles.size(); ++i) {
+                const hstring key{ism::wubi_profiles[i].id};
+                if (!object.HasKey(key))
+                  continue;
+                for (auto const &code : object.GetNamedArray(key))
+                  codes.codes[i].emplace_back(code.GetString().c_str());
+              }
               return codes;
             };
             WubiCodeLookup lookup;
@@ -13836,8 +13848,19 @@ private:
                          }));
     }
     if (scheme == L"wubi") {
-      select_row(group, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
-                 {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
+      // 下拉框的选项和名字在 InputSettingsModel.h 的 `wubi_profiles`，Win7 设置用同一张表。存储值不认识时选中 86 五笔，与共享偏好库的读法一样；只有用户自己选了才写回。
+      std::vector<Option> profiles;
+      for (auto const &profile : ism::wubi_profiles)
+        profiles.push_back({std::wstring(profile.id), std::wstring(profile.title)});
+      const auto stored_profile = document_.String(L"wubi_profile", L"wubi86");
+      auto profile_combo = select_control(
+          L"五笔方案", std::move(profiles),
+          std::wstring(ism::wubi_profiles[ism::wubi_profile_index(stored_profile)].id),
+          [this](std::wstring const &value) {
+            change([&](PreferencesDocument &doc) { doc.SetString(L"wubi_profile", value); }, false);
+          });
+      A11y::SetAutomationId(profile_combo, L"wubi-profile");
+      add_row(group, 0xE8AB, L"五笔方案", L"", profile_combo);
       bool_row(group, 0xE8D2, L"五笔拼音混输",
                L"五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。",
                L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
@@ -14249,11 +14272,10 @@ private:
     append_row_frame(group, save).Padding(Thickness{row_inset, 10, row_inset, 10});
   }
 
+  // 画页面时按需读一次资源包状态（SentencePackModel.h）：还没读回过、或进页后要重读，且没有正在读的。
   void request_sentence_packs() {
-    if (!indexing_ && sentence_pack_statuses_.empty() && !sentence_packs_requested_) {
-      sentence_packs_requested_ = true;
+    if (!indexing_ && spk::wants_read(sentence_packs_))
       refresh_sentence_packs();
-    }
   }
 
   // 「整句联想」的「标准 / 增强」，与手机宿主的同名选择写同一个 `sentence_association.neural_keyboard`：增强在每次按键时用键盘模型重排整句，默认开（缺键按开读）；host-api 只在这台电脑跑得进逐键预算时才挂上模型，跑不进时与标准相同。手机上的「关闭」在这里是「更多选项」里的「本地整句联想」；逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），所以那一项关着时这一行照样可选，与共享设置页相同。不带键盘模型的版本没有增强可选，不列这一行。
@@ -14326,29 +14348,21 @@ private:
 
   void sentence_pack_row(StackPanel const &group, std::wstring const &pack,
                          std::wstring const &title) {
-    const auto status = sentence_pack_status(pack);
     const bool installing = sentence_pack_installing_.count(pack) > 0;
-    const bool importing = sentence_pack_importing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
-    std::wstring subtitle;
-    if (installing)
-      subtitle = importing ? L"正在导入和校验模型…" : L"正在下载和校验模型…";
-    else if (removing)
-      subtitle = L"正在删除模型…";
-    else if (status == L"installed")
-      subtitle = L"已安装；切换一次输入框后生效。";
-    else if (status == L"outdated")
-      subtitle = L"已安装的文件需要更新。";
-    else
-      subtitle = L"模型尚未安装。";
+    // 副标题和按钮由 SentencePackModel.h 决定：状态没读回时只说「正在读取」、读失败时只给「重试」，都不给「下载」（#10839）。
+    const auto view = spk::row_view(sentence_packs_.knowledge, sentence_pack_status(pack), installing,
+                                    sentence_pack_importing_.count(pack) > 0, removing,
+                                    grammar_updates_available_.count(pack) > 0);
+    const std::wstring subtitle(view.subtitle);
     StackPanel actions;
     actions.Orientation(Orientation::Horizontal);
     actions.Spacing(8);
     // 没装或要更新时，除了联网下载，也可以先用浏览器下载列出的文件再「从文件导入」（与语音模型卡片的「不联网安装」相同）；导入走资源包安装的 `files`，按内容认文件，不联网。
     StackPanel below;
     below.Spacing(6);
-    if (status != L"installed" && !installing && !removing) {
-      auto download = button_control(status == L"outdated" ? L"更新" : L"下载",
+    if (!view.install_label.empty()) {
+      auto download = button_control(std::wstring(view.install_label),
                                      [this, pack] { install_sentence_pack(pack, false); }, loaded_);
       A11y::SetAutomationId(download, L"sentence-model-download-" + pack);
       actions.Children().Append(download);
@@ -14364,15 +14378,22 @@ private:
         below.Children().Append(offline);
       }
     }
-    if (status == L"installed" && grammar_updates_available_.count(pack) > 0 &&
-        !installing && !removing)
+    if (view.update)
       actions.Children().Append(
           button_control(L"下载更新", [this, pack] { install_sentence_pack(pack, false); }, loaded_));
-    if (status == L"installed" && !installing && !removing)
+    if (view.remove)
       actions.Children().Append(button_control(L"删除", [this, pack] { remove_sentence_pack(pack); },
                                                 loaded_));
-    if (installing)
+    if (view.cancel)
       actions.Children().Append(button_control(L"取消", [this, pack] { cancel_sentence_pack(pack); }, true));
+    if (view.retry) {
+      auto retry = button_control(L"重试", [this] {
+        spk::retry(sentence_packs_);
+        redraw_sentence_packs();
+      }, true);
+      A11y::SetAutomationId(retry, L"sentence-model-retry-" + pack);
+      actions.Children().Append(retry);
+    }
     // 下载或导入失败的说明画在这一行里、紧挨着按钮：模型行在「候选与联想」页底部，页首的提示条滚出窗口外，失败后按钮变回原样，看上去像什么都没发生（与语音模型卡片 #10633 相同）。
     if (const auto error = sentence_pack_errors_.find(pack);
         error != sentence_pack_errors_.end() && !installing && !removing) {
@@ -14406,10 +14427,26 @@ private:
     return L"missing";
   }
 
+  // 安装或删除成功后先把这一包的状态改成结果，再等重读：重读回来之前行上若还按旧状态画「下载」「更新」，刚装好的模型又像没装，用户会再点一次（#10839）。重读回来后以读到的为准。
+  void set_sentence_pack_state(std::wstring const &id, std::wstring const &state) {
+    for (auto &status : sentence_pack_statuses_)
+      if (status.id == id) {
+        status.state = state;
+        return;
+      }
+    sentence_pack_statuses_.push_back({id, state, {}});
+  }
+
+  // 同一时间只发一次读取：读的途中又要读（安装或删除刚结束、又进了这一页）时，读回后再读一次（SentencePackModel.h 的 `Catalog`）。读失败按失败记，行上给「重试」，不再当成「没装」。
   void refresh_sentence_packs() {
-    const auto root = state_directory();
-    if (root.empty() || !root.is_absolute())
+    if (!spk::begin_read(sentence_packs_))
       return;
+    const auto root = state_directory();
+    // 状态目录不可用按读失败记。这里可能正在画页面（`request_sentence_packs`），不重画：随后画的那一行已经看得到失败；安装、删除结束时调用方自己会重画。
+    if (root.empty() || !root.is_absolute()) {
+      spk::finish_read(sentence_packs_, false);
+      return;
+    }
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     run_host(
@@ -14418,28 +14455,33 @@ private:
               reinterpret_cast<const uint8_t *>(body.data()), body.size()));
         },
         [this](Response const &response) {
-          if (!response.ok)
-            return;
-          try {
-            auto values = JsonObject::Parse(text(response.text)).GetNamedArray(L"value");
-            sentence_pack_statuses_.clear();
-            for (auto const &item : values) {
-              if (item.ValueType() != JsonValueType::Object)
-                continue;
-              const auto object = item.GetObject();
-              const auto id = named_string(object, L"id");
-              if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                  id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
-                SentencePackStatus status{id, named_string(object, L"state"), {}};
-                for (auto const &file : named_objects(object, L"import_files"))
-                  status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
-                                                 named_number(file, L"size").value_or(0)});
-                sentence_pack_statuses_.push_back(std::move(status));
+          bool ok = false;
+          if (response.ok) {
+            try {
+              auto values = JsonObject::Parse(text(response.text)).GetNamedArray(L"value");
+              std::vector<SentencePackStatus> statuses;
+              for (auto const &item : values) {
+                if (item.ValueType() != JsonValueType::Object)
+                  continue;
+                const auto object = item.GetObject();
+                const auto id = named_string(object, L"id");
+                if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
+                    id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                  SentencePackStatus status{id, named_string(object, L"state"), {}};
+                  for (auto const &file : named_objects(object, L"import_files"))
+                    status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
+                                                   named_number(file, L"size").value_or(0)});
+                  statuses.push_back(std::move(status));
+                }
               }
+              sentence_pack_statuses_ = std::move(statuses);
+              ok = true;
+            } catch (...) {
             }
-            redraw_input();
-          } catch (...) {
           }
+          if (spk::finish_read(sentence_packs_, ok))
+            refresh_sentence_packs();
+          redraw_sentence_packs();
         });
   }
 
@@ -14449,7 +14491,7 @@ private:
       return;
     grammar_updates_checking_ = true;
     grammar_updates_notice_.clear();
-    redraw_input();
+    redraw_sentence_packs();
     const auto channel = current_update_channel();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
@@ -14486,12 +14528,13 @@ private:
               grammar_updates_notice_ = L"模型目录返回内容无法读取，请稍后重试。";
             }
           }
-          redraw_input();
+          redraw_sentence_packs();
         });
   }
 
-  void redraw_input() {
-    if (!closed_ && current_page_ == "input")
+  // 整句模型那几行在「输入」页（`spk::host_page`，即 "typing"）；只在当前就是这一页时重画。
+  void redraw_sentence_packs() {
+    if (!closed_ && current_page_ == spk::host_page)
       render_page(true);
   }
 
@@ -14507,7 +14550,7 @@ private:
       if (const auto message = vs::local_model_picker_error_message(
               failure, picked.has_value() && picked->empty())) {
         sentence_pack_errors_[id] = *message;
-        redraw_input();
+        redraw_sentence_packs();
         return;
       }
       if (!picked)
@@ -14520,7 +14563,7 @@ private:
     sentence_pack_installing_.insert(id);
     if (import)
       sentence_pack_importing_.insert(id);
-    redraw_input();
+    redraw_sentence_packs();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
@@ -14555,9 +14598,10 @@ private:
               sentence_pack_errors_[id] = *message;
           } else {
             grammar_updates_available_.erase(id);
+            set_sentence_pack_state(id, L"installed");
           }
           refresh_sentence_packs();
-          redraw_input();
+          redraw_sentence_packs();
         });
   }
 
@@ -14578,7 +14622,7 @@ private:
     // 上次下载或导入（多半是「下载更新」）的失败说明属于删除前的状态，删除后行回到「下载」「从文件导入」，不能再挂着它。
     sentence_pack_errors_.erase(id);
     sentence_pack_removing_.insert(id);
-    redraw_input();
+    redraw_sentence_packs();
     JsonObject request;
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     request.SetNamedValue(L"pack", JsonValue::CreateStringValue(hstring(id)));
@@ -14591,8 +14635,10 @@ private:
           sentence_pack_removing_.erase(id);
           if (!response.ok)
             show_notice(L"模型正在使用或无法删除，请先切换输入框后重试。", InfoBarSeverity::Error);
+          else
+            set_sentence_pack_state(id, L"missing");
           refresh_sentence_packs();
-          redraw_input();
+          redraw_sentence_packs();
         });
   }
 
@@ -16481,6 +16527,24 @@ private:
     co_return co_await show_dialog(dialog);
   }
 
+  // 「许可与隐私」里粤语双拼键位方案的致谢（共享页 `CantoneseShuangpinCreditRow` 的对话框）：说明设计者、来源和独立实现，「查看方案仓库」打开设计者的仓库。
+  fire_and_forget show_cantonese_shuangpin_credit() {
+    auto strong = get_strong();
+    ContentDialog dialog;
+    dialog.Title(box_value(hstring(msime::settings::cantonese_shuangpin_credit_title)));
+    auto text = make_text(std::wstring(msime::settings::cantonese_shuangpin_credit_text), 14, palette_.text);
+    text.TextWrapping(TextWrapping::Wrap);
+    text.MaxWidth(420);
+    dialog.Content(text);
+    dialog.PrimaryButtonText(L"查看方案仓库");
+    dialog.CloseButtonText(L"关闭");
+    dialog.DefaultButton(ContentDialogButton::Close);
+    dialog.XamlRoot(root_.XamlRoot());
+    dialog.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
+    if (co_await show_dialog(dialog))
+      open_url(msime::settings::cantonese_shuangpin_scheme_repository);
+  }
+
   // True when the user chose the dialog's primary button. WinUI shows one ContentDialog at a time and throws for a second, which inside a fire_and_forget coroutine ends the process; a click that would open another while one is up, such as a second 删除, is taken as a cancel.
   Windows::Foundation::IAsyncOperation<bool> show_dialog(ContentDialog dialog) {
     if (dialog_open_)
@@ -16830,7 +16894,7 @@ private:
       lexicon_feedback_bar_.IsOpen(false);
   }
 
-  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在六个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
+  // 「查找词库」：共享页的「本地词库管理」组。进页面就列出所选词库的全部词条，搜索框输入后 280 ms 实时筛选（schedule_lexicon_search），词条和编码都能搜；词库下拉框在七个本机词库之后还有五个只读的资源词库。换词库时清空搜索框并从第一页重新列出。结果块（make_lexicon_results）装在 lexicon_results_host_ 里，查询回来时就地替换。
   void build_lexicon_lookup(StackPanel const &page) {
     auto manage = add_group(page, L"本地词库管理");
     explain_group(manage, L"默认显示所选词库的全部词条，输入文字或编码后实时筛选。个人词条可以编辑，基础词库只读。");
@@ -26854,6 +26918,9 @@ private:
     add_row(privacy, 0xE8A5, L"许可与版权",
             L"水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。", copyright);
     link_row(privacy, L"第三方组件许可", L"", true, [this] { open_third_party_notices(); });
+    link_row(privacy, std::wstring(msime::settings::cantonese_shuangpin_credit_title), L"", false,
+             [this] { show_cantonese_shuangpin_credit(); },
+             std::wstring(msime::settings::cantonese_shuangpin_credit_designer));
     url_row(privacy, L"隐私政策", L"", privacy_url);
     bool_row(privacy, 0xE9D2, L"匿名使用统计", L"不含输入内容、候选和剪贴板；关闭后不再发送。",
              L"usage_reporting", true);
@@ -27460,8 +27527,8 @@ private:
   bool candidates_more_open_ = false;
   bool local_modes_more_open_ = false;
   bool helpcode_more_open_ = false;
-  // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态。
-  bool sentence_packs_requested_ = false;
+  // Windows 原生设置页的神经联想与 octagram 语法模型资源包状态读到了哪一步（SentencePackModel.h）。
+  spk::Catalog sentence_packs_;
   // msime_client_resource_packs 的一项：安装状态，和不联网安装时要用浏览器下载、再从文件导入的文件。
   struct SentencePackStatus {
     std::wstring id, state;
