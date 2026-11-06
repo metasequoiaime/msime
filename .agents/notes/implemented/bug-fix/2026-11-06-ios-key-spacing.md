@@ -24,5 +24,5 @@ iOS 26 键竖屏把 44pt 字母键帽收紧后，额外在键区上下和每个�
 
 - `git diff --check`
 - `pnpm run verify-notes`
-- iOS 定向测试：远端 iOS 27 模拟器已完成资源准备、原生编译；首轮测试暴露五排布局的键高回归，修正为按排数计算上下补偿后需重跑。
+- iOS 定向测试：远端 iOS 27 模拟器完成资源准备、原生编译；`KeyboardFormFactorTests`、`KeyLayoutStyleTests`、`MorePanelFoldTests` 共 118 项全部通过（0 failures）。
 
