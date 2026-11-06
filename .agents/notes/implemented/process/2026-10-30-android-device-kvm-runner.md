@@ -23,6 +23,7 @@ Status: implemented
 
 - **继续使用 Depot，修改 udev 或权限。** 保留更快构建和 GitHub 并发额度；但当前失败发生在设备存在性检查，权限命令不能制造 KVM 能力，官方也不承诺这个产品提供该设备。
 - **迁移到 Depot CI sandbox。** 官方明确支持嵌套虚拟化，是未来继续节省 GitHub 托管额度的路线；但它属于不同执行系统，需要单独验证事件、可复用 workflow 与检查回报的接入，不在修复当前 GitHub workflow 的最小范围里。
+- **调大 AVD 的 /data 分区来容纳崩溃专项之后的覆盖安装。** 能留出余量，但 userdata 镜像就落在已经紧张的 runner 磁盘上（上面 #10516 的 Not enough space），加大分区等于把空间问题挪到主机侧；完整冒烟本来就按全新安装写，先卸载更省也更贴近它的前提。
 
 ## Verification
 
@@ -33,3 +34,5 @@ Status: implemented
 设备 job 重新占用组织的 GitHub 托管并发额度，构建可能变慢；这是恢复可运行设备验收的代价。触发范围、API 级别、测试断言、发版依赖和失败退出保持，硬件缺失时增加明确的错误说明，不降级为无加速模拟器或跳过门禁。Depot CI sandbox 可作为未来独立评估的执行系统。
 
 托管镜像的磁盘余量不稳定：装完 NDK、SDK 和系统镜像后，模拟器开机要为 userdata 分区留出 7.2 GB，2026-11-01 develop 推送的 API 28 两次只剩 6.7 GB，模拟器报 Not enough space 退出，开机步骤空等 10 分钟超时（#10516）。设备 job 因此在装工具之前先删掉用不到的预装工具链（dotnet、Swift、GHC、Boost、CodeQL），并在日志里留下清理前后的 `df`。
+
+模拟器内部的 /data 同样紧：崩溃专项一步已经装过 265 MB 的 APK 并启动过应用，完整冒烟再用 `install -r` 覆盖时，包管理器要在旧 APK、它的 dex 产物和首启数据之外再腾出一份新 APK 的空间。2026-11-05 #10934 的 API 35 两次在这里报 `INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location`，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟一步因此先卸掉 `app.msime.android` 再交给 smoke.sh，前后各记一次 `/data` 的 `df`，以后再报空间不足时有数可查。
