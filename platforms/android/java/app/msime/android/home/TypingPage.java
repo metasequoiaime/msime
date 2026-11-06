@@ -938,6 +938,7 @@ public final class TypingPage extends ReloadingDetailPage {
         JSONObject modes = helpcode == null ? null : helpcode.optJSONObject("modes");
         Function<String, Boolean> stored =
             field -> modes != null && modes.opt(field) instanceof Boolean value ? value : null;
+        boolean direct = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("direct"), stored);
         boolean midSentence = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("mid_sentence"), stored);
         boolean directHelpcode = HelpcodeModesPolicy.value(HelpcodeModesPolicy.mode("direct_helpcode"), stored);
         for (HelpcodeModesPolicy.Mode mode : HelpcodeModesPolicy.MODES) {
@@ -945,7 +946,7 @@ public final class TypingPage extends ReloadingDetailPage {
                 checked -> savePreferences(values ->
                     KeyboardSheets.child(helpcodeObject(values, "shuangpin_helpcode", true), "modes").put(mode.field(), checked)))
                 .help(mode.help())
-                .setEnabled(HelpcodeModesPolicy.enabled(mode, midSentence, directHelpcode));
+                .setEnabled(HelpcodeModesPolicy.enabled(mode, direct, midSentence, directHelpcode));
         }
     }
 

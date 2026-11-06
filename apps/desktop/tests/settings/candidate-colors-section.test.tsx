@@ -13,6 +13,7 @@ const preferences: CandidateColorPreferences = {
   number: null,
   accent: null,
   selected: null,
+  selected_text: null,
   hover: null,
   surface: null,
   border: null,
@@ -75,6 +76,41 @@ test("candidate color resets only clear a slot the custom theme sets, except sur
   expect(onChange).toHaveBeenLastCalledWith("surface", null);
 });
 
+// #10740：选中候选的文字颜色单独一个取色器，写 `selected_text`；交还给主题时清掉它，没设时按钮处于按下状态。
+test("the selected text picker writes and clears its own slot", () => {
+  const onChange = vi.fn();
+  const view = render(
+    <CandidateColorsSection
+      preferences={preferences}
+      previewTheme="dark"
+      showRowColors
+      showSelectionAppearance
+      showBorderColor
+      linux={false}
+      onChange={onChange}
+    />,
+  );
+  const reset = screen.getByRole("button", { name: "候选选中文字色跟随主题" });
+  expect(reset.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.change(screen.getByLabelText("候选选中文字色"), { target: { value: "#7b3fbf" } });
+  expect(onChange).toHaveBeenLastCalledWith("selected_text", "#7b3fbf");
+
+  view.rerender(
+    <CandidateColorsSection
+      preferences={{ ...preferences, selected_text: "#7b3fbf" }}
+      previewTheme="dark"
+      showRowColors
+      showSelectionAppearance
+      showBorderColor
+      linux={false}
+      onChange={onChange}
+    />,
+  );
+  expect((screen.getByLabelText("候选选中文字色") as HTMLInputElement).value).toBe("#7b3fbf");
+  fireEvent.click(screen.getByRole("button", { name: "候选选中文字色跟随主题" }));
+  expect(onChange).toHaveBeenLastCalledWith("selected_text", null);
+});
+
 test("candidate color controls honor host capability limits", () => {
   render(
     <CandidateColorsSection
@@ -90,6 +126,7 @@ test("candidate color controls honor host capability limits", () => {
 
   expect(screen.queryByLabelText("候选强调色")).toBeNull();
   expect(screen.queryByLabelText("候选选中色")).toBeNull();
+  expect(screen.queryByLabelText("候选选中文字色")).toBeNull();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(screen.queryByLabelText("候选边框色")).toBeNull();
   expect(screen.getByText(/候选窗口不支持强调或选中行颜色/)).toBeTruthy();

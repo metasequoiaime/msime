@@ -56,6 +56,7 @@ fn frozen_snapshot(session: &Session) -> Result<EngineSnapshot> {
         },
         editing_text: value.editing_text,
         caret_position: value.caret_position,
+        helpcode_trigger: value.helpcode_trigger,
         preedit_caret,
         segment_raw_boundaries: segment_raw_boundaries
             .into_iter()

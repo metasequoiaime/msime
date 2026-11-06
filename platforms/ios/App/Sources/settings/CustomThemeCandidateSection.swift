@@ -214,6 +214,7 @@ struct CustomThemeCandidateSection: View {
       switch slot {
       case "text": return Color(palette.text)
       case "hover": return Color(palette.hover)
+      case "selected_text": return Color(palette.selectedText ?? palette.accent)
       default: return Color(palette.surface)
       }
     }, set: { color in

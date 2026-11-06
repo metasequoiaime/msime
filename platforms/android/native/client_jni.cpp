@@ -231,6 +231,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceWebSocketE
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceProviderUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kVoiceProviderRequestLimit, msime_client_voice_provider_update);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_candidateColorUpdateRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 1024, msime_client_candidate_color_update);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kThemeRequestLimit, msime_client_resolve_theme);
 }

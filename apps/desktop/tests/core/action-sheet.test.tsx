@@ -284,6 +284,61 @@ test("on the HarmonyOS phone the shared option lists fill the sheet", () => {
   );
 });
 
+test("on the HarmonyOS phone a disabled select or segmented row still opens its 「?」", () => {
+  render(
+    <OnHarmonyPhone>
+      <GroupList>
+        <SelectRow
+          title="翻译范围"
+          description="先打开候选词翻译"
+          disabled
+          value="all"
+          onChange={vi.fn()}
+        >
+          <option value="all">全部候选</option>
+          <option value="first">首选</option>
+        </SelectRow>
+        <SegmentedRow
+          title="联想栏按键"
+          description="先打开上屏后联想"
+          disabled
+          value="on"
+          options={[
+            { value: "on", label: "显示" },
+            { value: "off", label: "隐藏" },
+          ]}
+          onChange={vi.fn()}
+        />
+      </GroupList>
+    </OnHarmonyPhone>,
+  );
+  for (const [title, description, value] of [
+    ["翻译范围", "先打开候选词翻译", "全部候选"],
+    ["联想栏按键", "先打开上屏后联想", "显示"],
+  ]) {
+    // 行变灰时不再是能点开选项面板的按钮，标题和当前值照常显示。
+    const row = screen.getByText(title).closest("div") as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(row.querySelector("[aria-haspopup]")).toBeNull();
+    expect(within(row).getByText(value)).toBeTruthy();
+    // 不再是被禁用的按钮，「不可用」靠读屏文本补上。
+    expect(within(row).getByText("不可用").className).toContain("sr-only");
+    fireEvent.click(row);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // 「?」不在被禁用的元素里，点开后说明出现在气泡里。
+    const tip = within(row).getByRole("button", { name: `${title}的说明：${description}` });
+    expect((tip as HTMLButtonElement).disabled).toBe(false);
+    expect(tip.closest('[aria-disabled="true"]')).toBeNull();
+    expect(screen.getAllByText(description)).toHaveLength(1);
+    fireEvent.click(tip);
+    expect(tip.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getAllByText(description)).toHaveLength(2);
+    fireEvent.click(tip);
+  }
+  // 隐藏的原生控件照旧处于禁用状态。
+  expect((screen.getByLabelText("翻译范围") as HTMLSelectElement).disabled).toBe(true);
+});
+
 test("elsewhere a select row keeps the native select", () => {
   render(<SchemeRow onChange={vi.fn()} />);
   expect(screen.getByRole("combobox", { name: "全拼辅助码方案" }).closest("[inert]")).toBeNull();

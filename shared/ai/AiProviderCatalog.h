@@ -23,7 +23,7 @@ inline const std::vector<ProviderPreset>& provider_catalog() {
     {L"kimi", L"Kimi · 月之暗面", L"https://api.moonshot.cn/v1/chat/completions", L"kimi-k2.6", {L"kimi-k2.6", L"kimi-k2.5"}, L"https://platform.kimi.com/docs/api/chat"},
     {L"zhipu", L"智谱 · GLM", L"https://open.bigmodel.cn/api/paas/v4/chat/completions", L"glm-4.7", {L"glm-4.7", L"glm-4.7-flashx"}, L"https://docs.bigmodel.cn/cn/guide/models/text/glm-4.7"},
     {L"minimax", L"MiniMax", L"https://api.minimax.cn/v1/chat/completions", L"MiniMax-M3.1-Flash", {L"MiniMax-M3.1-Flash", L"MiniMax-M3"}, L"https://platform.minimax.cn/docs/api-reference/text-chat-openai"},
-    {L"volcengine", L"火山方舟 · 豆包", L"https://ark.cn-beijing.volces.com/api/v3/chat/completions", L"doubao-seed-1.6-flash", {L"doubao-seed-1.6-flash", L"doubao-seed-1.6"}, L"https://ark.volcengine.com/region:cn-beijing/docs/chat-api"},
+    {L"volcengine", L"火山方舟 · 豆包", L"https://ark.cn-beijing.volces.com/api/v3/chat/completions", L"doubao-seed-2-0-mini-260428", {L"doubao-seed-2-0-mini-260428", L"doubao-seed-2-0-lite-260428"}, L"https://ark.volcengine.com/region:cn-beijing/docs/chat-api"},
     {L"siliconflow", L"硅基流动", L"https://api.siliconflow.cn/v1/chat/completions", L"Qwen/Qwen3.6-27B", {L"Qwen/Qwen3.6-27B"}, L"https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation"},
     {L"groq", L"Groq", L"https://api.groq.com/openai/v1/chat/completions", L"llama-3.3-70b-versatile", {L"llama-3.3-70b-versatile", L"llama-3.1-8b-instant"}, L"https://console.groq.com/docs/quickstart"},
     {L"openrouter", L"OpenRouter", L"https://openrouter.ai/api/v1/chat/completions", L"openrouter/auto", {L"openrouter/auto"}, L"https://openrouter.ai/docs/quickstart"},

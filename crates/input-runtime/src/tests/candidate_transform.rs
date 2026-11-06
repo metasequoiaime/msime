@@ -87,6 +87,7 @@ impl InputEngine for TransformEngine {
             preedit: self.text.clone(),
             editing_text: self.text.clone(),
             caret_position: self.text.len(),
+            helpcode_trigger: None,
             conversion: self.conversion.clone(),
             conversion_focus_start: 0,
             conversion_focus_end: usize::from(!self.conversion.is_empty()),

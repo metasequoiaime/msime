@@ -92,6 +92,8 @@ pub struct EngineSnapshot {
     pub display_reading: String,
     pub editing_text: String,
     pub caret_position: usize,
+    /// 辅助码前导键在等辅助码时它在 `editing_text` 里的位置（`SessionSnapshot::helpcode_trigger`），`preedit` 已经带着它；宿主画 `editing_text` 时把 `key` 插在 `position` 处，光标随之后移。
+    pub helpcode_trigger: Option<crate::HelpcodeTrigger>,
     /// 组字光标在 `preedit` 里的位置，按 Unicode 标量计：`caret_position` 是 `editing_text` 里的偏移，而 `preedit` 可能是分词或展开过的拼写（全拼 `ni'hao`、双拼「拼音分词」的 `shi'shi`），宿主画 `preedit` 时用这一项放光标，不要拿 `caret_position` 去数 `preedit` 的字母。两者没有可靠对应时在 `preedit` 末尾（见 `preedit_caret.rs`）。
     pub preedit_caret: usize,
     pub segment_raw_boundaries: Vec<u64>,
@@ -307,6 +309,7 @@ impl Session {
             },
             editing_text: value.editing_text,
             caret_position: value.caret_position,
+            helpcode_trigger: value.helpcode_trigger,
             preedit_caret,
             segment_raw_boundaries: segment_raw_boundaries
                 .into_iter()

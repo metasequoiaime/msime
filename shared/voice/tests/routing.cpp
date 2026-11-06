@@ -19,6 +19,15 @@ int main() {
     // What the language field of a request carries is checked on the wire by tests/transport.py.
     static_assert(std::is_same_v<decltype(&recognize_cloud_asr), decltype(&msime::windows::recognize_cloud_asr)>);
     assert(normalize_voice_provider("SILICONFLOW") == "siliconflow");
+    // 方舟上的豆包 Seed 润色关思考；方舟上的别的模型、接入点 ID、别家网关上的同名模型不动。
+    constexpr const char *ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+    assert(disables_ark_seed_thinking("volcengine", ark, "doubao-seed-2-0-mini-260428"));
+    assert(disables_ark_seed_thinking("custom", "https://ark.cn-shanghai.volces.com/api/v3/chat/completions", "Doubao-Seed-2-0-lite-260428"));
+    assert(disables_ark_seed_thinking("volcengine", "", "doubao-seed-2-0-mini-260428"));
+    assert(!disables_ark_seed_thinking("volcengine", ark, "glm-5-3-flash-260828"));
+    assert(!disables_ark_seed_thinking("volcengine", ark, "ep-20261105123456-abcde"));
+    assert(!disables_ark_seed_thinking("volcengine", "https://gateway.example/v1/chat/completions", "doubao-seed-2-0-mini-260428"));
+    assert(!disables_ark_seed_thinking("custom", "https://volces.com.example/v1/chat/completions", "doubao-seed-2-0-mini-260428"));
     // 旧的 `cloud` 别名已删除（#2830），它只是一个未知的服务商名，不再当作硅基流动。
     assert(normalize_voice_provider("CLOUD") == "cloud");
     assert(is_doubao_asr_provider("DOUBAO"));

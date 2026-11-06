@@ -99,6 +99,7 @@
 #include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/CaretEditSuffix.h"
+#include "../src/core/HelpcodeTrigger.h"
 #include "../src/core/ClientInputModeMemory.h"
 #include "../src/core/AppInputModeRules.h"
 #include "../src/core/JapaneseConversion.h"
@@ -8362,12 +8363,15 @@ void FcitxState::render() {
     if (msime::linux_host::composition_shows_reading(
             kana, msime::linux_host::strict_json_value(view_, "caret_position", size_t{}), editing.size()))
       reading = kana;
+    // 画的是按键原文时光标按原文的字节偏移放；原文里没有辅助码前导键，插回去时光标跟着后移（#10731）。
+    const bool drawsEditing = reading == editing;
+    auto caret = msime::linux_host::strict_json_value(view_, "caret_position", size_t{});
+    if (drawsEditing) msime::linux_host::insert_helpcode_trigger(view_, reading, caret);
     // The piece already picked for the phrase leads the reading, the way the reference draws
     // `word_for_creating_word`. fcitx5 takes the cursor as a byte offset into the string it is
     // given, which is why the offset comes from the same place the text does.
     const auto composed = msime::linux_host::compose_phrase_preedit(
-        view_.value("phrase_prefix", std::string{}), reading,
-        msime::linux_host::strict_json_value(view_, "caret_position", size_t{}));
+        view_.value("phrase_prefix", std::string{}), reading, caret);
     // 正在组词时，已选的那一段和还在输入的读音分成两个子句：已选的单下划线，读音加下划线并高亮，和上面整句改字的焦点子句同一种画法（phrase_preedit_has_clauses）。Fcitx5 没有粗下划线这种格式，`Bold` 在前端里是字形加粗，会把读音的字母画粗画宽，不是 macOS 那条加粗的下划线。没有已选段时整段照旧单下划线。
     fcitx::Text preedit;
     if (msime::linux_host::phrase_preedit_has_clauses(composed)) {
@@ -8377,7 +8381,7 @@ void FcitxState::render() {
     } else {
       preedit.append(composed.text, fcitx::TextFormatFlag::Underline);
     }
-    if (reading == editing)
+    if (drawsEditing)
       preedit.setCursor(static_cast<int>(composed.caret_bytes));
     // The caret always follows an inline composition; the runtime keeps no caret inside it.
     else if (alwaysInline)
@@ -8692,6 +8696,8 @@ bool FcitxState::renderNativeCanvas() {
     const auto preedit_size = preferences_.find("candidate_preedit_font_size");
     content.preedit_size = (preedit_size != preferences_.end() && preedit_size->is_number_integer() &&
                             *preedit_size >= 12 && *preedit_size <= 32 ? preedit_size->get<int>() : 15) * scale;
+    // 序号、释义、页码和拼音行的字重只取候选字重偏好，不取 classicui 的 Font 里用户自己写的样式词。
+    content.font_weight = host::read_candidate_font(preferences_).weight;
     // 横排为还没到的释义预留高度（translationReservedLines），韩文汉字列表再加训音一行。
     content.reserved_gloss_lines = translationReservedLines() + (host::korean_hanja_list_open(view_) ? 1 : 0);
     content.selection_context = view_.value("editing_text", std::string{}) + "\n" +

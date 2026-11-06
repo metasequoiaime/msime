@@ -1,5 +1,6 @@
 //! 导出设置页与原生宿主同步读取的公开语音预设；不读取偏好或凭据。
 
+use msime_client_core::preferences::RETIRED_VOLCENGINE_MODELS;
 use msime_client_providers::voice::provider::{
     asr_request_format, ASR_REQUEST_CHAT_AUDIO, ASR_REQUEST_MULTIPART,
 };
@@ -85,11 +86,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "polish": POLISH_PROVIDERS.iter().map(|p| (p.id, p.endpoint)).collect::<BTreeMap<_, _>>(),
     });
     let formats: BTreeMap<_, _> = http_asr.iter().map(|(p, format)| (p.id, *format)).collect();
+    // 火山方舟已下线模型的接替关系，与偏好读出时的换名同一张表：Linux 的 provider 脚本读私有凭据文件时照它换，绑在旧模型上的凭据才能和换过名的偏好对上。
+    let retired_volcengine: BTreeMap<_, _> = RETIRED_VOLCENGINE_MODELS.iter().copied().collect();
     let python = format!(
-        "# 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\nDEFAULT_MODELS = {}\nDEFAULT_ENDPOINTS = {}\nREQUEST_FORMATS = {}\nASR_PROVIDERS = set(DEFAULT_MODELS[\"asr\"])\nPOLISH_PROVIDERS = set(DEFAULT_MODELS[\"polish\"])\n",
+        "# 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\nDEFAULT_MODELS = {}\nDEFAULT_ENDPOINTS = {}\nREQUEST_FORMATS = {}\nVOLCENGINE_SUCCESSOR_MODELS = {}\nASR_PROVIDERS = set(DEFAULT_MODELS[\"asr\"])\nPOLISH_PROVIDERS = set(DEFAULT_MODELS[\"polish\"])\n",
         serde_json::to_string_pretty(&models)?,
         serde_json::to_string_pretty(&endpoints)?,
-        serde_json::to_string_pretty(&formats)?
+        serde_json::to_string_pretty(&formats)?,
+        serde_json::to_string_pretty(&retired_volcengine)?
     );
     let mut header = format!(
         "#pragma once\n// 由共享 Rust 语音服务目录导出；通过 export_voice_provider_catalog 更新。\n#include <array>\n#include <string_view>\n\nnamespace msime::voice {{\nstruct VoiceProviderCatalogEntry {{\n  std::string_view id;\n  std::string_view title;\n  std::string_view endpoint;\n  std::string_view model;\n}};\ninline constexpr std::array<VoiceProviderCatalogEntry, {}> kAsrProviders = {{{{\n",

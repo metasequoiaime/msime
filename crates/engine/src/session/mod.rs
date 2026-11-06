@@ -46,7 +46,7 @@ use crate::user_dictionary::ngram_store::{flush_journal, note_settled};
 use crate::types::FirstPageRows;
 pub use clock::{Clock, LocalClock};
 use input::InputSession;
-pub use options::{SessionOptions, SessionSnapshot};
+pub use options::{HelpcodeTrigger, SessionOptions, SessionSnapshot};
 
 pub struct Session {
     input: InputSession,
@@ -963,6 +963,16 @@ impl Session {
         } else {
             input.preedit()
         };
+        let helpcode_trigger = plain_composition
+            .then(|| input.helpcode_trigger_display())
+            .flatten();
+        // 前导键只插进给宿主画的显示快照（#10731）；`snapshot()` 的 `preedit` 是参考回放比对的按键原文，不动。
+        let preedit = match helpcode_trigger {
+            Some(trigger) if segmented_quanpin => {
+                input.preedit_with_helpcode_trigger(preedit, trigger)
+            }
+            _ => preedit,
+        };
         SessionSnapshot {
             prediction: false,
             scheme: input.scheme(),
@@ -974,6 +984,7 @@ impl Session {
             dedicated_english: input.dedicated_english,
             editing_text: input.editing_text(),
             caret_position: input.caret_position(),
+            helpcode_trigger,
             nine_key_spellings: input.zhuyin_spellings(),
             // 五笔 14 键的读音行显示首选的编码（就是预编辑），宿主 14 键的读音行照常读这一项。
             nine_key_reading: if input.wubi_grid_composing() {

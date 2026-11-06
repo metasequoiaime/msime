@@ -11,8 +11,8 @@ import java.util.function.Function;
  * <p>触屏键盘的数字页在中文方案下把分号、反引号和 `/` 按字面上屏（`NumberPadPunctuation.typesThroughSession`），用到它们的那几行在说明里写明要外接键盘；大写字母（Shift 加字母）和直接接码在触屏上照常可用。
  */
 public final class HelpcodeModesPolicy {
-    /** 一行受哪个总开关管。 */
-    public enum Parent { NONE, MID_SENTENCE, DIRECT_HELPCODE }
+    /** 一行受哪个总开关管：末尾间接的三枚触发键要末尾直接和逐音节直接都关着，句中三枚触发键随句中间接，两种结束方式随逐音节直接。 */
+    public enum Parent { NONE, END_TRIGGER, MID_SENTENCE, DIRECT_HELPCODE }
 
     /**
      * @param field `modes` 里的字段名
@@ -27,12 +27,12 @@ public final class HelpcodeModesPolicy {
     private static final String TOUCH_BACKTICK = "。触屏键盘上的反引号直接上屏，这种触发要用外接键盘";
 
     public static final List<Mode> MODES = List.of(
-        new Mode("direct", "双拼末尾直接辅助码", "完整音节后直接接辅助码", true, Parent.NONE),
+        new Mode("direct", "双拼末尾直接辅助码", "完整音节后直接接辅助码；打开时末尾间接触发不生效", true, Parent.NONE),
         new Mode("trigger_semicolon", "双拼末尾间接触发（分号）",
-            "完整音节后按分号，再输入一到两个辅助码字母；微软双拼的分号优先补全韵母" + TOUCH_SEMICOLON, true, Parent.NONE),
+            "完整音节后按分号，再输入一到两个辅助码字母；微软双拼的分号优先补全韵母" + TOUCH_SEMICOLON, true, Parent.END_TRIGGER),
         new Mode("trigger_backtick", "双拼末尾间接触发（反引号）",
-            "完整音节后按反引号，再输入一到两个辅助码字母" + TOUCH_BACKTICK, false, Parent.NONE),
-        new Mode("trigger_uppercase", "双拼末尾间接触发（大写字母）", "完整音节后输入大写字母作为辅助码", false, Parent.NONE),
+            "完整音节后按反引号，再输入一到两个辅助码字母" + TOUCH_BACKTICK, false, Parent.END_TRIGGER),
+        new Mode("trigger_uppercase", "双拼末尾间接触发（大写字母）", "完整音节后输入大写字母作为辅助码", false, Parent.END_TRIGGER),
         new Mode("mid_sentence", "双拼句中间接辅助码", "触发键把它前面的音节标上辅助码，约束带进整句，后面还能接着打", false, Parent.NONE),
         new Mode("mid_sentence_backtick", "双拼句中触发键（反引号）", "用反引号在句中标记辅助码" + TOUCH_BACKTICK, true,
             Parent.MID_SENTENCE),
@@ -67,9 +67,10 @@ public final class HelpcodeModesPolicy {
         return value == null ? mode.factoryDefault() : value;
     }
 
-    /** 这一行能不能改（辅助码关着时整组不画，所以这里不看辅助码开关）：有总开关的行要总开关开着，与共享页的 disabled 相同。 */
-    public static boolean enabled(Mode mode, boolean midSentence, boolean directHelpcode) {
+    /** 这一行能不能改（辅助码关着时整组不画，所以这里不看辅助码开关）：有总开关的行要总开关开着，与共享页的 disabled 相同。末尾间接三行照引擎的判据（`apply_request_options` 只在末尾直接和逐音节直接都关着时保留末尾段），只置灰、不改存的值。 */
+    public static boolean enabled(Mode mode, boolean direct, boolean midSentence, boolean directHelpcode) {
         return switch (mode.parent()) {
+            case END_TRIGGER -> !direct && !directHelpcode;
             case MID_SENTENCE -> midSentence;
             case DIRECT_HELPCODE -> directHelpcode;
             case NONE -> true;
