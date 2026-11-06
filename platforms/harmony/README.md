@@ -36,7 +36,7 @@ AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设�
 
 ### 「我的词条」只有一份
 
-两个进程各有一份 Engine 日志（各自的 `files/state/user/msime_user.db`），这一点没有变：学习记录、候选顺序和固定位置只在键盘里，设置应用不打字。变的是「我的词条」——日志里 `user_inserted` 而且没删的词条，也就是设置页「我的词条」列出的、WebDAV 网盘同步的那一组，身份是（词库类别、编码、词）：两份经共享沙箱交换，收敛成同一组。以前键盘打字学到的词只在键盘那份里，设置页改的、导入的词只在设置应用那份里。规则在 Rust 的 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`，C 头文件里有完整说明），宿主一侧是 `keyboard/UserWordsMirror.ets` 和 `keyboard/UserWordsMirrorPolicy.ts`（`tests/user-words-mirror-policy.test.ts`，调用点由 `scripts/test-harmony-user-words-mirror.py` 守着）。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
+两个进程各有一份 Engine 日志（各自的 `files/state/user/msime_user.db`），这一点没有变：学习记录、候选顺序和固定位置只在键盘里，设置应用不打字。变的是「我的词条」——日志里 `user_inserted` 而且没删的词条，也就是设置页「我的词条」列出的、WebDAV 网盘同步的那一组，再加上设置页里加的粤语词（WebDAV 不同步它们，但键盘的粤语方案要从键盘自己的日志里读到它们才出候选），身份是（词库类别、编码、词）：两份经共享沙箱交换，收敛成同一组。以前键盘打字学到的词只在键盘那份里，设置页改的、导入的词只在设置应用那份里。规则在 Rust 的 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`，C 头文件里有完整说明），宿主一侧是 `keyboard/UserWordsMirror.ets` 和 `keyboard/UserWordsMirrorPolicy.ts`（`tests/user-words-mirror-policy.test.ts`，调用点由 `scripts/test-harmony-user-words-mirror.py` 守着）。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
 
 - 每一边在自己的 `files/state/user-words/` 里给每个词条记一个「最后写入者胜」的寄存器（时间戳、在不在），发布到 `<共享目录>/msime/<settings|keyboard>/user-words/words.json`。这个文件不走上面的清单和指纹，由两边的 Rust 直接原子替换和读取。
 - 设置应用：窗口回到前台和每次改完设置之后（与上面的镜像发布同一时机），在工作线程上先排空它自己的个人词库队列，再合并键盘的发布、发布自己的；本方日志、队列和键盘的发布都没变时不做。导入的个人词库文件、云词库下载和命名词库的词都走这个队列，API 12 起键盘排空的是它自己沙箱里的那个，所以这些词以前从来没进过任何一份词库；现在由设置应用写进它的词库，再交换到键盘。
