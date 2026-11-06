@@ -210,6 +210,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button clipboardBackToTop;
     /** 删除（单条或多选）后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073、#10080）；没有可撤销的记录时收起。 */
     Button clipboardUndoButton;
+    /** 剪贴板「更多」菜单的浮层（#10969）：盖在顶行下面的整个列表区上，菜单贴右上角画在里面，不占列表的位置；点菜单以外的地方收起菜单。菜单收着时隐藏。 */
+    FrameLayout clipboardMoreOverlay;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -11174,6 +11176,15 @@ public final class MSIMEInputService extends InputMethodService {
         undoParams.bottomMargin = pixels(8);
         ViewPolicy.hide(clipboardUndoButton);
         clipboardSurface.addView(clipboardUndoButton, undoParams);
+        // 「更多」菜单不再作为列表的第一行插进去（那样左边空一大块、下面的卡片整体被推下去，#10969），改成浮在列表上面，像系统的溢出菜单。仍然只是同一窗口里的一层 FrameLayout，不弹 PopupWindow：输入法没有 Activity 的窗口令牌，弹窗会让键盘进程崩掉或抢走编辑器焦点（#5605、#5653）。浮层最后加入、再抬高一层，菜单盖得住「返回顶部」和「撤销」，点到它们所在的位置也只是收起菜单；开着时浮层接住列表区的所有触摸，点不到下面的卡片。顶行不被盖住，「更多 ▴」「多选」「本机 ▾」照常可点，它们各自会收起菜单。
+        clipboardMoreOverlay = new FrameLayout(this);
+        clipboardMoreOverlay.setContentDescription("收起剪贴板菜单");
+        ViewPolicy.bindClick(clipboardMoreOverlay, imePanels::closeClipboardMoreMenu);
+        ViewPolicy.setElevation(clipboardMoreOverlay, pixels(8));
+        ViewPolicy.hide(clipboardMoreOverlay);
+        FrameLayout.LayoutParams moreOverlayParams = LayoutPolicy.frameMatchParentParams();
+        moreOverlayParams.topMargin = pixels(32);
+        clipboardSurface.addView(clipboardMoreOverlay, moreOverlayParams);
         clipboardScroll.setOnScrollChangeListener((view, x, y, oldX, oldY) -> imePanels.updateClipboardBackToTop());
         ViewPolicy.hide(clipboardSurface);
         keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());

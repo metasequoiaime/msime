@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// 五笔查码（#6789）：输入或粘贴汉字，列出每个字（以及整段词）的 86 和 98 五笔编码，当前所选的码表那一列标「（当前）」。
+/// 五笔查码（#6789）：输入或粘贴汉字，列出每个字（以及整段词）的 86、98 和新世纪五笔编码，当前所选的码表那一列标「（当前）」。三列总是都画，宿主没回新世纪那一列时显示「—」。
 ///
 /// 与共享设置页的「五笔查码」一组同样的文字和排法（`WubiCodeLookup`）。iOS 的产品是这个原生 App，没有 WebView，共享设置页那一组到不了用户手里，所以在这里原生画一遍。查码在 App 进程里经 `MetasequoiaInputSessionBridge.wubiCodes` 发词库请求 `wubi_codes`，读键盘扩展包里的同一份码表，不需要键盘在跑。
 struct WubiCodeLookupView: View {
-  /// 当前所选的五笔码表（`wubi86` 或 `wubi98`）。
+  /// 当前所选的五笔码表（`wubi86`、`wubi98` 或 `wubixsj`）。
   let profile: String
   @State private var text = ""
   @State private var lookupState = WubiLookupRequestState()
@@ -53,11 +53,11 @@ struct WubiCodeLookupView: View {
   private func row(_ item: WubiCodeLookup.Codes) -> some View {
     VStack(alignment: .leading, spacing: 4) {
       Text(item.text).font(.system(size: 17))
-      ForEach([("wubi86", item.wubi86), ("wubi98", item.wubi98)], id: \.0) { column, codes in
+      ForEach(WubiProfilePreference.Version.allCases, id: \.self) { column in
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Text(WubiCodeLookup.columnTitle(column, profile: profile))
             .designSubtext()
-          Text(WubiCodeLookup.codes(codes)).font(.system(size: 15, design: .monospaced))
+          Text(WubiCodeLookup.codes(item.codes(column))).font(.system(size: 15, design: .monospaced))
         }
       }
     }

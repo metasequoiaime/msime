@@ -1096,6 +1096,102 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     XCTAssertEqual(field.value as? String, "A")
   }
 
+  /// 长按候选打开释义卡片（#10915），在独立编辑器里经真实系统键盘验收：打出合成拼音，长按首个候选，卡片盖住按键区、候选栏留着；「收起」回到按键，组字还在；再长按，「上屏译文」把第一目标语言的译文写进编辑器。离线英文释义先在设置里打开，卡片才有译文可上屏。每一步留整屏截图。
+  func testCandidateLongPressOpensTheGlossCardInTheSystemEditor() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    enableOfflineEnglishGloss(in: app)
+    app.terminate()
+    addKeyboardInSettingsIfNeeded()
+    let editor = XCUIApplication(bundleIdentifier: "app.msime.ios.keyboard-test-host")
+    editor.launchArguments = ["--system-keyboard-editor"]
+    addTeardownBlock { @MainActor in editor.terminate() }
+    editor.launch()
+    let field = editor.textFields["systemKeyboardEditor"]
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    _ = try activeSystemKeyboard(in: editor, field: field)
+    editor.buttons["schemeButton"].tap()
+    editor.buttons["schemeCard-quanpin"].tap()
+    let language = editor.buttons["bottomLanguageKey"]
+    if language.label == "切换到中文输入" { language.tap() }
+    for letter in ["N", "I", "H", "A", "O"] {
+      let key = editor.buttons["字母 \(letter)"]
+      XCTAssertTrue(key.waitForExistence(timeout: 5))
+      key.tap()
+    }
+    let leading = editor.buttons["candidate-1"]
+    XCTAssertTrue(leading.waitForExistence(timeout: 8))
+    // 离线释义在扩展里晚一点才到，等候选块读出释义再长按，卡片才有译文。
+    let glossed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "释义"), object: leading)
+    _ = XCTWaiter.wait(for: [glossed], timeout: 8)
+    keepScreen("释义卡片-长按之前")
+
+    let card = editor.descendants(matching: .any)["candidateGlossCard"]
+    leading.press(forDuration: 1)
+    XCTAssertTrue(card.waitForExistence(timeout: 5), "长按候选打开释义卡片")
+    XCTAssertEqual(editor.staticTexts["glossCardTitle"].label, "释义")
+    XCTAssertTrue(editor.buttons["glossCardCommit"].exists)
+    XCTAssertTrue(editor.buttons["glossCardCopy"].exists)
+    XCTAssertTrue(leading.exists, "候选栏留着")
+    XCTAssertFalse(editor.buttons["字母 Q"].isHittable, "卡片盖住按键区")
+    keepScreen("释义卡片-打开")
+
+    editor.buttons["glossCardMore"].tap()
+    XCTAssertTrue(editor.buttons["优先显示"].waitForExistence(timeout: 5), "原来长按菜单里的操作在「更多操作」里")
+    keepScreen("释义卡片-更多操作")
+    // 在卡片右侧的空白处点一下收起菜单，卡片留着；键盘外的编辑器收不到这次点按。
+    editor.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.75)).tap()
+    XCTAssertTrue(editor.buttons["优先显示"].waitForNonExistence(timeout: 5))
+
+    editor.buttons["glossCardClose"].tap()
+    XCTAssertTrue(card.waitForNonExistence(timeout: 5), "收起后卡片关上")
+    XCTAssertTrue(editor.buttons["字母 Q"].waitForExistence(timeout: 5))
+    XCTAssertTrue(leading.exists, "收起卡片不结束组字")
+
+    leading.press(forDuration: 1)
+    XCTAssertTrue(card.waitForExistence(timeout: 5))
+    let commit = editor.buttons["glossCardCommit"]
+    let sense = editor.staticTexts["glossCardSense-0-0"]
+    try XCTSkipUnless(commit.isEnabled && sense.exists, "固定版本的词库里没有 nihao 首选的英文释义，上屏这一步不验")
+    // 多条义项时读屏标签是「第 1 条：…」，上屏的是这一条本身。
+    let translation = sense.label.replacingOccurrences(of: #"^第 1 条："#, with: "", options: .regularExpression)
+    commit.tap()
+    let received = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", translation), object: field)
+    XCTAssertEqual(XCTWaiter.wait(for: [received], timeout: 5), .completed,
+                   "上屏的是第一目标语言的译文：\(translation)，编辑器里是 \((field.value as? String) ?? "")")
+    XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+    keepScreen("释义卡片-上屏译文之后")
+  }
+
+  /// 在「输入」设置页打开「离线英文释义」；已经开着就不动。
+  private func enableOfflineEnglishGloss(in app: XCUIApplication) {
+    let home = app.tabBars.buttons["首页"]
+    XCTAssertTrue(home.waitForExistence(timeout: 15))
+    home.tap()
+    home.tap()
+    let input = app.buttons["inputSettingsLink"].firstMatch
+    for _ in 0..<8 where !input.isHittable { app.swipeUp() }
+    XCTAssertTrue(input.isHittable)
+    input.tap()
+    let toggle = app.switches["candidateGlossToggle"].firstMatch
+    for _ in 0..<12 where !toggle.isHittable { app.swipeUp() }
+    XCTAssertTrue(toggle.isHittable, "「离线英文释义」开关必须可用")
+    if toggle.value as? String == "0" {
+      toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    }
+    let on = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: toggle)
+    XCTAssertEqual(XCTWaiter.wait(for: [on], timeout: 5), .completed)
+  }
+
+  /// 整屏截图，含系统键盘，按设备的真实像素保存。
+  private func keepScreen(_ name: String) {
+    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    shot.name = name
+    shot.lifetime = .keepAlways
+    add(shot)
+  }
+
   /// Pinyin typed on the real keyboard reaches a text field the extension does not own.
   ///
   /// The candidate is committed through `UITextDocumentProxy`, which is a cross-process call the
@@ -1212,6 +1308,45 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     nihao.tap()
     let value = (field.value as? String) ?? ""
     XCTAssertTrue(value.contains("你好"), "the editor holds \(value)")
+  }
+
+  /// 14 键组字中拖空格：与 Android 一样先上屏首选、再移动输入框光标，不把光标挪进组码。在系统加载的扩展里打 BN UI GH AS OP 后左拖空格，输入框里有了「好」；改之前组字留着，光标走进组码，读音行变成 `bug|ao` 这样的组码。拖之前和松手后各留一张截图。
+  func testDraggingSpaceOnFourteenKeysCommitsBeforeMovingTheCaret() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    let input = app.buttons["inputSettingsLink"]
+    for _ in 0..<6 where !input.isHittable { app.swipeUp() }
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
+    input.tap()
+    app.buttons["inputLanguage_mandarin"].tap()
+    let option = app.buttons["inputScheme_fourteenKey"]
+    XCTAssertTrue(option.waitForExistence(timeout: 5))
+    option.tap()
+    // 选项在退场动画完成后才保存，不能在回调之前终止宿主。
+    let dismissed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: app.buttons["designOptionSheetCancel"])
+    XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+    app.terminate()
+    let field = try focusedTryoutKeyboard(app)
+    for label in ["按键 B N", "按键 U I", "按键 G H", "按键 A S", "按键 O P"] {
+      let key = app.buttons[label].exists ? app.buttons[label] : app.keys[label]
+      XCTAssertTrue(key.waitForExistence(timeout: 5), "\(label) is missing from the 14-key face")
+      key.tap()
+    }
+    XCTAssertTrue(app.buttons["candidate-1"].waitForExistence(timeout: 8), "the candidate strip stayed empty for the 14-key nihao")
+    let reading = app.buttons["preeditButton"]
+    XCTAssertTrue(["ni'hao", "bu'hao"].contains(reading.value as? String ?? ""), "the reading row reads \(reading.value ?? "")")
+    keepScreenshot("十四键拖空格-拖之前", in: app)
+
+    let space = app.buttons["spaceKey"]
+    XCTAssertTrue(space.isHittable)
+    let start = space.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
+    start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -48, dy: 0)),
+                withVelocity: 120, thenHoldForDuration: 0.1)
+    keepScreenshot("十四键拖空格-松手后", in: app)
+    let value = (field.value as? String) ?? ""
+    XCTAssertTrue(value.contains("好"), "the drag committed the top candidate first: the editor holds \(value)")
   }
 
   /// 原生设置保存双拼 14 键后，系统加载的扩展在独立编辑器中完成四种方案的选词上屏。
