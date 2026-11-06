@@ -1994,6 +1994,8 @@ static NSImage *MSIMECandidateLogoImage() {
     NSTimer *_capsLockTapTimer;
     // 首个事件没有实体按住位时，等待后续的 flagsChanged 松键事件；定时器不能把未知状态误判成已松手。
     BOOL _capsLockTapAwaitingReleaseEvent;
+    // 待定轻点的状态事件需要由输入法消费，但不能提前离开 handleKeyEvent，否则会跳过后续会话和宿主状态维护。
+    BOOL _capsLockTapConsumedEvent;
     // IOKit 撤回锁定后，窗口服务器可能还会把旧的 Caps Lock 修饰位带进一两个事件；
     // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
     BOOL _capsLockTapReleased;
@@ -7783,7 +7785,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
     }
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted && !event.isARepeat) [self reportKeyToLifecycle:event];
+    _capsLockTapConsumedEvent = NO;
     const BOOL handled = [self handleKeyEvent:event client:sender];
+    const BOOL finalHandled = handled || _capsLockTapConsumedEvent;
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
         // A key event is the wake-up edge: restore the toolbar before the next event arrives, even if
         // a preceding focus or preference callback left its requested visibility stale.
@@ -7791,15 +7795,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
             [_toolbar wakeForInputDelegate:self];
         }
-        [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+        [self noteKeyForSmartPunctuationShadow:event eaten:finalHandled];
     }
     if (!selfPosted) [self recordKeyPress:event client:sender];
-    if (!handled) [self recordPassthroughKey:event client:sender];
+    if (!finalHandled) [self recordPassthroughKey:event client:sender];
     const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
     if (timed && elapsedMs >= 8.0) {
-        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0, elapsedMs);
+        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, finalHandled ? 1 : 0, elapsedMs);
     }
-    return handled;
+    return finalHandled;
 }
 
 - (void)recordPassthroughKey:(NSEvent *)event client:(id)sender {
@@ -7946,7 +7950,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
         (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
     if (!capsTapObserved) [self adoptCapsLockState:capsLock];
-    if (delayedCapsTapEvent) return YES;
+    _capsLockTapConsumedEvent = delayedCapsTapEvent;
     if (!sender) {
         _voicePermissionToken = nil;
         [_voiceOverlay dismissFailure];
