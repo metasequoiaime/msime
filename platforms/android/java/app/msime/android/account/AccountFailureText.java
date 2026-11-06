@@ -42,6 +42,7 @@ public final class AccountFailureText {
             case "account_cancelled" -> "登录已改变，请重新打开页面";
             case "account_unauthorized" -> "登录已失效，请重新登录";
             case "account_rate_limited" -> "操作太频繁，请" + later(retryAfterSeconds);
+            case "account_unsupported_email_domain" -> "该邮箱域名暂不支持邮箱验证码，请改用常用邮箱或手机号";
             case "account_too_large" -> "图片超过 1 MB，请换一张小一些的";
             case "account_recent_login_required" -> "需要重新登录后再试";
             case "account_storage" -> "读不到本机的登录状态，请重新登录";
