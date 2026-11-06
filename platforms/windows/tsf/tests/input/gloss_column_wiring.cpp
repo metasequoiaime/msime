@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
     const std::string presenter = read(root + "/UI/CandidateListUIPresenter.cpp");
     // 宿主会话拥有组字时数字在 _HandleCandidateWorker 里选词：先读 Server 的回复，CommitExactText 时上屏释义，不向宿主会话选词。
     const std::string worker = between(presenter, "HRESULT CMetasequoiaIME::_HandleCandidateWorker(", "\n}\n");
-    expect_before(worker, "TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false)",
+    expect_before(worker, "TryReadDataFromServerPipeWithTimeout(requestId, /*abortTransportOnTimeout=*/false, msime::windows::tsf::kServerReplyStallBudgetMs)",
                   "_SelectHighlightedHostCandidate(ec, pContext, reply->msg_type", "the host digit path reads the Server's reply before selecting");
     expect_before(worker, "Global::DataFromServerMsgType::CommitExactText", "_SelectHighlightedHostCandidate(ec, pContext, reply->msg_type",
                   "an exact-text reply is committed instead of the host candidate");

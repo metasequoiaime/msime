@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::cantonese_output::CantoneseOutputOrigins;
 use crate::assets;
-use crate::cantonese::scheme::CantoneseQueryBuffer;
+use crate::cantonese::scheme::{deduplicate_candidates, CantoneseQueryBuffer};
 use crate::cantonese::{
     CantoneseCandidate, CantoneseDictionary, CantoneseLexicon, CantoneseScheme, Inventory,
     UserWords,
@@ -26,7 +27,8 @@ use crate::shuangpin::{ShuangpinEngine, ShuangpinProfile};
 use crate::stroke::scheme::StrokeQueryBuffer;
 use crate::stroke::{StrokeCandidate, StrokeScheme};
 use crate::types::{
-    CandidateSource, QueryRequest, SchemeSet, SchemeType, WordItem, WubiProfileKind,
+    CandidateSource, QueryRequest, SchemeSet, SchemeType, SharedString, TextConversion, WordItem,
+    WubiProfileKind,
 };
 use crate::wubi::provider::WubiProvider;
 
@@ -48,6 +50,9 @@ pub struct ProviderRegistry {
     cantonese_scheme: Option<CantoneseScheme>,
     cantonese_candidates: Vec<CantoneseCandidate>,
     cantonese_buffer: CantoneseQueryBuffer,
+    /// 粤拼候选文字的输出转换；`None` 输出词库原文。
+    cantonese_output: Option<TextConversion>,
+    cantonese_originals: CantoneseOutputOrigins,
     /// Where `msime-zhuyin.db` is; empty when the host has none.
     zhuyin_path: PathBuf,
     /// `msime-zhuyin.db` opened by `activate`; `None` before that and while the live Zhuyin scheme holds it.
@@ -113,6 +118,8 @@ impl ProviderRegistry {
             cantonese_scheme: None,
             cantonese_candidates: Vec::new(),
             cantonese_buffer: CantoneseQueryBuffer::default(),
+            cantonese_output: None,
+            cantonese_originals: CantoneseOutputOrigins::default(),
             zhuyin_path,
             zhuyin: None,
             stroke_path,
@@ -160,6 +167,15 @@ impl ProviderRegistry {
     /// Takes back the `msime-zhuyin.db` connection of a Zhuyin scheme being replaced, so switching back to Zhuyin reuses it instead of opening the file again.
     pub fn return_dictionary(&mut self, dictionary: LanguageDictionary) {
         self.zhuyin = Some(dictionary);
+    }
+
+    pub fn set_cantonese_output_conversion(&mut self, conversion: Option<TextConversion>) {
+        self.cantonese_output = conversion;
+        self.cantonese_originals.clear();
+    }
+
+    pub(super) fn cantonese_dictionary_word(&self, key: &str, text: &SharedString) -> SharedString {
+        self.cantonese_originals.word(key, text)
     }
 
     /// The syllable inventory of the open `msime-cantonese.db`; `None` until Cantonese has been activated.
@@ -415,6 +431,7 @@ impl ProviderRegistry {
         request: &QueryRequest,
         destination: &mut Vec<WordItem>,
     ) {
+        self.cantonese_originals.clear();
         if !request.valid || request.scheme != SchemeType::Cantonese {
             destination.clear();
             return;
@@ -434,6 +451,8 @@ impl ProviderRegistry {
             scheme,
             &mut self.cantonese_buffer,
             &mut self.cantonese_candidates,
+            self.cantonese_output,
+            &mut self.cantonese_originals,
             destination,
         );
     }
@@ -444,6 +463,7 @@ impl ProviderRegistry {
         scheme: &CantoneseScheme,
         destination: &mut Vec<WordItem>,
     ) {
+        self.cantonese_originals.clear();
         let Some(dictionary) = &self.cantonese else {
             destination.clear();
             return;
@@ -454,6 +474,8 @@ impl ProviderRegistry {
             scheme,
             &mut self.cantonese_buffer,
             &mut self.cantonese_candidates,
+            self.cantonese_output,
+            &mut self.cantonese_originals,
             destination,
         );
     }
@@ -590,11 +612,18 @@ fn fill_cantonese_candidates(
     scheme: &CantoneseScheme,
     buffer: &mut CantoneseQueryBuffer,
     source: &mut Vec<CantoneseCandidate>,
+    conversion: Option<TextConversion>,
+    originals: &mut CantoneseOutputOrigins,
     destination: &mut Vec<WordItem>,
 ) {
     if scheme.candidates_into(lexicon, buffer, source).is_err() {
         destination.clear();
         return;
+    }
+    if let Some(conversion) = conversion {
+        originals.convert(source, conversion);
+        // 發、髮都转成「发」后，同一读音段里只留排在前面的那条。
+        deduplicate_candidates(source);
     }
     let input = scheme.input();
     let common = source.len().min(destination.len());
