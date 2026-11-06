@@ -138,6 +138,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 输入方式：始终在工具栏里，在键区打开方案选择。
   private let schemeButton = KeyboardToolbarButton(icon: .toolbarScheme, accessibilityLabel: "选择输入方案")
   private let shortcutBar = UIStackView()
+  private let shortcutSpacer = UIView()
   private var candidateContent: UIStackView?
   /// 工具栏的语音按钮。iOS 的语音入口是长按空格和功能菜单的「语音输入」，工具栏不放语音按钮；按钮仍排在栏里但保持隐藏，与下面的高情商回复一样，按标识符查找它的地方不会找到别的控件。
   private let scriptShortcut = UIButton()
@@ -2859,10 +2860,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func installShortcutBar(in container: UIView) {
     shortcutBar.axis = .horizontal
-    // 设计稿的工具栏是等分网格：无论固定了哪些，每个可见工具都占同样宽的格子。
-    shortcutBar.distribution = .fillEqually
+    // 品牌键固定在左边，其余工具聚到右边；等分整行会把图标拉得过开。
+    shortcutBar.distribution = .fill
     shortcutBar.alignment = .fill
-    shortcutBar.spacing = 0
+    shortcutBar.spacing = 8
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     moreShortcut.accessibilityIdentifier = "moreShortcut"
@@ -2880,8 +2881,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut,
       replyShortcut, scriptShortcut, dismissShortcut,
     ]
-    for button in shortcuts {
+    shortcutSpacer.accessibilityElementsHidden = true
+    shortcutSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    shortcutSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    shortcutBar.addArrangedSubview(moreShortcut)
+    moreShortcut.widthAnchor.constraint(equalToConstant: KeyboardToolbarButton.padSide).isActive = true
+    shortcutBar.addArrangedSubview(shortcutSpacer)
+    for button in shortcuts.dropFirst() {
       shortcutBar.addArrangedSubview(button)
+      button.widthAnchor.constraint(equalToConstant: KeyboardToolbarButton.padSide).isActive = true
+    }
+    for button in shortcuts {
       // 长按任何一个按钮（含品牌键和收起键）打开 App 的「键盘工具栏」设置页，在那里选择显示哪些按钮，与 Android 的 `bindEditor` 一致。长按会取消这次触摸，所以不会再触发按钮自己的点按动作。
       let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleToolbarEditorHold(_:)))
       hold.name = "toolbarEditorHold"

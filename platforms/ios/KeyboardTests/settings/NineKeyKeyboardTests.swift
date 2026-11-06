@@ -1202,7 +1202,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try XCTUnwrap(try button("moreShortcut", in: controller) as? KeyboardBrandMarkButton)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
-      XCTAssertEqual(toolbar.distribution, .fillEqually)
+      XCTAssertEqual(toolbar.distribution, .fill)
+      XCTAssertEqual(toolbar.spacing, 8)
+      XCTAssertTrue(toolbar.arrangedSubviews[1] is UIView)
       // 表情、剪贴板、皮肤 和 iOS 额外按钮跟随共享的 工具栏按钮 设置，常用语 和 输入方式 跟随本机自己的开关，收起 用于关闭这一行。
       let pinned = TouchToolbarPreference(in: MetasequoiaInputSessionBridge.loadSharedPreferences())
       var expected = ["moreShortcut"]
@@ -1218,10 +1220,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       expected.append("dismissShortcut")
       let visible = toolbar.arrangedSubviews.filter { !$0.isHidden }
       XCTAssertEqual(visible.compactMap(\.accessibilityIdentifier), expected)
-      for item in visible {
+      for item in visible where item is UIButton {
         XCTAssertEqual(item.bounds.width, visible[0].bounds.width, accuracy: 0.5, item.accessibilityIdentifier ?? "")
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)
       }
+      let visibleButtons = visible.filter { $0 is UIButton }
+      XCTAssertEqual(visibleButtons.first?.accessibilityIdentifier, "moreShortcut")
+      XCTAssertLessThanOrEqual(visibleButtons.first?.frame.maxX ?? .greatestFiniteMagnitude,
+                               visibleButtons.dropFirst().first?.frame.minX ?? -.greatestFiniteMagnitude)
       XCTAssertNil(more.menu)
       XCTAssertNotNil(descendants(more).first { $0.accessibilityIdentifier == "keyboardBrandIcon" })
       // 设计稿的线框图标自己绘制：没有一个带着会被皮肤处理画成键帽的 configuration。

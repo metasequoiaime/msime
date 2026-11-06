@@ -652,7 +652,7 @@ final class MorePanelFoldTests: XCTestCase {
       let lines = top.subviews.map { $0.convert($0.bounds, to: controller.view) }
       XCTAssertEqual(lines.count, 3)
       let bar = try view("keyboardShortcutBar", in: controller)
-      let icons = bar.subviews.filter { !$0.isHidden && $0.bounds.width > 0 }.map { button -> CGRect in
+      let icons = bar.subviews.filter { !$0.isHidden && $0.bounds.width > 0 && $0 is UIButton }.map { button -> CGRect in
         let design = button is KeyboardBrandMarkButton ? KeyboardBrandMarkButton.discSide : KeyboardToolbarButton.iconSide
         let side = design * KeyboardToolbarButton.contentScale(rowHeight: button.bounds.height)
         let frame = button.convert(button.bounds, to: controller.view)
