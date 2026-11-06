@@ -5,6 +5,7 @@ import contextlib
 import email.message
 import io
 import socket
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -22,15 +23,15 @@ def http_error(code):
     return urllib.error.HTTPError(URL, code, "synthetic", {}, None)
 
 
-def attempts(outcomes):
-    """Runs download_retry.urlopen against outcomes (an exception to raise or a value to return), returning (result or exception, calls, sleeps)."""
+def attempts(outcomes, on_call=lambda outcome: outcome):
+    """对 outcomes（要抛出的异常或要返回的值）运行 download_retry.urlopen，返回 (结果或异常, 调用记录, 等待记录)；on_call 在每次请求时拿到这次的 outcome，可用来推进假时钟。"""
     queue = list(outcomes)
     calls = []
     sleeps = []
 
     def urlopen(url, timeout):
         calls.append((url, timeout))
-        outcome = queue.pop(0)
+        outcome = on_call(queue.pop(0))
         if isinstance(outcome, BaseException):
             raise outcome
         return outcome
@@ -51,7 +52,7 @@ def main():
     failures = []
     delays = list(download_retry.RETRY_DELAYS)
 
-    for transient in (http_error(500), http_error(503), http_error(429), urllib.error.URLError("reset"), socket.timeout("timed out"), ConnectionResetError()):
+    for transient in (http_error(500), http_error(503), http_error(504), http_error(429), urllib.error.URLError("reset"), socket.timeout("timed out"), ConnectionResetError()):
         result, calls, sleeps = attempts([transient, "response"])
         if result != "response" or len(calls) != 2 or sleeps != delays[:1]:
             failures.append(f"{transient!r} was not retried once: result={result!r} calls={len(calls)} sleeps={sleeps}")
@@ -59,6 +60,39 @@ def main():
     result, calls, sleeps = attempts([http_error(502)] * (len(delays) + 1))
     if not (isinstance(result, urllib.error.HTTPError) and result.code == 502) or len(calls) != len(delays) + 1 or sleeps != delays:
         failures.append(f"a persistent 502 was not retried {len(delays)} times and then raised: result={result!r} calls={len(calls)} sleeps={sleeps}")
+
+    # 指数退避：从 2 秒起每次翻倍，单次不超过上限；重试之间合计的等待要盖得住 2026-11-05 那段至少 34 秒的 504，又不能长到拖住作业。
+    if delays[0] != 2 or any(later != min(download_retry.MAX_DELAY, earlier * 2) for earlier, later in zip(delays, delays[1:])):
+        failures.append(f"the retry delays are not a doubling backoff from 2s capped at {download_retry.MAX_DELAY}s: {delays}")
+    if max(delays) != download_retry.MAX_DELAY or not 120 <= sum(delays) <= download_retry.RETRY_BUDGET:
+        failures.append(f"the retry delays do not reach the cap or wait between 120s and the budget in all: {delays}")
+
+    # 重放 2026-11-05 iOS CI 的失败：连续四次 504 之后服务恢复，下载成功。
+    result, calls, sleeps = attempts([http_error(504)] * 4 + ["response"])
+    if result != "response" or len(calls) != 5 or sleeps != delays[:4]:
+        failures.append(f"four 504s in a row were not ridden out: result={result!r} calls={len(calls)} sleeps={sleeps}")
+
+    # 证书校验失败不是瞬时故障，重试只会多等。
+    certificate = urllib.error.URLError(ssl.SSLCertVerificationError(1, "certificate verify failed"))
+    result, calls, sleeps = attempts([certificate, "response"])
+    if result is not certificate or len(calls) != 1 or sleeps:
+        failures.append(f"a certificate verification failure was retried: result={result!r} calls={len(calls)} sleeps={sleeps}")
+
+    # 每次请求都挂满 300 秒超时时，总时长封顶在 RETRY_BUDGET：第二次请求结束时已用掉 600 秒，再等一次就超出预算，于是放弃，不把八次都试完。
+    clock = [0.0]
+    original_monotonic = download_retry.time.monotonic
+    download_retry.time.monotonic = lambda: clock[0]
+
+    def hang(outcome):
+        clock[0] += 300
+        return outcome
+
+    try:
+        result, calls, sleeps = attempts([socket.timeout("timed out")] * (len(delays) + 1), on_call=hang)
+    finally:
+        download_retry.time.monotonic = original_monotonic
+    if not isinstance(result, socket.timeout) or len(calls) != 2 or sleeps != delays[:1]:
+        failures.append(f"hanging attempts were not cut off by the {download_retry.RETRY_BUDGET}s budget: result={result!r} calls={len(calls)} sleeps={sleeps}")
 
     for permanent in (404, 403, 410):
         result, calls, sleeps = attempts([http_error(permanent), "response"])
