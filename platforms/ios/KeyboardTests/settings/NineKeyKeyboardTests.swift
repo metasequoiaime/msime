@@ -2940,6 +2940,43 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(bridge.suspendDictionarySession())
   }
 
+  /// 恢复阶段建会话失败时，下一次按键必须继续显示建会话的原因，不能把它覆盖成泛化的「尚未准备完成」。
+  func testResumeFailureKeepsItsDiagnosticForTheNextKey() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-resume-failed-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let locks = try dictionaryLockFiles(stateRoot: state)
+    let blockers = try locks.map { path -> Int32 in
+      try FileManager.default.createDirectory(
+        at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+        withIntermediateDirectories: true)
+      let descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR)
+      guard descriptor >= 0 else {
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+      }
+      guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        close(descriptor)
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: nil)
+      }
+      return descriptor
+    }
+    defer {
+      for descriptor in blockers {
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+      }
+    }
+
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state, startsSuspended: true)
+    XCTAssertFalse(bridge.initializationFailed)
+    XCTAssertThrowsError(try bridge.resumeDictionarySession())
+    XCTAssertTrue(bridge.initializationFailed)
+    XCTAssertTrue(bridge.dictionarySessionSuspended)
+    let snapshot = bridge.handleCharacter("n")
+    XCTAssertEqual(snapshot.diagnosticText?.hasPrefix("输入运行时创建或激活失败："), true)
+    XCTAssertNotEqual(snapshot.diagnosticText, "输入运行时尚未准备完成。")
+  }
+
   /// 运行时准备失败的桥从没建过会话，也没进挂起状态。诊断日志里的 `session_held` 看的是 `holdsSession`，不能看「没挂起」，否则这样的键盘在真机日志里会被记成持锁（#10634）。
   func testABridgeWhoseRuntimeFailedToPrepareHoldsNoSession() throws {
     let root = FileManager.default.temporaryDirectory
