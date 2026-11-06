@@ -7,14 +7,11 @@ enum KeyboardFormFactor: Equatable {
   case phone
   case tablet
 
-  /// 手机竖屏字母层（26 键，以及九键一族切到英文或本地模式时的字母层）在存储行距之外多留的排间距。`keyboardHeight` 按它把行距换回存储值来算标准高度。
+  /// 手机竖屏字母层在存储行距之外保留的上下对齐间距。
   static let phoneLetterRowPadding: CGFloat = 4
 
-  /// 26 键手机竖屏的键帽从 52pt 收到 44pt，每排省下 8pt，一半垫在键的上方、一半垫在下方，每个 44pt 键帽都落在九键 52pt 那一格的正中：键区上下各留 `phoneLetterVerticalPadding`，排与排之间在 `phoneLetterRowPadding` 之外再多 `phoneLetterSpareRowPadding`。两者都与排数无关，开不开顶部数字行都一样，键盘总高也不变。
-  ///
-  /// 以前省下的高度全部垫在键区上下（四排各 10pt，开数字行五排各 12pt），工具栏和第一排之间空出一整条。
+  /// 26 键手机竖屏的键帽从 52pt 收到 44pt，键区上下各留 4pt；排间距只保留一份额外对齐间距，避免重复叠加。
   static let phoneLetterVerticalPadding: CGFloat = 4
-  static let phoneLetterSpareRowPadding: CGFloat = 4
 
   static func resolve(
     idiom: UIUserInterfaceIdiom, horizontalSizeClass: UIUserInterfaceSizeClass
@@ -75,7 +72,7 @@ enum KeyboardFormFactor: Equatable {
     let standardBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting),
       rows: rows, rowSpacing: standardRowSpacing)
-    // 26 键的键帽从 52pt 收紧到 44pt 后，用上下内边距补回这 20pt，切换布局时键盘外框不跳。
+    // 26 键的键帽从 52pt 收紧到 44pt 后，保留原来的键盘外框高度，省下的空间用于键帽高度。
     let letterHeightCompensation = self == .phone && letterKeys ? standardBlock - keyBlock : 0
     return padding.top + topRow + (topRow > 0 ? topRowGap : 0)
       + keyBlock + letterHeightCompensation
