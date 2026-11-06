@@ -130,14 +130,14 @@ docker run --rm --init \
     if [ -d /build/cargo ] && [ "$(cat "$ort_stamp" 2>/dev/null)" != "$ort_library_sha" ]; then
       cargo clean -p ort-sys --release
     fi
-    cargo build --release --locked -p msime-host-api --features onnx-rerank
+    cargo build --release --locked -p msime-host-api --features onnx-rerank,local-translation
     mkdir -p /build/cargo
     printf "%s\n" "$ort_library_sha" > "$ort_stamp"
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
     # 两档逐键重排模型（chinese-ime-lm 的 rerank-v2：8x448 与 6x256），按 resources/rerank-model.lock.json 下载核对；CMake 再按同一份锁核对一遍，装在资源目录旁边的 rerank-model/ 与 rerank-model-small/。只有带键盘模型的版本（版本表 features.neural_keyboard）装它们。
     python3 scripts/fetch_rerank_model.py --out /build/rerank-model >/dev/null
     desktop_args=()
-    crate_roots=(msime-host-api:onnx-rerank msime-mcp-server)
+    crate_roots=(msime-host-api:onnx-rerank,local-translation msime-mcp-server)
     if [ "$MSIME_PACKAGE_DESKTOP" = 1 ]; then
       # tauri/custom-protocol is what `tauri build` enables: without it the binary is a dev build that loads devUrl instead of the embedded frontend. TAURI_CONFIG sets the version the app reports, as Build-Client.ps1 does for Windows.
       TAURI_CONFIG="{\"version\":\"$MSIME_VERSION\"}" \
@@ -205,7 +205,7 @@ docker run --rm --init \
         -DCMAKE_INSTALL_PREFIX="$prefix" \
         -DMSIME_EDITION="$edition" \
         -DBUILD_TESTING="$testing" \
-        -DMSIME_ENABLE_PACKAGING=ON \
+        -DMSIME_LOCAL_TRANSLATION_SETTINGS=ON -DMSIME_ENABLE_PACKAGING=ON \
         -DMSIME_ENABLE_FCITX5=ON \
         -DMSIME_HOST_LIBRARY=/build/cargo/release/libmsime_host_api.so \
         -DMSIME_MCP_BINARY=/build/cargo/release/msime-mcp \

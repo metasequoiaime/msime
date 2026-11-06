@@ -1778,6 +1778,12 @@ pub struct Preferences {
     pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
+    /// 嵌入式模型离线翻译；显式开启后独立使用本地目标语言。
+    #[serde(
+        default,
+        skip_serializing_if = "crate::local_translation::LocalTranslationPreferences::is_default"
+    )]
+    pub local_translation: crate::local_translation::LocalTranslationPreferences,
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
     #[serde(default)]
@@ -4362,6 +4368,7 @@ impl Default for Preferences {
             next_word_prediction: false,
             next_word_prediction_buttons: NextWordPredictionButtons::default(),
             custom_translation: CustomTranslationPreferences::default(),
+            local_translation: crate::local_translation::LocalTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
@@ -5288,6 +5295,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidNiuTrans);
         }
+        if !self.local_translation.validate() {
+            return Err(PreferencesError::InvalidLocalTranslation);
+        }
         let translation = &self.custom_translation;
         if !crate::text::is_bounded_text(&translation.api_key, 4096)
             || (!translation.endpoint.is_empty()
@@ -5565,6 +5575,8 @@ pub enum PreferencesError {
     InvalidVoiceInput,
     #[error("本地识别停顿时间须为 500–5000 毫秒、步进 100，判停灵敏度须为 10–90")]
     InvalidVoicePause,
+    #[error("local translation target language is invalid")]
+    InvalidLocalTranslation,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]

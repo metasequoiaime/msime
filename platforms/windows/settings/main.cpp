@@ -12,6 +12,7 @@
 #include "../common/DictionarySyncDirectory.h"
 #include "../common/SurfaceRouteArgument.h"
 #include "SettingsInstance.h"
+#include "LocalTranslationWindow.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -63,6 +64,7 @@
 #include "FeedbackReport.h"
 #include "FloatingToolbarSizeModel.h"
 #include "GameProcessList.h"
+#include "HelpcodeModesModel.h"
 #include "HistoryPagination.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
@@ -13887,14 +13889,39 @@ private:
       segment_row(group, 0xE8AB, L"韩语布局",
                   L"默认两套式，可切换为罗马字。罗马字用 x 输入声母 ㅇ（xa → 아，hangug → 한국），Shift+G/D/B/J/S 输入紧音；退格删除当前拼写的最后一个拉丁字母，标点为半角",
                   L"korean.layout", {{L"dubeolsik", L"两套式"}, {L"romaja", L"罗马字"}}, L"dubeolsik");
-    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。
-    if (scheme == L"cantonese")
+    // 粤语双拼与粤拼共用同一个方案和词典，做成粤拼方案下的选项，说明与共享页的「粤拼方案」相同。选了粤语双拼时下面跟着「双拼预编辑」，普通粤拼打的就是粤拼，没有按键要展开；换解释方式时 segment_row 整页重画，这一行随之出现或消失。
+    if (scheme == L"cantonese") {
+      const bool cantonese_shuangpin =
+          document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin";
       segment_row(group, 0xE8AB, L"粤拼方案",
-                  document_.String(L"cantonese.input_method", L"jyutping") == L"shuangpin"
+                  cantonese_shuangpin
                       ? L"两键一个音节，第一键是声母、第二键是韵母，ing 和 ik 在 ; 键上；从第一键起按双拼解释，与粤拼同形的码（如 oi）也按双拼。数字键选词，候选为繁体字词"
                       : L"按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词",
                   L"cantonese.input_method", {{L"jyutping", L"粤拼"}, {L"shuangpin", L"粤语双拼"}},
                   L"jyutping");
+      // 「双拼预编辑」与普通话双拼共用 shuangpin_preedit_uses_raw（#10557），展开的是粤拼。引擎的粤语双拼不读 shuangpin_preedit_separated（#10717），所以这里只有原始按键 / 粤拼分词两项：存着双拼分隔时它显示的就是原始按键，下拉框照实选中「原始按键」；写回与普通话双拼那一行同一套换算（InputSettingsModel.h），选粤拼分词时分隔一并清掉。
+      if (cantonese_shuangpin) {
+        auto const stored_preedit =
+            ism::shuangpin_preedit(document_.Boolean(L"shuangpin_preedit_uses_raw", true),
+                                   document_.Boolean(L"shuangpin_preedit_separated", false));
+        add_row(group, 0xE8AB, L"双拼预编辑",
+                L"保留原始粤语双拼按键，或显示展开后的粤拼。与普通话双拼共用这一项。",
+                select_control(L"双拼预编辑", {{L"raw", L"原始按键"}, {L"pinyin", L"粤拼分词"}},
+                               stored_preedit == ism::ShuangpinPreedit::pinyin ? L"pinyin" : L"raw",
+                               [this](std::wstring const &value) {
+                                 auto const style = value == L"pinyin" ? ism::ShuangpinPreedit::pinyin
+                                                                       : ism::ShuangpinPreedit::raw;
+                                 change(
+                                     [&](PreferencesDocument &doc) {
+                                       doc.SetBoolean(L"shuangpin_preedit_uses_raw",
+                                                      ism::shuangpin_preedit_uses_raw(style));
+                                       doc.SetBoolean(L"shuangpin_preedit_separated",
+                                                      ism::shuangpin_preedit_separated(style));
+                                     },
+                                     false);
+                               }));
+      }
+    }
     if (scheme == L"zhuyin")
       add_row(group, 0xE8AB, L"注音键盘",
               L"大千：按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词",
@@ -14902,6 +14929,30 @@ private:
     // 共享页的这一行不随辅助码开关变灰。
     bool_row(group, 0xE8FD, L"在候选窗口中显示" + label + L"辅助码", L"",
              prefix + L".show_in_candidate_window", show_fallback);
+    // 「一码严格筛选」随辅助码开关变灰，缺字段时为关（client-core `strict_filter` 的默认值）。
+    bool_row(group, 0xE71C, label + L"一码严格筛选",
+             std::wstring(msime::settings::helpcode::strict_filter_description),
+             prefix + L".strict_filter", false, false, enabled);
+  }
+
+  // 双拼辅助码的触发方式（`shuangpin_helpcode.modes`），只画在当前方案是双拼时的主流程里，与共享页桌面形态相同：另一族收进「更多选项」时不带这几行。各行与缺值读法见 HelpcodeModesModel.h。互斥由 client-core 在写入端归一，所以每次改动都重画，界面显示归一后的值。
+  void helpcode_mode_rows(StackPanel const &group) {
+    namespace hm = msime::settings::helpcode;
+    const std::wstring prefix = L"shuangpin_helpcode.modes.";
+    const auto value = [this, &prefix](hm::Mode const &mode) {
+      return document_.Boolean(prefix + std::wstring(mode.field), mode.fallback);
+    };
+    const auto find = [](std::wstring_view field) -> hm::Mode const & {
+      return *std::find_if(hm::shuangpin_modes.begin(), hm::shuangpin_modes.end(),
+                           [field](hm::Mode const &mode) { return mode.field == field; });
+    };
+    const bool helpcode_on = document_.Boolean(L"shuangpin_helpcode.enabled", true);
+    const bool mid_sentence = value(find(L"mid_sentence"));
+    const bool direct_helpcode = value(find(L"direct_helpcode"));
+    for (auto const &mode : hm::shuangpin_modes)
+      bool_row(group, 0xE8CB, L"双拼" + std::wstring(mode.title), std::wstring(mode.description),
+               prefix + std::wstring(mode.field), mode.fallback, true,
+               hm::mode_enabled(mode, helpcode_on, mid_sentence, direct_helpcode));
   }
 
   // 方案下拉框的两份来源。自定义码表只读一次，与共享页一样；辅助码表插件每次进入「输入」页重读，在别处导入或删除的包下次进来就能看到。两者都在 UI 线程之外读，读完内容有变化才重画。
@@ -15089,6 +15140,13 @@ private:
   }
 
   void build_translation_service_group(StackPanel const &page) {
+    auto local = add_group(page, L"本地模型翻译");
+    add_row(local, 0xE774, L"本地模型翻译", L"", button_control(L"管理模型与语言…", [this] {
+      flush_pending();
+      HWND owner = nullptr;
+      check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+      msime::settings::show_local_translation(owner, state_directory());
+    }));
     const bool translations = document_.Boolean(L"candidate_translations", false);
     // 翻译服务：共享页「翻译服务」一组（`translation-settings-content.tsx` 的 serviceInOwnGroup，选择器是 `translation-service-selector-section.tsx`），候选词翻译关着时不可选。Windows 的 Server 会问水杉账号，所以和共享页一样列出它。选了腾讯云、小牛翻译或自定义服务时，下面多一组只属于它的设置；规则在 TranslationServiceSettings.h。
     // `none` 不叫「关闭」：Windows 没有系统翻译，但 host-api 仍把装好的离线词库语言放进查询，TranslationWorker 照样从离线词库填出释义，所以与共享页 offlineFallback 的 dictionary 一支同名同说明。
@@ -15132,6 +15190,7 @@ private:
     // 腾讯云默认就是 enabled，选它不改文档；记下这次选择，没有可用密钥时也显示腾讯云和它的凭据框。
     tencent_chosen_ = provider == L"tencent";
     change([&](PreferencesDocument &doc) {
+      if (doc.Boolean(L"local_translation.enabled", false)) doc.SetBoolean(L"local_translation.enabled", false);
       doc.SetBoolean(L"custom_translation.enabled", provider == L"custom");
       doc.SetBoolean(L"tencent_tmt.enabled", provider == L"tencent");
       doc.SetBoolean(L"niutrans.enabled", provider == L"niutrans");
@@ -15620,7 +15679,7 @@ private:
              L"quanpin.autocorrect_transposition", true);
   }
 
-  // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的三行（双拼方案用双拼，其他方案用全拼），另一族的三行收在组末的「更多选项」里；搜索落到那几行时展开。
+  // 「辅助码」组，照共享页 HelpcodeSettingsGroup 的桌面形态：本版本提供全拼或双拼之一就画（共享页的 editionUsesHelpcode），不看当前方案。主流程是当前方案所属那一族的四行（双拼方案用双拼，其他方案用全拼），双拼方案还接着画双拼辅助码的触发方式；另一族的四行收在组末的「更多选项」里，不带触发方式；搜索落到那几行时展开。
   void build_helpcode_group(StackPanel const &page) {
     if (!helpcode_offered())
       return;
@@ -15636,6 +15695,8 @@ private:
     };
     auto helpcode = add_group(page, L"辅助码");
     family(helpcode, shuangpin);
+    if (shuangpin)
+      helpcode_mode_rows(helpcode);
     auto more = add_fold(
         helpcode, L"更多选项", helpcode_more_open_ || fold_holds_focus(L"helpcode-more"),
         [this](bool expanded) { helpcode_more_open_ = expanded; });

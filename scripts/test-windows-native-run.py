@@ -121,6 +121,8 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     "candidate/wubi_code_hint.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "input/chinese_conversion.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "input/preedit_caret.cpp": (["src/input/ChineseTextConversion.cpp"], True),
+    # 按键送达的候选窗投影（插入点、游戏会话、UiLess 隐藏）；以前缺这一项被当成 Windows 专属跳过，断言过时了也没人发现（#10792）。
+    "ui/candidate_initialization.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "ui/candidate_render_request.cpp": (["src/input/ChineseTextConversion.cpp"], True),
     "core/candidate_continuation_pipe.cpp": (["src/ipc/ReplyCodec.cpp"], False),
     # 方向键让过云占位席位：真实 Server 会话的回复合成、候选窗投影与 TIP 宿主会话的导航（#10665）。

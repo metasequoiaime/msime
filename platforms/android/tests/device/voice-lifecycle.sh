@@ -71,9 +71,15 @@ if [[ "$mode" == hold ]]; then
     app.msime.android.test/app.msime.android.test.VoiceRecognitionLifecycleDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
+  # 先删掉上一轮留在设备上的截图：专项在截图之前就失败时，拉回来的不能是旧代码的面板。
+  panel_shot=/sdcard/Android/data/app.msime.android/files/voice-hold-panel.png
+  "$adb" -s "$serial" shell rm -f "$panel_shot" || true
   result=$("$adb" -s "$serial" shell am instrument -w -e voice-hold true \
     app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
   printf '%s\n' "$result"
+  # 锁定后的面板截图（VoiceHoldDeviceChecks.captureKeyboard）拉回 target/android，CI 作为产物上传，改动长按面板的 PR 用它做改后对比图（#10966）。断言失败时也拉，截图在断言之前保存。
+  mkdir -p target/android
+  "$adb" -s "$serial" pull "$panel_shot" "target/android/voice-hold-panel-api$api.png" >/dev/null 2>&1 || true
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
   exit
 fi
