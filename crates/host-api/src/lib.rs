@@ -917,6 +917,8 @@ impl HostSession {
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
         options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
+        // 「候选显示剩余编码」关掉时，引擎也不再给五笔候选附完整码，宿主退回显示注释时就看不到编码（#10790）。
+        options.wubi_reverse_code = preferences.wubi_code_hint;
         options.frequency_mode = preferences.frequency.mode.as_str().into();
         options.frequency_trigger_count = preferences.frequency.trigger_count;
         options.frequency_linear_step = preferences.frequency.linear_step;
@@ -2510,6 +2512,7 @@ impl HostOptions {
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
             wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
+            wubi_reverse_code: self.preferences.wubi_code_hint,
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
