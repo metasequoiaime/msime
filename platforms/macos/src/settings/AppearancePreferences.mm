@@ -1710,7 +1710,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedSmartPunctuationRepeatToChinese = nil;
     _sharedSmartPunctuationSpaceConvert = nil;
     _sharedTraditionalOutput = nil;
-    _sharedTraditionalVariant = nil;
     _sharedFullWidthInput = nil;
     _sharedToolbarEnabled = nil;
     _sharedCandidateLearning = nil;

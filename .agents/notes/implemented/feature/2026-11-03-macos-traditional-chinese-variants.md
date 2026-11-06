@@ -11,11 +11,15 @@ Status: implemented
 macOS IMK 宿主按 Linux 同一条契约转换：
 
 - `MetasequoiaChineseOutputString` 增加 `variant` 编号，内部改调 `msime_client_convert_to_traditional`。缺省 0（`s2t`），未知编号时 C 接口返回空、宿主保留原文。
-- `MSIMEAppearancePreferences` 从共享快照读 `traditional_chinese_variant`；缺键或认不出的值按 `s2t`，避免上次的 `s2tw` 粘在会话里。菜单、工具栏和 Ctrl+Shift+F 仍然只翻转 `traditional_chinese_output`。
+- `MSIMEAppearancePreferences` 从共享快照读 `traditional_chinese_variant`；缺键或认不出的值按 `s2t`，避免上次的 `s2tw` 粘在会话里。旧平台云快照不包含变体，因此账号同步或导入旧快照保留当前共享文档的选择，不清空它的缓存。菜单、工具栏和 Ctrl+Shift+F 仍然只翻转 `traditional_chinese_output`。
 - `InputController` 把变体传给候选显示、上屏、释义和装饰字。日语方案与来源 18（运行时已转换）仍不整行再转。
 - `HostCapabilities::traditional_chinese_variants` 对 macOS 为真，共享设置页因此列出台湾正体 / 台湾用词，不必改 React 组件。
 
 原生 AppKit 设置窗口仍是回退，不加变体选择器。
+
+## Verification
+
+`traditional-variant-preferences` 通过真实 `MSIMEAppearancePreferences` 覆盖三种合法值、共享快照缺键、未知值及非字符串值，并在每种合法变体下套用旧平台云快照，核对变体保持不变。未修复代码在 `s2tw` 套用云快照后的断言失败；转换函数测试另行覆盖输出字形，不能代替宿主偏好状态的回归。
 
 ## Alternatives considered
 
