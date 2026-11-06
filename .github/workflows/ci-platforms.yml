@@ -447,6 +447,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Use a short Cargo cache path on Windows
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: ./platforms/windows/Use-ShortCargoHome.ps1
       - name: Install sccache
         id: sccache
         continue-on-error: true
@@ -479,7 +483,7 @@ jobs:
         run: |
           set -euo pipefail
           # 安装 rust-toolchain.toml 钉住的工具链。
-          rustup toolchain install
+          bash scripts/rustup-install.sh
           # 问 cargo 而不是 PATH：缓存还原的可执行文件在 ~/.cargo/bin，Windows 的 Git Bash 里它可能不在 PATH 上，cargo 照样找得到子命令。缓存不还原 cargo 的安装记录，所以重装时要 --force 覆盖这些文件。
           if ! cargo cinstall --version 2>/dev/null | grep -q "^cargo-c $CARGO_C_VERSION"; then
             cargo install cargo-c --locked --force --version "$CARGO_C_VERSION"
@@ -733,6 +737,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Use a short Cargo cache path
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: ./platforms/windows/Use-ShortCargoHome.ps1
       - name: Check settings snapshot file sharing
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: powershell
@@ -975,7 +983,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'portable_executable', 'runtime_dependencies', 'collect_notices', 'build_client') {
+          foreach ($test in 'portable_executable', 'runtime_dependencies', 'collect_notices', 'build_client', 'short_cargo_home') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/tests/tools/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }

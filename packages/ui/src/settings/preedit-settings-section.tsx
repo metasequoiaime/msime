@@ -49,7 +49,7 @@ export function PreeditSettingsSection({
       {showShuangpinPreedit && (
         <PreeditStyleRow
           title="双拼预编辑"
-          description="仅在双拼方案下生效；选择保留原始双拼按键、在原始按键之间按音节加分隔符，或显示展开后的拼音分词。"
+          description="仅在双拼和粤语双拼下生效；选择保留原始双拼按键、在原始按键之间按音节加分隔符，或显示展开后的拼音分词。粤语双拼展开的是粤拼，不按音节分隔：选双拼分隔时它显示原始按键。"
           mode="shuangpin"
           value={state.shuangpinStyle}
           onChange={(value) => onChange(shuangpinPreeditPatch(value as ShuangpinPreeditStyle))}

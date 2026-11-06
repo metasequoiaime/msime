@@ -341,7 +341,7 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
-# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的按键音、振动和键位统计；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
+# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的键位统计（振动在按下时由按键区给出，上屏只经 `keyFeedback` 去重，规则由 key-press-feedback.test.ts 覆盖，#10757）；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
 nine_hold_body=$(sed -n '/^  nineKeyHoldKey(key: NineKey) {$/,/^  }$/p' "$view")
 nine_swipe_body=$(sed -n '/^  private nineKeySwipeTouch(key: NineKey, event: TouchEvent): void {$/,/^  }$/p' "$view")
 nine_digit_body=$(sed -n '/^  private typeNineKeySwipeDigit(key: NineKey): void {$/,/^  }$/p' "$view")
@@ -360,7 +360,6 @@ if ! grep -qF 'nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nin
   || ! grep -qF 'this.openKeyHold(NineKeyLayout.holdOptions(key));' <<< "$nine_swipe_body" \
   || ! grep -qF 'this.typeNineKeySwipeDigit(key);' <<< "$nine_swipe_body" \
   || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));' <<< "$nine_digit_body" \
-  || ! grep -qF 'KeyboardSession.shared.holdFeedback();' <<< "$nine_digit_body" \
   || [[ $(grep -A1 -F 'KeyboardSession.shared.finishComposition();' <<< "$nine_digit_body" | grep -cF 'KeyboardSession.shared.insert(digit);') -ne 1 ]] \
   || ! grep -qF 'this.nineKeySwipes.clear();' <<< "$drop_nine_body" \
   || ! grep -qF 'nineKeyInput: this.symbols || shuangpin ? undefined : key.input,' "$view" \
