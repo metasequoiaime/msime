@@ -7940,7 +7940,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         capsLock = NO;
         staleCapsLock = YES;
     }
-    if (!staleCapsLock && ![self observeCapsLockTap:event capsLock:capsLock sender:sender]) [self adoptCapsLockState:capsLock];
+    // 设备尚未报告实体状态时，首个大写锁定状态事件和随后撤回锁定的事件都属于待判定轻点，先交给输入法吞掉，避免系统把尚未确认的锁定状态继续传给应用。普通按住场景仍把首个事件交回应用。
+    const BOOL capsTapWasArmed = _capsLockTap.armed();
+    const BOOL capsTapObserved = !staleCapsLock && [self observeCapsLockTap:event capsLock:capsLock sender:sender];
+    const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
+        (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
+    if (!capsTapObserved) [self adoptCapsLockState:capsLock];
+    if (delayedCapsTapEvent) return YES;
     if (!sender) {
         _voicePermissionToken = nil;
         [_voiceOverlay dismissFailure];
