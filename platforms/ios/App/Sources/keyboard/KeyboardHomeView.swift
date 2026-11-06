@@ -27,6 +27,8 @@ struct SettingsView: View {
       return
     }
     router.settingsPage = nil
+    // 深链打开的页面不是搜索结果：清掉搜索框里残留的查询，否则推入时按它算出目标（搜过「社区」时插件页会停在「社区插件」），与 iPad 侧栏的 `show(_:)` 一致。
+    query = ""
     selectedPage = page
   }
 
@@ -64,7 +66,8 @@ struct SettingsView: View {
     .navigationTitle("水杉输入法")
     .navigationBarTitleDisplayMode(.large)
     // 不按当前选中的标签页过滤：切走时读到 nil 会把推入的页面弹掉，切回来再重新推入，页面里更深一层的导航就丢了。
-    .navigationDestination(item: $selectedPage) { $0.destination }
+    // 从搜索结果进去时把命中的关键词带给页面，页面从它所在的分段开始；查询为空（首页那一行、深链）时没有目标。
+    .navigationDestination(item: $selectedPage) { $0.destination(searchAnchor: $0.searchAnchor(for: query)) }
     .onAppear { refresh(); consumeRequestedPage() }
     .onChange(of: router.settingsPage) { _, _ in consumeRequestedPage() }
     // 重选「首页」：收起根页面推入的页面，它上面更深的页面随之一起弹出。

@@ -488,14 +488,15 @@ struct CandidateItemLayout {
   // At least one candidate_row; grows by every run placed below the first line.
   double height = 0.0;
 };
+// 卡片宽度是内容宽加上序号栏、留白和边距，排版时再减回来，绘制时又从窗口像素换回 DIP，浮点误差会让正好放得下的一段比可用宽度多出几个 ulp 而被折行；差在这么多以内的算放得下。单个候选（candidate_item_layout）和整页横排（candidate_single_line_columns、candidate_page_layout 的折行）用同一个容差，量尺寸和绘制的结论才一致。
+inline constexpr double candidate_layout_fits = 1e-6;
 // Port of the shipped presenter's per-item geometry (CandidateList::MeasureItem). Text wider than the column wraps inside it and the row takes the measured height, at least one candidate_row. Short runs stay on the text's line; a run that does not fit moves under the text and wraps to the column. A horizontal list always puts the translation under the text, and a translation never goes back up once the annotation has moved down.
 inline CandidateItemLayout
 candidate_item_layout(const CandidateItemWidths &item, double content_width,
                       const CandidateCardMetrics &metrics, bool horizontal,
                       const std::function<double(CandidateRun, double)> &wrapped) {
   content_width = (std::max)(content_width, 1.0);
-  // 卡片宽度是内容宽加上序号栏和留白，排版时再减回来，浮点误差会让正好放得下的一段比列窄上一点点而被折行；差在这么多以内的算放得下。
-  constexpr double fits = 1e-6;
+  constexpr double fits = candidate_layout_fits;
   CandidateItemLayout layout;
   layout.text_width = (std::min)(item.text, content_width);
   // Height of a run of `natural` width and `lines` lines once it sits in `width`: one `line` each unless it has to wrap. A run of several lines is always measured, because its height is more than one line even when none of them wraps.
@@ -622,9 +623,9 @@ candidate_single_line_columns(const std::vector<CandidateItemWidths> &items,
     natural_total += natural.back();
     firm_total += firm.back();
   }
-  if (natural_total <= line_width)
+  if (natural_total <= line_width + candidate_layout_fits)
     return natural;
-  if (firm_total > line_width || !(natural_total > firm_total))
+  if (firm_total > line_width + candidate_layout_fits || !(natural_total > firm_total))
     return std::nullopt;
   const double keep = (line_width - firm_total) / (natural_total - firm_total);
   for (size_t index = 0; index < natural.size(); ++index)
@@ -708,7 +709,7 @@ candidate_page_layout(const std::vector<CandidateItemWidths> &items,
           : natural > 0.0
               ? (std::min)(natural + metrics.column_gap, line_width)
               : 0.0;
-      if (!single_line && x > 0.0 && x + column > line_width) {
+      if (!single_line && x > 0.0 && x + column > line_width + candidate_layout_fits) {
         close_line(index);
         top += tallest + metrics.item_gap;
         tallest = 0.0;

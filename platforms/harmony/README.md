@@ -440,6 +440,8 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 振动三档以前只差时长（10/20/35 ms）、强度固定，摸不出差别。现在每档用一个预置效果加拉开的强度（`KeyboardFeedback.plan`：轻 `haptic.effect.soft` 35、中 `haptic.effect.sharp` 70、强 `haptic.effect.hard` 100），设备不支持该效果（`isSupportEffectSync`，结果按效果缓存）时退回 8/20/40 ms。新增「跟随系统」（`system`）：用 `usage: 'touch'` 和 `haptic.clock.timer`、不带强度，振不振、多强由系统的触感反馈设置决定。按键反馈文件每次聚焦都重读，设置页改了档位不必等输入法重启。这些强度是按 SDK 6.1.1（API 24）的类型声明写的，还没在真机上逐档摸过。
 
+触屏键盘的按键在手指按下时就振动，抬手上屏时不再振第二次（#10757）：装着按键的那一列在按键的触摸处理完之后收到按下，交给 `KeyboardSession.keyDown` 振动并留一个令牌，上屏路径的 `tapFeedback` 先消耗令牌；抬手后 `KeyPressFeedback.RELEASE_GRACE_MS` 撤回没用掉的令牌。`holdFeedback` 是长按确认，照常振动。九键左列的拼写列表不是键：按下时它先置上 `keyPressOutsideKeys`，冒泡到容器时这次按下不振动，滚动和点选拼写与以前一样不振。按键音仍由各键的点击经 `softKeyPress` 在抬手时出声：按下时在容器上拿不到是哪个键。规则在 `input/KeyPressFeedback.ts`，`key-press-feedback.test.ts` 覆盖；决定见[移动键盘按下即给按键反馈](../../.agents/notes/implemented/feature/2026-11-03-mobile-key-feedback-on-press.md)。
+
 ## 候选词的译文此前只能看，不能用
 
 候选下方那行释义在这台宿主上一直是只读的：macOS 用 Option／Control 加数字把译文交出去，触摸键盘没有修饰键可用，来源因此把它挂在候选的长按上（`TheCandidateMenuOffersToInsertTheGlossItself`）。鸿蒙这边长按候选给的是词条管理——优先显示、固定到第几位、取消固定、删除词条——没有任何一处能把看得见的译文打出去。

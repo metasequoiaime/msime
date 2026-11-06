@@ -6386,7 +6386,7 @@ fn nine_key_shuangpin_preferences_round_trip_and_stay_out_of_documents_without_t
 }
 
 #[test]
-fn wubi_profile_defaults_to_86_and_rejects_unknown_values() {
+fn wubi_profile_defaults_to_86_and_reads_unknown_values_as_86() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
     let legacy = r#"{"format_version":1,"revision":3,"preferences":{"scheme":"wubi","candidate_page_size":5,"learning":false,"chinese_punctuation":true}}"#;
@@ -6408,8 +6408,62 @@ fn wubi_profile_defaults_to_86_and_rejects_unknown_values() {
     let text = fs::read_to_string(store.path()).unwrap();
     assert!(text.contains(r#""wubi_profile": "wubi98""#), "{text}");
     assert_eq!(store.load().unwrap(), saved);
-    fs::write(store.path(), text.replace("wubi98", "wubi06")).unwrap();
+    // 新世纪五笔照常存取。
+    let xsj = store
+        .save(
+            saved.revision,
+            Preferences {
+                wubi_profile: WubiProfile::WubiXsj,
+                ..saved.preferences.clone()
+            },
+        )
+        .unwrap();
+    let xsj_text = fs::read_to_string(store.path()).unwrap();
+    assert!(
+        xsj_text.contains(r#""wubi_profile": "wubixsj""#),
+        "{xsj_text}"
+    );
+    assert_eq!(store.load().unwrap(), xsj);
+    let mut submitted = serde_json::to_value(&xsj.preferences).unwrap();
+    assert_eq!(
+        Preferences::from_submission(submitted.take())
+            .unwrap()
+            .wubi_profile,
+        WubiProfile::WubiXsj
+    );
+    fs::write(store.path(), &text).unwrap();
+    // 更新的版本写下的码表版本这一版不认识：按 86 读，整份文档照常可读，其余字段不受影响；保存时写回 86。
+    for unknown in ["wubi2030", "wubi06"] {
+        fs::write(store.path(), text.replace("wubi98", unknown)).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(
+            loaded.preferences.wubi_profile,
+            WubiProfile::Wubi86,
+            "{unknown}"
+        );
+        assert_eq!(loaded.preferences.scheme, InputScheme::Wubi, "{unknown}");
+        assert_eq!(loaded.revision, saved.revision, "{unknown}");
+    }
+    let mut changed = store.load().unwrap();
+    changed.preferences.candidate_page_size = 7;
+    store.save(changed.revision, changed.preferences).unwrap();
+    let text = fs::read_to_string(store.path()).unwrap();
+    assert!(text.contains(r#""wubi_profile": "wubi86""#), "{text}");
+    // 不是字符串仍是读不了的文档。
+    fs::write(
+        store.path(),
+        text.replace(r#""wubi_profile": "wubi86""#, r#""wubi_profile": 2"#),
+    )
+    .unwrap();
     assert!(store.load().is_err());
+    assert_eq!(WubiProfile::parse("wubi98"), Some(WubiProfile::Wubi98));
+    assert_eq!(WubiProfile::parse("wubixsj"), Some(WubiProfile::WubiXsj));
+    assert_eq!(WubiProfile::parse("wubi2030"), None);
+    // 只放宽读盘：提交的设置仍严格校验。
+    let mut submitted = serde_json::to_value(Preferences::default()).unwrap();
+    submitted["wubi_profile"] = "wubi2030".into();
+    assert!(serde_json::from_value::<Preferences>(submitted.clone()).is_err());
+    assert!(Preferences::from_submission(submitted).is_err());
 }
 
 #[test]
@@ -8964,6 +9018,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_twenty_six_key_number_layout",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",
+    "voice_input.hotkey_global",
     "voice_input.hotkey_hold_space_lock",
     "voice_input.hotkey_ralt",
     "voice_input.hotkey_rctrl_ralt",
@@ -10327,6 +10382,42 @@ fn documents_written_by_released_versions_load_and_save() {
     }
 }
 
+/// 已发布版本写下的文档里，五笔版本换成这一版不认识的值（更新的版本加的码表，用不存在的 `wubi2030` 代表）：整份照常读出，五笔版本按 86，其余字段与原文档读出的相同。
+#[test]
+fn released_documents_with_an_unknown_wubi_profile_still_load() {
+    for (release, document) in RELEASED_DOCUMENTS {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        fs::write(store.path(), document).unwrap();
+        let original = store
+            .load()
+            .unwrap_or_else(|error| panic!("{release}: {error}"));
+        let mut value: serde_json::Value = serde_json::from_str(document).unwrap();
+        value["preferences"]["wubi_profile"] = "wubi2030".into();
+        value["preferences"]["scheme"] = "wubi".into();
+        fs::write(store.path(), serde_json::to_vec(&value).unwrap()).unwrap();
+        let loaded = store
+            .load()
+            .unwrap_or_else(|error| panic!("{release}: {error}"));
+        loaded.preferences.validate().unwrap();
+        assert_eq!(
+            loaded.preferences.wubi_profile,
+            WubiProfile::Wubi86,
+            "{release}"
+        );
+        assert_eq!(
+            Preferences {
+                scheme: original.preferences.scheme,
+                ..loaded.preferences.clone()
+            },
+            original.preferences,
+            "{release}"
+        );
+        let saved = store.save(loaded.revision, loaded.preferences).unwrap();
+        assert_eq!(store.load().unwrap(), saved, "{release}");
+    }
+}
+
 #[test]
 fn develop_documents_round_trip_through_the_tolerant_reader() {
     use TextEditButton::*;
@@ -11075,4 +11166,83 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         );
         assert_eq!(fs::read(store.path()).unwrap(), before);
     }
+}
+
+/// 对偏好目录没有写权限的进程（iOS 键盘没有完全访问时的 App Group）也读得到偏好：锁文件打不开就不取锁，读到的是完整写入的那一份；保存仍然要锁，照旧失败（#10945）。
+#[cfg(unix)]
+#[test]
+fn preferences_are_readable_from_a_directory_that_cannot_be_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("MSIME");
+    let store = PreferencesStore::new(&directory);
+    let preferences = Preferences {
+        learning: false,
+        ..Preferences::default()
+    };
+    let saved = store.save(0, preferences).unwrap();
+    let set = |path: &Path, mode| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    set(&directory.join("preferences.lock"), 0o444);
+    set(&directory, 0o555);
+    // 以 root 跑时权限位挡不住写，这条用例测不到什么。
+    let enforced = std::fs::File::create(directory.join("probe")).is_err();
+    let loaded = store.load();
+    let reused = store.load_reusing(None);
+    let runtime = store.load_for_runtime();
+    let written = store.save(saved.revision, Preferences::default());
+    set(&directory, 0o755);
+    set(&directory.join("preferences.lock"), 0o600);
+    if !enforced {
+        return;
+    }
+    assert_eq!(loaded.unwrap(), saved);
+    assert_eq!(reused.unwrap().snapshot, saved);
+    let runtime = runtime.unwrap();
+    assert!(runtime.load_error.is_none());
+    assert_eq!(runtime.snapshot, saved);
+    assert!(written.is_err());
+    // 目录本身不在也建不出来时读到默认值，不报错。
+    set(root.path(), 0o555);
+    let missing = PreferencesStore::new(root.path().join("absent")).load();
+    set(root.path(), 0o755);
+    assert_eq!(missing.unwrap().revision, 0);
+}
+
+/// 明知没有写权限的宿主读偏好时不在目录里留下任何东西：不建目录，不建锁文件。
+#[test]
+fn reading_preferences_without_writing_leaves_no_lock_file() {
+    let root = tempfile::tempdir().unwrap();
+    let absent = root.path().join("absent");
+    let loaded = PreferencesStore::new(&absent)
+        .load_for_runtime_without_writing()
+        .unwrap();
+    assert_eq!(loaded.snapshot.revision, 0);
+    assert!(!absent.exists());
+
+    let directory = root.path().join("MSIME");
+    let store = PreferencesStore::new(&directory);
+    let saved = store.save(0, Preferences::default()).unwrap();
+    std::fs::remove_file(directory.join("preferences.lock")).unwrap();
+    let loaded = store.load_for_runtime_without_writing().unwrap();
+    assert_eq!(loaded.snapshot, saved);
+    assert!(loaded.load_error.is_none());
+    assert!(!directory.join("preferences.lock").exists());
+}
+
+#[test]
+fn global_voice_hotkey_is_opt_in_and_round_trips_without_changing_gestures() {
+    let old: VoiceInputPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(!old.hotkey_global);
+    assert!(old.hotkey_ralt);
+    assert!(old.hotkey_ctrl_f9);
+    let mut enabled = old.clone();
+    enabled.hotkey_global = true;
+    let restored: VoiceInputPreferences =
+        serde_json::from_value(serde_json::to_value(&enabled).unwrap()).unwrap();
+    assert!(restored.hotkey_global);
+    assert_eq!(restored.hotkey_ralt, old.hotkey_ralt);
+    assert_eq!(restored.hotkey_ctrl_f9, old.hotkey_ctrl_f9);
+    assert_eq!(restored.hotkey_ctrl_win, old.hotkey_ctrl_win);
 }

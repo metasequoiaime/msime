@@ -70,6 +70,7 @@ platforms/android/tests/device/keyboard/RandomDigitsDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
+platforms/android/tests/device/settings/SettingsSearchAnchorDeviceChecks.java
 platforms/android/tests/device/settings/LocalVoicePauseDeviceChecks.java
 platforms/android/tests/device/settings/CommonPhraseNotesDeviceCheck.java
 platforms/android/tests/device/settings/CommonPhraseCategoriesDeviceCheck.java
@@ -267,6 +268,7 @@ platforms/android/tests/device/keyboard/HistoryEditorActivity.java
 platforms/android/tests/device/keyboard/ToolbarHistoryDeviceChecks.java
 platforms/android/tests/device/keyboard/PortraitSplitDeviceChecks.java
 platforms/android/tests/device/keyboard/KeyboardFeedbackDeviceChecks.java
+platforms/android/tests/device/keyboard/KeyPressAreaDeviceChecks.java
 platforms/android/tests/device/candidate/RelativeDateDeviceSmoke.java
 
 platforms/android/tests/device/clipboard/ClipboardCategoriesDeviceSmoke.java

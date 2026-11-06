@@ -1,0 +1,11 @@
+{
+  "source_commit": "dbeb0856cb0b004b484f190bb71dd65876297013",
+  "artifacts": [
+    {
+      "name": "plamo-3-translate-0.8b-Q4_K_M.gguf",
+      "url": "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/resolve/dbeb0856cb0b004b484f190bb71dd65876297013/plamo-3-translate-0.8b-Q4_K_M.gguf",
+      "sha256": "923b2f28a9856de1b8b3b610a7e59ded0b14d007466fd5dd526e6a9ecaadafdd",
+      "size": 573123200
+    }
+  ]
+}

@@ -292,7 +292,7 @@ export function AppearanceSettingsPage() {
   );
   const preeditControls = (
     <>
-      {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时这里什么也不画。没有触屏方案的宿主，双拼预编辑在「输入 › 方案」的双拼详情里，只在双拼方案下出现，这里不再画；有触屏方案的宿主（含鸿蒙二合一）的方案组不画双拼各行，仍在这里设置。判断与输入页用同一个条件 `client.touchKeyboardSchemes`，保证这一行恰好出现在一个页面上。 */}
+      {/* 触屏键盘只剩「双拼预编辑」一行，不显示双拼时这里什么也不画。没有触屏方案的宿主，双拼预编辑在「输入 › 方案」的双拼详情里，只在双拼方案和粤拼方案选了粤语双拼时出现，这里不再画；有触屏方案的宿主（含鸿蒙二合一）的方案组不画双拼各行，仍在这里设置。判断与输入页用同一个条件 `client.touchKeyboardSchemes`，保证这一行恰好出现在一个页面上。 */}
       <PreeditSettingsSection
         preferences={draft}
         mobile={mobilePlatform}

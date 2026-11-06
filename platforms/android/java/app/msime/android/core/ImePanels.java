@@ -1626,7 +1626,7 @@ final class ImePanels {
     private boolean clipboardClearPending;
     /** 顶行「更多」菜单展开着（#10037）；换分段、重开面板、进入多选、打开分类选择器、长按或查看详情，以及点了菜单里的任何一项都会收起。 */
     private boolean clipboardMoreOpen;
-    /** 当前画在面板里的「更多」菜单；收起或面板重画后为 null。换肤遍历之后由 `styleClipboardMoreMenu` 补画外框。 */
+    /** 当前画在浮层 `clipboardMoreOverlay` 里的「更多」菜单；收起或面板重画后为 null。换肤遍历之后由 `styleClipboardMoreMenu` 补画外框。 */
     private LinearLayout clipboardMoreMenu;
     /** 长按打开了操作行的那一条（共享存储以文字标识条目）；没有时为 null。 */
     private String clipboardActionText;
@@ -1814,6 +1814,9 @@ final class ImePanels {
         clipboardCardRow = null;
         clipboardSwipedCell = null;
         clipboardMoreMenu = null;
+        // 菜单浮层每次重画都先清空收起，只有画到本机列表常态且菜单开着时 `renderClipboardMoreMenu` 才再打开；详情、分词、云端等提前返回的分支不会留着旧菜单。
+        s.clipboardMoreOverlay.removeAllViews();
+        ViewPolicy.hide(s.clipboardMoreOverlay);
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         // 详情、分词、云端、确认清空和多选都不显示浮动「撤销」；画到本机列表常态时再打开。
@@ -1977,9 +1980,8 @@ final class ImePanels {
                 clipboardMoreOpen = open;
                 clipboardActionText = null;
                 clipboardSwipedText = null;
+                // 菜单浮在列表上面、不随列表滚动，滚到哪里打开都看得见，列表停在原处（#10969）。
                 renderClipboardHistory();
-                // 菜单画在列表最上面，滚到中间时要回到顶部才看得见。
-                if (open) s.clipboardScroll.scrollTo(0, 0);
             });
             more.setContentDescription("更多剪贴板操作");
             ViewPolicy.setSelected(more, clipboardMoreOpen);
@@ -2123,9 +2125,9 @@ final class ImePanels {
     }
 
     /**
-     * 「更多」菜单：分类、导出、清空竖排成一列，贴着面板右边画在列表最上面，正好落在「更多」下方（#10037）。
+     * 「更多」菜单：分类、导出、清空竖排成一列，浮在列表上面、贴右上角，正好落在「更多」下方（#10037）。菜单画在 `clipboardMoreOverlay` 浮层里，不是列表的一行：左边不留空白，下面的卡片也不被推下去（#10969）。
      *
-     * <p>画在面板里，不弹 `PopupWindow`、`PopupMenu` 或对话框：对话框会让输入法进程崩掉或抢走编辑器焦点（#5605、#5653），面板内展开和分类选择器是同一种做法。每一项是普通键帽（`KeyboardKeyRole.KEY`），字色和底色就是字母键那一对，由换肤遍历按当前皮肤上色；跟随系统的皮肤在系统深色模式下换成深色那一套，所以菜单文字和底色的反差与键盘上的字母一样，不会融成一片。
+     * <p>浮层是同一窗口里的 FrameLayout，不弹 `PopupWindow`、`PopupMenu` 或对话框：对话框会让输入法进程崩掉或抢走编辑器焦点（#5605、#5653），和分类选择器一样留在面板这个窗口里。每一项是普通键帽（`KeyboardKeyRole.KEY`），字色和底色就是字母键那一对，由换肤遍历按当前皮肤上色；跟随系统的皮肤在系统深色模式下换成深色那一套，所以菜单文字和底色的反差与键盘上的字母一样，不会融成一片。
      */
     private LinearLayout renderClipboardMoreMenu(java.util.List<ClipboardHistory.Item> items) {
         LinearLayout menu = LayoutPolicy.column(s);
@@ -2156,23 +2158,20 @@ final class ImePanels {
                 renderClipboardHistory();
             });
         }
-        LinearLayout.LayoutParams params = LayoutPolicy.wrapParams();
-        params.gravity = Gravity.END;
-        params.bottomMargin = s.pixels(8);
-        s.clipboardPanel.addView(menu, params);
+        // 浮层从顶行下沿开始；右边和顶行一样留 8dp，菜单右缘对齐「更多」右缘。
+        FrameLayout.LayoutParams params = LayoutPolicy.frameWrapParams();
+        params.gravity = Gravity.TOP | Gravity.END;
+        params.topMargin = s.pixels(2);
+        params.setMarginEnd(s.pixels(8));
+        s.clipboardMoreOverlay.addView(menu, params);
+        ViewPolicy.show(s.clipboardMoreOverlay);
         return menu;
     }
 
-    /** 列表当前的滚动位置，按「更多」菜单收起之后的布局算。菜单画在列表最上面，从详情返回时它已收起、列表整体上移了菜单那一截；直接记 `getScrollY()` 会让返回后的列表比离开时往下错开约 140 dp，刚看过的那条可能被滚出顶部（#10037）。 */
-    private int clipboardScrollYWithoutMoreMenu() {
-        int scrollY = s.clipboardScroll.getScrollY();
-        LinearLayout menu = clipboardMoreMenu;
-        if (menu == null || menu.getParent() != s.clipboardPanel) return scrollY;
-        int menuSpace = menu.getHeight();
-        if (menu.getLayoutParams() instanceof LinearLayout.LayoutParams params) {
-            menuSpace += params.topMargin + params.bottomMargin;
-        }
-        return Math.max(0, scrollY - menuSpace);
+    /** 点菜单以外的浮层空白处：和系统溢出菜单一样只收起菜单，不把这一下传给下面的卡片。 */
+    void closeClipboardMoreMenu() {
+        clipboardMoreOpen = false;
+        renderClipboardHistory();
     }
 
     private void clipboardMoreItem(LinearLayout menu, String label, String description, Runnable action) {
@@ -2190,7 +2189,8 @@ final class ImePanels {
         if (menu == null || !ViewPolicy.isVisible(s.clipboardSurface)) return;
         ViewPolicy.setBackground(menu, DrawablePolicy.outlined(Color.parseColor(s.skin.background()),
             s.pixels(8), DimensionPolicy.atLeastOnePixel(s, 1), ImeStyler.fade(s.skin.keyForeground(), .25)));
-        ViewPolicy.setElevation(menu, s.pixels(2));
+        // 阴影比原来列表里的 2dp 深一些：菜单现在浮在卡片上面，要看得出是单独的一层（#10969）。
+        ViewPolicy.setElevation(menu, s.pixels(6));
     }
 
     private void exitClipboardSelection() {
@@ -2211,7 +2211,8 @@ final class ImePanels {
     private void openClipboardDetail(ClipboardHistory.Item item, ClipboardDetailPolicy.Origin origin) {
         clipboardDetailItem = item;
         clipboardDetailOrigin = origin;
-        clipboardDetailScrollY = clipboardScrollYWithoutMoreMenu();
+        // 菜单浮在列表上面、不占列表高度，收起前后滚动位置一样，直接记当前的就行。
+        clipboardDetailScrollY = s.clipboardScroll.getScrollY();
         clipboardMoreOpen = false;
         // 从全文预览进入时保留长按展开的操作行，返回后列表和预览都回到进入前的样子。
         if (origin == ClipboardDetailPolicy.Origin.LIST) clipboardActionText = null;

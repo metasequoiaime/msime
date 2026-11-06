@@ -117,6 +117,37 @@ pub fn lease(state: &Path, resources: &Path) -> Option<GenerationLease> {
     })
 }
 
+/// [`lease`]，但只读打开已有的 `<代次>.lock`，不建：给对状态目录没有写权限的输入宿主用（iOS 键盘没有完全访问）。锁文件是装这个代次的 App 建的；不在时为 `None`，调用方不能在没有凭证的情况下用这个代次。
+pub fn lease_read_only(state: &Path, resources: &Path) -> Option<GenerationLease> {
+    let generations = std::fs::canonicalize(root(state).join("generations")).ok()?;
+    let resources = std::fs::canonicalize(resources).ok()?;
+    let name = resources.file_name()?.to_str()?;
+    if resources.parent()? != generations || !is_generation(name) {
+        return None;
+    }
+    let file =
+        file_lock::open_existing_lock_file_read_only(generations.join(format!("{name}.lock")))
+            .ok()?;
+    Some(GenerationLease {
+        _lock: file_lock::ScopedFileLock::try_shared(file).ok()??,
+    })
+}
+
+/// `resources` 是不是 `state` 下的一个下载代次（[`lease`] 会去锁它的那种目录）。
+pub fn is_downloaded_generation(state: &Path, resources: &Path) -> bool {
+    let (Ok(generations), Ok(resources)) = (
+        std::fs::canonicalize(root(state).join("generations")),
+        std::fs::canonicalize(resources),
+    ) else {
+        return false;
+    };
+    resources.parent() == Some(generations.as_path())
+        && resources
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_generation)
+}
+
 fn is_generation(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }

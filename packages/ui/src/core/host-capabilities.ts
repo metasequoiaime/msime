@@ -119,6 +119,8 @@ export interface HostCapabilities {
   voice_provider_settings: boolean;
   /** 宿主绘制临时识别文字，因此流式预编辑开关会生效。 */
   voice_stream_preedit: boolean;
+  /** 宿主在最终识别结果上屏前处理 `voice_input.punctuation_mode`。 */
+  voice_punctuation?: boolean;
   /** 宿主读 `voice_input.hotkey_hold_space_lock`，所以给出空格锁定开关。macOS、Windows、Linux、HarmonyOS 固定为开，报 false；只有 Android、iOS 报 true；缺省按 true。 */
   voice_space_lock_switch?: boolean;
   /** 宿主分别读开始、结束提示音，所以在总开关之外给出这两个开关。macOS、Windows、Linux、HarmonyOS 只认总开关，报 false；只有 Android、iOS 报 true；缺省按 true。 */

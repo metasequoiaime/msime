@@ -45,9 +45,11 @@ Status: implemented
 
 Java 侧 `VoicePunctuation`（`platforms/android/java/app/msime/android/voice/VoicePunctuation.java`）只认取值、调 JNI；`auto` 和空文本不进共享层，共享层调用失败时返回原文。设置页 `VoicePage` 的「识别」组在「自动添加标点」下面加「语音标点」四选一，说明收进「?」。
 
-### 其他平台
+### 鸿蒙接线
 
-iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#10596、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
+鸿蒙 NAPI 导出 `voicePunctuation`，键盘在最终结果分流之前（`deliverVoice`）处理一次，直接上屏、二合一审阅面板和输入位置变化后保留的文字都用处理后的文本，用户在审阅面板里确认的就是上屏的内容；显式提交只给出错后留下、没经过这一步的中间结果补一次。中间结果不处理，处理后为空的结果按没有识别到文字提示。成功提示和收尾定时器都以处理后的文本判断当前结果；拿识别原文比较会让去标点后的提示永久留着、语音面板不再自动收起，过期回调仍不能清掉后来的结果。设置页经 `HostCapabilities.voice_punctuation` 只在宿主声明支持时显示同一行四选一，豆包「自动添加标点」的说明明确它只影响豆包请求，这段说明同样只在宿主声明支持时出现，macOS、Linux 上不指向一个不存在的设置。
+
+iOS、桌面三端暂不读这个字段，各自的接线见 #10595、#10597。macOS 偏好覆盖清单（`platforms/macos/tests/settings/preference_coverage.py`）把它列为暂未接上，接上后删掉那一条。
 
 ### 不做
 
@@ -63,7 +65,7 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 ## Consequences
 
 - **收益**：默认用本地模型的用户第一次能去掉语音标点；一处规则对四种识别服务和润色都生效，iOS、鸿蒙、桌面接线时只需要在上屏点调一次 FFI。
-- **代价**：iOS、鸿蒙、桌面在跟进 issue 做完之前读不到这一项，桌面的共享设置页也还看不到它。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
+- **代价**：iOS、桌面在跟进 issue 做完之前读不到这一项。鸿蒙桥接失败时保留原文，避免设置故障丢失识别内容。`omit_all` 会让「3.5%，10:30」变成「3.5%10:30」这类紧挨在一起的写法，这是「省略所有标点」本身的含义；数字之外的全角句点、半角 `~` 等边缘写法按上面的列表处理，出现误删时改 `punctuation.rs` 的字符表并补测试。
 - **语音样本上传**：打开「上传语音以改进识别」时，上传的文本是处理后的上屏文本，与此前上传润色后文本的做法一致。
 
 ## Verification
@@ -72,3 +74,4 @@ iOS、鸿蒙、桌面三端暂不读这个字段，各自的接线见 #10595、#
 - `cargo test -p msime-client-core --lib voice_punctuation_mode`：缺键读成 `auto` 且不写进文档，选过的值和不认识的值都能读写。
 - `cargo test -p msime-host-api --lib voice_punctuation mobile_voice_configuration_reports`：FFI 的四种方式、未知方式、只剩标点、缺字段、超长、空指针；共享解析给出归一后的 `punctuationMode`。
 - `platforms/android/check-host.sh`：`VoicePunctuationSmoke`（取值、标签、`auto` 不进共享层、调用失败保留原文），设置搜索收录「语音标点」，`client_jni.cpp` 对共享头编译。
+- `platforms/harmony/tests/voice-result-lifecycle.test.ts`：执行真实 `deliverVoice` 方法，以合成会话和可推进的时钟覆盖原文不变、去掉标点、标点替为空格、过期回调及仅标点的空结果；修复前文本变化用例在提示未清除处失败；二合一审阅路径断言面板显示处理后的文本且不直接上屏，在先显示原文的实现上失败。

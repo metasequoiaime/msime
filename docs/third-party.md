@@ -289,6 +289,10 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 网页引擎的 npm 包 `@msime/web-engine` 也带 `msime-cantonese.db`（粤拼和粤语双拼用）：`scripts/build-web-engine.sh` 把 `resources/language-dictionaries.lock.json` 钉住的那份原样 gzip 成 `assets/msime-cantonese.db.gz`，随词库发布的 `msime-rime_cantonese_LICENSE.txt` 原名放在旁边，`npx @msime/web-engine copy` 把两者一起复制；`web-engine-NOTICE.md` 的「粤语词库」一节写明来源，仓库许可证全文一节收 `rime-cantonese-CC-BY-4.0.txt`（`scripts/web-engine-notice.sh`）。它和辅助码表一样只在 npm 包里，不进 `web-engine-vX.Y.Z` release 的文件和清单。
 
+### 粤语双拼的键位方案
+
+粤语双拼的键位方案由陳澍鋒（[swithinchan](https://github.com/swithinchan)）设计，即他的「粵語雙拼（自然碼兼容版）」（[swithinchan/rime-cantonese-shuangpin](https://github.com/swithinchan/rime-cantonese-shuangpin)），应他在 [#9799](https://github.com/metasequoiaime/msime/issues/9799) 的请求收入，并按他的要求在各平台「关于」里与开源许可列在一起致谢：一项「粤语双拼键位方案 · 陳澍鋒设计」，点开是设计者、来源和独立实现的说明。iOS 与 Android 的许可列表只打开随包文件，致谢是随包的 `resources/licenses/cantonese-shuangpin-scheme-NOTICE.txt`（`platforms/ios/project.yml`、`platforms/android/build-apk.sh`）；共享设置页（macOS、Linux、HarmonyOS）的 `packages/ui/src/settings/cantonese-shuangpin-credit-row.tsx`、Windows 的 `platforms/windows/settings/AboutPageModel.h` 写着同样的话。选方案的面板里不署名。本项目的代码（`crates/engine/src/cantonese/shuangpin.rs`）是按同一套键位独立写的实现，不含那个仓库的任何文件（schema、映射表或词表）；那个仓库没有许可证文件。粤语双拼的候选来自上文的 `msime-cantonese.db`。
+
 ## 笔画的数据（rime-stroke）
 
 笔画方案（h 横、s 竖、p 撇、n 点、z 折）的笔顺码来自一份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `msime-stroke.db`，与 `msime-cantonese.db`、`msime-zhuyin.db` 放在同一个 `language-dictionaries/` 目录、同一个语言词库资源包里。数据库不在时，笔画方案显示为不可用。
@@ -390,7 +394,7 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | 不拿来拼整句的粗俗词表（本项目自写） | MPL-2.0，与引擎代码相同 | `crates/engine/src/lattice/offensive_words.txt`（`include_str!` 编进引擎），词网格、纠错整句和联想不用含表里的词的词（豁免写法放行的除外），收词标准写在文件头。词和豁免写法都取自 dict-v2.0.39 的 `msime-pinyin.db` 里本来就有的词，按本项目自定的标准挑出，没有复制现成的敏感词表。现在是后备表：编辑入口是 msime-dictionary 的 `curation/offensive-words.txt`（随词库仓库的许可），构建进 `msime-pinyin.db` 的 `sentence_excluded` 表，词库带着这张表时引擎拼整句和候选排位（`crates/engine/src/offensive_placement.rs`，粗俗词不当首选、不进歧义输入首屏）都用它 |
 | 轻度粗口表和英文粗俗词表（本项目自写） | MPL-2.0，与引擎代码相同 | `crates/engine/src/lattice/mild_slang_words.txt` 和 `crates/engine/src/lattice/offensive_english_words.txt`（`include_str!` 编进引擎）：前者的词不进九键、14 键歧义码的首屏，后者的词在中英混输里不领先，只在 26 键上拼写打全时坐首选之后，收词标准写在各自的文件头。按本项目自定的标准手写，没有复制现成的敏感词表；长期也应像上一行的表一样改由 msime-dictionary 维护 |
 | 九键切分的音节频度（424 个音节各自的总权重） | 聚合统计事实，不另附许可证；来源词库是 GPL-3.0 | `crates/engine/src/nine_key/syllable_frequency.tsv`（`include_str!` 编进引擎），由 `msime-dict-build syllable-frequency` 从 msime-dictionary `dict-v2.1.2` 的 `msime-pinyin.db` 汇总，第一行记着那份词库的 SHA-256，引擎的单测要求它等于 `resources/desktop-dictionary.lock.json` 固定的那份。词库的词条来自 rime-ice（GPL-3.0）及补充表，其中与万象共有的词条权重改编自 rime-wanxiang（CC BY 4.0）；这张表只有每个音节在全部词条里的权重之和，不含任何词、读音或单条权重，只作九键切分的排序先验。维护者 2026-10-29 裁定按聚合事实保留并写明来源；当天试过用 Unihan 17.0.0 `kHanyuPinlu`（Unicode-3.0）原始计数加缺失音节下限重建这张表：它缺 en、nuo、seng、nang 等 32 个音节，1980 年代的小语料把 na、ma 排得几乎一样，中性九键集 top-1 净少 11 到 20 例，评测退步，所以没有替换，现行的表保留 |
-| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `msime-dictionary/sources/opencc/`，构建输入由 `resources/opencc.lock.json` 固定；许可证全文保留在 `resources/licenses/OpenCC-Apache-2.0.txt`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt`，以及臺灣变体用的 `TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt` 原样取自该提交的 `data/dictionary/`；同一提交的 `HKVariants.txt` 也原样收在 `msime-dictionary/sources/opencc/`，不在 `resources/opencc.lock.json` 里、不内嵌进客户端，只由粤拼词库构建（`crates/dict-builder/src/cantonese.rs`）和 `TWVariants.txt` 一起读来列出香港字形替换的候选异体对，表的内容不写进词库；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json`、`s2tw.json`、`s2twp.json` 的规则实现转换。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
+| [OpenCC](https://github.com/BYVoid/OpenCC) 词典，提交 `26753884f1984add422f3b0249ccee8613deaff6` | Apache-2.0 | `msime-dictionary/sources/opencc/`，构建输入由 `resources/opencc.lock.json` 固定；许可证全文保留在 `resources/licenses/OpenCC-Apache-2.0.txt`。`STPhrases.txt`、`STCharacters.txt`、`CJK_Compatibility_Ideographs.txt`，臺灣变体用的 `TWPhrases.txt`、`TWVariants.txt`、`TWVariantsPhrases.txt`，以及粤拼输出简体时繁转简用的 `TSPhrases.txt`、`TSCharacters.txt` 原样取自该提交的 `data/dictionary/`；同一提交的 `HKVariants.txt` 也原样收在 `msime-dictionary/sources/opencc/`，不在 `resources/opencc.lock.json` 里、不内嵌进客户端，只由粤拼词库构建（`crates/dict-builder/src/cantonese.rs`）和 `TWVariants.txt` 一起读来列出香港字形替换的候选异体对，表的内容不写进词库；`STPhrases_GeneratedFromRegionalPhrases.txt` 是该提交的 OpenCC 构建产物（`data/scripts/generate_st_phrases_from_regional_phrases.py` 用 `t2s.json` 生成），本仓不重新生成。提交号与来源 MSIME-Windows 的 `vendor/opencc` 子模块一致。只使用数据，不链接 OpenCC 的 C++ 库；`chinese_conversion.rs` 按 `s2t.json`、`s2tw.json`、`s2twp.json` 的规则实现转换，繁转简按 `t2s.json` 但不带上游标为可能输出豆腐块的 `TSCharactersExt`。Windows 通知由 `Collect-Notices.ps1` 一并收集 |
 
 ## 脚本插件合集（`plugins/script/`）
 
@@ -448,6 +452,12 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | Linux | `platforms/linux/CMakeLists.txt` 在装了模型时装进声明目录（目前用的是 `platforms/linux/data/licenses/` 里同名的一份，开头一段写的是 Linux 包的路径，NOTICE 和许可证两段与共用的这份逐字相同，由上面的测试守着） | `share/doc/msime-client` 里的声明与 `THIRD_PARTY_NOTICES.txt` |
 | Windows | `platforms/windows/Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt`（所有版本都收：x64 宿主 DLL 都链着 ONNX Runtime，模型只在 full、pinyin 里） | 安装目录的 `THIRD_PARTY_NOTICES.txt` |
 | Android | 模型打包 PR 加一行：在 `build-native.sh` 里复制进 `assets/native-notices` | Android 关于页的「开源许可」自动列出 `native-notices` 里的文件 |
+
+## 桌面本地翻译
+
+`crates/local-translation` 的 `runtime` 特性通过 `llama-cpp-2` / `llama-cpp-sys-2` 0.1.162 嵌入 llama.cpp，不需要用户运行外部服务。Rust 绑定为 MIT OR Apache-2.0，固定 Git 来源提交 `0364f5da1c6a6ee37f507031f116ce4a09b28594`；该提交的 llama.cpp 子模块固定在 `8642541b255bfb5dc39cd351a178be09013a55d6`，MIT 许可证全文在 `resources/licenses/llama-cpp-MIT.txt`。关闭默认的 OpenMP 和服务工具特性；绑定自身仍启用底层 `common` 特性，发布链须检查它带入的原生依赖。macOS、现代 Windows x64 Server 和当前 Linux 发行构建启用 `host-api/local-translation`；Win7 和 Linux legacy 仍不启用。Rust 绑定的 Apache-2.0 全文在 `resources/licenses/llama-cpp-rs-Apache-2.0.txt`。
+
+[PLaMo 0.8B Q4_K_M](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/tree/dbeb0856cb0b004b484f190bb71dd65876297013) 的来源、大小和摘要由 `resources/local-translation-model.lock.json` 固定，权重不提交进仓库、不随安装包捆绑。Built with PLaMo。模型使用 PLaMo Community License，完整条款见 `resources/licenses/plamo-community-license.txt`；个人/非商业用途无需登记，商业用途有登记和营收条件，公开分发输出须注明模型来源，不能视作 Apache-2.0。macOS 复制许可到 `Contents/Resources/Licenses`，Linux 安装到 `share/doc/<client>`，Windows 收进 `THIRD_PARTY_NOTICES.txt`。
 
 ## 本地语音识别
 
