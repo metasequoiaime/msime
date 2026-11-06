@@ -50,7 +50,7 @@ public final class TextEditPanelModel {
         new Key(Action.DELETE, "⌫", "退格", 0, 0, 1, 2, true),
         new Key(Action.NUMBER_PAD, "123", "打开数字键盘", 0, 0, 1, 2, false),
         new Key(Action.SPACE, "空格", "插入空格", 0, 0, 1, 2, false),
-        new Key(Action.RETURN, "换行", "插入换行，长按打开符号", 3, 8, 1, 2, false));
+        new Key(Action.RETURN, "换行", "插入换行", 3, 8, 1, 2, false));
 
     private TextEditPanelModel() { }
 

@@ -9,7 +9,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 
 /**
- * 真实编辑器里的文档首尾、Shift 选择、换行与长按符号，不依赖宿主内部实现。
+ * 真实编辑器里的文档首尾、Shift 选择与换行，不依赖宿主内部实现。
  *
  * <p>行首、行尾和选择行已经没有键（见 .agents/notes/implemented/feature/2026-11-06-android-text-edit-seamless-panel.md），这里只验还在面板上的 ⇤、⇥ 和换行。
  */
@@ -64,21 +64,22 @@ final class TextEditLineDeviceChecks {
         Rect key = returnBounds();
         gesture(key, false);
         text(TrackpadEditorActivity.TEXT + "\n");
-        t.stage = "return slide out cancels both actions";
+        t.stage = "return slide out cancels the newline";
         key = returnBounds();
         gesture(key, true);
         text(TrackpadEditorActivity.TEXT + "\n");
         if (visible("符号面板")) throw new AssertionError("Sliding out opened symbols");
-        t.stage = "return long press opens symbols without a newline on release";
+        // 换行键只管换行：长按不打开符号面板，松手照常换一行，面板留着。
+        t.stage = "return long press only inserts one newline";
         key = returnBounds();
         long down = SystemClock.uptimeMillis();
         touch(down, MotionEvent.ACTION_DOWN, key.centerX(), key.centerY());
-        try { t.await(t.described("符号面板")); }
-        finally { touch(down, MotionEvent.ACTION_UP, key.centerX(), key.centerY()); }
+        SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout() * 2L);
+        touch(down, MotionEvent.ACTION_UP, key.centerX(), key.centerY());
         t.automation.waitForIdle(300, 5000);
-        t.await(t.described("符号面板"));
-        text(TrackpadEditorActivity.TEXT + "\n");
-        if (visible("文本编辑面板")) throw new AssertionError("Text edit panel covers symbols");
+        text(TrackpadEditorActivity.TEXT + "\n\n");
+        if (visible("符号面板")) throw new AssertionError("Return long press opened symbols");
+        if (!visible("文本编辑面板")) throw new AssertionError("Return long press closed the text edit panel");
     }
 
     private void open(String kind) throws Exception {

@@ -268,17 +268,8 @@ final class ImeTextEditPanel {
             button = s.backspaceKey(run);
             s.imeLetterRows.bindBackspaceRepeat(button, run);
         } else if (action == TextEditPanelModel.Action.RETURN) {
-            button = new TextEditReturnButton(s);
-            button.setText(spec.label());
-            s.imeStyler.styleButton(button, false);
-            s.bindCountedAction(button, run);
-            button.setOnLongClickListener(ignored -> {
-                if (!SymbolPanelEntryPolicy.opens(s.connection != null, s.symbolPanel != null)
-                        || s.textEditPanel == null || !s.textEditPanel.isShown()) return true;
-                close();
-                s.imePanels.showSymbolPanel();
-                return true;
-            });
+            // 和主键盘的回车键同一个图标；只管换行，长按没有别的动作，松手照常换一行。
+            button = s.iconKey(KeyboardIconKey.Kind.RETURN, spec.label(), spec.description(), run);
         } else if (isCursorMove(action) || action == TextEditPanelModel.Action.DOCUMENT_START
                 || action == TextEditPanelModel.Action.DOCUMENT_END) {
             boolean documentEdge = !isCursorMove(action);
@@ -291,7 +282,8 @@ final class ImeTextEditPanel {
             };
             TextEditIconButton icon = new TextEditIconButton(s,
                 documentEdge ? KeyboardIconPaths.Icon.EDIT_DOCUMENT_START : KeyboardIconPaths.Icon.CHEVRON, rotation);
-            icon.setGlyphSize(28);
+            // 文首尾的竖线加尖括号比单个尖括号高一倍多，同一字号看着比方向键重，缩小一档。
+            icon.setGlyphSize(documentEdge ? 22 : 28);
             icon.setText(spec.description());
             icon.setKeyboardRole(KeyboardKeyRole.PLAIN);
             s.imeStyler.styleButton(icon, false);
