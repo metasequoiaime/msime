@@ -1,0 +1,8 @@
+粤语双拼键位方案
+
+粤语双拼的键位方案由陳澍鋒（swithinchan）设计，即他的「粵語雙拼（自然碼兼容版）」，经他在 #9799 提议收入水杉输入法。
+
+方案仓库：https://github.com/swithinchan/rime-cantonese-shuangpin
+来源：https://github.com/metasequoiaime/msime/issues/9799
+
+水杉输入法的粤语双拼按同一套键位独立编写，不含方案仓库里的文件。

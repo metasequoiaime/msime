@@ -8794,6 +8794,31 @@ static void TestPerApplicationPunctuationAndWidth() {
     assert(prefs.runtimeChinesePunctuation);
     [controller setEnglishInputMode:NO];
     prefs.punctuationLock = @"follow";
+
+    // #10954: English chosen in one application and Chinese chosen again in another, under the global scope, brings the first one back in Chinese mode with Chinese punctuation. Switching to English used to write English punctuation as that application's own toggle, which only a switch back inside the same application ever cleared.
+    [prefs resetRuntimePunctuationForActiveApplication];
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation);
+    session.nextTransition = @{@"handled": @NO, @"view": @{@"editing_text": @"", @"candidates": @[]}};
+    [controller handleEvent:ModeKey(0, 0, NO) client:b];
+    assert(prefs.englishMode && !prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:NO];
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [controller handleEvent:ModeKey(0, 0, NO) client:a];
+    session.nextTransition = nil;
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation && session.chinesePunctuation);
+    // Entering the English candidate mode from English mode and leaving it again (Ctrl+Shift+E) is Chinese mode too, so it has Chinese punctuation all the way.
+    [controller setEnglishInputMode:YES];
+    [controller toggleDedicatedEnglishMode:nil];
+    assert(!prefs.englishMode && session.dedicatedEnglish && prefs.runtimeChinesePunctuation);
+    [controller toggleDedicatedEnglishMode:nil];
+    assert(!prefs.englishMode && !session.dedicatedEnglish && prefs.runtimeChinesePunctuation);
+    // A toggle the user made in English mode is still theirs to keep until the mode changes.
+    [controller setEnglishInputMode:YES];
+    [controller floatingToolbarDidRequestTogglePunctuation:nil];
+    assert(prefs.englishMode && prefs.runtimeChinesePunctuation);
+    [controller setEnglishInputMode:NO];
+    assert(!prefs.englishMode && prefs.runtimeChinesePunctuation);
     prefs.runtimeChinesePunctuation = NO;
 
     // Leaving the input method (the TSF Deactivate counterpart) clears the toggles of every app together, as it does the modes.
