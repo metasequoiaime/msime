@@ -22,6 +22,7 @@ final class ReadOnlySharedStateTests: XCTestCase {
     let state = root.appendingPathComponent("group/MSIME", isDirectory: true)
     let app = MetasequoiaInputSessionBridge(stateRoot: state, startsSuspended: true)
     XCTAssertFalse(app.initializationFailed, "precondition: the writable bridge prepares the shared state")
+    XCTAssertFalse(app.sharedStateIsReadOnly)
     let locks = try lockFiles(stateRoot: state)
     XCTAssertTrue(locks.allSatisfy { FileManager.default.fileExists(atPath: $0) },
                   "the writable preparation leaves both lease lock files for a read-only host")
@@ -36,6 +37,7 @@ final class ReadOnlySharedStateTests: XCTestCase {
       stateRoot: state, startsSuspended: true, sharedStateWritable: false,
       privateRoot: root.appendingPathComponent("extension/MSIME-read-only", isDirectory: true))
     XCTAssertFalse(bridge.initializationFailed)
+    XCTAssertTrue(bridge.sharedStateIsReadOnly)
     try bridge.resumeDictionarySession()
     XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "the read-only session holds the shared lease")
     var snapshot = bridge.cancel()
@@ -67,6 +69,61 @@ final class ReadOnlySharedStateTests: XCTestCase {
     _ = bridge.cancel()
     XCTAssertTrue(bridge.suspendDictionarySession())
     XCTAssertFalse(FileManager.default.fileExists(atPath: state.path))
+  }
+
+  /// 只读的桥不改词库：置顶、删除、固定排位和取消固定都被运行时拒绝，组字和候选原样留着，随包的 EngineResources 一个文件也没变。只读布局下词库就是它，改前置顶和删除直接改写它，模拟器上之后的资源校验全部失败。
+  func testAReadOnlyBridgeRefusesCandidateEditsAndKeepsTheComposition() throws {
+    let group = root.appendingPathComponent("group", isDirectory: true)
+    try FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)
+    setTree(group, writable: false)
+    let bridge = MetasequoiaInputSessionBridge(
+      stateRoot: group.appendingPathComponent("MSIME", isDirectory: true), startsSuspended: true,
+      sharedStateWritable: false,
+      privateRoot: root.appendingPathComponent("extension/MSIME-read-only", isDirectory: true))
+    XCTAssertFalse(bridge.initializationFailed)
+    XCTAssertTrue(bridge.sharedStateIsReadOnly)
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    let before = try listing(resources)
+    try bridge.resumeDictionarySession()
+    var snapshot = bridge.cancel()
+    for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
+    let candidates = snapshot.candidates
+    let index = try XCTUnwrap(candidates.firstIndex { $0.count > 1 }, "\(candidates)")
+    for action in [MetasequoiaCandidateAction.promote, .remove, .fix(position: 1), .clearPosition] {
+      let edited = bridge.editCandidate(at: UInt(index), expectedWord: candidates[index], action: action)
+      XCTAssertEqual(edited.diagnosticText, "candidate editing needs write access to the shared state", "\(action)")
+      XCTAssertEqual(edited.candidates, candidates, "\(action)")
+    }
+    _ = bridge.cancel()
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    XCTAssertEqual(try listing(resources), before, "the read-only bridge rewrote the bundled dictionaries")
+  }
+
+  /// 可写的目录：试写成功，探测文件随即删掉，目录里什么也不留。
+  func testTheWriteProbeSucceedsInAWritableDirectoryAndLeavesNothing() throws {
+    let container = root.appendingPathComponent("container", isDirectory: true)
+    try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.sharedStateIsWritable(in: container))
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: container.path), [])
+  }
+
+  /// 容器还不存在时先建出来再试（取不到 App Group 时容器是应用自己的 Application Support，第一次可能还没有）。
+  func testTheWriteProbeCreatesAMissingContainer() throws {
+    let container = root.appendingPathComponent("absent/container", isDirectory: true)
+    XCTAssertTrue(MetasequoiaInputSessionBridge.sharedStateIsWritable(in: container))
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: container.path), [])
+  }
+
+  /// 只读的目录（真机上没有完全访问时的 App Group）：试写失败，报不可写，目录不变。
+  func testTheWriteProbeFailsInAReadOnlyDirectory() throws {
+    let container = root.appendingPathComponent("container", isDirectory: true)
+    try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+    XCTAssertEqual(chmod(container.path, 0o555), 0)
+    defer { chmod(container.path, 0o755) }
+    try XCTSkipIf(FileManager.default.createFile(atPath: container.appendingPathComponent("probe").path, contents: nil),
+                  "file modes do not stop writes here")
+    XCTAssertFalse(MetasequoiaInputSessionBridge.sharedStateIsWritable(in: container))
+    XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: container.path), [])
   }
 
   // MARK: - helpers

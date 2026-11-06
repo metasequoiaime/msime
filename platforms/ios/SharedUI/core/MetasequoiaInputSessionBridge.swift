@@ -708,6 +708,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   var stateDirectory: String? { stateRoot }
   /// Whether the runtime failed to prepare or start, the case the diagnostic log records without its (possibly path-bearing) reason.
   var initializationFailed: Bool { initializationDiagnostic != nil }
+  /// 运行时是不是只读地准备的（没有完全访问，#10945）：这样的会话不学习，也不改词库，置顶、删除、固定排位和取消固定都被运行时拒绝，候选长按菜单不提供它们。
+  var sharedStateIsReadOnly: Bool { options["read_only_state"] as? Bool == true }
 
   var isInLocalMode: Bool {
     guard let mode = try? localMode() else { return false }
@@ -2322,7 +2324,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   /// 共享状态目录所在的容器此刻是否真的写得进：在里面独占地建一个临时文件再删掉。没有完全访问的键盘扩展在真机上会被沙盒拒绝（App Group 只读，#10945）；取不到 App Group 时容器是应用自己的 Application Support，还不存在就先建出来。
   static func sharedStateIsWritable() -> Bool {
-    let container = IOSSharedPaths.sharedContainerOrApplicationSupport(for: MSIMEAppEdition.appGroupIdentifier)
+    sharedStateIsWritable(in: IOSSharedPaths.sharedContainerOrApplicationSupport(for: MSIMEAppEdition.appGroupIdentifier))
+  }
+
+  /// 同上，试写的是 `container`；测试用它对临时目录试。
+  static func sharedStateIsWritable(in container: URL) -> Bool {
     try? FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
     let probe = container.appendingPathComponent(".msime-write-probe-\(UUID().uuidString)").path
     let descriptor = open(probe, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)

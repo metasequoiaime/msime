@@ -9639,10 +9639,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// `fixedPosition` is the slot the word is pinned to, zero when it is not: the menu checks that slot and offers 取消固定 only then. Deleting is not offered for a single character, the same as the Windows candidate menu.
+  ///
+  /// 没有完全访问、运行时只读准备时整组不提供：这几项都要改词库，只读的会话一律拒绝（#10945），与没有完全访问时不提供「朗读」相同。
   private func candidateMenuElements(
     candidate: String?, fixedPosition: Int,
     edit: @escaping (MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot?
   ) -> [UIMenuElement] {
+    guard !session.sharedStateIsReadOnly else { return [] }
     func action(_ title: String, _ symbol: String?, _ operation: MetasequoiaCandidateAction,
                 destructive: Bool = false, announcement: String? = nil) -> UIAction {
       UIAction(title: title, image: symbol.flatMap { UIImage(systemName: $0) },
