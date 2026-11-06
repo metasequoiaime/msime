@@ -5214,6 +5214,15 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.command(this.currentCandidates.length > 0 ? InputCommand.LAST_CANDIDATE : InputCommand.MOVE_END);
   }
 
+  /** 拼写菜单只移动组字光标；硬件 Home/End 有候选时另有翻页语义。 */
+  moveSpellingHome(): void {
+    this.command(InputCommand.MOVE_HOME);
+  }
+
+  moveSpellingEnd(): void {
+    this.command(InputCommand.MOVE_END);
+  }
+
   deleteForward(): void {
     this.command(InputCommand.DELETE_FORWARD);
   }

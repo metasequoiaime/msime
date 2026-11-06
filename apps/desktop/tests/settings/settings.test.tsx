@@ -5089,7 +5089,8 @@ test("the HarmonyOS phone candidate page offers the shuangpin preedit for 粤语
   await settingsReady();
   const preedit = screen.getByRole("combobox", { name: "双拼预编辑", hidden: true });
   expect(preedit).toBeTruthy();
-  expect(screen.getByText(/粤语双拼/)).toBeTruthy();
+  const description = document.getElementById(preedit.getAttribute("aria-describedby") ?? "");
+  expect(description?.textContent).toMatch(/粤语双拼/);
 });
 
 test("font family controls validate drafts and save Unicode without touching the fallback list", async () => {
