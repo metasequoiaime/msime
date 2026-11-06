@@ -318,35 +318,63 @@ export class KeyboardScheme {
     return tibetan && symbol === "=" ? "+" : symbol;
   }
 
-  /** 偏好 `wubi_profile` 的两个取值：方案仍是 `wubi`，版本是旁边的独立字段，就像 `shuangpin_profile` 之于 `shuangpin`。 */
+  /** 偏好 `wubi_profile` 的三个取值：方案仍是 `wubi`，版本是旁边的独立字段，就像 `shuangpin_profile` 之于 `shuangpin`。 */
   static readonly WUBI_86: string = "wubi86";
   static readonly WUBI_98: string = "wubi98";
+  static readonly WUBI_XSJ: string = "wubixsj";
 
-  /** 只认 `wubi98`，缺省、未知值和非字符串一律按 86 版，与共享 `Preferences` 的缺省一致。 */
+  /** 只认 `wubi98` 和 `wubixsj`，缺省、未知值和非字符串一律按 86 版，与共享 `Preferences` 的缺省一致。 */
   static normalizedWubiProfile(value: string | null | undefined): string {
-    return value === KeyboardScheme.WUBI_98 ? KeyboardScheme.WUBI_98 : KeyboardScheme.WUBI_86;
+    switch (value) {
+      case KeyboardScheme.WUBI_98:
+        return KeyboardScheme.WUBI_98;
+      case KeyboardScheme.WUBI_XSJ:
+        return KeyboardScheme.WUBI_XSJ;
+      default:
+        return KeyboardScheme.WUBI_86;
+    }
   }
 
-  /** 方案名：五笔只有一个方案入口，标题跟随 `wubi_profile` 显示「86 五笔」或「98 五笔」；其它方案就是 `title`。 */
+  /** 方案名：五笔只有一个方案入口，标题跟随 `wubi_profile` 显示「86 五笔」「98 五笔」或「新世纪五笔」；其它方案就是 `title`。 */
   static title(scheme: SchemeDefinition, wubiProfile: string | null | undefined): string {
-    if (
-      scheme === WUBI &&
-      KeyboardScheme.normalizedWubiProfile(wubiProfile) === KeyboardScheme.WUBI_98
-    ) {
-      return "98 五笔";
+    if (scheme !== WUBI) {
+      return scheme.title;
     }
-    return scheme.title;
+    switch (KeyboardScheme.normalizedWubiProfile(wubiProfile)) {
+      case KeyboardScheme.WUBI_98:
+        return "98 五笔";
+      case KeyboardScheme.WUBI_XSJ:
+        return "新世纪五笔";
+      default:
+        return scheme.title;
+    }
   }
 
-  /** 角标：五笔跟随 `wubi_profile` 显示「86」或「98」；其它方案就是 `badge`。 */
+  /** 角标：五笔跟随 `wubi_profile` 显示「86」「98」或「新」；其它方案就是 `badge`。 */
   static badge(scheme: SchemeDefinition, wubiProfile: string | null | undefined): string {
-    if (
-      scheme === WUBI &&
-      KeyboardScheme.normalizedWubiProfile(wubiProfile) === KeyboardScheme.WUBI_98
-    ) {
-      return "98";
+    if (scheme !== WUBI) {
+      return scheme.badge;
     }
-    return scheme.badge;
+    switch (KeyboardScheme.normalizedWubiProfile(wubiProfile)) {
+      case KeyboardScheme.WUBI_98:
+        return "98";
+      case KeyboardScheme.WUBI_XSJ:
+        return "新";
+      default:
+        return scheme.badge;
+    }
+  }
+
+  /** 五笔方案在空格键上的名称，版本写在后面：「五笔 86」「五笔 98」「五笔 新世纪」，86、98 两种写法与 Android `SpaceKeyFace` 和 iOS `InputSchemeLabels` 相同；那两端目前不提供新世纪，只显示 86 或 98。 */
+  static wubiSpaceLabel(wubiProfile: string | null | undefined): string {
+    switch (KeyboardScheme.normalizedWubiProfile(wubiProfile)) {
+      case KeyboardScheme.WUBI_98:
+        return "五笔 98";
+      case KeyboardScheme.WUBI_XSJ:
+        return "五笔 新世纪";
+      default:
+        return "五笔 86";
+    }
   }
 
   /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供。手写面板写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 和 Android 的 `KeyboardScheme.offeredBy` 一致。 */

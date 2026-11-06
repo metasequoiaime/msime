@@ -45,7 +45,7 @@ public final class CompositionCaretPolicy {
     /**
      * 这一刻的组字能不能点读音行移光标。
      *
-     * @param gridComposing View 的 {@code grid_composing}：五笔只在 14 键网格里组字时为真，这时不能点
+     * @param gridComposing 这次组字在引擎的组码网格里（View 的 {@code grid_composing}）；五笔只有 14 键是网格，这时不能点（#10591，与 iOS 的 {@code typesWubiGrid} 一致）；网格开着时硬件键盘打的五笔码走 26 键，为假，照常可以编辑
      */
     public static boolean editable(int scheme, String localMode, boolean dedicatedEnglish, String editingText,
             boolean gridComposing) {

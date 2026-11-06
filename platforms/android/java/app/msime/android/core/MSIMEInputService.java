@@ -210,6 +210,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button clipboardBackToTop;
     /** 删除（单条或多选）后浮在剪贴板面板右下角的大号「撤销」，带倒数（#10073、#10080）；没有可撤销的记录时收起。 */
     Button clipboardUndoButton;
+    /** 剪贴板「更多」菜单的浮层（#10969）：盖在顶行下面的整个列表区上，菜单贴右上角画在里面，不占列表的位置；点菜单以外的地方收起菜单。菜单收着时隐藏。 */
+    FrameLayout clipboardMoreOverlay;
     LinearLayout clipboardPanel;
     ScrollView schemeScroll;
     LinearLayout schemePanel;
@@ -680,6 +682,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 补上的后半个还在光标右边的那些对，见 {@link PairedPunctuationPolicy.Stack}。 */
     private final PairedPunctuationPolicy.Stack pairedPunctuationStack = new PairedPunctuationPolicy.Stack();
     boolean traditionalChineseOutput;
+    /** 共享偏好 `cantonese_simplified_output`：粤拼和粤语双拼输出简体，繁转简在 Engine 里做。粤拼下的简繁开关切换它，见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
+    boolean cantoneseSimplifiedOutput;
     int editorInputType;
     private long currentDocumentIdentifier;
     private long nextDocumentIdentifier = 1;
@@ -3057,7 +3061,10 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
         quanpinShiftEnabled = quanpinShiftFrom(preferences);
         touchKeyStyles = touchKeyStylesFrom(preferences);
-        numberRowEnabled = numberRowFrom(preferences);
+        boolean nextNumberRow = numberRowFrom(preferences);
+        // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
+        automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
+        numberRowEnabled = nextNumberRow;
         twentySixSymbolFirst = symbolFirstFrom(preferences);
         numberPadSpace = numberPadSpaceFrom(preferences);
         nineKeySidebarSymbols = sidebarSymbolsFrom(preferences, NineKeySidebarPolicy.LETTER_PREFERENCE);
@@ -3311,6 +3318,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyChineseOutputPreference(JSONObject preferences) {
         traditionalChineseOutput = preferences != null
             && preferences.optBoolean("traditional_chinese_output", false);
+        cantoneseSimplifiedOutput = preferences != null
+            && preferences.optBoolean("cantonese_simplified_output", false);
     }
 
     private void applyCandidateGlossPreference(JSONObject preferences) {
@@ -3831,6 +3840,7 @@ public final class MSIMEInputService extends InputMethodService {
             : nextAiAssistant == null
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
+        boolean nextCantoneseSimplified = preferences.optBoolean("cantonese_simplified_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidatePronunciation = preferences.optBoolean("candidate_pronunciation", false);
         String nextSpellingPosition = CandidatePreeditStylePolicy.normalize(
@@ -3906,6 +3916,8 @@ public final class MSIMEInputService extends InputMethodService {
         predictionButtons = nextPredictionButtons;
         // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
         touchKeyStyles = nextTouchKeyStyles;
+        // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
+        automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
         numberRowEnabled = nextNumberRow;
         // 「符」与「123」互换和数字键盘空格位置同样进了 touchGeometryKey：底行签名带着它们，数字层右列由 render 里的 numberPadSpaceStale 重建。
         twentySixSymbolFirst = nextSymbolFirst;
@@ -3929,6 +3941,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         boolean japaneseEmojiKeyChanged = previousJapaneseEmojiKey != japaneseSideEmojiKey();
         traditionalChineseOutput = nextTraditional;
+        cantoneseSimplifiedOutput = nextCantoneseSimplified;
         // 要在下面改掉当前值之前比较：放在赋值之后时前后两份永远相同，换服务、关翻译后候选下的旧译文要等下一次按键才消失。
         boolean translationDisplayChanged = CandidateTranslationPolicy.displayInvalidated(
             candidateEnglishGloss, nextCandidateGloss, candidateTranslationsEnabled,
@@ -7968,7 +7981,10 @@ public final class MSIMEInputService extends InputMethodService {
             notice("简繁设置尚未就绪");
             return;
         }
-        final boolean targetTraditional = !traditionalChineseOutput;
+        // 粤拼下切换的是粤拼自己的输出字形，全局简繁开关不动。
+        final boolean cantonese = characterSetFollowsCantonese();
+        final String key = ChineseOutputPolicy.preferenceKey(cantonese);
+        final boolean targetValue = cantonese ? !cantoneseSimplifiedOutput : !traditionalChineseOutput;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         final JSONObject pending;
@@ -7978,14 +7994,14 @@ public final class MSIMEInputService extends InputMethodService {
             expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
-            pending.getJSONObject("preferences")
-                .put("traditional_chinese_output", targetTraditional);
+            pending.getJSONObject("preferences").put(key, targetValue);
         } catch (JSONException error) {
             preferencesNotice = " · 简繁设置保存失败，保留原设置";
             render();
             return;
         }
-        traditionalChineseOutput = targetTraditional;
+        if (cantonese) cantoneseSimplifiedOutput = targetValue;
+        else traditionalChineseOutput = targetValue;
         traditionalOutputSaving = true;
         preferencesNotice = " · 正在保存简繁设置";
         final long operation = ++preferenceSaveGeneration;
@@ -8025,7 +8041,7 @@ public final class MSIMEInputService extends InputMethodService {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
-                preferencesNotice = traditionalChineseOutput
+                preferencesNotice = characterSetShowsTraditional()
                     ? " · 已切换为繁体输出" : " · 已切换为简体输出";
             }
         } catch (JSONException | LinkageError error) {
@@ -9468,10 +9484,38 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
-        // 粤拼和注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。
+        // 注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。粤拼的词库也是繁体，但它有自己的简体输出开关（`cantonese_simplified_output`），英文模式下则切换全局开关，所以两种模式下都可用。
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
-            && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme))
+            && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme)
+                || scheme == InputSchemeTraits.CANTONESE)
             && canSaveChineseOutput();
+    }
+
+    /** 简繁开关显示的字形：粤拼下看粤拼自己的选择，其余方案和英文模式看全局开关。 */
+    boolean characterSetShowsTraditional() {
+        return ChineseOutputPolicy.showsTraditional(
+            characterSetFollowsCantonese(), traditionalChineseOutput, cantoneseSimplifiedOutput);
+    }
+
+    /** 见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
+    private boolean characterSetFollowsCantonese() {
+        return ChineseOutputPolicy.switchFollowsCantonese(dedicatedEnglish, toolbarScheme());
+    }
+
+    /** 工具栏和功能面板按哪个方案决定简繁开关：有视图时读视图，会话还没给视图时按选中的键盘方案推断。 */
+    int toolbarScheme() {
+        return view == null
+            ? ((selectedScheme == KeyboardScheme.JAPANESE
+                || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
+                : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
+                : selectedScheme == KeyboardScheme.CANTONESE
+                    || selectedScheme == KeyboardScheme.CANTONESE_SHUANGPIN ? InputSchemeTraits.CANTONESE
+                : selectedScheme == KeyboardScheme.ZHUYIN
+                    || selectedScheme == KeyboardScheme.ZHUYIN_NINE_KEY ? InputSchemeTraits.ZHUYIN
+                : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
+                : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
+                : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
+            : InputViewValuePolicy.scheme(view, -1);
     }
 
     /**
@@ -11137,6 +11181,15 @@ public final class MSIMEInputService extends InputMethodService {
         undoParams.bottomMargin = pixels(8);
         ViewPolicy.hide(clipboardUndoButton);
         clipboardSurface.addView(clipboardUndoButton, undoParams);
+        // 「更多」菜单不再作为列表的第一行插进去（那样左边空一大块、下面的卡片整体被推下去，#10969），改成浮在列表上面，像系统的溢出菜单。仍然只是同一窗口里的一层 FrameLayout，不弹 PopupWindow：输入法没有 Activity 的窗口令牌，弹窗会让键盘进程崩掉或抢走编辑器焦点（#5605、#5653）。浮层最后加入、再抬高一层，菜单盖得住「返回顶部」和「撤销」，点到它们所在的位置也只是收起菜单；开着时浮层接住列表区的所有触摸，点不到下面的卡片。顶行不被盖住，「更多 ▴」「多选」「本机 ▾」照常可点，它们各自会收起菜单。
+        clipboardMoreOverlay = new FrameLayout(this);
+        clipboardMoreOverlay.setContentDescription("收起剪贴板菜单");
+        ViewPolicy.bindClick(clipboardMoreOverlay, imePanels::closeClipboardMoreMenu);
+        ViewPolicy.setElevation(clipboardMoreOverlay, pixels(8));
+        ViewPolicy.hide(clipboardMoreOverlay);
+        FrameLayout.LayoutParams moreOverlayParams = LayoutPolicy.frameMatchParentParams();
+        moreOverlayParams.topMargin = pixels(32);
+        clipboardSurface.addView(clipboardMoreOverlay, moreOverlayParams);
         clipboardScroll.setOnScrollChangeListener((view, x, y, oldX, oldY) -> imePanels.updateClipboardBackToTop());
         ViewPolicy.hide(clipboardSurface);
         keyboardSurface.addView(clipboardSurface, LayoutPolicy.frameMatchParentParams());
@@ -12375,16 +12428,15 @@ public final class MSIMEInputService extends InputMethodService {
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
             String phrasePrefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "");
+            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。五笔 14 键网格组字不能编辑也看它。
+            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
             // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
             boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
-                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText,
-                InputViewValuePolicy.booleanValue(view, "grid_composing", false));
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText, caretKeyGrid);
             int caret = caretEditable
                 ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
                 : editingText.length();
             String caretSpelling = spelling;
-            // 隔着显示分隔时光标画在哪一侧，看这次组字是不是在组码网格里打的（九键、14 键、18 键的退格先删切分），不看按键是不是数字，也不看 key_grid：网格开着时硬件键盘的字母照样走 26 键，退格删的是分隔前的字母。
-            boolean caretKeyGrid = InputViewValuePolicy.booleanValue(view, "grid_composing", false);
             // 读音的字母按这次组字所在键盘的组码对上按键：九键是数字，14 键、18 键是组码字母（ni'hao 对 bugao）；26 键只认同一个字母。
             String caretKeypad = compositionKeypad(view);
             int caretMark = caretEditable
@@ -12442,8 +12494,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 「键盘调整」的遮罩盖在照常画出的键盘上：工具栏、候选行和按键区都不为它让位，下面画的就是调整后的样子。
         if (keyboardAdjustOverlay != null) {
             ViewPolicy.setVisible(keyboardAdjustOverlay, keyboardAdjustActive);
+            if (floatingBar != null) floatingBar.setGripShown(!keyboardAdjustActive);
             if (keyboardAdjustActive) {
                 keyboardAdjustOverlay.setAvailability(keyboardAdjustAvailability());
+                // 浮动键盘是圆角卡片（ImeStyler.applyKeyboardSurfaceGeometry 按这个半径裁外框），括号的拐角要顺着它弯，否则被裁掉。
+                keyboardAdjustOverlay.setCornerRadius(overlayDrawn() ? pixels(FloatingKeyboardPolicy.CORNER_RADIUS_DP) : 0);
                 // 外框里排在遮罩后面加进来的面板（建视图时的各个面板、第一次打开才建的表情和符号面板）会盖在它上面，打开期间让它保持在最上层。
                 if (keyboardSurface.getChildAt(keyboardSurface.getChildCount() - 1) != keyboardAdjustOverlay)
                     keyboardAdjustOverlay.bringToFront();
@@ -12491,41 +12546,31 @@ public final class MSIMEInputService extends InputMethodService {
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);
-            scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
-            ViewPolicy.setSelected(scriptShortcutButton, traditionalChineseOutput);
+            boolean showsTraditional = characterSetShowsTraditional();
+            scriptShortcutButton.setText(showsTraditional ? "繁" : "简");
+            ViewPolicy.setSelected(scriptShortcutButton, showsTraditional);
             imeStyler.styleButton(scriptShortcutButton, true);
-            int scheme = view == null
-                ? ((selectedScheme == KeyboardScheme.JAPANESE
-                    || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
-                    : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
-                    : selectedScheme == KeyboardScheme.CANTONESE
-                        || selectedScheme == KeyboardScheme.CANTONESE_SHUANGPIN ? InputSchemeTraits.CANTONESE
-                    : selectedScheme == KeyboardScheme.ZHUYIN
-                        || selectedScheme == KeyboardScheme.ZHUYIN_NINE_KEY ? InputSchemeTraits.ZHUYIN
-                    : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
-                    : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
-                    : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
-                : InputViewValuePolicy.scheme(view, -1);
+            int scheme = toolbarScheme();
             boolean japanese = scheme == 3;
             boolean korean = scheme == KoreanInputPolicy.KOREAN_SCHEME;
-            boolean cantonese = scheme == InputSchemeTraits.CANTONESE;
             boolean zhuyin = scheme == InputSchemeTraits.ZHUYIN;
             boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
             boolean tibetan = scheme == InputSchemeTraits.TIBETAN;
             boolean stroke = scheme == InputSchemeTraits.STROKE;
+            // 粤拼的开关切换粤拼自己的输出字形（`cantonese_simplified_output`），英文模式下切换全局开关，所以它可用。
             ViewPolicy.setEnabled(scriptShortcutButton,
-                !japanese && !korean && !cantonese && !zhuyin
+                !japanese && !korean && !zhuyin
                     && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
-            String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
+            String label = showsTraditional ? "切换到简体" : "切换到繁体";
             String outputState = japanese ? "日语不使用简繁转换"
                 : korean ? "韩语不使用简繁转换"
-                : cantonese ? "粤拼直接输出繁体"
                 : zhuyin ? "注音直接输出繁体"
                 : vietnamese ? "越南语不使用简繁转换"
                 : tibetan ? "藏文不使用简繁转换"
                 : stroke ? "笔画不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
-                : traditionalChineseOutput ? "繁体" : "简体";
+                : characterSetFollowsCantonese() ? (showsTraditional ? "粤拼输出繁体" : "粤拼输出简体")
+                : showsTraditional ? "繁体" : "简体";
             scriptShortcutButton.setContentDescription(
                 Build.VERSION.SDK_INT >= 30 ? label : label + "，" + outputState);
             if (Build.VERSION.SDK_INT >= 30)

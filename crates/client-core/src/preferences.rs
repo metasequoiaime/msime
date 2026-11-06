@@ -624,7 +624,7 @@ pub enum TextEditButton {
     SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
+/// 从左列上到下，再到右列前三格，最后一个放在底排正中；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
     vec![
@@ -1878,7 +1878,7 @@ pub struct Preferences {
     /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
-    /// 五笔用 86 还是 98 码表；个人词条和学习记录也按它分开存。
+    /// 五笔用 86、98 还是新世纪码表；个人词条和学习记录也按它分开存。
     #[serde(default)]
     pub wubi_profile: WubiProfile,
     #[serde(default)]
@@ -2120,6 +2120,9 @@ pub struct Preferences {
     /// 繁体输出用哪套 OpenCC 配置（`s2t`、`s2tw`、`s2twp`），只在 `traditional_chinese_output` 打开时起作用；宿主转换时把它交给 `msime_client_convert_to_traditional`。默认 `s2t`，默认时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "is_default_traditional_variant")]
     pub traditional_chinese_variant: TraditionalVariant,
+    /// 粤拼和粤语双拼输出简体：词库是繁体，打开后 Engine 在出候选时做繁转简（`chinese_conversion::cantonese_to_simplified`，嗰、喎等粤语用字保留）。与 `traditional_chinese_output` 互不影响，宿主在粤拼下的简繁按钮切换的是它。默认关，即粤拼照旧输出繁体；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cantonese_simplified_output: bool,
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[serde(default, skip_serializing_if = "is_false")]
     pub chinese_english_spacing: bool,
@@ -2328,6 +2331,9 @@ pub struct Preferences {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceInputPreferences {
+    /// macOS 允许现有语音键在其他输入法下触发；缺省关闭，不改变既有输入手感。
+    #[serde(default)]
+    pub hotkey_global: bool,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     #[serde(default = "enabled_by_default")]
@@ -2463,6 +2469,7 @@ impl Default for VoiceInputPreferences {
     fn default() -> Self {
         let polish = default_polish_service();
         Self {
+            hotkey_global: false,
             enabled: true,
             sound_enabled: true,
             start_sound: true,
@@ -4421,6 +4428,7 @@ impl Default for Preferences {
             shuangpin_helpcode: default_shuangpin_helpcode(),
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
+            cantonese_simplified_output: false,
             chinese_english_spacing: false,
             cross_commit_spacing: false,
             cross_commit_spacing_excluded_apps: Vec::new(),
@@ -4656,6 +4664,8 @@ impl ShuangpinCustomProfile {
 }
 
 /// 五笔码表版本。Engine 的编码是声明顺序（`wubi_profile`）。
+///
+/// 读盘时不认识的值（更新的版本加的码表版本）按 86 读（`settle_newer_values_on_read`），不让整份偏好读不了；设置提交仍由反序列化严格校验。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum WubiProfile {
     #[default]
@@ -4663,6 +4673,21 @@ pub enum WubiProfile {
     Wubi86,
     #[serde(rename = "wubi98")]
     Wubi98,
+    /// 新世纪五笔，码表 `wubixsj`。追加在末尾：序号就是 Engine 的编码 2。
+    #[serde(rename = "wubixsj")]
+    WubiXsj,
+}
+
+impl WubiProfile {
+    /// 文档和账号设置里的写法（`wubi86`、`wubi98`、`wubixsj`）读成版本，不认识的值为 `None`。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "wubi86" => Some(Self::Wubi86),
+            "wubi98" => Some(Self::Wubi98),
+            "wubixsj" => Some(Self::WubiXsj),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -6586,8 +6611,16 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
         .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
-/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局和粤拼解释方式：更新的版本的未知取值分别回退到两套式和普通粤拼。
+/// 读盘时把更新的版本才有的标量取值换成本版本的取值，免得一个键让整份文档读不了；只用于读磁盘，设置提交仍由枚举反序列化严格校验。目前有韩文布局、粤拼解释方式和五笔码表版本：更新的版本的未知取值分别回退到两套式、普通粤拼和 86 五笔。
 fn settle_newer_values_on_read(document: &mut serde_json::Value) {
+    if let Some(profile) = document.pointer_mut("/preferences/wubi_profile") {
+        if profile
+            .as_str()
+            .is_some_and(|value| WubiProfile::parse(value).is_none())
+        {
+            *profile = "wubi86".into();
+        }
+    }
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {
         if layout
             .as_str()
