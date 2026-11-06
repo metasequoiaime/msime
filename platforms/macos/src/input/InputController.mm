@@ -1992,6 +1992,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
     BOOL _capsLockTapReleased;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
+    // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
+    NSTimer *_voiceHoldPollTimer;
     uint64_t _voiceHoldGeneration;
     BOOL _voiceHoldStarting;
     NSDictionary *_voiceThemePreferences;
@@ -5735,6 +5737,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self stopPredictionMouseMonitoring];
     [self stopSettledScoring];
     [_capsLockTapTimer invalidate];
+    [_voiceHoldPollTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
@@ -6168,6 +6171,35 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [weakSelf expireLiveVoice:token];
     });
 }
+// 松开的 flagsChanged 可能送不到输入法（2026-11-03 设备验收：松开后录音一直开着，只能杀进程）。按住期间每 0.1 秒拿会话里的修饰键状态问一次 MSIMEVoiceHoldShortcut::poll，确定抬起就和收到松开一样停下录音。
+// 用 CombinedSessionState 而不是 HID 状态：它同时包含实体键盘和别的进程合成的按键，合成的按住不会被误判成已经松开。
+- (void)syncVoiceHoldPoll {
+    if (!_voiceHoldShortcut.holding()) {
+        [_voiceHoldPollTimer invalidate];
+        _voiceHoldPollTimer = nil;
+        return;
+    }
+    if (_voiceHoldPollTimer) return;
+    __weak MSIMEInputController *weakSelf = self;
+    _voiceHoldPollTimer = [NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf pollVoiceHold];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_voiceHoldPollTimer forMode:NSRunLoopCommonModes];
+}
+- (void)pollVoiceHold {
+    const auto result = _voiceHoldShortcut.poll(MSIMEPhysicalModifierFlagsState(kCGEventSourceStateCombinedSessionState), _voiceService.active);
+    // 和事件路径的松开一样只停这次按住开始的录音；代次变了说明它已经结束。
+    if (result.action == MSIMEVoiceHoldShortcut::Action::Toggle && _voiceHoldGeneration == _voiceGeneration) [self toggleVoiceInput:nil];
+    [self syncVoiceHoldPoll];
+}
+// 按住状态要被清掉（同一客户端再次激活、没有客户端的按键），之后不会再有松开来结束这次按住开始、还没锁定的录音，所以先按松开把它停下。
+- (void)resetVoiceHoldFinishingRecording {
+    const BOOL finish = _voiceHoldShortcut.finishesOnRelease() && _voiceService.active && _voiceHoldGeneration == _voiceGeneration;
+    _voiceHoldShortcut.reset();
+    [self syncVoiceHoldPoll];
+    if (finish) [self toggleVoiceInput:nil];
+}
 - (void)finishVoiceInputForDisable {
     _voicePermissionToken = nil;
     // Windows RefreshKeyboardHook stops capture on disable without discarding
@@ -6475,7 +6507,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [self clearSmartPunctuationSpaceRevert];
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
-    _voiceHoldShortcut.reset();
+    [self resetVoiceHoldFinishingRecording];
     if (_activeClient && _activeClient != sender) [self cancelLiveVoiceInput];
     if (_activeClient && _activeClient != sender) [self cancelDoubaoVoiceInput];
     if (_activeClient && _activeClient != sender) [self cancelHTTPVoiceInput];
@@ -7891,7 +7923,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [_voiceOverlay dismissFailure];
         [self resetModifierTap];
         [self abandonCapsLockTap];
-        _voiceHoldShortcut.reset();
+        [self resetVoiceHoldFinishingRecording];
         _backspaceHoldArmed = NO;
         [self clearSmartPunctuationSpaceConversion];
         [self clearSmartPunctuationSpaceRevert];
@@ -7979,6 +8011,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     else if (voiceShortcut.action == MSIMEVoiceHoldShortcut::Action::ChordCancel && _voiceHoldGeneration == _voiceGeneration) {
         [self cancelHTTPVoiceInput]; [self cancelDoubaoVoiceInput]; [self cancelLiveVoiceInput];
     }
+    [self syncVoiceHoldPoll];
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         [self toggleInputModeFromModifierTap];
