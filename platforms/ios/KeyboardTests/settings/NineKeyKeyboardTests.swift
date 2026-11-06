@@ -722,7 +722,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         }
       }
       let candidate = try button("candidate-1", in: controller)
-      XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement)
+      XCTAssertTrue(candidate.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
       // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on. It is not pinned, so there is no 取消固定 and no slot is checked.
       XCTAssertEqual(controller.candidateMenuElements(at: 0).map(\.title),
                      ["以词定字", "优先显示", "固定排位", "删除词条…"])
@@ -1554,8 +1554,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    let inputView = try XCTUnwrap(controller.inputView as? KeyboardInputView)
-    XCTAssertTrue(controller.view === inputView)
+    // 根视图是实现了 `UIInputViewAudioFeedback` 的普通视图，不是 `UIInputView`（#10944）。
+    let inputView = try XCTUnwrap(controller.view as? KeyboardInputView)
     defaults.set(true, forKey: KeyboardFeedbackPreference.soundKey)
     XCTAssertTrue(inputView.enableInputClicksWhenVisible)
     defaults.set(false, forKey: KeyboardFeedbackPreference.soundKey)
@@ -2614,7 +2614,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   // The presentation cycle is what the device actually does: show, type, put away, show again.
   // Releasing the dictionary access on dismissal must not leave the next presentation unable to
   // convert, and a dropped keystroke would still have played its click.
-  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它：读音那一段收成零宽，第一个候选贴在行首，拼写变长也不移动。
+  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它：读音那一段只画打开放大拼写编辑条的笔（#10591，与 Android 读音的最小宽度一样是 40 pt），第一个候选紧跟在笔后面，拼写变长也不移动。
   func testComposingSwapsTheToolbarForTheCandidatesInTheSameRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -2648,18 +2648,22 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(toolbar.isHidden)
-    XCTAssertEqual(reading.frame.width, 0, accuracy: 0.5, "the strip draws no spelling")
-    XCTAssertTrue(try button("preeditButton", in: controller).isHidden)
+    XCTAssertEqual(reading.frame.width, 40, accuracy: 0.5, "the strip draws no spelling, only the pen")
+    let preedit = try button("preeditButton", in: controller)
+    XCTAssertFalse(preedit.isHidden)
+    XCTAssertEqual(preedit.configuration?.title ?? "", "", "the strip draws no spelling")
+    XCTAssertNotNil(preedit.configuration?.image, "the pen that opens the spelling editor")
     // 全拼宿主快照显示分词；输入框里的拼音样式预编辑使用同一出口。
     XCTAssertEqual(controller.inlineMarkedText, "ni'hao", "分词拼音写入输入框")
     let candidate = try button("candidate-1", in: controller)
     let candidateFrame = candidate.convert(candidate.bounds, to: strip)
-    XCTAssertLessThanOrEqual(candidateFrame.minX, 2.5, "the first candidate starts at the leading edge")
+    XCTAssertLessThanOrEqual(candidateFrame.minX, reading.convert(reading.bounds, to: strip).maxX + 2.5,
+                             "the first candidate starts right after the pen")
     XCTAssertGreaterThanOrEqual(candidateFrame.minY, -0.5)
     XCTAssertLessThanOrEqual(candidateFrame.maxY, idleStrip.height + 0.5)
     XCTAssertEqual(strip.frame, idleStrip, "the row keeps its height while composing")
     XCTAssertEqual(space.convert(space.bounds, to: controller.view), idleSpace, "the keys do not move")
-    attachTopRowScreenshot(of: controller, named: "Candidates from the leading edge")
+    attachTopRowScreenshot(of: controller, named: "Candidates right after the pen")
 
     for letter in "zhonghuarenmingongheguo" {
       let key = try XCTUnwrap(descendants(controller.view).first {
@@ -3052,6 +3056,99 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertFalse(try typeN(controller).isEmpty, "the first key after coming back did not compose")
     controller.viewWillDisappear(false)
     controller.viewDidDisappear(false)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable))
+    host.view.removeFromSuperview()
+  }
+
+  /// 真机上宿主被结束后扩展几十毫秒就被挂起，等不到两秒的定时器（#10910，iPhone XR 10 次里 10 次 0xdead10cc）。键盘持锁期间开着 expiring activity，系统要挂起之前以 `expired == true` 在另一条线程上调它，那次调用返回之前锁必须已经放掉、维护已经停下。这里换上假的系统入口，按真机上的线程关系去调块；正常收起时活动随锁一起结束，再出现时重新开，第一个键照常组字。
+  func testKeyboardReleasesTheLeaseBeforeTheSystemSuspendsIt() throws {
+    let previous = InputSchemePreference.scheme
+    let previousPerform = AppGroupLockActivity.perform
+    final class Blocks: @unchecked Sendable {
+      private let lock = NSLock()
+      private var all: [@Sendable (Bool) -> Void] = []
+      var count: Int { lock.lock(); defer { lock.unlock() }; return all.count }
+      func append(_ block: @escaping @Sendable (Bool) -> Void) { lock.lock(); all.append(block); lock.unlock() }
+      subscript(index: Int) -> @Sendable (Bool) -> Void { lock.lock(); defer { lock.unlock() }; return all[index] }
+    }
+    let blocks = Blocks()
+    AppGroupLockActivity.perform = { _, block in blocks.append(block) }
+    defer {
+      InputSchemePreference.scheme = previous
+      AppGroupLockActivity.perform = previousPerform
+    }
+    InputSchemePreference.scheme = .quanpin
+    let locks = try dictionaryLockFiles(stateRoot: nil)
+    let deadline = Date().addingTimeInterval(15)
+    while !locks.allSatisfy(exclusiveLockAvailable) && Date() < deadline {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "precondition: another session still holds the shared lease")
+    func typeN(_ controller: KeyboardViewController) throws -> String {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      return try XCTUnwrap(button("candidate-1", in: controller).configuration?.title)
+    }
+    func run(_ block: @escaping @Sendable (Bool) -> Void, expired: Bool) -> XCTestExpectation {
+      let done = expectation(description: "activity block expired=\(expired) returned")
+      DispatchQueue.global().async {
+        block(expired)
+        done.fulfill()
+      }
+      return done
+    }
+    func show(_ controller: KeyboardViewController) {
+      controller.viewWillAppear(false)
+      controller.viewDidAppear(false)
+      controller.view.layoutIfNeeded()
+    }
+
+    let frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+    let window = UIWindow(frame: frame)
+    let host = SilentAppearanceContainer()
+    host.view.frame = frame
+    window.addSubview(host.view)
+    let controller = KeyboardViewController()
+    host.addChild(controller)
+    controller.view.frame = frame
+    host.view.addSubview(controller.view)
+    controller.didMove(toParent: host)
+    controller.applyInputContext(keyboardType: .default, documentIdentifier: UUID())
+    show(controller)
+    XCTAssertEqual(blocks.count, 1, "the shown keyboard holds App Group locks without an expiring activity")
+    let running = run(blocks[0], expired: false)
+    XCTAssertFalse(try typeN(controller).isEmpty, "the shown keyboard composes")
+    XCTAssertFalse(locks.allSatisfy(exclusiveLockAvailable), "a shown keyboard has a session")
+
+    // 宿主没了：没有任何外观回调，系统要挂起之前调到期的块。
+    host.view.removeFromSuperview()
+    let expiredBlock = blocks[0]
+    let releasedBeforeReturn = expectation(description: "locks were free when the expired call returned")
+    DispatchQueue.global().async { [locks] in
+      expiredBlock(true)
+      if locks.allSatisfy({ path in
+        let descriptor = open(path, O_RDONLY | O_CLOEXEC)
+        guard descriptor >= 0 else { return errno == ENOENT }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return false }
+        flock(descriptor, LOCK_UN)
+        return true
+      }) { releasedBeforeReturn.fulfill() }
+    }
+    wait(for: [releasedBeforeReturn, running], timeout: 10)
+    XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable), "the keyboard kept the lease into suspension")
+    XCTAssertFalse(maintenanceTimerRunning(controller), "dictionary maintenance kept running into suspension")
+
+    // 再出现：重新开一段活动，第一个键照常组字；正常收起时活动随锁一起结束。
+    window.addSubview(host.view)
+    show(controller)
+    XCTAssertEqual(blocks.count, 2, "showing the keyboard again did not open a new activity")
+    let again = run(blocks[1], expired: false)
+    XCTAssertFalse(try typeN(controller).isEmpty, "the first key after suspension did not compose")
+    controller.viewWillDisappear(false)
+    controller.viewDidDisappear(false)
+    wait(for: [again], timeout: 5)
     XCTAssertTrue(locks.allSatisfy(exclusiveLockAvailable))
     host.view.removeFromSuperview()
   }
@@ -5084,6 +5181,59 @@ final class NineKeySwipeDigitsTests: XCTestCase {
     XCTAssertEqual(preedit.configuration?.title, "水杉输入法", "数字先结束组字再上屏，不进拼音引擎")
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
     controller.viewDidDisappear(false)
+  }
+
+  /// 滑出的数字和长按菜单里选的字母跟着全角开关走：打开全角时 5 写成全角５（U+FF15）、e 写成全角ｅ（U+FF45），与 Android、鸿蒙相同；关着时是半角。
+  func testSwipedDigitsFollowTheFullWidthSwitch() throws {
+    let document = Document()
+    try attach(document)
+    let controller = try keyboard(.nineKey, swipe: .up)
+    defer { controller.viewDidDisappear(false) }
+    try XCTUnwrap(try key("nineKey5", in: controller).onNineKeySwipe)(.digit)
+    XCTAssertEqual(document.insertions.last, "5")
+    try control("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    let fullWidth = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-全角" } as? UIControl)
+    fullWidth.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(fullWidth.accessibilityValue, "已开启")
+    try control("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    try XCTUnwrap(try key("nineKey5", in: controller).onNineKeySwipe)(.digit)
+    XCTAssertEqual(document.insertions.last, "\u{FF15}")
+    try XCTUnwrap(try key("nineKey3", in: controller).onNineKeySwipe)(.letters)
+    try control("nineKeyHoldOption-e", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(document.insertions.last, "\u{FF45}")
+  }
+
+  /// 记下键盘写进输入框的文字。
+  private final class Document: NSObject, UITextDocumentProxy {
+    var documentIdentifier = UUID()
+    var insertions: [String] = []
+    var documentContextBeforeInput: String? { "" }
+    var documentContextAfterInput: String? { "" }
+    var selectedText: String? { nil }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { false }
+    func insertText(_ text: String) { insertions.append(text) }
+    func deleteBackward() {}
+    func adjustTextPosition(byCharacterOffset offset: Int) {}
+    func setMarkedText(_ text: String, selectedRange: NSRange) {}
+    func unmarkText() {}
+  }
+
+  /// 把键盘的 `textDocumentProxy` 换成 `document`，用例结束时恢复 UIKit 的实现（与 SpaceVoicePanelTests 相同的注入方式）。
+  private func attach(_ document: Document) throws {
+    let selector = #selector(getter: UIInputViewController.textDocumentProxy)
+    let inherited = try XCTUnwrap(class_getInstanceMethod(UIInputViewController.self, selector))
+    let original = method_getImplementation(inherited)
+    let block: @convention(block) (AnyObject) -> AnyObject = { _ in document }
+    let replacement = imp_implementationWithBlock(block)
+    if !class_addMethod(KeyboardViewController.self, selector, replacement, method_getTypeEncoding(inherited)) {
+      method_setImplementation(try XCTUnwrap(class_getInstanceMethod(KeyboardViewController.self, selector)), replacement)
+    }
+    addTeardownBlock {
+      if let own = class_getInstanceMethod(KeyboardViewController.self, selector) { method_setImplementation(own, original) }
+      imp_removeBlock(replacement)
+    }
   }
 }
 
