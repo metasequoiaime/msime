@@ -21,9 +21,10 @@ public final class TextEditPanelModelSmoke {
         check(grid[0][4] == Action.UP && grid[1][2] == Action.LEFT
             && grid[1][4] == Action.SELECT && grid[1][6] == Action.RIGHT && grid[2][4] == Action.DOWN,
             "arrows form a cross around selection");
-        check(grid[3][2] == Action.DOCUMENT_START && grid[3][5] == Action.DOCUMENT_END
-            && grid[3][8] == Action.RETURN && grid[4][0] == Action.SELECT_LINE,
-            "document edges, select line and return keep fixed positions");
+        check(TextEditPanelModel.ROWS == 4, "八个侧键排进四行网格，不再单独占一整行");
+        check(grid[3][2] == Action.DOCUMENT_START && grid[3][6] == Action.DOCUMENT_END
+            && grid[3][8] == Action.RETURN && grid[3][4] == Action.SELECT_LINE,
+            "底排依次是文档开头、第八个侧键、文档结尾和换行");
 
         // 方向键和删除连发，其余不连发。
         for (Key key : TextEditPanelModel.keys(order)) {
@@ -113,12 +114,11 @@ public final class TextEditPanelModelSmoke {
     private static void checkGrid(List<Action> order) {
         Action[][] grid = grid(order);
         for (int index = 0; index < order.size(); index++)
-            check(grid[index < 4 ? index : index == 7 ? 4 : index - 4][index < 4 || index == 7 ? 0 : 8] == order.get(index),
+            check(grid[index < 4 ? index : index == 7 ? 3 : index - 4][index < 4 ? 0 : index == 7 ? 4 : 8] == order.get(index),
                 "side action follows saved order");
         for (int row = 0; row < grid.length; row++) for (int column = 0; column < grid[row].length; column++) {
-            boolean blank = (row == 2 && (column == 2 || column == 3 || column == 6 || column == 7))
-                || (row == 4 && column >= 2);
-            check((grid[row][column] == null) == blank, "下排两个角落仍留白");
+            boolean blank = row == 2 && (column == 2 || column == 3 || column == 6 || column == 7);
+            check((grid[row][column] == null) == blank, "只有十字下方两个角留白: " + row + "," + column);
         }
     }
 

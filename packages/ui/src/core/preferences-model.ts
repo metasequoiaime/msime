@@ -101,6 +101,7 @@ export type Preferences = PunctuationPreferences &
     /** 用户明确选择水杉账号（api.msime.app）进行候选翻译；缺省表示未选择。 */
     translation_account?: boolean;
     translation_ai?: boolean;
+    local_translation?: { enabled: boolean; target_language: string };
     /** 各宿主共用的匿名用量上报（每日活跃、会话结束与崩溃摘要）；缺省为开启。 */
     usage_reporting?: boolean;
     /** 桌面应用检查更新跟的发布通道，关于页「版本与更新」里选；等于缺省的稳定版时 client-core 不写进文档。只属于本机，不进设置文件、不进账号同步。 */

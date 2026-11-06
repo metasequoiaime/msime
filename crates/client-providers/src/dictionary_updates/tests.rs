@@ -775,6 +775,37 @@ fn only_a_downloaded_generation_can_be_leased() {
     drop((first, second));
 }
 
+/// 对状态目录没有写权限的输入宿主（iOS 键盘没有完全访问）只读打开已有的 `<代次>.lock`：锁文件不在时不建、没有凭证；在时取到的共享锁同样让清理跳过这一版。
+#[test]
+fn a_read_only_lease_uses_the_existing_lock_file_and_keeps_the_version() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    fixture.release("dict-v2.0.10", b"held by a read-only session", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    let selection = selected(state, &fixture.context.baseline).unwrap();
+    let leased = directory(state, &selection.desktop).unwrap();
+    let name = leased.file_name().unwrap().to_str().unwrap().to_owned();
+    let lock = leased.parent().unwrap().join(format!("{name}.lock"));
+    assert!(lease_read_only(state, &fixture.context.resources).is_none());
+    // 装代次的一方还没建锁文件时，只读的一方建不出来，也就没有凭证。
+    let _ = std::fs::remove_file(&lock);
+    assert!(lease_read_only(state, &leased).is_none());
+    assert!(!lock.exists());
+    drop(lease(state, &leased).unwrap());
+    let session = lease_read_only(state, &leased).unwrap();
+    fixture.release("dict-v2.0.11", b"newer", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    fixture.release("dict-v2.0.12", b"newest", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(
+        leased.is_dir(),
+        "a version a read-only session holds was removed"
+    );
+    drop(session);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    assert!(!leased.exists());
+}
+
 #[test]
 fn newest_incompatible_release_does_not_hide_a_compatible_update() {
     let fixture = Fixture::new();

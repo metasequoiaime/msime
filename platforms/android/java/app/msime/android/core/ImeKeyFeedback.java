@@ -21,9 +21,11 @@ import org.json.JSONObject;
 /**
  * 按键反馈（P23）：按键音、振动与按键动画。
  *
+ * <p>按键区（{@link KeyboardKeyArea}）里的键在手指按下时就出声、振动（{@link #pressed}），抬手上屏时的点击反馈只计数、播动画，不再出声振动（#10757，规则见 {@link KeyPressFeedbackPolicy}）。候选栏、工具栏和面板不在按键区里，仍在点击时反馈。
+ *
  * <p>按键音开关仍是 Android 本地的 `KeyboardFeedbackStore`；声音包取共享偏好 `plugins.key_sound.pack`，音量取 `plugins.key_sound.volume`（0–100）。包（没选时是 `default`，即随包内置的「清脆键盘」）经 `NativeClient.keySoundPack` 取到校验过的样本路径，用 `SoundPool` 按键类（其他键 / 空格 / 回车 / 退格）播放；密码框里 `default` 包一律播普通键的声音，其他包不播。样本还没加载好或加载失败时退回系统的 `FX_KEYPRESS_STANDARD`；系统关掉触摸提示音时会卸载这些音效，部分厂商系统也会屏蔽它，所以它只能兜底，不能当默认声音用。按键动画按 `touch_key_animation` 由 {@link KeyPressAnimator} 播放，`none` 保持原来的按压态。
  */
-final class ImeKeyFeedback {
+final class ImeKeyFeedback implements KeyboardKeyArea.PressListener {
     /** 按键类别：普通字符键。 */
     static final int KEY_STANDARD = 0;
     /** 按键类别：空格。 */
@@ -51,6 +53,8 @@ final class ImeKeyFeedback {
     private String soundSource = "";
     /** 原按钮 → 键面替身，见 {@link #stageFace}。 */
     private final Map<View, WeakReference<View>> faces = new WeakHashMap<>();
+    /** 按下时已经出声振动过的键（按用户看得见的键面记），在它的点击到来之前武装着。 */
+    private final KeyPressFeedbackPolicy<View> pressGate = new KeyPressFeedbackPolicy<>();
 
     ImeKeyFeedback(MSIMEInputService s) {
         this.s = s;
@@ -70,14 +74,37 @@ final class ImeKeyFeedback {
         }
     }
 
-    /** 一次按键的反馈入口。 */
-    void onKeyDown(View key, int keyClass) {
-        feedback(visible(key), keyClass);
+    /**
+     * 按键区里一根手指按下命中 `key`：这时就出声、振动，并武装这个键，它在按下分发里或抬手时的点击不再出声振动。调试计数和按键动画仍留给点击，每次按键只算一次。这个键此刻点了也不做事时（{@link MSIMEInputService#pressGivesFeedback}）什么也不给，返回 null。
+     */
+    @Override public Object pressed(View key) {
+        View face = visible(key);
+        if (!s.pressGivesFeedback(face)) return null;
+        refreshPreferences();
+        if (s.soundEnabled) playSound(classify(face));
+        if (s.hapticsEnabled) KeyboardHaptics.play(s.vibrator, face, s.hapticStrength);
+        return pressGate.arm(face);
     }
 
+    /** 按下时反馈过的手指抬起：抬起分发和随后投递的点击里，这个键的点击不再出声振动。 */
+    @Override public Object releasing(View key) {
+        return pressGate.arm(visible(key));
+    }
+
+    @Override public void settled(Object token) {
+        pressGate.settle(token);
+    }
+
+    /** 按键和点击的反馈入口：这个键刚在按下时反馈过（见 {@link #pressed}）就只计数、播动画，不再出声振动。 */
     void playFeedback(View source) {
         View key = visible(source);
-        feedback(key, classify(key));
+        feedback(key, classify(key), !pressGate.consume(key));
+    }
+
+    /** 抬手那一刻的确认性反馈（上滑清空松手执行、松手才补判出的长按语音）：不是这次按键的上屏，按下时的反馈不顶替它。 */
+    void confirm(View source) {
+        View key = visible(source);
+        feedback(key, classify(key), true);
     }
 
     /**
@@ -165,7 +192,7 @@ final class ImeKeyFeedback {
         refreshPreferences();
     }
 
-    private void feedback(View source, int keyClass) {
+    private void feedback(View source, int keyClass, boolean audible) {
         refreshPreferences();
         if (inside(source, s.candidateViewport) || inside(source, s.expandedCandidates)) {
             s.imeDebugOverlay.recordEvent(DiagnosticEventKind.CANDIDATE_SELECTED);
@@ -176,6 +203,7 @@ final class ImeKeyFeedback {
                     Color.parseColor(s.skin.accent()));
             }
         }
+        if (!audible) return;
         if (s.soundEnabled) playSound(keyClass);
         if (!s.hapticsEnabled) return;
         KeyboardHaptics.play(s.vibrator, source, s.hapticStrength);

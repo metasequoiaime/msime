@@ -624,7 +624,7 @@ pub enum TextEditButton {
     SelectLine,
 }
 
-/// 从左列上到下，再到右列前三格，最后一个放在左下角；换行固定在右下角。
+/// 从左列上到下，再到右列前三格，最后一个放在底排正中；换行固定在右下角。
 pub fn default_text_edit_button_order() -> Vec<TextEditButton> {
     use TextEditButton::*;
     vec![
@@ -1778,6 +1778,12 @@ pub struct Preferences {
     pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
+    /// 嵌入式模型离线翻译；显式开启后独立使用本地目标语言。
+    #[serde(
+        default,
+        skip_serializing_if = "crate::local_translation::LocalTranslationPreferences::is_default"
+    )]
+    pub local_translation: crate::local_translation::LocalTranslationPreferences,
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
     #[serde(default)]
@@ -4319,6 +4325,7 @@ impl Default for Preferences {
             next_word_prediction: false,
             next_word_prediction_buttons: NextWordPredictionButtons::default(),
             custom_translation: CustomTranslationPreferences::default(),
+            local_translation: crate::local_translation::LocalTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
             niutrans: NiuTransPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
@@ -5245,6 +5252,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidNiuTrans);
         }
+        if !self.local_translation.validate() {
+            return Err(PreferencesError::InvalidLocalTranslation);
+        }
         let translation = &self.custom_translation;
         if !crate::text::is_bounded_text(&translation.api_key, 4096)
             || (!translation.endpoint.is_empty()
@@ -5522,6 +5532,8 @@ pub enum PreferencesError {
     InvalidVoiceInput,
     #[error("本地识别停顿时间须为 500–5000 毫秒、步进 100，判停灵敏度须为 10–90")]
     InvalidVoicePause,
+    #[error("local translation target language is invalid")]
+    InvalidLocalTranslation,
     #[error("custom translation endpoint or API key is invalid")]
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
@@ -5789,6 +5801,40 @@ impl PreferencesStore {
         Ok(lock)
     }
 
+    /// 只读的几个入口（[`Self::load`]、[`Self::load_reusing`]、[`Self::load_for_runtime`]）取的锁。对目录或锁文件没有写权限时（iOS 键盘没有完全访问，App Group 只读）不取锁照读：写入方一律整份写进临时文件再改名（`atomic_write`），不持锁读到的也一定是某一次完整的写入；以前这里打不开锁文件就读不了偏好，键盘准备运行时失败（#10945）。目录不在、又建不了时同样不取锁，读到的是没有文件时的默认值。
+    ///
+    /// 打不开锁的目录记在进程里，以后读它不再去试：iOS 上每试一次，系统日志里就多一条沙盒拒绝，键盘每隔几秒就重读一次偏好。不取锁的读本来就是安全的，所以权限之后变回来也只是少取一把不需要的锁。
+    fn read_lock(&self) -> Result<Option<crate::file_lock::ScopedFileLock>, PreferencesError> {
+        static WITHOUT_LOCK: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+        let known = || {
+            WITHOUT_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&self.directory)
+        };
+        if known() {
+            return Ok(None);
+        }
+        match self.lock() {
+            Ok(lock) => Ok(Some(lock)),
+            Err(PreferencesError::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+                ) =>
+            {
+                let mut directories = WITHOUT_LOCK
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !directories.contains(&self.directory) {
+                    directories.push(self.directory.clone());
+                }
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn path(&self) -> PathBuf {
         self.directory.join("preferences.json")
     }
@@ -5867,7 +5913,7 @@ impl PreferencesStore {
     }
 
     pub fn load(&self) -> Result<PreferencesSnapshot, PreferencesError> {
-        let _lock = self.lock()?;
+        let _lock = self.read_lock()?;
         self.read_locked()
     }
 
@@ -5941,7 +5987,7 @@ impl PreferencesStore {
         &self,
         previous: Option<LoadedPreferences>,
     ) -> Result<LoadedPreferences, PreferencesError> {
-        let _lock = self.lock()?;
+        let _lock = self.read_lock()?;
         let bytes = self.read_document_bytes()?;
         if let Some(previous) =
             previous.filter(|previous| bytes.is_some() && previous.bytes == bytes)
@@ -5961,7 +6007,17 @@ impl PreferencesStore {
     ///
     /// `format_version` 不是 1 的文档整份取默认值、不逐键救：更新的文档格式可能改了同名键的含义，按 v1 的含义应用它会悄悄做错事。
     pub fn load_for_runtime(&self) -> Result<RuntimePreferences, PreferencesError> {
-        let _lock = self.lock()?;
+        let _lock = self.read_lock()?;
+        self.runtime_preferences()
+    }
+
+    /// [`Self::load_for_runtime`]，但不取锁，也不建目录和锁文件：给明知对这个目录没有写权限的宿主用（iOS 键盘没有完全访问时的 App Group，#10945），它不该在共享目录里留下任何东西。不取锁也读得到完整的一份，理由见 `read_lock`。目录或文件不在时是本存储所属版本的默认值。
+    pub fn load_for_runtime_without_writing(&self) -> Result<RuntimePreferences, PreferencesError> {
+        self.runtime_preferences()
+    }
+
+    /// [`Self::load_for_runtime`] 的本体；调用方决定要不要持锁。
+    fn runtime_preferences(&self) -> Result<RuntimePreferences, PreferencesError> {
         let failure = match self.read_locked() {
             Ok(snapshot) => {
                 return Ok(RuntimePreferences {

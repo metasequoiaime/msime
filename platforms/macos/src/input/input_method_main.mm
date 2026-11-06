@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#import "../translation/LocalTranslationWindow.h"
 #import <InputMethodKit/InputMethodKit.h>
 #import "InputModeIdentifiers.h"
 #import "InputModeStatusItem.h"
@@ -138,6 +139,20 @@ int main(int argc, const char *argv[]) {
         id reportingPreferences = reportingOptions[@"preferences_directory"];
         NSString *reportingDirectory = [reportingPreferences isKindOfClass:NSString.class] && [reportingPreferences isAbsolutePath]
             ? reportingPreferences : nil;
+        if ([NSProcessInfo.processInfo.arguments containsObject:@"--local-translation-settings"]) {
+            if (!reportingDirectory) return 1;
+            MSIMESettingsCrashReportingStart(reportingDirectory);
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+            id closeObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSWindowWillCloseNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+                NSWindow *window = notification.object;
+                if ([window.windowController isKindOfClass:MSIMELocalTranslationWindow.class]) [NSApp terminate:nil];
+            }];
+            [MSIMELocalTranslationWindow showForDirectory:reportingDirectory];
+            [NSApp run];
+            [NSNotificationCenter.defaultCenter removeObserver:closeObserver];
+            MSIMEUsageReportingStop();
+            return 0;
+        }
         if (MSIMEShouldShowPreferences(argc, argv)) {
             MSIMESettingsCrashReportingStart(reportingDirectory);
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];

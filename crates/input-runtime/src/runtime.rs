@@ -4,8 +4,8 @@
 use super::*;
 use msime_engine::ordering::{
     apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
-    rerank_pick_within, rotate_to_front, runner_up_order_with, CandidateScorer, ParallelOrderRows,
-    SentenceScorer, StaticEvidence,
+    rerank_pick_within, rotate_to_front, runner_up_order_pooled, CandidateScorer,
+    ParallelOrderRows, SentenceScorer, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -3254,10 +3254,17 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let Some(order) = runner_up_order_with(
+        // 引擎解码这张表时用的整句池：池让引擎挪过另一种切分的读法，降位才要连它们一起认（#10998）。键位网格的表不经整句池，与 `rerank` 一样给 0。
+        let pool = if snapshot.key_grid.is_none() {
+            self.sentence_pool()
+        } else {
+            0
+        };
+        let Some(order) = runner_up_order_pooled(
             snapshot.scheme,
             &order_rows(snapshot),
             &snapshot.candidate_touch_supported,
+            pool,
         ) else {
             return false;
         };

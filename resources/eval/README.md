@@ -361,6 +361,13 @@ dict-v2.1.0（词库大清洗第一轮）起第一批 6 行全部通过（dict-v
 | mo-0005 | 九键 | 9269468 | 万州 > 挽昼 | 挽昼 第 5，万州 第 6 |
 | mo-0006 | 九键 | 63476 | Negro 不在首屏（内容 在） | 内容 第 1，Negro 第 2 |
 
+第二批（2026-11-06）来自 QQ 群反馈，是 dict-v2.1.6 上的名次：两行都失败，因为 物理机 不在词库里。msime-dictionary#136 把它补进 `custom/words.txt` 后，构建器的 custom 封顶把它压在 乌力吉 之下，mo-0007 通过；mo-0008 要等 `curation/pinyin-weight-overrides.txt` 的覆盖。
+
+| id | 键盘 | 输入 | 断言 | 实际 |
+|---|---|---|---|---|
+| mo-0007 | 全拼 | wuliji | 物理机 > 物理及 | 乌力吉 第 1，物理及 第 2，没有 物理机 |
+| mo-0008 | 全拼 | wuliji | 物理机 > 乌力吉 | 同上 |
+
 它不进 `verify-local.sh`，由词库仓库的 PR 评测（`dict_eval_gate.py`，方案 R-3）按棘轮执行：在基线上通过的行，候选上必须仍然通过。
 
 ### `scripts/vulgar_exposure.py`：粗俗词和英文的首屏曝光

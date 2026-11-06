@@ -72,7 +72,9 @@ public:
            change.path == std::vector<std::string>{"local_modes", "chaizi"} ||
            change.path == std::vector<std::string>{"local_modes", "symbol"} ||
            change.path == std::vector<std::string>{"local_modes", "super_jianpin_slash"} ||
-           change.path == std::vector<std::string>{"fuzzy_pinyin", "seeded"});
+           change.path == std::vector<std::string>{"fuzzy_pinyin", "seeded"} ||
+           change.path == std::vector<std::string>{"quanpin_helpcode", "strict_filter"} ||
+           change.path == std::vector<std::string>{"shuangpin_helpcode", "strict_filter"});
       const bool optional_style = change.value.is_string() &&
           (change.path == std::vector<std::string>{"quote_style"} ||
            change.path == std::vector<std::string>{"bracket_style"} ||
@@ -93,7 +95,8 @@ public:
            change.path == std::vector<std::string>{"dictionary_sync_webdav"} ||
            change.path == std::vector<std::string>{"game_compatibility"} ||
            change.path == std::vector<std::string>{"multilingual_input"} ||
-           change.path == std::vector<std::string>{"wubi_candidate_selection"});
+           change.path == std::vector<std::string>{"wubi_candidate_selection"} ||
+           change.path == std::vector<std::string>{"shuangpin_helpcode", "modes"});
       // 插件默认组会被共享序列化省略；只允许页面已知字段补齐其路径。
       const bool optional_plugin = plugin_field(change);
       for (size_t index = 0; index < change.path.size(); ++index) {

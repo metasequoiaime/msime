@@ -6,6 +6,7 @@ use super::*;
 
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
+mod local_translation;
 
 #[test]
 fn telemetry_test_origin_rejects_before_storage_or_network() {
@@ -23296,6 +23297,8 @@ mod initial_learning;
 mod lifecycle_traces;
 mod plugin_authoring;
 mod quick_phrase_cursor;
+#[cfg(unix)]
+mod read_only_state;
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",

@@ -156,7 +156,7 @@ public:
 
   Command command(WPARAM event) const {
     const int control = LOWORD(event);
-    if (control >= helpcode_first && control < helpcode_first + 6)
+    if (control >= helpcode_first && control < helpcode_first + HelpcodeForm::control_count)
       return {true, helpcode_.command(event), false};
     const int notification = HIWORD(event);
     const bool mode = control >= local_mode_first && control < local_mode_first + static_cast<int>(modes_.size());

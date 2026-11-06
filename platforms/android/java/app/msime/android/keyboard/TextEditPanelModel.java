@@ -3,10 +3,12 @@ package app.msime.android;
 import android.view.KeyEvent;
 import java.util.List;
 
-/** 文本编辑面板的固定十字、行与文档边界、八个可排序侧边键；只把动作适配为 Android 编辑器事件。 */
+/** 文本编辑面板的固定十字、行与文档边界、八个可排序侧边键；只把动作适配为 Android 编辑器事件。
+ *
+ * <p>四行网格：左右两列各四格放侧键（右列第四格是换行，第八个侧键放在底排正中），中间三行是十字，底排两侧是文档首尾。只有十字下方两个角留白。 */
 public final class TextEditPanelModel {
-    public static final int ROWS = 5;
-    /** 横向以半格计数，底部两个文档边界键各占一点五格。 */
+    public static final int ROWS = 4;
+    /** 横向以半格计数，每个键占两个半格。 */
     public static final int COLUMNS = 10;
     public static final String ORDER_PREFERENCE = "touch_text_edit_button_order";
 
@@ -42,9 +44,9 @@ public final class TextEditPanelModel {
         new Key(Action.COPY, "复制", "复制", 0, 0, 1, 2, false),
         new Key(Action.CUT, "剪切", "剪切", 0, 0, 1, 2, false),
         new Key(Action.PASTE, "粘贴", "粘贴", 0, 0, 1, 2, false),
-        new Key(Action.DOCUMENT_START, "⇤", "移到开头", 3, 2, 1, 3, false),
-        new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 5, 1, 3, false),
-        new Key(Action.SELECT_LINE, "选择行", "选择当前行", 4, 0, 1, 2, false),
+        new Key(Action.DOCUMENT_START, "⇤", "移到开头", 3, 2, 1, 2, false),
+        new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 6, 1, 2, false),
+        new Key(Action.SELECT_LINE, "选择行", "选择当前行", 3, 4, 1, 2, false),
         new Key(Action.DELETE, "⌫", "退格", 0, 0, 1, 2, true),
         new Key(Action.NUMBER_PAD, "123", "打开数字键盘", 0, 0, 1, 2, false),
         new Key(Action.SPACE, "空格", "插入空格", 0, 0, 1, 2, false),
@@ -52,15 +54,15 @@ public final class TextEditPanelModel {
 
     private TextEditPanelModel() { }
 
-    /** 根据共享偏好给出的完整顺序排键，列表按行列排序，下排两个空白角不生成键。 */
+    /** 根据共享偏好给出的完整顺序排键：位置 1–4 是左列，5–7 是右列前三格，第 8 个在底排正中；列表按行列排序，十字下方两个空白角不生成键。 */
     public static List<Key> keys(List<Action> order) {
         java.util.ArrayList<Key> result = new java.util.ArrayList<>();
         for (Key key : KEYS) {
             int slot = order.indexOf(key.action());
             if (slot < 0) result.add(key);
             else {
-                int row = slot < 4 ? slot : slot == 7 ? 4 : slot - 4;
-                int column = slot < 4 || slot == 7 ? 0 : 8;
+                int row = slot < 4 ? slot : slot == 7 ? 3 : slot - 4;
+                int column = slot < 4 ? 0 : slot == 7 ? 4 : 8;
                 result.add(new Key(key.action(), key.label(), key.description(),
                     row, column, 1, 2, key.repeats()));
             }
