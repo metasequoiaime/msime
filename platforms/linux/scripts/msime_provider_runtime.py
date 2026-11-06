@@ -1,4 +1,4 @@
-"""Shared Unix provider startup ownership and stale socket recovery, plus the Volcano Ark model rules both providers apply."""
+"""共享 Unix 提供程序的启动归属和过期套接字恢复，以及两种提供程序共用的火山方舟模型规则。"""
 import errno
 import fcntl
 import os
