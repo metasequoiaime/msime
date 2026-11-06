@@ -23,7 +23,7 @@ public final class GridHelpcodePolicySmoke {
         check(!GridHelpcodePolicy.holdsEnter("", 0), "没有分隔符时回车照旧");
         check(!GridHelpcodePolicy.holdsEnter("|AE", 3), "有候选时回车照旧按首选结束");
         check(GridHelpcodePolicy.holdsEnter("|AE", 0), "筛空时回车留着组字");
-        check(GridHelpcodePolicy.holdsEnter("|", 0), "只有分隔符而没有候选时回车同样留着组字");
+        check(!GridHelpcodePolicy.holdsEnter("|", 0), "只有分隔符时没有筛选，回车照旧原样上屏，与空格一致");
         check(!GridHelpcodePolicy.holdsEnter(null, 0), "缺视图时照旧");
 
         check(GridHelpcodePolicy.backClears("|A", true, false), "第一次返回清辅助码");

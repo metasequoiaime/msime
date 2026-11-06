@@ -32,9 +32,14 @@ public final class GridHelpcodePolicy {
         return -dy > ENTRY_THRESHOLD_DP && Math.abs(dy) > 1.5f * Math.abs(dx);
     }
 
-    /** 回车留着组字、什么也不做：放下了分隔符而没有候选。回车和空格、标点一样是用户结束一个词的键；引擎此时的原样上屏会丢掉组字（给插入别的内容之前结束组字用），回车不该丢。 */
+    /** 回车留着组字、什么也不做：至少有一槽辅助码而筛空，与引擎吞掉空格、标点、数字的条件相同（只有分隔符时显示就是 `|`，候选没有筛过，回车照旧原样上屏）。回车和空格、标点一样是用户结束一个词的键；引擎此时的原样上屏会丢掉组字（给插入别的内容之前结束组字用），回车不该丢。 */
     public static boolean holdsEnter(String display, int candidates) {
-        return display != null && !display.isEmpty() && candidates == 0;
+        return constrains(display) && candidates == 0;
+    }
+
+    /** 显示里有分隔符之后的辅助码，候选是筛过的（引擎的 `grid_helpcode_constrained`）。 */
+    static boolean constrains(String display) {
+        return display != null && display.length() > 1;
     }
 
     /** 系统返回键先清辅助码：放下了分隔符、键盘显示着、没有面板盖着；下一次返回再照旧收起键盘。 */

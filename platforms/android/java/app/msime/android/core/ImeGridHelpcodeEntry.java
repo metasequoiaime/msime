@@ -7,7 +7,7 @@ import android.widget.Button;
 /**
  * 十四／十八键的分词键上滑放下网格辅助码的分隔符（{@link GridHelpcodePolicy}）。
  *
- * <p>这次组字不能用网格辅助码（`grid_helpcode_available` 为假）或还没滑过阈值时，整次触摸照常交给按钮：点按仍是分词或打开符号面板。滑过阈值的那一刻给按钮补一个 CANCEL，它就不再点按；松手时放下分隔符，与按钮的点按一样算一次按键、给一次按键反馈。
+ * <p>这次组字不能用网格辅助码（`grid_helpcode_available` 为假）或还没滑过阈值时，整次触摸照常交给按钮：点按仍是分词或打开符号面板。滑过阈值的那一刻给按钮补一个 CANCEL，它就不再点按；松手时放下分隔符，引擎收下了才与按钮的点按一样算一次按键、给一次按键反馈。
  */
 final class ImeGridHelpcodeEntry {
     private ImeGridHelpcodeEntry() {}
@@ -39,9 +39,11 @@ final class ImeGridHelpcodeEntry {
                 case MotionEvent.ACTION_UP -> {
                     if (!entering[0]) return false;
                     entering[0] = false;
-                    s.imeKeyFeedback.playFeedback(key);
-                    s.countKey(key);
-                    s.gridHelpcode(GridHelpcodePolicy.BEGIN, (char) 0);
+                    // 上滑和松手之间组字可能已经变了（光标移进组码、被别的更新上屏）；引擎不收时不给反馈、不计键。
+                    if (s.gridHelpcode(GridHelpcodePolicy.BEGIN, (char) 0)) {
+                        s.imeKeyFeedback.playFeedback(key);
+                        s.countKey(key);
+                    }
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
