@@ -808,7 +808,7 @@ function AccountDetailsPage({
                   ? "我们会发送一个 6 位验证码完成登录"
                   : mobile
                     ? "登录，分享你的键盘设计"
-                    : // 设置同步只接在 Windows 和 Linux 的账号会话上（`settingsSync`），别的桌面不许诺同步设置。
+                    : // 宿主接了设置同步（`settingsSync`）才许诺同步设置；三个桌面宿主都接了。
                       client.settingsSync
                       ? "登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤"
                       : "登录后在设备之间同步词库，还可以发布你的候选窗口皮肤"}
