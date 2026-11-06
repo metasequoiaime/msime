@@ -335,6 +335,7 @@
 		42CD0CD46EA1AB7881933D48 /* CrashSignalRecorder.c in Sources */ = {isa = PBXBuildFile; fileRef = 50635AF2CA70ACBDFD233367 /* CrashSignalRecorder.c */; };
 		4310AB5D1DAD95B897EA8C38 /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87844566164DF604747D9C08 /* WubiCodeHintPreference.swift */; };
 		432D7F28B9A689636CD74837 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306B951F716B9FAD3F702B19 /* VoiceRecorder.swift */; };
+		43542DC5EC99204A34FEE7B8 /* CandidateSelectedTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE98930D8883E07F62D1B214 /* CandidateSelectedTextTests.swift */; };
 		43B1315953F06D44B9525EC4 /* PersonalDictionaryImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70841255440CA3E4143108C1 /* PersonalDictionaryImport.swift */; };
 		43DCBA699E24DB469469DC63 /* CandidatePanelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA071A65840EE8FE384D2B4E /* CandidatePanelSelectionTests.swift */; };
 		443DDD2758ED775660E7F266 /* TranslationProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB0E33A26509B572C4C2B38 /* TranslationProviderTests.swift */; };
@@ -1803,6 +1804,7 @@
 		ECE6DA021AE9E8608A973605 /* IdleMaintenancePoll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleMaintenancePoll.swift; sourceTree = "<group>"; };
 		EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "libchewing-data-LGPL-2.1.txt"; sourceTree = "<group>"; };
 		EE605673DBDDC12056B7CE1D /* CommunityPluginAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityPluginAPI.swift; sourceTree = "<group>"; };
+		EE98930D8883E07F62D1B214 /* CandidateSelectedTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateSelectedTextTests.swift; sourceTree = "<group>"; };
 		EF89633F65684DF20D58CF81 /* SettingsAutosaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutosaveTests.swift; sourceTree = "<group>"; };
 		F00250F90DDDC57808459590 /* vi-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "vi-MIT.txt"; sourceTree = "<group>"; };
 		F062B819666D4A4D9287AD8D /* KeyboardPhrasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPhrasesView.swift; sourceTree = "<group>"; };
@@ -2979,6 +2981,7 @@
 				8287109EE6C4EB060ACDFD01 /* CandidateFontSizeTests.swift */,
 				53E7200A8746016A3ABA13CA /* CandidateGlossCardTests.swift */,
 				DF10D6A1277E85E40441A0EE /* CandidateMarkerTests.swift */,
+				EE98930D8883E07F62D1B214 /* CandidateSelectedTextTests.swift */,
 				26C5E334FDFE807831BB80BA /* GeneratedKeyboardSkinTests.swift */,
 				E00DF5D83394A67949C13336 /* KeyboardSkinDocumentTests.swift */,
 				618A24F0ED0F6C887ABEBC68 /* KeyboardSkinTests.swift */,
@@ -3457,6 +3460,7 @@
 				9A5CCBA411BA97950D165F75 /* CandidatePanelSnapshot.swift in Sources */,
 				566BA1FEA2650155107CCC79 /* CandidatePreeditStyle.swift in Sources */,
 				DF5C81FFC5C042FCCB89F89B /* CandidatePreviewCard.swift in Sources */,
+				43542DC5EC99204A34FEE7B8 /* CandidateSelectedTextTests.swift in Sources */,
 				0843DB26B52EF1135ACFB09C /* CandidateSkinPreview.swift in Sources */,
 				83052852ACD5C0D4557F14B0 /* CandidateSkinPreviewTests.swift in Sources */,
 				2A7C138200A3AB37F9CA8032 /* CandidateStripRow.swift in Sources */,
