@@ -240,7 +240,7 @@ fn fuzzy_row_cache_hit_checks_the_full_key_without_allocating() {
         CachedFuzzyRows {
             rules: fuzzy_rule::Z_ZH,
             limit: 32,
-            typed: typed.to_owned(),
+            typed: typed.into(),
             path_count: 3,
             rows: Vec::new(),
         },
@@ -290,13 +290,14 @@ fn fuzzy_row_cache_hash_collision_requeries_instead_of_returning_wrong_rows() {
         CachedFuzzyRows {
             rules: fuzzy_rule::Z_ZH,
             limit: 32,
-            typed: "zan'he".to_owned(),
+            typed: "zan'he".into(),
             path_count: 1,
             rows: vec![DictRow {
                 key: "wrong".to_owned(),
                 value: "错误哨兵".to_owned(),
                 weight: 999,
-            }],
+            }
+            .into()],
         },
     );
 
@@ -1683,7 +1684,7 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     };
     let _ = dictionary.fuzzy_candidates("zong'guo", options);
     dictionary.fuzzy_cache.clear();
-    // 两个前缀页都在行缓存里，命中时不再展开路径（#10457），剩下的申请只有结果和首个读音。
+    // 两个前缀页都在行缓存里，命中时不再展开路径，投影的行与缓存页共用读音、完整拼音和词面（#10457），剩下的申请都不随行数增加。
     let skipped = super::fuzzy_row_projection_tests::skipped_path_allocations(
         &dictionary,
         "zong'guo",
@@ -1694,8 +1695,8 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     });
     assert_eq!(skipped, 12, "两个前缀展开路径要申请的次数");
     assert_eq!(
-        allocations, 13,
-        "模糊候选重复复制了首个读音或查询键: {allocations}"
+        allocations, 7,
+        "模糊候选重复复制了读音、文字字段或查询键: {allocations}"
     );
 }
 
