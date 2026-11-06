@@ -8,6 +8,8 @@ HarmonyOS 手机键盘把拼写写进输入框时，候选栏读音行只显示�
 
 ## Decision
 
+菜单入口部分由[真机复审后的三项编辑菜单](../bug-fix/2026-11-06-harmony-reading-menu-actions.md)取代；以下保留原先只展开显示的选择与理由，弱化提示和平台边界仍然适用。
+
 手机候选栏的读音行在组字仍存在、拼写确实写入输入框、且方案允许移动组字光标时接收点击。拼写写在输入框里时读音行原本不画拼写（`InlinePreeditPolicy.hidesStripReading`），一行空白看不出能点，所以可点开时这一行用半透明的次要色画出拼写作为提示，接在短语已选定部分的后面。点击后只切换候选栏的显示状态，把已有的引擎拼写和光标照常画出来；后续编辑仍由现有 `KeyboardSession` 命令和引擎处理。组字结束、输入框不再接受行内组字或换成锁定光标的方案时自动收起这个显示状态。
 
 判定（能否点开、画什么、提示文字、何时收起）放在 `keyboard/candidate/ReadingRowEditPolicy.ts`，由 `platforms/harmony/tests/reading-row-edit.test.ts` 覆盖；`KeyboardView.ets` 只保留接线，遵守 AGENTS.md 不往巨型文件里加功能的规则。

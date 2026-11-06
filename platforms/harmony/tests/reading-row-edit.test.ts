@@ -72,4 +72,12 @@ check(Policy.keepsExpanded(true, true), "仍可编辑时保持点开");
 check(!Policy.keepsExpanded(true, false), "组字结束、离开行内组字或换成锁光标方案时收起");
 check(!Policy.keepsExpanded(false, true), "没点过就不会自己点开");
 
+// 本地模式的标题没有可编辑拼写；带内容时才提供入口。
+check(!Policy.editable(false, true, "/", false, "command"), "指令标题不打开拼写菜单");
+check(
+  !Policy.editable(false, true, "你好U", false, "unicode", "你好"),
+  "已选词后的模式标题也不接触摸",
+);
+check(Policy.editable(false, true, "U4e2d", false, "unicode"), "模式已有拼写内容时可编辑");
+
 console.log(`reading-row-edit: ${assertions} assertions passed`);

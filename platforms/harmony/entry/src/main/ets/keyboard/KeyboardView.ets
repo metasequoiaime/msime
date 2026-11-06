@@ -60,6 +60,8 @@ import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateDecorationLayout, CandidateDecorationRect } from './candidate/CandidateDecorationLayout';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidatePreeditStylePolicy, VisibleComposition } from './candidate/CandidatePreeditStylePolicy';
+import { ReadingRowEditMenu } from './candidate/ReadingRowEditMenu';
+import { ReadingRowEditAction, ReadingRowEditMenuPolicy } from './candidate/ReadingRowEditMenuPolicy';
 import { ReadingRowEditPolicy } from './candidate/ReadingRowEditPolicy';
 import { CandidateTranslationStyle } from './candidate/CandidateTranslationStyle';
 import { CandidateLayoutPolicy, CandidateSkinGeometry, CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
@@ -548,6 +550,7 @@ struct KeyboardView {
   @State compositionInField: boolean = false;
   /** 点手机读音行后，把正写在输入框里的拼写也展开到候选栏，方便继续修改。 */
   @State compositionEditing: boolean = false;
+  @State compositionEditMenu: boolean = false;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Whether the scheme's openable candidate list (the Korean Hanja list, the Zhuyin list) is on the strip, as the Engine last reported it. */
@@ -1128,6 +1131,7 @@ struct KeyboardView {
       this.compositionEditing = ReadingRowEditPolicy.keepsExpanded(this.compositionEditing, this.touchReadingRowEditable());
       // 切到粤拼时简繁磁贴改看粤拼自己的字形（`cantonese_simplified_output`），切回来再看全局开关。
       this.traditional = KeyboardSession.shared.showsTraditional();
+      this.compositionEditMenu = this.compositionEditMenu && this.touchReadingRowEditable();
       this.candidateListOpen = state.candidateListOpen;
       this.prediction = state.prediction;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -3843,7 +3847,7 @@ struct KeyboardView {
   /** 读音行能不能点开编辑拼写，见 ReadingRowEditPolicy.editable。 */
   private touchReadingRowEditable(): boolean {
     return ReadingRowEditPolicy.editable(KeyboardFormFactor.isDesktop(), this.compositionInField, this.editing,
-      SchemeTraits.locksCaret(this.engineScheme));
+      SchemeTraits.locksCaret(this.engineScheme), this.localMode, this.phrasePrefix);
   }
 
   /** 读音行可点开但还没点开时弱化画出的拼写提示，见 ReadingRowEditPolicy.hint。 */
@@ -5045,8 +5049,16 @@ struct KeyboardView {
         .onClick((): void => {
           if (this.touchReadingRowEditable()) {
             this.compositionEditing = true;
+            this.compositionEditMenu = true;
           }
         })
+        .responseRegion({ x: 0, y: 0, width: '100%', height: this.stripSized(PREEDIT_LINE_VP + CANDIDATE_BAR_GAP_VP) })
+        .bindMenu(this.compositionEditMenu, this.touchReadingRowEditable()
+          ? ReadingRowEditMenu.items(this.editing, this.editingCaret, (action: ReadingRowEditAction): void => {
+            if (this.touchReadingRowEditable()) ReadingRowEditMenuPolicy.dispatch(action, KeyboardSession.shared);
+            this.compositionEditMenu = false;
+          }) : [], { title: '编辑拼写', placement: Placement.BottomLeft, showInSubWindow: false,
+          onDisappear: (): void => { this.compositionEditMenu = false; } })
         // canvas 在 50vp 的条里只留得出候选通道那么高，空着的读音行这时不占位（`None` 不参与布局）；有东西显示时照常占位，边框跟着再缩一些，见 `stripCanvasContentHeight`。
         .visibility(this.readingRowShown() ? Visibility.Visible : Visibility.None)
 

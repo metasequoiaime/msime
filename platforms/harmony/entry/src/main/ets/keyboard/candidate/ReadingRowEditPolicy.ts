@@ -1,3 +1,4 @@
+import { LocalInputMode } from "../input/LocalInputMode";
 import { CandidatePreeditStylePolicy, VisibleComposition } from "./CandidatePreeditStylePolicy";
 
 /**
@@ -12,8 +13,20 @@ export class ReadingRowEditPolicy {
     compositionInField: boolean,
     editing: string,
     locksCaret: boolean,
+    localMode: string = "",
+    phrasePrefix: string = "",
   ): boolean {
-    return !desktop && compositionInField && (editing ?? "").length > 0 && !locksCaret;
+    const mode = LocalInputMode.fromPreferenceKey(localMode);
+    const spelling: string = editing.startsWith(phrasePrefix)
+      ? editing.substring(phrasePrefix.length)
+      : editing;
+    return (
+      !desktop &&
+      compositionInField &&
+      spelling.length > 0 &&
+      !locksCaret &&
+      (mode === null || spelling !== mode.trigger)
+    );
   }
 
   /** 读音行画出来的组字。2in1 照「候选窗口预编辑」；手机在拼写写不进输入框、或读音行已点开时画拼写。 */
