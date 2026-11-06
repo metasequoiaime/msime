@@ -283,7 +283,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleCommitVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCancelVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext);
-    HRESULT _HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
+    // `code` 是按下的虚拟键：武装过期时这颗键按普通标点处理，小键盘的点要照常出 ASCII。
+    HRESULT _HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch);
 
     // key event handlers for composition object.
     HRESULT _HandleCompositionInput(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch, uint64_t requestId, bool groupedPanelKey = false);
@@ -303,6 +304,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _HandleHostHomeKey(TfEditCookie ec, _In_ ITfContext *pContext, uint64_t requestId, _Out_ HRESULT *outcome);
     HRESULT _HandleCompositionPunctuation(TfEditCookie ec, _In_ ITfContext *pContext, UINT code, WCHAR wch,
                                           uint64_t requestId, const std::wstring &prefetchedText);
+    // 标点键交给编辑会话之前就定下的上屏文本（`_HandleCompositionPunctuation` 的 prefetchedText）。空串表示留给编辑会话按候选或前文决议。
+    std::wstring _PrefetchPunctuationCommitText(UINT code, WCHAR wch);
     // Character immediately before the caret / composition start (0 if unavailable).
     WCHAR _GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
     // The `count` characters before the caret / composition start, in document

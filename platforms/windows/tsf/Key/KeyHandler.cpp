@@ -2261,6 +2261,29 @@ Exit:
     return S_OK;
 }
 
+std::wstring CMetasequoiaIME::_PrefetchPunctuationCommitText(UINT code, WCHAR wch)
+{
+    if (_candidateMode != CANDIDATE_NONE && _pCandidateListUIPresenter &&
+        Global::CommitWithHighlightedCandPunc.count(wch) > 0)
+    {
+        // Empty means the edit session must consume this request's candidate reply and append the punctuation derived from wch (including smart-punctuation against the candidate text).
+        return {};
+    }
+    if (code == VK_DECIMAL)
+    {
+        // Numpad '.' keeps ASCII '.' in Chinese punctuation mode. It is checked after the highlighted-candidate commit, so with candidates open it ends the composition with the candidate followed by '.' instead of discarding the candidate.
+        return L".";
+    }
+    if (CCompositionProcessorEngine::IsSmartAsciiPunctuationKey(wch) &&
+        Global::SmartPunctuationEnabled.load(std::memory_order_relaxed))
+    {
+        // Defer mapping until the edit session can inspect the preceding document character (letters/digits → ASCII).
+        return {};
+    }
+    const WCHAR *punctuation = _pCompositionProcessorEngine->GetPunctuation(wch);
+    return punctuation ? punctuation : L"";
+}
+
 //+---------------------------------------------------------------------------
 //
 // _HandleCompositionPunctuation
