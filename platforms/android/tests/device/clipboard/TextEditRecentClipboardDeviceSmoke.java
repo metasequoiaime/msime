@@ -87,10 +87,10 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
                     if (keyBounds.isEmpty() || !panelBounds.contains(keyBounds))
                         throw new AssertionError("Editor key is outside panel: " + description);
                 }
-                // 排序页把「复制」往下挪了一格：左列第一格变成「剪切」，「复制」在它下面。
-                Rect cut = bounds(await(described("剪切")));
+                // 排序页把「复制」往下挪了一格：左列第一格变成「粘贴」，「复制」在它下面。
+                Rect pasted = bounds(await(described("粘贴")));
                 Rect copied = bounds(await(described("复制")));
-                if (cut.top >= copied.top || cut.left != copied.left)
+                if (pasted.top >= copied.top || pasted.left != copied.left)
                     throw new AssertionError("Keyboard ignored the saved side order");
                 stage = "editor space shortcut";
                 click("插入空格");
@@ -312,7 +312,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         changed.put(1, first);
         awaitOrder(preferences, changed);
         openOrderSettings();
-        await(node -> equalsText("1. 剪切", node.getText()));
+        await(node -> equalsText("1. 粘贴", node.getText()));
         // 排序页只列七个可见动作，选择行不在里面。
         if (visible(node -> node.getText() != null && node.getText().toString().endsWith(". 选择行")))
             throw new AssertionError("Text edit order sheet lists the hidden select-line action");

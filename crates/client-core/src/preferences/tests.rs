@@ -10178,7 +10178,7 @@ fn a_default_text_edit_order_is_left_out_of_the_file() {
         serde_json::to_value(&customized.touch_text_edit_button_order).unwrap()
     );
     assert_eq!(store.load().unwrap(), saved);
-    // 已发布版本写下的是旧默认排列，读进来换成现在的默认排列：本版本存一次，文件里不再有这个键，那个版本读回去照样读得了。
+    // 已发布版本写下的七个动作补齐后就是默认排列：本版本存一次，文件里不再有这个键，那个版本读回去照样读得了。
     for (release, document) in RELEASED_DOCUMENTS {
         fs::write(store.path(), document).unwrap();
         let loaded = store.load().unwrap();
@@ -10261,7 +10261,7 @@ fn text_edit_button_order_saved_before_select_line_still_loads() {
         snapshot.preferences.touch_text_edit_button_order,
         vec![Delete, Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine]
     );
-    // 重复的动作只留第一次出现的位置，补成完整排列，不再让整份偏好读不了；这份补齐后是旧默认排列，所以读成现在的默认排列。
+    // 重复的动作只留第一次出现的位置，补成完整排列，不再让整份偏好读不了。
     document["preferences"]["touch_text_edit_button_order"] = serde_json::json!([
         "copy",
         "copy",
@@ -10280,69 +10280,6 @@ fn text_edit_button_order_saved_before_select_line_still_loads() {
             .preferences
             .touch_text_edit_button_order,
         default_text_edit_button_order()
-    );
-}
-
-#[test]
-fn an_untouched_old_default_text_edit_order_moves_to_the_new_default() {
-    use TextEditButton::*;
-    let directory = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(directory.path());
-    // 已发布版本明文写下的旧默认排列，七个和八个两种写法，都当作没排过顺序。
-    for stored in [
-        serde_json::json!([
-            "copy",
-            "paste",
-            "select_all",
-            "cut",
-            "space",
-            "number_pad",
-            "delete"
-        ]),
-        serde_json::json!([
-            "copy",
-            "paste",
-            "select_all",
-            "cut",
-            "space",
-            "number_pad",
-            "delete",
-            "select_line"
-        ]),
-    ] {
-        let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
-        preferences["touch_text_edit_button_order"] = stored.clone();
-        write_document(&store, preferences);
-        assert_eq!(
-            store
-                .load()
-                .unwrap()
-                .preferences
-                .touch_text_edit_button_order,
-            vec![Copy, Cut, Paste, SelectAll, Delete, NumberPad, Space, SelectLine],
-            "{stored}"
-        );
-    }
-    // 只差一个位置的排列是用户排过的，原样保留。
-    let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
-    preferences["touch_text_edit_button_order"] = serde_json::json!([
-        "copy",
-        "paste",
-        "select_all",
-        "cut",
-        "space",
-        "number_pad",
-        "select_line",
-        "delete"
-    ]);
-    write_document(&store, preferences);
-    assert_eq!(
-        store
-            .load()
-            .unwrap()
-            .preferences
-            .touch_text_edit_button_order,
-        vec![Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine, Delete]
     );
 }
 
@@ -10436,7 +10373,7 @@ fn text_edit_button_order_reads_any_list_it_is_given() {
         (
             serde_json::json!(["cut", "copy", "cut", "cut"]),
             vec![
-                Cut, Copy, Paste, SelectAll, Delete, NumberPad, Space, SelectLine,
+                Cut, Copy, Paste, SelectAll, Space, NumberPad, Delete, SelectLine,
             ],
         ),
         // 空列表和不是字符串的元素：回到默认排列。
@@ -10444,7 +10381,7 @@ fn text_edit_button_order_reads_any_list_it_is_given() {
         (
             serde_json::json!([7, null, {"copy": true}, "delete"]),
             vec![
-                Delete, Copy, Cut, Paste, SelectAll, NumberPad, Space, SelectLine,
+                Delete, Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine,
             ],
         ),
     ] {

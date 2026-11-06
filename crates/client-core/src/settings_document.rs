@@ -551,7 +551,7 @@ mod tests {
         assert_eq!(imported.candidate_page_size, 7);
         assert_eq!(
             imported.touch_text_edit_button_order,
-            vec![Delete, Copy, Cut, Paste, SelectAll, NumberPad, Space, SelectLine]
+            vec![Delete, Copy, Paste, SelectAll, Cut, Space, NumberPad, SelectLine]
         );
         assert_eq!(
             imported.touch_text_edit_button_order.len(),

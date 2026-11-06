@@ -3038,11 +3038,11 @@ fn desktop_settings_sync_works_on_a_document_from_a_newer_version() {
         serde_json::json!([
             "delete",
             "copy",
-            "cut",
             "paste",
             "select_all",
-            "number_pad",
+            "cut",
             "space",
+            "number_pad",
             "select_line"
         ])
     );

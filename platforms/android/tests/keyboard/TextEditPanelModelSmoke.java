@@ -8,8 +8,9 @@ import java.util.List;
 
 public final class TextEditPanelModelSmoke {
     public static void main(String[] args) {
-        List<Action> order = List.of(Action.COPY, Action.CUT, Action.PASTE, Action.SELECT_ALL,
-            Action.DELETE, Action.NUMBER_PAD, Action.SPACE, Action.SELECT_LINE);
+        // 共享默认排列（client-core 的 default_text_edit_button_order），本面板不改它。
+        List<Action> order = List.of(Action.COPY, Action.PASTE, Action.SELECT_ALL, Action.CUT,
+            Action.SPACE, Action.NUMBER_PAD, Action.DELETE, Action.SELECT_LINE);
         Action lineStart = Action.valueOf("LINE_START"), lineEnd = Action.valueOf("LINE_END");
         check(TextEditPanelModel.keys(order).size() == 16, "七个侧键、方向区九格和换行，选择行与行首尾不生成键");
         checkGrid(order);
@@ -29,10 +30,10 @@ public final class TextEditPanelModelSmoke {
         check(grid[3][2] == Action.DOCUMENT_START && grid[3][4] == Action.TRACKPAD
             && grid[3][6] == Action.DOCUMENT_END && grid[3][8] == Action.RETURN,
             "底排依次是文档开头、触控板开关、文档结尾和换行");
-        check(grid[0][0] == Action.COPY && grid[1][0] == Action.CUT && grid[2][0] == Action.PASTE
-            && grid[3][0] == Action.SELECT_ALL && grid[0][8] == Action.DELETE
-            && grid[1][8] == Action.NUMBER_PAD && grid[2][8] == Action.SPACE,
-            "默认左列复制、剪切、粘贴、全选，右列退格、数字、空格");
+        check(grid[0][0] == Action.COPY && grid[1][0] == Action.PASTE && grid[2][0] == Action.SELECT_ALL
+            && grid[3][0] == Action.CUT && grid[0][8] == Action.SPACE
+            && grid[1][8] == Action.NUMBER_PAD && grid[2][8] == Action.DELETE,
+            "默认左列复制、粘贴、全选、剪切，右列空格、数字、退格；第八个默认动作选择行不显示");
 
         // 排序页只排七个可见动作，选择行留在原位。
         List<Action> stored = List.of(Action.SELECT_LINE, Action.COPY, Action.CUT, Action.PASTE,
