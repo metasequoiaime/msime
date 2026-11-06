@@ -2389,3 +2389,5 @@ foreach(msime_windows_test IN LISTS msime_windows_tests)
                            $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
   endif()
 endforeach()
+
+include(../common/tests/embedded_translation.cmake)

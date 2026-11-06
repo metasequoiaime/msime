@@ -453,6 +453,12 @@ MDBG 每天用新导出覆盖同一个地址（`https://www.mdbg.net/chinese/exp
 | Windows | `platforms/windows/Collect-Notices.ps1` 收进 `THIRD_PARTY_NOTICES.txt`（所有版本都收：x64 宿主 DLL 都链着 ONNX Runtime，模型只在 full、pinyin 里） | 安装目录的 `THIRD_PARTY_NOTICES.txt` |
 | Android | 模型打包 PR 加一行：在 `build-native.sh` 里复制进 `assets/native-notices` | Android 关于页的「开源许可」自动列出 `native-notices` 里的文件 |
 
+## 桌面本地翻译
+
+`crates/local-translation` 的 `runtime` 特性通过 `llama-cpp-2` / `llama-cpp-sys-2` 0.1.162 嵌入 llama.cpp，不需要用户运行外部服务。Rust 绑定为 MIT OR Apache-2.0，固定 Git 来源提交 `0364f5da1c6a6ee37f507031f116ce4a09b28594`；该提交的 llama.cpp 子模块固定在 `8642541b255bfb5dc39cd351a178be09013a55d6`，MIT 许可证全文在 `resources/licenses/llama-cpp-MIT.txt`。关闭默认的 OpenMP 和服务工具特性；绑定自身仍启用底层 `common` 特性，发布链须检查它带入的原生依赖。macOS、现代 Windows x64 Server 和当前 Linux 发行构建启用 `host-api/local-translation`；Win7 和 Linux legacy 仍不启用。Rust 绑定的 Apache-2.0 全文在 `resources/licenses/llama-cpp-rs-Apache-2.0.txt`。
+
+[PLaMo 0.8B Q4_K_M](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF/tree/dbeb0856cb0b004b484f190bb71dd65876297013) 的来源、大小和摘要由 `resources/local-translation-model.lock.json` 固定，权重不提交进仓库、不随安装包捆绑。Built with PLaMo。模型使用 PLaMo Community License，完整条款见 `resources/licenses/plamo-community-license.txt`；个人/非商业用途无需登记，商业用途有登记和营收条件，公开分发输出须注明模型来源，不能视作 Apache-2.0。macOS 复制许可到 `Contents/Resources/Licenses`，Linux 安装到 `share/doc/<client>`，Windows 收进 `THIRD_PARTY_NOTICES.txt`。
+
 ## 本地语音识别
 
 语音服务选 `local` 且 `asr_model_path` 指向已安装的模型目录时，识别在设备上完成。这条路径分两部分：一份随包分发的推理运行时，和由用户在设置页按需下载的模型。**模型不随包分发**，仓库只携带下载地址、长度和 SHA-256。
