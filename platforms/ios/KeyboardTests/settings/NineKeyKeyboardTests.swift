@@ -722,7 +722,7 @@ final class NineKeyKeyboardTests: XCTestCase {
         }
       }
       let candidate = try button("candidate-1", in: controller)
-      XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement)
+      XCTAssertTrue(candidate.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
       // 你好 has two characters, so 以词定字 leads the menu while the shared `word_character.enabled` default is on. It is not pinned, so there is no 取消固定 and no slot is checked.
       XCTAssertEqual(controller.candidateMenuElements(at: 0).map(\.title),
                      ["以词定字", "优先显示", "固定排位", "删除词条…"])

@@ -148,6 +148,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var phrasesRequest: UUID?
   /// 顶栏下方键区里的面板（`installPanel`）：功能菜单、表情、常用语、剪贴板、皮肤、方案或候选网格。面板打开期间各排按键隐藏。
   private var keyAreaPanel: UIView?
+  /// 长按候选打开的释义卡片（#10915）和它对应的候选。从候选条打开时它就是 `keyAreaPanel`；从展开网格打开时叠在网格上面，关掉卡片回到网格。
+  private var glossCard: CandidateGlossCardView?
+  private var glossCardTarget: CandidateGlossCardTarget?
+  /// 卡片开着时盖在顶栏上的透明按钮：点卡片外的候选栏关掉卡片，不选词。
+  private var glossCardDismissArea: UIButton?
+  /// 卡片打开时的输入框；换了输入框就关卡片。
+  private var glossCardDocument: UUID?
   private let moreShortcut = KeyboardBrandMarkButton()
   private var morePicker: KeyboardMorePickerView?
   /// 输入方式或功能面板打开时是不是横屏；转屏后行数变了就关掉它（`closePickerBuiltForOtherOrientation`）。
@@ -1329,6 +1336,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if adjustOverlay != nil, let document, document != adjustDocument {
       closeKeyboardAdjust()
     }
+    // 换了输入框，释义卡片对应的候选已经不属于眼前这个输入框。
+    if glossCard != nil, document != glossCardDocument { closeGlossCard() }
     synchronizeInputContext()
     // 宿主可能把焦点换到了凭据输入框，诊断日志跟着当前输入框开关；只在闸门的判断变了时重新配置，不必每次按键都去读偏好。
     if privacyGate.allows(.diagnosticLog) == diagnosticLogSuppressed { configureDiagnosticLog() }
@@ -6374,14 +6383,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         showsHeader: false, palette: candidatePalette, canvas: candidateCanvasSkin,
         display: { $0 },
-        menuElements: { [weak self] index in
-          guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return [] }
-          let entry = snapshot.entries[index]
-          return candidateMenuElements(
-            generation: snapshot.generation, globalIndex: entry.index, candidate: entry.text,
-            offlineGloss: entry.translation, source: entry.source, highlighted: entry.highlighted,
-            fixedPosition: entry.fixedPosition)
-        },
+        onLongPress: { [weak self] index in self?.showPanelGlossCard(at: index) },
         onSelect: { [weak self] index in
           guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return }
           selectPanelCandidate(generation: snapshot.generation, globalIndex: snapshot.entries[index].index)
@@ -8514,6 +8516,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateScrollView.isHidden = visibleCandidates.isEmpty || visibleDiagnostic != nil
     candidateEmptySpacer.isHidden = !visibleCandidates.isEmpty || visibleDiagnostic != nil
     if candidateCanvasSkin != nil { updateCandidateCanvasMetrics() }
+    refreshGlossCard()
   }
 
   /// 漢 shows while a Korean syllable composes, its list open or not, so a lone jamo is left to the Engine, which declines it, and the keyboard needs no jamo table. The tinted face says the list is open.
@@ -8641,16 +8644,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// `translated` 为假时不取宿主缓存里的候选词翻译（在线、账号、AI 翻译），只画离线释义：「仅当前高亮」时不是高亮的候选就是这样。
   private func gloss(word: String, language: CandidateTranslationLanguage, offline: String, translated: Bool) -> String? {
+    glossEntry(word: word, language: language, offline: offline, translated: translated)?.text
+  }
+
+  /// 同 `gloss`，另外说明这条是不是离线释义：释义卡片据此写来源。
+  private func glossEntry(word: String, language: CandidateTranslationLanguage, offline: String,
+                          translated: Bool) -> (text: String, offline: Bool)? {
     func visible(_ value: String?) -> String? {
       BilingualCandidateCaptionPolicy.gloss(value, candidate: word, target: language.code,
         enabled: bilingualGlideEnabled && inputScheme == .quanpin)
     }
     if !CandidateTranslationPreference.needsNetwork(language), glossesCandidates,
-       !offline.isEmpty, offline != word, let offline = visible(offline) { return offline }
+       !offline.isEmpty, offline != word, let offline = visible(offline) { return (offline, true) }
     let target = visible(!glossesCandidates ? nil : candidateTargetGlosses[language.code]?[word])
     let online = translated && CandidateTranslationPreference.onlineEnabled
       ? visible(translations.gloss(word: word, code: language.code)) : nil
-    return Self.preferredGloss(offline: target, online: online, route: translationRoute)
+    guard let chosen = Self.preferredGloss(offline: target, online: online, route: translationRoute) else { return nil }
+    return (chosen, chosen == target)
   }
 
   /// A non-English gloss, as on macOS: a service of the user's own outranks the offline dictionary, which outranks the 水杉 account.
@@ -8774,6 +8784,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                      markers: candidatePanelMarkers(snapshot), aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
                      confidentCorrections: candidatePanelConfidentCorrections(snapshot), keepingScrollPosition: true)
         updateNineKeyPanelColumns()
+        refreshGlossCard(panelSnapshot: snapshot)
         return
       }
       // 九键面板里选拼音、退格和筛选都会换一代候选，面板留着、按新的一代重建，组字结束才收起。面板里刚选了候选时普通网格也一样（`selectPanelCandidate`）；其他换代照旧收起普通网格。
@@ -8790,6 +8801,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     panel.updateAnnotations(candidatePanelAnnotations(snapshot))
     updateNineKeyPanelColumns()
+    refreshGlossCard(panelSnapshot: snapshot)
   }
 
   /// Candidate gloss lookup is session-free disk work. Copy the complete candidate generation on
@@ -8990,14 +9002,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidateChipHeightConstraints.append(minimumHeight)
     NSLayoutConstraint.activate([minimumWidth, minimumHeight])
     button.accessibilityIdentifier = "candidate-\(index + 1)"
-    button.menu = UIMenu(children: [
-      UIDeferredMenuElement.uncached { [weak self] completion in
-        completion(self?.candidateMenuElements(at: index) ?? [])
-      }
-    ])
+    // 长按打开释义卡片（#10915）；原来长按菜单里的操作收进卡片的「更多操作」。
+    let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleCandidateHold(_:)))
+    hold.minimumPressDuration = 0.5
+    button.addGestureRecognizer(hold)
+    button.accessibilityCustomActions = [
+      UIAccessibilityCustomAction(name: "查看释义") { [weak self] _ in
+        self?.showGlossCard(at: index) ?? false
+      },
+    ]
     // Key feedback without a key surface: a candidate is text, not a key.
     button.addTarget(self, action: #selector(prepareKeyFeedback), for: .touchDown)
     return button
+  }
+
+  @objc private func handleCandidateHold(_ hold: UILongPressGestureRecognizer) {
+    guard hold.state == .began, let chip = hold.view,
+          let index = candidateStrip.buttons.firstIndex(where: { $0 === chip }) else { return }
+    showGlossCard(at: index)
   }
 
   private func selectCandidate(at index: Int) {
@@ -9183,7 +9205,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let pronunciation, !pronunciation.isEmpty { button.accessibilityLabel? += "，\(CandidatePronunciationModel.accessibilityLabel(pronunciation))" }
     if confidentCorrection { button.accessibilityLabel? += KeyboardCandidateAnnotation.confidentCorrectionSpoken }
     // A Hanja's long press offers nothing (candidateMenuElements(at:)), so its glosses are read but not offered for insertion.
-    button.accessibilityHint = spoken.isEmpty || reading != nil ? nil : "轻点输入，长按可输入释义"
+    button.accessibilityHint = spoken.isEmpty || reading != nil ? nil : "轻点输入，长按查看释义"
     if aiPlaceholder {
       button.accessibilityLabel = CandidateMarker.pendingSpoken(candidate, markers: markers)
       button.accessibilityHint = nil
@@ -9201,6 +9223,233 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       run += AttributedString(NSAttributedString(attachment: NSTextAttachment(image: image)))
     }
     return run
+  }
+
+  // MARK: - 释义卡片（#10915）
+
+  /// 长按候选条第 `index` 个候选：打开释义卡片。条件与原来的长按菜单相同：写中文的方案、不在本地模式、候选条上不是邮箱后缀；其余情况（英文建议、韩文汉字、日文）长按照旧什么也不做。
+  @discardableResult
+  private func showGlossCard(at index: Int) -> Bool {
+    guard isChineseMode, inputScheme.writesChinese, !isInLocalMode, visibleEmailSuffixes.isEmpty,
+          visibleCandidates.indices.contains(index), index < candidatePageSize else { return false }
+    openGlossCard(CandidateGlossCardTarget(
+      origin: .strip(index: index),
+      word: visibleCandidates[index],
+      source: visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : -1,
+      offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "",
+      onCurrentPage: true, composition: visiblePreedit))
+    return true
+  }
+
+  /// 长按展开网格里的第 `index` 个候选，位置是网格这一代完整列表里的位置。
+  private func showPanelGlossCard(at index: Int) {
+    guard isChineseMode, inputScheme.writesChinese, !isInLocalMode,
+          let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return }
+    let entry = snapshot.entries[index]
+    openGlossCard(CandidateGlossCardTarget(
+      origin: .panel(generation: snapshot.generation, globalIndex: entry.index, highlighted: entry.highlighted,
+                     fixedPosition: entry.fixedPosition),
+      word: entry.text, source: entry.source, offline: entry.translation,
+      onCurrentPage: session.isOnCurrentPage(generation: snapshot.generation, globalIndex: entry.index),
+      composition: visiblePreedit))
+  }
+
+  /// 卡片从候选条打开时装进按键区，与其他键区面板一样；从展开网格打开时叠在网格上，关掉卡片回到网格。顶栏上盖一层透明按钮，点卡片外的候选栏就关掉卡片。
+  private func openGlossCard(_ target: CandidateGlossCardTarget) {
+    closeGlossCard()
+    var panel: UIView?
+    if case .panel = target.origin { panel = candidatePanel }
+    if panel == nil, keyAreaPanel != nil { closeKeyboardPicker() }
+    let card = CandidateGlossCardView(
+      content: glossCardContent(target), skin: KeyboardTheme.current,
+      onCommit: { [weak self] in self?.commitGlossCardTranslation() },
+      onCopy: { [weak self] in self?.copyGlossCardTranslation() },
+      onClose: { [weak self] in self?.closeGlossCard() })
+    card.setMoreMenu(glossCardMenu(target))
+    glossCard = card
+    glossCardTarget = target
+    glossCardDocument = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
+    if let panel {
+      card.translatesAutoresizingMaskIntoConstraints = false
+      view.addSubview(card)
+      NSLayoutConstraint.activate([
+        card.topAnchor.constraint(equalTo: panel.topAnchor),
+        card.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
+        card.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+        card.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
+      ])
+    } else {
+      installPanel(card)
+    }
+    guard card.superview != nil, let topRow = compositionContainer else {
+      closeGlossCard()
+      return
+    }
+    let dismissArea = UIButton(type: .custom)
+    dismissArea.accessibilityLabel = "关闭释义"
+    dismissArea.accessibilityIdentifier = "glossCardDismissArea"
+    dismissArea.addAction(UIAction { [weak self] _ in self?.closeGlossCard() }, for: .primaryActionTriggered)
+    dismissArea.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(dismissArea)
+    NSLayoutConstraint.activate([
+      dismissArea.topAnchor.constraint(equalTo: topRow.topAnchor),
+      dismissArea.bottomAnchor.constraint(equalTo: topRow.bottomAnchor),
+      dismissArea.leadingAnchor.constraint(equalTo: topRow.leadingAnchor),
+      dismissArea.trailingAnchor.constraint(equalTo: topRow.trailingAnchor),
+    ])
+    glossCardDismissArea = dismissArea
+    requestGlossCardTranslation(target)
+    UIAccessibility.post(notification: .layoutChanged, argument: card.initialAccessibilityElement)
+  }
+
+  /// 关掉卡片：从候选条打开的恢复按键，从网格打开的露出网格。为它发出的单个翻译请求一并取消。
+  private func closeGlossCard() {
+    guard let card = glossCard else { return }
+    glossCard = nil
+    glossCardTarget = nil
+    translations.cancelSingle()
+    card.removeFromSuperview()
+    glossCardDismissArea?.removeFromSuperview()
+    glossCardDismissArea = nil
+    if keyAreaPanel === card {
+      keyAreaPanel = nil
+      setKeyRowsCovered(false)
+      updateToolbarActiveState()
+    }
+    UIAccessibility.post(notification: .layoutChanged, argument: candidatePanel ?? candidateStrip.buttons.first)
+  }
+
+  /// 释义或译文到了，或者候选换了一代：换上新内容。组字变了（上屏、退格、换了输入框）才关卡片；同一个组字里换代（云候选、AI 候选晚到）按文字重新找到这个候选。`panelSnapshot` 是网格刚读到的完整列表。
+  private func refreshGlossCard(panelSnapshot: CandidatePanelSnapshot? = nil) {
+    guard let card = glossCard, var target = glossCardTarget else { return }
+    guard visiblePreedit == target.composition else {
+      closeGlossCard()
+      return
+    }
+    switch target.origin {
+    case let .strip(index):
+      guard visibleEmailSuffixes.isEmpty, !visibleCandidates.isEmpty else {
+        closeGlossCard()
+        return
+      }
+      // 这一页上暂时找不到它时卡片留着，「更多操作」里只剩不经词库的那几项，等它回来。
+      if let found = CandidateGlossCardTarget.relocate(
+        word: target.word, previous: index, in: Array(visibleCandidates.prefix(candidatePageSize))) {
+        target = CandidateGlossCardTarget(
+          origin: .strip(index: found), word: target.word, source: target.source,
+          offline: visibleCandidateGlosses.indices.contains(found) ? visibleCandidateGlosses[found] : "",
+          onCurrentPage: target.onCurrentPage, composition: target.composition)
+      }
+    case let .panel(_, globalIndex, _, _):
+      guard candidatePanel != nil else {
+        closeGlossCard()
+        return
+      }
+      // 网格原地换成新的一代时（AI 回答到了，`refreshCandidatePanelAnnotations`）按文字跟过去，原位置上还是它就留在原位。
+      if let panelSnapshot {
+        let texts = panelSnapshot.entries.map(\.text)
+        let previous = panelSnapshot.entries.firstIndex { $0.index == globalIndex } ?? -1
+        if let found = CandidateGlossCardTarget.relocate(word: target.word, previous: previous, in: texts) {
+          let entry = panelSnapshot.entries[found]
+          target = CandidateGlossCardTarget(
+            origin: .panel(generation: panelSnapshot.generation, globalIndex: entry.index, highlighted: entry.highlighted,
+                           fixedPosition: entry.fixedPosition),
+            word: target.word, source: target.source, offline: entry.translation,
+            onCurrentPage: target.onCurrentPage, composition: target.composition)
+        }
+      }
+    }
+    glossCardTarget = target
+    card.update(content: glossCardContent(target), moreMenu: glossCardMenu(target))
+  }
+
+  /// 卡片上的内容：每个目标语言一段，用的是候选条下面画的同一条译文（离线释义和在线译文谁优先也一样），不受「仅当前高亮」限制：缓存里已经有的译文都拿出来。
+  private func glossCardContent(_ target: CandidateGlossCardTarget) -> CandidateGlossCardContent {
+    var languages = [CandidateTranslationPreference.primary]
+    if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
+    let allowed = CandidateGlossPreference.enabled && !CandidateTranslationStore.sourceGetsNoGloss(target.source)
+    return CandidateGlossCardContent(
+      candidate: chineseOutput(target.word, source: target.source),
+      languages: languages.enumerated().map { position, language in
+        (language.title, allowed ? glossEntry(word: target.word, language: language,
+                                               offline: position == 0 ? target.offline : "", translated: true) : nil)
+      },
+      route: translationRoute,
+      serviceAvailable: CandidateTranslationPreference.onlineEnabled && translationRoute != .none)
+  }
+
+  /// 还没有在线译文时，按候选条请求译文的同一套条件为这一个候选请求一次。只请求当前页上的候选：PRIVACY.md 写的是「当前页的中文候选词」。
+  private func requestGlossCardTranslation(_ target: CandidateGlossCardTarget) {
+    guard target.onCurrentPage, CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
+          translationRoute != .none, hasFullAccess, glossesCandidates, !isInLocalMode,
+          translationRoute != .account || translationAccountScope != nil else { return }
+    var codes = [CandidateTranslationPreference.primary.code]
+    if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
+    translations.requestSingle(word: target.word, source: target.source, codes: codes)
+  }
+
+  /// 原来长按菜单里的全部操作（以词定字、可上屏释义、优先显示、固定排位、删除词条、朗读、加入生词本），收进卡片的「更多操作」。
+  private func glossCardMenu(_ target: CandidateGlossCardTarget) -> UIMenu? {
+    let elements: [UIMenuElement]
+    switch target.origin {
+    case let .strip(index):
+      // 换代后这一页上暂时没有它：词库操作没有对象，只留朗读和加入生词本。
+      elements = visibleCandidates.indices.contains(index) && visibleCandidates[index] == target.word
+        ? candidateMenuElements(at: index)
+        : personalWordbookElements(
+          candidate: target.word, glosses: glossCardContent(target).sections.map { $0.senses.joined(separator: "; ") })
+    case let .panel(generation, globalIndex, highlighted, fixedPosition):
+      elements = candidateMenuElements(
+        generation: generation, globalIndex: globalIndex, candidate: target.word, offlineGloss: target.offline,
+        source: target.source, highlighted: highlighted, fixedPosition: fixedPosition)
+    }
+    guard !elements.isEmpty else { return nil }
+    return UIMenu(children: elements.map(closingGlossCard))
+  }
+
+  /// 「更多操作」里的一项：先关掉卡片，再做原来长按菜单里的那件事，与菜单选了一项就收起一样。
+  private func closingGlossCard(_ element: UIMenuElement) -> UIMenuElement {
+    if let menu = element as? UIMenu { return menu.replacingChildren(menu.children.map(closingGlossCard)) }
+    guard let action = element as? UIAction else { return element }
+    return UIAction(title: action.title, image: action.image, discoverabilityTitle: action.discoverabilityTitle,
+                    attributes: action.attributes, state: action.state) { [weak self] _ in
+      self?.closeGlossCard()
+      action.performWithSender(nil, target: nil)
+    }
+  }
+
+  /// 卡片打开时的组字还在不在；不在了（上屏、退格、换了输入框）按钮不能再把译文写进文档。候选换代不算：上屏的是译文，用不着候选在哪个位置。
+  private func glossCardTargetIsCurrent(_ target: CandidateGlossCardTarget) -> Bool {
+    visiblePreedit == target.composition
+  }
+
+  /// 「上屏译文」：结束组字，上屏第一目标语言的译文，不是候选原文。与长按菜单里上屏释义的做法相同。
+  private func commitGlossCardTranslation() {
+    guard let target = glossCardTarget, let text = glossCard?.content.primaryTranslation else { return }
+    session.flushPendingCharacters()
+    guard glossCardTargetIsCurrent(target) else {
+      closeGlossCard()
+      return
+    }
+    playInputClick()
+    closeKeyboardPicker()
+    insertOwnText(text, source: .local)
+    render(session.cancel())
+    UIAccessibility.post(notification: .announcement, argument: "已输入 \(text)")
+  }
+
+  /// 「复制译文」：写进系统剪贴板。键盘扩展没有完全访问时 iOS 不让它写剪贴板，卡片上说明原因，不静默失败。
+  private func copyGlossCardTranslation() {
+    guard let card = glossCard, let text = card.content.primaryTranslation else { return }
+    guard hasFullAccess else {
+      card.showNotice(CandidateGlossCardContent.copyNeedsFullAccess)
+      UIAccessibility.post(notification: .announcement, argument: CandidateGlossCardContent.copyNeedsFullAccess)
+      return
+    }
+    playInputClick()
+    UIPasteboard.general.string = text
+    card.showNotice(CandidateGlossCardContent.copied)
+    UIAccessibility.post(notification: .announcement, argument: CandidateGlossCardContent.copied)
   }
 
   /// What a long press on a candidate's gloss offers. The action is deferred until the menu opens,
@@ -10130,6 +10379,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func closeKeyboardPicker() {
+    closeGlossCard()
     dismissNineKeyHoldOptions()
     phrasesRequest = nil
     if let panel = phrasesPanel {
