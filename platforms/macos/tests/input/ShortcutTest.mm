@@ -7561,7 +7561,8 @@ static void TestCapsLockTap() {
     gCapsNow = 2000; gCapsHeld = true;
     assert(![controller handleEvent:capsOn(2.0) client:client]);
     gCapsNow = 2050; gCapsHeld = false;
-    [controller pollCapsLockTap];
+    // 这次用实际的 flagsChanged 松键事件推进，覆盖输入法收到松键通知的常规路径；前一段已经覆盖无松键通知时的轮询路径。
+    assert([controller handleEvent:capsOff(2.05) client:client]);
     assert(gCapsReleases == 2 && !prefs.englishMode);
 
     // 长按：超过 300 毫秒还按着，大写锁定照常生效并报告给会话，不切换。
