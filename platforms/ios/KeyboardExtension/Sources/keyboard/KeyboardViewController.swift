@@ -1305,6 +1305,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     // 自己改动的回声：那次改动之后的组字仍是当前的组字。
     if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
+    // 会话在键盘出现前或收起后没有组字可结束；此时不能问已销毁的句柄，否则宿主的焦点回调会把「尚未准备完成」画出来。
+    guard !session.dictionarySessionSuspended else { return }
     session.flushPendingCharacters()
     flushDeferredInputSnapshot()
     inputDeliveryEpoch &+= 1
