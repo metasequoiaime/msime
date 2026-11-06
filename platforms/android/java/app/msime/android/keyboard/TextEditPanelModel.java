@@ -145,6 +145,16 @@ public final class TextEditPanelModel {
         return height * row / ROWS + inset;
     }
 
+    /** 触控板模式的选择开关：贴触控板右上角，四周留 {@code gap}；触控板太小时按可用空间缩小，不越出触控板。 */
+    public static Bounds trackpadSelectBounds(int left, int top, int right, int bottom,
+                                              int preferredWidth, int preferredHeight, int gap) {
+        int width = Math.max(0, Math.min(preferredWidth, right - left - 2 * gap));
+        int height = Math.max(0, Math.min(preferredHeight, bottom - top - 2 * gap));
+        int chipRight = Math.max(left, right - gap);
+        int chipTop = Math.min(bottom, top + gap);
+        return new Bounds(chipRight - width, chipTop, chipRight, chipTop + height);
+    }
+
     private static int inset(int height, int margin) {
         return Math.min(Math.max(0, margin), Math.max(0, (height / ROWS - 1) / 2));
     }

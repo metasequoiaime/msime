@@ -34,7 +34,6 @@ final class ImeTextEditPanel {
     private TextTrackpadSettings trackpadSettings;
     private boolean liveTrackpadPreferencesLoaded;
     private TextTrackpadView trackpad;
-    private Button modeButton;
     private Button trackpadSelect;
     private boolean modeSaving;
     private boolean destroyed;
@@ -83,14 +82,6 @@ final class ImeTextEditPanel {
         stopRepeat();
         buttons.clear();
         panel.removeAllViews();
-        LinearLayout modes = LayoutPolicy.row(s);
-        modeButton = s.keyboardKey("切换为触控板", "切换为触控板", this::toggleTrackpad);
-        // 模式行固定 32 dp 高，六个字折成两行时第二行会被裁掉；窄窗口（自由窗口、分屏）里只缩字号、保持一行。
-        KeyboardTypographyPolicy.setFittedKeyTextSize(modeButton, 10, KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
-        modes.addView(modeButton, LayoutPolicy.weightedMatchParentParams(1));
-        trackpadSelect = s.keyboardKey("选择", "选择模式", () -> perform(TextEditPanelModel.Action.SELECT));
-        modes.addView(trackpadSelect, LayoutPolicy.weightedMatchParentParams(1));
-        panel.addView(modes, LayoutPolicy.matchWidthHeightPx(s.pixels(32)));
         FrameLayout movement = new FrameLayout(s);
         TextEditPanelGrid grid = new TextEditPanelGrid(s);
         grid.setSkin(s.imeStyler.themed(s.skin));
@@ -113,6 +104,12 @@ final class ImeTextEditPanel {
         });
         TextTrackpadView currentTrackpad = trackpad;
         movement.addView(currentTrackpad, new FrameLayout.LayoutParams(1, 1));
+        // 触控板模式的选择开关压在触控板右上角，只在触控板模式显示；它比触控板后加，落在它上面的触摸归开关。
+        trackpadSelect = s.keyboardKey("选择", "选择模式", () -> perform(TextEditPanelModel.Action.SELECT));
+        KeyboardTypographyPolicy.setFittedKeyTextSize(trackpadSelect, 10, 14);
+        ViewPolicy.clearPadding(trackpadSelect);
+        Button currentSelect = trackpadSelect;
+        movement.addView(currentSelect, new FrameLayout.LayoutParams(1, 1));
         // 触控板盖住方向区底排以上的三行，边界和网格用同一套模型算；左右两列侧键和底排的文档首尾、触控板开关都在它外面，保持可用。
         movement.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
@@ -124,6 +121,13 @@ final class ImeTextEditPanel {
             params.leftMargin = area.left();
             params.topMargin = area.top();
             currentTrackpad.setLayoutParams(params);
+            TextEditPanelModel.Bounds chip = TextEditPanelModel.trackpadSelectBounds(
+                area.left(), area.top(), area.right(), areaBottom, s.pixels(64), s.pixels(32), s.pixels(4));
+            FrameLayout.LayoutParams chipParams = new FrameLayout.LayoutParams(
+                Math.max(1, chip.width()), Math.max(1, chip.height()));
+            chipParams.leftMargin = chip.left();
+            chipParams.topMargin = chip.top();
+            currentSelect.setLayoutParams(chipParams);
         });
         panel.addView(movement, LayoutPolicy.weightedWidthParams(1));
     }
@@ -176,6 +180,7 @@ final class ImeTextEditPanel {
             s.imeStyler.styleButton(cell, false);
             s.bindCountedAction(cell, run);
             KeyboardTypographyPolicy.setFittedKeyTextSize(cell, 11, 16);
+            cell.setToggle(action == TextEditPanelModel.Action.TRACKPAD);
             button = cell;
         } else {
             button = s.keyboardKey(spec.label(), spec.description(), run);
@@ -424,13 +429,20 @@ final class ImeTextEditPanel {
                 TextEditPanelModel.Action.DOWN, TextEditPanelModel.Action.RIGHT})
             ViewPolicy.setVisible(buttons.get(action), !enabled);
         ViewPolicy.setVisible(trackpadSelect, enabled);
-        modeButton.setText(enabled ? "切换为方向键" : "切换为触控板");
-        modeButton.setContentDescription(enabled ? "切换为方向键" : "切换为触控板");
-        boolean switchable = trackpadSettings != null && !modeSaving && !temporaryTrackpad
-            && !preferencesDirectory().isEmpty();
-        ViewPolicy.setEnabled(modeButton, switchable);
+        renderTrackpadToggle(enabled, trackpadSettings != null && !modeSaving && !temporaryTrackpad
+            && !preferencesDirectory().isEmpty());
+    }
+
+    /** 底排正中的「触控板」是开关：开着时用选中样式（强调色填充），读屏念开关和开/关状态；保存中、临时触控板开着或设置还没读到时不可点。 */
+    private void renderTrackpadToggle(boolean on, boolean switchable) {
         Button toggle = buttons.get(TextEditPanelModel.Action.TRACKPAD);
-        if (toggle != null) ViewPolicy.setEnabled(toggle, switchable);
+        if (toggle == null) return;
+        ViewPolicy.setSelected(toggle, on);
+        toggle.setActivated(on);
+        ViewPolicy.setEnabled(toggle, switchable);
+        // 和「开始选择」一样：键面颜色只在上色时读一次 isSelected()，改了选中状态要立即重新上色（#10454）。
+        s.imeStyler.styleButton(toggle, true);
+        if (android.os.Build.VERSION.SDK_INT >= 30) toggle.setStateDescription(on ? "已开启" : "已关闭");
     }
 
     /** 触摸仍归原工具按钮，越过按钮边界后显式转交触控板，避免丢掉松手事件。 */
@@ -550,7 +562,7 @@ final class ImeTextEditPanel {
         String directory = preferencesDirectory();
         long operation = ++modeSaveGeneration;
         modeSaving = true;
-        ViewPolicy.setEnabled(modeButton, false);
+        configureTrackpad();
         s.preferencesWorker.execute(() -> {
             JSONObject saved = null;
             try {

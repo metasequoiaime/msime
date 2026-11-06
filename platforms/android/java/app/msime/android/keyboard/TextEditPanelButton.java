@@ -11,7 +11,23 @@ public class TextEditPanelButton extends KeyboardPressButton {
     private int selectedColor;
     private final Paint surface = new Paint();
 
+    private boolean toggle;
+
     public TextEditPanelButton(Context context) { super(context); }
+
+    /** 开关键：读屏把它当作开关，选中即「开」。 */
+    public void setToggle(boolean toggle) { this.toggle = toggle; }
+
+    @Override public CharSequence getAccessibilityClassName() {
+        return toggle ? android.widget.Switch.class.getName() : super.getAccessibilityClassName();
+    }
+
+    @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (!toggle) return;
+        info.setCheckable(true);
+        info.setChecked(isSelected());
+    }
 
     public void setSeamless(int accent) {
         seamless = true;

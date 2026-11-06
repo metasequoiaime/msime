@@ -53,6 +53,16 @@ public final class TextEditPanelModelSmoke {
         checkBounds(order, 333, 157, 9);
         checkBounds(order, 40, 12, 9);
 
+        // 触控板模式的选择开关贴触控板右上角，触控板太小时缩小而不越界。
+        TextEditPanelModel.Bounds chip = TextEditPanelModel.trackpadSelectBounds(100, 10, 700, 400, 64, 32, 4);
+        check(chip.right() == 696 && chip.top() == 14 && chip.width() == 64 && chip.height() == 32,
+            "选择开关贴右上角: " + chip);
+        for (int[] tiny : new int[][] {{0, 0, 20, 10}, {5, 5, 5, 5}, {0, 0, 70, 30}}) {
+            chip = TextEditPanelModel.trackpadSelectBounds(tiny[0], tiny[1], tiny[2], tiny[3], 64, 32, 4);
+            check(chip.width() >= 0 && chip.height() >= 0 && chip.left() >= tiny[0] && chip.right() <= tiny[2]
+                && chip.top() >= tiny[1] && chip.bottom() <= tiny[3], "选择开关不越出触控板: " + chip);
+        }
+
         // 方向键和删除连发，其余不连发。
         for (Key key : TextEditPanelModel.keys(order)) {
             boolean repeats = EnumSet.of(Action.LEFT, Action.RIGHT, Action.UP, Action.DOWN, Action.DELETE)
