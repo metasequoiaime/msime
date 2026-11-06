@@ -281,12 +281,7 @@ pub struct HostCapabilities {
     /// single commit path does not offer it: a control with one outcome reads
     /// as a setting that is being ignored.
     pub voice_commit_mode: bool,
-    /// The host renders the Engine's composition text itself, so the choice
-    /// between the raw shuangpin keys and the expanded pinyin is visible there.
-    /// Every host's Engine honours the preference; this says which of them draw
-    /// the result where a user would see the difference. A host that hands the
-    /// snapshot's `preedit` to a desktop panel still decides which string goes
-    /// there, so the difference is its to show.
+    /// 宿主自己画 Engine 的组字文字，所以「原始双拼按键」和「展开后的读音」（双拼是拼音，粤语双拼是粤拼）的差别在那里看得见，设置页因此给出「双拼预编辑」。每个宿主的 Engine 都遵守共享偏好 `shuangpin_preedit_uses_raw`，这一项说的是哪些宿主把结果画在用户看得到的地方；把快照的 `preedit` 交给桌面面板的宿主仍由自己决定放哪段文字，差别也由它来显示。
     pub shuangpin_preedit: bool,
     /// 宿主在双拼组字时按共享偏好 `shuangpin_keymap_hint` 在候选窗旁画当前方案的键位图，所以设置页给出「输入时显示双拼键位提示」。
     pub shuangpin_keymap_hint: bool,
@@ -319,6 +314,9 @@ pub struct HostCapabilities {
     #[serde(default)]
     pub toggle_hotkey_chords: bool,
     pub voice_provider_settings: bool,
+    /// 宿主在最终识别结果上屏前处理共享的 `voice_input.punctuation_mode`。
+    #[serde(default)]
+    pub voice_punctuation: bool,
     /// The host draws the recogniser's interim text while the user is still speaking.
     ///
     /// Every host can ask a streaming provider for partial results; this says which of them has
@@ -794,20 +792,10 @@ impl HostCapabilities {
             surface_themes_follow: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // Windows chooses between TSF, SendInput and a paste; macOS between system events and its input session. The Linux hosts commit through the IBus or Fcitx5 input context, the desktop voice panel hands its text to the active host the way every panel does, and the voice provider only recognizes, so a stored mode would change nothing there. A keyboard extension commits through its input client and has nothing to choose between either.
             voice_commit_mode: matches!(platform, HostPlatform::Windows | HostPlatform::Macos),
-            // The Linux hosts write the snapshot's `preedit` into the IBus and
-            // Fcitx5 preedit themselves, and both already carry their own
-            // toggle for this in the native status menu - a setting the shared
-            // page was hiding could only be reached from there, and only while
-            // the shuangpin scheme was active.
+            // The Linux hosts write the snapshot's `preedit` into the IBus and Fcitx5 preedit themselves, and both already carry their own toggle for this in the native status menu - a setting the shared page was hiding could only be reached from there, and only while the shuangpin scheme was active.
             // Windows 的候选窗预编辑行画的是 view.preedit，TIP 的行内组字也取自己宿主会话 View 的 preedit（「原始按键」样式）或 Server 回传的预编辑（「拼音分词」样式），两处都随这个偏好变化，所以 Windows 同样给出这一项。
-            shuangpin_preedit: matches!(
-                platform,
-                HostPlatform::Macos
-                    | HostPlatform::Windows
-                    | HostPlatform::Harmony
-                    | HostPlatform::Linux
-                    | HostPlatform::Ios
-            ),
+            // Android 把 Engine 的 preedit 写进输入框（`CandidatePreeditStylePolicy.inlineSpelling`），双拼和粤语双拼关掉原始按键后写的是展开的拼音或粤拼；以前漏了它，Android 用户打不开粤语双拼的展开显示（#10557）。六个宿主都给这一项。
+            shuangpin_preedit: true,
             // macOS 的 MSIMEShuangpinKeymapPanel、Windows Server 的 ShuangpinKeymapWindow 和 Linux 的 ShuangpinKeymapX11Surface 在候选窗旁画键位图（Linux 只给报根窗口坐标光标的 X11 客户端画）；其他宿主没有这块浮窗，开关在那里什么也不做。
             shuangpin_keymap_hint: matches!(
                 platform,
@@ -831,6 +819,7 @@ impl HostCapabilities {
             // macOS 宿主在 `applySharedInputPreferences` 时解码三个 chord 并按 `MSIMEToggleChordMatches` 认键；其余宿主仍写死。
             toggle_hotkey_chords: platform == HostPlatform::Macos,
             voice_provider_settings: true,
+            voice_punctuation: matches!(platform, HostPlatform::Harmony),
             voice_stream_preedit: !matches!(platform, HostPlatform::Android | HostPlatform::Ios),
             // 空格锁定和提示音细分只有 Android、iOS 还读存下的值；录音后端只有 Linux 真有得选（见各字段说明）。
             voice_space_lock_switch: matches!(platform, HostPlatform::Android | HostPlatform::Ios),

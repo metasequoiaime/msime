@@ -379,6 +379,8 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
      * 顶行只留本机、云端、计数、搜索、多选和「更多」，常见宽度下一行放得下、不用横滑；分类、导出、清空在「更多」展开的菜单里（#10037）。
      *
      * <p>菜单项必须是普通键帽，字色就是当前皮肤的按键前景色：深色模式下菜单文字和底色融成一片是报告里特别提醒的问题，只查几何时把菜单项换成别的样式也会通过。
+     *
+     * <p>菜单浮在列表上面，不是列表的一行（#10969）：打开前后列表的滚动位置和卡片位置都不变，菜单不在卡片所在的面板里，也不占满一整行；点菜单以外的浮层空白处收起菜单。原来菜单插在面板最上面，打开时列表先滚回顶部，卡片被推下去约 140 dp，左边留一大块空白。
      */
     private static void checkClipboardMoreMenu(Class<?> type, Object service, Object panels, ViewGroup header,
             ViewGroup cards, ViewGroup surface, float density) throws Exception {
@@ -405,18 +407,49 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                     "clipboard more button leaves the keyboard width at " + widthDp + "dp: " + area.toShortString());
             }
             checkClipboardMorePinned(panels, header, surface, density);
+            ScrollView scroll = (ScrollView) field(type, "clipboardScroll").get(service);
+            ViewGroup overlay = (ViewGroup) field(type, "clipboardMoreOverlay").get(service);
+            int width = Math.round(360 * density);
+            int height = Math.round(300 * density);
+            layout(surface, width, height);
+            check(overlay.getVisibility() == View.GONE, "clipboard more overlay is shown while the menu is closed");
+            // 先把列表滚到中间：原来打开菜单会滚回顶部，再把卡片往下推。
+            int scrolled = Math.round(60 * density);
+            scroll.scrollTo(0, scrolled);
+            check(scroll.getScrollY() == scrolled, "synthetic clipboard history did not scroll before opening the menu");
+            Rect cardBefore = bounds(surface, describedViews(cards, "查看这条剪贴板记录详情").get(0));
             View more = descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作"));
             check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
-            layout(surface, Math.round(360 * density), Math.round(300 * density));
+            layout(surface, width, height);
+            check(scroll.getScrollY() == scrolled,
+                "opening the clipboard more menu scrolled the list: " + scrolled + " -> " + scroll.getScrollY());
+            Rect cardAfter = bounds(surface, describedViews(cards, "查看这条剪贴板记录详情").get(0));
+            check(cardAfter.equals(cardBefore), "opening the clipboard more menu moved the cards: "
+                + cardBefore.toShortString() + " -> " + cardAfter.toShortString());
             // 菜单容器没有无障碍说明（免得 TalkBack 多停一个不能操作的节点），按菜单里「分类」那一项找回容器。
-            View category = descendant(cards, view -> describedAs(view, "管理剪贴板分类"));
+            View category = descendant(surface, view -> describedAs(view, "管理剪贴板分类"));
             check(category != null && category.getParent() instanceof ViewGroup,
-                "clipboard more menu is not drawn in the panel");
+                "clipboard more menu is not drawn on the clipboard surface");
             View menu = (View) category.getParent();
             check(menu.getContentDescription() == null,
                 "clipboard more menu container has its own accessibility stop");
+            check(!inside(menu, cards) && !inside(menu, scroll) && menu.getParent() == overlay,
+                "clipboard more menu is still a row of the scrolling list instead of floating over it");
+            // 浮层盖住顶行以下的整个列表区，并排在「返回顶部」「撤销」之上：开着时点列表区任何地方都落在浮层上，不会插入下面的卡片。
+            Rect overlayArea = bounds(surface, overlay);
+            Rect headerArea = bounds(surface, header);
+            check(overlay.getVisibility() == View.VISIBLE && overlay.isClickable()
+                    && overlayArea.top >= headerArea.bottom - 1 && overlayArea.top <= headerArea.bottom + 1
+                    && overlayArea.left == 0 && overlayArea.right == width && overlayArea.bottom == height,
+                "clipboard more overlay does not cover the list below the header: " + overlayArea.toShortString());
+            View topmost = surface.getChildAt(surface.getChildCount() - 1);
+            check(topmost == overlay && overlay.getZ() > ((View) field(type, "clipboardBackToTop").get(service)).getZ()
+                    && overlay.getZ() > ((View) field(type, "clipboardUndoButton").get(service)).getZ(),
+                "clipboard more overlay is not drawn above the floating buttons");
             Rect menuArea = bounds(surface, menu);
+            check(menuArea.width() < width / 2,
+                "clipboard more menu spans the keyboard instead of floating at the right: " + menuArea.toShortString());
             Rect moreArea = bounds(surface, descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作")));
             check(menuArea.top >= moreArea.bottom && menuArea.right <= surface.getWidth(),
@@ -451,9 +484,18 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             View clear = descendant((ViewGroup) menu, view -> describedAs(view, "清空剪贴板历史"));
             check(clear.performClick() && pending.getBoolean(panels) && !open.getBoolean(panels),
                 "clipboard more menu clear did not close the menu and ask for confirmation");
-            check(descendant(cards, view -> describedAs(view, "管理剪贴板分类")) == null,
+            check(descendant(surface, view -> describedAs(view, "管理剪贴板分类")) == null
+                    && overlay.getVisibility() == View.GONE,
                 "clipboard more menu stayed open after choosing clear");
             pending.setBoolean(panels, false);
+            render.invoke(panels);
+            // 点菜单以外的浮层空白处：和系统溢出菜单一样只收起菜单。
+            View reopen = descendant(header, view -> view instanceof Button && describedAs(view, "更多剪贴板操作"));
+            check(reopen.performClick() && open.getBoolean(panels) && overlay.getVisibility() == View.VISIBLE,
+                "clipboard more button did not reopen the menu");
+            check(overlay.performClick() && !open.getBoolean(panels) && overlay.getVisibility() == View.GONE
+                    && descendant(surface, view -> describedAs(view, "管理剪贴板分类")) == null,
+                "tapping outside the clipboard more menu did not close it");
             checkClipboardMoreDetailReturn(type, service, panels, cards, surface, density);
         } finally {
             open.setBoolean(panels, false);
@@ -462,9 +504,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
     }
     /**
-     * 菜单开着时点一条的 ⓘ 看详情，再返回：菜单已收起、列表整体上移了菜单那一截，返回后刚看的那条要停在离开时的位置（#10037）。
+     * 菜单开着时点一条的 ⓘ 看详情（读屏按节点点击，不经过浮层），再返回：菜单已收起，返回后刚看的那条要停在离开时的位置（#10037）。
      *
-     * <p>原来记的是菜单还在时的 `getScrollY()`，返回后列表往下错开约 140 dp，刚看的那条可能被滚出顶部。
+     * <p>菜单原来画在列表最上面，记下的滚动位置要减掉它那一截；现在它浮在列表上面（#10969），列表位置与菜单开合无关，这里守住返回后不错位。
      */
     private static void checkClipboardMoreDetailReturn(Class<?> type, Object service, Object panels,
             ViewGroup cards, ViewGroup surface, float density) throws Exception {
@@ -478,7 +520,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             open.setBoolean(panels, true);
             method(panels.getClass(), "renderClipboardHistory").invoke(panels);
             layout(surface, width, height);
-            check(descendant(cards, view -> describedAs(view, "管理剪贴板分类")) != null,
+            check(descendant(surface, view -> describedAs(view, "管理剪贴板分类")) != null,
                 "clipboard more menu is not open before opening a record's details");
             java.util.List<View> details = describedViews(cards, "查看这条剪贴板记录详情");
             check(details.size() > target, "synthetic clipboard history has too few detail buttons");
