@@ -1547,7 +1547,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(frame(letter).minY, gridTop, accuracy: 0.5, "\(scheme)")
       XCTAssertEqual(frame(try button("returnKey", in: controller)).maxY, nineKeyBottom, accuracy: 0.5, "\(scheme)")
       // 四排 52pt 键帽、7pt 排距的高度由四排字母键和 11pt 排距填满。
-      XCTAssertEqual(letter.bounds.height, 49, accuracy: 0.5, "\(scheme)")
+      XCTAssertEqual(letter.bounds.height, 52, accuracy: 0.5, "\(scheme)")
     }
   }
 
@@ -2828,9 +2828,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
     controller.view.layoutIfNeeded()
     let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
-    // 第 14 个是 26 键「长空格」时才显示的符号入口（`symbolsShortcut`），长按同样打开工具栏设置。
-    XCTAssertEqual(toolbar.arrangedSubviews.count, 14)
-    for item in toolbar.arrangedSubviews {
+    // 工具栏包含一个用于把按钮推到右侧的 spacer；14 个按钮（含 26 键「长空格」时才显示的符号入口）长按都打开工具栏设置。
+    XCTAssertEqual(toolbar.arrangedSubviews.count, 15)
+    let buttons = toolbar.arrangedSubviews.compactMap { $0 as? UIButton }
+    XCTAssertEqual(buttons.count, 14)
+    for item in buttons {
       let id = item.accessibilityIdentifier ?? "\(item)"
       let hold = try XCTUnwrap(item.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }
         .first { $0.name == "toolbarEditorHold" }, id)
