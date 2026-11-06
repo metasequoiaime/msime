@@ -171,7 +171,8 @@ struct InputSettingsView: View {
       if index > 0 { DesignDivider(leading: 58) }
       let shown = shownScheme(language)
       let pack = shown.flatMap(IOSResourcePacks.requiredPack)
-      InputLanguageRow(language: language, value: pack.map { resourcePacks.available($0) ? (shown?.shortLabel ?? "") : resourcePacks.describe($0) } ?? shown?.shortLabel, options: options(for: language),
+      InputLanguageRow(language: language, value: pack.map { resourcePacks.available($0) ? (shown?.shortLabel ?? "") : resourcePacks.describe($0) } ?? shown?.shortLabel,
+                       isDefault: language.schemes.contains(inputScheme), options: options(for: language),
                        selected: selectedChoice(in: language)) { choose($0, in: language) }
       if let pack, !resourcePacks.available(pack) {
         packDownloadRow(pack, title: "\(language.name)词库")
@@ -206,20 +207,20 @@ struct InputSettingsView: View {
     }
   }
 
-  /// 面板里打勾的选项就是行上显示的方案，键盘正用着别的语言时也一样。
+  /// 面板里打勾的选项就是行上显示的方案，键盘正用着别的语言时也一样。哪门语言是默认由行上的「默认」标记说明；点不是默认的语言里打了勾的那项，同样会把它设为默认。
   private func selectedChoice(in language: InputLanguage) -> LanguageChoice? {
     guard let scheme = shownScheme(language) else { return nil }
     return scheme == .wubi ? .wubi(wubiProfile) : .scheme(scheme)
   }
 
-  /// 语言的选项面板：按顺序直接列出它的方案，双拼列小鹤、自然码等，五笔列 86 和 98，不再各开一层二级面板（那样「双拼」行、方案面板、双拼面板就成了三层）；不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id，五笔版本是 `inputScheme_wubi_<profile>`。
+  /// 语言的选项面板：按顺序直接列出它的方案，双拼列小鹤、自然码等，五笔列 86、98 和新世纪，不再各开一层二级面板（那样「双拼」行、方案面板、双拼面板就成了三层）；不是仅剩的最后一个语言时再加一项移除。每个方案选项保留 `inputScheme_<rawValue>` 这个 id，五笔版本是 `inputScheme_wubi_<profile>`。
   private func options(for language: InputLanguage) -> [DesignOption<LanguageChoice>] {
     let schemes = available(language)
     var options: [DesignOption<LanguageChoice>] = []
     for scheme in schemes {
       if scheme == .wubi {
         options += WubiProfilePreference.profiles.map { profile in
-          DesignOption(title: profile == "wubi98" ? "五笔 98" : "五笔 86", value: .wubi(profile),
+          DesignOption(title: WubiProfilePreference.shortTitle(profile), value: .wubi(profile),
                        identifier: "inputScheme_wubi_\(profile)")
         }
       } else {
@@ -266,14 +267,23 @@ struct InputSettingsView: View {
         record(saved, .languages)
         if saved { resourcePacks.request(pack) }
       } else {
-        record(InputSchemePreference.select(scheme), .languages)
+        let saved = InputSchemePreference.select(scheme)
+        record(saved, .languages)
+        if saved { announceDefault(language == .quanpin ? scheme.title : scheme.shortLabel) }
       }
     case .wubi(let profile):
-      record(WubiProfilePreference.save(profile) && InputSchemePreference.select(.wubi), .languages)
+      let saved = WubiProfilePreference.save(profile) && InputSchemePreference.select(.wubi)
+      record(saved, .languages)
+      if saved { announceDefault(profile == "wubi98" ? "五笔 98" : "五笔 86") }
     case .remove:
       remove(language)
     }
     reloadPreferences()
+  }
+
+  /// 选中的方案已设为默认（键盘下次出现时用它）：行上的标记在面板收起后才看得到，选的又可能是已经打勾的那项，这里说一声。
+  private func announceDefault(_ title: String) {
+    ToastCenter.shared.show("已设为默认：\(title)")
   }
 
   /// 停用该语言的全部方案。键盘正用着其中之一时切到全拼 26 键，全拼没启用就切到剩下的第一个方案。如果停用后一个能运行的方案都不剩，就什么都不写。
@@ -530,7 +540,7 @@ struct InputSettingsView: View {
           .accessibilityIdentifier("wubiAutoCommitUnique")
         DesignDivider()
         // 五笔查码（#6789）：与三个五笔开关一样，只在启用了五笔时列出。
-        navRow("五笔查码", info: "查汉字的 86、98 五笔编码", identifier: "wubiCodeLookupLink") {
+        navRow("五笔查码", info: "查汉字的 86、98 和新世纪五笔编码", identifier: "wubiCodeLookupLink") {
           WubiCodeLookupView(profile: wubiProfile)
         }
         DesignDivider()
@@ -601,6 +611,8 @@ struct InputSettingsView: View {
 private struct InputLanguageRow<Choice: Hashable>: View {
   let language: InputLanguage
   let value: String?
+  /// 键盘的默认方案属于这门语言：行上标「默认」。
+  let isDefault: Bool
   let options: [DesignOption<Choice>]
   let selected: Choice?
   let onSelect: (Choice) -> Void
@@ -617,6 +629,14 @@ private struct InputLanguageRow<Choice: Hashable>: View {
           .background(MetasequoiaTheme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
           .accessibilityHidden(true)
         Text(language.name).font(.system(size: 17)).foregroundStyle(.primary)
+        if isDefault {
+          Text("默认")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(MetasequoiaTheme.accent)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(MetasequoiaTheme.accentSoft, in: Capsule())
+            .accessibilityHidden(true)
+        }
         Spacer(minLength: 8)
         if let value {
           Text(value).font(.system(size: 15)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)
@@ -628,10 +648,10 @@ private struct InputLanguageRow<Choice: Hashable>: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(PressFillButtonStyle())
-    .accessibilityLabel(language.name)
+    .accessibilityLabel(isDefault ? "\(language.name)，默认" : language.name)
     .accessibilityValue(value ?? "")
     .accessibilityIdentifier("inputLanguage_\(language.accessibilityKey)")
-    .designOptionSheet(isPresented: $presented, title: language.name, message: "选择输入方案", options: options,
+    .designOptionSheet(isPresented: $presented, title: language.name, message: isDefault ? "选择输入方案" : "点选方案即设为默认", options: options,
                        selected: selected, onSelect: onSelect)
   }
 }

@@ -360,6 +360,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese, WCHAR beforeChar);
     void _ClearSmartPunctuationRevert();
     void _UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool isEaten);
+    // 一个字符由 TIP 自己写进了文档（排队等回放的应用文本）：它就是用户刚打的字，记进前文影子。
+    void _NoteSmartPunctuationDocumentText(WCHAR wch);
     void _InvalidateSmartPunctuationShadow();
     HRESULT _HandleCompositionDoubleSingleByte(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
 
@@ -553,6 +555,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _HasDeferredKeyBarrier() const;
     bool _DeferredKeyQueueHasCapacity() const;
     void _EnsureDeferredKeyProjection();
+    // 队列投影里还有组字（含候选、词段）时，后面的键要按「组字中」归类。
+    bool _DeferredProjectionHasComposition() const;
     void _ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code);
     void _ApplyDeferredPreservedKeyProjection(REFGUID preservedKey);
     bool _RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext);
@@ -781,6 +785,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     WCHAR _smartPunctuationSpaceBeforeChar = 0;
     uint64_t _smartPunctuationSpaceFocusToken = 0;
     HWND _smartPunctuationSpaceForegroundWindow = nullptr;
+    // 标点之后又按过别的键。读不回文档时兑现要靠 SendInput 盲删一个字符，那时它必须为假。
+    bool _smartPunctuationSpaceInterrupted = false;
     bool _smartPunctuationRevertArmed = false;
     WCHAR _smartPunctuationRevertAscii = 0;
     WCHAR _smartPunctuationRevertChinese = 0;

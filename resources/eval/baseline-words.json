@@ -3,10 +3,10 @@
     "2": {
       "cases": 1860,
       "found": 0.997,
-      "mrr": 0.793,
-      "top1": 0.683,
-      "top1_char_prefix": 0.713,
-      "top5": 0.939,
+      "mrr": 0.796,
+      "top1": 0.687,
+      "top1_char_prefix": 0.716,
+      "top5": 0.942,
       "top9": 0.992
     },
     "3": {
@@ -21,20 +21,20 @@
     "4": {
       "cases": 556,
       "found": 0.957,
-      "mrr": 0.876,
-      "top1": 0.853,
-      "top1_char_prefix": 0.899,
-      "top5": 0.941,
-      "top9": 0.944
+      "mrr": 0.863,
+      "top1": 0.835,
+      "top1_char_prefix": 0.89,
+      "top5": 0.942,
+      "top9": 0.946
     },
     "5": {
       "cases": 10,
       "found": 0.7,
-      "mrr": 0.37,
-      "top1": 0.3,
-      "top1_char_prefix": 0.6,
-      "top5": 0.6,
-      "top9": 0.6
+      "mrr": 0.315,
+      "top1": 0.2,
+      "top1_char_prefix": 0.56,
+      "top5": 0.7,
+      "top9": 0.7
     }
   },
   "by_tag": {},
@@ -46,20 +46,13 @@
   "overall": {
     "cases": 2791,
     "found": 0.988,
-    "mrr": 0.83,
-    "top1": 0.75,
-    "top1_char_prefix": 0.783,
-    "top5": 0.943,
+    "mrr": 0.829,
+    "top1": 0.749,
+    "top1_char_prefix": 0.782,
+    "top5": 0.946,
     "top9": 0.982
   },
   "sample_failures": [
-    {
-      "gold": "阿爸",
-      "id": "w-00001",
-      "input": "aba",
-      "rank": 4,
-      "top1": "阿坝"
-    },
     {
       "gold": "按理",
       "id": "w-00100",
@@ -71,8 +64,8 @@
       "gold": "岸上",
       "id": "w-00145",
       "input": "anshang",
-      "rank": 3,
-      "top1": "按上"
+      "rank": 2,
+      "top1": "安上"
     },
     {
       "gold": "摆渡",
@@ -288,7 +281,7 @@
       "gold": "补写",
       "id": "w-01567",
       "input": "buxie",
-      "rank": 7,
+      "rank": 6,
       "top1": "不谢"
     },
     {
@@ -332,10 +325,17 @@
       "input": "caizhengbuti",
       "rank": 4,
       "top1": "财政部体"
+    },
+    {
+      "gold": "才智",
+      "id": "w-01765",
+      "input": "caizhi",
+      "rank": 3,
+      "top1": "材质"
     }
   ],
   "top1_source": {
-    "database": 2719,
-    "generated": 72
+    "database": 2697,
+    "generated": 94
   }
 }

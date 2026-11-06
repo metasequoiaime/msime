@@ -1090,6 +1090,38 @@ void DebugTsfKeyLatency(const wchar_t *stage, uint64_t requestId, double elapsed
     QueueTsfDiagnosticLog(message);
 }
 
+void DebugTsfSmartPunctuation(WCHAR preceding, bool shadowValid, bool asciiResult)
+{
+    if (!Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+
+    // Only the class of the character is recorded: the preceding character is
+    // the user's text, and which key asked is what the settings page already
+    // says. Both facts stay classes, so the log cannot be read as content.
+    const wchar_t *before = L"other";
+    if (preceding == 0)
+    {
+        before = L"none";
+    }
+    else if (preceding >= L'0' && preceding <= L'9')
+    {
+        before = L"digit";
+    }
+    else if ((preceding >= L'A' && preceding <= L'Z') || (preceding >= L'a' && preceding <= L'z'))
+    {
+        before = L"letter";
+    }
+
+    const std::wstring message = fmt::format(L"[msime][smart-punctuation] before={} shadow={} result={} process={}\n",
+                                             before, shadowValid ? L"yes" : L"no",
+                                             asciiResult ? L"ascii" : L"chinese",
+                                             Global::current_process_name.empty() ? L"unknown"
+                                                                                 : Global::current_process_name);
+    QueueTsfDiagnosticLog(message);
+}
+
 void DebugTsfIssue47(const wchar_t *stage, uint64_t requestId, UINT code, WCHAR wch, UINT category, UINT function,
                      int eaten, BOOL composing, size_t virtualKeyLength, HRESULT result, uint64_t correlationToken)
 {
@@ -1371,6 +1403,15 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
                                                                        bool abortTransportOnTimeout)
 {
+    return TryReadDataFromServerPipeWithTimeout(
+        expectedRequestId, abortTransportOnTimeout,
+        msime::windows::tsf::ServerReplyWaitBudgetMs(abortTransportOnTimeout));
+}
+
+struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId,
+                                                                       bool abortTransportOnTimeout,
+                                                                       std::size_t waitBudgetMs)
+{
     PerfTimer replyWaitTimer;
 
     auto transportUnavailable = []() {
@@ -1379,11 +1420,8 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
         return &transportUnavailableReply;
     };
     auto softMiss = [](uint64_t requestId) {
-        // Deliberately not TransportUnavailable: preedit waiters fall back to
-        // the local reading string without tearing down the reply pipe.
-        namedpipeDataFromServer = {};
-        namedpipeDataFromServer.msg_type = Global::DataFromServerMsgType::Normal;
-        namedpipeDataFromServer.request_id = requestId;
+        // 不是 TransportUnavailable：预编辑的等待方退回本地读音，不拆回包管道。也不是 Normal：数字选词会把它当成 Server「整段上屏了空文字」，见 SoftReplyMiss。
+        namedpipeDataFromServer = msime::windows::tsf::SoftReplyMiss(requestId);
         return &namedpipeDataFromServer;
     };
 
@@ -1415,7 +1453,8 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
         }
     }
 
-    const ULONGLONG deadline = GetTickCount64() + msime::windows::tsf::kServerReplyWaitTimeoutMs;
+    // 预算由调用方给出：必须确认的回包在管道没报错时等到第二级上限，Server 只是慢（CPU 被占满）不当成断线；软回包一般只等第一级。
+    const ULONGLONG deadline = GetTickCount64() + waitBudgetMs;
 
     while (true)
     {
@@ -1471,7 +1510,9 @@ struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t 
             !FanyImeProtocol::IsNegotiationReply(namedpipeDataFromServer.msg_type) &&
             namedpipeDataFromServer.request_id == expectedRequestId)
         {
-            DebugTsfKeyLatency(L"reply-wait", expectedRequestId, replyWaitTimer.ElapsedMs(), S_OK);
+            const double elapsedMs = replyWaitTimer.ElapsedMs();
+            DebugTsfKeyLatency(msime::windows::tsf::IsSlowServerReply(elapsedMs) ? L"reply-wait-slow" : L"reply-wait",
+                               expectedRequestId, elapsedMs, S_OK);
             return &namedpipeDataFromServer;
         }
 

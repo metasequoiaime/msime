@@ -5,6 +5,7 @@ import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 import type { DictionaryClient } from "../../../../packages/ui/src/dictionary/dictionary-contracts";
 import { ResourceDictionaryLookup } from "../../../../packages/ui/src/settings/resource-dictionary-lookup";
 import { settingsFormReady } from "../support/settings-form";
+import { testHost } from "../support/host";
 
 const empty = { entries: [], has_more: false, available: true };
 afterEach(() => {
@@ -50,6 +51,7 @@ test("语言资源与个人词库都出现在查询下拉，切到日语即列�
     "pinyin",
     "wubi",
     "wubi98",
+    "wubixsj",
     "english",
     "quick_phrase",
     "cantonese",
@@ -68,6 +70,41 @@ test("语言资源与个人词库都出现在查询下拉，切到日语即列�
   expect(screen.getByText("读音")).toBeTruthy();
   expect(screen.queryByText(/成本/)).toBeNull();
   expect(screen.queryByText("-10")).toBeNull();
+});
+
+test("鸿蒙 2in1 的词库下拉不列新世纪五笔：设置应用和键盘之间的「我的词条」交换还不带它", async () => {
+  const client: SettingsClient = {
+    load: async () => ({
+      format_version: 1,
+      revision: 1,
+      preferences: {
+        scheme: "wubi",
+        wubi_profile: "wubixsj",
+        shuangpin_profile: "xiaohe",
+        candidate_page_size: 5,
+        learning: true,
+        chinese_punctuation: true,
+      },
+    }),
+    save: vi.fn(),
+    host: testHost({ platform: "harmony", mobile_settings: false, panel_windows: true }),
+    dictionary: { list: vi.fn().mockResolvedValue(empty), edit: vi.fn() },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: /^(词库|词库管理)$/ }));
+  const values = (label: string) =>
+    within(screen.getByLabelText(label))
+      .getAllByRole("option")
+      .map((option) => (option as HTMLOptionElement).value);
+  expect(values("本地词库类型")).toEqual([
+    "pinyin",
+    "wubi",
+    "wubi98",
+    "english",
+    "quick_phrase",
+    "cantonese",
+  ]);
 });
 
 test("资源查询防抖、分页，条件变化后忽略旧响应", async () => {

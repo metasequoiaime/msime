@@ -186,6 +186,12 @@ private enum SnapshotRecordFields {
     return date != formatter.date(from: "0001-01-01T00:00:00Z")
   }
 
+  /// 词库种类：1 到 32 个小写字母、数字或下划线。认得的 `pinyin`、`wubi`、`wubi98`、`wubixsj`、`english`、`quick` 都是这个形状；更新的版本加的、本版本不认得的种类照常校验、计入记录数，交给 Engine 时由 host-api 跳过（`record::is_foreign_kind`），不让整份快照读不了。新世纪五笔 `wubixsj` 本版本认得、照常交给 Engine，只有不认得它的旧版本才跳过。
+  static func kindName(_ kind: String) -> Bool {
+    (1...32).contains(kind.utf8.count)
+      && kind.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 95 }
+  }
+
   static func validate(_ object: [String: Any], revision: Int64) throws {
     let bad = SnapshotFailure(status: 400)
     guard let type = object["type"] as? String, let data = object["data"] as? [String: Any] else { throw bad }
@@ -208,7 +214,7 @@ private enum SnapshotRecordFields {
               type != "entry" || value.boolValue else { throw bad }
       }
       guard keys == ["id", "kind", "code", "word", "weight", "revision", "updated_at"],
-            let kind = data["kind"] as? String, ["pinyin", "wubi", "wubi98", "english", "quick"].contains(kind),
+            let kind = data["kind"] as? String, kindName(kind),
             data["id"] is String else { throw bad }
       if type == "entry" { _ = try text("id", maximum: 128) }
       let weight = try integer("weight"), recordRevision = try integer("revision")

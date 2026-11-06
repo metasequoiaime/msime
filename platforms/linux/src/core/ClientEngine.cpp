@@ -4462,17 +4462,15 @@ void render(IBusEngine *engine, const Json &view) {
     tail += msime::linux_host::candidate_fixed_position_marker(
         static_cast<std::uint64_t>(std::max(0, fixed_position)));
     const auto annotation = candidate.value("annotation", std::string{});
-    // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so neither the helpcode switch nor the wubi code hint hides it; Wubi opens these modes too. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow both switches.
+    // In / and @ the annotation is the command title or the place's province and city, part of the row rather than a reading aid, so the helpcode switch does not hide it. The other local modes (super jianpin, quick phrase and the rest) still carry helpcodes there and follow it.
+    // 五笔方案的注释由引擎决定：「五笔剩余编码」关掉时引擎不再给五笔原生候选附编码，拼音来的候选（混输拼音、`z` 反查）照旧附，与其他五个宿主相同（#10790），所以这里不再按这个开关整段隐藏；五笔方案的 show_helpcode_in_candidate_window 恒为真。
     const auto local_mode = view.value("local_mode", std::string("none"));
     const bool local_mode_annotation =
         local_mode == "command" || local_mode == "mention";
-    const bool wubi_annotation = view.value("scheme", 255) != 2 ||
-                                 state(engine).wubi_code_hint;
     // A Hanja row's annotation is its 훈음, already drawn in the gloss above.
     // 注释括起来紧贴候选字，云和 AI 角标隔一个空格跟在后面，与 macOS 候选窗和 Fcitx5 宿主的写法相同（CandidateRowText.h）。
     if (!annotation.empty() && hanja_gloss.empty() &&
-        (local_mode_annotation ||
-         (state(engine).show_helpcode_in_candidate_window && wubi_annotation)))
+        (local_mode_annotation || state(engine).show_helpcode_in_candidate_window))
       value += msime::linux_host::candidate_annotation_text(annotation);
     value += msime::linux_host::candidate_source_badge(static_cast<std::uint64_t>(source));
     // Converted piece by piece: the separators already split them, and the gloss's range then stays exact whatever the conversion does to lengths.
@@ -6098,9 +6096,14 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
         save_menu_preference(engine, MenuPreference::WubiCodeHint, enabled);
         return;
       }
+      // 这个开关现在由引擎判定要不要给五笔候选附编码，没有偏好目录就不会重读，和下面的四码唯一自动上屏一样只能重建会话把 override 交给它。
+      if (s.session)
+        apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
       s.wubi_code_hint_override = enabled;
-      s.wubi_code_hint = enabled;
-      render(engine, s.view);
+      s.open();
+      if (s.session)
+        apply(engine, s.focus_session(true));
       publish_mode(engine);
       return;
     }
