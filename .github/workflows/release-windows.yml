@@ -194,6 +194,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      - name: Use a short Cargo cache path
+        shell: pwsh
+        run: ./platforms/windows/Use-ShortCargoHome.ps1
       - name: Install sccache
         id: sccache
         continue-on-error: true
