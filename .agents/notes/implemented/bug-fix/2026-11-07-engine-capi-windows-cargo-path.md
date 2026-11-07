@@ -1,14 +1,14 @@
-# Agent Note: Windows 的 engine-capi 发布构建使用短 Cargo 缓存路径
+# Agent Note: Windows 发布构建使用短 Cargo 缓存路径
 
 Status: implemented
 
 ## Problem
 
-`Release msime-engine-capi` 的 Windows 作业在解析 `llama-cpp-2` 时，Cargo/libgit2 检出其 `llama.cpp` 子模块失败。失败路径超过 Windows 路径长度限制；同一 Pull Request 连续两次遇到相同错误。仓库已经有 `platforms/windows/Use-ShortCargoHome.ps1`，但发布 workflow 没有调用它。
+`Release msime-engine-capi` 和 nightly 的 Windows 发布作业在解析 `llama-cpp-2` 时，Cargo/libgit2 检出其 `llama.cpp` 子模块失败。失败路径超过 Windows 路径长度限制；仓库已经有 `platforms/windows/Use-ShortCargoHome.ps1`，但部分发布 workflow 没有调用它。
 
 ## Decision
 
-发布 workflow 的 Windows 构建在第一次运行 Cargo 之前调用 `Use-ShortCargoHome.ps1`，把 `CARGO_HOME` 设为短目录联接。Linux 和 macOS 保持原有路径；Windows 的 `ci-platforms.yml` 和 ONNX workflow 已采用同一入口，本修复让 engine-capi 发布流程与它们一致。
+所有会解析该 Git 依赖的 Windows 发布构建在第一次运行 Cargo 之前调用 `Use-ShortCargoHome.ps1`，把 `CARGO_HOME` 设为短目录联接。Linux 和 macOS 保持原有路径；Windows 的 `ci-platforms.yml`、ONNX、engine-capi 和 nightly 发布 workflow 统一采用同一入口。
 
 ## Alternatives considered
 
