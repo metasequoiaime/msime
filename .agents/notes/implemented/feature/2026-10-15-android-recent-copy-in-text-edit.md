@@ -18,6 +18,8 @@ Status: implemented
 - [文本编辑面板](2026-10-08-android-text-edit-panel.md) 和 [顶部文本编辑按钮](2026-10-09-android-toolbar-text-edit.md) 部分重叠：入口与编辑器动作不变，只增加复制后顶部预览与返回行为。
 - [图片发送](2026-10-11-android-recent-clip-image-send.md) 无行为取舍变化，沿用同一行及既有 MIME 类型和敏感内容判断。
 
+面板现在盖住工具栏那一行，最近复制显示在面板自己的标题行里、代替标题，返回键盘由标题行的返回键负责，见[无缝方向区与七个侧键](2026-11-06-android-text-edit-seamless-panel.md)；放行文本编辑面板、粘贴和关闭不关面板仍按本篇。
+
 ## Alternatives considered
 
 - **关闭文本编辑面板后才显示** — 无需改变任何工具栏状态，保持所有面板统一隐藏的简单规则；但无法满足复制后立即看到结果的需求。
