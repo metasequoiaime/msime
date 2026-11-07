@@ -7543,31 +7543,12 @@ static void TestCapsLockTap() {
     assert(![controller handleEvent:capsOff(1.2) client:client]);
     assert(prefs.englishMode && session.capsLockCalls == reports);
 
-    // 首个事件没有实体按住位时，不能把未知状态当作已经松手；后续的修饰键事件才完成轻点判定。
-    prefs.englishMode = NO;
-    session.capsLock = NO;
-    gCapsNow = 1300; gCapsHeld = false; gCapsHIDKnown = false; gCapsHIDHeld = false;
-    const NSUInteger releasesBeforeDelayedState = gCapsReleases;
-    assert([controller handleEvent:capsOn(1.3) client:client]);
-    assert(gCapsReleases == releasesBeforeDelayedState && !prefs.englishMode && !session.capsLock && gCapsHIDStarts > 0);
-    gCapsNow = 1350;
-    [controller pollCapsLockTap];
-    assert(gCapsReleases == releasesBeforeDelayedState && !prefs.englishMode);
-    assert([controller handleEvent:capsOff(1.35) client:client]);
-    assert(gCapsReleases == releasesBeforeDelayedState + 1 && prefs.englishMode && !session.capsLock);
-    assert(![controller handleEvent:capsOff(1.4) client:client]);
-
     // 再轻点一次切回中文。
-    // 这里切到已知的 HID 实体状态，避免上一段“未知状态”合成留下的旧状态位干扰重复轻点；未知状态的首次布防已由上一段覆盖。
-    gCapsHIDKnown = true; gCapsHIDHeld = true;
     gCapsNow = 2000; gCapsHeld = true;
     assert(![controller handleEvent:capsOn(2.0) client:client]);
-    gCapsNow = 2050; gCapsHeld = false; gCapsHIDHeld = false;
-    // 这次用实际的 flagsChanged 松键事件推进，覆盖输入法收到松键通知的常规路径；前一段已经覆盖无松键通知时的轮询路径。
-    assert([controller handleEvent:capsOff(2.05) client:client]);
-    assert(gCapsReleases == 2);
-    assert(!prefs.englishMode);
-    gCapsHIDKnown = false;
+    gCapsNow = 2050; gCapsHeld = false;
+    [controller pollCapsLockTap];
+    assert(gCapsReleases == 2 && !prefs.englishMode);
 
     // 长按：超过 300 毫秒还按着，大写锁定照常生效并报告给会话，不切换。
     gCapsNow = 3000; gCapsHeld = true;
@@ -7698,16 +7679,19 @@ static void TestCapsLockTap() {
         assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
     }
 
-    // 初始事件和 HID 状态都没有实体按住位时不布防，避免不支持该位的设备连长按也被切换。
+    // 初始事件和 HID 状态都没有实体按住位时仍然布防，等待后续松键事件；定时器不能把未知状态当作已经松手。
     assert(![controller handleEvent:capsOff(13.0) client:client]);
     prefs.englishMode = NO;
     const NSUInteger releasesBefore = gCapsReleases;
     gCapsNow = 13000; gCapsHeld = false;
-    assert(![controller handleEvent:capsOn(13.0) client:client]);
+    assert([controller handleEvent:capsOn(13.0) client:client]);
+    assert(!prefs.englishMode && !session.capsLock && gCapsHIDStarts == 1);
     gCapsNow = 13050;
     [controller pollCapsLockTap];
-    assert(session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
-    // 报实体按住位的设备从不启动 HID 监听，不会被要求「输入监控」授权；只有这台不报的设备才启动一次。
+    assert(!session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
+    assert([controller handleEvent:capsOff(13.05) client:client]);
+    assert(prefs.englishMode && !session.capsLock && gCapsReleases == releasesBefore + 1);
+    // 报实体按住位的设备从不重复启动 HID 监听；只有这台不报的设备才启动一次。
     assert(gCapsHIDStarts == 1);
     // HID 有了结果之后，同一台设备的轻点按实体按下和松开判定，照常切换。
     assert(![controller handleEvent:capsOff(13.5) client:client]);
