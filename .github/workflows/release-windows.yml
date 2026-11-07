@@ -101,6 +101,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - name: Use a short Cargo cache path
+        shell: pwsh
+        run: ./platforms/windows/Use-ShortCargoHome.ps1
       # Depot 的 runner 启动时已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache，rustc 的产物跨运行缓存，不需要 token。缓存只为加速：sccache 装不上或服务起不来时（Depot Cache 一时连不上，#9658 的 Web engine 就这样在 cargo 第一步退出）照常不带缓存编译，只有服务真正启动了，「Enable sccache」才把 RUSTC_WRAPPER 写进环境；SCCACHE_IGNORE_SERVER_IO_ERROR=1 让构建途中服务出错时退回直接编译。 CARGO_INCREMENTAL=0 because sccache does not cache incremental compilation.
       - name: Install sccache
         id: sccache
@@ -121,6 +124,9 @@ jobs:
       # Reads the pnpm version from packageManager in package.json.
       - if: matrix.arch == 'x64'
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - name: Use a short Cargo home
+        shell: pwsh
+        run: ./platforms/windows/Use-ShortCargoHome.ps1
       - name: Build the Rust half
         shell: pwsh
         env: {VERSION: "${{ needs.source.outputs.version }}", ARCH: "${{ matrix.arch }}"}
