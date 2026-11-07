@@ -123,7 +123,7 @@ jobs:
           set -euo pipefail
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- target/resources)"
-          bash platforms/harmony/stage-resources.sh "$resource_dir"
+          MSIME_HARMONY_OMIT_ON_DEMAND=1 bash platforms/harmony/stage-resources.sh "$resource_dir"
       # SDK 目录必须整份解压：hvigor 在 runtimeOS 为 HarmonyOS 时会逐个检查 SDK 组件，少了 previewer 或 hms/native 就报 `SDK component missing`，构建一开始就失败。只跳过 SDK 之外的 codelinter。压缩包解完即删。
       - name: Install the HarmonyOS command-line tools
         if: ${{ !inputs.test_package_id }}

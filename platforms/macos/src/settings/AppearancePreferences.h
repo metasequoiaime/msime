@@ -3,6 +3,7 @@
 #import "../../../../shared/apple/TextClient.h"
 #include "../candidate/CandidateSkin.h"
 #include "../input/ToggleHotkeys.h"
+#include <stdint.h>
 
 @class MSIMECandidateCanvasAssets;
 
@@ -160,6 +161,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 /// 自定义语音开始／结束热键；缺省不绑定，固定语音键由原有偏好独立控制。
 @property(nonatomic, readonly) msime::mac::ToggleChord voiceInputToggleChord;
 @property(nonatomic) BOOL traditionalOutput;
+/// OpenCC 繁体变体编号：0 `s2t`、1 `s2tw`、2 `s2twp`，来自共享偏好 `traditional_chinese_variant`。缺省 0。菜单、工具栏和 Ctrl+Shift+F 只翻转 `traditionalOutput`，不改这一项。
+@property(nonatomic, readonly) uint32_t traditionalChineseVariant;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
 /// The punctuation and width the active application is typing with. They start from the saved `chinesePunctuation` / `fullWidthInput` and the toggles (toolbar, Ctrl+., Ctrl+Shift+Space, Option+Shift+H) change only the active app, in memory: setting them never writes defaults or posts MSIMEAppearanceDidChangeNotification.

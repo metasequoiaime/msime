@@ -158,6 +158,21 @@ export const SETTINGS_ENTRIES: MirrorEntry[] = [
   },
   { name: "skins", kind: "directory", base: "state", path: "skins", fullModeOnly: false },
   { name: "plugins", kind: "directory", base: "state", path: "plugins", fullModeOnly: false },
+  // 两个沙箱各有私有状态目录；只镜像已原子发布的包，不复制同级的下载缓存和暂存目录。
+  {
+    name: "resource-pack-japanese",
+    kind: "directory",
+    base: "state",
+    path: "resource-packs/japanese",
+    fullModeOnly: false,
+  },
+  {
+    name: "resource-pack-wubi",
+    kind: "directory",
+    base: "state",
+    path: "resource-packs/wubi",
+    fullModeOnly: false,
+  },
   // 隐私政策的授权只由设置应用决定、只往键盘一个方向镜像；基础访问模式下键盘也要读到它，没读到就不联网。
   {
     name: PRIVACY_CONSENT_ENTRY,

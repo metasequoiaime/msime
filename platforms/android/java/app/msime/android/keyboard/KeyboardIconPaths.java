@@ -41,6 +41,8 @@ public final class KeyboardIconPaths {
         MIC(true, 1.7f),
         /** design candidate expand chevron (20dp) */
         CHEVRON(true, 1.8f),
+        /** 编辑面板文首竖线与单尖括号；旋转得到文尾 */
+        EDIT_DOCUMENT_START(true, 1.8f),
         /** design panel 手写 */
         HANDWRITING(true, 1.7f),
         /** design panel 词库 */
@@ -175,6 +177,7 @@ public final class KeyboardIconPaths {
             case KEY_EMOJI -> appendKeyEmoji(p);
             case MIC -> appendMic(p);
             case CHEVRON -> appendChevron(p);
+            case EDIT_DOCUMENT_START -> appendEditDocumentStart(p);
             case HANDWRITING -> appendHandwriting(p);
             case LEXICON -> appendLexicon(p);
             case KEYBOARD_HEIGHT -> appendKeyboardHeight(p);
@@ -547,6 +550,14 @@ public final class KeyboardIconPaths {
         p.moveTo(6f, 9.5f);
         p.lineTo(12f, 15.5f);
         p.lineTo(18f, 9.5f);
+    }
+
+    private static void appendEditDocumentStart(Path p) {
+        p.moveTo(5f, 5f);
+        p.lineTo(5f, 19f);
+        p.moveTo(18f, 5f);
+        p.lineTo(11f, 12f);
+        p.lineTo(18f, 19f);
     }
 
     private static void appendHandwriting(Path p) {

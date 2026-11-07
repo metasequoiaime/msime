@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-- **入口不再看会话**：新增 `SymbolPanelEntryPolicy.opens(connection, panelBuilt)`，`showSymbolPanel`、长按 123、文本编辑面板长按回车和两个「符」按钮的可用性都经它。`showSymbolPanel` 只在有会话时先 `command(2)`，命令失败、会话被停掉时照旧不打开。会话还在建（`STARTING`）的输入框也随之能打开，与表情面板在 #10086 之后的行为一致。
+- **入口不再看会话**：新增 `SymbolPanelEntryPolicy.opens(connection, panelBuilt)`，`showSymbolPanel`、长按 123 和两个「符」按钮的可用性都经它（文本编辑面板的换行键后来改成只管换行、没有长按进符号，见[无缝方向区与七个侧键](../feature/2026-11-06-android-text-edit-seamless-panel.md)）。`showSymbolPanel` 只在有会话时先 `command(2)`，命令失败、会话被停掉时照旧不打开。会话还在建（`STARTING`）的输入框也随之能打开，与表情面板在 #10086 之后的行为一致。
 - **资源目录在不建会话的输入框里也填上**：`emojiResources` 原先只在要建会话的输入框里由 `prefillSessionIndependentDirectories` 填，密码框里打开面板后颜文字和各符号分类会显示「暂时不可用」。`startInputRuntime` 的 `!engineWanted` 分支按同一套校验（绝对路径）只填 `emojiResources`。偏好目录不在这里填：`loadAppearanceWithoutSession` 读到外观时已经填上，插件符号集（`loadPluginSymbolGroups`）读的就是它。表情面板的可用性仍由 `ToolbarReadinessPolicy.emojiEnabled` 决定，`UNAVAILABLE` 时返回 false，填上资源目录不会让密码框里的表情变得可点；功能面板的表情磁贴另外要求 `session != 0`。
 - **密码框里按字面输入**：`SymbolPanelEntryPolicy.pairsClosingMark(inputType, pairedPunctuation)` 在 `EditorPolicy.password` 为真时返回 false，轻点「（」不补「）」。密码要逐字符对得上，多出来的后半个用户看不见（密码框里是圆点），登录会莫名失败。跨过后半个的 `stepOverPairedSymbol` 不用改：密码框里从不补，配对栈一直是空的。
 - **密码框里不记「常用」**：`SymbolPanelEntryPolicy.recordsRecent(inputType, learningSuppressed)` 在密码框里返回 false。「常用」是全局的，在密码里用过的符号会出现在聊天框面板第一页，等于把密码的一部分摆出来。这与剪贴板、语音、按键统计和邮箱后缀在密码框里的口径一致。打开面板时仍显示已有的「常用」，读不涉及这个输入框里输入过什么。
