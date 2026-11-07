@@ -21,7 +21,7 @@ def describe(result):
 
 
 def read_status(cat, sleep=time.sleep):
-    """读夹具状态，返回（文档，最后一次读取结果）；文件确实不存在时立刻返回空文档，读空、adb 失败或解析失败重试，重试用完仍返回空文档。"""
+    """读夹具状态，返回（文档，最后一次读取结果）；文件暂时不存在、读空、adb 失败或解析失败都重试。"""
     for attempt in range(STATUS_ATTEMPTS):
         result = cat()
         text = result.stdout.decode(errors="replace").strip()
@@ -30,9 +30,6 @@ def read_status(cat, sleep=time.sleep):
                 return json.loads(text), result
             except json.JSONDecodeError:
                 pass
-        elif result.returncode != 0 and b"No such file or directory" in result.stderr + result.stdout:
-            # 夹具还没写出第一份状态：start() 靠空文档继续等待，不算读取失败。
-            return {}, result
         if attempt + 1 < STATUS_ATTEMPTS:
             sleep(STATUS_RETRY_DELAY)
     return {}, result
