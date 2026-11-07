@@ -51,7 +51,7 @@ const sizes: Record<ResourcePackId, number> = {
   "target-pronunciations": 3_749_258,
 };
 
-/** 一个假的资源包服务：install 返回的 promise 由测试决定何时完成或失败，进度由测试手动推送。`offered` 是宿主列出的资源包，缺省是 macOS 列出的全部。 */
+/** 一个假的资源包服务：install 返回的 promise 由测试决定何时完成或失败，进度由测试手动推送。`offered` 是宿主列出的资源包，缺省是桌面宿主常见的资源包集合。 */
 function fakePacks(
   state: Partial<Record<ResourcePackId, ResourcePackStatus["state"]>> = {},
   offered: ResourcePackId[] = ["japanese", "language-dictionaries", "handwriting", "settled-model"],
@@ -400,8 +400,8 @@ test("using a model under the factory on-device recognition downloads the speech
   expect(packs.client.install).toHaveBeenCalledTimes(1);
 });
 
-test("a host that bundles the dictionaries never downloads them", async () => {
-  // Windows 和 Linux 随包带着日文词典和语言词库，宿主的列表里没有它们。
+test("a host that does not list bundled dictionaries never downloads them", async () => {
+  // 宿主已随包提供这些词库时，列表里没有它们，设置页不应发起下载。
   const packs = fakePacks({}, ["settled-model"]);
   renderSettings("windows", packs.client);
   await settingsFormReady();

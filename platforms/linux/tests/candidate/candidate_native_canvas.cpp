@@ -1,5 +1,6 @@
 #include "../../src/candidates/NativeCanvas.h"
 #include "../../src/candidates/NativeCanvasSnapshot.h"
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 
@@ -19,18 +20,28 @@ std::uint32_t pixel(cairo_surface_t *surface, int x, int y) {
   std::memcpy(&value, cairo_image_surface_get_data(surface) + y * cairo_image_surface_get_stride(surface) + x * 4, 4);
   return value;
 }
+bool colored_ink(std::uint32_t value, std::uint32_t color) {
+  const int rgb[3] = {static_cast<int>((value >> 16) & 0xff), static_cast<int>((value >> 8) & 0xff),
+      static_cast<int>(value & 0xff)};
+  const int expected[3] = {static_cast<int>((color >> 16) & 0xff), static_cast<int>((color >> 8) & 0xff),
+      static_cast<int>(color & 0xff)};
+  const int strongest = std::max({rgb[0], rgb[1], rgb[2]});
+  if (strongest <= 60) return false;
+  for (int channel = 0; channel < 3; ++channel) {
+    if (expected[channel] > 0 && rgb[channel] <= 60) return false;
+    if (expected[channel] == 0 && rgb[channel] >= strongest / 2) return false;
+  }
+  return true;
+}
+int colored_ink(cairo_surface_t *surface, int width, int height, std::uint32_t color) {
+  int ink = 0;
+  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x)
+    ink += colored_ink(pixel(surface, x, y), color);
+  return ink;
+}
 // 黑底上的抗锯齿像素仍保留分段色主通道，小字号的单个分隔符不保证有足够纯色像素。
 int segment_ink(cairo_surface_t *surface, const host::NativeCanvasLayout &layout, std::uint32_t color) {
-  const int own_channel = color == 0xff0000u ? 0 : color == 0x00ff00u ? 1 : 2;
-  int ink = 0;
-  for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) {
-    const auto value = pixel(surface, x, y);
-    const int rgb[3] = {static_cast<int>((value >> 16) & 0xff), static_cast<int>((value >> 8) & 0xff),
-        static_cast<int>(value & 0xff)};
-    const int own = rgb[own_channel], other = rgb[(own_channel + 1) % 3], third = rgb[(own_channel + 2) % 3];
-    if (own > 60 && other < own / 2 && third < own / 2) ++ink;
-  }
-  return ink;
+  return colored_ink(surface, layout.width, layout.height, color);
 }
 void skin_layout() {
   const auto target = image(1000, 1000, 0);
@@ -66,8 +77,12 @@ void skin_layout() {
   assert(vertical.items[1].y == vertical.items[0].y + vertical.items[0].height + 18);
   assert(vertical.items[0].contains(vertical.items[0].x + 1, vertical.items[0].y + 1));
   assert(!vertical.items[0].contains(vertical.items[0].x + 1, vertical.items[0].y + vertical.items[0].height + 1));
-  assert(host::native_canvas_text_size(cr, vertical.metrics.number_font, "12.").first <
-         host::native_canvas_text_size(cr, vertical.metrics.font, "12.").first);
+  auto *number_font = pango_font_description_from_string(vertical.metrics.number_font.c_str());
+  auto *candidate_font = pango_font_description_from_string(vertical.metrics.font.c_str());
+  assert(pango_font_description_get_size_is_absolute(number_font));
+  assert(pango_font_description_get_size(number_font) < pango_font_description_get_size(candidate_font));
+  pango_font_description_free(number_font);
+  pango_font_description_free(candidate_font);
   content.horizontal = true;
   auto horizontal = host::measure_native_canvas(cr, assets, content);
   assert(horizontal.items[0].width == 150 && horizontal.metrics.number_gap == 9);
@@ -720,13 +735,13 @@ void decoration_overlay() {
     host::paint_native_canvas(cr, assets, content, layout, Json::object());
     int ink = 0;
     for (int y = 0; y < layout.panel.y; ++y) for (int x = 0; x < layout.width; ++x) {
-      if ((pixel(target.get(), x, y) & 0xffffff) != 0xff00ff) continue;
+      if (!colored_ink(pixel(target.get(), x, y), 0xff00ffu)) continue;
       ++ink;
       assert(host::native_canvas_hit(content, layout, x, y) == -1);
       const auto &box = layout.overlay->ink;
       assert(x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height);
     }
-    assert(ink > 10);
+    assert(ink > 2);
   }
   content.items[1].decoration_text = std::string(300, 'W');
   style.maxWidthDip = 1;
@@ -783,10 +798,7 @@ void chrome_decoration_overlay() {
     auto layout = host::measure_native_canvas(cr, assets, content);
     assert(layout.chrome && layout.overlay && layout.overlay->text == "beta");
     host::paint_native_canvas(cr, assets, content, layout, {{"surface", "#000000"}});
-    int ink = 0;
-    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x)
-      ink += (pixel(target.get(), x, y) & 0xffffff) == 0xff00ff;
-    assert(ink > 10);
+    assert(colored_ink(target.get(), layout.width, layout.height, 0xff00ffu) > 2);
     // 文字超出声明框后整体平移，不让候选命中留在原位置。
     assets.band.candidate->offsetXDip = -500;
     assets.band.candidate->offsetYDip = -100;

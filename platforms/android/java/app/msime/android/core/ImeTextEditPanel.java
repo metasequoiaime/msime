@@ -307,9 +307,65 @@ final class ImeTextEditPanel {
             if (spec.repeats()) bindRepeat(button, run);
         }
         ViewPolicy.clearPadding(button);
+        String swipeDescription = TextEditPanelModel.upwardSwipeDescription(action);
         button.setContentDescription(spec.description());
+        button.setTooltipText(swipeDescription.isEmpty() ? null : swipeDescription);
+        bindUpwardSwipe(button, action);
         buttons.put(action, button);
         return button;
+    }
+
+    /** 文首、文末、全选保留原点击动作；明显上滑时改走行级动作。 */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void bindUpwardSwipe(Button button, TextEditPanelModel.Action action) {
+        TextEditPanelModel.Action swipeAction = TextEditPanelModel.upwardSwipeAction(action);
+        if (swipeAction == null) return;
+        final float threshold = s.pixels(TextEditSwipePolicy.THRESHOLD_DP);
+        button.setOnTouchListener(new View.OnTouchListener() {
+            private float downX;
+            private float downY;
+            private boolean claimed;
+
+            @Override public boolean onTouch(View view, MotionEvent event) {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN -> {
+                        downX = event.getX();
+                        downY = event.getY();
+                        claimed = false;
+                        return false;
+                    }
+                    case MotionEvent.ACTION_MOVE -> {
+                        if (event.getPointerCount() != 1) {
+                            claimed = true;
+                            view.setPressed(false);
+                        } else if (!claimed && TextEditSwipePolicy.swipedUp(
+                                threshold, downX, downY, event.getX(), event.getY())) {
+                            claimed = true;
+                            view.setPressed(false);
+                            if (view.getParent() != null)
+                                view.getParent().requestDisallowInterceptTouchEvent(true);
+                        }
+                        return claimed;
+                    }
+                    case MotionEvent.ACTION_UP -> {
+                        if (!claimed && TextEditSwipePolicy.swipedUp(
+                                threshold, downX, downY, event.getX(), event.getY())) claimed = true;
+                        if (!claimed) return false;
+                        claimed = false;
+                        s.imeKeyFeedback.playFeedback(view);
+                        s.countKey(view);
+                        perform(swipeAction);
+                        return true;
+                    }
+                    case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
+                        boolean consumed = claimed;
+                        claimed = false;
+                        return consumed;
+                    }
+                    default -> { return claimed; }
+                }
+            }
+        });
     }
 
     private static boolean isCursorMove(TextEditPanelModel.Action action) {

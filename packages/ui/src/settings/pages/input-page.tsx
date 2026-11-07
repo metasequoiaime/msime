@@ -132,7 +132,7 @@ export function InputSettingsPage() {
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });
   const helpcodeImport = useHelpcodeImport(client.plugins, setDraft, refreshHelpcodePacks);
   const navigation = navigationWithDefaults(draft.navigation);
-  // 升级后补齐已保存偏好需要的资源包由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案、打开桌面神经联想或点「下载」时下载。提供哪些资源包由宿主的列表决定：日文和语言词库只有 macOS 列出。
+  // 升级后补齐已保存偏好需要的资源包由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案、打开桌面神经联想或点「下载」时下载。提供哪些资源包由宿主的列表决定：日文和五笔由桌面宿主按包内容列出，语言词库仍按各平台的随包资源列出。
   const resourcePacks = useResourcePacks(client.resourcePacks, {
     value: draft.voice_input?.asr_model_mirror ?? "",
     onChange: (asr_model_mirror) => onVoiceChange({ asr_model_mirror }),
