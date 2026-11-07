@@ -2,7 +2,9 @@
 param(
     [Parameter(Mandatory)][string]$LiteralPath,
     [string]$DependencyDirectory = '',
-    [string[]]$RequiredExports = @()
+    [string[]]$RequiredExports = @(),
+    # 与被检查映像一起打包的产品 DLL。它们的延迟导入由映像自己的延迟加载通知从安装目录解析，不经过 Win7 核心的系统兼容钩子，随包 DLL 本身另行核验。
+    [string[]]$PackagedLibraries = @()
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -147,6 +149,7 @@ $unsupported = @(
 )
 foreach ($entry in $imports) {
     if ($entry.Delayed) {
+        if ($entry.Library -in $PackagedLibraries) { continue }
         if (-not $allowedDelayed.ContainsKey($entry.Library) -or $entry.Name -notin $allowedDelayed[$entry.Library]) {
             throw "Win7 hook does not cover delayed import: $($entry.Library)!$($entry.Name)"
         }
