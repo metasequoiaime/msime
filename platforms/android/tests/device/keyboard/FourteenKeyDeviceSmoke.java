@@ -12,19 +12,21 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。完整运行之后接着验收双拼（{@link FourteenKeyShuangpinDeviceChecks}）和五笔（{@link FourteenKeyWubiDeviceChecks}）的 14 键；迭代时可用 `-e shuangpin_only true` 或 `-e wubi_only true` 只跑其中一种。
+ * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。完整运行之后接着验收双拼（{@link FourteenKeyShuangpinDeviceChecks}）和五笔（{@link FourteenKeyWubiDeviceChecks}）的 14 键；迭代时可用 `-e shuangpin_only true` 或 `-e wubi_only true` 只跑其中一种。`-e grid_symbols true` 跑 14/18 键角标符号（{@link GridLetterSymbolDeviceChecks}）。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private boolean shuangpinOnly;
     private boolean wubiOnly;
     private boolean eighteenKey;
     private boolean eighteenShuangpin;
+    private boolean gridSymbols;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
         wubiOnly = arguments != null && "true".equals(arguments.getString("wubi_only"));
         eighteenKey = arguments != null && "true".equals(arguments.getString("eighteen_key"));
         eighteenShuangpin = arguments != null && "true".equals(arguments.getString("eighteen_shuangpin"));
+        gridSymbols = arguments != null && "true".equals(arguments.getString("grid_symbols"));
         super.onCreate(arguments);
     }
 
@@ -32,6 +34,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
+        if (gridSymbols) return "14/18 键角标符号的滑动、选项、组字中点按与设置";
         if (eighteenShuangpin) return "十八键双拼设置、组码、消歧、分号、自定义表、布局回落与几何";
         if (eighteenKey) return "十八键全拼设置、组码、消歧、实体字母、布局回落与几何";
         if (wubiOnly) return "14 键五笔设置、组码、符号键、实体字母、86/98 保留与布局回落";
@@ -40,6 +43,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (gridSymbols) {
+            GridLetterSymbolDeviceChecks.run(this);
+            return;
+        }
         if (eighteenShuangpin) {
             FourteenKeyShuangpinDeviceChecks.runEighteen(this);
             return;
