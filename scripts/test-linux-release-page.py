@@ -373,7 +373,7 @@ class RenderDefinitionsTest(Harness):
         release = self.directory / "defs/.release"
         self.assertFalse(release.exists(), "the download directory is removed afterwards")
         docker = (self.state / "docker.jsonl").read_text(encoding="utf-8")
-        self.assertIn("fedora:45", docker)
+        self.assertIn("fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c", docker)
 
     def test_a_tampered_tarball_fails_before_any_container(self):
         local = self.directory / "local"
@@ -384,7 +384,10 @@ class RenderDefinitionsTest(Harness):
         self.assertNotEqual(result.returncode, 0)
         docker = self.state / "docker.jsonl"
         runs = [json.loads(line) for line in docker.read_text(encoding="utf-8").splitlines()] if docker.is_file() else []
-        self.assertFalse([run for run in runs if "fedora:45" in run], "no rpmbuild container after a failed check")
+        self.assertFalse(
+            [run for run in runs if "fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c" in run],
+            "no rpmbuild container after a failed check",
+        )
 
 
 @unittest.skipIf(os.name == "nt", "容器挂载暂存用例使用 POSIX 路径")
