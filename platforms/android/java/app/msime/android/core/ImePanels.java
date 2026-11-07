@@ -2807,6 +2807,17 @@ final class ImePanels {
                 }
                 case android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     boolean handled = dragging;
+                    if (!dragging && event.getActionMasked() == android.view.MotionEvent.ACTION_UP
+                            && allowDetailSwipe && !openAtDown) {
+                        float gestureDx = event.getRawX() - downX;
+                        float gestureDy = event.getRawY() - downY;
+                        if (ClipboardSwipePolicy.claimsRight(gestureDx, gestureDy, touchSlop, false)) {
+                            clipboardActionText = null;
+                            openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST);
+                            recycleVelocity();
+                            return true;
+                        }
+                    }
                     if (dragging) {
                         float velocityX = 0f;
                         if (velocity != null && event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
