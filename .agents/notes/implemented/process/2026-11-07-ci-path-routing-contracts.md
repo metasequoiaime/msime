@@ -15,7 +15,8 @@ Status: implemented
 
 `scripts/test-ci-platform-routing.py` 从 workflow 读取实际 Bash 分类代码。
 它用合成路径运行分类代码，再检查各平台的输出。
-固定的平台目录集合使新增平台目录必须更新测试。
+目录与预期路由共用一张表。新增平台目录时，测试要求增加路由断言。
+每个样例核对全部十个原生 CI 输出，包括未触发的作业。
 
 两项检查都使用 Python 标准库和 Bash。
 `scripts/run-checks.sh` 自动发现并运行它们。

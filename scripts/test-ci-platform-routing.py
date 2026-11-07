@@ -11,7 +11,19 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github/workflows"
-PLATFORMS = {"android", "common", "harmony", "ios", "linux", "macos", "windows"}
+NATIVE_OUTPUTS = (
+    "android", "linux", "harmonyos", "windows", "web", "engine",
+    "engine_capi", "ui", "plugins", "android_device",
+)
+PLATFORM_ROUTES = {
+    "android": ({"android"}, False, False),
+    "common": ({"linux", "windows"}, True, False),
+    "harmony": ({"harmonyos"}, False, False),
+    "ios": (set(), False, True),
+    "linux": ({"linux"}, False, False),
+    "macos": (set(), True, False),
+    "windows": ({"windows"}, False, False),
+}
 
 
 def decision_script(workflow: str) -> str:
@@ -47,46 +59,42 @@ def route(workflow: str, *paths: str) -> dict[str, str]:
 
 
 class CIPlatformRouting(unittest.TestCase):
+    def assert_native_route(self, path: str, active: set[str]):
+        expected = {key: "true" if key in active else "false" for key in NATIVE_OUTPUTS}
+        self.assertEqual(expected, route("ci-platforms.yml", path))
+
     def test_every_platform_directory_has_a_reviewed_route(self):
         actual = {entry.name for entry in (ROOT / "platforms").iterdir() if entry.is_dir()}
-        self.assertEqual(PLATFORMS, actual, "新增平台目录后，请扩展路由测试")
+        self.assertEqual(set(PLATFORM_ROUTES), actual, "新增平台目录后，请扩展路由测试")
 
     def test_shared_engine_reaches_all_hosts(self):
-        native = route("ci-platforms.yml", "crates/engine/src/lib.rs")
-        for key in ("android", "linux", "harmonyos", "windows", "web", "engine", "plugins", "engine_capi"):
-            self.assertEqual("true", native[key], key)
+        self.assert_native_route(
+            "crates/engine/src/lib.rs",
+            {"android", "linux", "harmonyos", "windows", "web", "engine", "plugins", "engine_capi"},
+        )
         self.assertEqual("true", route("ci-macos.yml", "crates/engine/src/lib.rs")["build"])
         self.assertEqual("true", route("ci-ios.yml", "crates/engine/src/lib.rs")["build"])
 
     def test_platform_only_changes_do_not_build_other_hosts(self):
-        cases = (
-            ("android", "android"), ("harmony", "harmonyos"),
-            ("linux", "linux"), ("windows", "windows"),
-            ("ios", None), ("macos", None),
-        )
-        for directory, expected in cases:
+        for directory, (native, macos, ios) in PLATFORM_ROUTES.items():
             path = f"platforms/{directory}/src/example.txt"
             with self.subTest(path=path):
-                native = route("ci-platforms.yml", path)
-                active = {key for key in ("android", "linux", "harmonyos", "windows", "web", "engine", "plugins") if native[key] == "true"}
-                self.assertEqual({expected} if expected else set(), active)
-                self.assertEqual(directory == "macos", route("ci-macos.yml", path)["build"] == "true")
-                self.assertEqual(directory == "ios", route("ci-ios.yml", path)["build"] == "true")
+                self.assert_native_route(path, native)
+                self.assertEqual(macos, route("ci-macos.yml", path)["build"] == "true")
+                self.assertEqual(ios, route("ci-ios.yml", path)["build"] == "true")
 
     def test_licenses_locks_and_build_scripts(self):
         cases = (
             ("LICENSE", {"web"}, True, False),
             ("THIRD_PARTY_NOTICES.txt", set(), True, False),
-            ("resources/opencc.lock.json", {"android", "linux", "harmonyos", "windows", "web", "engine"}, True, True),
+            ("resources/opencc.lock.json", {"android", "linux", "harmonyos", "windows", "web", "engine", "plugins"}, True, True),
             ("resources/onnxruntime-minimal.lock.json", {"android", "linux"}, True, True),
-            ("scripts/fetch_opencc.py", {"android", "linux", "harmonyos", "windows", "web", "engine"}, True, True),
-            ("scripts/fetch_onnxruntime.py", {"android", "linux", "harmonyos", "windows", "web", "engine"}, True, True),
+            ("scripts/fetch_opencc.py", {"android", "linux", "harmonyos", "windows", "web", "engine", "plugins"}, True, True),
+            ("scripts/fetch_onnxruntime.py", {"android", "linux", "harmonyos", "windows", "web", "engine", "plugins"}, True, True),
         )
-        for path, required, macos, ios in cases:
+        for path, active, macos, ios in cases:
             with self.subTest(path=path):
-                native = route("ci-platforms.yml", path)
-                for key in required:
-                    self.assertEqual("true", native[key], key)
+                self.assert_native_route(path, active)
                 self.assertEqual(macos, route("ci-macos.yml", path)["build"] == "true")
                 self.assertEqual(ios, route("ci-ios.yml", path)["build"] == "true")
 
