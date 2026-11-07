@@ -21996,7 +21996,7 @@ fn runtime_resources_status_is_read_only_and_rejects_damaged_resources() {
     ));
 }
 
-/// 各目标的按需清单：macOS、Android 和 iOS 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
+/// 各目标的按需清单：桌面、Android、鸿蒙和 iOS 接受不含可选日文词典组的发布包；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
 #[test]
 fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     use msime_client_core::resources::{on_demand_artifacts, ON_DEMAND_JAPANESE_ARTIFACTS};
@@ -22008,8 +22008,9 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
         ("macos", true),
         ("android", true),
         ("ios", true),
-        ("linux", false),
-        ("windows", false),
+        ("linux", true),
+        ("windows", true),
+        ("ohos", true),
     ] {
         let on_demand = on_demand_artifacts(target);
         if slim_prepares {

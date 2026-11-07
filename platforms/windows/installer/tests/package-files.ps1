@@ -110,7 +110,7 @@ try {
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
     $artifacts = @(
-        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db',
+        foreach ($name in @('msime-pinyin.db', 'msime-wubi.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db',
                             'msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt',
                             'msime-dictionary-manifest.json')) {
             if ($name -ne 'msime-english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
@@ -186,9 +186,15 @@ try {
             Move-Item -LiteralPath "$path.moved" -Destination $path
         }
     }
-    foreach ($artifact in $artifacts) {
+    $omittedFull = @('msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt', 'msime-wubi.db')
+    foreach ($artifact in $artifacts | Where-Object { $_.name -notin $omittedFull }) {
         $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
         if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
+    }
+    foreach ($name in $omittedFull) {
+        if (Test-Path (Join-Path $installer "server_exe/resources/$name")) {
+            throw "Full package unexpectedly included optional resource: $name"
+        }
     }
     if (Test-Path (Join-Path $installer 'server_exe/resources/unlisted-private-file.txt')) {
         throw 'Packaged an unlisted resource'

@@ -1,4 +1,4 @@
-//! 桌面按需下载的资源包。macOS 发布包不再内置日文词典和粤拼/注音/笔画词库，由设置页在用户选用对应方案时下载；手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。macOS 发布包不带五笔码表时，用户选用五笔方案时下载它；macOS 输入法不带本地语音运行库时，用户选用本地识别后下载它。
+//! 桌面按需下载的资源包。桌面发布包可以不内置日文词典和五笔码表，由设置页在用户选用对应方案时下载；语言词库沿用 Linux 的按需规则。手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。macOS 输入法不带本地语音运行库时，用户选用本地识别后下载它。
 //!
 //! 资源包装在 `<state_root>/resource-packs/<id>/`，state_root 就是偏好目录（`PreferencesStore::directory`：macOS 上是 `macos_launch` 解析出的 preferences_directory，Windows 上是 Server 的 DataDir，Linux 上是运行时选项里的状态目录），也是 host-api 查找已下载资源包的同一个目录。下载、校验和整体发布由 `msime_client_providers::resource_packs` 完成；这里只负责决定本机提供哪些资源包、在命令线程之外运行安装、把进度作为 `resource-pack-progress` 事件发给页面，并与语音模型共用 `LocalModelInstalls` 的取消和互斥登记。
 
@@ -150,8 +150,8 @@ const CHINESE_MAIN_COMPONENT: &str = "chinese-main";
 
 /// 本机是否提供这个资源包。
 ///
-/// - 五笔码表只有 macOS 发布包可以不内置：本版本有五笔方案、而资源目录里没有它时列出（五笔版的发布包总带着它）。
-/// - 日文词典和语言词库只有 macOS 发布包不内置，macOS 上总是列出。Windows 随包带着它们，不列出也不下载。Linux 随包带着日文词典；语言词库只在用得到它的版本（版本表 `language_dictionaries` 非空）没有随包带齐时才列出，例如打包时没有备好词库、或不带它们的 Nix 包，否则粤拼、注音和笔画在这台机器上无从启用。
+/// - 五笔码表和日文词典在桌面发布包里可以不内置：本版本提供对应方案、而资源目录里没有资源时列出（五笔版和日文版的主资源由打包脚本保留）。
+/// - Linux 的语言词库仍按已有规则只在版本用得到且随包没有带齐时列出；日文和五笔统一走资源包。
 /// - 手写模型只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）不列出也不下载它。macOS 上提供手写的版本都列出它；Windows 上手写面板先用 Ink，只有 Ink 没有中文识别器、且没有随包或指定的模型时才列出；Linux 上没有随包或指定的模型时才列出。没列出时手写面板照常识别，不等下载。
 /// - 英文音标表和外语读音表（「显示读音」用）只有 Linux 的安装包不带：Linux 上资源目录旁边没有它时列出，由设置页在打开「显示读音」后点「下载」安装，不自动下载；macOS 和 Windows 的发布包带着它们，不列出。
 /// - 离线释义、Android 语音运行库和 OCR 模块只给 Android 使用，桌面不列出。
@@ -161,7 +161,10 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
     match pack {
         // 新的本地翻译设置只由原生宿主管理，不在冻结的 React 资源入口中添加功能。
         ResourcePack::LocalTranslation => false,
-        ResourcePack::Japanese => installation.platform == DesktopPlatform::Macos,
+        ResourcePack::Japanese => matches!(
+            installation.platform,
+            DesktopPlatform::Macos | DesktopPlatform::Windows | DesktopPlatform::Linux
+        ),
         ResourcePack::LanguageDictionaries => match installation.platform {
             DesktopPlatform::Macos => true,
             DesktopPlatform::Windows => false,
@@ -210,8 +213,10 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
         | ResourcePack::AndroidOcrModule
         | ResourcePack::RerankModelSmall => false,
         ResourcePack::Wubi => {
-            installation.platform == DesktopPlatform::Macos
-                && edition.input_schemes.contains(&InputScheme::Wubi)
+            matches!(
+                installation.platform,
+                DesktopPlatform::Macos | DesktopPlatform::Windows | DesktopPlatform::Linux
+            ) && edition.input_schemes.contains(&InputScheme::Wubi)
                 && !installation.wubi_dictionary
         }
         ResourcePack::MacosVoiceRuntime => {
@@ -554,9 +559,9 @@ mod tests {
         );
     }
 
-    /// 五笔码表只在 macOS、版本有五笔方案、资源目录里又没有它时列出；资源目录带着它（开发构建、五笔版）或在 Windows 和 Linux 上从不列出。
+    /// 桌面版本有五笔方案、资源目录里又没有码表时列出五笔资源包；五笔版由打包脚本随包提供，所以运行时不会触发下载。
     #[test]
-    fn the_wubi_pack_is_offered_only_to_a_macos_package_without_the_table() {
+    fn the_wubi_pack_is_offered_to_desktop_packages_without_the_table() {
         for edition in Edition::all() {
             let wubi = edition.input_schemes.contains(&InputScheme::Wubi);
             let mut macos = installation(DesktopPlatform::Macos);
@@ -575,7 +580,13 @@ mod tests {
             for platform in [DesktopPlatform::Windows, DesktopPlatform::Linux] {
                 let mut other = installation(platform);
                 other.wubi_dictionary = false;
-                assert!(!offered_by(ResourcePack::Wubi, edition, &other));
+                assert_eq!(
+                    offered_by(ResourcePack::Wubi, edition, &other),
+                    wubi,
+                    "{} on {:?}",
+                    edition.id,
+                    platform
+                );
             }
         }
         assert!(!offered_by(
@@ -664,7 +675,7 @@ mod tests {
         }
     }
 
-    /// macOS 发布包对每个版本都不内置日文词典。水杉日语只有日文一个方案，用户不会去切换方案：它的状态目录第一次准备好时偏好就是日文（`Preferences::for_edition`），设置应用第一次启动就由这里补下词典。越南文、藏文版不需要任何资源包。
+    /// 桌面发布包按版本决定是否把日文词典留在包内。水杉日语只有日文一个方案，用户不会去切换方案：它的状态目录第一次准备好时偏好就是日文（`Preferences::for_edition`），设置应用第一次启动就由这里补下词典。越南文、藏文版不需要任何资源包。
     #[test]
     fn single_language_editions_fetch_exactly_their_own_packs_on_first_launch() {
         let first_launch = |id: &str| {
@@ -721,7 +732,7 @@ mod tests {
         ));
     }
 
-    /// macOS 的提供规则与按需下载上线时一致：随包的旧手写模型不影响列出手写资源包。
+    /// 桌面三平台的提供规则与按需下载上线时一致：随包的旧手写模型不影响列出手写资源包。
     #[test]
     fn macos_offers_every_pack_it_offered_before() {
         let mut macos = installation(DesktopPlatform::Macos);
@@ -735,17 +746,27 @@ mod tests {
         }
     }
 
-    /// Windows 和 Linux 随包带着日文词典和语言词库时，从不下载它们。
+    /// 桌面三平台的日文词典都可以改为资源包；语言词库仍按各平台是否随包提供判断。
     #[test]
-    fn only_macos_downloads_dictionaries() {
-        for platform in [DesktopPlatform::Windows, DesktopPlatform::Linux] {
-            for pack in [ResourcePack::Japanese, ResourcePack::LanguageDictionaries] {
-                assert!(
-                    !offered_by(pack, Edition::full(), &installation(platform)),
-                    "{platform:?} {}",
-                    pack.id()
-                );
-            }
+    fn all_desktops_offer_optional_japanese_and_wubi() {
+        for platform in [
+            DesktopPlatform::Macos,
+            DesktopPlatform::Windows,
+            DesktopPlatform::Linux,
+        ] {
+            let mut missing = installation(platform);
+            missing.wubi_dictionary = false;
+            assert!(offered_by(
+                ResourcePack::Japanese,
+                Edition::full(),
+                &missing
+            ));
+            assert!(offered_by(ResourcePack::Wubi, Edition::full(), &missing));
+            assert!(!offered_by(
+                ResourcePack::LanguageDictionaries,
+                Edition::full(),
+                &missing
+            ));
         }
     }
 
@@ -871,7 +892,7 @@ mod tests {
         assert!(!bundled_target_pronunciations(&serde_json::json!({})));
     }
 
-    /// Linux 安装没有随包带齐语言词库时，用得到它们的版本列出语言词库资源包，否则粤拼、注音和笔画无从启用；日文词典照旧随包，不列出。Windows 不受影响。
+    /// Linux 安装没有随包带齐语言词库时，用得到它们的版本列出语言词库资源包，否则粤拼、注音和笔画无从启用；日文词典另走统一的日文资源包。Windows 的语言词库仍由安装包提供。
     #[test]
     fn linux_offers_language_dictionaries_only_when_the_package_lacks_them() {
         let mut linux = installation(DesktopPlatform::Linux);
@@ -884,7 +905,7 @@ mod tests {
                 edition.id
             );
             assert!(
-                !offered_by(ResourcePack::Japanese, edition, &linux),
+                offered_by(ResourcePack::Japanese, edition, &linux),
                 "{}",
                 edition.id
             );

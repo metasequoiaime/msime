@@ -61,6 +61,17 @@ if ($editionEntry.Count -ne 1) {
     throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识"
 }
 $hostDllName = [string]$editionEntry[0].platforms.windows.host_dll
+$defaultScheme = [string]$editionEntry[0].default_scheme
+# 现代 Windows 包把可选的日文和五笔资源放到共享资源包目录；日文版与五笔版的默认方案必须随包可用，Win7 宿主没有这套资源包入口，继续带完整词库。
+$omitOnDemandNames = @()
+if ($Windows7Architecture -eq '') {
+    if ($defaultScheme -ne 'japanese') {
+        $omitOnDemandNames += @('msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt')
+    }
+    if ($defaultScheme -ne 'wubi') {
+        $omitOnDemandNames += 'msime-wubi.db'
+    }
+}
 # full 的资源锁是原文件本身，其他版本的是 scripts/editions.py gen-locks 生成的子集（与 client-core 的 Edition::resource_lock 一致）。
 $resourceLock = if ($Edition -eq 'full') {
     Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'
@@ -272,9 +283,12 @@ Assert-PathExists -LiteralPath $license -Description '许可证 LICENSE'
 $desktopResources = @()
 if (-not $Light) {
     # Check pinned bytes before staging reads them.
-    $desktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
+    $verifiedDesktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
         -SourceDirectory $resourceSource `
         -ManifestPath $resourceLock)
+    $desktopResources = @($verifiedDesktopResources | Where-Object {
+        (Split-Path -Leaf $_) -notin $omitOnDemandNames
+    })
     Assert-PathExists -LiteralPath $factoryConfig -Description '出厂配置 default_config\config.default.toml'
     Assert-PathExists -LiteralPath $helpcodeSource -Description '辅助码目录'
     if (-not (Get-ChildItem -LiteralPath $helpcodeSource -File -Filter '*.txt')) {
@@ -413,7 +427,8 @@ if (-not $Light) {
     # that only passed its preflight hash check.
     $null = & (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
         -SourceDirectory $targetResources `
-        -ManifestPath $resourceLock
+        -ManifestPath $resourceLock `
+        -OmitNames $omitOnDemandNames
 }
 # 非英文的候选释义（scripts/build_offline_glosses.py），每种目标语言一个 zh-<lang>.db，装在 resources 旁边而不是里面：校验过的资源目录必须与词库锁完全一致，Engine 也到这个同级目录找它们。可选；没有时候选释义只有英文。
 $glossesSource = Join-Path $RepoRoot 'target/offline-glosses'

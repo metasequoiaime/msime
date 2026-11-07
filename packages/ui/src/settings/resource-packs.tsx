@@ -112,7 +112,7 @@ export function savedModelMirror(client: Pick<SettingsClient, "load" | "save">):
 /** 选用某个输入方案时需要下载的资源包；不需要额外资源的方案返回 undefined。 */
 export function resourcePackForScheme(scheme: string | undefined): ResourcePackId | undefined {
   if (scheme === "japanese") return "japanese";
-  // 只有 macOS 发布包不带五笔码表时宿主才列出这个资源包；没列出时 ensure 和下载行什么也不做。
+  // 桌面发布包不带五笔码表时宿主才列出这个资源包；没列出时 ensure 和下载行什么也不做。
   if (scheme === "wubi") return "wubi";
   if (scheme === "cantonese" || scheme === "zhuyin" || scheme === "stroke")
     return "language-dictionaries";

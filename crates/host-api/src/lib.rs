@@ -2069,7 +2069,7 @@ fn wubi_dictionary(
         .or_else(|| resource_packs::installed_file(downloaded.root, ResourcePack::Wubi, name))
 }
 
-/// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。别的平台的资源目录总是带着它，这里总为假。
+/// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。
 pub(crate) fn wubi_dictionary_missing(resources: &Path, wubi_dictionary: &str) -> bool {
     let name = msime_engine::assets::WUBI_DICTIONARY;
     ON_DEMAND_ARTIFACTS
@@ -2459,7 +2459,7 @@ impl HostOptions {
     }
 
     fn into_engine_options(self) -> EngineOptions {
-        // 每个平台都这样查找；日文词典只有 macOS 会下载，语言词库由 macOS 和没有随包带齐它们的 Linux 安装下载，别处的状态目录里从来没有它们。
+        // 每个平台都这样查找；桌面宿主按发布包是否省略日文词典和语言词库决定是否从状态目录读取已下载资源。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
         let downloaded = state_root.as_deref().map(DownloadedDictionaries::new);
         let dictionaries = LanguageDictionaries::resolve(
@@ -2960,7 +2960,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：桌面、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
 #[cfg(target_env = "ohos")]
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts("ohos");

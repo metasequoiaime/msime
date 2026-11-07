@@ -33,21 +33,23 @@ pub struct ResourceSet {
     pub artifacts: Vec<Artifact>,
 }
 
-/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS、Android 和 iOS 的发布包都这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
+/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS、Windows、Linux、Android、鸿蒙和 iOS 的发布包都可以这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
 pub const ON_DEMAND_JAPANESE_ARTIFACTS: [&str; 3] = [
     "msime-japanese.dat",
     "msime-mozc_dictionary_oss_README.txt",
     "msime-mozc_LICENSE.txt",
 ];
 
-/// macOS、Android 和鸿蒙发布包可以不内置、改为按需下载的五笔码表（见 [`on_demand_artifacts`]）。拼音用户用不到它：五笔反查编码只在五笔方案里显示，设置页的五笔查码只在五笔可用时出现；缺少它时五笔方案像缺词库的粤拼一样回退到别的方案，日志里的五笔行在准备代次时跳过。五笔是默认方案的版本（五笔版）的发布包始终带着它，这由打包脚本保证（macOS 的 `stage-resources.sh`，Android 的 `build-apk.sh` 只给 full 和拼音版打瘦包），运行时的校验只容许它缺席。
+/// 桌面、Android 和鸿蒙发布包可以不内置、改为按需下载的五笔码表（见 [`on_demand_artifacts`]）。拼音用户用不到它：五笔反查编码只在五笔方案里显示，设置页的五笔查码只在五笔可用时出现；缺少它时五笔方案像缺词库的粤拼一样回退到别的方案，日志里的五笔行在准备代次时跳过。五笔是默认方案的版本（五笔版）的发布包始终带着它，这由各平台打包脚本保证，运行时的校验只容许它缺席。
 pub const ON_DEMAND_WUBI_ARTIFACTS: [&str; 1] = ["msime-wubi.db"];
 
-/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件，按组列出：每组整体出现或缺席（见 [`ResourceSet::as_shipped_in_groups`]）。macOS、Android 和鸿蒙是日文词典那一组和五笔码表，iOS 是日文词典那一组，其余平台照旧全部内置，返回空列表。iOS 的键盘扩展没有体积上限要守，发布包仍带着五笔码表。iOS 的发布构建以 `MSIME_IOS_OMIT_ON_DEMAND=1` 暂存资源（#7687），键盘扩展的 `EngineResources` 不带这一组；这里不列 iOS 时，运行时按完整清单校验，发布包里的键盘一启动就以 `ExistingGeneration`（缺这三个文件）报「输入运行时准备失败」。
+/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件，按组列出：每组整体出现或缺席（见 [`ResourceSet::as_shipped_in_groups`]）。桌面、Android 和鸿蒙是日文词典那一组和五笔码表，iOS 是日文词典那一组，其余目标照各自版本保留完整清单。iOS 的键盘扩展仍带着五笔码表。日文版和五笔版的主资源不能省略，具体打包脚本会把默认方案所需的组补回；这里的规则只负责让缺席的可选组在运行时通过资源包生效。
 ///
 /// 按参数判断而不是只写 `cfg!`，测试在任何一台主机上都能检查每个目标的规则；宿主按 `std::env::consts::OS` 取本平台的那一份。
 pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static [&'static str]] {
     if same_text(target_os, "macos")
+        || same_text(target_os, "windows")
+        || same_text(target_os, "linux")
         || same_text(target_os, "android")
         || same_text(target_os, "ohos")
     {
@@ -1119,10 +1121,10 @@ mod tests {
             .is_err());
     }
 
-    /// macOS、Android、鸿蒙和 iOS 的发布包可以不带日文词典组，macOS、Android 和鸿蒙还可以不带五笔码表；Linux、Windows 以及其他目标照旧要求带齐。
+    /// 桌面、Android、鸿蒙和 iOS 的发布包可以不带日文词典组，桌面、Android 和鸿蒙还可以不带五笔码表。
     #[test]
-    fn only_macos_android_and_ios_ship_without_the_japanese_group() {
-        for target in ["macos", "android", "ohos"] {
+    fn desktop_and_mobile_targets_allow_optional_groups() {
+        for target in ["macos", "windows", "linux", "android", "ohos"] {
             assert_eq!(
                 on_demand_artifacts(target),
                 [
@@ -1137,11 +1139,11 @@ mod tests {
             [ON_DEMAND_JAPANESE_ARTIFACTS.as_slice()]
         );
         for target in [
-            "linux", "windows", "", "androi", "android ", "ohos ", "ios ", "macos ",
+            "", "androi", "android ", "ohos ", "ios ", "macos ", "windows ", "linux ",
         ] {
             assert!(on_demand_artifacts(target).is_empty(), "{target:?}");
         }
-        // Android 上不带日文词典组的资源目录按子集校验通过。
+        // 允许按需下载的目标上，不带可选组的资源目录按子集校验通过。
         let directory = tempfile::tempdir().unwrap();
         write_core(directory.path());
         let spec = desktop_specification();
@@ -1149,19 +1151,24 @@ mod tests {
         assert!(ResourceStore::new(directory.path())
             .verify(directory.path(), &shipped)
             .is_ok());
-        let linux = spec.as_shipped_in_groups(directory.path(), on_demand_artifacts("linux"));
-        assert!(ResourceStore::new(directory.path())
-            .verify(directory.path(), &linux)
-            .is_err());
+        for target in ["windows", "linux", "ohos"] {
+            let shipped = spec.as_shipped_in_groups(directory.path(), on_demand_artifacts(target));
+            assert!(
+                ResourceStore::new(directory.path())
+                    .verify(directory.path(), &shipped)
+                    .is_ok(),
+                "{target}"
+            );
+        }
     }
 
-    /// 按组裁剪：五笔码表和日文词典组各自整体缺席或在场，互不影响；macOS 和 Android 上两组都缺、只缺一组的目录都按各自的子集校验通过，iOS 不容许缺五笔码表。
+    /// 按组裁剪：五笔码表和日文词典组各自整体缺席或在场，互不影响；桌面、Android 和鸿蒙上两组都缺、只缺一组的目录都按各自的子集校验通过，iOS 不容许缺五笔码表。
     #[test]
     fn each_on_demand_group_is_left_out_on_its_own() {
         let mut spec = desktop_specification();
         spec.artifacts
             .push(fixture_artifact(ON_DEMAND_WUBI_ARTIFACTS[0], b"wubi"));
-        for target in ["macos", "android"] {
+        for target in ["macos", "windows", "linux", "android", "ohos"] {
             let groups = on_demand_artifacts(target);
             let directory = tempfile::tempdir().unwrap();
             write_core(directory.path());
