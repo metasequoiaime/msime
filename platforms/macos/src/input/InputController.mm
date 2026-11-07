@@ -4818,9 +4818,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (BOOL)observeCapsLockTap:(NSEvent *)event capsLock:(BOOL)capsLock sender:(id)sender {
     const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
-    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
+    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged &&
         !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
-        // 实体松手的状态事件先到时（无论锁定位是否已清除），用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        // 实体松手的状态事件可能没有保留 Caps Lock 的键码或锁定位；只要没有其它修饰键且实体已松开，就用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
         _capsLockTapAwaitingReleaseEvent = NO;
         [self pollCapsLockTap];
         return YES;
