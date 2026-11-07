@@ -39,6 +39,10 @@ public final class ClipboardSwipePolicySmoke {
         check(ClipboardSwipePolicy.claims(60, 0, slop, true), "a rightward drag on an open card closes it");
         check(ClipboardSwipePolicy.claims(-60, 0, slop, true), "a leftward drag on an open card is still tracked");
         check(!ClipboardSwipePolicy.claims(5, 0, slop, true), "an open card still treats a small move as a tap");
+        check(ClipboardSwipePolicy.claimsRight(60, 0, slop, false), "a rightward drag on a closed card opens detail");
+        check(!ClipboardSwipePolicy.claimsRight(-60, 0, slop, false), "a leftward drag never opens detail");
+        check(!ClipboardSwipePolicy.claimsRight(60, 0, slop, true), "an open card closes instead of opening detail");
+        check(!ClipboardSwipePolicy.claimsRight(40, 40, slop, false), "a diagonal drag remains a list scroll");
 
         // 跟手的位移夹在 [-reveal, 0]。
         check(ClipboardSwipePolicy.offset(0, -30, reveal) == -30, "the card follows the finger");
