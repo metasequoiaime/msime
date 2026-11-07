@@ -6,6 +6,7 @@
 - 安装脚本与 ebuild 里停用、重启的用户单元与 CMakeLists.txt 的 MSIME_USER_UNITS 一致，msime 与 msime-bin 的安装脚本逐字相同；
 - live ebuild 的 RUST_MIN_VER 等于 rust-toolchain.toml 钉住的版本，版本 ebuild 模板能完整渲染；
 - 两个 PKGBUILD 的 license 与 rpm/msime.spec 的 License 是同一份 SPDX 清单（随包的第三方代码与数据都要列出，不能只写 GPL-3.0-only），并把许可证文本链进 /usr/share/licenses；
+- `msime-bin` 声明本地翻译可执行文件实际需要的 GTK4 运行时依赖；
 - 提交了 .SRCINFO 时，它的版本与校验值和 PKGBUILD 一致。
 """
 from __future__ import annotations
@@ -146,6 +147,12 @@ def main() -> None:
             check(f"\t{key} = {value}\n" in info, f"arch/{name}/.SRCINFO {key} does not match PKGBUILD ({value}); rerun render.py")
         for digest in re.findall(r"'([0-9a-f]{64})'", pkgbuild):
             check(digest in info, f"arch/{name}/.SRCINFO does not carry PKGBUILD checksum {digest}; rerun render.py")
+
+    # msime-bin 随包带本地翻译程序，它链接 GTK4；把依赖漏掉会让 Arch 容器的 ldd 检查在 package() 阶段才失败。
+    bin_pkgbuild = (ARCH / "msime-bin" / "PKGBUILD").read_text(encoding="utf-8")
+    depends = re.search(r"^depends=\((.*?)^\)", bin_pkgbuild, re.MULTILINE | re.DOTALL)
+    check(depends is not None and re.search(r"^  'gtk4'$", depends.group(1), re.MULTILINE) is not None,
+          "arch/msime-bin/PKGBUILD must depend on gtk4 for msime-linux-local-translation")
 
     if failures:
         for failure in failures:
