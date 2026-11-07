@@ -75,7 +75,7 @@ if want rpm; then
   python3 "$here/render-sources.py" --version "$version" --spec-out "$out/rpm/msime.spec"
   cp "$here/rpm/msime-rpmlintrc" "$out/rpm/"
   # 只打源码包，不构建：rpmbuild -bs 只要规格文件与各个 Source 在 _sourcedir 里，tarball 用符号链接，不复制一份。dist 置空，SRPM 不带 .fc44 这类标记，COPR 按各 chroot 重新构建。
-  docker run --rm -v "$out/rpm":/d -v "$release":/release:ro fedora:44 bash -euo pipefail -c '
+  docker run --rm -v "$out/rpm":/d -v "$release":/release:ro fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c bash -euo pipefail -c '
     dnf -y -q install rpm-build >/dev/null
     mkdir /sources
     ln -s /release/msime-'"$version"'.tar.xz /release/msime-'"$version"'-vendor.tar.xz /sources/
