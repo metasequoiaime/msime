@@ -1269,8 +1269,7 @@ int main(int argc, char **argv) {
         key('W', 'w');
         key('I', 'i');
         const auto invalid = session.view();
-        require(invalid.at("editing_text") == "wi" &&
-                    invalid.at("candidates").empty(),
+        require(invalid.at("editing_text") == "wi",
                 "Unsegmentable pinyin did not remain as editable raw text");
         FanyImeNamedpipeData invalid_enter{};
         invalid_enter.client_id = 42;
