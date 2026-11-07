@@ -1,10 +1,17 @@
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.InputFeatureToggle.Group;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class InputFeatureToggleSmoke {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         List<InputFeatureToggle> all = List.of(InputFeatureToggle.values());
         check(!all.isEmpty(), "there are toggles to show");
 
@@ -62,7 +69,47 @@ public final class InputFeatureToggleSmoke {
         check(InputFeatureToggle.of(Group.PRIVACY).stream()
                 .anyMatch(toggle -> "translation_account".equals(toggle.key())),
             "the account translation switch is grouped where its consequence is stated");
+        wubiGroup();
         System.out.println("Android input feature toggles: keys, grouping and shared defaults passed");
+    }
+
+    /** #10830：输入页五笔组的四个开关。默认值跟 client-core 的 `Preferences` 一致（混输缺键时跟键盘服务的读法一样按关），标题和说明与共享设置页 wubi-section.tsx 一字不差，Windows 和 macOS 的原生设置页用的也是同一套字。 */
+    private static void wubiGroup() throws IOException {
+        List<String> keys = new ArrayList<>();
+        for (InputFeatureToggle toggle : InputFeatureToggle.of(Group.WUBI)) keys.add(toggle.key());
+        check(keys.equals(List.of("wubi_mixed_pinyin", "wubi_code_hint", "wubi_fifth_code_top_commit", "wubi_auto_commit_unique")),
+            "the Wubi group lists mixed input, code hint, fifth-code top commit and unique auto commit in the shared order: " + keys);
+        check(!enabledByDefault("wubi_mixed_pinyin"), "a snapshot without wubi_mixed_pinyin reads as off, as MSIMEInputService reads it");
+        check(enabledByDefault("wubi_code_hint"), "the remaining-code hint is on by default");
+        check(enabledByDefault("wubi_fifth_code_top_commit"), "the fifth code commits the first candidate by default");
+        check(enabledByDefault("wubi_auto_commit_unique"), "a unique four-code candidate commits by default");
+        String shared = new String(Files.readAllBytes(repoRoot().resolve("packages/ui/src/settings/wubi-section.tsx")), StandardCharsets.UTF_8);
+        Matcher row = Pattern.compile("title=\"([^\"]+)\"\\s+description=\"([^\"]+)\"\\s+checked=\\{state\\.(\\w+)\\}").matcher(shared);
+        int matched = 0;
+        while (row.find()) {
+            InputFeatureToggle toggle = toggle(row.group(3));
+            if (toggle == null || toggle.group() != Group.WUBI) continue;
+            check(toggle.title().equals(row.group(1)), "the Wubi switch is titled as in wubi-section.tsx: " + row.group(1));
+            check(toggle.description().equals(row.group(2)), "the Wubi switch is described as in wubi-section.tsx: " + row.group(3));
+            matched++;
+        }
+        check(matched == keys.size(), "every Android Wubi switch has its row in wubi-section.tsx, found " + matched);
+    }
+
+    private static Path repoRoot() {
+        Path dir = Paths.get(System.getProperty("user.dir")).toAbsolutePath();
+        while (dir != null) {
+            if (Files.isRegularFile(dir.resolve("packages/ui/src/settings/wubi-section.tsx"))) return dir;
+            dir = dir.getParent();
+        }
+        throw new AssertionError("run this smoke from inside the repository; wubi-section.tsx not found above user.dir");
+    }
+
+    private static InputFeatureToggle toggle(String key) {
+        for (InputFeatureToggle toggle : InputFeatureToggle.values()) {
+            if (toggle.key().equals(key)) return toggle;
+        }
+        return null;
     }
 
     private static boolean hasToggle(String key) {

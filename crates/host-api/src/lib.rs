@@ -947,6 +947,7 @@ impl HostSession {
         options.local_emoji = preferences.local_modes.emoji;
         options.local_kaomoji = preferences.local_modes.kaomoji;
         options.local_super_jianpin = preferences.local_modes.super_jianpin;
+        options.local_super_jianpin_slash = preferences.local_modes.super_jianpin_slash;
         options.local_temporary_english = preferences.local_modes.temporary_english;
         options.local_temporary_japanese = preferences.local_modes.temporary_japanese;
         options.local_expression = preferences.local_modes.expression;
@@ -2546,6 +2547,7 @@ impl HostOptions {
             local_emoji: self.preferences.local_modes.emoji,
             local_kaomoji: self.preferences.local_modes.kaomoji,
             local_super_jianpin: self.preferences.local_modes.super_jianpin,
+            local_super_jianpin_slash: self.preferences.local_modes.super_jianpin_slash,
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
             local_expression: self.preferences.local_modes.expression,
@@ -2958,7 +2960,12 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS 和 Android 是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
+#[cfg(target_env = "ohos")]
+pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
+    msime_client_core::resources::on_demand_artifacts("ohos");
+
+#[cfg(not(target_env = "ohos"))]
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts(std::env::consts::OS);
 

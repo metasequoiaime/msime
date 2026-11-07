@@ -500,7 +500,7 @@ static NSString *CandidateSourceBadge(NSDictionary *candidate, NSString *aiBadge
 
 // 画候选文字（含来源与固定排位的角标）。徽标串由调用方按偏好算好：AI 来源用它替换写死的 🤖，
 // 固定排位追加在来源角标之后，与 Windows candidate_view_model.h 的 text+annotation+badge 顺序一致。
-static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
+static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *aiBadge, NSString *fixedBadge) {
     // 未提供缓存时回退出厂徽标；显式空串保留关闭状态，不把 nil 传给字符串拼接。
     aiBadge = aiBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot"));
     fixedBadge = fixedBadge ?: MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip"));
@@ -514,7 +514,7 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
                                CFGetTypeID((__bridge CFTypeRef)source) != CFBooleanGetTypeID() &&
                                !CFNumberIsFloatType((__bridge CFNumberRef)source);
     // 来源 13 是日文，来源 18 已由运行时逐段转换；两者都不能再次整行简转繁。
-    if (!(integerSource && ([source isEqual:@13] || [source isEqual:@18]))) text = MSIMEChineseOutputString(text, traditional);
+    if (!(integerSource && ([source isEqual:@13] || [source isEqual:@18]))) text = MSIMEChineseOutputString(text, traditional, variant);
     // 来源与固定排位角标只参与显示，不改变候选身份或上屏内容。
     NSString *badge = CandidateSourceBadge(candidate, aiBadge);
     if (fixedBadge.length && MSIMECandidateIsFixedPosition(candidate[@"fixed_position"]))
@@ -600,26 +600,26 @@ static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, 
     return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
 }
 
-static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, NSString *hint, NSString *aiBadge, NSString *fixedBadge) {
-    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplayWithBadges(candidate, traditional, aiBadge, fixedBadge);
+static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *hint, NSString *aiBadge, NSString *fixedBadge) {
+    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplayWithBadges(candidate, traditional, variant, aiBadge, fixedBadge);
     NSMutableDictionary *annotated = [candidate mutableCopy];
     annotated[@"annotation"] = [NSString stringWithFormat:@"(%@)", hint];
-    return CandidateDisplayWithBadges(annotated, traditional, aiBadge, fixedBadge);
+    return CandidateDisplayWithBadges(annotated, traditional, variant, aiBadge, fixedBadge);
 }
 
 // The panel draws the 辅助码 (or the engine's annotation) as a run of its own after the candidate text, so it can move under a text that leaves it no room, as the Windows presenter does. The tooltip and accessibility label keep the combined CandidateDisplayWithWubiHint form.
-static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional, NSString *aiBadge, NSString *fixedBadge) {
-    if (candidate[@"annotation"] == nil) return CandidateDisplayWithBadges(candidate, traditional, aiBadge, fixedBadge);
+static NSString *CandidateTextRun(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *aiBadge, NSString *fixedBadge) {
+    if (candidate[@"annotation"] == nil) return CandidateDisplayWithBadges(candidate, traditional, variant, aiBadge, fixedBadge);
     NSMutableDictionary *plain = [candidate mutableCopy];
     [plain removeObjectForKey:@"annotation"];
-    return CandidateDisplayWithBadges(plain, traditional, aiBadge, fixedBadge);
+    return CandidateDisplayWithBadges(plain, traditional, variant, aiBadge, fixedBadge);
 }
 
-static NSString *CandidateAnnotationRun(NSDictionary *candidate, BOOL traditional, NSString *hint) {
+static NSString *CandidateAnnotationRun(NSDictionary *candidate, BOOL traditional, uint32_t variant, NSString *hint) {
     NSString *annotation = [hint isKindOfClass:NSString.class] && hint.length ? [NSString stringWithFormat:@"(%@)", hint]
                                                                               : candidate[@"annotation"];
     if (![annotation isKindOfClass:NSString.class] || annotation.length == 0) return @"";
-    return MSIMEChineseOutputString(annotation, traditional);
+    return MSIMEChineseOutputString(annotation, traditional, variant);
 }
 
 // One page of candidate rows laid out at the card width they get: what the panel draws, what its buttons answer clicks in, and what the keymap panel keeps clear of.
@@ -1369,6 +1369,12 @@ static bool MSIMEReadCapsLockHIDState(bool *known) {
 }
 static bool (*MSIMECapsLockHIDState)(bool *known) = &MSIMEReadCapsLockHIDState;
 
+static bool MSIMECapsLockHIDStateIsKnown() {
+    bool known = false;
+    if (MSIMECapsLockHIDState) (void)MSIMECapsLockHIDState(&known);
+    return known;
+}
+
 // 键码 0x39 的查询跟随大写锁定，松手后仍可能为真；只读 stateless 位区分实体按住与逻辑锁定。
 static bool MSIMECapsLockPhysicallyHeld() {
     bool hidStateKnown = false;
@@ -1992,6 +1998,10 @@ static NSImage *MSIMECandidateLogoImage() {
     // 单按 Caps Lock 切换中英文：大写锁定打开的那一刻布防，轮询到松开时认定是轻点还是长按。
     msime::input::CapsLockTap _capsLockTap;
     NSTimer *_capsLockTapTimer;
+    // 首个事件没有实体按住位时，等待后续的 flagsChanged 松键事件；定时器不能把未知状态误判成已松手。
+    BOOL _capsLockTapAwaitingReleaseEvent;
+    // 待定轻点的状态事件需要由输入法消费，但不能提前离开 handleKeyEvent，否则会跳过后续会话和宿主状态维护。
+    BOOL _capsLockTapConsumedEvent;
     // IOKit 撤回锁定后，窗口服务器可能还会把旧的 Caps Lock 修饰位带进一两个事件；
     // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
     BOOL _capsLockTapReleased;
@@ -2721,7 +2731,8 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
         return NO;
     NSString *sense = _glossSenses[index];
     // The page is drawn through the same conversion (renderCandidates), and _view is still the page view carrying the saved composition's scheme and local_mode, so what is inserted is what is shown.
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) sense = MSIMEChineseOutputString(sense, YES);
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view))
+        sense = MSIMEChineseOutputString(sense, YES, _appearance.traditionalChineseVariant);
     [self discardGlossSensePage];
     [(id<MSIMETextClient>)sender insertText:sense replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     // The sense is the output; what was being composed goes away rather than following it out.
@@ -3092,7 +3103,8 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
     NSString *gloss = MSIMECandidateTranslationColumn(candidate, column);
     if (!gloss.length) return NO;
     // Inserted text follows the traditional-output switch like every other commit (the reference's CandidateTextForOutput); Latin and kana glosses pass through unchanged.
-    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) gloss = MSIMEChineseOutputString(gloss, YES);
+    if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(_view))
+        gloss = MSIMEChineseOutputString(gloss, YES, _appearance.traditionalChineseVariant);
     [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     _armedGlossColumn = 0;
     // The gloss is what the user asked for, so the composition goes away rather than being
@@ -4800,6 +4812,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _capsLockTap.reset();
     [_capsLockTapTimer invalidate];
     _capsLockTapTimer = nil;
+    _capsLockTapAwaitingReleaseEvent = NO;
 }
 // 失焦、换会话等外部重置打断了待定的轻点：大写锁定按实际状态报告，不再切换。
 - (void)abandonCapsLockTap {
@@ -4811,9 +4824,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (BOOL)observeCapsLockTap:(NSEvent *)event capsLock:(BOOL)capsLock sender:(id)sender {
     const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
-    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged && capsLock &&
+    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged &&
         !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
-        // 实体松手的状态事件先到时，用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        // 实体松手的状态事件可能没有保留 Caps Lock 的键码或锁定位；只要没有其它修饰键且实体已松开，就用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        _capsLockTapAwaitingReleaseEvent = NO;
         [self pollCapsLockTap];
         return YES;
     }
@@ -4821,13 +4835,17 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self cancelCapsLockTap];
         // 只有大写锁定从关变开才可能是轻点；开着时按它是关掉大写锁定，照常处理，不切换。
         if (!capsLock || _capsLock || !sender || !_appearance.capsLockTapShortcut) return NO;
-        // 设备没有提供实体按住位时保留系统大写锁定，不能把缺失状态当作已经松手；同时开始（或重试）HID 监听，拿到结果之后的轻点才能判定。
-        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld()) {
+        // HID 已经确认实体仍按着、而事件没有实体按住位时，先交回系统；只有状态未知时才等待后续松键事件。
+        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) &&
+            MSIMECapsLockHIDStateIsKnown() && MSIMECapsLockKeyHeld()) return NO;
+        // 设备没有提供实体按住位时也先布防；同时开始（或重试）HID 监听，等待后续松键事件，不能把未知状态当作已经松手。
+        const BOOL awaitingReleaseEvent = !(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld();
+        if (awaitingReleaseEvent) {
             MSIMECapsLockHIDStart();
-            return NO;
         }
         _capsLockTap.press(MSIMECapsLockNow(), true, false, (event.modifierFlags & others) != 0);
         if (!_capsLockTap.armed()) return NO;
+        _capsLockTapAwaitingReleaseEvent = awaitingReleaseEvent;
         __weak MSIMEInputController *weakSelf = self;
         _capsLockTapTimer = [NSTimer timerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
             (void)timer;
@@ -4856,6 +4874,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self adoptCapsLockState:YES];
         return;
     }
+    if (_capsLockTapAwaitingReleaseEvent && !_capsLockTap.heldTooLong(now)) return;
     const bool tap = _capsLockTap.release(now);
     [self cancelCapsLockTap];
     // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
@@ -7775,7 +7794,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
     }
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted && !event.isARepeat) [self reportKeyToLifecycle:event];
+    _capsLockTapConsumedEvent = NO;
     const BOOL handled = [self handleKeyEvent:event client:sender];
+    const BOOL finalHandled = handled || _capsLockTapConsumedEvent;
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
         // A key event is the wake-up edge: restore the toolbar before the next event arrives, even if
         // a preceding focus or preference callback left its requested visibility stale.
@@ -7783,15 +7804,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
             [_toolbar wakeForInputDelegate:self];
         }
-        [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+        [self noteKeyForSmartPunctuationShadow:event eaten:finalHandled];
     }
     if (!selfPosted) [self recordKeyPress:event client:sender];
-    if (!handled) [self recordPassthroughKey:event client:sender];
+    if (!finalHandled) [self recordPassthroughKey:event client:sender];
     const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
     if (timed && elapsedMs >= 8.0) {
-        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0, elapsedMs);
+        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, finalHandled ? 1 : 0, elapsedMs);
     }
-    return handled;
+    return finalHandled;
 }
 
 - (void)recordPassthroughKey:(NSEvent *)event client:(id)sender {
@@ -7932,7 +7953,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         capsLock = NO;
         staleCapsLock = YES;
     }
-    if (!staleCapsLock && ![self observeCapsLockTap:event capsLock:capsLock sender:sender]) [self adoptCapsLockState:capsLock];
+    // 设备尚未报告实体状态时，首个大写锁定状态事件和随后撤回锁定的事件都属于待判定轻点，先交给输入法吞掉，避免系统把尚未确认的锁定状态继续传给应用。普通按住场景仍把首个事件交回应用。
+    const BOOL capsTapWasArmed = _capsLockTap.armed();
+    const BOOL capsTapObserved = !staleCapsLock && [self observeCapsLockTap:event capsLock:capsLock sender:sender];
+    const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
+        (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
+    if (!capsTapObserved) [self adoptCapsLockState:capsLock];
+    _capsLockTapConsumedEvent = delayedCapsTapEvent;
     if (!sender) {
         _voicePermissionToken = nil;
         [_voiceOverlay dismissFailure];
@@ -8755,7 +8782,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         return;
     }
     if (_appearance.traditionalOutput && MSIMEScriptConversionApplies(transition[@"commit_context"]))
-        text = MSIMEChineseOutputString(text, YES);
+        text = MSIMEChineseOutputString(text, YES, _appearance.traditionalChineseVariant);
     // Posted voice text reaches the application without passing the shadow.
     [self invalidateSmartPunctuationShadow];
     if ([self postVoiceText:text route:route] == MSIMEVoiceCommitOutcome::unavailable) {
@@ -8810,11 +8837,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [wordCharacter[@"word_character_prefix"] isKindOfClass:NSString.class]) {
         NSString *prefix = wordCharacter[@"word_character_prefix"];
         NSString *candidate = wordCharacter[@"word_character_candidate"];
-        NSString *convertedWord = MSIMEChineseOutputString([prefix stringByAppendingString:candidate], YES);
+        NSString *convertedWord = MSIMEChineseOutputString([prefix stringByAppendingString:candidate], YES,
+                                                           _appearance.traditionalChineseVariant);
         NSString *edge = MSIMEEdgeHanCharacter(convertedWord, MSIMEStrictBoolean(wordCharacter[@"word_character_first"]));
         if (edge.length) {
             NSMutableDictionary *converted = [transition mutableCopy];
-            converted[@"commit"] = [MSIMEChineseOutputString(prefix, YES) stringByAppendingString:edge];
+            converted[@"commit"] = [MSIMEChineseOutputString(prefix, YES, _appearance.traditionalChineseVariant)
+                stringByAppendingString:edge];
             converted[@"word_character_converted"] = @YES;
             transition = converted;
         }
@@ -8897,9 +8926,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (_appearance.traditionalOutput && !MSIMEStrictBoolean(transition[@"word_character_converted"]) &&
         MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
-        converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
+        converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES, _appearance.traditionalChineseVariant);
         if ([cursorSuffix isKindOfClass:NSString.class])
-            converted[@"commit_cursor_suffix"] = MSIMEChineseOutputString(cursorSuffix, YES);
+            converted[@"commit_cursor_suffix"] = MSIMEChineseOutputString(cursorSuffix, YES, _appearance.traditionalChineseVariant);
         displayTransition = converted;
     }
     const uint64_t applySequence = _applySequence;
@@ -9199,6 +9228,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     MSIMECandidatePageGeometry geometry;
     const BOOL vertical = _appearance.vertical && columnCount == 0;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
+    const uint32_t traditionalVariant = _appearance.traditionalChineseVariant;
     // The fonts arrive at the window's scale already; the row's own paddings follow them.
     const CGFloat scale = MSIMECandidateScale(_appearance);
     const auto &layout = _candidateLayoutGeometry;
@@ -9236,8 +9266,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     NSUInteger index = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *hint = MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled);
-        NSString *text = CandidateTextRun(candidate, traditional, _aiBadgeString, _fixedBadgeString);
-        NSString *annotation = CandidateAnnotationRun(candidate, traditional, hint);
+        NSString *text = CandidateTextRun(candidate, traditional, traditionalVariant, _aiBadgeString, _fixedBadgeString);
+        NSString *annotation = CandidateAnnotationRun(candidate, traditional, traditionalVariant, hint);
         NSString *reading = @"";
         if (hanjaReadings) {
             reading = annotation;
@@ -9249,7 +9279,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         NSString *gloss = MSIMECandidateGlossRun(reading, translation);
         // The tooltip and the accessibility label keep the reading apart from the Hanja rather than running the two together.
         NSString *display = hanjaReadings ? (reading.length ? [NSString stringWithFormat:@"%@ %@", text, reading] : text)
-                                          : CandidateDisplayWithWubiHint(candidate, traditional, hint, _aiBadgeString, _fixedBadgeString);
+                                          : CandidateDisplayWithWubiHint(candidate, traditional, traditionalVariant, hint, _aiBadgeString, _fixedBadgeString);
         [texts addObject:text];
         [annotations addObject:annotation];
         [displays addObject:display];
@@ -9816,7 +9846,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
                 NSString *badge = skin.decorationCandidate->stripBadge ? @"" : CandidateSourceBadge(candidate, _aiBadgeString);
                 word = MSIMEChineseOutputString([text stringByAppendingString:badge],
                     _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view) &&
-                    ![candidate[@"source"] isEqual:@13] && ![candidate[@"source"] isEqual:@18]);
+                    ![candidate[@"source"] isEqual:@13] && ![candidate[@"source"] isEqual:@18],
+                    _appearance.traditionalChineseVariant);
             }
         }
     }
@@ -10528,7 +10559,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     BOOL caretEditHintShown = caretEditHintWidth > 0;
     NSDictionary *onlinePreview = preedit.length ? MSIMECandidateOnlinePreview(candidates) : nil;
     NSString *previewText = onlinePreview ? MSIMEChineseOutputString(onlinePreview[@"text"],
-        _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view)) : @"";
+        _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view),
+        _appearance.traditionalChineseVariant) : @"";
     NSFont *previewFont = [_appearance candidateFontOfSize:MSIMECandidatePageIndicatorPointSize * scale englishFirst:NO];
     const CGFloat previewIconSide = ceil(previewFont.pointSize);
     const CGFloat previewGap = 12 * scale;

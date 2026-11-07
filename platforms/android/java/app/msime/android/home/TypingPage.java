@@ -323,6 +323,11 @@ public final class TypingPage extends ReloadingDetailPage {
             GroupCard wubi = GroupCard.add(sectionColumn(target, "中文"), "五笔");
             wubi.nav(PageId.WUBI_LOOKUP.title(), null, null,
                 () -> SettingsNavigator.open(context, PageId.WUBI_LOOKUP, null)).help("查汉字的 86、98 五笔编码");
+            // 混输、编码提示、顶字和四码唯一自动上屏（#10830）：都是共享文档的顶层布尔值，键盘把同一份文档交给 host-api，引擎和宿主状态从它读，这里只读写，不补写默认值。
+            for (InputFeatureToggle toggle : InputFeatureToggle.of(InputFeatureToggle.Group.WUBI)) {
+                wubi.toggle(toggle.title(), null, preferences.optBoolean(toggle.key(), toggle.enabledByDefault()),
+                    checked -> savePreferences(values -> values.put(toggle.key(), checked))).help(toggle.description());
+            }
         }
 
         GroupCard chinese = GroupCard.add(sectionColumn(target, "中文"), "中文");

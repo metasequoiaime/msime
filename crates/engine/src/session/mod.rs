@@ -15,6 +15,7 @@ mod glide;
 mod grid_helpcode;
 mod helpcode_entry;
 mod input;
+mod jianpin_slash;
 mod learning;
 mod literal;
 mod online;

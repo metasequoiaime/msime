@@ -86,6 +86,9 @@ export const themeCarouselDot = (active: boolean, edge = false) =>
   `${edge ? "size-1.5" : "size-2"} shrink-0 rounded-full border-0 p-0 ${active ? "bg-accent" : "bg-[var(--toggle-off-bg)] hover:bg-edge-strong"}`;
 export const themeCarouselCount =
   "min-w-10 shrink-0 text-center text-xs whitespace-nowrap text-muted tabular-nums";
+/** 导航行末尾的「回到当前」：与箭头同高的胶囊文字按钮，停在在用的那张时变淡。 */
+export const themeCarouselCurrent =
+  "h-7 shrink-0 rounded-full border border-edge bg-[var(--p-group-bg)] px-3 text-xs leading-none whitespace-nowrap text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";
 /** 皮肤卡片。Linux 下去掉卡片的模糊阴影，只留边框和选中时的强调色外圈：装了 NVIDIA 专有驱动时设置窗口在那里关着 WebKit 合成，带模糊的阴影让每一步滚动的重绘慢好几倍（#6403，见 platform-tokens.ts 的 linux 分组阴影）。 */
 export const skinCard = (selected: boolean) =>
   `block overflow-hidden rounded-[var(--p-group-r)] border bg-[var(--p-group-bg)] p-0 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent hover:border-edge-strong ${

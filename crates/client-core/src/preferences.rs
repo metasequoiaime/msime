@@ -3016,6 +3016,9 @@ pub struct LocalModePreferences {
     pub emoji: bool,
     pub kaomoji: bool,
     pub super_jianpin: bool,
+    /// 双拼组字末尾按 `/` 把整段原文改成超级简拼（#10860）。依附 `super_jianpin`，不受 `shift_letter_entry` 管；`/` 已经是万象式辅助码结束键、辅助码前导键或顿号键时不生效（`crate::jianpin_slash::super_jianpin_slash_conflict`）。出厂开，缺这个键的旧文档读作开，开着时不写进文档：https://github.com/metasequoiaime/msime/issues/10860#issuecomment-6650508273 授权按最佳体验定。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub super_jianpin_slash: bool,
     pub temporary_english: bool,
     pub temporary_japanese: bool,
     /// `V` on an empty composition: calculator, Chinese numerals and dates. Off by default, because Shift+V otherwise types a capital V.
@@ -3052,6 +3055,7 @@ impl Default for LocalModePreferences {
             emoji: true,
             kaomoji: true,
             super_jianpin: true,
+            super_jianpin_slash: true,
             temporary_english: true,
             temporary_japanese: true,
             expression: false,

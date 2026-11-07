@@ -219,3 +219,33 @@ test("cards added or removed around the viewed one keep it in view; only a new s
   rerender(slides(["新皮肤", "跟随系统", "水杉"], 0));
   expect(current()?.getAttribute("aria-label")).toBe("查看新皮肤");
 });
+
+test("「回到当前」把翻走的轮播带回在用的那张，停在那张时不可点", () => {
+  renderMany(27);
+  const back = screen.getByRole("button", { name: "回到当前主题" }) as HTMLButtonElement;
+  expect(back.textContent).toBe("回到当前");
+  expect(back.disabled).toBe(true);
+
+  fireEvent.click(screen.getByRole("button", { name: "下一个主题" }));
+  fireEvent.click(screen.getByRole("button", { name: "查看皮肤 32" }));
+  expect(screen.getByText("32 / 46")).toBeTruthy();
+  expect(back.disabled).toBe(false);
+
+  fireEvent.click(back);
+  expect(screen.getByText("28 / 46")).toBeTruthy();
+  expect(current()?.getAttribute("aria-label")).toBe("查看皮肤 28");
+  expect(back.disabled).toBe(true);
+});
+
+test("「回到当前」平滑滚到选中卡片的位置", () => {
+  renderCarousel(1);
+  const track = screen.getByRole("article", { name: labels[0] }).parentElement!.parentElement!;
+  Object.defineProperty(track, "clientWidth", { value: 300 });
+  track.scrollTo = vi.fn();
+  fireEvent.click(screen.getByRole("button", { name: "查看薄荷晨光" }));
+  vi.mocked(track.scrollTo).mockClear();
+
+  fireEvent.click(screen.getByRole("button", { name: "回到当前主题" }));
+  expect(track.scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 300, behavior: "smooth" });
+  expect(screen.getByText("2 / 3")).toBeTruthy();
+});

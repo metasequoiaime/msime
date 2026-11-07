@@ -76,7 +76,7 @@ inline std::wstring_view wubi_candidate_keys_description(bool valid) {
                : L"请输入两个不同的单个英文标点。";
 }
 
-// 「中文输出」一行的说明，随选项和方案变：粤拼、注音直接输出繁体，笔画按所选的字原样输出，都不受这个选项影响。Windows 不认繁体变体（`HostCapabilities.traditional_chinese_variants` 只在 Linux 为真），只有简体和标准繁体两项。
+// 「中文输出」一行的说明，随选项和方案变：粤拼、注音直接输出繁体，笔画按所选的字原样输出，都不受这个选项影响。Windows 不认繁体变体（`HostCapabilities.traditional_chinese_variants` 目前 Linux 与 macOS 为真），只有简体和标准繁体两项。
 inline std::wstring chinese_output_description(bool traditional, std::wstring_view scheme) {
   std::wstring description = traditional
                                  ? L"将提交的简体中文转换为繁体中文（OpenCC 标准繁体）"
@@ -99,8 +99,8 @@ struct LocalMode {
   bool shift_letter;
 };
 
-// 逐个模式的各行，标题和说明与共享页 `localModeRows`、`triggerModeRows`、`mentionPlacesRow` 相同，顺序也相同。Windows 是路由 V、/、@ 的宿主（`plugin_triggers`），也能编辑 @ 名单（插件页），所以三行和「@ 地名」都列出。
-inline constexpr std::array<LocalMode, 13> local_modes{{
+// 逐个模式的各行，标题和说明与共享页 `localModeRows`、`triggerModeRows`、`mentionPlacesRow` 相同，顺序也相同。Windows 是路由 V、/、@ 的宿主（`plugin_triggers`），也能编辑 @ 名单（插件页），所以三行和「@ 地名」都列出。「组字后按 / 转超级简拼」（#10860）只在原生设置里有：共享页只修缺陷、不加新设置。
+inline constexpr std::array<LocalMode, 14> local_modes{{
     {L"quick_phrase", L"快捷短语(K 模式)", L"中文模式下按 Shift+K，再输入编码即可调用快捷短语", true, true},
     {L"date_time", L"日期与时间快捷输入(T 模式)",
      L"中文模式下按 Shift+T，再输入 rq / riqi / date 输入日期，sj / shijian / time 输入时间，xq / xingqi / week 输入星期，nl / nongli / yinli 输入农历。打开时，拼音（含九键）直接输入 riqi / rq、shijian / sj、xingqi / xq、nongli / nl，日期、时间、星期、农历也会排在对应的词后面",
@@ -113,6 +113,9 @@ inline constexpr std::array<LocalMode, 13> local_modes{{
      L"中文模式下按 Shift+M，再输入全拼 / 简拼 / 双拼 / 英文关键词。空格上屏；数字选词", true, true},
     {L"super_jianpin", L"超级简拼(J 模式)",
      L"中文模式下按 Shift+J，每个字母作为简拼；双拼按当前方案转换声母。空格上屏；数字选词", true, true},
+    {L"super_jianpin_slash", L"组字后按 / 转超级简拼",
+     L"双拼打了三个以上字母后按 /，把这串字母改成超级简拼查词，与先按 Shift+J 再打这几个字母相同；一两个字母时 / 照常上屏，要简拼请先按 Shift+J。转换后马上退格回到原来的输入，再按一次 / 上屏转换前高亮的候选并输出 /，要输出简拼首选加 / 请先按空格。双拼辅助码用 / 结束四码或作前导键、或 / 输出顿号时，/ 归它们",
+     true, false},
     {L"temporary_english", L"临时英文(Y 模式)",
      L"中文模式下按 Shift+Y，之后按英文处理。空格上屏当前输入；数字选词；上屏后回到中文", true, true},
     {L"temporary_japanese", L"临时日语(R 模式)",
@@ -146,9 +149,17 @@ inline std::wstring local_mode_description(LocalMode const &mode, bool translati
   return description;
 }
 
-// 这一行变不变灰（共享页 localModeControlState）：「@ 地名」在 @ 模式关着时变灰；Shift+字母进入的模式在总开关关着时变灰。值都不动。
-inline bool local_mode_disabled(LocalMode const &mode, bool shift_letter_entry, bool mention) {
-  return (mode.id == L"mention_places" && !mention) || (!shift_letter_entry && mode.shift_letter);
+// 这一行变不变灰（共享页 localModeControlState）：「@ 地名」在 @ 模式关着时变灰；「组字后按 / 转超级简拼」在超级简拼关着时变灰；Shift+字母进入的模式在总开关关着时变灰。值都不动。
+inline bool local_mode_disabled(LocalMode const &mode, bool shift_letter_entry, bool mention,
+                                bool super_jianpin) {
+  return (mode.id == L"mention_places" && !mention) ||
+         (mode.id == L"super_jianpin_slash" && !super_jianpin) ||
+         (!shift_letter_entry && mode.shift_letter);
+}
+
+// 改这一行要重画逐个模式的各行：从属行跟着它变灰。
+inline bool local_mode_has_dependents(LocalMode const &mode) {
+  return mode.id == L"mention" || mode.id == L"super_jianpin";
 }
 
 struct FuzzyRule {

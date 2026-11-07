@@ -13,7 +13,7 @@
 
 // 既有候选文字回归使用出厂徽标；包装只属于本测试，不让其他引入控制器的测试产生未使用函数。
 static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
-    return CandidateDisplayWithBadges(candidate, traditional,
+    return CandidateDisplayWithBadges(candidate, traditional, 0,
         MSIMECandidateBadgeString(msime::mac::candidate_ai_badge("robot")),
         MSIMECandidateBadgeString(msime::mac::candidate_fixed_badge(true, "paperclip")));
 }
@@ -7542,6 +7542,7 @@ static void TestCapsLockTap() {
     // 撤回之后系统报来的「大写锁定关」不会再切换，也不用报告。
     assert(![controller handleEvent:capsOff(1.2) client:client]);
     assert(prefs.englishMode && session.capsLockCalls == reports);
+
     // 再轻点一次切回中文。
     gCapsNow = 2000; gCapsHeld = true;
     assert(![controller handleEvent:capsOn(2.0) client:client]);
@@ -7678,16 +7679,19 @@ static void TestCapsLockTap() {
         assert(gCapsReleases == releasesBefore + 1 && prefs.englishMode && !session.capsLock);
     }
 
-    // 初始事件和 HID 状态都没有实体按住位时不布防，避免不支持该位的设备连长按也被切换。
+    // 初始事件和 HID 状态都没有实体按住位时仍然布防，等待后续松键事件；定时器不能把未知状态当作已经松手。
     assert(![controller handleEvent:capsOff(13.0) client:client]);
     prefs.englishMode = NO;
     const NSUInteger releasesBefore = gCapsReleases;
     gCapsNow = 13000; gCapsHeld = false;
-    assert(![controller handleEvent:capsOn(13.0) client:client]);
+    assert([controller handleEvent:capsOn(13.0) client:client]);
+    assert(!prefs.englishMode && !session.capsLock && gCapsHIDStarts == 1);
     gCapsNow = 13050;
     [controller pollCapsLockTap];
-    assert(session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
-    // 报实体按住位的设备从不启动 HID 监听，不会被要求「输入监控」授权；只有这台不报的设备才启动一次。
+    assert(!session.capsLock && !prefs.englishMode && gCapsReleases == releasesBefore);
+    assert([controller handleEvent:capsOff(13.05) client:client]);
+    assert(prefs.englishMode && !session.capsLock && gCapsReleases == releasesBefore + 1);
+    // 报实体按住位的设备从不重复启动 HID 监听；只有这台不报的设备才启动一次。
     assert(gCapsHIDStarts == 1);
     // HID 有了结果之后，同一台设备的轻点按实体按下和松开判定，照常切换。
     assert(![controller handleEvent:capsOff(13.5) client:client]);
@@ -17085,9 +17089,9 @@ int main(int argc, char **argv) {
         assert(([CandidateDisplay(@{@"text":@"汉语", @"annotation":@"(aB)", @"source":@3}, NO) isEqual:@"汉语(aB) 🤖"]));
         // nil 表示尚未提供缓存，空串是显式隐藏；两者不能合并成同一个回退行为。
         NSDictionary *aiFixed = @{@"text": @"汉语", @"source": @3, @"fixed_position": @1};
-        assert([CandidateDisplayWithBadges(aiFixed, NO, nil, nil) isEqual:@"汉语 🤖 📎"]);
-        assert([CandidateDisplayWithBadges(aiFixed, NO, @"", @"") isEqual:@"汉语"]);
-        assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, nil, @"") isEqual:@" 🤖"]);
+        assert([CandidateDisplayWithBadges(aiFixed, NO, 0, nil, nil) isEqual:@"汉语 🤖 📎"]);
+        assert([CandidateDisplayWithBadges(aiFixed, NO, 0, @"", @"") isEqual:@"汉语"]);
+        assert([CandidateDisplayWithBadges(@{@"source": @3}, NO, 0, nil, @"") isEqual:@" 🤖"]);
         NSMutableDictionary *scriptView = [@{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES, @"session": @1, @"generation": @20, @"editing_text": @"hanyu", @"caret_position": @5, @"candidates": @[@{@"text": @"汉语", @"highlighted": @YES, @"id": @{@"session": @1, @"generation": @20, @"index": @0}}]} mutableCopy];
         [controller setValue:[scriptView copy] forKey:@"view"];
         session.fixtureView = scriptView;

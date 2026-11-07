@@ -1840,6 +1840,18 @@ try {
             $target = Find-ByName (Find-ById $window 'settings-content') '@ 地名'
         } while ((-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) -and [DateTime]::UtcNow -lt $deadline)
         if (-not $tab -or $tab.Current.ItemStatus -ne '已选择' -or -not $target) { throw 'Search did not open the input tab and fold holding its target' }
+        # 同一个折叠区里的「组字后按 / 转超级简拼」（#10860）：跟在「超级简拼(J 模式)」后面，超级简拼出厂开着，所以这一行可用。截下展开的折叠区给 PR 留图。
+        $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('组字后按 / 转超级简拼')
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $content = Find-ById $window 'settings-content'
+            $target = Find-ByName $content '组字后按 / 转超级简拼'
+            $parent = Find-ByName $content '超级简拼(J 模式)'
+        } while ((-not $target -or -not $parent) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $target -or -not $parent) { throw 'Local modes fold is missing 组字后按 / 转超级简拼 next to 超级简拼(J 模式)' }
+        Save-Window $window "$theme-typing-super-jianpin-slash.png"
         $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
         Select-PageTab $window 'input-tab-scheme' '中文方案'
         # 搜索落到折叠区里的行时要展开那个折叠区：「候选悬停色」收在「主题」页默认收起的「自定义配色」里，收起时它不在 UIA 树里。

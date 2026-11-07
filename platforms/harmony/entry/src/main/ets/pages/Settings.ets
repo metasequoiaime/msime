@@ -98,6 +98,11 @@ interface LocalVoiceModelRequest {
   files?: string[];
 }
 
+interface ResourcePackAction {
+  operation: string;
+  id?: string;
+}
+
 /** 「从文件导入」一次最多让用户选几个文件；目录里的模型最多要两个。 */
 const MAX_VOICE_MODEL_IMPORT_PICKS: number = 8;
 
@@ -957,6 +962,7 @@ struct Settings {
                   'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                   'keyboardFeedback', 'onboardingStatus',
                   'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins',
+                  'resourcePacks', 'resourcePackCancel',
                   'setupStatus', 'refreshSetupStatus', 'oobeStatus', 'retryOobeResources', 'appTheme', 'setSystemBars', 'splashSeen', 'markSplashSeen',
                   'onboardingStarted', 'onboardingFinished', 'pendingPage', 'launchPainted', 'privacyConsent'],
                 []);
@@ -1476,6 +1482,11 @@ class SettingsBridge {
         KeyboardLog.error(`local voice model request failed: ${describeError(error)}`);
         deliver(LocalVoiceModelPolicy.refusal('local_model_failed'));
       });
+    } else if (kind === 'resource_pack') {
+      this.resourcePack(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`resource pack request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'resource_pack_failed' }));
+      });
     } else if (kind === 'helpcode_import') {
       this.importHelpcodeTable().then(deliver).catch(failed);
     } else if (kind === 'plugin_import') {
@@ -1698,6 +1709,54 @@ class SettingsBridge {
     return LocalVoiceModelPolicy.installReply(reply);
   }
 
+  /** 资源包只在设置进程安装；键盘进程通过 state/resource-packs 读已发布的整组文件。 */
+  private async resourcePack(document: string): Promise<string> {
+    let action: ResourcePackAction;
+    try {
+      action = JSON.parse(document) as ResourcePackAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'resource_pack_invalid' });
+    }
+    const id: string = typeof action.id === 'string' ? action.id : '';
+    if (this.context === undefined || id.length > 128) {
+      return JSON.stringify({ ok: false, error: 'resource_pack_invalid' });
+    }
+    const root = this.stateDirectory;
+    if (action.operation === 'list') {
+      return client.resourcePacks(JSON.stringify({ state_root: root }));
+    }
+    if (action.operation === 'cancel') {
+      client.resourcePackCancel(id);
+      return JSON.stringify({ ok: true, value: true });
+    }
+    const request = JSON.stringify({ state_root: root, pack: id });
+    if (action.operation === 'remove') {
+      return client.resourcePackRemove(request);
+    }
+    if (action.operation !== 'install') {
+      return JSON.stringify({ ok: false, error: 'resource_pack_invalid' });
+    }
+    const mirror = LocalVoiceModelPolicy.mirror(client.loadPreferences(root));
+    const installRequest: Record<string, Object> = {};
+    installRequest['state_root'] = root;
+    installRequest['pack'] = id;
+    if (mirror.length > 0) installRequest['sources'] = [mirror];
+    const install = JSON.stringify(installRequest);
+    return await client.resourcePackInstall(install,
+      (progress: string): void => this.deliverResourcePackProgress(progress));
+  }
+
+  resourcePacks(): string {
+    return this.stateDirectory.length === 0
+      ? JSON.stringify({ ok: false, error: 'invalid state root' })
+      : client.resourcePacks(JSON.stringify({ state_root: this.stateDirectory }));
+  }
+
+  resourcePackCancel(id: string): string {
+    client.resourcePackCancel(id);
+    return JSON.stringify({ ok: true, value: true });
+  }
+
   /**
    * 「从文件导入」：用系统选择器让用户多选自己下载好的模型文件，不联网安装。
    *
@@ -1790,6 +1849,16 @@ class SettingsBridge {
       .catch((error: Object): void => {
         // A progress tick that does not arrive costs the user a moving bar, not the download.
         KeyboardLog.error(`voice model progress not delivered: ${describeError(error)}`);
+      });
+  }
+
+  private deliverResourcePackProgress(progress: string): void {
+    if (this.webview === undefined) return;
+    this.webview.runJavaScript(
+      `globalThis.msimeHarmonyResourcePackProgress && globalThis.msimeHarmonyResourcePackProgress(`
+      + `${JSON.stringify(progress)})`)
+      .catch((error: Object): void => {
+        KeyboardLog.error(`resource pack progress not delivered: ${describeError(error)}`);
       });
   }
 

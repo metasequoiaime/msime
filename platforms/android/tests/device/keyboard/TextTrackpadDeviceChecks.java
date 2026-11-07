@@ -126,25 +126,25 @@ final class TextTrackpadDeviceChecks {
             setSelection(TrackpadEditorActivity.TEXT.length(), TrackpadEditorActivity.TEXT.length());
             shortcut("插入空格");
             t.await(t.field("trackpad-editor").and(node -> DeviceSmoke.equalsText(TrackpadEditorActivity.TEXT + " ", node.getText())));
-            shortcut("插入换行，长按打开符号");
+            shortcut("插入换行");
             t.await(t.field("trackpad-editor").and(node -> DeviceSmoke.equalsText(TrackpadEditorActivity.TEXT + " \n", node.getText())));
             shortcut("打开数字键盘");
             t.await(t.described("返回原键盘"));
             t.tap(t.described("返回原键盘"));
             open("edit");
             stage("trackpad mode persistence");
-            modeLabel("切换为方向键");
-            t.tap(t.described("切换为方向键"));
+            trackpadSwitch(true);
+            t.tap(t.described("触控板"));
             waitMode(preferences, false);
-            modeLabel("切换为触控板");
+            trackpadSwitch(false);
             t.restartIme();
             launch("edit");
             t.tap(t.described("文本编辑"));
             t.await(t.described("光标左移"));
-            modeLabel("切换为触控板");
-            t.tap(t.described("切换为触控板"));
+            trackpadSwitch(false);
+            t.tap(t.described("触控板"));
             waitMode(preferences, true);
-            modeLabel("切换为方向键");
+            trackpadSwitch(true);
             pad();
             stage("temporary trackpad restores prior panel");
             t.tap(t.described("返回键盘"));
@@ -503,9 +503,10 @@ final class TextTrackpadDeviceChecks {
         selection(start, end);
     }
 
-    /** 模式切换键的可见文字与读屏描述同为动作（#10058）；只按描述找键时，键面退回「触控板 / 方向键」也查不出来。 */
-    private void modeLabel(String action) {
-        t.await(t.described(action).and(node -> DeviceSmoke.equalsText(action, node.getText())));
+    /** 底排正中的「触控板」是开关：键面和读屏描述都是「触控板」，开没开看勾选状态，不看文字（见 .agents/notes/implemented/feature/2026-11-06-android-text-edit-seamless-panel.md）。 */
+    private void trackpadSwitch(boolean on) {
+        t.await(t.described("触控板").and(node -> DeviceSmoke.equalsText("触控板", node.getText())
+            && node.isCheckable() && node.isChecked() == on));
     }
 
     private void waitMode(File file, boolean enabled) throws Exception {
