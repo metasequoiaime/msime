@@ -1264,6 +1264,37 @@ int main(int argc, char **argv) {
       }
       {
         using namespace msime::windows;
+        // 无法切成音节的全拼（例如 `wi`）仍由 Engine 保留为原文；Windows 本地回车路径应核对并清掉同一段原文，之后下一次组字继续可用。
+        ReplyComposer invalid_composer(42, epoch);
+        key('W', 'w');
+        key('I', 'i');
+        const auto invalid = session.view();
+        require(invalid.at("editing_text") == "wi" &&
+                    invalid.at("candidates").empty(),
+                "Unsegmentable pinyin did not remain as editable raw text");
+        FanyImeNamedpipeData invalid_enter{};
+        invalid_enter.client_id = 42;
+        invalid_enter.event_type = FanyImePipeEventType::KeyEvent;
+        invalid_enter.request_id = request++;
+        invalid_enter.keycode = 0x0D;
+        invalid_enter.pinyin_length = 2;
+        invalid_enter.pinyin_string[0] = 'w';
+        invalid_enter.pinyin_string[1] = 'i';
+        const auto pending = invalid_composer.configured_key(
+            session, invalid_enter, epoch, TsfPreeditStyle::Pinyin, {},
+            std::string("wi"));
+        require(pending && !pending->encoded &&
+                    pending->source.transition.at("commit") == "wi" &&
+                    session.view().at("editing_text") == "",
+                "Unsegmentable pinyin raw Enter did not clear the Engine composition");
+        invalid_composer.confirm_delivery(42, epoch, invalid_enter.request_id);
+        key('N', 'n');
+        key('I', 'i');
+        require(session.view().at("editing_text") == "ni",
+                "Composition did not recover after unsegmentable pinyin");
+      }
+      {
+        using namespace msime::windows;
         for (char c : std::string("nihao")) key(c - 'a' + 'A', c);
         // Multiple dictionary senses use a short-lived candidate page. The
         // original Engine composition remains untouched until a sense is
