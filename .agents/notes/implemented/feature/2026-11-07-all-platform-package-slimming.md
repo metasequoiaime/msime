@@ -28,7 +28,7 @@ Windows 现代 full 与 pinyin 安装包省略三组可选资源，设置应用�
 - `bash -n platforms/harmony/stage-resources.sh platforms/macos/stage-resources.sh platforms/android/build-apk.sh`：通过。
 - 共享设置页的 Vitest 定向测试未运行：该 worktree 没有 `vitest` 依赖，且当前磁盘余量不足以重新安装完整前端依赖。
 - Windows 安装器的合成包测试已更新为检查现代 full 包默认不含三组可选资源、通过 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 检查完整语言词库、wubi 包仍含 `msime-wubi.db`，以及预检失败不污染旧暂存；尚未在本机运行 PowerShell/Windows 构建。
-- 尚未在本机重打六个平台安装包或跑真机设备套件。当前工作机可用空间约 19 GB，无法安全启动跨平台完整构建；CI/Windows、Android、iOS、HarmonyOS 的原生安装包和设备门禁仍需在 PR 上执行。鸿蒙按需资源的既有真机签名失败限制见同目录的 `2026-11-06-harmony-on-demand-resources.md`。
+- 尚未在本机重打六个平台安装包或跑真机设备套件。当前工作机可用空间约 14 GB，无法安全启动跨平台完整构建。Native Platform CI 的 Windows release script tests、Windows 原生设置、Linux（含 Fedora 和资源验收）、HarmonyOS host、Android host 通过，Android API 28 设备验收通过；API 35 在完整输入 smoke 的随机数字键盘状态断言失败，不能记作 API 35 验收通过。iOS CI 与 macOS package 通过；macOS arm64、x86_64 和 sanitizer 仍失败在既有 `caps-lock` 子进程中止。鸿蒙按需资源的既有真机签名失败限制见同目录的 `2026-11-06-harmony-on-demand-resources.md`。
 
 ## Consequences
 
