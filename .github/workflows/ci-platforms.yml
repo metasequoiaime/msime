@@ -1007,6 +1007,10 @@ jobs:
             & pwsh -NoProfile -File "platforms/windows/tests/tools/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
           }
+      - name: Check Windows desktop resource workflow
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: python scripts/test-windows-desktop-resources.py
       - name: Verify Server manifest modes and unsigned launch
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
