@@ -14,6 +14,12 @@ public final class FourteenKeyLetterWidths {
     /** 共享偏好的键名。 */
     public static final String PREFERENCE = "touch_fourteen_key_letter_widths";
 
+    /** 「按键布局」页 14/18 键分段里这一组的标题；iOS、鸿蒙跟进时用同样的文字。 */
+    public static final String GROUP_TITLE = "字母键宽度";
+
+    /** 这一组胶囊下面的说明；iOS、鸿蒙跟进时用同样的文字。 */
+    public static final String NOTE = "「宽窄」让单字母键窄一些、双字母键宽一些，第二排两端留空；点在空白里算最靠边的键。";
+
     /** 「宽窄」里单字母键相对双字母键的份额。取自 #11051 参考图实测的键距比 3 : 4。 */
     public static final float VARIED_SINGLE_LETTER_WEIGHT = 0.75f;
 

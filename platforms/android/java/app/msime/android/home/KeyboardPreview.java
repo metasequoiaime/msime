@@ -19,6 +19,7 @@ import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
+import app.msime.android.FourteenKeyLetterWidths;
 import app.msime.android.JsonPolicy;
 import app.msime.android.NineKeySidebarPolicy;
 import app.msime.android.SchemePreferences;
@@ -111,7 +112,8 @@ public final class KeyboardPreview extends View {
             preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false),
             swap,
             NineKeySidebarPolicy.fromPreference(preferences.opt(NineKeySidebarPolicy.LETTER_PREFERENCE)),
-            TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE)));
+            TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE)),
+            FourteenKeyLetterWidths.Mode.parse(JsonPolicy.strictString(preferences.opt(FourteenKeyLetterWidths.PREFERENCE))));
     }
 
     /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
