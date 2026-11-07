@@ -268,18 +268,31 @@ try {
     # 读音和英文释义表只随授权声明一起装：夹具里 word-glosses 没有声明，就不装。
     if (Test-Path (Join-Path $installer 'server_exe/word-glosses')) { throw 'Packaged word glosses without their notice' }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
-    # The Zhuyin and Stroke dictionaries travel beside resources with their licences; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
-    # LICENSE.txt is the repository's GPL text even when language dictionaries with their own licences are staged.
+    # 现代 Windows 包把语言词库放进按需资源包；完整词库构建通过环境变量明确要求暂存。即使暂存了词库自带的授权文本，LICENSE.txt 仍是仓库的 GPL 文本。
     if ([IO.File]::ReadAllText((Join-Path $installer 'LICENSE.txt')) -ne 'GNU GENERAL PUBLIC LICENSE fixture') { throw 'LICENSE.txt is not the repository LICENSE' }
-    foreach ($name in @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')) {
-        if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
-    }
-    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/msime-cantonese.db')) { throw 'Packaged a Cantonese dictionary that was not provided' }
+    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries')) { throw 'Modern package staged language dictionaries without an explicit requirement' }
+    $languageDictionaryNames = @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')
     Write-Fixture 'target/language-dictionaries/msime-cantonese.db'
+    Write-Fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt'
+    $languageDictionaryRequirement = $false
+    try {
+        $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES = '1'
+        & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
+        $languageDictionaryRequirement = $true
+        foreach ($name in $languageDictionaryNames) {
+            if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
+        }
+        if (-not (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/msime-cantonese.db'))) { throw 'Explicit language dictionary staging omitted Cantonese' }
+    Remove-Item (Join-Path $fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt') -Force
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'rime_cantonese_LICENSE' }
     if (-not $rejected) { throw 'A language dictionary without its licence was accepted' }
+    Write-Fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt'
     Remove-Item (Join-Path $fixture 'target/language-dictionaries/msime-cantonese.db') -Force
+    } finally {
+        Remove-Item Env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -ErrorAction SilentlyContinue
+    }
+    if (-not $languageDictionaryRequirement) { throw 'The explicit language dictionary requirement was not exercised' }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
     foreach ($testFile in @(
         'server_exe/MetasequoiaImeServerTests.exe',

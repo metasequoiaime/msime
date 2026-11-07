@@ -79,6 +79,8 @@ $resourceLock = if ($Edition -eq 'full') {
     Join-Path $RepoRoot "resources/editions/$Edition.lock.json"
 }
 $languageDictionaryNames = @($editionEntry[0].language_dictionaries)
+# 现代 Windows 包把语言词库也放到共享资源包目录；设备验收和需要完整内置词库的构建通过 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 明确保留它们。Win7 宿主没有资源包入口，继续带齐。
+$omitLanguageDictionaries = $Windows7Architecture -eq '' -and $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -ne '1'
 # 落定重排模型（settled-model）和手写模型（Zinnia handwriting-zh_CN.model）不进安装包：设置应用按 resources/settled-model.lock.json 和 resources/handwriting-model.lock.json 把它们下载到 DataDir\resource-packs（手写模型连同它的 LGPL-2.1 许可证一起下载）。
 # 非英文离线释义（offline-glosses/zh-<语言>.db）按中文候选查释义，只给提供中文方案的版本（版本表 features.offline_glosses，scripts/test-editions.py 检查它等于版本是否提供中文方案）。日文、越南文和藏文版不装。
 $editionOfflineGlosses = [bool]$editionEntry[0].features.offline_glosses
@@ -516,7 +518,7 @@ if (-not $Light) {
         }
     }
 }
-# 粤拼、注音和笔画词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有带上 resources/language-dictionaries.lock.json 固定的每一个词库的包会失败。
+# 粤拼、注音和笔画词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。现代 Windows 发布包默认不暂存它们，设置应用按需下载；Win7 和显式设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 的构建照旧随包暂存。缺少词库时对应方案由资源包服务保持可选，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'
 if (Test-Path -LiteralPath $languagesTarget) {
@@ -526,7 +528,7 @@ if (-not $Light) {
     $stagedLanguages = @()
     foreach ($pair in @(@('msime-cantonese.db', 'msime-rime_cantonese_LICENSE.txt'), @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt'), @('msime-stroke.db', 'msime-rime_stroke_LICENSE.txt'))) {
         # 只带本版本的方案用得到的语言词库（版本表 language_dictionaries）。
-        if ($languageDictionaryNames -notcontains $pair[0]) { continue }
+        if ($omitLanguageDictionaries -or $languageDictionaryNames -notcontains $pair[0]) { continue }
         $database = Join-Path $languagesSource $pair[0]
         # 不能叫 $license：那是仓库的 GPL LICENSE，下面要复制成安装包的 LICENSE.txt。以前循环复用这个名字，LICENSE.txt 被换成最后一份语言词库的授权文本（full 是 rime-stroke 的），词库不在时打包则因找不到那份文件而失败。
         $languageLicense = Join-Path $languagesSource $pair[1]

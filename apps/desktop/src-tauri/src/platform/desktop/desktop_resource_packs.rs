@@ -1,4 +1,4 @@
-//! 桌面按需下载的资源包。桌面发布包可以不内置日文词典和五笔码表，由设置页在用户选用对应方案时下载；语言词库沿用 Linux 的按需规则。手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。macOS 输入法不带本地语音运行库时，用户选用本地识别后下载它。
+//! 桌面按需下载的资源包。桌面发布包可以不内置日文词典、五笔码表和语言词库，由设置页在用户选用对应方案时下载；语言词库在 Windows 和 Linux 也沿用这套规则。手写模型在第一次打开手写面板时下载（Windows 只在 Ink 没有中文识别器、Linux 只在安装前缀里没有随包模型时才需要）；桌面落定重排模型在打开「桌面神经联想」时下载，三个桌面平台都是这样。macOS 输入法不带本地语音运行库时，用户选用本地识别后下载它。
 //!
 //! 资源包装在 `<state_root>/resource-packs/<id>/`，state_root 就是偏好目录（`PreferencesStore::directory`：macOS 上是 `macos_launch` 解析出的 preferences_directory，Windows 上是 Server 的 DataDir，Linux 上是运行时选项里的状态目录），也是 host-api 查找已下载资源包的同一个目录。下载、校验和整体发布由 `msime_client_providers::resource_packs` 完成；这里只负责决定本机提供哪些资源包、在命令线程之外运行安装、把进度作为 `resource-pack-progress` 事件发给页面，并与语音模型共用 `LocalModelInstalls` 的取消和互斥登记。
 
@@ -151,7 +151,7 @@ const CHINESE_MAIN_COMPONENT: &str = "chinese-main";
 /// 本机是否提供这个资源包。
 ///
 /// - 五笔码表和日文词典在桌面发布包里可以不内置：本版本提供对应方案、而资源目录里没有资源时列出（五笔版和日文版的主资源由打包脚本保留）。
-/// - Linux 的语言词库仍按已有规则只在版本用得到且随包没有带齐时列出；日文和五笔统一走资源包。
+/// - Windows 和 Linux 的语言词库只在版本用得到且随包没有带齐时列出；日文和五笔统一走资源包。
 /// - 手写模型只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）不列出也不下载它。macOS 上提供手写的版本都列出它；Windows 上手写面板先用 Ink，只有 Ink 没有中文识别器、且没有随包或指定的模型时才列出；Linux 上没有随包或指定的模型时才列出。没列出时手写面板照常识别，不等下载。
 /// - 英文音标表和外语读音表（「显示读音」用）只有 Linux 的安装包不带：Linux 上资源目录旁边没有它时列出，由设置页在打开「显示读音」后点「下载」安装，不自动下载；macOS 和 Windows 的发布包带着它们，不列出。
 /// - 离线释义、Android 语音运行库和 OCR 模块只给 Android 使用，桌面不列出。
@@ -167,7 +167,9 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
         ),
         ResourcePack::LanguageDictionaries => match installation.platform {
             DesktopPlatform::Macos => true,
-            DesktopPlatform::Windows => false,
+            DesktopPlatform::Windows => {
+                !edition.language_dictionaries.is_empty() && !installation.language_dictionaries
+            }
             DesktopPlatform::Linux => {
                 !edition.language_dictionaries.is_empty() && !installation.language_dictionaries
             }
@@ -756,7 +758,7 @@ mod tests {
         ] {
             let mut missing = installation(platform);
             missing.wubi_dictionary = false;
-            if platform == DesktopPlatform::Linux {
+            if matches!(platform, DesktopPlatform::Windows | DesktopPlatform::Linux) {
                 missing.language_dictionaries = false;
             }
             assert!(offered_by(
@@ -772,7 +774,10 @@ mod tests {
             );
             assert_eq!(
                 language_dictionaries,
-                matches!(platform, DesktopPlatform::Macos | DesktopPlatform::Linux),
+                matches!(
+                    platform,
+                    DesktopPlatform::Macos | DesktopPlatform::Windows | DesktopPlatform::Linux
+                ),
                 "{platform:?}"
             );
         }
@@ -925,7 +930,7 @@ mod tests {
         ));
         let mut windows = installation(DesktopPlatform::Windows);
         windows.language_dictionaries = false;
-        assert!(!offered_by(
+        assert!(offered_by(
             ResourcePack::LanguageDictionaries,
             Edition::full(),
             &windows

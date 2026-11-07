@@ -2775,7 +2775,7 @@ pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
     )
 }
 
-/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Windows 和 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
 ///
 /// 记录的目录是词库更新下载的语言代次（[`inside_dictionary_updates`]）时，代次本身不算：它和下载它时的词库锁绑在一起，升级换锁后会话就不再选用它。这时改看更新记录里原安装包旁边的 `language-dictionaries/`（[`recorded_bundled_resources`]），安装包本身带齐了就算带齐；找不到安装包目录（换锁后更新记录不再有效）时按没带齐处理，只有资源包能长期提供这几份词库。
 pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
