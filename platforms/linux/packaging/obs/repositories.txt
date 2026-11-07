@@ -5,6 +5,7 @@
 openSUSE_Tumbleweed
 Fedora_43
 Fedora_44
+Fedora_45
 xUbuntu_24.04 Ubuntu:24.04/universe-update,Ubuntu:24.04/update,Ubuntu:24.04/universe,Ubuntu:24.04/standard
 xUbuntu_26.04 Ubuntu:26.04/universe-update,Ubuntu:26.04/update,Ubuntu:26.04/universe,Ubuntu:26.04/standard
 Debian_Testing
