@@ -2069,7 +2069,7 @@ fn wubi_dictionary(
         .or_else(|| resource_packs::installed_file(downloaded.root, ResourcePack::Wubi, name))
 }
 
-/// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。别的平台的资源目录总是带着它，这里总为假。
+/// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。
 pub(crate) fn wubi_dictionary_missing(resources: &Path, wubi_dictionary: &str) -> bool {
     let name = msime_engine::assets::WUBI_DICTIONARY;
     ON_DEMAND_ARTIFACTS
@@ -2459,7 +2459,7 @@ impl HostOptions {
     }
 
     fn into_engine_options(self) -> EngineOptions {
-        // 每个平台都这样查找；日文词典只有 macOS 会下载，语言词库由 macOS 和没有随包带齐它们的 Linux 安装下载，别处的状态目录里从来没有它们。
+        // 每个平台都这样查找；桌面宿主按发布包是否省略日文词典和语言词库决定是否从状态目录读取已下载资源。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
         let downloaded = state_root.as_deref().map(DownloadedDictionaries::new);
         let dictionaries = LanguageDictionaries::resolve(
@@ -2775,7 +2775,7 @@ pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
     )
 }
 
-/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Windows 和 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
 ///
 /// 记录的目录是词库更新下载的语言代次（[`inside_dictionary_updates`]）时，代次本身不算：它和下载它时的词库锁绑在一起，升级换锁后会话就不再选用它。这时改看更新记录里原安装包旁边的 `language-dictionaries/`（[`recorded_bundled_resources`]），安装包本身带齐了就算带齐；找不到安装包目录（换锁后更新记录不再有效）时按没带齐处理，只有资源包能长期提供这几份词库。
 pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
@@ -2960,7 +2960,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件组：macOS、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：桌面、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
 #[cfg(target_env = "ohos")]
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts("ohos");

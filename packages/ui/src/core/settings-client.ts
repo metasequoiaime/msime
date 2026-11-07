@@ -230,7 +230,7 @@ export interface SettingsClient {
   applicationNames?: (ids: string[]) => Promise<Record<string, string>>;
   /** 宿主持有的设备端语音模型库；提供它的宿主在模型管理器中提供 `local` 服务。 */
   localVoiceModels?: LocalVoiceModelClient;
-  /** 按需下载的资源包（日文词库、「粤语、注音与笔画词库」、手写模型）。只有 macOS 提供：发布包不再内置它们，选用对应方案时由设置页下载。 */
+  /** 按需下载的资源包（日文词库、五笔码表、「粤语、注音与笔画词库」、手写模型）。桌面宿主和移动宿主按发布包内容列出，选用对应方案时由设置页下载。 */
   resourcePacks?: ResourcePackClient;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
