@@ -126,7 +126,8 @@ export CARGO_HOME="$PWD/.cargo-home" CARGO_NET_OFFLINE=true MSIME_OPENCC_SOURCE_
 # Fedora 的 set_build_flags 会给 RUSTFLAGS 带上调试信息，openSUSE 不会；Release 配置默认又不带，find-debuginfo 就既不拆出调试信息也不剥离 Rust 编译的三个程序。只带行号表，与 debian/rules 相同。
 export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
 %endif
-%{?_smp_build_ncpus:export CARGO_BUILD_JOBS=%{_smp_build_ncpus}}
+# Fedora 45 的 aarch64 构建机在多个 rustc 同时链接时会超过内存上限；限制 Rust 并行度，CMake 仍按发行版的并行参数构建。
+export CARGO_BUILD_JOBS=2
 mkdir -p "$CARGO_HOME"
 sed 's|^directory = .*|directory = "'"$PWD"'/vendor/cargo"|' vendor/cargo-config.toml > "$CARGO_HOME/config.toml"
 

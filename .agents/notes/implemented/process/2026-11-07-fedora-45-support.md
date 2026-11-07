@@ -20,4 +20,4 @@ Fedora 45 的镜像索引摘要固定为 `sha256:a7d72ba2745b100a3351087472e5ee7
 
 ## Consequences
 
-Fedora 45 的发行版差异会在 PR 的 Fedora 门禁和发布 RPM 检查中提前暴露，下载页和文档不再把 Fedora 44 写成当前 RPM 构建基线。Fedora 44 不再是发布 RPM 的构建基线；仓库已经把 Fedora 45 纳入 OBS 目标矩阵，COPR 已启用 Fedora 45 两个架构，OBS 使用显式的 `Fedora:45/standard` 路径并用 `openssl-devel` 解决 Fedora 45 的依赖选择。
+Fedora 45 的发行版差异会在 PR 的 Fedora 门禁和发布 RPM 检查中提前暴露，下载页和文档不再把 Fedora 44 写成当前 RPM 构建基线。Fedora 44 不再是发布 RPM 的构建基线；仓库已经把 Fedora 45 纳入 OBS 目标矩阵，COPR 已启用 Fedora 45 两个架构，OBS 使用显式的 `Fedora:45/standard` 路径并用 `openssl-devel` 解决依赖选择，RPM spec 将 Rust 并行度限制为 2 以避免 aarch64 构建机 OOM。
