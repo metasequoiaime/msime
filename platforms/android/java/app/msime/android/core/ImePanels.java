@@ -2815,8 +2815,9 @@ final class ImePanels {
                             velocityX = velocity.getXVelocity();
                         }
                         if (openingDetail) {
+                            float gestureDx = event.getRawX() - downX;
                             boolean enterDetail = event.getActionMasked() == android.view.MotionEvent.ACTION_UP
-                                && (card.getTranslationX() >= reveal / 2f
+                                && (gestureDx >= reveal / 2f
                                 || velocityX >= ClipboardSwipePolicy.FLING_DP_PER_SECOND * density);
                             openingDetail = false;
                             if (enterDetail) {
