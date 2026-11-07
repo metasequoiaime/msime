@@ -25,6 +25,7 @@ Status: implemented
 ## Verification
 
 - `ClipboardSwipePolicySmoke` 增加关闭卡片右滑、打开卡片收回、左滑不进入详情和斜向让渡的策略断言。
+- 设备冒烟把旧的「长按自动全文预览」契约改为长按管理行、右滑详情，并在详情页覆盖插入、编辑、保存和返回；工具栏布局检查同步移除对常驻 `ⓘ` 按钮的依赖。
 - `git diff --check` 和 Android Java 编译、API 28/API 35 设备回归由 PR job 执行；当前本机没有可用 Android 设备，改动后的截图和真实设备手势仍未完成，PR 保持 draft。
 
 ## Consequences
