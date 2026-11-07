@@ -29,8 +29,12 @@ public final class TextTrackpadView extends View {
     private TextTrackpadGesture gesture;
     private boolean tapSelection;
     private boolean trail;
+    private int surface;
     private int foreground;
     private int accent;
+    private float radius;
+    private boolean touching;
+    private final Path outline = new Path();
     private final Runnable longPress;
 
     public TextTrackpadView(Context context, Listener listener) {
@@ -47,17 +51,22 @@ public final class TextTrackpadView extends View {
         ViewPolicy.setInteractive(this, true);
     }
 
-    /** 参数已经过共享 Rust 校验；此处只转换系统触摸单位，不再维护默认值或设置范围。 */
+    /**
+     * 参数已经过共享 Rust 校验；此处只转换系统触摸单位，不再维护默认值或设置范围。
+     *
+     * <p>{@code surface} 是方向区的底色，{@code radius} 是方向区外框的圆角：触控板盖在方向区上三行，自己画同色底面、点阵和外框，上面两角跟外框一样圆，下边贴着底排。
+     */
     public void configure(int horizontalDp, int verticalDp, boolean tapSelection, boolean trail,
-            int background, int foreground, int accent) {
+            int surface, int foreground, int accent, float radius) {
         cancel();
         this.tapSelection = tapSelection;
         this.trail = trail;
+        this.surface = surface;
         this.foreground = foreground;
         this.accent = accent;
+        this.radius = radius;
         gesture = new TextTrackpadGesture(horizontalDp, verticalDp, ViewConfiguration.getLongPressTimeout(),
             ViewConfiguration.getDoubleTapTimeout(), ViewConfiguration.get(getContext()).getScaledTouchSlop() / density);
-        ViewPolicy.setBackgroundColor(this, background);
         invalidate();
     }
 
@@ -73,8 +82,10 @@ public final class TextTrackpadView extends View {
                 gesture.down(listener.target(), event.getX() / density, event.getY() / density, event.getEventTime());
                 if (!gesture.active()) return false;
                 points.clear();
+                touching = true;
                 point(event.getX(), event.getY());
                 listener.active(true);
+                invalidate();
                 postDelayed(longPress, ViewConfiguration.getLongPressTimeout());
                 getParent().requestDisallowInterceptTouchEvent(true);
             }
@@ -126,6 +137,7 @@ public final class TextTrackpadView extends View {
     private void finishVisual() {
         removeCallbacks(longPress);
         points.clear();
+        touching = false;
         listener.active(false);
         invalidate();
     }
@@ -135,16 +147,67 @@ public final class TextTrackpadView extends View {
         return true;
     }
 
+    /** 底面：方向区底色，上面两角圆、下边直，贴着底排。 */
+    private void prepareOutline(float inset) {
+        float corner = Math.max(0, radius - inset);
+        outline.reset();
+        outline.addRoundRect(inset, inset, getWidth() - inset, getHeight() - inset,
+            new float[] {corner, corner, corner, corner, 0, 0, 0, 0}, Path.Direction.CW);
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        prepareOutline(0);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(foreground);
+        paint.setColor(surface);
+        canvas.drawPath(outline, paint);
+        // 点阵：表示这一块可以滑动，颜色压得很淡，不跟按键文字抢。
+        float spacing = TextTrackpadSurface.DOT_SPACING_DP * density;
+        int columns = TextTrackpadSurface.dotCount(getWidth(), spacing);
+        int rows = TextTrackpadSurface.dotCount(getHeight(), spacing);
+        float x0 = TextTrackpadSurface.firstDot(getWidth(), spacing);
+        float y0 = TextTrackpadSurface.firstDot(getHeight(), spacing);
+        paint.setColor(ColorPolicy.withAlpha(foreground, .22f));
+        float dot = TextTrackpadSurface.DOT_RADIUS_DP * density;
+        int saved = canvas.save();
+        canvas.clipPath(outline);
+        for (int row = 0; row < rows; row++)
+            for (int column = 0; column < columns; column++)
+                canvas.drawCircle(x0 + column * spacing, y0 + row * spacing, dot, paint);
+        canvas.restoreToCount(saved);
+        // 一句淡色提示，手指按下（放大镜和光标预览出现）时不画。
+        if (!touching) drawHint(canvas);
+        drawTrail(canvas);
+        float line = Math.max(1, .5f * density);
+        prepareOutline(line / 2);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(line);
+        paint.setColor(ColorPolicy.withAlpha(foreground, .18f));
+        canvas.drawPath(outline, paint);
+    }
+
+    private void drawHint(Canvas canvas) {
+        String hint = "滑动移动光标";
+        paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(16 * density);
-        canvas.drawText("左右移动字符，上下移动行", getWidth() / 2f, getHeight() / 2f - 6 * density, paint);
-        paint.setTextSize(12 * density);
-        canvas.drawText(tapSelection ? "长按拖动选择 · 双击选词 · 三击选行" : "长按后拖动延伸选区",
-            getWidth() / 2f, getHeight() / 2f + 20 * density, paint);
+        android.util.DisplayMetrics display = getResources().getDisplayMetrics();
+        float maxSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,
+            TextTrackpadSurface.HINT_MAX_SP, display);
+        float minSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,
+            TextTrackpadSurface.HINT_MIN_SP, display);
+        paint.setTextSize(maxSize);
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        float size = TextTrackpadSurface.hintSize(paint.measureText(hint),
+            getWidth() - 2 * TextTrackpadSurface.HINT_SIDE_DP * density, metrics.descent - metrics.ascent,
+            getHeight(), maxSize, minSize);
+        if (size <= 0) return;
+        paint.setTextSize(size);
+        metrics = paint.getFontMetrics();
+        paint.setColor(ColorPolicy.withAlpha(foreground, .45f));
+        canvas.drawText(hint, getWidth() / 2f, getHeight() / 2f - (metrics.ascent + metrics.descent) / 2f, paint);
+    }
+
+    private void drawTrail(Canvas canvas) {
         if (points.isEmpty()) return;
         paint.setColor(accent);
         paint.setStyle(Paint.Style.STROKE);

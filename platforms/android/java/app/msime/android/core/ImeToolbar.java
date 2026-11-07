@@ -40,6 +40,13 @@ final class ImeToolbar {
     /** 「最近复制」预览右边的分词或分类快捷键（#10079），由设置「复制后自动显示快捷键」决定显示哪个。 */
     private Button recentClipActionButton;
     private Button recentClipCollapseButton;
+    private RecentClipViews toolbarRecentClip;
+    /** 文本编辑面板标题行里的那一份「最近复制」：盖住工具栏时代替上面这一行，内容和这一行同步。 */
+    private RecentClipViews textEditRecentClip;
+    private String recentClipText;
+    private boolean recentClipImage;
+    private int edgeButtonWidth;
+    private int edgeDrawPercent = 100;
     private String styleCacheKey;
     private int iconColor;
     private int activeIconColor;
@@ -143,7 +150,15 @@ final class ImeToolbar {
             if (recentClipActionButton != null && recentClipActionButton.getMinWidth() != edgeWidth)
                 ViewPolicy.setMinimumWidth(recentClipActionButton, edgeWidth);
         }
+        // 文本编辑面板的标题行盖在这一行上，返回、撤销、重做和两端按钮一样宽、图标一样缩放。
+        edgeButtonWidth = edgeWidth;
+        edgeDrawPercent = drawPercent;
+        if (s.imeTextEditPanel != null) s.imeTextEditPanel.resizeHeader(edgeWidth, drawPercent);
     }
+
+    int edgeButtonWidth() { return edgeButtonWidth > 0 ? edgeButtonWidth : s.pixels(44); }
+
+    int edgeDrawPercent() { return edgeDrawPercent; }
 
     private static void resizeButton(Button button, int width, int height) {
         if (button.getLayoutParams() == null) return;
@@ -337,8 +352,13 @@ final class ImeToolbar {
             s.pixels(READING_ROW_DP)));
     }
 
+    /** 撤销、重做能不能点：没有输入框或在密码框里时不能；其余情况编辑器的历史不可读，一律当作可点。工具栏和文本编辑面板的标题行共用。 */
+    boolean canDispatchHistory() {
+        return s.connection != null && !EditorPolicy.password(s.editorInputType);
+    }
+
     /** 历史由编辑器持有；仅发送一次快捷键，不采集文本，也不以投递成功冒充已撤销。 */
-    private void performHistory(boolean redo) {
+    void performHistory(boolean redo) {
         InputConnection target = s.connection;
         if (target == null || EditorPolicy.password(s.editorInputType)) return;
         if (s.session != 0 && s.hasEngineComposition()) s.command(2);
@@ -429,6 +449,34 @@ final class ImeToolbar {
         history.setContentDescription("剪贴板");
         history.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
         recentClipHistoryButton = history;
+        RecentClipViews chip = addRecentClipChip(row);
+        toolbarRecentClip = chip;
+        recentClipActionButton = chip.action();
+        recentClipDismissButton = chip.dismiss();
+        KeyboardPressButton paste = chip.paste();
+        // 文本编辑面板也显示最近复制；收起键与普通工具栏一样先返回键盘。
+        Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
+            () -> {
+                if (s.anyToolbarPanelOpen()) {
+                    s.closeToolbarPanels();
+                    s.render();
+                } else s.requestHideSelf(0);
+            });
+        collapse.setContentDescription("收起键盘");
+        collapse.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        recentClipCollapseButton = collapse;
+        ViewPolicy.hide(row);
+        s.recentClipRow = row;
+        s.recentClipButton = paste;
+        candidateRegion.addView(row, LayoutPolicy.matchWidthHeightPx(
+            s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
+    }
+
+    /** 「最近复制」的预览（点按粘贴）、分词或分类快捷键和关闭键。 */
+    record RecentClipViews(KeyboardPressButton paste, KeyboardPressButton action, KeyboardPressButton dismiss) { }
+
+    /** 按顺序往 {@code row} 里加预览、快捷键和 ×：工具栏的「最近复制」一行和文本编辑面板的标题行用同一套。 */
+    RecentClipViews addRecentClipChip(LinearLayout row) {
         KeyboardPressButton paste = ViewPolicy.newPressButton(s);
         paste.setKeyboardRole(KeyboardKeyRole.KEY);
         ViewPolicy.setAllCapsFalse(paste);
@@ -452,7 +500,6 @@ final class ImeToolbar {
         ViewPolicy.hide(action);
         row.addView(action, LayoutPolicy.linearParamsPx(LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.MATCH_PARENT));
-        recentClipActionButton = action;
         KeyboardPressButton dismiss = ViewPolicy.newPressButton(s);
         dismiss.setKeyboardRole(KeyboardKeyRole.GLYPH);
         ViewPolicy.setAllCapsFalse(dismiss);
@@ -463,41 +510,43 @@ final class ImeToolbar {
         dismiss.setContentDescription("不再显示这条复制的内容");
         bindToolbarAction(dismiss, s::dismissRecentClip);
         row.addView(dismiss, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
-        recentClipDismissButton = dismiss;
-        // 文本编辑面板也显示最近复制；收起键与普通工具栏一样先返回键盘。
-        Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
-            () -> {
-                if (s.anyToolbarPanelOpen()) {
-                    s.closeToolbarPanels();
-                    s.render();
-                } else s.requestHideSelf(0);
-            });
-        collapse.setContentDescription("收起键盘");
-        collapse.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
-        recentClipCollapseButton = collapse;
-        ViewPolicy.hide(row);
-        s.recentClipRow = row;
-        s.recentClipButton = paste;
-        candidateRegion.addView(row, LayoutPolicy.matchWidthHeightPx(
-            s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
+        return new RecentClipViews(paste, action, dismiss);
     }
 
-    /** 有内容时显示「最近复制」并换上它的预览，没有时藏起来。`image` 为真时这一条是能发到当前输入框的图片（#6781），按钮写「发送复制的图片」，不显示缩略图：键盘在用户点发送之前不打开图片。 */
+    /** 文本编辑面板重建标题行时登记它那一份「最近复制」，立即按当前这一条填好；返回现在有没有要显示的内容。 */
+    boolean bindTextEditRecentClip(RecentClipViews views) {
+        textEditRecentClip = views;
+        boolean visible = recentClipText != null || recentClipImage;
+        if (visible && views != null) applyRecentClip(views, recentClipText, recentClipImage);
+        return visible;
+    }
+
+    /** 有内容时显示「最近复制」并换上它的预览，没有时藏起来。`image` 为真时这一条是能发到当前输入框的图片（#6781），按钮写「发送复制的图片」，不显示缩略图：键盘在用户点发送之前不打开图片。文本编辑面板标题行里的那一份同步更新。 */
     void updateRecentClipRow(String text, boolean image) {
-        if (s.recentClipRow == null || s.recentClipButton == null) return;
+        recentClipText = text;
+        recentClipImage = image;
         boolean visible = text != null || image;
+        if (textEditRecentClip != null) {
+            if (visible) applyRecentClip(textEditRecentClip, text, image);
+            s.imeTextEditPanel.showRecentClip(visible);
+        }
+        if (s.recentClipRow == null || s.recentClipButton == null) return;
         ViewPolicy.setVisible(s.recentClipRow, visible);
         if (!visible) return;
         recentClipCollapseButton.setContentDescription(s.anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
+        applyRecentClip(toolbarRecentClip, text, image);
+    }
+
+    private void applyRecentClip(RecentClipViews views, String text, boolean image) {
         String preview = image ? ClipboardImagePolicy.LABEL : RecentClipboardSuggestion.preview(text);
-        if (!preview.contentEquals(s.recentClipButton.getText())) s.recentClipButton.setText(preview);
-        s.recentClipButton.setContentDescription(image ? "发送最近复制的图片" : "粘贴最近复制的内容：" + preview);
+        if (!preview.contentEquals(views.paste().getText())) views.paste().setText(preview);
+        views.paste().setContentDescription(image ? "发送最近复制的图片" : "粘贴最近复制的内容：" + preview);
         String action = s.recentClipQuickAction(image);
-        ViewPolicy.setVisible(recentClipActionButton, action != null);
+        ViewPolicy.setVisible(views.action(), action != null);
         if (action == null) return;
         String label = RecentClipboardSuggestion.quickActionLabel(action);
-        if (!label.contentEquals(recentClipActionButton.getText())) recentClipActionButton.setText(label);
-        recentClipActionButton.setContentDescription(RecentClipboardSuggestion.quickActionDescription(action));
+        if (!label.contentEquals(views.action().getText())) views.action().setText(label);
+        views.action().setContentDescription(RecentClipboardSuggestion.quickActionDescription(action));
     }
 
     /** 每次 render 末尾：工具栏图标色、激活底、品牌键配色、展开键的颜色与「键盘调整」括号的强调色。 */
@@ -552,6 +601,8 @@ final class ImeToolbar {
         if (s.keyboardAdjustOverlay != null) s.keyboardAdjustOverlay.setAccent(Color.parseColor(skin.accent()));
         if (s.floatingBar != null) s.floatingBar.setColors(foregroundColor);
         s.imeBottomBar.style(iconColor, activeIconColor, activeBackgroundColor);
+        if (s.imeTextEditPanel != null)
+            s.imeTextEditPanel.styleHeader(iconColor, activeIconColor, activeBackgroundColor, foregroundColor);
         if (s.preedit != null) {
             ViewPolicy.setTextColor(s.preedit, s.candidateAppearance.externalSkin()
                 && ViewPolicy.isVisible(s.candidateViewport) ? s.candidateAppearance.preeditText() : hintColor);
