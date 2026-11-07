@@ -69,6 +69,9 @@ public final class AndroidLocalSettingsSmoke {
         check(settings.bool(AndroidLocalSettings.SPACE_CURSOR), "space cursor default");
         check(settings.bool(AndroidLocalSettings.SPACE_VOICE), "space voice default");
         check("none".equals(settings.choice(AndroidLocalSettings.KEY_ANIMATION)), "animation default");
+        check(settings.bool(AndroidLocalSettings.PRESS_FEEDBACK), "press feedback default");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.PRESS_FEEDBACK).synced,
+            "press feedback stays on this device");
         check(settings.bool(AndroidLocalSettings.TOOLBAR_PHRASE), "toolbar phrase default");
         check(settings.bool(AndroidLocalSettings.TOOLBAR_SCHEME), "toolbar scheme default");
         check(!settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN), "toolbar hidden default");

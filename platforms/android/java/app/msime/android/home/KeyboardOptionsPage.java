@@ -263,6 +263,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         feedback.toggle("按键振动", null, local.hapticsEnabled(), checked -> saveFeedback(null, checked));
         feedback.toggle("按键弹出预览", null,
             settings.bool(AndroidLocalSettings.KEY_POPUP), checked -> saveLocalSetting(AndroidLocalSettings.KEY_POPUP, checked)).help("按下时在键上方显示放大的字符");
+        feedback.toggle("按下时缩小", null,
+            settings.bool(AndroidLocalSettings.PRESS_FEEDBACK), checked -> saveLocalSetting(AndroidLocalSettings.PRESS_FEEDBACK, checked))
+            .help("按下键时缩小并下移 1 dp；关闭后按键动画、按键音、按键振动和按键弹出预览仍可用");
         String animation = settings.choice(AndroidLocalSettings.KEY_ANIMATION);
         GroupCard.Row[] animationRow = new GroupCard.Row[1];
         animationRow[0] = feedback.nav("按键动画", null, animationLabel(animation),
