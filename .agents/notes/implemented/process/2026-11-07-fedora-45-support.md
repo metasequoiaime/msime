@@ -8,7 +8,7 @@ Fedora Linux 45 已发布，但 Linux RPM 的构建镜像、发布说明、下�
 
 ## Decision
 
-RPM 构建和安装检查统一使用固定摘要的 Fedora 45 官方镜像。CI 的 Fedora 原生门禁、RPM 源码定义渲染和下载指引同步改为 Fedora 45；发行版文档把当前 RPM 构建基线写成 Fedora 45，并把 COPR、OBS 的目标 chroot 更新为 Fedora 44/45。Fedora 44 的历史故障笔记和历史复现记录保留原样，不把旧环境改写成新环境。
+RPM 构建和安装检查统一使用固定摘要的 Fedora 45 官方镜像。CI 的 Fedora 原生门禁、RPM 源码定义渲染和下载指引同步改为 Fedora 45；发行版文档把当前 RPM 构建基线写成 Fedora 45，同时如实记录 COPR、OBS 当前仍只有 Fedora 43/44，Fedora 45 的外部 chroot 需另行启用。Fedora 44 的历史故障笔记和历史复现记录保留原样，不把旧环境改写成新环境。
 
 Fedora 45 的镜像索引摘要固定为 `sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c`，避免 `fedora:45` 滚动标签改变构建输入。
 
@@ -20,4 +20,4 @@ Fedora 45 的镜像索引摘要固定为 `sha256:a7d72ba2745b100a3351087472e5ee7
 
 ## Consequences
 
-Fedora 45 的发行版差异会在 PR 的 Fedora 门禁和发布 RPM 检查中提前暴露，下载页和文档不再指向过期的 Fedora 44。Fedora 44 不再是发布 RPM 的构建基线；COPR、OBS 是否已在外部服务启用 Fedora 45 chroot 仍需外部项目设置完成，仓库内只能同步其声明和构建定义。
+Fedora 45 的发行版差异会在 PR 的 Fedora 门禁和发布 RPM 检查中提前暴露，下载页和文档不再把 Fedora 44 写成当前 RPM 构建基线。Fedora 44 不再是发布 RPM 的构建基线；COPR、OBS 的 Fedora 45 chroot 尚未启用，外部项目完成设置后还需再更新文档和验证发布流程。
