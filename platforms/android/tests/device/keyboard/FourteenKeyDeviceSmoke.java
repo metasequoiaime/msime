@@ -192,17 +192,23 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().endsWith("你好西安")));
 
-            // 长按 QW 弹出 q 和 w（没有数字），选 w 上屏字面字母。
+            // 空闲时长按 QW 弹出 q w Q W 和角标符号（没有数字，#11063），选 w 上屏字面字母；单字母 L 也有 l L 和符号。
             stage = "long-press letters";
             AccessibilityNodeInfo qw = await(described("按键 Q W"));
             if (!qw.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
                 throw new AssertionError("Long press on QW failed");
             await(described("输入 q"));
+            await(described("输入 W"));
+            await(described("输入 ；"));
             tap(described("输入 w"));
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().endsWith("西安w")));
-            AccessibilityNodeInfo l = await(described("字母 L"));
-            if (l.isLongClickable()) throw new AssertionError("L must not offer a long press");
+            if (!await(described("字母 L")).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("Long press on L failed");
+            await(described("输入 l"));
+            tap(described("输入 L"));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().endsWith("西安wL")));
 
             // 英文画 26 键 QWERTY，切回中文仍是 14 键，`touch_keyboard_layout` 不变。
             stage = "English draws 26 keys";

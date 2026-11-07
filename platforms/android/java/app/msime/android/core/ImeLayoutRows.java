@@ -1217,7 +1217,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 长按弹出这一键上的字面字符，像 Apple 的长按弹窗：九键是印着的数字加小写字母，14 键只有这一组的两个字母（`digit` 为空）。选中后先结束组字再上屏（{@link #commitNineKeyHoldOption}）。
+     * 长按弹出九键上的字面字符，像 Apple 的长按弹窗：印着的数字加小写字母。选中后先结束组字再上屏（{@link #commitNineKeyHoldOption}）。14 键、18 键的选项见 {@link #showGridLetterOptions}。
      */
     void showNineKeyHoldOptions(Button anchor, String digit, String letters) {
         showNineKeyHoldOptions(anchor, digit, letters, false);
@@ -1317,10 +1317,38 @@ final class ImeLayoutRows {
         if (letterOptionsAnchor == anchor) dismissNineKeyHoldOptions();
     }
 
+    /**
+     * 14 键、18 键字母键的选项（#11063）：这一键的小写字母、大写字母和角标符号，例如 QW 键是 `q w Q W ；`，L 键是 `l L “`。只在空闲时弹出（组字中长按和反向滑动都是点按），选字母上屏字面字母，选符号与滑出符号同一条路（{@link #commitGridLetterHint}）。弹窗跟着弹出它的这次按压拖选。
+     *
+     * @param letters 这一键的小写字母
+     * @param hint {@link GridLetterHintTable#hint} 的结果；null 时只列字母
+     * @param face 符号的键面（{@link GridLetterHintTable#face}）
+     */
+    void showGridLetterOptions(Button anchor, String letters, String hint, String face) {
+        java.util.List<String> choices = new java.util.ArrayList<>(2 * letters.length() + 1);
+        for (int index = 0; index < letters.length(); index++) choices.add(String.valueOf(letters.charAt(index)));
+        String upper = letters.toUpperCase(java.util.Locale.ROOT);
+        for (int index = 0; index < upper.length(); index++) choices.add(String.valueOf(upper.charAt(index)));
+        if (hint != null && face != null) choices.add(face);
+        LinearLayout options = showChoiceOptions(anchor, choices, choice -> {
+            if (hint != null && choice.equals(face)) commitGridLetterHint(hint);
+            else commitNineKeyHoldOption(choice);
+        });
+        trackLetterOptions(anchor, options);
+    }
+
+    /** 14 键、18 键滑出的角标符号和选项里的符号：与 26 键同一条 Engine 标点路由（{@link #commitLetterHint}）。 */
+    void commitGridLetterHint(String hint) {
+        commitHint(hint);
+    }
+
     /** 直接滑出角标与选项中的符号共用 Engine 标点路由，保留组字转换、引号和成对补全。 */
     void commitLetterHint(String input) {
+        commitHint(LetterHintTable.hint(input, s.dedicatedEnglish));
+    }
+
+    private void commitHint(String hint) {
         dismissNineKeyHoldOptions();
-        String hint = LetterHintTable.hint(input, s.dedicatedEnglish);
         if (hint == null) return;
         boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
             && s.punctuation(hint.charAt(0));

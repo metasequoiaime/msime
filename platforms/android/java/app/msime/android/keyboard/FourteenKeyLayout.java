@@ -99,11 +99,6 @@ public final class FourteenKeyLayout {
         return key.letters().length() == 1 ? "字母 " + face(key) : "按键 " + description(key);
     }
 
-    /** 长按弹出的字母：两字母键弹出这两个小写字母，L、M 只有一个字母，不弹。选中后先结束组字，再上屏这个字母，与九键长按相同。 */
-    public static String holdLetters(Key key) {
-        return key.letters().length() > 1 ? key.letters() : "";
-    }
-
     /** 按键热力图的键位 id：`FourteenQW`、`FourteenL`，与 client-services `KEY_IDS` 逐字一致。 */
     public static String keyId(Key key) {
         return "Fourteen" + face(key);

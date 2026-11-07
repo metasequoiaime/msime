@@ -51,6 +51,10 @@ public final class GridKeyGesturePolicySmoke {
         g = gesture(null, UP, false);
         check(g.hold() && g.mode() == Mode.OPTIONS && g.consumed(), "空闲长按打开选项");
         check(!g.hold(), "长按只触发一次");
+        g = gesture("we", UP, false);
+        g.hold();
+        g.move(1, 1, 135, 100);
+        check(g.mode() == Mode.OPTIONS && g.selected() == 0, "长按已弹选项后不抢成横滑");
 
         // 组字中：纵滑和长按都是点按，横滑照常。
         g = gesture(null, UP, true);
