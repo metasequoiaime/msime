@@ -367,7 +367,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
-        tap(clipboardEntry());
+        AccessibilityNodeInfo clipboard = await(clipboardEntry());
+        if (!clipboard.isSelected()) tap(clipboardEntry());
     }
 
     private void longPressManagementOnly(File history, String text) throws Exception {
