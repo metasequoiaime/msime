@@ -1992,6 +1992,10 @@ static NSImage *MSIMECandidateLogoImage() {
     // 单按 Caps Lock 切换中英文：大写锁定打开的那一刻布防，轮询到松开时认定是轻点还是长按。
     msime::input::CapsLockTap _capsLockTap;
     NSTimer *_capsLockTapTimer;
+    // 首个事件没有实体按住位时，等待后续的 flagsChanged 松键事件；定时器不能把未知状态误判成已松手。
+    BOOL _capsLockTapAwaitingReleaseEvent;
+    // 待定轻点的状态事件需要由输入法消费，但不能提前离开 handleKeyEvent，否则会跳过后续会话和宿主状态维护。
+    BOOL _capsLockTapConsumedEvent;
     // IOKit 撤回锁定后，窗口服务器可能还会把旧的 Caps Lock 修饰位带进一两个事件；
     // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
     BOOL _capsLockTapReleased;
@@ -4802,6 +4806,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _capsLockTap.reset();
     [_capsLockTapTimer invalidate];
     _capsLockTapTimer = nil;
+    _capsLockTapAwaitingReleaseEvent = NO;
 }
 // 失焦、换会话等外部重置打断了待定的轻点：大写锁定按实际状态报告，不再切换。
 - (void)abandonCapsLockTap {
@@ -4813,9 +4818,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (BOOL)observeCapsLockTap:(NSEvent *)event capsLock:(BOOL)capsLock sender:(id)sender {
     const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
-    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged && capsLock &&
+    if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
         !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
-        // 实体松手的状态事件先到时，用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        // 实体松手的状态事件先到时（无论锁定位是否已清除），用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        _capsLockTapAwaitingReleaseEvent = NO;
         [self pollCapsLockTap];
         return YES;
     }
@@ -4823,13 +4829,14 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self cancelCapsLockTap];
         // 只有大写锁定从关变开才可能是轻点；开着时按它是关掉大写锁定，照常处理，不切换。
         if (!capsLock || _capsLock || !sender || !_appearance.capsLockTapShortcut) return NO;
-        // 设备没有提供实体按住位时保留系统大写锁定，不能把缺失状态当作已经松手；同时开始（或重试）HID 监听，拿到结果之后的轻点才能判定。
-        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld()) {
+        // 设备没有提供实体按住位时也先布防；同时开始（或重试）HID 监听，等待后续松键事件，不能把未知状态当作已经松手。
+        const BOOL awaitingReleaseEvent = !(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld();
+        if (awaitingReleaseEvent) {
             MSIMECapsLockHIDStart();
-            return NO;
         }
         _capsLockTap.press(MSIMECapsLockNow(), true, false, (event.modifierFlags & others) != 0);
         if (!_capsLockTap.armed()) return NO;
+        _capsLockTapAwaitingReleaseEvent = awaitingReleaseEvent;
         __weak MSIMEInputController *weakSelf = self;
         _capsLockTapTimer = [NSTimer timerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
             (void)timer;
@@ -4858,6 +4865,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self adoptCapsLockState:YES];
         return;
     }
+    if (_capsLockTapAwaitingReleaseEvent && !_capsLockTap.heldTooLong(now)) return;
     const bool tap = _capsLockTap.release(now);
     [self cancelCapsLockTap];
     // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
@@ -7777,7 +7785,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
     }
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted && !event.isARepeat) [self reportKeyToLifecycle:event];
+    _capsLockTapConsumedEvent = NO;
     const BOOL handled = [self handleKeyEvent:event client:sender];
+    const BOOL finalHandled = handled || _capsLockTapConsumedEvent;
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
         // A key event is the wake-up edge: restore the toolbar before the next event arrives, even if
         // a preceding focus or preference callback left its requested visibility stale.
@@ -7785,15 +7795,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
             [_toolbar wakeForInputDelegate:self];
         }
-        [self noteKeyForSmartPunctuationShadow:event eaten:handled];
+        [self noteKeyForSmartPunctuationShadow:event eaten:finalHandled];
     }
     if (!selfPosted) [self recordKeyPress:event client:sender];
-    if (!handled) [self recordPassthroughKey:event client:sender];
+    if (!finalHandled) [self recordPassthroughKey:event client:sender];
     const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
     if (timed && elapsedMs >= 8.0) {
-        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, handled ? 1 : 0, elapsedMs);
+        msime_macos_diagnostic_writef("[key-latency] stage=handle type=%s handled=%d elapsed_ms=%.3f", label, finalHandled ? 1 : 0, elapsedMs);
     }
-    return handled;
+    return finalHandled;
 }
 
 - (void)recordPassthroughKey:(NSEvent *)event client:(id)sender {
@@ -7934,7 +7944,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         capsLock = NO;
         staleCapsLock = YES;
     }
-    if (!staleCapsLock && ![self observeCapsLockTap:event capsLock:capsLock sender:sender]) [self adoptCapsLockState:capsLock];
+    // 设备尚未报告实体状态时，首个大写锁定状态事件和随后撤回锁定的事件都属于待判定轻点，先交给输入法吞掉，避免系统把尚未确认的锁定状态继续传给应用。普通按住场景仍把首个事件交回应用。
+    const BOOL capsTapWasArmed = _capsLockTap.armed();
+    const BOOL capsTapObserved = !staleCapsLock && [self observeCapsLockTap:event capsLock:capsLock sender:sender];
+    const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
+        (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
+    if (!capsTapObserved) [self adoptCapsLockState:capsLock];
+    _capsLockTapConsumedEvent = delayedCapsTapEvent;
     if (!sender) {
         _voicePermissionToken = nil;
         [_voiceOverlay dismissFailure];

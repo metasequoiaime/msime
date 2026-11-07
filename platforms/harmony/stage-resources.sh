@@ -20,8 +20,15 @@ cp resources/licenses/Zinnia-LICENSE.txt "$handwriting_staged/"
 resource_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory] [pronunciations-directory] [target-pronunciations-directory]}
 resource_dir=$(cd "$resource_dir" && pwd)
 # The directory has to match the lock exactly, down to containing no extra file, because the same
-# check runs again on the device inside prepare_host. Failing here is far cheaper than failing there.
-artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
+# check runs again on the device inside prepare_host. Japanese and Wubi are optional on HarmonyOS:
+# they are published through the resource-pack service after installation, so the HAP only carries
+# the resources every input scheme needs. Set MSIME_HARMONY_OMIT_ON_DEMAND=0 for a development HAP
+# that intentionally bundles both optional groups.
+verify_args=()
+if [ "${MSIME_HARMONY_OMIT_ON_DEMAND:-1}" = 1 ]; then
+  verify_args+=(--omit-on-demand --platform ohos)
+fi
+artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "${verify_args[@]}" "$resource_dir")
 staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/engine"
 rm -rf "$staged"
 mkdir -p "$staged"
@@ -34,7 +41,7 @@ done
 cp resources/helpcodes/ENGINE-NOTICE.md "$staged/helpcodes/NOTICE.md"
 cp resources/helpcodes/NOTICE.md "$staged/helpcodes/NOTICE-jiajia.md"
 cp resources/helpcodes/NOTICE-wubi86.md "$staged/helpcodes/NOTICE-wubi86.md"
-cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$staged" >/dev/null
+cargo run --quiet -p msime-client-core --example verify_resources --locked -- "${verify_args[@]}" "$staged" >/dev/null
 echo "Staged for the HAP: $staged"
 
 # Licences of what the native library carries that its own notices do not cover: the input engine embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions, its Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and its Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts it to context.resourceDir/licenses.

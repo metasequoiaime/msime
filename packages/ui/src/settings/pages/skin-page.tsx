@@ -15,6 +15,7 @@ import {
   ExternalSkinDirectoryRow,
   useSkinCatalog,
 } from "../../skin/external-skins";
+import { useSkinDeletion } from "../../skin/use-skin-deletion";
 import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publish-dialog";
 import type { CandidateSkinVisibility } from "../../community/community-candidate-skin-model";
 import { AiSkinGeneration } from "../../keyboard/ai-skin-generation";
@@ -125,6 +126,8 @@ export function SkinSettingsPage({
     packages,
     previewTheme: candidatePreviewTheme,
   });
+  // 皮肤卡片上的「删除」：只画按钮和确认框，能不能删（选着的不能删）由宿主经 client-services 回答。
+  const deletion = useSkinDeletion(client.deleteSkin, packages, (id) => skinsInUse.includes(id));
   // 鸿蒙手机画设计里的缩略图网格；其他宿主保留轮播。
   const phoneGrid = harmonyPlatform && mobilePlatform;
   // 触屏外壳把这页的标题叫作「皮肤」，所以页面也这样称呼自己。
@@ -387,6 +390,7 @@ export function SkinSettingsPage({
             }
           : undefined
       }
+      onDelete={deletion.onDelete}
     />
   ));
   return (
@@ -442,6 +446,7 @@ export function SkinSettingsPage({
                   {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}
                 </SettingsExternalMeta>
               )}
+              {deletion.notice}
               {moreSkins}
               {customThemeGroup}
               {advanced}
@@ -449,6 +454,8 @@ export function SkinSettingsPage({
           )
         )}
       </SettingsPageFieldset>
+      {/* 确认框放在 fieldset 外，与发布对话框一样，保存设置时不被禁用；它是盖住整个窗口的模态框，不随页面隐藏卸下，免得等着回答的删除永远悬着。 */}
+      {deletion.confirmation}
       {candidateSkins && publishSkinId && shown && (
         <CandidateSkinPublishDialog
           client={candidateSkins}

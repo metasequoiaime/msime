@@ -600,6 +600,105 @@ fn deleting_refuses_reserved_names_missing_skins_and_anything_but_a_folder() {
     }
 }
 
+/// 偏好目录里存一份 `custom_theme` 两个槽位是 `light`、`dark` 的偏好，全局主题是 `global`。
+fn preferences_with_slots(
+    global: crate::theme::GlobalTheme,
+    light: Option<&str>,
+    dark: Option<&str>,
+) -> (tempfile::TempDir, crate::preferences::PreferencesStore) {
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::preferences::PreferencesStore::new(directory.path());
+    let current = store.load().unwrap();
+    let mut preferences = current.preferences;
+    preferences.global_theme = global;
+    preferences.custom_theme.candidate_skin = light.map(str::to_owned);
+    preferences.custom_theme.candidate_skin_dark = dark.map(str::to_owned);
+    store.save(current.revision, preferences).unwrap();
+    (directory, store)
+}
+
+#[test]
+fn deleting_from_settings_refuses_a_skin_still_in_a_slot_and_leaves_everything_alone() {
+    use crate::theme::GlobalTheme;
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    write_skin(&fixture.root, "local", "本机", 2);
+    fixture.sync();
+    let state = fs::read(&fixture.state).unwrap();
+    // 浅色槽位、深色槽位，以及当前全局主题不是 custom 时留在槽位里的，都算选着：切回自定义主题时它还会被用上。
+    for (global, light, dark) in [
+        (GlobalTheme::Custom, Some("sakura"), None),
+        (GlobalTheme::Custom, Some("local"), Some("sakura")),
+        (GlobalTheme::Night, Some("sakura"), None),
+    ] {
+        let (_directory, store) = preferences_with_slots(global, light, dark);
+        assert_eq!(
+            delete_unselected(&fixture.root, &fixture.state, &store, "sakura"),
+            Err(IN_USE),
+            "{global:?} {light:?} {dark:?}"
+        );
+        assert!(fixture.installed("sakura"));
+        assert_eq!(fs::read(&fixture.state).unwrap(), state);
+        let after = store.load().unwrap().preferences.custom_theme;
+        assert_eq!(after.candidate_skin.as_deref(), light);
+        assert_eq!(after.candidate_skin_dark.as_deref(), dark);
+    }
+    let (_directory, store) =
+        preferences_with_slots(GlobalTheme::Custom, Some("sakura"), Some("sakura"));
+    assert_eq!(
+        selected_slots(&store.load().unwrap().preferences.custom_theme, "sakura"),
+        ["candidate_skin", "candidate_skin_dark"]
+    );
+    assert!(selected_slots(&store.load().unwrap().preferences.custom_theme, "local").is_empty());
+}
+
+#[test]
+fn deleting_from_settings_removes_an_unselected_skin_and_keeps_the_sync_state() {
+    use crate::theme::GlobalTheme;
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    write_skin(&fixture.root, "local", "本机", 2);
+    fixture.sync();
+    let state = fs::read(&fixture.state).unwrap();
+    let (_directory, store) = preferences_with_slots(GlobalTheme::Custom, Some("local"), None);
+    assert_eq!(
+        delete_unselected(&fixture.root, &fixture.state, &store, "sakura"),
+        Ok(true)
+    );
+    assert!(!fixture.root.join("sakura").exists());
+    assert!(fixture.installed("local"));
+    // 同步状态原样留着，下一次同步据此把库里私有的那一行一起删掉，与 MCP 的删除相同。
+    assert_eq!(fs::read(&fixture.state).unwrap(), state);
+    assert_eq!(fixture.sync().deleted_cloud, ids(&["sakura"]));
+    // 内置主题和不存在的皮肤与 `delete_installed` 的码相同。
+    assert_eq!(
+        delete_unselected(&fixture.root, &fixture.state, &store, "night"),
+        Err(PACKAGE)
+    );
+    assert_eq!(
+        delete_unselected(&fixture.root, &fixture.state, &store, "sakura"),
+        Err(NOT_INSTALLED)
+    );
+}
+
+#[test]
+fn deleting_from_settings_with_unreadable_preferences_deletes_nothing() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.sync();
+    let state = fs::read(&fixture.state).unwrap();
+    // 偏好文件的位置是个目录：读不出偏好，判断不了是否选着，什么都不删，码与皮肤文件夹读写失败的 `storage` 分开。
+    let directory = tempfile::tempdir().unwrap();
+    fs::create_dir(directory.path().join("preferences.json")).unwrap();
+    let store = crate::preferences::PreferencesStore::new(directory.path());
+    assert_eq!(
+        delete_unselected(&fixture.root, &fixture.state, &store, "sakura"),
+        Err(PREFERENCES_UNREADABLE)
+    );
+    assert!(fixture.installed("sakura"));
+    assert_eq!(fs::read(&fixture.state).unwrap(), state);
+}
+
 #[test]
 fn a_local_deletion_does_not_discard_a_newer_library_copy() {
     let fixture = Fixture::new();

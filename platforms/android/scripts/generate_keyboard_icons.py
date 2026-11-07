@@ -51,6 +51,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("MIC", STROKE, 1.7, "design space mic",
      "M12 5a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0V7a2 2 0 0 1 2-2zM8 10.5a4 4 0 0 0 8 0M12 14.5V17"),
     ("CHEVRON", STROKE, 1.8, "design candidate expand chevron (20dp)", "m6 9.5 6 6 6-6"),
+    ("EDIT_DOCUMENT_START", STROKE, 1.8, "编辑面板文首竖线与单尖括号；旋转得到文尾",
+     "M5 5V19M18 5L11 12L18 19"),
     # 6.4 function panel: strokes 1.7.
     ("HANDWRITING", STROKE, 1.7, "design panel 手写", "M12 20h9M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"),
     ("LEXICON", STROKE, 1.7, "design panel 词库",

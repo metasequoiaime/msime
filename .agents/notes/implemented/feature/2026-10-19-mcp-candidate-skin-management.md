@@ -41,7 +41,7 @@ MCP 服务器（`crates/mcp-server`）原来只能 `create_candidate_skin`（图
 - 持有同步运行锁和同步状态文件锁，与设置应用的同步运行互斥；先改名为扫描看不到的 `.removed-<id>` 再删，失败改回。
 - 返回删之前它是否在同步状态里，MCP 报告为 `synced`。同步状态不动。
 
-偏好里任一槽位选着这款皮肤（不论当前主题是不是 `custom`）时拒绝删除，提示先用 `update_preferences` 换掉或置 `null`。
+偏好里任一槽位选着这款皮肤（不论当前主题是不是 `custom`）时拒绝删除，提示先用 `update_preferences` 换掉或置 `null`。这条检查在共享的 `candidate_sync::delete_unselected` 里，设置页的「删除」经 `msime_client_skin_delete` 和 Tauri 的 `delete_skin` 走同一条，见 [「主题」页的皮肤删除和轮播「回到当前」](2026-11-03-settings-skin-delete-and-back-to-current.md)。
 
 ## Alternatives considered
 

@@ -39,6 +39,16 @@ public enum InputFeatureToggle {
     CHINESE_ENGLISH_SPACING(Group.OUTPUT, "chinese_english_spacing", false, "中英文之间加空格",
         "一次上屏的文字里，汉字与英文字母、数字相邻处自动加一个空格，如「用Rust写」上屏为「用 Rust 写」。两次上屏之间不加；网址、日期等快捷模式和全角输入不受影响，译文和释义上屏、常用语、剪贴板和语音结果也不加"),
 
+    // 输入页五笔组（#10830）：标题和说明与共享设置页 wubi-section.tsx、Windows 与 macOS 原生设置页一字不差。混输缺键时按关，与 MSIMEInputService 读这个键的方式相同；共享层给出的快照总带着这个键，五笔版的出厂开由 client-core 按版本表写进快照。
+    WUBI_MIXED_PINYIN(Group.WUBI, "wubi_mixed_pinyin", false, "五笔拼音混输",
+        "五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。"),
+    WUBI_CODE_HINT(Group.WUBI, "wubi_code_hint", true, "候选显示剩余编码",
+        "在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。"),
+    WUBI_FIFTH_CODE_TOP_COMMIT(Group.WUBI, "wubi_fifth_code_top_commit", true, "第五码将首选上屏",
+        "完整四码后再敲字母时上屏首选，并把该字母留作下一组开头；关闭只在拼音混输开启时生效，这个字母并入混输串。混输关闭时仍按顶字上屏，不会丢字。"),
+    WUBI_AUTO_COMMIT_UNIQUE(Group.WUBI, "wubi_auto_commit_unique", true, "五笔四码唯一候选自动上屏",
+        "五笔输入达到四码且只有一个候选时，自动提交该候选。关闭后这个词留在候选列表里，用空格或数字键选它。"),
+
     JAPANESE_TOGGLE_INPUT(Group.JAPANESE, "touch_japanese_toggle_input", true, "日语九键连点切换",
         "仅日语九键：连点同一键依次切换假名；关闭后每次轻点都输入键面假名，如「ささ」，其他假名用四向滑动选择"),
 
@@ -59,6 +69,7 @@ public enum InputFeatureToggle {
     public enum Group {
         DICTIONARY("词库与联想"),
         OUTPUT("上屏与标点"),
+        WUBI("五笔"),
         JAPANESE("日语"),
         PRIVACY("需要留意的");
 

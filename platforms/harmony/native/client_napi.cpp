@@ -424,6 +424,8 @@ TEXT_ENTRY(VoiceNormalizeNumbers, msime_client_voice_normalize_numbers)
 TEXT_ENTRY(VoicePunctuation, msime_client_voice_punctuation)
 TEXT_ENTRY(VoiceLocalModels, msime_client_voice_local_models)
 TEXT_ENTRY(VoiceLocalModelCancel, msime_client_voice_local_model_cancel)
+TEXT_ENTRY(ResourcePacks, msime_client_resource_packs)
+TEXT_ENTRY(ResourcePackRemove, msime_client_resource_pack_remove)
 
 static void rejectWith(napi_env env, napi_deferred deferred, const char *text) {
     napi_value message = nullptr;
@@ -1051,6 +1053,129 @@ static napi_value VoiceLocalModelInstall(napi_env env, napi_callback_info info) 
         return invalid(env, "Unable to queue voice model install worker");
     }
     return promise;
+}
+
+// 资源包进度和本地语音模型共用同一条 ArkWeb 回调通道，但 C ABI 的回调把阶段作为单独
+// 参数传入。资源包 id 只允许固定的 ASCII 名字，安装请求里的值因此可以安全地取出用于
+// 组成页面事件；真正的校验仍由 Rust 入口完成。
+static std::string resourcePackId(const std::string &request) {
+    const std::string key = "\"pack\":\"";
+    const size_t begin = request.find(key);
+    if (begin == std::string::npos) return {};
+    const size_t start = begin + key.size();
+    const size_t end = request.find('"', start);
+    if (end == std::string::npos || end - start > 128) return {};
+    return request.substr(start, end - start);
+}
+
+struct ResourcePackInstallWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    napi_threadsafe_function progress = nullptr;
+    std::string request;
+    std::string pack;
+    char *result = nullptr;
+};
+
+static void callResourcePackProgress(napi_env env, napi_value callback, void *, void *data) {
+    auto *document = static_cast<std::string *>(data);
+    if (env != nullptr && callback != nullptr) {
+        napi_value argument = nullptr;
+        napi_value receiver = nullptr;
+        if (napi_create_string_utf8(env, document->data(), document->size(), &argument) == napi_ok
+                && napi_get_undefined(env, &receiver) == napi_ok) {
+            napi_call_function(env, receiver, callback, 1, &argument, nullptr);
+        }
+    }
+    delete document;
+}
+
+static void reportResourcePackProgress(void *context, const char *phase, uint64_t downloaded,
+                                       uint64_t total) {
+    auto *work = static_cast<ResourcePackInstallWork *>(context);
+    if (work->progress == nullptr || phase == nullptr) return;
+    const std::string document = "{\"id\":\"" + work->pack + "\",\"stage\":\""
+        + phase + "\",\"downloaded\":" + std::to_string(downloaded)
+        + ",\"total\":" + std::to_string(total) + "}";
+    auto *owned = new std::string(document);
+    if (napi_call_threadsafe_function(work->progress, owned, napi_tsfn_nonblocking) != napi_ok) {
+        delete owned;
+    }
+}
+
+static void executeResourcePackInstall(napi_env, void *data) {
+    auto *work = static_cast<ResourcePackInstallWork *>(data);
+    work->result = msime_client_resource_pack_install(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size(),
+        work->progress != nullptr ? reportResourcePackProgress : nullptr, work);
+}
+
+static void completeResourcePackInstall(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<ResourcePackInstallWork *>(data);
+    if (work->progress != nullptr) {
+        napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        work->progress = nullptr;
+    }
+    settleVoicePromise(env, status, work->deferred, work->result,
+        "Resource pack install worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value ResourcePackInstall(napi_env env, napi_callback_info info) {
+    size_t count = 2;
+    napi_value argv[2] = { nullptr, nullptr };
+    if (napi_get_cb_info(env, info, &count, argv, nullptr, nullptr) != napi_ok || count < 1) {
+        return invalid(env, "Expected a resource pack install request");
+    }
+    auto *work = new ResourcePackInstallWork();
+    if (!argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a resource pack install request");
+    }
+    work->pack = resourcePackId(work->request);
+    napi_value resource = nullptr;
+    if (napi_create_string_utf8(env, "MSIME resource pack install", NAPI_AUTO_LENGTH,
+            &resource) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create resource pack install worker");
+    }
+    napi_valuetype callbackType = napi_undefined;
+    if (count >= 2 && napi_typeof(env, argv[1], &callbackType) == napi_ok
+            && callbackType == napi_function
+            && napi_create_threadsafe_function(env, argv[1], nullptr, resource, 0, 1, nullptr,
+                nullptr, nullptr, callResourcePackProgress, &work->progress) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create resource pack progress channel");
+    }
+    napi_value promise = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeResourcePackInstall,
+                completeResourcePackInstall, work, &work->work) != napi_ok) {
+        if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        delete work;
+        return invalid(env, "Unable to create resource pack install worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
+        delete work;
+        return invalid(env, "Unable to queue resource pack install worker");
+    }
+    return promise;
+}
+
+static napi_value ResourcePackCancel(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string pack;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], pack)
+            || pack.size() > 256) {
+        napi_value result = nullptr;
+        return napi_get_undefined(env, &result) == napi_ok ? result : nullptr;
+    }
+    msime_client_resource_pack_cancel(reinterpret_cast<const uint8_t *>(pack.data()), pack.size());
+    napi_value result = nullptr;
+    return napi_get_undefined(env, &result) == napi_ok ? result : nullptr;
 }
 
 // Removing a model recursively deletes a user-downloaded directory that can be larger than a
@@ -1976,6 +2101,10 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceLocalModelInstall", VoiceLocalModelInstall),
         ENTRY("voiceLocalModelCancel", VoiceLocalModelCancel),
         ENTRY("voiceLocalModelRemove", VoiceLocalModelRemove),
+        ENTRY("resourcePacks", ResourcePacks),
+        ENTRY("resourcePackInstall", ResourcePackInstall),
+        ENTRY("resourcePackCancel", ResourcePackCancel),
+        ENTRY("resourcePackRemove", ResourcePackRemove),
         ENTRY("doubaoEncodeFrame", DoubaoEncodeFrame),
         ENTRY("doubaoDecodeFrame", DoubaoDecodeFrame),
     };

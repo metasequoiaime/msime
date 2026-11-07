@@ -81,6 +81,9 @@ import {
   type LocalVoiceModelClient,
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
+  type ResourcePackClient,
+  type ResourcePackId,
+  type ResourcePackStatus,
   type MentionEntry,
   type AuthoredPack,
   type PluginCatalogResult,
@@ -186,6 +189,8 @@ interface NativeBridge {
    * The 插件 page's pack store, plugin editor and @ name list: `{operation:"catalog"|"remove"|"load_mentions"|"save_mentions"|"authoring_load"|"authoring_save",...}`, answered by `msime_client_plugins` as `{ok,value}` or `{ok:false,error,detail?}`. An import waits for the system picker, so it goes through `startRequest` as `plugin_import` instead.
    */
   plugins(action: string): string;
+  resourcePacks(): string;
+  resourcePackCancel(id: string): string;
   // 下面这些方法随 HarmonyOS 改版加入。旧版 HAP 没有注册它们，所以每个都先用 `typeof` 检查再用，缺哪个，页面就不画它支撑的那块界面，而不是去调用不存在的东西。它们声明为普通成员，这样桥接一致性检查（`scripts/test-harmony-bridge-parity.py`）仍能看到它们，并要求宿主把每一个都注册上。
   /**
    * `{"ok":true,"ready":boolean,"value":{"enabled":boolean|null,"current":boolean|null}}`：本键盘是否已在系统中启用、是否为当前输入法。和 `onboardingStatus` 一样是同步调用，宿主第一次读取完成前 `ready` 一直为 false。
@@ -233,6 +238,8 @@ declare global {
   var msimeHarmonyAiSkinProgress: ((requestId: string, completed: number) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyVoiceModelProgress: ((document: string) => void) | undefined;
+  // 资源包安装进度与本地语音模型共用同一份进度数据结构。
+  var msimeHarmonyResourcePackProgress: ((document: string) => void) | undefined;
   // 宿主在用户于授权弹窗里做出选择后调用，参数是现在是否已同意。
   // eslint-disable-next-line no-var
   var msimeHarmonyPrivacyConsentChanged: ((granted: boolean) => void) | undefined;
@@ -1165,6 +1172,8 @@ function aiSkinClient(native: NativeBridge): AiSkinClient {
  */
 const voiceModelProgressListeners = new Set<(progress: LocalVoiceModelProgress) => void>();
 
+const resourcePackProgressListeners = new Set<(progress: LocalVoiceModelProgress) => void>();
+
 globalThis.msimeHarmonyVoiceModelProgress = (document: string) => {
   let progress: LocalVoiceModelProgress;
   try {
@@ -1173,6 +1182,16 @@ globalThis.msimeHarmonyVoiceModelProgress = (document: string) => {
     return;
   }
   for (const listener of voiceModelProgressListeners) listener(progress);
+};
+
+globalThis.msimeHarmonyResourcePackProgress = (document: string) => {
+  let progress: LocalVoiceModelProgress;
+  try {
+    progress = JSON.parse(document) as LocalVoiceModelProgress;
+  } catch {
+    return;
+  }
+  for (const listener of resourcePackProgressListeners) listener(progress);
 };
 
 /**
@@ -1238,6 +1257,29 @@ function localVoiceModelClient(
       voiceModelProgressListeners.add(listener);
       return () => {
         voiceModelProgressListeners.delete(listener);
+      };
+    },
+  };
+}
+
+function resourcePackClient(native: NativeBridge, networkAllowed: boolean): ResourcePackClient {
+  const request = <T,>(action: Record<string, unknown>, timeoutMs?: number): Promise<T> =>
+    bridgeRequest(native, "resource_pack", JSON.stringify(action), timeoutMs).then(unwrap<T>);
+  return {
+    list: async () => unwrap<ResourcePackStatus[]>(native.resourcePacks()),
+    install: (id: ResourcePackId) =>
+      networkAllowed
+        ? request<string>({ operation: "install", id }, 6 * 60 * 60 * 1000)
+        : Promise.reject({ code: "privacy_consent_required" }),
+    cancel: async (id) => {
+      native.resourcePackCancel(id);
+      return true;
+    },
+    remove: (id) => request<boolean>({ operation: "remove", id }),
+    onProgress: async (listener) => {
+      resourcePackProgressListeners.add(listener);
+      return () => {
+        resourcePackProgressListeners.delete(listener);
       };
     },
   };
@@ -1867,6 +1909,10 @@ function makeClient(
     communityBlocks: networkAllowed ? communityBlockClient(native) : undefined,
     aiSkins: networkAllowed && aiGeneration ? aiSkinClient(native) : undefined,
     localVoiceModels: localVoiceModelClient(native, networkAllowed),
+    resourcePacks:
+      typeof native.resourcePacks === "function" && typeof native.resourcePackCancel === "function"
+        ? resourcePackClient(native, networkAllowed)
+        : undefined,
     // 2in1 上是桌面形态的插件页；手机和平板上按 `touch_plugin_packs` 给触屏插件页，只列触屏键盘用得上的类型，导入只收 .zip（这两种形态的文件选择器选不了文件夹）。
     plugins: pluginClient(native),
     openCloudClipboard: networkAllowed ? async () => openCloudClipboard() : undefined,
