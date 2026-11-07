@@ -65,12 +65,13 @@ class ReadStatus(unittest.TestCase):
         current, _, _ = self.read(result(stdout=b'{"enabled": tr'), document())
         self.assertEqual(current, STATUS)
 
-    def test_missing_file_returns_empty_without_retry(self):
-        # start() 在夹具写出第一份状态前一直拿到空文档继续等，不能被重试拖慢。
-        current, last, reads = self.read(MISSING)
+    def test_missing_file_is_retried(self):
+        # 启动阶段仍由 start() 轮询等待首份状态；单次读取的短暂缺失也必须重试，避免 API 35 的替换窗口误报。
+        current, last, reads = self.read(*[MISSING] * WATCH.STATUS_ATTEMPTS)
         self.assertEqual(current, {})
         self.assertIs(last, MISSING)
-        self.assertEqual((reads.calls, reads.sleeps), (1, []))
+        self.assertEqual((reads.calls, reads.sleeps),
+                         (WATCH.STATUS_ATTEMPTS, [WATCH.STATUS_RETRY_DELAY] * (WATCH.STATUS_ATTEMPTS - 1)))
 
     def test_persistent_failure_returns_empty_with_last_result(self):
         failure = result(1, stderr=b"error: device offline\n")
