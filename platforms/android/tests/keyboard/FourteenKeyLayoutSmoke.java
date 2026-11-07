@@ -20,9 +20,32 @@ public final class FourteenKeyLayoutSmoke {
     public static void main(String[] args) {
         table();
         faces();
+        faceLetterSpacing();
         gates();
         wubi();
         System.out.println("Android fourteen-key layout: key table, group codes, faces, labels, hold letters, key ids, gates and Wubi passed");
+    }
+
+    /** 双字母键面的字距（#11051）：14 键、18 键的每个双字母键面和双拼「L;」都有，单字母键和别的键盘的键面没有；键面字符串本身不变。 */
+    private static void faceLetterSpacing() {
+        check(FourteenKeyLayout.TWO_LETTER_SPACING_EM > FourteenKeyLayout.L_SEMICOLON_SPACING_EM
+            && FourteenKeyLayout.L_SEMICOLON_SPACING_EM > 0f, "「L;」的字距比字母对小，但不是 0");
+        List<List<FourteenKeyLayout.Key>> grids = new ArrayList<>(FourteenKeyLayout.rows());
+        grids.addAll(app.msime.android.EighteenKeyLayout.rows());
+        for (List<FourteenKeyLayout.Key> row : grids) {
+            for (FourteenKeyLayout.Key key : row) {
+                String face = FourteenKeyLayout.face(key);
+                float expected = face.length() == 2 ? FourteenKeyLayout.TWO_LETTER_SPACING_EM : 0f;
+                check(FourteenKeyLayout.faceLetterSpacing(face) == expected, "键面 " + face + " 的字距");
+            }
+        }
+        FourteenKeyLayout.Key l = new FourteenKeyLayout.Key("l");
+        check(FourteenKeyLayout.face(l, true).equals("L;"), "双拼 L 键面仍是「L;」，字距只在绘制时加");
+        check(FourteenKeyLayout.faceLetterSpacing(FourteenKeyLayout.face(l, true)) == FourteenKeyLayout.L_SEMICOLON_SPACING_EM,
+            "双拼「L;」用较小的字距");
+        for (String other : new String[] {"", "q", "空格", "重输", "123", "ABC", "ok", "A;", "中", "符"})
+            check(FourteenKeyLayout.faceLetterSpacing(other) == 0f, "别的键面不加字距：" + other);
+        check(FourteenKeyLayout.faceLetterSpacing(null) == 0f, "没有键面时不加字距");
     }
 
     private static void table() {

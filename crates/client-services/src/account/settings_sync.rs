@@ -15,10 +15,10 @@ use crate::host_surface::HostPlatform;
 use crate::preferences::{
     format_nine_key_sidebar_symbols, parse_nine_key_sidebar_symbols, BracketStyle, FrequencyMode,
     FrequencyPreferences, GrammarModel, InputScheme, NumberKeypadOrder, Preferences, QuoteStyle,
-    SecondThirdCandidateKeys, ShuangpinProfile, ThemeMode, TouchFourteenKeyStyle,
-    TouchKeyboardLayout, TouchLanguageKeySide, TouchNineKeyStyle, TouchNineKeySwipeDigits,
-    TouchNumberPadSpace, TouchOneHandedSidePanel, TouchTwentySixKeyStyle, TraditionalVariant,
-    TwentySixKeyNumberLayout, WubiProfile,
+    SecondThirdCandidateKeys, ShuangpinProfile, ThemeMode, TouchFourteenKeyLetterWidths,
+    TouchFourteenKeyStyle, TouchKeyboardLayout, TouchLanguageKeySide, TouchNineKeyStyle,
+    TouchNineKeySwipeDigits, TouchNumberPadSpace, TouchOneHandedSidePanel, TouchTwentySixKeyStyle,
+    TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,8 @@ const QUANPIN_SHIFT: &str = "platform.android.quanpin_shift";
 const TWENTY_SIX_KEY_STYLE: &str = "platform.android.twenty_six_key_style";
 /// 共享偏好 `touch_fourteen_key_style`；账号字段表收录它之前上传时会被滤掉。
 const FOURTEEN_KEY_STYLE: &str = "platform.android.fourteen_key_style";
+/// 共享偏好 `touch_fourteen_key_letter_widths`；账号字段表收录它之前上传时会被滤掉。目前只有 Android 的设置页能改、键盘会读，所以只在 Android 自己的键里导出和应用（[`insert_new_android_settings`]、[`apply_new_android_settings`]），鸿蒙接入时再挪进 [`TouchHostKeys`]。
+const FOURTEEN_KEY_LETTER_WIDTHS: &str = "platform.android.fourteen_key_letter_widths";
 /// 共享偏好 `touch_nine_key_style`；账号字段表收录它之前上传时会被滤掉。
 const NINE_KEY_STYLE: &str = "platform.android.nine_key_style";
 /// 共享偏好 `touch_number_row`；账号字段表收录它之前上传时会被滤掉。Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
@@ -872,6 +874,11 @@ fn insert_new_android_settings(
 ) {
     insert_string(
         settings,
+        FOURTEEN_KEY_LETTER_WIDTHS,
+        preferences.touch_fourteen_key_letter_widths.as_str(),
+    );
+    insert_string(
+        settings,
         "platform.android.keyboard_skin_light",
         preferences
             .android_keyboard_skin_light
@@ -1614,6 +1621,11 @@ pub(super) fn apply_touch_settings(
 
 /// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。
 fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    // 14/18 键字母键宽度按严格写法应用，本机不认识的分法只跳过这一个键。
+    applier.set_string(FOURTEEN_KEY_LETTER_WIDTHS, |preferences, value| {
+        preferences.touch_fourteen_key_letter_widths = TouchFourteenKeyLetterWidths::parse(value)?;
+        Some(())
+    })?;
     applier.set_string(
         "platform.android.keyboard_skin_light",
         |preferences, value| {

@@ -14,6 +14,8 @@ import java.util.function.Predicate;
  *
  * <p>键距和行距是每个键的布局外边距。外边距不属于按钮，按下落在那里时没有子视图接收，行和它的祖先都不可点击，整个手势就悄无声息地丢了：默认间距下 26 键约四分之一、九键约五分之一的面积是这样的死区，打字快、落点不准时就像随机丢键。多指连按时第二根手指落进空隙，框架还会把它并进第一根手指按着的键，两次按键都可能丢。
  *
+ * <p>字母行里的占位格（{@link KeyboardSpacer}）指定了所属的键时，落在占位格或它的外边距里的按下同样交给那个键，按下点挪进它靠这一侧的边缘；没有指定所属的键的占位格照旧不接收触摸。所属的键只能在同一排里，按下不跨排归属。
+ *
  * <p>装了 {@link GlideTracker} 时，每个事件先交给它：它接管一次触摸（滑行输入）后，这里给子视图补一个 CANCEL，之后这一次触摸的事件都不再往下分发，直到最后一根手指抬起。
  *
  * <p>装了 {@link TouchPointPolicy} 时，每根手指按下（`ACTION_DOWN` / `ACTION_POINTER_DOWN`）落在一个键或它的空隙里、而那个键是调用方要记的（点击时会取走按下点的键），就按那个键记下按下点：坐标是按键区自己的、挪进键边缘之前的那一个，和量键位几何（{@link LetterKeyMeasure}）用的是同一个坐标系。整次触摸被取消或被滑行接管时全部丢掉。
@@ -63,6 +65,8 @@ public final class KeyboardKeyArea extends LinearLayout {
     private final Matrix inverse = new Matrix();
     private final float[] point = new float[2];
     private boolean hit;
+    /** 按下落在指定了所属键的占位格里：`target` 就是那个键，不再找空隙。 */
+    private boolean claimed;
     /** 命中的那个键和按下在它自己坐标里的位置，`route` 用来判断是否落在让出的那一段里。 */
     private View hitKey;
     private float hitX;
@@ -200,10 +204,12 @@ public final class KeyboardKeyArea extends LinearLayout {
         float x = event.getX(index);
         float y = event.getY(index);
         hit = false;
+        claimed = false;
         hitKey = null;
         target = null;
         targetDistance = Float.MAX_VALUE;
         search(this, x, y);
+        claimed = false;
         View owner = hit ? null : target;
         // 让出的那一段：键帽左侧几 dp（这时 hit 为真），或者它左侧原本按最近的键归它的那半段空隙。
         boolean yielded = hit ? hitKey != null && hitKey == yieldingKey && yieldsHere(hitX)
@@ -244,10 +250,10 @@ public final class KeyboardKeyArea extends LinearLayout {
     }
 
     /**
-     * 按框架命中测试的同样方式往下找：`x`、`y` 是 `group` 自己的坐标。点落在键或其它可点击视图上就不必改写；否则记下外边距包含这个点、离得最近的键，以及挪进它边缘后的局部坐标。
+     * 按框架命中测试的同样方式往下找：`x`、`y` 是 `group` 自己的坐标。点落在键或其它可点击视图上就不必改写；落在指定了所属键的占位格或它的外边距里就选那个键；否则记下外边距包含这个点、离得最近的键，以及挪进它边缘后的局部坐标。
      */
     private void search(ViewGroup group, float x, float y) {
-        for (int index = group.getChildCount() - 1; index >= 0 && !hit; index--) {
+        for (int index = group.getChildCount() - 1; index >= 0 && !hit && !claimed; index--) {
             View child = group.getChildAt(index);
             if (child.getVisibility() != VISIBLE) continue;
             float layoutX = x + group.getScrollX() - child.getLeft();
@@ -265,6 +271,17 @@ public final class KeyboardKeyArea extends LinearLayout {
             int width = child.getWidth();
             int height = child.getHeight();
             boolean inside = localX >= 0 && localY >= 0 && localX < width && localY < height;
+            if (child instanceof KeyboardSpacer spacer) {
+                // 占位格连同它的外边距（宽窄第二排两端朝外补的半键距）都归所属的键；没有所属的键时不接收。
+                View owner = spacer.usableOwner();
+                if (owner != null && child.getLayoutParams() instanceof MarginLayoutParams margins
+                        && KeyboardGapPolicy.gapDistance(layoutX, layoutY, width, height, margins.leftMargin,
+                            margins.topMargin, margins.rightMargin, margins.bottomMargin) >= 0) {
+                    claim(group, owner, x, y);
+                    return;
+                }
+                continue;
+            }
             if (spacedKey.test(child)) {
                 if (inside) {
                     hit = true;
@@ -282,6 +299,26 @@ public final class KeyboardKeyArea extends LinearLayout {
                 if (child instanceof ViewGroup inner) search(inner, localX, localY);
             }
         }
+    }
+
+    /** 占位格把按下交给同一排里的 `key`：`x`、`y` 是这一排（`group`）的坐标，挪进键帽的位置按键当前的变换算，与 {@link #consider} 相同。 */
+    private void claim(ViewGroup group, View key, float x, float y) {
+        float localX = x + group.getScrollX() - key.getLeft();
+        float localY = y + group.getScrollY() - key.getTop();
+        Matrix matrix = key.getMatrix();
+        if (!matrix.isIdentity() && matrix.invert(inverse)) {
+            point[0] = localX;
+            point[1] = localY;
+            inverse.mapPoints(point);
+            localX = point[0];
+            localY = point[1];
+        }
+        claimed = true;
+        target = key;
+        targetDistance = 0f;
+        targetRawX = localX;
+        targetX = KeyboardGapPolicy.inside(localX, key.getWidth());
+        targetY = KeyboardGapPolicy.inside(localY, key.getHeight());
     }
 
     /** 外边距按布局位置算（按下动画的缩放不算在内），挪进去的位置按键当前的变换算，保证正在回弹的键也能命中。 */

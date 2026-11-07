@@ -1,3 +1,4 @@
+import app.msime.android.FourteenKeyLetterWidths;
 import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardLayout;
 import app.msime.android.KeyboardScheme;
@@ -13,7 +14,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，「中/英键放在空格左边」打开后三类预览底行的中/英排到空格（和贴着空格的标点）左边并高亮它，「数字键盘」一组胶囊的名字、顺序和写法，以及两行左侧符号的标题、摘要、编辑页说明和 9 键预览的左列（#10223）。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
+ * 「按键布局」子页的规则（与 iOS、共享设置页同一份规格）：分段列哪几类、默认停在哪一类，每类的胶囊名字和顺序、选样式写哪一项偏好，高亮集合，说明的显示与隐藏，数字行只画在 26 和 14/18 键上，整块预览的键序、份额和跨行取自键盘的表，「26 键「符」与「123」互换」打开后预览底行 符 在 123 左边并高亮这两键，「中/英键放在空格左边」打开后三类预览底行的中/英排到空格（和贴着空格的标点）左边并高亮它，「数字键盘」一组胶囊的名字、顺序和写法，14/18 键「字母键宽度」两种分法的预览（#11051），以及两行左侧符号的标题、摘要、编辑页说明和 9 键预览的左列（#10223）。读写偏好和画图的那一半在 `KeyLayoutStylesPage`、`KeyLayoutPreview` 里，要设备，这里跑不了。
  */
 public final class KeyLayoutStylesPolicySmoke {
     public static void main(String[] arguments) {
@@ -25,6 +26,7 @@ public final class KeyLayoutStylesPolicySmoke {
         numberRow();
         twentySixKeyboard();
         fourteenKeyboard();
+        fourteenLetterWidths();
         nineKeyboard();
         symbolFirst();
         languageLeft();
@@ -207,6 +209,43 @@ public final class KeyLayoutStylesPolicySmoke {
         check(faces(eighteen.get(2)).equals(List.of("符", "Z", "XC", "V", "BN", "M", "⌫")), "18-key third row");
         check(eighteen.get(1).get(0).id().equals("EighteenA") && fourteen.get(1).get(1).id().equals("FourteenAS"),
             "letter keys carry the keyboard's ids");
+    }
+
+    /** 14/18 键字母键宽度（#11051）：等宽就是原来的预览；宽窄的份额与键盘的 FourteenKeyLetterWidths.plan 相同，第二行两端是只占宽度的空白。 */
+    private static void fourteenLetterWidths() {
+        FourteenKeyLetterWidths.Mode equal = FourteenKeyLetterWidths.Mode.EQUAL;
+        FourteenKeyLetterWidths.Mode varied = FourteenKeyLetterWidths.Mode.VARIED;
+        for (boolean eighteen : new boolean[] {false, true})
+            for (Row style : Kind.FOURTEEN.rows)
+                check(KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, style, true, eighteen, false, false, List.of(), equal)
+                    .equals(KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, style, true, eighteen, false, false, List.of())),
+                    "等宽 draws today's 14/18-key preview: " + style + (eighteen ? " 18" : " 14"));
+
+        List<List<Key>> eighteen = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, true, false, false,
+            List.of(), varied);
+        List<Key> middle = eighteen.get(1);
+        check(faces(middle).equals(List.of("", "A", "SD", "FG", "H", "JK", "L", "")), "18-key 宽窄 row 2 has a blank at each end");
+        check(middle.get(0).rows() == 0 && middle.get(0).id().isEmpty() && middle.get(7).rows() == 0,
+            "the blanks only take width, like the keyboard's spacers");
+        check(near(middle.get(0).weight() / sum(middle), .0625f), "each 18-key blank is 6.25% of the row");
+        check(near(eighteen.get(0).get(0).weight(), middle.get(1).weight()) && near(eighteen.get(0).get(1).weight(),
+            middle.get(2).weight()), "18-key 宽窄 keys of one kind are the same width on every row");
+        check(near(eighteen.get(0).get(0).weight() / eighteen.get(0).get(1).weight(), .75f), "Q is 0.75 of WE");
+        List<Key> third = eighteen.get(2);
+        check(faces(third).equals(List.of("符", "Z", "XC", "V", "BN", "M", "⌫")), "18-key 宽窄 row 3 keeps 符 … ⌫");
+        check(near(third.get(0).weight() / sum(third), .875f / 6f), "18-key 符 takes what row 3 leaves");
+
+        List<List<Key>> fourteen = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, false, false, false,
+            List.of(), varied);
+        List<Key> second = fourteen.get(1);
+        check(faces(second).equals(List.of("。", "", "AS", "DF", "GH", "JK", "L", "")), "14-key 宽窄 row 2: sidebar, blank, letters, blank");
+        check(near(second.get(0).weight(), .7f) && near(sum(second) - second.get(0).weight(), 3.8f),
+            "14-key 宽窄 keeps the sidebar and letter column shares");
+        check(near(second.get(6).weight() / second.get(5).weight(), .75f), "14-key L is 0.75 of JK");
+
+        for (Kind kind : List.of(Kind.TWENTY_SIX, Kind.NINE))
+            check(KeyLayoutStylesPolicy.keyboard(kind, Row.STANDARD, false, false, false, false, List.of(), varied)
+                .equals(KeyLayoutStylesPolicy.keyboard(kind, Row.STANDARD, false, false)), kind + " ignores letter widths");
     }
 
     private static void nineKeyboard() {

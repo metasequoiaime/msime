@@ -1009,6 +1009,102 @@ fn nine_key_swipe_digits_wire_strings_are_pinned_and_unknown_strings_read_as_off
 }
 
 #[test]
+fn fourteen_key_letter_widths_default_to_equal_and_are_not_written() {
+    let defaults = Preferences::default();
+    assert_eq!(
+        defaults.touch_fourteen_key_letter_widths,
+        TouchFourteenKeyLetterWidths::Equal
+    );
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("touch_fourteen_key_letter_widths").is_none());
+
+    // 没有这个键的旧文档读出等宽，读完不改写文件。
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = serde_json::to_vec(&PreferencesSnapshot::default()).unwrap();
+    fs::write(store.path(), &legacy).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(
+        loaded.touch_fourteen_key_letter_widths,
+        TouchFourteenKeyLetterWidths::Equal
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), legacy);
+
+    // 选宽窄照写法存取；改回等宽时这个键从文档里消失。
+    let mut revision = store.load().unwrap().revision;
+    let varied = Preferences {
+        touch_fourteen_key_letter_widths: TouchFourteenKeyLetterWidths::Varied,
+        ..Preferences::default()
+    };
+    revision = store.save(revision, varied.clone()).unwrap().revision;
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, varied);
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap()["touch_fourteen_key_letter_widths"],
+        "varied"
+    );
+    store.save(revision, Preferences::default()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded, Preferences::default());
+    let on_disk: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert!(
+        !on_disk
+            .to_string()
+            .contains("touch_fourteen_key_letter_widths"),
+        "{on_disk}"
+    );
+}
+
+#[test]
+fn fourteen_key_letter_widths_wire_strings_are_pinned_and_unknown_strings_read_as_equal() {
+    for (widths, wire) in [
+        (TouchFourteenKeyLetterWidths::Equal, "equal"),
+        (TouchFourteenKeyLetterWidths::Varied, "varied"),
+    ] {
+        assert_eq!(serde_json::to_value(widths).unwrap(), wire);
+        assert_eq!(widths.as_str(), wire);
+        assert_eq!(TouchFourteenKeyLetterWidths::parse(wire), Some(widths));
+        assert_eq!(
+            serde_json::from_value::<TouchFourteenKeyLetterWidths>(wire.into()).unwrap(),
+            widths
+        );
+    }
+    for unknown in ["equal_indented", "Varied", ""] {
+        assert_eq!(
+            TouchFourteenKeyLetterWidths::parse(unknown),
+            None,
+            "{unknown}"
+        );
+    }
+
+    // 写 `equal` 的文档与默认相同；不认识的分法按等宽读，不让整份文档失败。
+    let legacy = serde_json::to_value(Preferences::default()).unwrap();
+    for stored in ["equal", "equal_indented"] {
+        let mut document = legacy.clone();
+        document["touch_fourteen_key_letter_widths"] = stored.into();
+        assert_eq!(
+            serde_json::from_value::<Preferences>(document).unwrap(),
+            Preferences::default(),
+            "{stored}"
+        );
+    }
+    let mut document = legacy.clone();
+    document["touch_fourteen_key_letter_widths"] = "varied".into();
+    assert_eq!(
+        serde_json::from_value::<Preferences>(document)
+            .unwrap()
+            .touch_fourteen_key_letter_widths,
+        TouchFourteenKeyLetterWidths::Varied
+    );
+    for wrong_type in [serde_json::json!(true), serde_json::json!(0.75)] {
+        let mut wrong = legacy.clone();
+        wrong["touch_fourteen_key_letter_widths"] = wrong_type;
+        assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+    }
+}
+
+#[test]
 fn japanese_toggle_input_persists_disabled() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["touch_japanese_toggle_input"] = false.into();
