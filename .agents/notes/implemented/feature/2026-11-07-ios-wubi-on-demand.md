@@ -26,7 +26,7 @@ iOS full 和 pinyin 版本把 `msime-wubi.db` 与日文词典一起列为按需�
 - `bash -n platforms/ios/stage-resources.sh platforms/ios/build-app.sh platforms/ios/upload-testflight.sh`：通过。
 - `python3 platforms/ios/tests/settings/ProjectConfigurationTests.py`：35 项通过。
 - iOS Release workflow [42367708409](https://github.com/metasequoiaime/msime/actions/runs/42367708409)：成功；模拟器归档 `152,824,189` bytes（152.82 MB），键盘扩展中没有 `EngineResources/msime-wubi.db`。
-- 真机资源包下载及五笔输入：需要在接收该分支的真机上复验，当前 workflow 只构建模拟器归档。
+- 已在连接的 iPhone 真机上验收：设置页显示五笔“需下载 142.5 MB”，点击下载后进度完成并显示“五笔 86”；重新切到水杉键盘，在 Safari 地址栏用 `wq` 输入并提交候选“完全”，真实编辑器输入通过。workflow 仍只构建模拟器归档，归档大小不能代替 App Store 的设备安装体积。
 
 ## Consequences
 
