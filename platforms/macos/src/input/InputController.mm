@@ -1369,6 +1369,12 @@ static bool MSIMEReadCapsLockHIDState(bool *known) {
 }
 static bool (*MSIMECapsLockHIDState)(bool *known) = &MSIMEReadCapsLockHIDState;
 
+static bool MSIMECapsLockHIDStateIsKnown() {
+    bool known = false;
+    if (MSIMECapsLockHIDState) (void)MSIMECapsLockHIDState(&known);
+    return known;
+}
+
 // 键码 0x39 的查询跟随大写锁定，松手后仍可能为真；只读 stateless 位区分实体按住与逻辑锁定。
 static bool MSIMECapsLockPhysicallyHeld() {
     bool hidStateKnown = false;
@@ -4829,6 +4835,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self cancelCapsLockTap];
         // 只有大写锁定从关变开才可能是轻点；开着时按它是关掉大写锁定，照常处理，不切换。
         if (!capsLock || _capsLock || !sender || !_appearance.capsLockTapShortcut) return NO;
+        // HID 已经确认实体仍按着、而事件没有实体按住位时，先交回系统；只有状态未知时才等待后续松键事件。
+        if (!(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) &&
+            MSIMECapsLockHIDStateIsKnown() && MSIMECapsLockKeyHeld()) return NO;
         // 设备没有提供实体按住位时也先布防；同时开始（或重试）HID 监听，等待后续松键事件，不能把未知状态当作已经松手。
         const BOOL awaitingReleaseEvent = !(event.modifierFlags & NX_ALPHASHIFT_STATELESS_MASK) && !MSIMECapsLockKeyHeld();
         if (awaitingReleaseEvent) {
