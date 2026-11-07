@@ -520,10 +520,13 @@ final class ImeLayoutRows {
             upper.addView(key, params);
         }
         actions.addView(upper, LayoutPolicy.weightedWidthParams(weight));
-        LinearLayout cell = tallReturnBottomCell(false);
+        // 回车格跨右列的两行，不能挂单行 bottomRow 角色；九键双拼上部是两行删除加一行重输，回车仍只占两行。
+        LinearLayout cell = LayoutPolicy.column(s);
         s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.RETURN, s.enterButton,
             LayoutPolicy.weightedCrossAxisFillParams(false, 1));
-        actions.addView(cell, tallReturnBottomParams(1));
+        // 双拼的删除键跨两行但自身只算一个加权子项，嵌套列还会吃掉一份内部键距；0.25 的补偿让三行上部与两行回车分别贴合网格。
+        float enterWeight = weight > 2f ? weight - 0.75f : weight;
+        actions.addView(cell, LayoutPolicy.weightedWidthParams(enterWeight));
     }
 
     /**
