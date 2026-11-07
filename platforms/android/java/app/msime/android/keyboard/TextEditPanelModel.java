@@ -98,6 +98,26 @@ public final class TextEditPanelModel {
         return List.copyOf(result);
     }
 
+    /** 文首、文末和全选键上滑时保留的行级动作；返回 {@code null} 表示这个键没有上滑动作。 */
+    public static Action upwardSwipeAction(Action action) {
+        return switch (action) {
+            case DOCUMENT_START -> Action.LINE_START;
+            case DOCUMENT_END -> Action.LINE_END;
+            case SELECT_ALL -> Action.SELECT_LINE;
+            default -> null;
+        };
+    }
+
+    /** 上滑动作的触摸提示，键面和无障碍描述仍保持原来的文档级动作。 */
+    public static String upwardSwipeDescription(Action action) {
+        return switch (action) {
+            case DOCUMENT_START -> "上滑移到行首";
+            case DOCUMENT_END -> "上滑移到行尾";
+            case SELECT_ALL -> "上滑选择当前行";
+            default -> "";
+        };
+    }
+
     /** 中央方向区里的键：由网格画公共底面和分隔线，键自己只画按下和选中。 */
     public static boolean isCentral(Key key) { return key.column() > 0 && key.column() < 8; }
 

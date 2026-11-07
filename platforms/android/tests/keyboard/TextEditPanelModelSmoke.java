@@ -12,6 +12,12 @@ public final class TextEditPanelModelSmoke {
         List<Action> order = List.of(Action.COPY, Action.PASTE, Action.SELECT_ALL, Action.CUT,
             Action.SPACE, Action.NUMBER_PAD, Action.DELETE, Action.SELECT_LINE);
         Action lineStart = Action.valueOf("LINE_START"), lineEnd = Action.valueOf("LINE_END");
+        check(TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_START) == lineStart
+            && TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_END) == lineEnd
+            && TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE,
+            "文首、文末、全选上滑保留行级动作");
+        check(TextEditPanelModel.upwardSwipeAction(Action.COPY) == null
+            && TextEditPanelModel.upwardSwipeDescription(Action.COPY).isEmpty(), "其他侧键没有隐藏上滑动作");
         check(TextEditPanelModel.keys(order).size() == 16, "七个侧键、方向区九格和换行，选择行与行首尾不生成键");
         checkGrid(order);
         java.util.ArrayList<Action> reversed = new java.util.ArrayList<>(order);
