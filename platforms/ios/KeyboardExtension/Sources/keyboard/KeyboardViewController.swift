@@ -4,6 +4,13 @@ import UIKit
 
 @MainActor
 final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDelegate {
+  /// UIKit 的默认 setter 会把控制器的 `view` 一并替换成 `inputView`，让整套键盘布局重新落在不可释放的 `UIInputView` 上。保留系统要查询的属性，但把它存到自己的槽里，根视图仍由 `loadView` 设置为普通 `UIView`。
+  private var storedInputView: UIInputView?
+  override var inputView: UIInputView? {
+    get { storedInputView }
+    set { storedInputView = newValue }
+  }
+
   private enum LetterCaseState: Equatable {
     case lowercase, shifted, capsLock
   }
@@ -17,6 +24,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var bottomLanguageWidth: NSLayoutConstraint?
   private var bottomLanguageButton: UIButton?
   private var appliedLayout: KeyboardGeometry?
+  private var keyboardInputContainerView: KeyboardInputContainerView?
 
   private var keyboardHeightConstraint: NSLayoutConstraint?
   /// Seeded from the stored setting because updatePreferredKeyboardHeight() runs long before the
@@ -919,14 +927,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                   punctuationLock: session.sharedPreferences?["punctuation_lock"] as? String)
   }
 
-  /// 根视图是普通视图，不是 `UIInputView`：后者释放不掉，会把整套键盘和它的布局引擎留在进程里，见 `KeyboardInputView`（#10944）。
+  /// 系统通过 `inputView` 承载键盘；普通视图承载整套约束，避免 `UIInputView` 的布局引擎随系统输入视图泄漏。
   override func loadView() {
-    view = KeyboardInputView()
+    let contentView = KeyboardInputView()
+    view = contentView
+    let containerView = KeyboardInputContainerView(contentView: contentView)
+    keyboardInputContainerView = containerView
+    inputView = containerView
   }
 
-  /// UIKit 总在主线程上释放视图控制器，所以这里可以按主线程执行。根视图和整棵键盘视图随控制器一起释放，不用在这里摘。
+  /// UIKit 总在主线程上释放视图控制器，所以这里可以按主线程执行。系统保留下来的输入视图先摘掉普通视图，避免整套键盘跟着空壳存活。
   deinit {
     MainActor.assumeIsolated {
+      keyboardInputContainerView?.detachContentView()
       // 会话随桥一起销毁；释放时还持着会话，说明它跳过了 `viewWillDisappear`，在那之前锁一直在手上（#10634）。
       if sessionPrepared, session.holdsSession { DiagnosticLog.shared.write("controller_released session_held=1") }
     }
