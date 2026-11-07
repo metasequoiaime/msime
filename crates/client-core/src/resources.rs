@@ -52,9 +52,8 @@ pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static [&'stati
         || same_text(target_os, "linux")
         || same_text(target_os, "android")
         || same_text(target_os, "ohos")
+        || same_text(target_os, "ios")
     {
-        &[&ON_DEMAND_JAPANESE_ARTIFACTS, &ON_DEMAND_WUBI_ARTIFACTS]
-    } else if same_text(target_os, "ios") {
         &[&ON_DEMAND_JAPANESE_ARTIFACTS, &ON_DEMAND_WUBI_ARTIFACTS]
     } else {
         &[]
