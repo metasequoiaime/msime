@@ -175,6 +175,14 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
           disabled={index >= count - 1}
           label="›"
         />
+        {/* 皮肤装多了以后翻走就很难找回来（#10746），这里一下回到在用的那张。停在那张时不可点，但始终占着位置，导航行不会随翻动左右跳。 */}
+        <ActionButton
+          action={() => show(selectedIndex, true)}
+          className={settings.themeCarouselCurrent}
+          ariaLabel="回到当前主题"
+          disabled={index === clamp(selectedIndex, 0, Math.max(count - 1, 0))}
+          label="回到当前"
+        />
       </div>
     </section>
   );

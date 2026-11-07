@@ -468,6 +468,7 @@ final class ImeStyler {
 
     void applySkinToView(View node, boolean candidateContext, KeyboardSkin target) {
         target = themed(target);
+        if (node instanceof TextEditPanelGrid editGrid) editGrid.setSkin(target);
         CharSequence description = node.getContentDescription();
         boolean candidate = candidateContext || node == s.candidateViewport || node == s.expandedCandidates
             || (description != null && description.toString().startsWith("候选 "));

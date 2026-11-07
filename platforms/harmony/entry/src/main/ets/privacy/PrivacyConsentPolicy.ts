@@ -98,6 +98,7 @@ const NETWORK_REQUESTS: string[] = [
   "api_credential",
   "update_check",
   "voice_local_model",
+  "resource_pack",
 ];
 
 /** 上面这些种类里不联网、没有授权也照常处理的操作：取消 Google 登录（华为账号登录的授权页、challenge 和登录都要联网，不在这里）、本机回复模板的保存与删除、结束皮肤试用，以及本地语音模型除下载以外的操作。 */
@@ -121,6 +122,7 @@ const LOCAL_OPERATIONS: Record<string, string[]> = {
   api_credential: [],
   update_check: [],
   voice_local_model: ["list", "cancel", "remove", "import"],
+  resource_pack: ["list", "cancel", "remove"],
 };
 
 /** 词库更新里会联网的命令：`status`、`configure`、`rollback` 只读写本机。 */

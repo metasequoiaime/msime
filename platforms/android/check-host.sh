@@ -218,7 +218,7 @@ if ! rg -q 'setEnabled\(emojiShortcutButton, ToolbarReadinessPolicy\.emojiEnable
   echo "Toolbar emoji, phrases, skin, scheme and the language key must stay usable while the engine session starts" >&2
   exit 1
 fi
-# 符号面板不需要引擎会话（#10517，.agents/notes/implemented/bug-fix/2026-11-02-android-symbol-panel-sessionless-editors.md）。终端类应用把输入框声明成可见密码，这类输入框不建会话，原先点「符」只提示「尚未就绪」、长按 123 没反应。能不能打开、补不补后半个、记不记常用由 SymbolPanelEntryPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：showSymbolPanel、长按 123、文本编辑面板长按回车和两个「符」按钮的可用性都经 SymbolPanelEntryPolicy.opens，showSymbolPanel 只在有会话时才 command(2)；点按的后半个经 pairsClosingMark、常用经 recordsRecent 按输入框类型判断；不建会话的输入框读外观时也填上资源目录，颜文字和各符号分类才读得到。
+# 符号面板不需要引擎会话（#10517，.agents/notes/implemented/bug-fix/2026-11-02-android-symbol-panel-sessionless-editors.md）。终端类应用把输入框声明成可见密码，这类输入框不建会话，原先点「符」只提示「尚未就绪」、长按 123 没反应。能不能打开、补不补后半个、记不记常用由 SymbolPanelEntryPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：showSymbolPanel、长按 123 和两个「符」按钮的可用性都经 SymbolPanelEntryPolicy.opens（文本编辑面板的换行键只管换行，没有长按进符号，见 .agents/notes/implemented/feature/2026-11-06-android-text-edit-seamless-panel.md），showSymbolPanel 只在有会话时才 command(2)；点按的后半个经 pairsClosingMark、常用经 recordsRecent 按输入框类型判断；不建会话的输入框读外观时也填上资源目录，颜文字和各符号分类才读得到。
 symbol_show_body=$(sed -n '/^    void showSymbolPanel() {$/,/^    }$/p' "$panels_java")
 symbol_hold_body=$(sed -n '/^    void bindSymbolPanelHold(Button button) {$/,/^    }$/p' "$service_java")
 if ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' <<< "$symbol_show_body" \
@@ -228,7 +228,6 @@ if ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel
   || rg -q 'session == 0' <<< "$symbol_hold_body" \
   || ! rg -q 'setEnabled\(symbolPanelButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
   || ! rg -q 'setEnabled\(symbolShortcutButton, SymbolPanelEntryPolicy\.opens\(' "$service_java" \
-  || ! rg -q 'SymbolPanelEntryPolicy\.opens\(s\.connection != null, s\.symbolPanel != null\)' "$android_java/core/ImeTextEditPanel.java" \
   || ! rg -q 'SymbolPanelEntryPolicy\.pairsClosingMark\(s\.editorInputType, s\.pairedPunctuation\)' "$panels_java" \
   || ! sed -n '/^    private void recordSymbolRecent(String symbol) {$/,/^    }$/p' "$panels_java" | rg_q_stdin 'SymbolPanelEntryPolicy\.recordsRecent\(s\.editorInputType, s\.learningSuppressed\(\)\)' \
   || ! sed -n '/^                if (!engineWanted) {$/,/^                }$/p' "$service_java" | rg_q_stdin 'emojiResources = resources;'; then

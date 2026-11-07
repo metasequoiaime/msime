@@ -84,6 +84,7 @@
 #include "SettingsStateDirectory.h"
 #include "SettingsText.h"
 #include "ShellLauncher.h"
+#include "SkinDeleteModel.h"
 #include "ThemeSkinModel.h"
 #include "ToolbarIcons.h"
 #include "ToolbarLayout.h"
@@ -2231,6 +2232,7 @@ constexpr std::array<std::pair<const wchar_t *, const wchar_t *>, 9>
 // ---- 外部皮肤 ----
 
 namespace sk = msime::settings::skins;
+namespace sd = msime::settings::skin_delete;
 
 // The palette a msime_client_resolve_theme answer draws, as the Server reads it: each slot the answer sets over the native palette of the answer's own appearance, else of `dark`. A refused request, or an answer this reader does not recognise, draws the native tokens.
 msime::windows::CandidatePalette resolved_candidate_palette(Response const &response, bool dark) {
@@ -8915,6 +8917,14 @@ private:
     };
     auto previous = arrow(L"‹", L"上一个主题");
     auto next = arrow(L"›", L"下一个主题");
+    // 「回到当前」（共享页 ThemeCarousel 导航行末尾的那个）：皮肤装多了翻走以后一下回到在用的那张（#10746）。与箭头同高、同样的描边胶囊，停在那张时变灰不可用，但始终占着位置。
+    auto back = arrow(L"回到当前", L"回到当前主题");
+    back.Width(std::numeric_limits<double>::quiet_NaN());
+    back.Padding(Thickness{12, 0, 12, 0});
+    if (auto label = back.Content().try_as<TextBlock>())
+      label.FontSize(12);
+    A11y::SetAutomationId(back, L"theme-carousel-current");
+    const auto current_at = static_cast<int32_t>(std::min(selected, keys.size() - 1));
     PipsPager pips;
     pips.NumberOfPages(count);
     pips.MaxVisiblePips(9);
@@ -8936,6 +8946,7 @@ private:
     pager_row.Children().Append(pips);
     pager_row.Children().Append(counter);
     pager_row.Children().Append(next);
+    pager_row.Children().Append(back);
     section.Children().Append(pager_row);
 
     // 第一次布局前 FlipView 还没有宽度，先按正文的宽度估一次高度，免得先画成默认高度再跳。
@@ -8944,7 +8955,8 @@ private:
                 : 0.0;
     auto sync = [this, weak_flip = make_weak(flip), weak_pips = make_weak(pips),
                  weak_counter = make_weak(counter), weak_previous = make_weak(previous),
-                 weak_next = make_weak(next), keys = std::move(keys), count, estimate] {
+                 weak_next = make_weak(next), weak_back = make_weak(back), keys = std::move(keys),
+                 count, current_at, estimate] {
       auto view = weak_flip.get();
       if (!view)
         return;
@@ -8964,6 +8976,12 @@ private:
       if (auto button = weak_next.get()) {
         button.IsEnabled(at < count - 1);
         button.Opacity(at < count - 1 ? 1.0 : 0.4);
+      }
+      if (auto button = weak_back.get()) {
+        const bool away = sd::back_enabled(at, static_cast<size_t>(current_at),
+                                           static_cast<size_t>(count));
+        button.IsEnabled(away);
+        button.Opacity(away ? 1.0 : 0.4);
       }
       const double width = view.ActualWidth() > 0 ? view.ActualWidth() : estimate;
       if (width <= 0)
@@ -8993,6 +9011,10 @@ private:
     next.Click([weak_flip = make_weak(flip), count](Inspectable const &, RoutedEventArgs const &) {
       if (auto view = weak_flip.get(); view && view.SelectedIndex() < count - 1)
         view.SelectedIndex(view.SelectedIndex() + 1);
+    });
+    back.Click([weak_flip = make_weak(flip), current_at](Inspectable const &, RoutedEventArgs const &) {
+      if (auto view = weak_flip.get(); view && view.SelectedIndex() != current_at)
+        view.SelectedIndex(current_at);
     });
     sync();
     page.Children().Append(section);
@@ -9099,6 +9121,14 @@ private:
         !summary.empty()) {
       auto note = make_text(summary, 12, palette_.sub);
       note.Margin(Thickness{4, 10, 4, 0});
+      page.Children().Append(note);
+    }
+    // 卡片上「删除」的结果（共享页的 deletion.notice）。
+    if (!skin_deleted_notice_.empty() && !indexing_) {
+      auto note = make_text(skin_deleted_notice_, 12, palette_.sub);
+      note.Margin(Thickness{4, 6, 4, 0});
+      A11y::SetLiveSetting(note, Automation::Peers::AutomationLiveSetting::Polite);
+      A11y::SetAutomationId(note, L"skin-deleted-notice");
       page.Children().Append(note);
     }
     // 从卡片发布的结果（共享页的 published）。
@@ -9225,6 +9255,54 @@ private:
                                   : sk::remove_candidate_skin(current, id));
       doc.SetString(L"global_theme", L"custom");
     }, true);
+  }
+
+  // 皮肤包卡片上的「删除」（共享页的 useSkinDeletion）：确认后在工作线程上经 msime_client_skin_delete 删。选着的不能删是 client-services 的规则（candidate_sync::delete_unselected），这里只把回的码翻成 SkinDeleteModel.h 的话；删掉或发现已经不在时重扫皮肤目录。`shown_in_use` 是卡片上显示着「使用中」，只用来挑提示的说法。
+  fire_and_forget delete_skin(std::wstring id, std::wstring name, bool shown_in_use) {
+    auto strong = get_strong();
+    // 上一次的结果在确认框关上后就撤掉，与共享页的 setNotice(null) 相同；取消时也要重画，不然旧的那句一直留在页面上。
+    const bool had_notice = !skin_deleted_notice_.empty();
+    skin_deleted_notice_.clear();
+    const bool confirmed = co_await confirm(L"删除皮肤", sd::question(name), L"删除");
+    if (had_notice)
+      redraw_themes();
+    if (!confirmed || closed_)
+      co_return;
+    const auto root = skins_root();
+    const auto preferences = state_directory();
+    // 用户已经确认过，找不到目录时也要说一句，不能什么都不发生。
+    if (!root.is_absolute() || !preferences.is_absolute()) {
+      skin_deleted_notice_ = sd::failure("", name, shown_in_use);
+      redraw_themes();
+      co_return;
+    }
+    JsonObject request;
+    request.SetNamedValue(L"directory", JsonValue::CreateStringValue(hstring(root.wstring())));
+    request.SetNamedValue(L"preferences_directory",
+                          JsonValue::CreateStringValue(hstring(preferences.wstring())));
+    request.SetNamedValue(L"id", JsonValue::CreateStringValue(hstring(id)));
+    run_host(
+        [body = utf8(request.Stringify())] {
+          return take_response(msime_client_skin_delete(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        },
+        [this, name, shown_in_use](Response const &response) {
+          std::string code;
+          bool synced = false;
+          try {
+            const auto object = JsonObject::Parse(text(response.text));
+            if (response.ok)
+              synced = object.GetNamedObject(L"value").GetNamedBoolean(L"synced", false);
+            else
+              code = utf8(object.GetNamedString(L"error", L""));
+          } catch (...) {
+          }
+          skin_deleted_notice_ =
+              response.ok ? sd::done(name, synced) : sd::failure(code, name, shown_in_use);
+          if (response.ok || sd::rescan_after_failure(code))
+            skin_catalog_changed();
+          redraw_themes();
+        });
   }
 
   // 扫描皮肤目录，同一时间只有一次在进行。`manual`（第一次进入页面和「刷新皮肤」）的结果总会落地，并重读皮肤图片；自动重扫（再次进入页面、窗口重新获得焦点）的结果和上次相同时保留原来的卡片，也不显示「正在读取」，免得窗口一获得焦点整页就重画。进行中又点了「刷新皮肤」时，这次结束后再扫一次。
@@ -9385,6 +9463,10 @@ private:
     // 「发布到社区」：打开发布对话框，先选中这一款。
     actions.Children().Append(
         card_action(L"发布到社区", [this, id = skin.id] { open_skin_publish(id, true); }));
+    // 「删除」：能不能删由 msime_client_skin_delete 回答，见 delete_skin。
+    actions.Children().Append(card_action(L"删除", [this, id = skin.id, name = skin.name, selected] {
+      delete_skin(id, name, selected);
+    }));
 
     StackPanel notes;
     if (skin_image_failed(skin.id, skin.decoration_image) ||
@@ -27889,6 +27971,8 @@ private:
   int32_t theme_carousel_custom_at_ = -1;
   // 从「本地皮肤」的卡片发布后，卡片下面的那一句。
   std::wstring skin_published_notice_;
+  // 卡片上「删除」的结果或没删成的原因（SkinDeleteModel.h）。
+  std::wstring skin_deleted_notice_;
 
   // 「社区皮肤」「社区插件」两个标签：停在哪一边（跨页面保留，与共享外壳的 skinView、pluginView 一样）、两个图库、皮肤的分类筛选（正在请求的、上次成功列出的、按钮上显示的）和插件的类型筛选、预览图的缓存和正在显示它们的卡片、皮肤库同步是否在进行或排着下一次，以及两个发布对话框的状态。
   bool skin_community_view_ = false;

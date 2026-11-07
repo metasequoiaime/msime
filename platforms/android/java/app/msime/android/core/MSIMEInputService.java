@@ -11405,12 +11405,20 @@ public final class MSIMEInputService extends InputMethodService {
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
         for (View overlay : new View[] {moreToolsScroll, expandedCandidateCanvas, imeNineKeyPanel.root(),
                 phraseScroll, emojiPanel, symbolPanel, clipboardSurface, skinScroll, schemeScroll,
-                aiPolishContainer, textEditPanel}) {
+                aiPolishContainer}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
                     || params.topMargin == top) continue;
             params.topMargin = top;
             overlay.post(() -> overlay.setLayoutParams(params));
+        }
+        // 文本编辑面板自带返回、标题（或最近复制）、撤销和重做那一行，盖住顶部一行而不是排在它下面：键区的位置和高度不变，不多占一行。
+        int editTop = (parent == null ? 0 : parent.getTop()) + region.getTop();
+        if (imeTextEditPanel != null) imeTextEditPanel.coverTopRow(region, region.getHeight());
+        if (textEditPanel != null && textEditPanel.getLayoutParams() instanceof FrameLayout.LayoutParams params
+                && params.topMargin != editTop) {
+            params.topMargin = editTop;
+            textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
     }
@@ -12751,11 +12759,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (undoShortcutButton != null) {
             ViewPolicy.setVisible(undoShortcutButton, toolbarUndo);
-            ViewPolicy.setEnabled(undoShortcutButton, connection != null && !EditorPolicy.password(editorInputType));
+            ViewPolicy.setEnabled(undoShortcutButton, imeToolbar.canDispatchHistory());
         }
         if (redoShortcutButton != null) {
             ViewPolicy.setVisible(redoShortcutButton, toolbarRedo);
-            ViewPolicy.setEnabled(redoShortcutButton, connection != null && !EditorPolicy.password(editorInputType));
+            ViewPolicy.setEnabled(redoShortcutButton, imeToolbar.canDispatchHistory());
         }
         if (textEditShortcutButton != null) {
             ViewPolicy.setVisible(textEditShortcutButton, toolbarTextEdit);
