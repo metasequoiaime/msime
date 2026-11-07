@@ -47,6 +47,13 @@ public final class ClipboardSwipePolicy {
         return open || dx < 0;
     }
 
+    /** 关闭的卡片向右滑时进入详情；打开的删除区不把右滑再解释成详情。 */
+    public static boolean claimsRight(float dx, float dy, float touchSlop, boolean open) {
+        float horizontal = Math.abs(dx);
+        if (open || dx <= 0 || horizontal <= BoundsPolicy.nonNegative(touchSlop)) return false;
+        return horizontal >= Math.abs(dy) * HORIZONTAL_DOMINANCE;
+    }
+
     /** 拖动中卡片的位移：起点位移加上手指相对按下点的位移，夹在 `[-reveal, 0]`，不会往右拖出空白，也不会拖过删除区。起点取接手那一刻卡片的位移减去当时的手指位移，卡片从原地开始跟手，不会因为越过 slop 而跳一下。 */
     public static float offset(float startOffset, float dx, float reveal) {
         return BoundsPolicy.bounded(startOffset + dx, -Math.abs(reveal), 0f);
