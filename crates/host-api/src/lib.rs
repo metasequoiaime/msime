@@ -2960,7 +2960,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件组：桌面、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：桌面、Android、鸿蒙和 iOS 是日文词典与它的两份 Mozc 许可文本、以及五笔码表。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
 #[cfg(target_env = "ohos")]
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts("ohos");

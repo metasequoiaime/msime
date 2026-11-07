@@ -421,16 +421,17 @@ enum InputSchemePreference {
     }
   }
 
-  /// The enabled schemes this process can run: an enabled Cantonese, Zhuyin or Stroke whose dictionary is not installed is left out, because the Engine would answer it with another scheme. The enabled list itself keeps it, so the choice holds once the dictionary arrives. A process that carries no Engine (the App) cannot tell and leaves every enabled scheme in, so its settings never rewrite a selection the keyboard can run.
+  /// 键盘扩展只列出当前能运行的方案：缺粤拼、注音、笔画词库或五笔码表时先隐藏，启用列表保留，资源包装好后再出现。没有 Engine 的主 App 无法判断随包资源，仍保留全部启用方案，设置页不会因暂时缺资源改写用户选择。
   static var offeredSchemes: [ChineseInputScheme] {
     offeredSchemes(enabled: enabledSchemes, installed: installedLanguageSchemes,
-                   japaneseAvailable: !hasBundledEngine || bundledJapanese || downloadedPackIDs.contains("japanese"))
+                   japaneseAvailable: !hasBundledEngine || bundledJapanese || downloadedPackIDs.contains("japanese"),
+                   wubiAvailable: !hasBundledEngine || IOSResourcePacks.bundled("wubi") || downloadedPackIDs.contains("wubi"))
   }
 
   /// 缺失词库的已启用方案暂不显示，启用列表保留；主应用没有 Engine 时 installed 为 nil。
-  static func offeredSchemes(enabled: [ChineseInputScheme], installed: Set<ChineseInputScheme>?, japaneseAvailable: Bool = true) -> [ChineseInputScheme] {
+  static func offeredSchemes(enabled: [ChineseInputScheme], installed: Set<ChineseInputScheme>?, japaneseAvailable: Bool = true, wubiAvailable: Bool = true) -> [ChineseInputScheme] {
     guard let installed else { return enabled }
-    let offered = enabled.filter { (!$0.needsLanguageDictionary || installed.contains($0)) && (!$0.isJapanese || japaneseAvailable) }
+    let offered = enabled.filter { (!$0.needsLanguageDictionary || installed.contains($0)) && (!$0.isJapanese || japaneseAvailable) && ($0 != .wubi || wubiAvailable) }
     return offered.isEmpty ? [.editionFallback] : offered
   }
 

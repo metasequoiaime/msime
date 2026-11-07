@@ -63,6 +63,7 @@ if [ "${MSIME_IOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
   for name in msime-japanese.dat msime-mozc_LICENSE.txt msime-mozc_dictionary_oss_README.txt; do
     [ ! -e "$keyboard_resources/$name" ] || { echo "slim iOS bundle still contains $name" >&2; exit 1; }
   done
+  [ ! -e "$keyboard_resources/msime-wubi.db" ] || { echo "slim iOS bundle still contains msime-wubi.db" >&2; exit 1; }
   for name in msime-cantonese.db msime-zhuyin.db msime-stroke.db; do
     [ ! -e "$keyboard_languages/$name" ] || { echo "slim iOS bundle still contains $name" >&2; exit 1; }
   done

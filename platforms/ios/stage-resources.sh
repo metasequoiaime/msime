@@ -7,14 +7,14 @@ cd "$repo_root"
 source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [offline-glosses-directory] [language-dictionaries-directory] [wordbooks-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/ios/EngineResources"
-# 发布用瘦包只省略附加语言资源，日文独立版本的主词库不能省。
+# 发布用瘦包省略可选的日文词典和五笔码表，日文独立版本的主词库不能省。
 omit_on_demand=${MSIME_IOS_OMIT_ON_DEMAND:-0}
 verify_flags=()
 case "$omit_on_demand" in
   0) ;;
   1)
     case "${MSIME_EDITION:-full}" in
-      full|pinyin) verify_flags=(--omit-on-demand) ;;
+      full|pinyin) verify_flags=(--omit-on-demand --platform ios) ;;
       *) echo "MSIME_IOS_OMIT_ON_DEMAND only supports full and pinyin" >&2; exit 2 ;;
     esac ;;
   *) echo "MSIME_IOS_OMIT_ON_DEMAND must be 0 or 1" >&2; exit 2 ;;
