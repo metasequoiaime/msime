@@ -1554,6 +1554,23 @@ if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   echo "Android must lay the bottom rows, the borrowed number pads and the tall-return strip by touch_language_key_side, rebuild the tall-return frame when it changes, list 中/英键放在空格左边 in every 按键布局 segment, draw the heatmap with it and index it in settings search" >&2
   exit 1
 fi
+# 14/18 键字母键宽度（#11051，`touch_fourteen_key_letter_widths`）：分法和占位格朝外补的半键距由 FourteenKeyLetterWidthsSmoke 覆盖，占位格的按下归属由 KeyPressAreaDeviceChecks 覆盖。这里钉住键盘的接线：冷启动和实时偏好都按宽松读取取值，进 touchGeometryKey 和 SKIN_HINT_KEYS（冷启动第一帧就按用户的宽度画），render 按 letterWidthsStale 重建；三排的份额取自 FourteenKeyLetterWidths.plan，占位格是指定了所属键的 KeyboardSpacer，补的半键距随键距就地重新套用。
+fourteen_rows_body=$(sed -n '/    private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows")
+if ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -F 'fourteenKeyLetterWidths = fourteenKeyLetterWidthsFrom(preferences);' \
+  || ! rg -qF 'fourteenKeyLetterWidths = nextFourteenKeyLetterWidths;' "$account_service" \
+  || ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_service" | rg_q_stdin -F 'fourteenKeyLetterWidths.wire()' \
+  || ! rg_q_stdin -F 'FourteenKeyLetterWidths.PREFERENCE' <<< "$skin_hint_keys" \
+  || ! rg -qF '|| imeLetterRows.letterWidthsStale()' "$account_service" \
+  || ! rg_q_stdin -F 'FourteenKeyLetterWidths.plan(rows, letterWeight, edgeWeight, widths.geometry())' <<< "$fourteen_rows_body" \
+  || ! rg_q_stdin -F 'pad.setOwner(previousKey);' <<< "$fourteen_rows_body" \
+  || ! rg_q_stdin -F 'leadingPad.setOwner(keyButton);' <<< "$fourteen_rows_body" \
+  || ! rg_q_stdin -F 'pad.setOuterHalfGaps(previousKey == null, padHalfGaps);' <<< "$fourteen_rows_body" \
+  || ! sed -n '/    void applyKeyboardGeometry(View node) {$/,/^    }$/p' "$android_java/core/ImeStyler.java" \
+    | rg_q_stdin -F 'params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);'; then
+  echo "Android must read touch_fourteen_key_letter_widths at startup and live, remember it in SKIN_HINT_KEYS, rebuild the 14/18-key rows when it changes, take their weights from FourteenKeyLetterWidths.plan and give the row-2 pads an owning key" >&2
+  exit 1
+fi
 # 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画热力图的同一套整块外框。
 for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
   body=$(sed -n "/    $builder\$/,/^    }\$/p" "$layout_rows")

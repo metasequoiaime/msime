@@ -126,6 +126,20 @@ public final class FourteenKeyLetterWidths {
         return key.letters().length() > 1 ? letterWeight : letterWeight * geometry.singleLetterWeight();
     }
 
+    /**
+     * 第 `rowIndex` 排的每个占位格朝外要补几个半键距的外边距。键（字母键、分词、⌫）各带左右两个半键距，行宽先扣掉外边距再按份额分；这一排比首排少几个键，就少扣几个键距，两端的占位格各补回同样多个半键距，三排的单位宽度才一样（18 键宽窄第二排是 1，14 键前两排键数相同是 0）。没有占位格的排也照算，调用方只套在占位格上。
+     */
+    public static int padHalfGaps(List<List<Cell>> plan, int rowIndex) {
+        return Math.max(0, spaced(plan.get(0)) - spaced(plan.get(rowIndex)));
+    }
+
+    /** 一排里带键距外边距的格数：占位格不算。 */
+    private static int spaced(List<Cell> row) {
+        int count = 0;
+        for (Cell cell : row) if (cell.kind() != Kind.PAD) count++;
+        return count;
+    }
+
     /** 一排各格份额之和。 */
     public static float total(List<Cell> row) {
         float sum = 0f;

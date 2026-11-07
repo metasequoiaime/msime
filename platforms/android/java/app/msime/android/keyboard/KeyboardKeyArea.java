@@ -14,7 +14,7 @@ import java.util.function.Predicate;
  *
  * <p>键距和行距是每个键的布局外边距。外边距不属于按钮，按下落在那里时没有子视图接收，行和它的祖先都不可点击，整个手势就悄无声息地丢了：默认间距下 26 键约四分之一、九键约五分之一的面积是这样的死区，打字快、落点不准时就像随机丢键。多指连按时第二根手指落进空隙，框架还会把它并进第一根手指按着的键，两次按键都可能丢。
  *
- * <p>字母行里的占位格（{@link KeyboardSpacer}）指定了所属的键时，落在占位格里的按下同样交给那个键，按下点挪进它靠这一侧的边缘；没有指定所属的键的占位格照旧不接收触摸。所属的键只能在同一排里，按下不跨排归属。
+ * <p>字母行里的占位格（{@link KeyboardSpacer}）指定了所属的键时，落在占位格或它的外边距里的按下同样交给那个键，按下点挪进它靠这一侧的边缘；没有指定所属的键的占位格照旧不接收触摸。所属的键只能在同一排里，按下不跨排归属。
  *
  * <p>装了 {@link GlideTracker} 时，每个事件先交给它：它接管一次触摸（滑行输入）后，这里给子视图补一个 CANCEL，之后这一次触摸的事件都不再往下分发，直到最后一根手指抬起。
  *
@@ -250,7 +250,7 @@ public final class KeyboardKeyArea extends LinearLayout {
     }
 
     /**
-     * 按框架命中测试的同样方式往下找：`x`、`y` 是 `group` 自己的坐标。点落在键或其它可点击视图上就不必改写；落在指定了所属键的占位格里就选那个键；否则记下外边距包含这个点、离得最近的键，以及挪进它边缘后的局部坐标。
+     * 按框架命中测试的同样方式往下找：`x`、`y` 是 `group` 自己的坐标。点落在键或其它可点击视图上就不必改写；落在指定了所属键的占位格或它的外边距里就选那个键；否则记下外边距包含这个点、离得最近的键，以及挪进它边缘后的局部坐标。
      */
     private void search(ViewGroup group, float x, float y) {
         for (int index = group.getChildCount() - 1; index >= 0 && !hit && !claimed; index--) {
@@ -271,6 +271,17 @@ public final class KeyboardKeyArea extends LinearLayout {
             int width = child.getWidth();
             int height = child.getHeight();
             boolean inside = localX >= 0 && localY >= 0 && localX < width && localY < height;
+            if (child instanceof KeyboardSpacer spacer) {
+                // 占位格连同它的外边距（宽窄第二排两端朝外补的半键距）都归所属的键；没有所属的键时不接收。
+                View owner = spacer.usableOwner();
+                if (owner != null && child.getLayoutParams() instanceof MarginLayoutParams margins
+                        && KeyboardGapPolicy.gapDistance(layoutX, layoutY, width, height, margins.leftMargin,
+                            margins.topMargin, margins.rightMargin, margins.bottomMargin) >= 0) {
+                    claim(group, owner, x, y);
+                    return;
+                }
+                continue;
+            }
             if (spacedKey.test(child)) {
                 if (inside) {
                     hit = true;
@@ -281,11 +292,6 @@ public final class KeyboardKeyArea extends LinearLayout {
                 }
                 consider(child, layoutX, layoutY, localX, localY);
             } else if (inside) {
-                if (child instanceof KeyboardSpacer spacer) {
-                    View owner = spacer.usableOwner();
-                    if (owner != null) claim(group, owner, x, y);
-                    return;
-                }
                 if (child.isClickable() || child.isLongClickable()) {
                     hit = true;
                     return;

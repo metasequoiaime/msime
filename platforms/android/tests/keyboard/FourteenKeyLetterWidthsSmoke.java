@@ -44,6 +44,7 @@ public final class FourteenKeyLetterWidthsSmoke {
         variedMatchesTheIssue();
         everyLetterKeyIsPlacedOnce();
         unofferedCombinationsStillCompute();
+        padsMakeUpTheMissingKeyGaps();
         System.out.println("Android 14/18-key letter widths passed");
     }
 
@@ -129,6 +130,17 @@ public final class FourteenKeyLetterWidthsSmoke {
         }
         check(letters(eighteen(FourteenKeyLetterWidths.Mode.VARIED).get(1))
             .equals(List.of("a", "sd", "fg", "h", "jk", "l")), "18 键第二排键序不变");
+    }
+
+    /** 占位格朝外补的半键距：每排扣掉的键距一样多，三排的单位宽度才相同。 */
+    private static void padsMakeUpTheMissingKeyGaps() {
+        List<List<FourteenKeyLetterWidths.Cell>> eighteen = eighteen(FourteenKeyLetterWidths.Mode.VARIED);
+        check(FourteenKeyLetterWidths.padHalfGaps(eighteen, 0) == 0, "18 键首排没有要补的");
+        check(FourteenKeyLetterWidths.padHalfGaps(eighteen, 1) == 1, "18 键宽窄第二排少一个键，两端各补一个半键距");
+        check(FourteenKeyLetterWidths.padHalfGaps(eighteen, 2) == 0, "18 键第三排五个字母加分词和 ⌫，与首排一样七格");
+        List<List<FourteenKeyLetterWidths.Cell>> fourteen = fourteen(FourteenKeyLetterWidths.Mode.VARIED);
+        check(FourteenKeyLetterWidths.padHalfGaps(fourteen, 1) == 0, "14 键前两排都是五个键，占位格不补");
+        check(FourteenKeyLetterWidths.padHalfGaps(fourteen, 2) == 0, "14 键第三排比首排多一格，不补负数");
     }
 
     /** 设置页不列的两种组合照样能算，以后改映射不用动排法。 */
