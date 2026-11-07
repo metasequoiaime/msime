@@ -72,6 +72,7 @@ if [ "${MSIME_IOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
   for name in msime-japanese.dat msime-mozc_LICENSE.txt msime-mozc_dictionary_oss_README.txt; do
     [ ! -e "$keyboard/EngineResources/$name" ] || { echo "slim iOS archive still contains $name" >&2; exit 1; }
   done
+  [ ! -e "$keyboard/EngineResources/msime-wubi.db" ] || { echo "slim iOS archive still contains msime-wubi.db" >&2; exit 1; }
   for name in msime-cantonese.db msime-zhuyin.db msime-stroke.db; do
     [ ! -e "$keyboard/language-dictionaries/$name" ] || { echo "slim iOS archive still contains $name" >&2; exit 1; }
   done

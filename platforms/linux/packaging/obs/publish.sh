@@ -87,10 +87,12 @@ for name, *columns in wanted:
         else:
             override = [col]
     d = by_name.get(name)
-    if d is None:
+    if d is None and not override:
         print(f"skip {name}: not in the OBS distribution list", file=sys.stderr)
         continue
-    archs = [a.text for a in d.findall("architecture") if a.text in ("x86_64", "aarch64")]
+    # Fedora 45 已有 Fedora:45/standard，但 OBS 的全局发行版列表暂未登记 Fedora_45；显式路径覆盖时沿用 RPM 支持的两个架构。
+    archs = (["x86_64", "aarch64"] if d is None else
+             [a.text for a in d.findall("architecture") if a.text in ("x86_64", "aarch64")])
     if not archs:
         print(f"skip {name}: no x86_64 or aarch64", file=sys.stderr)
         continue

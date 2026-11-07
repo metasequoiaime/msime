@@ -272,9 +272,15 @@ struct InputSettingsView: View {
         if saved { announceDefault(language == .quanpin ? scheme.title : scheme.shortLabel) }
       }
     case .wubi(let profile):
-      let saved = WubiProfilePreference.save(profile) && InputSchemePreference.select(.wubi)
-      record(saved, .languages)
-      if saved { announceDefault(profile == "wubi98" ? "五笔 98" : "五笔 86") }
+      if !resourcePacks.available("wubi") {
+        let saved = InputSchemePreference.setEnabled(.wubi, true)
+        record(saved, .languages)
+        if saved { resourcePacks.request("wubi") }
+      } else {
+        let saved = WubiProfilePreference.save(profile) && InputSchemePreference.select(.wubi)
+        record(saved, .languages)
+        if saved { announceDefault(profile == "wubi98" ? "五笔 98" : "五笔 86") }
+      }
     case .remove:
       remove(language)
     }
@@ -541,8 +547,10 @@ struct InputSettingsView: View {
           .accessibilityIdentifier("wubiAutoCommitUnique")
         DesignDivider()
         // 五笔查码（#6789）：与三个五笔开关一样，只在启用了五笔时列出。
-        navRow("五笔查码", info: "查汉字的 86、98 和新世纪五笔编码", identifier: "wubiCodeLookupLink") {
-          WubiCodeLookupView(profile: wubiProfile)
+        if resourcePacks.available("wubi") {
+          navRow("五笔查码", info: "查汉字的 86、98 和新世纪五笔编码", identifier: "wubiCodeLookupLink") {
+            WubiCodeLookupView(profile: wubiProfile)
+          }
         }
         DesignDivider()
       }

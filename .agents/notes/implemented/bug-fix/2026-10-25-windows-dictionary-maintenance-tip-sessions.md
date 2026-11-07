@@ -37,3 +37,7 @@ TIP 在已有的 500 毫秒偏好定时器（`TIMER_REFRESH_HOST_PREFERENCES`）
 ## Verification
 
 `cargo test -p msime-host-api --lib published`：`the_published_options_follow_the_generation_the_input_method_prepared` 用合成词库锁准备两次（首次运行，再换锁模拟升级），先证明按旧文件新增的短语在 Server 的代次里列不出来，发布后再新增的能列出来，且文件只变了 `dictionaries`、已是当前代次时不再改写；`prepared_dictionaries_are_not_published_into_a_foreign_document` 覆盖别的状态目录和不是准备布局的文档；`a_differently_spelled_state_directory_keeps_the_published_layout` 用符号链接把同一个状态目录拼成两种路径，断言发布后文件沿用自己的拼写、仍是准备布局，同一代次不再改写、换代次照样发布（修之前这条失败在写入的 `dictionaries` 用了准备文档的拼写）。`cargo test -p msime-client-services --lib quiesce` 的既有用例（`busy_is_retried_under_a_lease_that_is_removed_afterwards` 等）断言重试期间租约在、结束后撤掉，现在对 Windows 的 `WindowsRelease` 同样成立；CI 不在 Windows 上跑这组测试。`platforms/windows/tsf/tests/runtime/host_session_maintenance.cpp` 覆盖 TIP 的去留决定，包括租约撤掉时正在组字不重建；`platforms/common/tests/dictionary_quiesce_lease.cpp` 照旧覆盖共用的过期判定。TIP、Server 和设置窗口的原生代码在 PR CI 的 MinGW 交叉构建和 MSVC 设置窗口构建里编译；真实 Windows 上在记事本和设置窗口都激活着输入法时新增快捷短语与五笔词条、升级后新增并立即打出，还没有验收。
+
+## Related notes
+
+[macOS 设置应用每次请求现读 runtime-options.json](2026-11-07-macos-settings-fresh-host-options.md)：部分重叠，同样是「设置写进的不是输入法读的代次」。那边文件已由输入法刷新，是 macOS 设置应用只在启动时读一次；本篇是 Windows 上文件本身没人刷新。

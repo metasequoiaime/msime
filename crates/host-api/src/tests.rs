@@ -21288,7 +21288,7 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
-/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它（macOS 和 Android）时算缺，五笔像缺词库的粤拼一样回退。
+/// 五笔码表的位置和五笔能否运行：资源目录带着 `msime-wubi.db` 时用它（不另给路径）；不带时用已下载的 `wubi` 资源包；两处都没有时，只在本平台的发布包可以不带它时算缺，五笔像缺词库的粤拼一样回退。
 #[test]
 fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_either() {
     let root = tempfile::tempdir().unwrap();
@@ -21304,6 +21304,7 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
         cfg!(any(
             target_os = "macos",
             target_os = "android",
+            target_os = "ios",
             target_env = "ohos"
         ))
     );
@@ -21996,7 +21997,7 @@ fn runtime_resources_status_is_read_only_and_rejects_damaged_resources() {
     ));
 }
 
-/// 各目标的按需清单：桌面、Android、鸿蒙和 iOS 接受不含可选日文词典组的发布包；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
+/// 各目标的按需清单：桌面、Android、鸿蒙和 iOS 接受不含可选日文词典组及五笔码表的发布包；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
 #[test]
 fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     use msime_client_core::resources::{on_demand_artifacts, ON_DEMAND_JAPANESE_ARTIFACTS};

@@ -12093,7 +12093,7 @@ struct KeyboardView {
     .width('100%')
     .height('100%')
     .padding({ left: this.adjustFrame().left, right: this.adjustFrame().right, bottom: this.adjustFrame().lift })
-    .hitTestBehavior(HitTestMode.Block)
+    .hitTestBehavior(HitTestMode.BlockHierarchy)
   }
 
   /** 四角的直角括号，标出键盘外框；不接触摸，读屏跳过。 */

@@ -5,6 +5,8 @@
 openSUSE_Tumbleweed
 Fedora_43
 Fedora_44
+# OBS 的全局发行版列表还没有 Fedora_45，显式指定已经存在的 Fedora:45/standard 项目与仓库；publish.sh 对这种覆盖保留 x86_64/aarch64 两个目标架构。
+Fedora_45 Fedora:45/standard
 xUbuntu_24.04 Ubuntu:24.04/universe-update,Ubuntu:24.04/update,Ubuntu:24.04/universe,Ubuntu:24.04/standard
 xUbuntu_26.04 Ubuntu:26.04/universe-update,Ubuntu:26.04/update,Ubuntu:26.04/universe,Ubuntu:26.04/standard
 Debian_Testing
