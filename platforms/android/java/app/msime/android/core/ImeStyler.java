@@ -189,6 +189,12 @@ final class ImeStyler {
             int vertical = s.halfSpacingPixels(s.touchRowSpacingTenths);
             params.setMargins(horizontal, vertical, horizontal, vertical);
             node.setLayoutParams(params);
+        } else if (node instanceof KeyboardSpacer spacer
+                && spacer.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams params) {
+            // 宽窄第二排两端的占位格不是键，只朝外补这一排少扣的键距（KeyboardSpacer#setOuterHalfGaps）。
+            int halfGap = s.halfSpacingPixels(layoutKeySpacingTenths());
+            params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);
+            spacer.setLayoutParams(params);
         }
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;

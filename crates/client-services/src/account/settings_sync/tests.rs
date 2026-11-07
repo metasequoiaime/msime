@@ -195,6 +195,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.custom_candidate_skin_dark",
             "platform.android.custom_keyboard_skin",
             "platform.android.custom_theme_base",
+            "platform.android.fourteen_key_letter_widths",
             "platform.android.fourteen_key_style",
             "platform.android.global_theme",
             "platform.android.haptic_strength",
@@ -370,6 +371,7 @@ fn settings_sync_round_trips_every_exported_key() {
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
         touch_twenty_six_key_style: TouchTwentySixKeyStyle::LongSpace,
         touch_fourteen_key_style: TouchFourteenKeyStyle::Emoji,
+        touch_fourteen_key_letter_widths: TouchFourteenKeyLetterWidths::Varied,
         touch_nine_key_style: TouchNineKeyStyle::CommaPeriod,
         touch_number_row: !Preferences::default().touch_number_row,
         touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,
@@ -1762,6 +1764,63 @@ fn language_key_side_syncs_by_its_wire_name() {
         Preferences {
             touch_twenty_six_symbol_first: true,
             ..left
+        }
+    );
+}
+
+/// 14/18 键字母键宽度按共享偏好的写法上传，读回来还是原值；默认的等宽也导出，云端写回 `equal` 时本机回到等宽，云端是本机不认识的分法时只跳过这一个键。
+#[test]
+fn fourteen_key_letter_widths_sync_by_their_wire_names() {
+    let defaults = export_android_settings(&Preferences::default(), None).unwrap();
+    assert_eq!(
+        defaults[FOURTEEN_KEY_LETTER_WIDTHS],
+        AccountPreferenceValue::String("equal".into())
+    );
+
+    let varied = Preferences {
+        touch_fourteen_key_letter_widths: TouchFourteenKeyLetterWidths::Varied,
+        ..Preferences::default()
+    };
+    let exported = export_android_settings(&varied, None).unwrap();
+    assert_eq!(
+        exported[FOURTEEN_KEY_LETTER_WIDTHS],
+        AccountPreferenceValue::String("varied".into())
+    );
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, varied);
+
+    let applied = apply(
+        &varied,
+        BTreeMap::from([(
+            FOURTEEN_KEY_LETTER_WIDTHS.to_owned(),
+            AccountPreferenceValue::String("equal".into()),
+        )]),
+        &full_schema(),
+    );
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, Preferences::default());
+
+    let applied = apply(
+        &varied,
+        BTreeMap::from([
+            (
+                FOURTEEN_KEY_LETTER_WIDTHS.to_owned(),
+                AccountPreferenceValue::String("equal_indented".into()),
+            ),
+            (
+                TWENTY_SIX_SYMBOL_FIRST.to_owned(),
+                AccountPreferenceValue::Boolean(true),
+            ),
+        ]),
+        &full_schema(),
+    );
+    assert_eq!(applied.skipped, [FOURTEEN_KEY_LETTER_WIDTHS]);
+    assert_eq!(
+        applied.preferences,
+        Preferences {
+            touch_twenty_six_symbol_first: true,
+            ..varied
         }
     );
 }

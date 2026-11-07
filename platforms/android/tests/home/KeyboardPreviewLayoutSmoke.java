@@ -1,3 +1,4 @@
+import app.msime.android.FourteenKeyLetterWidths;
 import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardActionRow.DesignSlot;
 import app.msime.android.KeyboardLayout;
@@ -33,6 +34,7 @@ public final class KeyboardPreviewLayoutSmoke {
         nineActionColumn();
         nineKeySidebar();
         languageLeft();
+        letterWidths();
         caption();
         System.out.println("keyboard preview layout: passed");
     }
@@ -192,6 +194,23 @@ public final class KeyboardPreviewLayoutSmoke {
         List<List<Key>> rows = custom.rows();
         check(rows.get(0).get(0).stack().equals(List.of("@", "#", "~")), "a custom sidebar still draws with 中 on the left");
         check(faces(last(rows)).equals(List.of("符", "123", "中", "空格", "↵")), "the custom sidebar leaves the bottom row alone");
+    }
+
+    /** 皮肤页的 14/18 键预览也按用户的字母键宽度画（#11051），换键盘类型时保留；没传或传 null 时是等宽。 */
+    private static void letterWidths() {
+        FourteenKeyLetterWidths.Mode varied = FourteenKeyLetterWidths.Mode.VARIED;
+        Preview eighteen = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN_EIGHTEEN_KEY, SIX, SIX,
+            TouchKeyStyle.Styles.DEFAULT, false, false, false, List.of(), false, varied);
+        check(eighteen.letterWidths() == varied, "the preview keeps the user's letter widths");
+        check(eighteen.rows().equals(KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, true, false, false,
+            List.of(), varied)), "18-key 宽窄 preview is the 按键布局 page's drawing");
+        check(faces(eighteen.rows().get(1)).equals(List.of("", "A", "SD", "FG", "H", "JK", "L", "")), "18-key 宽窄 row 2 has blanks");
+        check(eighteen.with(Kind.TWENTY_SIX).letterWidths() == varied, "switching the kind keeps the letter widths");
+        Preview older = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN_EIGHTEEN_KEY, SIX, SIX,
+            TouchKeyStyle.Styles.DEFAULT, false, false, false, List.of(), false);
+        check(older.letterWidths() == FourteenKeyLetterWidths.Mode.EQUAL, "the overload without letter widths draws 等宽");
+        check(new Preview(Kind.FOURTEEN, TouchKeyStyle.Styles.DEFAULT, false, true, false, false, List.of(), false, null)
+            .letterWidths() == FourteenKeyLetterWidths.Mode.EQUAL, "null letter widths read as 等宽");
     }
 
     private static void caption() {
