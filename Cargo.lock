@@ -3229,6 +3229,7 @@ dependencies = [
  "msime-input-runtime",
  "msime-path-trust",
  "reqwest 0.12.28",
+ "rusqlite",
  "rustix",
  "serde",
  "serde_json",

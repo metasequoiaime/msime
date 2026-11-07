@@ -229,15 +229,8 @@ fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation
 
 /// HostOptions 文档；还没准备好运行时选项（Linux 首次运行）时为 `None`。
 ///
-/// macOS 上取 `RuntimeOptionsState` 里的那份：`DictionaryHostOptions` 是启动时的快照，启动时的刷新没能换到本版本的词库、之后由「准备词库」（`repair_macos_oobe_resources`）从发布包重新准备时，只有 `RuntimeOptionsState` 跟着换成会话此后真正用的资源目录。
+/// macOS 上 `DictionaryHostOptions` 每次现读 `runtime-options.json`，「准备词库」（`repair_macos_oobe_resources`）从发布包重新准备、输入法换到在线更新的代次之后，读到的都是会话此后真正用的资源目录。
 fn host_options<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<Value> {
-    #[cfg(target_os = "macos")]
-    if let Some(document) = app
-        .try_state::<crate::RuntimeOptionsState>()
-        .and_then(|runtime| runtime.snapshot().ok())
-    {
-        return Some(document);
-    }
     app.try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok())
 }

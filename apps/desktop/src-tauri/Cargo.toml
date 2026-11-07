@@ -54,6 +54,8 @@ msime-host-windows = { path = "../../../crates/host-windows" }
 [dev-dependencies]
 tauri = { workspace = true, features = ["test"] }
 msime-path-trust = { path = "../../../crates/path-trust", features = ["test-support"] }
+# 测试里搭两个合成的工作词库代次，看设置页新增的词条落进哪一个。
+rusqlite.workspace = true
 
 [lints]
 workspace = true
