@@ -27,6 +27,7 @@ enum IOSResourcePacks {
 
   static func requiredPack(for scheme: ChineseInputScheme) -> String? {
     if scheme.isJapanese && MSIMEAppEdition.identifier != "japanese" { return "japanese" }
+    if scheme == .wubi && MSIMEAppEdition.identifier != "wubi" { return "wubi" }
     return scheme.needsLanguageDictionary ? "language-dictionaries" : nil
   }
 
@@ -79,6 +80,7 @@ enum IOSResourcePacks {
     let names: [String]
     switch id {
     case "japanese": names = ["EngineResources/msime-japanese.dat"]
+    case "wubi": names = ["EngineResources/msime-wubi.db"]
     case "language-dictionaries":
       names = ["language-dictionaries/msime-cantonese.db", "language-dictionaries/msime-zhuyin.db", "language-dictionaries/msime-stroke.db"]
     // 其余资源包（如英文音标表）不随 App 分发，只能下载；不能按语言词库的文件判断，否则带着语言词库的版本会把它们当成已安装。

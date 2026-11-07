@@ -6,7 +6,7 @@ final class IOSResourcePackTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let packs = try IOSResourcePacks.list(stateRoot: root)
     // 英文音标表和两种词库一样只经资源包下载，大小同样来自锁文件。
-    for id in ["japanese", "language-dictionaries", CandidatePronunciationPreference.packID] {
+    for id in ["japanese", "wubi", "language-dictionaries", CandidatePronunciationPreference.packID] {
       let pack = try XCTUnwrap(packs.first { $0.id == id })
       XCTAssertFalse(pack.installed)
       XCTAssertGreaterThan(pack.size, 0)
@@ -47,12 +47,13 @@ final class IOSResourcePackTests: XCTestCase {
 
   func testUnavailableJapaneseStaysEnabledButIsNotOffered() {
     let enabled: [ChineseInputScheme] = [.quanpin, .japanese, .japaneseNineKey, .cantonese]
-    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [], japaneseAvailable: false), [.quanpin])
-    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.cantonese], japaneseAvailable: true), enabled)
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [], japaneseAvailable: false, wubiAvailable: false), [.quanpin])
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: [.cantonese], japaneseAvailable: true, wubiAvailable: true), enabled)
   }
 
   func testKeyboardAndAppUseTheSamePackNames() {
     XCTAssertEqual(IOSResourcePacks.requiredPack(for: .japaneseNineKey), "japanese")
+    XCTAssertEqual(IOSResourcePacks.requiredPack(for: .wubi), "wubi")
     XCTAssertEqual(IOSResourcePacks.requiredPack(for: .zhuyin), "language-dictionaries")
     XCTAssertEqual(IOSResourcePacks.requiredPack(for: .stroke), "language-dictionaries")
     XCTAssertNil(IOSResourcePacks.requiredPack(for: .korean))
