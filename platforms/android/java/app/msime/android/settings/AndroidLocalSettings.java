@@ -67,6 +67,8 @@ public final class AndroidLocalSettings {
     public static final String VOICE_OFFLINE_FALLBACK = "platform.android.voice_offline_fallback";
 
     // ---- 只在本机的键 ----
+    /** 按键按下时是否缩小并下移 1 dp；按键动画、按键音、振动和弹出预览不受影响。 */
+    public static final String PRESS_FEEDBACK = "platform.android.press_feedback";
     public static final String INCOGNITO = "platform.android.incognito";
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
     /** 本地键盘语音的停顿计时与 VAD 灵敏度，只留在本机，默认保持原行为。 */
@@ -245,6 +247,7 @@ public final class AndroidLocalSettings {
         integer(HANDWRITING_STROKE_WIDTH, 3, true, 1, 8, 1);
         bool(VOICE_OFFLINE_FALLBACK, true, true);
 
+        bool(PRESS_FEEDBACK, true, false);
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
         integer(VOICE_PAUSE_MILLIS, VOICE_PAUSE_DEFAULT_MILLIS, false,

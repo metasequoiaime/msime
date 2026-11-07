@@ -2,7 +2,6 @@ package app.msime.android;
 
 
 import app.msime.android.KeyboardGeometry;
-
 import android.provider.Settings;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
@@ -40,7 +39,8 @@ public final class KeyboardPressFeedback {
         // top of it would fight over the same scale and translation.
         else if (KeyPressAnimator.isAnimating(view)) return;
         view.animate().cancel();
-        if (!view.isAttachedToWindow() || !view.isEnabled() || !animationsEnabled(view)) {
+        if (!view.isAttachedToWindow() || !view.isEnabled() || !pressFeedbackEnabled(view)
+                || !animationsEnabled(view)) {
             reset(view);
             return;
         }
@@ -68,6 +68,22 @@ public final class KeyboardPressFeedback {
         view.setTranslationY(0f);
         view.setScaleX(1f);
         view.setScaleY(1f);
+    }
+
+    private static boolean pressFeedbackEnabled(View view) {
+        try {
+            // 这里通过反射读取宿主设置，保持这个独立按压反馈类可以在无设置宿主的冒烟编译中复用。
+            Class<?> settingsClass = Class.forName("app.msime.android.AndroidLocalSettings");
+            Object snapshot = settingsClass.getMethod("load", android.content.Context.class)
+                .invoke(null, view.getContext());
+            Object value = snapshot.getClass().getMethod("bool", String.class)
+                .invoke(snapshot, "platform.android.press_feedback");
+            return Boolean.TRUE.equals(value);
+        } catch (RuntimeException ignored) {
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return true;
+        }
     }
 
     private static boolean animationsEnabled(View view) {
