@@ -22,4 +22,4 @@ Windows 发布构建复用现有 Cargo 缓存，只增加一个短路径联接�
 ## Verification
 
 - `platforms/windows/tests/tools/short_cargo_home.ps1` 已有短路径联接、缓存复用、幂等和冲突保护的行为测试，仍由 Windows release script tests 执行。
-- 通过 workflow 静态校验确认现代 Windows 的 `release` job 和 Windows 7 的 `runtime`、`package` job 均在首个 Cargo 调用前运行 `Use-ShortCargoHome.ps1`。
+- 通过 workflow 静态校验确认现代 Windows 的 `release` job 和 Windows 7 的 `runtime`、`package` job 均在首个 Cargo 调用前运行 `Use-ShortCargoHome.ps1`；`ci-platforms` 也会把这两个发布 workflow 的改动路由到 Windows 脚本测试，使 `short_cargo_home.ps1` 真正执行而不是按 scope 跳过。
