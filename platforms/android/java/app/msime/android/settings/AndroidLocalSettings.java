@@ -49,7 +49,7 @@ public final class AndroidLocalSettings {
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
     public static final String SWIPE_SYMBOLS_DIRECTION = "platform.android.swipe_symbols_direction";
-    /** 「显示字母键角标」：26 键字母键右上角画不画角标符号，默认画（#10587）。只管画不画，长按和「滑动输入符号」照样输入角标。 */
+    /** 「显示字母键角标」：26 键与 14/18 键字母键右上角画不画角标符号，默认画（#10587、#11063）。只管画不画，长按和「滑动输入符号」照样输入角标。 */
     public static final String LETTER_CORNER_HINTS = "platform.android.letter_corner_hints";
     public static final String SPACE_CURSOR = "platform.android.space_cursor";
     public static final String SPACE_VOICE = "platform.android.space_voice";
