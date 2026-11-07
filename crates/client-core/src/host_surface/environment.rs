@@ -125,8 +125,8 @@ mod tests {
     #[test]
     fn os_release_falls_back_to_name_and_version() {
         assert_eq!(
-            os_release_name("NAME=Fedora\nVERSION='44 (Workstation)'\n").as_deref(),
-            Some("Fedora 44 (Workstation)")
+            os_release_name("NAME=Fedora\nVERSION='45 (Workstation)'\n").as_deref(),
+            Some("Fedora 45 (Workstation)")
         );
         assert_eq!(
             os_release_name("NAME=\"Arch Linux\"\n").as_deref(),

@@ -256,7 +256,7 @@ class DownloadGuideTest(unittest.TestCase):
         self.assertNotEqual(self.guide(half).returncode, 0, "legacy packages for only one architecture")
 
     def test_each_format_names_the_systems_it_installs_on(self):
-        # deb 与 tar.gz 是同一棵 bookworm 构建树（glibc 2.35、libstdc++ 12），rpm 只在 Fedora 44 上构建和验证，tar.gz 是 Debian 多架构布局，不是通用包。
+        # deb 与 tar.gz 是同一棵 bookworm 构建树（glibc 2.35、libstdc++ 12），rpm 只在 Fedora 45 上构建和验证，tar.gz 是 Debian 多架构布局，不是通用包。
         result = self.guide(installer_names(VERSION))
         self.assertEqual(result.returncode, 0, result.stderr)
         formats = {line.split("：")[0]: line for line in result.stdout.splitlines() if line.startswith("- ")}
@@ -264,7 +264,7 @@ class DownloadGuideTest(unittest.TestCase):
         rpm = next(line for line in formats.values() if "：`.rpm`" in line)
         tarball = next(line for line in formats.values() if line.startswith("- `.tar.gz`"))
         self.assertIn("Debian 12、Ubuntu 22.04", deb)
-        self.assertTrue(rpm.startswith("- Fedora 44："), rpm)
+        self.assertTrue(rpm.startswith("- Fedora 45："), rpm)
         self.assertIn("Debian 12、Ubuntu 22.04", tarball)
         self.assertIn("Arch、Fedora 上的 Fcitx5 找不到它的插件", tarball)
         self.assertNotIn("通用", tarball)
@@ -373,7 +373,7 @@ class RenderDefinitionsTest(Harness):
         release = self.directory / "defs/.release"
         self.assertFalse(release.exists(), "the download directory is removed afterwards")
         docker = (self.state / "docker.jsonl").read_text(encoding="utf-8")
-        self.assertIn("fedora:44", docker)
+        self.assertIn("fedora:45", docker)
 
     def test_a_tampered_tarball_fails_before_any_container(self):
         local = self.directory / "local"
@@ -384,7 +384,7 @@ class RenderDefinitionsTest(Harness):
         self.assertNotEqual(result.returncode, 0)
         docker = self.state / "docker.jsonl"
         runs = [json.loads(line) for line in docker.read_text(encoding="utf-8").splitlines()] if docker.is_file() else []
-        self.assertFalse([run for run in runs if "fedora:44" in run], "no rpmbuild container after a failed check")
+        self.assertFalse([run for run in runs if "fedora:45" in run], "no rpmbuild container after a failed check")
 
 
 @unittest.skipIf(os.name == "nt", "容器挂载暂存用例使用 POSIX 路径")
