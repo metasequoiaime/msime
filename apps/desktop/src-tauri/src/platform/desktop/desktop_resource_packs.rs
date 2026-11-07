@@ -756,17 +756,25 @@ mod tests {
         ] {
             let mut missing = installation(platform);
             missing.wubi_dictionary = false;
+            if platform == DesktopPlatform::Linux {
+                missing.language_dictionaries = false;
+            }
             assert!(offered_by(
                 ResourcePack::Japanese,
                 Edition::full(),
                 &missing
             ));
             assert!(offered_by(ResourcePack::Wubi, Edition::full(), &missing));
-            assert!(!offered_by(
+            let language_dictionaries = offered_by(
                 ResourcePack::LanguageDictionaries,
                 Edition::full(),
-                &missing
-            ));
+                &missing,
+            );
+            assert_eq!(
+                language_dictionaries,
+                matches!(platform, DesktopPlatform::Macos | DesktopPlatform::Linux),
+                "{platform:?}"
+            );
         }
     }
 
