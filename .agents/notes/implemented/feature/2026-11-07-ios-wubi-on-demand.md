@@ -23,8 +23,11 @@ iOS full 和 pinyin 版本把 `msime-wubi.db` 与日文词典一起列为按需�
 - `cargo test -p msime-client-core resources::tests::desktop_and_mobile_targets_allow_optional_groups --locked`：通过。
 - `cargo test -p msime-client-core resources::tests::each_on_demand_group_is_left_out_on_its_own --locked`：通过。
 - `cargo test -p msime-host-api wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_either --locked`：通过。
-- iOS Simulator 和真机包重打、资源包下载及五笔输入验收：待 CI 与真机完成。
+- `bash -n platforms/ios/stage-resources.sh platforms/ios/build-app.sh platforms/ios/upload-testflight.sh`：通过。
+- `python3 platforms/ios/tests/settings/ProjectConfigurationTests.py`：35 项通过。
+- iOS Release workflow [42367708409](https://github.com/metasequoiaime/msime/actions/runs/42367708409)：成功；模拟器归档 `152,824,189` bytes（152.82 MB），键盘扩展中没有 `EngineResources/msime-wubi.db`。
+- 真机资源包下载及五笔输入：需要在接收该分支的真机上复验，当前 workflow 只构建模拟器归档。
 
 ## Consequences
 
-iOS full 和 pinyin 的首包预计减少约 142.5 MB；五笔用户首次启用时需要下载同一份码表，下载完成后行为与完整包一致。App Store 的实际安装大小还会受 App Thinning 和压缩影响，最终以签名 IPA 和设备安装体积为准。
+iOS full 和 pinyin 的模拟器归档从 `219,817,838` bytes（219.82 MB）降到 `152,824,189` bytes（152.82 MB），减少 `66,993,649` bytes（66.99 MB，30.48%）；未压缩包内省掉约 142.5 MB 的五笔数据库。五笔用户首次启用时需要下载同一份码表，下载完成后行为与完整包一致。App Store 的实际安装大小还会受 App Thinning 和压缩影响，最终以签名 IPA 和设备安装体积为准。
