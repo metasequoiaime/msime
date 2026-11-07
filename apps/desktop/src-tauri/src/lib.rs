@@ -91,7 +91,7 @@ use std::collections::HashMap;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -523,28 +523,31 @@ async fn capture_voice_pcm(milliseconds: u32) -> Result<Vec<f32>, CommandError> 
 
 #[derive(Clone)]
 struct ClipboardHistoryState(Arc<Mutex<ClipboardHistoryStore>>);
+/// 设置应用发给 Host API 的 HostOptions（我的词条、词条同步、辅助码表等）。Linux 和 macOS 记的是 `runtime-options.json` 的路径，每次请求现读：输入法换了词库代次（在线词库更新、升级换锁）会改写这份文件里的 `dictionaries`，设置应用一直开着时，用启动那一刻的文档就会把「我的词条」的改动写进输入法已经不读的旧代次，要等下次重新准备代次时回放日志才生效。
 #[derive(Clone)]
 struct DictionaryHostOptions {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     path: PathBuf,
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     document: Arc<Value>,
 }
 
 impl DictionaryHostOptions {
     fn snapshot(&self) -> Result<Value, CommandError> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             // Keep the installer-selected path separate from the IBus runtime path; deployments can supply different files for these roles.
+            #[cfg_attr(target_os = "macos", allow(unused_mut))]
             let mut document =
                 read_runtime_options(&self.path).map_err(|_| CommandError { code: "storage" })?;
             // By default this is the same file the skin catalog is published into, and the Host API rejects the unknown field, so it is dropped here as the IBus and Fcitx5 hosts drop it before their own calls.
+            #[cfg(target_os = "linux")]
             if let Some(object) = document.as_object_mut() {
                 object.remove("candidate_skin_catalog");
             }
             Ok(document)
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             Ok((*self.document).clone())
         }
@@ -1269,14 +1272,15 @@ struct RuntimeOptionsState {
 
 #[cfg(unix)]
 impl RuntimeOptionsState {
+    /// 有路径时现读文件，内存里那份只是上一次读到的；理由同 [`DictionaryHostOptions`]：输入法换代次后 `resources` 和 `dictionaries` 都会变。
     fn snapshot(&self) -> Result<Value, std::io::Error> {
         let document = self
             .document
             .lock()
             .map_err(|_| std::io::Error::other("runtime options lock poisoned"))?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let mut document = document;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         if let Some(path) = self.path.as_ref() {
             *document = read_runtime_options(path)?;
         }
@@ -1284,10 +1288,10 @@ impl RuntimeOptionsState {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 const RUNTIME_OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     if let Some(parent) = path.parent() {
         crate::shared::atomic_file::check_directory_ancestors(parent)?;
@@ -1310,7 +1314,7 @@ fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn read_runtime_options(path: &Path) -> Result<Value, std::io::Error> {
     let document: Value = serde_json::from_slice(&read_runtime_options_bytes(path)?)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -5325,9 +5329,9 @@ pub fn run() {
                 .filter(|path| path.is_absolute())
                 .or_else(|| Some(host_options_path.clone()));
             app.manage(DictionaryHostOptions {
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 path: host_options_path,
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
                 document: Arc::new(host_document.clone()),
             });
             // 这次启动打开的是设置窗口，不是某个面板（屏幕键盘、表情、剪贴板等由输入法按需拉起）。
