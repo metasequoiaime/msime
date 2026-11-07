@@ -19,14 +19,15 @@ import java.util.List;
 import java.util.function.Predicate;
 
 /**
- * 按键区按下即反馈（#10757）的视图接线：在真实的 `KeyboardKeyArea` 上分发合成触摸，核对 `PressListener` 的回调。直接命中、落在空隙里归给拥有空隙的键、回车把左侧一段让给中/英、多指各自按下抬起、不可用的键不回调、`ACTION_CANCEL` 和滑行接管之后不再回调抬起；每个令牌交还一次，抬起那一次排在框架投递的点击后面。
+ * 按键区按下即反馈（#10757）的视图接线：在真实的 `KeyboardKeyArea` 上分发合成触摸，核对 `PressListener` 的回调。直接命中、落在空隙里归给拥有空隙的键、回车把左侧一段让给中/英、落在指定了所属键的占位格（`KeyboardSpacer`，#11051）里归给那个键而没有指定的占位格不接收、多指各自按下抬起、不可用的键不回调、`ACTION_CANCEL` 和滑行接管之后不再回调抬起；每个令牌交还一次，抬起那一次排在框架投递的点击后面。
  *
  * <p>规则本身（令牌的武装、消耗、撤回）由 JVM 上的 `KeyPressFeedbackPolicySmoke` 覆盖；这里只验证视图层把哪个键、在什么时候交给它。经 `OptionSheetDeviceSmoke -e key-feedback press-area` 运行，不增加 instrumentation 入口。键是普通 `Button`，不经输入法服务，不出声不振动。
  */
 final class KeyPressAreaDeviceChecks {
-    /** 键 100 px 见方，四周各留 10 px 外边距：A 占 10–110，B 占 130–230，C 占 250–350，键与键之间是 20 px 的空隙。 */
+    /** 键 100 px 见方，四周各留 10 px 外边距：A 占 10–110，B 占 130–230，C 占 250–350，键与键之间是 20 px 的空隙。C 的外边距到 360 为止，之后是两个 20 px 宽的占位格：360–380 归 C，380–400 不归任何键。 */
     private static final int KEY = 100;
     private static final int MARGIN = 10;
+    private static final int SPACER = 20;
     private static final float MIDDLE_Y = MARGIN + KEY / 2f;
 
     private final DeviceSmoke test;
@@ -76,6 +77,19 @@ final class KeyPressAreaDeviceChecks {
                 setYield(null, null, 0f);
             });
             expectSettled(List.of("pressed:A", "releasing:A", "settled:pressed:A", "click:A", "settled:releasing:A"));
+
+            test.stage = "key press area: a press in a spacer that names a key reports that key";
+            onMain(() -> {
+                // 370 在归 C 的占位格中间，离 C 的外边距（到 360）还有 10 px：没有占位格的归属，这一下会丢。
+                tap(3 * (KEY + 2 * MARGIN) + SPACER / 2f);
+            });
+            expectSettled(List.of("pressed:C", "releasing:C", "settled:pressed:C", "click:C", "settled:releasing:C"));
+
+            test.stage = "key press area: a press in a spacer without a key is dropped";
+            onMain(() -> {
+                tap(3 * (KEY + 2 * MARGIN) + SPACER * 1.5f);
+            });
+            expectSettled(List.of());
 
             test.stage = "key press area: two fingers report their own keys";
             onMain(() -> {
@@ -142,6 +156,12 @@ final class KeyPressAreaDeviceChecks {
         row.addView(a);
         row.addView(b);
         row.addView(c);
+        Class<?> spacerType = loader.loadClass("app.msime.android.KeyboardSpacer");
+        Constructor<?> spacer = spacerType.getConstructor(Context.class);
+        View owned = (View) spacer.newInstance(activity);
+        spacerType.getMethod("setOwner", View.class).invoke(owned, c);
+        row.addView(owned, new LinearLayout.LayoutParams(SPACER, KEY + 2 * MARGIN));
+        row.addView((View) spacer.newInstance(activity), new LinearLayout.LayoutParams(SPACER, KEY + 2 * MARGIN));
         ((LinearLayout) area).setOrientation(LinearLayout.VERTICAL);
         ((ViewGroup) area).addView(row, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -150,7 +170,7 @@ final class KeyPressAreaDeviceChecks {
         areaType.getMethod("setPressListener", listener).invoke(area, proxy(loader, listener, this::onPress));
         areaType.getMethod("setGlideTracker", tracker).invoke(area, proxy(loader, tracker, (name, args) -> glideTakes));
         FrameLayout frame = new FrameLayout(activity);
-        frame.addView((View) area, new FrameLayout.LayoutParams(3 * (KEY + 2 * MARGIN) + 40, KEY + 2 * MARGIN));
+        frame.addView((View) area, new FrameLayout.LayoutParams(3 * (KEY + 2 * MARGIN) + 2 * SPACER, KEY + 2 * MARGIN));
         return frame;
     }
 
