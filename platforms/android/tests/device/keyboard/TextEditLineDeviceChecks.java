@@ -8,11 +8,7 @@ import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 
-/**
- * 真实编辑器里的文档首尾、Shift 选择与换行，不依赖宿主内部实现。
- *
- * <p>行首、行尾和选择行已经没有键（见 .agents/notes/implemented/feature/2026-11-06-android-text-edit-seamless-panel.md），这里只验还在面板上的 ⇤、⇥ 和换行。
- */
+/** 真实编辑器里的文档首尾、行级上滑、Shift 选择与换行，不依赖宿主内部实现。 */
 final class TextEditLineDeviceChecks {
     private final DeviceSmoke t;
 
@@ -26,6 +22,16 @@ final class TextEditLineDeviceChecks {
         selection(0, 0);
         tap("移到结尾");
         selection(TrackpadEditorActivity.TEXT.length(), TrackpadEditorActivity.TEXT.length());
+        t.stage = "upward swipes preserve line actions";
+        setSelection(16);
+        swipeUp("移到开头");
+        selection(11, 11);
+        setSelection(16);
+        swipeUp("移到结尾");
+        selection(22, 22);
+        setSelection(16);
+        swipeUp("全选");
+        selection(11, 22);
         t.stage = "document boundaries extend selection";
         setSelection(16);
         tap("选择模式");
@@ -120,6 +126,17 @@ final class TextEditLineDeviceChecks {
         Rect bounds = new Rect();
         t.awaitStableBounds(t.describedPrefix("插入换行")).getBoundsInScreen(bounds);
         return bounds;
+    }
+
+    private void swipeUp(String description) throws Exception {
+        Rect key = new Rect();
+        t.awaitStableBounds(t.described(description)).getBoundsInScreen(key);
+        float distance = 40 * t.getTargetContext().getResources().getDisplayMetrics().density;
+        long down = SystemClock.uptimeMillis();
+        touch(down, MotionEvent.ACTION_DOWN, key.centerX(), key.centerY());
+        touch(down, MotionEvent.ACTION_MOVE, key.centerX(), key.centerY() - distance);
+        touch(down, MotionEvent.ACTION_UP, key.centerX(), key.centerY() - distance);
+        t.automation.waitForIdle(300, 5000);
     }
 
     private void gesture(Rect key, boolean cancel) throws Exception {
