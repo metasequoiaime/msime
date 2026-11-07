@@ -1,12 +1,12 @@
-# Agent Note: Android 14/18 键字母键宽度
+# Agent Note: Android 14/18 键字母键宽度与双字母键面字距
 
 Status: implemented
 
-偏好、排法规则、同步和设置页文字是三端共用的，见 [14/18 键字母键宽度的共享偏好与三端规则](2026-11-06-fourteen-eighteen-key-letter-widths.md)；本篇只记 Android 怎么画、怎么接触摸、怎么接线。
+偏好、排法规则、字距、同步和设置页文字是三端共用的，见 [14/18 键字母键宽度与双字母键面字距的三端规则](2026-11-06-fourteen-eighteen-key-letter-widths.md)；本篇只记 Android 怎么画、怎么接触摸、怎么接线。
 
 ## Problem
 
-共享偏好 `touch_fourteen_key_letter_widths` 要在 Android 上真的改变 14/18 键的三排：键盘、「按键布局」页的预览和皮肤页的预览要画同一种排法；「宽窄」第二排两端的空白不能是死区；改了偏好键盘要就地重排。Android 上有三处现成的东西挡路：建键代码按固定份额逐键加按钮，三处预览各自算份额；`KeyboardKeyArea` 只把落在键的外边距（键距、行距）里的按下交给那个键，普通的占位 `View` 里的按下没有键接（26 键第二排的缩进就是这样）；`LinearLayout` 先扣外边距再按份额分，少一个键的那一排单位宽度会大一点。
+共享偏好 `touch_fourteen_key_letter_widths` 要在 Android 上真的改变 14/18 键的三排：键盘、「按键布局」页的预览和皮肤页的预览要画同一种排法；「宽窄」第二排两端的空白不能是死区；改了偏好键盘要就地重排。Android 上有三处现成的东西挡路：建键代码按固定份额逐键加按钮，三处预览各自算份额；`KeyboardKeyArea` 只把落在键的外边距（键距、行距）里的按下交给那个键，普通的占位 `View` 里的按下没有键接（26 键第二排的缩进就是这样）；`LinearLayout` 先扣外边距再按份额分，少一个键的那一排单位宽度会大一点。双字母键面的字距同样要在键盘和两处预览里一致，而键盘按键面字符串取键位 id 和读屏念法，字符串不能动。
 
 ## Decision
 
@@ -30,6 +30,12 @@ Status: implemented
 
 键盘冷启动（`applyTouchGeometry`）和实时偏好（`applyPreferencesSnapshot`）都用 `fourteenKeyLetterWidthsFrom` 宽松读取。这项进 `touchGeometryKey` 和 `SKIN_HINT_KEYS`：冷启动第一帧按皮肤片段里记下的宽度画；偏好变了就 `render()`，`ImeLetterRows.letterWidthsStale` 让键行按新分法重建（`rebuildKeyRows`），和数字行、侧栏符号表等其他键行重建一样不打断正在组的字。没建 14/18 键时 `letterWidthsStale` 恒为假，26 键和九键的重建条件不变。
 
+### 双字母键面的字距
+
+`FourteenKeyLayout.faceLetterSpacing(face)` 按键面给出字距（em）：两个大写字母是 `TWO_LETTER_SPACING_EM`（0.15），双拼的 `L;` 是 `L_SEMICOLON_SPACING_EM`（0.08），其余是 0。按键面而不按键判断，预览里拿到的只有键面也能用；别的键盘没有两个大写字母或 `L;` 这样的键面。键盘在 `fourteenLetterKey` 里 `setText` 之后 `setLetterSpacing`，双拼切换让 L 键面在 `L` 和 `L;` 之间变（`updateFourteenKeySeparator`）时一起换；两种宽度下都设，不读宽度偏好。18 键的自适应字号（`setFittedKeyTextSize(12, 22)`）用 TextView 自带的自适应，量宽度时已算进字距，窄键上照样单行。18 键双拼横滑时键面临时换成单个字母，字距留着，单个字母照样居中。
+
+预览：「按键布局」页的 `KeyLayoutPreview.drawFace` 和皮肤页的 `KeyboardPreview.drawKey` 画键面前给画笔设同样的字距，量宽度缩字号时已算进去；`KeyboardPreview` 的画笔还画候选条文字，画完复原成 0。
+
 ### 设置页
 
 「按键布局」页（`KeyLayoutStylesPage`）的 14/18 键分段在开关卡片下面加「字母键宽度」一组：两枚胶囊按 `Mode.CHOICES` 排，与样式胶囊同一个 `chip`，胶囊下面一行组末说明，文字取自共享笔记。这一组只在 14/18 键分段建、也只在那个分段显示；点胶囊先就地重画预览再写偏好，保存失败时和页面其他选项一样提示并重读。设置搜索（`PageId.KEY_LAYOUT_STYLES`）登记「字母键宽度」「宽窄」「键宽」。
@@ -44,8 +50,8 @@ Android 没有 14/18 键的热力图，统计页不涉及。
 
 ## Consequences
 
-收益：一份排法喂三处画键盘的地方，宽度不会在键盘和预览之间分叉；`equal` 逐格不变，默认键面和触摸区域和以前相同。占位格归属是 `KeyboardKeyArea` 上的通用机制，26 键缩进的修复能直接用。
+收益：一份排法喂三处画键盘的地方，宽度不会在键盘和预览之间分叉；`equal` 逐格不变，默认的键宽和触摸区域和以前相同。占位格归属是 `KeyboardKeyArea` 上的通用机制，26 键缩进的修复能直接用。字距只在绘制时加，统计和读屏不受影响。
 
-代价：`KeyboardKeyArea` 每次按下多一次子视图类型判断。宽窄时 18 键单字母键的字号由 `setFittedKeyTextSize(12, 22)` 自适应收着，14 键的 L 仍是 22 号字，窄屏上要看真机效果。
+代价：`KeyboardKeyArea` 每次按下多一次子视图类型判断。默认键面多了字距，所有 14/18 键用户更新后都看得到。宽窄时 18 键单字母键的字号由 `setFittedKeyTextSize(12, 22)` 自适应收着，14 键的 L 仍是 22 号字，窄屏上要看真机效果。
 
-验证：`FourteenKeyLetterWidthsSmoke` 钉住两种分法的份额（等宽逐格等于原来的份额，宽窄与 #11051 的比例相同、三排份额之和相同、补半键距的个数）；`KeyLayoutStylesPolicySmoke`、`KeyboardPreviewLayoutSmoke` 钉住两处预览（等宽与原来逐格相同，宽窄的空白、比例和同种键三行等宽，26 键和九键不受影响，皮肤页预览带着这项、换类型时保留）；`KeyPressAreaDeviceChecks` 在合成按键区上验证占位格和它的外边距归所属的键、没有所属键的占位格不回调；`check-host.sh` 钉住键盘和设置页的接线。真机上的宽窄键面、字号和占位格点按在 PR 的验收里记。
+验证：`FourteenKeyLetterWidthsSmoke` 钉住两种分法的份额（等宽逐格等于原来的份额，宽窄与 #11051 的比例相同、三排份额之和相同、补半键距的个数）；`FourteenKeyLayoutSmoke` 钉住哪些键面有字距、`L;` 用较小的字距、键面字符串不变；`KeyLayoutStylesPolicySmoke`、`KeyboardPreviewLayoutSmoke` 钉住两处预览（等宽与原来逐格相同，宽窄的空白、比例和同种键三行等宽，26 键和九键不受影响，皮肤页预览带着这项、换类型时保留）；`KeyPressAreaDeviceChecks` 在合成按键区上验证占位格和它的外边距归所属的键、没有所属键的占位格不回调；`check-host.sh` 钉住键盘和设置页的接线。API 35、API 28 模拟器上 `KeyPressAreaDeviceChecks`、14 键和 18 键的 `FourteenKeyDeviceSmoke` 通过；API 35 上手动看过两种宽度、14 键和 18 键、全拼和双拼、单手模式的键面，点了宽窄第二排两端的空白（归 A、AS、L）。

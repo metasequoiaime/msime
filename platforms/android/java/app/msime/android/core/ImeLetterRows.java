@@ -1112,7 +1112,10 @@ final class ImeLetterRows {
         Button keyButton = s.keyId(s.keyboardKey(FourteenKeyLayout.face(key),
             FourteenKeyLayout.description(key), () -> s.gridKey(key.input())),
             eighteen ? EighteenKeyLayout.keyId(key) : FourteenKeyLayout.keyId(key));
-        keyButton.setText(FourteenKeyLayout.face(key, fourteenShuangpin()));
+        String face = FourteenKeyLayout.face(key, fourteenShuangpin());
+        keyButton.setText(face);
+        // 双字母键面两个字母之间留一点字距（#11051）；18 键的自适应字号按带字距的宽度量，窄屏上照样单行。
+        keyButton.setLetterSpacing(FourteenKeyLayout.faceLetterSpacing(face));
         keyButton.setContentDescription(FourteenKeyLayout.accessibilityLabel(key, fourteenShuangpin()));
         if ("l".equals(key.letters())) fourteenLKey = keyButton;
         if (eighteen) KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 12, 22);
@@ -1222,6 +1225,7 @@ final class ImeLetterRows {
             String face = FourteenKeyLayout.face(key, fourteenShuangpin());
             if (!face.contentEquals(fourteenLKey.getText())) {
                 fourteenLKey.setText(face);
+                fourteenLKey.setLetterSpacing(FourteenKeyLayout.faceLetterSpacing(face));
                 fourteenLKey.setContentDescription(FourteenKeyLayout.accessibilityLabel(key, fourteenShuangpin()));
             }
         }

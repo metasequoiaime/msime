@@ -8,6 +8,7 @@ import android.graphics.Typeface;
 import android.view.View;
 import app.msime.android.ColorPolicy;
 import app.msime.android.DimensionPolicy;
+import app.msime.android.FourteenKeyLayout;
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.List;
@@ -143,6 +144,8 @@ final class KeyLayoutPreview extends View {
     private void drawFace(Canvas canvas, String face, float left, float top, float width, float height,
             float maxText, float minText, int color) {
         if (face.isEmpty()) return;
+        // 14/18 键双字母键面与键盘同样的字距（#11051）；其他键面是 0。量宽度时已算进字距。
+        label.setLetterSpacing(FourteenKeyLayout.faceLetterSpacing(face));
         label.setTextSize(maxText);
         float available = width - DimensionPolicy.floatPixels(getContext(), 4);
         float measured = label.measureText(face);

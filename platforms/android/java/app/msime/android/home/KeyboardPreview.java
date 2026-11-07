@@ -19,6 +19,7 @@ import app.msime.android.KeyboardSkin;
 import app.msime.android.ViewPolicy;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
+import app.msime.android.FourteenKeyLayout;
 import app.msime.android.FourteenKeyLetterWidths;
 import app.msime.android.JsonPolicy;
 import app.msime.android.NineKeySidebarPolicy;
@@ -312,8 +313,11 @@ public final class KeyboardPreview extends View {
         if (label.isEmpty()) return;
         boolean space = KeyLayoutStylesPolicy.SPACE.equals(cell.id());
         paint.setColor(action ? returnLabel() : space ? secondary() : ink());
+        // 14/18 键双字母键面与键盘同样的字距（#11051）；画完复原，同一支画笔还画候选条的文字。
+        paint.setLetterSpacing(FourteenKeyLayout.faceLetterSpacing(label));
         fitText(label, DimensionPolicy.floatPixels(getContext(), label.length() > 2 ? 10 : 13) * s, key);
         Paint.FontMetrics metrics = paint.getFontMetrics();
         canvas.drawText(label, key.centerX(), key.centerY() - (metrics.ascent + metrics.descent) / 2f, paint);
+        paint.setLetterSpacing(0f);
     }
 }
