@@ -734,7 +734,7 @@ ResolvedSkin ResolveSkin(std::string_view globalTheme, const CustomTheme &custom
             {@"text", &custom.candidateColors.text},       {@"number", &custom.candidateColors.number},
             {@"accent", &custom.candidateColors.accent},   {@"selected", &custom.candidateColors.selected},
             {@"hover", &custom.candidateColors.hover},     {@"surface", &custom.candidateColors.surface},
-            {@"border", &custom.candidateColors.border},
+            {@"border", &custom.candidateColors.border},   {@"selected_text", &custom.candidateColors.selectedText},
         };
         for (const auto &[key, value] : pickers)
         {

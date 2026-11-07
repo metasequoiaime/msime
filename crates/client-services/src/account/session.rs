@@ -133,6 +133,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         self.api.challenge(provider, target)
     }
 
+    /// 请求登录验证码并保留服务端错误详情，供需要向宿主返回稳定错误码的入口使用。
+    pub fn request_code_detailed(
+        &self,
+        provider: &str,
+        target: &str,
+    ) -> Result<AccountChallenge, AccountFailure> {
+        validate_provider_target(provider, target)?;
+        let challenge = self.api.challenge_detailed(provider, target)?;
+        validate_challenge(&challenge)?;
+        Ok(challenge)
+    }
+
     pub fn sign_in(&self, challenge: &str, credential: &str) -> Result<AccountUser, AccountError> {
         self.sign_in_with_cleanup(challenge, credential, |_| {})
     }

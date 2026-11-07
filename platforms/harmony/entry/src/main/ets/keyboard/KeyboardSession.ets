@@ -181,6 +181,7 @@ import { SharedStateMirror } from './SharedStateMirror';
 import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
+import { HelpcodeTriggerPolicy, HelpcodeTriggerView } from './input/HelpcodeTriggerPolicy';
 import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
@@ -243,6 +244,8 @@ interface EngineView extends EngineViewNumericFields {
    * Absent rather than empty when nothing is held: the runtime skips serializing an empty prefix, so reading it bare throws on every ordinary keystroke.
    */
   phrase_prefix?: string;
+  /** 辅助码前导键在等辅助码时它在 `editing_text` 里的位置（#10731），其余时候 JSON 里没有这个键；画原文的地方经 HelpcodeTriggerPolicy 插回去。 */
+  helpcode_trigger?: HelpcodeTriggerView;
   /** Byte offset into `editing_text`, which for this ASCII text is also the character index. */
   caret_position: number;
   /** The candidate page on screen, from zero, and how many pages the whole list makes. */
@@ -1207,6 +1210,8 @@ export interface KeyboardPreferences {
   readonly candidateFallbackFonts: string[];
   /** The 2in1 candidate window's colours in its mode, from the resolved theme with the native tokens behind it. */
   readonly candidateColors: CandidateColors;
+  /** 触屏候选条首选候选的字色：自定义主题设了候选选中文字色时是它，否则为 null（用键盘配色），来自共享 `resolve_theme.touch_selected_text`。 */
+  readonly candidateTouchSelectedText: string | null;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
@@ -1591,6 +1596,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     candidateEnglishFont: null,
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
     candidateColors: GlobalTheme.candidateColors(null, false),
+    candidateTouchSelectedText: null,
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
@@ -2041,6 +2047,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
         (font: string): boolean => font.trim().length > 0),
       candidateColors: candidateColors,
+      candidateTouchSelectedText: candidateTheme?.touch_selected_text ?? null,
       // Clamped rather than trusted: the store validates, but an older document or a host that
       // never learned the bounds would otherwise draw a keyboard nobody can hit.
       keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
@@ -5721,17 +5728,23 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The composition the strip draws: for Korean, Zhuyin and Vietnamese editing_text is only the keys behind the composition, so there the written text itself is drawn. */
   private static drawnReading(view: EngineView): string {
-    return SchemeCompositionPolicy.reading(
+    const reading: string = SchemeCompositionPolicy.reading(
       SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode),
       view.editing_text, view.preedit, view.nine_key_reading ?? '');
+    // 画的是按键原文时把辅助码前导键插回去，否则按下 ; 之后读音行和 2in1 行内都看不见它（#10731）。
+    return reading === view.editing_text ? HelpcodeTriggerPolicy.text(reading, view.helpcode_trigger) : reading;
   }
 
   /** The caret within drawnReading: the Engine's own for a spelling, the end of a composition the scheme keeps the caret at the end of (a Vietnamese caret_position is a byte offset into a word that is not ASCII, so it is never used as an index). */
   private static drawnCaret(view: EngineView, reading: string): number {
     const rulesScheme: number =
       SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode);
-    return SchemeCompositionPolicy.caret(rulesScheme, view.caret_position, reading,
+    const caret: number = SchemeCompositionPolicy.caret(rulesScheme, view.caret_position, reading,
       SchemeCompositionPolicy.drawsNineKeyReading(rulesScheme, view.editing_text, view.nine_key_reading ?? ''));
+    // 读音是插回了前导键的原文时，原文光标跟着后移。
+    const withTrigger: string = HelpcodeTriggerPolicy.text(view.editing_text, view.helpcode_trigger);
+    return withTrigger !== view.editing_text && reading === withTrigger
+      ? HelpcodeTriggerPolicy.caret(view.editing_text, caret, view.helpcode_trigger) : caret;
   }
 
   /** 视图里有没有候选标了 `translation_reserved`，即「仅当前高亮」对这一页生效。 */

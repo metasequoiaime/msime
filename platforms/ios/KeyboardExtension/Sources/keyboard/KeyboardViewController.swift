@@ -138,6 +138,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 输入方式：始终在工具栏里，在键区打开方案选择。
   private let schemeButton = KeyboardToolbarButton(icon: .toolbarScheme, accessibilityLabel: "选择输入方案")
   private let shortcutBar = UIStackView()
+  private let shortcutSpacer = UIView()
   private var candidateContent: UIStackView?
   /// 工具栏的语音按钮。iOS 的语音入口是长按空格和功能菜单的「语音输入」，工具栏不放语音按钮；按钮仍排在栏里但保持隐藏，与下面的高情商回复一样，按标识符查找它的地方不会找到别的控件。
   private let scriptShortcut = UIButton()
@@ -234,6 +235,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var voiceDictation: KeyboardVoiceDictation?
   /// 听写开始时的输入位置；结果回来时位置变了就不直接上屏。
   private var voiceDictationContext: KeyboardDocumentContext?
+  /// 听写开始时读到的语音标点（`voice_input.punctuation_mode`，#10595），与 Android 一样在开始聆听时取值，最终结果上屏前按它处理一次。
+  private var voiceDictationPunctuation = VoicePunctuation.auto
   /// 按住空格开始听写时手指的纵坐标，用来判断上滑取消；松手后或读屏开始的听写为 nil。
   private var voiceHoldOriginY: CGFloat?
   /// 手写区：铺满键盘宽度的书写卡片，与 Android 的 rebuildHandwritingRows、HarmonyOS 的 handwritingPad 一致；⌫ 与「重写」在底行（`handwritingRewriteButton`、`handwritingDeleteButton`）。
@@ -1303,6 +1306,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     closeKeyboardService()
     // 自己改动的回声：那次改动之后的组字仍是当前的组字。
     if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
+    // 会话在键盘出现前或收起后没有组字可结束；此时不能问已销毁的句柄，否则宿主的焦点回调会把「尚未准备完成」画出来。
+    guard !session.dictionarySessionSuspended else { return }
     session.flushPendingCharacters()
     flushDeferredInputSnapshot()
     inputDeliveryEpoch &+= 1
@@ -2859,10 +2864,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func installShortcutBar(in container: UIView) {
     shortcutBar.axis = .horizontal
-    // 设计稿的工具栏是等分网格：无论固定了哪些，每个可见工具都占同样宽的格子。
-    shortcutBar.distribution = .fillEqually
+    // 品牌键固定在左边，其余工具聚到右边；等分整行会把图标拉得过开。
+    shortcutBar.distribution = .fill
     shortcutBar.alignment = .fill
-    shortcutBar.spacing = 0
+    shortcutBar.spacing = 8
     shortcutBar.accessibilityIdentifier = "keyboardShortcutBar"
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     moreShortcut.accessibilityIdentifier = "moreShortcut"
@@ -2880,8 +2885,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut,
       replyShortcut, scriptShortcut, dismissShortcut,
     ]
-    for button in shortcuts {
+    shortcutSpacer.accessibilityElementsHidden = true
+    shortcutSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    shortcutSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    shortcutBar.addArrangedSubview(moreShortcut)
+    moreShortcut.widthAnchor.constraint(equalToConstant: KeyboardToolbarButton.padSide).isActive = true
+    shortcutBar.addArrangedSubview(shortcutSpacer)
+    for button in shortcuts.dropFirst() {
       shortcutBar.addArrangedSubview(button)
+      button.widthAnchor.constraint(equalToConstant: KeyboardToolbarButton.padSide).isActive = true
+    }
+    for button in shortcuts {
       // 长按任何一个按钮（含品牌键和收起键）打开 App 的「键盘工具栏」设置页，在那里选择显示哪些按钮，与 Android 的 `bindEditor` 一致。长按会取消这次触摸，所以不会再触发按钮自己的点按动作。
       let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleToolbarEditorHold(_:)))
       hold.name = "toolbarEditorHold"
@@ -6004,6 +6018,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       KeyboardDocumentContext(document: $0, before: textDocumentProxy.documentContextBeforeInput,
                               selected: textDocumentProxy.selectedText, after: textDocumentProxy.documentContextAfterInput)
     }
+    voiceDictationPunctuation = VoicePunctuation.mode(session.sharedPreferences ?? MetasequoiaInputSessionBridge.loadSharedPreferences())
     voiceHoldOriginY = held ? originY : nil
     let panel = KeyboardVoicePanelView(dictationHeld: held, skin: KeyboardTheme.current)
     panel.onCancel = { [weak self] in self?.closeKeyboardPicker() }
@@ -6039,8 +6054,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       voicePanel?.showRecognizing(text: text, message: message)
     case .finished(let text):
       let context = voiceDictationContext
+      let punctuation = voiceDictationPunctuation
       endVoiceDictation()
-      insertVoiceResult(text, context: context)
+      insertVoiceResult(text, context: context, punctuation: punctuation)
     case .failed(let message, let reopensSession):
       endVoiceDictation()
       showDiagnostic(message)
@@ -6053,12 +6069,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func endVoiceDictation() {
     voiceDictation = nil
     voiceDictationContext = nil
+    voiceDictationPunctuation = VoicePunctuation.auto
     voiceHoldOriginY = nil
     closeKeyboardPicker()
   }
 
-  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。
-  private func insertVoiceResult(_ text: String, context: KeyboardDocumentContext?) {
+  /// 输入位置还和听写开始时一样就直接上屏；变了就把结果留在语音交接里，可以在功能菜单的「语音结果」里插入（Android 留在语音结果面板里）。所有识别服务和 App 里的润色都在这之前结束，语音标点在这里处理一次，直接上屏的和存进语音交接的都是处理后的文字，领取语音结果时不再处理；只剩标点时与 Android 一样提示没有识别到文字。
+  private func insertVoiceResult(_ recognized: String, context: KeyboardDocumentContext?, punctuation: String) {
+    guard let text = VoicePunctuation.finalText(recognized, mode: punctuation) else {
+      showDiagnostic("没有识别到文字")
+      renderCandidateStrip()
+      return
+    }
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       showDiagnostic("没有听到内容，请靠近麦克风再试。")
       renderCandidateStrip()
@@ -9105,7 +9127,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
     let annotationColor = (number == 1 || converting ? candidatePalette?.selectedTranslation : nil) ?? candidatePalette?.secondary ?? skin.secondary
-    if let palette = candidatePalette {
+    if let palette = candidatePalette, !palette.usesKeyboardStyle {
       // canvas 首选用选中色，其余透明；既有桌面配色保留「首选高亮」取色器的 hover 语义。
       configuration.background.customView = number == 1 && palette.showSelectedBar
         ? CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout,
@@ -9133,7 +9155,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let lines = (reading.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? []) + glosses
       + (pronunciation.map { [$0.isEmpty ? Self.pendingGlossPlaceholder : $0] } ?? [])
     // 键盘自己的配色下，首选（空格会上屏的那个）就是选中项：用皮肤的 `candidateAccent`、600 字重，其余候选用按键文字色、400 字重（dc.html `mobCands`）。浅色跟随系统时 `candidateAccent` 是加深到 WCAG AA 的强调色，其余皮肤就是强调色。桌面调色板改用选中底色标出首选。
-    let selected = candidatePalette == nil && number == 1
+    let selected = (candidatePalette?.usesKeyboardStyle ?? true) && number == 1
     let weight: UIFont.Weight = selected ? .semibold : .regular
     // A pinned word takes the accent colour, as it does in the Windows candidate window; chips are reused, so every other word is set back.
     let pinned = markers.contains(where: \.pinned)
@@ -9144,7 +9166,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let captionColor = confidentCorrection
       ? (onSelectedFill ? candidatePalette?.selectedTranslation ?? candidatePalette?.selectedText : nil) ?? accent : annotationColor
     configuration.baseForegroundColor = pinned || selected
-      ? accent
+      ? (selected ? candidatePalette?.selectedText : nil) ?? accent
       : confidentCorrection ? (onSelectedFill ? candidatePalette?.selectedText : nil) ?? accent
       : (number == 1 ? candidatePalette?.selectedText : nil) ?? candidatePalette?.text ?? skin.keyForeground
     // 在线占位行画成次要色，和真候选区分开（#6888）。
@@ -9812,19 +9834,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     formFactor == .phone && letterRowViews.first?.isHidden == false
   }
 
-  /// 手机竖屏 26 键在存储行距之外增加 4pt 留白；横屏空间更紧，沿用存储行距。
+  /// 手机竖屏 26 键沿用用户设置的排距；收紧键帽省下的空间放在键区上下。
   private var keyRowSpacing: CGFloat {
-    let letterPadding: CGFloat = showsPhoneLetterRows && !isLandscape
-      ? KeyboardFormFactor.phoneLetterRowPadding : 0
-    return CGFloat(KeyboardLayoutPreference.rowSpacing) + letterPadding
+    CGFloat(KeyboardLayoutPreference.rowSpacing)
   }
 
-  /// 按键列实际的排间距：`keyRowSpacing`，26 键手机竖屏再加上收紧键帽省下的 `KeyboardFormFactor.phoneLetterSpareRowPadding`（见 `phoneLetterVerticalInset`）。
+  /// 按键列使用用户设置的排距。
   private var keyColumnSpacing: CGFloat {
-    keyRowSpacing + (phoneLetterVerticalInset > 0 ? KeyboardFormFactor.phoneLetterSpareRowPadding : 0)
+    keyRowSpacing
   }
 
-  /// 26 键收紧键帽后，把省下的高度平分到每个键的上下：键区上下各留 `phoneLetterVerticalInset`，排间距用 `keyColumnSpacing`，保持九键和英文键盘的外框一致。
+  /// 26 键收紧键帽后保留上下对齐留白，排间距只使用一份额外间距。
   private func applyPhoneLetterVerticalPadding() {
     let spacing = keyColumnSpacing
     if keyColumn.spacing != spacing { keyColumn.spacing = spacing }
@@ -9989,13 +10009,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     UIAccessibility.post(notification: .layoutChanged, argument: panel)
   }
 
-  /// 26 键收紧键帽后键区上下的留白（`KeyboardFormFactor.phoneLetterVerticalPadding`）。键区面板也要停在实际按键的底边，不能盖住它。
-  ///
-  /// 九键一族（拼音九键、九键双拼、笔画，`TouchKeyLayoutOffering.nineKeySchemes`）切到英文或本地模式时不留白：字母行和底行一样由按键列均分，默认行距下键帽从 44pt 长到 49pt，排距仍是紧凑的 11pt，字母区上下边界与九宫格重合，切换时按键区不缩一截。其他方案的 26 键保持 44pt 键帽，省下的高度分到每排上下。
+  /// 26 键收紧键帽后键区上下的留白。键区面板也要停在实际按键的底边，不能盖住它。
   private var phoneLetterVerticalInset: CGFloat {
     guard showsPhoneLetterRows && !isLandscape,
           !TouchKeyLayoutOffering.nineKeySchemes.contains(inputScheme) else { return 0 }
-    return KeyboardFormFactor.phoneLetterVerticalPadding
+    return KeyboardFormFactor.phoneLetterVerticalPadding(
+      rows: formFactor.keyRows(numberRow: false, phoneNumberRow: showsPhoneNumberRow))
   }
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏和 iPad 单手的侧边数字键盘。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。

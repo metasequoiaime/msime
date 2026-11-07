@@ -595,9 +595,49 @@ static void TestInlinePreeditCaretStyle() {
     }
 }
 
+// #10731：辅助码前导键不在按键原文里，原始按键样式把它插回 marked text，光标跟到它后面；拼音样式画的 preedit 已经带着它。
+static void TestHelpcodeTriggerInMarkedText() {
+    FakeTextClient *client = [FakeTextClient new];
+    NSDictionary *trigger = @{@"key": @";", @"position": @2};
+    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"ni", @"preedit": @"ni;", @"caret_position": @2,
+                                                       @"helpcode_trigger": trigger}},
+                                         client, MSIMEInlinePreeditStyleRaw);
+    assert([client.markedString isEqual:@"ni;"] && NSEqualRanges(client.selection, NSMakeRange(3, 0)));
+    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"niF", @"preedit": @"ni';F", @"caret_position": @3,
+                                                       @"helpcode_trigger": trigger}},
+                                         client, MSIMEInlinePreeditStyleRaw);
+    assert([client.markedString isEqual:@"ni;F"] && NSEqualRanges(client.selection, NSMakeRange(4, 0)));
+    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"niF", @"preedit": @"ni';F", @"caret_position": @3,
+                                                       @"helpcode_trigger": trigger}},
+                                         client, MSIMEInlinePreeditStylePinyin);
+    assert([client.markedString isEqual:@"ni';F"] && NSEqualRanges(client.selection, NSMakeRange(5, 0)));
+    // 退出前导状态后视图里没有这个字段，原文照旧。
+    MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"ni", @"preedit": @"ni", @"caret_position": @2}},
+                                         client, MSIMEInlinePreeditStyleRaw);
+    assert([client.markedString isEqual:@"ni"] && NSEqualRanges(client.selection, NSMakeRange(2, 0)));
+    // 字段不合法时不插。
+    for (id invalid in @[@";", @{@"key": @";", @"position": @3}, @{@"key": @";", @"position": @-1},
+                         @{@"key": @"", @"position": @2}, @{@"key": @";", @"position": @YES}]) {
+        MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"ni", @"preedit": @"ni;", @"caret_position": @2,
+                                                           @"helpcode_trigger": invalid}},
+                                             client, MSIMEInlinePreeditStyleRaw);
+        assert([client.markedString isEqual:@"ni"] && NSEqualRanges(client.selection, NSMakeRange(2, 0)));
+    }
+    // 置顶按 preedit 记码：去掉前导键后与按下它之前、与 Shift 辅助码得到的拼写相同。
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni;", @"ni", trigger) isEqual:@"ni"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni';F", @"niF", trigger) isEqual:@"ni'F"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni;f", @"niF", trigger) isEqual:@"nif"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni'/F", @"ni'F", (@{@"key": @"/", @"position": @3})) isEqual:@"ni'F"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni'FR", @"niFR", nil) isEqual:@"ni'FR"]);
+    // 引擎在末尾对不上码时不插，这里也不删别的字符。
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni'F", @"niF", trigger) isEqual:@"ni'F"]);
+    assert([MSIMEPreeditWithoutHelpcodeTrigger(@"ni;", @"ni", (@{@"key": @";", @"position": @3})) isEqual:@"ni;"]);
+}
+
 int main() {
     @autoreleasepool {
         TestCommittedContext();
+        TestHelpcodeTriggerInMarkedText();
         assert(MSIMEPreeditCaretPosition(@"abc", @"abc", @1) == 1);
         for (id invalid in @[@YES, @0.5, @1.5])
             assert(MSIMEPreeditCaretPosition(@"abc", @"abc", invalid) == 3);

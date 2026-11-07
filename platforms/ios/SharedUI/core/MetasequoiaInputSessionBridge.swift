@@ -1965,9 +1965,21 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   // session itself; the options stay valid for the life of the process.
   func resumeDictionarySession() throws {
     guard suspended else { return }
-    guard !options.isEmpty else { throw InputBridgeFailure.unavailable }
-    try createFocusedSession()
-    suspended = false
+    guard !options.isEmpty else {
+      if initializationDiagnostic == nil {
+        initializationDiagnostic = InputBridgeFailure.unavailable.localizedDescription
+      }
+      throw InputBridgeFailure.unavailable
+    }
+    do {
+      try createFocusedSession()
+      suspended = false
+      initializationDiagnostic = nil
+    } catch {
+      // 恢复失败后句柄仍为空；下一次按键会经过 `dispatch`，必须保留建会话的真实原因，不能退回泛化的「尚未准备完成」。
+      initializationDiagnostic = "输入运行时创建或激活失败：\(error.localizedDescription)"
+      throw error
+    }
   }
 
   /// Create and focus a session, then restore the state the prepared options do not carry.

@@ -48,6 +48,7 @@ fn options(root: &Path) -> EngineOptions {
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
+        grid_helpcode: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -1024,6 +1025,41 @@ fn helpcode_settings_reach_the_real_engine() {
     }
     value.helpcode_schema = "unknown".into();
     assert!(Session::new(&value).is_err());
+}
+
+// #10731：宿主快照带着前导键，`preedit` 里已经插好，光标落在 `preedit` 末尾；`editing_text` 和 `caret_position` 仍是按键原文。
+#[test]
+fn helpcode_trigger_reaches_the_host_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.helpcode = true;
+    value.helpcode_trigger_key = Some(b';');
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"ni");
+    assert_eq!(session.snapshot().unwrap().helpcode_trigger, None);
+    assert!(session.character(b';', false).unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni;");
+    assert_eq!(snapshot.preedit_caret, 3);
+    assert_eq!(snapshot.editing_text, "ni");
+    assert_eq!(snapshot.caret_position, 2);
+    assert_eq!(
+        snapshot.helpcode_trigger,
+        Some(crate::HelpcodeTrigger {
+            key: ';',
+            position: 2
+        })
+    );
+    type_text(&mut session, b"f");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni';F");
+    assert_eq!(snapshot.preedit_caret, 5);
+    assert_eq!(snapshot.editing_text, "niF");
+    type_text(&mut session, b"r");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "ni'FR");
+    assert_eq!(snapshot.preedit_caret, 5);
+    assert_eq!(snapshot.helpcode_trigger, None);
 }
 
 #[test]

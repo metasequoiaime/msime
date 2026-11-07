@@ -4486,6 +4486,7 @@ fn custom_theme_round_trips_every_part() {
             number: Some("#202020".into()),
             accent: Some("#303030".into()),
             selected: Some("#404040".into()),
+            selected_text: Some("#454545".into()),
             hover: Some("#505050".into()),
             surface: Some("#606060".into()),
             border: Some("#707070".into()),
@@ -4518,8 +4519,17 @@ fn custom_theme_round_trips_every_part() {
         custom_theme
     );
 
+    // 选中文字色是取色器槽位（#10740），原样往返；选中编号色没有取色器，仍当未知字段丢掉。
+    let mut picked = serde_json::to_value(&custom_theme).unwrap();
+    picked["candidate_colors"]["selected_text"] = "#7B3FBF".into();
+    let read = serde_json::from_value::<CustomTheme>(picked.clone()).unwrap();
+    assert_eq!(
+        read.candidate_colors.selected_text.as_deref(),
+        Some("#7B3FBF")
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), picked);
     let mut unknown = serde_json::to_value(&custom_theme).unwrap();
-    unknown["candidate_colors"]["selected_text"] = "#000000".into();
+    unknown["candidate_colors"]["selected_number"] = "#000000".into();
     let (read, ignored) = deserialize_keeping_unknown::<CustomTheme>(&unknown, &[]).unwrap();
     assert_eq!(read, custom_theme);
     assert_eq!(ignored.len(), 1);
@@ -6037,6 +6047,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 schema,
                 show_in_candidate_window: true,
                 strict_filter: false,
+                grid: false,
                 modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()
@@ -6149,6 +6160,38 @@ fn shuangpin_helpcode_modes_roundtrip_and_stay_off_quanpin() {
         document["preferences"]["shuangpin_helpcode"]["modes"]["trigger_backtick"],
         true
     );
+}
+
+/// 十四／十八键辅助码默认关；关着时不写进文档，旧文档缺这一项读作关，打开后按方案各自保存。
+#[test]
+fn grid_helpcode_is_off_by_default_and_kept_per_scheme() {
+    let defaults = Preferences::default();
+    assert!(!defaults.quanpin_helpcode.grid && !defaults.shuangpin_helpcode.grid);
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized["quanpin_helpcode"].get("grid").is_none());
+    assert!(serialized["shuangpin_helpcode"].get("grid").is_none());
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    store
+        .save(
+            0,
+            Preferences {
+                shuangpin_helpcode: HelpcodePreferences {
+                    grid: true,
+                    ..default_shuangpin_helpcode()
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.shuangpin_helpcode.grid && !loaded.quanpin_helpcode.grid);
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(document["preferences"]["shuangpin_helpcode"]["grid"], true);
+    assert!(document["preferences"]["quanpin_helpcode"]
+        .get("grid")
+        .is_none());
 }
 
 #[test]
@@ -6769,6 +6812,7 @@ fn candidate_appearance_colors_accept_hex_and_reject_unsafe_values() {
     check!(number, InvalidCandidateNumberColor);
     check!(accent, InvalidCandidateAccentColor);
     check!(selected, InvalidCandidateSelectedColor);
+    check!(selected_text, InvalidCandidateSelectedTextColor);
     check!(hover, InvalidCandidateHoverColor);
     check!(surface, InvalidCandidateSurfaceColor);
     check!(border, InvalidCandidateBorderColor);

@@ -108,15 +108,15 @@ public final class SymbolPanelModelSmoke {
     private static void networkSuffixes(SymbolPanelModel.Category network) {
         check(network.title().equals("网络"), "network is the fifth category");
         List<String> symbols = network.symbols();
-        check(symbols.size() == 48, "network has 28 shortcuts and 20 suffixes: " + symbols.size());
+        check(symbols.size() == 45, "network has 28 shortcuts and 17 suffixes: " + symbols.size());
         for (String suffix : List.of("@163.com", "@126.com", "@139.com", "@189.cn", "@aliyun.com", "@foxmail.com",
-                "@outlook.com", "@hotmail.com", "@live.com", "@icloud.com", "@yahoo.com", "@proton.me",
+                "@icloud.com", "@yahoo.com", "@proton.me",
                 "@protonmail.com", "@aol.com", "@mail.com", "@gmx.com", "@naver.com", "@yahoo.co.jp",
                 "@qq.com", "@gmail.com"))
             check(symbols.contains(suffix), "network offers " + suffix);
         check(symbols.indexOf("@foxmail.com") < symbols.indexOf("@gmail.com")
-            && symbols.indexOf("@aliyun.com") < symbols.indexOf("@outlook.com"), "domestic suffixes come first");
-        check(symbols.subList(28, 48).equals(app.msime.android.EmailSuffixPolicy.SUFFIXES),
+            && symbols.indexOf("@aliyun.com") < symbols.indexOf("@gmail.com"), "domestic suffixes come first");
+        check(symbols.subList(28, 45).equals(app.msime.android.EmailSuffixPolicy.SUFFIXES),
             "the panel and the candidate bar share one suffix list");
         for (String symbol : symbols)
             check(symbol.codePointCount(0, symbol.length()) <= SymbolPanelModel.MAX_SYMBOL_CODE_POINTS,

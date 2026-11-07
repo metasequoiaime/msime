@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use rusqlite::Connection;
 
 use super::editing::quanpin_raw_boundaries;
-use super::{Clock, Session, SessionOptions};
+use super::{Clock, HelpcodeTrigger, Session, SessionOptions};
 use crate::assets;
 use crate::local::date_time::LocalDateTime;
 use crate::paths::RuntimePaths;
@@ -14844,6 +14844,147 @@ fn custom_helpcode_trigger_preserves_microsoft_final_and_other_input_modes() {
     assert!(session.input.helpcode_entry.is_none());
 }
 
+// #10731：前导键按下后组字区要看得见它。只改显示：`editing_text`、回放用的 `snapshot().preedit` 和辅助码语义都不变；前导键在还能接收辅助码时（0 或 1 位）显示，两位码齐了就不再插入。
+#[test]
+fn custom_helpcode_trigger_is_visible_while_it_waits_for_codes() {
+    let fixture = isolation_root("你", "甲");
+    std::fs::write(
+        fixture.path().join("helpcodes/helpcode.txt"),
+        "你=rx\n拟=fr\n",
+    )
+    .unwrap();
+    let at = |key: char, position: usize| Some(HelpcodeTrigger { key, position });
+    // (方案, 双拼方案, 显示原始按键, 原始按键分隔, 一位码时的显示, 两位码时的显示)
+    for (scheme, profile, uses_raw, separated, one_code, two_codes) in [
+        (
+            SchemeType::Quanpin,
+            ShuangpinProfileKind::Xiaohe,
+            true,
+            false,
+            "ni';F",
+            "ni'FR",
+        ),
+        (
+            SchemeType::Shuangpin,
+            ShuangpinProfileKind::Xiaohe,
+            true,
+            false,
+            "ni;F",
+            "nifR",
+        ),
+        (
+            SchemeType::Shuangpin,
+            ShuangpinProfileKind::Xiaohe,
+            true,
+            true,
+            "ni';F",
+            "ni'fR",
+        ),
+        (
+            SchemeType::Shuangpin,
+            ShuangpinProfileKind::Xiaohe,
+            false,
+            false,
+            "ni';f",
+            "ni'fR",
+        ),
+        (
+            SchemeType::Shuangpin,
+            ShuangpinProfileKind::Microsoft,
+            true,
+            false,
+            "ni;F",
+            "nifR",
+        ),
+        (
+            SchemeType::Shuangpin,
+            ShuangpinProfileKind::Microsoft,
+            false,
+            false,
+            "ni';f",
+            "ni'fR",
+        ),
+    ] {
+        let label = format!("{scheme:?} {profile:?} raw={uses_raw} separated={separated}");
+        let mut session = fixture.session_with(|options| {
+            options.scheme = scheme;
+            options.shuangpin_profile = profile;
+            options.shuangpin_preedit_uses_raw = uses_raw;
+            options.shuangpin_preedit_separated = separated;
+            options.helpcode_trigger_key = Some(b';');
+        });
+        type_text(&mut session, "ni");
+        assert_eq!(session.display_snapshot().helpcode_trigger, None, "{label}");
+        assert!(session.character(b';', false).handled);
+        let shown = session.display_snapshot();
+        assert_eq!(shown.preedit, "ni;", "{label}");
+        assert_eq!(shown.editing_text, "ni", "{label}");
+        assert_eq!(shown.caret_position, 2, "{label}");
+        assert_eq!(shown.helpcode_trigger, at(';', 2), "{label}");
+        // 回放比对的快照仍是原文。
+        assert!(!session.snapshot().preedit.contains(';'), "{label}");
+
+        session.character(b'f', false);
+        let shown = session.display_snapshot();
+        assert_eq!(shown.preedit, one_code, "{label}");
+        assert_eq!(shown.editing_text, "niF", "{label}");
+        assert_eq!(shown.helpcode_trigger, at(';', 2), "{label}");
+        assert_eq!(words(&session)[0], "拟", "{label}");
+
+        session.character(b'r', false);
+        let shown = session.display_snapshot();
+        assert_eq!(shown.preedit, two_codes, "{label}");
+        assert_eq!(shown.helpcode_trigger, None, "{label}");
+        assert_eq!(words(&session)[0], "拟", "{label}");
+
+        // 退回一位码时前导键重新出现，再退到前导键本身，最后一次退格把它删掉。
+        session.command(Command::Backspace);
+        let shown = session.display_snapshot();
+        assert_eq!(shown.preedit, one_code, "{label}");
+        assert_eq!(shown.helpcode_trigger, at(';', 2), "{label}");
+        session.command(Command::Backspace);
+        let shown = session.display_snapshot();
+        assert_eq!(shown.preedit, "ni;", "{label}");
+        assert_eq!(shown.helpcode_trigger, at(';', 2), "{label}");
+        session.command(Command::Backspace);
+        let shown = session.display_snapshot();
+        assert_eq!(shown.preedit, "ni", "{label}");
+        assert_eq!(shown.editing_text, "ni", "{label}");
+        assert_eq!(shown.helpcode_trigger, None, "{label}");
+
+        // 两位码之后的下一个字母开始新的拼音，前导状态结束。
+        type_text(&mut session, ";frh");
+        assert_eq!(session.display_snapshot().helpcode_trigger, None, "{label}");
+        assert!(!session.display_snapshot().preedit.contains(';'), "{label}");
+        session.command(Command::Cancel);
+    }
+
+    // 微软双拼半音节后的分号仍是韵母，不当前导键显示。
+    let mut microsoft = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.shuangpin_profile = ShuangpinProfileKind::Microsoft;
+        options.helpcode_trigger_key = Some(b';');
+    });
+    type_text(&mut microsoft, "n;");
+    let shown = microsoft.display_snapshot();
+    assert_eq!(shown.editing_text, "n;");
+    assert_eq!(shown.helpcode_trigger, None);
+
+    // 用户自己打的隔音符留着，前导键接在它后面；别的前导键原样显示。
+    let mut quanpin = fixture.session_with(|options| {
+        options.helpcode_trigger_key = Some(b'/');
+    });
+    type_text(&mut quanpin, "ni'/");
+    let shown = quanpin.display_snapshot();
+    assert_eq!(shown.editing_text, "ni'");
+    assert_eq!(shown.preedit, "ni'/");
+    assert_eq!(shown.helpcode_trigger, at('/', 3));
+    quanpin.character(b'f', false);
+    let shown = quanpin.display_snapshot();
+    assert_eq!(shown.preedit, "ni'/F");
+    assert_eq!(shown.helpcode_trigger, at('/', 3));
+}
+
 // 顿号开关不能抢占词首的命令模式；组字和裸前缀提交仍按相同的标点表出字。
 #[test]
 fn enumeration_comma_respects_command_prefix_and_composition() {
@@ -15165,6 +15306,7 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 }
 
 mod caret_suffix;
+mod grid_helpcode;
 mod lifecycle;
 mod offensive_placement;
 mod prediction_pool;

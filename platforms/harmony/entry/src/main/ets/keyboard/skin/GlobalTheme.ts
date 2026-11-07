@@ -59,6 +59,8 @@ export interface ResolvedTheme {
   /** The external package whose colours were drawn. The single signal for its decoration and minimum width. */
   readonly candidate_skin: string | null;
   readonly candidate_layout?: CandidateResolvedLayout | null;
+  /** 共享层计算的触屏首选文字色，缺字段时保持键盘配色。 */
+  readonly touch_selected_text?: string | null;
 }
 
 export interface CustomCandidateColors {
@@ -66,6 +68,8 @@ export interface CustomCandidateColors {
   readonly number?: string | null;
   readonly accent?: string | null;
   readonly selected?: string | null;
+  /** 候选选中文字色（#10740）。 */
+  readonly selected_text?: string | null;
   readonly hover?: string | null;
   readonly surface?: string | null;
   readonly border?: string | null;
@@ -275,6 +279,7 @@ export class GlobalTheme {
       text: colors.text,
       accent: colors.accent,
       selected: colors.selected,
+      selected_text: colors.selected_text,
       hover: colors.hover,
       surface: colors.surface,
     };
@@ -423,6 +428,7 @@ export class GlobalTheme {
       keyboard: GlobalTheme.keyboardPalette(field(value, "keyboard")),
       candidate_skin: text(value, "candidate_skin"),
       candidate_layout: CandidateLayoutPolicy.parse(field(value, "candidate_layout")),
+      touch_selected_text: GlobalTheme.arkColor(text(value, "touch_selected_text")),
     };
   }
 

@@ -8,12 +8,7 @@ use msime_client_core::is_bounded_text;
 
 /// Resolve display-only CSS names without changing stored font preferences.
 ///
-/// A preference can hold a face name where a stylesheet needs a family, because the picker is not the
-/// only way a name gets in there: a file written by an older build, a migrated profile, an edit by
-/// hand. The hosts whose native text layer accepts both - DirectWrite and CoreText - render such a
-/// name correctly in the candidate window while the settings preview beside it silently falls back,
-/// so both ask their own font system what family the name belongs to. The remaining hosts have only
-/// family names to begin with.
+/// 偏好里可能存着字面名，而样式表要的是族名：选择器不是名字唯一的来源，旧版本写下的文件、迁移来的配置和手改都可能带进字面名。Windows 的候选窗经 DirectWrite 能画这种名字，旁边的设置预览却会悄悄退回，所以 Windows 和 macOS 都向本机字体系统问出名字所属的族给预览用；macOS 的候选窗只认族名，见 `aliases_macos.rs`。其他宿主一开始就只有族名。
 pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static str> {
     if names.len() > 33
         || names

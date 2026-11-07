@@ -915,6 +915,11 @@ impl ImeSession {
         self.strict_quanpin_helpcode = enabled;
     }
 
+    /// 一码严格筛选，全拼和双拼共用；网格辅助码放下分隔符时取定它。
+    pub(crate) fn strict_quanpin_helpcode(&self) -> bool {
+        self.strict_quanpin_helpcode
+    }
+
     pub fn set_shuangpin_helpcode_enabled(&mut self, enabled: bool) {
         self.shuangpin_helpcode = enabled;
         // 末尾大写触发归谁同时看总开关，方案层要重算。
