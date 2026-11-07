@@ -57,10 +57,16 @@ jobs:
     timeout-minutes: 240
     env:
       CARGO_INCREMENTAL: '0'
+      # llama-cpp-2 的 git 依赖带 llama.cpp 子模块，里面有超过 260 字符的路径；cargo 内置的 libgit2 在 windows-2022 上检出会报 path too long，改用开启了 core.longpaths 的系统 git 拉取。
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: 允许 git 检出长路径
+        shell: pwsh
+        run: git config --global core.longpaths true
 
       - name: 安装 Rust 工具链和 Win7 标准库源码
         shell: pwsh
@@ -146,10 +152,16 @@ jobs:
       CARGO_INCREMENTAL: '0'
       VCPKG_DISABLE_METRICS: '1'
       PYTHONUTF8: '1'
+      # llama-cpp-2 的 git 依赖带 llama.cpp 子模块，里面有超过 260 字符的路径；cargo 内置的 libgit2 在 windows-2022 上检出会报 path too long，改用开启了 core.longpaths 的系统 git 拉取。
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: 允许 git 检出长路径
+        shell: pwsh
+        run: git config --global core.longpaths true
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
