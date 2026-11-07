@@ -52,6 +52,17 @@ Check-Import 'shlwapi.dll' '                             Ordinal   12' 'SHCreate
 Check-Import 'd2d1.dll' '                             Ordinal   7'
 Check-Import 'shlwapi.dll' '                             Ordinal   999'
 Check-Import 'onnxruntime.dll' '                             Ordinal   1'
+# 随包产品 DLL 的延迟导入只在声明为随包时放行，系统 DLL 不能借此绕过兼容名单。
+Set-Item function:dumpbin -Value {
+    $global:LASTEXITCODE = 0
+    return @('Section contains the following delay load imports:', '    msime_host_api.dll',
+        '                   0000000180001000 0000000180002000 msime_client_create', '  Summary', '        1000 _RDATA')
+}
+$packagedResult = & $audit -LiteralPath 'synthetic.dll' -PackagedLibraries @('msime_host_api.dll')
+if ($packagedResult.Imports.Count -ne 1 -or -not $packagedResult.Imports[0].Delayed) { throw 'Packaged delayed import was not reported' }
+$rejected = $false
+try { & $audit -LiteralPath 'synthetic.dll' | Out-Null } catch { $rejected = $true }
+if (-not $rejected) { throw 'Undeclared delayed product import was accepted' }
 Write-Output 'Windows 7 导入检查：固定 Winsock 序号、未知序号与系统接口边界通过。'
 
 # 纯 CRT 转发只接受相邻 ucrtbase 的真实具名导出，不通过文件名或零导入跳过依赖核验。

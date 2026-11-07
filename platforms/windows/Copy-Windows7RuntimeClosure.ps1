@@ -29,6 +29,8 @@ foreach ($directory in @($ProgramDirectory) + $DependencyDirectories) {
         } else { $candidates.Add($file.Name, $file) }
     }
 }
+# 产品目录里的 DLL 可被映像延迟加载（如 TSF 延迟加载宿主库）；依赖目录里的 SDK 系统 DLL 不算。
+$packaged = @(Get-ChildItem -LiteralPath $ProgramDirectory -File | Where-Object { $_.Extension -ieq '.dll' } | ForEach-Object { $_.Name.ToLowerInvariant() })
 $queue = [Collections.Generic.Queue[object]]::new()
 $selected = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
 $reports = [Collections.Generic.List[object]]::new()
@@ -51,12 +53,12 @@ while ($queue.Count -ne 0) {
     $kind = if ($file.Extension -ieq '.dll') { 'dll' } else { 'exe' }
     & $pe -LiteralPath $file.FullName -Architecture $Architecture -Kind $kind
     # 转发导出与序号导入均按实际候选目录核验。此阶段不执行任何待打包的 PE。
-    $report = & $audit -LiteralPath $file.FullName -DependencyDirectory $file.DirectoryName -RequiredExports $references
+    $report = & $audit -LiteralPath $file.FullName -DependencyDirectory $file.DirectoryName -RequiredExports $references -PackagedLibraries $packaged
     $selected[$file.Name] = $file
     $processed[$file.Name] = $references.Count
     foreach ($entry in $report.Imports) {
-        # 已知延迟导入由 Win7 核心钩子处理，不能为它从 SDK 复制新版系统 DLL。
-        if (-not $entry.Delayed -and $candidates.ContainsKey($entry.Library)) {
+        # 已知系统延迟导入由 Win7 核心钩子处理，不能为它从 SDK 复制新版系统 DLL；延迟加载的随包产品 DLL 照常收入闭包。
+        if ((-not $entry.Delayed -or $entry.Library -in $packaged) -and $candidates.ContainsKey($entry.Library)) {
             if (-not $required.ContainsKey($entry.Library)) {
                 $required[$entry.Library] = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
             }
@@ -74,7 +76,7 @@ try {
     # 重新从实际目标目录检查，避免候选目录通过而装包时丢失转发目标。
     foreach ($file in $selected.Values) {
         $references = @(if ($required.ContainsKey($file.Name)) { $required[$file.Name] })
-        $reports.Add((& $audit -LiteralPath (Join-Path $Destination $file.Name) -DependencyDirectory $Destination -RequiredExports $references))
+        $reports.Add((& $audit -LiteralPath (Join-Path $Destination $file.Name) -DependencyDirectory $Destination -RequiredExports $references -PackagedLibraries $packaged))
     }
     $manifest = [ordered]@{
         architecture = $Architecture
