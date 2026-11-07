@@ -14919,6 +14919,7 @@ private:
         [this](bool expanded) { local_modes_more_open_ = expanded; });
     fold_index_ = L"local-modes-more";
     const bool mention = document_.Boolean(L"local_modes.mention", false);
+    const bool super_jianpin = document_.Boolean(L"local_modes.super_jianpin", true);
     const bool translation_service =
         nav::translation_provider(translation_choice()) != std::wstring_view(L"none");
     for (auto const &mode : ism::local_modes) {
@@ -14928,11 +14929,11 @@ private:
           continue;
       }
       const std::wstring key = L"local_modes." + std::wstring(mode.id);
-      // @ 模式决定「@ 地名」可不可用，改它时重画。
+      // @ 模式决定「@ 地名」可不可用、超级简拼决定「组字后按 / 转超级简拼」可不可用，改它们时重画。
       bool_row(modes_more, 0xE945, std::wstring(mode.title),
                ism::local_mode_description(mode, translation_service), key, mode.default_on,
-               mode.id == L"mention",
-               !ism::local_mode_disabled(mode, shift_letter_entry, mention));
+               ism::local_mode_has_dependents(mode),
+               !ism::local_mode_disabled(mode, shift_letter_entry, mention, super_jianpin));
     }
     fold_index_.clear();
 

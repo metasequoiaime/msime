@@ -203,6 +203,11 @@ impl PunctuationPolicy {
         self.marks = marks;
     }
 
+    /// 当前生效的标点样式与顿号键；会话据此判断 `/` 是不是已经出顿号。
+    pub fn marks(&self) -> PunctuationMarks {
+        self.marks
+    }
+
     /// The host emitted the closing half of `opening` itself; only `<` with pairing on and a positive nesting count changes anything.
     pub fn balance_after_auto_close(&mut self, opening: u8) {
         if self.paired_enabled && opening == NESTED_OPENING_INPUT && self.book_title_nesting > 0 {

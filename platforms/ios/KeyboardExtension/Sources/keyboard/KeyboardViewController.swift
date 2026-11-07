@@ -3997,9 +3997,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !isChineseMode { refreshEnglishSuggestions() }
   }
 
-  /// 数字九宫格上的数字、0、小数点、左列出厂项（运算符和半角语境追加的 `@ : ; ( ) ' " $`）和补充行的键。本地模式和越南文、藏文里，Engine 此刻把这个键列为拼写符号时（U 模式的十六进制数字，计算、网址模式的数字与符号，VNI 越南文正在拼的词的声调数字，藏文威利转写正在拼时的 `+ - . /`），与原来的 123 层一样作为字符交给会话，这些输入不能因为换成数字九宫格就被截断。藏文的 `'`（achung，如 `'od`）没有组字时也能开头一个音节，所以不看拼写符号表，总是先交给会话，与原来 123 页经 `handleSymbol` 的藏文分支相同：会话收下就留在组字里，不先上屏组字。会话不收时，以及其余所有情况（中文各方案、日文、韩文、大千注音和英文），按 `insertNumberPadLiteral` 原样结束组字再写出这个键：中文拼写里的 `$ %`、`www` 后的 `.` 在数字九宫格上仍按字面，大千把 1–0 列为拼写符号是因为它的数字行就是注音键，数字九宫格上的数字只是数字。
+  /// 数字九宫格上的数字、0、小数点、左列出厂项（运算符和半角语境追加的 `@ : ; ( ) ' " $`）和补充行的键。本地模式和越南文、藏文里，Engine 此刻把这个键列为拼写符号时（U 模式的十六进制数字，计算、网址模式的数字与符号，VNI 越南文正在拼的词的声调数字，藏文威利转写正在拼时的 `+ - . /`），与原来的 123 层一样作为字符交给会话，这些输入不能因为换成数字九宫格就被截断。藏文的 `'`（achung，如 `'od`）没有组字时也能开头一个音节，所以不看拼写符号表，总是先交给会话，与原来 123 页经 `handleSymbol` 的藏文分支相同：会话收下就留在组字里，不先上屏组字。双拼的 `/` 同样先按引擎发布的拼写符号处理，支持后置超级简拼并服从辅助码占用。会话不收时，以及其余所有情况（中文各方案的其他数字与符号、日文、韩文、大千注音和英文），按 `insertNumberPadLiteral` 原样结束组字再写出这个键：中文拼写里的 `$ %`、`www` 后的 `.` 在数字九宫格上仍按字面，大千把 1–0 列为拼写符号是因为它的数字行就是注音键，数字九宫格上的数字只是数字。
   private func typeNumberPadText(_ text: String) {
-    if isInLocalMode || typesCasedLetters {
+    // 双拼的 `/` 可能是引擎发布的组字入口；普通数字和其他符号仍按数字页原样上屏。
+    if isInLocalMode || typesCasedLetters || (isChineseMode && usesShuangpin && text == "/") {
       // 拼写符号看的是会话此刻的组字，先画完此前异步投递的按键，与 `handleSymbol` 一样。
       session.flushPendingCharacters()
       flushDeferredInputSnapshot()

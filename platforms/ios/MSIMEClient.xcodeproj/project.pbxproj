@@ -595,6 +595,7 @@
 		7B76619B0856C65DE7A3A73E /* KeyboardCandidatePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CB98B9A352C70A51ED5BCE /* KeyboardCandidatePanelView.swift */; };
 		7B8D3470C884433C4D457DDD /* GlideTyping.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB65620E5B3B44FBBEC6462C /* GlideTyping.swift */; };
 		7B931E1654E95FE9AAA3AC34 /* offline-glosses in Resources */ = {isa = PBXBuildFile; fileRef = BA1FE7CB15B9A5A9BCD3C244 /* offline-glosses */; };
+		7BDA502DAD80D3BB624D16EA /* NumberPadJianpinSlashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8905783044E11C88CCC6A7 /* NumberPadJianpinSlashTests.swift */; };
 		7C194374413F83E8ECB9AD44 /* KeyboardAITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D46EFDD9BA187AAD3B6ECA1 /* KeyboardAITests.swift */; };
 		7CAD93D5038DBB1FC054219E /* KeyboardSchemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D4D354FEFD88EABBB73877 /* KeyboardSchemePickerView.swift */; };
 		7CDE8094A882DC9C4352C50A /* EngineResources in Resources */ = {isa = PBXBuildFile; fileRef = 2FED55ACBEABB84672AFC0A6 /* EngineResources */; };
@@ -1432,6 +1433,7 @@
 		4AFE0A14F6F996427CD894BE /* VoiceLanguageCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLanguageCatalog.swift; sourceTree = "<group>"; };
 		4BA92C5A35ED33AEFD30AF0B /* CrashDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnostics.swift; sourceTree = "<group>"; };
 		4C2C5B473825FD259C6CC8E7 /* world-clock-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "world-clock-NOTICE.txt"; sourceTree = "<group>"; };
+		4C8905783044E11C88CCC6A7 /* NumberPadJianpinSlashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberPadJianpinSlashTests.swift; sourceTree = "<group>"; };
 		4D125B353EBC926D95C46617 /* LocalModeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModeSettingsView.swift; sourceTree = "<group>"; };
 		4D269E12065A116211377894 /* PluginsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsUITests.swift; sourceTree = "<group>"; };
 		4D80D54CEEFD4C3DB52AF32A /* CloudDictionaryFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryFilesView.swift; sourceTree = "<group>"; };
@@ -1989,6 +1991,15 @@
 			path = handwriting;
 			sourceTree = "<group>";
 		};
+		904729A1862A276CA2F7850E /* msime */ = {
+			isa = PBXGroup;
+			children = (
+				9776B18C73C12963EBD7C59F /* LICENSE */,
+			);
+			name = msime;
+			path = ../..;
+			sourceTree = "<group>";
+		};
 		1CC78F9C3E0CD26C6B98F079 /* settings */ = {
 			isa = PBXGroup;
 			children = (
@@ -2394,6 +2405,7 @@
 				AA9AEEAB03B1005888107217 /* MLKitStatsOptOutTests.swift */,
 				7F39134CB30EC12FDBF7908E /* NextWordPredictionTests.swift */,
 				CFB65ECFC97C3DB5B0DE0A82 /* NineKeyShuangpinTests.swift */,
+				4C8905783044E11C88CCC6A7 /* NumberPadJianpinSlashTests.swift */,
 				EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */,
 				CD2C7C5382BE9875C3EFAD96 /* OwnEditEchoWindowTests.swift */,
 				417D0528353898EEB4BE5B3C /* PairedPunctuationTests.swift */,
@@ -2644,15 +2656,6 @@
 			path = clients;
 			sourceTree = "<group>";
 		};
-		904729A1862A276CA2F7850E /* msime */ = {
-			isa = PBXGroup;
-			children = (
-				9776B18C73C12963EBD7C59F /* LICENSE */,
-			);
-			name = msime;
-			path = ../..;
-			sourceTree = "<group>";
-		};
 		9147BD05AF2023082AC4C63F /* core */ = {
 			isa = PBXGroup;
 			children = (
@@ -2681,8 +2684,8 @@
 				F9EA923EEA8552CA5B40C156 /* KeyboardTests */,
 				4F0AF611BB68015729427D50 /* licenses */,
 				E1C293D3D42B58A25A5BB2D4 /* licenses */,
-				904729A1862A276CA2F7850E /* msime */,
 				03F8B35C0D4227CC69308EFB /* Resources */,
+				904729A1862A276CA2F7850E /* msime */,
 				2D0850B6CE243D7108C48DFC /* Services */,
 				9C7D7C31663A12BCDFE90671 /* ServiceTests */,
 				E2F03CE87181BE400AC6C881 /* SharedResources */,
@@ -3676,6 +3679,7 @@
 				BE7D545F820D729B5D0B53F3 /* NineKeyShuangpinTests.swift in Sources */,
 				8E993BE379D998F244793BD4 /* NineKeySidebarPreference.swift in Sources */,
 				102551B9550B78FC37C5348A /* NineKeySidebarSettingsTests.swift in Sources */,
+				7BDA502DAD80D3BB624D16EA /* NumberPadJianpinSlashTests.swift in Sources */,
 				99D3063ED6D41CFEC6B4984D /* OnboardingChoices.swift in Sources */,
 				7109101AE8AC956AC27E6737 /* OneHandModeTests.swift in Sources */,
 				BACA18587EF23935D18E8638 /* OnlineCandidateProvider.swift in Sources */,

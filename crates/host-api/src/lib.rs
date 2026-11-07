@@ -947,6 +947,7 @@ impl HostSession {
         options.local_emoji = preferences.local_modes.emoji;
         options.local_kaomoji = preferences.local_modes.kaomoji;
         options.local_super_jianpin = preferences.local_modes.super_jianpin;
+        options.local_super_jianpin_slash = preferences.local_modes.super_jianpin_slash;
         options.local_temporary_english = preferences.local_modes.temporary_english;
         options.local_temporary_japanese = preferences.local_modes.temporary_japanese;
         options.local_expression = preferences.local_modes.expression;
@@ -2546,6 +2547,7 @@ impl HostOptions {
             local_emoji: self.preferences.local_modes.emoji,
             local_kaomoji: self.preferences.local_modes.kaomoji,
             local_super_jianpin: self.preferences.local_modes.super_jianpin,
+            local_super_jianpin_slash: self.preferences.local_modes.super_jianpin_slash,
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
             local_expression: self.preferences.local_modes.expression,

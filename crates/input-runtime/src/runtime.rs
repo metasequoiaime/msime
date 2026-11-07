@@ -17,6 +17,8 @@ use msime_engine::SchemeType;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+mod jianpin_slash;
+
 pub enum Action {
     ResetCache,
     Character {
@@ -91,6 +93,8 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) focused: bool,
     pub(crate) page_size: usize,
     pub(crate) highlighted: usize,
+    /// 双拼组字末尾按 `/` 转成超级简拼时，转换前的组字和宿主高亮的那一行（#10860，`jianpin_slash`）：退格撤回时高亮回到这一行，`//` 也从这一行上屏。
+    pub(crate) jianpin_slash: Option<jianpin_slash::SlashHighlight>,
     /// 画在候选下面的释义，按候选文字记。「仅当前高亮」生效时这里只放不受范围限制的离线释义（宿主标了 `gloss` 的回答，以及不是高亮那一行的回答），候选词翻译放在 [`Self::highlight_translations`]。
     pub(crate) translations: HashMap<String, String>,
     /// 「仅当前高亮」生效时，高亮那一行收到的候选词翻译，按候选文字记，只画在高亮的那一行。高亮移开时保留，同一次组字里移回来不用再等回答；组字变化时和 [`Self::translations`] 一起清掉。
@@ -1211,6 +1215,7 @@ impl<E: InputEngine> Runtime<E> {
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
+            jianpin_slash: None,
             translations: HashMap::new(),
             highlight_translations: HashMap::new(),
             translation_scope_highlighted: false,
@@ -3595,6 +3600,14 @@ impl<E: InputEngine> Runtime<E> {
         if self.bare_mode_prefix() {
             return self.engine.punctuation(value);
         }
+        self.finish_with_punctuation(value)
+    }
+
+    /// 从宿主高亮的那一行结束组字，再把标点接在后面：普通标点键走到最后就是这一步，撤回 `/` 转出来的超级简拼之后的 `//` 也直接走这一步（`jianpin_slash`）。
+    pub(crate) fn finish_with_punctuation(
+        &mut self,
+        value: u8,
+    ) -> Result<EngineResult, RuntimeError> {
         // Finish through Engine with the host highlight BEFORE asking it to translate.
         // Calling Engine punctuation on an active composition would choose candidate zero.
         let mut finished = self.finish_seat(self.highlighted)?;
@@ -3943,6 +3956,10 @@ impl<E: InputEngine> Runtime<E> {
             && !self.cached.editing_text.is_empty()
             && !self.phrase_prefix.is_empty()
             && self.cached.local_mode != "temporary_japanese";
+        // `/` 可能把组字转成超级简拼、退格可能撤回这次转换：先记下此刻的高亮，刷新之后核对（`jianpin_slash`）。
+        let slash_from = self.jianpin_slash_from(&action);
+        let slash_undo =
+            matches!(action, Action::Command(Command::Backspace)) && self.jianpin_slash_escapes();
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -3952,6 +3969,14 @@ impl<E: InputEngine> Runtime<E> {
                     commit: String::new(),
                     diagnostic: String::new(),
                 })
+            }
+            // `/` 转出来的超级简拼还没改过码时的第二个 `/`（三条路由都算）：撤回转换，从转换前高亮的那一行上屏再出 `/`。
+            Action::Punctuation(b'/')
+            | Action::PunctuationAscii(b'/')
+            | Action::Character { value: b'/', .. }
+                if self.jianpin_slash_escapes() =>
+            {
+                self.escape_jianpin_slash()
             }
             Action::Punctuation(value) => self.punctuation(value),
             Action::PunctuationAscii(value) => self.punctuation_ascii(value),
@@ -4242,6 +4267,7 @@ impl<E: InputEngine> Runtime<E> {
             || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
         let refresh = self.refresh();
+        self.settle_jianpin_slash(slash_from, slash_undo);
         let mut result = result?;
         if let Err(error) = refresh {
             // A successful engine commit must survive a presentation refresh failure.

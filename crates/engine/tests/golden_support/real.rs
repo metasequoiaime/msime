@@ -189,6 +189,7 @@ pub fn product_options(options: &mut SessionOptions) {
         emoji: true,
         kaomoji: true,
         super_jianpin: true,
+        super_jianpin_slash: true,
         temporary_english: true,
         temporary_japanese: true,
         expression: false,

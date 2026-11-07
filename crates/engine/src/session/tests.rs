@@ -3573,10 +3573,12 @@ fn shuangpin_indirect_triggers_are_published_only_while_they_mark() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     // 末尾直接开着时 `;` 不开末尾间接段，不能发布，否则宿主会把它当输入而不是标点。
     for (direct, marks) in [(false, true), (true, false)] {
+        // 这里只看辅助码触发键发不发布；组字末尾的 `/` 出厂归后置超级简拼（#10860），它的发布在 `tests/super_jianpin_slash.rs` 里测，这里关掉它才看得到 `/` 不当辅码触发键发布。
         let mut session = fixture.session_with(|options| {
             options.scheme = SchemeType::Shuangpin;
             options.helpcode = true;
             options.shuangpin_helpcode_modes.direct = direct;
+            options.local_modes.super_jianpin_slash = false;
         });
         assert!(!session.snapshot().spelling_symbols.contains(';'));
         type_text(&mut session, "nihc");
@@ -3995,19 +3997,27 @@ fn shuangpin_direct_helpcode_slash_and_uppercase_endings() {
                 .collect(),
         )))
     };
-    let session_with_modes = |modes| {
+    let session_with = |modes, jianpin_slash| {
         let codes = codes();
         fixture.session_with(move |options| {
             options.scheme = SchemeType::Shuangpin;
             options.shuangpin_profile = ShuangpinProfileKind::Ziranma;
             options.helpcode_table = codes.clone();
             options.shuangpin_helpcode_modes = modes;
+            options.local_modes.super_jianpin_slash = jianpin_slash;
         })
     };
-    // slash 关着：`/` 还是标点键。
-    let mut off = session_with_modes(direct_modes(false, true));
+    let session_with_modes = |modes| session_with(modes, true);
+    // slash 关着：`/` 不是辅码结束键，不落进输入串。后置超级简拼也关着时它还是标点键。
+    let mut off = session_with(direct_modes(false, true), false);
     type_text(&mut off, "uibj");
     assert!(!off.character(b'/', false).handled);
+    // 出厂设置下组字末尾的 `/` 归后置超级简拼（#10860）：整段原文转成 J 模式，同样不当辅码结束键。
+    let mut off = session_with_modes(direct_modes(false, true));
+    type_text(&mut off, "uibj");
+    assert!(off.character(b'/', false).handled);
+    assert_eq!(off.snapshot().local_mode, LocalInputMode::SuperJianpin);
+    assert_eq!(off.snapshot().editing_text, "Juibj");
     // slash 开着：`ui` + `bj` 两码 + `/` 定字。
     let mut on = session_with_modes(direct_modes(true, false));
     type_text(&mut on, "uibj");
@@ -12840,7 +12850,13 @@ fn url_scheme_colon_in_quanpin_and_shuangpin() {
     for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
         let mut session = fixture.session_with(|options| options.scheme = scheme);
         type_text(&mut session, "https");
-        assert_eq!(session.snapshot().spelling_symbols, ":@#$%&", "{scheme:?}");
+        // 双拼组字末尾的 `/` 还要发布给后置超级简拼（#10860）。
+        let expected = if scheme == SchemeType::Shuangpin {
+            ":@#$%&/"
+        } else {
+            ":@#$%&"
+        };
+        assert_eq!(session.snapshot().spelling_symbols, expected, "{scheme:?}");
         type_url(&mut session, "://github.com/a?b=1");
         assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
         let committed = session.command(Command::CommitRaw);
@@ -15311,5 +15327,6 @@ mod lifecycle;
 mod offensive_placement;
 mod prediction_pool;
 mod raw_commit;
+mod super_jianpin_slash;
 
 mod cantonese_output;
