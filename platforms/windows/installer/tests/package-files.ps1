@@ -274,6 +274,11 @@ try {
     $languageDictionaryNames = @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')
     Write-Fixture 'target/language-dictionaries/msime-cantonese.db'
     Write-Fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt'
+    $languageArtifacts = @(foreach ($name in @('msime-cantonese.db', 'msime-zhuyin.db', 'msime-stroke.db')) {
+        $path = Join-Path $fixture "target/language-dictionaries/$name"
+        @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
+    })
+    Write-Fixture 'resources/language-dictionaries.lock.json' (@{ artifacts = $languageArtifacts } | ConvertTo-Json -Depth 5)
     $languageDictionaryRequirement = $false
     try {
         $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES = '1'
