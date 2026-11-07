@@ -368,7 +368,12 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         await(key("n"));
         AccessibilityNodeInfo clipboard = await(clipboardEntry());
-        if (!clipboard.isSelected()) tap(clipboardEntry());
+        if (clipboard.isSelected()) {
+            tap(clipboardEntry());
+            await(clipboardEntry().and(node -> !node.isSelected()));
+        }
+        tap(clipboardEntry());
+        await(clipboardEntry().and(AccessibilityNodeInfo::isSelected));
     }
 
     private void longPressManagementOnly(File history, String text) throws Exception {
