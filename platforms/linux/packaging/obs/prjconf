@@ -3,3 +3,6 @@ Prefer: cargo-1.91 rustc-1.91
 
 # Debian unstable 里 libgio-2.0-dev、libmount-dev 依赖的 libselinux-dev 同时由新名字 libselinux-dev 和过渡包 libselinux1-dev 提供，OBS 不替人选；选新名字。
 Prefer: libselinux-dev
+
+# Fedora 45 同时提供 openssl-devel 与 openssl3-devel；libcurl-devel 的 pkgconfig(openssl) 在 OBS 上无法自动选定，跟 Fedora 45 官方容器一致优先使用 openssl-devel。
+Prefer: openssl-devel

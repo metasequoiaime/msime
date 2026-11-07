@@ -362,7 +362,7 @@ def download_guide(version: str, download_base: str, names: set[str], repositori
         "**先按系统选格式：**",
         "",
         "- Debian 12、Ubuntu 22.04 和更新的版本，以及基于它们的发行版：`.deb`，用 `sudo apt install ./<文件名>` 安装，依赖由 apt 一并装好。",
-        "- Fedora 44：`.rpm`，用 `sudo dnf install ./<文件名>` 安装。",
+        "- Fedora 45：`.rpm`，用 `sudo dnf install ./<文件名>` 安装。",
     ]
     if with_legacy:
         lines.append(
