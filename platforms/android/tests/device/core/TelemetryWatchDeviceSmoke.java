@@ -78,9 +78,8 @@ public final class TelemetryWatchDeviceSmoke extends Instrumentation {
                             && !((java.util.concurrent.Future<?>) watch).isDone())
                         .put("pid", android.os.Process.myPid());
                 }
-                Path incoming = root.resolve("status.tmp");
-                Files.write(incoming, status.toString().getBytes(StandardCharsets.UTF_8));
-                Files.move(incoming, root.resolve("status.json"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                // API 35 的应用文件系统在替换目标时可能先短暂删除旧文件；夹具本身不需要模拟原子发布，直接覆盖让外部读者用 JSON 重试跨过写入窗口。
+                Files.write(root.resolve("status.json"), status.toString().getBytes(StandardCharsets.UTF_8));
                 Path commandPath = root.resolve("command");
                 String command = Files.exists(commandPath)
                     ? new String(Files.readAllBytes(commandPath), StandardCharsets.US_ASCII).trim() : "";
