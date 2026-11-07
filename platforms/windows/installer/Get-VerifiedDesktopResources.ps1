@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$SourceDirectory,
-    [Parameter(Mandatory)][string]$ManifestPath
+    [Parameter(Mandatory)][string]$ManifestPath,
+    [string[]]$OmitNames = @()
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -17,6 +18,9 @@ $verified = @(
             -not $names.Add($name) -or $artifact.sha256 -notmatch '^[a-f0-9]{64}$' -or
             $artifact.size -le 0) {
             throw 'Invalid pinned desktop resource entry'
+        }
+        if ($OmitNames -contains $name) {
+            continue
         }
         $path = Join-Path $SourceDirectory $name
         $file = Get-Item -LiteralPath $path -Force

@@ -110,7 +110,7 @@ try {
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
     $artifacts = @(
-        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db',
+        foreach ($name in @('msime-pinyin.db', 'msime-wubi.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db',
                             'msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt',
                             'msime-dictionary-manifest.json')) {
             if ($name -ne 'msime-english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
@@ -186,9 +186,15 @@ try {
             Move-Item -LiteralPath "$path.moved" -Destination $path
         }
     }
-    foreach ($artifact in $artifacts) {
+    $omittedFull = @('msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt', 'msime-wubi.db')
+    foreach ($artifact in $artifacts | Where-Object { $_.name -notin $omittedFull }) {
         $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
         if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
+    }
+    foreach ($name in $omittedFull) {
+        if (Test-Path (Join-Path $installer "server_exe/resources/$name")) {
+            throw "Full package unexpectedly included optional resource: $name"
+        }
     }
     if (Test-Path (Join-Path $installer 'server_exe/resources/unlisted-private-file.txt')) {
         throw 'Packaged an unlisted resource'
@@ -262,18 +268,36 @@ try {
     # 读音和英文释义表只随授权声明一起装：夹具里 word-glosses 没有声明，就不装。
     if (Test-Path (Join-Path $installer 'server_exe/word-glosses')) { throw 'Packaged word glosses without their notice' }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
-    # The Zhuyin and Stroke dictionaries travel beside resources with their licences; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
-    # LICENSE.txt is the repository's GPL text even when language dictionaries with their own licences are staged.
+    # 现代 Windows 包把语言词库放进按需资源包；完整词库构建通过环境变量明确要求暂存。即使暂存了词库自带的授权文本，LICENSE.txt 仍是仓库的 GPL 文本。
     if ([IO.File]::ReadAllText((Join-Path $installer 'LICENSE.txt')) -ne 'GNU GENERAL PUBLIC LICENSE fixture') { throw 'LICENSE.txt is not the repository LICENSE' }
-    foreach ($name in @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')) {
-        if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
-    }
-    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/msime-cantonese.db')) { throw 'Packaged a Cantonese dictionary that was not provided' }
+    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries')) { throw 'Modern package staged language dictionaries without an explicit requirement' }
+    $languageDictionaryNames = @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')
     Write-Fixture 'target/language-dictionaries/msime-cantonese.db'
+    Write-Fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt'
+    $languageArtifacts = @(foreach ($name in @('msime-cantonese.db', 'msime-zhuyin.db', 'msime-stroke.db')) {
+        $path = Join-Path $fixture "target/language-dictionaries/$name"
+        @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
+    })
+    Write-Fixture 'resources/language-dictionaries.lock.json' (@{ artifacts = $languageArtifacts } | ConvertTo-Json -Depth 5)
+    $languageDictionaryRequirement = $false
+    try {
+        $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES = '1'
+        & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
+        $languageDictionaryRequirement = $true
+        foreach ($name in $languageDictionaryNames) {
+            if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
+        }
+        if (-not (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/msime-cantonese.db'))) { throw 'Explicit language dictionary staging omitted Cantonese' }
+    Remove-Item (Join-Path $fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt') -Force
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'rime_cantonese_LICENSE' }
     if (-not $rejected) { throw 'A language dictionary without its licence was accepted' }
+    Write-Fixture 'target/language-dictionaries/msime-rime_cantonese_LICENSE.txt'
     Remove-Item (Join-Path $fixture 'target/language-dictionaries/msime-cantonese.db') -Force
+    } finally {
+        Remove-Item Env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -ErrorAction SilentlyContinue
+    }
+    if (-not $languageDictionaryRequirement) { throw 'The explicit language dictionary requirement was not exercised' }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
     foreach ($testFile in @(
         'server_exe/MetasequoiaImeServerTests.exe',

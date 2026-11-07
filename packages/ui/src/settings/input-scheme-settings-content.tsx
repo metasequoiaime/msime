@@ -58,7 +58,7 @@ export interface InputSchemeSettingsContentProps {
   onPreferencesChange: (patch: Partial<Preferences>) => void;
   onSelectTouchKeyboardScheme: (scheme: TouchKeyboardScheme) => void;
   onToggleTouchKeyboardScheme: (scheme: TouchKeyboardScheme, enabled: boolean) => void;
-  /** 宿主提供按需资源包时传入（目前只有 macOS）：选用日文、粤拼、注音或笔画会照常保存方案并开始下载对应词库，下载完成前运行时按缺少词库回退。 */
+  /** 宿主提供按需资源包时传入：选用日文、五笔、粤拼、注音或笔画会照常保存方案并开始下载对应词库，下载完成前运行时按缺少词库回退。 */
   resourcePacks?: ResourcePacks;
   /** HarmonyOS 手机把触屏方案画成「语言与方案」卡片，而不是每个方案一个开关，余下的方案选项收在其下方的「更多选项」折叠区里。仅在 `hasTouchKeyboardSchemes` 时生效。 */
   languageCard?: boolean;

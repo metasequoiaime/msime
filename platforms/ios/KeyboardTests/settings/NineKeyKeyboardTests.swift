@@ -1560,8 +1560,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
-    // 根视图是实现了 `UIInputViewAudioFeedback` 的普通视图，不是 `UIInputView`（#10944）。
-    let inputView = try XCTUnwrap(controller.view as? KeyboardInputView)
+    // 系统宿主看到的是 `UIInputView`，键盘布局仍由其中的普通视图承载（#11012、#10944）。
+    let inputView = try XCTUnwrap(controller.inputView as? KeyboardInputContainerView)
+    XCTAssertTrue(inputView.subviews.contains { $0 === controller.view })
     defaults.set(true, forKey: KeyboardFeedbackPreference.soundKey)
     XCTAssertTrue(inputView.enableInputClicksWhenVisible)
     defaults.set(false, forKey: KeyboardFeedbackPreference.soundKey)
