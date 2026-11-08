@@ -5113,8 +5113,8 @@ public final class MSIMEInputService extends InputMethodService {
         int targetIdleHeight = customSize
             ? pixels(ToolbarSizePolicy.heightDp(sizePercent))
             : composingHeight;
-        int idleHeight = customSize && idleHeader
-            ? Math.max(targetIdleHeight, readingRow + pixels(ToolbarSizePolicy.buttonHeightDp(sizePercent)))
+        int idleHeight = customSize
+            ? ToolbarSizePolicy.stableHeight(targetIdleHeight, composingHeight)
             : targetIdleHeight;
         int idleRowHeight = idleHeight - (idleHeader ? readingRow : 0);
         if (shortcutToolbar != null) ViewPolicy.setFixedHeight(shortcutToolbar, idleRowHeight);
