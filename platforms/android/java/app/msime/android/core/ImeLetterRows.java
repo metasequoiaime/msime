@@ -38,6 +38,21 @@ final class ImeLetterRows {
     private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
     private boolean moreSymbols;
+    private boolean builtJapaneseRomaji;
+
+    /** 标准字母层进出日语或本地模式时，长音键的可见性需要随会话刷新。 */
+    boolean japaneseRomajiStale() {
+        return s.keyRows != null && s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && s.displayedTouchLayout(s.view) == KeyboardLayout.STANDARD_TOUCH_LAYOUT
+            && builtJapaneseRomaji != japaneseRomaji();
+    }
+
+    private boolean japaneseRomaji() {
+        String localMode = s.view == null ? "none"
+            : JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
+        return JapaneseRomajiLayout.active(s.japaneseSchemeActive(), s.dedicatedEnglish,
+            localMode.isEmpty() ? "none" : localMode);
+    }
 
     /** 数字层画数字九宫格（{@link KeyboardLayout#drawsNumberPad}）：每种方案和触屏键面都一样，数字和电话框直接进入，文字密码框从字母首页点 123 进入；#+= 扩展符号页不算。不改变 Engine 里的方案和组码布局。 */
     boolean numberPadDrawn() {
@@ -335,10 +350,10 @@ final class ImeLetterRows {
         });
     }
 
-    /** 分离式键盘第二行的缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
+    /** 第二行的缩进只在 9 键行出现；微软双拼分号或日语长音键占第十格时收起。 */
     void updateSecondRowIndent() {
         if (secondRowLeadingIndent == null) return;
-        int visibility = microsoftTenKeys() ? View.GONE : View.VISIBLE;
+        int visibility = microsoftTenKeys() || builtJapaneseRomaji ? View.GONE : View.VISIBLE;
         if (secondRowLeadingIndent.getVisibility() != visibility) {
             if (visibility == View.VISIBLE) {
                 ViewPolicy.show(secondRowLeadingIndent);
@@ -682,6 +697,7 @@ final class ImeLetterRows {
         if (s.keyRows == null || builtLetterLayout < 0
                 || s.keyboardLayer != KeyboardLayout.Layer.LETTERS
                 || s.displayedTouchLayout(s.view) != builtLetterLayout
+                || builtJapaneseRomaji != japaneseRomaji()
                 || splitStale() || numberRowStale() || letterWidthsStale()
                 || builtSplit && microsoftTenKeys() != builtMicrosoftTenKeys) return false;
         // 与 rebuildKeyRows 通用分支里算键面的四项相同；中英和本地模式变了也只影响键面。
@@ -769,6 +785,7 @@ final class ImeLetterRows {
         builtLayerLongSpace = null;
         builtLayerSymbolFirst = null;
         builtLetterLayout = -1;
+        builtJapaneseRomaji = japaneseRomaji();
         koreanKeyButtons.clear();
         koreanKeyInputs.clear();
         // 字母数字行在下方构建时记上；符号补充行独立记录，避免提前返回的网格分支丢失第五排。
@@ -884,8 +901,9 @@ final class ImeLetterRows {
         boolean standardLetters = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && !koreanKeycaps && !zhuyinKeycaps;
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
-        java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
-            s.displayedTouchLayout(s.view));
+        java.util.List<java.util.List<String>> rows = JapaneseRomajiLayout.rows(
+            KeyboardLayout.rows(s.keyboardLayer, s.displayedTouchLayout(s.view)),
+            standardLetters && builtJapaneseRomaji);
         // 大千注音四行各占完整键高，避免压成三行后按键过矮；其他多行布局沿用三行高的整块。
         LinearLayout block = null;
         if (rows.size() > 3) {
@@ -908,6 +926,15 @@ final class ImeLetterRows {
                 : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
                 : LetterKeyFacePolicy.face(key, chineseMode, japanese, localMode, shifted);
             Button keyButton;
+            if (standardLetters && builtJapaneseRomaji
+                    && JapaneseRomajiLayout.LONG_VOWEL_INPUT.equals(input)) {
+                keyButton = s.keyboardKey(JapaneseRomajiLayout.LONG_VOWEL_FACE, "长音符 ー",
+                    () -> s.character(JapaneseRomajiLayout.LONG_VOWEL_INPUT.charAt(0), false));
+                KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
+                if (keyButton instanceof KeyboardPressButton press)
+                    press.setKeyboardRole(KeyboardKeyRole.KEY);
+                return s.keyId(keyButton, KeyPressIds.forCharacter(input.charAt(0)));
+            }
             if (zhuyinKeycaps) {
                 // 键面只显示注音符号；type() 仍发送大千 ASCII 键，由引擎组音与转换。
                 keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
