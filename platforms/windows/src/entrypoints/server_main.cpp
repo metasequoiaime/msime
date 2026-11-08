@@ -380,6 +380,18 @@ bool persist_character_set_output(const std::filesystem::path &directory,
     return false;
   }
 }
+
+// 工具栏和托盘只显示当前方案真正会用到的字形状态；日语、韩语、越南语和藏文沿用原来的隐藏规则。
+bool displayed_character_set_output(const nlohmann::json &preferences,
+                                    const std::string &scheme) {
+  if (msime::windows::character_set::is_cantonese(scheme))
+    return msime::windows::character_set::is_traditional(
+        scheme, preferences.value("traditional_chinese_output", false),
+        preferences.value("cantonese_simplified_output", false));
+  return preferences.value("traditional_chinese_output", false) &&
+         msime::windows::scheme::ScriptConversionApplies(
+             msime::windows::scheme::scheme_from_name(scheme));
+}
 // 把安装器「联网功能」页的选择写进刚准备好的共享偏好（Linux 的 msime-linux-prepare 做同样的事）。失败时保持共享默认值，也就是关闭，不阻止输入法启动。
 void record_installer_cloud_choice(const std::filesystem::path &directory, bool enabled) {
   try {
@@ -1120,9 +1132,7 @@ int wmain(int argc, wchar_t **argv) {
     const auto &prepared_preferences = prepared.at("value").at("preferences");
     const auto prepared_scheme = running_scheme(prepared_preferences, language_dictionaries);
     auto traditional_output = std::make_shared<std::atomic<bool>>(
-        msime::windows::character_set::is_traditional(
-            prepared_scheme, prepared_preferences.value("traditional_chinese_output", false),
-            prepared_preferences.value("cantonese_simplified_output", false)));
+        displayed_character_set_output(prepared_preferences, prepared_scheme));
     auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
         tsf_local_config(prepared.at("value").at("preferences"),
                          language_dictionaries));
@@ -1452,9 +1462,7 @@ int wmain(int argc, wchar_t **argv) {
           next.polish_prompt_custom_2 = input.value("polish_prompt_custom_2", std::string{});
           next.polish_prompt_custom_3 = input.value("polish_prompt_custom_3", std::string{});
           const auto next_scheme = running_scheme(preferences, language_dictionaries);
-          next.traditional_output = msime::windows::character_set::is_traditional(
-              next_scheme, preferences.value("traditional_chinese_output", false),
-              preferences.value("cantonese_simplified_output", false));
+          next.traditional_output = displayed_character_set_output(preferences, next_scheme);
           std::lock_guard lock(*voice_config_mutex);
           *voice_config = std::move(next);
         };
