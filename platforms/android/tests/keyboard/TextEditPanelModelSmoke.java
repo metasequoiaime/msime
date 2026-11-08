@@ -12,12 +12,20 @@ public final class TextEditPanelModelSmoke {
         List<Action> order = List.of(Action.COPY, Action.PASTE, Action.SELECT_ALL, Action.CUT,
             Action.SPACE, Action.NUMBER_PAD, Action.DELETE, Action.SELECT_LINE);
         Action lineStart = Action.valueOf("LINE_START"), lineEnd = Action.valueOf("LINE_END");
-        check(TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_START) == lineStart
-            && TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_END) == lineEnd
-            && TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE,
-            "文首、文末、全选上滑保留行级动作");
-        check(TextEditPanelModel.upwardSwipeAction(Action.COPY) == null
-            && TextEditPanelModel.upwardSwipeDescription(Action.COPY).isEmpty(), "其他侧键没有隐藏上滑动作");
+        check(TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE
+            && TextEditPanelModel.cornerHint(Action.SELECT_ALL).equals("选行"), "全选上滑选择行，右上角画「选行」");
+        // ⇤ ⇥ 的行首、行尾改成单击，双击到文首文尾（#11111），不再有上滑，也没有角标。
+        check(TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_START) == null
+            && TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_END) == null
+            && TextEditPanelModel.cornerHint(Action.DOCUMENT_START).isEmpty()
+            && TextEditPanelModel.cornerHint(Action.DOCUMENT_END).isEmpty(), "⇤ ⇥ 没有上滑");
+        check(TextEditPanelModel.key(Action.DOCUMENT_START).description().equals("移到行首，双击移到开头")
+            && TextEditPanelModel.key(Action.DOCUMENT_END).description().equals("移到行尾，双击移到结尾"),
+            "⇤ ⇥ 的读屏名称先说单击、再说双击");
+        for (Action other : Action.values())
+            if (other != Action.SELECT_ALL)
+                check(TextEditPanelModel.upwardSwipeAction(other) == null && TextEditPanelModel.cornerHint(other).isEmpty(),
+                    "只有全选有上滑和角标: " + other);
         check(TextEditPanelModel.keys(order).size() == 16, "七个侧键、方向区九格和换行，选择行与行首尾不生成键");
         checkGrid(order);
         java.util.ArrayList<Action> reversed = new java.util.ArrayList<>(order);
@@ -136,6 +144,26 @@ public final class TextEditPanelModelSmoke {
         check(line.start() == 0 && line.end() == 2, "newline selects the preceding line");
         line = TextEditLineSelection.range("甲乙\n丙丁\n戊", 6, 6);
         check(line.start() == 6 && line.end() == 7, "last line is bounded");
+
+        // ⇤ ⇥ 单击：行按换行符分，不管自动折行（#11111）。
+        String text = "甲乙\n丙丁\n\n戊";
+        check(TextEditLineSelection.lineStart(text, 4) == 3 && TextEditLineSelection.lineEnd(text, 4) == 5,
+            "middle of a line goes to its start and end");
+        check(TextEditLineSelection.lineStart(text, 3) == 3 && TextEditLineSelection.lineEnd(text, 5) == 5,
+            "already at the line start or end stays");
+        check(TextEditLineSelection.lineStart(text, 5) == 3, "the caret before a newline belongs to the line it ends");
+        check(TextEditLineSelection.lineEnd(text, 3) == 5, "the caret after a newline belongs to the next line");
+        check(TextEditLineSelection.lineStart(text, 6) == 6 && TextEditLineSelection.lineEnd(text, 6) == 6,
+            "an empty line is its own start and end");
+        check(TextEditLineSelection.lineStart(text, 0) == 0 && TextEditLineSelection.lineEnd(text, 1) == 2,
+            "the first line starts at 0");
+        check(TextEditLineSelection.lineStart(text, 8) == 7 && TextEditLineSelection.lineEnd(text, 7) == 8,
+            "the last line ends at the text end");
+        check(TextEditLineSelection.lineStart(text, 99) == 7 && TextEditLineSelection.lineEnd(text, 99) == 8,
+            "a caret past the end is clamped");
+        check(TextEditLineSelection.lineStart("", 0) == 0 && TextEditLineSelection.lineEnd("", 0) == 0, "empty text");
+        check(TextEditLineSelection.lineStart(null, 0) == -1 && TextEditLineSelection.lineEnd(text, -1) == -1,
+            "no text or no caret");
         System.out.println("Android text edit panel: seamless direction block, seven reordered side actions, key events and clipboard actions passed");
     }
 

@@ -20,6 +20,8 @@ Status: implemented
 
 三个行级动作重新可达，既有点击、排序、偏好格式和中央方向区布局不变。上滑触发需要用户明确移动超过阈值；斜向点击、向下滑和多指触摸不会触发行级动作。需要 Android API 28/API 35 设备验证文首、文末和全选三处上滑以及普通点击回归。
 
+⇤ ⇥ 的上滑和三个键的提示气泡已由 [⇤ ⇥ 单击行首行尾、双击文首文尾](2026-11-08-android-text-edit-edge-double-tap.md) 取代（#11111）；全选上滑选择当前行和 `TextEditSwipePolicy` 的判定保留，提示改成键面角标「选行」。
+
 ## Verification
 
 新增 `TextEditSwipePolicySmoke` 覆盖阈值、方向和横向位移边界；`TextEditPanelModelSmoke` 覆盖三个动作映射和读屏提示。尚未在本机 Android API 28/API 35 模拟器上完成设备验收。

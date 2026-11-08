@@ -44,9 +44,9 @@ public final class TextEditPanelModel {
         new Key(Action.COPY, "复制", "复制", 0, 0, 1, 2, false),
         new Key(Action.CUT, "剪切", "剪切", 0, 0, 1, 2, false),
         new Key(Action.PASTE, "粘贴", "粘贴", 0, 0, 1, 2, false),
-        new Key(Action.DOCUMENT_START, "⇤", "移到开头", 3, 2, 1, 2, false),
+        new Key(Action.DOCUMENT_START, "⇤", "移到行首，双击移到开头", 3, 2, 1, 2, false),
         new Key(Action.TRACKPAD, "触控板", "触控板", 3, 4, 1, 2, false),
-        new Key(Action.DOCUMENT_END, "⇥", "移到结尾", 3, 6, 1, 2, false),
+        new Key(Action.DOCUMENT_END, "⇥", "移到行尾，双击移到结尾", 3, 6, 1, 2, false),
         new Key(Action.DELETE, "⌫", "退格", 0, 0, 1, 2, true),
         new Key(Action.NUMBER_PAD, "123", "打开数字键盘", 0, 0, 1, 2, false),
         new Key(Action.SPACE, "空格", "插入空格", 0, 0, 1, 2, false),
@@ -98,24 +98,18 @@ public final class TextEditPanelModel {
         return List.copyOf(result);
     }
 
-    /** 文首、文末和全选键上滑时保留的行级动作；返回 {@code null} 表示这个键没有上滑动作。 */
+    /**
+     * 全选键上滑时的选择行；返回 {@code null} 表示这个键没有上滑动作。⇤ ⇥ 的行首、行尾改成单击（双击到文首文尾，见 {@link TextEditEdgeTapPolicy}），不再有上滑（#11111）。
+     */
     public static Action upwardSwipeAction(Action action) {
-        return switch (action) {
-            case DOCUMENT_START -> Action.LINE_START;
-            case DOCUMENT_END -> Action.LINE_END;
-            case SELECT_ALL -> Action.SELECT_LINE;
-            default -> null;
-        };
+        return action == Action.SELECT_ALL ? Action.SELECT_LINE : null;
     }
 
-    /** 上滑动作的触摸提示，键面和无障碍描述仍保持原来的文档级动作。 */
-    public static String upwardSwipeDescription(Action action) {
-        return switch (action) {
-            case DOCUMENT_START -> "上滑移到行首";
-            case DOCUMENT_END -> "上滑移到行尾";
-            case SELECT_ALL -> "上滑选择当前行";
-            default -> "";
-        };
+    /**
+     * 键面右上角提示上滑动作的角标（{@link TextEditHintButton}）；空串表示不画。只画不读，键面文字和无障碍描述仍是原来的动作。原来的长按提示气泡（tooltip）去掉了（#11111）。
+     */
+    public static String cornerHint(Action action) {
+        return action == Action.SELECT_ALL ? "选行" : "";
     }
 
     /** 中央方向区里的键：由网格画公共底面和分隔线，键自己只画按下和选中。 */
