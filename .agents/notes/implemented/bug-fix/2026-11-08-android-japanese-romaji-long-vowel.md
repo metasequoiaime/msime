@@ -25,12 +25,13 @@ Status: implemented
 
 可以在罗马字之间插入长音而不打断组词，第二行每键由原来的九键加两侧缩进改为十键，其他行不挤占宽度。普通英文模式没有这个键。N 的减号快捷符号仍保留字面含义。
 
-JVM 冒烟覆盖键位顺序、原始布局不变、英文与本地模式退出。设备专项复用日语资源夹具和 instrumentation 入口，验证 `ko-hi-`、删除末尾长音后续输、单独长音上屏；`smoke.sh` 非 core 套件会实际调用。设备测试和真实截图需要 Android 模拟器，本机未安装模拟器，不能将 Java 编译称为设备验收。
+JVM 冒烟覆盖键位顺序、原始布局不变、英文与本地模式退出。设备专项复用日语资源夹具和 instrumentation 入口，验证 `ko-hi-`、删除末尾长音后续输、单独长音上屏；`smoke.sh` 非 core 套件会实际调用。设备测试在 Docker 中的 API 35 专用模拟器上运行，截图取自真实产品 APK 和合成编辑器。修改前后都先输入并清空同一段短读音，使键面处于一致的稳定状态。
 
 ## Verification
 
-- 使用 Temurin JDK 17 与 Google Android API 35，原生宿主及 JVM 测试合计 879 份 Java 源码以 UTF-8、--release 17、-Xlint:all、-Werror 编译通过；日语、标准布局及分离布局 11 项针对性冒烟通过。设备测试清单中的 276 份源码编译通过。
-- 全量 JVM 冒烟遇到 CandidateSkinStampSmoke 的原子替换戳断言失败；用未修改的主工作区原始两份源码单独编译复现了同一失败，不计为通过。
-- npm run verify-notes 执行与 pnpm 同一条仓库脚本，通过三项校验；本机 pnpm 启动器指向不存在的 pnpm.exe。git diff --check 通过。
-- scripts/verify-local.sh --quick 已运行但未通过，包含缺少 cargo、shasum、平台构建环境，以及契约检查失败；未逐一验证所有既有失败，不宣称全量门禁通过。完整本地日志保留在 target/android/japanese-romaji-test/quick.log。
-- 本机没有 Android 模拟器或完整 APK 构建环境，未运行设备专项、未产出 APK，也未取得修改前后的真实设备截图。以上 Java 编译和 JVM 结果不能替代设备验收；不得据此宣称已装机验证。
+- Docker Ubuntu 24.04、JDK 21、NDK r28c、固定 Rust 1.97.1 构建完整 APK，包含 arm64-v8a 与 x86_64；原生库架构、依赖白名单、JNI 导出和 16 KB 对齐检查通过，APK 的 apksigner 与 zipalign 检查通过。
+- Linux 的完整 Android host 检查通过：344 项 JVM 冒烟、276 份设备套件源码以及 JNI、清单、资源和契约检查。此前 Windows 上复现的 CandidateSkinStampSmoke 文件替换断言在 Linux 上通过。
+- API 35、1080×2400 专用模拟器先装修改前基线，再覆盖安装修改版。旧版确认没有独立长音键；新版通过系统输入主路径，以及日语 `ko-hi-` 连续组字、删除末尾长音再续输、清空后单独长音上屏的实际输入验证。
+- 本地保留修改前、修改后、连续组字、单独长音上屏四张原尺寸截图。产物和日志在主工作区 `target/android/japanese-long-vowel/`，设备证据见 `device-acceptance.log`，宿主检查见 `android-host-check.log`。
+- 测试包版本 0.7.1，使用开发签名，不能覆盖正式签名版本；未在实体手机或 API 28 上验收，也没有宣称整个设备回归套件通过。
+- `scripts/verify-local.sh --quick` 的契约与 Android host 检查通过；共享 Rust workspace 的 `cargo check` 因容器未装 Linux ALSA 开发包（`alsa.pc`）失败，未宣称完整 quick 通过。`npm run verify-notes` 的三项校验及 `git diff --check` 通过。

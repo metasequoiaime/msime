@@ -15,15 +15,19 @@ import org.json.JSONObject;
 public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
     private boolean japaneseToggle;
     private boolean japaneseRomaji;
+    private boolean japaneseRomajiBefore;
     private final java.util.List<String> japaneseTimingFailures = new java.util.ArrayList<>();
 
     @Override public void onCreate(android.os.Bundle arguments) {
         japaneseToggle = arguments != null && "true".equals(arguments.getString("japanese-toggle"));
         japaneseRomaji = arguments != null && "true".equals(arguments.getString("japanese-romaji"));
+        japaneseRomajiBefore = arguments != null && "true".equals(arguments.getString("japanese-romaji-before"));
+        japaneseRomaji |= japaneseRomajiBefore;
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (japaneseRomajiBefore) return "日语罗马字改前键盘截图与缺失入口确认";
         if (japaneseRomaji) return "日语罗马字长音键连续组字、删除与单独输入";
         if (japaneseToggle) return "Japanese toggle preference, repeated kana and flick input";
         return "Chinese nine/fourteen-key return after English, Japanese typing and editor refocus";
@@ -195,7 +199,7 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
             if (japaneseRomaji) {
-                JapaneseRomajiDeviceChecks.run(this);
+                JapaneseRomajiDeviceChecks.run(this, japaneseRomajiBefore);
                 return;
             }
             stage = "Japanese toggle keyboard ready";
