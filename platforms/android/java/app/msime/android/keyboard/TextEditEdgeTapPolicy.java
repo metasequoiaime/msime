@@ -1,11 +1,11 @@
 package app.msime.android;
 
 /**
- * 文本编辑面板 ⇤ ⇥ 的单击和双击（#11111）：单击移到行首、行尾，立即执行，不等第二下；时间窗口内对同一个键再按一下，接着移到整篇的开头、结尾。超时的第二下、换了另一个键的一下都按单击算。做法同 {@link ShiftTapPolicy}。
+ * 文本编辑面板 ⇤ ⇥ 的单击和双击（#11111）：单击移到行首、行尾，立即执行，不等第二下；时间窗口内对同一个键再按一下，接着移到整篇的开头、结尾。超时的第二下、换了另一个键的一下都按单击算。做法同 {@link ShiftTapPolicy}，窗口单独定。
  */
 public final class TextEditEdgeTapPolicy {
-    /** 双击的时间窗口，暂取 Shift 双击锁定的 350 ms，实测后再定。 */
-    public static final long DOUBLE_TAP_MS = ShiftTapPolicy.DOUBLE_TAP_MS;
+    /** 双击的时间窗口，从第一下松手量到第二下松手。一台真机上实测，平常的双击在 148–193 ms，从容的在 229–371 ms；350 ms（Shift 的窗口）漏掉从容双击 13 次里的 3 次，取 400 ms。窗口偏长的代价很小，同一个键的第二下只会「再往前走」。 */
+    public static final long DOUBLE_TAP_MS = 400;
 
     private TextEditPanelModel.Action lastKey;
     private long lastTapAt = Long.MIN_VALUE;

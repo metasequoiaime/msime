@@ -139,7 +139,7 @@ final class TextEditLineDeviceChecks {
     private static final String START = "移到行首，双击移到开头";
     private static final String END = "移到行尾，双击移到结尾";
 
-    /** 等过 ⇤ ⇥ 的双击窗口（TextEditEdgeTapPolicy，350 ms），下一下按单击算。 */
+    /** 等过 ⇤ ⇥ 的双击窗口（TextEditEdgeTapPolicy，400 ms），下一下按单击算。 */
     private static void settle() { SystemClock.sleep(600); }
 
     /** 在键中心连点两下，两下之间远短于双击窗口；无障碍点按要等界面空闲，两下会隔得太久。 */
