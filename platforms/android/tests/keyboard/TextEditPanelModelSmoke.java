@@ -12,18 +12,20 @@ public final class TextEditPanelModelSmoke {
         List<Action> order = List.of(Action.COPY, Action.PASTE, Action.SELECT_ALL, Action.CUT,
             Action.SPACE, Action.NUMBER_PAD, Action.DELETE, Action.SELECT_LINE);
         Action lineStart = Action.valueOf("LINE_START"), lineEnd = Action.valueOf("LINE_END");
-        check(TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE,
-            "全选上滑保留选择行");
-        // ⇤ ⇥ 的行首、行尾改成单击，双击到文首文尾（#11111），不再有上滑。
+        check(TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE
+            && TextEditPanelModel.cornerHint(Action.SELECT_ALL).equals("选行"), "全选上滑选择行，右上角画「选行」");
+        // ⇤ ⇥ 的行首、行尾改成单击，双击到文首文尾（#11111），不再有上滑，也没有角标。
         check(TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_START) == null
             && TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_END) == null
-            && TextEditPanelModel.upwardSwipeDescription(Action.DOCUMENT_START).isEmpty()
-            && TextEditPanelModel.upwardSwipeDescription(Action.DOCUMENT_END).isEmpty(), "⇤ ⇥ 没有上滑");
+            && TextEditPanelModel.cornerHint(Action.DOCUMENT_START).isEmpty()
+            && TextEditPanelModel.cornerHint(Action.DOCUMENT_END).isEmpty(), "⇤ ⇥ 没有上滑");
         check(TextEditPanelModel.key(Action.DOCUMENT_START).description().equals("移到行首，双击移到开头")
             && TextEditPanelModel.key(Action.DOCUMENT_END).description().equals("移到行尾，双击移到结尾"),
             "⇤ ⇥ 的读屏名称先说单击、再说双击");
-        check(TextEditPanelModel.upwardSwipeAction(Action.COPY) == null
-            && TextEditPanelModel.upwardSwipeDescription(Action.COPY).isEmpty(), "其他侧键没有隐藏上滑动作");
+        for (Action other : Action.values())
+            if (other != Action.SELECT_ALL)
+                check(TextEditPanelModel.upwardSwipeAction(other) == null && TextEditPanelModel.cornerHint(other).isEmpty(),
+                    "只有全选有上滑和角标: " + other);
         check(TextEditPanelModel.keys(order).size() == 16, "七个侧键、方向区九格和换行，选择行与行首尾不生成键");
         checkGrid(order);
         java.util.ArrayList<Action> reversed = new java.util.ArrayList<>(order);

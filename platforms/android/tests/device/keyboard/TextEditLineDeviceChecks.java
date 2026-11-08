@@ -32,11 +32,15 @@ final class TextEditLineDeviceChecks {
         doubleTap(END);
         selection(end, end);
         t.stage = "edge keys no longer swipe up";
-        setSelection(16);
+        // 不用 16：下一段要 setSelection(16)，选区没变时无障碍的设置选区返回 false。
+        setSelection(13);
         swipeUp(START);
         swipeUp(END);
-        selection(16, 16);
+        selection(13, 13);
         t.stage = "select all keeps its upward swipe to select the line";
+        // 上滑改由「选行」角标提示（只画、不进节点），三个键都不再有长按提示气泡。
+        for (String key : new String[] {"全选", START, END})
+            t.await(t.described(key).and(node -> android.os.Build.VERSION.SDK_INT < 28 || node.getTooltipText() == null));
         setSelection(16);
         swipeUp("全选");
         selection(11, 22);

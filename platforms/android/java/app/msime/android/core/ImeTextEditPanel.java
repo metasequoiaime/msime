@@ -303,14 +303,15 @@ final class ImeTextEditPanel {
             cell.setToggle(action == TextEditPanelModel.Action.TRACKPAD);
             button = cell;
         } else {
-            button = s.keyboardKey(spec.label(), spec.description(), run);
+            // 全选右上角画「选行」，提示上滑选择当前行；放不下时 TextEditHintButton 自己不画。
+            String hint = TextEditPanelModel.cornerHint(action);
+            button = hint.isEmpty() ? s.keyboardKey(spec.label(), spec.description(), run)
+                : s.keyboardKey(new TextEditHintButton(s, hint), spec.label(), spec.description(), run);
             if (spec.label().length() > 1) KeyboardTypographyPolicy.setKeyTextSize(button, 16);
             if (spec.repeats()) bindRepeat(button, run);
         }
         ViewPolicy.clearPadding(button);
-        String swipeDescription = TextEditPanelModel.upwardSwipeDescription(action);
         button.setContentDescription(spec.description());
-        button.setTooltipText(swipeDescription.isEmpty() ? null : swipeDescription);
         bindUpwardSwipe(button, action);
         buttons.put(action, button);
         return button;
