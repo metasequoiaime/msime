@@ -70,6 +70,7 @@
 #include "../candidates/CandidateScriptAnnotation.h"
 #include "../candidates/CandidateRowText.h"
 #include "../candidates/CandidatePronunciation.h"
+#include "CharacterSetTogglePolicy.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/CandidateTranslationScope.h"
 #include "../candidates/PairedPunctuation.h"
@@ -297,7 +298,7 @@ msime::linux_host::CandidateTheme candidate_theme(const Json &preferences) {
 IBusOrientation candidate_orientation(const Json &preferences);
 std::string preedit_style(const Json &preferences);
 bool launch_desktop_panel(const char *panel);
-enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, SymbolCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, JapaneseToggle, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
+enum class MenuPreference { Toolbar, CloudCandidates, CandidateTranslations, TranslationLanguage, CandidateTheme, PreeditStyle, CandidateLayout, GlobalTheme, CandidatePageSize, FrequencyMode, FrequencyTriggerCount, FrequencyLinearStep, Learning, ShuangpinPreedit, WubiCodeHint, WubiAutoCommitUnique, SmartPunctuation, SmartPunctuationRepeat, PairedPunctuation, PunctuationLock, AutocorrectTransposition, AutocorrectNeighbor, EnglishCandidates, EmojiCandidates, KaomojiCandidates, SymbolCandidates, QuanpinHelpcode, ShuangpinHelpcode, QuanpinHelpcodeSchema, ShuangpinHelpcodeSchema, ShuangpinProfile, InputScheme, JapaneseToggle, NineKey, LocalMode, NumberRowSelection, WordCharacter, TraditionalOutput, CantoneseSimplifiedOutput, ChinesePunctuation, ClipboardHistoryEnabled, CharacterWidth, VoiceEnabled };
 void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json value);
 struct FailedMenuSave {
   MenuPreference preference;
@@ -438,6 +439,7 @@ struct State {
   bool fullwidth = false;
   bool english_mode = false;
   bool traditional_output = false;
+  bool cantonese_simplified_output = false;
   // 偏好 `traditional_chinese_variant` 的编号（0 s2t、1 s2tw、2 s2twp）。
   uint32_t traditional_variant = 0;
   std::string candidate_preedit_style = "pinyin";
@@ -977,6 +979,7 @@ struct State {
     japanese_toggle_enabled = keybindings.value("toggle_japanese_ctrl_shift_j", false);
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
+    cantonese_simplified_output = preferences.value("cantonese_simplified_output", false);
     traditional_variant = msime_linux_traditional_variant(
         preferences.value("traditional_chinese_variant", std::string("s2t")));
     cloud_candidates = cloud_candidates_override.value_or(
@@ -1163,6 +1166,7 @@ struct State {
     }
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
+    cantonese_simplified_output = preferences.value("cantonese_simplified_output", false);
     traditional_variant = msime_linux_traditional_variant(
         preferences.value("traditional_chinese_variant", std::string("s2t")));
     const bool next_cloud_candidates = cloud_candidates_override.value_or(
@@ -1376,6 +1380,13 @@ std::string effective_scheme(const State &s) {
   return msime::linux_host::effective_input_scheme(
       s.scheme_override.value_or(preferences.value("scheme", std::string("quanpin"))),
       preferences.value("last_chinese_scheme", std::string("quanpin")), configured_dictionaries);
+}
+int character_set_scheme(const State &s) {
+  return msime::linux_host::scheme_number(effective_scheme(s));
+}
+bool character_set_checked(const State &s) {
+  return msime::linux_host::character_set::checked(
+      character_set_scheme(s), s.traditional_output, s.cantonese_simplified_output);
 }
 // 本版本提供、这台机器上也能运行的方案（粤拼、注音、笔画要有词库）。菜单和工具栏只列这些。
 bool scheme_offered(std::string_view scheme) {
@@ -1885,8 +1896,10 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
                 available && toolbar.value("punctuation", true), s.chinese_punctuation);
   append_toggle("Toolbar/Fullwidth", msime::linux_host::menu_label::kFullwidth, "切换 ASCII 全角或半角输出",
                 available && toolbar.value("fullwidth", true), s.fullwidth);
-  append_toggle("Toolbar/CharacterSet", msime::linux_host::menu_label::kTraditionalOutput, "切换简体或繁体输出",
-                available && toolbar.value("character_set", true), s.traditional_output);
+  const auto character_scheme = character_set_scheme(s);
+  append_toggle("Toolbar/CharacterSet", msime::linux_host::character_set::label(character_scheme),
+                msime::linux_host::character_set::hint(character_scheme),
+                available && toolbar.value("character_set", true), character_set_checked(s));
   // 表情、手写、屏幕键盘和语音四个按钮默认关，与共享默认值（preferences.rs）一致。
   append_action("Toolbar/Emoji", msime::linux_host::menu_label::kEmojiPanel, "打开 Emoji、颜文字和符号面板",
                 available && toolbar.value("emoji", false));
@@ -3470,11 +3483,12 @@ void publish_mode(IBusEngine *engine, bool registration) {
       s.fullwidth ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto traditional = ibus_property_new(
       "TraditionalOutput", PROP_TYPE_TOGGLE,
-      ibus_text_new_from_static_string("繁体输出"), "",
-      ibus_text_new_from_static_string("将中文候选和上屏文本转换为繁体"),
+      ibus_text_new_from_static_string(msime::linux_host::character_set::label(active_scheme_number)), "",
+      ibus_text_new_from_static_string(msime::linux_host::character_set::hint(active_scheme_number)),
       s.focused && !s.blocked && s.input_enabled && s.session &&
-          msime::linux_host::scheme::ScriptConversionApplies(active_scheme_number) && !menu_save_pending,
-      TRUE, s.traditional_output ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+          (msime::linux_host::scheme::ScriptConversionApplies(active_scheme_number) ||
+           msime::linux_host::character_set::follows_cantonese(active_scheme_number)) && !menu_save_pending,
+      TRUE, character_set_checked(s) ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto english = ibus_property_new(
       "EnglishCandidates", PROP_TYPE_TOGGLE,
@@ -6348,17 +6362,26 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       return;
     }
     if (std::string(name) == "TraditionalOutput") {
-      if (!msime::linux_host::scheme::ScriptConversionApplies(
-              msime::linux_host::scheme_number(effective_scheme(s))))
+      const int scheme_number = character_set_scheme(s);
+      const bool cantonese = msime::linux_host::character_set::follows_cantonese(scheme_number);
+      if (!msime::linux_host::scheme::ScriptConversionApplies(scheme_number) && !cantonese)
         return;
-      if (menu_save_pending || s.traditional_output == (value == PROP_STATE_CHECKED)) return;
+      const bool enabled = value == PROP_STATE_CHECKED;
+      if (menu_save_pending || character_set_checked(s) == enabled) return;
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
-        save_menu_preference(engine, MenuPreference::TraditionalOutput, value == PROP_STATE_CHECKED);
+        save_menu_preference(engine,
+                             cantonese ? MenuPreference::CantoneseSimplifiedOutput
+                                       : MenuPreference::TraditionalOutput,
+                             enabled);
         return;
       }
-      s.traditional_output = value == PROP_STATE_CHECKED;
-      s.traditional_output_override = s.traditional_output;
+      if (cantonese)
+        s.cantonese_simplified_output = enabled;
+      else {
+        s.traditional_output = enabled;
+        s.traditional_output_override = s.traditional_output;
+      }
       render(engine, s.view);
       publish_mode(engine);
       return;
@@ -7016,7 +7039,7 @@ void floating_toolbar_action(IBusEngine *engine, msime::linux_host::FloatingTool
       break;
     case Action::TogglePunctuation: toggle("Punctuation", s.chinese_punctuation); break;
     case Action::ToggleFullwidth: toggle("CharacterMode", s.fullwidth); break;
-    case Action::ToggleCharacterSet: toggle("TraditionalOutput", s.traditional_output); break;
+    case Action::ToggleCharacterSet: toggle("TraditionalOutput", character_set_checked(s)); break;
     case Action::ToggleVoice: toggle("VoiceInput", s.voice_active); break;
     case Action::Promotion: property_activate(engine, "Toolbar/Promotion", PROP_STATE_UNCHECKED); break;
     case Action::OpenEmoji: launch("emoji"); break;
@@ -9187,6 +9210,9 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
             break;
           case MenuPreference::TraditionalOutput:
             snapshot["preferences"]["traditional_chinese_output"] = request.value;
+            break;
+          case MenuPreference::CantoneseSimplifiedOutput:
+            snapshot["preferences"]["cantonese_simplified_output"] = request.value;
             break;
           case MenuPreference::ChinesePunctuation:
             snapshot["preferences"]["chinese_punctuation"] = request.value;

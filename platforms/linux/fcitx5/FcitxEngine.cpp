@@ -105,6 +105,7 @@
 #include "../src/core/JapaneseConversion.h"
 #include "../src/core/KoreanHanja.h"
 #include "../src/core/InputSchemes.h"
+#include "../src/core/CharacterSetTogglePolicy.h"
 #include "../src/core/JsonInteger.h"
 #include "../src/clipboard/CloudClipboardRoute.h"
 #include "../src/system/TypingStatistics.h"
@@ -1931,6 +1932,7 @@ public:
     preferences_ = std::move(session_preferences);
     applyContextOverrides(preferences_);
     traditional_ = preferences_.value("traditional_chinese_output", false);
+    cantonese_simplified_output_ = preferences_.value("cantonese_simplified_output", false);
     traditional_variant_ = msime_linux_traditional_variant(
         preferences_.value("traditional_chinese_variant", std::string("s2t")));
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
@@ -2117,6 +2119,8 @@ public:
             // A width chosen here that the store does not hold - its save failed, or a private window, which never saves - is not undone by the store, as a failed scheme choice is kept; the next session re-reads the store.
             if (!private_ && !unsavedChoice("", "character_width")) syncSessionCharacterWidth();
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
+            cantonese_simplified_output_ = preferences_.value(
+                "cantonese_simplified_output", cantonese_simplified_output_);
             traditional_variant_ = msime_linux_traditional_variant(
                 preferences_.value("traditional_chinese_variant", std::string("s2t")));
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
@@ -4043,6 +4047,26 @@ public:
   bool traditionalApplies() const {
     return traditional_ && scriptConversionApplies();
   }
+  int characterSetScheme() const {
+    return msime::linux_host::scheme_number(effectiveScheme());
+  }
+  bool characterSetFollowsCantonese() const {
+    return msime::linux_host::character_set::follows_cantonese(characterSetScheme());
+  }
+  bool characterSetChecked() const {
+    return msime::linux_host::character_set::checked(
+        characterSetScheme(), traditional_, cantonese_simplified_output_);
+  }
+  bool toggleCharacterSet() {
+    if (!session_ || (!scriptConversionApplies() && !characterSetFollowsCantonese()))
+      return false;
+    if (characterSetFollowsCantonese()) {
+      if (!toggleTopLevelBoolean("cantonese_simplified_output")) return false;
+      cantonese_simplified_output_ = preferences_.value("cantonese_simplified_output", false);
+      return true;
+    }
+    return toggleTraditional();
+  }
   bool toggleTraditional() {
     if (!session_ || !scriptConversionApplies()) return false;
     traditional_ = !traditional_;
@@ -4273,6 +4297,7 @@ public:
   FcitxEngine *engine_;
   bool private_ = false;
   bool traditional_ = false;
+  bool cantonese_simplified_output_ = false;
   // 偏好 `traditional_chinese_variant` 的编号（0 s2t、1 s2tw、2 s2twp）。
   uint32_t traditional_variant_ = 0;
   bool chinese_punctuation_ = true;
@@ -6347,19 +6372,23 @@ public:
   explicit FcitxTraditionalAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setCheckable(true);
   }
-  std::string shortText(fcitx::InputContext *) const override { return msime::linux_host::menu_label::kTraditionalOutput; }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return msime::linux_host::menu_label::kTraditionalOutput;
+    const auto *state = ic->propertyFor(factory_);
+    return msime::linux_host::character_set::label(state->characterSetScheme());
+  }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
     if (!ic) return false;
     const auto *state = ic->propertyFor(factory_);
-    return state->session_ && state->traditionalApplies();
+    return state->session_ && state->characterSetChecked();
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->restricted() || state->privateInput()) return;
-      if (state->toggleTraditional()) update(ic);
+      if (state->toggleCharacterSet()) update(ic);
     } catch (...) {}
   }
 private:
@@ -8968,7 +8997,7 @@ msime::linux_host::FloatingToolbarState FcitxState::floatingToolbarState() const
   toolbar.scheme_title = schemeMenuTitle(toolbar.scheme);
   toolbar.chinese_punctuation = chinese_punctuation_;
   toolbar.fullwidth = fullwidthOutput();
-  toolbar.traditional = traditional_;
+  toolbar.traditional = characterSetChecked();
   for (const char *scheme : msime::linux_host::kSchemeMenuOrder) {
     const std::string_view id(scheme);
     const bool offered = id == "cantonese" || id == "zhuyin" || id == "stroke" ? schemeAvailable(scheme)
@@ -9474,7 +9503,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
       (sym == FcitxKey_f || sym == FcitxKey_F)) {
     // The composition stays: the character set only changes how its candidates are written, as on Windows.
-    if (!toggleTraditional()) return false;
+    if (!toggleCharacterSet()) return false;
     toggle_chord_held_ = FcitxKey_f;
     return true;
   }
