@@ -14875,16 +14875,23 @@ private:
 
     if (in_tab(tab, L"output")) {
       auto output = add_group(page, L"输出");
-      // 「中文输出」与共享页 TraditionalChineseOutputSection 一样是简体 / 繁体两段，说明随选项和方案变（InputSettingsModel.h）。Windows 不认繁体变体，只写 traditional_chinese_output。
-      const bool traditional = document_.Boolean(L"traditional_chinese_output", false);
+      // 「中文输出」与共享页 TraditionalChineseOutputSection 一样是简体 / 繁体两段；粤拼的存储值是简体开关，其他方案仍是繁体开关。
+      const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
+      const bool cantonese = scheme == L"cantonese";
+      const bool traditional = cantonese
+                                   ? !document_.Boolean(L"cantonese_simplified_output", false)
+                                   : document_.Boolean(L"traditional_chinese_output", false);
       add_row(output, 0xE8C1, L"中文输出",
               ism::chinese_output_description(
-                  traditional, document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W)),
+                  traditional, scheme),
               segmented_control(L"中文输出", {{L"simplified", L"简体"}, {L"s2t", L"繁体"}},
                                 traditional ? L"s2t" : L"simplified",
-                                [this](std::wstring const &value) {
+                                [this, cantonese](std::wstring const &value) {
                                   change([&](PreferencesDocument &doc) {
-                                    doc.SetBoolean(L"traditional_chinese_output", value == L"s2t");
+                                    if (cantonese)
+                                      doc.SetBoolean(L"cantonese_simplified_output", value != L"s2t");
+                                    else
+                                      doc.SetBoolean(L"traditional_chinese_output", value == L"s2t");
                                   }, true);
                                 }));
       bool_row(output, 0xE8D2, L"中英文之间加空格",

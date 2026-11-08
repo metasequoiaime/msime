@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include "../common/CharacterSetOutputPolicy.h"
 
 // 「输入」「快捷键」两页里与共享设置页逐字相同的列表、文案和判断：输入页的六个页内标签（`packages/ui/src/settings/input-tabs.ts`）、五笔码表版本（`input-scheme-details-section.tsx` 的 wubiProfileOptions）、五笔选词键的校验（`wubi-preferences.ts` 的 validWubiCandidateKeys）、中文输出的说明（`traditional-chinese-output-section.tsx`）、逐个模式的各行（`local-mode-options.ts`、`local-mode-preferences.ts`）、模糊音的四组规则（`fuzzy-pinyin-preferences.ts`）和按键速查里的翻页键（`candidate-paging-options.ts` 的 pagingKeys）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::input {
@@ -76,13 +77,15 @@ inline std::wstring_view wubi_candidate_keys_description(bool valid) {
                : L"请输入两个不同的单个英文标点。";
 }
 
-// 「中文输出」一行的说明，随选项和方案变：粤拼、注音直接输出繁体，笔画按所选的字原样输出，都不受这个选项影响。Windows 不认繁体变体（`HostCapabilities.traditional_chinese_variants` 目前 Linux 与 macOS 为真），只有简体和标准繁体两项。
+// 「中文输出」一行的说明，随选项和方案变。Windows 不认繁体变体（`HostCapabilities.traditional_chinese_variants` 目前 Linux 与 macOS 为真），只有简体和标准繁体两项。
 inline std::wstring chinese_output_description(bool traditional, std::wstring_view scheme) {
   std::wstring description = traditional
                                  ? L"将提交的简体中文转换为繁体中文（OpenCC 标准繁体）"
                                  : L"按简体中文提交";
-  if (scheme == L"cantonese" || scheme == L"zhuyin")
-    description += L"。粤拼与注音直接输出繁体，此选项不影响它们";
+  if (scheme == L"cantonese")
+    description += traditional ? L"。粤拼词库原字为繁体" : L"。粤拼由引擎转换为简体";
+  else if (scheme == L"zhuyin")
+    description += L"。注音直接输出繁体，此选项不影响它";
   else if (scheme == L"stroke")
     description += L"。笔画按所选的字原样输出，此选项不影响它";
   return description;

@@ -72,10 +72,10 @@ int main() {
             L"将提交的简体中文转换为繁体中文（OpenCC 标准繁体）",
         "traditional");
   check(chinese_output_description(true, L"cantonese") ==
-            L"将提交的简体中文转换为繁体中文（OpenCC 标准繁体）。粤拼与注音直接输出繁体，此选项不影响它们",
-        "Cantonese is not converted");
+            L"将提交的简体中文转换为繁体中文（OpenCC 标准繁体）。粤拼词库原字为繁体",
+        "Cantonese keeps dictionary traditional output");
   check(chinese_output_description(false, L"zhuyin") ==
-            L"按简体中文提交。粤拼与注音直接输出繁体，此选项不影响它们",
+            L"按简体中文提交。注音直接输出繁体，此选项不影响它",
         "Zhuyin is not converted");
   check(chinese_output_description(false, L"stroke") ==
             L"按简体中文提交。笔画按所选的字原样输出，此选项不影响它",

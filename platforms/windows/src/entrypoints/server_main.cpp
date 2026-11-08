@@ -27,6 +27,7 @@
 #include "FocusedSession.h"
 #include "ClientAgent.h"
 #include "InputSchemeTraits.h"
+#include "../common/CharacterSetOutputPolicy.h"
 #include "FullscreenForeground.h"
 #include "HostApiDiagnosticLine.h"
 #include "HelpcodeRoot.h"
@@ -330,10 +331,11 @@ void write_document_atomic(const std::filesystem::path &path, const std::string 
   }
 }
 // 原生工具栏和 TSF 快捷键共用带修订号的偏好存储和单次工作线程，界面和输入队列不等存储锁。
-bool persist_traditional_output(const std::filesystem::path &directory,
-                                std::atomic<bool> &state,
-                                std::optional<bool> desired = std::nullopt,
-                                std::optional<bool> *changed = nullptr) {
+bool persist_character_set_output(const std::filesystem::path &directory,
+                                  std::atomic<bool> &state,
+                                  const std::string &scheme,
+                                  std::optional<bool> desired = std::nullopt,
+                                  std::optional<bool> *changed = nullptr) {
   if (changed) changed->reset();
   try {
     const auto root = directory.u8string();
@@ -348,13 +350,16 @@ bool persist_traditional_output(const std::filesystem::path &directory,
     auto snapshot = response.at("value");
     const auto revision = snapshot.at("revision").get<uint64_t>();
     auto &preferences = snapshot.at("preferences");
-    const bool enabled = preferences.value("traditional_chinese_output", false);
+    const bool enabled = msime::windows::character_set::is_traditional(
+        scheme, preferences.value("traditional_chinese_output", false),
+        preferences.value("cantonese_simplified_output", false));
     const bool next = desired.value_or(!enabled);
     if (next == enabled) {
       state.store(next, std::memory_order_release);
       return true;
     }
-    preferences["traditional_chinese_output"] = next;
+    preferences[msime::windows::character_set::preference_key(scheme)] =
+        msime::windows::character_set::stored_value(scheme, next);
     const auto serialized = snapshot.dump();
     auto saved = msime::host_api::own_string(
         msime_client_save_preferences(
@@ -1112,9 +1117,12 @@ int wmain(int argc, wchar_t **argv) {
     startup_stage = "preferences";
     const auto language_dictionaries =
         installed_language_dictionaries(config.resources);
+    const auto &prepared_preferences = prepared.at("value").at("preferences");
+    const auto prepared_scheme = running_scheme(prepared_preferences, language_dictionaries);
     auto traditional_output = std::make_shared<std::atomic<bool>>(
-        prepared.at("value").at("preferences")
-            .value("traditional_chinese_output", false));
+        msime::windows::character_set::is_traditional(
+            prepared_scheme, prepared_preferences.value("traditional_chinese_output", false),
+            prepared_preferences.value("cantonese_simplified_output", false)));
     auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
         tsf_local_config(prepared.at("value").at("preferences"),
                          language_dictionaries));
@@ -1190,12 +1198,19 @@ int wmain(int argc, wchar_t **argv) {
     hud_feedback.set_wake(wake_ui_thread);
     InputStateHudModeTracker hud_mode_tracker;
     CharacterSetClickWorker character_set_clicks(
-        [traditional_output, &hud_feedback, directory = config.state_root](
+        [traditional_output, &hud_feedback, directory = config.state_root,
+         tray_preferences, tray_preferences_mutex](
             const CharacterSetClick &click) {
           const auto foreground = click.foreground ? click.foreground :
               reinterpret_cast<uintptr_t>(GetForegroundWindow());
+          std::string scheme;
+          {
+            std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
+            scheme = tray_preferences->scheme;
+          }
           std::optional<bool> changed;
-          if (persist_traditional_output(directory, *traditional_output, click.desired, &changed) && changed)
+          if (persist_character_set_output(directory, *traditional_output, scheme,
+                                           click.desired, &changed) && changed)
             hud_feedback.publish(character_set_hud(*changed), {}, foreground);
         });
     // TSF 的 Ctrl+Shift+J 同样经一个有界工作线程写偏好，同样要在 WindowsServer 构造之前就有。写成功后立刻更新托盘看到的方案，并唤醒偏好监视器，让当前会话尽快切换方案。
@@ -1436,10 +1451,10 @@ int wmain(int argc, wchar_t **argv) {
           next.polish_prompt_custom_1 = input.value("polish_prompt_custom_1", std::string{});
           next.polish_prompt_custom_2 = input.value("polish_prompt_custom_2", std::string{});
           next.polish_prompt_custom_3 = input.value("polish_prompt_custom_3", std::string{});
-          next.traditional_output =
-              preferences.value("traditional_chinese_output", false) &&
-              msime::windows::scheme::ScriptConversionApplies(msime::windows::scheme::scheme_from_name(
-                  running_scheme(preferences, language_dictionaries)));
+          const auto next_scheme = running_scheme(preferences, language_dictionaries);
+          next.traditional_output = msime::windows::character_set::is_traditional(
+              next_scheme, preferences.value("traditional_chinese_output", false),
+              preferences.value("cantonese_simplified_output", false));
           std::lock_guard lock(*voice_config_mutex);
           *voice_config = std::move(next);
         };
