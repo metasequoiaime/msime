@@ -33,5 +33,7 @@ JVM 冒烟覆盖键位顺序、原始布局不变、英文与本地模式退出�
 - Linux 的完整 Android host 检查通过：344 项 JVM 冒烟、276 份设备套件源码以及 JNI、清单、资源和契约检查。此前 Windows 上复现的 CandidateSkinStampSmoke 文件替换断言在 Linux 上通过。
 - API 35、1080×2400 专用模拟器先装修改前基线，再覆盖安装修改版。旧版确认没有独立长音键；新版通过系统输入主路径，以及日语 `ko-hi-` 连续组字、删除末尾长音再续输、清空后单独长音上屏的实际输入验证。
 - 本地保留修改前、修改后、连续组字、单独长音上屏四张原尺寸截图。产物和日志在主工作区 `target/android/japanese-long-vowel/`，设备证据见 `device-acceptance.log`，宿主检查见 `android-host-check.log`。
-- 测试包版本 0.7.1，使用开发签名，不能覆盖正式签名版本；未在实体手机或 API 28 上验收，也没有宣称整个设备回归套件通过。
-- `scripts/verify-local.sh --quick` 的契约与 Android host 检查通过；共享 Rust workspace 的 `cargo check` 因容器未装 Linux ALSA 开发包（`alsa.pc`）失败，未宣称完整 quick 通过。`npm run verify-notes` 的三项校验及 `git diff --check` 通过。
+- 测试包版本 0.7.1，使用开发签名，不能覆盖正式签名版本；报告者已确认共存测试包可安装且长音正常；未记录其手机型号与系统版本，也未完成 API 28 或整个设备回归套件验收。
+- 补齐容器的 Linux ALSA 开发包后，`scripts/verify-local.sh --quick` 通过，包含契约检查、共享 Rust workspace 的 `cargo check` 和 Android host 检查。`npm run verify-notes` 的三项校验及 `git diff --check` 通过。
+
+问题跟踪：[#11123](https://github.com/metasequoiaime/msime/issues/11123)。
