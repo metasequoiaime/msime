@@ -12381,7 +12381,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeLetterRows.drawnTouchLayout() != displayedTouchLayout(view)
                 || imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
-                || imeLetterRows.letterWidthsStale()
+                || imeLetterRows.letterWidthsStale() || imeLetterRows.japaneseRomajiStale()
                 || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale()
                 || imeLayoutRows.numberPadSpaceStale()
                 || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())

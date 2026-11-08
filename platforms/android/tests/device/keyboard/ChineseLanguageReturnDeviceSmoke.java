@@ -14,20 +14,23 @@ import org.json.JSONObject;
 /** 日语使用和输入框重建后，中英键仍返回进入外语前的中文入口。 */
 public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
     private boolean japaneseToggle;
+    private boolean japaneseRomaji;
     private final java.util.List<String> japaneseTimingFailures = new java.util.ArrayList<>();
 
     @Override public void onCreate(android.os.Bundle arguments) {
         japaneseToggle = arguments != null && "true".equals(arguments.getString("japanese-toggle"));
+        japaneseRomaji = arguments != null && "true".equals(arguments.getString("japanese-romaji"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (japaneseRomaji) return "日语罗马字长音键连续组字、删除与单独输入";
         if (japaneseToggle) return "Japanese toggle preference, repeated kana and flick input";
         return "Chinese nine/fourteen-key return after English, Japanese typing and editor refocus";
     }
 
     @Override protected void runChecks() throws Exception {
-        if (japaneseToggle) {
+        if (japaneseToggle || japaneseRomaji) {
             runJapaneseToggleChecks();
             return;
         }
@@ -179,6 +182,11 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
                 .put("touch_japanese_toggle_input", false)
                 .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray()
                     .put("quanpin").put("japanese_nine_key")).put("selected", "japanese_nine_key"));
+            if (japaneseRomaji) {
+                values.put("touch_keyboard_layout", "twenty_six_key")
+                    .put("touch_keyboard_schemes", new JSONObject().put("enabled", new JSONArray()
+                        .put("quanpin").put("japanese")).put("selected", "japanese"));
+            }
             publish(preferences, bytes(new JSONObject().put("format_version", 1)
                 .put("revision", ++revision).put("preferences", values)));
             if (!modes.edit().clear().commit()) throw new AssertionError("Japanese fixture input modes reset failed");
@@ -186,6 +194,10 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
             stage = "launch Japanese toggle editor";
             shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
             tap(field("msime-test-plain"));
+            if (japaneseRomaji) {
+                JapaneseRomajiDeviceChecks.run(this);
+                return;
+            }
             stage = "Japanese toggle keyboard ready";
             awaitJapaneseReady();
             stage = "disabled toggle accessibility matches preference";

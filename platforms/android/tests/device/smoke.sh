@@ -291,6 +291,7 @@ fi
 # 十八键复用已有入口，API 28 核心验收与 API 35 完整验收都覆盖组码、回落和实际几何。
 check "十八键全拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_key true
 if [[ "$core" != true ]]; then
+  check "日语罗马字长音键验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-romaji true
   check "Japanese toggle input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-toggle true
 fi
 if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
