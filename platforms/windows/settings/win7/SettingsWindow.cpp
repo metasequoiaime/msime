@@ -2027,10 +2027,14 @@ struct SettingsWindow::State {
   void refresh_output_and_punctuation() {
     if (!snapshot) return;
     const auto& preferences = snapshot->preferences();
-    const bool traditional = preferences.at("traditional_chinese_output").get<bool>();
+    const auto scheme = preferences.value("scheme", std::string("quanpin"));
+    const bool cantonese = msime::windows::character_set::is_cantonese(scheme);
+    const bool traditional = cantonese
+                                 ? !preferences.value("cantonese_simplified_output", false)
+                                 : preferences.value("traditional_chinese_output", false);
     SendMessageW(GetDlgItem(body, traditional_output), CB_SETCURSEL, traditional ? 1 : 0, 0);
     const auto description = input::chinese_output_description(traditional,
-        wide_id(preferences.at("scheme").get<std::string>()));
+        wide_id(scheme));
     SetWindowTextW(GetDlgItem(body, output_description), description.c_str());
     SendMessageW(GetDlgItem(body, chinese_english_spacing), BM_SETCHECK,
         preferences.value("chinese_english_spacing", false) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -2975,7 +2979,13 @@ struct SettingsWindow::State {
     } else if (id == traditional_output && HIWORD(command) == CBN_SELCHANGE) {
       const auto selected = SendMessageW(GetDlgItem(body, id), CB_GETCURSEL, 0, 0);
       if (selected < 0 || selected > 1) return;
-      job.changes.push_back({{"traditional_chinese_output"}, selected == 1});
+      const auto scheme = snapshot
+                              ? snapshot->preferences().value("scheme", std::string("quanpin"))
+                              : std::string("quanpin");
+      if (msime::windows::character_set::is_cantonese(scheme))
+        job.changes.push_back({{"cantonese_simplified_output"}, selected == 0});
+      else
+        job.changes.push_back({{"traditional_chinese_output"}, selected == 1});
     } else if (id == mixed_first_page_count && HIWORD(command) == CBN_SELCHANGE) {
       const auto selected = SendMessageW(GetDlgItem(body, id), CB_GETCURSEL, 0, 0);
       if (selected < 0 || selected > 2) return;
