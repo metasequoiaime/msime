@@ -52,6 +52,7 @@ final class ImeBottomBar {
         bar.setContentDescription("键盘底栏");
         // 系统的输入法选择框，与 Android 自己画在导航栏里的切换按钮一致；只装了一个别的输入法时也能用，组字不结束，理由见 bindInputMethodPicker。
         switchButton = new KeyboardShortcutButton(s, KeyboardShortcutIconPolicy.Icon.GLOBE);
+        switchButton.setBesideMaterial(true);
         ViewPolicy.setAllCapsFalse(switchButton);
         switchButton.setText("切换输入法");
         switchButton.setContentDescription("切换输入法");

@@ -33,6 +33,21 @@ public final class KeyboardShortcutIconPolicy {
         };
     }
 
+    /** 地球描边画在 100 格的方框里：外圈直径 68，加上 7 格描边，占方框的 75%。 */
+    public static final float GLOBE_RING_SHARE = 75f / 100f;
+
+    /** Material 图标里圆形图案的基准线：24 格里直径 20，表情图标就是这么大。 */
+    public static final float MATERIAL_CIRCLE_SHARE = 20f / 24f;
+
+    /**
+     * 地球和 {@code materialDp} 大的 Material 图标并排时，地球描边方框的边长（dp）。
+     *
+     * <p>外圈落在 Material 的圆形基准线上，和同尺寸的表情图标一样大。键盘底栏里地球挨着 28 dp 的剪贴板，按触控区短边的比例画只有约 19 dp，明显小一圈。
+     */
+    public static float globeBoxBesideMaterialDp(float materialDp) {
+        return materialDp * MATERIAL_CIRCLE_SHARE / GLOBE_RING_SHARE;
+    }
+
     /** 这个图标是否按设计的 Material 实心图标（24 dp）绘制；为假的沿用旧的描边画法。 */
     public static boolean materialGlyph(Icon icon) {
         return switch (icon) {
