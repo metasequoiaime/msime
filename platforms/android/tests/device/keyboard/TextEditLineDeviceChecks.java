@@ -31,6 +31,15 @@ final class TextEditLineDeviceChecks {
         selection(0, 0);
         doubleTap(END);
         selection(end, end);
+        t.stage = "a late second tap counts as a single tap";
+        setSelection(16);
+        tap(END);
+        selection(22, 22);
+        settle();
+        tap(END);
+        // 超时的第二下仍是单击：留在行尾，不跳到文尾。多等一会，免得在第二下生效前就判过。
+        SystemClock.sleep(300);
+        selection(22, 22);
         t.stage = "edge keys no longer swipe up";
         // 不用 16：下一段要 setSelection(16)，选区没变时无障碍的设置选区返回 false。
         setSelection(13);
@@ -71,6 +80,21 @@ final class TextEditLineDeviceChecks {
         selection(end, end);
         tap("触控板");
         t.await(t.described("触控板").and(node -> !node.isChecked()));
+
+        open("wrapped");
+        t.stage = "a wrapped paragraph moves to its start and end, not the displayed line's";
+        // WRAPPED_TEXT 没有换行符，在 160 dp 宽的输入框里自动折行；宿主报告第二个显示行的边界。
+        int[] wrap = wrapLine();
+        int paragraphEnd = TrackpadEditorActivity.WRAPPED_TEXT.length();
+        if (wrap[1] <= 0 || wrap[2] >= paragraphEnd - 1) throw new AssertionError("Wrapped fixture did not wrap");
+        // 先挪开：输入框打开时的光标可能正好在 wrap[0]，选区不变时设置选区会返回 false。
+        setSelection(paragraphEnd);
+        setSelection(wrap[0]);
+        tap(END);
+        selection(paragraphEnd, paragraphEnd);
+        setSelection(wrap[0]);
+        tap(START);
+        selection(0, 0);
 
         open("terminal");
         t.stage = "edge keys fall back to Home and End without surrounding text";
@@ -129,6 +153,16 @@ final class TextEditLineDeviceChecks {
             if (i == 0) SystemClock.sleep(60);
         }
         t.automation.waitForIdle(300, 5000);
+    }
+
+    /** 折行输入框报告的第二个显示行：{光标放这里, 显示行起点, 显示行终点}。 */
+    private int[] wrapLine() {
+        AccessibilityNodeInfo status = t.await(t.field("trackpad-status").and(node -> node.getText() != null
+            && node.getText().toString().startsWith("wrap-anchor=")));
+        String[] parts = status.getText().toString().split(";");
+        int[] values = new int[3];
+        for (int i = 0; i < 3; i++) values[i] = Integer.parseInt(parts[i].substring(parts[i].indexOf('=') + 1));
+        return values;
     }
 
     private void status(String contains) {
