@@ -21,6 +21,7 @@ import struct
 import string
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
 from types import SimpleNamespace
@@ -83,6 +84,14 @@ class RustAccountApi:
                 script_root / "lib" / "msime-client" / "libmsime_host_api.so",
                 script_root / "lib" / "msime-client" / "libmsime_host_api_full.so",
             ])
+            # 旧版 provider 或不完整安装没有可用的 msime_voice_paths.py；Debian 多架构库仍可由 Python 的标准配置定位。
+            multiarch = sysconfig.get_config_var("MULTIARCH")
+            if isinstance(multiarch, str) and multiarch:
+                multiarch_library_directory = script_root / "lib" / multiarch / "msime-client"
+                candidates.extend([
+                    multiarch_library_directory / "libmsime_host_api.so",
+                    multiarch_library_directory / "libmsime_host_api_full.so",
+                ])
             # 源码树里脚本在 <仓库>/platforms/linux/scripts，开发构建的库在 <仓库>/target/debug。装到 /usr/bin 时往上只有三层，取第四层会抛 IndexError，整份候选表都建不起来，已安装的库也就加载不到（postinst 的 --ensure-anonymous-account 因此崩溃），所以上溯不到时没有开发构建这几项。
             script_parents = Path(__file__).resolve().parents
             development_root = script_parents[3] if len(script_parents) > 3 else None

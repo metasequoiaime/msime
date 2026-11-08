@@ -42,6 +42,30 @@ class InstalledLayoutLibraryLookup(unittest.TestCase):
         ])
         self.assertFalse(any("target" in path for path in tried))
 
+    def test_usr_bin_install_tries_the_debian_multiarch_library_directory(self):
+        # 旧版安装包没有 msime_voice_paths.py 时，Debian 的 host 库仍在 /usr/lib/<multiarch>/msime-client。
+        tried = []
+
+        def refuse(path, *args, **kwargs):
+            tried.append(str(path))
+            raise OSError("synthetic: no library here")
+
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict(online.__dict__, {"__file__": "/usr/bin/msime-linux-online-provider"}), \
+                mock.patch.dict(os.environ, {}, clear=False), \
+                mock.patch.object(online, "installed_host_library", return_value=None), \
+                mock.patch.object(online.sysconfig, "get_config_var", return_value="x86_64-linux-gnu"), \
+                mock.patch.object(online.ctypes, "CDLL", side_effect=refuse):
+            os.environ.pop("MSIME_HOST_LIBRARY", None)
+            api = online.RustAccountApi(directory)
+            self.assertIsNone(api._load())
+        self.assertEqual(tried[:4], [
+            "/usr/lib/msime-client/libmsime_host_api.so",
+            "/usr/lib/msime-client/libmsime_host_api_full.so",
+            "/usr/lib/x86_64-linux-gnu/msime-client/libmsime_host_api.so",
+            "/usr/lib/x86_64-linux-gnu/msime-client/libmsime_host_api_full.so",
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()
