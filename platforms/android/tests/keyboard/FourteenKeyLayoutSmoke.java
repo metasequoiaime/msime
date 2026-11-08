@@ -96,10 +96,6 @@ public final class FourteenKeyLayoutSmoke {
             && FourteenKeyLayout.description(qw).equals("Q W"), "a pair reads 按键 Q W");
         check(FourteenKeyLayout.accessibilityLabel(l).equals("字母 L")
             && FourteenKeyLayout.accessibilityLabel(m).equals("字母 M"), "a single key reads 字母 L");
-        // 长按：两字母键弹出这两个小写字母（没有数字，没有原样项），L、M 不弹。
-        check(FourteenKeyLayout.holdLetters(qw).equals("qw"), "QW holds q and w");
-        check(FourteenKeyLayout.holdLetters(l).isEmpty() && FourteenKeyLayout.holdLetters(m).isEmpty(),
-            "L and M do not hold");
         // 键位 id 与 client-services KEY_IDS 逐字一致，不记到 26 键的 KeyQ 上。
         List<String> ids = new ArrayList<>();
         for (List<FourteenKeyLayout.Key> row : FourteenKeyLayout.rows())

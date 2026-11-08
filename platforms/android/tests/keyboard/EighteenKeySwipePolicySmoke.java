@@ -16,33 +16,7 @@ public final class EighteenKeySwipePolicySmoke {
             check(EighteenKeySwipePolicy.letter(unsupported, 50, 0) == 0, "只接受两个小写字母");
         }
         check(EighteenKeySwipePolicy.letter(null, 50, 0) == 0, "缺少键面不选择字母");
-        EighteenKeySwipePolicy.Gesture gesture = new EighteenKeySwipePolicy.Gesture("we");
-        gesture.start(4, 100, 100);
-        gesture.move(4, 1, 110, 100);
-        check(!gesture.consumed() && gesture.selected() == 0, "轻点保留按钮点击");
-        gesture.move(4, 1, 65, 100);
-        check(gesture.consumed() && gesture.selected() == 'W', "横滑接管按钮");
-        gesture.move(4, 1, 135, 100);
-        check(gesture.selected() == 'E', "同次触摸可以反向重选");
-        gesture.move(4, 1, 100, 100);
-        check(gesture.consumed() && gesture.selected() == 0, "回中心仍接管，不补普通点击");
-        gesture.move(4, 2, 135, 100);
-        gesture.move(4, 1, 135, 100);
-        check(gesture.consumed() && gesture.selected() == 0, "多指后单指继续移动也不输入");
-        gesture.start(4, 100, 100);
-        gesture.move(5, 1, 135, 100);
-        check(gesture.consumed() && gesture.selected() == 0, "触摸指针更换不能提交");
-        gesture.start(4, 100, 100);
-        gesture.move(4, 1, 135, 100);
-        gesture.cancel();
-        check(gesture.consumed() && gesture.selected() == 0, "系统取消清除选择");
-        gesture.start(4, 100, 100);
-        gesture.hold();
-        gesture.move(4, 1, 135, 100);
-        check(!gesture.consumed() && gesture.selected() == 0, "长按已弹选项后不抢成横滑");
-        gesture.start(4, 100, 100);
-        gesture.move(4, 1, 135, 100);
-        check(gesture.selected() == 'E', "新按压不继承取消或长按状态");
+        // 一次按压的状态（接管、重选、多指、取消、长按优先）由 GridKeyGesturePolicySmoke 覆盖。
         System.out.println("Android eighteen-key exact swipe: passed");
     }
 

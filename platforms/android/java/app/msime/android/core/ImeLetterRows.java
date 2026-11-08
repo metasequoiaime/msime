@@ -97,6 +97,10 @@ final class ImeLetterRows {
     /** 14 键第 3 行左端的分词键；键面随组字状态在「符」和「分词」之间换（{@link #updateFourteenKeySeparator}）。不在 14 键字母层时为 null。 */
     private Button fourteenSeparatorKey;
     private Button fourteenLKey;
+    /** 14 键、18 键的字母键和它们的键，下标一一对应；角标按 {@link #gridLettersEighteen} 查表。不在 14/18 键字母层时为空。 */
+    private final java.util.List<KeyHintButton> gridLetterButtons = new java.util.ArrayList<>();
+    private final java.util.List<FourteenKeyLayout.Key> gridLetterKeys = new java.util.ArrayList<>();
+    private boolean gridLettersEighteen;
     private Button shiftSource;
 
     /** 偏好里的一个布尔触控开关。 */
@@ -806,6 +810,8 @@ final class ImeLetterRows {
         s.japaneseVariantsButton = null;
         fourteenSeparatorKey = null;
         fourteenLKey = null;
+        gridLetterButtons.clear();
+        gridLetterKeys.clear();
         s.keyRows.removeAllViews();
         if (builtSymbolExtraRow) addSymbolExtraRow();
         // 每种键面的数字层都借数字九宫格（日文假名网格也一样），所以排在各键面自己的分支之前；拼音九键的字母层也由这里建。
@@ -1027,7 +1033,7 @@ final class ImeLetterRows {
     /**
      * 全拼、双拼和五笔 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
      *
-     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。每一格的份额取自 {@link FourteenKeyLetterWidths#plan}（共享偏好 `touch_fourteen_key_letter_widths`，#11051）：等宽时第 2 行不缩进；宽窄时单字母键窄一些，第 2 行两端是归 A、L（14 键是 AS、L）的占位格（{@link KeyboardSpacer}），点在里面不丢。双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift、角标和滑动输入符号。长按两字母键弹出这两个字母，选中后先结束组字再上屏，与九键长按相同。14 键拼音选择在左侧栏，18 键拼音选择在读音行、读音右边（不叠在候选行上，组字时候选照常可点）；18 键不画左侧符号栏。
+     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。每一格的份额取自 {@link FourteenKeyLetterWidths#plan}（共享偏好 `touch_fourteen_key_letter_widths`，#11051）：等宽时第 2 行不缩进；宽窄时单字母键窄一些，第 2 行两端是归 A、L（14 键是 AS、L）的占位格（{@link KeyboardSpacer}），点在里面不丢。双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift。字母键右上角画这一键的符号，滑动和长按按 26 键的规则输入符号或打开选项，组字中都是点按（{@link #bindGridLetterGestures}，#11063）。14 键拼音选择在左侧栏，18 键拼音选择在读音行、读音右边（不叠在候选行上，组字时候选照常可点）；18 键不画左侧符号栏。
      */
     private void rebuildFourteenKeyRows() {
         s.imeLayoutRows.dismissNineKeyHoldOptions();
@@ -1092,6 +1098,8 @@ final class ImeLetterRows {
                 }
             }
         }
+        gridLettersEighteen = eighteen;
+        updateGridLetterCornerHints();
     }
 
     /** 14/18 键第三排左端的分词键；能画角标：网格辅助码可用时右上角画「辅」，上滑放下分隔符（ImeGridHelpcodeEntry）。 */
@@ -1107,11 +1115,11 @@ final class ImeLetterRows {
         return separator;
     }
 
-    /** 14/18 键的一个字母键：点按送这一组的首字母，长按弹出两个字母，18 键双拼的两字母键可以横滑。 */
+    /** 14/18 键的一个字母键：点按送这一组的首字母；能画角标：右上角是这一键的符号（{@link GridLetterHintTable}，#11063），由 {@link #updateGridLetterCornerHints} 跟着中文标点和「显示字母键角标」更新；滑动和长按见 {@link #bindGridLetterGestures}。 */
     private Button fourteenLetterKey(FourteenKeyLayout.Key key, boolean eighteen) {
-        Button keyButton = s.keyId(s.keyboardKey(FourteenKeyLayout.face(key),
-            FourteenKeyLayout.description(key), () -> s.gridKey(key.input())),
-            eighteen ? EighteenKeyLayout.keyId(key) : FourteenKeyLayout.keyId(key));
+        KeyHintButton keyButton = s.keyboardKey(new KeyHintButton(s), FourteenKeyLayout.face(key),
+            FourteenKeyLayout.description(key), () -> s.gridKey(key.input()));
+        s.keyId(keyButton, eighteen ? EighteenKeyLayout.keyId(key) : FourteenKeyLayout.keyId(key));
         String face = FourteenKeyLayout.face(key, fourteenShuangpin());
         keyButton.setText(face);
         // 双字母键面两个字母之间留一点字距（#11051）；18 键的自适应字号按带字距的宽度量，窄屏上照样单行。
@@ -1120,19 +1128,10 @@ final class ImeLetterRows {
         if ("l".equals(key.letters())) fourteenLKey = keyButton;
         if (eighteen) KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 12, 22);
         else KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
-        if (keyButton instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
-        String letters = FourteenKeyLayout.holdLetters(key);
-        EighteenKeySwipePolicy.Gesture swipe = eighteen && letters.length() == 2
-            ? bindEighteenKeySwipe(keyButton, letters) : null;
-        if (!letters.isEmpty()) {
-            keyButton.setOnLongClickListener(ignored -> {
-                if (swipe != null) swipe.hold();
-                // 长按是这个键的一次按压，之后从弹窗里选的不是另一次按键。
-                s.countKey(keyButton);
-                s.imeLayoutRows.showNineKeyHoldOptions(keyButton, "", letters);
-                return true;
-            });
-        }
+        keyButton.setKeyboardRole(KeyboardKeyRole.KEY);
+        gridLetterButtons.add(keyButton);
+        gridLetterKeys.add(key);
+        bindGridLetterGestures(keyButton, key, eighteen);
         return keyButton;
     }
 
@@ -1141,58 +1140,158 @@ final class ImeLetterRows {
         return s.keyRows != null && builtLetterWidths != null && builtLetterWidths != s.fourteenKeyLetterWidths;
     }
 
-    /** 十八键双拼的横滑进入当前网格；未接管时仍由 Button 处理点按和长按。 */
-    private EighteenKeySwipePolicy.Gesture bindEighteenKeySwipe(Button key, String letters) {
-        EighteenKeySwipePolicy.Gesture gesture = new EighteenKeySwipePolicy.Gesture(letters);
-        String face = key.getText().toString();
+    /** 14 键、18 键字母键右上角的符号跟中文标点和「显示字母键角标」走，render 时调用；手势按键查 {@link GridLetterHintTable}，不读键面，关掉角标不影响滑动和长按。键面相同时 setCornerHint 直接返回。 */
+    void updateGridLetterCornerHints() {
+        boolean shown = touchPreference(AndroidLocalSettings.LETTER_CORNER_HINTS);
+        boolean chinese = s.sendsChinesePunctuation();
+        for (int index = 0; index < gridLetterButtons.size(); index++) {
+            gridLetterButtons.get(index).setCornerHint(shown ? GridLetterHintTable.face(gridLetterKeys.get(index),
+                gridLettersEighteen, chinese, s.punctuationMarks()) : null);
+        }
+    }
+
+    /**
+     * 14 键、18 键字母键的手势（#11063，判定见 {@link GridKeyGesturePolicy}），规则跟 26 键的 {@link #bindLetterGestures} 走：沿「滑动输入符号」的方向滑出角标符号，反方向滑动或空闲长按打开这一键的字母和符号选项（{@link ImeLayoutRows#showGridLetterOptions}），可继续拖选；18 键双拼的两字母键横滑限定字母，与原来相同。
+     *
+     * <p>「组字中」按 Engine 的 `editing_text` 判断（{@link MSIMEInputService#hasEngineComposition}），不看候选栏：上屏后联想也显示候选栏，但那时滑动和长按照常出符号和选项。组字中纵滑和长按都是一次普通点按，长按不再先结束组字。点按始终交给按钮（{@link MSIMEInputService#gridKey}）；组字中位移让按钮自己取消了点击时，这里补一次。长按经按钮的长按回调触发，读屏的长按动作也走这一条。
+     */
+    private void bindGridLetterGestures(Button key, FourteenKeyLayout.Key gridKey, boolean eighteen) {
+        final String hint = GridLetterHintTable.hint(gridKey, eighteen);
+        final String exactLetters = eighteen && gridKey.letters().length() == 2 ? gridKey.letters() : null;
+        final GridKeyGesturePolicy.Gesture[] gesture = {new GridKeyGesturePolicy.Gesture(null, hint != null)};
+        final boolean[] touching = new boolean[1];
+        final String[] face = {key.getText().toString()};
+        key.setOnLongClickListener(ignored -> {
+            // 组字中长按不打开选项：返回 false，按钮松手时照常点按这一组。
+            if (s.hasEngineComposition()) return false;
+            if (touching[0] && !gesture[0].hold()) return false;
+            hideKeyPreview(key);
+            s.imeLayoutRows.showGridLetterOptions(key, gridKey.letters(), hint, symbolFace(gridKey, eighteen));
+            return true;
+        });
         key.setOnTouchListener((view, event) -> {
-            updateKeyPreview(key, event);
-            if (!fourteenShuangpin()) {
-                gesture.cancel();
-                key.setText(face);
-                hideKeyPreview(key);
-                return false;
-            }
+            GridKeyGesturePolicy.Gesture current = gesture[0];
+            if (event.getActionMasked() != MotionEvent.ACTION_DOWN && s.hasEngineComposition()) current.composing();
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
-                    gesture.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
-                        DimensionPolicy.fromPixels(s, event.getY()));
+                    face[0] = key.getText().toString();
+                    // 横滑只给双拼：全拼的 18 键没有精确字母。每次按下按当前方案重建。
+                    boolean exact = fourteenShuangpin() && exactLetters != null;
+                    current = new GridKeyGesturePolicy.Gesture(exact ? exactLetters : null, hint != null);
+                    gesture[0] = current;
+                    String direction = touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
+                        ? s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION) : null;
+                    current.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
+                        DimensionPolicy.fromPixels(s, event.getY()), direction, s.hasEngineComposition());
+                    touching[0] = true;
+                    // 按下的气泡只画在 18 键双拼的两字母键上（横滑要看选中的字母），与改动前相同；其余 14/18 键按下不画，滑出符号时才画（gridGesturePreview）。
+                    if (exact) updateKeyPreview(key, event);
                     return false;
                 }
-                case MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
-                    boolean wasConsumed = gesture.consumed();
-                    gesture.move(event.getPointerId(0), event.getPointerCount(),
-                        DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()));
-                    if (!wasConsumed && gesture.consumed()) cancelKeyTouch(key, event);
-                    char selected = gesture.selected();
-                    String label = selected == 0 ? face : String.valueOf(selected);
-                    key.setText(label);
-                    updateKeyPreviewLabel(key, label);
-                    if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                        key.setText(face);
-                        if (gesture.consumed()) key.setPressed(false);
-                        if (selected != 0) {
+                case MotionEvent.ACTION_MOVE -> {
+                    if (current.mode() == GridKeyGesturePolicy.Mode.OPTIONS) {
+                        s.imeLayoutRows.moveLetterOptions(key, event);
+                        return true;
+                    }
+                    GridKeyGesturePolicy.Mode before = current.mode();
+                    if (current.move(event.getPointerId(0), event.getPointerCount(),
+                            DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY())))
+                        gridGestureChanged(key, gridKey, eighteen, current, before, face[0], event);
+                    return current.consumed();
+                }
+                case MotionEvent.ACTION_UP -> {
+                    touching[0] = false;
+                    hideKeyPreview(key);
+                    GridKeyGesturePolicy.Mode before = current.mode();
+                    if (before != GridKeyGesturePolicy.Mode.OPTIONS && current.move(event.getPointerId(0),
+                            event.getPointerCount(), DimensionPolicy.fromPixels(s, event.getX()),
+                            DimensionPolicy.fromPixels(s, event.getY())))
+                        gridGestureChanged(key, gridKey, eighteen, current, before, face[0], event);
+                    key.setText(face[0]);
+                    switch (current.mode()) {
+                        case PENDING -> {
+                            if (!current.forcesTap()) return false;
+                            // 组字中的滑动必须等价于一次普通点按，即使位移让按钮自己取消了点击。先取消按钮自己的这次触摸，它不会再补一次点击或长按。
+                            cancelKeyTouch(key, event);
+                            key.performClick();
+                            return true;
+                        }
+                        case SYMBOL -> {
+                            cancelKeyTouch(key, event);
                             s.imeKeyFeedback.playFeedback(key);
                             s.countKey(key);
-                            s.gridKey(selected);
+                            s.imeLayoutRows.commitGridLetterHint(hint);
                         }
+                        case LETTER -> {
+                            key.setPressed(false);
+                            char selected = current.selected();
+                            if (selected != 0) {
+                                s.imeKeyFeedback.playFeedback(key);
+                                s.countKey(key);
+                                s.gridKey(selected);
+                            }
+                        }
+                        case OPTIONS -> {
+                            cancelKeyTouch(key, event);
+                            if (s.imeLayoutRows.finishLetterOptions(key, event)) return true;
+                            // 没拖进选项：弹窗留着等点选，这一下算这个键的一次按压。
+                            s.imeKeyFeedback.playFeedback(key);
+                            s.countKey(key);
+                        }
+                        case CANCELLED -> key.setPressed(false);
                     }
-                    return gesture.consumed();
+                    return true;
                 }
                 case MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP,
                         MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
-                    gesture.cancel();
+                    touching[0] = false;
+                    current.cancel();
                     cancelKeyTouch(key, event);
-                    key.setText(face);
+                    key.setText(face[0]);
                     hideKeyPreview(key);
-                    s.imeLayoutRows.dismissNineKeyHoldOptions();
+                    s.imeLayoutRows.cancelLetterOptions(key);
                     return true;
                 }
-                default -> { return gesture.consumed(); }
+                default -> { return current.consumed(); }
             }
         });
-        return gesture;
+    }
+
+    /** 一次移动改变了手势：接管时取消按钮自己的点按和长按，并让键面和气泡跟上。 */
+    private void gridGestureChanged(Button key, FourteenKeyLayout.Key gridKey, boolean eighteen,
+            GridKeyGesturePolicy.Gesture gesture, GridKeyGesturePolicy.Mode before, String face, MotionEvent event) {
+        if (before == GridKeyGesturePolicy.Mode.PENDING && gesture.consumed()) cancelKeyTouch(key, event);
+        switch (gesture.mode()) {
+            case SYMBOL -> gridGesturePreview(key, symbolFace(gridKey, eighteen));
+            case LETTER -> {
+                char selected = gesture.selected();
+                String label = selected == 0 ? face : String.valueOf(selected);
+                key.setText(label);
+                gridGesturePreview(key, label);
+            }
+            case OPTIONS -> {
+                hideKeyPreview(key);
+                s.imeLayoutRows.showGridLetterOptions(key, gridKey.letters(),
+                    GridLetterHintTable.hint(gridKey, eighteen), symbolFace(gridKey, eighteen));
+            }
+            case CANCELLED -> {
+                key.setText(face);
+                hideKeyPreview(key);
+            }
+            default -> { }
+        }
+    }
+
+    /** 手势触发后气泡显示滑出的符号或选中的字母：已有气泡就换字，没有时按「按键弹出」画一个，关掉「按键弹出」时不画。 */
+    private void gridGesturePreview(Button key, String label) {
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
+        else if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, label);
+    }
+
+    /** 角标符号此刻的键面：中文标点状态在手势触发时读，切换中文标点不必为此重建键行。 */
+    private String symbolFace(FourteenKeyLayout.Key gridKey, boolean eighteen) {
+        return GridLetterHintTable.face(gridKey, eighteen, s.sendsChinesePunctuation(), s.punctuationMarks());
     }
 
     private void cancelKeyTouch(Button key, MotionEvent event) {

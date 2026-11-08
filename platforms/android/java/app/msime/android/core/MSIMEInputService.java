@@ -12396,6 +12396,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
         imeLetterRows.updateFourteenKeySeparator();
+        imeLetterRows.updateGridLetterCornerHints();
         String currentEditingText = view == null ? "" : InputViewValuePolicy.editingText(view);
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;

@@ -15,42 +15,4 @@ public final class EighteenKeySwipePolicy {
                 || Math.abs(dx) <= THRESHOLD_DP || Math.abs(dx) <= 1.5f * Math.abs(dy)) return 0;
         return Character.toUpperCase(letters.charAt(dx < 0 ? 0 : 1));
     }
-
-    /** 一次按压的选择状态；接管后回中心、多指或取消都不能补一次普通点击。 */
-    public static final class Gesture {
-        private final String letters;
-        private int pointer;
-        private float downX;
-        private float downY;
-        private boolean consumed;
-        private boolean cancelled;
-        private boolean held;
-        private char selected;
-
-        public Gesture(String letters) { this.letters = letters; }
-
-        public void start(int pointerId, float x, float y) {
-            pointer = pointerId;
-            downX = x;
-            downY = y;
-            consumed = cancelled = held = false;
-            selected = 0;
-        }
-
-        public void move(int pointerId, int pointers, float x, float y) {
-            if (cancelled) return;
-            if (pointers != 1 || pointerId != pointer || !Float.isFinite(x) || !Float.isFinite(y)) {
-                cancel();
-                return;
-            }
-            if (held) return;
-            selected = letter(letters, x - downX, y - downY);
-            consumed |= selected != 0;
-        }
-
-        public void hold() { held = true; selected = 0; }
-        public void cancel() { cancelled = consumed = true; selected = 0; }
-        public boolean consumed() { return consumed; }
-        public char selected() { return selected; }
-    }
 }

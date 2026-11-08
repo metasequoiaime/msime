@@ -15,7 +15,7 @@ Status: implemented
   - Android：本地设置 `platform.android.letter_corner_hints`（`AndroidLocalSettings.LETTER_CORNER_HINTS`，缺省开），与 `swipe_down_symbols` 一样参与账号同步，client-services 的 `ANDROID_LOCAL_SETTINGS` 登记同名同步键；服务端字段表收录之前上传时会被滤掉，只存在本机。建键时和 `updateLetterCornerHints` 里按它决定 `setCornerHint` 给符号还是 `null`。本地设置变了 `reloadPreferences` 会 `render()`，`render()` 每次都调 `updateLetterCornerHints`，所以不用进 `touchGeometryKey()`。手势在 `bindLetterGestures` 里按 `LetterHintTable.hint(input)` 取符号，不读键面。
   - HarmonyOS：键盘自己的 `key-feedback.json` 里的 `letterCornerHints`（`FeedbackSettings`，缺省开），经 `KeyboardFeedbackBridge` 给共享设置页，账号同步只带三个反馈字段，`fromShared` 从已存设置沿用它。字母键的 `KeyOptions` 多一个 `showCornerHint`，`keyFaceHasCornerHint` 看它决定画不画；`cornerHint` 照旧交给 `letterHintTouch`。`faceKey()` 带上这一位，键盘开着时改了已画好的字母键会重建，`tests/run.sh` 锁住这几处接线。
 - 共享设置页（HarmonyOS 用）：`MobileKeyboardFeedback.letterCornerHints` 可选，宿主给出时在「手势」组画这一行，保存时整份反馈记录原样送回。
-- 只作用于 26 键字母键。九键、14/18 键、数字层和底行句号键上的角标不在这次范围里。
+- 只作用于 26 键字母键。九键、14/18 键、数字层和底行句号键上的角标不在这次范围里。Android 14/18 键加上角标符号后，同一个开关也管它们（[14/18 键角标符号](2026-11-07-fourteen-eighteen-key-corner-symbols.md)），语义不变：只管画不画。
 - 「手势」组的顺序三端相同：「滑动输入符号」「滑动方向」「显示字母键角标」「九键滑动输入数字」。九键这一行原先紧跟「滑动方向」，iOS 的仓库契约 `scripts/test-ios-key-layout-settings.py` 和共享设置页的测试按新顺序改写并钉住，两端 README 和各处注释里「紧跟 26 键滑动方向」的说法一并更新。
 
 ## Alternatives considered
