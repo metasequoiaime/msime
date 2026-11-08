@@ -618,6 +618,42 @@ fn new_client_baselines_and_missing_required_components_do_not_use_old_selection
     assert!(validate_selection(&active, &fixture.context.baseline).is_err());
 }
 
+/// 覆盖安装换了随包词库锁之后，旧记录过不了新基线，按锁查不到随包目录；记录里的位置照样读得出来，词库清单的格式与当前类型对不上也一样。
+#[test]
+fn recorded_bundle_directories_survive_a_new_baseline_and_schema_drift() {
+    let fixture = Fixture::new();
+    let state = &fixture.context.state_root;
+    assert!(recorded_bundled_directories(state).is_empty());
+    fixture.release("dict-v2.0.10", b"synthetic dictionary", 1);
+    check_with(&fixture.context, false, &fixture).unwrap();
+    let mut newer = fixture.context.baseline.clone();
+    newer.source_commit = "c".repeat(40);
+    assert_eq!(bundled_resources(state, &newer), None);
+    assert_eq!(
+        recorded_bundled_directories(state),
+        vec![fixture.context.resources.clone()]
+    );
+
+    let bundle = fixture.context.resources.join("older-bundle");
+    write(
+        &root(state).join("installed.json"),
+        &json!({
+            "active": {"bundled_resources": "relative/resources", "desktop": {"format": 9}},
+            "previous": {"bundled_resources": bundle, "unknown": true},
+        }),
+    )
+    .unwrap();
+    assert!(read::<Installed>(&root(state).join("installed.json")).is_err());
+    assert_eq!(recorded_bundled_directories(state), vec![bundle]);
+
+    write(
+        &root(state).join("installed.json"),
+        &json!({"active": {"bundled_resources": 7}, "previous": null}),
+    )
+    .unwrap();
+    assert!(recorded_bundled_directories(state).is_empty());
+}
+
 #[test]
 fn current_baseline_does_not_download_older_releases() {
     let fixture = Fixture::new();
