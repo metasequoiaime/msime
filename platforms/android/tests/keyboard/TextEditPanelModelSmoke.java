@@ -12,10 +12,16 @@ public final class TextEditPanelModelSmoke {
         List<Action> order = List.of(Action.COPY, Action.PASTE, Action.SELECT_ALL, Action.CUT,
             Action.SPACE, Action.NUMBER_PAD, Action.DELETE, Action.SELECT_LINE);
         Action lineStart = Action.valueOf("LINE_START"), lineEnd = Action.valueOf("LINE_END");
-        check(TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_START) == lineStart
-            && TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_END) == lineEnd
-            && TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE,
-            "文首、文末、全选上滑保留行级动作");
+        check(TextEditPanelModel.upwardSwipeAction(Action.SELECT_ALL) == Action.SELECT_LINE,
+            "全选上滑保留选择行");
+        // ⇤ ⇥ 的行首、行尾改成单击，双击到文首文尾（#11111），不再有上滑。
+        check(TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_START) == null
+            && TextEditPanelModel.upwardSwipeAction(Action.DOCUMENT_END) == null
+            && TextEditPanelModel.upwardSwipeDescription(Action.DOCUMENT_START).isEmpty()
+            && TextEditPanelModel.upwardSwipeDescription(Action.DOCUMENT_END).isEmpty(), "⇤ ⇥ 没有上滑");
+        check(TextEditPanelModel.key(Action.DOCUMENT_START).description().equals("移到行首，双击移到开头")
+            && TextEditPanelModel.key(Action.DOCUMENT_END).description().equals("移到行尾，双击移到结尾"),
+            "⇤ ⇥ 的读屏名称先说单击、再说双击");
         check(TextEditPanelModel.upwardSwipeAction(Action.COPY) == null
             && TextEditPanelModel.upwardSwipeDescription(Action.COPY).isEmpty(), "其他侧键没有隐藏上滑动作");
         check(TextEditPanelModel.keys(order).size() == 16, "七个侧键、方向区九格和换行，选择行与行首尾不生成键");

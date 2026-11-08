@@ -30,6 +30,7 @@ final class ImeTextEditPanel {
     private final Map<TextEditPanelModel.Action, Button> buttons =
         new EnumMap<>(TextEditPanelModel.Action.class);
     private boolean selecting;
+    private final TextEditEdgeTapPolicy edgeTaps = new TextEditEdgeTapPolicy();
     private Runnable repeatTask;
     private TextTrackpadSettings trackpadSettings;
     private boolean liveTrackpadPreferencesLoaded;
@@ -430,6 +431,7 @@ final class ImeTextEditPanel {
         s.closeToolbarPanels();
         s.closeCandidatePanel();
         selecting = false;
+        edgeTaps.reset();
         populate(s.textEditPanel);
         renderState();
         s.imeStyler.applySkinBackground(s.textEditPanel);
@@ -447,6 +449,7 @@ final class ImeTextEditPanel {
         if (trackpad != null) trackpad.cancel();
         setPreviewActive(false);
         selecting = false;
+        edgeTaps.reset();
         if (s.textEditPanel != null) ViewPolicy.hide(s.textEditPanel);
         coverTopRowForAccessibility(false);
     }
@@ -475,7 +478,15 @@ final class ImeTextEditPanel {
         InputConnection target = s.connection;
         if (target == null) return;
         s.selectionEcho.invalidate();
-        if (action == TextEditPanelModel.Action.SELECT) {
+        boolean edge = action == TextEditPanelModel.Action.DOCUMENT_START
+            || action == TextEditPanelModel.Action.DOCUMENT_END;
+        if (!edge) edgeTaps.reset();
+        if (edge) {
+            // ⇤ ⇥（#11111）：单击立即移到行首、行尾，时间窗口内对同一个键再按一下接着移到文首、文尾。
+            TextEditPanelModel.Action step = edgeTaps.tap(action, SystemClock.uptimeMillis());
+            if (step == action) sendKey(target, TextEditPanelModel.keyCode(step), TextEditPanelModel.metaState(step, selecting));
+            else moveToLineEdge(target, step);
+        } else if (action == TextEditPanelModel.Action.SELECT) {
             selecting = !selecting;
         } else if (action == TextEditPanelModel.Action.SELECT_LINE) {
             selectLine(target);
@@ -505,13 +516,44 @@ final class ImeTextEditPanel {
         renderState();
     }
 
+    /**
+     * ⇤ ⇥ 单击：按换行符找行首、行尾（和选择行同一套读全文的办法），不管屏幕上的自动折行；选择模式下从选区起点延伸过去。读不到全文的输入框（终端、部分 WebView）和密码框退回 Home / End 键，由编辑器自己决定移到哪里。
+     */
+    private void moveToLineEdge(InputConnection target, TextEditPanelModel.Action step) {
+        android.view.inputmethod.ExtractedText extracted =
+            EditorPolicy.password(s.editorInputType) ? null : fullText(target);
+        if (extracted != null && extracted.selectionStart >= 0 && extracted.selectionEnd >= 0) {
+            // ExtractedText 的 selectionEnd 是活动端，selectionStart 是起点，反向选区时前者可能更小。
+            int to = step == TextEditPanelModel.Action.LINE_START
+                ? TextEditLineSelection.lineStart(extracted.text, extracted.selectionEnd)
+                : TextEditLineSelection.lineEnd(extracted.text, extracted.selectionEnd);
+            int from = selecting ? Math.min(extracted.selectionStart, extracted.text.length()) : to;
+            try {
+                if (to >= 0 && target.setSelection(from, to)) return;
+            } catch (RuntimeException ignored) {
+                // 退回按键。
+            }
+        }
+        sendKey(target, TextEditPanelModel.keyCode(step), TextEditPanelModel.metaState(step, selecting));
+    }
+
+    /** 编辑器给的完整文本（从开头起、不是局部更新）；拿不到返回 {@code null}。 */
+    private static android.view.inputmethod.ExtractedText fullText(InputConnection target) {
+        try {
+            android.view.inputmethod.ExtractedText extracted =
+                target.getExtractedText(new android.view.inputmethod.ExtractedTextRequest(), 0);
+            if (extracted == null || extracted.text == null || extracted.startOffset != 0
+                    || extracted.partialStartOffset != -1) return null;
+            return extracted;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
     private void selectLine(InputConnection target) {
         try {
-            android.view.inputmethod.ExtractedTextRequest request =
-                new android.view.inputmethod.ExtractedTextRequest();
-            android.view.inputmethod.ExtractedText extracted = target.getExtractedText(request, 0);
-            if (extracted == null || extracted.text == null || extracted.startOffset != 0
-                    || extracted.partialStartOffset != -1) {
+            android.view.inputmethod.ExtractedText extracted = fullText(target);
+            if (extracted == null) {
                 s.notice("当前输入框不支持选择行");
                 return;
             }
@@ -841,6 +883,7 @@ final class ImeTextEditPanel {
         InputConnection next = s.connection;
         selectionReads.cancel();
         selectionVersion.reset();
+        edgeTaps.reset();
         if (trackpad != null) trackpad.retarget(previous, next);
         if (shortcutTouch != null) shortcutTouch.retarget(previous, next);
         if (previewActive) setPreviewActive(true);
