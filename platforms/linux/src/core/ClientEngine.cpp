@@ -1897,7 +1897,10 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
   append_toggle("Toolbar/Fullwidth", msime::linux_host::menu_label::kFullwidth, "切换 ASCII 全角或半角输出",
                 available && toolbar.value("fullwidth", true), s.fullwidth);
   const auto character_scheme = character_set_scheme(s);
-  append_toggle("Toolbar/CharacterSet", msime::linux_host::character_set::label(character_scheme),
+  const auto character_label = msime::linux_host::character_set::follows_cantonese(character_scheme)
+      ? msime::linux_host::character_set::label(character_scheme)
+      : msime::linux_host::menu_label::kTraditionalOutput;
+  append_toggle("Toolbar/CharacterSet", character_label,
                 msime::linux_host::character_set::hint(character_scheme),
                 available && toolbar.value("character_set", true), character_set_checked(s));
   // 表情、手写、屏幕键盘和语音四个按钮默认关，与共享默认值（preferences.rs）一致。
