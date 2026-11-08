@@ -108,6 +108,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(scroll.getScrollX() == 0, "hidden tools left stale scroll offset");
                 check(buttons[0].getWidth() >= scroll.getWidth() - 2 * Math.round(density),
                     "single visible tool did not fill available width");
+                checkToolbarHeightStability(type, service, loader, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
@@ -130,6 +131,50 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
+    }
+
+    /** #11108：独立工具栏在 90%–150% 间切换时，空闲行与九键组字候选区共用同一总高。 */
+    private static void checkToolbarHeightStability(Class<?> type, Object service, ClassLoader loader,
+            float density) throws Exception {
+        Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
+        Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
+        constructor.setAccessible(true);
+        ViewGroup region = (ViewGroup) field(type, "candidateCanvasRegion").get(service);
+        View header = (View) field(type, "candidateHeader").get(service);
+        View line = (View) field(type, "candidateLine").get(service);
+        View toolbar = (View) field(type, "shortcutToolbar").get(service);
+        Field settings = field(type, "localSettings");
+        Method update = method(type, "updateCandidateViewportHeight");
+        try {
+            for (int percent : new int[] {90, 100, 150}) {
+                settings.set(service, constructor.newInstance(Map.of(
+                    "platform.android.toolbar_size_percent", percent)));
+                header.setVisibility(View.GONE);
+                line.setVisibility(View.GONE);
+                toolbar.setVisibility(View.VISIBLE);
+                update.invoke(service);
+                int idle = measureHeight(region, density);
+                header.setVisibility(View.VISIBLE);
+                line.setVisibility(View.VISIBLE);
+                toolbar.setVisibility(View.GONE);
+                update.invoke(service);
+                int composing = measureHeight(region, density);
+                check(idle == composing,
+                    "toolbar height changed at " + percent + "%: idle=" + idle + ", composing=" + composing);
+            }
+        } finally {
+            settings.set(service, constructor.newInstance(Map.of()));
+            header.setVisibility(View.GONE);
+            line.setVisibility(View.GONE);
+            toolbar.setVisibility(View.VISIBLE);
+            update.invoke(service);
+        }
+    }
+
+    private static int measureHeight(ViewGroup view, float density) {
+        view.measure(View.MeasureSpec.makeMeasureSpec(Math.round(600 * density), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return view.getMeasuredHeight();
     }
 
     /** 同一服务重建键盘视图后，新逗号键仍要接收下滑；用合成编辑器收集实际提交字符。长空格是中文 26 键的底行样式（共享偏好 touch_twenty_six_key_style），这里直接换上服务持有的样式，英文 26 键不受它影响，所以用中文模式。 */
