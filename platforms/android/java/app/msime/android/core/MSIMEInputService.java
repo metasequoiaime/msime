@@ -9240,7 +9240,7 @@ public final class MSIMEInputService extends InputMethodService {
         authenticateClipboardDelete(() -> {
             if (removeClipboardItemsAfterAuthentication(snapshot)) {
                 removed.run();
-                if (restorePanel && !imePanels.clipboardPanelOpen()) imePanels.showClipboardHistory();
+                renderClipboardAfterDelete(restorePanel);
             } else {
                 renderClipboardAfterDelete(restorePanel);
             }
