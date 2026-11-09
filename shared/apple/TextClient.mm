@@ -322,8 +322,11 @@ void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETe
         }];
     }
 #endif
-    // Only the clear of a composition that is not there is skipped; after a commit the clear still goes out, as it always has.
-    if (clientHasMarkedText && !*clientHasMarkedText && !marked.length && ![commit isKindOfClass:NSString.class]) return;
+    // 只有没有组字、没有提交时才跳过清空；隐藏行内预编辑仍要把空标记发给 IMK，
+    // 否则 IMK 会把宿主没有收到 marked text 的按键重新交给应用，原始编码就会漏出来。
+    const BOOL compositionActive = editing.length > 0 || phrase.length > 0 || focus.location != NSNotFound;
+    if (clientHasMarkedText && !*clientHasMarkedText && !marked.length && !compositionActive &&
+        ![commit isKindOfClass:NSString.class]) return;
     // Recorded before the write: IMK can service the next key inside it, and that nested write lands in the client after this one, so it must also be the one whose state is left recorded.
     if (clientHasMarkedText) *clientHasMarkedText = marked.length > 0;
     [client setMarkedText:displayed selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];

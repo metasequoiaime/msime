@@ -5,6 +5,7 @@ import java.io.File;
 /** 访客剪贴板的持久模式、存储隔离和回车上滑手势规则。 */
 public final class ClipboardModePolicy {
     public enum Mode { MAIN, VISITOR }
+    public enum EnterIcon { RETURN, TRASH }
 
     public static final String VISITOR_DIRECTORY = "clipboard-visitor";
     public static final String PREFERENCES = "android-clipboard-mode";
@@ -21,6 +22,11 @@ public final class ClipboardModePolicy {
     public static File directory(File files, Mode mode) {
         if (files == null || mode == Mode.MAIN) return files;
         return new File(files, VISITOR_DIRECTORY);
+    }
+
+    /** 只有刚切换到访客模式时短暂显示垃圾桶，持久化模式恢复时仍显示回车。 */
+    public static EnterIcon enterIcon(Mode mode, boolean transientTransition) {
+        return mode == Mode.VISITOR && transientTransition ? EnterIcon.TRASH : EnterIcon.RETURN;
     }
 
     /** 判断回车键从按下位置向上滑动后是否切换模式。 */

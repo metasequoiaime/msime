@@ -234,8 +234,6 @@ public final class DeveloperPage extends ReloadingDetailPage {
             GroupCard remove = GroupCard.add(sectionColumn(target, "日志共享"), null);
             remove.button("删除云端日志", "云端快照和令牌立即删除，开发者无法再读取", "删除", this::confirmDelete)
                 .setEnabled(!busy);
-        } else if (!cloudLoaded && snapshot != null) {
-            mcp.note("暂时读不到云端快照的状态，联网后返回本页会再读一次");
         }
 
         GroupCard debug = GroupCard.add(sectionColumn(target, "调试"), "调试");
