@@ -72,6 +72,8 @@ public final class LanguageKeyCyclePolicySmoke {
         // 键面与读屏。
         check(LanguageKeyCyclePolicy.label(true, back, false, withOthers).equals("中"), "Chinese face");
         check(LanguageKeyCyclePolicy.label(true, back, true, withOthers).equals("英"), "English face");
+        check(LanguageKeyCyclePolicy.label(true, KeyboardScheme.JAPANESE_NINE_KEY, false, withOthers).equals("あ"),
+            "Japanese nine-key face uses the current language");
         check(LanguageKeyCyclePolicy.label(true, KeyboardScheme.KOREAN, false, withOthers).equals("한"), "Korean face");
         check(LanguageKeyCyclePolicy.targetLabel(LanguageKeyCyclePolicy.next(true, KeyboardScheme.JAPANESE_NINE_KEY,
             false, List.of(back, KeyboardScheme.JAPANESE_NINE_KEY), back)).equals("中"),
