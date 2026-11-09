@@ -54,7 +54,6 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             if (!onboarding.edit().putBoolean("seen", true).commit())
                 throw new AssertionError("Synthetic onboarding preparation failed");
             JSONObject prefs = read(preferences);
-            prefs.put("revision", prefs.getLong("revision") + 1);
             prefs.getJSONObject("preferences").put("clipboard_history", true)
                 .put("scheme", "quanpin").put("last_chinese_scheme", "quanpin")
                 .put("touch_keyboard_layout", "twenty_six_key")
