@@ -7788,10 +7788,17 @@ public:
     state->cancelFocusInputModeHud();
     dismissModeBadge(event.inputContext());
 #endif
-    // 切换到别的输入法时，把打开的韩文音节、注音转换、越南文单词或藏文音节串作为文字结束，因为它已经是用户写下的内容。失焦不需要在这里处理：那时 Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
+    // 切换到别的输入法时，先把普通中文组字的读入串原样上屏。Fcitx5 的
+    // InputContextSwitchInputMethod 不保证客户端预编辑会替插件交给编辑器；直接关会话会把
+    // nihao 这样的内容丢掉。已经由客户端预编辑承载的韩文、注音、越南文和藏文仍走下面
+    // 的 commits_on_blur 分支，避免同一段文字上屏两次。失焦不需要在这里处理：那时
+    // Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
-        state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
-      try { state->command(MSIME_FINISH_COMPOSITION); } catch (...) {}
+        !state->view_.value("editing_text", std::string{}).empty()) {
+      try {
+        if (state->commitsOnBlur()) state->command(MSIME_FINISH_COMPOSITION);
+        else state->command(MSIME_COMMIT_RAW);
+      } catch (...) {}
     }
     // 失焦时会话和状态动作留给托盘菜单（见 holdMenuContext 与 README「状态区」一段）；换输入法等其余情况照旧关掉、清空。
     if (event.type() == fcitx::EventType::InputContextFocusOut && !state->restricted()) {
