@@ -30,6 +30,7 @@
 #include "../../common/PipeMetadata.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
+#include "../../common/VimMode.h"
 #include "../../src/input/ModifierHotkeyPolicy.h"
 #include <atomic>
 #include <chrono>
@@ -619,6 +620,26 @@ bool CMetasequoiaIME::_IsCompositionActiveForKeyGuard()
     if (_pCompositionProcessorEngine != nullptr && _pCompositionProcessorEngine->GetVirtualKeyLength() > 0)
         return true;
     return !GlobalIme::word_for_creating_word.empty();
+}
+
+// Vim 模式（common/VimMode.h）：前台进程在 `vim_mode_apps` 名单里、这次 Esc 已经决定原样交给应用时，水杉同时切到英文。OnTestKeyDown 和 OnKeyDown 都调用它：有的宿主测试后不再调用 OnKeyDown，有的不先测试就直接交来按键；同一次 Esc 第二次到这里时已经是英文，无事可做。切换走 SetIMEMode 的开关 compartment，标点、标点锁定、状态通知和 `ime_mode_scope` 都沿用那条通路。
+void CMetasequoiaIME::_ApplyVimModeEscape(WPARAM wParam, LPARAM lParam, BOOL isEaten, bool deferredKeysPending)
+{
+    if (LOWORD(wParam) != VK_ESCAPE || _pCompositionProcessorEngine == nullptr || _pThreadMgr == nullptr)
+        return;
+    msime::windows::VimModeEscape key;
+    key.virtualKey = LOWORD(wParam);
+    key.eaten = isEaten != FALSE;
+    key.autoRepeat = IsAutoRepeat(lParam);
+    key.modifierHeld = CaptureIpcModifiers() != 0 || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+                       (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+    key.compositionActive = _IsCompositionActiveForKeyGuard() || _pCandidateListUIPresenter != nullptr;
+    key.deferredKeysPending = deferredKeysPending;
+    key.chineseMode = _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
+    key.listed = FanyUtils::ReadConfiguredVimModeApp(Global::current_process_name) != FALSE;
+    if (!msime::windows::VimModeEscapeSwitchesToEnglish(key))
+        return;
+    _pCompositionProcessorEngine->SetIMEMode(_pThreadMgr, _tfClientId, FALSE);
 }
 
 bool CMetasequoiaIME::_ApplyBackspaceHoldGuard(WPARAM wParam, LPARAM lParam)
@@ -2627,6 +2648,8 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
         _InvokeKeyHandler(pContext, code, wch, (DWORD)lParam, KeystrokeState, FANY_IME_NO_REQUEST_ID);
     }
 
+    // 排队分支在上面已经返回，到这里没有在飞的按键。
+    _ApplyVimModeEscape(wParam, lParam, *pIsEaten, false);
     return S_OK;
 }
 
@@ -3319,7 +3342,10 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
         break;
     }
     const uint64_t focusGeneration = _deferredKeyFocusGeneration;
+    // 派发前取：排队的 Esc 在派发里入队，之后才看就分不清它是不是插在别的按键后面。
+    const bool deferredKeysPending = _HasDeferredKeyBarrier();
     (void)_DispatchKeyDown(pContext, wParam, lParam, pIsEaten, nullptr, nullptr, nullptr, true, focusGeneration);
+    _ApplyVimModeEscape(wParam, lParam, *pIsEaten, deferredKeysPending);
     // TIP 只把 Ctrl+Shift+E 当作 Engine 英文模式的切换键吞下（_IsKeyEaten 与 _ClassifyDeferredKeyDown 同一条规则），之后不读 Server 的回复。在这里先翻转镜像：后面的字母无论立即分类还是入队时分类，都在本线程上排在它之后。每次按下 TSF 只调用一次 OnKeyDown，排队回放不经过这里，所以只翻一次。
     if (*pIsEaten && IsEnglishInputModeToggle(static_cast<UINT>(LOWORD(wParam)), CaptureIpcModifiers()))
     {

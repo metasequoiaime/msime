@@ -6317,9 +6317,9 @@ public final class MSIMEInputService extends InputMethodService {
         else toggleInputLanguage();
     }
 
-    /** 日语 9 键的语言键键面：轮换关着时是「英」（与原来相同），打开时是这一下要切到的语言。 */
+    /** 日语 9 键的语言键键面与共用中英键一致，显示当前输入语言状态。 */
     String japaneseLanguageKeyLabel() {
-        return LanguageKeyCyclePolicy.targetLabel(nextLanguageTarget());
+        return LanguageKeyCyclePolicy.label(languageKeyCycles(), selectedScheme, dedicatedEnglish, visibleSchemes);
     }
 
     String japaneseLanguageKeyDescription() {
@@ -7525,7 +7525,8 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardHistory = ClipboardHistoryStore.forMode(this, next);
         closeClipboardHistory();
         if (button != null) {
-            button.setKind(next == ClipboardModePolicy.Mode.VISITOR
+            button.setKind(ClipboardModePolicy.enterIcon(next, true)
+                == ClipboardModePolicy.EnterIcon.TRASH
                 ? KeyboardIconKey.Kind.TRASH : KeyboardIconKey.Kind.RETURN);
             final ClipboardModePolicy.Mode changed = next;
             main.postDelayed(() -> {
