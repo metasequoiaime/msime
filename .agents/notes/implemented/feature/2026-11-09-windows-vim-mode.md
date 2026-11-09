@@ -41,4 +41,15 @@ Windows 和 macOS 用同一个共享键 `vim_mode_apps`，标识是进程的可�
 - `windows-vim-mode`（`platforms/windows/tests/input/vim_mode.cpp`）在 macOS 上以 `clang++ -std=c++20 -Wall -Wextra -Werror` 编译运行通过；把判定里的 `&& key.chineseMode` 去掉后在第 85 行失败，退出码 1。
 - `msime-tsf-vim-mode-wiring`（`platforms/windows/tsf/tests/input/vim_mode_wiring.cpp`）核对两个入口和读取函数的接线，通过；撤掉 `KeyEventSink.cpp` 的改动后 10 项断言全部失败。
 - `cargo test -p msime-client-core host_surface` 覆盖能力矩阵。
-- TIP 和 WinUI 设置只能在 Windows 上编译，本机未编译；真实编辑器里的 normal/insert 切换、TSF 回调顺序和设置行的外观未在 Windows 上验证。
+- CI 的 Windows GNU cross build 编译了 TIP DLL，Windows native settings 用 MSVC 编译了 WinUI 设置，并在 `settings_ui.ps1` 里断言「中英文」标签有 Vim 名单。
+- 实机验收在 pve9 的 win-runner（Windows 11 Pro）上做：安装 release-windows 以 `publish=false` 构建的未签名 full 包（develop `05562d1686`），用计划任务在控制台会话里跑脚本。名单经设置页的「Vim 模式」行（UI Automation）增删；按键用 SendInput 发给新开的记事本窗口，打 `ni` + 空格后读回文档文本判断中英文。以下 8 个场景全部通过：
+  - 不在名单时 Esc 不切；
+  - 加进名单后无组字的 Esc 切到英文；
+  - 组字时第一次 Esc 只取消、第二次才切；
+  - Shift+Esc 不切；
+  - 组字时按住 Esc，重复事件不切；
+  - 上屏后按一次 Esc 切到英文；
+  - 英文时按 Esc 保持英文；
+  - 从名单移除后 Esc 不再切。
+  名单增删都不用重启记事本。结果见 PR #11178 的评论。
+- 仍未验证：真实 Vim 编辑器（VS Code Vim 插件、gvim、终端里的 Vim）里 Esc 进入 normal 模式这一步，以及 Windows 7。
