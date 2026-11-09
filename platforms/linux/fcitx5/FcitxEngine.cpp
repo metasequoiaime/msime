@@ -86,6 +86,7 @@
 #endif
 #include "../src/core/BackspaceHoldPolicy.h"
 #include "../src/core/NextWordPrediction.h"
+#include "../src/core/ViewComposition.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/core/SmartPunctuationChoice.h"
 #include "../src/core/SpellingSymbols.h"
@@ -766,6 +767,11 @@ public:
   // 菜单动作能否作用到这个上下文：有焦点，或者它是失焦后托盘仍然指向的那一个。FcitxEngine 在这里只是前向声明，定义在它之后。
   bool menuTarget() const;
   void clearPanel() {
+#ifndef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+    mode_hud_aux_id_++;
+    mode_hud_aux_timer_.reset();
+    mode_hud_aux_text_.clear();
+#endif
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     discardExpanded();
     if (native_canvas_) native_canvas_->hide();
@@ -4479,6 +4485,12 @@ public:
   // 获得焦点时的光标徽章正在等光标矩形（见 settleFocusInputModeHud）。徽章表面本身属于 FcitxEngine，整个插件共用一块。
   bool mode_hud_after_focus_ = false;
   std::unique_ptr<fcitx::EventSourceTime> mode_hud_focus_timer_;
+#endif
+#ifndef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+  // 旧版开发头没有自定义模式提示 API 时，用辅助行承载提示，并让过期回调不能清掉后来的内容。
+  uint64_t mode_hud_aux_id_ = 0;
+  std::string mode_hud_aux_text_;
+  std::unique_ptr<fcitx::EventSourceTime> mode_hud_aux_timer_;
 #endif
   bool ctrl_down_ = false;
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
@@ -8928,7 +8940,6 @@ msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences
 }
 
 void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
-#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
 #ifdef MSIME_FCITX5_MODE_BADGE
   // 新的提示取代还在等光标的那条获得焦点提示。
   if (trigger != ModeHudTrigger::FocusSettled) cancelFocusInputModeHud();
@@ -8977,6 +8988,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
 #endif
   // 徽章已经放在光标旁时不再发面板提示：macOS 只显示一处。
   if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) return;
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
   if (auto *instance = engine_->instance()) {
 #ifdef MSIME_FCITX5_HINT_FONT
     instance->showCustomInputMethodInformation(&ic_, engine_->modeHintLabel(ic_.display(), label));
@@ -8984,6 +8996,26 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
     instance->showCustomInputMethodInformation(&ic_, label);
 #endif
   }
+#else
+  // 5.1.11 以前的开发头没有 showCustomInputMethodInformation；辅助行仍是 Fcitx5 的稳定接口。
+  ++mode_hud_aux_id_;
+  mode_hud_aux_text_ = label;
+  ic_.inputPanel().setAuxUp(fcitx::Text(label));
+  ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  const auto id = mode_hud_aux_id_;
+  mode_hud_aux_timer_ = loop_->addTimeEvent(
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 600000, 0,
+      [this, id](fcitx::EventSourceTime *timer, uint64_t) {
+        timer->setOneShot();
+        if (id != mode_hud_aux_id_ || mode_hud_aux_text_.empty()) return true;
+        if (!msime::linux_host::view_is_composing(view_) &&
+            ic_.inputPanel().auxUp().toString() == mode_hud_aux_text_) {
+          ic_.inputPanel().setAuxUp(fcitx::Text());
+          ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+          mode_hud_aux_text_.clear();
+        }
+        return true;
+      });
 #endif
 }
 

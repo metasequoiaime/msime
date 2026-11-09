@@ -754,7 +754,8 @@ Profile 必须允许包名 `app.msime.hmos`、共享沙箱 `group.15167538987386
 
 | `appgallery` | 行为 |
 | --- | --- |
-| `none`（默认） | 保持原来的构建、签名与 GitHub 发布行为，不读取华为 API 凭据 |
+| `auto`（手动触发的默认值） | 从 `main` 触发且 `publish=true` 的正式发版按 `public-test` 处理，其他情况按 `none` 处理。beta 与 alpha 的 versionCode 与随后的正式版相同，不进华为测试专区 |
+| `none`（nightly 的默认值） | 保持原来的构建、签名与 GitHub 发布行为，不读取华为 API 凭据 |
 | `upload` | 自动生成正式签名 APP，上传到华为测试专区，等待 HarmonyOS 包解析通过 |
 | `public-test` | 上传并解析成功后，新建或更新公开测试草稿、绑定包、提交审核 |
 
@@ -775,7 +776,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-新版本只需选择 `appgallery=public-test`，即可在同次构建中签名、上传、等待解析、提交审核。CI 在耗时构建前检查华为鉴权和本地配置；API 拒绝资料、权限不足、包解析失败或超时都使任务失败。不会自动重试创建或提交请求，避免重复草稿。上传后的包 ID、创建后的测试版本 ID 会立即写入 Actions 日志与步骤摘要，后续失败也保留；日志不包含 token、OBS 签名地址或原始资料。
+从 `main` 发正式版时不用传任何参数，`auto` 会在同次构建中签名、上传、等待解析、提交公开测试审核，不需要再到控制台手动上传或填写截图等素材，它们沿用最近的测试或在架版本。CI 在耗时构建前检查华为鉴权和本地配置；华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。上传后的包 ID、创建后的测试版本 ID 会立即写入 Actions 日志与步骤摘要，后续失败也保留；日志不包含 token、OBS 签名地址或原始资料。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 

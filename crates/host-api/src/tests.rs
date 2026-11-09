@@ -17036,6 +17036,40 @@ fn quick_phrase_desktop_lock(resources: &Path) -> ResourceSet {
     set
 }
 
+/// Linux 覆盖升级后，旧的在线代次即使被显式传给首次准备，也应回到当前安装包资源，
+/// 让用户删除状态目录后仍能重新建立输入法。
+#[test]
+fn fresh_host_preparation_falls_back_to_installed_bundle_for_stale_resources() {
+    let directory = tempfile::tempdir().unwrap();
+    let bundled = directory.path().join("installed/resources");
+    let stale = directory.path().join("dictionary-updates/generations/old");
+    let state = directory.path().join("state");
+    std::fs::create_dir_all(&stale).unwrap();
+    let specification = synthetic_desktop_lock(&bundled);
+
+    let document = super::prepare_host_with_fallback(
+        &stale,
+        &state,
+        Edition::full(),
+        &specification,
+        Some(&bundled),
+    )
+    .unwrap();
+    let document: Value = serde_json::from_str(&document).unwrap();
+    assert_eq!(
+        Path::new(document["resources"].as_str().unwrap()),
+        std::fs::canonicalize(&bundled).unwrap()
+    );
+    assert_eq!(
+        document["dictionaries"].as_str().unwrap(),
+        state
+            .join("user/dictionaries")
+            .join(specification.generation().unwrap())
+            .to_str()
+            .unwrap()
+    );
+}
+
 /// Windows 的安装布局：Server 的资源目录是 Program Files 下的 `server\resources`，那里只有锁文件列出的词库；辅助码表由安装器放在 DataDir 的 `helpcodes`（installer/Prepare-PackageFiles.ps1），DataDir 就是 Server 和 TIP 的状态根。会话按 Windows 宿主传给 `msime_client_create` 的选项建：准备出的文档，加上 Server（server_main.cpp）和 TIP（tsf/HostConfiguration.cpp）写进内存的 `helpcode_fallback_resources`（src/system/HelpcodeRoot.h）。合成词库里「阳」词频高于「杨」，码表只给「杨」辅助码 mu：`yh` 下「杨」带着注释，`yhm` 把它提到首位。
 #[test]
 fn windows_sessions_read_the_builtin_helpcode_tables_from_the_data_directory() {
