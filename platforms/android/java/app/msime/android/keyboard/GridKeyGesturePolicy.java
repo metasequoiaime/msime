@@ -61,7 +61,7 @@ public final class GridKeyGesturePolicy {
         private char selected;
 
         /**
-         * @param exactLetters 横滑可限定的两个小写字母（18 键双拼的两字母键）；null 表示这个键没有横滑
+         * @param exactLetters 横滑可限定的两个小写字母（14/18 键全拼和双拼的两字母键，见 {@link EighteenKeySwipePolicy#exactLetters}）；null 表示这个键没有横滑
          * @param hasSymbol 这个键有角标符号
          */
         public Gesture(String exactLetters, boolean hasSymbol) {

@@ -66,6 +66,7 @@ platforms/android/tests/device/keyboard/FourteenKeyWubiDeviceChecks.java
 platforms/android/tests/device/keyboard/EighteenKeyGeometryDeviceChecks.java
 platforms/android/tests/device/keyboard/GridLetterSymbolDeviceChecks.java
 platforms/android/tests/device/keyboard/GridSpellingEditorChecks.java
+platforms/android/tests/device/keyboard/GridSwipeTouch.java
 platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/RandomDigitsDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
