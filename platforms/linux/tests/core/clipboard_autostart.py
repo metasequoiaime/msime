@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The XDG autostart entry that starts the clipboard service at login on sessions without graphical-session.target.
+"""在没有 graphical-session.target 的会话里，登录时排队启动剪贴板服务的 XDG 自启动项。
 
 It checks where `cmake --install` puts the entry (relocated by --prefix unless the configured prefix maps it to /etc), that the CMake uninstall removes it in both layouts, and runs its Exec line against a stub systemctl: nothing happens for a user who never enabled the service or where graphical-session.target already started it; otherwise the session's display reaches the user manager before the service is restarted.
 
@@ -136,6 +136,8 @@ def main() -> None:
     assert desktop["NoDisplay"] == "true"
     # Gated on the unit being enabled, so users who never enabled the service are unaffected.
     assert "is-enabled" in desktop["Exec"] and UNIT in desktop["Exec"], desktop["Exec"]
+    # systemctl 默认等待重启任务完成；登录会话不能在这里等待 graphical-session.target。
+    assert "--no-block restart" in desktop["Exec"], desktop["Exec"]
     # systemd-xdg-autostart-generator skips entries with a GNOME startup phase; sessions it serves are left to the Exec line's own check instead.
     assert "X-GNOME-Autostart-Phase" not in desktop
     # Reserved characters only inside one double-quoted argument, as the Desktop Entry spec requires.
@@ -153,7 +155,7 @@ def main() -> None:
         is_enabled,
         is_active,
         "--user import-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY",
-        f"--user restart {UNIT}",
+        f"--user --no-block restart {UNIT}",
     ]
     print("Clipboard autostart entry is installed and starts only an enabled service outside graphical-session.target")
 
