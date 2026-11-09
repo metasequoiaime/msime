@@ -13261,6 +13261,92 @@ private:
             box, below);
   }
 
+  // Vim 模式（`vim_mode_apps`）：名单里的程序收到不带修饰键的 Esc 时，Esc 照常交给程序，水杉同时切到英文。输入框加「添加」按钮，每个程序一行带「移除」；程序名的规范化和校验与应用例外同一套（AppInputModeRuleList.h），偏好库对两张表用同一条规则。共享名单里也装着 macOS 的 bundle id，它们原样保留。
+  void vim_mode_app_row(StackPanel const &group) {
+    const auto names = document_.Strings(L"vim_mode_apps");
+    InfoBar problem;
+    problem.IsOpen(false);
+    problem.IsClosable(true);
+    problem.Severity(InfoBarSeverity::Error);
+    problem.Margin(Thickness{0, 0, 0, 16});
+    problem.Visibility(Visibility::Collapsed);
+    problem.Closed([](InfoBar const &sender, InfoBarClosedEventArgs const &) {
+      sender.Visibility(Visibility::Collapsed);
+    });
+    TextBox input;
+    input.Width(180);
+    input.PlaceholderText(L"例如 code.exe");
+    input.IsEnabled(loaded_);
+    A11y::SetName(input, L"Vim 模式的程序文件名");
+    StackPanel box;
+    box.Orientation(Orientation::Horizontal);
+    box.Spacing(8);
+    box.Children().Append(input);
+    box.Children().Append(button_control(
+        L"添加",
+        [this, weak_input = make_weak(input), weak_problem = make_weak(problem)] {
+          auto field = weak_input.get();
+          if (!field)
+            return;
+          const auto name = nav::normalize_app_input_mode_rule(std::wstring_view(field.Text()));
+          if (const auto error = nav::validate_app_input_mode_rule(name, document_.Strings(L"vim_mode_apps"))) {
+            if (auto bar = weak_problem.get()) {
+              const wchar_t *message = app_input_mode_rule_problem(*error);
+              if (*error == nav::AppInputModeRuleError::Duplicate)
+                message = L"这个程序已经在 Vim 模式名单里了。";
+              else if (*error == nav::AppInputModeRuleError::TooMany)
+                message = L"Vim 模式名单最多 32 个程序，请先移除不再需要的。";
+              bar.Message(hstring(message));
+              bar.Visibility(Visibility::Visible);
+              bar.IsOpen(true);
+            }
+            return;
+          }
+          change([&](PreferencesDocument &doc) {
+            auto current = doc.Strings(L"vim_mode_apps");
+            current.push_back(name);
+            doc.SetStrings(L"vim_mode_apps", std::move(current));
+          }, true);
+        },
+        loaded_));
+    StackPanel below;
+    if (!names.empty()) {
+      StackPanel list;
+      list.Spacing(4);
+      list.Margin(Thickness{0, 0, 0, 16});
+      for (auto const &name : names) {
+        Grid item;
+        item.ColumnSpacing(16);
+        ColumnDefinition name_column;
+        name_column.Width(GridLength{1, GridUnitType::Star});
+        ColumnDefinition action_column;
+        action_column.Width(GridLength{1, GridUnitType::Auto});
+        item.ColumnDefinitions().Append(name_column);
+        item.ColumnDefinitions().Append(action_column);
+        auto label = make_text(name, 14, palette_.text);
+        label.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(label, 0);
+        item.Children().Append(label);
+        auto remove_button = button_control(L"移除", [this, name] {
+          change([&](PreferencesDocument &doc) {
+            auto current = doc.Strings(L"vim_mode_apps");
+            current.erase(std::remove(current.begin(), current.end(), name), current.end());
+            doc.SetStrings(L"vim_mode_apps", std::move(current));
+          }, true);
+        }, loaded_);
+        A11y::SetName(remove_button, hstring(L"把 " + name + L" 从 Vim 模式名单移除"));
+        Grid::SetColumn(remove_button, 1);
+        item.Children().Append(remove_button);
+        list.Children().Append(item);
+      }
+      below.Children().Append(list);
+    }
+    below.Children().Append(problem);
+    add_row(group, 0xE765, L"Vim 模式",
+            L"在这些程序里，不带修饰键的 Esc 在交给程序的同时把水杉切到英文；组字或候选开着时 Esc 仍只取消组字，再按一次才切。终端里的 Vim 要填终端程序。",
+            box, below);
+  }
+
   static const wchar_t *game_process_problem(nav::GameProcessError error) {
     switch (error) {
     case nav::GameProcessError::Empty:
@@ -13853,6 +13939,7 @@ private:
                L"切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。",
                L"input_mode_hud", true);
       app_input_mode_rule_row(language);
+      vim_mode_app_row(language);
     }
     if (in_tab(tab, L"selection"))
       build_selection_keys(page);

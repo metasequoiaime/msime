@@ -593,6 +593,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                            _In_opt_ const _KEYSTROKE_STATE *prevalidatedKeyState, bool canDefer,
                                            uint64_t expectedFocusGeneration, uint64_t deferredReplayToken = 0);
     bool _IsCompositionActiveForKeyGuard();
+    void _ApplyVimModeEscape(WPARAM wParam, LPARAM lParam, BOOL isEaten, bool deferredKeysPending);
     bool _ApplyBackspaceHoldGuard(WPARAM wParam, LPARAM lParam);
     void _DispatchPreservedKey(_In_ ITfContext *pContext, REFGUID preservedKey, _Out_ BOOL *pIsEaten,
                                uint64_t expectedFocusGeneration, bool isPrevalidated, uint64_t deferredReplayToken = 0);

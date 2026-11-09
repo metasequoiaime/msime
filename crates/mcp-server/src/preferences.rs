@@ -470,7 +470,7 @@ pub struct PreferencesView {
     pub toggle_full_width: String,
     /// 中英文标点切换热键（如 `Ctrl+Period`）；空串表示不绑定。
     pub toggle_punctuation: String,
-    /// Vim 模式应用名单（macOS）：名单里的前台应用收到无修饰 Esc 时，输入法同时切到英文。标识口径同 `app_input_mode_rules`。
+    /// Vim 模式应用名单（macOS、Windows）：名单里的前台应用收到无修饰 Esc 时，输入法同时切到英文。标识口径同 `app_input_mode_rules`。
     pub vim_mode_apps: Vec<String>,
     /// The width of the ASCII letters, digits and punctuation the input method outputs.
     pub character_width: Width,

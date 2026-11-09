@@ -10,6 +10,7 @@
 #include "../HostConfiguration.h"
 #include "../../common/InputSchemeTraits.h"
 #include "../../common/AppInputModeRules.h"
+#include "../../common/VimMode.h"
 #include <nlohmann/json.hpp>
 #include <utf8cpp/utf8.h>
 #include <fmt/xchar.h>
@@ -48,6 +49,22 @@ std::optional<BOOL> ReadConfiguredAppInputModeChinese(const std::wstring &proces
         }
     }
     return std::nullopt;
+}
+
+BOOL ReadConfiguredVimModeApp(const std::wstring &process)
+{
+    if (process.empty())
+    {
+        return FALSE;
+    }
+    if (const auto preferences = ReadSharedPreferences())
+    {
+        return msime::windows::VimModeListContains(msime::windows::ReadVimModeApps(*preferences),
+                                                   wstring_to_string(process))
+                   ? TRUE
+                   : FALSE;
+    }
+    return FALSE;
 }
 
 BOOL ReadConfiguredDefaultImeModeChinese()

@@ -17,6 +17,8 @@ std::string::size_type count_utf8_chars(const std::string &str);
 BOOL ReadConfiguredDefaultImeModeChinese();
 // 从内存快照取 app_input_mode_rules 中这个进程基名的起始模式：TRUE 为中文、FALSE 为英文；没有规则或有效快照时为空。
 std::optional<BOOL> ReadConfiguredAppInputModeChinese(const std::wstring &process);
+// 这个进程基名是否在内存快照的 vim_mode_apps 名单里；进程名为空、没有名单或有效快照时为 FALSE。
+BOOL ReadConfiguredVimModeApp(const std::wstring &process);
 // 从内存快照读取当前方案，日语输入时返回 TRUE。
 BOOL ReadConfiguredJapaneseInputMode();
 // 内存快照中的当前方案；尚无有效快照或未指定方案时用 quanpin。
