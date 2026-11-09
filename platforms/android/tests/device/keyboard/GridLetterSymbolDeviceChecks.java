@@ -292,8 +292,9 @@ final class GridLetterSymbolDeviceChecks {
 
     private void assertNoOptions() {
         t.dropStaleNodes();
+        // 拼音读音选择条也有「输入 …」的读屏说明；字母弹窗用独立的容器说明，避免把主键盘里的读音条误判成选项。
         for (AccessibilityWindowInfo window : t.automation.getWindows())
-            if (t.find(window.getRoot(), t.describedPrefix("输入 ")) != null)
+            if (t.find(window.getRoot(), t.described("字母和符号选项")) != null)
                 throw new AssertionError("组字中或关闭滑动时弹出了字母选项");
     }
 

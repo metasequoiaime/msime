@@ -1373,6 +1373,7 @@ final class ImeLayoutRows {
         if (s.keyboardRoot == null || choices.isEmpty()) return null;
         s.imeKeyFeedback.playFeedback(anchor);
         LinearLayout options = LayoutPolicy.column(s);
+        options.setContentDescription("字母和符号选项");
         int padding = s.pixels(5);
         int cellWidth = s.pixels(36);
         int gap = s.pixels(2);
