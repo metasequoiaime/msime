@@ -22,4 +22,4 @@ IBus 的 Alacritty 等客户端在输入法无法读取 surrounding text 时，�
 
 ## Verification
 
-新增 `platforms/linux/tests/runtime/engine_smoke.cpp` 回归：清空 surrounding text 后让 ASCII 数字直通应用，再按句号，断言输入法消费句号并上屏 ASCII `.`；原有输入法自己上屏数字、有效 surrounding 和重复标点用例保留。提交前运行 Linux 原生容器测试与 `bash scripts/verify-local.sh --quick`；未在报告者的 Alacritty/Firefox 实机上验收的部分写入 PR 验证段，请报告者复验。
+新增 `platforms/linux/tests/runtime/engine_smoke.cpp` 回归：清空 surrounding text 后让 ASCII 数字直通应用，再按句号，断言输入法消费句号并上屏 ASCII `.`；原有输入法自己上屏数字、有效 surrounding 和重复标点用例保留。已运行 `rbuild bash scripts/verify-local.sh --quick`；尝试运行 Linux 原生容器测试时因本机 Docker daemon 不可用而跳过。未在报告者的 Alacritty/Firefox 实机上验收的部分写入 PR 验证段，请报告者复验。
