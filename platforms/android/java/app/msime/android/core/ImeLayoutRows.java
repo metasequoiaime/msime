@@ -324,14 +324,9 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键、14 键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动。九键与笔画使用独立键帽，14 键共用一条底轨；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。
-     */
-    private FrameLayout symbolSidebar(boolean digits, boolean capped) {
-        return symbolSidebar(digits, capped, false, false);
-    }
-
-    /**
-     * 同上；{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
+     * 九键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。
+     *
+     * <p>{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped, boolean tallReturn, boolean zeroShortcut) {
         return symbolSidebar(digits, capped,
@@ -1009,18 +1004,11 @@ final class ImeLayoutRows {
         if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
     }
 
-    /** 拼音选择使用九键 / 14 键侧栏、注音九键候选行或 18 键读音行。 */
+    /** 拼音选择使用九键侧栏、注音九键候选行或 14/18 键读音行。 */
     enum SpellingPlacement { SIDEBAR, CANDIDATE_ROW, READING_ROW }
 
-    /** 14 键共用九键的左侧符号栏；组字时由纵向拼音列覆盖符号。 */
-    FrameLayout fourteenSpellingSidebar() {
-        FrameLayout sidebar = symbolSidebar(false, false);
-        attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
-        return sidebar;
-    }
-
-    /** 十八键没有左侧符号栏；拼音选择挂到读音行、读音右边，与 iOS、鸿蒙相同。18 键组字时拼音和候选同时出现，选择条不能叠在候选行上，否则会盖住候选、抢走候选的点按。 */
-    void attachEighteenSpellingsToReadingRow() {
+    /** 14 键和 18 键都没有左侧符号栏；拼音选择挂到读音行、读音右边，与 iOS、鸿蒙相同（#11040）。组字时拼音和候选同时出现，选择条不能叠在候选行上，否则会盖住候选、抢走候选的点按。 */
+    void attachGridSpellingsToReadingRow() {
         if (s.candidateHeader != null) attachSpellings(s.candidateHeader, SpellingPlacement.READING_ROW);
     }
 

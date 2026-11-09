@@ -103,6 +103,17 @@ pub fn prepare_runtime_paths_for(
     if generation_ready(&marker)? {
         return open_ready_generation(result, resources, main_dictionary, english_required);
     }
+    // 旧版本曾经把代次目录直接建成最终名字，进程在写入词库或 n-gram 表时被杀会留下一个没有 `.ready` 的半成品。当前流程只写独有的 `.incoming`，所以这种目录不可能是当前准备中的目标；只在目录内容完全由已知代次文件组成时回收，避免误删用户放入的未知文件。
+    remove_obviously_incomplete_generation(&result.dictionaries)?;
+    // 回收后仍有同名目录（例如含未知文件）时不要让后面的 `rename` 把底层的“目录非空”错误泄露给宿主；重新检查一次，若另一方已经发布就绪代次则直接打开它。
+    if fs::symlink_metadata(&result.dictionaries).is_ok() {
+        if generation_ready(&marker)? {
+            return open_ready_generation(result, resources, main_dictionary, english_required);
+        }
+        return Err(EngineError::failed(
+            diagnostics::INCOMPLETE_RUNTIME_GENERATION,
+        ));
+    }
     // 不要求英文库的集合有没有它，看资源目录里有没有这一项：符号链接之类也算有，交给下面的复制按原来的方式拒绝。
     let dictionaries = GenerationDictionaries {
         main: main_dictionary,
@@ -353,6 +364,32 @@ fn is_real_directory(path: &Path) -> bool {
     fs::symlink_metadata(path)
         .map(|metadata| metadata.file_type().is_dir())
         .unwrap_or(false)
+}
+
+/// 回收旧版本留下的最终名字半成品。当前准备流程先写独有的 `.incoming`，再一次性改名并且先写 `.ready`，因此没有 `.ready` 的目录只可能来自旧流程或异常退出。未知文件一律保留并让调用方报告不完整，避免把用户文件当作词库删除。
+fn remove_obviously_incomplete_generation(path: &Path) -> io::Result<()> {
+    if !is_real_directory(path) {
+        return Ok(());
+    }
+    let entries: Vec<_> = fs::read_dir(path)?.collect::<io::Result<Vec<_>>>()?;
+    if entries.is_empty()
+        || entries.iter().any(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name == assets::GENERATION_READY
+                || !entry.file_type().is_ok_and(|kind| kind.is_file())
+                || ![
+                    assets::MAIN_DICTIONARY,
+                    assets::ENGLISH_DICTIONARY,
+                    assets::BIGRAM_TABLE,
+                    assets::TRIGRAM_TABLE,
+                ]
+                .contains(&name.as_ref())
+        })
+    {
+        return Ok(());
+    }
+    fs::remove_dir_all(path)
 }
 
 fn valid_content_id(content_id: &str) -> bool {
@@ -1210,7 +1247,7 @@ mod tests {
     }
 
     #[test]
-    fn staging_failures_clean_up_and_incomplete_generations_are_refused() {
+    fn staging_failures_clean_up_and_unknown_incomplete_generations_are_refused() {
         let root = tempfile::tempdir().unwrap();
         let resources = resources(root.path());
         let user = root.path().join("user");
@@ -1237,6 +1274,39 @@ mod tests {
             error.to_string(),
             diagnostics::INCOMPLETE_RUNTIME_GENERATION
         );
+
+        let recoverable = user.join("dictionaries/v3");
+        fs::create_dir_all(&recoverable).unwrap();
+        for name in [assets::BIGRAM_TABLE, assets::TRIGRAM_TABLE] {
+            fs::write(recoverable.join(name), b"old partial copy").unwrap();
+        }
+        for name in [assets::BIGRAM_TABLE, assets::TRIGRAM_TABLE] {
+            fs::write(resources.join(name), format!("fresh {name}")).unwrap();
+        }
+        let prepared = prepare_runtime_paths(&resources, &user, &cache, "v3").unwrap();
+        assert!(prepared
+            .dictionaries
+            .join(assets::GENERATION_READY)
+            .is_file());
+        assert_eq!(
+            fs::read_to_string(prepared.dictionary(assets::BIGRAM_TABLE)).unwrap(),
+            "fresh msime-bigram.bin"
+        );
+        assert_eq!(
+            fs::read_to_string(prepared.dictionary(assets::TRIGRAM_TABLE)).unwrap(),
+            "fresh msime-trigram.bin"
+        );
+
+        let unknown = user.join("dictionaries/v4");
+        fs::create_dir_all(&unknown).unwrap();
+        fs::write(unknown.join("user-file.txt"), b"keep").unwrap();
+        assert_eq!(
+            prepare_runtime_paths(&resources, &user, &cache, "v4")
+                .unwrap_err()
+                .to_string(),
+            diagnostics::INCOMPLETE_RUNTIME_GENERATION
+        );
+        assert!(unknown.join("user-file.txt").is_file());
     }
 
     /// 进程在准备途中被杀（iOS 键盘扩展超出内存上限、Android 与 HarmonyOS 退到后台被系统回收）会留下复制到一半的暂存目录。下一次准备照常成功，不再每次都报暂存目录已存在；刚留下的暂存目录分不清是不是另一个进程正在写的，原样留着。

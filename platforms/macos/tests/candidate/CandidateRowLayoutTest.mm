@@ -508,6 +508,12 @@ static void TestAdaptiveCandidateLayout(RowLayoutClient *client) {
         if (firstWidth) assert(fabs(cellWidth - firstWidth) < 0.1);
         firstWidth = cellWidth;
     }
+    // 自适应共享列不能因某一帧候选文字暂为空而绕过普通候选页的卡片最低宽度。
+    session.texts = @[@""];
+    [controller setValue:[session viewWithError:nil] forKey:@"view"];
+    [controller renderCandidates];
+    assert(width() >= 20.0);
+    assert(NSWidth(CandidateButton(panel.contentView, 0).frame) >= 12.0);
     const NSUInteger originalFontSize = appearance.fontSize;
     NSString *originalFontFamily = appearance.fontFamily;
     NSString *originalEnglishFont = appearance.candidateEnglishFont;

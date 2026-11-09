@@ -9221,10 +9221,11 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
-        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item));
+        boolean restorePanel = imePanels.clipboardPanelOpen();
+        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item, restorePanel));
     }
 
-    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
+    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item, boolean restorePanel) {
         if (clipboardHistory == null) return;
         try {
             holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
@@ -9232,7 +9233,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
         }
-        imePanels.renderClipboardHistory();
+        renderClipboardAfterDelete(restorePanel);
     }
 
     /**
@@ -9243,9 +9244,14 @@ public final class MSIMEInputService extends InputMethodService {
     void removeClipboardItems(java.util.List<String> texts, Runnable removed) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        boolean restorePanel = imePanels.clipboardPanelOpen();
         authenticateClipboardDelete(() -> {
-            removeClipboardItemsAfterAuthentication(snapshot);
-            removed.run();
+            if (removeClipboardItemsAfterAuthentication(snapshot)) {
+                removed.run();
+                renderClipboardAfterDelete(restorePanel);
+            } else {
+                renderClipboardAfterDelete(restorePanel);
+            }
         });
     }
 
@@ -9266,15 +9272,22 @@ public final class MSIMEInputService extends InputMethodService {
                 ? delete : () -> notice(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE));
     }
 
-    private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
-        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+    private boolean removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return false;
         try {
-            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
+            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return false;
             forgetCurrentClip();
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
+            return false;
         }
-        imePanels.renderClipboardHistory();
+        return true;
+    }
+
+    /** 认证 Activity 会让输入法窗口暂时收起；删除成功后若原来正开着剪贴板面板，要把面板带回来让用户看到撤销入口。 */
+    private void renderClipboardAfterDelete(boolean restorePanel) {
+        if (restorePanel && !imePanels.clipboardPanelOpen()) imePanels.showClipboardHistory();
+        else imePanels.renderClipboardHistory();
     }
 
     /**
@@ -10332,8 +10345,13 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidates != null) render();
     }
 
+    /**
+     * 按模型状态摆好书写区：下载按钮的显隐和文字、画布收不收笔迹、状态提示。
+     *
+     * <p>只看手写面板的视图在不在，不看 {@link #handwritingActive()}：切到别的应用再回来时，键行在新会话建立前就重建了，那时 {@code session} 还是 0，按会话挡掉会让新建的下载按钮停在默认的可见、无字状态，压在十字格正中，笔画落不到画布上，只能切换键盘恢复（Android 0.7.2）。离开手写时 {@link #deactivateHandwriting()} 把这几个视图清空，旧面板照样不会被改。
+     */
     void refreshHandwritingAvailability() {
-        if (!handwritingActive() || handwritingRecognizer == null || handwritingDownload == null) return;
+        if (handwritingCanvas == null || handwritingRecognizer == null || handwritingDownload == null) return;
         if (handwritingAvailabilityTask != null) {
             main.removeCallbacks(handwritingAvailabilityTask);
             handwritingAvailabilityTask = null;
@@ -12844,7 +12862,7 @@ public final class MSIMEInputService extends InputMethodService {
             imeToolbar.styleTopRow();
             return;
         }
-        // 注音 9 键的读音选择条叠在候选区上：选择条只在候选列表关着时出现，那时候选行本来就是空的，所以把候选滚动区让成不可见（仍占位，键盘高度不变）。18 键组字时拼音和候选同时出现，它的拼音条在读音行（ImeLayoutRows#attachEighteenSpellingsToReadingRow），不叠在这里，候选照常显示、可点。
+        // 注音 9 键的读音选择条叠在候选区上：选择条只在候选列表关着时出现，那时候选行本来就是空的，所以把候选滚动区让成不可见（仍占位，键盘高度不变）。14/18 键组字时拼音和候选同时出现，它们的拼音条在读音行（ImeLayoutRows#attachGridSpellingsToReadingRow），不叠在这里，候选照常显示、可点。
         boolean zhuyinSpellingsShown = ViewPolicy.isVisible(nineKeySpellingScroll)
             && displayedTouchLayout(view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
         int candidateScrollShown = zhuyinSpellingsShown ? View.INVISIBLE : View.VISIBLE;

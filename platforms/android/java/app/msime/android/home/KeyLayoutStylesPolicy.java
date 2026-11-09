@@ -248,7 +248,7 @@ public final class KeyLayoutStylesPolicy {
      *
      * <ul>
      * <li>26 键：顶部数字行（{@link #drawsNumberRow}）、三行字母（第三行两端 ⇧ 和 ⌫）和所选样式的底行。</li>
-     * <li>14/18 键：顶部数字行、三行字母格（每一格的份额取自 {@link FourteenKeyLetterWidths#plan}，与键盘相同：等宽时每排铺满；宽窄时单字母键窄一些，第二行两端是不画的占位格；第三行两端是 符 和 ⌫），以及所选样式的底行。14 键左边另有符号栏，和字母列按键盘的 {@link FourteenKeyLayout#SPELLING_SIDEBAR_WEIGHT} : {@link FourteenKeyLayout#LETTER_COLUMN_WEIGHT} 并排，栏里逐行画九键默认的三个符号；18 键没有符号栏，三行从同一左边界铺开。</li>
+     * <li>14/18 键：顶部数字行、三行字母格（每一格的份额取自 {@link FourteenKeyLetterWidths#plan}，与键盘相同：等宽时每排铺满；宽窄时单字母键窄一些，第二行两端是不画的占位格；第三行两端是 符 和 ⌫），以及所选样式的底行。14/18 键都没有符号栏，三行从同一左边界铺开。</li>
      * <li>9 键：左侧符号栏、3×3 九宫格和右列，以及所选样式的底行；右侧大回车是回车从第三行跨到底行、符 在符号栏下方的那一整块外框。</li>
      * </ul>
      */
@@ -495,7 +495,6 @@ public final class KeyLayoutStylesPolicy {
         float edgeWeight = eighteen ? 1f : KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
         List<List<FourteenKeyLetterWidths.Cell>> plan =
             FourteenKeyLetterWidths.plan(letters, letterWeight, edgeWeight, letterWidths.geometry());
-        List<String> sidebar = NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS;
         List<List<Key>> rows = new ArrayList<>(plan.size() + 2);
         if (numberRow) rows.add(numberRow());
         for (int index = 0; index < plan.size(); index++) {
@@ -513,15 +512,11 @@ public final class KeyLayoutStylesPolicy {
                 });
                 if (cell.kind() == FourteenKeyLetterWidths.Kind.KEY) seenLetter = true;
             }
-            // 14 键左边接上符号栏这一格；18 键没有侧栏，三行都从同一左边界铺满。宽窄时三行份额之和相同，缩放后同一种键在三行里一样宽。
+            // 14/18 键都没有侧栏，三行都从同一左边界铺满。宽窄时三行份额之和相同，缩放后同一种键在三行里一样宽。
             float total = 0;
             for (Key cell : cells) total += cell.weight();
-            float scale = eighteen ? 1f / total : FourteenKeyLayout.LETTER_COLUMN_WEIGHT / total;
-            List<Key> row = new ArrayList<>(cells.size() + 1);
-            if (!eighteen) {
-                row.add(new Key(index < sidebar.size() ? sidebar.get(index) : "", FourteenKeyLayout.SPELLING_SIDEBAR_WEIGHT,
-                    index < sidebar.size() ? "SoftPunctuation" : "", Tone.CHARACTER, index < sidebar.size() ? 1 : 0));
-            }
+            float scale = 1f / total;
+            List<Key> row = new ArrayList<>(cells.size());
             for (Key cell : cells) row.add(new Key(cell.face(), cell.weight() * scale, cell.id(), cell.tone(), cell.rows()));
             rows.add(List.copyOf(row));
         }
