@@ -363,7 +363,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private void seedHistory(String text, long timestamp, boolean pinned) throws Exception {
         ClassLoader loader = getTargetContext().getClassLoader();
         Class<?> modeType = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
-        Object main = java.lang.Enum.valueOf((Class) modeType, "MAIN");
+        Object main = null;
+        for (Object candidate : modeType.getEnumConstants()) {
+            if ("MAIN".equals(candidate.toString())) { main = candidate; break; }
+        }
+        if (main == null) throw new AssertionError("Main clipboard mode is unavailable");
         Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
         Object store = storeType.getMethod("forMode", android.content.Context.class, modeType)
             .invoke(null, getTargetContext(), main);
