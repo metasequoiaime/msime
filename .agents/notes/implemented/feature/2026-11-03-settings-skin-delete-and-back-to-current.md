@@ -52,3 +52,5 @@ Status: implemented
 - **收益**：macOS、Linux 的共享设置和 Windows 原生设置都能删掉不要的外部皮肤、一下回到在用的那张；MCP 和三个宿主共用一条删除规则，同步语义与 MCP 删除、在磁盘上手动删文件夹完全相同。
 - **代价**：`packages/ui` 在冻结期多了一个 hook 和两个按钮；它们迁到原生时要在 macOS、Linux 各做一遍。删除在用的皮肤要多点一次（确认后才被告知先关开关）。
 - **Testing**：`candidate_sync` 单测覆盖三种槽位情况的拒绝（偏好和同步状态都不动）、偏好读不出来时什么都不删、未选中时删除并保留同步状态、内置 id 和已删除的码；host-api 单测经 C ABI 走一遍拒绝、删除、重扫回复和非法请求；Tauri 的 `delete_skin_at` 单测；MCP stdio 测试照旧通过（拒绝提示里仍有槽位名），MCP 单测核对偏好读不出来时说的是偏好而不是皮肤文件夹；vitest 覆盖没有删除能力时不画按钮、确认后删除并重扫、取消不删、`candidate_skin_in_use` 的两种说法（卡片没显示「使用中」时要说删完选回原来的主题，显示时不说）和「回到当前」的可点状态与滚动；`windows-skin-delete-model` 覆盖 Windows 的文案和可点判断，但 CI 只在 Windows GNU 交叉编译作业里编译它、不运行（现有 Windows ctest 的 `-R` 过滤都匹配不到 `windows-*-model`，`windows-about-page-model` 等同样如此），断言要在 Windows 本机跑过才算验证。WinUI 页面本身只能在 Windows CI 编译，界面和真机验收留给设备轮。
+
+翻页时导航行上下不跳由[主题轮播卡片统一高度](../bug-fix/2026-11-09-theme-carousel-uniform-height.md)保证。
