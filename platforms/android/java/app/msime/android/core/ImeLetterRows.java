@@ -1060,7 +1060,7 @@ final class ImeLetterRows {
     /**
      * 全拼、双拼和五笔 14 键的字母层：{@link FourteenKeyLayout} 的三行，和 26 键字母行同样三行等高、按同样的方式分摊键盘高度调整，底行仍是 26 键的功能行，所以键盘总高与 26 键相同。
      *
-     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。每一格的份额取自 {@link FourteenKeyLetterWidths#plan}（共享偏好 `touch_fourteen_key_letter_widths`，#11051）：等宽时第 2 行不缩进；宽窄时单字母键窄一些，第 2 行两端是归 A、L（14 键是 AS、L）的占位格（{@link KeyboardSpacer}），点在里面不丢。双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift。字母键右上角画这一键的符号，滑动和长按按 26 键的规则输入符号或打开选项，组字中都是点按（{@link #bindGridLetterGestures}，#11063）。14 键拼音选择在左侧栏，18 键拼音选择在读音行、读音右边（不叠在候选行上，组字时候选照常可点）；18 键不画左侧符号栏。
+     * <p>点按经 {@link MSIMEInputService#gridKey} 送这一组的首字母，不走 {@link MSIMEInputService#type}（辅助码、微软双拼 `;`、英文直出都按单个确定的字母处理）。每一格的份额取自 {@link FourteenKeyLetterWidths#plan}（共享偏好 `touch_fourteen_key_letter_widths`，#11051）：等宽时第 2 行不缩进；宽窄时单字母键窄一些，第 2 行两端是归 A、L（14 键是 AS、L）的占位格（{@link KeyboardSpacer}），点在里面不丢。双拼的分号并入 L 键；第 3 行左端是分词键（组字时送 `'`，空闲时打开符号面板，照搬九键 1 键；五笔不分音节，组字中也是「符」，见 {@link FourteenKeyLayout#separatesSyllables}），右端是 ⌫，两端宽度沿用 26 键 ⇧ ⌫ 的份额。中文 14 键没有 Shift。字母键右上角画这一键的符号，滑动和长按按 26 键的规则输入符号或打开选项，组字中都是点按（{@link #bindGridLetterGestures}，#11063）。14/18 键的拼音选择都在读音行、读音右边（不叠在候选行上，组字时候选照常可点），都不画左侧符号栏（#11040）。
      */
     private void rebuildFourteenKeyRows() {
         s.imeLayoutRows.dismissNineKeyHoldOptions();
@@ -1070,23 +1070,17 @@ final class ImeLetterRows {
             ? EighteenKeyLayout.rows() : FourteenKeyLayout.rows();
         float letterWeight = eighteen ? 1f : FourteenKeyLayout.LETTER_WEIGHT;
         float edgeWeight = eighteen ? 1f : KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
-        // 顶部数字行与 26 键相同：整行铺满键区宽度（含左侧拼音栏的位置），画在三行字母块上方，键盘整体高出一行。
+        // 顶部数字行与 26 键相同：整行铺满键区宽度，画在三行字母块上方，键盘整体高出一行。
         builtNumberRow = s.numberRowDrawn();
         if (builtNumberRow) addNumberRow(rows.size());
         LinearLayout container = LayoutPolicy.row(s);
         s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
-        if (eighteen) {
-            // 十八键不再把符号栏挤在字母区左侧；拼音选择挂到读音行，字母三行从同一左边界铺开。
-            s.imeLayoutRows.attachEighteenSpellingsToReadingRow();
-        } else {
-            container.addView(s.imeLayoutRows.fourteenSpellingSidebar(),
-                LayoutPolicy.weightedMatchParentParams(FourteenKeyLayout.SPELLING_SIDEBAR_WEIGHT));
-        }
+        // 14/18 键都不在字母区左侧画符号栏；拼音选择挂到读音行，字母三行从同一左边界铺满（#11040）。
+        s.imeLayoutRows.attachGridSpellingsToReadingRow();
         LinearLayout letterColumn = LayoutPolicy.column(s);
-        container.addView(letterColumn, LayoutPolicy.weightedMatchParentParams(eighteen ? 1f
-            : FourteenKeyLayout.LETTER_COLUMN_WEIGHT));
+        container.addView(letterColumn, LayoutPolicy.weightedMatchParentParams(1f));
         // 每一格的份额取自字母键宽度的分法（#11051）：等宽逐格等于原来的份额；宽窄时第二排两端多出占位格，第三排两端是分词和 ⌫。
         FourteenKeyLetterWidths.Mode widths = s.fourteenKeyLetterWidths;
         java.util.List<java.util.List<FourteenKeyLetterWidths.Cell>> plan =
@@ -1212,8 +1206,8 @@ final class ImeLetterRows {
                     current.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
                         DimensionPolicy.fromPixels(s, event.getY()), direction, s.hasEngineComposition());
                     touching[0] = true;
-                    // 按下的气泡只画在 18 键双拼的两字母键上（横滑要看选中的字母），与改动前相同；其余 14/18 键按下不画，滑出符号时才画（gridGesturePreview）。
-                    if (exact) updateKeyPreview(key, event);
+                    // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号或横滑选中字母时气泡换字（gridGesturePreview）。
+                    updateKeyPreview(key, event);
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {

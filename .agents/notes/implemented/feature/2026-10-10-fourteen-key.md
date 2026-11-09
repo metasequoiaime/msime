@@ -22,7 +22,9 @@ Android 的双拼扩展由 [Android 14 键双拼](2026-10-23-android-fourteen-ke
 
 14/18 键字母键的角标符号由 [14/18 键角标符号的三端规则](2026-11-07-fourteen-eighteen-key-corner-symbols.md) 接入（#11063）。Android 上它取代下表的三项：「键面文字」的没有角标、「长按」只弹两个字母并先结束组字（现在空闲时弹出大小写字母和符号，组字中长按按点按处理）、「关闭」里的角标滑动；iOS、鸿蒙在各自跟进前仍按下表。
 
-Android 的拼音选择位置与触摸尺寸由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 取代；下表的读音行横向选择仍适用于 iOS、HarmonyOS，组码和消歧语义继续共用。
+Android 的拼音选择位置曾由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 改到左侧栏，现由 [Android 14 键拼音选择挂到读音行](2026-11-08-android-fourteen-key-reading-row-spellings.md)（#11040）改回下表的读音行横向选择，三端一致；组码和消歧语义继续共用。
+
+Android 上下表「按键气泡」一项由 [Android 14/18 键字母键按下画气泡](2026-11-08-android-grid-letter-press-bubble.md) 取代：每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键（#9349 之后）相同；iOS、鸿蒙仍按下表不画。
 
 iOS 的键盘设置预览也区分 26 / 14 / 9 键：`KeyboardSkinPreview` 接收显式的 `fourteenKey`，14 键直接复用扩展的 `FourteenKeyLayout.rows`，App target 同时编译这张纯键面表，避免第二张表与真实键盘漂移。第三排两端为「符」和删除（空闲时的键面；最初画的是组字中的「分词」，2026-11-05 改为「符」，见[按键布局页重做](2026-10-29-key-layout-page-redesign.md)），第二排不缩进，底行沿用全拼。皮肤缩略图未指定 14 键时保留原先的 26 / 9 键行为；预览的无障碍标签同步说明所画布局。真机验收发现旧预览只按 `nineKey` 二分，选中 14 键时设置行已改变，但预览仍画 26 键，因此这里不能用「非九键」代指 26 键。界面回归用例同时核对选择值、预览布局标签、离页持久化，并保留三种布局的实际渲染图供核对。非拼音方案的同名行是说明文本，因此测试按标识符读取后跳过；从设置返回时等导航标题变化，避免点到消失中的返回键。App 的源文件成员按原有 `KeyboardExtension/Sources` 分组筛选，复用工程已有的文件引用，避免新增重复目录组。
 
@@ -97,7 +99,7 @@ View 的 `key_grid` 是 `"none" | "nine_key" | "fourteen_key"`，`nine_key: bool
 
 - `KeyboardScheme.QUANPIN_FOURTEEN_KEY` 追加在末尾，`optIn`；`fromPreferences` 有显式分支，通用循环同时排除 nine_key 和 fourteen_key。`KeyboardLayout.FOURTEEN_KEY_LAYOUT = 8`，`resolveTouchLayout` 先判 14 键再判九键；`View.key_grid` 是 `fourteen_key` 且没有本地模式时画 14 键，本地模式要逐个确定的字母，回落 26 键。
 - 键表、组码、键面、无障碍标签和键位 id 在无 Android 依赖的 `keyboard/FourteenKeyLayout.java`（角标符号表在 `GridLetterHintTable.java`）；`ImeLetterRows` 用 26 键的行高和边键权重画三行字母，底行就是 26 键的设计底行。点按调 `gridKey`，不走 `type()`，以免误入辅助码、微软双拼 `;` 和英文直出。
-- Android 拼音选择与九键共用字母区左侧的 `SpellingPlacement.SIDEBAR`，空闲显示符号，组字时纵向选择拼音，不额外增加键盘高度。14/18 键的长按选项是 `showGridLetterOptions`，`showNineKeyHoldOptions` 只给九键。
+- Android 14/18 键的拼音选择挂在读音行（`SpellingPlacement.READING_ROW`，`ImeLayoutRows.attachGridSpellingsToReadingRow`），字母区左侧没有符号栏，见 [Android 14 键拼音选择挂到读音行](2026-11-08-android-fourteen-key-reading-row-spellings.md)。14/18 键的长按选项是 `showGridLetterOptions`，`showNineKeyHoldOptions` 只给九键。
 - 数字行、分体、滑行、Shift 和双拼提示的门本来就只放 26 键和韩文，14 键不进（角标后来由 `GridLetterHintTable` 单独接入）；读音行、三栏面板、`drawsDesignLayer`、`twentySixKeyDigits` 和 `layerTitle`（「14键」）纳入 14 键。`englishNineKeyActive`、九键自己的数字层和引导、皮肤预览、热力图仍只认九键。
 - 设置「26 键数字键盘」的说明改为同时适用于 26 键和 14 键。
 

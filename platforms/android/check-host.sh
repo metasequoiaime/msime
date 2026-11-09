@@ -140,6 +140,18 @@ if ! rg -q 'sameEditor\(info\) && imeTextEditPanel\.reportedSelection\(info\.ini
   echo "The text edit panel may survive only a same-field restart (same editor and the last reported selection); stop must still close More Tools" >&2
   exit 1
 fi
+# 手写书写区按模型状态摆好下载按钮，不能按会话挡掉：切应用回来时键行在新会话建立前重建，按 handwritingActive() 挡掉会让新建的下载按钮停在可见、无字的默认状态，压在十字格正中挡住笔画（Android 0.7.2）。这里钉住：重建手写行最后刷新一次模型状态，刷新只看手写视图在不在。
+refresh_body=$(sed -n '/^    void refreshHandwritingAvailability() {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+rebuild_body=$(sed -n '/^    void rebuildHandwritingRows() {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java")
+if [[ -z "$refresh_body" ]] \
+  || rg -q 'handwritingActive\(\)' <<< "$(head -2 <<< "$refresh_body")" \
+  || ! rg -q 'if \(handwritingCanvas == null \|\| handwritingRecognizer == null \|\| handwritingDownload == null\) return;' <<< "$refresh_body" \
+  || ! rg -q 's\.refreshHandwritingAvailability\(\);' <<< "$rebuild_body"; then
+  echo "Rebuilding the handwriting rows must lay out the model download button from the model state even before the new session starts" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
 toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
@@ -150,23 +162,14 @@ if ! rg -q 'KeyboardScheme\.handwritingReturn\(schemeBeforeHandwriting' <<< "$to
   echo "Leaving handwriting from the function panel must return to the scheme and English mode it was entered from" >&2
   exit 1
 fi
-# 剪贴板单条、左滑和多选删除前的系统认证门禁（#10408，.agents/notes/implemented/feature/2026-10-31-android-clipboard-delete-auth.md）。何时要求认证、没有锁屏凭据时何时放行由 ClipboardDeleteAuthenticationPolicySmoke 覆盖；接线在 InputMethodService 和面板里，JVM 冒烟碰不到，这里钉住：两个删除入口都经 authenticateClipboardDelete，它按 ClipboardDeleteAuthenticationPolicy 决定是否认证，并把「设备没有可用认证器」交给 allowsWithoutAuthenticator，拒绝时的提示告诉用户可以关掉开关；设置页开关在认证桥返回 2002 时按 togglesWithoutAuthenticator 只放行关闭，打开开关后又移除锁屏凭据的用户才关得掉它；真正删除的两个方法各只有删除入口一处调用，绕不过门禁；认证桥的 RESULT_UNAVAILABLE（2002）在服务里单独处理，不落到「未通过系统认证」；多选只在删除真正发生后退出选择，取消认证时选择还在；认证 Activity 被直接结束时补发取消，发起方的等待标记才能复位。
+# 剪贴板单条、左滑和多选删除前的系统认证门禁（#10408，.agents/notes/implemented/feature/2026-10-31-android-clipboard-delete-auth.md）。何时要求认证、没有锁屏凭据时何时放行由 ClipboardDeleteAuthenticationPolicySmoke 覆盖；这里只钉住认证策略、认证桥和设置页的协议。删除入口与认证后的面板恢复由 ToolbarEdgesDeviceSmoke 在设备上走行为路径覆盖，避免用源码字符串守卫接线顺序。
 clipboard_service_java="$android_java/core/MSIMEInputService.java"
 clipboard_auth_activity="$android_java/ClipboardAuthenticationActivity.java"
 clipboard_toggle_body=$(sed -n '/^    private void requestClipboardDeleteAuthentication(GroupCard\.Row row, boolean current, boolean next) {$/,/^    }$/p' "$android_java/home/KeyboardOptionsPage.java")
-remove_item_body=$(sed -n '/^    void removeClipboardItem(ClipboardHistory\.Item item) {$/,/^    }$/p' "$clipboard_service_java")
-remove_items_body=$(sed -n '/^    void removeClipboardItems(java\.util\.List<String> texts, Runnable removed) {$/,/^    }$/p' "$clipboard_service_java")
 delete_gate_body=$(sed -n '/^    private void authenticateClipboardDelete(Runnable delete) {$/,/^    }$/p' "$clipboard_service_java")
 clipboard_auth_body=$(sed -n '/^    private void authenticateClipboard(String operation, Runnable after, Runnable whenUnavailable) {$/,/^    }$/p' "$clipboard_service_java")
 auth_activity_destroy_body=$(sed -n '/^    @Override protected void onDestroy() {$/,/^    }$/p' "$clipboard_auth_activity")
-remove_item_calls=$(rg -c 'removeClipboardItemAfterAuthentication\(' "$clipboard_service_java" || true)
-remove_items_calls=$(rg -c 'removeClipboardItemsAfterAuthentication\(' "$clipboard_service_java" || true)
-if ! rg -q 'authenticateClipboardDelete\(\(\) -> removeClipboardItemAfterAuthentication\(item\)\);' <<< "$remove_item_body" \
-  || ! rg -q 'authenticateClipboardDelete\(\(\) -> \{' <<< "$remove_items_body" \
-  || ! rg -q 'removeClipboardItemsAfterAuthentication\(snapshot\);' <<< "$remove_items_body" \
-  || ! rg -q 'removed\.run\(\);' <<< "$remove_items_body" \
-  || [[ "$remove_item_calls" != 2 ]] || [[ "$remove_items_calls" != 2 ]] \
-  || ! rg -q 'ClipboardDeleteAuthenticationPolicy\.requiresAuthentication\(enabled,' <<< "$delete_gate_body" \
+if ! rg -q 'ClipboardDeleteAuthenticationPolicy\.requiresAuthentication\(enabled,' <<< "$delete_gate_body" \
   || ! rg -q 'clipboardMode == ClipboardModePolicy\.Mode\.VISITOR' <<< "$delete_gate_body" \
   || ! rg -U -q 'ClipboardDeleteAuthenticationPolicy\.allowsWithoutAuthenticator\(enabled\)\n\s+\? delete : \(\) -> notice\(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE\)\);' <<< "$delete_gate_body" \
   || ! rg -q 'private static final String CLIPBOARD_DELETE_UNAVAILABLE_NOTICE = ".*关闭「剪贴板删除数据验证」";' "$clipboard_service_java" \
