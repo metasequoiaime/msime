@@ -11,6 +11,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -292,8 +293,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         for (int i = 0; i < 80; i++) source.append("Synthetic preview line ").append(i).append('\n');
         String original = source.toString();
         String replacement = "Synthetic modified preview text🙂";
-        write(history, new JSONArray().put(new JSONObject().put("text", original)
-            .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
+        seedHistory(original, 1700000000000L, true);
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
         stage = "right swipe opens clipboard detail with full record time and unavailable source";
@@ -357,6 +357,21 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 || saved.getJSONObject(0).getLong("timestampMs") != 1700000000000L
                 || !replacement.equals(saved.getJSONObject(0).getString("text")))
             throw new AssertionError("Detail edit lost record identity");
+    }
+
+    /** 通过移动端剪贴板公开入口写入夹具，避免 API 31 以上复用进程时直写文件与宿主状态分叉。 */
+    private void seedHistory(String text, long timestamp, boolean pinned) throws Exception {
+        ClassLoader loader = getTargetContext().getClassLoader();
+        Class<?> modeType = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
+        Object main = java.lang.Enum.valueOf((Class) modeType, "MAIN");
+        Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
+        Object store = storeType.getMethod("forMode", android.content.Context.class, modeType)
+            .invoke(null, getTargetContext(), main);
+        storeType.getMethod("clear").invoke(store);
+        Class<?> itemType = loader.loadClass("app.msime.android.ClipboardHistory$Item");
+        Object item = itemType.getConstructor(String.class, long.class, boolean.class, String.class)
+            .newInstance(text, timestamp, pinned, null);
+        storeType.getMethod("restoreMany", List.class).invoke(store, List.of(item));
     }
 
     private void openClipboardEditor() throws Exception {
