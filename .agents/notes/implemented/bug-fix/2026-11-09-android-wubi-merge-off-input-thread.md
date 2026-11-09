@@ -41,6 +41,10 @@ API 35 模拟器上复现，ANR 跟踪按 0.7.2 发布符号解出的主线程�
 - `cargo test -p msime-engine --lib`：新增 `merging_ahead_of_the_session_leaves_nothing_for_session_options`，先调引擎入口并表、补写日志里的五笔行，之后 `session_options` 不再写主词库（比较文件头的修改计数）。
 - `cargo test -p msime-host-api --lib`：新增 `prepare_session_merges_the_downloaded_wubi_table_before_the_session_is_created`（维护租约被占时回答 busy、不写；并表；再调一次什么也不做；坏文档和版本照样拒绝；之后建的会话直接用上五笔）和 `a_wubi_pack_installed_mid_session_is_taken_only_once_merged_elsewhere`（会话中途装好的码表聚焦时不接、主词库不被写；别处并好后下一次聚焦接上；移除时当场跟上）。
 - `cargo clippy -p msime-engine -p msime-host-api --all-targets -- -D warnings`、`platforms/android/check-host.sh`、`scripts/test-android-jni-names.py`。
+- API 35 模拟器（arm64，开发密钥签名的 full 瘦包，`MSIME_ANDROID_OMIT_ON_DEMAND=1`，包里没有 `msime-wubi.db`）：
+  - 首启引导选五笔、接受下载 142.5 MB 的码表，打开短信点输入框再点字母：工作主词库从 73.9 MB 并到 264.5 MB，键盘出来后按 G 给出「一」「王」等五笔候选，`/data/anr` 没有新文件，logcat 没有 `ANR in`。0.7.2 发布包同样的步骤在这台模拟器上必现 ANR。
+  - 把工作主词库里的五笔表删掉后再建会话，并表期间三次 `kill -3` 采样（20:03:36、40、44，主词库 85 MB → 112 MB → 157 MB，20:04:03 并完）：工作线程停在 `NativeClient.prepareSession` → `msime_client_prepare_session`，主线程在 `MessageQueue.nativePollOnce` 空闲；并完后五笔照常出候选，没有 ANR。
+  - 会话开着时把 `wubi` 资源包发布进状态目录（复制先前下载的那份、整体改名就位），之后在同一个会话里打字、发送：主词库没有变化，键盘留在全拼回退，没有 ANR；切走再回来建新会话时在工作线程上并好，五笔可用。这一步没能确认安卓在发送后确实走了保留会话的 `focus`（`resumeKeptSession`），聚焦时不接未并码表的行为以 host-api 的单元测试为准。
 
 ## Related notes audit
 
