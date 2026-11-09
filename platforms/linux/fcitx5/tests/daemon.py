@@ -216,6 +216,15 @@ def main():
                 assert context.ProcessKeyEvent(32, 0, 0, False, 0), "Commit key rejected"
                 wait(lambda: len(commits) == 1)
                 assert commits == ["你好"], "Unexpected committed result"
+                # 切到另一个输入法时，普通中文组字也必须把用户输入的原始读入串交给编辑器。
+                for character in "nihao":
+                    assert context.ProcessKeyEvent(ord(character), 0, 0, False, 0), "Composition key rejected before input-method switch"
+                wait(lambda: preedits and preedits[-1] == "nihao")
+                control.SetCurrentIM("keyboard-us")
+                wait(lambda: str(control.CurrentInputMethod()) == "keyboard-us")
+                wait(lambda: commits[-1:] == ["nihao"])
+                control.SetCurrentIM("msime")
+                wait(lambda: str(control.CurrentInputMethod()) == "msime")
                 if "--page-number" in sys.argv[4:]:
                     panels = []
                     context.connect_to_signal("UpdateClientSideUI", lambda *args: panels.append(args))
