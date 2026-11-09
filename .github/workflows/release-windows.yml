@@ -207,16 +207,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $resources = Join-Path $env:RUNNER_TEMP 'desktop-resources'
-          $reported = cargo run --quiet --locked -p msime-client-core --example install_resources -- $resources
+          $resourceRoot = Join-Path $env:RUNNER_TEMP 'desktop-resources'
+          $reported = cargo run --quiet --locked -p msime-client-core --example install_resources -- $resourceRoot
           if ($LASTEXITCODE -ne 0) { throw '桌面资源下载失败' }
           $reported = @($reported)[-1].Trim()
-          if ($reported -ne $resources -or -not (Test-Path -LiteralPath $resources -PathType Container)) { throw "桌面资源目录无效：$reported" }
-          if (@(Get-ChildItem -LiteralPath $resources -File).Count -eq 0) { throw '桌面资源目录为空' }
+          if (-not (Test-Path -LiteralPath $reported -PathType Container)) { throw "桌面资源代次目录无效：$reported" }
+          if (@(Get-ChildItem -LiteralPath $reported -File).Count -eq 0) { throw '桌面资源代次目录为空' }
+          $artifact = Join-Path $env:RUNNER_TEMP 'desktop-resources-artifact'
+          New-Item -ItemType Directory -Path $artifact -Force | Out-Null
+          Copy-Item -Path (Join-Path $reported '*') -Destination $artifact -Recurse -Force
+          if (@(Get-ChildItem -LiteralPath $artifact -File).Count -eq 0) { throw '桌面资源 artifact 为空' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-desktop-resources-${{ needs.source.outputs.version }}-${{ needs.source.outputs.sha }}
-          path: ${{ runner.temp }}/desktop-resources/
+          path: ${{ runner.temp }}/desktop-resources-artifact/
           if-no-files-found: error
   # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装，也可以和 msime-windows 同时安装。full 的安装包名、AppId、目录和注册表键也是自己的，不再是 msime-windows 的那一组。
   release:

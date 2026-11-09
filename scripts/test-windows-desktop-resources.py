@@ -28,6 +28,8 @@ checks = {
     "资源 job 固定到 source 提交": 'with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}' in resources,
     "资源 job 使用短 Cargo 路径": "./platforms/windows/Use-ShortCargoHome.ps1" in resources,
     "资源 job 运行一次 install_resources": "cargo run --quiet --locked -p msime-client-core --example install_resources" in resources,
+    "资源 job 使用 install_resources 返回的代次目录": "if (-not (Test-Path -LiteralPath $reported -PathType Container))" in resources,
+    "资源 job 将代次内容导出到 artifact 根目录": "Copy-Item -Path (Join-Path $reported '*') -Destination $artifact -Recurse -Force" in resources,
     "资源 job 上传带版本和提交的 artifact": "msime-desktop-resources-${{ needs.source.outputs.version }}-${{ needs.source.outputs.sha }}" in resources,
     "release 等待资源 job": "needs: [source, rust, official-plugins, desktop-resources]" in workflow,
     "release 下载资源 artifact": "actions/download-artifact" in release and "msime-desktop-resources-${{ needs.source.outputs.version }}-${{ needs.source.outputs.sha }}" in release,
