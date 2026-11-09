@@ -51,6 +51,7 @@ uint32_t msime_client_abi_version(void);
  * Verifies pinned resources, delegates working data preparation to Engine and
  * returns HostOptions. Maximum 16384 bytes; no session may use state_root during
  * preparation. Caller publishes the returned config atomically after success.
+ * 可选的 bundled_resources 是当前安装包的绝对资源目录；显式 resources 与当前锁不符时从这里恢复。
  * 可选的 edition 是版本 id（shared/contracts/editions.json），缺省为 full；不是 full 时返回的 HostOptions 带 edition 键，未知 id 返回错误。
  * 可选的 runtime_options 是已发布的 runtime-options.json 的绝对路径：准备成功后，文件里的 dictionaries 不是这次准备的代次时改写成它，其余键不动；改写失败只记诊断，不影响返回值。Windows Server 每次启动都重新准备、会话用返回的文档，靠它让照这份文件工作的设置窗口和 TIP 跟上同一个代次。
  * read_only_state 为 true 时宿主对 state_root 没有写权限（iOS 键盘没有完全访问）：只读地准备，state_root 里一个字节也不写，必须同时给 private_root（宿主自己能写、不在 state_root 里的绝对路径），不能给 runtime_options。偏好从 state_root 读；别的进程准备好了这个版本的代次、两把租约锁文件也在时用它，否则用 resources 的只读布局（没有用户词库）。返回的 HostOptions 带 read_only_state: true，只放在内存里，建出的会话不学习、租约只读打开已有的锁文件，msime_client_pin_candidate、msime_client_remove_candidate、msime_client_fix_candidate_position、msime_client_clear_candidate_position 一律以 "candidate editing needs write access to the shared state" 失败，组字不变。
@@ -58,6 +59,9 @@ uint32_t msime_client_abi_version(void);
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
 /* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. It also keeps language_dictionaries in step with the Cantonese, Zhuyin and Stroke dictionaries installed beside the resources, whatever the generation; only an input method host may call it, because a host older than this library rejects that key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */
 char *msime_client_refresh_host(const uint8_t *path, size_t length);
+/* 同上，但词库过期时使用 bundled 资源目录。bundled 为空时等同于 msime_client_refresh_host。 */
+char *msime_client_refresh_host_from(const uint8_t *path, size_t length,
+                                     const uint8_t *bundled, size_t bundled_length);
 /* 宿主注入的会话存储（ABI 不变，仍是 3，只新增）。钥匙串、App Group、AndroidKeyStore 这类只有平台能读写的地方由宿主经下面的回调提供字节和跨进程锁，编解码、布局、合法性校验和刷新时的加锁顺序都在 Rust 里。注册以后，msime_client_account、msime_client_community、msime_client_account_cloud_clipboard、msime_client_account_access_token、msime_client_cloud_dictionary、msime_client_ai_skin_generate、msime_client_ai_skin_job 和 msime_client_cloud_sync 的请求用 {session_store: id} 代替 {directory}；两者恰好给一个，legacy_directory 只能与 directory 一起给，都给、都不给或 id 没有注册时是该入口的「请求不合法」码（account_invalid、community_invalid、invalid_cloud_clipboard、invalid_cloud_dictionary、ai_skin_invalid、cloud_sync_invalid）。带 directory 的请求与以前完全相同，Windows 和 Linux 不需要改；msime_client_account 和 msime_client_account_chat_stream 带 directory 时还可以给 client_agent（见 msime_client_account），其余入口的目录模式仍发 MSIME/Android。 */
 #define MSIME_CLIENT_SESSION_STORE_VERSION 1
 /* flags：钥匙串、App Group 这类多个进程读写同一份会话的存储必须置位。置位时每次访问都重新读，刷新、登录、退出、改资料和补登录 ID 时持 lock(item)；不置位时会话读一次后缓存在进程里，lock/unlock 可以为 NULL。 */
