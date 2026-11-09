@@ -101,33 +101,10 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         &applied.plugins,
         &plugin_roots,
     ));
-    // 只读宿主的只读布局读的是随包资源，没有谁会改它，不取租约。
-    let dictionary_access = if read_only_state && options.dictionaries == options.resources {
-        None
-    } else {
-        let lease = if read_only_state {
-            DictionaryAccess::try_session_read_only
-        } else {
-            DictionaryAccess::try_session
-        };
-        Some(
-            lease(
-                std::path::Path::new(&options.user_data),
-                std::path::Path::new(&options.dictionaries),
-            )
-            .map_err(|_| "dictionary access unavailable".to_owned())?
-            .ok_or_else(|| "dictionary maintenance busy".to_owned())?,
-        )
-    };
-    // 在 Engine 打开资源文件之前占用下载的词库代次，会话活着时设置宿主不会把它当旧版本删掉。随包资源、鸿蒙键盘的镜像或者锁文件建不了时没有凭证，不影响输入。只读宿主只读打开装代次时建好的锁文件。
-    let generation_lease = state_root.as_deref().and_then(|state| {
-        let resources = std::path::Path::new(&options.resources);
-        if read_only_state {
-            msime_client_providers::dictionary_updates::lease_read_only(state, resources)
-        } else {
-            msime_client_providers::dictionary_updates::lease(state, resources)
-        }
-    });
+    let dictionary_access =
+        session_dictionary_access(&options, read_only_state).map_err(str::to_owned)?;
+    let generation_lease =
+        session_generation_lease(&options, state_root.as_deref(), read_only_state);
     let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
     // 设置宿主据此判断下载的词库代次是否已经生效。写不进状态目录（例如 iOS 键盘没有完全访问）时设置页退回原来的判断，不影响输入，所以不让会话因此失败；只读宿主干脆不写。
     if let Some(state) = state_root
@@ -301,6 +278,93 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         )
     });
     Ok(output)
+}
+
+/// 建会话取词库会话租约时，词库正在维护（设置进程在同步个人词库、换代次）的错误文本，宿主据此稍后再建。
+const DICTIONARY_MAINTENANCE_BUSY: &str = msime_client_services::dictionary::quiesce::BUSY;
+
+/// 建会话持着的词库会话租约：只读宿主的只读布局读的是随包资源，没有谁会改它，不取租约（`Ok(None)`）；其余只读宿主只读打开已有的锁文件。词库正在维护时是 [`DICTIONARY_MAINTENANCE_BUSY`]。
+fn session_dictionary_access(
+    options: &EngineOptions,
+    read_only_state: bool,
+) -> Result<Option<DictionaryAccess>, &'static str> {
+    if read_only_state && options.dictionaries == options.resources {
+        return Ok(None);
+    }
+    let lease = if read_only_state {
+        DictionaryAccess::try_session_read_only
+    } else {
+        DictionaryAccess::try_session
+    };
+    lease(
+        std::path::Path::new(&options.user_data),
+        std::path::Path::new(&options.dictionaries),
+    )
+    .map_err(|_| "dictionary access unavailable")?
+    .ok_or(DICTIONARY_MAINTENANCE_BUSY)
+    .map(Some)
+}
+
+/// 在 Engine 打开资源文件之前占用下载的词库代次，会话活着时设置宿主不会把它当旧版本删掉。随包资源、鸿蒙键盘的镜像或者锁文件建不了时没有凭证，不影响输入。只读宿主只读打开装代次时建好的锁文件。
+fn session_generation_lease(
+    options: &EngineOptions,
+    state_root: Option<&std::path::Path>,
+    read_only_state: bool,
+) -> Option<msime_client_providers::dictionary_updates::GenerationLease> {
+    let resources = std::path::Path::new(&options.resources);
+    state_root.and_then(|state| {
+        if read_only_state {
+            msime_client_providers::dictionary_updates::lease_read_only(state, resources)
+        } else {
+            msime_client_providers::dictionary_updates::lease(state, resources)
+        }
+    })
+}
+
+/// 建会话之前、在输入线程之外先做完建会话里最慢的那一步：把下载的五笔码表并进代次的工作主词库（`msime_engine::host::merge_downloaded_wubi_dictionary`）。第一次并入 142 MB 的码表在安卓模拟器上要 18–25 秒，放在建会话的主线程上就是 ANR：系统杀掉输入法进程，没提交的事务回滚，下一次按键又从头并起，键盘一直卡死重启。
+///
+/// # Safety
+/// `options` must point to `length` readable bytes for this call. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_prepare_session(
+    options: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if options.is_null() || length > HOST_OPTIONS_DOCUMENT_LIMIT {
+            return Err("invalid options buffer".into());
+        }
+        // SAFETY: guaranteed by the C caller's documented buffer contract.
+        let bytes = unsafe { std::slice::from_raw_parts(options, length) };
+        prepare_session(bytes)
+    })
+}
+
+/// `msime_client_prepare_session` 的本体：选项按 `msime_client_create` 的规矩解析，持着同样的两把租约并表。词库正在维护时不等也不并，回答 `busy`，之后的建会话照旧自己并（也照旧会因为维护忙而失败、由宿主重试）。
+pub(crate) fn prepare_session(bytes: &[u8]) -> Result<Value, String> {
+    let options = serde_json::from_slice(bytes)
+        .ok()
+        .and_then(HostOptions::from_document)
+        .ok_or("invalid options document")?;
+    if options.api_version != 1 {
+        return Err("unsupported host API version".into());
+    }
+    options.preferences.validate().map_err(|e| e.to_string())?;
+    let state_root = absolute_state_root(options.preferences_directory.as_deref());
+    let read_only_state = options.read_only_state == Some(true);
+    let options = options.into_engine_options();
+    let _dictionary_access = match session_dictionary_access(&options, read_only_state) {
+        Ok(access) => access,
+        Err(DICTIONARY_MAINTENANCE_BUSY) => {
+            return Ok(json!({ "wubi_merged": false, "busy": true }));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let _generation_lease =
+        session_generation_lease(&options, state_root.as_deref(), read_only_state);
+    let merged = msime_engine::host::merge_downloaded_wubi_dictionary(&options)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "wubi_merged": merged, "busy": false }))
 }
 
 #[no_mangle]

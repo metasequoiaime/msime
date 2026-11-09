@@ -22449,6 +22449,176 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 下载的五笔码表还没并进工作主词库的安装：资源目录不带 `msime-wubi.db`，状态目录里有 `wubi` 资源包（真的 SQLite 码表），代次里的主词库没有五笔表。返回（根目录、状态目录、代次目录、HostOptions 文档、资源包里的码表）。
+fn unmerged_wubi_install(
+    publish_pack: bool,
+) -> (tempfile::TempDir, PathBuf, PathBuf, String, PathBuf) {
+    let root = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = root.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let state = path("state");
+    let resources = path("resources");
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);")
+        .unwrap();
+    let dictionaries = path("dictionaries");
+    std::fs::copy(
+        resources.join("msime-pinyin.db"),
+        dictionaries.join("msime-pinyin.db"),
+    )
+    .unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        last_chinese_scheme: None,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": preferences, "preferences_directory": state }).to_string();
+    let table = if publish_pack {
+        publish_wubi_pack(&state)
+    } else {
+        PathBuf::new()
+    };
+    (root, state, dictionaries, options, table)
+}
+
+/// 在 `state` 下发布 `wubi` 资源包，码表是一个带 `wubi86` 表的真 SQLite 库，返回码表路径。
+fn publish_wubi_pack(state: &Path) -> PathBuf {
+    let table =
+        publish_resource_pack(state, ResourcePack::Wubi, &["msime-wubi.db"]).join("msime-wubi.db");
+    std::fs::remove_file(&table).unwrap();
+    rusqlite::Connection::open(&table)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             INSERT INTO wubi86 VALUES('ggll','一',90),('gggg','王',80);",
+        )
+        .unwrap();
+    table
+}
+
+fn has_wubi86(dictionaries: &Path) -> bool {
+    rusqlite::Connection::open(dictionaries.join("msime-pinyin.db"))
+        .unwrap()
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='wubi86')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+/// `msime_client_prepare_session` 在建会话之前把下载的五笔码表并进代次的工作主词库（安卓在工作线程上调它：并表放在主线程上的建会话里要 18–25 秒，就是 ANR）；再调一次什么也不做，之后建的会话直接用上五笔。词库正在维护时不并，回答 busy。
+#[test]
+fn prepare_session_merges_the_downloaded_wubi_table_before_the_session_is_created() {
+    let (_root, state, dictionaries, options, table) = unmerged_wubi_install(true);
+    let prepare = |options: &str| {
+        read(unsafe { msime_client_prepare_session(options.as_ptr(), options.len()) })
+    };
+    assert!(!has_wubi86(&dictionaries));
+
+    // 维护租约在别人手里时不等也不并。
+    let maintenance = msime_client_services::dictionary::access::DictionaryAccess::try_maintenance(
+        &state.parent().unwrap().join("user"),
+        &dictionaries,
+    )
+    .unwrap()
+    .unwrap();
+    let busy = prepare(&options);
+    assert_eq!(busy["ok"], true, "{busy}");
+    assert_eq!(busy["value"], json!({ "wubi_merged": false, "busy": true }));
+    assert!(!has_wubi86(&dictionaries));
+    drop(maintenance);
+
+    let merged = prepare(&options);
+    assert_eq!(merged["ok"], true, "{merged}");
+    assert_eq!(
+        merged["value"],
+        json!({ "wubi_merged": true, "busy": false })
+    );
+    assert!(has_wubi86(&dictionaries));
+    let again = prepare(&options);
+    assert_eq!(
+        again["value"],
+        json!({ "wubi_merged": false, "busy": false })
+    );
+
+    // 解析与建会话相同：坏文档和不认识的版本照样拒绝。
+    assert_eq!(prepare("{}")["ok"], false);
+    let mut unsupported: Value = serde_json::from_str(&options).unwrap();
+    unsupported["api_version"] = json!(2);
+    assert_eq!(prepare(&unsupported.to_string())["ok"], false);
+    assert_eq!(
+        read(unsafe { msime_client_prepare_session(std::ptr::null(), 0) })["ok"],
+        false
+    );
+
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    SESSIONS.with(|sessions| {
+        let sessions = sessions.borrow();
+        let session = &sessions[&handle];
+        assert_eq!(session.options.wubi_dictionary, table.to_str().unwrap());
+        assert!(!LanguageDictionaries::of_options(&session.options).wubi_missing);
+    });
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// 会话打开后才装好的五笔资源包：码表还没并进工作主词库时聚焦不接它（接了就要在输入线程上重建 Engine 时并表，安卓上是 ANR），五笔照旧按没有码表处理，主词库也不在这个会话里被写；别处（下一次建会话之前的 `msime_client_prepare_session`）并好之后，下一次聚焦照常接上。
+#[test]
+fn a_wubi_pack_installed_mid_session_is_taken_only_once_merged_elsewhere() {
+    let (_root, state, dictionaries, options, _) = unmerged_wubi_install(false);
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    let observed = || {
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let session = &sessions[&handle];
+            (
+                session.options.wubi_dictionary.clone(),
+                session.resources_pending,
+            )
+        })
+    };
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(observed(), (String::new(), false));
+
+    let table = publish_wubi_pack(&state);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(observed(), (String::new(), false));
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        session.refresh_resource_packs();
+        assert!(!session.resources_pending);
+    });
+    assert!(
+        !has_wubi86(&dictionaries),
+        "the input thread must not merge"
+    );
+
+    let merged = read(unsafe { msime_client_prepare_session(options.as_ptr(), options.len()) });
+    assert_eq!(merged["value"]["wubi_merged"], true, "{merged}");
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let (wubi, pending) = observed();
+    assert_eq!(wubi, table.to_str().unwrap());
+    assert!(!pending, "an idle session rebuilds at once");
+    SESSIONS.with(|sessions| {
+        assert!(!LanguageDictionaries::of_options(&sessions.borrow()[&handle].options).wubi_missing)
+    });
+
+    // 资源包被移除时照旧当场跟上，不必并表。
+    std::fs::remove_dir_all(table.parent().unwrap()).unwrap();
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(observed(), (String::new(), false));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 fn call_android_data(
     function: unsafe extern "C" fn(*const u8, usize) -> *mut c_char,
     request: Value,
