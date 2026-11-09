@@ -62,7 +62,7 @@ final class EighteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - 桥接
 
-  /// 全拼 18 键按组码打出「你好」，会话重建后网格仍在；全拼不收横滑的精确大写，换回 26 键后网格关掉。
+  /// 全拼 18 键按组码打出「你好」，会话重建后网格仍在；精确大写在全拼网格里同样限定字母（#11040），换回 26 键后网格关掉。
   func testTheBridgeTypesNihaoOnTheQuanpinGridAndKeepsItAcrossARebuild() throws {
     let bridge = MetasequoiaInputSessionBridge()
     XCTAssertNil(bridge.switchToEighteenKey().diagnosticText)
@@ -74,7 +74,10 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     var snapshot = type("bihai")
     XCTAssertTrue(snapshot.isHandled)
     XCTAssertTrue(snapshot.candidates.contains("你好"), "\(snapshot.candidates)")
-    XCTAssertFalse(bridge.gridKey("N").isHandled, "the exact marker belongs to the shuangpin grid only")
+    snapshot = type("NIhai")
+    XCTAssertTrue(snapshot.isHandled, "the quanpin grid takes exact letters too")
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "\(snapshot.candidates)")
+    XCTAssertFalse(snapshot.nineKeySpellings.contains { $0.hasPrefix("b") }, "\(snapshot.nineKeySpellings)")
     _ = bridge.cancel()
     XCTAssertTrue(bridge.suspendDictionarySession())
     try bridge.resumeDictionarySession()
