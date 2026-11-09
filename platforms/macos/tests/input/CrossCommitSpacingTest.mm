@@ -8,6 +8,7 @@
 @property(nonatomic) NSRange selection;
 @property(nonatomic) NSRange marking;
 @property(nonatomic) BOOL unreadable;
+@property(nonatomic) BOOL keepMarkAfterCommit;
 @end
 @implementation SpacingClient
 - (NSString *)bundleIdentifier { return @"app.example.Writer"; }
@@ -22,10 +23,11 @@
     NSRange target = range.location != NSNotFound ? range : self.marking.location != NSNotFound ? self.marking : self.selection;
     self.document = [self.document stringByReplacingCharactersInRange:target withString:text];
     self.selection = NSMakeRange(target.location + text.length, 0);
-    self.marking = NSMakeRange(NSNotFound, 0);
+    if (!self.keepMarkAfterCommit) self.marking = NSMakeRange(NSNotFound, 0);
 }
 - (void)setMarkedText:(id)value selectionRange:(NSRange)selection replacementRange:(NSRange)replacement {
     NSString *text = [value isKindOfClass:NSAttributedString.class] ? [value string] : value;
+    if (self.keepMarkAfterCommit && !text.length) return;
     NSRange target = replacement.location != NSNotFound ? replacement : self.marking.location != NSNotFound ? self.marking : self.selection;
     self.document = [self.document stringByReplacingCharactersInRange:target withString:text ?: @""];
     self.marking = text.length ? NSMakeRange(target.location, text.length) : NSMakeRange(NSNotFound, 0);
@@ -117,6 +119,19 @@ int main() {
             [controller apply:[session typeASCII:character shift:NO error:nil]];
         [controller apply:[session command:MSIME_COMMIT_CANDIDATE error:nil]];
         assert([client.document isEqual:@"A 甲"]);
+        // IMK 客户端若在提交回调后仍报告旧 marked text，不能再做绝对范围替换，
+        // 否则同一段英文会被追加一次（#11149）。
+        appearance.englishMode = NO;
+        client = Client(@"甲mcp");
+        client.selection = NSMakeRange(client.document.length, 0);
+        client.marking = NSMakeRange(1, 3);
+        client.keepMarkAfterCommit = YES;
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@YES forKey:@"clientHasMarkedText"];
+        [controller apply:@{@"commit":@"mcp", @"commit_context":@{@"scheme":@0, @"local_mode":@"none"},
+            @"view":@{@"scheme":@0, @"editing_text":@"", @"candidates":@[]}}];
+        assert([client.document isEqual:@"甲mcp"]);
+        assert(NSEqualRanges(client.marking, NSMakeRange(1, 3)));
         client = Client(@"甲");
         [controller setValue:client forKey:@"activeClient"];
         [controller apply:@{@"commit": @"AB", @"commit_context": @{@"scheme": @0, @"local_mode": @"temporary_english"},

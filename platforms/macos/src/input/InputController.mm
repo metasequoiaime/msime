@@ -7644,6 +7644,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         uint32_t preceding = 0;
         NSRange committed = MSIMETextClientCommittedRange(client, text, &preceding, canFormat);
         if (!canFormat() || committed.location == NSNotFound || !preceding) return;
+        // 某些 IMK 客户端在 insertText: 返回后仍保留原来的 marked text。此时再用绝对范围替换
+        // 会把同一段 ASCII 上屏两次；等客户端真正清掉标记后再处理，原文已经安全落地。
+        if ([client respondsToSelector:@selector(markedRange)]) {
+            const NSRange marked = [(id<MSIMETextClient>)client markedRange];
+            if (marked.location != NSNotFound && marked.length > 0) return;
+        }
         request[@"preceding"] = @(preceding);
         request[@"text"] = text;
         NSString *spaced = [MSIMEClientSession crossCommitSpacingRequest:request][@"text"];
