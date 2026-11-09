@@ -24,6 +24,15 @@ public final class ClipboardModePolicySmoke {
             "a wide diagonal swipe is not a toggle");
         check(!ClipboardModePolicy.isValidSwipe(50, 200, 50, -1, 100, 50, 500),
             "a swipe outside the keyboard is not a toggle");
+        check(ClipboardModePolicy.enterIcon(ClipboardModePolicy.Mode.MAIN, false)
+                == ClipboardModePolicy.EnterIcon.RETURN,
+            "main mode keeps the return icon");
+        check(ClipboardModePolicy.enterIcon(ClipboardModePolicy.Mode.VISITOR, false)
+                == ClipboardModePolicy.EnterIcon.RETURN,
+            "restored visitor mode keeps the return icon");
+        check(ClipboardModePolicy.enterIcon(ClipboardModePolicy.Mode.VISITOR, true)
+                == ClipboardModePolicy.EnterIcon.TRASH,
+            "visitor mode shows the trash icon only during the transition");
         System.out.println("ClipboardModePolicySmoke ok");
     }
 }

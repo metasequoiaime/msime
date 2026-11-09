@@ -7525,7 +7525,8 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardHistory = ClipboardHistoryStore.forMode(this, next);
         closeClipboardHistory();
         if (button != null) {
-            button.setKind(next == ClipboardModePolicy.Mode.VISITOR
+            button.setKind(ClipboardModePolicy.enterIcon(next, true)
+                == ClipboardModePolicy.EnterIcon.TRASH
                 ? KeyboardIconKey.Kind.TRASH : KeyboardIconKey.Kind.RETURN);
             final ClipboardModePolicy.Mode changed = next;
             main.postDelayed(() -> {
