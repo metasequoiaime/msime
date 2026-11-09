@@ -263,11 +263,15 @@ class AppGalleryTests(unittest.TestCase):
 
     def test_workflow_defaults_and_signing_gates(self):
         workflow = (ROOT / ".github/workflows/release-harmony.yml").read_text()
-        self.assertIn("options: [none, upload, public-test]", workflow)
+        self.assertIn("options: [auto, none, upload, public-test]", workflow)
         self.assertIn("default: none, type: string", workflow)
-        self.assertEqual(workflow.count("if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}"), 5)
+        self.assertEqual(workflow.count("if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}"), 5)
+        # Only the version step reads the raw input; every gate uses the resolved mode so auto never forces signing.
+        self.assertEqual(workflow.count("inputs.appgallery"), 1)
         self.assertLess(workflow.index("--check-only --mode"), workflow.index("Build the HarmonyOS settings page"))
         self.assertLess(workflow.index("name: appgallery-msime-harmony"), workflow.index("id: appgallery"))
+        # AppGallery runs after the GitHub release so a Huawei parse failure or timeout cannot hold back the release.
+        self.assertLess(workflow.index("name: Publish independent HarmonyOS release"), workflow.index("id: appgallery"))
         self.assertIn('--package-id "$TEST_PACKAGE_ID"', workflow)
         self.assertIn('"$PUBLISH" == false && -z "$SOURCE_RELEASE"', workflow)
         self.assertIn("if: ${{ !inputs.source_release && !inputs.test_package_id }}", workflow)
@@ -292,6 +296,18 @@ class AppGalleryTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-e", "-c", script], env={**defaults, **changes},
                                         cwd=ROOT, capture_output=True)
                 self.assertEqual(result.returncode == 0, success)
+        output = Path(defaults["GITHUB_OUTPUT"])
+        resolved = [({"GITHUB_REF_NAME": "main", "PUBLISH": "true"}, "public-test"),
+                    ({"GITHUB_REF_NAME": "main", "PUBLISH": "false"}, "none"),
+                    ({"GITHUB_REF_NAME": "develop", "PUBLISH": "true"}, "none"),
+                    ({"GITHUB_REF_NAME": "release/harmony-0.2.1", "PUBLISH": "true"}, "none")]
+        for changes, mode in resolved:
+            with self.subTest(auto=changes):
+                output.write_text("")
+                result = subprocess.run(["bash", "-e", "-c", script], env={**defaults, "APPGALLERY": "auto", **changes},
+                                        cwd=ROOT, capture_output=True)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn(f"appgallery={mode}\n", output.read_text())
 
     def test_real_transport_streams_bytes_and_refuses_redirects(self):
         received = []

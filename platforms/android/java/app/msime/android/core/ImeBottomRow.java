@@ -116,8 +116,7 @@ final class ImeBottomRow {
         if (s.enterButton != null && !(s.enterButton instanceof KeyboardIconKey)) {
             Button original = s.enterButton;
             KeyboardIconKey key = forwardFace(original,
-                new KeyboardIconKey(s, s.clipboardMode == ClipboardModePolicy.Mode.VISITOR
-                    ? KeyboardIconKey.Kind.TRASH : KeyboardIconKey.Kind.RETURN), "Enter");
+                new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN), "Enter");
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
             KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
