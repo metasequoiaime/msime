@@ -24,6 +24,8 @@ Android 的双拼扩展由 [Android 14 键双拼](2026-10-23-android-fourteen-ke
 
 Android 的拼音选择位置曾由 [Android 14 键与九键共用左侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md) 改到左侧栏，现由 [Android 14 键拼音选择挂到读音行](2026-11-08-android-fourteen-key-reading-row-spellings.md)（#11040）改回下表的读音行横向选择，三端一致；组码和消歧语义继续共用。
 
+Android 上下表「按键气泡」一项由 [Android 14/18 键字母键按下画气泡](2026-11-08-android-grid-letter-press-bubble.md) 取代：每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键（#9349 之后）相同；iOS、鸿蒙仍按下表不画。
+
 iOS 的键盘设置预览也区分 26 / 14 / 9 键：`KeyboardSkinPreview` 接收显式的 `fourteenKey`，14 键直接复用扩展的 `FourteenKeyLayout.rows`，App target 同时编译这张纯键面表，避免第二张表与真实键盘漂移。第三排两端为「符」和删除（空闲时的键面；最初画的是组字中的「分词」，2026-11-05 改为「符」，见[按键布局页重做](2026-10-29-key-layout-page-redesign.md)），第二排不缩进，底行沿用全拼。皮肤缩略图未指定 14 键时保留原先的 26 / 9 键行为；预览的无障碍标签同步说明所画布局。真机验收发现旧预览只按 `nineKey` 二分，选中 14 键时设置行已改变，但预览仍画 26 键，因此这里不能用「非九键」代指 26 键。界面回归用例同时核对选择值、预览布局标签、离页持久化，并保留三种布局的实际渲染图供核对。非拼音方案的同名行是说明文本，因此测试按标识符读取后跳过；从设置返回时等导航标题变化，避免点到消失中的返回键。App 的源文件成员按原有 `KeyboardExtension/Sources` 分组筛选，复用工程已有的文件引用，避免新增重复目录组。
 
 ### 三端行为规格

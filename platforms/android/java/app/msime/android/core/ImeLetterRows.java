@@ -1206,8 +1206,8 @@ final class ImeLetterRows {
                     current.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
                         DimensionPolicy.fromPixels(s, event.getY()), direction, s.hasEngineComposition());
                     touching[0] = true;
-                    // 按下的气泡只画在 18 键双拼的两字母键上（横滑要看选中的字母），与改动前相同；其余 14/18 键按下不画，滑出符号时才画（gridGesturePreview）。
-                    if (exact) updateKeyPreview(key, event);
+                    // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号或横滑选中字母时气泡换字（gridGesturePreview）。
+                    updateKeyPreview(key, event);
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
