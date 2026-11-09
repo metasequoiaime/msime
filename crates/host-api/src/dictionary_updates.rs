@@ -551,29 +551,41 @@ mod tests {
             .join("helpcodes/helpcode.txt")
             .is_file());
 
-        // 旧文档没有这个键：编译进来的词库锁与这里的合成锁不同，直接拿合成锁查更新记录。
+        // 旧文档没有这个键。编译进来的词库锁与这里的合成锁不同，记录的 `baseline_generation` 过不了本版本的基线，正是覆盖安装换了随包词库锁之后的样子：照样要从记录里找到随包目录。
         document
             .as_object_mut()
             .unwrap()
             .remove("helpcode_fallback_resources");
+        assert_ne!(
+            Edition::full()
+                .resource_set()
+                .unwrap()
+                .generation()
+                .unwrap(),
+            baseline.generation().unwrap()
+        );
+        assert_eq!(
+            HostOptions::from_document(document.clone())
+                .unwrap()
+                .into_engine_options()
+                .helpcode_fallback_resources
+                .as_deref(),
+            resources.to_str(),
+            "记录过不了本版本的词库基线也要找到随包码表"
+        );
         let refreshed = HostOptions::from_document(document).unwrap();
         assert_eq!(
-            crate::recorded_helpcode_bundle(&state, &baseline).as_deref(),
+            crate::recorded_helpcode_bundle(&state).as_deref(),
             resources.to_str()
         );
         assert_eq!(
-            crate::helpcode_fallback_resources(
-                None,
-                Path::new(&refreshed.resources),
-                None,
-                Edition::full()
-            ),
+            crate::helpcode_fallback_resources(None, Path::new(&refreshed.resources), None),
             None,
             "没有状态目录就没有更新记录可查"
         );
         // 更新记录里的随包目录没有码表时不回退。
         std::fs::remove_dir_all(resources.join("helpcodes")).unwrap();
-        assert_eq!(crate::recorded_helpcode_bundle(&state, &baseline), None);
+        assert_eq!(crate::recorded_helpcode_bundle(&state), None);
     }
 
     /// #10735：每个词库版本在 `user/dictionaries/<代次>` 留一份工作词库。本安装包词库锁的、下载版本还留着的、还有会话或维护在用的留下，其余的删掉；不是代次名字的目录（暂存目录、别的东西）和符号链接不碰。
