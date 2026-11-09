@@ -295,7 +295,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         seedHistory(original, 1700000000000L, true);
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
-        stage = "right swipe opens clipboard detail with full record time and unavailable source";
+        stage = "right swipe opens clipboard detail with full record time and unavailable source (seeded entries "
+            + sharedHistoryCount() + ")";
         // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
         AccessibilityNodeInfo card = await(node -> node.isLongClickable()
             && node.getContentDescription() != null
@@ -383,6 +384,20 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         Object saved = hostStore.getMethod("savePreferences", android.content.Context.class, JSONObject.class)
             .invoke(null, getTargetContext(), preferences);
         if (saved == null) throw new AssertionError("Synthetic clipboard preferences could not be saved");
+    }
+
+    private int sharedHistoryCount() throws Exception {
+        ClassLoader loader = getTargetContext().getClassLoader();
+        Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
+        Class<?> modeType = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
+        Object main = null;
+        for (Object candidate : modeType.getEnumConstants()) {
+            if ("MAIN".equals(candidate.toString())) { main = candidate; break; }
+        }
+        if (main == null) throw new AssertionError("Main clipboard mode is unavailable");
+        Object store = storeType.getMethod("forMode", android.content.Context.class, modeType)
+            .invoke(null, getTargetContext(), main);
+        return ((List<?>) storeType.getMethod("load").invoke(store)).size();
     }
 
     private void openClipboardEditor() throws Exception {
