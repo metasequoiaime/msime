@@ -555,13 +555,17 @@ static void TestTrackedMarkedText() {
     MSIMEApplyTransitionTrackingMarkedText(@{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}},
                                            client, MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
     assert([client.events isEqual:(@[@"marked", @"marked", @"marked", @"commit", @"marked"])] && !hasMarked);
-    // The empty inline style never marks anything, so it never needs to clear.
+    // 隐藏行内预编辑仍要向 IMK 发一个空标记，表明这枚按键由输入法接管；否则原始编码会漏到应用。
     MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"ni", @"caret_position": @2}}, client,
                                            MSIMEInlinePreeditStyleEmpty, nil, &hasMarked);
-    assert(client.events.count == 5 && !hasMarked);
+    assert(client.events.count == 6 && [client.markedString isEqual:@""] && !hasMarked);
+    // 空闲状态没有组字，重复的空清理仍然跳过。
+    MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
+                                           MSIMEInlinePreeditStyleEmpty, nil, &hasMarked);
+    assert(client.events.count == 6 && !hasMarked);
     // Without tracking nothing is known about the client, and the clear is always sent.
     MSIMEApplyTransitionWithPendingClosing(idle, client, MSIMEInlinePreeditStylePinyin, nil);
-    assert(client.events.count == 6);
+    assert(client.events.count == 7);
 }
 
 static void TestInlinePreeditCaretStyle() {
