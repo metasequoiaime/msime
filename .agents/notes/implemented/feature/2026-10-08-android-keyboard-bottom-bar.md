@@ -9,7 +9,7 @@ Status: implemented
 ## Decision
 
 - 本地设置 `platform.android.bottom_bar`，布尔，默认开，只在本机：是否出现取决于设备的导航方式，换一台设备意义不同，服务端的同步字段表也没有这个键。入口在设置「键盘」页「布局」里。
-- 规则在无 Android 依赖的 `keyboard/KeyboardBottomBarPolicy`，`KeyboardBottomBarPolicySmoke` 逐条验证。底栏只在以下条件同时成立时画：开关打开；系统没有在手势条上自己画输入法按钮；Android 12 起；导航栏低于 32 dp；不在浮动键盘下；外接键盘的候选条模式没有收起键区；不是手机（`smallestScreenWidthDp` < 600）横屏。
+- 规则在无 Android 依赖的 `keyboard/KeyboardBottomBarPolicy`，`KeyboardBottomBarPolicySmoke` 逐条验证。底栏只在以下条件同时成立时画：开关打开；系统没有在手势条上自己画输入法按钮；可读到导航栏高度；导航栏低于 32 dp；不在浮动键盘下；外接键盘的候选栏模式没有收起键区；不是手机（`smallestScreenWidthDp` < 600）横屏。
 - 导航栏高度取键盘视图收到的 inset 与输入法窗口 `WindowMetrics` 两者的较大值。Android 14 及以前输入法窗口默认停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航当成没有导航栏；`WindowMetrics` 按整块屏幕算，导航栏总在里面。
 - 原生系统在手势导航下自己画输入法的收起和切换按钮，这时导航栏高度分不出来，要另外判断。Android 13 起它们画在输入法窗口底部那条 24 dp 的手势条两端，与没有按钮的国产系统手势条一样高（AOSP 15 模拟器上输入法收到的导航栏是 63 px）。系统把这一条（`NavigationBarFrame`）直接加在输入法窗口的 decor 下，`ImeBottomBar` 按类名看 decor 的直接子视图，找到可见的就不画底栏。Android 12 的手势导航由系统导航栏自己显示这两个按钮，导航栏高到 48 dp，阈值已经把它排除。
 - 底栏是 `core/ImeBottomBar`，叠在键盘外框底部，不在键盘的竖向一列里。画着的时候，键盘列的底部内边距 = 底栏下面让出的距离 + 底栏高度 40 dp。让出的距离是导航栏落在窗口里的那截，加上系统手势区高出导航栏的部分。外框的覆盖面板按键盘列的底部内边距让出底边，所以剪贴板、表情等面板开着时底栏仍露在下面。
@@ -27,7 +27,7 @@ Status: implemented
 - **只看键盘视图收到的 inset 判断导航方式**：实现最简单。但 Android 14 及以前视图收到的底部 inset 是 0，三键导航的设备上会在系统导航栏之上再叠一条底栏。
 - **读系统隐藏资源 `config_navBarInteractionMode` 或 `Settings.Secure` 的 `navigation_mode` 判断手势导航**：能直接拿到导航方式。但这是隐藏接口，国产系统的全面屏手势各有自己的键，判断不准；导航栏高度是系统公开给窗口的事实，而且直接对应「下面有没有一条够高的栏」这个真正要回答的问题。
 - **只按导航栏高度判断系统有没有画输入法按钮**：最初的实现以为系统画按钮时给输入法的是 48 dp 的框高。在 AOSP 15 模拟器上实测是 24 dp，与国产系统的手势条一样，底栏和系统的两个按钮叠成了两排。
-- **在 Android 11 也用 `WindowMetrics`**：能覆盖更多设备。但 Android 11 的 `WindowManagerImpl` 在有父窗口时按窗口自己的范围算 inset，而不是像 12 起那样按整块屏幕的范围算；窗口停在导航栏上方时可能同样是 0，三键导航会被误判。没有 Android 11 设备核对，保守起见不画。
+- **在 Android 11 也用 `WindowMetrics`**：能覆盖更多设备。但 Android 11 的 `WindowManagerImpl` 在有父窗口时按窗口自己的范围算 inset，而不是像 12 起那样按整块屏幕的范围算；窗口停在导航栏上方时可能同样是 0，三键导航会被误判。没有可靠的屏幕范围时改用 stable inset 和 system gesture inset，不再依赖 `WindowMetrics`。
 - **#6392 把底栏的出现条件放宽到所有导航方式**：不用再加一个开关。但三键导航下面已经有一条带切换按钮的系统栏，Pixel 一类系统自己在手势条上画了切换和收起按钮，再垫一条带按钮的底栏会重复；用户要的只是把底行抬起来，一段空白就够了。
 - **#6392 留白高度做成滑块（0 到一行键高）**：更灵活。但多一个要解释的数值，键盘高度滑块已经能整体调高；先按底栏的 40 dp 固定，和底栏抬起的距离一致，有人要别的高度再说。
 - **#6392 底栏画着时留白叠加在底栏下面**：开关的效果更可预测（开了就一定更高）。但底栏已经把键区抬高了 40 dp，叠加后底行离底边将近 90 dp，单手够起来反而别扭；两者的目的相同，取其一。
@@ -36,7 +36,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：手势导航下键区离屏幕底边多出 40 dp，按底行不再压在系统手势区上；切换输入法、剪贴板和移动光标都有了固定的入口。
-- **代价**：默认开，手势导航用户的键盘整体变高约 48 dp（底栏 40 dp，加上为系统手势区让出的约 8 dp）；Android 11 及以前不画底栏；判断系统按钮依赖系统内部的类名 `NavigationBarFrame`，系统改名后会退回只看导航栏高度。
+- **代价**：默认开，手势导航用户的键盘整体变高约 48 dp（底栏 40 dp，加上为系统手势区让出的约 8 dp）；判断系统按钮依赖系统内部的类名 `NavigationBarFrame`，系统改名后会退回只看导航栏高度。
 - **厂商兼容**：当系统没有报告导航栏高度时，键盘视图 inset 不再单独扩大底栏间距；这会舍弃厂商错误上报的底部区域，但避免底栏按钮下方出现异常空白。
 - **底部留白**：默认关，老用户的键盘高度不变；打开后的目标距离默认 40 dp，可独立调整，底栏高度计入目标距离（见上文后续决定）。留白不响应点按，误触落在留白上什么都不发生。只做了 Android，iOS 在全面屏机型上系统自己在键盘下方留了一条带地球键和听写键的栏，不需要；HarmonyOS 的手势导航下是否同样贴底没有核对，需要时照这条加。
 - **验证**：`platforms/android/check-host.sh` 编译全部 Java 并运行 `KeyboardBottomBarPolicySmoke`（导航栏阈值、各种不画的状态、底栏下面让出的距离）和 `AndroidLocalSettingsSmoke`（默认开、不同步）。专用 AVD 上装机验收：API 35 三键导航不画；API 35 手势导航（系统画按钮）不画；API 31 手势导航（系统导航栏画按钮）不画；API 35 手势导航用合成的资源覆盖层关掉 `config_imeDrawsImeNavBar`（模拟不画按钮的国产系统）时画出底栏，中间拖动移动了光标，地球键弹出输入法选择框且组字不丢，剪贴板键打开、再点关上面板，面板开着时底栏仍可点。国产系统真机没有验收。
@@ -44,3 +44,5 @@ Status: implemented
 设备夹具与新规则保持一致：`BottomPaddingHeightDeviceSmoke` 分别注入 4px 和 144px 的系统栏底边、0 导航栏及手势区，遍历底栏开关与 0/40/80/160dp 留白，检查真实 `ImeBottomBar.apply` 产生的键区底边距和底栏 `bottomMargin`，并保留其他三边及关闭后的系统 inset。API 31 起底栏显示时不再叠加原始 inset；底栏隐藏或旧系统不显示时继续保留原始 inset。此前夹具在底栏显示时仍固定加 4px，按真实测试源码提取的预期表达式与生产策略对照，修复前得到 44px 对 40px 而失败，修正后 32 个数值组合通过。该对照和设备源码编译不等同于设备执行，本轮未在设备运行该专项，也未验收报告者厂商环境。
 
 本轮 `check-host.sh` 通过 281 个 JVM 冒烟、245 个设备套件源码编译，笔记与差异校验通过。完整 quick 的 workspace 和 Java 阶段通过，但整体退出 1：公共 Windows runner 契约由 #9986 修复；Android target 最初误读其他 worktree 的 `force_cantonese_shuangpin` 字段元数据，刷新本分支对应 Rust 源码时间戳后，在原 target 与同一 NDK 参数下定点检查通过，Rust 源码字节未改；Apple bridge 因指定已有主缓存而出现 CMake 源根路径不匹配，核对两份翻译单元、依赖头与配置逐字节同源后，主缓存定点构建通过。未将这些补验表述为完整 quick 通过。
+
+2026-11-09：#11003 报告 Android 11 的全面屏手势导航下底栏完全不显示。原因是 `ImeBottomBar.readInsets()` 对 API <31 直接标记导航高度未知，而 `KeyboardBottomBarPolicy.shown()` 在未知时必然隐藏。决定在旧 API 使用 `WindowInsets` 的 stable inset、system window inset 和 API 29 起的 system gesture inset 判定导航高度，并保留三键导航的 32 dp 阈值；设备夹具同步按 API <31 已可读处理。

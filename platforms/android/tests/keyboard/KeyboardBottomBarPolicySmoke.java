@@ -28,7 +28,7 @@ public final class KeyboardBottomBarPolicySmoke {
     private static void otherStates() {
         check(!KeyboardBottomBarPolicy.shown(false, false, true, false, false, false, 16f), "off when the setting is off");
         check(!KeyboardBottomBarPolicy.shown(true, false, false, false, false, false, 0f),
-            "not drawn when the navigation height cannot be read (Android 11 and earlier)");
+            "not drawn when the navigation height cannot be read");
         check(!KeyboardBottomBarPolicy.shown(true, true, true, false, false, false, 16f),
             "not when the system draws its own IME buttons on the gesture strip (Android 13+ AOSP)");
         check(!KeyboardBottomBarPolicy.shown(true, false, true, true, false, false, 16f), "not under a floating keyboard");

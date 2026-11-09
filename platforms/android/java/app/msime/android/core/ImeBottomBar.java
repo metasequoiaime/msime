@@ -141,14 +141,22 @@ final class ImeBottomBar {
     /**
      * 键盘视图收到新的 insets 时调用：记下视图的系统栏 inset，再读屏幕底部导航栏与系统手势区的高度。
      *
-     * <p>导航栏高度从输入法窗口的 WindowMetrics 取，与键盘视图收到的 inset 取较大的那个。Android 14 及以前输入法窗口默认停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航当成没有导航栏；WindowMetrics 按整块屏幕的范围算，导航栏总在里面。Android 11 的 WindowMetrics 在有父窗口时按窗口自己的范围算 inset，可能同样是 0，所以 Android 11 及以前不画底栏。
+     * <p>导航栏高度从输入法窗口的 WindowMetrics 取，与键盘视图收到的 inset 取较大的那个。Android 14 及以前输入法窗口默认停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航当成没有导航栏；WindowMetrics 按整块屏幕的范围算，导航栏总在里面。Android 11 及以前没有可靠的屏幕 WindowMetrics，改用 stable inset 和手势 inset 判断三键导航与手势导航。
      */
+    @SuppressWarnings("deprecation")
     void readInsets(WindowInsets viewInsets) {
         insets.set(WindowLayout.systemBars(viewInsets));
         navigationKnown = false;
         if (Build.VERSION.SDK_INT < 31) {
-            navigationBottom = insets.bottom;
-            gestureBottom = insets.bottom;
+            int navigation = viewInsets.getSystemWindowInsetBottom();
+            navigation = Math.max(navigation, viewInsets.getStableInsetBottom());
+            int gesture = navigation;
+            if (Build.VERSION.SDK_INT >= 29) {
+                gesture = Math.max(gesture, viewInsets.getSystemGestureInsets().bottom);
+            }
+            navigationBottom = navigation;
+            gestureBottom = gesture;
+            navigationKnown = true;
             return;
         }
         int navigation = viewInsets.getInsets(WindowInsets.Type.navigationBars()).bottom;
