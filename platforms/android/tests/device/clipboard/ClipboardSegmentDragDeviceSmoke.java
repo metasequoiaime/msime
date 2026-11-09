@@ -59,7 +59,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 .put("scheme", "quanpin").put("last_chinese_scheme", "quanpin")
                 .put("touch_keyboard_layout", "twenty_six_key")
                 .put("touch_toolbar", new JSONObject().put("clipboard", true));
-            write(preferences, prefs.toString());
+            savePreferences(prefs);
             write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
                 .put("platform.android.toolbar_hidden", false)).toString());
             if (fixedCardsOnly) { fixedCardsScrollList(history); return; }
@@ -376,6 +376,14 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         Object item = itemType.getConstructor(String.class, long.class, boolean.class, String.class)
             .newInstance(text, timestamp, pinned, null);
         storeType.getMethod("restoreMany", List.class).invoke(store, List.of(item));
+    }
+
+    /** 通过设置宿主的 compare-and-swap 入口发布偏好，让 :ime 进程读到同一份快照。 */
+    private void savePreferences(JSONObject preferences) throws Exception {
+        Class<?> hostStore = getTargetContext().getClassLoader().loadClass("app.msime.android.home.HostStore");
+        Object saved = hostStore.getMethod("savePreferences", android.content.Context.class, JSONObject.class)
+            .invoke(null, getTargetContext(), preferences);
+        if (saved == null) throw new AssertionError("Synthetic clipboard preferences could not be saved");
     }
 
     private void openClipboardEditor() throws Exception {

@@ -29,6 +29,7 @@ Status: implemented
 - 长文本卡片的无障碍正文可能因 Android 节点传输上限为空，设备冒烟按卡片的「右滑查看详情」操作说明定位，再用卡片实际边界注入手势；短文本和详情正文断言仍保留。
 - API 31 以上的短冒烟会复用输入法进程；右滑详情专项由 `smoke.sh` 在启动 instrumentation 前强停产品，再重绑输入法，避免旧会话保留关闭剪贴板历史或其它模式的快照。强停不能放在测试代码里，因为该 instrumentation 以产品进程为目标。
 - 右滑详情的合成记录通过 `ClipboardHistoryStore.restoreMany` 写入移动端公开存储入口，不再由测试直接伪造历史文件，确保夹具与输入法实际读取的模式、容量和类别路径一致。
+- 右滑详情专项的偏好通过 `HostStore.savePreferences` 发布，保留共享偏好锁和修订号校验，避免设置文件直写后 `:ime` 进程仍持有另一份快照。
 - `git diff --check` 和 Android Java 编译、API 28/API 35 设备回归由 PR job 执行；当前本机没有可用 Android 设备，改动后的截图和真实设备手势仍未完成，PR 保持 draft。
 
 ## Consequences
