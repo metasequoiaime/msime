@@ -43,7 +43,6 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
   const count = slides.length;
   const keys = slides.map((slide, at) => (isValidElement(slide) ? String(slide.key) : `#${at}`));
   const [index, setIndex] = useState(selectedIndex);
-  const [height, setHeight] = useState<number>();
   // The resize handler re-snaps to this without re-subscribing on every slide change.
   const current = useRef(index);
   // 当前显示的卡片和最新的卡片列表；`show` 读它们，因此不必随卡片数量变化而重建。
@@ -74,21 +73,6 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
     const at = shownKey.current === undefined ? -1 : latestKeys.current.indexOf(shownKey.current);
     show(at >= 0 ? at : current.current, false);
   }, [keySignature, show]);
-
-  // 横向轮播保留所有卡片，但高度只跟随当前卡片，避免被其他皮肤的长预览撑高。
-  useLayoutEffect(() => {
-    const slide = track.current?.children[index] as HTMLElement | undefined;
-    if (!slide) {
-      setHeight(undefined);
-      return;
-    }
-    const measure = () => {
-      // 隐藏的设置页没有布局高度；重新显示后由尺寸通知补齐。
-      if (slide.offsetHeight > 0) setHeight(slide.offsetHeight);
-    };
-    measure();
-    return subscribeToElementResize(slide, measure);
-  }, [index, keySignature]);
 
   // 页面先挂载在隐藏的 fieldset 中；布局完成或尺寸变化后重新定位，保持当前卡片可见。
   useEffect(() => {
@@ -121,12 +105,7 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
 
   return (
     <section aria-roledescription="carousel" aria-label="主题列表" onKeyDown={onKeyDown}>
-      <div
-        ref={track}
-        className={settings.themeCarouselTrack}
-        style={{ height }}
-        onScroll={onScroll}
-      >
+      <div ref={track} className={settings.themeCarouselTrack} onScroll={onScroll}>
         {slides.map((child, slide) => (
           <div
             key={keys[slide]}

@@ -73,11 +73,12 @@ export const externalDiagnostics =
   "mx-1 mt-2.5 text-xs wrap-anywhere text-muted [&>summary]:cursor-pointer [&>ul]:mt-[7px] [&>ul]:mb-0 [&>ul]:pl-5";
 export const externalResourceNote = "px-6 pt-0 pb-3";
 
-/** 主题页逐张显示卡片，横向滚动吸附保留触控板和触屏切换；卡片按自然高度排列，由轮播跟随当前卡片测量高度。 */
+/** 主题页逐张显示卡片，横向滚动吸附保留触控板和触屏切换。卡片拉伸到同一高度（最高那张的高度），翻页时卡片和下面的分页条都不跳。 */
 export const themeCarouselTrack =
-  "flex items-start snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
-/** The padding keeps the card's shadow and focus ring inside the track, which clips its overflow. */
-export const themeCarouselSlide = "w-full shrink-0 snap-start p-1";
+  "flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+/** The padding keeps the card's shadow and focus ring inside the track, which clips its overflow. 卡片撑满拉伸后的 slide，多出来的高度给卡片里的预览舞台，所以矮卡片是舞台留得多，卡片外面没有空白。 */
+export const themeCarouselSlide =
+  "flex w-full shrink-0 snap-start flex-col p-1 [&>article]:flex [&>article]:flex-1 [&>article]:flex-col [&>article>[data-skin-preview]]:flex-1";
 export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";
 export const themeCarouselArrow =
   "flex size-7 items-center justify-center rounded-full border border-edge bg-[var(--p-group-bg)] p-0 text-lg leading-none text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";

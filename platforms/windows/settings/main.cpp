@@ -8692,8 +8692,14 @@ private:
     card.BorderBrush(brush(selected ? palette_.accent : palette_.stroke));
     card.BorderThickness(selected ? Thickness{2, 2, 2, 2} : Thickness{1, 1, 1, 1});
     card.CornerRadius(CornerRadius{10, 10, 10, 10});
-    card.VerticalAlignment(VerticalAlignment::Top);
-    StackPanel body;
+    // 轮播里所有卡片等高（取最高那张，见 add_theme_carousel）：卡片撑满 FlipView，多出来的高度给中间那行预览面，矮卡片是预览面留得多，卡片外面没有空白。
+    card.VerticalAlignment(VerticalAlignment::Stretch);
+    Grid body;
+    for (const auto unit : {GridUnitType::Auto, GridUnitType::Star, GridUnitType::Auto}) {
+      RowDefinition row;
+      row.Height(GridLength{1, unit});
+      body.RowDefinitions().Append(row);
+    }
 
     Grid header;
     header.Padding(Thickness{24, 20, 24, 20});
@@ -8738,10 +8744,12 @@ private:
     const double inner = selected ? 8 : 9;
     surface.CornerRadius(last ? CornerRadius{0, 0, inner, inner} : CornerRadius{0, 0, 0, 0});
     surface.Child(stages);
+    Grid::SetRow(surface, 1);
     body.Children().Append(surface);
     if (!last) {
       notes.Spacing(4);
       notes.Padding(Thickness{24, 8, 24, 12});
+      Grid::SetRow(notes, 2);
       body.Children().Append(notes);
     }
     card.Child(body);
@@ -8846,7 +8854,7 @@ private:
     }, true);
   }
 
-  // 主题轮播（共享页 theme-carousel.tsx 的 ThemeCarousel）：内置主题和皮肤包的卡片放进一个 FlipView，一次显示一张整宽卡片，触控板横滑、FlipView 获得焦点时的左右方向键和它自带的悬停箭头都能切换；下面一行是 28 DIP 的圆形「‹」、PipsPager 圆点（最多 9 个，超过时跟着当前卡片滚动，当前的用强调色）、12 DIP 的「n / N」和「›」，到头时箭头变灰不可用。FlipView 的高度不会跟随当前项，选中项换了或宽度变了时按当前卡片在这个宽度下的自然高度设高度。停在哪张卡片按 `sk::carousel_index` 和成员 `theme_carousel_*`：选中的主题换了时跟过去，否则重画页面（切换卡片的预览明暗、重扫皮肤目录）后留在原来那张；搜索落到某款主题或皮肤时停在那张（`focused`）。指针停在卡片上时，竖向滚轮交给页面滚动，免得滚轮翻卡片；横向滚轮照常翻。
+  // 主题轮播（共享页 theme-carousel.tsx 的 ThemeCarousel）：内置主题和皮肤包的卡片放进一个 FlipView，一次显示一张整宽卡片，触控板横滑、FlipView 获得焦点时的左右方向键和它自带的悬停箭头都能切换；下面一行是 28 DIP 的圆形「‹」、PipsPager 圆点（最多 9 个，超过时跟着当前卡片滚动，当前的用强调色）、12 DIP 的「n / N」和「›」，到头时箭头变灰不可用。FlipView 自己不会跟着内容定高，选中项换了或宽度变了时按所有卡片在这个宽度下自然高度的最大值设高度，卡片撑满（make_skin_card_frame），翻页时导航行不跳。停在哪张卡片按 `sk::carousel_index` 和成员 `theme_carousel_*`：选中的主题换了时跟过去，否则重画页面（切换卡片的预览明暗、重扫皮肤目录）后留在原来那张；搜索落到某款主题或皮肤时停在那张（`focused`）。指针停在卡片上时，竖向滚轮交给页面滚动，免得滚轮翻卡片；横向滚轮照常翻。
   void add_theme_carousel(StackPanel const &page, std::vector<std::wstring> keys,
                           std::vector<FrameworkElement> const &cards, size_t selected,
                           std::optional<size_t> focused) {
@@ -8986,10 +8994,15 @@ private:
       const double width = view.ActualWidth() > 0 ? view.ActualWidth() : estimate;
       if (width <= 0)
         return;
-      const auto card = view.Items().GetAt(static_cast<uint32_t>(at)).as<FrameworkElement>();
-      card.Measure(Windows::Foundation::Size{static_cast<float>(width),
-                                             static_cast<float>(INFINITY)});
-      view.Height(card.DesiredSize().Height);
+      // 所有卡片取最高那张的高度，翻页时卡片和下面的导航行都不跳（共享页 theme-carousel.tsx 同样让卡片拉伸到同一高度）。
+      double tallest = 0;
+      for (const auto &item : view.Items()) {
+        const auto card = item.as<FrameworkElement>();
+        card.Measure(Windows::Foundation::Size{static_cast<float>(width),
+                                               static_cast<float>(INFINITY)});
+        tallest = std::max(tallest, static_cast<double>(card.DesiredSize().Height));
+      }
+      view.Height(tallest);
     };
     flip.SelectionChanged(
         [sync](Inspectable const &, SelectionChangedEventArgs const &) { sync(); });
