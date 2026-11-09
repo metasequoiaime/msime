@@ -540,7 +540,13 @@ struct State {
   // surrounding text 不可用时，只用本会话由输入法自己上屏的末尾文本判断智能标点；任何交给应用的按键、光标移动或删除都会使它失效。
   std::string smart_punctuation_shadow;
   bool smart_punctuation_shadow_valid = false;
+  // 客户端没有 surrounding text 时，最近一次交给应用的 ASCII 数字只作为下一次智能标点的临时前文；它不能并入长期影子，避免把应用可能拦截的按键当成文档内容。
+  std::optional<unsigned char> smart_punctuation_passthrough;
+  void forget_smart_punctuation_passthrough() {
+    smart_punctuation_passthrough.reset();
+  }
   void remember_smart_punctuation_commit(const std::string &text) {
+    forget_smart_punctuation_passthrough();
     if (!focused || blocked || private_input) {
       smart_punctuation_shadow.clear();
       smart_punctuation_shadow_valid = false;
@@ -559,6 +565,7 @@ struct State {
   void forget_smart_punctuation_shadow() {
     smart_punctuation_shadow.clear();
     smart_punctuation_shadow_valid = false;
+    forget_smart_punctuation_passthrough();
   }
   void erase_smart_punctuation_shadow_last() {
     if (!smart_punctuation_shadow_valid || smart_punctuation_shadow.empty()) {
@@ -2106,6 +2113,10 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
     }
   }
   if (!s.surrounding_valid) {
+    if (s.smart_punctuation_passthrough) {
+      return smart_punctuation_keeps_ascii_after(
+          s, *s.smart_punctuation_passthrough);
+    }
     if (!s.smart_punctuation_shadow_valid || s.smart_punctuation_shadow.empty())
       return false;
     const auto last = static_cast<unsigned char>(s.smart_punctuation_shadow.back());
@@ -7747,6 +7758,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool locks_caret = commits_on_blur;
   const bool narrow_scheme = korean_scheme || vietnamese_scheme || tibetan_scheme;
   const bool without_host_punctuation = korean_scheme || zhuyin_scheme || vietnamese_scheme || tibetan_scheme;
+  if (!release &&
+      (!s.smart_punctuation_passthrough ||
+       !(modifiers == 0 && is_smart_punctuation_key(key)))) {
+    s.forget_smart_punctuation_passthrough();
+  }
   const auto fullwidth_idle_commit = [&](guint value) {
     if (!s.fullwidth || narrow_scheme || value < 0x21 || value > 0x7e)
       return false;
@@ -8373,6 +8389,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         s.last_smart_punctuation_time = g_get_monotonic_time();
         handled = true;
       }
+      s.forget_smart_punctuation_passthrough();
       return;
     }
     const bool has_composition =
@@ -8487,6 +8504,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         handled = fullwidth_idle_commit(key);
       if (is_smart_punctuation_key(key))
         s.smart_punctuation_rejected = 0;
+      s.forget_smart_punctuation_passthrough();
       return;
     }
     if (!s.view.at("candidates").empty() &&
@@ -8670,8 +8688,15 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = fullwidth_idle_commit(fullwidth_value);
     }
   });
-  if (!handled && !release)
-    s.forget_smart_punctuation_shadow();
+  if (!handled && !release) {
+    if (modifiers == 0 && key <= 0x7f &&
+        ((key >= '0' && key <= '9') || (key >= 'A' && key <= 'Z') ||
+         (key >= 'a' && key <= 'z'))) {
+      s.smart_punctuation_passthrough = static_cast<unsigned char>(key);
+    } else {
+      s.forget_smart_punctuation_shadow();
+    }
+  }
   return handled;
 }
 struct CandidateMenuHintNotice {

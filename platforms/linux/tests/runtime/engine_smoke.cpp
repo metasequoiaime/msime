@@ -3985,6 +3985,19 @@ int main(int argc, char **argv) {
              seen.committed + "]")
                 .c_str());
 
+    // Alacritty 等客户端不发布 surrounding text；输入法看不到应用刚接收的数字时，
+    // 紧随其后的智能标点仍应按这一个已直通的数字保留 ASCII。
+    invoke("Reset");
+    seen.committed.clear();
+    IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
+    require(!key('7'), "A direct ASCII digit was unexpectedly consumed by IBus");
+    require(!key('7', IBUS_RELEASE_MASK),
+            "A direct ASCII digit release was unexpectedly consumed by IBus");
+    require(key(IBUS_period) && seen.committed == ".",
+            ("IBus did not keep a directly passed-through ASCII digit as smart-punctuation context: committed=[" +
+             seen.committed + "]")
+                .c_str());
+
     invoke("Reset");
     seen.committed.clear();
     require(key('t', IBUS_SHIFT_MASK), "Date-time mode could not restart");
