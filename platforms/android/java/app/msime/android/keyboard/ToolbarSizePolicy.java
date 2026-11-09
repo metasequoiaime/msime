@@ -26,6 +26,11 @@ public final class ToolbarSizePolicy {
         return Math.max(base, Math.round(base * ToolbarSizePolicy.percent(percent) / 100f));
     }
 
+    /** 独立工具栏与组字候选区共用的稳定总高；较矮的一侧由调用方补顶部预留。 */
+    public static int stableHeight(int targetIdleHeight, int composingHeight) {
+        return Math.max(targetIdleHeight, composingHeight);
+    }
+
     /** 按钮画图标和选中底块时用的比例：跟随候选栏缩小时可以低于 {@link #MIN_PERCENT}，上限仍是 {@link #MAX_PERCENT}。 */
     public static int drawPercent(int value) {
         return Math.max(1, Math.min(MAX_PERCENT, value));

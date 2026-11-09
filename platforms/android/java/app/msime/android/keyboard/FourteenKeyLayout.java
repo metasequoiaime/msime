@@ -65,6 +65,24 @@ public final class FourteenKeyLayout {
         return shuangpin && "l".equals(key.letters()) ? "L;" : face(key);
     }
 
+    /** 双字母键面两个字母之间的字距（em，#11051）：「W E」「Q W」读得出是两个字母、分左右两半。 */
+    public static final float TWO_LETTER_SPACING_EM = 0.15f;
+
+    /** 双拼「L ;」的字距（em）：分号字形本身两侧留白多，比字母对小一些，看起来才和「W E」一样宽。 */
+    public static final float L_SEMICOLON_SPACING_EM = 0.08f;
+
+    /**
+     * 14/18 键键面画的时候用的字距（em，交给 `TextView#setLetterSpacing` / `Paint#setLetterSpacing`）：两个大写字母是 {@link #TWO_LETTER_SPACING_EM}，双拼的「L;」是 {@link #L_SEMICOLON_SPACING_EM}，单字母键和别的键面是 0。只改绘制，键面字符串、键位 id 和读屏念法都不变。按键面判断而不按键，预览里 14/18 键的格子也能直接用它：别的键盘没有两个大写字母或「L;」这样的键面。
+     */
+    public static float faceLetterSpacing(CharSequence face) {
+        if (face == null || face.length() != 2) return 0f;
+        char first = face.charAt(0);
+        char second = face.charAt(1);
+        if (first < 'A' || first > 'Z') return 0f;
+        if (second == ';') return first == 'L' ? L_SEMICOLON_SPACING_EM : 0f;
+        return second >= 'A' && second <= 'Z' ? TWO_LETTER_SPACING_EM : 0f;
+    }
+
     /** 双拼 L 键同时读出分号，其他键沿用原描述。 */
     public static String accessibilityLabel(Key key, boolean shuangpin) {
         return shuangpin && "l".equals(key.letters()) ? "按键 L 分号" : accessibilityLabel(key);
@@ -79,11 +97,6 @@ public final class FourteenKeyLayout {
     /** 完整的无障碍标签：两字母键是「按键 Q W」，单字母键是「字母 L」，与 26 键字母键的念法一致。 */
     public static String accessibilityLabel(Key key) {
         return key.letters().length() == 1 ? "字母 " + face(key) : "按键 " + description(key);
-    }
-
-    /** 长按弹出的字母：两字母键弹出这两个小写字母，L、M 只有一个字母，不弹。选中后先结束组字，再上屏这个字母，与九键长按相同。 */
-    public static String holdLetters(Key key) {
-        return key.letters().length() > 1 ? key.letters() : "";
     }
 
     /** 按键热力图的键位 id：`FourteenQW`、`FourteenL`，与 client-services `KEY_IDS` 逐字一致。 */

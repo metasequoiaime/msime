@@ -40,6 +40,12 @@ public final class KeyboardShortcutIconPolicySmoke {
             check(KeyboardShortcutIconPolicy.materialGlyph(icon), "material toolbar glyph " + icon);
         }
         check(!KeyboardShortcutIconPolicy.materialGlyph(Icon.BOOKMARK), "bookmark keeps stroke glyph");
+        // 键盘底栏：地球挨着 28 dp 的剪贴板，外圈和 28 dp 的表情图标一样是 70/3 dp。
+        float globeBox = KeyboardShortcutIconPolicy.globeBoxBesideMaterialDp(28f);
+        check(Math.abs(globeBox * KeyboardShortcutIconPolicy.GLOBE_RING_SHARE - 28f * 20f / 24f) < 1e-4f,
+            "底栏地球外圈与 Material 圆形图标等大");
+        check(globeBox * KeyboardShortcutIconPolicy.GLOBE_RING_SHARE > 40f * 0.62f * 0.75f + 4f,
+            "底栏地球比按 40 dp 短边比例画的大一圈");
         boolean rejected = false;
         try { KeyboardShortcutIconPolicy.forLabel("未知"); }
         catch (IllegalArgumentException expected) { rejected = true; }

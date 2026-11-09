@@ -12,19 +12,21 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。完整运行之后接着验收双拼（{@link FourteenKeyShuangpinDeviceChecks}）和五笔（{@link FourteenKeyWubiDeviceChecks}）的 14 键；迭代时可用 `-e shuangpin_only true` 或 `-e wubi_only true` 只跑其中一种。
+ * 全拼 14 键的设备验收：组码打出「你好」；键区左侧纵向选择 shi / shu，锁定后退格撤销；窄屏侧栏；展开候选、分词、长按字母、英文、123 和密码回落维持原有行为。完整运行之后接着验收双拼（{@link FourteenKeyShuangpinDeviceChecks}）和五笔（{@link FourteenKeyWubiDeviceChecks}）的 14 键；迭代时可用 `-e shuangpin_only true` 或 `-e wubi_only true` 只跑其中一种。`-e grid_symbols true` 跑 14/18 键角标符号（{@link GridLetterSymbolDeviceChecks}）。
  */
 public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private boolean shuangpinOnly;
     private boolean wubiOnly;
     private boolean eighteenKey;
     private boolean eighteenShuangpin;
+    private boolean gridSymbols;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
         wubiOnly = arguments != null && "true".equals(arguments.getString("wubi_only"));
         eighteenKey = arguments != null && "true".equals(arguments.getString("eighteen_key"));
         eighteenShuangpin = arguments != null && "true".equals(arguments.getString("eighteen_shuangpin"));
+        gridSymbols = arguments != null && "true".equals(arguments.getString("grid_symbols"));
         super.onCreate(arguments);
     }
 
@@ -32,6 +34,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
+        if (gridSymbols) return "14/18 键角标符号的滑动、选项、组字中点按与设置";
         if (eighteenShuangpin) return "十八键双拼设置、组码、消歧、分号、自定义表、布局回落与几何";
         if (eighteenKey) return "十八键全拼设置、组码、消歧、实体字母、布局回落与几何";
         if (wubiOnly) return "14 键五笔设置、组码、符号键、实体字母、86/98 保留与布局回落";
@@ -40,6 +43,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (gridSymbols) {
+            GridLetterSymbolDeviceChecks.run(this);
+            return;
+        }
         if (eighteenShuangpin) {
             FourteenKeyShuangpinDeviceChecks.runEighteen(this);
             return;
@@ -192,17 +199,23 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().endsWith("你好西安")));
 
-            // 长按 QW 弹出 q 和 w（没有数字），选 w 上屏字面字母。
+            // 空闲时长按 QW 弹出 q w Q W 和角标符号（没有数字，#11063），选 w 上屏字面字母；单字母 L 也有 l L 和符号。
             stage = "long-press letters";
             AccessibilityNodeInfo qw = await(described("按键 Q W"));
             if (!qw.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
                 throw new AssertionError("Long press on QW failed");
             await(described("输入 q"));
+            await(described("输入 W"));
+            await(described("输入 ；"));
             tap(described("输入 w"));
             await(field("msime-test-plain").and(node -> node.getText() != null
                 && node.getText().toString().endsWith("西安w")));
-            AccessibilityNodeInfo l = await(described("字母 L"));
-            if (l.isLongClickable()) throw new AssertionError("L must not offer a long press");
+            if (!await(described("字母 L")).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("Long press on L failed");
+            await(described("输入 l"));
+            tap(described("输入 L"));
+            await(field("msime-test-plain").and(node -> node.getText() != null
+                && node.getText().toString().endsWith("西安wL")));
 
             // 英文画 26 键 QWERTY，切回中文仍是 14 键，`touch_keyboard_layout` 不变。
             stage = "English draws 26 keys";

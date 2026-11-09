@@ -49,7 +49,7 @@ public final class AndroidLocalSettings {
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
     public static final String SWIPE_SYMBOLS_DIRECTION = "platform.android.swipe_symbols_direction";
-    /** 「显示字母键角标」：26 键字母键右上角画不画角标符号，默认画（#10587）。只管画不画，长按和「滑动输入符号」照样输入角标。 */
+    /** 「显示字母键角标」：26 键与 14/18 键字母键右上角画不画角标符号，默认画（#10587、#11063）。只管画不画，长按和「滑动输入符号」照样输入角标。 */
     public static final String LETTER_CORNER_HINTS = "platform.android.letter_corner_hints";
     public static final String SPACE_CURSOR = "platform.android.space_cursor";
     public static final String SPACE_VOICE = "platform.android.space_voice";
@@ -67,6 +67,8 @@ public final class AndroidLocalSettings {
     public static final String VOICE_OFFLINE_FALLBACK = "platform.android.voice_offline_fallback";
 
     // ---- 只在本机的键 ----
+    /** 按键按下时是否缩小并下移 1 dp；按键动画、按键音、振动和弹出预览不受影响。 */
+    public static final String PRESS_FEEDBACK = "platform.android.press_feedback";
     public static final String INCOGNITO = "platform.android.incognito";
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
     /** 本地键盘语音的停顿计时与 VAD 灵敏度，只留在本机，默认保持原行为。 */
@@ -245,6 +247,7 @@ public final class AndroidLocalSettings {
         integer(HANDWRITING_STROKE_WIDTH, 3, true, 1, 8, 1);
         bool(VOICE_OFFLINE_FALLBACK, true, true);
 
+        bool(PRESS_FEEDBACK, true, false);
         bool(INCOGNITO, false, false);
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
         integer(VOICE_PAUSE_MILLIS, VOICE_PAUSE_DEFAULT_MILLIS, false,

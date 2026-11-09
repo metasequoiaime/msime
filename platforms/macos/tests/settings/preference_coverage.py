@@ -71,6 +71,7 @@ NOT_APPLICABLE = {
     "touch_quanpin_shift": "仅 Android、iOS 与鸿蒙的触屏全拼 26 键读它（组字时 ⇧ 保留还是换成「分词」）；macOS 使用物理键盘，Shift 组合键的辅助码语义由引擎处理，屏幕键盘不存在这个问题",
     "touch_twenty_six_key_style": "仅 Android、iOS 与鸿蒙手机的触屏中文 26 键底行读它；macOS 使用物理键盘，屏幕键盘面板是固定的整排键盘，不画这些底行样式",
     "touch_fourteen_key_style": "仅 Android、iOS 与鸿蒙手机的触屏 14 键与 18 键底行读它；macOS 没有 14 键或 18 键键面",
+    "touch_fourteen_key_letter_widths": "仅 Android、iOS 与鸿蒙手机的触屏 14 键与 18 键字母层读它（三排字母键的宽度分法）；macOS 没有 14 键或 18 键键面",
     "touch_nine_key_style": "仅 Android、iOS 与鸿蒙手机的触屏九键底行读它；macOS 没有九键字母键面",
     "touch_nine_key_sidebar_symbols": "仅 Android、iOS 与鸿蒙手机的触屏九键左侧符号栏读它；macOS 屏幕键盘没有九键符号栏",
     "touch_nine_key_digit_sidebar_symbols": "仅 Android、iOS 与鸿蒙手机的触屏九宫格数字键盘左侧符号栏读它；macOS 没有九宫格数字键盘",

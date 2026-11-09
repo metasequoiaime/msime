@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Android 的 14/18 键分段后来在开关卡片下面加了「字母键宽度」一组（等宽、宽窄），见 [Android 14/18 键字母键宽度](2026-11-06-android-fourteen-eighteen-key-letter-widths.md)；三端共用的文字见 [14/18 键字母键宽度的共享偏好与三端规则](2026-11-06-fourteen-eighteen-key-letter-widths.md)。
+
 ## Problem
 
 [触屏按键布局样式](2026-10-27-touch-key-layout-styles.md)上线的设置子页，维护者在 iPhone 上看过之后的评价是「这辈子没想过会有这么丑的交互方式」。问题有三个：

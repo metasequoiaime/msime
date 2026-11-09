@@ -263,6 +263,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         feedback.toggle("按键振动", null, local.hapticsEnabled(), checked -> saveFeedback(null, checked));
         feedback.toggle("按键弹出预览", null,
             settings.bool(AndroidLocalSettings.KEY_POPUP), checked -> saveLocalSetting(AndroidLocalSettings.KEY_POPUP, checked)).help("按下时在键上方显示放大的字符");
+        feedback.toggle("按下时缩小", null,
+            settings.bool(AndroidLocalSettings.PRESS_FEEDBACK), checked -> saveLocalSetting(AndroidLocalSettings.PRESS_FEEDBACK, checked))
+            .help("按下键时缩小并下移 1 dp；关闭后按键动画、按键音、按键振动和按键弹出预览仍可用");
         String animation = settings.choice(AndroidLocalSettings.KEY_ANIMATION);
         GroupCard.Row[] animationRow = new GroupCard.Row[1];
         animationRow[0] = feedback.nav("按键动画", null, animationLabel(animation),
@@ -280,7 +283,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         directionRow[0].setEnabled(swipeSymbols);
         // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
         gestures.toggle("显示字母键角标", null, settings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS),
-            checked -> saveLocalSetting(AndroidLocalSettings.LETTER_CORNER_HINTS, checked)).help("26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入");
+            checked -> saveLocalSetting(AndroidLocalSettings.LETTER_CORNER_HINTS, checked)).help("26 键和 14/18 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入");
         // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。它在共享偏好 `touch_nine_key_swipe_digits` 里、随账号同步，三端同一行、同一套文字（#10229）；本机旧值在 reload 里先迁过来。本版本没有拼音九键时不列。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {

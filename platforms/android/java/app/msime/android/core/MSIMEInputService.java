@@ -350,6 +350,8 @@ public final class MSIMEInputService extends InputMethodService {
     private PredictionButtonsPolicy.Style predictionButtons = PredictionButtonsPolicy.Style.EXPAND_ONLY;
     /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
     TouchKeyStyle.Styles touchKeyStyles = TouchKeyStyle.Styles.DEFAULT;
+    /** 14/18 键三排字母键的宽度分法（#11051），来自共享偏好 `touch_fourteen_key_letter_widths`，缺省等宽。 */
+    FourteenKeyLetterWidths.Mode fourteenKeyLetterWidths = FourteenKeyLetterWidths.Mode.EQUAL;
     /** 26 键底行 符 排在 123 左边，来自共享偏好 `touch_twenty_six_symbol_first`，缺省为关。 */
     boolean twentySixSymbolFirst;
     /** 九宫格数字键盘里空格的位置，来自共享偏好 `touch_number_pad_space`，缺省是 Android 原来的右列。 */
@@ -3064,6 +3066,7 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyHintsEnabled = shuangpinKeyHintsFrom(preferences);
         quanpinShiftEnabled = quanpinShiftFrom(preferences);
         touchKeyStyles = touchKeyStylesFrom(preferences);
+        fourteenKeyLetterWidths = fourteenKeyLetterWidthsFrom(preferences);
         boolean nextNumberRow = numberRowFrom(preferences);
         // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
         automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
@@ -3128,6 +3131,12 @@ public final class MSIMEInputService extends InputMethodService {
     private static OneHandSidePadPolicy.Panel oneHandedSidePanelFrom(JSONObject preferences) {
         return preferences == null ? OneHandSidePadPolicy.Panel.OFF
             : OneHandSidePadPolicy.parse(JsonPolicy.strictString(preferences.opt(OneHandSidePadPolicy.PREFERENCE_KEY)));
+    }
+
+    /** 14/18 键字母键宽度；没有偏好、缺键、不是字符串或不认识的写法都按等宽，与 client-core 的宽松读取一致。 */
+    private static FourteenKeyLetterWidths.Mode fourteenKeyLetterWidthsFrom(JSONObject preferences) {
+        return FourteenKeyLetterWidths.Mode.parse(preferences == null ? null
+            : JsonPolicy.strictString(preferences.opt(FourteenKeyLetterWidths.PREFERENCE)));
     }
 
     /** 中/英键在空格左边；没有偏好、缺键、`right` 和不认识的写法都按右边，与 client-core 的宽松读取一致。 */
@@ -3658,7 +3667,7 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
-            + ":" + oneHandedSidePanel.wire
+            + ":" + oneHandedSidePanel.wire + ":" + fourteenKeyLetterWidths.wire()
             + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved() + ":" + languageKeyLeft
             + ":" + NineKeySidebarPolicy.format(nineKeySidebarSymbols) + ":" + NineKeySidebarPolicy.format(nineKeyDigitSidebarSymbols);
     }
@@ -3817,6 +3826,7 @@ public final class MSIMEInputService extends InputMethodService {
         PredictionButtonsPolicy.Style nextPredictionButtons = PredictionButtonsPolicy.Style.parse(
             JsonPolicy.strictString(preferences.opt(PredictionButtonsPolicy.PREFERENCE_KEY)));
         TouchKeyStyle.Styles nextTouchKeyStyles = touchKeyStylesFrom(preferences);
+        FourteenKeyLetterWidths.Mode nextFourteenKeyLetterWidths = fourteenKeyLetterWidthsFrom(preferences);
         boolean nextNumberRow = numberRowFrom(preferences);
         boolean nextSymbolFirst = symbolFirstFrom(preferences);
         TouchKeyStyle.NumberPadSpace nextNumberPadSpace = numberPadSpaceFrom(preferences);
@@ -3919,6 +3929,8 @@ public final class MSIMEInputService extends InputMethodService {
         predictionButtons = nextPredictionButtons;
         // 底行样式和数字行进了 touchGeometryKey，变了就 render()：底行按新样式重排（updateActionRow 的签名带着样式），数字行与样式相关的数字层由 render 里的 numberRowStale、numberPadStale、layerPunctuationStale 重建；只换键的排布，不碰组字。
         touchKeyStyles = nextTouchKeyStyles;
+        // 14/18 键字母键宽度同样进了 touchGeometryKey：变了就 render()，render 里的 letterWidthsStale 按新分法重建 14/18 键的三排，不打断正在组的字。
+        fourteenKeyLetterWidths = nextFourteenKeyLetterWidths;
         // 用户关掉「顶部数字行」时连同自动数字行一起收起（#10878）。
         automaticNumberRow.manualChanged(numberRowEnabled, nextNumberRow);
         numberRowEnabled = nextNumberRow;
@@ -5101,8 +5113,8 @@ public final class MSIMEInputService extends InputMethodService {
         int targetIdleHeight = customSize
             ? pixels(ToolbarSizePolicy.heightDp(sizePercent))
             : composingHeight;
-        int idleHeight = customSize && idleHeader
-            ? Math.max(targetIdleHeight, readingRow + pixels(ToolbarSizePolicy.buttonHeightDp(sizePercent)))
+        int idleHeight = customSize
+            ? ToolbarSizePolicy.stableHeight(targetIdleHeight, composingHeight)
             : targetIdleHeight;
         int idleRowHeight = idleHeight - (idleHeader ? readingRow : 0);
         if (shortcutToolbar != null) ViewPolicy.setFixedHeight(shortcutToolbar, idleRowHeight);
@@ -7172,6 +7184,7 @@ public final class MSIMEInputService extends InputMethodService {
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
+        FourteenKeyLetterWidths.PREFERENCE,
         TouchKeyStyle.NINE_KEY_PREFERENCE, TouchKeyStyle.NUMBER_ROW_PREFERENCE,
         TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE,
         NineKeySidebarPolicy.LETTER_PREFERENCE, NineKeySidebarPolicy.DIGIT_PREFERENCE,
@@ -12364,9 +12377,11 @@ public final class MSIMEInputService extends InputMethodService {
         // 数字页状态和键行建成时不一致（例如编辑器换了初始键层）：触屏布局没变，也要按当前状态换键面。数字九宫格上切了中/英或换了方案，左列和右列 ！ 的标点写法变了，由 sidebarStale 发现。
         // 九键外框换了是否画右侧大回车（设置页换了九键样式、进出密码框），或大回车外框的地球键变了：外框连同底行整块重建。
         // 设置页换了数字键盘的空格位置：数字层右列最下面一格在空格和 ！ 之间换，按新状态重建。
+        // 设置页换了 14/18 键字母键宽度（等宽、宽窄）：三排字母按新分法重建。
         if (imeLetterRows.drawnTouchLayout() != displayedTouchLayout(view)
                 || imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()
                 || imeLetterRows.layerPunctuationStale() || imeLetterRows.numberRowStale()
+                || imeLetterRows.letterWidthsStale() || imeLetterRows.japaneseRomajiStale()
                 || imeLayoutRows.shuangpinStale() || imeLetterRows.languageNumberSwapStale()
                 || imeLayoutRows.numberPadSpaceStale()
                 || imeLetterRows.numberPadStale() || imeLayoutRows.tallReturnStale())
@@ -12381,6 +12396,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
         imeLetterRows.updateFourteenKeySeparator();
+        imeLetterRows.updateGridLetterCornerHints();
         String currentEditingText = view == null ? "" : InputViewValuePolicy.editingText(view);
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;

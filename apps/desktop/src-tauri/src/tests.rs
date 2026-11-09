@@ -390,13 +390,13 @@ fn helpcode_catalog_reads_only_the_host_resource_directory() {
     .unwrap();
     let document = serde_json::json!({"resources": resources});
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     let options = {
         let path = directory.path().join("runtime-options.json");
         std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
         super::DictionaryHostOptions { path }
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let options = super::DictionaryHostOptions {
         document: std::sync::Arc::new(document),
     };
@@ -2213,6 +2213,83 @@ fn dictionary_requests_do_not_see_the_published_skin_catalog() {
             .as_deref(),
         Some("invalid dictionary request")
     );
+}
+
+/// #11098：设置应用一直开着，输入法换了词库代次（在线词库更新、升级换锁）并改写 `runtime-options.json` 的 `dictionaries`。之后在设置里新增的快捷短语要落进输入法此刻读的代次。macOS 的设置应用以前只用启动时读到的文档，短语写进旧代次，输入法里打不出来，删掉的词条也还在，要等下次重新准备代次回放日志才对上。
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn settings_edits_reach_the_generation_the_input_method_switched_to() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let state = directory.path().join("state");
+    let layout = |generation: &str| {
+        let dictionaries = state.join("user/dictionaries").join(generation);
+        std::fs::create_dir_all(&dictionaries).unwrap();
+        rusqlite::Connection::open(dictionaries.join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE quick_parases(key TEXT NOT NULL,value TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,UNIQUE(key,value));",
+            )
+            .unwrap();
+        serde_json::json!({
+            "api_version": 1,
+            "resources": directory.path().join("resources"),
+            "user_data": state.join("user"),
+            "cache": state.join("cache"),
+            "dictionaries": dictionaries,
+            "preferences_directory": state,
+            "preferences": msime_client_core::preferences::Preferences::default(),
+        })
+    };
+    let launched = layout(&"a".repeat(64));
+    let switched = layout(&"b".repeat(64));
+    let path = state.join("runtime-options.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&launched).unwrap()).unwrap();
+    // 设置应用启动时的两份状态：路径，以及 RuntimeOptionsState 里启动时读到的文档。
+    let options = super::DictionaryHostOptions { path: path.clone() };
+    let runtime = super::RuntimeOptionsState {
+        path: Some(path.clone()),
+        document: std::sync::Arc::new(std::sync::Mutex::new(launched.clone())),
+        skins: None,
+    };
+    assert_eq!(
+        options.snapshot().unwrap()["dictionaries"],
+        launched["dictionaries"]
+    );
+
+    // 输入法换到新代次，原子地改写同一份文件。
+    assert!(msime_host_api::publish_prepared_dictionaries(&path, &switched).unwrap());
+    assert_eq!(
+        options.snapshot().unwrap()["dictionaries"],
+        switched["dictionaries"]
+    );
+    assert_eq!(
+        runtime.snapshot().unwrap()["dictionaries"],
+        switched["dictionaries"]
+    );
+
+    let add = serde_json::json!({
+        "operation": "edit",
+        "previous": null,
+        "replacement": {"kind": "quick_phrase", "key": "zzhh", "value": "合成短语", "weight": 10, "source": "user"},
+        "request_id": "ui-add-synthetic",
+    });
+    msime_host_api::settings_dictionary::request(&options.snapshot().unwrap(), &add, || {})
+        .unwrap();
+    let browse = |document: &serde_json::Value| -> Vec<String> {
+        let request = serde_json::json!({
+            "options": document,
+            "action": {"operation": "browse", "kind": "quick_phrase", "query": "", "offset": 0, "limit": 100},
+        });
+        msime_host_api::dictionary_request_json(&serde_json::to_vec(&request).unwrap()).unwrap()
+            ["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["value"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(browse(&switched), ["合成短语"]);
+    assert!(browse(&launched).is_empty());
 }
 
 #[cfg(target_os = "linux")]

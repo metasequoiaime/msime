@@ -24,6 +24,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private int idleIconColor;
     private int activeIconColor;
     private boolean flipped;
+    private boolean besideMaterial;
     private int sizePercent = 100;
 
     public void setSizePercent(int percent) {
@@ -79,6 +80,15 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         invalidate();
     }
 
+    /**
+     * 和 Material 图标并排画：键盘底栏的地球挨着剪贴板，按 {@link KeyboardShortcutIconPolicy#globeBoxBesideMaterialDp} 定大小，不再按触控区短边的比例。只对地球有意义。
+     */
+    public void setBesideMaterial(boolean value) {
+        if (besideMaterial == value) return;
+        besideMaterial = value;
+        invalidate();
+    }
+
     /** 图标上下翻转：外接键盘的候选条模式里，收起键的 chevron 朝上，表示展开软键盘。 */
     public void setFlipped(boolean value) {
         if (flipped == value) return;
@@ -98,7 +108,11 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             drawMaterial(canvas, width, height);
             return;
         }
-        float size = DimensionPolicy.shorterSide(width, height) * GLYPH_SCALE;
+        float shorter = DimensionPolicy.shorterSide(width, height);
+        float size = besideMaterial
+            ? BoundsPolicy.atMost(shorter, DimensionPolicy.floatPixels(getContext(),
+                KeyboardShortcutIconPolicy.globeBoxBesideMaterialDp(MATERIAL_ICON_DP * sizePercent / 100f)))
+            : shorter * GLYPH_SCALE;
         if (size <= 0) return;
         if (isSelected() && Color.alpha(activeFill) > 0) {
         float side = DimensionPolicy.shorterSide(width, height) * ACTIVE_SCALE;

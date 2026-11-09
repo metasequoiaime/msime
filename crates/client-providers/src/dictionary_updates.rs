@@ -439,6 +439,23 @@ pub fn bundled_resources(state: &Path, baseline: &ResourceSet) -> Option<PathBuf
         .map(|s| s.bundled_resources.clone())
 }
 
+/// 更新记录里记下的随包资源目录，`active` 在前、`previous` 在后，只要绝对路径。
+///
+/// `bundled_resources` 记的是安装包把资源解到了哪里，不是对词库内容的断言：词库文件在准备代次时按当前的锁校验，随包目录里的其他内容（内置辅助码表）由宿主随安装包刷新。所以这里与 [`bundled_resources`] 不同，不按本版本的词库锁校验记录。覆盖安装换了随包词库锁之后，旧版本留下的记录过不了新基线，但它记的仍是安装包解包的地方。
+///
+/// 只读两个 `bundled_resources` 字段，不按 [`Installed`] 的类型整份解析：记录里的词库清单换了格式时，位置照样读得出来。要按锁校验词库的调用方仍用 [`bundled_resources`]。
+pub fn recorded_bundled_directories(state: &Path) -> Vec<PathBuf> {
+    let Ok(installed) = read::<serde_json::Value>(&root(state).join("installed.json")) else {
+        return Vec::new();
+    };
+    ["active", "previous"]
+        .into_iter()
+        .filter_map(|key| installed.get(key)?.get("bundled_resources")?.as_str())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .collect()
+}
+
 /// 已有输入会话的快照仍按它自己的代次校验，不能被后台刚发布的新选择误判成旧锁。
 pub fn set_for_directory(state: &Path, baseline: &ResourceSet, path: &Path) -> Option<ResourceSet> {
     let installed: Installed = read(&root(state).join("installed.json")).ok()?;

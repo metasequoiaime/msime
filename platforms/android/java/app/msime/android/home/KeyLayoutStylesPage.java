@@ -12,6 +12,7 @@ import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import app.msime.android.AppEdition;
 import app.msime.android.DimensionPolicy;
 import app.msime.android.DrawablePolicy;
+import app.msime.android.FourteenKeyLetterWidths;
 import app.msime.android.JsonPolicy;
 import app.msime.android.KeyLayoutStyleMigration;
 import app.msime.android.KeyboardScheme;
@@ -27,7 +28,7 @@ import java.util.List;
 import org.json.JSONObject;
 
 /**
- * 「按键布局」子页（键盘页「布局」组进来），自上而下：键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列本版本提供的类型，只有一种时不画），这一类键盘所选样式下的整块键盘预览（{@link KeyLayoutPreview}，与标准不同的键描强调色），一排样式胶囊，当前样式的副作用说明（没有就不画），说明下面一张卡片里是开关：26 键分段先是「26 键「符」与「123」互换」，每个分段都有「中/英键放在空格左边」，9 键分段时再加一行「九键左侧符号」；接着是「数字键盘」一组空格位置的胶囊（空格在右列、在 0 右边、在 0 左边）、组末说明和一行「数字键盘左侧符号」；最后是没有标题的一组里的「顶部数字行」开关（本版本既没有 26 键也没有 14/18 键时不列）。各项都写共享偏好（`touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_language_key_side`、`touch_nine_key_sidebar_symbols`、`touch_number_pad_space`、`touch_nine_key_digit_sidebar_symbols`、`touch_number_row`，{@link TouchKeyStyle}、{@link NineKeySidebarPolicy}），随账号同步，键盘每秒重读偏好时就地换底行和符号栏，不打断正在组的字。本版本三类都没有时键盘页不列入口（{@link TouchKeyStyle.Groups}）。哪一类、叫什么、高亮哪些键、说明写什么都在 {@link KeyLayoutStylesPolicy} 里。
+ * 「按键布局」子页（键盘页「布局」组进来），自上而下：键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列本版本提供的类型，只有一种时不画），这一类键盘所选样式下的整块键盘预览（{@link KeyLayoutPreview}，与标准不同的键描强调色），一排样式胶囊，当前样式的副作用说明（没有就不画），说明下面一张卡片里是开关：26 键分段先是「26 键「符」与「123」互换」，每个分段都有「中/英键放在空格左边」，14/18 键分段时再加「字母键宽度」一组（等宽、宽窄两枚胶囊和组末说明，#11051），9 键分段时再加一行「九键左侧符号」；接着是「数字键盘」一组空格位置的胶囊（空格在右列、在 0 右边、在 0 左边）、组末说明和一行「数字键盘左侧符号」；最后是没有标题的一组里的「顶部数字行」开关（本版本既没有 26 键也没有 14/18 键时不列）。各项都写共享偏好（`touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style`、`touch_twenty_six_symbol_first`、`touch_language_key_side`、`touch_fourteen_key_letter_widths`、`touch_nine_key_sidebar_symbols`、`touch_number_pad_space`、`touch_nine_key_digit_sidebar_symbols`、`touch_number_row`，{@link TouchKeyStyle}、{@link NineKeySidebarPolicy}），随账号同步，键盘每秒重读偏好时就地换底行和符号栏，不打断正在组的字。本版本三类都没有时键盘页不列入口（{@link TouchKeyStyle.Groups}）。哪一类、叫什么、高亮哪些键、说明写什么都在 {@link KeyLayoutStylesPolicy} 里。
  *
  * <p>分段控件默认停在用户当前在用的中文键盘类型；切分段只换预览、胶囊和互换开关的显隐，不写任何偏好；「中/英键放在空格左边」三个分段是同一项偏好，切分段时开关状态不变。点胶囊或开关立刻换预览再写偏好，保存失败时提示并重新读一遍，拨回磁盘上的值。
  *
@@ -46,12 +47,16 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
     private boolean symbolFirst;
     private boolean languageLeft;
     private TouchKeyStyle.NumberPadSpace numberPadSpace = TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN;
+    private FourteenKeyLetterWidths.Mode letterWidths = FourteenKeyLetterWidths.Mode.EQUAL;
     private boolean eighteen;
     @Nullable private KeyLayoutPreview preview;
     @Nullable private LinearLayout chips;
     @Nullable private TextView note;
     @Nullable private GroupCard.Row symbolFirstRow;
     @Nullable private LinearLayout numberPadChips;
+    /** 14/18 键分段里「字母键宽度」那一组和它的胶囊行；只在 14/18 键分段显示。 */
+    @Nullable private View letterWidthsGroup;
+    @Nullable private LinearLayout letterWidthsChips;
     /** 两张左侧符号表（共享偏好里存的，空表表示出厂表）。 */
     private List<String> nineKeySidebar = List.of();
     private List<String> digitSidebar = List.of();
@@ -83,6 +88,8 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         note = null;
         symbolFirstRow = null;
         numberPadChips = null;
+        letterWidthsGroup = null;
+        letterWidthsChips = null;
         nineKeySidebarGroup = null;
         if (preferences == null) {
             GroupCard.add(target, null).note("读取设置失败。请先完成首次设置，或稍后返回重试。");
@@ -97,6 +104,9 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         numberRow = preferences.optBoolean(TouchKeyStyle.NUMBER_ROW_PREFERENCE, false);
         symbolFirst = preferences.optBoolean(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE, false);
         languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));
+        // 没选过、或不认识的写法时选中「等宽」，与键盘的宽松读取一致。
+        letterWidths = FourteenKeyLetterWidths.Mode.parse(
+            JsonPolicy.strictString(preferences.opt(FourteenKeyLetterWidths.PREFERENCE)));
         // 没选过时选中 Android 原来的「空格在右列」，点哪一枚写哪一枚的写法。
         numberPadSpace = TouchKeyStyle.NumberPadSpace.parse(
             JsonPolicy.strictString(preferences.opt(TouchKeyStyle.NUMBER_PAD_SPACE_PREFERENCE))).resolved();
@@ -201,6 +211,16 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
             refreshStyles();
             save(edited -> edited.put(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle.languageKeySideWire(checked)));
         }).help(TouchKeyStyle.LANGUAGE_LEFT_NOTE);
+        // 「字母键宽度」一组只作用于 14/18 键，只在 14/18 键分段显示：等宽、宽窄两枚胶囊（与样式胶囊同一个 chip），胶囊下面一行组末说明；点了先就地换预览再写偏好。
+        if (kinds.contains(KeyLayoutStylesPolicy.Kind.FOURTEEN)) {
+            GroupCard widths = GroupCard.add(target, FourteenKeyLetterWidths.GROUP_TITLE);
+            LinearLayout widthRow = LayoutPolicy.row(context);
+            ViewPolicy.setRowPadding(context, widthRow);
+            widths.addView(widthRow);
+            letterWidthsChips = widthRow;
+            widths.help(FourteenKeyLetterWidths.NOTE);
+            letterWidthsGroup = widths.view();
+        }
         // 九键左侧符号接在说明后面，与互换开关同一种写法，只在 9 键分段显示；右侧是当前字母表的摘要，点开进编辑页。
         if (kinds.contains(KeyLayoutStylesPolicy.Kind.NINE)) {
             GroupCard sidebar = GroupCard.add(target, null);
@@ -220,7 +240,8 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         TextView caption = note;
         if (shown == null || board == null || row == null || caption == null) return;
         TouchKeyStyle.Row selected = shown.selected(styles);
-        board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft, nineKeySidebar),
+        board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft, nineKeySidebar,
+                letterWidths),
             KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, languageLeft, nineKeySidebar));
         Context context = requireContext();
         row.removeAllViews();
@@ -235,6 +256,14 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         if (swap != null) swap.setVisible(shown == KeyLayoutStylesPolicy.Kind.TWENTY_SIX);
         View sidebar = nineKeySidebarGroup;
         if (sidebar != null) ViewPolicy.setVisible(sidebar, shown == KeyLayoutStylesPolicy.Kind.NINE);
+        View widths = letterWidthsGroup;
+        if (widths != null) ViewPolicy.setVisible(widths, shown == KeyLayoutStylesPolicy.Kind.FOURTEEN);
+        LinearLayout widthRow = letterWidthsChips;
+        if (widthRow != null) {
+            widthRow.removeAllViews();
+            for (FourteenKeyLetterWidths.Mode choice : FourteenKeyLetterWidths.Mode.CHOICES)
+                addChip(context, widthRow, chip(context, choice.title(), choice == letterWidths, () -> chooseLetterWidths(choice)));
+        }
     }
 
     /** 「数字键盘」一组：空格位置的等宽胶囊（与样式胶囊同一个 {@link #chip}），胶囊下面一行组末说明，再下面是「数字键盘左侧符号」一行；不画预览。 */
@@ -295,6 +324,13 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         styles = shown.with(styles, option);
         refreshStyles();
         save(edited -> edited.put(shown.preference, option.wire));
+    }
+
+    /** 选一种字母键宽度：先就地换预览和胶囊，再写 `touch_fourteen_key_letter_widths`。 */
+    private void chooseLetterWidths(FourteenKeyLetterWidths.Mode choice) {
+        letterWidths = choice;
+        refreshStyles();
+        save(edited -> edited.put(FourteenKeyLetterWidths.PREFERENCE, choice.wire()));
     }
 
     /** 选一种空格位置：先就地换胶囊，再写 `touch_number_pad_space`。 */

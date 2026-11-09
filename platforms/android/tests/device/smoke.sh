@@ -291,6 +291,7 @@ fi
 # 十八键复用已有入口，API 28 核心验收与 API 35 完整验收都覆盖组码、回落和实际几何。
 check "十八键全拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_key true
 if [[ "$core" != true ]]; then
+  check "日语罗马字长音键验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-romaji true
   check "Japanese toggle input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ChineseLanguageReturnDeviceSmoke -e japanese-toggle true
 fi
 if [[ "${MSIME_ANDROID_APP_COMPOSITION:-0}" == 1 ]]; then
@@ -482,6 +483,8 @@ do
 done
 # 18 键双拼复用字母组布局入口，避免超过 Android 35 的清单数量限制。
 check "十八键双拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_shuangpin true
+# 14/18 键角标符号（#11063）同样复用字母组入口：真实触摸覆盖滑出符号、反向选项、组字中点按和三项滑动设置。
+check "14/18 键角标符号验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e grid_symbols true
 # 26 键双拼的按下点（#10018）复用微软双拼入口：注入真实触摸，核对边角与键距命中、纠错整句随落点保留和微软 ; 键；宿主注册给引擎的键位几何经 instrumentation 状态交回，存到 target/android/device-test/key-geometry/，用来替换评测的参考布局。
 result_status=0
 result=$(run_instrumentation app.msime.android.test/app.msime.android.test.MicrosoftShuangpinDeviceSmoke -e shuangpin-touch true 2>&1) || result_status=$?

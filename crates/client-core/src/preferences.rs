@@ -305,6 +305,50 @@ impl<'de> Deserialize<'de> for TouchFourteenKeyStyle {
     }
 }
 
+/// 14 键与 18 键字母层（全拼、双拼、五笔 14 键共用）三排字母键的宽度怎么分（#11051）。只改三排字母键的宽度分配，键距、行距、键盘高度、顶部数字行、底行和符号层都不受影响。桌面宿主原样保留、不使用。
+///
+/// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchFourteenKeyStyle`] 一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchFourteenKeyLetterWidths {
+    /// 原来的排法：每一排的键一样宽，各自铺满整排。不写进文档。
+    #[default]
+    Equal,
+    /// 宽窄：两个字母的键 1 份、一个字母的键 0.75 份；三排都用首排的单位宽度，第二排居中、两端空出来的地方算最近的键，第三排字母键居中、分词和 ⌫ 分掉两端剩下的宽度。
+    Varied,
+}
+
+impl TouchFourteenKeyLetterWidths {
+    /// 文档和同步键里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Equal => "equal",
+            Self::Varied => "varied",
+        }
+    }
+
+    /// 严格解析：只认两种写法，其他值为 `None`。偏好文档走宽松的反序列化。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "equal" => Some(Self::Equal),
+            "varied" => Some(Self::Varied),
+            _ => None,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl<'de> Deserialize<'de> for TouchFourteenKeyLetterWidths {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 不认识的字符串（较新版本加的分法）按原来的等宽读；不是字符串照样报错，和其他字段的类型错误一致。
+        let value = String::deserialize(deserializer)?;
+        Ok(Self::parse(&value).unwrap_or_default())
+    }
+}
+
 /// 九键字母层（拼音九键、九键双拼、笔画共用这一框架）底行的排法；除 [`Self::TallReturn`] 外，左侧符号栏和右侧功能列不变。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
@@ -1969,6 +2013,12 @@ pub struct Preferences {
     /// 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式，见 [`TouchFourteenKeyStyle`]。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchFourteenKeyStyle::is_default")]
     pub touch_fourteen_key_style: TouchFourteenKeyStyle,
+    /// 手机触屏 14 键与 18 键三排字母键的宽度分法，见 [`TouchFourteenKeyLetterWidths`]。默认即原来的等宽且不写进文档。桌面宿主原样保留、不使用。
+    #[serde(
+        default,
+        skip_serializing_if = "TouchFourteenKeyLetterWidths::is_default"
+    )]
+    pub touch_fourteen_key_letter_widths: TouchFourteenKeyLetterWidths,
     /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；除右侧大回车样式外，左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchNineKeyStyle::is_default")]
     pub touch_nine_key_style: TouchNineKeyStyle,
@@ -4484,6 +4534,7 @@ impl Default for Preferences {
             touch_quanpin_shift: true,
             touch_twenty_six_key_style: TouchTwentySixKeyStyle::default(),
             touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
+            touch_fourteen_key_letter_widths: TouchFourteenKeyLetterWidths::default(),
             touch_nine_key_style: TouchNineKeyStyle::default(),
             touch_nine_key_sidebar_symbols: Vec::new(),
             touch_nine_key_digit_sidebar_symbols: Vec::new(),

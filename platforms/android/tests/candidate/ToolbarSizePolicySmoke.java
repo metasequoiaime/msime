@@ -17,6 +17,10 @@ public final class ToolbarSizePolicySmoke {
         check(ToolbarSizePolicy.buttonHeightDp(150) == 66);
         check(ToolbarSizePolicy.buttonWidthDp(40, 90) == 40);
         check(ToolbarSizePolicy.buttonWidthDp(40, 150) == 60);
+        // #11108：90% 和 100% 的按钮仍有 44 dp 最小触摸区，不能让读音行出现时把总高单独抬高 2 dp。
+        check(ToolbarSizePolicy.stableHeight(50, 56) == 56);
+        check(ToolbarSizePolicy.stableHeight(56, 56) == 56);
+        check(ToolbarSizePolicy.stableHeight(84, 56) == 84);
         check(ToolbarSizePolicy.idleSpacerPx(50, 56) == 6);
         check(ToolbarSizePolicy.composingSpacerPx(50, 56) == 0);
         check(ToolbarSizePolicy.idleSpacerPx(84, 56) == 0);

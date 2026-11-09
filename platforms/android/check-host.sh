@@ -1413,7 +1413,7 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F '() -> choose(shown, option)));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setAutoSizeSp(chip, 9, Math.round(Ui.TEXT_BUTTON_SMALL), 1);' <<< "$style_chip" \
   || rg_q_stdin 'save\(|savePreferences\(' <<< "$style_refresh" \
-  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft, nineKeySidebar),' <<< "$style_refresh" \
+  || ! rg_q_stdin -F 'board.show(KeyLayoutStylesPolicy.keyboard(shown, selected, numberRow, eighteen, symbolFirst, languageLeft, nineKeySidebar,' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'KeyLayoutStylesPolicy.highlights(shown, selected, symbolFirst, languageLeft, nineKeySidebar));' <<< "$style_refresh" \
   || ! rg_q_stdin -F 'ViewPolicy.setTextAndVisibility(caption, KeyLayoutStylesPolicy.note(shown, selected));' <<< "$style_refresh" \
   || ! rg_q_stdin -F '() -> { if (!checked) choose.run(); });' <<< "$style_chip" \
@@ -1552,6 +1552,40 @@ if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   || ! rg -qF '"中/英键放在空格左边"' "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
   || ! rg -qF 'static final String LANGUAGE_LEFT_TITLE = "中/英键放在空格左边";' "$repo_root/platforms/android/java/app/msime/android/keyboard/TouchKeyStyle.java"; then
   echo "Android must lay the bottom rows, the borrowed number pads and the tall-return strip by touch_language_key_side, rebuild the tall-return frame when it changes, list 中/英键放在空格左边 in every 按键布局 segment, draw the heatmap with it and index it in settings search" >&2
+  exit 1
+fi
+# 14/18 键字母键宽度（#11051，`touch_fourteen_key_letter_widths`）：分法和占位格朝外补的半键距由 FourteenKeyLetterWidthsSmoke 覆盖，占位格的按下归属由 KeyPressAreaDeviceChecks 覆盖。这里钉住键盘的接线：冷启动和实时偏好都按宽松读取取值，进 touchGeometryKey 和 SKIN_HINT_KEYS（冷启动第一帧就按用户的宽度画），render 按 letterWidthsStale 重建；三排的份额取自 FourteenKeyLetterWidths.plan，占位格是指定了所属键的 KeyboardSpacer，补的半键距随键距就地重新套用。
+fourteen_rows_body=$(sed -n '/    private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows")
+if ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
+    | rg_q_stdin -F 'fourteenKeyLetterWidths = fourteenKeyLetterWidthsFrom(preferences);' \
+  || ! rg -qF 'fourteenKeyLetterWidths = nextFourteenKeyLetterWidths;' "$account_service" \
+  || ! sed -n '/private String touchGeometryKey() {$/,/^    }$/p' "$account_service" | rg_q_stdin -F 'fourteenKeyLetterWidths.wire()' \
+  || ! rg_q_stdin -F 'FourteenKeyLetterWidths.PREFERENCE' <<< "$skin_hint_keys" \
+  || ! rg -qF '|| imeLetterRows.letterWidthsStale()' "$account_service" \
+  || ! rg_q_stdin -F 'FourteenKeyLetterWidths.plan(rows, letterWeight, edgeWeight, widths.geometry())' <<< "$fourteen_rows_body" \
+  || ! rg_q_stdin -F 'pad.setOwner(previousKey);' <<< "$fourteen_rows_body" \
+  || ! rg_q_stdin -F 'leadingPad.setOwner(keyButton);' <<< "$fourteen_rows_body" \
+  || ! rg_q_stdin -F 'pad.setOuterHalfGaps(previousKey == null, padHalfGaps);' <<< "$fourteen_rows_body" \
+  || ! sed -n '/    void applyKeyboardGeometry(View node) {$/,/^    }$/p' "$android_java/core/ImeStyler.java" \
+    | rg_q_stdin -F 'params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);'; then
+  echo "Android must read touch_fourteen_key_letter_widths at startup and live, remember it in SKIN_HINT_KEYS, rebuild the 14/18-key rows when it changes, take their weights from FourteenKeyLetterWidths.plan and give the row-2 pads an owning key" >&2
+  exit 1
+fi
+# 「按键布局」页的「字母键宽度」一组和两处整键盘预览：两种分法的预览由 KeyLayoutStylesPolicySmoke、KeyboardPreviewLayoutSmoke 覆盖。这里钉住接线：页面按宽松读取取值，组只在 14/18 键分段建、只在 14/18 键分段显示，胶囊按 Mode.CHOICES 排、点了先重画预览再写写法，预览带着它画；皮肤页预览读同一项偏好；设置搜索登记了标题。
+letter_widths_page_refresh=$(sed -n '/    private void refreshStyles() {$/,/^    }$/p' "$style_page")
+if ! rg -qF 'letterWidths = FourteenKeyLetterWidths.Mode.parse(' "$style_page" \
+  || ! rg_q_stdin -U 'if \(kinds\.contains\(KeyLayoutStylesPolicy\.Kind\.FOURTEEN\)\) \{\n\s*GroupCard widths = GroupCard\.add\(target, FourteenKeyLetterWidths\.GROUP_TITLE\);' <<< "$style_section" \
+  || ! rg_q_stdin -F 'widths.help(FourteenKeyLetterWidths.NOTE);' <<< "$style_section" \
+  || ! rg_q_stdin -F 'ViewPolicy.setVisible(widths, shown == KeyLayoutStylesPolicy.Kind.FOURTEEN);' <<< "$letter_widths_page_refresh" \
+  || ! rg_q_stdin -F 'for (FourteenKeyLetterWidths.Mode choice : FourteenKeyLetterWidths.Mode.CHOICES)' <<< "$letter_widths_page_refresh" \
+  || ! rg_q_stdin -U 'nineKeySidebar,\n\s*letterWidths\),' <<< "$letter_widths_page_refresh" \
+  || ! sed -n '/    private void chooseLetterWidths(/,/^    }$/p' "$style_page" \
+    | rg_q_stdin -U 'letterWidths = choice;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(FourteenKeyLetterWidths\.PREFERENCE, choice\.wire\(\)\)\);' \
+  || ! rg -qF 'FourteenKeyLetterWidths.Mode.parse(JsonPolicy.strictString(preferences.opt(FourteenKeyLetterWidths.PREFERENCE))));' \
+    "$repo_root/platforms/android/java/app/msime/android/home/KeyboardPreview.java" \
+  || ! rg -qF '"字母键宽度"' "$repo_root/platforms/android/java/app/msime/android/home/PageId.java" \
+  || ! rg -qF 'public static final String GROUP_TITLE = "字母键宽度";' "$android_java/keyboard/FourteenKeyLetterWidths.java"; then
+  echo "Android must offer 字母键宽度 (等宽 / 宽窄) only in the 14/18 键 segment of 按键布局, redraw the preview before saving touch_fourteen_key_letter_widths, draw both previews with it and index it in settings search" >&2
   exit 1
 fi
 # 九键「右侧大回车」（tall_return）：排布由 TouchKeyStyleSmoke、KeyHeatmapLayoutSmoke 和 NineKeySidebarPolicySmoke 覆盖，接线在 InputMethodService 和设置页里，JVM 冒烟碰不到，这里钉住：拼音九键（含数字层）和笔画按 tallReturnDrawn 建一整块外框、高度按三行加底行；换了样式或进出密码框时 render 经 tallReturnStale 重建；符号栏按大回车取符号表；设置页把它叫「右侧大回车」，预览画热力图的同一套整块外框。

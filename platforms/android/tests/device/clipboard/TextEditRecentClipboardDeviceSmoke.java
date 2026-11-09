@@ -235,7 +235,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
         if (pad.isEmpty() || !panel.contains(pad))
             throw new AssertionError("Trackpad is outside " + mode + " panel");
-        for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "移到开头", "移到结尾",
+        for (String description : new String[] {"全选", "复制", "剪切", "粘贴", "移到行首，双击移到开头", "移到行尾，双击移到结尾",
                 "退格", "打开数字键盘", "插入空格", "插入换行", "触控板"}) {
             Rect key = bounds(awaitStableBounds(described(description).and(AccessibilityNodeInfo::isClickable)));
             if (key.isEmpty() || !panel.contains(key) || Rect.intersects(pad, key))
@@ -253,7 +253,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private void checkAllKeyBounds(String mode) throws Exception {
         Rect panel = bounds(awaitStableBounds(described("文本编辑面板")));
         String[] descriptions = {"光标左移", "光标上移", "选择模式", "光标下移", "光标右移",
-            "全选", "复制", "剪切", "粘贴", "移到开头", "触控板", "移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行"};
+            "全选", "复制", "剪切", "粘贴", "移到行首，双击移到开头", "触控板", "移到行尾，双击移到结尾", "退格", "打开数字键盘", "插入空格", "插入换行"};
         Rect[] keys = new Rect[descriptions.length];
         int minimumWidth = Integer.MAX_VALUE, minimumHeight = Integer.MAX_VALUE, lowestBottom = Integer.MIN_VALUE;
         for (int index = 0; index < descriptions.length; index++) {

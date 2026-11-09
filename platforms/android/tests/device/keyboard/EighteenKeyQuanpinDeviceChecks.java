@@ -107,10 +107,16 @@ final class EighteenKeyQuanpinDeviceChecks {
             if (!t.await(group("W E")).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
                 throw new AssertionError("十八键长按未打开字母选择");
             t.await(t.described("输入 e"));
+            t.await(t.described("输入 E"));
+            t.await(t.described("输入 …"));
             t.tap(t.described("输入 w"));
             t.await(t.field("msime-test-plain").and(n -> DeviceSmoke.equalsText("你好你好你好w", n.getText())));
-            if (t.await(group("L")).isLongClickable())
-                throw new AssertionError("单字母 L 不应提供长按字母菜单");
+            // 单字母键也有选项（#11063）：L 键是 l L 和角标符号。
+            if (!t.await(group("L")).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("十八键单字母 L 长按未打开选项");
+            t.await(t.described("输入 l"));
+            t.tap(t.described("输入 L"));
+            t.await(t.field("msime-test-plain").and(n -> DeviceSmoke.equalsText("你好你好你好wL", n.getText())));
 
             t.stage = "eighteen quanpin local mode uses precise keyboard";
             t.shellDiscard("input text U42");

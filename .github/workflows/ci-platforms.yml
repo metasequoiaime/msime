@@ -34,6 +34,7 @@ jobs:
       ui: ${{ steps.decide.outputs.ui }}
       plugins: ${{ steps.decide.outputs.plugins }}
       android_device: ${{ steps.decide.outputs.android_device }}
+      android_device_matrix: ${{ steps.decide.outputs.android_device_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,12 +48,12 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]] ||
              [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
-            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\nengine_capi=true\nui=true\nplugins=true\nandroid_device=true\n' >> "$GITHUB_OUTPUT"
+            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\nengine_capi=true\nui=true\nplugins=true\nandroid_device=true\nandroid_device_matrix=[{"api":28,"smoke":"--core"},{"api":35,"smoke":""}]\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\nengine=false\nengine_capi=false\nui=false\nplugins=false\nandroid_device=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\nengine=false\nengine_capi=false\nui=false\nplugins=false\nandroid_device=false\nandroid_device_matrix=[]\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
           fi
           # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -60,7 +61,7 @@ jobs:
           else
             changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           fi
-          shared=false; ui=false; plugins=false; android_device=false; engine_capi=false
+          shared=false; ui=false; plugins=false; android_device=false; android_device_api28=false; android_device_api35=false; engine_capi=false
           android=false; linux=false; harmonyos=false; windows=false; web=false
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
@@ -73,7 +74,7 @@ jobs:
             # PR 上的设备验收只看键盘与设置界面的 Java、资源、清单、版本资源和设备套件本身：改了界面文字或交互却只在合并后才跑设备验收，nightly 就会在合并后才红（2026-10-27 #9924 改了皮肤卡片读屏文字，验收找不到旧文字）。共享 Rust 的改动太多，不在这里触发，仍由合并后的 push 和 nightly 兜底。
             case "$path" in
               platforms/android/java/*|platforms/android/res/*|platforms/android/AndroidManifest.xml|platforms/android/editions/*|platforms/android/tests/device/*|.github/workflows/android-device.yml)
-                android_device=true ;;
+                android_device=true; android_device_api28=true; android_device_api35=true ;;
             esac
             case "$path" in
               plugins/*|docs/script-plugin-template/*|crates/script-sdk/*|crates/script-runtime/*|crates/pack-tool/*|scripts/build-script-plugins.sh|scripts/test-script-plugins.sh|scripts/test-script-plugin-data.py|scripts/build-official-plugins.sh|resources/licenses/Unicode-License-V3.txt|resources/character-glosses.lock.json)
@@ -85,7 +86,7 @@ jobs:
                 engine_capi=true ;;
             esac
             case "$path" in
-              platforms/android/*) android=true ;;
+              platforms/android/*) android=true; android_device_api28=true; android_device_api35=true ;;
               # 精简 ONNX Runtime 的锁：Android 的 host 库（build-native.sh 开着 onnx-rerank，设备作业和发版构建）和 Linux 的 package-container.sh 都按它下载、静态链接，改了要两边重编。case 只走第一条匹配，所以两个平台写在同一条里。
               resources/onnxruntime-minimal.lock.json) android=true; linux=true ;;
               # package-container.sh 按这两份锁取精简 ONNX Runtime 链进宿主库、取两档逐键重排模型，下面的 Fedora 作业就跑它。
@@ -107,13 +108,29 @@ jobs:
               Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc)
                 shared=true ;;
             esac
+            # 这些共享层直接持有 Android 的沙箱文件、资源、JNI 会话或输入运行时；最低 API 的设备回归仍要在合并后的 push 上跑。
+            case "$path" in
+              crates/client-base/*|crates/client-core/*|crates/client-providers/*|crates/client-services/*|crates/input-runtime/*|crates/host-api/*|shared/contracts/*|resources/*|.github/workflows/ci-platforms.yml)
+                android=true; android_device_api28=true; android_device_api35=true ;;
+            esac
+            # 其他共享改动保留一台 API 35 设备做端到端冒烟，避免每个共享 crate 都再启动 API 28 模拟器。
+            case "$path" in
+              crates/*|shared/*|scripts/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.nvmrc)
+                android_device_api35=true ;;
+            esac
           done <<< "$changed"
           if [[ "$shared" == true ]]; then
             android=true; linux=true; harmonyos=true; windows=true; web=true; plugins=true
           fi
           # 引擎作业跟着共享路径走（crates/、工作区清单、工具链等），只改平台目录时不跑。
-          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\nengine=%s\nengine_capi=%s\nui=%s\nplugins=%s\nandroid_device=%s\n' \
-            "$android" "$linux" "$harmonyos" "$windows" "$web" "$shared" "$engine_capi" "$ui" "$plugins" "$android_device" >> "$GITHUB_OUTPUT"
+          android_device_matrix='[]'
+          if [[ "$android_device_api28" == true ]]; then
+            android_device_matrix='[{"api":28,"smoke":"--core"},{"api":35,"smoke":""}]'
+          elif [[ "$android_device_api35" == true ]]; then
+            android_device_matrix='[{"api":35,"smoke":"--core"}]'
+          fi
+          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\nengine=%s\nengine_capi=%s\nui=%s\nplugins=%s\nandroid_device=%s\nandroid_device_matrix=%s\n' \
+            "$android" "$linux" "$harmonyos" "$windows" "$web" "$shared" "$engine_capi" "$ui" "$plugins" "$android_device" "$android_device_matrix" >> "$GITHUB_OUTPUT"
 
   android:
     needs: changes
@@ -182,11 +199,13 @@ jobs:
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
   # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-base、client-core、client-providers、client-services 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
-  # 合进 develop 后的 push 在 API 28 和 35 上跑整套，Release Android 发版前用同一个提交再跑一次（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
+  # 合进 develop 后的 push 按变更风险选择设备矩阵：Android 宿主、共享客户端存储/JNI、资源和输入运行时仍跑 API 28 的核心套件加 API 35 全套；其他共享改动只跑 API 35 核心套件。Release Android 不经过这里，仍由可复用 workflow 的默认双 API 矩阵兜底。
   android-device:
     needs: changes
-    if: ${{ needs.changes.outputs.android == 'true' && github.event_name != 'pull_request' }}
+    if: ${{ needs.changes.outputs.android_device_matrix != '[]' && github.event_name != 'pull_request' }}
     uses: ./.github/workflows/android-device.yml
+    with:
+      matrix: ${{ needs.changes.outputs.android_device_matrix }}
 
   # PR 改了键盘、设置界面或崩溃设备套件时，API 28 先跑独立 crash-only，API 35 跑独立崩溃门禁后再跑完整输入验收，让 minSdk 的 Java/JNI 现场链路和高版本的完整交互都能在合并前看到；API 28 的完整输入和全套仍在合并后的 push 与 nightly 上跑（见 .agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md）。这两个 PR 设备作业都不是必需检查，失败不挡合并。
   android-device-pr:
@@ -242,7 +261,7 @@ jobs:
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
-  # 上面的门禁只在 Debian bookworm 容器里编 Debug、跑 ctest；发版的 .rpm 在 Fedora 44 容器里以 Release 编、再跑一遍同一套 ctest（release-linux.yml 的 rpm 作业），Fedora 的 Pango、字体和编译器不同，有的测试只在那里失败：2026-10-27 的 nightly 就红在 linux-candidate-native-canvas-chrome，PR 上从来看不到。这里在 PR 上用同一个镜像、同一份 package-container.sh 编 full 版并跑 ctest，MSIME_PACKAGE_TESTS_ONLY=1 让它停在 ctest，不出包、不编桌面二进制，不违反「PR 上不打包」（.agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
+  # 上面的门禁只在 Debian bookworm 容器里编 Debug、跑 ctest；发版的 .rpm 在 Fedora 45 容器里以 Release 编、再跑一遍同一套 ctest（release-linux.yml 的 rpm 作业），Fedora 的 Pango、字体和编译器不同，有的测试只在那里失败：2026-10-27 的 nightly 就红在 linux-candidate-native-canvas-chrome，PR 上从来看不到。这里在 PR 上用同一个镜像、同一份 package-container.sh 编 full 版并跑 ctest，MSIME_PACKAGE_TESTS_ONLY=1 让它停在 ctest，不出包、不编桌面二进制，不违反「PR 上不打包」（.agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。
   linux-fedora:
     needs: changes
     name: Linux native host (Fedora)
@@ -988,6 +1007,10 @@ jobs:
             & pwsh -NoProfile -File "platforms/windows/tests/tools/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
           }
+      - name: Check Windows desktop resource workflow
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: python scripts/test-windows-desktop-resources.py
       - name: Verify Server manifest modes and unsigned launch
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh

@@ -2,6 +2,7 @@
 #include "../../src/candidates/NativeCanvasSnapshot.h"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 namespace host = msime::linux_host;
@@ -738,8 +739,10 @@ void decoration_overlay() {
       if (!colored_ink(pixel(target.get(), x, y), 0xff00ffu)) continue;
       ++ink;
       assert(host::native_canvas_hit(content, layout, x, y) == -1);
+      // 墨迹框是小数坐标，抗锯齿的边缘像素只被盖住一部分也算墨迹，所以比的是和框相交的整像素范围。
       const auto &box = layout.overlay->ink;
-      assert(x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height);
+      assert(x >= std::floor(box.x) && x < std::ceil(box.x + box.width) &&
+             y >= std::floor(box.y) && y < std::ceil(box.y + box.height));
     }
     assert(ink > 2);
   }

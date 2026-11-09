@@ -22,7 +22,7 @@ Status: implemented
 
 本篇取代 [Android 模拟器上的 PR 门禁和发版门禁](../testing/2026-10-08-android-device-gates.md) 里「在 PR 上调用 `android-device.yml`」这一条，那篇其余决定（模拟器脚本、发版门禁、跳过名单规矩）仍然成立。
 
-其中 `android-device` 一条又被 [改键盘或设置界面的 PR 在 API 35 上跑一遍设备验收](2026-10-28-android-device-on-ui-prs.md) 部分取代：PR 改了 Android 的 Java、资源、清单、版本资源或设备套件时，在 API 35 上跑一遍，不是必需检查。
+其中 `android-device` 一条又被 [改键盘或设置界面的 PR 在 API 35 上跑一遍设备验收](2026-10-28-android-device-on-ui-prs.md) 部分取代：PR 改了 Android 的 Java、资源、清单、版本资源或设备套件时，在 API 35 上跑一遍，不是必需检查。develop/main 推送上的设备矩阵再由 [Android 设备冒烟按变更风险选择矩阵](../testing/2026-11-07-android-device-matrix-by-risk.md) 收窄，发版默认双 API 仍不变。
 
 ## Alternatives considered
 

@@ -2150,22 +2150,21 @@ fn helpcode_fallback_resources(
     recorded: Option<String>,
     resources: &Path,
     state_root: Option<&Path>,
-    edition: &'static Edition,
 ) -> Option<String> {
     if recorded.is_some() || resources.join("helpcodes").is_dir() {
         return recorded;
     }
-    recorded_helpcode_bundle(state_root?, &edition.resource_set().ok()?)
+    recorded_helpcode_bundle(state_root?)
 }
 
-/// 更新记录里的随包资源目录，要求那里确实有 `helpcodes/`；`baseline` 是本版本编译进来的词库锁。
-fn recorded_helpcode_bundle(state_root: &Path, baseline: &ResourceSet) -> Option<String> {
-    let bundled =
-        msime_client_providers::dictionary_updates::bundled_resources(state_root, baseline)?;
-    if !bundled.join("helpcodes").is_dir() {
-        return None;
-    }
-    bundled.to_str().map(str::to_owned)
+/// 更新记录里第一个确实有 `helpcodes/` 的随包资源目录。
+///
+/// 记录里的随包目录只是位置，码表只需要一个带 `helpcodes/` 的目录，与词库是哪个版本无关，所以不按本版本编译进来的词库锁校验记录（见 [`msime_client_providers::dictionary_updates::recorded_bundled_directories`]）。覆盖安装换了随包词库锁时，刷新会因 `dictionary_outdated` 失败，落盘文档仍指着旧版本下载的代次，而旧版本留下的记录过不了新基线；按锁校验时这里就找不到随包目录，内置码表读成空表（Android 覆盖升级 0.6.0 → 0.7.1）。
+fn recorded_helpcode_bundle(state_root: &Path) -> Option<String> {
+    msime_client_providers::dictionary_updates::recorded_bundled_directories(state_root)
+        .into_iter()
+        .find(|bundled| bundled.join("helpcodes").is_dir())
+        .and_then(|bundled| bundled.to_str().map(str::to_owned))
 }
 
 /// HostOptions 的 `preferences_directory`，只认绝对路径：按需下载的资源包装在它下面。
@@ -2488,7 +2487,6 @@ impl HostOptions {
             self.helpcode_fallback_resources,
             Path::new(&self.resources),
             state_root.as_deref(),
-            edition,
         );
         let has_japanese_model = japanese.as_deref().is_some_and(Path::is_file)
             || Path::new(&self.resources)
@@ -2960,7 +2958,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包可以不内置、改为按需下载的资源文件组：桌面、Android 和鸿蒙是日文词典与它的两份 Mozc 许可文本、以及五笔码表，iOS 是日文词典那一组。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
+/// 当前平台发布包可以不内置、改为按需下载的资源文件组：桌面、Android、鸿蒙和 iOS 是日文词典与它的两份 Mozc 许可文本、以及五笔码表。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，鸿蒙通过 `target_env = "ohos"` 选择规则。
 #[cfg(target_env = "ohos")]
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&[&str]] =
     msime_client_core::resources::on_demand_artifacts("ohos");

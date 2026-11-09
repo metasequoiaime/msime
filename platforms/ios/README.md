@@ -204,7 +204,7 @@ platforms/ios/stage-resources.sh "$resource_dir"
 
 第二个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/build_offline_glosses.py` 生成，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/ios/offline-glosses`，键盘扩展把它作为 EngineResources 的同级目录打包；候选释义语言选了已安装的语言时，该行不需要完全访问或网络即可显示。目录总会创建，没有词典时为空，只有英语走离线释义。
 
-第三个可选参数是粤语、注音与笔画的语言词库目录（默认 `target/language-dictionaries`）。开发构建默认完整暂存数据库和许可证；设置 `MSIME_IOS_OMIT_ON_DEMAND=1` 的 full/拼音构建省略日语和这三份附加词库，发布工作流使用此模式。日文独立版本继续随包提供主词库。瘦包的「输入 → 添加语言」仍列出可添加语言，用户添加或点下载后由主应用安装，显示大小、进度、取消与重试；计费或受限网络需要确认。下载复用 Android 的共享资源锁、校验和原子发布，保存到 App Group 的 `MSIME/resource-packs`，不进入备份；键盘下次取得焦点时刷新方案，只使用已发布资源。语音动态运行库继续内嵌。真机 Release `.app` 解压体积由约 340 MB 降至 254 MB，非 IPA 下载大小。
+第三个可选参数是粤语、注音与笔画的语言词库目录（默认 `target/language-dictionaries`）。开发构建默认完整暂存数据库和许可证；设置 `MSIME_IOS_OMIT_ON_DEMAND=1` 的 full/拼音构建省略日文词典、五笔码表和这三份附加词库，发布工作流使用此模式。日文和五笔独立版本继续随包提供各自主资源。瘦包的「输入 → 添加语言」仍列出可添加语言，用户添加或点下载后由主应用安装，显示大小、进度、取消与重试；计费或受限网络需要确认。下载复用 Android 的共享资源锁、校验和原子发布，保存到 App Group 的 `MSIME/resource-packs`，不进入备份；键盘下次取得焦点时刷新方案，只使用已发布资源。语音动态运行库继续内嵌。真机 Release `.app` 解压体积会随词库按需策略下降，非 IPA 下载大小。
 
 只构建 Rust 宿主库时运行：
 
