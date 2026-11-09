@@ -9,6 +9,7 @@ settings=false
 handwriting=false
 statistics=false
 core=false
+risk=false
 feedback=false
 diagnostics=false
 text_edit_layout=false
@@ -22,6 +23,7 @@ for option in "${@:2}"; do
   case "$option" in
     # --core 跑安装、词库准备、打字主路径及剪贴板保存生命周期；其余键盘套件在 API 28 上仍不支持。
     --core) core=true ;;
+    --risk) risk=true ;;
     --settings) settings=true ;;
     --handwriting) handwriting=true ;;
     --statistics) statistics=true ;;
@@ -31,7 +33,7 @@ for option in "${@:2}"; do
     --oobe) oobe=true ;;
     --crash-only) crash_only=true ;;
     --pr) pr=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr]" >&2; exit 1 ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -289,6 +291,21 @@ if [[ "$pr" == true ]]; then
   check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
   check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   finish "Dedicated Android AVD: PR smoke acceptance passed"
+fi
+if [[ "$risk" == true ]]; then
+  # develop 推送只守住会被资源、沙箱权限或共享存储改动破坏的路径：安装和真实主输入已经在上面完成；这里再跑词库导入、会话存储、内置词书和剪贴板导出/保存。其余长 UI 套件与 14 键等交互留给 nightly 和发版完整矩阵。
+  check "Helpcode import acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke
+  check "Dictionary import acceptance failed" MSIME_DICTIONARY_IMPORT_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DictionaryImportDeviceSmoke
+  check "Bundled wordbook acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true
+  "$adb" -s "$serial" shell ime disable "$ime_id" >/dev/null || stop "disabling $ime_id before the session store check failed"
+  result_status=0
+  result=$(run_instrumentation app.msime.android.test/app.msime.android.test.SessionStoreDeviceSmoke 2>&1) || result_status=$?
+  select_ime || stop "$ime_id could not be selected again after the session store check"
+  printf '%s\n' "$result"
+  verdict "Session store JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$result" "$result_status"
+  check_script "Clipboard export acceptance failed" platforms/android/tests/device/clipboard-export.sh "$serial"
+  check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
+  finish "Dedicated Android AVD: risk-focused install, resource and storage acceptance passed"
 fi
 if [[ "$oobe" == true ]]; then
   check "原生引导保存与系统状态验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OnboardingDeviceSmoke

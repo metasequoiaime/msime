@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]] ||
              [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
-            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\nengine_capi=true\nui=true\nplugins=true\nandroid_device=true\nandroid_device_matrix=[{"api":28,"smoke":"--core"},{"api":35,"smoke":""}]\n' >> "$GITHUB_OUTPUT"
+            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\nengine=true\nengine_capi=true\nui=true\nplugins=true\nandroid_device=true\nandroid_device_matrix=[{"api":28,"smoke":"--risk"},{"api":35,"smoke":"--risk"}]\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
@@ -127,7 +127,7 @@ jobs:
           # 引擎作业跟着共享路径走（crates/、工作区清单、工具链等），只改平台目录时不跑。
           android_device_matrix='[]'
           if [[ "$android_device_api28" == true ]]; then
-            android_device_matrix='[{"api":28,"smoke":"--core"},{"api":35,"smoke":"--core"}]'
+            android_device_matrix='[{"api":28,"smoke":"--risk"},{"api":35,"smoke":"--risk"}]'
           elif [[ "$android_device_api35" == true ]]; then
             android_device_matrix='[{"api":35,"smoke":"--pr"}]'
           fi
@@ -201,7 +201,7 @@ jobs:
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
   # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-base、client-core、client-providers、client-services 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
-  # 合进 develop 后的 push 按变更风险选择设备矩阵：Java 和设备套件只跑 API 35 的 --pr；Android 资源、原生库、宿主存储和输入运行时跑 API 28 与 API 35 的 --core。完整长套件只在 nightly 和 Release Android 的默认双 API 矩阵中运行。
+  # 合进 develop 后的 push 按变更风险选择设备矩阵：Java 和设备套件只跑 API 35 的 --pr；Android 资源、原生库、宿主存储和输入运行时跑 API 28 与 API 35 的 --risk。完整长套件只在 nightly 和 Release Android 的默认双 API 矩阵中运行。
   android-device:
     needs: changes
     if: ${{ needs.changes.outputs.android_device_matrix != '[]' && github.event_name != 'pull_request' }}
