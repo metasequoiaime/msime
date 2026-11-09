@@ -1535,6 +1535,8 @@ try {
                         foreach ($name in @('二三候选', '自动纠错')) {
                             if (Find-ByName $content $name) { throw "Input page still shows $name" }
                         }
+                        # Vim 模式名单紧跟应用例外，在「中英文」组里，共享偏好 `vim_mode_apps`。
+                        if ($pair[0] -eq 'mode' -and -not (Find-ByName $content 'Vim 模式的程序文件名')) { throw 'Input mode tab is missing the Vim mode list' }
                         Save-Window $window "$theme-$width-typing-$($pair[0]).png"
                     }
                     Select-PageTab $window 'input-tab-scheme' '中文方案'
