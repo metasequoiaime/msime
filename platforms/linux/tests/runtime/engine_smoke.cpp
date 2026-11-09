@@ -1952,6 +1952,23 @@ int main(int argc, char **argv) {
               "A repeated comma did not turn Chinese with paired completion off");
       seen.committed.clear();
       invoke("FocusOut");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      // Terminal-style IBus clients may not publish surrounding text. A bare
+      // ASCII digit forwarded by the input context must still be remembered so
+      // the next smart-punctuation key can honor the direct-after-digit setting.
+      msime_ibus_configure(follow.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, nullptr, 0, 0);
+      require(!key('7'), "A bare ASCII digit was unexpectedly consumed");
+      require(key(IBUS_period) && seen.committed == ".",
+              "IBus did not keep a forwarded ASCII digit as smart-punctuation context");
+      seen.committed.clear();
+      require(key(IBUS_comma) && seen.committed == "，",
+              "IBus retained a forwarded digit after the punctuation boundary");
+      invoke("FocusOut");
     }
     for (const auto *scope : {"app", "global"}) {
       ibus_object_destroy(IBUS_OBJECT(engine));
