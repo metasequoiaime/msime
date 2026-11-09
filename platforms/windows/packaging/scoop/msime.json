@@ -12,7 +12,7 @@
     },
     "notes": [
         "Metasequoia IME was installed machine-wide by its own installer (Program Files\\metasequoiaime-full), not into the Scoop directory.",
-        "It needs the Visual C++ 2015-2022 x64 redistributable and the Microsoft Edge WebView2 Runtime; the installer only logs which one is missing when it runs silently.",
+        "It needs the Visual C++ v14.50+ x64 redistributable and the Microsoft Edge WebView2 Runtime; an outdated VC runtime blocks the installer, while a missing WebView2 Runtime is logged when it runs silently.",
         "'scoop uninstall msime' keeps the input method's data directory (your own words, settings and skins). A later install picks it up again when it is in the default location (%LOCALAPPDATA%\\metasequoiaime-full); a directory chosen elsewhere has to be chosen again on the installer's data location page. To delete it as well, uninstall from Windows Settings and answer Yes when asked, or run the uninstaller with /REMOVEDATA."
     ],
     "architecture": {

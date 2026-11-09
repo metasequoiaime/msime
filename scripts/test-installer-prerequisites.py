@@ -108,28 +108,33 @@ def main() -> int:
     require(re.search(r"\bVCRuntimeIsInstalled\b", setup) is not None,
             "InitializeSetup does not check the VC runtime")
 
-    # Installed=1 is true on a machine with only the 2015/2017 redistributable,
-    # which lacks vcruntime140_1.dll and still cannot start the Server.
-    require(re.search(r"Minor\s*>=\s*20", view) is not None,
-            "VC runtime accepted without requiring 14.20 or newer")
+    # 14.29 在报告的 Server 2022 现场会让 Host API 崩溃；发布构建使用 v14.50，
+    # 所以旧运行库必须在安装前被拒绝，而不是只看 Installed=1。
+    require(re.search(r"Minor\s*>=\s*VCRuntimeMinimumMinor", view) is not None,
+            "VC runtime accepted without requiring the release toolchain version")
     require(re.search(r"RegQueryDWordValue\(\s*RootKey\s*,\s*VCRuntimeKey\s*,\s*'Installed'", view) is not None,
             "VC runtime Installed value is not read")
 
-    # A silent install is CI or a fleet deployment; a modal dialog there is a
-    # hang. Default to continuing, with the missing component in the log.
+    # WebView2 仍允许用户选择继续；VC 版本过旧会明确阻止安装，静默部署也必须
+    # 以失败退出，避免安装成功后在宿主进程里崩溃。
     require("SuppressibleMsgBox" in setup,
             "prerequisite prompt would block a silent install")
     require(re.search(r"SuppressibleMsgBox\([^;]*IDNO\)", setup, re.S) is not None,
             "silent install does not default to continuing")
-    require(setup.count("Log('Prerequisite missing:") == 2,
+    require(setup.count("Log('Prerequisite") == 2,
             "both missing prerequisites must be recorded in the install log")
 
-    # The install is not blocked: a user may be about to fetch the component.
-    require("MB_YESNO" in setup, "prerequisite prompt is not a yes/no choice")
+    require("MB_YESNO" in setup, "WebView2 prerequisite prompt is not a yes/no choice")
+    require(re.search(r"NeedsVCRuntime[\s\S]*?SuppressibleMsgBox\([^;]*mbError", setup) is not None,
+            "outdated VC runtime is not shown as a blocking error")
+    require("Result := False;" in setup and "if not WizardSilent" in setup,
+            "outdated VC runtime does not stop silent and interactive installs safely")
 
     for url in ("https://developer.microsoft.com/zh-cn/microsoft-edge/webview2",
                 "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist"):
         require(url in script, f"missing download page: {url}")
+    require("https://aka.ms/vc14/vc_redist.x64.exe" in script,
+            "missing latest x64 VC runtime direct link")
     require(re.search(r"'http://", script) is None,
             "a download page is offered over plain http")
 

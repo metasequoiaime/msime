@@ -274,6 +274,8 @@ const
   WebView2DownloadUrl =
     'https://developer.microsoft.com/zh-cn/microsoft-edge/webview2';
   VCRuntimeKey = 'Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x64';
+  { 当前 Windows 发布构建使用 Visual Studio 2026 的 v14.50 工具链；更旧的 v14.29 在 Server 2022 上会让 Host API 切换时崩溃。}
+  VCRuntimeMinimumMinor = 50;
   VCRuntimeDownloadUrl =
     'https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist?view=msvc-170';
 
@@ -320,8 +322,8 @@ end;
 // {sysnative} 对 64 位安装器又不可用。注册表访问没有这个问题，HKLM32 / HKLM64
 // 两个视图都是显式指定的。
 //
-// 要求 14.20 以上（VC++ 2019 起）而不是只看 Installed=1：只装了 2015/2017 版的
-// 机器同样有 Installed=1，却缺少从那一版才开始随 redist 分发的 vcruntime140_1.dll。
+// 要求与发布构建相同或更新的 v14.50，而不是只看 Installed=1：只装了旧版
+// 运行库的机器同样有 Installed=1，但在 Server 2022 切换输入法时可能让 Host API 崩溃。
 // 32 位 TSF DLL 用的是静态 CRT（tsf/CMakeLists.txt 里的 MSVC_RUNTIME_LIBRARY），
 // 所以不必检查 x86 redist。
 // 注意：Inno Setup 的花括号注释不能嵌套，上面提到的常量会提前闭合 { } 注释，
@@ -337,7 +339,7 @@ begin
     (Installed = 1) and
     RegQueryDWordValue(RootKey, VCRuntimeKey, 'Major', Major) and
     RegQueryDWordValue(RootKey, VCRuntimeKey, 'Minor', Minor) and
-    ((Major > 14) or ((Major = 14) and (Minor >= 20)));
+    ((Major > 14) or ((Major = 14) and (Minor >= VCRuntimeMinimumMinor)));
 end;
 
 { redist 的安装包是 32 位的，键通常落在 WOW6432Node 下，但较新的版本两个视图都写，
@@ -389,7 +391,7 @@ begin
 
   NeedsVCRuntime := not VCRuntimeIsInstalled;
   if NeedsVCRuntime then
-    Log('Prerequisite missing: Visual C++ 2015-2022 Redistributable (x64).')
+    Log('Prerequisite missing or too old: Visual C++ v14.50+ Redistributable (x64).')
   else
     Log('Visual C++ runtime found: ' + ReadVCRuntimeVersion);
 
@@ -398,17 +400,29 @@ begin
 
   Prompt := '这台电脑缺少输入法运行所需的系统组件：' + #13#10;
   if NeedsVCRuntime then
+  begin
     Prompt := Prompt + #13#10 +
-      '● Visual C++ 2015-2022 可再发行组件包（x64）' + #13#10 +
-      '   缺少它输入法主程序根本无法启动（提示找不到 VCRUNTIME140.dll 之类）。' + #13#10 +
+      '● Visual C++ v14.50 或更新的可再发行组件包（x64）' + #13#10 +
+      '   当前版本过旧时，Windows Server 2022 切换输入法可能导致资源管理器退出。' + #13#10 +
       '   下载：' + VCRuntimeDownloadUrl + #13#10 +
-      '   直链：https://aka.ms/vs/17/release/vc_redist.x64.exe' + #13#10;
+      '   直链：https://aka.ms/vc14/vc_redist.x64.exe' + #13#10 +
+      '   必须先更新运行库，安装程序不会继续。';
+  end;
   if NeedsWebView2 then
     Prompt := Prompt + #13#10 +
       '● Microsoft Edge WebView2 Runtime' + #13#10 +
       '   缺少它表情 / 手写 / 屏幕键盘 / 语音 / 云剪贴板 / 云词库 / 背单词面板都打不开；' + #13#10 +
       '   设置窗口、托盘语音输入和候选窗口是原生实现，不受影响。' + #13#10 +
       '   下载：' + WebView2DownloadUrl + #13#10;
+  if NeedsVCRuntime then
+  begin
+    SuppressibleMsgBox(Prompt, mbError, MB_OK, IDOK);
+    if not WizardSilent then
+      OpenDownloadPage(VCRuntimeDownloadUrl);
+    Result := False;
+    exit;
+  end;
+
   Prompt := Prompt + #13#10 +
     '点击「是」打开下载页面并结束本次安装，装好组件后重新运行本安装程序；' + #13#10 +
     '点击「否」继续安装（装完仍需自行补齐上述组件，输入法才能正常工作）。';
