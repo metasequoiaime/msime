@@ -140,6 +140,18 @@ if ! rg -q 'sameEditor\(info\) && imeTextEditPanel\.reportedSelection\(info\.ini
   echo "The text edit panel may survive only a same-field restart (same editor and the last reported selection); stop must still close More Tools" >&2
   exit 1
 fi
+# 手写书写区按模型状态摆好下载按钮，不能按会话挡掉：切应用回来时键行在新会话建立前重建，按 handwritingActive() 挡掉会让新建的下载按钮停在可见、无字的默认状态，压在十字格正中挡住笔画（Android 0.7.2）。这里钉住：重建手写行最后刷新一次模型状态，刷新只看手写视图在不在。
+refresh_body=$(sed -n '/^    void refreshHandwritingAvailability() {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
+rebuild_body=$(sed -n '/^    void rebuildHandwritingRows() {$/,/^    }$/p' \
+  "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java")
+if [[ -z "$refresh_body" ]] \
+  || rg -q 'handwritingActive\(\)' <<< "$(head -2 <<< "$refresh_body")" \
+  || ! rg -q 'if \(handwritingCanvas == null \|\| handwritingRecognizer == null \|\| handwritingDownload == null\) return;' <<< "$refresh_body" \
+  || ! rg -q 's\.refreshHandwritingAvailability\(\);' <<< "$rebuild_body"; then
+  echo "Rebuilding the handwriting rows must lay out the model download button from the model state even before the new session starts" >&2
+  exit 1
+fi
 # 功能面板「手写」磁贴再点一次要回到进入手写前的入口和中英状态（#9703）。0.5.0 取的是启用列表里第一个非手写入口，默认全拼 9 键、英文 26 键或小鹤双拼的用户关掉手写后都落到全拼 26 键。入口怎么选由 KeyboardSchemeSmoke 覆盖；接线在 InputMethodService 里，JVM 冒烟碰不到，这里钉住：离开手写经 handwritingReturn 取入口，并把记下的英文状态交给方案保存，保存成功后再进英文。
 toggle_body=$(sed -n '/^    void toggleHandwritingScheme() {$/,/^    }$/p' \
   "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java")
