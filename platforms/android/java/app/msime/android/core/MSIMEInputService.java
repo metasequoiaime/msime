@@ -10338,8 +10338,13 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidates != null) render();
     }
 
+    /**
+     * 按模型状态摆好书写区：下载按钮的显隐和文字、画布收不收笔迹、状态提示。
+     *
+     * <p>只看手写面板的视图在不在，不看 {@link #handwritingActive()}：切到别的应用再回来时，键行在新会话建立前就重建了，那时 {@code session} 还是 0，按会话挡掉会让新建的下载按钮停在默认的可见、无字状态，压在十字格正中，笔画落不到画布上，只能切换键盘恢复（Android 0.7.2）。离开手写时 {@link #deactivateHandwriting()} 把这几个视图清空，旧面板照样不会被改。
+     */
     void refreshHandwritingAvailability() {
-        if (!handwritingActive() || handwritingRecognizer == null || handwritingDownload == null) return;
+        if (handwritingCanvas == null || handwritingRecognizer == null || handwritingDownload == null) return;
         if (handwritingAvailabilityTask != null) {
             main.removeCallbacks(handwritingAvailabilityTask);
             handwritingAvailabilityTask = null;
