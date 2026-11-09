@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import org.json.JSONObject;
 
-/** 安装后的原生九键预览与复用视图反馈设置；不依赖模拟器是否有真实马达。 */
+/** 安装后的原生九键、14/18 键按键预览与复用视图反馈设置；不依赖模拟器是否有真实马达。经 `OptionSheetDeviceSmoke -e key-feedback true` 运行。 */
 final class KeyboardFeedbackDeviceChecks {
     private final DeviceSmoke test;
     private Object service;
@@ -117,6 +117,8 @@ final class KeyboardFeedbackDeviceChecks {
             onMain(() -> {
                 if (clicks[0] != 1) throw new AssertionError("Nine-key tap was swallowed or duplicated");
             });
+            checkGridPreview(false);
+            checkGridPreview(true);
         } finally {
             onMain(() -> {
                 if (service != null) {
@@ -360,6 +362,43 @@ final class KeyboardFeedbackDeviceChecks {
         }
     }
 
+    /**
+     * 14 键和 18 键全拼的每个字母键按下都按「按键弹出」画气泡，与九键相同：两字母键、单字母键都画，松手收起，关掉「按键弹出」时不画。合成服务没有会话，直接给它一份 `key_grid` 是 14/18 键的视图再重建键行。
+     */
+    private void checkGridPreview(boolean eighteen) throws Exception {
+        onMain(() -> {
+            test.stage = (eighteen ? "eighteen" : "fourteen") + "-key press shows the preview";
+            setLocal(true);
+            field(type, "editorInputType").setInt(service, InputType.TYPE_CLASS_TEXT);
+            field(type, "view").set(service, new JSONObject()
+                .put("key_grid", eighteen ? "eighteen_key" : "fourteen_key").put("scheme", "quanpin"));
+            ViewGroup keys = (ViewGroup) field(type, "keyRows").get(service);
+            keys.removeAllViews();
+            method(letters.getClass(), "rebuildFourteenKeyRows").invoke(letters);
+        });
+        test.waitForIdleSync();
+        onMain(() -> {
+            ViewGroup keys = (ViewGroup) field(type, "keyRows").get(service);
+            for (String face : eighteen ? new String[] {"WE", "Q"} : new String[] {"QW", "L"}) {
+                Button key = find(keys, face);
+                if (key == null) throw new AssertionError("Synthetic grid key " + face + " missing");
+                touch(key, MotionEvent.ACTION_DOWN, 0);
+                expectPreview(face, true);
+                // 用取消收手：合成服务没有引擎会话，松手的点按会把组码送进一个不存在的会话。取消和松手走同一条收起气泡的路。
+                touch(key, MotionEvent.ACTION_CANCEL, 0);
+                expectPreview(face, false);
+            }
+            test.stage = (eighteen ? "eighteen" : "fourteen") + "-key preview follows 按键弹出";
+            setLocal(false);
+            Button pair = find(keys, eighteen ? "WE" : "QW");
+            touch(pair, MotionEvent.ACTION_DOWN, 0);
+            expectPreview(pair.getText().toString(), false);
+            touch(pair, MotionEvent.ACTION_CANCEL, 0);
+            setLocal(true);
+        });
+        test.waitForIdleSync();
+    }
+
     private void setLocal(boolean popup) throws Exception {
         Class<?> snapshot = test.getTargetContext().getClassLoader().loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
         var constructor = snapshot.getDeclaredConstructor(Map.class);
@@ -373,11 +412,11 @@ final class KeyboardFeedbackDeviceChecks {
         View preview = (View) field(letters.getClass(), "keyPreview").get(letters);
         if (shown) {
             if (preview == null || preview.getVisibility() != View.VISIBLE)
-                throw new AssertionError("Nine-key preview did not appear");
+                throw new AssertionError("Key preview did not appear for " + label);
             if (!label.equals(preview.getClass().getMethod("label").invoke(preview)))
-                throw new AssertionError("Nine-key preview has stale label");
+                throw new AssertionError("Key preview has stale label, expected " + label);
         } else if (preview != null && preview.getVisibility() == View.VISIBLE)
-            throw new AssertionError("Nine-key preview stayed visible");
+            throw new AssertionError("Key preview stayed visible for " + label);
     }
 
     private void touch(Button key, int action, float deltaDp) {

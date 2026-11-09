@@ -64,7 +64,8 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.described("按键 Q W"));
             t.await(t.described("字母 L"));
             t.await(t.described("按键 符号"));
-            t.await(t.described("符号栏，可上下滑动"));
+            // 五笔 14 键和拼音 14 键同一副键面，字母区左侧也没有符号栏（#11040）。
+            absent(t.described("符号栏，可上下滑动"));
             absent(t.key("q"));
 
             // QW QW 的组码是 qq，可能的五笔码是 qq、qw、wq、ww；读音行显示首选的编码，不显示内部组码，也不写进输入框。
@@ -81,7 +82,7 @@ final class FourteenKeyWubiDeviceChecks {
             t.await(t.described("按键 符号"));
             absent(t.described("按键 分词，在这里断开音节"));
             absent(t.described("14 键拼音选择"));
-            t.await(t.described("符号栏，可上下滑动"));
+            absent(t.described("符号栏，可上下滑动"));
             t.stage = "fourteen wubi expansion is not the pinyin panel";
             if (present(t.key("展开").and(AccessibilityNodeInfo::isEnabled))) {
                 t.tap(t.key("展开").and(AccessibilityNodeInfo::isEnabled));
