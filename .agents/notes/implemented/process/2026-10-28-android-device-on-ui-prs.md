@@ -1,4 +1,4 @@
-# Agent Note: 改键盘或设置界面的 PR 在 API 35 上跑一遍设备验收
+# Agent Note: 改键盘或设置界面的 PR 在 API 35 上跑一遍轻量设备验收
 
 Status: implemented
 
@@ -17,7 +17,7 @@ Status: implemented
 ## Decision
 
 - `ci-platforms.yml` 的 `Decide platform scope` 多输出一个 `android_device`：PR 改了 `platforms/android/java/`、`platforms/android/res/`、`platforms/android/AndroidManifest.xml`、`platforms/android/editions/`、`platforms/android/tests/device/` 或 `android-device.yml` 本身时为真。只改共享 Rust、`packages/ui` 等共享路径不点亮它，那些改动由合并后的 push 和 nightly 兜底。
-- 新增 `android-device-pr` 作业，只在 `pull_request` 且 `android_device` 为真时调用 `android-device.yml`，矩阵只有 API 35 的整套验收。
+- 新增 `android-device-pr` 作业，只在 `pull_request` 且 `android_device` 为真时调用 `android-device.yml`，矩阵只有 API 35 的 `--pr` 轻量验收。它保留启动、真实输入、键盘绘制、设置入口和剪贴板生命周期五条链路，完整设备套件不在 PR 上重复跑。
 - `android-device.yml` 新增 `matrix` 输入（JSON 数组），缺省仍是 API 28 的 `--core` 加 API 35 整套；`release-android.yml`、develop 推送和 nightly 不传，行为不变。
 - 它不是必需检查，失败不挡合并。作者在合并前看到红灯，自己判断是验收要跟着改、还是改坏了产品；模拟器间歇失败也不会卡住无关 PR。
 - 设备 job 的总上限为 120 分钟，装包验收步骤单独上限为 90 分钟，给冷构建、日志采集、上传和模拟器退出留余量。全部测试、单项等待时限、断言和跳过规则保持原样；验收输出经 `pipefail` 与 `tee` 同时保留退出码和合成日志。失败或取消时收集有界 logcat、崩溃日志与验收输出；整体 job 被强制终止或 runner 丢失时仍不能保证附件上传。
@@ -27,7 +27,8 @@ Status: implemented
 ## Alternatives considered
 
 - **维持只在合并后跑**：PR 最省。没有采用，因为改界面文字打破验收这类问题在合并后才红，三天里重复了三次，每次都要另一个人回头定位、另开 PR 修。
-- **PR 上跑完整的 API 28 + 35**：覆盖最全，最强的理由是 API 28 曾抓到 Android 9 启动崩溃。没有采用：两台模拟器各 40–60 分钟，而且 API 28 只跑 `--core`，界面验收本来就只在 API 35 上；API 28 的运行时问题仍由合并后的 push、nightly 和发版门禁兜住。
+- **PR 上跑完整的 API 28 + 35**：覆盖最全，最强的理由是 API 28 曾抓到 Android 9 启动崩溃。没有采用：两台模拟器各 40–60 分钟，而且 PR 的界面回归集中在 API 35；API 28 的运行时问题仍由合并后的 push、nightly 和发版门禁兜住。
+- **PR 上把 API 35 的 `--core` 跑一遍**：比整套便宜，但仍包含几十个与 PR 无关的长回归。没有采用：`--pr` 只保留能证明安装、输入、绘制、设置和持久化链路的五条检查，失败定位更直接。
 - **设为必需检查**：能强制修好再合。没有采用，因为设备套件还有未归因的偶发失败（见 #10089 的范围外列表），必需检查会让它卡住无关 PR；先不挡合并，等套件稳定后再考虑。
 - **共享路径也点亮**：能抓住共享 Rust 改动在 Android 上的运行时问题。没有采用：几乎每个 PR 都碰共享 crate，等于把整套设备验收放回所有 PR，正是 2026-10-09 那篇要避免的成本。
 - **只提高 job 上限**：改动最少，也能让本次接近末尾的运行继续。但验收卡死仍会耗尽整个 job，日志采集继续来不及；因此同时设置较短的验收步骤上限并保留输出，不调整单条用例的判定标准。
@@ -35,11 +36,13 @@ Status: implemented
 ## Consequences
 
 - **收益**：改键盘或设置界面的 PR 在合并前就能看到哪条设备验收被打破，作者自己修，不再把 develop 和 nightly 打红。
-- **代价**：这类 PR 多一个 GitHub 托管 runner 作业（公开仓库不计费，不占 Studio）；套件增长后，冷构建加整套验收可能超过 90 分钟，最坏最多占用 120 分钟。模拟器偶发失败时 PR 上会多一个红叉，需要作者看一眼；增加预算不证明任何既有失败已修复。
+- **代价**：这类 PR 多一个 GitHub 托管 runner 作业（公开仓库不计费，不占 Studio）；冷构建和五条验收仍会占用一个设备 job。它不能代替 develop、nightly 和发版上的 API 28、API 35 完整套件，也不能证明未覆盖的专项回归没有问题。
 - **仍然没有覆盖**：只改共享 Rust 的 PR 在 Android 设备上的运行时问题，以及 API 28 上的问题，仍要等合并后。
 
 ## Verification
 
-`actionlint`、`bash scripts/run-checks.sh`、`pnpm run verify-notes`、`git diff --check` 通过。本 PR 改了 `android-device.yml`，会在自己的 PR 上触发 `android-device-pr`，可直接看到 API 35 单台矩阵是否按预期展开、develop 推送是否仍是两台。
+`actionlint`、`bash scripts/run-checks.sh`、`pnpm run verify-notes`、`git diff --check` 通过。本 PR 改了 `android-device.yml`，会在自己的 PR 上触发 `android-device-pr`，可直接看到 API 35 单台 `--pr` 矩阵是否按预期展开、develop 推送是否仍是两台完整矩阵。
+
+2026-11-09：完整 API 35 冒烟在冷构建后还要运行约 85 分钟，且会把与 PR 无关的长回归失败混在一起。将 PR 矩阵收窄为 API 35 单台 `--pr`，并从矩阵移除重复的 API 28 `--crash-only`；API 28、完整套件和崩溃专项的覆盖位置不变，仍由合并后的 push、nightly 和发版门禁承担。
 
 #10370 的预算与日志修正通过本机 `actionlint`、笔记校验及差异检查；远端复用现有构建树运行 quick，`20261031-011853` 退出 0。首轮误用旧 Python 与不匹配的 CMake 缓存而失败，修正工具链路径并在原目录重新配置后通过，没有新增构建树、修改失败基线或用例断言。修正后的完整 GitHub 设备 job 结论仍需由本 PR 的 CI 提供；本地套件通过不能证明取消后的 GitHub 附件一定能上传。
