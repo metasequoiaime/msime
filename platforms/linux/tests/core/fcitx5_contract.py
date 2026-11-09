@@ -85,6 +85,10 @@ assert "try" in stream_update and "catch (...)" in stream_update
 # 中英文切换提示：面板那个弹出物必须排在面板更新之后，先弹再刷会被 clearPanel()/render()
 # 收掉，表现为提示时有时无。
 assert "showCustomInputMethodInformation" in source
+# 低版本开发头没有自定义提示 API 时仍要保留面板文字回退，不能把整个提示函数随宏裁掉。
+assert "MSIME_FCITX5_CUSTOM_IM_INFORMATION" in source
+assert "setAuxUp(fcitx::Text(label))" in source
+assert "mode_hud_aux_timer_" in source
 toggle = source[source.index("bool toggleInputMode()") :]
 toggle = toggle[: toggle.index("bool toggleWordCharacter()")]
 assert toggle.index("clearPanel();") < toggle.index("showInputModeHud();")

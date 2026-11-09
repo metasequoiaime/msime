@@ -1880,8 +1880,14 @@ int main(int argc, char **argv) {
         for (const auto shift : {FcitxKey_Shift_L, FcitxKey_Shift_R}) {
           tap(shift);
           require(!state->input_enabled_, "不检查拼写的字段应允许 Shift 切到英文");
+#ifndef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+          require(ic.inputPanel().auxUp().toString() == "英", "旧版 Fcitx5 用辅助行显示英文模式提示");
+#endif
           tap(shift);
           require(state->input_enabled_, "不检查拼写的字段应允许 Shift 切回中文");
+#ifndef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+          require(ic.inputPanel().auxUp().toString() == "中", "旧版 Fcitx5 用辅助行显示中文模式提示");
+#endif
         }
         state->mode_ctrl_enabled_ = true;
         tap(FcitxKey_Control_L);
