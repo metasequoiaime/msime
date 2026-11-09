@@ -8,11 +8,11 @@ on:
       sign: {description: Generate signed artifacts without publishing a GitHub release, required: false, default: false, type: boolean}
       source_release: {description: Repackage a released signed HAP for AppGallery without rebuilding (requires signing and publish=false), required: false, default: '', type: string}
       appgallery:
-        description: 华为测试专区（自动签名；public-test 会提交公开测试审核）
+        description: 华为测试专区（auto 在 main 正式发版时上传并提交公开测试审核，其他情况不上传）
         required: false
-        default: none
+        default: auto
         type: choice
-        options: [none, upload, public-test]
+        options: [auto, none, upload, public-test]
       test_version_id: {description: 继续已有的公开测试草稿（留空则新建）, required: false, default: '', type: string}
       test_package_id: {description: 复用已上传的软件包 ID（留空则上传本次 APP）, required: false, default: '', type: string}
   workflow_call:
@@ -47,7 +47,12 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '版本号须为 X.Y.Z' >&2; exit 1; }
           echo "value=$version" >> "$GITHUB_OUTPUT"
+          # auto 只在 main 的正式发版时上传并提交公开测试，截图等素材由华为沿用最近的测试或在架版本；beta 与 alpha 的 versionCode 与随后的正式版相同，不进华为测试专区。
+          if [[ "$APPGALLERY" == auto ]]; then
+            if [[ "$GITHUB_REF_NAME" == main && "$PUBLISH" == true ]]; then APPGALLERY=public-test; else APPGALLERY=none; fi
+          fi
           case "$APPGALLERY" in none|upload|public-test) ;; *) echo '华为上传模式无效' >&2; exit 1 ;; esac
+          echo "appgallery=$APPGALLERY" >> "$GITHUB_OUTPUT"
           if [[ -n "$TEST_VERSION_ID" ]]; then
             [[ "$APPGALLERY" == public-test ]] || { echo '测试草稿 ID 仅用于 public-test' >&2; exit 1; }
           fi
@@ -66,14 +71,14 @@ jobs:
           fi
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       - name: Check AppGallery credentials and test configuration
-        if: ${{ inputs.appgallery != 'none' }}
+        if: ${{ steps.version.outputs.appgallery != 'none' }}
         env:
           HARMONY_AGC_APP_ID: ${{ vars.HARMONY_AGC_APP_ID }}
           HARMONY_AGC_SERVICE_ACCOUNT_JSON: ${{ secrets.HARMONY_AGC_SERVICE_ACCOUNT_JSON }}
           HARMONY_AGC_CLIENT_ID: ${{ secrets.HARMONY_AGC_CLIENT_ID }}
           HARMONY_AGC_CLIENT_SECRET: ${{ secrets.HARMONY_AGC_CLIENT_SECRET }}
           HARMONY_AGC_TEST_CONFIG_JSON: ${{ secrets.HARMONY_AGC_TEST_CONFIG_JSON }}
-          MODE: ${{ inputs.appgallery }}
+          MODE: ${{ steps.version.outputs.appgallery }}
           VERSION: ${{ steps.version.outputs.value }}
           TEST_VERSION_ID: ${{ inputs.test_version_id }}
           TEST_PACKAGE_ID: ${{ inputs.test_package_id }}
@@ -82,11 +87,11 @@ jobs:
           python3 platforms/harmony/appgallery-release.py --check-only --mode "$MODE" --version "$VERSION" \
             --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         with: {distribution: temurin, java-version: '21'}
       # 发布必须在耗时构建前确认正式证书与共享沙箱授权，缺凭据时不降级为未签名包。
       - name: Check HarmonyOS release signing credentials
-        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         env:
           HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
@@ -146,7 +151,7 @@ jobs:
           bash scripts/rustup-install.sh aarch64-unknown-linux-ohos
           df -h "$RUNNER_TEMP" | tail -1
       - name: Verify HarmonyOS signing tools with synthetic credentials
-        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         run: python3 scripts/test-harmony-release-signing.py
       - name: Build HarmonyOS native host
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
@@ -186,7 +191,7 @@ jobs:
           echo "path=$RUNNER_TEMP/released-hap/msime-harmony-${VERSION}.hap" >> "$GITHUB_OUTPUT"
       - id: signing
         name: Sign and verify HarmonyOS release packages
-        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         env:
           HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
@@ -228,29 +233,11 @@ jobs:
           if-no-files-found: error
       # APP 是应用市场上传材料，放 workflow artifact，不混在用户下载的 HAP 附件里。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ (inputs.publish || inputs.sign || inputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         with:
           name: appgallery-msime-harmony-${{ steps.version.outputs.value }}
           path: ${{ steps.signing.outputs.app }}
           if-no-files-found: error
-      # 先保存可下载的 APP，再调用华为；平台拒绝资料时仍可取回包和恢复 ID。
-      - name: Upload to AppGallery and optionally submit public test
-        id: appgallery
-        if: ${{ inputs.appgallery != 'none' }}
-        env:
-          HARMONY_AGC_APP_ID: ${{ vars.HARMONY_AGC_APP_ID }}
-          HARMONY_AGC_SERVICE_ACCOUNT_JSON: ${{ secrets.HARMONY_AGC_SERVICE_ACCOUNT_JSON }}
-          HARMONY_AGC_CLIENT_ID: ${{ secrets.HARMONY_AGC_CLIENT_ID }}
-          HARMONY_AGC_CLIENT_SECRET: ${{ secrets.HARMONY_AGC_CLIENT_SECRET }}
-          HARMONY_AGC_TEST_CONFIG_JSON: ${{ secrets.HARMONY_AGC_TEST_CONFIG_JSON }}
-          APP: ${{ steps.signing.outputs.app }}
-          MODE: ${{ inputs.appgallery }}
-          VERSION: ${{ steps.version.outputs.value }}
-          TEST_VERSION_ID: ${{ inputs.test_version_id }}
-          TEST_PACKAGE_ID: ${{ inputs.test_package_id }}
-        run: |
-          python3 platforms/harmony/appgallery-release.py --input "$APP" --mode "$MODE" --version "$VERSION" \
-            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
       # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent HarmonyOS release
         if: ${{ inputs.publish }}
@@ -269,3 +256,21 @@ jobs:
             test -f "$archive"
           done
           bash scripts/publish-crash-symbols.sh harmony target/harmony-symbols/*.zip
+      # 先保存可下载的 APP 并完成 GitHub 发布，再调用华为：华为解析失败或超时不拖住正式版，用 source_release 或 test_package_id 补传；平台拒绝资料时仍可取回包和恢复 ID。
+      - name: Upload to AppGallery and optionally submit public test
+        id: appgallery
+        if: ${{ steps.version.outputs.appgallery != 'none' }}
+        env:
+          HARMONY_AGC_APP_ID: ${{ vars.HARMONY_AGC_APP_ID }}
+          HARMONY_AGC_SERVICE_ACCOUNT_JSON: ${{ secrets.HARMONY_AGC_SERVICE_ACCOUNT_JSON }}
+          HARMONY_AGC_CLIENT_ID: ${{ secrets.HARMONY_AGC_CLIENT_ID }}
+          HARMONY_AGC_CLIENT_SECRET: ${{ secrets.HARMONY_AGC_CLIENT_SECRET }}
+          HARMONY_AGC_TEST_CONFIG_JSON: ${{ secrets.HARMONY_AGC_TEST_CONFIG_JSON }}
+          APP: ${{ steps.signing.outputs.app }}
+          MODE: ${{ steps.version.outputs.appgallery }}
+          VERSION: ${{ steps.version.outputs.value }}
+          TEST_VERSION_ID: ${{ inputs.test_version_id }}
+          TEST_PACKAGE_ID: ${{ inputs.test_package_id }}
+        run: |
+          python3 platforms/harmony/appgallery-release.py --input "$APP" --mode "$MODE" --version "$VERSION" \
+            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
