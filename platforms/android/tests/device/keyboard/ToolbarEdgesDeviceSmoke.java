@@ -302,6 +302,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
             checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
+            checkClipboardDeleteRestoresPanelAfterAuthentication(type, service, panels, surface);
             checkClipboardSingleDeleteUndo(type, service, panels, cards);
             check((Boolean) method(panels.getClass(), "clipboardPanelOpen").invoke(panels),
                 "visible clipboard surface is not reported open");
@@ -729,6 +730,43 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             android.os.Handler main = (android.os.Handler) field(type, "main").get(service);
             main.removeCallbacks((Runnable) field(type, "clipboardUndoTick").get(service));
             method(panels.getClass(), "renderClipboardHistory").invoke(panels);
+        }
+    }
+
+    /** 认证 Activity 收起输入法窗口后，删除成功返回时要把原来打开的剪贴板面板和撤销入口带回来（#11105）。 */
+    private static void checkClipboardDeleteRestoresPanelAfterAuthentication(
+            Class<?> type, Object service, Object panels, ViewGroup surface) throws Exception {
+        Object history = field(type, "clipboardHistory").get(service);
+        java.lang.reflect.Method load = history.getClass().getMethod("load");
+        java.lang.reflect.Method render = method(panels.getClass(), "renderClipboardHistory");
+        Button undo = (Button) field(type, "clipboardUndoButton").get(service);
+        String target = "合成剪贴板记录 6";
+        Object before = item(load.invoke(history), target);
+        check(before != null, "synthetic clipboard record for authentication restore is missing");
+        try {
+            surface.setVisibility(View.VISIBLE);
+            render.invoke(panels);
+            check(((View) surface).getVisibility() == View.VISIBLE,
+                "clipboard panel was not visible before authentication restore setup");
+            surface.setVisibility(View.GONE);
+            java.lang.reflect.Method remove = method(type, "removeClipboardItemAfterAuthentication",
+                before.getClass(), boolean.class);
+            remove.invoke(service, before, true);
+            check(surface.getVisibility() == View.VISIBLE,
+                "clipboard panel did not return after authenticated deletion");
+            check(undo.getVisibility() == View.VISIBLE,
+                "clipboard undo was not visible after authenticated deletion returned");
+            check(undo.performClick(), "clipboard undo did not handle the restored panel click");
+            check(item(load.invoke(history), target) != null,
+                "clipboard undo did not restore the item after authenticated deletion");
+        } finally {
+            field(type, "clipboardUndoTexts").set(service, null);
+            android.os.Handler main = (android.os.Handler) field(type, "main").get(service);
+            main.removeCallbacks((Runnable) field(type, "clipboardUndoTick").get(service));
+            if (item(load.invoke(history), target) == null)
+                history.getClass().getMethod("add", String.class).invoke(history, target);
+            surface.setVisibility(View.VISIBLE);
+            render.invoke(panels);
         }
     }
 

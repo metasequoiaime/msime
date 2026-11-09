@@ -9214,10 +9214,11 @@ public final class MSIMEInputService extends InputMethodService {
      */
     void removeClipboardItem(ClipboardHistory.Item item) {
         if (clipboardHistory == null) return;
-        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item));
+        boolean restorePanel = imePanels.clipboardPanelOpen();
+        authenticateClipboardDelete(() -> removeClipboardItemAfterAuthentication(item, restorePanel));
     }
 
-    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item) {
+    private void removeClipboardItemAfterAuthentication(ClipboardHistory.Item item, boolean restorePanel) {
         if (clipboardHistory == null) return;
         try {
             holdClipboardUndo(clipboardHistory.removeMany(java.util.List.of(item.text())));
@@ -9225,7 +9226,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
         }
-        imePanels.renderClipboardHistory();
+        renderClipboardAfterDelete(restorePanel);
     }
 
     /**
@@ -9236,9 +9237,14 @@ public final class MSIMEInputService extends InputMethodService {
     void removeClipboardItems(java.util.List<String> texts, Runnable removed) {
         if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
         java.util.List<String> snapshot = java.util.List.copyOf(texts);
+        boolean restorePanel = imePanels.clipboardPanelOpen();
         authenticateClipboardDelete(() -> {
-            removeClipboardItemsAfterAuthentication(snapshot);
-            removed.run();
+            if (removeClipboardItemsAfterAuthentication(snapshot)) {
+                removed.run();
+                renderClipboardAfterDelete(restorePanel);
+            } else {
+                renderClipboardAfterDelete(restorePanel);
+            }
         });
     }
 
@@ -9259,15 +9265,22 @@ public final class MSIMEInputService extends InputMethodService {
                 ? delete : () -> notice(CLIPBOARD_DELETE_UNAVAILABLE_NOTICE));
     }
 
-    private void removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
-        if (clipboardHistory == null || texts == null || texts.isEmpty()) return;
+    private boolean removeClipboardItemsAfterAuthentication(java.util.List<String> texts) {
+        if (clipboardHistory == null || texts == null || texts.isEmpty()) return false;
         try {
-            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return;
+            if (!holdClipboardUndo(clipboardHistory.removeMany(texts))) return false;
             forgetCurrentClip();
         } catch (IllegalStateException error) {
             notice("无法修改剪贴板历史");
+            return false;
         }
-        imePanels.renderClipboardHistory();
+        return true;
+    }
+
+    /** 认证 Activity 会让输入法窗口暂时收起；删除成功后若原来正开着剪贴板面板，要把面板带回来让用户看到撤销入口。 */
+    private void renderClipboardAfterDelete(boolean restorePanel) {
+        if (restorePanel && !imePanels.clipboardPanelOpen()) imePanels.showClipboardHistory();
+        else imePanels.renderClipboardHistory();
     }
 
     /**
