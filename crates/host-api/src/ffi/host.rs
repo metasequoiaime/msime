@@ -199,6 +199,9 @@ pub unsafe extern "C" fn msime_client_prepare_host(
     struct Bootstrap {
         resources: String,
         state_root: String,
+        /// 当前安装包的资源目录；显式目录过期时用它恢复新状态。
+        #[serde(default)]
+        bundled_resources: Option<String>,
         /// 版本 id，缺省是 full；见 `prepare_host_configuration_for_edition`。
         #[serde(default)]
         edition: Option<String>,
@@ -222,9 +225,14 @@ pub unsafe extern "C" fn msime_client_prepare_host(
             serde_json::from_slice(bytes).map_err(|_| "invalid bootstrap document")?;
         let resources = std::path::Path::new(&options.resources);
         let state = std::path::Path::new(&options.state_root);
+        let bundled = options
+            .bundled_resources
+            .as_deref()
+            .map(std::path::Path::new);
         let published = options.runtime_options.as_deref().map(std::path::Path::new);
         if !resources.is_absolute()
             || !state.is_absolute()
+            || bundled.is_some_and(|path| !path.is_absolute())
             || published.is_some_and(|path| !path.is_absolute())
         {
             return Err("bootstrap paths must be absolute".into());
@@ -251,8 +259,9 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         if options.private_root.is_some() {
             return Err("a private root is only for a read-only host".into());
         }
-        let document = prepare_host_configuration_for_edition(resources, state, edition)
-            .map_err(|e| e.to_string())?;
+        let document =
+            crate::prepare_host_configuration_for_edition_from(resources, state, edition, bundled)
+                .map_err(|e| e.to_string())?;
         let document: Value = serde_json::from_str(&document).map_err(|e| e.to_string())?;
         // 发布失败不挡住宿主启动：会话照样用这份文档，设置窗口和 TIP 留在旧代次上，下次启动再试。
         if let Some(path) = published {
@@ -272,8 +281,21 @@ pub unsafe extern "C" fn msime_client_prepare_host(
 /// `path` points to `length` readable UTF-8 bytes naming an absolute file. Null is rejected.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_refresh_host(path: *const u8, length: usize) -> *mut c_char {
+    msime_client_refresh_host_from(path, length, std::ptr::null(), 0)
+}
+
+/// 与 [`msime_client_refresh_host`] 相同，但在记录的词库属于旧版本时使用给定的随包资源目录。
+/// # Safety
+/// `path` 和 `bundled` 分别指向长度受限、可读的 UTF-8 路径；`bundled` 可以为空。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_refresh_host_from(
+    path: *const u8,
+    length: usize,
+    bundled: *const u8,
+    bundled_length: usize,
+) -> *mut c_char {
     response(|| {
-        if path.is_null() || length > 4096 {
+        if path.is_null() || length > 4096 || bundled_length > 4096 {
             return Err("invalid options path buffer".into());
         }
         // SAFETY: guaranteed by the caller contract.
@@ -284,9 +306,27 @@ pub unsafe extern "C" fn msime_client_refresh_host(path: *const u8, length: usiz
         if !path.is_absolute() {
             return Err("options path must be absolute".into());
         }
-        refresh_host_options_with_language_dictionaries(path)
-            .map(Value::Bool)
-            .map_err(|e| e.to_string())
+        let bundled = if bundled.is_null() {
+            if bundled_length != 0 {
+                return Err("invalid bundled resources buffer".into());
+            }
+            None
+        } else {
+            let bytes = unsafe { std::slice::from_raw_parts(bundled, bundled_length) };
+            let path = std::path::Path::new(
+                std::str::from_utf8(bytes).map_err(|_| "invalid bundled resources encoding")?,
+            );
+            if !path.is_absolute() {
+                return Err("bundled resources path must be absolute".into());
+            }
+            Some(path)
+        };
+        match bundled {
+            Some(bundled) => crate::refresh_options_file(path, true, Some(bundled)),
+            None => refresh_host_options_with_language_dictionaries(path),
+        }
+        .map(Value::Bool)
+        .map_err(|e| e.to_string())
     })
 }
 

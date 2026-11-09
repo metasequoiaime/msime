@@ -3081,8 +3081,20 @@ pub fn prepare_host_configuration_for_edition(
     state_root: &std::path::Path,
     edition: &'static Edition,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    prepare_host_configuration_for_edition_from(resources, state_root, edition, None)
+}
+
+/// 按给定的随包资源目录兜底准备宿主。Linux 的 `msime-linux-prepare` 会把用户
+/// 暂存的旧词库作为显式输入，但覆盖升级后这份目录可能已经不再符合当前锁；此时
+/// 应回到当前安装包的资源，而不是让新状态目录也无法建立。
+pub fn prepare_host_configuration_for_edition_from(
+    resources: &std::path::Path,
+    state_root: &std::path::Path,
+    edition: &'static Edition,
+    bundled: Option<&std::path::Path>,
+) -> Result<String, Box<dyn std::error::Error>> {
     let specification = edition.resource_set()?;
-    prepare_host_with_updates(resources, state_root, edition, &specification)
+    prepare_host_with_fallback(resources, state_root, edition, &specification, bundled)
 }
 
 /// 把还留在资源目录里的自定义辅助码表（`helpcodes/custom`）复制到状态根下的同名目录，Engine 和设置页都先读那里（`msime_engine::load_helpcode_keymap_in`）。资源目录是安装包或词库代次，升级和在线词库更新会换掉或删掉它；准备和刷新运行时配置时各搬一次，表还在就不会跟着旧目录一起丢。只复制，不删源文件，状态根里已有同一主干的表不覆盖。
@@ -3100,15 +3112,32 @@ fn adopt_custom_helpcodes(state_root: &Path, sources: &[&Path]) {
 }
 
 /// 安装选择与随包基线共用准备流程，测试用小型真实词库验证代次切换与日志回放。
+#[cfg(test)]
 fn prepare_host_with_updates(
     resources: &Path,
     state_root: &Path,
     edition: &'static Edition,
     specification: &ResourceSet,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    prepare_host_with_fallback(resources, state_root, edition, specification, None)
+}
+
+fn prepare_host_with_fallback(
+    resources: &Path,
+    state_root: &Path,
+    edition: &'static Edition,
+    specification: &ResourceSet,
+    bundled: Option<&Path>,
+) -> Result<String, Box<dyn std::error::Error>> {
     let selected_update = dictionary_updates::selected_resources(state_root, specification);
-    let recorded_bundle =
-        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification);
+    // 调用方明确给出的安装包目录优先于旧更新记录。旧版本首次配置时记录的
+    // `bundled_resources` 可能其实是用户下载目录，覆盖升级后不能把它当随包资源。
+    let recorded_bundle = bundled
+        .filter(|path| path.is_dir())
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            msime_client_providers::dictionary_updates::bundled_resources(state_root, specification)
+        });
     let mut sources = vec![resources];
     sources.extend(recorded_bundle.as_deref());
     sources.extend(
@@ -3141,11 +3170,21 @@ fn prepare_host_with_updates(
         }
     }
     // 记录的 resources 已属于下载代次时，回退仍需回到安装包目录。
-    let bundled =
-        msime_client_providers::dictionary_updates::bundled_resources(state_root, specification)
-            .filter(|p| p.is_dir());
+    // 先验证显式目录；只有它确实不是当前锁的资源时才使用随包目录。这样自定义
+    // 的完整资源目录仍然优先，损坏或旧代次才会自动恢复到安装包。
+    let source = if verify_resources_once(resources, specification, state_root, ON_DEMAND_ARTIFACTS)
+        .is_ok()
+    {
+        resources.to_path_buf()
+    } else if let Some(bundled) = recorded_bundle.as_deref().filter(|path| {
+        verify_resources_once(path, specification, state_root, ON_DEMAND_ARTIFACTS).is_ok()
+    }) {
+        bundled.to_path_buf()
+    } else {
+        resources.to_path_buf()
+    };
     prepare_shipped_host_configuration(
-        bundled.as_deref().unwrap_or(resources),
+        &source,
         state_root,
         specification,
         ON_DEMAND_ARTIFACTS,

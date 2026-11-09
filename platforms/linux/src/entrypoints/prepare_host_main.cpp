@@ -175,6 +175,7 @@ int main(int argc, char **argv) {
   try {
     const bool installed = std::string(argv[1]) == "--installed";
     std::filesystem::path resources;
+    std::string bundled_resources;
     const std::filesystem::path requested_state(argv[2]);
     if (installed) {
       std::error_code error;
@@ -189,8 +190,13 @@ int main(int argc, char **argv) {
         return 1;
       }
       resources = discovered;
+      bundled_resources = discovered;
     } else {
       resources = argv[1];
+      std::error_code error;
+      const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
+      if (!error && executable.is_absolute())
+        bundled_resources = msime_linux::installed_resource_directory(executable);
     }
     if (!resources.is_absolute() || !requested_state.is_absolute() ||
         !std::filesystem::is_directory(resources)) {
@@ -200,6 +206,8 @@ int main(int argc, char **argv) {
     const auto state = requested_state.lexically_normal();
     auto bootstrap = nlohmann::json({{"resources", std::filesystem::canonical(resources).string()},
                                      {"state_root", state.string()}});
+    if (!bundled_resources.empty() && bundled_resources != resources.string())
+      bootstrap["bundled_resources"] = bundled_resources;
     // 不是 full 的版本把版本 id 交给宿主库：它按本版本的资源锁校验词库，在 HostOptions 里记下版本，并写下本版本的默认偏好。full 不写，请求与引入版本之前相同。
     if (!MSIME_EDITION_IS_FULL) bootstrap["edition"] = MSIME_EDITION_ID;
     const auto request = bootstrap.dump();
