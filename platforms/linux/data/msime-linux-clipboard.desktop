@@ -1,8 +1,8 @@
-# Starts msime-linux-clipboard.service at login for users who enabled it, on sessions without graphical-session.target (Sway, i3, Hyprland without uwsm), where the unit's WantedBy never fires; this is how the clipboard monitor starts with the IME at every login as it does on Windows. Where that target is active it already started the service and this does nothing, and a user who never enabled the service is left alone. Otherwise it hands this session's display to the user manager and restarts the service, so an instance left over from an earlier session (lingering user manager) follows the new display.
+# 在没有 graphical-session.target 的会话（Sway、i3、未用 uwsm 的 Hyprland）里，为已经启用剪贴板历史的用户在登录时启动服务；用 --no-block 排队重启，避免服务等待 graphical-session.target 时反过来阻塞桌面登录。
 [Desktop Entry]
 Type=Application
 Name=MSIME Clipboard
 Name[zh_CN]=水杉输入法剪贴板历史
-Exec=sh -c "systemctl --user -q is-enabled msime-linux-clipboard.service || exit 0; systemctl --user -q is-active graphical-session.target && exit 0; systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY; exec systemctl --user restart msime-linux-clipboard.service"
+Exec=sh -c "systemctl --user -q is-enabled msime-linux-clipboard.service || exit 0; systemctl --user -q is-active graphical-session.target && exit 0; systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY; exec systemctl --user --no-block restart msime-linux-clipboard.service"
 NoDisplay=true
 Terminal=false
