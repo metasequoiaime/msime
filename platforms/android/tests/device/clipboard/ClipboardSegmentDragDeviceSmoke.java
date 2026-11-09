@@ -295,6 +295,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         write(history, new JSONArray().put(new JSONObject().put("text", original)
             .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
         byte[] seeded = Files.readAllBytes(history.toPath());
+        // API 31 以上的 PR 套件复用产品进程；直接写入合成偏好后仅重绑输入法，旧会话可能还保留关闭剪贴板历史的快照。先停掉产品再开编辑器，让这一条设备契约从磁盘上的合成夹具启动。
+        shellDiscard("am force-stop app.msime.android");
         openClipboardEditor(true);
         stage = "right swipe opens clipboard detail with full record time and unavailable source";
         // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
