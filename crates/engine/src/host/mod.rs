@@ -49,8 +49,8 @@ pub use glosses::{
     release_gloss_caches, save_candidate_gloss, PHONETIC_LANGUAGES,
 };
 pub use options::{
-    open_prepared_options_for, prepare_options, prepare_options_for, read_only_layout_options_for,
-    EngineOptions,
+    downloaded_wubi_merge_pending, merge_downloaded_wubi_dictionary, open_prepared_options_for,
+    prepare_options, prepare_options_for, read_only_layout_options_for, EngineOptions,
 };
 pub use session::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,

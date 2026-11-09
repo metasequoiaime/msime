@@ -545,35 +545,13 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 ///
 /// 并表和回放不在同一个事务里：并进来的表先提交，回放另开连接。所以并表时在同一个事务里留下 [`WUBI_REPLAY_PENDING`]，回放成功后才删掉；回放失败（另一个进程占着写锁超时等）时下一次建会话看到它，表都在了也再回放一遍，日志里这几张表的学习和个人词不会一直写不进去。
 pub(crate) fn merge_downloaded_wubi(paths: &RuntimePaths, wubi: &Path) -> Result<bool> {
-    let main_db = paths.dictionary(assets::MAIN_DICTIONARY);
-    if paths.dictionaries == paths.resources
-        || !is_real_file(&main_db)
-        || wubi.file_name() != Some(std::ffi::OsStr::new(assets::WUBI_DICTIONARY))
-        || !is_real_file(wubi)
-    {
+    let Some(lacking) = downloaded_wubi_work(paths, wubi)? else {
         return Ok(false);
-    }
-    let mut present = tables_present(
-        &main_db,
-        &[
-            SPLIT_WUBI_TABLES[0],
-            SPLIT_WUBI_TABLES[1],
-            SPLIT_WUBI_TABLES[2],
-            WUBI_REPLAY_PENDING,
-        ],
-    )
-    .map_err(|error| {
-        EngineError::failed(format!("cannot read {}: {error}", assets::MAIN_DICTIONARY))
-    })?;
-    let pending = present.contains(&WUBI_REPLAY_PENDING);
-    present.retain(|table| *table != WUBI_REPLAY_PENDING);
-    let lacking = lacks_offered_tables(&present, wubi);
-    if !pending && !lacking {
-        return Ok(false);
-    }
+    };
     let Some(directory) = wubi.parent() else {
         return Ok(false);
     };
+    let main_db = paths.dictionary(assets::MAIN_DICTIONARY);
     if lacking {
         merge_split_wubi_marked(directory, &main_db, true)?;
     }
@@ -597,6 +575,40 @@ pub(crate) fn merge_downloaded_wubi(paths: &RuntimePaths, wubi: &Path) -> Result
     }
     index_reverse_lookup(&paths.dictionaries, dictionaries);
     Ok(true)
+}
+
+/// [`merge_downloaded_wubi`] 对 `wubi` 要做的事：`None` 是什么也不做（条件见那里）；`Some(true)` 是还缺表，要并表再回放；`Some(false)` 是表都在、只是上一次的回放没做完（[`WUBI_REPLAY_PENDING`]），要再回放。只读两个文件的 schema。
+fn downloaded_wubi_work(paths: &RuntimePaths, wubi: &Path) -> Result<Option<bool>> {
+    let main_db = paths.dictionary(assets::MAIN_DICTIONARY);
+    if paths.dictionaries == paths.resources
+        || !is_real_file(&main_db)
+        || wubi.file_name() != Some(std::ffi::OsStr::new(assets::WUBI_DICTIONARY))
+        || !is_real_file(wubi)
+        || wubi.parent().is_none()
+    {
+        return Ok(None);
+    }
+    let mut present = tables_present(
+        &main_db,
+        &[
+            SPLIT_WUBI_TABLES[0],
+            SPLIT_WUBI_TABLES[1],
+            SPLIT_WUBI_TABLES[2],
+            WUBI_REPLAY_PENDING,
+        ],
+    )
+    .map_err(|error| {
+        EngineError::failed(format!("cannot read {}: {error}", assets::MAIN_DICTIONARY))
+    })?;
+    let pending = present.contains(&WUBI_REPLAY_PENDING);
+    present.retain(|table| *table != WUBI_REPLAY_PENDING);
+    let lacking = lacks_offered_tables(&present, wubi);
+    Ok((pending || lacking).then_some(lacking))
+}
+
+/// [`merge_downloaded_wubi`] 对 `wubi` 还有没有事要做（并表或回放）。为假时它只做几次 schema 读取，在输入线程上调用也不贵；为真时那是几十秒级的写入（安卓模拟器上 142 MB 的码表要 18–25 秒），宿主应在输入线程之外做完。主词库读不了是错误。
+pub(crate) fn downloaded_wubi_pending(paths: &RuntimePaths, wubi: &Path) -> Result<bool> {
+    Ok(downloaded_wubi_work(paths, wubi)?.is_some())
 }
 
 /// `database` 里有 [`SPLIT_WUBI_TABLES`] 中的哪几张表。
@@ -2089,6 +2101,61 @@ mod tests {
             ..paths.clone()
         };
         assert!(!merge_downloaded_wubi(&read_only, &downloaded).unwrap());
+    }
+
+    /// 宿主在建会话之前、在输入线程之外先调 `host::merge_downloaded_wubi_dictionary`（安卓的 `msime_client_prepare_session`）：码表并进去、日志里的五笔行补上，之后建会话的 `session_options` 看到表都在，什么也不写，输入线程上不再有几十秒的并表。
+    #[test]
+    fn merging_ahead_of_the_session_leaves_nothing_for_session_options() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        fs::create_dir_all(&user).unwrap();
+        sql(&user.join(assets::USER_JOURNAL), OPERATIONS_DDL);
+        sql(
+            &user.join(assets::USER_JOURNAL),
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES('wubi','wqvb','合成五笔','upsert',9,1,1)",
+        );
+        let mut options = crate::host::prepare_options(
+            resources.to_str().unwrap(),
+            user.to_str().unwrap(),
+            root.path().join("cache").to_str().unwrap(),
+            "v1",
+        )
+        .unwrap();
+        let pack = root.path().join("resource-packs").join("wubi");
+        fs::create_dir_all(&pack).unwrap();
+        let downloaded = pack.join(assets::WUBI_DICTIONARY);
+        sql(
+            &downloaded,
+            "CREATE TABLE wubi86(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             INSERT INTO wubi86 VALUES('aaaa','工',90);",
+        );
+        let downloaded = downloaded.to_str().unwrap().to_owned();
+        let main = Path::new(&options.dictionaries).join(assets::MAIN_DICTIONARY);
+
+        // 没有码表路径时两个入口都什么也不做。
+        assert!(!crate::host::merge_downloaded_wubi_dictionary(&options).unwrap());
+        assert!(!crate::host::downloaded_wubi_merge_pending(&options, "").unwrap());
+        assert!(crate::host::downloaded_wubi_merge_pending(&options, &downloaded).unwrap());
+
+        options.wubi_dictionary = downloaded.clone();
+        assert!(crate::host::merge_downloaded_wubi_dictionary(&options).unwrap());
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='合成五笔'"),
+            Some(9)
+        );
+        assert!(!crate::host::downloaded_wubi_merge_pending(&options, &downloaded).unwrap());
+        assert!(!crate::host::merge_downloaded_wubi_dictionary(&options).unwrap());
+
+        // 建会话不再写主词库：文件的修改计数（`PRAGMA data_version` 看不到同一连接之外的写，这里比文件头的 change counter）不变。
+        let change_counter = || {
+            let bytes = fs::read(&main).unwrap();
+            u32::from_be_bytes(bytes[24..28].try_into().unwrap())
+        };
+        let before = change_counter();
+        crate::host::options::session_options(&options).unwrap();
+        assert_eq!(change_counter(), before);
+        assert_eq!(weight(&main, "SELECT count(*) FROM wubi86"), Some(2));
     }
 
     /// 已有 86/98 的代次补进新世纪表之后回放失败（这里用一行存不进去的拼音键代替被锁住、超时这类失败）：表已经提交了，下一次建会话仍要再回放，日志里的新世纪个人词才写得进去；回放成功后不再重复。
