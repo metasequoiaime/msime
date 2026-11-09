@@ -6384,7 +6384,7 @@ fn letter_shuangpin_exact_markers_do_not_escape_finish_tail() {
     }
 }
 
-/// 横滑的确定字母保留在同一组码串；点按仍可与它交替。14 键和 18 键双拼相同；全拼网格不收大写。
+/// 横滑的确定字母保留在同一组码串；点按仍可与它交替。14 键和 18 键双拼相同；全拼网格见 `tests/grid_exact.rs`。
 #[test]
 fn letter_shuangpin_exact_letters_constrain_the_current_grid() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
@@ -6484,14 +6484,6 @@ fn letter_shuangpin_exact_letters_constrain_the_current_grid() {
         session.set_dedicated_english(true);
         assert!(!session.grid_key(b'N').handled, "{layout}");
     }
-
-    let mut quanpin = fixture.session();
-    for grid in [KeyGrid::FourteenKey, KeyGrid::EighteenKey] {
-        quanpin.set_key_grid(Some(grid));
-        assert!(!quanpin.grid_key(b'N').handled, "{grid:?}");
-        assert!(quanpin.grid_key(b'n').handled, "{grid:?}");
-        quanpin.command(Command::Cancel);
-    }
 }
 
 /// 14 键：组码只从 `grid_key` 进九宫格，组里任一字母都归成首字母；硬件键盘的字母照常走全拼，九宫格组字中不处理。
@@ -6520,7 +6512,7 @@ fn fourteen_key_letters_enter_the_grid_only_through_grid_key() {
     assert!(!session.character(b'h', false).handled);
     assert!(!session.character(b'6', false).handled);
     assert!(!session.grid_key(b'1').handled);
-    assert!(!session.grid_key(b'A').handled);
+    assert!(!session.grid_key(b';').handled);
     assert_eq!(session.snapshot().editing_text, "bugao");
     session.command(Command::Cancel);
 
@@ -15167,7 +15159,7 @@ fn eighteen_key_uses_ambiguous_groups_and_preserves_exact_hardware_input() {
     assert!(ambiguous.contains(&"你好".into()), "{ambiguous:?}");
     assert!(ambiguous.contains(&"波好".into()), "{ambiguous:?}");
     assert!(!session.grid_key(b'1').handled);
-    assert!(!session.grid_key(b'A').handled);
+    assert!(!session.grid_key(b';').handled);
     assert_eq!(
         select_word(&mut session, "波好").commit.as_deref(),
         Some("波好")
@@ -15350,6 +15342,7 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 }
 
 mod caret_suffix;
+mod grid_exact;
 mod grid_helpcode;
 mod lifecycle;
 mod offensive_placement;
