@@ -297,8 +297,10 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
         stage = "right swipe opens clipboard detail with full record time and unavailable source";
-        AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
-            && node.getText().toString().startsWith("Synthetic preview line 0"));
+        // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
+        AccessibilityNodeInfo card = await(node -> node.isLongClickable()
+            && node.getContentDescription() != null
+            && node.getContentDescription().toString().contains("右滑查看详情"));
         Rect cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
@@ -319,8 +321,9 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Opening detail changed history");
         // 详情页直接提供编辑入口；编辑前不应把原正文插入外部编辑器。
         openClipboardEditor(true);
-        card = await(node -> node.isLongClickable() && node.getText() != null
-            && node.getText().toString().startsWith("Synthetic preview line 0"));
+        card = await(node -> node.isLongClickable()
+            && node.getContentDescription() != null
+            && node.getContentDescription().toString().contains("右滑查看详情"));
         cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
