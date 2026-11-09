@@ -120,7 +120,7 @@ public final class NineKeySidebarPolicy {
         return stored.isEmpty() ? fallback : stored;
     }
 
-    /** 字母键面（拼音九键、九键双拼、笔画、14 键左侧底轨）显示的符号。 */
+    /** 字母键面（拼音九键、九键双拼、笔画）显示的符号。 */
     public static List<String> letterSymbols(List<String> stored) {
         return letterSymbols(stored, false);
     }

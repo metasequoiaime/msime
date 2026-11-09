@@ -57,8 +57,8 @@ public final class KeyboardPreviewLayoutSmoke {
         check(faces(eighteen.rows().get(0)).equals(List.of("Q", "WE", "RT", "Y", "U", "IO", "P")), "18-key first row has no sidebar");
         Preview fourteen = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN_FOURTEEN_KEY, SIX, SIX,
             TouchKeyStyle.Styles.DEFAULT, false, false, false, List.of());
-        check(!fourteen.eighteen() && faces(fourteen.rows().get(0)).equals(List.of("，", "QW", "ER", "TY", "UI", "OP")),
-            "14-key first row");
+        check(!fourteen.eighteen() && faces(fourteen.rows().get(0)).equals(List.of("QW", "ER", "TY", "UI", "OP")),
+            "14-key first row has no sidebar either");
     }
 
     private static void standard() {
