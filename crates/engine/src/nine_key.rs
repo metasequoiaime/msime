@@ -201,12 +201,12 @@ impl KeyGrid {
         }
     }
 
-    /// 字母所在键的组码；十八键双拼的大写字母标记精确输入。字母双拼网格的分号归入 L，九键双拼不按字母归组。
+    /// 字母所在键的组码；14 键和十八键双拼的大写字母标记精确输入（见 `takes_exact_letters`）。字母双拼网格的分号归入 L，九键双拼不按字母归组。
     pub fn code_of(self, letter: u8) -> Option<u8> {
+        if self.takes_exact_letters() && letter.is_ascii_uppercase() {
+            return Some(letter);
+        }
         if matches!(self, Self::EighteenKeyShuangpin(_)) {
-            if letter.is_ascii_uppercase() {
-                return Some(letter);
-            }
             return eighteen_key_code(letter);
         }
         if matches!(self, Self::FourteenKeyShuangpin(_)) {
@@ -220,6 +220,14 @@ impl KeyGrid {
         letter
             .is_ascii_lowercase()
             .then(|| keypad[usize::from(letter - b'a')])
+    }
+
+    /// `grid_key` 另收大写 ASCII 字母，表示同一组里的一个精确小写字母。大写只是组码串里的内部标记，兜底上屏前转回小写。
+    pub(crate) fn takes_exact_letters(self) -> bool {
+        matches!(
+            self,
+            Self::FourteenKeyShuangpin(_) | Self::EighteenKeyShuangpin(_)
+        )
     }
 
     /// 组码键上的字母；不是这种键盘的组码时为空。九键双拼是这个键上能起头一个音节的字母（声母的首字母和从这个键开始的零声母音节的首字母）。
@@ -1090,7 +1098,7 @@ impl NineKeySession {
         let mut index = first_index;
         while self.active() {
             if self.candidates.is_empty() {
-                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                if self.grid.takes_exact_letters() {
                     self.digits.make_ascii_lowercase();
                 }
                 commit.push_str(&self.digits);
@@ -1131,8 +1139,8 @@ impl NineKeySession {
                     return self.finish(0);
                 }
                 let mut raw = std::mem::take(&mut self.digits);
-                // 精确字母的大写只是十八键双拼内部标记，兜底上屏仍是小写字母。
-                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                // 精确字母的大写只是字母双拼网格的内部标记，兜底上屏仍是小写字母。
+                if self.grid.takes_exact_letters() {
                     raw.make_ascii_lowercase();
                 }
                 self.clear_composition();

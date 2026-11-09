@@ -20,6 +20,7 @@ Android 十八键双拼的双字母键左滑选择左字母，右滑选择右字
 
 - [14/18 键角标符号](2026-11-07-fourteen-eighteen-key-corner-symbols.md)：部分重叠。Android 的横滑与纵滑出符号、长按选项在同一个触摸监听里判定（[Android 实现](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)），按压状态由 `GridKeyGesturePolicy.Gesture` 承担，原来的 `EighteenKeySwipePolicy.Gesture` 和 `bindEighteenKeySwipe` 已删除；本篇的阈值、方向、大写精确标记和松手一次输入不变，`EighteenKeySwipePolicy.letter` 仍是判定入口。
 
+- [14 键双拼横滑](2026-11-08-grid-exact-swipe.md)：部分取代。14 键双拼的派生表也有同样的大写精确码，网格收不收这种标记由 `KeyGrid::takes_exact_letters` 统一判定；本篇「原有九键和十四键的表不增加精确码」现在只对九键成立。
 - [十八键双拼](../../implemented/feature/2026-10-24-android-eighteen-key-shuangpin.md)：部分重叠，保留布局、默认值、组码和长按；本篇只增加横滑精确输入。
 - [十八键全拼](../../implemented/feature/2026-10-24-eighteen-key-quanpin-engine.md)：范围独立，本次不改变全拼入口。
 - [iOS 十八键](2026-10-25-ios-eighteen-key.md)：部分重叠，iOS 按同一阈值、方向和大写精确标记接入横滑，由键上的手势识别器取消这次点按。
