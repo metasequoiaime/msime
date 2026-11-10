@@ -63,8 +63,12 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             syntheticEvents.addLast(SystemClock.uptimeMillis() + " before-tap " + stage
                 + " " + target.getClassName() + " " + target.getContentDescription());
         }
+        boolean letterKey = target.getContentDescription() != null
+            && target.getContentDescription().toString().startsWith("字母 ");
         super.tap(match);
         traceCompositionEditor();
+        if (letterKey && visible(described("拼写编辑面板")))
+            throw new AssertionError("普通字母输入不得自动打开拼写编辑面板");
     }
 
     @Override protected String successDescription() {
@@ -205,6 +209,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             tap(key("n"));
             tap(key("i"));
             awaitColour(describedPrefix("候选 1："), lightCandidate);
+            shellDiscard("screencap -p /data/local/tmp/msime-theme-mode-success.png");
         } catch (Exception | AssertionError failure) {
             // finally 会离开合成编辑器；先留下失败当时的画面，避免事后只能看到已恢复的首页。
             try { shellDiscard("screencap -p /data/local/tmp/msime-theme-mode-failure.png"); }
