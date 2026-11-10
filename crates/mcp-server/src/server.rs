@@ -8,6 +8,10 @@ use crate::community::{
 };
 use crate::config::Config;
 use crate::diagnostics::{self, LogRequest, LogView, SwitchRequest, SwitchView};
+use crate::keyboard_skins::{
+    self, CommunityKeyboardSkinList, CommunityKeyboardSkinRequest, DeletedCommunityKeyboardSkin,
+    PublishKeyboardSkinRequest, PublishedKeyboardSkin,
+};
 use crate::plugin_community::{
     self, CommunityPluginList, CommunityPluginRequest, DeletedCommunityPlugin,
     PublishPluginRequest, PublishedPlugin,
@@ -53,16 +57,18 @@ const WRITE_LOCK: &str = "mcp-write.lock";
 /// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
 const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
-const WRITE_TOOLS: [&str; 12] = [
+const WRITE_TOOLS: [&str; 14] = [
     "create_candidate_skin",
     "create_plugin",
     "delete_candidate_skin",
+    "delete_community_keyboard_skin",
     "delete_community_plugin",
     "delete_community_skin",
     "delete_plugin",
     "edit_quick_phrases",
     "install_plugin_folder",
     "publish_candidate_skin",
+    "publish_keyboard_skin",
     "publish_plugin",
     "set_community_skin_visibility",
     "update_preferences",
@@ -72,7 +78,7 @@ const DICTIONARY_READ_TOOLS: [&str; 2] = ["list_dictionary_words", "lookup_candi
 /// Offered with --allow-write and --allow-dictionary-read together: an edit or import also tells whether a word is there.
 const DICTIONARY_WRITE_TOOLS: [&str; 2] = ["edit_dictionary_words", "import_dictionary_words"];
 
-const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync. With --allow-write, publish_candidate_skin uploads an installed skin to the skin community, public or private, using the account the user signed in to in the 水杉输入法 settings app; this server never signs in to the account itself, so if no one is signed in, ask the user to sign in there. Before publishing publicly, confirm with the user that everyone may see the skin and that they have the right to share its images. list_community_skins lists the account's community skins, set_community_skin_visibility makes one private again and delete_community_skin removes one. It also lists the user's plugin packs (list_plugins, get_plugin) and, with --allow-write, makes them. The kinds are sound and music packs, command tables (/ commands, such as one that types today's date), typing effects, phrase tables (K-mode phrases, such as an email signature), helpcode tables, word books, symbol sets (such as a group of arrows) and, on desktop, experimental script plugins. For an ordinary request like these, write the plugin.toml yourself by the rules in create_plugin's description, install it with create_plugin, and tell the user in plain words how to turn it on, as its result says: phrase tables and command tables need 启用 in 设置 → 插件 → 我的插件, and K mode or / mode on in 设置 → 输入 → 快捷模式. install_plugin_folder imports a pack folder or .zip, such as a script plugin built with msime-pack, which runs only after the user turns it on and grants it in 设置 → 插件 → 脚本插件（实验）. delete_plugin removes a pack, and publish_plugin shares a data pack with the plugin community, always publicly, once the user agrees. Extended resources require explicit server support. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
+const INSTRUCTIONS: &str = "Manages 水杉输入法 (MSIME), a Chinese input method: its quick phrases (a short code the user types that expands to a longer text), a few of its preferences, and aggregate typing statistics. With --allow-dictionary-read it also lists the user's own dictionary words and shows which candidates a code offers and why, which is how to explain a candidate's rank; with --allow-write as well it adds, reweights, removes and imports words. To import a word list the user gives you, read it yourself and send the words, 200 at a time. It also helps with problems the user runs into: lag, a candidate window that is missing or in the wrong place, the input method stopping or switching by itself. The user may not be technical, so do the steps yourself rather than asking them to open files, settings or a terminal: read the log with read_diagnostic_log; if it is off, turn it on with set_diagnostic_log, ask the user in plain words to do again what went wrong and to tell you when they have, then read the log again and explain what you found in plain words. Turn the log off with set_diagnostic_log when you are done. It also lists the user's candidate-window skins and, with --allow-write, makes new ones: write a skin.toml and bounded PNG/JPEG/APNG/GIF/WebP resources with a PNG/JPEG preview, save the images as files, and pass the manifest and the files' paths to create_candidate_skin. update_preferences switches the input method to a skin, get_candidate_skin shows an installed skin's manifest and image files so it can be changed and installed again, and delete_candidate_skin removes one the user no longer wants. The app can sync skins to the user's cloud library as private packages when the user requests sync. With --allow-write, publish_candidate_skin uploads an installed skin to the skin community, public or private, using the account the user signed in to in the 水杉输入法 settings app; this server never signs in to the account itself, so if no one is signed in, ask the user to sign in there. Before publishing publicly, confirm with the user that everyone may see the skin and that they have the right to share its images. list_community_skins lists the account's community skins, set_community_skin_visibility makes one private again and delete_community_skin removes one. A phone keyboard skin is a different thing from a candidate-window skin: it is the look of the touch keyboard on iOS, Android and HarmonyOS (colours, key shape and an optional JPEG photo), and with --allow-write publish_keyboard_skin shares one with the keyboard skin community, always publicly and without a way to edit it later, once the user agrees; list_community_keyboard_skins lists the ones the account published and delete_community_keyboard_skin removes one. It also lists the user's plugin packs (list_plugins, get_plugin) and, with --allow-write, makes them. The kinds are sound and music packs, command tables (/ commands, such as one that types today's date), typing effects, phrase tables (K-mode phrases, such as an email signature), helpcode tables, word books, symbol sets (such as a group of arrows) and, on desktop, experimental script plugins. For an ordinary request like these, write the plugin.toml yourself by the rules in create_plugin's description, install it with create_plugin, and tell the user in plain words how to turn it on, as its result says: phrase tables and command tables need 启用 in 设置 → 插件 → 我的插件, and K mode or / mode on in 设置 → 输入 → 快捷模式. install_plugin_folder imports a pack folder or .zip, such as a script plugin built with msime-pack, which runs only after the user turns it on and grants it in 设置 → 插件 → 脚本插件（实验）. delete_plugin removes a pack, and publish_plugin shares a data pack with the plugin community, always publicly, once the user agrees. Extended resources require explicit server support. Changes take effect in the input method within a few seconds. Apart from set_diagnostic_log, writing tools are only offered when the user started the server with --allow-write.";
 
 #[derive(Clone)]
 pub struct MsimeServer {
@@ -558,6 +564,80 @@ impl MsimeServer {
         .await;
         eprintln!(
             "msime-mcp: delete_community_skin {}",
+            if result.is_ok() { "deleted" } else { "refused" }
+        );
+        result
+    }
+
+    #[tool(
+        name = "publish_keyboard_skin",
+        description = keyboard_skins::PUBLISH_DESCRIPTION,
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn publish_keyboard_skin(
+        &self,
+        Parameters(request): Parameters<PublishKeyboardSkinRequest>,
+    ) -> Result<Json<PublishedKeyboardSkin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            keyboard_skins::publish(&keyboard_skins::open(&config)?, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: publish_keyboard_skin {}",
+            if result.is_ok() {
+                "published"
+            } else {
+                "refused"
+            }
+        );
+        result
+    }
+
+    #[tool(
+        name = "list_community_keyboard_skins",
+        description = keyboard_skins::LIST_DESCRIPTION,
+        annotations(read_only_hint = true, open_world_hint = true)
+    )]
+    async fn list_community_keyboard_skins(
+        &self,
+    ) -> Result<Json<CommunityKeyboardSkinList>, String> {
+        let config = self.config.clone();
+        blocking(move || keyboard_skins::list(&keyboard_skins::open(&config)?).map(Json)).await
+    }
+
+    #[tool(
+        name = "delete_community_keyboard_skin",
+        description = keyboard_skins::DELETE_DESCRIPTION,
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn delete_community_keyboard_skin(
+        &self,
+        Parameters(request): Parameters<CommunityKeyboardSkinRequest>,
+    ) -> Result<Json<DeletedCommunityKeyboardSkin>, String> {
+        let guard = self.claim_write()?;
+        let config = self.config.clone();
+        let result = blocking(move || {
+            let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
+            keyboard_skins::delete(&keyboard_skins::open(&config)?, &request).map(Json)
+        })
+        .await;
+        eprintln!(
+            "msime-mcp: delete_community_keyboard_skin {}",
             if result.is_ok() { "deleted" } else { "refused" }
         );
         result
@@ -1172,6 +1252,7 @@ mod tests {
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_keyboard_skins",
                 "list_community_plugins",
                 "list_community_skins",
                 "list_plugins",
@@ -1186,6 +1267,7 @@ mod tests {
                 "create_candidate_skin",
                 "create_plugin",
                 "delete_candidate_skin",
+                "delete_community_keyboard_skin",
                 "delete_community_plugin",
                 "delete_community_skin",
                 "delete_plugin",
@@ -1196,11 +1278,13 @@ mod tests {
                 "get_typing_statistics",
                 "install_plugin_folder",
                 "list_candidate_skins",
+                "list_community_keyboard_skins",
                 "list_community_plugins",
                 "list_community_skins",
                 "list_plugins",
                 "list_quick_phrases",
                 "publish_candidate_skin",
+                "publish_keyboard_skin",
                 "publish_plugin",
                 "read_diagnostic_log",
                 "set_community_skin_visibility",
@@ -1216,6 +1300,7 @@ mod tests {
                 "get_preferences",
                 "get_typing_statistics",
                 "list_candidate_skins",
+                "list_community_keyboard_skins",
                 "list_community_plugins",
                 "list_community_skins",
                 "list_dictionary_words",
@@ -1232,6 +1317,7 @@ mod tests {
                 "create_candidate_skin",
                 "create_plugin",
                 "delete_candidate_skin",
+                "delete_community_keyboard_skin",
                 "delete_community_plugin",
                 "delete_community_skin",
                 "delete_plugin",
@@ -1244,6 +1330,7 @@ mod tests {
                 "import_dictionary_words",
                 "install_plugin_folder",
                 "list_candidate_skins",
+                "list_community_keyboard_skins",
                 "list_community_plugins",
                 "list_community_skins",
                 "list_dictionary_words",
@@ -1251,6 +1338,7 @@ mod tests {
                 "list_quick_phrases",
                 "lookup_candidates",
                 "publish_candidate_skin",
+                "publish_keyboard_skin",
                 "publish_plugin",
                 "read_diagnostic_log",
                 "set_community_skin_visibility",
@@ -1391,6 +1479,21 @@ mod tests {
         );
         assert!(description("delete_community_skin").contains("Confirm with the user first"));
         assert!(description("list_community_skins").contains("this server never signs in itself"));
+        // 键盘皮肤的三个工具登记的是 `keyboard_skins` 里的说明，服务器说明把它和候选窗皮肤分开。
+        assert_eq!(
+            description("publish_keyboard_skin"),
+            keyboard_skins::PUBLISH_DESCRIPTION
+        );
+        assert_eq!(
+            description("list_community_keyboard_skins"),
+            keyboard_skins::LIST_DESCRIPTION
+        );
+        assert_eq!(
+            description("delete_community_keyboard_skin"),
+            keyboard_skins::DELETE_DESCRIPTION
+        );
+        assert!(INSTRUCTIONS
+            .contains("A phone keyboard skin is a different thing from a candidate-window skin"));
         // 服务器说明仍然声明它不登录。
         assert!(INSTRUCTIONS.contains("this server never signs in to the account itself"));
         assert!(INSTRUCTIONS.contains("confirm with the user"));

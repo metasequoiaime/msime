@@ -894,6 +894,11 @@ impl TouchKeyboardSkinDesign {
         bytes.len() <= 512_000 && supported_skin_photo(&bytes)
     }
 
+    /// 把图片字节写成 `photo` 字段的形式：带填充的标准 base64，与 [`Self::validate`] 解码用的是同一个引擎。不检查字节本身，大小和格式仍由 `validate` 判定。
+    pub fn encode_photo(bytes: &[u8]) -> String {
+        BASE64.encode(bytes)
+    }
+
     /// Apple-compatible normalization used when a named design is loaded from its library.
     pub fn normalized(mut self) -> Self {
         self.background &= 0xFFFFFF;
