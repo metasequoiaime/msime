@@ -34,7 +34,6 @@ import { AppThemeRow } from "./app-theme-row";
 import { MobileQqLinksPage, QqLinkCard } from "./qq-link-card";
 import { LoginSheet } from "./login-sheet";
 import { LoginConsent, useLoginConsent } from "./login-consent";
-import { MobileDownloadPage, otherPlatformCount } from "./mobile-download-page";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { useAccountAction } from "./account-operation";
@@ -68,15 +67,15 @@ export type {
 
 type Confirmation = "logout-all" | "delete" | null;
 
-/** 触屏宿主在「我的」里推入资料和 QQ 群助手页；鸿蒙手机还会推入「其他平台下载」。它们记在历史条目的 `accountSubpage` 里，所以系统返回手势能关掉它们。 */
-type AccountSubpage = "profile" | "download" | "qq-links";
+/** 触屏宿主在「我的」里推入资料和 QQ 群助手页。它们记在历史条目的 `accountSubpage` 里，所以系统返回手势能关掉它们。 */
+type AccountSubpage = "profile" | "qq-links";
 
 function accountSubpageOf(state: unknown): AccountSubpage | null {
   const value =
     state && typeof state === "object"
       ? (state as { accountSubpage?: unknown }).accountSubpage
       : null;
-  return value === "profile" || value === "download" || value === "qq-links" ? value : null;
+  return value === "profile" || value === "qq-links" ? value : null;
 }
 
 export function AccountPage({
@@ -188,11 +187,8 @@ type HarmonyMeProps = {
   onOpenPage?: (id: SettingsPageId) => void;
   /** 应用主题，用于「应用主题」行及其面板。 */
   appTheme?: AppThemeClient;
-  /** 在系统浏览器里打开网页：隐私政策、下载页。 */
+  /** 在系统浏览器里打开网页，例如隐私政策。 */
   onOpenUrl?: (url: string) => void;
-  copyText?: (text: string) => Promise<void>;
-  /** 所有平台共用的那一个下载页，由「其他平台下载」打开。 */
-  desktopDownloadUrl?: string;
   /** 「关于」行显示的版本号，与「关于」页读到的一致。 */
   appVersion?: string;
 };
@@ -220,8 +216,6 @@ function AccountDetailsPage({
   onOpenPage,
   appTheme,
   onOpenUrl,
-  copyText,
-  desktopDownloadUrl,
   appVersion,
 }: HarmonyMeProps & {
   client: AccountClient;
@@ -514,16 +508,6 @@ function AccountDetailsPage({
       />
     );
 
-  if (harmony && mobileSubpage === "download" && desktopDownloadUrl)
-    return (
-      <MobileDownloadPage
-        url={desktopDownloadUrl}
-        onBack={closeSubpage}
-        onOpenUrl={onOpenUrl}
-        copyText={copyText}
-      />
-    );
-
   if (mobileSubpage === "qq-links" && user && client.qqLinks)
     return <MobileQqLinksPage client={client.qqLinks} userId={user.id} onBack={closeSubpage} />;
 
@@ -618,8 +602,6 @@ function AccountDetailsPage({
       void perform(() => loadProfile(generation));
       onLoginComplete?.();
     };
-    const downloadPage = Boolean(desktopDownloadUrl && (onOpenUrl || copyText));
-    const openDownload = downloadPage ? () => openSubpage("download") : onOpenDesktopDownload;
     const icon = (name: FluentIconName) => <FluentIcon name={name} size={18} />;
     return (
       <div className={account.mePage}>
@@ -682,18 +664,8 @@ function AccountDetailsPage({
             )}
           </AccountMeGroup>
         )}
-        {(openDownload || onOpenFeedback || onOpenAbout || onReplayOnboarding) && (
+        {(onOpenFeedback || onOpenAbout || onReplayOnboarding) && (
           <AccountMeGroup>
-            {openDownload && (
-              <NavRow
-                variant="me"
-                icon={icon("arrow_download")}
-                title="其他平台下载"
-                value={downloadPage ? `${otherPlatformCount} 个平台` : undefined}
-                disabled={busy}
-                onClick={openDownload}
-              />
-            )}
             {onOpenFeedback && (
               <NavRow
                 variant="me"
@@ -1112,7 +1084,8 @@ function AccountDetailsPage({
       {mobile && (
         // The design's 我的 groups (dc.html `meGroups`), less the rows with nothing behind them (我的设备, 隐私, 开屏动画) and the ones the 设置 list already holds (词库, 自造词). The account's own settings stay on the profile page behind the card above.
         <>
-          {((user && (onOpenCloudClipboard || onOpenCloudDictionary)) || onOpenDesktopDownload) && (
+          {((user && (onOpenCloudClipboard || onOpenCloudDictionary)) ||
+            (onOpenDesktopDownload && !harmony)) && (
             <GroupList title="工具">
               {user && onOpenCloudClipboard && (
                 <AccountMeRow title="云剪贴板" disabled={busy} onClick={onOpenCloudClipboard} />
@@ -1120,7 +1093,7 @@ function AccountDetailsPage({
               {user && onOpenCloudDictionary && (
                 <AccountMeRow title="云词库" disabled={busy} onClick={onOpenCloudDictionary} />
               )}
-              {onOpenDesktopDownload && (
+              {onOpenDesktopDownload && !harmony && (
                 <AccountMeRow
                   title="其他平台下载"
                   disabled={busy}

@@ -433,8 +433,9 @@ final class ImeBottomRow {
                     if (copyGesture) {
                         resetSpaceCursor();
                         s.countKey(button);
-                        if (outcome == SpaceGesturePolicy.Outcome.COPY && copyTarget == s.connection)
-                            s.imeTextEditPanel.copyAllFromGesture();
+                        if (outcome == SpaceGesturePolicy.Outcome.COPY && copyTarget == s.connection
+                                && !s.imeTextEditPanel.copyAllFromGesture())
+                            s.showSpaceCopyFailure("当前输入框不支持复制全文");
                         return true;
                     }
                     if (!voiced[0] && !dragging[0] && !cancelled[0]

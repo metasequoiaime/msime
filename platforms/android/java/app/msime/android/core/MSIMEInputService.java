@@ -143,6 +143,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
     private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice spaceCopyNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -2233,6 +2234,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -2272,6 +2274,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInputView(boolean finishingInput) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -2350,6 +2353,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -2431,6 +2435,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
@@ -5250,7 +5255,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
+    /** 字母网格的一键：小写送整组首字母，14/18 键全拼和双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
         int helpcode = GridHelpcodePolicy.letterOp(gridHelpcodeDisplay(), letter);
         if (helpcode != GridHelpcodePolicy.NONE) return gridHelpcode(helpcode, Character.toLowerCase(letter));
@@ -10937,6 +10942,7 @@ public final class MSIMEInputService extends InputMethodService {
         long createStartedAt = SystemClock.uptimeMillis();
         imeFunctionPanel.close();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -11464,6 +11470,12 @@ public final class MSIMEInputService extends InputMethodService {
             textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
+    }
+
+    void showSpaceCopyFailure(String label) {
+        long request = spaceCopyNotice.begin();
+        spaceCopyNotice.show(request, label, "空格复制提示：", "MSIME space copy notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
     }
 
     /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
