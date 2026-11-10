@@ -10998,8 +10998,8 @@ public final class MSIMEInputService extends InputMethodService {
         FrameLayout.LayoutParams spaceGestureHintParams = LayoutPolicy.frameWrapParams();
         spaceGestureHintParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
         spaceGestureHintParams.topMargin = pixels(16);
-        // 输入法根视图覆盖整个输入法窗口；把提示挂在这里才能落在屏幕上沿的居中位置，且不参与键盘表面的测量。
-        keyboardRoot.addView(spaceGestureHintOverlay, spaceGestureHintParams);
+        // 键盘表面从输入法窗口的上沿开始；浮层盖住顶部工具栏但不参与键盘表面的测量。
+        keyboardSurface.addView(spaceGestureHintOverlay, spaceGestureHintParams);
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
