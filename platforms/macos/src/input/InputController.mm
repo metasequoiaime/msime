@@ -4841,10 +4841,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
     if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged &&
-        !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
-        // 实体松手的状态事件可能没有保留 Caps Lock 的键码或锁定位；只要没有其它修饰键且实体已松开，就用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        !(event.modifierFlags & others) &&
+        ((_capsLockTapAwaitingReleaseEvent && event.keyCode == 0x39) || !MSIMECapsLockKeyHeld())) {
+        // Caps Lock 自己的 flagsChanged 就是松键边沿；HID 的实体状态可能滞后一拍，不能因为它还显示按住就丢掉这次轻点。没有键码的事件仍用 HID 状态确认实体已松开。
         _capsLockTapAwaitingReleaseEvent = NO;
-        [self pollCapsLockTap];
+        [self completeCapsLockTapFromReleaseEvent];
         return YES;
     }
     if (event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39) {
@@ -4876,6 +4877,24 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self cancelCapsLockTap];
     return NO;
 }
+// 按松键事件完成一次轻点；事件边沿比 HID 查询更可信，后者可能晚一拍。
+- (void)completeCapsLockTapFromReleaseEvent {
+    if (!_capsLockTap.armed()) {
+        [self cancelCapsLockTap];
+        return;
+    }
+    const std::int64_t now = MSIMECapsLockNow();
+    const bool tap = _capsLockTap.release(now);
+    [self cancelCapsLockTap];
+    // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
+    if (!tap || !_activeClient || !MSIMECapsLockRelease()) {
+        [self adoptCapsLockState:YES];
+        return;
+    }
+    _capsLockTapReleased = YES;
+    [self adoptCapsLockState:NO];
+    [self toggleInputModeFromModifierTap];
+}
 // 定时器调用，测试也直接调用它来推进合成的时钟和按键状态。
 - (void)pollCapsLockTap {
     if (!_capsLockTap.armed()) {
@@ -4891,16 +4910,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         return;
     }
     if (_capsLockTapAwaitingReleaseEvent && !_capsLockTap.heldTooLong(now)) return;
-    const bool tap = _capsLockTap.release(now);
-    [self cancelCapsLockTap];
-    // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
-    if (!tap || !_activeClient || !MSIMECapsLockRelease()) {
-        [self adoptCapsLockState:YES];
-        return;
-    }
-    _capsLockTapReleased = YES;
-    [self adoptCapsLockState:NO];
-    [self toggleInputModeFromModifierTap];
+    [self completeCapsLockTapFromReleaseEvent];
 }
 // 单按 Shift、Control 或 Caps Lock 切换中英文。
 //
@@ -7997,9 +8007,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     // 设备尚未报告实体状态时，首个大写锁定状态事件和随后撤回锁定的事件都属于待判定轻点，先交给输入法吞掉，避免系统把尚未确认的锁定状态继续传给应用。普通按住场景仍把首个事件交回应用。
     const BOOL capsTapWasArmed = _capsLockTap.armed();
+    const BOOL capsTapAwaitingReleaseBefore = _capsLockTapAwaitingReleaseEvent;
+    const NSEventModifierFlags capsTapOthers = NSEventModifierFlagShift | NSEventModifierFlagControl |
+        NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+    const BOOL capsTapReleaseEvent = capsTapWasArmed && event.type == NSEventTypeFlagsChanged &&
+        !(event.modifierFlags & capsTapOthers) &&
+        capsTapAwaitingReleaseBefore &&
+        (event.keyCode == 0x39 || !MSIMECapsLockKeyHeld());
     const BOOL capsTapObserved = !staleCapsLock && [self observeCapsLockTap:event capsLock:capsLock sender:sender];
-    const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
-        (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
+    const BOOL delayedCapsTapEvent = capsTapObserved && (capsTapReleaseEvent || _capsLockTapAwaitingReleaseEvent);
     if (!capsTapObserved) [self adoptCapsLockState:capsLock];
     _capsLockTapConsumedEvent = delayedCapsTapEvent;
     if (!sender) {

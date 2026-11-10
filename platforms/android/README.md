@@ -386,6 +386,8 @@ Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复�
 
 在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、自定义键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件先确认“我的皮肤”入口存在，再打开真实编辑器应用“奶油桃桃”模板，通过 Tauri IPC 对独立命名图库执行新建、重命名、更新、应用和删除，并确认图库写入不会提前修改普通 preferences；随后检查 `custom` 选择及卵石、立体、圆角、纹理字段落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费“我的皮肤”。独立 fixture 还验证 Keystore 加密会话的往返、密文不含固定明文 marker、清除与 16 KiB 上限，不向生产账号服务发送验证码。测试前后恢复图库、偏好及 fixture 会话文件。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 
+发布使用 `smoke.sh <serial> --release`：保留双 API 的启动、真实输入、资源与存储、候选绘制、设置入口和隐私检查，API 35 额外覆盖系统主题切换。四个 Rust crate 的设备单测和崩溃专项仍由 workflow 独立执行。无参数完整回归以及 API 28 的 `--core` 留在 nightly；改动触及未选入的交互时，仍须跑相应专项。可从 Android device 的手动入口指定矩阵复验，无需重新构建六个发行包。主题故障可用 `--theme` 定向重放主输入与主题断言；失败截图在恢复偏好前采集到设备日志产物，只包含专用模拟器的合成编辑器。
+
 ## 共享设置热更新
 
 bootstrap 配置包含绝对路径 `preferences_directory`。输入会话启动后，Android 后台读取该目录的共享 PreferencesStore，之后每秒重试；不在输入主线程等待文件锁，不重叠读取，切换编辑器或结束输入后丢弃旧读取结果并停止旧轮询。配置没有目录字段时不读取共享设置，不猜测其他应用的数据目录。
