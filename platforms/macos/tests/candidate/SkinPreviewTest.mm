@@ -723,8 +723,10 @@ int main(int argc, const char **argv) {
                         rowHeight += 8.0;
                         NSInteger rows = vertical.boolValue ? MIN(size.integerValue, 5) : 1;
                         CGFloat footerHeight = vertical.boolValue && size.integerValue > 5 ? 18.0 : 0.0;
-                        // 卡片上下各留原生默认的 4pt 内边距。
-                        CGFloat expectedHeight = 10 + 16 + 4 + 4 + preeditHeight + rows * rowHeight + footerHeight + 4 + 14;
+                        // 卡片上下各留原生默认的 4pt 内边距；竖排候选项之间固定保留 6pt 外间距。
+                        CGFloat expectedHeight = 10 + 16 + 4 + 4 + preeditHeight + rows * rowHeight +
+                            (vertical.boolValue ? (rows - 1) * msime::mac::CandidateItemVerticalOuterSpacing(1.0) : 0) +
+                            footerHeight + 4 + 14;
                         assert(std::abs(preview.previewContentHeight - expectedHeight) < .01);
                         assert(preview.previewSkin.id == skin.UTF8String);
                         NSString *expected = [NSString stringWithFormat:@"%@，%@ 个候选，%@ pt", vertical.boolValue ? @"纵向列表" : @"横向排列", size, font];
