@@ -147,6 +147,9 @@ const MAX_KEY_SOUND_PACK_CHARS: usize = 64;
 /// 语音识别语言的长度上限，与服务端字段表相同。
 const MAX_VOICE_LANGUAGE_CHARS: usize = 16;
 
+/// 设置页插件卡片的展示顺序。账号偏好值只允许标量，因此以 JSON 字符串保存数组。
+const PLUGIN_ORDER: &str = "plugins.plugin_order";
+
 /// 工具栏按钮在同步文档里的键，与 `touch_toolbar` 的成员一一对应。常用语、输入方式和「隐藏」三个开关在 Android 本地设置里，见 [`ANDROID_LOCAL_SETTINGS`]。
 const TOOLBAR_KEYS: [&str; 8] = [
     "platform.android.toolbar_layout",
@@ -1035,6 +1038,7 @@ pub(super) fn export_desktop_settings_for(
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
     insert_grammar_model(&mut settings, preferences);
+    insert_plugin_settings(&mut settings, preferences);
     if host.shared_settings_page() {
         insert_quick_phrase_mixing(&mut settings, preferences);
         insert_local_mode_extras(&mut settings, preferences);
@@ -1079,6 +1083,19 @@ fn insert_grammar_model(
             GrammarModel::BaguwenCompact => "baguwen_compact",
             GrammarModel::Baishuang => "baishuang",
         },
+    );
+}
+
+/// 插件列表的展示顺序。它只影响设置页，不改变插件的加载、执行或候选处理顺序。
+fn insert_plugin_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(
+        settings,
+        PLUGIN_ORDER,
+        &serde_json::to_string(&preferences.plugins.plugin_order)
+            .unwrap_or_else(|_| "[]".to_owned()),
     );
 }
 
@@ -1348,6 +1365,22 @@ fn validate_cloud_document(
     Ok(())
 }
 
+/// 解析设置页插件展示顺序。账号协议里的值是字符串，内容必须是通过本机偏好校验的
+/// `kind/id` 数组；未知插件由设置页按当前目录追加，不能借同步写入任意路径或重复项。
+fn parse_plugin_order(value: &str) -> Option<Vec<String>> {
+    let order = serde_json::from_str::<Vec<String>>(value).ok()?;
+    (order.len() <= 256
+        && order.iter().enumerate().all(|(index, key)| {
+            let Some((kind, id)) = key.split_once('/') else {
+                return false;
+            };
+            crate::skin::catalog::safe_id(kind)
+                && crate::skin::catalog::safe_id(id)
+                && !order[..index].contains(key)
+        }))
+    .then_some(order)
+}
+
 /// [`insert_input_settings`] 的反方向，Android 与桌面宿主共用。
 fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     // 本机不提供的方案（较新设备上的粤拼、注音、越南文或笔画）保留本机的方案，文档里其他的键照常应用。
@@ -1473,6 +1506,16 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     })?;
     applier.set_bool("input.wubi_fifth_code_top_commit", |preferences, value| {
         preferences.wubi_fifth_code_top_commit = value
+    })?;
+    Ok(())
+}
+
+/// [`insert_plugin_settings`] 的反方向。顺序是设置页的本地展示状态，插件目录变化时由
+/// 共享页面负责补齐缺失项；同步只接受格式合法且不重复的条目。
+fn apply_plugin_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(PLUGIN_ORDER, |preferences, value| {
+        preferences.plugins.plugin_order = parse_plugin_order(value)?;
+        Some(())
     })?;
     Ok(())
 }
@@ -1880,6 +1923,7 @@ pub(super) fn apply_desktop_settings_for(
         skipped: Vec::new(),
     };
     apply_input_settings(&mut applier)?;
+    apply_plugin_settings(&mut applier)?;
     apply_grammar_model(&mut applier)?;
     if host.shared_settings_page() {
         apply_quick_phrase_mixing(&mut applier)?;

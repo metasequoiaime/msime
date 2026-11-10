@@ -21,4 +21,6 @@ Status: implemented
 
 ## Verification
 
+设备复制测试将构建时间列为明确白名单项，并与安装包的 `AppVersionPolicy.buildTime()` 逐字比对；不放宽字段数量或屏幕字段检查。
+
 运行 Android host 检查、笔记校验、差异格式检查和 quick 门禁；API 28/35 设备 smoke 需在设备 job 中确认中英文「全部」与单项插入内容。
