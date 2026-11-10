@@ -2,6 +2,7 @@ name: Release Android
 on:
   workflow_dispatch:
     inputs:
+      full_device_tests: {description: 执行完整设备回归；nightly 开启，普通发布使用短冒烟, required: false, default: false, type: boolean}
       version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
@@ -9,6 +10,7 @@ on:
       play_status: {description: 在 Play 上建成的版本状态：draft 要有人在 Play Console 里点发布，completed 直接推给这条轨道的用户（应用还没通过过审核时 Play 只接受 draft）, required: false, default: draft, type: choice, options: [draft, completed]}
   workflow_call:
     inputs:
+      full_device_tests: {description: 执行完整设备回归；nightly 开启，普通发布使用短冒烟, required: false, default: false, type: boolean}
       version: {description: Semantic version, required: false, default: '', type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
@@ -151,6 +153,8 @@ jobs:
     uses: ./.github/workflows/android-device.yml
     with:
       ref: ${{ needs.source.outputs.sha }}
+      matrix: >-
+        ${{ inputs.full_device_tests && '[{"api": 28, "smoke": "--core"}, {"api": 35, "smoke": ""}]' || '[{"api": 28, "smoke": "--release"}, {"api": 35, "smoke": "--release"}]' }}
   publish:
     needs: [source, release, device]
     # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
