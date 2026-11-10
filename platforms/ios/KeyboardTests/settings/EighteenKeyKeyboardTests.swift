@@ -220,7 +220,7 @@ final class EighteenKeyKeyboardTests: XCTestCase {
 
   // MARK: - 输入
 
-  /// 全拼 18 键点 BN IO H A IO 打出「你好」：组码不写进输入框，读音行显示拼音，分词键在组字中写「分词」；全拼不接横滑。
+  /// 全拼 18 键点 BN IO H A IO 打出「你好」：组码不写进输入框，读音行显示拼音，分词键在组字中写「分词」；两字母键可横滑限定字母。
   func testTypingNihaoOnTheQuanpinKeys() throws {
     let controller = makeController(width: 390)
     defer { controller.viewDidDisappear(false) }
@@ -230,7 +230,7 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(controller.inlineMarkedText, "", "the group codes are not written into the editor")
     XCTAssertEqual(try button("eighteenKeySeparator", in: controller).configuration?.title, "分词")
     let swipe = try swipeGesture(on: "BN", in: controller)
-    XCTAssertFalse(controller.gestureRecognizerShouldBegin(swipe), "quanpin 18 keys only tap, as on Android")
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(swipe), "quanpin 18 keys accept exact-letter swipes")
     attachScreenshot(of: controller, named: "Eighteen-key quanpin nihao")
   }
 

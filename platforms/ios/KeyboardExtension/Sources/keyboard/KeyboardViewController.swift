@@ -3448,8 +3448,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.addGestureRecognizer(hold)
         button.accessibilityHint = "长按输入 " + key.holdLetters.joined(separator: " 或 ")
       }
-      // 横滑总是挂上，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到双拼后不必重建按键。
-      if grid == .eighteenKey && key.letters.count == 2 {
+      // 两字母键总是挂上横滑，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到全拼或双拼后不必重建按键。
+      if key.letters.count == 2 {
         let swipe = EighteenKeySwipeGestureRecognizer(letters: key.letters, target: self,
                                                       action: #selector(handleEighteenKeySwipe(_:)))
         swipe.delegate = self
@@ -3527,7 +3527,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     showKeyHoldOptions(from: button, options: key.holdLetters)
   }
 
-  /// 18 键双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前双拼网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
+  /// 14/18 键全拼或双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
   @objc private func handleEighteenKeySwipe(_ gesture: EighteenKeySwipeGestureRecognizer) {
     guard let button = gesture.view as? UIButton,
           let key = letterGridButtons.first(where: { $0.button === button })?.key else { return }
@@ -3544,7 +3544,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         playInputClick()
         guard isChineseMode else { return }
         synchronizeInputSchemePreference()
-        guard typesEighteenKeyShuangpin else { return }
+        guard typesExactLetterGridSwipe else { return }
         render(session.gridKey(String(letter)))
       }
     default:
@@ -3558,8 +3558,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 五笔 14 键：组码由五笔方案按组展开码表，没有拼音选择，候选照五笔展开；组码字母（`editing_text`）不显示。
   private var typesWubiGrid: Bool { typesLetterGrid && inputScheme == .wubi }
 
-  /// 18 键双拼：两个字母的键可以横滑选字母。全拼 18 键只点按，与 Android 相同。
-  private var typesEighteenKeyShuangpin: Bool { typesLetterGrid && letterGrid == .eighteenKey && usesShuangpin }
+  /// 14/18 键全拼或双拼：两个字母的键可以横滑选字母；五笔 14 键和单字母键只点按。
+  private var typesExactLetterGridSwipe: Bool {
+    typesLetterGrid && !showsSymbols && (inputScheme == .quanpin || usesShuangpin)
+  }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
     let row = makeRow()
@@ -7823,7 +7825,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return (spaceVoiceArmed || (!spaceVoiceEnabled && (handwriting.isHidden || !handwriting.hasInk))) && !cursorMovement.isActive
     }
     if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
-    if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesEighteenKeyShuangpin && !showsSymbols }
+    if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesExactLetterGridSwipe }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
@@ -7858,8 +7860,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     while let current = node, current !== root {
       if let key = current as? KeyboardKeyButton {
         guard !key.isFunctionKey, !spaceKeys.contains(where: { $0 === key }) else { return false }
-        // 18 键双拼两个字母的键自己接横滑选字母，不再移动光标。
-        if typesEighteenKeyShuangpin && key.gestureRecognizers?.contains(where: { $0 is EighteenKeySwipeGestureRecognizer }) == true {
+        // 14/18 键全拼或双拼的两字母键自己接横滑选字母，不再移动光标。
+        if typesExactLetterGridSwipe && key.gestureRecognizers?.contains(where: { $0 is EighteenKeySwipeGestureRecognizer }) == true {
           return false
         }
         // 九键全拼字母层的 1 打开标点，数字层和双拼的 1 才输入字符。
