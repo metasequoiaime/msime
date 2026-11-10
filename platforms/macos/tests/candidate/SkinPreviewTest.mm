@@ -781,7 +781,8 @@ int main(int argc, const char **argv) {
         NSFont *measuredPreedit = [preferences candidateFontOfSize:preferences.preeditFontSize];
         CGFloat measuredRow = ceil(measuredCandidate.ascender - measuredCandidate.descender + measuredCandidate.leading) + 8;
         CGFloat measuredHeader = MAX(22.0, ceil(measuredPreedit.ascender - measuredPreedit.descender + measuredPreedit.leading) + 6);
-        CGFloat familyHeight = 10 + 16 + 4 + 4 + measuredHeader + 5 * measuredRow + 18 + 4 + 14;
+        CGFloat familyHeight = 10 + 16 + 4 + 4 + measuredHeader + 5 * measuredRow +
+            4 * msime::mac::CandidateItemVerticalOuterSpacing(1.0) + 18 + 4 + 14;
         assert(std::abs(preview.previewContentHeight - familyHeight) < .01);
         Draw(preview);
         familyControl.stringValue = @"";
@@ -907,7 +908,8 @@ int main(int argc, const char **argv) {
         assert(actualHeight > ceil(fallbackFont.ascender - fallbackFont.descender + fallbackFont.leading));
         NSFont *headerFont = [preferences candidateFontOfSize:preferences.preeditFontSize];
         CGFloat headerHeight = MAX(22.0, MAX(ceil([@"nihao" sizeWithAttributes:@{NSFontAttributeName:headerFont}].height), ceil(headerFont.ascender - headerFont.descender + headerFont.leading)) + 6);
-        CGFloat fallbackPreviewHeight = 10 + 16 + 4 + 4 + headerHeight + 5 * (actualHeight + 8) + 18 + 4 + 14;
+        CGFloat fallbackPreviewHeight = 10 + 16 + 4 + 4 + headerHeight + 5 * (actualHeight + 8) +
+            4 * msime::mac::CandidateItemVerticalOuterSpacing(1.0) + 18 + 4 + 14;
         assert(std::abs(preview.previewContentHeight - fallbackPreviewHeight) < .01);
         Draw(preview);
         preferences.fontFamily = @"Segoe UI";
