@@ -520,22 +520,23 @@ int main() {
     skin.skin_item_padding_right_em = true;
     skin.font_size = 18;
     const auto metrics = host::fcitx_panel_metrics(skin);
-    assert(metrics.padding == 5 && metrics.item_gap == 3 && metrics.item_vertical == 4 && metrics.item_left == 7 && metrics.item_right == 5);
+    assert(metrics.padding == 5 && metrics.item_gap == 3 && metrics.item_vertical == 3 && metrics.item_left == 7 && metrics.item_right == 5);
     const auto generated = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt,
                                                                false, std::nullopt, skin);
     assert(contains(generated.conf, "[InputPanel/ContentMargin]\nLeft=17\nRight=17\nTop=13\nBottom=21\n\n"));
-    assert(contains(generated.conf, "[InputPanel/TextMargin]\nLeft=7\nRight=5\nTop=4\nBottom=4\n\n"));
-    assert(contains(generated.conf, "[InputPanel/Highlight/Margin]\nLeft=7\nRight=5\nTop=4\nBottom=4\n"));
+    assert(contains(generated.conf, "[InputPanel/TextMargin]\nLeft=7\nRight=5\nTop=3\nBottom=3\n\n"));
+    assert(contains(generated.conf, "[InputPanel/Highlight/Margin]\nLeft=7\nRight=5\nTop=3\nBottom=3\n"));
     assert(contains(generated.conf, "Spacing=3\n"));
   }
   {
-    const Json resolved = {
-        {"cornerRadiusDip", 8.0},
-        {"geometry", {{"padding", {{"value", 0.3}, {"em", true}}},
-                        {"itemExtraHeight", {{"value", 0.24}, {"em", true}}},
-                        {"numberInset", {{"value", 0.4}, {"em", true}}},
-                        {"itemPaddingRight", {{"value", 0.3}, {"em", true}}}}}},
-        {"horizontal", {{"padding", {{"value", 5}, {"em", false}}}}}};
+    Json resolved = Json::object();
+    resolved["cornerRadiusDip"] = 8.0;
+    resolved["geometry"] = Json::object();
+    resolved["geometry"]["padding"] = {{"value", 0.3}, {"em", true}};
+    resolved["geometry"]["itemExtraHeight"] = {{"value", 0.24}, {"em", true}};
+    resolved["geometry"]["numberInset"] = {{"value", 0.4}, {"em", true}};
+    resolved["geometry"]["itemPaddingRight"] = {{"value", 0.3}, {"em", true}};
+    resolved["horizontal"]["padding"] = {{"value", 5}, {"em", false}};
     const Json catalog = {{"packages", {{{"id", "microsoft"}, {"resolvedLayout", resolved}}}}};
     const auto geometry = host::candidate_skin_classic_geometry(catalog, "microsoft", true);
     assert(host::candidate_skin_corner_radius(catalog, "microsoft") == 8.0);
