@@ -1021,8 +1021,9 @@ final class ImeVoiceEntry {
             }
         });
         listening = view;
-        int height = BoundsPolicy.atLeast(keyArea.getHeight(),
-            s.pixels(KeyboardGeometry.NINE_KEY_HEIGHT_DP));
+        // 已测量的 26 键区可能低于九键兜底高度；覆盖层与负边距必须等高，否则开始聆听会撑高窗口。
+        int height = keyArea.getHeight() > 0 ? keyArea.getHeight()
+            : s.pixels(KeyboardGeometry.NINE_KEY_HEIGHT_DP);
         ViewGroup.LayoutParams params = keyArea instanceof LinearLayout
             ? LayoutPolicy.matchWidthHeightPx(height)
             : new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height);

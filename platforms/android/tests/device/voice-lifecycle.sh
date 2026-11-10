@@ -72,12 +72,14 @@ if [[ "$mode" == empty ]]; then
       app.msime.android.test/app.msime.android.test.SyntheticSpeechSetup)
     [[ "$setup" == *MSIME_SPEECH_SETUP_PASSED* ]]
     shot=/sdcard/Android/data/app.msime.android/files/voice-empty-$scenario.png
-    "$adb" -s "$serial" shell rm -f "$shot"
+    failure_shot=/sdcard/Android/data/app.msime.android/files/voice-empty-$scenario-failure.png
+    "$adb" -s "$serial" shell rm -f "$shot" "$failure_shot"
     result=$("$adb" -s "$serial" shell am instrument -w -e voice-empty "$scenario" \
       app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
     printf '%s\n' "$result"
     "$adb" -s "$serial" pull "$shot" "target/android/voice-empty-$scenario-api$api.png" >/dev/null 2>&1 || true
-    [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]]
+    "$adb" -s "$serial" pull "$failure_shot" "target/android/voice-empty-$scenario-failure-api$api.png" >/dev/null 2>&1 || true
+    [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || exit 1
   done
   exit
 fi

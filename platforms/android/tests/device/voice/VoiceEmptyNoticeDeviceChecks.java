@@ -67,7 +67,7 @@ final class VoiceEmptyNoticeDeviceChecks {
             long deadline = SystemClock.uptimeMillis() + 15000;
             boolean captured = false;
             do {
-                if (!keyboard.equals(keyboardBounds())) throw new AssertionError("空语音改变了输入法窗口范围");
+                assertKeyboardBounds();
                 Bitmap screenshot = t.automation.takeScreenshot();
                 if (screenshot == null) throw new AssertionError("空语音提示截图不可用");
                 try {
@@ -106,6 +106,18 @@ final class VoiceEmptyNoticeDeviceChecks {
                 SystemClock.sleep(50);
             } while (SystemClock.uptimeMillis() < deadline);
             throw new AssertionError("空语音提示没有自动消失");
+        } catch (Exception | AssertionError failure) {
+            // 在恢复偏好和重启输入法之前留下合成窗口现场，不能只保留清理后的首页。
+            Bitmap screenshot = t.automation.takeScreenshot();
+            if (screenshot != null) {
+                try (FileOutputStream output = new FileOutputStream(new File(
+                        t.getTargetContext().getExternalFilesDir(null), "voice-empty-" + scenario + "-failure.png"))) {
+                    if (!screenshot.compress(Bitmap.CompressFormat.PNG, 100, output))
+                        throw new AssertionError("空语音失败截图写入失败");
+                } catch (Exception | AssertionError captureFailure) { failure.addSuppressed(captureFailure); }
+                finally { screenshot.recycle(); }
+            }
+            throw failure;
         } finally {
             t.automation.setOnAccessibilityEventListener(null);
             if (original == null) Files.deleteIfExists(preferences.toPath());
@@ -127,7 +139,7 @@ final class VoiceEmptyNoticeDeviceChecks {
 
     private void stable() {
         t.dropStaleNodes();
-        if (!keyboard.equals(keyboardBounds())) throw new AssertionError("空语音提示改变了键盘窗口范围");
+        assertKeyboardBounds();
         AccessibilityNodeInfo key = null, tools = null, editor = null;
         for (var window : t.automation.getWindows()) {
             if (key == null) key = t.find(window.getRoot(), t.key("a"));
@@ -137,6 +149,12 @@ final class VoiceEmptyNoticeDeviceChecks {
         if (key == null || !letter.equals(bounds(key))) throw new AssertionError("空语音提示移动了按键区");
         if (tools == null || !toolbar.equals(bounds(tools))) throw new AssertionError("空语音提示改变了工具栏范围");
         if (editor == null || !editor.isFocused()) throw new AssertionError("空语音提示抢走了编辑器焦点");
+    }
+
+    private void assertKeyboardBounds() {
+        Rect actual = keyboardBounds();
+        if (!keyboard.equals(actual)) throw new AssertionError("空语音改变了输入法窗口范围：expected="
+            + keyboard + ", actual=" + actual);
     }
 
     private Rect keyboardBounds() {
