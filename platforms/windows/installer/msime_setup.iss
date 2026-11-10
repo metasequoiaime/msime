@@ -273,9 +273,6 @@ const
     所以下载页统一给简体中文版，省得用户落到英文页上再自己切。}
   WebView2DownloadUrl =
     'https://developer.microsoft.com/zh-cn/microsoft-edge/webview2';
-  VCRuntimeKey = 'Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x64';
-  { 当前 Windows 发布构建使用 Visual Studio 2026 的 v14.50 工具链；更旧的 v14.29 在 Server 2022 上会让 Host API 切换时崩溃。}
-  VCRuntimeMinimumMinor = 50;
   VCRuntimeDownloadUrl =
     'https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist?view=msvc-170';
 
@@ -314,79 +311,7 @@ begin
     Result := '';
 end;
 
-// 用注册表判定，而不是去 System32 里找 vcruntime140.dll：Setup.exe 是 32 位进程，
-// Pascal Script 的 FileExists 会被 WOW64 重定向到 SysWOW64（[Files] 和 Exec 里的
-// {sys} 由 Inno 自己处理，脚本函数不管），结果查的是 x86 运行库——只装了 x64 redist
-// 的机器会被误判成缺少 x64 运行库。绕开重定向的两个办法都不可移植：
-// EnableFsRedirection 在 Inno Setup 7 里已被移除，而它的替代品在 6.x 里还不存在；
-// {sysnative} 对 64 位安装器又不可用。注册表访问没有这个问题，HKLM32 / HKLM64
-// 两个视图都是显式指定的。
-//
-// 要求与发布构建相同或更新的 v14.50，而不是只看 Installed=1：只装了旧版
-// 运行库的机器同样有 Installed=1，但在 Server 2022 切换输入法时可能让 Host API 崩溃。
-// 32 位 TSF DLL 用的是静态 CRT（tsf/CMakeLists.txt 里的 MSVC_RUNTIME_LIBRARY），
-// 所以不必检查 x86 redist。
-// 注意：Inno Setup 的花括号注释不能嵌套，上面提到的常量会提前闭合 { } 注释，
-// 所以这一段只能用行注释。
-function VCRuntimeInstalledInView(RootKey: Integer): Boolean;
-var
-  Installed: Cardinal;
-  Major: Cardinal;
-  Minor: Cardinal;
-begin
-  Result :=
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Installed', Installed) and
-    (Installed = 1) and
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Major', Major) and
-    RegQueryDWordValue(RootKey, VCRuntimeKey, 'Minor', Minor) and
-    ((Major > 14) or ((Major = 14) and (Minor >= VCRuntimeMinimumMinor)));
-end;
-
-{ redist 的安装包是 32 位的，键通常落在 WOW6432Node 下，但较新的版本两个视图都写，
-  所以两边都查。}
-function VCRuntimeIsInstalled: Boolean;
-var
-  RegistryInstalled: Boolean;
-  ResultCode: Integer;
-  PowerShellStarted: Boolean;
-begin
-  RegistryInstalled :=
-    VCRuntimeInstalledInView(HKLM32) or VCRuntimeInstalledInView(HKLM64);
-
-  { 注册表键在某些 Server 2022 安装中可能不存在，但 Host API 实际加载的是
-    System32 中的 DLL，所以先用原生 64 位 PowerShell检查三个文件的版本。
-    只有无法启动 Windows PowerShell 时才回退到双视图注册表结果；不能让注册表
-    缺失把已经可用的实际运行库误报成缺组件。 }
-  PowerShellStarted :=
-    {#ExecNativeSys}(
-      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
-        '$minimum = [version]''14.50.0.0''; $ok = $true; ' +
-        'foreach ($name in @(''msvcp140.dll'',''vcruntime140.dll'',''vcruntime140_1.dll'')) { ' +
-        '$path = Join-Path $env:windir (''System32\'' + $name); ' +
-        '$version = (Get-Item -LiteralPath $path -ErrorAction SilentlyContinue).VersionInfo.FileVersion; ' +
-        'if (-not $version -or ([version]$version -lt $minimum)) { $ok = $false } }; ' +
-        'if ($ok) { exit 0 } else { exit 1 }"',
-      '',
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode
-    );
-  if PowerShellStarted then
-    Result := ResultCode = 0
-  else
-    Result := RegistryInstalled;
-end;
-
-{ 只用于写日志，不参与判定。}
-function ReadVCRuntimeVersion: String;
-begin
-  Result := '';
-  if not RegQueryStringValue(HKLM32, VCRuntimeKey, 'Version', Result) then
-    if not RegQueryStringValue(HKLM64, VCRuntimeKey, 'Version', Result) then
-      Result := '';
-  Result := Trim(Result);
-end;
+#include "VcRuntimePrerequisite.iss"
 
 procedure OpenDownloadPage(const Url: String);
 var
@@ -419,7 +344,7 @@ begin
 
   NeedsVCRuntime := not VCRuntimeIsInstalled;
   if NeedsVCRuntime then
-    Log('Prerequisite missing or too old: Visual C++ v14.50+ Redistributable (x64).')
+    Log('Prerequisite missing or too old: Visual C++ ' + VCRuntimeMinimumVersion + '+ Redistributable (x64).')
   else
     Log('Visual C++ runtime found: ' + ReadVCRuntimeVersion);
 
@@ -430,7 +355,7 @@ begin
   if NeedsVCRuntime then
   begin
     Prompt := Prompt + #13#10 +
-      '● Visual C++ v14.50 或更新的可再发行组件包（x64）' + #13#10 +
+      '● Visual C++ ' + VCRuntimeMinimumVersion + ' 或更新的可再发行组件包（x64）' + #13#10 +
       '   当前版本过旧时，Windows Server 2022 切换输入法可能导致资源管理器退出。' + #13#10 +
       '   下载：' + VCRuntimeDownloadUrl + #13#10 +
       '   直链：https://aka.ms/vc14/vc_redist.x64.exe' + #13#10 +
