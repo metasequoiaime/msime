@@ -108,8 +108,8 @@ test("macOS 插件列表拖动后保存卡片展示顺序", async () => {
   };
   fireEvent.dragStart(firstButton, { dataTransfer });
   const secondCard = secondButton.parentElement?.parentElement;
-  expect(secondCard).toBeTruthy();
-  fireEvent.drop(secondCard!, { dataTransfer });
+  if (!secondCard) throw new Error("合成插件卡片未找到");
+  fireEvent.drop(secondCard, { dataTransfer });
   expect(onChange).toHaveBeenCalledWith(
     expect.objectContaining({
       plugin_order: ["command_table/synthetic-commands-b", "command_table/synthetic-commands-a"],
