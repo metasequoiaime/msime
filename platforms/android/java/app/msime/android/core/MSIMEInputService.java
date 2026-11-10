@@ -11011,7 +11011,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateHeightSpacer = new View(this);
         candidateRegion.addView(candidateHeightSpacer, LayoutPolicy.matchWidthHeightPx(0));
         imeToolbar.buildCandidateHeader(candidateRegion);
-        imeCompositionEditor.install(candidateRegion);
+        imeCompositionEditor.install(keyboardSurface);
         diagnosticView = ViewPolicy.textLabel(this, "", 12);
         KeyboardTypographyPolicy.setKeyTextSize(diagnosticView, 12);
         diagnosticView.setContentDescription("输入提示");
@@ -11446,6 +11446,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void alignOverlaysBelowTopRow(View region) {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
+        imeCompositionEditor.alignTopTo(region);
         for (View overlay : new View[] {moreToolsScroll, expandedCandidateCanvas, imeNineKeyPanel.root(),
                 phraseScroll, emojiPanel, symbolPanel, clipboardSurface, skinScroll, schemeScroll,
                 aiPolishContainer}) {
