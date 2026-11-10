@@ -580,8 +580,12 @@ final class FourteenKeyKeyboardTests: XCTestCase {
 
   /// 双拼 14 键的两字母键复用同一横滑识别器；BN 右滑、UI 左滑后只保留 ni 读音。
   func testShuangpinFourteenKeySwipesPickExactLetters() throws {
+    let previousDocument = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
     let previousLayout = TouchShuangpinLayoutPreference.layout
-    defer { TouchShuangpinLayoutPreference.layout = previousLayout }
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
+      TouchShuangpinLayoutPreference.layout = previousLayout
+    }
     XCTAssertTrue(InputSchemePreference.select(.shuangpin))
     XCTAssertTrue(TouchShuangpinLayoutPreference.save(.fourteenKey))
     let controller = makeController(width: 390)
