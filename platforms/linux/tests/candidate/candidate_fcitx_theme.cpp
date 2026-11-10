@@ -524,9 +524,9 @@ int main() {
     const auto generated = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt,
                                                                false, std::nullopt, skin);
     assert(contains(generated.conf, "[InputPanel/ContentMargin]\nLeft=17\nRight=17\nTop=13\nBottom=21\n\n"));
-    assert(contains(generated.conf, "[InputPanel/TextMargin]\nLeft=7\nRight=5\nTop=3\nBottom=3\n\n"));
-    assert(contains(generated.conf, "[InputPanel/Highlight/Margin]\nLeft=7\nRight=5\nTop=3\nBottom=3\n"));
-    assert(contains(generated.conf, "Spacing=3\n"));
+    assert(contains(generated.conf, "[InputPanel/TextMargin]\nLeft=9\nRight=6\nTop=5\nBottom=4\n\n"));
+    assert(contains(generated.conf, "[InputPanel/Highlight/Margin]\nLeft=9\nRight=6\nTop=5\nBottom=4\n"));
+    assert(!contains(generated.conf, "Spacing=3\n"));
   }
   {
     Json resolved = Json::object();
