@@ -150,6 +150,9 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           timeout 30 "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           timeout 30 "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
+          # 主题测试在恢复偏好前截取专用合成编辑器，保留遮挡和实际键帽颜色；不从真实编辑器采集。
+          mkdir -p target/android/device-test
+          timeout 30 "$adb" -s "$SERIAL" pull /data/local/tmp/msime-theme-mode-failure.png target/android/device-test/theme-mode-failure.png || true
           # 模拟器中途消失时 adb 什么也拿不到，只能从主机这边找原因：内核日志里的 OOM 记录、此刻的内存，以及模拟器自带崩溃检测写下的 crashpad 数据（emulator.log 开头的 Storing crashdata in 那个目录）。
           { free -m; echo; sudo dmesg -T | tail -n 300; } > target/android/host.txt 2>&1 || true
           mkdir -p target/android/emulator-crash

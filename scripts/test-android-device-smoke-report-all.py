@@ -232,6 +232,12 @@ def main() -> None:
         after = run.calls[run.calls.index("instrument CandidateCanvasDeviceSmoke") + 1:]
         run.expect(f"adb -s {SERIAL} shell am force-stop app.msime.android.test" in after and f"adb -s {SERIAL} shell ime set {IME}" in after, "失败后应收起合成编辑器并重新选中输入法")
 
+        run = Run(base, "theme-pass", ["--theme"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("ThemeModeDeviceSmoke"), "主题专项必须包含真实主输入与主题断言")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke") and not run.ran_script("clipboard-export"), "主题专项不重复运行无关长套件")
+        run = Run(base, "theme-fail", ["--theme"], fail="ThemeModeDeviceSmoke")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "主题专项失败不能被定向入口吞掉")
+
         run = Run(base, "gate", [], fail="DeviceSmoke")
         run.expect(run.code == 1 and "system input path failed" in run.stopped_line(), "系统输入主路径失败应当场停下并说明原因")
         run.expect(not run.ran("FourteenKeyDeviceSmoke:eighteen_key"), "主路径失败后不应再跑后面的检查")

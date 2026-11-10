@@ -148,6 +148,11 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             tap(key("n"));
             tap(key("i"));
             awaitColour(describedPrefix("候选 1："), lightCandidate);
+        } catch (Exception | AssertionError failure) {
+            // finally 会离开合成编辑器；先留下失败当时的画面，避免事后只能看到已恢复的首页。
+            try { shellDiscard("screencap -p /data/local/tmp/msime-theme-mode-failure.png"); }
+            catch (Exception captureFailure) { failure.addSuppressed(captureFailure); }
+            throw failure;
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             shellDiscard("cmd uimode night no");
@@ -229,6 +234,13 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Control did not restore its light-mode colour: expected="
-            + Integer.toHexString(expected) + ", actual=" + Integer.toHexString(actual));
+            + Integer.toHexString(expected) + ", actual=" + Integer.toHexString(actual)
+            + ", bounds=" + bounds(match) + ", emojiVisible=" + visible(described("表情面板")));
+    }
+
+    private boolean visible(Predicate<AccessibilityNodeInfo> match) {
+        for (var window : automation.getWindows())
+            if (find(window.getRoot(), match) != null) return true;
+        return false;
     }
 }
