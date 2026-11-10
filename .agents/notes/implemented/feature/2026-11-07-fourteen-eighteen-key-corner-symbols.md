@@ -2,7 +2,7 @@
 
 Status: implemented
 
-Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)；iOS、鸿蒙未做，见文末「各端状态」。
+Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)；iOS 的实现见本次 iOS PR，鸿蒙未做，见文末「各端状态」。
 
 ## Problem
 
@@ -67,7 +67,7 @@ Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-andr
 ### 各端状态
 
 - Android：已实现，见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)。#11040 第 2 项的 Android 部分随它一起落地：组字中长按不再先结束组字。
-- iOS：未做。符号表照上面两张抄一份；长按 0.5 秒和纵滑在不组字时输入符号，组字中先结束组字。
+- iOS：已实现。`FourteenKeyLayout.Key.cornerHint` 按上面两张表提供角标，复用 `KeyboardKeyButton` 的 0.5 秒长按和「滑动输入符号」方向；组字中先结束组字，再经现有标点路由输入，角标显示跟随「显示字母键角标」，18 键双拼横滑与纵滑按方向互斥。验证覆盖键表角标单测；完整 Xcode 与真机验收仍待 iOS 设备环境。
 - 鸿蒙：未做。同 iOS；组字中纵滑按点按处理，长按经引擎原样上屏后输入。
 
 ### 历史笔记审计

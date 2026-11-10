@@ -358,6 +358,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var eighteenKeyRowViews: [UIView] = []
   /// 14 键和 18 键的各键和它代表的那一组字母，长按和横滑时据此找出这一键的字母。
   private var letterGridButtons: [(button: UIButton, key: FourteenKeyLayout.Key)] = []
+  private var letterGridCornerLabels: [ObjectIdentifier: UILabel] = [:]
   /// 第三排两端分词键和 ⌫ 的宽度：手机上是 26 键 ⇧ 和 ⌫ 的 44pt，iPad 上是 26 键 ⇧ 占一排的比例（`applyTabletLetterKeys` 切换）。
   private var fourteenKeyEdgeWidths: [(phone: NSLayoutConstraint, tablet: NSLayoutConstraint)] = []
   /// 14 键和 18 键第三排最左的键：组字时是「分词」，送 `'`；空闲时是「符」，打开符号面板，与九键的 1 键相同。
@@ -1284,6 +1285,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (letter.button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
       (letter.button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
     }
+    updateLetterGridCornerHints()
     for space in spaceKeys {
       space.configuration?.contentInsets = .zero
       space.titleLabel?.adjustsFontSizeToFitWidth = true
@@ -3422,7 +3424,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
-  /// 14 键或 18 键的一排（`FourteenKeyLayout`、`EighteenKeyLayout`）。点一下把这一组的组码交给引擎（`handleLetterGridKey`），长按弹出这一键的字母；18 键两个字母的键还挂着双拼横滑（`handleEighteenKeySwipe`）。键都用 `makeKey` 建，不进 `letterButtons` 和滑行的 `glideLetterKeys`，所以 Shift 的大小写、双拼键位提示、角标滑动和滑行输入都碰不到它们。第三排两端是分词键和 ⌫。14 键第二排不缩进，两端键与 26 键的 ⇧、⌫ 同宽；18 键第一排和第三排都是七个等宽的键（第三排两端键与字母键同宽），第二排六个键平分整行，A 与 Q 左对齐、L 与 P 右对齐，与 Android、鸿蒙相同。
+  /// 14 键或 18 键的一排（`FourteenKeyLayout`、`EighteenKeyLayout`）。点一下把这一组的组码交给引擎（`handleLetterGridKey`），角标复用 26 键的滑动和长按路径；18 键两个字母的键还挂着双拼横滑（`handleEighteenKeySwipe`）。键都用 `makeKey` 建，不进 `letterButtons` 和滑行的 `glideLetterKeys`，所以 Shift 的大小写、双拼键位提示和滑行输入都碰不到它们。第三排两端是分词键和 ⌫。14 键第二排不缩进，两端键与 26 键的 ⇧、⌫ 同宽；18 键第一排和第三排都是七个等宽的键（第三排两端键与字母键同宽），第二排六个键平分整行，A 与 Q 左对齐、L 与 P 右对齐，与 Android、鸿蒙相同。
   private func makeLetterGridRow(_ keys: [FourteenKeyLayout.Key], grid: LetterKeyGrid, includesEdges: Bool) -> UIStackView {
     let prefix = grid == .eighteenKey ? "eighteenKey" : "fourteenKey"
     let row = makeRow()
@@ -3435,18 +3437,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityIdentifier = "\(prefix)\(key.face)"
       // 不画按键预览气泡，与九键和 Android、鸿蒙的 14 键相同：一键是一组字母，气泡里放大的键面说不出这一下打的是哪个字母。
       applyLetterFont(to: button)
+      let cornerLabel = attachCornerHintLabel(to: button)
+      letterGridCornerLabels[ObjectIdentifier(button)] = cornerLabel
+      (button as? KeyboardKeyButton)?.cornerHint = key.cornerHint
+      (button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
+      (button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
+      (button as? KeyboardKeyButton)?.cornerHintRequiresVerticalDominance = true
+      (button as? KeyboardKeyButton)?.onCornerHint = { [weak self] hint in
+        guard let self else { return }
+        self.countKeyPress(key.keyID)
+        self.handleLetterGridCornerHint(hint)
+      }
+      button.accessibilityHint = key.cornerHint.map { "沿设定方向滑动或长按输入 \($0)" }
       if grid == .eighteenKey {
         // 七个键一排，窄屏上两个字母的键面贴着键边；与 Android 的 12–22 自适应字号一样只缩小、不换行。
         button.configuration?.contentInsets = .zero
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 12 / 22
-      }
-      if !key.holdLetters.isEmpty {
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleFourteenKeyHold(_:)))
-        // 与九键的长按同一个时长，理由见 `makeNineKeyLayout`。
-        hold.minimumPressDuration = Self.nineKeyHoldDuration
-        button.addGestureRecognizer(hold)
-        button.accessibilityHint = "长按输入 " + key.holdLetters.joined(separator: " 或 ")
       }
       // 横滑总是挂上，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到双拼后不必重建按键。
       if grid == .eighteenKey && key.letters.count == 2 {
@@ -3495,6 +3502,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.gridKey(key.code))
   }
 
+  /// 14/18 键角标先结束当前组字，再沿 26 键的中文标点路由输入符号；这样分号不会在组字中被误当成辅助码分隔符。
+  private func handleLetterGridCornerHint(_ symbol: String) {
+    if hasComposition { render(session.finishComposition()) }
+    handleSymbol(symbol)
+  }
+
+  /// 重画 14/18 键的角标文字，并把滑动设置同步到这些按键。角标是否显示只影响标签，触发逻辑保持可用。
+  private func updateLetterGridCornerHints() {
+    let sendsChinesePunctuation = isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation
+      && (!typesZhuyin || zhuyinWritesChinesePunctuation)
+    for (button, key) in letterGridButtons {
+      let ascii = key.cornerHint
+      let shown = ascii.flatMap { sendsChinesePunctuation
+        ? Self.chineseSymbolFace($0, cornerQuotes: currentCornerQuotes, hollowBrackets: currentHollowBrackets,
+                                 enumerationCommaBackslash: currentEnumerationCommaBackslash,
+                                 enumerationCommaSlash: currentEnumerationCommaSlash) ?? $0
+        : $0 }
+      letterGridCornerLabels[ObjectIdentifier(button)]?.text = shown
+      letterGridCornerLabels[ObjectIdentifier(button)]?.isHidden = shown == nil || !letterCornerHintsEnabled
+      (button as? KeyboardKeyButton)?.cornerHint = ascii
+      (button as? KeyboardKeyButton)?.swipesCornerHint = swipeSymbolsEnabled
+      (button as? KeyboardKeyButton)?.cornerHintSwipeDirection = swipeSymbolsDirection
+      (button as? KeyboardKeyButton)?.cornerHintRequiresVerticalDominance = true
+    }
+  }
+
   /// 14 键和 18 键第三排的分词键，照搬九键的 1 键：组字时送 `'`，在已打的组码末尾定一个音节分界，只定在哪里断、不定是哪个拼音；空闲时打开符号面板。五笔 14 键没有音节可分，引擎也不收 `'`，这个键总是打开符号面板。
   private func handleFourteenKeySeparator() {
     // 一个键一个键位 id：不论组字与否都记作符号键，与 Android、鸿蒙的 14 键相同。
@@ -3517,14 +3550,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if button.configuration?.title != face { button.configuration?.title = face }
       button.accessibilityLabel = splits ? "拼音分词" : "符号"
     }
-  }
-
-  /// 长按 14 键或 18 键的一键：弹出这一键的字母，选中后与九键一样先结束组字，再上屏这个字母。长按取代这次点按，所以按键在这里记一次，菜单里选的那一项不再记。
-  @objc private func handleFourteenKeyHold(_ gesture: UILongPressGestureRecognizer) {
-    guard gesture.state == .began, let button = gesture.view as? UIButton,
-          let key = letterGridButtons.first(where: { $0.button === button })?.key, !key.holdLetters.isEmpty else { return }
-    countKeyPress(key.keyID)
-    showKeyHoldOptions(from: button, options: key.holdLetters)
   }
 
   /// 18 键双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前双拼网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
@@ -5256,6 +5281,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ? "大写 \(lowercase.uppercased())" : "字母 \(lowercase.uppercased())"
       button.accessibilityValue = hint
     }
+    updateLetterGridCornerHints()
 
     // iPad 键盘第三排两端各有一个 ⇧，全拼分词时两个位置都就地更新。
     for button in [shiftButton, rightShiftButton].compactMap({ $0 }) {
@@ -7128,6 +7154,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.configuration?.title = key.face(semicolon: semicolon)
       button.accessibilityLabel = key.accessibilityLabel(semicolon: semicolon)
     }
+    updateLetterGridCornerHints()
     let numberPad = numberPadShown
     let nineKeyFrame = (nineKey && !showsSymbols) || strokePad || numberPad
     let symbolLayer = Self.drawsSymbolLayer(symbols: showsSymbols, numberPad: numberPad, dachen: dachen)
@@ -10570,7 +10597,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           ? currentStripBackground(skin)
           : skin.keyBackground.withAlphaComponent(0.6)
       }
-      if let label = node as? UILabel, label.accessibilityIdentifier == "keyNumberHint" { label.textColor = skin.secondary }
+      if let label = node as? UILabel,
+         label.accessibilityIdentifier == "keyNumberHint" || label.accessibilityIdentifier == "letterCornerHint" {
+        label.textColor = skin.secondary
+      }
       node.subviews.forEach { recolor($0) }
     }
     recolor(view)
