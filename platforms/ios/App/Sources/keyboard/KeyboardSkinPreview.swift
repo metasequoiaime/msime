@@ -79,6 +79,8 @@ struct KeyboardSkinPreview: View {
   private static let bottomRowHeight: CGFloat = 44
   /// 按键区宽度：画布按 390 点宽画，左右各留 7 点。
   private static let keysWidth: CGFloat = 390 - 14
+  /// 14 键第三排两端的功能键宽度，与真实手机键盘保持一致。
+  private static let letterGridEdgeWidth: CGFloat = 44
 
   /// 工具栏图标和标志只随顶栏缩小、不随它放大。
   private var toolbarContentScale: CGFloat { min(1, stripScale) }
