@@ -363,6 +363,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo card = awaitAny(node -> node.isLongClickable()
                 && node.getContentDescription() != null
                 && node.getContentDescription().toString().contains("右滑查看详情"));
+            card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
             Rect bounds = new Rect();
             card.getBoundsInScreen(bounds);
             if (bounds.width() > 0 && bounds.height() > 0 && bounds.equals(previous)) return card;
