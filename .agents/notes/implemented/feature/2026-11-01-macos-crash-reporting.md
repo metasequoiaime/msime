@@ -30,3 +30,5 @@ macOS 输入法通过共享 `CrashRecorder` 和 Host API 记录自身异常/信�
 发布包除维护者侧 dSYM 归档外，安装的语音 helper 也变大：它为崩溃采集经 apple-client 链入 Rust 宿主 staticlib。arm64 单架构、Release Rust 库、`strip -x` 后实测从约 0.25 MB 增到 2.5 MB（只依赖 Foundation/CoreFoundation）；不加 `-dead_strip`/`-dead_strip_dylibs` 时是 51 MB 并加载 AppKit，所以 helper 的 Release 链接与输入法一样去除无用归档成员和动态库。universal 包约为两倍。用户安装副本仍剥离局部符号。捕获记录可在对应构建身份下还原源码行，但不携带异常消息或目录。语音 helper 的平台适配多一个小型生命周期对象，换来授权目录和沙盒边界清晰。
 
 共享语义见[共享崩溃记录基础](../../implemented/architecture/2026-11-01-shared-crash-reporting-core.md)。
+
+输入法进程结束会话之后的退出方式由 [macOS 输入法进程一律以 SIGKILL 收尾](../bug-fix/2026-11-10-macos-im-exit-by-sigkill.md) 接管：会话照常结束，退出状态改为 9。

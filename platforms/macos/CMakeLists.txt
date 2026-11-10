@@ -146,13 +146,18 @@ add_test(NAME usage-reporting-nil-preferences-input COMMAND usage-reporting-path
 add_test(NAME usage-reporting-nil-preferences-settings COMMAND usage-reporting-path-test --nil-settings)
 set_tests_properties(usage-reporting-path usage-reporting-nil-preferences-input usage-reporting-nil-preferences-settings
   PROPERTIES RESOURCE_LOCK msime-usage-reporting-path-test)
-# 起子进程向它发 SIGTERM，检查会话照样结束、进程仍按 SIGTERM 退出；宿主函数由测试里的桩代替，同上链 apple-client。
-add_executable(usage-reporting-termination-test tests/core/UsageReportingTerminationTest.mm src/core/UsageReporting.mm)
+# 起子进程向它发 SIGTERM，检查会话照样结束、进程仍按 SIGTERM 退出，装了退出守卫的输入法进程则以 SIGKILL 退出；宿主函数由测试里的桩代替，同上链 apple-client。
+add_executable(usage-reporting-termination-test tests/core/UsageReportingTerminationTest.mm src/core/UsageReporting.mm src/core/ProcessExitGuard.mm)
 target_compile_options(usage-reporting-termination-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_compile_definitions(usage-reporting-termination-test PRIVATE MSIME_USAGE_REPORTING_TEST_SUPPORT="/tmp/msime-usage-reporting-termination-test")
 target_link_libraries(usage-reporting-termination-test PRIVATE apple-client)
 add_test(NAME usage-reporting-termination COMMAND usage-reporting-termination-test)
 set_tests_properties(usage-reporting-termination PROPERTIES TIMEOUT 60)
+# 输入法进程的每种结束方式（正常退出、失败退出、abort、内存故障、经崩溃记录器转交）都以 SIGKILL 收尾，imklaunchagent 才不计死亡次数。
+add_executable(process-exit-guard-test tests/core/ProcessExitGuardTest.mm src/core/ProcessExitGuard.mm)
+target_compile_options(process-exit-guard-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME process-exit-guard COMMAND process-exit-guard-test)
+set_tests_properties(process-exit-guard PROPERTIES TIMEOUT 60)
 # 真实宿主适配与共用观察线程；ABI 桩控制在途发送和授权换代。
 add_executable(usage-reporting-consent-test tests/core/UsageReportingConsentTest.mm)
 target_compile_options(usage-reporting-consent-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
@@ -176,7 +181,7 @@ add_executable(MSIMEClientInputMethod MACOSX_BUNDLE src/input/input_method_main.
 target_sources(MSIMEClientInputMethod PRIVATE src/core/AISettingsWindow.mm src/core/ScreenKeyboardPanel.mm src/cloud/CloudCandidateRequest.mm src/core/CustomTranslationBatch.mm src/voice/VoicePCMBuffer.mm src/voice/HTTPVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm src/voice/LocalVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
-target_sources(MSIMEClientInputMethod PRIVATE src/core/UsageReporting.mm)
+target_sources(MSIMEClientInputMethod PRIVATE src/core/UsageReporting.mm src/core/ProcessExitGuard.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/voice/GlobalVoiceCoordinator.mm src/voice/GlobalVoiceBackground.mm src/voice/GlobalVoiceSession.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework ServiceManagement")
