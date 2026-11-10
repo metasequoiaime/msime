@@ -368,6 +368,14 @@ inline std::string fcitx_margin(int left, int right, int top, int bottom) {
          "\nBottom=" + std::to_string(bottom) + "\n\n";
 }
 
+// classicui 没有候选项专属的间距字段，只能用 TextMargin 给每个候选框分摊行间距。奇数像素由上下（左右）两侧分别取进位和舍去，保证相邻候选之间的总间距不丢失。
+inline std::string fcitx_text_margin(const FcitxPanelMetrics &metrics) {
+  const int leading_gap = (metrics.item_gap + 1) / 2;
+  const int trailing_gap = metrics.item_gap / 2;
+  return fcitx_margin(metrics.item_left + leading_gap, metrics.item_right + trailing_gap,
+                      metrics.item_vertical + leading_gap, metrics.item_vertical + trailing_gap);
+}
+
 // The classic UI theme format has no accent colour and no hover state separate from the highlight, so the accent is not drawn; the candidate number takes its own colour only on Fcitx5 releases with CandidateLabelColor, and follows the text on older ones, which ignore the key. Everything else the format can carry comes from the same resolved theme IBus draws. Without a selected fill the highlight is transparent and the selected row is told apart by its text colour alone. The menu (the tray and status-area menus the classic UI draws) derives from the same theme's candidate palette as THEME_CONTRACT §3 maps it, through fcitx_menu_palette, and keeps the Linux menu tokens for every slot the theme leaves null.
 //
 // The card, its rounded highlight and the menu are nine-slice images drawn by fcitx_add_shape; each section also keeps its flat colour, which the classic UI draws instead when it cannot load the image. Where no compositor runs on X11 the classic UI has no alpha channel, so the transparent corners and shadow show black there, as they do for any Fcitx5 theme with rounded images.
@@ -537,8 +545,7 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
        << "NormalColor=" << fcitx_theme_color(text) << "\n"
        << "HighlightCandidateColor=" << fcitx_theme_color(selected_text) << "\n"
        << "HighlightColor=" << fcitx_theme_color(selected_text) << "\n"
-       << "HighlightBackgroundColor=" << highlight << "\n"
-       << "Spacing=" << metrics.item_gap << "\n";
+       << "HighlightBackgroundColor=" << highlight << "\n";
   if (colors.number) conf << "CandidateLabelColor=" << fcitx_theme_color(*colors.number) << "\n";
   if (colors.selected_number || colors.number)
     conf << "HighlightCandidateLabelColor=" << fcitx_theme_color(colors.selected_number.value_or(selected_text)) << "\n";
@@ -568,12 +575,12 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
                         : fcitx_margin(content_left + lead, metrics.shadow_right + pad, shadow_top + pad,
                                        metrics.shadow_bottom + pad))
        << "[InputPanel/TextMargin]\n"
-       << fcitx_margin(metrics.item_left, metrics.item_right, metrics.item_vertical, metrics.item_vertical)
+       << fcitx_text_margin(metrics)
        << "[InputPanel/Highlight]\n";
   if (!highlight_image.empty()) conf << "Image=" << highlight_image << "\n";
   conf << "Color=" << highlight << "\n\n"
        << "[InputPanel/Highlight/Margin]\n"
-       << fcitx_margin(metrics.item_left, metrics.item_right, metrics.item_vertical, metrics.item_vertical);
+       << fcitx_text_margin(metrics);
   if (style.page_arrows)
     conf << "[InputPanel/PrevPage]\n"
          << "Image=" << page_prev << "\n\n"
