@@ -15,6 +15,28 @@ import org.json.JSONObject;
 
 /** 仅在专用 AVD 上切换系统深浅，验证真实键盘、候选与皮肤列表同步刷新。 */
 public final class ThemeModeDeviceSmoke extends DeviceSmoke {
+    private boolean tracedCompositionEditor;
+
+    /** 只记录合成编辑器中的首次覆盖，区分点击夹具与异步回声触发，不关闭面板或放宽配色断言。 */
+    private void traceCompositionEditor() {
+        if (tracedCompositionEditor || !visible(described("拼写编辑面板"))) return;
+        tracedCompositionEditor = true;
+        android.os.Bundle diagnostic = new android.os.Bundle();
+        diagnostic.putString("theme_first_composition_overlay", stage);
+        AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+        diagnostic.putInt("editor_selection_start", editor.getTextSelectionStart());
+        diagnostic.putInt("editor_selection_end", editor.getTextSelectionEnd());
+        sendStatus(0, diagnostic);
+        try { shellDiscard("screencap -p /data/local/tmp/msime-theme-first-overlay.png"); }
+        catch (Exception failure) { throw new AssertionError("无法保存合成编辑器覆盖现场", failure); }
+    }
+
+    @Override protected void tap(Predicate<AccessibilityNodeInfo> match)
+            throws java.util.concurrent.TimeoutException {
+        super.tap(match);
+        traceCompositionEditor();
+    }
+
     @Override protected String successDescription() {
         return "light-dark-light keyboard and candidate colours, skin picker filtering and live emoji colour preference";
     }
@@ -122,7 +144,10 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             awaitColour(described("表情面板"), lightEmoji);
             stage = "keyboard skin choices repaint the candidate strip";
             restartIme();
+            stage = "refocus existing editor after emoji checks";
+            traceCompositionEditor();
             tap(field("msime-test-plain"));
+            stage = "keyboard skin choices repaint the candidate strip";
             synthetic.put("theme", "system").put("emoji_theme", "follow")
                 .put("android_keyboard_skin_light", "theme:paper")
                 .put("android_keyboard_skin_dark", "theme:night");
@@ -214,6 +239,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
     }
 
     private Rect bounds(Predicate<AccessibilityNodeInfo> match) {
+        traceCompositionEditor();
         Rect result = new Rect();
         awaitStableBounds(match).getBoundsInScreen(result);
         return result;
