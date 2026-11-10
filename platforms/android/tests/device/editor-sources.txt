@@ -71,6 +71,7 @@ platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/RandomDigitsDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
+platforms/android/tests/device/keyboard/ShuangpinUniformKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
 platforms/android/tests/device/settings/SettingsSearchAnchorDeviceChecks.java
 platforms/android/tests/device/settings/LocalVoicePauseDeviceChecks.java
@@ -215,6 +216,7 @@ platforms/android/tests/device/voice/SyntheticSpeechSetup.java
 platforms/android/tests/device/keyboard/SymbolPanelLayoutDeviceSmoke.java
 platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
 platforms/android/tests/device/clipboard/SpaceCopyDeviceChecks.java
+platforms/android/tests/device/clipboard/SpaceCopyFailureNoticeChecks.java
 platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/TallReturnDeviceChecks.java

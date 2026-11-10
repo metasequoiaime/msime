@@ -21,12 +21,16 @@ final class SpaceCopyDeviceChecks {
     private float x;
     private float y;
     private boolean pressed;
+    private SpaceCopyFailureNoticeChecks failureNotice;
 
     SpaceCopyDeviceChecks(DeviceSmoke test) { this.test = test; }
 
     void run(boolean preview) throws Exception {
         clipboard = test.getTargetContext().getSystemService(ClipboardManager.class);
-        try { checks(preview); }
+        try (SpaceCopyFailureNoticeChecks probe = new SpaceCopyFailureNoticeChecks(test)) {
+            failureNotice = probe;
+            checks(preview);
+        }
         finally { if (pressed) release(true); }
     }
 
@@ -117,6 +121,20 @@ final class SpaceCopyDeviceChecks {
         swipe();
         expectClipboard(SENTINEL);
         if (copyAttempts() != 0) throw new AssertionError("Password field received copy request");
+        test.stage = "space copy empty editor shows a phone-top notice";
+        open("--ez empty true");
+        seed();
+        failureNotice.before();
+        swipe();
+        failureNotice.verify();
+        expectClipboard(SENTINEL);
+        if (copyAttempts() != 0) throw new AssertionError("Empty editor received a copy request");
+        AccessibilityNodeInfo empty = test.await(test.field(SOURCE));
+        empty.refresh();
+        if (!empty.isFocused() || (empty.getText() != null && empty.getText().length() != 0)
+                || empty.getExtras().getInt("synthetic-selection-start", -1) != 0
+                || empty.getExtras().getInt("synthetic-selection-end", -1) != 0)
+            throw new AssertionError("空输入框的真实选区、文本或焦点被复制失败改变");
         test.stage = "space copy WebView textarea keeps text and caret";
         test.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.SpaceCopyEditorActivity --ez webview true");
         test.tap(editor("msime-test-copy-web"));

@@ -143,6 +143,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
     private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice spaceCopyNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -2233,6 +2234,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -2272,6 +2274,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInputView(boolean finishingInput) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -2350,6 +2353,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -2431,6 +2435,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
@@ -5364,6 +5369,9 @@ public final class MSIMEInputService extends InputMethodService {
                     || !before.toString().endsWith(composing.substring(0, offset))
                     || !after.toString().startsWith(composing.substring(offset))) return false;
         } catch (RuntimeException disconnected) { return false; }
+        // 配置重建后的迟到回报可能没有匹配到写入预期，但它仍停在引擎当前光标。
+        // 只有实际移动组字光标才进入编辑；普通打字的末尾回报不应打开面板。
+        if (target == InputViewValuePolicy.integer(view, "caret_position", editing.length())) return true;
         moveCompositionCaret(target);
         imeCompositionEditor.open();
         return true;
@@ -10934,6 +10942,7 @@ public final class MSIMEInputService extends InputMethodService {
         long createStartedAt = SystemClock.uptimeMillis();
         imeFunctionPanel.close();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -11461,6 +11470,12 @@ public final class MSIMEInputService extends InputMethodService {
             textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
+    }
+
+    void showSpaceCopyFailure(String label) {
+        long request = spaceCopyNotice.begin();
+        spaceCopyNotice.show(request, label, "空格复制提示：", "MSIME space copy notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
     }
 
     /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
