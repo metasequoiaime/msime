@@ -114,6 +114,12 @@ def main() -> int:
             "VC runtime accepted without requiring the release toolchain version")
     require(re.search(r"RegQueryDWordValue\(\s*RootKey\s*,\s*VCRuntimeKey\s*,\s*'Installed'", view) is not None,
             "VC runtime Installed value is not read")
+    require("WindowsPowerShell\\v1.0\\powershell.exe" in installed,
+            "VC runtime check does not inspect the native System32 copy")
+    require("System32\\vcruntime140.dll" in installed,
+            "VC runtime check does not name the native vcruntime140.dll")
+    require("[version]$version -ge [version]''14.50.0.0''" in installed,
+            "VC runtime file version is not compared with the release minimum")
 
     # WebView2 仍允许用户选择继续；VC 版本过旧会明确阻止安装，静默部署也必须
     # 以失败退出，避免安装成功后在宿主进程里崩溃。

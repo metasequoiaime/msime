@@ -345,9 +345,32 @@ end;
 { redist 的安装包是 32 位的，键通常落在 WOW6432Node 下，但较新的版本两个视图都写，
   所以两边都查。}
 function VCRuntimeIsInstalled: Boolean;
+var
+  ResultCode: Integer;
+  PowerShellStarted: Boolean;
 begin
   Result :=
     VCRuntimeInstalledInView(HKLM32) or VCRuntimeInstalledInView(HKLM64);
+  if not Result then
+    exit;
+
+  { 注册表可能保留在较新版本，而 System32 中的 DLL 被旧安装或手工替换。
+    Host API 实际加载的是这个文件，所以再用原生 64 位 PowerShell 检查它的文件版本。
+    精简系统没有 Windows PowerShell 时保留注册表判定，避免把可用安装器误报成缺组件。 }
+  PowerShellStarted :=
+    {#ExecNativeSys}(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
+        '$path = Join-Path $env:windir ''System32\vcruntime140.dll''; ' +
+        '$version = (Get-Item -LiteralPath $path -ErrorAction SilentlyContinue).VersionInfo.FileVersion; ' +
+        'if ($version -and ([version]$version -ge [version]''14.50.0.0'')) { exit 0 } else { exit 1 }"',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    );
+  if PowerShellStarted then
+    Result := ResultCode = 0;
 end;
 
 { 只用于写日志，不参与判定。}
