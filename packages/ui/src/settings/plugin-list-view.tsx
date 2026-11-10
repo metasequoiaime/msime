@@ -5,7 +5,13 @@ import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
-import { MAX_COMMAND_TABLES, type PluginPreferences } from "./plugin-preferences";
+import {
+  MAX_COMMAND_TABLES,
+  MAX_PHRASE_TABLES,
+  orderedPluginKeys,
+  pluginKey,
+  type PluginPreferences,
+} from "./plugin-preferences";
 import {
   kindLabels,
   kindOrder,
@@ -27,6 +33,7 @@ import type {
 import { ActionButton } from "./action-button";
 import { scriptMarker } from "./plugin-script-model";
 import { PluginNavRow } from "./plugin-nav-row";
+import { PluginListRow } from "./plugin-list-row";
 import { PluginLibraryView, type PluginLibraryFilter } from "./plugin-library-view";
 import { CREATE_DESCRIPTION } from "./plugin-editor-model";
 
@@ -87,6 +94,14 @@ export function PluginListView(props: PluginListViewProps) {
   return <GroupedPluginListView {...props} />;
 }
 
+/** 指令表、短语表各自已启用的 id，按启用顺序。 */
+function enabledTables(
+  kind: "command_table" | "phrase_table",
+  preferences: PluginPreferences,
+): readonly string[] {
+  return kind === "command_table" ? preferences.command_tables : preferences.phrase_tables;
+}
+
 function GroupedPluginListView({
   hasClient,
   catalog,
@@ -109,10 +124,19 @@ function GroupedPluginListView({
   onOpen,
   onOpenPack,
   onOpenMissing,
+  onTogglePack,
+  onReorderPlugin,
   scripts = null,
 }: PluginListViewProps) {
+  // 组内按保存的展示顺序排；没提到的包保持目录里的先后（`orderedPluginKeys`）。
+  const position = new Map(
+    orderedPluginKeys(catalog.packages, preferences.plugin_order).map((key, index) => [key, index]),
+  );
+  const rank = (pack: PluginPackage) => position.get(pluginKey(pack.kind, pack.id)) ?? 0;
   const groups = kindOrder.flatMap((kind) => {
-    const packs = catalog.packages.filter((pack) => pack.kind === kind);
+    const packs = catalog.packages
+      .filter((pack) => pack.kind === kind)
+      .sort((left, right) => rank(left) - rank(right));
     const gone = missing.filter((entry) => entry.kind === kind);
     // The command-table group carries the notes about the / mode, so it stays while the host routes it even when empty.
     const shown = packs.length > 0 || gone.length > 0 || (kind === "command_table" && triggers);
@@ -161,56 +185,86 @@ function GroupedPluginListView({
           groups.length === 0 &&
           scriptPacks.length === 0 && <SettingsEmptyMessage>没有插件</SettingsEmptyMessage>}
         {groups.map(({ kind, packs, gone }) => (
-          <GroupList key={kind} title={kindLabels[kind]}>
-            {kind === "command_table" && triggers && (
-              <SettingsGroupNote>
-                {touch
-                  ? `在「输入 → 快捷模式」打开 / 指令后，${touchLocalModeEntry("指令")}再输入指令字母即可使用。`
-                  : "在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。"}
-                启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 {MAX_COMMAND_TABLES}{" "}
-                个。
-              </SettingsGroupNote>
-            )}
-            {kind === "command_table" &&
-              triggers &&
-              packs.length === 0 &&
-              gone.length === 0 &&
-              (!hasClient || catalogState === "loaded") && (
-                <SettingsGroupNote inline>
-                  {hasClient
-                    ? "还没有导入指令表。"
-                    : "这台设备还不能导入指令表，内置的 rq、sj、xq 指令照常可用。"}
+          // 排序把手只在同一组里找落点，这一层标出组的范围，不参与布局。
+          <div key={kind} className="contents" data-plugin-order-group={kind}>
+            <GroupList title={kindLabels[kind]}>
+              {kind === "command_table" && triggers && (
+                <SettingsGroupNote>
+                  {touch
+                    ? `在「输入 → 快捷模式」打开 / 指令后，${touchLocalModeEntry("指令")}再输入指令字母即可使用。`
+                    : "在「输入 → 快捷模式」打开 / 指令后，按 / 再输入指令字母即可使用。"}
+                  启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用 {MAX_COMMAND_TABLES}{" "}
+                  个。
                 </SettingsGroupNote>
               )}
-            {packs.map((pack) => (
-              <PluginNavRow
-                key={pack.id}
-                title={pack.name}
-                // 内置插件的版本和作者都一样，所以这一行只留能把它们区分开的内容；详情页仍然显示全部信息。
-                description={
-                  [
-                    pack.builtin ? null : pack.version,
-                    pack.kind === "sound" && pack.mode === "sequence" ? "按键旋律" : null,
-                    !pack.builtin && pack.author ? `作者 ${pack.author}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || undefined
-                }
-                marker={packMarker(pack, preferences, kinds, modes, touch)}
-                rowKey={`pack/${pack.kind}/${pack.id}`}
-                onOpen={() => onOpenPack(pack.kind, pack.id)}
-              />
-            ))}
-            {gone.map((entry) => (
-              <PluginNavRow
-                key={`missing/${entry.id}`}
-                title={missingTitle(entry)}
-                description={`${entry.uses.join("、")}，${missingReason(entry)}`}
-                rowKey={`missing/${entry.kind}/${entry.id}`}
-                onOpen={() => onOpenMissing(entry.kind, entry.id)}
-              />
-            ))}
-          </GroupList>
+              {kind === "command_table" &&
+                triggers &&
+                packs.length === 0 &&
+                gone.length === 0 &&
+                (!hasClient || catalogState === "loaded") && (
+                  <SettingsGroupNote inline>
+                    {hasClient
+                      ? "还没有导入指令表。"
+                      : "这台设备还不能导入指令表，内置的 rq、sj、xq 指令照常可用。"}
+                  </SettingsGroupNote>
+                )}
+              {packs.map((pack, index) => (
+                <PluginListRow
+                  key={pack.id}
+                  toggle={
+                    onTogglePack && (pack.kind === "command_table" || pack.kind === "phrase_table")
+                      ? {
+                          enabled: enabledTables(pack.kind, preferences).includes(pack.id),
+                          disabled:
+                            !enabledTables(pack.kind, preferences).includes(pack.id) &&
+                            enabledTables(pack.kind, preferences).length >=
+                              (pack.kind === "command_table"
+                                ? MAX_COMMAND_TABLES
+                                : MAX_PHRASE_TABLES),
+                          onChange: (enabled) => onTogglePack(pack, enabled),
+                        }
+                      : undefined
+                  }
+                  reorder={
+                    onReorderPlugin && packs.length > 1
+                      ? {
+                          key: pluginKey(pack.kind, pack.id),
+                          previous: index > 0 ? pluginKey(kind, packs[index - 1].id) : undefined,
+                          next:
+                            index < packs.length - 1
+                              ? pluginKey(kind, packs[index + 1].id)
+                              : undefined,
+                          onMove: onReorderPlugin,
+                        }
+                      : undefined
+                  }
+                  title={pack.name}
+                  // 内置插件的版本和作者都一样，所以这一行只留能把它们区分开的内容；详情页仍然显示全部信息。
+                  description={
+                    [
+                      pack.builtin ? null : pack.version,
+                      pack.kind === "sound" && pack.mode === "sequence" ? "按键旋律" : null,
+                      !pack.builtin && pack.author ? `作者 ${pack.author}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined
+                  }
+                  marker={packMarker(pack, preferences, kinds, modes, touch)}
+                  rowKey={`pack/${pack.kind}/${pack.id}`}
+                  onOpen={() => onOpenPack(pack.kind, pack.id)}
+                />
+              ))}
+              {gone.map((entry) => (
+                <PluginNavRow
+                  key={`missing/${entry.id}`}
+                  title={missingTitle(entry)}
+                  description={`${entry.uses.join("、")}，${missingReason(entry)}`}
+                  rowKey={`missing/${entry.kind}/${entry.id}`}
+                  onOpen={() => onOpenMissing(entry.kind, entry.id)}
+                />
+              ))}
+            </GroupList>
+          </div>
         ))}
         {scripts && scriptPacks.length > 0 && (
           <GroupList title="脚本插件（实验）">

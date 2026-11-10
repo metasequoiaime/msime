@@ -695,7 +695,10 @@ test("lists the installed packs by kind with what each is used as, and removes o
       .map((group) => group.querySelector("h3")?.textContent),
   ).toEqual(["音效包", "音乐包", "指令表"]);
   const sounds = within(list).getByRole("region", { name: "音效包" });
-  const rows = within(sounds).getAllByRole("button");
+  // 每行另有排序把手和读屏用的上移、下移（#11076），这里只看导航行本身。
+  const rows = within(sounds)
+    .getAllByRole("button")
+    .filter((row) => row.hasAttribute("data-plugin-row"));
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["默认", "小星星", "打字机"]);
   expect(rows.every((row) => row.getAttribute("type") === "button")).toBe(true);
   expect(rows[0].textContent).toBe("默认›");
@@ -1537,6 +1540,8 @@ test("lists the built-in packs by their Chinese names, each under its own kind",
   const names = (kind: string) =>
     within(within(list).getByRole("region", { name: kind }))
       .getAllByRole("button")
+      // 排序把手和上移、下移不算（#11076）。
+      .filter((row) => row.hasAttribute("data-plugin-row"))
       .map((row) => row.getAttribute("aria-label"));
   expect(names("音效包")).toEqual(["清脆键盘", "打字机", "8 位游戏机", "小星星", "卡农"]);
   expect(names("音乐包")).toEqual(["Lo-fi 午后"]);
