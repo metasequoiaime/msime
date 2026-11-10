@@ -69,6 +69,7 @@
 #include "../core/FullWidthInput.h"
 #include "InputControllerPhysicalKeys.h"
 #include "InputSchemeTraits.h"
+#include "CharacterSetOutput.h"
 #include "../core/ModifierTap.h"
 #include "../core/EditableShiftFocus.h"
 #include "../core/VimMode.h"
@@ -523,13 +524,26 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
 }
 
 // 候选窗首行拼音后面的输入状态：方案名，然后中文组字时是「中」、英文候选（专用英文或临时英文）时是「英」，简繁转换适用于这一页时（`view.script_conversion`）加「简」或「繁」，全角打开时加「全角」，用「 · 」隔开。方案名由调用方按 `view.scheme` 算好，空时不写。
-static NSString *MSIMECandidateStatusText(NSString *schemeTitle, NSDictionary *view, BOOL traditional, BOOL fullWidth) {
+static int MSIMEViewScheme(NSDictionary *view);
+
+static BOOL MSIMECharacterSetOutputChecked(NSDictionary *view, MSIMEAppearancePreferences *appearance) {
+    if (!appearance) return NO;
+    return msime::mac::character_set::checked(MSIMEViewScheme(view), appearance.traditionalOutput,
+                                              appearance.cantoneseSimplifiedOutput);
+}
+
+static NSString *MSIMECandidateStatusTextForOutput(NSString *schemeTitle, NSDictionary *view, BOOL traditional,
+                                                   BOOL cantoneseSimplified, BOOL fullWidth) {
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     if ([schemeTitle isKindOfClass:NSString.class] && schemeTitle.length) [parts addObject:schemeTitle];
     NSString *localMode = [view[@"local_mode"] isKindOfClass:NSString.class] ? view[@"local_mode"] : @"none";
     const BOOL english = MSIMEStrictBoolean(view[@"dedicated_english"]) || [localMode isEqual:@"temporary_english"];
     [parts addObject:english ? @"英" : @"中"];
-    if (!english && MSIMEStrictBoolean(view[@"script_conversion"])) [parts addObject:traditional ? @"繁" : @"简"];
+    const BOOL cantonese = msime::mac::character_set::follows_cantonese(MSIMEViewScheme(view));
+    if (!english && (MSIMEStrictBoolean(view[@"script_conversion"]) || cantonese)) {
+        const BOOL simplified = cantonese ? cantoneseSimplified : !traditional;
+        [parts addObject:simplified ? @"简" : @"繁"];
+    }
     if (fullWidth) [parts addObject:@"全角"];
     return [parts componentsJoinedByString:@" · "];
 }
@@ -4543,7 +4557,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
                             capsLock:_capsLock
               chinesePunctuationEnabled:_appearance.runtimeChinesePunctuation
                        fullWidthEnabled:_appearance.runtimeFullWidthInput
-        traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+        traditionalChineseOutputEnabled:MSIMECharacterSetOutputChecked(_view, _appearance)];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     NSDictionary *outputView = [_session setMultilingualOutput:_appearance.traditionalOutput error:nil];
@@ -5042,10 +5056,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     englishCandidates.state = !_appearance.englishMode && MSIMEStrictBoolean(_view[@"dedicated_english"]) ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:englishCandidates];
     [menu addItem:NSMenuItem.separatorItem];
-    // Simplified output is the off state of this one toggle rather than a second row: a radio pair spent a row on the default.
-    NSMenuItem *traditional = [[NSMenuItem alloc] initWithTitle:@"繁体输出" action:@selector(toggleTraditionalOutput:) keyEquivalent:@""];
+    // 简繁入口在粤拼下切换专用的简体输出偏好，其他方案继续切换全局繁体输出偏好。
+    const int characterSetScheme = MSIMEViewScheme(_view);
+    NSMenuItem *traditional = [[NSMenuItem alloc] initWithTitle:@(msime::mac::character_set::label(characterSetScheme))
+                                                          action:@selector(toggleTraditionalOutput:) keyEquivalent:@""];
     traditional.target = self;
-    traditional.state = _appearance.traditionalOutput ? NSControlStateValueOn : NSControlStateValueOff;
+    traditional.state = MSIMECharacterSetOutputChecked(_view, _appearance) ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:traditional];
     // The three typing toggles the floating toolbar also carries, so they stay reachable with the toolbar hidden. The key equivalents are only labels for the chords handleEvent already claims (Ctrl+Shift+Space and Ctrl+.), not a second binding.
     NSMenuItem *fullWidth = [[NSMenuItem alloc] initWithTitle:@"全角字符" action:@selector(toggleFullWidthInput:) keyEquivalent:@" "];
@@ -5717,9 +5733,26 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (changed) [self showInputStateHUDText:enabled ? @"繁" : @"简"
         announcement:enabled ? @"繁体输出" : @"简体输出"];
 }
-- (void)selectSimplifiedOutput:(id)sender { (void)sender; [self setTraditionalOutput:NO]; }
-- (void)selectTraditionalOutput:(id)sender { (void)sender; [self setTraditionalOutput:YES]; }
-- (void)toggleTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; [self setTraditionalOutput:!_appearance.traditionalOutput]; }
+- (void)setCharacterSetOutput:(BOOL)enabled {
+    [self ensureAppearance];
+    const int scheme = MSIMEViewScheme(_view);
+    if (msime::mac::character_set::follows_cantonese(scheme)) {
+        const BOOL changed = _appearance.cantoneseSimplifiedOutput != enabled;
+        _appearance.cantoneseSimplifiedOutput = enabled;
+        if (changed) [self applyPreferencesToSessionNow];
+        [self showInputStateHUDText:enabled ? @"简" : @"繁"
+                         announcement:enabled ? @"简体输出" : @"繁体输出"];
+        return;
+    }
+    [self setTraditionalOutput:enabled];
+}
+- (void)selectSimplifiedOutput:(id)sender { (void)sender; [self setCharacterSetOutput:NO]; }
+- (void)selectTraditionalOutput:(id)sender { (void)sender; [self setCharacterSetOutput:YES]; }
+- (void)toggleTraditionalOutput:(id)sender {
+    (void)sender;
+    [self ensureAppearance];
+    [self setCharacterSetOutput:!MSIMECharacterSetOutputChecked(_view, _appearance)];
+}
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender {
@@ -10561,8 +10594,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     // 首行在拼音之后接一段输入状态（竖线隔开），右侧在翻页控件之前放云候选预览和一枝小装饰；三样都只在显示拼音时出现。
     const BOOL statusVisible = _appearance.showsCandidateStatus && preedit.length;
-    NSString *statusText = statusVisible ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
-                                                                     _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
+    NSString *statusText = statusVisible ? MSIMECandidateStatusTextForOutput([self schemeTitleForScheme:[self viewSchemeName]], _view,
+                                                                              _appearance.traditionalOutput,
+                                                                              _appearance.cantoneseSimplifiedOutput,
+                                                                              _appearance.runtimeFullWidthInput) : @"";
     NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     const CGFloat statusGap = 8 * scale;
     const CGFloat statusTextWidth = MSIMECandidateLabelWidth(statusText, statusFont);

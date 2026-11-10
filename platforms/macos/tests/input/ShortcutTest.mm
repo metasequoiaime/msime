@@ -1108,6 +1108,35 @@ static void TestSharedTraditionalOutput() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+static void TestSharedCantoneseSimplifiedOutput() {
+    NSString *suite = [@"msime.cantonese-output." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:@{ @"scheme": @5, @"candidates": @[] } forKey:@"view"];
+
+    assert(!prefs.cantoneseSimplifiedOutput);
+    assert([[controller.menu itemAtIndex:4].title isEqual:@"简体输出"]);
+    assert([controller.menu itemAtIndex:4].state == NSControlStateValueOff);
+    [prefs applySharedInputPreferences:@{ @"cantonese_simplified_output": @YES }];
+    assert(prefs.cantoneseSimplifiedOutput);
+    assert([controller.menu itemAtIndex:4].state == NSControlStateValueOn);
+    [controller selectSimplifiedOutput:nil];
+    assert(!prefs.cantoneseSimplifiedOutput);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cantonese_simplified_output"] isEqual:@NO]);
+    [controller selectTraditionalOutput:nil];
+    assert(prefs.cantoneseSimplifiedOutput);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cantonese_simplified_output"] isEqual:@YES]);
+    [prefs applySharedInputPreferences:@{ @"cantonese_simplified_output": @NO }];
+    assert(!prefs.cantoneseSimplifiedOutput);
+    for (id invalid in @[NSNull.null, @1, @"true"]) {
+        [prefs applySharedInputPreferences:@{ @"cantonese_simplified_output": invalid }];
+        assert(!prefs.cantoneseSimplifiedOutput);
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestSharedCharacterWidth() {
     NSString *suite = [@"msime.character-width." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -15427,6 +15456,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSharedPunctuation(); }
         @autoreleasepool { TestSmartPunctuationWritesBothHalves(); }
         @autoreleasepool { TestSharedTraditionalOutput(); }
+        @autoreleasepool { TestSharedCantoneseSimplifiedOutput(); }
         @autoreleasepool { TestCandidatePageNumberPreference(); }
         @autoreleasepool { TestPageSizeCache(); }
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -15895,9 +15925,11 @@ int main(int argc, char **argv) {
         appearance.fontSize = 18;
         {
             // 首行：拼音后面竖线隔开输入状态，右侧依次是云候选预览和小装饰，首行和候选行之间一条细线。
-            assert([MSIMECandidateStatusText(@"小鹤双拼", @{@"script_conversion": @YES}, YES, YES) isEqual:@"小鹤双拼 · 中 · 繁 · 全角"]);
-            assert([MSIMECandidateStatusText(@"全拼", @{@"script_conversion": @YES, @"dedicated_english": @YES}, NO, NO) isEqual:@"全拼 · 英"]);
-            assert([MSIMECandidateStatusText(@"日语", @{@"script_conversion": @NO}, NO, NO) isEqual:@"日语 · 中"]);
+            assert([MSIMECandidateStatusTextForOutput(@"小鹤双拼", @{@"script_conversion": @YES}, YES, NO, YES) isEqual:@"小鹤双拼 · 中 · 繁 · 全角"]);
+            assert([MSIMECandidateStatusTextForOutput(@"全拼", @{@"script_conversion": @YES, @"dedicated_english": @YES}, NO, NO, NO) isEqual:@"全拼 · 英"]);
+            assert([MSIMECandidateStatusTextForOutput(@"日语", @{@"script_conversion": @NO}, NO, NO, NO) isEqual:@"日语 · 中"]);
+            assert([MSIMECandidateStatusTextForOutput(@"粤拼", @{@"scheme": @5}, NO, YES, NO) isEqual:@"粤拼 · 中 · 简"]);
+            assert([MSIMECandidateStatusTextForOutput(@"粤拼", @{@"scheme": @5}, NO, NO, NO) isEqual:@"粤拼 · 中 · 繁"]);
             NSDictionary *cloudRow = @{@"text": @"一行白鹭", @"source": @2, @"id": @{@"session": @1, @"generation": @2, @"index": @2}};
             NSDictionary *aiRow = @{@"text": @"一行代码", @"source": @3, @"id": @{@"session": @1, @"generation": @2, @"index": @1}};
             NSDictionary *placeholder = @{@"text": @"…", @"source": @12, @"id": @{@"session": @1, @"generation": @2, @"index": @3}};
