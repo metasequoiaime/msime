@@ -11,7 +11,7 @@
  */
 import { ClipboardHistoryPolicy } from "./ClipboardHistoryPolicy";
 
-// 1000 条记录可能都包含共享存储允许的 40,000 字节文本；JSON 转义会进一步放大文件，解析
+// 1000 条记录可能都包含共享存储允许的 100,000 字节文本；JSON 转义会进一步放大文件，解析
 // 上限必须覆盖 Rust 存储按最坏情况计算出的边界。
 export const MAX_FILE_BYTES: number = 256 * 1024 * 1024;
 
