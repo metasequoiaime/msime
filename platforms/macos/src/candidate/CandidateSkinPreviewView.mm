@@ -185,7 +185,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(NSInteger pageSize, CGFloat candidateFont
     metrics.horizontalHeight = (padding + metrics.decorationHeight + metrics.preeditHeight + metrics.rowHeight + padding) * scale;
     metrics.verticalHeight = (padding + metrics.decorationHeight + metrics.preeditHeight +
                               PreviewVisibleRows(pageSize) * metrics.rowHeight +
-                              (PreviewVisibleRows(pageSize) - 1) * PreviewItemGap(preferences) + footer + padding) * scale;
+                              (PreviewVisibleRows(pageSize) - 1) * msime::mac::CandidateItemVerticalOuterSpacing(1.0) + footer + padding) * scale;
     const ToolbarPreviewInputs toolbar = ToolbarInputs(preferences);
     metrics.toolbarHeight = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo).height;
     metrics.panelHeight = 0.0;
@@ -215,7 +215,7 @@ SkinPreviewMetrics MakeAppearanceMetrics(NSInteger panelStyle, NSInteger pageSiz
     const CGFloat footer = (panelStyle == 1 && PreviewPendingFooter(pageSize) != nil) ? 18.0 : 0.0;
     metrics.panelHeight =
         (padding + metrics.decorationHeight + metrics.preeditHeight + visibleRows * metrics.rowHeight +
-         (visibleRows - 1) * PreviewItemGap(preferences) + footer + padding) * scale;
+         (visibleRows - 1) * (panelStyle == 1 ? msime::mac::CandidateItemVerticalOuterSpacing(1.0) : PreviewItemGap(preferences)) + footer + padding) * scale;
     metrics.horizontalHeight = 0.0;
     metrics.verticalHeight = 0.0;
     metrics.toolbarHeight = 0.0;
@@ -293,6 +293,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
     const CGFloat pad = msime::mac::CandidateInset(tokens);
     const CGFloat padY = msime::mac::CandidateVerticalInset(tokens);
     const CGFloat itemGap = tokens.itemSpacing.value_or(0.0);
+    const CGFloat verticalItemGap = msime::mac::CandidateItemVerticalOuterSpacing(1.0);
     const CGFloat preeditHeight = PreviewPreeditHeight(preeditFontSize, preferences);
     NSRect preeditRow =
         NSMakeRect(NSMinX(chrome) + pad, NSMinY(chrome) + padY, NSWidth(chrome) - pad * 2.0, preeditHeight);
@@ -374,7 +375,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
             }
             break;
         }
-        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + pad, contentTop + index * (rowHeight + itemGap), NSWidth(chrome) - 2.0 * pad,
+        NSRect row = vertical ? NSMakeRect(NSMinX(chrome) + pad, contentTop + index * (rowHeight + verticalItemGap), NSWidth(chrome) - 2.0 * pad,
                                            rowHeight)
                               : NSMakeRect(x, contentTop, itemWidth, rowHeight);
         if (NSMaxY(row) > NSMaxY(chrome) - padY + 0.01)
