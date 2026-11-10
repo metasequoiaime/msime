@@ -19,6 +19,7 @@ pr=false
 release=false
 theme=false
 key_faces=false
+clipboard_selection=false
 # 单次 instrumentation 默认不设上限：完整套件里 NumberPadDeviceSmoke 一项就要跑约 6.5 分钟，整套的总时长由 workflow 的 timeout-minutes 兜底。需要给单次运行加上限时设置 MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS（秒）。
 instrumentation_timeout_seconds=${MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS:-}
 [[ -z "$instrumentation_timeout_seconds" || "$instrumentation_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
@@ -39,7 +40,8 @@ for option in "${@:2}"; do
     --release) release=true ;;
     --theme) theme=true ;;
     --key-faces) key_faces=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--theme] [--key-faces]" >&2; exit 1 ;;
+    --clipboard-selection) clipboard_selection=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--theme] [--key-faces] [--clipboard-selection]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -299,6 +301,10 @@ if [[ "$key_faces" == true ]]; then
   check "Shuangpin key face acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyShuangpinDeviceSmoke -e faces_only true
   finish "Dedicated Android AVD: key face acceptance passed"
 fi
+if [[ "$clipboard_selection" == true ]]; then
+  check "Clipboard selection acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e selection-only true
+  finish "Dedicated Android AVD: clipboard selection acceptance passed"
+fi
 if [[ "$pr" == true ]]; then
   # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键由 nightly 完整回归覆盖，剪贴板持久化由风险矩阵和发版覆盖。
   check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
@@ -464,6 +470,7 @@ check "Native common phrase note acceptance failed" MSIME_DEVICE_SMOKE_PASSED ru
 check "Native common phrase category acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-categories true
 # 触控板通过独立编辑器验收真实 DPAD、选区、临时面板和密码回读，最低 API 同样覆盖。
 check "Text trackpad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e trackpad true
+check "Clipboard selection acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e selection-only true
 
 # 真实恢复和撤销涉及应用私有目录，最低 API 的核心验收也执行合成备份回归。
 check "Layout backup restore acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.PreferencesDeviceSmoke -e backup-layout true

@@ -25,3 +25,7 @@ Status: implemented
 ## Verification
 
 `ClipboardSelectionPolicySmoke` 覆盖前四条角标、第五条无角标、20 条选择上限和插入上限；Android host Java 编译与设备剪贴板多选 smoke 需在 API 28/35 模拟器上运行。报告者的 Android 11 真机应复验选择第五条、点击「插入」和点击「知道了」三个路径。
+
+定向入口 `smoke.sh --clipboard-selection` 只在主输入通过后运行五条合成记录的多选回归；完整 nightly 同样覆盖，发布短套件不增加这项。测试把专用模拟器设为报告中的 1080×2376、480 dpi、字号 1.25002，结束时恢复原配置；在选第 5 条、点插入和关闭确认层期间每 20 ms 采样输入法窗口身份与边界，验证选择总数、导出/删除可用、编辑器焦点及内容不变，并在回到 4 条后验证按选择顺序插入。API 30 及以上另检查提示位于屏幕中央；API 28 的覆盖层位置限制仍保留。保留四条、五条、弹窗和关闭后四幅合成截图。新增设备断言目前待实际运行，不以 JVM 或普通 PR 冒烟替代。
+
+设备 APK 的 instrumentation 已达 Android 的 100 个入口上限，多选回归复用 `ClipboardSegmentDragDeviceSmoke -e selection-only true`，主体放在独立的 `ClipboardSelectionDeviceChecks`；不新增清单入口。

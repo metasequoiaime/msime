@@ -244,6 +244,12 @@ def main() -> None:
         run = Run(base, "key-faces-fail", ["--key-faces"], fail="NineKeyShuangpinDeviceSmoke:faces_only")
         run.expect(run.code == 1 and len(run.failed_lines()) == 1, "键面失败必须阻止通过")
 
+        run = Run(base, "clipboard-selection-pass", ["--clipboard-selection"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("ClipboardSegmentDragDeviceSmoke:selection-only"), "剪贴板多选专项必须包含主输入与真实选择回归")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke") and not run.ran_script("clipboard-export"), "剪贴板多选专项不重复执行无关长套件")
+        run = Run(base, "clipboard-selection-fail", ["--clipboard-selection"], fail="ClipboardSegmentDragDeviceSmoke:selection-only")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "多选闪烁断言失败必须阻止通过")
+
         run = Run(base, "gate", [], fail="DeviceSmoke")
         run.expect(run.code == 1 and "system input path failed" in run.stopped_line(), "系统输入主路径失败应当场停下并说明原因")
         run.expect(not run.ran("FourteenKeyDeviceSmoke:eighteen_key"), "主路径失败后不应再跑后面的检查")

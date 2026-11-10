@@ -1931,7 +1931,7 @@ final class ImePanels {
                 clipboardSelectedTexts.size() + " 项已选择", 12);
             header.addView(selected, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", this::exitClipboardSelection);
-            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），只在选中 1 到 4 项时可用；导出和删除仍可用到 20 项。
+            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），选中 1 到 4 项时提交，超过时显示确认提示；导出和删除仍可用到 20 项。
             Button insert = clipboardAction(header, "插入", () -> {
                 if (!ClipboardSelectionPolicy.canInsert(clipboardSelectedTexts.size())) {
                     s.showClipboardInsertionLimitNotice();
