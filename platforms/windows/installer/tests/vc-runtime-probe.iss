@@ -22,9 +22,14 @@ SetupArchitecture=x64
 #include "..\VcRuntimePrerequisite.iss"
 
 procedure CheckFile(const Name: String; Expected: Boolean);
+var
+  ActualVersion: String;
 begin
   if VCRuntimeFileIsCompatible('{#FixtureRoot}\' + Name) <> Expected then
-    RaiseException('Unexpected runtime compatibility: ' + Name);
+  begin
+    GetVersionNumbersString('{#FixtureRoot}\' + Name, ActualVersion);
+    RaiseException('Unexpected runtime compatibility: ' + Name + ' version=' + ActualVersion);
+  end;
 end;
 
 function InitializeSetup: Boolean;

@@ -31,3 +31,8 @@ WebView2 保持原来的可选继续策略。VC 缺失或过旧时交互安装�
 
 
 新增 Windows 原生探针直接包含产品同一份 Pascal 逻辑，用带固定文件版本的合成 DLL 验证 14.29、14.50、下限前一个版本、精确下限、报告者修复版本和未来 minor，以及缺失和无版本文件。Inno 6 的 32 位安装器、Inno 7 的 32/64 位安装器还需分别读取系统 `kernel32.dll`，与外部 64 位进程算出的 SHA-256 比较，证明检查的是原生 System32。探针在 `InitializeSetup` 返回 False，只读夹具和系统文件，不注册产品、不修改运行库。该测试接入 Windows release script tests；尚待 Windows 实际结果，不以源码契约通过代替。
+
+
+原生探针首次 CI 在 Inno 6 编译成功后运行失败，但夹具没有输出结果文件内容，无法区分边界判断和系统目录错误。补齐探针退出码、合成文件实际版本及安装器日志；三种架构组合汇总失败，并提前读取 CRT 头文件，保留原边界断言，避免一次只得到一个缺少上下文的失败。
+
+进一步核对 [PowerShell 7.6 的 AddType.cs](https://github.com/PowerShell/PowerShell/blob/v7.6.0/src/Microsoft.PowerShell.Commands.Utility/commands/utility/AddType.cs)：落盘调用 `compilation.Emit(peStream: fs, options: emitOptions)`，没有传 Win32 资源流。原夹具只有托管程序集属性，不能用来验证原生 `GetVersionNumbers`。改由系统 .NET Framework `csc.exe` 生成携带真正文件版本资源的合成 DLL，原版本边界与缺失文件断言不变；设备结果仍待重新运行。
