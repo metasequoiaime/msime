@@ -91,6 +91,32 @@ enum TouchLanguageKeySide: String, CaseIterable, Hashable {
   case left
 }
 
+/// 14 键与 18 键三排字母键的宽度分法，共享文档里的 `touch_fourteen_key_letter_widths`。
+enum TouchFourteenKeyLetterWidths: String, CaseIterable, Hashable {
+  /// 每排按原来的等宽方式铺满。
+  case equal
+  /// 双字母键较宽，单字母键为 0.75 份，短排居中。
+  case varied
+
+  var title: String {
+    switch self {
+    case .equal: "等宽"
+    case .varied: "宽窄"
+    }
+  }
+
+  /// 设置页胶囊下方的统一说明。
+  static let note = "「宽窄」让单字母键窄一些、双字母键宽一些，第二排两端留空；点在空白里算最靠边的键。"
+
+  /// 双字母键的单位宽度。14 键和 18 键都以双字母键为 1 份。
+  func weight(for letters: String) -> CGFloat {
+    switch self {
+    case .equal: 1
+    case .varied: letters.count == 1 ? 0.75 : 1
+    }
+  }
+}
+
 /// 触屏键盘的按键布局：三类键面各自的底行样式、顶部数字行（`touch_number_row`）、26 键「符」与「123」互换（`touch_twenty_six_symbol_first`）、数字键盘空格位置（`touch_number_pad_space`）、九键左侧符号栏的两张表（`touch_nine_key_sidebar_symbols`、`touch_nine_key_digit_sidebar_symbols`）和中/英键在空格哪一边（`touch_language_key_side`），三端共用同一组共享偏好，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md、2026-10-29-touch-symbol-first-and-number-pad-space.md、2026-10-29-nine-key-sidebar-shared.md 与 2026-10-29-language-key-left-of-space.md。
 ///
 /// 共享文档是权威来源，键盘从 App Group 镜像读：键盘和设置页读到文档时刷新镜像（`mirror`），设置页保存时文档接受了才写镜像，与 `TouchShuangpinLayoutPreference` 和「组字时保留 Shift」的做法相同。iOS 以前没有对应的本机设置，没有旧值要迁移。
@@ -110,6 +136,8 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
   var digitSidebar: [String] = []
   /// 中/英键在空格哪一边；隐藏了中/英键时不起作用，存着的值不变。
   var languageKeySide: TouchLanguageKeySide = .right
+  /// 14/18 键三排字母键的宽度分法。
+  var letterWidths: TouchFourteenKeyLetterWidths = .equal
 
   static let twentySixKeyDocumentKey = "touch_twenty_six_key_style"
   static let fourteenKeyDocumentKey = "touch_fourteen_key_style"
@@ -120,6 +148,7 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
   static let nineKeySidebarDocumentKey = "touch_nine_key_sidebar_symbols"
   static let digitSidebarDocumentKey = "touch_nine_key_digit_sidebar_symbols"
   static let languageKeySideDocumentKey = "touch_language_key_side"
+  static let letterWidthsDocumentKey = "touch_fourteen_key_letter_widths"
 
   private static let twentySixKeyMirrorKey = "keyboard.style.twentySixKey"
   private static let fourteenKeyMirrorKey = "keyboard.style.fourteenKey"
@@ -130,11 +159,13 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
   private static let nineKeySidebarMirrorKey = "keyboard.nineKeySidebar"
   private static let digitSidebarMirrorKey = "keyboard.nineKeyDigitSidebar"
   private static let languageKeySideMirrorKey = "keyboard.style.languageKeySide"
+  private static let letterWidthsMirrorKey = "keyboard.style.letterWidths"
 
   init(twentySixKey: TouchTwentySixKeyStyle = .standard, fourteenKey: TouchFourteenKeyStyle = .standard,
        nineKey: TouchNineKeyStyle = .standard, numberRow: Bool = false, symbolFirst: Bool = false,
        numberPadSpace: TouchNumberPadSpace = .platformDefault, nineKeySidebar: [String] = [], digitSidebar: [String] = [],
-       languageKeySide: TouchLanguageKeySide = .right) {
+       languageKeySide: TouchLanguageKeySide = .right,
+       letterWidths: TouchFourteenKeyLetterWidths = .equal) {
     self.twentySixKey = twentySixKey
     self.fourteenKey = fourteenKey
     self.nineKey = nineKey
@@ -144,6 +175,7 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
     self.nineKeySidebar = nineKeySidebar
     self.digitSidebar = digitSidebar
     self.languageKeySide = languageKeySide
+    self.letterWidths = letterWidths
   }
 
   /// 文档里的各项。缺键、不是字符串或不认识的写法（较新版本加的样式）一律按标准读，与 client-core 的宽松读取一致；数字行和「符」与「123」互换不是布尔值时按关；数字键盘空格位置缺键、写 `platform_default` 或不认识时按 iOS 原来的排法；符号栏的两张表逐项丢掉坏值（`NineKeySidebar.symbols(in:)`），缺键、不是数组或与 iOS 出厂表逐项相同时是出厂表（空表），与 Android `NineKeySidebarPolicy.custom` 相同；中/英键只有恰好写着字符串 `left` 时在空格左边，其余（缺键、`right`、不认识的字符串、不是字符串）都在右边。
@@ -158,6 +190,7 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
     nineKeySidebar = NineKeySidebar.stored(NineKeySidebar.symbols(in: document?[Self.nineKeySidebarDocumentKey]), for: .letter)
     digitSidebar = NineKeySidebar.stored(NineKeySidebar.symbols(in: document?[Self.digitSidebarDocumentKey]), for: .digit)
     languageKeySide = document?[Self.languageKeySideDocumentKey] as? String == TouchLanguageKeySide.left.rawValue ? .left : .right
+    letterWidths = (document?[Self.letterWidthsDocumentKey] as? String).flatMap(TouchFourteenKeyLetterWidths.init(rawValue:)) ?? .equal
   }
 
   private static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
@@ -175,7 +208,8 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
           ?? .platformDefault,
         nineKeySidebar: NineKeySidebar.stored(NineKeySidebar.symbols(in: defaults.array(forKey: nineKeySidebarMirrorKey)), for: .letter),
         digitSidebar: NineKeySidebar.stored(NineKeySidebar.symbols(in: defaults.array(forKey: digitSidebarMirrorKey)), for: .digit),
-        languageKeySide: defaults.string(forKey: languageKeySideMirrorKey).flatMap(TouchLanguageKeySide.init(rawValue:)) ?? .right)
+        languageKeySide: defaults.string(forKey: languageKeySideMirrorKey).flatMap(TouchLanguageKeySide.init(rawValue:)) ?? .right,
+        letterWidths: defaults.string(forKey: letterWidthsMirrorKey).flatMap(TouchFourteenKeyLetterWidths.init(rawValue:)) ?? .equal)
     }
     set {
       defaults.set(newValue.twentySixKey.rawValue, forKey: twentySixKeyMirrorKey)
@@ -187,6 +221,7 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
       defaults.set(newValue.nineKeySidebar, forKey: nineKeySidebarMirrorKey)
       defaults.set(newValue.digitSidebar, forKey: digitSidebarMirrorKey)
       defaults.set(newValue.languageKeySide.rawValue, forKey: languageKeySideMirrorKey)
+      defaults.set(newValue.letterWidths.rawValue, forKey: letterWidthsMirrorKey)
     }
   }
 
@@ -271,6 +306,12 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
   @discardableResult
   static func save(languageKeySide side: TouchLanguageKeySide, stateRoot: URL? = nil) -> Bool {
     save(key: languageKeySideDocumentKey, value: side.rawValue, stateRoot: stateRoot) { $0.languageKeySide = side }
+  }
+
+  /// 写入 14/18 键字母键宽度，只改这一项。
+  @discardableResult
+  static func save(letterWidths: TouchFourteenKeyLetterWidths, stateRoot: URL? = nil) -> Bool {
+    save(key: letterWidthsDocumentKey, value: letterWidths.rawValue, stateRoot: stateRoot) { $0.letterWidths = letterWidths }
   }
 
   private static func save(key: String, value: Any, stateRoot: URL?, apply: (inout TouchKeyLayoutStyle) -> Void) -> Bool {

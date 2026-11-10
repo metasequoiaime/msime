@@ -21,7 +21,7 @@ use crate::pinyin::segment::split_segments;
 use crate::pinyin::segment::{join_segments, segments_to_jianpin};
 use crate::pinyin::syllables::{
     canonical_lattice_syllable, has_only_complete_pinyin_segments, intact_pinyin_list,
-    intact_pinyin_set, is_intact, prefix_pinyin_set,
+    intact_pinyin_set, is_intact, is_prefix, prefix_pinyin_set,
 };
 
 pub const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
@@ -490,6 +490,24 @@ impl PinyinDatabase {
         let mut rows = self.batch_rows(&table, &[key.as_str()], span_limit);
         rows.sort_by_key(|row| std::cmp::Reverse(row.weight));
         rows
+    }
+
+    /// 词网格里允许全拼的单字母声母缩写出现在跨度中间；普通整句查询仍保留完整音节的精确语义。
+    pub(crate) fn query_lattice_span_with_incomplete_segments(
+        &self,
+        span: &[String],
+        span_limit: usize,
+    ) -> Vec<DictRow> {
+        if self.connection.is_none() || span.is_empty() || span_limit == 0 {
+            return Vec::new();
+        }
+        if has_only_complete_pinyin_segments(span) {
+            return self.query_lattice_span(span, span_limit);
+        }
+        if !span.iter().all(|segment| is_prefix(segment)) {
+            return Vec::new();
+        }
+        self.query_single_cut_keyed(span, span_limit, QuerySource::Quanpin)
     }
 
     /// 双拼仅补最后一个声母；枚举合法完整音节后精确查库，词边保留完整读音。
@@ -1868,6 +1886,37 @@ mod tests {
         assert!(query(&[], 32).is_empty());
         assert!(database
             .query_lattice_span(&strings(&["gong", "j"]), 32)
+            .is_empty());
+    }
+
+    #[test]
+    fn lattice_span_accepts_incomplete_quanpin_segments_in_the_middle() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("msime-pinyin.db");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_2_y VALUES('yu''dao','yd','遇到',900);\
+                 CREATE TABLE tbl_4_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_4_d VALUES('de''wen''ti''shi','dwts','的问题是',800);\
+                 CREATE TABLE tbl_others_d(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_others_d VALUES('dang''qian''yu''dao''de''wen''ti''shi','dqyddwts','当前遇到的问题是',1000);",
+            )
+            .unwrap();
+        let database = PinyinDatabase::open(&path);
+        let query = |keys: &[&str]| {
+            database.query_lattice_span_with_incomplete_segments(&strings(keys), 32)
+        };
+
+        assert_eq!(values(&query(&["yu", "d"])), ["遇到"]);
+        assert_eq!(values(&query(&["de", "w", "t", "s"])), ["的问题是"]);
+        assert_eq!(
+            values(&query(&["dang", "q", "y", "d", "d", "w", "t", "s"])),
+            ["当前遇到的问题是"]
+        );
+        assert!(database
+            .query_lattice_span(&strings(&["dang", "q", "y", "d", "d", "w", "t", "s"]), 32,)
             .is_empty());
     }
 

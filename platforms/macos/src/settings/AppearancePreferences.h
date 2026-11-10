@@ -163,6 +163,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL traditionalOutput;
 /// OpenCC 繁体变体编号：0 `s2t`、1 `s2tw`、2 `s2twp`，来自共享偏好 `traditional_chinese_variant`。缺省 0。菜单、工具栏和 Ctrl+Shift+F 只翻转 `traditionalOutput`，不改这一项。
 @property(nonatomic, readonly) uint32_t traditionalChineseVariant;
+/// 粤拼和粤语双拼的简体输出（共享偏好 `cantonese_simplified_output`），缺省为关；只有当前方案是粤拼时由菜单和工具栏切换。
+@property(nonatomic) BOOL cantoneseSimplifiedOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;
 /// The punctuation and width the active application is typing with. They start from the saved `chinesePunctuation` / `fullWidthInput` and the toggles (toolbar, Ctrl+., Ctrl+Shift+Space, Option+Shift+H) change only the active app, in memory: setting them never writes defaults or posts MSIMEAppearanceDidChangeNotification.

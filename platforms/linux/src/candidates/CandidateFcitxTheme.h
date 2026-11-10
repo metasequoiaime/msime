@@ -142,7 +142,19 @@ struct FcitxPanelGeometry {
 // 用户在设置里调的候选窗样式（共享偏好），classicui 主题照 macOS 的 StyledCandidateSkin 应用它们：`scale` 是 candidate_scale_percent，乘到阴影以外的每一个长度上（圆角、内边距、行边距、翻页按钮、logo、装饰图），字号已经在字体描述里按它放大；`padding` 是 candidate_padding（0–16 px），代替主题的 4 px 内边距；`opacity` 是 candidate_opacity_percent，只淡化卡片底色和描边，文字、序号和选中高亮保持不透明；`page_arrows` 是 show_candidate_page_number，关掉时不画 ‹ ›（翻页键和滚轮照常），和 macOS 一起隐藏「1 / 3」与箭头一样；`item_radius` 是皮肤包的 item_corner_radius_dip。缺省值画出的主题与没有这些设置时完全相同。
 struct FcitxCandidateStyle {
   double scale = 1.0;
+  // 皮肤版式里的候选字号（已包含 candidate_scale_percent），em 长度据此换算。
+  double font_size = 18.0;
   std::optional<double> padding;
+  std::optional<double> skin_padding;
+  bool skin_padding_em = false;
+  std::optional<double> skin_item_gap;
+  bool skin_item_gap_em = false;
+  std::optional<double> skin_item_extra_height;
+  bool skin_item_extra_height_em = false;
+  std::optional<double> skin_number_inset;
+  bool skin_number_inset_em = false;
+  std::optional<double> skin_item_padding_right;
+  bool skin_item_padding_right_em = false;
   double opacity = 1.0;
   bool page_arrows = true;
   std::optional<double> item_radius;
@@ -185,6 +197,7 @@ struct FcitxPanelMetrics {
   int item_left = FcitxPanelGeometry::item_left;
   int item_right = FcitxPanelGeometry::item_right;
   int item_vertical = FcitxPanelGeometry::item_vertical;
+  int item_gap = 0;
   int page_button = FcitxPanelGeometry::page_button;
   int logo_side = FcitxPanelGeometry::logo_side;
   int logo_gap = FcitxPanelGeometry::logo_gap;
@@ -195,11 +208,28 @@ inline FcitxPanelMetrics fcitx_panel_metrics(const FcitxCandidateStyle &style = 
   FcitxPanelMetrics metrics;
   metrics.scale = std::isfinite(style.scale) ? std::clamp(style.scale, 0.5, 2.0) : 1.0;
   const auto length = [&](double value) { return std::max(0, static_cast<int>(std::lround(value * metrics.scale))); };
-  metrics.padding = length(style.padding ? std::clamp(*style.padding, 0.0, 16.0) : G::padding);
+  const auto skin_length = [&](std::optional<double> value, bool em, double fallback) {
+    if (!value) return length(fallback);
+    const double amount = em ? *value * std::max(1.0, style.font_size) : *value * metrics.scale;
+    return std::max(0, static_cast<int>(std::lround(amount)));
+  };
+  metrics.padding = style.padding ? length(std::clamp(*style.padding, 0.0, 16.0))
+                                  : skin_length(style.skin_padding, style.skin_padding_em, G::padding);
+  metrics.item_gap = style.skin_item_gap ? skin_length(style.skin_item_gap, style.skin_item_gap_em, 0) : 0;
   // 阴影边距和模糊保持 100% 时的值：Wayland 上 classicui 不读 ShadowMargin，按窗口左上角放面板，阴影边越宽候选窗离光标越远，缩放不能让这段偏移跟着变大。macOS 的投影由系统画，也不随候选窗缩放。
-  metrics.item_left = length(G::item_left);
-  metrics.item_right = length(G::item_right);
-  metrics.item_vertical = std::max(1, length(G::item_vertical));
+  metrics.item_left = style.skin_number_inset
+                          ? skin_length(style.skin_number_inset, style.skin_number_inset_em, G::item_left)
+                          : length(G::item_left);
+  metrics.item_right = style.skin_item_padding_right
+                           ? skin_length(style.skin_item_padding_right, style.skin_item_padding_right_em, G::item_right)
+                           : length(G::item_right);
+  if (style.skin_item_extra_height) {
+    // classicui 没有最小行高字段，用文字行高与皮肤的 1.35em 基线之差分到上下两侧。
+    const double extra = skin_length(style.skin_item_extra_height, style.skin_item_extra_height_em, 0);
+    metrics.item_vertical = std::max(1, static_cast<int>(std::lround((style.font_size * 0.15 + extra) / 2.0)));
+  } else {
+    metrics.item_vertical = std::max(1, length(G::item_vertical));
+  }
   metrics.page_button = std::max(8, length(G::page_button));
   metrics.logo_side = std::max(8, length(G::logo_side));
   metrics.logo_gap = length(G::logo_gap);
@@ -507,7 +537,8 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
        << "NormalColor=" << fcitx_theme_color(text) << "\n"
        << "HighlightCandidateColor=" << fcitx_theme_color(selected_text) << "\n"
        << "HighlightColor=" << fcitx_theme_color(selected_text) << "\n"
-       << "HighlightBackgroundColor=" << highlight << "\n";
+       << "HighlightBackgroundColor=" << highlight << "\n"
+       << "Spacing=" << metrics.item_gap << "\n";
   if (colors.number) conf << "CandidateLabelColor=" << fcitx_theme_color(*colors.number) << "\n";
   if (colors.selected_number || colors.number)
     conf << "HighlightCandidateLabelColor=" << fcitx_theme_color(colors.selected_number.value_or(selected_text)) << "\n";
