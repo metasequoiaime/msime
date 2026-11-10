@@ -15,7 +15,7 @@ inline WCHAR ForwardedSmartPunctuationContext(UINT code, WCHAR wch)
     {
         return L'\0';
     }
-    if (code >= VK_0 && code <= VK_9)
+    if (code >= L'0' && code <= L'9')
     {
         return static_cast<WCHAR>(L'0' + (code - VK_0));
     }
