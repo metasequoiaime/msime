@@ -162,15 +162,13 @@ public final class OcrCaptureActivity extends Activity {
         recognized = "";
         selected = new boolean[0];
         base();
-        LinearLayout top = row();
-        button(top, "返回键盘", this::finish);
-        button(top, "拍照识字设置", () -> {
+        LinearLayout bottom = row();
+        button(bottom, "返回键盘", this::finish);
+        button(bottom, "拍照识字设置", () -> {
             startActivity(new Intent().setClassName(this, "app.msime.android.OcrSetupActivity"));
             finish();
         });
-        root.addView(top);
         body();
-        LinearLayout bottom = row();
         shutter = button(bottom, "拍照", this::capture);
         shutter.setEnabled(false);
         root.addView(bottom);
@@ -255,10 +253,6 @@ public final class OcrCaptureActivity extends Activity {
     private void photoPage() {
         page = Page.PHOTO;
         base();
-        LinearLayout top = row();
-        button(top, "返回键盘", this::finish);
-        button(top, "裁剪", () -> selection.mode(OcrPhotoSelectionView.Mode.CROP));
-        root.addView(top);
         if (selection == null) selection = new OcrPhotoSelectionView(this, photo);
         if (selection.getParent() instanceof android.view.ViewGroup parent) parent.removeView(selection);
         content.addView(selection, new FrameLayout.LayoutParams(-1, -1));
@@ -287,6 +281,8 @@ public final class OcrCaptureActivity extends Activity {
         });
         body();
         LinearLayout bottom = row();
+        button(bottom, "返回键盘", this::finish);
+        button(bottom, "裁剪", () -> selection.mode(OcrPhotoSelectionView.Mode.CROP));
         button(bottom, "涂抹", () -> selection.mode(OcrPhotoSelectionView.Mode.BRUSH));
         button(bottom, "下一步", this::recognize);
         root.addView(bottom);
@@ -299,9 +295,6 @@ public final class OcrCaptureActivity extends Activity {
         page = Page.RECOGNIZING;
         long expected = ++generation;
         base();
-        LinearLayout top = row();
-        button(top, "返回键盘", this::finish);
-        root.addView(top);
         body();
         message("正在本机识别…");
         execute(() -> {
@@ -331,9 +324,9 @@ public final class OcrCaptureActivity extends Activity {
         selected = new boolean[Math.max(0, boundaries.size() - 1)];
         java.util.Arrays.fill(selected, true);
         base();
-        LinearLayout top = row();
-        button(top, "返回键盘", this::finish);
-        selectAll = button(top, "☑", () -> {
+        LinearLayout bottom = row();
+        button(bottom, "返回键盘", this::finish);
+        selectAll = button(bottom, "☑", () -> {
             if (selected.length == 0) return;
             boolean all = true;
             for (boolean value : selected) all &= value;
@@ -343,8 +336,7 @@ public final class OcrCaptureActivity extends Activity {
         selectAll.setContentDescription("全选文字");
         selectAll.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
         selectAll.setEnabled(selected.length > 0);
-        button(top, "重新拍照", this::cameraPage);
-        root.addView(top);
+        button(bottom, "重新拍照", this::cameraPage);
         ScrollView scroll = new ScrollView(this);
         result = new TextView(this);
         result.setTextSize(25);
@@ -356,7 +348,6 @@ public final class OcrCaptureActivity extends Activity {
         scroll.addView(result);
         content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
         body();
-        LinearLayout bottom = row();
         button(bottom, "复制", () -> {
             String value = selectedText();
             if (value.isEmpty()) { toast("请先点选文字"); return; }
