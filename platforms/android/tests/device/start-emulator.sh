@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# 启动专用测试 AVD。参数是 API 级别，默认 35（targetSdk）；28 是 minSdk（Android 9）。系统镜像的 ABI 跟主机一致：Apple 芯片用 arm64-v8a，x86_64 主机（CI 的 Linux runner，靠 KVM 加速）用 x86_64。每个级别一台独立 AVD、固定端口：35 是 msime-client-test@emulator-5580（沿用原名），其他级别是 msime-client-test-api<级别>@emulator-<5580 - 2 × (35 - 级别)>，例如 28 在 emulator-5566。打印端口供 smoke.sh 和 run-core-test.sh 使用。
+# 启动专用测试 AVD。参数是 API 级别，默认 35（常规验收）；28 是 minSdk（Android 9）。系统镜像的 ABI 跟主机一致：Apple 芯片用 arm64-v8a，x86_64 主机（CI 的 Linux runner，靠 KVM 加速）用 x86_64。每个级别一台独立 AVD、固定端口：35 是 msime-client-test@emulator-5580（沿用原名），其他级别是 msime-client-test-api<级别>@emulator-<5580 - 2 × (35 - 级别)>，例如 28 在 emulator-5566。打印端口供 smoke.sh 和 run-core-test.sh 使用。
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
 cd "$repo_root"
 api=${1:-35}
-[[ "$api" =~ ^(28|29|30|31|32|33|34|35)$ ]] || { echo "API level must be 28 to 35, not $api" >&2; exit 1; }
+[[ "$api" =~ ^(28|29|30|31|32|33|34|35|37)$ ]] || { echo "API level must be 28 to 35 or 37, not $api" >&2; exit 1; }
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 case $(uname -m) in
   arm64|aarch64) abi=arm64-v8a ;;
   *) abi=x86_64 ;;
 esac
-image="system-images;android-$api;default;$abi"
-[[ -f "$android_sdk/system-images/android-$api/default/$abi/package.xml" ]] || {
+# SDK 镜像目录使用 37.0，设备报告的 API 和专用 AVD 端口仍按 37 计算。
+image_api=$api
+[[ "$api" != 37 ]] || image_api=37.0
+image="system-images;android-$image_api;default;$abi"
+[[ -f "$android_sdk/system-images/android-$image_api/default/$abi/package.xml" ]] || {
   echo "Install $image in the selected SDK first" >&2; exit 1;
 }
 if [[ "$api" == 35 ]]; then name=msime-client-test; else name="msime-client-test-api$api"; fi

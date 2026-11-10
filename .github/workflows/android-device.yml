@@ -3,7 +3,7 @@ name: Android device
 #
 # 为什么要有这一步：编译、lint 和 JVM 测试全绿的 0.3.0 在设备上「词库准备失败」（私有目录从 / 起逐级以只读打开，Android 不给应用读 /data）、匿名账号写不进（SELinux 禁止应用建硬链接），Android 9 一打开就崩溃（开屏光晕的径向渐变带主题属性）。这三类问题只有在 Android 上运行才看得见。
 #
-# API 28 是 minSdk（Android 9），35 是这里跑的最高级别；targetSdk 已是 36，API 36 的镜像还没接进来。develop 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly；发版使用 --release。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 develop 的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
+# API 28 是 minSdk（Android 9），35 是常规矩阵的最高级别；API 37 可通过手动矩阵定向复验 Android 17 报告，不加入默认发布矩阵。targetSdk 已是 36。develop 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly；发版使用 --release。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 develop 的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
 on:
   workflow_dispatch:
     inputs:
@@ -80,7 +80,9 @@ jobs:
           # 模拟器和系统镜像也可能留下坏归档；脚本会清掉半截 SDK 包并重试，确认每个包的 package.xml 和可执行文件都落盘。
           bash platforms/android/install-sdk-packages.sh "${{ matrix.api }}"
           grep -q '28.2.13676358' "$ANDROID_SDK_ROOT/ndk/28.2.13676358/source.properties"
-          test -f "$ANDROID_SDK_ROOT/system-images/android-${{ matrix.api }}/default/x86_64/package.xml"
+          image_api="${{ matrix.api }}"
+          [[ "$image_api" != 37 ]] || image_api=37.0
+          test -f "$ANDROID_SDK_ROOT/system-images/android-$image_api/default/x86_64/package.xml"
           "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
       - name: Boot the dedicated AVD
         run: |
