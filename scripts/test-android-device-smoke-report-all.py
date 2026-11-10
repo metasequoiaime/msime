@@ -238,6 +238,18 @@ def main() -> None:
         run = Run(base, "spelling-editor-fail", ["--spelling-editor"], fail="CompositionRestartDeviceSmoke:spelling-editor-switch")
         run.expect(run.code == 1 and len(run.failed_lines()) == 1, "拼写编辑失败必须阻止通过")
 
+        run = Run(base, "space-copy-pass", ["--space-copy"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("TextEditRecentClipboardDeviceSmoke:space-copy-only"), "空格复制专项必须经过主输入并执行复制回归")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "空格复制专项不重复无关套件")
+        run = Run(base, "space-copy-fail", ["--space-copy"], fail="TextEditRecentClipboardDeviceSmoke:space-copy-only")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "复制专项失败必须阻止通过")
+
+        run = Run(base, "theme-pass", ["--theme"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("ThemeModeDeviceSmoke"), "主题专项必须包含真实主输入与主题断言")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke") and not run.ran_script("clipboard-export"), "主题专项不重复运行无关长套件")
+        run = Run(base, "theme-fail", ["--theme"], fail="ThemeModeDeviceSmoke")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "主题专项失败不能被定向入口吞掉")
+
         run = Run(base, "key-faces-pass", ["--key-faces"])
         run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("NineKeyShuangpinDeviceSmoke:faces_only"), "键面专项必须经过主输入并执行像素回归")
         run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "键面专项不重复执行无关套件")

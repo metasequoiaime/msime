@@ -3471,8 +3471,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 12 / 22
       }
-      // 横滑总是挂上，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到双拼后不必重建按键。
-      if grid == .eighteenKey && key.letters.count == 2 {
+      // 两字母键总是挂上横滑，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到全拼或双拼后不必重建按键。
+      if key.letters.count == 2 {
         let swipe = EighteenKeySwipeGestureRecognizer(letters: key.letters, target: self,
                                                       action: #selector(handleEighteenKeySwipe(_:)))
         swipe.delegate = self
@@ -3655,7 +3655,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 18 键双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前双拼网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
+  /// 14/18 键全拼或双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
   @objc private func handleEighteenKeySwipe(_ gesture: EighteenKeySwipeGestureRecognizer) {
     guard let button = gesture.view as? UIButton,
           let key = letterGridButtons.first(where: { $0.button === button })?.key else { return }
@@ -3672,7 +3672,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         playInputClick()
         guard isChineseMode else { return }
         synchronizeInputSchemePreference()
-        guard typesEighteenKeyShuangpin else { return }
+        guard typesExactLetterGridSwipe else { return }
         render(session.gridKey(String(letter)))
       }
     default:
@@ -3686,8 +3686,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 五笔 14 键：组码由五笔方案按组展开码表，没有拼音选择，候选照五笔展开；组码字母（`editing_text`）不显示。
   private var typesWubiGrid: Bool { typesLetterGrid && inputScheme == .wubi }
 
-  /// 18 键双拼：两个字母的键可以横滑选字母。全拼 18 键只点按，与 Android 相同。
-  private var typesEighteenKeyShuangpin: Bool { typesLetterGrid && letterGrid == .eighteenKey && usesShuangpin }
+  /// 14/18 键全拼或双拼：两个字母的键可以横滑选字母；五笔 14 键和单字母键只点按。
+  private var typesExactLetterGridSwipe: Bool {
+    guard typesLetterGrid, !showsSymbols else { return false }
+    switch inputScheme {
+    case .quanpin, .fourteenKey, .eighteenKey: return true
+    default: return usesShuangpin
+    }
+  }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
     let row = makeRow()
@@ -7969,7 +7975,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return (spaceVoiceArmed || (!spaceVoiceEnabled && (handwriting.isHidden || !handwriting.hasInk))) && !cursorMovement.isActive
     }
     if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
-    if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesEighteenKeyShuangpin && !showsSymbols }
+    if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesExactLetterGridSwipe }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
@@ -8004,8 +8010,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     while let current = node, current !== root {
       if let key = current as? KeyboardKeyButton {
         guard !key.isFunctionKey, !spaceKeys.contains(where: { $0 === key }) else { return false }
-        // 18 键双拼两个字母的键自己接横滑选字母，不再移动光标。
-        if typesEighteenKeyShuangpin && key.gestureRecognizers?.contains(where: { $0 is EighteenKeySwipeGestureRecognizer }) == true {
+        // 14/18 键全拼或双拼的两字母键自己接横滑选字母，不再移动光标。
+        if typesExactLetterGridSwipe && key.gestureRecognizers?.contains(where: { $0 is EighteenKeySwipeGestureRecognizer }) == true {
           return false
         }
         // 九键全拼字母层的 1 打开标点，数字层和双拼的 1 才输入字符。
@@ -10428,7 +10434,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.stateDirectory.map { ($0 as NSString).appendingPathComponent("plugins") }
   }
 
-  /// 键盘扩展没有把图片插进输入框的接口，表情包转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
+  /// 先尝试 iOS 18 的自适应图片字形；宿主输入框没有实现这项富文本能力时，再转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
   private func copySticker(_ sticker: KeyboardStickerCatalog.Sticker) {
     playInputClick()
     guard hasFullAccess else {
@@ -10441,14 +10447,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
         if let png {
-          UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
-          showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+          if self.insertStickerDirectly(png) {
+            self.showDiagnostic("已插入水杉娘「\(sticker.name)」")
+          } else {
+            UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
+            self.showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+          }
         } else {
-          showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
+          self.showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
         }
-        renderCandidateStrip()
+        self.renderCandidateStrip()
       }
     }
+  }
+
+  /// iOS 18 的富文本输入只对声明支持自适应图片字形的编辑器有效；`UITextDocumentProxy`
+  /// 在其他编辑器里仍只有文本接口，所以失败时必须保留剪贴板回退。
+  private func insertStickerDirectly(_ png: Data) -> Bool {
+    guard #available(iOS 18.0, *),
+          let input = textDocumentProxy as? UITextInput,
+          input.supportsAdaptiveImageGlyph == true,
+          let range = input.selectedTextRange,
+          let insert = input.insert else { return false }
+    let glyph = NSAdaptiveImageGlyph(imageContent: png)
+    insert(glyph, range)
+    return true
   }
 
   /// 按键区里的表情面板与键盘明暗一致时透出键盘背景；表情面板单独设成另一种明暗时铺上自己的皮肤底色，否则按键和颜文字会按面板的明暗着色、却画在键盘明暗的背景上。

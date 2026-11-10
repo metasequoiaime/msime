@@ -2,8 +2,10 @@
 //!
 //! The digits stay the composition: a chosen spelling only rewrites its span of digits and is remembered in `locked`, and every candidate's `pinyin` is the run of digits it consumes, so selection advances the same way whichever reading produced the row.
 
+mod grid_exact;
 mod grid_helpcode;
 
+use grid_exact::{fits, marks_agree};
 use grid_helpcode::GridHelpcode;
 pub use grid_helpcode::GridHelpcodeOp;
 
@@ -201,12 +203,12 @@ impl KeyGrid {
         }
     }
 
-    /// 字母所在键的组码；十八键双拼的大写字母标记精确输入。字母双拼网格的分号归入 L，九键双拼不按字母归组。
+    /// 字母所在键的组码；14／18 键的全拼和双拼另收大写字母，标记精确输入（见 `takes_exact_letters`）。字母双拼网格的分号归入 L，九键双拼不按字母归组。
     pub fn code_of(self, letter: u8) -> Option<u8> {
+        if self.takes_exact_letters() && letter.is_ascii_uppercase() {
+            return Some(letter);
+        }
         if matches!(self, Self::EighteenKeyShuangpin(_)) {
-            if letter.is_ascii_uppercase() {
-                return Some(letter);
-            }
             return eighteen_key_code(letter);
         }
         if matches!(self, Self::FourteenKeyShuangpin(_)) {
@@ -222,8 +224,22 @@ impl KeyGrid {
             .then(|| keypad[usize::from(letter - b'a')])
     }
 
+    /// `grid_key` 另收大写 ASCII 字母，表示同一组里的一个精确小写字母。大写只是组码串里的内部标记，兜底上屏前转回小写。全拼网格的匹配见 `grid_exact`。
+    pub(crate) fn takes_exact_letters(self) -> bool {
+        matches!(
+            self,
+            Self::FourteenKey
+                | Self::EighteenKey
+                | Self::FourteenKeyShuangpin(_)
+                | Self::EighteenKeyShuangpin(_)
+        )
+    }
+
     /// 组码键上的字母；不是这种键盘的组码时为空。九键双拼是这个键上能起头一个音节的字母（声母的首字母和从这个键开始的零声母音节的首字母）。
     pub fn letters(self, code: u8) -> &'static str {
+        if let Some(letter) = self.exact_letter(code) {
+            return letter;
+        }
         match self {
             Self::NineKey if (b'2'..=b'9').contains(&code) => {
                 DIGIT_LETTERS[usize::from(code - b'0')]
@@ -283,7 +299,7 @@ impl KeyGrid {
             let Some(&digit) = digits.get(index) else {
                 return Some(index);
             };
-            if keypad[usize::from(letter - b'a')] != digit {
+            if !fits(keypad, letter, digit) {
                 return None;
             }
             covered = Some(index + 1);
@@ -824,7 +840,7 @@ impl NineKeySession {
                 let replaced = self.digits[offset..end].to_string();
                 let before = self.digits.len();
                 self.digits
-                    .replace_range(offset..end, &self.grid.encode(&choice));
+                    .replace_range(offset..end, &self.grid.locked_code(&choice, &replaced));
                 // 拼写比已打的数字长时数字串变长；光标原来在被替换的那段之后的，跟着后移。
                 if let Some(caret) = self.caret {
                     if caret >= end {
@@ -1090,7 +1106,7 @@ impl NineKeySession {
         let mut index = first_index;
         while self.active() {
             if self.candidates.is_empty() {
-                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                if self.grid.takes_exact_letters() {
                     self.digits.make_ascii_lowercase();
                 }
                 commit.push_str(&self.digits);
@@ -1131,8 +1147,8 @@ impl NineKeySession {
                     return self.finish(0);
                 }
                 let mut raw = std::mem::take(&mut self.digits);
-                // 精确字母的大写只是十八键双拼内部标记，兜底上屏仍是小写字母。
-                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                // 精确字母的大写只是字母双拼网格的内部标记，兜底上屏仍是小写字母。
+                if self.grid.takes_exact_letters() {
                     raw.make_ascii_lowercase();
                 }
                 self.clear_composition();
@@ -2793,9 +2809,10 @@ fn letters_spell_code(grid: KeyGrid, letters: &str, code: &str) -> bool {
         };
     };
     letters.len() == code.len()
-        && letters.bytes().zip(code.bytes()).all(|(letter, digit)| {
-            letter.is_ascii_lowercase() && keypad[usize::from(letter - b'a')] == digit
-        })
+        && letters
+            .bytes()
+            .zip(code.bytes())
+            .all(|(letter, digit)| fits(keypad, letter, digit))
 }
 
 /// 把这次刷新之后的种子写进 `seeds`（先清空），`previous` 用完清空：先取排好的候选里覆盖全部数字、不是模糊音的前 `SENTENCE_SEED_LIMIT` 条全拼（`seed_prefix` 相同的只留一条，免得几条种子只差在最后一个音节上），再接上 `previous` 里 `seed_prefix` 仍拼得出数字开头的，合计最多 `SEED_RETAIN_LIMIT` 条。末尾只按了下一个音节的头一两个数字时没有覆盖全部数字的行，这时全靠留下来的种子，否则每隔一键就丢一次。`previous` 里已有的同一条直接挪过来，不再复制字符串。
@@ -3804,9 +3821,10 @@ fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
         };
     };
     keyword.len() == digits.len()
-        && keyword.bytes().zip(digits.bytes()).all(|(letter, digit)| {
-            letter.is_ascii_lowercase() && keypad[usize::from(letter - b'a')] == digit
-        })
+        && keyword
+            .bytes()
+            .zip(digits.bytes())
+            .all(|(letter, digit)| fits(keypad, letter, digit))
 }
 
 /// `letter_prefixes` 展开到第几位数字、共多少个前缀。
@@ -4035,22 +4053,22 @@ impl SpellingTable {
             destination.clear();
             return;
         }
-        matches.extend(
-            self.syllables
-                .iter()
-                .enumerate()
-                .filter_map(|(index, (_, code))| {
-                    let matches = match split {
-                        Some(split) => code.len() <= split && remaining.starts_with(code.as_str()),
-                        None => {
-                            locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
-                                && (remaining.starts_with(code.as_str())
-                                    || code.starts_with(remaining))
-                        }
-                    };
-                    matches.then_some(index)
-                }),
-        );
+        let mut buffer = [0; DIGIT_LIMIT];
+        let groups = self.grid.group_codes(remaining, &mut buffer);
+        let codes = groups.as_deref().unwrap_or(remaining);
+        matches.extend(self.syllables.iter().enumerate().filter_map(
+            |(index, (syllable, code))| {
+                let matches = match split {
+                    Some(split) => code.len() <= split && codes.starts_with(code.as_str()),
+                    None => {
+                        locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
+                            && (codes.starts_with(code.as_str()) || code.starts_with(codes))
+                    }
+                };
+                (matches && (groups.is_none() || marks_agree(syllable, remaining.as_bytes())))
+                    .then_some(index)
+            },
+        ));
         let covered = |code: &str| code.len().min(remaining.len());
         matches.sort_by(|&a, &b| {
             let (a, a_code) = &self.syllables[a];
@@ -4136,6 +4154,9 @@ impl SpellingTable {
         destination: &mut Vec<Path>,
     ) {
         let length = digits.len();
+        let mut buffer = [0; DIGIT_LIMIT];
+        let groups = self.grid.group_codes(digits, &mut buffer);
+        let codes = groups.as_deref().unwrap_or(digits);
         if scratch.pages.is_empty() {
             scratch.pages = vec![Vec::new(); length + 1];
         } else {
@@ -4161,12 +4182,15 @@ impl SpellingTable {
                 if splits.iter().any(|&split| offset < split && split < end) {
                     break;
                 }
-                let Some(pieces) = self.by_code.get(&digits[offset..end]) else {
+                let Some(pieces) = self.by_code.get(&codes[offset..end]) else {
                     continue;
                 };
                 let must_complete = end != length || splits.contains(&end);
                 for (piece, complete) in pieces {
                     if must_complete && !complete {
+                        continue;
+                    }
+                    if groups.is_some() && !marks_agree(piece, &digits.as_bytes()[offset..end]) {
                         continue;
                     }
                     let score = prior.score(piece);
@@ -9364,9 +9388,12 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
                 let code = grid.code_of(letter).unwrap();
                 assert!(grid.letters(code).as_bytes().contains(&letter));
             }
-            assert_eq!(grid.code_of(b'A'), None);
+            // 九键不收大写；14／18 键全拼的大写是精确字母，见 `grid_exact`。
+            let exact = grid != KeyGrid::NineKey;
+            assert_eq!(grid.code_of(b'A'), exact.then_some(b'A'));
+            assert_eq!(grid.is_code(b'A'), exact);
             assert_eq!(grid.code_of(b'\''), None);
-            assert!(!grid.is_code(b'\'') && !grid.is_code(b'A') && !grid.is_code(b'1'));
+            assert!(!grid.is_code(b'\'') && !grid.is_code(b'1'));
         }
         assert_eq!(FOURTEEN_KEYPAD, b"abcdedggujjlmbooqeatucqztz");
         assert_eq!(KeyGrid::FourteenKey.encode("ni'hao"), "bugao");
