@@ -88,10 +88,10 @@ group("prediction candidates do not make Return confirm, but Space still selects
 });
 
 group("Return during a prediction ends it and still acts on the editor", () => {
-  // 以前按候选数分派，联想的候选让回车走 COMMIT_HIGHLIGHTED：引擎清掉建议却报未处理，换行或发送就丢了。
+  // 普通编码组字的回车上屏原文；没有组字时，即使候选栏显示联想，也仍由编辑器处理。
   check(
-    ReturnKeyAction.dispatch(false, false, 5) === ReturnDispatch.COMMIT_HIGHLIGHTED,
-    "candidates alone still mean a composition's highlighted row",
+    ReturnKeyAction.dispatch(false, false, 5) === ReturnDispatch.EDITOR,
+    "prediction candidates alone do not claim the editor's Return",
   );
   check(
     ReturnKeyAction.dispatch(false, false, 5, false, false, false, false, true) ===

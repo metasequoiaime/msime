@@ -33,6 +33,7 @@ export class ReturnKeyAction {
     vietnamese: boolean = false,
     stroke: boolean = false,
     prediction: boolean = false,
+    tibetan: boolean = false,
   ): ReturnDispatch {
     // 上屏后联想只是建议：回车照常换行或执行编辑器动作。先结束联想（引擎对联想的 FINISH_COMPOSITION 清掉建议、报未处理，什么也不上屏），再交给编辑器；按候选数走「上屏高亮」的话，引擎清掉建议却不换行，这一下回车就被吞了。
     if (prediction) {
@@ -46,6 +47,10 @@ export class ReturnKeyAction {
     if (vietnamese) {
       return composing ? ReturnDispatch.FINISH_THEN_EDITOR : ReturnDispatch.EDITOR;
     }
+    // 藏文的触屏回车只提交藏文，不执行编辑器动作；它的 Engine 组字不是普通编码串，不能套用中文回车的原样上屏。
+    if (tibetan) {
+      return composing ? ReturnDispatch.FINISH_COMPOSITION : ReturnDispatch.EDITOR;
+    }
     // A Korean syllable is finished text rather than a spelling to confirm, so Return commits it and still breaks the line or submits, as every Korean keyboard does. The one exception is the syllable's open Hanja list, the only candidates Korean has: there Return chooses the highlighted Hanja, which only the session knows (msime_client.h).
     if (korean) {
       if (!composing) {
@@ -58,10 +63,8 @@ export class ReturnKeyAction {
     if (japanese && composing) {
       return japaneseConverted ? ReturnDispatch.COMMIT_HIGHLIGHTED : ReturnDispatch.COMMIT_READING;
     }
-    if (candidateCount > 0) {
-      return ReturnDispatch.COMMIT_HIGHLIGHTED;
-    }
-    return composing ? ReturnDispatch.FINISH_COMPOSITION : ReturnDispatch.EDITOR;
+    // 普通中文组字的确认键对应 `MSIME_COMMIT_RAW`：空格和候选点选才是取首选，回车应把用户输入的编码原样上屏。鸿蒙之前按候选数改走首选，导致确认键无法输入英文编码。
+    return composing ? ReturnDispatch.COMMIT_RAW : ReturnDispatch.EDITOR;
   }
 
   static performsEditorAction(action: number, disabled: boolean): boolean {

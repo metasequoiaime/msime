@@ -7581,8 +7581,12 @@ group("return performs an editor action only when nothing else claimed it", () =
     "Japanese Return commits the selected conversion when candidates exist",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
-    "a candidate-less non-Japanese composition is still finished before Return",
+    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.COMMIT_RAW,
+    "a candidate-less non-special composition commits its raw spelling",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_RAW,
+    "a normal composition with candidates commits its raw spelling instead of the first candidate",
   );
   check(
     ReturnKeyAction.dispatch(false, true, 3, false, false, false, true) ===
@@ -19020,9 +19024,9 @@ group("touch Return ends a Vietnamese word and still does its own work", () => {
     "a composing word is committed ahead of the line break",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
-      ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
-    "Zhuyin keeps the shared rule: the open list's row, else the conversion",
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_RAW &&
+      ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.COMMIT_RAW,
+    "普通注音组字也把编码原样上屏，只有打开的注音候选列表另行处理",
   );
 });
 
@@ -19297,7 +19301,8 @@ group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方�
     "快捷栏写「藏」，英文模式优先",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION &&
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, false, false, true) ===
+      ReturnDispatch.FINISH_COMPOSITION &&
       ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
     "触屏回车走共享规则：组字时只提交藏文、不换行，没有组字时交给编辑框",
   );

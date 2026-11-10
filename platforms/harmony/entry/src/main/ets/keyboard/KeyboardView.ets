@@ -3494,7 +3494,7 @@ struct KeyboardView {
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
       this.japanese, this.editing.length > 0, this.candidates.length,
       KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace(),
-      this.strokeFace(), this.prediction);
+      this.strokeFace(), this.prediction, this.tibetanFace());
     if (dispatch === ReturnDispatch.COMMIT_RAW) {
       KeyboardSession.shared.commitRaw();
     } else if (dispatch === ReturnDispatch.FINISH_THEN_EDITOR) {
