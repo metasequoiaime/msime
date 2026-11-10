@@ -12,6 +12,8 @@ Status: implemented
 
 共享 Rust 偏好持有并校验该字段，TypeScript 设置页和 Windows 原生设置页各自只负责控件与调用既有偏好写入路径。列表排序不改变任何宿主加载或执行契约。
 
+macOS 的 `preference-coverage` 将 `plugins.plugin_order` 记为有明确理由的宿主豁免：共享设置页直接读取和写回它，输入法宿主不应把仅用于设置页展示的顺序误当成插件加载或运行顺序。
+
 ## Alternatives considered
 
 - **把列表顺序复用为指令表或脚本执行顺序**：可以少一个字段，但会让视觉整理意外改变输入行为；没有采用，因为报告者明确要求拖动只影响插件列表。
