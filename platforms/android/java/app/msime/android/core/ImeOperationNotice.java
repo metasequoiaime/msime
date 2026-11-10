@@ -25,6 +25,7 @@ final class ImeOperationNotice {
     private Toast legacyToast;
     private Runnable dismissTask;
     private View acknowledgementOverlay;
+    private View acknowledgementCard;
     private boolean acknowledgementWindow;
 
     ImeOperationNotice(MSIMEInputService service) { s = service; }
@@ -56,6 +57,17 @@ final class ImeOperationNotice {
             acknowledgementOverlay = null;
             acknowledgementWindow = false;
         }
+        acknowledgementCard = null;
+    }
+
+    /** Android 9 的透明全高父窗口只接收键区触摸，确认卡片需额外加入可触摸区域。 */
+    void includeAcknowledgementTouchRegion(android.graphics.Region region) {
+        if (acknowledgementWindow || acknowledgementCard == null
+                || !acknowledgementCard.isShown()) return;
+        int[] location = new int[2];
+        acknowledgementCard.getLocationInWindow(location);
+        region.op(location[0], location[1], location[0] + acknowledgementCard.getWidth(),
+            location[1] + acknowledgementCard.getHeight(), android.graphics.Region.Op.UNION);
     }
 
     /** 在不改变输入法窗口测量边界的独立层中显示需要确认的操作提示。 */
@@ -108,7 +120,7 @@ final class ImeOperationNotice {
             return;
         }
 
-        // Android 9 的输入法子窗口会被父窗口裁剪，退回同一输入法表面的覆盖层；它仍不参与主体测量。
+        // Android 9 的子窗口受裁剪，改用根视图覆盖层；全高父窗口保持原测量，仅把卡片补进触摸区域。
         FrameLayout overlay = new FrameLayout(s);
         overlay.setClickable(true);
         overlay.addView(card, new FrameLayout.LayoutParams(
@@ -116,6 +128,7 @@ final class ImeOperationNotice {
         if (root instanceof ViewGroup group) {
             group.addView(overlay, LayoutPolicy.frameMatchParentParams());
             acknowledgementOverlay = overlay;
+            acknowledgementCard = card;
             acknowledgementWindow = false;
         }
     }

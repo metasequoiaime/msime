@@ -96,7 +96,7 @@ final class ClipboardSelectionDeviceChecks {
             if (label.isEmpty() || button.isEmpty() || button.centerY() <= label.centerY()
                     || button.centerX() <= panel.centerX())
                 throw new AssertionError("Acknowledgement button is not visible below the message on the right");
-            if (Build.VERSION.SDK_INT >= 30) {
+            if (Build.VERSION.SDK_INT == 28 || Build.VERSION.SDK_INT >= 30) {
                 Bitmap screen = automation.takeScreenshot();
                 if (screen == null) throw new AssertionError("No screen for dialog positioning");
                 try {
@@ -241,7 +241,7 @@ final class ClipboardSelectionDeviceChecks {
     private void screenshot(String name) throws Exception {
         Bitmap bitmap = automation.takeScreenshot();
         if (bitmap == null) throw new AssertionError("No synthetic clipboard screenshot");
-        try (FileOutputStream output = new FileOutputStream(new File(s.getTargetContext().getCacheDir(),
+        try (FileOutputStream output = new FileOutputStream(new File(s.getTargetContext().getExternalFilesDir(null),
                 "clipboard-selection-" + name + ".png"))) {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
         } finally { bitmap.recycle(); }

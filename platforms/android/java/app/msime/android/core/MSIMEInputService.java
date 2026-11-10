@@ -12020,6 +12020,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         outInsets.touchableRegion.set(floatingLocation[0], floatingLocation[1],
             floatingLocation[0] + keyboardSurface.getWidth(), floatingLocation[1] + keyboardSurface.getHeight());
+        operationNotice.includeAcknowledgementTouchRegion(outInsets.touchableRegion);
     }
 
     /** 可移动的水平 / 竖直像素范围：系统栏之间的区域减去面板大小。 */
