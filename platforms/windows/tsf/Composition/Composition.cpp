@@ -13,6 +13,7 @@
 #include "Ipc.h"
 #include "SmartPunctuationFingerprint.h"
 #include "SmartPunctuationDeferralPolicy.h"
+#include "SmartPunctuationForwardedKey.h"
 #include "../Utils/PerfTimer.h"
 
 namespace
@@ -978,7 +979,8 @@ void CMetasequoiaIME::_UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool i
         return;
     }
 
-    if (isEaten || wch == 0 || std::iswprint(static_cast<wint_t>(wch)) == 0)
+    const WCHAR context = Global::ForwardedSmartPunctuationContext(code, wch);
+    if (isEaten || context == 0 || std::iswprint(static_cast<wint_t>(context)) == 0)
     {
         // Eaten keys feed the composition and reach the document as committed
         // text, which even a proxy store exposes, so let the document answer.
@@ -986,7 +988,7 @@ void CMetasequoiaIME::_UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool i
         return;
     }
 
-    _smartPunctuationShadowChar = wch;
+    _smartPunctuationShadowChar = context;
     _smartPunctuationShadowValid = true;
 }
 
