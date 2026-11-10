@@ -75,6 +75,7 @@
 #include "Telemetry.h"
 #include "TelemetryConsent.h"
 #include "RevisionFence.h"
+#include "TsfConfigDeliveryTracker.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <windows.h>
@@ -2411,7 +2412,7 @@ int wmain(int argc, wchar_t **argv) {
     // 主桌面的前台呈现方式变化与 QUNS 耗时；候选窗的诊断由所属桌面线程汇总。
     auto logged_presentation = ForegroundPresentation::Windowed;
     bool quns_cost_logged = false;
-    uint64_t tsf_config_applied_revision = 0;
+    msime::windows::TsfConfigDeliveryTracker tsf_config_delivery;
     uint64_t caps_lock_applied_revision = 0;
     // 后台更新检查只在受管理的 Server 里做：预览实例是开发和测试用的，不该替用户联网，也不该弹通知。线程五分钟后第一次调用共享层，之后每小时一次（UpdateNotifier.h）；有新版本时弹一个临时的通知区域气泡，点它和托盘的「关于」一样打开设置窗口的「关于」页。记录放在本用户的目录（UpdateRecordDirectory.h）而不是状态根：安装后的状态根整台机器共用，几个用户共用一份「提醒过哪个构建」会让后登录的用户收不到通知。拿不到这个目录或建不出窗口时只记一条诊断，不影响输入。
     startup_stage = "update_notifier";
@@ -2617,16 +2618,17 @@ int wmain(int argc, wchar_t **argv) {
       // Push the TSF-local settings whenever they changed, so turning smart
       // punctuation off takes effect on the text being typed now.
       const auto current_tsf_config_revision = tsf_config_revision->snapshot();
-      if (current_tsf_config_revision != tsf_config_applied_revision) {
+      const auto current_tsf_tickets = server.current_tsf_tickets();
+      if (tsf_config_delivery.needs_send(current_tsf_config_revision, current_tsf_tickets)) {
         if (const auto view = server.mode_view()) {
           msime::windows::TsfLocalConfig pending;
           {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             pending = *tsf_config;
           }
-          if (server.send_tsf_config(pending))
-            if (tsf_config_revision->is_current(current_tsf_config_revision))
-              tsf_config_applied_revision = current_tsf_config_revision;
+          if (server.send_tsf_config(pending) &&
+              tsf_config_revision->is_current(current_tsf_config_revision))
+            tsf_config_delivery.mark_sent(current_tsf_config_revision, current_tsf_tickets);
         }
       }
       // One CN/EN state follows the user between applications when the scope
