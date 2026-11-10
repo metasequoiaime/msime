@@ -299,9 +299,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             + sharedHistoryCount() + ")";
         // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
         // API 34 以上的输入法窗口会把滚动容器里的卡片报告成不可见，但坐标仍是当前卡片的真实位置；这里按无障碍树定位后再用坐标注入手势。
-        AccessibilityNodeInfo card = awaitAny(node -> node.isLongClickable()
-            && node.getContentDescription() != null
-            && node.getContentDescription().toString().contains("右滑查看详情"));
+        AccessibilityNodeInfo card = awaitStableDetailCard();
         Rect cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
@@ -322,9 +320,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Opening detail changed history");
         // 详情页直接提供编辑入口；编辑前不应把原正文插入外部编辑器。
         openClipboardEditor(true);
-        card = awaitAny(node -> node.isLongClickable()
-            && node.getContentDescription() != null
-            && node.getContentDescription().toString().contains("右滑查看详情"));
+        card = awaitStableDetailCard();
         cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
@@ -343,8 +339,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         await(key("n"));
         tap(clipboardEntry());
-        card = awaitAny(node -> node.isLongClickable() && node.getText() != null
-            && node.getText().toString().startsWith(replacement));
+        card = awaitStableDetailCard();
         cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
@@ -358,6 +353,23 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 || saved.getJSONObject(0).getLong("timestampMs") != 1700000000000L
                 || !replacement.equals(saved.getJSONObject(0).getString("text")))
             throw new AssertionError("Detail edit lost record identity");
+    }
+
+    /** API 34 以上会在输入法面板重排期间先发布不可见的卡片节点；等屏幕边界稳定后再注入手势。 */
+    private AccessibilityNodeInfo awaitStableDetailCard() {
+        Rect previous = null;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo card = awaitAny(node -> node.isLongClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().contains("右滑查看详情"));
+            Rect bounds = new Rect();
+            card.getBoundsInScreen(bounds);
+            if (bounds.width() > 0 && bounds.height() > 0 && bounds.equals(previous)) return card;
+            previous = bounds;
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Clipboard detail card bounds never settled");
     }
 
     /** 通过移动端剪贴板公开入口写入夹具，避免 API 31 以上复用进程时直写文件与宿主状态分叉。 */
