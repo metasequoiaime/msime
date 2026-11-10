@@ -16,6 +16,27 @@ import org.json.JSONObject;
 /** 仅在专用 AVD 上切换系统深浅，验证真实键盘、候选与皮肤列表同步刷新。 */
 public final class ThemeModeDeviceSmoke extends DeviceSmoke {
     private boolean tracedCompositionEditor;
+    private final java.util.ArrayDeque<String> syntheticEvents = new java.util.ArrayDeque<>();
+
+    /** 只记录本套件合成编辑器的选区和输入法控件点击，不收集文字内容。 */
+    private void recordSyntheticEvent(android.view.accessibility.AccessibilityEvent event) {
+        int kind = event.getEventType();
+        boolean selection = kind == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
+            && equalsText("app.msime.android.test", event.getPackageName());
+        boolean click = kind == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED
+            && equalsText("app.msime.android", event.getPackageName());
+        if (!selection && !click) return;
+        AccessibilityNodeInfo source = event.getSource();
+        if (selection && (source == null || !equalsText("msime-test-plain", source.getContentDescription()))) return;
+        String entry = SystemClock.uptimeMillis() + " " + (selection ? "selection" : "click")
+            + " " + event.getFromIndex() + ":" + event.getToIndex()
+            + " " + event.getClassName() + " "
+            + (source == null ? "source-unavailable" : source.getContentDescription());
+        synchronized (syntheticEvents) {
+            if (syntheticEvents.size() == 60) syntheticEvents.removeFirst();
+            syntheticEvents.addLast(entry);
+        }
+    }
 
     /** 只记录合成编辑器中的首次覆盖，区分点击夹具与异步回声触发，不关闭面板或放宽配色断言。 */
     private void traceCompositionEditor() {
@@ -26,6 +47,9 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo editor = await(field("msime-test-plain"));
         diagnostic.putInt("editor_selection_start", editor.getTextSelectionStart());
         diagnostic.putInt("editor_selection_end", editor.getTextSelectionEnd());
+        synchronized (syntheticEvents) {
+            diagnostic.putString("theme_synthetic_events", String.join("\n", syntheticEvents));
+        }
         sendStatus(0, diagnostic);
         try { shellDiscard("screencap -p /data/local/tmp/msime-theme-first-overlay.png"); }
         catch (Exception failure) { throw new AssertionError("无法保存合成编辑器覆盖现场", failure); }
@@ -33,6 +57,12 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
 
     @Override protected void tap(Predicate<AccessibilityNodeInfo> match)
             throws java.util.concurrent.TimeoutException {
+        AccessibilityNodeInfo target = awaitAny(match);
+        synchronized (syntheticEvents) {
+            if (syntheticEvents.size() == 60) syntheticEvents.removeFirst();
+            syntheticEvents.addLast(SystemClock.uptimeMillis() + " before-tap " + stage
+                + " " + target.getClassName() + " " + target.getContentDescription());
+        }
         super.tap(match);
         traceCompositionEditor();
     }
@@ -43,6 +73,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
 
     @Override protected void runChecks() throws Exception {
         verifyKeyTarget();
+        automation.setOnAccessibilityEventListener(this::recordSyntheticEvent);
         JSONObject missingDesign = new JSONObject().put("global_theme", "paper")
             .put("android_keyboard_skin_dark", "design:missing-synthetic");
         if (!"paper".equals(KeyboardSkinModeChoice.selected(missingDesign, true, List.of()).theme()))
@@ -180,6 +211,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             catch (Exception captureFailure) { failure.addSuppressed(captureFailure); }
             throw failure;
         } finally {
+            automation.setOnAccessibilityEventListener(null);
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             shellDiscard("cmd uimode night no");
             if (original == null) Files.deleteIfExists(preferences.toPath());
