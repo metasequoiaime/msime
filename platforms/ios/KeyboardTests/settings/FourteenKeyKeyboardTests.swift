@@ -570,7 +570,7 @@ final class FourteenKeyKeyboardTests: XCTestCase {
                  "single-letter keys do not swipe")
 
     try swipe("BN", through: [40], in: controller)
-    try swipe("UI", through: [-40], in: controller)
+    try swipe("UI", through: [40], in: controller)
     try tap(["GH", "AS", "OP"], in: controller)
     XCTAssertTrue(candidates(in: controller).contains { $0.contains("你好") }, "\(candidates(in: controller))")
     XCTAssertTrue(shown(try button("readingSpelling_ni", in: controller)))
@@ -590,7 +590,7 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(controller.gestureRecognizerShouldBegin(try swipeGesture(on: "UI", in: controller)))
 
     try swipe("BN", through: [40], in: controller)
-    try swipe("UI", through: [-40], in: controller)
+    try swipe("UI", through: [40], in: controller)
     XCTAssertTrue(shown(try button("readingSpelling_ni", in: controller)))
     XCTAssertNil(spellingButton("bi", in: controller), "the exact letters still offered bi")
     XCTAssertEqual(controller.inlineMarkedText, "", "the exact markers are not written into the editor")
