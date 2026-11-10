@@ -1427,9 +1427,12 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertTrue(link.waitForExistence(timeout: 10))
       link.tap()
     }
-    func openMandarin() {
+    func openLanguage(for schemeIdentifier: String) {
       openSettings("inputSettingsLink")
-      let row = app.buttons["inputLanguage_mandarin"]
+      let language = schemeIdentifier.contains("shuangpin") || schemeIdentifier.contains("ziranma")
+        || schemeIdentifier.contains("microsoft") || schemeIdentifier.contains("shoudao")
+        ? "shuangpin" : "mandarin"
+      let row = app.buttons["inputLanguage_\(language)"]
       XCTAssertTrue(row.waitForExistence(timeout: 5))
       row.tap()
       XCTAssertTrue(app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5))
@@ -1439,7 +1442,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                     "选项退场后才会保存，不能提前终止宿主")
     }
     func selectScheme(_ identifier: String) {
-      openMandarin()
+      openLanguage(for: identifier)
       let option = app.buttons[identifier]
       XCTAssertTrue(option.waitForExistence(timeout: 5))
       option.tap()
@@ -1452,7 +1455,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       picker.tap()
     }
 
-    openMandarin()
+    openLanguage(for: "inputScheme_quanpin")
     let previousScheme = try XCTUnwrap(app.buttons.allElementsBoundByIndex.first {
       $0.identifier.hasPrefix("inputScheme_") && $0.isSelected
     }?.identifier, "此专项需要已启用的普通话方案")
