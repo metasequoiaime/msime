@@ -3098,6 +3098,72 @@ static void TestSwitchBackKeepsShuangpin() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+@interface SwitchInModeClient : ModeSelectingClient
+@property(nonatomic, copy) NSString *bundleIdentifier;
+@end
+@implementation SwitchInModeClient
+@end
+
+// 切进水杉（进程刚启动、重装后、从别的输入源切回）时系统落在方案自己的模式「五」上，那次报告不是用户在水杉里选了中文：默认英文和应用的英文规则照旧生效，菜单栏选回「英」，之后的新应用也从英文开始，按应用和全局两种范围都一样。以前这次报告被当成选中文，全局范围下此后每个新焦点都是中文，设置里的「默认英文」看起来完全无效。切进之后用户自己选的「中」照样采纳。
+static void TestSwitchInReportKeepsStartingEnglish() {
+    NSString *suite = [@"msime.switch-in-english." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.inputScheme = @"wubi";
+    appearance.inputModeStatusItem = NO;
+    AvailableModesController *controller = [AvailableModesController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:[ShortcutSession new] forKey:@"session"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    MSIMEFocusedController = controller;
+    auto switchIn = [&](NSDictionary *preferences) -> SwitchInModeClient * {
+        [appearance applySharedInputPreferences:preferences];
+        // 离开水杉时输入源监视器清掉记住的模式和系统模式记录，这里照做。
+        [appearance resetRememberedInputModes];
+        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        SwitchInModeClient *client = [SwitchInModeClient new];
+        client.bundleIdentifier = @"org.example.first";
+        [controller setValue:client forKey:@"activeClient"];
+        [appearance activateInputModeForApplication:client.bundleIdentifier];
+        return client;
+    };
+
+    for (NSString *scope in @[@"app", @"global"]) {
+        SwitchInModeClient *client = switchIn(@{@"default_ime_mode":@"english", @"ime_mode_scope":scope});
+        assert(appearance.englishMode);
+        [controller systemDidReportInputMode:MSIMEWubiInputModeID client:client];
+        assert(appearance.englishMode && [appearance.inputScheme isEqual:@"wubi"]);
+        assert([client.selectedModes isEqualToArray:@[MSIMEEnglishInputModeID]]);
+        assert(!MSIMESharedSystemInputModeState().switchedIn);
+        [appearance activateInputModeForApplication:@"org.example.second"];
+        assert(appearance.englishMode);
+        // 切进已经处理过，用户在输入菜单里选「中」是自己的选择。
+        [appearance activateInputModeForApplication:client.bundleIdentifier];
+        [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+        assert(!appearance.englishMode);
+    }
+
+    // 默认中文、这个应用的规则是英文：规则同样不被切进时的报告覆盖。
+    SwitchInModeClient *client = switchIn(@{@"default_ime_mode":@"chinese", @"ime_mode_scope":@"app",
+                                            @"app_input_mode_rules":@{@"org.example.first":@"english"}});
+    assert(appearance.englishMode);
+    [controller systemDidReportInputMode:MSIMEWubiInputModeID client:client];
+    assert(appearance.englishMode);
+
+    // 起点是中文时切进照旧落在中文；切进时报告的「英」是用户在输入菜单里明确选的，照样进英文。
+    client = switchIn(@{@"default_ime_mode":@"chinese", @"ime_mode_scope":@"app", @"app_input_mode_rules":@{}});
+    assert(!appearance.englishMode);
+    [controller systemDidReportInputMode:MSIMEWubiInputModeID client:client];
+    assert(!appearance.englishMode && client.selectedModes.count == 0);
+    client = switchIn(@{@"default_ime_mode":@"chinese", @"ime_mode_scope":@"app", @"app_input_mode_rules":@{}});
+    [controller systemDidReportInputMode:MSIMEEnglishInputModeID client:client];
+    assert(appearance.englishMode);
+
+    MSIMEFocusedController = nil;
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // The selected input mode, 中, 英 or 日, follows the controller's state. A mode the system reports - picked from the input menu or reached with Ctrl+Space - sets the Chinese/English state and, for 中 and 日, the scheme, and is not selected back.
 static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
@@ -17345,6 +17411,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestSwitchBackKeepsShuangpin(); }
+        @autoreleasepool { TestSwitchInReportKeepsStartingEnglish(); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestRestoredInputModeActivation(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
