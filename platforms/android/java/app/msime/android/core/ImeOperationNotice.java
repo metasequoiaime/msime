@@ -17,7 +17,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
-/** 剪贴板添加常用语的临时结果：独立显示，不占键盘布局、不取编辑器焦点。 */
+/** 输入法操作的临时结果：独立显示，不占键盘布局、不取编辑器焦点。 */
 final class ImeOperationNotice {
     private final MSIMEInputService s;
     private long generation;
@@ -133,9 +133,13 @@ final class ImeOperationNotice {
         }
     }
 
+    void show(long request, String message) {
+        show(request, message, "常用语操作提示：", "MSIME common phrase notice", 3000);
+    }
+
     // Toast.setView 只用于 Android 11 之前仍支持自定义顶部提示的分支。
     @SuppressWarnings("deprecation")
-    void show(long request, String message) {
+    void show(long request, String message, String descriptionPrefix, String windowTitle, long timeoutMillis) {
         View root = s.keyboardRoot;
         if (request != generation || message == null || message.isEmpty()
                 || root == null || !root.isAttachedToWindow() || !s.isInputViewShown()) return;
@@ -148,7 +152,7 @@ final class ImeOperationNotice {
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
         label.setPadding(s.pixels(16), s.pixels(10), s.pixels(16), s.pixels(10));
         label.setBackground(DrawablePolicy.rounded(Color.BLACK, s.pixels(12)));
-        label.setContentDescription("常用语操作提示：" + message);
+        label.setContentDescription(descriptionPrefix + message);
         label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         // 现代子窗口允许点按关闭以保留无障碍可见性；旧版 Toast 由系统处理触摸。
         label.setOnClickListener(ignored -> cancel());
@@ -180,7 +184,7 @@ final class ImeOperationNotice {
             params.token = root.getWindowToken();
             params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
             params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            params.setTitle("MSIME common phrase notice");
+            params.setTitle(windowTitle);
             // 提示是输入法窗口之外单开的子窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
             params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
             params.y = top + s.pixels(8);
@@ -191,7 +195,7 @@ final class ImeOperationNotice {
             }
             noticeView = label;
         }
-        int duration = 3000;
+        int duration = Math.toIntExact(timeoutMillis);
         AccessibilityManager accessibility = s.getSystemService(AccessibilityManager.class);
         if (Build.VERSION.SDK_INT >= 29 && accessibility != null)
             duration = accessibility.getRecommendedTimeoutMillis(duration, AccessibilityManager.FLAG_CONTENT_TEXT);

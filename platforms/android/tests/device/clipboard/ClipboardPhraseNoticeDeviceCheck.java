@@ -281,7 +281,7 @@ final class ClipboardPhraseNoticeDeviceCheck {
         } finally { bitmap.recycle(); }
     }
 
-    private static Rect legacyNoticeBounds(Bitmap bitmap) {
+    static Rect legacyNoticeBounds(Bitmap bitmap) {
         int minimum = bitmap.getWidth() / 6;
         for (int y = 0; y < bitmap.getHeight() / 4; y++) {
             int start = -1;

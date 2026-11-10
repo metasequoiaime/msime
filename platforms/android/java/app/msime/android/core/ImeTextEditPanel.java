@@ -573,8 +573,8 @@ final class ImeTextEditPanel {
     }
 
     /** 复制始终交给编辑器；提取结果只保留选区元数据，用于核对全选和恢复原位置。 */
-    void copyAllFromGesture() {
-        if (!canSwipeCopyAll()) return;
+    boolean copyAllFromGesture() {
+        if (!canSwipeCopyAll()) return false;
         InputConnection target = s.connection;
         s.selectionEcho.invalidate();
         boolean copied = EditorCopyAll.copy(new EditorCopyAll.Editor() {
@@ -600,7 +600,7 @@ final class ImeTextEditPanel {
                 catch (RuntimeException ignored) { return false; }
             }
         });
-        if (!copied) s.notice("当前输入框不支持复制全文");
+        return copied;
     }
 
     /**

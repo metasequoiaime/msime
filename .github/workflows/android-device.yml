@@ -144,6 +144,19 @@ jobs:
           name: android-device-api${{ matrix.api }}-voice-hold-panel
           path: target/android/voice-hold-panel-api*.png
           if-no-files-found: ignore
+      - name: Collect synthetic space copy notice
+        if: always() && matrix.smoke == '--space-copy' && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/space-copy
+          for name in space-copy-failure-notice space-copy-failure-first-frame; do
+            "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull "/sdcard/Android/data/app.msime.android/files/$name.png" target/android/space-copy/ || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--space-copy'
+        with:
+          name: android-device-api${{ matrix.api }}-space-copy
+          path: target/android/space-copy/
+          if-no-files-found: ignore
       - name: Collect synthetic key face examples
         if: always() && matrix.smoke == '--key-faces' && env.SERIAL != ''
         run: |
