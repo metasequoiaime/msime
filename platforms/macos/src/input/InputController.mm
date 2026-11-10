@@ -541,7 +541,8 @@ static NSString *MSIMECandidateStatusTextForOutput(NSString *schemeTitle, NSDict
     [parts addObject:english ? @"英" : @"中"];
     const BOOL cantonese = msime::mac::character_set::follows_cantonese(MSIMEViewScheme(view));
     if (!english && (MSIMEStrictBoolean(view[@"script_conversion"]) || cantonese)) {
-        [parts addObject:msime::mac::character_set::checked(MSIMEViewScheme(view), traditional, cantoneseSimplified) ? @"简" : @"繁"];
+        const BOOL simplified = cantonese ? cantoneseSimplified : !traditional;
+        [parts addObject:simplified ? @"简" : @"繁"];
     }
     if (fullWidth) [parts addObject:@"全角"];
     return [parts componentsJoinedByString:@" · "];
