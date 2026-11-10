@@ -36,12 +36,30 @@ final class SpaceCopyDeviceChecks {
         open("");
         seed();
         test.stage = "space copy upward waits for release";
+        Rect stableSpace = new Rect();
+        test.awaitStableBounds(test.key("空格")).getBoundsInScreen(stableSpace);
         press();
         move(-36);
         expectClipboard(SENTINEL);
-        test.await(test.described("松开复制全文"));
+        AccessibilityNodeInfo hint = test.await(test.described("松开复制全文"));
+        Rect hintBounds = new Rect();
+        hint.getBoundsInScreen(hintBounds);
+        Rect currentSpace = new Rect();
+        test.awaitStableBounds(test.key("空格")).getBoundsInScreen(currentSpace);
+        int screenCenter = test.getTargetContext().getResources().getDisplayMetrics().widthPixels / 2;
+        int tolerance = Math.max(2, Math.round(4 * test.getTargetContext().getResources().getDisplayMetrics().density));
+        int keyboardGap = Math.round(currentSpace.height() * 0.8f);
+        if (hintBounds.bottom >= currentSpace.top - keyboardGap)
+            throw new AssertionError("Space copy hint remained in the keyboard toolbar");
+        if (Math.abs(hintBounds.centerX() - screenCenter) > tolerance)
+            throw new AssertionError("Space copy hint is not centered above the keyboard");
+        if (!stableSpace.equals(currentSpace))
+            throw new AssertionError("Space key moved when the copy hint appeared");
+        if (!DeviceSmoke.equalsText("空格", test.await(test.key("空格")).getText()))
+            throw new AssertionError("Space key label changed while copy hint was shown");
         SystemClock.sleep(500);
         release(false);
+        absent(test.described("松开复制全文"));
         expectClipboard(TEXT);
         expectSelection(SOURCE, 3, 3);
         test.stage = "space copy preview follows existing preference";
@@ -52,6 +70,13 @@ final class SpaceCopyDeviceChecks {
         open("--ez reject-copy true");
         seed();
         swipe();
+        AccessibilityNodeInfo failureHint = test.await(test.described("当前输入框不支持复制全文"));
+        Rect failureBounds = new Rect();
+        failureHint.getBoundsInScreen(failureBounds);
+        Rect failureSpace = new Rect();
+        test.awaitStableBounds(test.key("空格")).getBoundsInScreen(failureSpace);
+        if (failureBounds.bottom >= failureSpace.top - Math.round(failureSpace.height() * 0.8f))
+            throw new AssertionError("Space copy failure hint remained in the keyboard toolbar");
         expectClipboard(SENTINEL);
         if (copyAttempts() != 1) throw new AssertionError("Editor did not receive the copy request");
         expectSelection(SOURCE, 3, 3);
@@ -219,6 +244,14 @@ final class SpaceCopyDeviceChecks {
     }
 
     private void swipe() { press(); move(-36); release(false); }
+
+    private void absent(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        SystemClock.sleep(700);
+        test.dropStaleNodes();
+        for (var window : test.automation.getWindows())
+            if (test.find(window.getRoot(), match) != null)
+                throw new AssertionError("Space copy hint remained visible");
+    }
 
     private void touch(int action) {
         MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);

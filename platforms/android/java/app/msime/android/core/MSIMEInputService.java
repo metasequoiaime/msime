@@ -637,6 +637,8 @@ public final class MSIMEInputService extends InputMethodService {
     private String japaneseConversionEditingText = "";
     TextView status;
     TextView diagnosticView;
+    SpaceGestureHintOverlay spaceGestureHintOverlay;
+    private long spaceGestureHintGeneration;
     private String message = "";
     String diagnosticMessage = "";
     long diagnosticGeneration;
@@ -10992,6 +10994,12 @@ public final class MSIMEInputService extends InputMethodService {
         quickDeleteOverlay = new QuickDeleteOverlay(this);
         keyboardSurface.addView(quickDeleteOverlay, LayoutPolicy.frameMatchParentParams());
         surface.fullBleed.add(quickDeleteOverlay);
+        spaceGestureHintOverlay = new SpaceGestureHintOverlay(this);
+        FrameLayout.LayoutParams spaceGestureHintParams = LayoutPolicy.frameWrapParams();
+        spaceGestureHintParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+        spaceGestureHintParams.topMargin = pixels(16);
+        // 输入法根视图覆盖整个输入法窗口；把提示挂在这里才能落在屏幕上沿的居中位置，且不参与键盘表面的测量。
+        keyboardRoot.addView(spaceGestureHintOverlay, spaceGestureHintParams);
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
@@ -11460,6 +11468,26 @@ public final class MSIMEInputService extends InputMethodService {
             textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
+    }
+
+    void showSpaceGestureHint(String label) {
+        if (spaceGestureHintOverlay == null) return;
+        spaceGestureHintOverlay.showLabel(label);
+    }
+
+    void showSpaceGestureNotice(String label) {
+        if (spaceGestureHintOverlay == null) return;
+        long generation = ++spaceGestureHintGeneration;
+        spaceGestureHintOverlay.showLabel(label);
+        main.postDelayed(() -> {
+            if (generation == spaceGestureHintGeneration) hideSpaceGestureHint();
+        }, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+    }
+
+    void hideSpaceGestureHint() {
+        spaceGestureHintGeneration++;
+        if (spaceGestureHintOverlay == null) return;
+        spaceGestureHintOverlay.hideLabel();
     }
 
     /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
