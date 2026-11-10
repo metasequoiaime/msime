@@ -5364,6 +5364,9 @@ public final class MSIMEInputService extends InputMethodService {
                     || !before.toString().endsWith(composing.substring(0, offset))
                     || !after.toString().startsWith(composing.substring(offset))) return false;
         } catch (RuntimeException disconnected) { return false; }
+        // 配置重建后的迟到回报可能没有匹配到写入预期，但它仍停在引擎当前光标。
+        // 只有实际移动组字光标才进入编辑；普通打字的末尾回报不应打开面板。
+        if (target == InputViewValuePolicy.integer(view, "caret_position", editing.length())) return true;
         moveCompositionCaret(target);
         imeCompositionEditor.open();
         return true;

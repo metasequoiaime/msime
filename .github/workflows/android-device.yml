@@ -98,7 +98,7 @@ jobs:
           # 整套跑一个多小时，默认缓冲只留得住最后十几分钟；2026-10-28 剪贴板导出的间歇失败发生在 00:51，失败后收的 logcat 从 01:07 才开始，输入法那段日志已被冲掉。调大主缓冲，收日志时还看得到中途失败的那一段。
           "$adb" -s "$serial" logcat -G 32M || true
       - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
-        if: ${{ matrix.smoke != '--key-faces' }}
+        if: ${{ matrix.smoke != '--key-faces' && matrix.smoke != '--theme' }}
         run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
       - name: Build the APK
         # 两个 API 级别的 NumberPadDeviceSmoke 都会切换笔画和注音键面，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。背单词的设备验收（SettingsDeviceSmoke -e vocabulary true）要读 APK 里的内置词书，所以也生成词书并要求它们进包。
@@ -117,7 +117,7 @@ jobs:
           bash platforms/android/build-apk.sh "$resource_dir"
       # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
       - name: Verify crash reporting before the full input smoke
-        if: ${{ matrix.smoke != '--pr' && matrix.smoke != '--key-faces' }}
+        if: ${{ matrix.smoke != '--pr' && matrix.smoke != '--key-faces' && matrix.smoke != '--theme' }}
         timeout-minutes: 10
         run: |
           set -euo pipefail
@@ -155,6 +155,19 @@ jobs:
           name: android-device-api${{ matrix.api }}-key-faces
           path: target/android/key-faces/
           if-no-files-found: ignore
+      - name: Collect synthetic theme result
+        if: always() && (matrix.smoke == '--theme' || matrix.smoke == '--release') && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/theme-result
+          for frame in success failure; do
+            "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull "/data/local/tmp/msime-theme-mode-$frame.png" target/android/theme-result/ || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && (matrix.smoke == '--theme' || matrix.smoke == '--release')
+        with:
+          name: android-device-api${{ matrix.api }}-theme-result
+          path: target/android/theme-result/
+          if-no-files-found: ignore
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
         run: |
@@ -162,6 +175,10 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           timeout 30 "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           timeout 30 "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
+          # 主题测试在恢复偏好前截取专用合成编辑器，保留遮挡和实际键帽颜色；不从真实编辑器采集。
+          mkdir -p target/android/device-test
+          timeout 30 "$adb" -s "$SERIAL" pull /data/local/tmp/msime-theme-mode-failure.png target/android/device-test/theme-mode-failure.png || true
+          timeout 30 "$adb" -s "$SERIAL" pull /data/local/tmp/msime-theme-first-overlay.png target/android/device-test/theme-first-overlay.png || true
           # 模拟器中途消失时 adb 什么也拿不到，只能从主机这边找原因：内核日志里的 OOM 记录、此刻的内存，以及模拟器自带崩溃检测写下的 crashpad 数据（emulator.log 开头的 Storing crashdata in 那个目录）。
           { free -m; echo; sudo dmesg -T | tail -n 300; } > target/android/host.txt 2>&1 || true
           mkdir -p target/android/emulator-crash
@@ -177,6 +194,8 @@ jobs:
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
             target/android/device-test/window.xml
+            target/android/device-test/theme-mode-failure.png
+            target/android/device-test/theme-first-overlay.png
             target/android/host.txt
             target/android/emulator-crash
           if-no-files-found: ignore
