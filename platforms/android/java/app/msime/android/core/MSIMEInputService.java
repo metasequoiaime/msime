@@ -5255,7 +5255,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
+    /** 字母网格的一键：小写送整组首字母，14/18 键全拼和双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
         int helpcode = GridHelpcodePolicy.letterOp(gridHelpcodeDisplay(), letter);
         if (helpcode != GridHelpcodePolicy.NONE) return gridHelpcode(helpcode, Character.toLowerCase(letter));
