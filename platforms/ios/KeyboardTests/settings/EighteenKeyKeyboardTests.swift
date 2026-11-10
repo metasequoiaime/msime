@@ -45,6 +45,8 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(EighteenKeyLayout.rows.joined().compactMap(\.keyID).count, 18,
                    "every key counts on an id client-services accepts, or the whole batch is refused")
     XCTAssertEqual(FourteenKeyLayout.rows[0][0].keyID, "FourteenQW", "the 14 keys keep their own ids")
+    XCTAssertEqual(EighteenKeyLayout.rows.joined().compactMap(\.cornerHint),
+                   [";", "…", "-", "¥", "&", "(", ")", "@", "#", "%", "*", ":", "\"", "~", "、", "?", "!", "/"])
   }
 
   /// 横滑的规则与 Android 相同：超过 24pt 且横向大于纵向 1.5 倍才选字母，左滑取左字母、右滑取右字母，单字母键不选。
@@ -292,21 +294,15 @@ final class EighteenKeyKeyboardTests: XCTestCase {
     XCTAssertNil(spellingButton("bi", in: controller), "the lift-off flick was taken as the whole BN group")
   }
 
-  /// 长按两个字母的键弹出这两个字母，与 14 键相同；单字母键没有长按。
-  func testHoldingAKeyOffersItsLetters() throws {
+  /// 14/18 键长按直接输入角标符号，不再弹出字母选项。
+  func testHoldingAKeyUsesItsCornerSymbol() throws {
     let controller = makeController(width: 390)
     defer { controller.viewDidDisappear(false) }
     for key in EighteenKeyLayout.rows.joined() {
-      let holds = (try button("eighteenKey\(key.face)", in: controller).gestureRecognizers ?? [])
-        .compactMap { $0 as? UILongPressGestureRecognizer }
-      XCTAssertEqual(holds.count, key.holdLetters.isEmpty ? 0 : 1, key.face)
+      let keyButton = try button("eighteenKey\(key.face)", in: controller)
+      XCTAssertEqual((keyButton as? KeyboardKeyButton)?.cornerHint, key.cornerHint, key.face)
+      XCTAssertFalse((keyButton.gestureRecognizers ?? []).contains { $0 is UILongPressGestureRecognizer }, key.face)
     }
-    let we = try button("eighteenKeyWE", in: controller)
-    let hold = try XCTUnwrap(we.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }.first)
-    hold.state = .began
-    controller.perform(NSSelectorFromString("handleFourteenKeyHold:"), with: hold)
-    XCTAssertTrue(shown(try button("nineKeyHoldOption-w", in: controller)))
-    XCTAssertTrue(shown(try button("nineKeyHoldOption-e", in: controller)))
   }
 
   /// 设置页把双拼布局从 14 键换成 18 键：空闲时键面立即换成 18 键，方案和读音行高度不变；微软双拼的 L 键说明分号入口。

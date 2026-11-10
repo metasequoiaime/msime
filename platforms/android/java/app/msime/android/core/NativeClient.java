@@ -36,6 +36,8 @@ public final class NativeClient {
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     public static String create(String options) { return TextPolicy.utf8(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
+    /** 建会话之前先在工作线程上把下载的五笔码表并进词库代次（`msime_client_prepare_session`），建会话时就不必在主线程上并几十秒。要在本进程没有开着的会话时调。 */
+    public static String prepareSession(String options) { return TextPolicy.utf8(prepareSessionRaw(options.getBytes(StandardCharsets.UTF_8))); }
     public static String prepareHost(String options) { return TextPolicy.utf8(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
     /** Runs the shared `msime_client_refresh_host` on the runtime options file at the absolute `path`. */
     public static String refreshHost(String path) { return TextPolicy.utf8(refreshHostRaw(path.getBytes(StandardCharsets.UTF_8))); }
@@ -1135,6 +1137,7 @@ public final class NativeClient {
     public static String updatePreferences(long session, String snapshot) { return TextPolicy.utf8(updatePreferencesRaw(session, snapshot.getBytes(StandardCharsets.UTF_8))); }
     public static String destroy(long session) { return TextPolicy.utf8(destroyRaw(session)); }
     private static native byte[] createRaw(byte[] options);
+    private static native byte[] prepareSessionRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
     private static native byte[] refreshHostRaw(byte[] path);
     private static native byte[] snapshotVersionRaw(byte[] options);

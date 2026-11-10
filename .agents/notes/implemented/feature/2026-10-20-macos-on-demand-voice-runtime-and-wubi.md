@@ -46,7 +46,7 @@ Status: implemented
   - `LanguageDictionaries::serve(Wubi)` 随之为假，`effective_scheme` 像缺词库的粤拼一样回退到上一次的中文方案，再不行就用本版本的默认方案；
   - 输入法的 `MSIMEInputSchemeAvailable` 用同一规则，菜单不列出五笔。
 - **日志不阻断代次**：回放时代次里一张五笔表都没有，五笔行计入 `skipped` 而不是 `failed`，和没有拼音库的代次跳过非英文行一样。只要有一张五笔表就照旧逐行写，缺另一张仍按失败回滚。
-- **码表到了再并入**：`session_options` 建会话时，如果 `wubi_dictionary` 非空、工作主词库里还没有五笔表，就调用 `merge_downloaded_wubi`。它把下载的表并进来，再回放一遍日志补上先前跳过的五笔行，然后补反查索引。已有五笔表时只读一次 schema。并不进来只记日志，不让会话失败。
+- **码表到了再并入**：`session_options` 建会话时，如果 `wubi_dictionary` 非空、工作主词库里还没有五笔表，就调用 `merge_downloaded_wubi`。它把下载的表并进来，再回放一遍日志补上先前跳过的五笔行，然后补反查索引。已有五笔表时只读一次 schema。并不进来只记日志，不让会话失败。宿主可以在建会话之前、输入线程之外先调 `msime_client_prepare_session` 做完这一步（Android 这样做）；会话中途装好、还没并进去的码表，会话不接，等下一次建会话，见 [五笔码表并表移出安卓输入线程](../bug-fix/2026-11-09-android-wubi-merge-off-input-thread.md)。
 
 ## Alternatives considered
 
@@ -90,4 +90,5 @@ Status: implemented
 - [Android 本地语音模型](2026-10-12-android-local-voice-models.md)、[Android 离线语音导入](2026-10-12-android-offline-voice-import.md)：Android 的 `voice-runtime` 资源包直接取上游 `.aar`。本篇说明 macOS 为什么不能这样做，另立 `voice-runtime-macos`。部分重叠，Android 的决定不变。
 - [本地语音模型导入](2026-10-09-local-voice-model-import.md)：模型导入与本篇无关，运行库同样可以经资源包的 `import` 离线安装。
 - [Android 五笔码表按需下载](2026-10-28-android-on-demand-wubi.md)：把本篇的五笔码表规则搬到 Android 的 full 和拼音版瘦包，沿用资源包 `wubi`、host-api 的回退和代次补写；升级收编与启动补齐按 Android 的方式另做。部分重叠，互链。
+- [五笔码表并表移出安卓输入线程](../bug-fix/2026-11-09-android-wubi-merge-off-input-thread.md)：建会话时并表的规则不变，增加事先准备的入口，会话中途不再接未并的码表。部分重叠，互链。
 - [五笔反查](2026-10-11-wubi-reverse-lookup.md)：反查编码只在五笔方案里显示，查码组只在五笔设置显示时出现，这是拼音用户用不到码表的依据。决定不变。

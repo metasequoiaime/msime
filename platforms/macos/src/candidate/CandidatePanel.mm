@@ -340,9 +340,10 @@
         [view removeFromSuperview];
     const CGFloat inset = msime::mac::CandidateInset(_skin.tokens);
     const CGFloat verticalInset = msime::mac::CandidateVerticalInset(_skin.tokens);
-    const CGFloat itemGap = _skin.tokens.itemSpacing.value_or(0.0);
-    const CGFloat rowHeight = ceil(_font.ascender - _font.descender + _font.leading) + 2 * _skin.tokens.itemPaddingVertical.value_or(6.0);
     const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
+    const CGFloat itemGap = vertical ? msime::mac::CandidateItemVerticalOuterSpacing(1.0)
+                                     : _skin.tokens.itemSpacing.value_or(0.0);
+    const CGFloat rowHeight = ceil(_font.ascender - _font.descender + _font.leading) + 2 * _skin.tokens.itemPaddingVertical.value_or(6.0);
     NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
     NSMutableArray<NSString *> *titles = [NSMutableArray array];
     CGFloat width = 0;

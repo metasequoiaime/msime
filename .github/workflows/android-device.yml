@@ -1,9 +1,9 @@
 name: Android device
-# 在真正的 Android 模拟器上跑：client-base、client-core、client-providers 和 client-services 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 develop、main 推送上调用它，PR 改了键盘或设置界面时只在 API 35 上调用一次轻量验收，release-android.yml 在发布前调用它，失败就不发。
+# 在真正的 Android 模拟器上跑：client-base、client-core、client-providers 和 client-services 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 develop、main 推送上按风险传入 `--pr` 或 `--core`，PR 改了键盘或设置界面时只在 API 35 上调用一次轻量验收；nightly 和 release-android.yml 使用默认的完整双 API 矩阵，失败就不发。
 #
 # 为什么要有这一步：编译、lint 和 JVM 测试全绿的 0.3.0 在设备上「词库准备失败」（私有目录从 / 起逐级以只读打开，Android 不给应用读 /data）、匿名账号写不进（SELinux 禁止应用建硬链接），Android 9 一打开就崩溃（开屏光晕的径向渐变带主题属性）。这三类问题只有在 Android 上运行才看得见。
 #
-# API 28 是 minSdk（Android 9），35 是这里跑的最高级别；targetSdk 已是 36，API 36 的镜像还没接进来。API 28 的完整输入仍只跑 smoke.sh --core：那里 UiAutomation 拿不到「更多」面板的节点，其余套件驱动不了，原因见 DeviceSmoke.java；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 的 --pr 只用于 API 35 的短验收。
+# API 28 是 minSdk（Android 9），35 是这里跑的最高级别；targetSdk 已是 36，API 36 的镜像还没接进来。develop 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly 和发版。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 develop 的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
 on:
   workflow_call:
     inputs:
@@ -13,7 +13,7 @@ on:
         type: string
         default: ''
       matrix:
-        description: 要跑的 API 级别及各自的 smoke.sh 参数（JSON 数组）；缺省是 API 28 的 --core 加 API 35 整套，PR 上传 API 35 的 --pr。
+        description: 要跑的 API 级别及各自的 smoke.sh 参数（JSON 数组）；缺省是 API 28 的 --core 加 API 35 整套，develop 推送可传 --risk，PR 上传 API 35 的 --pr。
         required: false
         type: string
         default: '[{"api": 28, "smoke": "--core"}, {"api": 35, "smoke": ""}]'

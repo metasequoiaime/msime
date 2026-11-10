@@ -265,6 +265,8 @@ char *msime_client_cloud_dictionary(const uint8_t *request, size_t length);
  * not participate; preparation/upgrades still require stopped sessions.
  */
 char *msime_client_create(const uint8_t *options, size_t length);
+/* 建会话之前、在输入线程之外先做完建会话里最慢的一步：把下载的五笔码表（HostOptions 解析出的 wubi_dictionary）并进词库代次的工作主词库、回放日志里的五笔行。第一次并入要几十秒（安卓模拟器上 142 MB 的码表 18–25 秒），之后的 msime_client_create 只剩几次 schema 读取；不调它时 msime_client_create 照旧自己并。options 与 msime_client_create 的 HostOptions 相同（同样的长度上限和解析），持着同样的词库会话租约和代次租约，所以只在本进程没有开着的会话、会话之前的工作线程上调。返回 {wubi_merged: 这次是否并入或补做了回放, busy: 词库正在维护、什么也没做}；busy 时不等，之后的 msime_client_create 照旧处理。并表失败是错误，宿主可以忽略它照常建会话。 */
+char *msime_client_prepare_session(const uint8_t *options, size_t length);
 /* Management JSON (<=2248576 bytes), trusted native caller only:
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * List 的 kind 与 query 可选：ASCII 查询匹配编码前缀，含非 ASCII 字符时匹配词条字面内容。无查询时列个人词条；指定 kind 与非空查询时包含内置行，quick_phrase 空查询也包含内置行。个人行优先；user_only:true 始终只列个人词条，在整库筛选后分页。
