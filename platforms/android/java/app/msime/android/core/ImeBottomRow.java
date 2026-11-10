@@ -213,7 +213,6 @@ final class ImeBottomRow {
 
     void resetSpaceCursor() {
         s.cursorMovement.cancel();
-        s.hideSpaceGestureHint();
         if (s.spaceButton != null) {
             s.spaceButton.setPressed(false);
             s.spaceButton.setText(s.spaceKeyTitle());
@@ -436,7 +435,7 @@ final class ImeBottomRow {
                         s.countKey(button);
                         if (outcome == SpaceGesturePolicy.Outcome.COPY && copyTarget == s.connection
                                 && !s.imeTextEditPanel.copyAllFromGesture())
-                            s.showSpaceGestureNotice("当前输入框不支持复制全文");
+                            s.showSpaceCopyFailure("当前输入框不支持复制全文");
                         return true;
                     }
                     if (!voiced[0] && !dragging[0] && !cancelled[0]
@@ -482,7 +481,9 @@ final class ImeBottomRow {
 
     private void showSpaceCopyLabel(Button button, boolean armed) {
         String label = armed ? "松开复制全文" : "取消复制";
-        s.showSpaceGestureHint(label);
+        button.setText(label);
+        button.setContentDescription(label);
+        if (button instanceof SpaceKeyFace face) face.setTransientLabel(label);
     }
 
     Button actionRowKey(KeyboardActionRow.DesignSlot slot) {

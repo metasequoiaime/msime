@@ -143,6 +143,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
     private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice spaceCopyNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -637,8 +638,6 @@ public final class MSIMEInputService extends InputMethodService {
     private String japaneseConversionEditingText = "";
     TextView status;
     TextView diagnosticView;
-    SpaceGestureHintOverlay spaceGestureHintOverlay;
-    private long spaceGestureHintGeneration;
     private String message = "";
     String diagnosticMessage = "";
     long diagnosticGeneration;
@@ -2235,6 +2234,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -2274,6 +2274,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInputView(boolean finishingInput) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -2352,6 +2353,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -2433,6 +2435,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
@@ -10936,6 +10939,7 @@ public final class MSIMEInputService extends InputMethodService {
         long createStartedAt = SystemClock.uptimeMillis();
         imeFunctionPanel.close();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -10994,12 +10998,6 @@ public final class MSIMEInputService extends InputMethodService {
         quickDeleteOverlay = new QuickDeleteOverlay(this);
         keyboardSurface.addView(quickDeleteOverlay, LayoutPolicy.frameMatchParentParams());
         surface.fullBleed.add(quickDeleteOverlay);
-        spaceGestureHintOverlay = new SpaceGestureHintOverlay(this);
-        FrameLayout.LayoutParams spaceGestureHintParams = LayoutPolicy.frameWrapParams();
-        spaceGestureHintParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
-        spaceGestureHintParams.topMargin = pixels(16);
-        // 键盘表面从输入法窗口的上沿开始；浮层盖住顶部工具栏但不参与键盘表面的测量。
-        keyboardSurface.addView(spaceGestureHintOverlay, spaceGestureHintParams);
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
@@ -11471,24 +11469,10 @@ public final class MSIMEInputService extends InputMethodService {
         imeGlossCard.alignBelow(top);
     }
 
-    void showSpaceGestureHint(String label) {
-        if (spaceGestureHintOverlay == null) return;
-        spaceGestureHintOverlay.showLabel(label);
-    }
-
-    void showSpaceGestureNotice(String label) {
-        if (spaceGestureHintOverlay == null) return;
-        long generation = ++spaceGestureHintGeneration;
-        spaceGestureHintOverlay.showLabel(label);
-        main.postDelayed(() -> {
-            if (generation == spaceGestureHintGeneration) hideSpaceGestureHint();
-        }, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
-    }
-
-    void hideSpaceGestureHint() {
-        spaceGestureHintGeneration++;
-        if (spaceGestureHintOverlay == null) return;
-        spaceGestureHintOverlay.hideLabel();
+    void showSpaceCopyFailure(String label) {
+        long request = spaceCopyNotice.begin();
+        spaceCopyNotice.show(request, label, "空格复制提示：", "MSIME space copy notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
     }
 
     /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
