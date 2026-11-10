@@ -20,6 +20,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        verifyKeyTarget();
         JSONObject missingDesign = new JSONObject().put("global_theme", "paper")
             .put("android_keyboard_skin_dark", "design:missing-synthetic");
         if (!"paper".equals(KeyboardSkinModeChoice.selected(missingDesign, true, List.of()).theme()))
@@ -161,6 +162,29 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
         }
     }
 
+    /** 同文字的原始拼写候选不能满足按键查询；数字层等真正按钮仍可由原有描述找到。 */
+    @SuppressWarnings("deprecation")
+    private void verifyKeyTarget() {
+        AccessibilityNodeInfo node = AccessibilityNodeInfo.obtain();
+        try {
+            node.setPackageName("app.msime.android");
+            node.setClassName("android.widget.Button");
+            node.setText("N");
+            node.setContentDescription("候选 1：N");
+            if (key("n").test(node)) throw new AssertionError("原始拼写候选被当作字母键");
+            node.setContentDescription("字母 N");
+            if (!key("n").test(node)) throw new AssertionError("大写键面不能按小写输入查找");
+            node.setText("n");
+            if (!key("n").test(node)) throw new AssertionError("小写键面不可查找");
+            node.setClassName("android.widget.TextView");
+            if (key("n").test(node)) throw new AssertionError("读音行被当作字母键");
+            node.setClassName("android.widget.Button");
+            node.setText("A");
+            node.setContentDescription("按键 A");
+            if (!key("a").test(node)) throw new AssertionError("数字层字母按钮不可查找");
+        } finally { node.recycle(); }
+    }
+
     private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 10000;
         do {
@@ -235,6 +259,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Control did not restore its light-mode colour: expected="
             + Integer.toHexString(expected) + ", actual=" + Integer.toHexString(actual)
+            + ", description=" + awaitStableBounds(match).getContentDescription()
             + ", bounds=" + bounds(match) + ", emojiVisible=" + visible(described("表情面板")));
     }
 
