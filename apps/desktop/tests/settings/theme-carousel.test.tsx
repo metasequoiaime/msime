@@ -74,6 +74,7 @@ test("卡片一律拉伸到最高那张的高度：切换、滑动都不改轨�
   // 高度来自 flex 的拉伸，不是逐张测量：轨道不能是 items-start，slide 要把卡片撑满。
   expect(track.className).not.toContain("items-start");
   expect(track.children[0].className).toContain("[&>article]:flex-1");
+  expect(track.className).toContain("max-h-[520px]");
 });
 
 test("opens on the selected theme and keeps every card mounted", () => {
