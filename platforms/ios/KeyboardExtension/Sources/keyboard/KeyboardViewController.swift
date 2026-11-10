@@ -3508,8 +3508,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "\(prefix)Delete"
     row.addArrangedSubview(delete)
-    // 18 键第三排的七个键按 `fillEqually` 等分，与上面两排的键同宽。
-    guard grid == .fourteenKey else { return row }
+    // 18 键第三排的分词、五个字母和退格也要纳入宽窄约束；等宽时仍由 `fillEqually` 等分。
+    guard grid == .fourteenKey else {
+      letterGridRowLayouts.append(LetterGridRowLayout(row: row, grid: grid, keys: keys, buttons: buttons,
+                                                       leadingSpacer: nil, trailingSpacer: nil))
+      return row
+    }
     row.distribution = .fill
     let letters = Array(row.arrangedSubviews.dropFirst().dropLast())
     let equalConstraints = letters.dropFirst().map { $0.widthAnchor.constraint(equalTo: letters[0].widthAnchor) }
