@@ -1,5 +1,20 @@
 import UIKit
 
+/// 宽窄 14/18 键第二排两端的透明占位格。键区命中它时把整次触摸交给指定的最外侧按键，空白不会变成死区。
+final class KeyRoutingSpacer: UIView {
+  weak var owner: UIControl?
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    isUserInteractionEnabled = true
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    isUserInteractionEnabled = true
+  }
+}
+
 /// 键与键之间的空隙归谁：落在空隙里的触摸交给离它最近、而且这段空隙够得着的那个键。
 ///
 /// 键是排在 `UIStackView` 里的一个个独立按钮，行内的键间距、行与行之间的行距，以及居中字母行两侧的 `layoutMargins` 都不属于任何按钮。落在这些地方的触摸由 stack view 自己接住然后丢掉，快打时手指常常正好落在两键之间，于是这一键就没了。这里只决定命中归属，不改布局和绘制，与 Android 的 `KeyboardKeyArea` 是同一件事。
@@ -60,6 +75,9 @@ final class KeyAreaStackView: UIStackView {
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     let hit = super.hitTest(point, with: event)
+    if let spacer = hit as? KeyRoutingSpacer, let owner = spacer.owner, owner.isEnabled {
+      return owner
+    }
     if suppressesKeyHits, hit != nil { return self }
     if let hit, let receiver = yieldedReceiver(at: point, hit: hit) { return receiver }
     guard let gap = hit as? UIStackView, !isExcluded(gap) else { return hit }

@@ -7,6 +7,7 @@ public final class AppVersionPolicySmoke {
         check("0.4.2".equals(AppVersionPolicy.displayVersion("0.4.2", "")), "empty release date");
         // JVM 冒烟没有 Gradle 生成的 BuildConfig，读不到日期时不报错。
         check(AppVersionPolicy.releaseDate() == null, "release date without BuildConfig");
+        check(AppVersionPolicy.buildTime() == null, "build time without BuildConfig");
     }
 
     private static void check(boolean condition, String message) {
