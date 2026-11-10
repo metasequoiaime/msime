@@ -3540,8 +3540,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       for (index, item) in rows.enumerated() {
         let letterWeight = item.keys.reduce(CGFloat.zero) { $0 + letterGridWidthMode.weight(for: $1.letters) }
         let rest = letterGridWidthMode == .varied ? max(0, (firstWeight - letterWeight) / 2) : 0
+        // 短行多出的一个键距也要由两端空白承担，所以每个空白减去半个键距。
         let gapCorrection = letterGridWidthMode == .varied
-          ? CGFloat(max(0, firstKeyCount - item.keys.count)) * CGFloat(KeyboardLayoutPreference.keySpacing) / 2 : 0
+          ? -CGFloat(max(0, firstKeyCount - item.keys.count)) * CGFloat(KeyboardLayoutPreference.keySpacing) / 2 : 0
         item.row.distribution = letterGridWidthMode == .varied || grid == .fourteenKey && index == rows.count - 1 ? .fill : .fillEqually
         item.leadingSpacer?.isHidden = letterGridWidthMode != .varied || rest <= 0
         item.trailingSpacer?.isHidden = item.leadingSpacer?.isHidden ?? true
@@ -3550,13 +3551,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             letterGridWidthConstraints.append(button.widthAnchor.constraint(equalTo: reference.widthAnchor,
                                                                               multiplier: letterGridWidthMode.weight(for: key.letters)))
           }
-          if index == rows.count - 1, grid == .fourteenKey {
+          if index == rows.count - 1 {
             let controls = item.row.arrangedSubviews.compactMap { $0 as? UIButton }
             if let leading = controls.first, let trailing = controls.last {
               letterGridWidthConstraints.append(leading.widthAnchor.constraint(equalTo: reference.widthAnchor,
-                                                                                 multiplier: 0.75))
+                                                                                 multiplier: rest,
+                                                                                 constant: grid == .fourteenKey ? gapCorrection : 0))
               letterGridWidthConstraints.append(trailing.widthAnchor.constraint(equalTo: reference.widthAnchor,
-                                                                                  multiplier: 0.75))
+                                                                                  multiplier: rest,
+                                                                                  constant: grid == .fourteenKey ? gapCorrection : 0))
             }
           }
           if let leading = item.leadingSpacer, let trailing = item.trailingSpacer {

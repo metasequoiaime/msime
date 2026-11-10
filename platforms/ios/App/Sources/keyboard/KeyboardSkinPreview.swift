@@ -228,19 +228,30 @@ struct KeyboardSkinPreview: View {
     let firstTotal = first.reduce(CGFloat.zero) { $0 + keyLayout.letterWidths.weight(for: $1.letters) }
     let currentTotal = keys.reduce(CGFloat.zero) { $0 + keyLayout.letterWidths.weight(for: $1.letters) }
     let rest = varied ? max(0, (firstTotal - currentTotal) / 2) : 0
-    let edge = index == 2 ? (varied ? rest : 1) : 0
+    let totalWidth = width ?? Self.keysWidth
+    let unit = (totalWidth - 5 * CGFloat(first.count - 1)) / firstTotal
+    let gapCorrection = varied ? -CGFloat(max(0, first.count - keys.count)) * 5 / 2 : 0
+    let spacerWidth = max(0, rest * unit + gapCorrection)
+    let equalEdgeWidth = Self.letterGridEdgeWidth
+    let edgeWidth = varied ? spacerWidth : equalEdgeWidth
     let cells = (index == 2 ? ["符"] : []) + keys.map(\.face) + (index == 2 ? ["⌫"] : [])
+    let fixedEdges = index == 2 && !eighteen ? 2 * equalEdgeWidth : 0
+    let equalUnit = (totalWidth - 5 * CGFloat(cells.count - 1) - fixedEdges)
+      / CGFloat(eighteen && index == 2 ? cells.count : keys.count)
     HStack(spacing: 5) {
-      if varied && index < 2 && rest > 0 { Color.clear.frame(width: max(1, rest * 24)) }
+      if index < 2 && varied && rest > 0 { Color.clear.frame(width: spacerWidth) }
       ForEach(Array(cells.enumerated()), id: \.offset) { cellIndex, face in
         let isEdge = index == 2 && (cellIndex == 0 || cellIndex == cells.count - 1)
-        let weight: CGFloat = isEdge ? edge : keyLayout.letterWidths.weight(for: keys[min(max(cellIndex - (index == 2 ? 1 : 0), 0), keys.count - 1)].letters)
+        let letterIndex = min(max(cellIndex - (index == 2 ? 1 : 0), 0), keys.count - 1)
+        let letterWidth = varied ? unit * keyLayout.letterWidths.weight(for: keys[letterIndex].letters) : equalUnit
+        let fixedWidth: CGFloat? = isEdge ? (varied ? edgeWidth : (eighteen ? equalUnit : equalEdgeWidth)) : letterWidth
         key(face, function: isEdge, letterSpacing: !isEdge && face.count > 1 ? 2.4 : 0)
-          .frame(maxWidth: .infinity).layoutPriority(weight)
+          .frame(width: fixedWidth)
+          .frame(maxHeight: .infinity)
       }
-      if varied && index < 2 && rest > 0 { Color.clear.frame(width: max(1, rest * 24)) }
+      if index < 2 && varied && rest > 0 { Color.clear.frame(width: spacerWidth) }
     }
-    .frame(width: width)
+    .frame(width: totalWidth)
   }
 
   /// 「按键布局」的顶部数字行：一排等宽的 1 到 0，与热力图同一张表。
