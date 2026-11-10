@@ -36,3 +36,5 @@ Status: implemented
 - API 28、35 的键面像素专项均通过 44 种尺寸/字体组合：窄键仍无重叠，宽键在默认 46 dp 键高下主标签至少 18 sp，关闭提示恢复原字号。
 - API 35 起初使用旧 APK 遗留的运行时选项文件，专项复制这份旧默认值后显示共享运行时未就绪；清空专用 AVD 的合成应用数据、重新初始化后通过。这里的布局验收基于干净初始化，不将旧包升级路径记为已验收。
 - quick 首轮发现上游 `crates/mcp-server/src/plugins.rs` 对新增 `PluginError::Exists`、`NotEditable` 缺少穷尽分支；独立提交补齐错误映射后，Rust workspace 编译通过。随后合入的最新 `develop` 已包含等价修复，本 PR 的最终差异不再包含 MCP。`cargo fmt -p msime-mcp-server --check` 通过；全仓 fmt 仍报告未改动的桌面 `lib.rs`、共享 `preferences.rs` 两处既有格式差异，本次不批量格式化。
+
+- #11160 补充同组 26 个字母的字号和基线比较，覆盖 28/34/36/40/62/72 dp 宽、46/52 dp 高及两档系统字体；原有宽键至少 18 sp 和像素不相交断言保留。`smoke.sh --key-faces` 经过主输入后只跑键面专项，专用模拟器输出同一真实尺寸、真实底色的 A/W/J/B 键面图。手动专项不重复 Rust 设备单测和崩溃专项，发布、PR 与 nightly 的门禁不变。旧实现是否复现由设备结果确认，不能只据源码推测宣称问题已修复。

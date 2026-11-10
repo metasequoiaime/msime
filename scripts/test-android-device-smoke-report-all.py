@@ -232,6 +232,12 @@ def main() -> None:
         after = run.calls[run.calls.index("instrument CandidateCanvasDeviceSmoke") + 1:]
         run.expect(f"adb -s {SERIAL} shell am force-stop app.msime.android.test" in after and f"adb -s {SERIAL} shell ime set {IME}" in after, "失败后应收起合成编辑器并重新选中输入法")
 
+        run = Run(base, "key-faces-pass", ["--key-faces"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("NineKeyShuangpinDeviceSmoke:faces_only"), "键面专项必须经过主输入并执行像素回归")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "键面专项不重复执行无关套件")
+        run = Run(base, "key-faces-fail", ["--key-faces"], fail="NineKeyShuangpinDeviceSmoke:faces_only")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "键面失败必须阻止通过")
+
         run = Run(base, "gate", [], fail="DeviceSmoke")
         run.expect(run.code == 1 and "system input path failed" in run.stopped_line(), "系统输入主路径失败应当场停下并说明原因")
         run.expect(not run.ran("FourteenKeyDeviceSmoke:eighteen_key"), "主路径失败后不应再跑后面的检查")
