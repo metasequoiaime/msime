@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ThemeCarousel } from "@msime/ui";
+import { utilityCss } from "../support/utility-css";
 
 afterEach(() => {
   cleanup();
@@ -74,7 +75,13 @@ test("卡片一律拉伸到最高那张的高度：切换、滑动都不改轨�
   // 高度来自 flex 的拉伸，不是逐张测量：轨道不能是 items-start，slide 要把卡片撑满。
   expect(track.className).not.toContain("items-start");
   expect(track.children[0].className).toContain("[&>article]:flex-1");
-  expect(track.className).toContain("max-h-[520px]");
+  expect(track.parentElement?.className).toContain("theme-carousel-viewport");
+});
+
+test("轮播在每张皮肤预览上限制高度，而不是只限制滚动轨道", () => {
+  expect(utilityCss("theme-carousel-viewport").replace(/\s+/g, "")).toContain(
+    ".theme-carousel-viewport[data-skin-preview]{max-height:520px;overflow:hidden!important;}",
+  );
 });
 
 test("opens on the selected theme and keeps every card mounted", () => {
