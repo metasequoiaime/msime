@@ -2,7 +2,7 @@ import Foundation
 
 /// 全拼、双拼与五笔共用的 14 键键面。三端同一张表：Android、HarmonyOS 的 `FourteenKeyLayout` 和引擎的 `KeyGrid::FourteenKey`。
 ///
-/// QWERTY 的位置不变，相邻两个字母合成一个键，L、M 各占一键：`QW ER TY UI OP / AS DF GH JK L / ZX CV BN M`，第二排不缩进。点一下输入的是这一组而不是某个字母：键盘经 `msime_client_grid_key` 把这一组的首字母（组码 `q e t u o a d g j l z c b m`）交给引擎，由引擎消歧。长按弹出这一键的两个字母（L、M 不弹），选中后与九键一样先结束组字，再上屏这个字母。
+/// QWERTY 的位置不变，相邻两个字母合成一个键，L、M 各占一键：`QW ER TY UI OP / AS DF GH JK L / ZX CV BN M`，第二排不缩进。点一下输入的是这一组而不是某个字母：键盘经 `msime_client_grid_key` 把这一组的首字母（组码 `q e t u o a d g j l z c b m`）交给引擎，由引擎消歧。角标复用 26 键的滑动和长按输入路径。
 enum FourteenKeyLayout {
   struct Key: Equatable {
     /// 这一组的字母，小写，按键面上的顺序：`qw`。
@@ -15,6 +15,25 @@ enum FourteenKeyLayout {
 
     /// 键面：大写字母，两个字母的键写两个，没有角标。
     var face: String { letters.uppercased() }
+
+    /// 14/18 键字母键的角标符号，按键输入仍使用 ASCII，显示时由宿主按中文标点设置换成中文字形。
+    var cornerHint: String? {
+      let table: [String: String]
+      if grid == .eighteenKey {
+        table = [
+          "q": ";", "we": "…", "rt": "-", "y": "¥", "u": "&", "io": "(", "p": ")",
+          "a": "@", "sd": "#", "fg": "%", "h": "*", "jk": ":", "l": "\"",
+          "z": "~", "xc": "、", "v": "?", "bn": "!", "m": "/",
+        ]
+      } else {
+        table = [
+          "qw": ";", "er": "#", "ty": "…", "ui": "(", "op": ")",
+          "as": "@", "df": "-", "gh": "、", "jk": ":", "l": "\"",
+          "zx": "~", "cv": "?", "bn": "!", "m": "/",
+        ]
+      }
+      return table[letters]
+    }
 
     /// 无障碍标签：两个字母的键读「按键 Q W」，单字母键读「字母 L」。
     var accessibilityLabel: String {
