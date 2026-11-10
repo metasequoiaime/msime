@@ -5,7 +5,7 @@ set -euo pipefail
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Set ANDROID_SDK_ROOT or ANDROID_HOME}}
 api=${1:?Usage: install-sdk-packages.sh <api-level>}
 case "$api" in
-  28|35) ;;
+  28|30|35) ;;
   *) echo "Unsupported Android API level: $api" >&2; exit 2 ;;
 esac
 

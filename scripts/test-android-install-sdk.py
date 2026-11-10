@@ -16,7 +16,8 @@ INSTALLER = ROOT / "platforms/android/install-sdk-packages.sh"
 class InstallSdkPackagesTests(unittest.TestCase):
     api = "35"
 
-    def run_installer(self, mode, installed=False):
+    def run_installer(self, mode, installed=False, api=None):
+        api = self.api if api is None else api
         with tempfile.TemporaryDirectory(prefix="msime-sdk-test-") as directory:
             sdk = Path(directory)
             manager = sdk / "cmdline-tools/latest/bin/sdkmanager"
@@ -27,6 +28,11 @@ set -eu
 test "$1" = --install
 shift
 test "$#" -ge 1
+found=false
+for package in "$@"; do
+  if [[ "$package" = "system-images;android-${SDK_API};default;x86_64" ]]; then found=true; fi
+done
+[[ "$found" = true ]]
 count=0
 if [[ -f "$ANDROID_SDK_ROOT/count" ]]; then read -r count < "$ANDROID_SDK_ROOT/count"; fi
 echo "$((count + 1))" > "$ANDROID_SDK_ROOT/count"
@@ -71,7 +77,7 @@ chmod +x "$ANDROID_SDK_ROOT/emulator/emulator" "$ANDROID_SDK_ROOT/platform-tools
                     "build-tools/35.0.0",
                     "platforms/android-35",
                     "platforms/android-36",
-                    f"system-images/android-{self.api}/default/x86_64",
+                    f"system-images/android-{api}/default/x86_64",
                 ):
                     package_dir = sdk / package
                     package_dir.mkdir(parents=True)
@@ -79,11 +85,11 @@ chmod +x "$ANDROID_SDK_ROOT/emulator/emulator" "$ANDROID_SDK_ROOT/platform-tools
                 for binary in (sdk / "emulator/emulator", sdk / "platform-tools/adb"):
                     binary.touch(mode=0o755)
             result = subprocess.run(
-                ["bash", str(INSTALLER), self.api],
+                ["bash", str(INSTALLER), api],
                 env={
                     **os.environ,
                     "ANDROID_SDK_ROOT": str(sdk),
-                    "SDK_API": self.api,
+                    "SDK_API": api,
                     "MODE": mode,
                     "PATH": str(sdk) + os.pathsep + os.environ["PATH"],
                 },
@@ -105,6 +111,10 @@ chmod +x "$ANDROID_SDK_ROOT/emulator/emulator" "$ANDROID_SDK_ROOT/platform-tools
 
     def test_existing_complete_sdk_is_reused(self):
         self.assertEqual(self.run_installer("fail", installed=True), (0, 0))
+
+    def test_android11_image_download_and_reuse(self):
+        self.assertEqual(self.run_installer("corrupt", api="30"), (0, 2))
+        self.assertEqual(self.run_installer("fail", installed=True, api="30"), (0, 0))
 
 
 if __name__ == "__main__":
