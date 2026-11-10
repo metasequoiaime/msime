@@ -108,8 +108,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = PreeditButton()
-  /// 读音位置画笔时按钮至少这么宽，与 Android 读音的 `minWidth` 40dp 相同，笔不至于只有图标那么窄。
-  private lazy var preeditPenMinimumWidth = preeditButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 40)
   private var appliedPreeditMenuKey: String?
   private let exitLocalModeButton = UIButton()
   /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
@@ -6809,7 +6807,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
-    // 拼写写进输入框（`showInlineComposition`），候选栏不再重复画它：读音那一段只剩编辑拼写的笔（不能编辑时收成零宽），候选不会随拼写变长被推着走。只改画出来的标题：`visiblePreedit` 仍表示正在组字，拼写还没有候选时候选栏照样显示，VoiceOver 仍读出完整标题。日语读音和就地组字的方案不是拼写，照常画。全拼 14 键不写输入框，读音仍单独一行画在候选上面。
+    // 拼写写进输入框（`showInlineComposition`）时，候选栏不再重复画它；没有可见读音就不保留空白编辑入口，避免连续按键误触。只改画出来的标题：`visiblePreedit` 仍表示正在组字，拼写还没有候选时候选栏照样显示，VoiceOver 仍读出完整标题。日语读音和就地组字的方案不是拼写，照常画。全拼 14 键不写输入框，读音仍单独一行画在候选上面。
     let style: CandidatePreeditStyle = separateReadingRow ? .pinyin : .empty
     // A caret moved into the spelling is drawn even under 「不显示」: the next key acts at that caret, and a hidden one leaves no way to tell where.
     let drawnTitle = idle || title != visiblePreedit || !inputScheme.hasSpellingCaret
@@ -6817,19 +6815,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       : visibleCaretSpelling.map { visiblePhrasePrefix + $0 } ?? style.title(
         composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
         localModeName: isInLocalMode ? modeName : nil)
-    // 可编辑的拼写写进了输入框、候选栏不再画它时，读音那一段画一支笔做入口（#10591），不再收成零宽：刚打完字就看得到、点得到，与 Android 的 `SpellingEditIcon` 相同。
     let spellingEditable = !idle && editableSpelling != nil
-    let showsPen = spellingEditable && drawnTitle.isEmpty
+    let canOpenSpellingEditor = spellingEditable && !drawnTitle.isEmpty
     if var configuration = preeditButton.configuration {
       configuration.title = drawnTitle
-      configuration.image = showsPen ? UIImage(systemName: "pencil") : nil
+      configuration.image = nil
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
         pointSize: (Self.preeditFontSize * preeditFontScale * 1.15).rounded(), weight: .regular)
       preeditButton.configuration = configuration
     }
-    preeditPenMinimumWidth.isActive = showsPen
-    // 读音并入候选行时，没有在组的内容、或「候选栏预编辑」选了不显示而标题为空、又没有笔可画时，这一段不占位置：单独一行时那里显示的「水杉输入法」和它的本地输入菜单，在候选行里只会挤掉联想候选，本地输入仍可从「更多」里打开。
-    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow && !showsPen
+    // 读音并入候选行时，没有组字内容或标题为空时，这一段不占位置；单独一行时仍由布局保留读音行。
+    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow
     inlineReadingCollapse?.isActive = collapsed
     if preeditButton.isHidden != collapsed { preeditButton.isHidden = collapsed }
 
@@ -6847,14 +6843,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             }
           })
         : nil
-      // 只有本地输入菜单在时轻点弹菜单；其余时候轻点走 primary action（`openSpellingEditor`），不能编辑时它什么都不做。
+      // 只有本地输入菜单在时轻点弹菜单；其余时候轻点走 primary action（`openSpellingEditor`）。
       preeditButton.showsMenuAsPrimaryAction = offersModes
     }
-    // 不能编辑时读音不接点按也不变暗：它是正在组的文字，要一直读得清楚。
-    preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : spellingEditable ? "编辑拼写" : title
+    // 没有可见读音时不接收编辑点按；仍在组字的文字照常读出，不变暗。
+    preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : canOpenSpellingEditor ? "编辑拼写" : title
     preeditButton.accessibilityValue = offersModes ? nil : title
     preeditButton.accessibilityHint = nil
-    preeditButton.accessibilityTraits = offersModes || spellingEditable ? .button : .staticText
+    preeditButton.accessibilityTraits = offersModes || canOpenSpellingEditor ? .button : .staticText
     updateSpellingEditor()
   }
 

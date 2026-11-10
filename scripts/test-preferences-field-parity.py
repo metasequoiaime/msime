@@ -37,6 +37,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_japanese_toggle_input",
         # 文本编辑触控板仅由 Android 原生设置页呈现，其他宿主保留文档字段，不在 React 页提供无效入口。
         "android_text_trackpad",
+        # 拼写编辑只由 Android 原生键盘设置页提供，React 页不承载该面板。
+        "touch_spelling_editor",
         # 键盘浅色与深色皮肤只在 Android 原生皮肤页编辑，React 设置页不承载 Android 键盘。
         "android_keyboard_skin_light",
         "android_keyboard_skin_dark",
