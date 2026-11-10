@@ -2964,6 +2964,17 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 }
 @end
 
+// 有些客户端在控制器请求切换模式的调用栈内就回报同一个模式；它不能提前消费英文切回中文的异步回执标记。
+@interface EchoModeSelectingClient : ModeSelectingClient
+@property(nonatomic, weak) id controller;
+@end
+@implementation EchoModeSelectingClient
+- (void)selectInputMode:(NSString *)identifier {
+    [super selectInputMode:identifier];
+    [self.controller systemDidReportInputMode:identifier client:self];
+}
+@end
+
 @interface RestoredInputModeController : ModeController
 @property(nonatomic, copy) NSString *selectedSource;
 @property(nonatomic) NSUInteger synchronizationCalls;
@@ -3119,6 +3130,22 @@ static void TestSwitchBackKeepsShuangpin() {
     assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEShuangpinInputModeID));
     [controller handleEvent:KeypadKey(122, [NSString stringWithFormat:@"%C", (unichar)NSF1FunctionKey], 0, NO) client:client];
     assert(!MSIMESharedSystemInputModeState().switchedIn);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+
+    // 从英文状态按 Shift 回中文时，系统随后报告「中」是这次切换的回执，不是用户越过「双」选择全拼；再一次「中」报告才是用户在水杉里明确选择全拼。
+    client = switchBack();
+    EchoModeSelectingClient *echoClient = [EchoModeSelectingClient new];
+    echoClient.controller = controller;
+    [controller setValue:echoClient forKey:@"activeClient"];
+    client = echoClient;
+    appearance.englishMode = YES;
+    MSIMESharedSystemInputModeState().switchedIn = false;
+    MSIMESharedSystemInputModeState().current = MSIMEEnglishInputModeID;
+    [controller setEnglishInputMode:NO];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"shuangpin"]);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"shuangpin"]);
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"quanpin"]);
 
