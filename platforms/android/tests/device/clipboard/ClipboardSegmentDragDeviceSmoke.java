@@ -298,7 +298,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         stage = "right swipe opens clipboard detail with full record time and unavailable source (seeded entries "
             + sharedHistoryCount() + ")";
         // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
-        AccessibilityNodeInfo card = await(node -> node.isLongClickable()
+        // API 34 以上的输入法窗口会把滚动容器里的卡片报告成不可见，但坐标仍是当前卡片的真实位置；这里按无障碍树定位后再用坐标注入手势。
+        AccessibilityNodeInfo card = awaitAny(node -> node.isLongClickable()
             && node.getContentDescription() != null
             && node.getContentDescription().toString().contains("右滑查看详情"));
         Rect cardBounds = new Rect();
@@ -321,7 +322,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Opening detail changed history");
         // 详情页直接提供编辑入口；编辑前不应把原正文插入外部编辑器。
         openClipboardEditor(true);
-        card = await(node -> node.isLongClickable()
+        card = awaitAny(node -> node.isLongClickable()
             && node.getContentDescription() != null
             && node.getContentDescription().toString().contains("右滑查看详情"));
         cardBounds = new Rect();
@@ -342,7 +343,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         await(key("n"));
         tap(clipboardEntry());
-        card = await(node -> node.isLongClickable() && node.getText() != null
+        card = awaitAny(node -> node.isLongClickable() && node.getText() != null
             && node.getText().toString().startsWith(replacement));
         cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
