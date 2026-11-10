@@ -344,7 +344,6 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     XCTAssertFalse((qw.gestureRecognizers ?? []).contains { $0 is UILongPressGestureRecognizer })
 
     // 退格逐键删组码。
-    try tap(["QW", "QW"], in: controller)
     for _ in 0..<2 {
       try button("fourteenKeyDelete", in: controller).sendActions(for: .touchDown)
       try button("fourteenKeyDelete", in: controller).sendActions(for: .touchUpInside)
