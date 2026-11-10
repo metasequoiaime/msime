@@ -1,4 +1,5 @@
 #include "../src/candidates/CandidateFcitxTheme.h"
+#include "../src/core/CandidateSkinCatalog.h"
 
 #include <algorithm>
 #include <cassert>
@@ -503,6 +504,44 @@ int main() {
     assert(host::read_fcitx_candidate_style(Json::array()).scale == 1.0);
     // 缺省样式画出的主题与不传样式时完全相同。
     assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt, false, {}) == theme);
+  }
+  // 皮肤版式进入 classicui 后，卡片内边距、选中行的文字边距和行高与 Windows 读取的 resolvedLayout 使用同一组长度。
+  {
+    host::FcitxCandidateStyle skin;
+    skin.skin_padding = 0.3;
+    skin.skin_padding_em = true;
+    skin.skin_item_gap = 0.15;
+    skin.skin_item_gap_em = true;
+    skin.skin_item_extra_height = 0.24;
+    skin.skin_item_extra_height_em = true;
+    skin.skin_number_inset = 0.4;
+    skin.skin_number_inset_em = true;
+    skin.skin_item_padding_right = 0.3;
+    skin.skin_item_padding_right_em = true;
+    skin.font_size = 18;
+    const auto metrics = host::fcitx_panel_metrics(skin);
+    assert(metrics.padding == 5 && metrics.item_gap == 3 && metrics.item_vertical == 4 && metrics.item_left == 7 && metrics.item_right == 5);
+    const auto generated = host::fcitx_candidate_theme_files(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt,
+                                                               false, std::nullopt, skin);
+    assert(contains(generated.conf, "[InputPanel/ContentMargin]\nLeft=17\nRight=17\nTop=13\nBottom=21\n\n"));
+    assert(contains(generated.conf, "[InputPanel/TextMargin]\nLeft=7\nRight=5\nTop=4\nBottom=4\n\n"));
+    assert(contains(generated.conf, "[InputPanel/Highlight/Margin]\nLeft=7\nRight=5\nTop=4\nBottom=4\n"));
+    assert(contains(generated.conf, "Spacing=3\n"));
+  }
+  {
+    const Json resolved = {
+        {"cornerRadiusDip", 8.0},
+        {"geometry", {{"padding", {{"value", 0.3}, {"em", true}}},
+                        {"itemExtraHeight", {{"value", 0.24}, {"em", true}}},
+                        {"numberInset", {{"value", 0.4}, {"em", true}}},
+                        {"itemPaddingRight", {{"value", 0.3}, {"em", true}}}}}},
+        {"horizontal", {{"padding", {{"value", 5}, {"em", false}}}}}};
+    const Json catalog = {{"packages", {{{"id", "microsoft"}, {"resolvedLayout", resolved}}}}};
+    const auto geometry = host::candidate_skin_classic_geometry(catalog, "microsoft", true);
+    assert(host::candidate_skin_corner_radius(catalog, "microsoft") == 8.0);
+    assert(geometry && geometry->padding && geometry->padding->value == 5 && !geometry->padding->em);
+    assert(geometry->item_extra_height && geometry->item_extra_height->em);
+    assert(!host::candidate_skin_classic_geometry(catalog, "missing", true));
   }
   // 缩放乘到阴影以外的每一个长度上：圆角、内边距、行的文字边距和翻页按钮（150% 时 10 → 15、4 → 6、8 → 12、6 → 9、16 → 24）。阴影边距保持 12/12/8/16：Wayland 上 classicui 不读 ShadowMargin，阴影边就是候选窗离光标的偏移，不能随缩放变大。
   {
