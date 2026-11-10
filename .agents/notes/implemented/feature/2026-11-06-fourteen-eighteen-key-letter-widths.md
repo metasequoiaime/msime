@@ -66,7 +66,7 @@ Android 的实现见 [Android 14/18 键字母键宽度](2026-11-06-android-fourt
 ### 各端状态
 
 - Android：宽度和字距都已实现，见 [Android 14/18 键字母键宽度](2026-11-06-android-fourteen-eighteen-key-letter-widths.md)。
-- iOS：未做。读同一项偏好、照上面的排法、字距和文字画；同步走 `ios_settings.rs` 的自有映射，需要另加键。
+- iOS：已接入共享偏好、原生设置页、键盘三排几何、占位格触摸转发和两处预览，见 [iOS 14/18 键字母键宽度](2026-11-10-ios-fourteen-eighteen-key-letter-widths.md)。同步仍由 iOS 读取共享文档字段，不改变 Android 的同步钩子。
 - 鸿蒙：未做。加上设置页时，同步键从 Android 的钩子挪进 `TouchHostKeys`，两端一起导出和应用；字距不依赖偏好，可以先做。
 
 ## Alternatives considered

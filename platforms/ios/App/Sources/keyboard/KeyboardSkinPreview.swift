@@ -191,19 +191,11 @@ struct KeyboardSkinPreview: View {
         nineKeyControls(layer.nineKeyControls)
       }.frame(maxHeight: .infinity)
     } else if letterGrid == .eighteenKey {
-      // 第一、三排七个等宽键（第三排两端的「符」和 ⌫ 与字母键同宽），第二排六个键平分整行，与键盘一样从同一左右边界铺开。
       GeometryReader { proxy in
-        let unit = (proxy.size.width - 5 * 6) / 7
-        let middle = (proxy.size.width - 5 * 5) / 6
         VStack(spacing: layout.rowSpacing) {
           if layer.numberRow { numberRow }
           ForEach(Array(EighteenKeyLayout.rows.enumerated()), id: \.offset) { index, keys in
-            HStack(spacing: 5) {
-              if index == EighteenKeyLayout.rows.count - 1 { key("符", function: true).frame(width: unit) }
-              ForEach(keys.map(\.face), id: \.self) { face in key(face).frame(width: index == 1 ? middle : unit) }
-              if index == EighteenKeyLayout.rows.count - 1 { key("⌫", function: true).frame(width: unit) }
-            }
-            .frame(maxWidth: .infinity)
+            letterGridPreviewRow(keys, index: index, width: proxy.size.width, eighteen: true)
           }
         }
       }.frame(maxHeight: .infinity)
@@ -211,15 +203,7 @@ struct KeyboardSkinPreview: View {
       VStack(spacing: layout.rowSpacing) {
         if layer.numberRow { numberRow }
         ForEach(Array(FourteenKeyLayout.rows.enumerated()), id: \.offset) { index, keys in
-          if index == FourteenKeyLayout.rows.count - 1 {
-            HStack(spacing: 5) {
-              key("符", function: true).frame(width: 38)
-              row(keys.map(\.face))
-              key("⌫", function: true).frame(width: 38)
-            }
-          } else {
-            row(keys.map(\.face))
-          }
+          letterGridPreviewRow(keys, index: index, width: nil, eighteen: false)
         }
       }.frame(maxHeight: .infinity)
     } else {
@@ -234,6 +218,29 @@ struct KeyboardSkinPreview: View {
         }
       }.frame(maxHeight: .infinity)
     }
+  }
+
+  /// 14/18 键预览按共享的等宽/宽窄偏好分配三排字母键；空白格只用于展示，真实键盘由 `KeyGapRouting` 转发触摸。
+  @ViewBuilder
+  private func letterGridPreviewRow(_ keys: [FourteenKeyLayout.Key], index: Int, width: CGFloat?, eighteen: Bool) -> some View {
+    let varied = keyLayout.letterWidths == .varied
+    let first = (eighteen ? EighteenKeyLayout.rows : FourteenKeyLayout.rows)[0]
+    let firstTotal = first.reduce(CGFloat.zero) { $0 + keyLayout.letterWidths.weight(for: $1.letters) }
+    let currentTotal = keys.reduce(CGFloat.zero) { $0 + keyLayout.letterWidths.weight(for: $1.letters) }
+    let rest = varied ? max(0, (firstTotal - currentTotal) / 2) : 0
+    let edge = index == 2 ? (varied ? rest : 1) : 0
+    let cells = (index == 2 ? ["符"] : []) + keys.map(\.face) + (index == 2 ? ["⌫"] : [])
+    HStack(spacing: 5) {
+      if varied && index < 2 && rest > 0 { Color.clear.frame(width: max(1, rest * 24)) }
+      ForEach(Array(cells.enumerated()), id: \.offset) { cellIndex, face in
+        let isEdge = index == 2 && (cellIndex == 0 || cellIndex == cells.count - 1)
+        let weight: CGFloat = isEdge ? edge : keyLayout.letterWidths.weight(for: keys[min(max(cellIndex - (index == 2 ? 1 : 0), 0), keys.count - 1)].letters)
+        key(face, function: isEdge, letterSpacing: !isEdge && face.count > 1 ? 2.4 : 0)
+          .frame(maxWidth: .infinity).layoutPriority(weight)
+      }
+      if varied && index < 2 && rest > 0 { Color.clear.frame(width: max(1, rest * 24)) }
+    }
+    .frame(width: width)
   }
 
   /// 「按键布局」的顶部数字行：一排等宽的 1 到 0，与热力图同一张表。
@@ -352,8 +359,10 @@ struct KeyboardSkinPreview: View {
   }
 
   /// 一个按键。`function` 标记 shift、删除、123、中等功能键，键盘用 `functionKeyBackground`（设计稿的 `kb.spec`）填充它们，而不是字母键颜色；`emphasized` 是用操作色的回车键。
-  private func key(_ title: String, emphasized: Bool = false, function: Bool = false, hint: String? = nil) -> some View {
+  private func key(_ title: String, emphasized: Bool = false, function: Bool = false, hint: String? = nil,
+                   letterSpacing: CGFloat = 0) -> some View {
     Text(title).font(.system(size: nineKey ? 13 : 15, weight: .medium, design: skin.usesMonospacedFont ? .monospaced : .default))
+      .kerning(letterSpacing)
       .lineLimit(1).minimumScaleFactor(0.7)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .foregroundStyle(color(emphasized ? skin.actionForeground : skin.keyForeground))

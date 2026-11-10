@@ -11,7 +11,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     TouchKeyLayoutStyle.nineKeyDocumentKey, TouchKeyLayoutStyle.numberRowDocumentKey,
     TouchKeyLayoutStyle.symbolFirstDocumentKey, TouchKeyLayoutStyle.numberPadSpaceDocumentKey,
     TouchKeyLayoutStyle.nineKeySidebarDocumentKey, TouchKeyLayoutStyle.digitSidebarDocumentKey,
-    TouchKeyLayoutStyle.languageKeySideDocumentKey,
+    TouchKeyLayoutStyle.languageKeySideDocumentKey, TouchKeyLayoutStyle.letterWidthsDocumentKey,
   ]
 
   override func setUp() {
@@ -64,6 +64,10 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchTwentySixKeyStyle.allCases.map(\.title), ["标准", "逗号句号", "长空格", "表情键"])
     XCTAssertEqual(TouchFourteenKeyStyle.allCases.map(\.title), ["标准", "长空格", "表情键"])
     XCTAssertEqual(TouchNineKeyStyle.allCases.map(\.title), ["标准", "底栏带标点", "表情键", "右侧大回车"])
+    XCTAssertEqual(TouchFourteenKeyLetterWidths.allCases.map(\.rawValue), ["equal", "varied"])
+    XCTAssertEqual(TouchFourteenKeyLetterWidths.allCases.map(\.title), ["等宽", "宽窄"])
+    XCTAssertEqual(TouchKeyLayoutStyle(in: [TouchKeyLayoutStyle.letterWidthsDocumentKey: "varied"]).letterWidths, .varied)
+    XCTAssertEqual(TouchKeyLayoutStyle(in: [TouchKeyLayoutStyle.letterWidthsDocumentKey: "future"]).letterWidths, .equal)
   }
 
   /// 保存只写刚改的那一项，文档接受了才更新镜像；标准样式和关着的数字行不留在文档里。iOS 以前没有对应的本机设置，没有旧值要迁移：没写过的文档读出来就是现在的键盘。
@@ -85,12 +89,14 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchKeyLayoutStyle.mirrored,
                    TouchKeyLayoutStyle(twentySixKey: .longSpace, nineKey: .commaPeriod, numberRow: true))
     XCTAssertTrue(TouchKeyLayoutStyle.save(fourteenKey: .emoji, stateRoot: state))
+    XCTAssertTrue(TouchKeyLayoutStyle.save(letterWidths: .varied, stateRoot: state))
     XCTAssertTrue(TouchKeyLayoutStyle.save(twentySixKey: .standard, stateRoot: state))
     XCTAssertTrue(TouchKeyLayoutStyle.save(numberRow: false, stateRoot: state))
     document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertNil(document["touch_twenty_six_key_style"], "the default is not written")
     XCTAssertNil(document["touch_number_row"])
-    XCTAssertEqual(TouchKeyLayoutStyle(in: document), TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod))
+    XCTAssertEqual(TouchKeyLayoutStyle(in: document), TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod, letterWidths: .varied))
+    XCTAssertEqual(document[TouchKeyLayoutStyle.letterWidthsDocumentKey] as? String, "varied")
     // 镜像只认文档：读不到文档时不动，文档里是什么就抄成什么。
     TouchKeyLayoutStyle.mirror(nil)
     XCTAssertEqual(TouchKeyLayoutStyle.mirrored, TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod))
