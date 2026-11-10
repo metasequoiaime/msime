@@ -8444,8 +8444,11 @@ void FcitxState::render() {
       preedit.setCursor(static_cast<int>(composed.text.size()));
     if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
       ic_.inputPanel().setClientPreedit(preedit);
-    else if (alwaysInline || preferences_.value("candidate_preedit_style", std::string("pinyin")) != "empty")
-      // 不支持客户端预编辑的编辑器只能由 Fcitx5 的候选面板代画。候选窗口预编辑关闭时，
+    else if (alwaysInline ||
+             preferences_.value("candidate_preedit_style",
+                                std::string("pinyin")) != "empty")
+      // 不支持客户端预编辑的编辑器只能由 Fcitx5
+      // 的候选面板代画。候选窗口预编辑关闭时，
       // 不能把行内预编辑样式偷偷回退成候选窗顶端的一行；韩文等必须内嵌的方案仍例外。
       ic_.inputPanel().setPreedit(preedit);
   }
