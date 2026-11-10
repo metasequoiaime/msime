@@ -73,6 +73,10 @@ export interface PluginListViewProps {
   onOpen: (target: "sound-effects" | "mentions") => void;
   onOpenPack: (kind: PluginKind, id: string) => void;
   onOpenMissing: (kind: PluginKind, id: string) => void;
+  /** 直接切换列表中有明确启用语义的插件。 */
+  onTogglePack?: (pack: PluginPackage, enabled: boolean) => void;
+  /** 只改变设置页展示顺序，不改变插件运行顺序。 */
+  onReorderPlugin?: (source: string, target: string) => void;
   /** 宿主运行脚本插件时的「脚本插件（实验）」分组；不运行时为 null，脚本包和它们的问题行都不列出。 */
   scripts?: PluginListScripts | null;
 }

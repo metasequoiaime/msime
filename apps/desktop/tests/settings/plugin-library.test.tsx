@@ -29,10 +29,25 @@ const music: PluginPackage = {
   builtin: false,
   tracks: ["合成曲目"],
 };
+const commandTable: PluginPackage = {
+  ...sound,
+  id: "synthetic-commands",
+  kind: "command_table",
+  name: "合成指令表",
+  builtin: false,
+};
+const phraseTable: PluginPackage = {
+  ...sound,
+  id: "synthetic-phrases",
+  kind: "phrase_table",
+  name: "合成短语表",
+  builtin: false,
+};
 function mount(
   packages = [sound, music],
   overrides: Partial<PluginClient> = {},
   platform: "macos" | "linux" | "windows" = "macos",
+  onChange = vi.fn(),
 ) {
   const client: PluginClient = {
     catalog: vi.fn(async () => ({ packages, issues: [] })),
@@ -54,13 +69,30 @@ function mount(
       music
       triggers
       active
-      onChange={vi.fn()}
+      onChange={onChange}
       onError={vi.fn()}
       confirm={vi.fn(async () => true)}
     />,
   );
   return { client, ...view };
 }
+
+test("插件列表直接切换指令表和短语表", async () => {
+  const onChange = vi.fn();
+  mount([commandTable, phraseTable], {}, "macos", onChange);
+  await screen.findByRole("button", { name: commandTable.name });
+  const commandToggle = screen.getByRole("checkbox", { name: `${commandTable.name}启用` });
+  expect((commandToggle as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(commandToggle);
+  expect(onChange).toHaveBeenCalledWith(
+    expect.objectContaining({ command_tables: [commandTable.id] }),
+  );
+  const phraseToggle = screen.getByRole("checkbox", { name: `${phraseTable.name}启用` });
+  fireEvent.click(phraseToggle);
+  expect(onChange).toHaveBeenCalledWith(
+    expect.objectContaining({ phrase_tables: [phraseTable.id] }),
+  );
+});
 
 test("分类与搜索共同过滤插件，详情返回保留筛选并恢复卡片焦点", async () => {
   mount();

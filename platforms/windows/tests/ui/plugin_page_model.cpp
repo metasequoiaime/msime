@@ -62,6 +62,11 @@ int main() {
         "a helpcode pack serves both schemes");
   check(with_pack_selected(selected, pack(L"wordbook", L"w")) == selected, "wordbooks have no preference");
 
+  selected.plugin_order = {L"command_table/b", L"sound/click", L"command_table/b"};
+  auto ordered = without_removed_pack(selected, L"sound", L"click");
+  check(ordered.plugin_order == std::vector<std::wstring>{L"command_table/b", L"command_table/b"},
+        "removing a pack removes its display-order entries");
+
   auto removed = without_removed_pack(selected, L"sound", L"click");
   check(removed.key_sound_pack == L"default" && removed.melody_pack == L"tune", "removing a key pack");
   removed = without_removed_pack(removed, L"sound", L"tune");
@@ -546,6 +551,9 @@ int main() {
     auto runner = pack(L"script", L"runner");
     const std::vector<Package> packages{click, tune, dates, runner};
     const std::vector<MissingSelection> absent{{L"music", L"lofi", {L"当前音乐包"}, false}};
+    check(normalized_plugin_order(packages, {L"script/runner", L"sound/click", L"sound/click", L"missing/x"}) ==
+              std::vector<std::wstring>{L"script/runner", L"sound/click", L"sound/tune", L"command_table/dates"},
+          "display order ignores unknown and duplicate keys and appends new packs");
     const auto categories = library_categories(packages, absent);
     check((categories == std::vector<std::wstring>{L"sound", L"music", L"command_table", L"script"}),
           "categories follow the library order, the command table always among them");
