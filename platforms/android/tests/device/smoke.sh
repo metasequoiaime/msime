@@ -17,6 +17,7 @@ oobe=false
 crash_only=false
 pr=false
 release=false
+space_copy=false
 theme=false
 key_faces=false
 # 单次 instrumentation 默认不设上限：完整套件里 NumberPadDeviceSmoke 一项就要跑约 6.5 分钟，整套的总时长由 workflow 的 timeout-minutes 兜底。需要给单次运行加上限时设置 MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS（秒）。
@@ -37,9 +38,10 @@ for option in "${@:2}"; do
     --crash-only) crash_only=true ;;
     --pr) pr=true ;;
     --release) release=true ;;
+    --space-copy) space_copy=true ;;
     --theme) theme=true ;;
     --key-faces) key_faces=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--theme] [--key-faces]" >&2; exit 1 ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -290,6 +292,10 @@ fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"
+if [[ "$space_copy" == true ]]; then
+  check "Space copy acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e space-copy-only true
+  finish "Dedicated Android AVD: space copy acceptance passed"
+fi
 if [[ "$theme" == true ]]; then
   # 主题问题定向复验仍经过安装、资源准备与真实主输入；不改变发布和 nightly 的套件选择。
   check "Theme mode acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ThemeModeDeviceSmoke

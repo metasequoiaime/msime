@@ -215,6 +215,7 @@ platforms/android/tests/device/voice/SyntheticSpeechSetup.java
 platforms/android/tests/device/keyboard/SymbolPanelLayoutDeviceSmoke.java
 platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
 platforms/android/tests/device/clipboard/SpaceCopyDeviceChecks.java
+platforms/android/tests/device/clipboard/SpaceCopyFailureNoticeChecks.java
 platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/TallReturnDeviceChecks.java
