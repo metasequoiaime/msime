@@ -21638,12 +21638,10 @@ private:
         args.Data().SetText(hstring(drag_key));
         args.Data().RequestedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
       });
-      card.DragOver([](Microsoft::UI::Xaml::UIElement const &,
-                       Microsoft::UI::Xaml::DragEventArgs const &args) {
+      card.DragOver([](Inspectable const &, Microsoft::UI::Xaml::DragEventArgs const &args) {
         args.AcceptedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
       });
-      card.Drop([this, drag_key](Microsoft::UI::Xaml::UIElement const &,
-                                 Microsoft::UI::Xaml::DragEventArgs const &args) {
+      card.Drop([this, drag_key](Inspectable const &, Microsoft::UI::Xaml::DragEventArgs const &args) {
         const auto view = args.DataView();
         if (!view.Contains(Windows::ApplicationModel::DataTransfer::StandardDataFormats::Text()))
           return;
