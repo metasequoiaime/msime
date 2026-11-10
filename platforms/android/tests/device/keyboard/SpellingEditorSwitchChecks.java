@@ -42,13 +42,12 @@ final class SpellingEditorSwitchChecks {
             s.stage = "spelling editor enabled entry and baseline";
             s.tap(s.key("n"));
             s.tap(s.key("i"));
-            s.await(s.described("编辑拼写"));
+            if (visible(s, "编辑拼写") || visible(s, "拼写编辑面板"))
+                throw new AssertionError("行内拼写不应再显示铅笔编辑入口");
             Rect enabled = keyboard(s);
             screenshot(s, "enabled");
-            s.tap(s.described("编辑拼写"));
-            s.await(s.described("拼写编辑面板"));
 
-            s.stage = "live disable closes the spelling editor without losing composition";
+            s.stage = "live disable keeps the compact composition without an editor entry";
             publish(s, preferences, base.put(KEY, false), ++revision);
             long deadline = SystemClock.uptimeMillis() + 10000;
             while (visible(s, "编辑拼写") || visible(s, "拼写编辑面板")) {
@@ -61,19 +60,14 @@ final class SpellingEditorSwitchChecks {
                 SystemClock.sleep(80);
             }
             s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("ni", node.getText())));
-            // 引擎延后应用偏好时这一行还显示必要状态；提交组字后再检查真正空行，不隐藏状态来迁就高度断言。
-            s.stage = "committing pending composition releases the empty spelling row";
+            // 没有铅笔入口时组字本来就不占独占空行，关闭开关不会再引起一次高度跳变。
+            s.stage = "committing pending composition keeps the compact spelling row";
             s.tap(s.key("空格"));
             s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你", node.getText())));
-            deadline = SystemClock.uptimeMillis() + 10000;
-            while (keyboard(s).height() >= enabled.height() - 8 * density(s)) {
-                if (SystemClock.uptimeMillis() > deadline) {
-                    screenshot(s, "failure");
-                    throw new AssertionError("组字结束后仍为禁用入口预留空行：before="
-                        + enabled + ", after=" + keyboard(s));
-                }
-                SystemClock.sleep(80);
-            }
+            Rect compactAfterCommit = keyboard(s);
+            if (Math.abs(compactAfterCommit.height() - enabled.height()) > 8 * density(s))
+                throw new AssertionError("移除铅笔后组字提交改变了键盘高度：before=" + enabled
+                    + ", after=" + compactAfterCommit);
 
             s.stage = "native setting persists on and off";
             setting(s, false);

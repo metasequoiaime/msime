@@ -6,8 +6,14 @@ public final class SpellingEditorPolicySmoke {
     public static void main(String[] args) {
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN,
                 InputSchemeTraits.WUBI, InputSchemeTraits.CANTONESE}) {
-            check(SpellingEditorPolicy.reserveHeader(true, scheme, false, false, "", "", false),
-                "默认编辑入口应保留");
+            check(!SpellingEditorPolicy.reserveHeader(true, scheme, false, false, "", "", false),
+                "没有可见读音时不应为编辑入口保留空行");
+            check(SpellingEditorPolicy.entryVisible(true, true, "ni"),
+                "可见读音仍应提供编辑入口");
+            check(!SpellingEditorPolicy.entryVisible(true, true, ""),
+                "空白读音不能提供编辑入口");
+            check(!SpellingEditorPolicy.entryVisible(true, false, "ni"),
+                "不可编辑的读音不能提供编辑入口");
             check(!SpellingEditorPolicy.reserveHeader(false, scheme, false, false, "", "", false),
                 "关闭后组字中的空笔行应移除");
             check(!SpellingEditorPolicy.reserveHeader(false, scheme, false, true, "合成标题", "", false),
