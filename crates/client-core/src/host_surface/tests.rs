@@ -399,10 +399,10 @@ fn capabilities_describe_each_host() {
     assert!(!HostCapabilities::for_platform(HostPlatform::Android).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Harmony).app_input_mode_rules);
     assert!(!HostCapabilities::for_platform(HostPlatform::Ios).app_input_mode_rules);
-    // Vim 模式的共享键先只给 macOS：Windows 仍读它自己在 TSF 本地的名单。
+    // Vim 模式只在接了 Esc 判定的 macOS 和 Windows 上提供。
     assert!(macos.vim_mode_apps);
+    assert!(windows.vim_mode_apps);
     for platform in [
-        HostPlatform::Windows,
         HostPlatform::Linux,
         HostPlatform::Android,
         HostPlatform::Ios,

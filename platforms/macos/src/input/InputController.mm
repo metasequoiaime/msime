@@ -656,6 +656,8 @@ struct MSIMECandidatePageGeometry {
     CGFloat lineWidth = 0;
     CGFloat rowsHeight = 0;
     CGFloat contentLeft = 0;
+    // 自适应分页给空测量行保留候选内容区，避免共享列把按钮压成 1pt。
+    CGFloat adaptiveMinimumColumnWidth = 0;
     BOOL hasSkinLayout = NO;
     BOOL hidesNumber = NO;
     CGFloat textLeft = 0;
@@ -7642,6 +7644,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         uint32_t preceding = 0;
         NSRange committed = MSIMETextClientCommittedRange(client, text, &preceding, canFormat);
         if (!canFormat() || committed.location == NSNotFound || !preceding) return;
+        // 某些 IMK 客户端在 insertText: 返回后仍保留原来的 marked text。此时再用绝对范围替换
+        // 会把同一段 ASCII 上屏两次；等客户端真正清掉标记后再处理，原文已经安全落地。
+        if ([client respondsToSelector:@selector(markedRange)]) {
+            const NSRange marked = [(id<MSIMETextClient>)client markedRange];
+            if (marked.location != NSNotFound && marked.length > 0) return;
+        }
         request[@"preceding"] = @(preceding);
         request[@"text"] = text;
         NSString *spaced = [MSIMEClientSession crossCommitSpacingRequest:request][@"text"];
@@ -9343,6 +9351,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     auto unnumberedMetrics = metrics;
     unnumberedMetrics.chrome -= ceil(numberWidth);
     unnumberedMetrics.itemMinWidth = 0;
+    geometry.adaptiveMinimumColumnWidth = ceil(std::max(0.0, unnumberedMetrics.chrome));
     std::vector<msime::candidate::CandidateItemWidths> items;
     items.reserve(candidates.count);
     CGFloat natural = 0;
@@ -9385,7 +9394,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         geometry.lineWidth = 0;
         for (double column : *sharedColumns) geometry.lineWidth += column;
         geometry.lineWidth += geometry.columnGap * (sharedColumns->size() - 1);
-        geometry.width = geometry.lineWidth + 2 * inset + pagerWidth;
+        // 共享列会覆盖前面按自然宽度算出的卡片宽度；保留普通候选页的 20pt
+        // 最低值，避免短暂的空测量把候选按钮压成 1pt 的空胶囊。
+        geometry.width = MAX(20.0, geometry.lineWidth + 2 * inset + pagerWidth);
         for (NSUInteger index = 0; index < items.size(); ++index) {
             msime::candidate::CandidateRowLayout row;
             row.x = x;
@@ -9923,7 +9934,8 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     for (;;) {
         const NSUInteger measured = grid.measured.unnumberedColumns.size();
         grid.adaptiveRows = msime::mac::LayoutAdaptiveCandidates(grid.measured.unnumberedColumns, grid.available,
-            grid.measured.columnGap, grid.columns, grid.measured.numberWidths, grid.measured.minimumColumnWidth, index, minimumRows);
+            grid.measured.columnGap, grid.columns, grid.measured.numberWidths,
+            MAX(grid.measured.minimumColumnWidth, grid.measured.adaptiveMinimumColumnWidth), index, minimumRows);
         if (grid.adaptiveRows.more || measured >= entries.count) break;
         // 只测新的一批接在后面：单项宽度不含序号栏，与跟谁一起测无关；序号栏按行内编号，网格一行最多十项，首批已够。
         // 不重测前缀，往下走多远每一步的测量量都有上限。
@@ -10457,7 +10469,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         for (;;) {
             const NSUInteger measured = adaptiveMeasure.unnumberedColumns.size();
             _adaptivePages = msime::mac::LayoutAdaptiveCandidates(adaptiveMeasure.unnumberedColumns, adaptiveWidth - 2 * inset - controls,
-                adaptiveMeasure.columnGap, 0, adaptiveMeasure.numberWidths, adaptiveMeasure.minimumColumnWidth, adaptiveHighlight);
+                adaptiveMeasure.columnGap, 0, adaptiveMeasure.numberWidths,
+                MAX(adaptiveMeasure.minimumColumnWidth, adaptiveMeasure.adaptiveMinimumColumnWidth), adaptiveHighlight);
             if (_adaptivePages.more || measured >= _adaptiveCandidates.count) break;
             const NSUInteger next = MIN(_adaptiveCandidates.count, MAX(MSIMEAdaptiveCandidateMeasureChunk, 2 * measured));
             adaptiveMeasure = [self candidatePageGeometry:[_adaptiveCandidates subarrayWithRange:NSMakeRange(0, next)]

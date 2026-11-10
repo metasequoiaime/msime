@@ -37,7 +37,7 @@ public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
                 Object bottom = field(type, "imeBottomBar").get(service);
                 Method apply = method(bottom.getClass(), "apply", LinearLayout.class);
                 ((Rect) field(bottom.getClass(), "insets").get(bottom)).set(1, 2, 3, 4);
-                field(bottom.getClass(), "navigationKnown").setBoolean(bottom, Build.VERSION.SDK_INT >= 31);
+                field(bottom.getClass(), "navigationKnown").setBoolean(bottom, true);
                 field(bottom.getClass(), "navigationBottom").setInt(bottom, 0);
                 field(bottom.getClass(), "gestureBottom").setInt(bottom, 0);
                 Class<?> settings = loader.loadClass("app.msime.android.AndroidLocalSettings");
@@ -51,7 +51,7 @@ public final class BottomPaddingHeightDeviceSmoke extends Instrumentation {
                 for (int insetBottom : new int[] {4, 144}) {
                     ((Rect) field(bottom.getClass(), "insets").get(bottom)).bottom = insetBottom;
                     for (boolean barEnabled : new boolean[] {false, true}) {
-                        boolean barShown = barEnabled && Build.VERSION.SDK_INT >= 31;
+                        boolean barShown = barEnabled;
                         for (int height : new int[] {0, 40, 80, 160}) {
                             update.invoke(null, file, Map.of("platform.android.bottom_bar", barEnabled,
                                 "platform.android.bottom_padding", true, "platform.android.bottom_padding_height", height));

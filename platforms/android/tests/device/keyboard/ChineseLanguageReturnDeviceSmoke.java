@@ -114,12 +114,10 @@ public final class ChineseLanguageReturnDeviceSmoke extends DeviceSmoke {
                     await(scheme("日语 9 键"));
                     SystemClock.sleep(1000);
                     stage = layout[0] + " Chinese return target " + refocus;
-                    AccessibilityNodeInfo chineseTarget = await(node -> equalsText("app.msime.android", node.getPackageName())
-                        && equalsText("中", node.getText()) && node.isClickable()
-                        && node.getContentDescription() != null && node.getContentDescription().toString().contains("切换到"));
+                    // 轮换开启时日语键盘的语言键显示当前语言字形（「あ」），目标中文入口写在读屏说明里；不要把当前字形当成目标文字。
+                    AccessibilityNodeInfo chineseTarget = await(language("切换到" + layout[1]));
                     if (!chineseTarget.getContentDescription().toString().contains(layout[1]))
-                        throw new AssertionError(chineseTarget.getContentDescription().toString().contains("全拼 26 键")
-                            ? "Chinese return changed to Quanpin26 after editor refocus" : "Chinese return lost the original entry");
+                        throw new AssertionError("Chinese return lost the original entry");
                     tap(language("切换到" + layout[1]));
                     stage = layout[0] + " returned layout " + refocus;
                     await(scheme(layout[1]));

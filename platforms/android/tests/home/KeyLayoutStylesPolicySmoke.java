@@ -186,17 +186,15 @@ public final class KeyLayoutStylesPolicySmoke {
     private static void fourteenKeyboard() {
         List<List<Key>> fourteen = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, false);
         check(fourteen.size() == 4, "three letter rows and the bottom row");
-        check(faces(fourteen.get(0)).equals(List.of("，", "QW", "ER", "TY", "UI", "OP")), "14-key first row with the sidebar");
-        check(faces(fourteen.get(1)).equals(List.of("。", "AS", "DF", "GH", "JK", "L")), "14-key second row");
-        check(faces(fourteen.get(2)).equals(List.of("？", "符", "ZX", "CV", "BN", "M", "⌫")), "14-key third row is 符 … ⌫");
-        for (int index = 0; index < 3; index++) {
-            List<Key> row = fourteen.get(index);
-            check(near(row.get(0).weight(), .7f), "sidebar keeps the keyboard's share on row " + index);
-            check(near(sum(row) - row.get(0).weight(), 3.8f), "letters fill the keyboard's letter column on row " + index);
-        }
-        // 14 键第三行：符 和 ⌫ 1.4 份，字母键两份，换算到字母列里比例不变。
+        // 14 键和 18 键一样没有左侧符号栏（#11040），三行字母从同一左边界铺满整行。
+        check(faces(fourteen.get(0)).equals(List.of("QW", "ER", "TY", "UI", "OP")), "14-key first row has no sidebar");
+        check(faces(fourteen.get(1)).equals(List.of("AS", "DF", "GH", "JK", "L")), "14-key second row");
+        check(faces(fourteen.get(2)).equals(List.of("符", "ZX", "CV", "BN", "M", "⌫")), "14-key third row is 符 … ⌫");
+        for (int index = 0; index < 3; index++)
+            check(near(sum(fourteen.get(index)), 1f), "14-key letters fill row " + index);
+        // 14 键第三行：符 和 ⌫ 1.4 份，字母键两份，换算到整行里比例不变。
         List<Key> third = fourteen.get(2);
-        check(near(third.get(1).weight() / third.get(2).weight(), 1.4f / 2f), "14-key edge keys keep 1.4 : 2");
+        check(near(third.get(0).weight() / third.get(1).weight(), 1.4f / 2f), "14-key edge keys keep 1.4 : 2");
         for (Row style : Kind.FOURTEEN.rows) {
             List<List<Key>> rows = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, style, false, false);
             sameEntries(rows.get(3), KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false, false, false, false, style),
@@ -207,7 +205,7 @@ public final class KeyLayoutStylesPolicySmoke {
         List<Key> middle = eighteen.get(1);
         check(faces(middle).equals(List.of("A", "SD", "FG", "H", "JK", "L")), "18-key second row has no indent");
         check(faces(eighteen.get(2)).equals(List.of("符", "Z", "XC", "V", "BN", "M", "⌫")), "18-key third row");
-        check(eighteen.get(1).get(0).id().equals("EighteenA") && fourteen.get(1).get(1).id().equals("FourteenAS"),
+        check(eighteen.get(1).get(0).id().equals("EighteenA") && fourteen.get(1).get(0).id().equals("FourteenAS"),
             "letter keys carry the keyboard's ids");
     }
 
@@ -238,10 +236,12 @@ public final class KeyLayoutStylesPolicySmoke {
         List<List<Key>> fourteen = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, false, false, false,
             List.of(), varied);
         List<Key> second = fourteen.get(1);
-        check(faces(second).equals(List.of("。", "", "AS", "DF", "GH", "JK", "L", "")), "14-key 宽窄 row 2: sidebar, blank, letters, blank");
-        check(near(second.get(0).weight(), .7f) && near(sum(second) - second.get(0).weight(), 3.8f),
-            "14-key 宽窄 keeps the sidebar and letter column shares");
-        check(near(second.get(6).weight() / second.get(5).weight(), .75f), "14-key L is 0.75 of JK");
+        check(faces(second).equals(List.of("", "AS", "DF", "GH", "JK", "L", "")), "14-key 宽窄 row 2: blank, letters, blank");
+        for (int index = 0; index < 3; index++)
+            check(near(sum(fourteen.get(index)), 1f), "14-key 宽窄 row " + index + " fills the row without a sidebar");
+        check(near(fourteen.get(0).get(0).weight(), second.get(1).weight()),
+            "14-key 宽窄 pairs are the same width on every row");
+        check(near(second.get(5).weight() / second.get(4).weight(), .75f), "14-key L is 0.75 of JK");
 
         for (Kind kind : List.of(Kind.TWENTY_SIX, Kind.NINE))
             check(KeyLayoutStylesPolicy.keyboard(kind, Row.STANDARD, false, false, false, false, List.of(), varied)

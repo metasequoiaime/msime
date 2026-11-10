@@ -10,7 +10,7 @@ Status: implemented
 
 在全拼既有二十六键、十四键、九键选择中追加十八键，并提供独立、默认不启用的 `eighteen_key` 触屏入口。复用 `KeyGrid::EighteenKey` 和编号 4 的 C ABI，字母组固定为 `Q WE RT Y U IO P / A SD FG H JK L / Z XC V BN M`。点按发送多义组码，实体键盘仍发送确定字母，组词、读音锁定和候选归共享引擎。
 
-原生键面复用十四键的符号与拼音侧栏、三栏候选、分词、长按、底行和数字层。三排采用七份宽度，第二排居中，第三排加上分词和删除后同宽；窄屏文字保持单行。布局可在设置中切换和恢复，英文、密码和本地模式沿用确定字母的回退路径。
+原生键面复用十四键的拼音选择（#10401 起挂在读音行，14 键随后跟进，见 [Android 14 键拼音选择挂到读音行](2026-11-08-android-fourteen-key-reading-row-spellings.md)）、三栏候选、分词、长按、底行和数字层。三排采用七份宽度，第二排居中，第三排加上分词和删除后同宽；窄屏文字保持单行。布局可在设置中切换和恢复，英文、密码和本地模式沿用确定字母的回退路径。
 
 十八键全拼只在已经画出键面的 Android 和 iOS 自动启用（iOS 见 [iOS 十八键](2026-10-25-ios-eighteen-key.md)）。其他宿主原样保留新增偏好，暂不画出未接线的键面。保留现有出厂默认值与启用列表，不增加十七键或任意可编程布局；这些需要额外的明确分组与行为契约。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 - [共享十八键全拼](../../implemented/feature/2026-10-24-eighteen-key-quanpin-engine.md)：部分重叠，直接复用已合并的算法与编号；Windows 的原生接线仍由 #8936 单独跟踪。
 - [十四键全拼](../../implemented/feature/2026-10-10-fourteen-key.md)：部分重叠，沿用组码、确定字母和候选身份边界，不翻转已有布局决定。
-- [Android 拼音侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md)：部分重叠，复用已有纵向拼音选择，不重新引入增加键盘高度的独立拼音行。
+- [Android 拼音侧栏](../../implemented/bug-fix/2026-10-13-android-fourteen-key-left-spellings.md)：部分重叠，复用已有纵向拼音选择，不重新引入增加键盘高度的独立拼音行；两种键面的拼音选择现在都在读音行，见 [Android 14 键拼音选择挂到读音行](2026-11-08-android-fourteen-key-reading-row-spellings.md)。
 - #9124 的 PR #9530 实现十八键双拼；#8930 另请求双拼与精确滑动字母。它们不属于本 issue，本分支不复制双拼算法、不自动关闭其他 issue。
 
 ## Alternatives considered

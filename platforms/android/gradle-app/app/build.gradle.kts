@@ -1,5 +1,6 @@
 import groovy.json.JsonSlurper
 import java.io.ByteArrayOutputStream
+import java.time.Instant
 import java.time.LocalDate
 import java.util.Properties
 import javax.inject.Inject
@@ -38,6 +39,24 @@ val releaseDate = providers.environmentVariable("MSIME_RELEASE_DATE").orNull?.tr
             isIgnoreExitValue = true
         }.standardOutput.asText.get().trim()
     }.getOrNull()?.takeIf { releaseDatePattern.matches(it) }
+    ?: ""
+
+// 构建时间（ISO-8601），写进 BuildConfig 供设备信息复制；优先使用构建环境明确提供的值，否则取当前提交时间，保证 CI 和本地构建都能追溯且不把机器时钟写进可复现产物。构建脚本不需要额外转交环境变量。
+fun checkedBuildTime(value: String, source: String): String {
+    check(runCatching { Instant.parse(value) }.isSuccess) {
+        "Android build time from $source must be ISO-8601, got '$value'"
+    }
+    return value
+}
+val buildTime = providers.environmentVariable("MSIME_BUILD_TIME").orNull?.trim()?.takeIf { it.isNotEmpty() }
+    ?.let { checkedBuildTime(it, "MSIME_BUILD_TIME") }
+    ?: runCatching {
+        providers.exec {
+            commandLine("git", "log", "-1", "--format=%cI")
+            workingDir = hostRoot
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+    }.getOrNull()?.takeIf { runCatching { Instant.parse(it) }.isSuccess }
     ?: ""
 
 // 产品版本（edition）：版本表 shared/contracts/editions.json 里每个有 Android 段的版本是一个同名的 productFlavor（full、pinyin、wubi、japanese、vietnamese、tibetan），可以同时装在一台设备上。full 的 applicationId、清单和资源与引入版本之前相同；其他版本的 applicationId 加上 `.<id>`，ContentProvider 的 authority 写成 `${applicationId}.<名字>`，随之各不相同。应用名、输入法子类型名和子类型语言（日文、越南文、藏文版登记在 ja_JP、vi_VN、bo 下）取自 platforms/android/editions/<id>/res，图标所有版本相同。
@@ -152,6 +171,7 @@ android {
         versionName = releaseVersion
         // 宿主经反射读它（AppVersionPolicy.releaseDate），理由同下面 productFlavors 里的 EDITION。
         buildConfigField("String", "RELEASE_DATE", "\"$releaseDate\"")
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
         // 宿主经反射读它（AppVersionPolicy.playDistribution），理由同上。
         buildConfigField("String", "DISTRIBUTION", "\"$distribution\"")
         ndk { abiFilters += nativeAbis }

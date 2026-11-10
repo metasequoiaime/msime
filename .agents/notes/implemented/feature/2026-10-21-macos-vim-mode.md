@@ -53,7 +53,7 @@ macOS 的标识语义是**前台应用的 bundle id**，不是进程基名：共
 - 名单为空、键缺失、类型非法、超出上限：一律不触发，不影响别的偏好；非法文档被 `InvalidVimModeApps` 整份拒绝。
 - 「应用例外」段的恢复默认会同时清空 Vim 名单：两段都是按应用的输入行为规则，共用一个恢复入口。
 - 共享设置页和 MCP 都能增删名单；macOS 原生设置窗口没有为 Vim 名单新增控件（与应用例外的表格分开，但它归在「应用例外」段恢复范围之内）。
-- Windows 侧没有改动：它继续读 `config.toml` 的 `[input] vim_mode_apps`，能力位为 false，共享设置页不给它画这个段落。
+- Windows 侧没有改动：它继续读 `config.toml` 的 `[input] vim_mode_apps`，能力位为 false，共享设置页不给它画这个段落。后来 monorepo 的 Windows 已不读这个本地键，[Windows 从共享偏好读 Vim 模式名单](2026-11-09-windows-vim-mode.md) 让 Windows 改读同一个共享键并打开能力位。
 
 ## Verification
 
