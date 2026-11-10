@@ -44,6 +44,16 @@ public final class AppVersionPolicy {
         }
     }
 
+    /** 构建时间（ISO-8601），由 gradle-app 写进 BuildConfig；直接 javac 或旧包没有这个字段时返回 null。 */
+    public static String buildTime() {
+        try {
+            Object value = Class.forName(BUILD_CONFIG).getField("BUILD_TIME").get(null);
+            return value instanceof String time && !time.isEmpty() ? time : null;
+        } catch (ReflectiveOperationException absent) {
+            return null;
+        }
+    }
+
     /** 这个包是为 Google Play 打的：gradle-app 收到 -PmsimeDistribution=play 时把 BuildConfig 的 `DISTRIBUTION` 写成 `play`。这样的包不做应用内自更新，也不下载可执行的资源包，Play 的政策两样都不允许。经反射读的理由同 {@link #releaseDate()}；没有 BuildConfig 或这个字段时按 GitHub 渠道处理。 */
     public static boolean playDistribution() {
         try {
