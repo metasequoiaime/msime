@@ -4695,9 +4695,20 @@ int main(int argc, char **argv) {
     require(state->session_ == 0, "leaving private context invalidates session");
     require(key(FcitxKey_n), "panel preedit composition");
     require(ic.inputPanel().preedit().toString() == "n", "server preedit without client support");
+    {
+      const auto savedPreferences = state->preferences_;
+      state->preferences_["tsf_preedit_style"] = "raw";
+      state->preferences_["candidate_preedit_style"] = "empty";
+      state->render();
+      require(ic.inputPanel().preedit().empty(),
+              "hidden candidate preedit does not fall back to a panel preedit for clients without inline support");
+      state->preferences_ = savedPreferences;
+      state->render();
+    require(ic.inputPanel().preedit().toString() == "n", "restoring candidate preedit keeps the panel composition");
+    }
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Preedit);
     require(ic.inputPanel().preedit().empty() &&
-            ic.inputPanel().clientPreedit().toString() == "n", "capability moves active preedit to client");
+                ic.inputPanel().clientPreedit().toString() == "n", "capability moves active preedit to client");
     state->close();
     state->clearPanel();
     auto capsEvent = fcitx::KeyEvent(&ic,
