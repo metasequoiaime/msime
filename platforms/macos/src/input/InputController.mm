@@ -5671,7 +5671,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self applyPreferencesToSessionNow];
     }
     const BOOL english = _appearance.englishMode;
-    [self setEnglishInputMode:mode == MSIMEInputMode::English showHUD:NO];
+    // 切进水杉后的第一次报告是系统落在了哪个入口上（通常是方案自己的「五」「双」或「中」），不是用户在水杉里选了中文，所以它不把英文改回中文：中英状态按激活时算出的起点走（应用规则，再是 default_ime_mode），和其它平台切进输入法时按默认模式重新起步一致。以前这次报告一律当成选中文，设了默认英文的人每次切进来都是中文，全局范围下此后每个新焦点也都是中文；它还会顶掉这个应用的英文规则。报告的是「英」时照样进英文，那是用户在输入菜单里明确选的。
+    [self setEnglishInputMode:mode == MSIMEInputMode::English || (switchedIn && english) showHUD:NO];
     state.selecting = false;
     // setEnglishInputMode: can refuse the switch (an Engine cancel failure while composing) after the report was already recorded as shown; select the mode the controller actually has so the menu bar does not keep the refused one. A switch that went through makes this a no-op.
     [self syncSystemInputModeForClient:sender];
