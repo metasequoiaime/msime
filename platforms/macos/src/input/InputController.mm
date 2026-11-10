@@ -9346,6 +9346,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     if (userStyle.itemPaddingVertical) metrics.paddingVertical = *userStyle.itemPaddingVertical * scale;
     if (userStyle.itemSpacing) metrics.itemGap = metrics.columnGap = *userStyle.itemSpacing * scale;
+    if (vertical) metrics.itemGap = msime::mac::CandidateItemVerticalOuterSpacing(scale);
     geometry.columnGap = metrics.columnGap > 0 ? metrics.columnGap : metrics.itemGap;
     geometry.minimumColumnWidth = ceil(metrics.itemMinWidth);
     auto unnumberedMetrics = metrics;
@@ -10009,7 +10010,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     _renderedCandidateAccent = SkinColor(tokens.accent);
     const CGFloat inset = msime::mac::CandidateInset(tokens);
     const CGFloat verticalInset = msime::mac::CandidateVerticalInset(tokens);
-    const CGFloat rowGap = tokens.itemSpacing.value_or(0.0);
+    const CGFloat rowGap = msime::mac::CandidateItemVerticalOuterSpacing(scale);
     const CGFloat numberScale = skin.layout && skin.layout->numberScale.has_value()
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;

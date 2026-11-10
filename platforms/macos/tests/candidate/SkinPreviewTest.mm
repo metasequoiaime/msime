@@ -723,8 +723,10 @@ int main(int argc, const char **argv) {
                         rowHeight += 8.0;
                         NSInteger rows = vertical.boolValue ? MIN(size.integerValue, 5) : 1;
                         CGFloat footerHeight = vertical.boolValue && size.integerValue > 5 ? 18.0 : 0.0;
-                        // 卡片上下各留原生默认的 4pt 内边距。
-                        CGFloat expectedHeight = 10 + 16 + 4 + 4 + preeditHeight + rows * rowHeight + footerHeight + 4 + 14;
+                        // 卡片上下各留原生默认的 4pt 内边距；竖排候选项之间固定保留 6pt 外间距。
+                        CGFloat expectedHeight = 10 + 16 + 4 + 4 + preeditHeight + rows * rowHeight +
+                            (vertical.boolValue ? (rows - 1) * msime::mac::CandidateItemVerticalOuterSpacing(1.0) : 0) +
+                            footerHeight + 4 + 14;
                         assert(std::abs(preview.previewContentHeight - expectedHeight) < .01);
                         assert(preview.previewSkin.id == skin.UTF8String);
                         NSString *expected = [NSString stringWithFormat:@"%@，%@ 个候选，%@ pt", vertical.boolValue ? @"纵向列表" : @"横向排列", size, font];
@@ -779,7 +781,8 @@ int main(int argc, const char **argv) {
         NSFont *measuredPreedit = [preferences candidateFontOfSize:preferences.preeditFontSize];
         CGFloat measuredRow = ceil(measuredCandidate.ascender - measuredCandidate.descender + measuredCandidate.leading) + 8;
         CGFloat measuredHeader = MAX(22.0, ceil(measuredPreedit.ascender - measuredPreedit.descender + measuredPreedit.leading) + 6);
-        CGFloat familyHeight = 10 + 16 + 4 + 4 + measuredHeader + 5 * measuredRow + 18 + 4 + 14;
+        CGFloat familyHeight = 10 + 16 + 4 + 4 + measuredHeader + 5 * measuredRow +
+            4 * msime::mac::CandidateItemVerticalOuterSpacing(1.0) + 18 + 4 + 14;
         assert(std::abs(preview.previewContentHeight - familyHeight) < .01);
         Draw(preview);
         familyControl.stringValue = @"";
@@ -905,7 +908,8 @@ int main(int argc, const char **argv) {
         assert(actualHeight > ceil(fallbackFont.ascender - fallbackFont.descender + fallbackFont.leading));
         NSFont *headerFont = [preferences candidateFontOfSize:preferences.preeditFontSize];
         CGFloat headerHeight = MAX(22.0, MAX(ceil([@"nihao" sizeWithAttributes:@{NSFontAttributeName:headerFont}].height), ceil(headerFont.ascender - headerFont.descender + headerFont.leading)) + 6);
-        CGFloat fallbackPreviewHeight = 10 + 16 + 4 + 4 + headerHeight + 5 * (actualHeight + 8) + 18 + 4 + 14;
+        CGFloat fallbackPreviewHeight = 10 + 16 + 4 + 4 + headerHeight + 5 * (actualHeight + 8) +
+            4 * msime::mac::CandidateItemVerticalOuterSpacing(1.0) + 18 + 4 + 14;
         assert(std::abs(preview.previewContentHeight - fallbackPreviewHeight) < .01);
         Draw(preview);
         preferences.fontFamily = @"Segoe UI";
