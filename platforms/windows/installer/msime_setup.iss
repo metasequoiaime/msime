@@ -346,17 +346,17 @@ end;
   所以两边都查。}
 function VCRuntimeIsInstalled: Boolean;
 var
+  RegistryInstalled: Boolean;
   ResultCode: Integer;
   PowerShellStarted: Boolean;
 begin
-  Result :=
+  RegistryInstalled :=
     VCRuntimeInstalledInView(HKLM32) or VCRuntimeInstalledInView(HKLM64);
-  if not Result then
-    exit;
 
-  { 注册表可能保留在较新版本，而 System32 中的 DLL 被旧安装或手工替换。
-    Host API 实际加载的是这个文件，所以再用原生 64 位 PowerShell 检查它的文件版本。
-    精简系统没有 Windows PowerShell 时保留注册表判定，避免把可用安装器误报成缺组件。 }
+  { 注册表键在某些 Server 2022 安装中可能不存在，但 Host API 实际加载的是
+    System32 中的 DLL，所以先用原生 64 位 PowerShell检查三个文件的版本。
+    只有无法启动 Windows PowerShell 时才回退到双视图注册表结果；不能让注册表
+    缺失把已经可用的实际运行库误报成缺组件。 }
   PowerShellStarted :=
     {#ExecNativeSys}(
       ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
@@ -373,7 +373,9 @@ begin
       ResultCode
     );
   if PowerShellStarted then
-    Result := ResultCode = 0;
+    Result := ResultCode = 0
+  else
+    Result := RegistryInstalled;
 end;
 
 { 只用于写日志，不参与判定。}

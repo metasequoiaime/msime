@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-安装器把发布构建使用的 Visual C++ v14.50 作为 x64 VC 运行库最低 minor 版本。注册表检查仍同时读取 HKLM32 和 HKLM64，并要求 `Installed=1`；随后用原生 64 位 PowerShell 检查实际加载路径 `System32\\msvcp140.dll`、`System32\\vcruntime140.dll` 和 `System32\\vcruntime140_1.dll` 的文件版本，避免注册表残留较新版本而实际 DLL 被旧文件覆盖或三者版本混装时误放行。低于 v14.50 或缺失时记录“缺失或过旧”，显示阻止安装的错误对话框，交互模式打开微软最新运行库下载页，静默模式直接返回失败，不启动浏览器；无法启动 Windows PowerShell 的精简系统回退到注册表结果。
+安装器把发布构建使用的 Visual C++ v14.50 作为 x64 VC 运行库最低 minor 版本。用原生 64 位 PowerShell 直接检查实际加载路径 `System32\\msvcp140.dll`、`System32\\vcruntime140.dll` 和 `System32\\vcruntime140_1.dll` 的文件版本；注册表仍同时读取 HKLM32 和 HKLM64，并只在 PowerShell 无法启动时作为回退。这样既避免注册表残留较新版本而实际 DLL 被旧文件覆盖或三者版本混装时误放行，也不会因为 Server 2022 上缺少注册表键而拒绝已经装好的 14.51 运行库。低于 v14.50 或缺失时记录“缺失或过旧”，显示阻止安装的错误对话框，交互模式打开微软最新运行库下载页，静默模式直接返回失败，不启动浏览器。
 
 WebView2 仍沿用原来的可选继续策略，因为它不造成已确认的宿主崩溃；只有 VC 运行库走硬阻止。包管理器文档和 Chocolatey 依赖同步到 v14.50。最低版本依据当前发布工作流在 Visual Studio 2026/v14.50 工具链上构建，以及微软文档关于运行库版本不得低于构建工具版本的约束：[Visual C++ 生命周期 FAQ](https://learn.microsoft.com/en-us/lifecycle/faq/visual-c-faq)、[最新支持的 VC++ 可再发行组件](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。
 

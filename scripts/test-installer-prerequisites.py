@@ -121,6 +121,12 @@ def main() -> int:
                 f"VC runtime check does not inspect the native {dll}")
     require("[version]$version -lt $minimum" in installed,
             "VC runtime file version is not compared with the release minimum")
+    require("RegistryInstalled" in installed,
+            "VC runtime registry result is not retained as the PowerShell fallback")
+    require(re.search(r"if not Result then\s+exit", installed) is None,
+            "missing VC runtime registry keys must not short-circuit the native file check")
+    require(re.search(r"if PowerShellStarted then[\s\S]*?else[\s\S]*?Result := RegistryInstalled", installed) is not None,
+            "VC runtime check must fall back to registry views only when PowerShell cannot start")
 
     # WebView2 仍允许用户选择继续；VC 版本过旧会明确阻止安装，静默部署也必须
     # 以失败退出，避免安装成功后在宿主进程里崩溃。
