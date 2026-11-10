@@ -7,6 +7,7 @@
 // NSTextInputClient-compatible context queries. Hosts that cannot expose
 // document context may omit these; callers must treat the result as unknown.
 - (NSRange)selectedRange;
+- (NSRange)markedRange;
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range;
 @end
 

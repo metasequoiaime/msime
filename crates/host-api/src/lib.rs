@@ -1183,7 +1183,7 @@ impl HostSession {
         self.refresh_plugin_commands();
     }
 
-    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音、笔画、五笔的资源包和落定重排模型：只做几次 stat。词典路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine（重建时日文临时模式的开关按新路径重新判断）；落定重排模型的文件有变就起一个后台线程加载它（经 `sentence_model_settled` 的共享缓存），加载完之后由某次输入空闲的 `apply_pending` 换上。聚焦本身不读词典也不读模型文件。
+    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音、笔画、五笔的资源包和落定重排模型：只做几次 stat。词典路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine（重建时日文临时模式的开关按新路径重新判断）；五笔码表例外，还没并进工作主词库的码表这个会话不接，见下面的说明。落定重排模型的文件有变就起一个后台线程加载它（经 `sentence_model_settled` 的共享缓存），加载完之后由某次输入空闲的 `apply_pending` 换上。聚焦本身不读词典也不读模型文件，只在五笔码表换了路径时读一次主词库和码表的 schema。
     ///
     /// 资源包目录只在校验完、整体原子发布之后才出现，所以这里看到的文件都是完整的。
     fn refresh_resource_packs(&mut self) {
@@ -1238,6 +1238,15 @@ impl HostSession {
             downloaded.as_ref(),
             Path::new(&self.options.resources),
         ));
+        // 新出现（或换了路径）的五笔码表还没并进工作主词库时，这个会话不接它，五笔照旧按没有这份码表处理：接了就要在随后的 `apply_pending` 里、在输入线程上并表，142 MB 的码表在安卓模拟器上要 18–25 秒，就是 ANR。也不在后台线程里并：并表是对会话正在读的工作主词库的大事务，回滚日志模式下写者溢出页缓存后一直占着锁，这段时间里会话每条查询都要等满忙等时限再失败，照样卡住输入线程。所以留给下一次建会话，安卓在建会话之前的工作线程上并（`msime_client_prepare_session`）。别的会话已经并好了就照常接上；判断只读两个文件的 schema，读不了按还没并好算。
+        let wubi = if wubi != self.options.wubi_dictionary
+            && msime_engine::host::downloaded_wubi_merge_pending(&self.options, &wubi)
+                .unwrap_or(true)
+        {
+            self.options.wubi_dictionary.clone()
+        } else {
+            wubi
+        };
         let grammar_model =
             engine_sentence_association(&self.applied.sentence_association, state_root)
                 .collocation_model;

@@ -2792,6 +2792,13 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 long syncMillis = SystemClock.uptimeMillis() - syncStartedAt;
                 if (generation != engineStartGeneration) return;
+                // 下载的五笔码表第一次并进词库代次要几十秒，放在主线程上的建会话里就是 ANR，系统杀进程、事务回滚，下一次按键又从头并起；在这里先并好。可选：失败或词库忙时建会话照旧自己处理。
+                try {
+                    NativeClient.prepareSession(startOptions.options());
+                } catch (RuntimeException | LinkageError ignored) {
+                    // 并表只是提前做，失败了建会话照常进行。
+                }
+                if (generation != engineStartGeneration) return;
                 String finalNotice = notice;
                 main.post(() -> {
                     if (generation != engineStartGeneration || connection == null || session != 0) return;

@@ -19,7 +19,8 @@ use crate::types::{
     TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{
-    merge_downloaded_wubi, open_prepared_runtime_paths_for, prepare_runtime_paths_for,
+    downloaded_wubi_pending, merge_downloaded_wubi, open_prepared_runtime_paths_for,
+    prepare_runtime_paths_for,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -369,18 +370,30 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
     }
 }
 
+/// 把宿主下载的五笔码表 `options.wubi_dictionary` 并进代次的工作主词库并回放日志，与 [`session_options`] 建会话时做的是同一件事（`user_dictionary::generation::merge_downloaded_wubi`），返回这次是否并入或补做了回放。第一次并入 142 MB 的码表是几十秒级的写入，宿主可以在建会话之前、在输入线程之外先调它，建会话时就只剩几次 schema 读取。`wubi_dictionary` 为空、只读布局、表都已经在时什么也不做。调用方要像建会话一样持着词库的会话租约。
+pub fn merge_downloaded_wubi_dictionary(options: &EngineOptions) -> Result<bool> {
+    if options.wubi_dictionary.is_empty() {
+        return Ok(false);
+    }
+    merge_downloaded_wubi(&runtime_paths(options), Path::new(&options.wubi_dictionary))
+}
+
+/// 拿 `wubi` 当 `options.wubi_dictionary` 建会话时，[`merge_downloaded_wubi_dictionary`] 还有没有并表或回放要做。只读两个文件的 schema：会话中途发现码表换了路径时，宿主据此判断能不能在输入线程上重建 Engine。`wubi` 为空时为假，主词库读不了是错误。
+pub fn downloaded_wubi_merge_pending(options: &EngineOptions, wubi: &str) -> Result<bool> {
+    if wubi.is_empty() {
+        return Ok(false);
+    }
+    downloaded_wubi_pending(&runtime_paths(options), Path::new(wubi))
+}
+
 /// `options_for`: map and validate (`UNSUPPORTED_INPUT_SCHEME`, `UNSUPPORTED_SHUANGPIN_PROFILE`, `UNSUPPORTED_WUBI_PROFILE`, `UNSUPPORTED_FREQUENCY_MODE`, `UNSUPPORTED_VIETNAMESE_METHOD`, `UNSUPPORTED_VIETNAMESE_TONE_STYLE`), and refresh the translations sidecar in the generation directory.
 pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     prepare_translation_sidecar(options)?;
-    // 并不进来只是五笔还没有码表可读，不该让整个会话建不起来：记下来，下次建会话再试。
-    if !options.wubi_dictionary.is_empty() {
-        if let Err(error) =
-            merge_downloaded_wubi(&runtime_paths(options), Path::new(&options.wubi_dictionary))
-        {
-            crate::logging::warn(format_args!(
-                "downloaded wubi tables not merged into the generation: {error}"
-            ));
-        }
+    // 并不进来只是五笔还没有码表可读，不该让整个会话建不起来：记下来，下次建会话再试。宿主事先在输入线程之外调过 `merge_downloaded_wubi_dictionary` 时，这里只剩几次 schema 读取。
+    if let Err(error) = merge_downloaded_wubi_dictionary(options) {
+        crate::logging::warn(format_args!(
+            "downloaded wubi tables not merged into the generation: {error}"
+        ));
     }
     let scheme = SchemeType::from_u8(options.scheme)
         .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_INPUT_SCHEME))?;

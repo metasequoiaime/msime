@@ -545,6 +545,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_updatePreferenc
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_createRaw(JNIEnv *env, jclass, jbyteArray options) {
     return bounded_request(env, options, kCreateOptionsLimit, msime_client_create);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_prepareSessionRaw(JNIEnv *env, jclass, jbyteArray options) {
+    return bounded_request(env, options, kCreateOptionsLimit, msime_client_prepare_session);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_focusRaw(JNIEnv *env, jclass, jlong handle, jboolean focused) {
     return response(env, msime_client_focus(static_cast<uint64_t>(handle), focused == JNI_TRUE));
 }

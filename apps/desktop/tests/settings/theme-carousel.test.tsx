@@ -61,42 +61,19 @@ test("尺寸变化时按当前卡片重定位，卸载后断开观察", () => {
   expect(disconnect.mock.calls).toHaveLength(observe.mock.calls.length);
 });
 
-test("轮播跟随当前卡片高度，切换、滑动和内容变化都不为其他卡片留白", () => {
-  const heights = new Map([
-    [labels[0], 240],
-    [labels[1], 520],
-    [labels[2], 300],
-  ]);
-  const callbacks = new Map<Element, ResizeObserverCallback>();
-  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
-    this: HTMLElement,
-  ) {
-    return heights.get(this.firstElementChild?.getAttribute("aria-label") ?? "") ?? 0;
-  });
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      constructor(private callback: ResizeObserverCallback) {}
-      observe(element: Element) {
-        callbacks.set(element, this.callback);
-      }
-      disconnect() {}
-    },
-  );
+test("卡片一律拉伸到最高那张的高度：切换、滑动都不改轨道高度，分页条不跳", () => {
   renderCarousel(0);
   const track = screen.getByRole("article", { name: labels[0] }).parentElement!.parentElement!;
   Object.defineProperty(track, "clientWidth", { value: 300 });
-  expect(track.style.height).toBe("240px");
+  expect(track.style.height).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "下一个主题" }));
-  expect(track.style.height).toBe("520px");
-  fireEvent.click(screen.getByRole("button", { name: "上一个主题" }));
-  expect(track.style.height).toBe("240px");
-  heights.set(labels[0], 280);
-  act(() => callbacks.get(track.children[0])!([], {} as ResizeObserver));
-  expect(track.style.height).toBe("280px");
+  expect(track.style.height).toBe("");
   track.scrollLeft = 600;
   fireEvent.scroll(track);
-  expect(track.style.height).toBe("300px");
+  expect(track.style.height).toBe("");
+  // 高度来自 flex 的拉伸，不是逐张测量：轨道不能是 items-start，slide 要把卡片撑满。
+  expect(track.className).not.toContain("items-start");
+  expect(track.children[0].className).toContain("[&>article]:flex-1");
 });
 
 test("opens on the selected theme and keeps every card mounted", () => {

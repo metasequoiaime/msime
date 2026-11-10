@@ -556,6 +556,20 @@ struct State {
     }
     smart_punctuation_shadow_valid = true;
   }
+  // IBus clients such as terminal emulators may not publish surrounding text.
+  // Keep the last bare ASCII letter or digit that this input context forwarded
+  // so the next smart-punctuation key can still honor the direct-after-digit
+  // and direct-after-letter settings. Any other forwarded key invalidates it
+  // at the call site below.
+  void remember_smart_punctuation_forwarded_key(guint key) {
+    if (!focused || blocked || private_input || key > 0x7f ||
+        !g_ascii_isalnum(static_cast<gchar>(key))) {
+      forget_smart_punctuation_shadow();
+      return;
+    }
+    smart_punctuation_shadow.assign(1, static_cast<char>(key));
+    smart_punctuation_shadow_valid = true;
+  }
   void forget_smart_punctuation_shadow() {
     smart_punctuation_shadow.clear();
     smart_punctuation_shadow_valid = false;
@@ -8670,8 +8684,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = fullwidth_idle_commit(fullwidth_value);
     }
   });
-  if (!handled && !release)
-    s.forget_smart_punctuation_shadow();
+  if (!handled && !release) {
+    if (modifiers == 0 && key <= 0x7f &&
+        g_ascii_isalnum(static_cast<gchar>(key)))
+      s.remember_smart_punctuation_forwarded_key(key);
+    else
+      s.forget_smart_punctuation_shadow();
+  }
   return handled;
 }
 struct CandidateMenuHintNotice {
