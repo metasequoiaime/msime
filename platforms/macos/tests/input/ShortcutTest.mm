@@ -1108,6 +1108,35 @@ static void TestSharedTraditionalOutput() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+static void TestSharedCantoneseSimplifiedOutput() {
+    NSString *suite = [@"msime.cantonese-output." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:@{ @"scheme": @5, @"candidates": @[] } forKey:@"view"];
+
+    assert(!prefs.cantoneseSimplifiedOutput);
+    assert([[controller.menu itemAtIndex:4].title isEqual:@"简体输出"]);
+    assert([controller.menu itemAtIndex:4].state == NSControlStateValueOff);
+    [controller applySharedInputPreferences:@{ @"cantonese_simplified_output": @YES }];
+    assert(prefs.cantoneseSimplifiedOutput);
+    assert([controller.menu itemAtIndex:4].state == NSControlStateValueOn);
+    [controller selectSimplifiedOutput:nil];
+    assert(!prefs.cantoneseSimplifiedOutput);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cantonese_simplified_output"] isEqual:@NO]);
+    [controller selectTraditionalOutput:nil];
+    assert(prefs.cantoneseSimplifiedOutput);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"cantonese_simplified_output"] isEqual:@YES]);
+    [prefs applySharedInputPreferences:@{ @"cantonese_simplified_output": @NO }];
+    assert(!prefs.cantoneseSimplifiedOutput);
+    for (id invalid in @[NSNull.null, @1, @"true"]) {
+        [prefs applySharedInputPreferences:@{ @"cantonese_simplified_output": invalid }];
+        assert(!prefs.cantoneseSimplifiedOutput);
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestSharedCharacterWidth() {
     NSString *suite = [@"msime.character-width." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -15361,6 +15390,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSharedPunctuation(); }
         @autoreleasepool { TestSmartPunctuationWritesBothHalves(); }
         @autoreleasepool { TestSharedTraditionalOutput(); }
+        @autoreleasepool { TestSharedCantoneseSimplifiedOutput(); }
         @autoreleasepool { TestCandidatePageNumberPreference(); }
         @autoreleasepool { TestPageSizeCache(); }
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
