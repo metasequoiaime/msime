@@ -760,6 +760,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     void showClipboardPhraseNotice(long request, String text) { operationNotice.show(request, text); }
 
+    void showClipboardInsertionLimitNotice() {
+        operationNotice.showAcknowledgement(ClipboardSelectionPolicy.INSERTION_LIMIT_HINT);
+    }
+
     /** 复制的代次：每次「复制全部」加一，最后一次说了算；服务销毁时也加一。 */
     private long deviceInfoCopyGeneration;
     /**
