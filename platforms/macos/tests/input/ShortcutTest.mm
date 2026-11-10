@@ -1119,7 +1119,7 @@ static void TestSharedCantoneseSimplifiedOutput() {
     assert(!prefs.cantoneseSimplifiedOutput);
     assert([[controller.menu itemAtIndex:4].title isEqual:@"简体输出"]);
     assert([controller.menu itemAtIndex:4].state == NSControlStateValueOff);
-    [controller applySharedInputPreferences:@{ @"cantonese_simplified_output": @YES }];
+    [prefs applySharedInputPreferences:@{ @"cantonese_simplified_output": @YES }];
     assert(prefs.cantoneseSimplifiedOutput);
     assert([controller.menu itemAtIndex:4].state == NSControlStateValueOn);
     [controller selectSimplifiedOutput:nil];

@@ -524,6 +524,8 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
 }
 
 // 候选窗首行拼音后面的输入状态：方案名，然后中文组字时是「中」、英文候选（专用英文或临时英文）时是「英」，简繁转换适用于这一页时（`view.script_conversion`）加「简」或「繁」，全角打开时加「全角」，用「 · 」隔开。方案名由调用方按 `view.scheme` 算好，空时不写。
+static int MSIMEViewScheme(NSDictionary *view);
+
 static BOOL MSIMECharacterSetOutputChecked(NSDictionary *view, MSIMEAppearancePreferences *appearance) {
     if (!appearance) return NO;
     return msime::mac::character_set::checked(MSIMEViewScheme(view), appearance.traditionalOutput,
