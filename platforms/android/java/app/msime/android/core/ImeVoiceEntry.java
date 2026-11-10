@@ -190,6 +190,7 @@ final class ImeVoiceEntry {
         speaking = false;
         VoiceRecognitionActivity.Polish polish = configured.polish();
         VoiceRecognitionActivity.Streaming stream = configured.streaming();
+        s.hideVoiceEmptyNotice();
         if (engine == Engine.PLATFORM) {
             if (startPlatform(session, startedAt, language, polish)) return true;
             // 系统识别服务连创建都失败时退回识别窗口，至少还有原来的流程可用。
@@ -223,6 +224,7 @@ final class ImeVoiceEntry {
             worker.execute(() -> {
                 String text = null;
                 String failure = null;
+                boolean emptyFailure = false;
                 // 文字照常上屏、另外要告诉用户的一句：录音到了上限，或者豆包识别到一半连接断了。
                 String notice = null;
                 byte[] pcm = null;
@@ -270,9 +272,11 @@ final class ImeVoiceEntry {
                         return;
                     }
                     failure = VoiceFailurePolicy.message(refused.failure());
+                    emptyFailure = refused.failure() == HttpAsrRecognizer.Failure.EMPTY;
                 } catch (LocalAsrRecognizer.Refused refused) {
                     diagnostic(session, refused.diagnosticKind());
                     failure = LocalAsrPolicy.failureMessage(refused.failure(), refused.runtimeMissing());
+                    emptyFailure = refused.failure() == LocalAsrRecognizer.Failure.EMPTY;
                 } catch (RuntimeException | LinkageError error) {
                     // ZIP 只记固定异常类别，logcat 仅补异常类名，不写消息、路径或凭据。
                     diagnostic(session, VoiceDiagnostics.unexpected(error));
@@ -291,11 +295,12 @@ final class ImeVoiceEntry {
                 }
                 String finalText = result;
                 String finalFailure = failure;
+                boolean finalEmptyFailure = emptyFailure;
                 String finalNotice = notice;
                 byte[] audio = pcm;
                 long elapsed = SystemClock.uptimeMillis() - startedAt;
-                s.main.post(() -> delivered(session, finalText, finalFailure, finalNotice, audio, elapsed,
-                    language, provider));
+                s.main.post(() -> delivered(session, finalText, finalFailure, finalEmptyFailure,
+                    finalNotice, audio, elapsed, language, provider));
             });
         } catch (RejectedExecutionException error) {
             // The recognizer was created before the worker accepted the task. If the service is
@@ -733,12 +738,13 @@ final class ImeVoiceEntry {
         releasePlatform();
         String result = text == null ? null : TextPolicy.trimmed(text);
         if (result == null || result.isEmpty()) {
-            delivered(session, null, PlatformSpeechPolicy.emptyResult(), null, null, 0, language, PLATFORM_PROVIDER);
+            delivered(session, null, PlatformSpeechPolicy.emptyResult(), true, null, null, 0,
+                language, PLATFORM_PROVIDER);
             return;
         }
         long elapsed = SystemClock.uptimeMillis() - startedAt;
         if (polish == null) {
-            delivered(session, result, null, null, null, elapsed, language, PLATFORM_PROVIDER);
+            delivered(session, result, null, false, null, null, elapsed, language, PLATFORM_PROVIDER);
             return;
         }
         if (listening != null) listening.showRecognizing("正在润色…");
@@ -750,10 +756,11 @@ final class ImeVoiceEntry {
                     polish.prompt(), transcript);
                 String finalText = TextPolicy.hasText(polished)
                     ? TextPolicy.trimmed(polished) : transcript;
-                s.main.post(() -> delivered(session, finalText, null, null, null, elapsed, language, PLATFORM_PROVIDER));
+                s.main.post(() -> delivered(session, finalText, null, false, null, null, elapsed,
+                    language, PLATFORM_PROVIDER));
             });
         } catch (RejectedExecutionException error) {
-            delivered(session, transcript, null, null, null, elapsed, language, PLATFORM_PROVIDER);
+            delivered(session, transcript, null, false, null, null, elapsed, language, PLATFORM_PROVIDER);
         }
     }
 
@@ -768,7 +775,10 @@ final class ImeVoiceEntry {
             s.launchVoiceActivity();
             return;
         }
-        s.notice(PlatformSpeechPolicy.message(error));
+        String message = PlatformSpeechPolicy.message(error);
+        if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                || error == SpeechRecognizer.ERROR_NO_MATCH) s.showVoiceEmptyNotice(message);
+        else s.notice(message);
     }
 
     /** 键区采集被权限拒绝时让前台窗口恢复；旧回调和主动结束不能重新开始录音。 */
@@ -789,13 +799,15 @@ final class ImeVoiceEntry {
     }
 
     /** 识别结束：有文字就上屏，没有就提示 {@code failure}；{@code notice} 是文字上屏之后另外要说的一句（录音到了上限、识别途中断开）。四种识别服务和润色的结果都经过这里，语音标点在这里处理一次，锁定等待发送时显示的、存进语音结果的也是处理后的文字；只剩标点时按没有识别到文字处理。 */
-    private void delivered(long session, String recognized, String reportedFailure, String notice, byte[] pcm,
-                           long elapsedMillis, String language, String provider) {
+    private void delivered(long session, String recognized, String reportedFailure, boolean emptyFailure,
+                           String notice, byte[] pcm, long elapsedMillis, String language, String provider) {
         if (session != generation) return;
         String text = VoicePunctuation.apply(recognized, punctuationMode);
         // 识别出了内容、去掉标点后什么都不剩：与识别窗口一样提示没有识别到文字，不能无声收起。
-        String failure = reportedFailure == null && text != null && text.isEmpty()
-            && recognized != null && !recognized.isEmpty() ? "没有识别到文字" : reportedFailure;
+        boolean noText = text == null || text.isEmpty();
+        boolean punctuationOnly = noText && recognized != null && !recognized.isEmpty();
+        emptyFailure = emptyFailure || punctuationOnly || (reportedFailure == null && noText);
+        String failure = reportedFailure == null && emptyFailure ? "没有识别到文字" : reportedFailure;
         if (text != null && !text.isEmpty()) recordDiagnostic(DiagnosticEventKind.VOICE_SUCCESS);
         else if (failure == null) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
         recognizing = false;
@@ -805,8 +817,9 @@ final class ImeVoiceEntry {
         upload = null;
         releasePlatform();
         if (held || locked) {
-            pendingDelivery = () -> applyDelivery(session, text, failure, notice, pcm,
-                elapsedMillis, language, provider);
+            boolean finalEmptyFailure = emptyFailure;
+            pendingDelivery = () -> applyDelivery(session, text, failure, finalEmptyFailure,
+                notice, pcm, elapsedMillis, language, provider);
             if (finishButton != null) ViewPolicy.setEnabled(finishButton, true);
             if (listening != null) {
                 listening.showWaitingForSend(text);
@@ -815,15 +828,18 @@ final class ImeVoiceEntry {
             }
             return;
         }
-        applyDelivery(session, text, failure, notice, pcm, elapsedMillis, language, provider);
+        applyDelivery(session, text, failure, emptyFailure, notice, pcm, elapsedMillis, language, provider);
     }
 
     /** 结果投递只经过这一处；锁定等待与普通录音保留同一份上下文保护。 */
-    private void applyDelivery(long session, String text, String failure, String notice, byte[] pcm,
-                              long elapsedMillis, String language, String provider) {
+    private void applyDelivery(long session, String text, String failure, boolean emptyFailure,
+                              String notice, byte[] pcm, long elapsedMillis, String language, String provider) {
         if (session != generation) return;
         if (text == null || text.isEmpty()) {
-            if (failure != null) s.notice(failure);
+            if (failure != null) {
+                if (emptyFailure) s.showVoiceEmptyNotice(failure);
+                else s.notice(failure);
+            }
             dismiss();
             return;
         }

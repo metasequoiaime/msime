@@ -640,6 +640,8 @@ public final class MSIMEInputService extends InputMethodService {
     private String japaneseConversionEditingText = "";
     TextView status;
     TextView diagnosticView;
+    VoiceEmptyNoticeOverlay voiceEmptyNoticeOverlay;
+    private long voiceEmptyNoticeGeneration;
     private String message = "";
     String diagnosticMessage = "";
     long diagnosticGeneration;
@@ -733,6 +735,26 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+    }
+
+    /** 没有录到声音或没有识别文字时的提示，盖在键盘表面顶边，不改变工具栏高度。 */
+    void showVoiceEmptyNotice(String text) {
+        if (text == null || text.isEmpty()) return;
+        if (voiceEmptyNoticeOverlay == null || !isInputViewShown()) {
+            notice(text);
+            return;
+        }
+        long generation = ++voiceEmptyNoticeGeneration;
+        voiceEmptyNoticeOverlay.showLabel(text);
+        main.postDelayed(() -> {
+            if (generation == voiceEmptyNoticeGeneration) hideVoiceEmptyNotice();
+        }, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+    }
+
+    /** 隐藏语音空结果提示；开始新的识别或键盘离开窗口时调用。 */
+    void hideVoiceEmptyNotice() {
+        voiceEmptyNoticeGeneration++;
+        if (voiceEmptyNoticeOverlay != null) voiceEmptyNoticeOverlay.hideLabel();
     }
 
     /** 记下实时偏好里 {@link #announceWubiTableMissing} 要看的三项，再判断一次。有会话时实时偏好经 applyPreferencesSnapshot 到达，没有会话的输入框经 applyEditorPreferences，两处都调用。 */
@@ -2188,6 +2210,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         armFirstFrameWait();
+        hideVoiceEmptyNotice();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
@@ -2238,6 +2261,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInput() {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -2297,6 +2321,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onWindowHidden() {
+        hideVoiceEmptyNotice();
         // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
         imeWindowVisible = false;
         // 收起前第一帧还没交出去：不再等它，也不记这次弹出的耗时。排着的建会话马上放行，不空等兜底：它自己核对启动代次，用户收起时 onFinishInputView 已经先换了代，放行即作废；跟随光标的候选栏自己收起窗口时不换代，会话照常马上建好。
@@ -2439,6 +2464,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
@@ -10988,6 +11014,12 @@ public final class MSIMEInputService extends InputMethodService {
         quickDeleteOverlay = new QuickDeleteOverlay(this);
         keyboardSurface.addView(quickDeleteOverlay, LayoutPolicy.frameMatchParentParams());
         surface.fullBleed.add(quickDeleteOverlay);
+        voiceEmptyNoticeOverlay = new VoiceEmptyNoticeOverlay(this);
+        FrameLayout.LayoutParams voiceEmptyNoticeParams = LayoutPolicy.frameWrapParams();
+        voiceEmptyNoticeParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
+        voiceEmptyNoticeParams.topMargin = pixels(16);
+        // 键盘表面从输入法窗口的上沿开始；浮层盖住顶部工具栏但不参与键盘表面的测量。
+        keyboardSurface.addView(voiceEmptyNoticeOverlay, voiceEmptyNoticeParams);
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
