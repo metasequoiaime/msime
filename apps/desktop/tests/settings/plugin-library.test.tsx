@@ -94,6 +94,27 @@ test("插件列表直接切换指令表和短语表", async () => {
   );
 });
 
+test("macOS 插件列表拖动后保存卡片展示顺序", async () => {
+  const first = { ...commandTable, id: "synthetic-commands-a", name: "合成指令表 A" };
+  const second = { ...commandTable, id: "synthetic-commands-b", name: "合成指令表 B" };
+  const onChange = vi.fn();
+  mount([first, second], {}, "macos", onChange);
+  const firstButton = await screen.findByRole("button", { name: first.name });
+  const secondButton = screen.getByRole("button", { name: second.name });
+  const values = new Map<string, string>();
+  const dataTransfer = {
+    setData: vi.fn((format: string, value: string) => values.set(format, value)),
+    getData: vi.fn((format: string) => values.get(format) ?? ""),
+  };
+  fireEvent.dragStart(firstButton, { dataTransfer });
+  fireEvent.drop(secondButton.parentElement?.parentElement, { dataTransfer });
+  expect(onChange).toHaveBeenCalledWith(
+    expect.objectContaining({
+      plugin_order: ["command_table/synthetic-commands-b", "command_table/synthetic-commands-a"],
+    }),
+  );
+});
+
 test("分类与搜索共同过滤插件，详情返回保留筛选并恢复卡片焦点", async () => {
   mount();
   await screen.findByRole("button", { name: sound.name });
