@@ -91,6 +91,7 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
                 if (!button.performClick()) throw new AssertionError("Recent symbol cannot be clicked");
             }
         }
+        checkSymbolRows(panel);
         if (insertions[0] != 6) throw new AssertionError("Recent symbol callbacks were lost");
         if (closes[0] != 0) throw new AssertionError("Symbol insertion still closes the panel");
         findButton(panel, "中文").performClick();
@@ -125,6 +126,40 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         type.getMethod("resetForPresentation", List.class).invoke(panel, List.of());
         layout(panel, 1000);
         assertEmptyCommon(panel);
+    }
+
+    /** 面板高度变化时网格按可见区域均分整数行，矮面板仍保留 40 dp 格高。 */
+    private static void checkSymbolRows(View panel) {
+        typeReset(panel, List.of("，", "。", "？", "！", "、", "；", "：", "…"));
+        layout(panel, 1000, 260);
+        ScrollView scroll = (ScrollView) findDescription(panel, "符号网格；长条目加宽");
+        ViewGroup grid = (ViewGroup) scroll.getChildAt(0);
+        Button first = firstButton(grid);
+        if (first == null || first.getHeight() <= 40 || first.getHeight() < 40)
+            throw new AssertionError("足够高的符号面板没有按整数行扩大格高：" + (first == null ? "none" : first.getHeight()));
+        int tallHeight = first.getHeight();
+        layout(panel, 1000, 140);
+        first = firstButton((ViewGroup) scroll.getChildAt(0));
+        if (first == null || first.getHeight() != 40)
+            throw new AssertionError("矮符号面板没有退回 40 dp 格高：" + (first == null ? "none" : first.getHeight()));
+        layout(panel, 1000, 260);
+        first = firstButton((ViewGroup) scroll.getChildAt(0));
+        if (first == null || first.getHeight() != tallHeight)
+            throw new AssertionError("面板高度恢复后没有恢复均分行高");
+    }
+
+    private static void typeReset(View panel, List<String> recents) {
+        try {
+            panel.getClass().getMethod("resetForPresentation", List.class).invoke(panel, recents);
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("无法重置符号面板", error);
+        }
+    }
+
+    private static Button firstButton(ViewGroup group) {
+        for (int index = 0; index < group.getChildCount(); index++)
+            if (group.getChildAt(index) instanceof Button button) return button;
+        return null;
     }
 
     /** 真正测量安装产品的分组网格，覆盖连续滚动、末组定位及窄屏尺寸。 */
@@ -196,6 +231,12 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
         panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(700, View.MeasureSpec.EXACTLY));
         panel.layout(0, 0, width, 700);
+    }
+
+    private static void layout(View panel, int width, int height) {
+        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        panel.layout(0, 0, width, height);
     }
 
     /** 在真实 Android 分发链上叠一层可输入的底键，确认标题、装饰和边距不会漏到底层。 */
