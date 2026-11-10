@@ -115,6 +115,8 @@ public final class AndroidLocalSettings {
     public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";
     /** 设计范围的键盘高度调整（dp，-46..129，即 75%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
+    /** 展开屏的键盘高度调整（dp，-46..129）。未写入时沿用 {@link #KEYBOARD_HEIGHT_ADJUSTMENT}，只在本机保存。 */
+    public static final String KEYBOARD_HEIGHT_ADJUSTMENT_LARGE = "platform.android.keyboard_height_adjustment_large";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
     public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";
     /** 浮动键盘在可移动范围里的水平 / 竖直位置，千分比（0 最左 / 最上，1000 最右 / 最下）。 */
@@ -279,6 +281,7 @@ public final class AndroidLocalSettings {
             NineKeySidebarPolicy::normalize);
         choice(QUICK_DELETE_SCOPE, "before", false, "before", "all");
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
+        integer(KEYBOARD_HEIGHT_ADJUSTMENT_LARGE, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(FLOATING_KEYBOARD, false, false);
         integer(FLOATING_KEYBOARD_X, FloatingKeyboardPolicy.DEFAULT_X_FRACTION, false, 0,
             FloatingKeyboardPolicy.MAX_FRACTION, 1);

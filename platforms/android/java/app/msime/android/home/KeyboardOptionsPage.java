@@ -15,6 +15,7 @@ import app.msime.android.ToolbarOrderPolicy;
 import app.msime.android.ToolbarSizePolicy;
 import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.KeyboardHeightPolicy;
+import app.msime.android.KeyboardHeightSettingPolicy;
 import app.msime.android.KeyboardTypographyPolicy;
 import app.msime.android.NumberPolicy;
 
@@ -176,13 +177,14 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.toggle("组字时保留 Shift", null,
             preferences.optBoolean(QuanpinSeparatorPolicy.PREFERENCE_KEY, true),
             checked -> savePreference(QuanpinSeparatorPolicy.PREFERENCE_KEY, checked)).help("全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节");
-        int height = KeyboardHeightPolicy.heightAdjustmentToPercent(
-            settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-                ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-                : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
-        layout.slider("键盘高度", KeyboardHeightPolicy.MIN_HEIGHT_PERCENT, KeyboardHeightPolicy.MAX_HEIGHT_PERCENT, 1, height,
+        int smallestWidthDp = requireContext().getResources().getConfiguration().smallestScreenWidthDp;
+        int height = KeyboardHeightPolicy.heightAdjustmentToPercent(KeyboardHeightSettingPolicy.adjustment(
+            settings, smallestWidthDp,
+            NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE)));
+        String heightTitle = KeyboardFormFactorPolicy.expanded(smallestWidthDp) ? "键盘高度（展开屏）" : "键盘高度";
+        layout.slider(heightTitle, KeyboardHeightPolicy.MIN_HEIGHT_PERCENT, KeyboardHeightPolicy.MAX_HEIGHT_PERCENT, 1, height,
             KeyboardHeightPolicy::displayPercent,
-            percent -> saveLocalSetting(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT,
+            percent -> saveLocalSetting(KeyboardHeightSettingPolicy.keyFor(smallestWidthDp),
                 KeyboardHeightPolicy.heightPercentToAdjustment(percent)));
         layout.slider("按键间距", KeyboardSpacingPolicy.MIN_KEY_SPACING_TENTHS, KeyboardSpacingPolicy.MAX_KEY_SPACING_TENTHS, 1,
             KeyboardSpacingPolicy.keySpacing(NumberPolicy.strictInt(preferences, "touch_key_spacing_tenths", -1)),

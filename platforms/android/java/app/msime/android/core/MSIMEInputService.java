@@ -438,6 +438,8 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout phrasePanel;
     /** Android 本地设置（{@link AndroidLocalSettings}）：单手、隐私、按键细节、手写、工具栏的常用语/输入方式/隐藏等不在共享偏好里的设置。onStartInputView 与每次偏好生效时按文件身份重读。 */
     AndroidLocalSettings.Snapshot localSettings = AndroidLocalSettings.defaults();
+    /** 最近一次应用的窗口最小宽度，用来在资源配置已更新后仍判断是否跨过展开屏边界。 */
+    private int keyboardSmallestScreenWidthDp = Integer.MIN_VALUE;
     /** `touch_toolbar` 的各个按钮开关；常用语、输入方式与「显示方式：隐藏」来自本地设置。 */
     boolean toolbarEmoji = true;
     boolean toolbarPhrase = true;
@@ -2143,6 +2145,7 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        keyboardSmallestScreenWidthDp = getResources().getConfiguration().smallestScreenWidthDp;
         getContentResolver().registerContentObserver(
             Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD), false, inputMethodWatcher);
         if (Build.VERSION.SDK_INT >= 30) inlineAutofill = new ImeInlineAutofill(this);
@@ -2349,8 +2352,15 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
+        int previousSmallestWidthDp = keyboardSmallestScreenWidthDp == Integer.MIN_VALUE
+            ? getResources().getConfiguration().smallestScreenWidthDp : keyboardSmallestScreenWidthDp;
+        boolean heightFormFactorChanged = KeyboardFormFactorPolicy.expanded(previousSmallestWidthDp)
+            != KeyboardFormFactorPolicy.expanded(configuration.smallestScreenWidthDp);
+        if (heightFormFactorChanged && keyboardAdjustActive)
+            cancelKeyboardAdjustForConfiguration();
         operationNotice.cancel();
         super.onConfigurationChanged(configuration);
+        keyboardSmallestScreenWidthDp = configuration.smallestScreenWidthDp;
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
             hardwareKeyboardMode, hardwareKeyboardAttached, attached);
@@ -2388,6 +2398,9 @@ public final class MSIMEInputService extends InputMethodService {
             keyboardAdjustConfiguration = new Configuration(configuration);
         }
         if (keyboardRoot == null) return;
+        if (heightFormFactorChanged) {
+            refreshLocalSettings();
+        }
         imeStyler.applyKeyboardSurfaceGeometry();
         imeStyler.applyKeyboardGeometry();
         renderLayoutSettingsState();
@@ -3252,12 +3265,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 键盘高度：本地设置里有设计范围（-46..129）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
     private int heightAdjustmentFrom(JSONObject preferences) {
-        if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)) {
-            return KeyboardHeightPolicy.designHeightAdjustment(
-                localSettings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT));
-        }
-        return KeyboardHeightPolicy.designHeightAdjustment(preferences == null ? Integer.MIN_VALUE
-            : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+        int shared = preferences == null ? Integer.MIN_VALUE
+            : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE);
+        return KeyboardHeightSettingPolicy.adjustment(localSettings, keyboardSmallestWidthDp(), shared);
+    }
+
+    private int keyboardSmallestWidthDp() {
+        return keyboardSmallestScreenWidthDp == Integer.MIN_VALUE
+            ? getResources().getConfiguration().smallestScreenWidthDp : keyboardSmallestScreenWidthDp;
     }
 
     /** 会话是否不学习：输入框不许个性化学习，或者隐私模式开着。 */
@@ -8637,15 +8652,18 @@ public final class MSIMEInputService extends InputMethodService {
         touchGeometrySaving = true;
         preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
-        // 高度是设计范围（75%..170%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
-        final Integer height = reset ? null : touchKeyboardHeightAdjustment;
+        // 高度是设计范围（75%..170%），共享偏好放不下，写进本地设置；窄屏恢复默认时删掉旧键，展开屏恢复默认时显式写 0，避免回退到窄屏的独立值。
+        final Integer height = reset && KeyboardFormFactorPolicy.expanded(keyboardSmallestWidthDp())
+            ? KeyboardHeightPolicy.DEFAULT_HEIGHT_ADJUSTMENT_DP
+            : reset ? null : touchKeyboardHeightAdjustment;
         final java.nio.file.Path localSettingsFile = AndroidLocalSettings.file(this);
         final JSONObject sharedDocument = pending;
         final long sharedRevision = expectedRevision;
         final java.util.Map<String, Object> layoutEdits = new java.util.HashMap<>(localEdits);
         KeyboardHeightSave.HeightWriter writeHeight = heightChanged || !layoutEdits.isEmpty() ? () -> {
             java.util.Map<String, Object> edits = new java.util.HashMap<>(layoutEdits);
-            if (heightChanged) edits.put(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
+            if (heightChanged) edits.put(KeyboardHeightSettingPolicy.keyFor(
+                keyboardSmallestWidthDp()), height);
             AndroidLocalSettings.update(localSettingsFile, edits);
         } : null;
         java.util.function.Supplier<String> writeShared = sharedDocument == null ? null : () -> {
@@ -8677,6 +8695,18 @@ public final class MSIMEInputService extends InputMethodService {
                 render();
             }
         }
+    }
+
+    /** 折叠屏跨越 600dp 时丢弃尚未确认的高度预览，避免把一块屏的拖动值写入另一块屏。 */
+    private void cancelKeyboardAdjustForConfiguration() {
+        keyboardAdjustActive = false;
+        keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
+        keyboardAdjustConfiguration = null;
+        keyboardAdjustLiftDp = KeyboardAdjustPolicy.liftDp(localSettings.bool(AndroidLocalSettings.BOTTOM_PADDING),
+            localSettings.integer(AndroidLocalSettings.BOTTOM_PADDING_HEIGHT), imeBottomBar.shown());
+        keyboardAdjustOriginalLiftDp = keyboardAdjustLiftDp;
+        keyboardAdjustHorizontal = savedKeyboardHorizontal();
+        keyboardAdjustOriginalHorizontal = keyboardAdjustHorizontal;
     }
 
     private void finishTouchGeometrySave(long operation, long targetSession,
