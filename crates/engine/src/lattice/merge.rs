@@ -11,7 +11,9 @@ use super::decode::{
 };
 use super::neural::{NeuralReranker, MAX_RERANK_PATHS};
 use super::{LatticeLookup, TypoEdgeSource};
+#[cfg(test)]
 use crate::pinyin::syllables::has_only_complete_pinyin_segments;
+use crate::pinyin::syllables::{is_intact, is_prefix};
 use crate::types::{CandidateSource, WordItem};
 
 // 短句子合并直接扫描已有行，避免默认小批次为临时哈希表分配堆内存。
@@ -56,7 +58,7 @@ pub(crate) fn merge_lattice_candidates_with_typo_policy(
     rescoring_context: &str,
     allow_nonleading_typo: bool,
 ) -> Option<TypoSentence> {
-    // Two syllables are enough since lattice_reading: a two-syllable key can miss the exact lookup and otherwise leave prefix-range rows ahead of the sentence. Abbreviated segments (g'k't) are refused so `canonical_pinyin` stays a complete pronunciation (WL:541-545).
+    // 两个音节就足够触发词网格：两音节键可能查不到精确词条，否则前缀区间行会排在整句前面。合法的全拼前缀（包括单字母声母缩写）可以作为查询段，词库行仍携带完整规范读音；空段和非法拼写继续拒绝。
     let decoded = decode_lattice_with_typo_policy(
         syllables,
         lookup,
@@ -83,7 +85,7 @@ pub(crate) struct DecodedSentences {
     pub(crate) typo: Option<TypoSentence>,
 }
 
-/// `merge_lattice_candidates` 的解码一半：少于两个音节或含不完整音节时为 `None`，与合并时不插入任何行一致。带 `resume` 时字面整句的束搜索从共用前缀的旧图接着解（`decode::BeamPrefixCache`），结果不变。
+/// `merge_lattice_candidates` 的解码一半：少于两个音节或含非法拼写时为 `None`，与合并时不插入任何行一致。合法的不完整全拼段由词库查询补全为完整词条读音。带 `resume` 时字面整句的束搜索从共用前缀的旧图接着解（`decode::BeamPrefixCache`）。
 pub(crate) fn decode_lattice(
     syllables: &[String],
     lookup: &mut LatticeLookup<'_>,
@@ -102,7 +104,7 @@ fn decode_lattice_with_typo_policy(
     allow_nonleading_typo: bool,
     resume: Option<&mut BeamResume<'_>>,
 ) -> Option<DecodedSentences> {
-    if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
+    if syllables.len() < 2 || !lattice_accepts_pinyin_segments(syllables) {
         return None;
     }
     let graph = build_graph(syllables, lookup, options);
@@ -124,7 +126,7 @@ pub(crate) fn decode_lattice_borrowed<'rows>(
     typo_source: Option<&mut TypoEdgeSource<'_>>,
     resume: Option<&mut BeamResume<'_>>,
 ) -> Option<DecodedSentences> {
-    if syllables.len() < 2 || !has_only_complete_pinyin_segments(syllables) {
+    if syllables.len() < 2 || !lattice_accepts_pinyin_segments(syllables) {
         return None;
     }
     let graph = build_graph_borrowed(syllables, lookup, options);
@@ -136,6 +138,21 @@ pub(crate) fn decode_lattice_borrowed<'rows>(
         false,
         resume,
     ))
+}
+
+fn lattice_accepts_pinyin_segments(segments: &[String]) -> bool {
+    if segments.iter().all(|segment| is_intact(segment)) {
+        return !segments.is_empty();
+    }
+    let incomplete = segments
+        .iter()
+        .filter(|segment| !is_intact(segment))
+        .count();
+    let complete = segments.len().saturating_sub(incomplete);
+    segments.len() >= 3
+        && incomplete >= 2
+        && complete > 0
+        && segments.iter().all(|segment| is_prefix(segment))
 }
 
 #[cfg(test)]
@@ -666,19 +683,33 @@ mod tests {
         assert_eq!(candidates[1].word, "滚球");
     }
 
-    /// test_pinyin.cpp:668-677.
     #[test]
-    fn abbreviated_segments_produce_nothing() {
+    fn mixed_complete_and_abbreviated_segments_decode_a_sentence() {
         let rows = table(&[
-            ("g", &[("个", 100)]),
-            ("k", &[("可", 100)]),
+            ("ni", &[("你", 100)]),
+            ("h", &[("和", 100)]),
             ("t", &[("他", 100)]),
-            ("g'k't", &[("个可他", 50)]),
+            ("ni'h't", &[("你和他", 50)]),
         ]);
         let mut candidates = Vec::new();
         merge(
             &mut candidates,
-            "g'k't",
+            "ni'h't",
+            &rows,
+            "niht",
+            &LatticeOptions::default(),
+        );
+        assert_eq!(candidates[0].word, "你和他");
+        assert_eq!(candidates[0].canonical_pinyin, "ni'h't");
+    }
+
+    #[test]
+    fn invalid_segments_produce_nothing() {
+        let rows = table(&[("gk't", &[("错误", 100)])]);
+        let mut candidates = Vec::new();
+        merge(
+            &mut candidates,
+            "gk't",
             &rows,
             "gkt",
             &LatticeOptions::default(),

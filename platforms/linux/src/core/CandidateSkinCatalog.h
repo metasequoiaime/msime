@@ -140,11 +140,16 @@ inline std::optional<CandidateSkinDecoration> candidate_skin_decoration(const nl
 inline std::optional<double> candidate_skin_corner_radius(const nlohmann::json &catalog, std::string_view drawn) {
   const auto *package = candidate_skin_package(catalog, drawn);
   if (!package) return std::nullopt;
-  const auto value = package->find("corner_radius_dip");
-  if (value == package->end() || !value->is_number()) return std::nullopt;
-  const auto radius = value->get<double>();
-  if (!std::isfinite(radius) || radius < 0 || radius > 32) return std::nullopt;
-  return radius;
+  const auto read = [](const nlohmann::json &object, const char *key) -> std::optional<double> {
+    const auto value = object.find(key);
+    if (value == object.end() || !value->is_number()) return std::nullopt;
+    const auto radius = value->get<double>();
+    if (!std::isfinite(radius) || radius < 0 || radius > 32) return std::nullopt;
+    return radius;
+  };
+  if (const auto radius = read(*package, "corner_radius_dip")) return radius;
+  const auto layout = package->find("resolvedLayout");
+  return layout != package->end() && layout->is_object() ? read(*layout, "cornerRadiusDip") : std::nullopt;
 }
 
 // 皮肤包画在卡片底色之上、候选之下的背景图（清单的 `[candidate_window.background]`）：共享目录给出包内图片的绝对路径、`fit`（cover 铺满裁切、contain 完整放进卡片、stretch 两个方向各自拉伸）和 0–1 的不透明度。与装饰图同样按不可信输入再查一遍，任何一项不合规就当作没有背景图。只有 Fcitx5 画它；IBus 的面板画不了图片。
@@ -193,6 +198,51 @@ inline std::optional<double> candidate_skin_item_radius(const nlohmann::json &ca
   if (const auto radius = read(*package, "item_corner_radius_dip")) return radius;
   const auto layout = package->find("resolvedLayout");
   return layout != package->end() ? read(*layout, "itemCornerRadiusDip") : std::nullopt;
+}
+
+// classicui 能表达的皮肤版式。长度保留 em 标记，交给候选字号和候选缩放在生成主题时换算。
+struct CandidateSkinClassicGeometry {
+  struct Length {
+    double value = 0;
+    bool em = false;
+  };
+  std::optional<Length> padding;
+  std::optional<Length> item_gap;
+  std::optional<Length> item_extra_height;
+  std::optional<Length> number_inset;
+  std::optional<Length> item_padding_right;
+};
+
+// 从共享层已经合并好的 resolvedLayout 读取 classicui 可以承载的几何。旧目录没有这部分时保持旧宿主默认值。
+inline std::optional<CandidateSkinClassicGeometry> candidate_skin_classic_geometry(
+    const nlohmann::json &catalog, std::string_view drawn, bool horizontal) {
+  const auto *package = candidate_skin_package(catalog, drawn);
+  if (!package) return std::nullopt;
+  const auto resolved = package->find("resolvedLayout");
+  if (resolved == package->end() || !resolved->is_object()) return std::nullopt;
+  const auto base = resolved->find("geometry");
+  if (base == resolved->end() || !base->is_object()) return std::nullopt;
+  auto geometry = *base;
+  const auto direction = resolved->find(horizontal ? "horizontal" : "vertical");
+  if (direction != resolved->end() && direction->is_object())
+    for (const auto &[key, value] : direction->items()) geometry[key] = value;
+  CandidateSkinClassicGeometry result;
+  const auto read = [&](const char *key, double max_dip, double max_em) -> std::optional<CandidateSkinClassicGeometry::Length> {
+    const auto value = geometry.find(key);
+    if (value == geometry.end() || !value->is_object()) return std::nullopt;
+    const auto amount = value->find("value");
+    if (amount == value->end() || !amount->is_number()) return std::nullopt;
+    const double number = amount->get<double>();
+    const bool em = value->value("em", false);
+    if (!std::isfinite(number) || number < 0 || number > (em ? max_em : max_dip)) return std::nullopt;
+    return CandidateSkinClassicGeometry::Length{number, em};
+  };
+  result.padding = read("padding", 64.0, 4.0);
+  result.item_gap = read("itemGap", 64.0, 4.0);
+  result.item_extra_height = read("itemExtraHeight", 64.0, 4.0);
+  result.number_inset = read("numberInset", 64.0, 4.0);
+  result.item_padding_right = read("itemPaddingRight", 64.0, 4.0);
+  return result;
 }
 
 // The card radius the user set in the settings (`candidate_corner_radius`, 0-32), or none to leave it to the skin and the host. The shared layer omits the key when it is unset and rejects values out of range; anything else in the file is ignored here rather than trusted.

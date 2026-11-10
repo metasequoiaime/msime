@@ -24,7 +24,8 @@ inline std::vector<std::pair<Path, Json>> values(const model::Preferences& prefe
     {{"command_tables"}, list(preferences.command_tables)}, {{"effect_style"}, word(preferences.effect_style)},
     {{"effect_intensity"}, static_cast<int>(preferences.effect_intensity)}, {{"effect_pack"}, word(preferences.effect_pack)},
     {{"combo_counter"}, preferences.combo_counter}, {{"combo_tier_sound"}, preferences.combo_tier_sound},
-    {{"phrase_tables"}, list(preferences.phrase_tables)}, {{"helpcode_pack_quanpin"}, word(preferences.helpcode_pack_quanpin)},
+    {{"phrase_tables"}, list(preferences.phrase_tables)}, {{"plugin_order"}, list(preferences.plugin_order)},
+    {{"helpcode_pack_quanpin"}, word(preferences.helpcode_pack_quanpin)},
     {{"helpcode_pack_shuangpin"}, word(preferences.helpcode_pack_shuangpin)},
   };
 }
@@ -67,7 +68,7 @@ inline std::optional<model::Preferences> read(const Json& document) {
   flag({"achievements", "enabled"}, preferences.achievements_enabled); list({"command_tables"}, preferences.command_tables);
   word({"effect_style"}, preferences.effect_style); number({"effect_intensity"}, preferences.effect_intensity); word({"effect_pack"}, preferences.effect_pack);
   flag({"combo_counter"}, preferences.combo_counter); flag({"combo_tier_sound"}, preferences.combo_tier_sound);
-  list({"phrase_tables"}, preferences.phrase_tables); word({"helpcode_pack_quanpin"}, preferences.helpcode_pack_quanpin); word({"helpcode_pack_shuangpin"}, preferences.helpcode_pack_shuangpin);
+  list({"phrase_tables"}, preferences.phrase_tables); list({"plugin_order"}, preferences.plugin_order); word({"helpcode_pack_quanpin"}, preferences.helpcode_pack_quanpin); word({"helpcode_pack_shuangpin"}, preferences.helpcode_pack_shuangpin);
   return valid ? std::make_optional(std::move(preferences)) : std::nullopt;
 }
 inline std::vector<Change> changes(const model::Preferences& before, const model::Preferences& after) {

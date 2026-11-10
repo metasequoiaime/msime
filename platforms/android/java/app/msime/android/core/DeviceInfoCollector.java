@@ -141,7 +141,8 @@ public final class DeviceInfoCollector {
         items.add(item(Field.APP_VERSION, () -> {
             AppVersionPolicy.Version version = appVersionOrNull(context);
             return language -> version == null ? null
-                : DeviceInfoReport.appVersion(version.name(), version.code(), AppEdition.current().id(), language);
+                : DeviceInfoReport.appVersion(version.name(), version.code(), AppEdition.current().id(),
+                    AppVersionPolicy.buildTime(), language);
         }));
         items.add(item(Field.BRAND, () -> constant(Build.BRAND)));
         items.add(item(Field.MODEL, () -> constant(Build.MODEL)));

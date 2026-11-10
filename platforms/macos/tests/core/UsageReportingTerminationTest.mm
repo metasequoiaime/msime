@@ -1,4 +1,5 @@
 #import "../../src/core/UsageReporting.h"
+#import "../../src/core/ProcessExitGuard.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +25,7 @@ extern "C" void msime_client_string_free(char *value);
 namespace {
 constexpr const char *kDirectoryVariable = "MSIME_USAGE_REPORTING_TEST_DIR";
 constexpr const char *kEndHangsVariable = "MSIME_USAGE_REPORTING_TEST_END_HANGS";
+constexpr const char *kExitByKillVariable = "MSIME_USAGE_REPORTING_TEST_EXIT_BY_KILL";
 
 char *copy(const std::string &value) {
     char *result = static_cast<char *>(std::malloc(value.size() + 1));
@@ -59,6 +61,11 @@ bool fail(const char *message) {
 // 子进程：开始上报，等 SIGTERM 处理就位（处置变成忽略），告诉父进程已就绪，然后等着被结束。
 int run_child() {
     @autoreleasepool {
+        // 输入法进程的接法（input_method_main.mm）：先装退出守卫，再登记 SIGTERM 之后的退出方式。
+        if (std::getenv(kExitByKillVariable)) {
+            MSIMEInstallProcessExitGuard();
+            MSIMEUsageReportingSetTerminationExit(MSIMEExitByKill);
+        }
         MSIMEUsageReportingStart([NSString stringWithUTF8String:test_directory().c_str()]);
         for (int waited = 0; waited < 2000; waited += 10) {
             struct sigaction current = {};
@@ -79,12 +86,14 @@ struct ChildExit {
 };
 
 // 起一个子进程，就绪后向它发 SIGTERM，最多等 timeout 毫秒让它结束；超时就 SIGKILL 并报告没有结束。
-ChildExit terminate_child(const char *executable, const std::filesystem::path &directory, bool end_hangs, int timeout) {
+ChildExit terminate_child(const char *executable, const std::filesystem::path &directory, bool end_hangs, int timeout, bool exit_by_kill = false) {
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
     setenv(kDirectoryVariable, directory.c_str(), 1);
     if (end_hangs) setenv(kEndHangsVariable, "1", 1);
     else unsetenv(kEndHangsVariable);
+    if (exit_by_kill) setenv(kExitByKillVariable, "1", 1);
+    else unsetenv(kExitByKillVariable);
     char *arguments[] = {const_cast<char *>(executable), const_cast<char *>("--child"), nullptr};
     pid_t child = 0;
     ChildExit result;
@@ -110,6 +119,10 @@ ChildExit terminate_child(const char *executable, const std::filesystem::path &d
 
 bool killed_by_sigterm(const ChildExit &outcome) {
     return outcome.exited && WIFSIGNALED(outcome.status) && WTERMSIG(outcome.status) == SIGTERM;
+}
+
+bool killed_by_sigkill(const ChildExit &outcome) {
+    return outcome.exited && WIFSIGNALED(outcome.status) && WTERMSIG(outcome.status) == SIGKILL;
 }
 } // namespace
 
@@ -159,6 +172,18 @@ int main(int argc, char **argv) {
     outcome = terminate_child(argv[0], hanging, true, 10000);
     if (!killed_by_sigterm(outcome)) ok = fail("a stuck session end kept the process alive after SIGTERM");
     else if (outcome.elapsed_milliseconds > 6000) ok = fail("a stuck session end delayed SIGTERM beyond the grace period");
+
+    // 输入法进程登记了 SIGKILL 退出：会话照样结束，退出状态是 9，imklaunchagent 不把它记成一次死亡。
+    const auto guarded = root / "guarded";
+    outcome = terminate_child(argv[0], guarded, false, 10000, true);
+    if (!std::filesystem::exists(guarded / "ended")) ok = fail("SIGTERM did not end the usage session of a guarded process");
+    if (!killed_by_sigkill(outcome)) ok = fail("a guarded process did not die of SIGKILL after SIGTERM");
+
+    // 结束会话卡住的输入法进程，宽限期之后同样以 SIGKILL 结束。
+    const auto guarded_hanging = root / "guarded-hanging";
+    outcome = terminate_child(argv[0], guarded_hanging, true, 10000, true);
+    if (!killed_by_sigkill(outcome)) ok = fail("a guarded process with a stuck session end did not die of SIGKILL");
+    else if (outcome.elapsed_milliseconds > 6000) ok = fail("a stuck session end delayed the guarded exit beyond the grace period");
 
     std::filesystem::remove_all(root);
     return ok ? 0 : 1;

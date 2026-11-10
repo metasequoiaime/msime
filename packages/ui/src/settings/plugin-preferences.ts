@@ -50,6 +50,8 @@ export type PluginPreferences = {
   combo_tier_sound: boolean;
   /** K 模式读取的已安装短语表包，按优先级排列；为空时文档里不写这个键。 */
   phrase_tables: string[];
+  /** 设置页插件列表的展示顺序，条目为 kind/id；不影响插件运行顺序。 */
+  plugin_order: string[];
   /** 全拼方案选用的已安装辅助码表包；为空表示沿用 `quanpin_helpcode.schema`。 */
   helpcode_pack_quanpin: string;
   /** 双拼方案选用的已安装辅助码表包；为空表示沿用 `shuangpin_helpcode.schema`。 */
@@ -80,6 +82,7 @@ export const defaultPluginPreferences: PluginPreferences = {
   combo_counter: false,
   combo_tier_sound: false,
   phrase_tables: [],
+  plugin_order: [],
   helpcode_pack_quanpin: "",
   helpcode_pack_shuangpin: "",
 };
@@ -100,6 +103,7 @@ export function pluginPreferences(draft?: Pick<Preferences, "plugins">): PluginP
     combo_counter: value?.combo_counter ?? defaultPluginPreferences.combo_counter,
     combo_tier_sound: value?.combo_tier_sound ?? defaultPluginPreferences.combo_tier_sound,
     phrase_tables: value?.phrase_tables ?? defaultPluginPreferences.phrase_tables,
+    plugin_order: value?.plugin_order ?? defaultPluginPreferences.plugin_order,
     helpcode_pack_quanpin:
       value?.helpcode_pack_quanpin ?? defaultPluginPreferences.helpcode_pack_quanpin,
     helpcode_pack_shuangpin:
@@ -115,45 +119,107 @@ export function withoutRemovedPack(
   kind: PluginKind,
   id: string,
 ): PluginPreferences {
+  const orderWithoutPack = withoutPluginOrder(preferences, kind, id);
   if (kind === "phrase_table") {
-    return {
-      ...preferences,
-      phrase_tables: preferences.phrase_tables.filter((table) => table !== id),
-    };
+    const phrase_tables = preferences.phrase_tables.filter((table) => table !== id);
+    if (phrase_tables.length === preferences.phrase_tables.length) return orderWithoutPack;
+    return { ...orderWithoutPack, phrase_tables };
   }
   // 单词本、符号集和脚本插件没有偏好键；单词本的复习进度留在背单词里，脚本插件的授权条目由宿主在删包时一起去掉。
-  if (kind === "wordbook" || kind === "symbol_set" || kind === "script") return preferences;
-  if (kind === "helpcode") {
+  if (kind === "wordbook" || kind === "symbol_set" || kind === "script") {
+    if (!preferences.plugin_order.includes(pluginKey(kind, id))) return preferences;
     return {
       ...preferences,
-      helpcode_pack_quanpin:
-        preferences.helpcode_pack_quanpin === id ? "" : preferences.helpcode_pack_quanpin,
-      helpcode_pack_shuangpin:
-        preferences.helpcode_pack_shuangpin === id ? "" : preferences.helpcode_pack_shuangpin,
+      plugin_order: preferences.plugin_order.filter((key) => key !== pluginKey(kind, id)),
     };
+  }
+  if (kind === "helpcode") {
+    const helpcode_pack_quanpin =
+      preferences.helpcode_pack_quanpin === id ? "" : preferences.helpcode_pack_quanpin;
+    const helpcode_pack_shuangpin =
+      preferences.helpcode_pack_shuangpin === id ? "" : preferences.helpcode_pack_shuangpin;
+    if (
+      helpcode_pack_quanpin === preferences.helpcode_pack_quanpin &&
+      helpcode_pack_shuangpin === preferences.helpcode_pack_shuangpin
+    ) {
+      return orderWithoutPack;
+    }
+    return { ...orderWithoutPack, helpcode_pack_quanpin, helpcode_pack_shuangpin };
   }
   if (kind === "effect") {
-    return preferences.effect_pack === id ? { ...preferences, effect_pack: "" } : preferences;
+    return preferences.effect_pack === id
+      ? { ...orderWithoutPack, effect_pack: "" }
+      : orderWithoutPack;
   }
   if (kind === "command_table") {
-    return {
-      ...preferences,
-      command_tables: preferences.command_tables.filter((table) => table !== id),
-    };
+    const command_tables = preferences.command_tables.filter((table) => table !== id);
+    if (command_tables.length === preferences.command_tables.length) return orderWithoutPack;
+    return { ...orderWithoutPack, command_tables };
   }
   if (kind === "music") {
+    if (preferences.music.pack !== id && !preferences.plugin_order.includes(pluginKey(kind, id)))
+      return preferences;
     return preferences.music.pack === id
-      ? { ...preferences, music: { ...preferences.music, enabled: false, pack: "" } }
-      : preferences;
+      ? {
+          ...preferences,
+          music: { ...preferences.music, enabled: false, pack: "" },
+          plugin_order: preferences.plugin_order.filter((key) => key !== pluginKey(kind, id)),
+        }
+      : {
+          ...preferences,
+          plugin_order: preferences.plugin_order.filter((key) => key !== pluginKey(kind, id)),
+        };
   }
   return {
-    ...preferences,
+    ...orderWithoutPack,
     key_sound:
       preferences.key_sound.pack === id
         ? { ...preferences.key_sound, pack: DEFAULT_SOUND_PACK }
         : preferences.key_sound,
     melody: preferences.melody.pack === id ? { pack: DEFAULT_MELODY_PACK } : preferences.melody,
   };
+}
+
+function withoutPluginOrder(
+  preferences: PluginPreferences,
+  kind: PluginKind,
+  id: string,
+): PluginPreferences {
+  const key = pluginKey(kind, id);
+  if (!preferences.plugin_order.includes(key)) return preferences;
+  return {
+    ...preferences,
+    plugin_order: preferences.plugin_order.filter((entry) => entry !== key),
+  };
+}
+
+/** 插件列表排序使用的稳定键，避免不同类型的同名 id 冲突。 */
+export function pluginKey(kind: PluginKind, id: string): string {
+  return `${kind}/${id}`;
+}
+
+/** 在当前目录基础上保存列表顺序；未知、重复键不写回，新增包按原目录顺序追加。 */
+export function orderedPluginKeys(
+  packages: readonly { kind: PluginKind; id: string }[],
+  order: readonly string[],
+): string[] {
+  const available = new Set(packages.map((pack) => pluginKey(pack.kind, pack.id)));
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const key of order) {
+    if (available.has(key) && !seen.has(key)) {
+      seen.add(key);
+      result.push(key);
+    }
+  }
+  for (const pack of packages) {
+    const key = pluginKey(pack.kind, pack.id);
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(key);
+    }
+  }
+  return result;
 }
 
 /**
