@@ -1029,6 +1029,36 @@ fn traditional_conversion_boundary_returns_text_or_null() {
 }
 
 #[test]
+fn traditional_to_simplified_conversion_boundary_returns_text_or_null() {
+    let convert = |bytes: &[u8]| {
+        // 安全性：切片的生命周期覆盖调用过程。
+        let raw = unsafe { msime_client_traditional_to_simplified(bytes.as_ptr(), bytes.len()) };
+        if raw.is_null() {
+            return None;
+        }
+        // 安全性：非空结果是本库拥有的 NUL 结尾字符串。
+        let text = unsafe { std::ffi::CStr::from_ptr(raw) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        // 安全性：结果只释放一次。
+        unsafe { msime_client_string_free(raw) };
+        Some(text)
+    };
+    assert_eq!(convert("頭髮".as_bytes()).as_deref(), Some("头发"));
+    assert_eq!(convert(b"").as_deref(), Some(""));
+    assert_eq!(convert(b"\xff\xfe"), None);
+    assert_eq!(convert(b"a\0b"), None);
+    // 安全性：空指针属于接口契约覆盖的输入。
+    assert!(unsafe { msime_client_traditional_to_simplified(std::ptr::null(), 4) }.is_null());
+    let fixture = b"fixture";
+    assert!(
+        unsafe { msime_client_traditional_to_simplified(fixture.as_ptr(), (1 << 20) + 1) }
+            .is_null()
+    );
+}
+
+#[test]
 fn traditional_variant_conversion_boundary_selects_the_configuration() {
     let convert = |bytes: &[u8], variant: u32| {
         // SAFETY: the slice outlives the call.

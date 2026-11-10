@@ -1784,6 +1784,24 @@ static napi_value SimplifiedToTraditional(napi_env env, napi_callback_info info)
     return response(env, converted);
 }
 
+// 鸿蒙注音输出开关使用的共享 OpenCC t2s 转换。与上面的反向转换一样，这里直接返回文本；
+// C ABI 拒绝输入时返回 null。
+static napi_value TraditionalToSimplified(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string text;
+    char *converted = nullptr;
+    if (arguments(env, info, 1, argv) && argumentText(env, argv[0], text)) {
+        converted = msime_client_traditional_to_simplified(
+            reinterpret_cast<const uint8_t *>(text.data()), text.size());
+    }
+    if (!converted) {
+        napi_value none = nullptr;
+        napi_get_null(env, &none);
+        return none;
+    }
+    return response(env, converted);
+}
+
 static napi_value DoubaoEncodeFrame(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     int32_t message_type = 0;
@@ -1950,6 +1968,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("handwriting", Handwriting),
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("simplifiedToTraditional", SimplifiedToTraditional),
+        ENTRY("traditionalToSimplified", TraditionalToSimplified),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
         ENTRY("themeCatalog", ThemeCatalog),

@@ -50,6 +50,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "candidate_font_weight",
         # 粤拼输出简体（#10435）只由 iOS、Android、HarmonyOS 键盘在粤拼方案下的简繁按钮切换，桌面没有对应入口，React 设置页不显示。
         "cantonese_simplified_output",
+        # 注音输出简体（#11128）只由 HarmonyOS 键盘在注音方案下的简繁按钮切换，React 设置页不显示。
+        "zhuyin_simplified_output",
         # 14/18 键字母键宽度（#11051）先只在 Android 原生「按键布局」页提供；packages/ui 只修缺陷、不加新设置，iOS 与鸿蒙随各自的原生设置页接入。
         "touch_fourteen_key_letter_widths",
 

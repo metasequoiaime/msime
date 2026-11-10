@@ -998,6 +998,8 @@ interface PreparedPreferences {
   traditional_chinese_output: boolean;
   /** 粤拼和粤语双拼输出简体，繁转简在 Engine 里做；关着时文档里没有这个键。 */
   cantonese_simplified_output?: boolean;
+  /** 鸿蒙注音输出简体，繁转简在宿主显示与上屏边界做；关着时文档里没有这个键。 */
+  zhuyin_simplified_output?: boolean;
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
@@ -2222,6 +2224,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
       this.cantoneseSimplified = preferences.cantonese_simplified_output === true;
+      this.zhuyinSimplified = preferences.zhuyin_simplified_output === true;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
@@ -2567,15 +2570,20 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.traditional;
   }
 
-  /** 简繁按钮和功能面板「繁」显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  /** 简繁按钮和功能面板「繁」显示的字形：粤拼、注音看各自选择（默认繁体），其余方案看全局开关。 */
   showsTraditional(): boolean {
     return ChineseOutputPolicy.showsTraditional(this.characterSetFollowsCantonese(), this.traditional,
-      this.cantoneseSimplified);
+      this.cantoneseSimplified, this.characterSetFollowsZhuyin(), this.zhuyinSimplified);
   }
 
   /** 见 `ChineseOutputPolicy.switchFollowsCantonese`。 */
   private characterSetFollowsCantonese(): boolean {
     return ChineseOutputPolicy.switchFollowsCantonese(this.schemeName, this.englishMode);
+  }
+
+  /** 注音下简繁按钮切换 `zhuyin_simplified_output`，英文模式仍使用全局开关。 */
+  private characterSetFollowsZhuyin(): boolean {
+    return ChineseOutputPolicy.switchFollowsZhuyin(this.schemeName, this.englishMode);
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -3499,6 +3507,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       // 繁转简在 Engine 里做：偏好交给会话后 Engine 在空闲时重建，组字中切换时等这段组字结束才生效。
       this.cantoneseSimplified = ChineseOutputPolicy.toggledCantoneseSimplified(this.cantoneseSimplified,
         (key: string, value: boolean): boolean => this.writePreference(key, value));
+      return this.showsTraditional();
+    }
+    if (this.characterSetFollowsZhuyin()) {
+      this.zhuyinSimplified = ChineseOutputPolicy.toggledZhuyinSimplified(this.zhuyinSimplified,
+        (key: string, value: boolean): boolean => this.writePreference(key, value));
+      this.publishCurrentCandidates();
       return this.showsTraditional();
     }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
@@ -5374,10 +5388,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (commit !== null && commit !== undefined && commit.length > 0
         && this.inputClient !== undefined) {
       // 来源 18 的中文片段已由运行时转换，按提交上下文保留日文和英文。
-      const output: string = value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit);
+      const output: string = value.commit_context?.script_conversion === false
+        && !this.characterSetFollowsZhuyin() ? commit : this.asTraditional(commit);
       const requestedSuffix: string | null | undefined = value.commit_cursor_suffix;
       const convertedSuffix: string | null = typeof requestedSuffix === 'string'
-        ? (value.commit_context?.script_conversion === false ? requestedSuffix : this.asTraditional(requestedSuffix))
+        ? (value.commit_context?.script_conversion === false && !this.characterSetFollowsZhuyin()
+          ? requestedSuffix : this.asTraditional(requestedSuffix))
         : null;
       const suffix: string | null = QuickPhraseCursor.suffix(commit, requestedSuffix, output, convertedSuffix);
       if (suffix !== null && suffix.length > 0 && inputClient !== undefined) {
@@ -5484,8 +5500,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 按键区按下即振动（#10757）：按下时振过的按键，上屏时不再振第二次。 */
   private readonly keyPress: KeyPressFeedback = new KeyPressFeedback();
   private traditional: boolean = false;
-  /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
+  /** 共享偏好 `cantonese_simplified_output` 与 `zhuyin_simplified_output`，见对应的方案判定。 */
   private cantoneseSimplified: boolean = false;
+  private zhuyinSimplified: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
@@ -7907,11 +7924,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Simplified to Traditional, where the user asked for it and the text is Chinese to begin with.
+   * 按当前输出开关在鸿蒙宿主边界转换文本。
    *
-   * The conversion is the shared phrase-level OpenCC s2t tables compiled into the native library, the same one the Windows, macOS, Linux and Android hosts call, so 头发 becomes 頭髮 and 发展 becomes 發展 here exactly as there. A converter that fails must not lose the text, so anything it cannot do falls back to what came in. The policy decides whether it applies at all; dedicated English, Japanese and the temporary Japanese mode are not Chinese output however the setting reads.
+   * 普通路径使用共享的短语级 OpenCC s2t 表；注音下的独立偏好反向使用 t2s。两条路径
+   * 都在 native library 中执行，转换失败时保留原文。
    */
   private asTraditional(text: string, source: number = -1): string {
+    if (this.characterSetFollowsZhuyin()) {
+      return ChineseOutputPolicy.candidateOutput(text, this.zhuyinSimplified, true, source,
+        (value: string): string | null => client.traditionalToSimplified(value));
+    }
     return ChineseOutputPolicy.candidateOutput(text, this.traditional,
       ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode),
       source,
