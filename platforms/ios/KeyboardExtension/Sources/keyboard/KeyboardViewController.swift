@@ -3690,7 +3690,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 14/18 键全拼或双拼：两个字母的键可以横滑选字母；五笔 14 键和单字母键只点按。
   private var typesExactLetterGridSwipe: Bool {
-    typesLetterGrid && !showsSymbols && (inputScheme == .quanpin || usesShuangpin)
+    guard typesLetterGrid, !showsSymbols else { return false }
+    switch inputScheme {
+    case .quanpin, .fourteenKey, .eighteenKey: return true
+    default: return usesShuangpin
+    }
   }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
