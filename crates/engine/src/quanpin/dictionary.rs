@@ -40,7 +40,8 @@ use crate::pinyin::segment::{
     cut_pinyin_by_mode, is_complete_pinyin_input, join_segments, split_segments, CutMode,
 };
 use crate::pinyin::syllables::{
-    has_only_complete_pinyin_segments, normalize_umlaut_aliases, sparse_pinyin_fallback_segments,
+    has_only_complete_pinyin_segments, is_intact, is_prefix, normalize_umlaut_aliases,
+    sparse_pinyin_fallback_segments,
 };
 use crate::shared_string::SharedString;
 use crate::text::{count_han_chars, last_characters};
@@ -1303,7 +1304,7 @@ impl QuanpinDictionary {
             Self::append_query_rows(&mut result, rows);
         }
 
-        if segments.len() >= 2 && has_only_complete_pinyin_segments(segments) {
+        if segments.len() >= 2 && Self::lattice_accepts_incomplete_segments(segments) {
             if include_typos {
                 self.merge_sentences(&mut result, raw, segmentation, segments);
             } else {
@@ -1323,6 +1324,21 @@ impl QuanpinDictionary {
             }
         }
         result
+    }
+
+    fn lattice_accepts_incomplete_segments(segments: &[String]) -> bool {
+        if segments.iter().all(|segment| is_intact(segment)) {
+            return !segments.is_empty();
+        }
+        let incomplete = segments
+            .iter()
+            .filter(|segment| !is_intact(segment))
+            .count();
+        let complete = segments.len().saturating_sub(incomplete);
+        segments.len() >= 3
+            && incomplete >= 2
+            && complete > 0
+            && segments.iter().all(|segment| is_prefix(segment))
     }
 
     /// 自动切分里的双字母声母另试单字母读法；手动边界不改，完整音节不拆。
@@ -1847,7 +1863,11 @@ fn cached_lattice_span(
             return cached.rows.clone();
         }
     }
-    let rows = database.query_lattice_span(span, span_limit);
+    let rows = if has_only_complete_pinyin_segments(span) {
+        database.query_lattice_span(span, span_limit)
+    } else {
+        database.query_lattice_span_with_incomplete_segments(span, span_limit)
+    };
     let mut key = String::with_capacity(span.iter().map(|syllable| syllable.len() + 1).sum());
     for syllable in span {
         key.push('\'');
@@ -1881,7 +1901,11 @@ fn ensure_cached_lattice_span(
             return;
         }
     }
-    let rows = database.query_lattice_span(span, span_limit);
+    let rows = if has_only_complete_pinyin_segments(span) {
+        database.query_lattice_span(span, span_limit)
+    } else {
+        database.query_lattice_span_with_incomplete_segments(span, span_limit)
+    };
     let mut key = String::with_capacity(span.iter().map(|syllable| syllable.len() + 1).sum());
     for syllable in span {
         key.push('\'');

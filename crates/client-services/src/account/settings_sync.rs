@@ -13,12 +13,13 @@
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::host_surface::HostPlatform;
 use crate::preferences::{
-    format_nine_key_sidebar_symbols, parse_nine_key_sidebar_symbols, BracketStyle, FrequencyMode,
+    format_nine_key_sidebar_symbols, parse_nine_key_sidebar_symbols, BracketStyle,
+    CandidateCountMode, CandidateFontWeight, CandidateLayout, CandidatePreeditStyle, FrequencyMode,
     FrequencyPreferences, GrammarModel, InputScheme, NumberKeypadOrder, Preferences, QuoteStyle,
-    SecondThirdCandidateKeys, ShuangpinProfile, ThemeMode, TouchFourteenKeyLetterWidths,
-    TouchFourteenKeyStyle, TouchKeyboardLayout, TouchLanguageKeySide, TouchNineKeyStyle,
-    TouchNineKeySwipeDigits, TouchNumberPadSpace, TouchOneHandedSidePanel, TouchTwentySixKeyStyle,
-    TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
+    SecondThirdCandidateKeys, SettingsTheme, ShuangpinProfile, ThemeMode,
+    TouchFourteenKeyLetterWidths, TouchFourteenKeyStyle, TouchKeyboardLayout, TouchLanguageKeySide,
+    TouchNineKeyStyle, TouchNineKeySwipeDigits, TouchNumberPadSpace, TouchOneHandedSidePanel,
+    TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -145,6 +146,9 @@ pub const MAX_CUSTOM_KEYBOARD_SKINS_BYTES: usize = 786_432;
 const MAX_KEY_SOUND_PACK_CHARS: usize = 64;
 /// 语音识别语言的长度上限，与服务端字段表相同。
 const MAX_VOICE_LANGUAGE_CHARS: usize = 16;
+
+/// 设置页插件卡片的展示顺序。账号偏好值只允许标量，因此以 JSON 字符串保存数组。
+const PLUGIN_ORDER: &str = "plugins.plugin_order";
 
 /// 工具栏按钮在同步文档里的键，与 `touch_toolbar` 的成员一一对应。常用语、输入方式和「隐藏」三个开关在 Android 本地设置里，见 [`ANDROID_LOCAL_SETTINGS`]。
 const TOOLBAR_KEYS: [&str; 8] = [
@@ -746,6 +750,253 @@ pub(super) fn insert_input_settings(
     );
 }
 
+/// macOS 共享设置页能改、候选窗口运行时也会读的外观设置。可选的几何值用 `-1` 表示「跟随皮肤」；
+/// 这样用户把一项恢复默认时，上传仍能清除另一台设备上的旧选择，而不是因为省略键名继续保留旧值。
+fn insert_macos_candidate_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(
+        settings,
+        "platform.macos.global_theme",
+        preferences.global_theme.id(),
+    );
+    insert_string(
+        settings,
+        "platform.macos.custom_theme_base",
+        preferences.custom_theme.base.id(),
+    );
+    insert_string(
+        settings,
+        "platform.macos.custom_candidate_skin",
+        preferences
+            .custom_theme
+            .candidate_skin
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        "platform.macos.custom_candidate_skin_dark",
+        preferences
+            .custom_theme
+            .candidate_skin_dark
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        "platform.macos.candidate_theme",
+        match preferences.candidate_theme {
+            SettingsTheme::Follow => "follow",
+            SettingsTheme::Dark => "dark",
+            SettingsTheme::Light => "light",
+        },
+    );
+    insert_string(
+        settings,
+        "platform.macos.candidate_layout",
+        match preferences.candidate_layout {
+            CandidateLayout::Horizontal => "horizontal",
+            CandidateLayout::Vertical => "vertical",
+        },
+    );
+    insert_string(
+        settings,
+        "platform.macos.candidate_preedit_style",
+        match preferences.candidate_preedit_style {
+            CandidatePreeditStyle::Pinyin => "pinyin",
+            CandidatePreeditStyle::Empty => "empty",
+        },
+    );
+    for (key, value) in [
+        (
+            "platform.macos.candidate_count_mode",
+            match preferences.candidate_count_mode {
+                CandidateCountMode::Fixed => "fixed",
+                CandidateCountMode::Adaptive => "adaptive",
+            },
+        ),
+        (
+            "platform.macos.candidate_font_weight",
+            match preferences.candidate_font_weight {
+                CandidateFontWeight::Regular => "regular",
+                CandidateFontWeight::Medium => "medium",
+                CandidateFontWeight::Semibold => "semibold",
+                CandidateFontWeight::Bold => "bold",
+            },
+        ),
+    ] {
+        insert_string(settings, key, value);
+    }
+    insert_integer(
+        settings,
+        "platform.macos.candidate_panel_style",
+        if preferences.candidate_layout == CandidateLayout::Vertical {
+            1
+        } else {
+            0
+        },
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_page_size",
+        i64::from(preferences.candidate_page_size),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_font_size",
+        i64::from(preferences.candidate_font_size),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_max_width",
+        i64::from(preferences.candidate_max_width),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_columns",
+        i64::from(preferences.candidate_columns),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_preedit_font_size",
+        i64::from(preferences.candidate_preedit_font_size),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_translation_font_size",
+        preferences
+            .candidate_translation_font_size
+            .map_or(-1, i64::from),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_scale_percent",
+        i64::from(preferences.candidate_scale_percent),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_opacity_percent",
+        i64::from(preferences.candidate_opacity_percent),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_corner_radius",
+        preferences.candidate_corner_radius.map_or(-1, i64::from),
+    );
+    insert_integer(
+        settings,
+        "platform.macos.candidate_padding",
+        preferences.candidate_padding.map_or(-1, i64::from),
+    );
+    for (key, value) in [
+        (
+            "platform.macos.candidate_padding_horizontal",
+            preferences.candidate_padding_horizontal,
+        ),
+        (
+            "platform.macos.candidate_padding_vertical",
+            preferences.candidate_padding_vertical,
+        ),
+        (
+            "platform.macos.candidate_item_padding_horizontal",
+            preferences.candidate_item_padding_horizontal,
+        ),
+        (
+            "platform.macos.candidate_item_padding_vertical",
+            preferences.candidate_item_padding_vertical,
+        ),
+        (
+            "platform.macos.candidate_item_corner_radius",
+            preferences.candidate_item_corner_radius,
+        ),
+        (
+            "platform.macos.candidate_item_spacing",
+            preferences.candidate_item_spacing,
+        ),
+    ] {
+        insert_integer(settings, key, value.map_or(-1, i64::from));
+    }
+    insert_bool(
+        settings,
+        "platform.macos.candidate_window_fit_content",
+        preferences.candidate_window_fit_content,
+    );
+    for (key, value) in [
+        (
+            "platform.macos.candidate_follow_cursor",
+            preferences.candidate_follow_cursor,
+        ),
+        (
+            "platform.macos.show_candidate_page_number",
+            preferences.show_candidate_page_number,
+        ),
+        (
+            "platform.macos.show_candidate_status",
+            preferences.show_candidate_status,
+        ),
+        ("platform.macos.show_app_logo", preferences.show_app_logo),
+        (
+            "platform.macos.expand_candidates",
+            preferences.expand_candidates,
+        ),
+        (
+            "platform.macos.show_candidate_expand_button",
+            preferences.show_candidate_expand_button,
+        ),
+    ] {
+        insert_bool(settings, key, value);
+    }
+    insert_string(
+        settings,
+        "platform.macos.candidate_font_family",
+        &preferences.candidate_font_family,
+    );
+    insert_string(
+        settings,
+        "platform.macos.candidate_english_font",
+        preferences
+            .candidate_english_font
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    insert_string(
+        settings,
+        "platform.macos.candidate_fallback_fonts",
+        &serde_json::to_string(&preferences.candidate_fallback_fonts)
+            .unwrap_or_else(|_| "[]".to_owned()),
+    );
+    for (key, value) in [
+        (
+            "platform.macos.candidate_color_text",
+            &preferences.custom_theme.candidate_colors.text,
+        ),
+        (
+            "platform.macos.candidate_color_accent",
+            &preferences.custom_theme.candidate_colors.accent,
+        ),
+        (
+            "platform.macos.candidate_color_selected",
+            &preferences.custom_theme.candidate_colors.selected,
+        ),
+        (
+            "platform.macos.candidate_color_selected_text",
+            &preferences.custom_theme.candidate_colors.selected_text,
+        ),
+        (
+            "platform.macos.candidate_color_hover",
+            &preferences.custom_theme.candidate_colors.hover,
+        ),
+        (
+            "platform.macos.candidate_color_surface",
+            &preferences.custom_theme.candidate_colors.surface,
+        ),
+    ] {
+        insert_string(settings, key, value.as_deref().unwrap_or_default());
+    }
+}
+
 /// 共用 [`export_desktop_settings`] 和 [`apply_desktop_settings`] 的三个桌面宿主。它们共用各平台的 `input.*` 键，但设置页能改的共享偏好不一样，只有本机能改、运行时也读的键才导出和应用：上传是合并进账号文档的，本机改不了的键上传的只是默认值，会盖掉别的设备上用户的选择；应用本机没有开关的键，用户既看不到也改不回来。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DesktopHost {
@@ -753,7 +1004,7 @@ pub(super) enum DesktopHost {
     Windows,
     /// 共享设置页：快捷短语混输、语法模型、符号模式、日期菜单、第二三候选和 AI 候选翻译都能改，运行时都读。思考强度的两个选项页面上有，但 Linux 的服务提供程序固定不思考，不导出。
     Linux,
-    /// 共享设置页，与 Linux 同一套：上面六组设置在 macOS 上都有控件（快捷短语混输靠 `HostCapabilities::quick_phrase_candidates`，macOS 声明了它），输入法运行时都读（`platforms/macos/tests/settings/preference_coverage.py` 逐项核对）。macOS 还能改两个思考强度和三个切换热键，这次不同步：思考强度只在 DeepSeek 接口上生效，接口地址和凭据不随设置同步，单独同步档位没有意义；切换热键应用时要和本机未同步的开关（Shift+空格切换、语音热键等）逐个查冲突，整份写入可能被 `Preferences::validate` 拒绝，需要另做按键跳过的应用。原生回退窗口上传的 `platform.macos.*` 快照不读也不写。
+    /// 共享设置页，与 Linux 同一套：上面六组设置在 macOS 上都有控件（快捷短语混输靠 `HostCapabilities::quick_phrase_candidates`，macOS 声明了它），输入法运行时都读（`platforms/macos/tests/settings/preference_coverage.py` 逐项核对）。macOS 还能改两个思考强度和三个切换热键，这次不同步：思考强度只在 DeepSeek 接口上生效，接口地址和凭据不随设置同步，单独同步档位没有意义；切换热键应用时要和本机未同步的开关（Shift+空格切换、语音热键等）逐个查冲突，整份写入可能被 `Preferences::validate` 拒绝，需要另做按键跳过的应用。候选窗主题与几何设置写入 `platform.macos.*`，旧版原生回退窗口的同名快照也由这里兼容应用。
     MacOS,
 }
 
@@ -773,7 +1024,7 @@ impl DesktopHost {
     }
 }
 
-/// 桌面宿主（Windows、Linux、macOS）导出成账号文档的键值：各平台共有的 `input.*` 键，加上本机设置页能改的共享偏好（见 [`DesktopHost`]）。候选窗口、快捷键、皮肤这些桌面专属设置在账号文档里只有 `platform.macos.*`，那是 macOS 原生回退窗口的快照，三个宿主都不写，免得盖掉旧版 macOS 上传的设置。调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
+/// 桌面宿主（Windows、Linux、macOS）导出成账号文档的键值：各平台共有的 `input.*` 键，加上本机设置页能改的共享偏好（见 [`DesktopHost`]）。macOS 的候选窗主题与几何设置也用 `platform.macos.*` 键同步；调用方再按版本（`edition::filter_uploaded_account_settings`）和服务端字段表过滤，然后合并上传。
 pub fn export_desktop_settings(
     preferences: &Preferences,
 ) -> BTreeMap<String, AccountPreferenceValue> {
@@ -787,11 +1038,15 @@ pub(super) fn export_desktop_settings_for(
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
     insert_grammar_model(&mut settings, preferences);
+    insert_plugin_settings(&mut settings, preferences);
     if host.shared_settings_page() {
         insert_quick_phrase_mixing(&mut settings, preferences);
         insert_local_mode_extras(&mut settings, preferences);
         insert_second_third_candidate(&mut settings, preferences);
         insert_bool(&mut settings, "translation.ai", preferences.translation_ai);
+    }
+    if matches!(host, DesktopHost::MacOS) {
+        insert_macos_candidate_settings(&mut settings, preferences);
     }
     settings
 }
@@ -828,6 +1083,19 @@ fn insert_grammar_model(
             GrammarModel::BaguwenCompact => "baguwen_compact",
             GrammarModel::Baishuang => "baishuang",
         },
+    );
+}
+
+/// 插件列表的展示顺序。它只影响设置页，不改变插件的加载、执行或候选处理顺序。
+fn insert_plugin_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(
+        settings,
+        PLUGIN_ORDER,
+        &serde_json::to_string(&preferences.plugins.plugin_order)
+            .unwrap_or_else(|_| "[]".to_owned()),
     );
 }
 
@@ -1097,6 +1365,22 @@ fn validate_cloud_document(
     Ok(())
 }
 
+/// 解析设置页插件展示顺序。账号协议里的值是字符串，内容必须是通过本机偏好校验的
+/// `kind/id` 数组；未知插件由设置页按当前目录追加，不能借同步写入任意路径或重复项。
+fn parse_plugin_order(value: &str) -> Option<Vec<String>> {
+    let order = serde_json::from_str::<Vec<String>>(value).ok()?;
+    (order.len() <= 256
+        && order.iter().enumerate().all(|(index, key)| {
+            let Some((kind, id)) = key.split_once('/') else {
+                return false;
+            };
+            crate::skin::catalog::safe_id(kind)
+                && crate::skin::catalog::safe_id(id)
+                && !order[..index].contains(key)
+        }))
+    .then_some(order)
+}
+
 /// [`insert_input_settings`] 的反方向，Android 与桌面宿主共用。
 fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     // 本机不提供的方案（较新设备上的粤拼、注音、越南文或笔画）保留本机的方案，文档里其他的键照常应用。
@@ -1226,6 +1510,311 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     Ok(())
 }
 
+/// [`insert_plugin_settings`] 的反方向。顺序是设置页的本地展示状态，插件目录变化时由
+/// 共享页面负责补齐缺失项；同步只接受格式合法且不重复的条目。
+fn apply_plugin_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(PLUGIN_ORDER, |preferences, value| {
+        preferences.plugins.plugin_order = parse_plugin_order(value)?;
+        Some(())
+    })?;
+    Ok(())
+}
+
+/// [`insert_macos_candidate_settings`] 的反方向。旧版原生 macOS 快照使用的
+/// `candidate_panel_style`、主题和字号键也在这里接受，升级后的共享账号页可以直接恢复旧文档。
+fn apply_macos_candidate_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string("platform.macos.global_theme", |preferences, value| {
+        preferences.global_theme =
+            GlobalTheme::from_id(value).filter(|theme| theme.is_offered_on(HostPlatform::Macos))?;
+        Some(())
+    })?;
+    applier.set_string("platform.macos.custom_theme_base", |preferences, value| {
+        preferences.custom_theme.base =
+            GlobalTheme::from_id(value).filter(|theme| theme.is_base())?;
+        Some(())
+    })?;
+    for key in [
+        "platform.macos.custom_candidate_skin",
+        "platform.macos.custom_candidate_skin_dark",
+    ] {
+        applier.set_string(key, |preferences, value| {
+            if !value.is_empty() && !crate::skin::catalog::is_selectable_id(value) {
+                return None;
+            }
+            let slot = if key.ends_with("_dark") {
+                &mut preferences.custom_theme.candidate_skin_dark
+            } else {
+                &mut preferences.custom_theme.candidate_skin
+            };
+            *slot = (!value.is_empty()).then(|| value.to_owned());
+            Some(())
+        })?;
+    }
+    applier.set_string("platform.macos.candidate_theme", |preferences, value| {
+        preferences.candidate_theme = match value {
+            "follow" => SettingsTheme::Follow,
+            "dark" => SettingsTheme::Dark,
+            "light" => SettingsTheme::Light,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_string("platform.macos.candidate_layout", |preferences, value| {
+        preferences.candidate_layout = match value {
+            "horizontal" => CandidateLayout::Horizontal,
+            "vertical" => CandidateLayout::Vertical,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_string(
+        "platform.macos.candidate_preedit_style",
+        |preferences, value| {
+            preferences.candidate_preedit_style = match value {
+                "pinyin" => CandidatePreeditStyle::Pinyin,
+                "empty" => CandidatePreeditStyle::Empty,
+                _ => return None,
+            };
+            Some(())
+        },
+    )?;
+    applier.set_string(
+        "platform.macos.candidate_count_mode",
+        |preferences, value| {
+            preferences.candidate_count_mode = match value {
+                "fixed" => CandidateCountMode::Fixed,
+                "adaptive" => CandidateCountMode::Adaptive,
+                _ => return None,
+            };
+            Some(())
+        },
+    )?;
+    applier.set_string(
+        "platform.macos.candidate_font_weight",
+        |preferences, value| {
+            preferences.candidate_font_weight = match value {
+                "regular" => CandidateFontWeight::Regular,
+                "medium" => CandidateFontWeight::Medium,
+                "semibold" => CandidateFontWeight::Semibold,
+                "bold" => CandidateFontWeight::Bold,
+                _ => return None,
+            };
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_panel_style",
+        |preferences, value| {
+            preferences.candidate_layout = match value {
+                0 => CandidateLayout::Horizontal,
+                1 => CandidateLayout::Vertical,
+                _ => return None,
+            };
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_page_size",
+        |preferences, value| {
+            preferences.candidate_page_size = u8::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_font_size",
+        |preferences, value| {
+            preferences.candidate_font_size = u8::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_max_width",
+        |preferences, value| {
+            preferences.candidate_max_width = u16::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_integer("platform.macos.candidate_columns", |preferences, value| {
+        preferences.candidate_columns = u8::try_from(value).ok()?;
+        Some(())
+    })?;
+    applier.set_integer(
+        "platform.macos.candidate_preedit_font_size",
+        |preferences, value| {
+            preferences.candidate_preedit_font_size = u8::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_translation_font_size",
+        |preferences, value| {
+            preferences.candidate_translation_font_size = if value == -1 {
+                None
+            } else {
+                Some(u8::try_from(value).ok()?)
+            };
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_scale_percent",
+        |preferences, value| {
+            preferences.candidate_scale_percent = u16::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_opacity_percent",
+        |preferences, value| {
+            preferences.candidate_opacity_percent = u8::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.macos.candidate_corner_radius",
+        |preferences, value| {
+            preferences.candidate_corner_radius = if value == -1 {
+                None
+            } else {
+                Some(u8::try_from(value).ok()?)
+            };
+            Some(())
+        },
+    )?;
+    applier.set_integer("platform.macos.candidate_padding", |preferences, value| {
+        preferences.candidate_padding = if value == -1 {
+            None
+        } else {
+            Some(u8::try_from(value).ok()?)
+        };
+        Some(())
+    })?;
+    for key in [
+        "platform.macos.candidate_padding_horizontal",
+        "platform.macos.candidate_padding_vertical",
+        "platform.macos.candidate_item_padding_horizontal",
+        "platform.macos.candidate_item_padding_vertical",
+        "platform.macos.candidate_item_corner_radius",
+        "platform.macos.candidate_item_spacing",
+    ] {
+        applier.set_integer(key, |preferences, value| {
+            let target = match key {
+                "platform.macos.candidate_padding_horizontal" => {
+                    &mut preferences.candidate_padding_horizontal
+                }
+                "platform.macos.candidate_padding_vertical" => {
+                    &mut preferences.candidate_padding_vertical
+                }
+                "platform.macos.candidate_item_padding_horizontal" => {
+                    &mut preferences.candidate_item_padding_horizontal
+                }
+                "platform.macos.candidate_item_padding_vertical" => {
+                    &mut preferences.candidate_item_padding_vertical
+                }
+                "platform.macos.candidate_item_corner_radius" => {
+                    &mut preferences.candidate_item_corner_radius
+                }
+                _ => &mut preferences.candidate_item_spacing,
+            };
+            *target = if value == -1 {
+                None
+            } else {
+                Some(u8::try_from(value).ok()?)
+            };
+            Some(())
+        })?;
+    }
+    applier.set_bool(
+        "platform.macos.candidate_window_fit_content",
+        |preferences, value| preferences.candidate_window_fit_content = value,
+    )?;
+    for (key, target) in [
+        (
+            "platform.macos.candidate_follow_cursor",
+            "candidate_follow_cursor",
+        ),
+        (
+            "platform.macos.show_candidate_page_number",
+            "show_candidate_page_number",
+        ),
+        (
+            "platform.macos.show_candidate_status",
+            "show_candidate_status",
+        ),
+        ("platform.macos.show_app_logo", "show_app_logo"),
+        ("platform.macos.expand_candidates", "expand_candidates"),
+        (
+            "platform.macos.show_candidate_expand_button",
+            "show_candidate_expand_button",
+        ),
+    ] {
+        applier.set_bool(key, move |preferences, value| match target {
+            "candidate_follow_cursor" => preferences.candidate_follow_cursor = value,
+            "show_candidate_page_number" => preferences.show_candidate_page_number = value,
+            "show_candidate_status" => preferences.show_candidate_status = value,
+            "show_app_logo" => preferences.show_app_logo = value,
+            "expand_candidates" => preferences.expand_candidates = value,
+            _ => preferences.show_candidate_expand_button = value,
+        })?;
+    }
+    applier.set_string(
+        "platform.macos.candidate_font_family",
+        |preferences, value| {
+            preferences.candidate_font_family = value.to_owned();
+            Some(())
+        },
+    )?;
+    applier.set_string(
+        "platform.macos.candidate_english_font",
+        |preferences, value| {
+            preferences.candidate_english_font = (!value.is_empty()).then(|| value.to_owned());
+            Some(())
+        },
+    )?;
+    applier.set_string(
+        "platform.macos.candidate_fallback_fonts",
+        |preferences, value| {
+            preferences.candidate_fallback_fonts = if value.is_empty() {
+                Preferences::default().candidate_fallback_fonts
+            } else {
+                serde_json::from_str(value).ok()?
+            };
+            Some(())
+        },
+    )?;
+    for (key, target) in [
+        ("platform.macos.candidate_color_text", "text"),
+        ("platform.macos.candidate_color_accent", "accent"),
+        ("platform.macos.candidate_color_selected", "selected"),
+        (
+            "platform.macos.candidate_color_selected_text",
+            "selected_text",
+        ),
+        ("platform.macos.candidate_color_hover", "hover"),
+        ("platform.macos.candidate_color_surface", "surface"),
+    ] {
+        applier.set_string(key, move |preferences, value| {
+            let color = if value.is_empty() {
+                None
+            } else if msime_client_core::is_hex_color(value, &[6]) {
+                Some(value.to_ascii_uppercase())
+            } else {
+                return None;
+            };
+            match target {
+                "text" => preferences.custom_theme.candidate_colors.text = color,
+                "accent" => preferences.custom_theme.candidate_colors.accent = color,
+                "selected" => preferences.custom_theme.candidate_colors.selected = color,
+                "selected_text" => preferences.custom_theme.candidate_colors.selected_text = color,
+                "hover" => preferences.custom_theme.candidate_colors.hover = color,
+                _ => preferences.custom_theme.candidate_colors.surface = color,
+            }
+            Some(())
+        })?;
+    }
+    Ok(())
+}
+
 /// [`insert_grammar_model`] 的反方向。
 fn apply_grammar_model(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     applier.set_string(
@@ -1334,6 +1923,7 @@ pub(super) fn apply_desktop_settings_for(
         skipped: Vec::new(),
     };
     apply_input_settings(&mut applier)?;
+    apply_plugin_settings(&mut applier)?;
     apply_grammar_model(&mut applier)?;
     if host.shared_settings_page() {
         apply_quick_phrase_mixing(&mut applier)?;
@@ -1343,6 +1933,9 @@ pub(super) fn apply_desktop_settings_for(
         applier.set_bool("translation.ai", |preferences, value| {
             preferences.translation_ai = value
         })?;
+    }
+    if matches!(host, DesktopHost::MacOS) {
+        apply_macos_candidate_settings(&mut applier)?;
     }
     let Applier {
         preferences,

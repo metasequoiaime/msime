@@ -11,6 +11,7 @@
 #import "../settings/AppearancePreferences.h"
 #import "../core/FloatingToolbarPanel.h"
 #import "../core/UsageReporting.h"
+#import "../core/ProcessExitGuard.h"
 #import "../core/UpdateController.h"
 #import "MSIMEClientSession.h"
 #import "../candidate/CandidateSkin.h"
@@ -104,6 +105,12 @@ int main(int argc, const char *argv[]) {
         if (MSIMEShouldReportInputSourceEnabled(argc, argv)) {
             std::printf("%s\n", MSIMEInputSourceIsEnabled(NSBundle.mainBundle.bundleIdentifier) ? "true" : "false");
             return 0;
+        }
+        // 走到这里的进程要么是 imklaunchagent 拉起的输入法，要么是独立设置窗口。只有前者的死亡会被系统计数，攒满就整台机器变灰（ProcessExitGuard.h）；尽早装上，后面任何一步失败退出也不计数。
+        const BOOL inputMethodProcess = ![NSProcessInfo.processInfo.arguments containsObject:@"--local-translation-settings"] && !MSIMEShouldShowPreferences(argc, argv);
+        if (inputMethodProcess) {
+            MSIMEInstallProcessExitGuard();
+            MSIMEUsageReportingSetTerminationExit(MSIMEExitByKill);
         }
         [NSApplication sharedApplication];
         // Host API reports failures it recovers from by itself (a sound, music or helpcode pack that does not load, an audio device that does not open) as one line on stderr, which launchd points at /dev/null for an input method; this sends them to diagnostic.log instead. Before the first session, whose creation reports the helpcode fallback; lines that arrive before the log is configured or while it is off are dropped, not kept for later (DiagnosticLog.h).

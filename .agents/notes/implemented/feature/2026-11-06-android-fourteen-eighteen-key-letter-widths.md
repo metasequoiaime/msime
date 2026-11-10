@@ -20,7 +20,7 @@ Status: implemented
 
 宽窄第二排两端的空白是 `KeyboardSpacer`：不画、读屏不念，`setOwner` 指定同一排里的一个键（18 键是 A、L，14 键是 AS、L）。`KeyboardKeyArea.search` 找命中时，按下落在指定了所属键的占位格或它的外边距里，就选那个键（`claim`），按下点挪进它靠这一侧的边缘；之后同一根手指的移动、抬起和取消挪同样的距离，和落在键距里的按下走同一条路。按下即反馈（`PressListener`，#10757）和双拼的按下点记录（`TouchPointPolicy`，#10135）都按那个键算，记下的是挪动之前的真实坐标。
 
-`KeyboardSpacer.usableOwner` **只在**所属的键与占位格同一个父视图、可见、量过尺寸时给出它，否则占位格不接收触摸。没有指定所属键的占位格**一律不接收**触摸。26 键第二排的缩进（`ImeLetterRows#indent()`）和分离式键盘中间的空隙（`splitGap()`）都是普通 `View`，这次不变；14/18 键不画分离式键盘（`SplitKeyboardPolicy.splitsLayout` 只认标准 26 键和韩文两套式），不涉及中间空隙。
+`KeyboardSpacer.usableOwner` **只在**所属的键与占位格同一个父视图、可见、量过尺寸时给出它，否则占位格不接收触摸。没有指定所属键的占位格**一律不接收**触摸。26 键第二排的缩进后来也改成了归 A、L 的占位格（[26 键第二排缩进归 A、L](../bug-fix/2026-11-09-android-twenty-six-key-indent-dead-zone.md)）；分离式键盘中间的空隙（`splitGap()`）仍是普通 `View`；14/18 键不画分离式键盘（`SplitKeyboardPolicy.splitsLayout` 只认标准 26 键和韩文两套式），不涉及中间空隙。
 
 ### 补齐少扣的键距
 

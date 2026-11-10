@@ -20935,6 +20935,7 @@ private:
     value.combo_counter = document_.Boolean(L"plugins.combo_counter", value.combo_counter);
     value.combo_tier_sound = document_.Boolean(L"plugins.combo_tier_sound", value.combo_tier_sound);
     value.phrase_tables = document_.Strings(L"plugins.phrase_tables");
+    value.plugin_order = document_.Strings(L"plugins.plugin_order");
     value.helpcode_pack_quanpin =
         document_.String(L"plugins.helpcode_pack_quanpin", value.helpcode_pack_quanpin);
     value.helpcode_pack_shuangpin =
@@ -20979,6 +20980,7 @@ private:
     flag(L"plugins.combo_counter", before.combo_counter, after.combo_counter);
     flag(L"plugins.combo_tier_sound", before.combo_tier_sound, after.combo_tier_sound);
     list(L"plugins.phrase_tables", before.phrase_tables, after.phrase_tables);
+    list(L"plugins.plugin_order", before.plugin_order, after.plugin_order);
     word(L"plugins.helpcode_pack_quanpin", before.helpcode_pack_quanpin, after.helpcode_pack_quanpin);
     word(L"plugins.helpcode_pack_shuangpin", before.helpcode_pack_shuangpin,
          after.helpcode_pack_shuangpin);
@@ -20990,6 +20992,22 @@ private:
     if (next == before)
       return;
     change([&](PreferencesDocument &doc) { write_plugin_preferences(doc, before, next); }, true);
+  }
+
+  // 列表卡片的排序只写展示顺序，不改变指令表、短语表或脚本插件的运行顺序。
+  void reorder_plugin_list(std::wstring const &source, std::wstring const &target) {
+    auto next = plugin_preferences();
+    auto order = pg::normalized_plugin_order(plugin_catalog_.packages, next.plugin_order);
+    const auto from = std::find(order.begin(), order.end(), source);
+    const auto to = std::find(order.begin(), order.end(), target);
+    if (from == order.end() || to == order.end() || from == to)
+      return;
+    const auto item = *from;
+    order.erase(from);
+    const auto target_after = std::find(order.begin(), order.end(), target);
+    order.insert(target_after, item);
+    next.plugin_order = std::move(order);
+    change_plugins(next);
   }
 
   // 指令表详情和 @ 名单里的「打开」按钮就地打开「输入 → 快捷模式」里的开关，写的是同一个键。
@@ -21513,12 +21531,14 @@ private:
 
   // 插件库的一张卡片（macOS 插件库的 `LibraryCard`）：整张是一个按钮，读屏读到标题，说明和标记作为帮助文本。左边 40 DIP 的图标块，中间是半粗体标题、次要色说明和强调色标记，右边淡出的「›」；12 圆角、1 DIP 细描边、分组卡片的底色，悬停和按下时底色和描边换成淡强调色。`shortcut` 是顶部的快捷卡片（「声音与效果」「@ 名单」）：至少 80 DIP 高、16 内边距、图标与文字相隔 14、14 DIP 标题和 12 DIP 说明，图标块 12 圆角、铺淡强调色、图标用强调色；插件卡片至少 76 DIP 高、14 内边距、相隔 12、13 DIP 标题（放不下时截断，悬停提示全名）和 11 DIP 说明，图标块 10 圆角、中性底、次要色图标，悬停和按下时图标换成强调色。
   Button plugin_library_card(wchar_t glyph, std::wstring const &title, std::wstring const &description,
-                             std::wstring const &marker, bool shortcut, std::function<void()> open) {
+                             std::wstring const &marker, bool shortcut, std::function<void()> open,
+                             std::vector<FrameworkElement> controls = {},
+                             std::wstring drag_key = {}) {
     record(title, description);
     Grid content;
     content.ColumnSpacing(shortcut ? 14 : 12);
     for (auto width : {GridLength{40, GridUnitType::Pixel}, GridLength{1, GridUnitType::Star},
-                       GridLength{1, GridUnitType::Auto}}) {
+                       GridLength{1, GridUnitType::Auto}, GridLength{1, GridUnitType::Auto}}) {
       ColumnDefinition column;
       column.Width(width);
       content.ColumnDefinitions().Append(column);
@@ -21557,11 +21577,21 @@ private:
       texts.Children().Append(make_text(marker, 11, palette_.accent));
     Grid::SetColumn(texts, 1);
     content.Children().Append(texts);
+    if (!controls.empty()) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(4);
+      actions.VerticalAlignment(VerticalAlignment::Center);
+      for (auto const &control : controls)
+        actions.Children().Append(control);
+      Grid::SetColumn(actions, 2);
+      content.Children().Append(actions);
+    }
     auto chevron = make_icon(0xE76C, 12, palette_.sub);
     chevron.Opacity(.6);
     chevron.VerticalAlignment(VerticalAlignment::Center);
     A11y::SetAccessibilityView(chevron, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
-    Grid::SetColumn(chevron, 2);
+    Grid::SetColumn(chevron, 3);
     content.Children().Append(chevron);
 
     Button card;
@@ -21599,6 +21629,33 @@ private:
     if (!help.empty())
       A11y::SetHelpText(card, hstring(help));
     card.Click([open = std::move(open)](Inspectable const &, RoutedEventArgs const &) { open(); });
+    if (!shortcut && !drag_key.empty()) {
+      card.CanDrag(true);
+      card.AllowDrop(true);
+      card.DragStarting([drag_key](
+                            Microsoft::UI::Xaml::UIElement const &,
+                            Microsoft::UI::Xaml::DragStartingEventArgs const &args) {
+        args.Data().SetText(hstring(drag_key));
+        args.Data().RequestedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+      });
+      card.DragOver([](Inspectable const &, Microsoft::UI::Xaml::DragEventArgs const &args) {
+        args.AcceptedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+      });
+      card.Drop([this, drag_key](Inspectable const &, Microsoft::UI::Xaml::DragEventArgs const &args) {
+        const auto view = args.DataView();
+        if (!view.Contains(Windows::ApplicationModel::DataTransfer::StandardDataFormats::Text()))
+          return;
+        args.AcceptedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+        view.GetTextAsync().Completed(
+            [this, drag_key](auto const &operation, Windows::Foundation::AsyncStatus status) {
+              if (status != Windows::Foundation::AsyncStatus::Completed)
+                return;
+              const std::wstring source = operation.GetResults().c_str();
+              if (source != drag_key)
+                reorder_plugin_list(source, drag_key);
+            });
+      });
+    }
     mark_search_target(title, card);
     return card;
   }
@@ -22040,6 +22097,10 @@ private:
         indexing_ ? std::wstring(pg::library_all) : pg::library_selected_kind(plugin_library_kind_, categories);
     const auto query = indexing_ ? std::wstring() : pg::library_query(plugin_library_query_);
     const auto groups = pg::library_groups(plugin_catalog_.packages, missing, categories, selected, query);
+    const auto plugin_order = pg::normalized_plugin_order(plugin_catalog_.packages, preferences.plugin_order);
+    std::map<std::wstring, std::size_t> plugin_order_index;
+    for (std::size_t index = 0; index < plugin_order.size(); ++index)
+      plugin_order_index.emplace(plugin_order[index], index);
     if (plugin_catalog_state_ == PluginCatalogState::loading && !indexing_)
       sections.Children().Append(plugin_empty_message(L"正在读取插件…"));
     if (plugin_catalog_state_ == PluginCatalogState::failed)
@@ -22047,7 +22108,11 @@ private:
     if (loaded && groups.empty())
       sections.Children().Append(plugin_empty_message(pg::library_empty_message(query)));
     const auto running = plugin_running_scripts();
-    for (auto const &group : groups) {
+    for (auto group : groups) {
+      std::stable_sort(group.packs.begin(), group.packs.end(), [&](auto const *left, auto const *right) {
+        return plugin_order_index.at(pg::plugin_key(left->kind, left->id)) <
+               plugin_order_index.at(pg::plugin_key(right->kind, right->id));
+      });
       const auto title = pg::library_section_title(group.kind);
       if (indexing_)
         group_index_ = title;
@@ -22080,14 +22145,47 @@ private:
       if (group.packs.empty() && group.gone.empty() && loaded)
         note(L"还没有导入指令表。");
       auto grid = responsive_grid(245, 10, 2);
-      for (auto const *pack : group.packs) {
+      for (std::size_t pack_index = 0; pack_index < group.packs.size(); ++pack_index) {
+        auto const *pack = group.packs[pack_index];
         const auto key = L"pack/" + pack->kind + L"/" + pack->id;
         const auto marker = pack->kind == L"script" ? pg::script_marker(*pack, plugin_grants(), running)
                                                     : pg::pack_marker(*pack, preferences, kinds, modes);
+        std::vector<FrameworkElement> controls;
+        if (pack->kind == L"command_table" || pack->kind == L"phrase_table") {
+          const bool command = pack->kind == L"command_table";
+          const auto table = command ? pg::command_table_switch(preferences, pack->id)
+                                     : pg::phrase_table_switch(preferences, pack->id);
+          controls.push_back(toggle_control(L"启用", table.on, [this, command, id = pack->id](bool on) {
+            auto next = plugin_preferences();
+            auto &tables = command ? next.command_tables : next.phrase_tables;
+            tables = pg::with_table(tables, id, on);
+            change_plugins(next);
+          }, !table.full));
+        }
+        // WinUI 的拖放事件和共享页使用同一份顺序字段；另外提供键盘和读屏可达的上移、下移操作。
+        const auto source_order_key = pg::plugin_key(pack->kind, pack->id);
+        if (pack_index > 0) {
+          const auto target_order_key = pg::plugin_key(group.packs[pack_index - 1]->kind,
+                                                       group.packs[pack_index - 1]->id);
+          controls.push_back(button_control(L"↑", [this, source_order_key, target_order_key] {
+            reorder_plugin_list(source_order_key, target_order_key);
+          }));
+        } else {
+          controls.push_back(button_control(L"↑", [] {}, false));
+        }
+        if (pack_index + 1 < group.packs.size()) {
+          const auto target_order_key = pg::plugin_key(group.packs[pack_index + 1]->kind,
+                                                       group.packs[pack_index + 1]->id);
+          controls.push_back(button_control(L"↓", [this, source_order_key, target_order_key] {
+            reorder_plugin_list(source_order_key, target_order_key);
+          }));
+        } else {
+          controls.push_back(button_control(L"↓", [] {}, false));
+        }
         auto card = plugin_library_card(plugin_kind_glyph(pack->kind), pack->name, pg::pack_row_description(*pack),
                                         marker, false, [this, kind = pack->kind, id = pack->id, key] {
                                           open_plugin_view(PluginView::pack, kind, id, key);
-                                        });
+                                        }, std::move(controls), pg::plugin_key(pack->kind, pack->id));
         grid.Children().Append(card);
         rows.emplace_back(key, card);
       }
