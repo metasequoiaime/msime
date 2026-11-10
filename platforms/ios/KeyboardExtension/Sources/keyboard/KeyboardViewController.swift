@@ -3473,13 +3473,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 12 / 22
       }
-      if !key.holdLetters.isEmpty {
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleFourteenKeyHold(_:)))
-        // 与九键的长按同一个时长，理由见 `makeNineKeyLayout`。
-        hold.minimumPressDuration = Self.nineKeyHoldDuration
-        button.addGestureRecognizer(hold)
-        button.accessibilityHint = "长按输入 " + key.holdLetters.joined(separator: " 或 ")
-      }
       // 两字母键总是挂上横滑，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到全拼或双拼后不必重建按键。
       if key.letters.count == 2 {
         let swipe = EighteenKeySwipeGestureRecognizer(letters: key.letters, target: self,
@@ -3662,14 +3655,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       if button.configuration?.title != face { button.configuration?.title = face }
       button.accessibilityLabel = splits ? "拼音分词" : "符号"
     }
-  }
-
-  /// 长按 14 键或 18 键的一键：弹出这一键的字母，选中后与九键一样先结束组字，再上屏这个字母。长按取代这次点按，所以按键在这里记一次，菜单里选的那一项不再记。
-  @objc private func handleFourteenKeyHold(_ gesture: UILongPressGestureRecognizer) {
-    guard gesture.state == .began, let button = gesture.view as? UIButton,
-          let key = letterGridButtons.first(where: { $0.button === button })?.key, !key.holdLetters.isEmpty else { return }
-    countKeyPress(key.keyID)
-    showKeyHoldOptions(from: button, options: key.holdLetters)
   }
 
   /// 14/18 键全拼或双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
