@@ -37,29 +37,30 @@ final class SpaceCopyFailureNoticeChecks implements AutoCloseable {
         test.stage = "copy failure notice at phone top without moving or hiding the keyboard";
         long deadline = SystemClock.uptimeMillis() + 10000;
         boolean captured = false;
+        boolean firstFrame = true;
         do {
             stable();
             Bitmap screenshot = test.automation.takeScreenshot();
             if (screenshot == null) throw new AssertionError("复制提示截图不可用");
             try {
+                if (firstFrame) {
+                    capture(screenshot, "space-copy-failure-first-frame.png");
+                    firstFrame = false;
+                }
                 Rect notice = noticeBounds(screenshot);
                 if (notice != null) {
                     if (notice.isEmpty() || notice.top < 0 || notice.bottom > screenshot.getHeight() / 4
                             || notice.bottom >= keyboard.top
                             || Math.abs(notice.centerX() - screenshot.getWidth() / 2) > 4 * density())
                         throw new AssertionError("复制失败提示不在屏幕顶部中央：" + notice);
-                    File file = new File(test.getTargetContext().getExternalFilesDir(null), "space-copy-failure-notice.png");
-                    try (FileOutputStream output = new FileOutputStream(file)) {
-                        if (!screenshot.compress(Bitmap.CompressFormat.PNG, 100, output))
-                            throw new AssertionError("复制提示截图写入失败");
-                    }
+                    capture(screenshot, "space-copy-failure-notice.png");
                     captured = true;
                     break;
                 }
             } finally { screenshot.recycle(); }
             SystemClock.sleep(50);
         } while (SystemClock.uptimeMillis() < deadline);
-        if (!captured) throw new AssertionError("复制失败提示没有在屏幕顶部出现");
+        if (!captured) throw new AssertionError("复制失败提示没有在屏幕顶部出现；旧系统通知事件=" + legacyMessage);
 
         // 继续采样到提示消失，再观察半秒；显示、自动关闭两条路径都不能重排或关闭键盘。
         deadline = SystemClock.uptimeMillis() + 8000;
@@ -77,6 +78,14 @@ final class SpaceCopyFailureNoticeChecks implements AutoCloseable {
             SystemClock.sleep(50);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("复制失败提示没有自动消失");
+    }
+
+    private void capture(Bitmap screenshot, String name) throws Exception {
+        File file = new File(test.getTargetContext().getExternalFilesDir(null), name);
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            if (!screenshot.compress(Bitmap.CompressFormat.PNG, 100, output))
+                throw new AssertionError("复制提示截图写入失败");
+        }
     }
 
     private Rect noticeBounds(Bitmap screenshot) {

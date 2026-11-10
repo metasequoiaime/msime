@@ -26,3 +26,7 @@ Status: implemented
 失败通知不再参与候选区测量；代价是必须在输入法生命周期变化时移除子窗口。设备回归同时检查顶部位置、提示出现与消失期间输入法窗口持续存在、按键位置及编辑器焦点不变。旧系统结合固定通知文字和实际像素定位，新系统核对独立窗口的可访问节点；截图只含专用编辑器的合成内容。
 
 `smoke.sh --space-copy` 定向运行真实主输入与完整空格复制专项；共享设备 workflow 仍执行 Rust 设备单测及崩溃专项。API 28/35 的实际结果须完成后记录，不能由普通 PR 冒烟替代。
+
+## Device evidence
+
+运行 `42787159009` 的 API 28 通过 Rust 设备单测及崩溃专项，但新增提示断言停在拒绝复制的编辑器上。[Android 9 的跨进程 `InputConnectionWrapper.performContextMenuAction`](https://android.googlesource.com/platform/frameworks/base/+/android-9.0.0_r1/core/java/com/android/internal/view/InputConnectionWrapper.java) 只把命令发给编辑器并返回 true，不回传编辑器自身的拒绝结果，因此这不能作为提示必现的前提。原有拒绝复制、剪贴板不能被输入法自行改写的断言保留；提示出现、位置、自动消失和稳定性改在 issue 对应的空输入框上验证。空输入框的完整提取快照长度为零，`EditorCopyAll` 会明确拒绝复制，不依赖跨进程布尔回传。首次检查帧与成功提示帧分别保留，便于识别通知未出现还是旧系统像素检测未识别。

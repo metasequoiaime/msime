@@ -65,9 +65,10 @@ public final class SpaceCopyEditorActivity extends Activity {
         editor.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra("password", false)
             ? InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_TEXT_FLAG_MULTI_LINE));
         editor.setContentDescription("msime-test-copy-source");
-        editor.setText("合成复制😀甲乙\n第二行");
-        editor.setSelection(getIntent().getIntExtra("selection-start", 3),
-            getIntent().getIntExtra("selection-end", 3));
+        boolean empty = getIntent().getBooleanExtra("empty", false);
+        editor.setText(empty ? "" : "合成复制😀甲乙\n第二行");
+        editor.setSelection(getIntent().getIntExtra("selection-start", empty ? 0 : 3),
+            getIntent().getIntExtra("selection-end", empty ? 0 : 3));
         layout.addView(editor, new LinearLayout.LayoutParams(-1, 240));
         EditText other = new EditText(this);
         other.setContentDescription("msime-test-copy-other");

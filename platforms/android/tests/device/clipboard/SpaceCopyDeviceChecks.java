@@ -55,9 +55,7 @@ final class SpaceCopyDeviceChecks {
         test.stage = "space copy editor rejection cannot fall back to direct clipboard writes";
         open("--ez reject-copy true");
         seed();
-        failureNotice.before();
         swipe();
-        failureNotice.verify();
         expectClipboard(SENTINEL);
         if (copyAttempts() != 1) throw new AssertionError("Editor did not receive the copy request");
         expectSelection(SOURCE, 3, 3);
@@ -123,6 +121,15 @@ final class SpaceCopyDeviceChecks {
         swipe();
         expectClipboard(SENTINEL);
         if (copyAttempts() != 0) throw new AssertionError("Password field received copy request");
+        test.stage = "space copy empty editor shows a phone-top notice";
+        open("--ez empty true");
+        seed();
+        failureNotice.before();
+        swipe();
+        failureNotice.verify();
+        expectClipboard(SENTINEL);
+        if (copyAttempts() != 0) throw new AssertionError("Empty editor received a copy request");
+        expectSelection(SOURCE, 0, 0);
         test.stage = "space copy WebView textarea keeps text and caret";
         test.shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/.SpaceCopyEditorActivity --ez webview true");
         test.tap(editor("msime-test-copy-web"));
