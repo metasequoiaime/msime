@@ -369,6 +369,9 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             if ("MAIN".equals(candidate.toString())) { main = candidate; break; }
         }
         if (main == null) throw new AssertionError("Main clipboard mode is unavailable");
+        Class<?> modeStore = loader.loadClass("app.msime.android.ClipboardModeStore");
+        modeStore.getMethod("save", android.content.Context.class, modeType)
+            .invoke(null, getTargetContext(), main);
         Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
         Object store = storeType.getMethod("forMode", android.content.Context.class, modeType)
             .invoke(null, getTargetContext(), main);
