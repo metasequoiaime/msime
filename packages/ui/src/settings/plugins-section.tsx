@@ -201,6 +201,7 @@ export function PluginsSection({
     moveScript,
     setCommandTable,
     setPhraseTable,
+    reorderPlugin,
     saveMentions,
   } = usePluginsSection({
     client,
@@ -428,6 +429,11 @@ export function PluginsSection({
         onOpenMissing={(packKind, id) =>
           openView({ kind: "missing", packKind, id }, `missing/${packKind}/${id}`)
         }
+        onTogglePack={(pack, enabled) => {
+          if (pack.kind === "command_table") setCommandTable(pack.id, enabled);
+          if (pack.kind === "phrase_table") setPhraseTable(pack.id, enabled);
+        }}
+        onReorderPlugin={reorderPlugin}
         scripts={
           scriptsShown
             ? {

@@ -6,6 +6,7 @@ import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -52,9 +53,11 @@ final class CompositionMagnifierChecks {
                 if (panelVisible(s))
                     throw new AssertionError("Own selection echo opened the magnifier");
                 s.stage = "magnifier opens from an in-composition editor selection";
+                Rect keyboardBefore = settledImeBounds(s);
                 select(s.await(s.field("msime-test-plain")), 1);
                 s.await(s.described("拼写编辑面板"));
                 s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 1));
+                assertImeWindowStable(s, keyboardBefore, 600);
                 if (!nineKey) {
                     s.stage = "magnifier inserts and deletes in the middle without losing the suffix";
                     s.tap(s.key("h"));
@@ -85,6 +88,7 @@ final class CompositionMagnifierChecks {
                 s.stage = "magnifier completion preserves candidates and the keyboard entry reopens it";
                 s.tap(s.described("完成拼写编辑"));
                 s.await(s.describedPrefix("候选 1："));
+                assertImeWindowStable(s, keyboardBefore, 600);
                 if (panelVisible(s))
                     throw new AssertionError("Done did not close editing");
                 s.tap(s.described("编辑拼写"));
@@ -113,6 +117,47 @@ final class CompositionMagnifierChecks {
             if (s.find(window.getRoot(), s.described("拼写编辑面板")) != null) return true;
         }
         return false;
+    }
+
+    /** 放大拼写开关只改覆盖层可见性，不应让输入法窗口消失或改变高度。 */
+    private static Rect settledImeBounds(DeviceSmoke s) {
+        Rect previous = null;
+        int stable = 0;
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            Rect current = imeBounds(s);
+            if (current != null && current.equals(previous)) stable++;
+            else {
+                previous = current;
+                stable = current == null ? 0 : 1;
+            }
+            if (stable >= 4) return new Rect(previous);
+            SystemClock.sleep(100);
+        }
+        throw new AssertionError("Input method window bounds did not settle");
+    }
+
+    private static void assertImeWindowStable(DeviceSmoke s, Rect expected, long durationMillis) {
+        long deadline = SystemClock.uptimeMillis() + durationMillis;
+        while (SystemClock.uptimeMillis() < deadline) {
+            Rect current = imeBounds(s);
+            if (current == null) throw new AssertionError("Input method window disappeared while editing spelling");
+            if (!expected.equals(current)) {
+                throw new AssertionError("Input method window moved while editing spelling: expected "
+                    + expected + ", got " + current);
+            }
+            SystemClock.sleep(40);
+        }
+    }
+
+    private static Rect imeBounds(DeviceSmoke s) {
+        for (AccessibilityWindowInfo window : s.automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+            Rect bounds = new Rect();
+            window.getBoundsInScreen(bounds);
+            return bounds;
+        }
+        return null;
     }
 
     private static void longSpelling(DeviceSmoke s) throws Exception {

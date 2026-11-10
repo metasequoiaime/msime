@@ -69,6 +69,7 @@
 #include "../core/FullWidthInput.h"
 #include "InputControllerPhysicalKeys.h"
 #include "InputSchemeTraits.h"
+#include "CharacterSetOutput.h"
 #include "../core/ModifierTap.h"
 #include "../core/EditableShiftFocus.h"
 #include "../core/VimMode.h"
@@ -523,13 +524,26 @@ static NSString *CandidateDisplayWithBadges(NSDictionary *candidate, BOOL tradit
 }
 
 // 候选窗首行拼音后面的输入状态：方案名，然后中文组字时是「中」、英文候选（专用英文或临时英文）时是「英」，简繁转换适用于这一页时（`view.script_conversion`）加「简」或「繁」，全角打开时加「全角」，用「 · 」隔开。方案名由调用方按 `view.scheme` 算好，空时不写。
-static NSString *MSIMECandidateStatusText(NSString *schemeTitle, NSDictionary *view, BOOL traditional, BOOL fullWidth) {
+static int MSIMEViewScheme(NSDictionary *view);
+
+static BOOL MSIMECharacterSetOutputChecked(NSDictionary *view, MSIMEAppearancePreferences *appearance) {
+    if (!appearance) return NO;
+    return msime::mac::character_set::checked(MSIMEViewScheme(view), appearance.traditionalOutput,
+                                              appearance.cantoneseSimplifiedOutput);
+}
+
+static NSString *MSIMECandidateStatusTextForOutput(NSString *schemeTitle, NSDictionary *view, BOOL traditional,
+                                                   BOOL cantoneseSimplified, BOOL fullWidth) {
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     if ([schemeTitle isKindOfClass:NSString.class] && schemeTitle.length) [parts addObject:schemeTitle];
     NSString *localMode = [view[@"local_mode"] isKindOfClass:NSString.class] ? view[@"local_mode"] : @"none";
     const BOOL english = MSIMEStrictBoolean(view[@"dedicated_english"]) || [localMode isEqual:@"temporary_english"];
     [parts addObject:english ? @"英" : @"中"];
-    if (!english && MSIMEStrictBoolean(view[@"script_conversion"])) [parts addObject:traditional ? @"繁" : @"简"];
+    const BOOL cantonese = msime::mac::character_set::follows_cantonese(MSIMEViewScheme(view));
+    if (!english && (MSIMEStrictBoolean(view[@"script_conversion"]) || cantonese)) {
+        const BOOL simplified = cantonese ? cantoneseSimplified : !traditional;
+        [parts addObject:simplified ? @"简" : @"繁"];
+    }
     if (fullWidth) [parts addObject:@"全角"];
     return [parts componentsJoinedByString:@" · "];
 }
@@ -4543,7 +4557,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
                             capsLock:_capsLock
               chinesePunctuationEnabled:_appearance.runtimeChinesePunctuation
                        fullWidthEnabled:_appearance.runtimeFullWidthInput
-        traditionalChineseOutputEnabled:_appearance.traditionalOutput];
+        traditionalChineseOutputEnabled:MSIMECharacterSetOutputChecked(_view, _appearance)];
 }
 - (void)appearanceChanged:(NSNotification *)notification {
     NSDictionary *outputView = [_session setMultilingualOutput:_appearance.traditionalOutput error:nil];
@@ -4827,10 +4841,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
     if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged &&
-        !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
-        // 实体松手的状态事件可能没有保留 Caps Lock 的键码或锁定位；只要没有其它修饰键且实体已松开，就用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        !(event.modifierFlags & others) &&
+        ((_capsLockTapAwaitingReleaseEvent && event.keyCode == 0x39) || !MSIMECapsLockKeyHeld())) {
+        // Caps Lock 自己的 flagsChanged 就是松键边沿；HID 的实体状态可能滞后一拍，不能因为它还显示按住就丢掉这次轻点。没有键码的事件仍用 HID 状态确认实体已松开。
         _capsLockTapAwaitingReleaseEvent = NO;
-        [self pollCapsLockTap];
+        [self completeCapsLockTapFromReleaseEvent];
         return YES;
     }
     if (event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39) {
@@ -4862,6 +4877,24 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self cancelCapsLockTap];
     return NO;
 }
+// 按松键事件完成一次轻点；事件边沿比 HID 查询更可信，后者可能晚一拍。
+- (void)completeCapsLockTapFromReleaseEvent {
+    if (!_capsLockTap.armed()) {
+        [self cancelCapsLockTap];
+        return;
+    }
+    const std::int64_t now = MSIMECapsLockNow();
+    const bool tap = _capsLockTap.release(now);
+    [self cancelCapsLockTap];
+    // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
+    if (!tap || !_activeClient || !MSIMECapsLockRelease()) {
+        [self adoptCapsLockState:YES];
+        return;
+    }
+    _capsLockTapReleased = YES;
+    [self adoptCapsLockState:NO];
+    [self toggleInputModeFromModifierTap];
+}
 // 定时器调用，测试也直接调用它来推进合成的时钟和按键状态。
 - (void)pollCapsLockTap {
     if (!_capsLockTap.armed()) {
@@ -4877,16 +4910,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         return;
     }
     if (_capsLockTapAwaitingReleaseEvent && !_capsLockTap.heldTooLong(now)) return;
-    const bool tap = _capsLockTap.release(now);
-    [self cancelCapsLockTap];
-    // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
-    if (!tap || !_activeClient || !MSIMECapsLockRelease()) {
-        [self adoptCapsLockState:YES];
-        return;
-    }
-    _capsLockTapReleased = YES;
-    [self adoptCapsLockState:NO];
-    [self toggleInputModeFromModifierTap];
+    [self completeCapsLockTapFromReleaseEvent];
 }
 // 单按 Shift、Control 或 Caps Lock 切换中英文。
 //
@@ -5042,10 +5066,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     englishCandidates.state = !_appearance.englishMode && MSIMEStrictBoolean(_view[@"dedicated_english"]) ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:englishCandidates];
     [menu addItem:NSMenuItem.separatorItem];
-    // Simplified output is the off state of this one toggle rather than a second row: a radio pair spent a row on the default.
-    NSMenuItem *traditional = [[NSMenuItem alloc] initWithTitle:@"繁体输出" action:@selector(toggleTraditionalOutput:) keyEquivalent:@""];
+    // 简繁入口在粤拼下切换专用的简体输出偏好，其他方案继续切换全局繁体输出偏好。
+    const int characterSetScheme = MSIMEViewScheme(_view);
+    NSMenuItem *traditional = [[NSMenuItem alloc] initWithTitle:@(msime::mac::character_set::label(characterSetScheme))
+                                                          action:@selector(toggleTraditionalOutput:) keyEquivalent:@""];
     traditional.target = self;
-    traditional.state = _appearance.traditionalOutput ? NSControlStateValueOn : NSControlStateValueOff;
+    traditional.state = MSIMECharacterSetOutputChecked(_view, _appearance) ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:traditional];
     // The three typing toggles the floating toolbar also carries, so they stay reachable with the toolbar hidden. The key equivalents are only labels for the chords handleEvent already claims (Ctrl+Shift+Space and Ctrl+.), not a second binding.
     NSMenuItem *fullWidth = [[NSMenuItem alloc] initWithTitle:@"全角字符" action:@selector(toggleFullWidthInput:) keyEquivalent:@" "];
@@ -5671,7 +5697,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self applyPreferencesToSessionNow];
     }
     const BOOL english = _appearance.englishMode;
-    [self setEnglishInputMode:mode == MSIMEInputMode::English showHUD:NO];
+    // 切进水杉后的第一次报告是系统落在了哪个入口上（通常是方案自己的「五」「双」或「中」），不是用户在水杉里选了中文，所以它不把英文改回中文：中英状态按激活时算出的起点走（应用规则，再是 default_ime_mode），和其它平台切进输入法时按默认模式重新起步一致。以前这次报告一律当成选中文，设了默认英文的人每次切进来都是中文，全局范围下此后每个新焦点也都是中文；它还会顶掉这个应用的英文规则。报告的是「英」时照样进英文，那是用户在输入菜单里明确选的。
+    [self setEnglishInputMode:mode == MSIMEInputMode::English || (switchedIn && english) showHUD:NO];
     state.selecting = false;
     // setEnglishInputMode: can refuse the switch (an Engine cancel failure while composing) after the report was already recorded as shown; select the mode the controller actually has so the menu bar does not keep the refused one. A switch that went through makes this a no-op.
     [self syncSystemInputModeForClient:sender];
@@ -5716,9 +5743,26 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (changed) [self showInputStateHUDText:enabled ? @"繁" : @"简"
         announcement:enabled ? @"繁体输出" : @"简体输出"];
 }
-- (void)selectSimplifiedOutput:(id)sender { (void)sender; [self setTraditionalOutput:NO]; }
-- (void)selectTraditionalOutput:(id)sender { (void)sender; [self setTraditionalOutput:YES]; }
-- (void)toggleTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; [self setTraditionalOutput:!_appearance.traditionalOutput]; }
+- (void)setCharacterSetOutput:(BOOL)enabled {
+    [self ensureAppearance];
+    const int scheme = MSIMEViewScheme(_view);
+    if (msime::mac::character_set::follows_cantonese(scheme)) {
+        const BOOL changed = _appearance.cantoneseSimplifiedOutput != enabled;
+        _appearance.cantoneseSimplifiedOutput = enabled;
+        if (changed) [self applyPreferencesToSessionNow];
+        [self showInputStateHUDText:enabled ? @"简" : @"繁"
+                         announcement:enabled ? @"简体输出" : @"繁体输出"];
+        return;
+    }
+    [self setTraditionalOutput:enabled];
+}
+- (void)selectSimplifiedOutput:(id)sender { (void)sender; [self setCharacterSetOutput:NO]; }
+- (void)selectTraditionalOutput:(id)sender { (void)sender; [self setCharacterSetOutput:YES]; }
+- (void)toggleTraditionalOutput:(id)sender {
+    (void)sender;
+    [self ensureAppearance];
+    [self setCharacterSetOutput:!MSIMECharacterSetOutputChecked(_view, _appearance)];
+}
 - (void)selectEnglishMode:(id)sender { (void)sender; [self setEnglishInputMode:YES]; }
 - (void)showSystemCharacterPalette { [NSApp orderFrontCharacterPalette:nil]; }
 - (void)checkForUpdates:(id)sender {
@@ -7963,9 +8007,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     // 设备尚未报告实体状态时，首个大写锁定状态事件和随后撤回锁定的事件都属于待判定轻点，先交给输入法吞掉，避免系统把尚未确认的锁定状态继续传给应用。普通按住场景仍把首个事件交回应用。
     const BOOL capsTapWasArmed = _capsLockTap.armed();
+    const BOOL capsTapAwaitingReleaseBefore = _capsLockTapAwaitingReleaseEvent;
+    const NSEventModifierFlags capsTapOthers = NSEventModifierFlagShift | NSEventModifierFlagControl |
+        NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+    const BOOL capsTapReleaseEvent = capsTapWasArmed && event.type == NSEventTypeFlagsChanged &&
+        !(event.modifierFlags & capsTapOthers) &&
+        capsTapAwaitingReleaseBefore &&
+        (event.keyCode == 0x39 || !MSIMECapsLockKeyHeld());
     const BOOL capsTapObserved = !staleCapsLock && [self observeCapsLockTap:event capsLock:capsLock sender:sender];
-    const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
-        (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
+    const BOOL delayedCapsTapEvent = capsTapObserved && (capsTapReleaseEvent || _capsLockTapAwaitingReleaseEvent);
     if (!capsTapObserved) [self adoptCapsLockState:capsLock];
     _capsLockTapConsumedEvent = delayedCapsTapEvent;
     if (!sender) {
@@ -9346,6 +9396,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     if (userStyle.itemPaddingVertical) metrics.paddingVertical = *userStyle.itemPaddingVertical * scale;
     if (userStyle.itemSpacing) metrics.itemGap = metrics.columnGap = *userStyle.itemSpacing * scale;
+    if (vertical) metrics.itemGap = msime::mac::CandidateItemVerticalOuterSpacing(scale);
     geometry.columnGap = metrics.columnGap > 0 ? metrics.columnGap : metrics.itemGap;
     geometry.minimumColumnWidth = ceil(metrics.itemMinWidth);
     auto unnumberedMetrics = metrics;
@@ -10009,7 +10060,7 @@ static const char *MSIMEMotionPresetName(msime::mac::SkinAnimationPreset preset)
     _renderedCandidateAccent = SkinColor(tokens.accent);
     const CGFloat inset = msime::mac::CandidateInset(tokens);
     const CGFloat verticalInset = msime::mac::CandidateVerticalInset(tokens);
-    const CGFloat rowGap = tokens.itemSpacing.value_or(0.0);
+    const CGFloat rowGap = msime::mac::CandidateItemVerticalOuterSpacing(scale);
     const CGFloat numberScale = skin.layout && skin.layout->numberScale.has_value()
         ? static_cast<CGFloat>(std::clamp(*skin.layout->numberScale, 0.0, 2.0))
         : MSIMECandidateNumberScale;
@@ -10559,8 +10610,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const CGFloat preeditWidth = preedit.length ? ceil([preedit sizeWithAttributes:@{NSFontAttributeName:preeditFont}].width) + 4 * scale + MSIMEPreeditCaretGap + preeditMargin.left + preeditMargin.right : 0;
     // 首行在拼音之后接一段输入状态（竖线隔开），右侧在翻页控件之前放云候选预览和一枝小装饰；三样都只在显示拼音时出现。
     const BOOL statusVisible = _appearance.showsCandidateStatus && preedit.length;
-    NSString *statusText = statusVisible ? MSIMECandidateStatusText([self schemeTitleForScheme:[self viewSchemeName]], _view,
-                                                                     _appearance.traditionalOutput, _appearance.runtimeFullWidthInput) : @"";
+    NSString *statusText = statusVisible ? MSIMECandidateStatusTextForOutput([self schemeTitleForScheme:[self viewSchemeName]], _view,
+                                                                              _appearance.traditionalOutput,
+                                                                              _appearance.cantoneseSimplifiedOutput,
+                                                                              _appearance.runtimeFullWidthInput) : @"";
     NSFont *statusFont = [NSFont systemFontOfSize:MSIMECandidatePageIndicatorPointSize * scale weight:MSIMECandidateFontWeightValue(_appearance.candidateFontWeight)];
     const CGFloat statusGap = 8 * scale;
     const CGFloat statusTextWidth = MSIMECandidateLabelWidth(statusText, statusFont);

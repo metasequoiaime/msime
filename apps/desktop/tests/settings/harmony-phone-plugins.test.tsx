@@ -281,6 +281,41 @@ test("the 2-in-1 keeps command and phrase tables and offers to create them", asy
   expect(within(kinds).getByText("指令表")).toBeTruthy();
 });
 
+test("the 2-in-1 enables a command table from its row without opening the detail", async () => {
+  const { save } = renderSettings({ mobile: false });
+  await settingsFormReady();
+  const list = await installedList();
+  await within(list).findByText("合成指令");
+  const toggle = within(list).getByRole("switch", { name: "合成指令启用" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  const saved = await savedPreferences(save);
+  expect(saved.plugins.command_tables).toEqual(["work"]);
+  // 没有可同时启用语义的类型不带开关。
+  expect(within(list).queryByRole("switch", { name: "合成辅助码启用" })).toBeNull();
+  // 点开关不打开详情。
+  expect(screen.queryByRole("button", { name: "删除插件" })).toBeNull();
+});
+
+test("moving a row down on the phone saves the display order and leaves what is enabled alone", async () => {
+  const { save } = renderSettings();
+  await settingsFormReady();
+  const list = await installedList();
+  await within(list).findByText("合成按键");
+  const names = () =>
+    within(list)
+      .getAllByRole("button", { name: /^(清脆键盘|合成按键)$/ })
+      .map((row) => row.getAttribute("aria-label"));
+  expect(names()).toEqual(["清脆键盘", "合成按键"]);
+  fireEvent.click(within(list).getByRole("button", { name: "下移 清脆键盘" }));
+  await waitFor(() => expect(names()).toEqual(["合成按键", "清脆键盘"]));
+  const saved = await savedPreferences(save);
+  expect(saved.plugins.plugin_order.slice(0, 2)).toEqual(["sound/user-keys", "sound/default"]);
+  expect(saved.plugins.command_tables ?? []).toEqual([]);
+  // 组里只有一个包时没有可调的顺序，不给把手。
+  expect(within(list).queryByRole("button", { name: "拖动调整 合成单词本 的顺序" })).toBeNull();
+});
+
 test("a pack detail on the phone has its own history entry, so system back returns to the list", async () => {
   renderSettings();
   await settingsFormReady();

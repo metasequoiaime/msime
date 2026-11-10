@@ -385,7 +385,7 @@ import {
   KeyPressFlush,
 } from "../entry/src/main/ets/keyboard/KeyIdPolicy";
 import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy";
-import { utf8WriteComplete } from "../entry/src/main/ets/keyboard/Utf8";
+import { utf8Length, utf8WriteComplete } from "../entry/src/main/ets/keyboard/Utf8";
 import {
   TranslationPolicy,
   TranslationQuery,
@@ -7152,8 +7152,8 @@ group("clipboard entries are bounded in characters and in UTF-8 bytes", () => {
   const wide = "中".repeat(1000);
   check(wide.length === 1000, "a thousand UTF-16 units");
   check(ClipboardHistoryPolicy.acceptable(wide) === true, "three thousand bytes is well inside");
-  // The character bound counts extended graphemes, so ten thousand four-byte emoji also reach the
-  // independent forty-thousand-byte limit exactly.
+  // The character bound counts extended graphemes, so ten thousand four-byte emoji remain within
+  // the independent one-hundred-thousand-byte limit.
   const astral = "😀".repeat(ClipboardHistoryPolicy.MAX_CHARS);
   check(
     astral.length === ClipboardHistoryPolicy.MAX_CHARS * 2,
@@ -7161,7 +7161,15 @@ group("clipboard entries are bounded in characters and in UTF-8 bytes", () => {
   );
   check(
     ClipboardHistoryPolicy.acceptable(astral) === true,
-    "ten thousand emoji fit at both shared limits",
+    "ten thousand emoji fit at the shared character and byte limits",
+  );
+  const family = "👩‍👩‍👧‍👦";
+  const byteBoundary = family.repeat(Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)));
+  check(utf8Length(byteBoundary) <= ClipboardHistoryPolicy.MAX_BYTES, "byte-boundary fixture fits");
+  check(ClipboardHistoryPolicy.acceptable(byteBoundary) === true, "exactly at the byte bound is accepted");
+  check(
+    ClipboardHistoryPolicy.acceptable(byteBoundary + family) === false,
+    "one grapheme over the byte bound is refused",
   );
   check(
     ClipboardHistoryPolicy.acceptable("😀".repeat(6000)) === true,
