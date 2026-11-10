@@ -48,16 +48,29 @@ final class SpellingEditorSwitchChecks {
             s.tap(s.described("编辑拼写"));
             s.await(s.described("拼写编辑面板"));
 
-            s.stage = "live disable closes the spelling editor and frees its row";
+            s.stage = "live disable closes the spelling editor without losing composition";
             publish(s, preferences, base.put(KEY, false), ++revision);
             long deadline = SystemClock.uptimeMillis() + 10000;
-            while (visible(s, "编辑拼写") || visible(s, "拼写编辑面板")
-                    || keyboard(s).height() >= enabled.height() - 8 * density(s)) {
+            while (visible(s, "编辑拼写") || visible(s, "拼写编辑面板")) {
                 if (SystemClock.uptimeMillis() > deadline) {
                     screenshot(s, "failure");
-                    throw new AssertionError("关闭开关没有撤销编辑面板并释放笔图标空行：entry="
+                    throw new AssertionError("关闭开关没有撤销编辑入口或面板：entry="
                         + visible(s, "编辑拼写") + ", panel=" + visible(s, "拼写编辑面板")
                         + ", before=" + enabled + ", after=" + keyboard(s));
+                }
+                SystemClock.sleep(80);
+            }
+            s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("ni", node.getText())));
+            // 引擎延后应用偏好时这一行还显示必要状态；提交组字后再检查真正空行，不隐藏状态来迁就高度断言。
+            s.stage = "committing pending composition releases the empty spelling row";
+            s.tap(s.key("空格"));
+            s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你", node.getText())));
+            deadline = SystemClock.uptimeMillis() + 10000;
+            while (keyboard(s).height() >= enabled.height() - 8 * density(s)) {
+                if (SystemClock.uptimeMillis() > deadline) {
+                    screenshot(s, "failure");
+                    throw new AssertionError("组字结束后仍为禁用入口预留空行：before="
+                        + enabled + ", after=" + keyboard(s));
                 }
                 SystemClock.sleep(80);
             }
