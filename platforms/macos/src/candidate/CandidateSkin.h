@@ -79,6 +79,14 @@ inline float CandidateVerticalInset(const SkinTokens &tokens)
     return std::max(0.0f, static_cast<float>(tokens.paddingVertical.value_or(tokens.pad)));
 }
 
+// 竖排候选项之间保留固定的外间距；它不随皮肤和用户内边距变化。
+constexpr float kCandidateItemVerticalOuterSpacing = 6.0f;
+
+inline float CandidateItemVerticalOuterSpacing(double scale)
+{
+    return kCandidateItemVerticalOuterSpacing * static_cast<float>(std::max(0.0, scale));
+}
+
 // 候选行的圆角至少要多大，高亮的角才不伸出卡片的圆角：两个圆角在对角线方向相切时 r = R - d(2 + √2)，卡片圆角 R 和内边距 d 都从边框内沿量起（窗口按矩形裁掉描边外侧的一半）。内边距够大时结果是 0，不改变行圆角。
 inline float CandidateRowRadiusFloor(const SkinTokens &tokens)
 {

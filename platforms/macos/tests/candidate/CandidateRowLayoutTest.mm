@@ -2350,7 +2350,7 @@ static void TestUserGeometry()
             assert(chrome.candidateContentView.layer.mask);
             const CGFloat gap = vertical.boolValue ? NSMinY(first.frame) - NSMaxY(second.frame)
                                                   : NSMinX(second.frame) - NSMaxX(first.frame);
-            assert(fabs(gap - 5 * scale) < 1.01);
+            assert(fabs(gap - (vertical.boolValue ? 6 : 5) * scale) < 1.01);
             const NSSize original = chrome.frame.size;
             document[@"candidate_padding_vertical"] = @13;
             [appearance applySharedCandidatePreferences:document];
