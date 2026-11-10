@@ -334,6 +334,8 @@ public final class MSIMEInputService extends InputMethodService {
     int candidateScalePercent = 100;
     /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
     private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
+    boolean spellingEditorEnabled = true;
+    private boolean spellingHeaderReserved = true;
     CandidateAppearance.Palette candidateAppearance =
         CandidateAppearance.fromSkin(KeyboardSkin.system(false));
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
@@ -1194,6 +1196,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyCandidateGlossPreference(preferences);
         spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
+        spellingEditorEnabled = preferences == null || preferences.optBoolean("touch_spelling_editor", true);
         applyEnglishSuggestionsPreference(preferences);
         applyCandidateTranslationPreference(preferences);
         applyWubiCodeHintPreference(preferences);
@@ -3674,7 +3677,7 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
-            + ":" + oneHandedSidePanel.wire + ":" + fourteenKeyLetterWidths.wire()
+            + ":" + spellingEditorEnabled + ":" + oneHandedSidePanel.wire + ":" + fourteenKeyLetterWidths.wire()
             + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved() + ":" + languageKeyLeft
             + ":" + NineKeySidebarPolicy.format(nineKeySidebarSymbols) + ":" + NineKeySidebarPolicy.format(nineKeyDigitSidebarSymbols);
     }
@@ -3923,6 +3926,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateScalePercent = nextScalePercent;
         candidatePageNumberShown = CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         spellingPosition = nextSpellingPosition;
+        spellingEditorEnabled = preferences.optBoolean("touch_spelling_editor", true);
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
@@ -5145,6 +5149,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private int readingRowHeight() {
+        if (!spellingHeaderReserved) return 0;
         int design = pixels(ImeToolbar.READING_ROW_DP);
         if (preedit == null) return design;
         // 读音行自己的上下内边距（下边就是和候选行之间的 READING_GAP_DP）也算进去，否则字号大时间距被读音挤掉。
@@ -5349,7 +5354,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 用户点击仍完整的组字时进入临时编辑；丢标记、选区或文本改写仍走原先的结束路径。 */
     private boolean editCompositionSelection(int start, int end, int newStart, int newEnd) {
-        if (!compositionEditable() || connection == null || editorCompositionSuppressed) return false;
+        if (!spellingEditorEnabled || !compositionEditable() || connection == null || editorCompositionSuppressed) return false;
         String editing = InputViewValuePolicy.editingText(view);
         String composing = composingText(view, editing, true);
         int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
@@ -12553,15 +12558,15 @@ public final class MSIMEInputService extends InputMethodService {
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
             // 拼写已写在输入框里时读音行只画一支笔（SpellingEditIcon），点它打开放大编辑条；不再放「编辑拼写」四个字，描述仍是「编辑拼写」。
-            boolean spellingEditIcon = caretEditable && !spellingDrawn && phrasePrefix.isEmpty();
+            boolean spellingEditIcon = spellingEditorEnabled && caretEditable && !spellingDrawn && phrasePrefix.isEmpty();
             if (spellingEditIcon) displayText = "";
             preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
             showSpellingEditIcon(spellingEditIcon);
-            preedit.setContentDescription(caretEditable ? "编辑拼写"
+            preedit.setContentDescription(spellingEditorEnabled && caretEditable ? "编辑拼写"
                 : offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
-            ViewPolicy.setClickable(preedit, caretEditable);
+            ViewPolicy.setClickable(preedit, spellingEditorEnabled && caretEditable);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {
@@ -12603,9 +12608,14 @@ public final class MSIMEInputService extends InputMethodService {
             applyKeyboardAdjustAccessibility();
         }
         if (candidateHeader != null) {
+            spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
+                toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
+                    || drawsKeyGrid(displayedTouchLayout(view)), idle,
+                preedit == null ? "" : preedit.getText(), status == null ? "" : status.getText(),
+                ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));
             // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
             boolean modeLabel = !message.isEmpty();
-            ViewPolicy.setVisible(candidateHeader, !hasDiagnostic && (!idle || modeLabel));
+            ViewPolicy.setVisible(candidateHeader, !hasDiagnostic && spellingHeaderReserved && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
         boolean keysCollapsed = hardwareKeysCollapsed();

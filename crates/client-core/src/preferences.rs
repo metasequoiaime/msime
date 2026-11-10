@@ -2004,6 +2004,9 @@ pub struct Preferences {
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
+    /// Android 的拼写编辑入口；默认保留已有的点击编辑行为，关闭后不为笔图标预留空行。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_spelling_editor: bool,
     /// 全拼 26 键组字时第三排左端默认保留 ⇧，点一下再输字母即臂辅助码；关闭后改画「分词」（送 `'` 断音节）。九键、14 键和 18 键有自己的分词键，不受它影响。桌面宿主原样保留、不使用。
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub touch_quanpin_shift: bool,
@@ -4544,6 +4547,7 @@ impl Default for Preferences {
             touch_shuangpin_key_hints: false,
             touch_japanese_toggle_input: true,
             touch_spelling_position: TouchSpellingPosition::default(),
+            touch_spelling_editor: true,
             touch_quanpin_shift: true,
             touch_twenty_six_key_style: TouchTwentySixKeyStyle::default(),
             touch_fourteen_key_style: TouchFourteenKeyStyle::default(),
@@ -7270,6 +7274,9 @@ fn redact_sensitive_keys(value: &mut serde_json::Value) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod spelling_editor_tests;
 
 #[cfg(test)]
 mod quick_symbols_tests {

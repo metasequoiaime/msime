@@ -232,6 +232,12 @@ def main() -> None:
         after = run.calls[run.calls.index("instrument CandidateCanvasDeviceSmoke") + 1:]
         run.expect(f"adb -s {SERIAL} shell am force-stop app.msime.android.test" in after and f"adb -s {SERIAL} shell ime set {IME}" in after, "失败后应收起合成编辑器并重新选中输入法")
 
+        run = Run(base, "spelling-editor-pass", ["--spelling-editor"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("CompositionRestartDeviceSmoke:spelling-editor-switch"), "拼写编辑专项必须经过主输入和真实开关验收")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "拼写编辑专项不重复无关套件")
+        run = Run(base, "spelling-editor-fail", ["--spelling-editor"], fail="CompositionRestartDeviceSmoke:spelling-editor-switch")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "拼写编辑失败必须阻止通过")
+
         run = Run(base, "key-faces-pass", ["--key-faces"])
         run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("NineKeyShuangpinDeviceSmoke:faces_only"), "键面专项必须经过主输入并执行像素回归")
         run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "键面专项不重复执行无关套件")
