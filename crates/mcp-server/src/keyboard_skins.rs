@@ -495,13 +495,28 @@ fn read_photo(file: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// 发布被拒的原因。409 有两种来源而客户端分不出来，两种都说；没拿到明确回答时皮肤可能已经发出去了，把这次的 id 交给代理，原样再发一次不会多出一款。
+/// 没拿到明确结果的发布说明都以它开头，[`publish_outcome`] 靠它把这种情况和被拒分开。别的错误没有以它开头的：照片的说明以 `photo_file` 开头，id 的说明以引号开头。
+const UNCONFIRMED: &str = "the outcome of this publish is unknown: ";
+
+/// stderr 审计行里发布结果的那个词。没拿到明确结果时皮肤可能已经公开，记成 `unconfirmed` 而不是 `refused`，本机唯一的记录才不会说成什么都没发出去。
+pub fn publish_outcome<T>(result: &Result<T, String>) -> &'static str {
+    match result {
+        Ok(_) => "published",
+        Err(error) if error.starts_with(UNCONFIRMED) => "unconfirmed",
+        Err(_) => "refused",
+    }
+}
+
+/// 发布被拒的原因。409 有两种来源而客户端分不出来，两种都说；没拿到明确回答时皮肤可能已经发出去了，把这次的 id 交给代理，原样再发一次不会多出一款。会话层在请求成功之后还会再读一次会话（`request_with_account_session`）：用户这期间退出或换了账号是 `Cancelled`，会话文件那一刻读不出来是 `Storage`，这两种也可能已经发出去了，同样给 id。
 fn publish_problem(error: AccountError, id: Uuid) -> String {
+    let id = id.hyphenated();
     match error {
         AccountError::Conflict => "the community refused it: either this account already holds the maximum of 50 keyboard skins (delete one with delete_community_keyboard_skin first), or the id belongs to a different skin (leave id out to publish a new one)".into(),
         AccountError::Invalid => "the community server did not accept the skin: the photo may be larger than 1024 pixels on a side or not a baseline JPEG, or the name, description or design may not be accepted".into(),
         AccountError::BlockedContent => "the community does not allow some words in the name or description; change them and try again".into(),
-        AccountError::Unavailable | AccountError::NotFound => format!("the community server cannot be reached right now or gave an unexpected answer, so the skin may or may not have been published. Call publish_keyboard_skin again with the same arguments and id \"{}\", which does not make a second skin, or check list_community_keyboard_skins", id.hyphenated()),
+        AccountError::Unavailable | AccountError::NotFound => format!("{UNCONFIRMED}the community server cannot be reached right now or gave an unexpected answer, so the skin may or may not have been published. Call publish_keyboard_skin again with the same arguments and id \"{id}\", which does not make a second skin, or check list_community_keyboard_skins"),
+        AccountError::Cancelled => format!("{UNCONFIRMED}the user signed out or switched accounts in the settings app while this ran, so the skin may or may not have been published, and if it was, it is public under the account that was signed in when the call started. Tell the user, and do not publish it again without an id. With that account signed in, check list_community_keyboard_skins; if the skin is not there, call publish_keyboard_skin again with the same arguments and id \"{id}\", which does not make a second skin, and if it is there and should not be, delete_community_keyboard_skin removes it"),
+        AccountError::Storage => format!("{UNCONFIRMED}the account session on this computer could not be read or written while this ran, so the skin may or may not have been published. Do not publish it again without an id: check list_community_keyboard_skins, and if the skin is not there call publish_keyboard_skin again with the same arguments and id \"{id}\", which does not make a second skin"),
         other => account_problem(other),
     }
 }

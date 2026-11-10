@@ -40,6 +40,8 @@ struct FakeState {
     refuse: Option<AccountError>,
     /// 设了就让列表每一页都说后面还有。
     endless: bool,
+    /// 设了就在一次发布成功之后、应答回到会话层之前运行，用来扮演这期间动了会话文件的设置应用。
+    after_publish: Option<Box<dyn Fn() + Send>>,
 }
 
 /// 只在内存里应答的账号服务器，测试不联网。
@@ -181,6 +183,9 @@ impl CommunitySkinApi for FakeApi {
             design: design.clone(),
             category,
         });
+        if let Some(settings_app) = &self.0.lock().unwrap().after_publish {
+            settings_app();
+        }
         Ok(())
     }
     fn unpublish_community_skin(&self, id: Uuid, token: &str) -> Result<(), AccountError> {
@@ -742,12 +747,20 @@ fn publish_refusals_say_what_to_do() {
     assert!(refused(AccountError::RateLimited).contains("wait a minute"));
     assert!(refused(AccountError::Banned).contains("banned"));
     assert!(refused(AccountError::Forbidden).contains("does not allow this account"));
-    // 会话过期、用户中途退出登录由会话层处理，这里只看说法。
+    // 会话过期由会话层处理，这里只看说法。
     let unused = Uuid::parse_str(id).unwrap();
     assert_eq!(publish_problem(AccountError::Unauthorized, unused), SIGN_IN);
-    assert!(publish_problem(AccountError::Cancelled, unused)
-        .contains("signed out or switched accounts"));
-    assert!(publish_problem(AccountError::Storage, unused).contains("account session"));
+
+    // 审计行的用词：没拿到明确结果的不记成被拒。
+    assert_eq!(
+        publish_outcome(&Err::<(), _>(refused(AccountError::Unavailable))),
+        "unconfirmed"
+    );
+    assert_eq!(
+        publish_outcome(&Err::<(), _>(refused(AccountError::Conflict))),
+        "refused"
+    );
+    assert_eq!(publish_outcome(&Ok::<_, String>(())), "published");
 
     // 哪一种拒绝都不带照片内容、照片路径和令牌。
     for error in [
@@ -759,6 +772,56 @@ fn publish_refusals_say_what_to_do() {
         assert!(!text.contains(JPEG_BASE64), "{text}");
         assert!(!text.contains(&photo), "{text}");
         assert!(!text.contains(ACCESS_TOKEN), "{text}");
+    }
+}
+
+#[test]
+fn a_session_that_changed_during_a_publish_leaves_the_outcome_unknown() {
+    let id = "7b0b8c0e-2f6f-4a55-9d0c-0d6f5b9d7a11";
+    // 设置应用在请求途中做的三件事：退出登录、换成另一个账号、留下一份读不出来的会话。
+    let signed_out: fn(&FileAccountSessionStorage) = |storage| storage.clear().unwrap();
+    let switched: fn(&FileAccountSessionStorage) = |storage| {
+        let mut other = saved_session();
+        other.tokens.user.id = "another-user".into();
+        storage.save(&other).unwrap();
+    };
+    let unreadable: fn(&FileAccountSessionStorage) = |storage| {
+        let mut broken = saved_session();
+        broken.expires_at_unix_ms = u64::MAX;
+        storage.save(&broken).unwrap();
+    };
+    for (change, cause) in [
+        (signed_out, "signed out or switched accounts"),
+        (switched, "signed out or switched accounts"),
+        (unreadable, "account session"),
+    ] {
+        let fixture = Fixture::new(true);
+        let photo = fixture.file("photo.jpg", JPEG);
+        let storage = FileAccountSessionStorage::new(
+            fixture.account.path(),
+            AccountSessionFileLayout::Native,
+        );
+        fixture.api.0.lock().unwrap().after_publish = Some(Box::new(move || change(&storage)));
+        let result = fixture.publish(with(
+            with(request(), "photo_file", photo.clone().into()),
+            "id",
+            id.into(),
+        ));
+        // 服务器已经收下了这一款。
+        assert_eq!(fixture.published().len(), 1, "{cause}");
+        assert_eq!(publish_outcome(&result), "unconfirmed", "{cause}");
+        let error = result.unwrap_err();
+        assert!(error.contains(cause), "{error}");
+        assert!(
+            error.contains("may or may not have been published"),
+            "{error}"
+        );
+        assert!(error.contains(id), "{error}");
+        assert!(error.contains("list_community_keyboard_skins"), "{error}");
+        assert!(!error.contains("try again"), "{error}");
+        assert!(!error.contains(JPEG_BASE64), "{error}");
+        assert!(!error.contains(&photo), "{error}");
+        assert!(!error.contains(ACCESS_TOKEN), "{error}");
     }
 }
 

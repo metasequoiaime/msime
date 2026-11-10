@@ -593,11 +593,7 @@ impl MsimeServer {
         .await;
         eprintln!(
             "msime-mcp: publish_keyboard_skin {}",
-            if result.is_ok() {
-                "published"
-            } else {
-                "refused"
-            }
+            keyboard_skins::publish_outcome(&result)
         );
         result
     }
