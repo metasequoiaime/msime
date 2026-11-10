@@ -21,7 +21,7 @@ import org.json.JSONObject;
 /**
  * 插件页：「我的插件」和「社区插件」两个分类，与共享设置页的插件页同样的内容和文字，只列手机上生效的类型。
  *
- * <p>「我的插件」按类型分组列出已安装的包：音效包（只有按键音效包，按键旋律手机上不播）、指令表、短语表、辅助码表、单词本和符号集，规则在 {@link PluginCatalogPolicy}；特效包、音乐包、按键旋律和脚本插件不列，只在末尾说有几个。偏好里指着已不在的包的选择也列在对应分组里，点开可以去掉。下面是「新建插件」（{@link PluginEditorPage}）和「导入 .zip」：系统文件选择器（SAF）选中的压缩包先复制进私有暂存目录，再经 `msime_client_plugins` 的 `import` 安装（{@link PluginStore#importArchive}）；手机上不提供导入文件夹。
+ * <p>「我的插件」按类型分组列出已安装的包：音效包（只有按键音效包，按键旋律手机上不播）、指令表、短语表、辅助码表、单词本和符号集，规则在 {@link PluginCatalogPolicy}；组内按共享偏好 `plugins.plugin_order` 排列，一组有两个以上的包时组标题右侧有「调整顺序」（{@link PluginOrderSheet}），指令表和短语表的行上直接带启用开关；特效包、音乐包、按键旋律和脚本插件不列，只在末尾说有几个。偏好里指着已不在的包的选择也列在对应分组里，点开可以去掉。下面是「新建插件」（{@link PluginEditorPage}）和「导入 .zip」：系统文件选择器（SAF）选中的压缩包先复制进私有暂存目录，再经 `msime_client_plugins` 的 `import` 安装（{@link PluginStore#importArchive}）；手机上不提供导入文件夹。
  *
  * <p>「社区插件」经 `msime_client_community` 的 plugin_* 操作浏览、搜索、按类型筛选，点开是 {@link CommunityPluginPage}（安装、评分、举报、下架），「发布我的插件」是 {@link PluginPublishPage}。列表只列手机上生效的类型；不按类型筛选时服务端也会给出特效包、音乐包，这里去掉并按「这台设备不能安装」的那一页处理，「加载更多」照常往后翻。
  *
@@ -116,10 +116,7 @@ public final class PluginsPage extends ReloadingDetailPage {
             for (PluginStore.Entry entry : catalog.entries()) packs.add(entry.pack());
             List<PluginCatalogPolicy.Missing> missing = PluginCatalogPolicy.missingSelections(selection, packs);
             for (String kind : PluginCatalogPolicy.PHONE_KINDS) {
-                List<PluginCatalogPolicy.Pack> shown = new ArrayList<>();
-                for (PluginCatalogPolicy.Pack pack : packs) {
-                    if (pack.kind().equals(kind) && PluginCatalogPolicy.usedOnPhone(pack)) shown.add(pack);
-                }
+                List<PluginCatalogPolicy.Pack> shown = PluginCatalogPolicy.groupInOrder(packs, kind, selection.pluginOrder());
                 List<PluginCatalogPolicy.Missing> gone = new ArrayList<>();
                 for (PluginCatalogPolicy.Missing entry : missing) if (entry.kind().equals(kind)) gone.add(entry);
                 boolean commands = PluginCatalogPolicy.COMMAND_TABLE.equals(kind);
@@ -130,10 +127,26 @@ public final class PluginsPage extends ReloadingDetailPage {
                         + PluginCatalogPolicy.MAX_TABLES + " 个。");
                     if (shown.isEmpty() && gone.isEmpty()) group.note("还没有导入指令表。");
                 }
+                if (shown.size() > 1) {
+                    group.headerAction(HomeButtonPolicy.tonalButton(context, "调整顺序",
+                        "调整" + PluginCatalogPolicy.kindLabel(kind) + "的顺序", 500,
+                        () -> new PluginOrderSheet(this, kind, packs, selection.pluginOrder(), this::reload).show()));
+                }
+                boolean tables = commands || PluginCatalogPolicy.PHRASE_TABLE.equals(kind);
                 for (PluginCatalogPolicy.Pack pack : shown) {
-                    group.nav(pack.name(), PluginCatalogPolicy.rowDescription(pack),
-                        PluginCatalogPolicy.marker(pack, selection),
-                        () -> PluginDetailPage.open(context, pack.kind(), pack.id(), false, false), true);
+                    Runnable open = () -> PluginDetailPage.open(context, pack.kind(), pack.id(), false, false);
+                    if (!tables) {
+                        group.nav(pack.name(), PluginCatalogPolicy.rowDescription(pack),
+                            PluginCatalogPolicy.marker(pack, selection), open, true);
+                        continue;
+                    }
+                    // 指令表、短语表在行上直接启用或停用，规则和写入与详情页的「启用」是同一处；点行的其余部分照常进详情。
+                    List<String> enabled = selection.tables(kind);
+                    group.navToggle(pack.name(), PluginCatalogPolicy.rowDescription(pack),
+                        PluginCatalogPolicy.marker(pack, selection), open, enabled.contains(pack.id()),
+                        PluginCatalogPolicy.tableSwitchLabel(kind, enabled, pack),
+                        checked -> savePreferences(preferences -> PluginStore.setTable(preferences, kind, pack.id(), checked)))
+                        .setToggleEnabled(PluginCatalogPolicy.tableSwitchEnabled(enabled, pack.id()));
                 }
                 for (PluginCatalogPolicy.Missing entry : gone) {
                     group.nav(PluginCatalogPolicy.missingTitle(entry), PluginCatalogPolicy.missingDescription(entry), null,

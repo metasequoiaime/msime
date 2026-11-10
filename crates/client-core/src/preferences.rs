@@ -3170,6 +3170,9 @@ pub struct PluginPreferences {
     /// K 模式读取的已安装短语表包，按优先级排列，最多 `MAX_PHRASE_TABLES` 个。为空时不写进文档，没有这个键的旧版本照样能读。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub phrase_tables: Vec<String>,
+    /// 设置页插件列表的展示顺序。条目是 `kind/id`，只影响列表，不参与任何插件运行顺序。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub plugin_order: Vec<String>,
     /// 全拼方案选用的已安装辅助码表包；为空表示沿用 `quanpin_helpcode.schema`；包载入失败时也回退到那个方案。为空时不写进文档。
     #[serde(skip_serializing_if = "String::is_empty")]
     pub helpcode_pack_quanpin: String,
@@ -3193,6 +3196,7 @@ impl Default for PluginPreferences {
             combo_counter: false,
             combo_tier_sound: false,
             phrase_tables: Vec::new(),
+            plugin_order: Vec::new(),
             helpcode_pack_quanpin: String::new(),
             helpcode_pack_shuangpin: String::new(),
         }
@@ -3227,6 +3231,15 @@ impl PluginPreferences {
             && self.phrase_tables.len() <= Self::MAX_PHRASE_TABLES
             && self.phrase_tables.iter().enumerate().all(|(index, id)| {
                 crate::text::safe_id(id) && !self.phrase_tables[..index].contains(id)
+            })
+            && self.plugin_order.len() <= 256
+            && self.plugin_order.iter().enumerate().all(|(index, key)| {
+                let Some((kind, id)) = key.split_once('/') else {
+                    return false;
+                };
+                crate::text::safe_id(kind)
+                    && crate::text::safe_id(id)
+                    && !self.plugin_order[..index].contains(key)
             })
     }
 }
