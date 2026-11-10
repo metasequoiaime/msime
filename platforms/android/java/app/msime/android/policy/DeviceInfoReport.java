@@ -65,8 +65,8 @@ public final class DeviceInfoReport {
         public String label(Language language) { return language == Language.CHINESE ? chinese : english; }
     }
 
-    /** 子面板上能单独插入的九项，按 #10045 列的顺序；应用版本、系统构建和键盘状态只随「全部」一起出去。 */
-    public static final List<Field> INSERTABLE = List.of(Field.BRAND, Field.MODEL, Field.ANDROID, Field.ABIS,
+    /** 子面板上能单独插入的十项，按 #10045 列的顺序；系统构建和键盘状态只随「全部」一起出去。 */
+    public static final List<Field> INSERTABLE = List.of(Field.APP_VERSION, Field.BRAND, Field.MODEL, Field.ANDROID, Field.ABIS,
         Field.STORAGE, Field.MEMORY, Field.WEBVIEW, Field.CPU, Field.DISPLAY);
 
     /** 一项读到的值，两种语言各格式化一份，切换语言不用重新读系统；读不到时为 null。 */
@@ -156,10 +156,18 @@ public final class DeviceInfoReport {
     }
 
     public static String appVersion(String name, long code, String edition, Language language) {
+        return appVersion(name, code, edition, null, language);
+    }
+
+    /** 应用版本及构建时间；构建时间存在时另起一行，便于反馈文本直接粘贴。 */
+    public static String appVersion(String name, long code, String edition, String buildTime, Language language) {
         if (name == null || name.isBlank()) return language.unknown();
         StringBuilder text = new StringBuilder(name.trim());
         if (code >= 0) text.append(language.parenthesized(Long.toString(code)));
         if (edition != null && !edition.isBlank()) text.append(" · ").append(edition.trim());
+        if (buildTime != null && !buildTime.isBlank()) {
+            text.append('\n').append(language == Language.CHINESE ? "构建时间：" : "Build time: ").append(buildTime.trim());
+        }
         return text.toString();
     }
 
