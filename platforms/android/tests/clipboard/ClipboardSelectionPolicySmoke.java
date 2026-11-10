@@ -21,9 +21,7 @@ public final class ClipboardSelectionPolicySmoke {
 
         check("①".equals(ClipboardSelectionPolicy.ordinalLabel(0)), "first ordinal is circled one");
         check("④".equals(ClipboardSelectionPolicy.ordinalLabel(3)), "fourth ordinal is circled four");
-        check("".equals(ClipboardSelectionPolicy.ordinalLabel(4)), "fifth selection has no ordinal badge");
-        check(ClipboardSelectionPolicy.hasOrdinalBadge(3), "fourth selection has an ordinal badge");
-        check(!ClipboardSelectionPolicy.hasOrdinalBadge(4), "fifth selection has no ordinal badge");
+        check("⑳".equals(ClipboardSelectionPolicy.ordinalLabel(19)), "twentieth ordinal is circled twenty");
         checkThrows(() -> ClipboardSelectionPolicy.ordinalLabel(-1), "negative ordinal is rejected");
         checkThrows(() -> ClipboardSelectionPolicy.ordinalLabel(20), "ordinal past the selection cap is rejected");
 

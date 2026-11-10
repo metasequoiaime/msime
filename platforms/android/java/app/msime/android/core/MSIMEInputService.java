@@ -761,10 +761,6 @@ public final class MSIMEInputService extends InputMethodService {
 
     void showClipboardPhraseNotice(long request, String text) { operationNotice.show(request, text); }
 
-    void showClipboardInsertionLimitNotice() {
-        operationNotice.showAcknowledgement(ClipboardSelectionPolicy.INSERTION_LIMIT_HINT);
-    }
-
     /** 复制的代次：每次「复制全部」加一，最后一次说了算；服务销毁时也加一。 */
     private long deviceInfoCopyGeneration;
     /**
@@ -5259,7 +5255,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
+    /** 字母网格的一键：小写送整组首字母，14/18 键全拼和双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
         int helpcode = GridHelpcodePolicy.letterOp(gridHelpcodeDisplay(), letter);
         if (helpcode != GridHelpcodePolicy.NONE) return gridHelpcode(helpcode, Character.toLowerCase(letter));
@@ -12033,7 +12029,6 @@ public final class MSIMEInputService extends InputMethodService {
         }
         outInsets.touchableRegion.set(floatingLocation[0], floatingLocation[1],
             floatingLocation[0] + keyboardSurface.getWidth(), floatingLocation[1] + keyboardSurface.getHeight());
-        operationNotice.includeAcknowledgementTouchRegion(outInsets.touchableRegion);
     }
 
     /** 可移动的水平 / 竖直像素范围：系统栏之间的区域减去面板大小。 */

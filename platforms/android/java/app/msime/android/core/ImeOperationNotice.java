@@ -6,15 +6,10 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.TextView;
-import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.Toast;
 
 /** 输入法操作的临时结果：独立显示，不占键盘布局、不取编辑器焦点。 */
@@ -24,9 +19,6 @@ final class ImeOperationNotice {
     private TextView noticeView;
     private Toast legacyToast;
     private Runnable dismissTask;
-    private View acknowledgementOverlay;
-    private View acknowledgementCard;
-    private boolean acknowledgementWindow;
 
     ImeOperationNotice(MSIMEInputService service) { s = service; }
 
@@ -45,91 +37,6 @@ final class ImeOperationNotice {
             try { s.getSystemService(WindowManager.class).removeViewImmediate(noticeView); }
             catch (IllegalArgumentException detached) { /* 系统已撤销输入法令牌。 */ }
             noticeView = null;
-        }
-        if (acknowledgementOverlay != null) {
-            if (acknowledgementWindow) {
-                try { s.getSystemService(WindowManager.class).removeViewImmediate(acknowledgementOverlay); }
-                catch (IllegalArgumentException detached) { /* 系统已撤销输入法令牌。 */ }
-            } else {
-                ViewParent parent = acknowledgementOverlay.getParent();
-                if (parent instanceof ViewGroup group) group.removeView(acknowledgementOverlay);
-            }
-            acknowledgementOverlay = null;
-            acknowledgementWindow = false;
-        }
-        acknowledgementCard = null;
-    }
-
-    /** Android 9 的透明全高父窗口只接收键区触摸，确认卡片需额外加入可触摸区域。 */
-    void includeAcknowledgementTouchRegion(android.graphics.Region region) {
-        if (acknowledgementWindow || acknowledgementCard == null
-                || !acknowledgementCard.isShown()) return;
-        int[] location = new int[2];
-        acknowledgementCard.getLocationInWindow(location);
-        region.op(location[0], location[1], location[0] + acknowledgementCard.getWidth(),
-            location[1] + acknowledgementCard.getHeight(), android.graphics.Region.Op.UNION);
-    }
-
-    /** 在不改变输入法窗口测量边界的独立层中显示需要确认的操作提示。 */
-    void showAcknowledgement(String message) {
-        cancel();
-        View root = s.keyboardRoot;
-        if (message == null || message.isEmpty() || root == null || !root.isAttachedToWindow()
-                || !s.isInputViewShown()) return;
-        LinearLayout card = LayoutPolicy.column(s);
-        card.setPadding(s.pixels(20), s.pixels(16), s.pixels(20), s.pixels(8));
-        card.setBackground(DrawablePolicy.rounded(Color.BLACK, s.pixels(12)));
-        TextView label = new TextView(s);
-        label.setText(message);
-        label.setTextSize(16);
-        label.setTextColor(Color.WHITE);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(4);
-        label.setContentDescription(message);
-        label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        card.addView(label, LayoutPolicy.matchWidthWrapParams());
-        Button done = new Button(s);
-        done.setText("知道了");
-        done.setTextColor(Color.WHITE);
-        done.setContentDescription("知道了");
-        done.setOnClickListener(ignored -> cancel());
-        LinearLayout.LayoutParams doneParams = LayoutPolicy.wrapParams();
-        doneParams.gravity = Gravity.END;
-        card.addView(done, doneParams);
-
-        if (Build.VERSION.SDK_INT >= 30) {
-            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                Math.min(s.pixels(360), Math.max(s.pixels(240), root.getWidth() - s.pixels(32))),
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT);
-            params.token = root.getWindowToken();
-            params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
-            params.gravity = Gravity.CENTER;
-            params.setTitle("MSIME clipboard insertion notice");
-            params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
-            try {
-                s.getSystemService(WindowManager.class).addView(card, params);
-            } catch (WindowManager.BadTokenException | IllegalStateException unavailable) {
-                return;
-            }
-            acknowledgementOverlay = card;
-            acknowledgementWindow = true;
-            return;
-        }
-
-        // Android 9 的子窗口受裁剪，改用根视图覆盖层；全高父窗口保持原测量，仅把卡片补进触摸区域。
-        FrameLayout overlay = new FrameLayout(s);
-        overlay.setClickable(true);
-        overlay.addView(card, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
-        if (root instanceof ViewGroup group) {
-            group.addView(overlay, LayoutPolicy.frameMatchParentParams());
-            acknowledgementOverlay = overlay;
-            acknowledgementCard = card;
-            acknowledgementWindow = false;
         }
     }
 
