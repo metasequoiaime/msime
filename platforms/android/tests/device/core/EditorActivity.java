@@ -112,6 +112,13 @@ public final class EditorActivity extends Activity {
         image.setHint("Editor that accepts images");
         showImeOnFocus(image);
         layout.addView(image);
+        // 某些聊天输入框不声明 contentMimeTypes，但实际实现了 commitContent；贴纸设备回归覆盖这条兼容路径。
+        EditText legacyImage = new LegacyImageEditText(this);
+        legacyImage.setInputType(InputType.TYPE_CLASS_TEXT);
+        legacyImage.setContentDescription("msime-test-legacy-image");
+        legacyImage.setHint("Editor that accepts undeclared images");
+        showImeOnFocus(legacyImage);
+        layout.addView(legacyImage);
         // 学微信聊天输入框的输入框：不声明 contentMimeTypes，只在 extras 里写 SUPPORT_SOGOU_EXPRESSION = 1，经私有命令收表情；读到的图片同样写进上面的状态行，前缀是 expression。
         EditText expression = new ExpressionEditText(this);
         expression.setInputType(InputType.TYPE_CLASS_TEXT);
@@ -259,6 +266,21 @@ public final class EditorActivity extends Activity {
         @Override public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
             InputConnection connection = super.onCreateInputConnection(outAttrs);
             outAttrs.contentMimeTypes = new String[] {"image/png", "image/gif"};
+            if (connection == null) return null;
+            return new InputConnectionWrapper(connection, false) {
+                @Override public boolean commitContent(InputContentInfo content, int flags, Bundle options) {
+                    return receiveImage(content, flags);
+                }
+            };
+        }
+    }
+
+    /** 不在 EditorInfo 里声明图片类型，但仍接受输入法提交的图片。 */
+    private final class LegacyImageEditText extends EditText {
+        LegacyImageEditText(Context context) { super(context); }
+
+        @Override public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            InputConnection connection = super.onCreateInputConnection(outAttrs);
             if (connection == null) return null;
             return new InputConnectionWrapper(connection, false) {
                 @Override public boolean commitContent(InputContentInfo content, int flags, Bundle options) {

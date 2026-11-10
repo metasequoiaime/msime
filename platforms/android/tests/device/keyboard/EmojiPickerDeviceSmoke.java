@@ -205,6 +205,18 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(description("按键 表情 😀").and(AccessibilityNodeInfo::isClickable));
         tap(description("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
+
+        stage = "sticker direct send when editor omits image mime declaration";
+        tap(field("msime-test-legacy-image"));
+        await(key("n").and(AccessibilityNodeInfo::isClickable));
+        tap(description("表情"));
+        await(description("表情面板"));
+        tap(description(STICKER_TAB));
+        await(description("表情网格；" + STICKER_TAB + "，每行 5 个"));
+        tap(description("水杉娘 开心"));
+        String received = awaitImageStatus("received:");
+        if (!received.startsWith("received:image/png:image/png:"))
+            throw new AssertionError("undeclared image editor received " + received);
     }
 
     /** 再次打开与重启后都默认停在常用，无需额外切分类。 */
@@ -265,6 +277,12 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> description(String value) {
         return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText(value, node.getContentDescription());
+    }
+
+    private String awaitImageStatus(String prefix) {
+        AccessibilityNodeInfo node = await(field("msime-test-image-status").and(candidate ->
+            candidate.getText() != null && candidate.getText().toString().startsWith(prefix)));
+        return node.getText().toString();
     }
 
     private Predicate<AccessibilityNodeInfo> emojiCountAbove(int minimum) {
