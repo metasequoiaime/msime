@@ -99,7 +99,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(document[TouchKeyLayoutStyle.letterWidthsDocumentKey] as? String, "varied")
     // 镜像只认文档：读不到文档时不动，文档里是什么就抄成什么。
     TouchKeyLayoutStyle.mirror(nil)
-    XCTAssertEqual(TouchKeyLayoutStyle.mirrored, TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod))
+    XCTAssertEqual(TouchKeyLayoutStyle.mirrored,
+                   TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod, letterWidths: .varied))
     TouchKeyLayoutStyle.mirror(["touch_number_row": true])
     XCTAssertEqual(TouchKeyLayoutStyle.mirrored, TouchKeyLayoutStyle(numberRow: true))
   }
