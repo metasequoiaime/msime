@@ -60,6 +60,9 @@ public final class SpaceCopyEditorActivity extends Activity {
                 super.onInitializeAccessibilityNodeInfo(info);
                 info.getExtras().putInt("synthetic-copy-attempts", copies);
                 info.getExtras().putInt("synthetic-select-all-attempts", selections);
+                // 系统只为非空文本发布标准选区；合成夹具单独暴露真实 EditText 选区以验证空框。
+                info.getExtras().putInt("synthetic-selection-start", getSelectionStart());
+                info.getExtras().putInt("synthetic-selection-end", getSelectionEnd());
             }
         };
         editor.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra("password", false)

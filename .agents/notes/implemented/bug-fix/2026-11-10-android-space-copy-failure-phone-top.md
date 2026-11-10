@@ -30,3 +30,6 @@ Status: implemented
 ## Device evidence
 
 运行 `42787159009` 的 API 28 通过 Rust 设备单测及崩溃专项，但新增提示断言停在拒绝复制的编辑器上。[Android 9 的跨进程 `InputConnectionWrapper.performContextMenuAction`](https://android.googlesource.com/platform/frameworks/base/+/android-9.0.0_r1/core/java/com/android/internal/view/InputConnectionWrapper.java) 只把命令发给编辑器并返回 true，不回传编辑器自身的拒绝结果，因此这不能作为提示必现的前提。原有拒绝复制、剪贴板不能被输入法自行改写的断言保留；提示出现、位置、自动消失和稳定性改在 issue 对应的空输入框上验证。空输入框的完整提取快照长度为零，`EditorCopyAll` 会明确拒绝复制，不依赖跨进程布尔回传。首次检查帧与成功提示帧分别保留，便于识别通知未出现还是旧系统像素检测未识别。
+
+
+API 35 的 `42791187286` 已实际通过顶部位置、键盘边界、焦点与自动消失检查，并取得提示截图；失败发生在随后新增的空框选区检查。Android 15 的 [`View.onInitializeAccessibilityNodeInfoInternal`](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android15-release/core/java/android/view/View.java) 只有 `text.length() > 0` 时才写标准 `textSelection`，空框节点返回 -1 不代表 EditText 光标被移动。合成编辑器通过节点 extras 暴露自身 `getSelectionStart/End()`，空框用例要求真实选区仍为 0:0、文本为空、焦点保留；旧的所有非空选区断言不变。修正后仍需双 API 专项通过，不把已通过的提示子检查冒充整套成功。
