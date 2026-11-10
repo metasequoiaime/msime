@@ -19,12 +19,18 @@ public final class ClipboardSelectionPolicy {
         return selectedCount >= 1 && selectedCount <= MAX_INSERTIONS;
     }
 
-    /** 第 `index` 个选中项（从 0 起）的角标：①、②……⑳。 */
+    /** 第 `index` 个可插入选中项（从 0 起）的角标；超过插入上限不再画角标。 */
     public static String ordinalLabel(int index) {
         if (index < 0 || index >= MAX_SELECTIONS) {
             throw new IllegalArgumentException("ordinal index out of range: " + index);
         }
+        if (index >= MAX_INSERTIONS) return "";
         return String.valueOf((char) (FIRST_CIRCLED_DIGIT + index));
+    }
+
+    /** 选中项是否应在卡片右上角画插入序号。 */
+    public static boolean hasOrdinalBadge(int index) {
+        return index >= 0 && index < MAX_INSERTIONS;
     }
 
     /**
@@ -50,7 +56,7 @@ public final class ClipboardSelectionPolicy {
         return joined.toString();
     }
 
-    /** 选中项超过插入上限、「插入」置灰时给的提示；导出和删除不受这个上限影响。 */
+    /** 判断是否刚越过插入上限，供需要区分首次越界的调用方使用。 */
     public static final String INSERTION_LIMIT_HINT = "一次最多插入 " + MAX_INSERTIONS + " 项，导出和删除不受影响";
 
     /**
