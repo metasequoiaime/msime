@@ -8,6 +8,9 @@ void MSIMEUsageReportingStart(NSString *_Nullable preferencesDirectory);
 // 原生回退设置窗口的独立采集与补报，不建立输入会话；授权观察、异常和 SIGTERM 处置与输入法共用。
 void MSIMESettingsCrashReportingStart(NSString *_Nullable preferencesDirectory);
 
+// 收到 SIGTERM、结束会话之后怎么退出。输入法进程登记 `MSIMEExitByKill`（ProcessExitGuard.h）：按 SIGTERM 退出会被 imklaunchagent 记一次死亡，设置应用每次安装、更新、修复都 `pkill` 一次。不登记或传 NULL 时按 SIGTERM 原样退出。登记的函数不得返回。
+void MSIMEUsageReportingSetTerminationExit(void (*_Nullable exit)(void));
+
 // 进程正常结束：输入法排进本次会话的 `session` 事件，独立设置仅停止采集。可以调用多次。
 void MSIMEUsageReportingStop(void);
 

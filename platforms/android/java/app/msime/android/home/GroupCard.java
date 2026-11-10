@@ -165,6 +165,32 @@ public final class GroupCard {
         return add(row);
     }
 
+    /**
+     * 导航加开关行：点文字区进下一页，行尾的开关单独切换，两个触控目标互不相干；值放在标题和说明下面，开关排在 › 前面。开关有自己的读屏名称 `switchLabel`（要点名是哪一项，例如「启用「某插件」」），读屏用户不进下一页也知道它开关的是什么。只停用开关、保留导航用 {@link Row#setToggleEnabled}。
+     */
+    public Row navToggle(CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence value,
+            Runnable action, boolean checked, CharSequence switchLabel, Consumer<Boolean> onChange) {
+        Row row = new Row(this, title, subtitle, false);
+        row.value = trailingValue(row, value, true);
+        MsSwitch control = new MsSwitch(context);
+        control.setChecked(checked);
+        control.setContentDescription(switchLabel);
+        // 开关自己接收点按和拖动，触控区不小于 48dp。
+        int target = DimensionPolicy.pixels(context, 48);
+        control.setMinimumWidth(target);
+        control.setMinimumHeight(target);
+        row.toggleChange = (button, on) -> onChange.accept(on);
+        control.setOnCheckedChangeListener(row.toggleChange);
+        row.view.addView(control, LayoutPolicy.rowGapParams(context, Ui.ROW_GAP));
+        row.toggle = control;
+        ImageView chevron = ImageViewPolicy.chevron(context, ThemeColorPolicy.subText(context));
+        LinearLayout.LayoutParams params = LayoutPolicy.squareParams(context, Ui.CHEVRON_SIZE);
+        params.setMarginStart(DimensionPolicy.pixels(context, 6));
+        row.view.addView(chevron, params);
+        row.setAction(action);
+        return add(row);
+    }
+
     /** 值行：只显示，行尾是值，不能点。 */
     public Row value(CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence value) {
         Row row = new Row(this, title, subtitle, false);
@@ -321,6 +347,8 @@ public final class GroupCard {
         private boolean tipGesture;
         @Nullable private TextView value;
         @Nullable private MsSwitch toggle;
+        /** 导航加开关行里开关自己的监听；从代码里改状态时先摘掉。 */
+        @Nullable private android.widget.CompoundButton.OnCheckedChangeListener toggleChange;
         @Nullable private MsSlider slider;
         @Nullable private TextView button;
 
@@ -405,7 +433,15 @@ public final class GroupCard {
 
         /** 开关行从代码里改状态，不触发回调。 */
         public void setChecked(boolean checked) {
-            if (toggle != null) toggle.setChecked(checked);
+            if (toggle == null) return;
+            toggle.setOnCheckedChangeListener(null);
+            toggle.setChecked(checked);
+            toggle.setOnCheckedChangeListener(toggleChange);
+        }
+
+        /** 导航加开关行只停用开关：开关变淡、不响应，整行仍然能点进下一页。 */
+        public void setToggleEnabled(boolean enabled) {
+            if (toggle != null) ViewPolicy.setEnabledWithAlpha(toggle, enabled, 0.38f);
         }
 
         /** 滑块行从代码里改值，标签随之刷新，不触发保存。 */

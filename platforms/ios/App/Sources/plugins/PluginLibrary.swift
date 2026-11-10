@@ -63,6 +63,16 @@ import SwiftUI
     update { PluginCatalogPolicy.setTable(pack.kind, id: pack.id, enabled: enabled, document: &$0) }
   }
 
+  /// 在「我的插件」的一组里拖动之后保存整份展示顺序；顺序没变时不写。写不进去、或 client-core 不收这份顺序时返回 false。
+  func movePacks(in group: PluginGroup, from source: IndexSet, to destination: Int) -> Bool {
+    let current = PluginOrderPolicy.orderedKeys(catalog.packages, order: preferences.pluginOrder)
+    let next = PluginOrderPolicy.reordered(catalog.packages, order: preferences.pluginOrder, group: group.packs.map(\.key),
+                                           from: source, to: destination)
+    guard next != current else { return true }
+    guard PluginOrderPolicy.isWritable(next) else { return false }
+    return update { PluginOrderPolicy.setOrder(next, document: &$0) }
+  }
+
   /// 设为当前音效包：写 `plugins.key_sound.pack`，并打开按键音开关（选用即使用，与桌面「设为当前音效包」同时打开按键音一样）。
   func chooseKeySound(_ pack: PluginPackage) -> Bool {
     let saved = update { KeySoundPackPolicy.choose(pack.id, document: &$0) }

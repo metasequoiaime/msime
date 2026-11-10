@@ -43,9 +43,9 @@ public final class DeviceInfoReportSmoke {
         System.out.println("Android device info report passed");
     }
 
-    /** 键盘子面板：九项可单独插入，中英标签只换标签和说明，值不翻译；读不到写「未知」或「Unknown」。 */
+    /** 键盘子面板：十项可单独插入，中英标签只换标签和说明，值不翻译；读不到写「未知」或「Unknown」。 */
     static void keyboardFields() {
-        check(DeviceInfoReport.INSERTABLE.equals(List.of(Field.BRAND, Field.MODEL, Field.ANDROID, Field.ABIS,
+        check(DeviceInfoReport.INSERTABLE.equals(List.of(Field.APP_VERSION, Field.BRAND, Field.MODEL, Field.ANDROID, Field.ABIS,
             Field.STORAGE, Field.MEMORY, Field.WEBVIEW, Field.CPU, Field.DISPLAY)), "nine insertable fields in issue order");
         Item memory = new Item(Field.MEMORY, DeviceInfoReport.memory(8_000_000_000L, Language.CHINESE),
             DeviceInfoReport.memory(8_000_000_000L, Language.ENGLISH));
@@ -58,6 +58,10 @@ public final class DeviceInfoReportSmoke {
             "unknown display group stays on one line");
 
         equal(DeviceInfoReport.appVersion("0.2.2", 1234, "full", Language.ENGLISH), "0.2.2 (1234) · full", "english version");
+        equal(DeviceInfoReport.appVersion("0.2.2", 1234, "full", "2026-11-10T01:02:03Z", Language.CHINESE),
+            "0.2.2（1234） · full\n构建时间：2026-11-10T01:02:03Z", "version and build time");
+        equal(DeviceInfoReport.appVersion("0.2.2", 1234, "full", "2026-11-10T01:02:03Z", Language.ENGLISH),
+            "0.2.2 (1234) · full\nBuild time: 2026-11-10T01:02:03Z", "english version and build time");
         equal(DeviceInfoReport.android("11", 30, Language.ENGLISH), "Android 11 (API 30)", "english android");
         equal(DeviceInfoReport.android(null, 30, Language.ENGLISH), "Android Unknown (API 30)", "english unknown release");
         equal(DeviceInfoReport.abis(new String[] {"arm64-v8a", "armeabi-v7a"}, Language.ENGLISH), "arm64-v8a, armeabi-v7a", "english abis");

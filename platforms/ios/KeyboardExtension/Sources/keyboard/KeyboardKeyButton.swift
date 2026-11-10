@@ -261,6 +261,8 @@ final class KeyboardKeyButton: UIButton {
   var cornerHintSwipeDirection: KeyboardLayoutPreference.SwipeDirection = .up
   /// 为真时上滑、下滑都输入角标，不看 `cornerHintSwipeDirection`，纵向位移还要大于横向，按满 `cornerHintHoldDelay` 还没滑出去就不再起滑动（`SwipeHintPolicy.swipedEitherWay`）。「长空格」的逗号用它，与 Android 的 `ImeBottomRow.bindCommaSwipe` 一致。
   var cornerHintSwipesEitherWay = false
+  /// 14/18 键同时保留双字母横滑，因此纵向角标滑动必须明显强于横向移动；26 键保持原有判定。
+  var cornerHintRequiresVerticalDominance = false
   /// 按住是否输入角标。为假时角标只靠滑动输入，按住留给按键自己的长按菜单（`menu`），例如 14 键「长空格」的逗号：上滑或下滑输入句号，长按仍打开常用标点。
   var holdsCornerHint = true
 
@@ -383,6 +385,9 @@ final class KeyboardKeyButton: UIButton {
 
   private func cornerHintSwiped(_ touch: UITouch) -> Bool {
     let current = touch.location(in: nil)
+    if cornerHintRequiresVerticalDominance {
+      guard abs(current.y - cornerHintDown.y) > abs(current.x - cornerHintDown.x) else { return false }
+    }
     guard cornerHintSwipesEitherWay else {
       return SwipeHintPolicy.swiped(direction: cornerHintSwipeDirection, downY: cornerHintDown.y, currentY: current.y)
     }
