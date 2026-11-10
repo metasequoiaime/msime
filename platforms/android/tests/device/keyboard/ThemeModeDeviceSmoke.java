@@ -15,11 +15,69 @@ import org.json.JSONObject;
 
 /** 仅在专用 AVD 上切换系统深浅，验证真实键盘、候选与皮肤列表同步刷新。 */
 public final class ThemeModeDeviceSmoke extends DeviceSmoke {
+    private boolean tracedCompositionEditor;
+    private final java.util.ArrayDeque<String> syntheticEvents = new java.util.ArrayDeque<>();
+
+    /** 只记录本套件合成编辑器的选区和输入法控件点击，不收集文字内容。 */
+    private void recordSyntheticEvent(android.view.accessibility.AccessibilityEvent event) {
+        int kind = event.getEventType();
+        boolean selection = kind == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
+            && equalsText("app.msime.android.test", event.getPackageName());
+        boolean click = kind == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED
+            && equalsText("app.msime.android", event.getPackageName());
+        if (!selection && !click) return;
+        AccessibilityNodeInfo source = event.getSource();
+        if (selection && (source == null || !equalsText("msime-test-plain", source.getContentDescription()))) return;
+        String entry = SystemClock.uptimeMillis() + " " + (selection ? "selection" : "click")
+            + " " + event.getFromIndex() + ":" + event.getToIndex()
+            + " " + event.getClassName() + " "
+            + (source == null ? "source-unavailable" : source.getContentDescription());
+        synchronized (syntheticEvents) {
+            if (syntheticEvents.size() == 60) syntheticEvents.removeFirst();
+            syntheticEvents.addLast(entry);
+        }
+    }
+
+    /** 只记录合成编辑器中的首次覆盖，区分点击夹具与异步回声触发，不关闭面板或放宽配色断言。 */
+    private void traceCompositionEditor() {
+        if (tracedCompositionEditor || !visible(described("拼写编辑面板"))) return;
+        tracedCompositionEditor = true;
+        android.os.Bundle diagnostic = new android.os.Bundle();
+        diagnostic.putString("theme_first_composition_overlay", stage);
+        AccessibilityNodeInfo editor = await(field("msime-test-plain"));
+        diagnostic.putInt("editor_selection_start", editor.getTextSelectionStart());
+        diagnostic.putInt("editor_selection_end", editor.getTextSelectionEnd());
+        synchronized (syntheticEvents) {
+            diagnostic.putString("theme_synthetic_events", String.join("\n", syntheticEvents));
+        }
+        sendStatus(0, diagnostic);
+        try { shellDiscard("screencap -p /data/local/tmp/msime-theme-first-overlay.png"); }
+        catch (Exception failure) { throw new AssertionError("无法保存合成编辑器覆盖现场", failure); }
+    }
+
+    @Override protected void tap(Predicate<AccessibilityNodeInfo> match)
+            throws java.util.concurrent.TimeoutException {
+        AccessibilityNodeInfo target = awaitAny(match);
+        synchronized (syntheticEvents) {
+            if (syntheticEvents.size() == 60) syntheticEvents.removeFirst();
+            syntheticEvents.addLast(SystemClock.uptimeMillis() + " before-tap " + stage
+                + " " + target.getClassName() + " " + target.getContentDescription());
+        }
+        boolean letterKey = target.getContentDescription() != null
+            && target.getContentDescription().toString().startsWith("字母 ");
+        super.tap(match);
+        traceCompositionEditor();
+        if (letterKey && visible(described("拼写编辑面板")))
+            throw new AssertionError("普通字母输入不得自动打开拼写编辑面板");
+    }
+
     @Override protected String successDescription() {
         return "light-dark-light keyboard and candidate colours, skin picker filtering and live emoji colour preference";
     }
 
     @Override protected void runChecks() throws Exception {
+        verifyKeyTarget();
+        automation.setOnAccessibilityEventListener(this::recordSyntheticEvent);
         JSONObject missingDesign = new JSONObject().put("global_theme", "paper")
             .put("android_keyboard_skin_dark", "design:missing-synthetic");
         if (!"paper".equals(KeyboardSkinModeChoice.selected(missingDesign, true, List.of()).theme()))
@@ -121,7 +179,10 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             awaitColour(described("表情面板"), lightEmoji);
             stage = "keyboard skin choices repaint the candidate strip";
             restartIme();
+            stage = "refocus existing editor after emoji checks";
+            traceCompositionEditor();
             tap(field("msime-test-plain"));
+            stage = "keyboard skin choices repaint the candidate strip";
             synthetic.put("theme", "system").put("emoji_theme", "follow")
                 .put("android_keyboard_skin_light", "theme:paper")
                 .put("android_keyboard_skin_dark", "theme:night");
@@ -148,12 +209,42 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             tap(key("n"));
             tap(key("i"));
             awaitColour(describedPrefix("候选 1："), lightCandidate);
+            shellDiscard("screencap -p /data/local/tmp/msime-theme-mode-success.png");
+        } catch (Exception | AssertionError failure) {
+            // finally 会离开合成编辑器；先留下失败当时的画面，避免事后只能看到已恢复的首页。
+            try { shellDiscard("screencap -p /data/local/tmp/msime-theme-mode-failure.png"); }
+            catch (Exception captureFailure) { failure.addSuppressed(captureFailure); }
+            throw failure;
         } finally {
+            automation.setOnAccessibilityEventListener(null);
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             shellDiscard("cmd uimode night no");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
+    }
+
+    /** 同文字的原始拼写候选不能满足按键查询；数字层等真正按钮仍可由原有描述找到。 */
+    @SuppressWarnings("deprecation")
+    private void verifyKeyTarget() {
+        AccessibilityNodeInfo node = AccessibilityNodeInfo.obtain();
+        try {
+            node.setPackageName("app.msime.android");
+            node.setClassName("android.widget.Button");
+            node.setText("N");
+            node.setContentDescription("候选 1：N");
+            if (key("n").test(node)) throw new AssertionError("原始拼写候选被当作字母键");
+            node.setContentDescription("字母 N");
+            if (!key("n").test(node)) throw new AssertionError("大写键面不能按小写输入查找");
+            node.setText("n");
+            if (!key("n").test(node)) throw new AssertionError("小写键面不可查找");
+            node.setClassName("android.widget.TextView");
+            if (key("n").test(node)) throw new AssertionError("读音行被当作字母键");
+            node.setClassName("android.widget.Button");
+            node.setText("A");
+            node.setContentDescription("按键 A");
+            if (!key("a").test(node)) throw new AssertionError("数字层字母按钮不可查找");
+        } finally { node.recycle(); }
     }
 
     private void awaitGone(Predicate<AccessibilityNodeInfo> match) {
@@ -185,6 +276,7 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
     }
 
     private Rect bounds(Predicate<AccessibilityNodeInfo> match) {
+        traceCompositionEditor();
         Rect result = new Rect();
         awaitStableBounds(match).getBoundsInScreen(result);
         return result;
@@ -229,6 +321,14 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Control did not restore its light-mode colour: expected="
-            + Integer.toHexString(expected) + ", actual=" + Integer.toHexString(actual));
+            + Integer.toHexString(expected) + ", actual=" + Integer.toHexString(actual)
+            + ", description=" + awaitStableBounds(match).getContentDescription()
+            + ", bounds=" + bounds(match) + ", emojiVisible=" + visible(described("表情面板")));
+    }
+
+    private boolean visible(Predicate<AccessibilityNodeInfo> match) {
+        for (var window : automation.getWindows())
+            if (find(window.getRoot(), match) != null) return true;
+        return false;
     }
 }
