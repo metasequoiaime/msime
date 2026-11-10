@@ -98,6 +98,7 @@ jobs:
           # 整套跑一个多小时，默认缓冲只留得住最后十几分钟；2026-10-28 剪贴板导出的间歇失败发生在 00:51，失败后收的 logcat 从 01:07 才开始，输入法那段日志已被冲掉。调大主缓冲，收日志时还看得到中途失败的那一段。
           "$adb" -s "$serial" logcat -G 32M || true
       - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
+        if: ${{ matrix.smoke != '--key-faces' }}
         run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
       - name: Build the APK
         # 两个 API 级别的 NumberPadDeviceSmoke 都会切换笔画和注音键面，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。背单词的设备验收（SettingsDeviceSmoke -e vocabulary true）要读 APK 里的内置词书，所以也生成词书并要求它们进包。
@@ -116,7 +117,7 @@ jobs:
           bash platforms/android/build-apk.sh "$resource_dir"
       # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
       - name: Verify crash reporting before the full input smoke
-        if: ${{ matrix.smoke != '--pr' }}
+        if: ${{ matrix.smoke != '--pr' && matrix.smoke != '--key-faces' }}
         timeout-minutes: 10
         run: |
           set -euo pipefail
@@ -142,6 +143,17 @@ jobs:
         with:
           name: android-device-api${{ matrix.api }}-voice-hold-panel
           path: target/android/voice-hold-panel-api*.png
+          if-no-files-found: ignore
+      - name: Collect synthetic key face examples
+        if: always() && matrix.smoke == '--key-faces' && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/key-faces
+          "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull /sdcard/Android/data/app.msime.android/files/shuangpin-uniform-key-faces.png target/android/key-faces/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--key-faces'
+        with:
+          name: android-device-api${{ matrix.api }}-key-faces
+          path: target/android/key-faces/
           if-no-files-found: ignore
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
