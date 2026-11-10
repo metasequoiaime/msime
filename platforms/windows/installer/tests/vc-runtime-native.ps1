@@ -30,8 +30,8 @@ foreach ($compiler in $compilers) {
 $versions = [ordered]@{
     'old' = '14.29.30133.0'
     'old-minor' = '14.50.35719.0'
-    'before-minimum' = '14.51.36230.65535'
-    'minimum' = '14.51.36231.0'
+    'before-minimum' = '14.51.36243.65535'
+    'minimum' = '14.51.36244.0'
     'reporter-fixed' = '14.51.36247.0'
     'new-minor' = '14.52.0.0'
 }

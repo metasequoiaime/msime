@@ -36,3 +36,6 @@ WebView2 保持原来的可选继续策略。VC 缺失或过旧时交互安装�
 原生探针首次 CI 在 Inno 6 编译成功后运行失败，但夹具没有输出结果文件内容，无法区分边界判断和系统目录错误。补齐探针退出码、合成文件实际版本及安装器日志；三种架构组合汇总失败，并提前读取 CRT 头文件，保留原边界断言，避免一次只得到一个缺少上下文的失败。
 
 进一步核对 [PowerShell 7.6 的 AddType.cs](https://github.com/PowerShell/PowerShell/blob/v7.6.0/src/Microsoft.PowerShell.Commands.Utility/commands/utility/AddType.cs)：落盘调用 `compilation.Emit(peStream: fs, options: emitOptions)`，没有传 Win32 资源流。原夹具只有托管程序集属性，不能用来验证原生 `GetVersionNumbers`。改由系统 .NET Framework `csc.exe` 生成携带真正文件版本资源的合成 DLL，原版本边界与缺失文件断言不变；设备结果仍待重新运行。
+
+
+Windows 原生验证 `42805626142` 的 Inno 6 x86、Inno 7 x86/x64 三组边界及原生系统目录检查均通过；当前最新 MSVC 的 CRT 头文件版本是 `14.51.36244.0`，确实晚于工具集目录候选值 `14.51.36231.0`。按此证据把安装门槛更新为 `14.51.36244.0`，边界夹具改为 `14.51.36243.65535` 拒绝、`14.51.36244.0` 接受；报告者通过的 `14.51.36247.0` 仍需接受。前一运行红在下限与实际 CRT 的一致性检查，未删掉该检查。这里确定的是当前构建工具链对应的支持门槛，不是对所有旧运行库逐个测试得到的最低无崩溃版本。
