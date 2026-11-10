@@ -2338,9 +2338,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     }
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
-    _sharedCantoneseSimplifiedOutput = nil;
     id cantoneseSimplified = preferences[@"cantonese_simplified_output"];
-    if (LocalModeBoolean(cantoneseSimplified)) _sharedCantoneseSimplifiedOutput = cantoneseSimplified;
+    if (cantoneseSimplified == nil) _sharedCantoneseSimplifiedOutput = nil;
+    else if (LocalModeBoolean(cantoneseSimplified)) _sharedCantoneseSimplifiedOutput = cantoneseSimplified;
     // 缺省 s2t 不写进文档；缺键或认不出的值都按 s2t，避免上次的 s2tw 粘在会话里。
     id variant = preferences[@"traditional_chinese_variant"];
     if ([@[@"s2t", @"s2tw", @"s2twp"] containsObject:variant])
