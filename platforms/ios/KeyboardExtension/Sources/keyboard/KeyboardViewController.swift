@@ -557,6 +557,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyPunctuationRowShown = false
   /// 「按键布局」（`TouchKeyLayoutStyle`）：三类键面的底行样式和顶部数字行。键盘出现和重载文档时从共享文档同步，画键时不读 App Group。
   private var keyLayoutStyle = TouchKeyLayoutStyle.mirrored
+  /// 14/18 键三排字母键的宽度分法，来自共享偏好 `touch_fourteen_key_letter_widths`。
+  private var letterGridWidthMode: TouchFourteenKeyLetterWidths = .equal
+  private struct LetterGridRowLayout {
+    let row: UIStackView
+    let grid: LetterKeyGrid
+    let keys: [FourteenKeyLayout.Key]
+    let buttons: [UIButton]
+    let leadingSpacer: KeyRoutingSpacer?
+    let trailingSpacer: KeyRoutingSpacer?
+  }
+  private var letterGridRowLayouts: [LetterGridRowLayout] = []
+  private var letterGridWidthConstraints: [NSLayoutConstraint] = []
+  private var fourteenKeyEqualConstraints: [NSLayoutConstraint] = []
   /// 非标准样式底行的宽度约束，按 `TouchBottomRowLayout` 的一行缓存，换样式或换键面时整组停用再启用另一组。
   private var styledActionWidthCache: [[TouchBottomRowLayout.Key]: [NSLayoutConstraint]] = [:]
   /// 借来的数字九宫格在另两种空格位置下的宽度约束（`borrowedNumberPadWidths`）。
@@ -961,6 +974,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     TouchWubiLayoutPreference.mirror(session.sharedPreferences)
     TouchKeyLayoutStyle.mirror(session.sharedPreferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
+    letterGridWidthMode = keyLayoutStyle.letterWidths
     NineKeySwipeDigits.mirror(session.sharedPreferences)
     nineKeySwipeDigits = NineKeySwipeDigits.mirrored
     // 输入习惯（学习、调频、离线释义、候选翻译与语言）同理以文档为准。镜像里没写过释义开关时读作开启，而文档默认关闭（`candidate_english_gloss` 是 opt-in）；不先抄过来，下面按镜像算出的顶栏会多留一行释义，键盘高 4pt，等后台重载把文档抄进镜像后又缩回去，文档没有更新时重载不抄，就一直按镜像显示释义。
@@ -1841,6 +1855,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let buttons: [UIButton] = letterButtons.map { $0.button } + letterGridButtons.map { $0.button }
       for button in buttons {
         applyLetterFont(to: button)
+        if let entry = letterGridButtons.first(where: { $0.button === button }) {
+          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme == .microsoft)
+        }
         button.setNeedsUpdateConfiguration()
       }
     }
@@ -3429,6 +3446,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let prefix = grid == .eighteenKey ? "eighteenKey" : "fourteenKey"
     let row = makeRow()
     row.accessibilityIdentifier = "\(prefix)Row"
+    var buttons: [UIButton] = []
     for key in keys {
       let button = makeKey(title: key.face, accessibilityLabel: key.accessibilityLabel) { [weak self] in
         self?.countKeyPress(key.keyID)
@@ -3463,9 +3481,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.addGestureRecognizer(swipe)
       }
       letterGridButtons.append((button, key))
+      buttons.append(button)
       row.addArrangedSubview(button)
     }
-    guard includesEdges else { return row }
+    var leadingSpacer: KeyRoutingSpacer?
+    var trailingSpacer: KeyRoutingSpacer?
+    if !includesEdges {
+      let leading = KeyRoutingSpacer()
+      let trailing = KeyRoutingSpacer()
+      leading.isHidden = true
+      trailing.isHidden = true
+      leading.owner = buttons.first
+      trailing.owner = buttons.last
+      row.insertArrangedSubview(leading, at: 0)
+      row.addArrangedSubview(trailing)
+      leadingSpacer = leading
+      trailingSpacer = trailing
+    }
+    guard includesEdges else {
+      letterGridRowLayouts.append(LetterGridRowLayout(row: row, grid: grid, keys: keys, buttons: buttons,
+                                                       leadingSpacer: leadingSpacer, trailingSpacer: trailingSpacer))
+      return row
+    }
     let separator = makeKey(title: "", accessibilityLabel: "", function: true) { [weak self] in
       self?.handleFourteenKeySeparator()
     }
@@ -3478,16 +3515,84 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "\(prefix)Delete"
     row.addArrangedSubview(delete)
-    // 18 键第三排的七个键按 `fillEqually` 等分，与上面两排的键同宽。
-    guard grid == .fourteenKey else { return row }
+    // 18 键第三排的分词、五个字母和退格也要纳入宽窄约束；等宽时仍由 `fillEqually` 等分。
+    guard grid == .fourteenKey else {
+      letterGridRowLayouts.append(LetterGridRowLayout(row: row, grid: grid, keys: keys, buttons: buttons,
+                                                       leadingSpacer: nil, trailingSpacer: nil))
+      return row
+    }
     row.distribution = .fill
     let letters = Array(row.arrangedSubviews.dropFirst().dropLast())
-    NSLayoutConstraint.activate(letters.dropFirst().map { $0.widthAnchor.constraint(equalTo: letters[0].widthAnchor) })
+    let equalConstraints = letters.dropFirst().map { $0.widthAnchor.constraint(equalTo: letters[0].widthAnchor) }
+    NSLayoutConstraint.activate(equalConstraints)
+    fourteenKeyEqualConstraints += equalConstraints
     fourteenKeyEdgeWidths = [separator, delete].map { edge in
       (phone: edge.widthAnchor.constraint(equalToConstant: Self.phoneLetterEdgeWidth),
        tablet: edge.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: Self.tabletFourteenKeyEdgeRatio))
     }
+    buttons = row.arrangedSubviews.compactMap { $0 as? UIButton }.filter { $0 !== separator && $0 !== delete }
+    letterGridRowLayouts.append(LetterGridRowLayout(row: row, grid: grid, keys: keys, buttons: buttons,
+                                                     leadingSpacer: nil, trailingSpacer: nil))
     return row
+  }
+
+  /// 按共享偏好重排 14/18 键。占位格由 `KeyRoutingSpacer` 转发给同排最外侧的键，切换宽度不会影响正在组的字。
+  private func applyLetterGridWidths() {
+    guard !letterGridRowLayouts.isEmpty else { return }
+    NSLayoutConstraint.deactivate(letterGridWidthConstraints)
+    letterGridWidthConstraints.removeAll(keepingCapacity: true)
+    let groups = Dictionary(grouping: letterGridRowLayouts, by: \.grid)
+    for (grid, rows) in groups {
+      guard let first = rows.first, let reference = first.buttons.first(where: { button in
+        first.keys[first.buttons.firstIndex(of: button) ?? 0].letters.count > 1
+      }) ?? first.buttons.first else { continue }
+      let firstWeight = first.keys.reduce(CGFloat.zero) { $0 + letterGridWidthMode.weight(for: $1.letters) }
+      let firstKeyCount = first.keys.count
+      for (index, item) in rows.enumerated() {
+        let letterWeight = item.keys.reduce(CGFloat.zero) { $0 + letterGridWidthMode.weight(for: $1.letters) }
+        let rest = letterGridWidthMode == .varied ? max(0, (firstWeight - letterWeight) / 2) : 0
+        // 短行多出的一个键距也要由两端空白承担，所以每个空白减去半个键距。
+        let gapCorrection = letterGridWidthMode == .varied
+          ? -CGFloat(max(0, firstKeyCount - item.keys.count)) * CGFloat(KeyboardLayoutPreference.keySpacing) / 2 : 0
+        item.row.distribution = letterGridWidthMode == .varied || grid == .fourteenKey && index == rows.count - 1 ? .fill : .fillEqually
+        item.leadingSpacer?.isHidden = letterGridWidthMode != .varied || rest <= 0
+        item.trailingSpacer?.isHidden = item.leadingSpacer?.isHidden ?? true
+        if letterGridWidthMode == .varied {
+          for (button, key) in zip(item.buttons, item.keys) {
+            letterGridWidthConstraints.append(button.widthAnchor.constraint(equalTo: reference.widthAnchor,
+                                                                              multiplier: letterGridWidthMode.weight(for: key.letters)))
+          }
+          if index == rows.count - 1 {
+            let controls = item.row.arrangedSubviews.compactMap { $0 as? UIButton }
+            if let leading = controls.first, let trailing = controls.last {
+              letterGridWidthConstraints.append(leading.widthAnchor.constraint(equalTo: reference.widthAnchor,
+                                                                                 multiplier: rest,
+                                                                                 constant: grid == .fourteenKey ? gapCorrection : 0))
+              letterGridWidthConstraints.append(trailing.widthAnchor.constraint(equalTo: reference.widthAnchor,
+                                                                                  multiplier: rest,
+                                                                                  constant: grid == .fourteenKey ? gapCorrection : 0))
+            }
+          }
+          if let leading = item.leadingSpacer, let trailing = item.trailingSpacer {
+            for spacer in [leading, trailing] {
+              letterGridWidthConstraints.append(spacer.widthAnchor.constraint(equalTo: reference.widthAnchor,
+                                                                                multiplier: rest,
+                                                                                constant: gapCorrection))
+            }
+          }
+        }
+      }
+    }
+    if letterGridWidthMode == .varied {
+      NSLayoutConstraint.deactivate(fourteenKeyEqualConstraints)
+      for edge in fourteenKeyEdgeWidths { edge.phone.isActive = false; edge.tablet.isActive = false }
+      NSLayoutConstraint.activate(letterGridWidthConstraints)
+    } else {
+      NSLayoutConstraint.activate(fourteenKeyEqualConstraints)
+      for edge in fourteenKeyEdgeWidths {
+        if keyFaceFormFactor == .tablet { edge.tablet.isActive = true } else { edge.phone.isActive = true }
+      }
+    }
   }
 
   /// iPad 上 14 键第三排两端键占这一排的比例：26 键第三排是 ⇧、七个字母、，。、⇧，两个 ⇧ 各 `TabletLetterLayout.shiftWeight` 个键宽，一个 ⇧ 占这一排的这么多。
@@ -3960,7 +4065,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 「符」与「123」互换、数字键盘空格位置、左侧符号栏的两张表和中/英键在空格哪一边是键位习惯，不随输入框退回：标准底行同样有 符 和中/英，数字框里的数字键盘也按用户选的排法和符号表画。
     return TouchKeyLayoutStyle(numberRow: keyLayoutStyle.numberRow, symbolFirst: keyLayoutStyle.symbolFirst,
                                numberPadSpace: keyLayoutStyle.numberPadSpace, nineKeySidebar: keyLayoutStyle.nineKeySidebar,
-                               digitSidebar: keyLayoutStyle.digitSidebar, languageKeySide: keyLayoutStyle.languageKeySide)
+                               digitSidebar: keyLayoutStyle.digitSidebar, languageKeySide: keyLayoutStyle.languageKeySide,
+                               letterWidths: keyLayoutStyle.letterWidths)
   }
 
   /// 输入框是否保留标准底行：安全输入或内容类型标成密码的框，以及数字键盘、小数键盘和电话键盘这些只收数字的框，对应 Android 的 `EditorPolicy.password` 与 `numberInput`。系统通常不在安全输入框和电话键盘里调用第三方键盘，宿主仍然调用时也按这条退回。不是 private：测试会固定它。
@@ -6324,8 +6430,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     NineKeySwipeDigits.mirror(preferences)
     nineKeySwipeDigits = NineKeySwipeDigits(in: preferences)
     // 「按键布局」：样式或数字行变了，下面的 `updateKeyboardLayoutIfNeeded` 当场重排底行和数字行。只动键面，不碰会话，正在组的字照常继续。
+    let previousLetterGridWidthMode = letterGridWidthMode
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle(in: preferences)
+    letterGridWidthMode = keyLayoutStyle.letterWidths
+    if previousLetterGridWidthMode != letterGridWidthMode {
+      applyLetterGridWidths()
+    }
     // 「大屏单手时侧边显示数字键盘」：变了当场重排单手那一行（`applyOneHanded` 只在排法变了时才动），同样不碰会话。
     oneHandedSidePanel = TouchOneHandedSidePanel(in: preferences)
     applyOneHanded()
@@ -7113,6 +7224,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateKeyboardLayout() {
     ensureAlternateLetterRows()
+    applyLetterGridWidths()
     // 分离与否先定下来：iPad 画横屏分离式键盘时单手让位，单手又决定下面各处按哪种键面画（`keyFaceFormFactor`）。是否分离只看方案、层和设备形态，不看键面。
     splitKeyboardShown = wantsSplitKeyboard
     applyLayoutPreferences()
@@ -7153,6 +7265,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for (button, key) in letterGridButtons {
       button.configuration?.title = key.face(semicolon: semicolon)
       button.accessibilityLabel = key.accessibilityLabel(semicolon: semicolon)
+      applyLetterGridFaceSpacing(to: button, key: key, semicolon: semicolon)
     }
     updateLetterGridCornerHints()
     let numberPad = numberPadShown
@@ -7445,6 +7558,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateSpaceKeyTitle()
     updateToolbarSymbolsEntry()
     updatePreferredKeyboardHeight()
+  }
+
+  /// 双字母键面保持单行但把两个字母稍微分开；微软双拼的 `L;` 使用较小字距，键面字符串和读屏不变。
+  private func applyLetterGridFaceSpacing(to button: UIButton, key: FourteenKeyLayout.Key, semicolon: Bool) {
+    let kern: CGFloat = semicolon && key.letters == "l" ? 0.08 * 22 : (key.letters.count > 1 ? 0.15 * 22 : 0)
+    button.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+      var attributes = attributes
+      attributes.kern = kern
+      return attributes
+    }
   }
 
   /// 「按键布局」选了非标准样式、当前底行正是它作用的那一行时，按 `TouchBottomRowLayout` 排出的键；标准样式、借来的数字九宫格和其他底行为 nil，照原来的约束画，默认底行因此与以前完全相同。中/英键放在空格左边时表最后再过一遍 `TouchBottomRowLayout.languageBeforeSpace`；为 nil 的那些行由 `arrangeActionRow` 对按键视图套同一条规则，宽度约束不看次序，仍是原来那一组。26 键样式只作用于手机的中文 26 键字母层（`drawsChineseTwentySixKey`），14 键样式作用于 14 键和 18 键字母层，九键样式作用于拼音九键、九键双拼和笔画的字母层，其中「右侧大回车」（`tallReturn`）连同它们的数字层一起换成自己的外框。拼音九键、九键双拼和笔画自己的数字层（`nineKeyDigits`）不论样式都按 `TouchBottomRowLayout.nineKeyDigits` 排，符 和切换键与字母层同一格（#10061，与 Android #9113 相同）。密码框和只收数字的框按标准样式画（`activeKeyLayoutStyle`）。

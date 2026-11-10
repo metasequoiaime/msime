@@ -379,6 +379,7 @@ final class ImeFunctionPanel {
             String label = field == DeviceInfoReport.Field.WEBVIEW ? "WebView"
                 : field.label(DeviceInfoReport.Language.CHINESE);
             String glyph = switch (field) {
+                case APP_VERSION -> "版";
                 case BRAND -> "牌";
                 case MODEL -> "型";
                 case ANDROID -> "版";

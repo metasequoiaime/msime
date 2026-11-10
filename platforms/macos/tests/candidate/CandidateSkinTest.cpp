@@ -102,6 +102,9 @@ int main() {
     }
     assert(msime::mac::ResolveCandidateShadow(std::nullopt, false, false, false, 1).nativeWindow);
     assert(!msime::mac::ResolveCandidateShadow(std::nullopt, false, true, false, 1).nativeWindow);
+    assert(msime::mac::CandidateItemVerticalOuterSpacing(0.5) == 3.0f);
+    assert(msime::mac::CandidateItemVerticalOuterSpacing(1.0) == 6.0f);
+    assert(msime::mac::CandidateItemVerticalOuterSpacing(2.0) == 12.0f);
     const auto chevron = msime::mac::CandidatePager(16, 1, 24, true, false);
     assert(chevron.buttonWidth == 12 && chevron.buttonHeight == 14 && chevron.column == 28 && chevron.marginBottom == 5);
     const auto triangle = msime::mac::CandidatePager(16, 1, 24, true, true);
