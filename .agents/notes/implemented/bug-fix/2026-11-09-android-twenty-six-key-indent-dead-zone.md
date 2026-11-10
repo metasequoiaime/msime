@@ -18,6 +18,7 @@ Status: implemented
 
 ## Historical audit
 
+- [Android 26 键第二行与首行等宽](../feature/2026-10-29-android-qwerty-second-row-indent.md)（#10231）：部分重叠。缩进是那次加的（之前第二行铺满整行，没有空白可点空），所以有用户觉得这个问题「以前没有、后来又回来了」。本篇不改那次定下的行形状和键宽，只让缩进里的按下归 A、L；那篇「触摸命中不变」一句只对键帽成立，已就地补上指向本篇的说明。
 - [14/18 键字母键宽度](../feature/2026-11-06-android-fourteen-eighteen-key-letter-widths.md)引入 `KeyboardSpacer` 时写明 26 键缩进这次不变、机制可以直接用；本篇落实，那篇的这句事实已就地更新。
 - [Android 十八键键面](2026-10-31-android-eighteen-key-surface.md)去掉了 18 键的第二排缩进，与本篇无关。
 - [日语罗马字长音键](2026-11-08-android-japanese-romaji-long-vowel.md)让日语第二排十格、不带缩进，与本篇无关。
