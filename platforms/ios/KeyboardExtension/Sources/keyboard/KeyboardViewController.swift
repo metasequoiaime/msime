@@ -10432,7 +10432,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.stateDirectory.map { ($0 as NSString).appendingPathComponent("plugins") }
   }
 
-  /// 键盘扩展没有把图片插进输入框的接口，表情包转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
+  /// 先尝试 iOS 18 的自适应图片字形；宿主输入框没有实现这项富文本能力时，再转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
   private func copySticker(_ sticker: KeyboardStickerCatalog.Sticker) {
     playInputClick()
     guard hasFullAccess else {
@@ -10445,14 +10445,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
         if let png {
-          UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
-          showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+          if self.insertStickerDirectly(png) {
+            self.showDiagnostic("已插入水杉娘「\(sticker.name)」")
+          } else {
+            UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
+            self.showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+          }
         } else {
-          showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
+          self.showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
         }
-        renderCandidateStrip()
+        self.renderCandidateStrip()
       }
     }
+  }
+
+  /// iOS 18 的富文本输入只对声明支持自适应图片字形的编辑器有效；`UITextDocumentProxy`
+  /// 在其他编辑器里仍只有文本接口，所以失败时必须保留剪贴板回退。
+  private func insertStickerDirectly(_ png: Data) -> Bool {
+    guard #available(iOS 18.0, *),
+          let input = textDocumentProxy as? UITextInput,
+          input.supportsAdaptiveImageGlyph == true,
+          let range = input.selectedTextRange,
+          let insert = input.insert else { return false }
+    let glyph = NSAdaptiveImageGlyph(imageContent: png)
+    insert(glyph, range)
+    return true
   }
 
   /// 按键区里的表情面板与键盘明暗一致时透出键盘背景；表情面板单独设成另一种明暗时铺上自己的皮肤底色，否则按键和颜文字会按面板的明暗着色、却画在键盘明暗的背景上。
