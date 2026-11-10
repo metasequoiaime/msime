@@ -57,6 +57,14 @@ fn full_schema() -> AccountPreferenceSchema {
             },
         );
     }
+    for (key, value) in export_desktop_settings_for(DesktopHost::MacOS, &Preferences::default()) {
+        schema
+            .fields
+            .entry(key)
+            .or_insert_with(|| AccountPreferenceField {
+                value_type: value.kind().to_owned(),
+            });
+    }
     schema
 }
 
@@ -1141,9 +1149,11 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
     let exported = export_desktop_settings(&preferences);
-    assert!(exported
-        .keys()
-        .all(|key| key.starts_with("input.") || NEW_SHARED_KEYS.iter().any(|(new, _)| new == key)));
+    assert!(exported.keys().all(|key| {
+        key.starts_with("input.")
+            || NEW_SHARED_KEYS.iter().any(|(new, _)| new == key)
+            || (cfg!(target_os = "macos") && key.starts_with("platform.macos."))
+    }));
     assert!(exported.values().all(|value| !matches!(
         value,
         AccountPreferenceValue::String(text) if text.contains("SENTINEL")
@@ -1923,10 +1933,28 @@ fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
         linux.get("second_third_candidate.keys"),
         Some(&AccountPreferenceValue::String("semicolon_quote".into()))
     );
-    // macOS 的共享设置页与 Linux 是同一套，这八项在 macOS 上都有控件、运行时也读；两个思考强度和三个切换热键本次不同步（见 [`DesktopHost::MacOS`]）。`platform.macos.*` 是原生回退窗口的快照，这里不写。
+    // macOS 的共享设置页与 Linux 是同一套，这八项在 macOS 上都有控件、运行时也读；两个思考强度和三个切换热键本次不同步（见 [`DesktopHost::MacOS`]）。macOS 另外同步候选窗外观，旧版原生窗口用过的 `platform.macos.*` 键也由同一份文档兼容读取。
     let macos = export_desktop_settings_for(DesktopHost::MacOS, &preferences);
-    assert_eq!(macos, linux);
-    assert!(macos.keys().all(|key| !key.starts_with("platform.")));
+    let mut macos_shared = macos.clone();
+    for key in macos
+        .keys()
+        .filter(|key| key.starts_with("platform.macos."))
+    {
+        macos_shared.remove(key);
+    }
+    assert_eq!(macos_shared, linux);
+    for key in [
+        "platform.macos.global_theme",
+        "platform.macos.custom_theme_base",
+        "platform.macos.custom_candidate_skin",
+        "platform.macos.custom_candidate_skin_dark",
+        "platform.macos.candidate_padding_vertical",
+        "platform.macos.candidate_item_corner_radius",
+        "platform.macos.candidate_scale_percent",
+        "platform.macos.candidate_window_fit_content",
+    ] {
+        assert!(macos.contains_key(key), "{key}");
+    }
 }
 
 /// macOS 往返：导出的每一项都应用回来；账号文档里旧版原生窗口上传的 `platform.macos.*`、别的设备选的思考强度和切换热键都不动本机。
@@ -1941,7 +1969,7 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
     );
     settings.insert(
         "platform.macos.global_theme".into(),
-        AccountPreferenceValue::String("dongxue".into()),
+        AccountPreferenceValue::String("night".into()),
     );
     settings.insert(
         "ai_assistant.thinking".into(),
@@ -1976,7 +2004,207 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
     expected.local_modes.date_time_menu = remote.local_modes.date_time_menu;
     expected.second_third_candidate = remote.second_third_candidate;
     expected.translation_ai = remote.translation_ai;
+    expected.global_theme = GlobalTheme::Night;
     assert_eq!(applied.preferences, expected);
+}
+
+#[test]
+fn settings_sync_macos_round_trips_candidate_window_appearance_and_theme() {
+    let local = Preferences::default();
+    let mut remote = Preferences::default();
+    remote.global_theme = GlobalTheme::Night;
+    remote.candidate_theme = SettingsTheme::Dark;
+    remote.custom_theme.base = GlobalTheme::Paper;
+    remote.custom_theme.candidate_skin = Some("synthetic-skin".into());
+    remote.custom_theme.candidate_skin_dark = Some("synthetic-dark".into());
+    remote.candidate_layout = CandidateLayout::Horizontal;
+    remote.candidate_preedit_style = CandidatePreeditStyle::Empty;
+    remote.candidate_count_mode = CandidateCountMode::Adaptive;
+    remote.candidate_page_size = 8;
+    remote.candidate_max_width = 640;
+    remote.candidate_columns = 4;
+    remote.candidate_font_size = 22;
+    remote.candidate_preedit_font_size = 20;
+    remote.candidate_translation_font_size = Some(18);
+    remote.candidate_scale_percent = 150;
+    remote.candidate_opacity_percent = 80;
+    remote.candidate_corner_radius = Some(12);
+    remote.candidate_padding = Some(6);
+    remote.candidate_padding_horizontal = Some(4);
+    remote.candidate_padding_vertical = Some(9);
+    remote.candidate_item_padding_horizontal = Some(3);
+    remote.candidate_item_padding_vertical = Some(5);
+    remote.candidate_item_corner_radius = Some(7);
+    remote.candidate_item_spacing = Some(8);
+    remote.candidate_window_fit_content = true;
+    remote.candidate_follow_cursor = false;
+    remote.show_candidate_page_number = false;
+    remote.show_candidate_status = false;
+    remote.show_app_logo = false;
+    remote.expand_candidates = true;
+    remote.show_candidate_expand_button = false;
+    remote.candidate_font_family = "Synthetic Sans".into();
+    remote.candidate_english_font = Some("Synthetic English".into());
+    remote.candidate_fallback_fonts = vec!["Synthetic Sans".into(), "Synthetic CJK".into()];
+    remote.candidate_font_weight = CandidateFontWeight::Semibold;
+    remote.custom_theme.candidate_colors.text = Some("#112233".into());
+    remote.custom_theme.candidate_colors.accent = Some("#223344".into());
+    remote.custom_theme.candidate_colors.selected = Some("#334455".into());
+    remote.custom_theme.candidate_colors.selected_text = Some("#445566".into());
+    remote.custom_theme.candidate_colors.hover = Some("#556677".into());
+    remote.custom_theme.candidate_colors.surface = Some("#667788".into());
+
+    let settings = export_desktop_settings_for(DesktopHost::MacOS, &remote);
+    let applied = apply_desktop_settings_for(
+        DesktopHost::MacOS,
+        &local,
+        &document(settings),
+        &full_schema(),
+    )
+    .unwrap();
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences.global_theme, remote.global_theme);
+    assert_eq!(applied.preferences.candidate_theme, remote.candidate_theme);
+    assert_eq!(applied.preferences.custom_theme, remote.custom_theme);
+    assert_eq!(
+        applied.preferences.candidate_layout,
+        remote.candidate_layout
+    );
+    assert_eq!(
+        applied.preferences.candidate_preedit_style,
+        remote.candidate_preedit_style
+    );
+    assert_eq!(
+        applied.preferences.candidate_count_mode,
+        remote.candidate_count_mode
+    );
+    assert_eq!(
+        applied.preferences.candidate_page_size,
+        remote.candidate_page_size
+    );
+    assert_eq!(
+        applied.preferences.candidate_max_width,
+        remote.candidate_max_width
+    );
+    assert_eq!(
+        applied.preferences.candidate_columns,
+        remote.candidate_columns
+    );
+    assert_eq!(
+        applied.preferences.candidate_font_size,
+        remote.candidate_font_size
+    );
+    assert_eq!(
+        applied.preferences.candidate_preedit_font_size,
+        remote.candidate_preedit_font_size
+    );
+    assert_eq!(
+        applied.preferences.candidate_translation_font_size,
+        remote.candidate_translation_font_size
+    );
+    assert_eq!(
+        applied.preferences.candidate_scale_percent,
+        remote.candidate_scale_percent
+    );
+    assert_eq!(
+        applied.preferences.candidate_opacity_percent,
+        remote.candidate_opacity_percent
+    );
+    assert_eq!(
+        applied.preferences.candidate_corner_radius,
+        remote.candidate_corner_radius
+    );
+    assert_eq!(
+        applied.preferences.candidate_padding,
+        remote.candidate_padding
+    );
+    assert_eq!(
+        applied.preferences.candidate_padding_vertical,
+        remote.candidate_padding_vertical
+    );
+    assert_eq!(
+        applied.preferences.candidate_item_corner_radius,
+        remote.candidate_item_corner_radius
+    );
+    assert_eq!(
+        applied.preferences.candidate_item_spacing,
+        remote.candidate_item_spacing
+    );
+    assert_eq!(
+        applied.preferences.candidate_window_fit_content,
+        remote.candidate_window_fit_content
+    );
+    assert_eq!(
+        applied.preferences.candidate_follow_cursor,
+        remote.candidate_follow_cursor
+    );
+    assert_eq!(
+        applied.preferences.show_candidate_page_number,
+        remote.show_candidate_page_number
+    );
+    assert_eq!(
+        applied.preferences.show_candidate_status,
+        remote.show_candidate_status
+    );
+    assert_eq!(applied.preferences.show_app_logo, remote.show_app_logo);
+    assert_eq!(
+        applied.preferences.expand_candidates,
+        remote.expand_candidates
+    );
+    assert_eq!(
+        applied.preferences.show_candidate_expand_button,
+        remote.show_candidate_expand_button
+    );
+    assert_eq!(
+        applied.preferences.candidate_font_family,
+        remote.candidate_font_family
+    );
+    assert_eq!(
+        applied.preferences.candidate_english_font,
+        remote.candidate_english_font
+    );
+    assert_eq!(
+        applied.preferences.candidate_fallback_fonts,
+        remote.candidate_fallback_fonts
+    );
+    assert_eq!(
+        applied.preferences.candidate_font_weight,
+        remote.candidate_font_weight
+    );
+}
+
+#[test]
+fn settings_sync_macos_skips_invalid_candidate_values_individually() {
+    let local = Preferences::default();
+    let mut settings = BTreeMap::new();
+    settings.insert(
+        "platform.macos.candidate_max_width".into(),
+        AccountPreferenceValue::Integer(159),
+    );
+    settings.insert(
+        "platform.macos.candidate_color_text".into(),
+        AccountPreferenceValue::String("not-a-color".into()),
+    );
+    settings.insert(
+        "platform.macos.candidate_fallback_fonts".into(),
+        AccountPreferenceValue::String("[1]".into()),
+    );
+    let applied = apply_desktop_settings_for(
+        DesktopHost::MacOS,
+        &local,
+        &document(settings),
+        &full_schema(),
+    )
+    .unwrap();
+    assert_eq!(
+        applied.skipped,
+        vec![
+            "platform.macos.candidate_color_text",
+            "platform.macos.candidate_fallback_fonts",
+            "platform.macos.candidate_max_width",
+        ]
+    );
+    assert_eq!(applied.preferences, local);
 }
 
 /// Linux 往返：导出的每一项都应用回来；Windows 只应用语法模型，云端的 `translation.ai` 等不动本机（Windows 运行时读它，设置里却关不掉）。

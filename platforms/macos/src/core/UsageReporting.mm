@@ -48,9 +48,13 @@ void FlushNow(void)
 
 void Flush(void) { dispatch_async(gQueue, ^{ FlushNow(); }); }
 
-// 恢复默认处置后把 SIGTERM 发给整个进程，结束方式和退出状态与没有接管时一样，launchd 看到的仍是被 SIGTERM 结束。用 kill 而不是 raise：调度队列的工作线程可能屏蔽了 SIGTERM，发给进程才能落到没有屏蔽它的主线程上。
+// 输入法进程登记的退出方式（见 UsageReporting.h 的 MSIMEUsageReportingSetTerminationExit）；没登记时按 SIGTERM 原样退出。
+std::atomic<void (*)(void)> gTerminationExit{nullptr};
+
+// 没登记退出方式时，恢复默认处置后把 SIGTERM 发给整个进程，结束方式和退出状态与没有接管时一样，launchd 看到的仍是被 SIGTERM 结束。用 kill 而不是 raise：调度队列的工作线程可能屏蔽了 SIGTERM，发给进程才能落到没有屏蔽它的主线程上。
 void ExitBySigterm(void)
 {
+    if (auto exit = gTerminationExit.load()) exit();
     signal(SIGTERM, SIG_DFL);
     kill(getpid(), SIGTERM);
 }
@@ -139,6 +143,11 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
 void MSIMESettingsCrashReportingStart(NSString *preferencesDirectory)
 {
     StartReporting(preferencesDirectory, true);
+}
+
+void MSIMEUsageReportingSetTerminationExit(void (*exit)(void))
+{
+    gTerminationExit.store(exit);
 }
 
 void MSIMEUsageReportingStop(void)

@@ -42,6 +42,12 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 14 键角标符号与需求表固定，组码键仍保留原来的键位 id。
+  func testFourteenKeyCornerSymbolsMatchTheSharedTable() {
+    XCTAssertEqual(FourteenKeyLayout.rows.joined().compactMap(\.cornerHint),
+                   [";", "#", "…", "(", ")", "@", "-", "、", ":", "\"", "~", "?", "!", "/"])
+  }
+
   // MARK: - 桥接
 
   /// 桥接层切到 14 键后，按组码打出「你好」；14 键是会话状态，会话重建后仍在。
@@ -332,16 +338,12 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     controller.view.layoutIfNeeded()
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
 
-    // 长按 QW 弹出 q、w，选中先结束组字再上屏字母。
-    let qw = try button("fourteenKeyQW", in: controller)
-    let hold = try XCTUnwrap(qw.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }.first)
-    hold.state = .began
-    controller.perform(NSSelectorFromString("handleFourteenKeyHold:"), with: hold)
-    try button("nineKeyHoldOption-w", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertFalse(wubiComposing(controller), "choosing a letter finished the composition first")
+    // 14 键长按直接输入角标符号；它不会弹出字母选项。
+    let qw = try XCTUnwrap(button("fourteenKeyQW", in: controller) as? KeyboardKeyButton)
+    XCTAssertEqual(qw.cornerHint, ";")
+    XCTAssertFalse((qw.gestureRecognizers ?? []).contains { $0 is UILongPressGestureRecognizer })
 
     // 退格逐键删组码。
-    try tap(["QW", "QW"], in: controller)
     for _ in 0..<2 {
       try button("fourteenKeyDelete", in: controller).sendActions(for: .touchDown)
       try button("fourteenKeyDelete", in: controller).sendActions(for: .touchUpInside)
@@ -532,29 +534,14 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 两个字母的键各有一个长按手势，L 和 M 没有；长按 QW 弹出 q、w，选 w 先结束组字再上屏 w，与九键的长按相同。
-  func testHoldingAKeyOffersItsLettersAndFinishesTheComposition() throws {
+  /// 14 键的角标跟随「显示字母键角标」和「滑动输入符号」，长按不再弹出字母选项。
+  func testLetterGridKeysUseCornerSymbolsInsteadOfLetterMenus() throws {
     let controller = makeController(width: 390)
     for key in FourteenKeyLayout.rows.joined() {
-      let holds = (try button("fourteenKey\(key.face)", in: controller).gestureRecognizers ?? [])
-        .compactMap { $0 as? UILongPressGestureRecognizer }
-      XCTAssertEqual(holds.count, key.holdLetters.isEmpty ? 0 : 1, key.face)
-      XCTAssertEqual(holds.first?.minimumPressDuration ?? KeyboardViewController.nineKeyHoldDuration,
-                     KeyboardViewController.nineKeyHoldDuration)
+      let keyButton = try button("fourteenKey\(key.face)", in: controller)
+      XCTAssertEqual((keyButton as? KeyboardKeyButton)?.cornerHint, key.cornerHint, key.face)
+      XCTAssertFalse((keyButton.gestureRecognizers ?? []).contains { $0 is UILongPressGestureRecognizer }, key.face)
     }
-    try tap(["BN"], in: controller)
-    XCTAssertFalse(preedit(in: controller).isEmpty, "BN started a composition")
-    let qw = try button("fourteenKeyQW", in: controller)
-    let hold = try XCTUnwrap(qw.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }.first)
-    hold.state = .began
-    controller.perform(NSSelectorFromString("handleFourteenKeyHold:"), with: hold)
-    XCTAssertTrue(shown(try button("nineKeyHoldOption-q", in: controller)))
-    let w = try button("nineKeyHoldOption-w", in: controller)
-    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOption-1" },
-                 "a 14-key hold offers the letters only")
-    w.sendActions(for: .primaryActionTriggered)
-    XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
-    XCTAssertFalse(composing(controller), "choosing a letter finished the composition first")
   }
 
   // MARK: - 输入
@@ -684,38 +671,6 @@ final class FourteenKeyKeyboardTests: XCTestCase {
       drag(.ended, to: -24)
       XCTAssertNotEqual(space.configuration?.title, "移动光标", "\(scheme)")
     }
-  }
-
-  /// 长按 QW 选 w 跟着全角开关走：打开全角时写全角ｗ（U+FF57），与 Android、鸿蒙相同；关着时写半角 w。
-  func testHeldLettersFollowTheFullWidthSwitch() throws {
-    let document = Document()
-    try attach(document)
-    let controller = makeController(width: 390)
-    defer { controller.viewDidDisappear(false) }
-    func holdQWAndChooseW(_ round: String) throws {
-      let qws = descendants(controller.view).filter { $0.accessibilityIdentifier == "fourteenKeyQW" }
-      let qw = try XCTUnwrap(qws.first { shown($0) } as? UIButton, "\(round): \(qws.count) QW keys, none shown")
-      // 每一轮用一个新的长按手势：同一个手势第二次设成 `.began` 会变成 `.changed`。
-      let hold = UILongPressGestureRecognizer()
-      qw.addGestureRecognizer(hold)
-      defer { qw.removeGestureRecognizer(hold) }
-      hold.state = .began
-      controller.perform(NSSelectorFromString("handleFourteenKeyHold:"), with: hold)
-      let w = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOption-w" } as? UIButton,
-                            "\(round): no hold menu, state \(hold.state.rawValue)")
-      w.sendActions(for: .primaryActionTriggered)
-      controller.view.layoutIfNeeded()
-    }
-    try holdQWAndChooseW("half-width")
-    XCTAssertEqual(document.insertions.last, "w")
-    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-    let fullWidth = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "moreCard-全角" } as? UIControl)
-    fullWidth.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(fullWidth.accessibilityValue, "已开启")
-    try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-    controller.view.layoutIfNeeded()
-    try holdQWAndChooseW("full-width")
-    XCTAssertEqual(document.insertions.last, "\u{FF57}")
   }
 
   /// 分词键在组码之间定一个音节分界：ZX UI 分词 AS BN 得到「西安」。
