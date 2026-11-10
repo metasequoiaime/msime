@@ -361,9 +361,12 @@ begin
     {#ExecNativeSys}(
       ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
       '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
-        '$path = Join-Path $env:windir ''System32\vcruntime140.dll''; ' +
+        '$minimum = [version]''14.50.0.0''; $ok = $true; ' +
+        'foreach ($name in @(''msvcp140.dll'',''vcruntime140.dll'',''vcruntime140_1.dll'')) { ' +
+        '$path = Join-Path $env:windir (''System32\'' + $name); ' +
         '$version = (Get-Item -LiteralPath $path -ErrorAction SilentlyContinue).VersionInfo.FileVersion; ' +
-        'if ($version -and ([version]$version -ge [version]''14.50.0.0'')) { exit 0 } else { exit 1 }"',
+        'if (-not $version -or ([version]$version -lt $minimum)) { $ok = $false } }; ' +
+        'if ($ok) { exit 0 } else { exit 1 }"',
       '',
       SW_HIDE,
       ewWaitUntilTerminated,

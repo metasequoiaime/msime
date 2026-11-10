@@ -116,9 +116,10 @@ def main() -> int:
             "VC runtime Installed value is not read")
     require("WindowsPowerShell\\v1.0\\powershell.exe" in installed,
             "VC runtime check does not inspect the native System32 copy")
-    require("System32\\vcruntime140.dll" in installed,
-            "VC runtime check does not name the native vcruntime140.dll")
-    require("[version]$version -ge [version]''14.50.0.0''" in installed,
+    for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+        require(dll in installed,
+                f"VC runtime check does not inspect the native {dll}")
+    require("[version]$version -lt $minimum" in installed,
             "VC runtime file version is not compared with the release minimum")
 
     # WebView2 仍允许用户选择继续；VC 版本过旧会明确阻止安装，静默部署也必须
