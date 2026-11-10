@@ -285,11 +285,9 @@ fi
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"
 if [[ "$pr" == true ]]; then
-  # PR 设备门禁只保留启动、真实输入、键盘绘制、设置入口和剪贴板生命周期；完整套件留给 develop、nightly 和发版。
-  check "十八键全拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_key true
+  # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键与剪贴板持久化由合并后的风险矩阵、nightly 和发版覆盖。
   check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
   check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
-  check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   finish "Dedicated Android AVD: PR smoke acceptance passed"
 fi
 if [[ "$risk" == true ]]; then

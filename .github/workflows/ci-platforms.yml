@@ -210,7 +210,7 @@ jobs:
     with:
       matrix: ${{ needs.changes.outputs.android_device_matrix }}
 
-  # PR 改了键盘、设置界面或崩溃设备套件时，只在 API 35 上跑轻量 --pr 验收：启动、真实输入、键盘绘制、设置入口和剪贴板生命周期。API 28、完整输入套件和崩溃专项仍在合并后的 push、nightly 与发版门禁上跑（见 .agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md）。这个 PR 设备作业不是必需检查，失败不挡合并。
+  # PR 改了键盘、设置界面或崩溃设备套件时，只在 API 35 上跑轻量 --pr 验收：启动、真实输入、键盘绘制和设置入口。API 28、十八键、剪贴板持久化、完整输入套件和崩溃专项仍在合并后的 push、nightly 与发版门禁上跑（见 .agents/notes/implemented/process/2026-10-28-android-device-on-ui-prs.md）。这个 PR 设备作业不是必需检查，失败不挡合并。
   android-device-pr:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.android_device == 'true' }}
