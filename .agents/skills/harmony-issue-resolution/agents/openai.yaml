@@ -1,0 +1,4 @@
+interface:
+  display_name: "HarmonyOS Issue 处理"
+  short_description: "盘点并完成水杉输入法鸿蒙 issue 的实现与设备验收"
+  default_prompt: "请盘点当前所有鸿蒙 issue，按 issue 单独推进实现、测试、签名 HAP 和真机验收，并保留未完成证据。"

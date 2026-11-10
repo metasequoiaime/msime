@@ -175,6 +175,21 @@ def main() -> None:
         run.expect(run.ran("LetterHintPunctuationDeviceSmoke:english-swipe") and run.ran_script("clipboard-edit-lifecycle"), "全部通过时应跑到最后一项")
         run.expect(f"script voice-lifecycle {SERIAL} hold" in run.calls, "完整验收应调用长按语音锁定专项")
 
+        for sdk in ("28", "35"):
+            run = Run(base, f"release-pass-{sdk}", ["--release"], sdk=sdk)
+            run.expect(run.code == 0, "发布冒烟应正常结束")
+            for suite in ("DeviceSmoke", "HelpcodeImportDeviceSmoke", "DictionaryImportDeviceSmoke",
+                          "SessionStoreDeviceSmoke", "CopyDeviceInfoDeviceSmoke", "CompositionRestartDeviceSmoke",
+                          "CandidateSkinDeviceSmoke", "CandidateCanvasDeviceSmoke", "SettingsDeviceSmoke:screen-capture"):
+                run.expect(run.ran(suite), f"发布必须保留 {suite}")
+            run.expect(run.ran_script("clipboard-export") and run.ran_script("clipboard-edit-lifecycle"), "发布必须保留存储链路")
+            run.expect(run.ran("ThemeModeDeviceSmoke") == (sdk == "35"), "主题系统切换保留在高版本设备")
+            run.expect(not run.ran("NumberPadDeviceSmoke") and not run.ran("NumberPadDeviceSmoke:random-digits"), "穷举组合不混进发布冒烟")
+
+        run = Run(base, "release-failures", ["--release"], fail="CopyDeviceInfoDeviceSmoke ThemeModeDeviceSmoke")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 2, "发布中的已知失败必须阻止通过并全部汇总")
+        run.expect(run.ran("ThemeModeDeviceSmoke"), "设备信息失败不能掩盖主题失败")
+
         run = Run(base, "voice-hold-failure", [], fail_scripts="voice-lifecycle")
         run.expect(run.code == 1 and run.stopped_line() == "", "长按语音专项失败应汇总并继续独立检查")
         run.expect(run.failed_lines() == ["FAILED 长按语音锁定验收失败: MSIME_DEVICE_SMOKE_FAILED: voice-lifecycle phase (AssertionError) fake"], "长按语音专项失败应保留原始失败行")

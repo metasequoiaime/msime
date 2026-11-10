@@ -22,7 +22,8 @@ const MAX_INPUT_ENTRIES: usize = MAX_ENTRIES * 100;
 pub const MAX_TEXT_UTF16_UNITS: usize = 4000;
 pub const MAX_TEXT_BYTES: usize = MAX_TEXT_UTF16_UNITS * 3;
 pub const MAX_MOBILE_TEXT_CHARACTERS: usize = 10_000;
-pub const MAX_MOBILE_TEXT_BYTES: usize = 40_000;
+/// 单条移动端剪贴板文本的 UTF-8 字节上限；字符数上限仍由 `MAX_MOBILE_TEXT_CHARACTERS` 控制。
+pub const MAX_MOBILE_TEXT_BYTES: usize = 100_000;
 
 /// Match the Windows history length without splitting Unicode characters.
 pub fn normalize_text(text: &str) -> String {
@@ -1224,6 +1225,9 @@ mod tests {
         let text = "家".repeat(4_001);
         assert!(store.push_mobile(text.clone()).unwrap());
         assert_eq!(store.entries()[0].text, text);
+        let byte_boundary = "👩‍👩‍👧‍👦".repeat(MAX_MOBILE_TEXT_BYTES / "👩‍👩‍👧‍👦".len());
+        assert!(mobile_text_is_valid(&byte_boundary));
+        assert!(!mobile_text_is_valid(&(byte_boundary + "👩‍👩‍👧‍👦")));
         assert!(!store.push_mobile(" \n\t".into()).unwrap());
         assert!(!store
             .push_mobile("家".repeat(MAX_MOBILE_TEXT_CHARACTERS + 1))

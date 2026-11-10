@@ -68,7 +68,7 @@ struct KeyboardKeyLayoutSettingsView: View {
       style: .rounded, identifierPrefix: "keyLayoutKind", itemIdentifier: { $0.identifier })
   }
 
-  /// 预览、样式胶囊和当前样式的说明放在同一张卡片里；说明之后各隔一道分隔线是开关：26 键先是「符」与「123」互换，每个分段都有「中/英键放在空格左边」。用户隐藏了中/英键时这个开关照样显示、照样写偏好（同步到别的设备照样生效），只是这台设备的键盘和预览里没有中/英，看不出变化。
+  /// 预览、样式胶囊和当前样式的说明放在同一张卡片里；说明之后各隔一道分隔线是开关：26 键先是「符」与「123」互换，14/18 键还有字母键宽度，每个分段都有「中/英键放在空格左边」。
   private func styleCard(_ kind: TouchKeyLayoutKind) -> some View {
     DesignCard {
       VStack(alignment: .leading, spacing: 14) {
@@ -97,6 +97,15 @@ struct KeyboardKeyLayoutSettingsView: View {
                       isOn: Binding(get: { style.languageKeySide == .left },
                                     set: { save(TouchKeyLayoutStyle.save(languageKeySide: $0 ? .left : .right)) }))
         .accessibilityIdentifier("keyLayoutLanguageLeftSwitch")
+      if kind == .letterGrid {
+        DesignDivider()
+        DesignGroup(title: "字母键宽度", info: TouchFourteenKeyLetterWidths.note) {
+          pills(TouchFourteenKeyLetterWidths.allCases, selected: style.letterWidths, title: \.title,
+                identifier: { "keyLayoutLetterWidths_\($0.rawValue)" }) {
+            save(TouchKeyLayoutStyle.save(letterWidths: $0))
+          }
+        }
+      }
       if kind == .nineKey {
         DesignDivider()
         sidebarLink(.letter)
@@ -238,6 +247,7 @@ private struct KeyLayoutKeyboardPreview: View {
     var weight: CGFloat = 1
     var fixed: CGFloat?
     var highlighted = false
+    var kerning: CGFloat = 0
   }
 
   var body: some View {
@@ -266,41 +276,55 @@ private struct KeyLayoutKeyboardPreview: View {
   // MARK: - 26 键与 14/18 键
 
   /// 字母行加上（数字行和）底行，各行等高。`rows` 每一行带着它两侧的缩进。
-  private func letterKeyboard(_ rows: [(caps: [Cap], inset: CGFloat)]) -> some View {
+  private func letterKeyboard(_ rows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)]) -> some View {
     VStack(spacing: Self.rowGap) {
       if kind.drawsNumberRow(style) { row(TypingKeyHeatmap.numberRow.map { Self.cap($0) }) }
-      ForEach(Array(rows.enumerated()), id: \.offset) { _, line in row(line.caps, inset: line.inset) }
+      ForEach(Array(rows.enumerated()), id: \.offset) { _, line in row(line.caps, inset: line.inset, unit: line.unit) }
       row(bottomCaps)
     }
   }
 
   /// 26 键的三排字母取热力图的同一张表：第二排两侧各缩进本行宽度的 5%，第三排两端是 ⇧ 和 ⌫。
-  private var twentySixKeyRows: [(caps: [Cap], inset: CGFloat)] {
+  private var twentySixKeyRows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] {
     TypingKeyHeatmap.twentySixKeyLetterRows.enumerated().map { index, cells in
       (cells.map { Self.cap($0, separator: .symbol("shift")) },
-       index == 1 ? Self.width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset) : 0)
+       index == 1 ? Self.width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset) : 0, nil)
     }
   }
 
   /// 14 键：每排等宽，第二排不缩进；第三排两端是 符 和 ⌫，各固定 44pt。预览画的是空闲时的键盘，全拼、双拼的这个键只在组字时才换成「分词」，五笔一直是 符，与 Android、鸿蒙的预览相同。
-  private var fourteenKeyRows: [(caps: [Cap], inset: CGFloat)] {
-    FourteenKeyLayout.rows.enumerated().map { index, keys in
-      let letters = keys.map { Cap(face: .text($0.face)) }
-      guard index == FourteenKeyLayout.rows.count - 1 else { return (letters, 0) }
-      return ([Cap(face: .text("符"), role: .function, fixed: Self.letterGridEdgeWidth)] + letters
-        + [Cap(face: .symbol("delete.left"), role: .function, fixed: Self.letterGridEdgeWidth)], 0)
-    }
+  private var fourteenKeyRows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] {
+    letterGridRows(FourteenKeyLayout.rows, grid: .fourteenKey)
   }
 
   /// 18 键：三排从同一左右边界铺开，第二排六个键平分整行（与键盘相同，A 与 Q 左对齐、L 与 P 右对齐），第三排两端的 符 和 ⌫ 与字母键同宽。
-  private var eighteenKeyRows: [(caps: [Cap], inset: CGFloat)] {
-    EighteenKeyLayout.rows.enumerated().map { index, keys in
-      let letters = keys.map { Cap(face: .text($0.face)) }
-      switch index {
-      case EighteenKeyLayout.rows.count - 1:
-        return ([Cap(face: .text("符"), role: .function)] + letters + [Cap(face: .symbol("delete.left"), role: .function)], 0)
-      default: return (letters, 0)
+  private var eighteenKeyRows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] {
+    letterGridRows(EighteenKeyLayout.rows, grid: .eighteenKey)
+  }
+
+  /// 14/18 键预览与键盘共用的宽度分配。宽窄模式把短排的差额分到两端，并把少掉的键距的一半计入两端，保证三排的单位宽度相同。
+  private func letterGridRows(_ rows: [[FourteenKeyLayout.Key]], grid: LetterKeyGrid)
+    -> [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] {
+    let widths = style.letterWidths
+    let firstWeights = rows[0].reduce(CGFloat.zero) { $0 + widths.weight(for: $1.letters) }
+    let firstCount = rows[0].count
+    let unit = (Self.width - Self.keyGap * CGFloat(firstCount - 1)) / firstWeights
+    return rows.enumerated().map { index, keys in
+      let letterWeight = keys.reduce(CGFloat.zero) { $0 + widths.weight(for: $1.letters) }
+      let last = index == rows.count - 1
+      let rest = widths == .varied ? max(0, (firstWeights - letterWeight) / 2) : 0
+      let gapCorrection = widths == .varied ? CGFloat(max(0, firstCount - keys.count)) * Self.keyGap / 2 : 0
+      var letters = keys.map {
+        Cap(face: .text($0.face), weight: widths.weight(for: $0.letters),
+            kerning: $0.letters.count > 1 ? 2.4 : 0)
       }
+      if last {
+        let edge = widths == .varied ? rest : 0
+        letters = [Cap(face: .text("符"), role: .function, weight: edge, fixed: widths == .equal ? Self.letterGridEdgeWidth : nil)]
+          + letters
+          + [Cap(face: .symbol("delete.left"), role: .function, weight: edge, fixed: widths == .equal ? Self.letterGridEdgeWidth : nil)]
+      }
+      return (letters, rest * unit + gapCorrection, widths == .varied ? unit : nil)
     }
   }
 
@@ -395,14 +419,15 @@ private struct KeyLayoutKeyboardPreview: View {
   }
 
   /// 一排键：`width` 扣掉两侧缩进、键距和固定宽度的键之后，按份额分给其余的键。
-  private func row(_ caps: [Cap], inset: CGFloat = 0, width: CGFloat = KeyLayoutKeyboardPreview.width) -> some View {
+  private func row(_ caps: [Cap], inset: CGFloat = 0, width: CGFloat = KeyLayoutKeyboardPreview.width,
+                   unit: CGFloat? = nil) -> some View {
     let available = width - inset * 2 - Self.keyGap * CGFloat(max(caps.count - 1, 0))
     let fixed = caps.compactMap(\.fixed).reduce(0, +)
     let weights = caps.filter { $0.fixed == nil }.map(\.weight).reduce(0, +)
-    let unit = weights > 0 ? max(available - fixed, 0) / weights : 0
+    let autoUnit = weights > 0 ? max(available - fixed, 0) / weights : 0
     return HStack(spacing: Self.keyGap) {
       ForEach(Array(caps.enumerated()), id: \.offset) { _, cap in
-        key(cap).frame(width: cap.fixed ?? unit * cap.weight)
+        key(cap).frame(width: cap.fixed ?? (unit ?? autoUnit) * cap.weight)
       }
     }
     .frame(width: width)
@@ -415,6 +440,7 @@ private struct KeyLayoutKeyboardPreview: View {
       .overlay {
         Self.label(cap.face)
           .font(.system(size: cap.role == .letter ? 16 : 14, weight: .medium))
+          .kerning(cap.kerning)
           .foregroundStyle(cap.role == .action ? MetasequoiaTheme.onAccent : Color.primary)
           .lineLimit(1)
           .minimumScaleFactor(0.5)

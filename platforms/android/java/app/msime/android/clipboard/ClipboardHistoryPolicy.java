@@ -10,7 +10,7 @@ package app.msime.android;
  * 调用方曾把拒绝原因压成布尔值，导致这两种情况都被显示成「所选容量的记录全部固定」，这同样不准确。
  *
  * <p>So the bounds are gone. {@code crates/client-core/src/clipboard.rs} owns them - trimmed
- * non-blank, forty thousand UTF-8 bytes, ten thousand graphemes, no control characters other than
+ * non-blank, one hundred thousand UTF-8 bytes, ten thousand graphemes, no control characters other than
  * newline, carriage return and tab - and the shared entry already names which one failed. What stays
  * here is the wording, which is this host's, and the one question the store cannot answer: whether
  * the system clipboard held any text to offer it in the first place.

@@ -3859,6 +3859,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
             combo_counter: true,
             combo_tier_sound: true,
             phrase_tables: vec!["office".into(), "names".into()],
+            plugin_order: vec!["command_table/sig".into(), "phrase_table/office".into()],
             helpcode_pack_quanpin: "radicals".into(),
             helpcode_pack_shuangpin: "strokes".into(),
         },
@@ -3888,6 +3889,10 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     );
     assert_eq!(plugins["helpcode_pack_quanpin"], "radicals");
     assert_eq!(plugins["helpcode_pack_shuangpin"], "strokes");
+    assert_eq!(
+        plugins["plugin_order"],
+        serde_json::json!(["command_table/sig", "phrase_table/office"])
+    );
     // 没选短语表和辅助码表包时这三个键都不写，没有它们的旧版本照样能读。
     let mut unselected = chosen.clone();
     unselected.plugins.phrase_tables.clear();
@@ -3935,7 +3940,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
 
 #[test]
 fn plugin_preferences_are_validated() {
-    let invalid: [fn(&mut PluginPreferences); 16] = [
+    let invalid: [fn(&mut PluginPreferences); 18] = [
         |plugins| plugins.key_sound.volume = 101,
         |plugins| plugins.effect_intensity = 101,
         |plugins| plugins.music.volume = 255,
@@ -3960,6 +3965,10 @@ fn plugin_preferences_are_validated() {
         },
         |plugins| plugins.helpcode_pack_quanpin = "Radicals".into(),
         |plugins| plugins.helpcode_pack_shuangpin = "../strokes".into(),
+        |plugins| {
+            plugins.plugin_order = vec!["command_table/sig".into(), "command_table/sig".into()]
+        },
+        |plugins| plugins.plugin_order = vec!["command_table".into()],
     ];
     for (index, change) in invalid.into_iter().enumerate() {
         let mut preferences = Preferences::default();

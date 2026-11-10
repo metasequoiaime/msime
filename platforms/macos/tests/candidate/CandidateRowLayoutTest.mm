@@ -2350,7 +2350,7 @@ static void TestUserGeometry()
             assert(chrome.candidateContentView.layer.mask);
             const CGFloat gap = vertical.boolValue ? NSMinY(first.frame) - NSMaxY(second.frame)
                                                   : NSMinX(second.frame) - NSMaxX(first.frame);
-            assert(fabs(gap - 5 * scale) < 1.01);
+            assert(fabs(gap - (vertical.boolValue ? 6 : 5) * scale) < 1.01);
             const NSSize original = chrome.frame.size;
             document[@"candidate_padding_vertical"] = @13;
             [appearance applySharedCandidatePreferences:document];
@@ -2412,7 +2412,8 @@ static void TestUserGeometry()
         assert(first && nextRow);
         assert(fabs(NSMinX(first.frame) - 2) < 0.01);
         assert(fabs(NSMinY(chrome.candidateRowsRect) - 8) < 0.01);
-        assert(fabs(NSMinY(first.frame) - NSMaxY(nextRow.frame) - 7) < 0.01);
+        const CGFloat verticalItemGap = msime::mac::CandidateItemVerticalOuterSpacing(1.0);
+        assert(fabs(NSMinY(first.frame) - NSMaxY(nextRow.frame) - verticalItemGap) < 0.01);
         assert(first.cornerRadius == 2);
         [controller setValue:nil forKey:@"expandedCandidates"];
     }
@@ -3369,7 +3370,9 @@ int main(int argc, char **argv)
         assert(panel.frame.size.width <= halfScreen + 0.5);
         assert(tall.itemLayout.textWrapped && tall.frame.size.height > first.frame.size.height * 2);
         assert(fabs(first.frame.size.height - last.frame.size.height) < 0.5);
-        assert(fabs(NSMinY(first.frame) - NSMaxY(tall.frame)) < 0.5 && fabs(NSMinY(tall.frame) - NSMaxY(last.frame)) < 0.5);
+        const CGFloat verticalItemGap = msime::mac::CandidateItemVerticalOuterSpacing(1.0);
+        assert(fabs(NSMinY(first.frame) - NSMaxY(tall.frame) - verticalItemGap) < 0.5 &&
+               fabs(NSMinY(tall.frame) - NSMaxY(last.frame) - verticalItemGap) < 0.5);
         assert(first.frame.size.width == tall.frame.size.width && tall.frame.size.width == last.frame.size.width);
 
         // The 辅助码 is a run of its own: the button's text is the candidate alone, the annotation is drawn after it, and the tooltip and accessibility label keep the combined form.

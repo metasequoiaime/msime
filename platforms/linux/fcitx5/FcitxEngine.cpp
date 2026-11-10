@@ -6703,6 +6703,29 @@ public:
     // 用户的候选窗样式（缩放、内边距、不透明度、翻页箭头）与皮肤包的行圆角，照 macOS 的 StyledCandidateSkin 生成进主题。
     auto style = host::read_fcitx_candidate_style(preferences);
     style.item_radius = host::candidate_skin_item_radius(catalog, resolved.candidate_skin);
+    style.font_size = host::scaled_candidate_font_size(host::read_candidate_font(preferences));
+    if (const auto geometry = host::candidate_skin_classic_geometry(catalog, resolved.candidate_skin, style.horizontal)) {
+      if (geometry->padding) {
+        style.skin_padding = geometry->padding->value;
+        style.skin_padding_em = geometry->padding->em;
+      }
+      if (geometry->item_gap) {
+        style.skin_item_gap = geometry->item_gap->value;
+        style.skin_item_gap_em = geometry->item_gap->em;
+      }
+      if (geometry->item_extra_height) {
+        style.skin_item_extra_height = geometry->item_extra_height->value;
+        style.skin_item_extra_height_em = geometry->item_extra_height->em;
+      }
+      if (geometry->number_inset) {
+        style.skin_number_inset = geometry->number_inset->value;
+        style.skin_number_inset_em = geometry->number_inset->em;
+      }
+      if (geometry->item_padding_right) {
+        style.skin_item_padding_right = geometry->item_padding_right->value;
+        style.skin_item_padding_right_em = geometry->item_padding_right->em;
+      }
+    }
     // logo 只在 show_app_logo 打开时画，与 macOS、Windows 相同；已存的偏好文档缺这个键时按共享层的读法当作打开。
     const bool show_logo = [&] {
       if (!preferences.is_object()) return true;
@@ -6733,7 +6756,18 @@ public:
         {"request", host::candidate_theme_request(preferences, host::candidate_dark_theme(preferences, system_dark), catalog)},
         {"corner_radius", corner_radius ? Json(*corner_radius) : Json(nullptr)},
         {"user_radius", user_radius},
-        {"style", Json{{"scale", style.scale}, {"padding", style.padding ? Json(*style.padding) : Json(nullptr)},
+        {"style", Json{{"scale", style.scale}, {"font_size", style.font_size},
+                        {"padding", style.padding ? Json(*style.padding) : Json(nullptr)},
+                        {"skin_padding", style.skin_padding ? Json(*style.skin_padding) : Json(nullptr)},
+                        {"skin_padding_em", style.skin_padding_em},
+                        {"skin_item_gap", style.skin_item_gap ? Json(*style.skin_item_gap) : Json(nullptr)},
+                        {"skin_item_gap_em", style.skin_item_gap_em},
+                        {"skin_item_extra_height", style.skin_item_extra_height ? Json(*style.skin_item_extra_height) : Json(nullptr)},
+                        {"skin_item_extra_height_em", style.skin_item_extra_height_em},
+                        {"skin_number_inset", style.skin_number_inset ? Json(*style.skin_number_inset) : Json(nullptr)},
+                        {"skin_number_inset_em", style.skin_number_inset_em},
+                        {"skin_item_padding_right", style.skin_item_padding_right ? Json(*style.skin_item_padding_right) : Json(nullptr)},
+                        {"skin_item_padding_right_em", style.skin_item_padding_right_em},
                        {"opacity", style.opacity}, {"page_arrows", style.page_arrows},
                        {"item_radius", style.item_radius ? Json(*style.item_radius) : Json(nullptr)}}},
         {"logo", show_logo},
@@ -8444,7 +8478,13 @@ void FcitxState::render() {
       preedit.setCursor(static_cast<int>(composed.text.size()));
     if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
       ic_.inputPanel().setClientPreedit(preedit);
-    else ic_.inputPanel().setPreedit(preedit);
+    else if (alwaysInline ||
+             preferences_.value("candidate_preedit_style",
+                                std::string("pinyin")) != "empty")
+      // 不支持客户端预编辑的编辑器只能由 Fcitx5
+      // 的候选面板代画。候选窗口预编辑关闭时，
+      // 不能把行内预编辑样式偷偷回退成候选窗顶端的一行；韩文等必须内嵌的方案仍例外。
+      ic_.inputPanel().setPreedit(preedit);
   }
   if (!view_.at("candidates").empty()) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
