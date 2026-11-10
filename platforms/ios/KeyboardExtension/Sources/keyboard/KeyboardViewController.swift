@@ -10446,7 +10446,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let self else { return }
         if let png {
           if self.insertStickerDirectly(png) {
-            self.showDiagnostic("已发送水杉娘「\(sticker.name)」")
+            self.showDiagnostic("已插入水杉娘「\(sticker.name)」")
           } else {
             UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
             self.showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
