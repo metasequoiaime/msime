@@ -15859,9 +15859,9 @@ int main(int argc, char **argv) {
         appearance.fontSize = 18;
         {
             // 首行：拼音后面竖线隔开输入状态，右侧依次是云候选预览和小装饰，首行和候选行之间一条细线。
-            assert([MSIMECandidateStatusText(@"小鹤双拼", @{@"script_conversion": @YES}, YES, YES) isEqual:@"小鹤双拼 · 中 · 繁 · 全角"]);
-            assert([MSIMECandidateStatusText(@"全拼", @{@"script_conversion": @YES, @"dedicated_english": @YES}, NO, NO) isEqual:@"全拼 · 英"]);
-            assert([MSIMECandidateStatusText(@"日语", @{@"script_conversion": @NO}, NO, NO) isEqual:@"日语 · 中"]);
+            assert([MSIMECandidateStatusTextForOutput(@"小鹤双拼", @{@"script_conversion": @YES}, YES, NO, YES) isEqual:@"小鹤双拼 · 中 · 繁 · 全角"]);
+            assert([MSIMECandidateStatusTextForOutput(@"全拼", @{@"script_conversion": @YES, @"dedicated_english": @YES}, NO, NO, NO) isEqual:@"全拼 · 英"]);
+            assert([MSIMECandidateStatusTextForOutput(@"日语", @{@"script_conversion": @NO}, NO, NO, NO) isEqual:@"日语 · 中"]);
             NSDictionary *cloudRow = @{@"text": @"一行白鹭", @"source": @2, @"id": @{@"session": @1, @"generation": @2, @"index": @2}};
             NSDictionary *aiRow = @{@"text": @"一行代码", @"source": @3, @"id": @{@"session": @1, @"generation": @2, @"index": @1}};
             NSDictionary *placeholder = @{@"text": @"…", @"source": @12, @"id": @{@"session": @1, @"generation": @2, @"index": @3}};

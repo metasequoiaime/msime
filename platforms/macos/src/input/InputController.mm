@@ -547,10 +547,6 @@ static NSString *MSIMECandidateStatusTextForOutput(NSString *schemeTitle, NSDict
     return [parts componentsJoinedByString:@" · "];
 }
 
-static NSString *MSIMECandidateStatusText(NSString *schemeTitle, NSDictionary *view, BOOL traditional, BOOL fullWidth) {
-    return MSIMECandidateStatusTextForOutput(schemeTitle, view, traditional, NO, fullWidth);
-}
-
 // 光标后编辑（偏好 `caret_edit_suffix`）生效时画在候选窗首行右侧的提示，只是标明状态，不能点。
 static NSString *const MSIMECaretEditSuffixHint = @"候选编辑：光标后";
 
