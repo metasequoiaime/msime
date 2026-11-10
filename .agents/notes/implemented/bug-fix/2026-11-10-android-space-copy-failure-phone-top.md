@@ -33,3 +33,6 @@ Status: implemented
 
 
 API 35 的 `42791187286` 已实际通过顶部位置、键盘边界、焦点与自动消失检查，并取得提示截图；失败发生在随后新增的空框选区检查。Android 15 的 [`View.onInitializeAccessibilityNodeInfoInternal`](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android15-release/core/java/android/view/View.java) 只有 `text.length() > 0` 时才写标准 `textSelection`，空框节点返回 -1 不代表 EditText 光标被移动。合成编辑器通过节点 extras 暴露自身 `getSelectionStart/End()`，空框用例要求真实选区仍为 0:0、文本为空、焦点保留；旧的所有非空选区断言不变。修正后仍需双 API 专项通过，不把已通过的提示子检查冒充整套成功。
+
+
+最终双 API 专项 `42795596706` 在提交 `b81418ed9b7d0b801674011f9bb843c89c4aff02` 上全部成功：Rust 设备单测、崩溃专项、主输入、完整空格复制专项均通过，空框实际选区为 0:0，顶部通知不改变键盘窗口与按键边界，并按时消失。API 28/35 均保存成功截图。随后同步 develop 的按键字面修复，保留 `--space-copy` 与 `--key-faces` 两个定向入口及各自截图收集。
