@@ -1753,7 +1753,7 @@ fn apply_macos_candidate_settings(applier: &mut Applier<'_>) -> Result<(), Accou
         applier.set_string(key, move |preferences, value| {
             let color = if value.is_empty() {
                 None
-            } else if crate::is_hex_color(value, &[6]) {
+            } else if msime_client_core::is_hex_color(value, &[6]) {
                 Some(value.to_ascii_uppercase())
             } else {
                 return None;
