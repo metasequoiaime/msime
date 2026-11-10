@@ -37,6 +37,7 @@ final class SpellingEditorSwitchChecks {
         try {
             publish(s, preferences, base, ++revision);
             s.restartIme();
+            SpellingEditorOverlapChecks.run(s);
             editor(s);
             s.stage = "spelling editor enabled entry and baseline";
             s.tap(s.key("n"));
@@ -52,8 +53,12 @@ final class SpellingEditorSwitchChecks {
             long deadline = SystemClock.uptimeMillis() + 10000;
             while (visible(s, "编辑拼写") || visible(s, "拼写编辑面板")
                     || keyboard(s).height() >= enabled.height() - 8 * density(s)) {
-                if (SystemClock.uptimeMillis() > deadline)
-                    throw new AssertionError("关闭开关没有撤销编辑面板并释放笔图标空行");
+                if (SystemClock.uptimeMillis() > deadline) {
+                    screenshot(s, "failure");
+                    throw new AssertionError("关闭开关没有撤销编辑面板并释放笔图标空行：entry="
+                        + visible(s, "编辑拼写") + ", panel=" + visible(s, "拼写编辑面板")
+                        + ", before=" + enabled + ", after=" + keyboard(s));
+                }
                 SystemClock.sleep(80);
             }
 
