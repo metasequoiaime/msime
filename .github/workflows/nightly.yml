@@ -18,6 +18,7 @@ jobs:
     name: Android nightly
     uses: ./.github/workflows/release-android.yml
     with:
+      full_device_tests: true
       prerelease: true
       publish: false
     secrets: inherit

@@ -222,10 +222,13 @@ public final class ThemeModeDeviceSmoke extends DeviceSmoke {
 
     private void awaitColour(Predicate<AccessibilityNodeInfo> match, int expected) {
         long deadline = SystemClock.uptimeMillis() + 10000;
+        int actual;
         do {
-            if (dominantColour(bounds(match)) == expected) return;
+            actual = dominantColour(bounds(match));
+            if (actual == expected) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Control did not restore its light-mode colour");
+        throw new AssertionError("Control did not restore its light-mode colour: expected="
+            + Integer.toHexString(expected) + ", actual=" + Integer.toHexString(actual));
     }
 }
