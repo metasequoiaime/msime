@@ -7798,6 +7798,17 @@ static void TestCapsLockTap() {
     assert(prefs.englishMode && gCapsReleases == releasesBefore + 1 && gCapsHIDStarts == 1);
     gCapsHIDKnown = false;
 
+    // 松键边沿抵达时 HID 仍滞后报告按住，仍应按事件本身完成轻点，不能等定时器把它变成长按。
+    assert(![controller handleEvent:capsOff(14.5) client:client]);
+    prefs.englishMode = NO;
+    gCapsNow = 15000; gCapsHeld = false; gCapsHIDKnown = false; gCapsHIDHeld = false;
+    assert([controller handleEvent:capsOn(15.0) client:client]);
+    gCapsHIDKnown = true; gCapsHIDHeld = true;
+    gCapsNow = 15050;
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 0x39, NSEventModifierFlagCapsLock, 15.05) client:client]);
+    assert(prefs.englishMode && !session.capsLock && gCapsReleases == releasesBefore + 2);
+    gCapsHIDKnown = false; gCapsHIDHeld = false;
+
     MSIMECapsLockHIDStart = realHIDStart;
     MSIMECapsLockRelease = realRelease;
     MSIMECapsLockHIDState = realHID;
