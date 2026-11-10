@@ -336,6 +336,7 @@ static NSArray<NSString *> *PublishableVimModeApps(NSArray<NSString *> *apps) {
 }
 static NSString *const TraditionalKey = @"MSIMEClientTraditionalOutput";
 static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
+static NSString *const CantoneseSimplifiedKey = @"MSIMEClientCantoneseSimplifiedOutput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const SmartPunctuationKey = @"MSIMEClientSmartPunctuation";
 static NSString *const SmartPunctuationRepeatToChineseKey = @"MSIMEClientSmartPunctuationRepeatToChinese";
@@ -1138,6 +1139,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_mixedKaomojiToggle;
     NSSwitch *_mixedSymbolToggle;
     NSNumber *_sharedTraditionalOutput;
+    NSNumber *_sharedCantoneseSimplifiedOutput;
     NSString *_sharedTraditionalVariant;
     NSNumber *_sharedFullWidthInput;
     NSNumber *_sharedCloudCandidates;
@@ -1450,6 +1452,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     }
     if ([_defaults objectForKey:TraditionalKey] != nil)
         merged[@"traditional_chinese_output"] = @(self.traditionalOutput);
+    if ([_defaults objectForKey:CantoneseSimplifiedKey] != nil)
+        merged[@"cantonese_simplified_output"] = @(self.cantoneseSimplifiedOutput);
     merged[@"character_width"] = self.fullWidthInput ? @"fullwidth" : @"halfwidth";
     if ([_defaults objectForKey:CloudCandidatesKey] != nil)
         merged[@"cloud_candidates"] = @(self.cloudCandidates);
@@ -2334,6 +2338,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     }
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
+    id cantoneseSimplified = preferences[@"cantonese_simplified_output"];
+    if (cantoneseSimplified == nil) _sharedCantoneseSimplifiedOutput = nil;
+    else if (LocalModeBoolean(cantoneseSimplified)) _sharedCantoneseSimplifiedOutput = cantoneseSimplified;
     // 缺省 s2t 不写进文档；缺键或认不出的值都按 s2t，避免上次的 s2tw 粘在会话里。
     id variant = preferences[@"traditional_chinese_variant"];
     if ([@[@"s2t", @"s2tw", @"s2twp"] containsObject:variant])
@@ -2547,6 +2554,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_inputModeRuleOverrides removeAllObjects];
 }
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
+- (BOOL)cantoneseSimplifiedOutput {
+    return _sharedCantoneseSimplifiedOutput ? _sharedCantoneseSimplifiedOutput.boolValue : [_defaults boolForKey:CantoneseSimplifiedKey];
+}
 - (uint32_t)traditionalChineseVariant {
     NSString *name = _sharedTraditionalVariant;
     if (![name isKindOfClass:NSString.class] || !name.UTF8String) return 0;
@@ -2719,6 +2729,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setTraditionalOutput:(BOOL)value {
     _sharedTraditionalOutput = nil;
     [_defaults setBool:value forKey:TraditionalKey];
+    [self preferencesChanged];
+}
+- (void)setCantoneseSimplifiedOutput:(BOOL)value {
+    _sharedCantoneseSimplifiedOutput = nil;
+    [_defaults setBool:value forKey:CantoneseSimplifiedKey];
     [self preferencesChanged];
 }
 - (void)setEnglishMode:(BOOL)value {
