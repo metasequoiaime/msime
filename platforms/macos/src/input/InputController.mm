@@ -8013,7 +8013,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
     if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp && event.type != NSEventTypeFlagsChanged) return NO;
     BOOL capsLock = (event.modifierFlags & NSEventModifierFlagCapsLock) != 0;
-    if (_capsLockTapReleased && !capsLock) _capsLockTapReleased = NO;
+    // 撤回锁定后的关闭状态事件可能先于窗口服务器翻译出的字母抵达；保留标记到首个无 Shift 的字母按键，才能把不带 Caps Lock 修饰位的陈旧大写字符还原。
+    const BOOL capsLockTapReleasedForEvent = _capsLockTapReleased;
     BOOL staleCapsLock = NO;
     if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
         // 这时如果确实又按下了 Caps Lock，物理状态仍会是按下；否则只是合成撤回后迟到的旧状态。
@@ -8285,7 +8286,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             const BOOL chinese = [_appearance.punctuationLock isEqual:@"chinese"] ||
                 ([_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
             unichar character = [event.characters characterAtIndex:0];
-            if (_capsLockTapReleased && character >= 'A' && character <= 'Z') character = (unichar)(character + ('a' - 'A'));
+            const BOOL capsLockTapReleasedLetterEvent = capsLockTapReleasedForEvent &&
+                event.type == NSEventTypeKeyDown && !(event.modifierFlags & NSEventModifierFlagShift) &&
+                ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'));
+            if (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
+                character >= 'A' && character <= 'Z') character = (unichar)(character + ('a' - 'A'));
             const std::string output = msime::input::english_mode_output(
                 character, keypad, chinese, _appearance.runtimeFullWidthInput, _englishPunctuation,
                 MSIMEViewPunctuationMarks(_view));
@@ -8293,6 +8298,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 NSString *text = [[NSString alloc] initWithBytes:output.data() length:output.size()
                                                          encoding:NSUTF8StringEncoding];
                 [self writeDirectEnglishText:text client:(id<MSIMETextClient>)sender];
+                if (capsLockTapReleasedLetterEvent) _capsLockTapReleased = NO;
                 return YES;
             }
             // 使用激活时已有的应用标识判定接管；排除应用仍把原键交回，不在落字前查客户端。
@@ -8304,9 +8310,12 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                     @"context":[self directEnglishSpacingContext]}][@"enabled"] isEqual:@YES];
             const BOOL asciiLetterOrDigit = (character >= 'a' && character <= 'z') ||
                 (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
-            if ((spacingEnabled && asciiLetterOrDigit) || (_capsLockTapReleased && character >= 'a' && character <= 'z')) {
+            if ((spacingEnabled && asciiLetterOrDigit) ||
+                (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
+                 character >= 'a' && character <= 'z')) {
                 [self writeDirectEnglishText:[NSString stringWithCharacters:&character length:1]
                                       client:(id<MSIMETextClient>)sender];
+                if (capsLockTapReleasedLetterEvent) _capsLockTapReleased = NO;
                 return YES;
             }
         }
