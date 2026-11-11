@@ -18,6 +18,19 @@
 
 namespace
 {
+// 键盘布局在当前键盘状态下给这颗键的字符，没有就是 0。wFlags 的第 2 位让 ToUnicode 不改内核里的键盘状态（Windows 10 1607 起），多问这一次不会吃掉待组合的死键。
+WCHAR LayoutCharacterOfForwardedKey(UINT code)
+{
+    BYTE keyboardState[256] = {};
+    if (!GetKeyboardState(keyboardState))
+    {
+        return 0;
+    }
+    WCHAR character = 0;
+    const int produced = ToUnicode(code, MapVirtualKey(code, MAPVK_VK_TO_VSC), keyboardState, &character, 1, 0x4);
+    return produced == 1 ? character : 0;
+}
+
 // Keep SEH helpers free of C++ objects with destructors (C2712).
 HRESULT SafeRangeSetText(_In_ ITfRange *range, TfEditCookie ec, DWORD flags, _In_reads_opt_(len) const WCHAR *text,
                          LONG len)
@@ -979,11 +992,28 @@ void CMetasequoiaIME::_UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool i
         return;
     }
 
-    const WCHAR context = Global::ForwardedSmartPunctuationContext(code, wch);
-    if (isEaten || context == 0 || std::iswprint(static_cast<wint_t>(context)) == 0)
+    if (isEaten)
     {
-        // Eaten keys feed the composition and reach the document as committed
-        // text, which even a proxy store exposes, so let the document answer.
+        // Eaten keys feed the composition and reach the document as committed text, which even a proxy store exposes, so let the document answer.
+        _InvalidateSmartPunctuationShadow();
+        return;
+    }
+
+    // 影子优先于文档回读，所以要按这颗键真正打出的字符归类，不能只看虚拟键码：Shift+5 打出的是 %，Ctrl+1、Ctrl+V 什么字符都不打，还可能粘贴或移走光标。修饰键读的是 _IsKeyEaten 判断应用快捷键时用的同一份物理状态。
+    const UINT modifiers = ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 ? 0b001u : 0u) |
+                           ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 ? 0b010u : 0u) |
+                           ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0 ? 0b100u : 0u);
+    const bool windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+    WCHAR character = wch;
+    if (character == 0 && Global::ForwardedSmartPunctuationContext(code, 0, modifiers, windowsKeyDown) != 0)
+    {
+        // 键盘关闭（英文模式）时 _IsKeyEaten 提前返回，不填字符。虚拟键码看着像字母或数字，先问键盘布局它实际打出什么（AZERTY 的数字行不按 Shift 打出的是符号）；布局也答不出才按虚拟键码补回。
+        character = LayoutCharacterOfForwardedKey(code);
+    }
+    const WCHAR context = Global::ForwardedSmartPunctuationContext(code, character, modifiers, windowsKeyDown);
+    if (context == 0 || std::iswprint(static_cast<wint_t>(context)) == 0)
+    {
+        // 快捷键、符号和其他不能确认的键：旧影子不再描述光标前的文字，让文档回答。
         _InvalidateSmartPunctuationShadow();
         return;
     }

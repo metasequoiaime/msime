@@ -52,7 +52,7 @@ else()
   target_compile_options(msime-tsf-smart-punctuation-forwarded-key-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endif()
 add_test(NAME msime-tsf-smart-punctuation-forwarded-key
-  COMMAND msime-tsf-smart-punctuation-forwarded-key-test)
+  COMMAND msime-tsf-smart-punctuation-forwarded-key-test ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(msime-tsf-client-key-router-test tests/input/client_key_router.cpp)
 target_compile_features(msime-tsf-client-key-router-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-client-key-router-test PRIVATE . Global IME Header Key)
