@@ -6,7 +6,7 @@ import UIKit
 ///
 /// 按键反馈里的「音效」选按键音包：列表是 `msime_client_plugins` 的 `catalog` 里的按键音包（`KeySoundPackPolicy.packs`），选中时写共享偏好 `plugins.key_sound.pack` 并试听这个包的普通键声音。按键音关着时这一行置灰。
 ///
-/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号、显示字母键角标和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`letterCornerHints`、`spaceVoice`），默认开；排在 26 键滑动方向和「显示字母键角标」之后的「九键滑动输入数字」写共享偏好 `touch_nine_key_swipe_digits`（`NineKeySwipeDigits`），默认关，三端同一行文字。长按空格语音另在语音输入页有同一个开关；iOS 工具栏不放语音按钮，不读写 `touch_voice_shortcut`。这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
+/// 设计稿里的按键弹出预览没有做：键盘本身不支持。手势里的滑动输入符号、显示字母键角标和长按空格语音输入与 Android 一样是本机开关（`KeyboardLayoutPreference.swipeSymbols`、`letterCornerHints`、`spaceVoice`），默认开；九键 flick 阈值写共享偏好 `touch_nine_key_flick_threshold`，三端使用同一范围和默认值。长按空格语音另在语音输入页有同一个开关；iOS 工具栏不放语音按钮，不读写 `touch_voice_shortcut`。这里每次只保存用户刚动的那一项几何尺寸，见 `save(_:)`。
 struct KeyboardLayoutSettingsView: View {
   @State private var keySpacing = KeyboardLayoutPreference.keySpacing
   @State private var rowSpacing = KeyboardLayoutPreference.rowSpacing
@@ -389,7 +389,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appLetterCornerHintsSwitch")
       DesignDivider()
       // 九键 flick 只在拼音九键版本显示；数字改由长按输入，阈值随共享偏好同步到三端。
-      if Self.offersNineKeySwipeDigits {
+      if Self.offersNineKeyFlick {
         InlineSliderRow(title: "九键 flick 阈值", value: $nineKeyFlickThreshold,
                         range: KeyboardLayoutPreference.nineKeyFlickThresholdRange,
                         identifier: "appNineKeyFlickThreshold",
@@ -631,17 +631,8 @@ struct KeyboardLayoutSettingsView: View {
       : enabled
   }
 
-  /// 「九键滑动输入数字」只在本版本提供拼音九键（触屏方案 `nine_key`）时列出。
-  static var offersNineKeySwipeDigits: Bool { ChineseInputScheme.nineKey.isOfferedByEdition }
-
-  /// 选项单里各项的无障碍标识。
-  static func nineKeySwipeDigitsIdentifier(_ value: NineKeySwipeDigits) -> String {
-    switch value {
-    case .off: "appNineKeySwipeDigitsOff"
-    case .up: "appNineKeySwipeDigitsUp"
-    case .down: "appNineKeySwipeDigitsDown"
-    }
-  }
+  /// 九键 flick 只在本版本提供拼音九键（触屏方案 `nine_key`）时列出。
+  static var offersNineKeyFlick: Bool { ChineseInputScheme.nineKey.isOfferedByEdition }
 
   private func saveNineKeyFlickThreshold() {
     saveFailed = !KeyboardLayoutPreference.saveNineKeyFlickThreshold(nineKeyFlickThreshold)

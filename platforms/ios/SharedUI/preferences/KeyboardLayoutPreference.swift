@@ -102,7 +102,8 @@ enum KeyboardLayoutPreference {
   }
 
   /// 把共享文档里的几何与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；键盘和设置页每次出现都按文档对齐。文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不镜像它。
-  static func mirrorGeometry(_ preferences: [String: Any]) {
+  static func mirrorGeometry(_ preferences: [String: Any]?) {
+    guard let preferences else { return }
     defaults.set(normalizeQuickPunctuationSymbols(preferences["touch_quick_punctuation_symbols"] as? [String] ?? []),
                  forKey: quickPunctuationSymbolsKey)
     if let spacing = sharedKeySpacing(preferences["touch_key_spacing_tenths"]) { keySpacing = spacing }
