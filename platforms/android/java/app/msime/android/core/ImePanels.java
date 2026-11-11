@@ -2237,9 +2237,7 @@ final class ImePanels {
         LayoutPolicy.setSymmetricPaddingDp(text, s, 14, 12);
         s.clipboardPanel.addView(text, LayoutPolicy.matchWidthWrapParams());
         String time = ClipboardDetailPolicy.recordedAt(item.timestamp(), ZoneId.systemDefault());
-        TextView details = clipboardNote("记录时间：" + time + "\n来源 App："
-            + ClipboardDetailPolicy.sourceLabel(null) + "\n包名："
-            + ClipboardDetailPolicy.sourceLabel(null));
+        TextView details = clipboardNote("记录时间：" + time);
         details.setGravity(Gravity.START);
         LinearLayout actions = LayoutPolicy.row(s);
         Button insert = clipboardAction(actions, "插入", () -> s.insertClipboardText(item.text()),
