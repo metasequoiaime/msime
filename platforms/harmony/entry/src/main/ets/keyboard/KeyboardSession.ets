@@ -49,6 +49,9 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import {
+  BackspaceFlickAction, BackspaceFlickTextPolicy, BackspaceFlickTextSnapshot
+} from './input/BackspaceFlickPolicy';
 import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
@@ -1376,6 +1379,8 @@ enum InputCommand {
 
 const JAPANESE_SCHEME: number = 3;
 
+type BackspaceFlickUndo = BackspaceFlickTextSnapshot;
+
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
  * committed text. The ability creates it; the panel's UI reads state back through onChanged.
@@ -1391,6 +1396,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 本会话注册过的 26 键双拼键位几何，会话一换就作废。 */
   private keyGeometry: KeyGeometryRegistry = new KeyGeometryRegistry();
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private static readonly FLICK_CONTEXT_UNITS: number = 64;
+  private static readonly FLICK_READ_CHUNK: number = 4096;
+  private static readonly FLICK_MAX_UNITS: number = 1024 * 1024;
+  private backspaceFlickUndo: BackspaceFlickUndo | null = null;
+  private backspaceFlickOneUndo: BackspaceFlickUndo | null = null;
   // 系统收起键盘后编辑框可能仍有焦点，空闲工作不能只靠 inputClient 判断是否显示。
   private idleDictionaryVisible: boolean = false;
   private personalDictionarySettled: boolean = true;
@@ -3945,6 +3955,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
     this.cancelPhraseCursor();
+    this.backspaceFlickUndo = null;
+    this.backspaceFlickOneUndo = null;
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -4354,6 +4366,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       return;
     }
+    this.backspaceFlickUndo = null;
+    this.backspaceFlickOneUndo = null;
     this.cancelPhraseCursor();
     this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
@@ -4373,6 +4387,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   editorSelectionChanged(collapsed: boolean = true): void {
     // 编辑器先回报 `textChange` 再回报 `selectionChange`（见 `EditEchoLedger`），这里读到的就是紧挨着的那次 `textChange` 是不是键盘自己的回声；下面会把它清掉。
     const ownEcho: boolean = this.phraseCursorOwnEcho;
+    if (!ownEcho) {
+      this.backspaceFlickUndo = null;
+      this.backspaceFlickOneUndo = null;
+    }
     if (this.phraseCursor !== null) {
       if (collapsed && this.phraseCursorOwnEcho) {
         this.resumePhraseCursor();
@@ -5007,6 +5025,115 @@ export class KeyboardSession implements HardwareKeyTarget {
     } catch (error) {
       KeyboardLog.error(`editor backspace unavailable: ${describeError(error)}`);
     }
+  }
+
+  /** 删除键上滑清空光标前文本，并保留本会话内可验证的撤回快照。 */
+  flickBackspace(action: BackspaceFlickAction): void {
+    switch (action) {
+      case BackspaceFlickAction.CLEAR:
+        this.flickClearBeforeCursor();
+        break;
+      case BackspaceFlickAction.RESTORE:
+        this.flickRestore(this.backspaceFlickUndo);
+        break;
+      case BackspaceFlickAction.DELETE_ONE:
+        this.flickDeleteOne();
+        break;
+      case BackspaceFlickAction.RESTORE_ONE:
+        this.flickRestore(this.backspaceFlickOneUndo);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private flickContext(value: string | null | undefined, preceding: boolean): string {
+    if (value === null || value === undefined) return '';
+    return BackspaceFlickTextPolicy.context(value, preceding, KeyboardSession.FLICK_CONTEXT_UNITS);
+  }
+
+  private flickClearBeforeCursor(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    this.backspaceFlickUndo = null;
+    // 组字由引擎负责清空；编辑器正文不应在组字状态下被误删。
+    if (this.composing()) {
+      this.discardComposition();
+      return;
+    }
+    const removed: string[] = [];
+    let units: number = 0;
+    try {
+      while (units < KeyboardSession.FLICK_MAX_UNITS) {
+        const before: string = inputClient.getForwardSync(
+          Math.min(KeyboardSession.FLICK_READ_CHUNK, KeyboardSession.FLICK_MAX_UNITS - units));
+        if (before.length === 0) break;
+        const count: number = TextPolicy.characters(before).length;
+        if (count === 0) break;
+        this.editEditorSync((): void => inputClient.deleteForwardSync(count));
+        removed.unshift(before);
+        units += count;
+      }
+      if (removed.length === 0) return;
+      this.backspaceFlickUndo = {
+        text: removed.join(''),
+        cursor: inputClient.getTextIndexAtCursorSync(),
+        before: this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true),
+        after: this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false),
+        generation: this.editorGeneration,
+      };
+    } catch (error) {
+      this.backspaceFlickUndo = null;
+      KeyboardLog.error(`backspace flick clear unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private flickDeleteOne(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    this.backspaceFlickOneUndo = null;
+    if (this.composing()) {
+      this.backspace();
+      return;
+    }
+    try {
+      const before: string = inputClient.getForwardSync(1);
+      const deletion = BackspaceFlickTextPolicy.deleteBeforeCursor(
+        before, TextPolicy.characters(before).length);
+      if (deletion.deleted.length === 0) return;
+      const after: string = this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false);
+      this.editEditorSync((): void => inputClient.deleteForwardSync(
+        TextPolicy.characters(deletion.deleted).length));
+      this.backspaceFlickOneUndo = {
+        text: deletion.deleted,
+        cursor: inputClient.getTextIndexAtCursorSync(),
+        before: this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true),
+        after,
+        generation: this.editorGeneration,
+      };
+    } catch (error) {
+      this.backspaceFlickOneUndo = null;
+      KeyboardLog.error(`backspace flick delete unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private flickRestore(snapshot: BackspaceFlickUndo | null): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (snapshot === null || inputClient === undefined || snapshot.generation !== this.editorGeneration) return;
+    try {
+      const cursor: number = inputClient.getTextIndexAtCursorSync();
+      const before: string = this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true);
+      const after: string = this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false);
+      if (!BackspaceFlickTextPolicy.canRestore(snapshot, cursor, before, after, this.editorGeneration)) {
+        return;
+      }
+      this.editEditorSync((): void => inputClient.insertTextSync(snapshot.text));
+    } catch (error) {
+      KeyboardLog.error(`backspace flick restore unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (snapshot === this.backspaceFlickUndo) this.backspaceFlickUndo = null;
+    if (snapshot === this.backspaceFlickOneUndo) this.backspaceFlickOneUndo = null;
   }
 
   /** Throw the composition away without committing it, which is what 重输 means. */
