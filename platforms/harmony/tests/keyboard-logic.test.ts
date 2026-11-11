@@ -7164,9 +7164,14 @@ group("clipboard entries are bounded in characters and in UTF-8 bytes", () => {
     "ten thousand emoji fit at the shared character and byte limits",
   );
   const family = "👩‍👩‍👧‍👦";
-  const byteBoundary = family.repeat(Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)));
+  const byteBoundary = family.repeat(
+    Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)),
+  );
   check(utf8Length(byteBoundary) <= ClipboardHistoryPolicy.MAX_BYTES, "byte-boundary fixture fits");
-  check(ClipboardHistoryPolicy.acceptable(byteBoundary) === true, "exactly at the byte bound is accepted");
+  check(
+    ClipboardHistoryPolicy.acceptable(byteBoundary) === true,
+    "exactly at the byte bound is accepted",
+  );
   check(
     ClipboardHistoryPolicy.acceptable(byteBoundary + family) === false,
     "one grapheme over the byte bound is refused",
@@ -19731,20 +19736,31 @@ group("quote and bracket styles change only the faces and pairs of their own key
   );
 });
 
-// 同样的字母页只有中文全拼触屏显示分词，英文、本地模式与 2in1 仍能切换大小写。
+// 中文全拼和双拼触屏显示分词，英文、本地模式与 2in1 仍能切换大小写。
 {
   check(
     KeyboardScheme.usesQuanpinSeparator(KeyboardScheme.QUANPIN, true, false, false, "none"),
     "全拼触屏显示分词",
   );
-  for (const scheme of [
-    KeyboardScheme.QUANPIN_NINE_KEY,
-    KeyboardScheme.XIAOHE,
-    KeyboardScheme.WUBI,
-  ]) {
+  for (const scheme of [KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.WUBI]) {
     check(
       !KeyboardScheme.usesQuanpinSeparator(scheme, true, false, false, "none"),
       "其他方案保留原键",
+    );
+  }
+  for (const scheme of [
+    KeyboardScheme.XIAOHE,
+    KeyboardScheme.ZIRANMA,
+    KeyboardScheme.MICROSOFT,
+    KeyboardScheme.SHOUDAO,
+  ]) {
+    check(
+      KeyboardScheme.usesQuanpinSeparator(scheme, true, false, false, "none"),
+      "双拼触屏显示分词",
+    );
+    check(
+      KeyboardScheme.usesQuanpinSeparator(scheme, true, false, false, "none", true),
+      "双拼不受全拼保留 Shift 开关影响",
     );
   }
   for (const [touch, english, symbols, local] of [
