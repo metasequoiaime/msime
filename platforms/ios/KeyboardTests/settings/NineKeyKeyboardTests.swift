@@ -2655,7 +2655,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(toolbar.isHidden)
-    XCTAssertTrue(reading.isHidden, "行内拼写不保留空白编辑入口")
+    XCTAssertEqual(reading.frame.width, 0, accuracy: 0.5, "行内拼写不保留空白编辑入口")
     let preedit = try button("preeditButton", in: controller)
     XCTAssertTrue(preedit.isHidden)
     XCTAssertNil(preedit.configuration?.image, "候选栏不显示拼写编辑铅笔")
