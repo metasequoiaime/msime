@@ -16,7 +16,7 @@ Android 此前只经 GitHub release 分发 APK，靠应用内更新（`UpdateApi
 渠道是 gradle-app 的一个属性，不是 flavor：`-PmsimeDistribution=github|play`，缺省 github，由 `build-apk.sh` 在 `MSIME_ANDROID_DISTRIBUTION=play` 时转交。play 时：
 
 - BuildConfig 的 `DISTRIBUTION` 写成 `play`，宿主经 `AppVersionPolicy.playDistribution()` 反射读（理由与 `RELEASE_DATE` 相同，`check-host.sh` 的 javac 编译没有 BuildConfig）。
-- release 叠加 `platforms/android/distribution/play/AndroidManifest.xml`，用 `tools:node="remove"` 删掉 `REQUEST_INSTALL_PACKAGES`。`RECEIVE_BOOT_COMPLETED` 不删：它不受限，ML Kit 带进来的 WorkManager 也声明并依赖它。
+- release 叠加 `platforms/android/distribution/play/AndroidManifest.xml`，用 `tools:node="remove"` 删掉 `REQUEST_INSTALL_PACKAGES`，0.7.4 起也删掉 `CAMERA`（只给拍照识字用，Play 版不提供拍照识字，入口、拍照页和 `OcrRuntime` 都按渠道拒绝，留着就要在数据安全表里解释一项用不到的权限）。`RECEIVE_BOOT_COMPLETED` 不删：它不受限，ML Kit 带进来的 WorkManager 也声明并依赖它。
 - `UpdateJobService.updatedByPlay`（原 `installedFromPlay`）对 Play 渠道的包一律为真，关于页不显示检查更新、自动更新和更新通道，每日任务不运行，不论这个包经什么途径装上。
 - `build-native.sh` 不再收到 `--omit-voice-runtime`，两个语音运行库随包；词典、语言词库、离线释义这些数据照旧按需下载（数据不受那条政策约束）。`ResourcePackService` 不接 `voice-runtime` 请求，`LocalAsrRecognizer` 不从 files 目录载入 .so，Play 版只走包内自带的那一份。
 - `bundle<Flavor>Release` 输出 AAB，`jarsigner` 用 msime-release 签名，打包后的条目检查剥掉 `base/` 前缀后沿用 APK 的那一套，另要求两个语音运行库在包里；135 MB 的体积上限只量 GitHub 渠道的 APK。
