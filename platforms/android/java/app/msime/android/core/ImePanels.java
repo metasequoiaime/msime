@@ -635,7 +635,7 @@ final class ImePanels {
             namedKeys.add(skin.key());
             choices.add(new MSIMEInputService.SkinChoice("custom", item.name(), skin, design, item.id()));
         }
-        // 社区里还没获取的皮肤：目录由 App 缓存（键盘不为浏览目录联网），选中时先存进皮肤库再换上。
+        // 社区里还没获取的皮肤：目录由 App 缓存，选中时按 ID 完整下载后再存进皮肤库并换上。
         java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> uninstalled = new java.util.HashMap<>();
         for (CommunitySkinCache.Entry entry : communityItems) {
             if (libraryIds.contains(entry.id())) continue;
@@ -682,26 +682,42 @@ final class ImePanels {
                     ViewPolicy.setSelected(other, other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
-                // 选中即换色并收起面板回到键盘，换上的皮肤直接在键盘上看。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
+                // 选中即收起面板回到键盘。还没获取的社区皮肤要先走完整下载，排在保存选择之前；下载失败时保留当前皮肤。
                 CommunitySkinCache.Entry install = uninstalled.get(choice);
                 if (install != null) {
                     final String directory = s.preferencesDirectory;
                     s.preferencesWorker.execute(() -> {
                         boolean saved = false;
+                        String failure = "皮肤下载失败，请稍后重试。";
+                        JSONObject design = null;
                         try {
-                            saved = CustomSkinLibrary.add(java.nio.file.Paths.get(directory),
-                                install.id(), install.name(), install.design());
+                            CommunityCatalog.Download download = CommunitySkinDownloadBridge.download(s, install.id());
+                            if (!download.failed()) {
+                                design = download.design();
+                                saved = CustomSkinLibrary.add(java.nio.file.Paths.get(directory),
+                                    install.id(), install.name(), design);
+                                if (!saved) failure = "皮肤库已满，请先在键盘里删掉一些。";
+                            } else failure = download.failure();
                         } catch (java.io.IOException | RuntimeException error) {
                             android.util.Log.w("MSIMESkin", "Community skin was not saved to the library", error);
                         }
                         boolean installed = saved;
+                        JSONObject downloadedDesign = design;
+                        String saveFailure = failure;
                         s.main.post(() -> {
-                            if (installed) s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
-                            else s.notice("皮肤保存失败，保留当前皮肤");
+                            if (installed) {
+                                s.saveKeyboardSkin(choice.id(), downloadedDesign, choice.libraryId());
+                                s.recordSkinStatistics("custom");
+                            } else {
+                                pendingSkinKey = null;
+                                s.notice(saveFailure);
+                            }
                         });
                     });
-                } else s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
-                s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
+                } else {
+                    s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
+                    s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
+                }
                 styleSkinPicker(cards);
                 s.closeSkinPicker();
                 s.render();

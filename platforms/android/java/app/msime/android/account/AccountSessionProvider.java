@@ -18,7 +18,7 @@ import java.nio.file.Path;
 import org.json.JSONObject;
 
 /**
- * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献，以及主进程记着的账号绑定（`sync_state`）。
+ * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献、完整下载社区皮肤，以及主进程记着的账号绑定（`sync_state`）。
  *
  * <p>声明在主进程里且不导出，只有本 uid 能调到它。`:ime` 键盘因此从不持有 refresh token、也从不刷新，轮换的 refresh token 才不会被用两次。回答的是原生登录自己的会话（Rust 经 {@link AccountStore} 持有并刷新）；令牌只放在回复里，这里不记日志。回复里的 session_id 是账号编号（user.id）。
  */
@@ -31,6 +31,7 @@ public final class AccountSessionProvider extends ContentProvider {
         }
         Context context = getContext();
         if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context);
+        if (AccountSessionRoutingPolicy.METHOD_SKIN_DOWNLOAD.equals(method)) return skinDownload(context, extras);
         if (AccountSessionRoutingPolicy.METHOD_VOICE_CONTRIBUTION.equals(method)) return voice(context, extras);
         Bundle reply = new Bundle();
         String token = "";
@@ -67,6 +68,28 @@ public final class AccountSessionProvider extends ContentProvider {
         if (binding != null) {
             reply.putString(AccountSessionRoutingPolicy.KEY_ACCOUNT_ID, binding.accountId());
             reply.putLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION, binding.generation());
+        }
+        return reply;
+    }
+
+    /** 主进程执行社区皮肤完整下载；`:ime` 只通过 provider 请求，自己不联网。 */
+    private static Bundle skinDownload(Context context, Bundle extras) {
+        Bundle reply = new Bundle();
+        try {
+            String id = extras == null ? "" : extras.getString(AccountSessionRoutingPolicy.KEY_SKIN_ID, "");
+            if (context == null || !CommunityCatalog.validDownloadId(id)) {
+                throw new AccountStore.Failure("community_invalid", 0);
+            }
+            CommunityCatalog.Download download = new CommunityCatalog(context).downloadSkin(id);
+            if (download.failed()) {
+                reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, download.failure());
+            } else {
+                reply.putString(AccountSessionRoutingPolicy.KEY_SKIN_DESIGN, download.design().toString());
+            }
+        } catch (AccountStore.Failure failure) {
+            reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, CommunityRequest.rustMessage(failure.code));
+        } catch (Exception | LinkageError error) {
+            reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, "皮肤下载失败，请稍后重试。");
         }
         return reply;
     }

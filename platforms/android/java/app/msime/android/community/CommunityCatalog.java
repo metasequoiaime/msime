@@ -267,8 +267,14 @@ public final class CommunityCatalog {
      */
     public Download download(Item item) {
         if (!validDownloadItem(item)) return new Download(null, "这类作品还不能从这里保存。");
+        return downloadSkin(item.id());
+    }
+
+    /** 按缓存里的皮肤 ID 完整下载设计；键盘进程的目录缓存不可信，不能直接把其中的预览设计写入皮肤库。 */
+    public Download downloadSkin(String itemId) {
+        if (!validDownloadId(itemId)) return new Download(null, "这类作品还不能从这里保存。");
         try {
-            Object value = bound(new JSONObject().put("operation", "keyboard_skin_download").put("id", item.id()), true);
+            Object value = bound(new JSONObject().put("operation", "keyboard_skin_download").put("id", itemId), true);
             if (!(value instanceof JSONObject design)) return new Download(null, CommunityRequest.message(null, 500));
             return new Download(design, "");
         } catch (AccountStore.Failure failure) {
@@ -359,6 +365,10 @@ public final class CommunityCatalog {
     /** Keep the download counter path safe even when a caller bypasses catalogue parsing. */
     static boolean validDownloadItem(Item item) {
         return item != null && item.kind() == CommunityRequest.Kind.SKIN && validUuid(item.id());
+    }
+
+    static boolean validDownloadId(String itemId) {
+        return validUuid(itemId);
     }
 
     /** A malformed page is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */
