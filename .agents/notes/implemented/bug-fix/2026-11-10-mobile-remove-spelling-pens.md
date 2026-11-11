@@ -22,6 +22,7 @@ Android 与 iOS 都移除候选栏最前面的拼写铅笔及其专用的空白�
 
 - iOS 真机签名构建通过，`MSIMEApp` 已安装到 iPhone XR（iOS 18.7.11）。
 - iPhone XR 真机 `MSIMEKeyboardTests/CompositionCaretTests/testInlineSpellingDoesNotExposeAnEditorPen` 通过，1 项、0 失败；断言无铅笔图像、无空白按钮命中区。
+- iOS 的九键行内拼写回归也断言编辑条保持收起、候选栏不保留铅笔或空白入口；候选行布局回归断言第一个候选从顶行左侧开始。
 - Android 的 `check-host.sh` 通过，包含 `SpellingEditorPolicySmoke` 和设备测试源码编译；已有 API 28/35 专项结果覆盖开关、入口和空行的基线行为，但本次移除图标没有在专用 AVD 上重新运行。本机连接的 Pixel 3 XL 不是仓库认可的专用 AVD，未用它冒充 Android 设备验收。
 
 ## Consequences
