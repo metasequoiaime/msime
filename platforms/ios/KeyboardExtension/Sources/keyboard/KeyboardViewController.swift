@@ -973,7 +973,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     TouchKeyLayoutStyle.mirror(session.sharedPreferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
     letterGridWidthMode = keyLayoutStyle.letterWidths
-    KeyboardLayoutPreference.mirrorGeometry(session.sharedPreferences)
+    KeyboardLayoutPreference.mirrorNineKeyFlickThreshold(session.sharedPreferences)
     nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 输入习惯（学习、调频、离线释义、候选翻译与语言）同理以文档为准。镜像里没写过释义开关时读作开启，而文档默认关闭（`candidate_english_gloss` 是 opt-in）；不先抄过来，下面按镜像算出的顶栏会多留一行释义，键盘高 4pt，等后台重载把文档抄进镜像后又缩回去，文档没有更新时重载不抄，就一直按镜像显示释义。
     InputHabitPreference.mirror(InputHabitPreference.settings(in: session.sharedPreferences))
@@ -6393,6 +6393,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let skinChanged = KeyboardTheme.reload(preferences, dark: drawsDark) != previousTheme
     // 高度也抄进 App Group：原先只抄键距、行距和语音入口，高度只进了这个控制器，于是布局面板打开时显示、提交时写回的都是 App Group 里可能过时的高度。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
+    nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 键盘调整开着时保留正在预览的高度：重读多半是键盘出现时发出、晚到的那一次，不是用户要的改动；离开调整时预览会存下，覆盖文档里的值。
     if adjustOverlay == nil,
        let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
@@ -6410,8 +6411,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       updateLetterCaseControls()
     }
     // 九键 flick 不改键面，下一次触摸判定时就用新阈值，不用重画。
-    KeyboardLayoutPreference.mirrorGeometry(preferences)
-    nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 「按键布局」：样式或数字行变了，下面的 `updateKeyboardLayoutIfNeeded` 当场重排底行和数字行。只动键面，不碰会话，正在组的字照常继续。
     let previousLetterGridWidthMode = letterGridWidthMode
     TouchKeyLayoutStyle.mirror(preferences)

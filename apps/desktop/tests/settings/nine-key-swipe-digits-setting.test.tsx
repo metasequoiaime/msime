@@ -2,10 +2,10 @@
 import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type InputScheme, type Snapshot } from "@msime/ui";
 
-// 九键滑动输入数字（#10229）：共享 React 设置页给鸿蒙手机画「手势」组里的这一行，读写共享偏好 `touch_nine_key_swipe_digits`。
+// 九键 flick 阈值（#11244）：共享 React 设置页给鸿蒙手机画滑块，读写共享偏好 `touch_nine_key_flick_threshold`。
 
 afterEach(() => {
   cleanup();
@@ -13,7 +13,7 @@ afterEach(() => {
   window.history.replaceState({}, "");
 });
 
-const TITLE = "九键滑动输入数字";
+const TITLE = "九键 flick 阈值";
 
 function snapshot(preferences: Record<string, unknown> = {}): Snapshot {
   return {
@@ -67,85 +67,50 @@ function renderSettings({
   return { save };
 }
 
-/** 鸿蒙手机上的选择行是一个打开选项单的按钮，行标题在 `data-row-title` 里。 */
-function pickerRow(title: string) {
-  return screen
-    .queryAllByRole("button")
-    .find((button) => button.querySelector("[data-row-title]")?.textContent === title);
-}
-
 async function pageReady() {
   await settingsFormReady();
   await screen.findAllByText("键盘高度", undefined, { timeout: 3000 });
 }
 
-function choose(label: string) {
-  fireEvent.click(pickerRow(TITLE)!);
-  const sheet = screen.getByRole("dialog", { name: TITLE });
-  fireEvent.click(within(sheet).getByRole("button", { name: label }));
+function thresholdSlider() {
+  return screen.getByRole("slider", { name: TITLE });
 }
 
-test("the phone keyboard page lists 九键滑动输入数字 in 手势 and reads a missing value as 关闭", async () => {
+test("手机键盘页在手势中显示九键 flick 阈值，并读取缺省值 24", async () => {
   renderSettings();
   await pageReady();
-  const row = await waitFor(() => {
-    const found = pickerRow(TITLE);
-    if (!found) throw new Error(`no ${TITLE} row`);
-    return found;
-  });
+  const slider = await waitFor(thresholdSlider);
   const gestures = screen.getByRole("region", { name: "手势" });
-  expect(gestures.contains(row)).toBe(true);
-  expect(row.textContent).toContain("关闭");
-  expect(row.textContent).toContain("沿所选方向滑动输入数字，反方向弹出字母。");
-  // 选项单的标题和三项文字三端相同。
-  fireEvent.click(row);
-  const sheet = screen.getByRole("dialog", { name: TITLE });
-  expect(
-    within(sheet)
-      .getAllByRole("button")
-      .map((button) => button.textContent)
-      .filter((text) => ["关闭", "上滑", "下滑"].includes(text ?? "")),
-  ).toEqual(["关闭", "上滑", "下滑"]);
+  expect(gestures.contains(slider)).toBe(true);
+  expect(slider.getAttribute("min")).toBe("14");
+  expect(slider.getAttribute("max")).toBe("48");
+  expect(slider.getAttribute("step")).toBe("2");
+  expect((slider as HTMLInputElement).value).toBe("24");
+  expect(slider.getAttribute("aria-valuetext")).toBe("24 dp");
 });
 
-test("choosing a direction writes the shared preference, and 关闭 is written as off", async () => {
+test("调整滑块写入共享九键 flick 阈值", async () => {
   const { save } = renderSettings();
   await pageReady();
-  await waitFor(() => expect(pickerRow(TITLE)).toBeTruthy());
-  choose("上滑");
-  expect(pickerRow(TITLE)!.textContent).toContain("上滑");
+  const slider = await waitFor(thresholdSlider);
+  fireEvent.change(slider, { target: { value: "32" } });
+  expect((slider as HTMLInputElement).value).toBe("32");
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalled());
-  expect(save.mock.calls.at(-1)?.[1].touch_nine_key_swipe_digits).toBe("up");
-  choose("下滑");
-  saveSettingsNow();
-  await waitFor(() => expect(save.mock.calls.at(-1)?.[1].touch_nine_key_swipe_digits).toBe("down"));
-  choose("关闭");
-  saveSettingsNow();
-  await waitFor(() => expect(save.mock.calls.at(-1)?.[1].touch_nine_key_swipe_digits).toBe("off"));
+  expect(save.mock.calls.at(-1)?.[1].touch_nine_key_flick_threshold).toBe(32);
 });
 
-test("a stored direction is shown, and a value this page does not know reads as 关闭", async () => {
-  for (const [stored, shown] of [
-    ["down", "下滑"],
-    ["up", "上滑"],
-    ["off", "关闭"],
-    ["sideways", "关闭"],
-  ] as const) {
-    renderSettings({ preferences: { touch_nine_key_swipe_digits: stored } });
+test("存储值超出范围或不在步进上时回退到 24", async () => {
+  for (const stored of [13, 25, 49, "24"]) {
+    renderSettings({ preferences: { touch_nine_key_flick_threshold: stored } });
     await pageReady();
-    const row = await waitFor(() => {
-      const found = pickerRow(TITLE);
-      if (!found) throw new Error(`no ${TITLE} row`);
-      return found;
-    });
-    expect(row.textContent).toContain(shown);
+    expect(((await waitFor(thresholdSlider)) as HTMLInputElement).value).toBe("24");
     cleanup();
     window.history.replaceState({}, "");
   }
 });
 
-test("editions without the pinyin nine-key keyboard have no 九键滑动输入数字 row", async () => {
+test("没有全拼九键版本时不显示九键 flick 阈值", async () => {
   for (const inputSchemes of [
     ["wubi"],
     ["stroke"],
@@ -154,22 +119,22 @@ test("editions without the pinyin nine-key keyboard have no 九键滑动输入�
   ] as InputScheme[][]) {
     renderSettings({ inputSchemes, preferences: { scheme: inputSchemes[0] } });
     await pageReady();
-    expect(pickerRow(TITLE)).toBeUndefined();
+    expect(screen.queryByRole("slider", { name: TITLE })).toBeNull();
     expect(screen.queryByText(TITLE)).toBeNull();
     cleanup();
     window.history.replaceState({}, "");
   }
 });
 
-test("desktop hosts have no 九键滑动输入数字 row", async () => {
+test("桌面宿主不显示九键 flick 阈值", async () => {
   for (const [platform, mobile] of [
     ["harmony", false],
     ["windows", false],
   ] as const) {
     renderSettings({ platform, mobile });
     await pageReady();
+    expect(screen.queryByRole("slider", { name: TITLE })).toBeNull();
     expect(screen.queryByText(TITLE)).toBeNull();
-    expect(screen.queryByLabelText(TITLE)).toBeNull();
     cleanup();
     window.history.replaceState({}, "");
   }

@@ -243,7 +243,7 @@ class NineKeyFlickKeyboardContract(unittest.TestCase):
         self.assertIn("static let nineKeyHoldDuration: TimeInterval = 0.5", self.source)
 
     def test_document_refreshes_threshold(self):
-        self.assertIn("KeyboardLayoutPreference.mirrorGeometry(session.sharedPreferences)", self.source)
+        self.assertIn("KeyboardLayoutPreference.mirrorNineKeyFlickThreshold(session.sharedPreferences)", self.source)
         self.assertIn("nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)", self.source)
         self.assertNotIn("NineKeySwipeDigits.mirror(", self.source)
 

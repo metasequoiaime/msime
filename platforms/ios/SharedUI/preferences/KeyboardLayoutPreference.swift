@@ -116,6 +116,14 @@ enum KeyboardLayoutPreference {
     }
   }
 
+  /// 首次加载键盘时只镜像九键 flick 阈值，不覆盖本机已经应用的键距、行距和高度。
+  static func mirrorNineKeyFlickThreshold(_ preferences: [String: Any]?) {
+    guard let threshold = sharedNineKeyFlickThreshold(preferences?[nineKeyFlickThresholdDocumentKey]) else {
+      return
+    }
+    nineKeyFlickThreshold = threshold
+  }
+
   /// 保存九键 flick 阈值，只修改共享文档这一项；写入成功后同步 App Group 镜像。
   @discardableResult
   static func saveNineKeyFlickThreshold(_ value: Double, stateRoot: URL? = nil) -> Bool {

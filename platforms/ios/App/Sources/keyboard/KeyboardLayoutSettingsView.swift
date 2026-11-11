@@ -688,7 +688,6 @@ struct KeyboardLayoutSettingsView: View {
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
     quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
     KeyboardLayoutPreference.quanpinShift = quanpinShift
-    KeyboardLayoutPreference.mirrorGeometry(preferences)
     nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
