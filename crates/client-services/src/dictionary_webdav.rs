@@ -3,7 +3,7 @@
 //! 网盘上分两部分，都在用户选的文件夹下的 `msime-dictionary/` 里：
 //!
 //! - `msime-dictionary/v1/`：词库的事件日志和检查点，由 [`DavStore`] 按核心的接口读写，独占创建与云剪贴板同一条代码路径（`clipboard_webdav::Dav`）。
-//! - `msime-dictionary/keyring/`：词库自己的密钥串。它就是云剪贴板端到端加密的另一个实例——同一个驱动、同一个日志核心、同一个虚拟中继——只是每个请求的路径前面加上这个前缀（[`Prefixed`]），所以里面是一份完整的云剪贴板 WebDAV 布局。词库只用它的设备批准和密钥，不用条目。
+//! - `msime-dictionary/keyring/v1/`：词库自己的密钥串。它就是云剪贴板端到端加密的另一个实例——同一个驱动、同一个日志核心、同一个虚拟中继——只是把协议的路径根映射到这个目录（[`Prefixed`]），所以不会再嵌套一个 `msime-clipboard/`。词库只用它的设备批准和密钥，不用条目。旧版本的嵌套布局仍可回退读取。
 //!
 //! 密钥串的全部用法收在 [`KeyRingAccess`] 一处：云剪贴板的驱动在改（例如同一台设备重复登记的修复），这里只依赖它的设备操作和「读出本机密钥串」。
 //!
@@ -47,6 +47,10 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(120);
 const LOCK_POLL: Duration = Duration::from_millis(50);
 /// 临时文件放了这么久还在，说明写入的设备在 PUT 和 MOVE 之间中断了。
 const STALE_TMP_SECS: i64 = 600;
+const CLIPBOARD_ROOT: &str = "msime-clipboard/";
+const LAYOUT_UNKNOWN: usize = 0;
+const LAYOUT_FLAT: usize = 1;
+const LAYOUT_LEGACY: usize = 2;
 
 /// 词库同步失败的原因。
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -144,11 +148,12 @@ impl DavHttp for BudgetedHttp {
     }
 }
 
-/// 每个请求的路径前面加上 `prefix`：把一整套云剪贴板 WebDAV 布局放进 `msime-dictionary/keyring/` 下。
+/// 把协议根目录映射到 `msime-dictionary/keyring/`，让词库密钥串与云剪贴板各自占用自己的顶层目录。
 struct Prefixed {
     inner: Box<dyn DavHttp>,
     prefix: &'static str,
     roots_pending: AtomicBool,
+    layout: AtomicUsize,
 }
 
 impl DavHttp for Prefixed {
@@ -162,18 +167,51 @@ impl DavHttp for Prefixed {
             }
             self.roots_pending.store(false, Ordering::SeqCst);
         }
-        let path = format!("{}{}", self.prefix, request.path);
-        let destination = request
-            .destination
-            .map(|destination| format!("{}{destination}", self.prefix));
-        self.inner.send(&DavRequest {
-            method: request.method,
-            path: &path,
-            depth: request.depth,
-            destination: destination.as_deref(),
-            body: request.body,
-            limit: request.limit,
-        })
+        let layout = self.layout.load(Ordering::SeqCst);
+        let send = |legacy: bool| {
+            let relative = if legacy {
+                request.path
+            } else {
+                request
+                    .path
+                    .strip_prefix(CLIPBOARD_ROOT)
+                    .unwrap_or(request.path)
+            };
+            let path = format!("{}{relative}", self.prefix);
+            let destination = request.destination.map(|destination| {
+                let relative = if legacy {
+                    destination
+                } else {
+                    destination
+                        .strip_prefix(CLIPBOARD_ROOT)
+                        .unwrap_or(destination)
+                };
+                format!("{}{relative}", self.prefix)
+            });
+            self.inner.send(&DavRequest {
+                method: request.method,
+                path: &path,
+                depth: request.depth,
+                destination: destination.as_deref(),
+                body: request.body,
+                limit: request.limit,
+            })
+        };
+        if layout == LAYOUT_LEGACY {
+            return send(true);
+        }
+        let response = send(false)?;
+        if layout == LAYOUT_UNKNOWN && matches!(response.status, 404 | 409) {
+            // 已发布版本把协议根目录嵌在 `msime-clipboard/` 下。只有扁平路径不存在时才探测旧布局；两边都不存在时仍保留扁平布局，供新安装初始化。
+            let legacy = send(true)?;
+            if !matches!(legacy.status, 404 | 409) {
+                self.layout.store(LAYOUT_LEGACY, Ordering::SeqCst);
+                return Ok(legacy);
+            }
+        } else if layout == LAYOUT_UNKNOWN {
+            self.layout.store(LAYOUT_FLAT, Ordering::SeqCst);
+        }
+        Ok(response)
     }
 }
 
@@ -290,7 +328,7 @@ impl RemoteStore for DavStore<'_> {
 
 // ---- 密钥串 ----
 
-/// 词库的密钥串：云剪贴板端到端加密协议在 `msime-dictionary/keyring/` 下的另一个实例。词库只经这里用它。
+/// 词库的密钥串：云剪贴板端到端加密协议在 `msime-dictionary/keyring/v1/` 下的另一个实例。词库只经这里用它。
 struct KeyRingAccess {
     clipboard: RelayClipboard,
     budget: Arc<RequestBudget>,
@@ -328,6 +366,7 @@ impl KeyRingAccess {
             ),
             prefix: KEYRING,
             roots_pending: AtomicBool::new(!directory.join(WEBDAV_STATE_FILE).exists()),
+            layout: AtomicUsize::new(LAYOUT_UNKNOWN),
         };
         let relay = VirtualRelay::with_http(
             config.clone(),
@@ -901,7 +940,7 @@ fn valid_device(device_id: &str) -> Result<(), DictionarySyncError> {
     }
 }
 
-/// 「测试连接」：保存之前在用户选的文件夹里试一遍日志要用的网盘行为（与云剪贴板的测试连接相同：独占创建两次第二次必须失败、刚写的马上列得出、四路并发恰好一个成功），探测目录建在 `msime-dictionary/keyring/msime-clipboard/` 下，测完删掉。给了 `directory` 时，通过后让本机从网盘现在的样子重新开始：忘掉读到的位置和防回退的记录（下一次按第一次加入，本机的词全部保留），也删掉密钥串的日志缓存。用户自己清理过网盘上的文件夹、本机因此报 `dictionary_sync_rollback` 时，这是恢复的办法。会联网，大约二十个请求。
+/// 「测试连接」：保存之前在用户选的文件夹里试一遍日志要用的网盘行为（与云剪贴板的测试连接相同：独占创建两次第二次必须失败、刚写的马上列得出、四路并发恰好一个成功），探测目录建在 `msime-dictionary/keyring/` 下，测完删掉。给了 `directory` 时，通过后让本机从网盘现在的样子重新开始：忘掉读到的位置和防回退的记录（下一次按第一次加入，本机的词全部保留），也删掉密钥串的日志缓存。用户自己清理过网盘上的文件夹、本机因此报 `dictionary_sync_rollback` 时，这是恢复的办法。会联网，大约二十个请求。旧版本留下的 `keyring/msime-clipboard/` 会在探测和同步时自动回退读取。
 pub fn probe(
     url: &str,
     username: &str,
@@ -923,6 +962,7 @@ pub fn probe(
         inner: Box::new(HttpDav::new(&config).map_err(DictionarySyncError::from_relay)?),
         prefix: KEYRING,
         roots_pending: AtomicBool::new(false),
+        layout: AtomicUsize::new(LAYOUT_UNKNOWN),
     };
     crate::clipboard_webdav::probe_with(&prefixed, &clock)
         .map_err(DictionarySyncError::from_relay)?;
