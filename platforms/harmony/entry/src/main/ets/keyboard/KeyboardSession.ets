@@ -49,6 +49,7 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import { NineKeyFlickPolicy } from './input/NineKeyFlickPolicy';
 import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
@@ -1056,8 +1057,10 @@ interface PreparedPreferences {
   touch_keyboard_split_gap?: number;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
-  /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
+  /** 旧九键数字滑动字段，保留以兼容旧文档；宿主不再使用。 */
   touch_nine_key_swipe_digits?: string;
+  /** 九键字母 flick 判定阈值，14–48、步进 2，默认 24。 */
+  touch_nine_key_flick_threshold?: number;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1243,8 +1246,10 @@ export interface KeyboardPreferences {
   readonly splitKeyboard: SplitKeyboardSettings;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
-  /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
+  /** 旧字段仅为兼容读取；九键数字改由长按输入。 */
   readonly nineKeySwipeDigits: string;
+  /** `touch_nine_key_flick_threshold`：九键字母 flick 的共享阈值。 */
+  readonly nineKeyFlickThreshold: number;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -2077,7 +2082,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.touch_keyboard_split_portrait, preferences.touch_keyboard_split_threshold,
         preferences.touch_keyboard_split_gap),
       languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
-      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
+      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits),
+      nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(preferences.touch_nine_key_flick_threshold)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(

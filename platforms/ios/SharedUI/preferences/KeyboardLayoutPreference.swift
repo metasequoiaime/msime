@@ -20,6 +20,27 @@ enum KeyboardLayoutPreference {
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
   static let letterCornerHintsKey = "keyboard.gesture.letterCornerHints"
   enum SwipeDirection: String { case up, down }
+  static let nineKeyFlickThresholdDocumentKey = "touch_nine_key_flick_threshold"
+  static let nineKeyFlickThresholdKey = "keyboard.gesture.nineKeyFlickThreshold"
+  static let nineKeyFlickThresholdDefault: Double = 24
+  static let nineKeyFlickThresholdRange: ClosedRange<Double> = 14...48
+  static let nineKeyFlickThresholdStep: Double = 2
+  static var nineKeyFlickThreshold: Double {
+    get { spacing(key: nineKeyFlickThresholdKey, fallback: nineKeyFlickThresholdDefault, range: nineKeyFlickThresholdRange) }
+    set { defaults.set(normalizedNineKeyFlickThreshold(newValue), forKey: nineKeyFlickThresholdKey) }
+  }
+  static func normalizedNineKeyFlickThreshold(_ value: Double) -> Double {
+    let clamped = SharedNumber.clamped(value, to: nineKeyFlickThresholdRange)
+    let steps = ((clamped - nineKeyFlickThresholdRange.lowerBound) / nineKeyFlickThresholdStep).rounded()
+    return nineKeyFlickThresholdRange.lowerBound + steps * nineKeyFlickThresholdStep
+  }
+  static func sharedNineKeyFlickThreshold(_ value: Any?) -> Double? {
+    guard let integer = SharedNumber.strictInt(value) else { return nil }
+    let value = Double(integer)
+    guard nineKeyFlickThresholdRange.contains(value),
+          (integer - Int(nineKeyFlickThresholdRange.lowerBound)) % Int(nineKeyFlickThresholdStep) == 0 else { return nil }
+    return value
+  }
   static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
   static var defaultQuickPunctuationSymbols: [String] { normalizeQuickPunctuationSymbols([]) }
   static let hideLanguageKeyKey = "keyboard.bottom.hideLanguageKey"
@@ -61,7 +82,7 @@ enum KeyboardLayoutPreference {
   }
 
   static func resetToDefaults() {
-    for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey] {
+    for stored in [keySpacingKey, rowSpacingKey, heightAdjustmentKey, nineKeyFlickThresholdKey] {
       defaults.removeObject(forKey: stored)
     }
   }
@@ -89,6 +110,20 @@ enum KeyboardLayoutPreference {
     if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
       heightAdjustment = adjustment
     }
+    if let threshold = sharedNineKeyFlickThreshold(preferences[nineKeyFlickThresholdDocumentKey]) {
+      nineKeyFlickThreshold = threshold
+    }
+  }
+
+  /// 保存九键 flick 阈值，只修改共享文档这一项；写入成功后同步 App Group 镜像。
+  @discardableResult
+  static func saveNineKeyFlickThreshold(_ value: Double, stateRoot: URL? = nil) -> Bool {
+    let normalized = normalizedNineKeyFlickThreshold(value)
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      document[nineKeyFlickThresholdDocumentKey] = Int(normalized)
+    }) else { return false }
+    nineKeyFlickThreshold = normalized
+    return true
   }
 
   /// 「双拼键位提示」：双拼方案和粤语双拼的 26 键在字母键底部画这个键代表的声母和韵母。共享文档里是 `touch_shuangpin_key_hints`，缺省为关；键盘从 App Group 镜像读。

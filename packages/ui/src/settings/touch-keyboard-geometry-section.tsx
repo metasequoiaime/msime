@@ -12,7 +12,6 @@ import {
   type TouchSplitKeyboardChange,
   type TouchSplitKeyboardSettings,
 } from "./touch-split-keyboard-rows";
-import type { Preferences } from "../core/preferences-model";
 import { touchKeyboardSpacingLimits } from "./touch-keyboard-spacing";
 import { touchKeyboardResetSubjects } from "./use-touch-keyboard-settings-reset";
 import * as settings from "./settings-style";
@@ -46,8 +45,8 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   swipeSymbolsDirection?: SwipeSymbolsDirection;
   /** 「显示字母键角标」开关，在宿主键盘实现了它时传入；不传则不画这一行。 */
   letterCornerHints?: boolean;
-  /** 「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`），宿主的触屏键盘提供拼音九键时给出当前值（缺键和不认识的值由调用方读成 `off`）；不传则不画这一行。 */
-  nineKeySwipeDigits?: NineKeySwipeDigits;
+  /** 九键字母 flick 阈值（共享偏好 `touch_nine_key_flick_threshold`），提供拼音九键的触屏宿主给出当前值；不传则不画这一行。 */
+  nineKeyFlickThreshold?: number;
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
   shuangpinKeyHints?: boolean;
   /** 宿主的触屏全拼 26 键组字会保留 ⇧ 臂辅助码（`touch_quanpin_shift`）时给出这个开关；没有时不画这一行。 */
@@ -65,7 +64,7 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onLetterCornerHintsChange?: (enabled: boolean) => void;
-  onNineKeySwipeDigitsChange?: (value: NineKeySwipeDigits) => void;
+  onNineKeyFlickThresholdChange?: (value: number) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onQuanpinShiftChange?: (enabled: boolean) => void;
   onOneHandedSidePanelChange?: (enabled: boolean) => void;
@@ -82,9 +81,6 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
 const oneHandedSidePanelTitle = "大屏单手时侧边显示数字键盘";
 const oneHandedSidePanelDescription =
   "单手模式下用九键打字时，空出来的一侧显示数字键盘。只在平板、折叠屏展开和 iPad 全宽键盘上生效，分离式和浮动键盘不变。";
-
-/** 共享偏好 `touch_nine_key_swipe_digits` 的取值：关闭、上滑输入数字（下滑弹出字母）、下滑输入数字（上滑弹出字母）。 */
-export type NineKeySwipeDigits = NonNullable<Preferences["touch_nine_key_swipe_digits"]>;
 
 /** 间距以十分之一 dp 存，手机上显示成不带单位的数：6、6.5。 */
 const spacingText = (tenths: number) => String(tenths / 10);
@@ -109,7 +105,7 @@ export function TouchKeyboardGeometrySection({
   swipeSymbols,
   swipeSymbolsDirection = "up",
   letterCornerHints,
-  nineKeySwipeDigits,
+  nineKeyFlickThreshold,
   shuangpinKeyHints,
   quanpinShift,
   oneHandedSidePanel,
@@ -127,7 +123,7 @@ export function TouchKeyboardGeometrySection({
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
   onLetterCornerHintsChange,
-  onNineKeySwipeDigitsChange,
+  onNineKeyFlickThresholdChange,
   onShuangpinKeyHintsChange,
   onQuanpinShiftChange,
   onOneHandedSidePanelChange,
@@ -337,7 +333,7 @@ export function TouchKeyboardGeometrySection({
       {(glideTyping !== undefined ||
         swipeSymbols !== undefined ||
         letterCornerHints !== undefined ||
-        nineKeySwipeDigits !== undefined) && (
+        nineKeyFlickThreshold !== undefined) && (
         <GroupList title="手势">
           {swipeSymbols !== undefined && (
             <>
@@ -375,20 +371,17 @@ export function TouchKeyboardGeometrySection({
               onChange={(enabled) => onLetterCornerHintsChange?.(enabled)}
             />
           )}
-          {/* 在 26 键「滑动方向」和「显示字母键角标」之后，与 Android、iOS 的「手势」组同一位置；它只写共享偏好，和 26 键开关、本机设置的保存都无关，不跟着置灰。 */}
-          {nineKeySwipeDigits !== undefined && (
-            <SelectRow
-              title="九键滑动输入数字"
-              description="沿所选方向滑动输入数字，反方向弹出字母。"
-              value={nineKeySwipeDigits}
-              onChange={(event) =>
-                onNineKeySwipeDigitsChange?.(event.target.value as NineKeySwipeDigits)
-              }
-            >
-              <option value="off">关闭</option>
-              <option value="up">上滑</option>
-              <option value="down">下滑</option>
-            </SelectRow>
+          {nineKeyFlickThreshold !== undefined && (
+            <SliderRow
+              title="九键 flick 阈值"
+              description="手指移动超过这个距离才输入上、左或右方向对应的字母；数字请长按输入"
+              min={14}
+              max={48}
+              step={2}
+              value={nineKeyFlickThreshold}
+              valueText={`${nineKeyFlickThreshold} dp`}
+              onChange={onNineKeyFlickThresholdChange}
+            />
           )}
           {glideTyping !== undefined && (
             <SwitchRow

@@ -28,8 +28,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
   @State private var letterCornerHints = KeyboardLayoutPreference.letterCornerHints
-  /// 「九键滑动输入数字」，共享偏好 `touch_nine_key_swipe_digits`。
-  @State private var nineKeySwipeDigits = NineKeySwipeDigits.mirrored
+  /// 九键 flick 的共享判定阈值，三端使用同一范围和默认值。
+  @State private var nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold
   @State private var spaceVoice = KeyboardLayoutPreference.spaceVoice
   @State private var quickSymbols = KeyboardLayoutPreference.quickPunctuationSymbols.joined()
   @State private var tabOpensCandidates = true
@@ -388,14 +388,15 @@ struct KeyboardLayoutSettingsView: View {
                       }))
       .accessibilityIdentifier("appLetterCornerHintsSwitch")
       DesignDivider()
-      // 九键的滑动与 26 键的开关、方向各管各的，不跟着 26 键置灰；没有拼音九键的版本不列这一行。
+      // 九键 flick 只在拼音九键版本显示；数字改由长按输入，阈值随共享偏好同步到三端。
       if Self.offersNineKeySwipeDigits {
-        DesignSelectRow(title: NineKeySwipeDigits.title, info: NineKeySwipeDigits.subtitle,
-                        options: NineKeySwipeDigits.allCases.map {
-                          DesignOption(title: $0.optionTitle, value: $0, identifier: Self.nineKeySwipeDigitsIdentifier($0))
-                        },
-                        selection: Binding(get: { nineKeySwipeDigits }, set: { saveNineKeySwipeDigits($0) }),
-                        sheetTitle: NineKeySwipeDigits.title, identifier: "appNineKeySwipeDigits")
+        InlineSliderRow(title: "九键 flick 阈值", value: $nineKeyFlickThreshold,
+                        range: KeyboardLayoutPreference.nineKeyFlickThresholdRange,
+                        identifier: "appNineKeyFlickThreshold",
+                        format: { "\(Int($0)) pt" },
+                        step: KeyboardLayoutPreference.nineKeyFlickThresholdStep,
+                        commit: { saveNineKeyFlickThreshold() })
+          .accessibilityHint("手指移动超过这个距离才输入上、左或右方向对应的字母；数字请长按输入")
         DesignDivider()
       }
       DesignToggleRow(title: "滑行输入", info: "在字母键上连续滑动输入拼音，停留可确认经过的键",
@@ -642,10 +643,9 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
-  /// 写用户点的那一项（包括关闭），写进共享偏好；写不进去时退回文档里的值。
-  private func saveNineKeySwipeDigits(_ value: NineKeySwipeDigits) {
-    saveFailed = !NineKeySwipeDigits.save(value)
-    nineKeySwipeDigits = saveFailed ? NineKeySwipeDigits(in: MetasequoiaInputSessionBridge.loadSharedPreferences()) : value
+  private func saveNineKeyFlickThreshold() {
+    saveFailed = !KeyboardLayoutPreference.saveNineKeyFlickThreshold(nineKeyFlickThreshold)
+    if saveFailed { nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold }
   }
 
   private func saveTab(_ enabled: Bool) {
@@ -697,8 +697,8 @@ struct KeyboardLayoutSettingsView: View {
     KeyboardLayoutPreference.shuangpinKeyHints = shuangpinKeyHints
     quanpinShift = KeyboardLayoutPreference.sharedQuanpinShift(in: preferences)
     KeyboardLayoutPreference.quanpinShift = quanpinShift
-    NineKeySwipeDigits.mirror(preferences)
-    nineKeySwipeDigits = NineKeySwipeDigits(in: preferences)
+    KeyboardLayoutPreference.mirrorGeometry(preferences)
+    nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   }
@@ -711,16 +711,18 @@ private struct InlineSliderRow: View {
   let range: ClosedRange<Double>
   let identifier: String
   let format: (Double) -> String
+  let step: Double
   let commit: () -> Void
   @Environment(\.horizontalSizeClass) private var widthClass
 
   init(title: String, value: Binding<Double>, range: ClosedRange<Double>, identifier: String,
-       format: @escaping (Double) -> String, commit: @escaping () -> Void) {
+       format: @escaping (Double) -> String, step: Double = 1, commit: @escaping () -> Void) {
     self.title = title
     _value = value
     self.range = range
     self.identifier = identifier
     self.format = format
+    self.step = step
     self.commit = commit
   }
 
@@ -729,7 +731,7 @@ private struct InlineSliderRow: View {
       Text(title).font(.system(size: 17)).foregroundStyle(.primary)
       Spacer(minLength: 8)
       HStack(spacing: 8) {
-        Slider(value: $value, in: range) { Text(title) } onEditingChanged: { editing in
+        Slider(value: $value, in: range, step: step) { Text(title) } onEditingChanged: { editing in
           if !editing { commit() }
         }
         .tint(MetasequoiaTheme.accent)

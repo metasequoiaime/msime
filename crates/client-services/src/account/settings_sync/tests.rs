@@ -216,6 +216,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_skin_light",
             "platform.android.language_key_side",
             "platform.android.nine_key_digit_symbols",
+            "platform.android.nine_key_flick_threshold",
             "platform.android.nine_key_style",
             "platform.android.nine_key_swipe",
             "platform.android.nine_key_symbols",

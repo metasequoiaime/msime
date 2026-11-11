@@ -1009,6 +1009,35 @@ fn nine_key_swipe_digits_wire_strings_are_pinned_and_unknown_strings_read_as_off
 }
 
 #[test]
+fn nine_key_flick_threshold_defaults_round_trip_and_validates() {
+    let defaults = Preferences::default();
+    assert_eq!(defaults.touch_nine_key_flick_threshold, 24);
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("touch_nine_key_flick_threshold")
+        .is_none());
+    for value in [14, 26, 48] {
+        let configured = Preferences {
+            touch_nine_key_flick_threshold: value,
+            ..Preferences::default()
+        };
+        assert_eq!(
+            serde_json::from_value::<Preferences>(serde_json::to_value(&configured).unwrap())
+                .unwrap(),
+            configured
+        );
+        assert!(configured.validate().is_ok());
+    }
+    for value in [13, 15, 49] {
+        let configured = Preferences {
+            touch_nine_key_flick_threshold: value,
+            ..Preferences::default()
+        };
+        assert!(configured.validate().is_err());
+    }
+}
+
+#[test]
 fn fourteen_key_letter_widths_default_to_equal_and_are_not_written() {
     let defaults = Preferences::default();
     assert_eq!(

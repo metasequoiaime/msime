@@ -691,7 +691,7 @@ final class ImeLayoutRows {
                     });
                 }
                 if (digits) bindNumberDigit(keyButton, key.digit() - 1);
-                else bindNineKeySwipe(keyButton, key);
+                else bindNineKeyFlick(keyButton, key);
                 addNineKey(row, keyButton);
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
@@ -1114,6 +1114,58 @@ final class ImeLayoutRows {
     /**
      * 拼音九键网格键的滑动（#5580，规则见 {@link NineKeySwipePolicy}）：沿「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`，每次判定读当前值）选的方向滑过「九键滑动距离」（本机设置），键面换成数字、松手上屏这个数字；往反方向滑，弹出和长按一样的数字与字母选项，手指不抬起接着滑到某个选项上松手就输入它（#10443，与 26 键下滑弹出的字母选项相同）；没滑进过任何选项就松手，弹窗留着等点选，滑进过又滑出再松手则关闭弹窗。长按弹出的选项同样跟着这次按压拖选。按下时不拦截，没滑过阈值时点按和长按照常由按钮自己处理；滑过阈值的那一刻给按钮补一个 CANCEL，它就不会再点按或长按。长按选项已经弹出时不再判定滑动。
      */
+    /** 拼音九键的四向 flick：上、左、右依次输入键面前三个字母，下滑无动作；数字由长按输入。 */
+    private void bindNineKeyFlick(NineKeyDigitButton keyButton, NineKeyLayout.Key key) {
+        final float[] down = new float[2];
+        final NineKeyFlickPolicy.Letter[] flick = {NineKeyFlickPolicy.Letter.NONE};
+        final String letters = key.digit() == 1 ? "" : key.label().toLowerCase(java.util.Locale.ROOT);
+        final String digit = NineKeyLayout.digitInput(key);
+        keyButton.setOnTouchListener((view, event) -> {
+            s.imeLetterRows.updateKeyPreview(keyButton, event);
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    down[0] = DimensionPolicy.fromPixels(s, event.getX());
+                    down[1] = DimensionPolicy.fromPixels(s, event.getY());
+                    flick[0] = NineKeyFlickPolicy.Letter.NONE;
+                    return false;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (flick[0] != NineKeyFlickPolicy.Letter.NONE) return true;
+                    NineKeyFlickPolicy.Letter next = NineKeyFlickPolicy.letter(
+                        down[0], down[1], DimensionPolicy.fromPixels(s, event.getX()),
+                        DimensionPolicy.fromPixels(s, event.getY()), letters, s.nineKeyFlickThreshold);
+                    if (next == NineKeyFlickPolicy.Letter.NONE) return false;
+                    flick[0] = next;
+                    MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    keyButton.onTouchEvent(cancel);
+                    cancel.recycle();
+                    keyButton.setPressed(true);
+                    return true;
+                }
+                case MotionEvent.ACTION_UP -> {
+                    NineKeyFlickPolicy.Letter done = flick[0];
+                    flick[0] = NineKeyFlickPolicy.Letter.NONE;
+                    if (done == NineKeyFlickPolicy.Letter.NONE) return false;
+                    keyButton.setPressed(false);
+                    String character = NineKeyFlickPolicy.character(letters, done);
+                    if (!character.isEmpty()) {
+                        s.imeKeyFeedback.playFeedback(keyButton);
+                        s.countKey(keyButton);
+                        commitNineKeyHoldOption(character);
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    keyButton.setPressed(false);
+                    flick[0] = NineKeyFlickPolicy.Letter.NONE;
+                    return false;
+                }
+                default -> { return flick[0] != NineKeyFlickPolicy.Letter.NONE; }
+            }
+        });
+    }
+
     private void bindNineKeySwipe(NineKeyDigitButton keyButton, NineKeyLayout.Key key) {
         final float[] downY = new float[1];
         final NineKeySwipePolicy.Gesture[] gesture = {NineKeySwipePolicy.Gesture.NONE};

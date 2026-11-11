@@ -270,6 +270,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyGridKeys: [NineKeyGridKey] = []
   /// 「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`，#10229），键盘出现时从共享文档同步；九宫格的键每次判定时经 `activeNineKeySwipeDigits` 读它。
   private var nineKeySwipeDigits = NineKeySwipeDigits.mirrored
+  /// 九键 flick 的共享判定阈值。
+  private var nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
   /// 26 键双拼画不画键位提示（共享偏好 `touch_shuangpin_key_hints`），键盘出现时从共享文档同步，绘制键面时不再读 App Group。
   private var shuangpinKeyHintsEnabled = KeyboardLayoutPreference.shuangpinKeyHints
 
@@ -975,6 +977,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     letterGridWidthMode = keyLayoutStyle.letterWidths
     NineKeySwipeDigits.mirror(session.sharedPreferences)
     nineKeySwipeDigits = NineKeySwipeDigits.mirrored
+    KeyboardLayoutPreference.mirrorGeometry(session.sharedPreferences)
+    nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 输入习惯（学习、调频、离线释义、候选翻译与语言）同理以文档为准。镜像里没写过释义开关时读作开启，而文档默认关闭（`candidate_english_gloss` 是 opt-in）；不先抄过来，下面按镜像算出的顶栏会多留一行释义，键盘高 4pt，等后台重载把文档抄进镜像后又缩回去，文档没有更新时重载不抄，就一直按镜像显示释义。
     InputHabitPreference.mirror(InputHabitPreference.settings(in: session.sharedPreferences))
     shuangpinLayout = TouchShuangpinLayoutPreference.layout
@@ -2268,13 +2272,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.addGestureRecognizer(hold)
         button.accessibilityHint = letters.map { "长按输入 \(digit) 或 \($0)" } ?? "长按输入 1"
         if let key = button as? KeyboardKeyButton {
-          key.nineKeySwipeDigit = digit
-          key.nineKeySwipeHasLetters = letters != nil
-          key.nineKeySwipeHint = number
-          key.nineKeySwipeMode = { [weak self] in self?.activeNineKeySwipeDigits ?? .off }
-          key.onNineKeySwipe = { [weak self, weak key] gesture in
+          key.nineKeySwipeDigit = nil
+          key.nineKeyFlickLetters = letters
+          key.nineKeyFlickThreshold = { [weak self] in self?.nineKeyFlickThreshold ?? NineKeyFlickPolicy.threshold }
+          key.onNineKeyFlick = { [weak self, weak key] character in
             guard let self, let key else { return }
-            self.handleNineKeySwipe(gesture, from: key, digit: digit)
+            self.countKeyPress(TypingKeyID.nineKey(digit))
+            self.commitNineKeyHoldOption(character)
+            key.isHighlighted = false
           }
         }
         nineKeyGridKeys.append(
@@ -6430,9 +6435,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       quanpinShiftEnabled = KeyboardLayoutPreference.quanpinShift
       updateLetterCaseControls()
     }
-    // 「九键滑动输入数字」不改键面，下一次触摸判定时就用新值，不用重画。
-    NineKeySwipeDigits.mirror(preferences)
-    nineKeySwipeDigits = NineKeySwipeDigits(in: preferences)
+    // 九键 flick 不改键面，下一次触摸判定时就用新阈值，不用重画。
+    KeyboardLayoutPreference.mirrorGeometry(preferences)
+    nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 「按键布局」：样式或数字行变了，下面的 `updateKeyboardLayoutIfNeeded` 当场重排底行和数字行。只动键面，不碰会话，正在组的字照常继续。
     let previousLetterGridWidthMode = letterGridWidthMode
     TouchKeyLayoutStyle.mirror(preferences)

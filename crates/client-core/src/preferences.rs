@@ -564,6 +564,11 @@ pub enum TouchNineKeySwipeDigits {
     Down,
 }
 
+/// 手机触屏拼音九键字母 flick 的判定距离，三端共用同一范围和默认值。
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE: std::ops::RangeInclusive<u16> = 14..=48;
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP: u16 = 2;
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT: u16 = 24;
+
 impl TouchNineKeySwipeDigits {
     /// 文档和同步键里的写法。
     pub fn as_str(self) -> &'static str {
@@ -2057,6 +2062,12 @@ pub struct Preferences {
     /// 手机触屏拼音九键 1–9 键滑动输入数字的方向，见 [`TouchNineKeySwipeDigits`]。接替 Android 本机设置 `platform.android.nine_key_swipe`，由 Android 宿主一次性迁入（[`PreferencesStore::migrate_android_key_layout`]）；判定距离仍是 Android 本机设置。默认关且不写进文档。桌面宿主原样保留、不使用。
     #[serde(default, skip_serializing_if = "TouchNineKeySwipeDigits::is_default")]
     pub touch_nine_key_swipe_digits: TouchNineKeySwipeDigits,
+    /// 手机触屏拼音九键字母层上/左/右 flick 的判定距离（dp / pt / vp 按各端物理单位解释），三端同步。14–48、步进 2，默认 24；桌面宿主原样保留、不使用。
+    #[serde(
+        default = "default_touch_nine_key_flick_threshold",
+        skip_serializing_if = "is_default_touch_nine_key_flick_threshold"
+    )]
+    pub touch_nine_key_flick_threshold: u16,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -4417,6 +4428,14 @@ fn is_default_touch_keyboard_split_gap(value: &u8) -> bool {
     *value == TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
 }
 
+fn default_touch_nine_key_flick_threshold() -> u16 {
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+}
+
+fn is_default_touch_nine_key_flick_threshold(value: &u16) -> bool {
+    *value == TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+}
+
 fn default_touch_row_spacing_tenths() -> u8 {
     70
 }
@@ -4561,6 +4580,7 @@ impl Default for Preferences {
             touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
             touch_language_key_side: TouchLanguageKeySide::default(),
             touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
+            touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -5531,6 +5551,12 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSplit);
         }
+        if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&self.touch_nine_key_flick_threshold)
+            || !(self.touch_nine_key_flick_threshold - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+        {
+            return Err(PreferencesError::InvalidNineKeyFlickThreshold);
+        }
         if self.touch_quick_punctuation_symbols
             != normalize_touch_quick_symbols(&self.touch_quick_punctuation_symbols)
         {
@@ -5719,6 +5745,8 @@ pub enum PreferencesError {
     InvalidTouchKeyboardSpacing,
     #[error("分离键盘启用宽度须为 480–1000、步进 20，中间空隙须为 10–40%、步进 5")]
     InvalidTouchKeyboardSplit,
+    #[error("九键 flick 阈值须为 14–48、步进 2")]
+    InvalidNineKeyFlickThreshold,
     #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
