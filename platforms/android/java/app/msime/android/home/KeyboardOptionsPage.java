@@ -153,6 +153,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.nav("拼音显示位置", null,
             spellingPositionLabel(spellingPosition),
             () -> pickSpellingPosition(spellingPosition)).help("全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏");
+        layout.toggle("拼写编辑", null, preferences.optBoolean("touch_spelling_editor", true),
+            checked -> savePreference("touch_spelling_editor", checked))
+            .help("点击笔图标或输入框中的拼写调整光标；关闭后隐藏编辑入口及其独占的空行");
         // 写进输入框的拼写是 Engine 的 `preedit`（CandidatePreeditStylePolicy.inlineSpelling）：关掉这一项后，双拼写展开的拼音，粤语双拼写展开的粤拼（#10557）。共享偏好 `shuangpin_preedit_uses_raw`，缺省为开，与 client-core 一致；标题与 iOS 候选栏页相同。候选栏画的是读音，不受这一项影响，所以说明只讲输入框。本版本两种双拼都没有时不列。
         app.msime.android.ShuangpinPreeditSettings.addRows(edition,
             (key, fallback) -> preferences.optBoolean(key, fallback), this::savePreference,
