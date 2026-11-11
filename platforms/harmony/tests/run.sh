@@ -930,7 +930,7 @@ nwp_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.
 nwp_session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 nwp_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 nwp_insert=$(sed -n '/^  insert(text: string): void {$/,/^  }$/p' "$nwp_session")
-  if ! grep -qF 'this.strokeFace(), this.prediction, this.tibetanFace());' "$nwp_view" \
+if ! grep -qF 'this.strokeFace(), this.prediction, this.tibetanFace(), this.returnCommitsSpelling());' "$nwp_view" \
   || ! grep -qF 'NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction)' "$nwp_view" \
   || ! grep -qF 'KeyAccessibilityPolicy.space(this.candidates.length > 0)' "$nwp_view" \
   || ! grep -qF '|| !KeyboardSession.shared.candidateManagementAllowed()) {' "$nwp_view" \

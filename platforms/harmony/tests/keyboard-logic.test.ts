@@ -7548,6 +7548,71 @@ group("with pairing on every quote press opens a fresh pair, as the reference do
   );
 });
 
+group("回车只在编码就是用户键入的拉丁字母时原样上屏编码（#11120）", () => {
+  // 触屏回车的分派和视图里一样拼：方案自己的规则号、九键网格和 14/18 键网格是否画着。
+  const touchReturn = (
+    rulesScheme: number,
+    nineKeyFace: boolean,
+    letterGridFace: boolean,
+    candidateCount: number,
+  ): ReturnDispatch =>
+    ReturnKeyAction.dispatch(
+      false,
+      true,
+      candidateCount,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      ReturnKeyAction.commitsSpelling(rulesScheme, nineKeyFace, letterGridFace),
+    );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.SHUANGPIN, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.WUBI, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.WUBI, false, false, 0) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.CANTONESE, false, false, 3) === ReturnDispatch.COMMIT_RAW,
+    "全拼、双拼、五笔、粤拼的 26 键组字回车上屏键入的字母，有没有候选都一样",
+  );
+  check(
+    touchReturn(SchemeTraits.JAPANESE, false, false, 2) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.JAPANESE, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "日语 26 键的罗马字不是用户想写的字：回车上屏高亮候选（にほん），不上屏 nihon",
+  );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.SHUANGPIN, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.QUANPIN, true, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "全拼九键和九键双拼的编码是数字串：回车上屏首选（你好），不上屏 64426",
+  );
+  check(
+    touchReturn(SchemeTraits.ZHUYIN, false, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.ZHUYIN, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "注音候选列表打开时回车选中高亮行、组字保留；列表没开时上屏转换结果",
+  );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.SHUANGPIN, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.WUBI, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "14 键和 18 键的编码是每组的代表字母，不是用户打的码：回车上屏首选",
+  );
+  check(
+    touchReturn(-1, false, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(-1, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(-1, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "英文和本地工具模式不归方案的规则管，回车照旧",
+  );
+  check(
+    !ReturnKeyAction.commitsSpelling(SchemeTraits.KOREAN, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.VIETNAMESE, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.TIBETAN, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.STROKE, false, false),
+    "韩文、越南语、藏文和笔画各有自己的回车分支，不走这条规则",
+  );
+});
+
 group("return performs an editor action only when nothing else claimed it", () => {
   const send = 4;
   check(ReturnKeyAction.performsEditorAction(send, false) === true, "send is an editor action");
@@ -7581,12 +7646,27 @@ group("return performs an editor action only when nothing else claimed it", () =
     "Japanese Return commits the selected conversion when candidates exist",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.COMMIT_RAW,
-    "a candidate-less non-special composition commits its raw spelling",
+    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "a candidate-less composition whose code is not the user's letters is still finished before Return",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_RAW,
-    "a normal composition with candidates commits its raw spelling instead of the first candidate",
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "a composition whose code is not the user's letters commits the highlighted candidate",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, false, false, false, true) ===
+      ReturnDispatch.COMMIT_RAW,
+    "a candidate-less letter-code composition commits its raw spelling",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3, false, false, false, false, false, false, true) ===
+      ReturnDispatch.COMMIT_RAW,
+    "a letter-code composition with candidates commits its raw spelling instead of the first candidate",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, false, 0, false, false, false, false, false, false, true) ===
+      ReturnDispatch.EDITOR,
+    "an idle Return in a letter-code scheme belongs to the editor",
   );
   check(
     ReturnKeyAction.dispatch(false, true, 3, false, false, false, true) ===
@@ -19024,9 +19104,9 @@ group("touch Return ends a Vietnamese word and still does its own work", () => {
     "a composing word is committed ahead of the line break",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_RAW &&
-      ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.COMMIT_RAW,
-    "普通注音组字也把编码原样上屏，只有打开的注音候选列表另行处理",
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "Zhuyin keeps the shared rule: the open list's row, else the conversion",
   );
 });
 
