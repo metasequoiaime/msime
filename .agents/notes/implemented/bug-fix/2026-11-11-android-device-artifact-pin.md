@@ -1,23 +1,22 @@
-# Agent Note: Android 设备 workflow 固定可解析的 artifact action
+# Agent Note: Android 设备 workflow 的 artifact action SHA 打错了一位
 
 Status: implemented
 
 ## Problem
 
-#11268 的 nightly 运行中，Android API 28 和 API 35 设备 job 在任何设备步骤开始前都因 `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9` 无法解析而失败。两个 job 的失败日志一致；同一运行的 Android release job 已成功，说明故障集中在设备 workflow 使用的 action 引用解析，而不是 APK 或设备测试本身。
+#11268 的 nightly 运行中，Android API 28 和 API 35 设备 job 在任何设备步骤开始前就失败：`Unable to resolve action actions/upload-artifact@cf430a030ddbb5b0abf93d22962f4752f3646cd9`。Android 0.7.4 的发布运行（43054260089）也因为同样的原因失败，两个设备 job 没起来，发布、蒲公英和 Play 三步全部跳过。
+
+原因是 `android-device.yml` 第 185、198 行把 v7.0.2 的提交写错了一位：`cf430a0…`，而 `actions/upload-artifact` 的 `v7.0.2` tag 指向 `cf430e030ddbb5b0abf93d22962f4752f3646cd9`。GitHub 对 `cf430a0…` 返回 `No commit found`。仓库其余 66 处引用都是正确的 `cf430e0…`，同一文件的另外四处也是，所以只有这两个步骤所在的 job 解析失败。
 
 ## Decision
 
-`android-device.yml` 中的六个 artifact 上传步骤统一固定到已存在且可解析的 `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`（`v7.0.1`）。范围只覆盖触发 #11268 的设备 workflow，不顺带修改其它 workflow 中当次运行已经成功的相同引用。
-
-验证使用 actionlint、Android nightly signing workflow contract、`git diff --check`，并通过 GitHub API 和远端 tag ref 确认 `v7.0.1` 的提交可解析。设备测试本身无需重跑，因为失败发生在设备步骤前。
+只把这两处改成正确的 `cf430e030ddbb5b0abf93d22962f4752f3646cd9`（`v7.0.2`），与仓库其余引用一致。用 `gh api repos/actions/upload-artifact/git/ref/tags/v7.0.2` 核对了 tag 指向的提交，用 `gh api repos/actions/upload-artifact/commits/<sha>` 确认错写的 SHA 不存在。
 
 ## Alternatives considered
 
-- **全仓替换所有 `v7.0.2` 引用**：覆盖面更大，但 #11268 的失败只有两个 Android device job，其他 job 在同一次 nightly 已成功；扩大到发布和其它平台 workflow 会改变未受该 issue 影响的执行链，因此不采用。
-- **继续使用 `v7.0.2` 并重跑 nightly**：可能依赖 runner 缓存或暂时性解析状态，不能消除已观测到的不可解析引用，因此不采用。
-- **取消 artifact 上传步骤**：会丢失设备验收日志和对比截图，削弱失败诊断能力，因此不采用。
+- **把这个文件的六处都降到 `v7.0.1`（`043fb46…`）**：这个 PR 最初的做法。能修好，但前提记错了（以为 `v7.0.2` 本身无法解析），而且让这个文件和仓库其余 66 处版本不一致，以后升级 action 时容易漏，因此改成只纠正错字。
+- **重跑 nightly 或发布**：错写的 SHA 永远解析不了，重跑没有用。
 
 ## Consequences
 
-Android 设备 job 恢复使用已在仓库其它成功 job 中验证过的 artifact action 版本，并继续上传语音面板、空间复制、按键面、拼写编辑、主题结果和失败日志。其余 workflow 的 action 版本保持不变，若后续出现同样的独立失败，应按对应 issue 单独确认范围。
+Android 设备 job 恢复，发布工作流的设备冒烟测试能跑起来。以后手写 action SHA 时要从 tag 查出来再复制，不要手敲；同一个 action 在仓库里出现多个 SHA 时先查是不是打错了。
