@@ -34,6 +34,7 @@ final class ImeNineKeyPanel {
     private FrameLayout candidateHolder;
     private ImeCandidateGrid candidateGrid;
     private Button modeButton;
+    private Button allButton;
     private Button singleButton;
     private NineKeyPanelPolicy.Mode mode = NineKeyPanelPolicy.Mode.SPELLING;
     private long renderedGeneration = -1;
@@ -92,8 +93,13 @@ final class ImeNineKeyPanel {
             () -> s.command(3)));
         modeButton = pressButton("", 15, KeyboardKeyRole.ACCENT, "", this::toggleMode);
         addAction(actions, modeButton);
-        singleButton = pressButton("", 15, KeyboardKeyRole.ACCENT, "", this::toggleSingleCharacter);
-        addAction(actions, singleButton);
+        // 把两个筛选状态同时摆出来，用户可以直接看到「全部」和「单字」的入口。
+        LinearLayout filterRow = LayoutPolicy.row(s);
+        allButton = pressButton("全部", 15, KeyboardKeyRole.ACCENT, "显示全部候选", () -> setSingleCharacter(false));
+        singleButton = pressButton("单字", 15, KeyboardKeyRole.ACCENT, "只显示单字", () -> setSingleCharacter(true));
+        filterRow.addView(allButton, LayoutPolicy.weightedWidthParams(1));
+        filterRow.addView(singleButton, LayoutPolicy.weightedWidthParams(1));
+        addAction(actions, filterRow);
         root.addView(actions, margined(0.8f));
         ViewPolicy.hide(root);
         return root;
@@ -110,9 +116,13 @@ final class ImeNineKeyPanel {
     }
 
     private void addAction(LinearLayout actions, Button button) {
+        addAction(actions, (View) button);
+    }
+
+    private void addAction(LinearLayout actions, View view) {
         LinearLayout.LayoutParams params = LayoutPolicy.weightedWidthParams(1);
         params.setMargins(0, s.pixels(2), 0, s.pixels(2));
-        actions.addView(button, params);
+        actions.addView(view, params);
     }
 
     private Button pressButton(String label, float sizeSp, KeyboardKeyRole role, String description,
@@ -228,12 +238,16 @@ final class ImeNineKeyPanel {
         modeButton.setContentDescription(NineKeyPanelPolicy.modeDescription(mode));
         ViewPolicy.setSelected(modeButton, mode == NineKeyPanelPolicy.Mode.STROKE);
         boolean single = singleCharacter();
-        singleButton.setText(NineKeyPanelPolicy.singleCharacterTitle(single));
-        singleButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(single));
+        allButton.setText(NineKeyPanelPolicy.singleCharacterTitle(false));
+        allButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(true));
+        ViewPolicy.setSelected(allButton, !single);
+        singleButton.setText(NineKeyPanelPolicy.singleCharacterTitle(true));
+        singleButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(false));
         ViewPolicy.setSelected(singleButton, single);
         if (Build.VERSION.SDK_INT >= 30) {
             modeButton.setStateDescription(NineKeyPanelPolicy.modeTitle(mode));
-            singleButton.setStateDescription(NineKeyPanelPolicy.singleCharacterTitle(single));
+            allButton.setStateDescription(NineKeyPanelPolicy.singleCharacterTitle(false));
+            singleButton.setStateDescription(NineKeyPanelPolicy.singleCharacterTitle(true));
         }
     }
 
@@ -313,7 +327,8 @@ final class ImeNineKeyPanel {
         else s.render();
     }
 
-    private void toggleSingleCharacter() {
-        s.setNineKeyFilter(!singleCharacter(), strokesFilter());
+    private void setSingleCharacter(boolean value) {
+        if (value == singleCharacter()) return;
+        s.setNineKeyFilter(value, strokesFilter());
     }
 }
