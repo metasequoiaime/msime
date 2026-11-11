@@ -380,7 +380,7 @@ export function TouchKeyboardGeometrySection({
               step={2}
               value={nineKeyFlickThreshold}
               valueText={`${nineKeyFlickThreshold} dp`}
-              onChange={onNineKeyFlickThresholdChange}
+              onChange={(value) => onNineKeyFlickThresholdChange?.(value)}
             />
           )}
           {glideTyping !== undefined && (
