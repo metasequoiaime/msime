@@ -663,10 +663,10 @@ final class ImeLayoutRows {
         for (java.util.List<NineKeyLayout.Key> keys : shuangpin ? java.util.List.<java.util.List<NineKeyLayout.Key>>of() : NineKeyLayout.rows()) {
             LinearLayout row = LayoutPolicy.row(s);
             for (NineKeyLayout.Key key : keys) {
-                String description = NineKeyLayout.description(key, digits, composing);
+                String description = NineKeyLayout.description(key, digits, composing, s.nineKeyCompositionAction);
                 // 数字层按字面上屏，不把数字交给拼音组码或选词。
                 NineKeyDigitButton keyButton = s.nineKeyGridKey(
-                    NineKeyLayout.face(key, digits, composing), description,
+                    NineKeyLayout.face(key, digits, composing, s.nineKeyCompositionAction), description,
                     digits ? () -> commitNumberPadText(NineKeyLayout.digitInput(key))
                         : NineKeyLayout.offersPunctuation(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
@@ -789,8 +789,9 @@ final class ImeLayoutRows {
         }
         LinearLayout lastRow = LayoutPolicy.row(s);
         NineKeyLayout.Key symbols = NineKeyLayout.rows().get(0).get(0);
-        NineKeyDigitButton separator = s.nineKeyGridKey(NineKeyLayout.face(symbols, false, composing),
-            NineKeyLayout.description(symbols, false, composing), () -> symbolKey(symbols));
+        NineKeyDigitButton separator = s.nineKeyGridKey(
+            NineKeyLayout.face(symbols, false, composing, s.nineKeyCompositionAction),
+            NineKeyLayout.description(symbols, false, composing, s.nineKeyCompositionAction), () -> symbolKey(symbols));
         s.nineKeySymbolKey = separator;
         s.keyId(separator, "SoftSymbol");
         addNineKey(lastRow, separator);
@@ -1085,8 +1086,11 @@ final class ImeLayoutRows {
      * 拼音九键的 1 键：组字时是「分词」，把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 分词 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）；读音栏显示成 94'26，⌫ 先删分界再删数字。没在组字时是「@#」，把当前模式的常用标点放进候选条（{@link ImeNineKeyQuickPunctuation}），符号面板改从底行最左边的 符 打开。
      */
     private void symbolKey(NineKeyLayout.Key key) {
-        if (NineKeyLayout.separatesSyllables(key, false, s.hasEngineComposition())) {
+        if (NineKeyLayout.separatesSyllables(key, false, s.hasEngineComposition(), s.nineKeyCompositionAction)) {
             s.character('\'', false);
+        } else if (s.hasEngineComposition()
+                && NineKeyCompositionActionPolicy.REWRITE.equals(s.nineKeyCompositionAction)) {
+            s.discardComposition();
         } else {
             s.imeNineKeyQuickPunctuation.show();
         }
@@ -1098,10 +1102,10 @@ final class ImeLayoutRows {
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         NineKeyLayout.Key key = NineKeyLayout.rows().get(0).get(0);
         boolean composing = s.hasEngineComposition();
-        String face = NineKeyLayout.face(key, digits, composing);
+        String face = NineKeyLayout.face(key, digits, composing, s.nineKeyCompositionAction);
         if (face.contentEquals(s.nineKeySymbolKey.getText())) return;
         s.nineKeySymbolKey.setText(face);
-        s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing)
+        s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing, s.nineKeyCompositionAction)
             + (digits || s.nineKeyShuangpinDrawn() ? "" : "；长按输入 1"));
     }
 

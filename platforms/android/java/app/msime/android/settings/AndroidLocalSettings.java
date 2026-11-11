@@ -107,6 +107,8 @@ public final class AndroidLocalSettings {
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";
     /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响九键滑动（共享偏好 `touch_nine_key_swipe_digits`），26 键的滑动阈值不变。只在本机、不随账号同步，iOS 和鸿蒙没有这一项（固定 24）。 */
     public static final String NINE_KEY_SWIPE_DISTANCE = "platform.android.nine_key_swipe_distance";
+    /** 拼音九键组字时 1 键的动作：`separate` 分词（默认），`rewrite` 重输；只在本机，不随账号同步。 */
+    public static final String NINE_KEY_COMPOSITION_ACTION = "platform.android.nine_key_composition_action";
     /** 旧版的九键左侧符号（字母键面那张表，用空格分开），只在本机。现在由共享偏好 `touch_nine_key_sidebar_symbols`（{@link NineKeySidebarPolicy#LETTER_PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值（不认识的键在读取时会被丢掉）。同步的 `platform.android.nine_key_symbols` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SYMBOLS = "platform.android.nine_key_symbols";
     /** 旧版的九键数字键盘左侧符号，格式同 {@link #NINE_KEY_SYMBOLS}，只在本机。现在由共享偏好 `touch_nine_key_digit_sidebar_symbols`（{@link NineKeySidebarPolicy#DIGIT_PREFERENCE}）接替，同样只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删。 */
@@ -273,6 +275,8 @@ public final class AndroidLocalSettings {
             SwipeHintPolicy.DOWN);
         integer(NINE_KEY_SWIPE_DISTANCE, NineKeySwipePolicy.DEFAULT_THRESHOLD_DP, false,
             NineKeySwipePolicy.MIN_THRESHOLD_DP, NineKeySwipePolicy.MAX_THRESHOLD_DP, NineKeySwipePolicy.THRESHOLD_STEP_DP);
+        choice(NINE_KEY_COMPOSITION_ACTION, NineKeyCompositionActionPolicy.SEPARATE, false,
+            NineKeyCompositionActionPolicy.SEPARATE, NineKeyCompositionActionPolicy.REWRITE);
         text(NINE_KEY_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), false,
             NineKeySidebarPolicy::normalize);
         text(NINE_KEY_DIGIT_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), false,

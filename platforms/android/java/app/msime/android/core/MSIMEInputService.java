@@ -363,6 +363,8 @@ public final class MSIMEInputService extends InputMethodService {
     java.util.List<String> nineKeySidebarSymbols = java.util.List.of();
     /** 九宫格数字键盘左列那张表，来自共享偏好 `touch_nine_key_digit_sidebar_symbols`；空表表示用出厂表。 */
     java.util.List<String> nineKeyDigitSidebarSymbols = java.util.List.of();
+    /** 拼音九键组字时 1 键的动作，来自 Android 本机设置，缺省保留「分词」。 */
+    String nineKeyCompositionAction = NineKeyCompositionActionPolicy.SEPARATE;
     /** 大屏单手模式空出来那一侧放什么（#10203），来自共享偏好 `touch_one_handed_side_panel`，缺省空着；画不画还要看单手、屏宽和键面，见 {@link OneHandSidePadPolicy#shown}。 */
     OneHandSidePadPolicy.Panel oneHandedSidePanel = OneHandSidePadPolicy.Panel.OFF;
     /** 中/英键排在空格左边，来自共享偏好 `touch_language_key_side`（只有 `left` 算），缺省在右边、紧挨回车。 */
@@ -3236,6 +3238,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
+        nineKeyCompositionAction = localSettings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
         toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
