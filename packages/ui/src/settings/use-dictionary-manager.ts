@@ -640,7 +640,8 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
         await loadPhrases(dictionaryKind, phrasePage.offset);
         if (isCurrent()) setPhraseNotice(`已清空 ${entries.length} 条本机快捷短语。`);
       },
-      (error) => dictionaryErrorMessage(error, "清空本机快捷短语失败，词条已回滚，请稍后重试。"),
+      (error) =>
+        dictionaryErrorMessage(error, "清空本机快捷短语失败，已尝试回滚，请刷新核对后重试。"),
       generation,
     );
   }
