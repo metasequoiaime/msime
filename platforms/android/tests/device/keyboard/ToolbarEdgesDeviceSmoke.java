@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -576,6 +577,36 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             int before = bounds(surface, detail).top;
             check(detail.performClick() && !open.getBoolean(panels),
                 "clipboard detail button did not close the more menu");
+            ViewGroup header = (ViewGroup) field(type, "clipboardHeader").get(service);
+            layout(surface, width, height);
+            check(header.getVisibility() == View.GONE && header.getChildCount() == 0,
+                "clipboard detail still draws the removed top back button or title");
+            FrameLayout.LayoutParams detailScrollParams =
+                (FrameLayout.LayoutParams) scroll.getLayoutParams();
+            check(detailScrollParams.topMargin == 0,
+                "clipboard detail still reserves the removed top header height");
+            long touchTime = android.os.SystemClock.uptimeMillis();
+            android.view.MotionEvent down = android.view.MotionEvent.obtain(
+                touchTime, touchTime, android.view.MotionEvent.ACTION_DOWN, width / 2f, 1f, 0);
+            android.view.MotionEvent up = android.view.MotionEvent.obtain(
+                touchTime, touchTime + 20, android.view.MotionEvent.ACTION_UP, width / 2f, 1f, 0);
+            boolean downHandled;
+            boolean upHandled;
+            try {
+                downHandled = surface.dispatchTouchEvent(down);
+                upHandled = surface.dispatchTouchEvent(up);
+            } finally {
+                down.recycle();
+                up.recycle();
+            }
+            check(downHandled && upHandled && surface.isClickable(),
+                "clipboard detail top area touch was not consumed by the clipboard panel");
+            check(descendant(surface, view -> view instanceof Button
+                    && describedAs(view, "返回剪贴板历史列表")) != null,
+                "clipboard detail lost its accessible bottom return action");
+            check(descendant(surface, view -> view instanceof android.widget.TextView
+                    && "记录详情".contentEquals(((android.widget.TextView) view).getText())) == null,
+                "clipboard detail title is still present after removing the top header");
             int restored = saved.getInt(panels);
             method(panels.getClass(), "returnFromClipboardDetail").invoke(panels);
             layout(surface, width, height);

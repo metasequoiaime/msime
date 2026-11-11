@@ -11228,6 +11228,8 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardSurface = new FrameLayout(this);
         ViewPolicy.setBackgroundColor(clipboardSurface, Color.parseColor(skin.background()));
         clipboardSurface.setContentDescription("剪贴板历史");
+        // 面板空白处也属于剪贴板窗口；否则没有子视图接收的点按会继续落到下面的键区。
+        ViewPolicy.setClickable(clipboardSurface, true);
         clipboardHeader = LayoutPolicy.column(this);
         clipboardPanel = LayoutPolicy.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
