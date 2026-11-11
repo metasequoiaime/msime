@@ -14,6 +14,8 @@ public final class AccountSessionRoutingPolicy {
     public static final String METHOD_SHARED_ACCESS_TOKEN = "shared_access_token";
     /** `:ime` 进程把一次语音贡献交给主进程上传：音频是应用私有目录里的一个 WAV 文件，主进程带着会话存储调 Rust 的 voice_contribution（只用匿名账号）。 */
     public static final String METHOD_VOICE_CONTRIBUTION = "voice_contribution";
+    /** `:ime` 进程把未获取的社区皮肤交给主进程完整下载，主进程返回带照片的规范化设计。 */
+    public static final String METHOD_SKIN_DOWNLOAD = "skin_download";
     /** `voice_contribution` 的参数：WAV 文件的绝对路径、识别语言、识别器、识别文本和应用版本。 */
     public static final String KEY_VOICE_AUDIO_PATH = "audio_path";
     public static final String KEY_VOICE_LANGUAGE = "language";
@@ -22,6 +24,9 @@ public final class AccountSessionRoutingPolicy {
     public static final String KEY_VOICE_APP_VERSION = "app_version";
     /** `voice_contribution` 回复里服务端给的编号；失败时为空，KEY_ERROR 是 Rust 的错误码。 */
     public static final String KEY_VOICE_ID = "voice_id";
+    /** `skin_download` 的参数和结果。设计用 JSON 字符串跨 provider 传递，失败时只返回错误文案。 */
+    public static final String KEY_SKIN_ID = "skin_id";
+    public static final String KEY_SKIN_DESIGN = "skin_design";
     public static final String KEY_ERROR = "error";
     /** `:ime` 写语音贡献音频的目录名，在应用的 cache 目录下；主进程只读这里面的文件。 */
     public static final String VOICE_CONTRIBUTION_DIRECTORY = "voice-contributions";
@@ -86,10 +91,11 @@ public final class AccountSessionRoutingPolicy {
         throw new IllegalStateException("anonymous account unavailable");
     }
 
-    /** Provider 只回答本 UID 的两种令牌方法、语音贡献与读账号绑定；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
+    /** Provider 只回答本 UID 的令牌、皮肤下载、语音贡献与账号绑定；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
     public static boolean accepts(String method, int callingUid, int ownUid) {
         return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_SHARED_ACCESS_TOKEN.equals(method)
-                || METHOD_VOICE_CONTRIBUTION.equals(method) || METHOD_SYNC_STATE.equals(method))
+                || METHOD_VOICE_CONTRIBUTION.equals(method) || METHOD_SKIN_DOWNLOAD.equals(method)
+                || METHOD_SYNC_STATE.equals(method))
             && callingUid == ownUid;
     }
 
