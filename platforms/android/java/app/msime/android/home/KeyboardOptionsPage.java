@@ -31,6 +31,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
+import app.msime.android.ClipboardDetailActionPolicy;
 import app.msime.android.ClipboardUndoPolicy;
 import app.msime.android.ClipboardAuthenticationActivity;
 import app.msime.android.ClipboardDeleteAuthenticationPolicy;
@@ -392,6 +393,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", null, clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns)).help("剪贴板面板里一行显示几条记录");
+        String detailActionAlignment = settings.choice(AndroidLocalSettings.CLIPBOARD_DETAIL_ACTION_ALIGNMENT);
+        clipboard.nav("详情操作按键", null, ClipboardDetailActionPolicy.label(detailActionAlignment),
+            () -> pickClipboardDetailActionAlignment(detailActionAlignment))
+            .help("剪贴板详情底部的「插入」和「返回」按键靠左或靠右排列");
         // 删除剪贴板记录（单条或多选）后可撤销的秒数（#10073、#10080），只影响之后的删除；键盘每次删除时读这一项。
         int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboard.nav("撤销时长", null,
@@ -688,6 +693,17 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             sheet.option(clipboardColumnsLabel(value), value.equals(selected),
                 () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_COLUMNS, value,
                     this::reload, this::reload));
+        }
+        sheet.show();
+    }
+
+    private void pickClipboardDetailActionAlignment(String selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "详情操作按键", null);
+        for (String value : new String[] {ClipboardDetailActionPolicy.LEFT,
+                ClipboardDetailActionPolicy.RIGHT}) {
+            sheet.option(ClipboardDetailActionPolicy.label(value), value.equals(selected),
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_DETAIL_ACTION_ALIGNMENT,
+                    value, this::reload, this::reload));
         }
         sheet.show();
     }

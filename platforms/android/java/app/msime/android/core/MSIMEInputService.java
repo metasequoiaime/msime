@@ -450,6 +450,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    /** 剪贴板详情底部操作行是否右对齐，来自本地设置 `platform.android.clipboard_detail_action_alignment`。 */
+    boolean clipboardDetailActionsRight;
     /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
     int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
     /** 本地设置「剪贴板删除数据验证」；访客模式下即使关闭也要求认证。 */
@@ -3231,6 +3233,8 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         clipboardColumns = ClipboardLayoutPolicy.columns(
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
+        clipboardDetailActionsRight = ClipboardDetailActionPolicy.isRight(
+            localSettings.choice(AndroidLocalSettings.CLIPBOARD_DETAIL_ACTION_ALIGNMENT));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);

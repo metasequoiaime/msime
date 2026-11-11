@@ -2242,6 +2242,7 @@ final class ImePanels {
             + ClipboardDetailPolicy.sourceLabel(null));
         details.setGravity(Gravity.START);
         LinearLayout actions = LayoutPolicy.row(s);
+        actions.setGravity(s.clipboardDetailActionsRight ? Gravity.END : Gravity.START);
         Button insert = clipboardAction(actions, "插入", () -> s.insertClipboardText(item.text()),
             KeyboardKeyRole.RETURN);
         insert.setContentDescription("插入这条剪贴板记录");

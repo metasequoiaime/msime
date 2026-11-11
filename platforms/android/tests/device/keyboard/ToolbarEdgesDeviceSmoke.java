@@ -5,6 +5,7 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -301,6 +302,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             }
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
+            checkClipboardDetailActionAlignment(type, service, panels, cards, surface, loader, density);
             checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
             checkClipboardDeleteRestoresPanelAfterAuthentication(type, service, panels, surface);
             checkClipboardSingleDeleteUndo(type, service, panels, cards);
@@ -597,6 +599,47 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             if (child instanceof ViewGroup group) result.addAll(describedViews(group, text));
         }
         return result;
+    }
+
+    /** #11288：详情底部「插入」「返回」随本机设置保持左对齐或右对齐。 */
+    private static void checkClipboardDetailActionAlignment(Class<?> type, Object service, Object panels,
+            ViewGroup cards, ViewGroup surface, ClassLoader loader, float density) throws Exception {
+        Field localSettings = field(type, "localSettings");
+        Object originalSettings = localSettings.get(service);
+        Method apply = method(type, "applyLocalSettings");
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        Method returnFromDetail = method(panels.getClass(), "returnFromClipboardDetail");
+        Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
+        Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
+        constructor.setAccessible(true);
+        int width = Math.round(360 * density);
+        int height = Math.round(300 * density);
+        try {
+            for (String choice : new String[] {"left", "right"}) {
+                localSettings.set(service, constructor.newInstance(Map.of(
+                    "platform.android.clipboard_detail_action_alignment", choice)));
+                apply.invoke(service);
+                render.invoke(panels);
+                layout(surface, width, height);
+                View detail = descendant(cards, view -> describedAs(view, "查看这条剪贴板记录详情"));
+                check(detail != null && detail.performClick(),
+                    "clipboard detail action alignment test could not open a record for " + choice);
+                layout(surface, width, height);
+                View insert = descendant(surface, view -> describedAs(view, "插入这条剪贴板记录"));
+                check(insert != null && insert.getParent() instanceof LinearLayout,
+                    "clipboard detail action row is missing for " + choice);
+                int actual = ((LinearLayout) insert.getParent()).getGravity() & Gravity.HORIZONTAL_GRAVITY_MASK;
+                int expected = "right".equals(choice) ? Gravity.END : Gravity.START;
+                check(actual == expected,
+                    "clipboard detail action row alignment is " + actual + ", expected " + expected
+                        + " for " + choice);
+                returnFromDetail.invoke(panels);
+            }
+        } finally {
+            localSettings.set(service, originalSettings);
+            apply.invoke(service);
+            render.invoke(panels);
+        }
     }
     /**
      * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
