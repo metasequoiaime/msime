@@ -2539,6 +2539,33 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testShiftHeldWithLetterOpensLocalModeOnTouchKeyboard() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .quanpin
+
+    for (trigger, title) in [("C", "拆字"), ("E", "表情")] {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: KeyboardViewController.defaultKeyboardHeight)
+      controller.viewWillAppear(false)
+      let shift = try button("shiftButton", in: controller)
+      let letter = try XCTUnwrap(descendants(controller.view).first {
+        $0.accessibilityLabel == "字母 \(trigger)"
+      } as? UIButton)
+
+      // 模拟两根手指：Shift 的触摸保持按下时点目标字母，松开 Shift 不能再触发切换中英文。
+      shift.sendActions(for: .touchDown)
+      letter.sendActions(for: .primaryActionTriggered)
+      shift.sendActions(for: .primaryActionTriggered)
+
+      XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, title)
+      XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityValue, "中文输入",
+                     "组合键仍停留在中文键盘")
+      controller.viewDidDisappear(false)
+    }
+  }
+
   func testJapaneseSentenceConversionAndMemory() throws {
     func residentBytes() -> UInt64 {
       var info = mach_task_basic_info_data_t()
