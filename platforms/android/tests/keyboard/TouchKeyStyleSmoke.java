@@ -380,6 +380,13 @@ public final class TouchKeyStyleSmoke {
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SWIPE).synced,
             "the legacy keys never travel through android_local");
+        check(AndroidLocalSettings.LONG_SPACE_LAYOUT.equals(
+                KeyLayoutStyleMigration.legacyKeyForSharedPreference(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE))
+            && AndroidLocalSettings.NUMBER_ROW.equals(
+                KeyLayoutStyleMigration.legacyKeyForSharedPreference(TouchKeyStyle.NUMBER_ROW_PREFERENCE))
+            && KeyLayoutStyleMigration.legacyKeyForSharedPreference(TouchKeyStyle.FOURTEEN_KEY_PREFERENCE) == null
+            && KeyLayoutStyleMigration.legacyKeyForSharedPreference(TouchKeyStyle.NINE_KEY_PREFERENCE) == null,
+            "explicit shared choices clear only their corresponding legacy keys");
         nineKeySidebarMigration();
     }
 

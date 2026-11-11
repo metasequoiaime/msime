@@ -1407,7 +1407,7 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'eighteen = KeyLayoutStylesPolicy.eighteen(current, shuangpinLayout);' <<< "$style_render" \
   || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", null, numberRow, checked -> {' <<< "$style_render" \
   || ! rg_q_stdin -F '}).help(NUMBER_ROW_NOTE);' <<< "$style_render" \
-  || ! rg_q_stdin -F 'save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));' <<< "$style_render" \
+  || ! rg_q_stdin -F 'save(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked);' <<< "$style_render" \
   || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
   || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
   || rg_q_stdin -F 'HorizontalScrollView' <<< "$style_section" \
@@ -1423,7 +1423,7 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'info.setClassName(Button.class.getName());' <<< "$style_chip" \
   || ! rg_q_stdin -F 'info.setStateDescription(checked ? "已选择" : "未选择");' <<< "$style_chip" \
   || ! sed -n '/    private void choose(/,/^    }$/p' "$style_page" \
-    | rg_q_stdin -U 'styles = shown\.with\(styles, option\);\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(shown\.preference, option\.wire\)\);' \
+    | rg_q_stdin -U 'styles = shown\.with\(styles, option\);\n\s*refreshStyles\(\);\n\s*save\(shown\.preference, option\.wire\);' \
   || ! rg -qF 'KeyboardSheets.save(this, edit, null, this::reload);' "$style_page" \
   || ! rg -qF 'setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);' "$style_preview" \
   || rg -q 'BottomRowPreview|styleGroup\(|optionRow\(|group\.footer\(' "$style_page" \
