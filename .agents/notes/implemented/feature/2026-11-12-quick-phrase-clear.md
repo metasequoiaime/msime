@@ -1,0 +1,31 @@
+# Agent Note: 快捷短语本机与云端清空边界
+
+Status: implemented
+
+## Problem
+
+词库页可以逐条删除快捷短语，但没有一次清空入口。已有「清除全部学习数据」会同时删除其他个人词条和学习记录，不能作为快捷短语清空的实现。云词库的逐条删除在网络失败时可能只完成一部分，也不能直接复用整份云端数据删除接口，因为那会删除其他词库。
+
+## Decision
+
+本机清空只读取并删除 `quick_phrase` 的用户词条，删除过程中发生失败时按已删除条目的原值回滚；清空成功后刷新当前列表。云端清空只改完整云词库快照里带 `kind: quick` 的 `entry`、`overlay`、`position` 和 `selection` 记录；快照格式中不带词库种类的排序记录原样保留，使用快照预览返回的版本与摘要提交原子替换，其他云端词库保留，版本冲突或网络失败时云端不变。本机与云端分别提供按钮、分别确认，不隐式联动。
+
+## Alternatives considered
+
+- 复用「清除全部学习数据」：实现简单，但会删除拼音、五笔、英文等其他个人词条，超出快捷短语需求。
+- 云端逐条调用 `delete`：可以使用现有接口，但分页期间会受并发修改影响，且中途失败会留下部分删除，无法满足失败回滚。
+- 调用云端 `DELETE /v1/users/me/data` 的 `dictionary` 分区：服务端事务性较好，但会删除所有云词库种类，不符合只清空快捷短语的边界。
+
+## Consequences
+
+- 本机按钮只影响用户快捷短语，内置快捷短语和其他词库不变；失败时已删除条目尽力按原编码、文字和权重恢复，并显示失败结果。
+- 云端按钮只移除 `quick` 记录，其他云端词库、排序和非快捷短语记录保留；提交带快照摘要和版本，冲突或请求失败时云端数据保持原样。
+- 两端均有确认提示，取消不会发起写操作。
+- 本机回滚仍受宿主存储故障影响，若回滚本身失败，用户需要刷新列表核对；云端完整快照大小受现有快照上限约束，导出或预览失败时不进行替换。
+
+## Verification
+
+- `pnpm --dir apps/desktop exec vitest run tests/settings/use-dictionary-manager.test.ts tests/keyboard/cloud-quick-phrase-snapshot.test.ts`：45 项通过。
+- `pnpm --dir apps/desktop run typecheck`：通过。
+- `pnpm run lint`：通过；仅报告仓库已有的两个未使用导入警告。
+- `pnpm run format:check` 与 `git diff --check`：通过。

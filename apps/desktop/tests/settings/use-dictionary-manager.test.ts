@@ -1148,3 +1148,65 @@ test.each(["scel", "standard"] as const)("当前客户端仍可按 %s 识别并�
   expect(result.current.phraseError).toBe("");
   expect(result.current.phraseBusy).toBe(false);
 });
+
+test("清空本机快捷短语只删除 quick_phrase 并刷新列表", async () => {
+  const entries = [
+    { kind: "quick_phrase" as const, key: "a", value: "合成一", weight: 1 },
+    { kind: "quick_phrase" as const, key: "b", value: "合成二", weight: 2 },
+  ];
+  const list = vi.fn().mockResolvedValue({ entries, has_more: false });
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const confirm = vi.fn().mockResolvedValue(true);
+  const client: DictionaryManagerClient = { dictionary: { list, edit } };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm }));
+
+  await act(async () => result.current.clearQuickPhrases());
+
+  expect(confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "清空本机快捷短语", confirmLabel: "清空", danger: true }),
+  );
+  expect(edit).toHaveBeenCalledTimes(2);
+  expect(edit.mock.calls.map(([previous, replacement]) => [previous?.value, replacement])).toEqual([
+    ["合成一", null],
+    ["合成二", null],
+  ]);
+  expect(result.current.phraseNotice).toContain("已清空 2 条");
+});
+
+test("取消清空本机快捷短语不会写入词库", async () => {
+  const list = vi.fn().mockResolvedValue({
+    entries: [{ kind: "quick_phrase" as const, key: "a", value: "合成", weight: 1 }],
+    has_more: false,
+  });
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: DictionaryManagerClient = { dictionary: { list, edit } };
+  const { result } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(false) }),
+  );
+
+  await act(async () => result.current.clearQuickPhrases());
+
+  expect(edit).not.toHaveBeenCalled();
+});
+
+test("清空本机快捷短语失败时按逆序回滚已删除词条", async () => {
+  const first = { kind: "quick_phrase" as const, key: "a", value: "合成一", weight: 1 };
+  const second = { kind: "quick_phrase" as const, key: "b", value: "合成二", weight: 2 };
+  const list = vi.fn().mockResolvedValue({ entries: [first, second], has_more: false });
+  const edit = vi
+    .fn()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error("synthetic delete failure"))
+    .mockResolvedValueOnce(undefined);
+  const client: DictionaryManagerClient = { dictionary: { list, edit } };
+  const { result } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+
+  await act(async () => result.current.clearQuickPhrases());
+
+  expect(edit).toHaveBeenCalledTimes(3);
+  expect(edit.mock.calls[2][0]).toBeNull();
+  expect(edit.mock.calls[2][1]).toEqual(first);
+  expect(result.current.phraseError).toContain("清空本机快捷短语失败");
+});

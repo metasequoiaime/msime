@@ -32,6 +32,7 @@ import {
   personalDictionaryExportName,
   personalDictionaryExportPayload,
   loadAllPersonalDictionaryEntries,
+  loadPersonalDictionaryEntries,
   loadDictionaryExportText,
   dictionaryKindLabel,
 } from "../dictionary/dictionary-export";
@@ -598,6 +599,52 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     );
   }
 
+  async function clearQuickPhrases() {
+    if (!client.dictionary || phraseBusy || phraseActionBusy.current) return;
+    const generation = clientGeneration.current;
+    const dictionary = client.dictionary;
+    await runPhraseAction(
+      async (isCurrent) => {
+        const entries = await loadPersonalDictionaryEntries(dictionary, [
+          ["quick_phrase", "快捷短语"],
+        ]);
+        if (!isCurrent()) return;
+        if (!entries.length) {
+          setPhraseNotice("当前没有可清空的本机快捷短语。");
+          return;
+        }
+        const confirmed = await confirm({
+          title: "清空本机快捷短语",
+          message: `将永久删除 ${entries.length} 条本机快捷短语，其他词库和云端词库不受影响。此操作无法撤销。`,
+          confirmLabel: "清空",
+          danger: true,
+        });
+        if (!confirmed || !isCurrent()) return;
+        const removed: DictionaryEntry[] = [];
+        try {
+          for (const entry of entries) {
+            await dictionary.edit(entry, null, randomRequestId("ui-clear-quick-phrase"));
+            removed.push(entry);
+          }
+        } catch (error) {
+          for (const entry of removed.reverse()) {
+            try {
+              await dictionary.edit(null, entry, randomRequestId("ui-rollback-quick-phrase"));
+            } catch {
+              // 尽力恢复已经删除的条目，原始失败仍交给页面显示。
+            }
+          }
+          throw error;
+        }
+        if (!isCurrent()) return;
+        await loadPhrases(dictionaryKind, phrasePage.offset);
+        if (isCurrent()) setPhraseNotice(`已清空 ${entries.length} 条本机快捷短语。`);
+      },
+      (error) => dictionaryErrorMessage(error, "清空本机快捷短语失败，词条已回滚，请稍后重试。"),
+      generation,
+    );
+  }
+
   return {
     phrases,
     setPhrases,
@@ -631,5 +678,6 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
+    clearQuickPhrases,
   };
 }
