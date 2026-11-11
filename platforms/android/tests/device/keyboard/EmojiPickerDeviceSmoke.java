@@ -206,17 +206,68 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         tap(description("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
 
-        stage = "sticker direct send when editor omits image mime declaration";
-        tap(field("msime-test-legacy-image"));
+        runStickerDeliveryChecks();
+    }
+
+    /**
+     * 不声明图片类型的三种输入框（{@link StickerEditorActivity}）里各发一张水杉娘：每一种都要有看得见的结果。
+     *
+     * <p>各步只等节点本身，不假设一行几格、状态行在不在可见区：状态行经 {@link #awaitAny} 读，贴纸格子和提示按无障碍描述找。
+     */
+    private void runStickerDeliveryChecks() throws Exception {
+        shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.StickerEditorActivity");
+
+        stage = "sticker reaches an editor that takes images without declaring them";
+        sendSticker("msime-test-sticker-undeclared", "开心");
+        String received = awaitStickerStatus("received:");
+        if (!received.startsWith("received:image/png:image/png:"))
+            throw new AssertionError("undeclared image editor received " + received);
+        stage = "accepted sticker still says where the clipboard copy is";
+        await(description("提示：已发送水杉娘「开心」，没有出现时长按输入框粘贴"));
+
+        // commitContent 返回 true 却把图丢掉（真机上 Flutter 应用的文本框如此）：输入法分辨不出来，所以同样要留下剪贴板副本和提示，不能毫无反应。
+        stage = "sticker discarded by the editor still leaves a notice";
+        tap(description("返回键盘"));
+        sendSticker("msime-test-sticker-discarding", "大笑");
+        awaitStickerStatus("discarded:1");
+        // 换一张贴纸，提示的文字和上一步不同：上一句提示四秒后才消失，不能拿它充数。
+        await(description("提示：已发送水杉娘「大笑」，没有出现时长按输入框粘贴"));
+        stage = "discarded sticker is on the clipboard";
+        assertStickerOnClipboard();
+
+        // 微信式输入框：私有表情命令排在 commitContent 之前，这个输入框的 commitContent 会吞掉内容，先试它就到不了私有命令。
+        stage = "private expression command goes before commitContent";
+        tap(description("返回键盘"));
+        sendSticker("msime-test-sticker-expression", "开心");
+        String expression = awaitStickerStatus("expression:");
+        if (!expression.startsWith("expression:image/png:"))
+            throw new AssertionError("expression editor received " + expression);
+        tap(description("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));
+    }
+
+    /** 点进 `editor`，打开表情面板的水杉娘分类，点名为 `name` 的那一张（开心、大笑都在第一行）。 */
+    private void sendSticker(String editor, String name) throws Exception {
+        tap(field(editor));
+        await(field(editor).and(AccessibilityNodeInfo::isFocused));
+        await(description("表情").and(AccessibilityNodeInfo::isClickable));
         tap(description("表情"));
         await(description("表情面板"));
         tap(description(STICKER_TAB));
-        await(description("表情网格；" + STICKER_TAB + "，每行 5 个"));
-        tap(description("水杉娘 开心"));
-        String received = awaitImageStatus("received:");
-        if (!received.startsWith("received:image/png:image/png:"))
-            throw new AssertionError("undeclared image editor received " + received);
+        await(description(STICKER_TAB).and(AccessibilityNodeInfo::isSelected));
+        tap(description("水杉娘 " + name));
+    }
+
+    /** 系统剪贴板里是键盘自己的贴纸 PNG：只核对类型和 URI 的 authority、目录，不读图片。键盘进程里的 instrumentation 读剪贴板时，键盘正是当前输入法，系统允许。 */
+    private void assertStickerOnClipboard() {
+        android.content.ClipData[] clip = new android.content.ClipData[1];
+        runOnMainSync(() -> clip[0] = getTargetContext().getSystemService(android.content.ClipboardManager.class).getPrimaryClip());
+        if (clip[0] == null || clip[0].getItemCount() != 1 || !clip[0].getDescription().hasMimeType("image/png"))
+            throw new AssertionError("Clipboard does not hold one PNG clip");
+        android.net.Uri uri = clip[0].getItemAt(0).getUri();
+        if (uri == null || !"app.msime.android.files".equals(uri.getAuthority())
+                || uri.getPath() == null || !uri.getPath().contains("sticker-images"))
+            throw new AssertionError("Clipboard clip is not the keyboard's sticker");
     }
 
     /** 再次打开与重启后都默认停在常用，无需额外切分类。 */
@@ -279,8 +330,9 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             && equalsText(value, node.getContentDescription());
     }
 
-    private String awaitImageStatus(String prefix) {
-        AccessibilityNodeInfo node = await(field("msime-test-image-status").and(candidate ->
+    /** 等 {@link StickerEditorActivity} 的状态行以 `prefix` 开头，返回整行。用 {@link #awaitAny}：只读文字，不要求这一行此刻在可见区里。 */
+    private String awaitStickerStatus(String prefix) {
+        AccessibilityNodeInfo node = awaitAny(field("msime-test-sticker-status").and(candidate ->
             candidate.getText() != null && candidate.getText().toString().startsWith(prefix)));
         return node.getText().toString();
     }

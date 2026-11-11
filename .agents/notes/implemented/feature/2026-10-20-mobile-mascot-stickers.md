@@ -14,7 +14,7 @@ Status: implemented
 
 Android 的分类顺序与默认页由 [常用表情默认页](2026-10-21-android-common-emoji-default.md)部分取代：常用始终第一并默认打开，水杉娘可用时第二；其他平台和本篇素材、发送策略继续有效。
 
-Android 的发送尝试策略由[未声明图片类型的输入框仍尝试直接发送](../bug-fix/2026-11-10-android-sticker-optimistic-content.md)部分取代：仍先走 `commitContent`，输入框明确拒绝后才回退到微信私有命令或剪贴板；素材、PNG、FileProvider 和其他平台策略不变。
+Android 的发送尝试策略由[未声明图片类型的输入框仍尝试直接发送](../bug-fix/2026-11-10-android-sticker-optimistic-content.md)部分取代：声明收 PNG 的输入框和微信式输入框照下文不变；其余没声明图片类型的输入框先复制到剪贴板，再试一次 `commitContent`，不论结果都提示。素材、PNG、FileProvider 和其他平台策略不变。
 
 点一张就发出去，各端按平台能力走不同的路，但都发 PNG（保留透明）：
 

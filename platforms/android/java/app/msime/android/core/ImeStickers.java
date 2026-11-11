@@ -34,7 +34,7 @@ import org.json.JSONException;
  *
  * <p>直接从 APK 的 assets 读（`build-apk.sh` 把 `resources/stickers/shuishan` 放到 `assets/stickers/shuishan`），不解包到 filesDir。清单、缩略图、PNG 编码和清理都在 {@link #worker} 上，主线程只摆格子。缩略图只给看得见的格子（上下各多一行），其余格子放掉位图；解码结果按字节数有界缓存，离开这个分类或收起面板时清空。
  *
- * <p>发送：先把 WebP 转成保留透明的 PNG，写进 `cache/sticker-images/`，经本应用的 FileProvider（`${applicationId}.files`）给出 content URI，乐观尝试用 `commitContent` 带读权限交给输入框；有些聊天输入框虽未在 `EditorInfo.contentMimeTypes` 声明图片，仍能接受这条接口。输入框拒绝后再走微信私有表情命令或把同一个 URI 放进系统剪贴板，提示用户长按粘贴。目录里始终至多一张：写下一张之前删掉旧的（{@link ClipboardImageCache#replace}），此外不定时删、键盘进程启动和退出时也不清空。贴纸是随包素材，不是用户内容，没有尽快删除的隐私理由；而复制到剪贴板的 URI 要在用户切到别的应用、键盘进程被回收之后仍能粘贴，所以不沿用「最近复制」图片副本的 {@link ClipboardImagePolicy#RETENTION_MS}。
+ * <p>发送：先把 WebP 转成保留透明的 PNG，写进 `cache/sticker-images/`，经本应用的 FileProvider（`${applicationId}.files`）给出 content URI，再按 {@link StickerPackModel#route} 交给输入框：声明收 PNG 的用 `commitContent` 带读权限直接发，微信式输入框发它的私有表情命令，这两条没成才把同一个 URI 放进系统剪贴板、提示用户长按粘贴；其余没声明图片类型的输入框先放进剪贴板，再试一次 `commitContent`，不论返回什么都给一句提示，因为有的输入框返回 true 却把图丢掉。目录里始终至多一张：写下一张之前删掉旧的（{@link ClipboardImageCache#replace}），此外不定时删、键盘进程启动和退出时也不清空。贴纸是随包素材，不是用户内容，没有尽快删除的隐私理由；而复制到剪贴板的 URI 要在用户切到别的应用、键盘进程被回收之后仍能粘贴，所以不沿用「最近复制」图片副本的 {@link ClipboardImagePolicy#RETENTION_MS}。
  */
 final class ImeStickers {
     /** 缩略图缓存的上限：每格不超过 160 px 时 66 张整套放得下（约 6.5 MiB），格子更大时只留最近画过的那些。 */
@@ -218,7 +218,7 @@ final class ImeStickers {
         thumbnails.evictAll();
     }
 
-    /** 先尝试直接发图，编辑器拒绝后再走私有命令或剪贴板；先结束正在拼写的内容。不记进表情的「最近」。 */
+    /** 按当前输入框的声明选一条路把贴纸发出去（{@link StickerPackModel#route}）；先结束正在拼写的内容。不记进表情的「最近」。 */
     void send(int index) {
         if (!selected() || !s.emojiPickerVisible() || s.connection == null
                 || index < 0 || index >= pack.stickers().size() || worker.isShutdown()) return;
@@ -228,12 +228,12 @@ final class ImeStickers {
         StickerPackModel.Pack current = pack;
         StickerPackModel.Sticker sticker = current.stickers().get(index);
         EditorInfo info = s.getCurrentInputEditorInfo();
-        // 部分聊天输入框没有声明 contentMimeTypes，却仍实现了 commitContent；先尝试，返回 false 再回退。
-        boolean commit = info != null;
-        // 微信这类经私有命令收表情的输入框：记下它的包名，交图前给它读权限。
-        String expressionTarget = info != null && info.extras != null && info.packageName != null
-            && StickerPackModel.sendsExpression(info.contentMimeTypes,
-                info.extras.getInt(StickerPackModel.EXPRESSION_EXTRA, 0)) ? info.packageName : null;
+        // 微信这类经私有命令收表情的输入框在 extras 里写 1；没有包名时没法给它读权限，当作普通的未声明输入框。
+        int expressionExtra = info != null && info.extras != null && info.packageName != null
+            ? info.extras.getInt(StickerPackModel.EXPRESSION_EXTRA, 0) : 0;
+        StickerPackModel.Route route = StickerPackModel.route(
+            info == null ? null : info.contentMimeTypes, expressionExtra);
+        String expressionTarget = route == StickerPackModel.Route.EXPRESSION ? info.packageName : null;
         long generation = s.clipboardImageGeneration;
         File directory = new File(s.getCacheDir(), StickerPackModel.DIRECTORY);
         worker.execute(() -> {
@@ -244,13 +244,17 @@ final class ImeStickers {
                 // 解码、编码或写缓存失败：下面只提示，不留半成品（ClipboardImageCache.replace 已删掉）。
             }
             File result = png;
-            s.main.post(() -> deliver(generation, current, sticker, result, commit, expressionTarget));
+            s.main.post(() -> deliver(generation, current, sticker, result, route, expressionTarget));
         });
     }
 
-    /** {@link #send} 在主线程上的后半段：输入框没变时经 FileProvider 交给它（`commitContent` 或微信的私有命令），交不出去就复制到剪贴板。PNG 留到写下一张时才被替换。 */
+    /**
+     * {@link #send} 在主线程上的后半段：输入框没变时经 FileProvider 按 `route` 交给它。PNG 留到写下一张时才被替换。
+     *
+     * <p>{@link StickerPackModel.Route#UNDECLARED} 先放剪贴板再调 `commitContent`：这是一次同步的跨进程调用，对方主线程忙时要等它答复或超时，副本先放好，等待期间和超时之后用户都能粘贴。微信式输入框不调 `commitContent`，没有这次等待。
+     */
     private void deliver(long generation, StickerPackModel.Pack current, StickerPackModel.Sticker sticker,
-            File png, boolean commit, String expressionTarget) {
+            File png, StickerPackModel.Route route, String expressionTarget) {
         if (worker.isShutdown()) return;
         if (generation != s.clipboardImageGeneration || s.connection == null) {
             // 编码期间换了输入框、收起了键盘或重建了会话（包括切换隐私模式）：这张不再发。
@@ -267,24 +271,28 @@ final class ImeStickers {
             s.notice("无法发送这张表情");
             return;
         }
-        boolean sent = false;
-        if (commit) {
-            try {
-                InputContentInfo content = new InputContentInfo(uri,
-                    new ClipDescription(sticker.name(), new String[] {StickerPackModel.MIME_TYPE}));
-                sent = InputConnectionGuard.commitContent(s.connection, content,
-                    InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null);
-            } catch (IllegalArgumentException error) {
-                sent = false;
-            }
+        if (route == StickerPackModel.Route.UNDECLARED) {
+            boolean copied = copy(uri, sticker);
+            boolean accepted = commitContent(uri, sticker);
+            s.notice(StickerPackModel.undeclaredNotice(current, sticker, accepted, copied));
+            return;
         }
-        if (!sent && expressionTarget != null) sent = sendExpression(uri, expressionTarget);
-        if (!sent) {
-            if (!copy(uri, sticker)) {
-                s.notice("无法复制这张表情");
-                return;
-            }
-            s.notice(StickerPackModel.copiedNotice(current, sticker));
+        boolean sent = route == StickerPackModel.Route.DECLARED
+            ? commitContent(uri, sticker) : sendExpression(uri, expressionTarget);
+        if (sent) return;
+        s.notice(copy(uri, sticker)
+            ? StickerPackModel.copiedNotice(current, sticker) : StickerPackModel.COPY_FAILED_NOTICE);
+    }
+
+    /** 经 `commitContent` 带读权限把 PNG 交给输入框，返回输入框的答复；系统边界上的异常当作没收下。 */
+    private boolean commitContent(Uri uri, StickerPackModel.Sticker sticker) {
+        try {
+            InputContentInfo content = new InputContentInfo(uri,
+                new ClipDescription(sticker.name(), new String[] {StickerPackModel.MIME_TYPE}));
+            return InputConnectionGuard.commitContent(s.connection, content,
+                InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null);
+        } catch (IllegalArgumentException error) {
+            return false;
         }
     }
 
