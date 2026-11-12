@@ -169,7 +169,7 @@ pub fn preview_candidates(
     .unwrap_or_else(|_| Err(PreviewError::Unavailable("internal runtime failure".into())))
 }
 
-/// 本平台的宿主建会话时在运行时选项之外另外请求的能力：三个桌面宿主都请求 `phrase_preedit`（macOS `InputController.mm` 的 `MSIMESessionOptions`、Linux `ClientEngine.cpp` 和 `FcitxEngine.cpp`、Windows `PhrasePreeditOptions.h`），macOS 和 Linux 还请求 `quick_phrase_candidates`，让快捷短语编码混进普通候选（`HostCapabilities::quick_phrase_candidates` 记着哪些宿主这样做）。少了后者，快捷短语就不会出现在候选里，和打字时不一样。
+/// 本平台的宿主建会话时在运行时选项之外另外请求的能力：桌面宿主和 HarmonyOS 都请求 `phrase_preedit`，并请求 `quick_phrase_candidates`，让快捷短语编码混进普通候选（`HostCapabilities::quick_phrase_candidates` 记着哪些宿主这样做）。少了后者，快捷短语就不会出现在候选里，和打字时不一样。
 fn with_host_requests(document: &mut Value) {
     let Some(fields) = document.as_object_mut() else {
         return;

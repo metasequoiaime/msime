@@ -1261,6 +1261,8 @@ interface PreparedOptions {
    * 是一个决定，只做一半就等于把用户已经选中的字藏起来。
    */
   phrase_preedit?: boolean;
+  /** 键盘请求把编码相同的快捷短语混入普通候选；实际是否显示由 `mixed_input.quick_phrase` 再做偏好门控。 */
+  quick_phrase_candidates?: boolean;
   /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
   rerank_models?: string;
   /** 这个键盘在停顿时调 `startSettledRerank`（`schedulePauseRerank`）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。 */
@@ -2170,6 +2172,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
+      requested.quick_phrase_candidates = true;
       if (this.rerankModelsDirectory.length > 0) {
         requested.rerank_models = this.rerankModelsDirectory;
       }

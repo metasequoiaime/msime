@@ -426,7 +426,7 @@ pub struct HostCapabilities {
     pub caps_lock_language_switch: bool,
     /// 宿主的快捷模式只从实体键盘的 Shift+字母进入，所以「Shift+字母进入快捷模式」总开关（`LocalModePreferences::shift_letter_entry`）在这里有意义。触屏键盘从菜单打开快捷模式，走的也是 Engine 的同一个入口，不提供这个开关，以免关掉后菜单失灵。
     pub shift_letter_entry_switch: bool,
-    /// 宿主把快捷短语编码追加到普通候选。macOS 和 Linux 提供，其他宿主仍从 K 模式进入。
+    /// 宿主把快捷短语编码追加到普通候选。Windows、macOS、Linux 和 HarmonyOS 提供，其他宿主仍从 K 模式进入。
     pub quick_phrase_candidates: bool,
     /// 宿主提供「移动光标后编辑光标后的部分」（偏好 `caret_edit_suffix`）：实体键盘能把组字光标移进拼音中间，候选窗画模式提示。三个桌面宿主提供；host-api 在其他宿主上不把偏好交给 Engine，设置页也不列出它。
     pub caret_edit_suffix: bool,
@@ -895,8 +895,14 @@ impl HostCapabilities {
             // 三个桌面宿主都在自己的按键路径上分辨 Caps Lock 的轻点和长按：macOS 用 IOKit 撤回大写锁定，Windows 用 SendInput 再按一次，Linux 在 X11 会话里用 XKB 撤回（Wayland 会话里由合成器持有锁定状态，宿主撤不回，那里轻点照常是大写锁定）。
             caps_lock_language_switch: platform.is_desktop(),
             shift_letter_entry_switch: platform.is_desktop(),
-            // macOS 和 Linux 的两个宿主建会话时都请求 `quick_phrase_candidates`。
-            quick_phrase_candidates: matches!(platform, HostPlatform::Macos | HostPlatform::Linux),
+            // Windows、macOS、Linux 和 HarmonyOS 的宿主建会话时请求 `quick_phrase_candidates`。
+            quick_phrase_candidates: matches!(
+                platform,
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Linux
+                    | HostPlatform::Harmony
+            ),
             // 三个桌面宿主的候选窗都画「候选编辑：光标后」提示，设置在共享设置页（macOS、Linux）和 Windows 的原生设置里。
             caret_edit_suffix: platform.is_desktop(),
             next_word_prediction: platform.shows_next_word_prediction(),
