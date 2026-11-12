@@ -188,6 +188,20 @@ jobs:
           name: android-device-api${{ matrix.api }}-spelling-editor
           path: target/android/spelling-editor/
           if-no-files-found: ignore
+      - name: Collect synthetic clipboard selection examples
+        if: always() && matrix.smoke == '--clipboard-selection' && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/clipboard-selection
+          for frame in four five dialog dismissed failure; do
+            "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" exec-out run-as app.msime.android cat "cache/clipboard-selection-$frame.png" > "target/android/clipboard-selection/$frame.png" || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--clipboard-selection'
+        with:
+          name: android-device-api${{ matrix.api }}-clipboard-selection
+          path: target/android/clipboard-selection/
+          if-no-files-found: ignore
+
       - name: Collect synthetic theme result
         if: always() && (matrix.smoke == '--theme' || matrix.smoke == '--release') && env.SERIAL != ''
         run: |
