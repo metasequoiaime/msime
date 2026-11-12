@@ -420,6 +420,29 @@ int main() {
       overlay.set_actions_visible(false);
       pump();
       require(click_through());
+      const auto action_point = [&] {
+        RECT client{};
+        require(GetClientRect(overlay.handle(), &client));
+        const double scale = msime::windows::compat::window_dpi(overlay.handle()) / 96.0;
+        return MAKELPARAM(static_cast<int>(18.0 * scale), client.bottom / 2);
+      };
+      // 动作按钮按下后若状态先收起，浮层必须主动交还鼠标捕获。
+      overlay.set_actions_visible(true);
+      pump();
+      SendMessageW(overlay.handle(), WM_LBUTTONDOWN, MK_LBUTTON, action_point());
+      require(GetCapture() == overlay.handle());
+      overlay.set_actions_visible(false);
+      pump();
+      require(GetCapture() != overlay.handle());
+      // 隐藏路径也必须释放捕获，否则不可见浮层会吞掉其他进程的点击。
+      overlay.set_actions_visible(true);
+      pump();
+      SendMessageW(overlay.handle(), WM_LBUTTONDOWN, MK_LBUTTON, action_point());
+      require(GetCapture() == overlay.handle());
+      overlay.hide();
+      pump();
+      require(!IsWindowVisible(overlay.handle()));
+      require(GetCapture() != overlay.handle());
       // A failure without a detail is a pill, one with a detail the taller transcript card, and a headline wider than the card widens it.
       overlay.set_failure(L"Synthetic failure", L"");
       pump();
