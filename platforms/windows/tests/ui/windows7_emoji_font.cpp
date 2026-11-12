@@ -33,6 +33,8 @@ public:
 int main() {
   using namespace msime::windows::compat;
   using Microsoft::WRL::ComPtr;
+  assert((static_cast<UINT32>(enable_color_font(D2D1_DRAW_TEXT_OPTIONS_CLIP)) &
+          static_cast<UINT32>(D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT)) != 0);
   auto& font = emoji_font_detail::bundled();
   assert(font.factory && font.collection && font.font);
   for (const auto scalar : {0x1F44Bu, 0x1F680u, 0x1FAE8u}) {

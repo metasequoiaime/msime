@@ -1796,7 +1796,7 @@ void CandidateWindow::paint() {
               if (text)
                 target->DrawTextLayout(text->origin, text->layout.Get(),
                     brush(parse_css_color(overlay.color, candidate_rgb(0xffffff))),
-                    D2D1_DRAW_TEXT_OPTIONS_NONE);
+                    compat::enable_color_font(D2D1_DRAW_TEXT_OPTIONS_NONE));
             }
           }
         }
@@ -2095,7 +2095,8 @@ void CandidateWindow::paint() {
     // Text wider than its column was laid out wrapped (wrapped_height() at this same width), and the row already grew by that height, so it wraps here inside the row that hit testing uses. Text that fits keeps the single-line format, so rounding cannot wrap what was laid out as one line. Still clipped to the row as a guard: without it anything the layout did not account for would paint past the card edge onto the transparent shadow margin.
     if (dimmed)
       target->DrawTextLayout(D2D1_POINT_2F{text_rect.left, text_rect.top}, dimmed.Get(),
-                             brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                             brush(row_text_color),
+                             compat::enable_color_font(D2D1_DRAW_TEXT_OPTIONS_CLIP));
     else
       compat::DrawTextWithWindows7Emoji(device_.GetDWriteFactory(), target,
           text.c_str(), static_cast<UINT32>(text.size()), text_format, text_rect,
@@ -2172,7 +2173,8 @@ void CandidateWindow::paint() {
       if (ready)
         target->DrawTextLayout(
             D2D1_POINT_2F{left, rect.top + static_cast<float>(item.translation.y)},
-            styled.Get(), brush(translation_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            styled.Get(), brush(translation_color),
+            compat::enable_color_font(D2D1_DRAW_TEXT_OPTIONS_CLIP));
       else
         styled.Reset();
     }
