@@ -1,6 +1,7 @@
 //! The candidate merge pipeline and candidate actions (core-session.md §7.2-§7.3): personal rerank, mixed rows, fixed positions (split per producer in mixed wubi), pin, removal and position fixing.
 
 use std::borrow::Cow;
+use std::path::Path;
 
 use super::input::InputSession;
 use crate::assets;
@@ -44,6 +45,45 @@ fn plain_position_context(context: &str) -> String {
     let mut plain = String::with_capacity(context.len());
     plain.extend(context.chars().filter(|character| *character != '\''));
     plain
+}
+
+/// 已经写入用户词频的模糊行参与同覆盖词库排序；没有学习记录时保留精确行优先的默认顺序。
+fn promote_learned_fuzzy_rows(rows: &mut [WordItem], journal: &Path, context: &str) {
+    let coverage = |item: &WordItem| item.pinyin.bytes().filter(|&byte| byte != b'\'').count();
+    let mut start = 0;
+    while start < rows.len() {
+        let length = coverage(&rows[start]);
+        let end = start
+            + rows[start..]
+                .iter()
+                .take_while(|row| coverage(row) == length)
+                .count();
+        let bucket = &mut rows[start..end];
+        let learned_fuzzy = bucket.iter().any(|row| {
+            row.fuzzy
+                && row.source.is_dictionary()
+                && has_matching_user_weight(
+                    journal,
+                    PersonalDictionaryKind::Pinyin,
+                    &candidate_dictionary_key(row, context),
+                    &row.word,
+                    row.weight,
+                )
+        });
+        if learned_fuzzy {
+            let (positions, mut dictionary): (Vec<_>, Vec<_>) = bucket
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, row)| row.source.is_dictionary())
+                .map(|(index, row)| (index, std::mem::take(row)))
+                .unzip();
+            dictionary.sort_by_key(|row| std::cmp::Reverse(row.weight));
+            for (index, row) in positions.into_iter().zip(dictionary) {
+                bucket[index] = row;
+            }
+        }
+        start = end;
+    }
 }
 
 pub(super) fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<WordItem>) {
@@ -127,6 +167,10 @@ impl InputSession {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
+            if self.scheme().is_pinyin() {
+                let context = self.pinyin_ranking_context();
+                promote_learned_fuzzy_rows(&mut decoded, self.journal_path(), &context);
+            }
             // 快捷短语的独立开关同时约束普通候选入口，联系人在最终混排后单独加入。五笔 14 键的组码不是用户打出的字母，不拿它去对快捷短语的码。光标后编辑不混入快捷短语：选中短语会结束整段组字。
             if self.quick_phrase_candidates
                 && !self.caret_edit.active

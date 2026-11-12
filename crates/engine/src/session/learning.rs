@@ -1080,6 +1080,46 @@ mod tests {
         }
     }
 
+    #[test]
+    fn quanpin_fuzzy_selection_survives_a_new_session() {
+        let fixture = Fixture::new(
+            &[
+                ("zi'qian", "自谦", 300),
+                ("zi'qian", "自前", 290),
+                ("zi'qian", "资遣费", 280),
+                ("zhi'qian", "之前", 100),
+                ("zhi'qian", "支前", 90),
+            ],
+            &[],
+        );
+        let create = || {
+            fixture.session(|options| {
+                options.helpcode = false;
+                options.personal_context = false;
+                options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+                options.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+            })
+        };
+        {
+            let mut session = create();
+            for round in 0..5 {
+                type_text(&mut session, "ziqian");
+                if round == 0 {
+                    assert_ne!(words(&session)[0], "之前", "夹具必须从非首选学习");
+                }
+                let result = select_word(&mut session, "之前");
+                assert_eq!(result.commit.as_deref(), Some("之前"));
+                assert_eq!(result.diagnostic, None);
+            }
+        }
+        assert!(fixture.journal_count(
+            "SELECT count(*) FROM user_dictionary_operations WHERE key='zhi''qian' AND value='之前'"
+        ) > 0);
+        let mut session = create();
+        type_text(&mut session, "ziqian");
+        assert_eq!(words(&session)[0], "之前", "重建会话后模糊候选退回");
+    }
+
     /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。
     #[test]
     fn wubi_learning_survives_the_split_dictionary_layout() {

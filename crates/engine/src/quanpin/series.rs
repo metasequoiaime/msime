@@ -314,10 +314,12 @@ pub(super) fn merge_alternative_rows(
 /// 备选系列按匹配字母数稳定合并；词频和整句概率不作跨来源比较。
 pub(super) fn merge_series_by_coverage(result: &mut Vec<WordItem>, supplemental: Vec<WordItem>) {
     result.extend(supplemental);
-    result.sort_by_key(|item| {
-        std::cmp::Reverse(item.pinyin.bytes().filter(|&byte| byte != b'\'').count())
-    });
+    result.sort_by_key(|item| std::cmp::Reverse(coverage(item)));
     retain_unique_sorted_rows(result);
+}
+
+fn coverage(item: &WordItem) -> usize {
+    item.pinyin.bytes().filter(|&byte| byte != b'\'').count()
 }
 
 /// 挂了逐键打分器时每条切分多解几条整句读法（`QuanpinDictionary::set_sentence_pool`），而打分器只比较前九条回答整串的行（`ordering::COMPARED_LIMIT`）。主切分多出来的读法照原样排在备选切分的整句前面，就会把备选切分的整句挤出比较：「fangan」的主切分是 fan'gan，多解三条「反感…」以后，备选切分 fang'an 的「两个方案都挺好的」排到第十位，模型再也看不到它，首选从「方案」变成「反感」。
