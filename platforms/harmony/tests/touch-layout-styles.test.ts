@@ -94,16 +94,16 @@ group("偏好读法：认识的样式原样保留，缺键、非字符串和不�
   check(P.fourteenKeyStyle("tall_return") === "standard", "14 键不认 tall_return");
 });
 
-group("默认行与加样式之前逐键相同", () => {
+group("默认行：26 键一族的标准底行在空格左边放句号，其余与加样式之前逐键相同", () => {
   check(
     describe(P.designRow(true, false, StyledFace.NONE, "standard")) ===
-      "layer:1.25 symbol_panel:1.05 space:4 comma:1 language:1.05 return:1.9",
-    "26 键一族：123 | 符 | 空格 | ， | 中 | 回车",
+      "layer:1.25 symbol_panel:1.05 period:1 space:3 comma:1 language:1.05 return:1.9",
+    `不受样式影响的 26 键一族（韩文等）：123 | 符 | 。 | 空格 3 | ， | 中 | 回车，实际 ${describe(P.designRow(true, false, StyledFace.NONE, "standard"))}`,
   );
   check(
     describe(P.designRow(true, false, StyledFace.TWENTY_SIX, "standard")) ===
-      describe(P.designRow(true, false, StyledFace.NONE, "standard")),
-    "中文 26 键的 standard 就是原来的 26 键底行",
+      "layer:1.25 symbol_panel:1.05 period:1 space:3 comma:1 language:1.05 return:1.9",
+    `中文 26 键 standard：123 | 符 | 。 | 空格 3 | ， | 中 | 回车，实际 ${describe(P.designRow(true, false, StyledFace.TWENTY_SIX, "standard"))}`,
   );
   check(
     describe(P.designRow(true, true, StyledFace.NONE, "standard")) ===
@@ -121,6 +121,108 @@ group("默认行与加样式之前逐键相同", () => {
     "大千注音与 14 键 standard 同一行",
   );
   check(close(P.ENGLISH_SPACE_SHARE, 3), "ENGLISH_SPACE_SHARE 仍是 3");
+});
+
+group("26 键一族的标准底行与英文 26 键底行逐槽位同键位、同份额，切中/英时每个键都不动", () => {
+  const chinese = P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD);
+  const english = P.designRow(true, true, StyledFace.NONE, P.STANDARD);
+  // 韩文、越南语、藏文、日语罗马字：不受样式影响的 26 键，视图按 StyledFace.NONE、非英文交来。
+  const other = P.designRow(true, false, StyledFace.NONE, P.STANDARD);
+  for (const [name, row] of [
+    ["中文标准", chinese],
+    ["韩文等", other],
+  ] as const) {
+    check(
+      row.length === english.length,
+      `${name} 键数相同：${describe(row)} / ${describe(english)}`,
+    );
+    row.forEach((item, index) => {
+      check(item.slot === english[index].slot, `${name} 第 ${index} 格键位相同：${item.slot}`);
+      check(
+        close(item.share, english[index].share),
+        `${name} 第 ${index} 格份额相同：${item.slot}`,
+      );
+    });
+  }
+  // 句号紧挨空格左边、占 1 份，这一份只从空格让出：其余键仍是各自的设计份额，整行份额与没有句号时（空格 4 份）相同。
+  const base: DesignRowEntry[] = [
+    { slot: DesignRowSlot.LAYER, share: P.LAYER_SHARE },
+    { slot: DesignRowSlot.SYMBOL_PANEL, share: P.SYMBOL_PANEL_SHARE },
+    { slot: DesignRowSlot.SPACE, share: P.SPACE_SHARE },
+    { slot: DesignRowSlot.COMMA, share: P.PUNCTUATION_SHARE },
+    { slot: DesignRowSlot.LANGUAGE, share: P.LANGUAGE_SHARE },
+    { slot: DesignRowSlot.RETURN, share: P.RETURN_SHARE },
+  ];
+  const share = (row: readonly DesignRowEntry[], slot: DesignRowSlot): number =>
+    row.find((item) => item.slot === slot)?.share ?? -1;
+  const space = chinese.findIndex((item) => item.slot === DesignRowSlot.SPACE);
+  check(space > 0 && chinese[space - 1].slot === DesignRowSlot.PERIOD, "句号紧挨空格左边");
+  check(chinese[space + 1].slot === DesignRowSlot.COMMA, "逗号仍紧挨空格右边");
+  check(close(share(chinese, DesignRowSlot.PERIOD), P.PUNCTUATION_SHARE), "句号占 1 份");
+  check(
+    close(share(chinese, DesignRowSlot.SPACE), P.ENGLISH_SPACE_SHARE),
+    "空格让到 ENGLISH_SPACE_SHARE",
+  );
+  for (const slot of [
+    DesignRowSlot.LAYER,
+    DesignRowSlot.SYMBOL_PANEL,
+    DesignRowSlot.COMMA,
+    DesignRowSlot.LANGUAGE,
+    DesignRowSlot.RETURN,
+  ]) {
+    check(close(share(chinese, slot), share(base, slot)), `${slot} 份额不变`);
+  }
+  check(close(total(chinese), total(base)), "整行份额不变");
+  // ForEach 的键也逐个相同：切中/英时这一行没有键要重建。
+  const keys = (row: DesignRowEntry[]) =>
+    P.designRowItems(row)
+      .map((item) => P.designRowItemKey(item))
+      .join(" ");
+  check(keys(chinese) === keys(english), "ForEach 的键相同");
+  check(keys(other) === keys(english), "韩文等与英文的 ForEach 键相同");
+  // 两项键位设置排完之后仍然逐格相同。
+  for (const symbolFirst of [false, true]) {
+    for (const languageLeft of [false, true]) {
+      const arranged = (row: DesignRowEntry[]) =>
+        describe(P.languageBeforeSpace(P.symbolFirst(row, symbolFirst), languageLeft));
+      check(
+        arranged(chinese) === arranged(english),
+        `互换 ${symbolFirst}、中/英在左 ${languageLeft}：${arranged(chinese)}`,
+      );
+      check(
+        arranged(other) === arranged(english),
+        `韩文等，互换 ${symbolFirst}、中/英在左 ${languageLeft}：${arranged(other)}`,
+      );
+    }
+  }
+  // 逗号长按输入句号保留；标准样式不接逗号滑动。
+  check(
+    P.commaHold(true, StyledFace.TWENTY_SIX, P.STANDARD) === CommaHold.PERIOD,
+    "逗号长按仍是句号",
+  );
+  check(
+    P.commaHold(true, StyledFace.NONE, P.STANDARD) === CommaHold.PERIOD,
+    "韩文等逗号长按仍是句号",
+  );
+  check(!P.commaSwipesPeriod(StyledFace.TWENTY_SIX, P.STANDARD), "标准样式逗号不接滑动");
+  // 中文 26 键的其他样式不多出这个句号：长空格、表情键没有句号键，逗号句号样式的句号在空格右边。
+  for (const style of [P.LONG_SPACE, P.EMOJI]) {
+    const row = P.designRow(true, false, StyledFace.TWENTY_SIX, style);
+    check(!row.some((item) => item.slot === DesignRowSlot.PERIOD), `${style} 没有句号键`);
+  }
+  const commaPeriod = P.designRow(true, false, StyledFace.TWENTY_SIX, P.COMMA_PERIOD);
+  const commaPeriodSpace = commaPeriod.findIndex((item) => item.slot === DesignRowSlot.SPACE);
+  check(
+    commaPeriod[commaPeriodSpace + 1].slot === DesignRowSlot.PERIOD,
+    "逗号句号样式的句号仍在空格右边",
+  );
+  // 密码框和只收数字的框退回的就是这一行。
+  check(
+    describe(
+      P.designRow(true, false, StyledFace.TWENTY_SIX, P.fieldRowStyle(P.LONG_SPACE, true)),
+    ) === describe(chinese),
+    "密码框退回带句号的标准底行",
+  );
 });
 
 group("中文 26 键的三种样式", () => {
@@ -695,20 +797,22 @@ group(
         );
       }
     }
-    // 中文 26 键切到英文 26 键：空格从 4 让到 3、多出句点，这两个键的键变了；123、符、逗号、中/英、回车的键不变，节点留着。
+    // 26 键一族切到英文 26 键：中英文是同一行，每个键的键都不变，节点全留着。
     const chinese = keys(items(false, StyledFace.NONE, "standard"));
     const english = keys(items(true, StyledFace.NONE, "standard"));
     const space = (row: string[]) => row.find((key) => key.startsWith(`${DesignRowSlot.SPACE}:`));
+    check(chinese.join(" ") === english.join(" "), `切中/英时没有键重建：${chinese.join(" ")}`);
     check(
-      space(chinese) !== space(english),
-      `空格的键随份额变：${space(chinese)} → ${space(english)}`,
+      chinese.some((key) => key.startsWith(`${DesignRowSlot.PERIOD}:`)),
+      "26 键一族的标准底行有句号",
     );
-    check(!chinese.some((key) => key.startsWith(`${DesignRowSlot.PERIOD}:`)), "中文 26 键没有句点");
-    check(
-      english.some((key) => key.startsWith(`${DesignRowSlot.PERIOD}:`)),
-      "英文 26 键多出句点",
-    );
-    for (const key of chinese.filter((key) => key !== space(chinese))) {
+    // 表情键样式（空格 4 份、没有句号）切到英文 26 键：空格让到 3、多出句点，这两个键的键变了；123、逗号、中/英、回车的键不变，节点留着。
+    const emoji = keys(items(false, StyledFace.TWENTY_SIX, "emoji"));
+    check(space(emoji) !== space(english), `空格的键随份额变：${space(emoji)} → ${space(english)}`);
+    check(!emoji.some((key) => key.startsWith(`${DesignRowSlot.PERIOD}:`)), "表情键样式没有句号");
+    for (const key of emoji.filter(
+      (key) => key !== space(emoji) && !key.startsWith(`${DesignRowSlot.EMOJI}:`),
+    )) {
       check(english.includes(key), `没变的键留着：${key}`);
     }
     // 换成长空格：空格份额变了，键也跟着变。
@@ -991,7 +1095,7 @@ group(
     const standard = P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD);
     check(
       describe(P.symbolFirst(standard, true)) ===
-        "symbol_panel:1.05 layer:1.25 space:4 comma:1 language:1.05 return:1.9",
+        "symbol_panel:1.05 layer:1.25 period:1 space:3 comma:1 language:1.05 return:1.9",
       describe(P.symbolFirst(standard, true)),
     );
     check(describe(P.symbolFirst(standard, false)) === describe(standard), "关着时原样");
@@ -1117,7 +1221,7 @@ group(
       [
         "中文 26 键标准",
         P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD),
-        "layer:1.25 symbol_panel:1.05 language:1.05 space:4 comma:1 return:1.9",
+        "layer:1.25 symbol_panel:1.05 language:1.05 period:1 space:3 comma:1 return:1.9",
       ],
       [
         "中文 26 键逗号句号",
@@ -1137,7 +1241,7 @@ group(
       [
         "标准 + 互换",
         P.symbolFirst(P.designRow(true, false, StyledFace.TWENTY_SIX, P.STANDARD), true),
-        "symbol_panel:1.05 layer:1.25 language:1.05 space:4 comma:1 return:1.9",
+        "symbol_panel:1.05 layer:1.25 language:1.05 period:1 space:3 comma:1 return:1.9",
       ],
       [
         "逗号句号 + 互换",

@@ -6841,7 +6841,7 @@ struct KeyboardView {
     }
   }
 
-  /** 英文 26 键字母层在空格左边另放独立句点，空格右边仍是逗号。 */
+  /** 此刻画的是英文 26 键字母层的底行。26 键一族的标准底行不分中英文都在空格左边放句号或句点（`TouchLayoutStylePolicy.designRow`），排法不再随它变。 */
   private designEnglishPeriod(): boolean {
     return KeyboardScheme.designRowHasEnglishPeriod(this.english, this.designCommaSecondaryPeriod());
   }
@@ -7012,7 +7012,7 @@ struct KeyboardView {
   }
 
   /**
-   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。26 键一族的字母层改为 123 1.25 | 符 1.05 | space 4 | ， 1 | 中 1.05 | return 1.9（`designCommaSecondaryPeriod`）；英文时空格左边再加句点 1，空格让到 3；14 键、大千注音保留逗号句号。中文 26 键和 14/18 键按各自的底行样式排（`designRowStyledFace`），键序与份额都在 `TouchLayoutStylePolicy.designRow`。
+   * 设计稿的底行，按宽度份额分配：123 1.25 | ， 1 | space 4 | 。 1 | 中 1.05 | return 1.9，即 Android 的 `KeyboardActionRow.designEntries`。中/英键放在回车左边，与经典底行的位置一致。26 键一族的字母层改为 123 1.25 | 符 1.05 | space 4 | ， 1 | 中 1.05 | return 1.9（`designCommaSecondaryPeriod`）；其中标准底行（英文、中文 26 键的标准样式、韩文、越南语、藏文、日语罗马字）在空格左边再加句点或句号 1，空格让到 3，各语言逐键同位置、同份额，切中/英时不跳；14 键、大千注音保留逗号句号。中文 26 键和 14/18 键按各自的底行样式排（`designRowStyledFace`），键序与份额都在 `TouchLayoutStylePolicy.designRow`。
    *
    * 键序由 `TouchLayoutStylePolicy.designRow` 给出，这里用 ForEach 按它逐个画键（`designRowItems`、`designRowKey`），每种样式都是 123，符 或 😀，空格左边的标点，空格，空格右边的标点，中/英，回车这一模板的子集。
    *
@@ -7101,7 +7101,7 @@ struct KeyboardView {
     } else if (item.slot === DesignRowSlot.COMMA) {
       this.designCommaKey(item.share)
     } else if (item.slot === DesignRowSlot.PERIOD) {
-      // 英文 26 键的句点紧挨空格左边，逗号在空格右边；其余底行的句号在空格右边。
+      // 26 键一族标准底行的句号或句点紧挨空格左边，逗号在空格右边；其余底行的句号在空格右边。
       this.designPeriodKey(item.share)
     } else if (item.slot === DesignRowSlot.SPACE) {
       this.spaceKey(true, item.share, 0);
@@ -7166,7 +7166,7 @@ struct KeyboardView {
     }))
   }
 
-  /** 设计底行的句点或句号键，点按输入，没有长按。 */
+  /** 设计底行的句点或句号键，点按走 `typePeriod`（交给 Engine 的标点路由，按键统计记 `Period`），键面随中文标点开关画 。 或 .，没有长按。 */
   @Builder
   designPeriodKey(share: number) {
     this.fixedKey({
