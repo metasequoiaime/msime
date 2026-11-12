@@ -8882,6 +8882,28 @@ static void TestInputSourceModeReset() {
     monitoredSource = nil;
 }
 
+// 系统输入源切换通知先于旧会话清理到达：正在组的字母必须原样上屏，不能被随后重置丢掉。
+static void TestRawCompositionCommitsBeforeInputSourceSwitch() {
+    NSString *suite = [@"msime.source-switch-raw." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"msime", @"candidates": @[] } forKey:@"view"];
+    session.rawTransition = @{ @"handled": @YES, @"commit": @"msime",
+                               @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    MSIMEFocusedController = controller;
+    MSIMECommitRawCompositionBeforeInputSourceSwitch();
+    assert(session.rawCommitCalls == 1 && [client.committed isEqualToString:@"msime"]);
+    assert(![[controller valueForKey:@"view"][@"editing_text"] length]);
+    MSIMEFocusedController = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // Punctuation and width are runtime state of each app, like the reference's per-thread TSF compartments: the toggles never save, another app starts from the saved value, a Chinese/English switch puts punctuation back in step with the mode, and a new saved starting value applies everywhere.
 static void TestPerApplicationPunctuationAndWidth() {
     NSString *suite = [@"msime.runtime-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -17400,6 +17422,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestRawCompositionCommitsBeforeInputSourceSwitch(); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }

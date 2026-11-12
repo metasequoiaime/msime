@@ -2671,6 +2671,15 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     return (focused != nil && [focused hasUnfinishedInput]) || [MSIMEGlobalVoiceHost().owner globalVoiceBusy];
 }
 
+void MSIMECommitRawCompositionBeforeInputSourceSwitch(void) {
+    MSIMEInputController *focused = MSIMEFocusedController;
+    if (!focused || !focused->_session || !focused->_activeClient ||
+        ![focused->_view[@"editing_text"] isKindOfClass:NSString.class] ||
+        ![focused->_view[@"editing_text"] length]) return;
+    NSDictionary *raw = [focused->_session command:MSIME_COMMIT_RAW error:nil];
+    if (raw) [focused apply:raw];
+}
+
 // 全局入口只取得真实聚焦的 IMK 控制器，不把旧应用留下的客户端当作目标。
 id<MSIMEGlobalVoiceDeliveryTarget> MSIMEFocusedGlobalVoiceTarget(void) { return MSIMEFocusedController; }
 void MSIMERecordGlobalVoiceCommit(NSString *text) {
