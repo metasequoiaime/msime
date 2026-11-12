@@ -4,6 +4,7 @@
 
 mod grid_exact;
 mod grid_helpcode;
+mod lenient_reading;
 
 use grid_exact::{fits, marks_agree};
 use grid_helpcode::GridHelpcode;
@@ -2249,7 +2250,7 @@ impl NineKeySession {
         )
     }
 
-    /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的那段按音节频度切出的拼音（切不成音节时是原样的键码和切分），例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
+    /// 读音行（`lenient_reading` 的 `write_reading`）：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的那段按音节频度切出的拼音，例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`；尾段切不成音节时，全拼网格上切不开的那一键单独成段、显示这个键上的一个字母（`6442677` 是 `ni'hao's's`），双拼网格仍是原样的键码和切分。首行不是从拼音读出来的（英文词、emoji、日期时间行）、是模糊音行或者没有首行时，全拼九键上是已按的键切出的拼写（首行是英文词时是这个词覆盖已打键数的小写字母），其他网格为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
     #[cfg(test)]
     fn reading_for(&self, front: Option<&WordItem>) -> String {
         let mut reading = String::new();
@@ -2257,7 +2258,8 @@ impl NineKeySession {
         reading
     }
 
-    fn write_reading(&self, front: Option<&WordItem>, reading: &mut String) {
+    /// 按首行写读音：首行给不出读音时 `reading` 为空，全拼九键上由 `write_reading` 接着兜底。
+    fn write_front_reading(&self, front: Option<&WordItem>, reading: &mut String) {
         reading.clear();
         let Some(front) = front else {
             return;
@@ -2269,7 +2271,7 @@ impl NineKeySession {
         if front.source == CandidateSource::EnglishDictionary
             && matches!(self.grid, KeyGrid::FourteenKey | KeyGrid::EighteenKey)
         {
-            // 英文行的 `pinyin` 是小写的查询键（完整组码查询保证全是字母）；九键不给英文读音，与按数字判断时相同。
+            // 英文行的 `pinyin` 是小写的查询键（完整组码查询保证全是字母）；九键的英文读音取词本身逐位核对，见 `lenient_reading`。
             let typed = front.pinyin.len().min(self.digits.len());
             for byte in front.pinyin[..typed].bytes() {
                 reading.push(char::from(byte.to_ascii_lowercase()));
@@ -2337,6 +2339,9 @@ impl NineKeySession {
             if self.write_tail_spelling(start, reading) {
                 return;
             }
+            if self.write_lenient_tail(start, reading) {
+                return;
+            }
             for &split in &self.splits {
                 if split > start && split < self.digits.len() {
                     reading.push_str(&self.digits[start..split]);
@@ -2348,7 +2353,7 @@ impl NineKeySession {
         }
     }
 
-    /// 首行没覆盖的尾段写成最可能的那条音节切分（与左列、切分路径同一份音节频度，音节少的在前），而不是原样的键码：整句关掉时首行常常只是前面一段的词，`今天你` 后面的 `926` 显示成 `yao`，不再把数字写进读音行和输入框（#10603）。用户打的切分照样守住；尾段切不成音节（`77`、切分处不能断开）时返回 `false`，由调用方按原样写键码。
+    /// 首行没覆盖的尾段写成最可能的那条音节切分（与左列、切分路径同一份音节频度，音节少的在前），而不是原样的键码：整句关掉时首行常常只是前面一段的词，`今天你` 后面的 `926` 显示成 `yao`，不再把数字写进读音行和输入框（#10603）。用户打的切分照样守住；尾段切不成音节（`77`、切分处不能断开）时返回 `false`，调用方在全拼网格上改用容错切分（`write_lenient_tail`，切不开的那一键单独成段），双拼网格按原样写键码。
     fn write_tail_spelling(&self, start: usize, reading: &mut String) -> bool {
         let Some(prior) = self.prior.as_ref() else {
             return false;
@@ -4388,6 +4393,9 @@ mod code_prefix_tests;
 
 #[cfg(test)]
 mod spelling_buffer_tests;
+
+#[cfg(test)]
+mod lenient_reading_tests;
 
 #[cfg(test)]
 mod tests {
@@ -6462,15 +6470,23 @@ mod tests {
     }
 
     #[test]
-    fn a_fuzzy_leading_row_has_no_reading() {
+    fn a_fuzzy_leading_row_reads_as_the_typed_keys() {
         let mut session = detached();
         session.digits = "94".into();
         let xi = spelled("西", "94", "xi", 100, CandidateSource::Database);
         assert_eq!(session.reading_for(Some(&xi)), "xi");
-        // 知 reached through zi under `94`: cutting zhi to two letters would show zh.
+        // 知 reached through zi under `94`: cutting zhi to two letters would show zh. 读音改用已按的键切出的拼写：一键一个字母，都印在各自的键上。
         let mut zhi = spelled("知", "94", "zhi", 100, CandidateSource::Database);
         zhi.fuzzy = true;
-        assert_eq!(session.reading_for(Some(&zhi)), "");
+        let reading = session.reading_for(Some(&zhi));
+        assert_ne!(reading, "zh");
+        assert_eq!(reading.len(), 2, "{reading}");
+        for (letter, key) in reading.bytes().zip(session.digits.bytes()) {
+            assert!(
+                KeyGrid::NineKey.letters(key).as_bytes().contains(&letter),
+                "{reading}"
+            );
+        }
     }
 
     #[test]
@@ -7436,7 +7452,7 @@ mod tests {
         assert!(sentence_words(&fresh).is_empty(), "{:?}", words(&fresh));
     }
 
-    /// #10603：整句关掉时首行只覆盖前面一段（`你好` 覆盖 `64426`），读音行后面接的是没覆盖那段最可能的拼音，不是原样的数字 `926`；用户打的切分照样守住，切不成音节的尾段仍按原样显示键码。
+    /// #10603：整句关掉时首行只覆盖前面一段（`你好` 覆盖 `64426`），读音行后面接的是没覆盖那段最可能的拼音，不是原样的数字 `926`；用户打的切分照样守住，切不成音节的尾段里切不开的键单独成段、显示这个键上的字母。
     #[test]
     fn uncovered_tail_reads_as_pinyin_when_sentences_are_off() {
         let fixture = fixture_with(&format!(
@@ -7479,9 +7495,9 @@ mod tests {
         );
         session.command(Command::Cancel);
 
-        // 切不成音节的尾段仍显示键码：`77` 不是任何音节的开头，这时首行只有 `你`，`42677` 原样接在后面。
+        // 切不成音节的尾段不再显示键码：`77` 不是任何音节的开头，这时首行只有 `你`，后面的 `42677` 里 `426` 照常成音节，两个 7 各自成段。
         type_digits(&mut session, "6442677");
-        assert_eq!(session.snapshot().nine_key_reading, "ni'42677");
+        assert_eq!(session.snapshot().nine_key_reading, "ni'hao's's");
     }
 
     /// 九键打 我们走路去（966369685878）首选曾是「我们有巨乳」：zou/you、lu/ju、qu/ru 同码，粗俗词 巨乳 靠多字词奖励被拼进整句。粗俗词不进词网格之后，整串打出来的候选里没有它；整串就是它的读音时它照样是候选。权重取自 dict-v2.0.39。
@@ -9617,7 +9633,7 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!session.active());
     }
 
-    /// 读音行按首行的来源判定：九键下与按 `pinyin` 是否全是数字判定的结果相同，14 键下英文首行也有读音。
+    /// 读音行按首行的来源判定：首行是从拼音读出来的才取它的拼音，14 键下英文首行也有读音。首行给不出读音时，全拼九键上是已按的键切出的拼写（这里的会话不经 `refresh`，没有音节频度，`94` 按字典序是 `xi`），14 键仍为空。
     #[test]
     fn reading_is_judged_by_where_the_leading_row_came_from() {
         let mut nine = detached();
@@ -9641,21 +9657,30 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
                 fourteen.reading_for(Some(&spelled("西", "zu", "xi", 1, source))),
                 "xi"
             );
-            // 日期时间行是 `Generated`，没有规范读音。
-            assert_eq!(nine.reading_for(Some(&item("2026年", "94", 1, source))), "");
+            // 日期时间行是 `Generated`，没有规范读音：九键上是按键拼写。
+            assert_eq!(
+                nine.reading_for(Some(&item("2026年", "94", 1, source))),
+                "xi"
+            );
         }
         for source in [CandidateSource::Emoji, CandidateSource::Kaomoji] {
-            // emoji、颜文字行的 `pinyin` 是全部组码，没有规范读音。
-            assert_eq!(nine.reading_for(Some(&item("😀", "94", 1, source))), "");
+            // emoji、颜文字行的 `pinyin` 是全部组码，没有规范读音：九键上是按键拼写，14 键为空。
+            assert_eq!(nine.reading_for(Some(&item("😀", "94", 1, source))), "xi");
             assert_eq!(fourteen.reading_for(Some(&item("😀", "zu", 1, source))), "");
         }
         let english = item("xi", "xi", 1, CandidateSource::EnglishDictionary);
-        // 英文行的 `pinyin` 是查询键：九键下不全是数字，没有读音；14 键下是覆盖已打键数的字母。
-        assert_eq!(nine.reading_for(Some(&english)), "");
+        // 英文行：九键和 14 键下都是这个词覆盖已打键数的字母。九键上词对不上已按的键时退回按键拼写。
+        assert_eq!(nine.reading_for(Some(&english)), "xi");
         assert_eq!(fourteen.reading_for(Some(&english)), "xi");
+        let zi = item("zi", "zi", 1, CandidateSource::EnglishDictionary);
+        assert_eq!(nine.reading_for(Some(&zi)), "zi");
+        let off_key = item("ok", "ok", 1, CandidateSource::EnglishDictionary);
+        assert_eq!(nine.reading_for(Some(&off_key)), "xi");
         let longer = item("Xian", "xian", 1, CandidateSource::EnglishDictionary);
         assert_eq!(fourteen.reading_for(Some(&longer)), "xi");
-        assert_eq!(nine.reading_for(None), "");
+        assert_eq!(nine.reading_for(Some(&longer)), "xi");
+        assert_eq!(nine.reading_for(None), "xi");
+        assert_eq!(fourteen.reading_for(None), "");
     }
 
     #[test]
