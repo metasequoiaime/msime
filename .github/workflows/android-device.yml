@@ -201,6 +201,12 @@ jobs:
           name: android-device-api${{ matrix.api }}-theme-result
           path: target/android/theme-result/
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--voice-empty'
+        with:
+          name: android-device-api${{ matrix.api }}-voice-empty
+          path: target/android/voice-empty-*-api*.png
+          if-no-files-found: ignore
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
         run: |

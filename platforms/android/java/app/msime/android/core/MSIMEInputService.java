@@ -144,6 +144,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeDebugOverlay imeDebugOverlay;
     private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
     private final ImeOperationNotice spaceCopyNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice voiceEmptyNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -640,8 +641,6 @@ public final class MSIMEInputService extends InputMethodService {
     private String japaneseConversionEditingText = "";
     TextView status;
     TextView diagnosticView;
-    VoiceEmptyNoticeOverlay voiceEmptyNoticeOverlay;
-    private long voiceEmptyNoticeGeneration;
     private String message = "";
     String diagnosticMessage = "";
     long diagnosticGeneration;
@@ -737,25 +736,15 @@ public final class MSIMEInputService extends InputMethodService {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 
-    /** 没有录到声音或没有识别文字时的提示，盖在键盘表面顶边，不改变工具栏高度。 */
+    /** 空语音结果显示在手机屏幕顶部，不参与键盘测量或抢走编辑焦点。 */
     void showVoiceEmptyNotice(String text) {
-        if (text == null || text.isEmpty()) return;
-        if (voiceEmptyNoticeOverlay == null || !isInputViewShown()) {
-            notice(text);
-            return;
-        }
-        long generation = ++voiceEmptyNoticeGeneration;
-        voiceEmptyNoticeOverlay.showLabel(text);
-        main.postDelayed(() -> {
-            if (generation == voiceEmptyNoticeGeneration) hideVoiceEmptyNotice();
-        }, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+        long request = voiceEmptyNotice.begin();
+        voiceEmptyNotice.show(request, text, "空语音提示：", "MSIME empty voice notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
     }
 
-    /** 隐藏语音空结果提示；开始新的识别或键盘离开窗口时调用。 */
-    void hideVoiceEmptyNotice() {
-        voiceEmptyNoticeGeneration++;
-        if (voiceEmptyNoticeOverlay != null) voiceEmptyNoticeOverlay.hideLabel();
-    }
+    /** 新识别或输入法窗口结束时撤销旧提示。 */
+    void hideVoiceEmptyNotice() { voiceEmptyNotice.cancel(); }
 
     /** 记下实时偏好里 {@link #announceWubiTableMissing} 要看的三项，再判断一次。有会话时实时偏好经 applyPreferencesSnapshot 到达，没有会话的输入框经 applyEditorPreferences，两处都调用。 */
     private void rememberWubiNoticePreferences(JSONObject preferences) {
@@ -2302,6 +2291,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInputView(boolean finishingInput) {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -2382,6 +2372,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onConfigurationChanged(Configuration configuration) {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -10956,6 +10947,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeFunctionPanel.close();
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -11014,12 +11006,6 @@ public final class MSIMEInputService extends InputMethodService {
         quickDeleteOverlay = new QuickDeleteOverlay(this);
         keyboardSurface.addView(quickDeleteOverlay, LayoutPolicy.frameMatchParentParams());
         surface.fullBleed.add(quickDeleteOverlay);
-        voiceEmptyNoticeOverlay = new VoiceEmptyNoticeOverlay(this);
-        FrameLayout.LayoutParams voiceEmptyNoticeParams = LayoutPolicy.frameWrapParams();
-        voiceEmptyNoticeParams.gravity = android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL;
-        voiceEmptyNoticeParams.topMargin = pixels(16);
-        // 键盘表面从输入法窗口的上沿开始；浮层盖住顶部工具栏但不参与键盘表面的测量。
-        keyboardSurface.addView(voiceEmptyNoticeOverlay, voiceEmptyNoticeParams);
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);

@@ -809,7 +809,7 @@ final class ImeVoiceEntry {
         emptyFailure = emptyFailure || punctuationOnly || (reportedFailure == null && noText);
         String failure = reportedFailure == null && emptyFailure ? "没有识别到文字" : reportedFailure;
         if (text != null && !text.isEmpty()) recordDiagnostic(DiagnosticEventKind.VOICE_SUCCESS);
-        else if (failure == null) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
+        else if (reportedFailure == null && !punctuationOnly) recordDiagnostic(DiagnosticEventKind.VOICE_EMPTY);
         recognizing = false;
         if (finishButton != null) ViewPolicy.setEnabled(finishButton, false);
         local = null;
