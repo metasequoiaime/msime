@@ -1542,11 +1542,11 @@ struct SettingsWindow::State {
         backspace_reverts, 180, 28);
     item(L"STATIC", L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。", SS_LEFT, -1, 216, 48);
     item(L"BUTTON", L"Esc 保留已选词", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
-        escape_keeps_selected_word, 180, 28);
-    item(L"STATIC", L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。", SS_LEFT, -1, 216, 48);
-    item(L"STATIC", L"翻页方式", SS_LEFT, -1, 282, 24);
-    item(L"STATIC", L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页。把以词定字占用的键组改为翻页，会在同一次保存中关闭以词定字。", SS_LEFT, -1, 318, 64);
-    int top = 394;
+        escape_keeps_selected_word, 282, 28);
+    item(L"STATIC", L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。", SS_LEFT, -1, 318, 48);
+    item(L"STATIC", L"翻页方式", SS_LEFT, -1, 384, 24);
+    item(L"STATIC", L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页。把以词定字占用的键组改为翻页，会在同一次保存中关闭以词定字。", SS_LEFT, -1, 420, 64);
+    int top = 496;
     for (const auto& field : navigation_checks) {
       item(L"BUTTON", field.label, WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, field.id, top, 28);
       top += 40;
@@ -1727,7 +1727,8 @@ struct SettingsWindow::State {
     EnableWindow(GetDlgItem(body, toolbar_theme), enabled);
     for (int id : {diagnostic_server, diagnostic_tsf, diagnostic_command_line_candidates, export_settings, import_settings})
       EnableWindow(GetDlgItem(body, id), enabled);
-    for (int id : {word_character_keys, backspace_reverts}) EnableWindow(GetDlgItem(body, id), enabled);
+    for (int id : {word_character_keys, backspace_reverts, escape_keeps_selected_word})
+      EnableWindow(GetDlgItem(body, id), enabled);
     for (const auto& field : navigation_checks) EnableWindow(GetDlgItem(body, field.id), enabled);
     for (int id : {traditional_output, chinese_english_spacing, fullwidth_output,
                    punctuation_mode, quote_style, bracket_style}) EnableWindow(GetDlgItem(body, id), enabled);
