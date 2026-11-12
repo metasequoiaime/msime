@@ -7017,7 +7017,20 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options, NSError *e
         NSDictionary *options = nil;
         NSError *sessionError = nil;
         for (NSUInteger attempt = 0; attempt < 2; ++attempt) {
-            options = MSIMESessionOptions([self runtimeOptions], MSIMEBundleSoundPacks(NSBundle.mainBundle),
+            NSDictionary *runtimeOptions = [self runtimeOptions];
+            // 运行时选项文件是设置应用启动时发布的副本，输入法进程启动后共享偏好文档可能已经被设置应用或账号同步更新。首次建会话必须读文档的当前方案；否则外观虽已显示双拼，Engine 仍会按旧的全拼选项处理首个按键，直到后台轮询完成。
+            if ([runtimeOptions isKindOfClass:NSDictionary.class]) {
+                NSString *directory = [runtimeOptions[@"preferences_directory"] isKindOfClass:NSString.class] &&
+                    [runtimeOptions[@"preferences_directory"] isAbsolutePath] ? runtimeOptions[@"preferences_directory"] : nil;
+                NSDictionary *snapshot = directory ? [MSIMEClientSession loadPreferencesInDirectory:directory error:nil] : nil;
+                NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+                if ([preferences isKindOfClass:NSDictionary.class]) {
+                    NSMutableDictionary *current = [runtimeOptions mutableCopy];
+                    current[@"preferences"] = preferences;
+                    runtimeOptions = current;
+                }
+            }
+            options = MSIMESessionOptions(runtimeOptions, MSIMEBundleSoundPacks(NSBundle.mainBundle),
                                          NSBundle.mainBundle.resourcePath);
             // 词库维护持有租约时保持等待，不能用回收重试绕过它。
             if (options && MSIMEDictionaryQuiesced(options)) {

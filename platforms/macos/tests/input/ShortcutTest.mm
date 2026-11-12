@@ -13251,6 +13251,7 @@ static void TestSessionUnavailableIsReported() {
 
 @interface SessionRecoveryController : MSIMEInputController
 @property(strong) NSDictionary *testOptions;
+@property(strong) NSDictionary *createdOptions;
 @property NSUInteger optionReads;
 @property NSUInteger creations;
 @property NSUInteger failures;
@@ -13263,6 +13264,7 @@ static void TestSessionUnavailableIsReported() {
 }
 - (MSIMEClientSession *)createSessionWithOptions:(NSDictionary *)options error:(NSError **)error {
     ++self.creations;
+    self.createdOptions = options;
     if (self.creations <= self.failures) {
         if (error) *error = [NSError errorWithDomain:@"synthetic" code:1
             userInfo:@{NSLocalizedDescriptionKey:@"dictionary access unavailable"}];
@@ -13532,6 +13534,38 @@ static void TestIdleSessionRecovery() {
     [active setValue:nil forKey:@"activeClient"];
     [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
     assert([MSIMEInputController dictionarySessionHolders].count == 0);
+
+    // #11315：运行时选项文件故意保留旧的全拼，但共享偏好文档已经切到双拼。首个会话必须直接使用文档里的方案，不能等后台轮询后才生效。
+    NSString *sharedPreferences = [root stringByAppendingPathComponent:@"shared-preferences"];
+    NSDictionary *sharedInitial = [MSIMEClientSession loadPreferencesInDirectory:sharedPreferences error:&error];
+    assert(sharedInitial && !error);
+    NSMutableDictionary *sharedValues = [sharedInitial[@"preferences"] mutableCopy];
+    sharedValues[@"scheme"] = @"shuangpin";
+    sharedValues[@"last_chinese_scheme"] = @"shuangpin";
+    NSDictionary *sharedSaved = [MSIMEClientSession savePreferencesInDirectory:sharedPreferences
+        expectedRevision:[sharedInitial[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":sharedInitial[@"revision"], @"preferences":sharedValues} error:&error];
+    assert(sharedSaved && !error);
+    NSMutableDictionary *startupOptions = [options mutableCopy];
+    startupOptions[@"preferences_directory"] = sharedPreferences;
+    startupOptions[@"preferences"] = @{@"scheme":@"quanpin", @"default_ime_mode":@"chinese", @"learning":@NO};
+    NSString *suite = [@"msime.startup-scheme." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    SessionRecoveryController *startup = [SessionRecoveryController alloc];
+    startup.testOptions = startupOptions;
+    [startup setValue:appearance forKey:@"appearance"];
+    [startup setValue:[ShortcutClient new] forKey:@"activeClient"];
+    assert([[startup applySharedInputPreferencesBeforeFirstUse][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
+    [startup prepareSession];
+    MSIMEClientSession *startupSession = [startup valueForKey:@"session"];
+    assert(startupSession && [startup.createdOptions[@"preferences"][ @"scheme"] isEqual:@"shuangpin"]);
+    assert([[startupSession viewWithError:&error][@"scheme"] isEqual:@1] && !error);
+    [startup setValue:nil forKey:@"activeClient"];
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
     assert(setrlimit(RLIMIT_NOFILE, &previous) == 0);
     TestSessionRecoveryNotice(options);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
