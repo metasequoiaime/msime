@@ -41,6 +41,16 @@ public final class KeyboardBottomBarPolicy {
     }
 
     /**
+     * 系统输入法按钮所在的 decor 子视图只有在实际有高度时才算画出来。
+     *
+     * <p>部分厂商会把 `NavigationBarFrame` 保留为 {@code VISIBLE}，但在不画系统按钮时把它测成 0 高；
+     * 只看可见性会把水杉自己的底栏错误隐藏。
+     */
+    public static boolean systemImeButtonsDrawn(boolean visible, int heightPx) {
+        return visible && heightPx > 0;
+    }
+
+    /**
      * 「底部留白」此刻垫不垫（#6392）：键区下面垫一段 {@link #BAR_HEIGHT_DP} 高、不可点的空白，把回车、空格这些底行键抬离屏幕底边。
      *
      * <p>不看导航方式：键盘底栏只在细手势条、系统不画输入法按钮时出现，其余设备（系统自己画按钮的 Pixel 一类、Android 11 及以前读不到导航栏高度、三键导航）想抬高底行只能靠它。底栏画着时不再叠加，底栏本身已经把键区抬高了同样的距离。浮动键盘、外接键盘收起键区、手机横屏时同底栏一样不垫。

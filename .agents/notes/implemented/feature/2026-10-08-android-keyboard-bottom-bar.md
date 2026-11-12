@@ -11,7 +11,7 @@ Status: implemented
 - 本地设置 `platform.android.bottom_bar`，布尔，默认开，只在本机：是否出现取决于设备的导航方式，换一台设备意义不同，服务端的同步字段表也没有这个键。入口在设置「键盘」页「布局」里。
 - 规则在无 Android 依赖的 `keyboard/KeyboardBottomBarPolicy`，`KeyboardBottomBarPolicySmoke` 逐条验证。底栏只在以下条件同时成立时画：开关打开；系统没有在手势条上自己画输入法按钮；可读到导航栏高度；导航栏低于 32 dp；不在浮动键盘下；外接键盘的候选栏模式没有收起键区；不是手机（`smallestScreenWidthDp` < 600）横屏。
 - 导航栏高度取键盘视图收到的 inset 与输入法窗口 `WindowMetrics` 两者的较大值。Android 14 及以前输入法窗口默认停在导航栏上方，视图收到的底部 inset 是 0，只看它会把三键导航当成没有导航栏；`WindowMetrics` 按整块屏幕算，导航栏总在里面。
-- 原生系统在手势导航下自己画输入法的收起和切换按钮，这时导航栏高度分不出来，要另外判断。Android 13 起它们画在输入法窗口底部那条 24 dp 的手势条两端，与没有按钮的国产系统手势条一样高（AOSP 15 模拟器上输入法收到的导航栏是 63 px）。系统把这一条（`NavigationBarFrame`）直接加在输入法窗口的 decor 下，`ImeBottomBar` 按类名看 decor 的直接子视图，找到可见的就不画底栏。Android 12 的手势导航由系统导航栏自己显示这两个按钮，导航栏高到 48 dp，阈值已经把它排除。
+- 原生系统在手势导航下自己画输入法的收起和切换按钮，这时导航栏高度分不出来，要另外判断。Android 13 起它们画在输入法窗口底部那条 24 dp 的手势条两端，与没有按钮的国产系统手势条一样高（AOSP 15 模拟器上输入法收到的导航栏是 63 px）。系统把这一条（`NavigationBarFrame`）直接加在输入法窗口的 decor 下，`ImeBottomBar` 按类名看 decor 的直接子视图，只有可见且实际高度大于 0 才算系统按钮已画出；MIUI 14 等系统会保留一个 `VISIBLE` 的零高度占位，不应因此隐藏水杉底栏。Android 12 的手势导航由系统导航栏自己显示这两个按钮，导航栏高到 48 dp，阈值已经把它排除。
 - 底栏是 `core/ImeBottomBar`，叠在键盘外框底部，不在键盘的竖向一列里。画着的时候，键盘列的底部内边距 = 底栏下面让出的距离 + 底栏高度 40 dp。让出的距离是导航栏落在窗口里的那截，加上系统手势区高出导航栏的部分。外框的覆盖面板按键盘列的底部内边距让出底边，所以剪贴板、表情等面板开着时底栏仍露在下面。
 - 部分厂商在 `WindowMetrics` 报告导航栏高度为 0 时，仍把整块底部区域放进键盘视图的 `insets.bottom`。`barBottomPx` 以已知的导航栏高度收窄这部分 inset；否则会把底栏错误抬高，在切换输入法和剪贴板按钮下留下大块空白。
 - 左边地球图标点按弹出系统的输入法选择框（`showInputMethodPicker`），与 Android 自己画在导航栏里的切换按钮一致，组字不结束。右边剪贴板与工具栏的剪贴板按钮是同一个开关面板的动作，面板开着时画成选中。中间横向越过触摸阈值后先结束组字，之后每 12 dp 移一格光标，与空格键拖动同一套步长。它用自己的 `SpaceCursorMovement` 实例，不受「空格滑动移动光标」开关影响。
@@ -46,3 +46,5 @@ Status: implemented
 本轮 `check-host.sh` 通过 281 个 JVM 冒烟、245 个设备套件源码编译，笔记与差异校验通过。完整 quick 的 workspace 和 Java 阶段通过，但整体退出 1：公共 Windows runner 契约由 #9986 修复；Android target 最初误读其他 worktree 的 `force_cantonese_shuangpin` 字段元数据，刷新本分支对应 Rust 源码时间戳后，在原 target 与同一 NDK 参数下定点检查通过，Rust 源码字节未改；Apple bridge 因指定已有主缓存而出现 CMake 源根路径不匹配，核对两份翻译单元、依赖头与配置逐字节同源后，主缓存定点构建通过。未将这些补验表述为完整 quick 通过。
 
 2026-11-09：#11003 报告 Android 11 的全面屏手势导航下底栏完全不显示。原因是 `ImeBottomBar.readInsets()` 对 API <31 直接标记导航高度未知，而 `KeyboardBottomBarPolicy.shown()` 在未知时必然隐藏。决定在旧 API 使用 `WindowInsets` 的 stable inset、system window inset 和 API 29 起的 system gesture inset 判定导航高度，并保留三键导航的 32 dp 阈值；设备夹具同步按 API <31 已可读处理。
+
+2026-11-12：报告者在 Redmi K60 / MIUI 14、Android 13（API 33）复测发现底栏仍被隐藏。该设备的导航栏和手势区高度均为 0，API 33 的高度判断已经有效；真正的误判是 MIUI 在输入法 decor 下保留 `NavigationBarFrame`，但将其测量为 0 高，旧逻辑只看 `VISIBLE`。现在把“系统按钮已画出”定义为可见且高度大于 0，并在 `KeyboardBottomBarPolicySmoke` 覆盖零高度占位，避免与 #11159 的 API 30 inset 修复混为一谈。
