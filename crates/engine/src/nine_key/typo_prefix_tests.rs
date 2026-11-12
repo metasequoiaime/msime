@@ -1,6 +1,6 @@
 use super::lenient_reading_tests::{
-    assert_session_aligned, fixture, open, type_keys, without_sentences, EXTRA_KEYS_AT_END,
-    EXTRA_KEY_INSIDE, SENTENCE, WRONG_FIRST_KEY,
+    assert_session_aligned, fixture, fixture_with, open, type_keys, without_sentences,
+    EXTRA_KEYS_AT_END, EXTRA_KEY_INSIDE, SENTENCE, WRONG_FIRST_KEY,
 };
 use super::typo_prefix::append_prefix_paths;
 use super::*;
@@ -131,34 +131,50 @@ fn the_complete_prefix_keeps_user_splits() {
     assert_eq!(table.complete_prefix_len("5468426", &[1]), 0);
 }
 
+/// 前缀路径就是对这段前缀做的严格切分，与用户刚好打到那一位时的是同一批，最后一段没打完的也在内。
 #[test]
-fn prefix_paths_spell_the_prefix_in_whole_syllables() {
+fn prefix_paths_are_the_strict_split_of_the_prefix() {
     let table = KeyGrid::NineKey.spelling_table();
     let prior = SyllablePrior::shipped(table);
-    let mut paths = Vec::new();
-    assert_eq!(
-        append_prefix_paths(table, "5468426777", &[], &prior, &mut paths),
-        7
-    );
-    assert!(!paths.is_empty() && paths.len() <= QUERY_PATH_LIMIT);
-    assert!(paths.iter().any(|path| path == &["jin", "tian"]));
-    for path in &paths {
-        assert_eq!(path.iter().map(String::len).sum::<usize>(), 7, "{path:?}");
-        for piece in path {
-            assert!(
-                table
-                    .syllables
-                    .iter()
-                    .any(|(syllable, _)| syllable == piece),
-                "{piece} 不是完整音节"
+    for (codes, prefix, expected) in [
+        ("5468426777", 7, &["jin", "tian"][..]),
+        // 错键落在音节中间：前 4 键既是 `ji'mu` 也是没打完的 `jin't`，两条都在。
+        ("546877426", 4, &["ji", "mu"][..]),
+        ("546877426", 4, &["jin", "t"][..]),
+    ] {
+        let mut paths = Vec::new();
+        assert_eq!(
+            append_prefix_paths(table, codes, &[], &prior, &mut paths),
+            prefix,
+            "{codes}"
+        );
+        assert!(!paths.is_empty() && paths.len() <= QUERY_PATH_LIMIT);
+        assert!(
+            paths.iter().any(|path| path == expected),
+            "{codes}：{paths:?}"
+        );
+        for path in &paths {
+            assert_eq!(
+                path.iter().map(String::len).sum::<usize>(),
+                prefix,
+                "{path:?}"
             );
         }
+        assert_eq!(
+            paths,
+            table.split_paths_limited(&codes[..prefix], &[], &prior, QUERY_PATH_LIMIT),
+            "{codes}"
+        );
     }
-    // 与用户刚好打到那一位、并在那里打了切分时的严格切分是同一批。
+
+    // 用户正好在前缀末尾打了切分：最后一段必须是完整音节。
+    let mut paths = Vec::new();
     assert_eq!(
-        paths,
-        table.split_paths_limited("5468426", &[7], &prior, QUERY_PATH_LIMIT)
+        append_prefix_paths(table, "546877426", &[4], &prior, &mut paths),
+        4
     );
+    assert!(paths.iter().any(|path| path == &["ji", "mu"]), "{paths:?}");
+    assert!(!paths.iter().any(|path| path == &["jin", "t"]), "{paths:?}");
 
     // 一个音节也切不出：原样返回。
     let mut untouched = vec![vec!["ni".to_owned()]];
@@ -205,18 +221,18 @@ fn letter_grids_find_the_prefix_and_shuangpin_grids_do_not() {
 
 // ---- 会话 ----
 
-/// 整串切不开时，首行是错键之前的词，与用户刚好打到最长可切前缀那一位时的首行相同，不再是开头的单字。`546877426` 的前缀是按 `li'mu` 切出来的 4 键，用户打到那一位时的首行「今天」是 `jin't` 的补全、对不上后面的键，所以首行仍是「今」。
+/// 整串切不开时，首行是错键之前的词，与用户刚好打到最长可切前缀那一位时的首行相同，不再是开头的单字。`546877426` 的前缀是 4 键，用户打到那一位时的首行「今天」是 `jin't` 的补全：候选只按这 4 键核对覆盖，所以它仍是首行、覆盖 4 键。
 #[test]
 fn candidates_fall_back_to_the_prefix_before_the_stray_key() {
     let fixture = fixture();
     let table = KeyGrid::NineKey.spelling_table();
-    // 每条：数字串、整句开着时的首行、整句关着时的首行、是否与打到前缀那一位时相同。
-    for (codes, sentence, word, as_typed_to_the_prefix) in [
-        ("6442677", "你好", "你好", true),
-        ("5468426777", "今天", "今天", true),
-        ("546877426", "今", "今", false),
-        (EXTRA_KEY_INSIDE, "今天天", "今天", true),
-        (EXTRA_KEYS_AT_END, "今天天气", "今天天气", true),
+    // 每条：数字串、整句开着时的首行、整句关着时的首行。
+    for (codes, sentence, word) in [
+        ("6442677", "你好", "你好"),
+        ("5468426777", "今天", "今天"),
+        ("546877426", "今天", "今天"),
+        (EXTRA_KEY_INSIDE, "今天天", "今天"),
+        (EXTRA_KEYS_AT_END, "今天天气", "今天天气"),
     ] {
         assert!(!splits_whole(codes), "{codes}");
         let prefix = table.complete_prefix_len(codes, &[]);
@@ -244,13 +260,11 @@ fn candidates_fall_back_to_the_prefix_before_the_stray_key() {
             type_keys(&mut reference, &codes[..prefix]);
             let leading = front(&session).unwrap_or_else(|| panic!("{codes}（{name}）没有候选"));
             assert_eq!(leading.0, expected, "{codes}（{name}）");
-            if as_typed_to_the_prefix {
-                assert_eq!(
-                    Some(&leading),
-                    front(&reference).as_ref(),
-                    "{codes}（{name}）"
-                );
-            }
+            assert_eq!(
+                Some(&leading),
+                front(&reference).as_ref(),
+                "{codes}（{name}）"
+            );
             assert!(leading.1 <= prefix, "{codes}（{name}）");
             // 候选只覆盖前缀，没有一行吃到错键。
             assert!(
@@ -264,6 +278,72 @@ fn candidates_fall_back_to_the_prefix_before_the_stray_key() {
             assert_session_aligned(&session);
         }
     }
+}
+
+/// 错键落在音节中间（想打「今天」，在 `t` 后面多按了两个 7）：最长可切前缀的 4 键既能切成 `ji'mu`，也是没打完的 `jin't`。词库里有 `ji'mu` 的词时首行不能因此换成它：候选和用户刚好打到第 4 键时相同，靠补全排在首行的「今天」仍是首行，读音从第一个音节起不变；「积木」照样在列。
+#[test]
+fn a_stray_key_inside_a_syllable_keeps_the_row_the_prefix_showed() {
+    let fixture = fixture_with("INSERT INTO tbl_2_j VALUES('ji''mu','jm','积木',100);");
+    for codes in ["546877", "546877426", "5468777"] {
+        assert!(!splits_whole(codes), "{codes}");
+        assert_eq!(
+            KeyGrid::NineKey
+                .spelling_table()
+                .complete_prefix_len(codes, &[]),
+            4,
+            "{codes}"
+        );
+        for (name, mut session, mut reference) in [
+            (
+                "整句开",
+                open(&fixture.paths, false),
+                open(&fixture.paths, false),
+            ),
+            (
+                "整句关",
+                without_sentences(&fixture.paths),
+                without_sentences(&fixture.paths),
+            ),
+        ] {
+            type_keys(&mut reference, "5468");
+            assert_eq!(
+                front(&reference),
+                Some(("今天".to_owned(), 4, "jin'tian".to_owned())),
+                "{name}"
+            );
+            type_keys(&mut session, codes);
+            assert_eq!(front(&session), front(&reference), "{codes}（{name}）");
+            let rows: Vec<(String, usize)> = session
+                .candidates
+                .iter()
+                .map(|row| (row.word.to_string(), row.pinyin.len()))
+                .collect();
+            assert!(
+                rows.contains(&("积木".to_owned(), 4)),
+                "{codes}（{name}）：{rows:?}"
+            );
+            assert!(
+                rows.contains(&("今".to_owned(), 3)),
+                "{codes}（{name}）：{rows:?}"
+            );
+            assert!(
+                rows.iter().all(|row| row.1 <= 4),
+                "{codes}（{name}）：{rows:?}"
+            );
+            let reading = assert_session_aligned(&session);
+            assert!(
+                reading.starts_with("jin't'"),
+                "{codes}（{name}）：{reading}"
+            );
+        }
+    }
+
+    // 选掉首行只吃掉前缀那 4 键，错键和后面的键留在组字里。
+    let mut session = open(&fixture.paths, false);
+    type_keys(&mut session, "546877426");
+    assert!(session.select(0).handled);
+    assert_eq!(session.digits, "77426");
+    assert_session_aligned(&session);
 }
 
 /// 首行覆盖到的那一段读它自己的拼音，错键和后面的键接着按容错切分读。

@@ -38,6 +38,7 @@ impl NineKeySession {
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let mut syllables = Vec::new();
         let dictionary_options = self.dictionary_options();
+        let mut window = self.digits.len();
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
@@ -47,7 +48,7 @@ impl NineKeySession {
             syllables =
                 table.spellings_for(remaining, locked_length, splits.first().copied(), prior);
             syllables.retain(|syllable| starts_right(syllable));
-            // 与生产刷新同一个查询上限、整串切不开时同一段前缀路径（`typo_prefix`），对照只比较筛选投影本身。
+            // 与生产刷新同一个查询上限、整串切不开时同一段前缀路径和同一段覆盖核对（`typo_prefix`），对照只比较筛选投影本身。
             let mut alternatives =
                 table.split_paths_limited(remaining, splits, prior, QUERY_PATH_LIMIT);
             let span = if alternatives.is_empty() {
@@ -61,6 +62,7 @@ impl NineKeySession {
                 if prefix == 0 {
                     remaining
                 } else {
+                    window = locked_length + prefix;
                     &remaining[..prefix]
                 }
             } else {
@@ -118,7 +120,8 @@ impl NineKeySession {
                 } else {
                     canonical.as_str()
                 };
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits[..window])
+                else {
                     continue;
                 };
                 if !agrees_with_locked(matched, &locked_key) {

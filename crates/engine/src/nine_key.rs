@@ -1506,6 +1506,8 @@ impl NineKeySession {
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let dictionary_options = self.dictionary_options();
         let mut alternatives = std::mem::take(&mut self.path_buffer);
+        // 候选核对覆盖时看的那段数字到哪一位为止：整串切不开时只到最长可切前缀的末尾（`typo_prefix`），其余时候是全部数字。
+        let mut window = self.digits.len();
         let alternatives = if remaining.is_empty() {
             self.spellings.clear();
             alternatives.clear();
@@ -1544,6 +1546,7 @@ impl NineKeySession {
                 if prefix == 0 {
                     remaining
                 } else {
+                    window = locked_length + prefix;
                     &remaining[..prefix]
                 }
             } else {
@@ -1567,6 +1570,7 @@ impl NineKeySession {
             alternatives
         };
 
+        let window = &self.digits[..window];
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
         // 按切分查出的词库行的 `pinyin` 换成它覆盖的那段数字：同样长度的行共用一份，一次刷新上千行只按不同的覆盖长度各申请一次。简拼行和九键双拼的整词行另在下面就地改写自己独占的缓冲区，本来就不申请。
@@ -1635,8 +1639,7 @@ impl NineKeySession {
                 }
                 if cached && filter_dominated {
                     if let Some(best) = leading_rank(&leading, &candidates, word) {
-                        let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits)
-                        else {
+                        let Some(covered) = grid.matching_code_prefix_len(matched, window) else {
                             return false;
                         };
                         // 只查已接纳的前页结果；本页内的同词仍由 `push_ranked` 处理。
@@ -1666,7 +1669,7 @@ impl NineKeySession {
                     canonical.as_str()
                 };
                 // 组码覆盖只算一次；九键双拼的既有实现会申请临时编码。
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                let Some(covered) = grid.matching_code_prefix_len(matched, window) else {
                     continue;
                 };
                 // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
