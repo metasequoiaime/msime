@@ -501,9 +501,12 @@ public final class DictionaryCollectionsStore {
         return "scel".equals(format);
     }
 
-    /** 文件是不是 zip 压缩包：以本地文件头 `PK\3\4` 开头。文本词库不会以这四个字节开头，其中两个是控制字符。 */
+    /** 文件是不是 zip 压缩包：识别本地文件头、空压缩包和分卷文件的标准签名。 */
     public static boolean isZipArchive(byte[] bytes) {
-        return bytes != null && bytes.length >= 4 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] == 3 && bytes[3] == 4;
+        return bytes != null && bytes.length >= 4 && bytes[0] == 'P' && bytes[1] == 'K'
+            && (bytes[2] == 3 && bytes[3] == 4
+                || bytes[2] == 5 && bytes[3] == 6
+                || bytes[2] == 7 && bytes[3] == 8);
     }
 
     /** 压缩包里最多看这么多个条目，再多就不是词库导出的包了。 */

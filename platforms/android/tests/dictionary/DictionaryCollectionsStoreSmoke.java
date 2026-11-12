@@ -109,6 +109,10 @@ public final class DictionaryCollectionsStoreSmoke {
         byte[] archive = zip(new String[] {"dictionary.txt"}, new byte[][] {gboard});
         check(DictionaryCollectionsStore.isZipArchive(archive));
         check(Arrays.equals(DictionaryCollectionsStore.textFromArchive(archive), gboard));
+        // 没有条目的合法 ZIP 只有中央目录结束签名；仍应走压缩包错误提示，而不是按文本解析控制字符。
+        byte[] emptyArchive = zip(new String[0], new byte[0][]);
+        check(DictionaryCollectionsStore.isZipArchive(emptyArchive));
+        check(DictionaryCollectionsStore.textFromArchive(emptyArchive) == null);
         // 有 dictionary.txt 就用它，不论排在第几个、在不在子目录里；别的条目不看。
         check(Arrays.equals(DictionaryCollectionsStore.textFromArchive(zip(
             new String[] {"readme.txt", "Export/Dictionary.TXT", "icon.png"},
