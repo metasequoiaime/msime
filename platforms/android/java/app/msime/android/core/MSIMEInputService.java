@@ -106,9 +106,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long KEY_PRESS_FLUSH_DELAY_MILLIS = 30_000;
     private static final String INPUT_MODE_PREFERENCES = "android-input-modes";
     static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
-    /** 剪贴板补读用的「上一次处理过的那一条」，只存身份（复制时刻和文字散列），见 {@link ClipboardCapturePolicy}。 */
+    /** 剪贴板补读用的「上一次处理过的那一条」，按主/访客模式分别存身份，见 {@link ClipboardCapturePolicy}。 */
     private static final String CLIPBOARD_CAPTURE_PREFERENCES = "android-clipboard-capture";
-    private static final String HANDLED_CLIP_KEY = "handled_clip";
     private static final String EMOJI_RECENTS_KEY = "items";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
@@ -8973,13 +8972,13 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 上一次处理过的剪贴板身份，存在本进程的 SharedPreferences 里，键盘进程被回收后仍然记得；只有身份，没有文字。 */
     private String handledClipIdentity() {
-        return getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE)
-            .getString(HANDLED_CLIP_KEY, null);
+        return ClipboardCaptureState.handledIdentity(
+            getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE), clipboardMode);
     }
 
     private void rememberHandledClip(String identity) {
-        getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE).edit()
-            .putString(HANDLED_CLIP_KEY, identity).apply();
+        ClipboardCaptureState.remember(
+            getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE), clipboardMode, identity);
     }
 
     /**
