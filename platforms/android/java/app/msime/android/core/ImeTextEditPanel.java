@@ -831,7 +831,7 @@ final class ImeTextEditPanel {
                 if (s.connection != target || !sendKey(target, TextEditPanelModel.keyCode(action),
                         TextEditPanelModel.metaState(action, extend))) return false;
                 if (trackpadSettings != null && trackpadSettings.haptics() && s.hapticsEnabled)
-                    trackpad.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+                    KeyboardHaptics.play(s.vibrator, trackpad, s.hapticStrength);
             }
         }
         refreshPreview();
