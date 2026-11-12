@@ -22,7 +22,7 @@ use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, KeyResult,
     LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
 };
-use crate::user_dictionary::journal::has_matching_user_weight;
+use crate::user_dictionary::journal::{has_any_matching_user_weight, has_matching_user_weight};
 use crate::user_dictionary::positions::{
     apply_fixed_positions_with_state, clear_fixed_position, is_pinned_candidate,
     record_pinned_candidate, set_fixed_position,
@@ -59,17 +59,19 @@ fn promote_learned_fuzzy_rows(rows: &mut [WordItem], journal: &Path, context: &s
                 .take_while(|row| coverage(row) == length)
                 .count();
         let bucket = &mut rows[start..end];
-        let learned_fuzzy = bucket.iter().any(|row| {
-            row.fuzzy
-                && row.source.is_dictionary()
-                && has_matching_user_weight(
-                    journal,
-                    PersonalDictionaryKind::Pinyin,
-                    &candidate_dictionary_key(row, context),
-                    &row.word,
+        let learned_entries = bucket
+            .iter()
+            .filter(|row| row.fuzzy && row.source.is_dictionary())
+            .map(|row| {
+                (
+                    candidate_dictionary_key(row, context),
+                    row.word.to_string(),
                     row.weight,
                 )
-        });
+            })
+            .collect::<Vec<_>>();
+        let learned_fuzzy =
+            has_any_matching_user_weight(journal, PersonalDictionaryKind::Pinyin, &learned_entries);
         if learned_fuzzy {
             let (positions, mut dictionary): (Vec<_>, Vec<_>) = bucket
                 .iter_mut()

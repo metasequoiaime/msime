@@ -716,6 +716,32 @@ pub(crate) fn has_matching_user_weight(
         .unwrap_or(false)
 }
 
+/// 在同一个日志连接里检查一批候选；候选投影会一次询问同一覆盖组的多行，不能为每行重复打开 SQLite。
+pub(crate) fn has_any_matching_user_weight(
+    user_db: &Path,
+    kind: PersonalDictionaryKind,
+    entries: &[(String, String, i64)],
+) -> bool {
+    if entries.is_empty() {
+        return false;
+    }
+    let Some(journal) = existing_journal(user_db) else {
+        return false;
+    };
+    let Ok(mut statement) = journal.prepare_cached(
+        "SELECT 1 FROM user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3 AND operation='upsert' AND weight=?4",
+    ) else {
+        return false;
+    };
+    entries.iter().any(|(key, value, weight)| {
+        !key.is_empty()
+            && !value.is_empty()
+            && statement
+                .exists(params![kind.journal_name(), key, value, weight])
+                .unwrap_or(false)
+    })
+}
+
 /// A delete tombstone exists (J:611-621).
 pub fn is_user_deleted(
     user_db: &Path,
