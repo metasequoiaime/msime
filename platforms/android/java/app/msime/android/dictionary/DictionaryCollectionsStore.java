@@ -264,10 +264,15 @@ public final class DictionaryCollectionsStore {
      *
      * @param format client-services 的格式名（来自 {@link View#formats}）
      * @param name 新词库的名字，已经按 {@link #nameFromFile} 收好
-     * @param bytes 文件内容；`scel` 这类二进制格式按 base64 传，其余按 UTF-8 文本传
+     * @param bytes 文件内容；`scel` 这类二进制格式按 base64 传，其余按 UTF-8 文本传。文本格式收到 zip 压缩包时取里面的词库文本（见 {@link #textFromArchive}）
      */
     public static Result<View> importFile(Context context, String format, String name, byte[] bytes) {
         if (bytes == null || bytes.length == 0) return Result.failed(failureMessage("import_empty"));
+        if (!binaryFormat(format) && isZipArchive(bytes)) {
+            bytes = textFromArchive(bytes);
+            if (bytes == null) return Result.failed(failureMessage("import_archive_without_text"));
+            if (bytes.length == 0) return Result.failed(failureMessage("import_empty"));
+        }
         if (bytes.length > (binaryFormat(format) ? MAX_SCEL_IMPORT_BYTES : MAX_IMPORT_BYTES)) {
             return Result.failed(failureMessage("collections_too_large"));
         }
@@ -496,13 +501,62 @@ public final class DictionaryCollectionsStore {
         return "scel".equals(format);
     }
 
+    /** 文件是不是 zip 压缩包：以本地文件头 `PK\3\4` 开头。文本词库不会以这四个字节开头，其中两个是控制字符。 */
+    public static boolean isZipArchive(byte[] bytes) {
+        return bytes != null && bytes.length >= 4 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] == 3 && bytes[3] == 4;
+    }
+
+    /** 压缩包里最多看这么多个条目，再多就不是词库导出的包了。 */
+    private static final int MAX_ARCHIVE_ENTRIES = 64;
+
     /**
-     * 导入来源对话框的选项：只列 client-services 实际接受的格式，按「文本、搜狗、Rime、纯汉字」排；`standard` 和 `windows` 是文本文件的两种列顺序，由 client-services 在 `txt` 里自动识别，不单独列出。
+     * 从 zip 压缩包里取出词库文本。Gboard 的「导出」给的是 `PersonalDictionary.zip`，词条在里面的 `dictionary.txt`；把压缩包直接当文本读，里面全是控制字符，client-services 只能答「无法识别的字符」。
+     *
+     * <p>有 `dictionary.txt` 就用它，没有时包里只有一个 `.txt` 才用那一个，多个 `.txt` 说不准该用哪个，不猜。解压后超过 {@link #MAX_IMPORT_BYTES} 的条目不读完，按取不到处理，所以压缩炸弹撑不大内存。
+     *
+     * @return 文本文件的内容；包里没有可用的文本、包已损坏或解压后太大时为 null
+     */
+    public static byte[] textFromArchive(byte[] archive) {
+        byte[] only = null;
+        int texts = 0;
+        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(archive))) {
+            java.util.zip.ZipEntry entry;
+            for (int seen = 0; seen < MAX_ARCHIVE_ENTRIES && (entry = zip.getNextEntry()) != null; seen++) {
+                if (entry.isDirectory()) continue;
+                String path = TextPolicy.lowercase(entry.getName());
+                if (!path.endsWith(".txt")) continue;
+                byte[] content = readEntry(zip);
+                if (content == null) return null;
+                String file = path.substring(path.lastIndexOf('/') + 1);
+                if (file.equals("dictionary.txt")) return content;
+                only = content;
+                texts++;
+            }
+        } catch (java.io.IOException | IllegalArgumentException error) {
+            // 损坏的包，或条目名不是合法编码。
+            return null;
+        }
+        return texts == 1 ? only : null;
+    }
+
+    /** 读完当前条目；超过导入上限时返回 null。 */
+    private static byte[] readEntry(java.util.zip.ZipInputStream zip) throws java.io.IOException {
+        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[64 * 1024];
+        for (int read; (read = zip.read(buffer)) != -1; ) {
+            if (output.size() + read > MAX_IMPORT_BYTES) return null;
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
+    }
+
+    /**
+     * 导入来源对话框的选项：只列 client-services 实际接受的格式，按「文本、搜狗、Rime、纯汉字」排；`standard` 和 `windows` 是文本文件的两种列顺序，由 client-services 在 `txt` 里自动识别，不单独列出。文本一项也让选 zip：Gboard 导出的是压缩包，文件选择器按 `text/plain` 过滤时它是灰的。
      */
     public static List<ImportSource> importSources(List<String> formats) {
         List<ImportSource> sources = new ArrayList<>(formats.size());
         if (formats.contains("txt")) {
-            sources.add(new ImportSource("txt", "文本文件（.txt）", new String[] {"text/plain"}));
+            sources.add(new ImportSource("txt", "文本文件（.txt，或 Gboard 导出的 .zip）", new String[] {"text/plain", "application/zip"}));
         }
         if (formats.contains("scel")) {
             sources.add(new ImportSource("scel", "搜狗细胞词库（.scel）", new String[] {"application/octet-stream", "*/*"}));
@@ -528,6 +582,7 @@ public final class DictionaryCollectionsStore {
             case "import_empty": return "文件是空的。";
             case "collections_too_large": return "文件太大，词库存不下。";
             case "import_control_characters": return "文件里有无法识别的字符，请确认是文本格式。";
+            case "import_archive_without_text": return "压缩包里没有找到词库文本，请解压后选择里面的 .txt 文件。";
             case "import_no_usable_rows": return "没有读到可用的词条，请检查文件格式。";
             case "import_malformed": return "文件不完整或已损坏，请重新下载。";
             case "collections_corrupt": return "词库文件已损坏，为避免丢失没有改动它。";
