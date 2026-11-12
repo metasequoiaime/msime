@@ -211,7 +211,7 @@ impl TouchWubiLayout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchTwentySixKeyStyle {
-    /// 现有底行：123 | 符 | 空格 | ，（长按出。）| 中/英 | 回车。
+    /// 标准底行：123 | 符 | 。 | 空格 | ，（长按出。）| 中/英 | 回车，句号占从空格让出的一份，与英文 26 键底行逐键同位置、同宽；韩文、日语罗马字等不受这项偏好影响的 26 键固定画的也是这一行。
     #[default]
     Standard,
     /// 空格两侧各一个标点：123 | 符 | ， | 空格 | 。 | 中/英 | 回车。

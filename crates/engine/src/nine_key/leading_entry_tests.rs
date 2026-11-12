@@ -290,9 +290,25 @@ fn entry_matches_frozen_complete_refresh() {
                 };
                 let mut a = open();
                 let mut b = open();
-                for reading in ["ni", "ni'hao", "ni'men'hao", "zi'you", "ni'hao", ""] {
+                // 全拼网格上另喂两条整串切不开的串（`ni'hao` 后面多按两键），钉住冻结副本和生产刷新走同一段前缀；九键双拼不纳入前缀回退，不喂。
+                let stray = match grid {
+                    KeyGrid::NineKey => "77",
+                    KeyGrid::FourteenKey => "uu",
+                    _ => "",
+                };
+                for (reading, extra) in [
+                    ("ni", ""),
+                    ("ni'hao", ""),
+                    ("ni'men'hao", ""),
+                    ("ni'hao", stray),
+                    ("zi'you", ""),
+                    ("ni'men'hao", stray),
+                    ("ni'hao", ""),
+                    ("", ""),
+                ] {
                     for session in [&mut a, &mut b] {
                         session.digits = grid.encode(reading);
+                        session.digits.push_str(extra);
                         session.locked.clear();
                         session.splits.clear();
                         session.initial = None;

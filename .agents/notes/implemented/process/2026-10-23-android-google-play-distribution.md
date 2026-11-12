@@ -16,14 +16,14 @@ Android 此前只经 GitHub release 分发 APK，靠应用内更新（`UpdateApi
 渠道是 gradle-app 的一个属性，不是 flavor：`-PmsimeDistribution=github|play`，缺省 github，由 `build-apk.sh` 在 `MSIME_ANDROID_DISTRIBUTION=play` 时转交。play 时：
 
 - BuildConfig 的 `DISTRIBUTION` 写成 `play`，宿主经 `AppVersionPolicy.playDistribution()` 反射读（理由与 `RELEASE_DATE` 相同，`check-host.sh` 的 javac 编译没有 BuildConfig）。
-- release 叠加 `platforms/android/distribution/play/AndroidManifest.xml`，用 `tools:node="remove"` 删掉 `REQUEST_INSTALL_PACKAGES`。`RECEIVE_BOOT_COMPLETED` 不删：它不受限，ML Kit 带进来的 WorkManager 也声明并依赖它。
+- release 叠加 `platforms/android/distribution/play/AndroidManifest.xml`，用 `tools:node="remove"` 删掉 `REQUEST_INSTALL_PACKAGES`，0.7.4 起也删掉 `CAMERA`（只给拍照识字用，Play 版不提供拍照识字，入口、拍照页和 `OcrRuntime` 都按渠道拒绝，留着就要在数据安全表里解释一项用不到的权限）。`RECEIVE_BOOT_COMPLETED` 不删：它不受限，ML Kit 带进来的 WorkManager 也声明并依赖它。
 - `UpdateJobService.updatedByPlay`（原 `installedFromPlay`）对 Play 渠道的包一律为真，关于页不显示检查更新、自动更新和更新通道，每日任务不运行，不论这个包经什么途径装上。
 - `build-native.sh` 不再收到 `--omit-voice-runtime`，两个语音运行库随包；词典、语言词库、离线释义这些数据照旧按需下载（数据不受那条政策约束）。`ResourcePackService` 不接 `voice-runtime` 请求，`LocalAsrRecognizer` 不从 files 目录载入 .so，Play 版只走包内自带的那一份。
 - `bundle<Flavor>Release` 输出 AAB，`jarsigner` 用 msime-release 签名，打包后的条目检查剥掉 `base/` 前缀后沿用 APK 的那一套，另要求两个语音运行库在包里；135 MB 的体积上限只量 GitHub 渠道的 APK。
 
 签名：Play 应用签名登记的是现有的 msime-release（Play Console 里选「使用现有应用签名密钥」，用 PEPK 导出上传），上传密钥也是它。这样 Play 版和 GitHub 版证书相同（SHA-256 `3a889e43…8e4132`），两边可以互相覆盖安装，Google 登录的 OAuth 客户端也不用为 Play 另登记一个证书指纹。
 
-发布：`release-android.yml` 只为发布的、不带后缀的正式版（main 上触发、`publish` 为真）在 full 那一格另打一份 AAB，放进 `google-play-msime-android-<版本>` artifact，名字避开 publish 收集 APK 用的 `msime-android-*-<版本>`。`play` job 排在 GitHub 发布之后，用 `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` 经 `platforms/android/scripts/upload_play.py`（Google 官方的 `google-api-python-client` 2.201.0 与 `google-auth` 2.62.0，装进临时 venv）上传：一次 edit 里上传 bundle、把这个 versionCode 设成轨道上唯一的版本、提交。手动触发默认 `play_track: alpha`（封闭测试）、`play_status: draft`；nightly 经 workflow_call 调用，`play_track` 缺省 `none`。beta、alpha 发布不进 Play：它们的 versionCode 与随后的正式版相同，Play 不接受重复的 versionCode。
+发布：`release-android.yml` 只为发布的、不带后缀的正式版（main 上触发、`publish` 为真）在 full 那一格另打一份 AAB，放进 `google-play-msime-android-<版本>` artifact，名字避开 publish 收集 APK 用的 `msime-android-*-<版本>`。`play` job 排在 GitHub 发布之后，用 `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` 经 `platforms/android/scripts/upload_play.py`（Google 官方的 `google-api-python-client` 2.201.0 与 `google-auth` 2.62.0，装进临时 venv）上传：一次 edit 里上传 bundle、把这个 versionCode 设成轨道上唯一的版本、提交。手动触发默认 `play_track: beta`（开放测试）、`play_status: draft`；nightly 经 workflow_call 调用，`play_track` 缺省 `none`。beta、alpha 发布不进 Play：它们的 versionCode 与随后的正式版相同，Play 不接受重复的 versionCode。
 
 targetSdk 升到 36，所有渠道一起升。`<application>` 显式写 `android:enableOnBackInvokedCallback="false"`：36 起不写就默认开启预测式返回，而 `:ime` 进程里的输入法服务靠 KEYCODE_BACK 收起面板；HomeActivity 上原有的 `true` 覆盖它，行为与 35 时相同。
 
@@ -37,7 +37,7 @@ targetSdk 升到 36，所有渠道一起升。`<application>` 显式写 `android
 
 ## Consequences
 
-- Play Console 只接受手动上传的第一个包，API 在那之前找不到这个应用。上架前的第一次 Android 正式发版要带 `-f play_track=none`，从 workflow artifact 下载 AAB 手动上传；之后每次正式版自动以 draft 出现在 alpha 轨道，要有人在 Console 里点发布。确认流程稳定后可以把默认值改成 `completed`。
+- Play Console 只接受手动上传的第一个包，API 在那之前找不到这个应用。上架前的第一次 Android 正式发版要带 `-f play_track=none`，从 workflow artifact 下载 AAB 手动上传；之后每次正式版自动以 draft 出现在 beta（开放测试）轨道，要有人在 Console 里点发布。确认流程稳定后可以把默认值改成 `completed`。
 - 应用建在 YLDM Co., Ltd. 的组织开发者账号下，不受个人账号「封闭测试 12 名测试者连续 14 天」的限制。
 - 建应用之前，包名先要在 Play Console「Android 开发者验证」里登记：选中 msime-release 的证书指纹，上传一个 assets 里带 `adi-registration.properties`（账号标识）、用这把密钥签名的 APK 证明持有私钥。这个 APK 只用于验证，可以是不含代码的空壳。2026-10-23 已提交，审核最长 48 小时。这份登记同样覆盖 GitHub 渠道：从 2027 年起，Play 之外分发的应用也要登记才能装在经过认证的设备上。
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` 没配时 `play` job 失败，GitHub 发布不受影响（它排在前面）。

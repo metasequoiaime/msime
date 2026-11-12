@@ -152,8 +152,10 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(enter.bounds.width, originalReturnWidth, accuracy: 2)
         XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width + 0.5)
         if scheme == .quanpin {
-          // 26 键底行没有 。，空格一直延伸到回车前面。
-          XCTAssertTrue(try button("bottomPeriodKey", in: controller).isHidden)
+          // 26 键标准底行的 。 在空格左边，空格右边隔着 ， 才是回车。
+          let period = try button("bottomPeriodKey", in: controller)
+          XCTAssertFalse(period.isHidden)
+          XCTAssertLessThan(period.convert(period.bounds, to: controller.view).maxX, expanded.minX)
           XCTAssertLessThan(expanded.maxX, enter.convert(enter.bounds, to: controller.view).minX)
           if width == 414 {
             let screenshot = UIGraphicsImageRenderer(bounds: controller.view.bounds).image {
@@ -2418,11 +2420,13 @@ final class NineKeyKeyboardTests: XCTestCase {
           XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .nineKeyShuangpin, .japaneseNineKey, .stroke].contains(scheme), "\(scheme)")
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
-            // 手机 26 键底行按相对空格键的比例分配宽度：， 占一份，空格占四份。
+            // 手机底行按相对空格键的比例分配宽度：， 占一份；26 键底行（中文和其他语言）的空格左边有句号，空格占三份，14/18 键和大千的空格占四份。
             let space = try button("spaceKey", in: controller)
-            XCTAssertEqual(punctuation.bounds.width, space.bounds.width / KeyboardViewController.phoneSpaceWeight, accuracy: 0.5)
-            XCTAssertGreaterThanOrEqual(space.bounds.width, 79.2)
             let secondary = ![.handwriting, .fourteenKey, .eighteenKey, .zhuyin].contains(scheme)
+            if secondary { XCTAssertFalse(try button("bottomPeriodKey", in: controller).isHidden, "\(scheme)") }
+            let spaceWeight = secondary ? KeyboardViewController.englishPhoneSpaceWeight : KeyboardViewController.phoneSpaceWeight
+            XCTAssertEqual(punctuation.bounds.width, space.bounds.width / spaceWeight, accuracy: 0.5, "\(scheme)")
+            XCTAssertGreaterThanOrEqual(space.bounds.width, 79.2)
             XCTAssertEqual(punctuation.menu?.children.count, secondary ? nil : 7)
             XCTAssertEqual((punctuation as? KeyboardKeyButton)?.cornerHint != nil, secondary)
           }
@@ -2621,7 +2625,7 @@ final class NineKeyKeyboardTests: XCTestCase {
   // The presentation cycle is what the device actually does: show, type, put away, show again.
   // Releasing the dictionary access on dismissal must not leave the next presentation unable to
   // convert, and a dropped keystroke would still have played its click.
-  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它：读音那一段只画打开放大拼写编辑条的笔（#10591，与 Android 读音的最小宽度一样是 40 pt），第一个候选紧跟在笔后面，拼写变长也不移动。
+  /// 工具栏和候选共用一个顶行：空闲时只有工具栏，图标在整行里居中；组字时由候选行在原位替换它，顶行下方的内容不移动。拼写写进输入框，候选栏不画它，也不保留铅笔入口；第一个候选从顶行左侧开始，拼写变长也不移动。
   func testComposingSwapsTheToolbarForTheCandidatesInTheSameRow() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -2655,22 +2659,21 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
     controller.view.layoutIfNeeded()
     XCTAssertTrue(toolbar.isHidden)
-    XCTAssertEqual(reading.frame.width, 40, accuracy: 0.5, "the strip draws no spelling, only the pen")
+    XCTAssertEqual(reading.frame.width, 0, accuracy: 0.5, "行内拼写不保留空白编辑入口")
     let preedit = try button("preeditButton", in: controller)
-    XCTAssertFalse(preedit.isHidden)
-    XCTAssertEqual(preedit.configuration?.title ?? "", "", "the strip draws no spelling")
-    XCTAssertNotNil(preedit.configuration?.image, "the pen that opens the spelling editor")
+    XCTAssertTrue(preedit.isHidden)
+    XCTAssertNil(preedit.configuration?.image, "候选栏不显示拼写编辑铅笔")
+    XCTAssertFalse(preedit.accessibilityTraits.contains(.button))
     // 全拼宿主快照显示分词；输入框里的拼音样式预编辑使用同一出口。
     XCTAssertEqual(controller.inlineMarkedText, "ni'hao", "分词拼音写入输入框")
     let candidate = try button("candidate-1", in: controller)
     let candidateFrame = candidate.convert(candidate.bounds, to: strip)
-    XCTAssertLessThanOrEqual(candidateFrame.minX, reading.convert(reading.bounds, to: strip).maxX + 2.5,
-                             "the first candidate starts right after the pen")
+    XCTAssertLessThanOrEqual(candidateFrame.minX, 2.5, "第一个候选从顶行左侧开始")
     XCTAssertGreaterThanOrEqual(candidateFrame.minY, -0.5)
     XCTAssertLessThanOrEqual(candidateFrame.maxY, idleStrip.height + 0.5)
     XCTAssertEqual(strip.frame, idleStrip, "the row keeps its height while composing")
     XCTAssertEqual(space.convert(space.bounds, to: controller.view), idleSpace, "the keys do not move")
-    attachTopRowScreenshot(of: controller, named: "Candidates right after the pen")
+    attachTopRowScreenshot(of: controller, named: "Candidates without a spelling pen")
 
     for letter in "zhonghuarenmingongheguo" {
       let key = try XCTUnwrap(descendants(controller.view).first {
@@ -3933,7 +3936,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 手机 26 键底行：123 | 符 | 空格 | ， | 中 | 回车，逗号长按输入句号。
+  /// 手机中文 26 键标准底行：123 | 符 | 。 | 空格 | ， | 中 | 回车，句号从空格让出 1 份，逗号长按也输入句号；切到英文是同一排。
   func testPhoneBottomRowFollowsTheDesignsWeights() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -3945,9 +3948,14 @@ final class NineKeyKeyboardTests: XCTestCase {
     let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
     let visible = row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
-    XCTAssertEqual(visible, ["layoutToggleButton"] + globe + ["symbolPanelKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
+    XCTAssertEqual(visible, ["layoutToggleButton"] + globe + ["symbolPanelKey", "bottomPeriodKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
     let space = try button("spaceKey", in: controller).bounds.width
-    let unit = space / KeyboardViewController.phoneSpaceWeight
+    let unit = space / KeyboardViewController.englishPhoneSpaceWeight
+    XCTAssertEqual(KeyboardViewController.englishPhoneSpaceWeight, KeyboardViewController.phoneSpaceWeight - 1)
+    XCTAssertEqual(try button("bottomPeriodKey", in: controller).bounds.width, unit, accuracy: 0.5)
+    XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, "。")
+    XCTAssertEqual(try button("bottomPeriodKey", in: controller).accessibilityLabel, "符号 。")
+    XCTAssertEqual(try button("quickPunctuationKey", in: controller).bounds.width, unit, accuracy: 0.5)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).configuration?.title, "符")
     XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
@@ -3958,7 +3966,13 @@ final class NineKeyKeyboardTests: XCTestCase {
       let transformer = try XCTUnwrap(try button(id, in: controller).configuration?.titleTextAttributesTransformer, id)
       XCTAssertEqual(transformer.callAsFunction(AttributeContainer()).uiKit.font?.pointSize, 15, id)
     }
-    // 英文下空格左边多一个句点、右边仍是逗号；逗号照旧长按输入句号，其余键宽度不变。
+    // 中文下逗号照旧长按输入句号。
+    let chineseComma = try XCTUnwrap(try button("quickPunctuationKey", in: controller) as? KeyboardKeyButton)
+    XCTAssertNil(chineseComma.menu)
+    XCTAssertNotNil(chineseComma.onCornerHint)
+    XCTAssertEqual(chineseComma.cornerHint, "。")
+    XCTAssertTrue(chineseComma.holdsCornerHint)
+    // 英文是同一排：句点在空格左边、逗号在右边，逗号照旧长按输入句号，每个键宽度不变。
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
     XCTAssertEqual(row.arrangedSubviews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier),
@@ -3969,10 +3983,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNotNil(comma.onCornerHint)
     XCTAssertEqual(comma.cornerHint, ".")
     XCTAssertFalse(comma.swipesCornerHint)
-    // 句点多占一道键距，各键按同一份额略窄；逗号仍与 123 保持 1 : 1.25。
+    // 逗号仍与 123 保持 1 : 1.25，每一份与中文下相同。
     let englishUnit = try button("layoutToggleButton", in: controller).bounds.width / 1.25
     XCTAssertEqual(comma.bounds.width, englishUnit, accuracy: 0.5)
-    XCTAssertEqual(englishUnit, unit, accuracy: 1)
+    XCTAssertEqual(englishUnit, unit, accuracy: 0.5)
+    XCTAssertEqual(try button("spaceKey", in: controller).bounds.width, space, accuracy: 0.01)
 
     // 英文的 123 打开数字九宫格，底行是 ABC |（🌐）| 0 | 空格 | 中/英 | 回车，⌫ 在右列；#+= 层自带底行，⌫ 在该层第三行。
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
@@ -3991,7 +4006,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, "ABC")
   }
 
-  /// 九键切到英文画的是 26 键；英文底行是 123 | 符 | . | 空格 | , | 中 | 回车，句点在空格左边、逗号在空格右边。其余键与中文 26 键同宽，多出来的句点从空格里让出；九键中文底行不变。附上 320pt 和 393pt 的中文九键与英文渲染图。
+  /// 九键切到英文画的是 26 键；英文底行是 123 | 符 | . | 空格 | , | 中 | 回车，句点在空格左边、逗号在空格右边，与中文 26 键标准底行是同一排；九键中文底行不变。附上 320pt 和 393pt 的中文九键与英文渲染图。
   func testEnglishBottomRowPutsPeriodLeftAndCommaRightOfSpace() throws {
     let previous = InputSchemePreference.scheme
     let hiddenLanguage = KeyboardLayoutPreference.hideLanguageKey

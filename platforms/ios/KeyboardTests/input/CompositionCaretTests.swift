@@ -140,9 +140,9 @@ final class CompositionCaretTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 九键：编辑条画拼音读音，光标按九键键位对到数字上，点读音里的字母把光标放到对应的数字前。
+  /// 九键行内拼写不再提供候选栏铅笔入口；编辑条保持收起，读音按钮不接收编辑点按。
   @MainActor
-  func testTheNineKeyEditorPlacesTheCaretAmongTheDigits() throws {
+  func testTheNineKeyCompositionDoesNotExposeAnEditorPen() throws {
     enableAllInputSchemes()
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
@@ -158,17 +158,9 @@ final class CompositionCaretTests: XCTestCase {
     }
     let preedit = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "preeditButton" } as? UIButton)
     let bar = try XCTUnwrap(descendants(controller.view).first { $0 is CompositionEditorBar } as? CompositionEditorBar)
-    XCTAssertEqual(preedit.accessibilityLabel, "编辑拼写")
-    preedit.sendActions(for: .primaryActionTriggered)
-    XCTAssertFalse(bar.isHidden)
-    let display = bar.spelling.display
-    XCTAssertTrue(display.contains { $0.isLetter }, "the editor shows the reading, not the digits: \(display)")
-    let map = try XCTUnwrap(CompositionCaretPolicy.alignment(display, "64426"))
-    // 点在第二个音节的第一个字母前：光标落在它对应的数字前。
-    let second = try XCTUnwrap(Array(display).indices.dropFirst().first { map[$0] == 2 && Array(display)[$0].isLetter })
-    bar.spelling.requestCaret(atDisplayOffset: second)
-    XCTAssertEqual(preedit.configuration?.title, "64|426")
-    XCTAssertEqual(bar.spelling.offset, second)
+    XCTAssertTrue(bar.isHidden)
+    XCTAssertNil(preedit.configuration?.image, "九键行内拼写不显示拼写编辑铅笔")
+    XCTAssertFalse(preedit.accessibilityTraits.contains(.button))
     controller.viewDidDisappear(false)
   }
 
