@@ -245,6 +245,7 @@ impl InputSession {
                 trigger_count: options.trigger_count,
                 force_top,
                 kind: PersonalDictionaryKind::English,
+                fuzzy_discount: false,
             });
             return adjusted
                 .err()
@@ -305,6 +306,8 @@ impl InputSession {
             } else {
                 PersonalDictionaryKind::Pinyin
             },
+            // 这张表里的模糊行来自全拼或双拼的合并，显示时权重打了折；九键有自己的调频入口。
+            fuzzy_discount: true,
         });
         match adjusted {
             Ok(changed) => {
@@ -1078,6 +1081,72 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// #11321：全拼开 z=zh，`ziqian` 的「值钱」是模糊命中，原先接在全部字面行后面，选多少次权重都在涨、座位不动。现在每选一次往前一位，最后到首位，新会话里保持；字面候选的调频照旧。
+    #[test]
+    fn quanpin_fuzzy_selection_moves_up_and_survives_a_new_session() {
+        let fixture = Fixture::new(
+            &[
+                ("zi'qian", "自谦", 5_000),
+                ("zi'qian", "自遣", 3_000),
+                ("zi'qian", "自谴", 100),
+                ("zhi'qian", "之前", 4_000),
+                ("zhi'qian", "值钱", 150),
+            ],
+            &[],
+        );
+        let create = || {
+            fixture.session(|options| {
+                options.helpcode = false;
+                options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+                options.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+            })
+        };
+        let seat = |session: &Session, word: &str| {
+            words(session)
+                .iter()
+                .position(|candidate| candidate == word)
+                .unwrap_or_else(|| panic!("{word} is not offered: {:?}", words(session)))
+        };
+        // 每选一次换一个新会话：座位是从词库里读出来的，不是会话里的上下文重排；连着选同一个词也不会攒成「值钱值钱」这样的连选词。
+        let mut previous = None;
+        for round in 0..4 {
+            let mut session = create();
+            type_text(&mut session, "ziqian");
+            if round == 0 {
+                // 模糊行打折后和字面行一起排：「之前」在「自遣」和「自谴」之间，「值钱」最轻。
+                assert_eq!(
+                    words(&session),
+                    ["自谦", "自遣", "之前", "自谴", "值钱"],
+                    "夹具必须从末位学习"
+                );
+            }
+            let current = seat(&session, "值钱");
+            assert!(
+                previous.is_none_or(|previous| current < previous),
+                "第 {round} 次选中后没有前移: {:?}",
+                words(&session)
+            );
+            previous = Some(current);
+            let result = select_word(&mut session, "值钱");
+            assert_eq!(result.commit.as_deref(), Some("值钱"));
+            assert_eq!(result.diagnostic, None);
+        }
+        assert!(fixture.journal_count("SELECT count(*) FROM user_dictionary_operations WHERE dictionary='pinyin' AND key='zhi''qian' AND value='值钱'") > 0);
+        assert_eq!(
+            fixture.journal_count("SELECT count(*) FROM user_dictionary_operations WHERE key='zi''qian' AND value='值钱'"),
+            0,
+            "学习记录仍记在词库里的读音上"
+        );
+        let mut session = create();
+        type_text(&mut session, "ziqian");
+        assert_eq!(words(&session)[0], "值钱", "重建会话后选择退回");
+        // 字面候选照旧调频：选一次「自遣」，它越过「自谦」。
+        let before = seat(&session, "自遣");
+        assert_eq!(select_word(&mut session, "自遣").diagnostic, None);
+        type_text(&mut session, "ziqian");
+        assert!(seat(&session, "自遣") < before, "{:?}", words(&session));
     }
 
     /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。

@@ -23578,6 +23578,7 @@ fn voice_capture_device_export_lists_wasapi_endpoints_on_windows_only() {
     }
 }
 
+mod fuzzy_learning;
 mod fuzzy_single;
 mod initial_learning;
 mod lifecycle_traces;

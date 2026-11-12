@@ -10,6 +10,7 @@ use super::journal::{
 };
 use super::positions::is_fixed;
 use crate::error::{EngineError, Result};
+use crate::pinyin::fuzzy_rank;
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, PersonalDictionaryKind,
     WordItem,
@@ -39,6 +40,8 @@ pub struct RankingRequest<'a> {
     /// Pin: no counter, straight to the top.
     pub force_top: bool,
     pub kind: PersonalDictionaryKind,
+    /// `ordered` 是全拼或 26 键双拼的候选表：模糊命中的词库行在显示时权重打了折（`pinyin::fuzzy_rank`）。为真时名次和新权重都在折后的尺度上算，写回词库前再还原，选过的模糊候选才越得过它想越过的字面行（#11321）。九键仍把模糊行整组排在字面行之后，不打折，传假。
+    pub fuzzy_discount: bool,
 }
 
 /// Keep learned weights in the same general range as the shipped dictionary (J:214-221).
@@ -454,7 +457,19 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
         .iter()
         .filter(|item| item.source.is_dictionary())
         .collect();
-    database_candidates.sort_by_key(|item| std::cmp::Reverse(item.weight));
+    // 模糊行在显示时打了折，名次也按折后的权重排：按词库里的原权重排，高频的模糊词会被当成已经最重（「之前」对 `ziqian`），或者只比字面行高出一点、折算后仍在它后面，怎么选都不动。
+    let discounted = |item: &WordItem| request.fuzzy_discount && item.fuzzy;
+    let ranking_weight = |item: &WordItem| {
+        if discounted(item) {
+            fuzzy_rank::ranking_weight(item)
+        } else {
+            item.weight
+        }
+    };
+    // 计划出的权重在折后的尺度上，写回时还原成这一行在词库里存的权重。
+    let stored_weight =
+        |item: &WordItem, weight: i64| fuzzy_rank::stored_weight(discounted(item), weight);
+    database_candidates.sort_by_key(|item| std::cmp::Reverse(ranking_weight(item)));
     let owns_entry_key = |index: usize| {
         let item = database_candidates[index];
         if request.kind.is_wubi() {
@@ -477,7 +492,10 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     let target = ranking_target(rank, request.mode, request.linear_step, request.force_top);
     let mut main = open_dictionary_for_writing(request.main_db)?;
     let main_transaction = main.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let weights: Vec<i64> = database_candidates.iter().map(|item| item.weight).collect();
+    let weights: Vec<i64> = database_candidates
+        .iter()
+        .map(|item| ranking_weight(item))
+        .collect();
     let plan = plan_weights(&weights, owns_entry_key, target);
     for (index, weight) in plan.staircase {
         update_ranked_weight(
@@ -486,7 +504,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
             request.kind,
             request.entry_key,
             &database_candidates[index].word,
-            weight,
+            stored_weight(database_candidates[index], weight),
         )?;
     }
     update_ranked_weight(
@@ -495,7 +513,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
         request.kind,
         request.entry_key,
         request.value,
-        plan.selected,
+        stored_weight(database_candidates[rank], plan.selected),
     )?;
     reset_selection(&transaction, request)?;
     // The journal commits first: a journal row one step ahead of the dictionary is recoverable by replay, a dictionary weight the journal never saw is lost at the next upgrade. A failed dictionary commit rolls back the dictionary only.
@@ -672,6 +690,7 @@ mod tests {
             trigger_count,
             force_top: mode == FrequencyAdjustmentMode::Pin,
             kind: PersonalDictionaryKind::Pinyin,
+            fuzzy_discount: false,
         })
     }
 
@@ -787,6 +806,7 @@ mod tests {
             trigger_count: 1,
             force_top: false,
             kind: PersonalDictionaryKind::Pinyin,
+            fuzzy_discount: false,
         })
         .unwrap());
         assert_eq!(dir.weight("ni", "丙"), Some(5_001_000));
@@ -871,6 +891,7 @@ mod tests {
             trigger_count: 1,
             force_top: true,
             kind: PersonalDictionaryKind::Wubi,
+            fuzzy_discount: false,
         };
         assert!(adjust_candidate_ranking(&request).unwrap());
         assert_eq!(
@@ -924,6 +945,7 @@ mod tests {
                 trigger_count: 1,
                 force_top: true,
                 kind,
+                fuzzy_discount: false,
             };
             assert!(adjust_candidate_ranking(&request).unwrap());
             assert_eq!(
@@ -1078,6 +1100,7 @@ mod tests {
             trigger_count: 1,
             force_top: false,
             kind: PersonalDictionaryKind::English,
+            fuzzy_discount: false,
         };
         adjust_english_candidate_ranking(&request(
             "Help",
@@ -1177,6 +1200,7 @@ mod tests {
             trigger_count: 1,
             force_top: false,
             kind: PersonalDictionaryKind::Pinyin,
+            fuzzy_discount: false,
         })
         .unwrap());
         // Weight order makes 写 rank 1, so Promote lifts it above 些. Display order would make it rank 2 and bracket it between 西鄂 and 些 instead.
@@ -1209,6 +1233,7 @@ mod tests {
             trigger_count: 1,
             force_top: false,
             kind: PersonalDictionaryKind::English,
+            fuzzy_discount: false,
         };
         let blocker = Sqlite::open(&user_db).unwrap();
         blocker.execute_batch("BEGIN IMMEDIATE").unwrap();

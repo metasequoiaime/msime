@@ -403,6 +403,7 @@ fn apply_action(
         trigger_count: trigger_count as i32,
         force_top,
         kind,
+        fuzzy_discount: false,
     };
     let weight_changed = if kind == PersonalDictionaryKind::English {
         adjust_english_candidate_ranking(&ranking).map(|()| false)

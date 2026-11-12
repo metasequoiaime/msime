@@ -32,6 +32,7 @@ use crate::lattice::personal::{PersonalNgram, PersonalTransition};
 use crate::lattice::{SentencePath, TypoEdgeSource};
 use crate::paths::RuntimePaths;
 use crate::pinyin::fuzzy::{fuzzy_segmentations, fuzzy_variant_count, FUZZY_SEGMENTATION_LIMIT};
+use crate::pinyin::fuzzy_rank::rank_fuzzy_rows_with_exact_rows;
 use crate::pinyin::graph::{
     build_syllable_graph, enumerate_complete_segmentations, SYLLABLE_GRAPH_PATH_LIMIT,
 };
@@ -342,7 +343,7 @@ impl QuanpinDictionary {
         dictionary
     }
 
-    /// `query_exact`, the fuzzy merge and letter-count sort, then autocorrect marking (QD:1711-1735). `segmentation` may be empty.
+    /// `query_exact`，模糊行按覆盖的字母数并入、同一档里按折后权重和字面词库行一起排，然后做纠错标记（QD:1711-1735）。`segmentation` 可以为空。
     pub fn query(
         &mut self,
         raw: &str,
@@ -362,6 +363,8 @@ impl QuanpinDictionary {
             let rows = self.fuzzy_candidates(typed.as_ref(), fuzzy);
             // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
             merge_series_by_coverage(&mut result, rows);
+            // 合并把模糊行接在每一档的末尾；同一档里它们和字面词库行按权重一起排，模糊行打折（#11321）。先并再让位：原拼音没有整词时，下一步仍把模糊行整体挪到替补整句前面。
+            rank_fuzzy_rows_with_exact_rows(&mut result);
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
             // 按字母数重排会把多一个字母的删字纠错（shng → shang）排回字面简拼整词前面，哪怕模糊音一行也没查到；纠错在作用时把 `query_exact` 定下的先后和保座再做一遍（#9903）。
             if has_corrected_cut(
@@ -2335,7 +2338,7 @@ fn matched_letters(pinyin: &str) -> usize {
     pinyin.bytes().filter(|&byte| byte != b'\'').count()
 }
 
-/// 整句只按原拼音解码，`whole_sentence_insert_position` 把它放在原拼音覆盖整个输入的词库行之后；它排到首位，通常是因为原拼音没有这样的词，这时它只是替补。开了模糊音，按模糊读法覆盖整个输入的词库行就是这个输入的整词，替补要让给它：`zongguo` 开 z=zh 时「中国」排到整句「总国」前面。同一档里只要还有原拼音覆盖整个输入的精确词库行（整词、另一种切分的整词，哪怕排在更长的补全词后面），就一行也不动，精确仍先于模糊；补全出的更长词条不算覆盖。挪动只在覆盖整个输入的那一档里做，模糊行之间、其余行之间的先后都不变。不开模糊音时不经过这里。
+/// 整句只按原拼音解码，`whole_sentence_insert_position` 把它放在原拼音覆盖整个输入的词库行之后；它排到首位，通常是因为原拼音没有这样的词，这时它只是替补。开了模糊音，按模糊读法覆盖整个输入的词库行就是这个输入的整词，替补要让给它：`zongguo` 开 z=zh 时「中国」排到整句「总国」前面。同一档里只要还有原拼音覆盖整个输入的精确词库行（整词、另一种切分的整词，哪怕排在更长的补全词后面），这里就一行也不动，模糊行和字面行的先后由前一步 `rank_fuzzy_rows_with_exact_rows` 按折后权重定；补全出的更长词条不算覆盖。挪动只在覆盖整个输入的那一档里做，模糊行之间、其余行之间的先后都不变。不开模糊音时不经过这里。
 fn yield_stand_in_sentence_to_fuzzy_rows(result: &mut [WordItem]) {
     let Some(first) = result.first() else {
         return;
@@ -2428,6 +2431,10 @@ mod fuzzy_typed_borrow_tests;
 #[cfg(test)]
 #[path = "dictionary/fuzzy_input_borrow_tests.rs"]
 mod fuzzy_input_borrow_tests;
+
+#[cfg(test)]
+#[path = "dictionary/fuzzy_weight_rank_tests.rs"]
+mod fuzzy_weight_rank_tests;
 
 #[cfg(test)]
 #[path = "dictionary/prefix_row_stream_tests.rs"]

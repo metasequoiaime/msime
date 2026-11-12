@@ -2593,6 +2593,7 @@ impl NineKeySession {
             trigger_count: self.frequency.trigger_count,
             force_top,
             kind: PersonalDictionaryKind::Pinyin,
+            fuzzy_discount: false,
         };
         match ranking::adjust_candidate_ranking(&request) {
             Ok(changed) => {

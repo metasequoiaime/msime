@@ -3,6 +3,7 @@
 pub mod active_helpcode;
 pub mod autocorrect;
 pub mod fuzzy;
+pub(crate) mod fuzzy_rank;
 pub mod glide;
 pub mod graph;
 pub mod jianpin;

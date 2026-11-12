@@ -662,9 +662,10 @@ fn fuzzy_rows_take_the_typed_keys() {
         rules: fuzzy_rule::Z_ZH,
     };
     let fuzzy = engine.query(&typed, None);
-    assert_eq!(words(&fuzzy), ["之", "字"]);
-    assert_eq!(fuzzy[0].pinyin, "zi");
-    assert!(fuzzy[0].fuzzy);
+    // 「之」的权重折后正好等于「字」，权重相当时字面在前（#11321）。
+    assert_eq!(words(&fuzzy), ["字", "之"]);
+    assert_eq!(fuzzy[1].pinyin, "zi");
+    assert!(fuzzy[1].fuzzy);
 }
 
 #[test]

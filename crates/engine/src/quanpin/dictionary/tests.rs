@@ -1597,13 +1597,25 @@ fn whole_key_fuzzy_rows_lead_a_sentence_that_stood_in_for_a_missing_word() {
     assert_eq!(exact[0].word, "中国", "{:?}", words(&exact));
     assert!(!exact[0].fuzzy);
 
-    // 原拼音自己有整词时，哪怕权重低得多也仍是精确先于模糊。
+    // 原拼音自己有整词时不再让位，两边按权重比，模糊行打折（#11321）：权重低得多的字面整词排在模糊整词后面。
     fixture.insert("zong'guo", "宗国", 10);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let cold_typed_word = dictionary.query("zongguo", "zong'guo", NONE, z_zh);
+    assert_eq!(
+        words(&cold_typed_word[..3]),
+        ["中国", "种过", "宗国"],
+        "{:?}",
+        words(&cold_typed_word)
+    );
+    assert!(cold_typed_word[0].fuzzy && !cold_typed_word[2].fuzzy);
+
+    // 字面整词比模糊整词折后的权重重时，字面仍在前，哪怕它的原权重比模糊整词低。
+    fixture.insert("zong'guo", "总过", 600_000);
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);
     let typed_word = dictionary.query("zongguo", "zong'guo", NONE, z_zh);
     assert_eq!(
-        words(&typed_word[..2]),
-        ["宗国", "中国"],
+        words(&typed_word[..4]),
+        ["总过", "中国", "种过", "宗国"],
         "{:?}",
         words(&typed_word)
     );
