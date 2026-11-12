@@ -41,8 +41,13 @@ fn report(label: &str, mut samples: Vec<f64>) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resources = std::env::args_os()
         .nth(1)
-        .ok_or("usage: keystroke_latency <verified-resources> [scheme]")?;
+        .ok_or("usage: keystroke_latency <verified-resources> [scheme] [fuzzy-rule,...]")?;
     let scheme = std::env::args().nth(2).unwrap_or_else(|| "quanpin".into());
+    // 第三个参数是逗号分隔的模糊音规则名（`z-zh,c-ch,s-sh`），给了就打开模糊音：每键多出模糊读法的查询和合并，要单独量。
+    let fuzzy_rules: Vec<String> = std::env::args()
+        .nth(3)
+        .map(|rules| rules.split(',').map(str::to_owned).collect())
+        .unwrap_or_default();
     let state = tempfile::tempdir()?;
     let resources = std::fs::canonicalize(resources)?;
     let request = json!({"resources": resources, "state_root": state.path()}).to_string();
@@ -50,6 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         read(unsafe { msime_client_prepare_host(request.as_ptr(), request.len()) });
     options["preferences"]["scheme"] = json!(scheme);
     options["preferences"]["candidate_page_size"] = json!(9);
+    if !fuzzy_rules.is_empty() {
+        options["preferences"]["fuzzy_pinyin"] =
+            json!({"enabled": true, "rules": fuzzy_rules, "seeded": true});
+    }
     let options_value = options;
     let options = options_value.to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
@@ -156,7 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let recorded = statistics(json!({"operation": "load"}))["selections"].clone();
 
-    println!("scheme={scheme}");
+    println!("scheme={scheme} fuzzy={}", fuzzy_rules.join(","));
     report("character", character);
     report("view", view);
     report("commit", commit);
