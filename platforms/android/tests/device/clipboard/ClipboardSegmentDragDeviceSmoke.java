@@ -314,8 +314,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && node.getText().toString().startsWith("记录时间：")
             && !node.getText().toString().startsWith("记录时间：时间未知")
             && node.getText().toString().contains("来源 App：系统未提供");
-        awaitAny(recordDetails).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
-        await(recordDetails);
+        bringIntoView(recordDetails);
         if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
             throw new AssertionError("Opening detail changed history");
         // 详情页直接提供编辑入口；编辑前不应把原正文插入外部编辑器。
@@ -371,6 +370,21 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(250);
         }
         throw new AssertionError("Clipboard detail card bounds never settled");
+    }
+
+    /** 详情正文很长时，系统不会把底部的元信息自动滚进输入法窗口；沿无障碍树找到滚动容器逐页下滚。 */
+    private AccessibilityNodeInfo bringIntoView(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        for (int attempt = 0; attempt < 24; attempt++) {
+            dropStaleNodes();
+            AccessibilityNodeInfo node = awaitAny(match);
+            if (node.isVisibleToUser()) return node;
+            AccessibilityNodeInfo parent = node.getParent();
+            while (parent != null && !parent.isScrollable()) parent = parent.getParent();
+            if (parent == null || !parent.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.getId())) break;
+            SystemClock.sleep(150);
+        }
+        return await(match);
     }
 
     /** 通过移动端剪贴板公开入口写入夹具，避免 API 31 以上复用进程时直写文件与宿主状态分叉。 */
