@@ -822,6 +822,11 @@ mod tests {
                 TouchKeyboardScheme::FourteenKey,
                 TouchKeyboardScheme::NineKeyShuangpin,
                 TouchKeyboardScheme::EighteenKey,
+                TouchKeyboardScheme::SmartAbc,
+                TouchKeyboardScheme::Sogou,
+                TouchKeyboardScheme::Jiajia,
+                TouchKeyboardScheme::Ziguang,
+                TouchKeyboardScheme::Guobiao,
             ]
         );
         let japanese = Edition::by_id("japanese").unwrap();
