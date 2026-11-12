@@ -326,7 +326,7 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 九键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。{@code capped} 为假时整栏是一条按皮肤侧栏色画的底轨，符号不画键帽（字母层，与 iOS 的 `drawBareInSidebar` 相同）；为真时每个符号一个键帽（数字层的运算符）。
+     * 九键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。{@code capped} 为假时整栏是一条按皮肤侧栏色画的底轨，符号不画键帽（字母层与 iOS 的 `drawBareInSidebar` 相同，数字层的运算符同样如此）；为真时每个符号一个键帽，目前没有键面这样画。
      *
      * <p>{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
      */
@@ -466,12 +466,23 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 右侧大回车外框的左列：符号栏（数字层下面照旧接 #+=）占三行，底行那一格是与左列同宽的 符。
+     * 数字层的左列：运算符底轨占网格前两行（一整条底色，可上下滚动），#+= 是一个键、占第三行，与网格和右列逐行对齐。此前 #+= 固定 40 dp、运算符各画一个小键帽，栏高被它挤成两行多一点，四五个小键帽与网格的行对不上，最下面一个还被渐隐截掉一半。
+     */
+    private void addNumberPadSidebar(LinearLayout left, FrameLayout sidebar, Button more) {
+        left.addView(sidebar, LayoutPolicy.weightedWidthParams(2));
+        // #+= 先放进一个没有外边距的行，与网格的每一行同样结构：直接按权重分时 LinearLayout 先扣掉键的上下外边距，底轨会比网格前两行矮、#+= 偏高。
+        LinearLayout row = LayoutPolicy.row(s);
+        addNineKey(row, more);
+        left.addView(row, LayoutPolicy.weightedWidthParams(1));
+    }
+
+    /**
+     * 右侧大回车外框的左列：符号栏占三行（数字层是运算符底轨占前两行、#+= 占第三行，{@link #addNumberPadSidebar}），底行那一格是与左列同宽的 符。
      */
     private LinearLayout tallReturnLeftColumn(FrameLayout sidebar, Button more) {
         LinearLayout left = LayoutPolicy.column(s);
-        left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
-        if (more != null) left.addView(more, LayoutPolicy.matchWidthHeightPx(s.pixels(40)));
+        if (more != null) addNumberPadSidebar(left, sidebar, more);
+        else left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
         LinearLayout cell = tallReturnBottomCell(true);
         s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.SYMBOL_PANEL, s.symbolPanelButton,
             LayoutPolicy.weightedMatchParentParams(1));
@@ -636,8 +647,8 @@ final class ImeLayoutRows {
         // 右侧大回车外框的列宽按画着的键面取：笔画的数字层借的是这块九宫格，沿用笔画外框的份额，和它的字母层是同一个外框，切层时 符、切换键和回车不横移。
         int frameLayout = s.displayedTouchLayout(s.view);
         float tallSide = KeyboardActionRow.tallReturnSideWeight(frameLayout);
-        // 字母层的左列是一整条底轨、符号不画键帽，与 iOS 相同；数字层的运算符各有键帽。左列符号可滚动和自定义，数字层左列底部另有 #+= 入口；数字层右列是删除、小数点和最下面一格：空格在右列时（Android 原来的排法）是带语音手势的空格、0 移到底行中间，空格在底行时是 ！（借用数字页同样如此，见 `touch_number_pad_space`）。
-        FrameLayout sidebar = symbolSidebar(digits, digits, tallReturn, true);
+        // 左列是一整条底轨、符号不画键帽（字母层与 iOS 相同）；数字层的运算符底轨占前两行，#+= 占第三行。左列符号可滚动和自定义；数字层右列是删除、小数点和最下面一格：空格在右列时（Android 原来的排法）是带语音手势的空格、0 移到底行中间，空格在底行时是 ！（借用数字页同样如此，见 `touch_number_pad_space`）。
+        FrameLayout sidebar = symbolSidebar(digits, false, tallReturn, true);
         attachSpellings(sidebar, SpellingPlacement.SIDEBAR);
         if (tallReturn) {
             Button more = null;
@@ -648,10 +659,9 @@ final class ImeLayoutRows {
             container.addView(tallReturnLeftColumn(sidebar, more), LayoutPolicy.weightedMatchParentParams(tallSide));
         } else if (digits) {
             LinearLayout left = LayoutPolicy.column(s);
-            left.addView(sidebar, LayoutPolicy.weightedWidthParams(1));
             Button more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
             KeyboardTypographyPolicy.setKeyTextSize(more, 14);
-            left.addView(more, LayoutPolicy.matchWidthHeightPx(s.pixels(40)));
+            addNumberPadSidebar(left, sidebar, more);
             container.addView(left, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
         } else container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
