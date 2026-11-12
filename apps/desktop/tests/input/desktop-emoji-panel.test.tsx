@@ -54,7 +54,7 @@ test("能力查询结束前显示连接状态，随后透传初始页和主题",
 });
 
 test.each(["standalone", "embedded", "clipboard"] as const)(
-  "%s 只在独立表情窗口提供缩放入口",
+  "%s 只在独立表情窗口提供缩放入口，独立剪贴板仍可拖动",
   async (mode) => {
     tauri(false);
     const client = {
@@ -73,7 +73,20 @@ test.each(["standalone", "embedded", "clipboard"] as const)(
     await screen.findByRole("main", { name: "表情与符号" });
     expect(Boolean(screen.queryByTitle("拖动边缘调整大小"))).toBe(mode === "standalone");
     expect(client.resizeWindow).not.toHaveBeenCalled();
-    expect(client.beginWindowDrag).not.toHaveBeenCalled();
+    if (mode === "standalone") return;
+    const header = screen.getByRole("main").querySelector("header");
+    if (!header) throw new Error("panel header missing");
+    fireEvent.pointerDown(header, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(header, {
+      button: 0,
+      buttons: 1,
+      pointerId: 1,
+      clientX: 20,
+      clientY: 20,
+    });
+    await waitFor(() =>
+      expect(client.beginWindowDrag).toHaveBeenCalledTimes(mode === "clipboard" ? 1 : 0),
+    );
   },
 );
 
