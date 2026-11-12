@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-新增默认关闭的 `Preferences::zhuyin_simplified_output`，只由 HarmonyOS 宿主使用。鸿蒙在注音方案下复用现有简繁按钮：按钮读写该偏好，候选显示和 Engine 提交的繁体文字在宿主边界使用共享 `traditional_to_simplified` 转换；Engine 的注音候选身份、词库原文和选词下标保持不变。转换失败时保留原文。旧版本缺少该字段时按关闭读取，不接共享设置页和账号同步，避免改变其他平台的默认行为。
+新增默认关闭的 `Preferences::zhuyin_simplified_output`，只由 HarmonyOS 宿主使用。鸿蒙在注音方案下复用现有简繁按钮：按钮读写该偏好，候选显示和 Engine 提交的繁体文字在宿主边界使用共享 `traditional_to_simplified` 转换；Engine 的注音候选身份、词库原文和选词下标保持不变。转换失败时保留原文。旧版本缺少该字段时按关闭读取；macOS 的偏好覆盖清单明确记录该字段没有对应入口，不把它当成 macOS 已支持，且不接共享设置页和账号同步，避免改变其他平台的默认行为。
 
 ## Alternatives considered
 
