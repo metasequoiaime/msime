@@ -284,8 +284,13 @@ run_instrumentation() {
   if (( sdk >= 31 )) && [[ "$target" == app.msime.android ]]; then
     if [[ "${MSIME_DEVICE_SKIP_HOME_START:-false}" != true ]]; then
       "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+      ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
+    else
+      # 剪贴板专项先由外层 force-stop 并等待产品进程退出；此时不能用
+      # `--no-restart`，API 35 会在目标进程不存在时触发系统空指针。
+      # 普通 instrument 会创建一个全新的产品进程，避免复用旧剪贴板快照。
+      ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
     fi
-    ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
   else
     ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
   fi
