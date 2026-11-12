@@ -1282,6 +1282,41 @@ mod tests {
         );
     }
 
+    /// 混输五笔的拼音行是向全拼要来的，开着模糊音时同样经全拼的合并、显示时打折，所以它们的调频也在折后的尺度上算：选一次模糊的「之前」，折后 4000、存 8000，和全拼会话里一样。
+    #[test]
+    fn mixed_wubi_pinyin_rows_learn_fuzzy_picks_on_the_discounted_scale() {
+        let fixture = Fixture::new(
+            &[
+                ("zi'qian", "自谦", 5_000),
+                ("zi'qian", "自遣", 3_000),
+                ("zhi'qian", "之前", 4_000),
+            ],
+            &[],
+        );
+        let create = || {
+            fixture.session(|options| {
+                options.scheme = SchemeType::Wubi;
+                options.wubi.mixed_pinyin = true;
+                options.helpcode = false;
+                options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+                options.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+            })
+        };
+        {
+            let mut session = create();
+            type_text(&mut session, "ziqian");
+            assert_eq!(words(&session), ["自谦", "自遣", "之前"]);
+            assert_eq!(select_word(&mut session, "之前").diagnostic, None);
+        }
+        assert_eq!(
+            fixture.main_count("SELECT weight FROM tbl_2_z WHERE key='zhi''qian' AND value='之前'"),
+            8_000
+        );
+        let mut session = create();
+        type_text(&mut session, "ziqian");
+        assert_eq!(words(&session), ["自谦", "之前", "自遣"]);
+    }
+
     /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。
     #[test]
     fn wubi_learning_survives_the_split_dictionary_layout() {
