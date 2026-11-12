@@ -435,8 +435,14 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         openClipboardEditor(false);
     }
 
-    private void openClipboardEditor(boolean multiline) throws Exception {
+    /** 主/访客模式和历史存储都由输入法进程缓存；夹具改完模式后必须让新会话重新建实例。 */
+    private void restartImeWithFreshClipboardState() throws Exception {
+        shellDiscard("am force-stop app.msime.android");
         restartIme();
+    }
+
+    private void openClipboardEditor(boolean multiline) throws Exception {
+        restartImeWithFreshClipboardState();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
             + " --ez msime_test_editor_probe true"
             + (multiline ? " --ez msime_test_multiline true" : ""));
