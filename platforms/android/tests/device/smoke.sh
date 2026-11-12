@@ -270,7 +270,9 @@ run_instrumentation() {
   local limit=()
   [[ -z "$instrumentation_timeout_seconds" ]] || limit=(timeout --foreground "${instrumentation_timeout_seconds}s")
   if (( sdk >= 31 )) && [[ "$target" == app.msime.android ]]; then
-    "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+    if [[ "${MSIME_DEVICE_SKIP_HOME_START:-false}" != true ]]; then
+      "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+    fi
     ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
   else
     ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
@@ -319,7 +321,7 @@ if [[ "$pr" == true ]]; then
   # 剪贴板右滑详情只跑这一条短路径；完整分词、滚动和剪贴板操作仍留给 develop、nightly 和发版。
   # 这条 instrumentation 以产品进程为目标，不能在测试代码里强停自己；由 shell 在启动前清掉前一条短测试留下的偏好快照。
   "$adb" -s "$serial" shell am force-stop app.msime.android
-  check "Clipboard detail swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e preview-actions-only true
+  MSIME_DEVICE_SKIP_HOME_START=true check "Clipboard detail swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e preview-actions-only true
   finish "Dedicated Android AVD: PR smoke acceptance passed"
 fi
 if [[ "$risk" == true || "$release" == true ]]; then
