@@ -436,6 +436,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     }
 
     private void openClipboardEditor(boolean multiline) throws Exception {
+        // instrumentation 目标是产品包，不能 force-stop 整个包，否则 API 35 会连当前夹具一起结束；只重启 :ime 子进程即可丢掉旧的偏好与剪贴板缓存。
+        shellDiscard("for pid in $(pidof app.msime.android:ime); do kill $pid; done");
         restartIme();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
             + " --ez msime_test_editor_probe true"
