@@ -186,7 +186,7 @@ impl SpellingTable {
 }
 
 impl NineKeySession {
-    /// 读音行。先按首行写（`write_front_reading`）；全拼九键上首行给不出读音时（没有首行、模糊音首行、emoji 和日期时间行、英文词）改写成已按的键的拼写，不让宿主退回去画数字。首行是英文词时是这个词覆盖已按键数的小写字母，与 14 键一致；其余是锁定的拼写接上未锁定数字的容错切分。14／18 键读音为空时宿主画的是组码字母，三种双拼网格不做单键兜底，都保持原样。
+    /// 读音行。先按首行写（`write_front_reading`）；全拼九键上首行给不出读音时（没有首行、模糊音首行、emoji 和日期时间行、英文词）改写成已按的键的拼写，不让宿主退回去画数字。首行是英文词时是这个词覆盖已按键数的小写字母，与 14 键一致；其余是锁定的拼写接上未锁定数字的容错切分，数字全部锁定时就是锁定的拼写。14／18 键读音为空时宿主画的是组码字母，三种双拼网格不做单键兜底，都保持原样。
     pub(super) fn write_reading(&self, front: Option<&WordItem>, reading: &mut String) {
         self.write_front_reading(front, reading);
         if !reading.is_empty()
@@ -198,6 +198,13 @@ impl NineKeySession {
         }
         let locked_length = self.locked_length();
         if locked_length >= self.digits.len() {
+            // 数字全部锁定：没有要切的键，读音就是锁定的拼写。
+            for (index, spelling) in self.locked.iter().enumerate() {
+                if index != 0 {
+                    reading.push('\'');
+                }
+                reading.push_str(spelling);
+            }
             return;
         }
         if front.is_some_and(|front| {

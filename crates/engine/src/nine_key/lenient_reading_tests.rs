@@ -18,10 +18,18 @@ pub(super) struct Fixture {
 }
 
 pub(super) fn fixture() -> Fixture {
+    fixture_with("")
+}
+
+/// 在合成词库之外再执行 `extra`（多加几行词）。
+pub(super) fn fixture_with(extra: &str) -> Fixture {
     let directory = tempfile::tempdir().expect("temporary directory");
     let root = directory.path().to_path_buf();
     Connection::open(root.join(assets::MAIN_DICTIONARY))
-        .and_then(|db| db.execute_batch(MAIN))
+        .and_then(|db| {
+            db.execute_batch(MAIN)?;
+            db.execute_batch(extra)
+        })
         .expect("main fixture");
     Connection::open(root.join(assets::ENGLISH_DICTIONARY))
         .and_then(|db| db.execute_batch(ENGLISH))
@@ -481,9 +489,69 @@ fn the_reading_starts_with_the_locked_spelling() {
     bare.digits = "6477".into();
     bare.locked = vec!["ni".into()];
     assert_eq!(bare.reading_for(None), "ni'p'p");
-    // 数字全部锁定后没有要兜底的键。
+    // 数字全部锁定后没有要切的键，读音就是锁定的拼写。
     bare.digits = "64".into();
-    assert_eq!(bare.reading_for(None), "");
+    assert_eq!(bare.reading_for(None), "ni");
+    bare.digits = "64426".into();
+    bare.locked = vec!["ni".into(), "hao".into()];
+    assert_eq!(bare.reading_for(None), "ni'hao");
+}
+
+/// 数字全部被锁定、首行又给不出读音时读音是锁定的拼写，不是空串：在拼音栏选了比已按的键长的拼写（数字跟着补齐）之后，首行是模糊音行，或者词库里没有这个读音的行。
+#[test]
+fn a_fully_locked_run_reads_as_the_locked_spelling() {
+    let fixture = fixture_with(
+        "CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_z VALUES('zhe','z','这',900);",
+    );
+    let lock = |session: &mut NineKeySession, spelling: &str| {
+        let index = session
+            .spellings
+            .iter()
+            .position(|choice| choice == spelling)
+            .unwrap_or_else(|| panic!("拼音栏里没有 {spelling}：{:?}", session.spellings));
+        assert!(session.choose_spelling(index).handled);
+        assert_eq!(session.locked, [spelling]);
+        assert_eq!(session.locked_length(), session.digits.len());
+    };
+
+    // 模糊音首行：`ze` 查到的是 zhe 的「这」。
+    let mut fuzzy = NineKeySession::new(
+        &fixture.paths,
+        false,
+        FrequencyAdjustmentOptions::default(),
+        FuzzyPinyinOptions {
+            rules: crate::types::fuzzy_rule::Z_ZH,
+        },
+        EnglishInputOptions::default(),
+        true,
+        false,
+    );
+    type_keys(&mut fuzzy, "9");
+    lock(&mut fuzzy, "ze");
+    assert_eq!(fuzzy.digits, "93");
+    let front = fuzzy.candidates.first().expect("fuzzy leading row");
+    assert_eq!(front.word.as_str(), "这");
+    assert!(front.fuzzy);
+    assert_eq!(assert_session_aligned(&fuzzy), "ze");
+
+    // 没有首行：词库里没有 hua 的行。
+    let mut bare = open(&fixture.paths, false);
+    type_keys(&mut bare, "4");
+    lock(&mut bare, "hua");
+    assert_eq!(bare.digits, "482");
+    assert!(bare.candidates.is_empty(), "{:?}", bare.candidates);
+    assert_eq!(assert_session_aligned(&bare), "hua");
+
+    // 再锁一个：两段之间是 `'`。
+    type_keys(&mut bare, "6");
+    let index = bare
+        .spellings
+        .iter()
+        .position(|choice| choice == "mi")
+        .expect("mi in the spelling column");
+    assert!(bare.choose_spelling(index).handled);
+    assert_eq!(bare.locked, ["hua", "mi"]);
+    assert_eq!(assert_session_aligned(&bare), "hua'mi");
 }
 
 #[test]
