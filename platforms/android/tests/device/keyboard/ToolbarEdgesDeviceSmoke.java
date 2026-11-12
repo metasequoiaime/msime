@@ -20,7 +20,7 @@ import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
-/** 对安装产品实际测量窄屏、宽屏、算式胶囊和重排，保证横向滚动不带走两端按钮。 */
+/** 对安装产品实际测量窄屏、宽屏、算式胶囊和重排，保证工具按固定格宽和间距聚在行尾、放不下时从最前面的工具起横向滚动，滚动不带走两端按钮。 */
 public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
 
@@ -61,6 +61,11 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 Object calculator = field(type, "imeCalculator").get(service);
                 Button result = (Button) method(calculator.getClass(), "chip").invoke(calculator);
                 float density = getTargetContext().getResources().getDisplayMetrics().density;
+                // 排法（.agents/notes/implemented/bug-fix/2026-11-12-touch-toolbar-cluster.md）：工具是 40dp 的格子、相邻两格间隔 8dp，放得下时整串贴着滚动区的行尾，放不下时从行首排起。位置按 ToolbarClusterPolicy 算，这里拿真实布局逐个对。
+                Class<?> cluster = loader.loadClass("app.msime.android.ToolbarClusterPolicy");
+                Method toolOffset = cluster.getMethod("toolOffset", int.class, int.class, int.class, int.class, int.class, int.class);
+                Method scrollRange = cluster.getMethod("scrollRange", int.class, int.class, int.class, int.class, int.class);
+                int cell = Math.round(40 * density), gap = Math.round(8 * density);
                 // 先超宽再收窄，覆盖旧滚动偏移在布局变化后被重新钳制的路径。
                 for (int widthDp : new int[] {600, 320, 240, 600}) {
                     for (boolean showResult : new boolean[] {false, true}) {
@@ -73,10 +78,36 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                         check(Math.abs(left.width() - 44 * density) <= 1, "brand touch width changed");
                         check(left.left >= 0 && right.right <= row.getWidth(), "toolbar edge clipped");
                         check(Math.abs(right.width() - 44 * density) <= 1, "dismiss touch width changed");
+                        String at = widthDp + "/" + showResult;
+                        // 原来每个工具带权重等分剩余宽度，只要求不窄于 40dp；现在格宽固定，宽屏上也不拉宽。
                         for (Button button : buttons)
-                            check(button.getWidth() >= Math.round(40 * density), "tool shrank below minimum width");
+                            check(button.getWidth() == cell, "tool is not one fixed cell wide at " + at + ": " + button.getWidth());
+                        Rect port = bounds(row, scroll);
+                        int chip = showResult ? result.getWidth() : 0;
+                        check(!showResult || bounds(row, result).left == port.left,
+                            "calculator chip left the start of the scroll area at " + at);
+                        int range = (Integer) scrollRange.invoke(null, port.width(), chip, buttons.length, cell, gap);
+                        for (int index = 0; index < buttons.length; index++) {
+                            int expected = (Integer) toolOffset.invoke(null, index, port.width(), chip, buttons.length, cell, gap);
+                            check(bounds(row, buttons[index]).left - port.left == expected,
+                                "tool " + index + " is off the cluster grid at " + at + ": "
+                                    + (bounds(row, buttons[index]).left - port.left) + " != " + expected);
+                        }
+                        if (range == 0) {
+                            // 放得下：最后一个工具贴着滚动区的行尾，第一个工具前面是空白，不再从行首铺开。
+                            check(bounds(row, buttons[buttons.length - 1]).right == port.right,
+                                "fitting tools are not flush with the end at " + at);
+                            check(bounds(row, buttons[0]).left - port.left >= gap, "fitting tools lost their leading gap at " + at);
+                        } else if (!showResult) {
+                            // 放不下：滚动位置 0 时用户排在最前面的工具整个露在滚动区里。
+                            Rect first = bounds(row, buttons[0]);
+                            check(first.left == port.left + gap && first.right <= port.right,
+                                "first tool is not visible at the scroll start at " + at + ": " + first.toShortString());
+                        }
+                        if (widthDp == 600 && !showResult) check(range == 0, "wide toolbar should not need to scroll");
                         scroll.scrollTo(Math.max(0, bar.getWidth() - scroll.getWidth()), 0);
                         if (widthDp <= 320) check(scroll.getScrollX() > 0, "narrow toolbar cannot scroll");
+                        else if (range == 0) check(scroll.getScrollX() == 0, "fitting toolbar still scrolls at " + at);
                         check(left.equals(bounds(row, more)) && right.equals(bounds(row, dismiss)),
                             "scroll moved fixed toolbar edges");
                         Rect last = bounds(row, buttons[buttons.length - 1]);
@@ -97,17 +128,20 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 Object toolbar = field(type, "imeToolbar").get(service);
                 method(toolbar.getClass(), "applyShortcutOrder").invoke(toolbar);
                 check(bar.getChildAt(0) == result, "calculator lost first position");
-                check(bar.getChildAt(1) == voice, "voice button did not follow the saved order");
+                // 结果胶囊后面多了一格可伸缩空白，工具从第 2 个子视图排起（原来是第 1 个）。
+                check(!(bar.getChildAt(1) instanceof Button), "stretch space lost its place after the calculator chip");
+                check(bar.getChildAt(2) == voice, "voice button did not follow the saved order");
                 for (int index = 0; index < buttons.length; index++)
-                    check(bar.getChildAt(index + 2) == buttons[buttons.length - index - 1],
+                    check(bar.getChildAt(index + 3) == buttons[buttons.length - index - 1],
                         "custom order changed tool identity");
                 for (int index = 1; index < buttons.length; index++) buttons[index].setVisibility(View.GONE);
                 voice.setVisibility(View.GONE);
                 result.setVisibility(View.GONE);
                 layout(row, Math.round(320 * density), Math.round(64 * density));
                 check(scroll.getScrollX() == 0, "hidden tools left stale scroll offset");
-                check(buttons[0].getWidth() >= scroll.getWidth() - 2 * Math.round(density),
-                    "single visible tool did not fill available width");
+                // 原来只剩一个工具时它独占整个滚动区；现在仍是一格宽，贴着行尾。
+                check(buttons[0].getWidth() == cell && bounds(row, buttons[0]).right == bounds(row, scroll).right,
+                    "single visible tool is not one cell at the end: " + bounds(row, buttons[0]).toShortString());
                 checkToolbarHeightStability(type, service, loader, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
@@ -127,7 +161,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         Throwable error = failure[0];
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order with voice, hidden tools, resize and sticky clipboard header\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, end cluster and scroll start at 240/320/600dp, calculator, order with voice, hidden tools, resize and sticky clipboard header\n"
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

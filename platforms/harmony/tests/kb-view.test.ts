@@ -347,8 +347,7 @@ group("a voice result goes straight in only where listening began", () => {
     "no editor was attached when listening began",
   );
   check(
-    VOICE_DONE_NOTICE_MS === 1200 &&
-      VOICE_PAUSE_DEFAULT_MS === 1500,
+    VOICE_DONE_NOTICE_MS === 1200 && VOICE_PAUSE_DEFAULT_MS === 1500,
     "Android's notice time and default pause",
   );
 });
@@ -481,6 +480,53 @@ group(
         KeyboardMetrics.totalHeightVp(70, 0, 0, 18, 15, true),
       "the 2in1 frame does not look at the strip flag",
     );
+  },
+);
+
+group(
+  "the idle toolbar keeps the logo at the start and clusters the tools at the end with a fixed gap",
+  () => {
+    check(
+      TouchToolbarPolicy.CLUSTER_GAP_VP === 8,
+      "the gap is the 8 of the iOS and Android toolbars",
+    );
+    // 默认七格（标志、五个工具、收起）在 356vp 里：7 × 40 + 6 × 8 = 328，放得下，余下的 28 归标志后面的空白。
+    const seven = TouchToolbarPolicy.cluster(356, 7, 40);
+    check(seven.cellVp === 40 && seven.gapVp === 8, "seven cells keep the design cell and gap");
+    // 原来每格等分整行：三格时相邻图标相距 118vp，七格时 50vp。现在间距与格数无关。
+    for (let cells = 2; cells <= 7; cells += 1) {
+      const fit = TouchToolbarPolicy.cluster(356, cells, 40);
+      check(
+        fit.cellVp === 40 && fit.gapVp === 8,
+        `${cells} cells sit 48vp apart, not spread over the row`,
+      );
+    }
+    const exact = TouchToolbarPolicy.cluster(328, 7, 40);
+    check(exact.cellVp === 40 && exact.gapVp === 8, "an exact fit keeps the gap");
+    // 长空格样式多一格「符」：8 × 40 + 7 × 8 = 376 放不进 356，间距均匀收窄，格子不变，整行正好铺满。
+    const eight = TouchToolbarPolicy.cluster(356, 8, 40);
+    check(eight.cellVp === 40, "a row that does not fit keeps its cells first");
+    check(eight.gapVp > 0 && eight.gapVp < 8, "and gives up gap instead");
+    check(
+      Math.abs(8 * eight.cellVp + 7 * eight.gapVp - 356) < 1e-9,
+      "the narrowed row fills the width exactly",
+    );
+    // 窄的浮动键盘连格子都放不下：间距为 0，格子等分整行，收起键不被挤出去。
+    const narrow = TouchToolbarPolicy.cluster(240, 8, 40);
+    check(narrow.gapVp === 0 && narrow.cellVp === 30, "cells shrink evenly once the gap is gone");
+    // 工具条放大或缩小时格子跟着按钮，间距不变。
+    const scaled = TouchToolbarPolicy.cluster(356, 4, 32);
+    check(scaled.cellVp === 32 && scaled.gapVp === 8, "a scaled toolbar keeps the gap");
+    // 宽度还没量出来时按设计尺寸画，不出现除以零或负宽。
+    const unmeasured = TouchToolbarPolicy.cluster(0, 7, 40);
+    check(
+      unmeasured.cellVp === 40 && unmeasured.gapVp === 8,
+      "an unmeasured row uses the design sizes",
+    );
+    const negative = TouchToolbarPolicy.cluster(-4, 7, 40);
+    check(negative.cellVp === 40 && negative.gapVp === 8, "so does a negative width");
+    const alone = TouchToolbarPolicy.cluster(20, 1, 40);
+    check(alone.cellVp === 40 && alone.gapVp === 8, "a single cell has no gap to divide");
   },
 );
 
