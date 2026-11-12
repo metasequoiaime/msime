@@ -24,6 +24,7 @@ public class VibrationEffect {
     public static final int EFFECT_TICK = 1, EFFECT_CLICK = 2, EFFECT_HEAVY_CLICK = 3, DEFAULT_AMPLITUDE = -1;
     public static VibrationEffect createPredefined(int effect) { return new VibrationEffect(); }
     public static VibrationEffect createOneShot(long duration, int amplitude) { return new VibrationEffect(); }
+    public static VibrationEffect createWaveform(long[] timings, int[] amplitudes, int repeat) { return new VibrationEffect(); }
     public static Composition startComposition() { return new Composition(); }
     public static final class Composition {
         public static final int PRIMITIVE_TICK = 1, PRIMITIVE_CLICK = 2;
