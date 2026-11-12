@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>「跟随系统」不自己振动，交给 `View.performHapticFeedback(KEYBOARD_TAP)`，不带 `FLAG_IGNORE_GLOBAL_SETTING`，振不振、振多强由系统的触感反馈设置决定。
  *
- * <p>三档的 `Vibrator` 调用放在单独的 {@link #worker} 线程上：`vibrate`、`hasVibrator`、`areAllPrimitivesSupported` 都是到 system_server 的同步 binder 调用，部分厂商 ROM 上一次要几到几十毫秒，在主线程上每按一下键就把这段时间加进触摸处理，开了振动后快速打字跟不上手、按下态也晚出来。上一下还没交给系统时又按一下，这一下不再排队：排起来的振动会在手指早已离开后才一串串地振。
+ * <p>三档的 `Vibrator` 调用放在单独的 {@link #worker} 线程上：`vibrate`、`hasVibrator`、`areAllPrimitivesSupported` 都是到 system_server 的同步 binder 调用，部分厂商 ROM 上一次要几到几十毫秒，在主线程上每按一下键就把这段时间加进触摸处理，开了振动后快速打字跟不上手、按下态也晚出来。上一下还没交给系统时又按一下，这一下不再排队：排起来的振动会在手指早已离开后才一串串地振。触控板的一次移动则把实际步数合成一个连续效果，避免快速拖动只留下第一步。
  */
 public final class KeyboardHaptics {
     /**
@@ -113,53 +113,63 @@ public final class KeyboardHaptics {
             }
             worker.execute(KeyboardHaptics::drainSteps);
         } catch (RejectedExecutionException ignored) {
-            synchronized (stepsLock) {
-                queuedSteps = 0;
-                stepsScheduled = false;
-            }
+            synchronized (stepsLock) { clearStepsLocked(); }
         }
     }
 
     private static void drainSteps() {
-        while (true) {
-            int count;
-            Vibrator vibrator;
-            View view;
-            KeyboardFeedbackPreferences.HapticStrength strength;
-            synchronized (stepsLock) {
-                count = queuedSteps;
-                queuedSteps = 0;
-                vibrator = queuedVibrator;
-                view = queuedView;
-                strength = queuedStrength;
-            }
-            if (count <= 0 || vibrator == null || strength == null) {
-                synchronized (stepsLock) { stepsScheduled = false; }
-                return;
-            }
-            if (!vibrator.hasVibrator()) {
-                if (view != null) view.post(() -> {
-                    for (int index = 0; index < count; index++) systemTap(view);
-                });
-                continue;
-            }
-            Plan plan = plan(strength);
-            if (plan == null) continue;
-            vibrator.vibrate(sequenceEffect(vibrator, plan, count));
-            try {
-                Thread.sleep(stepDuration(vibrator, plan) * count);
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                synchronized (stepsLock) { stepsScheduled = false; }
-                return;
-            }
-            synchronized (stepsLock) {
-                if (queuedSteps == 0) {
-                    stepsScheduled = false;
+        try {
+            while (true) {
+                int count;
+                Vibrator vibrator;
+                View view;
+                KeyboardFeedbackPreferences.HapticStrength strength;
+                synchronized (stepsLock) {
+                    count = queuedSteps;
+                    queuedSteps = 0;
+                    vibrator = queuedVibrator;
+                    view = queuedView;
+                    strength = queuedStrength;
+                    if (count <= 0 || vibrator == null || strength == null) {
+                        clearStepsLocked();
+                        return;
+                    }
+                }
+                if (!vibrator.hasVibrator()) {
+                    if (view != null) view.post(() -> {
+                        for (int index = 0; index < count; index++) systemTap(view);
+                    });
+                    continue;
+                }
+                Plan plan = plan(strength);
+                if (plan == null) continue;
+                vibrator.vibrate(sequenceEffect(vibrator, plan, count));
+                try {
+                    Thread.sleep(stepDuration(vibrator, plan) * count);
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    synchronized (stepsLock) { clearStepsLocked(); }
                     return;
                 }
+                synchronized (stepsLock) {
+                    if (queuedSteps == 0) {
+                        clearStepsLocked();
+                        return;
+                    }
+                }
             }
+        } catch (RuntimeException ignored) {
+            // system_server 断开时丢弃这一批，解除占用让下一次拖动可以重新调度。
+            synchronized (stepsLock) { clearStepsLocked(); }
         }
+    }
+
+    private static void clearStepsLocked() {
+        queuedSteps = 0;
+        queuedVibrator = null;
+        queuedView = null;
+        queuedStrength = null;
+        stepsScheduled = false;
     }
 
     private static void systemTap(View view) {

@@ -24,7 +24,7 @@ Status: implemented
 - API 28 的子窗口画面仍会被停靠输入法父窗口裁剪，`setClippingEnabled(false)` 不能跨出父窗口。放大镜在旧系统活动时复用剪贴板全文预览的透明父窗口扩展，键区保留原高度、应用仍只为键区让位。两种预览分别持有扩展状态，合并后才决定父窗口大小；一方结束不能撤回另一方的窗口。预览等父窗口完成布局后再计算坐标，隐藏时取消尚未执行的显示。
 - 切换输入框、输入连接重建、隐藏键盘、关闭面板、失去窗口和多指状态转换均取消旧手势、停止重复动作并清除预览。轨迹和上下文不写日志、偏好或测试快照，测试只使用合成文档。
 
-- 逐步振动在方向键发送成功后调用 `KeyboardHaptics.play`，由当前 `hapticStrength` 选择轻、中、强或跟随系统；仍同时受触控板「逐步振动」与键盘振动总开关控制，设置项的问号说明同步表达这层关系。原先直接调用 `performHapticFeedback(KEYBOARD_TAP)` 只遵守开关，绕过了强度。复用振动入口避免额外触发按键音、动画和按键统计；系统模式沿用系统反馈，三档强度沿用普通按键的实现，不另建振动方案。
+- 逐步振动在方向键发送成功后调用 `KeyboardHaptics.playSteps`，由当前 `hapticStrength` 选择轻、中、强或跟随系统；仍同时受触控板「逐步振动」与键盘振动总开关控制，设置项的问号说明同步表达这层关系。原先直接调用 `performHapticFeedback(KEYBOARD_TAP)` 只遵守开关，绕过了强度。复用振动入口避免额外触发按键音、动画和按键统计；系统模式沿用系统反馈，三档强度沿用普通按键的实现，不另建振动方案。
 
 ## Alternatives considered
 
@@ -35,7 +35,7 @@ Status: implemented
 
 ## Testing
 
-- 2026-11-13 修复了逐步振动只响应第一次快速移动的问题：`ImeTextEditPanel.moveTrackpad` 只为实际送出的方向键计数，`KeyboardHaptics.playSteps` 在后台合并触控板步数并按当前强度连续播放，文档首尾裁掉的步数和发送失败的步数不再产生触觉。`KeyboardFeedbackSmoke` 继续覆盖四档强度方案；`ANDROID_SDK_ROOT=/Users/e-hu/Library/Android/sdk bash platforms/android/check-host.sh` 通过 348 项 JVM 冒烟、281 项设备套件源码编译及 Android 服务、资源和清单检查。
+- 2026-11-13 修复了逐步振动只响应第一次快速移动的问题：`ImeTextEditPanel.moveTrackpad` 只为实际送出的方向键计数，`KeyboardHaptics.playSteps` 在后台合并触控板步数并按当前强度连续播放，文档首尾裁掉的步数和发送失败的步数不再产生触觉；振动服务异常后会清理队列并允许下一次拖动重新调度。`KeyboardFeedbackSmoke` 继续覆盖四档强度方案，`scripts/test-android-haptics-pending.py` 覆盖逐步振动保留全部步数和失败恢复；`ANDROID_SDK_ROOT=/Users/e-hu/Library/Android/sdk bash platforms/android/check-host.sh` 通过 348 项 JVM 冒烟、281 项设备套件源码编译及 Android 服务、资源和清单检查。
 - 同日用正式签名 APK 在 Pixel 3 XL（Android 12 / API 31，序列号 `8AFY0K0SC`）真机验收：启用水杉为默认输入法，在应用内真实 `EditText` 打开文本编辑面板，切换触控板后横向拖动使光标从文末移动到文首，再反向移动；开启键盘“振动”后，设备 `vibrator_manager` 的触觉历史记录出现同一应用 UID 的连续 `CLICK` 事件。验收截图保存在 `artifacts/device-screens/android/pixel3xl-pr11366-trackpad-before-20261113.png`、`pixel3xl-pr11366-trackpad-enabled-20261113.png` 和 `pixel3xl-pr11366-trackpad-haptics-right-20261113.png`。本次 APK 复用了同一 PR 已验证的原生资源和库，只重新编译 Java 改动；Gradle Java 编译、lint、打包和正式签名校验通过，未重复运行冷的原生库构建。
 - 共享偏好两项测试通过，覆盖旧文档默认值、选项往返、非法范围及真正的 `restore_defaults`；同步排除测试与 FFI 默认值/范围测试分别通过。三个相关 Rust crate 的全目标 clippy（`-D warnings`）和格式检查通过。
 - JVM 回归覆盖二维余量、反向抵消、多指取消、短按与长按、双击与三击、文字边界和异步回读合并。密码与有界读取、临时入口、末词末行回归均先失败再修正通过；Android host 共 262 项 JVM 冒烟通过，生产和设备 Java 以 `-Xlint:all -Werror` 编译通过。
