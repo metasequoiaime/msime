@@ -7,17 +7,17 @@ const MAIN: &str = "CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTE
 const ENGLISH: &str = "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);INSERT INTO english_words VALUES('good','good',900);INSERT INTO english_words VALUES('old','old',1000);INSERT INTO english_words VALUES('older','older',800);";
 
 /// 正确的整句和它的几种错按。
-const SENTENCE: &str = "5468426842674936639264";
-const EXTRA_KEY_INSIDE: &str = "54684268426774936639264";
-const EXTRA_KEYS_AT_END: &str = "546842684267493663926477";
-const WRONG_FIRST_KEY: &str = "4468426842674936639264";
+pub(super) const SENTENCE: &str = "5468426842674936639264";
+pub(super) const EXTRA_KEY_INSIDE: &str = "54684268426774936639264";
+pub(super) const EXTRA_KEYS_AT_END: &str = "546842684267493663926477";
+pub(super) const WRONG_FIRST_KEY: &str = "4468426842674936639264";
 
-struct Fixture {
+pub(super) struct Fixture {
     _directory: tempfile::TempDir,
-    paths: RuntimePaths,
+    pub(super) paths: RuntimePaths,
 }
 
-fn fixture() -> Fixture {
+pub(super) fn fixture() -> Fixture {
     let directory = tempfile::tempdir().expect("temporary directory");
     let root = directory.path().to_path_buf();
     Connection::open(root.join(assets::MAIN_DICTIONARY))
@@ -39,7 +39,7 @@ fn fixture() -> Fixture {
 }
 
 /// 出厂的整句设置；`english` 是混入英文。
-fn open(paths: &RuntimePaths, english: bool) -> NineKeySession {
+pub(super) fn open(paths: &RuntimePaths, english: bool) -> NineKeySession {
     NineKeySession::new(
         paths,
         false,
@@ -54,7 +54,7 @@ fn open(paths: &RuntimePaths, english: bool) -> NineKeySession {
     )
 }
 
-fn without_sentences(paths: &RuntimePaths) -> NineKeySession {
+pub(super) fn without_sentences(paths: &RuntimePaths) -> NineKeySession {
     let mut session = open(paths, false);
     session.set_sentence_options(
         SentenceAssociationOptions {
@@ -78,7 +78,7 @@ fn detached() -> NineKeySession {
     )
 }
 
-fn type_keys(session: &mut NineKeySession, keys: &str) {
+pub(super) fn type_keys(session: &mut NineKeySession, keys: &str) {
     for key in keys.bytes() {
         assert!(session.character(key).handled, "key {key} unhandled");
     }
@@ -128,7 +128,7 @@ fn assert_aligned(reading: &str, codes: &str, grid: KeyGrid) {
 }
 
 #[track_caller]
-fn assert_session_aligned(session: &NineKeySession) -> String {
+pub(super) fn assert_session_aligned(session: &NineKeySession) -> String {
     let reading = reading(session);
     assert_aligned(&reading, &session.digits, session.grid);
     reading
@@ -355,7 +355,7 @@ fn letter_grids_read_stray_keys_and_exact_letters() {
 
 // ---- 会话 ----
 
-/// 打错一键的长串读音不出数字，一位对一键：错键之前和之后能成音节的照常成音节，错键单独成段。整句开着（出厂设置）和关着都一样，这份夹具下首行只覆盖开头的 今 或 你，后面整段靠尾段切分；第一键按错时没有首行，整串按键拼写。`wen` 而不是 `zen` 是尾段按音节频度切、不按候选切的既有行为。
+/// 打错一键的长串读音不出数字，一位对一键：错键之前和之后能成音节的照常成音节，错键单独成段。整句开着（出厂设置）和关着都一样：首行覆盖到错键之前的词（`typo_prefix`），它后面的键靠尾段切分；第一键按错时没有首行，整串按键拼写。`wen` 而不是 `zen` 是尾段按音节频度切、不按候选切的既有行为。
 #[test]
 fn a_mistyped_sentence_never_reads_as_digits() {
     let fixture = fixture();
@@ -444,9 +444,17 @@ fn runs_of_one_key_read_as_letters_on_both_sides_of_the_initials_limit() {
 fn the_reading_keeps_user_splits_around_a_stray_key() {
     let fixture = fixture();
     let mut session = open(&fixture.paths, false);
-    type_keys(&mut session, "6442'677");
+    type_keys(&mut session, "644267'7");
+    assert_eq!(session.splits, [6]);
     let reading = assert_session_aligned(&session);
-    assert!(boundaries(&reading).contains(&4), "{reading}");
+    assert!(boundaries(&reading).contains(&6), "{reading}");
+    session.command(Command::Cancel);
+    // 首行盖住的那一段读首行自己的拼音：`6442'677` 的首行是 `ni'ha` 这一组查出来的「你好」，盖过了第 4 位的切分，与打到 `6442'6` 时相同（词库行不按用户的切分核对音节边界，是既有行为）。
+    type_keys(&mut session, "6442'677");
+    assert_eq!(assert_session_aligned(&session), "ni'hao's's");
+    session.command(Command::Cancel);
+    type_keys(&mut session, "6442'6");
+    assert_eq!(assert_session_aligned(&session), "ni'hao");
     session.command(Command::Cancel);
     type_keys(&mut session, "77'5468");
     let reading = assert_session_aligned(&session);

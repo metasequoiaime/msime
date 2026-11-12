@@ -5,6 +5,7 @@
 mod grid_exact;
 mod grid_helpcode;
 mod lenient_reading;
+mod typo_prefix;
 
 use grid_exact::{fits, marks_agree};
 use grid_helpcode::GridHelpcode;
@@ -1531,19 +1532,30 @@ impl NineKeySession {
                 &mut self.path_scratch,
                 &mut alternatives,
             );
+            // 整串切不开（多按或按错了一键）时退到错键之前能切成完整音节的最长前缀，见 `typo_prefix`；种子也只接这一段。
+            let span = if alternatives.is_empty() {
+                let prefix = typo_prefix::append_prefix_paths(
+                    table,
+                    remaining,
+                    splits,
+                    prior,
+                    &mut alternatives,
+                );
+                if prefix == 0 {
+                    remaining
+                } else {
+                    &remaining[..prefix]
+                }
+            } else {
+                remaining
+            };
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             // 种子只在用户没锁定拼写、没打切分、没选首字母时用：那些情况下切分已经被用户限定，种子未必守得住这些限定。
             if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
-                if !self.sentence_seeds.is_empty() && remaining.len() >= SEEDED_TRUNCATE_DIGITS {
+                if !self.sentence_seeds.is_empty() && span.len() >= SEEDED_TRUNCATE_DIGITS {
                     alternatives.truncate(SEEDED_PATH_LIMIT);
                 }
-                seeded_paths(
-                    &mut alternatives,
-                    &self.sentence_seeds,
-                    remaining,
-                    table,
-                    prior,
-                );
+                seeded_paths(&mut alternatives, &self.sentence_seeds, span, table, prior);
             }
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
@@ -4396,6 +4408,9 @@ mod spelling_buffer_tests;
 
 #[cfg(test)]
 mod lenient_reading_tests;
+
+#[cfg(test)]
+mod typo_prefix_tests;
 
 #[cfg(test)]
 mod tests {
@@ -7495,9 +7510,11 @@ mod tests {
         );
         session.command(Command::Cancel);
 
-        // 切不成音节的尾段不再显示键码：`77` 不是任何音节的开头，这时首行只有 `你`，后面的 `42677` 里 `426` 照常成音节，两个 7 各自成段。
+        // 切不成音节的尾段不再显示键码：`77` 不是任何音节的开头，整串切不开，候选退到能切成完整音节的前 5 键，首行是 `你好`；两个 7 各自成段。
         type_digits(&mut session, "6442677");
         assert_eq!(session.snapshot().nine_key_reading, "ni'hao's's");
+        assert_eq!(session.candidates[0].word, "你好");
+        assert_eq!(session.candidates[0].pinyin, "64426");
     }
 
     /// 九键打 我们走路去（966369685878）首选曾是「我们有巨乳」：zou/you、lu/ju、qu/ru 同码，粗俗词 巨乳 靠多字词奖励被拼进整句。粗俗词不进词网格之后，整串打出来的候选里没有它；整串就是它的读音时它照样是候选。权重取自 dict-v2.0.39。
