@@ -11,9 +11,11 @@ import org.json.JSONObject;
 public final class CompositionRestartDeviceSmoke extends DeviceSmoke {
     private boolean magnifierOnly;
     private boolean appCompositionOnly;
+    private boolean spellingEditorSwitch;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         appCompositionOnly = arguments != null && "true".equals(arguments.getString("app-composition"));
+        spellingEditorSwitch = arguments != null && "true".equals(arguments.getString("spelling-editor-switch"));
         magnifierOnly = arguments != null && "true".equals(arguments.getString("magnifier"));
         super.onCreate(arguments);
     }
@@ -21,11 +23,12 @@ public final class CompositionRestartDeviceSmoke extends DeviceSmoke {
     private long eventWindowStart;
 
     @Override protected String successDescription() {
-        return appCompositionOnly ? "app-specific keyboard composition and ordinary editor isolation" : magnifierOnly ? "composition magnifier: editor taps, middle edits, offset dragging and long spelling"
+        return spellingEditorSwitch ? "spelling editor setting, live panel closure and compact stable input" : appCompositionOnly ? "app-specific keyboard composition and ordinary editor isolation" : magnifierOnly ? "composition magnifier: editor taps, middle edits, offset dragging and long spelling"
             : "composition survives same-editor restarts; magnifier middle edits and offset dragging";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (spellingEditorSwitch) { SpellingEditorSwitchChecks.run(this); return; }
         if (appCompositionOnly) { AppCompositionDeviceChecks.run(this); return; }
         if (magnifierOnly) { CompositionMagnifierChecks.run(this); return; }
         File root = getTargetContext().getFilesDir().getCanonicalFile();
@@ -159,6 +162,7 @@ public final class CompositionRestartDeviceSmoke extends DeviceSmoke {
             else publish(localFile, originalLocal);
         }
         CompositionMagnifierChecks.run(this);
+        SpellingEditorSwitchChecks.run(this);
     }
 
     private int count() {

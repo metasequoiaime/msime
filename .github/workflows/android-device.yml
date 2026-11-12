@@ -3,7 +3,7 @@ name: Android device
 #
 # 为什么要有这一步：编译、lint 和 JVM 测试全绿的 0.3.0 在设备上「词库准备失败」（私有目录从 / 起逐级以只读打开，Android 不给应用读 /data）、匿名账号写不进（SELinux 禁止应用建硬链接），Android 9 一打开就崩溃（开屏光晕的径向渐变带主题属性）。这三类问题只有在 Android 上运行才看得见。
 #
-# API 28 是 minSdk（Android 9），35 是这里跑的最高级别；targetSdk 已是 36，API 36 的镜像还没接进来。develop 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly；发版使用 --release。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 develop 的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
+# API 28 是 minSdk（Android 9），35 是常规矩阵的最高级别；API 37 可通过手动矩阵定向复验 Android 17 报告，不加入默认发布矩阵。targetSdk 已是 36。develop 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly；发版使用 --release。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 develop 的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
 on:
   workflow_dispatch:
     inputs:
@@ -80,7 +80,9 @@ jobs:
           # 模拟器和系统镜像也可能留下坏归档；脚本会清掉半截 SDK 包并重试，确认每个包的 package.xml 和可执行文件都落盘。
           bash platforms/android/install-sdk-packages.sh "${{ matrix.api }}"
           grep -q '28.2.13676358' "$ANDROID_SDK_ROOT/ndk/28.2.13676358/source.properties"
-          test -f "$ANDROID_SDK_ROOT/system-images/android-${{ matrix.api }}/default/x86_64/package.xml"
+          image_api="${{ matrix.api }}"
+          [[ "$image_api" != 37 ]] || image_api=37.0
+          test -f "$ANDROID_SDK_ROOT/system-images/android-$image_api/default/x86_64/package.xml"
           "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check
       - name: Boot the dedicated AVD
         run: |
@@ -98,7 +100,12 @@ jobs:
           # 整套跑一个多小时，默认缓冲只留得住最后十几分钟；2026-10-28 剪贴板导出的间歇失败发生在 00:51，失败后收的 logcat 从 01:07 才开始，输入法那段日志已被冲掉。调大主缓冲，收日志时还看得到中途失败的那一段。
           "$adb" -s "$serial" logcat -G 32M || true
       - name: Run the client-base, client-core, client-providers and client-services unit tests on the AVD
-        run: MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
+        if: ${{ matrix.smoke != '--key-faces' && matrix.smoke != '--theme' }}
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" shell df -k /data
+          MSIME_ANDROID_TEST_SERIAL="$SERIAL" bash platforms/android/tests/device/build-core-test.sh x86_64
+          "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" shell df -k /data
       - name: Build the APK
         # 两个 API 级别的 NumberPadDeviceSmoke 都会切换笔画和注音键面，测试包必须具备锁定的语言词库；缺失时产品会正常回退到拼音。背单词的设备验收（SettingsDeviceSmoke -e vocabulary true）要读 APK 里的内置词书，所以也生成词书并要求它们进包。
         env:
@@ -116,11 +123,12 @@ jobs:
           bash platforms/android/build-apk.sh "$resource_dir"
       # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
       - name: Verify crash reporting before the full input smoke
-        if: ${{ matrix.smoke != '--pr' }}
+        if: ${{ matrix.smoke != '--pr' && matrix.smoke != '--key-faces' && matrix.smoke != '--theme' }}
         timeout-minutes: 10
         run: |
           set -euo pipefail
           mkdir -p target/android
+          "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" shell df -k /data
           bash platforms/android/tests/device/smoke.sh "$SERIAL" --crash-only 2>&1 | tee target/android/device-crash-smoke.log
       # 上一步崩溃专项已经装过一次 265 MB 的 APK 并启动过应用，smoke.sh 再用 install -r 覆盖安装时，包管理器要在旧 APK、它的 dex 产物和首启准备好的数据之外再腾出一份新 APK 的空间。API 35 的 /data 余量本来就紧，2026-11-05 #10934 的 API 35 两次在这里报 INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟本来就按全新安装写（smoke.sh 里会跳过首启引导），这里先卸掉崩溃专项留下的安装再装，前后各打一次 /data 的余量，下次再报空间不足时日志里有数可查。
       - name: Install, prepare resources and accept input on the AVD
@@ -143,6 +151,56 @@ jobs:
           name: android-device-api${{ matrix.api }}-voice-hold-panel
           path: target/android/voice-hold-panel-api*.png
           if-no-files-found: ignore
+      - name: Collect synthetic space copy notice
+        if: always() && matrix.smoke == '--space-copy' && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/space-copy
+          for name in space-copy-failure-notice space-copy-failure-first-frame; do
+            "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull "/sdcard/Android/data/app.msime.android/files/$name.png" target/android/space-copy/ || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--space-copy'
+        with:
+          name: android-device-api${{ matrix.api }}-space-copy
+          path: target/android/space-copy/
+          if-no-files-found: ignore
+      - name: Collect synthetic key face examples
+        if: always() && matrix.smoke == '--key-faces' && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/key-faces
+          "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull /sdcard/Android/data/app.msime.android/files/shuangpin-uniform-key-faces.png target/android/key-faces/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--key-faces'
+        with:
+          name: android-device-api${{ matrix.api }}-key-faces
+          path: target/android/key-faces/
+          if-no-files-found: ignore
+      - name: Collect synthetic spelling editor examples
+        if: always() && matrix.smoke == '--spelling-editor' && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/spelling-editor
+          for frame in enabled disabled setting failure; do
+            "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull "/sdcard/Android/data/app.msime.android/files/spelling-editor-$frame.png" target/android/spelling-editor/ || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.smoke == '--spelling-editor'
+        with:
+          name: android-device-api${{ matrix.api }}-spelling-editor
+          path: target/android/spelling-editor/
+          if-no-files-found: ignore
+      - name: Collect synthetic theme result
+        if: always() && (matrix.smoke == '--theme' || matrix.smoke == '--release') && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/theme-result
+          for frame in success failure; do
+            "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull "/data/local/tmp/msime-theme-mode-$frame.png" target/android/theme-result/ || true
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && (matrix.smoke == '--theme' || matrix.smoke == '--release')
+        with:
+          name: android-device-api${{ matrix.api }}-theme-result
+          path: target/android/theme-result/
+          if-no-files-found: ignore
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
         run: |
@@ -150,6 +208,10 @@ jobs:
           adb="$ANDROID_SDK_ROOT/platform-tools/adb"
           timeout 30 "$adb" -s "$SERIAL" logcat -d > target/android/logcat.txt 2>&1 || true
           timeout 30 "$adb" -s "$SERIAL" logcat -d -b crash > target/android/crash.txt 2>&1 || true
+          # 主题测试在恢复偏好前截取专用合成编辑器，保留遮挡和实际键帽颜色；不从真实编辑器采集。
+          mkdir -p target/android/device-test
+          timeout 30 "$adb" -s "$SERIAL" pull /data/local/tmp/msime-theme-mode-failure.png target/android/device-test/theme-mode-failure.png || true
+          timeout 30 "$adb" -s "$SERIAL" pull /data/local/tmp/msime-theme-first-overlay.png target/android/device-test/theme-first-overlay.png || true
           # 模拟器中途消失时 adb 什么也拿不到，只能从主机这边找原因：内核日志里的 OOM 记录、此刻的内存，以及模拟器自带崩溃检测写下的 crashpad 数据（emulator.log 开头的 Storing crashdata in 那个目录）。
           { free -m; echo; sudo dmesg -T | tail -n 300; } > target/android/host.txt 2>&1 || true
           mkdir -p target/android/emulator-crash
@@ -165,6 +227,8 @@ jobs:
             target/android/device-crash-smoke.log
             target/android/device-smoke.log
             target/android/device-test/window.xml
+            target/android/device-test/theme-mode-failure.png
+            target/android/device-test/theme-first-overlay.png
             target/android/host.txt
             target/android/emulator-crash
           if-no-files-found: ignore

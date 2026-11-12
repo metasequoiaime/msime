@@ -88,6 +88,26 @@ final class EighteenKeyQuanpinDeviceChecks {
             t.tap(candidate("你好"));
             t.await(t.field("msime-test-plain").and(n -> DeviceSmoke.equalsText("你好你好", n.getText())));
 
+            // 横滑限定字母（#11040）：BN 右滑是 n、IO 左滑是 i，拼音只剩 ni、没有 bi；接着 H A、IO 右滑是 o，候选有「你好」。BN 左滑是 b 时只剩 b 开头。
+            t.stage = "eighteen quanpin exact swipe";
+            GridSwipeTouch.swipe(t, "按键 B N", false, 40);
+            t.await(reading("n"));
+            GridSwipeTouch.swipe(t, "按键 I O", false, -40);
+            t.await(t.described("选择拼音 ni"));
+            GridSwipeTouch.awaitGone(t, t.described("选择拼音 bi"));
+            groups("H", "A");
+            GridSwipeTouch.swipe(t, "按键 I O", false, 40);
+            t.await(candidate("你好"));
+            // 不上屏，后面的阶段按输入框里已有的文字核对。
+            for (int typed = 0; typed < 5; typed++) t.tap(t.key("⌫"));
+            GridSwipeTouch.awaitGone(t, t.described("18 键拼音选择"));
+            GridSwipeTouch.swipe(t, "按键 B N", false, -40);
+            groups("I O");
+            t.await(t.described("选择拼音 bi"));
+            GridSwipeTouch.awaitGone(t, t.described("选择拼音 ni"));
+            t.tap(t.key("⌫"));
+            t.tap(t.key("⌫"));
+
             t.stage = "eighteen quanpin English and number roundtrip";
             t.tap(t.key("中"));
             t.await(t.key("q").and(AccessibilityNodeInfo::isClickable));

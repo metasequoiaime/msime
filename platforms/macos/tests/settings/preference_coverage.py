@@ -82,6 +82,7 @@ NOT_APPLICABLE = {
     "touch_language_key_side": "仅 Android、iOS 与鸿蒙手机的触屏底行读它（中/英键在空格哪一边）；macOS 使用物理键盘，屏幕键盘面板是固定的整排键盘，没有中/英这个底行键",
     "touch_nine_key_swipe_digits": "仅 Android、iOS 与鸿蒙手机的触屏拼音九键读它（1–9 键滑动输入数字）；macOS 没有九键字母键面",
     "touch_spelling_position": "where the touch keyboard puts the spelling; macOS composes inline and its candidate window follows `candidate_preedit_style`",
+    "touch_spelling_editor": "仅 Android 原生键盘提供拼写编辑入口；macOS 使用物理键盘和系统编辑器，不提供触屏拼写编辑面板，共享设置页也不显示此项",
     "touch_toolbar": "the touch keyboard's row above the keys",
     "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",

@@ -2964,6 +2964,17 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 }
 @end
 
+// 有些客户端在控制器请求切换模式的调用栈内就回报同一个模式；它不能提前消费英文切回中文的异步回执标记。
+@interface EchoModeSelectingClient : ModeSelectingClient
+@property(nonatomic, weak) id controller;
+@end
+@implementation EchoModeSelectingClient
+- (void)selectInputMode:(NSString *)identifier {
+    [super selectInputMode:identifier];
+    [self.controller systemDidReportInputMode:identifier client:self];
+}
+@end
+
 @interface RestoredInputModeController : ModeController
 @property(nonatomic, copy) NSString *selectedSource;
 @property(nonatomic) NSUInteger synchronizationCalls;
@@ -3119,6 +3130,22 @@ static void TestSwitchBackKeepsShuangpin() {
     assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEShuangpinInputModeID));
     [controller handleEvent:KeypadKey(122, [NSString stringWithFormat:@"%C", (unichar)NSF1FunctionKey], 0, NO) client:client];
     assert(!MSIMESharedSystemInputModeState().switchedIn);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+
+    // 从英文状态按 Shift 回中文时，系统随后报告「中」是这次切换的回执，不是用户越过「双」选择全拼；再一次「中」报告才是用户在水杉里明确选择全拼。
+    client = switchBack();
+    EchoModeSelectingClient *echoClient = [EchoModeSelectingClient new];
+    echoClient.controller = controller;
+    [controller setValue:echoClient forKey:@"activeClient"];
+    client = echoClient;
+    appearance.englishMode = YES;
+    MSIMESharedSystemInputModeState().switchedIn = false;
+    MSIMESharedSystemInputModeState().current = MSIMEEnglishInputModeID;
+    [controller setEnglishInputMode:NO];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"shuangpin"]);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"shuangpin"]);
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"quanpin"]);
 
@@ -7797,6 +7824,17 @@ static void TestCapsLockTap() {
     [controller pollCapsLockTap];
     assert(prefs.englishMode && gCapsReleases == releasesBefore + 1 && gCapsHIDStarts == 1);
     gCapsHIDKnown = false;
+
+    // 松键边沿抵达时 HID 仍滞后报告按住，仍应按事件本身完成轻点，不能等定时器把它变成长按。
+    assert(![controller handleEvent:capsOff(14.5) client:client]);
+    prefs.englishMode = NO;
+    gCapsNow = 15000; gCapsHeld = false; gCapsHIDKnown = false; gCapsHIDHeld = false;
+    assert([controller handleEvent:capsOn(15.0) client:client]);
+    gCapsHIDKnown = true; gCapsHIDHeld = true;
+    gCapsNow = 15050;
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 0x39, NSEventModifierFlagCapsLock, 15.05) client:client]);
+    assert(prefs.englishMode && !session.capsLock && gCapsReleases == releasesBefore + 2);
+    gCapsHIDKnown = false; gCapsHIDHeld = false;
 
     MSIMECapsLockHIDStart = realHIDStart;
     MSIMECapsLockRelease = realRelease;

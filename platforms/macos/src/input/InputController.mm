@@ -1943,6 +1943,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _englishOnlineCandidatesEnabled;
     BOOL _englishOnlinePreferenceLoaded;
     BOOL _managedEnglishComposition;
+    // 英文状态按 Shift、Caps Lock 或快捷键切回中文后，系统可能迟到报告「中」；这次报告是切换回执，不是用户选了全拼。
+    BOOL _englishToChineseModeSwitchPending;
     NSNumber *_expandedSession;
     NSNumber *_expandedGeneration;
     NSArray *_expandedComposition;
@@ -4841,10 +4843,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const NSEventModifierFlags others = NSEventModifierFlagShift | NSEventModifierFlagControl |
         NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
     if (_capsLockTap.armed() && event.type == NSEventTypeFlagsChanged &&
-        !(event.modifierFlags & others) && !MSIMECapsLockKeyHeld()) {
-        // 实体松手的状态事件可能没有保留 Caps Lock 的键码或锁定位；只要没有其它修饰键且实体已松开，就用原来的按下时刻完成判定，避免把它当作别的键或重新布防。
+        !(event.modifierFlags & others) &&
+        ((_capsLockTapAwaitingReleaseEvent && event.keyCode == 0x39) || !MSIMECapsLockKeyHeld())) {
+        // Caps Lock 自己的 flagsChanged 就是松键边沿；HID 的实体状态可能滞后一拍，不能因为它还显示按住就丢掉这次轻点。没有键码的事件仍用 HID 状态确认实体已松开。
         _capsLockTapAwaitingReleaseEvent = NO;
-        [self pollCapsLockTap];
+        [self completeCapsLockTapFromReleaseEvent];
         return YES;
     }
     if (event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39) {
@@ -4876,6 +4879,24 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self cancelCapsLockTap];
     return NO;
 }
+// 按松键事件完成一次轻点；事件边沿比 HID 查询更可信，后者可能晚一拍。
+- (void)completeCapsLockTapFromReleaseEvent {
+    if (!_capsLockTap.armed()) {
+        [self cancelCapsLockTap];
+        return;
+    }
+    const std::int64_t now = MSIMECapsLockNow();
+    const bool tap = _capsLockTap.release(now);
+    [self cancelCapsLockTap];
+    // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
+    if (!tap || !_activeClient || !MSIMECapsLockRelease()) {
+        [self adoptCapsLockState:YES];
+        return;
+    }
+    _capsLockTapReleased = YES;
+    [self adoptCapsLockState:NO];
+    [self toggleInputModeFromModifierTap];
+}
 // 定时器调用，测试也直接调用它来推进合成的时钟和按键状态。
 - (void)pollCapsLockTap {
     if (!_capsLockTap.armed()) {
@@ -4891,16 +4912,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         return;
     }
     if (_capsLockTapAwaitingReleaseEvent && !_capsLockTap.heldTooLong(now)) return;
-    const bool tap = _capsLockTap.release(now);
-    [self cancelCapsLockTap];
-    // 撤不回大写锁定就不切换：切到英文却留着大写锁定，比什么都不做更糟。
-    if (!tap || !_activeClient || !MSIMECapsLockRelease()) {
-        [self adoptCapsLockState:YES];
-        return;
-    }
-    _capsLockTapReleased = YES;
-    [self adoptCapsLockState:NO];
-    [self toggleInputModeFromModifierTap];
+    [self completeCapsLockTapFromReleaseEvent];
 }
 // 单按 Shift、Control 或 Caps Lock 切换中英文。
 //
@@ -5483,6 +5495,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         _englishPunctuation = {};
         [_appearance resetRuntimePunctuationForActiveApplication];
     }
+    if (changed && !enabled) _englishToChineseModeSwitchPending = YES;
     _appearance.englishMode = enabled;
     if (enabled && _englishOnlineCandidatesEnabled && !_session && _activeClient) [self prepareSession];
     [self synchronizeManagedEnglishMode];
@@ -5647,10 +5660,17 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEInputController *focused = MSIMEFocusedController;
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
+    const BOOL englishToChineseModeSwitchPending = _englishToChineseModeSwitchPending;
     // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
     const BOOL switchedIn = state.switchedIn;
     const BOOL restoring = MSIMESystemInputModeRestoring(state, NSProcessInfo.processInfo.systemUptime);
-    if (!MSIMEAdoptReportedInputMode(state, value)) return;
+    if (!MSIMEAdoptReportedInputMode(state, value)) {
+        // 自己刚从英文切回中文时，系统也可能重复报告已经选中的模式；消费这次回执，免得下一次真正的「中」选择仍被保留。
+        // 但控制器请求模式时同步回来的回报仍在 selecting 保护期内，不能抢先消费等待中的异步回执。
+        if (englishToChineseModeSwitchPending && !state.selecting) _englishToChineseModeSwitchPending = NO;
+        return;
+    }
+    _englishToChineseModeSwitchPending = NO;
     NSString *reported = [[(NSString *)value componentsSeparatedByString:@"."] lastObject];
     // 唤醒或解锁后系统恢复输入源时报告的模式：只记下，不改方案和中英状态，把菜单栏选回控制器自己的模式（MSIMESystemInputModeState 的 restoringUntil）。
     if (restoring) {
@@ -5670,7 +5690,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     state.selecting = true;
     const MSIMEInputMode mode = MSIMEInputModeForID(value);
     NSString *scheme = _appearance.inputScheme;
+    const BOOL reportConfirmsEnglishToChineseSwitch = englishToChineseModeSwitchPending &&
+        !switchedIn && mode == MSIMEInputMode::Chinese;
+    _englishToChineseModeSwitchPending = NO;
     NSString *target =
+        reportConfirmsEnglishToChineseSwitch ? nil :
         MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
@@ -5689,6 +5713,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const BOOL english = _appearance.englishMode;
     // 切进水杉后的第一次报告是系统落在了哪个入口上（通常是方案自己的「五」「双」或「中」），不是用户在水杉里选了中文，所以它不把英文改回中文：中英状态按激活时算出的起点走（应用规则，再是 default_ime_mode），和其它平台切进输入法时按默认模式重新起步一致。以前这次报告一律当成选中文，设了默认英文的人每次切进来都是中文，全局范围下此后每个新焦点也都是中文；它还会顶掉这个应用的英文规则。报告的是「英」时照样进英文，那是用户在输入菜单里明确选的。
     [self setEnglishInputMode:mode == MSIMEInputMode::English || (switchedIn && english) showHUD:NO];
+    // 当前报告里调用 setEnglishInputMode: 不应为同一份报告重新武装抑制标记。
+    _englishToChineseModeSwitchPending = NO;
     state.selecting = false;
     // setEnglishInputMode: can refuse the switch (an Engine cancel failure while composing) after the report was already recorded as shown; select the mode the controller actually has so the menu bar does not keep the refused one. A switch that went through makes this a no-op.
     [self syncSystemInputModeForClient:sender];
@@ -6565,6 +6591,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
 
 - (void)activateServer:(id)sender {
     ++_spacingInputSequence;
+    _englishToChineseModeSwitchPending = NO;
     if (_activeClient && _activeClient != sender && ![self commitManagedEnglishRaw]) return;
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:nil];
     // A newly activated IME session may target a different document/client.
@@ -7405,6 +7432,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (!sender || sender != _activeClient) return;
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     if (![self commitManagedEnglishRaw]) return;
+    _englishToChineseModeSwitchPending = NO;
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
     _backspaceHoldArmed = NO;
@@ -7828,6 +7856,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
         MSIMESharedSystemInputModeState().switchedIn = false;
         MSIMESharedSystemInputModeState().restoringUntil = 0;
+        _englishToChineseModeSwitchPending = NO;
     }
     // 新客户端先走焦点接管并恢复共享设置，再由下面的按键唤醒工具栏。
     if (event.type == NSEventTypeKeyDown && sender && sender == _activeClient) {
@@ -7997,9 +8026,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     // 设备尚未报告实体状态时，首个大写锁定状态事件和随后撤回锁定的事件都属于待判定轻点，先交给输入法吞掉，避免系统把尚未确认的锁定状态继续传给应用。普通按住场景仍把首个事件交回应用。
     const BOOL capsTapWasArmed = _capsLockTap.armed();
+    const BOOL capsTapAwaitingReleaseBefore = _capsLockTapAwaitingReleaseEvent;
+    const NSEventModifierFlags capsTapOthers = NSEventModifierFlagShift | NSEventModifierFlagControl |
+        NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
+    const BOOL capsTapReleaseEvent = capsTapWasArmed && event.type == NSEventTypeFlagsChanged &&
+        !(event.modifierFlags & capsTapOthers) &&
+        capsTapAwaitingReleaseBefore &&
+        (event.keyCode == 0x39 || !MSIMECapsLockKeyHeld());
     const BOOL capsTapObserved = !staleCapsLock && [self observeCapsLockTap:event capsLock:capsLock sender:sender];
-    const BOOL delayedCapsTapEvent = capsTapObserved && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 &&
-        (_capsLockTapAwaitingReleaseEvent || (capsTapWasArmed && !capsLock));
+    const BOOL delayedCapsTapEvent = capsTapObserved && (capsTapReleaseEvent || _capsLockTapAwaitingReleaseEvent);
     if (!capsTapObserved) [self adoptCapsLockState:capsLock];
     _capsLockTapConsumedEvent = delayedCapsTapEvent;
     if (!sender) {
