@@ -196,11 +196,26 @@ test("the phone's 26-key heatmap is the HarmonyOS touch keyboard in Chinese 全�
   expect(phoneRow("full", 3)).toEqual([
     ["123", "SoftLayer", 1.25],
     ["符", "SoftSymbol", 1.05],
-    ["空格", "Space", 4],
+    ["。", "Period", 1],
+    ["空格", "Space", 3],
     ["，", "Comma", 1],
     ["中", "SoftLanguage", 1.05],
     ["↵", "Enter", 1.9],
   ]);
+  // 中文 26 键标准样式、英文 26 键和不受样式影响的 26 键（韩文、日语罗马字等）底行是同一排法，英文句点也记 `Period`、落在同一格。
+  for (const [english, face] of [
+    [false, StyledFace.TWENTY_SIX],
+    [true, StyledFace.NONE],
+    [false, StyledFace.NONE],
+  ] as const)
+    expect(
+      phoneHeatmapRows.full[3].map((key) => [key.code, Math.round(key.weight * 100) / 100]),
+    ).toEqual(
+      TouchLayoutStylePolicy.designRow(true, english, face, "standard").map((entry) => [
+        slotIds[entry.slot],
+        Math.round(entry.share * 100) / 100,
+      ]),
+    );
   expect(phoneHeatmapRows.full).toHaveLength(4);
   // 分词格只算 `Quote`；英文模式下同一键位的 ⇧ 记 `ShiftLeft`，不并进这一格。
   const separator = phoneHeatmapRows.full[2][0];
@@ -343,7 +358,7 @@ test("with 「符」与「123」互换 the 26-key heatmap bottom row is the Harm
     phoneHeatmapLayoutRows("full", styled({ twentySixSymbolFirst: true }))[3].map(
       (key) => key.label,
     ),
-  ).toEqual(["符", "123", "空格", "，", "中", "↵"]);
+  ).toEqual(["符", "123", "。", "空格", "，", "中", "↵"]);
   expect(touchKeyLayoutStyle({ touch_twenty_six_symbol_first: true } as never)).toEqual(
     styled({ twentySixSymbolFirst: true }),
   );
@@ -377,7 +392,7 @@ test("with 中/英键放在空格左边 both heatmaps draw the HarmonyOS keyboar
     }
   expect(
     phoneHeatmapLayoutRows("full", styled({ languageKeyLeft: true }))[3].map((key) => key.label),
-  ).toEqual(["123", "符", "中", "空格", "，", "↵"]);
+  ).toEqual(["123", "符", "中", "。", "空格", "，", "↵"]);
   expect(
     phoneHeatmapLayoutRows(
       "full",
@@ -512,10 +527,11 @@ test("the number row is drawn over the 26-key heatmap only and counts Digit1 to 
     phoneHeatmapRows.nine,
   );
   const counts = { Digit1: 9, KeyQ: 4, SoftEmoji: 2, Period: 1 };
-  // 画着数字行时数字不再列进「其他键」，计数落在数字键帽上；没画时照旧是其他键。
+  // 画着数字行时数字不再列进「其他键」，计数落在数字键帽上；没画时照旧是其他键。标准底行空格左边画着句号，`Period` 落在键帽上、不是其他键。
   expect(
     phoneHeatmapOthers(counts, "full", styled({ numberRow: true })).map((key) => key.code),
-  ).toEqual(["SoftEmoji", "Period"]);
+  ).toEqual(["SoftEmoji"]);
+  expect(phoneHeatmapOthers(counts, "full").map((key) => key.code)).not.toContain("Period");
   expect(phoneHeatmapOthers(counts, "full").map((key) => key.code)).toContain("Digit1");
   expect(phoneHeatmapPeak(counts, "full", styled({ numberRow: true }))).toBe(9);
   expect(phoneHeatmapPeak(counts, "full")).toBe(4);

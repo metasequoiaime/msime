@@ -103,7 +103,11 @@ import {
   NineKeyPanelPolicy,
 } from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
 import { CandidatePanelSelectionPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePanelSelectionPolicy";
-import { TouchLayoutStylePolicy } from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
+import {
+  DesignRowEntry,
+  StyledFace,
+  TouchLayoutStylePolicy,
+} from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 import {
   LayerCharacterRoute,
   LayerKey,
@@ -4087,51 +4091,98 @@ group("英文九键字母层：句点紧挨空格左边、逗号紧挨空格右�
   check(NineKeyLayout.sideMarks().join(" ") === ", . ?", "左列仍是 , . ?，句点保留在左列");
 });
 
-group("26 键底行保留逗号并长按句号；14 键和大千注音保留独立句号", () => {
-  const leads = (
-    scheme: string,
-    english: boolean,
-    fourteenKey: boolean,
-    symbols: boolean,
-  ): boolean =>
-    KeyboardScheme.designRowUsesCommaSecondaryPeriod(
-      SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
-      KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
-      symbols,
+group(
+  "26 键底行保留逗号并长按句号，26 键一族的标准底行在空格左边另放句号；14 键和大千注音保留独立句号",
+  () => {
+    const leads = (
+      scheme: string,
+      english: boolean,
+      fourteenKey: boolean,
+      symbols: boolean,
+    ): boolean =>
+      KeyboardScheme.designRowUsesCommaSecondaryPeriod(
+        SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
+        KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
+        symbols,
+      );
+    for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
+      check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层使用逗号长按句号`);
+      check(leads(scheme, true, false, false), `${scheme} 切到英文仍使用逗号长按句号`);
+      check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
+    }
+    check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
+    check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行使用逗号长按句号");
+    check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
+    check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行使用逗号长按句号");
+    // 英文 26 键在空格左边另放句点：123 | 符 | . | 空格 | , | 中 | 回车；这个判定只说明此刻是英文，26 键一族的底行不分中英文都有句号（见下），非 26 键底行不加。
+    for (const scheme of ["quanpin", "shuangpin", "wubi", "zhuyin"]) {
+      check(
+        KeyboardScheme.designRowHasEnglishPeriod(true, leads(scheme, true, false, false)),
+        `${scheme} 切到英文，空格左边有句点`,
+      );
+      check(
+        !KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
+        `${scheme} 中文时不走英文句点这条判定`,
+      );
+    }
+    // 中文 26 键的标准样式（全拼、双拼、五笔等，视图按 `StyledFace.TWENTY_SIX` 交来）：123 | 符 | 。 | 空格 | ， | 中 | 回车，与英文底行逐格同键位、同份额；韩文、越南语、藏文这些不受样式影响的 26 键（`StyledFace.NONE`）也是这同一行，切中/英时不跳。
+    const slots = (row: DesignRowEntry[]): string =>
+      row.map((item: DesignRowEntry) => `${item.slot}:${item.share}`).join(" ");
+    const chineseStandard: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+      leads("quanpin", false, false, false),
+      KeyboardScheme.designRowHasEnglishPeriod(false, leads("quanpin", false, false, false)),
+      StyledFace.TWENTY_SIX,
+      TouchLayoutStylePolicy.STANDARD,
     );
-  for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
-    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层使用逗号长按句号`);
-    check(leads(scheme, true, false, false), `${scheme} 切到英文仍使用逗号长按句号`);
-    check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
-  }
-  check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
-  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行使用逗号长按句号");
-  check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
-  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行使用逗号长按句号");
-  // 英文 26 键在空格左边另放句点：123 | 符 | . | 空格 | , | 中 | 回车；中文和非 26 键底行不加。
-  for (const scheme of ["quanpin", "shuangpin", "wubi", "zhuyin"]) {
+    const englishRow: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+      leads("quanpin", true, false, false),
+      KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, false)),
+      StyledFace.NONE,
+      TouchLayoutStylePolicy.STANDARD,
+    );
     check(
-      KeyboardScheme.designRowHasEnglishPeriod(true, leads(scheme, true, false, false)),
-      `${scheme} 切到英文，空格左边有句点`,
+      slots(chineseStandard) ===
+        "layer:1.25 symbol_panel:1.05 period:1 space:3 comma:1 language:1.05 return:1.9",
+      `中文 26 键标准：句号紧挨空格左边，实际 ${slots(chineseStandard)}`,
+    );
+    check(slots(chineseStandard) === slots(englishRow), "中文标准与英文底行逐槽位同键位、同份额");
+    for (const scheme of ["korean", "vietnamese", "tibetan"]) {
+      const row: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+        leads(scheme, false, false, false),
+        KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
+        StyledFace.NONE,
+        TouchLayoutStylePolicy.STANDARD,
+      );
+      check(
+        slots(row) === slots(englishRow),
+        `${scheme} 26 键底行与英文逐槽位相同，实际 ${slots(row)}`,
+      );
+    }
+    // 14 键和大千注音不是这一族：没有 符，句号仍在空格右边。
+    const zhuyinRow: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+      leads("zhuyin", false, false, false),
+      false,
+      StyledFace.NONE,
+      TouchLayoutStylePolicy.STANDARD,
     );
     check(
-      !KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
-      `${scheme} 中文 26 键不加句点`,
+      slots(zhuyinRow) === "layer:1.25 comma:1 space:4 period:1 language:1.05 return:1.9",
+      `大千注音底行不变，实际 ${slots(zhuyinRow)}`,
     );
-  }
-  check(
-    !KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)),
-    "英文符号行不加句点",
-  );
-  check(
-    KeyboardScheme.designRowUsesCommaSecondaryPeriod(
-      SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
-      false,
-      false,
-    ),
-    "本地模式画 26 键，底行使用逗号长按句号",
-  );
-});
+    check(
+      !KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)),
+      "英文符号行不加句点",
+    );
+    check(
+      KeyboardScheme.designRowUsesCommaSecondaryPeriod(
+        SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
+        false,
+        false,
+      ),
+      "本地模式画 26 键，底行使用逗号长按句号",
+    );
+  },
+);
 
 console.log("NumberSymbolLayout");
 
@@ -7164,9 +7215,14 @@ group("clipboard entries are bounded in characters and in UTF-8 bytes", () => {
     "ten thousand emoji fit at the shared character and byte limits",
   );
   const family = "👩‍👩‍👧‍👦";
-  const byteBoundary = family.repeat(Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)));
+  const byteBoundary = family.repeat(
+    Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)),
+  );
   check(utf8Length(byteBoundary) <= ClipboardHistoryPolicy.MAX_BYTES, "byte-boundary fixture fits");
-  check(ClipboardHistoryPolicy.acceptable(byteBoundary) === true, "exactly at the byte bound is accepted");
+  check(
+    ClipboardHistoryPolicy.acceptable(byteBoundary) === true,
+    "exactly at the byte bound is accepted",
+  );
   check(
     ClipboardHistoryPolicy.acceptable(byteBoundary + family) === false,
     "one grapheme over the byte bound is refused",
