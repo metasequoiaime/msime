@@ -306,8 +306,8 @@ impl InputSession {
             } else {
                 PersonalDictionaryKind::Pinyin
             },
-            // 这张表里的模糊行来自全拼或双拼的合并，显示时权重打了折；九键有自己的调频入口。
-            fuzzy_discount: true,
+            // 模糊行只有经全拼的合并（`QuanpinDictionary::query`）才在显示时打折；26 键双拼自己合并，模糊行和字面行按原权重比，调频也留在原权重上。九键有自己的调频入口。
+            fuzzy_discount: self.engine.current_scheme_type() != SchemeType::Shuangpin,
         });
         match adjusted {
             Ok(changed) => {
@@ -1147,6 +1147,139 @@ mod tests {
         assert_eq!(select_word(&mut session, "自遣").diagnostic, None);
         type_text(&mut session, "ziqian");
         assert!(seat(&session, "自遣") < before, "{:?}", words(&session));
+    }
+
+    /// 26 键双拼不打折（#11321 只改全拼）：模糊行和字面行按词库里的原权重合并，选词后写回的也是原权重尺度上的数。夹具和上面的双拼用例相同，数值是没有折扣时的结果：`nihc` 开 n=l，模糊的「利好」（200）排在字面的「你好」（100）、「拟好」（90）前面；选一次「拟好」，它的新权重是「利好」和「你好」的中点 150。
+    #[test]
+    fn shuangpin_fuzzy_rows_rank_and_learn_on_undiscounted_weights() {
+        let fixture = Fixture::new(
+            &[
+                ("ni'hao", "你好", 100),
+                ("ni'hao", "拟好", 90),
+                ("li'hao", "利好", 200),
+            ],
+            &[],
+        );
+        let create = || {
+            fixture.session(|options| {
+                options.scheme = SchemeType::Shuangpin;
+                options.helpcode = false;
+                options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::N_L;
+                options.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+            })
+        };
+        let weight = |word: &str, key: &str| {
+            fixture.main_count(&format!(
+                "SELECT weight FROM tbl_2_{} WHERE key='{}' AND value='{word}'",
+                &key[..1],
+                key.replace('\'', "''")
+            ))
+        };
+        {
+            let mut session = create();
+            type_text(&mut session, "nihc");
+            assert_eq!(words(&session), ["利好", "你好", "拟好"]);
+            let result = select_word(&mut session, "拟好");
+            assert_eq!(result.commit.as_deref(), Some("拟好"));
+            assert_eq!(result.diagnostic, None);
+        }
+        assert_eq!(weight("拟好", "ni'hao"), 150);
+        assert_eq!(weight("你好", "ni'hao"), 100);
+        assert_eq!(weight("利好", "li'hao"), 200);
+        {
+            let mut session = create();
+            type_text(&mut session, "nihc");
+            assert_eq!(words(&session), ["利好", "拟好", "你好"]);
+            cancel(&mut session);
+            // 反过来打 `lihc`，「拟好」是模糊行：选它越过字面的「利好」，写回的是原权重尺度上的数，没有乘回折扣。
+            type_text(&mut session, "lihc");
+            assert_eq!(words(&session), ["利好", "拟好", "你好"]);
+            assert_eq!(select_word(&mut session, "拟好").diagnostic, None);
+        }
+        assert_eq!(weight("拟好", "ni'hao"), 700);
+        let mut session = create();
+        type_text(&mut session, "lihc");
+        assert_eq!(words(&session), ["拟好", "利好", "你好"]);
+    }
+
+    /// 全拼和双拼读写同一份词库权重，折扣只在全拼一侧，所以同一个模糊词在两边的座位可以不同，各自选过以后各自是对的：
+    /// - 全拼学到的模糊词写回的是折后值的两倍，双拼按原权重读，它在双拼里排得比全拼里更靠前。
+    /// - 双拼学到的模糊词只比它越过的字面词重一点，全拼折半后仍在那个字面词后面，要在全拼里再选。
+    #[test]
+    fn quanpin_and_shuangpin_read_one_learned_weight_on_different_scales() {
+        let rows = [
+            ("zi'qian", "自谦", 5_000),
+            ("zi'qian", "自遣", 3_000),
+            ("zhi'qian", "之前", 4_000),
+        ];
+        let open = |fixture: &Fixture, scheme: SchemeType| {
+            fixture.session(|options| {
+                options.scheme = scheme;
+                options.helpcode = false;
+                options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+                options.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+            })
+        };
+        let listed = |fixture: &Fixture, scheme: SchemeType| {
+            let mut session = open(fixture, scheme);
+            // 小鹤双拼的 `ziqm` 就是 zi'qian。
+            type_text(
+                &mut session,
+                if scheme == SchemeType::Shuangpin {
+                    "ziqm"
+                } else {
+                    "ziqian"
+                },
+            );
+            words(&session)
+        };
+        let stored = |fixture: &Fixture| {
+            fixture.main_count("SELECT weight FROM tbl_2_z WHERE key='zhi''qian' AND value='之前'")
+        };
+
+        // 没学过：全拼把「之前」折成 2000，排在两个字面词后面；双拼按 4000 排在它们中间。
+        let fixture = Fixture::new(&rows, &[]);
+        assert_eq!(
+            listed(&fixture, SchemeType::Quanpin),
+            ["自谦", "自遣", "之前"]
+        );
+        assert_eq!(
+            listed(&fixture, SchemeType::Shuangpin),
+            ["自谦", "之前", "自遣"]
+        );
+
+        // 在全拼里选一次：折后 4000（「自谦」和「自遣」的中点），词库里存 8000。全拼里它在第二位，双拼按 8000 读，已经在首位。
+        {
+            let mut session = open(&fixture, SchemeType::Quanpin);
+            type_text(&mut session, "ziqian");
+            assert_eq!(select_word(&mut session, "之前").diagnostic, None);
+        }
+        assert_eq!(stored(&fixture), 8_000);
+        assert_eq!(
+            listed(&fixture, SchemeType::Quanpin),
+            ["自谦", "之前", "自遣"]
+        );
+        assert_eq!(
+            listed(&fixture, SchemeType::Shuangpin),
+            ["之前", "自谦", "自遣"]
+        );
+
+        // 换一份词库，在双拼里选一次：越过「自谦」，存 5500。双拼里它在首位，全拼折成 2750，仍在两个字面词后面。
+        let fixture = Fixture::new(&rows, &[]);
+        {
+            let mut session = open(&fixture, SchemeType::Shuangpin);
+            type_text(&mut session, "ziqm");
+            assert_eq!(select_word(&mut session, "之前").diagnostic, None);
+        }
+        assert_eq!(stored(&fixture), 5_500);
+        assert_eq!(
+            listed(&fixture, SchemeType::Shuangpin),
+            ["之前", "自谦", "自遣"]
+        );
+        assert_eq!(
+            listed(&fixture, SchemeType::Quanpin),
+            ["自谦", "自遣", "之前"]
+        );
     }
 
     /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。

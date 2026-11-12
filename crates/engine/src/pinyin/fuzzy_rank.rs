@@ -1,4 +1,4 @@
-//! 模糊音命中的词库行和字面命中的词库行怎么比（#11321）。全拼、双拼的合并和选词调频共用这一把尺：模糊行的权重先打折再和字面行比，调频也在折后的尺度上算、写回时再还原。九键不走这里，见 `.agents/notes/implemented/bug-fix/2026-11-12-fuzzy-rows-rank-with-exact-rows.md`。
+//! 模糊音命中的词库行和字面命中的词库行怎么比（#11321）。全拼的合并和全拼的选词调频共用这一把尺：模糊行的权重先打折再和字面行比，调频也在折后的尺度上算、写回时再还原。26 键双拼（按原权重合并）和九键（模糊行整组在后）都不走这里，见 `.agents/notes/implemented/bug-fix/2026-11-12-fuzzy-rows-rank-with-exact-rows.md`。
 
 use crate::types::WordItem;
 

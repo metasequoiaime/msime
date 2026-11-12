@@ -40,7 +40,7 @@ pub struct RankingRequest<'a> {
     /// Pin: no counter, straight to the top.
     pub force_top: bool,
     pub kind: PersonalDictionaryKind,
-    /// `ordered` 是全拼或 26 键双拼的候选表：模糊命中的词库行在显示时权重打了折（`pinyin::fuzzy_rank`）。为真时名次和新权重都在折后的尺度上算，写回词库前再还原，选过的模糊候选才越得过它想越过的字面行（#11321）。九键仍把模糊行整组排在字面行之后，不打折，传假。
+    /// `ordered` 是全拼的候选表：模糊命中的词库行在显示时权重打了折（`pinyin::fuzzy_rank`）。为真时名次和新权重都在折后的尺度上算，写回词库前再还原，选过的模糊候选才越得过它想越过的字面行（#11321）。26 键双拼按原权重合并模糊行，九键把模糊行整组排在字面行之后，都不打折，传假。
     pub fuzzy_discount: bool,
 }
 

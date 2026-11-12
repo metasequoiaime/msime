@@ -16,7 +16,6 @@ use crate::helpcode::{
     reorder_candidates_with_single_helpcode, HelpcodeKeymap,
 };
 use crate::paths::RuntimePaths;
-use crate::pinyin::fuzzy_rank::ranking_weight;
 use crate::quanpin::QuanpinDictionary;
 use crate::types::{
     autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType,
@@ -847,7 +846,7 @@ fn sort_by_coverage(rows: &mut [WordItem]) {
     rows[..bucket].sort_by_key(|item| !(item.fuzzy && item.source.is_dictionary()));
 }
 
-/// 同一覆盖内的词库行共用调频权重，模糊行的权重先打折再比（`fuzzy_rank::ranking_weight`，和全拼同一把尺）；整句分数不参与比较，并留在原来的位置。
+/// 同一覆盖内的词库行共用调频权重；整句分数不参与比较，并留在原来的位置。
 fn sort_dictionary_weights(rows: &mut [WordItem]) {
     let mut start = 0;
     while start < rows.len() {
@@ -863,9 +862,8 @@ fn sort_dictionary_weights(rows: &mut [WordItem]) {
             .iter()
             .filter(|row| row.source.is_dictionary())
             .any(|row| {
-                let weight = ranking_weight(row);
-                let inverted = weight > previous;
-                previous = weight;
+                let inverted = row.weight > previous;
+                previous = row.weight;
                 inverted
             });
         if unsorted {
@@ -875,7 +873,7 @@ fn sort_dictionary_weights(rows: &mut [WordItem]) {
                 .filter(|(_, row)| row.source.is_dictionary())
                 .map(|(index, row)| (index, std::mem::take(row)))
                 .unzip();
-            dictionary.sort_by_key(|row| std::cmp::Reverse(ranking_weight(row)));
+            dictionary.sort_by_key(|row| std::cmp::Reverse(row.weight));
             for (index, row) in positions.into_iter().zip(dictionary) {
                 bucket[index] = row;
             }
@@ -1093,24 +1091,6 @@ mod tests {
         sort_by_coverage(&mut rows);
         sort_dictionary_weights(&mut rows);
         assert_eq!(rows, [fuzzy, sentence, literal, prefix]);
-    }
-
-    /// 模糊行的权重先打折再和字面行比，和全拼同一把尺（#11321）：折后只和字面词一样重的模糊词不越过它。
-    #[test]
-    fn fuzzy_dictionary_weights_are_discounted_before_they_pass_literal_rows() {
-        let divisor = crate::pinyin::fuzzy_rank::FUZZY_WEIGHT_DIVISOR;
-        let literal = WordItem::new("nihc", "你好", 100, CandidateSource::Database, "ni'hao");
-        let fuzzy = |word: &str, weight: i64| {
-            let mut row = WordItem::new("ni'hc", word, weight, CandidateSource::Database, "li'hao");
-            row.fuzzy = true;
-            row
-        };
-        let heavy = fuzzy("利好", 100 * divisor + divisor);
-        let close = fuzzy("理好", 100 * divisor);
-        let mut rows = vec![literal.clone(), heavy.clone(), close.clone()];
-        sort_by_coverage(&mut rows);
-        sort_dictionary_weights(&mut rows);
-        assert_eq!(rows, [heavy, literal, close]);
     }
 
     #[test]
