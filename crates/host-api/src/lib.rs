@@ -299,7 +299,7 @@ thread_local! {
 struct HostSession {
     runtime: Runtime,
     options: EngineOptions,
-    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
+    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（Windows、macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
     quick_phrase_candidates_requested: bool,
     /// 原始宿主能力；偏好重建时不能从已经回退的有效布局推断它。
     korean_romaja_requested: bool,
@@ -2304,7 +2304,7 @@ struct HostOptions {
     /// `true`：宿主在用户停顿时调 `msime_client_start_settled_rerank`（鸿蒙的键盘在停顿 150 ms 后调）。这样的宿主上，跑不进逐键预算的设备不再干脆不挂整句联想「增强」的模型，而是延后到停顿时用它把当前组字重解一遍，见 [`ffi::RerankerMount::KeystrokeOrPause`]。缺省是不调：模型跑不进预算就不挂，与以前相同。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pause_rerank: Option<bool>,
-    /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
+    /// Windows、macOS 和 Linux 的宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持未打开偏好的用户和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
     /// 仅完成键盘接入的桌面宿主显式打开；缺字段时同步偏好仍按两套式运行。

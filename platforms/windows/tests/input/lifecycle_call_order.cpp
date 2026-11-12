@@ -161,7 +161,9 @@ extern "C" {
 uint32_t msime_client_abi_version(void) { return 3; }
 char *msime_client_create(const uint8_t *options, size_t length) {
   record("create");
-  REQUIRE(nlohmann::json::parse(options, options + length).value("phrase_preedit", false));
+  const auto document = nlohmann::json::parse(options, options + length);
+  REQUIRE(document.value("phrase_preedit", false));
+  REQUIRE(document.value("quick_phrase_candidates", false));
   fake_phrase_prefix.clear();
   return answer({{"session", fake_session}});
 }

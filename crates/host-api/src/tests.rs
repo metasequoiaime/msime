@@ -18589,7 +18589,7 @@ fn phrase_tables_reach_the_quick_phrase_mode_from_the_plugins_directory() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
-/// 宿主选项里的 `quick_phrase_candidates`（macOS 和 Linux 的宿主会请求）让普通组字也带出快捷短语，不必先按 K；没请求的宿主保持原样。偏好变更重建 Engine 后仍然生效。
+/// 宿主选项里的 `quick_phrase_candidates`（Windows、macOS 和 Linux 的宿主会请求）让普通组字也带出快捷短语，不必先按 K；没请求的宿主保持原样。偏好变更重建 Engine 后仍然生效。
 #[test]
 fn requested_quick_phrase_candidates_join_regular_composition() {
     let dir = tempfile::tempdir().unwrap();
