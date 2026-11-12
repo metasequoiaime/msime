@@ -10,6 +10,10 @@ public final class FloatingKeyboardPolicySmoke {
         check(FloatingKeyboardPolicy.active(true, false), "floating while touch typing");
         check(!FloatingKeyboardPolicy.active(true, true), "candidate bar stays docked");
         check(!FloatingKeyboardPolicy.active(false, false), "switch off");
+        check(FloatingKeyboardPolicy.active(false, true, true, false), "automatic landscape floating");
+        check(!FloatingKeyboardPolicy.active(false, true, false, false), "automatic landscape docks in portrait");
+        check(!FloatingKeyboardPolicy.active(false, true, true, true), "automatic landscape still docks for candidate bar");
+        check(!FloatingKeyboardPolicy.active(true, true, false, false), "auto mode docks in portrait even when manual switch is on");
 
         // 宽度：窗口的 80%，夹在 240–480 dp，且不超过窗口本身。
         check(FloatingKeyboardPolicy.widthDp(360) == 288, "phone portrait");
