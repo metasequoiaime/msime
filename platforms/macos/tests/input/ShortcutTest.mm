@@ -3105,6 +3105,8 @@ static void TestSwitchBackKeepsShuangpin() {
         [controller setValue:client forKey:@"activeClient"];
         appearance.inputScheme = @"shuangpin";
         MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        // 这几段测的是系统把用户送回离开时的「中」，或者进程刚启动、不知道离开时在哪个入口。
+        MSIMESharedSystemInputModeState().left = nil;
         return client;
     };
 
@@ -3149,8 +3151,46 @@ static void TestSwitchBackKeepsShuangpin() {
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"quanpin"]);
 
+    // 离开时在「双」，从别的输入源直接选了「水杉全拼」：这是用户挑的入口，方案改成全拼，菜单栏不再被选回「双」。报告先于激活校准到达。
+    client = switchBack();
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"] && !appearance.englishMode);
+    assert(client.selectedModes.count == 0);
+
+    // 同一件事，激活校准先到：校准记下「中」，同步按双拼选回「双」，随后到达的「中」报告仍把方案改成全拼，再把菜单栏选回「中」。
+    client = switchBack();
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEChineseInputModeID));
+    [controller syncSystemInputModeForClient:client];
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    assert([MSIMESharedSystemInputModeState().current isEqualToString:MSIMEChineseInputModeID]);
+
+    // 离开时就在「中」，回来还是「中」：系统把用户送回原来的入口，双拼不动，菜单栏选回「双」。
+    client = switchBack();
+    MSIMESharedSystemInputModeState().left = MSIMEChineseInputModeID;
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+
+    // 只加了「双」一个入口、在设置里把方案改成全拼：离开时在「双」，回来系统报告的还是「双」，全拼留得住。在水杉里按过键之后再报告「双」是用户选的，改成双拼。
+    client = switchBack();
+    appearance.inputScheme = @"quanpin";
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    client = switchBack();
+    appearance.inputScheme = @"quanpin";
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    MSIMESharedSystemInputModeState().switchedIn = false;
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+
     MSIMEFocusedController = nil;
     MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    MSIMESharedSystemInputModeState().left = nil;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
