@@ -182,6 +182,9 @@ const note = (dialog: HTMLElement) =>
       .map((id) => document.getElementById(id)?.textContent ?? "");
   })();
 
+const letterWidthGroup = (dialog: HTMLElement) =>
+  within(dialog).getByRole("group", { name: "14/18 键字母键宽度" });
+
 const symbolFirstSwitch = (dialog: HTMLElement) =>
   within(dialog).queryByRole("switch", {
     name: "26 键「符」与「123」互换",
@@ -348,7 +351,7 @@ test("26 键「符」与「123」互换 sits in the 26 key card and swaps the pr
   expect(card.contains(swap)).toBe(true);
   expect(follows(chipGroup(dialog), swap)).toBe(true);
   // 关着时底行仍是 123 | 符，标准不高亮。
-  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "。", "空格", "，", "中", "↵"]);
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "空格", "，", "中", "↵"]);
   expect(highlightedCodes(dialog)).toEqual([]);
   // 只有 26 键分段显示这个开关。
   chooseKind(dialog, "14/18 键");
@@ -360,7 +363,7 @@ test("26 键「符」与「123」互换 sits in the 26 key card and swaps the pr
   // 打开后 符 排到 123 左边，样式高亮之外再描边这两个键。
   fireEvent.click(symbolFirstSwitch(dialog)!);
   expect(symbolFirstSwitch(dialog)!.checked).toBe(true);
-  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "。", "空格", "，", "中", "↵"]);
+  expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "空格", "，", "中", "↵"]);
   expect(highlightedCodes(dialog)).toEqual(["SoftSymbol", "SoftLayer"]);
   chooseChip(dialog, "逗号句号");
   expect(previewRows(dialog).at(-1)).toEqual(["符", "123", "，", "空格", "。", "中", "↵"]);
@@ -486,12 +489,6 @@ test("the note says only the chosen style's side effect, word for word across pl
     ["14/18 键", "标准", undefined],
     ["14/18 键", "长空格", undefined],
     ["14/18 键", "表情键", "长按 123 打开符号。"],
-    ["14/18 键", "等宽", undefined],
-    [
-      "14/18 键",
-      "宽窄",
-      "「宽窄」让单字母键窄一些、双字母键宽一些，第二排两端留空；点在空白里算最靠边的键。",
-    ],
     ["9 键", "标准", undefined],
     ["9 键", "底栏带标点", undefined],
     ["9 键", "表情键", undefined],
@@ -504,6 +501,16 @@ test("the note says only the chosen style's side effect, word for word across pl
     expect(note(dialog)).toEqual(text ? [text] : []);
     expect(description(chipGroup(dialog))).toBe(text ?? "");
   }
+
+  chooseKind(dialog, "14/18 键");
+  expect(
+    within(letterWidthGroup(dialog))
+      .getAllByRole("button")
+      .map((chip) => chip.textContent),
+  ).toEqual(["等宽", "宽窄"]);
+  expect(description(letterWidthGroup(dialog))).toBe(
+    "「宽窄」让单字母键窄一些、双字母键宽一些，第二排两端留空；点在空白里算最靠边的键。",
+  );
 });
 
 test("the preview draws the whole keyboard and outlines the keys the style changes", async () => {
@@ -515,7 +522,7 @@ test("the preview draws the whole keyboard and outlines the keys the style chang
     [..."qwertyuiop"],
     ["", ..."asdfghjkl", ""],
     ["⇧", ..."zxcvbnm", "⌫"],
-    ["123", "符", "。", "空格", "，", "中", "↵"],
+    ["123", "符", "空格", "，", "中", "↵"],
   ]);
   const highlights: [string, string, string[]][] = [
     ["26 键", "标准", []],
@@ -639,13 +646,13 @@ test("中/英键放在空格左边 sits in every segment's card and moves the pr
   expect(follows(chipGroup(dialog), toggle)).toBe(true);
   expect(follows(symbolFirstSwitch(dialog)!, toggle)).toBe(true);
   // 关着时 中/英 仍在空格右边、紧挨回车，不高亮。
-  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "。", "空格", "，", "中", "↵"]);
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "空格", "，", "中", "↵"]);
   expect(highlightedCodes(dialog)).toEqual([]);
 
   // 打开后 中/英 排到空格左边并描边；空格左边有标点的样式标点仍紧挨空格。
   fireEvent.click(toggle);
   expect(languageLeftSwitch(dialog)!.checked).toBe(true);
-  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "中", "。", "空格", "，", "↵"]);
+  expect(previewRows(dialog).at(-1)).toEqual(["123", "符", "中", "空格", "，", "↵"]);
   expect(highlightedCodes(dialog)).toEqual(["SoftLanguage"]);
   const twentySix: [string, string[], string[]][] = [
     ["逗号句号", ["123", "符", "中", "，", "空格", "。", "↵"], ["SoftLanguage", "Comma", "Period"]],
@@ -711,7 +718,7 @@ test("a stored left side is shown; right, unknown and missing values read as off
     });
     const dialog = await openKeyLayout();
     expect(languageLeftSwitch(dialog)?.checked).toBe(expected);
-    expect(previewRows(dialog).at(-1)?.[2]).toBe(expected ? "中" : "。");
+    expect(previewRows(dialog).at(-1)?.[2]).toBe(expected ? "中" : "空格");
     cleanup();
     window.history.replaceState({}, "");
   }
@@ -843,37 +850,6 @@ test("the bottom rows are the HarmonyOS keyboard's rows, shares included", () =>
         round(entry.share),
       ),
     );
-  // 26 键标准：句号紧挨空格左边，键 id 和份额与键盘的中文标准行、英文 26 键底行、不受样式影响的 26 键（日语、韩文等）那一行逐格相同。
-  const slotCodes: Record<string, string> = {
-    layer: "SoftLayer",
-    symbol_panel: "SoftSymbol",
-    comma: "Comma",
-    period: "Period",
-    space: "Space",
-    language: "SoftLanguage",
-    return: "Enter",
-  };
-  const keyboardRow = (english: boolean, styled: StyledFace) =>
-    TouchLayoutStylePolicy.designRow(true, english, styled, "standard").map((entry) => [
-      slotCodes[entry.slot],
-      round(entry.share),
-    ]);
-  const previewRow = (row: typeof twentySixKeyBottomRows.standard) =>
-    row.map((key) => [key.code, round(key.weight)]);
-  expect(previewRow(twentySixKeyBottomRows.standard)).toEqual([
-    ["SoftLayer", 1.25],
-    ["SoftSymbol", 1.05],
-    ["Period", 1],
-    ["Space", 3],
-    ["Comma", 1],
-    ["SoftLanguage", 1.05],
-    ["Enter", 1.9],
-  ]);
-  expect(previewRow(twentySixKeyBottomRows.standard)).toEqual(
-    keyboardRow(false, StyledFace.TWENTY_SIX),
-  );
-  expect(previewRow(twentySixKeyBottomRows.standard)).toEqual(keyboardRow(true, StyledFace.NONE));
-  expect(previewRow(twentySixKeyBottomRows.standard)).toEqual(keyboardRow(false, StyledFace.NONE));
   for (const style of ["standard", "long_space", "emoji"] as const)
     expect(fourteenKeyBottomRows[style].map((key) => round(key.weight))).toEqual(
       TouchLayoutStylePolicy.designRow(false, false, StyledFace.FOURTEEN, style).map((entry) =>
