@@ -103,6 +103,18 @@ stop() {
 device_alive() {
   [[ $("$adb" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]
 }
+# `am force-stop` returns before the old IME process has disappeared on some API 35 images.
+# Wait for the product process to be gone before the clipboard fixture starts; otherwise
+# the instrumentation can reconnect to a session holding the previous clipboard snapshot.
+wait_product_stopped() {
+  local attempt pids
+  for attempt in $(seq 1 40); do
+    pids=$("$adb" -s "$serial" shell pidof app.msime.android 2>/dev/null | tr -d '\r' || true)
+    [[ -z "$pids" ]] && return 0
+    sleep 0.25
+  done
+  return 1
+}
 # 清除合成锁屏 PIN（DeviceCredentialFixture.PIN）：用到它的套件中途失败或崩溃时来不及清，留下的锁屏会挡住后面的套件。只在确有凭据时清除，理由见 clipboard-export.sh 的 clear_credential。
 clear_credential() {
   if ! "$adb" -s "$serial" shell locksettings verify 2>/dev/null | grep -q "verified successfully"; then
@@ -321,6 +333,7 @@ if [[ "$pr" == true ]]; then
   # 剪贴板右滑详情只跑这一条短路径；完整分词、滚动和剪贴板操作仍留给 develop、nightly 和发版。
   # 这条 instrumentation 以产品进程为目标，不能在测试代码里强停自己；由 shell 在启动前清掉前一条短测试留下的偏好快照。
   "$adb" -s "$serial" shell am force-stop app.msime.android
+  wait_product_stopped || stop "app.msime.android did not stop before the clipboard detail fixture"
   MSIME_DEVICE_SKIP_HOME_START=true check "Clipboard detail swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e preview-actions-only true
   finish "Dedicated Android AVD: PR smoke acceptance passed"
 fi
