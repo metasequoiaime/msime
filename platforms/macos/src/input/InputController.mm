@@ -2023,6 +2023,8 @@ static NSImage *MSIMECandidateLogoImage() {
     // IOKit 撤回锁定后，窗口服务器可能还会把旧的 Caps Lock 修饰位带进一两个事件；
     // 在看到下一次真实按下前，不要让这份旧状态把工具栏和英文输入重新变成大写。
     BOOL _capsLockTapReleased;
+    // 已经见过一次迟到的 Caps Lock 状态；下一次同样的按下事件应开始新的按键序列。
+    BOOL _capsLockTapReleasedSawStaleCapsLock;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
     NSTimer *_voiceHoldPollTimer;
@@ -4894,6 +4896,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         return;
     }
     _capsLockTapReleased = YES;
+    _capsLockTapReleasedSawStaleCapsLock = NO;
     [self adoptCapsLockState:NO];
     [self toggleInputModeFromModifierTap];
 }
@@ -8018,8 +8021,15 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     BOOL staleCapsLock = NO;
     if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
         // 这时如果确实又按下了 Caps Lock，物理状态仍会是按下；否则只是合成撤回后迟到的旧状态。
-        if (MSIMECapsLockKeyHeld()) _capsLockTapReleased = NO;
-        else { capsLock = NO; staleCapsLock = YES; }
+        if (MSIMECapsLockKeyHeld() || _capsLockTapReleasedSawStaleCapsLock) {
+            _capsLockTapReleased = NO;
+            _capsLockTapReleasedSawStaleCapsLock = NO;
+        }
+        else {
+            capsLock = NO;
+            staleCapsLock = YES;
+            _capsLockTapReleasedSawStaleCapsLock = YES;
+        }
     }
     if (_capsLockTapReleased && event.type == NSEventTypeKeyDown && event.keyCode != 0x39 && capsLock) {
         capsLock = NO;
@@ -8298,7 +8308,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 NSString *text = [[NSString alloc] initWithBytes:output.data() length:output.size()
                                                          encoding:NSUTF8StringEncoding];
                 [self writeDirectEnglishText:text client:(id<MSIMETextClient>)sender];
-                if (capsLockTapReleasedLetterEvent) _capsLockTapReleased = NO;
+                if (capsLockTapReleasedLetterEvent) {
+                    _capsLockTapReleased = NO;
+                    _capsLockTapReleasedSawStaleCapsLock = NO;
+                }
                 return YES;
             }
             // 使用激活时已有的应用标识判定接管；排除应用仍把原键交回，不在落字前查客户端。
@@ -8315,7 +8328,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                  character >= 'a' && character <= 'z')) {
                 [self writeDirectEnglishText:[NSString stringWithCharacters:&character length:1]
                                       client:(id<MSIMETextClient>)sender];
-                if (capsLockTapReleasedLetterEvent) _capsLockTapReleased = NO;
+                if (capsLockTapReleasedLetterEvent) {
+                    _capsLockTapReleased = NO;
+                    _capsLockTapReleasedSawStaleCapsLock = NO;
+                }
                 return YES;
             }
         }
