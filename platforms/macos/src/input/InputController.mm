@@ -2025,6 +2025,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _capsLockTapReleased;
     // 已经见过一次迟到的 Caps Lock 状态；下一次同样的按下事件应开始新的按键序列。
     BOOL _capsLockTapReleasedSawStaleCapsLock;
+    // 收到关闭边沿后，下一次打开边沿是新的物理按键；关闭边沿本身仍需把旧标记留给紧随其后的字母事件。
+    BOOL _capsLockTapReleasedSawExplicitOff;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
     NSTimer *_voiceHoldPollTimer;
@@ -4897,6 +4899,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     }
     _capsLockTapReleased = YES;
     _capsLockTapReleasedSawStaleCapsLock = NO;
+    _capsLockTapReleasedSawExplicitOff = NO;
     [self adoptCapsLockState:NO];
     [self toggleInputModeFromModifierTap];
 }
@@ -8019,11 +8022,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 撤回锁定后的关闭状态事件可能先于窗口服务器翻译出的字母抵达；保留标记到首个无 Shift 的字母按键，才能把不带 Caps Lock 修饰位的陈旧大写字符还原。
     const BOOL capsLockTapReleasedForEvent = _capsLockTapReleased;
     BOOL staleCapsLock = NO;
+    if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && !capsLock)
+        _capsLockTapReleasedSawExplicitOff = YES;
     if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
         // 这时如果确实又按下了 Caps Lock，物理状态仍会是按下；否则只是合成撤回后迟到的旧状态。
-        if (MSIMECapsLockKeyHeld() || _capsLockTapReleasedSawStaleCapsLock) {
+        if (MSIMECapsLockKeyHeld() || _capsLockTapReleasedSawStaleCapsLock || _capsLockTapReleasedSawExplicitOff) {
             _capsLockTapReleased = NO;
             _capsLockTapReleasedSawStaleCapsLock = NO;
+            _capsLockTapReleasedSawExplicitOff = NO;
         }
         else {
             capsLock = NO;
@@ -8311,6 +8317,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 if (capsLockTapReleasedLetterEvent) {
                     _capsLockTapReleased = NO;
                     _capsLockTapReleasedSawStaleCapsLock = NO;
+                    _capsLockTapReleasedSawExplicitOff = NO;
                 }
                 return YES;
             }
@@ -8331,6 +8338,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                 if (capsLockTapReleasedLetterEvent) {
                     _capsLockTapReleased = NO;
                     _capsLockTapReleasedSawStaleCapsLock = NO;
+                    _capsLockTapReleasedSawExplicitOff = NO;
                 }
                 return YES;
             }
