@@ -12751,7 +12751,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
             ViewPolicy.setEnabled(symbolPanelButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
-            symbolPanelButton.setContentDescription("打开符号面板");
+            symbolPanelButton.setContentDescription(imeLayoutRows.symbolPanelContentDescription());
         }
         if (symbolShortcutButton != null) {
             ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());

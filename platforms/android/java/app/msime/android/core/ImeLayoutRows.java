@@ -818,9 +818,14 @@ final class ImeLayoutRows {
         String face = split ? "分词" : "符";
         if (face.contentEquals(key.getText())) return;
         key.setText(face);
-        key.setContentDescription(split
+        key.setContentDescription(symbolPanelContentDescription());
+    }
+
+    /** 底行 符 的无障碍描述；通用的 render 刷新也要沿用九键双拼组字中的分词描述。 */
+    String symbolPanelContentDescription() {
+        return shuangpinSeparatorShown()
             ? "按键 " + NineKeyLayout.description(NineKeyLayout.rows().get(0).get(0), false, true)
-            : "打开符号面板");
+            : "打开符号面板";
     }
 
     /**
