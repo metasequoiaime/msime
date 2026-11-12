@@ -2269,6 +2269,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.accessibilityHint = letters.map { "长按输入 \(digit) 或 \($0)" } ?? "长按输入 1"
         if let key = button as? KeyboardKeyButton {
           key.nineKeyFlickLetters = letters
+          key.nineKeyFlickEnabled = { [weak self] in
+            guard let self else { return false }
+            return Self.nineKeyFlickIsEnabled(
+              showsSymbols: self.showsSymbols,
+              isNineKey: self.inputScheme == .nineKey,
+              holdPopupPresented: self.nineKeyHoldPopup != nil,
+              cursorSwipeActive: self.cursorSwipeActive,
+              voiceOverRunning: self.isVoiceOverRunning())
+          }
           key.nineKeyFlickThreshold = { [weak self] in self?.nineKeyFlickThreshold ?? NineKeyFlickPolicy.threshold }
           key.onNineKeyFlick = { [weak self, weak key] character in
             guard let self, let key else { return }
@@ -2548,6 +2557,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 九键 2–9 按住多久弹出数字与字母菜单，理由见 `makeNineKeyLayout` 里设置它的地方。
   static let nineKeyHoldDuration: TimeInterval = 0.5
+
+  /// 九键 flick 只属于全拼九键字母层；其它层或接管触摸的功能不能让它抢走横滑。
+  static func nineKeyFlickIsEnabled(
+    showsSymbols: Bool,
+    isNineKey: Bool,
+    holdPopupPresented: Bool,
+    cursorSwipeActive: Bool,
+    voiceOverRunning: Bool
+  ) -> Bool {
+    !showsSymbols && isNineKey && !holdPopupPresented && !cursorSwipeActive && !voiceOverRunning
+  }
 
   private static let nineKeyLetters: [Int: String] = [
     2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ",

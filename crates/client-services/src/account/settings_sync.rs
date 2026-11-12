@@ -68,6 +68,8 @@ const LANGUAGE_KEY_SIDE: &str = "platform.android.language_key_side";
 const NINE_KEY_SWIPE: &str = "platform.android.nine_key_swipe";
 /// 共享偏好 `touch_nine_key_flick_threshold`；Android 和鸿蒙各自使用平台命名空间，值范围与 client-core 相同。
 const NINE_KEY_FLICK_THRESHOLD: &str = "platform.android.nine_key_flick_threshold";
+/// 三端共用的九键 flick 阈值；平台键保留给旧版本兼容，新的移动端都以这个键为准。
+pub(super) const MOBILE_NINE_KEY_FLICK_THRESHOLD: &str = "input.nine_key_flick_threshold";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -512,7 +514,11 @@ pub(super) fn frequency_account_preferences(
     ])
 }
 
-fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
+pub(super) fn insert_integer(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: i64,
+) {
     settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
 }
 
@@ -523,9 +529,22 @@ pub fn export_android_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    insert_mobile_shared_settings(&mut settings, preferences);
     insert_touch_settings(&mut settings, preferences, feedback, &ANDROID_KEYS)?;
     insert_new_android_settings(&mut settings, preferences);
     Ok(settings)
+}
+
+/// 三端键盘共用、但仍放在 `input.*` 命名空间的共享偏好；桌面也原样携带，避免设置同步时丢字段。
+pub(super) fn insert_mobile_shared_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_integer(
+        settings,
+        MOBILE_NINE_KEY_FLICK_THRESHOLD,
+        i64::from(preferences.touch_nine_key_flick_threshold),
+    );
 }
 
 /// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示、组字 Shift、底行样式与数字行，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
@@ -1047,6 +1066,7 @@ pub(super) fn export_desktop_settings_for(
 ) -> BTreeMap<String, AccountPreferenceValue> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    insert_mobile_shared_settings(&mut settings, preferences);
     insert_grammar_model(&mut settings, preferences);
     insert_plugin_settings(&mut settings, preferences);
     if host.shared_settings_page() {
@@ -1468,6 +1488,17 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     })?;
     applier.set_integer("input.frequency_linear_step", |preferences, value| {
         preferences.frequency.linear_step = u8::try_from(value).ok()?;
+        Some(())
+    })?;
+    applier.set_integer(MOBILE_NINE_KEY_FLICK_THRESHOLD, |preferences, value| {
+        let value = u16::try_from(value).ok()?;
+        if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&value)
+            || !(value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+        {
+            return None;
+        }
+        preferences.touch_nine_key_flick_threshold = value;
         Some(())
     })?;
     applier.set_bool("input.chinese_punctuation", |preferences, value| {
@@ -2205,7 +2236,6 @@ pub(super) fn apply_touch_settings(
         preferences.touch_nine_key_flick_threshold = value;
         Some(())
     })?;
-
     extra(&mut applier)?;
 
     if let Some(value) = applier.boolean(keys.feedback[0])? {

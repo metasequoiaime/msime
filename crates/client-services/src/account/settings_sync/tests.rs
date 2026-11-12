@@ -190,6 +190,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.frequency_mode",
             "input.frequency_trigger_count",
             "input.learning",
+            "input.nine_key_flick_threshold",
             "input.paired_punctuation",
             "input.quote_style",
             "input.schema",

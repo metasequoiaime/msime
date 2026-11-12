@@ -345,6 +345,8 @@ final class KeyboardKeyButton: UIButton {
   var nineKeySwipeGesture: NineKeySwipePolicy.Gesture { nineKeySwipe.gesture }
   /// 九键字母层的前三个字母；为空时不接四向 flick。
   var nineKeyFlickLetters: String?
+  /// 当前触摸是否仍处在全拼九键字母层；符号层、九键双拼、光标手势和读屏不接 flick。
+  var nineKeyFlickEnabled: (() -> Bool)?
   /// 九键 flick 的共享判定阈值。
   var nineKeyFlickThreshold: (() -> CGFloat)?
   /// 九键 flick 松手时输入的字母。
@@ -366,7 +368,9 @@ final class KeyboardKeyButton: UIButton {
     _ = nineKeySwipe.finish()
     _ = nineKeyFlick.finish()
     if began, nineKeySwipeDigit != nil { nineKeySwipe.begin(y: touch.location(in: nil).y) }
-    if began, nineKeyFlickLetters != nil { nineKeyFlick.begin(at: touch.location(in: nil)) }
+    if began, nineKeyFlickLetters != nil, nineKeyFlickEnabled?() == true {
+      nineKeyFlick.begin(at: touch.location(in: nil))
+    }
     guard began, cornerHint != nil else { return began }
     cornerHintDown = touch.location(in: nil)
     cornerHintDownTime = touch.timestamp
@@ -382,7 +386,7 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-    if let letters = nineKeyFlickLetters, nineKeyFlick.letter == .none,
+    if nineKeyFlickEnabled?() == true, let letters = nineKeyFlickLetters, nineKeyFlick.letter == .none,
        let decided = nineKeyFlick.move(to: touch.location(in: nil), letters: letters,
                                        threshold: nineKeyFlickThreshold?() ?? NineKeyFlickPolicy.threshold) {
       beginNineKeyFlick(decided)

@@ -9,8 +9,9 @@
 use super::settings_sync::{
     apply_harmony_split_keyboard, apply_local_mode_extras, apply_second_third_candidate,
     apply_touch_settings, insert_harmony_split_keyboard, insert_input_settings,
-    insert_local_mode_extras, insert_second_third_candidate, insert_string, insert_touch_settings,
-    needs_feedback, valid_haptic_strength, Applier, HostKeyboardFeedback, TouchHostKeys,
+    insert_local_mode_extras, insert_mobile_shared_settings, insert_second_third_candidate,
+    insert_string, insert_touch_settings, needs_feedback, valid_haptic_strength, Applier,
+    HostKeyboardFeedback, TouchHostKeys,
 };
 use super::{
     validate_preference_schema, AccountError, AccountPreferenceSchema, AccountPreferenceValue,
@@ -87,6 +88,7 @@ pub fn export_harmony_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    insert_mobile_shared_settings(&mut settings, preferences);
     // 共享设置页在鸿蒙上能改的两组共享偏好；其余新增的共享键（快捷短语混输、语法模型、AI 思考强度、桌面快捷键）鸿蒙没有开关或运行时不读，不导出，免得默认值盖掉别的设备的选择。
     insert_local_mode_extras(&mut settings, preferences);
     insert_second_third_candidate(&mut settings, preferences);

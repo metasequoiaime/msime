@@ -4980,6 +4980,27 @@ final class NineKeyFlickTests: XCTestCase {
   func testDigitsUseLongPressDuration() {
     XCTAssertEqual(KeyboardViewController.nineKeyHoldDuration, 0.5)
   }
+
+  func testFlickOnlyRunsInThePlainNineKeyLetterLayer() {
+    XCTAssertTrue(KeyboardViewController.nineKeyFlickIsEnabled(
+      showsSymbols: false, isNineKey: true, holdPopupPresented: false,
+      cursorSwipeActive: false, voiceOverRunning: false))
+    XCTAssertFalse(KeyboardViewController.nineKeyFlickIsEnabled(
+      showsSymbols: true, isNineKey: true, holdPopupPresented: false,
+      cursorSwipeActive: false, voiceOverRunning: false))
+    XCTAssertFalse(KeyboardViewController.nineKeyFlickIsEnabled(
+      showsSymbols: false, isNineKey: false, holdPopupPresented: false,
+      cursorSwipeActive: false, voiceOverRunning: false))
+    XCTAssertFalse(KeyboardViewController.nineKeyFlickIsEnabled(
+      showsSymbols: false, isNineKey: true, holdPopupPresented: true,
+      cursorSwipeActive: false, voiceOverRunning: false))
+    XCTAssertFalse(KeyboardViewController.nineKeyFlickIsEnabled(
+      showsSymbols: false, isNineKey: true, holdPopupPresented: false,
+      cursorSwipeActive: true, voiceOverRunning: false))
+    XCTAssertFalse(KeyboardViewController.nineKeyFlickIsEnabled(
+      showsSymbols: false, isNineKey: true, holdPopupPresented: false,
+      cursorSwipeActive: false, voiceOverRunning: true))
+  }
 }
 
 /// 不把外观回调转发给子控制器的容器：移走它时子控制器收不到 `viewWillDisappear`，与系统键盘里宿主被结束时一样（#10910）。

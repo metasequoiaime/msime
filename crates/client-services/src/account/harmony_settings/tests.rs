@@ -1171,7 +1171,8 @@ fn split_keyboard_switch_syncs_under_the_harmony_key_and_its_bounds_stay_local()
     assert!(settings.keys().all(|key| (!key.contains("threshold")
         && !key.contains("gap")
         && !key.contains("portrait"))
-        || key == "platform.harmony.nine_key_flick_threshold"));
+        || key == "platform.harmony.nine_key_flick_threshold"
+        || key == "input.nine_key_flick_threshold"));
 
     let local = Preferences::default();
     let applied = apply(
