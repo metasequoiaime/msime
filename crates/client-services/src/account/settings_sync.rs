@@ -45,8 +45,10 @@ const QUANPIN_SHIFT: &str = "platform.android.quanpin_shift";
 const TWENTY_SIX_KEY_STYLE: &str = "platform.android.twenty_six_key_style";
 /// 共享偏好 `touch_fourteen_key_style`；账号字段表收录它之前上传时会被滤掉。
 const FOURTEEN_KEY_STYLE: &str = "platform.android.fourteen_key_style";
-/// 共享偏好 `touch_fourteen_key_letter_widths`；账号字段表收录它之前上传时会被滤掉。目前只有 Android 的设置页能改、键盘会读，所以只在 Android 自己的键里导出和应用（[`insert_new_android_settings`]、[`apply_new_android_settings`]），鸿蒙接入时再挪进 [`TouchHostKeys`]。
-const FOURTEEN_KEY_LETTER_WIDTHS: &str = "platform.android.fourteen_key_letter_widths";
+/// 共享偏好 `touch_fourteen_key_letter_widths`；按触屏宿主分别同步，避免 Android 与鸿蒙互相覆盖。
+const ANDROID_FOURTEEN_KEY_LETTER_WIDTHS: &str = "platform.android.fourteen_key_letter_widths";
+#[cfg(test)]
+const FOURTEEN_KEY_LETTER_WIDTHS: &str = ANDROID_FOURTEEN_KEY_LETTER_WIDTHS;
 /// 共享偏好 `touch_nine_key_style`；账号字段表收录它之前上传时会被滤掉。
 const NINE_KEY_STYLE: &str = "platform.android.nine_key_style";
 /// 共享偏好 `touch_number_row`；账号字段表收录它之前上传时会被滤掉。Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
@@ -94,6 +96,7 @@ pub(super) struct TouchHostKeys {
     pub(super) quanpin_shift: &'static str,
     pub(super) twenty_six_key_style: &'static str,
     pub(super) fourteen_key_style: &'static str,
+    pub(super) fourteen_key_letter_widths: &'static str,
     pub(super) nine_key_style: &'static str,
     pub(super) number_row: &'static str,
     pub(super) twenty_six_symbol_first: &'static str,
@@ -127,6 +130,7 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     quanpin_shift: QUANPIN_SHIFT,
     twenty_six_key_style: TWENTY_SIX_KEY_STYLE,
     fourteen_key_style: FOURTEEN_KEY_STYLE,
+    fourteen_key_letter_widths: ANDROID_FOURTEEN_KEY_LETTER_WIDTHS,
     nine_key_style: NINE_KEY_STYLE,
     number_row: NUMBER_ROW,
     twenty_six_symbol_first: TWENTY_SIX_SYMBOL_FIRST,
@@ -590,6 +594,11 @@ pub(super) fn insert_touch_settings(
         settings,
         keys.fourteen_key_style,
         preferences.touch_fourteen_key_style.as_str(),
+    );
+    insert_string(
+        settings,
+        keys.fourteen_key_letter_widths,
+        preferences.touch_fourteen_key_letter_widths.as_str(),
     );
     insert_string(
         settings,
@@ -1140,11 +1149,6 @@ fn insert_new_android_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
 ) {
-    insert_string(
-        settings,
-        FOURTEEN_KEY_LETTER_WIDTHS,
-        preferences.touch_fourteen_key_letter_widths.as_str(),
-    );
     insert_string(
         settings,
         "platform.android.keyboard_skin_light",
@@ -2146,6 +2150,10 @@ pub(super) fn apply_touch_settings(
         preferences.touch_fourteen_key_style = TouchFourteenKeyStyle::parse(value)?;
         Some(())
     })?;
+    applier.set_string(keys.fourteen_key_letter_widths, |preferences, value| {
+        preferences.touch_fourteen_key_letter_widths = TouchFourteenKeyLetterWidths::parse(value)?;
+        Some(())
+    })?;
     applier.set_string(keys.nine_key_style, |preferences, value| {
         preferences.touch_nine_key_style = TouchNineKeyStyle::parse(value)?;
         Some(())
@@ -2215,10 +2223,6 @@ pub(super) fn apply_touch_settings(
 /// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。
 fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     // 14/18 键字母键宽度按严格写法应用，本机不认识的分法只跳过这一个键。
-    applier.set_string(FOURTEEN_KEY_LETTER_WIDTHS, |preferences, value| {
-        preferences.touch_fourteen_key_letter_widths = TouchFourteenKeyLetterWidths::parse(value)?;
-        Some(())
-    })?;
     applier.set_string(
         "platform.android.keyboard_skin_light",
         |preferences, value| {
