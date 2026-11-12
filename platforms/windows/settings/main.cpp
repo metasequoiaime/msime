@@ -14325,6 +14325,9 @@ private:
     bool_row(word, 0xE8AB, L"退格键回退已选候选词",
              L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。",
              L"backspace_reverts_selection", true);
+    bool_row(word, 0xE8AB, L"Esc 保留已选词",
+             L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。",
+             L"escape_keeps_selected_word", false);
 
     // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 6> paging_keys{{
@@ -14934,6 +14937,9 @@ private:
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
                L"next_word_prediction", false);
+      bool_row(candidates, 0xE8AB, L"回车学英文词",
+               L"按回车上屏输入的英文时，把这个单词写入英文词库，之后可以作为候选出现。",
+               L"enter_learns_english_word", true);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
