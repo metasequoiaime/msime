@@ -821,6 +821,8 @@ final class ImeTextEditPanel {
         if (target == null) return false;
         s.selectionEcho.invalidate();
         boolean extend = selecting || steps.selecting();
+        boolean haptics = trackpadSettings != null && trackpadSettings.haptics() && s.hapticsEnabled;
+        int sent = 0;
         // 越过文档首尾的步数在这里扣掉（#10141），被扣掉的步不发键也不震动，手势照常继续。
         TextCursorEdgePolicy.Plan plan = cursorPlan(target, steps.horizontal(), steps.vertical(), extend);
         TextEditPanelModel.Action horizontal = plan.horizontal() < 0 ? TextEditPanelModel.Action.LEFT : TextEditPanelModel.Action.RIGHT;
@@ -829,11 +831,14 @@ final class ImeTextEditPanel {
             int count = action == horizontal ? Math.abs(plan.horizontal()) : Math.abs(plan.vertical());
             for (int index = 0; index < count; index++) {
                 if (s.connection != target || !sendKey(target, TextEditPanelModel.keyCode(action),
-                        TextEditPanelModel.metaState(action, extend))) return false;
-                if (trackpadSettings != null && trackpadSettings.haptics() && s.hapticsEnabled)
-                    KeyboardHaptics.play(s.vibrator, trackpad, s.hapticStrength);
+                        TextEditPanelModel.metaState(action, extend))) {
+                    if (haptics) KeyboardHaptics.playSteps(s.vibrator, trackpad, s.hapticStrength, sent);
+                    return false;
+                }
+                sent++;
             }
         }
+        if (haptics) KeyboardHaptics.playSteps(s.vibrator, trackpad, s.hapticStrength, sent);
         refreshPreview();
         return true;
     }

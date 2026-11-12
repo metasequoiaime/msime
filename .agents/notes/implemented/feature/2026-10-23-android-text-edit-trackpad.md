@@ -35,7 +35,8 @@ Status: implemented
 
 ## Testing
 
-- 2026-11-13 的强度修复完成源码路径核对；`pnpm run verify-notes` 与 `git diff --check` 通过。本机未配置可用的 JDK、Android SDK 和 Cargo，且磁盘可用空间低于新构建树的 50 GB 门槛，未执行本地 quick 门禁、Android 编译和设备验收。现有 `KeyboardFeedbackSmoke` 覆盖四档方案，触控板设备用例关闭了振动，不能证明此调用或真实马达手感；本次修复的真机强度、关闭开关、文本边界验证及问号说明的前后截图待完成。以下既有测试记录属于先前实现，不代表本次修复已通过这些测试。
+- 2026-11-13 修复了逐步振动只响应第一次快速移动的问题：`ImeTextEditPanel.moveTrackpad` 只为实际送出的方向键计数，`KeyboardHaptics.playSteps` 在后台合并触控板步数并按当前强度连续播放，文档首尾裁掉的步数和发送失败的步数不再产生触觉。`KeyboardFeedbackSmoke` 继续覆盖四档强度方案；`ANDROID_SDK_ROOT=/Users/e-hu/Library/Android/sdk bash platforms/android/check-host.sh` 通过 348 项 JVM 冒烟、281 项设备套件源码编译及 Android 服务、资源和清单检查。
+- 同日用正式签名 APK 在 Pixel 3 XL（Android 12 / API 31，序列号 `8AFY0K0SC`）真机验收：启用水杉为默认输入法，在应用内真实 `EditText` 打开文本编辑面板，切换触控板后横向拖动使光标从文末移动到文首，再反向移动；开启键盘“振动”后，设备 `vibrator_manager` 的触觉历史记录出现同一应用 UID 的连续 `CLICK` 事件。验收截图保存在 `artifacts/device-screens/android/pixel3xl-pr11366-trackpad-before-20261113.png`、`pixel3xl-pr11366-trackpad-enabled-20261113.png` 和 `pixel3xl-pr11366-trackpad-haptics-right-20261113.png`。本次 APK 复用了同一 PR 已验证的原生资源和库，只重新编译 Java 改动；Gradle Java 编译、lint、打包和正式签名校验通过，未重复运行冷的原生库构建。
 - 共享偏好两项测试通过，覆盖旧文档默认值、选项往返、非法范围及真正的 `restore_defaults`；同步排除测试与 FFI 默认值/范围测试分别通过。三个相关 Rust crate 的全目标 clippy（`-D warnings`）和格式检查通过。
 - JVM 回归覆盖二维余量、反向抵消、多指取消、短按与长按、双击与三击、文字边界和异步回读合并。密码与有界读取、临时入口、末词末行回归均先失败再修正通过；Android host 共 262 项 JVM 冒烟通过，生产和设备 Java 以 `-Xlint:all -Werror` 编译通过。
 - 原生 APK 已用 JDK 21 构建并签名；ELF ABI、16 KB LOAD 对齐、依赖和 JNI 导出检查通过，APK 为 131,309,954 字节，低于 135 MB 门槛。完整 quick 门禁通过，包含 Linux 宿主 111 项测试、macOS 原生编译及共享 Apple 桥构建。屏幕可见区域补强、API 28 父窗口扩展、排版等待及设备夹具最终版本再次通过完整 quick 门禁，包含上述 Linux、macOS 和 Apple 桥阶段。
@@ -57,7 +58,7 @@ Status: implemented
 
 ## 验证缺口
 
-真机手感和真实远程终端客户端尚未验收。`InputConnection` 的回读可能阻塞或返回过期片段，异步队列、连接身份及代次核对是当前实现的不变量；光标订阅需要与现有候选栏共用所有权，不能独立取消别人的订阅。
+真实远程终端客户端尚未验收。`InputConnection` 的回读可能阻塞或返回过期片段，异步队列、连接身份及代次核对是当前实现的不变量；光标订阅需要与现有候选栏共用所有权，不能独立取消别人的订阅。
 
 ## References
 

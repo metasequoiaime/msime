@@ -45,6 +45,13 @@ public final class KeyboardHaptics {
         ThreadPolicy.namedDaemonFactory("msime-haptics"));
     /** 已经交给 {@link #worker}、还没完成振动服务调用的那一下。 */
     private static final AtomicBoolean pending = new AtomicBoolean();
+    /** 触控板步数合并队列；拖动事件频繁到来时仍按每一步播放，不让任务互相覆盖。 */
+    private static final Object stepsLock = new Object();
+    private static int queuedSteps;
+    private static Vibrator queuedVibrator;
+    private static View queuedView;
+    private static KeyboardFeedbackPreferences.HapticStrength queuedStrength;
+    private static boolean stepsScheduled;
 
     private KeyboardHaptics() {}
 
@@ -86,6 +93,75 @@ public final class KeyboardHaptics {
         }
     }
 
+    /** 为同一次触控板移动播放每一步的振动，避免一次拖动只振第一步。 */
+    public static void playSteps(Vibrator vibrator, View view,
+                                 KeyboardFeedbackPreferences.HapticStrength strength, int count) {
+        if (count <= 0) return;
+        Plan plan = plan(strength);
+        if (plan == null || vibrator == null) {
+            for (int index = 0; index < count; index++) systemTap(view);
+            return;
+        }
+        try {
+            synchronized (stepsLock) {
+                queuedSteps += count;
+                queuedVibrator = vibrator;
+                queuedView = view;
+                queuedStrength = strength;
+                if (stepsScheduled) return;
+                stepsScheduled = true;
+            }
+            worker.execute(KeyboardHaptics::drainSteps);
+        } catch (RejectedExecutionException ignored) {
+            synchronized (stepsLock) {
+                queuedSteps = 0;
+                stepsScheduled = false;
+            }
+        }
+    }
+
+    private static void drainSteps() {
+        while (true) {
+            int count;
+            Vibrator vibrator;
+            View view;
+            KeyboardFeedbackPreferences.HapticStrength strength;
+            synchronized (stepsLock) {
+                count = queuedSteps;
+                queuedSteps = 0;
+                vibrator = queuedVibrator;
+                view = queuedView;
+                strength = queuedStrength;
+            }
+            if (count <= 0 || vibrator == null || strength == null) {
+                synchronized (stepsLock) { stepsScheduled = false; }
+                return;
+            }
+            if (!vibrator.hasVibrator()) {
+                if (view != null) view.post(() -> {
+                    for (int index = 0; index < count; index++) systemTap(view);
+                });
+                continue;
+            }
+            Plan plan = plan(strength);
+            if (plan == null) continue;
+            vibrator.vibrate(sequenceEffect(vibrator, plan, count));
+            try {
+                Thread.sleep(stepDuration(vibrator, plan) * count);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                synchronized (stepsLock) { stepsScheduled = false; }
+                return;
+            }
+            synchronized (stepsLock) {
+                if (queuedSteps == 0) {
+                    stepsScheduled = false;
+                    return;
+                }
+            }
+        }
+    }
+
     private static void systemTap(View view) {
         if (view != null) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
@@ -100,5 +176,29 @@ public final class KeyboardHaptics {
             return VibrationEffect.createOneShot(plan.durationMs(), plan.amplitude());
         }
         return VibrationEffect.createOneShot(plan.fallbackDurationMs(), VibrationEffect.DEFAULT_AMPLITUDE);
+    }
+
+    private static VibrationEffect sequenceEffect(Vibrator vibrator, Plan plan, int count) {
+        if (count == 1) return effect(vibrator, plan);
+        if (Build.VERSION.SDK_INT >= 30 && vibrator.areAllPrimitivesSupported(plan.primitive())) {
+            VibrationEffect.Composition composition = VibrationEffect.startComposition();
+            for (int index = 0; index < count; index++) {
+                composition.addPrimitive(plan.primitive(), plan.scale());
+            }
+            return composition.compose();
+        }
+        long duration = stepDuration(vibrator, plan);
+        long[] timings = new long[count * 2 + 1];
+        int[] amplitudes = new int[count * 2 + 1];
+        int amplitude = vibrator.hasAmplitudeControl() ? plan.amplitude() : VibrationEffect.DEFAULT_AMPLITUDE;
+        for (int index = 0; index < count; index++) {
+            timings[index * 2 + 1] = duration;
+            amplitudes[index * 2 + 1] = amplitude;
+        }
+        return VibrationEffect.createWaveform(timings, amplitudes, -1);
+    }
+
+    private static long stepDuration(Vibrator vibrator, Plan plan) {
+        return vibrator.hasAmplitudeControl() ? plan.durationMs() : plan.fallbackDurationMs();
     }
 }
