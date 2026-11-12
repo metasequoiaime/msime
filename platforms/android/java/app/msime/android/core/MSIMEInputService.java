@@ -7525,6 +7525,8 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardMode = next;
         ClipboardModeStore.save(this, next);
         clipboardHistory = ClipboardHistoryStore.forMode(this, next);
+        // 模式切换后总是从本机历史开始；访客模式不能沿用主模式打开时停留的云端标签。
+        clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         closeClipboardHistory();
         if (button != null) {
             button.setKind(ClipboardModePolicy.enterIcon(next, true)
@@ -7536,6 +7538,8 @@ public final class MSIMEInputService extends InputMethodService {
                     button.setKind(KeyboardIconKey.Kind.RETURN);
             }, 600L);
         }
+        // 手势监听器消费了整段触摸事件，没有后续点击触发的 render；立即重绘才能让提示图标在当前帧可见。
+        render();
     }
 
     void closeSchemePicker() {
