@@ -12495,7 +12495,7 @@ public final class MSIMEInputService extends InputMethodService {
             String localModeKey = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
                     String reading = InputViewValuePolicy.textOr(view, "display_reading",
                 InputViewValuePolicy.textOr(view, "reading", ""));
-            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。14 键同样显示 `nine_key_reading`，引擎在首行是英文词时也给出读音，不让组码字母（bugao）出现在读音行上。
+            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an）；全拼九键上首行是英文词时是这个词的字母（4663 显示 good），多按或按错一键切不成音节时切不开的那一键显示成键上的一个字母（6442677 显示 ni'hao's's），都不出数字。引擎没给读音（九键双拼的首行给不出读音、英文专用模式）时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。14 键同样显示 `nine_key_reading`，引擎在首行是英文词时也给出读音，不让组码字母（bugao）出现在读音行上。
             String nineKeyPreedit = "";
             if (view != null && "none".equals(localModeKey)
                     && drawsKeyGrid(displayedTouchLayout(view))) {

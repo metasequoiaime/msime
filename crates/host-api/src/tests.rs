@@ -3885,6 +3885,46 @@ fn a_malformed_glide_request_fails_without_touching_the_session() {
     read(msime_client_destroy(handle));
 }
 
+/// 全拼九键打错键、整串切不成音节时，`View.nine_key_reading` 仍然非空、没有数字，去掉 `'` 后一位对一个已按的键、字母印在那个键上。三端宿主对非空读音原样显示并逐位对上按键，读音为空或带数字时只能退回去画整串数字。
+#[test]
+fn a_mistyped_nine_key_run_still_reads_as_letters_across_the_host_boundary() {
+    const KEY_LETTERS: [&str; 10] = [
+        "", "", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz",
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    assert_eq!(read(msime_client_view(handle))["value"]["nine_key"], true);
+    // 64426 是夹具里的 ni'hao；末尾多按两个 7、中间多按一个 7、第一键按错，三种都切不成音节。
+    for keys in ["6442677", "64742664426", "7764426644267"] {
+        let mut typed = Value::Null;
+        for (count, &key) in keys.as_bytes().iter().enumerate() {
+            typed = read(msime_client_character(handle, key, false));
+            assert_eq!(typed["value"]["handled"], true, "{typed}");
+            // 每按一键都成立，不只是打完之后。
+            let view = &typed["value"]["view"];
+            let reading = view["nine_key_reading"].as_str().unwrap();
+            let letters: Vec<u8> = reading.bytes().filter(|&byte| byte != b'\'').collect();
+            assert_eq!(letters.len(), count + 1, "{keys}: {reading}");
+            for (&letter, &pressed) in letters.iter().zip(keys.as_bytes()) {
+                assert!(
+                    KEY_LETTERS[usize::from(pressed - b'0')]
+                        .as_bytes()
+                        .contains(&letter),
+                    "{keys}: {reading}"
+                );
+            }
+        }
+        assert_eq!(typed["value"]["view"]["editing_text"], keys, "{typed}");
+        read(msime_client_command(handle, 3));
+    }
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn nine_key_filters_cross_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
