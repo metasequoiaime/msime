@@ -44,9 +44,8 @@ for option in "${@:2}"; do
     --theme) theme=true ;;
     --key-faces) key_faces=true ;;
     --spelling-editor) spelling_editor=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor]" >&2; exit 1 ;;
     --voice-empty) voice_empty=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--voice-empty]" >&2; exit 1 ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor] [--voice-empty]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
