@@ -4863,8 +4863,8 @@ struct KeyboardView {
         }
       }
       .height('100%')
-      // 可伸缩空白把后面的工具推到行尾；放不下时它仍留一个间距，标志和第一个工具不贴在一起。
-      Blank(this.toolbarCluster().gapVp)
+      // 可伸缩空白把后面的工具推到行尾；放不下时它的宽度变成 0，格子和间距由右侧两行自己收窄。
+      Blank().layoutWeight(1)
       Row({ space: this.toolbarCluster().gapVp }) {
         if (this.toolbarToolShown(this.toolbarTools.emoji)) {
           this.toolbarButton(KeyboardIconPaths.TOOLBAR_EMOJI, SURFACE_EMOJI, KeyAccessibilityPolicy.emoji(),
