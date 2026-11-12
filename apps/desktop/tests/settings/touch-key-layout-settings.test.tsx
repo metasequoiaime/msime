@@ -482,6 +482,12 @@ test("the note says only the chosen style's side effect, word for word across pl
     ["14/18 键", "标准", undefined],
     ["14/18 键", "长空格", undefined],
     ["14/18 键", "表情键", "长按 123 打开符号。"],
+    ["14/18 键", "等宽", undefined],
+    [
+      "14/18 键",
+      "宽窄",
+      "「宽窄」让单字母键窄一些、双字母键宽一些，第二排两端留空；点在空白里算最靠边的键。",
+    ],
     ["9 键", "标准", undefined],
     ["9 键", "底栏带标点", undefined],
     ["9 键", "表情键", undefined],
