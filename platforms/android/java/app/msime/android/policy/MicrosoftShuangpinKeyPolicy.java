@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** Visibility contract for the double-pinyin `;` final key: Microsoft, Sogou and Ziguang put ing there, Cantonese Shuangpin puts ing and ik there. */
+/** 双拼 `;` 韵母键的显示约定：微软、搜狗和紫光把 ing 放在这里，粤语双拼把 ing 和 ik 放在这里。 */
 public final class MicrosoftShuangpinKeyPolicy {
     private MicrosoftShuangpinKeyPolicy() { }
 
