@@ -30,4 +30,5 @@ Android、iOS、HarmonyOS 和共享设置页都追加对应触屏入口、标题
 
 - `cargo test -p msime-engine shuangpin::profile --lib` 通过，覆盖五套表的选择、关键映射和分号键规则。
 - `cargo check -p msime-client-core -p msime-client-services -p msime-host-api` 通过。
+- 共享设置页双拼方案顺序、触屏方案回退与统计中文聚合测试通过；统计聚合包含四个新增云端方案，默认启用列表仍保持旧值。
 - Android、HarmonyOS 真机/HAP 和 iOS 模拟器验收尚未在当前环境完成；PR 保持 Draft，并在验证段列出这些缺口。

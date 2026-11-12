@@ -131,11 +131,6 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["ziranma", "自然码双拼"],
   ["microsoft", "微软双拼"],
   ["shoudao", "首道双拼"],
-  ["smart_abc", "智能 ABC 双拼"],
-  ["sogou", "搜狗双拼"],
-  ["jiajia", "加加双拼"],
-  ["ziguang", "紫光双拼"],
-  ["guobiao", "国标双拼"],
   ["wubi", "86 五笔"],
   ["japanese_nine_key", "日语 9 键"],
   ["japanese", "日语 26 键"],
@@ -151,6 +146,11 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["nine_key_shuangpin", "九键双拼"],
   ["eighteen_key", "全拼 18 键"],
   ["cantonese_shuangpin", "粤语双拼"],
+  ["smart_abc", "智能 ABC 双拼"],
+  ["sogou", "搜狗双拼"],
+  ["jiajia", "加加双拼"],
+  ["ziguang", "紫光双拼"],
+  ["guobiao", "国标双拼"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -166,7 +166,12 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "nine_key_shuangpin" &&
     scheme !== "fourteen_key" &&
     scheme !== "eighteen_key" &&
-    scheme !== "cantonese_shuangpin",
+    scheme !== "cantonese_shuangpin" &&
+    scheme !== "smart_abc" &&
+    scheme !== "sogou" &&
+    scheme !== "jiajia" &&
+    scheme !== "ziguang" &&
+    scheme !== "guobiao",
 );
 
 /**
@@ -448,12 +453,12 @@ export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
       "ziranma",
       "microsoft",
       "shoudao",
+      "nine_key_shuangpin",
       "smart_abc",
       "sogou",
       "jiajia",
       "ziguang",
       "guobiao",
-      "nine_key_shuangpin",
     ],
   },
   { id: "mandarin_wubi", badge: "五", title: "五笔", schemes: ["wubi"] },
