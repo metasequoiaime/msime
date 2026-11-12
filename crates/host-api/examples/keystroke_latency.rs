@@ -8,6 +8,7 @@
 // library root carries does not reach them. Same boundary, same reason: this
 // target drives the C ABI directly.
 #![allow(unsafe_code)]
+use msime_client_core::preferences::FuzzyPinyinRule;
 use msime_host_api::*;
 use serde_json::{json, Value};
 use std::ffi::{c_char, CString};
@@ -43,11 +44,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .ok_or("usage: keystroke_latency <verified-resources> [scheme] [fuzzy-rule,...]")?;
     let scheme = std::env::args().nth(2).unwrap_or_else(|| "quanpin".into());
-    // 第三个参数是逗号分隔的模糊音规则名（`z-zh,c-ch,s-sh`），给了就打开模糊音：每键多出模糊读法的查询和合并，要单独量。
-    let fuzzy_rules: Vec<String> = std::env::args()
-        .nth(3)
-        .map(|rules| rules.split(',').map(str::to_owned).collect())
-        .unwrap_or_default();
+    // 第三个参数是逗号分隔的模糊音规则名（`z-zh,c-ch,s-sh`），给了就打开模糊音：每键多出模糊读法的查询和合并，要单独量。规则名按偏好文档的同一个类型解析：偏好读取时会悄悄丢掉不认识的规则名，拼错一个就等于没开，量出来的是不开模糊音的数，所以这里遇到不认识的名字直接报错。
+    let fuzzy_rules: Vec<FuzzyPinyinRule> = match std::env::args().nth(3) {
+        Some(names) => names
+            .split(',')
+            .map(|name| {
+                serde_json::from_value(json!(name))
+                    .map_err(|_| format!("unknown fuzzy pinyin rule `{name}`"))
+            })
+            .collect::<Result<_, _>>()?,
+        None => Vec::new(),
+    };
     let state = tempfile::tempdir()?;
     let resources = std::fs::canonicalize(resources)?;
     let request = json!({"resources": resources, "state_root": state.path()}).to_string();
@@ -165,7 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let recorded = statistics(json!({"operation": "load"}))["selections"].clone();
 
-    println!("scheme={scheme} fuzzy={}", fuzzy_rules.join(","));
+    println!("scheme={scheme} fuzzy={}", json!(fuzzy_rules));
     report("character", character);
     report("view", view);
     report("commit", commit);
