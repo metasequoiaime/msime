@@ -36,7 +36,7 @@ final class LanguageSchemesTests: XCTestCase {
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
     // 全拼 14 键和 18 键同样要用户自己打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin].contains($0) })
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
@@ -93,7 +93,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.stroke.sharedIdentifier, "stroke")
     XCTAssertEqual(ChineseInputScheme(rawValue: "stroke"), .stroke, "the App Group value is the shared one")
     XCTAssertEqual(ChineseInputScheme.stroke.title, "笔画")
-    XCTAssertEqual(ChineseInputScheme.allCases.suffix(3), [.nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin], "the scheme order is persisted, so new schemes go last")
+    XCTAssertEqual(ChineseInputScheme.allCases.suffix(8), [.nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao], "the scheme order is persisted, so new schemes go last")
   }
 
   func testCantoneseShuangpinHasItsOwnSavedSelection() {
@@ -115,7 +115,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   /// 粤语双拼和微软双拼一样在第二排 L 右边有 `;` 键（#10099）：引擎把 ing、ik 放在 `;` 上，没有这个键这些音节打不出来，所以选了方案就一直显示，没有开关；其他方案不加这个键（普通粤拼把 ing、ik 完整拼出来，全拼、小鹤等方案的 `;` 不是编码键）。
   func testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey() {
-    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .sogou, .ziguang, .cantoneseShuangpin])
+    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .cantoneseShuangpin, .sogou, .ziguang])
     XCTAssertEqual(ChineseInputScheme.microsoft.semicolonFinalKeyAccessibilityLabel, "分号，微软双拼 ing")
     XCTAssertEqual(ChineseInputScheme.sogou.semicolonFinalKeyAccessibilityLabel, "分号，搜狗双拼 ing")
     XCTAssertEqual(ChineseInputScheme.ziguang.semicolonFinalKeyAccessibilityLabel, "分号，紫光双拼 ing")
