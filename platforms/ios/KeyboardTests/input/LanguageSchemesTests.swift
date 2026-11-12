@@ -115,8 +115,10 @@ final class LanguageSchemesTests: XCTestCase {
 
   /// 粤语双拼和微软双拼一样在第二排 L 右边有 `;` 键（#10099）：引擎把 ing、ik 放在 `;` 上，没有这个键这些音节打不出来，所以选了方案就一直显示，没有开关；其他方案不加这个键（普通粤拼把 ing、ik 完整拼出来，全拼、小鹤等方案的 `;` 不是编码键）。
   func testOnlyMicrosoftAndCantoneseShuangpinShowTheSemicolonFinalKey() {
-    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .cantoneseShuangpin])
+    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.showsSemicolonFinalKey), [.microsoft, .sogou, .ziguang, .cantoneseShuangpin])
     XCTAssertEqual(ChineseInputScheme.microsoft.semicolonFinalKeyAccessibilityLabel, "分号，微软双拼 ing")
+    XCTAssertEqual(ChineseInputScheme.sogou.semicolonFinalKeyAccessibilityLabel, "分号，搜狗双拼 ing")
+    XCTAssertEqual(ChineseInputScheme.ziguang.semicolonFinalKeyAccessibilityLabel, "分号，紫光双拼 ing")
     XCTAssertEqual(ChineseInputScheme.cantoneseShuangpin.semicolonFinalKeyAccessibilityLabel, "分号，粤语双拼 ing 和 ik")
     XCTAssertEqual(ChineseInputScheme.cantonese.semicolonFinalKeyAccessibilityLabel, "分号")
   }

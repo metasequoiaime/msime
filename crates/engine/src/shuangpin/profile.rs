@@ -290,6 +290,223 @@ static SMART_ABC: ShuangpinProfile = ShuangpinProfile {
     ],
 };
 
+// 搜狗、加加、紫光和国标双拼的键位按公开方案表独立转录；这里只保存声韵母到键的映射，不复制第三方配置文件。
+static SOGOU: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Sogou,
+    initials: &[("sh", "u"), ("ch", "i"), ("zh", "v")],
+    zero_initials: &[
+        ("a", "oa"),
+        ("ai", "ol"),
+        ("an", "oj"),
+        ("ang", "oh"),
+        ("ao", "ok"),
+        ("e", "oe"),
+        ("ei", "oz"),
+        ("en", "of"),
+        ("eng", "og"),
+        ("er", "or"),
+        ("o", "oo"),
+        ("ou", "ob"),
+    ],
+    finals: &[
+        ("iu", "q"),
+        ("ei", "z"),
+        ("e", "e"),
+        ("uan", "r"),
+        ("ue", "t"),
+        ("ve", "t"),
+        ("un", "p"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "x"),
+        ("a", "a"),
+        ("ong", "s"),
+        ("iong", "s"),
+        ("ai", "l"),
+        ("en", "f"),
+        ("eng", "g"),
+        ("ang", "h"),
+        ("an", "j"),
+        ("uai", "y"),
+        ("ing", ";"),
+        ("uang", "d"),
+        ("iang", "d"),
+        ("ou", "b"),
+        ("ua", "w"),
+        ("ia", "w"),
+        ("ao", "k"),
+        ("ui", "v"),
+        ("v", "y"),
+        ("in", "n"),
+        ("iao", "c"),
+        ("ian", "m"),
+    ],
+};
+
+static JIAJIA: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Jiajia,
+    initials: &[("sh", "i"), ("ch", "u"), ("zh", "v")],
+    zero_initials: &[
+        ("a", "oa"),
+        ("ai", "os"),
+        ("an", "of"),
+        ("ang", "og"),
+        ("ao", "od"),
+        ("e", "oe"),
+        ("ei", "ow"),
+        ("en", "or"),
+        ("eng", "ot"),
+        ("er", "oq"),
+        ("o", "oo"),
+        ("ou", "op"),
+    ],
+    finals: &[
+        ("iu", "n"),
+        ("ei", "w"),
+        ("e", "e"),
+        ("uan", "c"),
+        ("ue", "x"),
+        ("ve", "x"),
+        ("un", "z"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "m"),
+        ("a", "a"),
+        ("ong", "y"),
+        ("iong", "y"),
+        ("ai", "s"),
+        ("en", "r"),
+        ("eng", "t"),
+        ("ang", "g"),
+        ("an", "f"),
+        ("uai", "x"),
+        ("ing", "q"),
+        ("uang", "h"),
+        ("iang", "h"),
+        ("ou", "p"),
+        ("ua", "b"),
+        ("ia", "b"),
+        ("ao", "d"),
+        ("ui", "v"),
+        ("v", "v"),
+        ("in", "l"),
+        ("iao", "k"),
+        ("ian", "j"),
+    ],
+};
+
+static ZIGUANG: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Ziguang,
+    initials: &[("sh", "i"), ("ch", "a"), ("zh", "u")],
+    zero_initials: &[
+        ("a", "oa"),
+        ("ai", "op"),
+        ("an", "or"),
+        ("ang", "os"),
+        ("ao", "oq"),
+        ("e", "oe"),
+        ("ei", "ok"),
+        ("en", "ow"),
+        ("eng", "ot"),
+        ("er", "oj"),
+        ("o", "oo"),
+        ("ou", "oz"),
+    ],
+    finals: &[
+        ("iu", "j"),
+        ("ei", "k"),
+        ("e", "e"),
+        ("uan", "l"),
+        ("ue", "n"),
+        ("ve", "n"),
+        ("un", "m"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "d"),
+        ("a", "a"),
+        ("ong", "h"),
+        ("iong", "h"),
+        ("ai", "p"),
+        ("en", "w"),
+        ("eng", "t"),
+        ("ang", "s"),
+        ("an", "r"),
+        ("uai", "y"),
+        ("ing", ";"),
+        ("uang", "g"),
+        ("iang", "g"),
+        ("ou", "z"),
+        ("ua", "x"),
+        ("ia", "x"),
+        ("ao", "q"),
+        ("ui", "n"),
+        ("v", "n"),
+        ("in", "y"),
+        ("iao", "b"),
+        ("ian", "f"),
+    ],
+};
+
+static GUOBIAO: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Guobiao,
+    initials: &[("sh", "u"), ("ch", "i"), ("zh", "v")],
+    zero_initials: &[
+        ("a", "aa"),
+        ("ai", "ak"),
+        ("an", "af"),
+        ("ang", "ag"),
+        ("ao", "ac"),
+        ("e", "ae"),
+        ("ei", "ab"),
+        ("en", "ar"),
+        ("eng", "ah"),
+        ("er", "al"),
+        ("o", "ao"),
+        ("ou", "ap"),
+    ],
+    finals: &[
+        ("iu", "y"),
+        ("ei", "b"),
+        ("e", "e"),
+        ("uan", "w"),
+        ("ue", "x"),
+        ("ve", "x"),
+        ("un", "z"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "t"),
+        ("a", "a"),
+        ("ong", "s"),
+        ("iong", "s"),
+        ("ai", "k"),
+        ("en", "r"),
+        ("eng", "h"),
+        ("ang", "g"),
+        ("an", "f"),
+        ("uai", "y"),
+        ("ing", "j"),
+        ("uang", "n"),
+        ("iang", "n"),
+        ("ou", "p"),
+        ("ua", "q"),
+        ("ia", "q"),
+        ("ao", "c"),
+        ("ui", "v"),
+        ("v", "v"),
+        ("in", "l"),
+        ("iao", "m"),
+        ("ian", "d"),
+    ],
+};
+
 impl ShuangpinProfile {
     /// 有韵母放在 `;` 上，或零声母编码以 `;` 结尾。这时方案在奇数长度的片段之后接受 `;`，宿主把 `;` 当字母键送进来（`EngineSnapshot::microsoft_shuangpin`）。
     pub fn uses_semicolon_key(&self) -> bool {
@@ -314,6 +531,10 @@ pub fn profile(kind: ShuangpinProfileKind) -> Option<&'static ShuangpinProfile> 
         ShuangpinProfileKind::Shoudao => Some(&SHOUDAO),
         ShuangpinProfileKind::Microsoft => Some(&MICROSOFT),
         ShuangpinProfileKind::SmartAbc => Some(&SMART_ABC),
+        ShuangpinProfileKind::Sogou => Some(&SOGOU),
+        ShuangpinProfileKind::Jiajia => Some(&JIAJIA),
+        ShuangpinProfileKind::Ziguang => Some(&ZIGUANG),
+        ShuangpinProfileKind::Guobiao => Some(&GUOBIAO),
         ShuangpinProfileKind::Custom => None,
     }
 }
@@ -397,6 +618,10 @@ mod tests {
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
             ShuangpinProfileKind::SmartAbc,
+            ShuangpinProfileKind::Sogou,
+            ShuangpinProfileKind::Jiajia,
+            ShuangpinProfileKind::Ziguang,
+            ShuangpinProfileKind::Guobiao,
         ] {
             let selected = profile(kind).unwrap();
             assert_eq!(selected.kind, kind);
@@ -404,7 +629,12 @@ mod tests {
             assert_eq!(selected.finals.len(), 33);
             assert_eq!(
                 selected.uses_semicolon_key(),
-                kind == ShuangpinProfileKind::Microsoft
+                matches!(
+                    kind,
+                    ShuangpinProfileKind::Microsoft
+                        | ShuangpinProfileKind::Sogou
+                        | ShuangpinProfileKind::Ziguang
+                )
             );
         }
         assert!(profile(ShuangpinProfileKind::Custom).is_none());
@@ -426,6 +656,18 @@ mod tests {
         let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
         assert_eq!(key_of(xiaohe.initials, "zh"), Some("v"));
         assert_eq!(key_of(xiaohe.finals, "ing"), Some("k"));
+        let sogou = profile(ShuangpinProfileKind::Sogou).unwrap();
+        assert_eq!(key_of(sogou.finals, "ing"), Some(";"));
+        assert_eq!(key_of(sogou.finals, "iang"), Some("d"));
+        let jiajia = profile(ShuangpinProfileKind::Jiajia).unwrap();
+        assert_eq!(key_of(jiajia.initials, "sh"), Some("i"));
+        assert_eq!(key_of(jiajia.finals, "ing"), Some("q"));
+        let ziguang = profile(ShuangpinProfileKind::Ziguang).unwrap();
+        assert_eq!(key_of(ziguang.initials, "ch"), Some("a"));
+        assert_eq!(key_of(ziguang.finals, "ing"), Some(";"));
+        let guobiao = profile(ShuangpinProfileKind::Guobiao).unwrap();
+        assert_eq!(key_of(guobiao.finals, "iang"), Some("n"));
+        assert_eq!(key_of(guobiao.zero_initials, "a"), Some("aa"));
     }
 
     #[test]

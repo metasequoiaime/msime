@@ -1854,7 +1854,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       for button in buttons {
         applyLetterFont(to: button)
         if let entry = letterGridButtons.first(where: { $0.button === button }) {
-          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme == .microsoft)
+          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme.showsSemicolonFinalKey)
         }
         button.setNeedsUpdateConfiguration()
       }
@@ -5873,7 +5873,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .nineKeyShuangpin: session.switchToNineKeyShuangpin()
     case .fourteenKey: session.switchToFourteenKey()
     case .eighteenKey: session.switchToEighteenKey()
-    case .ziranma, .microsoft, .shoudao: switchShuangpinLayout(profile: inputScheme.rawValue)
+    case .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao:
+      switchShuangpinLayout(profile: inputScheme.shuangpinProfile ?? "xiaohe")
     case .wubi: letterGrid == .fourteenKey ? session.switchToFourteenKeyWubi() : session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .korean: session.switchToKorean()
@@ -7263,7 +7264,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for row in fourteenKeyRowViews where row.isHidden == (shownGrid == .fourteenKey) { row.isHidden = shownGrid != .fourteenKey }
     for row in eighteenKeyRowViews where row.isHidden == (shownGrid == .eighteenKey) { row.isHidden = shownGrid != .eighteenKey }
     updateFourteenKeySeparator()
-    let semicolon = fourteenKey && inputScheme == .microsoft
+    let semicolon = fourteenKey && inputScheme.showsSemicolonFinalKey
     for (button, key) in letterGridButtons {
       button.configuration?.title = key.face(semicolon: semicolon)
       button.accessibilityLabel = key.accessibilityLabel(semicolon: semicolon)

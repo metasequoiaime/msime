@@ -3,7 +3,7 @@ import Darwin
 import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao, smartAbc, sogou, jiajia, ziguang, guobiao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
@@ -14,6 +14,11 @@ enum TypingSource: String, CaseIterable {
     case .ziranma: "自然码双拼"
     case .microsoft: "微软双拼"
     case .shoudao: "首道双拼"
+    case .smartAbc: "智能 ABC 双拼"
+    case .sogou: "搜狗双拼"
+    case .jiajia: "加加双拼"
+    case .ziguang: "紫光双拼"
+    case .guobiao: "国标双拼"
     // 86 与 98 五笔共用一个统计来源，这里只写「五笔」。
     case .wubi: "五笔"
     case .japanese: "日语"

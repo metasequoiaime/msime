@@ -152,12 +152,16 @@ impl KeyLayout {
 }
 
 /// 26 键双拼的内置方案；`custom` 没有内置的表，评测不了。
-const SHUANGPIN_PROFILES: [ShuangpinProfileKind; 5] = [
+const SHUANGPIN_PROFILES: [ShuangpinProfileKind; 9] = [
     ShuangpinProfileKind::Xiaohe,
     ShuangpinProfileKind::Ziranma,
     ShuangpinProfileKind::Shoudao,
     ShuangpinProfileKind::Microsoft,
     ShuangpinProfileKind::SmartAbc,
+    ShuangpinProfileKind::Sogou,
+    ShuangpinProfileKind::Jiajia,
+    ShuangpinProfileKind::Ziguang,
+    ShuangpinProfileKind::Guobiao,
 ];
 
 /// 按方案名取一个内置 26 键双拼方案，`convert_eval` 和 `rerank_latency` 的 `--shuangpin-profile` 共用。
@@ -166,7 +170,7 @@ pub fn parse_profile(name: &str) -> Result<ShuangpinProfileKind, String> {
         .into_iter()
         .find(|kind| kind.name() == name)
         .ok_or_else(|| {
-            format!("unknown shuangpin profile: {name} (expected xiaohe, ziranma, shoudao, microsoft or smart_abc)")
+            format!("unknown shuangpin profile: {name} (expected xiaohe, ziranma, shoudao, microsoft, smart_abc, sogou, jiajia, ziguang or guobiao)")
         })
 }
 
@@ -181,6 +185,10 @@ pub fn profile_label(profile: ShuangpinProfileKind) -> u64 {
         ShuangpinProfileKind::Microsoft => 3,
         ShuangpinProfileKind::Custom => 4,
         ShuangpinProfileKind::SmartAbc => 5,
+        ShuangpinProfileKind::Sogou => 6,
+        ShuangpinProfileKind::Jiajia => 7,
+        ShuangpinProfileKind::Ziguang => 8,
+        ShuangpinProfileKind::Guobiao => 9,
     }
 }
 

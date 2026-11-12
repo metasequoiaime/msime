@@ -305,7 +305,12 @@ impl Edition {
             TouchKeyboardScheme::Xiaohe
             | TouchKeyboardScheme::Ziranma
             | TouchKeyboardScheme::Microsoft
-            | TouchKeyboardScheme::Shoudao => InputScheme::Shuangpin,
+            | TouchKeyboardScheme::Shoudao
+            | TouchKeyboardScheme::SmartAbc
+            | TouchKeyboardScheme::Sogou
+            | TouchKeyboardScheme::Jiajia
+            | TouchKeyboardScheme::Ziguang
+            | TouchKeyboardScheme::Guobiao => InputScheme::Shuangpin,
             TouchKeyboardScheme::Wubi => InputScheme::Wubi,
             TouchKeyboardScheme::JapaneseNineKey | TouchKeyboardScheme::Japanese => {
                 InputScheme::Japanese

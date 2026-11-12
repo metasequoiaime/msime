@@ -37,6 +37,10 @@ export type ShuangpinProfile =
   | "shoudao"
   | "microsoft"
   | "smart_abc"
+  | "sogou"
+  | "jiajia"
+  | "ziguang"
+  | "guobiao"
   | "custom";
 export type { WubiProfile } from "./wubi-preferences";
 
@@ -53,6 +57,10 @@ function shuangpinProfileOptions(editable: boolean, current: ShuangpinProfile) {
       <option value="shoudao">首道双拼</option>
       <option value="microsoft">微软双拼</option>
       <option value="smart_abc">智能 ABC 双拼</option>
+      <option value="sogou">搜狗双拼</option>
+      <option value="jiajia">加加双拼</option>
+      <option value="ziguang">紫光双拼</option>
+      <option value="guobiao">国标双拼</option>
       {(editable || current === "custom") && (
         <option value="custom" disabled={!editable}>
           自定义双拼

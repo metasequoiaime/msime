@@ -34,6 +34,11 @@ export class TypingStatisticsPolicy {
       if (profile === "ziranma") return "ziranma";
       if (profile === "microsoft") return "microsoft";
       if (profile === "shoudao") return "shoudao";
+      if (profile === "smart_abc") return "smart_abc";
+      if (profile === "sogou") return "sogou";
+      if (profile === "jiajia") return "jiajia";
+      if (profile === "ziguang") return "ziguang";
+      if (profile === "guobiao") return "guobiao";
       return "shuangpin";
     }
     return "unknown";

@@ -40,15 +40,15 @@ public final class KeyboardSchemeSmoke {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
             "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "韩语 26 键",
             "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画", "注音 9 键", "全拼 14 键", "九键双拼", "全拼 18 键",
-            "粤语双拼")));
+            "粤语双拼", "智能 ABC 双拼", "搜狗双拼", "加加双拼", "紫光双拼", "国标双拼")));
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::preferenceId).toList().equals(List.of(
             "quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi",
             "japanese_nine_key", "japanese", "handwriting", "korean",
             "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke", "zhuyin_nine_key", "fourteen_key",
-            "nine_key_shuangpin", "eighteen_key", "cantonese_shuangpin")));
+            "nine_key_shuangpin", "eighteen_key", "cantonese_shuangpin", "smart_abc", "sogou", "jiajia", "ziguang", "guobiao")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
             List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ9", "あ26", "写手", "한26",
-                "粤26", "注大千", "越26", "藏26", "笔5", "注9", "拼14", "双9", "拼18", "粤双")));
+            "粤26", "注大千", "越26", "藏26", "笔5", "注9", "拼14", "双9", "拼18", "粤双", "智双", "搜双", "加双", "紫双", "国双")));
         // 五笔只有一个方案入口，标题与角标跟随 `wubi_profile`；缺省和未知值按 86 版，其它方案不受影响。
         check(KeyboardScheme.normalizedWubiProfile("wubi98").equals("wubi98"));
         check(KeyboardScheme.normalizedWubiProfile("wubi86").equals("wubi86"));
@@ -188,7 +188,8 @@ public final class KeyboardSchemeSmoke {
         check(Arrays.stream(KeyboardScheme.values()).filter(KeyboardScheme::optIn).toList().equals(List.of(
             KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN,
             KeyboardScheme.STROKE, KeyboardScheme.ZHUYIN_NINE_KEY, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
-            KeyboardScheme.NINE_KEY_SHUANGPIN, KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.CANTONESE_SHUANGPIN)));
+            KeyboardScheme.NINE_KEY_SHUANGPIN, KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.CANTONESE_SHUANGPIN,
+            KeyboardScheme.SMART_ABC, KeyboardScheme.SOGOU, KeyboardScheme.JIAJIA, KeyboardScheme.ZIGUANG, KeyboardScheme.GUOBIAO)));
         check(KeyboardScheme.enabledFromPreferenceIds(List.of("zhuyin_nine_key", "zhuyin", "quanpin"), FULL)
             .equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY)));
         check(KeyboardScheme.enabledFromPreferenceIds(List.of("stroke", "quanpin"), FULL).equals(List.of(
@@ -351,7 +352,8 @@ public final class KeyboardSchemeSmoke {
             List.of(KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
                 KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.HANDWRITING,
                 KeyboardScheme.QUANPIN_FOURTEEN_KEY, KeyboardScheme.NINE_KEY_SHUANGPIN,
-                KeyboardScheme.QUANPIN_EIGHTEEN_KEY)));
+                KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.SMART_ABC, KeyboardScheme.SOGOU,
+                KeyboardScheme.JIAJIA, KeyboardScheme.ZIGUANG, KeyboardScheme.GUOBIAO)));
         check(KeyboardScheme.fallback(FULL) == KeyboardScheme.QUANPIN);
         check(KeyboardScheme.fallback(PINYIN) == KeyboardScheme.QUANPIN);
         check(KeyboardScheme.fallback(WUBI) == KeyboardScheme.WUBI);

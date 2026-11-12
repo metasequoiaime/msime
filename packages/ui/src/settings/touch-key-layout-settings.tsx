@@ -107,6 +107,11 @@ export function touchKeyLayoutKind(
     case "ziranma":
     case "microsoft":
     case "shoudao":
+    case "smart_abc":
+    case "sogou":
+    case "jiajia":
+    case "ziguang":
+    case "guobiao":
       return shuangpinLayout === "fourteen_key" || shuangpinLayout === "eighteen_key"
         ? "fourteen"
         : "twentySix";

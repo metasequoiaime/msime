@@ -3782,6 +3782,16 @@ struct KeyboardView {
         return '双拼 · 微软';
       case 'shoudao':
         return '双拼 · 首道';
+      case 'smart_abc':
+        return '双拼 · 智能 ABC';
+      case 'sogou':
+        return '双拼 · 搜狗';
+      case 'jiajia':
+        return '双拼 · 加加';
+      case 'ziguang':
+        return '双拼 · 紫光';
+      case 'guobiao':
+        return '双拼 · 国标';
       case 'wubi':
         return KeyboardScheme.wubiSpaceLabel(this.wubiProfile);
       case 'japanese':
