@@ -8476,7 +8476,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。拼写以「拼音分词」作为标记文本写进编辑框；候选条只在全拼 14 键的读音行、已选的那一段和本地模式名里画它（`updatePreeditButton`）。
-    // 全拼九键的 `preedit` 是数字、14 键的是组码字母，读音行显示 Engine 给的拼音读音（`ning'bai`；首选是英文词时是这个词的字母）；没有读音时才退回 `preedit`。
+    // 全拼九键的 `preedit` 是数字、14 键的是组码字母，读音行显示 Engine 给的拼音读音（`ning'bai`；首选是英文词时是这个词的字母；全拼九键多按或按错一键切不成音节时，切不开的那一键是键上的一个字母）；没有读音时（英文专用模式）才退回 `preedit`。
     let shownPreedit = !snapshot.nineKeyReading.isEmpty ? snapshot.nineKeyReading
       : inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit
     let composing = snapshot.phrasePrefix + shownPreedit
