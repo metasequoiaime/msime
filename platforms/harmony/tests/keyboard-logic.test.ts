@@ -15854,6 +15854,30 @@ group("nine-key writes its pinyin reading into the field, never the digits", () 
     SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "64426", "ni'426", "") === "ni'426",
     "only when the Engine has no reading does the field fall back to its preedit",
   );
+  // 多按或按错一键切不成音节时，切不开的那一键在读音里是键上的一个字母（6442677 是 ni'hao's's）；首行是英文词时读音是这个词的字母（4663 是 good）。宿主原样画、原样写，不换回数字。
+  for (const [editing, strayReading] of [
+    ["6442677", "ni'hao's's"],
+    ["4663", "good"],
+  ]) {
+    const shown: string = SchemeCompositionPolicy.reading(
+      SchemeTraits.QUANPIN,
+      editing,
+      editing,
+      strayReading,
+    );
+    const written: string = SchemeCompositionPolicy.fieldSpelling(
+      SchemeTraits.QUANPIN,
+      editing,
+      editing,
+      strayReading,
+    );
+    check(shown === strayReading, `the strip draws ${strayReading} as the Engine gave it`);
+    check(written === strayReading, `the field receives ${strayReading} as the Engine gave it`);
+    check(
+      !/[0-9]/.test(shown + written),
+      `${strayReading} carries no digits to the strip or the field`,
+    );
+  }
   check(
     SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "nihao", "ni'hao", "") ===
       "ni'hao" &&
