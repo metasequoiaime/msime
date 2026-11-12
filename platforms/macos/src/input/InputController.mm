@@ -8019,6 +8019,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 撤回锁定后的关闭状态事件可能先于窗口服务器翻译出的字母抵达；保留标记到首个无 Shift 的字母按键，才能把不带 Caps Lock 修饰位的陈旧大写字符还原。
     const BOOL capsLockTapReleasedForEvent = _capsLockTapReleased;
     BOOL staleCapsLock = NO;
+    if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && !capsLock) {
+        // 明确收到下一次关闭边沿后，前一轮撤回锁定的迟到状态已经结束；后续打开边沿应重新开始一次轻点判定。
+        _capsLockTapReleased = NO;
+        _capsLockTapReleasedSawStaleCapsLock = NO;
+    }
     if (_capsLockTapReleased && event.type == NSEventTypeFlagsChanged && event.keyCode == 0x39 && capsLock) {
         // 这时如果确实又按下了 Caps Lock，物理状态仍会是按下；否则只是合成撤回后迟到的旧状态。
         if (MSIMECapsLockKeyHeld() || _capsLockTapReleasedSawStaleCapsLock) {
