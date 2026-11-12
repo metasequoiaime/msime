@@ -119,3 +119,48 @@ fn fuzzy_whole_words_still_lead_a_stand_in_sentence() {
         words(&rows)
     );
 }
+
+/// 备选切分最常用的词（`hu'an` 的「湖岸」）在主切分行多于一页时被提到第 2 位，比它后面的字面行轻得多。模糊行不借它越过更重的字面行，它自己也留在第 2 位（真实词库上 `huan` 开 uan-uang 时「还」曾从第 3 位掉到第 8 位）。
+#[test]
+fn a_promoted_alternative_reading_does_not_pull_fuzzy_rows_past_heavier_exact_rows() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("huan", "换", 555_252)
+        .insert("huan", "还", 544_146)
+        .insert("huan", "欢", 73_034)
+        .insert("huan", "环", 58_260)
+        .insert("huan", "缓", 28_493)
+        .insert("huan", "幻", 14_012)
+        .insert("huan", "患", 9_000)
+        .insert("hu'an", "湖岸", 7_250)
+        .insert("huang", "黄", 172_829)
+        .insert("huang", "皇", 29_635)
+        .insert("huang", "煌", 19_518)
+        .insert("huang", "凰", 12_736);
+    let uan_uang = FuzzyPinyinOptions {
+        rules: fuzzy_rule::UAN_UANG,
+    };
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let plain = dictionary.query("huan", "huan", NONE, NO_FUZZY);
+    assert_eq!(
+        words(&plain[..8]),
+        ["换", "湖岸", "还", "欢", "环", "缓", "幻", "患"],
+        "夹具要触发提座"
+    );
+    let rows = dictionary.query("huan", "huan", NONE, uan_uang);
+    // 折后：黄 86414、皇 14817、煌 9759、凰 6368。
+    assert_eq!(
+        words(&rows),
+        ["换", "湖岸", "还", "黄", "欢", "环", "缓", "皇", "幻", "煌", "患", "凰"]
+    );
+    for (seat, fuzzy) in rows.iter().enumerate().filter(|(_, row)| row.fuzzy) {
+        assert!(
+            rows[seat + 1..].iter().all(|later| later.fuzzy
+                || !later.source.is_dictionary()
+                || later.weight < fuzzy.weight / FUZZY_WEIGHT_DIVISOR),
+            "{} 排在更重的字面行前面: {:?}",
+            fuzzy.word,
+            words(&rows)
+        );
+    }
+}
