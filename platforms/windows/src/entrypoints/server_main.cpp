@@ -2620,16 +2620,16 @@ int wmain(int argc, wchar_t **argv) {
       const auto current_tsf_config_revision = tsf_config_revision->snapshot();
       const auto current_tsf_tickets = server.current_tsf_tickets();
       if (tsf_config_delivery.needs_send(current_tsf_config_revision, current_tsf_tickets)) {
-        if (const auto view = server.mode_view()) {
-          msime::windows::TsfLocalConfig pending;
-          {
-            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
-            pending = *tsf_config;
-          }
-          if (server.send_tsf_config(pending) &&
-              tsf_config_revision->is_current(current_tsf_config_revision))
-            tsf_config_delivery.mark_sent(current_tsf_config_revision, current_tsf_tickets);
+        // 配置属于每条已注册的 TSF 管道，不依赖当前是否已经建立焦点会话。
+        // 开始菜单、搜索框等宿主可能在 mode_view() 为空时先完成注册；若在这里等待焦点，TIP 会一直保留编译时默认值。
+        msime::windows::TsfLocalConfig pending;
+        {
+          std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+          pending = *tsf_config;
         }
+        if (server.send_tsf_config(pending) &&
+            tsf_config_revision->is_current(current_tsf_config_revision))
+          tsf_config_delivery.mark_sent(current_tsf_config_revision, current_tsf_tickets);
       }
       // One CN/EN state follows the user between applications when the scope
       // is global. Each TSF client keeps its own mode, so a newly focused one
