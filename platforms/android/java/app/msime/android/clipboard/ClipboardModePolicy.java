@@ -24,6 +24,11 @@ public final class ClipboardModePolicy {
         return new File(files, VISITOR_DIRECTORY);
     }
 
+    /** 补读剪贴板的已处理身份也按模式隔离，避免主模式挡住访客模式的首次补读。 */
+    public static String handledClipPreferenceKey(Mode mode) {
+        return mode == Mode.VISITOR ? "handled_clip_visitor" : "handled_clip_main";
+    }
+
     /** 只有刚切换到访客模式时短暂显示垃圾桶，持久化模式恢复时仍显示回车。 */
     public static EnterIcon enterIcon(Mode mode, boolean transientTransition) {
         return mode == Mode.VISITOR && transientTransition ? EnterIcon.TRASH : EnterIcon.RETURN;
