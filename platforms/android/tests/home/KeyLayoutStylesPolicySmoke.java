@@ -175,7 +175,7 @@ public final class KeyLayoutStylesPolicySmoke {
                 "26-key bottom row " + style);
         }
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false).get(3))
-            .equals(List.of("123", "符", "空格", "，", "中", "↵")), "standard bottom row faces");
+            .equals(List.of("123", "符", "。", "空格", "，", "中", "↵")), "standard bottom row faces");
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.LONG_SPACE, false, false).get(3))
             .equals(List.of("123", "，", "空格", "中", "↵")), "long space still reads 空格");
         Key enter = rows.get(3).get(rows.get(3).size() - 1);
@@ -275,7 +275,7 @@ public final class KeyLayoutStylesPolicySmoke {
         check(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE.equals("touch_twenty_six_symbol_first"), "the swap writes its shared preference");
         // 打开后 26 键有 符 的样式（标准、逗号句号）把 符 排到 123 左边，份额与键盘按同一条规则排的底行相同。
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false, true).get(3))
-            .equals(List.of("符", "123", "空格", "，", "中", "↵")), "standard bottom row puts 符 before 123");
+            .equals(List.of("符", "123", "。", "空格", "，", "中", "↵")), "standard bottom row puts 符 before 123");
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.COMMA_PERIOD, false, false, true).get(3)).subList(0, 2)
             .equals(List.of("符", "123")), "comma-period bottom row puts 符 before 123");
         for (Row style : Kind.TWENTY_SIX.rows) {
@@ -322,7 +322,7 @@ public final class KeyLayoutStylesPolicySmoke {
         check(TouchKeyStyle.LANGUAGE_LEFT_TITLE.equals("中/英键放在空格左边")
             && TouchKeyStyle.LANGUAGE_LEFT_NOTE.equals("中/英 排到空格左边，逗号、句号仍紧挨空格。"), "toggle title and note");
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false, false, true).get(3))
-            .equals(List.of("123", "符", "中", "空格", "，", "↵")), "26 standard puts 中 before the space");
+            .equals(List.of("123", "符", "中", "。", "空格", "，", "↵")), "26 standard puts 中 before 。 and the space");
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.COMMA_PERIOD, false, false, false, true).get(3))
             .equals(List.of("123", "符", "中", "，", "空格", "。", "↵")), "26 comma-period keeps ， against the space");
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.LONG_SPACE, false, false, false, true).get(3))
@@ -330,7 +330,7 @@ public final class KeyLayoutStylesPolicySmoke {
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.EMOJI, false, false, false, true).get(3))
             .equals(List.of("123", "😀", "中", "空格", "，", "↵")), "26 emoji");
         check(faces(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false, true, true).get(3))
-            .equals(List.of("符", "123", "中", "空格", "，", "↵")), "the swap and 中 on the left combine");
+            .equals(List.of("符", "123", "中", "。", "空格", "，", "↵")), "the swap and 中 on the left combine");
         check(faces(last(KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, Row.STANDARD, false, false, false, true)))
             .equals(List.of("123", "中", "，", "空格", "。", "↵")), "14/18 standard");
         check(faces(last(KeyLayoutStylesPolicy.keyboard(Kind.NINE, Row.STANDARD, false, false, false, true)))
