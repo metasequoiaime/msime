@@ -111,6 +111,20 @@ final class InlineCompositionDefaultTests: XCTestCase {
     XCTAssertTrue(preedit.isHidden, "没有可见读音时不保留空白编辑入口")
   }
 
+  /// 多按一键切不成音节（6442677，末尾两个 7 接不上任何音节）时，写进输入框的仍是一位对一键的字母，不退回数字。
+  func testNineKeyMarksLettersWhenAKeyIsMistyped() throws {
+    let controller = controller(.nineKey)
+    for digit in [6, 4, 4, 2, 6, 7, 7] {
+      try tap({ $0.accessibilityIdentifier == "nineKey\(digit)" }, in: controller)
+      let marked = controller.inlineMarkedText
+      XCTAssertFalse(marked.isEmpty)
+      XCTAssertFalse(marked.contains { $0.isNumber }, marked)
+    }
+    let marked = controller.inlineMarkedText
+    XCTAssertEqual(marked.filter { $0 != "'" }.count, 7, marked)
+    XCTAssertNotNil(CompositionCaretPolicy.alignment(marked, "6442677"), marked)
+  }
+
   /// 候选按 #10330 立即呈现：每按一个键，候选条上的词块、读音和展开箭头都直接画成新状态，图层上不挂任何动画。
   ///
   /// 被手指按过的词块换字时叠着渐变（标题 0.25s 的 `CATransition` fade）只在系统键盘里的真实触摸之后出现，进程内设 `isHighlighted` 或合成触摸都触发不了，那一项靠模拟器录屏验收（见 2026-10-30-candidate-immediate-presentation）；这里守住按键重画候选条这条路径本身不带动画。
