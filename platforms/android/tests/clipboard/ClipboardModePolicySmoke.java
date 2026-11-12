@@ -21,6 +21,8 @@ public final class ClipboardModePolicySmoke {
         check(ClipboardModePolicy.handledClipPreferenceKey(ClipboardModePolicy.Mode.VISITOR)
                 .equals("handled_clip_visitor"),
             "visitor mode has its own handled clipboard identity");
+        check(ClipboardModePolicy.legacyHandledClipPreferenceKey().equals("handled_clip"),
+            "the pre-isolation handled clipboard identity remains a migration source");
 
         check(ClipboardModePolicy.isValidSwipe(50, 200, 50, 100, 100, 50, 500),
             "an upward swipe into the keyboard toggles");

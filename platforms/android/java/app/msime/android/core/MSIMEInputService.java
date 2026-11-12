@@ -8982,8 +8982,19 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 上一次处理过的剪贴板身份，存在本进程的 SharedPreferences 里，键盘进程被回收后仍然记得；只有身份，没有文字。 */
     private String handledClipIdentity() {
-        return getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE)
-            .getString(ClipboardModePolicy.handledClipPreferenceKey(clipboardMode), null);
+        android.content.SharedPreferences preferences = getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE);
+        String key = ClipboardModePolicy.handledClipPreferenceKey(clipboardMode);
+        String identity = preferences.getString(key, null);
+        // 访客模式隔离前旧版本只有一份 handled_clip：它属于主模式，不能让它挡住访客模式的首次补读。
+        if (identity == null && clipboardMode == ClipboardModePolicy.Mode.MAIN) {
+            String legacy = preferences.getString(ClipboardModePolicy.legacyHandledClipPreferenceKey(), null);
+            if (legacy != null) {
+                preferences.edit().putString(key, legacy)
+                    .remove(ClipboardModePolicy.legacyHandledClipPreferenceKey()).apply();
+                identity = legacy;
+            }
+        }
+        return identity;
     }
 
     private void rememberHandledClip(String identity) {

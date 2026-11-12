@@ -29,6 +29,11 @@ public final class ClipboardModePolicy {
         return mode == Mode.VISITOR ? "handled_clip_visitor" : "handled_clip_main";
     }
 
+    /** 访客模式隔离前旧版本共用的已处理身份键，只迁移到主模式。 */
+    public static String legacyHandledClipPreferenceKey() {
+        return "handled_clip";
+    }
+
     /** 只有刚切换到访客模式时短暂显示垃圾桶，持久化模式恢复时仍显示回车。 */
     public static EnterIcon enterIcon(Mode mode, boolean transientTransition) {
         return mode == Mode.VISITOR && transientTransition ? EnterIcon.TRASH : EnterIcon.RETURN;
