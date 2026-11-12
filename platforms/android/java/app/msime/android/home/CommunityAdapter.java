@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -18,6 +19,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.ProgressBarPolicy;
 import app.msime.android.R;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
@@ -201,7 +203,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (item.kind() == CommunityRequest.Kind.SKIN) bindSkin(holder, item);
         else bindRow(holder, item, position);
         ViewPolicy.bindClick(holder.itemView, () -> onOpen.accept(item));
-        bindPill(holder.itemView.getContext(), holder.action, item, action);
+        bindPill(holder.itemView.getContext(), holder.action, holder.progress, item, action);
     }
 
     private void bindSkin(Holder holder, CommunityCatalog.Item item) {
@@ -255,16 +257,22 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     }
 
     /** The tonal pill: 获取 / 使用 on a skin, 添加 / 已添加 on a dictionary or phrase pack, none on a reply template. */
-    private void bindPill(Context context, @Nullable TextView pill, CommunityCatalog.Item item,
-            Action action) {
+    private void bindPill(Context context, @Nullable TextView pill, @Nullable ProgressBar progress,
+            CommunityCatalog.Item item, Action action) {
         if (pill == null) return;
         String label = label(item, action);
         if (label.isEmpty()) {
             ViewPolicy.hide(pill);
+            if (progress != null) ViewPolicy.hide(progress);
             ViewPolicy.bindOptionalClick(pill, null);
             return;
         }
         ViewPolicy.show(pill);
+        boolean busy = action == Action.BUSY;
+        if (progress != null) {
+            ViewPolicy.setVisible(progress, busy);
+            if (busy) ProgressBarPolicy.setIndeterminateTint(progress, ThemeColorPolicy.accent(context));
+        }
         pill.setText(label);
         boolean skin = item.kind() == CommunityRequest.Kind.SKIN;
         // 「已添加」是终态：没有底色、正文色、不响应；皮肤拿到之后的「使用」仍是可点的 tonal 按钮。
@@ -274,7 +282,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         ViewPolicy.setTextColor(pill, filled ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.text(context));
         ViewPolicy.setEnabled(pill, enabled);
         ViewPolicy.setInteractive(pill, enabled);
-        ViewPolicy.setActiveAlpha(pill, action != Action.BUSY, 0.6f);
+        ViewPolicy.setActiveAlpha(pill, !busy, 0.6f);
         if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
         else ViewPolicy.bindOptionalClick(pill, null);
         pill.setAccessibilityDelegate(HomeButtonPolicy.buttonDelegate(label + "，" + item.name()));
@@ -345,6 +353,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         @Nullable final TextView category;
         @Nullable final KeyboardPreview preview;
         @Nullable final TextView action;
+        @Nullable final ProgressBar progress;
 
         Holder(@NonNull View view) {
             super(view);
@@ -357,6 +366,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
             category = view.findViewById(R.id.community_item_category);
             preview = view.findViewById(R.id.community_item_preview);
             action = view.findViewById(R.id.community_item_action);
+            progress = view.findViewById(R.id.community_item_action_progress);
         }
     }
 }
