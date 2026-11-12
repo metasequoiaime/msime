@@ -363,6 +363,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 && node.getContentDescription() != null
                 && node.getContentDescription().toString().contains("右滑查看详情"));
             card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+            // `ACTION_SHOW_ON_SCREEN` 会重排输入法面板；API 34 以上先清掉旧的无障碍子树，再读取同一张卡片的屏幕坐标，避免把过渡坐标注入到旧节点上。
+            dropStaleNodes();
+            card = awaitAny(node -> node.isLongClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().contains("右滑查看详情"));
             Rect bounds = new Rect();
             card.getBoundsInScreen(bounds);
             if (bounds.width() > 0 && bounds.height() > 0 && bounds.equals(previous)) return card;
