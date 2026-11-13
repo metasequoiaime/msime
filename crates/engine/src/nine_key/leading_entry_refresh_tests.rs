@@ -1,7 +1,7 @@
 use super::leading_entry_tests::candidate_push as push_ranked;
 use super::*;
 
-// 固定 8f011cb59c 的完整刷新，去掉注释并替换入列为单次查询实验。末尾另补上后来加的 `mark_contests`，快照里的裁决标记才和生产刷新一致。
+// 固定 8f011cb59c 的完整刷新，去掉注释并替换入列为单次查询实验。末尾另补上后来加的 `mark_contests`，快照里的裁决标记才和生产刷新一致。整串切不开时退到最长可切前缀的那几行（`typo_prefix`）也是后来补的，两边的切分路径和覆盖核对才是同一批。
 impl NineKeySession {
     pub(super) fn candidate_entry_refresh(&mut self) {
         self.candidates.clear();
@@ -39,6 +39,7 @@ impl NineKeySession {
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let dictionary_options = self.dictionary_options();
         let mut alternatives = std::mem::take(&mut self.path_buffer);
+        let mut window = self.digits.len();
         let alternatives = if remaining.is_empty() {
             self.spellings.clear();
             alternatives.clear();
@@ -65,18 +66,30 @@ impl NineKeySession {
                 &mut self.path_scratch,
                 &mut alternatives,
             );
+            // 整串切不开时与生产刷新同一段前缀路径和同一段覆盖核对（`typo_prefix`），对照只比较入列本身。
+            let span = if alternatives.is_empty() {
+                let prefix = typo_prefix::append_prefix_paths(
+                    table,
+                    remaining,
+                    splits,
+                    prior,
+                    &mut alternatives,
+                );
+                if prefix == 0 {
+                    remaining
+                } else {
+                    window = locked_length + prefix;
+                    &remaining[..prefix]
+                }
+            } else {
+                remaining
+            };
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
-                if !self.sentence_seeds.is_empty() && remaining.len() >= SEEDED_TRUNCATE_DIGITS {
+                if !self.sentence_seeds.is_empty() && span.len() >= SEEDED_TRUNCATE_DIGITS {
                     alternatives.truncate(SEEDED_PATH_LIMIT);
                 }
-                seeded_paths(
-                    &mut alternatives,
-                    &self.sentence_seeds,
-                    remaining,
-                    table,
-                    prior,
-                );
+                seeded_paths(&mut alternatives, &self.sentence_seeds, span, table, prior);
             }
             alternatives.extend(
                 self.spellings
@@ -142,7 +155,8 @@ impl NineKeySession {
                 }
                 if cached && filter_dominated {
                     if let Some(best) = leading_rank(&leading, &candidates, word) {
-                        let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits)
+                        let Some(covered) =
+                            grid.matching_code_prefix_len(matched, &self.digits[..window])
                         else {
                             return false;
                         };
@@ -171,7 +185,8 @@ impl NineKeySession {
                 } else {
                     canonical.as_str()
                 };
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits[..window])
+                else {
                     continue;
                 };
                 candidate.pinyin.clear();

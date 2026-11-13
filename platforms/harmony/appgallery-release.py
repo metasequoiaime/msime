@@ -284,12 +284,13 @@ def load_materials(path, version):
     new_features = new_features.replace("{version}", version)
     if not isinstance(icon, str) or not icon or Path(icon).is_absolute():
         raise ReleaseError("华为应用资料必须指定仓库内图标")
-    root = Path.cwd().resolve()
+    # 图标按资料文件所在目录解析，和 workflow 的启动目录无关。
+    root = path.resolve().parent
     icon_path = (root / icon).resolve()
     try:
         icon_path.relative_to(root)
     except ValueError:
-        raise ReleaseError("华为应用资料图标必须位于仓库目录内") from None
+        raise ReleaseError("华为应用资料图标必须位于资料目录内") from None
     if not icon_path.is_file():
         raise ReleaseError("华为应用资料图标不存在")
     return {"lang": lang, "new_features": new_features, "icon": icon_path}

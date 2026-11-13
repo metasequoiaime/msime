@@ -8,11 +8,13 @@ Status: implemented
 
 ## Decision
 
-保留 `release-harmony.yml` 的 `appgallery=auto` 默认行为。`main` 正式发版仍自动上传并提交公开测试，但在提交前同步仓库固定的 `platforms/harmony/appgallery-materials.json`：上传 216×216、无透明通道的 AppGallery 图标，并通过 Publishing API 更新 `zh-CN` 的 `newFeatures`。资料文件不存在、图标尺寸不符、带透明通道或 API 同步失败时停止提交。
+保留 `release-harmony.yml` 的 `appgallery=auto` 默认行为。`main` 正式发版仍自动上传并提交公开测试，但在提交前同步仓库固定的 `platforms/harmony/appgallery-materials.json`：上传 216×216、无透明通道的 AppGallery 图标，并通过 Publishing API 更新 `zh-CN` 的 `newFeatures`。资料文件不存在、图标不存在或 API 同步失败时停止提交；离线回归检查仓库固定图标的尺寸和无透明通道格式，运行时不另行解析 PNG 像素格式。
+
+资料中的图标相对路径以资料文件所在目录为基准，并拒绝解析到该目录之外。workflow 从仓库根目录运行，不改变资料文件中以 Harmony 工程为基准的图标路径。离线测试直接调用产品 `load_materials` 解析实际提交的资料文件，避免测试自行拼路径而漏掉启动目录差异。
 
 截图、审核账号、VIP账号、隐私政策、备案和资质等不能从仓库安全推导的资料继续通过 AGC 配置或 `HARMONY_AGC_TEST_CONFIG_JSON` 一次维护；CI 不把这些敏感资料写入仓库或日志。`upload` 和 `public-test` 手动模式仍可用。
 
-本决定 supersede 了同日的“提审必须显式确认资料”实现：自动化入口保留，资料同步和失败门禁替代了取消自动模式。
+自动化入口保留，资料同步和失败门禁替代本次审查中考虑过的取消自动模式方案；不保留一份与实际默认值矛盾的“显式提审”已实现笔记。0.4.0 的运行 `42357552634` 没有执行 AppGallery 步骤，0.4.1 的运行 `42595718956` 则在 #11173 合入后解析为 `public-test`，这两次运行是调查自动提交行为的依据。
 
 ## Alternatives considered
 

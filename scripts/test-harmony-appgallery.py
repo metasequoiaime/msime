@@ -314,7 +314,8 @@ class AppGalleryTests(unittest.TestCase):
         output = Path(defaults["GITHUB_OUTPUT"])
         resolved = [({"GITHUB_REF_NAME": "main", "PUBLISH": "true"}, "public-test"),
                     ({"GITHUB_REF_NAME": "main", "PUBLISH": "false"}, "none"),
-                    ({"GITHUB_REF_NAME": "develop", "PUBLISH": "true"}, "none")]
+                    ({"GITHUB_REF_NAME": "develop", "PUBLISH": "true"}, "none"),
+                    ({"GITHUB_REF_NAME": "release/harmony-0.2.1", "PUBLISH": "true"}, "none")]
         for changes, mode in resolved:
             with self.subTest(auto=changes):
                 output.write_text("")
@@ -324,15 +325,26 @@ class AppGalleryTests(unittest.TestCase):
                 self.assertIn(f"appgallery={mode}\n", output.read_text())
 
     def test_materials_file_has_opaque_appgallery_icon(self):
-        materials = json.loads((ROOT / "platforms/harmony/appgallery-materials.json").read_text())
-        icon = ROOT / "platforms/harmony" / materials["icon"]
+        materials = AGC.load_materials(ROOT / "platforms/harmony/appgallery-materials.json", "0.4.1")
+        icon = materials["icon"]
         self.assertEqual(materials["lang"], "zh-CN")
-        self.assertTrue(materials["newFeatures"])
+        self.assertTrue(materials["new_features"])
         self.assertTrue(icon.is_file())
         data = icon.read_bytes()
         self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
         width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
         self.assertEqual((width, height, bit_depth, color_type), (216, 216, 8, 2))
+
+    def test_materials_paths_do_not_depend_on_current_directory(self):
+        with mock.patch.object(Path, "cwd", return_value=Path(self.temp.name)):
+            materials = AGC.load_materials(ROOT / "platforms/harmony/appgallery-materials.json", "0.4.1")
+        self.assertEqual(materials["icon"], ROOT / "platforms/harmony/AppScope/resources/base/media/app_icon_appgallery.png")
+
+    def test_materials_reject_icons_outside_the_materials_directory(self):
+        config = Path(self.temp.name) / "materials.json"
+        config.write_text(json.dumps({"lang": "zh-CN", "newFeatures": "合成测试", "icon": "../outside.png"}))
+        with self.assertRaises(AGC.ReleaseError):
+            AGC.load_materials(config, "0.4.1")
 
     def test_real_transport_streams_bytes_and_refuses_redirects(self):
         received = []
