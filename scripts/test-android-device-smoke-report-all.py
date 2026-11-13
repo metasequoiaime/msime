@@ -225,6 +225,14 @@ def main() -> None:
         run.expect(run.code == 1 and len(run.failed_lines()) == 2, "发布中的已知失败必须阻止通过并全部汇总")
         run.expect(run.ran("ThemeModeDeviceSmoke"), "设备信息失败不能掩盖主题失败")
 
+        for sdk in ("28", "35"):
+            run = Run(base, f"voice-empty-{sdk}", ["--voice-empty"], sdk=sdk)
+            run.expect(run.code == 0 and run.ran("DeviceSmoke"), "空语音专项保留真实主输入")
+            run.expect(f"script voice-lifecycle {SERIAL} empty" in run.calls, "空语音专项必须调用独立回调场景")
+            run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "空语音专项不重复无关绘制套件")
+        run = Run(base, "voice-empty-failure", ["--voice-empty"], fail_scripts="voice-lifecycle")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "空语音专项失败必须阻止通过")
+
         run = Run(base, "voice-hold-failure", [], fail_scripts="voice-lifecycle")
         run.expect(run.code == 1 and run.stopped_line() == "", "长按语音专项失败应汇总并继续独立检查")
         run.expect(run.failed_lines() == ["FAILED 长按语音锁定验收失败: MSIME_DEVICE_SMOKE_FAILED: voice-lifecycle phase (AssertionError) fake"], "长按语音专项失败应保留原始失败行")
