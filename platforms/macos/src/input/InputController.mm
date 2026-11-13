@@ -17,6 +17,7 @@
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
 #import "InputControllerActivity.h"
+#import "ClientKeyboardLayout.h"
 #import "../core/UpdateController.h"
 #include "../../../common/DictionaryQuiesceLease.h"
 #import "../core/ScreenKeyboardPanel.h"
@@ -5671,6 +5672,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)setValue:(id)value forTag:(long)tag client:(id)sender {
     if (tag == kTextServiceInputModePropertyTag) [self systemDidReportInputMode:value client:sender];
     [super setValue:value forTag:tag client:sender];
+    if (tag == kTextServiceInputModePropertyTag) MSIMEPrepareClientKeyboardLayout(sender);
 }
 - (void)systemDidReportInputMode:(id)value client:(id)sender {
     // 切换属于将收到下一个按键的会话，也就是持有焦点的控制器的会话，不论系统通知的是哪个控制器。
@@ -6640,6 +6642,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [self resetModifierTap];
     [self abandonCapsLockTap];
     [super activateServer:sender];
+    MSIMEPrepareClientKeyboardLayout(sender);
     [self ensureAppearance];
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
