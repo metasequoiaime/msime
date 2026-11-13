@@ -15,6 +15,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code KEYBOARD_HEIGHT_ADJUSTMENT}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
     private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
     private static final String HEIGHT_SETTING = "platform.android.keyboard_height_adjustment";
+    private static final String LARGE_HEIGHT_SETTING = "platform.android.keyboard_height_adjustment_large";
     /** {@code AndroidLocalSettings.BOTTOM_BAR} 与 {@code BOTTOM_PADDING}，同样写字面值。 */
     private static final String BOTTOM_BAR_SETTING = "platform.android.bottom_bar";
     private static final String BOTTOM_PADDING_SETTING = "platform.android.bottom_padding";
@@ -77,6 +78,17 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             if (!localSettings.getParentFile().isDirectory() && !localSettings.getParentFile().mkdirs())
                 throw new AssertionError("Local settings directory unavailable");
+            publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            stage = "height setting follows the current screen form factor";
+            boolean expandedScreen = getTargetContext().getResources().getConfiguration().smallestScreenWidthDp >= 600;
+            JSONObject formFactorSettings = new JSONObject().put("version", 1).put("settings",
+                new JSONObject().put(HEIGHT_SETTING, -12).put(LARGE_HEIGHT_SETTING, 55));
+            publish(localSettings, formFactorSettings.toString().getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            awaitHeightSetting(localSettings, expandedScreen ? 55 : -12);
             publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
             restartIme();
             openEditor();

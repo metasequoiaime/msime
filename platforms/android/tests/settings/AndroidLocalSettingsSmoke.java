@@ -114,6 +114,8 @@ public final class AndroidLocalSettingsSmoke {
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");
+        check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT_LARGE) == 0, "expanded height default");
+        check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT_LARGE), "expanded height is not explicit by default");
         check(!settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY), "overlay default");
         check(settings.bool(AndroidLocalSettings.DEVELOPER_LOGGING_ENABLED), "logging enabled default");
         check("debug".equals(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL)), "log level default");
@@ -257,7 +259,8 @@ public final class AndroidLocalSettingsSmoke {
         check("dongxue".equals(synced.get(AndroidLocalSettings.APP_THEME)), "synced carries explicit values");
         check(Boolean.TRUE.equals(synced.get(AndroidLocalSettings.KEY_POPUP)), "synced carries defaults");
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
-                AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
+                AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT_LARGE,
+                AndroidLocalSettings.FLOATING_KEYBOARD,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
                 AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,
