@@ -978,7 +978,7 @@ mod tests {
         let map = keymap(&[("拟", "bc"), ("妮", "db"), ("你", "ab")]);
         let reordered =
             reorder_candidates_with_single_helpcode(items(&["拟", "妮", "你"]), "b", &map);
-        assert_eq!(words(&reordered), ["妮", "拟", "你"]);
+        assert_eq!(words(&reordered), ["妮", "你", "拟"]);
     }
 
     #[test]

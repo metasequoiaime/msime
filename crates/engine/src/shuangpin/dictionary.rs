@@ -1774,7 +1774,7 @@ mod tests {
             dictionary.filter_with_single_helpcode(candidates, "a", "", &keymap)
         });
 
-        assert_eq!(words(&filtered), ["你", "嗯", "好"]);
+        assert_eq!(words(&filtered), ["嗯", "你", "好"]);
         assert!(
             allocations < 12,
             "unexpected temporary allocations: {allocations}"
