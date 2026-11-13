@@ -10,6 +10,8 @@
  * screens: the input method has to be enabled at all, and it has to be the one in use. Being
  * enabled but not current is the state someone lands in after doing half the setup, and it is worth
  * finishing the flow rather than showing settings that appear to have had no effect.
+ *
+ * 「启用」只算完整体验模式。基础访问模式下系统设置里显示已开启、`ime -s` 也能把它设为当前输入法，但编辑器获得焦点时框架不创建面板，扩展的 `onCreate` 都不运行（README 的「输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动」），用户看到的就是键盘不弹出。所以基础访问模式仍是一步没做完的设置，另带 `basicMode` 让页面说清楚缺的是「完整体验模式」而不是「启用」。
  */
 
 /** What the framework reports, mirroring `inputMethod.EnabledState`. */
@@ -34,10 +36,12 @@ export interface OnboardingState {
  * 系统问不到时各自为 null，这样页面可以显示「未知」，而不是给出一个笃定的错误答案。
  */
 export interface SetupState {
-  /** 输入法是否在系统设置里开启。基础模式也算开启。 */
+  /** 输入法是否在系统设置里以完整体验模式开启。基础访问模式不算：那里键盘不会被框架驱动。 */
   readonly enabled: boolean | null;
   /** 这个键盘是否就是当前正在服务输入的那个。 */
   readonly current: boolean | null;
+  /** 已开启但处于基础访问模式，缺的那一步是在系统设置里打开「完整体验模式」。读不到时为 false。 */
+  readonly basicMode: boolean;
 }
 
 export class OnboardingStatePolicy {
@@ -60,12 +64,16 @@ export class OnboardingStatePolicy {
    */
   static setup(state: OnboardingState): SetupState {
     const enabled: boolean | null =
-      state.enabled === null ? null : state.enabled !== ImeEnabledState.DISABLED;
+      state.enabled === null ? null : state.enabled === ImeEnabledState.FULL_EXPERIENCE_MODE;
     const current: boolean | null =
       state.currentBundle.length === 0 || state.ownBundle.length === 0
         ? null
         : state.currentBundle === state.ownBundle;
-    const setup: SetupState = { enabled: enabled, current: current };
+    const setup: SetupState = {
+      enabled: enabled,
+      current: current,
+      basicMode: state.enabled === ImeEnabledState.BASIC_MODE,
+    };
     return setup;
   }
 
@@ -100,6 +108,9 @@ export class OnboardingStatePolicy {
     }
     if (state.enabled === ImeEnabledState.DISABLED) {
       return "not enabled, opening welcome flow";
+    }
+    if (state.enabled === ImeEnabledState.BASIC_MODE) {
+      return "enabled in basic mode, opening welcome flow";
     }
     if (state.currentBundle.length === 0 || state.ownBundle.length === 0) {
       return "enabled, keyboard identity unknown, opening settings";
