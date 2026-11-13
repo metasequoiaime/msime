@@ -14,7 +14,13 @@ import type {
   OobeClient,
   ResolvedAppTheme,
 } from "../core/host-contracts";
-import { makeDefaultAction, useImeSetupState, useOobeState } from "../keyboard/setup-status-card";
+import {
+  BASIC_MODE_HINT,
+  BASIC_MODE_LABEL,
+  makeDefaultAction,
+  useImeSetupState,
+  useOobeState,
+} from "../keyboard/setup-status-card";
 import { KeyboardSwitchGuideHost } from "../keyboard/keyboard-switch-guide";
 import { useSettingsPlatform } from "../theme/settings-platform";
 import { useHarmonyWelcomeSystemBars } from "../settings/use-settings-theme";
@@ -407,6 +413,8 @@ export function WelcomeFlowPage({
   const setupState =
     reportedSetupState ??
     (oobeState ? { enabled: oobeState.systemEnabled, current: oobeState.systemCurrent } : null);
+  // HarmonyOS 基础访问模式：系统里开着，但框架不驱动键盘，「启用」那一项改成说缺的是完整体验模式。
+  const basicMode = setupState?.enabled === false && reportedSetupState?.basicMode === true;
   const schemeCards = harmony
     ? harmonySchemeCards(desktop, edition, inputSchemes, wubiProfile)
     : [];
@@ -530,43 +538,50 @@ export function WelcomeFlowPage({
     const stepContent =
       page === 0 ? (
         setup ? (
-          <div className={onboarding.hChecks(desktop)}>
-            {[
-              {
-                label: desktop ? "已在「系统 → 输入法」中启用" : "已在系统中启用",
-                done: setupState?.enabled ?? null,
-                actionLabel: "去开启",
-                action: actions.openSystemKeyboardSettings,
-              },
-              {
-                label: "设为默认输入法",
-                done: setupState?.current ?? null,
-                actionLabel: "设为默认",
-                action: makeDefaultAction(actions, setupState),
-              },
-            ].map(({ label, done, actionLabel, action }, index) => (
-              <div className={onboarding.hCheck(index > 0)} key={label}>
-                <span className={onboarding.hCheckBadge(done)} aria-hidden="true">
-                  {done === true ? "✓" : done === false ? "!" : ""}
-                </span>
-                <span className={onboarding.hCheckLabel}>
-                  {label}
-                  <span className="sr-only">
-                    {done === true ? "，已完成" : done === false ? "，未完成" : "，正在检查"}
+          <>
+            <div className={onboarding.hChecks(desktop)}>
+              {[
+                {
+                  label: basicMode
+                    ? BASIC_MODE_LABEL
+                    : desktop
+                      ? "已在「系统 → 输入法」中启用"
+                      : "已在系统中启用",
+                  done: setupState?.enabled ?? null,
+                  actionLabel: "去开启",
+                  action: actions.openSystemKeyboardSettings,
+                },
+                {
+                  label: "设为默认输入法",
+                  done: setupState?.current ?? null,
+                  actionLabel: "设为默认",
+                  action: makeDefaultAction(actions, setupState),
+                },
+              ].map(({ label, done, actionLabel, action }, index) => (
+                <div className={onboarding.hCheck(index > 0)} key={label}>
+                  <span className={onboarding.hCheckBadge(done)} aria-hidden="true">
+                    {done === true ? "✓" : done === false ? "!" : ""}
                   </span>
-                </span>
-                {/* 修复某项检查的操作，只在该项未完成时显示：完成后无需操作，宿主尚未回报时也无从提供。 */}
-                {done === false && action && (
-                  <ActionButton
-                    action={() => void run(withResources(action))}
-                    className={onboarding.hCheckAction}
-                    disabled={busy}
-                    label={actionLabel}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
+                  <span className={onboarding.hCheckLabel}>
+                    {label}
+                    <span className="sr-only">
+                      {done === true ? "，已完成" : done === false ? "，未完成" : "，正在检查"}
+                    </span>
+                  </span>
+                  {/* 修复某项检查的操作，只在该项未完成时显示：完成后无需操作，宿主尚未回报时也无从提供。 */}
+                  {done === false && action && (
+                    <ActionButton
+                      action={() => void run(withResources(action))}
+                      className={onboarding.hCheckAction}
+                      disabled={busy}
+                      label={actionLabel}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            {basicMode && <p className={onboarding.hNote}>{BASIC_MODE_HINT}</p>}
+          </>
         ) : (
           <>
             <div className={onboarding.hSetupCard(desktop)}>
@@ -574,7 +589,7 @@ export function WelcomeFlowPage({
                 前往 HarmonyOS 的系统输入法设置。
               </SetupStep>
               <SetupStep number={2} title="启用水杉输入法">
-                在可用输入法列表中打开水杉输入法。
+                在可用输入法列表中打开水杉输入法，并选择「完整体验模式」；基础访问模式下键盘不会正常弹出。
               </SetupStep>
               <SetupStep number={3} title="切换并开始输入" last>
                 在输入框中选择水杉输入法即可开始使用。
