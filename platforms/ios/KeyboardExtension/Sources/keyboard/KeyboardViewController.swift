@@ -724,6 +724,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterCaseState = LetterCaseState.lowercase
   private var isAutomaticShift = false
   private var lastShiftTapTime: TimeInterval?
+  /// 26 键上按住 Shift 再点字母的触屏组合键状态。iOS 键盘扩展收不到外接键盘的按键事件，组合键由两根手指的触摸完成；普通点按 Shift 不会设置 `shiftModifierConsumed`，仍走原来的切换中英文路径。
+  private var shiftModifierArmed = false
+  private var shiftModifierConsumed = false
   /// UIKit 也为键盘自己的改动回调 `textWillChange`，而它会结束组字：没认出回声，一次留着剩余组字的上屏会在一轮之后把组字毁掉，下一键刚开始的组字也会被前一键迟到的回声结束。怎么认见 `OwnEditEchoWindow`。
   private var ownEditEcho = OwnEditEchoWindow()
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
@@ -1430,6 +1433,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.cancel()
     onlineCandidates.cancel()
     closeKeyboardService()
+    shiftModifierArmed = false
+    shiftModifierConsumed = false
     candidateGlossTimer?.invalidate()
     candidateGlossTimer = nil
     personalDictionaryTimer?.invalidate()
@@ -3707,6 +3712,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let button = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
         self?.handleLetterShift(keyID: TypingKeyID.shift)
       }
+      installShiftModifierTracking(on: button)
       button.accessibilityIdentifier = "shiftButton"
       shiftButton = button
       row.addArrangedSubview(button)
@@ -3765,6 +3771,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let rightShift = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
         self?.handleLetterShift(keyID: TypingKeyID.shiftRight)
       }
+      installShiftModifierTracking(on: rightShift)
       rightShift.accessibilityIdentifier = "rightShiftButton"
       rightShift.isHidden = true
       rightShiftButton = rightShift
@@ -4716,6 +4723,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     if isChineseMode {
       synchronizeInputSchemePreference()
+      if handleShiftLocalModeShortcut(character) {
+        return
+      }
       // A host setting can change while this view is open. Do not start an alphabetic composition
       // from a stale 26-key tap after switching to nine keys; local utilities still need letters.
       let gridDigits = inputScheme == .nineKeyShuangpin ? "0"..."9" : "2"..."9"
@@ -5249,6 +5259,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleLetterShift(keyID: String) {
+    if shiftModifierConsumed {
+      shiftModifierConsumed = false
+      shiftModifierArmed = false
+      return
+    }
+    shiftModifierArmed = false
     // 组字中 Shift 是辅助码、空闲时切英文，要看此前异步投递的字母画完后是否在组字。
     session.flushPendingCharacters()
     flushDeferredInputSnapshot()
@@ -5260,6 +5276,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     countKeyPress(keyID)
     toggleLetterCase()
+  }
+
+  /// 触屏上的 Shift+C/E：按住 Shift 的触摸还没结束时，第二根手指点字母键，沿用 Engine 的大写入口判定。
+  /// 只有空闲中文 26 键、且对应模式已开启时才消费组合键；其他字母和关闭的模式交给原来的 Shift 行为。
+  private func handleShiftLocalModeShortcut(_ character: String) -> Bool {
+    if shiftModifierArmed {
+      session.flushPendingCharacters()
+      flushDeferredInputSnapshot()
+    }
+    guard shiftModifierArmed, !shiftModifierConsumed, !hasComposition,
+          supportsLocalTools, !isInLocalMode, !showsSymbols, !typesLetterGrid,
+          let trigger = character.uppercased().first,
+          Self.localInputModes.contains(where: { $0.trigger.first == trigger }),
+          enabledLocalInputModes.contains(where: { $0.trigger.first == trigger })
+    else { return false }
+    guard let mode = Self.localInputModes.first(where: { $0.trigger.first == trigger }) else { return false }
+    guard mode.trigger.count == 1 else { return false }
+    shiftModifierConsumed = true
+    localModeTrigger = mode.trigger
+    showsSymbols = false
+    render(session.handleCharacter(mode.trigger, shifted: true))
+    return true
+  }
+
+  /// Shift 的按下状态只用于组合键判定；松手时不提前清掉 `shiftModifierConsumed`，让主动作可以抑制普通的切换中英文。
+  private func installShiftModifierTracking(on button: UIButton) {
+    button.addTarget(self, action: #selector(armShiftModifier(_:)), for: .touchDown)
+    button.addTarget(self, action: #selector(disarmShiftModifier(_:)), for: [.touchUpOutside, .touchCancel, .touchDragExit])
+  }
+
+  @objc private func armShiftModifier(_ sender: UIButton) {
+    shiftModifierArmed = true
+    shiftModifierConsumed = false
+  }
+
+  @objc private func disarmShiftModifier(_ sender: UIButton) {
+    shiftModifierArmed = false
+    shiftModifierConsumed = false
   }
 
   private func toggleLetterCase() {
