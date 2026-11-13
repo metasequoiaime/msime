@@ -274,6 +274,7 @@ final class ImeLayoutRows {
     void applySidebarRail() {
         if (s.nineKeySidebar == null) return;
         if (builtSidebarCapped) {
+            ViewPolicy.setPaddingIfChanged(s.nineKeySidebar, 0, 0, 0, 0);
             if (sidebarRailSurface != null) ViewPolicy.clearBackground(sidebarRailSurface);
             else ViewPolicy.clearBackground(s.nineKeySidebar);
             return;
@@ -281,17 +282,19 @@ final class ImeLayoutRows {
         GradientDrawable rail = DrawablePolicy.rounded(
             Color.parseColor(s.skin.sidebarBackground()), s.pixels(s.skin.cornerRadius()));
         int rowInset = s.halfSpacingPixels(s.touchRowSpacingTenths);
-        // 左右按键距内缩，底轨边缘与它下面的 符 和网格键的键帽对齐。
+        // 左右按键距内缩，底轨边缘与它下面的 符 和网格键的键帽对齐。整个侧栏按这个间距内缩，而不只是底色那一层：可滚动的符号列和挂进来的拼音列一起缩进去，看到的底轨、点得到的范围和读屏报的范围是同一块。只缩底色时，符号列仍铺满整列，比底轨和下面的 符 各宽出半个键距（Pixel 3 XL 上左右各 11 px）。
         int columnInset = s.halfSpacingPixels(s.touchKeySpacingTenths);
+        ViewPolicy.setPaddingIfChanged(s.nineKeySidebar, columnInset, rowInset, columnInset, rowInset);
         if (sidebarRailSurface == null) {
-            // 兼容旧的侧栏实例；新实例走下面的独立底轨视图。
+            // 兼容旧的侧栏实例；新实例走下面的独立底轨视图。背景不受内边距影响，仍按同样的间距内缩着画。
             ViewPolicy.setBackground(s.nineKeySidebar, rowInset == 0 && columnInset == 0
                 ? rail : new InsetDrawable(rail, columnInset, rowInset, columnInset, rowInset));
             return;
         }
+        // 底轨视图填满内缩后的侧栏，不再另加外边距。
         ViewPolicy.setBackground(sidebarRailSurface, rail);
         if (sidebarRailSurface.getLayoutParams() instanceof FrameLayout.LayoutParams params) {
-            params.setMargins(columnInset, rowInset, columnInset, rowInset);
+            params.setMargins(0, 0, 0, 0);
             sidebarRailSurface.setLayoutParams(params);
         }
     }
