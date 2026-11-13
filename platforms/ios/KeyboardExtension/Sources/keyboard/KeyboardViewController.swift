@@ -2624,18 +2624,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     view.addSubview(backdrop)
     backdrop.addSubview(options)
-    let centred = options.centerXAnchor.constraint(equalTo: key.centerXAnchor)
-    centred.priority = .defaultHigh
     NSLayoutConstraint.activate([
       backdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       backdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       backdrop.topAnchor.constraint(equalTo: view.topAnchor),
       backdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      options.bottomAnchor.constraint(equalTo: key.topAnchor, constant: -6),
-      centred,
-      options.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 6),
-      options.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -6),
     ])
+    KeyboardHoldOptionsLayout.activate(options, from: key, in: view)
     nineKeyHoldPopup = backdrop
     UIAccessibility.post(notification: .layoutChanged, argument: options)
   }
