@@ -87,13 +87,18 @@ macOS 与 Linux 的输入法进程自己触发同步：IMK、IBus 和 Fcitx5 起
 <基地址>/msime-dictionary/v1/tmp/<Unix 秒>-<32 位十六进制>.json
 <基地址>/msime-dictionary/v1/epoch-NNNNNN/checkpoint.json
 <基地址>/msime-dictionary/v1/epoch-NNNNNN/e-NNNNNNNNNNNN.json
-<基地址>/msime-dictionary/keyring/                 （词库自己的密钥串，见「密钥与设备批准」）
+<基地址>/msime-dictionary/keyring/v1/format.json
+<基地址>/msime-dictionary/keyring/v1/epoch-NNNNNN/snapshot.json
+<基地址>/msime-dictionary/keyring/v1/epoch-NNNNNN/e-NNNNNNNNNNNN.json
+<基地址>/msime-dictionary/keyring/v1/tmp/<Unix 秒>-<32 位十六进制>.json
 <基地址>/msime-dictionary/probe-<16 位十六进制>/    （只在「测试连接」时短暂存在）
 ```
 
 - `format.json` 是 `{"format":"msime-dictionary","version":1}`。不认识的格式或版本，客户端报 `dictionary_sync_unsupported`，不读也不写。
 - epoch 编号 6 位、事件序号 12 位，都是左补零的十进制；序号跨 epoch 连续递增。文件名里只有编号，不出现设备、词或编码。
 - 客户端从不删除 `msime-dictionary/`、`v1/`、`tmp/` 和 `keyring/` 本身（坚果云不许删除根目录下的文件夹），会被删除的只有旧的 epoch 目录、临时文件和探测目录。
+- `keyring/` 下面直接放云剪贴板协议的 `v1/`，不会再嵌套 `msime-clipboard/`。这是路径命名，不改变密钥串的协议格式：`format.json` 仍是 `msime-clipboard`，词库和剪贴板的身份、密钥与日志完全分开。
+- 旧版本曾写入 `msime-dictionary/keyring/msime-clipboard/`。新版本第一次读取扁平路径不存在时会回退到这份旧布局，并在本次运行中继续使用旧布局；不会把旧日志当成新日志重建，也不会删除旧目录。新设备在没有旧布局时只创建扁平布局。
 
 ### 写入：抢下一个序号
 
@@ -210,7 +215,7 @@ macOS 与 Linux 的输入法进程自己触发同步：IMK、IBus 和 Fcitx5 起
 
 ## 密钥与设备批准
 
-网盘只见到密文。词库的密钥 `K` 来自词库自己的密钥串：它是 [云剪贴板端到端加密](cloud-clipboard-e2e.md) 那一套协议的另一个实例——同样的设备密钥对、核对码、封装和批准流程，同样由第一台设备生成密钥、新设备必须由已有设备点「允许」——放在 `msime-dictionary/keyring/` 下，按 [云剪贴板 WebDAV 布局 v1](cloud-clipboard-webdav.md) 存放（格式名仍是 `msime-clipboard`）。本机的密钥串与云剪贴板的分开存放，所以同一台设备在两个功能里是两个设备身份、要分别批准一次。
+网盘只见到密文。词库的密钥 `K` 来自词库自己的密钥串：它是 [云剪贴板端到端加密](cloud-clipboard-e2e.md) 那一套协议的另一个实例——同样的设备密钥对、核对码、封装和批准流程，同样由第一台设备生成密钥、新设备必须由已有设备点「允许」——放在 `msime-dictionary/keyring/v1/` 下，按 [云剪贴板 WebDAV 布局 v1](cloud-clipboard-webdav.md) 存放（格式名仍是 `msime-clipboard`）。本机的密钥串与云剪贴板的分开存放，所以同一台设备在两个功能里是两个设备身份、要分别批准一次。已存在的 `keyring/msime-clipboard/` 布局按上一节的兼容规则继续使用。
 
 密钥串只交出 `M = HKDF-SHA256(K, info="msime-dictionary-v1-key", 32)`，不交出 `K` 本身；两把子密钥再由 HKDF-SHA256 从 `M` 派生：事件用 `info="msime-dictionary-v1-event"`，检查点用 `info="msime-dictionary-v1-checkpoint"`，都是 32 字节，没有 salt。`key_id` 就是密钥串给 `K` 的编号。本机同步状态里只存子密钥。
 
@@ -285,7 +290,7 @@ macOS 与 Linux 的输入法进程自己触发同步：IMK、IBus 和 Fcitx5 起
 ## 实现在哪里
 
 - `crates/client-core/src/cloud/dictionary_sync.rs` 及其子模块：不碰网络、不碰 Engine 的协议核心——时钟（`clock`）、词条身份（`entry`）、合并与墓碑回收（`replica`）、加密（`crypto`）、文件格式和日志位置（`log`）、一次同步的步骤与本机状态（`sync`）、调度与额度（`schedule`）。网盘、本机词库、时钟和写盘都经接口注入；`simulation_tests.rs` 用内存里的网盘和合成设备跑上面的全部规则。
-- `crates/client-services/src/dictionary_webdav.rs`：WebDAV 传输（核心的 `RemoteStore`，独占创建、限流退避和响应上限用云剪贴板的 `clipboard_webdav::Dav`）、词库密钥串（云剪贴板的 `RelayClipboard` 加一个给每个请求路径加 `msime-dictionary/keyring/` 前缀的传输，全部用法收在 `KeyRingAccess` 一处）、本机状态的写盘和锁、测试连接。
+- `crates/client-services/src/dictionary_webdav.rs`：WebDAV 传输（核心的 `RemoteStore`，独占创建、限流退避和响应上限用云剪贴板的 `clipboard_webdav::Dav`）、词库密钥串（云剪贴板的 `RelayClipboard` 加一个把协议根映射到 `msime-dictionary/keyring/` 的传输，兼容旧的嵌套路径，全部用法收在 `KeyRingAccess` 一处）、本机状态的写盘和锁、测试连接。
 - `crates/client-core/src/preferences.rs`：偏好 `dictionary_sync_webdav`。
 - `crates/host-api/src/dictionary_webdav.rs`：Engine 一侧的本机词库（一致的读、批量写、维护权和请求输入法让出词库的策略）和 `msime_client_dictionary_sync` 的动作分派；输入法进程的后台同步的宿主一侧（`ImeHost`：重读配置、只用已有身份、个人词库文件的戳和「我的词条」的指纹）和 `msime_client_dictionary_sync_start`、`msime_client_dictionary_sync_stop`。
 - `crates/client-services/src/dictionary_webdav_scheduler.rs`：后台调度（什么时候以 `periodic`、`local_change` 调，没配置或没有身份时只是定时再问，叫停）。调度的规则不碰时钟和宿主，单测直接喂时间。
