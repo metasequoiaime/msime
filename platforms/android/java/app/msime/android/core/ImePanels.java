@@ -1611,29 +1611,7 @@ final class ImePanels {
         if (!CloudClipboardPanelPolicy.autoUploadEligible(cloudClipboardAllowed(), text)) return;
         CloudOwner owner = cloudClipboardOwner();
         if (owner == null || owner.id().isEmpty()) return;
-        String binding = owner.id();
-        boolean relay = owner.relay();
-        s.cloudClipboardWorker.execute(() -> {
-            try {
-                if (relay) {
-                    CloudClipboardRelay route = CloudClipboardRelay.forPanel(s, true, binding);
-                    BackendAccount.ClipboardPage page = BackendAccount.clipboardPage(
-                        route.drive(CloudClipboardE2e.Operation.list("")));
-                    if (page.enabled() && !page.pending())
-                        route.drive(CloudClipboardE2e.Operation.add(text));
-                    return;
-                }
-                BackendAccount account = new BackendAccount(s);
-                BackendAccount.SessionCredential session = account.currentSession();
-                if (session.token().isEmpty()) return;
-                BackendAccount.ClipboardPage page = account.clipboard(
-                    "", session.sessionId(), CloudClipboardNativeDriver.local(s));
-                if (!page.enabled() || page.pending()) return;
-                account.addClipboard(text, session.sessionId(), CloudClipboardNativeDriver.local(s));
-            } catch (Exception | LinkageError ignored) {
-                // 下一次复制会重新读取状态并尝试，后台监听不打断输入。
-            }
-        });
+        CloudClipboardAutoSync.enqueue(s.cloudClipboardWorker, s, owner.relay(), owner.id(), text);
     }
 
     void insertCloudClipboardText(String text) {
