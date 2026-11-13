@@ -1,4 +1,5 @@
 #include "../../common/CandidateSources.h"
+#include "../../common/SecondThirdCandidatePolicy.h"
 #include "../HostServerSelection.h"
 #include "../../common/GameCompatProfile.h"
 #include "FanyDefines.h"
@@ -644,6 +645,14 @@ HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(TfEditCookie ec, _In_ IT
             uCode, wch, _pCandidateListUIPresenter->_HoldsEnginePage());
         if (iSelectAsNumber == -1)
         {
+            // Server 已经按自己的候选页处理了这个数字；宿主这一页没有对应槽位时也要消费回执，否则下一次按键会读到旧结果。
+            if (msime::windows::should_follow_server_selection_reply(
+                    _pCandidateListUIPresenter->_HoldsEnginePage(),
+                    requestId != FANY_IME_NO_REQUEST_ID))
+            {
+                return _HandleCandidateWorker(ec, pContext, requestId, prefetchedText,
+                                               /*localSlotSelected=*/false);
+            }
             return S_FALSE;
         }
 
@@ -652,7 +661,9 @@ HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(TfEditCookie ec, _In_ IT
             return _HandleCandidateConvert(ec, pContext, requestId, prefetchedText);
         }
         // 宿主会话这一页没有这么多项，但选哪个词由 Server 那一页决定（它可能停在另一页上）：仍然读这个键的回复跟着选。以前在这里直接返回，回复没人读，Server 已经上屏或暂存了一段，宿主会话却原地不动。
-        if (requestId != FANY_IME_NO_REQUEST_ID && _pCandidateListUIPresenter->_HoldsEnginePage())
+        if (msime::windows::should_follow_server_selection_reply(
+                _pCandidateListUIPresenter->_HoldsEnginePage(),
+                requestId != FANY_IME_NO_REQUEST_ID))
         {
             return _HandleCandidateWorker(ec, pContext, requestId, prefetchedText, /*localSlotSelected=*/false);
         }
