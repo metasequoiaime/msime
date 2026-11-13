@@ -89,6 +89,9 @@ public final class HapticsPendingCheck {
         var field = KeyboardHaptics.class.getDeclaredField("worker");
         field.setAccessible(true);
         ExecutorService worker = (ExecutorService) field.get(null);
+        field = KeyboardHaptics.class.getDeclaredField("stepsWorker");
+        field.setAccessible(true);
+        ExecutorService stepsWorker = (ExecutorService) field.get(null);
         KeyboardHaptics.play(slow, null, HapticStrength.MEDIUM);
         if (!started.await(5, TimeUnit.SECONDS)) throw new AssertionError("worker did not enter vibrator");
         for (int i = 0; i < 20; i++) KeyboardHaptics.play(slow, null, HapticStrength.MEDIUM);
@@ -134,7 +137,7 @@ public final class HapticsPendingCheck {
         if (!stepsStarted.await(5, TimeUnit.SECONDS)) throw new AssertionError("steps worker did not enter vibrator");
         KeyboardHaptics.playSteps(queued, null, HapticStrength.MEDIUM, 3);
         stepsRelease.countDown();
-        worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        stepsWorker.submit(() -> {}).get(5, TimeUnit.SECONDS);
         if (stepCalls.get() < 1 || stepPrimitives.get() != 5)
             throw new AssertionError("trackpad steps were not preserved: calls=" + stepCalls.get()
                 + ", primitives=" + stepPrimitives.get());
@@ -143,9 +146,9 @@ public final class HapticsPendingCheck {
             @Override public boolean hasVibrator() { throw new IllegalStateException("dead vibrator"); }
         };
         KeyboardHaptics.playSteps(broken, null, HapticStrength.MEDIUM, 1);
-        worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        stepsWorker.submit(() -> {}).get(5, TimeUnit.SECONDS);
         KeyboardHaptics.playSteps(queued, null, HapticStrength.MEDIUM, 1);
-        worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        stepsWorker.submit(() -> {}).get(5, TimeUnit.SECONDS);
         if (stepCalls.get() != 3) throw new AssertionError("failed trackpad vibration did not reopen slot: calls=" + stepCalls.get());
     }
 }

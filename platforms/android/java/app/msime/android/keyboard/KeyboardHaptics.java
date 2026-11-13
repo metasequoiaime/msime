@@ -43,6 +43,9 @@ public final class KeyboardHaptics {
     /** 只跑振动的后台线程；daemon，进程退出时不用收尾。 */
     private static final ExecutorService worker = Executors.newSingleThreadExecutor(
         ThreadPolicy.namedDaemonFactory("msime-haptics"));
+    /** 触控板序列会按真实时长等待，不能占住普通按键反馈的线程。 */
+    private static final ExecutorService stepsWorker = Executors.newSingleThreadExecutor(
+        ThreadPolicy.namedDaemonFactory("msime-trackpad-haptics"));
     /** 已经交给 {@link #worker}、还没完成振动服务调用的那一下。 */
     private static final AtomicBoolean pending = new AtomicBoolean();
     /** 触控板步数合并队列；拖动事件频繁到来时仍按每一步播放，不让任务互相覆盖。 */
@@ -111,7 +114,7 @@ public final class KeyboardHaptics {
                 if (stepsScheduled) return;
                 stepsScheduled = true;
             }
-            worker.execute(KeyboardHaptics::drainSteps);
+            stepsWorker.execute(KeyboardHaptics::drainSteps);
         } catch (RejectedExecutionException ignored) {
             synchronized (stepsLock) { clearStepsLocked(); }
         }
