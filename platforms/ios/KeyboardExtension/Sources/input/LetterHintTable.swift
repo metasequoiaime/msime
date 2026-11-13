@@ -82,17 +82,21 @@ enum NineKeyFlickPolicy {
 
 struct NineKeyFlickTracker: Equatable {
   private(set) var letter: NineKeyFlickPolicy.Letter = .none
+  private(set) var consumed = false
   private var down: CGPoint?
 
   mutating func begin(at point: CGPoint) {
     down = point
     letter = .none
+    consumed = false
   }
 
   mutating func move(to point: CGPoint, letters: String, threshold: CGFloat) -> NineKeyFlickPolicy.Letter? {
-    guard letter == .none, let down else { return nil }
+    guard !consumed, let down, threshold.isFinite, threshold >= 0,
+          point.x.isFinite, point.y.isFinite, down.x.isFinite, down.y.isFinite,
+          max(abs(point.x - down.x), abs(point.y - down.y)) > threshold else { return nil }
+    consumed = true
     let next = NineKeyFlickPolicy.letter(down: down, current: point, letters: letters, threshold: threshold)
-    guard next != .none else { return nil }
     letter = next
     return next
   }

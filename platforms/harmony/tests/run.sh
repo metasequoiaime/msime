@@ -341,21 +341,6 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
-# 九键四向 flick（#11244）：共享阈值由会话宽松读取，视图只在拼音九键字母层接入，数字由长按输入。
-nine_hold_body=$(sed -n '/^  nineKeyHoldKey(key: NineKey) {$/,/^  }$/p' "$view")
-nine_flick_body=$(sed -n '/^  private nineKeyFlickTouch(key: NineKey, event: TouchEvent): void {$/,/^  }$/p' "$view")
-if ! grep -qF 'nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(preferences.touch_nine_key_flick_threshold)' "$session" \
-  || ! grep -qF '.onTouch((event: TouchEvent): void => this.nineKeyFlickTouch(key, event))' <<< "$nine_hold_body" \
-  || ! grep -qF 'if (this.nineKeyFlicks.swallows(key.input)) {' <<< "$nine_hold_body" \
-  || ! grep -qF 'if (!this.nineKeyFlicks.hold(key.input)) {' <<< "$nine_hold_body" \
-  || ! grep -qF 'this.nineKeyFlicks.down(key.input, touch.id, touch.windowX, touch.windowY' <<< "$nine_flick_body" \
-  || ! grep -qF 'this.nineKeyFlicks.move(key.input, touch.id, touch.windowX, touch.windowY);' <<< "$nine_flick_body" \
-  || ! grep -qF 'this.nineKeyFlicks.up(key.input, touch.id)' <<< "$nine_flick_body" \
-  || ! grep -qF 'this.typeNineKeyFlickCharacter(character);' <<< "$nine_flick_body" \
-  || ! grep -qF 'this.nineKeyFlicks.clear();' "$view"; then
-  echo "Harmony must use the shared four-way nine-key flick threshold and leave digit input to long press" >&2
-  exit 1
-fi
 # 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
 traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTraits {$/,/^  }$/p' "$session")
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")

@@ -4977,6 +4977,20 @@ final class NineKeyFlickTests: XCTestCase {
     XCTAssertEqual(tracker.finish(), .none)
   }
 
+  func testUnusedDirectionsConsumeTheTouchWithoutATapOrAnotherFlick() {
+    for letters in ["ABC", ""] {
+      var tracker = NineKeyFlickTracker()
+      tracker.begin(at: CGPoint(x: 100, y: 100))
+      XCTAssertNil(tracker.move(to: CGPoint(x: 100, y: 124), letters: letters, threshold: 24))
+      XCTAssertFalse(tracker.consumed)
+      XCTAssertEqual(tracker.move(to: CGPoint(x: 100, y: 125), letters: letters, threshold: 24), NineKeyFlickPolicy.Letter.none)
+      XCTAssertTrue(tracker.consumed)
+      XCTAssertNil(tracker.move(to: CGPoint(x: 60, y: 100), letters: letters, threshold: 24))
+      XCTAssertEqual(tracker.finish(), .none)
+      XCTAssertFalse(tracker.consumed)
+    }
+  }
+
   func testDigitsUseLongPressDuration() {
     XCTAssertEqual(KeyboardViewController.nineKeyHoldDuration, 0.5)
   }

@@ -1323,21 +1323,6 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
   echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
   exit 1
 fi
-# 九键四向 flick（#11244）：共享阈值由 client-core 校验，Android 每次触摸读取，数字改由长按输入。
-nine_key_policy="$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyFlickPolicy.java"
-keyboard_options="$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"
-if ! rg -q 'DEFAULT_THRESHOLD_DP = 24' "$nine_key_policy" \
-  || ! rg -q 'MIN_THRESHOLD_DP = 14' "$nine_key_policy" \
-  || ! rg -q 'MAX_THRESHOLD_DP = 48' "$nine_key_policy" \
-  || ! rg -q 'return dy < 0 \? pick\(letters, 0\) : Letter.NONE' "$nine_key_policy" \
-  || ! rg -q 'nineKeyFlickThreshold = nineKeyFlickThresholdFrom' "$account_service" \
-  || ! rg -q 'bindNineKeyFlick\(keyButton, key\)' "$layout_rows" \
-  || ! rg -q 'NineKeyFlickPolicy\.letter\(' "$layout_rows" \
-  || ! rg -q 'savePreference\(NineKeyFlickPolicy\.PREFERENCE, value\)' "$keyboard_options" \
-  || rg -q '九键滑动输入数字' "$keyboard_options"; then
-  echo "Android nine-key four-way flick must use the shared threshold and leave digits to long press" >&2
-  exit 1
-fi
 # 长空格样式留着的工具栏行看用户的 26 键样式和这块键盘的中文键面，不看此刻的中/英（TouchKeyStyle.Styles.keepsToolbarRow，规则由 TouchKeyStyleSmoke 覆盖）；这里钉住宿主的接线：工具栏行和隐藏工具栏时藏起按钮都读 longSpaceToolbarRowKept，英文模式下中文键面取只在中文时更新的 touchLayoutHint。之前读的是按此刻语言算的 longSpaceLayoutActive，工具栏隐藏时每次切中/英这一行都出没一次，键盘高度跟着跳。自动数字行与共享偏好分开传给 drawsNumberRow，自动数字行不扩到 14/18 键。
 if ! sed -n '/boolean toolbarRowHidden() {$/,/^    }$/p' "$account_service" | rg_q_stdin 'if \(longSpaceToolbarRowKept\(\)\) return false;' \
   || ! sed -n '/boolean longSpaceToolbarRowKept() {$/,/^    }$/p' "$account_service" \

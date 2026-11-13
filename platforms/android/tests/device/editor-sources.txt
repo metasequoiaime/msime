@@ -58,6 +58,7 @@ platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyEnglishDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyPanelDeviceSmoke.java
+platforms/android/tests/device/keyboard/NineKeyFlickDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyRecentSelectionDeviceChecks.java
 platforms/android/tests/device/keyboard/FourteenKeyDeviceSmoke.java
 platforms/android/tests/device/keyboard/EighteenKeyQuanpinDeviceChecks.java

@@ -80,6 +80,7 @@ interface FlickPress {
   result: NineKeyFlick;
   held: boolean;
   active: boolean;
+  consumed: boolean;
 }
 
 export class NineKeyFlickGesture {
@@ -92,6 +93,7 @@ export class NineKeyFlickGesture {
     y: number,
     letters: string,
     threshold: number,
+    enabled: boolean = true,
   ): void {
     this.presses.set(key, {
       finger,
@@ -101,7 +103,8 @@ export class NineKeyFlickGesture {
       threshold,
       result: NineKeyFlick.NONE,
       held: false,
-      active: true,
+      active: enabled,
+      consumed: false,
     });
   }
 
@@ -112,9 +115,17 @@ export class NineKeyFlickGesture {
       !press.active ||
       press.finger !== finger ||
       press.held ||
-      press.result !== NineKeyFlick.NONE
+      press.consumed
     )
       return NineKeyFlick.NONE;
+    if (
+      ![x, y, press.downX, press.downY, press.threshold].every(Number.isFinite) ||
+      press.threshold < 0
+    )
+      return NineKeyFlick.NONE;
+    if (Math.max(Math.abs(x - press.downX), Math.abs(y - press.downY)) <= press.threshold)
+      return NineKeyFlick.NONE;
+    press.consumed = true;
     press.result = NineKeyFlickPolicy.letter(
       press.downX,
       press.downY,
@@ -141,14 +152,14 @@ export class NineKeyFlickGesture {
   hold(key: string): boolean {
     const press: FlickPress | undefined = this.presses.get(key);
     if (press === undefined) return true;
-    if (press.result !== NineKeyFlick.NONE) return false;
+    if (press.consumed) return false;
     press.held = true;
     return true;
   }
 
   swallows(key: string): boolean {
     const press: FlickPress | undefined = this.presses.get(key);
-    return press !== undefined && press.result !== NineKeyFlick.NONE;
+    return press !== undefined && press.consumed;
   }
 
   letters(key: string): string {

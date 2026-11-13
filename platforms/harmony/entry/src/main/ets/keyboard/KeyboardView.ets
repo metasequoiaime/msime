@@ -6362,7 +6362,7 @@ struct KeyboardView {
         const letters: string = key.input !== '@' && key.label.length > 1 ? key.label : '';
         const enabled: boolean = this.touchDesign() && !this.symbols && !this.english && this.scheme.preferenceId === 'nine_key';
         this.nineKeyFlicks.down(key.input, touch.id, touch.windowX, touch.windowY, enabled ? letters : '',
-          enabled ? this.settings.nineKeyFlickThreshold : NineKeyFlickPolicy.DEFAULT_THRESHOLD_VP);
+          this.settings.nineKeyFlickThreshold, enabled);
       }
     } else if (event.type === TouchType.Move) {
       const moved: TouchObject[] = event.changedTouches.length > 0 ? event.changedTouches : event.touches;
@@ -6373,7 +6373,7 @@ struct KeyboardView {
       if (event.changedTouches.length > 0) {
         const touch: TouchObject = event.changedTouches[0];
         const flick: NineKeyFlick = this.nineKeyFlicks.up(key.input, touch.id);
-        if (flick !== NineKeyFlick.NONE) {
+        if (this.nineKeyFlicks.swallows(key.input)) {
           KeyboardSession.shared.keyUp(touch.id);
           const character: string = NineKeyFlickPolicy.character(key.label, flick);
           if (character.length > 0) this.typeNineKeyFlickCharacter(character);

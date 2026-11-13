@@ -386,7 +386,7 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-    if nineKeyFlickEnabled?() == true, let letters = nineKeyFlickLetters, nineKeyFlick.letter == .none,
+    if nineKeyFlickEnabled?() == true, let letters = nineKeyFlickLetters, !nineKeyFlick.consumed,
        let decided = nineKeyFlick.move(to: touch.location(in: nil), letters: letters,
                                        threshold: nineKeyFlickThreshold?() ?? NineKeyFlickPolicy.threshold) {
       beginNineKeyFlick(decided)
@@ -417,7 +417,7 @@ final class KeyboardKeyButton: UIButton {
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
     // 判出九键滑动之后这次触摸不再是点按：键停在判出时的样子（输入数字时保持按下，弹出字母时松开），不随手指进出按键变化。
-    guard nineKeySwipe.gesture == .none, nineKeyFlick.letter == .none else { return }
+    guard nineKeySwipe.gesture == .none, !nineKeyFlick.consumed else { return }
     super.touchesMoved(touches, with: event)
     if nineKeySwipe.gesture != .none { isHighlighted = nineKeySwipe.gesture == .digit }
   }
@@ -428,8 +428,9 @@ final class KeyboardKeyButton: UIButton {
   }
 
   private func endTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
+    let consumedFlick = nineKeyFlick.consumed
     let flicked = nineKeyFlick.finish()
-    if flicked != .none {
+    if consumedFlick {
       super.touchesCancelled(touches, with: event)
       resetCornerHint()
       touchDownLocation = nil
