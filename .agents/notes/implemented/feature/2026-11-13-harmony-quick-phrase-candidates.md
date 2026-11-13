@@ -12,6 +12,8 @@ Windows 的同一范围决策记录在对应的 Windows PR 笔记中，本篇只
 
 `HostCapabilities::quick_phrase_candidates` 现在包含 HarmonyOS。HarmonyOS 键盘在 `KeyboardSession.start` 取得 `PreparedOptions` 后写入 `quick_phrase_candidates = true`，并在 ArkTS 类型中声明这个字段；host-api 继续与 `mixed_input.quick_phrase` 相与。HarmonyOS 设置页读取同一份宿主能力文档，因此共享设置中的「快捷短语混输」控件随能力出现，偏好关闭时仍由 host-api 阻止短语进入普通候选。
 
+快捷短语能力与大写锁定标点分别验证：两项能力的宿主范围已经不同，旧的合取断言改为只验证标点，快捷短语由六平台矩阵完整验证，保留所有未接入宿主的关闭断言。本分支只声明 HarmonyOS 能力，Windows 仍由独立 PR #11364 的宿主接线和能力声明同时启用，避免设置页先出现无效开关。
+
 ## Alternatives considered
 
 - 只在 HarmonyOS 设置页显示开关：键盘会话没有请求能力，开关会成为无效控件。
