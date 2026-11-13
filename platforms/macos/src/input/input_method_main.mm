@@ -212,6 +212,8 @@ int main(int argc, const char *argv[]) {
                 propertyGetter:[](TISInputSourceRef source, CFStringRef key) -> void * {
                     return (void *)TISGetInputSourceProperty(source, key);
                 } switchedAway:^{
+                    // 某些 macOS 版本只发输入源通知而不完整走 IMK 的 deactivateServer:；先结束 Engine 焦点上下文，切回后的首键再按正常 focus-in 路径恢复。
+                    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
                     // 离开本输入法对应 TSF 的 Deactivate：它把开关、标点和全半角三个 compartment 一起清掉，所以不论 ime_mode_scope 是哪种，每个应用切回来时都从 default_ime_mode 和保存的标点、全半角开始。共享的模式记录也一并清空并标记为刚切进，切回时选哪个模式入口都当作用户的选择采纳；只有一个例外，切回后、按键之前报告的 中 只改中英状态，不把双拼等方案改成全拼，因为系统可能自己落在 中 入口上（#10199，见 MSIMESystemInputModeState 的 switchedIn）。焦点在客户端之间移动不会走到这里。
                     MSIMEAppearancePreferences *preferences = [MSIMEAppearancePreferences sharedPreferences];
                     [preferences resetRememberedInputModes];

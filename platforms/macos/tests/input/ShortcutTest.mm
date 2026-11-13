@@ -8882,6 +8882,28 @@ static void TestInputSourceModeReset() {
     monitoredSource = nil;
 }
 
+// 输入源通知可能早于或替代 IMK 的 deactivateServer:；切出时必须结束 Engine 上下文，切回首键再重新聚焦。
+static void TestInputSourceSwitchResetsFocusedSession() {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    [controller setValue:@NO forKey:@"focusPending"];
+    MSIMEFocusedController = controller;
+
+    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
+
+    assert(session.focusCalls == 1);
+    assert([session.calls isEqualToArray:@[ @"focus:0" ]]);
+    assert([(NSNumber *)[controller valueForKey:@"focusPending"] boolValue]);
+    NSDictionary *view = [controller valueForKey:@"view"];
+    assert(![view[@"focused"] boolValue]);
+
+    MSIMEFocusedController = nil;
+}
+
 // Punctuation and width are runtime state of each app, like the reference's per-thread TSF compartments: the toggles never save, another app starts from the saved value, a Chinese/English switch puts punctuation back in step with the mode, and a new saved starting value applies everywhere.
 static void TestPerApplicationPunctuationAndWidth() {
     NSString *suite = [@"msime.runtime-punctuation." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -17400,6 +17422,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestInputSourceSwitchResetsFocusedSession(); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }
