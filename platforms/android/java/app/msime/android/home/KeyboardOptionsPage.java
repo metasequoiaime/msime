@@ -9,6 +9,7 @@ import app.msime.android.CandidatePreeditStylePolicy;
 import app.msime.android.DimensionPolicy;
 import app.msime.android.KeyboardBottomBarPolicy;
 import app.msime.android.KeyboardFormFactorPolicy;
+import app.msime.android.FloatingKeyboardPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
@@ -225,12 +226,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE, checked)).help("开启后仅在横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；按键盘实际可用宽度判断，分开后按键太窄时（例如分屏）仍用完整键盘");
         }
         GroupCard.Row[] bottomHeight = new GroupCard.Row[1];
-        layout.toggle("浮动键盘", null,
+        GroupCard.Row[] floatingRow = new GroupCard.Row[1];
+        floatingRow[0] = layout.toggle("浮动键盘", null,
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
             checked -> {
                 saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked);
                 if (bottomHeight[0] != null) bottomHeight[0].setEnabled(!checked);
             }).help("键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换");
+        boolean autoLandscape = settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE);
+        layout.toggle("横屏自动浮动键盘", null, autoLandscape,
+            checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE,
+                checked, this::reload, this::reload))
+            .help("横屏时自动使用浮动面板，竖屏恢复停靠；打开后忽略上面的手动浮动开关，外接键盘候选栏仍停在底部");
+        floatingRow[0].setEnabled(!autoLandscape);
         if (showLargeScreenOptions) {
             layout.toggle("物理键盘时候选栏跟随光标", null,
                 settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
@@ -245,7 +253,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, KeyboardBottomBarPolicy.PADDING_STEP_DP,
             AndroidLocalSettings.bottomHeightDp(settings), value -> value + " dp",
             value -> saveLocalSettings(AndroidLocalSettings.bottomHeightEdits(value))).help("抬高整块键盘，按键大小不变。底栏显示时，40 dp 以内由底栏占用；浮动键盘、手机横屏和接实体键盘收起键区时不生效。");
-        bottomHeight[0].setEnabled(!settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD));
+        bottomHeight[0].setEnabled(FloatingKeyboardPolicy.canAdjustDockedBottomHeight(
+            settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD), autoLandscape));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
@@ -766,7 +775,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (int percent = ToolbarSizePolicy.MIN_PERCENT; percent <= ToolbarSizePolicy.MAX_PERCENT; percent += 10) {
             int choice = percent;
             sheet.option(percent + "%", custom && current == percent,
-                () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice,
+                    this::reload, this::reload));
         }
         sheet.show();
     }
