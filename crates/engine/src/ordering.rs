@@ -203,7 +203,7 @@ pub fn reorders_candidates(scheme: u8) -> bool {
     scheme_type(scheme).is_none_or(SchemeType::holds_phrase_progress)
 }
 
-/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼的纠错行重排器照旧允许领先，引擎侧另由 `typo_lead_margin` 约束（每处胜过字面整句 30 以上才坐首位）。
+/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼整串读不通时，纠错读法就是主读法，重排器照旧允许它领先；输入读得通、引擎另给的纠错整句由引擎按 `typo_lead_margin` 定座位，重排器不提它（`typo_sentence_beside_literal`）。
 fn corrections_may_lead(scheme: u8) -> bool {
     scheme_type(scheme) != Some(SchemeType::Shuangpin)
 }
@@ -515,8 +515,39 @@ fn row_answers_key(scheme: u8, row: OrderRow<'_>) -> bool {
         && (corrections_may_lead(scheme) || !row.corrected)
 }
 
+/// 输入读得通时（`typo_sentence_beside_literal`），纠错整句在重排器的混合分（逐字自然对数）上要比最好的字面读法高出这么多，才能被提到首位。模型常觉得改出来的句子更通顺：不设门槛时 convert_eval 10396 条原句首选 0.858 → 0.843（「我的班不大」成了「我的办不到」），完全不让重排器提纠错句时打错集（5285 条）首选掉到 0.026，比没有合法拼音纠错的 develop（0.067）还低，因为纠错句多半靠重排器才坐上首位。扫 0、0.3、0.6、1.0、1.5：原句首选 0.843、0.850、0.854、0.857、0.858，打错集首选 0.212、0.210、0.203、0.190、0.169。1.5 时原句相对 develop 丢 5 条、得 9 条，1.0 时丢 16 条、得 9 条。
+pub(crate) const CORRECTION_RERANK_MARGIN: f64 = 1.5;
+
 fn any_corrected_key<'a, R: OrderRowSource<'a> + ?Sized>(scheme: u8, rows: &'a R) -> bool {
-    corrections_may_lead(scheme) && (0..rows.len()).any(|index| rows.get(index).corrected)
+    corrections_may_lead(scheme)
+        && (0..rows.len()).any(|index| rows.get(index).corrected)
+        && !typo_sentence_beside_literal(scheme, rows)
+}
+
+/// 表里既有字面整句读法、又有纠错整句：输入读得通，引擎另给了打错时的改正（`quanpin::typo_edges`）。纠错句坐第几位只由引擎按它胜过字面整句多少决定（`LatticeOptions::typo_lead_margin`、`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`）；重排器只在字面读法之间比较，不把纠错句提到首位，纠错句也不撤销词典首选的豁免。放任重排器比较时，模型常觉得改出来的句子更通顺，打对的输入就被改了字：一万多条原句里有 175 条丢了首选（「他的工作非常忙」成了「非常慢」）。整串读不通、词网格读法全是纠错读法时不算，那时纠错读法就是主读法，照旧让重排器比较。
+fn typo_sentence_beside_literal<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    rows: &'a R,
+) -> bool {
+    if !corrections_may_lead(scheme) {
+        return false;
+    }
+    let mut literal = false;
+    let mut corrected = false;
+    for index in 0..rows.len() {
+        let row = rows.get(index);
+        if row.source == LATTICE_SOURCE {
+            if row.corrected {
+                corrected = true;
+            } else {
+                literal = true;
+            }
+            if literal && corrected {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// 判断 `rerank_pick` 是否需要运行模型，提前拒绝时宿主无需把停顿模型移出会话线程。
@@ -545,6 +576,10 @@ pub fn rerank_needs_model<'a, R: OrderRowSource<'a> + ?Sized>(
     }
     // 首行不回答当前按键时，上游同样拒绝比较，无需准备模型输入。
     if !row_answers_key(scheme, leader) {
+        return false;
+    }
+    // 引擎让纠错整句坐了首位（胜过字面整句很多），不再交给模型。
+    if leader.corrected && typo_sentence_beside_literal(scheme, rows) {
         return false;
     }
     if contest_rows(scheme, rows, &mut [0; CONTEST_LIMIT]).is_some() {
@@ -594,7 +629,10 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
     if let Some((count, margin)) = contest_rows(scheme, rows, &mut contested) {
         return pick_contest(reranker, context, rows, &contested[..count], margin);
     }
+    let beside_literal = typo_sentence_beside_literal(scheme, rows);
     let answers_key = |row: OrderRow<'a>| row_answers_key(scheme, row);
+    let literal_answers_key =
+        |row: OrderRow<'a>| row_answers_key(scheme, row) && !(beside_literal && row.corrected);
     let corrected_key = any_corrected_key(scheme, rows);
     let limit = pool.clamp(STATIC_RERANK_LIMIT, MAX_SENTENCE_POOL);
     // 只有参与比较的候选需要占用模型上下文窗口。
@@ -624,6 +662,17 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
                         best = index;
                     }
                 }
+                // 输入读得通时，纠错整句要比最好的字面读法高出 CORRECTION_RERANK_MARGIN 才能被提上来，见常量说明。
+                if beside_literal && rows.get(considered[best]).corrected {
+                    let literal = (0..count)
+                        .filter(|&index| !rows.get(considered[index]).corrected)
+                        .max_by(|&a, &b| combined(a).total_cmp(&combined(b)));
+                    if let Some(literal) = literal.filter(|&literal| {
+                        combined(best) < combined(literal) + CORRECTION_RERANK_MARGIN
+                    }) {
+                        best = literal;
+                    }
+                }
                 // Readings that differ from the pick only in 他/她/它 are decided by the model alone; see differs_only_in_third_person.
                 let leader = subset[best];
                 for index in 0..count {
@@ -639,7 +688,7 @@ pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
     }
     with_row_texts(rows, |texts| {
         reranker.best_where(context, texts, &|index| CandidateFacts {
-            answers_key: answers_key(rows.get(index)),
+            answers_key: literal_answers_key(rows.get(index)),
             trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows.get(index).source)
                 && !corrected_key,
         })
@@ -1714,7 +1763,7 @@ mod tests {
         );
     }
 
-    /// 守卫的另一半（#10018 PR3）：引擎按首选规则把双拼纠错整句放在第一位时（它同时是落点支持的那一行），重排器不跑模型、不把它换下去，次选读法的后移也不动它，字面整句留在第二位、前三条字面读法照旧在它后面。全拼的纠错行本来就允许领先，同样一张表照常交给模型比较。
+    /// 守卫的另一半（#10018 PR3）：引擎按首选规则把双拼纠错整句放在第一位时（它同时是落点支持的那一行），重排器不跑模型、不把它换下去，次选读法的后移也不动它，字面整句留在第二位、前三条字面读法照旧在它后面。全拼同样不交给模型：字面整句读法在场时，纠错句坐首位是引擎按 `typo_lead_margin` 定的（`typo_sentence_beside_literal`）。
     #[test]
     fn a_shuangpin_correction_the_engine_put_first_stays_first() {
         let shuangpin = SchemeType::Shuangpin as u8;
@@ -1731,7 +1780,7 @@ mod tests {
             row("没", 0),
         ];
         assert!(!rerank_needs_model(shuangpin, false, &rows));
-        assert!(rerank_needs_model(SchemeType::Quanpin as u8, false, &rows));
+        assert!(!rerank_needs_model(SchemeType::Quanpin as u8, false, &rows));
         let supported = [true, false, false, false, false, false, false];
         let order = runner_up_order_with(shuangpin, &rows, &supported).unwrap();
         assert_eq!(order, vec![0, 1, 2, 3, 5, 6, 4]);
@@ -1782,6 +1831,56 @@ mod tests {
         assert_eq!(
             runner_up_order(0, &[row("你好", LATTICE_SOURCE), row("你", 0)]),
             None
+        );
+    }
+
+    /// 输入读得通时，纠错整句要在混合分上比最好的字面读法高出 `CORRECTION_RERANK_MARGIN` 才被提上来；字面读法之间照常比较。词网格分相同，混合分之差是模型分之差的一半（权重 0.5）。
+    #[test]
+    fn a_correction_beside_literal_readings_needs_the_margin_to_lead() {
+        let texts = ["我的班不大", "我的版不大", "我的办不到"].map(String::from);
+        let sources = [LATTICE_SOURCE; 3];
+        let answers = [true; 3];
+        let corrected = [false, false, true];
+        let evidence = [Some(StaticEvidence {
+            log_prob_milli_nats: -5000,
+            characters: 5,
+        }); 3];
+        let rows = ParallelOrderRows::new(&texts, &sources, &answers, &corrected)
+            .with_static_evidence(&evidence);
+        let quanpin = SchemeType::Quanpin as u8;
+        let pick = |means: &[(&'static str, f32)]| {
+            let mut scorer = Means {
+                means: means.to_vec(),
+                window: 64,
+                context: String::new(),
+            };
+            rerank_pick_within(&mut scorer, "", quanpin, false, &rows, 0)
+        };
+        let below = 2.0 * CORRECTION_RERANK_MARGIN as f32 - 0.2;
+        let above = 2.0 * CORRECTION_RERANK_MARGIN as f32 + 0.2;
+        assert_eq!(
+            pick(&[
+                ("我的班不大", -4.0),
+                ("我的版不大", -5.0),
+                ("我的办不到", -4.0 + below)
+            ]),
+            None
+        );
+        assert_eq!(
+            pick(&[
+                ("我的班不大", -4.0),
+                ("我的版不大", -3.5),
+                ("我的办不到", -4.0 + below)
+            ]),
+            Some(1)
+        );
+        assert_eq!(
+            pick(&[
+                ("我的班不大", -4.0),
+                ("我的版不大", -5.0),
+                ("我的办不到", -4.0 + above)
+            ]),
+            Some(2)
         );
     }
 
