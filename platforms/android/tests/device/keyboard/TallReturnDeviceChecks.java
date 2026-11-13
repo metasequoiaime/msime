@@ -257,9 +257,12 @@ final class TallReturnDeviceChecks {
         Rect enter = bounds(t.describedPrefix("换行"));
         System.out.println("tall return shuangpin: delete=" + delete + " rewrite=" + rewrite + " enter=" + enter
             + " rows=" + two + " " + five + " " + eight + " zero=" + zero + " symbol=" + symbol);
-        if (symbol.top < sidebar.bottom || Math.abs(symbol.left - sidebar.left) > tolerance
-                || Math.abs(symbol.right - sidebar.right) > tolerance)
-            throw new AssertionError("九键双拼：符 应在符号栏正下方且同宽：符 " + symbol + "，符号栏 " + sidebar);
+        int leftInset = symbol.left - sidebar.left;
+        int rightInset = sidebar.right - symbol.right;
+        if (symbol.top < sidebar.bottom || leftInset < 0 || rightInset < 0
+                || Math.abs(leftInset - rightInset) > tolerance)
+            throw new AssertionError("九键双拼：符 应在符号栏正下方并保持左右内缩对称：符 " + symbol
+                + "，符号栏 " + sidebar + "，左右内缩 " + leftInset + "/" + rightInset);
         if (Math.abs(layer.left - one.left) > tolerance || Math.abs(language.right - three.right) > tolerance
                 || layer.top < eight.bottom)
             throw new AssertionError("九键双拼：123 | 空格 | 0 | 中 应在网格下方且与网格同宽：" + layer + " " + language);
