@@ -898,6 +898,40 @@ pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
     touch_supported: &[bool],
     pool: usize,
 ) -> Option<Vec<usize>> {
+    runner_up_order_pinned(scheme, rows, touch_supported, pool, None)
+}
+
+/// 引擎坐在第二位的全拼纠错整句现在在哪一格：引擎把明显胜过字面整句的纠错整句放在它第一条整句读法正后方（`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`），其余的排在整句块之后。`engine_seats[i]` 是当前第 i 格在引擎原表里的座位；重排器把别的读法提到首位以后，那一行就不再紧跟当前的第一条读法，只能按引擎座位认。双拼的纠错句由引擎排在整句块之后（#6034），没有这个座位。长度对不上时为 `None`。
+pub fn engine_seated_correction<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    rows: &R,
+    engine_seats: &[usize],
+) -> Option<usize> {
+    let count = rows.len();
+    if !corrections_may_lead(scheme) || engine_seats.len() != count {
+        return None;
+    }
+    let first = (0..count)
+        .filter(|&index| {
+            let row = rows.get(index);
+            row.source == LATTICE_SOURCE && !row.corrected
+        })
+        .map(|index| engine_seats[index])
+        .min()?;
+    (0..count).find(|&index| {
+        let row = rows.get(index);
+        row.source == LATTICE_SOURCE && row.corrected && engine_seats[index] == first + 1
+    })
+}
+
+/// [`runner_up_order_pooled`]，`pinned` 是 [`engine_seated_correction`] 找到的那一行：它不按读法降位，坐在第一条读法正后方，并占掉一条留下的读法名额。它不是同一串字母的又一种读法，而是对打错的改正；按读法降位会把它和其余读法一起挪走（字数不同时排到留下的读法后面，字数相同又超出名额时挪到表尾），手机候选栏上就看不到了。`pinned` 不是纠错的整句行时不起作用。
+pub fn runner_up_order_pinned<'a, R: OrderRowSource<'a> + ?Sized>(
+    scheme: u8,
+    rows: &R,
+    touch_supported: &[bool],
+    pool: usize,
+    pinned: Option<usize>,
+) -> Option<Vec<usize>> {
     // The lattice runs from two syllables (a single syllable is never decoded), so a shorter candidate reached the list some other way and is not a reading of the same sentence. Japanese kana are the case that proves it: あ and ア are both Generated and both one character. Two rather than three because two-syllable keys are where the lattice's runner-up readings otherwise fill the first page ahead of dictionary words: on quanpin-words-v1 this moves two-syllable top5 from 0.883 to 0.924 with top1 unchanged.
     const SENTENCE_SYLLABLES: usize = 2;
     // From this many characters a reading is a sentence rather than a word, and the page keeps `SENTENCE_READINGS` of them.
@@ -934,9 +968,24 @@ pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
         1
     };
     // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order. `keep` is at most three, so rescanning the rows costs less than allocating separate reading and membership arrays.
-    let seated = |index: usize| {
+    let first_seated = (0..count).find(|&index| {
         let row = rows.get(index);
         lattice(index, &row) && row.text.chars().count() == width
+    })?;
+    let pinned = pinned.filter(|&index| {
+        index < count && index != first_seated && {
+            let row = rows.get(index);
+            row.source == LATTICE_SOURCE && row.corrected && lattice(index, &row)
+        }
+    });
+    let keep = if pinned.is_some() {
+        (keep - 1).max(1)
+    } else {
+        keep
+    };
+    let seated = |index: usize| {
+        let row = rows.get(index);
+        Some(index) != pinned && lattice(index, &row) && row.text.chars().count() == width
     };
     // 整句池让引擎挪过座位时（见 [`runner_up_order_pooled`]），字数不同、同样读满整串的词网格行是另一种切分的读法。只有全拼和五笔的拼音回退走全拼引擎的整句池。
     let pooled = pool > crate::lattice::decode::SENTENCE_PATHS
@@ -948,6 +997,7 @@ pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
         let row = rows.get(index);
         let characters = row.text.chars().count();
         pooled
+            && Some(index) != pinned
             && row.answers_key
             && lattice(index, &row)
             && characters >= SENTENCE_SYLLABLES
@@ -968,6 +1018,9 @@ pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
             if seated(index) {
                 if seated_seen == 0 {
                     emit(index);
+                    if let Some(pinned) = pinned {
+                        emit(pinned);
+                    }
                     let mut kept = 1;
                     for next in index + 1..count {
                         if kept == keep {
@@ -980,6 +1033,9 @@ pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
                     }
                 }
                 seated_seen += 1;
+                continue;
+            }
+            if Some(index) == pinned {
                 continue;
             }
             if Some(index) == first_other {
@@ -1473,6 +1529,105 @@ mod tests {
         };
         let rows = [row("问间", LATTICE_SOURCE), completion, row("文件", 0)];
         assert_eq!(runner_up_order_pooled(0, &rows, &[], 32), None);
+    }
+
+    /// 引擎放在第一条读法正后方的全拼纠错整句留在第二位，占掉一条留下的读法名额；放在整句块之后的、双拼的照旧。
+    #[test]
+    fn a_quanpin_correction_seated_after_the_first_reading_keeps_its_seat() {
+        let quanpin = SchemeType::Quanpin as u8;
+        let shuangpin = SchemeType::Shuangpin as u8;
+        let corrected = |text| OrderRow {
+            corrected: true,
+            ..row(text, LATTICE_SOURCE)
+        };
+        let order = |scheme, rows: &[OrderRow<'_>], seats: &[usize]| {
+            let pinned = engine_seated_correction(scheme, rows, seats);
+            runner_up_order_pinned(scheme, rows, &[], 0, pinned)
+        };
+        let identity = |count: usize| (0..count).collect::<Vec<_>>();
+        let seated = [
+            row("仙子啊我大哟段话", LATTICE_SOURCE),
+            corrected("现在我打一段话"),
+            row("仙子啊我打哟段话", LATTICE_SOURCE),
+            row("仙子啊我打哟端华", LATTICE_SOURCE),
+            row("仙子啊我大哟端华", LATTICE_SOURCE),
+            row("仙子", 0),
+            row("仙", 0),
+        ];
+        assert_eq!(
+            engine_seated_correction(quanpin, &seated, &identity(7)),
+            Some(1)
+        );
+        assert_eq!(
+            order(quanpin, &seated, &identity(7)),
+            Some(vec![0, 1, 2, 5, 6, 3, 4])
+        );
+        // 不给座位时照旧按读法降位。
+        assert_eq!(
+            runner_up_order(quanpin, &seated),
+            Some(vec![0, 2, 3, 1, 5, 6, 4])
+        );
+        // 重排器把引擎的第三条读法提到首位后，纠错句被挤到第三格；按引擎座位仍认得出它，回到第二位。
+        let rotated = [
+            row("仙子啊我打哟段话", LATTICE_SOURCE),
+            row("仙子啊我大哟段话", LATTICE_SOURCE),
+            corrected("现在我打一段话"),
+            row("仙子啊我打哟端华", LATTICE_SOURCE),
+            row("仙子", 0),
+        ];
+        let rotated_seats = [2, 0, 1, 3, 4];
+        assert_eq!(
+            engine_seated_correction(quanpin, &rotated, &rotated_seats),
+            Some(2)
+        );
+        assert_eq!(
+            order(quanpin, &rotated, &rotated_seats),
+            Some(vec![0, 2, 1, 4, 3])
+        );
+        // 字数和读法相同也一样：它不按读法占座，也就不会因为超出名额挪到表尾。
+        let same_width = [
+            row("仙子啊我大哟段话", LATTICE_SOURCE),
+            corrected("现在啊我打一段话"),
+            row("仙子啊我打哟段话", LATTICE_SOURCE),
+            row("仙子啊我打哟端华", LATTICE_SOURCE),
+            row("仙子", 0),
+        ];
+        assert_eq!(
+            order(quanpin, &same_width, &identity(5)),
+            Some(vec![0, 1, 2, 4, 3])
+        );
+        // 双拼的纠错句不由这里保座。
+        assert_eq!(
+            engine_seated_correction(shuangpin, &seated, &identity(7)),
+            None
+        );
+        // 引擎排在整句块之后的纠错句照旧：留下三条读法，它跟在后面。
+        let behind = [
+            row("仙子啊我大哟段话", LATTICE_SOURCE),
+            row("仙子啊我打哟段话", LATTICE_SOURCE),
+            row("仙子啊我打哟端华", LATTICE_SOURCE),
+            row("仙子啊我大哟端华", LATTICE_SOURCE),
+            corrected("现在我打一段话"),
+            row("仙子", 0),
+        ];
+        assert_eq!(
+            engine_seated_correction(quanpin, &behind, &identity(6)),
+            None
+        );
+        assert_eq!(
+            order(quanpin, &behind, &identity(6)),
+            Some(vec![0, 1, 2, 4, 5, 3])
+        );
+        // 两字读法本来只留一条；纠错句保座后也不会把其余读法全留下。
+        let short = [
+            row("你好", LATTICE_SOURCE),
+            corrected("您好"),
+            row("倪好", LATTICE_SOURCE),
+            row("你", 0),
+        ];
+        assert_eq!(order(quanpin, &short, &identity(4)), Some(vec![0, 1, 3, 2]));
+        // 座位长度对不上时不保座。
+        assert_eq!(engine_seated_correction(quanpin, &short, &[0, 1]), None);
     }
 
     /// 带触点查出的双拼表里，落点支持的纠错整句不算整句读法：前三条字面读法照旧留在前面、其余挪到表尾，纠错行留在引擎给的座位上。没有触点时它和别的读法一样被挪走。
