@@ -22,7 +22,9 @@ Status: implemented
 
 ## Verification
 
-Android 当前分支 arm64 原生 APK 构建通过；API 28/35 专用 AVD 的系统输入法四向触摸回放通过，覆盖全部 2–9 键字母、下滑和 1 键无动作、取消、长按数字及共享阈值 14/48。API 35 的预览与长按拖选专项通过；鸿蒙 `tests/run.sh` 全套通过，包含新的触摸所有权行为测试。Swift 的真实状态机代码独立回放通过，UIKit 触摸、鸿蒙 ArkTS HAP 编译和签名设备验收仍需补齐，不能用逻辑测试替代。Android 设置改前/改后原尺寸截图保留在本机产物目录，图床下载回验为 PNG 且字节一致。
+Android 当前分支 arm64 原生 APK 构建通过；API 28/35 专用 AVD 的系统输入法四向触摸回放通过，覆盖全部 2–9 键字母、下滑和 1 键无动作、取消、长按数字及共享阈值 14/48。API 35 的预览与长按拖选专项通过；鸿蒙 `tests/run.sh` 全套通过，包含新的触摸所有权行为测试。Swift 的真实状态机代码独立回放通过。Android 设置改前/改后原尺寸截图保留在本机产物目录，图床下载回验为 PNG 且字节一致。
+
+真实 ArkTS 编译补验发现 `KeyboardSession.appearance` 的初始对象缺少新增的 `nineKeyFlickThreshold`，已补上策略默认值；`ohpm install` 后的 `hvigorw assembleHap --no-daemon` 通过（`20261113-182849`）。这次产物只作为 ArkTS 编译与打包证据，没有暂存本分支的 Rust/NAPI 库和核心词库，也没有签名，不能作为可安装产品包。`tests/run.sh`、`pnpm run verify-notes` 与全平台 quick（`20261113-183128`）通过。`hdc list targets -v` 返回空列表；UIKit 真实触摸、本分支完整 HAP 和签名设备验收仍需补齐。
 
 ## Consequences
 

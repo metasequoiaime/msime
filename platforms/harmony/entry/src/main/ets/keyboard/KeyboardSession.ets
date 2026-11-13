@@ -1619,7 +1619,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     oneHandedSidePanel: OneHandedSidePanel.OFF,
     splitKeyboard: SplitKeyboardPolicy.DEFAULTS,
     languageKeyLeft: false,
-    nineKeySwipeDigits: NineKeySwipePolicy.OFF
+    nineKeySwipeDigits: NineKeySwipePolicy.OFF,
+    nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(undefined)
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
