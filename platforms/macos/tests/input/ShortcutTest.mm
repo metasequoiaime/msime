@@ -7701,12 +7701,37 @@ static void TestCapsLockTap() {
     [controller pollCapsLockTap];
     assert(gCapsReleases == 1 && prefs.englishMode);
     assert(session.capsLockCalls == reports && !session.capsLock);
-    // 系统撤回锁定后紧跟着送来的旧 Caps Lock 修饰位不能让英文重新变成大写。
-    assert([controller handleEvent:LayoutKey(0, @"A", NSEventModifierFlagCapsLock) client:client]);
+    // 关闭状态事件可能先于窗口服务器翻译出的字母抵达；即使字母事件已经没有 Caps Lock 修饰位，也不能让英文重新变成大写。
+    assert(![controller handleEvent:capsOff(1.1) client:client]);
+    assert([controller handleEvent:LayoutKey(0, @"A", 0) client:client]);
     assert([client.insertions.lastObject isEqual:@"a"] && !session.capsLock);
-    // 撤回之后系统报来的「大写锁定关」不会再切换，也不用报告。
+    // 撤回之后系统再次报来的「大写锁定关」不会再切换，也不用报告。
     assert(![controller handleEvent:capsOff(1.2) client:client]);
     assert(prefs.englishMode && session.capsLockCalls == reports);
+
+    // 保留旧回归：字母仍带 Caps Lock 修饰位时同样还原；另用独立控制器验证关闭边沿先到的新时序。
+    const NSUInteger releasesBeforeStaleCases = gCapsReleases;
+    for (NSEventModifierFlags letterFlags : {NSEventModifierFlags(NSEventModifierFlagCapsLock), NSEventModifierFlags(0)}) {
+        ModeController *staleController = [ModeController alloc];
+        ShortcutClient *staleClient = [ShortcutClient new];
+        [staleController setValue:prefs forKey:@"appearance"];
+        [staleController setValue:staleClient forKey:@"activeClient"];
+        [staleController setValue:session forKey:@"session"];
+        prefs.englishMode = NO;
+        gCapsNow = 1200; gCapsHeld = true;
+        assert(![staleController handleEvent:capsOn(1.2) client:staleClient]);
+        gCapsNow = 1250; gCapsHeld = false;
+        [staleController pollCapsLockTap];
+        assert(prefs.englishMode && !session.capsLock);
+        if (!letterFlags) assert(![staleController handleEvent:capsOff(1.3) client:staleClient]);
+        assert([staleController handleEvent:LayoutKey(0, @"A", letterFlags) client:staleClient]);
+        assert([staleClient.insertions.lastObject isEqual:@"a"] && !session.capsLock);
+        assert(session.capsLockCalls == reports);
+        [staleController setValue:nil forKey:@"session"];
+        [staleController setValue:nil forKey:@"activeClient"];
+    }
+    assert(gCapsReleases == releasesBeforeStaleCases + 2);
+    gCapsReleases = releasesBeforeStaleCases;
 
     // 再轻点一次切回中文。
     gCapsNow = 2000; gCapsHeld = true;
