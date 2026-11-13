@@ -1122,9 +1122,9 @@ fn the_carried_jiajia_table_parses_the_way_the_engine_reads_it() {
     for (character, code) in [("好", "nz"), ("你", "de"), ("中", "ks"), ("国", "ky")] {
         assert_eq!(keymap.code(character), Some(code));
     }
-    // The notice records 7968 entries; one per line, so a line the parser dropped shows as a shortfall.
-    assert_eq!(keymap.len(), 7968);
-    assert_eq!(text.lines().filter(|line| !line.is_empty()).count(), 7968);
+    // The notice records 21327 entries; one per line, so a line the parser dropped shows as a shortfall.
+    assert_eq!(keymap.len(), 21327);
+    assert_eq!(text.lines().filter(|line| !line.is_empty()).count(), 21327);
 }
 
 #[test]
