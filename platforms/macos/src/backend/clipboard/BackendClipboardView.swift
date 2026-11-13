@@ -128,7 +128,7 @@ struct MacCloudClipboardView: View {
         Spacer()
         Button("关闭") { model.close(); dismiss() }
       }
-      Text("文字在本机加密后才上传，服务端只保存密文。只上传你明确添加的内容，不自动读取系统剪贴板。最多保存 50 条；关闭云剪贴板会删除云端历史和所有设备的登记。")
+      Text("开启后，复制的文本会在本机加密并自动同步，服务端只保存密文；其他设备的新文本也会写入本机系统剪贴板。最多保存 50 条；关闭云剪贴板会删除云端历史和所有设备的登记。")
         .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       if model.isRelay {
         Text("这份云剪贴板走你自己配置的中继，不经过水杉账号。")
