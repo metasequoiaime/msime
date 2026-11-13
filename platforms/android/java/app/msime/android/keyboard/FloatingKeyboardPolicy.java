@@ -37,6 +37,11 @@ public final class FloatingKeyboardPolicy {
         return !hardwareKeyboardMode && (autoLandscape ? landscape : enabled);
     }
 
+    /** 自动模式在竖屏停靠，仍允许调整竖屏底部高度；只有持续手动浮动时禁用。 */
+    public static boolean canAdjustDockedBottomHeight(boolean enabled, boolean autoLandscape) {
+        return !active(enabled, autoLandscape, false, false);
+    }
+
     /** 当前窗口宽度（dp）下浮动键盘的宽度（dp）：窗口的 80%，夹在 240–480 之间，且不超过窗口本身；窗口宽度未知时取 {@link #MIN_WIDTH_DP}。 */
     public static int widthDp(int windowWidthDp) {
         if (windowWidthDp <= 0) return MIN_WIDTH_DP;
