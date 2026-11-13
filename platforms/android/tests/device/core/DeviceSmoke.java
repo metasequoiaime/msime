@@ -30,6 +30,7 @@ public class DeviceSmoke extends Instrumentation {
     protected UiAutomation automation;
     protected String stage = "launch";
     private boolean voiceHold;
+    private String voiceEmptyScenario;
     private boolean pinyinStartup;
     private boolean pinyinHideResume;
 
@@ -158,6 +159,7 @@ public class DeviceSmoke extends Instrumentation {
     protected FileOutputStream uinputInput;
 
     @Override public void onCreate(Bundle arguments) {
+        voiceEmptyScenario = arguments == null ? null : arguments.getString("voice-empty");
         voiceHold = arguments != null && "true".equals(arguments.getString("voice-hold"));
         pinyinStartup = arguments != null && "true".equals(arguments.getString("pinyin-startup"));
         pinyinHideResume = arguments != null && "true".equals(arguments.getString("pinyin-hide-resume"));
@@ -172,11 +174,13 @@ public class DeviceSmoke extends Instrumentation {
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
             outlastDeadImeConnection();
-            if (voiceHold) new VoiceHoldDeviceChecks(this).run();
+            if (voiceEmptyScenario != null) new VoiceEmptyNoticeDeviceChecks(this, voiceEmptyScenario).run();
+            else if (voiceHold) new VoiceHoldDeviceChecks(this).run();
             else if (pinyinStartup) PinyinStartupDeviceSmoke.runChecks(this, pinyinHideResume);
             else runChecks();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + (voiceHold
                 ? "voice hold hit regions, lock, editing, symbol return, explicit delivery and stale result protection"
+                : voiceEmptyScenario != null ? "empty voice notice at phone top: " + voiceEmptyScenario
                 : successDescription()) + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {

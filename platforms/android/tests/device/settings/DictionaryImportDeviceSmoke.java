@@ -158,6 +158,34 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
                     check(!cursor.moveToNext(), "collection-owned ranking word not removed");
                 }
             }
+            stage = "import Gboard archive through installed store and native dictionary";
+            byte[] archive;
+            try (java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
+                try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(bytes)) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry("dictionary.txt"));
+                    zip.write("# Gboard Dictionary version:1\na\t嗄\tzh-CN\n".getBytes(StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+                archive = bytes.toByteArray();
+            }
+            report = importReport(importFile, context, "合成 Gboard 归档", "standard", archive);
+            check((int) report.getClass().getMethod("imported").invoke(report) == 1, "archive import count");
+            check((int) report.getClass().getMethod("failed").invoke(report) == 0, "archive parse failed");
+            JSONObject archiveSync = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+                .put("options", options).put("action", new JSONObject().put("operation", "synchronize")).toString());
+            if (archiveSync.getInt("failed_count") != 0 || archiveSync.getInt("pending_count") != 0) {
+                JSONArray requests = new JSONObject(new String(Files.readAllBytes(new File(root,
+                    "preferences/PersonalDictionary/sync.json").toPath()), StandardCharsets.UTF_8)).getJSONArray("requests");
+                for (int index = 0; index < requests.length(); index++) {
+                    JSONObject request = requests.getJSONObject(index);
+                    check(!"failed".equals(request.getString("status")), "archive application: " + request.optString("error"));
+                }
+                throw new AssertionError("archive synchronization pending=" + archiveSync.getInt("pending_count"));
+            }
+            try (SQLiteDatabase db = SQLiteDatabase.openDatabase(new File(root, "dictionaries/msime-pinyin.db").getPath(), null, SQLiteDatabase.OPEN_READONLY);
+                    android.database.Cursor cursor = db.rawQuery("SELECT count(*) FROM tbl_1_a WHERE value=?", new String[] {"嗄"})) {
+                check(cursor.moveToFirst() && cursor.getInt(0) == 1, "archive word not applied to native dictionary");
+            }
             stage = "import 33555 synthetic Rime words through installed store";
             long capacityStart = android.os.SystemClock.uptimeMillis();
             report = importReport(importFile, context, "合成容量回归", "rime", capacityRows());
@@ -208,7 +236,7 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
                 result.putString("measurement", "MSIME_CAPACITY_THROUGHPUT words=33555 elapsed_ms="
                     + (android.os.SystemClock.uptimeMillis() - capacityStart) + " rounds=" + rounds + " longest_sync_ms=" + longest);
             }
-            result.putString("result", "MSIME_DICTIONARY_IMPORT_PASSED: 74 words applied, sixth word in nine-key candidates, busy queue retried, Rime ranking retained; 33555 Rime words imported and reloaded without truncation");
+            result.putString("result", "MSIME_DICTIONARY_IMPORT_PASSED: 74 words applied, sixth word in nine-key candidates, busy queue retried, Rime ranking retained; 33555 Rime words imported and reloaded without truncation; Gboard zip applied to native dictionary");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | LinkageError | AssertionError error) {
             Throwable cause = error instanceof java.lang.reflect.InvocationTargetException
@@ -247,7 +275,11 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
     }
 
     private static Object importReport(Method method, Context context, String name, String format, String text) throws Exception {
-        Object imported = method.invoke(null, context, format, name, text.getBytes(StandardCharsets.UTF_8));
+        return importReport(method, context, name, format, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Object importReport(Method method, Context context, String name, String format, byte[] bytes) throws Exception {
+        Object imported = method.invoke(null, context, format, name, bytes);
         check((boolean) imported.getClass().getMethod("ok").invoke(imported), "installed import rejected");
         Object view = imported.getClass().getMethod("value").invoke(imported);
         return view.getClass().getMethod("importReport").invoke(view);

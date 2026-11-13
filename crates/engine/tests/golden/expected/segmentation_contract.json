@@ -184,7 +184,7 @@
       "source": 0,
       "scheme": "quanpin",
       "weight": 100,
-      "answers_key": true
+      "answers_key": false
      },
      {
       "word": "__three_syllable_alternative____alternative_xi_an__",

@@ -50,10 +50,11 @@ use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, PersonalDictionaryKind,
     SentenceAssociationOptions, WordItem,
 };
-use crate::user_dictionary::journal::record_user_insert;
+use crate::user_dictionary::journal::{has_matching_user_weight, record_user_insert};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+use super::fuzzy_completion_order::lead_whole_fuzzy_before_completion;
 use super::series::{
     append_unique_words, defer_pooled_sentences, fold_reading, has_corrected_cut,
     lead_literal_abbreviation_phrases, mark_autocorrect_candidates, merge_alternative_rows,
@@ -362,7 +363,9 @@ impl QuanpinDictionary {
             let rows = self.fuzzy_candidates(typed.as_ref(), fuzzy);
             // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
             merge_series_by_coverage(&mut result, rows);
+            promote_learned_fuzzy_rows(&mut result, &self.paths.user(USER_JOURNAL));
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
+            lead_whole_fuzzy_before_completion(&mut result, raw);
             // 按字母数重排会把多一个字母的删字纠错（shng → shang）排回字面简拼整词前面，哪怕模糊音一行也没查到；纠错在作用时把 `query_exact` 定下的先后和保座再做一遍（#9903）。
             if has_corrected_cut(
                 raw,
@@ -1769,6 +1772,64 @@ impl QuanpinDictionary {
             self.personal_scored_keys
                 .retain(|key| series_cache.contains(key));
         }
+    }
+}
+
+/// 模糊行默认留在字面候选之后；用户调频过的模糊行要和同覆盖的字典行按新权重比较，否则它永远跨不过字面候选组（#11321）。只在日志确认这条权重由用户写入时启用，保留未学习模糊候选的原有站位。
+fn promote_learned_fuzzy_rows(rows: &mut [WordItem], user_db: &std::path::Path) {
+    let learned = rows.iter().any(|row| {
+        row.fuzzy
+            && row.source.is_dictionary()
+            && has_matching_user_weight(
+                user_db,
+                PersonalDictionaryKind::Pinyin,
+                &row.canonical_pinyin,
+                &row.word,
+                row.weight,
+            )
+    });
+    if !learned {
+        return;
+    }
+    let mut start = 0;
+    while start < rows.len() {
+        let coverage = rows[start]
+            .pinyin
+            .bytes()
+            .filter(|&byte| byte != b'\'')
+            .count();
+        let end = start
+            + rows[start..]
+                .iter()
+                .take_while(|row| {
+                    row.pinyin.bytes().filter(|&byte| byte != b'\'').count() == coverage
+                })
+                .count();
+        let bucket = &mut rows[start..end];
+        let positions: Vec<usize> = bucket
+            .iter()
+            .enumerate()
+            .filter_map(|(index, row)| row.source.is_dictionary().then_some(index))
+            .collect();
+        let mut dictionary: Vec<WordItem> = positions
+            .iter()
+            .map(|&index| bucket[index].clone())
+            .collect();
+        dictionary.sort_by_key(|row| {
+            let learned = !row.fuzzy
+                || has_matching_user_weight(
+                    user_db,
+                    PersonalDictionaryKind::Pinyin,
+                    &row.canonical_pinyin,
+                    &row.word,
+                    row.weight,
+                );
+            std::cmp::Reverse(if learned { row.weight } else { i64::MIN })
+        });
+        for (index, row) in positions.into_iter().zip(dictionary) {
+            bucket[index] = row;
+        }
+        start = end;
     }
 }
 
