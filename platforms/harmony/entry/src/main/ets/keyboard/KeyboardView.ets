@@ -1347,6 +1347,12 @@ struct KeyboardView {
     if (this.scheme.engineScheme !== 'shuangpin') {
       return '';
     }
+    // `custom` 没有单独的 SchemeDefinition，当前触屏方案仍沿用小鹤的入口；以共享偏好里的
+    // profile 为准，避免键盘继续画小鹤的提示而 Engine 已经按自定义表解码。
+    if (this.shuangpinProfile === 'custom') {
+      return ShuangpinKeyHintPolicy.hintMap(KeyboardSession.shared.shuangpinCustomKeyHints(),
+        letter, this.english, 1, this.localMode, this.shuangpinKeyHints);
+    }
     return ShuangpinKeyHintPolicy.hint(this.scheme.shuangpinProfile ?? this.shuangpinProfile,
       letter, this.english, 1, this.localMode, this.shuangpinKeyHints);
   }
@@ -3814,6 +3820,7 @@ struct KeyboardView {
     // 大小写不在这里：字母键的键面和读屏文字在绘制时按大小写现算（见 `KeyOptions.letter`），自动大写切换时键节点保持不变，正按着的键不会被重建。
     // 底行样式和数字行改变键的排列，与双拼提示开关一样放进键里，设置页改了之后已画好的键跟着重建。
     return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
+      + `${KeyboardSession.shared.shuangpinCustomHintIdentity()}:`
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
       + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:${this.languageKeyLeft}:`

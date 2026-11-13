@@ -55,6 +55,8 @@ private func msimeClientSmartPunctuationArmRaw(_ session: UInt64, _ request: Uns
 private func msimeClientSmartPunctuationDecideRaw(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_nine_key_shuangpin_layout")
 private func msimeClientNineKeyShuangpinLayout(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_shuangpin_custom_layout")
+private func msimeClientShuangpinCustomLayout(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_shuangpin_key_hints")
 private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
@@ -1898,6 +1900,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return try JSONDecoder().decode(NineKeyShuangpinLayout.self, from: JSONSerialization.data(withJSONObject: value))
   }
 
+  /// 26 键双拼的表、问题和字母键提示，不在 Swift 侧复制校验规则。
+  static func shuangpinCustomLayout(profile: String, table: ShuangpinCustomLayout.Table? = nil) throws -> ShuangpinCustomLayout {
+    var request: [String: Any] = ["profile": profile]
+    if let table { request["table"] = table }
+    let data = try JSONSerialization.data(withJSONObject: request)
+    let value = try data.withUnsafeBytes { bytes in
+      try decode(msimeClientShuangpinCustomLayout(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+    }
+    return try JSONDecoder().decode(ShuangpinCustomLayout.self, from: JSONSerialization.data(withJSONObject: value))
+  }
+
   func nineKeySpellings() -> [String] {
     ((try? view()["nine_key_spellings"] as? [String]) ?? [])
   }
@@ -1915,8 +1928,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // either way; only the scheme says whether the keys are running it.
     guard let snapshot = try? view(),
           Self.strictUInt64(snapshot["scheme"]) == UInt64(Self.shuangpinSchemeCode),
-          let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty,
-          let data = profile.data(using: .utf8) else { return [:] }
+          let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty else { return [:] }
+    if profile == "custom" {
+      let table = sharedPreferences?[ShuangpinCustomLayout.tableKey] as? ShuangpinCustomLayout.Table
+      return (try? Self.shuangpinCustomLayout(profile: profile, table: table).keys.reduce(into: [:]) { $0[$1.key] = $1.hint }) ?? [:]
+    }
+    guard let data = profile.data(using: .utf8) else { return [:] }
     let response = try? data.withUnsafeBytes { bytes -> Any in
       try Self.decode(msimeClientShuangpinKeyHints(
         bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))

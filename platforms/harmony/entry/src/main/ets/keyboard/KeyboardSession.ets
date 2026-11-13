@@ -768,6 +768,20 @@ interface NineKeyShuangpinLayoutReply {
   value?: NineKeyShuangpinRawLayout;
 }
 
+interface ShuangpinCustomRawFace {
+  key?: string;
+  hint?: string;
+}
+
+interface ShuangpinCustomRawLayout {
+  keys?: ShuangpinCustomRawFace[];
+}
+
+interface ShuangpinCustomLayoutReply {
+  ok: boolean;
+  value?: ShuangpinCustomRawLayout;
+}
+
 interface CreateResponse {
   ok: boolean;
   value: CreateValue;
@@ -946,6 +960,8 @@ interface PreparedPreferences {
   /** Read-only English word completions while typing directly in English. Defaults to on. */
   english_suggestions?: boolean;
   shuangpin_profile: string;
+  /** 自定义普通双拼的共享表；只有 `shuangpin_profile` 为 `custom` 时消费。 */
+  shuangpin_custom_profile?: Object;
   /** 双拼触屏字母组码布局；缺省为 26 键，与共享偏好保持一致。 */
   touch_shuangpin_layout?: string;
   /** 五笔触屏字母键布局：`twenty_six_key`（缺省，不写进文档）或 `fourteen_key`；与全拼、双拼布局独立。 */
@@ -1499,6 +1515,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private keyGrid: number = KeyGrid.NONE;
   private nineKeyShuangpinRequest: string = '';
   private nineKeyShuangpinFaceCache: NineKeyShuangpinFace[] = [];
+  private shuangpinCustomHintRequest: string = '';
+  private shuangpinCustomHintCache: Map<string, string> = new Map<string, string>();
   // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
@@ -2613,6 +2631,44 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`nine-key shuangpin layout unavailable: ${describeError(error)}`);
     }
     return this.nineKeyShuangpinFaceCache;
+  }
+
+  /** 普通 26 键双拼当前表的键位提示；键盘只读共享接口返回的提示，不复制表的校验规则。 */
+  shuangpinCustomKeyHints(): Map<string, string> {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    const table: Object | undefined = preferences?.shuangpin_custom_profile;
+    const request: string = JSON.stringify(table === undefined
+      ? { profile: 'custom' } : { profile: 'custom', table });
+    if (request === this.shuangpinCustomHintRequest) return this.shuangpinCustomHintCache;
+    this.shuangpinCustomHintRequest = request;
+    this.shuangpinCustomHintCache = new Map<string, string>();
+    try {
+      const reply: ShuangpinCustomLayoutReply = JSON.parse(
+        client.shuangpinCustomLayout(request)) as ShuangpinCustomLayoutReply;
+      if (reply.ok !== true || reply.value === undefined) return this.shuangpinCustomHintCache;
+      const keys: ShuangpinCustomRawFace[] = reply.value.keys ?? [];
+      for (const key of keys) {
+        if (typeof key.key === 'string' && typeof key.hint === 'string' && key.hint.length > 0) {
+          this.shuangpinCustomHintCache.set(key.key.toUpperCase(), key.hint);
+        }
+      }
+    } catch (error) {
+      KeyboardLog.error(`shuangpin custom layout unavailable: ${describeError(error)}`);
+    }
+    return this.shuangpinCustomHintCache;
+  }
+
+  /** 供键盘的 ForEach 身份使用，表变化时立即重画提示。 */
+  shuangpinCustomHintIdentity(): string {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    if (preferences?.shuangpin_profile !== 'custom') return preferences?.shuangpin_profile ?? '';
+    return this.shuangpinCustomHintRequestFor(preferences);
+  }
+
+  private shuangpinCustomHintRequestFor(preferences: PreparedPreferences): string {
+    const table: Object | undefined = preferences.shuangpin_custom_profile;
+    return JSON.stringify(table === undefined
+      ? { profile: 'custom' } : { profile: 'custom', table });
   }
 
   /**

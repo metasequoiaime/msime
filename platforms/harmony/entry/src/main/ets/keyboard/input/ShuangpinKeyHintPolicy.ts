@@ -355,4 +355,23 @@ export class ShuangpinKeyHintPolicy {
     const hint: string | undefined = hints.get(key.toUpperCase());
     return hint === undefined ? "" : hint;
   }
+
+  /** 使用共享 host-api 为自定义表计算的键面；可复用与内置方案相同的可见性规则。 */
+  static hintMap(
+    hints: Map<string, string>,
+    key: string | null,
+    dedicatedEnglish: boolean,
+    scheme: number,
+    localMode: string,
+    enabled: boolean,
+  ): string {
+    if (
+      !ShuangpinKeyHintPolicy.visible(dedicatedEnglish, scheme, localMode, enabled) ||
+      key === null
+    ) {
+      return "";
+    }
+    const hint: string | undefined = hints.get(key.toUpperCase());
+    return hint === undefined ? "" : hint;
+  }
 }

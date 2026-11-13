@@ -40,6 +40,8 @@ export const resolveAppTheme: (request: string) => string;
 export const dictionaryManifest: (resources: string) => string;
 /** 九键双拼方案的表、问题和每个数字键的键面；请求为 `{profile, table?}`。 */
 export const nineKeyShuangpinLayout: (request: string) => string;
+/** 26 键双拼方案的表、问题和字母键提示；请求为 `{profile, table?}`。 */
+export const shuangpinCustomLayout: (request: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
 export const skinResource: (request: string) => string;
 export const skinToolbarImageLayout: (request: string) => string;

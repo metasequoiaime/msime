@@ -460,7 +460,7 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
         if directory.is_null() || length == 0 || length > 16_384 {
             return Err("invalid preferences directory".into());
         }
-        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        // 安全性：调用方契约保证指针可读，且上面已经检查了长度。
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
         let directory = std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory")?;
         if !std::path::Path::new(directory).is_absolute() {
@@ -897,6 +897,39 @@ pub unsafe extern "C" fn msime_client_nine_key_shuangpin_layout(
         let request: Request = serde_json::from_slice(bytes)
             .map_err(|error| format!("invalid nine-key shuangpin request: {error}"))?;
         serde_json::to_value(crate::nine_key_shuangpin_layout(
+            request.profile,
+            &request.table,
+        ))
+        .map_err(|error| error.to_string())
+    })
+}
+
+/// 26 键双拼方案在宿主看来的样子，见 [`crate::shuangpin_custom_layout`]。
+///
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 字节，内容是 `{"profile": ..., "table"?: ...}`；空指针会被拒绝。
+/// 返回的响应必须用 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_shuangpin_custom_layout(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        profile: msime_client_core::preferences::ShuangpinProfile,
+        #[serde(default)]
+        table: msime_client_core::preferences::ShuangpinCustomProfile,
+    }
+    response(|| {
+        if request.is_null() || length > 16384 {
+            return Err("invalid shuangpin request buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request = serde_json::from_slice(bytes)
+            .map_err(|error| format!("invalid shuangpin request: {error}"))?;
+        serde_json::to_value(crate::shuangpin_custom_layout(
             request.profile,
             &request.table,
         ))

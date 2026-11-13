@@ -564,7 +564,7 @@ public final class MSIMEInputService extends InputMethodService {
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
         new java.util.ArrayList<>(27);
     final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
-    private String shuangpinHintsProfile = "";
+    private String shuangpinHintsRequest = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
     final AppEdition edition = AppEdition.current();
@@ -6268,14 +6268,41 @@ public final class MSIMEInputService extends InputMethodService {
         boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
         boolean local = view != null && !"none".equals(localMode);
         boolean shifted = letterCase.usesUppercase();
-        if (!profile.equals(shuangpinHintsProfile)) {
-            shuangpinHintsProfile = profile;
+        JSONObject sharedPreferences = preferencesSnapshot == null
+            ? null : preferencesSnapshot.optJSONObject("preferences");
+        String hintRequest = profile;
+        if ("custom".equals(profile) && sharedPreferences != null) {
+            try {
+                JSONObject request = new JSONObject().put("profile", profile);
+                JSONObject table = sharedPreferences.optJSONObject("shuangpin_custom_profile");
+                if (table != null) request.put("table", table);
+                hintRequest = request.toString();
+            } catch (JSONException ignored) {
+                hintRequest = profile;
+            }
+        }
+        if (!hintRequest.equals(shuangpinHintsRequest)) {
+            shuangpinHintsRequest = hintRequest;
             shuangpinHints = java.util.Map.of();
             if (!profile.isEmpty()) {
                 try {
-                    shuangpinHints = ShuangpinKeyHintPolicy.decode(
-                        NativeClient.shuangpinKeyHints(profile));
-                } catch (RuntimeException | LinkageError ignored) {
+                    if ("custom".equals(profile)) {
+                        JSONObject response = new JSONObject(NativeClient.shuangpinCustomLayout(hintRequest));
+                        JSONObject value = response.optBoolean("ok", false) ? response.optJSONObject("value") : null;
+                        if (value != null) {
+                            JSONObject hints = new JSONObject();
+                            JSONArray keys = value.optJSONArray("keys");
+                            if (keys != null) for (int index = 0; index < keys.length(); index++) {
+                                JSONObject key = keys.optJSONObject(index);
+                                if (key != null) hints.put(key.optString("key", ""), key.optString("hint", ""));
+                            }
+                            shuangpinHints = ShuangpinKeyHintPolicy.decode(hints.toString());
+                        }
+                    } else {
+                        shuangpinHints = ShuangpinKeyHintPolicy.decode(
+                            NativeClient.shuangpinKeyHints(profile));
+                    }
+                } catch (JSONException | RuntimeException | LinkageError ignored) {
                     // Native/profile failures hide hints rather than guessing another keymap.
                 }
             }
