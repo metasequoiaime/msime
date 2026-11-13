@@ -957,7 +957,7 @@ struct Settings {
               this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
                 ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion', 'appReleaseDate',
                   'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'accountName', 'cloudDictionaryDownload',
+                  'dictionaryManifest', 'dictionary', 'nineKeyShuangpinLayout', 'shuangpinCustomLayout', 'accountName', 'cloudDictionaryDownload',
                   'typingStatistics', 'openExternalUrl', 'copyText',
                   'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                   'keyboardFeedback', 'onboardingStatus',
@@ -2269,6 +2269,11 @@ class SettingsBridge {
   /** 复用键盘已有的无状态计算，网页不另存方案表或校验规则。 */
   nineKeyShuangpinLayout(request: string): string {
     return client.nineKeyShuangpinLayout(request);
+  }
+
+  /** 复用键盘已有的无状态计算，网页不另存普通 26 键双拼表或校验规则。 */
+  shuangpinCustomLayout(request: string): string {
+    return client.shuangpinCustomLayout(request);
   }
 
   /**

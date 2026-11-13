@@ -448,6 +448,17 @@ public final class NativeClient {
             throw new IllegalStateException("Nine-key shuangpin response is too large");
         return TextPolicy.utf8(result);
     }
+    /** 26 键双拼方案的表、问题和键位提示；设置页编辑时每改一格都可以调用。 */
+    public static String shuangpinCustomLayout(String request) {
+        if (request == null) throw new IllegalArgumentException("Missing shuangpin request");
+        byte[] bytes = request.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0 || bytes.length > NINE_KEY_SHUANGPIN_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Shuangpin request is too large");
+        byte[] result = shuangpinCustomLayoutRaw(bytes);
+        if (result == null || result.length > SHUANGPIN_HINT_RESPONSE_LIMIT)
+            throw new IllegalStateException("Shuangpin response is too large");
+        return TextPolicy.utf8(result);
+    }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String savePreferences(String directory, long expectedRevision, String snapshot) {
         if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
@@ -1205,6 +1216,7 @@ public final class NativeClient {
         boolean finalChunk);
     private static native byte[] shuangpinKeyHintsRaw(byte[] profile);
     private static native byte[] nineKeyShuangpinLayoutRaw(byte[] request);
+    private static native byte[] shuangpinCustomLayoutRaw(byte[] request);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);

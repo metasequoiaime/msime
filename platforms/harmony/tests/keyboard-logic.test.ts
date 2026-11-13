@@ -10928,6 +10928,27 @@ group("each profile has its own table", () => {
   );
 });
 
+group("custom profile hints use the shared response and keep the same visibility gate", () => {
+  const custom: Map<string, string> = new Map<string, string>([
+    ["Q", "sh / iu"],
+    [";", "ing"],
+  ]);
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "none", true) === "sh / iu",
+    "custom key faces are looked up case-insensitively",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, ";", false, 1, "none", true) === "ing",
+    "custom tables can assign the semicolon key",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", true, 1, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 0, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "emoji", true) === "",
+    "custom hints obey the same English, scheme and local-mode guards",
+  );
+});
+
 group("Cantonese shuangpin labels its keys with the engine's face (#10438)", () => {
   // 与 crates/engine/src/cantonese/shuangpin.rs 的 `key_hints_label_every_key_with_what_it_types` 逐键相同：鸿蒙没有接 `msime_client_shuangpin_key_hints`，表是抄过来的，这里钉住不漂移。
   const expected: [string, string][] = [

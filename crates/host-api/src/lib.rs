@@ -1679,6 +1679,85 @@ pub fn builtin_shuangpin_custom_profile(
     })
 }
 
+/// 26 键双拼方案在宿主看来的样子：设置页和键盘从同一份表取键位提示，
+/// 自定义表不能用时按小鹤运行并保留问题给设置页显示。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinCustomLayout {
+    pub effective: ShuangpinProfile,
+    pub table: ShuangpinCustomProfile,
+    pub problem: Option<ShuangpinCustomProblem>,
+    pub keys: Vec<ShuangpinKeyFace>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinKeyFace {
+    pub key: String,
+    pub hint: String,
+}
+
+const SHUANGPIN_KEY_ORDER: [&str; 27] = [
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a", "s", "d", "f", "g", "h", "j", "k", "l",
+    "z", "x", "c", "v", "b", "n", "m", ";",
+];
+
+fn shuangpin_key_hint(table: &ShuangpinCustomProfile, key: &str) -> String {
+    let units = |part: &std::collections::BTreeMap<String, String>| {
+        let mut values: Vec<String> = part
+            .iter()
+            .filter(|(_, mapped)| mapped.eq_ignore_ascii_case(key))
+            .map(|(unit, _)| {
+                unit.strip_prefix('v')
+                    .map_or_else(|| unit.clone(), |rest| format!("ü{rest}"))
+            })
+            .collect();
+        values.sort();
+        values.join(" ")
+    };
+    let initials = units(&table.initials);
+    let finals = units(&table.finals);
+    match (initials.is_empty(), finals.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => finals,
+        (false, true) => initials,
+        (false, false) => format!("{initials} / {finals}"),
+    }
+}
+
+/// 26 键双拼方案的表、问题和每个字母键的提示。不落盘，编辑中的每次修改都可以调用。
+pub fn shuangpin_custom_layout(
+    profile: ShuangpinProfile,
+    custom: &ShuangpinCustomProfile,
+) -> ShuangpinCustomLayout {
+    let problem = (profile == ShuangpinProfile::Custom)
+        .then(|| custom_shuangpin_profile_problem(custom))
+        .flatten();
+    let effective = if profile == ShuangpinProfile::Custom && problem.is_some() {
+        ShuangpinProfile::Xiaohe
+    } else {
+        profile
+    };
+    let table = builtin_shuangpin_custom_profile(effective).unwrap_or_else(|| custom.clone());
+    let keys = SHUANGPIN_KEY_ORDER
+        .iter()
+        .filter_map(|key| {
+            let hint = shuangpin_key_hint(&table, key);
+            if hint.is_empty() {
+                return None;
+            }
+            Some(ShuangpinKeyFace {
+                key: key.to_ascii_uppercase(),
+                hint,
+            })
+        })
+        .collect();
+    ShuangpinCustomLayout {
+        effective,
+        table,
+        problem,
+        keys,
+    }
+}
+
 /// 把双拼方案写进 Engine 选项。选的是自定义方案时先让 Engine 校验用户的表：表是空的或不合法时按小鹤运行，返回原因，免得一张写坏的表让 Engine 建不起来、整个输入法停在旧会话上。
 fn apply_shuangpin_profile(
     options: &mut EngineOptions,

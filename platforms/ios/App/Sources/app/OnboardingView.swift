@@ -83,6 +83,16 @@ struct InputSettingsView: View {
       VStack(spacing: 28) {
         DesignGroup(title: "语言与方案", footer: footer(.languages)) {
           languageCard
+          if ChineseInputScheme.shuangpin.isOfferedByEdition {
+            DesignDivider(leading: 16)
+            NavigationLink(destination: ShuangpinCustomSettingsView()) {
+              HStack {
+                Text("双拼方案与自定义")
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+              }.padding(16)
+            }.accessibilityIdentifier("shuangpinCustomSettingsLink")
+          }
           if ChineseInputScheme.nineKeyShuangpin.isOfferedByEdition {
             DesignDivider(leading: 16)
             NavigationLink(destination: NineKeyShuangpinSettingsView()) {
