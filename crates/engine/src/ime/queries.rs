@@ -44,6 +44,8 @@ const SYMBOL_AMBIGUOUS_SLOT: usize = 3;
 const SYMBOL_UNANCHORED_SLOT: usize = 5;
 /// 混入 emoji 和颜文字所需的最短输入：它们按拼音查，一个字母能匹配的太多。九宫格按数字个数算，同样是 2。
 pub(crate) const MIXED_EXPRESSIVE_MINIMUM_INPUT: usize = 2;
+/// 26 键首屏最多放一行 emoji 或颜文字，余下的表达候选留到后面，避免占掉同音字的位置。
+const MIXED_FIRST_PAGE_EXPRESSIVE_LIMIT: usize = 1;
 /// 短候选列表直接线性找锚点，避免为索引表分配堆内存。
 const EXPRESSIVE_ANCHOR_LINEAR_LIMIT: usize = 64;
 /// 同一个候选词后每组最多保留一行表情，其他行移到列表末尾，避免表情连续占满首页。
@@ -690,7 +692,7 @@ fn insert_mixed_rows_with_japanese(
         candidates.splice(seat + 1..seat + 1, extra);
         candidates.extend(english);
     }
-    anchor_expressive_rows(&mut candidates, emoji, kaomoji);
+    anchor_expressive_rows(&mut candidates, emoji, kaomoji, first_page_rows);
     place_symbol_rows(&mut candidates, symbols);
     candidates
 }
@@ -834,6 +836,7 @@ fn anchor_expressive_rows(
     list: &mut Vec<WordItem>,
     mut emoji: Vec<ExpressiveRow>,
     mut kaomoji: Vec<ExpressiveRow>,
+    first_page_rows: usize,
 ) {
     // （接在第几行后面，组，组内第几行），按字典序排好就是插入的先后。
     let mut anchored = [(0_usize, 0_usize, 0_usize); MIXED_FETCH_LIMIT * 2];
@@ -870,7 +873,6 @@ fn anchor_expressive_rows(
                         anchored_length += 1;
                         anchored_slots[anchored_slots_length] = (group, anchor);
                         anchored_slots_length += 1;
-                        placed[group] |= 1 << index;
                     }
                 }
             }
@@ -879,8 +881,36 @@ fn anchor_expressive_rows(
     }
     let anchored = &mut anchored[..anchored_length];
     anchored.sort_unstable();
+    let mut selected = [(0_usize, 0_usize, 0_usize); MIXED_FETCH_LIMIT * 2];
+    let mut selected_length = 0;
+    let mut inserted_before = 0;
+    let enforce_first_page_limit = first_page_rows > 0 && list.len() >= first_page_rows;
+    let mut first_page_expressive = list
+        .iter()
+        .take(first_page_rows)
+        .filter(|item| {
+            matches!(
+                item.source,
+                CandidateSource::Emoji | CandidateSource::Kaomoji
+            )
+        })
+        .count();
+    for &(anchor, group, index) in anchored.iter() {
+        let position = anchor + 1 + inserted_before;
+        let in_first_page = enforce_first_page_limit && position < first_page_rows;
+        if in_first_page && first_page_expressive >= MIXED_FIRST_PAGE_EXPRESSIVE_LIMIT {
+            continue;
+        }
+        selected[selected_length] = (anchor, group, index);
+        selected_length += 1;
+        inserted_before += 1;
+        placed[group] |= 1 << index;
+        if in_first_page {
+            first_page_expressive += 1;
+        }
+    }
     // 从后往前插：后面的插入不移动前面的锚点；同一个锚点倒着插，插完正好是要的先后。
-    for &(anchor, group, index) in anchored.iter().rev() {
+    for &(anchor, group, index) in selected[..selected_length].iter().rev() {
         let rows = if group == 0 { &mut emoji } else { &mut kaomoji };
         list.insert(anchor + 1, std::mem::take(&mut rows[index].item));
     }
@@ -1228,6 +1258,33 @@ mod tests {
         assert_eq!(
             words(&merged),
             vec!["有", "表情0", "由", "又", "游", "表情1", "表情2", "表情3"]
+        );
+    }
+
+    #[test]
+    fn mixed_expressive_rows_leave_only_one_on_the_first_page() {
+        let candidates = (0..6)
+            .map(|index| row(&format!("候选{index}"), CandidateSource::Database))
+            .collect();
+        let emoji = vec![
+            depicting("😀", CandidateSource::Emoji, "候选0"),
+            depicting("😁", CandidateSource::Emoji, "候选1"),
+        ];
+        let kaomoji = vec![depicting("(^_^)", CandidateSource::Kaomoji, "候选2")];
+        let merged = insert_mixed_rows_with_japanese(
+            candidates,
+            Vec::new(),
+            emoji,
+            kaomoji,
+            Vec::new(),
+            None,
+            None,
+            1,
+            6,
+        );
+        assert_eq!(
+            words(&merged),
+            vec!["候选0", "😀", "候选1", "候选2", "候选3", "候选4", "候选5", "😁", "(^_^)"]
         );
     }
 
