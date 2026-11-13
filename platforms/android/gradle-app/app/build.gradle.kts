@@ -218,7 +218,9 @@ android {
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
+            // 首次接入仅裁剪依赖中的未用代码；宿主反射与 JNI 契约由独立规则完整保留。
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 由 build-apk.sh 事后签名：发布时用 release-android.yml 从仓库 secrets 解出的发布密钥，本机开发构建用所有 worktree 共用的开发密钥。
         }
     }
