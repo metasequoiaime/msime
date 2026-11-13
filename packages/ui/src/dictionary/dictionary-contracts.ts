@@ -89,6 +89,8 @@ export interface DictionaryClient {
     replacement: DictionaryEntry | null,
     request_id: string,
   ): Promise<void>;
+  /** 在一次共享 Rust 事务中删除所有用户快捷短语，返回实际删除条数。 */
+  clearQuickPhrases?(): Promise<number>;
   import?(
     kind: LocalDictionaryKind,
     format: LocalDictionaryFormat,

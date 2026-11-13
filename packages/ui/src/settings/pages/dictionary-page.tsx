@@ -302,7 +302,7 @@ export function DictionarySettingsPage() {
                       pageSize={DICTIONARY_PAGE_SIZE}
                       onPageChange={turnPhrasePage}
                     />
-                    {dictionaryKind === "quick_phrase" && (
+                    {dictionaryKind === "quick_phrase" && client.dictionary?.clearQuickPhrases && (
                       <ActionButton
                         action={() => void clearQuickPhrases()}
                         disabled={phraseBusy}

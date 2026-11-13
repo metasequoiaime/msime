@@ -128,6 +128,10 @@ const dictionary: DictionaryClient = {
     invoke("dictionary_request", {
       action: { operation: "edit", previous, replacement, request_id },
     }).then(() => undefined),
+  clearQuickPhrases: () =>
+    invoke<{ cleared: number }>("dictionary_request", {
+      action: { operation: "clear_quick_phrases" },
+    }).then((result) => result.cleared),
   import: (
     kind: LocalDictionaryKind,
     format: LocalDictionaryFormat,

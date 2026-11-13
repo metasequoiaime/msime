@@ -77,23 +77,9 @@ export async function loadAllPersonalDictionaryEntries(dictionary: {
     query?: string,
   ) => Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
 }): Promise<DictionaryEntry[]> {
-  return loadPersonalDictionaryEntries(dictionary, personalDictionaryExportKinds);
-}
-
-export async function loadPersonalDictionaryEntries(
-  dictionary: {
-    list: (
-      offset: number,
-      limit: number,
-      kind?: LocalDictionaryKind,
-      query?: string,
-    ) => Promise<{ entries: DictionaryEntry[]; has_more: boolean }>;
-  },
-  kinds: readonly (readonly [LocalDictionaryKind, string])[],
-): Promise<DictionaryEntry[]> {
   const entries: DictionaryEntry[] = [];
   let bytes = utf8ByteLength(PERSONAL_EXPORT_HEADER);
-  for (const [kind, label] of kinds) {
+  for (const [kind, label] of personalDictionaryExportKinds) {
     let offset = 0;
     let hasMore = true;
     while (hasMore && offset <= 1_000_000) {

@@ -23,6 +23,8 @@ Status: implemented
 - 两端均有确认提示，取消不会发起写操作。
 - 本机回滚仍受宿主存储故障影响，若回滚本身失败，用户需要刷新列表核对；云端完整快照大小受现有快照上限约束，导出或预览失败时不进行替换。
 
+本机逐条删除与回滚的实现后来由[共享事务实现](../architecture/2026-11-14-quick-phrase-clear-shared-transaction.md)取代；本篇保留云端快照清空的边界和并发决定。
+
 ## Verification
 
 - `pnpm --dir apps/desktop exec vitest run tests/settings/use-dictionary-manager.test.ts tests/keyboard/cloud-quick-phrase-snapshot.test.ts`：45 项通过。

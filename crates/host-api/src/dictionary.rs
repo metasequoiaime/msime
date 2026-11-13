@@ -242,6 +242,8 @@ enum Operation {
         request_id: String,
     },
     Reset,
+    /// 在一次维护事务中删除所有用户快捷短语，内置词条不受影响。
+    ClearQuickPhrases,
     Export {
         kind: Kind,
         format: String,
@@ -1063,6 +1065,17 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 }),
             })
         }
+        Operation::ClearQuickPhrases => {
+            let _access = DictionaryAccess::try_maintenance(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            let cleared = msime_engine::host::dictionary_clear_quick_phrases(&options)
+                .map_err(|_| "quick phrase clear rejected")?;
+            Ok(json!({ "cleared": cleared }))
+        }
         Operation::Export {
             kind,
             format,
@@ -1403,6 +1416,9 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             Ok(json!({ "queued": true, "pending_count": state.pending_count() }))
         }
         Operation::Reset => Err("learned-data reset is unavailable on mobile".into()),
+        Operation::ClearQuickPhrases => {
+            Err("quick phrase clear is unavailable on the mobile dictionary queue".into())
+        }
         Operation::Export {
             kind,
             format,
