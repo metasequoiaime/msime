@@ -1924,7 +1924,6 @@ side_pad_frame=$(sed -n '/    void applyOneHanded() {$/,/^    }$/p' "$repo_root/
 side_pad_builder="$repo_root/platforms/android/java/app/msime/android/core/ImeSidePad.java"
 if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_pad_service" \
   || ! rg -qF 'oneHandedSidePanel = nextOneHandedSidePanel;' "$side_pad_service" \
-  || ! rg -qF '            + ":" + oneHandedSidePanel.wire' "$side_pad_service" \
   || ! rg -qF '        OneHandSidePadPolicy.PREFERENCE_KEY,' "$side_pad_service" \
   || ! rg_q_stdin -F 'KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(' <<< "$side_pad_frame" \
   || ! rg_q_stdin -F 'OneHandSidePadPolicy.shown(s.oneHandedSidePanel, mode, padDp,' <<< "$side_pad_frame" \

@@ -9,6 +9,7 @@ import app.msime.android.CandidatePreeditStylePolicy;
 import app.msime.android.DimensionPolicy;
 import app.msime.android.KeyboardBottomBarPolicy;
 import app.msime.android.KeyboardFormFactorPolicy;
+import app.msime.android.FloatingKeyboardPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
@@ -153,6 +154,9 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         layout.nav("拼音显示位置", null,
             spellingPositionLabel(spellingPosition),
             () -> pickSpellingPosition(spellingPosition)).help("全拼、双拼、五笔和粤拼可以把正在输入的拼音放在输入框或候选栏");
+        layout.toggle("拼写编辑", null, preferences.optBoolean("touch_spelling_editor", true),
+            checked -> savePreference("touch_spelling_editor", checked))
+            .help("点击笔图标或输入框中的拼写调整光标；关闭后隐藏编辑入口及其独占的空行");
         // 写进输入框的拼写是 Engine 的 `preedit`（CandidatePreeditStylePolicy.inlineSpelling）：关掉这一项后，双拼写展开的拼音，粤语双拼写展开的粤拼（#10557）。共享偏好 `shuangpin_preedit_uses_raw`，缺省为开，与 client-core 一致；标题与 iOS 候选栏页相同。候选栏画的是读音，不受这一项影响，所以说明只讲输入框。本版本两种双拼都没有时不列。
         app.msime.android.ShuangpinPreeditSettings.addRows(edition,
             (key, fallback) -> preferences.optBoolean(key, fallback), this::savePreference,
@@ -222,12 +226,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 checked -> saveLocalSetting(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE, checked)).help("开启后仅在横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入；按键盘实际可用宽度判断，分开后按键太窄时（例如分屏）仍用完整键盘");
         }
         GroupCard.Row[] bottomHeight = new GroupCard.Row[1];
-        layout.toggle("浮动键盘", null,
+        GroupCard.Row[] floatingRow = new GroupCard.Row[1];
+        floatingRow[0] = layout.toggle("浮动键盘", null,
             settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
             checked -> {
                 saveLocalSetting(AndroidLocalSettings.FLOATING_KEYBOARD, checked);
                 if (bottomHeight[0] != null) bottomHeight[0].setEnabled(!checked);
             }).help("键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换");
+        boolean autoLandscape = settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE);
+        layout.toggle("横屏自动浮动键盘", null, autoLandscape,
+            checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE,
+                checked, this::reload, this::reload))
+            .help("横屏时自动使用浮动面板，竖屏恢复停靠；打开后忽略上面的手动浮动开关，外接键盘候选栏仍停在底部");
+        floatingRow[0].setEnabled(!autoLandscape);
         if (showLargeScreenOptions) {
             layout.toggle("物理键盘时候选栏跟随光标", null,
                 settings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES),
@@ -242,7 +253,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             KeyboardBottomBarPolicy.MIN_PADDING_DP, KeyboardBottomBarPolicy.MAX_PADDING_DP, KeyboardBottomBarPolicy.PADDING_STEP_DP,
             AndroidLocalSettings.bottomHeightDp(settings), value -> value + " dp",
             value -> saveLocalSettings(AndroidLocalSettings.bottomHeightEdits(value))).help("抬高整块键盘，按键大小不变。底栏显示时，40 dp 以内由底栏占用；浮动键盘、手机横屏和接实体键盘收起键区时不生效。");
-        bottomHeight[0].setEnabled(!settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD));
+        bottomHeight[0].setEnabled(FloatingKeyboardPolicy.canAdjustDockedBottomHeight(
+            settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD), autoLandscape));
 
         GroupCard feedback = GroupCard.add(sectionColumn(target, "反馈"), "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
@@ -763,7 +775,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (int percent = ToolbarSizePolicy.MIN_PERCENT; percent <= ToolbarSizePolicy.MAX_PERCENT; percent += 10) {
             int choice = percent;
             sheet.option(percent + "%", custom && current == percent,
-                () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice,
+                    this::reload, this::reload));
         }
         sheet.show();
     }
@@ -810,7 +823,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         group.toggle("双击选词与三击选行", null,
             value.tapSelection(), checked -> saveTrackpad("tap_selection", checked)).help("编辑器提供足够文字时生效；长按后拖动也可延伸选区");
         group.toggle("逐步振动", null, value.haptics(),
-            checked -> saveTrackpad("haptics", checked)).help("跟随键盘振动和系统触感开关");
+            checked -> saveTrackpad("haptics", checked)).help("跟随键盘振动开关和强度");
         group.toggle("显示移动轨迹", null, value.trail(), checked -> saveTrackpad("trail", checked));
         group.toggle("光标文字放大镜", null,
             value.magnifier(), checked -> saveTrackpad("magnifier", checked)).help("显示光标附近文字；密码使用掩码，编辑器不提供文字时显示提示");

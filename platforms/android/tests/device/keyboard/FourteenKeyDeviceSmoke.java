@@ -196,6 +196,24 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(described("按键 符号"));
             awaitGone(described("符号栏，可上下滑动"));
 
+            // 横滑限定字母（#11040）：BN 右滑是 n、UI 右滑是 i，拼音只剩 n 开头、没有 bu；BN 左滑是 b，点按 UI 后只剩 b 开头。
+            stage = "exact swipe narrows the group";
+            GridSwipeTouch.swipe(this, "按键 B N", false, 40);
+            await(reading("n"));
+            GridSwipeTouch.swipe(this, "按键 U I", false, 40);
+            await(described("选择拼音 ni"));
+            GridSwipeTouch.awaitGone(this, described("选择拼音 bu"));
+            tap(key("⌫"));
+            tap(key("⌫"));
+            GridSwipeTouch.swipe(this, "按键 B N", false, -40);
+            tap(described("按键 U I"));
+            await(described("选择拼音 bu"));
+            GridSwipeTouch.awaitGone(this, described("选择拼音 ni"));
+            tap(key("⌫"));
+            tap(key("⌫"));
+            awaitGone(described(STRIP));
+            await(described("按键 符号"));
+
             // 分词键：ZX UI 分词 AS BN 是 z u ' a b，得到「西安」而不是「先」。
             stage = "separator";
             tap(described("按键 Z X"));

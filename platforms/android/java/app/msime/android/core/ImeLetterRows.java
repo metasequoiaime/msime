@@ -82,9 +82,9 @@ final class ImeLetterRows {
         rebuildKeyRows();
         s.render();
     }
-    /** 标准 26 键第二行的半键缩进；微软双拼第十个键出现时收起。 */
-    private View secondRowLeadingIndent;
-    private View secondRowTrailingIndent;
+    /** 标准 26 键第二行的半键缩进；微软双拼第十个键出现时收起。点在缩进里算这一排最外侧的键（A、L），不是死区。 */
+    private KeyboardSpacer secondRowLeadingIndent;
+    private KeyboardSpacer secondRowTrailingIndent;
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
     private boolean builtSplit;
     private int builtSplitWidthDp;
@@ -468,10 +468,9 @@ final class ImeLetterRows {
         row.addView(second, spaceIndex + 2, LayoutPolicy.weightedMatchParentParams(right));
     }
 
-    private View indent() {
-        View spacer = new View(s);
-            ViewPolicy.hideFromAccessibility(spacer);
-        return spacer;
+    /** 26 键第二排两端的半键缩进：和 14/18 键「宽窄」第二排的占位格一样，建完这一排后指定所属的键（{@link KeyboardSpacer#setOwner}），点在里面不丢。 */
+    private KeyboardSpacer indent() {
+        return new KeyboardSpacer(s);
     }
 
     /** 这一次删除键按压的滑动阶段，见 {@link BackspaceSwipePolicy}。 */
@@ -1021,6 +1020,11 @@ final class ImeLetterRows {
             if (standardLetters && rowIndex == 1) {
                 secondRowTrailingIndent = indent();
                 row.addView(secondRowTrailingIndent, LayoutPolicy.weightedMatchParentParams(.5f));
+                // 缩进不是死区：点在左边的算 A，右边的算 L（KeyboardKeyArea）。微软双拼的 `;` 占第十格时缩进收起，不用改归属。
+                if (!rowKeys.isEmpty()) {
+                    secondRowLeadingIndent.setOwner(rowKeys.get(0));
+                    secondRowTrailingIndent.setOwner(rowKeys.get(rowKeys.size() - 1));
+                }
                 updateSecondRowIndent();
             }
             // 大小写和删除属于最后一行的两端，不属于底部功能行。Leaving them in a strip below the keys
@@ -1172,13 +1176,12 @@ final class ImeLetterRows {
     }
 
     /**
-     * 14 键、18 键字母键的手势（#11063，判定见 {@link GridKeyGesturePolicy}），规则跟 26 键的 {@link #bindLetterGestures} 走：沿「滑动输入符号」的方向滑出角标符号，反方向滑动或空闲长按打开这一键的字母和符号选项（{@link ImeLayoutRows#showGridLetterOptions}），可继续拖选；18 键双拼的两字母键横滑限定字母，与原来相同。
+     * 14 键、18 键字母键的手势（#11063，判定见 {@link GridKeyGesturePolicy}），规则跟 26 键的 {@link #bindLetterGestures} 走：沿「滑动输入符号」的方向滑出角标符号，反方向滑动或空闲长按打开这一键的字母和符号选项（{@link ImeLayoutRows#showGridLetterOptions}），可继续拖选；14/18 键全拼和双拼的两字母键横滑限定字母（{@link EighteenKeySwipePolicy#exactLetters}，#11040），五笔 14 键只点按。
      *
      * <p>「组字中」按 Engine 的 `editing_text` 判断（{@link MSIMEInputService#hasEngineComposition}），不看候选栏：上屏后联想也显示候选栏，但那时滑动和长按照常出符号和选项。组字中纵滑和长按都是一次普通点按，长按不再先结束组字。点按始终交给按钮（{@link MSIMEInputService#gridKey}）；组字中位移让按钮自己取消了点击时，这里补一次。长按经按钮的长按回调触发，读屏的长按动作也走这一条。
      */
     private void bindGridLetterGestures(Button key, FourteenKeyLayout.Key gridKey, boolean eighteen) {
         final String hint = GridLetterHintTable.hint(gridKey, eighteen);
-        final String exactLetters = eighteen && gridKey.letters().length() == 2 ? gridKey.letters() : null;
         final GridKeyGesturePolicy.Gesture[] gesture = {new GridKeyGesturePolicy.Gesture(null, hint != null)};
         final boolean[] touching = new boolean[1];
         final String[] face = {key.getText().toString()};
@@ -1197,9 +1200,10 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_DOWN -> {
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
                     face[0] = key.getText().toString();
-                    // 横滑只给双拼：全拼的 18 键没有精确字母。每次按下按当前方案重建。
-                    boolean exact = fourteenShuangpin() && exactLetters != null;
-                    current = new GridKeyGesturePolicy.Gesture(exact ? exactLetters : null, hint != null);
+                    // 全拼和双拼的两字母键横滑限定字母，五笔 14 键只点按。每次按下按当前方案重建。
+                    String exactLetters = EighteenKeySwipePolicy.exactLetters(gridKey.letters(),
+                        InputViewValuePolicy.scheme(s.view, -1));
+                    current = new GridKeyGesturePolicy.Gesture(exactLetters, hint != null);
                     gesture[0] = current;
                     String direction = touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                         ? s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION) : null;
