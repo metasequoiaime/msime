@@ -823,7 +823,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         group.toggle("双击选词与三击选行", null,
             value.tapSelection(), checked -> saveTrackpad("tap_selection", checked)).help("编辑器提供足够文字时生效；长按后拖动也可延伸选区");
         group.toggle("逐步振动", null, value.haptics(),
-            checked -> saveTrackpad("haptics", checked)).help("跟随键盘振动和系统触感开关");
+            checked -> saveTrackpad("haptics", checked)).help("跟随键盘振动开关和强度");
         group.toggle("显示移动轨迹", null, value.trail(), checked -> saveTrackpad("trail", checked));
         group.toggle("光标文字放大镜", null,
             value.magnifier(), checked -> saveTrackpad("magnifier", checked)).help("显示光标附近文字；密码使用掩码，编辑器不提供文字时显示提示");
