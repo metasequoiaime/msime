@@ -482,6 +482,20 @@ test("the 2in1 warning strip names the missing step and takes it", () => {
   expect(container.childElementCount).toBe(0);
 });
 
+test("the 2in1 warning strip asks for 完整体验模式 in basic access mode", () => {
+  const setup = fakeSetup({ enabled: false, current: true, basicMode: true });
+  const actions = {
+    setup: setup.client,
+    openSystemKeyboardSettings: vi.fn().mockResolvedValue(undefined),
+    showInputMethodPicker: vi.fn().mockResolvedValue(undefined),
+  };
+  render(<SetupWarningStrip actions={actions} />);
+
+  expect(screen.getByText(/基础访问模式.*完整体验模式/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "去开启" }));
+  expect(actions.openSystemKeyboardSettings).toHaveBeenCalledOnce();
+});
+
 test("the 2in1 warning strip stays away while the state is unknown", () => {
   const { container } = render(
     <SetupWarningStrip actions={{ setup: fakeSetup({ enabled: false, current: null }).client }} />,
@@ -518,6 +532,30 @@ test("the HarmonyOS phone shell opens on the 设置 root with its rows", async (
   const home = await screen.findByRole("region", { name: "首页" });
   expect(within(home).getByRole("button", { name: /^(输入|输入设置)$/ })).toBeTruthy();
   fireEvent.click(within(statusCard()).getByRole("button", { name: "去开启" }));
+  expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
+});
+
+test("the HarmonyOS status card names 完整体验模式 in basic access mode", async () => {
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "harmony" }),
+        home: {
+          openSystemKeyboardSettings,
+          setup: fakeSetup({ enabled: false, current: true, basicMode: true }).client,
+        },
+      }}
+    />,
+  );
+
+  await screen.findByRole("region", { name: "首页" });
+  const card = statusCard();
+  expect(within(card).getByText("开启完整体验模式")).toBeTruthy();
+  expect(within(card).getByText(/设置 → 系统 → 输入法 → 水杉输入法/)).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: "去开启" }));
   expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
 });
 
