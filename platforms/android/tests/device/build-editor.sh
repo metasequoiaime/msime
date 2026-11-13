@@ -88,6 +88,12 @@ if [[ "${MSIME_ANDROID_CLIPBOARD_CATEGORIES_SMOKE:-0}" == 1 ]]; then
     "$editor_manifest" > "$build_dir/clipboard-categories-manifest.xml"
   editor_manifest="$build_dir/clipboard-categories-manifest.xml"
 fi
+if [[ "${MSIME_ANDROID_CLOUD_CLIPBOARD_RECEIVE:-0}" == 1 ]]; then
+  # 云剪贴板系统接收专项复用已有入口，不增加产品组件或系统清单项数。
+  sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.CloudClipboardReceiveDeviceSmoke/' \
+    "$editor_manifest" > "$build_dir/cloud-clipboard-receive-manifest.xml"
+  editor_manifest="$build_dir/cloud-clipboard-receive-manifest.xml"
+fi
 if [[ "${MSIME_ANDROID_RELATIVE_DATE:-0}" == 1 ]]; then
   # 专项复用现有入口，避免超过系统清单项数限制。
   sed 's/app.msime.android.test.CandidateCanvasDeviceSmoke/app.msime.android.test.RelativeDateDeviceSmoke/' \
