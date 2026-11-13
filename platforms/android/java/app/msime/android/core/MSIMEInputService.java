@@ -11172,7 +11172,8 @@ public final class MSIMEInputService extends InputMethodService {
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
         bindSymbolPanelHold(layerButton);
-        symbolPanelButton = keyId(button(controls, "符", imePanels::showSymbolPanel), "SoftSymbol");
+        // 九键双拼组字时这个键是「分词」（ImeLayoutRows#symbolPanelKey），键面在 render 时换。
+        symbolPanelButton = keyId(button(controls, "符", () -> imeLayoutRows.symbolPanelKey()), "SoftSymbol");
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(addRowButton(controls, new KeyHintButton(this), ",",
             this::insertQuickPunctuation, true), "Comma");
@@ -12775,7 +12776,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
             ViewPolicy.setEnabled(symbolPanelButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
-            symbolPanelButton.setContentDescription("打开符号面板");
+            symbolPanelButton.setContentDescription(imeLayoutRows.symbolPanelContentDescription());
         }
         if (symbolShortcutButton != null) {
             ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());
