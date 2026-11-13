@@ -68,8 +68,9 @@ fn full_schema() -> AccountPreferenceSchema {
     schema
 }
 
-/// msime-cloud#1277 加进字段表、此前没有宿主导出的共享偏好；两个思考强度和三个快捷键只有 macOS 能改，共享层的宿主都不导出。
+/// `msime-cloud#1277` 加进字段表、此前没有宿主导出的共享偏好，加上插件列表展示顺序；两个思考强度和三个快捷键只有 macOS 能改，共享层的宿主都不导出。
 const NEW_SHARED_KEYS: &[(&str, &str)] = &[
+    ("plugins.plugin_order", "string"),
     ("mixed_input.quick_phrase", "boolean"),
     ("mixed_input.quick_phrase_frequency", "boolean"),
     ("sentence_association.grammar_model", "string"),
@@ -1180,6 +1181,71 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
 }
 
 #[test]
+fn settings_sync_plugin_order_round_trips_on_all_desktop_hosts() {
+    let mut remote = Preferences::default();
+    remote.plugins.plugin_order = vec![
+        "phrase_table/synthetic-phrases".into(),
+        "command_table/synthetic-commands".into(),
+    ];
+    let expected = AccountPreferenceValue::String(
+        serde_json::to_string(&remote.plugins.plugin_order).unwrap(),
+    );
+
+    for host in [DesktopHost::Windows, DesktopHost::Linux, DesktopHost::MacOS] {
+        let exported = export_desktop_settings_for(host, &remote);
+        assert_eq!(exported.get(PLUGIN_ORDER), Some(&expected));
+        let applied = apply_desktop_settings_for(
+            host,
+            &Preferences::default(),
+            &document(exported),
+            &full_schema(),
+        )
+        .unwrap();
+        assert!(
+            applied.skipped.is_empty(),
+            "{host:?}: {:?}",
+            applied.skipped
+        );
+        assert_eq!(
+            applied.preferences.plugins.plugin_order,
+            remote.plugins.plugin_order
+        );
+    }
+}
+
+#[test]
+fn settings_sync_plugin_order_skips_invalid_json_without_affecting_other_keys() {
+    for value in [
+        "not-json",
+        "[1]",
+        "[\"command_table/synthetic\",\"command_table/synthetic\"]",
+        "[\"../escape\"]",
+        "[\"command_table/\"]",
+    ] {
+        let settings = BTreeMap::from([
+            (
+                PLUGIN_ORDER.to_owned(),
+                AccountPreferenceValue::String(value.into()),
+            ),
+            (
+                "input.learning".to_owned(),
+                AccountPreferenceValue::Boolean(true),
+            ),
+        ]);
+        let applied = apply_desktop_settings_for(
+            DesktopHost::MacOS,
+            &Preferences::default(),
+            &document(settings),
+            &full_schema(),
+        )
+        .unwrap();
+        assert_eq!(applied.skipped, [PLUGIN_ORDER]);
+        assert!(applied.preferences.learning);
+        assert!(applied.preferences.plugins.plugin_order.is_empty());
+    }
+}
+
+#[test]
 fn settings_sync_desktop_apply_changes_only_the_shared_input_settings() {
     let local = Preferences::default();
     let mut settings = export_desktop_settings(&Preferences {
@@ -1900,7 +1966,7 @@ fn nine_key_swipe_digits_syncs_by_its_wire_names() {
     );
 }
 
-/// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 只有语法模型，Linux 是除思考强度和快捷键之外的全部。
+/// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 还导出插件列表顺序，Linux 是除思考强度和快捷键之外的全部。
 #[test]
 fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
     let preferences = new_shared_preferences();
@@ -1909,12 +1975,13 @@ fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
     let windows = export_desktop_settings_for(DesktopHost::Windows, &preferences);
     assert_eq!(
         exported_new_keys(&windows),
-        ["sentence_association.grammar_model"]
+        ["plugins.plugin_order", "sentence_association.grammar_model"]
     );
     let linux = export_desktop_settings_for(DesktopHost::Linux, &preferences);
     assert_eq!(
         exported_new_keys(&linux),
         [
+            "plugins.plugin_order",
             "mixed_input.quick_phrase",
             "mixed_input.quick_phrase_frequency",
             "sentence_association.grammar_model",
@@ -2011,9 +2078,11 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
 #[test]
 fn settings_sync_macos_round_trips_candidate_window_appearance_and_theme() {
     let local = Preferences::default();
-    let mut remote = Preferences::default();
-    remote.global_theme = GlobalTheme::Night;
-    remote.candidate_theme = SettingsTheme::Dark;
+    let mut remote = Preferences {
+        global_theme: GlobalTheme::Night,
+        candidate_theme: SettingsTheme::Dark,
+        ..Preferences::default()
+    };
     remote.custom_theme.base = GlobalTheme::Paper;
     remote.custom_theme.candidate_skin = Some("synthetic-skin".into());
     remote.custom_theme.candidate_skin_dark = Some("synthetic-dark".into());

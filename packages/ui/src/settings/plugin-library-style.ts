@@ -26,7 +26,13 @@ export const sectionTitleLine = "flex items-center gap-1";
 export const sectionTitle = "m-0 text-xs font-semibold text-[var(--p-sub)]";
 export const grid = "grid grid-cols-1 gap-2.5 @min-[500px]/plugin:grid-cols-2";
 export const card =
-  "group flex min-h-[76px] w-full min-w-0 cursor-pointer items-center gap-3 rounded-xl border border-[var(--p-hair)] bg-[var(--p-group-bg)] p-3.5 text-left [font-family:inherit] hover:border-accent-soft-border hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  "group flex min-h-[76px] w-full min-w-0 items-center gap-3 rounded-xl border border-[var(--p-hair)] bg-[var(--p-group-bg)] p-3.5 text-left [font-family:inherit] hover:border-accent-soft-border hover:bg-accent-soft";
+export const cardButton =
+  "flex min-w-0 flex-1 cursor-pointer items-center gap-3 border-0 bg-transparent p-0 text-left [font-family:inherit] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+export const cardControls = "flex shrink-0 items-center gap-2";
+export const toggle = "size-4 accent-accent";
+export const dragHandle =
+  "cursor-grab rounded p-1 text-[var(--p-sub)] hover:bg-[var(--p-hover)] focus-visible:outline-2 focus-visible:outline-accent active:cursor-grabbing";
 export const packIcon =
   "flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-[var(--p-hover)] text-[var(--p-sub)] group-hover:text-accent";
 export const cardBody = "flex min-w-0 flex-1 flex-col gap-1.5";

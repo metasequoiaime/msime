@@ -16,6 +16,11 @@ text_edit_layout=false
 oobe=false
 crash_only=false
 pr=false
+release=false
+space_copy=false
+theme=false
+key_faces=false
+spelling_editor=false
 # 单次 instrumentation 默认不设上限：完整套件里 NumberPadDeviceSmoke 一项就要跑约 6.5 分钟，整套的总时长由 workflow 的 timeout-minutes 兜底。需要给单次运行加上限时设置 MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS（秒）。
 instrumentation_timeout_seconds=${MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS:-}
 [[ -z "$instrumentation_timeout_seconds" || "$instrumentation_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
@@ -33,7 +38,12 @@ for option in "${@:2}"; do
     --oobe) oobe=true ;;
     --crash-only) crash_only=true ;;
     --pr) pr=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr]" >&2; exit 1 ;;
+    --release) release=true ;;
+    --space-copy) space_copy=true ;;
+    --theme) theme=true ;;
+    --key-faces) key_faces=true ;;
+    --spelling-editor) spelling_editor=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -226,6 +236,13 @@ for attempt in $(seq 1 60); do
   # 应用刚启动、窗口还在切换时，uiautomator 偶尔报 `ERROR: null root node returned by UiTestAutomationBridge.` 并以非零退出；set -e 下这一次失败会让整个冒烟在第一条用例之前退出（API 35 上出现过）。轮询里把它当作这一拍还没就绪。
   if ! dump; then settled=0; sleep 1; continue; fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"词库准备失败")])' "$xml") == true ]]; then stop "Device bootstrap failed"; fi
+  # 首次启动在按流量计费的网络上会询问是否下载增强模型；只推迟这个可选下载，不改默认设置，也不代替用户处理其他弹窗。
+  if [[ $(xmllint --xpath 'boolean(//node[@package="app.msime.android" and @text="下载整句增强模型？"])' "$xml") == true ]]; then
+    settled=0
+    tap '//node[@package="app.msime.android" and @resource-id="android:id/button2" and @text="以后再说"]' || true
+    sleep 1
+    continue
+  fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@resource-id,":id/onboarding_skip")])' "$xml") == true ]]; then
     settled=0
     # 用这一拍刚读到的 dump 去点：tap 原先会另取一份 dump，引导页在两次 dump 之间可能正在打开或关闭，另取的那份偶尔是空的（null root），找不到按钮就让整个冒烟在第一条用例之前退出（API 28 上出现过）。这一拍点不到就当作还没就绪，下一拍再看。
@@ -284,14 +301,31 @@ fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"
+if [[ "$spelling_editor" == true ]]; then
+  check "Spelling editor switch acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e spelling-editor-switch true
+  finish "Dedicated Android AVD: spelling editor switch acceptance passed"
+fi
+if [[ "$space_copy" == true ]]; then
+  check "Space copy acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e space-copy-only true
+  finish "Dedicated Android AVD: space copy acceptance passed"
+fi
+if [[ "$theme" == true ]]; then
+  # 主题问题定向复验仍经过安装、资源准备与真实主输入；不改变发布和 nightly 的套件选择。
+  check "Theme mode acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ThemeModeDeviceSmoke
+  finish "Dedicated Android AVD: theme acceptance passed"
+fi
+if [[ "$key_faces" == true ]]; then
+  check "Shuangpin key face acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyShuangpinDeviceSmoke -e faces_only true
+  finish "Dedicated Android AVD: key face acceptance passed"
+fi
 if [[ "$pr" == true ]]; then
-  # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键与剪贴板持久化由合并后的风险矩阵、nightly 和发版覆盖。
+  # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键由 nightly 完整回归覆盖，剪贴板持久化由风险矩阵和发版覆盖。
   check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
   check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
   finish "Dedicated Android AVD: PR smoke acceptance passed"
 fi
-if [[ "$risk" == true ]]; then
-  # develop 推送只守住会被资源、沙箱权限或共享存储改动破坏的路径：安装和真实主输入已经在上面完成；这里再跑词库导入、会话存储、内置词书和剪贴板导出/保存。其余长 UI 套件与 14 键等交互留给 nightly 和发版完整矩阵。
+if [[ "$risk" == true || "$release" == true ]]; then
+  # develop 推送只守住会被资源、沙箱权限或共享存储改动破坏的路径：安装和真实主输入已经在上面完成；这里再跑词库导入、会话存储、内置词书和剪贴板导出/保存。其余长 UI 套件与 14/18 键等交互留给 nightly 完整矩阵。
   check "Helpcode import acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke
   check "Dictionary import acceptance failed" MSIME_DICTIONARY_IMPORT_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DictionaryImportDeviceSmoke
   check "Bundled wordbook acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true
@@ -303,6 +337,22 @@ if [[ "$risk" == true ]]; then
   verdict "Session store JNI acceptance failed" MSIME_DEVICE_SMOKE_PASSED "$result" "$result_status"
   check_script "Clipboard export acceptance failed" platforms/android/tests/device/clipboard-export.sh "$serial"
   check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
+  if [[ "$release" == true ]]; then
+    # 发布保留代表性的真实输入、绘制、偏好和隐私链路；各方案穷举留给 nightly 的完整回归。
+    check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
+    check "Deferred batch composition acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.BatchCompositionDeviceSmoke
+    check "Number layer restart acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NumberLayerRestartDeviceSmoke
+    check "Composition restart acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke
+    check "Device information copy acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CopyDeviceInfoDeviceSmoke
+    check "Candidate skin package acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateSkinDeviceSmoke
+    check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
+    check "Screen capture protection window acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e screen-capture true
+    # 主题系统切换沿用原完整矩阵只在 API 35 覆盖的边界，不扩大 API 28 的套件范围。
+    if (( api_level >= 35 )); then
+      check "Theme mode acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ThemeModeDeviceSmoke
+    fi
+    finish "Dedicated Android AVD: release smoke acceptance passed"
+  fi
   finish "Dedicated Android AVD: risk-focused install, resource and storage acceptance passed"
 fi
 if [[ "$oobe" == true ]]; then

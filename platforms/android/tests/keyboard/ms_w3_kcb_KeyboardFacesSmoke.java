@@ -32,11 +32,13 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
 
         List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.designEntries(
             KeyboardLayout.STANDARD_TOUCH_LAYOUT, false);
-        check(row.size() == 6 && row.get(0).slot() == KeyboardActionRow.DesignSlot.LAYER
+        check(row.size() == 7 && row.get(0).slot() == KeyboardActionRow.DesignSlot.LAYER
             && row.get(1).slot() == KeyboardActionRow.DesignSlot.SYMBOL_PANEL
-            && row.get(3).slot() == KeyboardActionRow.DesignSlot.COMMA
-            && row.get(4).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
-            && row.get(5).slot() == KeyboardActionRow.DesignSlot.RETURN, "123 | 符 | 空格 | ， | 中 | ↵");
+            && row.get(2).slot() == KeyboardActionRow.DesignSlot.PERIOD
+            && row.get(3).slot() == KeyboardActionRow.DesignSlot.SPACE
+            && row.get(4).slot() == KeyboardActionRow.DesignSlot.COMMA
+            && row.get(5).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
+            && row.get(6).slot() == KeyboardActionRow.DesignSlot.RETURN, "123 | 符 | 。 | 空格 | ， | 中 | ↵");
         List<KeyboardActionRow.DesignEntry> nine = KeyboardActionRow.designEntries(
             KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true);
         check(nine.stream().noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.COMMA),

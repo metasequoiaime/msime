@@ -34,7 +34,15 @@ case "$*" in
     exit 0 ;;
   "shell locksettings verify") echo "Lock credential verified successfully"; exit 0 ;;
   install*) echo Success; exit 0 ;;
+  "shell input tap 630 1447")
+    touch "$state/model-deferred"; exit 0 ;;
   pull*)
+    if [[ -n "${FAKE_MODEL_DIALOG:-}" && ! -e "$state/model-deferred" ]]; then
+      title="下载整句增强模型？"
+      [[ "$FAKE_MODEL_DIALOG" == unrelated ]] && title="删除个人词库？"
+      printf '<hierarchy><node package="app.msime.android" text="%s" resource-id="app.msime.android:id/alertTitle"/><node package="app.msime.android" text="以后再说" resource-id="android:id/button2" bounds="[524,1384][737,1510]"/></hierarchy>\n' "$title" > "$3"
+      exit 0
+    fi
     printf '%s\n' '<hierarchy><node text="试用键盘" resource-id="" bounds="[0,0][10,10]"/></hierarchy>' > "$3"
     exit 0 ;;
 esac
@@ -168,12 +176,37 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="msime-smoke-report-") as temp:
         base = Path(temp)
 
+        for sdk in ("28", "35"):
+            run = Run(base, f"model-dialog-{sdk}", ["--core"], sdk=sdk, model_dialog="model")
+            run.expect(run.code == 0, "整句增强模型询问应选择以后再说，不能阻塞初始化")
+            run.expect(f"adb -s {SERIAL} shell input tap 630 1447" in run.calls, "必须点当前弹窗的以后再说按钮")
+            run.expect(run.ran("DeviceSmoke"), "关闭可选下载后仍须执行真实输入验收")
+
+        run = Run(base, "unrelated-dialog", ["--core"], model_dialog="unrelated")
+        run.expect(run.code == 1 and "Device bootstrap timed out" in run.stopped_line(), "未知弹窗仍须阻止验收")
+        run.expect(not any("shell input tap" in c for c in run.calls), "不能盲点其他确认弹窗")
+
         run = Run(base, "full-pass", [])
         run.expect(run.code == 0, "全部通过时应以 0 退出")
         run.expect(run.stdout.rstrip().endswith("Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"), "通过时最后一行仍是原来的通过说明")
         run.expect("====" not in run.stderr and run.summary == "", "全部通过时不打印失败汇总，也不写 step summary")
         run.expect(run.ran("LetterHintPunctuationDeviceSmoke:english-swipe") and run.ran_script("clipboard-edit-lifecycle"), "全部通过时应跑到最后一项")
         run.expect(f"script voice-lifecycle {SERIAL} hold" in run.calls, "完整验收应调用长按语音锁定专项")
+
+        for sdk in ("28", "35"):
+            run = Run(base, f"release-pass-{sdk}", ["--release"], sdk=sdk)
+            run.expect(run.code == 0, "发布冒烟应正常结束")
+            for suite in ("DeviceSmoke", "HelpcodeImportDeviceSmoke", "DictionaryImportDeviceSmoke",
+                          "SessionStoreDeviceSmoke", "CopyDeviceInfoDeviceSmoke", "CompositionRestartDeviceSmoke",
+                          "CandidateSkinDeviceSmoke", "CandidateCanvasDeviceSmoke", "SettingsDeviceSmoke:screen-capture"):
+                run.expect(run.ran(suite), f"发布必须保留 {suite}")
+            run.expect(run.ran_script("clipboard-export") and run.ran_script("clipboard-edit-lifecycle"), "发布必须保留存储链路")
+            run.expect(run.ran("ThemeModeDeviceSmoke") == (sdk == "35"), "主题系统切换保留在高版本设备")
+            run.expect(not run.ran("NumberPadDeviceSmoke") and not run.ran("NumberPadDeviceSmoke:random-digits"), "穷举组合不混进发布冒烟")
+
+        run = Run(base, "release-failures", ["--release"], fail="CopyDeviceInfoDeviceSmoke ThemeModeDeviceSmoke")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 2, "发布中的已知失败必须阻止通过并全部汇总")
+        run.expect(run.ran("ThemeModeDeviceSmoke"), "设备信息失败不能掩盖主题失败")
 
         run = Run(base, "voice-hold-failure", [], fail_scripts="voice-lifecycle")
         run.expect(run.code == 1 and run.stopped_line() == "", "长按语音专项失败应汇总并继续独立检查")
@@ -216,6 +249,30 @@ def main() -> None:
             run.expect(f"- `{line[len('FAILED '):]}`" in run.summary, f"step summary 缺少 {line}")
         after = run.calls[run.calls.index("instrument CandidateCanvasDeviceSmoke") + 1:]
         run.expect(f"adb -s {SERIAL} shell am force-stop app.msime.android.test" in after and f"adb -s {SERIAL} shell ime set {IME}" in after, "失败后应收起合成编辑器并重新选中输入法")
+
+        run = Run(base, "spelling-editor-pass", ["--spelling-editor"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("CompositionRestartDeviceSmoke:spelling-editor-switch"), "拼写编辑专项必须经过主输入和真实开关验收")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "拼写编辑专项不重复无关套件")
+        run = Run(base, "spelling-editor-fail", ["--spelling-editor"], fail="CompositionRestartDeviceSmoke:spelling-editor-switch")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "拼写编辑失败必须阻止通过")
+
+        run = Run(base, "space-copy-pass", ["--space-copy"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("TextEditRecentClipboardDeviceSmoke:space-copy-only"), "空格复制专项必须经过主输入并执行复制回归")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "空格复制专项不重复无关套件")
+        run = Run(base, "space-copy-fail", ["--space-copy"], fail="TextEditRecentClipboardDeviceSmoke:space-copy-only")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "复制专项失败必须阻止通过")
+
+        run = Run(base, "theme-pass", ["--theme"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("ThemeModeDeviceSmoke"), "主题专项必须包含真实主输入与主题断言")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke") and not run.ran_script("clipboard-export"), "主题专项不重复运行无关长套件")
+        run = Run(base, "theme-fail", ["--theme"], fail="ThemeModeDeviceSmoke")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "主题专项失败不能被定向入口吞掉")
+
+        run = Run(base, "key-faces-pass", ["--key-faces"])
+        run.expect(run.code == 0 and run.ran("DeviceSmoke") and run.ran("NineKeyShuangpinDeviceSmoke:faces_only"), "键面专项必须经过主输入并执行像素回归")
+        run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "键面专项不重复执行无关套件")
+        run = Run(base, "key-faces-fail", ["--key-faces"], fail="NineKeyShuangpinDeviceSmoke:faces_only")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "键面失败必须阻止通过")
 
         run = Run(base, "gate", [], fail="DeviceSmoke")
         run.expect(run.code == 1 and "system input path failed" in run.stopped_line(), "系统输入主路径失败应当场停下并说明原因")

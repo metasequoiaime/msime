@@ -8,8 +8,8 @@
       "artifact": {
         "name": "wanxiang-lts-zh-hans.gram",
         "url": "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram",
-        "sha256": "e34500ab44626dc039a0641792ecba98ab63307646eb3d29186be56608ffe094",
-        "size": 418078764
+        "sha256": "3457b69f5fe0fc4f5d211c878bbfa2e2361b90639952c9845c8e31e9d047cde6",
+        "size": 418071596
       },
       "format": "gram-v1"
     },

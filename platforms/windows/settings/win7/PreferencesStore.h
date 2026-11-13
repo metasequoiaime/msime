@@ -148,7 +148,7 @@ private:
       if (field == "combo_counter" || field == "combo_tier_sound") return value.is_boolean();
       if (field == "effect_intensity") return value.is_number_integer();
       if (field == "effect_style" || field == "effect_pack" || field == "helpcode_pack_quanpin" || field == "helpcode_pack_shuangpin") return value.is_string();
-      if (field == "command_tables" || field == "phrase_tables") return value.is_array() && std::all_of(value.begin(), value.end(), [](const Json& item) { return item.is_string(); });
+      if (field == "command_tables" || field == "phrase_tables" || field == "plugin_order") return value.is_array() && std::all_of(value.begin(), value.end(), [](const Json& item) { return item.is_string(); });
       return false;
     }
     if (path.size() != 3) return false;

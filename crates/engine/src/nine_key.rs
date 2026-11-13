@@ -2,8 +2,12 @@
 //!
 //! The digits stay the composition: a chosen spelling only rewrites its span of digits and is remembered in `locked`, and every candidate's `pinyin` is the run of digits it consumes, so selection advances the same way whichever reading produced the row.
 
+mod grid_exact;
 mod grid_helpcode;
+mod lenient_reading;
+mod typo_prefix;
 
+use grid_exact::{fits, marks_agree};
 use grid_helpcode::GridHelpcode;
 pub use grid_helpcode::GridHelpcodeOp;
 
@@ -201,12 +205,12 @@ impl KeyGrid {
         }
     }
 
-    /// 字母所在键的组码；十八键双拼的大写字母标记精确输入。字母双拼网格的分号归入 L，九键双拼不按字母归组。
+    /// 字母所在键的组码；14／18 键的全拼和双拼另收大写字母，标记精确输入（见 `takes_exact_letters`）。字母双拼网格的分号归入 L，九键双拼不按字母归组。
     pub fn code_of(self, letter: u8) -> Option<u8> {
+        if self.takes_exact_letters() && letter.is_ascii_uppercase() {
+            return Some(letter);
+        }
         if matches!(self, Self::EighteenKeyShuangpin(_)) {
-            if letter.is_ascii_uppercase() {
-                return Some(letter);
-            }
             return eighteen_key_code(letter);
         }
         if matches!(self, Self::FourteenKeyShuangpin(_)) {
@@ -222,8 +226,22 @@ impl KeyGrid {
             .then(|| keypad[usize::from(letter - b'a')])
     }
 
+    /// `grid_key` 另收大写 ASCII 字母，表示同一组里的一个精确小写字母。大写只是组码串里的内部标记，兜底上屏前转回小写。全拼网格的匹配见 `grid_exact`。
+    pub(crate) fn takes_exact_letters(self) -> bool {
+        matches!(
+            self,
+            Self::FourteenKey
+                | Self::EighteenKey
+                | Self::FourteenKeyShuangpin(_)
+                | Self::EighteenKeyShuangpin(_)
+        )
+    }
+
     /// 组码键上的字母；不是这种键盘的组码时为空。九键双拼是这个键上能起头一个音节的字母（声母的首字母和从这个键开始的零声母音节的首字母）。
     pub fn letters(self, code: u8) -> &'static str {
+        if let Some(letter) = self.exact_letter(code) {
+            return letter;
+        }
         match self {
             Self::NineKey if (b'2'..=b'9').contains(&code) => {
                 DIGIT_LETTERS[usize::from(code - b'0')]
@@ -283,7 +301,7 @@ impl KeyGrid {
             let Some(&digit) = digits.get(index) else {
                 return Some(index);
             };
-            if keypad[usize::from(letter - b'a')] != digit {
+            if !fits(keypad, letter, digit) {
                 return None;
             }
             covered = Some(index + 1);
@@ -824,7 +842,7 @@ impl NineKeySession {
                 let replaced = self.digits[offset..end].to_string();
                 let before = self.digits.len();
                 self.digits
-                    .replace_range(offset..end, &self.grid.encode(&choice));
+                    .replace_range(offset..end, &self.grid.locked_code(&choice, &replaced));
                 // 拼写比已打的数字长时数字串变长；光标原来在被替换的那段之后的，跟着后移。
                 if let Some(caret) = self.caret {
                     if caret >= end {
@@ -1090,7 +1108,7 @@ impl NineKeySession {
         let mut index = first_index;
         while self.active() {
             if self.candidates.is_empty() {
-                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                if self.grid.takes_exact_letters() {
                     self.digits.make_ascii_lowercase();
                 }
                 commit.push_str(&self.digits);
@@ -1131,8 +1149,8 @@ impl NineKeySession {
                     return self.finish(0);
                 }
                 let mut raw = std::mem::take(&mut self.digits);
-                // 精确字母的大写只是十八键双拼内部标记，兜底上屏仍是小写字母。
-                if matches!(self.grid, KeyGrid::EighteenKeyShuangpin(_)) {
+                // 精确字母的大写只是字母双拼网格的内部标记，兜底上屏仍是小写字母。
+                if self.grid.takes_exact_letters() {
                     raw.make_ascii_lowercase();
                 }
                 self.clear_composition();
@@ -1488,6 +1506,8 @@ impl NineKeySession {
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let dictionary_options = self.dictionary_options();
         let mut alternatives = std::mem::take(&mut self.path_buffer);
+        // 候选核对覆盖时看的那段数字到哪一位为止：整串切不开时只到最长可切前缀的末尾（`typo_prefix`），其余时候是全部数字。
+        let mut window = self.digits.len();
         let alternatives = if remaining.is_empty() {
             self.spellings.clear();
             alternatives.clear();
@@ -1514,19 +1534,31 @@ impl NineKeySession {
                 &mut self.path_scratch,
                 &mut alternatives,
             );
+            // 整串切不开（多按或按错了一键）时退到错键之前能切成完整音节的最长前缀，见 `typo_prefix`；种子也只接这一段。
+            let span = if alternatives.is_empty() {
+                let prefix = typo_prefix::append_prefix_paths(
+                    table,
+                    remaining,
+                    splits,
+                    prior,
+                    &mut alternatives,
+                );
+                if prefix == 0 {
+                    remaining
+                } else {
+                    window = locked_length + prefix;
+                    &remaining[..prefix]
+                }
+            } else {
+                remaining
+            };
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             // 种子只在用户没锁定拼写、没打切分、没选首字母时用：那些情况下切分已经被用户限定，种子未必守得住这些限定。
             if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
-                if !self.sentence_seeds.is_empty() && remaining.len() >= SEEDED_TRUNCATE_DIGITS {
+                if !self.sentence_seeds.is_empty() && span.len() >= SEEDED_TRUNCATE_DIGITS {
                     alternatives.truncate(SEEDED_PATH_LIMIT);
                 }
-                seeded_paths(
-                    &mut alternatives,
-                    &self.sentence_seeds,
-                    remaining,
-                    table,
-                    prior,
-                );
+                seeded_paths(&mut alternatives, &self.sentence_seeds, span, table, prior);
             }
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
@@ -1538,6 +1570,7 @@ impl NineKeySession {
             alternatives
         };
 
+        let window = &self.digits[..window];
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
         // 按切分查出的词库行的 `pinyin` 换成它覆盖的那段数字：同样长度的行共用一份，一次刷新上千行只按不同的覆盖长度各申请一次。简拼行和九键双拼的整词行另在下面就地改写自己独占的缓冲区，本来就不申请。
@@ -1606,8 +1639,7 @@ impl NineKeySession {
                 }
                 if cached && filter_dominated {
                     if let Some(best) = leading_rank(&leading, &candidates, word) {
-                        let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits)
-                        else {
+                        let Some(covered) = grid.matching_code_prefix_len(matched, window) else {
                             return false;
                         };
                         // 只查已接纳的前页结果；本页内的同词仍由 `push_ranked` 处理。
@@ -1637,7 +1669,7 @@ impl NineKeySession {
                     canonical.as_str()
                 };
                 // 组码覆盖只算一次；九键双拼的既有实现会申请临时编码。
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                let Some(covered) = grid.matching_code_prefix_len(matched, window) else {
                     continue;
                 };
                 // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
@@ -2233,7 +2265,7 @@ impl NineKeySession {
         )
     }
 
-    /// 读音行：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的那段按音节频度切出的拼音（切不成音节时是原样的键码和切分），例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`。首行不是从拼音读出来的（英文词、emoji、日期时间行）或者没有首行时为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
+    /// 读音行（`lenient_reading` 的 `write_reading`）：首行的拼音截到它覆盖的那几个键，后面接上没覆盖的那段按音节频度切出的拼音，例如 `94'26` 上的 西安 是 `xi'an`，`942` 上的 遗产 是 `yi'c`；尾段切不成音节时，全拼网格上切不开的那一键单独成段、显示这个键上的一个字母（`6442677` 是 `ni'hao's's`），双拼网格仍是原样的键码和切分。首行不是从拼音读出来的（英文词、emoji、日期时间行）、是模糊音行或者没有首行时，全拼九键上是已按的键切出的拼写（首行是英文词时是这个词覆盖已打键数的小写字母），其他网格为空；14 键的首行是英文词时是这个词覆盖已打键数的那段小写字母，一键一个字母，没有歧义。
     #[cfg(test)]
     fn reading_for(&self, front: Option<&WordItem>) -> String {
         let mut reading = String::new();
@@ -2241,7 +2273,8 @@ impl NineKeySession {
         reading
     }
 
-    fn write_reading(&self, front: Option<&WordItem>, reading: &mut String) {
+    /// 按首行写读音：首行给不出读音时 `reading` 为空，全拼九键上由 `write_reading` 接着兜底。
+    fn write_front_reading(&self, front: Option<&WordItem>, reading: &mut String) {
         reading.clear();
         let Some(front) = front else {
             return;
@@ -2253,7 +2286,7 @@ impl NineKeySession {
         if front.source == CandidateSource::EnglishDictionary
             && matches!(self.grid, KeyGrid::FourteenKey | KeyGrid::EighteenKey)
         {
-            // 英文行的 `pinyin` 是小写的查询键（完整组码查询保证全是字母）；九键不给英文读音，与按数字判断时相同。
+            // 英文行的 `pinyin` 是小写的查询键（完整组码查询保证全是字母）；九键的英文读音取词本身逐位核对，见 `lenient_reading`。
             let typed = front.pinyin.len().min(self.digits.len());
             for byte in front.pinyin[..typed].bytes() {
                 reading.push(char::from(byte.to_ascii_lowercase()));
@@ -2321,6 +2354,9 @@ impl NineKeySession {
             if self.write_tail_spelling(start, reading) {
                 return;
             }
+            if self.write_lenient_tail(start, reading) {
+                return;
+            }
             for &split in &self.splits {
                 if split > start && split < self.digits.len() {
                     reading.push_str(&self.digits[start..split]);
@@ -2332,7 +2368,7 @@ impl NineKeySession {
         }
     }
 
-    /// 首行没覆盖的尾段写成最可能的那条音节切分（与左列、切分路径同一份音节频度，音节少的在前），而不是原样的键码：整句关掉时首行常常只是前面一段的词，`今天你` 后面的 `926` 显示成 `yao`，不再把数字写进读音行和输入框（#10603）。用户打的切分照样守住；尾段切不成音节（`77`、切分处不能断开）时返回 `false`，由调用方按原样写键码。
+    /// 首行没覆盖的尾段写成最可能的那条音节切分（与左列、切分路径同一份音节频度，音节少的在前），而不是原样的键码：整句关掉时首行常常只是前面一段的词，`今天你` 后面的 `926` 显示成 `yao`，不再把数字写进读音行和输入框（#10603）。用户打的切分照样守住；尾段切不成音节（`77`、切分处不能断开）时返回 `false`，调用方在全拼网格上改用容错切分（`write_lenient_tail`，切不开的那一键单独成段），双拼网格按原样写键码。
     fn write_tail_spelling(&self, start: usize, reading: &mut String) -> bool {
         let Some(prior) = self.prior.as_ref() else {
             return false;
@@ -2793,9 +2829,10 @@ fn letters_spell_code(grid: KeyGrid, letters: &str, code: &str) -> bool {
         };
     };
     letters.len() == code.len()
-        && letters.bytes().zip(code.bytes()).all(|(letter, digit)| {
-            letter.is_ascii_lowercase() && keypad[usize::from(letter - b'a')] == digit
-        })
+        && letters
+            .bytes()
+            .zip(code.bytes())
+            .all(|(letter, digit)| fits(keypad, letter, digit))
 }
 
 /// 把这次刷新之后的种子写进 `seeds`（先清空），`previous` 用完清空：先取排好的候选里覆盖全部数字、不是模糊音的前 `SENTENCE_SEED_LIMIT` 条全拼（`seed_prefix` 相同的只留一条，免得几条种子只差在最后一个音节上），再接上 `previous` 里 `seed_prefix` 仍拼得出数字开头的，合计最多 `SEED_RETAIN_LIMIT` 条。末尾只按了下一个音节的头一两个数字时没有覆盖全部数字的行，这时全靠留下来的种子，否则每隔一键就丢一次。`previous` 里已有的同一条直接挪过来，不再复制字符串。
@@ -3804,9 +3841,10 @@ fn keyword_spells_digits(grid: KeyGrid, keyword: &str, digits: &str) -> bool {
         };
     };
     keyword.len() == digits.len()
-        && keyword.bytes().zip(digits.bytes()).all(|(letter, digit)| {
-            letter.is_ascii_lowercase() && keypad[usize::from(letter - b'a')] == digit
-        })
+        && keyword
+            .bytes()
+            .zip(digits.bytes())
+            .all(|(letter, digit)| fits(keypad, letter, digit))
 }
 
 /// `letter_prefixes` 展开到第几位数字、共多少个前缀。
@@ -4035,22 +4073,22 @@ impl SpellingTable {
             destination.clear();
             return;
         }
-        matches.extend(
-            self.syllables
-                .iter()
-                .enumerate()
-                .filter_map(|(index, (_, code))| {
-                    let matches = match split {
-                        Some(split) => code.len() <= split && remaining.starts_with(code.as_str()),
-                        None => {
-                            locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
-                                && (remaining.starts_with(code.as_str())
-                                    || code.starts_with(remaining))
-                        }
-                    };
-                    matches.then_some(index)
-                }),
-        );
+        let mut buffer = [0; DIGIT_LIMIT];
+        let groups = self.grid.group_codes(remaining, &mut buffer);
+        let codes = groups.as_deref().unwrap_or(remaining);
+        matches.extend(self.syllables.iter().enumerate().filter_map(
+            |(index, (syllable, code))| {
+                let matches = match split {
+                    Some(split) => code.len() <= split && codes.starts_with(code.as_str()),
+                    None => {
+                        locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
+                            && (codes.starts_with(code.as_str()) || code.starts_with(codes))
+                    }
+                };
+                (matches && (groups.is_none() || marks_agree(syllable, remaining.as_bytes())))
+                    .then_some(index)
+            },
+        ));
         let covered = |code: &str| code.len().min(remaining.len());
         matches.sort_by(|&a, &b| {
             let (a, a_code) = &self.syllables[a];
@@ -4136,6 +4174,9 @@ impl SpellingTable {
         destination: &mut Vec<Path>,
     ) {
         let length = digits.len();
+        let mut buffer = [0; DIGIT_LIMIT];
+        let groups = self.grid.group_codes(digits, &mut buffer);
+        let codes = groups.as_deref().unwrap_or(digits);
         if scratch.pages.is_empty() {
             scratch.pages = vec![Vec::new(); length + 1];
         } else {
@@ -4161,12 +4202,15 @@ impl SpellingTable {
                 if splits.iter().any(|&split| offset < split && split < end) {
                     break;
                 }
-                let Some(pieces) = self.by_code.get(&digits[offset..end]) else {
+                let Some(pieces) = self.by_code.get(&codes[offset..end]) else {
                     continue;
                 };
                 let must_complete = end != length || splits.contains(&end);
                 for (piece, complete) in pieces {
                     if must_complete && !complete {
+                        continue;
+                    }
+                    if groups.is_some() && !marks_agree(piece, &digits.as_bytes()[offset..end]) {
                         continue;
                     }
                     let score = prior.score(piece);
@@ -4364,6 +4408,12 @@ mod code_prefix_tests;
 
 #[cfg(test)]
 mod spelling_buffer_tests;
+
+#[cfg(test)]
+mod lenient_reading_tests;
+
+#[cfg(test)]
+mod typo_prefix_tests;
 
 #[cfg(test)]
 mod tests {
@@ -6438,15 +6488,23 @@ mod tests {
     }
 
     #[test]
-    fn a_fuzzy_leading_row_has_no_reading() {
+    fn a_fuzzy_leading_row_reads_as_the_typed_keys() {
         let mut session = detached();
         session.digits = "94".into();
         let xi = spelled("西", "94", "xi", 100, CandidateSource::Database);
         assert_eq!(session.reading_for(Some(&xi)), "xi");
-        // 知 reached through zi under `94`: cutting zhi to two letters would show zh.
+        // 知 reached through zi under `94`: cutting zhi to two letters would show zh. 读音改用已按的键切出的拼写：一键一个字母，都印在各自的键上。
         let mut zhi = spelled("知", "94", "zhi", 100, CandidateSource::Database);
         zhi.fuzzy = true;
-        assert_eq!(session.reading_for(Some(&zhi)), "");
+        let reading = session.reading_for(Some(&zhi));
+        assert_ne!(reading, "zh");
+        assert_eq!(reading.len(), 2, "{reading}");
+        for (letter, key) in reading.bytes().zip(session.digits.bytes()) {
+            assert!(
+                KeyGrid::NineKey.letters(key).as_bytes().contains(&letter),
+                "{reading}"
+            );
+        }
     }
 
     #[test]
@@ -7412,7 +7470,7 @@ mod tests {
         assert!(sentence_words(&fresh).is_empty(), "{:?}", words(&fresh));
     }
 
-    /// #10603：整句关掉时首行只覆盖前面一段（`你好` 覆盖 `64426`），读音行后面接的是没覆盖那段最可能的拼音，不是原样的数字 `926`；用户打的切分照样守住，切不成音节的尾段仍按原样显示键码。
+    /// #10603：整句关掉时首行只覆盖前面一段（`你好` 覆盖 `64426`），读音行后面接的是没覆盖那段最可能的拼音，不是原样的数字 `926`；用户打的切分照样守住，切不成音节的尾段里切不开的键单独成段、显示这个键上的字母。
     #[test]
     fn uncovered_tail_reads_as_pinyin_when_sentences_are_off() {
         let fixture = fixture_with(&format!(
@@ -7455,9 +7513,11 @@ mod tests {
         );
         session.command(Command::Cancel);
 
-        // 切不成音节的尾段仍显示键码：`77` 不是任何音节的开头，这时首行只有 `你`，`42677` 原样接在后面。
+        // 切不成音节的尾段不再显示键码：`77` 不是任何音节的开头，整串切不开，候选退到能切成完整音节的前 5 键，首行是 `你好`；两个 7 各自成段。
         type_digits(&mut session, "6442677");
-        assert_eq!(session.snapshot().nine_key_reading, "ni'42677");
+        assert_eq!(session.snapshot().nine_key_reading, "ni'hao's's");
+        assert_eq!(session.candidates[0].word, "你好");
+        assert_eq!(session.candidates[0].pinyin, "64426");
     }
 
     /// 九键打 我们走路去（966369685878）首选曾是「我们有巨乳」：zou/you、lu/ju、qu/ru 同码，粗俗词 巨乳 靠多字词奖励被拼进整句。粗俗词不进词网格之后，整串打出来的候选里没有它；整串就是它的读音时它照样是候选。权重取自 dict-v2.0.39。
@@ -9364,9 +9424,12 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
                 let code = grid.code_of(letter).unwrap();
                 assert!(grid.letters(code).as_bytes().contains(&letter));
             }
-            assert_eq!(grid.code_of(b'A'), None);
+            // 九键不收大写；14／18 键全拼的大写是精确字母，见 `grid_exact`。
+            let exact = grid != KeyGrid::NineKey;
+            assert_eq!(grid.code_of(b'A'), exact.then_some(b'A'));
+            assert_eq!(grid.is_code(b'A'), exact);
             assert_eq!(grid.code_of(b'\''), None);
-            assert!(!grid.is_code(b'\'') && !grid.is_code(b'A') && !grid.is_code(b'1'));
+            assert!(!grid.is_code(b'\'') && !grid.is_code(b'1'));
         }
         assert_eq!(FOURTEEN_KEYPAD, b"abcdedggujjlmbooqeatucqztz");
         assert_eq!(KeyGrid::FourteenKey.encode("ni'hao"), "bugao");
@@ -9590,7 +9653,7 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
         assert!(!session.active());
     }
 
-    /// 读音行按首行的来源判定：九键下与按 `pinyin` 是否全是数字判定的结果相同，14 键下英文首行也有读音。
+    /// 读音行按首行的来源判定：首行是从拼音读出来的才取它的拼音，14 键下英文首行也有读音。首行给不出读音时，全拼九键上是已按的键切出的拼写（这里的会话不经 `refresh`，没有音节频度，`94` 按字典序是 `xi`），14 键仍为空。
     #[test]
     fn reading_is_judged_by_where_the_leading_row_came_from() {
         let mut nine = detached();
@@ -9614,21 +9677,30 @@ CREATE TABLE tbl_2_y(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl
                 fourteen.reading_for(Some(&spelled("西", "zu", "xi", 1, source))),
                 "xi"
             );
-            // 日期时间行是 `Generated`，没有规范读音。
-            assert_eq!(nine.reading_for(Some(&item("2026年", "94", 1, source))), "");
+            // 日期时间行是 `Generated`，没有规范读音：九键上是按键拼写。
+            assert_eq!(
+                nine.reading_for(Some(&item("2026年", "94", 1, source))),
+                "xi"
+            );
         }
         for source in [CandidateSource::Emoji, CandidateSource::Kaomoji] {
-            // emoji、颜文字行的 `pinyin` 是全部组码，没有规范读音。
-            assert_eq!(nine.reading_for(Some(&item("😀", "94", 1, source))), "");
+            // emoji、颜文字行的 `pinyin` 是全部组码，没有规范读音：九键上是按键拼写，14 键为空。
+            assert_eq!(nine.reading_for(Some(&item("😀", "94", 1, source))), "xi");
             assert_eq!(fourteen.reading_for(Some(&item("😀", "zu", 1, source))), "");
         }
         let english = item("xi", "xi", 1, CandidateSource::EnglishDictionary);
-        // 英文行的 `pinyin` 是查询键：九键下不全是数字，没有读音；14 键下是覆盖已打键数的字母。
-        assert_eq!(nine.reading_for(Some(&english)), "");
+        // 英文行：九键和 14 键下都是这个词覆盖已打键数的字母。九键上词对不上已按的键时退回按键拼写。
+        assert_eq!(nine.reading_for(Some(&english)), "xi");
         assert_eq!(fourteen.reading_for(Some(&english)), "xi");
+        let zi = item("zi", "zi", 1, CandidateSource::EnglishDictionary);
+        assert_eq!(nine.reading_for(Some(&zi)), "zi");
+        let off_key = item("ok", "ok", 1, CandidateSource::EnglishDictionary);
+        assert_eq!(nine.reading_for(Some(&off_key)), "xi");
         let longer = item("Xian", "xian", 1, CandidateSource::EnglishDictionary);
         assert_eq!(fourteen.reading_for(Some(&longer)), "xi");
-        assert_eq!(nine.reading_for(None), "");
+        assert_eq!(nine.reading_for(Some(&longer)), "xi");
+        assert_eq!(nine.reading_for(None), "xi");
+        assert_eq!(fourteen.reading_for(None), "");
     }
 
     #[test]

@@ -4,7 +4,12 @@ import { FluentIcon, type FluentIconName } from "../core/fluent-icons";
 import { SearchGlyph } from "../core/search-glyph";
 import { ActionButton } from "./action-button";
 import { SettingsManagerActions } from "./settings-manager-actions";
-import { MAX_COMMAND_TABLES } from "./plugin-preferences";
+import {
+  MAX_COMMAND_TABLES,
+  MAX_PHRASE_TABLES,
+  orderedPluginKeys,
+  pluginKey,
+} from "./plugin-preferences";
 import {
   kindLabels,
   kindOrder,
@@ -44,6 +49,10 @@ function LibraryCard({
   icon,
   shortcut = false,
   onOpen,
+  enabled,
+  onToggle,
+  onMove,
+  toggleDisabled,
 }: {
   title: string;
   description?: string;
@@ -52,13 +61,17 @@ function LibraryCard({
   icon: FluentIconName;
   shortcut?: boolean;
   onOpen: () => void;
+  enabled?: boolean;
+  onToggle?: (enabled: boolean) => void;
+  onMove?: (source: string, target: string) => void;
+  toggleDisabled?: boolean;
 }) {
   const descriptionId = useId();
   const markerId = useId();
-  return (
+  const card = (
     <button
       type="button"
-      className={shortcut ? style.shortcut : style.card}
+      className={shortcut ? style.shortcut : style.cardButton}
       aria-label={title}
       aria-describedby={
         [description ? descriptionId : "", marker ? markerId : ""].filter(Boolean).join(" ") ||
@@ -85,8 +98,48 @@ function LibraryCard({
           </span>
         )}
       </span>
-      <FluentIcon name="chevron_right" className={style.chevron} />
+      {!shortcut && <FluentIcon name="chevron_right" className={style.chevron} />}
     </button>
+  );
+  if (shortcut || (enabled === undefined && !onMove)) {
+    return card;
+  }
+  return (
+    <div
+      className={style.card}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        const source = event.dataTransfer.getData("text/plain");
+        if (source) onMove?.(source.replace(/^pack\//, ""), rowKey.replace(/^pack\//, ""));
+      }}
+    >
+      <div
+        className="contents"
+        draggable
+        onDragStart={(event) => event.dataTransfer.setData("text/plain", rowKey)}
+      >
+        {card}
+      </div>
+      <span className={style.cardControls}>
+        {onToggle && (
+          <input
+            type="checkbox"
+            className={style.toggle}
+            aria-label={`${title}启用`}
+            checked={enabled}
+            onChange={(event) => onToggle(event.currentTarget.checked)}
+            disabled={toggleDisabled}
+            onClick={(event) => event.stopPropagation()}
+          />
+        )}
+        {onMove && (
+          <span className={style.dragHandle} aria-label="拖动调整顺序" title="拖动调整顺序">
+            <FluentIcon name="arrow_sort" size={16} />
+          </span>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -112,6 +165,8 @@ export function PluginLibraryView({
   onOpen,
   onOpenPack,
   onOpenMissing,
+  onTogglePack,
+  onReorderPlugin,
   scripts,
 }: PluginListViewProps & { library: NonNullable<PluginListViewProps["library"]> }) {
   const installed = catalog.packages.filter((pack) => pack.kind !== "script" || scripts);
@@ -130,9 +185,17 @@ export function PluginLibraryView({
     [pack.name, pack.id, pack.author, pack.description, kindLabels[pack.kind]].some((text) =>
       text?.toLocaleLowerCase().includes(query),
     );
+  const pluginKeys = orderedPluginKeys(installed, preferences.plugin_order);
+  const orderIndex = new Map(pluginKeys.map((key, index) => [key, index]));
   const groups = categories.flatMap((kind) => {
     if (selectedKind !== "all" && selectedKind !== kind) return [];
-    const packs = installed.filter((pack) => pack.kind === kind && matches(pack));
+    const packs = installed
+      .filter((pack) => pack.kind === kind && matches(pack))
+      .sort(
+        (a, b) =>
+          (orderIndex.get(pluginKey(a.kind, a.id)) ?? 0) -
+          (orderIndex.get(pluginKey(b.kind, b.id)) ?? 0),
+      );
     const gone = missing.filter(
       (entry) =>
         entry.kind === kind &&
@@ -307,6 +370,27 @@ export function PluginLibraryView({
                   }
                   rowKey={`pack/${pack.kind}/${pack.id}`}
                   onOpen={() => onOpenPack(pack.kind, pack.id)}
+                  enabled={
+                    pack.kind === "command_table"
+                      ? preferences.command_tables.includes(pack.id)
+                      : pack.kind === "phrase_table"
+                        ? preferences.phrase_tables.includes(pack.id)
+                        : undefined
+                  }
+                  onToggle={
+                    pack.kind === "command_table" || pack.kind === "phrase_table"
+                      ? (enabled) => onTogglePack?.(pack, enabled)
+                      : undefined
+                  }
+                  toggleDisabled={
+                    (pack.kind === "command_table" &&
+                      !preferences.command_tables.includes(pack.id) &&
+                      preferences.command_tables.length >= MAX_COMMAND_TABLES) ||
+                    (pack.kind === "phrase_table" &&
+                      !preferences.phrase_tables.includes(pack.id) &&
+                      preferences.phrase_tables.length >= MAX_PHRASE_TABLES)
+                  }
+                  onMove={onReorderPlugin}
                 />
               ))}
               {gone.map((entry) => (

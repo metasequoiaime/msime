@@ -3859,6 +3859,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
             combo_counter: true,
             combo_tier_sound: true,
             phrase_tables: vec!["office".into(), "names".into()],
+            plugin_order: vec!["command_table/sig".into(), "phrase_table/office".into()],
             helpcode_pack_quanpin: "radicals".into(),
             helpcode_pack_shuangpin: "strokes".into(),
         },
@@ -3888,6 +3889,10 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     );
     assert_eq!(plugins["helpcode_pack_quanpin"], "radicals");
     assert_eq!(plugins["helpcode_pack_shuangpin"], "strokes");
+    assert_eq!(
+        plugins["plugin_order"],
+        serde_json::json!(["command_table/sig", "phrase_table/office"])
+    );
     // 没选短语表和辅助码表包时这三个键都不写，没有它们的旧版本照样能读。
     let mut unselected = chosen.clone();
     unselected.plugins.phrase_tables.clear();
@@ -3935,7 +3940,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
 
 #[test]
 fn plugin_preferences_are_validated() {
-    let invalid: [fn(&mut PluginPreferences); 16] = [
+    let invalid: [fn(&mut PluginPreferences); 18] = [
         |plugins| plugins.key_sound.volume = 101,
         |plugins| plugins.effect_intensity = 101,
         |plugins| plugins.music.volume = 255,
@@ -3960,6 +3965,10 @@ fn plugin_preferences_are_validated() {
         },
         |plugins| plugins.helpcode_pack_quanpin = "Radicals".into(),
         |plugins| plugins.helpcode_pack_shuangpin = "../strokes".into(),
+        |plugins| {
+            plugins.plugin_order = vec!["command_table/sig".into(), "command_table/sig".into()]
+        },
+        |plugins| plugins.plugin_order = vec!["command_table".into()],
     ];
     for (index, change) in invalid.into_iter().enumerate() {
         let mut preferences = Preferences::default();
@@ -6719,6 +6728,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..PreferencesSnapshot::default()
         },
+        unknown_key_paths: Vec::new(),
     };
     assert_eq!(
         store.load_reusing(Some(stale)).unwrap().snapshot,
@@ -6744,6 +6754,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..loaded.snapshot.clone()
         },
+        unknown_key_paths: Vec::new(),
         ..loaded.clone()
     };
     assert_eq!(
@@ -6766,6 +6777,25 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
     assert_eq!(reloaded.snapshot, store.load().unwrap());
     fs::write(store.path(), "broken").unwrap();
     assert!(store.load_reusing(Some(reloaded)).is_err());
+}
+
+#[test]
+fn load_reusing_exposes_unknown_key_paths_once_per_document_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["synthetic_unknown_preferences_path"] = "synthetic-value".into();
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+    let mut loaded = store.load_reusing(None).unwrap();
+    assert_eq!(
+        loaded.take_unknown_key_paths(),
+        ["synthetic_unknown_preferences_path"]
+    );
+    assert!(loaded.take_unknown_key_paths().is_empty());
+
+    let reused = store.load_reusing(Some(loaded)).unwrap();
+    assert!(reused.unknown_key_paths.is_empty());
 }
 
 #[test]
