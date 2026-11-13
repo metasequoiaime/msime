@@ -47,8 +47,6 @@ export interface AppThemeClient {
 export interface ImeSetupState {
   enabled: boolean | null;
   current: boolean | null;
-  /** HarmonyOS：已在系统里开启但处于基础访问模式，键盘不会被框架驱动，此时 `enabled` 为 false，缺的一步是打开「完整体验模式」。其他宿主不报告。 */
-  basicMode?: boolean;
 }
 
 /** 跨平台首次运行引导的事实快照；`null` 是宿主无法可靠查询，不是未完成。 */
