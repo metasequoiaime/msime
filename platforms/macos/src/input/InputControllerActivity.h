@@ -8,6 +8,9 @@ BOOL MSIMEInputControllerHasUnfinishedInput(void);
 // 用户切出水杉输入源时结束当前 Engine 焦点上下文；下次按键前重新聚焦，避免跨输入源带走上一段纠错上下文。只在主线程调用。
 void MSIMEResetFocusedInputSessionBeforeInputSourceSwitch(void);
 
+// 用户切出水杉输入源时，把当前控制器正在组的原始字母提交给原编辑器。只在主线程调用。
+void MSIMECommitRawCompositionBeforeInputSourceSwitch(void);
+
 @protocol MSIMEGlobalVoiceDeliveryTarget;
 id<MSIMEGlobalVoiceDeliveryTarget> MSIMEFocusedGlobalVoiceTarget(void);
 void MSIMERecordGlobalVoiceCommit(NSString *text);
