@@ -12,6 +12,8 @@ Windows 的 `HostCapabilities` 现在声明 `quick_phrase_candidates`，Windows 
 
 共享能力测试覆盖 Windows、macOS、Linux 与移动端的能力矩阵；Windows 生命周期回归测试确认两个会话入口传入 `quick_phrase_candidates`，共享 host-api 已有的偏好门控测试继续覆盖开关行为。
 
+快捷短语能力与大写锁定标点分别验证：两项能力的宿主范围已经不同，旧的合取断言改为只验证标点，快捷短语由六平台矩阵完整验证，保留所有未接入宿主的关闭断言。
+
 ## Alternatives considered
 
 - 只在 Windows 设置页增加开关：设置值会被宿主忽略，用户会看到一个无效控件，因此不能接受。

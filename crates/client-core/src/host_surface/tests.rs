@@ -310,7 +310,7 @@ fn capabilities_describe_each_host() {
     assert!(macos.traditional_chinese_variants);
     assert!(linux.traditional_chinese_variants);
     assert!(!windows.traditional_chinese_variants);
-    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语编码进普通候选由三个桌面宿主提供。
+    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语能力独立按下方矩阵验证。
     for platform in [
         HostPlatform::Windows,
         HostPlatform::Android,
@@ -318,7 +318,7 @@ fn capabilities_describe_each_host() {
         HostPlatform::Harmony,
     ] {
         let host = HostCapabilities::for_platform(platform);
-        assert!(!host.caps_lock_punctuation && !host.quick_phrase_candidates);
+        assert!(!host.caps_lock_punctuation);
     }
     assert!(macos.caps_lock_punctuation && macos.quick_phrase_candidates);
     assert!(linux.caps_lock_punctuation && linux.quick_phrase_candidates);
