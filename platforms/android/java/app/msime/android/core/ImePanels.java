@@ -1603,15 +1603,15 @@ final class ImePanels {
         }
     }
 
-    /**
-     * 复制监听的自动上传：云剪贴板已开启就沿用当前选路上传，不依赖面板已打开或先手动刷新。
-     * 失败不弹提示，也不把内容留在待上传队列；下一次新的复制会重新尝试，避免后台线程持续重试同一条内容。
-     */
+    /** 复制时固定账号与选路；后台校验和上传不依赖面板是否打开。 */
     void autoSyncClipboardText(String text) {
-        if (!CloudClipboardPanelPolicy.autoUploadEligible(cloudClipboardAllowed(), text)) return;
+        if (!CloudClipboardPanelPolicy.autoUploadEligible(
+                cloudClipboardAllowed(), s.clipboardMode == ClipboardModePolicy.Mode.VISITOR, text)) return;
         CloudOwner owner = cloudClipboardOwner();
         if (owner == null || owner.id().isEmpty()) return;
-        CloudClipboardAutoSync.enqueue(s.cloudClipboardWorker, s, owner.relay(), owner.id(), text);
+        ImeCloudClipboardAutoSync.submit(s.cloudClipboardWorker,
+            new ImeCloudClipboardAutoSync.Binding(owner.relay(), owner.id(), owner.generation()),
+            text, ImeCloudClipboardAutoSync.backend(s));
     }
 
     void insertCloudClipboardText(String text) {
