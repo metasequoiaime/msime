@@ -1696,18 +1696,19 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 与系统辅助方法保持相同的按键标记，但两次发键分别保护，连接断开时松键仍尽力发送。 */
-    void sendEditorKeyEvents(int keyCode) {
+    /** 两次发键分别保护，按下失败仍尽力松键；只有整对发送成功才返回 true。 */
+    boolean sendEditorKeyEvents(int keyCode) {
         editorReads.invalidate();
         InputConnection target = connection;
-        if (target == null) return;
+        if (target == null) return false;
         long down = SystemClock.uptimeMillis();
-        InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, down,
+        boolean pressed = InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, down,
             KeyEvent.ACTION_DOWN, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
-        InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, SystemClock.uptimeMillis(),
+        boolean released = InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, SystemClock.uptimeMillis(),
             KeyEvent.ACTION_UP, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
+        return pressed && released;
     }
 
     /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */
