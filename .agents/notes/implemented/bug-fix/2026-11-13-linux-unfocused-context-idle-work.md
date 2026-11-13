@@ -26,11 +26,11 @@ const bool idle = !ic_.hasFocus() && !session_ && !preferences_job_.valid() &&
 if (idle) { timer->setNextInterval(250000); timer->setOneShot(); return true; }
 ```
 
-两个 job 必须一起看：偏好保存失败的重试（`preferences_save_job_`）和进行中的读取（`preferences_job_`）都在 `refreshPreferences()` 里推进，窗口在保存后立刻失焦时仍然要把它们跑完。
+两个 job 必须一起看：进行中的保存（`preferences_save_job_`）与读取（`preferences_job_`）都需要由 `refreshPreferences()` 收取结果。保存失败后的 `preferences_save_retry_` 另由已有菜单重试入口处理，不在这一拍自动重试。
 
 ## Alternatives considered
 
-- **只按焦点跳过**（`!ic_.hasFocus()` 就跳过）：最简单，但会把偏好保存失败的重试一起停掉——保存发生在状态栏或设置页，恰好紧跟失焦时最需要重试，理由同上，所以两个 job 的判据保留。
+- **只按焦点跳过**（`!ic_.hasFocus()` 就跳过）：最简单，但无法保证收取仍在进行的偏好任务结果；因此保留两个 job 的判据。
 - **把每份 `FcitxState` 的定时器合并成进程级一个**：能再省掉一批定时器与空转唤醒。没有采用：每个上下文的刷新有各自的保存/读取任务与 provider 套接字状态，合并要把这些状态全部搬到 engine 上，属于另一件事，收益远小于本次的判据。
 - **在 msime 侧检测到空转就自救**（例如统计每拍的唤醒间隔，超过阈值就重启 addon）：能绕开上游 bug，但输入法进程里做“自我重启”会把用户的组字状态一起丢掉，而且判据容易误伤正常的打字高峰，不采用。
 - **什么都不改，只报上游**：上游修复的周期不可控，而这批刷新对失焦上下文本来就是纯浪费，先收掉。
@@ -44,5 +44,5 @@ if (idle) { timer->setNextInterval(250000); timer->setOneShot(); return true; }
 
 ## Testing
 
-- `cmake -S platforms/linux -B target/linux-native -G Ninja -DBUILD_TESTING=ON -DMSIME_ENABLE_FCITX5=ON` 配置通过，`cmake --build` 编出 fcitx5 插件与全部原生目标，`ctest` 全绿（结果见 PR 的验证段）。
+- `cmake -S platforms/linux -B target/linux-native -G Ninja -DBUILD_TESTING=ON -DMSIME_ENABLE_FCITX5=ON` 配置通过，`cmake --build` 编出 fcitx5 插件与全部原生目标，`ctest` 为 120/121 通过；唯一失败为 `linux-candidate-native-canvas-chrome` 的像素颜色断言。去掉本次改动后该目标无需重编且仍失败，因此作为本机既有渲染差异记录，不加入已知失败豁免表；平台 CI 的 Linux 原生作业均通过。
 - 手动：装包后连续切换 5 个以上窗口再回到聊天窗口，对比改动前后 fcitx5 的 CPU 与 `syscr`/`syscw` 速率；空转是否复发另记（受上游影响，不作为本次验收条件）。
