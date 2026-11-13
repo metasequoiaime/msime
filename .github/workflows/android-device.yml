@@ -201,6 +201,14 @@ jobs:
           name: android-device-api${{ matrix.api }}-theme-result
           path: target/android/theme-result/
           if-no-files-found: ignore
+      - name: Upload reported trackpad layout
+        if: ${{ always() && matrix.smoke == '--trackpad-layout' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: android-device-api${{ matrix.api }}-trackpad-layout
+          path: target/android/trackpad-layout/*.png
+          if-no-files-found: ignore
+
       - name: Collect device logs
         if: (failure() || cancelled()) && env.SERIAL != ''
         run: |

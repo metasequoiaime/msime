@@ -13,6 +13,7 @@ risk=false
 feedback=false
 diagnostics=false
 text_edit_layout=false
+trackpad_layout=false
 oobe=false
 crash_only=false
 pr=false
@@ -35,6 +36,7 @@ for option in "${@:2}"; do
     --feedback) feedback=true ;;
     --diagnostics) diagnostics=true ;;
     --text-edit-layout) text_edit_layout=true ;;
+    --trackpad-layout) trackpad_layout=true ;;
     --oobe) oobe=true ;;
     --crash-only) crash_only=true ;;
     --pr) pr=true ;;
@@ -43,7 +45,7 @@ for option in "${@:2}"; do
     --theme) theme=true ;;
     --key-faces) key_faces=true ;;
     --spelling-editor) spelling_editor=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor]" >&2; exit 1 ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--trackpad-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -358,6 +360,10 @@ fi
 if [[ "$oobe" == true ]]; then
   check "原生引导保存与系统状态验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OnboardingDeviceSmoke
   finish "Dedicated Android AVD: OOBE resource setup, system state and save recovery acceptance passed"
+fi
+if [[ "$trackpad_layout" == true ]]; then
+  check "触控板报告屏幕配置验收失败" MSIME_TRACKPAD_LAYOUT_PASSED bash platforms/android/tests/device/trackpad-layout.sh "$serial"
+  finish
 fi
 if [[ "$text_edit_layout" == true ]]; then
   check "Text edit layout acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e layout-only true
