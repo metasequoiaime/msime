@@ -14168,16 +14168,8 @@ group("setup has two steps and they fail separately", () => {
       enabled: ImeEnabledState.BASIC_MODE,
       currentBundle: own,
       ownBundle: own,
-    }) === true,
-    "basic mode still has a step left: the framework does not drive the keyboard there",
-  );
-  check(
-    OnboardingStatePolicy.describe({
-      enabled: ImeEnabledState.BASIC_MODE,
-      currentBundle: own,
-      ownBundle: own,
-    }) === "enabled in basic mode, opening welcome flow",
-    "basic mode is logged as its own reason",
+    }) === false,
+    "basic mode is enabled too",
   );
 });
 
