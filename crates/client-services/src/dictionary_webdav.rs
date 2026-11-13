@@ -200,15 +200,20 @@ impl DavHttp for Prefixed {
         if layout == LAYOUT_LEGACY {
             return send(true);
         }
+        // 鉴权、限流和服务端错误不说明目录是否存在，不能缓存为布局结论。
+        let confirms_layout =
+            |status| (200..300).contains(&status) || (request.method == "MKCOL" && status == 405);
         let response = send(false)?;
         if layout == LAYOUT_UNKNOWN && matches!(response.status, 404 | 409) {
             // 已发布版本把协议根目录嵌在 `msime-clipboard/` 下。只有扁平路径不存在时才探测旧布局；两边都不存在时仍保留扁平布局，供新安装初始化。
             let legacy = send(true)?;
             if !matches!(legacy.status, 404 | 409) {
-                self.layout.store(LAYOUT_LEGACY, Ordering::SeqCst);
+                if confirms_layout(legacy.status) {
+                    self.layout.store(LAYOUT_LEGACY, Ordering::SeqCst);
+                }
                 return Ok(legacy);
             }
-        } else if layout == LAYOUT_UNKNOWN {
+        } else if layout == LAYOUT_UNKNOWN && confirms_layout(response.status) {
             self.layout.store(LAYOUT_FLAT, Ordering::SeqCst);
         }
         Ok(response)
