@@ -28,6 +28,9 @@ has() { [[ " $1 " == *" $2 "* ]]; }
 case "$*" in
   "emu avd name") printf 'msime-client-test-api%s\r\nOK\r\n' "$FAKE_SDK"; exit 0 ;;
   "shell getprop sys.boot_completed") echo 1; exit 0 ;;
+  "shell wm size") printf 'Physical size: 1080x2400\nOverride size: 1280x2560\n'; exit 0 ;;
+  "shell wm density") printf 'Physical density: 440\nOverride density: 420\n'; exit 0 ;;
+  "shell settings get system font_scale") echo 1.1; exit 0 ;;
   "shell getprop ro.build.version.sdk") echo "$FAKE_SDK"; exit 0 ;;
   "shell settings get secure default_input_method")
     if [[ -e "$state/ime-stuck" ]]; then echo com.android.inputmethod.latin/.LatinIME; else echo "$FAKE_IME"; fi
@@ -125,6 +128,7 @@ class Run:
         for script in SCRIPTS:
             write(device / script, FAKE_SCRIPT, executable=True)
         write(root / "sdk/platform-tools/adb", FAKE_ADB, executable=True)
+        shutil.copyfile(DEVICE / "trackpad-layout.sh", device / "trackpad-layout.sh")
         write(root / "bin/sleep", "#!/bin/sh\nexit 0\n", executable=True)
         state = root / "state"
         state.mkdir()
@@ -203,6 +207,19 @@ def main() -> None:
             run.expect(run.ran_script("clipboard-export") and run.ran_script("clipboard-edit-lifecycle"), "发布必须保留存储链路")
             run.expect(run.ran("ThemeModeDeviceSmoke") == (sdk == "35"), "主题系统切换保留在高版本设备")
             run.expect(not run.ran("NumberPadDeviceSmoke") and not run.ran("NumberPadDeviceSmoke:random-digits"), "穷举组合不混进发布冒烟")
+
+        for sdk in ("28", "35"):
+            for fail in ("", "TextEditRecentClipboardDeviceSmoke:layout-only"):
+                run = Run(base, f"trackpad-layout-{sdk}-{'fail' if fail else 'pass'}",
+                          ["--trackpad-layout"], sdk=sdk, fail=fail)
+                run.expect(run.code == (1 if fail else 0), "布局专项的失败必须传回门禁")
+                run.expect(run.ran("DeviceSmoke") and run.ran("TextEditRecentClipboardDeviceSmoke:layout-only"),
+                           "报告配置专项必须执行真实主输入与既有布局套件")
+                run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "定向验证不额外运行无关套件")
+                for command in ("wm size 1080x2376", "wm density 480", "settings put system font_scale 1.25",
+                                "wm size 1280x2560", "wm density 420", "settings put system font_scale 1.1"):
+                    run.expect(f"adb -s {SERIAL} shell {command}" in run.calls,
+                               f"成功或失败都必须设置并恢复屏幕配置：{command}")
 
         run = Run(base, "release-failures", ["--release"], fail="CopyDeviceInfoDeviceSmoke ThemeModeDeviceSmoke")
         run.expect(run.code == 1 and len(run.failed_lines()) == 2, "发布中的已知失败必须阻止通过并全部汇总")
