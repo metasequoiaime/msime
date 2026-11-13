@@ -13,6 +13,7 @@ risk=false
 feedback=false
 diagnostics=false
 text_edit_layout=false
+trackpad_layout=false
 oobe=false
 crash_only=false
 pr=false
@@ -21,6 +22,7 @@ space_copy=false
 theme=false
 key_faces=false
 spelling_editor=false
+voice_empty=false
 # 单次 instrumentation 默认不设上限：完整套件里 NumberPadDeviceSmoke 一项就要跑约 6.5 分钟，整套的总时长由 workflow 的 timeout-minutes 兜底。需要给单次运行加上限时设置 MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS（秒）。
 instrumentation_timeout_seconds=${MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS:-}
 [[ -z "$instrumentation_timeout_seconds" || "$instrumentation_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || { echo "MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1; }
@@ -35,6 +37,7 @@ for option in "${@:2}"; do
     --feedback) feedback=true ;;
     --diagnostics) diagnostics=true ;;
     --text-edit-layout) text_edit_layout=true ;;
+    --trackpad-layout) trackpad_layout=true ;;
     --oobe) oobe=true ;;
     --crash-only) crash_only=true ;;
     --pr) pr=true ;;
@@ -43,7 +46,8 @@ for option in "${@:2}"; do
     --theme) theme=true ;;
     --key-faces) key_faces=true ;;
     --spelling-editor) spelling_editor=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor]" >&2; exit 1 ;;
+    --voice-empty) voice_empty=true ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--trackpad-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor] [--voice-empty]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -236,6 +240,13 @@ for attempt in $(seq 1 60); do
   # 应用刚启动、窗口还在切换时，uiautomator 偶尔报 `ERROR: null root node returned by UiTestAutomationBridge.` 并以非零退出；set -e 下这一次失败会让整个冒烟在第一条用例之前退出（API 35 上出现过）。轮询里把它当作这一拍还没就绪。
   if ! dump; then settled=0; sleep 1; continue; fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"词库准备失败")])' "$xml") == true ]]; then stop "Device bootstrap failed"; fi
+  # 首次启动在按流量计费的网络上会询问是否下载增强模型；只推迟这个可选下载，不改默认设置，也不代替用户处理其他弹窗。
+  if [[ $(xmllint --xpath 'boolean(//node[@package="app.msime.android" and @text="下载整句增强模型？"])' "$xml") == true ]]; then
+    settled=0
+    tap '//node[@package="app.msime.android" and @resource-id="android:id/button2" and @text="以后再说"]' || true
+    sleep 1
+    continue
+  fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@resource-id,":id/onboarding_skip")])' "$xml") == true ]]; then
     settled=0
     # 用这一拍刚读到的 dump 去点：tap 原先会另取一份 dump，引导页在两次 dump 之间可能正在打开或关闭，另取的那份偶尔是空的（null root），找不到按钮就让整个冒烟在第一条用例之前退出（API 28 上出现过）。这一拍点不到就当作还没就绪，下一拍再看。
@@ -311,6 +322,10 @@ if [[ "$key_faces" == true ]]; then
   check "Shuangpin key face acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyShuangpinDeviceSmoke -e faces_only true
   finish "Dedicated Android AVD: key face acceptance passed"
 fi
+if [[ "$voice_empty" == true ]]; then
+  check_script "空语音顶部提示验收失败" platforms/android/tests/device/voice-lifecycle.sh "$serial" empty
+  finish "Dedicated Android AVD: empty voice notice acceptance passed"
+fi
 if [[ "$pr" == true ]]; then
   # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键由 nightly 完整回归覆盖，剪贴板持久化由风险矩阵和发版覆盖。
   check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
@@ -351,6 +366,10 @@ fi
 if [[ "$oobe" == true ]]; then
   check "原生引导保存与系统状态验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OnboardingDeviceSmoke
   finish "Dedicated Android AVD: OOBE resource setup, system state and save recovery acceptance passed"
+fi
+if [[ "$trackpad_layout" == true ]]; then
+  check "触控板报告屏幕配置验收失败" MSIME_TRACKPAD_LAYOUT_PASSED bash platforms/android/tests/device/trackpad-layout.sh "$serial"
+  finish
 fi
 if [[ "$text_edit_layout" == true ]]; then
   check "Text edit layout acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e layout-only true

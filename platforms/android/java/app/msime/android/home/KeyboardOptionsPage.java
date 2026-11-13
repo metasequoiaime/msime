@@ -4,6 +4,8 @@ import app.msime.android.ClipboardExport;
 import app.msime.android.ClipboardHistoryPolicy;
 import app.msime.android.CandidatePageLabelPolicy;
 import app.msime.android.CandidateScalePolicy;
+import app.msime.android.CandidateAppearance;
+import app.msime.android.ReadingRowPolicy;
 import app.msime.android.CandidatePreeditStylePolicy;
 
 import app.msime.android.DimensionPolicy;
@@ -334,6 +336,15 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             TouchKeyStyle.Row.LONG_SPACE.wire.equals(JsonPolicy.strictString(
                 preferences.opt(TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE))), candidateScale));
         bar.nav("显示方式", null, hidden ? "隐藏" : "输入时显示", () -> pickToolbarMode(hidden));
+        // 共享偏好 `candidate_font_size` 和 `candidate_preedit_font_size`，与 iOS「候选栏」页的「候选字号」「编码字号」、桌面「候选窗口」页的字号是同一对字段。键盘一直按这两个值画候选和读音行（ReadingRowPolicy），之前只是设置页没有入口（#11002）。范围取键盘实际接受的 12–32，滑块显示的就是键盘画出来的字号；再乘上下面的「候选栏大小」。
+        bar.slider("候选字号", null, CandidateAppearance.MIN_FONT_SIZE, CandidateAppearance.MAX_FONT_SIZE, 1,
+            CandidateAppearance.fontSize(NumberPolicy.strictInt(preferences, "candidate_font_size",
+                CandidateScalePolicy.DEFAULT_CANDIDATE_FONT_SIZE)),
+            value -> String.valueOf(value), value -> savePreference("candidate_font_size", value)).help("候选字的大小，按键大小不变");
+        bar.slider("编码字号", null, CandidateAppearance.MIN_FONT_SIZE, CandidateAppearance.MAX_FONT_SIZE, 1,
+            CandidateAppearance.fontSize(NumberPolicy.strictInt(preferences, "candidate_preedit_font_size",
+                ReadingRowPolicy.DEFAULT_PREEDIT_FONT_SIZE)),
+            value -> String.valueOf(value), value -> savePreference("candidate_preedit_font_size", value)).help("候选栏上方拼音或编码那一行的字号");
         // 共享偏好 `candidate_scale_percent`，与 iOS、鸿蒙同一范围和说法（#10137）：候选栏和跟随它的空闲工具栏一起变矮或变高，按键不动。工具栏隐藏时候选栏照样缩放，所以这一行不跟着置灰。
         bar.slider("候选栏大小", null,
             CandidateScalePolicy.MIN_PERCENT, CandidateScalePolicy.MAX_PERCENT, CandidateScalePolicy.STEP_PERCENT,
@@ -806,7 +817,7 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         group.toggle("双击选词与三击选行", null,
             value.tapSelection(), checked -> saveTrackpad("tap_selection", checked)).help("编辑器提供足够文字时生效；长按后拖动也可延伸选区");
         group.toggle("逐步振动", null, value.haptics(),
-            checked -> saveTrackpad("haptics", checked)).help("跟随键盘振动和系统触感开关");
+            checked -> saveTrackpad("haptics", checked)).help("跟随键盘振动开关和强度");
         group.toggle("显示移动轨迹", null, value.trail(), checked -> saveTrackpad("trail", checked));
         group.toggle("光标文字放大镜", null,
             value.magnifier(), checked -> saveTrackpad("magnifier", checked)).help("显示光标附近文字；密码使用掩码，编辑器不提供文字时显示提示");

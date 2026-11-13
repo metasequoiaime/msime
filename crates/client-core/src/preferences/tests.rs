@@ -6757,6 +6757,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..PreferencesSnapshot::default()
         },
+        unknown_key_paths: Vec::new(),
     };
     assert_eq!(
         store.load_reusing(Some(stale)).unwrap().snapshot,
@@ -6782,6 +6783,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..loaded.snapshot.clone()
         },
+        unknown_key_paths: Vec::new(),
         ..loaded.clone()
     };
     assert_eq!(
@@ -6804,6 +6806,25 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
     assert_eq!(reloaded.snapshot, store.load().unwrap());
     fs::write(store.path(), "broken").unwrap();
     assert!(store.load_reusing(Some(reloaded)).is_err());
+}
+
+#[test]
+fn load_reusing_exposes_unknown_key_paths_once_per_document_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["synthetic_unknown_preferences_path"] = "synthetic-value".into();
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+    let mut loaded = store.load_reusing(None).unwrap();
+    assert_eq!(
+        loaded.take_unknown_key_paths(),
+        ["synthetic_unknown_preferences_path"]
+    );
+    assert!(loaded.take_unknown_key_paths().is_empty());
+
+    let reused = store.load_reusing(Some(loaded)).unwrap();
+    assert!(reused.unknown_key_paths.is_empty());
 }
 
 #[test]
