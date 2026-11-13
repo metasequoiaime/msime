@@ -374,6 +374,44 @@ public final class KeyboardActionRow {
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
     }
 
+    /** 九键双拼字母层底行的 0 的宽度份额，与 符 相同；iOS `TouchBottomRowLayout.zeroWeight` 相同。 */
+    public static final float DESIGN_SHUANGPIN_ZERO_WEIGHT = DESIGN_SYMBOL_PANEL_WEIGHT;
+
+    /**
+     * 九键双拼字母层的底行：在已排好的拼音九键底行（标准、底栏带标点、表情键或右侧大回车的中列）里，紧跟空格加一个 0（{@link DesignSlot#ZERO}，{@link #DESIGN_SHUANGPIN_ZERO_WEIGHT}）。九键双拼的网格只有 1–9 三行，0 在这里，与 iOS `TouchBottomRowLayout.nineKey(zero:)`、鸿蒙相同。
+     *
+     * <p>{@code fromSpace} 为假时 0 另加一份，整行总份额多出 {@link #DESIGN_SHUANGPIN_ZERO_WEIGHT}，空格宽度不变（底栏带标点时空格只剩 2 份，再让就画不下）；数字层用 {@link #withShuangpinZeroShare} 补回同样一份，往返两层时 符 和 123 不动。右侧大回车的中列必须与九宫格等宽，{@code fromSpace} 为真时这一份从空格里让出。没有空格的行原样返回。
+     */
+    public static List<DesignEntry> withShuangpinZero(List<DesignEntry> entries, boolean fromSpace) {
+        List<DesignEntry> laid = new ArrayList<>(entries.size() + 1);
+        boolean placed = false;
+        for (DesignEntry entry : entries) {
+            if (entry.slot() != DesignSlot.SPACE || placed) {
+                laid.add(entry);
+                continue;
+            }
+            laid.add(fromSpace ? new DesignEntry(DesignSlot.SPACE, entry.weight() - DESIGN_SHUANGPIN_ZERO_WEIGHT) : entry);
+            laid.add(new DesignEntry(DesignSlot.ZERO, DESIGN_SHUANGPIN_ZERO_WEIGHT));
+            placed = true;
+        }
+        return placed ? List.copyOf(laid) : entries;
+    }
+
+    /** 九键双拼的数字层底行（{@link #numberPadEntries} 排好的）：把字母层 0 多出的那一份（{@link #withShuangpinZero} 不从空格让时）并进 0 和空格里较宽的那个，整行总份额与字母层相同，切层时 符、切换键、中/英和回车不移动。 */
+    public static List<DesignEntry> withShuangpinZeroShare(List<DesignEntry> entries) {
+        int widest = -1;
+        for (int index = 0; index < entries.size(); index++) {
+            DesignSlot slot = entries.get(index).slot();
+            if ((slot == DesignSlot.ZERO || slot == DesignSlot.SPACE)
+                    && (widest < 0 || entries.get(index).weight() > entries.get(widest).weight())) widest = index;
+        }
+        if (widest < 0) return entries;
+        List<DesignEntry> laid = new ArrayList<>(entries);
+        DesignEntry wide = laid.get(widest);
+        laid.set(widest, new DesignEntry(wide.slot(), wide.weight() + DESIGN_SHUANGPIN_ZERO_WEIGHT));
+        return List.copyOf(laid);
+    }
+
     /** 中/英左边能被它越过的键：空格、0 和逗号句号。 */
     private static final java.util.Set<DesignSlot> LANGUAGE_PASSES = java.util.EnumSet.of(
         DesignSlot.SPACE, DesignSlot.ZERO, DesignSlot.COMMA, DesignSlot.PERIOD);
