@@ -4127,6 +4127,9 @@ impl<E: InputEngine> Runtime<E> {
             }
             // 进入整句改字时改的是用户高亮着的那一句，它可能被重排过，不在引擎的首位。
             // 高亮在插件插入的行上时从引擎的首行进入。
+            Action::Command(Command::EnterQuickPhrase) if !self.phrase_prefix.is_empty() => {
+                Ok(empty_result(false))
+            }
             Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => {
                 let seat = if self.is_inserted(self.highlighted) {
                     self.first_engine_seat()

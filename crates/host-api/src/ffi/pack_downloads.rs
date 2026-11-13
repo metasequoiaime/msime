@@ -446,6 +446,7 @@ mod tests {
             expected.push("ocr-module-android");
         }
         expected.push("rerank-model-small");
+        expected.push("local-translation");
         assert_eq!(ids, expected);
         for pack in listed["value"].as_array().unwrap() {
             assert_eq!(pack["state"], "missing");
