@@ -3,6 +3,7 @@ type SnapshotLine = { type?: unknown; data?: { kind?: unknown }; [key: string]: 
 export type QuickPhraseSnapshotFilterResult = {
   text: string;
   entries: number;
+  revision: number;
 };
 
 /** 从完整云词库快照中移除快捷短语记录，保留其他词库并让宿主重新校验摘要。 */
@@ -14,7 +15,15 @@ export async function removeQuickPhraseSnapshotRecords(
   if (lines.length < 2) throw new Error("invalid snapshot");
   const header = JSON.parse(lines.shift()!) as SnapshotLine;
   const footer = JSON.parse(lines.pop()!) as SnapshotLine;
-  if (header.type !== "header" || footer.type !== "footer") throw new Error("invalid snapshot");
+  if (
+    header.type !== "header" ||
+    footer.type !== "footer" ||
+    typeof header.revision !== "number" ||
+    !Number.isSafeInteger(header.revision) ||
+    header.revision < 0
+  )
+    throw new Error("invalid snapshot");
+  const revision = header.revision;
   const kept: string[] = [];
   let entries = 0;
   for (const line of lines) {
@@ -31,7 +40,7 @@ export async function removeQuickPhraseSnapshotRecords(
     }
     kept.push(line);
   }
-  if (!entries) return { text, entries: 0 };
+  if (!entries) return { text, entries: 0, revision };
   const body = [JSON.stringify(header), ...kept].join("\n") + "\n";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const sha256 = Array.from(new Uint8Array(digest), (byte) =>
@@ -39,5 +48,5 @@ export async function removeQuickPhraseSnapshotRecords(
   ).join("");
   const nextFooter = { type: "footer", records: 1 + kept.length, sha256 };
   const result = `${body}${JSON.stringify(nextFooter)}\n`;
-  return { text: result, entries };
+  return { text: result, entries, revision };
 }

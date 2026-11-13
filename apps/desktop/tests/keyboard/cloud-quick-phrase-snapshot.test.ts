@@ -16,6 +16,7 @@ test("云端快照过滤只移除快捷短语记录并重算 footer", async () =
   const footer = JSON.parse(lines.at(-1)!);
 
   expect(result.entries).toBe(1);
+  expect(result.revision).toBe(7);
   expect(result.text).toContain('"kind":"pinyin"');
   expect(result.text).not.toContain('"kind":"quick"');
   expect(footer.records).toBe(2);
@@ -29,5 +30,9 @@ test("没有快捷短语时不改动云端快照文本", async () => {
     "",
   ].join("\n");
 
-  await expect(removeQuickPhraseSnapshotRecords(text)).resolves.toEqual({ text, entries: 0 });
+  await expect(removeQuickPhraseSnapshotRecords(text)).resolves.toEqual({
+    text,
+    entries: 0,
+    revision: 7,
+  });
 });

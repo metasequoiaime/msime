@@ -226,11 +226,14 @@ export function useCloudDictionaryPanel(client: CloudDictionaryPanelClient, embe
       });
       if (!isCurrent(revision) || !preview.snapshot || typeof preview.expectedRevision !== "number")
         throw new Error("invalid snapshot preview");
+      // 清空是基于导出版本的定向删除；确认期间有其他更新时，不用较新的预览版本覆盖回旧快照。
+      if (preview.expectedRevision !== filtered.revision)
+        throw Object.assign(new Error("conflict"), { code: "conflict" });
       await client.request({
         operation: "snapshot_restore",
         text: filtered.text,
         expected_sha256: preview.snapshot.sha256,
-        revision: preview.expectedRevision,
+        revision: filtered.revision,
       });
       if (!isCurrent(revision)) return;
       await load(revision, 0, searchRef.current, kind);
