@@ -46,6 +46,8 @@ const SYMBOL_UNANCHORED_SLOT: usize = 5;
 pub(crate) const MIXED_EXPRESSIVE_MINIMUM_INPUT: usize = 2;
 /// 短候选列表直接线性找锚点，避免为索引表分配堆内存。
 const EXPRESSIVE_ANCHOR_LINEAR_LIMIT: usize = 64;
+/// 同一个候选词后每组最多保留一行表情，其他行移到列表末尾，避免表情连续占满首页。
+const MIXED_ANCHORED_RESULT_LIMIT: usize = 1;
 
 pub(crate) fn lowercase_prefix(raw: &str) -> Cow<'_, str> {
     if raw.bytes().all(|byte| byte.is_ascii_lowercase()) {
@@ -827,7 +829,7 @@ fn priority_slot(candidates: &[WordItem]) -> usize {
     (1 + usize::from(has_cloud)).min(candidates.len())
 }
 
-/// 一行 emoji 或颜文字的某个关键词正好是某个候选词时，紧接在第一个这样的候选后面；同一个词后面的几行 emoji 在颜文字前，各自按查询的先后。它总跟在一个词后面，所以不会占首选。接不上任何候选的行每组只留前 `MIXED_RESULT_LIMIT` 行，emoji 在前，排在列表末尾。只对插入前的行找词，混入的行不互相接。容量由调用方预留；有关键词时为候选词的有序索引分配一次。
+/// 一行 emoji 或颜文字的某个关键词正好是某个候选词时，紧接在第一个这样的候选后面；同一个词后每组只保留一行，其余行按查询顺序排到末尾，避免表情连续挤占首页。它总跟在一个词后面，所以不会占首选。接不上任何候选的行每组只留前 `MIXED_RESULT_LIMIT` 行，emoji 在前，排在列表末尾。只对插入前的行找词，混入的行不互相接。容量由调用方预留；有关键词时为候选词的有序索引分配一次。
 fn anchor_expressive_rows(
     list: &mut Vec<WordItem>,
     mut emoji: Vec<ExpressiveRow>,
@@ -837,6 +839,8 @@ fn anchor_expressive_rows(
     let mut anchored = [(0_usize, 0_usize, 0_usize); MIXED_FETCH_LIMIT * 2];
     let mut anchored_length = 0;
     let mut placed = [0_u64; 2];
+    let mut anchored_slots = [(0_usize, 0_usize); MIXED_FETCH_LIMIT * 2];
+    let mut anchored_slots_length = 0;
     let any_keywords = emoji
         .iter()
         .chain(kaomoji.iter())
@@ -852,8 +856,20 @@ fn anchor_expressive_rows(
                         .filter_map(first_position)
                         .min();
                     if let Some(anchor) = anchor {
+                        let already_placed = anchored_slots[..anchored_slots_length]
+                            .iter()
+                            .filter(|&&(known_group, known_anchor)| {
+                                known_group == group && known_anchor == anchor
+                            })
+                            .count()
+                            >= MIXED_ANCHORED_RESULT_LIMIT;
+                        if already_placed {
+                            continue;
+                        }
                         anchored[anchored_length] = (anchor, group, index);
                         anchored_length += 1;
+                        anchored_slots[anchored_slots_length] = (group, anchor);
+                        anchored_slots_length += 1;
                         placed[group] |= 1 << index;
                     }
                 }
@@ -1173,12 +1189,12 @@ mod tests {
             vec![
                 "开心",
                 "😄",
-                "😆",
                 "(^_^)",
                 "凯",
                 "害羞",
                 "😊",
                 "(*/ω＼*)",
+                "😆",
                 "(T_T)"
             ]
         );
@@ -1195,6 +1211,24 @@ mod tests {
             None,
         );
         assert_eq!(words(&merged), vec!["开心", "😄", "开心", "(^_^)"]);
+    }
+
+    #[test]
+    fn anchored_expressive_rows_do_not_crowd_later_words() {
+        let candidates = vec![
+            row("有", CandidateSource::Database),
+            row("由", CandidateSource::Database),
+            row("又", CandidateSource::Database),
+            row("游", CandidateSource::Database),
+        ];
+        let emoji = (0..6)
+            .map(|index| depicting(&format!("表情{index}"), CandidateSource::Emoji, "有"))
+            .collect();
+        let merged = insert_mixed_rows(candidates, Vec::new(), emoji, Vec::new(), None);
+        assert_eq!(
+            words(&merged),
+            vec!["有", "表情0", "由", "又", "游", "表情1", "表情2", "表情3"]
+        );
     }
 
     #[test]
