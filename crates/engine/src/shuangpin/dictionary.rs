@@ -22,7 +22,8 @@ use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::dictionary::DictRow;
 use crate::helpcode::{
-    match_single_helpcode, matches_double_helpcodes, HelpcodeKeymap, SingleHelpcodeMatch,
+    filter_candidates_with_double_helpcodes, match_single_helpcode, HelpcodeKeymap,
+    SingleHelpcodeMatch,
 };
 use crate::ime::online_batch::{
     replace_cached_online_candidate_batch, replace_online_candidate_batch,
@@ -880,10 +881,7 @@ impl ShuangpinDictionary {
         let candidates = self.generate_series(pure, segmentation, &base_raw);
         let result = match help_codes.len() {
             1 => self.filter_with_single_helpcode(candidates, help_codes, raw, keymap),
-            2 => candidates
-                .into_iter()
-                .filter(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap))
-                .collect(),
+            2 => filter_candidates_with_double_helpcodes(candidates, help_codes, keymap),
             _ => return Vec::new(),
         };
         self.helpcode_cache_mut(help_codes.len(), reversed)
@@ -1366,9 +1364,20 @@ fn fill_single_helpcode_order(
     matches: &[SingleHelpcodeMatch],
     prefer_last: bool,
 ) -> usize {
+    // 输入辅助码表示用户不想要原首选；原首选命中且还有其他命中行时，放到命中组末尾。
+    let demote_first = matches.first().is_some_and(|matched| {
+        *matched != SingleHelpcodeMatch::None
+            && matches
+                .iter()
+                .skip(1)
+                .any(|other| *other != SingleHelpcodeMatch::None)
+    });
     let mut order_len = 0;
     for primary in [true, false] {
         for (index, matched) in matches.iter().enumerate() {
+            if demote_first && index == 0 {
+                continue;
+            }
             let selected = match matched {
                 SingleHelpcodeMatch::First => {
                     (!prefer_last && primary) || (prefer_last && !primary)
@@ -1383,6 +1392,11 @@ fn fill_single_helpcode_order(
                 order_len += 1;
             }
         }
+    }
+    if demote_first {
+        debug_assert!(order_len < order.len());
+        order[order_len] = 0;
+        order_len += 1;
     }
     for (index, matched) in matches.iter().enumerate() {
         if *matched == SingleHelpcodeMatch::None {
@@ -1638,7 +1652,7 @@ mod tests {
 
         let (result, unmatched) = reorder_single_helpcode_rows(rows, &matches, true);
 
-        assert_eq!(words(&result), ["甲", "丙"]);
+        assert_eq!(words(&result), ["丙", "甲"]);
         assert_eq!(words(&unmatched), ["乙"]);
     }
 
@@ -1657,7 +1671,7 @@ mod tests {
                 reorder_single_helpcode_rows(rows, &matches, false)
             });
 
-        assert_eq!(words(&result), ["甲", "乙", "丙"]);
+        assert_eq!(words(&result), ["乙", "丙", "甲"]);
         assert!(unmatched.is_empty());
         assert_eq!(
             allocations, 0,
