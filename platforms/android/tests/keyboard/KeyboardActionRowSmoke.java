@@ -158,6 +158,7 @@ public final class KeyboardActionRowSmoke {
         }
         handwritingRow();
         numberPadFollowsTheSourceRow();
+        shuangpinZero();
         check("打开符号面板".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.SYMBOL_PANEL, true)),
             "符 describes the panel it opens");
         // 数字层只保留一个 0，原空格挪进右列；地球键和语言/数字交换仍可组合。
@@ -597,6 +598,56 @@ public final class KeyboardActionRowSmoke {
         for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT})
             check(KeyboardActionRow.numberPadEntries(layout, true, false, TouchKeyStyle.Row.TALL_RETURN).isEmpty(),
                 "the tall-return frame owns its number pad row, layout " + layout);
+    }
+
+    /**
+     * 九键双拼的网格只有 1–9 三行，0 在底行紧跟空格、与 符 同宽：标准底行 0 另加一份（空格不变），右侧大回车的中列从空格里让出，数字层把这一份并回 0 和空格里较宽的那个，所以字母层和数字层的总份额相同，切层时 符 和 123 不动。
+     */
+    private static void shuangpinZero() {
+        int layout = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
+        List<KeyboardActionRow.DesignEntry> letters = KeyboardActionRow.withShuangpinZero(
+            KeyboardActionRow.designEntries(layout, false), false);
+        check(letters.stream().map(KeyboardActionRow.DesignEntry::slot).toList().equals(List.of(
+                KeyboardActionRow.DesignSlot.SYMBOL_PANEL, KeyboardActionRow.DesignSlot.LAYER,
+                KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.ZERO,
+                KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN)),
+            "shuangpin letters row: 符 | 123 | space | 0 | 中 | return, got " + letters);
+        check(letters.get(2).weight() == KeyboardActionRow.DESIGN_SPACE_WEIGHT
+                && letters.get(3).weight() == KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT,
+            "the shuangpin 0 is as wide as 符 and the space keeps its share");
+        for (TouchKeyStyle.Row style : new TouchKeyStyle.Row[] {TouchKeyStyle.Row.STANDARD,
+                TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI}) {
+            List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.withShuangpinZero(KeyboardActionRow.designEntries(
+                layout, true, false, false, false, style, false, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT), false);
+            for (KeyboardActionRow.DesignEntry entry : row)
+                if (entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
+                    check(entry.weight() >= 2f, "the space keeps at least two shares with " + style);
+            for (TouchKeyStyle.NumberPadSpace space : TouchKeyStyle.NumberPadSpace.values()) {
+                List<KeyboardActionRow.DesignEntry> digits = KeyboardActionRow.withShuangpinZeroShare(
+                    KeyboardActionRow.numberPadEntries(layout, true, false, style, false, space));
+                check(Math.abs(total(digits) - total(row)) < 1e-4
+                        && digits.get(0).equals(row.get(0)) && digits.get(1).equals(row.get(1)),
+                    "符 and 123 stay put between shuangpin letters and digits with " + style + " / " + space);
+            }
+        }
+        for (boolean globe : new boolean[] {false, true}) {
+            List<KeyboardActionRow.DesignEntry> plain = KeyboardActionRow.tallReturnEntries(14f / 20f, globe, false, false);
+            List<KeyboardActionRow.DesignEntry> tall = KeyboardActionRow.withShuangpinZero(plain, true);
+            int space = tall.stream().map(KeyboardActionRow.DesignEntry::slot).toList()
+                .indexOf(KeyboardActionRow.DesignSlot.SPACE);
+            check(Math.abs(total(tall) - total(plain)) < 1e-4
+                    && tall.get(space + 1).slot() == KeyboardActionRow.DesignSlot.ZERO,
+                "the tall-return middle cell stays as wide as the grid with the shuangpin 0 after the space");
+        }
+        List<KeyboardActionRow.DesignEntry> noSpace = KeyboardActionRow.designEntries(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, false);
+        check(KeyboardActionRow.withShuangpinZero(noSpace, false).equals(noSpace),
+            "a row without a space is left alone");
+    }
+
+    private static float total(List<KeyboardActionRow.DesignEntry> entries) {
+        float total = 0;
+        for (KeyboardActionRow.DesignEntry entry : entries) total += entry.weight();
+        return total;
     }
 
     private static List<KeyboardActionRow.DesignSlot> designSlots(int layout, boolean globe, boolean swap) {

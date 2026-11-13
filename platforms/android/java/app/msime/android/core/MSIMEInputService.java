@@ -144,6 +144,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeDebugOverlay imeDebugOverlay;
     private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
     private final ImeOperationNotice spaceCopyNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice voiceEmptyNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -736,6 +737,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
+
+    /** 空语音结果显示在手机屏幕顶部，不参与键盘测量或抢走编辑焦点。 */
+    void showVoiceEmptyNotice(String text) {
+        long request = voiceEmptyNotice.begin();
+        voiceEmptyNotice.show(request, text, "空语音提示：", "MSIME empty voice notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+    }
+
+    /** 新识别或输入法窗口结束时撤销旧提示。 */
+    void hideVoiceEmptyNotice() { voiceEmptyNotice.cancel(); }
 
     /** 记下实时偏好里 {@link #announceWubiTableMissing} 要看的三项，再判断一次。有会话时实时偏好经 applyPreferencesSnapshot 到达，没有会话的输入框经 applyEditorPreferences，两处都调用。 */
     private void rememberWubiNoticePreferences(JSONObject preferences) {
@@ -2190,6 +2201,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         armFirstFrameWait();
+        hideVoiceEmptyNotice();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
@@ -2240,6 +2252,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInput() {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -2280,6 +2293,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInputView(boolean finishingInput) {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -2299,6 +2313,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onWindowHidden() {
+        hideVoiceEmptyNotice();
         // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
         imeWindowVisible = false;
         // 收起前第一帧还没交出去：不再等它，也不记这次弹出的耗时。排着的建会话马上放行，不空等兜底：它自己核对启动代次，用户收起时 onFinishInputView 已经先换了代，放行即作废；跟随光标的候选栏自己收起窗口时不换代，会话照常马上建好。
@@ -2359,6 +2374,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onConfigurationChanged(Configuration configuration) {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -2441,6 +2457,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
@@ -10933,6 +10950,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeFunctionPanel.close();
         operationNotice.cancel();
         spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -11154,7 +11172,8 @@ public final class MSIMEInputService extends InputMethodService {
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
         bindSymbolPanelHold(layerButton);
-        symbolPanelButton = keyId(button(controls, "符", imePanels::showSymbolPanel), "SoftSymbol");
+        // 九键双拼组字时这个键是「分词」（ImeLayoutRows#symbolPanelKey），键面在 render 时换。
+        symbolPanelButton = keyId(button(controls, "符", () -> imeLayoutRows.symbolPanelKey()), "SoftSymbol");
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(addRowButton(controls, new KeyHintButton(this), ",",
             this::insertQuickPunctuation, true), "Comma");
@@ -12757,7 +12776,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
             ViewPolicy.setEnabled(symbolPanelButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
-            symbolPanelButton.setContentDescription("打开符号面板");
+            symbolPanelButton.setContentDescription(imeLayoutRows.symbolPanelContentDescription());
         }
         if (symbolShortcutButton != null) {
             ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());
