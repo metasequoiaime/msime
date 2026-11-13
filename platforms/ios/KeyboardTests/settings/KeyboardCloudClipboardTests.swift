@@ -162,6 +162,25 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
 
 @MainActor
 final class KeyboardCloudClipboardTests: XCTestCase {
+  func testAutoReceivePreservesLocalClipboardAndAcceptsNewRemoteCopies() {
+    var existing = KeyboardCloudClipboardReceivePolicy()
+    existing.begin(changeCount: 7, hasStrings: true)
+    XCTAssertFalse(existing.receive(FakeCloudClipboard.item("合成云端一", index: 0), changeCount: 7, hasStrings: true))
+
+    var received = KeyboardCloudClipboardReceivePolicy()
+    received.begin(changeCount: 11, hasStrings: false)
+    XCTAssertTrue(received.receive(FakeCloudClipboard.item("合成云端一", index: 1), changeCount: 11, hasStrings: false))
+    received.markRemote(FakeCloudClipboard.item("合成云端一", index: 2))
+    received.received(changeCount: 12)
+    let newer = try! JSONDecoder().decode(BackendAccountClient.ClipboardItem.self, from: Data(
+      #"{"id":"0000000000000000000000000000000000000000000000000000000000000002","text":"合成云端二","updated_at":"2026-10-01T08:00:00Z"}"#.utf8))
+    XCTAssertTrue(received.receive(newer, changeCount: 12, hasStrings: true))
+    received.markRemote(newer)
+    received.received(changeCount: 14)
+    received.localChanged(changeCount: 13, hasStrings: true)
+    XCTAssertFalse(received.receive(newer, changeCount: 13, hasStrings: true))
+  }
+
   func testNativeServiceBindsEveryDriverEntryToItsLogin() async throws {
     for operation in ["page", "add", "upload"] {
       let tokens = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.oldToken,

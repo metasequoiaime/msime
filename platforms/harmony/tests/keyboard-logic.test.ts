@@ -380,6 +380,7 @@ import {
   CloudClipboardSendOutcome,
   CloudClipboardState,
 } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardPolicy";
+import { CloudClipboardReceivePolicy } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardReceivePolicy";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import {
   HeldKeys,
@@ -13584,6 +13585,38 @@ group("cloud clipboard text follows the shared clipboard bounds", () => {
     "so 2,000 of them fill the bound",
   );
   check(!CloudClipboardPolicy.validText(42), "only strings are text");
+});
+
+group("cloud clipboard auto receive preserves local copies", () => {
+  const item = (text: string, updatedAt: string) => ({
+    id: "a".repeat(64),
+    text,
+    updatedAt,
+    pinned: false,
+    device: "Synthetic device",
+  });
+  const policy = new CloudClipboardReceivePolicy();
+  policy.begin("本机复制");
+  check(
+    !policy.receive(item("云端旧内容", "2026-10-01T08:00:00Z"), "本机复制"),
+    "an existing local copy is preserved",
+  );
+  policy.localChanged("");
+  check(
+    policy.receive(item("云端新内容", "2026-10-01T09:00:00Z"), ""),
+    "an empty clipboard accepts a new remote item",
+  );
+  policy.markRemote(item("云端新内容", "2026-10-01T09:00:00Z"));
+  policy.received("云端新内容");
+  check(
+    policy.receive(item("云端更新", "2026-10-01T10:00:00Z"), "云端新内容"),
+    "a receiver-owned clipboard accepts the next remote item",
+  );
+  policy.localChanged("用户复制");
+  check(
+    !policy.receive(item("云端更晚", "2026-10-01T11:00:00Z"), "用户复制"),
+    "a later local copy wins over a remote poll",
+  );
 });
 
 group("cloud clipboard listings are read whole", () => {

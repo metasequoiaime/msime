@@ -135,7 +135,7 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
   }
 }
 
-/// The 云端 half of the keyboard clipboard panel. Nothing is read or sent in the background: the list is fetched when the panel opens and when the user asks for a refresh, and text goes up only when the user picks 发到云剪贴板 on a local history item. A fetch that comes back after the panel closed, or after a newer refresh, is dropped.
+/// 云端剪贴板面板在打开和点刷新时读取列表；键盘可见且有完全访问权限时由 `KeyboardCloudClipboardAutoReceive` 轮询并把新条目写入系统剪贴板。iOS 后台读取复制正文会触发系统粘贴提示，因此自动上传仍只在用户明确选择「发到云剪贴板」时进行。面板关闭或刷新代次变化后返回的旧结果会丢弃。
 @MainActor
 final class KeyboardCloudClipboard {
   enum State {
