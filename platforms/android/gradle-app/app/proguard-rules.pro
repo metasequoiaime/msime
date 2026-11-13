@@ -8,3 +8,9 @@
 
 # ClipboardImageCache 经反射调用 FileProvider 的静态方法。
 -keep class androidx.core.content.FileProvider { *; }
+
+# 设备回归经反射重建 Fragment 视图，保留与未裁剪包一致的生命周期入口。
+-keepclassmembers class androidx.fragment.app.FragmentTransaction {
+    public androidx.fragment.app.FragmentTransaction attach(androidx.fragment.app.Fragment);
+    public androidx.fragment.app.FragmentTransaction detach(androidx.fragment.app.Fragment);
+}
