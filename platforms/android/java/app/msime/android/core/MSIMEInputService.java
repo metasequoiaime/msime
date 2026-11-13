@@ -480,6 +480,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarRedo;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
+    /** 横屏自动浮动：打开时横屏使用浮动面板、竖屏恢复停靠。 */
+    boolean floatingKeyboardAutoLandscape;
     private int floatingX = FloatingKeyboardPolicy.DEFAULT_X_FRACTION;
     private int floatingY = FloatingKeyboardPolicy.DEFAULT_Y_FRACTION;
     /** 浮动面板顶部的拖动条，只在浮动时显示。 */
@@ -3239,6 +3241,7 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
         toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
+        floatingKeyboardAutoLandscape = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE);
         caretCandidates = localSettings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES);
         // 拖动进行中不让重读覆盖手指下的位置；松手后的保存会把它写回文件。
         if (!floatingDragging) {
@@ -11853,9 +11856,12 @@ public final class MSIMEInputService extends InputMethodService {
         saveLocalPanelSetting("浮动键盘", AndroidLocalSettings.FLOATING_KEYBOARD, enabled);
     }
 
-    /** 浮动键盘此刻是否生效（{@link FloatingKeyboardPolicy#active}）：外接键盘的候选条模式里停在底部。 */
+    /** 浮动键盘此刻是否生效（{@link FloatingKeyboardPolicy#active}）：横屏自动浮动时随方向切换，外接键盘的候选条模式里停在底部。 */
     boolean floatingDrawn() {
-        return FloatingKeyboardPolicy.active(floatingKeyboard, hardwareKeyboardMode);
+        Configuration configuration = getResources().getConfiguration();
+        boolean landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE;
+        return FloatingKeyboardPolicy.active(floatingKeyboard, floatingKeyboardAutoLandscape, landscape,
+            hardwareKeyboardMode);
     }
 
     /** 候选栏此刻是否跟随光标（{@link CaretCandidatePolicy#active}）：外接键盘的候选条模式里、开关打开且这个输入框报告光标位置时。 */
@@ -12799,11 +12805,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (floatingShortcutButton != null) {
             ViewPolicy.setVisible(floatingShortcutButton, toolbarFloating);
-            ViewPolicy.setSelected(floatingShortcutButton, floatingKeyboard);
-            // 候选条模式里浮动不生效，按钮灰掉，免得点了没有反应。
-            ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode);
+            boolean floating = floatingDrawn();
+            ViewPolicy.setSelected(floatingShortcutButton, floating);
+            // 候选条模式里浮动不生效，自动模式里由方向控制，按钮灰掉，免得点了没有反应。
+            ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode && !floatingKeyboardAutoLandscape);
             if (Build.VERSION.SDK_INT >= 30)
-                floatingShortcutButton.setStateDescription(floatingKeyboard ? "已开启" : "已关闭");
+                floatingShortcutButton.setStateDescription(floating ? "已开启" : "已关闭");
         }
         if (undoShortcutButton != null) {
             ViewPolicy.setVisible(undoShortcutButton, toolbarUndo);
