@@ -315,12 +315,26 @@ programs.msime.package = (pkgs.extend inputs.msime.overlays.default).msime-fcitx
 
 **从按路径启用的单元迁移。** 以前用 `systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类启用过这些单元的话，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
 
-**不用模块**、经 `overlays.default` 自己写配置时，把 `pkgs.msime-fcitx5` 加进 `i18n.inputMethod.fcitx5.addons` 和 `environment.systemPackages`，并加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。只用 IBus 时换成不带 Fcitx5 插件的 `pkgs.msime-ibus`，并把 `pkgs.msime-ibus.ibusEngine`（不是整个包）加进 `i18n.inputMethod.ibus.engines`：
+**不用模块**、经 `overlays.default` 自己写配置时，把 `pkgs.msime-fcitx5` 加进 `i18n.inputMethod.fcitx5.addons` 和 `environment.systemPackages`，并加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。NixOS 不会执行 unit 文件里的 `[Install]` 段，所以还要显式让两个 socket 随 `sockets.target` 启动、让剪贴板服务随 `graphical-session.target` 启动；只写 `systemd.packages` 时，`systemctl --user` 能找到 unit 文件但不会有正在监听的语音 socket：
+
+```nix
+i18n.inputMethod = { enable = true; type = "fcitx5"; fcitx5.addons = [ pkgs.msime-fcitx5 ]; };
+environment.systemPackages = [ pkgs.msime-fcitx5 ];
+systemd.packages = [ pkgs.msime-fcitx5 ];
+systemd.user.sockets.msime-linux-online.wantedBy = [ "sockets.target" ];
+systemd.user.sockets.msime-linux-voice.wantedBy = [ "sockets.target" ];
+systemd.user.services.msime-linux-clipboard.wantedBy = [ "graphical-session.target" ];
+```
+
+只用 IBus 时换成不带 Fcitx5 插件的 `pkgs.msime-ibus`，并把 `pkgs.msime-ibus.ibusEngine`（不是整个包）加进 `i18n.inputMethod.ibus.engines`：
 
 ```nix
 i18n.inputMethod = { enable = true; type = "ibus"; ibus.engines = [ pkgs.msime-ibus.ibusEngine ]; };
 environment.systemPackages = [ pkgs.msime-ibus ];
 systemd.packages = [ pkgs.msime-ibus ];
+systemd.user.sockets.msime-linux-online.wantedBy = [ "sockets.target" ];
+systemd.user.sockets.msime-linux-voice.wantedBy = [ "sockets.target" ];
+systemd.user.services.msime-linux-clipboard.wantedBy = [ "graphical-session.target" ];
 ```
 
 ### 包管理器
