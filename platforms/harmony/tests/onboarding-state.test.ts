@@ -26,8 +26,13 @@ function check(condition: boolean, message: string): void {
   }
 }
 
-function same(actual: SetupState, enabled: boolean | null, current: boolean | null): boolean {
-  return actual.enabled === enabled && actual.current === current;
+function same(
+  actual: SetupState,
+  enabled: boolean | null,
+  current: boolean | null,
+  basicMode: boolean = false,
+): boolean {
+  return actual.enabled === enabled && actual.current === current && actual.basicMode === basicMode;
 }
 
 const own = "app.msime.hmos";
@@ -54,10 +59,12 @@ group("the setup rows read the two facts separately", () => {
         currentBundle: own,
         ownBundle: own,
       }),
+      false,
       true,
       true,
     ),
-    "basic mode counts as enabled",
+    // 基础访问模式下框架不创建面板，键盘不会弹出；页面要说缺的是完整体验模式。
+    "basic mode is not enabled yet, and says so",
   );
   check(
     same(
@@ -111,23 +118,24 @@ group("an unreadable answer is unknown, not no", () => {
 
 group("the welcome flow is decided from the two facts alone", () => {
   check(
-    OnboardingStatePolicy.requiredFor({ enabled: false, current: null }) === true,
+    OnboardingStatePolicy.requiredFor({ enabled: false, current: null, basicMode: false }) === true,
     "not enabled opens the flow even when current is unknown",
   );
   check(
-    OnboardingStatePolicy.requiredFor({ enabled: true, current: false }) === true,
+    OnboardingStatePolicy.requiredFor({ enabled: true, current: false, basicMode: false }) === true,
     "enabled but not current still has a step left",
   );
   check(
-    OnboardingStatePolicy.requiredFor({ enabled: true, current: true }) === false,
+    OnboardingStatePolicy.requiredFor({ enabled: true, current: true, basicMode: false }) === false,
     "enabled and current opens settings",
   );
   check(
-    OnboardingStatePolicy.requiredFor({ enabled: null, current: false }) === false,
+    OnboardingStatePolicy.requiredFor({ enabled: null, current: false, basicMode: false }) ===
+      false,
     "unknown enablement opens settings",
   );
   check(
-    OnboardingStatePolicy.requiredFor({ enabled: true, current: null }) === false,
+    OnboardingStatePolicy.requiredFor({ enabled: true, current: null, basicMode: false }) === false,
     "unknown current keyboard opens settings",
   );
 });
@@ -144,10 +152,11 @@ group("the split agrees with the original decision for every combination", () =>
     for (const currentBundle of bundles) {
       for (const ownBundle of ["", own]) {
         const state = { enabled, currentBundle, ownBundle };
+        // 基础访问模式和未启用一样还有一步：框架不驱动那个模式下的键盘。
         const legacy =
           enabled === null
             ? false
-            : enabled === ImeEnabledState.DISABLED
+            : enabled === ImeEnabledState.DISABLED || enabled === ImeEnabledState.BASIC_MODE
               ? true
               : currentBundle.length === 0 || ownBundle.length === 0
                 ? false

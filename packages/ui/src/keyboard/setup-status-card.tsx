@@ -107,6 +107,13 @@ export function OobeStatusNotice({ client }: { client?: OobeClient }) {
   );
 }
 
+/** HarmonyOS 基础访问模式下「启用」那一项改叫这个：系统里已经开着，缺的是完整体验模式。 */
+export const BASIC_MODE_LABEL = "开启完整体验模式";
+
+/** 基础访问模式下给用户的那一步：系统可能显示已启用，但框架不驱动键盘，表现是键盘不弹出。 */
+export const BASIC_MODE_HINT =
+  "当前是基础访问模式：系统里可能显示已启用，但键盘不会正常弹出。请到「设置 → 系统 → 输入法 → 水杉输入法」打开「完整体验模式」，再回到输入框重新切换到水杉。";
+
 /** 把本输入法设为默认的操作。系统选择器只列出已启用的输入法，所以第一步完成前改为打开系统的输入法列表，与 Android 的 `ImeSetup.makeDefault` 一致。 */
 export function makeDefaultAction(
   actions: SetupActions | undefined,
@@ -149,20 +156,27 @@ function SetupCheck({
   done,
   actionLabel,
   onAction,
+  hint,
 }: {
   label: string;
   done: boolean | null;
   actionLabel: string;
   onAction?: () => void;
+  /** 未完成时说明怎么做的一行小字。 */
+  hint?: string;
 }) {
   return (
-    <div className="flex min-h-5 items-center gap-2.5 text-[14px]">
+    // 带说明时标记和按钮对齐第一行，不跟着多行说明居中。
+    <div className={`flex min-h-5 gap-2.5 text-[14px] ${hint ? "items-start" : "items-center"}`}>
       <CheckBadge done={done} />
-      <span className="min-w-0 flex-1">
-        {label}
-        <span className="sr-only">
-          {done === true ? "，已完成" : done === false ? "，未完成" : ""}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span>
+          {label}
+          <span className="sr-only">
+            {done === true ? "，已完成" : done === false ? "，未完成" : ""}
+          </span>
         </span>
+        {hint && <span className="text-[12px] leading-[1.5] [color:var(--p-sub)]">{hint}</span>}
       </span>
       {onAction && (
         <button
@@ -215,6 +229,7 @@ export function SetupStatusCard({
   const offered = (done: boolean | null) =>
     done === false || (done === null && (!reporting || Boolean(oobe)));
   const enable = actions?.openSystemKeyboardSettings;
+  const basicMode = enabled === false && state?.basicMode === true;
   const makeDefault = makeDefaultAction(actions, { enabled, current });
   const prepareResources = actions?.prepareResources ?? actions?.oobe?.prepareResources;
 
@@ -247,10 +262,11 @@ export function SetupStatusCard({
           />
         )}
         <SetupCheck
-          label="已在系统中启用"
+          label={basicMode ? BASIC_MODE_LABEL : "已在系统中启用"}
           done={enabled}
           actionLabel="去开启"
           onAction={offered(enabled) && enable ? () => run(enable) : undefined}
+          hint={basicMode ? BASIC_MODE_HINT : undefined}
         />
         <SetupCheck
           label="设为默认输入法"
@@ -285,11 +301,17 @@ export function SetupWarningStrip({ actions }: { actions?: SetupActions }) {
         label: "设为默认",
         action: actions?.showInputMethodPicker,
       }
-    : {
-        text: "水杉输入法尚未在「系统 → 输入法」中添加",
-        label: "去添加",
-        action: actions?.openSystemKeyboardSettings,
-      };
+    : state.basicMode
+      ? {
+          text: "水杉输入法处于基础访问模式，键盘不会正常弹出。请在「系统 → 输入法 → 水杉输入法」中打开「完整体验模式」",
+          label: "去开启",
+          action: actions?.openSystemKeyboardSettings,
+        }
+      : {
+          text: "水杉输入法尚未在「系统 → 输入法」中添加",
+          label: "去添加",
+          action: actions?.openSystemKeyboardSettings,
+        };
   const { action } = step;
   return (
     <div

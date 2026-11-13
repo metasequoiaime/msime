@@ -1017,7 +1017,7 @@ class SettingsBridge {
   private onboardingDone: boolean = false;
   private resourcesReady: boolean | null = null;
   // 上次读到的两项设置状态；首次读取完成前都为 null。
-  private setup: SetupState = { enabled: null, current: null } as SetupState;
+  private setup: SetupState = { enabled: null, current: null, basicMode: false } as SetupState;
   // 设置状态读取的计数，让先开始却后返回的读取不能覆盖更新的结果。
   private setupReads: number = 0;
   // 上次写进日志的设置状态原因。
@@ -3748,7 +3748,8 @@ class SettingsBridge {
       this.setupDescription = description;
     }
     const setup: SetupState = OnboardingStatePolicy.setup(state);
-    const changed: boolean = setup.enabled !== this.setup.enabled || setup.current !== this.setup.current;
+    const changed: boolean = setup.enabled !== this.setup.enabled || setup.current !== this.setup.current ||
+      setup.basicMode !== this.setup.basicMode;
     const first: boolean = !this.onboardingReady;
     this.setup = setup;
     this.onboardingRequired = OnboardingStatePolicy.required(state);
