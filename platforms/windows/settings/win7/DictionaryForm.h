@@ -5,6 +5,7 @@
 #include "SettingsWindow.h"
 #include "ThemeData.h"
 #include "DictionaryData.h"
+#include "../QuickPhraseClearModel.h"
 #include "../PluginEditorModel.h"
 #include <commctrl.h>
 #include <charconv>
@@ -66,6 +67,7 @@ public:
     add(dictionary_new, L"BUTTON", L"填写新词条", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_save, L"BUTTON", L"保存词条", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_delete, L"BUTTON", L"删除所选词条…", WS_TABSTOP | BS_PUSHBUTTON, 32);
+    add(dictionary_clear_quick_phrases, L"BUTTON", L"清空快捷短语…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(-1, L"STATIC", L"导入格式（导出仅支持前两种 TSV 格式）", SS_LEFT, 42);
     add(dictionary_format, WC_COMBOBOXW, L"文件格式", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, 240);
     formats();
@@ -123,6 +125,9 @@ public:
     } else if (id == dictionary_reset) {
       result.request = Json{{"operation", "reset"}};
       result.confirmation = L"清除全部学习数据并恢复内置词库？个人词条、调权、删除记录和固定位置等数据将被清除。此操作无法撤销，建议先导出备份。";
+    } else if (id == dictionary_clear_quick_phrases && kind() == "quick_phrase" && !resource()) {
+      result.request = Json{{"operation", std::string(msime::settings::quick_phrase_clear::operation)}};
+      result.confirmation = std::wstring(msime::settings::quick_phrase_clear::confirmation);
     }
     return result;
   }
@@ -148,8 +153,17 @@ public:
       } else {
         if ((operation == "edit" && (!boolean(*response, "applied") || response->at("applied") != true)) ||
             (operation == "reset" && (!boolean(*response, "reset") || response->at("reset") != true)) ||
+            (operation == std::string(msime::settings::quick_phrase_clear::operation) &&
+             (!count(*response, "cleared"))) ||
             ((operation == "export_file" || operation == "export_all_file") && (!count(*response, "rows") || !response->contains("path") || !response->at("path").is_string()))) { invalid(); return; }
-        notice(operation == "export_file" || operation == "export_all_file" ? L"词库已导出。" : L"操作已完成。请刷新查看当前词条。");
+        if (operation == std::string(msime::settings::quick_phrase_clear::operation)) {
+          const auto cleared = msime::settings::quick_phrase_clear::count_from_number(
+              response->at("cleared").get<double>());
+          if (!cleared) { invalid(); return; }
+          notice(msime::settings::quick_phrase_clear::success_message(*cleared));
+        } else {
+          notice(operation == "export_file" || operation == "export_all_file" ? L"词库已导出。" : L"操作已完成。请刷新查看当前词条。");
+        }
       }
       if (operation == "edit" || operation == "reset") clear_editor();
       update(); return;
@@ -247,6 +261,7 @@ private:
     EnableWindow(get(dictionary_entries), enabled_ && ready_);
     EnableWindow(get(dictionary_save), editable && (ready_ || !previous_));
     EnableWindow(get(dictionary_delete), editable && ready_ && previous_.has_value());
+    EnableWindow(get(dictionary_clear_quick_phrases), editable && kind() == "quick_phrase");
     EnableWindow(get(dictionary_export), editable && (format() == "standard" || format() == "windows"));
     EnableWindow(get(dictionary_previous), enabled_ && ready_ && offset_ > 0);
     EnableWindow(get(dictionary_next), enabled_ && ready_ && has_more_ && offset_ <= 1000000 - page_size);

@@ -21,6 +21,7 @@ Status: implemented
 
 - 本机清空只影响用户快捷短语，内置短语和其他词库保持不变；事务失败时词库保持原状。
 - 新增了共享 host-api 操作和 C 契约文档，桌面 React 适配器可以直接显示实际删除数量。
+- Windows 现代设置页和 Win7 设置页都通过同一个 host-api 操作清空；按钮只在个人快捷短语词库中出现，成功后显示删除条数并刷新第一页，Win7 入口还沿用现有确认和词库同步流程。
 - 移动端暂不提供该独占操作；移动设置页若接入时应复用同一语义，不能在队列层复制逐条回滚逻辑。
 - 云端清空仍沿用[快捷短语本机与云端清空边界](../feature/2026-11-12-quick-phrase-clear.md)中的快照 CAS 规则，本笔记只约束本机实现。
 
@@ -29,3 +30,4 @@ Status: implemented
 - `cargo test -p msime-engine user_dictionary::personal::tests::clear_quick_phrases`：事务成功、保留内置行和失败回滚用例通过。
 - `cargo check -p msime-host-api --tests`：共享 host-api 及其测试目标编译通过。
 - React 词库管理测试覆盖确认取消、成功返回删除条数和共享操作失败提示。
+- Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。

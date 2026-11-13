@@ -76,6 +76,7 @@
 #include "PreferencePath.h"
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
+#include "QuickPhraseClearModel.h"
 #include "SentencePackModel.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
@@ -418,6 +419,8 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
     return L"拼音表不可用，无法校验这条词的读音。";
   if (code == L"dictionary_reset_rejected")
     return L"清除学习数据失败，请关闭正在使用输入法的程序后重试。";
+  if (code == L"dictionary_clear_rejected")
+    return L"清空快捷短语失败，请关闭正在使用输入法的程序后重试。";
   if (code == L"dictionary_unavailable")
     return L"无法打开用户词库，请检查输入法是否正在运行。";
   if (code == L"dictionary_invalid_word")
@@ -607,13 +610,14 @@ Response dictionary_sync_call(std::optional<std::string> const &options, std::st
       dictionary_sync_conflicted);
 }
 
-// 改「我的词条」的三种词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
+// 改「我的词条」的词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
 bool dictionary_write(std::string const &action) {
   JsonObject parsed{nullptr};
   if (!JsonObject::TryParse(text(action), parsed))
     return false;
   const auto operation = named_string(parsed, L"operation");
-  return operation == L"edit" || operation == L"import" || operation == L"reset";
+  return operation == L"edit" || operation == L"import" || operation == L"reset" ||
+         operation == L"clear_quick_phrases";
 }
 
 // 以 local_change 记一次本机改动：只记录、不联网，Rust 按防抖稍后发送；没配网盘时 Rust 只答 dictionary_sync_not_configured。另放到线程池上跑，词库页不等它：Server 的自动同步正在联网时它要等那把文件锁。
@@ -16369,6 +16373,39 @@ private:
     });
   }
 
+  fire_and_forget clear_quick_phrases() {
+    if (lexicon_busy_ || !lexicon_resource_kind_.empty() || lexicon_kind_ != L"quick_phrase")
+      co_return;
+    auto strong = get_strong();
+    if (!co_await confirm(std::wstring(msime::settings::quick_phrase_clear::title),
+                          std::wstring(msime::settings::quick_phrase_clear::confirmation),
+                          std::wstring(msime::settings::quick_phrase_clear::confirm_button)))
+      co_return;
+    JsonObject action;
+    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(text(msime::settings::quick_phrase_clear::operation)));
+    lexicon_feedback_.clear();
+    lexicon_request(action, [this](Response const &response) {
+      if (!response.ok) {
+        set_lexicon_feedback(dictionary_error_text(response_error(response), L"quick_phrase",
+                                                   L"清空快捷短语失败，请稍后重试。"),
+                             InfoBarSeverity::Error);
+        return;
+      }
+      try {
+        const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+        const auto cleared = msime::settings::quick_phrase_clear::count_from_number(
+            value.GetNamedNumber(L"cleared"));
+        if (!cleared)
+          throw std::runtime_error("invalid quick phrase clear count");
+        set_lexicon_feedback(msime::settings::quick_phrase_clear::success_message(*cleared),
+                             InfoBarSeverity::Success);
+        lexicon_list(0);
+      } catch (...) {
+        set_lexicon_feedback(L"清空快捷短语后无法刷新词库，请手动刷新确认。", InfoBarSeverity::Error);
+      }
+    });
+  }
+
   fire_and_forget reset_learned_data() {
     if (lexicon_busy_)
       co_return;
@@ -17266,10 +17303,20 @@ private:
     footer.ColumnDefinitions().Append(gap_column);
     footer.ColumnDefinitions().Append(pager_column);
     if (!resource) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(8);
       auto add = button_control(L"新增词条", [this] { edit_lexicon_entry(std::nullopt); }, !lexicon_busy_);
       add.as<Button>().Padding(Thickness{12, 0, 12, 0});
       A11y::SetAutomationId(add, L"lexicon-add");
-      footer.Children().Append(add);
+      actions.Children().Append(add);
+      if (kind == L"quick_phrase") {
+        auto clear = button_control(L"清空快捷短语", [this] { clear_quick_phrases(); }, !lexicon_busy_);
+        clear.as<Button>().Padding(Thickness{12, 0, 12, 0});
+        A11y::SetAutomationId(clear, L"lexicon-clear-quick-phrases");
+        actions.Children().Append(clear);
+      }
+      footer.Children().Append(actions);
     }
     StackPanel pager;
     pager.Orientation(Orientation::Horizontal);

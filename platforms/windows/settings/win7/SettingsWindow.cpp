@@ -584,8 +584,8 @@ private:
       else if (operation == "export_file") response = dictionary_data::export_file(dictionary_requests_, options, action, job.file, dictionary_transport_);
       else response = dictionary_requests_.call(options, action, dictionary_transport_);
       dictionary_response_ = Json{{"response", response}};
-      // 改了「我的词条」（编辑、导入、清除学习数据）：配着网盘时让词库同步马上记一次本机改动，与 WinUI 设置和共享页相同；没配时不调。
-      if (theme_data::value(response) && (operation == "edit" || operation == "import_file" || operation == "reset") &&
+      // 改了「我的词条」（编辑、导入、清除学习数据、清空快捷短语）：配着网盘时让词库同步马上记一次本机改动，与 WinUI 设置和共享页相同；没配时不调。
+      if (theme_data::value(response) && (operation == "edit" || operation == "import_file" || operation == "reset" || operation == "clear_quick_phrases") &&
           snapshot_ && dictionary_sync_configured(snapshot_->preferences()))
         note_dictionary_sync_change(options, msime::windows::dictionary_sync_directory().u8string());
       if (theme_data::value(response) && job.dictionary_list && operation != "export_file" && operation != "export_all_file") {
