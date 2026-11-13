@@ -7257,6 +7257,42 @@ fn try_preferences_reader_reports_contention_without_defaults() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn load_preferences_reports_unknown_keys_without_values_and_only_once() {
+    let _sink = capture_diagnostics();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let document = directory.path().join("preferences.json");
+    let mut value =
+        serde_json::to_value(msime_client_core::preferences::PreferencesSnapshot::default())
+            .unwrap();
+    value["preferences"]["synthetic_unknown_preferences_path"] = "synthetic-secret".into();
+    std::fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+
+    let first = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(first["ok"], true, "{first}");
+    let reports = captured_diagnostics("synthetic_unknown_preferences_path");
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(!reports[0].contains("synthetic-secret"), "{reports:?}");
+
+    let second = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(
+        captured_diagnostics("synthetic_unknown_preferences_path").len(),
+        1
+    );
+
+    value["preferences"]["synthetic_second_unknown_path"] = true.into();
+    std::fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+    let third = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(third["ok"], true, "{third}");
+    assert_eq!(
+        captured_diagnostics("synthetic_unknown_preferences_path").len(),
+        2
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn recover_preferences_backs_up_malformed_documents_only() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_str().unwrap();
