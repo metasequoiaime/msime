@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-九键展开面板右侧同时显示「全部」和「单字」两个按钮，并用选中状态表示当前筛选。两个按钮直接设置目标状态，重复点击当前状态不向引擎发送请求；筛选值仍由引擎的 `View.nine_key_single_character` 保存，笔画筛选和其它布局保持不变。
+九键展开面板右侧同时显示「全部」和「单字」两个按钮，并用选中状态表示当前筛选。右侧分成两排：第一排放返回、删除和重输，第二排放拼音/笔画、全部和单字，保证入口在键盘可视区域内。两个按钮直接设置目标状态，重复点击当前状态不向引擎发送请求；筛选值仍由引擎的 `View.nine_key_single_character` 保存，笔画筛选和其它布局保持不变。
 
 ## Alternatives considered
 
@@ -16,4 +16,8 @@ Status: implemented
 
 ## Consequences
 
-用户在展开面板中可以直接看到两个筛选入口，读屏描述分别说明点击后的结果；右侧操作区多占一行按钮宽度，但不改变候选面板高度或筛选协议。现有九键筛选行为由 `NineKeyPanelPolicySmoke` 保持覆盖，真实 Android 设备截图和候选面板交互验收仍需补跑。
+用户在展开面板中可以直接看到两个筛选入口，读屏描述分别说明点击后的结果；右侧操作区保持在键盘可视区域内，不改变候选面板高度或筛选协议。现有九键筛选行为由 `NineKeyPanelPolicySmoke` 保持覆盖。
+
+## Verification
+
+在 Pixel 3 XL（Android API 31，`8AFY0K0SC`）安装开发 APK 后，用真实编辑器输入九键组字、展开候选面板并截图，确认右侧两排三列按钮同时显示「全部」和「单字」。`NineKeyPanelDeviceSmoke` 及 `-e partial-selection true` 均通过。

@@ -84,21 +84,23 @@ final class ImeNineKeyPanel {
         root.addView(candidateScroll, margined(3));
 
         LinearLayout actions = LayoutPolicy.column(s);
-        addAction(actions, pressButton("返回", 15, KeyboardKeyRole.ACCENT, "收起候选面板", () -> {
+        LinearLayout utilityRow = LayoutPolicy.row(s);
+        addInlineAction(utilityRow, pressButton("返回", 15, KeyboardKeyRole.ACCENT, "收起候选面板", () -> {
             s.closeCandidatePanel();
             s.render();
         }));
-        addAction(actions, pressButton("⌫", 16, KeyboardKeyRole.ACCENT, "候选面板 删除", this::backspace));
-        addAction(actions, pressButton("重输", 15, KeyboardKeyRole.ACCENT, "候选面板 重输",
+        addInlineAction(utilityRow, pressButton("⌫", 16, KeyboardKeyRole.ACCENT, "候选面板 删除", this::backspace));
+        addInlineAction(utilityRow, pressButton("重输", 15, KeyboardKeyRole.ACCENT, "候选面板 重输",
             () -> s.command(3)));
+        addAction(actions, utilityRow);
         modeButton = pressButton("", 15, KeyboardKeyRole.ACCENT, "", this::toggleMode);
-        addAction(actions, modeButton);
-        // 把两个筛选状态同时摆出来，用户可以直接看到「全部」和「单字」的入口。
+        // 两个筛选状态和输入模式放在同一排，确保三个入口都在键盘可视区域内。
         LinearLayout filterRow = LayoutPolicy.row(s);
         allButton = pressButton("全部", 15, KeyboardKeyRole.ACCENT, "显示全部候选", () -> setSingleCharacter(false));
         singleButton = pressButton("单字", 15, KeyboardKeyRole.ACCENT, "只显示单字", () -> setSingleCharacter(true));
-        filterRow.addView(allButton, LayoutPolicy.weightedWidthParams(1));
-        filterRow.addView(singleButton, LayoutPolicy.weightedWidthParams(1));
+        addInlineAction(filterRow, modeButton);
+        addInlineAction(filterRow, allButton);
+        addInlineAction(filterRow, singleButton);
         addAction(actions, filterRow);
         root.addView(actions, margined(0.8f));
         ViewPolicy.hide(root);
@@ -123,6 +125,12 @@ final class ImeNineKeyPanel {
         LinearLayout.LayoutParams params = LayoutPolicy.weightedWidthParams(1);
         params.setMargins(0, s.pixels(2), 0, s.pixels(2));
         actions.addView(view, params);
+    }
+
+    private void addInlineAction(LinearLayout row, View view) {
+        LinearLayout.LayoutParams params = LayoutPolicy.weightedMatchParentParams(1);
+        params.setMargins(s.pixels(2), 0, s.pixels(2), 0);
+        row.addView(view, params);
     }
 
     private Button pressButton(String label, float sizeSp, KeyboardKeyRole role, String description,
@@ -242,7 +250,8 @@ final class ImeNineKeyPanel {
         allButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(true));
         ViewPolicy.setSelected(allButton, !single);
         singleButton.setText(NineKeyPanelPolicy.singleCharacterTitle(true));
-        singleButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(false));
+        // 单字入口沿用原切换键的读屏语义：当前筛选切换后，描述提示下一步可切换到的状态。
+        singleButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(single));
         ViewPolicy.setSelected(singleButton, single);
         if (Build.VERSION.SDK_INT >= 30) {
             modeButton.setStateDescription(NineKeyPanelPolicy.modeTitle(mode));
