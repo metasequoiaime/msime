@@ -22,8 +22,12 @@ public final class CandidateAppearance {
      */
     public static final int STRIP_CHIP_MIN_WIDTH_DP = 30;
 
+    /** 共享偏好 `candidate_font_size` 和 `candidate_preedit_font_size` 的取值范围，与 client-core 的校验一致；设置页的「候选字号」「编码字号」滑块也用它。 */
+    public static final int MIN_FONT_SIZE = 12;
+    public static final int MAX_FONT_SIZE = 32;
+
     public static int fontSize(int value) {
-        return value >= 12 && value <= 32 ? value : 16;
+        return value >= MIN_FONT_SIZE && value <= MAX_FONT_SIZE ? value : 16;
     }
 
     /** 从键盘配色和候选字体偏好生成默认外观；生效的候选包再通过 fromResolved 覆盖颜色。 */
