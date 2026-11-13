@@ -1546,7 +1546,7 @@ fi
 if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   || ! rg -qF '+ ":" + numberPadSpace.resolved() + ":" + languageLeft' "$bottom_row_file" \
   || ! sed -n '/    private LinearLayout tallReturnMiddleColumn(/,/^    }$/p' "$layout_rows" \
-    | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {' \
+    | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft);' \
   || ! sed -n '/    boolean tallReturnStale() {$/,/^    }$/p' "$layout_rows" | rg_q_stdin -F 'builtTallReturnLanguageLeft != s.languageKeyLeft' \
   || ! rg_q_stdin -F 'languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' <<< "$style_render" \
   || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, null, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);\n\s*\}\)\.help\(TouchKeyStyle\.LANGUAGE_LEFT_NOTE\);' <<< "$style_section" \
@@ -1603,7 +1603,7 @@ for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
   fi
 done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
-  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
+  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, false, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
   || ! rg -qF 'case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft)));' "$style_policy"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
@@ -1633,7 +1633,7 @@ sidebar_body=$(sed -n '/    private FrameLayout symbolSidebar(boolean digits, bo
 if ! rg_q_stdin 'NineKeySidebarPolicy\.appendedExclamationIndex\(digits,' <<< "$sidebar_body" \
   || ! rg_q_stdin 'exclamation\.setDigitText\(SuperscriptShortcutPolicy\.ZERO\);' <<< "$sidebar_body" \
   || ! rg_q_stdin 's\.imeLetterRows\.bindNineKeySuperscriptShortcut\(exclamation, symbol\);' <<< "$sidebar_body" \
-  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, true, true, false\)' "$layout_rows"; then
+  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, false, true, false\)' "$layout_rows"; then
   echo "Android tall-return sidebar ！ must carry the right-column ！ zero gestures on nine-key and not on stroke" >&2
   exit 1
 fi

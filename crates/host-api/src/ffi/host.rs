@@ -935,9 +935,14 @@ pub unsafe extern "C" fn msime_client_load_preferences(
             .take()
             .filter(|(cached, _)| cached == directory)
             .map(|(_, loaded)| loaded);
-        let loaded = PreferencesStore::new(directory)
+        let mut loaded = PreferencesStore::new(directory)
             .load_reusing(previous)
             .map_err(|e| e.to_string())?;
+        let unknown_key_paths = loaded.take_unknown_key_paths();
+        if !unknown_key_paths.is_empty() {
+            // 只报告路径，不报告未知键的值；同一份文档的后续轮询会从缓存读取并且不会重复报告。
+            crate::diagnostics::report("unknown preference keys", &unknown_key_paths.join(", "));
+        }
         let value = serde_json::to_value(&loaded.snapshot).map_err(|e| e.to_string())?;
         *LOADED_PREFERENCES
             .lock()

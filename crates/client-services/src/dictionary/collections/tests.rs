@@ -743,6 +743,33 @@ fn import(
 }
 
 #[test]
+fn collections_rime_tone_marks_reach_the_personal_dictionary() {
+    for (kind, key) in [
+        (PersonalWordKind::Pinyin, "lv se"),
+        (PersonalWordKind::QuickPhrase, "lvse"),
+    ] {
+        let mut fixture = Fixture::new();
+        let view = import(
+            &fixture,
+            kind,
+            "rime",
+            "---\nname: synthetic\n...\n绿色\tlǜ sè\t123\n",
+        )
+        .unwrap();
+        let report = view.import.unwrap();
+        assert_eq!((report.imported, report.failed), (1, 0));
+        fixture.drain();
+        let word = PersonalWord {
+            kind,
+            key: key.into(),
+            value: "绿色".into(),
+            weight: 123,
+        };
+        assert_eq!(fixture.dictionary.get(&word.identity()), Some(&123));
+    }
+}
+
+#[test]
 fn collections_import_rime_percentage_weights_reach_the_personal_dictionary() {
     let mut fixture = Fixture::new();
     let view = import(

@@ -3,9 +3,9 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
-    rerank_pick_within, rotate_to_front, runner_up_order_pooled, CandidateScorer,
-    ParallelOrderRows, SentenceScorer, StaticEvidence,
+    apply_order_with, engine_seated_correction, ensure_engine_order, opening_particle_pick,
+    rerank_needs_model, rerank_pick, rerank_pick_within, rotate_to_front, runner_up_order_pinned,
+    CandidateScorer, ParallelOrderRows, SentenceScorer, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -3268,11 +3268,30 @@ impl<E: InputEngine> Runtime<E> {
         } else {
             0
         };
-        let Some(order) = runner_up_order_pooled(
+        let rows = order_rows(snapshot);
+        // 引擎坐在第二位的纠错整句按引擎座位认：重排器把别的读法提到首位后它不再紧跟当前的第一条读法。表里没有纠错整句时不用看座位。
+        let pinned = if snapshot
+            .candidate_corrected
+            .iter()
+            .zip(&snapshot.candidate_sources)
+            .any(|(&corrected, &source)| {
+                corrected && source == msime_engine::ordering::LATTICE_SOURCE
+            }) {
+            if self.engine_order.len() == count {
+                engine_seated_correction(snapshot.scheme, &rows, &self.engine_order)
+            } else {
+                let identity: Vec<usize> = (0..count).collect();
+                engine_seated_correction(snapshot.scheme, &rows, &identity)
+            }
+        } else {
+            None
+        };
+        let Some(order) = runner_up_order_pinned(
             snapshot.scheme,
-            &order_rows(snapshot),
+            &rows,
             &snapshot.candidate_touch_supported,
             pool,
+            pinned,
         ) else {
             return false;
         };

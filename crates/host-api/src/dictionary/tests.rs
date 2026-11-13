@@ -1129,6 +1129,26 @@ fn gboard_import_normalizes_continuous_pinyin_before_sending_it_to_engine() {
 }
 
 #[test]
+fn rime_tone_marks_import_into_engine_pinyin_and_quick_phrases() {
+    let options = import_engine_options();
+    let text = "---\nname: synthetic\n...\n绿色\tlǜ sè\t123\n你好\tnǐ hǎo\t456\n";
+    for (kind, expected) in [
+        (Kind::Pinyin, ["lv'se", "ni'hao"]),
+        (Kind::QuickPhrase, ["lvse", "nihao"]),
+    ] {
+        let (entries, report) = parse_import(&kind, "rime", text, Some(&options)).unwrap();
+        assert_eq!(report.failed, 0);
+        assert_eq!(entries.len(), 2);
+        for (entry, key) in entries.iter().zip(expected) {
+            assert_eq!(entry.key, key);
+            msime_engine::host::dictionary_validate(entry).unwrap();
+        }
+        assert_eq!(entries[0].weight, 123);
+        assert_eq!(entries[1].weight, 456);
+    }
+}
+
+#[test]
 fn engine_backed_pinyin_import_resolves_lengths_and_reports_invalid_rows() {
     let options = import_engine_options();
     let (entries, report) = parse_import(

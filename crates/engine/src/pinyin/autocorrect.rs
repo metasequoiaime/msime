@@ -318,6 +318,18 @@ fn correction_index() -> &'static HashMap<&'static str, Vec<CorrectionTarget>> {
     })
 }
 
+/// `letters` 里有没有哪一段不是音节、却是某张纠错表的错键，也就是 `autocorrect_cut_kbest` 有没有可能读出一处纠错。只查表、不分配，供调用方在跑搜索之前先排除绝大多数读不出纠错的输入。
+pub(crate) fn has_correction_key(letters: &[u8]) -> bool {
+    let index = correction_index();
+    (0..letters.len()).any(|start| {
+        (2..=MAX_SYLLABLE_LENGTH.min(letters.len() - start)).any(|length| {
+            let piece = &letters[start..start + length];
+            intact_piece(piece).is_none()
+                && std::str::from_utf8(piece).is_ok_and(|piece| index.contains_key(piece))
+        })
+    })
+}
+
 const NO_PREDECESSOR: usize = usize::MAX;
 const SMALL_FINALIZE_BEAM: usize = 36;
 

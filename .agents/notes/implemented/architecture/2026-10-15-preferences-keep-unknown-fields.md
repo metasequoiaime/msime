@@ -12,6 +12,7 @@ Status: implemented
 
 - 偏好文档里的结构不再带 `deny_unknown_fields`，读到不认识的键时忽略它。外层信封 `PreferencesSnapshot`（`format_version`、`revision`、`preferences`）仍然严格，信封格式变化由 `format_version` 管。
 - `PreferencesStore` 读文档时用 `serde_ignored`（`deserialize_keeping_unknown`）记下 `preferences` 之下本版本不认识的键路径和原值（`UnknownPreferenceField`）；`save` 在同一把锁里读出它们，写入时由 `restore_unknown_fields` 放回原处。于是旧版本保存不会抹掉新版本的设置。
+- Host API 的偏好轮询在首次重新解析一份文档时，把未知键的点号路径写入诊断出口；只写键名，不写取值，且同一份未变化的文档只报告一次。这样拼写错误或已退役的键仍能保持向前兼容，同时能在日志里被发现。
 - 放回的规则：
   - 只按对象键定位，经过数组元素的路径不收集，因为数组整个属于一个已知字段。例外是触屏方案启用列表和模糊音规则里本版本不认识的元素，它们接回同一个列表末尾（`newer_list_values`）。
   - 父对象这次因取默认值没写出时不放，不凭一个未知键重建半个已知对象。
@@ -37,7 +38,7 @@ Status: implemented
 
 - **收益**：输入法和设置应用、`msime-mcp`、各平台宿主之间版本错开时，新增键不再让任何一方整份拒读，旧版本保存也不丢新版本的设置。以后新增偏好字段，不必再为旧版本拒读而权衡放在哪一层、默认时写不写出。
 - **代价与已知上限**：
-  - 拼错或退役的键不再报错，会作为未知键一直留在文档里。
+  - 拼错或退役的键不再报错，会作为未知键一直留在文档里；经 Host API 读取时会在诊断日志里报告路径，设置应用直接使用 `PreferencesStore::load` 的路径仍需后续接入可见提示。
   - 新版本给枚举加了新取值（例如新的输入方案名、新的键位名）时，旧版本照样读不了整份文档，本次不处理。后来由 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md) 接手：文本编辑排列、触屏方案和模糊音规则里的新取值读入时丢掉（后两者保存时接回），其余字段仍让整份文档读不了，但输入运行时不再因此停下。
   - 带自定义反序列化、先读成别的中间形状的字段，内部的未知键是否被记下，取决于中间形状是否经过同一个反序列化器；`#[serde(from = ...)]` 会经过。
   - 只有经由 `PreferencesStore` 的写入保留未知键：Linux 的 `runtime-options.json` 副本、导出的设置文件都只含本版本认识的键。
@@ -48,6 +49,7 @@ Status: implemented
 ## Verification
 
 - `settings_from_a_newer_build_are_read_and_kept_through_a_save`：在默认文档的每个对象里试放一个新键，任何结构报 `unknown field` 即失败（它找出了漏掉的 `StoredTouchKeyboardSchemePreferences`）；把所有结构里都放上新键后能读、改一项再保存后每个新键原样还在，恢复默认后全部清掉。`an_unknown_key_goes_back_only_into_a_written_section` 覆盖放回规则。
+- `load_reusing_exposes_unknown_key_paths_once_per_document_read`：共享层只交出键路径，且轮询复用同一份文档时不重复交出；`load_preferences_reports_unknown_keys_without_values_and_only_once`：Host API 诊断只写路径、不写合成值，文档字节变化后才再次报告。
 - 原来断言拒绝未知键的测试改为断言记为未知键；同一测试里拒绝未知取值的断言保留。导入拒绝更新版本文件的 `a_newer_or_damaged_document_is_refused_rather_than_partly_applied` 不改并通过。
 - `cargo test -p msime-client-core`：1436 项通过；`recover_suffixes_a_backup_name_that_is_taken` 在整套并行、机器满载时失败一次，它要两次备份落在同一秒内才撞名，单独连跑 3 次都通过，与本改动无关。`cargo test -p msime-host-api -p msime-mcp-server` 715 项通过，其中 `session_reads_live_preferences_when_the_options_copy_is_refused` 改为：带退役键的副本自己能建会话，类型不对的副本才由实时偏好顶替。client-core 与 host-api 的 Clippy（全部 target、警告视为错误）和 Rustfmt 通过。`msime-desktop` 没有在本地编译测试，交给 CI。
 - 合约脚本：`test-default-config-parity.py` 的正则不再要求 `FuzzyPinyinPreferences` 上有 `#[serde(deny_unknown_fields)]`；`test-preferences-field-parity.py` 仍检查设置页能写而 Rust 没有字段的键，后果改述为「留在文档里但永远不生效」。`bash scripts/run-checks.sh` 全部通过。
