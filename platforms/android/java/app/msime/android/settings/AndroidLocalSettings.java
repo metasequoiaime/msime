@@ -117,6 +117,8 @@ public final class AndroidLocalSettings {
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
     public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";
+    /** 横屏时自动浮动、竖屏时停靠（#11346），默认关；打开后忽略手动浮动开关，只在本机保存。 */
+    public static final String FLOATING_KEYBOARD_AUTO_LANDSCAPE = "platform.android.floating_keyboard_auto_landscape";
     /** 浮动键盘在可移动范围里的水平 / 竖直位置，千分比（0 最左 / 最上，1000 最右 / 最下）。 */
     public static final String FLOATING_KEYBOARD_X = "platform.android.floating_keyboard_x";
     public static final String FLOATING_KEYBOARD_Y = "platform.android.floating_keyboard_y";
@@ -280,6 +282,7 @@ public final class AndroidLocalSettings {
         choice(QUICK_DELETE_SCOPE, "before", false, "before", "all");
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(FLOATING_KEYBOARD, false, false);
+        bool(FLOATING_KEYBOARD_AUTO_LANDSCAPE, false, false);
         integer(FLOATING_KEYBOARD_X, FloatingKeyboardPolicy.DEFAULT_X_FRACTION, false, 0,
             FloatingKeyboardPolicy.MAX_FRACTION, 1);
         integer(FLOATING_KEYBOARD_Y, FloatingKeyboardPolicy.DEFAULT_Y_FRACTION, false, 0,

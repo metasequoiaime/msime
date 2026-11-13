@@ -87,6 +87,7 @@ Java 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate
 - 位置按可移动范围（系统栏之间的区域减去面板大小）里的千分比存在 `platform.android.floating_keyboard_x` / `_y`，默认水平居中、贴底；松手时写入。旋转、分屏或面板变高后换算回像素，面板总在窗口里。拖动只改面板的平移，不重新布局。
 - 实现与 LatinIME 的做法相同：浮动时输入法窗口、系统的 `inputArea` 和键盘根视图都铺满屏幕，根视图透明；`onComputeInsets` 把内容区和可见区都设成从窗口底边算起（应用不让出高度），可触摸区域只有面板（`TOUCHABLE_INSETS_REGION`），面板外的触摸落到应用上。停靠时把窗口和 `inputArea` 恢复成第一次浮动前的高度，`setInputView` 与 `updateFullscreenMode` 之后重新套一遍。
 - 浮动时单手模式和分离式键盘不生效（存着的值不变，停靠后自动回来），功能面板的「单手模式」磁贴显示为不可用；外接键盘的候选条模式里不浮动，候选条停在底部（打开下文的「物理键盘时候选栏跟随光标」时跟着光标走），浮动磁贴与按钮显示为不可用。
+- 设置「横屏自动浮动键盘」（`platform.android.floating_keyboard_auto_landscape`，默认关，只在本机）打开后，横屏自动使用浮动面板、竖屏恢复停靠，并忽略手动「浮动键盘」开关；外接键盘候选条模式仍停靠。关闭后恢复手动开关的行为。
 
 ### 键盘底栏
 
