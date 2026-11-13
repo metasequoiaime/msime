@@ -1588,6 +1588,7 @@ pub(super) fn decode_typo_on_graph_with_policy(
         if !usable(typo) {
             continue;
         }
+        // The phrase bonus counts the typed columns the edge covers, not the syllables of its reading: every path tiles the same columns, so a re-segmented edge (现在 over xian'zi'a) has to earn the bonus a literal phrase over those columns would, or a longer literal reading (现在啊) always wins. Re-segmented keys have at least two syllables, so a lone character never gets the phrase rate.
         extra[typo.start].push(Edge {
             end: typo.end,
             word: typo.value.clone(),
