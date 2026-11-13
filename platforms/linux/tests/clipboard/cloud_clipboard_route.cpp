@@ -54,13 +54,13 @@ int main() {
         return Json::object();
       });
   assert(added.at("accepted") == true);
-  assert(add.calls == std::vector<std::string>{"source", "relay"});
+  assert((add.calls == std::vector<std::string>{"source", "relay"}));
   assert(add.relay_request.at("action") == Json({{"operation", "add"}, {"text", "合成上传"}}));
 
   Fixture explicit_provider;
   explicit_provider.source_fails = true;
   assert(!explicit_provider.list("/synthetic/explicit.sock").at("enabled").get<bool>());
-  assert(explicit_provider.calls == std::vector<std::string>{"/synthetic/explicit.sock"});
+  assert((explicit_provider.calls == std::vector<std::string>{"/synthetic/explicit.sock"}));
 
   Fixture relay;
   assert(relay.list().at("items").at(0).at("text") == "合成中继条目");
@@ -78,12 +78,12 @@ int main() {
   assert(discovered.calls == std::vector<std::string>({"source", "/synthetic/auto.sock"}));
   discovered.calls.clear();
   assert(discovered.list({}, {}).empty());
-  assert(discovered.calls == std::vector<std::string>{"source"});
+  assert((discovered.calls == std::vector<std::string>{"source"}));
 
   Fixture legacy;
   legacy.source_fails = true;
   assert(legacy.list({}, "/synthetic/auto.sock", {}).at("enabled") == false);
-  assert(legacy.calls == std::vector<std::string>{"/synthetic/auto.sock"});
+  assert((legacy.calls == std::vector<std::string>{"/synthetic/auto.sock"}));
 
   for (int failure = 0; failure < 4; ++failure) {
     Fixture rejected;
