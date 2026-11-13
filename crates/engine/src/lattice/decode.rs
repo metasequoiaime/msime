@@ -58,7 +58,7 @@ pub struct LatticeOptions<'a> {
     pub personal_max_bonus: f64,
     /// Paths to emit; 0 emits all (`sentence_alternatives`).
     pub emit: usize,
-    /// How far, per typo edge, the corrected sentence has to beat the literal one before it takes the leading seat; below it the sentence sits second or behind the whole-sentence rows (`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`). Only quanpin reads it. Swept with eval_sentences --autocorrect-types 7 at the reference typo costs: margins of 8 and 4 moved clean top-1 at every base cost from 8 to 28 (sentences-v2 46.5% -> 45.2%, sentences-neutral-v1 19.5% -> 18.4..18.9%), so it stayed infinite. With the quanpin costs at 0.75 (`QUANPIN_TYPO_PENALTY_SCALE`), 10397 correctly typed inputs (sentences, chat, Tatoeba, harvested sets, particles, words of three or more syllables) produced typo sentences beating the literal by at most 23.8 per edge, and at 30 and at 25 convert_eval moved none of their first seats while legal-pinyin typo top-1 rose from 0.121 to 0.146 and 0.160. 30 keeps a margin over the clean maximum: a wrong first seat commits on space.
+    /// How far, per typo edge, the corrected sentence has to beat the literal one before it takes the leading seat; below it the sentence sits second or behind the whole-sentence rows (`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`). Only quanpin reads it. Swept with eval_sentences --autocorrect-types 7 at the reference typo costs: margins of 8 and 4 moved clean top-1 at every base cost from 8 to 28 (sentences-v2 46.5% -> 45.2%, sentences-neutral-v1 19.5% -> 18.4..18.9%), so it stayed infinite. With the quanpin costs at 0.25 (`QUANPIN_TYPO_PENALTY_SCALE`) and the letter-level edits, 10396 correctly typed inputs (sentences, chat, Tatoeba, harvested sets, particles, words of three or more syllables) produced typo sentences beating the literal by at most 45.1 per edge, while 28 of 1812 legal-pinyin typos beat it by more than 50. 50 keeps a margin over the clean maximum: a wrong first seat commits on space.
     pub typo_lead_margin: f64,
     /// Beam of the typo pass, which only needs its best path. At 8 and at 4 the typo and clean eval numbers were the same as at the full beam, and the pass cost dropped from about 0.45 ms to 0.1-0.2 ms per query.
     pub typo_beam: usize,
@@ -160,7 +160,7 @@ impl Default for LatticeOptions<'_> {
             personal_reference_probability: 0.05,
             personal_max_bonus: 2.5,
             emit: 0,
-            typo_lead_margin: 30.0,
+            typo_lead_margin: 50.0,
             typo_beam: 8,
             bigram: None,
             trigram: None,
