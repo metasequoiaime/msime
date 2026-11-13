@@ -438,7 +438,8 @@ inline CandidatePresentation
 candidate_presentation_from_view(const FocusLease &lease,
                                  const nlohmann::json &view, int x, int y,
                                  const std::string &prefix,
-                                 bool traditional_output = false) {
+                                 bool traditional_output = false,
+                                 bool show_cloud_badge = true) {
   // Named rather than positional: this is an aggregate, so inserting a field
   // above silently shifts every following initializer onto the wrong member.
   CandidatePresentation output{};
@@ -482,7 +483,7 @@ candidate_presentation_from_view(const FocusLease &lease,
         candidate.at("highlighted").get<bool>(),
         candidate.value("corrected", false),
         candidate.value("annotation", std::string{}),
-        candidate_source == 2 ? " ☁️" : candidate_source == 3 ? " 🤖" : "",
+        candidate_source == 2 && show_cloud_badge ? " ☁️" : candidate_source == 3 ? " 🤖" : "",
         candidate.value("fixed_position", uint8_t{}),
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
@@ -521,7 +522,8 @@ candidate_presentation_from_view(const FocusLease &lease,
 // A future UI consumer must revalidate focus before displaying or clicking.
 inline CandidatePresentation
 candidate_presentation(const FocusLease &lease, const PendingReply &reply,
-                       const FanyImeNamedpipeData &packet) {
+                       const FanyImeNamedpipeData &packet,
+                       bool show_cloud_badge = true) {
   const auto &source = reply.source;
   if (!lease.epoch || source.client_id != lease.transport.client ||
       source.activation_epoch != lease.epoch ||
@@ -575,7 +577,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
         candidate.at("highlighted").get<bool>(),
         candidate.value("corrected", false),
         candidate.value("annotation", std::string{}),
-        candidate_source == 2 ? " ☁️" : candidate_source == 3 ? " 🤖" : "",
+        candidate_source == 2 && show_cloud_badge ? " ☁️" : candidate_source == 3 ? " 🤖" : "",
         candidate.value("fixed_position", uint8_t{}),
         candidate.value("translation", std::string{}),
         candidate_actions_available(view.value("scheme", 0u), candidate_source)};
