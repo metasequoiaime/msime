@@ -35,7 +35,7 @@ export class SchemeCompositionPolicy {
   }
 
   /**
-   * 全拼九键：`editing_text` 是按下的数字，`nine_key_reading` 是首选候选覆盖的那段数字的拼音，后面接上没覆盖那段按音节频度切出的拼音（`ni'hao`、整句关掉时的 `jin'tian'ni'yao`）；尾段切不成音节时接原样的数字。有它就画它，引擎算不出读音（模糊匹配的首选）时它是空的，仍画数字。
+   * 全拼九键：`editing_text` 是按下的数字，`nine_key_reading` 是首选候选覆盖的那段数字的拼音，后面接上没覆盖那段按音节频度切出的拼音（`ni'hao`、整句关掉时的 `jin'tian'ni'yao`）；尾段切不成音节（多按或按错了一键）时，切不开的那一键单独显示成这个键上的一个字母（`ni'hao's's`），不出数字。有它就画它；全拼九键在拼音组字期间它不为空，引擎没给读音（英文专用模式）时才是空的，仍画数字。
    *
    * 五笔 14 键：`editing_text` 是每组的代表字母（`qq`），不是用户打的码，绝不画；`nine_key_reading` 与 `preedit` 相同，是首选的编码前几位（`wq`）。五笔 26 键的 `nine_key_reading` 总是空的，不受影响。
    */
@@ -68,7 +68,7 @@ export class SchemeCompositionPolicy {
       : editing;
   }
 
-  /** 手机写进输入框的拼音分词形式：全拼九键有读音时就是读音（`ni'hao`），绝不是按下的数字，引擎算不出读音时才退回 `preedit`；其他方案都是 `preedit`（笔画是字形，韩语等是写出来的字）。 */
+  /** 手机写进输入框的拼音分词形式：全拼九键有读音时就是读音（`ni'hao`），绝不是按下的数字，引擎没给读音（英文专用模式）时才退回 `preedit`；其他方案都是 `preedit`（笔画是字形，韩语等是写出来的字）。 */
   static fieldSpelling(
     rulesScheme: number,
     editing: string,
