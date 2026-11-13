@@ -13,7 +13,7 @@ import app.msime.android.KeyboardGeometry;
 import android.widget.LinearLayout;
 
 /**
- * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布。26 键为 123 | 符 | 空格 | ， | 中 | ↵，逗号长按输入句号；14 键和大千注音保留独立逗号句号；手写为 123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | ↵，逗号长按输入问号、句号长按输入叹号；拼音九键和笔画为 符 | 123 | 空格 | 中 | ↵。26 键、14/18 键和九键的字母层底行另按共享偏好里的底行样式排（{@link TouchKeyStyle}，{@link MSIMEInputService#bottomRowStyle}）。地球键按系统能力插在 123 之后，空格保留语音与移光标手势，回车始终使用操作色。
+ * 键盘底行：按 {@link KeyboardActionRow#designEntries} 排布。26 键为 123 | 符 | 。 | 空格 | ， | 中 | ↵（中文和英文同一排），逗号长按输入句号；14 键和大千注音保留独立逗号句号；手写为 123 | ， | 空格 | 。 | 中 | 重写 | ⌫ | ↵，逗号长按输入问号、句号长按输入叹号；拼音九键和笔画为 符 | 123 | 空格 | 中 | ↵。26 键、14/18 键和九键的字母层底行另按共享偏好里的底行样式排（{@link TouchKeyStyle}，{@link MSIMEInputService#bottomRowStyle}）。地球键按系统能力插在 123 之后，空格保留语音与移光标手势，回车始终使用操作色。
  *
  * <p>空格与回车换成画图标的 {@link SpaceKeyFace} / {@link KeyboardIconKey}：SVC 建的原按钮留作点击的执行者（它带着计数、反馈与动作），新键点一下就让原按钮 performClick，所以 SVC 里的动作不必搬动；节点 text 照旧由 SVC 设置（「空格」、「换行/确认/…」）。
  */
@@ -633,8 +633,15 @@ final class ImeBottomRow {
             face.setNumberPadFace(numberPad);
             face.setSchemeLabel(numberPad ? "" : spaceLabel());
         }
-        // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。
-        if (numberPad) s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
+        // 九键双拼字母层的底行在空格右边多一个 0（组码键或字面 0），数字层把这一份并回 0 和空格，切层时其余键不动。
+        boolean shuangpinZero = layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT && s.nineKeyShuangpinDrawn();
+        // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。字母层的 0 带着双拼提示，进数字层时擦掉。
+        if (numberPad) {
+            if (zeroButton() instanceof KeyHintButton hinted) hinted.setHintText("");
+            s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
+        } else if (shuangpinZero) {
+            s.imeLayoutRows.bindShuangpinZero(zeroButton());
+        }
         syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");
         // Every keystroke reaches render(), and re-parenting eight keys under the pressed one is a
@@ -643,7 +650,7 @@ final class ImeBottomRow {
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         TouchKeyStyle.Row style = s.bottomRowStyle(layout);
-        // 英文 26 键在空格左边多一个句点，中英切换时底行要重排。
+        // 英文 26 键不提供底行样式（一律标准底行），中文选了别的样式时中英切换要重排；中文标准底行与英文底行同一排。
         boolean english = s.dedicatedEnglish;
         // 「符」与「123」互换是键位习惯，密码框和数字字段里也照样互换（样式在那里退回标准底行，标准底行同样有 符）。
         boolean symbolFirst = s.twentySixSymbolFirst;
@@ -652,12 +659,15 @@ final class ImeBottomRow {
         boolean languageLeft = s.languageKeyLeft;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
             + ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved() + ":" + languageLeft
+            + ":" + shuangpinZero
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         // 数字九宫格的底行跟着进入它的键面排：返回键留在原来 123 那一格（签名里已有 layout，换入口会重排）。
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace, languageLeft)
             : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace, languageLeft);
+        if (shuangpinZero && !entries.isEmpty()) entries = numberPad ? KeyboardActionRow.withShuangpinZeroShare(entries)
+            : KeyboardActionRow.withShuangpinZero(entries, false);
         // 每次重申可见性：回复面板会藏起功能行，长按语音保留原行测量与触摸流并覆盖它。
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
         if (s.imeVoiceEntry != null && s.imeVoiceEntry.coversActionRow()) ViewPolicy.setInvisible(s.actionRow);

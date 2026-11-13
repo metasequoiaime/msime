@@ -149,15 +149,26 @@ class Client:
             json.dumps({"packageName": "app.msime.hmos"}).encode()))
 
     def upload(self, path):
+        object_id = self.upload_file(path, release_type=6, max_size=4 * 1024**3,
+                                     expected_suffix=".app")
+        packages = self.api("POST", "/publish/v2/test/version/pkg", {
+            "distributeMode": 1, "file": {"fileName": path.name, "objectId": object_id},
+        }).get("pkgVersion")
+        if not isinstance(packages, list) or len(packages) != 1:
+            raise ReleaseError("华为没有返回唯一的软件包 ID")
+        return identifier(packages[0], "软件包 ID")
+
+    def upload_file(self, path, *, release_type, max_size, expected_suffix):
         size = path.stat().st_size
-        if path.suffix != ".app" or not 0 < size <= 4 * 1024**3:
-            raise ReleaseError("必须提供非空且不超过 4GB 的已签名 .app")
+        if path.suffix.lower() != expected_suffix or not 0 < size <= max_size:
+            raise ReleaseError(f"华为文件格式或大小无效：{path.name}")
         digest = hashlib.sha256()
         with path.open("rb") as source:
             for block in iter(lambda: source.read(1024 * 1024), b""):
                 digest.update(block)
         result = self.api("GET", "/publish/v2/upload-url/for-obs", fileName=path.name,
-                          contentLength=size, sha256=digest.hexdigest(), chineseMainlandFlag=1)
+                          contentLength=size, sha256=digest.hexdigest(), chineseMainlandFlag=1,
+                          releaseType=release_type)
         info = result.get("urlInfo")
         if not isinstance(info, dict):
             raise ReleaseError("华为没有返回上传地址")
@@ -175,12 +186,22 @@ class Client:
         headers["Content-Length"] = str(size)
         with path.open("rb") as source:
             self.transport.request("PUT", url, headers, source, binary=True)
-        packages = self.api("POST", "/publish/v2/test/version/pkg", {
-            "distributeMode": 1, "file": {"fileName": path.name, "objectId": object_id},
-        }).get("pkgVersion")
-        if not isinstance(packages, list) or len(packages) != 1:
-            raise ReleaseError("华为没有返回唯一的软件包 ID")
-        return identifier(packages[0], "软件包 ID")
+        return object_id
+
+    def sync_materials(self, path, *, lang, new_features):
+        if not isinstance(lang, str) or not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2,})?", lang):
+            raise ReleaseError("华为应用资料语言无效")
+        if not isinstance(new_features, str) or not 1 <= len(new_features) <= 500:
+            raise ReleaseError("华为应用资料的新版本特性须为 1 至 500 字")
+        object_id = self.upload_file(path, release_type=6, max_size=500 * 1024,
+                                     expected_suffix=".png")
+        self.api("PUT", "/publish/v2/app-file-info", {
+            "lang": lang, "fileType": 0,
+            "files": [{"fileDestUrl": object_id}],
+        })
+        self.api("PUT", "/publish/v2/app-language-info", {
+            "lang": lang, "newFeatures": new_features,
+        })
 
     def wait_package(self, package_id, timeout, interval=15):
         deadline = time.monotonic() + timeout
@@ -246,7 +267,37 @@ def record(key, value):
             summary.write(f"- `{key}`: `{value}`\n")
 
 
-def release(client, *, path, mode, version_id="", package_id="", config=None, timeout=900):
+def load_materials(path, version):
+    try:
+        materials = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise ReleaseError("华为应用资料文件无效") from None
+    if not isinstance(materials, dict):
+        raise ReleaseError("华为应用资料必须是 JSON 对象")
+    lang = materials.get("lang")
+    new_features = materials.get("newFeatures")
+    icon = materials.get("icon")
+    if not isinstance(lang, str) or not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2,})?", lang):
+        raise ReleaseError("华为应用资料语言无效")
+    if not isinstance(new_features, str) or not 1 <= len(new_features) <= 500:
+        raise ReleaseError("华为应用资料的新版本特性须为 1 至 500 字")
+    new_features = new_features.replace("{version}", version)
+    if not isinstance(icon, str) or not icon or Path(icon).is_absolute():
+        raise ReleaseError("华为应用资料必须指定仓库内图标")
+    # 图标按资料文件所在目录解析，和 workflow 的启动目录无关。
+    root = path.resolve().parent
+    icon_path = (root / icon).resolve()
+    try:
+        icon_path.relative_to(root)
+    except ValueError:
+        raise ReleaseError("华为应用资料图标必须位于资料目录内") from None
+    if not icon_path.is_file():
+        raise ReleaseError("华为应用资料图标不存在")
+    return {"lang": lang, "new_features": new_features, "icon": icon_path}
+
+
+def release(client, *, path, mode, version_id="", package_id="", config=None,
+            materials=None, timeout=900):
     if version_id:
         identifier(version_id, "测试版本 ID")
         if mode != "public-test":
@@ -261,6 +312,10 @@ def release(client, *, path, mode, version_id="", package_id="", config=None, ti
     record("package_id", package_id)
     client.wait_package(package_id, timeout)
     record("package_status", "parsed")
+    if materials is not None:
+        client.sync_materials(materials["icon"], lang=materials["lang"],
+                              new_features=materials["new_features"])
+        record("materials_status", "synced")
     if mode == "upload":
         return
     if not version_id:
@@ -283,6 +338,7 @@ def main():
     parser.add_argument("--version", default="")
     parser.add_argument("--test-version-id", default="")
     parser.add_argument("--package-id", default="")
+    parser.add_argument("--materials", type=Path, default=None)
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     try:
@@ -295,6 +351,7 @@ def main():
         if args.package_id:
             identifier(args.package_id, "软件包 ID")
         config = test_config(args.version, os.environ.get("HARMONY_AGC_TEST_CONFIG_JSON", "")) if args.mode == "public-test" else None
+        materials = load_materials(args.materials, args.version) if args.materials else None
         if not args.check_only and not args.package_id and not args.input:
             raise ReleaseError("必须提供 --input 或 --package-id")
         client = Client(os.environ.get("HARMONY_AGC_APP_ID", ""),
@@ -303,12 +360,14 @@ def main():
                         service_account=os.environ.get("HARMONY_AGC_SERVICE_ACCOUNT_JSON", ""))
         if args.check_only:
             # JWT 本地签名成功不等于平台认可，预检还要验证应用读取权限。
+            if args.mode == "public-test" and materials is None:
+                raise ReleaseError("公开测试缺少仓库内应用资料")
             client.check_access()
             print("华为 API 鉴权与本地配置检查通过")
             return 0
         release(client, path=args.input, mode=args.mode,
                 version_id=args.test_version_id, package_id=args.package_id,
-                config=config, timeout=args.timeout)
+                config=config, materials=materials, timeout=args.timeout)
         return 0
     except (ReleaseError, OSError, ValueError, TypeError):
         # 仅输出本脚本定义的安全错误；系统异常不携带原始敏感上下文。
