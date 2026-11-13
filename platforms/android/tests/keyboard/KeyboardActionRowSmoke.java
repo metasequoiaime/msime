@@ -101,16 +101,18 @@ public final class KeyboardActionRowSmoke {
                     && KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT == KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT,
                 "符 takes the same share as 中/英");
         }
-        // 26 键保留逗号、移到空格右侧，符号入口占旧逗号位置；地球键仍紧跟数字入口。
+        // 26 键标准底行：符号入口在数字入口之后，句号紧挨空格左边、逗号紧挨空格右边；地球键仍紧跟数字入口。
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
             for (boolean globe : new boolean[] {false, true}) {
                 List<KeyboardActionRow.DesignSlot> expected = new java.util.ArrayList<>(List.of(
                     KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
-                    KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.COMMA,
-                    KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN));
+                    KeyboardActionRow.DesignSlot.PERIOD, KeyboardActionRow.DesignSlot.SPACE,
+                    KeyboardActionRow.DesignSlot.COMMA, KeyboardActionRow.DesignSlot.LANGUAGE,
+                    KeyboardActionRow.DesignSlot.RETURN));
                 if (globe) expected.add(1, KeyboardActionRow.DesignSlot.GLOBE);
-                check(designSlots(layout, globe, false).equals(expected), "26 键底行保留独立逗号");
-                check(KeyboardActionRow.usesCommaSecondaryPeriod(layout), "26 键长按逗号输入句号");
+                check(designSlots(layout, globe, false).equals(expected),
+                    "26 键标准底行：123 | 符 | 。 | 空格 | ， | 中 | 回车，layout " + layout + " globe " + globe);
+                check(KeyboardActionRow.usesCommaSecondaryPeriod(layout), "26 键长按逗号仍输入句号");
                 List<KeyboardActionRow.DesignEntry> longRow = KeyboardActionRow.designEntries(
                     layout, globe, false, false, false, true);
                 List<KeyboardActionRow.DesignSlot> longSlots = longRow.stream()
@@ -124,9 +126,10 @@ public final class KeyboardActionRowSmoke {
                 check(longRow.stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
                     .findFirst().orElseThrow().weight() > KeyboardActionRow.DESIGN_SPACE_WEIGHT,
                     "长空格模式扩大空格键");
-                check(KeyboardActionRow.designEntries(layout, globe, false, false, true, true)
+                check(longSlots.stream().noneMatch(slot -> slot == KeyboardActionRow.DesignSlot.PERIOD)
+                    && KeyboardActionRow.designEntries(layout, globe, false, false, true, true)
                     .stream().noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
-                    "英文长空格底行的句点由逗号滑动输入");
+                    "长空格底行不放句号键（中文、英文都是），句号由逗号滑动输入");
                 check(KeyboardActionRow.designEntries(layout, globe, true, false, false, true)
                     .stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
                     .findFirst().orElseThrow().weight() == KeyboardActionRow.DESIGN_LONG_SPACE_WEIGHT,
@@ -138,6 +141,7 @@ public final class KeyboardActionRowSmoke {
                 KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false)),
             "长空格选项不改变 14 键底行");
         englishRow();
+        chineseStandardRowMatchesEnglish();
         check(!KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.FOURTEEN_KEY_LAYOUT)
             && !KeyboardActionRow.usesCommaSecondaryPeriod(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT),
             "其他布局不改长按动作");
@@ -396,7 +400,84 @@ public final class KeyboardActionRowSmoke {
         System.out.println("Android action row: composition, weights and layer faces passed");
     }
 
-    /** 英文 26 键：句点紧挨空格左边、逗号紧挨空格右边，其余键与中文 26 键同宽，句点那一份从空格里让出；其他底行不因英文改变。 */
+    /**
+     * 中文 26 键一族的标准底行与英文底行是同一排：逐键同槽位、同宽度份额，切中英文时没有键移动或变宽。句号的一份从空格里让出（4 → 3），123、符、逗号、中/英、回车保持原来的份额；地球键、交换语言键与数字键、「符」与「123」互换、中/英放在空格左边这几项怎么组合都一样。其他三种样式不放这个句号键。
+     */
+    private static void chineseStandardRowMatchesEnglish() {
+        TouchKeyStyle.Row standard = TouchKeyStyle.Row.STANDARD;
+        TouchKeyStyle.NumberPadSpace platform = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
+            for (boolean globe : new boolean[] {false, true}) {
+                for (boolean swap : new boolean[] {false, true}) {
+                    for (boolean symbolFirst : new boolean[] {false, true}) {
+                        for (boolean languageLeft : new boolean[] {false, true}) {
+                            List<KeyboardActionRow.DesignEntry> chinese = KeyboardActionRow.designEntries(layout, globe, swap,
+                                false, false, standard, symbolFirst, platform, languageLeft);
+                            List<KeyboardActionRow.DesignEntry> english = KeyboardActionRow.designEntries(layout, globe, swap,
+                                false, true, standard, symbolFirst, platform, languageLeft);
+                            String label = "layout " + layout + " globe " + globe + " swap " + swap + " symbolFirst "
+                                + symbolFirst + " languageLeft " + languageLeft;
+                            check(chinese.size() == english.size(), "中文标准与英文底行键数相同：" + label);
+                            for (int index = 0; index < chinese.size(); index++)
+                                check(chinese.get(index).slot() == english.get(index).slot()
+                                        && chinese.get(index).weight() == english.get(index).weight(),
+                                    "中文标准与英文底行第 " + index + " 格同槽位同宽：" + label);
+                        }
+                    }
+                }
+                List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.designEntries(layout, globe);
+                int space = designSlots(layout, globe, false).indexOf(KeyboardActionRow.DesignSlot.SPACE);
+                check(row.get(space - 1).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.PERIOD,
+                        KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT))
+                        && row.get(space + 1).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.COMMA,
+                            KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT)),
+                    "句号紧挨空格左边、逗号紧挨空格右边，各占 1 份");
+                check(row.get(space).weight() == KeyboardActionRow.DESIGN_SPACE_WEIGHT
+                        - KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT && row.get(space).weight() == 3f,
+                    "句号的一份从空格让出：4 → 3");
+                // 整行总份额与不放句号的表情键样式（空格 4 份）相同，所以 123、符、逗号、中/英、回车的宽度没有变。
+                List<KeyboardActionRow.DesignEntry> emoji = KeyboardActionRow.designEntries(layout, globe, false, false, false,
+                    TouchKeyStyle.Row.EMOJI);
+                float total = 0, emojiTotal = 0;
+                for (KeyboardActionRow.DesignEntry entry : row) total += entry.weight();
+                for (KeyboardActionRow.DesignEntry entry : emoji) emojiTotal += entry.weight();
+                check(Math.abs(total - emojiTotal) < 1e-6, "标准底行的总份额不因句号改变");
+                for (KeyboardActionRow.DesignEntry entry : row) {
+                    float expected = switch (entry.slot()) {
+                        case LAYER -> KeyboardActionRow.DESIGN_LAYER_WEIGHT;
+                        case GLOBE -> KeyboardActionRow.DESIGN_GLOBE_WEIGHT;
+                        case SYMBOL_PANEL -> KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT;
+                        case PERIOD, COMMA -> KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT;
+                        case SPACE -> KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT;
+                        case LANGUAGE -> KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT;
+                        case RETURN -> KeyboardActionRow.DESIGN_RETURN_WEIGHT;
+                        default -> throw new AssertionError("unexpected key on the standard row: " + entry.slot());
+                    };
+                    check(entry.weight() == expected, "标准底行其余键的份额不变：" + entry.slot());
+                }
+                // 逗号句号样式仍是逗号在左、句号在右；长空格和表情键样式没有句号键。
+                check(KeyboardActionRow.designEntries(layout, globe, false, false, false, TouchKeyStyle.Row.COMMA_PERIOD)
+                        .stream().map(KeyboardActionRow.DesignEntry::slot).filter(slot -> slot == KeyboardActionRow.DesignSlot.COMMA
+                            || slot == KeyboardActionRow.DesignSlot.SPACE || slot == KeyboardActionRow.DesignSlot.PERIOD).toList()
+                        .equals(List.of(KeyboardActionRow.DesignSlot.COMMA, KeyboardActionRow.DesignSlot.SPACE,
+                            KeyboardActionRow.DesignSlot.PERIOD)),
+                    "逗号句号样式不变：， | 空格 | 。");
+                for (TouchKeyStyle.Row style : new TouchKeyStyle.Row[] {TouchKeyStyle.Row.LONG_SPACE, TouchKeyStyle.Row.EMOJI})
+                    check(KeyboardActionRow.designEntries(layout, globe, false, false, false, style).stream()
+                            .noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
+                        style + " 样式不放句号键");
+                check(emoji.stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE).findFirst()
+                        .orElseThrow().weight() == KeyboardActionRow.DESIGN_SPACE_WEIGHT, "表情键样式的空格仍是 4 份");
+            }
+        }
+        // 数字九宫格不因字母层多了句号而变：仍是 返回 | 符 | 0 | 中 | 回车，没有逗号句号。
+        check(KeyboardActionRow.numberPadEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, false, standard).stream()
+                .noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD
+                    || entry.slot() == KeyboardActionRow.DesignSlot.COMMA),
+            "26 键借来的数字九宫格底行不放标点");
+    }
+
+    /** 英文 26 键：句点紧挨空格左边、逗号紧挨空格右边，句点那一份从空格里让出，与中文 26 键标准底行是同一排（{@link #chineseStandardRowMatchesEnglish}）；其他底行不因英文改变。 */
     private static void englishRow() {
         for (boolean globe : new boolean[] {false, true}) {
             List<KeyboardActionRow.DesignEntry> chinese =
@@ -434,10 +515,10 @@ public final class KeyboardActionRowSmoke {
                     KeyboardActionRow.DesignSlot.COMMA, KeyboardActionRow.DesignSlot.LAYER,
                     KeyboardActionRow.DesignSlot.RETURN)),
             "交换语言键后英文句点仍在空格左边");
-        // 中文 26 键、九键（含数字页）、14 键、大千、手写和笔画不因英文改变。
+        // 九键（含数字页）、14 键、大千、手写和笔画不因英文改变；`english` 为假的重载就是中文底行。
         check(KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false, false, false)
                 .equals(KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, false)),
-            "中文 26 键底行不变");
+            "不传英文的重载画中文 26 键底行");
         for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
                 KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
             for (boolean globe : new boolean[] {false, true}) {

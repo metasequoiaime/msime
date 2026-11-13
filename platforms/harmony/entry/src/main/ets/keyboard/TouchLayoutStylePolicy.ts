@@ -117,7 +117,7 @@ export class TouchLayoutStylePolicy {
   static readonly SPACE_SHARE: number = 4;
   static readonly LANGUAGE_SHARE: number = 1.05;
   static readonly RETURN_SHARE: number = 1.9;
-  /** 英文 26 键底行在空格左边多一个句点（份额 1），这一份从空格里让出，与 iOS `englishPhoneSpaceWeight`、Android `DESIGN_ENGLISH_SPACE_WEIGHT` 相同。 */
+  /** 26 键一族的标准底行（英文、中文各方案、韩文、越南语、藏文、日语罗马字）在空格左边多一个句点或句号（份额 1），这一份从空格里让出，与 iOS `englishPhoneSpaceWeight`、Android `DESIGN_ENGLISH_SPACE_WEIGHT` 相同；各语言用同一个值，切中/英时空格宽度不变。名字沿用最先加句点的英文底行。 */
   static readonly ENGLISH_SPACE_SHARE: number =
     TouchLayoutStylePolicy.SPACE_SHARE - TouchLayoutStylePolicy.PUNCTUATION_SHARE;
 
@@ -215,7 +215,7 @@ export class TouchLayoutStylePolicy {
   /**
    * 「中/英键放在空格左边」（共享偏好 `touch_language_key_side` 为 `left`）：在样式和「符」与「123」互换都排完之后，把 中/英 左边紧挨着的那一串空格和标点整串右移一格，中/英 挪到这一串的最左边；所有键的份额不变，只换次序。与 Android `KeyboardActionRow.languageBeforeSpace`、iOS `TouchBottomRowLayout.languageBeforeSpace` 同一条规则（笔记 2026-10-29-language-key-left-of-space.md）。
    *
-   * 空格左边没有标点的行（26 键标准、表情键）中/英 紧挨空格：123 | 符 | 中 | 空格 | ， | 回车；空格左边有标点的行（逗号句号、长空格、14/18 键、大千注音、英文 26 键的句点）标点仍紧挨空格，中/英 排在标点左边：123 | 符 | 中 | ， | 空格 | 。 | 回车。行里没有 中/英，或 中/英 左边紧挨的不是空格或标点时原样返回。
+   * 空格左边没有标点的行（表情键）中/英 紧挨空格：123 | 😀 | 中 | 空格 | ， | 回车；空格左边有标点的行（26 键一族标准底行的句号或句点、逗号句号、长空格、14/18 键、大千注音）标点仍紧挨空格，中/英 排在标点左边：123 | 符 | 中 | ， | 空格 | 。 | 回车。行里没有 中/英，或 中/英 左边紧挨的不是空格或标点时原样返回。
    */
   static languageBeforeSpace(row: readonly DesignRowEntry[], enabled: boolean): DesignRowEntry[] {
     const moved: DesignRowEntry[] = row.slice();
@@ -255,16 +255,16 @@ export class TouchLayoutStylePolicy {
   /**
    * 设计底行的键序与份额。
    *
-   * 不受样式影响时（`StyledFace.NONE`）就是原来的两种底行：26 键一族 123 | 符 | 空格 | ， | 中 | 回车，英文时空格左边多一个句点、空格让到 3；其余（大千注音）123 | ， | 空格 | 。 | 中 | 回车。
+   * 不受样式影响时（`StyledFace.NONE`）是两种底行：26 键一族（英文、韩文、越南语、藏文、日语罗马字）123 | 符 | 。 | 空格 3 | ， | 中 | 回车，句号（英文是句点）在空格左边、占从空格让出的一份，中文和英文、各语言都是这同一行，切中/英时每个键都不动，逗号长按输入句号照旧；其余（大千注音）123 | ， | 空格 | 。 | 中 | 回车。
    *
-   * 中文 26 键：`comma_period` 是 123 | 符 | ， | 空格 3 | 。 | 中 | 回车（句号占从空格让出的一份）；`long_space` 是 123 | ， | 空格 5.05 | 中 | 回车（符 的宽度交给空格，符号入口移到工具栏），即 Android 的 `KeyboardActionRow.DESIGN_LONG_SPACE_WEIGHT`；`emoji` 是 123 | 😀 | 空格 | ， | 中 | 回车，😀 占 符 的位置和宽度。
+   * 中文 26 键：`standard` 就是上面 26 键一族那一行；`comma_period` 是 123 | 符 | ， | 空格 3 | 。 | 中 | 回车（句号占从空格让出的一份）；`long_space` 是 123 | ， | 空格 5.05 | 中 | 回车（符 的宽度交给空格，符号入口移到工具栏），即 Android 的 `KeyboardActionRow.DESIGN_LONG_SPACE_WEIGHT`；`emoji` 是 123 | 😀 | 空格 | ， | 中 | 回车，😀 占 符 的位置和宽度。
    *
    * 14 键与 18 键：`long_space` 是 123 | ， | 空格 5 | 中 | 回车（。 的一份给空格）；`emoji` 是 123 | 😀 | 空格 | ， | 中 | 回车，😀 占原来 ， 的一份，， 占原来 。 的一份。
    *
    * 每种样式的整行份额都与默认行相同。
    *
    * @param commaSecondaryPeriod 26 键一族的底行（`KeyboardScheme.designRowUsesCommaSecondaryPeriod`）
-   * @param english 英文 26 键在空格左边加句点（`KeyboardScheme.designRowHasEnglishPeriod`）；只有不受样式影响的 26 键底行看它
+   * @param english 此刻是英文 26 键（`KeyboardScheme.designRowHasEnglishPeriod`）。26 键一族的标准底行现在中英文同一排法，这个参数不再改变任何一行，留着是因为调用方仍按中/英传入
    * @param styled 按哪种键面类型的样式排
    * @param style 那种键面类型选中的样式（已经过 `twentySixKeyStyle` 或 `fourteenKeyStyle`）
    */
@@ -306,6 +306,7 @@ export class TouchLayoutStylePolicy {
           entry(DesignRowSlot.RETURN, P.RETURN_SHARE),
         ];
       }
+      // 标准样式就是 26 键一族的标准底行，与英文 26 键同一行，切中/英时键位和宽度都不变。
       return P.designRow(true, false, StyledFace.NONE, P.STANDARD);
     }
     if (styled === StyledFace.FOURTEEN) {
@@ -331,19 +332,16 @@ export class TouchLayoutStylePolicy {
       return P.designRow(false, false, StyledFace.NONE, P.STANDARD);
     }
     if (commaSecondaryPeriod) {
-      const row: DesignRowEntry[] = [
+      // 26 键一族（中文标准样式、英文、韩文、越南语、藏文、日语罗马字）：句号或句点紧挨空格左边，这一份从空格里让出（`ENGLISH_SPACE_SHARE`），不分中英文。
+      return [
         entry(DesignRowSlot.LAYER, P.LAYER_SHARE),
         entry(DesignRowSlot.SYMBOL_PANEL, P.SYMBOL_PANEL_SHARE),
+        entry(DesignRowSlot.PERIOD, P.PUNCTUATION_SHARE),
+        entry(DesignRowSlot.SPACE, P.ENGLISH_SPACE_SHARE),
+        entry(DesignRowSlot.COMMA, P.PUNCTUATION_SHARE),
+        entry(DesignRowSlot.LANGUAGE, P.LANGUAGE_SHARE),
+        entry(DesignRowSlot.RETURN, P.RETURN_SHARE),
       ];
-      if (english) {
-        // 英文 26 键：句点紧挨空格左边，这一份从空格里让出（`ENGLISH_SPACE_SHARE`）。
-        row.push(entry(DesignRowSlot.PERIOD, P.PUNCTUATION_SHARE));
-      }
-      row.push(entry(DesignRowSlot.SPACE, english ? P.ENGLISH_SPACE_SHARE : P.SPACE_SHARE));
-      row.push(entry(DesignRowSlot.COMMA, P.PUNCTUATION_SHARE));
-      row.push(entry(DesignRowSlot.LANGUAGE, P.LANGUAGE_SHARE));
-      row.push(entry(DesignRowSlot.RETURN, P.RETURN_SHARE));
-      return row;
     }
     return [
       entry(DesignRowSlot.LAYER, P.LAYER_SHARE),
@@ -356,7 +354,7 @@ export class TouchLayoutStylePolicy {
   }
 
   /**
-   * 底行逗号的长按：26 键一族（含中文 26 键的标准、长空格和表情键样式）长按输入句号，与加样式之前相同；中文 26 键的「逗号句号在空格两侧」有独立句号键，逗号长按改为与 14 键逗号一样打开常用标点列表；14 键、18 键和大千注音一律打开常用标点列表。
+   * 底行逗号的长按：26 键一族（含中文 26 键的标准、长空格和表情键样式）长按输入句号，与加样式之前相同（26 键一族的标准底行空格左边另有句号键，逗号长按仍输入句号）；中文 26 键的「逗号句号在空格两侧」有独立句号键，逗号长按改为与 14 键逗号一样打开常用标点列表；14 键、18 键和大千注音一律打开常用标点列表。
    */
   static commaHold(commaSecondaryPeriod: boolean, styled: StyledFace, style: string): CommaHold {
     if (styled === StyledFace.TWENTY_SIX) {
