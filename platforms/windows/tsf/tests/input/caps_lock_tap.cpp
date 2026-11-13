@@ -36,6 +36,10 @@ void policy() {
     using msime::input::CapsLockTap;
     using msime::input::kCapsLockTapThresholdMs;
     check(kCapsLockTapThresholdMs == 300, "the tap threshold is 300 ms on every desktop");
+    check(!msime::input::caps_lock_enabled_from_key_state(0),
+          "a cleared Caps Lock low bit means the indicator is off");
+    check(msime::input::caps_lock_enabled_from_key_state(1),
+          "a set Caps Lock low bit means the indicator is on");
 
     CapsLockTap tap;
     tap.press(1000, true, false, false);
