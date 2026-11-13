@@ -2,6 +2,7 @@
 
 mod bilingual_glide;
 mod bilingual_glide_quality;
+mod fuzzy_heaviest;
 mod invalid_pinyin;
 mod sentence_excluded;
 

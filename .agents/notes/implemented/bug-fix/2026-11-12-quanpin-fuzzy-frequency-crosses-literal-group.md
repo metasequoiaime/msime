@@ -10,6 +10,8 @@ Status: implemented
 
 全拼查询在模糊合并完成后检查用户词典中与候选真实读音、词面和当前权重完全匹配的调频记录。若同一覆盖范围内存在已学习的模糊词库行，只将该覆盖范围的字典行按权重稳定重排；未学习的模糊行使用最低排序权重，继续位于字面词库行之后。生成整句和其它非词库候选不参与这次词频比较，也不改变调频日志格式。
 
+最高权重的模糊候选仍可能排在字面组之后。达到既有调频次数阈值时，即使无需增加权重，也把所选行的真实读音、词面和原权重写入学习日志，并使查询缓存失效。原有的首选精确行仍不写记录；未达阈值不写记录，未学习模糊行也不随所选行一起提升。此路径不把原始权重压到托管上限，不改变选词次数、默认值或日志格式。
+
 这与[双拼模糊候选按实际覆盖与词库调频排序](2026-10-20-shuangpin-fuzzy-coverage-learning.md)的跨来源学习原则一致，但全拼查询的原有模糊行分组在此之前没有共享同一套词频排序，因此单独在全拼合并出口补上已学习行的重排。
 
 ## Alternatives considered
@@ -20,7 +22,11 @@ Status: implemented
 
 ## Verification
 
-新增会话回归使用合成词库：`ziqian` 有三条字面候选，`zhi'qian` 只有「之前」。首次查询确认模糊候选在字面候选之后；选择后重建会话，确认「之前」进入字面候选组前列。定向运行 `cargo test -p msime-engine session::tests::quanpin_fuzzy_selection_can_cross_the_literal_candidate_group -- --exact` 通过；模糊合并相关 10 项测试通过。
+2026-11-13 使用出货资源隔离状态复核发现，原实现及 #11359 连续选五次后，「之前」仍在第 8 位、「知道」仍在第 7 位，Pin/Promote 均无变化。原合成夹具的目标词权重比字面词低，触发了写入分支，漏掉出货词库上目标词已最重却没有学习日志的情况。
+
+新增独立行为回归 `selecting_the_heaviest_fuzzy_row_records_learning_after_the_trigger`：目标词 1000、字面词 300/200、另一条未学习模糊词 900；原实现第二次选择仍没有记录，先复现失败。修后 Pin/Promote 均在达到阈值后进入首位，原权重保持 1000，未选过的模糊词仍在字面组后。67 项模糊音相关回归及 `picking_the_leader_writes_no_state` 通过。
+
+出货资源 `ziqian` /「之前」的 Pin/Promote 名次均为 `[8,1,1,1,1,1]`，`zidao` /「知道」均为 `[7,1,1,1,1,1]`，每次选择后销毁并重建会话。资源与用户、缓存目录隔离，未改维护者输入法数据。C ABI 也经 `prepare_host → create → focus → character → all_candidates → select_any_candidate → destroy` 完整链路验证，每次重建会话：「之前」为 `[14,1,1,1,1,1]`，「知道」为 `[13,1,1,1,1,1]`，Pin/Promote 均通过；该层默认词库和整句候选与直接 Engine 列表不同，所以改前位次不完全相同。quick 的最终结果以 PR 验证段记录为准。
 
 ## Consequences
 
