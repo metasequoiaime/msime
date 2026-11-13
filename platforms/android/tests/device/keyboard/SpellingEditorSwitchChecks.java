@@ -65,9 +65,12 @@ final class SpellingEditorSwitchChecks {
             s.tap(s.key("空格"));
             s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你", node.getText())));
             Rect compactAfterCommit = keyboard(s);
-            if (Math.abs(compactAfterCommit.height() - enabled.height()) > 8 * density(s))
+            if (Math.abs(compactAfterCommit.height() - enabled.height()) > 8 * density(s)) {
+                screenshot(s, "failure");
                 throw new AssertionError("移除铅笔后组字提交改变了键盘高度：before=" + enabled
                     + ", after=" + compactAfterCommit);
+            }
+            screenshot(s, "committed");
 
             s.stage = "native setting persists on and off";
             setting(s, false);
