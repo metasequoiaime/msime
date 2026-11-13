@@ -415,16 +415,10 @@ function setupState(value: unknown): ImeSetupState | null {
     }
   }
   if (typeof value !== "object" || value === null) return null;
-  const { enabled, current, basicMode } = value as {
-    enabled?: unknown;
-    current?: unknown;
-    basicMode?: unknown;
-  };
+  const { enabled, current } = value as { enabled?: unknown; current?: unknown };
   const isFact = (candidate: unknown): candidate is boolean | null =>
     candidate === null || typeof candidate === "boolean";
-  if (!isFact(enabled) || !isFact(current)) return null;
-  // 旧宿主不报告这一项，读作不是基础访问模式。
-  return { enabled, current, basicMode: basicMode === true };
+  return isFact(enabled) && isFact(current) ? { enabled, current } : null;
 }
 
 /**
