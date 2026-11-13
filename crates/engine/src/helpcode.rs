@@ -829,7 +829,7 @@ mod tests {
     fn the_carried_jiajia_table_loads_whole() {
         let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resources");
         let loaded = load_helpcode_keymap(&resources, "jiajia").unwrap();
-        assert_eq!(loaded.len(), 7968);
+        assert_eq!(loaded.len(), 21327);
         for (character, code) in [("好", "nz"), ("你", "de"), ("中", "ks"), ("国", "ky")] {
             assert_eq!(loaded.code(character), Some(code));
         }
