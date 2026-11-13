@@ -775,7 +775,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         for (int percent = ToolbarSizePolicy.MIN_PERCENT; percent <= ToolbarSizePolicy.MAX_PERCENT; percent += 10) {
             int choice = percent;
             sheet.option(percent + "%", custom && current == percent,
-                () -> saveLocalSetting(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice));
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.TOOLBAR_SIZE_PERCENT, choice,
+                    this::reload, this::reload));
         }
         sheet.show();
     }
