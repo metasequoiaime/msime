@@ -341,7 +341,10 @@ def main():
                                 if cloud_receiver_owned and text == cloud_last_text:
                                     cloud_receiver_owned = False
                                 else:
-                                    if cloud_sync.is_file():
+                                    # Wayland watch events are already handed to the
+                                    # capture-event child; avoid uploading the same
+                                    # text again when the parent reads the selection.
+                                    if cloud_sync.is_file() and not (changed and watcher_kind == "wayland"):
                                         try:
                                             cloud_request(cloud_sync, args.options,
                                                           {"operation": "add", "text": text})
