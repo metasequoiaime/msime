@@ -37,7 +37,15 @@ case "$*" in
     exit 0 ;;
   "shell locksettings verify") echo "Lock credential verified successfully"; exit 0 ;;
   install*) echo Success; exit 0 ;;
+  "shell input tap 630 1447")
+    touch "$state/model-deferred"; exit 0 ;;
   pull*)
+    if [[ -n "${FAKE_MODEL_DIALOG:-}" && ! -e "$state/model-deferred" ]]; then
+      title="下载整句增强模型？"
+      [[ "$FAKE_MODEL_DIALOG" == unrelated ]] && title="删除个人词库？"
+      printf '<hierarchy><node package="app.msime.android" text="%s" resource-id="app.msime.android:id/alertTitle"/><node package="app.msime.android" text="以后再说" resource-id="android:id/button2" bounds="[524,1384][737,1510]"/></hierarchy>\n' "$title" > "$3"
+      exit 0
+    fi
     printf '%s\n' '<hierarchy><node text="试用键盘" resource-id="" bounds="[0,0][10,10]"/></hierarchy>' > "$3"
     exit 0 ;;
 esac
@@ -171,6 +179,16 @@ def main() -> None:
         return
     with tempfile.TemporaryDirectory(prefix="msime-smoke-report-") as temp:
         base = Path(temp)
+
+        for sdk in ("28", "35"):
+            run = Run(base, f"model-dialog-{sdk}", ["--core"], sdk=sdk, model_dialog="model")
+            run.expect(run.code == 0, "整句增强模型询问应选择以后再说，不能阻塞初始化")
+            run.expect(f"adb -s {SERIAL} shell input tap 630 1447" in run.calls, "必须点当前弹窗的以后再说按钮")
+            run.expect(run.ran("DeviceSmoke"), "关闭可选下载后仍须执行真实输入验收")
+
+        run = Run(base, "unrelated-dialog", ["--core"], model_dialog="unrelated")
+        run.expect(run.code == 1 and "Device bootstrap timed out" in run.stopped_line(), "未知弹窗仍须阻止验收")
+        run.expect(not any("shell input tap" in c for c in run.calls), "不能盲点其他确认弹窗")
 
         run = Run(base, "full-pass", [])
         run.expect(run.code == 0, "全部通过时应以 0 退出")
