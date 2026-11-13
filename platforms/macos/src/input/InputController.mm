@@ -5612,8 +5612,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (!optIn || [self enableOptInInputMode:optIn]) _appearance.lastSyncedInputScheme = scheme;
     }
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(_appearance.englishMode, scheme));
-    if (MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]) &&
-        MSIMEGlobalVoiceHost().delivering && MSIMEGlobalVoiceHost().selectedMode)
+    const BOOL selected = MSIMESelectSystemInputMode(MSIMESharedSystemInputModeState(), mode, client, [self inputModeAvailability]);
+    // 控制器自己请求系统换入口的每一次都记下，和 input_mode_report 对着看，才分得清一份报告是这次请求的回执还是用户选的。
+    if (selected) msime_macos_diagnostic_writef("input_mode_select mode=%s", MSIMESharedSystemInputModeState().current.pathExtension.UTF8String ?: "");
+    if (selected && MSIMEGlobalVoiceHost().delivering && MSIMEGlobalVoiceHost().selectedMode)
         MSIMEGlobalVoiceHost().selectedMode(MSIMESharedSystemInputModeState().current);
     // 菜单栏状态项显示控制器算出的模式，而不是 MSIMESelectSystemInputMode 回退后的那个：「双」「五」等模式没有加成输入源时系统图标停在「中」，状态项仍显示真实方案。
     [self presentInputModeStatusItem:_appearance.inputModeStatusItem ? mode : nil];
@@ -5667,13 +5669,17 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     const BOOL englishToChineseModeSwitchPending = _englishToChineseModeSwitchPending;
-    // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统落在 中 上，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
+    // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统把用户送回离开时的 中，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn 和 left）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
     const BOOL switchedIn = state.switchedIn;
     const BOOL restoring = MSIMESystemInputModeRestoring(state, NSProcessInfo.processInfo.systemUptime);
     if (!MSIMEAdoptReportedInputMode(state, value)) {
         // 自己刚从英文切回中文时，系统也可能重复报告已经选中的模式；消费这次回执，免得下一次真正的「中」选择仍被保留。
         // 但控制器请求模式时同步回来的回报仍在 selecting 保护期内，不能抢先消费等待中的异步回执。
         if (englishToChineseModeSwitchPending && !state.selecting) _englishToChineseModeSwitchPending = NO;
+        // 没被采纳的报告也记一行：重复已显示的入口，或是控制器自己请求时同步回来的。不是本输入法的入口不记。
+        if (MSIMEIsInputModeID(value))
+            msime_macos_diagnostic_writef("input_mode_report mode=%s action=ignored reason=%s", [(NSString *)value pathExtension].UTF8String ?: "",
+                                          state.selecting ? "own_select" : "repeat");
         return;
     }
     _englishToChineseModeSwitchPending = NO;
@@ -5699,14 +5705,18 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const BOOL reportConfirmsEnglishToChineseSwitch = englishToChineseModeSwitchPending &&
         !switchedIn && mode == MSIMEInputMode::Chinese;
     _englishToChineseModeSwitchPending = NO;
+    // 切进后报告的入口不是离开时的那个，是用户从别的输入源直接选了它，方案照它走（MSIMEReportReturnsToLeftInputMode）。
+    const BOOL returnedToLeftMode = MSIMEReportReturnsToLeftInputMode(state, switchedIn, value);
+    // 确知是回到离开时的入口时，哪个入口都不改方案（MSIMEReportRepeatsLeftInputMode）。
     NSString *target =
-        reportConfirmsEnglishToChineseSwitch ? nil :
-        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], switchedIn);
+        reportConfirmsEnglishToChineseSwitch || MSIMEReportRepeatsLeftInputMode(state, switchedIn, value) ? nil :
+        MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], returnedToLeftMode);
     // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
     if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
     // 诊断日志记下每一次被采纳的报告和它把方案改成了什么：模式名和方案名都不是输入内容。方案莫名其妙被改掉时（开盖后变成注音），这一行能说明是谁报告了哪个模式。
-    msime_macos_diagnostic_writef("input_mode_report mode=%s action=adopted scheme=%s target=%s switched_in=%d", reported.UTF8String ?: "",
-                                  scheme.UTF8String ?: "", target.UTF8String ?: "-", switchedIn ? 1 : 0);
+    msime_macos_diagnostic_writef("input_mode_report mode=%s action=adopted scheme=%s target=%s switched_in=%d left=%s", reported.UTF8String ?: "",
+                                  scheme.UTF8String ?: "", target.UTF8String ?: "-", switchedIn ? 1 : 0,
+                                  state.left ? state.left.pathExtension.UTF8String : "-");
     if (target && ![target isEqualToString:scheme]) {
         // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
         if (_session && _activeClient && [_view[@"editing_text"] length]) {

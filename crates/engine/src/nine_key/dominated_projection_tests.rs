@@ -38,6 +38,7 @@ impl NineKeySession {
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
         let mut syllables = Vec::new();
         let dictionary_options = self.dictionary_options();
+        let mut window = self.digits.len();
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
@@ -47,21 +48,32 @@ impl NineKeySession {
             syllables =
                 table.spellings_for(remaining, locked_length, splits.first().copied(), prior);
             syllables.retain(|syllable| starts_right(syllable));
-            // 与生产刷新同一个查询上限，对照只比较支配过滤本身。
+            // 与生产刷新同一个查询上限、整串切不开时同一段前缀路径和同一段覆盖核对（`typo_prefix`），对照只比较支配过滤本身。
             let mut alternatives =
                 table.split_paths_limited(remaining, splits, prior, QUERY_PATH_LIMIT);
+            let span = if alternatives.is_empty() {
+                let prefix = typo_prefix::append_prefix_paths(
+                    table,
+                    remaining,
+                    splits,
+                    prior,
+                    &mut alternatives,
+                );
+                if prefix == 0 {
+                    remaining
+                } else {
+                    window = locked_length + prefix;
+                    &remaining[..prefix]
+                }
+            } else {
+                remaining
+            };
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             if self.locked.is_empty() && splits.is_empty() && initial.is_none() {
-                if !self.sentence_seeds.is_empty() && remaining.len() >= SEEDED_TRUNCATE_DIGITS {
+                if !self.sentence_seeds.is_empty() && span.len() >= SEEDED_TRUNCATE_DIGITS {
                     alternatives.truncate(SEEDED_PATH_LIMIT);
                 }
-                seeded_paths(
-                    &mut alternatives,
-                    &self.sentence_seeds,
-                    remaining,
-                    table,
-                    prior,
-                );
+                seeded_paths(&mut alternatives, &self.sentence_seeds, span, table, prior);
             }
             alternatives.extend(
                 syllables
@@ -130,7 +142,8 @@ impl NineKeySession {
                 } else {
                     canonical.as_str()
                 };
-                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits) else {
+                let Some(covered) = grid.matching_code_prefix_len(matched, &self.digits[..window])
+                else {
                     continue;
                 };
                 candidate.pinyin.clear();
