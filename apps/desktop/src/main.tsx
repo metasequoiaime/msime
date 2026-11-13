@@ -289,7 +289,9 @@ const resourcePacks: ResourcePackClient = {
     cancel: "resource_pack_cancel",
     progress: "resource-pack-progress",
   }),
+  importPack: (id) => invoke<string | null>("resource_pack_import", { id }),
   remove: (id) => invoke<boolean>("resource_pack_remove", { id }),
+  openExternalUrl: (url) => invoke<void>("open_external_url", { url }),
   checkGrammarUpdates: () => invoke("resource_pack_check_grammar_updates"),
 };
 const macosInstallClient: MacosInstallClient = {

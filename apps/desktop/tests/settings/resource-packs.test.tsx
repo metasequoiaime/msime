@@ -55,6 +55,7 @@ const sizes: Record<ResourcePackId, number> = {
 function fakePacks(
   state: Partial<Record<ResourcePackId, ResourcePackStatus["state"]>> = {},
   offered: ResourcePackId[] = ["japanese", "language-dictionaries", "handwriting", "settled-model"],
+  importFiles: Partial<Record<ResourcePackId, { name: string; url: string; size: number }[]>> = {},
 ) {
   const states: Record<ResourcePackId, ResourcePackStatus["state"]> = {
     japanese: "missing",
@@ -83,12 +84,14 @@ function fakePacks(
         state: states[id],
         size: sizes[id],
         schemes: [],
+        import_files: importFiles[id] ?? [],
       })),
     ),
     install: vi.fn(
       (id: ResourcePackId) =>
         new Promise<string>((resolve, reject) => pending.set(id, { resolve, reject })),
     ),
+    importPack: vi.fn(async () => null),
     cancel: vi.fn(async () => true),
     remove: vi.fn(async () => true),
     onProgress: vi.fn(async (listener: (progress: LocalVoiceModelProgress) => void) => {
@@ -924,6 +927,30 @@ test("语法模型卸载失败保留已安装状态并显示错误，允许重�
   fireEvent.click(screen.getByRole("button", { name: "删除语法模型·八股文（紧凑）" }));
   await waitFor(() => expect(packs.client.remove).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByText("操作失败，请重试。")).toBeNull());
+});
+
+test("Linux 语法模型提供离线导入入口", async () => {
+  const packs = fakePacks({}, ["grammar-model-wanxiang"], {
+    "grammar-model-wanxiang": [
+      {
+        name: "wanxiang-lts-zh-hans.gram",
+        url: "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram",
+        size: 398_497_836,
+      },
+    ],
+  });
+  renderSettings("linux", packs.client, {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      sentence_association: { grammar_model: "wanxiang" },
+    },
+  });
+  await settingsFormReady();
+  selectSettingsTab("候选与联想");
+  const button = await screen.findByRole("button", { name: "从文件导入语法模型·万象" });
+  fireEvent.click(button);
+  expect(packs.client.importPack).toHaveBeenCalledWith("grammar-model-wanxiang");
 });
 
 test("语法模型只在用户检查后提示更新，下载仍需再次点击", async () => {
