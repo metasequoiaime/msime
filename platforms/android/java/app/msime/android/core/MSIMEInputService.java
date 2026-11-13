@@ -12609,13 +12609,14 @@ public final class MSIMEInputService extends InputMethodService {
             applyKeyboardAdjustAccessibility();
         }
         if (candidateHeader != null) {
+            boolean modeLabel = !message.isEmpty();
             spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
                 toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
                     || drawsKeyGrid(displayedTouchLayout(view)), idle,
-                preedit == null ? "" : preedit.getText(), status == null ? "" : status.getText(),
+                preedit == null ? "" : preedit.getText(),
+                status == null || idle && !modeLabel ? "" : status.getText(),
                 ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));
             // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
-            boolean modeLabel = !message.isEmpty();
             ViewPolicy.setVisible(candidateHeader, !hasDiagnostic && spellingHeaderReserved && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
