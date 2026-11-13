@@ -96,6 +96,9 @@ public final class CloudClipboardPanelPolicySmoke {
         check(!CloudClipboardPanelPolicy.canUpload(false, Status.READY, "synthetic note"), "a sensitive field cannot upload");
         check(!CloudClipboardPanelPolicy.canUpload(true, Status.READY, "x".repeat(4_001)), "text over the service limit cannot upload");
         check(!CloudClipboardPanelPolicy.canUpload(true, Status.READY, "  "), "blank text cannot upload");
+        check(CloudClipboardPanelPolicy.autoUploadEligible(true, "synthetic note"), "an allowed copy starts an automatic status check");
+        check(!CloudClipboardPanelPolicy.autoUploadEligible(false, "synthetic note"), "a sensitive field does not start automatic sync");
+        check(!CloudClipboardPanelPolicy.autoUploadEligible(true, "  "), "blank copies do not start automatic sync");
         check(!CloudClipboardPanelPolicy.canMutate(false, false), "a failed reload cannot mutate stale cloud rows");
         check(!CloudClipboardPanelPolicy.canMutate(true, true), "a busy cloud action cannot overlap another mutation");
         check(CloudClipboardPanelPolicy.canMutate(true, false), "a loaded idle cloud page may mutate");

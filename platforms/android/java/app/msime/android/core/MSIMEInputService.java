@@ -1033,6 +1033,12 @@ public final class MSIMEInputService extends InputMethodService {
     /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
     private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> {
         captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
+        try {
+            PrimaryClip clip = readPrimaryClip();
+            if (clip != null && !clip.sensitive()) imePanels.autoSyncClipboardText(clip.text());
+        } catch (SecurityException ignored) {
+            // 系统拒绝读取时由本机历史和云同步共同跳过这次变化。
+        }
         offerRecentClip(true);
     };
     /** 只让当前输入框的启动任务占用工作线程；旧任务可能还在收尾，但不能再排队读偏好或同步词库。 */
