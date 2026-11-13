@@ -2,6 +2,7 @@
 //!
 //! The setters the product only sets at construction (`switch_scheme`, `set_helpcode_schema`, `set_helpcode_enabled`, `set_wubi_mixed_pinyin`, `set_personal_context_enabled`) and `candidate_key` stay public because the golden scenarios drive them. Learning undo (`set_learning_undo_enabled`, `forget_recent_commits`) is dropped.
 
+mod candidate_answers;
 mod candidates;
 mod cantonese_learning;
 mod caret_edit;
@@ -1008,7 +1009,7 @@ impl Session {
                 .then(|| input.multilingual_conversion.clone())
                 .flatten(),
             candidate_annotations: input.candidate_annotations(hide_helpcode),
-            // 纠错候选按原始按键长度消费；普通候选仍按 `pinyin`，两者都由组字推进判断。
+            // 重排只比较回答整段输入的候选；选择后会结束组字的补全词另行排除。
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
@@ -1019,6 +1020,7 @@ impl Session {
                             | CandidateSource::CloudPending
                             | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
+                        && !candidate_answers::is_longer_pinyin_completion(item)
                         && input.selection_completes_composition(item)
                 })
                 .collect(),

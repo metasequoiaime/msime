@@ -48,3 +48,5 @@ Status: implemented
 
 - `crates/engine/src/quanpin/dictionary/tests.rs` 新增五个测试，全部用合成夹具：`heavier_longer_phrase_does_not_take_the_first_seat_from_the_exact_reading`（打错字 565 对 打错字了 1010，且补全词仍在冷僻同音词「大错字」之前）；`light_exact_reading_still_leads_heavier_continuations`（都没人 3 对 100 到 129 的补全词）；`sentence_rows_follow_a_light_exact_hit_and_precede_heavier_longer_phrases`（开整句候补时整句块夹在整词和补全词之间）；`sentence_leads_longer_phrases_when_no_exact_reading_exists`（没有整词时整句在补全词之前）；`prefix_only_row_does_not_pin_the_first_seat_over_a_heavier_continuation`（只有前缀行 质量奖 10 时，更重的补全词 质量检验 500 排在它前面）。前三个在修复前失败，第四个修复前后都通过，钉住没有整词时的既有行为；第五个在不检查读音的初版上失败。原有的 `longer_phrases_join_the_full_key_group_by_weight` 和 `sentence_rows_follow_the_exact_hits_and_precede_longer_phrases` 不改动照样通过。
 - 用锁定词库和产品重排器经完整 runtime 打 `dacuozi`、`doumeiren`、`pingguo`：修复前前两个的首选分别是「打错字了」「都没人管理」，修复后是「打错字」「都没人」；`pingguo` 前后都是「苹果」，第三、四位仍是「苹果电脑」「苹果公司」；`zhiliangjian` 的「质量检验」在第 5 位，「质量奖」在第 8 位。
+
+模型入口的完整输入判定另见[纠错重排排除更长补全](2026-11-13-corrected-pinyin-completion-rerank.md)，本篇词典排序规则保持。
