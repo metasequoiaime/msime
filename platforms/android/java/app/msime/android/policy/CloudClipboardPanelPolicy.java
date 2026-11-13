@@ -147,8 +147,8 @@ public final class CloudClipboardPanelPolicy {
     }
 
     /** 复制监听在发起状态查询前使用的本地门槛；云端是否开启由查询结果决定。 */
-    public static boolean autoUploadEligible(boolean cloudAllowed, String text) {
-        return cloudAllowed && CloudClipboardTextPolicy.valid(text);
+    public static boolean autoUploadEligible(boolean cloudAllowed, boolean visitor, String text) {
+        return cloudAllowed && !visitor && CloudClipboardTextPolicy.valid(text);
     }
 
     /** A failed reload invalidates the page before any mutating action may use its old rows. */
