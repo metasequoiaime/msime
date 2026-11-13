@@ -776,7 +776,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-从 `main` 发正式版时不用传任何参数，`auto` 会在同次构建中签名、上传、等待解析、提交公开测试审核，不需要再到控制台手动上传或填写截图等素材，它们沿用最近的测试或在架版本。CI 在耗时构建前检查华为鉴权和本地配置；华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。上传后的包 ID、创建后的测试版本 ID 会立即写入 Actions 日志与步骤摘要，后续失败也保留；日志不包含 token、OBS 签名地址或原始资料。
+正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步仓库里的不透明 216×216 图标和 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试。图标和版本特性不再从 AGC 旧资料静默继承；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 
