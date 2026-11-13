@@ -203,7 +203,7 @@ pub fn reorders_candidates(scheme: u8) -> bool {
     scheme_type(scheme).is_none_or(SchemeType::holds_phrase_progress)
 }
 
-/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼的纠错行重排器照旧允许领先，引擎侧另由 `typo_lead_margin` 约束（默认同样是无穷大）。
+/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼的纠错行重排器照旧允许领先，引擎侧另由 `typo_lead_margin` 约束（每处胜过字面整句 30 以上才坐首位）。
 fn corrections_may_lead(scheme: u8) -> bool {
     scheme_type(scheme) != Some(SchemeType::Shuangpin)
 }
@@ -901,7 +901,7 @@ pub fn runner_up_order_pooled<'a, R: OrderRowSource<'a> + ?Sized>(
     runner_up_order_pinned(scheme, rows, touch_supported, pool, None)
 }
 
-/// 引擎坐在第二位的全拼纠错整句现在在哪一格：引擎把明显胜过字面整句的纠错整句放在它第一条整句读法正后方（`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`），其余的排在整句块之后。`engine_seats[i]` 是当前第 i 格在引擎原表里的座位；重排器把别的读法提到首位以后，那一行就不再紧跟当前的第一条读法，只能按引擎座位认。双拼的纠错句由引擎排在整句块之后（#6034），没有这个座位。长度对不上时为 `None`。
+/// 引擎紧挨着第一条整句读法安放的全拼纠错整句现在在哪一格：胜过字面整句很多的坐在它前面（首位，`lattice::decode::LatticeOptions::typo_lead_margin`），明显胜过的坐在它后面（`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`），其余的排在整句块之后。`engine_seats[i]` 是当前第 i 格在引擎原表里的座位；重排器把别的读法提到首位以后，那一行就不再紧跟当前的第一条读法，只能按引擎座位认。双拼的纠错句由引擎排在整句块之后（#6034），没有这个座位。长度对不上时为 `None`。
 pub fn engine_seated_correction<'a, R: OrderRowSource<'a> + ?Sized>(
     scheme: u8,
     rows: &R,
@@ -920,11 +920,13 @@ pub fn engine_seated_correction<'a, R: OrderRowSource<'a> + ?Sized>(
         .min()?;
     (0..count).find(|&index| {
         let row = rows.get(index);
-        row.source == LATTICE_SOURCE && row.corrected && engine_seats[index] == first + 1
+        row.source == LATTICE_SOURCE
+            && row.corrected
+            && (engine_seats[index] + 1 == first || engine_seats[index] == first + 1)
     })
 }
 
-/// [`runner_up_order_pooled`]，`pinned` 是 [`engine_seated_correction`] 找到的那一行：它不按读法降位，坐在第一条读法正后方，并占掉一条留下的读法名额。它不是同一串字母的又一种读法，而是对打错的改正；按读法降位会把它和其余读法一起挪走（字数不同时排到留下的读法后面，字数相同又超出名额时挪到表尾），手机候选栏上就看不到了。`pinned` 不是纠错的整句行时不起作用。
+/// [`runner_up_order_pooled`]，`pinned` 是 [`engine_seated_correction`] 找到的那一行：它不按读法降位，在第一条字面读法之前的坐首位、之后的坐第二位，并占掉一条留下的读法名额；读法按第一条字面读法的字数认。它不是同一串字母的又一种读法，而是对打错的改正；按读法降位会把它和其余读法一起挪走（字数不同时排到留下的读法后面，字数相同又超出名额时挪到表尾），手机候选栏上就看不到了。`pinned` 不是纠错的整句行时不起作用。
 pub fn runner_up_order_pinned<'a, R: OrderRowSource<'a> + ?Sized>(
     scheme: u8,
     rows: &R,
@@ -955,9 +957,16 @@ pub fn runner_up_order_pinned<'a, R: OrderRowSource<'a> + ?Sized>(
         row.source == LATTICE_SOURCE
             && !(row.corrected && touch_supported.get(index).copied().unwrap_or(false))
     };
+    let pinned = pinned.filter(|&index| {
+        index < count && {
+            let row = rows.get(index);
+            row.source == LATTICE_SOURCE && row.corrected && lattice(index, &row)
+        }
+    });
+    // 读法按第一条字面读法的字数认：坐首位的纠错句字数常和字面读法不同，按它认就一条字面读法也认不出来，整页都是不成句的读法。
     let width = (0..rows.len())
         .map(|index| (index, rows.get(index)))
-        .find(|(index, row)| lattice(*index, row))
+        .find(|(index, row)| Some(*index) != pinned && lattice(*index, row))
         .map(|(_, row)| row.text.chars().count())?;
     if width < SENTENCE_SYLLABLES {
         return None;
@@ -968,16 +977,6 @@ pub fn runner_up_order_pinned<'a, R: OrderRowSource<'a> + ?Sized>(
         1
     };
     // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order. `keep` is at most three, so rescanning the rows costs less than allocating separate reading and membership arrays.
-    let first_seated = (0..count).find(|&index| {
-        let row = rows.get(index);
-        lattice(index, &row) && row.text.chars().count() == width
-    })?;
-    let pinned = pinned.filter(|&index| {
-        index < count && index != first_seated && {
-            let row = rows.get(index);
-            row.source == LATTICE_SOURCE && row.corrected && lattice(index, &row)
-        }
-    });
     let keep = if pinned.is_some() {
         (keep - 1).max(1)
     } else {
@@ -1017,9 +1016,17 @@ pub fn runner_up_order_pinned<'a, R: OrderRowSource<'a> + ?Sized>(
         for index in 0..count {
             if seated(index) {
                 if seated_seen == 0 {
-                    emit(index);
-                    if let Some(pinned) = pinned {
-                        emit(pinned);
+                    // 纠错句在第一条读法之前就坐首位，之后就坐第二位。
+                    match pinned {
+                        Some(pinned) if pinned < index => {
+                            emit(pinned);
+                            emit(index);
+                        }
+                        Some(pinned) => {
+                            emit(index);
+                            emit(pinned);
+                        }
+                        None => emit(index),
                     }
                     let mut kept = 1;
                     for next in index + 1..count {
@@ -1583,6 +1590,23 @@ mod tests {
         assert_eq!(
             order(quanpin, &rotated, &rotated_seats),
             Some(vec![0, 2, 1, 4, 3])
+        );
+        // 坐首位的纠错句留在首位，读法按第一条字面读法的字数认：按纠错句的字数认，七字句后面的八字字面读法一条也不会降位。
+        let leading = [
+            corrected("现在我打一段话"),
+            row("仙子啊我打哟段话", LATTICE_SOURCE),
+            row("仙子啊我大哟段话", LATTICE_SOURCE),
+            row("仙子啊我打哟端华", LATTICE_SOURCE),
+            row("仙子啊我大哟端华", LATTICE_SOURCE),
+            row("仙子", 0),
+        ];
+        assert_eq!(
+            engine_seated_correction(quanpin, &leading, &identity(6)),
+            Some(0)
+        );
+        assert_eq!(
+            order(quanpin, &leading, &identity(6)),
+            Some(vec![0, 1, 2, 5, 3, 4])
         );
         // 字数和读法相同也一样：它不按读法占座，也就不会因为超出名额挪到表尾。
         let same_width = [
