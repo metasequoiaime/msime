@@ -24,6 +24,7 @@ WATCH_RETRY_DELAY = 30
 # 合成器不提供 data-control 协议时，wl-clipboard 的 `wl-paste --watch` 一启动就在 stderr 写下含这段文字的一行并以状态 1 退出（2.2 起是 "Watch mode requires a compositor that supports the data-control protocol"，更早是 "... wlroots data-control protocol"；编译时没带该协议的是 "wl-clipboard was built without support for the data-control protocol"）。
 WAYLAND_NO_DATA_CONTROL = b"data-control protocol"
 POLL_INTERVAL = 0.75
+CLOUD_POLL_INTERVAL = 3.0
 
 
 def history_text(data, complete):
@@ -62,6 +63,67 @@ def history_directory(options):
     if preferences.get("format_version") != 1 or not isinstance(preferences.get("preferences"), dict):
         raise ValueError()
     return directory if preferences["preferences"].get("clipboard_history") is True else None
+
+
+def configured_directory(options):
+    config = document(options)
+    directory = Path(config["preferences_directory"])
+    if not directory.is_absolute():
+        raise ValueError()
+    preferences = document(directory / "preferences.json")
+    if preferences.get("format_version") != 1 or not isinstance(preferences.get("preferences"), dict):
+        raise ValueError()
+    return directory
+
+
+def cloud_request(helper, options, action):
+    process = subprocess.run(
+        [str(helper), str(options)], input=(json.dumps(action, ensure_ascii=False) + "\n").encode("utf-8"),
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5, check=False,
+    )
+    if process.returncode != 0:
+        return None
+    output = getattr(process, "stdout", b"")
+    if not output:
+        return None
+    value = json.loads(output)
+    return value if isinstance(value, dict) else None
+
+
+def write_clipboard(text):
+    commands = []
+    if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
+        commands.append(["wl-copy"])
+    if os.environ.get("DISPLAY"):
+        if shutil.which("xclip"):
+            commands.append(["xclip", "-selection", "clipboard"])
+        if shutil.which("xsel"):
+            commands.append(["xsel", "--clipboard", "--input"])
+    for command in commands:
+        try:
+            result = subprocess.run(command, input=text.encode("utf-8"),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    timeout=2, check=False)
+            if result.returncode == 0:
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return False
+
+
+def cloud_item(page):
+    if not isinstance(page, dict) or page.get("enabled") is not True:
+        return None
+    items = page.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+    item = items[0]
+    if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+        return None
+    updated = item.get("updated_at")
+    if not isinstance(updated, str) or not updated:
+        return None
+    return item
 
 
 def read_command(args):
@@ -111,13 +173,12 @@ def clipboard_text():
     return None
 
 
-def capture_event(options, capture):
+def capture_event(options, capture, cloud_sync):
     # Watch mode passes selection data over stdin, never in argv or logs.
     if os.environ.get("CLIPBOARD_STATE", "data") != "data":
         return
-    directory = history_directory(options)
-    if directory is None:
-        return
+    directory = configured_directory(options)
+    history = history_directory(options)
     data = bytearray()
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:
@@ -127,9 +188,15 @@ def capture_event(options, capture):
         data.extend(chunk)
         if not chunk or len(data) == MAX_TEXT_BYTES:
             text = history_text(data, complete=not chunk)
-            if text and history_directory(options) == directory:
-                subprocess.run([str(capture), str(directory)], input=text.encode("utf-8"),
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            if text and configured_directory(options) == directory:
+                if history is not None:
+                    subprocess.run([str(capture), str(directory)], input=text.encode("utf-8"),
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                if cloud_sync.is_file():
+                    try:
+                        cloud_request(cloud_sync, options, {"operation": "add", "text": text})
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        pass
             return
 
 
@@ -174,9 +241,10 @@ def main():
     msime_crash_capture.start("clipboard-event" if args.capture_event else "clipboard-monitor",
                               options=args.options)
     capture = Path(__file__).resolve().parent / "msime-linux-clipboard-capture"
+    cloud_sync = Path(__file__).resolve().parent / "msime-linux-cloud-clipboard-sync"
     if args.capture_event:
         try:
-            capture_event(args.options, capture)
+            capture_event(args.options, capture, cloud_sync)
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
         return
@@ -184,6 +252,10 @@ def main():
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, terminate)
     last = None
+    cloud_last_updated = ""
+    cloud_last_text = ""
+    cloud_receiver_owned = False
+    next_cloud_poll = 0.0
     watcher = None
     watcher_kind = None
     retry_watch = 0
@@ -194,13 +266,24 @@ def main():
     try:
         while True:
             try:
-                directory = history_directory(args.options)
-                if directory is None:
+                directory = configured_directory(args.options)
+                history = history_directory(args.options)
+                if history is None:
                     stop_watch(watcher)
                     watcher = None
                     watcher_kind = None
-                    last = None
                     wayland_watch_failed = False
+                    text = clipboard_text()
+                    identity = (str(directory), text)
+                    if (text is not None and identity != last and cloud_sync.is_file() and
+                            not (cloud_receiver_owned and text == cloud_last_text)):
+                        try:
+                            cloud_request(cloud_sync, args.options,
+                                          {"operation": "add", "text": text})
+                        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                            pass
+                    if text is not None:
+                        last = identity
                 else:
                     if watcher is not None and watcher.poll() is not None:
                         failed = watcher_kind == "wayland" and wayland_lacks_data_control(watcher.returncode, watch_errors)
@@ -247,14 +330,45 @@ def main():
                         # or preferences change. Match watch-mode revalidation
                         # before delivering text to the capture process.
                         if (text is not None and (changed or identity != last) and
-                                history_directory(args.options) == directory):
-                            result = subprocess.run([str(capture), str(directory)], input=text.encode(),
-                                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                                    timeout=2)
+                                configured_directory(args.options) == directory):
+                            if history is not None and history_directory(args.options) == directory:
+                                result = subprocess.run([str(capture), str(directory)], input=text.encode(),
+                                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                        timeout=2)
+                            else:
+                                result = subprocess.CompletedProcess([], 0)
                             if result.returncode == 0:
+                                if cloud_receiver_owned and text == cloud_last_text:
+                                    cloud_receiver_owned = False
+                                else:
+                                    if cloud_sync.is_file():
+                                        try:
+                                            cloud_request(cloud_sync, args.options,
+                                                          {"operation": "add", "text": text})
+                                        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                                            pass
                                 last = identity
                         elif text is None:
                             last = None
+                if cloud_sync.is_file() and time.monotonic() >= next_cloud_poll:
+                    next_cloud_poll = time.monotonic() + CLOUD_POLL_INTERVAL
+                    try:
+                        page = cloud_request(cloud_sync, args.options,
+                                             {"operation": "list", "search": ""})
+                        item = cloud_item(page)
+                        if item is not None and item["updated_at"] > cloud_last_updated:
+                            current = clipboard_text() or ""
+                            if current == cloud_last_text or not current or cloud_receiver_owned:
+                                if write_clipboard(item["text"]):
+                                    cloud_last_updated = item["updated_at"]
+                                    cloud_last_text = item["text"]
+                                    cloud_receiver_owned = True
+                                    last = (str(directory), item["text"])
+                            elif current != cloud_last_text:
+                                cloud_receiver_owned = False
+                                cloud_last_updated = item["updated_at"]
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError, json.JSONDecodeError):
+                        pass
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
                 stop_watch(watcher)
                 watcher = None

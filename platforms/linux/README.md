@@ -612,7 +612,7 @@ Linux 桌面外壳现在提供与 Windows、macOS 同样的九个账号命令（
 
 命令本体与 Windows 完全一致，差别只在会话文件所在的目录：Linux 没有一个所有目标桌面都保证在跑的密钥服务，因此会话保存在共享状态目录下的 `account-session.json`，以 0600 创建、按临时文件加原子重命名发布，读取前核对是普通文件（不跟随符号链接）、属主是当前用户、其他用户无任何权限、且大小不超过 64 KiB；不满足时报告存储错误而不是伪装成「未登录」。这与 Linux provider 私有配置文件一直声明的规则相同，也沿用 `msime-linux-prepare` 建立的 0700 状态目录。**它不加密静态数据**；macOS 与 Windows 桌面端现在用的是同一个文件存储（`crates/client-services/src/account/file_storage.rs`），不再用 Keychain 或凭据管理器。令牌只在桌面宿主进程内，交给 WebView 的仍是与其他平台相同的脱敏 DTO。
 
-云剪贴板使用独立的 `msime-linux-cloud-clipboard /absolute/provider.sock` 入口。它验证列表、明确添加、删除和启停请求后，经同一类用户管理服务转发 `{"version":1,"kind":"cloud_clipboard","request":...}`；服务负责账号凭据、云端保留和冲突处理，不自动读取本地剪贴板。
+云剪贴板使用独立的 `msime-linux-cloud-clipboard /absolute/provider.sock` 入口。它验证列表、明确添加、删除和启停请求后，经同一类用户管理服务转发 `{"version":1,"kind":"cloud_clipboard","request":...}`；服务负责账号凭据、云端保留和冲突处理。常驻剪贴板监视器还会调用同目录的 `msime-linux-cloud-clipboard-sync`，沿账号或自建中继当前选路每三秒读取最新条目，并在本机剪贴板没有更新时写回；本机复制会自动上传，接收端写入的文本不会回传。网络失败不建立持久队列，下一次轮询或复制时重试。
 
 桌面设置可在 HostOptions 中配置 `cloud_dictionary_provider_socket` 和 `cloud_clipboard_provider_socket` 两个绝对 Unix socket；未配置时分别回退到 `MSIME_CLOUD_DICTIONARY_PROVIDER_SOCKET` 和 `MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET`。这两个字段会随 runtime-options 原样保留，但不会进入 Engine 选项或输入会话。
 
@@ -944,7 +944,7 @@ systemctl --user enable --now msime-linux-voice.socket
 
 ### 独立剪贴板采集
 
-`msime-linux-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史。它读取 runtime-options 的 `preferences_directory`，仅在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时工作；如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。配置读取失败或关闭开关时停止采集并忘记本轮去重状态。
+`msime-linux-clipboard-monitor /absolute/runtime-options.json` 在没有 Tauri 设置窗口时也可采集文本历史和同步云剪贴板。它读取 runtime-options 的 `preferences_directory`；本机历史只在该目录已保存的 `preferences.json` 中明确开启 `clipboard_history` 时写入，如果指定 `clipboard_history_path`，它必须指向同目录的 `clipboard_history.json`。云剪贴板自动同步不依赖本机历史开关，配置读取失败时停止本轮处理并等待下次有效配置。
 
 Wayland 使用 `wl-paste --type text --watch`；X11 构建环境提供 `x11` 和 `xfixes` pkg-config 模块时，安装 `msime-linux-clipboard-watch-x11`，通过 XFixes 监听 CLIPBOARD 所有权变化，并优先使用同一工具的 `--read` 原生读取路径，无需额外安装 `xclip`/`xsel`。读取支持 UTF8_STRING、STRING 编码回退和 INCR 分块传输，限制累计数据量并使用统一超时；原生读取不可用时仍可回退 `xclip` 或 `xsel`。再次复制相同文本也会触发捕获。监听模式只输出事件标记；读取模式将有界文本经标准输出管道交给监控器，不写日志。不支持事件监听的环境继续以 750ms 间隔轮询，轮询只经 X11 读取，从不调用 `wl-paste`。Wayland 的 `wl-paste --watch` 一启动就报告合成器不提供 data-control 协议（stderr 里写 “... data-control protocol”、以状态 1 退出，GNOME/Mutter 就是这样）：在这种合成器上 `wl-paste` 只能临时建窗口抢走键盘焦点才读得到剪贴板，每读一次都会打断前台应用里的拼音预编辑，并让 gnome-shell 刷 `meta_window_set_stack_position_no_sync` 断言。监视器因此改用 `msime-linux-clipboard-watch-x11` 经 XWayland 监听和读取（Mutter 会把 Wayland 剪贴板同步到 XWayland），在日志里记一行原因，关闭再开启剪贴板历史前不再尝试 `wl-paste --watch`；没有 `DISPLAY` 时暂停采集。`wl-paste --watch` 因为别的原因退出（崩溃、被信号杀掉、连不上合成器）不算不支持 data-control，仍按下文隔 30 秒重试。每次文本读取限时 1 秒、最多 12000 个 UTF-8 字节，并保留最多 4000 个完整 UTF-16 单元。文本经标准输入交给 `msime-linux-clipboard-capture`，由 Host API 在偏好锁内重新检查开关并持有历史锁写入，避免关闭设置与写入竞态。监视器不打印剪贴板文本。
 

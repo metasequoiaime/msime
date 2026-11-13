@@ -13,6 +13,7 @@
 #include "DesktopCandidates.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
+#include "CloudClipboardAutoSync.h"
 #include "ComponentFailure.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
@@ -1600,16 +1601,19 @@ int wmain(int argc, wchar_t **argv) {
           return *voice_config;
         },
         [&] { return server.mode_view().has_value(); });
+    CloudClipboardAutoSync cloud_clipboard(config.state_root);
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [&](std::string text) {
+          text = normalize_clipboard_text(std::move(text));
           const auto request = nlohmann::json{
               {"directory", config.state_root.u8string()},
-              {"text", normalize_clipboard_text(std::move(text))}}.dump();
+              {"text", text}}.dump();
           // The shared writer preserves pinned entries, timestamps and the
           // preference/history locking used by the Tauri panel.
           auto reply = msime::host_api::own_string(
               msime_client_capture_clipboard_history(
                   reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+          cloud_clipboard.observe_local_text(std::move(text));
         });
     // Clipboard history is an optional convenience, so a monitor that cannot
     // start leaves it inert rather than taking the IME down with it. Failing

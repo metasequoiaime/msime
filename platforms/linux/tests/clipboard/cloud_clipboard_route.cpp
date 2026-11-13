@@ -35,6 +35,28 @@ struct Fixture {
 };
 
 int main() {
+  Fixture add;
+  const auto added = msime::linux_host::cloud_clipboard_request(
+      "/synthetic/state", {}, "/synthetic/auto.sock",
+      Json{{"operation", "add"}, {"text", "合成上传"}},
+      [&](const std::string &path) {
+        assert(path == "/synthetic/state");
+        add.calls.push_back("source");
+        return Json{{"source", "relay"}};
+      },
+      [&](const Json &request) {
+        add.calls.push_back("relay");
+        add.relay_request = request;
+        return Json{{"accepted", true}};
+      },
+      [&](const std::string &, const Json &) {
+        assert(false && "relay route must not use provider");
+        return Json::object();
+      });
+  assert(added.at("accepted") == true);
+  assert(add.calls == std::vector<std::string>{"source", "relay"});
+  assert(add.relay_request.at("action") == Json({{"operation", "add"}, {"text", "合成上传"}}));
+
   Fixture explicit_provider;
   explicit_provider.source_fails = true;
   assert(!explicit_provider.list("/synthetic/explicit.sock").at("enabled").get<bool>());

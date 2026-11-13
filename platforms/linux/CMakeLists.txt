@@ -261,6 +261,9 @@ target_link_libraries(msime-linux-cloud-dictionary PRIVATE msime-ibus-host)
 add_executable(msime-linux-cloud-clipboard src/providers/cloud_clipboard_request.cpp)
 target_compile_options(msime-linux-cloud-clipboard PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-cloud-clipboard PRIVATE msime-ibus-host)
+add_executable(msime-linux-cloud-clipboard-sync src/providers/cloud_clipboard_sync.cpp)
+target_compile_options(msime-linux-cloud-clipboard-sync PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-cloud-clipboard-sync PRIVATE msime-ibus-host)
 add_executable(msime-linux-online src/providers/online_request.cpp)
 target_compile_options(msime-linux-online PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-online PRIVATE msime-ibus-host)
@@ -309,7 +312,7 @@ add_executable(msime-linux-emoji src/providers/emoji_request.cpp)
 target_compile_options(msime-linux-emoji PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 set(MSIME_AUXILIARY_TARGETS msime-linux-dictionary msime-linux-cloud-dictionary
-  msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
+  msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-clipboard
   msime-linux-clipboard-capture msime-linux-handwriting msime-linux-voice msime-linux-emoji
   msime-voice-local)
 if(TARGET msime-linux-clipboard-watch-x11)
@@ -781,7 +784,7 @@ if(BUILD_TESTING)
                    $<TARGET_FILE:msime-linux-ibus> "${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.xml")
   set_tests_properties(linux-ibus-demand-activation PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 endif()
-install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
+install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-clipboard
                 msime-linux-handwriting msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(BUILD_TESTING AND MSIME_LINUX_VOICE)
@@ -1299,7 +1302,7 @@ install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSI
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 include(cmake/LocalTranslation.cmake)
-set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
+set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 if(TARGET msime-linux-clipboard-watch-x11)

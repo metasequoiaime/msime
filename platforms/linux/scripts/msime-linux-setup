@@ -682,10 +682,11 @@ def running(name: str) -> bool:
 def service_units(state: Path, config: Path) -> list[str]:
     """登录后应当常驻的用户服务，对应 Windows 上随服务进程一直在的在线、语音和剪贴板功能。
 
-    在线和语音服务都按 socket 激活，首个请求才真正启动进程：在线服务没有私有配置也能提供云候选；语音 provider 没有 voice-provider.json 也能启动，本地识别不需要凭据，云端识别在用户写好配置后的下一次请求才生效。剪贴板监视器读的是默认位置的 runtime-options.json，状态目录另选位置时它找不到配置，不启用。监视器本身只在偏好里开启剪贴板历史时才采集。
+    在线和语音服务都按 socket 激活，首个请求才真正启动进程：在线服务没有私有配置也能提供云候选；语音 provider 没有 voice-provider.json 也能启动，本地识别不需要凭据，云端识别在用户写好配置后的下一次请求才生效。剪贴板监视器读的是默认位置的 runtime-options.json，状态目录另选位置时它找不到配置，不启用；本机历史关闭时跳过历史写入，但仍可为已开启的云剪贴板同步系统文本。
     """
     units = ["msime-linux-online.socket", "msime-linux-voice.socket"]
     if state == config:
+        # 云剪贴板自动同步与本机历史开关独立；监视器会在历史关闭时跳过本地历史写入，仍轮询已开启的云剪贴板。
         units.append("msime-linux-clipboard.service")
     return units
 

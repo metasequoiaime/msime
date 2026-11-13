@@ -2126,9 +2126,10 @@ if(WIN32)
   add_test(NAME windows-desktop-candidates COMMAND windows-desktop-candidates)
   set_tests_properties(windows-desktop-candidates PROPERTIES TIMEOUT 60)
   target_include_directories(msime-windows-server PRIVATE ../../platforms/common)
+  target_include_directories(msime-windows-server PRIVATE ../../crates/host-api/include)
   # src/entrypoints/server_main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
   # are out of line. Without these the Server target does not link at all.
-  target_sources(msime-windows-server PRIVATE src/clipboard/ClipboardHistory.cpp src/clipboard/ClipboardMonitor.cpp)
+  target_sources(msime-windows-server PRIVATE src/clipboard/ClipboardHistory.cpp src/clipboard/ClipboardMonitor.cpp src/clipboard/CloudClipboardAutoSync.cpp)
   target_compile_definitions(msime-windows-server PRIVATE MSIME_WINDOWS7_CLIENT=$<BOOL:${MSIME_WINDOWS7_CLIENT}>)
   if(MSIME_WINDOWS7_CLIENT)
     target_link_libraries(msime-windows-server PUBLIC harfbuzz::harfbuzz)
