@@ -236,6 +236,13 @@ for attempt in $(seq 1 60); do
   # 应用刚启动、窗口还在切换时，uiautomator 偶尔报 `ERROR: null root node returned by UiTestAutomationBridge.` 并以非零退出；set -e 下这一次失败会让整个冒烟在第一条用例之前退出（API 35 上出现过）。轮询里把它当作这一拍还没就绪。
   if ! dump; then settled=0; sleep 1; continue; fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"词库准备失败")])' "$xml") == true ]]; then stop "Device bootstrap failed"; fi
+  # 首次启动在按流量计费的网络上会询问是否下载增强模型；只推迟这个可选下载，不改默认设置，也不代替用户处理其他弹窗。
+  if [[ $(xmllint --xpath 'boolean(//node[@package="app.msime.android" and @text="下载整句增强模型？"])' "$xml") == true ]]; then
+    settled=0
+    tap '//node[@package="app.msime.android" and @resource-id="android:id/button2" and @text="以后再说"]' || true
+    sleep 1
+    continue
+  fi
   if [[ $(xmllint --xpath 'boolean(//node[contains(@resource-id,":id/onboarding_skip")])' "$xml") == true ]]; then
     settled=0
     # 用这一拍刚读到的 dump 去点：tap 原先会另取一份 dump，引导页在两次 dump 之间可能正在打开或关闭，另取的那份偶尔是空的（null root），找不到按钮就让整个冒烟在第一条用例之前退出（API 28 上出现过）。这一拍点不到就当作还没就绪，下一拍再看。
