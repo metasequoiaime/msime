@@ -183,6 +183,7 @@ function adapter() {
         "nineKeySwipeTouch",
         "typeNineKeySwipeDigit",
         "eighteenKeySwipeTouch",
+        "drawsEighteenKey",
         "commaSwipeTouch",
         "letterHintTouch",
         "glideUp",
@@ -198,6 +199,7 @@ function adapter() {
   );
   const view = new View();
   view.keyFacesShowKeys = (): boolean => true;
+  view.drawsEighteenKey = (): boolean => true;
   view.nineKeySwipes = { up: (): number => 1 };
   view.endNineKeySwipeFace = (): void => {};
   const event = (type: number, id: number) => ({ type, changedTouches: [{ id }] });
