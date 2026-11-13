@@ -54,6 +54,7 @@ use crate::user_dictionary::journal::{has_matching_user_weight, record_user_inse
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+use super::fuzzy_completion_order::lead_whole_fuzzy_before_completion;
 use super::series::{
     append_unique_words, defer_pooled_sentences, fold_reading, has_corrected_cut,
     lead_literal_abbreviation_phrases, mark_autocorrect_candidates, merge_alternative_rows,
@@ -364,6 +365,7 @@ impl QuanpinDictionary {
             merge_series_by_coverage(&mut result, rows);
             promote_learned_fuzzy_rows(&mut result, &self.paths.user(USER_JOURNAL));
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
+            lead_whole_fuzzy_before_completion(&mut result, raw);
             // 按字母数重排会把多一个字母的删字纠错（shng → shang）排回字面简拼整词前面，哪怕模糊音一行也没查到；纠错在作用时把 `query_exact` 定下的先后和保座再做一遍（#9903）。
             if has_corrected_cut(
                 raw,

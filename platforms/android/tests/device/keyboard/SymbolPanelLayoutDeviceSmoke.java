@@ -131,21 +131,27 @@ public final class SymbolPanelLayoutDeviceSmoke extends Instrumentation {
     /** 面板高度变化时网格按可见区域均分整数行，矮面板仍保留 40 dp 格高。 */
     private static void checkSymbolRows(View panel) {
         typeReset(panel, List.of("，", "。", "？", "！", "、", "；", "：", "…"));
-        layout(panel, 1000, 260);
+        int minimumHeight = dp(panel, 40);
+        layout(panel, 1000, dp(panel, 260));
         ScrollView scroll = (ScrollView) findDescription(panel, "符号网格；长条目加宽");
         ViewGroup grid = (ViewGroup) scroll.getChildAt(0);
         Button first = firstButton(grid);
-        if (first == null || first.getHeight() <= 40 || first.getHeight() < 40)
+        if (first == null || first.getHeight() <= minimumHeight)
             throw new AssertionError("足够高的符号面板没有按整数行扩大格高：" + (first == null ? "none" : first.getHeight()));
         int tallHeight = first.getHeight();
-        layout(panel, 1000, 140);
+        layout(panel, 1000, dp(panel, 140));
         first = firstButton((ViewGroup) scroll.getChildAt(0));
-        if (first == null || first.getHeight() != 40)
+        if (first == null || first.getHeight() != minimumHeight)
             throw new AssertionError("矮符号面板没有退回 40 dp 格高：" + (first == null ? "none" : first.getHeight()));
-        layout(panel, 1000, 260);
+        layout(panel, 1000, dp(panel, 260));
         first = firstButton((ViewGroup) scroll.getChildAt(0));
         if (first == null || first.getHeight() != tallHeight)
             throw new AssertionError("面板高度恢复后没有恢复均分行高");
+    }
+
+    /** 面板尺寸与产品最小触控目标都以 dp 定义，按当前设备密度换算后比较。 */
+    private static int dp(View panel, int value) {
+        return Math.round(value * panel.getResources().getDisplayMetrics().density);
     }
 
     private static void typeReset(View panel, List<String> recents) {
