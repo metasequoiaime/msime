@@ -21,6 +21,14 @@ final class ImeCloudClipboardAutoSync {
 
     private ImeCloudClipboardAutoSync() {}
 
+    static BackendAccount.ClipboardPage page(Context context, Binding expected) throws Exception {
+        CloudClipboardRelay route = CloudClipboardRelay.forPanel(context, expected.relay(), expected.id());
+        if (route != null) {
+            return BackendAccount.clipboardPage(route.drive(CloudClipboardE2e.Operation.list("")));
+        }
+        return new BackendAccount(context).clipboard("", expected.id(), CloudClipboardNativeDriver.local(context));
+    }
+
     static void submit(Executor worker, Binding expected, String text, Backend backend) {
         try {
             worker.execute(() -> {

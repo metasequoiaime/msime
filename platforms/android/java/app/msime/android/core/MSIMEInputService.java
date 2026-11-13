@@ -1035,7 +1035,7 @@ public final class MSIMEInputService extends InputMethodService {
         captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
         try {
             PrimaryClip clip = readPrimaryClip();
-            if (clip != null && !clip.sensitive()) imePanels.autoSyncClipboardText(clip.text());
+            imePanels.autoCloudClipboard.changed(clip);
         } catch (SecurityException ignored) {
             // 系统拒绝读取时由本机历史和云同步共同跳过这次变化。
         }
@@ -2199,6 +2199,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
+        imePanels.autoCloudClipboard.active(true);
         imeKeyFeedback.prepare();
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         if (inlineAutofill != null) inlineAutofill.showInput();
@@ -2244,6 +2245,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
@@ -2284,6 +2286,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
         if (inlineAutofill != null) inlineAutofill.finishInput();
@@ -2443,6 +2446,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        imePanels.autoCloudClipboard.active(false);
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
