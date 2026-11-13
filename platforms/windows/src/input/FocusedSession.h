@@ -21,8 +21,14 @@ void record_typing_statistics_async(const std::string &directory,
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
                               const std::map<std::string, uint64_t> &keys);
-// PredictionKept：会话停在上屏后联想、TIP 还没为这一代联想发过 Show，这个隐藏是上屏结束组字顺带发出的，联想留着，候选窗先藏起来等 Show。
-enum class HideCandidateDisposition { Rejected, Cancelled, Suppressed, PredictionKept };
+// PredictionKept：会话停在上屏后联想、TIP 还没为这一代联想发过 Show，这个隐藏是上屏结束组字顺带发出的，联想留着，候选窗先藏起来等 Show。Late：延迟到达的旧隐藏只交给候选窗宽限，不取消仍在进行的组字。
+enum class HideCandidateDisposition {
+  Rejected,
+  Cancelled,
+  Suppressed,
+  PredictionKept,
+  Late
+};
 // 卷轴展开取到的完整候选列表（msime_client_all_candidates 的结果），以及取它时引擎放出扣着的尾部、代次前进后重新读到的 view（代次没变时为空）。
 struct CandidateExpansionFetch {
   nlohmann::json snapshot;
@@ -127,7 +133,9 @@ public:
   void set_field_traits(uint32_t traits);
   // Explicit host composition termination, preserving the active focus lease.
   bool cancel_composition(const FocusLease &lease);
-  HideCandidateDisposition hide_candidate(const FocusLease &lease);
+  // 延迟到达的隐藏可能是方向键之后、已经过期的宿主通知；组字仍在进行时只收起候选界面，不取消会话。
+  HideCandidateDisposition hide_candidate(const FocusLease &lease,
+                                          bool late = false);
   // TIP 的 ShowCandidateWnd：会话正停在上屏后联想时，记下 TIP 已经把这一代联想显示在光标处。此后的隐藏是关闭联想（Esc、光标移走、别的键），要清掉会话里的联想；在这之前的隐藏只是上屏顺带的，联想留着。不是联想时什么也不做。
   void show_candidate(const FocusLease &lease);
   // Queue-owned maintenance operation; it is available without a focus lease.
