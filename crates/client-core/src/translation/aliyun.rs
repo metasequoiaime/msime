@@ -339,6 +339,7 @@ mod tests {
     }
     #[test]
     fn response_errors_are_not_successful_empty_translations() {
+        assert!(parse(b"{\"Code\":200,\"Data\":{\"Translated\":\"\xff\"}}").is_none());
         assert_eq!(
             parse(br#"{"Code":200,"Data":{"Translated":""}}"#),
             Some(String::new())

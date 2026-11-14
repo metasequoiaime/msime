@@ -27,7 +27,8 @@ final class AliyunTranslationDeviceChecks {
         if (!provider(route).equals("ALIYUN") || !((Boolean) routeType.getMethod("userService").invoke(route)))
             throw new AssertionError("阿里云未独占选路");
         var descriptor = (JSONObject) request.invoke(null, route, "合成测试", "en");
-        if (descriptor == null || !descriptor.getString("url").equals("https://mt.cn-hangzhou.aliyuncs.com/"))
+        if (descriptor == null || !descriptor.getString("url").equals("https://mt.cn-hangzhou.aliyuncs.com/")
+                || !descriptor.getJSONObject("headers").getString("Authorization").contains("SignedHeaders=content-type;host;"))
             throw new AssertionError("通用版描述器错误");
         if (route.toString().contains("synthetic") || scope(route).contains("synthetic"))
             throw new AssertionError("路由泄露合成凭据");
