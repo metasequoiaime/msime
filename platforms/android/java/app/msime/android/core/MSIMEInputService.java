@@ -3425,6 +3425,9 @@ public final class MSIMEInputService extends InputMethodService {
     /** 候选翻译的路由，规则在 {@link CandidateTranslationPolicy#route}；没有偏好时什么都不发。腾讯缺 `enabled` 时按共享层的默认值算开着，但没有凭据照样选不中。「翻译服务」设置页也用它判断 AI 辅助的配置能不能用，与键盘读同一份规则。 */
     public static CandidateTranslationRoute candidateTranslationRouteFrom(JSONObject preferences) {
         if (preferences == null) return CandidateTranslationRoute.NONE;
+        JSONObject aliyun = preferences.optJSONObject("aliyun_translation");
+        if (AliyunTranslationPolicy.enabled(aliyun))
+            return AliyunTranslationPolicy.route(preferences.optBoolean("candidate_translations", true), aliyun);
         JSONObject niutrans = preferences.optJSONObject("niutrans");
         JSONObject custom = preferences.optJSONObject("custom_translation");
         JSONObject tencent = preferences.optJSONObject("tencent_tmt");

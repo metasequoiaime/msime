@@ -1840,6 +1840,11 @@ pub struct Preferences {
     pub local_translation: crate::local_translation::LocalTranslationPreferences,
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::translation::aliyun::Preferences::is_default"
+    )]
+    pub aliyun_translation: crate::translation::aliyun::Preferences,
     #[serde(default)]
     pub niutrans: NiuTransPreferences,
     #[serde(default)]
@@ -4490,6 +4495,7 @@ impl Default for Preferences {
             custom_translation: CustomTranslationPreferences::default(),
             local_translation: crate::local_translation::LocalTranslationPreferences::default(),
             tencent_tmt: TencentTmtPreferences::default(),
+            aliyun_translation: crate::translation::aliyun::Preferences::default(),
             niutrans: NiuTransPreferences::default(),
             voice_input: VoiceInputPreferences::default(),
             floating_toolbar: FloatingToolbarPreferences::default(),
@@ -5228,6 +5234,9 @@ impl Preferences {
         next.tencent_tmt.secret_key = self.tencent_tmt.secret_key.clone();
         next.tencent_tmt.region = self.tencent_tmt.region.clone();
 
+        next.aliyun_translation = self.aliyun_translation.clone();
+        next.aliyun_translation.enabled = false;
+
         next.niutrans.app_id = self.niutrans.app_id.clone();
         next.niutrans.apikey = self.niutrans.apikey.clone();
 
@@ -5245,7 +5254,7 @@ impl Preferences {
     }
 
     /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
-    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 15] {
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 17] {
         [
             (
                 "voice_input.asr_app_key",
@@ -5286,6 +5295,14 @@ impl Preferences {
             (
                 "tencent_tmt.secret_key",
                 CredentialSlot::Text(&mut self.tencent_tmt.secret_key),
+            ),
+            (
+                "aliyun_translation.access_key_id",
+                CredentialSlot::Text(&mut self.aliyun_translation.access_key_id),
+            ),
+            (
+                "aliyun_translation.access_key_secret",
+                CredentialSlot::Text(&mut self.aliyun_translation.access_key_secret),
             ),
             (
                 "niutrans.app_id",
@@ -5404,6 +5421,9 @@ impl Preferences {
             }) {
                 return Err(PreferencesError::ConflictingKeyBindings);
             }
+        }
+        if self.aliyun_translation.issue().is_some() {
+            return Err(PreferencesError::InvalidAliyunTranslation);
         }
         let tencent = &self.tencent_tmt;
         if tencent.secret_id.len() > 4096
@@ -5710,6 +5730,8 @@ pub enum PreferencesError {
     InvalidCustomTranslation,
     #[error("Tencent translation credentials or region are invalid")]
     InvalidTencentTmt,
+    #[error("阿里云翻译凭据、地域、版本或场景无效")]
+    InvalidAliyunTranslation,
     #[error("NiuTrans translation credentials are invalid")]
     InvalidNiuTrans,
     #[error("candidate page size must be between 1 and 10")]
@@ -7006,6 +7028,7 @@ impl Preferences {
             self.custom_translation.enabled = false;
             self.tencent_tmt.enabled = false;
             self.niutrans.enabled = false;
+            self.aliyun_translation.enabled = false;
         }
     }
 
