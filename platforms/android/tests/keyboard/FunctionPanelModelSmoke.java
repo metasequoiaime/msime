@@ -13,14 +13,14 @@ public final class FunctionPanelModelSmoke {
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "振动强度", "语音输入", "插入语音文字", "词库", "文本编辑",
             "编辑工具栏", "设备信息", "表情", "剪贴板历史", "世界时钟")), "page two");
-        check(labels(2).equals(List.of("拍照识字", "设置", "反馈", "宣传", "打开官网", "关于")), "page three");
+        check(labels(2).equals(List.of("拍照识字", "翻译", "设置", "反馈", "宣传", "打开官网", "关于")), "page three");
         List<Item> screenshotItems = FunctionPanelModel.itemsExcept(java.util.Set.of(
             Id.SCHEME, Id.EMOJI, Id.CLIPBOARD, Id.FLOATING, Id.TEXT_EDIT, Id.VOICE_RESULT));
         List<String> screenshotPage = new ArrayList<>();
         for (Item item : screenshotItems.subList(FunctionPanelModel.PAGE_SIZE, screenshotItems.size()))
             screenshotPage.add(item.label());
         check(screenshotPage.equals(List.of("振动强度", "语音输入", "词库", "编辑工具栏",
-            "设备信息", "世界时钟", "拍照识字", "设置", "反馈", "宣传", "打开官网", "关于")), "固定尾部顺序");
+            "设备信息", "世界时钟", "拍照识字", "翻译", "设置", "反馈", "宣传", "打开官网", "关于")), "固定尾部顺序");
         check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 1,
             "文本编辑 opens a panel from page two");
         check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),

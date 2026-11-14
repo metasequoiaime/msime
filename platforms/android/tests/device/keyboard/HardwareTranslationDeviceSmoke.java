@@ -22,20 +22,24 @@ public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
     // 清单已达 100 个 instrumentation：数字回归复用这个硬件按键入口，可单独运行合成事件部分。
     private boolean digitsOnly;
     private boolean aliyunOnly;
+    private boolean translationWindowOnly;
 
     @Override public void onCreate(Bundle arguments) {
+        translationWindowOnly = arguments != null && "true".equals(arguments.getString("translation-window-only"));
         aliyunOnly = arguments != null && "true".equals(arguments.getString("aliyun-only"));
         digitsOnly = arguments != null && "true".equals(arguments.getString("digits-only"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (translationWindowOnly) return "独立翻译窗口、共享请求、双向语言、预览与手动插入";
         if (aliyunOnly) return "阿里云通用/专业版 JNI、原生选路、缓存归属和响应边界";
         return digitsOnly ? "native service hardware digit routing with synthetic key events"
             : "native service digit routing; Ctrl+Enter translation commits, sense pages and editor pass-through";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (translationWindowOnly) { TranslationWindowDeviceChecks.run(this); return; }
         AliyunTranslationDeviceChecks.run(this);
         if (aliyunOnly) return;
         HardwareDigitChecks.run(this);

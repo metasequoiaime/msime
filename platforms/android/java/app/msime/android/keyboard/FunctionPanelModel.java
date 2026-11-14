@@ -20,7 +20,7 @@ public final class FunctionPanelModel {
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, WEBSITE, AI_ASSIST, LOCAL_INPUT,
         VOICE_INPUT, VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT, COPY_DEVICE_INFO,
-        PROMOTION, TOOLBAR_EDITOR, WORLD_CLOCK, OCR
+        PROMOTION, TOOLBAR_EDITOR, WORLD_CLOCK, OCR, TRANSLATION
     }
 
     /**
@@ -59,6 +59,7 @@ public final class FunctionPanelModel {
         action(Id.CLIPBOARD, "剪贴板历史"),
         action(Id.WORLD_CLOCK, "世界时钟"),
         action(Id.OCR, "拍照识字"),
+        action(Id.TRANSLATION, "翻译"),
         // 这五项是功能面板的固定尾部；新增工具必须放在它们之前，不能改变用户熟悉的位置。
         action(Id.SETTINGS, "设置"),
         action(Id.FEEDBACK, "反馈"),

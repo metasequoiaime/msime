@@ -127,6 +127,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeCandidates imeCandidates;
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
+    ImeTranslationEntry imeTranslationEntry;
     ImeWorldClock imeWorldClock;
     ImeOcr imeOcr;
     ImePanels imePanels;
@@ -2133,6 +2134,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeCandidates = new ImeCandidates(this);
         imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
+        imeTranslationEntry = new ImeTranslationEntry(this);
         imeWorldClock = new ImeWorldClock(this);
         imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
@@ -2457,6 +2459,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onDestroy() {
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
+        if (imeTranslationEntry != null) imeTranslationEntry.destroy();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         spaceCopyNotice.cancel();
