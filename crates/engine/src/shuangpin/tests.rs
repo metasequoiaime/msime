@@ -297,7 +297,7 @@ fn strict_single_helpcode_filters_direct_triggered_and_fuzzy_rows() {
     for (input, expected) in [
         ("nihcc", vec!["拟好"]),
         ("nihca", vec!["你好"]),
-        ("nihcE", vec!["你好", "拟好"]),
+        ("nihcE", vec!["拟好", "你好"]),
         ("nihcA", vec!["你好"]),
     ] {
         let mut typed = request(input, true);

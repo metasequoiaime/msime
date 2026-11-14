@@ -35,6 +35,15 @@ test("the shared verification form keeps page and sheet controls distinct", () =
   fireEvent.click(screen.getByRole("button", { name: "登录" }));
   expect(signIn).toHaveBeenCalledOnce();
 
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "6 位验证码" }), { key: "Enter" });
+  expect(signIn).toHaveBeenCalledTimes(2);
+
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "6 位验证码" }), {
+    key: "Enter",
+    keyCode: 229,
+  });
+  expect(signIn).toHaveBeenCalledTimes(2);
+
   rerender(
     <AccountVerificationForm
       variant="sheet"

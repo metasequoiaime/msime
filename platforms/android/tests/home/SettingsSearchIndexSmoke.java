@@ -134,6 +134,9 @@ public final class SettingsSearchIndexSmoke {
             {"TYPING", "五笔拼音混输"}, {"TYPING", "候选显示剩余编码"}, {"TYPING", "第五码将首选上屏"},
             {"TYPING", "五笔四码唯一候选自动上屏"},
             {"TYPING", "全拼 14/18 键辅助码"}, {"TYPING", "双拼 14/18 键辅助码"},
+            // 「中文字符集」的原生单选值来自 ChineseOutputChoice，搜臺灣变体时也要到输入页。
+            {"TYPING", "台湾正体"},
+            {"TYPING", "台湾用词"},
             {"EXPRESSION", "智能标点"}, {"EXPRESSION", "英文联想"},
             {"LEXICON", "记忆新词"},
             {"PRIVACY", "用水杉账号翻译候选"}, {"PRIVACY", "匿名使用统计"}, {"PRIVACY", "剪贴板历史"},

@@ -47,6 +47,21 @@ fn request(service: &str, config: &Value, milliseconds: u64) -> Option<Request> 
     let get = |key| config.get(key).and_then(Value::as_str).unwrap_or("").trim();
     let mut headers = vec![("Content-Type".into(), "application/json".into())];
     let (endpoint, body) = match service {
+        "translation.aliyun" => {
+            let mut config: translation::aliyun::Preferences =
+                serde_json::from_value(config.clone()).ok()?;
+            config.enabled = true;
+            let value = translation::aliyun::request(
+                &config,
+                "测试",
+                "zh",
+                "en",
+                i64::try_from(milliseconds / 1000).ok()?,
+                &uuid::Uuid::new_v4().simple().to_string(),
+            )?;
+            headers = value.headers.into_iter().collect();
+            (value.url, value.body_utf8)
+        }
         "translation.tencent" => {
             let (id, key) = (get("secret_id"), get("secret_key"));
             if !usable(id) || !usable(key) {
@@ -134,6 +149,7 @@ pub fn test(
                 return None;
             }
             match service {
+                "translation.aliyun" => translation::aliyun::parse(body.as_bytes()),
                 "translation.tencent" => {
                     let root: Value = serde_json::from_str(&body).ok()?;
                     if root
@@ -201,6 +217,32 @@ mod tests {
             "app_id":"synthetic-app", "apikey":"synthetic-key",
             "endpoint":"https://fixture.invalid/translate", "api_key":""})
     }
+    #[test]
+    fn aliyun_probe_uses_the_runtime_protocol_and_rejects_error_envelopes() {
+        let base = serde_json::json!({"access_key_id":"synthetic-id", "access_key_secret":"synthetic-secret"});
+        let general = request("translation.aliyun", &base, 1704067200000).unwrap();
+        assert_eq!(general.endpoint, "https://mt.cn-hangzhou.aliyuncs.com/");
+        assert!(general.body.contains("Scene=general"));
+        assert!(general
+            .headers
+            .iter()
+            .any(|(name, value)| name == "x-acs-action" && value == "TranslateGeneral"));
+        let professional = request("translation.aliyun", &serde_json::json!({"access_key_id":"synthetic-id",
+            "access_key_secret":"synthetic-secret", "edition":"professional", "scene":"medical", "region":"cn-hongkong"}), 1704067200000).unwrap();
+        assert_eq!(professional.endpoint, "https://mt.aliyuncs.com/");
+        assert!(professional.body.contains("Scene=medical"));
+        for (body, expected) in [
+            (r#"{"Code":200,"Data":{"Translated":"synthetic"}}"#, true),
+            (r#"{"Code":10013,"Data":{"Translated":"stale"}}"#, false),
+            (r#"{"Code":200,"Data":{"Translated":""}}"#, false),
+        ] {
+            assert_eq!(
+                test("translation.aliyun", &base, 1704067200000, &Fake(200, body)).ok,
+                expected
+            );
+        }
+    }
+
     #[test]
     fn translation_object_fallback_passes_the_connection_probe() {
         for body in [

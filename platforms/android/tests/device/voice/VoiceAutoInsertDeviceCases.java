@@ -59,12 +59,12 @@ final class VoiceAutoInsertDeviceCases {
                     Object entry = field(serviceType, "imeVoiceEntry").get(service);
                     checkUploadControls(entry, context, loader);
                     field(entryType, "generation").setLong(entry, 7);
-                    // 签名与 ImeVoiceEntry.delivered 一致：session、text、failure、notice、pcm、elapsedMillis、language、provider。反射查找不经编译检查，产品改了参数这里要同步改。
+                    // 签名与 ImeVoiceEntry.delivered 一致：session、text、failure、空结果标记、notice、pcm、elapsedMillis、language、provider。反射查找不经编译检查，产品改了参数这里要同步改。
                     Method delivered = method(entryType, "delivered", long.class, String.class, String.class,
-                        String.class, byte[].class, long.class, String.class, String.class);
-                    delivered.invoke(entry, 7L, "synthetic direct", null, null, null, 0L, "zh-CN", "synthetic");
+                        boolean.class, String.class, byte[].class, long.class, String.class, String.class);
+                    delivered.invoke(entry, 7L, "synthetic direct", null, false, null, null, 0L, "zh-CN", "synthetic");
                     check(editor.getText().toString().equals("synthetic direct"), "识别完成必须直接上屏");
-                    delivered.invoke(entry, 6L, "stale", null, null, null, 0L, "zh-CN", "synthetic");
+                    delivered.invoke(entry, 6L, "stale", null, false, null, null, 0L, "zh-CN", "synthetic");
                     check(editor.getText().toString().equals("synthetic direct"), "旧识别不能上屏");
                     field(serviceType, "voiceActivityGeneration").setLong(service, 10);
                     ResultReceiver receiver = (ResultReceiver) method(serviceType,

@@ -39,11 +39,11 @@ public final class ClipboardModePolicy {
         return mode == Mode.VISITOR && transientTransition ? EnterIcon.TRASH : EnterIcon.RETURN;
     }
 
-    /** 判断回车键从按下位置向上滑动后是否切换模式。 */
+    /** 判断回车键从按下位置向上滑动后是否切换模式。终点可越过键盘上沿，但不能滑出过远。 */
     public static boolean isValidSwipe(float startX, float startY, float endX, float endY,
             float keyWidth, float keyHeight, float keyboardHeight) {
         if (!(keyWidth > 0) || !(keyHeight > 0) || !(keyboardHeight > 0)
-                || startY < 0 || startY > keyboardHeight || endY < 0 || endY > keyboardHeight)
+                || startY < 0 || startY > keyboardHeight)
             return false;
         float travel = startY - endY;
         float horizontal = Math.abs(endX - startX);
