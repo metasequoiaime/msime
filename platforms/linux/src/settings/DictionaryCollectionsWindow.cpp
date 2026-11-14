@@ -1,3 +1,6 @@
+// 固定最低支持的 GTK API，较新发行版不把兼容接口视为弃用错误。
+#define GDK_VERSION_MIN_REQUIRED GDK_VERSION_4_8
+#define GDK_VERSION_MAX_ALLOWED GDK_VERSION_4_8
 #include <gtk/gtk.h>
 #include "../../../common/DictionaryCollectionsModel.h"
 #include "../core/RuntimeOptionsFile.h"
@@ -94,7 +97,7 @@ struct Window {
   void import_file() {
     if (picker) return;
     picker = GTK_NATIVE_DIALOG(gtk_file_chooser_native_new("导入词库", GTK_WINDOW(window), GTK_FILE_CHOOSER_ACTION_OPEN, "导入", "取消"));
-    g_signal_connect(picker, "response", G_CALLBACK(+[](GtkNativeDialog *dialog, int response, gpointer data) {
+    g_signal_connect(picker, "response", G_CALLBACK((+[](GtkNativeDialog *dialog, int response, gpointer data) {
       auto &self = *static_cast<Window *>(data);
       if (response == GTK_RESPONSE_ACCEPT) {
         auto *file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dialog));
@@ -135,7 +138,7 @@ struct Window {
         }
       }
       self.picker = nullptr; gtk_native_dialog_destroy(dialog); g_object_unref(dialog);
-    }), this);
+    })), this);
     gtk_native_dialog_show(picker);
   }
   void create() {

@@ -65,12 +65,12 @@ static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL
 #import "GlobalVoiceScopeMenuRoutingFixture.h"
 
 static void CheckMenu(NSMenu *menu, id controller) {
-    // "" is a separator and "*" a submenu row, the scheme and the theme, whose action AppKit sets to submenuAction:.
+    // 空串表示分隔线，星号表示方案和主题子菜单，AppKit 将其 action 设为 submenuAction:。
     NSArray<NSString *> *actions = @[
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"toggleTraditionalOutput:", @"toggleFullWidthInput:", @"toggleChinesePunctuation:", @"toggleCandidateTranslations:", @"",
         @"*", @"*", @"",
-        @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:",
+        @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showDictionaryGroups:", @"showScreenKeyboard:", @"showHandwriting:",
         @"showVoicePanel", @"*", @"", @"showAppearance:", @"showAbout:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
@@ -9502,22 +9502,22 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     TestGlobalVoiceScopeIMKRouting(controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert(menu.numberOfItems == 23);
+    assert(menu.numberOfItems == 24);
     assert([[menu itemAtIndex:12].title isEqual:@"悬浮工具栏"]);
-    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"云词库…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
-    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
+    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"云词库…", @"词库分组…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
+    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showDictionaryGroups:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
     for (NSUInteger index = 0; index < toolTitles.count; ++index) {
         NSMenuItem *tool = [menu itemAtIndex:13 + index];
         assert([tool.title isEqual:toolTitles[index]] && tool.action == NSSelectorFromString(toolActions[index]));
     }
-    NSMenuItem *scope = [menu itemAtIndex:19];
+    NSMenuItem *scope = [menu itemAtIndex:20];
     assert([scope.title isEqual:@"语音快捷键范围"] && scope.submenu.numberOfItems == 2);
     for (NSMenuItem *choice in scope.submenu.itemArray) {
         assert(choice.target == controller && choice.action == NSSelectorFromString(@"selectGlobalVoiceScope:"));
     }
-    assert([menu itemAtIndex:20].separatorItem);
-    assert([[menu itemAtIndex:21].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:21].action == @selector(showAppearance:));
-    assert([[menu itemAtIndex:22].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:22].action == @selector(showAbout:));
+    assert([menu itemAtIndex:21].separatorItem);
+    assert([[menu itemAtIndex:22].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:22].action == @selector(showAppearance:));
+    assert([[menu itemAtIndex:23].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:23].action == @selector(showAbout:));
     // Simplified output is the off state of the one 繁体输出 toggle.
     const BOOL traditionalOutput = appearance.traditionalOutput;
     appearance.traditionalOutput = NO;
