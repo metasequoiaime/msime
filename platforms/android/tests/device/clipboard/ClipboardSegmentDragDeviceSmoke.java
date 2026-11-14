@@ -295,7 +295,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         seedHistory(original, 1700000000000L, true);
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
-        stage = "right swipe opens clipboard detail with full record time and unavailable source (seeded entries "
+        stage = "right swipe opens clipboard detail with full record time and no source metadata (seeded entries "
             + sharedHistoryCount() + ")";
         // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
         // API 34 以上的输入法窗口会把滚动容器里的卡片报告成不可见，但坐标仍是当前卡片的真实位置；这里按无障碍树定位后再用坐标注入手势。
@@ -304,27 +304,47 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
             new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
-        await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("记录详情", node.getText()));
-        await(described("返回剪贴板历史列表"));
-        await(described("插入这条剪贴板记录"));
-        await(described("编辑这条剪贴板记录"));
-        // 详情页先放整段正文，这条合成记录有 80 行，时间和来源那段排在正文下面、剪贴板滚动区的视口之外，isVisibleToUser 为 false，只认看得见节点的 await 永远等不到它。先在输入法的树里找到这段，让滚动区把它滚进视口，再按看得见的节点核对文案。
+        // 返回入口已移到底部；80 行合成正文会让它暂时位于滚动视口之外。
+        awaitAny(described("返回剪贴板历史列表"));
+        for (var window : automation.getWindows()) {
+            if (findAny(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())
+                    && equalsText("记录详情", node.getText())) != null)
+                throw new AssertionError("Clipboard detail still exposes the removed fixed header");
+        }
+        stage = "detail top blank touch leaves synthetic editor empty";
+        Rect detailBounds = new Rect();
+        await(described("剪贴板历史")).getBoundsInScreen(detailBounds);
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, detailBounds.centerX(), detailBounds.top + 1);
+        event(MotionEvent.ACTION_UP, detailBounds.centerX(), detailBounds.top + 1);
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+        // 详情页先放整段正文，这条合成记录有 80 行，时间段排在正文下面、剪贴板滚动区的视口之外，isVisibleToUser 为 false，只认看得见节点的 await 永远等不到它。先在输入法的树里找到这段，让滚动区把它滚进视口，再按看得见的节点核对文案。
         java.util.function.Predicate<AccessibilityNodeInfo> recordDetails = node ->
             equalsText("app.msime.android", node.getPackageName()) && node.getText() != null
             && node.getText().toString().startsWith("记录时间：")
             && !node.getText().toString().startsWith("记录时间：时间未知")
-            && node.getText().toString().contains("来源 App：系统未提供");
+            && !node.getText().toString().contains("来源 App：")
+            && !node.getText().toString().contains("包名：");
         bringIntoView(recordDetails);
         if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
             throw new AssertionError("Opening detail changed history");
-        // 详情页直接提供编辑入口；编辑前不应把原正文插入外部编辑器。
+        stage = "detail insertion preserves every original line in a multiline editor";
+        bringIntoView(described("插入这条剪贴板记录"));
+        touch(described("插入这条剪贴板记录"));
+        await(field("msime-test-plain").and(node -> equalsText(original, node.getText())));
+        await(key("n"));
+        if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
+            throw new AssertionError("Detail insertion changed history");
+        // 重新打开空编辑器后测试修改，不把原正文预先插入编辑窗口。
         openClipboardEditor(true);
         card = awaitStableDetailCard();
         cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
             new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
-        await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("记录详情", node.getText()));
+        awaitAny(described("返回剪贴板历史列表"));
+        bringIntoView(described("编辑这条剪贴板记录"));
         touch(described("编辑这条剪贴板记录"));
         await(described("剪贴板记录的文字").and(node -> equalsText(original, node.getText())));
         android.os.Bundle changed = new android.os.Bundle();
@@ -343,7 +363,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         card.getBoundsInScreen(cardBounds);
         drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
             new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
-        await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("记录详情", node.getText()));
+        awaitAny(described("返回剪贴板历史列表"));
         stage = "detail insertion preserves modified record identity";
         touch(described("插入这条剪贴板记录"));
         await(field("msime-test-plain").and(node -> equalsText(replacement, node.getText())));

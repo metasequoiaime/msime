@@ -310,7 +310,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 触屏的拼音九键和笔画键盘共用九键外框的底行（`nineKeyActionRow`，键序和份额在 `NineKeyLayout.actionRow`）：`符 1.05 | 123 1.25 | 空格 4.2 | 中/英 1.05 | 回车 1.6`，与 iOS、Android 相同。符 打开符号面板，九键上打开面板只走它和长按 123。拼音网格的数字层只有 1–9，0 补在底行：拼音九键、九键双拼和笔画的数字层是 `符 1.05 | 九键 1.25 | 空格 3.15 | 0 1.05 | 中/英 | 回车`，符 和切换键与字母层同一格（#10061，与 Android #9113、iOS 相同），0 的一份从空格里让出；从 26 键、14 键、18 键、手写借来的数字九宫格是 `返回 | 空格 | 0 | 中/英 | 回车`，返回键在它们 123 那一格，0 占 符 让出的同一份宽度。假名网格、手写和 2in1 屏幕键盘仍用共享的 `classicActionRow`。
 
-触屏 26 键一族（全拼、双拼、五笔、英文、韩文、越南语等）的字母层设计底行（`designActionRow`）为 `123 1.25 | 符 1.05 | 空格 4 | ， 1 | 中/英 1.05 | 回车 1.9`，逗号长按直接输入句号，不再放独立句号键，中英文模式相同（`KeyboardScheme.designRowUsesCommaSecondaryPeriod`）。符 同样打开符号面板、记作 `SoftSymbol`。14 键（第三行左端已有 符）、大千注音和它沿用的共享符号行仍是 `123 | ， | 空格 | 。 | 中/英 | 回车`，123 / #+= 层自带底行。
+触屏 26 键一族（全拼、双拼、五笔、英文、韩文、越南语等）的字母层设计底行（`designActionRow`）为 `123 1.25 | 符 1.05 | 。 1 | 空格 3 | ， 1 | 中/英 1.05 | 回车 1.9`：句号（英文等半角键面是句点）在空格左边，逗号在空格右边、长按直接输入句号（`KeyboardScheme.designRowUsesCommaSecondaryPeriod`）。句号的一份从空格让出（`TouchLayoutStylePolicy.ENGLISH_SPACE_SHARE`），中英文和各语言逐键同位置、同份额，切中/英时每个键都不动；句号走 `typePeriod` 交给 Engine 的标点路由，键面随中文标点开关画 `。` 或 `.`，按键记作 `Period`。中文 26 键的其他样式（逗号句号、长空格、表情键）各按自己的排法，不加这个句号。符 同样打开符号面板、记作 `SoftSymbol`。14 键（第三行左端已有 符）、大千注音和它沿用的共享符号行仍是 `123 | ， | 空格 | 。 | 中/英 | 回车`，123 / #+= 层自带底行。
 
 「按键布局」页（共享 React 设置页）还有两项（#10056，共享偏好、随账号同步，同步键 `platform.harmony.twenty_six_symbol_first` / `platform.harmony.number_pad_space`）：26 键分段卡片里、当前样式说明下面的「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`，默认关）把 26 键一族设计底行的 符 排到 123 左边（`TouchLayoutStylePolicy.symbolFirst`，长空格和表情键没有 符、不变），从它借来的数字九宫格带上 符、按九键一族的次序排（`KeyboardView.letterRowSymbolLeads`）；「数字键盘」一组（`touch_number_pad_space`）选空格在右列、在 0 右边或 0 左边，缺键或 `platform_default` 是鸿蒙原来的「空格在 0 左边」（`NineKeyLayout.actionRow` 的 `space`）。空格在右列时网格右列最下面一格从 ！ 换成空格（`touchNineKeyGrid`），右侧大回车不受影响。见 `.agents/notes/implemented/feature/2026-10-29-touch-symbol-first-and-number-pad-space.md`。
 
@@ -370,7 +370,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 全拼 14 键
 
-触屏方案 `QUANPIN_FOURTEEN_KEY`（preferenceId 和 layout 都是 `fourteen_key`，卡片「拼 14」，追加在方案表末尾，默认不启用），把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，四行与 26 键等高，底行是 `123 | ， | 空格 | 。 | 中/英 | 回车`（26 键为 `123 | 符 | 空格 | ， | 中/英 | 回车`，逗号长按输入句号，14 键第三行左端已经有 符，保留带逗号句号的这一行）。键表在 `keyboard/input/FourteenKeyLayout.ts`，与 Android、iOS 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对。手机和平板提供，2in1 与九键一样不提供：选择器里过滤掉，同步过来的 `fourteen_key` 在 2in1 上画 26 键、不开网格。
+触屏方案 `QUANPIN_FOURTEEN_KEY`（preferenceId 和 layout 都是 `fourteen_key`，卡片「拼 14」，追加在方案表末尾，默认不启用），把 QWERTY 上相邻两个字母合成一键：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[符/分词] ZX CV BN M [⌫]`，四行与 26 键等高，底行是 `123 | ， | 空格 | 。 | 中/英 | 回车`（26 键为 `123 | 符 | 。 | 空格 | ， | 中/英 | 回车`，逗号长按输入句号，14 键第三行左端已经有 符，保留带逗号句号的这一行）。键表在 `keyboard/input/FourteenKeyLayout.ts`，与 Android、iOS 和引擎 `KeyGrid::FourteenKey` 是同一张表，`scripts/test-fourteen-key-table.py` 核对。手机和平板提供，2in1 与九键一样不提供：选择器里过滤掉，同步过来的 `fourteen_key` 在 2in1 上画 26 键、不开网格。
 
 点一下经 `pressGridKey`（NAPI `gridKey`，`msime_client_grid_key`）送这一组的首字母；会话的网格是 `keyGrid`（`KeyGrid` 的 0 / 1 / 2，与 C ABI 一致），建会话、获得焦点、词库维护后重建这三处都重发 `setKeyGrid`。组字不写进输入框，读音行显示 `nine_key_reading`；拼音选择条在读音右侧横向滚动（读音最多占半行），不盖住候选，在 123 层和三栏面板开着时照样画；展开候选用九键的三栏面板（`NineKeyPanelPolicy.threeColumn` 放宽到 14 键）。第三排左端键组字时是「分词」（送 `'`），空闲时是「符」（打开符号面板），两种状态都记作 `SoftSymbol`。两个字母的键长按弹出这两个字母（复用 `SURFACE_NINE_KEY_HOLD`），选中后先结束组字再上屏，L、M 不弹。`qwertyLettersShowing` 不含 14 键，所以没有滑行；没有 Shift、按键气泡、双拼提示和角标。英文画 26 键，`selectEnglish` 不改写 `touch_keyboard_layout`，切回中文恢复 14 键；密码框、网址框（`prefersFullFace`）和本地模式画 26 键；123 与 26 键相同，是一行数字。组字中在 123 层点字符、打开符号或表情面板这些走 `commitRaw` 的路径，Engine 对 14 键结束组字取首选，不会把组码原样上屏。
 
@@ -621,7 +621,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 **键盘作为系统输入法在模拟器上完整跑通了。** 在社区页的搜索框里打 `nihao`，组合行显示 `nihao`，候选栏给出 `1 你好`，点选后 `你好` 进入输入框——按键经 ArkTS、NAPI、`crates/host-api` 的 C ABI、`input-runtime`、`engine-bridge` 一路到 C++ Engine 并带着随包词库返回，整条链路真的走通（这是当时的链路；C++ Engine 与 `engine-bridge` 已由 `crates/engine` 取代，`input-runtime` 现在直接调用它）。回车键读的是编辑器自己的动作：搜索框上显示「前往」，组合进行中变成「选定」，组合结束又变回「前往」。
 
-**这里有一个必须写下来的操作事实：输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动。** `ime -e <bundle>` 的默认是 `-b`，也就是 `BASIC_MODE`；在那个模式下 `ime -s` 会成功、`ime -g` 会报告本输入法是当前输入法、`app.msime.client:inputMethod` 进程也会起来，但编辑器获得焦点时框架打的是 `ShowKeyboardImplWithoutLock, panel not create` 与 `OnInputStart, entry is nullptr`，而本扩展的 ArkTS 一行日志都没有——`onCreate` 从未运行。表现就是键盘完全不出现，且看不出任何错误。换成 `ime -e <bundle> -f` 之后，同一次点击立刻打出 `attached to editor: pattern=0 enter=2`，面板正常呈现。做过一次对照：同一个输入框、同一次点击，华为系统输入法在我们处于 BASIC_MODE 时照常弹出，所以这不是模拟器、WebView 或该字段的问题。
+**基础访问模式（`BASIC_MODE`）下键盘进程有 seccomp 系统调用白名单，白名单外的调用会让内核以 SIGSYS 直接杀掉进程。** `ime -e <bundle>` 的默认是 `-b`，也就是 `BASIC_MODE`，用户在系统设置里开启输入法时默认也是它。早先在模拟器上看到的现象是：`ime -s` 成功、`ime -g` 报告本输入法是当前输入法，但编辑器获得焦点时框架打的是 `ShowKeyboardImplWithoutLock, panel not create` 与 `OnInputStart, entry is nullptr`，键盘完全不出现，换成 `ime -e <bundle> -f` 就正常，于是当时把它写成了「输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动」。这个结论是错的。2026-11-13 在真机 JUY-AL50 上复现并拿到了 cppcrash：`Reason:Signal:SIGSYS(SYS_SECCOMP) syscall number is 71`，71 是 aarch64 的 `sendfile`，调用栈是 `onCreate` → `StagedResources.stage` → `fs.copyFileSync` → libc++ `filesystem::copy_file` → `sendfile`。进程打出 `module loaded` 后几十毫秒就被杀，系统反复拉起、反复被杀，所以看不到任何 ArkTS 报错。基础访问模式下键盘用的是独立的扩展沙箱（`+extension-entry-KeyboardExtensionAbility+app.msime.hmos`），完整模式下暂存过的资源这里没有，每次都要重新拷。键盘进程里的文件拷贝因此一律走 `keyboard/FileCopy.ets`（只用 read/write），`tests/run.sh` 拦着 `@ohos.file.fs` 的拷贝接口；Rust 引擎建词库代次的文件拷贝同理不用 `io::copy`（标准库在 Linux/OHOS 上对文件对文件会先试 `copy_file_range`、`sendfile`）。以后键盘在基础访问模式下又弹不出来，先用 `hidumper -s 1201 -a '-p Faultlogger'` 列出 cppcrash，看是不是又一个 SIGSYS 和它的系统调用号。
 
 键盘在第三方应用里同样可用：华为浏览器的搜索框上打 `nihao` 得到候选 `你好`，上屏后浏览器据此拉取了联想词，说明文字确实到达了那个编辑器。回车键在那里读作「搜索」而在本应用的搜索框读作「前往」，两次都取自编辑器自己声明的动作。
 
@@ -776,7 +776,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-从 `main` 发正式版时不用传任何参数，`auto` 会在同次构建中签名、上传、等待解析、提交公开测试审核，不需要再到控制台手动上传或填写截图等素材，它们沿用最近的测试或在架版本。CI 在耗时构建前检查华为鉴权和本地配置；华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。上传后的包 ID、创建后的测试版本 ID 会立即写入 Actions 日志与步骤摘要，后续失败也保留；日志不包含 token、OBS 签名地址或原始资料。
+正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步仓库里的不透明 216×216 图标和 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试。图标和版本特性不再从 AGC 旧资料静默继承；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 
