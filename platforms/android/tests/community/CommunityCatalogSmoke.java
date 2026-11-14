@@ -1,4 +1,5 @@
 import app.msime.android.CommunityCatalog;
+import app.msime.android.CommunitySkinDownloadBridge;
 import app.msime.android.CommunityRequest;
 import app.msime.android.JsonPolicy;
 import app.msime.android.TextPolicy;
@@ -141,6 +142,18 @@ public final class CommunityCatalogSmoke {
         CommunityCatalog.Download download = uninitialized.download(null);
         check(download.failed() && !download.failure().isEmpty(),
             "a missing item must return a download failure without asking Rust");
+        Method validDownloadId = CommunityCatalog.class.getDeclaredMethod("validDownloadId", String.class);
+        validDownloadId.setAccessible(true);
+        check(!(boolean) validDownloadId.invoke(null, "not-a-uuid"),
+            "cached skin IDs must be validated before a full download");
+        check(!(boolean) validDownloadId.invoke(null, "00000000-0000-0000-0000-000000000000"),
+            "cached skin IDs must reject the nil UUID");
+        CommunityCatalog.Download cachedDownload = uninitialized.downloadSkin(null);
+        check(cachedDownload.failed() && !cachedDownload.failure().isEmpty(),
+            "a missing cached skin ID must fail before asking Rust");
+        CommunityCatalog.Download bridgedDownload = CommunitySkinDownloadBridge.download(null, null);
+        check(bridgedDownload.failed() && !bridgedDownload.failure().isEmpty(),
+            "a bridge without a context or ID must fail before crossing processes");
         System.out.println("Android community catalogue bounds passed");
     }
 

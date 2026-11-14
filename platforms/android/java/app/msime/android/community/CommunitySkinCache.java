@@ -15,7 +15,7 @@ import org.json.JSONObject;
 /**
  * 社区皮肤目录在本机的一份缓存，供键盘的皮肤面板列出全部社区皮肤。
  *
- * <p>键盘跑在 :ime 进程里，按宿主约定不为浏览目录联网；App 进程在拉社区皮肤列表时把条目写进偏好目录下的这个文件（两个进程同一 UID，读同一目录），键盘只读它。条目只存展示和安装要用的 id、名字、作者和设计；用户在键盘里选中一款未获取的皮肤时，再把设计存进 {@link CustomSkinLibrary}。
+ * <p>键盘跑在 :ime 进程里，按宿主约定不为浏览目录联网；App 进程在拉社区皮肤列表时把条目写进偏好目录下的这个文件（两个进程同一 UID，读同一目录），键盘只读它。条目只存展示和预览要用的 id、名字、作者和设计；用户在键盘里选中一款未获取的皮肤时，按 ID 完整下载后再把下载设计存进 {@link CustomSkinLibrary}。
  */
 public final class CommunitySkinCache {
     static final String FILE = "community-skins.json";

@@ -61,6 +61,8 @@ if [[ "$1 $2 $3" == "shell am instrument" ]]; then
     printf 'INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n'
   elif has "${FAKE_FAIL:-}" "$key"; then
     printf 'MSIME_DEVICE_SMOKE_FAILED: fake stage of %s (AssertionError) Expected synthetic UI state was not observed\nIME showed [a, b]\n\nINSTRUMENTATION_CODE: 0\n' "$key"
+  elif [[ "$key" == AccountStorageDeviceSmoke:skin-download ]]; then
+    printf 'MSIME_SKIN_DOWNLOAD_STREAM_PASSED\nINSTRUMENTATION_CODE: -1\n'
   else
     printf 'MSIME_DEVICE_SMOKE_PASSED: %s MSIME_DICTIONARY_IMPORT_PASSED MSIME_LOCAL_SPEECH_HANDLES_PASSED\nINSTRUMENTATION_CODE: -1\n' "$key"
   fi
@@ -196,6 +198,10 @@ def main() -> None:
         run.expect("====" not in run.stderr and run.summary == "", "全部通过时不打印失败汇总，也不写 step summary")
         run.expect(run.ran("LetterHintPunctuationDeviceSmoke:english-swipe") and run.ran_script("clipboard-edit-lifecycle"), "全部通过时应跑到最后一项")
         run.expect(f"script voice-lifecycle {SERIAL} hold" in run.calls, "完整验收应调用长按语音锁定专项")
+        run.expect(run.ran("AccountStorageDeviceSmoke:skin-download"), "完整验收必须执行跨进程大照片回归")
+        run = Run(base, "skin-stream-fail", [], fail="AccountStorageDeviceSmoke:skin-download")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "照片传输失败必须阻止通过")
+        run.expect(run.ran("CandidateCanvasDeviceSmoke"), "照片传输失败后应继续收集无关套件结果")
 
         for sdk in ("28", "35"):
             run = Run(base, f"release-pass-{sdk}", ["--release"], sdk=sdk)
