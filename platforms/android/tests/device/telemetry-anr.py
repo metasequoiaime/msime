@@ -101,7 +101,12 @@ def main():
     dialogs = shell("settings get global hide_error_dialogs")
     rule = "OUTPUT -m owner --uid-owner " + uid + " -j REJECT"
     shell("iptables -I " + rule)
+    # iptables 仅作用于 IPv4。主机具备 IPv6 连接时，应用可经 IPv6 将合成事件实际上报至遥测服务，
+    # 并视为已送达而移出队列，致使后续断言失效。因此对 IPv6 施加相同规则，清理时仅删除已插入的规则。
+    blocked_ipv6 = False
     try:
+        shell("ip6tables -I " + rule)
+        blocked_ipv6 = True
         shell("settings put global hide_error_dialogs 1")
         shell("rm -rf " + telemetry)
         shell("rm -f " + ledger)
@@ -154,7 +159,11 @@ def main():
             shell("rm -f " + ledger)
         finally:
             try:
-                shell("iptables -D " + rule)
+                try:
+                    shell("iptables -D " + rule)
+                finally:
+                    if blocked_ipv6:
+                        shell("ip6tables -D " + rule)
             finally:
                 shell("settings delete global hide_error_dialogs" if dialogs == "null"
                       else "settings put global hide_error_dialogs " + str(int(dialogs)))
