@@ -299,7 +299,7 @@ thread_local! {
 struct HostSession {
     runtime: Runtime,
     options: EngineOptions,
-    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
+    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（macOS、Linux、HarmonyOS 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
     quick_phrase_candidates_requested: bool,
     /// 原始宿主能力；偏好重建时不能从已经回退的有效布局推断它。
     korean_romaja_requested: bool,
