@@ -3295,7 +3295,7 @@ public final class MSIMEInputService extends InputMethodService {
         ScreenCaptureProtection.apply(imeWindow == null ? null : imeWindow.getWindow(), screenCaptureProtected);
     }
 
-    /** 键盘高度：本地设置里有设计范围（-46..129）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 键盘高度：本地设置里有设计范围（-92..129）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
     private int heightAdjustmentFrom(JSONObject preferences) {
         if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)) {
             return KeyboardHeightPolicy.designHeightAdjustment(
@@ -8703,7 +8703,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchGeometrySaving = true;
         preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
-        // 高度是设计范围（75%..170%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
+        // 高度是设计范围（50%..170%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
         final Integer height = reset ? null : touchKeyboardHeightAdjustment;
         final java.nio.file.Path localSettingsFile = AndroidLocalSettings.file(this);
         final JSONObject sharedDocument = pending;

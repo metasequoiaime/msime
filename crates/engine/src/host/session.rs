@@ -44,6 +44,8 @@ pub enum Command {
     ConversionLeft = 13,
     /// 整句改字的光标右移一个字（`crate::types::Command::ConversionRight`）。
     ConversionRight = 14,
+    /// 无组字时按独立入口打开快捷短语，不依赖 Shift 入口总开关。
+    EnterQuickPhrase = 15,
 }
 
 /// 当前唯一混合候选的输入身份及语言分段，不随候选下标建立平行向量。
@@ -762,6 +764,7 @@ impl Session {
     /// `CommitRaw` 与 `CommitRawWithoutLearning` 交给核心同名的命令：回车学英文词的策略在核心里（`SessionOptions::learn_typed_spellings_on_enter`，产品打开），门面只换编号。
     pub fn command(&mut self, command: Command) -> Result<EngineResult> {
         match command {
+            Command::EnterQuickPhrase => Ok(result_for(self.inner.enter_quick_phrase())),
             Command::CommitRawWithoutLearning => Ok(result_for(
                 self.inner
                     .command(crate::types::Command::CommitRawWithoutLearning),

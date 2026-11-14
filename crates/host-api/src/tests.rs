@@ -3515,12 +3515,12 @@ fn korean_hanja_conversion_crosses_the_host_boundary() {
     assert!(refused["value"]["commit"].is_null());
     assert_eq!(refused["value"]["view"]["preedit"], "ㄱ");
 
-    // 17 和 18 是整句改字的光标键，韩文里进不了改字，与字母光标键一样写出音节；19 是宿主自己上屏后的取消（MSIME_CANCEL_AFTER_HOST_COMMIT），20 是宿主替失焦结束组字（MSIME_FINISH_ON_FOCUS_LOSS），是导航命令前的最后一个，下一个编号仍未定义。
+    // 17 和 18 是整句改字的光标键，韩文里进不了改字，与字母光标键一样写出音节；19 是宿主自己上屏后的取消（MSIME_CANCEL_AFTER_HOST_COMMIT），20 是宿主替失焦结束组字（MSIME_FINISH_ON_FOCUS_LOSS），21 是快捷短语入口；导航命令前的 99 仍未定义。
     let left = read(msime_client_command(handle, 17));
     assert_eq!(left["value"]["handled"], false);
     assert_eq!(left["value"]["commit"], "ㄱ");
     assert_eq!(
-        read(msime_client_command(handle, 21))["error"],
+        read(msime_client_command(handle, 99))["error"],
         "unknown input command"
     );
     read(msime_client_destroy(handle));
@@ -21416,6 +21416,8 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
         on_demand,
         cfg!(any(
             target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
             target_os = "android",
             target_os = "ios",
             target_env = "ohos"

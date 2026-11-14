@@ -1046,6 +1046,7 @@ pub unsafe extern "C" fn msime_client_toggle_hotkey_chords(
             "full_width": toggle_hotkey_chord(keys.full_width_chord()),
             "punctuation": toggle_hotkey_chord(keys.punctuation_chord()),
             "voice_input": toggle_hotkey_chord(keys.toggle_voice_input.parse().ok()),
+            "quick_phrase": toggle_hotkey_chord(keys.enter_quick_phrase.parse().ok()),
         }))
     })
 }

@@ -3826,6 +3826,9 @@ pub struct KeybindingPreferences {
     /// 额外的语音开始／结束热键；空串表示不绑定，不改变既有固定语音快捷键。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub toggle_voice_input: String,
+    /// macOS 额外的快捷短语入口；缺省不绑定，保留 Shift+K。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub enter_quick_phrase: String,
 }
 
 /// 三个切换热键的出厂值，沿用旧版 Windows v0.11.1 `engine/contracts/input_state_shortcuts.h` 的 `defaultBinding`。
@@ -3880,6 +3883,9 @@ pub enum ToggleHotkeySlot {
     /// `keybindings.toggle_voice_input`。
     #[serde(rename = "toggle_voice_input")]
     VoiceInput,
+    /// `keybindings.enter_quick_phrase`。
+    #[serde(rename = "enter_quick_phrase")]
+    QuickPhrase,
 }
 
 /// 一个组合键已被谁占用：另一个切换热键，或某个开关随附的快捷键 / macOS 维护键。
@@ -3889,6 +3895,7 @@ pub enum ToggleChordOwner {
     FullWidth,
     Punctuation,
     VoiceInput,
+    QuickPhrase,
     /// `keybindings.switch_language_shift` 打开时 macOS 同时启用 `Shift+Space`。
     SwitchLanguageShift,
     /// `keybindings.switch_language_ctrl_space` 打开时的 `Ctrl+Space`。
@@ -3917,6 +3924,7 @@ impl ToggleChordOwner {
             Self::FullWidth => "toggle_full_width",
             Self::Punctuation => "toggle_punctuation",
             Self::VoiceInput => "toggle_voice_input",
+            Self::QuickPhrase => "enter_quick_phrase",
             Self::SwitchLanguageShift => "switch_language_shift",
             Self::SwitchLanguageCtrlSpace => "switch_language_ctrl_space",
             Self::SwitchLanguageCtrlAltSpace => "switch_language_ctrl_alt_space",
@@ -3946,7 +3954,7 @@ pub enum ToggleHotkeyRejection {
 
 impl KeybindingPreferences {
     /// 切换热键的槽位与当前 chord：空串或非法写法为 `None`（不绑定）。
-    fn toggle_chords(&self) -> [(ToggleHotkeySlot, Option<crate::key_chord::KeyChord>); 4] {
+    fn toggle_chords(&self) -> [(ToggleHotkeySlot, Option<crate::key_chord::KeyChord>); 5] {
         [
             (
                 ToggleHotkeySlot::EnglishCandidates,
@@ -3955,6 +3963,10 @@ impl KeybindingPreferences {
             (ToggleHotkeySlot::FullWidth, self.full_width_chord()),
             (ToggleHotkeySlot::Punctuation, self.punctuation_chord()),
             (ToggleHotkeySlot::VoiceInput, self.voice_input_chord()),
+            (
+                ToggleHotkeySlot::QuickPhrase,
+                toggle_chord(&self.enter_quick_phrase),
+            ),
         ]
     }
 
@@ -4050,6 +4062,13 @@ impl KeybindingPreferences {
         }
         let chord: crate::key_chord::KeyChord =
             text.parse().map_err(ToggleHotkeyRejection::Invalid)?;
+        if slot == ToggleHotkeySlot::QuickPhrase
+            && !(chord.modifiers.ctrl || chord.modifiers.alt || chord.modifiers.meta)
+        {
+            return Err(ToggleHotkeyRejection::Invalid(
+                crate::key_chord::KeyChordError::MissingShortcutModifier,
+            ));
+        }
         for (other, bound) in self.toggle_chords() {
             if other == slot {
                 continue;
@@ -4061,6 +4080,7 @@ impl KeybindingPreferences {
                         ToggleHotkeySlot::FullWidth => ToggleChordOwner::FullWidth,
                         ToggleHotkeySlot::Punctuation => ToggleChordOwner::Punctuation,
                         ToggleHotkeySlot::VoiceInput => ToggleChordOwner::VoiceInput,
+                        ToggleHotkeySlot::QuickPhrase => ToggleChordOwner::QuickPhrase,
                     },
                     chord,
                 });
@@ -4081,6 +4101,7 @@ impl KeybindingPreferences {
             &mut self.toggle_full_width,
             &mut self.toggle_punctuation,
             &mut self.toggle_voice_input,
+            &mut self.enter_quick_phrase,
         ] {
             if let Ok(chord) = text.trim().parse::<crate::key_chord::KeyChord>() {
                 *text = chord.to_string();
@@ -4106,6 +4127,7 @@ impl Default for KeybindingPreferences {
             toggle_full_width: default_toggle_full_width(),
             toggle_punctuation: default_toggle_punctuation(),
             toggle_voice_input: String::new(),
+            enter_quick_phrase: String::new(),
         }
     }
 }
@@ -5676,6 +5698,18 @@ impl Preferences {
         }
         // 切换热键两两不同，且不占已被其他开关认走的组合键。保留表随各开关开合：开关关掉时组合键已经还给应用，绑给它不冲突。占用表的完整说明见 `KeybindingPreferences::occupied_toggle_chords`，设置页的录键试写走同一个表。
         let keybindings = &self.keybindings;
+        keybindings
+            .check_toggle_hotkey(
+                ToggleHotkeySlot::QuickPhrase,
+                &keybindings.enter_quick_phrase,
+                self.voice_input.hotkey_ctrl_f9,
+            )
+            .map_err(|rejection| match rejection {
+                ToggleHotkeyRejection::Invalid(_) => PreferencesError::InvalidToggleHotkey,
+                ToggleHotkeyRejection::Conflict { .. } => {
+                    PreferencesError::ConflictingToggleHotkeys
+                }
+            })?;
         let occupied: Vec<crate::key_chord::KeyChord> = keybindings
             .occupied_toggle_chords(self.voice_input.hotkey_ctrl_f9)
             .into_iter()
@@ -5687,6 +5721,7 @@ impl Preferences {
             &keybindings.toggle_full_width,
             &keybindings.toggle_punctuation,
             &keybindings.toggle_voice_input,
+            &keybindings.enter_quick_phrase,
         ] {
             if text.trim().is_empty() {
                 continue;
