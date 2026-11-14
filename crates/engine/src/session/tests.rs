@@ -2,6 +2,7 @@
 
 mod bilingual_glide;
 mod bilingual_glide_quality;
+mod fuzzy_heaviest;
 mod invalid_pinyin;
 mod sentence_excluded;
 
@@ -772,6 +773,43 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
         ).unwrap();
         assert!(learned > 0, "模糊两键选择必须按标准读音学习");
     }
+}
+
+#[test]
+fn quanpin_fuzzy_selection_can_cross_the_literal_candidate_group() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_z VALUES('zi''qian','zq','自谦',300),('zi''qian','zq','自前',200),('zi''qian','zq','资遣',100);\
+INSERT INTO tbl_2_z VALUES('zhi''qian','zq','之前',50);",
+    );
+    let mut session = Fixture::session_with(&fixture, |options| {
+        options.helpcode = false;
+        options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut session, "ziqian");
+    let initial = words(&session);
+    let initial_index = index_of(&session, "之前");
+    assert!(
+        initial_index >= 3,
+        "模糊候选必须先位于字面候选之后: {initial:?}"
+    );
+    assert_eq!(
+        session.select(initial_index).commit.as_deref(),
+        Some("之前")
+    );
+
+    let mut next = Fixture::session_with(&fixture, |options| {
+        options.helpcode = false;
+        options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut next, "ziqian");
+    let learned = words(&next);
+    assert!(
+        index_of(&next, "之前") < 3,
+        "选择模糊候选后应能进入字面候选组前列: {learned:?}"
+    );
 }
 
 fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
@@ -6321,150 +6359,169 @@ fn fourteen_key_shuangpin_separates_touch_groups_from_hardware_letters() {
     assert!(!quanpin.grid_key(b'n').handled);
 }
 
-/// 无候选时仍上屏小写字母，不能泄漏内部精确标记。
-#[test]
-fn eighteen_key_shuangpin_exact_markers_do_not_escape_raw_fallback() {
-    let fixture = Fixture::new(QUANPIN_FIXTURE);
-    for finish in [false, true] {
-        let mut session = fixture.session_with(|options| {
-            options.scheme = SchemeType::Shuangpin;
-            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
-            options.english.mixed_candidates = false;
-        });
-        let table = crate::nine_key_shuangpin::resolve_eighteen_key_shuangpin(
-            ShuangpinProfileKind::Xiaohe,
-            None,
-        )
-        .unwrap();
-        session.set_key_grid(Some(KeyGrid::EighteenKeyShuangpin(table)));
-        assert!(session.grid_key(b'I').handled);
-        assert!(session.snapshot().candidates.is_empty());
-        let result = if finish {
-            session.finish(0)
-        } else {
-            session.command(Command::CommitRaw)
-        };
-        assert_eq!(result.commit.as_deref(), Some("i"));
-        assert!(session.snapshot().editing_text.is_empty());
-    }
-}
-
-/// 逐段结束中文后，无候选的余码也不能泄漏内部精确标记。
-#[test]
-fn eighteen_key_shuangpin_exact_markers_do_not_escape_finish_tail() {
-    let fixture = Fixture::new(QUANPIN_FIXTURE);
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Shuangpin;
-        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
-        options.english.mixed_candidates = false;
-    });
-    let table = crate::nine_key_shuangpin::resolve_eighteen_key_shuangpin(
-        ShuangpinProfileKind::Xiaohe,
-        None,
-    )
-    .unwrap();
-    session.set_key_grid(Some(KeyGrid::EighteenKeyShuangpin(table)));
-    for key in b"NiI" {
-        assert!(session.grid_key(*key).handled);
-    }
-    assert_eq!(session.snapshot().candidates[0].word, "你");
-    assert_eq!(session.finish(0).commit.as_deref(), Some("你i"));
-    assert!(session.snapshot().editing_text.is_empty());
-}
-
-/// 横滑的确定字母保留在同一组码串；点按仍可与它交替。
-#[test]
-fn eighteen_key_shuangpin_exact_letters_constrain_the_current_grid() {
-    let fixture = Fixture::new(QUANPIN_FIXTURE);
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Shuangpin;
-        options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
-    });
-    let table = crate::nine_key_shuangpin::resolve_eighteen_key_shuangpin(
-        ShuangpinProfileKind::Xiaohe,
-        None,
-    )
-    .unwrap();
-    session.set_key_grid(Some(KeyGrid::EighteenKeyShuangpin(table)));
-    for key in b"bi" {
-        assert!(session.grid_key(*key).handled);
-    }
-    let ambiguous = session.snapshot().nine_key_spellings;
-    assert!(ambiguous.iter().any(|s| s == "bi") && ambiguous.iter().any(|s| s == "ni"));
-    session.command(Command::Cancel);
-
-    assert!(session.grid_key(b'N').handled, "十八键双拼应接收精确字母");
-    assert!(session.grid_key(b'i').handled);
-    let exact = session.snapshot();
-    assert_eq!(exact.editing_text, "Ni");
-    assert!(exact.nine_key_spellings.iter().any(|s| s == "ni"));
-    assert!(!exact.nine_key_spellings.iter().any(|s| s == "bi"));
-    assert_eq!(
-        exact
-            .nine_key_spellings
-            .iter()
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        exact.nine_key_spellings.len()
-    );
-    for key in b"hC" {
-        assert!(session.grid_key(*key).handled);
-    }
-    assert_eq!(
-        select_word(&mut session, "你好").commit.as_deref(),
-        Some("你好")
-    );
-
-    // 中间编辑仍在精确网格中；退格只删除当前位置之前的一位。
-    for key in b"Ni" {
-        assert!(session.grid_key(*key).handled);
-    }
-    session.command(Command::MoveLeft);
-    assert!(session.grid_key(b'H').handled);
-    assert_eq!(session.snapshot().editing_text, "NHi");
-    session.command(Command::Backspace);
-    assert_eq!(session.snapshot().editing_text, "Ni");
-    session.command(Command::DeleteForward);
-    assert_eq!(session.snapshot().editing_text, "N");
-    assert!(session.grid_key(b'I').handled);
-    assert_eq!(session.snapshot().editing_text, "NI");
-    let ni = session
-        .snapshot()
-        .nine_key_spellings
-        .iter()
-        .position(|s| s == "ni")
-        .unwrap();
-    assert!(session.choose_nine_key_spelling(ni).handled);
-    assert_eq!(session.snapshot().nine_key_reading, "ni");
-    session.command(Command::Backspace);
-    assert_eq!(session.snapshot().editing_text, "NI");
-    assert!(!session
-        .snapshot()
-        .nine_key_spellings
-        .iter()
-        .any(|s| s == "bi"));
-    session.command(Command::Cancel);
-    assert!(session.character(b'n', false).handled);
-    assert!(!session.grid_composing());
-    assert!(!session.grid_key(b'I').handled);
-    assert_eq!(session.snapshot().editing_text, "n");
-    session.command(Command::Cancel);
-    session.set_dedicated_english(true);
-    assert!(!session.grid_key(b'N').handled);
-
-    let mut quanpin = fixture.session();
-    quanpin.set_key_grid(Some(KeyGrid::EighteenKey));
-    assert!(!quanpin.grid_key(b'N').handled);
-    assert!(quanpin.grid_key(b'n').handled);
+/// 小鹤双拼的两种字母网格。后两项是「你」的韵母 i 和「好」的声母 h 在这一网格的整组码：18 键 IO 组是 `i`、h 单独一键；14 键 UI 组是 `u`、GH 组是 `g`。
+fn xiaohe_letter_grids() -> [(KeyGrid, &'static str, u8, u8); 2] {
     let fourteen = crate::nine_key_shuangpin::resolve_fourteen_key_shuangpin(
         ShuangpinProfileKind::Xiaohe,
         None,
     )
     .unwrap();
-    session.set_dedicated_english(false);
-    session.set_key_grid(Some(KeyGrid::FourteenKeyShuangpin(fourteen)));
-    assert!(!session.grid_key(b'N').handled);
-    assert!(session.grid_key(b'n').handled);
+    let eighteen = crate::nine_key_shuangpin::resolve_eighteen_key_shuangpin(
+        ShuangpinProfileKind::Xiaohe,
+        None,
+    )
+    .unwrap();
+    [
+        (KeyGrid::FourteenKeyShuangpin(fourteen), "14 键", b'u', b'g'),
+        (KeyGrid::EighteenKeyShuangpin(eighteen), "18 键", b'i', b'h'),
+    ]
+}
+
+/// 无候选时仍上屏小写字母，不能泄漏内部精确标记。
+#[test]
+fn letter_shuangpin_exact_markers_do_not_escape_raw_fallback() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (grid, layout, _, _) in xiaohe_letter_grids() {
+        for finish in [false, true] {
+            let mut session = fixture.session_with(|options| {
+                options.scheme = SchemeType::Shuangpin;
+                options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+                options.english.mixed_candidates = false;
+            });
+            session.set_key_grid(Some(grid));
+            assert!(session.grid_key(b'I').handled, "{layout}");
+            assert!(session.snapshot().candidates.is_empty(), "{layout}");
+            let result = if finish {
+                session.finish(0)
+            } else {
+                session.command(Command::CommitRaw)
+            };
+            assert_eq!(result.commit.as_deref(), Some("i"), "{layout}");
+            assert!(session.snapshot().editing_text.is_empty(), "{layout}");
+        }
+    }
+}
+
+/// 逐段结束中文后，无候选的余码也不能泄漏内部精确标记。
+#[test]
+fn letter_shuangpin_exact_markers_do_not_escape_finish_tail() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (grid, layout, i_group, _) in xiaohe_letter_grids() {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.english.mixed_candidates = false;
+        });
+        session.set_key_grid(Some(grid));
+        for key in [b'N', i_group, b'I'] {
+            assert!(session.grid_key(key).handled, "{layout}");
+        }
+        assert_eq!(session.snapshot().candidates[0].word, "你", "{layout}");
+        assert_eq!(session.finish(0).commit.as_deref(), Some("你i"), "{layout}");
+        assert!(session.snapshot().editing_text.is_empty(), "{layout}");
+    }
+}
+
+/// 横滑的确定字母保留在同一组码串；点按仍可与它交替。14 键和 18 键双拼相同；全拼网格见 `tests/grid_exact.rs`。
+#[test]
+fn letter_shuangpin_exact_letters_constrain_the_current_grid() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (grid, layout, i_group, h_group) in xiaohe_letter_grids() {
+        let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).unwrap();
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        });
+        session.set_key_grid(Some(grid));
+        // 两种网格的 b 与 n 都在 BN 键上。
+        for key in [b'b', i_group] {
+            assert!(session.grid_key(key).handled, "{layout}");
+        }
+        let ambiguous = session.snapshot().nine_key_spellings;
+        assert!(
+            ambiguous.iter().any(|s| s == "bi") && ambiguous.iter().any(|s| s == "ni"),
+            "{layout} {ambiguous:?}"
+        );
+        session.command(Command::Cancel);
+
+        assert!(session.grid_key(b'N').handled, "{layout}双拼应接收精确字母");
+        assert!(session.grid_key(i_group).handled, "{layout}");
+        let exact = session.snapshot();
+        assert_eq!(exact.editing_text, text(&[b'N', i_group]), "{layout}");
+        assert!(
+            exact.nine_key_spellings.iter().any(|s| s == "ni"),
+            "{layout}"
+        );
+        assert!(
+            !exact.nine_key_spellings.iter().any(|s| s == "bi"),
+            "{layout}"
+        );
+        assert_eq!(
+            exact
+                .nine_key_spellings
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            exact.nine_key_spellings.len(),
+            "{layout}"
+        );
+        for key in [h_group, b'C'] {
+            assert!(session.grid_key(key).handled, "{layout}");
+        }
+        assert_eq!(
+            select_word(&mut session, "你好").commit.as_deref(),
+            Some("你好"),
+            "{layout}"
+        );
+
+        // 中间编辑仍在精确网格中；退格只删除当前位置之前的一位。
+        for key in [b'N', i_group] {
+            assert!(session.grid_key(key).handled, "{layout}");
+        }
+        session.command(Command::MoveLeft);
+        assert!(session.grid_key(b'H').handled, "{layout}");
+        assert_eq!(
+            session.snapshot().editing_text,
+            text(&[b'N', b'H', i_group]),
+            "{layout}"
+        );
+        session.command(Command::Backspace);
+        assert_eq!(
+            session.snapshot().editing_text,
+            text(&[b'N', i_group]),
+            "{layout}"
+        );
+        session.command(Command::DeleteForward);
+        assert_eq!(session.snapshot().editing_text, "N", "{layout}");
+        assert!(session.grid_key(b'I').handled, "{layout}");
+        assert_eq!(session.snapshot().editing_text, "NI", "{layout}");
+        let ni = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|s| s == "ni")
+            .unwrap();
+        assert!(session.choose_nine_key_spelling(ni).handled, "{layout}");
+        assert_eq!(session.snapshot().nine_key_reading, "ni", "{layout}");
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "NI", "{layout}");
+        assert!(
+            !session
+                .snapshot()
+                .nine_key_spellings
+                .iter()
+                .any(|s| s == "bi"),
+            "{layout}"
+        );
+        session.command(Command::Cancel);
+        assert!(session.character(b'n', false).handled, "{layout}");
+        assert!(!session.grid_composing(), "{layout}");
+        assert!(!session.grid_key(b'I').handled, "{layout}");
+        assert_eq!(session.snapshot().editing_text, "n", "{layout}");
+        session.command(Command::Cancel);
+        session.set_dedicated_english(true);
+        assert!(!session.grid_key(b'N').handled, "{layout}");
+    }
 }
 
 /// 14 键：组码只从 `grid_key` 进九宫格，组里任一字母都归成首字母；硬件键盘的字母照常走全拼，九宫格组字中不处理。
@@ -6493,7 +6550,7 @@ fn fourteen_key_letters_enter_the_grid_only_through_grid_key() {
     assert!(!session.character(b'h', false).handled);
     assert!(!session.character(b'6', false).handled);
     assert!(!session.grid_key(b'1').handled);
-    assert!(!session.grid_key(b'A').handled);
+    assert!(!session.grid_key(b';').handled);
     assert_eq!(session.snapshot().editing_text, "bugao");
     session.command(Command::Cancel);
 
@@ -15140,7 +15197,7 @@ fn eighteen_key_uses_ambiguous_groups_and_preserves_exact_hardware_input() {
     assert!(ambiguous.contains(&"你好".into()), "{ambiguous:?}");
     assert!(ambiguous.contains(&"波好".into()), "{ambiguous:?}");
     assert!(!session.grid_key(b'1').handled);
-    assert!(!session.grid_key(b'A').handled);
+    assert!(!session.grid_key(b';').handled);
     assert_eq!(
         select_word(&mut session, "波好").commit.as_deref(),
         Some("波好")
@@ -15323,6 +15380,7 @@ INSERT INTO quick_parases VALUES('qq','腾讯',20);"
 }
 
 mod caret_suffix;
+mod grid_exact;
 mod grid_helpcode;
 mod lifecycle;
 mod offensive_placement;

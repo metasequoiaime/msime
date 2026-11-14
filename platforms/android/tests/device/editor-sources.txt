@@ -29,6 +29,7 @@ platforms/android/tests/device/keyboard/PagedTileGridGestureDeviceSmoke.java
 platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/WorldClockDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java
+platforms/android/tests/device/keyboard/StickerEditorActivity.java
 platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeySidebarPairDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
@@ -66,10 +67,12 @@ platforms/android/tests/device/keyboard/FourteenKeyWubiDeviceChecks.java
 platforms/android/tests/device/keyboard/EighteenKeyGeometryDeviceChecks.java
 platforms/android/tests/device/keyboard/GridLetterSymbolDeviceChecks.java
 platforms/android/tests/device/keyboard/GridSpellingEditorChecks.java
+platforms/android/tests/device/keyboard/GridSwipeTouch.java
 platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/RandomDigitsDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
+platforms/android/tests/device/keyboard/ShuangpinUniformKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
 platforms/android/tests/device/settings/SettingsSearchAnchorDeviceChecks.java
 platforms/android/tests/device/settings/LocalVoicePauseDeviceChecks.java
@@ -214,6 +217,7 @@ platforms/android/tests/device/voice/SyntheticSpeechSetup.java
 platforms/android/tests/device/keyboard/SymbolPanelLayoutDeviceSmoke.java
 platforms/android/tests/device/clipboard/TextEditRecentClipboardDeviceSmoke.java
 platforms/android/tests/device/clipboard/SpaceCopyDeviceChecks.java
+platforms/android/tests/device/clipboard/SpaceCopyFailureNoticeChecks.java
 platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/TallReturnDeviceChecks.java
@@ -245,6 +249,8 @@ platforms/android/tests/device/settings/DictionaryImportDeviceSmoke.java
 platforms/android/tests/device/keyboard/NumberLayerEntryDeviceSmoke.java
 platforms/android/tests/device/keyboard/RestartingEditorActivity.java
 platforms/android/tests/device/keyboard/NumberLayerRestartDeviceSmoke.java
+platforms/android/tests/device/keyboard/SpellingEditorSwitchChecks.java
+platforms/android/tests/device/keyboard/SpellingEditorOverlapChecks.java
 platforms/android/tests/device/keyboard/CompositionRestartDeviceSmoke.java
 platforms/android/tests/device/keyboard/CompositionMagnifierChecks.java
 platforms/android/tests/device/keyboard/ChineseShiftReturnDeviceSmoke.java
@@ -290,3 +296,5 @@ platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceMascotDeviceChecks.java
 platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
+platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
+platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java

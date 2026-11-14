@@ -50,7 +50,7 @@ final class ImeCompositionEditor {
     }
 
     void open() {
-        if (!s.compositionEditable()) return;
+        if (!s.spellingEditorEnabled || !s.compositionEditable()) return;
         open = true;
         s.render();
     }
@@ -62,7 +62,7 @@ final class ImeCompositionEditor {
 
     /** @param keypad 这次组字所在键盘的组码表（{@link CompositionCaretPolicy#keypad}），读音的字母按它对上按键 */
     void render(String display, String editing, String keypad, int caret, boolean keyGrid) {
-        if (!s.compositionEditable()) close();
+        if (!s.spellingEditorEnabled || !s.compositionEditable()) close();
         if (container == null) return;
         ViewPolicy.setVisible(container, open);
         if (!open) return;

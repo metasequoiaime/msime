@@ -55,6 +55,10 @@ public final class ChineseOutputPolicySmoke {
         check(ChineseOutputPolicy.preferenceKey(false).equals("traditional_chinese_output"));
         check(ChineseOutputPolicy.preferenceKey(ChineseOutputPolicy.switchFollowsCantonese(true, 5))
             .equals("traditional_chinese_output"));
+        check(ChineseOutputPolicy.traditionalVariantCode("s2t") == 0);
+        check(ChineseOutputPolicy.traditionalVariantCode("s2tw") == 1);
+        check(ChineseOutputPolicy.traditionalVariantCode("s2twp") == 2);
+        check(ChineseOutputPolicy.traditionalVariantCode("unknown") == 0);
         System.out.println("Android Chinese output: boundaries and conversion failure fallback passed");
     }
 }

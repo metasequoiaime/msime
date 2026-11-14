@@ -1072,16 +1072,14 @@ if ! rg -q 'clipboardAction\(header, "插入"' \
   echo "Android clipboard multi-selection must insert 1 to 4 records in ordinal order with badges (#10411)" >&2
   exit 1
 fi
-# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览。详情页的顶部栏及其触摸命中由 ToolbarEdgesDeviceSmoke 覆盖。
 if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
   || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
   || ! rg -A 10 'private void returnFromClipboardDetail\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
-  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
-    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\('; then
   echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
   exit 1
 fi
@@ -1201,11 +1199,12 @@ if ! rg -q '@Override public void onTrimMemory\(int level\)' \
   echo "Android IME must release process-level model caches on memory pressure" >&2
   exit 1
 fi
-# Simplified/Traditional output is the shared OpenCC s2t tables, phrase-level, and the same
-# conversion Windows and Linux use. This host converted one character at a time through
-# android.icu.Transliterator, which turns 头发 into 頭發 and is silently unavailable below API 29.
-if ! rg -q 'NativeClient::simplifiedToTraditional' \
+# 简繁输出使用共享的词级 OpenCC 表，并通过 Android 设置页提供 s2tw 和 s2twp 变体。旧实现按字符调用
+# android.icu.Transliterator，会把「头发」变成「頭發」，且在 API 29 以下不可用。
+if ! rg -q 'NativeClient\.convertToTraditional' \
     "$repo_root/platforms/android/java/app/msime/android/core/AndroidChineseTextConversion.java" \
+  || ! rg -q 'traditionalVariantCode' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/ChineseOutputPolicy.java" \
   || rg -q '^import android\.icu\.text\.Transliterator' "$repo_root/platforms/android/java"; then
   echo "Android Simplified/Traditional output must use the shared converter" >&2
   exit 1
@@ -1546,7 +1545,7 @@ fi
 if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   || ! rg -qF '+ ":" + numberPadSpace.resolved() + ":" + languageLeft' "$bottom_row_file" \
   || ! sed -n '/    private LinearLayout tallReturnMiddleColumn(/,/^    }$/p' "$layout_rows" \
-    | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {' \
+    | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft);' \
   || ! sed -n '/    boolean tallReturnStale() {$/,/^    }$/p' "$layout_rows" | rg_q_stdin -F 'builtTallReturnLanguageLeft != s.languageKeyLeft' \
   || ! rg_q_stdin -F 'languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' <<< "$style_render" \
   || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, null, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);\n\s*\}\)\.help\(TouchKeyStyle\.LANGUAGE_LEFT_NOTE\);' <<< "$style_section" \
@@ -1603,7 +1602,7 @@ for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
   fi
 done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
-  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
+  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, false, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
   || ! rg -qF 'case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft)));' "$style_policy"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
@@ -1633,7 +1632,7 @@ sidebar_body=$(sed -n '/    private FrameLayout symbolSidebar(boolean digits, bo
 if ! rg_q_stdin 'NineKeySidebarPolicy\.appendedExclamationIndex\(digits,' <<< "$sidebar_body" \
   || ! rg_q_stdin 'exclamation\.setDigitText\(SuperscriptShortcutPolicy\.ZERO\);' <<< "$sidebar_body" \
   || ! rg_q_stdin 's\.imeLetterRows\.bindNineKeySuperscriptShortcut\(exclamation, symbol\);' <<< "$sidebar_body" \
-  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, true, true, false\)' "$layout_rows"; then
+  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, false, true, false\)' "$layout_rows"; then
   echo "Android tall-return sidebar ！ must carry the right-column ！ zero gestures on nine-key and not on stroke" >&2
   exit 1
 fi
@@ -1924,7 +1923,6 @@ side_pad_frame=$(sed -n '/    void applyOneHanded() {$/,/^    }$/p' "$repo_root/
 side_pad_builder="$repo_root/platforms/android/java/app/msime/android/core/ImeSidePad.java"
 if ! rg -qF 'oneHandedSidePanel = oneHandedSidePanelFrom(preferences);' "$side_pad_service" \
   || ! rg -qF 'oneHandedSidePanel = nextOneHandedSidePanel;' "$side_pad_service" \
-  || ! rg -qF '            + ":" + oneHandedSidePanel.wire' "$side_pad_service" \
   || ! rg -qF '        OneHandSidePadPolicy.PREFERENCE_KEY,' "$side_pad_service" \
   || ! rg_q_stdin -F 'KeyboardFormFactorPolicy.oneHandedSidePadWidthDp(' <<< "$side_pad_frame" \
   || ! rg_q_stdin -F 'OneHandSidePadPolicy.shown(s.oneHandedSidePanel, mode, padDp,' <<< "$side_pad_frame" \

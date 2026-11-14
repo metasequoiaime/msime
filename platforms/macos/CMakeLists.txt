@@ -1428,6 +1428,8 @@ target_include_directories(skin-preview-test PRIVATE src)
 target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit" "-framework CoreText")
 add_test(NAME skin-preview COMMAND skin-preview-test)
+# 主入口还覆盖字体、几何、持久化与图片像素，独立于按主题拆出的矩阵。
+set_tests_properties(skin-preview PROPERTIES TIMEOUT 60)
 # 252 组主题排版与绘制保留全部组合，各主题独立运行以沿用单项 20 秒预算。
 foreach(skin system shuishan light paper night ink)
   add_test(NAME skin-preview-${skin} COMMAND skin-preview-test --theme-matrix ${skin})

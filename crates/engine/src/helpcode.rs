@@ -376,6 +376,35 @@ pub fn reorder_candidates_with_single_helpcode(
         return candidates;
     }
 
+    let is_match = |candidate: &WordItem| {
+        !matches!(
+            match_single_helpcode(&candidate.word, help_code, keymap),
+            SingleHelpcodeMatch::None
+        )
+    };
+    let demote_first =
+        candidates.first().is_some_and(is_match) && candidates.iter().skip(1).any(is_match);
+    if demote_first {
+        let first = candidates.remove(0);
+        let matched_count = candidates
+            .iter()
+            .filter(|candidate| is_match(candidate))
+            .count();
+        let mut reordered =
+            reorder_candidates_with_single_helpcode_impl(candidates, help_code, keymap);
+        debug_assert!(matched_count <= reordered.len());
+        reordered.insert(matched_count, first);
+        return reordered;
+    }
+
+    reorder_candidates_with_single_helpcode_impl(candidates, help_code, keymap)
+}
+
+fn reorder_candidates_with_single_helpcode_impl(
+    mut candidates: Vec<WordItem>,
+    help_code: &str,
+    keymap: &HelpcodeKeymap,
+) -> Vec<WordItem> {
     let mut boundary = 0;
     let mut index = 0;
     while index < candidates.len() {
@@ -428,17 +457,21 @@ pub fn filter_candidates_with_single_helpcode(
 
 /// Only the double-helpcode matches; empty unless `help_codes` is two letters.
 pub fn filter_candidates_with_double_helpcodes(
-    candidates: Vec<WordItem>,
+    mut candidates: Vec<WordItem>,
     help_codes: &str,
     keymap: &HelpcodeKeymap,
 ) -> Vec<WordItem> {
     if help_codes.len() != 2 {
         return Vec::new();
     }
+    let demote_first = candidates
+        .first()
+        .is_some_and(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap));
+    candidates.retain(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap));
+    if demote_first && candidates.len() > 1 {
+        candidates.rotate_left(1);
+    }
     candidates
-        .into_iter()
-        .filter(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap))
-        .collect()
 }
 
 #[cfg(test)]
@@ -829,7 +862,7 @@ mod tests {
     fn the_carried_jiajia_table_loads_whole() {
         let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resources");
         let loaded = load_helpcode_keymap(&resources, "jiajia").unwrap();
-        assert_eq!(loaded.len(), 7968);
+        assert_eq!(loaded.len(), 21327);
         for (character, code) in [("好", "nz"), ("你", "de"), ("中", "ks"), ("国", "ky")] {
             assert_eq!(loaded.code(character), Some(code));
         }
@@ -938,6 +971,22 @@ mod tests {
         });
         assert_eq!(words(&reordered), ["拟", "妮", "你", "泥", "好"]);
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn single_helpcode_demotes_the_original_first_match() {
+        let map = keymap(&[("拟", "bc"), ("妮", "db"), ("你", "ab")]);
+        let reordered =
+            reorder_candidates_with_single_helpcode(items(&["拟", "妮", "你"]), "b", &map);
+        assert_eq!(words(&reordered), ["妮", "你", "拟"]);
+    }
+
+    #[test]
+    fn double_helpcode_demotes_the_original_first_match() {
+        let map = keymap(&[("拟", "bc"), ("妮", "db"), ("你", "bc")]);
+        let filtered =
+            filter_candidates_with_double_helpcodes(items(&["拟", "妮", "你"]), "bc", &map);
+        assert_eq!(words(&filtered), ["你", "拟"]);
     }
 
     #[test]

@@ -1176,13 +1176,12 @@ final class ImeLetterRows {
     }
 
     /**
-     * 14 键、18 键字母键的手势（#11063，判定见 {@link GridKeyGesturePolicy}），规则跟 26 键的 {@link #bindLetterGestures} 走：沿「滑动输入符号」的方向滑出角标符号，反方向滑动或空闲长按打开这一键的字母和符号选项（{@link ImeLayoutRows#showGridLetterOptions}），可继续拖选；18 键双拼的两字母键横滑限定字母，与原来相同。
+     * 14 键、18 键字母键的手势（#11063，判定见 {@link GridKeyGesturePolicy}），规则跟 26 键的 {@link #bindLetterGestures} 走：沿「滑动输入符号」的方向滑出角标符号，反方向滑动或空闲长按打开这一键的字母和符号选项（{@link ImeLayoutRows#showGridLetterOptions}），可继续拖选；14/18 键全拼和双拼的两字母键横滑限定字母（{@link EighteenKeySwipePolicy#exactLetters}，#11040），五笔 14 键只点按。
      *
      * <p>「组字中」按 Engine 的 `editing_text` 判断（{@link MSIMEInputService#hasEngineComposition}），不看候选栏：上屏后联想也显示候选栏，但那时滑动和长按照常出符号和选项。组字中纵滑和长按都是一次普通点按，长按不再先结束组字。点按始终交给按钮（{@link MSIMEInputService#gridKey}）；组字中位移让按钮自己取消了点击时，这里补一次。长按经按钮的长按回调触发，读屏的长按动作也走这一条。
      */
     private void bindGridLetterGestures(Button key, FourteenKeyLayout.Key gridKey, boolean eighteen) {
         final String hint = GridLetterHintTable.hint(gridKey, eighteen);
-        final String exactLetters = eighteen && gridKey.letters().length() == 2 ? gridKey.letters() : null;
         final GridKeyGesturePolicy.Gesture[] gesture = {new GridKeyGesturePolicy.Gesture(null, hint != null)};
         final boolean[] touching = new boolean[1];
         final String[] face = {key.getText().toString()};
@@ -1201,9 +1200,10 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_DOWN -> {
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
                     face[0] = key.getText().toString();
-                    // 横滑只给双拼：全拼的 18 键没有精确字母。每次按下按当前方案重建。
-                    boolean exact = fourteenShuangpin() && exactLetters != null;
-                    current = new GridKeyGesturePolicy.Gesture(exact ? exactLetters : null, hint != null);
+                    // 全拼和双拼的两字母键横滑限定字母，五笔 14 键只点按。每次按下按当前方案重建。
+                    String exactLetters = EighteenKeySwipePolicy.exactLetters(gridKey.letters(),
+                        InputViewValuePolicy.scheme(s.view, -1));
+                    current = new GridKeyGesturePolicy.Gesture(exactLetters, hint != null);
                     gesture[0] = current;
                     String direction = touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                         ? s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION) : null;

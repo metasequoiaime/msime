@@ -296,21 +296,37 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
-        stage = "preview detail opens in panel with full record time and unavailable source";
+        stage = "preview detail opens in panel with full record time and no source metadata";
         openFloatingPreview();
         touch(described("查看剪贴板全文的记录详情"));
         previewClosed();
-        await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("记录详情", node.getText()));
-        await(described("返回剪贴板全文预览"));
-        // 详情页先放整段正文，这条合成记录有 80 行，时间和来源那段排在正文下面、剪贴板滚动区的视口之外，isVisibleToUser 为 false，只认看得见节点的 await 永远等不到它。先在输入法的树里找到这段，让滚动区把它滚进视口，再按看得见的节点核对文案。
+        // 返回入口已移到底部；80 行合成正文会让它暂时位于滚动视口之外。
+        awaitAny(described("返回剪贴板全文预览"));
+        for (var window : automation.getWindows()) {
+            if (findAny(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())
+                    && equalsText("记录详情", node.getText())) != null)
+                throw new AssertionError("Clipboard detail still exposes the removed fixed header");
+        }
+        stage = "detail top blank touch leaves synthetic editor empty";
+        Rect detailBounds = new Rect();
+        await(described("剪贴板历史")).getBoundsInScreen(detailBounds);
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, detailBounds.centerX(), detailBounds.top + 1);
+        event(MotionEvent.ACTION_UP, detailBounds.centerX(), detailBounds.top + 1);
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
+        // 详情页先放整段正文，这条合成记录有 80 行，时间段排在正文下面、剪贴板滚动区的视口之外，isVisibleToUser 为 false，只认看得见节点的 await 永远等不到它。先在输入法的树里找到这段，让滚动区把它滚进视口，再按看得见的节点核对文案。
         java.util.function.Predicate<AccessibilityNodeInfo> recordDetails = node ->
             equalsText("app.msime.android", node.getPackageName()) && node.getText() != null
             && node.getText().toString().startsWith("记录时间：")
             && !node.getText().toString().startsWith("记录时间：时间未知")
-            && node.getText().toString().contains("来源 App：系统未提供");
+            && !node.getText().toString().contains("来源 App：")
+            && !node.getText().toString().contains("包名：");
         awaitAny(recordDetails).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
         await(recordDetails);
         stage = "detail back returns to the full-text preview";
+        awaitAny(described("返回剪贴板全文预览"))
+            .performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
         touch(described("返回剪贴板全文预览"));
         await(described("关闭剪贴板全文预览"));
         stage = "preview insertion commits full original text once and restores keyboard";

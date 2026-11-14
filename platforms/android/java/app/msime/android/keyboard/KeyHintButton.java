@@ -97,8 +97,10 @@ public class KeyHintButton extends KeyboardPressButton {
             // 宽键帽的中央字母与右上角标能横向错开，无需把整行顶部都让给角标。
             Paint main = new Paint(getPaint());
             main.setTextSize(unhintedTextSize);
-            float mainWidth = main.measureText(getText().toString());
-            float cornerWidth = cornerPaint.measureText(cornerHint)
+            KeyHintWidthPolicy.Widths widths = KeyHintWidthPolicy.measure(getText().toString(), cornerHint,
+                main::measureText, cornerPaint::measureText);
+            float mainWidth = widths.main();
+            float cornerWidth = widths.corner()
                 + DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP + 2);
             if (width <= 0 || mainWidth + 2 * cornerWidth > width)
                 topInset = (int) Math.ceil(DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP)

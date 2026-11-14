@@ -14,12 +14,16 @@ Status: implemented
 
 Android 的分类顺序与默认页由 [常用表情默认页](2026-10-21-android-common-emoji-default.md)部分取代：常用始终第一并默认打开，水杉娘可用时第二；其他平台和本篇素材、发送策略继续有效。
 
+Android 的发送尝试策略由[未声明图片类型的输入框仍尝试直接发送](../bug-fix/2026-11-10-android-sticker-optimistic-content.md)部分取代：声明收 PNG 的输入框和微信式输入框照下文不变；其余没声明图片类型的输入框先复制到剪贴板，再试一次 `commitContent`，不论结果都提示。素材、PNG、FileProvider 和其他平台策略不变。
+
 点一张就发出去，各端按平台能力走不同的路，但都发 PNG（保留透明）：
 
 - Android：输入框通过 `EditorInfo.contentMimeTypes` 声明收 `image/png` 时，把这张转成 PNG 写进 `cache/sticker-images/`，经本应用的 FileProvider 用 `commitContent` 直接发出去。输入框不收图，或者没收下，就把同一个 content URI 放进系统剪贴板，提示「已复制水杉娘「X」，长按输入框粘贴发送」。键盘自己写进剪贴板的这张不会被「最近复制」当成用户刚复制的图片。
 - Android 微信：聊天输入框不声明 `contentMimeTypes`，`commitContent` 发不进去，只能复制。用户试用后要求点一下就发，于是查了微信 8.0.79 的安装包：`MMEditText` 在 `EditorInfo.extras` 里写 `SUPPORT_SOGOU_EXPRESSION = 1`，收到私有命令 `com.sogou.inputmethod.exp.commit` 时从 Bundle 的 `EXP_PATH_URI` 读图，弹出带预览的发送确认。它读默认输入法只用于统计和「游戏人生」会话的禁发，不限定搜狗。键盘看到这个 extra、输入框又不收 PNG 时，先用 `grantUriPermission` 把 URI 的读权限授给输入框所在的包，再发这条命令；返回 false 或授权失败才退回剪贴板。测试编辑器加了一个照这个做法写的输入框，Pixel 3 XL 上它收到并读出了图片；真微信上还没有验证。
 - iOS：键盘扩展没有往输入框插图片的接口，只能转成 PNG 放进 `UIPasteboard`，再在候选栏显示同一句提示。没有完全访问权限时系统会静默丢弃这次写入，所以改为提示用户去打开完全访问。
 - HarmonyOS：`@ohos.inputMethodEngine` 的 `InputClient` 往输入框写内容的接口只有文字（`insertText`、`setPreviewText`）。`sendMessage`（API 15）要求编辑框所在的应用自己配合接收，不是通用能力。所以 HarmonyOS 也走剪贴板：用 `pasteboard.createData(MIMETYPE_PIXELMAP, …)` 写入，这一步不需要权限。
+
+这条发送边界由[iOS 优先提交自适应图片](2026-11-10-ios-sticker-adaptive-image.md)部分取代：iOS 18 且当前编辑器声明支持自适应图片字形时先尝试直接插入，其他编辑器仍走剪贴板；HarmonyOS 仍因现有 ArkTS 输入法接口没有可用的通用富内容提交方法而走剪贴板。
 
 ## Historical audit
 

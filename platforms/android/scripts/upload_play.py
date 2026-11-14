@@ -34,7 +34,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--package", required=True, help="application id, e.g. app.msime.android")
     parser.add_argument("--bundle", required=True, help="signed .aab")
-    parser.add_argument("--track", required=True, choices=TRACKS, help="alpha is the default closed testing track")
+    parser.add_argument("--track", required=True, choices=TRACKS, help="beta is open testing (the release workflow default), alpha is closed testing")
     parser.add_argument("--status", default="completed", choices=STATUSES)
     parser.add_argument("--name", required=True, help="release name shown in Play Console, e.g. 0.5.0")
     parser.add_argument("--key-path", required=True, help="service account JSON key")

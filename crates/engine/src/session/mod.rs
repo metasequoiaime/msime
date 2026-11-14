@@ -2,6 +2,7 @@
 //!
 //! The setters the product only sets at construction (`switch_scheme`, `set_helpcode_schema`, `set_helpcode_enabled`, `set_wubi_mixed_pinyin`, `set_personal_context_enabled`) and `candidate_key` stay public because the golden scenarios drive them. Learning undo (`set_learning_undo_enabled`, `forget_recent_commits`) is dropped.
 
+mod candidate_answers;
 mod candidates;
 mod cantonese_learning;
 mod caret_edit;
@@ -282,7 +283,7 @@ impl Session {
         self.input.set_zhuyin_nine_key(nine_key);
     }
 
-    /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十八键双拼另收大写 ASCII 标记精确字母。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表，五笔在 14 键下按组展开码表（`wubi::grid`）；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
+    /// 字母网格的一键：小写字母由 `KeyGrid::code_of` 归成整组，十四键和十八键的全拼与双拼另收大写 ASCII 标记精确字母（五笔十四键不收）。标记保留在组码里，不复用硬件键盘的 `character`。全拼和双拼分别使用自己的分组表，五笔在 14 键下按组展开码表（`wubi::grid`）；本地模式、专用英文或已有 26 键组字时不处理，状态不变。
     pub fn grid_key(&mut self, letter: u8) -> KeyResult {
         self.candidates_may_change();
         self.prediction.clear();
@@ -1008,7 +1009,7 @@ impl Session {
                 .then(|| input.multilingual_conversion.clone())
                 .flatten(),
             candidate_annotations: input.candidate_annotations(hide_helpcode),
-            // 纠错候选按原始按键长度消费；普通候选仍按 `pinyin`，两者都由组字推进判断。
+            // 重排只比较回答整段输入的候选；选择后会结束组字的补全词另行排除。
             candidate_answers_key: candidates
                 .iter()
                 .map(|item| {
@@ -1019,6 +1020,7 @@ impl Session {
                             | CandidateSource::CloudPending
                             | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
+                        && !candidate_answers::is_longer_pinyin_completion(item)
                         && input.selection_completes_composition(item)
                 })
                 .collect(),
