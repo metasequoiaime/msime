@@ -109,7 +109,7 @@ enum ControlId {
   dictionary_page, dictionary_previous, dictionary_next, dictionary_entries,
   dictionary_entry_source, dictionary_key, dictionary_value, dictionary_weight,
   dictionary_new, dictionary_save, dictionary_delete, dictionary_format,
-  dictionary_import, dictionary_export, dictionary_reset, dictionary_notice, dictionary_export_all,
+  dictionary_import, dictionary_export, dictionary_reset, dictionary_clear_quick_phrases, dictionary_notice, dictionary_export_all,
   dictionary_sync_open,
   dictionary_updates_enabled = 2250, dictionary_updates_version, dictionary_updates_refresh,
   dictionary_updates_check, dictionary_updates_rollback, dictionary_updates_notice,

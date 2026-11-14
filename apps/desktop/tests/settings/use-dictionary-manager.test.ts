@@ -1148,3 +1148,51 @@ test.each(["scel", "standard"] as const)("当前客户端仍可按 %s 识别并�
   expect(result.current.phraseError).toBe("");
   expect(result.current.phraseBusy).toBe(false);
 });
+
+test("清空本机快捷短语只删除 quick_phrase 并刷新列表", async () => {
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const clearQuickPhrases = vi.fn().mockResolvedValue(2);
+  const confirm = vi.fn().mockResolvedValue(true);
+  const client: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn(), clearQuickPhrases },
+  };
+  const { result } = renderHook(() => useDictionaryManager({ client, confirm }));
+
+  await act(async () => result.current.clearQuickPhrases());
+
+  expect(confirm).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "清空本机快捷短语", confirmLabel: "清空", danger: true }),
+  );
+  expect(clearQuickPhrases).toHaveBeenCalledOnce();
+  expect(result.current.phraseNotice).toContain("已清空 2 条");
+});
+
+test("取消清空本机快捷短语不会写入词库", async () => {
+  const clearQuickPhrases = vi.fn().mockResolvedValue(1);
+  const client: DictionaryManagerClient = {
+    dictionary: { list: vi.fn(), edit: vi.fn(), clearQuickPhrases },
+  };
+  const { result } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(false) }),
+  );
+
+  await act(async () => result.current.clearQuickPhrases());
+
+  expect(clearQuickPhrases).not.toHaveBeenCalled();
+});
+
+test("清空本机快捷短语失败时保持词库不变", async () => {
+  const list = vi.fn().mockResolvedValue({ entries: [], has_more: false });
+  const clearQuickPhrases = vi.fn().mockRejectedValue(new Error("synthetic delete failure"));
+  const client: DictionaryManagerClient = {
+    dictionary: { list, edit: vi.fn(), clearQuickPhrases },
+  };
+  const { result } = renderHook(() =>
+    useDictionaryManager({ client, confirm: vi.fn().mockResolvedValue(true) }),
+  );
+
+  await act(async () => result.current.clearQuickPhrases());
+
+  expect(clearQuickPhrases).toHaveBeenCalledOnce();
+  expect(result.current.phraseError).toContain("清空本机快捷短语失败");
+});

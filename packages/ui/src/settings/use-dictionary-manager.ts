@@ -598,6 +598,36 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     );
   }
 
+  async function clearQuickPhrases() {
+    if (!client.dictionary?.clearQuickPhrases || phraseBusy || phraseActionBusy.current) return;
+    const generation = clientGeneration.current;
+    const dictionary = client.dictionary;
+    const clear = dictionary.clearQuickPhrases!;
+    await runPhraseAction(
+      async (isCurrent) => {
+        const confirmed = await confirm({
+          title: "清空本机快捷短语",
+          message:
+            "将永久删除本机所有用户快捷短语，内置短语、其他词库和云端词库不受影响。此操作无法撤销。",
+          confirmLabel: "清空",
+          danger: true,
+        });
+        if (!confirmed || !isCurrent()) return;
+        const cleared = await clear();
+        if (!isCurrent()) return;
+        await loadPhrases(dictionaryKind, phrasePage.offset);
+        if (isCurrent()) {
+          setPhraseNotice(
+            cleared ? `已清空 ${cleared} 条本机快捷短语。` : "当前没有可清空的本机快捷短语。",
+          );
+        }
+      },
+      (error) =>
+        dictionaryErrorMessage(error, "清空本机快捷短语失败，本机词库未改变，请刷新后重试。"),
+      generation,
+    );
+  }
+
   return {
     phrases,
     setPhrases,
@@ -631,5 +661,6 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
+    clearQuickPhrases,
   };
 }

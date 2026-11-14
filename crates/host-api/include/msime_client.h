@@ -308,6 +308,7 @@ char *msime_client_dictionary(const uint8_t *request, size_t length);
  * dictionary_reset_rejected, dictionary_bundled_readonly, dictionary_invalid_entry,
  * dictionary_invalid_word or storage. {operation:"reset"} restores the bundled dictionaries
  * and clears all learned data, returning {reset:true}. Blocks: call off the UI thread. */
+/* 设置页另支持 {operation:"clear_quick_phrases"}：在一次事务中删除所有用户快捷短语并返回 {cleared:n}，内置行保留；失败码为 dictionary_clear_rejected。 */
 char *msime_client_settings_dictionary(const uint8_t *request, size_t length);
 /* Smart punctuation follow-up gestures. The host holds the snapshots: they belong
  * to its editor, not to Engine, and a session rebuilt while the keyboard was away

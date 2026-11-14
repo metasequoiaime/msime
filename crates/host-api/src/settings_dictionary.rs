@@ -391,7 +391,7 @@ pub fn request(
 pub fn action_requires_quiesce(action: &Value) -> bool {
     matches!(
         action.get("operation").and_then(Value::as_str),
-        Some("edit" | "import" | "reset")
+        Some("edit" | "import" | "reset" | "clear_quick_phrases")
     )
 }
 
@@ -411,6 +411,7 @@ pub fn error_code(reason: &str) -> &'static str {
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
         "dictionary access unavailable" => "dictionary_unavailable",
         "learned-data reset rejected" => "dictionary_reset_rejected",
+        "quick phrase clear rejected" => "dictionary_clear_rejected",
         "bundled dictionary entry is read-only" => "dictionary_bundled_readonly",
         // The host appends which rule the entry broke. The page words a code refusal per dictionary kind, so a word or weight refusal must not share that code, or it would send the user to fix a code that is already valid.
         reason if reason == crate::INVALID_DICTIONARY_ENTRY => "dictionary_invalid_entry",

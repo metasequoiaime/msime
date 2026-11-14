@@ -88,6 +88,7 @@ export function DictionarySettingsPage() {
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
+    clearQuickPhrases,
     harmonyPlatform,
     mobilePlatform,
     openCommunityGallery,
@@ -302,6 +303,14 @@ export function DictionarySettingsPage() {
                       pageSize={DICTIONARY_PAGE_SIZE}
                       onPageChange={turnPhrasePage}
                     />
+                    {dictionaryKind === "quick_phrase" && client.dictionary?.clearQuickPhrases && (
+                      <ActionButton
+                        action={() => void clearQuickPhrases()}
+                        disabled={phraseBusy}
+                        className="secondary danger-button"
+                        label="清空快捷短语"
+                      />
+                    )}
                   </div>
                 </SettingsManagerBlock>
               </>

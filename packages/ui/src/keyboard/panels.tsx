@@ -615,6 +615,7 @@ export function CloudDictionaryPanel({
     changeKind,
     changeForm,
     cancelForm,
+    clearQuickPhrases,
   } = useCloudDictionaryPanel(client, embedded);
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库">
@@ -657,6 +658,16 @@ export function CloudDictionaryPanel({
           {client.openFiles && (
             <button type="button" onClick={() => void client.openFiles?.()} disabled={busy}>
               导入与导出
+            </button>
+          )}
+          {kind === "quick" && client.snapshot && !client.snapshotNative && (
+            <button
+              type="button"
+              className="secondary danger-button"
+              onClick={() => void clearQuickPhrases()}
+              disabled={busy}
+            >
+              清空云端快捷短语
             </button>
           )}
           {client.openApply && client.snapshot && (

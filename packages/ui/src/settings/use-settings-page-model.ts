@@ -304,6 +304,7 @@ export function useSettingsPageModel({
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
+    clearQuickPhrases,
   } = useDictionaryManager({ client, confirm });
   const mounted = useMountedRef();
   const windowMaximized = useWindowState({ client, setError });
@@ -940,6 +941,7 @@ export function useSettingsPageModel({
     restoreDefaults,
     recoverPreferences,
     resetLearnedData,
+    clearQuickPhrases,
     dirty,
     ai,
     aiOrigin,
