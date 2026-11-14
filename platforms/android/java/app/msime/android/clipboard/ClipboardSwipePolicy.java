@@ -1,7 +1,7 @@
 package app.msime.android;
 
 /**
- * 剪贴板面板里本机历史的左滑删除（#5962）：一条往左滑，卡片让开、露出后面的删除按钮，再点一下才删掉。两步，不做一滑到底直接删；删掉的这一条在撤销时长内可以从面板右下角的浮动撤销按钮找回（#10080）；置顶的条目同样可以滑。
+ * 剪贴板面板里本机历史的左滑删除（#5962）和右滑详情（#11045）：左滑让开卡片、露出后面的删除按钮，再点一下才删掉；右滑关闭的卡片进入详情页。两步删除，不做一滑到底直接删；删掉的这一条在撤销时长内可以从面板右下角的浮动撤销按钮找回（#10080）；置顶的条目同样可以滑。
  *
  * <p>卡片在一个纵向滚动的面板里，自己还有点按（插入）和长按（打开操作行）。所以横滑只在手指越过 touch slop、而且明显是横向时才接手：斜着拖、竖着拖都留给面板滚动，没越过 slop 的轻微移动照旧算点按或长按。没打开的卡片只认向左；打开着的左右都认，向右拖就是收回。
  *
@@ -45,6 +45,18 @@ public final class ClipboardSwipePolicy {
         if (horizontal <= BoundsPolicy.nonNegative(touchSlop)) return false;
         if (horizontal < Math.abs(dy) * HORIZONTAL_DOMINANCE) return false;
         return open || dx < 0;
+    }
+
+    /** 关闭的卡片向右滑时进入详情；打开的删除区不把右滑再解释成详情。 */
+    public static boolean claimsRight(float dx, float dy, float touchSlop, boolean open) {
+        float horizontal = Math.abs(dx);
+        if (open || dx <= 0 || horizontal <= BoundsPolicy.nonNegative(touchSlop)) return false;
+        return horizontal >= Math.abs(dy) * HORIZONTAL_DOMINANCE;
+    }
+
+    /** 右滑接手后，慢拖过半或快速向右甩动才进入详情，事件稀疏时也使用同一门槛。 */
+    public static boolean settlesDetail(float dx, float velocityX, float reveal, float density) {
+        return dx >= Math.abs(reveal) / 2f || velocityX >= FLING_DP_PER_SECOND * density;
     }
 
     /** 拖动中卡片的位移：起点位移加上手指相对按下点的位移，夹在 `[-reveal, 0]`，不会往右拖出空白，也不会拖过删除区。起点取接手那一刻卡片的位移减去当时的手指位移，卡片从原地开始跟手，不会因为越过 slop 而跳一下。 */
