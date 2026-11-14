@@ -2215,6 +2215,15 @@ public final class MSIMEInputService extends InputMethodService {
         Telemetry.inputViewShown(this);
         Telemetry.resumeConsentWatch(this);
         cancelInputViewRefresh();
+        InputConnection shownConnection = getCurrentInputConnection();
+        boolean engineEditor = info != null && EditorPolicy.useEngine(info.inputType);
+        if (InputViewRefreshPolicy.shouldRecoverLateConnection(
+                connection, shownConnection, session, engineEditor)) {
+            // 某些宿主在 onStartInput 时还没有交出连接；键盘显示时连接已到位，
+            // 重新走一次运行时准备，避免把这类文本框永久留在“直接输入”。
+            connection = shownConnection;
+            startInputRuntime(info, restarting, false, engineStartGeneration, true, true, false);
+        }
         resumeDeferredInputStart(info);
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
         // onStartInput；把那次尚未建成的会话重新排上，避免一直停在「准备中」的直接输入状态。
