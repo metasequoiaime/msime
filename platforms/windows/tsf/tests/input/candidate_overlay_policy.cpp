@@ -1,4 +1,5 @@
 #include "../../Global/CandidateOverlayHostPolicy.h"
+#include "../../Global/CandidateUiModePolicy.h"
 
 #include <stdexcept>
 #include <string>
@@ -89,5 +90,19 @@ int main()
     require(!Force(L"dota2.exe", Facts(true, true, true, true), {L"dota2.exe"}, {}, false),
             "a disabled switch, or unreadable preferences, never forces");
     require(!Force(L"", Facts(true, true, true, true), {L""}), "an unknown process is never forced");
+
+    // 沉浸式 UI-less 宿主先按 BeginUIElement 的 pbShow 协商；普通游戏仍保持宿主接管路径。
+    require(Global::ShouldReportHostUiLess(true, false, false), "a normal UI-less host is reported at activation");
+    require(!Global::ShouldReportHostUiLess(true, true, false),
+            "an immersive UI-less host waits for the UIElement negotiation");
+    require(!Global::ShouldReportHostUiLess(true, true, true), "forced overlays never report host UI-less");
+    require(Global::ShouldShowImeCandidateWindow(true, true, true, false),
+            "an immersive host may show the IME candidate window when pbShow is true");
+    require(!Global::ShouldShowImeCandidateWindow(true, true, false, false),
+            "an immersive host still honors pbShow false");
+    require(!Global::ShouldShowImeCandidateWindow(true, false, true, false),
+            "a non-immersive UI-less host keeps its host-rendered candidate path");
+    require(Global::ShouldShowImeCandidateWindow(true, false, false, true),
+            "a forced overlay owns the candidate window explicitly");
     return 0;
 }

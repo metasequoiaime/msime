@@ -6,6 +6,7 @@
 #include "Private.h"
 #include "MetasequoiaIME.h"
 #include "CandidateListUIPresenter.h"
+#include "../Global/CandidateUiModePolicy.h"
 #include "CompositionProcessorEngine.h"
 #include "MetasequoiaIMEBaseStructure.h"
 #include "Define.h"
@@ -1706,13 +1707,11 @@ HRESULT CCandidateListUIPresenter::BeginUIElement()
         }
     }
 
-    // Hosts that activate with TF_TMF_UIELEMENTENABLEDONLY (typical for games)
-    // must never get an IME-owned candidate HWND, even if BeginUIElement left
-    // pbShow TRUE.
-    if (_pTextService->_IsUiLessMode())
-    {
-        _isShowMode = FALSE;
-    }
+    _isShowMode = Global::ShouldShowImeCandidateWindow(_pTextService->_IsUiLessMode() != FALSE,
+                                                       _pTextService->_IsStoreAppMode() != FALSE,
+                                                       _isShowMode != FALSE, Global::ForceOverlayCandidate)
+                      ? TRUE
+                      : FALSE;
     Global::CandidateUiLessMode = (_isShowMode == FALSE);
 
 Exit:
