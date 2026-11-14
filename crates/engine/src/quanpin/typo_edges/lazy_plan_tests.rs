@@ -235,6 +235,8 @@ fn legal_empty_plan_is_reached_by_the_sentence_merge_source() {
     let best = literal(&segments, vec!["阿".to_owned(); 3]);
     let types = autocorrect_type::TRANSPOSITION;
     drop(legacy_plan_keys(&profile, &segments, &best, types));
+    // 纠错表在第一次查时建好，不算进这一片。
+    assert!(!crate::pinyin::autocorrect::has_correction_key(b"aaa"));
     let mut cache = FifoCache::new(512);
     let visited = std::cell::Cell::new(false);
     let source_allocations = std::cell::Cell::new(usize::MAX);

@@ -212,8 +212,8 @@ public final class EditorActivity extends Activity {
         }
     }
 
-    /** 字节数和 SHA-256 前 16 位，状态行里只放这些，不放图片本身。 */
-    private static String describe(InputStream input) throws IOException {
+    /** 字节数和 SHA-256 前 16 位，状态行里只放这些，不放图片本身。{@link StickerEditorActivity} 的状态行用同一种写法。 */
+    static String describe(InputStream input) throws IOException {
         MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");

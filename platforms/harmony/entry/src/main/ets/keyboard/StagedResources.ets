@@ -9,6 +9,7 @@ import { NativeCleanup } from './NativeCleanup';
  */
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
+import { FileCopy } from './FileCopy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { StagedArtifact, StagedResourcePolicy } from './StagedResourcePolicy';
 
@@ -49,7 +50,7 @@ export class StagedResources {
         if (slash > 0 && !fs.accessSync(parent)) {
           fs.mkdirSync(parent, true);
         }
-        fs.copyFileSync(`${packaged}/${artifact.name}`, `${staging}/${artifact.name}`);
+        FileCopy.copy(`${packaged}/${artifact.name}`, `${staging}/${artifact.name}`);
       }
       StagedResources.replaceDirectory(staging, destination);
       if (fs.accessSync(marker)) {
