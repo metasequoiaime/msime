@@ -330,6 +330,9 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
       return 0;
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
+    case WM_CANCELMODE:
+        release_action_capture(hwnd);
+        return 0;
     case WM_SETCURSOR: {
         POINT point{};
         GetCursorPos(&point);
@@ -380,11 +383,14 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
             UpdateWindow(hwnd);
         }
         else
+        {
+            release_action_capture(hwnd);
             ShowWindow(hwnd, SW_HIDE);
+        }
         return 0;
     case kTranscriptChangedMessage:
         if (!actions_visible_.load())
-            action_pressed_ = false;
+            release_action_capture(hwnd);
         update_click_through();
         release_text_layout();
         update_window_bounds();
@@ -398,6 +404,7 @@ LRESULT WaveOverlay::handle_message(HWND hwnd, UINT message, WPARAM wParam, LPAR
       return 0;
     }
     case WM_DESTROY:
+        release_action_capture(hwnd);
         KillTimer(hwnd, kTimerId);
         release_render_target();
         return 0;
@@ -635,6 +642,13 @@ float WaveOverlay::headline_width(const std::wstring &headline) const
 }
 
 // 只有显示取消、确认两个圆钮时浮层才接收鼠标，和 macOS 的 ignoresMouseEvents = !actions 相同；紧凑态、转写、识别中和失败提示上的点击都穿过浮层，落到下面的窗口。WM_NCHITTEST 返回 HTTRANSPARENT 只把点击交给同一线程的窗口，下面是别的进程的窗口时要靠分层窗口的 WS_EX_TRANSPARENT，所以按状态加上或去掉这个样式。
+void WaveOverlay::release_action_capture(HWND hwnd)
+{
+    if (GetCapture() == hwnd)
+        ReleaseCapture();
+    action_pressed_ = false;
+}
+
 void WaveOverlay::update_click_through()
 {
     if (!hwnd_)

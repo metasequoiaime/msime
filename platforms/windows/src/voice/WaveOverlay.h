@@ -69,6 +69,7 @@ class WaveOverlay
     float headline_width(const std::wstring &headline) const;
     // Pointer input reaches the overlay only while the round actions are shown; see the definition.
     void update_click_through();
+    void release_action_capture(HWND hwnd);
 
   private:
     static constexpr int kLevelCount = 12;
