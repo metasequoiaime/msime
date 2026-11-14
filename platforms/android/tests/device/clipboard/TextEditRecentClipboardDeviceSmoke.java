@@ -21,6 +21,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private boolean layoutOnly;
     private boolean reportedDisplay;
     private boolean trackpadOnly;
+    private boolean pinnedOnly;
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
@@ -29,10 +30,12 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         reportedDisplay = arguments != null && "true".equals(arguments.getString("reported-display"));
         layoutOnly = arguments != null && "true".equals(arguments.getString("layout-only"));
         trackpadOnly = arguments != null && "true".equals(arguments.getString("trackpad"));
+        pinnedOnly = arguments != null && "true".equals(arguments.getString("pinned-clipboard"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (pinnedOnly) return "pinned text editor opens from real clipboard preview without moving the keyboard or changing editor text";
         if (layoutOnly) return "saved/cancelled/reset side order, document boundaries, newline-only return and all sixteen keys in portrait, landscape, one-handed and floating modes";
         if (trackpadOnly) return "text trackpad through system editors, selection, temporary mode and key receiver";
         return spaceCopyOnly ? "space upward copy, editor permissions, selection restoration and clipboard preview"
@@ -63,6 +66,10 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         try {
             save(preferences, ++revision, values);
             publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
+            if (pinnedOnly) {
+                new ToolbarPinnedClipboardDeviceChecks(this).run(local, settings);
+                return;
+            }
             if (layoutOnly) {
                 if (reportedDisplay) awaitReportedDisplay();
                 checkOrderSettings(preferences, values, revision);

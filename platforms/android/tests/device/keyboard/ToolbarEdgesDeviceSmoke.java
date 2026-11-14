@@ -113,6 +113,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 CompactCandidateHeightDeviceChecks.run(type, service, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
+                ToolbarPinnedDeviceCheck.run(type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {

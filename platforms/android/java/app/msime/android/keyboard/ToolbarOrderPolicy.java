@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** 工具栏的稳定按钮身份；显隐不影响顺序，品牌和收起键不参与排列。 */
+/** 工具栏的稳定按钮身份；显隐不影响顺序，品牌键和右侧常驻位不参与排列。 */
 public final class ToolbarOrderPolicy {
     public static final int MAX_STORED_CHARS = 512;
     /** 工具栏语音按钮的共享偏好，见 {@link Item#VOICE}。 */
@@ -22,7 +22,8 @@ public final class ToolbarOrderPolicy {
         REDO("redo", "重做", "redo"),
         /** 语音按钮的开关不在 `touch_toolbar` 里，是共享偏好顶层的 `touch_voice_shortcut`（「键盘 → 工具栏 → 语音」和键盘内「顶部语音入口」写这一项，语音页选「无」时关掉它，#10309），默认关。旧版本存下的顺序里没有它，`parse` 把它补在末尾（#10142）。 */
         VOICE("voice", "语音", VOICE_SHORTCUT_PREFERENCE),
-        RANDOM_DIGITS("random_digits", "随机数字", AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS);
+        RANDOM_DIGITS("random_digits", "随机数字", AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS),
+        DISMISS("dismiss", "收起键盘", AndroidLocalSettings.TOOLBAR_DISMISS);
 
         public final String id;
         public final String label;
