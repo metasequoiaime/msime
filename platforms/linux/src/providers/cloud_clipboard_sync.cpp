@@ -1,4 +1,5 @@
 #include "../clipboard/CloudClipboardRoute.h"
+#include "../clipboard/CloudClipboardLoginBinding.h"
 #include "../core/RuntimeOptionsFile.h"
 #include "../core/AuxiliaryCrashCapture.h"
 #include "../core/BoundedCliInput.h"
@@ -52,12 +53,20 @@ Json binding(const Json &options) {
   }
   const auto socket = socket_for(options);
   if (!explicit_socket.empty() || value.at("source") == "account") {
-    const auto body = Json{{"directory", directory}, {"action", {{"operation", "status"}}}}.dump();
-    const auto status = response(msime_client_account(
-        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    const auto user = status.at("user").value("id", std::string{});
-    if (user.empty()) throw std::runtime_error("account unavailable");
-    value["user_id"] = user;
+    const auto login = msime::linux_host::cloud_clipboard_login_binding(socket,
+        [](const std::string &path) {
+          const auto encoded = Json{{"operation", "binding"}}.dump();
+          return response(msime_client_cloud_clipboard_provider_request(
+              reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
+              reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+        },
+        [&directory] {
+          const auto body = Json{{"directory", directory}, {"action", {{"operation", "binding"}}}}.dump();
+          return response(msime_client_account_cloud_clipboard(
+              reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+        });
+    value["login"] = login;
+    value["user_id"] = login.at("user_id");
     value["socket"] = socket;
   }
   value["directory"] = directory;
@@ -70,6 +79,7 @@ Json bound_request(const Json &options, Json action, const Json &expected) {
   Json result;
   if (expected.contains("socket") && !expected.at("socket").get<std::string>().empty()) {
     action["expected_user_id"] = expected.at("user_id");
+    action["expected_login"] = expected.at("login");
     const auto encoded = action.dump();
     const auto socket = expected.at("socket").get<std::string>();
     result = response(msime_client_cloud_clipboard_provider_request(
@@ -85,6 +95,7 @@ Json bound_request(const Json &options, Json action, const Json &expected) {
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
     } else {
       body["action"]["expected_user_id"] = expected.at("user_id");
+      body["action"]["expected_login"] = expected.at("login");
       const auto encoded = body.dump();
       raw = msime_client_account_cloud_clipboard(
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());

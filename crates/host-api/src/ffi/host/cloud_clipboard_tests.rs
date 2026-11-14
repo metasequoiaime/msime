@@ -21,6 +21,44 @@ fn cloud_clipboard(request: Value) -> Value {
 }
 
 #[test]
+fn native_binding_survives_new_ffi_sessions_and_rejects_a_previous_login() {
+    use msime_client_services::account::{AccountSessionFileLayout, FileAccountSessionStorage};
+
+    let directory = tempfile::tempdir().unwrap();
+    let binding_request = json!({
+        "directory": directory.path(),
+        "action": {"operation": "binding"},
+    });
+    let signed_out = cloud_clipboard(binding_request.clone());
+    assert_eq!(signed_out["ok"], true);
+    assert_eq!(signed_out["value"], Value::Null);
+    let storage =
+        FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
+    storage.save(&SignedIn.load().unwrap().unwrap()).unwrap();
+    let first = cloud_clipboard(binding_request.clone());
+    assert_eq!(first["ok"], true);
+    assert_eq!(first["value"].as_object().unwrap().len(), 2);
+    assert_eq!(first, cloud_clipboard(binding_request.clone()));
+    // 模拟重新登录：相同用户与令牌，旧文件尚无持久编号。
+    storage.save(&SignedIn.load().unwrap().unwrap()).unwrap();
+    let second = cloud_clipboard(binding_request);
+    assert_eq!(second["ok"], true);
+    assert_eq!(first["value"]["user_id"], second["value"]["user_id"]);
+    assert_ne!(first["value"]["session_id"], second["value"]["session_id"]);
+    for operation in ["list", "add"] {
+        let reply = cloud_clipboard(json!({
+            "directory": directory.path(),
+            "action": {
+                "operation": operation,
+                "text": "合成旧会话复制",
+                "expected_login": first["value"],
+            },
+        }));
+        assert_eq!(reply["error"], "account_cancelled", "{reply}");
+    }
+}
+
+#[test]
 fn the_account_path_accepts_a_device_name_and_falls_back_on_an_unusable_one() {
     // 目录里没有会话：请求本身合法时是 account_unauthorized，不联网。
     let directory = tempfile::tempdir().unwrap();

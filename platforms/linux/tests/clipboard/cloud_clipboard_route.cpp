@@ -1,4 +1,5 @@
 #include "../../src/clipboard/CloudClipboardRoute.h"
+#include "../../src/clipboard/CloudClipboardLoginBinding.h"
 #include <cassert>
 #include <iostream>
 #include <vector>
@@ -35,6 +36,33 @@ struct Fixture {
 };
 
 int main() {
+  const Json local_login{{"user_id", "synthetic-local"}, {"session_id", "synthetic-local-login"}};
+  const Json provider_login{{"user_id", "synthetic-provider"}, {"session_id", "synthetic-provider-login"}};
+  bool read_local = false;
+  auto local = [&] { read_local = true; return local_login; };
+  auto provider = [&](const std::string &socket) {
+    assert(socket == "/synthetic/independent.sock");
+    return provider_login;
+  };
+  assert(msime::linux_host::cloud_clipboard_login_binding(
+      "/synthetic/independent.sock", provider, local) == provider_login);
+  assert(!read_local);
+  assert(msime::linux_host::cloud_clipboard_login_binding({}, provider, local) == local_login);
+  assert(read_local);
+  for (const auto &invalid : {Json(), Json::object(), Json{{"ok", false}},
+       Json{{"user_id", "synthetic-provider"}, {"session_id", ""}},
+       Json{{"user_id", "synthetic-provider"}, {"session_id", 1}},
+       Json{{"user_id", "synthetic-provider"}, {"session_id", "synthetic"}, {"token", "synthetic"}}}) {
+    read_local = false;
+    bool rejected = false;
+    try {
+      msime::linux_host::cloud_clipboard_login_binding(
+          "/synthetic/independent.sock", [&](const std::string &) { return invalid; }, local);
+    } catch (const std::exception &) { rejected = true; }
+    assert(rejected);
+    assert(!read_local);
+  }
+
   Fixture add;
   const auto added = msime::linux_host::cloud_clipboard_request(
       "/synthetic/state", {}, "/synthetic/auto.sock",

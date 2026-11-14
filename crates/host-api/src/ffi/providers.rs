@@ -709,7 +709,7 @@ pub unsafe extern "C" fn msime_client_cloud_clipboard_provider_request(
         let request_bytes = unsafe { std::slice::from_raw_parts(request, request_length) };
         let request = serde_json::from_slice::<serde_json::Value>(request_bytes)
             .map_err(|_| "invalid cloud clipboard request")?;
-        cloud_clipboard::validate_request(&request).map_err(|error| error.to_owned())?;
+        cloud_clipboard::validate_provider_request(&request).map_err(|error| error.to_owned())?;
         let path = super::parse_absolute_socket_path(unsafe {
             std::slice::from_raw_parts(socket_path, socket_length)
         })?;
@@ -1012,6 +1012,11 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
         }))
     })
 }
+
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "providers/clipboard_binding_tests.rs"]
+mod clipboard_binding_tests;
 
 #[cfg(test)]
 mod tests {

@@ -124,13 +124,12 @@ std::string CloudClipboardAutoSync::current_binding() {
   const auto selected = source.value("source", std::string{});
   Json binding{{"source", selected}, {"revision", source.at("revision")}};
   if (selected == "account") {
-    const auto body = Json{{"directory", directory}, {"action", {{"operation", "status"}}}}.dump();
-    const auto status = parse_response(msime_client_account(
+    const auto body = Json{{"directory", directory}, {"action", {{"operation", "binding"}}}}.dump();
+    const auto login = parse_response(msime_client_account_cloud_clipboard(
         reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    if (!status.contains("user") || !status.at("user").is_object()) return {};
-    const auto user = status.at("user").value("id", std::string{});
-    if (user.empty()) return {};
-    binding["user_id"] = user;
+    if (!login.is_object() || login.value("user_id", std::string{}).empty() ||
+        login.value("session_id", std::string{}).empty()) return {};
+    binding["login"] = login;
   } else if (selected != "relay") {
     return {};
   }
@@ -151,7 +150,7 @@ bool CloudClipboardAutoSync::request(const std::string &action, const std::strin
       response = parse_response(msime_client_relay_cloud_clipboard(
           reinterpret_cast<const uint8_t *>(body.data()), body.size()));
     } else {
-      action_json["expected_user_id"] = selected.at("user_id");
+      action_json["expected_login"] = selected.at("login");
       const auto body = Json{{"directory", directory}, {"preferences_directory", directory},
                              {"action", action_json}}.dump();
       response = parse_response(msime_client_account_cloud_clipboard(
