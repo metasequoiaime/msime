@@ -135,7 +135,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
         numbers.toggle("顶部数字行", null, numberRow, checked -> {
             numberRow = checked;
             refreshStyles();
-            save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));
+            save(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked);
         }).help(NUMBER_ROW_NOTE);
     }
 
@@ -323,7 +323,7 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
     private void choose(KeyLayoutStylesPolicy.Kind shown, TouchKeyStyle.Row option) {
         styles = shown.with(styles, option);
         refreshStyles();
-        save(edited -> edited.put(shown.preference, option.wire));
+        save(shown.preference, option.wire);
     }
 
     /** 选一种字母键宽度：先就地换预览和胶囊，再写 `touch_fourteen_key_letter_widths`。 */
@@ -343,5 +343,20 @@ public class KeyLayoutStylesPage extends ReloadingDetailPage {
     /** 写共享偏好；成功时界面已经是新值，不再重读，失败时提示「保存失败，请重试」并重读，把页面拨回磁盘上的值。 */
     private void save(KeyboardSheets.Edit edit) {
         KeyboardSheets.save(this, edit, null, this::reload);
+    }
+
+    /** 写会被 Android 旧键覆盖的共享偏好，并在同一后台任务中清除对应旧键。 */
+    private void save(String preference, Object value) {
+        String legacy = KeyLayoutStyleMigration.legacyKeyForSharedPreference(preference);
+        HostTask.run(this, context -> {
+            // 共享默认值会被 client-core 从文档中省略。先删掉对应旧键，再写共享值，避免下一次迁移把显式选择的「标准」或「关闭」覆盖回去。
+            if (legacy != null && !KeyboardSheets.writeLocal(context, legacy, null)) return null;
+            return KeyboardSheets.write(context, edited -> edited.put(preference, value));
+        }, result -> {
+            if (result == null) {
+                MsToast.show(requireContext(), "保存失败，请重试");
+                reload();
+            }
+        });
     }
 }

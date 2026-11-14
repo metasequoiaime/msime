@@ -73,6 +73,15 @@ public final class KeyLayoutStyleMigration {
             || AndroidLocalSettings.NINE_KEY_SWIPE.equals(key);
     }
 
+    /** 共享设置页显式保存某项时，要清掉会覆盖它的 Android 旧键。默认值在共享文档中省略，旧键若还留着会在下一次迁移时重新覆盖用户刚选的值。 */
+    public static String legacyKeyForSharedPreference(String preference) {
+        if (TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE.equals(preference))
+            return AndroidLocalSettings.LONG_SPACE_LAYOUT;
+        if (TouchKeyStyle.NUMBER_ROW_PREFERENCE.equals(preference))
+            return AndroidLocalSettings.NUMBER_ROW;
+        return null;
+    }
+
     /** 本机设置文件里还留着五个旧键中的任何一个。 */
     public static boolean pending(AndroidLocalSettings.Snapshot local) {
         return local.has(AndroidLocalSettings.LONG_SPACE_LAYOUT) || local.has(AndroidLocalSettings.NUMBER_ROW)
