@@ -38,7 +38,7 @@ final class AliyunTranslationDeviceChecks {
         if (professional == null || !professional.getJSONObject("headers").getString("x-acs-action").equals("Translate")
                 || !professional.getString("body_utf8").contains("Scene=medical") || scope(changed).equals(scope(route)))
             throw new AssertionError("专业版配置未影响签名或缓存");
-        for (String body : new String[] {"{\"Code\":10013,\"Data\":{\"Translated\":\"stale\"}}", "{\"Code\":200,\"Data\":{}}"}) {
+        for (String body : new String[] {"{\"Code\":10013,\"Data\":{\"Translated\":\"stale\"}}", "{\"Code\":200,\"Data\":{}}", "{\"Code\":200,\"Data\":{\"Translated\":\"invalid\\u0000answer\"}}"}) {
             var parsed = (JSONObject) parse.invoke(null, (Object) body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             if (parsed == null || parsed.getBoolean("valid")) throw new AssertionError("错误回复被当作空成功");
         }
