@@ -30,6 +30,7 @@ public class DeviceSmoke extends Instrumentation {
     protected UiAutomation automation;
     protected String stage = "launch";
     private boolean voiceHold;
+    private String voiceEmptyScenario;
     private boolean pinyinStartup;
     private boolean pinyinHideResume;
 
@@ -158,6 +159,7 @@ public class DeviceSmoke extends Instrumentation {
     protected FileOutputStream uinputInput;
 
     @Override public void onCreate(Bundle arguments) {
+        voiceEmptyScenario = arguments == null ? null : arguments.getString("voice-empty");
         voiceHold = arguments != null && "true".equals(arguments.getString("voice-hold"));
         pinyinStartup = arguments != null && "true".equals(arguments.getString("pinyin-startup"));
         pinyinHideResume = arguments != null && "true".equals(arguments.getString("pinyin-hide-resume"));
@@ -172,11 +174,13 @@ public class DeviceSmoke extends Instrumentation {
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
             outlastDeadImeConnection();
-            if (voiceHold) new VoiceHoldDeviceChecks(this).run();
+            if (voiceEmptyScenario != null) new VoiceEmptyNoticeDeviceChecks(this, voiceEmptyScenario).run();
+            else if (voiceHold) new VoiceHoldDeviceChecks(this).run();
             else if (pinyinStartup) PinyinStartupDeviceSmoke.runChecks(this, pinyinHideResume);
             else runChecks();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: " + (voiceHold
                 ? "voice hold hit regions, lock, editing, symbol return, explicit delivery and stale result protection"
+                : voiceEmptyScenario != null ? "empty voice notice at phone top: " + voiceEmptyScenario
                 : successDescription()) + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
@@ -307,10 +311,12 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> key(String text) {
         boolean letter = text.length() == 1 && Character.isLetter(text.charAt(0))
             && text.charAt(0) < 128;
-        // 组字时读音行可以点（点中的字母前放组字光标，#5613），它的文字可能就是一个字母（打了 n，读音行是 n）；只认按钮，不然会点到读音行上去。
+        // 读音行和原始拼写候选都可能只含一个字母；只认非候选的按钮，避免把候选 N 当作 N 键。
         return node -> equalsText("app.msime.android", node.getPackageName())
             && (letter ? node.getText() != null && text.equalsIgnoreCase(node.getText().toString())
                     && equalsText("android.widget.Button", node.getClassName())
+                    && (node.getContentDescription() == null
+                        || !node.getContentDescription().toString().startsWith("候选 "))
                 : equalsText(text, node.getText()));
     }
     /**

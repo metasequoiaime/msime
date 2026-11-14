@@ -263,14 +263,17 @@ static inline NSString *MSIMESchemeForInputMode(MSIMEInputMode mode) {
 //
 // `current` is the mode last reported by the system or last requested by the controller; a report that repeats it is the system confirming what is already shown, not a user choice, so it does not flip the controller's state. `selecting` is set while the controller is asking the client to switch, so a report delivered synchronously from inside that call is not treated as a new choice either.
 //
-// `switchedIn` 表示切进水杉之后还没见到用户在水杉里做过选择：离开水杉时的清空和进程启动都把它置为真，第一次被采纳的报告或第一次按下的键把它清掉。激活后的校准（MSIMERecordRestoredSystemInputMode）和控制器自己的选择（MSIMESelectSystemInputMode）都不碰它，所以切回时系统落在 中 上的那次报告不论排在校准和随后选回 双 之前还是之后，都仍按切回处理，不当作用户越过 双 选了 中（#10199）。进程启动也算切进：Sparkle 在切走时装更新、进程退出，切回时系统从新 bundle 拉起的正是这种情况；代价是进程刚启动、还没按键时用户在输入菜单里明确选 中，这一次不改方案。它依赖离开时的清空真的发生：离开回调在通知送达时才读当前输入源，用户很快地切走又切回（连按两次 Caps Lock 或 Ctrl+Space）、或者通知送达得晚，读到的已经是水杉，就不会清空，这时切回报告的 中 仍按水杉里的选择处理。
+// `switchedIn` 表示切进水杉之后还没见到用户在水杉里做过选择：离开水杉时的清空和进程启动都把它置为真，第一次被采纳的报告或第一次按下的键把它清掉。激活后的校准（MSIMERecordRestoredSystemInputMode）和控制器自己的选择（MSIMESelectSystemInputMode）都不碰它，所以切回时系统把用户送回 中 的那次报告不论排在校准和随后选回 双 之前还是之后，都仍按切回处理，不当作用户越过 双 选了 中（#10199）。切回算不算「送回」看 `left`，见 MSIMEReportReturnsToLeftInputMode。进程启动也算切进：Sparkle 在切走时装更新、进程退出，切回时系统从新 bundle 拉起的正是这种情况；代价是进程刚启动、还没按键时用户在输入菜单里明确选 中，这一次不改方案。它依赖离开时的清空真的发生：离开回调在通知送达时才读当前输入源，用户很快地切走又切回（连按两次 Caps Lock 或 Ctrl+Space）、或者通知送达得晚，读到的已经是水杉，就不会清空，这时切回报告的 中 仍按水杉里的选择处理。
 //
 // `restoringUntil` 是系统自己恢复输入源的那段时间（systemUptime 秒）：开盖时系统会恢复输入源并报告一个模式，这份报告不是用户的选择，有用户每次开盖方案都被改成没碰过的注音。合盖睡眠或锁屏时它是无穷大（锁着屏用户在水杉里什么也选不了），解锁、或者没锁屏的唤醒之后再保留几秒。期间的报告只记下，不改方案也不改中英状态，控制器随后把菜单栏选回自己的模式；解锁之后的第一次报告或用户按下的第一个键结束它。从锁屏切走时清空共享记录也保留它，否则解锁时的报告若先于解锁通知送到就不受保护。代价是解锁后几秒内、还没按键时在输入菜单里明确选别的模式，这一次不生效。
+//
+// `left` 是上一次离开水杉时 `current` 记着的入口，也就是系统自己把用户送回水杉时会落在的那一个；进程启动后还没离开过时是 nil。离开时 `current` 已经是空的（连着离开两次、中间没有报告也没有校准）就保留上一次的值。
 struct MSIMESystemInputModeState {
     NSString *current = nil;
     bool selecting = false;
     bool switchedIn = true;
     double restoringUntil = 0;
+    NSString *left = nil;
 };
 
 // 解锁或唤醒之后多久内的报告仍按系统恢复处理。
@@ -301,11 +304,23 @@ inline MSIMESystemInputModeState &MSIMESharedSystemInputModeState() {
     return state;
 }
 
-// 离开水杉时清空记录，系统恢复输入源的那段时间保留：锁屏本身就会切走（见 restoringUntil）。
+// 离开水杉时清空记录，系统恢复输入源的那段时间保留：锁屏本身就会切走（见 restoringUntil）。离开时显示的入口记进 `left`。
 static inline void MSIMEResetSystemInputModeState(MSIMESystemInputModeState &state) {
     const double restoringUntil = state.restoringUntil;
+    NSString *left = state.current ?: state.left;
     state = MSIMESystemInputModeState{};
     state.restoringUntil = restoringUntil;
+    state.left = left;
+}
+
+// 切进水杉后报告的入口是不是系统把用户送回来的那一个：还没在水杉里按过键或选过（`switchedIn`），并且报告的就是离开时的入口，或者不知道离开时是哪个（进程刚启动）。这样的报告不是用户在入口之间挑的。离开时在「水杉双拼」、回来时却报告「水杉全拼」，是用户在输入菜单或切换条上选了它：以前这也按送回处理，方案留在双拼、菜单栏被选回「双」，从别的输入源怎么选「水杉全拼」都会弹回双拼。
+static inline BOOL MSIMEReportReturnsToLeftInputMode(const MSIMESystemInputModeState &state, BOOL switchedIn, NSString *reported) {
+    return switchedIn && (state.left == nil || [reported isEqualToString:state.left]);
+}
+
+// 切进后报告的入口确知就是离开时的那一个。这样的报告不论是哪个入口都不改方案：只加了「水杉双拼」一个入口、又在设置里把方案改成全拼的人，菜单栏只能停在「双」上，每次从别的输入源切回来系统都报告「双」，以前这份报告把方案改回双拼，设置里选的全拼留不住。离开时的入口未知（进程刚启动）时不算，那时报告的 双、五、日 等仍选各自的方案。
+static inline BOOL MSIMEReportRepeatsLeftInputMode(const MSIMESystemInputModeState &state, BOOL switchedIn, NSString *reported) {
+    return switchedIn && state.left != nil && [reported isEqualToString:state.left];
 }
 
 // Records a mode the system reported through setValue:forTag:client:. Returns YES when the controller should adopt it: a known mode that differs from the one already shown and that the controller did not just request itself.
@@ -328,7 +343,7 @@ static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState 
 
 // 用户选中某个模式后方案要切到哪里，返回 nil 表示不动方案。中 回到进入 japanese、korean、vietnamese 或 tibetan 之前的中文方案，或者保留已经在用的中文方案——除非那个方案有自己的、系统提供的模式：那说明用户是越过 双、五、粤、注 或 笔 选了 中，意思是本版本的默认方案（full 是全拼），保留方案会立刻又选回那个模式。
 //
-// `switchedIn` 取自共享记录的同名字段（MSIMESystemInputModeState），表示切进水杉后还没见到用户的选择。这时系统报告的 中 不算用户越过 双 等模式做的选择：macOS 切回时可能落在 中 入口上，而用户并没有在 中 和 双 之间挑过（#10199）。所以照样回到或保留中文方案，控制器随后的同步会把菜单栏重新选回这个方案自己的模式；只有已经在水杉里按过键或做过选择之后从 双 等模式切到 中，才改用默认方案。
+// `switchedIn` 由 MSIMEReportReturnsToLeftInputMode 给出：切进水杉后还没见到用户的选择，并且报告的就是离开时的入口。这时报告的 中 不算用户越过 双 等模式做的选择：系统只是把用户送回了离开时的入口，用户并没有在 中 和 双 之间挑过（#10199）。所以照样回到或保留中文方案，控制器随后的同步会把菜单栏重新选回这个方案自己的模式。已经在水杉里按过键或做过选择之后从 双 等模式切到 中，或者从别的输入源直接选了离开时不在的 中，才改用默认方案。
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
                                                         MSIMEInputModeAvailability available, BOOL switchedIn) {
     if (mode != MSIMEInputMode::Chinese) return MSIMESchemeForInputMode(mode);

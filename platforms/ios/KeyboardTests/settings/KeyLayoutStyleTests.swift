@@ -113,7 +113,7 @@ final class KeyLayoutStyleTests: XCTestCase {
       keys.map { "\($0.slot.rawValue) \(String(format: "%.2f", Double($0.weight)))" }
     }
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.standard, globe: false)),
-                   ["layer 1.25", "symbols 1.05", "space 4.00", "comma 1.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.25", "symbols 1.05", "period 1.00", "space 3.00", "comma 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false)),
                    ["layer 1.25", "symbols 1.05", "comma 1.00", "space 3.00", "period 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.longSpace, globe: false)),
@@ -242,7 +242,7 @@ final class KeyLayoutStyleTests: XCTestCase {
 
   // MARK: - 键盘
 
-  /// 中文 26 键的每种样式：真键盘底行显示的键、顺序和宽度都照表；隐藏中/英时它的份额给空格。英文 26 键不受影响。
+  /// 中文 26 键的每种样式：真键盘底行显示的键、顺序和宽度都照表；隐藏中/英时它的份额给空格。英文 26 键不随样式变，与中文标准样式是同一排。
   func testTwentySixKeyStylesDrawTheTable() throws {
     select(.quanpin)
     for style in TouchTwentySixKeyStyle.allCases {
@@ -258,7 +258,7 @@ final class KeyLayoutStyleTests: XCTestCase {
       }
     }
     KeyboardLayoutPreference.hideLanguageKey = false
-    // 英文 26 键照旧：123 | 符 | . | 空格 | , | 中/英 | 回车。
+    // 英文 26 键不随样式变：123 | 符 | . | 空格 | , | 中/英 | 回车。
     XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace)))
     let controller = keyboard()
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
@@ -268,7 +268,125 @@ final class KeyLayoutStyleTests: XCTestCase {
     controller.viewDidDisappear(false)
   }
 
-  /// 26 键各样式里逗号和句号的手势：标准和表情键的逗号长按出句号；逗号句号在空格两侧时逗号长按打开常用标点、句号是独立的键；长空格时逗号上滑、下滑或长按都出句号。
+  /// 手机 26 键底行（中文 26 键标准样式，以及不跟随样式的韩文、日文罗马字）与英文底行逐键同位置、同宽（320pt 与 393pt，显示和隐藏中/英键两种）：123 |（地球）| 符 | 。 | 空格 | ， | 中 | 回车，切中英文时只有键面变，没有键移动或变宽。句号键走标点入口：中文标点下写 。，英文下写 .。附上两种宽度的中文和英文渲染图。
+  func testChineseStandardBottomRowMatchesEnglishKeyForKey() throws {
+    let document = SidebarDocument()
+    try attach(document)
+    // 全拼是中文 26 键标准样式；韩文和日文罗马字是不跟随样式的非中文 26 键，画的是同一排。测试宿主没带某种语言的资源、选不上时跳过它。
+    var drawn: [ChineseInputScheme] = []
+    for scheme in [ChineseInputScheme.quanpin, .korean, .japanese] {
+      select(scheme)
+      guard InputSchemePreference.scheme == scheme else { continue }
+      drawn.append(scheme)
+      for width: CGFloat in [320, 393] {
+        for hidesLanguage in [false, true] {
+          KeyboardLayoutPreference.hideLanguageKey = hidesLanguage
+          let controller = KeyboardViewController()
+          let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight))
+          window.overrideUserInterfaceStyle = .light
+          window.rootViewController = controller
+          controller.loadViewIfNeeded()
+          window.frame.size.height = height(of: controller)
+          window.isHidden = false
+          defer { window.isHidden = true }
+          controller.viewWillAppear(false)
+          controller.overrideUserInterfaceStyle = .light
+          window.layoutIfNeeded()
+          let label = "\(scheme.rawValue) \(Int(width))pt hidesLanguage=\(hidesLanguage)"
+          let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView, label)
+          func keys() -> [(id: String, frame: CGRect)] {
+            row.arrangedSubviews.filter { !$0.isHidden && $0.bounds.width > 0.5 }.map { ($0.accessibilityIdentifier ?? "", $0.frame) }
+          }
+          func render(_ name: String) {
+            guard !hidesLanguage else { return }
+            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
+              SystemKeyboardTokens.background.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).setFill()
+              context.fill(controller.view.bounds)
+              controller.view.layer.render(in: context.cgContext)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = scheme == .quanpin ? "\(name)-\(Int(width))" : "\(scheme.rawValue)-\(name)-\(Int(width))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+          }
+          let chinese = keys()
+          let chineseFaces = try ["bottomPeriodKey", "quickPunctuationKey"].map { try button($0, in: controller).configuration?.title }
+          render("zh")
+          document.text = ""
+          if chinese.contains(where: { $0.id == "bottomPeriodKey" }) {
+            try button("bottomPeriodKey", in: controller).sendActions(for: .primaryActionTriggered)
+          }
+          // 句号键走标点入口，出什么字符由现有标点规则定：写出来的就是键面上的那个。
+          XCTAssertEqual(document.text, chineseFaces[0], label)
+          // 隐藏着的中/英键照样能发动作，用它切到英文。
+          try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+          window.layoutIfNeeded()
+          let english = keys()
+          render("en")
+          try button("bottomPeriodKey", in: controller).sendActions(for: .primaryActionTriggered)
+          XCTAssertEqual(document.text, (chineseFaces[0] ?? "") + ".", label)
+          let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
+          XCTAssertEqual(chinese.map(\.id), ["layoutToggleButton"] + globe + ["symbolPanelKey", "bottomPeriodKey", "spaceKey", "quickPunctuationKey"]
+            + (hidesLanguage ? [] : ["bottomLanguageKey"]) + ["returnKey"], label)
+          XCTAssertEqual(chinese.map(\.id), english.map(\.id), label)
+          for (drawn, expected) in zip(chinese, english) {
+            XCTAssertEqual(drawn.frame.minX, expected.frame.minX, accuracy: 0.01, "\(label) \(drawn.id)")
+            XCTAssertEqual(drawn.frame.width, expected.frame.width, accuracy: 0.01, "\(label) \(drawn.id)")
+          }
+          // 中文标点开着：句号键画 。、逗号键画 ，（日文的逗号画 、，韩文写 ASCII 标点）；切到英文后是 . 和 ,。
+          XCTAssertEqual(chineseFaces, scheme == .korean ? [".", ","] : scheme == .japanese ? ["。", "、"] : ["。", "，"], label)
+          XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, ".", label)
+          XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",", label)
+          try assertBottomRow(controller, matches: TouchBottomRowLayout.twentySixKey(
+            .standard, globe: controller.needsInputModeSwitchKey, language: !hidesLanguage), label)
+          controller.viewDidDisappear(false)
+        }
+      }
+    }
+    XCTAssertTrue(drawn.contains(.quanpin))
+    XCTAssertTrue(drawn.contains { $0 != .quanpin }, "at least one non-Chinese 26-key face is drawn: \(drawn.map(\.rawValue))")
+  }
+
+  /// 中文 26 键标准样式进入本地模式（拆字）后底行不跳：每个键仍在原位、同宽，句号键还在空格左边，退出后也一样。本地模式不跟随样式选择：选了别的样式时它画的也是这一排。
+  func testLocalModeKeepsTheStandardBottomRow() throws {
+    select(.quanpin)
+    func frames(_ controller: KeyboardViewController) throws -> [(id: String, frame: CGRect)] {
+      let row = try XCTUnwrap(try button("spaceKey", in: controller).superview as? UIStackView)
+      return row.arrangedSubviews.filter { !$0.isHidden && $0.bounds.width > 0.5 }.map { ($0.accessibilityIdentifier ?? "", $0.frame) }
+    }
+    var controller = keyboard()
+    let idle = try frames(controller)
+    XCTAssertTrue(idle.contains { $0.id == "bottomPeriodKey" })
+    controller.openLocalInputMode("C")
+    try layoutAtRequestedHeight(controller)
+    XCTAssertFalse(try button("exitLocalModeButton", in: controller).isHidden, "the keyboard is in a local mode")
+    let local = try frames(controller)
+    XCTAssertEqual(local.map(\.id), idle.map(\.id))
+    for (key, expected) in zip(local, idle) {
+      XCTAssertEqual(key.frame.minX, expected.frame.minX, accuracy: 0.01, key.id)
+      XCTAssertEqual(key.frame.width, expected.frame.width, accuracy: 0.01, key.id)
+    }
+    attach(controller, "本地模式 拆字")
+    try button("exitLocalModeButton", in: controller).sendActions(for: .primaryActionTriggered)
+    try layoutAtRequestedHeight(controller)
+    let exited = try frames(controller)
+    XCTAssertEqual(exited.map(\.id), idle.map(\.id))
+    for (key, expected) in zip(exited, idle) {
+      XCTAssertEqual(key.frame.minX, expected.frame.minX, accuracy: 0.01, key.id)
+      XCTAssertEqual(key.frame.width, expected.frame.width, accuracy: 0.01, key.id)
+    }
+    controller.viewDidDisappear(false)
+
+    XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace)))
+    controller = keyboard()
+    controller.openLocalInputMode("C")
+    try layoutAtRequestedHeight(controller)
+    XCTAssertEqual(visibleBottomRow(controller).map(\.slot),
+                   TouchBottomRowLayout.twentySixKey(.standard, globe: controller.needsInputModeSwitchKey).map(\.slot))
+    controller.viewDidDisappear(false)
+  }
+
+  /// 26 键各样式里逗号和句号的手势：标准和表情键的逗号长按出句号，标准样式空格左边另有独立的句号键；逗号句号在空格两侧时逗号长按打开常用标点、句号是独立的键；长空格时逗号上滑、下滑或长按都出句号。
   func testTwentySixKeyCommaGesturesFollowTheStyle() throws {
     select(.quanpin)
     for style in TouchTwentySixKeyStyle.allCases {
@@ -289,6 +407,7 @@ final class KeyLayoutStyleTests: XCTestCase {
         XCTAssertEqual(comma.cornerHint, "。", style.rawValue)
         XCTAssertFalse(comma.swipesCornerHint, style.rawValue)
         XCTAssertNil(comma.menu, style.rawValue)
+        XCTAssertEqual(try button("bottomPeriodKey", in: controller).isHidden, style == .emoji, style.rawValue)
       }
       controller.viewDidDisappear(false)
     }
@@ -584,14 +703,16 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertFalse((preedit ?? "").isEmpty, "typing ni opens a composition")
     XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .commaPeriod, numberRow: true)))
     controller.viewWillAppear(false)
-    let period = try button("bottomPeriodKey", in: controller)
+    // 标准样式的句号在空格左边，「逗号句号」把它换到空格右边：等底行换成新样式的次序。
+    let restyled = TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: controller.needsInputModeSwitchKey).map(\.slot)
     let deadline = Date().addingTimeInterval(15)
-    while !shown(period) && Date() < deadline {
-      // 让出主线程，后台读回的文档在主队列上应用。
+    while visibleBottomRow(controller).map(\.slot) != restyled && Date() < deadline {
+      // 让出主线程，后台读回的文档在主队列上应用；新显示的键排过版才有宽度。
       try await Task.sleep(for: .milliseconds(50))
+      controller.view.layoutIfNeeded()
     }
     try layoutAtRequestedHeight(controller)
-    XCTAssertTrue(shown(period), "the new style is drawn without reopening the keyboard")
+    XCTAssertEqual(visibleBottomRow(controller).map(\.slot), restyled, "the new style is drawn without reopening the keyboard")
     let numberRow = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "numberRow" })
     XCTAssertTrue(shown(numberRow))
     try assertLetterKeysAre44(controller, "number row switched on live")
@@ -920,7 +1041,7 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertTrue(TouchKeyLayoutKind.twentySixKey.highlightedSlots(on).isSubset(of: Set(slots)), label)
     }
     XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(TouchKeyLayoutStyle(symbolFirst: true)).map(\.slot),
-                   [.symbols, .layer, .space, .comma, .language, .returnKey])
+                   [.symbols, .layer, .period, .space, .comma, .language, .returnKey])
     let swapped = TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod, symbolFirst: true)
     let plain = TouchKeyLayoutStyle(fourteenKey: .emoji, nineKey: .commaPeriod)
     for kind in [TouchKeyLayoutKind.letterGrid, .nineKey] {
@@ -950,7 +1071,7 @@ final class KeyLayoutStyleTests: XCTestCase {
       KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid, style: style, language: true).bottomRow.map(\.slot)
     }
     let twentySix: [TouchTwentySixKeyStyle: [Slot]] = [
-      .standard: [.layer, .symbols, .space, .comma, .language, .returnKey],
+      .standard: [.layer, .symbols, .period, .space, .comma, .language, .returnKey],
       .commaPeriod: [.layer, .symbols, .comma, .space, .period, .language, .returnKey],
       .longSpace: [.layer, .comma, .space, .language, .returnKey],
       .emoji: [.layer, .emoji, .space, .comma, .language, .returnKey],
@@ -1017,7 +1138,7 @@ final class KeyLayoutStyleTests: XCTestCase {
       XCTAssertEqual(on.bottomRow, TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(style, globe: false)), style.rawValue)
     }
     let swapped = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false, style: TouchKeyLayoutStyle(symbolFirst: true), language: true)
-    XCTAssertEqual(swapped.bottomRow.map(\.slot), [.symbols, .layer, .space, .comma, .language, .returnKey])
+    XCTAssertEqual(swapped.bottomRow.map(\.slot), [.symbols, .layer, .period, .space, .comma, .language, .returnKey])
     let longSpace = KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false,
                                                style: TouchKeyLayoutStyle(twentySixKey: .longSpace, symbolFirst: true), language: true)
     XCTAssertEqual(longSpace.bottomRow.map(\.slot), [.layer, .comma, .space, .language, .returnKey])
@@ -1064,7 +1185,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
     let left = TouchKeyLayoutStyle(languageKeySide: .left)
     XCTAssertEqual(KeyboardPreviewLetterLayer(nineKey: false, letterGrid: false, style: left, language: true).bottomRow.map(\.slot),
-                   [.layer, .symbols, .language, .space, .comma, .returnKey])
+                   [.layer, .symbols, .language, .period, .space, .comma, .returnKey])
     let zero = KeyboardPreviewLetterLayer(nineKey: true, letterGrid: false, style: left, language: true, nineKeyZero: true)
     XCTAssertEqual(zero.bottomRow.map(\.slot), [.symbols, .layer, .language, .space, .zero, .returnKey])
     let custom = TouchKeyLayoutStyle(nineKeySidebar: ["@", "#", "~"], languageKeySide: .left)
@@ -1138,7 +1259,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertFalse(KeyboardPreviewFace(in: eighteen).nineKey)
   }
 
-  /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键保留标准底行，长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
+  /// 26 键样式只作用于中文方案：日文罗马字、韩文、越南文和藏文的 26 键不跟随样式选择，固定画标准底行（123 | 符 | 。 | 空格 | ， | 中 | 回车），长空格也不把 符 挪到工具栏。测试宿主没带某种语言的资源、选不上时跳过它。
   func testTwentySixKeyStylesApplyToChineseSchemesOnly() throws {
     XCTAssertTrue(write(TouchKeyLayoutStyle(twentySixKey: .longSpace)))
     for scheme in [ChineseInputScheme.japanese, .korean, .vietnamese, .tibetan] {
@@ -1623,7 +1744,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TypingKeyHeatmap.letterRows(for: TouchKeyLayoutStyle()), TypingKeyHeatmap.keyboardRows)
     XCTAssertEqual(TypingKeyHeatmap.nineKeyBottomCells(for: .standard), TypingKeyHeatmap.nineKeyBottomRow)
     let counts = TypingKeyHeatmap(counts: ["Period": 4, TypingKeyID.symbol: 3, TypingKeyID.emoji: 2, "Digit1": 1])
-    XCTAssertEqual(counts.others(nineKey: false).map(\.id), ["Period", TypingKeyID.emoji, "Digit1"])
+    // 标准样式的底行画着句号键，「其他键」里不再列 Period。
+    XCTAssertEqual(counts.others(nineKey: false).map(\.id), [TypingKeyID.emoji, "Digit1"])
     XCTAssertEqual(counts.others(nineKey: false, style: TouchKeyLayoutStyle(twentySixKey: .commaPeriod)).map(\.id),
                    [TypingKeyID.emoji, "Digit1"])
     XCTAssertEqual(counts.others(nineKey: false, style: TouchKeyLayoutStyle(twentySixKey: .longSpace)).map(\.id),
@@ -2367,17 +2489,18 @@ final class KeyLayoutStyleTests: XCTestCase {
     let move: ([TouchBottomRowLayout.Key]) -> [TouchBottomRowLayout.Key] = TouchBottomRowLayout.languageBeforeSpace
     func slots(_ keys: [TouchBottomRowLayout.Key]) -> [Slot] { move(keys).map(\.slot) }
     // 中文 26 键四种样式，互换前后。
-    XCTAssertEqual(slots(TouchBottomRowLayout.twentySixKey(.standard, globe: false)), [.layer, .symbols, .language, .space, .comma, .returnKey])
+    XCTAssertEqual(slots(TouchBottomRowLayout.twentySixKey(.standard, globe: false)),
+                   [.layer, .symbols, .language, .period, .space, .comma, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false)),
                    [.layer, .symbols, .language, .comma, .space, .period, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.twentySixKey(.longSpace, globe: false)), [.layer, .language, .comma, .space, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.twentySixKey(.emoji, globe: false)), [.layer, .emoji, .language, .space, .comma, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(.standard, globe: false))),
-                   [.symbols, .layer, .language, .space, .comma, .returnKey])
+                   [.symbols, .layer, .language, .period, .space, .comma, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: true))),
                    [.symbols, .layer, .globe, .language, .comma, .space, .period, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.twentySixKey(.standard, globe: true)),
-                   [.layer, .globe, .symbols, .language, .space, .comma, .returnKey])
+                   [.layer, .globe, .symbols, .language, .period, .space, .comma, .returnKey])
     // 14 / 18 键。
     XCTAssertEqual(slots(TouchBottomRowLayout.letterGrid(.standard, globe: false)), [.layer, .language, .comma, .space, .period, .returnKey])
     XCTAssertEqual(slots(TouchBottomRowLayout.letterGrid(.longSpace, globe: false)), [.layer, .language, .comma, .space, .returnKey])
@@ -2470,7 +2593,7 @@ final class KeyLayoutStyleTests: XCTestCase {
   func testHeatmapFollowsTheLanguageKeySide() {
     let left = TouchKeyLayoutStyle(languageKeySide: .left)
     XCTAssertEqual(TypingKeyHeatmap.letterRows(for: left).last?.map(\.id),
-                   [TypingKeyID.layer, TypingKeyID.symbol, TypingKeyID.language, TypingKeyID.space, TypingKeyID.quickPunctuation, TypingKeyID.enter])
+                   [TypingKeyID.layer, TypingKeyID.symbol, TypingKeyID.language, "Period", TypingKeyID.space, TypingKeyID.quickPunctuation, TypingKeyID.enter])
     XCTAssertEqual(Set(TypingKeyHeatmap.letterRows(for: left).last!.map(\.width)),
                    Set(TypingKeyHeatmap.letterRows(for: TouchKeyLayoutStyle()).last!.map(\.width)))
     XCTAssertEqual(TypingKeyHeatmap.nineKeyBottomCells(for: .standard, languageLeft: true).map(\.id),

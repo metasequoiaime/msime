@@ -108,8 +108,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var lastKeyTouchTime: TimeInterval = -.infinity
   private var synchronizingPersonalDictionary = false
   private let preeditButton = PreeditButton()
-  /// 读音位置画笔时按钮至少这么宽，与 Android 读音的 `minWidth` 40dp 相同，笔不至于只有图标那么窄。
-  private lazy var preeditPenMinimumWidth = preeditButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 40)
   private var appliedPreeditMenuKey: String?
   private let exitLocalModeButton = UIButton()
   /// 漢 on the candidate row: the touch counterpart of a Korean keyboard's Hanja key. Shown only while a Korean syllable composes; it lists the syllable's Hanja on the strip and closes the list again.
@@ -514,7 +512,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private weak var nineKeyDeleteKey: UIButton?
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
-  /// 14 键和手写等底行的独立句号；手机 26 键通过逗号长按输入句号。
+  /// 14 键和手写等底行的独立句号；手机 26 键字母层（中文只在标准样式下）把它排在空格左边，逗号长按仍输入句号。
   private var periodKey: UIButton!
   /// 分离式键盘底行的中缝，留着引用是为了重排这一行时它仍紧挨空格键。
   private var actionSplitGap: UIView?
@@ -528,12 +526,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var numberPadExpandedGridWidths: [NSLayoutConstraint] = []
   /// 123 / #+= 层的底行，以空格键的 6 为基准（`SymbolLayerLayout`）。
   private var layerActionWidths: [NSLayoutConstraint] = []
-  /// 设计稿的手机底行弹性权重，以空格键的 4 为基准：123 1.25、中 1.05、地球键 1、， 1、。 1、回车 1.9。
+  /// 设计稿的手机底行弹性权重，以空格键的 4 为基准：123 1.25、中 1.05、地球键 1、， 1、。 1、回车 1.9。14 键、18 键和大千用这一组；手机 26 键字母层用 `phoneEnglishActionWidths`。
   private var phoneActionWidths: [NSLayoutConstraint] = []
   /// iPad 26 键底行，以空格键的 6.4 为基准（`TabletLetterLayout`）：123 1.5、中 1.2、地球键 1、123 1.5、⌄ 1.2。
   private var tabletActionWidths: [NSLayoutConstraint] = []
   private var phoneExpandedSpaceWidths: [NSLayoutConstraint] = []
-  /// 英文 26 键底行：空格左边多一个句点，空格以 `englishPhoneSpaceWeight` 为基准，其余键与中文 26 键同宽；隐藏 中/英 时用 expanded 那一组。
+  /// 空格左边带句号的 26 键底行（123 | 符 | 。 | 空格 | ， | 中 | 回车）：中文 26 键标准样式、英文、本地模式，以及日文罗马字、韩文、越南文和藏文的 26 键共用这一组，切中英文时每个键的位置和宽度都不变。句号占 1 份，空格以 `englishPhoneSpaceWeight` 为基准，其余键的份额与 `phoneActionWidths` 相同；隐藏 中/英 时用 expanded 那一组。
   private var phoneEnglishActionWidths: [NSLayoutConstraint] = []
   private var phoneEnglishExpandedSpaceWidths: [NSLayoutConstraint] = []
   /// 手写底行的弹性权重（`handwritingSpaceWeight` 等）；隐藏 中/英 时改用 expanded 那一组，把它的份额交给空格。
@@ -725,6 +723,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterCaseState = LetterCaseState.lowercase
   private var isAutomaticShift = false
   private var lastShiftTapTime: TimeInterval?
+  /// 26 键上按住 Shift 再点字母的触屏组合键状态。iOS 键盘扩展收不到外接键盘的按键事件，组合键由两根手指的触摸完成；普通点按 Shift 不会设置 `shiftModifierConsumed`，仍走原来的切换中英文路径。
+  private var shiftModifierArmed = false
+  private var shiftModifierConsumed = false
   /// UIKit 也为键盘自己的改动回调 `textWillChange`，而它会结束组字：没认出回声，一次留着剩余组字的上屏会在一轮之后把组字毁掉，下一键刚开始的组字也会被前一键迟到的回声结束。怎么认见 `OwnEditEchoWindow`。
   private var ownEditEcho = OwnEditEchoWindow()
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
@@ -1426,6 +1427,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     translations.cancel()
     onlineCandidates.cancel()
     closeKeyboardService()
+    shiftModifierArmed = false
+    shiftModifierConsumed = false
     candidateGlossTimer?.invalidate()
     candidateGlossTimer = nil
     personalDictionaryTimer?.invalidate()
@@ -3473,8 +3476,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 12 / 22
       }
-      // 横滑总是挂上，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到双拼后不必重建按键。
-      if grid == .eighteenKey && key.letters.count == 2 {
+      // 两字母键总是挂上横滑，接手时再看当前方案（`gestureRecognizerShouldBegin`）：键面先于方案配置建好，切到全拼或双拼后不必重建按键。
+      if key.letters.count == 2 {
         let swipe = EighteenKeySwipeGestureRecognizer(letters: key.letters, target: self,
                                                       action: #selector(handleEighteenKeySwipe(_:)))
         swipe.delegate = self
@@ -3657,7 +3660,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 18 键双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前双拼网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
+  /// 14/18 键全拼或双拼的横滑：拖动时键面换成选中的字母，松手时把它作为精确组码（大写）交给当前网格；回到起点附近或被取消时什么也不输入。这一下记在这个键上，与点按同一个统计 id。
   @objc private func handleEighteenKeySwipe(_ gesture: EighteenKeySwipeGestureRecognizer) {
     guard let button = gesture.view as? UIButton,
           let key = letterGridButtons.first(where: { $0.button === button })?.key else { return }
@@ -3674,7 +3677,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         playInputClick()
         guard isChineseMode else { return }
         synchronizeInputSchemePreference()
-        guard typesEighteenKeyShuangpin else { return }
+        guard typesExactLetterGridSwipe else { return }
         render(session.gridKey(String(letter)))
       }
     default:
@@ -3688,8 +3691,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 五笔 14 键：组码由五笔方案按组展开码表，没有拼音选择，候选照五笔展开；组码字母（`editing_text`）不显示。
   private var typesWubiGrid: Bool { typesLetterGrid && inputScheme == .wubi }
 
-  /// 18 键双拼：两个字母的键可以横滑选字母。全拼 18 键只点按，与 Android 相同。
-  private var typesEighteenKeyShuangpin: Bool { typesLetterGrid && letterGrid == .eighteenKey && usesShuangpin }
+  /// 14/18 键全拼或双拼：两个字母的键可以横滑选字母；五笔 14 键和单字母键只点按。
+  private var typesExactLetterGridSwipe: Bool {
+    guard typesLetterGrid, !showsSymbols else { return false }
+    switch inputScheme {
+    case .quanpin, .fourteenKey, .eighteenKey: return true
+    default: return usesShuangpin
+    }
+  }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
     let row = makeRow()
@@ -3697,6 +3706,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let button = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
         self?.handleLetterShift(keyID: TypingKeyID.shift)
       }
+      installShiftModifierTracking(on: button)
       button.accessibilityIdentifier = "shiftButton"
       shiftButton = button
       row.addArrangedSubview(button)
@@ -3755,6 +3765,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let rightShift = makeIconKey(Self.shiftIcon, accessibilityLabel: "大写") { [weak self] in
         self?.handleLetterShift(keyID: TypingKeyID.shiftRight)
       }
+      installShiftModifierTracking(on: rightShift)
       rightShift.accessibilityIdentifier = "rightShiftButton"
       rightShift.isHidden = true
       rightShiftButton = rightShift
@@ -4311,7 +4322,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let splitSpaceWidth = splitSpace.widthAnchor.constraint(equalTo: space.widthAnchor)
     splitSpaceWidth.priority = .init(999)
     splitSpaceWidth.isActive = true
-    // 14 键和手写等底行的独立句号；26 键字母层只在英文时显示，排在空格左边（`arrangeActionRow`）。
+    // 14 键和手写等底行的独立句号；26 键字母层不归样式表管的那一行也显示它，排在空格左边（`arrangeActionRow`）。
     let period = makeKey(title: "。", accessibilityLabel: "符号 。") { [weak self] in
       self?.countKeyPress(TypingKeyID.character("."))
       self?.handleSymbol(".")
@@ -4536,7 +4547,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
-  /// 英文 26 键底行在空格左边多放一个句点（份额 1），这一份从空格里让出，123、符、逗号、中/英、回车保持中文 26 键的宽度。与 Android `KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。
+  /// 手机 26 键字母层的底行（中文只在标准样式下）在空格左边放一个句号（份额 1），这一份从空格里让出，123、符、逗号、中/英、回车的份额不变。与 Android `KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。
   static let englishPhoneSpaceWeight: CGFloat = phoneSpaceWeight - 1
   /// 手写底行 123 |（地球键 1）| ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车 的弹性权重，三个移动端相同（Android `KeyboardActionRow.HANDWRITING_*_WEIGHT`、HarmonyOS `HANDWRITING_*_SHARE`，`scripts/test-mobile-handwriting-pad-parity.py` 比对）。空格从 4 让到 2.4、回车从 1.9 让到 1.6（与九键底行的回车相同），腾出「重写」和 ⌫ 的位置：320pt 宽时 ， 。 约 25pt，与 26 键字母键相当，空格仍放得下麦克风和「手写」。
   static let handwritingLayerWeight: CGFloat = 1.25
@@ -4706,6 +4717,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     if isChineseMode {
       synchronizeInputSchemePreference()
+      if handleShiftLocalModeShortcut(character) {
+        return
+      }
       // A host setting can change while this view is open. Do not start an alphabetic composition
       // from a stale 26-key tap after switching to nine keys; local utilities still need letters.
       let gridDigits = inputScheme == .nineKeyShuangpin ? "0"..."9" : "2"..."9"
@@ -5239,6 +5253,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func handleLetterShift(keyID: String) {
+    if shiftModifierConsumed {
+      shiftModifierConsumed = false
+      shiftModifierArmed = false
+      return
+    }
+    shiftModifierArmed = false
     // 组字中 Shift 是辅助码、空闲时切英文，要看此前异步投递的字母画完后是否在组字。
     session.flushPendingCharacters()
     flushDeferredInputSnapshot()
@@ -5250,6 +5270,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     countKeyPress(keyID)
     toggleLetterCase()
+  }
+
+  /// 触屏上的 Shift+C/E：按住 Shift 的触摸还没结束时，第二根手指点字母键，沿用 Engine 的大写入口判定。
+  /// 只有空闲中文 26 键、且对应模式已开启时才消费组合键；其他字母和关闭的模式交给原来的 Shift 行为。
+  private func handleShiftLocalModeShortcut(_ character: String) -> Bool {
+    if shiftModifierArmed {
+      session.flushPendingCharacters()
+      flushDeferredInputSnapshot()
+    }
+    guard shiftModifierArmed, !shiftModifierConsumed, !hasComposition,
+          supportsLocalTools, !isInLocalMode, !showsSymbols, !typesLetterGrid,
+          let trigger = character.uppercased().first,
+          Self.localInputModes.contains(where: { $0.trigger.first == trigger }),
+          enabledLocalInputModes.contains(where: { $0.trigger.first == trigger })
+    else { return false }
+    guard let mode = Self.localInputModes.first(where: { $0.trigger.first == trigger }) else { return false }
+    guard mode.trigger.count == 1 else { return false }
+    shiftModifierConsumed = true
+    localModeTrigger = mode.trigger
+    showsSymbols = false
+    render(session.handleCharacter(mode.trigger, shifted: true))
+    return true
+  }
+
+  /// Shift 的按下状态只用于组合键判定；松手时不提前清掉 `shiftModifierConsumed`，让主动作可以抑制普通的切换中英文。
+  private func installShiftModifierTracking(on button: UIButton) {
+    button.addTarget(self, action: #selector(armShiftModifier(_:)), for: .touchDown)
+    button.addTarget(self, action: #selector(disarmShiftModifier(_:)), for: [.touchUpOutside, .touchCancel, .touchDragExit])
+  }
+
+  @objc private func armShiftModifier(_ sender: UIButton) {
+    shiftModifierArmed = true
+    shiftModifierConsumed = false
+  }
+
+  @objc private func disarmShiftModifier(_ sender: UIButton) {
+    shiftModifierArmed = false
+    shiftModifierConsumed = false
   }
 
   private func toggleLetterCase() {
@@ -6803,7 +6861,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
-    // 拼写写进输入框（`showInlineComposition`），候选栏不再重复画它：读音那一段只剩编辑拼写的笔（不能编辑时收成零宽），候选不会随拼写变长被推着走。只改画出来的标题：`visiblePreedit` 仍表示正在组字，拼写还没有候选时候选栏照样显示，VoiceOver 仍读出完整标题。日语读音和就地组字的方案不是拼写，照常画。全拼 14 键不写输入框，读音仍单独一行画在候选上面。
+    // 拼写写进输入框（`showInlineComposition`）时，候选栏不再重复画它；没有可见读音就不保留空白编辑入口，避免连续按键误触。只改画出来的标题：`visiblePreedit` 仍表示正在组字，拼写还没有候选时候选栏照样显示，VoiceOver 仍读出完整标题。日语读音和就地组字的方案不是拼写，照常画。全拼 14 键不写输入框，读音仍单独一行画在候选上面。
     let style: CandidatePreeditStyle = separateReadingRow ? .pinyin : .empty
     // A caret moved into the spelling is drawn even under 「不显示」: the next key acts at that caret, and a hidden one leaves no way to tell where.
     let drawnTitle = idle || title != visiblePreedit || !inputScheme.hasSpellingCaret
@@ -6811,19 +6869,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       : visibleCaretSpelling.map { visiblePhrasePrefix + $0 } ?? style.title(
         composition: visiblePreedit, phrasePrefix: visiblePhrasePrefix,
         localModeName: isInLocalMode ? modeName : nil)
-    // 可编辑的拼写写进了输入框、候选栏不再画它时，读音那一段画一支笔做入口（#10591），不再收成零宽：刚打完字就看得到、点得到，与 Android 的 `SpellingEditIcon` 相同。
     let spellingEditable = !idle && editableSpelling != nil
-    let showsPen = spellingEditable && drawnTitle.isEmpty
+    let canOpenSpellingEditor = spellingEditable && !drawnTitle.isEmpty
     if var configuration = preeditButton.configuration {
       configuration.title = drawnTitle
-      configuration.image = showsPen ? UIImage(systemName: "pencil") : nil
+      configuration.image = nil
       configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
         pointSize: (Self.preeditFontSize * preeditFontScale * 1.15).rounded(), weight: .regular)
       preeditButton.configuration = configuration
     }
-    preeditPenMinimumWidth.isActive = showsPen
-    // 读音并入候选行时，没有在组的内容、或「候选栏预编辑」选了不显示而标题为空、又没有笔可画时，这一段不占位置：单独一行时那里显示的「水杉输入法」和它的本地输入菜单，在候选行里只会挤掉联想候选，本地输入仍可从「更多」里打开。
-    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow && !showsPen
+    // 读音并入候选行时，没有组字内容或标题为空时，这一段不占位置；单独一行时仍由布局保留读音行。
+    let collapsed = (idle || drawnTitle.isEmpty) && !separateReadingRow
     inlineReadingCollapse?.isActive = collapsed
     if preeditButton.isHidden != collapsed { preeditButton.isHidden = collapsed }
 
@@ -6841,14 +6897,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             }
           })
         : nil
-      // 只有本地输入菜单在时轻点弹菜单；其余时候轻点走 primary action（`openSpellingEditor`），不能编辑时它什么都不做。
+      // 只有本地输入菜单在时轻点弹菜单；其余时候轻点走 primary action（`openSpellingEditor`）。
       preeditButton.showsMenuAsPrimaryAction = offersModes
     }
-    // 不能编辑时读音不接点按也不变暗：它是正在组的文字，要一直读得清楚。
-    preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : spellingEditable ? "编辑拼写" : title
+    // 没有可见读音时不接收编辑点按；仍在组字的文字照常读出，不变暗。
+    preeditButton.accessibilityLabel = offersModes ? "本地输入模式" : canOpenSpellingEditor ? "编辑拼写" : title
     preeditButton.accessibilityValue = offersModes ? nil : title
     preeditButton.accessibilityHint = nil
-    preeditButton.accessibilityTraits = offersModes || spellingEditable ? .button : .staticText
+    preeditButton.accessibilityTraits = offersModes || canOpenSpellingEditor ? .button : .staticText
     updateSpellingEditor()
   }
 
@@ -7406,12 +7462,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       bottomLanguageWidth?.isActive = style == .standard && !hidesLanguage
       // iPad 的 26 键从第三排字母输入 ，。，所以它的底行没有自己的 ，。
-      // 手机 26 键独立逗号，长按输入句号；14 键和手写保留两个标点键。
+      // 手机 26 键的逗号长按输入句号；14 键和手写保留两个标点键。
       quickPunctuationButton.isHidden = nineKeyFrame || showsSymbols || kana || style == .tablet
       quickPunctuationWidth?.isActive = !quickPunctuationButton.isHidden && style == .standard
-      // 英文 26 键在空格左边放独立句点、右边是逗号（中文 26 键仍只有逗号，长按输入句号）。
-      let englishPeriod = phoneLetterSymbols && !isChineseMode
-      periodKey.isHidden = style != .phone || showsSymbols || (phoneLetterSymbols && !englishPeriod)
+      // 手机 26 键字母层不归样式表管的那一行（`styledRow` 为 nil）在空格左边放独立句号、右边是逗号：中文 26 键的标准样式、英文、本地模式，以及日文罗马字、韩文、越南文和藏文的 26 键都是这同一排，切中英文、进出本地模式时每个键的位置和宽度都不变；逗号长按照旧输入句号。中文 26 键的另外三种样式照 `styledRow` 的表显示或隐藏句号。
+      let periodBesideSpace = phoneLetterSymbols && styledRow == nil
+      periodKey.isHidden = style != .phone || showsSymbols || (phoneLetterSymbols && !periodBesideSpace)
       let punctuation = quickPunctuationSymbols
       if (phoneRow || nineKeyPunctuationRowShown) && !usesCustomQuickPunctuation {
         // 手机底行按当前标点模式更新键面。
@@ -7493,7 +7549,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         case .phone:
           NSLayoutConstraint.activate(handwritingRow
             ? (hidesLanguage ? handwritingExpandedSpaceWidths : handwritingActionWidths)
-            : englishPeriod ? (hidesLanguage ? phoneEnglishExpandedSpaceWidths : phoneEnglishActionWidths)
+            : periodBesideSpace ? (hidesLanguage ? phoneEnglishExpandedSpaceWidths : phoneEnglishActionWidths)
             : (hidesLanguage ? phoneExpandedSpaceWidths : phoneActionWidths))
         case .nineKey:
           if numberPad && numberPadSpace != .afterZero {
@@ -7749,7 +7805,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 屏幕上当前界面画哪种底行。
   private enum ActionRowStyle {
-    /// 手机底行：26 键是 123 | 符 | space | ， | 中 | return，逗号长按输入句号；英文 26 键在空格左边多一个句点（123 | 符 | . | space | , | 中 | return）；14 键和手写保留独立逗号句号。中/英 紧挨回车左边；「中/英键放在空格左边」时排到空格和贴着空格的标点左边。
+    /// 手机底行：26 键（中文标准样式、英文、本地模式，以及日文罗马字、韩文、越南文和藏文）是 123 | 符 | 。 | space | ， | 中 | return，句号在空格左边，逗号长按也输入句号；中文 26 键的其余样式照 `TouchBottomRowLayout.twentySixKey`；14 键和手写保留独立逗号句号。中/英 紧挨回车左边；「中/英键放在空格左边」时排到空格和贴着空格的标点左边。
     case phone
     /// 九键外框：符 | 123 | space | 中 | return；拼音九键、九键双拼和笔画的数字层为 符 | 九键 | 0 | 空格 | 中 | return（`TouchBottomRowLayout.nineKeyDigits`），借来的数字九宫格为 返回 | 0 | 空格 | 中 | return、符 在左侧栏。
     case nineKey
@@ -7973,7 +8029,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return (spaceVoiceArmed || (!spaceVoiceEnabled && (handwriting.isHidden || !handwriting.hasInk))) && !cursorMovement.isActive
     }
     if gestureRecognizer.name == "layoutToggleSymbolsHold" { return !showsSymbols }
-    if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesEighteenKeyShuangpin && !showsSymbols }
+    if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesExactLetterGridSwipe }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
@@ -8008,8 +8064,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     while let current = node, current !== root {
       if let key = current as? KeyboardKeyButton {
         guard !key.isFunctionKey, !spaceKeys.contains(where: { $0 === key }) else { return false }
-        // 18 键双拼两个字母的键自己接横滑选字母，不再移动光标。
-        if typesEighteenKeyShuangpin && key.gestureRecognizers?.contains(where: { $0 is EighteenKeySwipeGestureRecognizer }) == true {
+        // 14/18 键全拼或双拼的两字母键自己接横滑选字母，不再移动光标。
+        if typesExactLetterGridSwipe && key.gestureRecognizers?.contains(where: { $0 is EighteenKeySwipeGestureRecognizer }) == true {
           return false
         }
         // 九键全拼字母层的 1 打开标点，数字层和双拼的 1 才输入字符。
@@ -8474,7 +8530,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。拼写以「拼音分词」作为标记文本写进编辑框；候选条只在全拼 14 键的读音行、已选的那一段和本地模式名里画它（`updatePreeditButton`）。
-    // 全拼九键的 `preedit` 是数字、14 键的是组码字母，读音行显示 Engine 给的拼音读音（`ning'bai`；首选是英文词时是这个词的字母）；没有读音时才退回 `preedit`。
+    // 全拼九键的 `preedit` 是数字、14 键的是组码字母，读音行显示 Engine 给的拼音读音（`ning'bai`；首选是英文词时是这个词的字母；全拼九键多按或按错一键切不成音节时，切不开的那一键是键上的一个字母）；没有读音时（英文专用模式）才退回 `preedit`。
     let shownPreedit = !snapshot.nineKeyReading.isEmpty ? snapshot.nineKeyReading
       : inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit
     let composing = snapshot.phrasePrefix + shownPreedit
@@ -10432,7 +10488,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.stateDirectory.map { ($0 as NSString).appendingPathComponent("plugins") }
   }
 
-  /// 键盘扩展没有把图片插进输入框的接口，表情包转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
+  /// 先尝试 iOS 18 的自适应图片字形；宿主输入框没有实现这项富文本能力时，再转成 PNG 放进系统剪贴板，由用户长按输入框粘贴。没有完全访问时写剪贴板会被系统静默丢弃，所以先提示去打开。
   private func copySticker(_ sticker: KeyboardStickerCatalog.Sticker) {
     playInputClick()
     guard hasFullAccess else {
@@ -10445,14 +10501,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
         if let png {
-          UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
-          showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+          if self.insertStickerDirectly(png) {
+            self.showDiagnostic("已插入水杉娘「\(sticker.name)」")
+          } else {
+            UIPasteboard.general.setData(png, forPasteboardType: KeyboardStickerCatalog.pasteboardType)
+            self.showDiagnostic(KeyboardStickerCatalog.copiedMessage(sticker))
+          }
         } else {
-          showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
+          self.showDiagnostic(KeyboardStickerCatalog.copyFailedMessage)
         }
-        renderCandidateStrip()
+        self.renderCandidateStrip()
       }
     }
+  }
+
+  /// iOS 18 的富文本输入只对声明支持自适应图片字形的编辑器有效；`UITextDocumentProxy`
+  /// 在其他编辑器里仍只有文本接口，所以失败时必须保留剪贴板回退。
+  private func insertStickerDirectly(_ png: Data) -> Bool {
+    guard #available(iOS 18.0, *),
+          let input = textDocumentProxy as? UITextInput,
+          input.supportsAdaptiveImageGlyph == true,
+          let range = input.selectedTextRange,
+          let insert = input.insert else { return false }
+    let glyph = NSAdaptiveImageGlyph(imageContent: png)
+    insert(glyph, range)
+    return true
   }
 
   /// 按键区里的表情面板与键盘明暗一致时透出键盘背景；表情面板单独设成另一种明暗时铺上自己的皮肤底色，否则按键和颜文字会按面板的明暗着色、却画在键盘明暗的背景上。

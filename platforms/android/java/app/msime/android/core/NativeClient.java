@@ -498,7 +498,7 @@ public final class NativeClient {
     public static final int KEY_GRID_FOURTEEN_KEY = 2;
     /** 全拼十八键，与共享 C ABI 布局编号一致。 */
     public static final int KEY_GRID_EIGHTEEN_KEY = 4;
-    /** 字母组网格的一键：小写送整组；仅十八键双拼的大写 ASCII 表示精确小写字母。返回与 {@link #character} 相同的输入响应。 */
+    /** 字母组网格的一键：小写送整组；14/18 键全拼和双拼的大写 ASCII 表示精确小写字母（五笔 14 键不收）。返回与 {@link #character} 相同的输入响应。 */
     public static String gridKey(long session, char letter) {
         if ((letter < 'a' || letter > 'z') && (letter < 'A' || letter > 'Z'))
             throw new IllegalArgumentException("Grid key must be an ASCII letter");
@@ -918,6 +918,13 @@ public final class NativeClient {
         return converted == null ? null : TextPolicy.utf8(converted);
     }
 
+    /** 按共享偏好的 OpenCC 变体转换文本；未知编号由 host-api 拒绝，调用方保留原文。 */
+    public static String convertToTraditional(String text, int variant) {
+        if (text == null || text.isEmpty()) return text;
+        byte[] converted = convertToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8), variant);
+        return converted == null ? null : TextPolicy.utf8(converted);
+    }
+
     /** Drop the cached candidate list for this session; the next query is answered fresh. */
     public static String resetCache(long session) {
         return TextPolicy.utf8(resetCacheRaw(session));
@@ -1229,6 +1236,7 @@ public final class NativeClient {
     private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
+    private static native byte[] convertToTraditionalRaw(byte[] text, int variant);
     private static native byte[] resetCacheRaw(long session);
     private static native byte[] startSettledRerankRaw(long session);
     private static native byte[] pollSettledRerankRaw(long session, long token, boolean accept);

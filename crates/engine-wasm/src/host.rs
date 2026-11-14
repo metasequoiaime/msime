@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use msime_engine::ordering::{
-    rerank_pick, rotate_to_front, runner_up_order, OrderRow, Reranker, ScoredOrderRows,
-    SentenceModel,
+    engine_seated_correction, rerank_pick, rotate_to_front, runner_up_order_pinned, OrderRow,
+    Reranker, ScoredOrderRows, SentenceModel,
 };
 use msime_engine::time::Instant;
 use msime_engine::{
@@ -1116,7 +1116,9 @@ impl WebHost {
         }
         // `Runtime::demote_runner_up_readings` 看到的是已经旋转过的列表，这里按旋转后的顺序交给它。
         let rotated: Vec<OrderRow<'_>> = order.iter().map(|&index| rows[index]).collect();
-        if let Some(demoted) = runner_up_order(scheme, &rotated) {
+        // `order` 正是旋转后每格在引擎原表里的座位，引擎坐在第二位的纠错整句按它认。
+        let pinned = engine_seated_correction(scheme, &rotated, &order);
+        if let Some(demoted) = runner_up_order_pinned(scheme, &rotated, &[], 0, pinned) {
             order = demoted.iter().map(|&seat| order[seat]).collect();
         }
         // 日语每行的 code 都是同一串键入的罗马字，在候选旁显示没有意义，给空串。

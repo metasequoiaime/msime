@@ -23,6 +23,8 @@ Android 的发送尝试策略由[未声明图片类型的输入框仍尝试直�
 - iOS：键盘扩展没有往输入框插图片的接口，只能转成 PNG 放进 `UIPasteboard`，再在候选栏显示同一句提示。没有完全访问权限时系统会静默丢弃这次写入，所以改为提示用户去打开完全访问。
 - HarmonyOS：`@ohos.inputMethodEngine` 的 `InputClient` 往输入框写内容的接口只有文字（`insertText`、`setPreviewText`）。`sendMessage`（API 15）要求编辑框所在的应用自己配合接收，不是通用能力。所以 HarmonyOS 也走剪贴板：用 `pasteboard.createData(MIMETYPE_PIXELMAP, …)` 写入，这一步不需要权限。
 
+这条发送边界由[iOS 优先提交自适应图片](2026-11-10-ios-sticker-adaptive-image.md)部分取代：iOS 18 且当前编辑器声明支持自适应图片字形时先尝试直接插入，其他编辑器仍走剪贴板；HarmonyOS 仍因现有 ArkTS 输入法接口没有可用的通用富内容提交方法而走剪贴板。
+
 ## Historical audit
 
 [Android 发送「最近复制」的图片](2026-10-11-android-recent-clip-image-send.md)部分重叠：表情包的直接发送复用它的 FileProvider、`commitContent` 和 mime 判断，只是改用自己的缓存目录。另外，那里的图片要在几分钟后删掉，这条规则不适用于表情包，见 Consequences。

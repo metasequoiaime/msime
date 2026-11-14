@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`useMobileSettingsSubview` 增加只在首次挂载读取的 `initialValue`，由调用方根据当前历史记录计算初始子页。账号页用该 Hook 管理 `profile` 和 `download` 两个 `accountSubpage` 值，继续由账号页解码 `msimeSettings` 和领域字段；退出登录时使用 Hook 的本地重置动作，再按原契约回退历史记录。
+`useMobileSettingsSubview` 增加只在首次挂载读取的 `initialValue`，由调用方根据当前历史记录计算初始子页。账号页用该 Hook 管理 `profile` 和 `qq-links` 两个 `accountSubpage` 值，继续由账号页解码 `msimeSettings` 和领域字段；退出登录时使用 Hook 的本地重置动作，再按原契约回退历史记录。HarmonyOS 手机原先的 `download` 子页已由[移除鸿蒙手机的其他平台下载入口](2026-11-10-harmony-remove-cross-platform-download.md)删除。
 
 ## Alternatives considered
 

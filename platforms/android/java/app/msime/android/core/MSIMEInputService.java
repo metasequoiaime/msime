@@ -143,6 +143,8 @@ public final class MSIMEInputService extends InputMethodService {
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
     private final ImeOperationNotice operationNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice spaceCopyNotice = new ImeOperationNotice(this);
+    private final ImeOperationNotice voiceEmptyNotice = new ImeOperationNotice(this);
     ImeTextEditPanel imeTextEditPanel;
     ImeCalculator imeCalculator;
     ImeEmailSuffixes imeEmailSuffixes;
@@ -334,6 +336,8 @@ public final class MSIMEInputService extends InputMethodService {
     int candidateScalePercent = 100;
     /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
     private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
+    boolean spellingEditorEnabled = true;
+    private boolean spellingHeaderReserved = true;
     CandidateAppearance.Palette candidateAppearance =
         CandidateAppearance.fromSkin(KeyboardSkin.system(false));
     int touchKeySpacingTenths = KeyboardSpacingPolicy.DEFAULT_KEY_SPACING_TENTHS;
@@ -477,6 +481,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarRedo;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
+    /** 横屏自动浮动：打开时横屏使用浮动面板、竖屏恢复停靠。 */
+    boolean floatingKeyboardAutoLandscape;
     private int floatingX = FloatingKeyboardPolicy.DEFAULT_X_FRACTION;
     private int floatingY = FloatingKeyboardPolicy.DEFAULT_Y_FRACTION;
     /** 浮动面板顶部的拖动条，只在浮动时显示。 */
@@ -685,6 +691,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 补上的后半个还在光标右边的那些对，见 {@link PairedPunctuationPolicy.Stack}。 */
     private final PairedPunctuationPolicy.Stack pairedPunctuationStack = new PairedPunctuationPolicy.Stack();
     boolean traditionalChineseOutput;
+    /** 共享偏好 `traditional_chinese_variant`：繁体输出使用的 OpenCC 变体，缺省为 `s2t`。 */
+    String traditionalChineseVariant = ChineseOutputPolicy.STANDARD_VARIANT;
     /** 共享偏好 `cantonese_simplified_output`：粤拼和粤语双拼输出简体，繁转简在 Engine 里做。粤拼下的简繁开关切换它，见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
     boolean cantoneseSimplifiedOutput;
     int editorInputType;
@@ -731,6 +739,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
+
+    /** 空语音结果显示在手机屏幕顶部，不参与键盘测量或抢走编辑焦点。 */
+    void showVoiceEmptyNotice(String text) {
+        long request = voiceEmptyNotice.begin();
+        voiceEmptyNotice.show(request, text, "空语音提示：", "MSIME empty voice notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
+    }
+
+    /** 新识别或输入法窗口结束时撤销旧提示。 */
+    void hideVoiceEmptyNotice() { voiceEmptyNotice.cancel(); }
 
     /** 记下实时偏好里 {@link #announceWubiTableMissing} 要看的三项，再判断一次。有会话时实时偏好经 applyPreferencesSnapshot 到达，没有会话的输入框经 applyEditorPreferences，两处都调用。 */
     private void rememberWubiNoticePreferences(JSONObject preferences) {
@@ -1194,6 +1212,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyCandidateGlossPreference(preferences);
         spellingPosition = CandidatePreeditStylePolicy.normalize(
             InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
+        spellingEditorEnabled = preferences == null || preferences.optBoolean("touch_spelling_editor", true);
         applyEnglishSuggestionsPreference(preferences);
         applyCandidateTranslationPreference(preferences);
         applyWubiCodeHintPreference(preferences);
@@ -1679,18 +1698,19 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 与系统辅助方法保持相同的按键标记，但两次发键分别保护，连接断开时松键仍尽力发送。 */
-    void sendEditorKeyEvents(int keyCode) {
+    /** 两次发键分别保护，按下失败仍尽力松键；只有整对发送成功才返回 true。 */
+    boolean sendEditorKeyEvents(int keyCode) {
         editorReads.invalidate();
         InputConnection target = connection;
-        if (target == null) return;
+        if (target == null) return false;
         long down = SystemClock.uptimeMillis();
-        InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, down,
+        boolean pressed = InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, down,
             KeyEvent.ACTION_DOWN, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
-        InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, SystemClock.uptimeMillis(),
+        boolean released = InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, SystemClock.uptimeMillis(),
             KeyEvent.ACTION_UP, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
+        return pressed && released;
     }
 
     /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */
@@ -2184,6 +2204,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         armFirstFrameWait();
+        hideVoiceEmptyNotice();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
@@ -2233,6 +2254,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInput() {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imeDebugOverlay.recordEvent(DiagnosticEventKind.IME_FINISH);
         cancelPendingCompositionMarkerLoss();
@@ -2272,6 +2295,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onFinishInputView(boolean finishingInput) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (inlineAutofill != null) inlineAutofill.finishInput();
         imePanels.dismissClipboardPreview();
         flushKeyPresses();
@@ -2291,6 +2316,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onWindowHidden() {
+        hideVoiceEmptyNotice();
         // 窗口收起后不再每秒重读偏好：会话要一直活到输入框失焦，按返回键收起键盘后输入框通常还留着焦点，原先这段时间里每秒都在后台读偏好、解析皮肤、把快照推给引擎，电池统计里全算后台耗电（#9916）。窗口再显示时 onWindowShown 先读一次再接着轮询。
         imeWindowVisible = false;
         // 收起前第一帧还没交出去：不再等它，也不记这次弹出的耗时。排着的建会话马上放行，不空等兜底：它自己核对启动代次，用户收起时 onFinishInputView 已经先换了代，放行即作废；跟随光标的候选栏自己收起窗口时不换代，会话照常马上建好。
@@ -2350,6 +2376,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
@@ -2431,6 +2459,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         if (imeWorldClock != null) imeWorldClock.destroy();
         if (imeOcr != null) imeOcr.close();
         voiceActivityGeneration++;
@@ -3231,6 +3261,7 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
         toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
+        floatingKeyboardAutoLandscape = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE);
         caretCandidates = localSettings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES);
         // 拖动进行中不让重读覆盖手指下的位置；松手后的保存会把它写回文件。
         if (!floatingDragging) {
@@ -3337,6 +3368,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyChineseOutputPreference(JSONObject preferences) {
         traditionalChineseOutput = preferences != null
             && preferences.optBoolean("traditional_chinese_output", false);
+        traditionalChineseVariant = preferences == null
+            ? ChineseOutputPolicy.STANDARD_VARIANT
+            : InputViewValuePolicy.textOr(preferences, "traditional_chinese_variant",
+                ChineseOutputPolicy.STANDARD_VARIANT);
         cantoneseSimplifiedOutput = preferences != null
             && preferences.optBoolean("cantonese_simplified_output", false);
     }
@@ -3649,7 +3684,8 @@ public final class MSIMEInputService extends InputMethodService {
             ? (view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"))
             : InputViewValuePolicy.textOr(context, "local_mode", "none");
         return AndroidChineseTextConversion.outputString(
-            text, traditionalChineseOutput, dedicatedEnglish, scheme, localMode);
+            text, traditionalChineseOutput, traditionalChineseVariant,
+            dedicatedEnglish, scheme, localMode);
     }
 
     String chineseCandidateOutput(String text, JSONObject context, int source) {
@@ -3659,7 +3695,7 @@ public final class MSIMEInputService extends InputMethodService {
             : InputViewValuePolicy.textOr(view, "local_mode", "none"))
             : InputViewValuePolicy.textOr(context, "local_mode", "none");
         return AndroidChineseTextConversion.candidateOutput(text, traditionalChineseOutput,
-            dedicatedEnglish, scheme, localMode, source);
+            traditionalChineseVariant, dedicatedEnglish, scheme, localMode, source);
     }
 
     private String candidateAppearanceKey() {
@@ -3674,7 +3710,7 @@ public final class MSIMEInputService extends InputMethodService {
             + touchKeyboardHeightAdjustment + ":"
             + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
             + shuangpinKeyHintsEnabled + ":" + quanpinShiftEnabled + ":" + splitKeyboardPortrait + ":" + japaneseToggleInputEnabled
-            + ":" + oneHandedSidePanel.wire + ":" + fourteenKeyLetterWidths.wire()
+            + ":" + spellingEditorEnabled + ":" + oneHandedSidePanel.wire + ":" + fourteenKeyLetterWidths.wire()
             + ":" + touchKeyStyles + ":" + numberRowEnabled + ":" + twentySixSymbolFirst + ":" + numberPadSpace.resolved() + ":" + languageKeyLeft
             + ":" + NineKeySidebarPolicy.format(nineKeySidebarSymbols) + ":" + NineKeySidebarPolicy.format(nineKeyDigitSidebarSymbols);
     }
@@ -3699,6 +3735,7 @@ public final class MSIMEInputService extends InputMethodService {
         AiPolishConfiguration previousAi = aiPolishConfiguration;
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
+        String previousTraditionalVariant = traditionalChineseVariant;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidatePronunciation = candidatePronunciationEnabled;
         String previousSpellingPosition = spellingPosition;
@@ -3737,6 +3774,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : !previousAi.equals(aiPolishConfiguration))
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
+                || !previousTraditionalVariant.equals(traditionalChineseVariant)
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidatePronunciation != candidatePronunciationEnabled
                 || !previousSpellingPosition.equals(spellingPosition)
@@ -3860,6 +3898,8 @@ public final class MSIMEInputService extends InputMethodService {
             : nextAiAssistant == null
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
+        String nextTraditionalVariant = InputViewValuePolicy.textOr(preferences,
+            "traditional_chinese_variant", ChineseOutputPolicy.STANDARD_VARIANT);
         boolean nextCantoneseSimplified = preferences.optBoolean("cantonese_simplified_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidatePronunciation = preferences.optBoolean("candidate_pronunciation", false);
@@ -3923,6 +3963,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateScalePercent = nextScalePercent;
         candidatePageNumberShown = CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         spellingPosition = nextSpellingPosition;
+        spellingEditorEnabled = preferences.optBoolean("touch_spelling_editor", true);
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
@@ -3963,6 +4004,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         boolean japaneseEmojiKeyChanged = previousJapaneseEmojiKey != japaneseSideEmojiKey();
         traditionalChineseOutput = nextTraditional;
+        traditionalChineseVariant = nextTraditionalVariant;
         cantoneseSimplifiedOutput = nextCantoneseSimplified;
         // 要在下面改掉当前值之前比较：放在赋值之后时前后两份永远相同，换服务、关翻译后候选下的旧译文要等下一次按键才消失。
         boolean translationDisplayChanged = CandidateTranslationPolicy.displayInvalidated(
@@ -5145,6 +5187,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private int readingRowHeight() {
+        if (!spellingHeaderReserved) return 0;
         int design = pixels(ImeToolbar.READING_ROW_DP);
         if (preedit == null) return design;
         // 读音行自己的上下内边距（下边就是和候选行之间的 READING_GAP_DP）也算进去，否则字号大时间距被读音挤掉。
@@ -5166,24 +5209,6 @@ public final class MSIMEInputService extends InputMethodService {
         int bottom = label.getIncludeFontPadding() ? metrics.bottom : metrics.descent;
         return ReadingRowPolicy.heightPx(design, top, bottom,
             label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
-    }
-
-    private SpellingEditIcon spellingEditIcon;
-
-    /**
-     * 读音行左端的笔：边长约等于读音的字号（不超过一行字高，读音行的高度不变），点按区放宽到 40 dp，小图标也点得中。
-     */
-    private void showSpellingEditIcon(boolean shown) {
-        if (!shown) {
-            preedit.setCompoundDrawablesRelative(null, null, null, null);
-            preedit.setMinWidth(0);
-            return;
-        }
-        if (spellingEditIcon == null) spellingEditIcon = new SpellingEditIcon(preedit);
-        int size = Math.round(preedit.getTextSize() * 1.15f);
-        spellingEditIcon.setBounds(0, 0, size, size);
-        preedit.setCompoundDrawablesRelative(spellingEditIcon, null, null, null);
-        preedit.setMinWidth(pixels(40));
     }
 
     void fail(Throwable error) {
@@ -5250,7 +5275,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 字母网格的一键：小写送整组首字母，十八键双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
+    /** 字母网格的一键：小写送整组首字母，14/18 键全拼和双拼横滑的大写标记限定精确字母，均由引擎在同一网格组字。放下网格辅助码的分隔符后改送辅助码（{@link GridHelpcodePolicy#letterOp}）。不走 {@link #type} 的辅助码、分号和英文直出路径；引擎不收时不输入。 */
     boolean gridKey(char letter) {
         int helpcode = GridHelpcodePolicy.letterOp(gridHelpcodeDisplay(), letter);
         if (helpcode != GridHelpcodePolicy.NONE) return gridHelpcode(helpcode, Character.toLowerCase(letter));
@@ -5349,7 +5374,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 用户点击仍完整的组字时进入临时编辑；丢标记、选区或文本改写仍走原先的结束路径。 */
     private boolean editCompositionSelection(int start, int end, int newStart, int newEnd) {
-        if (!compositionEditable() || connection == null || editorCompositionSuppressed) return false;
+        if (!spellingEditorEnabled || !compositionEditable() || connection == null || editorCompositionSuppressed) return false;
         String editing = InputViewValuePolicy.editingText(view);
         String composing = composingText(view, editing, true);
         int prefix = InputViewValuePolicy.textOr(view, "phrase_prefix", "").length();
@@ -5364,6 +5389,9 @@ public final class MSIMEInputService extends InputMethodService {
                     || !before.toString().endsWith(composing.substring(0, offset))
                     || !after.toString().startsWith(composing.substring(offset))) return false;
         } catch (RuntimeException disconnected) { return false; }
+        // 配置重建后的迟到回报可能没有匹配到写入预期，但它仍停在引擎当前光标。
+        // 只有实际移动组字光标才进入编辑；普通打字的末尾回报不应打开面板。
+        if (target == InputViewValuePolicy.integer(view, "caret_position", editing.length())) return true;
         moveCompositionCaret(target);
         imeCompositionEditor.open();
         return true;
@@ -10934,6 +10962,8 @@ public final class MSIMEInputService extends InputMethodService {
         long createStartedAt = SystemClock.uptimeMillis();
         imeFunctionPanel.close();
         operationNotice.cancel();
+        spaceCopyNotice.cancel();
+        hideVoiceEmptyNotice();
         imePanels.dismissClipboardPreview();
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -11155,7 +11185,8 @@ public final class MSIMEInputService extends InputMethodService {
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
         bindSymbolPanelHold(layerButton);
-        symbolPanelButton = keyId(button(controls, "符", imePanels::showSymbolPanel), "SoftSymbol");
+        // 九键双拼组字时这个键是「分词」（ImeLayoutRows#symbolPanelKey），键面在 render 时换。
+        symbolPanelButton = keyId(button(controls, "符", () -> imeLayoutRows.symbolPanelKey()), "SoftSymbol");
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = keyId(addRowButton(controls, new KeyHintButton(this), ",",
             this::insertQuickPunctuation, true), "Comma");
@@ -11461,6 +11492,12 @@ public final class MSIMEInputService extends InputMethodService {
             textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
+    }
+
+    void showSpaceCopyFailure(String label) {
+        long request = spaceCopyNotice.begin();
+        spaceCopyNotice.show(request, label, "空格复制提示：", "MSIME space copy notice",
+            InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
     }
 
     /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
@@ -11851,9 +11888,12 @@ public final class MSIMEInputService extends InputMethodService {
         saveLocalPanelSetting("浮动键盘", AndroidLocalSettings.FLOATING_KEYBOARD, enabled);
     }
 
-    /** 浮动键盘此刻是否生效（{@link FloatingKeyboardPolicy#active}）：外接键盘的候选条模式里停在底部。 */
+    /** 浮动键盘此刻是否生效（{@link FloatingKeyboardPolicy#active}）：横屏自动浮动时随方向切换，外接键盘的候选条模式里停在底部。 */
     boolean floatingDrawn() {
-        return FloatingKeyboardPolicy.active(floatingKeyboard, hardwareKeyboardMode);
+        Configuration configuration = getResources().getConfiguration();
+        boolean landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE;
+        return FloatingKeyboardPolicy.active(floatingKeyboard, floatingKeyboardAutoLandscape, landscape,
+            hardwareKeyboardMode);
     }
 
     /** 候选栏此刻是否跟随光标（{@link CaretCandidatePolicy#active}）：外接键盘的候选条模式里、开关打开且这个输入框报告光标位置时。 */
@@ -12493,7 +12533,7 @@ public final class MSIMEInputService extends InputMethodService {
             String localModeKey = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
                     String reading = InputViewValuePolicy.textOr(view, "display_reading",
                 InputViewValuePolicy.textOr(view, "reading", ""));
-            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。14 键同样显示 `nine_key_reading`，引擎在首行是英文词时也给出读音，不让组码字母（bugao）出现在读音行上。
+            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an）；全拼九键上首行是英文词时是这个词的字母（4663 显示 good），多按或按错一键切不成音节时切不开的那一键显示成键上的一个字母（6442677 显示 ni'hao's's），都不出数字。引擎没给读音（九键双拼的首行给不出读音、英文专用模式）时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。14 键同样显示 `nine_key_reading`，引擎在首行是英文词时也给出读音，不让组码字母（bugao）出现在读音行上。
             String nineKeyPreedit = "";
             if (view != null && "none".equals(localModeKey)
                     && drawsKeyGrid(displayedTouchLayout(view))) {
@@ -12542,7 +12582,6 @@ public final class MSIMEInputService extends InputMethodService {
                 caretSpelling = editingText;
                 caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caretKeypad, caret, caretKeyGrid);
             }
-            boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
             imeCompositionEditor.render(caretSpelling, editingText, caretKeypad, caret, caretKeyGrid);
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
@@ -12552,16 +12591,15 @@ public final class MSIMEInputService extends InputMethodService {
             // 光标符画成强调色的粗竖条（#6110），文本里仍是那个字符，点读音行的下标换算不变。
             int caretInTitle = idleTitle ? -1
                 : CompositionCaretPolicy.markInTitle(phrasePrefix, caretMark, !"none".equals(localModeKey));
-            // 拼写已写在输入框里时读音行只画一支笔（SpellingEditIcon），点它打开放大编辑条；不再放「编辑拼写」四个字，描述仍是「编辑拼写」。
-            boolean spellingEditIcon = caretEditable && !spellingDrawn && phrasePrefix.isEmpty();
-            if (spellingEditIcon) displayText = "";
+            // 没有可见读音时不提供空白编辑入口，避免连续按键误触；读音可见时仍可点读音打开编辑条。
+            boolean spellingEditorEntry = SpellingEditorPolicy.entryVisible(
+                spellingEditorEnabled, caretEditable, displayText);
             preedit.setText(CompositionCaretSpan.mark(displayText, caretInTitle, pixels(2), pixels(2),
                 imeStyler.caretColor()));
-            showSpellingEditIcon(spellingEditIcon);
-            preedit.setContentDescription(caretEditable ? "编辑拼写"
+            preedit.setContentDescription(spellingEditorEntry ? "编辑拼写"
                 : offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
-            ViewPolicy.setClickable(preedit, caretEditable);
+            ViewPolicy.setClickable(preedit, spellingEditorEntry);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {
@@ -12603,9 +12641,15 @@ public final class MSIMEInputService extends InputMethodService {
             applyKeyboardAdjustAccessibility();
         }
         if (candidateHeader != null) {
-            // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
             boolean modeLabel = !message.isEmpty();
-            ViewPolicy.setVisible(candidateHeader, !hasDiagnostic && (!idle || modeLabel));
+            spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
+                toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
+                    || drawsKeyGrid(displayedTouchLayout(view)), idle,
+                preedit == null ? "" : preedit.getText(),
+                status == null || idle && !modeLabel ? "" : status.getText(),
+                ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));
+            // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
+            ViewPolicy.setVisible(candidateHeader, !hasDiagnostic && spellingHeaderReserved && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
         boolean keysCollapsed = hardwareKeysCollapsed();
@@ -12745,7 +12789,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (symbolPanelButton != null) {
             // 这个键出现在 26 键一族、拼音九键和笔画键盘的底行；拼音九键的数字键面也画这一行，在那里同样能打开面板。
             ViewPolicy.setEnabled(symbolPanelButton, SymbolPanelEntryPolicy.opens(connection != null, symbolPanel != null));
-            symbolPanelButton.setContentDescription("打开符号面板");
+            symbolPanelButton.setContentDescription(imeLayoutRows.symbolPanelContentDescription());
         }
         if (symbolShortcutButton != null) {
             ViewPolicy.setVisible(symbolShortcutButton, longSpaceLayoutActive());
@@ -12794,11 +12838,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (floatingShortcutButton != null) {
             ViewPolicy.setVisible(floatingShortcutButton, toolbarFloating);
-            ViewPolicy.setSelected(floatingShortcutButton, floatingKeyboard);
-            // 候选条模式里浮动不生效，按钮灰掉，免得点了没有反应。
-            ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode);
+            boolean floating = floatingDrawn();
+            ViewPolicy.setSelected(floatingShortcutButton, floating);
+            // 候选条模式里浮动不生效，自动模式里由方向控制，按钮灰掉，免得点了没有反应。
+            ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode && !floatingKeyboardAutoLandscape);
             if (Build.VERSION.SDK_INT >= 30)
-                floatingShortcutButton.setStateDescription(floatingKeyboard ? "已开启" : "已关闭");
+                floatingShortcutButton.setStateDescription(floating ? "已开启" : "已关闭");
         }
         if (undoShortcutButton != null) {
             ViewPolicy.setVisible(undoShortcutButton, toolbarUndo);
