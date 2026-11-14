@@ -1819,6 +1819,10 @@ final class ImePanels {
         ViewPolicy.hide(s.clipboardMoreOverlay);
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
+        ViewPolicy.show(s.clipboardHeader);
+        FrameLayout.LayoutParams scrollParams = (FrameLayout.LayoutParams) s.clipboardScroll.getLayoutParams();
+        scrollParams.topMargin = s.pixels(32);
+        s.clipboardScroll.setLayoutParams(scrollParams);
         // 详情、分词、云端、确认清空和多选都不显示浮动「撤销」；画到本机列表常态时再打开。
         clipboardUndoAllowed = false;
         updateClipboardUndo();
@@ -2223,15 +2227,11 @@ final class ImePanels {
 
     /** 详情仍在剪贴板面板内，返回重绘上一级列表，从全文预览进入时再重开预览；都不触碰输入框焦点。 */
     private void renderClipboardDetail(ClipboardHistory.Item item) {
-        LinearLayout header = LayoutPolicy.row(s);
-        ViewPolicy.setCenteredVertically(header);
-        Button back = clipboardAction(header, "返回", () -> {
-            returnFromClipboardDetail();
-        });
-        back.setContentDescription(ClipboardDetailPolicy.backDescription(clipboardDetailOrigin));
-        TextView title = ViewPolicy.centeredText(s, "记录详情", 14);
-        header.addView(title, LayoutPolicy.weightedMatchParentParams(1));
-        s.clipboardHeader.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(36)));
+        // 详情页不再占用固定顶栏：顶部返回键和标题会挤压记录正文，标题空白区域的触摸还会穿透到键区。
+        ViewPolicy.hide(s.clipboardHeader);
+        FrameLayout.LayoutParams scrollParams = (FrameLayout.LayoutParams) s.clipboardScroll.getLayoutParams();
+        scrollParams.topMargin = 0;
+        s.clipboardScroll.setLayoutParams(scrollParams);
 
         TextView text = ViewPolicy.textLabel(s, item.text(), 16);
         LayoutPolicy.setSymmetricPaddingDp(text, s, 14, 12);
