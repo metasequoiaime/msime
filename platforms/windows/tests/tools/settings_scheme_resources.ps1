@@ -4,12 +4,13 @@ function Assert-SchemeResources($window, [string]$fixture) {
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         do {
             Start-Sleep -Milliseconds 150
-            $row = Find-ById $window 'resource-pack-wubi'
-            $status = if ($row) { Find-ByName $row $stateName } else { $null }
-            $button = if ($row) { Find-ById $row 'sentence-model-download-wubi' } else { $null }
-        } while ((-not $status -or [bool]$button -ne $download) -and [DateTime]::UtcNow -lt $deadline)
-        if (-not $status -or [bool]$button -ne $download) { throw "Wubi resource state did not become $stateName" }
-        if ($download -and -not (Find-ById $row 'sentence-model-import-wubi')) { throw 'Missing Wubi offline import action' }
+            # Border 不保证有 UIA 节点，直接读取有可访问性名称的状态文字和独立动作。
+            $status = Find-ById $window 'resource-pack-wubi-state'
+            $stateMatches = $status -and $status.Current.Name -eq $stateName
+            $button = Find-ById $window 'sentence-model-download-wubi'
+        } while ((-not $stateMatches -or [bool]$button -ne $download) -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $stateMatches -or [bool]$button -ne $download) { throw "Wubi resource state did not become $stateName (actual=$($status.Current.Name), download=$([bool]$button))" }
+        if ($download -and -not (Find-ById $window 'sentence-model-import-wubi')) { throw 'Missing Wubi offline import action' }
     }
 
     Wait-SchemeResource '随安装包提供。' $false

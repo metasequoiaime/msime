@@ -14645,7 +14645,8 @@ private:
     }
     auto row = add_row(group, 0xE8C1, title, subtitle, actions, extra);
     A11y::SetAutomationId(row, L"resource-pack-" + pack);
-    inline_subtitle(row);
+    auto status = row_subtitle(row);
+    A11y::SetAutomationId(status, L"resource-pack-" + pack + L"-state");
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
