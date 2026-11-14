@@ -38,7 +38,8 @@ public final class CandidateGlossCardModel {
         TENCENT("腾讯翻译"),
         NIUTRANS("小牛翻译"),
         CUSTOM("自定义服务"),
-        AI("AI 辅助");
+        AI("AI 辅助"),
+        ALIYUN("阿里云翻译");
 
         private final String title;
 
@@ -52,6 +53,7 @@ public final class CandidateGlossCardModel {
             return switch (provider) {
                 case ACCOUNT -> ACCOUNT;
                 case TENCENT -> TENCENT;
+                case ALIYUN -> ALIYUN;
                 case NIUTRANS -> NIUTRANS;
                 case CUSTOM -> CUSTOM;
                 case AI -> AI;

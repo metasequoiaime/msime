@@ -621,7 +621,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 **键盘作为系统输入法在模拟器上完整跑通了。** 在社区页的搜索框里打 `nihao`，组合行显示 `nihao`，候选栏给出 `1 你好`，点选后 `你好` 进入输入框——按键经 ArkTS、NAPI、`crates/host-api` 的 C ABI、`input-runtime`、`engine-bridge` 一路到 C++ Engine 并带着随包词库返回，整条链路真的走通（这是当时的链路；C++ Engine 与 `engine-bridge` 已由 `crates/engine` 取代，`input-runtime` 现在直接调用它）。回车键读的是编辑器自己的动作：搜索框上显示「前往」，组合进行中变成「选定」，组合结束又变回「前往」。
 
-**这里有一个必须写下来的操作事实：输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动。** `ime -e <bundle>` 的默认是 `-b`，也就是 `BASIC_MODE`；在那个模式下 `ime -s` 会成功、`ime -g` 会报告本输入法是当前输入法、`app.msime.client:inputMethod` 进程也会起来，但编辑器获得焦点时框架打的是 `ShowKeyboardImplWithoutLock, panel not create` 与 `OnInputStart, entry is nullptr`，而本扩展的 ArkTS 一行日志都没有——`onCreate` 从未运行。表现就是键盘完全不出现，且看不出任何错误。换成 `ime -e <bundle> -f` 之后，同一次点击立刻打出 `attached to editor: pattern=0 enter=2`，面板正常呈现。做过一次对照：同一个输入框、同一次点击，华为系统输入法在我们处于 BASIC_MODE 时照常弹出，所以这不是模拟器、WebView 或该字段的问题。
+**基础访问模式（`BASIC_MODE`）下键盘进程有 seccomp 系统调用白名单，白名单外的调用会让内核以 SIGSYS 直接杀掉进程。** `ime -e <bundle>` 的默认是 `-b`，也就是 `BASIC_MODE`，用户在系统设置里开启输入法时默认也是它。早先在模拟器上看到的现象是：`ime -s` 成功、`ime -g` 报告本输入法是当前输入法，但编辑器获得焦点时框架打的是 `ShowKeyboardImplWithoutLock, panel not create` 与 `OnInputStart, entry is nullptr`，键盘完全不出现，换成 `ime -e <bundle> -f` 就正常，于是当时把它写成了「输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动」。这个结论是错的。2026-11-13 在真机 JUY-AL50 上复现并拿到了 cppcrash：`Reason:Signal:SIGSYS(SYS_SECCOMP) syscall number is 71`，71 是 aarch64 的 `sendfile`，调用栈是 `onCreate` → `StagedResources.stage` → `fs.copyFileSync` → libc++ `filesystem::copy_file` → `sendfile`。进程打出 `module loaded` 后几十毫秒就被杀，系统反复拉起、反复被杀，所以看不到任何 ArkTS 报错。基础访问模式下键盘用的是独立的扩展沙箱（`+extension-entry-KeyboardExtensionAbility+app.msime.hmos`），完整模式下暂存过的资源这里没有，每次都要重新拷。键盘进程里的文件拷贝因此一律走 `keyboard/FileCopy.ets`（只用 read/write），`tests/run.sh` 拦着 `@ohos.file.fs` 的拷贝接口；Rust 引擎建词库代次的文件拷贝同理不用 `io::copy`（标准库在 Linux/OHOS 上对文件对文件会先试 `copy_file_range`、`sendfile`）。以后键盘在基础访问模式下又弹不出来，先用 `hidumper -s 1201 -a '-p Faultlogger'` 列出 cppcrash，看是不是又一个 SIGSYS 和它的系统调用号。
 
 键盘在第三方应用里同样可用：华为浏览器的搜索框上打 `nihao` 得到候选 `你好`，上屏后浏览器据此拉取了联想词，说明文字确实到达了那个编辑器。回车键在那里读作「搜索」而在本应用的搜索框读作「前往」，两次都取自编辑器自己声明的动作。
 
@@ -776,7 +776,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-从 `main` 发正式版时不用传任何参数，`auto` 会在同次构建中签名、上传、等待解析、提交公开测试审核，不需要再到控制台手动上传或填写截图等素材，它们沿用最近的测试或在架版本。CI 在耗时构建前检查华为鉴权和本地配置；华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。上传后的包 ID、创建后的测试版本 ID 会立即写入 Actions 日志与步骤摘要，后续失败也保留；日志不包含 token、OBS 签名地址或原始资料。
+正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步仓库里的不透明 216×216 图标和 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试。图标和版本特性不再从 AGC 旧资料静默继承；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 

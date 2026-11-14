@@ -174,7 +174,7 @@ public final class StickerPackModel {
         return "已复制" + pack.name() + "「" + sticker.name() + "」，长按输入框粘贴发送";
     }
 
-    /** 当前输入框经 `EditorInfo.contentMimeTypes` 声明收得下 PNG 时直接经 `commitContent` 发图，否则退回剪贴板。 */
+    /** 当前输入框是否经 `EditorInfo.contentMimeTypes` 声明收得下 PNG。声明了的直接经 `commitContent` 发图，没声明的走哪条路见 {@link #route}。 */
     public static boolean commitsContent(String[] editorMimeTypes) {
         return ClipboardImagePolicy.accepts(editorMimeTypes, MIME_TYPE);
     }
@@ -190,6 +190,40 @@ public final class StickerPackModel {
     public static boolean sendsExpression(String[] editorMimeTypes, int expressionExtra) {
         return !commitsContent(editorMimeTypes) && expressionExtra == 1;
     }
+
+    /** 一张贴纸交给当前输入框的方式，由 {@link #route} 按 `EditorInfo` 定。 */
+    public enum Route {
+        /** 声明收 PNG：只调 `commitContent`，它的返回值可信，返回 false 才复制到剪贴板。 */
+        DECLARED,
+        /** 微信式输入框：只发私有表情命令，不调 `commitContent`；命令没被收下才复制到剪贴板。 */
+        EXPRESSION,
+        /** 既没声明图片类型、也没有私有通道：先复制到剪贴板，再试一次 `commitContent`，不论它返回什么都提示（{@link #undeclaredNotice}）。 */
+        UNDECLARED
+    }
+
+    /**
+     * 按输入框的声明选发送方式。已知能用的通道优先：声明了 PNG 的走 `commitContent`，写了 {@link #EXPRESSION_EXTRA} 的走私有命令，两者都不先试别的路。
+     *
+     * <p>剩下的输入框里，有的实现了 `commitContent` 却没声明类型（一些聊天应用），有的 `commitContent` 返回 true 却把内容丢掉（真机上一个 Flutter 应用的搜索框点了贴纸毫无反应，推断是嵌入层收下后框架侧没有配置接收而丢弃）。输入法从返回值分不出这两种，所以 {@link Route#UNDECLARED} 两件事都做：直发照试，剪贴板副本和提示照留。
+     */
+    public static Route route(String[] editorMimeTypes, int expressionExtra) {
+        if (commitsContent(editorMimeTypes)) return Route.DECLARED;
+        return sendsExpression(editorMimeTypes, expressionExtra) ? Route.EXPRESSION : Route.UNDECLARED;
+    }
+
+    /**
+     * {@link Route#UNDECLARED} 发完后的提示，四种结果都有一句：`accepted` 是 `commitContent` 的返回值，`copied` 是剪贴板副本有没有放成。
+     *
+     * <p>`accepted` 为 true 时不说「已复制…粘贴发送」：图片多半已经进了输入框，照那句话再粘贴会发两张。说「没有出现时」再粘贴，在把内容丢掉的输入框里用户也知道下一步。
+     */
+    public static String undeclaredNotice(Pack pack, Sticker sticker, boolean accepted, boolean copied) {
+        if (!accepted) return copied ? copiedNotice(pack, sticker) : COPY_FAILED_NOTICE;
+        String label = pack.name() + "「" + sticker.name() + "」";
+        return copied ? "已发送" + label + "，没有出现时长按输入框粘贴" : "已尝试发送" + label;
+    }
+
+    /** 没交出去、剪贴板也没放成时的提示。 */
+    public static final String COPY_FAILED_NOTICE = "无法复制这张表情";
 
     /**
      * 系统剪贴板里的这个 URI 是不是键盘自己放进去的贴纸：本应用 FileProvider（`<包名>.files`）下 {@link #DIRECTORY} 里的文件。
