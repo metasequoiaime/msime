@@ -11,6 +11,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -34,7 +35,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (firstRecordOnly) return "first clipboard record exposes inline actions after clear and copy in single and double columns";
         if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
-        if (previewActionsOnly) return "full-text preview opens detail and returns to itself, inserts original text, edits, saves and returns without leaking its window";
+        if (previewActionsOnly) return "right-swipe detail exposes insert and edit actions without changing history";
         return "floating full-text preview above IME and lifecycle cleanup; fixed cards, list scroll, swipe, segment drag and preview action regression";
     }
 
@@ -53,16 +54,15 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             if (!onboarding.edit().putBoolean("seen", true).commit())
                 throw new AssertionError("Synthetic onboarding preparation failed");
             JSONObject prefs = read(preferences);
-            prefs.put("revision", prefs.getLong("revision") + 1);
             prefs.getJSONObject("preferences").put("clipboard_history", true)
                 .put("scheme", "quanpin").put("last_chinese_scheme", "quanpin")
                 .put("touch_keyboard_layout", "twenty_six_key")
                 .put("touch_toolbar", new JSONObject().put("clipboard", true));
-            write(preferences, prefs.toString());
+            savePreferences(prefs);
             write(local, new JSONObject().put("version", 1).put("settings", new JSONObject()
                 .put("platform.android.toolbar_hidden", false)).toString());
             if (fixedCardsOnly) { fixedCardsScrollList(history); return; }
-            if (previewActionsOnly) { previewActions(history); return; }
+            if (previewActionsOnly) { detailActions(history); return; }
             if (firstRecordOnly) { firstRecordActions(history, local); return; }
             StringBuilder source = new StringBuilder();
             for (int i = 0; i < 26; i++) { if (i > 0) source.append(' '); source.append(word(i)); }
@@ -71,7 +71,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             write(history, new JSONArray().put(new JSONObject().put("text", preview.toString())
                 .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
             openClipboardEditor();
-            floatingPreview(history, preview.toString());
+            longPressManagementOnly(history, preview.toString());
             fixedCardsScrollList(history);
             write(history, new JSONArray().put(new JSONObject().put("text", source.toString())
                 .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
@@ -81,7 +81,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             stage = "long clipboard card stays fixed without insertion";
             byte[] seededHistory = Files.readAllBytes(history.toPath());
             previewCard(card);
-            stage = "preview, swipe and dismiss leave editor and history untouched";
+            stage = "card swipe and dismiss leave editor and history untouched";
             if (!java.util.Arrays.equals(seededHistory, Files.readAllBytes(history.toPath())))
                 throw new AssertionError("Preview rewrote history");
             // 空编辑器的节点文字是提示语 Plain editor，不是空串；和其他套件一样按 isShowingHintText 判空。
@@ -89,7 +89,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
                 || node.getText() == null || node.getText().length() == 0));
             card = await(node -> node.isLongClickable() && node.getText() != null
                 && node.getText().toString().startsWith(word(0)));
-            stage = "long press remains available after preview";
+            stage = "long press remains available after card gestures";
             if (!card.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) throw new AssertionError("Long press refused");
             tap(node -> equalsText("分词", node.getText()) && node.getParent() != null
             && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
@@ -134,14 +134,14 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             selected(25, true);
             tap(key("插入"));
             await(field("msime-test-plain").and(node -> equalsText(source.toString(), node.getText())));
-            previewActions(history);
+            detailActions(history);
             firstRecordActions(history, local);
         } catch (Exception | AssertionError error) {
-            if (firstRecordOnly) {
+            if (firstRecordOnly || previewActionsOnly) {
                 Bitmap screenshot = automation.takeScreenshot();
                 if (screenshot != null) {
                     try (var output = new java.io.FileOutputStream(new File(getTargetContext().getCacheDir(),
-                            "clipboard-first-record-failure.png"))) {
+                            firstRecordOnly ? "clipboard-first-record-failure.png" : "clipboard-detail-failure.png"))) {
                         screenshot.compress(Bitmap.CompressFormat.PNG, 100, output);
                     } finally { screenshot.recycle(); }
                 }
@@ -273,7 +273,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         }
         touch(node -> equalsText("收起", node.getText()) && node.getParent() != null
             && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
-        previewClosed();
+        managementClosed();
     }
 
     private void awaitHistoryCount(File history, int count) throws Exception {
@@ -287,21 +287,30 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Synthetic history count did not settle: " + count);
     }
 
-    private void previewActions(File history) throws Exception {
+    private void detailActions(File history) throws Exception {
         StringBuilder source = new StringBuilder();
         for (int i = 0; i < 80; i++) source.append("Synthetic preview line ").append(i).append('\n');
         String original = source.toString();
         String replacement = "Synthetic modified preview text🙂";
-        write(history, new JSONArray().put(new JSONObject().put("text", original)
-            .put("timestampMs", 1700000000000L).put("pinned", true)).toString());
+        seedHistory(original, 1700000000000L, true);
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
-        stage = "preview detail opens in panel with full record time and no source metadata";
-        openFloatingPreview();
-        touch(described("查看剪贴板全文的记录详情"));
-        previewClosed();
+        shortRightSwipeKeepsList(false);
+        shortRightSwipeKeepsList(true);
+        stage = "right swipe opens clipboard detail with full record time and no source metadata (seeded entries "
+            + sharedHistoryCount() + ")";
+        // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
+        // API 34 以上的输入法窗口会把滚动容器里的卡片报告成不可见，但坐标仍是当前卡片的真实位置；这里按无障碍树定位后再用坐标注入手势。
+        AccessibilityNodeInfo card = awaitStableDetailCard();
+        Rect cardBounds = new Rect();
+        card.getBoundsInScreen(cardBounds);
+        // 首次打开走稀疏事件，后面的编辑路径仍用连续 MOVE，覆盖两种完整右滑。
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, cardBounds.left + 8, cardBounds.centerY());
+        SystemClock.sleep(240);
+        event(MotionEvent.ACTION_UP, cardBounds.right - 8, cardBounds.centerY());
         // 返回入口已移到底部；80 行合成正文会让它暂时位于滚动视口之外。
-        awaitAny(described("返回剪贴板全文预览"));
+        awaitAny(described("返回剪贴板历史列表"));
         for (var window : automation.getWindows()) {
             if (findAny(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())
                     && equalsText("记录详情", node.getText())) != null)
@@ -322,53 +331,158 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && !node.getText().toString().startsWith("记录时间：时间未知")
             && !node.getText().toString().contains("来源 App：")
             && !node.getText().toString().contains("包名：");
-        awaitAny(recordDetails).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
-        await(recordDetails);
-        stage = "detail back returns to the full-text preview";
-        awaitAny(described("返回剪贴板全文预览"))
-            .performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
-        touch(described("返回剪贴板全文预览"));
-        await(described("关闭剪贴板全文预览"));
-        stage = "preview insertion commits full original text once and restores keyboard";
-        touch(described("插入剪贴板全文"));
-        previewClosed();
-        stage = "preview insertion preserves every line in a multiline editor";
+        stage = "detail metadata remains reachable after blank touch";
+        bringIntoView(recordDetails);
+        if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
+            throw new AssertionError("Opening detail changed history; before=" + historyShape(seeded)
+                + "; after=" + historyShape(Files.readAllBytes(history.toPath())));
+        stage = "detail insertion preserves every original line in a multiline editor";
+        bringIntoView(described("插入这条剪贴板记录"));
+        touch(described("插入这条剪贴板记录"));
         await(field("msime-test-plain").and(node -> equalsText(original, node.getText())));
         await(key("n"));
         if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
-            throw new AssertionError("Preview insertion changed history");
-        // 再开合成编辑器，修改不应先把旧正文插入其中。
+            throw new AssertionError("Detail insertion changed history");
+        // 重新打开空编辑器后测试修改，不把原正文预先插入编辑窗口。
         openClipboardEditor(true);
-        stage = "preview modification opens existing native editor with full text";
-        openFloatingPreview();
-        touch(described("修改剪贴板记录"));
-        previewClosed();
+        card = awaitStableDetailCard();
+        cardBounds = new Rect();
+        card.getBoundsInScreen(cardBounds);
+        drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
+            new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
+        awaitAny(described("返回剪贴板历史列表"));
+        bringIntoView(described("编辑这条剪贴板记录"));
+        stage = "detail edit opens the native editor with the full original record";
+        touch(described("编辑这条剪贴板记录"));
+        // 覆盖安装后主应用会先显示一次已知说明，像其他原生编辑专项一样实际确认它。
+        AccessibilityNodeInfo editorReady = await(described("剪贴板记录的文字")
+            .or(key("临时说明（首次运行）")));
+        if (equalsText("临时说明（首次运行）", editorReady.getText())) tap(key("知道了"));
         await(described("剪贴板记录的文字").and(node -> equalsText(original, node.getText())));
         android.os.Bundle changed = new android.os.Bundle();
         changed.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replacement);
         if (!await(described("剪贴板记录的文字")).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, changed))
             throw new AssertionError("Synthetic clipboard replacement refused");
         tap(node -> equalsText("保存", node.getText()) && node.isEnabled());
-        stage = "preview edit saves and returns to unchanged external editor";
+        stage = "detail edit saves and returns to unchanged external editor";
         await(field("msime-test-plain").and(node -> node.isShowingHintText()
             || node.getText() == null || node.getText().length() == 0));
-        previewClosed();
         tap(field("msime-test-plain"));
         await(key("n"));
         tap(clipboardEntry());
-        AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
-            && node.getText().toString().startsWith(replacement));
-        if (!card.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
-            throw new AssertionError("Modified synthetic record long press refused");
-        stage = "modified preview still inserts and preserves record identity";
-        touch(described("插入剪贴板全文"));
-        previewClosed();
+        card = awaitStableDetailCard();
+        cardBounds = new Rect();
+        card.getBoundsInScreen(cardBounds);
+        drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
+            new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
+        awaitAny(described("返回剪贴板历史列表"));
+        stage = "detail insertion preserves modified record identity";
+        touch(described("插入这条剪贴板记录"));
         await(field("msime-test-plain").and(node -> equalsText(replacement, node.getText())));
         JSONArray saved = new JSONArray(new String(Files.readAllBytes(history.toPath()), StandardCharsets.UTF_8));
         if (saved.length() != 1 || !saved.getJSONObject(0).getBoolean("pinned")
                 || saved.getJSONObject(0).getLong("timestampMs") != 1700000000000L
                 || !replacement.equals(saved.getJSONObject(0).getString("text")))
-            throw new AssertionError("Preview edit lost record identity");
+            throw new AssertionError("Detail edit lost record identity");
+    }
+
+    /** API 34 以上会在输入法面板重排期间先发布不可见的卡片节点；等屏幕边界稳定后再注入手势。 */
+    private AccessibilityNodeInfo awaitStableDetailCard() {
+        Rect previous = null;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo card = awaitAny(node -> node.isLongClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().contains("右滑查看详情"));
+            card.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+            // `ACTION_SHOW_ON_SCREEN` 会重排输入法面板；API 34 以上先清掉旧的无障碍子树，再读取同一张卡片的屏幕坐标，避免把过渡坐标注入到旧节点上。
+            dropStaleNodes();
+            card = awaitAny(node -> node.isLongClickable()
+                && node.getContentDescription() != null
+                && node.getContentDescription().toString().contains("右滑查看详情"));
+            Rect bounds = new Rect();
+            card.getBoundsInScreen(bounds);
+            if (bounds.width() > 0 && bounds.height() > 0 && bounds.equals(previous)) return card;
+            previous = bounds;
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Clipboard detail card bounds never settled");
+    }
+
+    /** 详情正文很长时，系统不会把底部的元信息自动滚进输入法窗口；沿无障碍树找到滚动容器逐页下滚。 */
+    private AccessibilityNodeInfo bringIntoView(java.util.function.Predicate<AccessibilityNodeInfo> match) {
+        for (int attempt = 0; attempt < 24; attempt++) {
+            dropStaleNodes();
+            AccessibilityNodeInfo node = awaitAny(match);
+            if (node.isVisibleToUser()) return node;
+            AccessibilityNodeInfo parent = node.getParent();
+            // 旧系统会缓存父节点的滚动能力；详情替换短卡片后需重新读取，不能沿旧树误判没有滚动容器。
+            while (parent != null) {
+                if (parent.refresh() && parent.isScrollable()) break;
+                parent = parent.getParent();
+            }
+            if (parent == null || !parent.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.getId())) break;
+            SystemClock.sleep(150);
+        }
+        return await(match);
+    }
+
+    private String historyShape(byte[] bytes) throws Exception {
+        JSONArray items = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < items.length(); index++) {
+            JSONObject item = items.getJSONObject(index);
+            result.append("{length=").append(item.optString("text").length())
+                .append(", timestamp=").append(item.optLong("timestampMs"))
+                .append(", pinned=").append(item.optBoolean("pinned"))
+                .append(", keys=").append(item.names()).append('}');
+        }
+        return result.toString();
+    }
+
+    /** 通过移动端剪贴板公开入口写入夹具，避免 API 31 以上复用进程时直写文件与宿主状态分叉。 */
+    private void seedHistory(String text, long timestamp, boolean pinned) throws Exception {
+        ClassLoader loader = getTargetContext().getClassLoader();
+        Class<?> modeType = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
+        Object main = null;
+        for (Object candidate : modeType.getEnumConstants()) {
+            if ("MAIN".equals(candidate.toString())) { main = candidate; break; }
+        }
+        if (main == null) throw new AssertionError("Main clipboard mode is unavailable");
+        Class<?> modeStore = loader.loadClass("app.msime.android.ClipboardModeStore");
+        modeStore.getMethod("save", android.content.Context.class, modeType)
+            .invoke(null, getTargetContext(), main);
+        Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
+        Object store = storeType.getMethod("forMode", android.content.Context.class, modeType)
+            .invoke(null, getTargetContext(), main);
+        storeType.getMethod("clear").invoke(store);
+        Class<?> itemType = loader.loadClass("app.msime.android.ClipboardHistory$Item");
+        Object item = itemType.getConstructor(String.class, long.class, boolean.class, String.class)
+            .newInstance(text, timestamp, pinned, null);
+        storeType.getMethod("restoreMany", List.class).invoke(store, List.of(item));
+    }
+
+    /** 通过设置宿主的 compare-and-swap 入口发布偏好，让 :ime 进程读到同一份快照。 */
+    private void savePreferences(JSONObject preferences) throws Exception {
+        Class<?> hostStore = getTargetContext().getClassLoader().loadClass("app.msime.android.home.HostStore");
+        Object saved = hostStore.getMethod("savePreferences", android.content.Context.class, JSONObject.class)
+            .invoke(null, getTargetContext(), preferences);
+        if (saved == null) throw new AssertionError("Synthetic clipboard preferences could not be saved");
+    }
+
+    private int sharedHistoryCount() throws Exception {
+        ClassLoader loader = getTargetContext().getClassLoader();
+        Class<?> storeType = loader.loadClass("app.msime.android.ClipboardHistoryStore");
+        Class<?> modeType = loader.loadClass("app.msime.android.ClipboardModePolicy$Mode");
+        Object main = null;
+        for (Object candidate : modeType.getEnumConstants()) {
+            if ("MAIN".equals(candidate.toString())) { main = candidate; break; }
+        }
+        if (main == null) throw new AssertionError("Main clipboard mode is unavailable");
+        Object store = storeType.getMethod("forMode", android.content.Context.class, modeType)
+            .invoke(null, getTargetContext(), main);
+        return ((List<?>) storeType.getMethod("load").invoke(store)).size();
     }
 
     private void openClipboardEditor() throws Exception {
@@ -376,145 +490,55 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     }
 
     private void openClipboardEditor(boolean multiline) throws Exception {
+        // instrumentation 目标是产品包，不能 force-stop 整个包，否则 API 35 会连当前夹具一起结束；只重启 :ime 子进程即可丢掉旧的偏好与剪贴板缓存。
+        // UiAutomation 不解释 shell 循环；直接查询 PID，再用同 UID 的进程 API 结束子进程。
+        try (var input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand("pidof app.msime.android:ime"));
+             var output = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            String pids = output.toString(StandardCharsets.UTF_8.name()).trim();
+            if (!pids.isEmpty()) {
+                for (String pid : pids.split("\\s+")) android.os.Process.killProcess(Integer.parseInt(pid));
+            }
+        }
         restartIme();
         shellDiscard("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity"
             + " --ez msime_test_editor_probe true"
             + (multiline ? " --ez msime_test_multiline true" : ""));
         tap(field("msime-test-plain"));
         await(key("n"));
+        AccessibilityNodeInfo clipboard = await(clipboardEntry());
+        if (clipboard.isSelected()) {
+            tap(clipboardEntry());
+            await(clipboardEntry().and(node -> !node.isSelected()));
+        }
         tap(clipboardEntry());
+        await(clipboardEntry().and(AccessibilityNodeInfo::isSelected));
     }
 
-    private void floatingPreview(File history, String text) throws Exception {
-        stage = "physical long press opens full-text preview above keyboard";
-        String step = stage;
+    private void longPressManagementOnly(File history, String text) throws Exception {
+        stage = "physical long press opens management actions without full-text preview";
         byte[] before = Files.readAllBytes(history.toPath());
-        Bitmap beforePreview = automation.takeScreenshot();
-        Rect editorBounds = awaitFocusedField("msime-test-plain");
-        Rect card = openFloatingPreview();
-        // 这一段有五处等待，失败时只报总阶段名看不出卡在哪一处，所以每处各标一句。
-        stage = step + ": preview scroll area settles";
-        AccessibilityNodeInfo scroll = awaitStableBounds(described("剪贴板全文滚动区域"));
-        Rect bounds = new Rect();
-        scroll.getBoundsInScreen(bounds);
-        if (bounds.bottom > card.top || bounds.height() < card.height() * 2)
-            throw new AssertionError("Preview did not extend above the keyboard");
-        stage = step + ": preview text is a separate non-long-clickable node";
-        // Android 8 的无障碍树会把长文本拆成多个 TextView，不能要求一个节点承载全文。
-        // 预览滚动区域和首行分别在上面、这里核对，足以证明全文已经显示且没有复用可长按的卡片。
-        await(node -> node.getText() != null
-            && node.getText().toString().contains("Synthetic preview line 0")
-            && !node.isLongClickable());
-        stage = step + ": editor keeps focus";
-        // API 28 遮挡期间连系统焦点查询也可能返回空；从合成编辑器主线程读取真实状态。
-        Rect editorAfter = awaitFocusedField("msime-test-plain");
-        stage = step + ": clipboard card stays in the panel";
-        Rect cardAfter = new Rect();
-        await(node -> node.isLongClickable() && node.getText() != null
-            && node.getText().toString().startsWith("Synthetic preview line 0")).getBoundsInScreen(cardAfter);
-        if (!editorBounds.equals(editorAfter) || !card.equals(cardAfter))
-            throw new AssertionError("Floating preview moved the editor or keyboard card");
-        stage = step + ": record actions stay available";
-        await(described("剪贴板记录操作"));
-        stage = step;
-        // 仅在专用合成编辑器中留存画面，供核对浮层边界、配色和滚动条。
-        automation.waitForIdle(300, 3000);
-        SystemClock.sleep(250);
-        Bitmap screenshot = automation.takeScreenshot();
-        if (screenshot == null) throw new AssertionError("Synthetic preview screenshot unavailable");
-        try (var output = new java.io.FileOutputStream(
-                new File(getTargetContext().getCacheDir(), "synthetic-clipboard-preview.png"))) {
-            if (!screenshot.compress(Bitmap.CompressFormat.PNG, 100, output))
-                throw new AssertionError("Synthetic preview screenshot encoding failed");
-            if (beforePreview == null) throw new AssertionError("Synthetic editor screenshot unavailable");
-            // 仅有无障碍边界和触摸还不足以证明窗口真的绘制在键区外（API 28 会静默裁剪）。
-            int changed = 0;
-            for (int row = 1; row < 64; row++) for (int column = 1; column < 64; column++) {
-                int x = bounds.left + bounds.width() * column / 64;
-                int y = bounds.top + bounds.height() * row / 64;
-                if (beforePreview.getPixel(x, y) != screenshot.getPixel(x, y)) changed++;
-            }
-            if (changed < 40) throw new AssertionError("Floating preview was cropped outside the keyboard");
-        } finally {
-            screenshot.recycle();
-            if (beforePreview != null) beforePreview.recycle();
-        }
-        stage = "floating preview supports touch and accessible scrolling to end";
-        drag(new Rect(bounds.centerX(), bounds.bottom - 16, bounds.centerX() + 1, bounds.bottom - 15),
-            new Rect(bounds.centerX(), bounds.top + 16, bounds.centerX() + 1, bounds.top + 17), false);
-        int pages = 0;
-        while (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
-            SystemClock.sleep(100);
-            scroll.refresh();
-            if (++pages > 30) throw new AssertionError("Floating preview never reached its end");
-        }
-        if (pages == 0 || !scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
-            throw new AssertionError("Floating preview did not scroll through its full text");
-        stage = "close preserves editor, history and management actions";
-        touch(described("关闭剪贴板全文预览"));
-        previewClosed();
-        await(described("剪贴板记录操作"));
-        await(field("msime-test-plain").and(node -> node.isShowingHintText()
-            || node.getText() == null || node.getText().length() == 0));
-        if (!java.util.Arrays.equals(before, Files.readAllBytes(history.toPath())))
-            throw new AssertionError("Floating preview rewrote history");
-        stage = "outside touch reaches management action on first tap";
-        openFloatingPreview();
-        touch(node -> equalsText("收起", node.getText()) && node.getParent() != null
-            && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
-        previewClosed();
-        for (var window : automation.getWindows()) {
-            if (find(window.getRoot(), described("剪贴板记录操作")) != null)
-                throw new AssertionError("Outside touch did not reach the action row");
-        }
-        stage = "hiding keyboard removes floating preview";
-        openFloatingPreview();
-        shellDiscard("input keyevent 4");
-        previewClosed();
-        tap(field("msime-test-plain"));
-        await(key("n"));
-        previewClosed();
-        tap(clipboardEntry());
-        stage = "changing input field removes floating preview";
-        openFloatingPreview();
-        if (!editorProbe("focus", "msime-test-password").getBoolean("accepted"))
-            throw new AssertionError("Synthetic editor focus switch refused");
-        awaitFocusedField("msime-test-password");
-        previewClosed();
-    }
-
-    private android.os.Bundle editorProbe(String method, String field) {
-        android.os.Bundle snapshot = getTargetContext().getContentResolver().call(EditorProbeProvider.URI, method, field, null);
-        if (snapshot == null) throw new AssertionError("Synthetic editor probe returned no state");
-        return snapshot;
-    }
-
-    private Rect awaitFocusedField(String description) {
-        long deadline = SystemClock.uptimeMillis() + 15000;
-        android.os.Bundle snapshot;
-        do {
-            snapshot = editorProbe("snapshot", description);
-            if (snapshot.getBoolean("focused") && snapshot.getBoolean("window_focused"))
-                return new Rect(snapshot.getInt("left"), snapshot.getInt("top"),
-                    snapshot.getInt("right"), snapshot.getInt("bottom"));
-            SystemClock.sleep(100);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Synthetic editor did not retain input focus (field="
-            + snapshot.getBoolean("focused") + ", window=" + snapshot.getBoolean("window_focused")
-            + ", focus loss=" + snapshot.getString("focus_loss") + ")");
-    }
-
-    private Rect openFloatingPreview() {
         AccessibilityNodeInfo card = await(node -> node.isLongClickable() && node.getText() != null
-            && node.getText().toString().startsWith("Synthetic preview line 0"));
+            && node.getText().toString().startsWith(text.substring(0, Math.min(text.length(), 32))));
         Rect bounds = new Rect();
         card.getBoundsInScreen(bounds);
         downTime = SystemClock.uptimeMillis();
         event(MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY());
         SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 200);
         event(MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY());
-        await(described("关闭剪贴板全文预览"));
-        return bounds;
+        await(described("剪贴板记录操作"));
+        for (var window : automation.getWindows()) {
+            if (find(window.getRoot(), described("关闭剪贴板全文预览")) != null)
+                throw new AssertionError("Long press opened full-text preview");
+        }
+        if (!java.util.Arrays.equals(before, Files.readAllBytes(history.toPath())))
+            throw new AssertionError("Long press changed history");
+        touch(node -> equalsText("收起", node.getText()) && node.getParent() != null
+            && equalsText("剪贴板记录操作", node.getParent().getContentDescription()));
+        managementClosed();
     }
 
     private void touch(java.util.function.Predicate<AccessibilityNodeInfo> match) {
@@ -526,16 +550,16 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(200);
     }
 
-    private void previewClosed() {
+    private void managementClosed() {
         long deadline = SystemClock.uptimeMillis() + 5000;
         do {
             boolean found = false;
             for (var window : automation.getWindows())
-                found |= find(window.getRoot(), described("关闭剪贴板全文预览")) != null;
+                found |= find(window.getRoot(), described("剪贴板记录操作")) != null;
             if (!found) return;
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Floating preview survived its close boundary");
+        throw new AssertionError("Clipboard management actions survived their close boundary");
     }
 
     private void fixedCardsScrollList(File history) throws Exception {
@@ -567,6 +591,30 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             || node.getText() == null || node.getText().length() == 0));
         if (!java.util.Arrays.equals(before, Files.readAllBytes(history.toPath())))
             throw new AssertionError("List scroll rewrote history");
+    }
+
+    private void shortRightSwipeKeepsList(boolean withMoves) {
+        stage = "short slow right swipe keeps list and editor unchanged; moves=" + withMoves;
+        Rect bounds = new Rect();
+        awaitStableDetailCard().getBoundsInScreen(bounds);
+        float distance = ViewConfiguration.get(getTargetContext()).getScaledTouchSlop() * 2f;
+        float x = bounds.left + 8;
+        float y = bounds.centerY();
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, x, y);
+        if (withMoves) {
+            for (int i = 1; i <= 6; i++) {
+                event(MotionEvent.ACTION_MOVE, x + distance * i / 6f, y);
+                SystemClock.sleep(40);
+            }
+        } else {
+            SystemClock.sleep(240);
+        }
+        event(MotionEvent.ACTION_UP, x + distance, y);
+        SystemClock.sleep(200);
+        awaitStableDetailCard();
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
     }
 
     private void assertFixedCard(AccessibilityNodeInfo card) {

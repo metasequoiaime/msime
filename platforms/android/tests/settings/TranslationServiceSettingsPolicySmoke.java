@@ -5,6 +5,7 @@ import app.msime.android.TranslationServiceSettingsPolicy.Choice;
 public final class TranslationServiceSettingsPolicySmoke {
     public static void main(String[] args) {
         // 共享偏好的默认值：腾讯启用但没有凭据，页面显示「不使用」，而不是一个用户没选过的腾讯。
+        check(Choice.ALIYUN.userService() && "translation.aliyun".equals(Choice.ALIYUN.testService()), "阿里云须使用独立连接测试");
         check(TranslationServiceSettingsPolicy.selected(false, false, false, true, "", "", false) == Choice.NONE,
             "default preferences show 不使用");
         check(TranslationServiceSettingsPolicy.selected(true, false, false, true, "", "", false) == Choice.ACCOUNT,

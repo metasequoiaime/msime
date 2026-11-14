@@ -1046,6 +1046,9 @@ fn traditional_variant_conversion_boundary_selects_the_configuration() {
         unsafe { msime_client_string_free(raw) };
         Some(text)
     };
+    assert_eq!(convert("吃".as_bytes(), 0).as_deref(), Some("喫"));
+    assert_eq!(convert("吃".as_bytes(), 1).as_deref(), Some("吃"));
+    assert_eq!(convert("吃".as_bytes(), 2).as_deref(), Some("吃"));
     assert_eq!(
         convert("软件里面".as_bytes(), 0).as_deref(),
         Some("軟件裏面")

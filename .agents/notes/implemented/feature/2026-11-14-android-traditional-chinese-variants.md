@@ -12,6 +12,8 @@ Android 把 `HostCapabilities::traditional_chinese_variants` 打开，并在原�
 
 Android 键盘在候选显示、候选提交和普通上屏的同一边界按变体名称映射为 host-api 的 0/1/2 编号，统一调用 `msime_client_convert_to_traditional`。缺键或未知值按 `s2t`，转换失败保留原文；日语、临时日语、英文和其他既有不转换方案仍由 `ChineseOutputPolicy` 拦截。
 
+前缀、注解及组字中切换输出的后续安全边界见[Android 繁体输出宿主边界与组字安全](2026-11-12-android-traditional-chinese-variants.md)，基础设置和 JNI 接入仍以本篇为准。
+
 ## Alternatives considered
 
 - **只修改 Android 转换调用，不打开能力位或设置项** — 已写入的台湾变体会生效，但用户无法在 Android 选择它，能力字段与设置页契约也会继续把 Android 当成不支持。
