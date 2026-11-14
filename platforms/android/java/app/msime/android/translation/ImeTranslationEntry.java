@@ -9,6 +9,9 @@ import android.view.inputmethod.ExtractedTextRequest;
 
 /** 翻译窗口返回时重新核对原编辑器；窗口原文使用另一条输入连接，不能比较连接对象身份。 */
 final class ImeTranslationEntry {
+    static final String EDITOR = "app.msime.android.translation-source";
+    static final String RECEIVER = "translation_receiver";
+    static final String TEXT = "translation_text";
     private final MSIMEInputService s;
     private long generation;
     private String retained = "";
@@ -19,13 +22,13 @@ final class ImeTranslationEntry {
         s.closeMoreTools();
         TranslationReturnTarget target = retained.isEmpty() && s.voiceInsertionReady() ? capture() : null;
         long operation = ++generation;
-        Intent intent = new Intent(s, TranslationActivity.class)
+        Intent intent = new Intent().setClassName(s, "app.msime.android.TranslationActivity")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-        if (!retained.isEmpty()) intent.putExtra(TranslationActivity.TEXT, retained);
-        if (target != null) intent.putExtra(TranslationActivity.RECEIVER, new ResultReceiver(s.main) {
+        if (!retained.isEmpty()) intent.putExtra(TEXT, retained);
+        if (target != null) intent.putExtra(RECEIVER, new ResultReceiver(s.main) {
             @Override protected void onReceiveResult(int code, Bundle data) {
                 if (operation != generation || code != android.app.Activity.RESULT_OK || data == null) return;
-                String text = data.getString(TranslationActivity.TEXT, "");
+                String text = data.getString(TEXT, "");
                 if (text.isEmpty() || text.length() > 4096) return;
                 // 先作废接收器，再等待原编辑器恢复，重复消息不能另起一次插入。
                 long delivery = ++generation;
@@ -56,7 +59,7 @@ final class ImeTranslationEntry {
     private TranslationReturnTarget capture() {
         EditorInfo info = s.getCurrentInputEditorInfo();
         if (info == null || info.packageName == null || s.connection == null
-                || TranslationActivity.EDITOR.equals(info.privateImeOptions)) return null;
+                || EDITOR.equals(info.privateImeOptions)) return null;
         try {
             ExtractedTextRequest request = new ExtractedTextRequest();
             request.hintMaxChars = 4096;

@@ -19,7 +19,8 @@ final class TranslationWindowDeviceChecks {
 
     static void run(DeviceSmoke smoke) throws Exception {
         File options = new File(smoke.getTargetContext().getFilesDir(), "runtime-options.json");
-        String directory = new JSONObject(Files.readString(options.toPath())).getString("preferences_directory");
+        String directory = new JSONObject(new String(Files.readAllBytes(options.toPath()), StandardCharsets.UTF_8))
+            .getString("preferences_directory");
         File preferences = new File(directory, "preferences.json");
         byte[] original = Files.readAllBytes(preferences.toPath());
         AtomicReference<String> delivered = new AtomicReference<>();
@@ -84,6 +85,16 @@ final class TranslationWindowDeviceChecks {
             Bundle text = new Bundle();
             text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "synthetic source");
             if (!source.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text)) throw new AssertionError("原文不可编辑");
+            smoke.stage = "translation actions remain above visible keyboard";
+            smoke.tap(smoke.described("翻译原文"));
+            android.graphics.Rect keyboard = new android.graphics.Rect();
+            smoke.awaitAny(smoke.key("更多")).getBoundsInScreen(keyboard);
+            for (String title : new String[] {"复制译文", "插入"}) {
+                android.graphics.Rect bounds = new android.graphics.Rect();
+                smoke.awaitAny(node -> DeviceSmoke.equalsText(title, node.getText())).getBoundsInScreen(bounds);
+                if (bounds.isEmpty() || bounds.bottom > keyboard.top)
+                    throw new AssertionError("翻译操作被输入法遮住");
+            }
             smoke.tap(node -> DeviceSmoke.equalsText("翻译", node.getText()) && node.isClickable());
             smoke.stage = "translation preview uses shared request";
             smoke.awaitAny(node -> DeviceSmoke.equalsText("synthetic translation", node.getText()));

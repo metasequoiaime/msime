@@ -20,6 +20,13 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import app.msime.android.policy.HostOptionsPolicy;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import static app.msime.android.ImeTranslationEntry.EDITOR;
+import static app.msime.android.ImeTranslationEntry.RECEIVER;
+import static app.msime.android.ImeTranslationEntry.TEXT;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -29,9 +36,6 @@ import org.json.JSONObject;
 /** 独立原文编辑连接，手写和键盘输入不会写进调用方聊天框。 */
 @SuppressWarnings("deprecation")
 public final class TranslationActivity extends Activity {
-    public static final String EDITOR = "app.msime.android.translation-source";
-    static final String RECEIVER = "translation_receiver";
-    static final String TEXT = "translation_text";
     private static final String[] CODES = {"zh", "en", "ja", "ko", "fr", "de", "es", "ru"};
     private static final String[] LABELS = {"中文", "英语", "日语", "韩语", "法语", "德语", "西班牙语", "俄语"};
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -52,16 +56,19 @@ public final class TranslationActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         ScreenCaptureProtection.apply(this);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        var systemBars = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        systemBars.setAppearanceLightStatusBars(true);
+        systemBars.setAppearanceLightNavigationBars(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         int pad = Math.round(16 * getResources().getDisplayMetrics().density);
         root.setPadding(pad, pad, pad, pad);
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars());
-                root.setPadding(pad + bars.left, pad + bars.top, pad + bars.right, pad + bars.bottom);
-            } else root.setPadding(pad + insets.getSystemWindowInsetLeft(), pad + insets.getSystemWindowInsetTop(),
-                pad + insets.getSystemWindowInsetRight(), pad + insets.getSystemWindowInsetBottom());
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            root.setPadding(pad + bars.left, pad + bars.top, pad + bars.right,
+                WindowInsetsPolicy.bottomContentInset(bars.bottom, 0, ime.bottom, pad));
             return insets;
         });
         root.setBackgroundColor(0xfffafafa);
@@ -134,6 +141,7 @@ public final class TranslationActivity extends Activity {
         });
         root.addView(actions);
         setContentView(root);
+        ViewCompat.requestApplyInsets(root);
         source.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence text, int start, int before, int count) { invalidate(); }
