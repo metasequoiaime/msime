@@ -38,7 +38,8 @@ import AppKit
       }, publish: { statuses.append($0) })
     }
     await task!.value
-    assert(cycle == 13 && source.reads == 4)
+    // 保存重试使用队列内的原文，每条变化只读取一次系统正文。
+    assert(cycle == 13 && source.reads == 3)
     assert(saved == ["synthetic alpha", "synthetic alpha", "synthetic beta", "synthetic gamma"])
     assert(statuses == [.disabled, .monitoring, .saveFailed, .monitoring, .disabled,
       .monitoring, .unavailable, .monitoring, .disabled, .monitoring])
