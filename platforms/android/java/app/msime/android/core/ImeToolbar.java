@@ -47,6 +47,7 @@ final class ImeToolbar {
     private String recentClipText;
     private boolean recentClipImage;
     private int edgeButtonWidth;
+    private int shortcutButtonHeight;
     private int edgeDrawPercent = 100;
     private String styleCacheKey;
     private int iconColor;
@@ -106,6 +107,7 @@ final class ImeToolbar {
      */
     void applyShortcutSize(int percent, boolean custom, int rowHeightPx, int designRowPx) {
         if (shortcutButtons == null) return;
+        applyShortcutOrder();
         int followedButton = s.pixels(44);
         int height = custom ? s.pixels(ToolbarSizePolicy.buttonHeightDp(percent))
             : ToolbarSizePolicy.followedButtonHeight(rowHeightPx, followedButton, designRowPx);
@@ -113,7 +115,9 @@ final class ImeToolbar {
             : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton, designRowPx);
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
         int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
-        // 26 键长空格样式的「符」和品牌键、收起键一样是两端的固定按钮，一起缩放，否则矮行里只有它伸出去被裁掉。
+        edgeButtonWidth = edgeWidth;
+        shortcutButtonHeight = height;
+        // 26 键长空格样式的「符」与品牌键和右侧常驻按钮一起缩放，避免矮行裁掉图标。
         for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton}) {
             if (button == null) continue;
             resizeButton(button, edgeWidth, height);
@@ -136,6 +140,10 @@ final class ImeToolbar {
             result.requestLayout();
         }
         if (s.recentClipRow != null) {
+            if (recentClipPinnedSlot != null && recentClipPinnedSlot.getLayoutParams().width != edgeWidth) {
+                recentClipPinnedSlot.getLayoutParams().width = edgeWidth;
+                recentClipPinnedSlot.requestLayout();
+            }
             int verticalPadding = custom ? 0 : s.pixels(4);
             if (s.recentClipRow.getPaddingTop() != verticalPadding)
                 s.recentClipRow.setPadding(s.pixels(2), verticalPadding, s.pixels(2), verticalPadding);
@@ -152,7 +160,6 @@ final class ImeToolbar {
                 ViewPolicy.setMinimumWidth(recentClipActionButton, edgeWidth);
         }
         // 文本编辑面板的标题行盖在这一行上，返回、撤销、重做和两端按钮一样宽、图标一样缩放。
-        edgeButtonWidth = edgeWidth;
         edgeDrawPercent = drawPercent;
         if (s.imeTextEditPanel != null) s.imeTextEditPanel.resizeHeader(edgeWidth, drawPercent);
     }
@@ -191,33 +198,34 @@ final class ImeToolbar {
             s.localSettings.text(AndroidLocalSettings.TOOLBAR_ORDER));
         ToolbarOrderPolicy.Item selected = ToolbarPinnedPolicy.item(
             s.localSettings.choice(AndroidLocalSettings.TOOLBAR_PINNED));
-        if (order.equals(appliedOrder) && selected == pinnedItem) return;
-        pinnedItem = selected;
-        for (Button button : shortcutButtons) s.shortcutBar.removeView(button);
-        for (Button button : shortcutButtons) {
-            if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
-        }
-        for (int index = 0; index < order.size(); index++) {
-            ToolbarOrderPolicy.Item item = order.get(index);
-            if (item == pinnedItem) continue;
-            Button button = buttonFor(item);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(40), s.pixels(44), 1);
-            params.setMarginStart(s.pixels(1));
-            params.setMarginEnd(s.pixels(1));
-            s.shortcutBar.addView(button, params);
-            ViewPolicy.setMinimumWidth(button, s.pixels(40));
+        if (!order.equals(appliedOrder) || selected != pinnedItem) {
+            pinnedItem = selected;
+            for (Button button : shortcutButtons) {
+                if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
+            }
+            for (ToolbarOrderPolicy.Item item : order) {
+                if (item == pinnedItem) continue;
+                Button button = buttonFor(item);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(40), s.pixels(44), 1);
+                params.setMarginStart(s.pixels(1));
+                params.setMarginEnd(s.pixels(1));
+                s.shortcutBar.addView(button, params);
+                ViewPolicy.setMinimumWidth(button, s.pixels(40));
+            }
+            appliedOrder = order;
         }
         Button pinned = buttonFor(pinnedItem);
-        if (recentClipPinnedSlot != null && ViewPolicy.isVisible(s.recentClipRow)) {
-            recentClipPinnedSlot.addView(pinned, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
-        } else {
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
-            params.setMarginStart(s.pixels(1));
-            params.setMarginEnd(s.pixels(1));
-            s.shortcutToolbar.addView(pinned, params);
+        LinearLayout parent = recentClipPinnedSlot != null && ViewPolicy.isVisible(s.recentClipRow)
+            ? recentClipPinnedSlot : s.shortcutToolbar;
+        if (pinned.getParent() != parent) {
+            if (pinned.getParent() instanceof LinearLayout oldParent) oldParent.removeView(pinned);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(edgeButtonWidth(),
+                shortcutButtonHeight > 0 ? shortcutButtonHeight : s.pixels(44));
+            params.setMarginStart(parent == s.shortcutToolbar ? s.pixels(1) : 0);
+            params.setMarginEnd(parent == s.shortcutToolbar ? s.pixels(1) : 0);
+            parent.addView(pinned, params);
+            ViewPolicy.setMinimumWidth(pinned, s.pixels(40));
         }
-        ViewPolicy.setMinimumWidth(pinned, s.pixels(40));
-        appliedOrder = order;
     }
 
     private Button buttonFor(ToolbarOrderPolicy.Item item) {
@@ -239,9 +247,11 @@ final class ImeToolbar {
 
     private Button pinnedButton() { return buttonFor(pinnedItem); }
 
-    ToolbarOrderPolicy.Item pinnedItem() { return pinnedItem; }
+    ToolbarOrderPolicy.Item pinnedItem() {
+        return ToolbarPinnedPolicy.item(s.localSettings.choice(AndroidLocalSettings.TOOLBAR_PINNED));
+    }
 
-    boolean isPinned(ToolbarOrderPolicy.Item item) { return pinnedItem == item; }
+    boolean isPinned(ToolbarOrderPolicy.Item item) { return pinnedItem() == item; }
 
     /** 读音行当前 TouchDelegate 的范围，用来判断重新布局后是否需要换新的。 */
     private Rect preeditTouchBounds;
@@ -490,7 +500,6 @@ final class ImeToolbar {
         // 文本编辑面板也显示最近复制；右侧常驻按钮随这一行一起移动，剪贴板预览不会把它挤掉。
         recentClipPinnedSlot = LayoutPolicy.row(s);
         ViewPolicy.setCenteredVertically(recentClipPinnedSlot);
-        candidateRegion.removeView(row);
         row.addView(recentClipPinnedSlot, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
         ViewPolicy.hide(row);
         s.recentClipRow = row;
@@ -597,7 +606,8 @@ final class ImeToolbar {
             }
         }
         if (shortcutButtons != null && s.toolbarHidden && s.longSpaceToolbarRowKept())
-            for (Button button : shortcutButtons) ViewPolicy.hide(button);
+            for (Button button : shortcutButtons)
+                if (button != s.dismissShortcutButton) ViewPolicy.hide(button);
         if (s.symbolShortcutButton instanceof KeyboardShortcutButton symbol) {
             symbol.setActiveFill(activeBackgroundColor);
             symbol.setIconColors(iconColor, activeIconColor);

@@ -10,7 +10,7 @@ public final class ToolbarPinnedPolicySmoke {
         check(ToolbarPinnedPolicy.choices().length == ToolbarOrderPolicy.DEFAULT_ORDER.size(), "pin choices cover toolbar items");
         check(AndroidLocalSettings.defaults().choice(AndroidLocalSettings.TOOLBAR_PINNED)
             .equals(ToolbarPinnedPolicy.DEFAULT.id), "registered pin default matches policy");
-        check(AndroidLocalSettings.defaults().bool(AndroidLocalSettings.TOOLBAR_DISMISS), "dismiss toolbar item defaults on");
+        check(!AndroidLocalSettings.defaults().bool(AndroidLocalSettings.TOOLBAR_DISMISS), "ordinary dismiss stays off while the default pin keeps dismiss available");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.TOOLBAR_PINNED).synced,
             "pin stays local");
         System.out.println("ToolbarPinnedPolicySmoke ok");

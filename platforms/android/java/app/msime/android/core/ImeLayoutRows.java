@@ -562,7 +562,8 @@ final class ImeLayoutRows {
     private boolean numberDigitFacesEligible;
 
     boolean randomDigitsEntryVisible() {
-        return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
+        return s.toolbarItemVisible(s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS),
+                ToolbarOrderPolicy.Item.RANDOM_DIGITS)
             && !s.toolbarHidden
             && !s.dedicatedEnglish
             && InputSchemeTraits.isChinese(InputViewValuePolicy.scheme(s.view, -1))
@@ -571,7 +572,8 @@ final class ImeLayoutRows {
 
     /** 随入口占工具栏一行的依据：只看设置和当前中文方案，不看此刻的中/英和临时模式，切换时键盘高度不跳。 */
     boolean randomDigitsKeepsToolbarRow() {
-        return s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS)
+        return s.toolbarItemVisible(s.localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS),
+                ToolbarOrderPolicy.Item.RANDOM_DIGITS)
             && InputSchemeTraits.isChinese(InputViewValuePolicy.scheme(s.view, -1));
     }
 

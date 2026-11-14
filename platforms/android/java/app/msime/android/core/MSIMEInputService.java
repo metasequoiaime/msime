@@ -3212,11 +3212,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
-            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled
+            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled || toolbarDismiss
             || imeToolbar != null && imeToolbar.pinnedItem() != ToolbarOrderPolicy.Item.DISMISS);
     }
 
-    private boolean toolbarItemVisible(boolean enabled, ToolbarOrderPolicy.Item item) {
+    boolean toolbarItemVisible(boolean enabled, ToolbarOrderPolicy.Item item) {
         return enabled || imeToolbar != null && imeToolbar.isPinned(item);
     }
 
@@ -12741,10 +12741,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (randomDigitsShortcutButton != null) {
             // 工具栏整条隐藏时「随」够不到，与关闭入口一样清掉运行时的随机状态。
-            if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS) || toolbarHidden)
+            if (!toolbarItemVisible(localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS),
+                    ToolbarOrderPolicy.Item.RANDOM_DIGITS) || toolbarHidden)
                 imeLayoutRows.disableRandomDigits();
             ViewPolicy.setVisible(randomDigitsShortcutButton,
                 toolbarItemVisible(imeLayoutRows.randomDigitsEntryVisible(), ToolbarOrderPolicy.Item.RANDOM_DIGITS));
+            ViewPolicy.setEnabled(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEntryVisible());
             ViewPolicy.setSelected(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEnabled());
             if (Build.VERSION.SDK_INT >= 30) randomDigitsShortcutButton.setStateDescription(
                 imeLayoutRows.randomDigitsEnabled() ? "已开启" : "已关闭");

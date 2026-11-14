@@ -138,7 +138,7 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_RANDOM_DIGITS = "platform.android.toolbar_random_digits";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
-    /** 工具栏排序里的「收起键盘」按钮，右侧常驻位选它时仍显示，默认开启。 */
+    /** 工具栏排序里的「收起键盘」按钮，默认关闭；默认右侧常驻位仍保留它。 */
     public static final String TOOLBAR_DISMISS = "platform.android.toolbar_dismiss";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
     public static final String BOTTOM_BAR = "platform.android.bottom_bar";
@@ -298,7 +298,7 @@ public final class AndroidLocalSettings {
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
         choice(TOOLBAR_PINNED, ToolbarPinnedPolicy.DEFAULT.id, false, ToolbarPinnedPolicy.choices());
-        bool(TOOLBAR_DISMISS, true, false);
+        bool(TOOLBAR_DISMISS, false, false);
         integer(TOOLBAR_SIZE_PERCENT, ToolbarSizePolicy.DEFAULT_PERCENT, false,
             ToolbarSizePolicy.MIN_PERCENT, ToolbarSizePolicy.MAX_PERCENT, 10);
         text(SYMBOL_CATEGORY_ORDER, SymbolCategoryOrderPolicy.format(SymbolCategoryOrderPolicy.DEFAULT_ORDER), false,

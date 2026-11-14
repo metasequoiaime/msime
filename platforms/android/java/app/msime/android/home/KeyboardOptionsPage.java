@@ -373,9 +373,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 : button == ToolbarOrderPolicy.Item.VOICE ? VOICE_TOGGLE_DESCRIPTION
                 : button == ToolbarOrderPolicy.Item.RANDOM_DIGITS
                     ? "在中文工具栏显示“随”开关；点按后打乱数字九宫格，每输入一个数字重新排列" : null;
-            GroupCard.Row row = bar.toggle(button.label, null, toolbarButton(preferences, settings, member),
+            boolean isPinned = button.id.equals(pinned);
+            GroupCard.Row row = bar.toggle(button.label, null, isPinned || toolbarButton(preferences, settings, member),
                 checked -> saveToolbar(member, checked)).help(description);
-            row.setEnabled(!hidden);
+            row.setEnabled(!hidden && !isPinned);
         }
 
         // 剪贴板面板从工具栏打开，它的设置和键盘工具栏放在同一个分页，页面最多四个分页。
@@ -503,7 +504,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         int designRowDp = ToolbarSizePolicy.followedHeightDp(CandidateScalePolicy.DEFAULT_PERCENT);
         int previewDp = customSize ? buttonDp : ToolbarSizePolicy.followedButtonHeight(rowDp, buttonDp, designRowDp);
         int chipPercent = customSize ? sizePercent : ToolbarSizePolicy.followedPercent(rowDp, buttonDp, designRowDp);
-        boolean anyButton = false;
+        ToolbarOrderPolicy.Item pinned = ToolbarPinnedPolicy.item(settings.choice(AndroidLocalSettings.TOOLBAR_PINNED));
+        boolean anyButton = pinned != ToolbarOrderPolicy.Item.DISMISS;
         for (ToolbarOrderPolicy.Item button : ToolbarOrderPolicy.DEFAULT_ORDER)
             anyButton |= toolbarButton(preferences, settings, button.preferenceKey);
         boolean hidden = settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
@@ -517,7 +519,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         } else {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), chipPercent);
             if (longSpace) addChip(context, plate, "符", icon, chipPercent);
-            ToolbarOrderPolicy.Item pinned = ToolbarPinnedPolicy.item(settings.choice(AndroidLocalSettings.TOOLBAR_PINNED));
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
                 if (button != pinned && toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button == ToolbarOrderPolicy.Item.RANDOM_DIGITS ? "随" : button.label, icon, chipPercent);
             if (!hidden) addChip(context, plate, "右侧：" + pinned.label, icon, chipPercent);
