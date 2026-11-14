@@ -21,4 +21,5 @@ export type KeybindingPreferences = {
   toggle_punctuation?: string;
   /** 额外的语音开始／结束热键，缺省或空串表示不绑定。 */
   toggle_voice_input?: string;
+  enter_quick_phrase?: string;
 };
