@@ -110,6 +110,7 @@ public static class SettingsWindowProbe {
 '@
 . (Join-Path $PSScriptRoot 'settings_wheel.ps1')
 . (Join-Path $PSScriptRoot 'settings_snapshot.ps1')
+. (Join-Path $PSScriptRoot 'settings_scheme_resources.ps1')
 $programPath = (Resolve-Path -LiteralPath $Program).Path
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
@@ -2089,6 +2090,7 @@ try {
         $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
     } while ($saved.preferences.scheme -ne 'wubi' -and [DateTime]::UtcNow -lt $deadline)
     if ($saved.preferences.scheme -ne 'wubi') { throw 'Scheme was not saved: wubi' }
+    Assert-SchemeResources $window (Join-Path $wubiRoot 'resources/msime-wubi.db')
     # 下拉框在方案组里，页面从顶上往下滚到它露出来为止，展开的列表才在截图里。
     $content = Find-ById $window 'settings-content'
     $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
