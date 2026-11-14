@@ -2,7 +2,7 @@
 
 Status: implemented
 
-Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)；iOS 的实现见本次 iOS PR，鸿蒙未做，见文末「各端状态」。
+Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)；iOS 与鸿蒙分别在各自宿主接入，见文末「各端状态」。
 
 ## Problem
 
@@ -68,7 +68,7 @@ Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-andr
 
 - Android：已实现，见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)。#11040 第 2 项的 Android 部分随它一起落地：组字中长按不再先结束组字。
 - iOS：已实现。`FourteenKeyLayout.Key.cornerHint` 按上面两张表提供角标，复用 `KeyboardKeyButton` 的 0.5 秒长按和「滑动输入符号」方向；组字中先结束组字，再经现有标点路由输入，角标显示跟随「显示字母键角标」，18 键双拼横滑与纵滑按方向互斥。验证覆盖键表角标单测；完整 Xcode 与真机验收仍待 iOS 设备环境。
-- 鸿蒙：未做。同 iOS；组字中纵滑按点按处理，长按经引擎原样上屏后输入。
+- 鸿蒙：已实现。`GridLetterHintTable` 和 `GridKeyGesturePolicy` 接入 14/18 键 ArkUI 按键；角标显示跟随「显示字母键角标」，纵滑沿共享方向输入符号，长按 500 ms 直接输入角标；组字中只有纵滑按点按处理，长按仍先经引擎 `commitRaw` 结束组字再输入，18 键双拼横滑保留精确字母。反向纵滑不弹 Android 字母菜单。关闭滑动输入、隐藏角标不影响长按。长按进入已消费状态，松手及随后点击不重复输入或计数；取消、多指、已经接管的横滑或纵滑不再触发长按。26 键的原样上屏、字面插入路径保持原样。纯逻辑测试覆盖符号表与状态机，`grid-corner-hold.test.ts` 执行真实宿主方法覆盖全部 32 个网格键、空闲/组字、滑动开关和取消路径。完整 HAP 使用远端 DevEco 工具链验证；签名设备和真实编辑器验收尚缺。
 
 ### 历史笔记审计
 
@@ -78,7 +78,7 @@ Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-andr
 - [网格辅助码](2026-11-04-grid-helpcode.md)：部分重叠。分词键的上滑和「辅」角标不变；「长按字母先发命令 2」在 Android 14/18 键上不再出现（组字中长按是点按），那篇已就地改正。
 - [三端 26 键默认上滑输入角标](2026-10-25-mobile-qwerty-swipe-symbols.md)、[Android 字母滑动选项](../bug-fix/2026-10-21-android-letter-option-gesture-settings.md)、[Android 角标标点路由](2026-10-12-android-letter-hint-chinese-punctuation.md)：部分重叠。方向和开关、反向选项的拖选、中文标点路由照用，不修改。
 - [五笔 14 键](2026-10-25-wubi-fourteen-key.md)、[Android 十八键全拼](2026-10-24-android-eighteen-key-quanpin.md)、[Android 十八键双拼](2026-10-24-android-eighteen-key-shuangpin.md)：部分重叠。它们的长按沿用 14 键规格，经 14 键笔记的说明指到本篇，不另改。
-- iOS、鸿蒙的 14/18 键笔记（[iOS 十八键](2026-10-25-ios-eighteen-key.md)、[鸿蒙 14/18 键](2026-10-25-harmony-fourteen-eighteen-key.md)、[鸿蒙双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md)、[iOS 14/18 键对齐 Android](../bug-fix/2026-11-05-ios-letter-grid-android-parity.md)）：本次无关，那两端跟进时再改。
+- iOS、鸿蒙的 14/18 键笔记（[iOS 十八键](2026-10-25-ios-eighteen-key.md)、[鸿蒙 14/18 键](2026-10-25-harmony-fourteen-eighteen-key.md)、[鸿蒙双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md)、[iOS 14/18 键对齐 Android](../bug-fix/2026-11-05-ios-letter-grid-android-parity.md)）：布局、网格门控和横滑边界仍适用；角标接入由本篇状态更新。
 
 ## Alternatives considered
 
@@ -89,8 +89,8 @@ Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-andr
 
 ## Consequences
 
-收益：14/18 键不离开字母层就能输入常用标点和符号，和 26 键同一套手势、同一个开关和方向；键位 id 不变，按键统计不受影响。组字中纵滑和长按都是点按，打字时手指偏一点不会意外出符号或结束组字。
+收益：14/18 键不离开字母层就能输入常用标点和符号，和 26 键同一套手势、同一个开关和方向；键位 id 不变，按键统计不受影响。Android 组字中纵滑和长按都是点按；鸿蒙组字中纵滑是点按，长按按本端约定先结束组字再输入角标。
 
-代价：14 键少了 `%` `*` `&` `¥`，要去「符」面板找；18 键第 1 排的符号和 26 键第 1 排的数字位置不对应，要重新记。所有 14/18 键用户更新后都会看到角标（「显示字母键角标」默认开），不想要的可以关掉。iOS、鸿蒙跟进之前，同一个账号在那两端的 14/18 键上没有角标。
+代价：14 键少了 `%` `*` `&` `¥`，要去「符」面板找；18 键第 1 排的符号和 26 键第 1 排的数字位置不对应，要重新记。所有 14/18 键用户更新后都会看到角标（「显示字母键角标」默认开），不想要的可以关掉。iOS、鸿蒙的角标已接入，各端真实设备验收仍单独记录。
 
-验证：各端的验证写在各端的笔记里。
+验证：各端的验证写在各端的笔记或 PR 验证段。鸿蒙旧测试曾错误断言组字中长按应点按、反向纵滑应弹选项；这与 #11063 明确列出的鸿蒙规则不符。本次保持组字前置条件，修正预期并补真实宿主回归，不以关闭组字或滑动开关绕过旧断言。
