@@ -19,7 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、表情、常用语、剪贴板、皮肤、输入方式、收起），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），「键盘调整」时照常显示，盖在遮罩下面。状态仍在服务里。
+ * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、中间工具和右侧常驻按钮），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），「键盘调整」时照常显示，盖在遮罩下面。状态仍在服务里。
  */
 final class ImeToolbar {
     /** 组词时读音那一行的最小高度（设计稿按 12 sp 的读音排的 14 dp）。读音字号跟设置「预编辑字号」（`candidate_preedit_font_size`）按比例缩放（ReadingRowPolicy.textSizeSp，默认仍是 12 sp），字号变大、系统字体放大或厂商字体更高时按读音实际高度加上 {@link #READING_GAP_DP} 加高，见 ReadingRowPolicy；空闲时的工具栏取读音行加候选行的同一高度，打字时键盘不变高。 */
@@ -34,12 +34,13 @@ final class ImeToolbar {
     private final MSIMEInputService s;
     private Button[] shortcutButtons;
     private java.util.List<ToolbarOrderPolicy.Item> appliedOrder;
+    private ToolbarOrderPolicy.Item pinnedItem = ToolbarPinnedPolicy.DEFAULT;
+    private LinearLayout recentClipPinnedSlot;
     /** 「最近复制」那一行自己的剪贴板入口和收起键，和工具栏上的同一套配色。 */
     private Button recentClipHistoryButton;
     private Button recentClipDismissButton;
     /** 「最近复制」预览右边的分词或分类快捷键（#10079），由设置「复制后自动显示快捷键」决定显示哪个。 */
     private Button recentClipActionButton;
-    private Button recentClipCollapseButton;
     private RecentClipViews toolbarRecentClip;
     /** 文本编辑面板标题行里的那一份「最近复制」：盖住工具栏时代替上面这一行，内容和这一行同步。 */
     private RecentClipViews textEditRecentClip;
@@ -59,40 +60,36 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、撤销、重做、语音、收起；两端固定，中间工具等分剩余宽度，放不下时横向滚动；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
+    /** 空闲工具栏：品牌、可配置的右侧常驻按钮和中间工具；中间工具等分剩余宽度，放不下时横向滚动。 */
     void installShortcutBar(Button dismissButton) {
         appliedOrder = null;
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
         shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, s.floatingShortcutButton,
-            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton, s.voiceShortcutButton, s.randomDigitsShortcutButton};
+            s.textEditShortcutButton, s.undoShortcutButton, s.redoShortcutButton, s.voiceShortcutButton,
+            s.randomDigitsShortcutButton, dismissButton};
         for (Button button : shortcutButtons) bindEditor(button);
         s.imeTextEditPanel.bindShortcut(s.textEditShortcutButton);
-        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, dismissButton}) {
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton}) {
             bindEditor(button);
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
             params.setMarginStart(s.pixels(1));
             params.setMarginEnd(s.pixels(1));
-            int position = button == s.moreButton ? 0
-                : button == s.symbolShortcutButton ? 1 : s.shortcutToolbar.getChildCount();
+            int position = button == s.moreButton ? 0 : 1;
             s.shortcutToolbar.addView(button, position, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
+        if (s.shortcutScroll.getParent() instanceof LinearLayout parent) parent.removeView(s.shortcutScroll);
+        s.shortcutToolbar.addView(s.shortcutScroll, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         // 数字键面的计算结果（#5688）放在中间滚动区最前面；没有结果时隐藏，不占宽度。
         Button result = s.imeCalculator.chip();
         if (result.getParent() instanceof LinearLayout parent) parent.removeView(result);
         s.shortcutBar.addView(result, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(44)));
-        for (Button button : shortcutButtons) {
-            if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(40), s.pixels(44), 1);
-            params.setMarginStart(s.pixels(1));
-            params.setMarginEnd(s.pixels(1));
-            s.shortcutBar.addView(button, params);
-            ViewPolicy.setMinimumWidth(button, s.pixels(40));
-        }
+        applyShortcutOrder();
         // 旧的回复、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。语音按钮回到了中间区（#10142）：「键盘 → 工具栏 → 语音」写的 `touch_voice_shortcut` 决定它显不显示，它和其他工具一样参与排序和尺寸调整。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
                 s.replyShortcutButton, s.layoutSettingsButton}) {
@@ -117,13 +114,18 @@ final class ImeToolbar {
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
         int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
         // 26 键长空格样式的「符」和品牌键、收起键一样是两端的固定按钮，一起缩放，否则矮行里只有它伸出去被裁掉。
-        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton, s.dismissShortcutButton}) {
+        for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton}) {
             if (button == null) continue;
             resizeButton(button, edgeWidth, height);
             if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
             if (button instanceof KeyboardBrandButton brand) brand.setSizePercent(drawPercent);
         }
+        if (pinnedButton() != null) {
+            resizeButton(pinnedButton(), edgeWidth, height);
+            if (pinnedButton() instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
+        }
         for (Button button : shortcutButtons) {
+            if (button == pinnedButton()) continue;
             resizeButton(button, middleWidth, height);
             if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
         }
@@ -137,8 +139,7 @@ final class ImeToolbar {
             int verticalPadding = custom ? 0 : s.pixels(4);
             if (s.recentClipRow.getPaddingTop() != verticalPadding)
                 s.recentClipRow.setPadding(s.pixels(2), verticalPadding, s.pixels(2), verticalPadding);
-            for (Button button : new Button[] {recentClipHistoryButton, recentClipDismissButton,
-                    recentClipCollapseButton}) {
+            for (Button button : new Button[] {recentClipHistoryButton, recentClipDismissButton}) {
                 if (button == null || button.getLayoutParams() == null) continue;
                 if (button.getLayoutParams().width != edgeWidth) {
                     button.getLayoutParams().width = edgeWidth;
@@ -188,27 +189,59 @@ final class ImeToolbar {
         if (shortcutButtons == null || s.shortcutBar == null) return;
         java.util.List<ToolbarOrderPolicy.Item> order = ToolbarOrderPolicy.ordered(
             s.localSettings.text(AndroidLocalSettings.TOOLBAR_ORDER));
-        if (order.equals(appliedOrder)) return;
+        ToolbarOrderPolicy.Item selected = ToolbarPinnedPolicy.item(
+            s.localSettings.choice(AndroidLocalSettings.TOOLBAR_PINNED));
+        if (order.equals(appliedOrder) && selected == pinnedItem) return;
+        pinnedItem = selected;
         for (Button button : shortcutButtons) s.shortcutBar.removeView(button);
-        for (int index = 0; index < order.size(); index++) {
-            Button button = switch (order.get(index)) {
-                case EMOJI -> s.emojiShortcutButton;
-                case PHRASE -> s.phraseShortcutButton;
-                case CLIPBOARD -> s.clipboardShortcutButton;
-                case SKIN -> s.skinButton;
-                case SCHEME -> s.schemeButton;
-                case FLOATING -> s.floatingShortcutButton;
-                case TEXT_EDIT -> s.textEditShortcutButton;
-                case UNDO -> s.undoShortcutButton;
-                case REDO -> s.redoShortcutButton;
-                case VOICE -> s.voiceShortcutButton;
-                case RANDOM_DIGITS -> s.randomDigitsShortcutButton;
-            };
-            // 算式结果保留为中间滚动区的第一项，两端按钮不参与排序。
-            s.shortcutBar.addView(button, index + 1);
+        for (Button button : shortcutButtons) {
+            if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
         }
+        for (int index = 0; index < order.size(); index++) {
+            ToolbarOrderPolicy.Item item = order.get(index);
+            if (item == pinnedItem) continue;
+            Button button = buttonFor(item);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(40), s.pixels(44), 1);
+            params.setMarginStart(s.pixels(1));
+            params.setMarginEnd(s.pixels(1));
+            s.shortcutBar.addView(button, params);
+            ViewPolicy.setMinimumWidth(button, s.pixels(40));
+        }
+        Button pinned = buttonFor(pinnedItem);
+        if (recentClipPinnedSlot != null && ViewPolicy.isVisible(s.recentClipRow)) {
+            recentClipPinnedSlot.addView(pinned, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        } else {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(44), s.pixels(44));
+            params.setMarginStart(s.pixels(1));
+            params.setMarginEnd(s.pixels(1));
+            s.shortcutToolbar.addView(pinned, params);
+        }
+        ViewPolicy.setMinimumWidth(pinned, s.pixels(40));
         appliedOrder = order;
     }
+
+    private Button buttonFor(ToolbarOrderPolicy.Item item) {
+        return switch (item) {
+            case EMOJI -> s.emojiShortcutButton;
+            case PHRASE -> s.phraseShortcutButton;
+            case CLIPBOARD -> s.clipboardShortcutButton;
+            case SKIN -> s.skinButton;
+            case SCHEME -> s.schemeButton;
+            case FLOATING -> s.floatingShortcutButton;
+            case TEXT_EDIT -> s.textEditShortcutButton;
+            case UNDO -> s.undoShortcutButton;
+            case REDO -> s.redoShortcutButton;
+            case VOICE -> s.voiceShortcutButton;
+            case RANDOM_DIGITS -> s.randomDigitsShortcutButton;
+            case DISMISS -> s.dismissShortcutButton;
+        };
+    }
+
+    private Button pinnedButton() { return buttonFor(pinnedItem); }
+
+    ToolbarOrderPolicy.Item pinnedItem() { return pinnedItem; }
+
+    boolean isPinned(ToolbarOrderPolicy.Item item) { return pinnedItem == item; }
 
     /** 读音行当前 TouchDelegate 的范围，用来判断重新布局后是否需要换新的。 */
     private Rect preeditTouchBounds;
@@ -435,9 +468,9 @@ final class ImeToolbar {
     }
 
     /**
-     * 「最近复制」（#5692）：刚复制的文字占工具栏那一行，中间是文字本身（点按粘贴），左边是剪贴板历史入口，右边是关闭和收起键盘。和工具栏同高，替换它显示，过了显示窗口、用过、关掉或开始打字后换回工具栏。
+     * 「最近复制」（#5692）：刚复制的文字占工具栏那一行，中间是文字本身（点按粘贴），左边是剪贴板历史入口，右边是关闭预览和常驻按钮。和工具栏同高，替换它显示，过了显示窗口、用过、关掉或开始打字后换回工具栏。
      *
-     * <p>剪贴板入口和收起键是工具栏上那两个按钮的同款：只放文字和 × 时，复制之后的一分钟里要打开剪贴板历史或收起键盘，都得先点 × 把这一条永久关掉。
+     * <p>剪贴板入口和常驻按钮是工具栏上的同款：只放文字和 × 时，复制之后的一分钟里要打开剪贴板历史或使用常驻按钮，都得先点 × 把这一条永久关掉。
      */
     void addRecentClipRow(LinearLayout candidateRegion) {
         LinearLayout row = LayoutPolicy.row(s);
@@ -454,17 +487,11 @@ final class ImeToolbar {
         recentClipActionButton = chip.action();
         recentClipDismissButton = chip.dismiss();
         KeyboardPressButton paste = chip.paste();
-        // 文本编辑面板也显示最近复制；收起键与普通工具栏一样先返回键盘。
-        Button collapse = s.shortcutButton(row, "收起", KeyboardShortcutIconPolicy.Icon.DISMISS,
-            () -> {
-                if (s.anyToolbarPanelOpen()) {
-                    s.closeToolbarPanels();
-                    s.render();
-                } else s.requestHideSelf(0);
-            });
-        collapse.setContentDescription("收起键盘");
-        collapse.setLayoutParams(LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
-        recentClipCollapseButton = collapse;
+        // 文本编辑面板也显示最近复制；右侧常驻按钮随这一行一起移动，剪贴板预览不会把它挤掉。
+        recentClipPinnedSlot = LayoutPolicy.row(s);
+        ViewPolicy.setCenteredVertically(recentClipPinnedSlot);
+        candidateRegion.removeView(row);
+        row.addView(recentClipPinnedSlot, LayoutPolicy.linearParamsPx(s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
         ViewPolicy.hide(row);
         s.recentClipRow = row;
         s.recentClipButton = paste;
@@ -532,8 +559,8 @@ final class ImeToolbar {
         }
         if (s.recentClipRow == null || s.recentClipButton == null) return;
         ViewPolicy.setVisible(s.recentClipRow, visible);
+        applyShortcutOrder();
         if (!visible) return;
-        recentClipCollapseButton.setContentDescription(s.anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
         applyRecentClip(toolbarRecentClip, text, image);
     }
 
@@ -576,13 +603,16 @@ final class ImeToolbar {
             symbol.setIconColors(iconColor, activeIconColor);
         }
         if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
-            dismiss.setIconColors(foregroundColor, foregroundColor);
+            dismiss.setIconColors(pinnedItem == ToolbarOrderPolicy.Item.DISMISS ? foregroundColor : iconColor,
+                pinnedItem == ToolbarOrderPolicy.Item.DISMISS ? foregroundColor : activeIconColor);
         if (recentClipHistoryButton instanceof KeyboardShortcutButton history) {
             history.setActiveFill(activeBackgroundColor);
             history.setIconColors(iconColor, activeIconColor);
         }
-        if (recentClipCollapseButton instanceof KeyboardShortcutButton collapse)
-            collapse.setIconColors(foregroundColor, foregroundColor);
+        if (pinnedButton() instanceof KeyboardShortcutButton pinned) {
+            pinned.setIconColors(pinnedItem == ToolbarOrderPolicy.Item.DISMISS ? foregroundColor : iconColor,
+                pinnedItem == ToolbarOrderPolicy.Item.DISMISS ? foregroundColor : activeIconColor);
+        }
         if (s.moreButton instanceof KeyboardBrandButton brand) {
             // 品牌键按工具栏设计稿画：固定配色的标志，不垫圆盘；面板底随皮肤更新。
             brand.useToolbarDesign();

@@ -15,6 +15,7 @@ import app.msime.android.FloatingKeyboardPolicy;
 
 import app.msime.android.ThemeColorPolicy;
 import app.msime.android.ToolbarOrderPolicy;
+import app.msime.android.ToolbarPinnedPolicy;
 import app.msime.android.ToolbarSizePolicy;
 import app.msime.android.KeyboardSpacingPolicy;
 import app.msime.android.KeyboardHeightPolicy;
@@ -361,7 +362,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             customToolbarSize ? toolbarSize + "%" : "跟随候选栏",
             hidden ? null : () -> pickToolbarSize(customToolbarSize, toolbarSize)).help("跟随候选栏时随「候选栏大小」缩放；单独设定后只调整工具栏的图标和按钮，较矮的一侧在上方留白，按键不跳动");
         bar.nav("按钮顺序", null, null,
-            hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show()).help("调整工具按钮的排列；品牌和收起键保留在两端");
+            hidden ? null : () -> new ToolbarOrderSheet(this, settings, this::reload).show()).help("调整工具按钮的排列；品牌键固定在左端，右侧常驻按钮单独设置");
+        String pinned = settings.choice(AndroidLocalSettings.TOOLBAR_PINNED);
+        bar.nav("右侧常驻按钮", null, ToolbarPinnedPolicy.label(pinned),
+            hidden ? null : () -> pickToolbarPinned(pinned)).help("选择键盘顶部右侧一直保留的工具；最近复制出现时也保留在最右侧");
         for (ToolbarOrderPolicy.Item button : toolbarOrder(settings)) {
             String member = button.preferenceKey;
             String description = button == ToolbarOrderPolicy.Item.UNDO || button == ToolbarOrderPolicy.Item.REDO
@@ -513,8 +517,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         } else {
             addChip(context, plate, "水杉", ColorPolicy.parse(skin.accentText(), ThemeColorPolicy.accent(context)), chipPercent);
             if (longSpace) addChip(context, plate, "符", icon, chipPercent);
+            ToolbarOrderPolicy.Item pinned = ToolbarPinnedPolicy.item(settings.choice(AndroidLocalSettings.TOOLBAR_PINNED));
             if (!hidden) for (ToolbarOrderPolicy.Item button : toolbarOrder(settings))
-                if (toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button == ToolbarOrderPolicy.Item.RANDOM_DIGITS ? "随" : button.label, icon, chipPercent);
+                if (button != pinned && toolbarButton(preferences, settings, button.preferenceKey)) addChip(context, plate, button == ToolbarOrderPolicy.Item.RANDOM_DIGITS ? "随" : button.label, icon, chipPercent);
+            if (!hidden) addChip(context, plate, "右侧：" + pinned.label, icon, chipPercent);
         }
         strip.addView(plate, LayoutPolicy.matchWidthHeightDp(context, previewDp));
         strip.setContentDescription("工具栏预览");
@@ -775,6 +781,16 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "显示方式", null);
         sheet.option("输入时显示", !hidden, () -> saveToolbar(AndroidLocalSettings.TOOLBAR_HIDDEN, false));
         sheet.option("隐藏", hidden, () -> saveToolbar(AndroidLocalSettings.TOOLBAR_HIDDEN, true));
+        sheet.show();
+    }
+
+    private void pickToolbarPinned(String selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "右侧常驻按钮", null);
+        for (String value : ToolbarPinnedPolicy.choices()) {
+            sheet.option(ToolbarPinnedPolicy.label(value), value.equals(selected),
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.TOOLBAR_PINNED, value,
+                    this::reload, this::reload));
+        }
         sheet.show();
     }
 

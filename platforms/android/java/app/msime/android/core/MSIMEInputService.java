@@ -479,6 +479,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarTextEdit;
     boolean toolbarUndo;
     boolean toolbarRedo;
+    boolean toolbarDismiss;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
     /** 横屏自动浮动：打开时横屏使用浮动面板、竖屏恢复停靠。 */
@@ -3211,7 +3212,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (longSpaceToolbarRowKept()) return false;
         return toolbarHidden || !(toolbarEmoji || toolbarPhrase || toolbarClipboard || toolbarSkin
             || toolbarScheme || toolbarFloating || toolbarTextEdit || toolbarUndo || toolbarRedo
-            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled);
+            || imeLayoutRows.randomDigitsKeepsToolbarRow() || touchVoiceShortcutEnabled
+            || imeToolbar != null && imeToolbar.pinnedItem() != ToolbarOrderPolicy.Item.DISMISS);
+    }
+
+    private boolean toolbarItemVisible(boolean enabled, ToolbarOrderPolicy.Item item) {
+        return enabled || imeToolbar != null && imeToolbar.isPinned(item);
     }
 
     /** 工具栏这一行藏着时，打开的面板要不要把它临时显示出来：多数面板（表情等）的返回键就是工具栏上的收起键。剪贴板面板开着、底栏也画着时不用，底栏的剪贴板键再点一次就关上面板。 */
@@ -3258,6 +3264,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
         toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
+        toolbarDismiss = localSettings.bool(AndroidLocalSettings.TOOLBAR_DISMISS);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
         floatingKeyboardAutoLandscape = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE);
         caretCandidates = localSettings.bool(AndroidLocalSettings.HARDWARE_CARET_CANDIDATES);
@@ -12706,25 +12713,27 @@ public final class MSIMEInputService extends InputMethodService {
                 scriptShortcutButton.setStateDescription(outputState);
         }
         if (emojiShortcutButton != null) {
-            ViewPolicy.setVisible(emojiShortcutButton, toolbarEmoji);
+            ViewPolicy.setVisible(emojiShortcutButton, toolbarItemVisible(toolbarEmoji, ToolbarOrderPolicy.Item.EMOJI));
             // 会话还在建时也可点（#10086）：表情面板只用资源目录和输入连接。
             ViewPolicy.setEnabled(emojiShortcutButton, ToolbarReadinessPolicy.emojiEnabled(toolbarSession(),
                 connection != null, !emojiResources.isEmpty()));
             ViewPolicy.setSelected(emojiShortcutButton, ViewPolicy.isVisible(emojiPanel));
         }
         if (phraseShortcutButton != null) {
-            ViewPolicy.setVisible(phraseShortcutButton, toolbarPhrase);
+            ViewPolicy.setVisible(phraseShortcutButton, toolbarItemVisible(toolbarPhrase, ToolbarOrderPolicy.Item.PHRASE));
             ViewPolicy.setEnabled(phraseShortcutButton, ToolbarReadinessPolicy.phraseEnabled(toolbarSession(),
                 !preferencesDirectory.isEmpty()));
             ViewPolicy.setSelected(phraseShortcutButton, ViewPolicy.isVisible(phraseScroll));
         }
         if (clipboardShortcutButton != null) {
-            ViewPolicy.setVisible(clipboardShortcutButton, toolbarClipboard);
+            ViewPolicy.setVisible(clipboardShortcutButton, toolbarItemVisible(toolbarClipboard, ToolbarOrderPolicy.Item.CLIPBOARD));
             ViewPolicy.setEnabled(clipboardShortcutButton, CloudClipboardPanelPolicy.panelAvailable(
                 clipboardHistoryEnabled, imePanels.cloudClipboardAllowed()));
             ViewPolicy.setSelected(clipboardShortcutButton, imePanels.clipboardPanelOpen());
         }
         if (dismissShortcutButton != null) {
+            ViewPolicy.setVisible(dismissShortcutButton,
+                toolbarItemVisible(toolbarDismiss, ToolbarOrderPolicy.Item.DISMISS));
             dismissShortcutButton.setContentDescription(keysCollapsed ? "显示软键盘"
                 : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
             // 候选条模式里收起键朝上，点它展开软键盘。
@@ -12734,13 +12743,15 @@ public final class MSIMEInputService extends InputMethodService {
             // 工具栏整条隐藏时「随」够不到，与关闭入口一样清掉运行时的随机状态。
             if (!localSettings.bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS) || toolbarHidden)
                 imeLayoutRows.disableRandomDigits();
-            ViewPolicy.setVisible(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEntryVisible());
+            ViewPolicy.setVisible(randomDigitsShortcutButton,
+                toolbarItemVisible(imeLayoutRows.randomDigitsEntryVisible(), ToolbarOrderPolicy.Item.RANDOM_DIGITS));
             ViewPolicy.setSelected(randomDigitsShortcutButton, imeLayoutRows.randomDigitsEnabled());
             if (Build.VERSION.SDK_INT >= 30) randomDigitsShortcutButton.setStateDescription(
                 imeLayoutRows.randomDigitsEnabled() ? "已开启" : "已关闭");
         }
         if (voiceShortcutButton != null) {
-            ViewPolicy.setVisible(voiceShortcutButton, touchVoiceShortcutEnabled);
+            ViewPolicy.setVisible(voiceShortcutButton,
+                toolbarItemVisible(touchVoiceShortcutEnabled, ToolbarOrderPolicy.Item.VOICE));
             ViewPolicy.setEnabled(voiceShortcutButton, voiceInsertionReady());
         }
         if (aiPolishShortcutButton != null) {
@@ -12825,7 +12836,8 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (floatingShortcutButton != null) {
-            ViewPolicy.setVisible(floatingShortcutButton, toolbarFloating);
+            ViewPolicy.setVisible(floatingShortcutButton,
+                toolbarItemVisible(toolbarFloating, ToolbarOrderPolicy.Item.FLOATING));
             boolean floating = floatingDrawn();
             ViewPolicy.setSelected(floatingShortcutButton, floating);
             // 候选条模式里浮动不生效，自动模式里由方向控制，按钮灰掉，免得点了没有反应。
@@ -12834,21 +12846,22 @@ public final class MSIMEInputService extends InputMethodService {
                 floatingShortcutButton.setStateDescription(floating ? "已开启" : "已关闭");
         }
         if (undoShortcutButton != null) {
-            ViewPolicy.setVisible(undoShortcutButton, toolbarUndo);
+            ViewPolicy.setVisible(undoShortcutButton, toolbarItemVisible(toolbarUndo, ToolbarOrderPolicy.Item.UNDO));
             ViewPolicy.setEnabled(undoShortcutButton, imeToolbar.canDispatchHistory());
         }
         if (redoShortcutButton != null) {
-            ViewPolicy.setVisible(redoShortcutButton, toolbarRedo);
+            ViewPolicy.setVisible(redoShortcutButton, toolbarItemVisible(toolbarRedo, ToolbarOrderPolicy.Item.REDO));
             ViewPolicy.setEnabled(redoShortcutButton, imeToolbar.canDispatchHistory());
         }
         if (textEditShortcutButton != null) {
-            ViewPolicy.setVisible(textEditShortcutButton, toolbarTextEdit);
+            ViewPolicy.setVisible(textEditShortcutButton,
+                toolbarItemVisible(toolbarTextEdit, ToolbarOrderPolicy.Item.TEXT_EDIT));
             ViewPolicy.setSelected(textEditShortcutButton, ViewPolicy.isVisible(textEditPanel));
             // 没有可编辑的输入框时面板打不开（ImeTextEditPanel.show 只给一句提示），按钮灰掉。
             ViewPolicy.setEnabled(textEditShortcutButton, connection != null);
         }
         if (schemeButton != null) {
-            ViewPolicy.setVisible(schemeButton, toolbarScheme);
+            ViewPolicy.setVisible(schemeButton, toolbarItemVisible(toolbarScheme, ToolbarOrderPolicy.Item.SCHEME));
             // 会话在建时点下、等着打开的也画成选中，点按有了着落（#10086）。
             ViewPolicy.setSelected(schemeButton, ViewPolicy.isVisible(schemeScroll)
                 || pendingToolbarPanel == ToolbarOrderPolicy.Item.SCHEME);
@@ -12869,7 +12882,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (skinButton != null) {
-            ViewPolicy.setVisible(skinButton, toolbarSkin);
+            ViewPolicy.setVisible(skinButton, toolbarItemVisible(toolbarSkin, ToolbarOrderPolicy.Item.SKIN));
             ViewPolicy.setSelected(skinButton, ViewPolicy.isVisible(skinScroll)
                 || pendingToolbarPanel == ToolbarOrderPolicy.Item.SKIN);
             // 同上：保存进行中的点按由 ImePanels.showSkinPicker 按 canSaveKeyboardSkin 忽略，图标不跟着变灰；会话还在建时同输入方式一样推迟。
