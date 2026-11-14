@@ -691,6 +691,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 补上的后半个还在光标右边的那些对，见 {@link PairedPunctuationPolicy.Stack}。 */
     private final PairedPunctuationPolicy.Stack pairedPunctuationStack = new PairedPunctuationPolicy.Stack();
     boolean traditionalChineseOutput;
+    /** 共享偏好 `traditional_chinese_variant`：繁体输出使用的 OpenCC 变体，缺省为 `s2t`。 */
+    String traditionalChineseVariant = ChineseOutputPolicy.STANDARD_VARIANT;
     /** 共享偏好 `cantonese_simplified_output`：粤拼和粤语双拼输出简体，繁转简在 Engine 里做。粤拼下的简繁开关切换它，见 {@link ChineseOutputPolicy#switchFollowsCantonese}。 */
     boolean cantoneseSimplifiedOutput;
     int editorInputType;
@@ -1696,18 +1698,19 @@ public final class MSIMEInputService extends InputMethodService {
         return true;
     }
 
-    /** 与系统辅助方法保持相同的按键标记，但两次发键分别保护，连接断开时松键仍尽力发送。 */
-    void sendEditorKeyEvents(int keyCode) {
+    /** 两次发键分别保护，按下失败仍尽力松键；只有整对发送成功才返回 true。 */
+    boolean sendEditorKeyEvents(int keyCode) {
         editorReads.invalidate();
         InputConnection target = connection;
-        if (target == null) return;
+        if (target == null) return false;
         long down = SystemClock.uptimeMillis();
-        InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, down,
+        boolean pressed = InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, down,
             KeyEvent.ACTION_DOWN, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
-        InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, SystemClock.uptimeMillis(),
+        boolean released = InputConnectionGuard.sendKeyEvent(target, new KeyEvent(down, SystemClock.uptimeMillis(),
             KeyEvent.ACTION_UP, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
             KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
+        return pressed && released;
     }
 
     /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */
@@ -3365,6 +3368,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyChineseOutputPreference(JSONObject preferences) {
         traditionalChineseOutput = preferences != null
             && preferences.optBoolean("traditional_chinese_output", false);
+        traditionalChineseVariant = preferences == null
+            ? ChineseOutputPolicy.STANDARD_VARIANT
+            : InputViewValuePolicy.textOr(preferences, "traditional_chinese_variant",
+                ChineseOutputPolicy.STANDARD_VARIANT);
         cantoneseSimplifiedOutput = preferences != null
             && preferences.optBoolean("cantonese_simplified_output", false);
     }
@@ -3677,7 +3684,8 @@ public final class MSIMEInputService extends InputMethodService {
             ? (view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"))
             : InputViewValuePolicy.textOr(context, "local_mode", "none");
         return AndroidChineseTextConversion.outputString(
-            text, traditionalChineseOutput, dedicatedEnglish, scheme, localMode);
+            text, traditionalChineseOutput, traditionalChineseVariant,
+            dedicatedEnglish, scheme, localMode);
     }
 
     String chineseCandidateOutput(String text, JSONObject context, int source) {
@@ -3687,7 +3695,7 @@ public final class MSIMEInputService extends InputMethodService {
             : InputViewValuePolicy.textOr(view, "local_mode", "none"))
             : InputViewValuePolicy.textOr(context, "local_mode", "none");
         return AndroidChineseTextConversion.candidateOutput(text, traditionalChineseOutput,
-            dedicatedEnglish, scheme, localMode, source);
+            traditionalChineseVariant, dedicatedEnglish, scheme, localMode, source);
     }
 
     private String candidateAppearanceKey() {
@@ -3727,6 +3735,7 @@ public final class MSIMEInputService extends InputMethodService {
         AiPolishConfiguration previousAi = aiPolishConfiguration;
         boolean previousClipboard = clipboardHistoryEnabled;
         boolean previousTraditional = traditionalChineseOutput;
+        String previousTraditionalVariant = traditionalChineseVariant;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidatePronunciation = candidatePronunciationEnabled;
         String previousSpellingPosition = spellingPosition;
@@ -3765,6 +3774,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : !previousAi.equals(aiPolishConfiguration))
                 || previousClipboard != clipboardHistoryEnabled
                 || previousTraditional != traditionalChineseOutput
+                || !previousTraditionalVariant.equals(traditionalChineseVariant)
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidatePronunciation != candidatePronunciationEnabled
                 || !previousSpellingPosition.equals(spellingPosition)
@@ -3888,6 +3898,8 @@ public final class MSIMEInputService extends InputMethodService {
             : nextAiAssistant == null
                 || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
+        String nextTraditionalVariant = InputViewValuePolicy.textOr(preferences,
+            "traditional_chinese_variant", ChineseOutputPolicy.STANDARD_VARIANT);
         boolean nextCantoneseSimplified = preferences.optBoolean("cantonese_simplified_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidatePronunciation = preferences.optBoolean("candidate_pronunciation", false);
@@ -3992,6 +4004,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         boolean japaneseEmojiKeyChanged = previousJapaneseEmojiKey != japaneseSideEmojiKey();
         traditionalChineseOutput = nextTraditional;
+        traditionalChineseVariant = nextTraditionalVariant;
         cantoneseSimplifiedOutput = nextCantoneseSimplified;
         // 要在下面改掉当前值之前比较：放在赋值之后时前后两份永远相同，换服务、关翻译后候选下的旧译文要等下一次按键才消失。
         boolean translationDisplayChanged = CandidateTranslationPolicy.displayInvalidated(

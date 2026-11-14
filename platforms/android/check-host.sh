@@ -1201,11 +1201,12 @@ if ! rg -q '@Override public void onTrimMemory\(int level\)' \
   echo "Android IME must release process-level model caches on memory pressure" >&2
   exit 1
 fi
-# Simplified/Traditional output is the shared OpenCC s2t tables, phrase-level, and the same
-# conversion Windows and Linux use. This host converted one character at a time through
-# android.icu.Transliterator, which turns 头发 into 頭發 and is silently unavailable below API 29.
-if ! rg -q 'NativeClient::simplifiedToTraditional' \
+# 简繁输出使用共享的词级 OpenCC 表，并通过 Android 设置页提供 s2tw 和 s2twp 变体。旧实现按字符调用
+# android.icu.Transliterator，会把「头发」变成「頭發」，且在 API 29 以下不可用。
+if ! rg -q 'NativeClient\.convertToTraditional' \
     "$repo_root/platforms/android/java/app/msime/android/core/AndroidChineseTextConversion.java" \
+  || ! rg -q 'traditionalVariantCode' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/ChineseOutputPolicy.java" \
   || rg -q '^import android\.icu\.text\.Transliterator' "$repo_root/platforms/android/java"; then
   echo "Android Simplified/Traditional output must use the shared converter" >&2
   exit 1

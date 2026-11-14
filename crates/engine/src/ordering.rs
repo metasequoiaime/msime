@@ -203,7 +203,7 @@ pub fn reorders_candidates(scheme: u8) -> bool {
     scheme_type(scheme).is_none_or(SchemeType::holds_phrase_progress)
 }
 
-/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼整串读不通时，纠错读法就是主读法，重排器照旧允许它领先；输入读得通、引擎另给的纠错整句由引擎按 `typo_lead_margin` 定座位，重排器不提它（`typo_sentence_beside_literal`）。
+/// 方案的纠错行能不能被重排器提到首位。双拼的纠错整句不由重排器提到首位（#6034，引擎把它排在整句块之后），所以重排时它既不参与比较，也不让整张表失去词典命中的豁免；双拼触点纠错能不能坐首选只由引擎按 `TouchTuning::lead_margin` 决定（#10185，默认无穷大，即不坐）。全拼整串读不通时，纠错读法就是主读法，重排器照旧允许它领先；输入读得通、引擎另给的纠错整句由引擎按 `typo_lead_margin` 定座位，重排器只有达到 `CORRECTION_RERANK_MARGIN` 才提它（`typo_sentence_beside_literal`）。
 fn corrections_may_lead(scheme: u8) -> bool {
     scheme_type(scheme) != Some(SchemeType::Shuangpin)
 }
@@ -524,7 +524,7 @@ fn any_corrected_key<'a, R: OrderRowSource<'a> + ?Sized>(scheme: u8, rows: &'a R
         && !typo_sentence_beside_literal(scheme, rows)
 }
 
-/// 表里既有字面整句读法、又有纠错整句：输入读得通，引擎另给了打错时的改正（`quanpin::typo_edges`）。纠错句坐第几位只由引擎按它胜过字面整句多少决定（`LatticeOptions::typo_lead_margin`、`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`）；重排器只在字面读法之间比较，不把纠错句提到首位，纠错句也不撤销词典首选的豁免。放任重排器比较时，模型常觉得改出来的句子更通顺，打对的输入就被改了字：一万多条原句里有 175 条丢了首选（「他的工作非常忙」成了「非常慢」）。整串读不通、词网格读法全是纠错读法时不算，那时纠错读法就是主读法，照旧让重排器比较。
+/// 表里既有字面整句又有纠错整句，说明输入读得通、引擎另外给了改正。引擎先按分差确定座位，重排器只在有静态证据且混合分达到 `CORRECTION_RERANK_MARGIN` 时提升纠错句；纠错句不撤销词典首选的豁免。整串读不通、词网格读法全是纠错读法时不算，那时照旧交给重排器比较。
 fn typo_sentence_beside_literal<'a, R: OrderRowSource<'a> + ?Sized>(
     scheme: u8,
     rows: &'a R,

@@ -1,4 +1,4 @@
-//! Typo edges for the lattice's typo sentence (quanpin.md §10.5, QD:1056-1182): legal-to-legal syllable swaps, weak positions first, priced by kind and discounted by how often the user accepted that typo; plus letter-level edits over one to three typed syllables that re-read them as different legal syllables (`plan_edit_keys`).
+//! 全拼词网格的纠错整句边（quanpin.md §10.5，QD:1056–1182）：先查弱位置的合法音节替换，按类型计价并按用户接受次数打折；再对相邻 1 到 3 个字面音节做字母级编辑，规划能重新读成合法音节的词键（`plan_edit_keys`）。
 
 use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
