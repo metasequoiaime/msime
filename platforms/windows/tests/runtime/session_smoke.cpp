@@ -430,6 +430,36 @@ int main(int argc, char **argv) {
               "English mode persisted a Japanese toggle");
     }
     {
+      // 方向键后排队到达的旧隐藏通知只能收起界面，不能取消已经确认的组字。
+      using namespace msime::windows;
+      FocusGate gate;
+      FocusedSession focused(gate, 42, options.dump());
+      PipeTicket ticket{42, {1, 2, 3}};
+      auto first = *gate.begin(ticket, 77);
+      require(focused.prepare(first.pending), "Candidate hide fixture preparation failed");
+      require(gate.acknowledge(first.pending, [] { return true; }),
+              "Candidate hide fixture fence failed");
+      FanyImeNamedpipeData packet{};
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.client_id = 42;
+      packet.request_id = 2;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      auto composing = focused.key(first.pending, packet, ReplyPath::Composition);
+      require(composing && focused.confirm(first.pending, packet.request_id) &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate hide fixture did not enter composition");
+      require(focused.hide_candidate(first.pending, true) ==
+                  HideCandidateDisposition::Late &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Late candidate hide cancelled the active composition");
+      require(focused.hide_candidate(first.pending) ==
+                  HideCandidateDisposition::Cancelled &&
+                  focused.view().at("editing_text").get<std::string>().empty(),
+              "Normal candidate hide did not cancel the composition");
+    }
+    {
       using namespace msime::windows;
       FocusGate gate;
       FocusedSession focused(gate, 42, options.dump());

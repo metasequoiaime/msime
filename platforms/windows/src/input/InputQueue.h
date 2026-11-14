@@ -55,7 +55,8 @@ public:
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
   bool cancel_composition(const FocusLease &lease);
-  HideCandidateDisposition hide_candidate(const FocusLease &lease);
+  HideCandidateDisposition hide_candidate(const FocusLease &lease,
+                                          bool late = false);
   // TIP 的 ShowCandidateWnd，见 FocusedSession::show_candidate。
   void show_candidate(const FocusLease &lease);
   std::optional<nlohmann::json> dedicated_english(const FocusLease &lease,

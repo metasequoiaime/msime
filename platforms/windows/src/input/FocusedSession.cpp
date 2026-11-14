@@ -466,7 +466,7 @@ bool FocusedSession::cancel_composition(const FocusLease &lease) {
   });
 }
 HideCandidateDisposition
-FocusedSession::hide_candidate(const FocusLease &lease) {
+FocusedSession::hide_candidate(const FocusLease &lease, bool late) {
   check_thread();
   if (!prepared(lease))
     return HideCandidateDisposition::Rejected;
@@ -475,6 +475,12 @@ FocusedSession::hide_candidate(const FocusLease &lease) {
     if (composer_->has_pending())
       throw std::logic_error("Composition hidden before reply delivery");
     const auto current = session_.view();
+    // 方向键等候选导航会先确认 Engine 的新视图，TIP 随后才补发旧的隐藏通知。
+    // 这类通知已经由 SessionPump 标记为延迟，不能把刚确认的组字一起取消。
+    if (late && !current.at("editing_text").get<std::string>().empty()) {
+      disposition = HideCandidateDisposition::Late;
+      return;
+    }
     if (continuation_hide_.consume(ContinuationHide::Clock::now()) &&
         !current.at("editing_text").get<std::string>().empty()) {
       disposition = HideCandidateDisposition::Suppressed;
