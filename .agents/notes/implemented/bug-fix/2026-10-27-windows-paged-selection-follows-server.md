@@ -30,7 +30,8 @@ Windows 有两个引擎会话。候选窗由 Server 进程的会话画（`src/ca
 
 - `_SelectHighlightedHostCandidate` 改为接收回复类型和原始回复，由上面三步决定选哪个。数字和空格都经过它。
 - 数字键（`_HandleCandidateWorker`）对所有决定性回复都照它选；宿主会话里找不到 `Normal` 回复的词时，和空格的兜底一样写 Server 的文字并丢掉宿主会话的组字（`_CommitServerExactText`），文档里不会少一个词。
-- `_HandleCandidateSelectByNumber` 在宿主会话这一页比按键位置短时，仍去读回复跟着选，只是读不到回复时不再退回高亮项。
+- `_HandleCandidateSelectByNumber` 在宿主会话这一页比按键位置短时，仍去读回复跟着选，只是读不到回复时不再退回高亮项。`CandidateNumberDispatch.h` 同时覆盖 `GetIndex` 已判定没有本地槽位的情况，不能在读回执前提前返回。
+- `NavigationIgnored` 与 `OutofRange` 是已完成的无动作选词，返回 `S_OK`，不调用本地选词，不标记管道会话失效，也不重放组字。其他选择失败与传输失败保留原有处理。
 
 上屏的一致性只依赖文字和宿主会话自己的列表，与两个会话是否同页、是否同序无关。
 
@@ -49,6 +50,9 @@ Windows 有两个引擎会话。候选窗由 Server 进程的会话画（`src/ca
 - **重访信号**：如果以后要按身份而不是文字区分同形候选，或 Server 开始对候选文字做宿主会话没有的变换，需要的是共享的候选身份或把变换也放进 TIP，而不是放宽文字匹配。
 
 ## Verification
+
+- #11382 的报告者补充“选择第 9 项后清空”，视频中五项候选页上按 `9` 后预编辑消失。核对发现两处遗漏：`GetIndex` 返回 -1 时未消费回复；消费到无动作回执后又因无候选文字返回 `S_FALSE`，`KeyHandlerEditSession` 随即标记会话失效并重放。此次更新沿用本篇的 Server 决定规则，不改变设置或默认值。
+- 新行为回归将原提前返回路径放入实际使用的分派函数，在远端先失败于“越界按键未消费回执或重试无动作”；修复后验证本地槽位不存在、实际页比槽位短、无请求、旧镜像、正常选择和非无动作回复。两份真实引擎会话另覆盖主键盘与小键盘 `9`，无上屏、组字保持及继续输入。实际运行结果记入 #11382 的独立 PR，尚未在报告者的 Firefox 或真实 Windows 编辑器复验。
 
 - `tests/input/shuangpin_paged_selection.cpp`（`windows-shuangpin-paged-selection`）：两份真实会话加合成词库 `tests/input/fixtures/msime-shuangpin-paging.db`，覆盖滚轮翻页后选单字再空格、滚轮翻页后选宿主会话当前页上没有的整词、键盘翻页后两种选词、Server 最后一页按键越界时宿主会话不选，以及回复解析的纯规则。把其中的跟随逻辑换成修复前的做法（`Normal` 只在当前页找整段文字，其他回复按位置选）时，五个场景里四个失败：滚轮翻页选「霓」变成「妮好」上屏、整词在宿主会话当前页上找不到、分段选词后的空格对不上、越界按键照样选了词。
 - `msime-tsf-space-host-selection-wiring` 与 `gloss_column_wiring` 改为核对新接线；对修复前的 `CandidateListUIPresenter.cpp`，前者 13 条断言失败。
