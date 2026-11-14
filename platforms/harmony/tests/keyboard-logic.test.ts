@@ -13587,37 +13587,49 @@ group("cloud clipboard text follows the shared clipboard bounds", () => {
   check(!CloudClipboardPolicy.validText(42), "only strings are text");
 });
 
-group("cloud clipboard auto receive preserves local copies", () => {
-  const item = (text: string, updatedAt: string) => ({
-    id: "a".repeat(64),
-    text,
-    updatedAt,
-    pinned: false,
-    device: "Synthetic device",
-  });
-  const policy = new CloudClipboardReceivePolicy();
-  policy.begin("本机复制");
-  check(
-    !policy.receive(item("云端旧内容", "2026-10-01T08:00:00Z"), "本机复制"),
-    "an existing local copy is preserved",
-  );
-  policy.localChanged("");
-  check(
-    policy.receive(item("云端新内容", "2026-10-01T09:00:00Z"), ""),
-    "an empty clipboard accepts a new remote item",
-  );
-  policy.markRemote(item("云端新内容", "2026-10-01T09:00:00Z"));
-  policy.received("云端新内容");
-  check(
-    policy.receive(item("云端更新", "2026-10-01T10:00:00Z"), "云端新内容"),
-    "a receiver-owned clipboard accepts the next remote item",
-  );
-  policy.localChanged("用户复制");
-  check(
-    !policy.receive(item("云端更晚", "2026-10-01T11:00:00Z"), "用户复制"),
-    "a later local copy wins over a remote poll",
-  );
-});
+group(
+  "cloud clipboard auto receive baselines local copies without blocking later remote copies",
+  () => {
+    const item = (hour: number) => ({
+      id: "a".repeat(64),
+      text: `合成云端文本 ${hour}`,
+      updatedAt: `2026-10-01T${hour}:00:00Z`,
+      pinned: false,
+      device: "Synthetic device",
+    });
+    const policy = new CloudClipboardReceivePolicy();
+    policy.begin("合成本机复制");
+    check(!policy.receive(item(99), "合成本机复制"), "invalid dates cannot establish a baseline");
+    check(
+      !policy.receive(item(10), "合成本机复制"),
+      "existing content preserves the initial local copy",
+    );
+    check(!policy.receive(item(10), "合成本机复制"), "the initial cloud page is not replayed");
+    check(
+      policy.receive(item(11), "合成本机复制"),
+      "later remote content replaces an unchanged local copy",
+    );
+    policy.markRemote(item(11));
+    policy.received(item(11).text);
+    check(!policy.receive(item(10), item(11).text), "deletion never replays an older entry");
+    check(
+      !policy.receive(item(12), "合成并发复制"),
+      "a local change during the request wins this response",
+    );
+    check(!policy.receive(item(12), "合成并发复制"), "the skipped response is not replayed");
+    check(policy.receive(item(13), "合成并发复制"), "a subsequent remote copy is still reachable");
+    policy.markRemote(item(13));
+    policy.markRemote(item(10));
+    check(!policy.receive(item(12), "合成并发复制"), "the watermark never moves backwards");
+    policy.begin("合成本机复制");
+    check(!policy.receive(null, "合成本机复制"), "an empty first page establishes a baseline");
+    check(policy.receive(item(10), "合成本机复制"), "a new binding has an independent watermark");
+    policy.begin("");
+    check(policy.receive(item(10), ""), "a truly empty clipboard can receive the first page");
+    check(!policy.receive(item(11), null), "a read failure or non-text clipboard is not empty");
+    check(!policy.receive(item(12), null), "non-text clipboard protection persists");
+  },
+);
 
 group("cloud clipboard listings are read whole", () => {
   const id = (digit: string) => digit.repeat(64);

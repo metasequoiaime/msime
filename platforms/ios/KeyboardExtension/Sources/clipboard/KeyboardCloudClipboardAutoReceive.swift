@@ -8,6 +8,7 @@ final class KeyboardCloudClipboardAutoReceive {
   private let pasteboard: UIPasteboard
   private var task: Task<Void, Never>?
   private var active = false
+  private var generation = 0
   private var policy = KeyboardCloudClipboardReceivePolicy()
   private var binding: KeyboardCloudClipboardBinding?
 
@@ -21,51 +22,73 @@ final class KeyboardCloudClipboardAutoReceive {
     stop()
     guard allowed() else { return }
     active = true
-    policy.begin(changeCount: pasteboard.changeCount, hasStrings: pasteboard.hasStrings)
+    policy.begin(changeCount: pasteboard.changeCount, hasItems: pasteboard.numberOfItems > 0)
+    let runGeneration = generation
     task = Task { [weak self] in
-      await self?.poll(allowed: allowed)
+      await self?.poll(generation: runGeneration, allowed: allowed)
     }
   }
 
   func stop() {
+    generation &+= 1
     active = false
     task?.cancel()
     task = nil
     binding = nil
   }
 
-  private func poll(allowed: @escaping @MainActor () -> Bool) async {
-    while active && !Task.isCancelled {
-      await receive(allowed: allowed)
+  private func current(_ generation: Int) -> Bool {
+    active && self.generation == generation && !Task.isCancelled
+  }
+
+  private func poll(generation: Int, allowed: @escaping @MainActor () -> Bool) async {
+    while current(generation) {
+      await receive(generation: generation, allowed: allowed)
       do { try await Task.sleep(nanoseconds: 3_000_000_000) }
       catch { return }
     }
   }
 
-  private func receive(allowed: @escaping @MainActor () -> Bool) async {
-    guard active, allowed() else { return }
+  private func receive(generation: Int, allowed: @escaping @MainActor () -> Bool) async {
+    guard current(generation), allowed() else { return }
     let changeCount = pasteboard.changeCount
-    let hasStrings = pasteboard.hasStrings
-    if policy.localChangeCount != changeCount {
-      policy.localChanged(changeCount: changeCount, hasStrings: hasStrings)
+    let locallyChanged = policy.localChangeCount != changeCount
+    if locallyChanged {
+      policy.localChanged(changeCount: changeCount)
     }
     do {
-      guard let current = try await service.binding() else { return }
-      if let binding, binding == current, !(await service.matches(current)) { return }
-      if binding != current {
-        binding = current
+      guard let captured = try await service.binding(), current(generation), allowed() else { return }
+      guard await service.matches(captured), current(generation), allowed() else { return }
+      let sameBinding = binding == captured
+      if binding != captured {
+        binding = captured
         policy = KeyboardCloudClipboardReceivePolicy()
-        policy.begin(changeCount: pasteboard.changeCount, hasStrings: pasteboard.hasStrings)
+        policy.begin(changeCount: pasteboard.changeCount, hasItems: pasteboard.numberOfItems > 0)
+        if changeCount != pasteboard.changeCount {
+          policy.localChanged(changeCount: pasteboard.changeCount)
+        }
       }
-      let page = try await service.page(matching: current)
-      guard active, allowed(), await service.matches(current), page.enabled, !page.isPending,
-            let item = page.items.first else { return }
+      let page = try await service.page(matching: captured)
+      guard current(generation), allowed(), page.enabled, !page.isPending else { return }
+      guard await service.matches(captured), current(generation), allowed() else { return }
+      guard pasteboard.numberOfItems == 0 || pasteboard.hasStrings else {
+        if let item = page.items.first { policy.markRemote(item) }
+        return
+      }
       let currentCount = pasteboard.changeCount
-      let currentHasStrings = pasteboard.hasStrings
-      if policy.localChangeCount != currentCount {
-        policy.localChanged(changeCount: currentCount, hasStrings: currentHasStrings)
+      if sameBinding && (locallyChanged || currentCount != changeCount) {
+        // 正文读取服从系统粘贴授权；拒绝或失败只丢弃这次复制，不持续弹出重试。
+        _ = policy.receive(page.items.first, changeCount: currentCount)
+        guard let text = pasteboard.string, KeyboardCloudClipboard.validUploadText(text),
+              pasteboard.changeCount == currentCount, current(generation), allowed() else { return }
+        if page.items.first?.text != text {
+          let uploaded = try await service.uploadIfEnabled(text, matching: captured)
+          guard await service.matches(captured), current(generation), allowed() else { return }
+          if let item = uploaded?.items.first, item.text == text { policy.markRemote(item) }
+        }
+        return
       }
-      guard policy.receive(item, changeCount: currentCount, hasStrings: currentHasStrings) else { return }
+      guard policy.receive(page.items.first, changeCount: currentCount), let item = page.items.first else { return }
       pasteboard.setItems([[UTType.utf8PlainText.identifier: item.text]], options: [.localOnly: true])
       policy.markRemote(item)
       policy.received(changeCount: pasteboard.changeCount)

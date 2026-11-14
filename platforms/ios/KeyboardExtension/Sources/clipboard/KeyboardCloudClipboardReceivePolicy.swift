@@ -4,25 +4,22 @@ import Foundation
 struct KeyboardCloudClipboardReceivePolicy {
   private(set) var latestRemoteDate = Date.distantPast
   private(set) var localChangeCount: Int?
-  private(set) var localHasStrings = false
-  private var localOwnedByReceiver = false
+  private var needsBaseline = true
 
-  mutating func begin(changeCount: Int, hasStrings: Bool) {
+  mutating func begin(changeCount: Int, hasItems: Bool) {
+    latestRemoteDate = .distantPast
     localChangeCount = changeCount
-    localHasStrings = hasStrings
-    localOwnedByReceiver = false
+    needsBaseline = hasItems
   }
 
-  mutating func localChanged(changeCount: Int, hasStrings: Bool) {
+  mutating func localChanged(changeCount: Int) {
     localChangeCount = changeCount
-    localHasStrings = hasStrings
-    localOwnedByReceiver = false
+    needsBaseline = true
   }
 
   mutating func received(changeCount: Int) {
     localChangeCount = changeCount
-    localHasStrings = true
-    localOwnedByReceiver = true
+    needsBaseline = false
   }
 
   mutating func markRemote(_ item: BackendAccountClient.ClipboardItem) {
@@ -31,15 +28,20 @@ struct KeyboardCloudClipboardReceivePolicy {
     }
   }
 
-  mutating func receive(_ item: BackendAccountClient.ClipboardItem,
-                        changeCount: Int,
-                        hasStrings: Bool) -> Bool {
-    guard let date = CloudClipboardTimePolicy.date(item.updated_at),
+  mutating func receive(_ item: BackendAccountClient.ClipboardItem?, changeCount: Int) -> Bool {
+    if localChangeCount != changeCount { localChanged(changeCount: changeCount) }
+    if needsBaseline {
+      // 第一页只建立水位；之后的新远端复制仍然可达，本机复制不再永久阻止接收。
+      if let item {
+        guard CloudClipboardTimePolicy.date(item.updated_at) != nil else { return false }
+        markRemote(item)
+      }
+      needsBaseline = false
+      return false
+    }
+    guard let item, let date = CloudClipboardTimePolicy.date(item.updated_at),
           date > latestRemoteDate,
-          let expected = localChangeCount,
-          expected == changeCount,
-          (!hasStrings || localOwnedByReceiver),
-          (!localHasStrings || localOwnedByReceiver) else {
+          localChangeCount == changeCount else {
       return false
     }
     return true

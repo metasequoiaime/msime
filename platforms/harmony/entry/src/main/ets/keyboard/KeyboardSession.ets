@@ -145,6 +145,7 @@ import {
   CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
 import { CloudClipboardAutoReceive } from './clipboard/CloudClipboardAutoReceive';
+import { cloudClipboardSystemText } from './clipboard/CloudClipboardSystem';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
@@ -7204,7 +7205,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
+  /** 上传用户选中的历史条目或可见键盘刚观察到的本机复制；共享层再次核对开关和绑定。 */
   async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
@@ -7229,7 +7230,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       visible: (): boolean => this.cloudClipboardVisible(),
       readAllowed: (): Promise<boolean> => this.canReadClipboard(),
       list: (): Promise<CloudClipboardBoundListing | null> => this.cloudClipboardItems(),
-      read: (): Promise<string> => this.systemClipboardText(),
+      matches: (binding: string): boolean => this.cloudClipboard().matchesNow(binding),
+      read: (): Promise<string | null> => cloudClipboardSystemText(),
+      send: (text: string, binding: string): Promise<CloudClipboardSendOutcome> => this.sendToCloudClipboard(text, binding),
       write: async (text: string): Promise<boolean> => (await this.copyText(text)) === null
     });
     this.cloudClipboardAutoReceive = made;
