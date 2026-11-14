@@ -81,8 +81,9 @@ public final class CandidateGlossCardModelSmoke {
             && Source.online(CandidateTranslationRoute.Provider.NIUTRANS) == Source.NIUTRANS
             && Source.online(CandidateTranslationRoute.Provider.CUSTOM) == Source.CUSTOM
             && Source.online(CandidateTranslationRoute.Provider.AI) == Source.AI
+            && Source.online(CandidateTranslationRoute.Provider.ALIYUN) == Source.ALIYUN
             && Source.online(CandidateTranslationRoute.Provider.NONE) == null, "providers map to source names");
-        String[] titles = {"离线释义", "水杉账号", "腾讯翻译", "小牛翻译", "自定义服务", "AI 辅助"};
+        String[] titles = {"离线释义", "水杉账号", "腾讯翻译", "小牛翻译", "自定义服务", "AI 辅助", "阿里云翻译"};
         for (int index = 0; index < titles.length; index++)
             check(titles[index].equals(Source.values()[index].title()), "source title " + titles[index]);
         check("释义".equals(CandidateGlossCardModel.TITLE) && "暂无译文".equals(CandidateGlossCardModel.EMPTY)

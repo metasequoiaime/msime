@@ -590,6 +590,18 @@ function Find-SliderValue($window, $slider) {
     }
     return $found
 }
+function Wait-CandidatePageViewport($window, [DateTime]$deadline) {
+    do {
+        try {
+            $content = Find-ById $window 'settings-content'
+            if ($content) { return $content.Current.BoundingRectangle }
+        } catch [System.Windows.Automation.ElementNotAvailableException] {
+            # 控件树刷新期间重新查询，不能解引用缺失或已失效的正文节点。
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw '设置正文未就绪，无法核对候选数量滑块'
+}
 function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
     $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
@@ -598,7 +610,7 @@ function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
         $bounds = $slider.Current.BoundingRectangle
-        $viewport = (Find-ById $window 'settings-content').Current.BoundingRectangle
+        $viewport = Wait-CandidatePageViewport $window $deadline
         if ($slider.Current.IsOffscreen -or $bounds.Height -le 0 -or
             $bounds.Top -lt $viewport.Top -or $bounds.Bottom -gt $viewport.Bottom) { throw '数值变化后候选数量滑块离开可视区域' }
         $label = Find-SliderValue $window $slider
