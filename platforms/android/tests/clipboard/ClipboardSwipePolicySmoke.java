@@ -44,6 +44,13 @@ public final class ClipboardSwipePolicySmoke {
         check(!ClipboardSwipePolicy.claimsRight(60, 0, slop, true), "an open card closes instead of opening detail");
         check(!ClipboardSwipePolicy.claimsRight(40, 40, slop, false), "a diagonal drag remains a list scroll");
 
+        // 接手横滑和真正进入详情是两个门槛，短慢拖不能打开详情。
+        check(!ClipboardSwipePolicy.settlesDetail(slop * 2, 0, reveal, density), "a short slow swipe keeps the list");
+        check(!ClipboardSwipePolicy.settlesDetail(reveal / 2 - 1, 0, reveal, density), "a slow swipe below halfway keeps the list");
+        check(ClipboardSwipePolicy.settlesDetail(reveal / 2, 0, reveal, density), "a slow swipe halfway opens detail");
+        check(ClipboardSwipePolicy.settlesDetail(slop * 2, 600 * density, reveal, density), "a short right fling opens detail");
+        check(!ClipboardSwipePolicy.settlesDetail(slop * 2, -600 * density, reveal, density), "a leftward fling does not open detail");
+
         // 跟手的位移夹在 [-reveal, 0]。
         check(ClipboardSwipePolicy.offset(0, -30, reveal) == -30, "the card follows the finger");
         check(ClipboardSwipePolicy.offset(0, -10_000, reveal) == -reveal, "the card never slides past the delete area");

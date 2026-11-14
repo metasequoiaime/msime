@@ -295,6 +295,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         seedHistory(original, 1700000000000L, true);
         byte[] seeded = Files.readAllBytes(history.toPath());
         openClipboardEditor(true);
+        shortRightSwipeKeepsList(false);
+        shortRightSwipeKeepsList(true);
         stage = "right swipe opens clipboard detail with full record time and no source metadata (seeded entries "
             + sharedHistoryCount() + ")";
         // 长文本超过 Android 无障碍节点的文本传输上限时，节点仍可见但 `getText()` 可能为空；用卡片自己的操作说明定位，再按真实边界注入右滑。
@@ -302,8 +304,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo card = awaitStableDetailCard();
         Rect cardBounds = new Rect();
         card.getBoundsInScreen(cardBounds);
-        drag(new Rect(cardBounds.left + 8, cardBounds.centerY(), cardBounds.left + 9, cardBounds.centerY() + 1),
-            new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
+        // 首次打开走稀疏事件，后面的编辑路径仍用连续 MOVE，覆盖两种完整右滑。
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, cardBounds.left + 8, cardBounds.centerY());
+        SystemClock.sleep(240);
+        event(MotionEvent.ACTION_UP, cardBounds.right - 8, cardBounds.centerY());
         // 返回入口已移到底部；80 行合成正文会让它暂时位于滚动视口之外。
         awaitAny(described("返回剪贴板历史列表"));
         for (var window : automation.getWindows()) {
@@ -567,6 +572,30 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             || node.getText() == null || node.getText().length() == 0));
         if (!java.util.Arrays.equals(before, Files.readAllBytes(history.toPath())))
             throw new AssertionError("List scroll rewrote history");
+    }
+
+    private void shortRightSwipeKeepsList(boolean withMoves) {
+        stage = "short slow right swipe keeps list and editor unchanged; moves=" + withMoves;
+        Rect bounds = new Rect();
+        awaitStableDetailCard().getBoundsInScreen(bounds);
+        float distance = ViewConfiguration.get(getTargetContext()).getScaledTouchSlop() * 2f;
+        float x = bounds.left + 8;
+        float y = bounds.centerY();
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, x, y);
+        if (withMoves) {
+            for (int i = 1; i <= 6; i++) {
+                event(MotionEvent.ACTION_MOVE, x + distance * i / 6f, y);
+                SystemClock.sleep(40);
+            }
+        } else {
+            SystemClock.sleep(240);
+        }
+        event(MotionEvent.ACTION_UP, x + distance, y);
+        SystemClock.sleep(200);
+        awaitStableDetailCard();
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
     }
 
     private void assertFixedCard(AccessibilityNodeInfo card) {

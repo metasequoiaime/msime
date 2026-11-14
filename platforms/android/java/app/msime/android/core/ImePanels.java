@@ -2805,29 +2805,34 @@ final class ImePanels {
                 }
                 case android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     boolean handled = dragging;
+                    float velocityX = 0f;
+                    if (velocity != null && event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
+                        track(event);
+                        velocity.computeCurrentVelocity(1000);
+                        velocityX = velocity.getXVelocity();
+                    }
                     if (!dragging && event.getActionMasked() == android.view.MotionEvent.ACTION_UP
                             && allowDetailSwipe && !openAtDown) {
                         float gestureDx = event.getRawX() - downX;
                         float gestureDy = event.getRawY() - downY;
                         if (ClipboardSwipePolicy.claimsRight(gestureDx, gestureDy, touchSlop, false)) {
-                            clipboardActionText = null;
-                            openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST);
+                            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                            card.onTouchEvent(cancel);
+                            cancel.recycle();
+                            if (ClipboardSwipePolicy.settlesDetail(gestureDx, velocityX, reveal, density)) {
+                                clipboardActionText = null;
+                                openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST);
+                            }
                             recycleVelocity();
                             return true;
                         }
                     }
                     if (dragging) {
-                        float velocityX = 0f;
-                        if (velocity != null && event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
-                            track(event);
-                            velocity.computeCurrentVelocity(1000);
-                            velocityX = velocity.getXVelocity();
-                        }
                         if (openingDetail) {
                             float gestureDx = event.getRawX() - downX;
                             boolean enterDetail = event.getActionMasked() == android.view.MotionEvent.ACTION_UP
-                                && (gestureDx >= reveal / 2f
-                                || velocityX >= ClipboardSwipePolicy.FLING_DP_PER_SECOND * density);
+                                && ClipboardSwipePolicy.settlesDetail(gestureDx, velocityX, reveal, density);
                             openingDetail = false;
                             if (enterDetail) {
                                 card.setTranslationX(0f);

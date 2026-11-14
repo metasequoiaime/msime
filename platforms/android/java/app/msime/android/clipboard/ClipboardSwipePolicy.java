@@ -54,6 +54,11 @@ public final class ClipboardSwipePolicy {
         return horizontal >= Math.abs(dy) * HORIZONTAL_DOMINANCE;
     }
 
+    /** 右滑接手后，慢拖过半或快速向右甩动才进入详情，事件稀疏时也使用同一门槛。 */
+    public static boolean settlesDetail(float dx, float velocityX, float reveal, float density) {
+        return dx >= Math.abs(reveal) / 2f || velocityX >= FLING_DP_PER_SECOND * density;
+    }
+
     /** 拖动中卡片的位移：起点位移加上手指相对按下点的位移，夹在 `[-reveal, 0]`，不会往右拖出空白，也不会拖过删除区。起点取接手那一刻卡片的位移减去当时的手指位移，卡片从原地开始跟手，不会因为越过 slop 而跳一下。 */
     public static float offset(float startOffset, float dx, float reveal) {
         return BoundsPolicy.bounded(startOffset + dx, -Math.abs(reveal), 0f);
