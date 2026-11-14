@@ -135,7 +135,7 @@ struct BackendKeyboardCloudClipboardService: KeyboardCloudClipboardService {
   }
 }
 
-/// The 云端 half of the keyboard clipboard panel. Nothing is read or sent in the background: the list is fetched when the panel opens and when the user asks for a refresh, and text goes up only when the user picks 发到云剪贴板 on a local history item. A fetch that comes back after the panel closed, or after a newer refresh, is dropped.
+/// 云端面板在打开和点刷新时读取列表；键盘可见且有完全访问权限时由 `KeyboardCloudClipboardAutoReceive` 同步新复制。读取本机正文服从系统粘贴授权，接收只写系统剪贴板；面板关闭或刷新代次变化后返回的旧结果丢弃。
 @MainActor
 final class KeyboardCloudClipboard {
   enum State {
@@ -256,11 +256,14 @@ final class KeyboardCloudClipboard {
     }
   }
 
-  /// Send one local history item. The server's `enabled` flag is read first, so nothing goes up while the user has the cloud clipboard switched off on another device.
+  static func validUploadText(_ text: String) -> Bool {
+    !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.utf16.count <= 4000 && !text.contains("\0")
+  }
+
+  /// 发送一条本机历史；共享驱动先核对云端开关，关闭时不上传。
   func upload(_ text: String) {
     guard canUpload, let binding else { return }
-    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf16.count <= 4000,
-          !text.contains("\0") else {
+    guard Self.validUploadText(text) else {
       notice = "这条记录超过 4000 字，不能发到云剪贴板。"
       onChange?()
       return

@@ -22,6 +22,7 @@ class WaylandWatch(unittest.TestCase):
         self.monitor = self.root / "msime-linux-clipboard-monitor"
         shutil.copyfile(ROOT / "scripts" / self.monitor.name, self.monitor)
         shutil.copyfile(ROOT / "scripts" / "msime_crash_capture.py", self.root / "msime_crash_capture.py")
+        shutil.copyfile(ROOT / "scripts" / "msime_clipboard_cloud.py", self.root / "msime_clipboard_cloud.py")
         self.monitor.chmod(0o700)
         self.options = self.root / "runtime.json"
         self.options.write_text(json.dumps({"preferences_directory": str(self.root)}))
@@ -139,6 +140,21 @@ time.sleep(30)
         finally:
             self.stop_monitor(process)
 
+    def test_native_data_control_unavailable_falls_back_without_wl_paste(self):
+        native = self.root / "msime-linux-clipboard-watch-wayland"
+        native.write_text("#!" + sys.executable + "\nraise SystemExit(2)\n")
+        native.chmod(0o700)
+        self.write_wl_paste(self.FAILING_WATCH)
+        self.write_x11_watch()
+        self.env["DISPLAY"] = ":synthetic"
+        process = self.start_monitor()
+        try:
+            self.wait_for(self.capture_log)
+            self.assertEqual(self.wl_log.read_text().splitlines(), ["x11-read"])
+            self.assertIn("data-control", self.stderr.read_text())
+        finally:
+            self.stop_monitor(process)
+
     def test_crashed_watcher_is_retried_instead_of_disabled(self):
         # 只有「合成器不提供 data-control」才放弃 `wl-paste --watch`；崩溃、被信号杀掉、其他非零退出都照旧隔一段时间重起。没有 DISPLAY 时这一点决定采集是否还在：误判成不支持 data-control 就再也不起 watcher，整个会话不再记剪贴板。
         self.shorten_retry()
@@ -166,6 +182,39 @@ time.sleep(30)
             self.wait_for(self.capture_log)
             time.sleep(1)
             self.assertFalse(any(line == "read" for line in self.wl_log.read_text().splitlines()))
+        finally:
+            self.stop_monitor(process)
+
+    def test_cloud_upload_is_owned_by_parent_and_skips_initial_selection(self):
+        (self.root / "preferences.json").write_text(json.dumps({
+            "format_version": 1, "preferences": {"clipboard_history": False}}))
+        uploads = self.root / "uploads"
+        helper = self.root / "msime-linux-cloud-clipboard-sync"
+        helper.write_text("#!" + sys.executable + "\n" +
+            "import json, sys\nfrom pathlib import Path\n" +
+            "action = json.load(sys.stdin)\n" +
+            "binding = {'source':'account','user_id':'synthetic-user','revision':1}\n" +
+            "if action['operation'] == 'add':\n" +
+            f"    with Path({str(uploads)!r}).open('a') as output: output.write(json.dumps(action) + '\\n')\n" +
+            "print(json.dumps(binding if action['operation'] == 'binding' else {'enabled':True,'items':[]}))\n")
+        helper.chmod(0o700)
+        self.write_wl_paste('''
+import subprocess, sys, time
+with log.open("a") as output: output.write("watch\\n")
+command = sys.argv[sys.argv.index("--watch") + 1:]
+subprocess.run(command, input=b"synthetic preexisting selection")
+time.sleep(3.8)
+subprocess.run(command, input=b"synthetic newly copied text")
+time.sleep(30)
+''')
+        process = self.start_monitor()
+        try:
+            self.wait_for(uploads, timeout=10)
+            time.sleep(1)
+            sent = [json.loads(line) for line in uploads.read_text().splitlines()]
+            self.assertEqual([item["text"] for item in sent], ["synthetic newly copied text"])
+            self.assertEqual(sent[0]["expected_binding"]["user_id"], "synthetic-user")
+            self.assertFalse(self.capture_log.exists())
         finally:
             self.stop_monitor(process)
 

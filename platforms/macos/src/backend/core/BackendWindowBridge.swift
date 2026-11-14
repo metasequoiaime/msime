@@ -8,10 +8,16 @@ import os
 @MainActor @objc(MSIMEBackendWindowBridge)
 final class BackendWindowBridge: NSObject {
   @objc static let shared = BackendWindowBridge()
+  private let cloudClipboardAutoSync = MacCloudClipboardAutoSync()
   @objc func startClipboardCapture(withOptions options: NSDictionary) {
-    MacClipboardService.shared.start(directory: options["preferences_directory"] as? String ?? "")
+    let directory = options["preferences_directory"] as? String ?? ""
+    MacClipboardService.shared.start(directory: directory)
+    cloudClipboardAutoSync.start(directory: directory)
   }
-  @objc func stopClipboardCapture() { MacClipboardService.shared.stop() }
+  @objc func stopClipboardCapture() {
+    cloudClipboardAutoSync.stop()
+    MacClipboardService.shared.stop()
+  }
   private let windows = BackendAccountWindowCache<NSWindowController>()
   private let emojiDeliveryNotice = MacEmojiDeliveryNotice()
 

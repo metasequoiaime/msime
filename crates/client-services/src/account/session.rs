@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 mod adopt;
 pub use adopt::*;
+mod binding;
+pub use binding::AccountLoginBinding;
 
 struct SessionState {
     loaded: bool,
@@ -756,30 +758,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         rejected_token: Option<&str>,
         expected_user_id: Option<&str>,
     ) -> Result<(String, String, u64), AccountError> {
-        self.ensure_session_id()?;
-        {
-            let mut state = self.lock()?;
-            self.load_locked(&mut state)?;
-            if expected_user_id.is_some_and(|expected| {
-                state
-                    .saved
-                    .as_ref()
-                    .map(|saved| saved.tokens.user.id.as_str())
-                    != Some(expected)
-            }) {
-                return Err(AccountError::Cancelled);
-            }
-        }
-        let token = self.access_token(rejected_token)?;
-        let mut state = self.lock()?;
-        self.load_locked(&mut state)?;
-        let saved = state.saved.as_ref().ok_or(AccountError::Cancelled)?;
-        if saved.tokens.access_token != token
-            || expected_user_id.is_some_and(|expected| saved.tokens.user.id != expected)
-        {
-            return Err(AccountError::Cancelled);
-        }
-        Ok((saved.tokens.user.id.clone(), token, state.generation))
+        self.credentials_for_login(rejected_token, expected_user_id, None)
     }
 
     /// 请求开始前在共享写锁内迁移旧会话，让两个进程使用同一个 ID，并保留旧文件的正常刷新行为。

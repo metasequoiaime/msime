@@ -144,6 +144,8 @@ import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/Cl
 import {
   CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
+import { CloudClipboardAutoReceive } from './clipboard/CloudClipboardAutoReceive';
+import { cloudClipboardSystemText } from './clipboard/CloudClipboardSystem';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
@@ -1527,6 +1529,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
   private cloudClipboardClient: CloudClipboardClient | undefined = undefined;
+  private cloudClipboardAutoReceive: CloudClipboardAutoReceive | undefined = undefined;
   private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
@@ -3954,6 +3957,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
+    this.cloudClipboardReceiver().start();
     this.editorAttributesKnown = false;
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
@@ -3966,6 +3970,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.previewSupported = attribute.isTextPreviewSupported === true;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       this.editorAttributesKnown = true;
+      this.cloudClipboardReceiver().start();
       // A pack imported again under the same id, or removed, while another editor had focus is picked up here, as host-api re-stamps its packs on focus.
       this.soundPlayer.recheck();
       this.musicPlayer.recheck();
@@ -4122,6 +4127,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    this.cloudClipboardAutoReceive?.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.attributeGeneration++;
@@ -4164,6 +4170,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.cloudClipboardAutoReceive?.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.ownEdits.clear();
@@ -7198,7 +7205,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
+  /** 上传用户选中的历史条目或可见键盘刚观察到的本机复制；共享层再次核对开关和绑定。 */
   async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
@@ -7213,6 +7220,22 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (cached !== undefined) return cached;
     const made: CloudClipboardClient = new CloudClipboardClient(this.stateDirectory);
     if (this.stateDirectory.length > 0) this.cloudClipboardClient = made;
+    return made;
+  }
+
+  private cloudClipboardReceiver(): CloudClipboardAutoReceive {
+    const cached: CloudClipboardAutoReceive | undefined = this.cloudClipboardAutoReceive;
+    if (cached !== undefined) return cached;
+    const made: CloudClipboardAutoReceive = new CloudClipboardAutoReceive({
+      visible: (): boolean => this.cloudClipboardVisible(),
+      readAllowed: (): Promise<boolean> => this.canReadClipboard(),
+      list: (): Promise<CloudClipboardBoundListing | null> => this.cloudClipboardItems(),
+      matches: (binding: string): boolean => this.cloudClipboard().matchesNow(binding),
+      read: (): Promise<string | null> => cloudClipboardSystemText(),
+      send: (text: string, binding: string): Promise<CloudClipboardSendOutcome> => this.sendToCloudClipboard(text, binding),
+      write: async (text: string): Promise<boolean> => (await this.copyText(text)) === null
+    });
+    this.cloudClipboardAutoReceive = made;
     return made;
   }
 

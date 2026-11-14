@@ -188,3 +188,9 @@ Tauri 移动端（iOS、Android）经平台插件读写：`loadCloudClipboardKey
 这五个动作的结果都是驱动 `status` 的结果形状。驱动返回的错误按宿主原有的错误通道交给面板，错误码保持驱动给出的 `code`（例如 `clipboard_device_pending`、`clipboard_sync_disabled`、`clipboard_key_conflict`）。macOS 的 Tauri 面板经 IPC 交给原生 provider，失败时的回复是 `{"ok": false, "error": "<code>", "status": <n>}`。
 
 Linux 上由用户自己运行的 socket provider（Fcitx5 与设置窗口经 `msime_client_cloud_clipboard_provider_request` 转发给它）同样会收到这五个动作，它自己持有凭据和网络，要按本文档实现加密，并以驱动的结果形状应答，失败时回 `{"ok": false, "error": "<code>"}`。
+
+## 自动同步的登录绑定
+
+Windows 与 Linux 常驻宿主在处理新复制前固定登录绑定，列表与上传共用 `expected_login:{user_id,session_id}`。账号 C 入口的 `binding` 动作返回这两个字段，未登录返回 `null`，只读本机状态且不联网、不返回凭据。`session_id` 是本机持久登录编号，正常刷新令牌保留，同账号重新登录时更换；旧文件缺字段时在共享写锁中迁移。共享账号驱动在取得凭据前后核对绑定，过期时返回 `account_cancelled`，不会改用新登录上传旧复制。
+
+Linux provider 使用相同 `version:1, kind:"cloud_clipboard"` 信封，新增请求 `{"operation":"binding"}`。provider 返回它自己持有的 `{"user_id":"合成账号","session_id":"合成登录编号"}`，两个字段均为非空字符串，不包含令牌；编号须在进程重启与正常令牌刷新后保持，同账号重新登录或换号后更换。列表与上传随后携带完全相同的 `expected_login`；provider 必须在取得发送凭据时核对，过期时拒绝，不得转用新登录。宿主不会用本机水杉账号推断独立 provider 的身份。旧 provider 不支持握手、返回无效值或失败时，自动同步暂停，不回落其他账号；原有手动请求不要求握手。

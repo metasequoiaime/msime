@@ -47,9 +47,12 @@ final class ImePanels {
     /** 符号集插件目录读取的代次；换输入框或关闭面板时作废旧结果。 */
     private long pluginSymbolReadGeneration;
 
+    final ImeCloudClipboardAutoReceive autoCloudClipboard;
+
     ImePanels(MSIMEInputService s) {
         this.s = s;
         clipboardPreview = new ClipboardTextPreview(s);
+        autoCloudClipboard = new ImeCloudClipboardAutoReceive(s);
     }
 
     void dismissClipboardPreview() {
@@ -1435,14 +1438,14 @@ final class ImePanels {
     }
 
     /** 「云端」这一刻归谁：`id` 是水杉账号编号或中继的绑定，`generation` 是账号的登录代次（中继为 0），`relay` 说明走哪条路。 */
-    private record CloudOwner(boolean relay, String id, long generation) {}
+    record CloudOwner(boolean relay, String id, long generation) {}
 
     /**
      * 「云端」这一刻归谁。偏好里配置了自建中继或 WebDAV 网盘时是中继或网盘，绑定由地址和令牌（网盘是地址和账号）算出（{@link CloudClipboardRelay#binding}），不需要登录；否则是水杉账号的登录绑定，读不到时为 null。
      *
      * <p>只看内存里的偏好快照，不读文件，主线程上可以调用。快照最多晚一秒（偏好每秒重读一次），所以后台线程真正发请求之前还会再问一次共享层（{@link CloudClipboardRelay#selected}），两边不一致就按失败处理，绝不改走账号。
      */
-    private CloudOwner cloudClipboardOwner() {
+    CloudOwner cloudClipboardOwner() {
         JSONObject preferences = s.preferencesSnapshot == null ? null : s.preferencesSnapshot.optJSONObject("preferences");
         String relay = CloudClipboardRelay.binding(preferences);
         if (!relay.isEmpty()) return new CloudOwner(true, relay, 0L);
@@ -1601,6 +1604,17 @@ final class ImePanels {
         } catch (java.util.concurrent.RejectedExecutionException error) {
             s.notice("未能发到云剪贴板，请稍后重试");
         }
+    }
+
+    /** 复制时固定账号与选路；后台校验和上传不依赖面板是否打开。 */
+    void autoSyncClipboardText(String text) {
+        if (!CloudClipboardPanelPolicy.autoUploadEligible(
+                cloudClipboardAllowed(), s.clipboardMode == ClipboardModePolicy.Mode.VISITOR, text)) return;
+        CloudOwner owner = cloudClipboardOwner();
+        if (owner == null || owner.id().isEmpty()) return;
+        ImeCloudClipboardAutoSync.submit(s.cloudClipboardWorker,
+            new ImeCloudClipboardAutoSync.Binding(owner.relay(), owner.id(), owner.generation()),
+            text, ImeCloudClipboardAutoSync.backend(s));
     }
 
     void insertCloudClipboardText(String text) {

@@ -62,17 +62,21 @@ class Fixture:
             arguments = [str(self.root / "history.json"), "add-stdin"]
         elif component == "clipboard-capture":
             arguments = [str(self.preferences)]
+        elif component == "cloud-clipboard-sync":
+            arguments = [str(self.options)]
         elif component == "voice-local":
             arguments = ["--runtime", str(self.root / "missing-runtime.so")]
         input_read, input_write = os.pipe()
         process = subprocess.Popen([binary, *arguments], stdin=input_read, stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, env=self.environment)
         try:
-            if component in ("voice-local", "clipboard-watch-x11"):
+            if component in ("voice-local", "clipboard-watch-x11", "clipboard-watch-wayland"):
                 assert select.select([process.stdout], [], [], 10)[0], "helper did not become ready"
                 line = process.stdout.readline()
                 if component == "voice-local":
                     assert json.loads(line)["type"] == "hello"
+                elif component == "clipboard-watch-wayland":
+                    assert "generation" in json.loads(line)
                 else:
                     assert line == b"\n"
             else:

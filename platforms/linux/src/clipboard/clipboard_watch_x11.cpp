@@ -95,7 +95,7 @@ bool read_clipboard(Display *display) {
 }
 } // namespace
 
-// Watch mode emits markers; --read returns bounded bytes for the monitor decoder.
+// 监听输出变化标记；读取输出有界正文，状态 3 专门表示没有选区所有者。
 int main(int argc, char **argv) {
   const bool read = argc == 2 && std::strcmp(argv[1], "--read") == 0;
   if (argc != 1 && !read) return 2;
@@ -103,6 +103,10 @@ int main(int argc, char **argv) {
   Display *display = XOpenDisplay(nullptr);
   if (!display) return 1;
   if (read) {
+    if (XGetSelectionOwner(display, XInternAtom(display, "CLIPBOARD", False)) == None) {
+      XCloseDisplay(display);
+      return 3;
+    }
     const bool ok = read_clipboard(display);
     XCloseDisplay(display);
     return ok ? 0 : 1;

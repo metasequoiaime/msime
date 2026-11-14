@@ -164,12 +164,35 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         search: &str,
         device_name: Option<&str>,
     ) -> Result<AccountClipboardPage, AccountClipboardError> {
+        self.clipboard_for_user(search, device_name, None)
+    }
+
+    /// 自动同步跨列表和上传时固定账号；换号后不向新账号请求旧复制。
+    pub fn clipboard_for_user(
+        &self,
+        search: &str,
+        device_name: Option<&str>,
+        expected_user_id: Option<&str>,
+    ) -> Result<AccountClipboardPage, AccountClipboardError> {
+        self.clipboard_for_login(search, device_name, expected_user_id, None)
+    }
+
+    /// 自动同步固定本次登录；同账号重新登录也不能沿用旧复制。
+    pub fn clipboard_for_login(
+        &self,
+        search: &str,
+        device_name: Option<&str>,
+        expected_user_id: Option<&str>,
+        expected_login: Option<&AccountLoginBinding>,
+    ) -> Result<AccountClipboardPage, AccountClipboardError> {
         validate_clipboard_search(search)?;
-        let page: AccountClipboardPage = decode(self.clipboard_e2e(
+        let page: AccountClipboardPage = decode(self.clipboard_e2e_for_user(
             Operation::List {
                 search: search.to_owned(),
             },
             device_name,
+            expected_user_id,
+            expected_login,
         )?)?;
         validate_clipboard_page(&page)?;
         Ok(page)
@@ -181,12 +204,35 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         text: &str,
         device_name: Option<&str>,
     ) -> Result<AccountClipboardItem, AccountClipboardError> {
+        self.add_clipboard_for_user(text, device_name, None)
+    }
+
+    /// 与列表使用同一账号绑定；校验在取得驱动凭据时完成。
+    pub fn add_clipboard_for_user(
+        &self,
+        text: &str,
+        device_name: Option<&str>,
+        expected_user_id: Option<&str>,
+    ) -> Result<AccountClipboardItem, AccountClipboardError> {
+        self.add_clipboard_for_login(text, device_name, expected_user_id, None)
+    }
+
+    /// 上传与列表共用持久登录绑定，核对完成后才取得驱动凭据。
+    pub fn add_clipboard_for_login(
+        &self,
+        text: &str,
+        device_name: Option<&str>,
+        expected_user_id: Option<&str>,
+        expected_login: Option<&AccountLoginBinding>,
+    ) -> Result<AccountClipboardItem, AccountClipboardError> {
         validate_clipboard_text(text)?;
-        let item: AccountClipboardItem = decode(self.clipboard_e2e(
+        let item: AccountClipboardItem = decode(self.clipboard_e2e_for_user(
             Operation::Add {
                 text: text.to_owned(),
             },
             device_name,
+            expected_user_id,
+            expected_login,
         )?)?;
         validate_clipboard_item(&item)?;
         Ok(item)
@@ -269,7 +315,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         operation: Operation,
         device_name: Option<&str>,
     ) -> Result<Value, AccountClipboardError> {
-        let (user_id, mut token, generation) = self.credentials_with_generation(None, None)?;
+        self.clipboard_e2e_for_user(operation, device_name, None, None)
+    }
+
+    fn clipboard_e2e_for_user(
+        &self,
+        operation: Operation,
+        device_name: Option<&str>,
+        expected_user_id: Option<&str>,
+        expected_login: Option<&AccountLoginBinding>,
+    ) -> Result<Value, AccountClipboardError> {
+        let (user_id, mut token, generation) =
+            self.credentials_for_login(None, expected_user_id, expected_login)?;
         let keystore = self.with_generation(generation, Some(&user_id), || {
             self.storage.load_clipboard_keystore()
         })?;
@@ -284,7 +341,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                     return Ok(response);
                 }
                 let (_, replacement, replacement_generation) =
-                    self.credentials_with_generation(Some(&token), Some(&user_id))?;
+                    self.credentials_for_login(Some(&token), Some(&user_id), expected_login)?;
                 if replacement_generation != generation {
                     return Err(AccountError::Cancelled);
                 }

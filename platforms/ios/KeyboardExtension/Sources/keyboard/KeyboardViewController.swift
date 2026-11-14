@@ -161,6 +161,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let fullwidthShortcut = UIButton()
   private let punctuationShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
+  private let cloudClipboardAutoReceive = KeyboardCloudClipboardAutoReceive()
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
   private var phrasesPanel: KeyboardPhrasesView?
@@ -1073,6 +1074,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     prepareKeyFeedback()
     // 收起之后才到的 `viewDidAppear` 不再开始维护：`viewWillDisappear` 已经停了定时器、放了锁，这里再开一轮会把锁重新取回来，而键盘已经不在屏幕上。
     guard isPresented else { return }
+    cloudClipboardAutoReceive.start { [weak self] in
+      guard let self else { return false }
+      return self.hasFullAccess && self.privacyGate.allows(.cloudClipboard)
+    }
     // 出现时先跑一轮词库维护，不必等两秒的定时器：两份队列文件在后台读，个人词库只在有待应用的编辑、设置页要求刷新或上次列出已超过 15 分钟（`PersonalDictionaryStore.listingLifetime`）时才同步，快照版本照常按 `DictionarySnapshotWorker.idleVersionPollInterval`（已有版本、没有活动请求时一分钟）节流。以前这里每次出现都在主线程上强制同步一次个人词库、强制重算一次词库版本，没有任何变化时也要读写共享文件、查询引擎。
     startIdleMaintenance()
     personalDictionaryTimer?.invalidate()
@@ -1405,6 +1410,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    cloudClipboardAutoReceive.stop()
     readAloudSpeaker.stop()
     candidateCanvasActive = false
     isPresented = false

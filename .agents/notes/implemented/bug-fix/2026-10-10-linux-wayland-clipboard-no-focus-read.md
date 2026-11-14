@@ -17,11 +17,11 @@ Status: implemented
 
 只要合成器不提供 data-control，就不用 `wl-paste` 读剪贴板，改经 XWayland 的 X11 剪贴板。Mutter 会把 Wayland 剪贴板同步到 XWayland 的 CLIPBOARD（新的复制会让它重新成为 X 选择的所有者），X11 客户端经 `XConvertSelection` 读取不涉及焦点，XFixes 也能收到所有权变化。
 
-- 监视器的 `clipboard_text()` 只走 X11 读取（原生 `msime-linux-clipboard-watch-x11 --read`、`xclip`、`xsel`），从不调用 `wl-paste`。Wayland 上能用的事件源只有 `wl-paste --watch`，它把数据经标准输入交给 `--capture-event`，本来就用不到轮询读取；而需要轮询的 Wayland 会话恰恰是 `--watch` 起不来、`wl-paste` 会抢焦点的那种。
+- 监视器的 `clipboard_text()` 只走 X11 读取（原生 `msime-linux-clipboard-watch-x11 --read`、`xclip`、`xsel`），从不调用 `wl-paste`。Wayland 上优先采用[双向云剪贴板](../../implemented/feature/2026-11-13-bidirectional-cloud-clipboard.md)引入的原生 data-control 事件源，缺少原生工具时使用 `wl-paste --watch` 把数据经标准输入交给 `--capture-event`，两者都用不到轮询读取；而需要轮询的 Wayland 会话恰恰是 `--watch` 起不来、`wl-paste` 会抢焦点的那种。
 - `wl-paste --watch` 以正数状态退出、且它的 stderr 里有 `data-control protocol` 时，监视器记下这一点，立即在同一会话里改起 `msime-linux-clipboard-watch-x11`（XFixes 监听），并在 stderr（即 journal）写一行原因；关闭再开启剪贴板历史之前不再尝试 `wl-paste --watch`。别的退出（崩溃、被信号杀掉即 returncode 为负、连不上合成器）不算不支持 data-control，照旧 `WATCH_RETRY_DELAY`（30 秒）后重起 `wl-paste --watch`，期间按 X11 轮询。wl-paste 的 stderr 写进监视器持有的一个临时文件，每次启动前清空，退出后读前 4 KiB：用文件不用管道，是因为 watcher 活着时没人读，`--watch` 起的子进程也继承这个 stderr，管道写满会把它们卡住。没有 `DISPLAY` 时暂停采集，因为此时没有不抢焦点的读法。#6618 加的 5 秒节流随之删除：轮询不再碰 `wl-paste`，节流保护的东西不存在了。
 - Tauri 侧的 `linux_clipboard_text()` 在 Wayland 上先用 `wayland_paste_is_background()` 判断：进程内跑一次 `wl-paste --type text --watch true`，判定规则与监视器相同。1 秒后仍在运行就是支持 data-control；1 秒内以正数状态退出、且 stderr 里有 `data-control protocol` 才是不支持。这两个结论缓存在 `OnceLock` 里。其余结局（没装 `wl-paste`、连不上合成器、被信号结束、别的错误信息）这一次按不能用处理、直接走 `xclip`/`xsel`，但不缓存，下次读取再探测。不能用时跳过 `wl-paste`。`--watch` 只走 data-control，不建窗口，探测本身不抢焦点。
 
-提供 data-control 的合成器（wlroots 系、KWin）和纯 X11 会话行为不变：监视器仍用 `wl-paste --watch` 或 XFixes 事件，Tauri 仍先用 `wl-paste`。
+提供 data-control 的合成器（wlroots 系、KWin）由原生工具或 `wl-paste --watch` 提供事件，纯 X11 会话继续使用 XFixes，Tauri 的能力探测保持原样。原生工具不支持 data-control 时以状态 2 返回，监视器沿用相同的 XWayland 回退。
 
 ## Alternatives considered
 

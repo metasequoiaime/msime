@@ -2,6 +2,7 @@
 #
 # rpm-build runs rpmbuild for CPack's RPM generator and computes Requires from what the binaries link; file lets CPack find the ELF files. Rust is installed at the channel rust-toolchain.toml pins, through a rustup-init whose version and SHA-256 are pinned here the way the Debian images pin their rust image by digest.
 FROM fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c
+# Fedora 的 Sway 带 cap_sys_nice=ep，默认容器不能执行；无窗口测试不调度实时线程，只移除测试工具的文件能力，不扩大容器权限。
 RUN dnf install -y --setopt=install_weak_deps=False \
   gcc gcc-c++ cmake ninja-build pkgconf-pkg-config python3 git procps-ng \
   alsa-lib-devel libcurl-devel gtk4-devel clang-devel \
@@ -9,7 +10,8 @@ RUN dnf install -y --setopt=install_weak_deps=False \
   wayland-devel wayland-protocols-devel libX11-devel libXfixes-devel libXrandr-devel libXext-devel \
   fcitx5-devel glib2-devel pango-devel cairo-devel \
   webkit2gtk4.1-devel gtk3-devel libsoup3-devel javascriptcoregtk4.1-devel openssl-devel \
-  rpm-build file dbus-daemon \
+  rpm-build file dbus-daemon sway wl-clipboard libcap \
+  && setcap -r /usr/bin/sway \
   && dnf clean all
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 RUN set -eu; \
