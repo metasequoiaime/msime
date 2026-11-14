@@ -109,6 +109,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(buttons[0].getWidth() >= scroll.getWidth() - 2 * Math.round(density),
                     "single visible tool did not fill available width");
                 checkToolbarHeightStability(type, service, loader, density);
+                CompactCandidateHeightDeviceChecks.run(type, service, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
@@ -146,7 +147,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Field settings = field(type, "localSettings");
         Method update = method(type, "updateCandidateViewportHeight");
         try {
-            for (int percent : new int[] {90, 100, 150}) {
+            for (int percent : new int[] {50, 70, 90, 100, 150}) {
                 settings.set(service, constructor.newInstance(Map.of(
                     "platform.android.toolbar_size_percent", percent)));
                 header.setVisibility(View.GONE);

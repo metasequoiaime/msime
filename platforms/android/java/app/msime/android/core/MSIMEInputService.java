@@ -5144,12 +5144,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
-        // 42 dp 的候选行容下候选字、一行释义和选中 chip 的留白；第二行起每行再加高一些。
+        // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
         int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
-        int extraRows = BoundsPolicy.nonNegative(reserved - 1);
-        int line = CandidateScalePolicy.dimension(
-            ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP,
-            candidateScalePercent);
+        int line = imeCandidates.stripHeightDp(reserved);
         ViewPolicy.setFixedHeight(candidateLine, pixels(line));
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
         int readingRow = readingRowHeight();
@@ -5180,8 +5177,8 @@ public final class MSIMEInputService extends InputMethodService {
                     ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
             ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
         }
-        // 同一状态下「候选栏大小」为 100% 时的行高：读音行显示时只有 42 dp 的候选行，矮于 44 dp 的按钮是原有设计，100% 时按钮和图标不能因此缩小。
-        int designLine = pixels(ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP);
+        // 同一状态下「候选栏大小」为 100% 时的设计行高：读音行可见时只取候选行，按钮和图标不因标题出现而改变比例。
+        int designLine = pixels(CandidateStripHeightPolicy.designHeightDp(reserved));
         int designRowHeight = idleHeader ? designLine : readingRow + designLine;
         imeToolbar.applyShortcutSize(sizePercent, customSize, idleRowHeight, designRowHeight);
     }
