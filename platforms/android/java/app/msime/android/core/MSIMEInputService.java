@@ -1669,8 +1669,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (deleteSelection()) return;
         CharSequence before = EditorBackspaceBoundary.before(connection);
         int length = EditorBackspaceBoundary.length(before);
-        if (before != null && length == 0) {
-            // 空框外的引用和查询窗口容不下的对象交给编辑器；读取失败不当作空框。
+        if (before != null && (length == 0 || EditorBackspaceBoundary.shouldDelegate(before, length))) {
+            // 空框引用、不完整范围和私有占位交给编辑器；未知长度不猜回声，不保留横滑恢复。
             selectionEcho.invalidate();
             imeLetterRows.invalidateBackspaceScrub();
             sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);

@@ -20,6 +20,13 @@ final class EditorBackspaceBoundary {
             : value.subSequence(value.length() - CONTEXT_LENGTH, value.length());
     }
 
+    /** 占位结尾的私有范围可能没跨进程返回；只发退格，让编辑器决定范围，不解析表情标签。 */
+    static boolean shouldDelegate(CharSequence before, int length) {
+        if (before == null || before.length() == 0 || length != 1) return false;
+        char last = before.charAt(before.length() - 1);
+        return last == ']' || last == '\ufffc';
+    }
+
     /** 返回 UTF-16 删除长度；上下文不足时返回 0，交给编辑器自己的退格。 */
     static int length(CharSequence before) {
         if (before == null || before.length() == 0) return 0;

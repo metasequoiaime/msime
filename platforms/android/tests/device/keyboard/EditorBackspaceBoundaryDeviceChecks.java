@@ -22,6 +22,12 @@ final class EditorBackspaceBoundaryDeviceChecks {
         }
         check((int) length.invoke(null, "🇨🇳🇯🇵") == 4, "only the last flag");
         check((int) length.invoke(null, "前[合成]") == 1, "plain brackets are not assumed to be emoji");
+        Method delegate = policy.getDeclaredMethod("shouldDelegate", CharSequence.class, int.class);
+        delegate.setAccessible(true);
+        check((boolean) delegate.invoke(null, "前[合成]", 1), "editor owns private bracket semantics");
+        check((boolean) delegate.invoke(null, "前\ufffc", 1), "editor owns object replacement semantics");
+        check(!(boolean) delegate.invoke(null, "前甲", 1), "ordinary text keeps precise deletion");
+        check(!(boolean) delegate.invoke(null, "前[合成]", 4), "known complete object range stays precise");
         SpannableString inline = new SpannableString("前[合成]");
         inline.setSpan(new SyntheticInlineObject(), 1, inline.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         check((int) length.invoke(null, inline) == 4, "entire inline object");

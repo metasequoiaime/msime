@@ -89,6 +89,29 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
         await(editorText("甲乙"));
         await(status(true, true, 1));
 
+        openEditor(false, true);
+        stage = "private inline objects keep their editor-owned boundary";
+        setText("前[合成][合成]后");
+        select(9, 9);
+        tap(key("⌫"));
+        await(editorText("前[合成]后"));
+        await(status(true, true, 1));
+        tap(key("⌫"));
+        await(editorText("前后"));
+        await(status(true, true, 2));
+        stage = "ordinary brackets are not deleted as an emoji";
+        setText("前[普通]后");
+        select(5, 5);
+        tap(key("⌫"));
+        await(editorText("前[普通后"));
+        await(status(true, true, 3));
+        stage = "object replacement character delegates exactly once";
+        setText("前\ufffc后");
+        select(2, 2);
+        tap(key("⌫"));
+        await(editorText("前后"));
+        await(status(true, true, 4));
+
         openEditor(true);
         stage = "unavailable preceding text is not treated as empty";
         setText("甲");
@@ -100,10 +123,15 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
     }
 
     private void openEditor(boolean unavailable) throws java.util.concurrent.TimeoutException {
+        openEditor(unavailable, false);
+    }
+
+    private void openEditor(boolean unavailable, boolean privateInline) throws java.util.concurrent.TimeoutException {
         stage = "quote editor focus";
         Intent intent = new Intent(getTargetContext(), QuoteEditorActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         intent.putExtra("unavailable_before", unavailable);
+        intent.putExtra("private_inline", privateInline);
         startActivitySync(intent);
         tap(field(EDITOR));
         await(key("n"));
