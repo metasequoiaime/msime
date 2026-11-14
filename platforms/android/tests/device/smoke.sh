@@ -568,6 +568,8 @@ do
     check "${entry#*|}" MSIME_DEVICE_SMOKE_PASSED run_instrumentation "app.msime.android.test/app.msime.android.test.$suite"
   fi
 done
+# 常驻工具必须在系统复制触发的预览中真正响应点按，默认套件仍按原配置单独运行。
+check "最近复制行的常驻文本编辑验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e pinned-clipboard true
 # 18 键双拼复用字母组布局入口，避免超过 Android 35 的清单数量限制。
 check "十八键双拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_shuangpin true
 # 14/18 键角标符号（#11063）同样复用字母组入口：真实触摸覆盖滑出符号、反向选项、组字中点按和三项滑动设置。

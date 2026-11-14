@@ -34,4 +34,5 @@ Android 新增本机设置 `platform.android.toolbar_pinned`，默认值为 `dis
 - 本地 Android Host 门禁通过 350 项 JVM 冒烟、283 个设备测试源文件编译和 Java/API、清单与资源检查；`git diff --check` 与笔记校验通过。
 - `ToolbarPinnedDeviceCheck` 接到现有 `ToolbarEdgesDeviceSmoke`，覆盖收起、文本编辑、语音三种常驻位，以及 90%/150% 尺寸下复制预览反复出现、消失时的按钮身份、位置、动作绑定与尺寸。旧语音入口的运行时源码字符串断言由设备行为覆盖接替，设置存储接线检查保持。
 - 远端 quick 门禁通过；原生库、完整产品 APK 和合成编辑器 APK 构建通过。API 28/35 安装后均通过 `ToolbarEdgesDeviceSmoke`（含上述常驻位检查）。API 35 真实设置入口切到文本编辑后，合成编辑器中的键盘右侧显示文本编辑按钮；设置页改前、改后与键盘截图已保存并上传，回下载逐字节一致。
-- 最近复制预览的按钮移动已在实际产品对象上验证，尚未在系统剪贴板触发的预览里手动点按验收，也未完成整套设备冒烟；PR 保持 Draft。
+- `TextEditRecentClipboardDeviceSmoke -e pinned-clipboard true` 在 API 28/35 通过：90%/150% 两档由真实编辑器的全选、复制触发系统剪贴板预览，返回键盘后点按右侧常驻文本编辑，面板实际打开、预览保留、窗口位置和编辑器文字不变；关闭预览后同一个入口仍有效。新检查放在独立 helper，原默认套件的配置与前置条件不变，完整设备脚本另调用专项。
+- API 35 原 `TextEditRecentClipboardDeviceSmoke` 已通过。完整设备套件尚未完成，PR 保持 Draft；#11313 的既有数字与角标专项失败由独立 PR 跟踪，不在此处更改测试前置条件或跳过。
