@@ -295,3 +295,6 @@ platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceMascotDeviceChecks.java
 platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
+
+platforms/android/tests/device/community/CommunitySkinDownloadDeviceChecks.java
+platforms/android/tests/device/community/CommunitySkinDownloadTestProvider.java

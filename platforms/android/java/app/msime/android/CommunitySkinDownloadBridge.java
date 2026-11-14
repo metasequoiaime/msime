@@ -2,7 +2,7 @@ package app.msime.android;
 
 import android.content.Context;
 import android.net.Uri;
-import android.os.Bundle;
+import java.io.IOException;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -16,18 +16,18 @@ public final class CommunitySkinDownloadBridge {
             return new CommunityCatalog.Download(null, "这类作品还不能从这里保存。");
         try {
             Context application = context.getApplicationContext();
-            Bundle extras = new Bundle();
-            extras.putString(AccountSessionRoutingPolicy.KEY_SKIN_ID, id);
-            Bundle reply = application.getContentResolver().call(
-                Uri.parse("content://" + AccountSessionRoutingPolicy.authority(application.getPackageName())),
-                AccountSessionRoutingPolicy.METHOD_SKIN_DOWNLOAD, null, extras);
-            if (reply == null) return unavailable();
-            String failure = reply.getString(AccountSessionRoutingPolicy.KEY_ERROR, "");
+            Uri uri = new Uri.Builder().scheme("content")
+                .authority(AccountSessionRoutingPolicy.authority(application.getPackageName()))
+                .appendPath(CommunitySkinDownloadStream.PATH).appendPath(id).build();
+            JSONObject reply;
+            try (var input = application.getContentResolver().openInputStream(uri)) {
+                reply = CommunitySkinDownloadStream.read(input);
+            }
+            String failure = reply.optString("error", "");
             if (!failure.isEmpty()) return new CommunityCatalog.Download(null, failure);
-            String encoded = reply.getString(AccountSessionRoutingPolicy.KEY_SKIN_DESIGN, "");
-            if (encoded.isEmpty()) return unavailable();
-            return new CommunityCatalog.Download(new JSONObject(encoded), "");
-        } catch (JSONException | RuntimeException | LinkageError error) {
+            JSONObject design = reply.optJSONObject("design");
+            return design == null ? unavailable() : new CommunityCatalog.Download(design, "");
+        } catch (IOException | JSONException | RuntimeException | LinkageError error) {
             return unavailable();
         }
     }
