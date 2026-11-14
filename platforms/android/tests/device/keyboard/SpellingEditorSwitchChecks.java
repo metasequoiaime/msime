@@ -65,9 +65,12 @@ final class SpellingEditorSwitchChecks {
             s.tap(s.key("空格"));
             s.await(s.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你", node.getText())));
             Rect compactAfterCommit = keyboard(s);
-            if (Math.abs(compactAfterCommit.height() - enabled.height()) > 8 * density(s))
+            if (Math.abs(compactAfterCommit.height() - enabled.height()) > 8 * density(s)) {
+                screenshot(s, "failure");
                 throw new AssertionError("移除铅笔后组字提交改变了键盘高度：before=" + enabled
                     + ", after=" + compactAfterCommit);
+            }
+            screenshot(s, "committed");
 
             s.stage = "native setting persists on and off";
             setting(s, false);
@@ -82,8 +85,10 @@ final class SpellingEditorSwitchChecks {
             s.stage = "disabled editor keeps a compact stable keyboard while typing";
             editor(s);
             Rect compact = keyboard(s);
-            if (compact.height() >= enabled.height() - 8 * density(s))
-                throw new AssertionError("重新打开键盘又为禁用入口预留了空行");
+            // 移除铅笔后开启时组字也不留空行，两者应一样高；关闭后重新打开的键盘不能比开启时更高。
+            if (compact.height() > enabled.height() + 8 * density(s))
+                throw new AssertionError("重新打开键盘又为禁用入口预留了空行：enabled=" + enabled
+                    + ", compact=" + compact);
             AtomicBoolean monitoring = new AtomicBoolean(true);
             AtomicReference<AssertionError> failure = new AtomicReference<>();
             Thread monitor = new Thread(() -> {

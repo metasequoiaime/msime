@@ -174,7 +174,7 @@ function fourteenKeyFace(
 /**
  * 鸿蒙手机键盘 `layout` 按用户的按键布局偏好排出的整块键盘（数字行、字母行、底行），「按键布局」子页的整块预览和其他设置页的键盘预览都从这里取，不另编一套：26 键、14 键和 18 键的字母行取 `harmonyTouchKeyboardRows`（照 HarmonyOS 键盘的键位和份额），底行取所选样式的 `twentySixKeyBottomRows` / `fourteenKeyBottomRows`（26 键打开 `touch_twenty_six_symbol_first` 时经 `withSymbolFirst` 把 符 挪到 123 左边；`touch_language_key_side` 为 `left` 时三类键盘再经 `withLanguageKeyLeft` 把 中/英 挪到空格左边，与键盘同一条规则），打开 `touch_number_row` 时在字母上方加 `numberRowKeys`；9 键取统计热力图照 HarmonyOS 键盘画的 `phoneHeatmapLayoutRows`（左侧符号栏、3 × 3 九宫格和右列 ⌫ / 分词 / ！，底行与「右侧大回车」的外框随样式变，中/英 换边同样由它排），用户换了字母层的左侧符号表（`touch_nine_key_sidebar_symbols`，#10223）时左列按那张表画一屏（`nineKeySidebarStack`），9 键不画数字行；日语 9 键是假名格，不受这些偏好影响，原样画。
  *
- * `chineseTwentySix` 为假时 26 键不按 `touch_twenty_six_key_style` 排，画 26 键一族的标准底行：与 HarmonyOS `designRowStyledFace` 相同，样式只作用于中文 26 键，日语等 26 键用标准底行，但「符」与「123」互换和中/英 换边照样生效（`designRowEntries` 对所有 26 键一族的底行都套 `symbolFirst` 和 `languageBeforeSpace`）。鸿蒙没有隐藏中/英键的设置，底行一直有 中。
+ * `chineseTwentySix` 为假时 26 键不按 `touch_twenty_six_key_style` 排，画 26 键一族的标准底行（123 | 符 | 。 | 空格 | ， | 中 | 回车，与中文 26 键的标准样式同一行）：与 HarmonyOS `designRowStyledFace` 相同，样式只作用于中文 26 键，日语等 26 键用标准底行，但「符」与「123」互换和中/英 换边照样生效（`designRowEntries` 对所有 26 键一族的底行都套 `symbolFirst` 和 `languageBeforeSpace`）。鸿蒙没有隐藏中/英键的设置，底行一直有 中。
  */
 function harmonyStyledRows(
   layout: HarmonyTouchLayout,
