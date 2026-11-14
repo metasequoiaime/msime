@@ -1548,6 +1548,12 @@ try {
                         foreach ($name in @('二三候选', '自动纠错')) {
                             if (Find-ByName $content $name) { throw "Input page still shows $name" }
                         }
+                        if ($pair[0] -eq 'selection' -and -not (Find-ByName $content 'Esc 保留已选词')) {
+                            throw 'Input selection tab is missing Esc 保留已选词'
+                        }
+                        if ($pair[0] -eq 'candidates' -and -not (Find-ByName $content '回车学英文词')) {
+                            throw 'Input candidates tab is missing 回车学英文词'
+                        }
                         # Vim 模式名单紧跟应用例外，在「中英文」组里，共享偏好 `vim_mode_apps`。
                         if ($pair[0] -eq 'mode' -and -not (Find-ByName $content 'Vim 模式的程序文件名')) { throw 'Input mode tab is missing the Vim mode list' }
                         Save-Window $window "$theme-$width-typing-$($pair[0]).png"

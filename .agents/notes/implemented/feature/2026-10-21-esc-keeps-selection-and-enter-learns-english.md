@@ -30,7 +30,7 @@ Status: implemented
 ### 各平台的现状
 
 - **macOS**：Esc 此前写死整体丢弃（`crates/input-runtime/src/runtime.rs`），回车学词此前写死开启。现在两项都可配；默认值（Esc 关、回车学开）与旧行为一致，升级不改变手感。
-- **Windows 新架构**：`platforms/windows` 里两项都是 0，v0.11.1 的遗留设置没有搬过来。新宿主与 macOS 共用同一份 runtime/engine，因此这两项随共享偏好一起补齐；Windows 使用原生 WinUI 设置页，本 PR 没有为它增加设置控件。
+- **Windows 新架构**：新宿主与 macOS 共用同一份 runtime/engine，因此两项随共享偏好一起补齐；现代 WinUI 设置页和 Win7 设置页现在都暴露「Esc 保留已选词」与「回车学英文词」，写回同一份共享偏好。回车原样上屏拼音本来就是宿主既有行为，本次只补齐设置可达性，不改变默认值。
 - **Linux**：此前没有这两项，行为来自共享 runtime/engine。现在设置页（Tauri 设置应用）显示两行，值由共享偏好驱动。
 - **HarmonyOS**：同上，设置页经 ArkWeb 加载的共享 rawfile 显示两行；宿主不额外读这两项，行为仍在共享层。
 
@@ -44,7 +44,7 @@ Status: implemented
 
 ## Consequences
 
-- **收益**：v0.11.1 的两项遗留设置以共同能力的形式回到新架构，六个平台共享层一次补齐；默认值与旧行为一致，升级零行为变化。判定逻辑照搬 Windows 的谓词，没有引入新的产品决定。
+- **收益**：v0.11.1 的两项遗留设置以共同能力的形式回到新架构，Windows 两套原生设置页也能访问；默认值与旧行为一致，升级零行为变化。判定逻辑照搬 Windows 的谓词，没有引入新的产品决定。
 - **代价与已知上限**：共享偏好新增两个键，`Preferences` 文档和 MCP/账号同步的镜像表暂时没有收录它们（按最小方案只接产品路径与设置页）；需要跨设备同步时再补 `crates/mcp-server/src/preferences.rs` 与 `crates/client-services/src/account/settings_sync.rs`。本机只在单元测试层面验证了 runtime/engine/设置页，没有在六个平台的真机上交互验证。
 
 ## Verification

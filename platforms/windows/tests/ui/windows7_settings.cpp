@@ -488,7 +488,8 @@ int main() {
   const HWND word = GetDlgItem(body, word_character_keys);
   const HWND brackets = GetDlgItem(body, navigation_brackets);
   const HWND backspace = GetDlgItem(body, backspace_reverts);
-  assert(word && brackets && backspace);
+  const HWND escape_keeps = GetDlgItem(body, escape_keeps_selected_word);
+  assert(word && brackets && backspace && escape_keeps);
   assert((GetWindowLongPtrW(word, GWL_STYLE) & WS_VISIBLE) != 0);
   assert(store.load().snapshot->revision() == saved.snapshot->revision());
   auto selection_seed = store.save(*saved.snapshot, {{{"word_character", "enabled"}, false},
@@ -526,6 +527,16 @@ int main() {
   saved = store.load();
   assert(saved.snapshot->preferences().value("backspace_reverts_selection", true) != previous_backspace);
   assert(saved.snapshot->preferences().at("word_character").at("enabled") == true);
+  assert(!saved.snapshot->preferences().contains("escape_keeps_selected_word"));
+  assert(SendMessageW(escape_keeps, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  SendMessageW(escape_keeps, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(escape_keeps) != FALSE; });
+  assert(store.load().snapshot->preferences().at("escape_keeps_selected_word") == true);
+  assert(SendMessageW(escape_keeps, BM_GETCHECK, 0, 0) == BST_CHECKED);
+  SendMessageW(escape_keeps, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(escape_keeps) != FALSE; });
+  assert(!store.load().snapshot->preferences().contains("escape_keeps_selected_word"));
+  assert(SendMessageW(escape_keeps, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   const HWND mouse = GetDlgItem(body, navigation_mouse_wheel);
   assert(mouse && SendMessageW(mouse, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   SendMessageW(mouse, BM_CLICK, 0, 0);
@@ -638,6 +649,17 @@ int main() {
   assert(!GetDlgItem(body, mixed_japanese));
 #endif
   const auto before_mixed = saved.snapshot->preferences().at("mixed_input");
+  const HWND enter_learns = GetDlgItem(body, enter_learns_english_word);
+  assert(enter_learns && caption(enter_learns) == L"回车学英文词");
+  assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_CHECKED);
+  SendMessageW(enter_learns, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(enter_learns) != FALSE; });
+  assert(store.load().snapshot->preferences().at("enter_learns_english_word") == false);
+  assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  SendMessageW(enter_learns, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(enter_learns) != FALSE; });
+  assert(!store.load().snapshot->preferences().contains("enter_learns_english_word"));
+  assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_CHECKED);
   const bool was_mixed = before_mixed.value("enabled", true);
   click(mixed_enabled);
   saved = store.load();

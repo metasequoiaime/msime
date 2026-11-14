@@ -150,7 +150,7 @@ struct CandidateCheck {
   const wchar_t* description;
   bool fallback;
 };
-constexpr std::array<CandidateCheck, 12> candidate_checks{{
+constexpr std::array<CandidateCheck, 13> candidate_checks{{
     {cloud_candidates, "", "cloud_candidates", L"云候选", L"仅将当前正在组的拼写发送给所选云候选服务，不发送已上屏内容、词库或历史。", false},
     {mixed_enabled, "mixed_input", "enabled", L"候选混输", L"关闭后保留各项设置，再开启时恢复。", true},
     {mixed_english, "mixed_input", "english", L"中英混输", L"中文输入时在候选项中补充英文单词。", true},
@@ -163,6 +163,7 @@ constexpr std::array<CandidateCheck, 12> candidate_checks{{
     {single_character_only, "", "single_character_only", L"只出单字", L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字。", false},
     {caret_edit_suffix, "", "caret_edit_suffix", L"移动光标后编辑光标后的部分", L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句。", false},
     {word_lattice, "sentence_association", "word_lattice", L"本地整句联想", L"把词库组合出的整句加入候选；关闭后仍保留单词候选。", true},
+    {enter_learns_english_word, "", "enter_learns_english_word", L"回车学英文词", L"按回车上屏输入的英文时，把这个单词写入英文词库，之后可以作为候选出现。", true},
 }};
 
 // 这些标识来自共享配置的枚举，不用于转换用户文本。
@@ -1540,9 +1541,12 @@ struct SettingsWindow::State {
     item(L"BUTTON", L"退格键回退已选候选词", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
         backspace_reverts, 180, 28);
     item(L"STATIC", L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。", SS_LEFT, -1, 216, 48);
-    item(L"STATIC", L"翻页方式", SS_LEFT, -1, 282, 24);
-    item(L"STATIC", L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页。把以词定字占用的键组改为翻页，会在同一次保存中关闭以词定字。", SS_LEFT, -1, 318, 64);
-    int top = 394;
+    item(L"BUTTON", L"Esc 保留已选词", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
+        escape_keeps_selected_word, 282, 28);
+    item(L"STATIC", L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。", SS_LEFT, -1, 318, 48);
+    item(L"STATIC", L"翻页方式", SS_LEFT, -1, 384, 24);
+    item(L"STATIC", L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页。把以词定字占用的键组改为翻页，会在同一次保存中关闭以词定字。", SS_LEFT, -1, 420, 64);
+    int top = 496;
     for (const auto& field : navigation_checks) {
       item(L"BUTTON", field.label, WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, field.id, top, 28);
       top += 40;
@@ -1723,7 +1727,8 @@ struct SettingsWindow::State {
     EnableWindow(GetDlgItem(body, toolbar_theme), enabled);
     for (int id : {diagnostic_server, diagnostic_tsf, diagnostic_command_line_candidates, export_settings, import_settings})
       EnableWindow(GetDlgItem(body, id), enabled);
-    for (int id : {word_character_keys, backspace_reverts}) EnableWindow(GetDlgItem(body, id), enabled);
+    for (int id : {word_character_keys, backspace_reverts, escape_keeps_selected_word})
+      EnableWindow(GetDlgItem(body, id), enabled);
     for (const auto& field : navigation_checks) EnableWindow(GetDlgItem(body, field.id), enabled);
     for (int id : {traditional_output, chinese_english_spacing, fullwidth_output,
                    punctuation_mode, quote_style, bracket_style}) EnableWindow(GetDlgItem(body, id), enabled);
@@ -1979,6 +1984,7 @@ struct SettingsWindow::State {
     if (word->at("keys") != "brackets" && word->at("keys") != "minus_equal") return false;
     const auto backspace = preferences.find("backspace_reverts_selection");
     if (backspace != preferences.end() && !backspace->is_boolean()) return false;
+    if (preferences.contains("escape_keeps_selected_word") && !preferences.at("escape_keeps_selected_word").is_boolean()) return false;
     for (const auto* name : {"traditional_chinese_output", "chinese_punctuation"})
       if (!preferences.contains(name) || !preferences.at(name).is_boolean()) return false;
     for (const auto& field : punctuation_checks)
@@ -2000,9 +2006,9 @@ struct SettingsWindow::State {
       if (!preferences.contains(group) || !preferences.at(group).is_object()) return false;
     for (const auto& field : candidate_checks) {
       const auto& group = candidate_group(preferences, field);
-      // `caret_edit_suffix`、`next_word_prediction` 关着时共享序列化不写它们，缺键读作关。
+      // `caret_edit_suffix`、`next_word_prediction` 关着以及 `enter_learns_english_word` 开着时共享序列化不写它们，缺键读作默认值。
       const bool optional = field.id == mixed_enabled || field.id == mixed_symbols || field.id == mixed_japanese ||
-          field.id == caret_edit_suffix || field.id == next_word_prediction;
+          field.id == caret_edit_suffix || field.id == next_word_prediction || field.id == enter_learns_english_word;
       if (!group.contains(field.field)) {
         if (optional) continue;
         return false;
@@ -2083,6 +2089,8 @@ struct SettingsWindow::State {
     SendMessageW(choices, CB_SETCURSEL, selected, 0);
     SendMessageW(GetDlgItem(body, backspace_reverts), BM_SETCHECK,
         preferences.value("backspace_reverts_selection", true) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(body, escape_keeps_selected_word), BM_SETCHECK,
+        preferences.value("escape_keeps_selected_word", false) ? BST_CHECKED : BST_UNCHECKED, 0);
     for (const auto& field : navigation_checks)
       SendMessageW(GetDlgItem(body, field.id), BM_SETCHECK,
           navigation.value(field.field, false) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -3059,6 +3067,9 @@ struct SettingsWindow::State {
       }
       if (id == backspace_reverts)
         job.changes.push_back({{"backspace_reverts_selection"},
+            SendMessageW(GetDlgItem(body, id), BM_GETCHECK, 0, 0) == BST_CHECKED});
+      if (id == escape_keeps_selected_word)
+        job.changes.push_back({{"escape_keeps_selected_word"},
             SendMessageW(GetDlgItem(body, id), BM_GETCHECK, 0, 0) == BST_CHECKED});
       for (const auto& field : navigation_checks) {
         if (id != field.id) continue;
