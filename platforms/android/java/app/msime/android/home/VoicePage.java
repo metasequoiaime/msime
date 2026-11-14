@@ -198,6 +198,9 @@ public final class VoicePage extends ReloadingDetailPage {
         languageRow[0] = recognition.nav("识别语言", null, languageLabel(language),
             () -> pickLanguage(language, languageRow[0]));
 
+        recognition.nav("语音翻译", "识别后在独立窗口选择翻译语言、预览并插入译文", null,
+            () -> startActivity(new android.content.Intent(requireContext(), app.msime.android.TranslationActivity.class)));
+
         boolean punctuation = voice.optBoolean("doubao_enable_punc", true);
         GroupCard.Row punctuationRow = recognition.toggle("自动添加标点",
             state.punctuationSupported() ? null : "只对豆包生效；其他识别服务的标点用下面的「语音标点」",

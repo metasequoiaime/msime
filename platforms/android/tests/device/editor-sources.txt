@@ -301,3 +301,5 @@ platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
 platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
 platforms/android/tests/device/keyboard/AliyunTranslationDeviceChecks.java
+
+platforms/android/tests/device/keyboard/TranslationWindowDeviceChecks.java
