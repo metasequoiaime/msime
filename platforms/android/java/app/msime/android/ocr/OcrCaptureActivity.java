@@ -297,6 +297,9 @@ public final class OcrCaptureActivity extends Activity {
         base();
         body();
         message("正在本机识别…");
+        LinearLayout bottom = row();
+        button(bottom, "返回键盘", this::finish);
+        root.addView(bottom);
         execute(() -> {
             String[] lines = null;
             try (OcrRuntime runtime = OcrRuntime.open(this)) {
