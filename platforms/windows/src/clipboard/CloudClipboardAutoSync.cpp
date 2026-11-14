@@ -3,6 +3,7 @@
 #include "ClipboardHistory.h"
 #include "ClipboardPrivacyPolicy.h"
 #include "CloudClipboardReceivePolicy.h"
+#include "CloudClipboardWriter.h"
 #include "../../../common/HostApiString.h"
 #include "msime_client.h"
 
@@ -79,21 +80,7 @@ ClipboardSample read_clipboard_text() {
 }
 
 bool write_clipboard_text(const std::string &text, DWORD expected_sequence) {
-  const auto wide = utf8_to_wide(text);
-  if (wide.empty() || !OpenClipboard(nullptr)) return false;
-  struct CloseClipboardScope { ~CloseClipboardScope() { CloseClipboard(); } } close;
-  // 持有系统剪贴板期间比较代次，避免读取与清空之间覆盖用户新复制。
-  if (GetClipboardSequenceNumber() != expected_sequence) return false;
-  HGLOBAL data = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
-  if (!data) return false;
-  auto *target = static_cast<wchar_t *>(GlobalLock(data));
-  if (!target) { GlobalFree(data); return false; }
-  std::copy(wide.begin(), wide.end(), target);
-  target[wide.size()] = L'\0';
-  GlobalUnlock(data);
-  EmptyClipboard();
-  if (!SetClipboardData(CF_UNICODETEXT, data)) { GlobalFree(data); return false; }
-  return true;
+  return write_cloud_clipboard_text(utf8_to_wide(text), expected_sequence);
 }
 
 Json parse_response(char *raw) {
