@@ -14,6 +14,7 @@ Icon=msime-linux
 Terminal=false
 Categories=Settings;Utility;
 StartupNotify=true
+StartupWMClass=msime-linux-desktop
 Actions=Handwriting;Keyboard;Emoji;Clipboard;Dictionary;Voice;CloudDictionary;CloudClipboard;About;
 
 [Desktop Action Handwriting]
