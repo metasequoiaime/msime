@@ -109,13 +109,14 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     private void drawCornerHint(Canvas canvas) {
         if (cornerHint.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
-        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP));
+        float scale = CompactKeyTypography.scale(getContext(), getHeight());
+        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP) * scale);
         cornerPaint.setColor(getCurrentTextColor());
         cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
-        float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) - metrics.ascent;
+        float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) * scale - metrics.ascent;
         canvas.drawText(cornerHint,
-            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP), baseline,
+            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) * scale, baseline,
             cornerPaint);
     }
 }
