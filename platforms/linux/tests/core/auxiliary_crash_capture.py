@@ -62,6 +62,8 @@ class Fixture:
             arguments = [str(self.root / "history.json"), "add-stdin"]
         elif component == "clipboard-capture":
             arguments = [str(self.preferences)]
+        elif component == "cloud-clipboard-sync":
+            arguments = [str(self.options)]
         elif component == "voice-local":
             arguments = ["--runtime", str(self.root / "missing-runtime.so")]
         input_read, input_write = os.pipe()

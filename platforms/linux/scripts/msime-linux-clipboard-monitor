@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observe text clipboard changes while the configured history preference is enabled."""
+"""按本机历史开关采集文本，并在云剪贴板开启时同步新复制。"""
 import argparse
 import codecs
 import json
@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 import msime_crash_capture
+from msime_clipboard_cloud import CloudAutoSync, CloudReceivePolicy
 
 
 # Full preferences include custom prompts and dictionaries, not just clipboard settings.
@@ -126,7 +127,8 @@ def cloud_item(page):
     return item
 
 
-def read_command(args):
+
+def read_command(args, empty_status=None):
     process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL)
     data = bytearray()
@@ -137,7 +139,10 @@ def read_command(args):
                 return None
             chunk = os.read(process.stdout.fileno(), MAX_TEXT_BYTES - len(data))
             if not chunk:
-                if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
+                status = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+                if empty_status is not None and status == empty_status and not data:
+                    return ""
+                if status != 0:
                     return None
                 # Preserve source line endings; wl-paste already suppresses
                 # its own added newline and X11 tools return the raw selection.
@@ -165,7 +170,7 @@ def clipboard_text():
     for args in commands:
         if shutil.which(args[0]):
             try:
-                text = read_command(args)
+                text = read_command(args, empty_status=3 if args[0] == str(native) else None)
                 if text is not None:
                     return text
             except (OSError, ValueError, subprocess.SubprocessError):
@@ -173,31 +178,33 @@ def clipboard_text():
     return None
 
 
-def capture_event(options, capture, cloud_sync):
-    # Watch mode passes selection data over stdin, never in argv or logs.
-    if os.environ.get("CLIPBOARD_STATE", "data") != "data":
-        return
+def capture_event(options, capture):
+    # 正文只走标准输入和父子管道，不放进参数或日志。
     directory = configured_directory(options)
+    def publish(text):
+        if configured_directory(options) == directory:
+            print(json.dumps({"directory": str(directory), "text": text}, ensure_ascii=False), flush=True)
+    if os.environ.get("CLIPBOARD_STATE", "data") != "data":
+        publish(None)
+        return
     history = history_directory(options)
     data = bytearray()
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:
         if not select.select([sys.stdin.buffer], [], [], max(0, deadline - time.monotonic()))[0]:
+            publish(None)
             return
         chunk = os.read(sys.stdin.fileno(), MAX_TEXT_BYTES - len(data))
         data.extend(chunk)
         if not chunk or len(data) == MAX_TEXT_BYTES:
             text = history_text(data, complete=not chunk)
-            if text and configured_directory(options) == directory:
-                if history is not None:
-                    subprocess.run([str(capture), str(directory)], input=text.encode("utf-8"),
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-                if cloud_sync.is_file():
-                    try:
-                        cloud_request(cloud_sync, options, {"operation": "add", "text": text})
-                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
-                        pass
+            if text and configured_directory(options) == directory and history is not None:
+                subprocess.run([str(capture), str(directory)], input=text.encode("utf-8"),
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            # 独立子进程没有接收回声和绑定状态，只交给父进程决定同步。
+            publish(text)
             return
+    publish(None)
 
 
 def wayland_lacks_data_control(returncode, errors):
@@ -244,7 +251,7 @@ def main():
     cloud_sync = Path(__file__).resolve().parent / "msime-linux-cloud-clipboard-sync"
     if args.capture_event:
         try:
-            capture_event(args.options, capture, cloud_sync)
+            capture_event(args.options, capture)
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
         return
@@ -252,9 +259,10 @@ def main():
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, terminate)
     last = None
-    cloud_last_updated = ""
-    cloud_last_text = ""
-    cloud_receiver_owned = False
+    cloud = CloudAutoSync(lambda action: cloud_request(cloud_sync, args.options, action))
+    wayland_text = None
+    wayland_initialized = False
+    event_buffer = bytearray()
     next_cloud_poll = 0.0
     watcher = None
     watcher_kind = None
@@ -268,20 +276,13 @@ def main():
             try:
                 directory = configured_directory(args.options)
                 history = history_directory(args.options)
-                if history is None:
+                if history is None and not (cloud_sync.is_file() and os.environ.get("WAYLAND_DISPLAY")):
                     stop_watch(watcher)
                     watcher = None
                     watcher_kind = None
                     wayland_watch_failed = False
                     text = clipboard_text()
                     identity = (str(directory), text)
-                    if (text is not None and identity != last and cloud_sync.is_file() and
-                            not (cloud_receiver_owned and text == cloud_last_text)):
-                        try:
-                            cloud_request(cloud_sync, args.options,
-                                          {"operation": "add", "text": text})
-                        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
-                            pass
                     if text is not None:
                         last = identity
                 else:
@@ -309,9 +310,12 @@ def main():
                             watcher = subprocess.Popen(
                                 ["wl-paste", "--type", "text", "--watch", sys.executable,
                                  str(Path(__file__).resolve()), "--capture-event", str(args.options)],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=watch_errors, start_new_session=True)
                             watcher_kind = "wayland"
+                            wayland_text = None
+                            wayland_initialized = False
+                            event_buffer.clear()
                         elif ((not wayland or wayland_watch_failed) and os.environ.get("DISPLAY") and
                               x11_watch.is_file()):
                             watcher = subprocess.Popen([str(x11_watch)], stdin=subprocess.DEVNULL,
@@ -321,7 +325,26 @@ def main():
                     changed = False
                     if watcher is not None and watcher.stdout is not None:
                         if select.select([watcher.stdout], [], [], 0)[0]:
-                            changed = bool(os.read(watcher.stdout.fileno(), 4096))
+                            data = os.read(watcher.stdout.fileno(), 4096)
+                            changed = bool(data)
+                            if watcher_kind == "wayland":
+                                event_buffer.extend(data)
+                                # 单个文本事件有界；不保留多次复制的队列。
+                                if len(event_buffer) > MAX_TEXT_BYTES * 8:
+                                    event_buffer.clear()
+                                    wayland_text = None
+                                while b"\n" in event_buffer:
+                                    raw, _, remaining = event_buffer.partition(b"\n")
+                                    event_buffer[:] = remaining
+                                    try:
+                                        event = json.loads(raw)
+                                        if event.get("directory") == str(directory):
+                                            if not wayland_initialized:
+                                                cloud.reset()
+                                                wayland_initialized = True
+                                            wayland_text = event.get("text")
+                                    except (ValueError, TypeError, AttributeError):
+                                        wayland_text = None
                     # 事件模式下再次复制相同文本也会采集；没有可用监听时退回有界轮询，轮询只经 X11 读取（见 `clipboard_text`）。
                     if watcher is None or changed:
                         text = clipboard_text()
@@ -338,38 +361,23 @@ def main():
                             else:
                                 result = subprocess.CompletedProcess([], 0)
                             if result.returncode == 0:
-                                if cloud_receiver_owned and text == cloud_last_text:
-                                    cloud_receiver_owned = False
-                                else:
-                                    # Wayland watch events are already handed to the
-                                    # capture-event child; avoid uploading the same
-                                    # text again when the parent reads the selection.
-                                    if cloud_sync.is_file() and not (changed and watcher_kind == "wayland"):
-                                        try:
-                                            cloud_request(cloud_sync, args.options,
-                                                          {"operation": "add", "text": text})
-                                        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
-                                            pass
                                 last = identity
                         elif text is None:
                             last = None
                 if cloud_sync.is_file() and time.monotonic() >= next_cloud_poll:
                     next_cloud_poll = time.monotonic() + CLOUD_POLL_INTERVAL
                     try:
-                        page = cloud_request(cloud_sync, args.options,
-                                             {"operation": "list", "search": ""})
-                        item = cloud_item(page)
-                        if item is not None and item["updated_at"] > cloud_last_updated:
-                            current = clipboard_text() or ""
-                            if current == cloud_last_text or not current or cloud_receiver_owned:
-                                if write_clipboard(item["text"]):
-                                    cloud_last_updated = item["updated_at"]
-                                    cloud_last_text = item["text"]
-                                    cloud_receiver_owned = True
-                                    last = (str(directory), item["text"])
-                            elif current != cloud_last_text:
-                                cloud_receiver_owned = False
-                                cloud_last_updated = item["updated_at"]
+                        def sample():
+                            if os.environ.get("DISPLAY"):
+                                return clipboard_text()
+                            if watcher_kind == "wayland" and watcher is not None:
+                                # 管道已有新事件时，旧快照不可作为当前复制。
+                                if select.select([watcher.stdout], [], [], 0)[0]:
+                                    return None
+                                return wayland_text
+                            return None
+                        cloud.poll(sample, write_clipboard,
+                                   receive_allowed=bool(os.environ.get("DISPLAY")))
                     except (OSError, ValueError, TypeError, subprocess.SubprocessError, json.JSONDecodeError):
                         pass
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
@@ -378,12 +386,16 @@ def main():
                 watcher_kind = None
                 retry_watch = time.monotonic() + WATCH_RETRY_DELAY
                 last = None
+                wayland_text = None
+                event_buffer.clear()
+                cloud.reset()
             if watcher is not None and watcher.stdout is not None:
                 select.select([watcher.stdout], [], [], POLL_INTERVAL)
             else:
                 time.sleep(POLL_INTERVAL)
     finally:
         stop_watch(watcher)
+        watch_errors.close()
 
 
 if __name__ == "__main__":

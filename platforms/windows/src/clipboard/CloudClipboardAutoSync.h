@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CloudClipboardReceivePolicy.h"
+
 #include <condition_variable>
 #include <filesystem>
 #include <mutex>
@@ -14,25 +16,23 @@ public:
   explicit CloudClipboardAutoSync(std::filesystem::path directory);
   ~CloudClipboardAutoSync();
   CloudClipboardAutoSync(const CloudClipboardAutoSync &) = delete;
-  void observe_local_text(std::string text);
 
 private:
   void run();
-  void upload(const std::string &text);
   void poll();
-  bool request(const std::string &action, std::string *result);
+  bool stopped();
+  std::string current_binding();
+  bool request(const std::string &action, const std::string &binding, std::string *result);
 
   std::filesystem::path directory_;
   std::mutex mutex_;
   std::condition_variable wake_;
   std::thread worker_;
   bool stop_ = false;
-  bool upload_pending_ = false;
-  std::string pending_text_;
-  std::string local_text_;
-  std::string receiver_text_;
-  std::string latest_remote_updated_;
-  bool receiver_owned_ = false;
+  bool initialized_ = false;
+  std::uint32_t observed_sequence_ = 0;
+  std::string binding_;
+  CloudClipboardReceivePolicy policy_;
 };
 
 } // namespace msime::windows

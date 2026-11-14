@@ -2048,8 +2048,15 @@ target_link_libraries(windows-clipboard-presentation PRIVATE msime-windows-clipb
 # 剪贴板采集跳过密码管理器内容的判定，只有头文件，不需要 Server。
 add_executable(windows-clipboard-privacy tests/clipboard/clipboard_privacy.cpp)
 target_include_directories(windows-clipboard-privacy PRIVATE src/clipboard)
+add_executable(windows-cloud-clipboard-receive tests/clipboard/cloud_clipboard_receive.cpp)
+target_include_directories(windows-cloud-clipboard-receive PRIVATE src/clipboard)
+if(MSVC)
+  target_compile_options(windows-cloud-clipboard-receive PRIVATE /UNDEBUG)
+else()
+  target_compile_options(windows-cloud-clipboard-receive PRIVATE -UNDEBUG)
+endif()
 foreach(clipboard_target windows-clipboard-history windows-clipboard-link
-        windows-clipboard-presentation windows-clipboard-privacy)
+        windows-clipboard-presentation windows-clipboard-privacy windows-cloud-clipboard-receive)
   if(MSVC)
     target_compile_options(${clipboard_target} PRIVATE /W4 /WX /utf-8)
   else()

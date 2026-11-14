@@ -1613,7 +1613,6 @@ int wmain(int argc, wchar_t **argv) {
           auto reply = msime::host_api::own_string(
               msime_client_capture_clipboard_history(
                   reinterpret_cast<const uint8_t *>(request.data()), request.size()));
-          cloud_clipboard.observe_local_text(std::move(text));
         });
     // Clipboard history is an optional convenience, so a monitor that cannot
     // start leaves it inert rather than taking the IME down with it. Failing

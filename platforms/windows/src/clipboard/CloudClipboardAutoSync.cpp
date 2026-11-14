@@ -1,6 +1,8 @@
 #include "CloudClipboardAutoSync.h"
 
 #include "ClipboardHistory.h"
+#include "ClipboardPrivacyPolicy.h"
+#include "CloudClipboardReceivePolicy.h"
 #include "../../../common/HostApiString.h"
 #include "msime_client.h"
 
@@ -40,22 +42,48 @@ std::wstring utf8_to_wide(const std::string &text) {
   return result;
 }
 
-std::optional<std::string> read_clipboard_text() {
-  if (!OpenClipboard(nullptr)) return std::nullopt;
+struct ClipboardSample {
+  DWORD sequence;
+  std::optional<std::string> text;
+  bool has_content;
+};
+
+ClipboardSample read_clipboard_text() {
+  const auto sequence = GetClipboardSequenceNumber();
+  if (!OpenClipboard(nullptr)) return {sequence, std::nullopt, true};
   struct CloseClipboardScope { ~CloseClipboardScope() { CloseClipboard(); } } close;
-  if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return std::string{};
+  const auto current_sequence = GetClipboardSequenceNumber();
+  const bool has_content = CountClipboardFormats() != 0;
+  for (const auto *name : {clipboard_exclude_monitor_format, clipboard_viewer_ignore_format}) {
+    if (IsClipboardFormatAvailable(RegisterClipboardFormatW(name)))
+      return {current_sequence, std::nullopt, has_content};
+  }
+  for (const auto *name : {clipboard_history_permission_format, clipboard_cloud_permission_format}) {
+    const auto format = RegisterClipboardFormatW(name);
+    if (!IsClipboardFormatAvailable(format)) continue;
+    const auto data = GetClipboardData(format);
+    const void *bytes = data ? GlobalLock(data) : nullptr;
+    const auto permission = clipboard_permission_from_data(bytes, bytes ? GlobalSize(data) : 0);
+    if (bytes) GlobalUnlock(data);
+    if (permission == ClipboardPermission::denied)
+      return {current_sequence, std::nullopt, has_content};
+  }
+  if (!IsClipboardFormatAvailable(CF_UNICODETEXT))
+    return {current_sequence, has_content ? std::nullopt : std::optional<std::string>(""), has_content};
   const auto data = GetClipboardData(CF_UNICODETEXT);
   const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
-  if (!text) return std::nullopt;
+  if (!text) return {current_sequence, std::nullopt, true};
   const auto value = bounded_clipboard_text(text, GlobalSize(data));
   GlobalUnlock(data);
-  return wide_to_utf8(value);
+  return {current_sequence, wide_to_utf8(value), true};
 }
 
-bool write_clipboard_text(const std::string &text) {
+bool write_clipboard_text(const std::string &text, DWORD expected_sequence) {
   const auto wide = utf8_to_wide(text);
   if (wide.empty() || !OpenClipboard(nullptr)) return false;
   struct CloseClipboardScope { ~CloseClipboardScope() { CloseClipboard(); } } close;
+  // 持有系统剪贴板期间比较代次，避免读取与清空之间覆盖用户新复制。
+  if (GetClipboardSequenceNumber() != expected_sequence) return false;
   HGLOBAL data = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
   if (!data) return false;
   auto *target = static_cast<wchar_t *>(GlobalLock(data));
@@ -81,7 +109,10 @@ Json parse_response(char *raw) {
 }
 
 CloudClipboardAutoSync::CloudClipboardAutoSync(std::filesystem::path directory)
-    : directory_(std::move(directory)), worker_([this] { run(); }) {}
+    : directory_(std::move(directory)) {
+  // 所有成员完成初始化后才能启动线程。
+  worker_ = std::thread([this] { run(); });
+}
 
 CloudClipboardAutoSync::~CloudClipboardAutoSync() {
   {
@@ -92,45 +123,54 @@ CloudClipboardAutoSync::~CloudClipboardAutoSync() {
   if (worker_.joinable()) worker_.join();
 }
 
-void CloudClipboardAutoSync::observe_local_text(std::string text) {
+bool CloudClipboardAutoSync::stopped() {
   std::lock_guard lock(mutex_);
-  if (receiver_owned_ && text == receiver_text_) {
-    receiver_owned_ = false;
-    local_text_ = std::move(text);
-    return;
-  }
-  receiver_owned_ = false;
-  local_text_ = text;
-  pending_text_ = std::move(text);
-  upload_pending_ = true;
-  wake_.notify_one();
+  return stop_;
 }
 
-bool CloudClipboardAutoSync::request(const std::string &action, std::string *result) {
+std::string CloudClipboardAutoSync::current_binding() {
   const auto directory = directory_.u8string();
-  if (directory.empty()) return false;
+  if (directory.empty()) return {};
+  const auto source = parse_response(msime_client_cloud_clipboard_source(
+      reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+  if (!source.is_object() || !source.contains("revision")) return {};
+  const auto selected = source.value("source", std::string{});
+  Json binding{{"source", selected}, {"revision", source.at("revision")}};
+  if (selected == "account") {
+    const auto body = Json{{"directory", directory}, {"action", {{"operation", "status"}}}}.dump();
+    const auto status = parse_response(msime_client_account(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    if (!status.contains("user") || !status.at("user").is_object()) return {};
+    const auto user = status.at("user").value("id", std::string{});
+    if (user.empty()) return {};
+    binding["user_id"] = user;
+  } else if (selected != "relay") {
+    return {};
+  }
+  return binding.dump();
+}
+
+bool CloudClipboardAutoSync::request(const std::string &action, const std::string &binding,
+                                     std::string *result) {
   try {
-    const auto source_raw = msime_client_cloud_clipboard_source(
-        reinterpret_cast<const uint8_t *>(directory.data()), directory.size());
-    const auto source = parse_response(source_raw);
-    if (!source.is_object()) return false;
-    const auto selected = source.value("source", std::string{});
-    const auto action_json = Json::parse(action);
+    if (stopped() || binding.empty() || current_binding() != binding) return false;
+    const auto selected = Json::parse(binding);
+    const auto directory = directory_.u8string();
+    auto action_json = Json::parse(action);
     Json response;
-    if (selected == "relay") {
+    if (selected.at("source") == "relay") {
       const auto body = Json{{"preferences_directory", directory}, {"directory", directory},
-                             {"action", action_json}}.dump();
+                             {"expected_revision", selected.at("revision")}, {"action", action_json}}.dump();
       response = parse_response(msime_client_relay_cloud_clipboard(
           reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    } else if (selected == "account") {
+    } else {
+      action_json["expected_user_id"] = selected.at("user_id");
       const auto body = Json{{"directory", directory}, {"preferences_directory", directory},
                              {"action", action_json}}.dump();
       response = parse_response(msime_client_account_cloud_clipboard(
           reinterpret_cast<const uint8_t *>(body.data()), body.size()));
-    } else {
-      return false;
     }
-    if (response.empty()) return false;
+    if (response.empty() || stopped() || current_binding() != binding) return false;
     if (result) *result = response.dump();
     return true;
   } catch (...) {
@@ -138,71 +178,65 @@ bool CloudClipboardAutoSync::request(const std::string &action, std::string *res
   }
 }
 
-void CloudClipboardAutoSync::upload(const std::string &text) {
-  if (text.empty() || text.size() > 12000) return;
-  std::string page;
-  if (!request(R"({"operation":"list","search":""})", &page)) return;
-  try {
-    const auto value = Json::parse(page);
-    if (!value.value("enabled", false) ||
-        value.value("e2e", Json::object()).value("status", std::string{}) == "pending") return;
-    request(Json{{"operation", "add"}, {"text", text}}.dump(), nullptr);
-  } catch (...) {
-  }
-}
-
 void CloudClipboardAutoSync::poll() {
-  std::string page;
-  if (!request(R"({"operation":"list","search":""})", &page)) return;
   try {
+    const auto before = read_clipboard_text();
+    const bool locally_changed = initialized_ && observed_sequence_ != before.sequence;
+    observed_sequence_ = before.sequence;
+    initialized_ = true;
+    const auto captured = current_binding();
+    const bool same_binding = !captured.empty() && captured == binding_;
+    if (captured != binding_) {
+      binding_ = captured;
+      policy_.begin(before.sequence, before.has_content);
+    }
+    if (captured.empty()) return;
+    std::string page;
+    if (!request(R"({"operation":"list","search":""})", captured, &page)) return;
     const auto value = Json::parse(page);
     if (!value.value("enabled", false) ||
         value.value("e2e", Json::object()).value("status", std::string{}) == "pending") return;
     const auto items = value.value("items", Json::array());
-    if (!items.is_array() || items.empty() || !items.at(0).is_object()) return;
-    const auto item = items.at(0);
-    const auto updated = item.value("updated_at", std::string{});
-    const auto text = item.value("text", std::string{});
-    if (updated.empty() || text.empty()) return;
-    std::string current = read_clipboard_text().value_or(std::string{});
-    {
-      std::lock_guard lock(mutex_);
-      if (updated <= latest_remote_updated_) return;
-      if (!current.empty() && !receiver_owned_ && current != local_text_) {
-        latest_remote_updated_ = updated;
-        return;
-      }
+    if (!items.is_array()) return;
+    std::optional<std::string> revision;
+    std::string text;
+    if (!items.empty()) {
+      if (!items.at(0).is_object()) return;
+      revision = clipboard_remote_revision(items.at(0).value("updated_at", std::string{}));
+      text = items.at(0).value("text", std::string{});
+      if (!revision || text.empty() || text.size() > 12000) return;
     }
-    if (!write_clipboard_text(text)) return;
-    const auto after = read_clipboard_text().value_or(std::string{});
-    std::lock_guard lock(mutex_);
-    if (after != text) {
-      receiver_owned_ = false;
-      local_text_ = after;
+    const auto current = read_clipboard_text();
+    observed_sequence_ = current.sequence;
+    if (!current.text || stopped() || current_binding() != captured) return;
+    const bool receive = policy_.receive(revision, current.sequence);
+    if (same_binding && (locally_changed || current.sequence != before.sequence)) {
+      // 当前复制只尝试一次，失败不保留正文，不转发给之后切换的账号或中继。
+      if (!current.text->empty() && *current.text != text && current.text->size() <= 12000)
+        request(Json{{"operation", "add"}, {"text", *current.text}}.dump(), captured, nullptr);
       return;
     }
-    latest_remote_updated_ = updated;
-    receiver_text_ = text;
-    receiver_owned_ = true;
-    local_text_ = text;
+    if (!receive || !revision) return;
+    if (*current.text == text) {
+      policy_.received(*revision, current.sequence);
+      return;
+    }
+    if (write_clipboard_text(text, current.sequence)) {
+      observed_sequence_ = GetClipboardSequenceNumber();
+      policy_.received(*revision, observed_sequence_);
+    }
   } catch (...) {
+    // 读取、权限和网络失败均不影响输入线程。
   }
 }
 
 void CloudClipboardAutoSync::run() {
   std::unique_lock lock(mutex_);
   while (!stop_) {
-    wake_.wait_for(lock, std::chrono::seconds(3), [this] { return stop_ || upload_pending_; });
-    if (stop_) return;
-    std::string upload_text;
-    if (upload_pending_) {
-      upload_pending_ = false;
-      upload_text = pending_text_;
-    }
     lock.unlock();
-    if (!upload_text.empty()) upload(upload_text);
     poll();
     lock.lock();
+    wake_.wait_for(lock, std::chrono::seconds(3), [this] { return stop_; });
   }
 }
 

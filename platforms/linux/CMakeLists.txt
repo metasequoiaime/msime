@@ -797,6 +797,7 @@ foreach(MSIME_EDITION_SCRIPT msime-linux-ibus-launcher msime-linux-first-run-gui
 endforeach()
 install(PROGRAMS scripts/msime-linux-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-linux-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES scripts/msime_clipboard_cloud.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来。词库锁无条件随装，它是这个入口据以校验和取回的依据——它此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
 # 命令名以版本的包名开头（full 仍是 msime-linux-setup）；随装的词库锁是本版本的锁（full 是 desktop-dictionary.lock.json 本身，其他版本是 resources/editions/<id>.lock.json），装成同一个文件名，msime-linux-setup 据它校验和取回本版本的词库。
 msime_edition_source(MSIME_SETUP_SOURCE scripts/msime-linux-setup)

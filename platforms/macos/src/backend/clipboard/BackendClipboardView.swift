@@ -112,6 +112,7 @@ final class MacClipboardModel: ObservableObject {
 }
 
 struct MacCloudClipboardView: View {
+  private let syncExplanation = "开启后，复制的文本会在本机加密并自动同步，服务端只保存密文；其他设备的新文本也会写入本机系统剪贴板。"
   @StateObject private var model: MacClipboardModel
   @Environment(\.dismiss) private var dismiss
   @State private var confirmation: Confirmation?
@@ -125,10 +126,11 @@ struct MacCloudClipboardView: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         Text("云剪贴板").font(.title2)
+        SettingsInfoTip(text: syncExplanation, subject: "云剪贴板").help(syncExplanation)
         Spacer()
         Button("关闭") { model.close(); dismiss() }
       }
-      Text("开启后，复制的文本会在本机加密并自动同步，服务端只保存密文；其他设备的新文本也会写入本机系统剪贴板。最多保存 50 条；关闭云剪贴板会删除云端历史和所有设备的登记。")
+      Text("最多保存 50 条；关闭云剪贴板会删除云端历史和所有设备的登记。")
         .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       if model.isRelay {
         Text("这份云剪贴板走你自己配置的中继，不经过水杉账号。")

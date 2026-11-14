@@ -1,5 +1,6 @@
 #include "../clipboard/CloudClipboardRoute.h"
 #include "../core/RuntimeOptionsFile.h"
+#include "../core/AuxiliaryCrashCapture.h"
 #include "../core/BoundedCliInput.h"
 #include "provider_socket_cli.h"
 #include "msime_client.h"
@@ -38,6 +39,62 @@ std::string socket_for(const Json &options) {
   return {};
 }
 
+// 自动同步携带来源快照；任何变化都要求监视器重新建立本机基线。
+Json binding(const Json &options) {
+  const auto directory = options.value("preferences_directory", std::string{});
+  if (directory.empty() || directory.front() != '/') throw std::runtime_error("invalid directory");
+  auto value = response(msime_client_cloud_clipboard_source(
+      reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+  auto explicit_socket = options.value("cloud_clipboard_provider_socket", std::string{});
+  if (explicit_socket.empty()) {
+    if (const auto *environment = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET"))
+      explicit_socket = environment;
+  }
+  const auto socket = socket_for(options);
+  if (!explicit_socket.empty() || value.at("source") == "account") {
+    const auto body = Json{{"directory", directory}, {"action", {{"operation", "status"}}}}.dump();
+    const auto status = response(msime_client_account(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+    const auto user = status.at("user").value("id", std::string{});
+    if (user.empty()) throw std::runtime_error("account unavailable");
+    value["user_id"] = user;
+    value["socket"] = socket;
+  }
+  value["directory"] = directory;
+  return value;
+}
+
+Json bound_request(const Json &options, Json action, const Json &expected) {
+  if (binding(options) != expected) throw std::runtime_error("source changed");
+  const auto directory = expected.at("directory");
+  Json result;
+  if (expected.contains("socket") && !expected.at("socket").get<std::string>().empty()) {
+    action["expected_user_id"] = expected.at("user_id");
+    const auto encoded = action.dump();
+    const auto socket = expected.at("socket").get<std::string>();
+    result = response(msime_client_cloud_clipboard_provider_request(
+        reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
+        reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+  } else {
+    Json body{{"directory", directory}, {"preferences_directory", directory}, {"action", action}};
+    char *raw;
+    if (expected.at("source") == "relay") {
+      body["expected_revision"] = expected.at("revision");
+      const auto encoded = body.dump();
+      raw = msime_client_relay_cloud_clipboard(
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
+    } else {
+      body["action"]["expected_user_id"] = expected.at("user_id");
+      const auto encoded = body.dump();
+      raw = msime_client_account_cloud_clipboard(
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
+    }
+    result = response(raw);
+  }
+  if (binding(options) != expected) throw std::runtime_error("source changed");
+  return result;
+}
+
 Json request(const Json &options, const Json &action) {
   const auto directory = options.value("preferences_directory", std::string{});
   if (directory.empty() || directory.front() != '/') return Json::object();
@@ -69,6 +126,9 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc != 2 || argv[1][0] != '/') return 2;
+  msime::telemetry::CaptureOnly crash_capture([options = std::filesystem::path(argv[1])] {
+    return msime::linux_host::auxiliary_crash_host("cloud-clipboard-sync", {}, options);
+  });
   std::array<char, 65537> input;
   const auto length = msime::linux_host::read_bounded_cli_input(std::cin, input);
   if (!length) return 2;
@@ -76,7 +136,16 @@ int main(int argc, char **argv) {
     const auto options = Json::parse(msime::linux_host::read_runtime_options(argv[1]));
     const auto command = Json::parse(std::string(input.data(), *length));
     if (!command.is_object()) return 2;
-    auto result = request(options, command);
+    Json result;
+    if (command.value("operation", std::string{}) == "binding") {
+      result = binding(options);
+    } else if (command.contains("expected_binding")) {
+      auto action = command;
+      action.erase("expected_binding");
+      result = bound_request(options, action, command.at("expected_binding"));
+    } else {
+      result = request(options, command);
+    }
     std::cout << result.dump() << '\n';
     return std::cout ? 0 : 1;
   } catch (...) {
