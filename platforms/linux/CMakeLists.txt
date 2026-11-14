@@ -565,6 +565,15 @@ if(BUILD_TESTING)
         --telemetry-directory "${MSIME_EDITION_FCITX5_ADDON}"
         --binary msime-linux-clipboard-watch-x11 $<TARGET_FILE:msime-linux-clipboard-watch-x11>)
     set_tests_properties(linux-x11-auxiliary-crash-capture PROPERTIES TIMEOUT 45)
+    add_test(NAME linux-clipboard-x11-events
+      COMMAND "${MSIME_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/clipboard/clipboard_x11_events.py"
+        $<TARGET_FILE:msime-linux-clipboard-watch-x11>)
+    add_test(NAME linux-clipboard-x11-read
+      COMMAND "${MSIME_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/clipboard/clipboard_x11_read.py"
+        $<TARGET_FILE:msime-linux-clipboard-watch-x11> $<TARGET_FILE:msime-test-x11-string-owner>)
+    set_tests_properties(linux-clipboard-x11-events linux-clipboard-x11-read PROPERTIES TIMEOUT 30)
   endif()
   add_executable(common-crash-recorder-test ../common/tests/crash_recorder.cpp ../common/CrashRecorder.cpp)
   target_compile_options(common-crash-recorder-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)

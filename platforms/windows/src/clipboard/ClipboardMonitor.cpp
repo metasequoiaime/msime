@@ -7,7 +7,8 @@
 namespace msime::windows {
 namespace {
 constexpr UINT_PTR capture_timer_id = 1;
-constexpr UINT capture_debounce_ms = 80;
+constexpr UINT capture_retry_ms = 20;
+constexpr unsigned int capture_retry_limit = 5;
 
 std::string wide_to_utf8(const std::wstring &text) {
   if (text.empty()) return {};
@@ -57,59 +58,49 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
     monitor = static_cast<ClipboardMonitor *>(create->lpCreateParams);
     SetWindowLongPtrW(static_cast<HWND>(window), GWLP_USERDATA, reinterpret_cast<LONG_PTR>(monitor));
   }
-  if (monitor && message == WM_CLIPBOARDUPDATE) {
-    SetTimer(static_cast<HWND>(window), capture_timer_id, capture_debounce_ms,
-             nullptr);
-    return 0;
-  }
-  if (monitor && message == WM_TIMER && wparam == capture_timer_id) {
+  if (monitor && (message == WM_CLIPBOARDUPDATE ||
+                  (message == WM_TIMER && wparam == capture_timer_id))) {
     KillTimer(static_cast<HWND>(window), capture_timer_id);
-    if (!monitor->history_.enabled()) return 0;
-    const auto sequence = GetClipboardSequenceNumber();
-    if (sequence == monitor->sequence_ ||
-        !IsClipboardFormatAvailable(CF_UNICODETEXT) ||
-        !OpenClipboard(static_cast<HWND>(window)))
-      return 0;
-    // Windows allows one clipboard owner at a time, so every path from here
-    // must close it. The second availability check below can fail when another
-    // process replaces the contents between the two checks; leaving the
-    // clipboard open there broke Ctrl+C and Ctrl+V in every application on the
-    // desktop until this process exited.
-    std::wstring value;
-    {
-      struct ClipboardScope {
-        ~ClipboardScope() { CloseClipboard(); }
-      } scope;
-      // 密码管理器等标记为不可记录的内容整条丢弃，这次变化照样记为已处理，不会在下一次通知时重读。
-      if (!clipboard_sample_excluded(clipboard_privacy_markers()) &&
-          IsClipboardFormatAvailable(CF_UNICODETEXT)) {
-        auto data = GetClipboardData(CF_UNICODETEXT);
-        const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
-        if (text) {
-          value = bounded_clipboard_text(text, GlobalSize(data));
-          GlobalUnlock(data);
-        }
-      }
-    }
-    // Do not hold the system clipboard while conversion or the shared writer
-    // waits for disk/preferences locks. Other applications must remain able
-    // to copy and paste during persistence.
-    monitor->sequence_ = sequence;
-    // The callback owns persistence through client-core. Writing the legacy
-    // string-array archive here would discard Tauri's structured entries.
-    if (auto utf8 = wide_to_utf8(value); !utf8.empty() && monitor->callback_) {
-      monitor->callback_(std::move(utf8));
-      // The Tauri shell owns the shared clipboard panel. Signal only that the
-      // bounded store changed, and only once the callback has written it, so
-      // the shell never re-reads ahead of the write. The shell re-reads the
-      // file under its own lock, so clipboard text never crosses this process
-      // boundary in an event.
-      if (monitor->change_event_)
-        SetEvent(monitor->change_event_);
-    }
+    if (message == WM_CLIPBOARDUPDATE) monitor->capture_attempts_ = 0;
+    // 通知到达就保存这一条；只有剪贴板暂时被其他进程锁住时重试，不能把连续复制防抖成最后一条。
+    if (!monitor->capture(window) && monitor->capture_attempts_++ < capture_retry_limit)
+      SetTimer(window, capture_timer_id, capture_retry_ms, nullptr);
     return 0;
   }
   return DefWindowProcW(window, message, wparam, lparam);
+}
+bool ClipboardMonitor::capture(HWND window) {
+  if (!history_.enabled()) return true;
+  if (GetClipboardSequenceNumber() == sequence_) return true;
+  if (!OpenClipboard(window)) return false;
+  std::wstring value;
+  unsigned long sequence = 0;
+  {
+    // 所有退出路径都释放系统锁；锁内读取代次，避免打开之前的变化让序号和正文错配。
+    struct ClipboardScope {
+      ~ClipboardScope() { CloseClipboard(); }
+    } scope;
+    sequence = GetClipboardSequenceNumber();
+    if (sequence == sequence_) return true;
+    // 密码管理器等标记为不可记录的内容整条丢弃，仍将这次变化记为已处理。
+    if (!clipboard_sample_excluded(clipboard_privacy_markers()) &&
+        IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+      auto data = GetClipboardData(CF_UNICODETEXT);
+      const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
+      if (text) {
+        value = bounded_clipboard_text(text, GlobalSize(data));
+        GlobalUnlock(data);
+      }
+    }
+  }
+  // 转码及共享存储回调可能等磁盘锁，不能在此期间占住系统剪贴板。
+  sequence_ = sequence;
+  if (auto utf8 = wide_to_utf8(value); !utf8.empty() && callback_) {
+    // 共享层持有结构化历史，只在回调写完后通知面板重新读取；事件中不带正文。
+    callback_(std::move(utf8));
+    if (change_event_) SetEvent(change_event_);
+  }
+  return true;
 }
 bool ClipboardMonitor::start() {
   if (window_) return true;

@@ -8,10 +8,12 @@
 #include <poll.h>
 #include <string>
 #include <algorithm>
+#include <array>
+#include <cstdint>
 
 namespace {
 constexpr size_t kMaxBytes = 12000;
-bool read_clipboard(Display *display) {
+bool read_clipboard(Display *display, std::string &text) {
   const Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 1, 1, 0, 0, 0);
   XSelectInput(display, window, PropertyChangeMask);
   const Atom clipboard = XInternAtom(display, "CLIPBOARD", False);
@@ -20,7 +22,6 @@ bool read_clipboard(Display *display) {
   const Atom incr = XInternAtom(display, "INCR", False);
   Atom target = utf8, encoding = None;
   bool incremental = false, complete = false, failed = false;
-  std::string text;
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
   XConvertSelection(display, clipboard, target, property, window, CurrentTime);
   XFlush(display);
@@ -91,19 +92,39 @@ bool read_clipboard(Display *display) {
     }
     text = converted.substr(0, kMaxBytes);
   }
-  return std::fwrite(text.data(), 1, text.size(), stdout) == text.size();
+  return true;
+}
+
+// 先取到每次变化的正文，再经有界帧传给宿主，不能只发标记让宿主稍后读取当前值。
+bool emit_clipboard() {
+  std::string text;
+  Display *source = XOpenDisplay(nullptr);
+  if (source) {
+    if (!read_clipboard(source, text)) text.clear();
+    XCloseDisplay(source);
+  }
+  const auto length = static_cast<uint32_t>(text.size());
+  const std::array<unsigned char, 4> header{{
+      static_cast<unsigned char>(length >> 24), static_cast<unsigned char>(length >> 16),
+      static_cast<unsigned char>(length >> 8), static_cast<unsigned char>(length)}};
+  return std::fwrite(header.data(), 1, header.size(), stdout) == header.size() &&
+         std::fwrite(text.data(), 1, text.size(), stdout) == text.size() &&
+         std::fflush(stdout) == 0;
 }
 } // namespace
 
-// Watch mode emits markers; --read returns bounded bytes for the monitor decoder.
+// 默认模式保留变化标记；--watch-text 逐条发送有界正文，--read 读取一次。
 int main(int argc, char **argv) {
   const bool read = argc == 2 && std::strcmp(argv[1], "--read") == 0;
-  if (argc != 1 && !read) return 2;
+  const bool watch_text = argc == 2 && std::strcmp(argv[1], "--watch-text") == 0;
+  if (argc != 1 && !read && !watch_text) return 2;
   msime::linux_host::AuxiliaryCrashCapture crash_capture("clipboard-watch-x11");
   Display *display = XOpenDisplay(nullptr);
   if (!display) return 1;
   if (read) {
-    const bool ok = read_clipboard(display);
+    std::string text;
+    const bool ok = read_clipboard(display, text) &&
+        std::fwrite(text.data(), 1, text.size(), stdout) == text.size();
     XCloseDisplay(display);
     return ok ? 0 : 1;
   }
@@ -117,13 +138,19 @@ int main(int argc, char **argv) {
       XFixesSetSelectionOwnerNotifyMask | XFixesSelectionWindowDestroyNotifyMask |
       XFixesSelectionClientCloseNotifyMask);
   XFlush(display);
-  std::puts("");
-  std::fflush(stdout);
+  if (watch_text) {
+    if (!emit_clipboard()) { XCloseDisplay(display); return 1; }
+  } else {
+    std::puts("");
+    std::fflush(stdout);
+  }
   for (;;) {
     XEvent event{};
     XNextEvent(display, &event);
     if (event.type == event_base + XFixesSelectionNotify) {
-      if (std::puts("") == EOF || std::fflush(stdout) != 0) break;
+      if (watch_text) {
+        if (!emit_clipboard()) break;
+      } else if (std::puts("") == EOF || std::fflush(stdout) != 0) break;
     }
   }
   XCloseDisplay(display);
