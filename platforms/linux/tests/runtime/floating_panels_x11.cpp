@@ -279,10 +279,20 @@ void toolbar(Display *display) {
   const int handle_y = static_cast<int>(layout.handle.y + layout.handle.height / 2);
   pointer(display, *bar, ButtonPress, Button1, handle_x, handle_y);
   loop.run_for(30);
+  // 工具栏使用另一条 X 连接；按下后观察连接不能再抢到指针，证明拖动
+  // 已经覆盖了离开窗口的范围，而不是只在窗口内接收合成的移动事件。
+  const int competing_grab = XGrabPointer(display, DefaultRootWindow(display), False, PointerMotionMask,
+                                           GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+  require(competing_grab == AlreadyGrabbed, "按下握把后工具栏没有抓住指针");
+  if (competing_grab == GrabSuccess) XUngrabPointer(display, CurrentTime);
   pointer(display, *bar, MotionNotify, Button1, handle_x - 300, handle_y - 200);
   loop.run_for(30);
   pointer(display, *bar, ButtonRelease, Button1, handle_x - 300, handle_y - 200);
   loop.run_for(60);
+  const int released_grab = XGrabPointer(display, DefaultRootWindow(display), False, PointerMotionMask,
+                                          GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+  require(released_grab == GrabSuccess, "松开握把后工具栏没有释放指针");
+  if (released_grab == GrabSuccess) XUngrabPointer(display, CurrentTime);
   const auto moved = visible(display, "MSIMEFloatingToolbar");
   require(moved && moved->x == bar->x - 300 && moved->y == bar->y - 200, "拖动握把没有移动工具栏");
   std::ifstream stream(*options.position_file);
