@@ -75,6 +75,9 @@ For an AI assistant:
   publish_candidate_skin shares an installed skin with the skin community,
   public or private, using the account the settings app signed in to; the
   server never signs in or asks for a password itself.
+  publish_keyboard_skin shares a phone keyboard skin (the touch keyboard's
+  look on iOS, Android and HarmonyOS, not a candidate-window skin) with the
+  keyboard skin community, always publicly, from colours and an optional JPEG.
 
 Flags:
   --options <path>         The runtime-options document the input method reads
