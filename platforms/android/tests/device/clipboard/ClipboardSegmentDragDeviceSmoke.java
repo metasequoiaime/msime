@@ -300,8 +300,20 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         openFloatingPreview();
         touch(described("查看剪贴板全文的记录详情"));
         previewClosed();
-        await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("记录详情", node.getText()));
         await(described("返回剪贴板全文预览"));
+        for (var window : automation.getWindows()) {
+            if (findAny(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())
+                    && equalsText("记录详情", node.getText())) != null)
+                throw new AssertionError("Clipboard detail still exposes the removed fixed header");
+        }
+        stage = "detail top blank touch leaves synthetic editor empty";
+        Rect detailBounds = new Rect();
+        await(described("剪贴板历史")).getBoundsInScreen(detailBounds);
+        downTime = SystemClock.uptimeMillis();
+        event(MotionEvent.ACTION_DOWN, detailBounds.centerX(), detailBounds.top + 1);
+        event(MotionEvent.ACTION_UP, detailBounds.centerX(), detailBounds.top + 1);
+        await(field("msime-test-plain").and(node -> node.isShowingHintText()
+            || node.getText() == null || node.getText().length() == 0));
         // 详情页先放整段正文，这条合成记录有 80 行，时间和来源那段排在正文下面、剪贴板滚动区的视口之外，isVisibleToUser 为 false，只认看得见节点的 await 永远等不到它。先在输入法的树里找到这段，让滚动区把它滚进视口，再按看得见的节点核对文案。
         java.util.function.Predicate<AccessibilityNodeInfo> recordDetails = node ->
             equalsText("app.msime.android", node.getPackageName()) && node.getText() != null
