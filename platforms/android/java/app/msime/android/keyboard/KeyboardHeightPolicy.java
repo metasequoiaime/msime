@@ -1,6 +1,6 @@
 package app.msime.android;
 
-/** Shared keyboard height adjustment and row distribution contract. */
+/** 键盘高度调整与行高分配规则；本机设计范围独立于旧共享偏好。 */
 public final class KeyboardHeightPolicy {
     private KeyboardHeightPolicy() { }
 
@@ -10,11 +10,11 @@ public final class KeyboardHeightPolicy {
     /** 键区的行数：三行键（或一块占三行高的键块）加底行。 */
     public static final int KEYBOARD_ROW_COUNT = 4;
 
-    public static final int MIN_HEIGHT_PERCENT = 75;
+    public static final int MIN_HEIGHT_PERCENT = 50;
     public static final int MAX_HEIGHT_PERCENT = 170;
     public static final int DEFAULT_HEIGHT_PERCENT = 100;
     public static final int HEIGHT_PERCENT_BASE_DP = 184;
-    public static final int MIN_DESIGN_HEIGHT_ADJUSTMENT_DP = -46;
+    public static final int MIN_DESIGN_HEIGHT_ADJUSTMENT_DP = -92;
     public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 129;
     public static final int LEGACY_MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 55;
     public static final int WINDOW_HEIGHT_ADJUSTMENT_PERCENT = 17;
