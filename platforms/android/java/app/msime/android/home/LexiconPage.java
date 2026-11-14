@@ -188,7 +188,7 @@ public final class LexiconPage extends ReloadingDetailPage {
         boolean updating = updateStatus != null && ("checking".equals(updateStatus.optString("phase")) || "downloading".equals(updateStatus.optString("phase")));
         updates.nav("检查词库更新", null, null, () -> updateDictionary("check", null)).setEnabled(!updating);
         if (updateStatus != null && updateStatus.optBoolean("can_rollback")) {
-            updates.nav("恢复上一版词库", "恢复后关闭自动更新，下次启动生效", null, () -> updateDictionary("rollback", null)).setEnabled(!updating);
+            updates.nav("恢复上一版词库", "恢复后跳过这一版，有更新的版本时仍会自动更新；下次启动生效", null, () -> updateDictionary("rollback", null)).setEnabled(!updating);
         }
 
         GroupCard sync = GroupCard.add(sectionColumn(target, "已安装"), "同步");

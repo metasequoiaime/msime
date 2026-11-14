@@ -17027,7 +17027,7 @@ private:
     add_row(group, 0xE72C, L"检查词库更新", L"",
       button_control(running ? L"更新中…" : L"检查更新", [this] { dictionary_update_request(L"check"); }, known && !running));
     if (known && dictionary_update_status_->GetNamedBoolean(L"can_rollback", false))
-      add_row(group, 0xE777, L"恢复上一版词库", L"恢复后关闭自动更新，下次启动生效",
+      add_row(group, 0xE777, L"恢复上一版词库", L"恢复后跳过这一版，有更新的版本时仍会自动更新；下次启动生效",
         button_control(L"恢复", [this] { dictionary_update_request(L"rollback"); }, !running));
     auto note = group_note(dictionary_update_text());
     A11y::SetAutomationId(note, L"dictionary-update-status");
