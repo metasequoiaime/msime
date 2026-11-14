@@ -5,11 +5,11 @@ export enum GridKeyGestureMode {
   PENDING = "pending",
   SYMBOL = "symbol",
   LETTER = "letter",
-  OPTIONS = "options",
+  HELD = "held",
   CANCELLED = "cancelled",
 }
 
-/** 14/18 键纵滑、反向选项和 18 键双拼横滑的统一一次按压状态机。 */
+/** 14/18 键角标长按、纵滑和 18 键双拼横滑的统一一次按压状态机。 */
 export class GridKeyGesturePolicy {
   private readonly exactLetters: string | null;
   private readonly hasSymbol: boolean;
@@ -49,7 +49,7 @@ export class GridKeyGesturePolicy {
   move(pointer: number, pointers: number, x: number, y: number): GridKeyGestureMode {
     if (
       this.currentMode === GridKeyGestureMode.CANCELLED ||
-      this.currentMode === GridKeyGestureMode.OPTIONS
+      this.currentMode === GridKeyGestureMode.HELD
     ) {
       return this.currentMode;
     }
@@ -57,6 +57,7 @@ export class GridKeyGesturePolicy {
       this.cancel();
       return this.currentMode;
     }
+    if (this.currentMode === GridKeyGestureMode.SYMBOL) return this.currentMode;
     const dx: number = x - this.downX;
     const dy: number = y - this.downY;
     if (this.currentMode === GridKeyGestureMode.LETTER) {
@@ -69,20 +70,20 @@ export class GridKeyGesturePolicy {
       this.selected = letter;
     } else if (!this.tapsOnly && this.hasSymbol && this.vertical(this.direction, dx, dy)) {
       this.currentMode = GridKeyGestureMode.SYMBOL;
-    } else if (!this.tapsOnly && this.vertical(this.opposite(this.direction), dx, dy)) {
-      this.currentMode = GridKeyGestureMode.OPTIONS;
     }
     return this.currentMode;
   }
 
   hold(): boolean {
-    if (this.currentMode !== GridKeyGestureMode.PENDING || this.tapsOnly) return false;
-    this.currentMode = GridKeyGestureMode.OPTIONS;
+    if (this.pointer < 0 || !this.hasSymbol || this.currentMode !== GridKeyGestureMode.PENDING)
+      return false;
+    this.currentMode = GridKeyGestureMode.HELD;
     return true;
   }
 
   up(pointer: number, pointers: number, x: number, y: number): GridKeyGestureMode {
-    if (this.currentMode === GridKeyGestureMode.PENDING) this.move(pointer, pointers, x, y);
+    this.move(pointer, pointers, x, y);
+    this.pointer = -1;
     return this.currentMode;
   }
 
@@ -108,13 +109,6 @@ export class GridKeyGesturePolicy {
     return (
       direction !== null && SwipeHintPolicy.swiped(direction, 0, dy) && Math.abs(dy) > Math.abs(dx)
     );
-  }
-
-  private opposite(direction: SwipeSymbolsDirection | null): SwipeSymbolsDirection | null {
-    if (direction === null) return null;
-    return direction === SwipeSymbolsDirection.UP
-      ? SwipeSymbolsDirection.DOWN
-      : SwipeSymbolsDirection.UP;
   }
 
   private invalid(pointer: number, pointers: number, x: number, y: number): boolean {

@@ -665,10 +665,6 @@ struct KeyboardView {
   @State symbolLocked: boolean = false;
   /** 长按九键字母格或 14/18 键双字母键时弹出的字母（九键还有数字），这些键面共用 `SURFACE_NINE_KEY_HOLD`。 */
   @State nineKeyHoldOptions: string[] = [];
-  /** 14/18 键长按或反向滑动弹出的字母、符号选项。与九键共用面板，但符号保留原始 ASCII 供 Engine 路由。 */
-  @State gridHoldOptions: string[] = [];
-  private gridHoldHint: string = '';
-  private gridHoldSymbolFace: string = '';
   /** 拼音网格的 1 键（@#）放进候选条的常用标点；为空时候选条画 Engine 的候选。Engine 下一次回报（`onChanged`）、点选其中一个或打开别的界面时清空。 */
   @State @Watch('syncStripHeight') nineKeyQuickMarks: PunctuationEntry[] = [];
   /**
@@ -1821,7 +1817,8 @@ struct KeyboardView {
   /** 角标提示按原样输入，与 123 层的字符键输入键面的方式相同：已有组合先按原样上屏（Android 的 `commitNineKeyLiteral`，`COMMIT_RAW`）。它算作对来源键的一次按键。 */
   private typeLetterHint(letter: string, hint: string): void {
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.character(letter));
-    this.typeGridLetterHint(hint);
+    KeyboardSession.shared.commitRaw();
+    KeyboardSession.shared.insert(hint);
   }
 
   /** 网格角标的 ASCII 标点交给 Engine，其余符号按字面插入。 */
@@ -2685,31 +2682,7 @@ struct KeyboardView {
     this.show(SURFACE_NINE_KEY_HOLD);
   }
 
-  private openGridHold(key: FourteenKey, hint: string | null, face: string): void {
-    this.nineKeyHoldOptions = [];
-    this.gridHoldOptions = key.letters.split('').concat(key.letters.toUpperCase().split(''));
-    if (hint !== null && hint.length > 0) this.gridHoldOptions.push(face);
-    this.gridHoldHint = hint ?? '';
-    this.gridHoldSymbolFace = face;
-    this.show(SURFACE_NINE_KEY_HOLD);
-  }
-
   private selectNineKeyHoldOption(option: string): void {
-    if (this.gridHoldOptions.includes(option)) {
-      const hint: string = this.gridHoldHint;
-      const face: string = this.gridHoldSymbolFace;
-      this.gridHoldOptions = [];
-      this.gridHoldHint = '';
-      this.gridHoldSymbolFace = '';
-      this.show(SURFACE_NONE);
-      if (hint.length > 0 && option === face) {
-        this.typeGridLetterHint(hint);
-      } else {
-        KeyboardSession.shared.finishComposition();
-        KeyboardSession.shared.insert(option);
-      }
-      return;
-    }
     if (!this.nineKeyHoldOptions.includes(option)) {
       return;
     }
@@ -3048,9 +3021,6 @@ struct KeyboardView {
     const leavingExpanded: boolean = this.surface === SURFACE_EXPANDED && surface !== SURFACE_EXPANDED;
     if (surface !== SURFACE_NINE_KEY_HOLD) {
       this.nineKeyHoldOptions = [];
-      this.gridHoldOptions = [];
-      this.gridHoldHint = '';
-      this.gridHoldSymbolFace = '';
     }
     this.nineKeyQuickMarks = [];
     if (surface !== SURFACE_REPLY) {
@@ -6558,7 +6528,7 @@ struct KeyboardView {
     this.actionRow()
   }
 
-  /** 14 键的一个字母键：两个字母的键可以长按，L、M 只有点按。 */
+  /** 14 键每个字母键都可长按输入角标，包括单字母键。 */
   @Builder
   fourteenKeyButton(key: FourteenKey) {
     this.gridKeyHoldKey(key, false)
@@ -6605,14 +6575,16 @@ struct KeyboardView {
     .responseRegion(this.keyHitRegion())
     .onTouch((event: TouchEvent): void => this.gridKeyTouch(key, eighteen, event))
     .onClick((): void => this.clickGridKey(key, eighteen))
-    .gesture(LongPressGesture().onAction((): void => {
-      const gesture: GridKeyGesturePolicy | undefined = this.gridGestures.get(key.letters);
-      if (gesture === undefined || !gesture.hold()) return;
-      const hint: string | null = GridLetterHintTable.hint(key.letters, eighteen);
-      const face: string = GridLetterHintTable.face(key.letters, eighteen, !this.english,
-        this.cornerQuotes, this.hollowBrackets) ?? '';
-      this.openGridHold(key, hint, face);
-    }))
+    .gesture(LongPressGesture({ duration: 500 }).onAction((): void => this.holdGridKey(key, eighteen)))
+  }
+
+  private holdGridKey(key: FourteenKey, eighteen: boolean): void {
+    const hint: string | null = GridLetterHintTable.hint(key.letters, eighteen);
+    const gesture: GridKeyGesturePolicy | undefined = this.gridGestures.get(key.letters);
+    if (hint === null || gesture === undefined || !gesture.hold()) return;
+    KeyboardSession.shared.softKeyPress(eighteen
+      ? KeyIdPolicy.eighteenKey(key.letters) : KeyIdPolicy.fourteenKey(key.letters));
+    this.typeGridLetterHint(hint);
   }
 
   private eighteenKeyOptions(key: FourteenKey): KeyOptions {
@@ -6810,6 +6782,7 @@ struct KeyboardView {
       gesture.start(touch.id, touch.windowX, touch.windowY,
         this.feedback.swipeSymbols ? this.feedback.swipeSymbolsDirection : null,
         KeyboardSession.shared.composing());
+      if (event.touches.length !== 1) gesture.cancel();
       if (this.feedback.keyPopup) {
         this.showKeyPreview(touch.id, this.compactKeyFace(key), {
           left: Number(event.target.area.globalPosition.x ?? 0),
@@ -6831,11 +6804,6 @@ struct KeyboardView {
             top: Number(event.target.area.globalPosition.y ?? 0),
             width: Number(event.target.area.width), height: Number(event.target.area.height)
           });
-        } else if (mode === GridKeyGestureMode.OPTIONS) {
-          this.hideKeyPreview(touch.id);
-          this.openGridHold(key, hint,
-            GridLetterHintTable.face(key.letters, eighteen, !this.english,
-              this.cornerQuotes, this.hollowBrackets) ?? hint ?? '');
         }
       }
     } else if (event.type === TouchType.Up && event.changedTouches.length > 0) {
@@ -6849,10 +6817,6 @@ struct KeyboardView {
         this.typeGridLetterHint(hint);
       } else if (mode === GridKeyGestureMode.LETTER) {
         this.typeEighteenKeyLetter(key, gesture.selectedLetter());
-      } else if (mode === GridKeyGestureMode.OPTIONS) {
-        this.openGridHold(key, hint,
-          GridLetterHintTable.face(key.letters, eighteen, !this.english,
-            this.cornerQuotes, this.hollowBrackets) ?? hint ?? '');
       } else if (gesture.forcesTap()) {
         this.tapGridKey(key, eighteen);
         this.gridTapSwallows.add(key.letters);
@@ -12016,7 +11980,7 @@ struct KeyboardView {
         .opacity(0.65)
         .height(KeyboardMetrics.ROW_HEIGHT_VP)
       Row({ space: this.keySpacing() }) {
-        ForEach(this.nineKeyHoldOptions.length > 0 ? this.nineKeyHoldOptions : this.gridHoldOptions, (option: string) => {
+        ForEach(this.nineKeyHoldOptions, (option: string) => {
           Text(option)
             .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
             .fontColor(this.skin.keyForeground)
