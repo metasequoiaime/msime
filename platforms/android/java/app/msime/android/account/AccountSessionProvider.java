@@ -8,8 +8,10 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Process;
+import android.os.ParcelFileDescriptor;
 import android.util.Base64;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -31,7 +33,6 @@ public final class AccountSessionProvider extends ContentProvider {
         }
         Context context = getContext();
         if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context);
-        if (AccountSessionRoutingPolicy.METHOD_SKIN_DOWNLOAD.equals(method)) return skinDownload(context, extras);
         if (AccountSessionRoutingPolicy.METHOD_VOICE_CONTRIBUTION.equals(method)) return voice(context, extras);
         Bundle reply = new Bundle();
         String token = "";
@@ -73,25 +74,27 @@ public final class AccountSessionProvider extends ContentProvider {
     }
 
     /** 主进程执行社区皮肤完整下载；`:ime` 只通过 provider 请求，自己不联网。 */
-    private static Bundle skinDownload(Context context, Bundle extras) {
-        Bundle reply = new Bundle();
-        try {
-            String id = extras == null ? "" : extras.getString(AccountSessionRoutingPolicy.KEY_SKIN_ID, "");
-            if (context == null || !CommunityCatalog.validDownloadId(id)) {
-                throw new AccountStore.Failure("community_invalid", 0);
-            }
-            CommunityCatalog.Download download = new CommunityCatalog(context).downloadSkin(id);
-            if (download.failed()) {
-                reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, download.failure());
-            } else {
-                reply.putString(AccountSessionRoutingPolicy.KEY_SKIN_DESIGN, download.design().toString());
-            }
-        } catch (AccountStore.Failure failure) {
-            reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, CommunityRequest.rustMessage(failure.code));
-        } catch (Exception | LinkageError error) {
-            reply.putString(AccountSessionRoutingPolicy.KEY_ERROR, "皮肤下载失败，请稍后重试。");
+    @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+        if (Binder.getCallingUid() != Process.myUid()) throw new SecurityException("skin download");
+        var segments = uri.getPathSegments();
+        if (!"r".equals(mode) || segments.size() != 2
+                || !CommunitySkinDownloadStream.PATH.equals(segments.get(0))
+                || !CommunityCatalog.validDownloadId(segments.get(1))) {
+            throw new FileNotFoundException("skin download unavailable");
         }
-        return reply;
+        Context context = getContext();
+        JSONObject design = null;
+        String failure = "皮肤下载失败，请稍后重试。";
+        try {
+            if (context != null) {
+                CommunityCatalog.Download download = new CommunityCatalog(context).downloadSkin(segments.get(1));
+                design = download.design();
+                failure = download.failure();
+            }
+        } catch (Exception | LinkageError error) {
+            // 异常不携带设计、账号或底层日志跨进程返回。
+        }
+        return CommunitySkinDownloadStream.open(this, uri, design, failure);
     }
 
     private static BackendAccount.SessionCredential currentToken(Context context, String rejectedToken) throws Exception {
