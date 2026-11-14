@@ -6,13 +6,15 @@ import { trackAsyncSubscription } from "../core/async-subscription";
 import { useAsyncGeneration } from "./use-async-generation";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionRow } from "./action-row";
+import { ActionButton } from "./action-button";
 import { VoiceModelMirrorRow } from "./voice-model-mirror-section";
 import { defaultVoiceInput } from "./voice-input-defaults";
 import type { SettingsClient } from "../core/settings-client";
-import type { LocalVoiceModelProgress } from "../voice/local-models";
+import type { LocalVoiceModelImportFile, LocalVoiceModelProgress } from "../voice/local-models";
 import {
   formatModelBytes,
   localModelErrorMessage,
+  localModelImportErrorMessage,
   localModelProgressPercent,
   localModelStageLabel,
 } from "../voice/local-model-helpers";
@@ -40,6 +42,8 @@ export type ResourcePackStatus = {
   size: number;
   /** 需要这个资源包的输入方案。 */
   schemes: string[];
+  /** 不联网导入所需的文件；缺少时宿主不提供导入入口。 */
+  import_files?: LocalVoiceModelImportFile[];
 };
 
 export type GrammarModelUpdate = {
@@ -53,6 +57,8 @@ export type ResourcePackClient = {
   list(): Promise<ResourcePackStatus[]>;
   /** 下载、校验并发布完成后返回安装目录。 */
   install(id: ResourcePackId): Promise<string>;
+  /** 用系统文件选择器导入已下载的资源包；取消选择时返回 null。 */
+  importPack?: (id: ResourcePackId) => Promise<string | null>;
   /** 返回是否有安装在跑；被取消的安装随后以 `local_model_cancelled` 失败。 */
   cancel(id: ResourcePackId): Promise<boolean>;
   /** 删除已安装的资源包，返回是否有目录被删。语法模型删除前宿主会先释放引擎的共享内存映射。 */
@@ -60,6 +66,8 @@ export type ResourcePackClient = {
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
   /** 主动检查官方语法模型目录；失败由调用方显示，不能影响离线使用。 */
   checkGrammarUpdates?(): Promise<GrammarModelUpdate[]>;
+  /** 打开资源包文件的官方下载地址。 */
+  openExternalUrl?: (url: string) => void | Promise<void>;
 };
 
 export const resourcePackTitles: Record<ResourcePackId, string> = {
@@ -125,9 +133,11 @@ export type ResourcePacks = {
   /** 正在下载的资源包及其进度；有条目即表示在下载。 */
   progress: Partial<Record<ResourcePackId, LocalVoiceModelProgress>>;
   errors: Partial<Record<ResourcePackId, string>>;
+  importErrors?: Partial<Record<ResourcePackId, string>>;
   /** 资源包列出、还没装好、也没有在下载时开始下载。列表还没读到时先记下，读到后再按同样的条件下载。 */
   ensure(id: ResourcePackId): void;
   install(id: ResourcePackId): void;
+  importPack?(id: ResourcePackId): void;
   cancel(id: ResourcePackId): void;
   /** 删除已安装的资源包并刷新状态；没有宿主下载服务时不可用。 */
   remove(id: ResourcePackId): void;
@@ -135,6 +145,7 @@ export type ResourcePacks = {
   checkGrammarUpdates?: () => Promise<GrammarModelUpdate[]>;
   /** 下载失败时就地设置下载镜像用；不提供时失败行只有原因和重试。 */
   mirror?: ResourcePackMirror;
+  openExternalUrl?: (url: string) => void | Promise<void>;
 };
 
 /** 查某个资源包的状态。 */
@@ -157,6 +168,7 @@ export function useResourcePacks(
   const [statuses, setStatuses] = useState<ResourcePackStatus[]>();
   const [progress, setProgress] = useState<ResourcePacks["progress"]>({});
   const [errors, setErrors] = useState<ResourcePacks["errors"]>({});
+  const [importErrors, setImportErrors] = useState<NonNullable<ResourcePacks["importErrors"]>>({});
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(client);
   const activeClient = useLatestRef(client);
@@ -196,6 +208,7 @@ export function useResourcePacks(
     setStatuses(undefined);
     setProgress({});
     setErrors({});
+    setImportErrors({});
     if (!client) return;
     void refresh(client, generation);
     return trackAsyncSubscription(
@@ -291,6 +304,7 @@ export function useResourcePacks(
     if (!expected || !current(expected, generation) || running.current.has(key)) return;
     running.current.add(key);
     setErrors((existing) => ({ ...existing, [id]: undefined }));
+    setImportErrors((existing) => ({ ...existing, [id]: undefined }));
     void (async () => {
       try {
         await expected.remove(id);
@@ -307,15 +321,49 @@ export function useResourcePacks(
     })();
   };
 
+  const importPack = (id: ResourcePackId) => {
+    const expected = client;
+    const generation = clientGeneration.current;
+    const key = runningKey(generation, id);
+    if (!expected?.importPack || !current(expected, generation) || running.current.has(key)) return;
+    running.current.add(key);
+    const size = resourcePackStatus({ statuses: statusesRef.current }, id)?.size ?? 0;
+    setImportErrors((existing) => ({ ...existing, [id]: undefined }));
+    setProgress((existing) => ({
+      ...existing,
+      [id]: { id, stage: "import", downloaded: 0, total: size },
+    }));
+    void (async () => {
+      try {
+        await expected.importPack!(id);
+      } catch (error) {
+        if (current(expected, generation) && errorCode(error) !== "local_model_cancelled")
+          setImportErrors((existing) => ({
+            ...existing,
+            [id]: localModelImportErrorMessage(error) ?? undefined,
+          }));
+      } finally {
+        running.current.delete(key);
+        if (current(expected, generation)) {
+          clearProgress(id);
+          await refresh(expected, generation);
+        }
+      }
+    })();
+  };
+
   return {
     statuses,
     progress,
     errors,
+    importErrors,
     ensure,
     install,
+    importPack,
     cancel,
     remove,
     mirror,
+    openExternalUrl: client?.openExternalUrl,
     checkGrammarUpdates: client?.checkGrammarUpdates,
   };
 }
@@ -367,17 +415,76 @@ export function ResourcePackRow({
           ariaLabel={`重新下载${title}`}
         />
         {packs.mirror && <ResourcePackMirrorEntry mirror={packs.mirror} />}
+        <ResourcePackImportRow packs={packs} status={status} id={id} />
       </>
     );
   }
   return (
+    <>
+      <ActionRow
+        title={title}
+        description={`下载后切换一次输入框即可使用${note ? `。${note}` : ""}`}
+        detail={`约 ${formatModelBytes(status.size)}`}
+        action={() => packs.install(id)}
+        label="下载"
+        ariaLabel={`下载${title}`}
+      />
+      <ResourcePackImportRow packs={packs} status={status} id={id} />
+    </>
+  );
+}
+
+function ResourcePackImportRow({
+  packs,
+  status,
+  id,
+}: {
+  packs: ResourcePacks;
+  status: ResourcePackStatus;
+  id: ResourcePackId;
+}) {
+  const files = status.import_files ?? [];
+  if (
+    !packs.importPack ||
+    files.length === 0 ||
+    !(
+      id === "grammar-model-wanxiang" ||
+      id === "grammar-model-baguwen" ||
+      id === "grammar-model-baguwen-compact"
+    )
+  )
+    return null;
+  const detail = packs.importErrors?.[id] ? (
+    packs.importErrors[id]
+  ) : (
+    <span>
+      先下载
+      {files.map((file, index) => (
+        <span key={file.url}>
+          {index > 0 && "、"}{" "}
+          {packs.openExternalUrl ? (
+            <ActionButton
+              action={() =>
+                void Promise.resolve(packs.openExternalUrl!(file.url)).catch(() => undefined)
+              }
+              className="m-0 inline cursor-pointer border-0 bg-transparent p-0 text-left text-xs underline-offset-2 hover:underline"
+              label={`${file.name}（${formatModelBytes(file.size)}）`}
+            />
+          ) : (
+            `${file.name}（${formatModelBytes(file.size)}）`
+          )}
+        </span>
+      ))}
+      ，再点“从文件导入”一起选中
+    </span>
+  );
+  return (
     <ActionRow
-      title={title}
-      description={`下载后切换一次输入框即可使用${note ? `。${note}` : ""}`}
-      detail={`约 ${formatModelBytes(status.size)}`}
-      action={() => packs.install(id)}
-      label="下载"
-      ariaLabel={`下载${title}`}
+      title="离线导入"
+      detail={detail}
+      action={() => packs.importPack!(id)}
+      label="从文件导入"
+      ariaLabel={`从文件导入${resourcePackTitles[id]}`}
     />
   );
 }
