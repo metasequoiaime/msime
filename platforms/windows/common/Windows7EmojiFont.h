@@ -15,6 +15,11 @@
 #endif
 
 namespace msime::windows::compat {
+inline D2D1_DRAW_TEXT_OPTIONS enable_color_font(D2D1_DRAW_TEXT_OPTIONS options) {
+  return static_cast<D2D1_DRAW_TEXT_OPTIONS>(
+      static_cast<UINT32>(options) | static_cast<UINT32>(D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT));
+}
+
 namespace emoji_font_detail {
 using Microsoft::WRL::ComPtr;
 
@@ -199,6 +204,7 @@ inline HRESULT CreateTextLayoutWithWindows7Emoji(IDWriteFactory* factory, const 
 }
 
 inline void DrawTextWithWindows7Emoji(IDWriteFactory* factory, ID2D1RenderTarget* target, const wchar_t* text, UINT32 length, IDWriteTextFormat* format, const D2D1_RECT_F& rectangle, ID2D1Brush* brush, D2D1_DRAW_TEXT_OPTIONS options = D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE mode = DWRITE_MEASURING_MODE_NATURAL) {
+  options = enable_color_font(options);
   if (emoji_font_detail::native_fallback(factory)) { target->DrawText(text, length, format, rectangle, brush, options, mode); return; }
   Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
   if (SUCCEEDED(CreateTextLayoutWithWindows7Emoji(factory, text, length, format, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top, &layout)))
