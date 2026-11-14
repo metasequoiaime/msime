@@ -142,6 +142,10 @@ pub fn request(
         .finish();
     let payload_hash = hex::encode(Sha256::digest(body_utf8.as_bytes()));
     let mut headers = std::collections::BTreeMap::from([
+        (
+            "content-type".into(),
+            "application/x-www-form-urlencoded; charset=utf-8".into(),
+        ),
         ("host".into(), host.into()),
         ("x-acs-action".into(), action.into()),
         ("x-acs-content-sha256".into(), payload_hash.clone()),
@@ -168,10 +172,6 @@ pub fn request(
             "ACS3-HMAC-SHA256 Credential={},SignedHeaders={signed_headers},Signature={signature}",
             config.access_key_id
         ),
-    );
-    headers.insert(
-        "Content-Type".into(),
-        "application/x-www-form-urlencoded; charset=utf-8".into(),
     );
     headers.insert("Accept".into(), "application/json".into());
     Some(HttpRequest {
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(value.url, "https://mt.cn-hangzhou.aliyuncs.com/");
         assert_eq!(value.body_utf8, "FormatType=text&Scene=general&SourceLanguage=zh&SourceText=%E5%90%88%E6%88%90+%26%2B%E6%B5%8B%E8%AF%95&TargetLanguage=en");
         // 固定答案由独立 Python hashlib/hmac 脚本按官方 ACS3 公式计算。
-        assert_eq!(value.headers["Authorization"], "ACS3-HMAC-SHA256 Credential=synthetic-id,SignedHeaders=host;x-acs-action;x-acs-content-sha256;x-acs-date;x-acs-signature-nonce;x-acs-version,Signature=cb92752584fd6908e67c95ba685e31155af2b85748e3247c3dbb5168514259a5");
+        assert_eq!(value.headers["Authorization"], "ACS3-HMAC-SHA256 Credential=synthetic-id,SignedHeaders=content-type;host;x-acs-action;x-acs-content-sha256;x-acs-date;x-acs-signature-nonce;x-acs-version,Signature=64be86f887987f5025bf13b70be2ee308a3a148e7583c7129360b9d8830c2471");
         assert_eq!(value.headers["x-acs-date"], "2024-01-01T00:00:00Z");
         assert_ne!(
             value.headers["Authorization"],

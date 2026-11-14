@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-维护者在本任务中确认标准版与专业版都支持。接入 `alimt/2018-10-12` 的通用版 `TranslateGeneral` 与专业版 `Translate`，使用 ACS3-HMAC-SHA256、固定官方 HTTPS 接入点及 AccessKey。共享 Rust 持有默认值、校验、目录、签名和响应解析，Android 原生页只填表和搬运签名后的原始 UTF-8 字节。新服务默认关闭，已有服务默认值保持。
+维护者在本任务中确认标准版与专业版都支持。接入 `alimt/2018-10-12` 的通用版 `TranslateGeneral` 与专业版 `Translate`，使用 ACS3-HMAC-SHA256、固定官方 HTTPS 接入点及 AccessKey。签名包含实际发送的 `content-type`、`host` 和全部 `x-acs-*` 头，表单 UTF-8 字节原样传输。共享 Rust 持有默认值、校验、目录、签名和响应解析，Android 原生页只填表和搬运签名后的原始 UTF-8 字节。新服务默认关闭，已有服务默认值保持。
 
 配置只属于本机，加入设置导出排除项、凭据槽位、恢复默认保留和代理失效关闭逻辑。选择服务互斥，配置不全不回落，不把密钥写日志；缓存随服务、地域、版本、场景和密钥变化失效。每个候选单独请求，保留过期取消、离线优先与退避。
 
