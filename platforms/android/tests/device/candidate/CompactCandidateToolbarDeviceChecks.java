@@ -133,6 +133,7 @@ final class CompactCandidateToolbarDeviceChecks {
     }
 
     private void screenshot(String name) throws Exception {
+        t.automation.waitForIdle(500, 5000);
         File directory = new File(t.getTargetContext().getExternalFilesDir(null), "compact-candidate-toolbar");
         if (!directory.isDirectory() && !directory.mkdirs()) throw new AssertionError("截图目录创建失败");
         Bitmap bitmap = t.automation.takeScreenshot();
