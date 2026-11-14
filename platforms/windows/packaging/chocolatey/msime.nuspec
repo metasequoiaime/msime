@@ -37,7 +37,7 @@ Installing as SYSTEM (for example from an RMM tool or a scheduled task) needs `/
 ]]></description>
     <releaseNotes>@RELEASE_NOTES_URL@</releaseNotes>
     <dependencies>
-      <dependency id="vcredist140" version="14.20" />
+      <dependency id="vcredist140" version="14.51.36244.0" />
       <dependency id="webview2-runtime" />
     </dependencies>
   </metadata>

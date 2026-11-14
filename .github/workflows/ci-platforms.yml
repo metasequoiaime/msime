@@ -994,7 +994,7 @@ jobs:
   windows-scripts:
     needs: changes
     name: Windows release script tests
-    # 发版脚本是在 Windows 上跑的 PowerShell，上面的交叉构建容器里没有 pwsh，所以它们的探测测试放在 Windows runner 上。脚本测试本身不编译；末尾的状态目录和候选取色两步是这里仅有的原生构建，共用一棵 pipe-only 构建树，只编几个只依赖头文件的测试目标。
+    # 发版脚本是在 Windows 上跑的 PowerShell，上面的交叉构建容器里没有 pwsh，所以它们的探测测试放在 Windows runner 上。运行库检测用 Inno 6/7 编译并运行合成安装器；状态目录和候选取色测试共用一棵 pipe-only 构建树，只编几个只依赖头文件的测试目标。
     runs-on: depot-windows-2025-8
     timeout-minutes: 15
     steps:
@@ -1010,6 +1010,10 @@ jobs:
             & pwsh -NoProfile -File "platforms/windows/tests/tools/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
           }
+      - name: Verify native installer runtime checks with Inno 6 and 7
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: pwsh
+        run: ./platforms/windows/installer/tests/vc-runtime-native.ps1 -InstallCompilers
       - name: Check Windows desktop resource workflow
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
@@ -1018,7 +1022,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: ./platforms/windows/tests/server-manifest/verify.ps1
-      # The installer script itself cannot be compiled here, so these read msime_setup.iss for its lifecycle contracts. watchdog-task also registers the logon task's exact /TR text with Task Scheduler under a throwaway name and reads back what schtasks stored; the hosted runner is elevated, which that round trip needs.
+      # 完整安装器需要发布载荷；这里的生命周期检查仍读取 msime_setup.iss，运行库判断另由上面的原生探针验收。watchdog-task 用临时任务名注册精确的 /TR 文本，再读回任务计划程序实际保存的内容；此往返依赖 runner 已提权。
       # repo-root 之前不在这张单子上，也不在别的流水线里，所以它从来没跑过：它只解析 Prepare-PackageFiles.ps1 的参数声明，不碰磁盘，和同列的其他几个一样不需要装过的包，漏掉是疏忽而不是前置条件不足。
       - name: Run installer script tests
         if: ${{ needs.changes.outputs.windows == 'true' }}
