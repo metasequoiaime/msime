@@ -1660,24 +1660,32 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
+    /** 删除键先删选区；普通文字与表情按字素边界删除，空框交给编辑器处理引用。 */
     void deleteCodePointBeforeCursor() {
         clearQuickDeleteUndo();
         dropDeferredToolbarTaps();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
-        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 2);
-        if (before != null && before.length() == 0) {
-            // 空框外的艾特与引用不属于周边文字，应用只有收到退格事件才能处理；读取失败不当作空框。
+        CharSequence before = EditorBackspaceBoundary.before(connection);
+        int length = EditorBackspaceBoundary.length(before);
+        if (before != null && length == 0) {
+            // 空框外的引用和查询窗口容不下的对象交给编辑器；读取失败不当作空框。
             selectionEcho.invalidate();
             imeLetterRows.invalidateBackspaceScrub();
             sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
             return;
         }
-        if (InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0)) {
-            imeLetterRows.recordBackspaceScrubDelete(before);
-            selectionEcho.deleteCodePointBefore();
+        boolean multiplePoints = length > 0
+            && Character.codePointCount(before, before.length() - length, before.length()) > 1;
+        boolean deleted = multiplePoints
+            ? InputConnectionGuard.deleteSurroundingText(connection, length, 0)
+            : InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0);
+        if (deleted) {
+            if (multiplePoints) imeLetterRows.invalidateBackspaceScrub();
+            else imeLetterRows.recordBackspaceScrubDelete(before);
+            if (length > 0) selectionEcho.deleteBefore(length);
+            else selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
             imeLetterRows.invalidateBackspaceScrub();

@@ -66,6 +66,15 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
         await(editorText(""));
         await(status(true, true, 0));
 
+        for (String cluster : new String[] {"👍🏽", "🇨🇳", "1️⃣", "❤️", "👩‍👩‍👧‍👦", "👨🏽‍💻", "e\u0301"}) {
+            stage = "one backspace removes an entire grapheme";
+            setText("甲" + cluster + "后");
+            select(1 + cluster.length(), 1 + cluster.length());
+            tap(key("⌫"));
+            await(editorText("甲后"));
+            await(status(true, true, 0));
+        }
+
         stage = "selection deletion does not touch preceding text or quote";
         setText("前合成后");
         select(1, 3);

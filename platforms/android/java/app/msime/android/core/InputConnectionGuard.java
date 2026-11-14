@@ -49,8 +49,12 @@ final class InputConnectionGuard {
     }
 
     static CharSequence textBeforeCursor(InputConnection connection, int length) {
+        return textBeforeCursor(connection, length, 0);
+    }
+
+    static CharSequence textBeforeCursor(InputConnection connection, int length, int flags) {
         if (connection == null) return null;
-        try { return connection.getTextBeforeCursor(length, 0); }
+        try { return connection.getTextBeforeCursor(length, flags); }
         catch (RuntimeException ignored) { return null; }
     }
 
