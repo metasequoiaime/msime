@@ -2078,9 +2078,11 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
 #[test]
 fn settings_sync_macos_round_trips_candidate_window_appearance_and_theme() {
     let local = Preferences::default();
-    let mut remote = Preferences::default();
-    remote.global_theme = GlobalTheme::Night;
-    remote.candidate_theme = SettingsTheme::Dark;
+    let mut remote = Preferences {
+        global_theme: GlobalTheme::Night,
+        candidate_theme: SettingsTheme::Dark,
+        ..Preferences::default()
+    };
     remote.custom_theme.base = GlobalTheme::Paper;
     remote.custom_theme.candidate_skin = Some("synthetic-skin".into());
     remote.custom_theme.candidate_skin_dark = Some("synthetic-dark".into());

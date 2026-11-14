@@ -406,13 +406,13 @@ final class ImeBottomRow {
                             button.setText("移动光标");
                             if (button instanceof SpaceKeyFace face) face.setTransientLabel("移动光标");
                             button.setContentDescription("正在移动光标");
-                            moveEditorCursor(s.cursorMovement.advance(
+                            ImeSpaceCursor.move(s, button, s.cursorMovement.advance(
                                 event.getX(), s.connection, s.pixels(12)));
                         }
                         return true;
                     }
                     if (dragging[0]) {
-                        moveEditorCursor(s.cursorMovement.advance(
+                        ImeSpaceCursor.move(s, button, s.cursorMovement.advance(
                             event.getX(), s.connection, s.pixels(12)));
                         if (!s.cursorMovement.isActive()) {
                             dragging[0] = false;
@@ -633,8 +633,15 @@ final class ImeBottomRow {
             face.setNumberPadFace(numberPad);
             face.setSchemeLabel(numberPad ? "" : spaceLabel());
         }
-        // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。
-        if (numberPad) s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
+        // 九键双拼字母层的底行在空格右边多一个 0（组码键或字面 0），数字层把这一份并回 0 和空格，切层时其余键不动。
+        boolean shuangpinZero = layout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT && s.nineKeyShuangpinDrawn();
+        // 借用数字页的 0 记普通数字键，原拼音九键才记 Nine0；同一个常驻按键每次按当前键面重登。字母层的 0 带着双拼提示，进数字层时擦掉。
+        if (numberPad) {
+            if (zeroButton() instanceof KeyHintButton hinted) hinted.setHintText("");
+            s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
+        } else if (shuangpinZero) {
+            s.imeLayoutRows.bindShuangpinZero(zeroButton());
+        }
         syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");
         // Every keystroke reaches render(), and re-parenting eight keys under the pressed one is a
@@ -652,12 +659,15 @@ final class ImeBottomRow {
         boolean languageLeft = s.languageKeyLeft;
         String signature = layout + ":" + numberPad + ":" + globe + ":" + ownBottom + ":" + split + ":" + swapLanguageNumber
             + ":" + english + ":" + style + ":" + symbolFirst + ":" + numberPadSpace.resolved() + ":" + languageLeft
+            + ":" + shuangpinZero
             + (split ? ":" + s.imeLetterRows.splitWidthDp() : "")
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         // 数字九宫格的底行跟着进入它的键面排：返回键留在原来 123 那一格（签名里已有 layout，换入口会重排）。
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : numberPad ? KeyboardActionRow.numberPadEntries(layout, globe, swapLanguageNumber, style, symbolFirst, numberPadSpace, languageLeft)
             : KeyboardActionRow.designEntries(layout, globe, swapLanguageNumber, false, english, style, symbolFirst, numberPadSpace, languageLeft);
+        if (shuangpinZero && !entries.isEmpty()) entries = numberPad ? KeyboardActionRow.withShuangpinZeroShare(entries)
+            : KeyboardActionRow.withShuangpinZero(entries, false);
         // 每次重申可见性：回复面板会藏起功能行，长按语音保留原行测量与触摸流并覆盖它。
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
         if (s.imeVoiceEntry != null && s.imeVoiceEntry.coversActionRow()) ViewPolicy.setInvisible(s.actionRow);

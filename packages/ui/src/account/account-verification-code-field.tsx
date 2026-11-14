@@ -1,3 +1,4 @@
+import type { KeyboardEventHandler } from "react";
 import { AccountInputField } from "./account-input-field";
 
 export function AccountVerificationCodeField({
@@ -7,6 +8,7 @@ export function AccountVerificationCodeField({
   visuallyHiddenLabel = false,
   className,
   placeholder,
+  onKeyDown,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -14,6 +16,7 @@ export function AccountVerificationCodeField({
   visuallyHiddenLabel?: boolean;
   className?: string;
   placeholder?: string;
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
 }) {
   return (
     <AccountInputField
@@ -26,6 +29,7 @@ export function AccountVerificationCodeField({
       maxLength={6}
       value={value}
       disabled={disabled}
+      onKeyDown={onKeyDown}
       onChange={(nextValue) => onChange(nextValue.replace(/\D/g, "").slice(0, 6))}
     />
   );

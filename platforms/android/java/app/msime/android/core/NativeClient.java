@@ -918,6 +918,13 @@ public final class NativeClient {
         return converted == null ? null : TextPolicy.utf8(converted);
     }
 
+    /** 按共享偏好的 OpenCC 变体转换文本；未知编号由 host-api 拒绝，调用方保留原文。 */
+    public static String convertToTraditional(String text, int variant) {
+        if (text == null || text.isEmpty()) return text;
+        byte[] converted = convertToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8), variant);
+        return converted == null ? null : TextPolicy.utf8(converted);
+    }
+
     /** Drop the cached candidate list for this session; the next query is answered fresh. */
     public static String resetCache(long session) {
         return TextPolicy.utf8(resetCacheRaw(session));
@@ -1229,6 +1236,7 @@ public final class NativeClient {
     private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
+    private static native byte[] convertToTraditionalRaw(byte[] text, int variant);
     private static native byte[] resetCacheRaw(long session);
     private static native byte[] startSettledRerankRaw(long session);
     private static native byte[] pollSettledRerankRaw(long session, long token, boolean accept);
