@@ -23,6 +23,10 @@ import java.util.List;
 
 /** 分类符号面板：全宽网格上下滚动，底栏分类左右滚动，顶部整行返回、右下删除。目录分类从 Engine 分页读，滚到底再读下一页。 */
 public final class SymbolPanelView extends LinearLayout {
+    private static final int GRID_CELL_HEIGHT_DP = 40;
+    private static final int GRID_CELL_MARGIN_DP = 3;
+    private static final Object GRID_CELL_TAG = new Object();
+
     public interface ButtonFactory {
         Button create(String title, String description, Runnable action, boolean actionStyle);
     }
@@ -65,6 +69,8 @@ public final class SymbolPanelView extends LinearLayout {
         }
     };
     private int measuredGridWidth;
+    private int gridCellHeightPx = -1;
+    private boolean updatingGridCellHeight;
     private final ScrollView gridScroll = new CategorySwipeScrollView(getContext());
     private final LinearLayout radicalBody;
     private final ScrollView radicalRailScroll;
@@ -440,6 +446,17 @@ public final class SymbolPanelView extends LinearLayout {
         }
 
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            if (this == gridScroll && !showingRadicals()) {
+                int margin = DimensionPolicy.pixels(getContext(), GRID_CELL_MARGIN_DP);
+                int minimum = DimensionPolicy.pixels(getContext(), GRID_CELL_HEIGHT_DP);
+                int visibleHeight = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED
+                    ? 0 : MeasureSpec.getSize(heightMeasureSpec);
+                int nextHeight = SymbolGridRowPolicy.cellHeight(visibleHeight, minimum, margin);
+                if (nextHeight != gridCellHeightPx) {
+                    gridCellHeightPx = nextHeight;
+                    updateGridCellHeights();
+                }
+            }
             if (this == gridScroll && showingRadicals()) {
                 // 在测量子网格前补齐末组留白，不能在布局后改尺寸并依赖下一帧修正。
                 String last = RadicalPanelModel.STROKES.get(RadicalPanelModel.STROKES.size() - 1);
@@ -545,6 +562,7 @@ public final class SymbolPanelView extends LinearLayout {
                 markRowStart(index, rowIndex);
             }
             GridLayout.LayoutParams params = gridCellParams(rowIndex, columnIndex, span);
+            button.setTag(GRID_CELL_TAG);
             grid.addView(button, params);
             columnIndex += span;
             if (columnIndex == columns) {
@@ -568,16 +586,38 @@ public final class SymbolPanelView extends LinearLayout {
         GridLayout.LayoutParams params = new GridLayout.LayoutParams(GridLayout.spec(row),
             GridLayout.spec(column, span, GridLayout.FILL, (float) span));
         params.width = 0;
-        params.height = DimensionPolicy.pixels(getContext(), 40);
-        int margin = DimensionPolicy.pixels(getContext(), 3);
+        params.height = !showingRadicals() && gridCellHeightPx > 0 ? gridCellHeightPx
+            : DimensionPolicy.pixels(getContext(), GRID_CELL_HEIGHT_DP);
+        int margin = DimensionPolicy.pixels(getContext(), GRID_CELL_MARGIN_DP);
         params.setMargins(margin, margin, margin, margin);
         return params;
     }
 
     private void addGridSpacer(int row, int column, int span) {
         // 目录每格对应一个子视图，分页移除尾行时仍按既有的五格行索引处理。
-        for (int offset = 0; offset < span; offset++)
-            grid.addView(new View(getContext()), gridCellParams(row, column + offset, 1));
+        for (int offset = 0; offset < span; offset++) {
+            View spacer = new View(getContext());
+            spacer.setTag(GRID_CELL_TAG);
+            grid.addView(spacer, gridCellParams(row, column + offset, 1));
+        }
+    }
+
+    /** 高度变化时更新已排好的格子，保留目录分页和当前滚动状态。 */
+    private void updateGridCellHeights() {
+        if (updatingGridCellHeight || gridCellHeightPx <= 0) return;
+        updatingGridCellHeight = true;
+        try {
+            for (int index = 0; index < grid.getChildCount(); index++) {
+                View child = grid.getChildAt(index);
+                if (child.getTag() != GRID_CELL_TAG) continue;
+                GridLayout.LayoutParams params = (GridLayout.LayoutParams) child.getLayoutParams();
+                if (params.height == gridCellHeightPx) continue;
+                params.height = gridCellHeightPx;
+                child.setLayoutParams(params);
+            }
+        } finally {
+            updatingGridCellHeight = false;
+        }
     }
 
     /** 当前是目录分类、还没读完、也没有正在读时，读下一页。 */

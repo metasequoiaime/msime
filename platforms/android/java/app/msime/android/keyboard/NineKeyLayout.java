@@ -19,17 +19,44 @@ public final class NineKeyLayout {
 
     /** 组字时 1 键是「分词」：在已打的数字末尾定一个音节分界（向引擎送 '）。和搜狗、讯飞九键的习惯一样，右列中间那格就留给「重输」。 */
     public static boolean separatesSyllables(Key key, boolean digits, boolean composing) {
-        return composing && offersPunctuation(key, digits);
+        return separatesSyllables(key, digits, composing, NineKeyCompositionActionPolicy.SEPARATE);
+    }
+
+    /** 组字时 1 键是否保留原来的分词动作。 */
+    public static boolean separatesSyllables(Key key, boolean digits, boolean composing, String action) {
+        return composing && offersPunctuation(key, digits)
+            && !NineKeyCompositionActionPolicy.REWRITE.equals(
+                NineKeyCompositionActionPolicy.normalize(action));
     }
 
     /** 拼音键面上 1 键随组字状态换的键面。 */
     public static String face(Key key, boolean digits, boolean composing) {
-        return separatesSyllables(key, digits, composing) ? "分词" : face(key, digits);
+        return face(key, digits, composing, NineKeyCompositionActionPolicy.SEPARATE);
+    }
+
+    /** 拼音键面上 1 键按本机设置选择分词或重输。 */
+    public static String face(Key key, boolean digits, boolean composing, String action) {
+        if (composing && offersPunctuation(key, digits)) {
+            return NineKeyCompositionActionPolicy.REWRITE.equals(
+                NineKeyCompositionActionPolicy.normalize(action)) ? "重输" : "分词";
+        }
+        return face(key, digits);
     }
 
     /** 与 {@link #face(Key, boolean, boolean)} 对应的无障碍描述。 */
     public static String description(Key key, boolean digits, boolean composing) {
-        return separatesSyllables(key, digits, composing) ? "分词，在这里断开音节" : description(key, digits);
+        return description(key, digits, composing, NineKeyCompositionActionPolicy.SEPARATE);
+    }
+
+    /** 与 {@link #face(Key, boolean, boolean, String)} 对应的无障碍描述。 */
+    public static String description(Key key, boolean digits, boolean composing, String action) {
+        if (composing && offersPunctuation(key, digits)
+                && NineKeyCompositionActionPolicy.REWRITE.equals(
+                    NineKeyCompositionActionPolicy.normalize(action))) {
+            return "重输，清空未上屏拼音";
+        }
+        return separatesSyllables(key, digits, composing, action)
+            ? "分词，在这里断开音节" : description(key, digits);
     }
 
     private static final List<List<Key>> ROWS = List.of(

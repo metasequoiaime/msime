@@ -35,6 +35,8 @@ Status: implemented
 
 ## Consequences
 
+- 模糊音整词与更长补全词的边界见[模糊整词先于补全](2026-11-13-fuzzy-whole-word-before-completion.md)：只在有补全词时提升覆盖全部输入的模糊整词，保留精确首选、整句让位和补全数量门槛。
+
 - **收益**：`dacuozi` 首选「打错字」，`doumeiren` 首选「都没人」，补全词排在整句块之后。用锁定词库和产品重排器跑 `convert_eval` 的词级集（`quanpin-words-v1.tsv --limit 3000`，2791 条），top-1 从 0.756 升到 0.781，MRR 从 0.829 升到 0.847，top-5 从 0.941 升到 0.942。不检查读音的初版逐条比对是 77 条名次变好、1 条变差；加上读音条件后，排第一的同长度行读音不一致的输入恢复修复前的整组按权重排序，其余输入和初版相同，那 1 条变差的用例回到原位。
 - **代价**：补全词的语料权重再高，也只能排第二位起，整词很冷而补全词很常用时（「都没人」3 对「都没人买」129），用户要往后看一位。最初的实现不检查读音，把前缀行「质量奖」也固定在首位，`zhiliangjian`（金样「质量检验」）因此从第 5 位退到第 6 位；加上读音一致的条件后它回到第 5 位，「质量奖」排在补全词之后。
 - **基线**：`resources/eval/baseline-words.json` 按这次结果更新。整句集 `sentences`、`harvested`、`neutral` 在改动前的 develop 上就已经和基线不一致，这次改动只让 `harvested` 的 top-1 从 0.321 变成 0.324，没有顺手更新它们；九键和 14 键四个集改动前后都和基线一致。
@@ -46,3 +48,5 @@ Status: implemented
 
 - `crates/engine/src/quanpin/dictionary/tests.rs` 新增五个测试，全部用合成夹具：`heavier_longer_phrase_does_not_take_the_first_seat_from_the_exact_reading`（打错字 565 对 打错字了 1010，且补全词仍在冷僻同音词「大错字」之前）；`light_exact_reading_still_leads_heavier_continuations`（都没人 3 对 100 到 129 的补全词）；`sentence_rows_follow_a_light_exact_hit_and_precede_heavier_longer_phrases`（开整句候补时整句块夹在整词和补全词之间）；`sentence_leads_longer_phrases_when_no_exact_reading_exists`（没有整词时整句在补全词之前）；`prefix_only_row_does_not_pin_the_first_seat_over_a_heavier_continuation`（只有前缀行 质量奖 10 时，更重的补全词 质量检验 500 排在它前面）。前三个在修复前失败，第四个修复前后都通过，钉住没有整词时的既有行为；第五个在不检查读音的初版上失败。原有的 `longer_phrases_join_the_full_key_group_by_weight` 和 `sentence_rows_follow_the_exact_hits_and_precede_longer_phrases` 不改动照样通过。
 - 用锁定词库和产品重排器经完整 runtime 打 `dacuozi`、`doumeiren`、`pingguo`：修复前前两个的首选分别是「打错字了」「都没人管理」，修复后是「打错字」「都没人」；`pingguo` 前后都是「苹果」，第三、四位仍是「苹果电脑」「苹果公司」；`zhiliangjian` 的「质量检验」在第 5 位，「质量奖」在第 8 位。
+
+模型入口的完整输入判定另见[纠错重排排除更长补全](2026-11-13-corrected-pinyin-completion-rerank.md)，本篇词典排序规则保持。

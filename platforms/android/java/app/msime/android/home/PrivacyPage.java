@@ -315,6 +315,7 @@ public final class PrivacyPage extends ReloadingDetailPage {
         if (toggle != InputFeatureToggle.CANDIDATE_TRANSLATION_ACCOUNT || !value)
             return HostStore.putPreference(context, toggle.key(), value);
         return KeyboardSheets.write(context, preferences -> {
+            KeyboardSheets.child(preferences, "aliyun_translation").put("enabled", false);
             KeyboardSheets.child(preferences, "niutrans").put("enabled", false);
             KeyboardSheets.child(preferences, "custom_translation").put("enabled", false);
             KeyboardSheets.child(preferences, "tencent_tmt").put("enabled", false);
