@@ -23,4 +23,4 @@ Android 皮肤页的「我的」和「社区」分类分别持有本地皮肤模
 
 ## Verification
 
-`CommunityActionPolicySmoke` 覆盖保留已获取、清除已删除和保留进行中三种状态；提交前运行 Android JVM 冒烟、`platforms/android/check-host.sh`、本地 quick 门禁、`pnpm run verify-notes` 与 `git diff --check`。设备验收按 Android 宿主流程执行；若受本机磁盘空间限制未能启动模拟器，将在 PR 验证段明确记录。
+`CommunityActionPolicySmoke` 覆盖保留已获取、清除已删除和保留进行中三种状态。`SettingsDeviceSmoke -e skin-refresh true` 驱动真实原生页面：先打开空的「我的」，转到社区后从真实 `CommunityCatalog.install` 安装合成设计，切回「我的」断言卡片出现；经真实删除确认框移除，再切社区断言按钮从「使用」恢复为「获取」。社区目录条目在适配器边界注入，以隔离网络和公开作品变化；测试不覆盖服务端下载，保留真实页面、库安装、异步重读与卡片绑定。偏好和皮肤库均备份后在 `finally` 恢复，使用无账号的临时 Android 用户验收，不向机主库写入合成皮肤。提交前运行 Android 宿主、quick、笔记和差异校验。

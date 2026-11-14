@@ -296,3 +296,4 @@ platforms/android/tests/device/voice/VoiceMascotDeviceChecks.java
 platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
+platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
