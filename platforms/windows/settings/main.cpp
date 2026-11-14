@@ -78,6 +78,7 @@
 #include "PunctuationSettings.h"
 #include "QuickPhraseSettingsModel.h"
 #include "SentencePackModel.h"
+#include "SchemeResourcePackCatalog.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
 #include "SettingsNavIcons.h"
@@ -804,8 +805,8 @@ public:
     return lookup(defaults_, nav::preference_path(key));
   }
 
-  bool Boolean(std::wstring_view key, bool fallback) const {
-    const auto value = Value(key);
+  bool Boolean(std::wstring_view key, bool fallback, bool stored_only = false) const {
+    const auto value = stored_only ? lookup(preferences_, nav::preference_path(key)) : Value(key);
     return value && value.ValueType() == JsonValueType::Boolean
                ? value.GetBoolean()
                : fallback;
@@ -5796,8 +5797,8 @@ private:
 
   void bool_row(StackPanel const &group, wchar_t glyph, std::wstring const &title,
                 std::wstring const &subtitle, std::wstring key, bool fallback,
-                bool redraw = false, bool enabled = true) {
-    const bool on = document_.Boolean(key, fallback);
+                bool redraw = false, bool enabled = true, bool stored_only = false) {
+    const bool on = document_.Boolean(key, fallback, stored_only);
     add_row(group, glyph, title, subtitle,
             toggle_control(title, on,
                            [this, key, redraw](bool value) {
@@ -14007,6 +14008,11 @@ private:
     if (chinese(scheme) && chinese_schemes.size() > 1)
       scheme_cards(group, chinese_schemes, scheme);
 
+    if (const auto *pack = msime::settings::scheme_resource::for_scheme(scheme)) {
+      request_sentence_packs();
+      sentence_pack_row(group, std::wstring(pack->id), std::wstring(pack->title));
+    }
+
     if (scheme == L"shuangpin") {
       // 选项顺序与共享页 shuangpinProfileOptions 相同。Windows 还没有自定义双拼的编辑页，平时不列「自定义双拼」；文档里已经是它（比如在 macOS 上选的、同步过来）时照共享页列出一项灰的，否则下拉框找不到当前值，显示成空白。
       std::vector<Option> profiles{{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
@@ -14579,7 +14585,7 @@ private:
     const bool installing = sentence_pack_installing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
     // 副标题和按钮由 SentencePackModel.h 决定：状态没读回时只说「正在读取」、读失败时只给「重试」，都不给「下载」（#10839）。
-    const auto view = spk::row_view(sentence_packs_.knowledge, sentence_pack_status(pack), installing,
+    const auto view = msime::settings::scheme_resource::row_view(pack, sentence_packs_.knowledge, sentence_pack_status(pack), installing,
                                     sentence_pack_importing_.count(pack) > 0, removing,
                                     grammar_updates_available_.count(pack) > 0);
     const std::wstring subtitle(view.subtitle);
@@ -14638,7 +14644,10 @@ private:
       below.Margin(Thickness{0, 6, 0, 0});
       extra = below;
     }
-    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, extra));
+    auto row = add_row(group, 0xE8C1, title, subtitle, actions, extra);
+    A11y::SetAutomationId(row, L"resource-pack-" + pack);
+    auto status = row_subtitle(row);
+    A11y::SetAutomationId(status, L"resource-pack-" + pack + L"-state");
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -14679,8 +14688,12 @@ private:
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     run_host(
         [body = utf8(request.Stringify())] {
-          return take_response(msime_client_resource_packs(
+          auto response = take_response(msime_client_resource_packs(
               reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+          if (response.ok)
+            response.text = msime::settings::scheme_resource::with_bundled_resources(
+                response.text, runtime_options_document());
+          return response;
         },
         [this](Response const &response) {
           bool ok = false;
@@ -14694,7 +14707,8 @@ private:
                 const auto object = item.GetObject();
                 const auto id = named_string(object, L"id");
                 if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                    id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                    id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact" ||
+                    msime::settings::scheme_resource::find(id)) {
                   SentencePackStatus status{id, named_string(object, L"state"), {}};
                   for (auto const &file : named_objects(object, L"import_files"))
                     status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
@@ -14840,8 +14854,10 @@ private:
 
   fire_and_forget remove_sentence_pack(std::wstring const &id) {
     const bool settled = id == L"settled-model";
-    if (!co_await confirm(settled ? L"删除桌面神经联想模型" : L"删除语法模型",
-                          settled ? L"删除后切换输入框即可退回不经神经模型重排的整句候选。确定删除？"
+    const bool dictionary = msime::settings::scheme_resource::find(id) != nullptr;
+    if (!co_await confirm(dictionary ? L"删除方案词库" : settled ? L"删除桌面神经联想模型" : L"删除语法模型",
+                          dictionary ? L"删除后对应方案可能不可用，需要重新下载词库。确定删除？"
+                              : settled ? L"删除后切换输入框即可退回不经神经模型重排的整句候选。确定删除？"
                                   : L"删除后切换输入框即可退回无语法模型的候选行为。确定删除？",
                           L"删除"))
       co_return;
@@ -14960,12 +14976,13 @@ private:
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);
-      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。快捷短语混输与共享页使用同一个 `mixed_input.quick_phrase` 偏好。
+      // 快捷短语开启时共享层省略字段；只读已存对象，按共享层的缺字段规则回退为开启。
       bool_row(candidates_more, 0xE8C1,
                std::wstring(msime::settings::quick_phrase::title),
                std::wstring(msime::settings::quick_phrase::description),
                std::wstring(msime::settings::quick_phrase::preference),
-               msime::settings::quick_phrase::fallback, false, mixed_enabled);
+               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
                L"caret_edit_suffix", false);

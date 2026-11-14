@@ -6,6 +6,7 @@
 import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
 import util from '@ohos.util';
+import { FileCopy } from './FileCopy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { StagedResources } from './StagedResources';
 import {
@@ -270,7 +271,7 @@ export class SharedStateMirror {
       const staging: string = `${destination}.${util.generateRandomUUID(false)}.staging`;
       if (!directory) {
         try {
-          fs.copyFileSync(source, staging);
+          FileCopy.copy(source, staging);
           fs.renameSync(staging, destination);
         } finally {
           try {
@@ -310,7 +311,7 @@ export class SharedStateMirror {
         if (stat.isDirectory()) {
           SharedStateMirror.copyTree(from, to);
         } else if (stat.isFile()) {
-          fs.copyFileSync(from, to);
+          FileCopy.copy(from, to);
         }
       }
     } catch (error) {

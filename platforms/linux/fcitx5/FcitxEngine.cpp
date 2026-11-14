@@ -589,6 +589,18 @@ public:
         [this](msime::linux_host::WaveOverlayModel::Action action) { handleVoiceOverlayAction(action); });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
+          // 焦点不在这里、也没有会话时这一批刷新无事可做：失焦时 close() 已经放掉会话、
+          // 写完按键统计、收起浮层，剩下的读取只对活着的会话有意义。而 Fcitx5 会为进过的
+          // 每个输入框各留一份 FcitxState 和它自己的这一拍，照旧每拍跑一遍，成本随今天点过
+          // 的窗口数线性叠加：每一拍都要经宿主 ABI 读偏好与 provider 套接字（各是一次 JSON），
+          // 还会把 UI 更新推给前端。跳到下一拍，只留下保存重试这类真正需要跑完的任务。
+          const bool idle = !ic_.hasFocus() && !session_ && !preferences_job_.valid() &&
+                            !preferences_save_job_.valid();
+          if (idle) {
+            timer->setNextInterval(250000);
+            timer->setOneShot();
+            return true;
+          }
           refreshDictionaryQuiesce();
           refreshProviderSockets();
           refreshPreferences();

@@ -1294,6 +1294,38 @@ int main(int argc, char **argv) {
       }
       {
         using namespace msime::windows;
+        // 报告者输入的 `windows` 同样没有候选，回车必须沿用原文上屏路径。
+        session.cancel_composition(epoch);
+        require(session.view().at("editing_text") == "",
+                "Raw Enter follow-up did not start from an empty composition");
+        ReplyComposer raw_composer(42, epoch);
+        constexpr std::string_view raw = "windows";
+        const auto expected = std::string(raw);
+        for (const char c : raw)
+          key(c - 'a' + 'A', c);
+        const auto invalid = session.view();
+        require(invalid.at("editing_text") == expected &&
+                    invalid.at("candidates").empty(),
+                "Reported windows input did not remain candidate-free raw text");
+        FanyImeNamedpipeData invalid_enter{};
+        invalid_enter.client_id = 42;
+        invalid_enter.event_type = FanyImePipeEventType::KeyEvent;
+        invalid_enter.request_id = request++;
+        invalid_enter.keycode = 0x0D;
+        invalid_enter.pinyin_length = static_cast<int>(raw.size());
+        for (size_t i = 0; i < raw.size(); ++i)
+          invalid_enter.pinyin_string[i] = raw[i];
+        const auto pending = raw_composer.configured_key(
+            session, invalid_enter, epoch, TsfPreeditStyle::Pinyin, {},
+            expected);
+        require(pending && !pending->encoded &&
+                    pending->source.transition.at("commit") == expected &&
+                    session.view().at("editing_text") == "",
+                "Reported windows raw Enter did not clear the Engine composition");
+        raw_composer.confirm_delivery(42, epoch, invalid_enter.request_id);
+      }
+      {
+        using namespace msime::windows;
         for (char c : std::string("nihao")) key(c - 'a' + 'A', c);
         // Multiple dictionary senses use a short-lived candidate page. The
         // original Engine composition remains untouched until a sense is
