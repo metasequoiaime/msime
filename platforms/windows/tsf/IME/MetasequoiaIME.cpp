@@ -1692,7 +1692,8 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
         goto ExitError;
     }
 
-    Global::CapsLockEnabled.store((GetKeyState(VK_CAPITAL) & 0x0001) != 0, std::memory_order_relaxed);
+    Global::CapsLockEnabled.store(msime::input::caps_lock_enabled_from_key_state(GetKeyState(VK_CAPITAL)),
+                                  std::memory_order_relaxed);
 
     // Apply configured default CN/EN whenever switching back to this IME
     _pCompositionProcessorEngine->InitializeMetasequoiaIMECompartment(pThreadMgr, tfClientId);
@@ -3210,7 +3211,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         pIME->_ConsumeCandidateContinuationFailure();
         break;
     case WM_ApplyCapsLockEdge:
-        pIME->_ApplyCapsLockEdge((GetKeyState(VK_CAPITAL) & 0x0001) != 0);
+        pIME->_ApplyCapsLockEdge(msime::input::caps_lock_enabled_from_key_state(GetKeyState(VK_CAPITAL)));
         break;
     case WM_HostOnlineCandidates:
         pIME->_DispatchServerText(wParam, FUNCTION_HOST_ONLINE_CANDIDATES);
