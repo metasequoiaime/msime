@@ -20,6 +20,7 @@ mod patch;
 mod reporting_authority;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
+mod traditional_variant_read;
 pub use reporting_consent::UsageReportingConsent;
 
 /// The largest preference document accepted by the shared host boundary. This
@@ -6093,6 +6094,10 @@ impl PreferencesStore {
         };
         let mut document: serde_json::Value = serde_json::from_slice(bytes)?;
         settle_newer_values_on_read(&mut document);
+        traditional_variant_read::settle(
+            &mut document,
+            traditional_variant_read::FALLS_BACK_ON_READ,
+        );
         let (mut snapshot, mut unknown) =
             deserialize_keeping_unknown::<PreferencesSnapshot>(&document, &["preferences"])?;
         if let Some(preferences) = document.get("preferences") {
