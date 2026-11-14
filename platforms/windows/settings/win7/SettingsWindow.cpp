@@ -15,6 +15,7 @@
 #include "GlossForm.h"
 #include "TranslationForm.h"
 #include "../LocalTranslationWindow.h"
+#include "../DictionaryCollectionsWindow.h"
 #include "CandidateAppearanceForm.h"
 #include "AiForm.h"
 #include "AccountForm.h"
@@ -2867,6 +2868,11 @@ struct SettingsWindow::State {
         job.credential = std::move(account_change.request);
         submit(std::move(job));
       }
+      return;
+    }
+    if (LOWORD(command) == dictionary_groups_open && HIWORD(command) == BN_CLICKED) {
+      const auto options = runtime_options();
+      if (options.is_object()) msime::settings::show_dictionary_collections(window, options.dump());
       return;
     }
     if (LOWORD(command) == translation_local_model && HIWORD(command) == BN_CLICKED) {

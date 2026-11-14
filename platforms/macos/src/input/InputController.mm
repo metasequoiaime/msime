@@ -21,6 +21,7 @@
 #include "../../../common/DictionaryQuiesceLease.h"
 #import "../core/ScreenKeyboardPanel.h"
 #import "../dictionary/DictionaryWindowController.h"
+#import "../dictionary/DictionaryCollectionsWindow.h"
 #import "../core/ClientDictionaryRuntime.h"
 #import "../settings/AppearancePreferences.h"
 #import "InputMenu.h"
@@ -5149,6 +5150,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSMenuItem *cloudDictionary = [[NSMenuItem alloc] initWithTitle:@"云词库…" action:@selector(showCloudDictionary:) keyEquivalent:@""];
     cloudDictionary.target = self;
     [menu addItem:cloudDictionary];
+    NSMenuItem *groups = [[NSMenuItem alloc] initWithTitle:@"词库分组…" action:@selector(showDictionaryGroups:) keyEquivalent:@""];
+    groups.target = self;
+    [menu addItem:groups];
     NSMenuItem *keyboard = [[NSMenuItem alloc] initWithTitle:@"水杉屏幕键盘…" action:@selector(showScreenKeyboard:) keyEquivalent:@""];
     keyboard.target = self;
     [menu addItem:keyboard];
@@ -6483,6 +6487,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Appearance, NSWorkspace.sharedWorkspace, ^{
         [[MSIMEPreferencesWindowController sharedController] showAndActivateWithPageIdentifier:@"appearance"];
     });
+}
+- (void)showDictionaryGroups:(id)sender {
+    (void)sender;
+    if (!_session) [self prepareSession];
+    if (_session) [MSIMEDictionaryCollectionsWindow showWithOptions:_session.hostOptions];
 }
 - (void)showDictionary:(id)sender {
     (void)sender;

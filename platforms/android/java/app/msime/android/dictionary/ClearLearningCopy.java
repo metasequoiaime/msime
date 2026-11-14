@@ -3,7 +3,7 @@ package app.msime.android;
 /**
  * 「词库 › 学习」里「清除学习记录」的文案和结果提示，做法见 {@link DictionaryCollectionsStore#resetLearning}。
  *
- * <p>iOS 的 `ClearLearningCopy` 与这里的标题、说明、按钮、确认框第一句、网盘同步那一句和失败提示逐字相同；确认框其余部分各说各的：iOS 的账号同步不含个人词库，也没有命名词库，导入和从社区添加的词都是自造词。
+ * <p>iOS 的 `ClearLearningCopy` 与这里的标题、说明、按钮、确认框第一句、网盘同步那一句和失败提示逐字相同；iOS 的账号同步不含个人词库，分组词条在键盘空闲时重新写入。
  */
 public final class ClearLearningCopy {
     private ClearLearningCopy() {}

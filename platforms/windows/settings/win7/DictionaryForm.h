@@ -74,6 +74,7 @@ public:
     add(dictionary_export_all, L"BUTTON", L"导出全部个人词库…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_reset, L"BUTTON", L"清除全部学习数据…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     // 「我的词条」经 WebDAV 网盘同步：Win7 导航不收云端同步的页面，与云剪贴板一样在独立面板里设置。
+    add(dictionary_groups_open, L"BUTTON", L"词库分组…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_sync_open, L"BUTTON", L"词库同步（WebDAV 网盘）…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_notice, L"STATIC", L"", SS_LEFT, 140);
     return top;
@@ -97,6 +98,7 @@ public:
     if (id == dictionary_format && notification == CBN_SELCHANGE) { update(); return result; }
     if (id == dictionary_entries && notification == LBN_SELCHANGE) { selected_entry(); update(); return result; }
     if (notification != BN_CLICKED) return result;
+    if (id == dictionary_groups_open) { result.route = "dictionary-groups"; return result; }
     if (id == dictionary_sync_open) { result.route = "dictionary-sync"; return result; }
     if (id == dictionary_search || id == dictionary_user_only) { offset_ = 0; result.request = list_request(); }
     else if (id == dictionary_previous || id == dictionary_next) {

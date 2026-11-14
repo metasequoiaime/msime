@@ -13,6 +13,7 @@
 #include "../common/SurfaceRouteArgument.h"
 #include "SettingsInstance.h"
 #include "LocalTranslationWindow.h"
+#include "DictionaryCollectionsWindow.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -17039,6 +17040,12 @@ private:
 
   // 共享页的 DictionarySettingsPage 在 macOS 桌面上的样子。顶上是词库页的导航（make_lexicon_nav），然后是词库操作的结果（make_lexicon_feedback，在标签下面、面板上面，切标签时清掉），「完善公共词库」在所有标签之上一直显示。「查找词库」是本地词库管理（build_lexicon_lookup）；「管理词库」依次是导入与导出、词库更新、「更多」里的背单词和学习数据（build_lexicon_manage）；「云端词库」只有打开云词库面板的一行：共享页在这里内嵌整个云词库，本窗口不嵌网页，面板仍由 MSIME.exe 显示。背单词是从「管理词库」进入的子页（build_vocabulary_view），打开时整页只画它。
   void build_lexicon_page(StackPanel const &page) {
+    auto groups = add_group(page, L"词库分组");
+    add_row(groups, 0xE8F1, L"词库分组", L"", button_control(L"管理分组…", [this] {
+      HWND owner = nullptr;
+      check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+      if (const auto options = runtime_options_document()) msime::settings::show_dictionary_collections(owner, *options);
+    }));
     if (!indexing_) {
       lexicon_results_host_ = nullptr;
       lexicon_feedback_bar_ = nullptr;
