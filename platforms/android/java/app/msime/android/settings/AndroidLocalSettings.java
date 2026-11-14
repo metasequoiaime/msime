@@ -115,7 +115,7 @@ public final class AndroidLocalSettings {
     public static final String NINE_KEY_DIGIT_SYMBOLS = "platform.android.nine_key_digit_symbols";
     /** 退格键上滑快速删除的范围：默认只删光标前，可选清空整个输入框。 */
     public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";
-    /** 设计范围的键盘高度调整（dp，-46..129，即 75%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 设计范围的键盘高度调整（dp，-92..129，即 50%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
     public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";

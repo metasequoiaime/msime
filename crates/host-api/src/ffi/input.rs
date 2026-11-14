@@ -405,6 +405,7 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         16 => Action::Command(Command::ConvertHanja),
         17 => Action::Command(Command::ConversionLeft),
         18 => Action::Command(Command::ConversionRight),
+        21 => Action::Command(Command::EnterQuickPhrase),
         // 宿主已经自己写入了文本：对会话同 Cancel，生命周期里结束原因记 HostCommit。
         lifecycle::COMMAND_CANCEL_AFTER_HOST_COMMIT => {
             return dispatch_call(
