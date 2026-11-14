@@ -44,6 +44,7 @@ import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.NineKeyFlickPolicy;
+import app.msime.android.NineKeyCompositionActionPolicy;
 import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
 import app.msime.android.RecentClipboardSuggestion;
@@ -312,6 +313,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 NineKeyFlickPolicy.THRESHOLD_STEP_DP, threshold,
                 value -> value + " dp", value -> savePreference(NineKeyFlickPolicy.PREFERENCE, value))
                 .help("手指移动超过这个距离才输入上、左或右方向对应的字母；数字请长按输入");
+            String compositionAction = settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION);
+            GroupCard.Row[] compositionActionRow = new GroupCard.Row[1];
+            compositionActionRow[0] = gestures.nav("九键组字按钮", null,
+                NineKeyCompositionActionPolicy.label(compositionAction),
+                () -> pickNineKeyCompositionAction(compositionAction, compositionActionRow[0]))
+                .help("组字时 1 键显示并执行分词或重输；空闲时仍是常用标点。");
         }
         String quickDeleteScope = settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE);
         GroupCard.Row[] quickDeleteRow = new GroupCard.Row[1];
@@ -748,6 +755,18 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
 
     private static String clipboardColumnsLabel(String value) {
         return ClipboardLayoutPolicy.columns(value) == 2 ? "双列" : "单列";
+    }
+
+    private void pickNineKeyCompositionAction(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "九键组字按钮", null);
+        for (String value : new String[] {NineKeyCompositionActionPolicy.SEPARATE,
+                NineKeyCompositionActionPolicy.REWRITE}) {
+            sheet.option(NineKeyCompositionActionPolicy.label(value), value.equals(selected), () -> {
+                row.setValue(NineKeyCompositionActionPolicy.label(value));
+                saveLocalSetting(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION, value);
+            });
+        }
+        sheet.show();
     }
 
     private static String swipeDirectionLabel(String value) {

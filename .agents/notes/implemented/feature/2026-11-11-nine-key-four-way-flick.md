@@ -24,7 +24,9 @@ Status: implemented
 
 Android 当前分支 arm64 原生 APK 构建通过；API 28/35 专用 AVD 的系统输入法四向触摸回放通过，覆盖全部 2–9 键字母、下滑和 1 键无动作、取消、长按数字及共享阈值 14/48。API 35 的预览与长按拖选专项通过；鸿蒙 `tests/run.sh` 全套通过，包含新的触摸所有权行为测试。Swift 的真实状态机代码独立回放通过。iOS 27 专用模拟器的系统键盘与独立编辑器实测通过：v5 回放全部 2–9 键的上/左/右、下滑无动作和长按数字；v7 在重新编译测试宿主后验证阈值 48/14 对下一次系统触摸生效。期间发现首行长按菜单会越出扩展上边界，已用边界约束修复并由同一回放覆盖。Android 设置改前/改后原尺寸截图保留在本机产物目录，图床下载回验为 PNG 且字节一致。
 
-真实 ArkTS 编译补验发现 `KeyboardSession.appearance` 的初始对象缺少新增的 `nineKeyFlickThreshold`，已补上策略默认值；`ohpm install` 后的 `hvigorw assembleHap --no-daemon` 通过（`20261113-182849`）。这次产物只作为 ArkTS 编译与打包证据，没有暂存本分支的 Rust/NAPI 库和核心词库，也没有签名，不能作为可安装产品包。`tests/run.sh`、`pnpm run verify-notes` 与全平台 quick（`20261113-183128`）通过。`hdc list targets -v` 返回空列表；本分支完整 HAP 和签名设备验收仍需补齐；hdc 仍无设备。
+真实 ArkTS 编译补验发现 `KeyboardSession.appearance` 的初始对象缺少新增的 `nineKeyFlickThreshold`，已补上策略默认值；`ohpm install` 后的 `hvigorw assembleHap --no-daemon` 通过（`20261113-182849`）。这次产物只作为 ArkTS 编译与打包证据，没有暂存本分支的 Rust/NAPI 库和核心词库，也没有签名，不能作为可安装产品包。`tests/run.sh`、`pnpm run verify-notes` 与全平台 quick（`20261113-183128`）通过。`20261114-153606` 随后在 head `f2f9fa35aa` 完成同源 Rust/NAPI、核心词库、设置 bundle、语音运行库、`ohpm install` 和 HAP 打包；239,187,429 字节，SHA-256 `48282ec1498c0fc82df0a1de31892fd81a79eccdb00e6b294766dfa512d69bf3`。包内代码段及资源与暂存文件核对一致。`hdc list targets -v` 仍返回空列表，签名设备验收未完成。
+
+与后续 develop 对齐时，Android 键盘设置保留九键 flick 阈值，并同时保留已落地的「九键组字按钮」与分词/重输选择；不恢复被本需求替代的数字滑动设置。合并结果重新运行宿主行为测试和 quick，设备结果按对应提交区分。
 
 ## Consequences
 

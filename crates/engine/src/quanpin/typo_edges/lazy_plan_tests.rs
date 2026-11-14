@@ -235,16 +235,26 @@ fn legal_empty_plan_is_reached_by_the_sentence_merge_source() {
     let best = literal(&segments, vec!["阿".to_owned(); 3]);
     let types = autocorrect_type::TRANSPOSITION;
     drop(legacy_plan_keys(&profile, &segments, &best, types));
-    // 纠错表在第一次查时建好，不算进这一片。
-    assert!(!crate::pinyin::autocorrect::has_correction_key(b"aaa"));
     let mut cache = FifoCache::new(512);
+    // 窗口改法在第一次规划时算好写进缓存，不算进这一片；这里先规划一次，量的是打字时的常态。
+    let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
+    plan_edit_keys(&segments, &best, types, &mut edit_cache, &mut Vec::new());
     let visited = std::cell::Cell::new(false);
     let source_allocations = std::cell::Cell::new(usize::MAX);
     let mut source = |best: &SentencePath| {
         visited.set(true);
         // 只测真实合并调用的纠错收集区间，不把字面词网格查库分配归入本片。
-        let (edges, allocations) =
-            count(|| collect_typo_edges(&database, &mut cache, &profile, &segments, best, types));
+        let (edges, allocations) = count(|| {
+            collect_typo_edges(
+                &database,
+                &mut cache,
+                &mut edit_cache,
+                &profile,
+                &segments,
+                best,
+                types,
+            )
+        });
         source_allocations.set(allocations);
         assert!(edges.is_empty());
         assert_eq!(edges.capacity(), 0);

@@ -678,10 +678,10 @@ final class ImeLayoutRows {
         for (java.util.List<NineKeyLayout.Key> keys : shuangpin ? java.util.List.<java.util.List<NineKeyLayout.Key>>of() : NineKeyLayout.rows()) {
             LinearLayout row = LayoutPolicy.row(s);
             for (NineKeyLayout.Key key : keys) {
-                String description = NineKeyLayout.description(key, digits, composing);
+                String description = NineKeyLayout.description(key, digits, composing, s.nineKeyCompositionAction);
                 // 数字层按字面上屏，不把数字交给拼音组码或选词。
                 NineKeyDigitButton keyButton = s.nineKeyGridKey(
-                    NineKeyLayout.face(key, digits, composing), description,
+                    NineKeyLayout.face(key, digits, composing, s.nineKeyCompositionAction), description,
                     digits ? () -> commitNumberPadText(NineKeyLayout.digitInput(key))
                         : NineKeyLayout.offersPunctuation(key, false) ? () -> symbolKey(key)
                         : () -> s.character(key.input()));
@@ -824,16 +824,14 @@ final class ImeLayoutRows {
         key.setContentDescription(symbolPanelContentDescription());
     }
 
-    /** 底行 符 的无障碍描述；通用的 render 刷新也要沿用九键双拼组字中的分词描述。 */
+    /** 底行 符 的无障碍描述；九键双拼组字时沿用分词描述。 */
     String symbolPanelContentDescription() {
         return shuangpinSeparatorShown()
             ? "按键 " + NineKeyLayout.description(NineKeyLayout.rows().get(0).get(0), false, true)
             : "打开符号面板";
     }
 
-    /**
-     * 九键双拼字母层底行的 0（空格右边，{@link KeyboardActionRow#withShuangpinZero}）：数字作主标签，表用到 0 时（米旮旯 3 的 u ü ei）附简短提示、点按把 0 交给引擎组码，否则原样上屏 0。这个键与数字层底行的 0 是同一个常驻按键，进数字层时 {@link #bindNumberDigit} 重新接管点按、键面和统计 id，并由宿主清掉提示。
-     */
+    /** 九键双拼字母层底行的 0（空格右边，{@link KeyboardActionRow#withShuangpinZero}）：数字作主标签，表用到 0 时附简短提示。 */
     void bindShuangpinZero(Button zero) {
         NineKeyShuangpinKeypad.Face face = NineKeyShuangpinKeypad.face(s.nineKeyShuangpinFaces(), '0');
         if (!"0".contentEquals(zero.getText())) zero.setText("0");
@@ -843,7 +841,6 @@ final class ImeLayoutRows {
         s.keyId(zero, "Nine0");
         s.bindCountedAction(zero, face == null ? () -> commitNineKeyLiteral("0") : () -> s.character('0'));
     }
-
     /** 九键双拼的一个数字键：数字作主标签，表用到它时附简短提示、点按送这个数字；没用到时只印数字，0 原样上屏，其他键不送。 */
     private NineKeyDigitButton shuangpinKey(java.util.List<NineKeyShuangpinKeypad.Face> faces, char digit) {
         NineKeyShuangpinKeypad.Face face = NineKeyShuangpinKeypad.face(faces, digit);
@@ -1124,8 +1121,11 @@ final class ImeLayoutRows {
      * 拼音九键的 1 键：组字时是「分词」，把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 分词 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）；读音栏显示成 94'26，⌫ 先删分界再删数字。没在组字时是「@#」，把当前模式的常用标点放进候选条（{@link ImeNineKeyQuickPunctuation}），符号面板改从底行最左边的 符 打开。
      */
     private void symbolKey(NineKeyLayout.Key key) {
-        if (NineKeyLayout.separatesSyllables(key, false, s.hasEngineComposition())) {
+        if (NineKeyLayout.separatesSyllables(key, false, s.hasEngineComposition(), s.nineKeyCompositionAction)) {
             s.character('\'', false);
+        } else if (s.hasEngineComposition()
+                && NineKeyCompositionActionPolicy.REWRITE.equals(s.nineKeyCompositionAction)) {
+            s.discardComposition();
         } else {
             s.imeNineKeyQuickPunctuation.show();
         }
@@ -1138,10 +1138,10 @@ final class ImeLayoutRows {
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         NineKeyLayout.Key key = NineKeyLayout.rows().get(0).get(0);
         boolean composing = s.hasEngineComposition();
-        String face = NineKeyLayout.face(key, digits, composing);
+        String face = NineKeyLayout.face(key, digits, composing, s.nineKeyCompositionAction);
         if (face.contentEquals(s.nineKeySymbolKey.getText())) return;
         s.nineKeySymbolKey.setText(face);
-        s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing)
+        s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing, s.nineKeyCompositionAction)
             + (digits || s.nineKeyShuangpinDrawn() ? "" : "；长按输入 1"));
     }
 
