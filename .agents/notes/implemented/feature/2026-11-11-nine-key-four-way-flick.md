@@ -10,6 +10,8 @@ Status: implemented
 
 三端拼音九键 1–9 键保留轻点组字和长按选项；原来的数字滑动路径不再作为输入入口，数字继续通过长按选项输入。flick 只在有字母的 2–9 键上生效，判定以按下点为基准，取纵横位移较大的轴：上滑取第一个字母，左滑取第二个字母，右滑取第三个字母；下滑、超过现有字母数量的方向和 1 键均无动作。方向判定严格超过阈值，阈值使用共享偏好 `touch_nine_key_flick_threshold`，范围 14–48、步进 2、默认 24，三端设置页均可修改并随共享偏好同步；账号文档使用跨平台 `input.nine_key_flick_threshold`，同时保留 iOS、Android 和 HarmonyOS 的平台键以兼容旧客户端。iOS 只有在全拼九键字母层接管 flick，符号层、九键双拼、长按菜单、光标手势和 VoiceOver 不抢触摸。保留旧的 `touch_nine_key_swipe_digits` 字段读取兼容，但宿主不再使用它驱动输入。
 
+完整偏好 Schema 公开九键 flick 阈值及默认值 24，便于文件事务命令和脚本查询。默认值仍从落盘文档省略；只给 Schema 覆盖 `skip_serializing_if`，不改变实际序列化和用户设置。
+
 超过阈值和存在方向字母分开记录：下滑、1 键和字母不足的方向同样接管本次触摸，但不产生文本，也不回退成点按或在折返后改选另一方向。Android 的触摸适配放在独立的 `NineKeyFlickTouchListener`，保留长按弹窗的同次按压拖选、取消及按下态收尾；普通方向 flick 不再弹出字母菜单。三端保持首次超过阈值的方向锁定。
 
 旧设备测试的数字滑动及反方向弹窗前置条件由本次产品决定取代：预览改为断言方向字母，弹窗的进入、离开、松手留待点选与系统取消仍走长按入口完整验证；额外从系统输入法入口回放全部 2–9 键方向、下滑无动作、1 键无动作、取消、长按数字，以及共享阈值 14/48 对下一次触摸的影响。原有 `check-host.sh` / `tests/run.sh` 的对应源码 grep 移除，接线由行为测试承担。
@@ -27,6 +29,8 @@ Android 当前分支 arm64 原生 APK 构建通过；API 28/35 专用 AVD 的系
 真实 ArkTS 编译补验发现 `KeyboardSession.appearance` 的初始对象缺少新增的 `nineKeyFlickThreshold`，已补上策略默认值；`ohpm install` 后的 `hvigorw assembleHap --no-daemon` 通过（`20261113-182849`）。这次产物只作为 ArkTS 编译与打包证据，没有暂存本分支的 Rust/NAPI 库和核心词库，也没有签名，不能作为可安装产品包。`tests/run.sh`、`pnpm run verify-notes` 与全平台 quick（`20261113-183128`）通过。`20261114-153606` 随后在 head `f2f9fa35aa` 完成同源 Rust/NAPI、核心词库、设置 bundle、语音运行库、`ohpm install` 和 HAP 打包；239,187,429 字节，SHA-256 `48282ec1498c0fc82df0a1de31892fd81a79eccdb00e6b294766dfa512d69bf3`。包内代码段及资源与暂存文件核对一致。`hdc list targets -v` 仍返回空列表，签名设备验收未完成。
 
 与后续 develop 对齐时，Android 键盘设置保留九键 flick 阈值，并同时保留已落地的「九键组字按钮」与分词/重输选择；不恢复被本需求替代的数字滑动设置。合并结果重新运行宿主行为测试和 quick，设备结果按对应提交区分。
+
+跟进完整偏好 Schema 后，新增集成断言在未修元数据时失败：查询出的阈值默认值为 `null`，而运行时实际默认是 24。字段增加 Schema 元数据注解，行为断言同时要求实际落盘仍省略该默认键，防止为了补文档而改变序列化。
 
 ## Consequences
 

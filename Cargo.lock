@@ -3090,6 +3090,7 @@ dependencies = [
  "libc",
  "msime-path-trust",
  "rustix",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "tempfile",
@@ -3115,6 +3116,7 @@ dependencies = [
  "msime-path-trust",
  "reqwest 0.12.28",
  "rustix",
+ "schemars 1.2.2",
  "serde",
  "serde_ignored",
  "serde_json",
@@ -4940,6 +4942,7 @@ dependencies = [
  "schemars_derive 1.2.2",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
