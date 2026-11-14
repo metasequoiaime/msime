@@ -28,13 +28,24 @@ has() { [[ " $1 " == *" $2 "* ]]; }
 case "$*" in
   "emu avd name") printf 'msime-client-test-api%s\r\nOK\r\n' "$FAKE_SDK"; exit 0 ;;
   "shell getprop sys.boot_completed") echo 1; exit 0 ;;
+  "shell wm size") printf 'Physical size: 1080x2400\nOverride size: 1280x2560\n'; exit 0 ;;
+  "shell wm density") printf 'Physical density: 440\nOverride density: 420\n'; exit 0 ;;
+  "shell settings get system font_scale") echo 1.1; exit 0 ;;
   "shell getprop ro.build.version.sdk") echo "$FAKE_SDK"; exit 0 ;;
   "shell settings get secure default_input_method")
     if [[ -e "$state/ime-stuck" ]]; then echo com.android.inputmethod.latin/.LatinIME; else echo "$FAKE_IME"; fi
     exit 0 ;;
   "shell locksettings verify") echo "Lock credential verified successfully"; exit 0 ;;
   install*) echo Success; exit 0 ;;
+  "shell input tap 630 1447")
+    touch "$state/model-deferred"; exit 0 ;;
   pull*)
+    if [[ -n "${FAKE_MODEL_DIALOG:-}" && ! -e "$state/model-deferred" ]]; then
+      title="下载整句增强模型？"
+      [[ "$FAKE_MODEL_DIALOG" == unrelated ]] && title="删除个人词库？"
+      printf '<hierarchy><node package="app.msime.android" text="%s" resource-id="app.msime.android:id/alertTitle"/><node package="app.msime.android" text="以后再说" resource-id="android:id/button2" bounds="[524,1384][737,1510]"/></hierarchy>\n' "$title" > "$3"
+      exit 0
+    fi
     printf '%s\n' '<hierarchy><node text="试用键盘" resource-id="" bounds="[0,0][10,10]"/></hierarchy>' > "$3"
     exit 0 ;;
 esac
@@ -119,6 +130,7 @@ class Run:
         for script in SCRIPTS:
             write(device / script, FAKE_SCRIPT, executable=True)
         write(root / "sdk/platform-tools/adb", FAKE_ADB, executable=True)
+        shutil.copyfile(DEVICE / "trackpad-layout.sh", device / "trackpad-layout.sh")
         write(root / "bin/sleep", "#!/bin/sh\nexit 0\n", executable=True)
         state = root / "state"
         state.mkdir()
@@ -170,6 +182,16 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="msime-smoke-report-") as temp:
         base = Path(temp)
 
+        for sdk in ("28", "35"):
+            run = Run(base, f"model-dialog-{sdk}", ["--core"], sdk=sdk, model_dialog="model")
+            run.expect(run.code == 0, "整句增强模型询问应选择以后再说，不能阻塞初始化")
+            run.expect(f"adb -s {SERIAL} shell input tap 630 1447" in run.calls, "必须点当前弹窗的以后再说按钮")
+            run.expect(run.ran("DeviceSmoke"), "关闭可选下载后仍须执行真实输入验收")
+
+        run = Run(base, "unrelated-dialog", ["--core"], model_dialog="unrelated")
+        run.expect(run.code == 1 and "Device bootstrap timed out" in run.stopped_line(), "未知弹窗仍须阻止验收")
+        run.expect(not any("shell input tap" in c for c in run.calls), "不能盲点其他确认弹窗")
+
         run = Run(base, "full-pass", [])
         run.expect(run.code == 0, "全部通过时应以 0 退出")
         run.expect(run.stdout.rstrip().endswith("Dedicated Android AVD: install, resource setup, system input and live preferences acceptance passed"), "通过时最后一行仍是原来的通过说明")
@@ -192,9 +214,30 @@ def main() -> None:
             run.expect(run.ran("ThemeModeDeviceSmoke") == (sdk == "35"), "主题系统切换保留在高版本设备")
             run.expect(not run.ran("NumberPadDeviceSmoke") and not run.ran("NumberPadDeviceSmoke:random-digits"), "穷举组合不混进发布冒烟")
 
+        for sdk in ("28", "35"):
+            for fail in ("", "TextEditRecentClipboardDeviceSmoke:layout-only"):
+                run = Run(base, f"trackpad-layout-{sdk}-{'fail' if fail else 'pass'}",
+                          ["--trackpad-layout"], sdk=sdk, fail=fail)
+                run.expect(run.code == (1 if fail else 0), "布局专项的失败必须传回门禁")
+                run.expect(run.ran("DeviceSmoke") and run.ran("TextEditRecentClipboardDeviceSmoke:layout-only"),
+                           "报告配置专项必须执行真实主输入与既有布局套件")
+                run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "定向验证不额外运行无关套件")
+                for command in ("wm size 1080x2376", "wm density 480", "settings put system font_scale 1.25",
+                                "wm size 1280x2560", "wm density 420", "settings put system font_scale 1.1"):
+                    run.expect(f"adb -s {SERIAL} shell {command}" in run.calls,
+                               f"成功或失败都必须设置并恢复屏幕配置：{command}")
+
         run = Run(base, "release-failures", ["--release"], fail="CopyDeviceInfoDeviceSmoke ThemeModeDeviceSmoke")
         run.expect(run.code == 1 and len(run.failed_lines()) == 2, "发布中的已知失败必须阻止通过并全部汇总")
         run.expect(run.ran("ThemeModeDeviceSmoke"), "设备信息失败不能掩盖主题失败")
+
+        for sdk in ("28", "35"):
+            run = Run(base, f"voice-empty-{sdk}", ["--voice-empty"], sdk=sdk)
+            run.expect(run.code == 0 and run.ran("DeviceSmoke"), "空语音专项保留真实主输入")
+            run.expect(f"script voice-lifecycle {SERIAL} empty" in run.calls, "空语音专项必须调用独立回调场景")
+            run.expect(not run.ran("CandidateCanvasDeviceSmoke"), "空语音专项不重复无关绘制套件")
+        run = Run(base, "voice-empty-failure", ["--voice-empty"], fail_scripts="voice-lifecycle")
+        run.expect(run.code == 1 and len(run.failed_lines()) == 1, "空语音专项失败必须阻止通过")
 
         run = Run(base, "voice-hold-failure", [], fail_scripts="voice-lifecycle")
         run.expect(run.code == 1 and run.stopped_line() == "", "长按语音专项失败应汇总并继续独立检查")

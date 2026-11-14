@@ -29,6 +29,7 @@ platforms/android/tests/device/keyboard/PagedTileGridGestureDeviceSmoke.java
 platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/WorldClockDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java
+platforms/android/tests/device/keyboard/StickerEditorActivity.java
 platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeySidebarPairDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
@@ -298,3 +299,5 @@ platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
 
 platforms/android/tests/device/community/CommunitySkinDownloadDeviceChecks.java
 platforms/android/tests/device/community/CommunitySkinDownloadTestProvider.java
+platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
+platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java

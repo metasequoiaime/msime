@@ -88,7 +88,7 @@
     <instrumentation android:name="app.msime.android.test.CompositionBatchDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.BatchCompositionDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
-        <provider android:name="app.msime.android.test.CommunitySkinDownloadTestProvider" android:authorities="app.msime.android.test.skin-download" android:exported="false" android:process=":skin-download" />
+        <provider android:name="app.msime.android.test.CommunitySkinDownloadTestProvider" android:authorities="app.msime.android.test.skin-download" android:exported="false" android:process=":skin_download" />
         <activity android:name="app.msime.android.test.OfflineVoiceCallerActivity" android:exported="true" />
         <activity android:name="app.msime.android.test.CompositionSearchEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <activity android:name="app.msime.android.test.InlineAutofillEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
@@ -130,6 +130,7 @@
         <activity android:name="app.msime.android.test.EditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:configChanges="uiMode" />
         <provider android:name="app.msime.android.test.EditorProbeProvider" android:authorities="app.msime.android.test.editor-probe" android:exported="true" />
         <activity android:name="app.msime.android.test.EnglishCorrectionEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
+        <activity android:name="app.msime.android.test.StickerEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <!-- 合成编辑器「复制图片」的来源（#6781）：不导出，剪贴板按 grantUriPermissions 把读权限授给读它的输入法。 -->
         <provider android:name="app.msime.android.test.ImageClipProvider" android:authorities="app.msime.android.test.images" android:exported="false" android:grantUriPermissions="true" />
         <activity android:name="app.msime.android.test.QuickDeleteEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
