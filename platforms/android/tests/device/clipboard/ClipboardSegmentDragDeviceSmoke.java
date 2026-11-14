@@ -324,6 +324,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         awaitAny(recordDetails).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
         await(recordDetails);
         stage = "detail back returns to the full-text preview";
+        awaitAny(described("返回剪贴板全文预览"))
+            .performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
         touch(described("返回剪贴板全文预览"));
         await(described("关闭剪贴板全文预览"));
         stage = "preview insertion commits full original text once and restores keyboard";
