@@ -16,6 +16,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub mod candidate_color;
 mod clipboard_retention;
+mod patch;
 mod reporting_authority;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
@@ -6309,53 +6310,6 @@ impl PreferencesStore {
         )
     }
 
-    /// 在偏好锁内合并局部字段。`null` 删除键，数组整体替换；未知键只能沿用盘上已有的值。
-    pub fn apply_patch(
-        &self,
-        expected_revision: u64,
-        patch: &serde_json::Value,
-    ) -> Result<PreferencesSnapshot, PreferencesError> {
-        if !patch.is_object() {
-            return Err(PreferencesError::InvalidPatch);
-        }
-        let _lock = self.lock()?;
-        let (current, unknown) = self.read_locked_keeping_unknown()?;
-        if current.revision != expected_revision {
-            return Err(PreferencesError::Conflict);
-        }
-        let mut document = document_for_disk(&current, &unknown)?;
-        let preferences = document
-            .get_mut("preferences")
-            .ok_or(PreferencesError::InvalidPatch)?;
-        let (_, original_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
-        merge_preferences_patch(preferences, patch);
-        let (next, patched_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
-        if patched_unknown != original_unknown {
-            return Err(PreferencesError::InvalidPatch);
-        }
-        if newer_list_values(preferences)
-            .iter()
-            .any(|field| patch_replaces_path(patch, &field.path))
-        {
-            return Err(PreferencesError::InvalidPatch);
-        }
-        next.validate()?;
-        let retained_unknown: Vec<_> = unknown
-            .iter()
-            .filter(|field| !field.elements || !patch_replaces_path(patch, &field.path))
-            .cloned()
-            .collect();
-        let removed_unknown = retained_unknown.len() != unknown.len();
-        self.save_locked(
-            current,
-            &retained_unknown,
-            expected_revision,
-            next,
-            false,
-            removed_unknown,
-        )
-    }
-
     /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
     ///
     /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
@@ -6556,7 +6510,7 @@ impl PreferencesStore {
         // 双拼辅助码触发方式的互斥规则在写入端归一：末尾间接与句中间接的同一枚触发键只能归一边（句中开着时归句中），`mid_sentence` 与 `direct_helpcode` 同真时按万象式直接。
         preferences.shuangpin_helpcode.modes = preferences.shuangpin_helpcode.modes.normalized();
         preferences.validate()?;
-        // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
+        // 多宿主可能重复保存同一设置，内容相同时保留修订号，避免重复落盘和重新加载；首次保存仍创建文件。补丁明确移除未知数组元素时，即使已知偏好相同也必须写回。
         if current.revision > 0 && preferences == current.preferences && !force_write {
             return Ok(current);
         }
@@ -6913,43 +6867,6 @@ fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[Unknow
             .entry(key.clone())
             .or_insert_with(|| field.value.clone());
     }
-}
-
-/// JSON Merge Patch 的对象递归合并规则。`null` 删除成员，其他值替换成员。
-fn merge_preferences_patch(target: &mut serde_json::Value, patch: &serde_json::Value) {
-    let serde_json::Value::Object(changes) = patch else {
-        *target = patch.clone();
-        return;
-    };
-    if !target.is_object() {
-        *target = serde_json::json!({});
-    }
-    let fields = target.as_object_mut().expect("target is an object");
-    for (key, value) in changes {
-        if value.is_null() {
-            fields.remove(key);
-        } else {
-            merge_preferences_patch(
-                fields.entry(key.clone()).or_insert(serde_json::Value::Null),
-                value,
-            );
-        }
-    }
-}
-
-/// 数组补丁替换整个列表，不能把旧版本不认识的列表元素再接回去。
-fn patch_replaces_path(patch: &serde_json::Value, path: &[String]) -> bool {
-    let mut node = patch;
-    for segment in path {
-        let serde_json::Value::Object(fields) = node else {
-            return true;
-        };
-        let Some(next) = fields.get(segment) else {
-            return false;
-        };
-        node = next;
-    }
-    !node.is_object()
 }
 
 /// Whether `preferences` is a document `load` would accept.
@@ -7392,6 +7309,8 @@ fn redact_sensitive_keys(value: &mut serde_json::Value) {
     }
 }
 
+#[cfg(test)]
+mod patch_tests;
 #[cfg(test)]
 mod tests;
 
