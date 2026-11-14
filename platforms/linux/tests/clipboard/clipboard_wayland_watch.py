@@ -140,6 +140,21 @@ time.sleep(30)
         finally:
             self.stop_monitor(process)
 
+    def test_native_data_control_unavailable_falls_back_without_wl_paste(self):
+        native = self.root / "msime-linux-clipboard-watch-wayland"
+        native.write_text("#!" + sys.executable + "\nraise SystemExit(2)\n")
+        native.chmod(0o700)
+        self.write_wl_paste(self.FAILING_WATCH)
+        self.write_x11_watch()
+        self.env["DISPLAY"] = ":synthetic"
+        process = self.start_monitor()
+        try:
+            self.wait_for(self.capture_log)
+            self.assertEqual(self.wl_log.read_text().splitlines(), ["x11-read"])
+            self.assertIn("data-control", self.stderr.read_text())
+        finally:
+            self.stop_monitor(process)
+
     def test_crashed_watcher_is_retried_instead_of_disabled(self):
         # 只有「合成器不提供 data-control」才放弃 `wl-paste --watch`；崩溃、被信号杀掉、其他非零退出都照旧隔一段时间重起。没有 DISPLAY 时这一点决定采集是否还在：误判成不支持 data-control 就再也不起 watcher，整个会话不再记剪贴板。
         self.shorten_retry()

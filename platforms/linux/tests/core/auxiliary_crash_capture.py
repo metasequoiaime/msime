@@ -70,11 +70,13 @@ class Fixture:
         process = subprocess.Popen([binary, *arguments], stdin=input_read, stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, env=self.environment)
         try:
-            if component in ("voice-local", "clipboard-watch-x11"):
+            if component in ("voice-local", "clipboard-watch-x11", "clipboard-watch-wayland"):
                 assert select.select([process.stdout], [], [], 10)[0], "helper did not become ready"
                 line = process.stdout.readline()
                 if component == "voice-local":
                     assert json.loads(line)["type"] == "hello"
+                elif component == "clipboard-watch-wayland":
+                    assert "generation" in json.loads(line)
                 else:
                     assert line == b"\n"
             else:

@@ -9,7 +9,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
   wayland-devel wayland-protocols-devel libX11-devel libXfixes-devel libXrandr-devel libXext-devel \
   fcitx5-devel glib2-devel pango-devel cairo-devel \
   webkit2gtk4.1-devel gtk3-devel libsoup3-devel javascriptcoregtk4.1-devel openssl-devel \
-  rpm-build file dbus-daemon \
+  rpm-build file dbus-daemon sway wl-clipboard \
   && dnf clean all
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 RUN set -eu; \

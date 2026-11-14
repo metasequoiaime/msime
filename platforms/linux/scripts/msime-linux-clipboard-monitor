@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import time
 import msime_crash_capture
-from msime_clipboard_cloud import CloudAutoSync, CloudReceivePolicy
+from msime_clipboard_cloud import CloudAutoSync, CloudReceivePolicy, NativeWaylandClipboard
 
 
 # Full preferences include custom prompts and dictionaries, not just clipboard settings.
@@ -236,6 +236,8 @@ def stop_watch(process):
     process.wait()
     if process.stdout is not None:
         process.stdout.close()
+    if process.stdin is not None:
+        process.stdin.close()
 
 
 def main():
@@ -266,6 +268,7 @@ def main():
     next_cloud_poll = 0.0
     watcher = None
     watcher_kind = None
+    native_wayland = None
     retry_watch = 0
     # `wl-paste --watch` 报告合成器不提供 data-control 协议（见 `wayland_lacks_data_control`）后，本轮不再起它，改用 X11 监听（Wayland 会话里即 XWayland）；关闭剪贴板历史时清除，重新开启后再试一次。别的退出不设它，照旧 30 秒后重起 `wl-paste --watch`。
     wayland_watch_failed = False
@@ -280,6 +283,7 @@ def main():
                     stop_watch(watcher)
                     watcher = None
                     watcher_kind = None
+                    native_wayland = None
                     wayland_watch_failed = False
                     text = clipboard_text()
                     identity = (str(directory), text)
@@ -287,24 +291,35 @@ def main():
                         last = identity
                 else:
                     if watcher is not None and watcher.poll() is not None:
-                        failed = watcher_kind == "wayland" and wayland_lacks_data_control(watcher.returncode, watch_errors)
+                        failed = ((watcher_kind == "wayland" and
+                                   wayland_lacks_data_control(watcher.returncode, watch_errors)) or
+                                  (watcher_kind == "native-wayland" and watcher.returncode == 2))
                         stop_watch(watcher)
                         watcher = None
                         watcher_kind = None
+                        native_wayland = None
                         if failed and not wayland_watch_failed:
                             wayland_watch_failed = True
                             # 立即换 X11 监听，不等重试间隔。
                             retry_watch = 0
                             fallback = ("改经 XWayland 读取剪贴板" if os.environ.get("DISPLAY")
                                         else "且没有 X11 显示，暂停采集剪贴板")
-                            print(f"msime-linux-clipboard-monitor: wl-paste --watch 不可用（合成器不支持 wlr-data-control），{fallback}",
+                            print(f"msime-linux-clipboard-monitor: wl-paste --watch / 原生 data-control 不可用（合成器不支持 wlr-data-control），{fallback}",
                                   file=sys.stderr, flush=True)
                         else:
                             retry_watch = time.monotonic() + WATCH_RETRY_DELAY
                     wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
                     x11_watch = Path(__file__).resolve().parent / "msime-linux-clipboard-watch-x11"
+                    wayland_bridge = Path(__file__).resolve().parent / "msime-linux-clipboard-watch-wayland"
                     if watcher is None and time.monotonic() >= retry_watch:
-                        if wayland and not wayland_watch_failed and shutil.which("wl-paste"):
+                        if wayland and not wayland_watch_failed and wayland_bridge.is_file():
+                            watcher = subprocess.Popen([str(wayland_bridge)], stdin=subprocess.PIPE,
+                                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                                       start_new_session=True)
+                            watcher_kind = "native-wayland"
+                            native_wayland = NativeWaylandClipboard(watcher)
+                            wayland_initialized = False
+                        elif wayland and not wayland_watch_failed and shutil.which("wl-paste"):
                             watch_errors.seek(0)
                             watch_errors.truncate()
                             watcher = subprocess.Popen(
@@ -323,7 +338,14 @@ def main():
                                                        start_new_session=True)
                             watcher_kind = "x11"
                     changed = False
-                    if watcher is not None and watcher.stdout is not None:
+                    if native_wayland is not None:
+                        previous = (native_wayland.generation, native_wayland.pending)
+                        text = native_wayland.read()
+                        changed = previous != (native_wayland.generation, native_wayland.pending)
+                        if not wayland_initialized and native_wayland.generation is not None and not native_wayland.pending:
+                            cloud.reset()
+                            wayland_initialized = True
+                    elif watcher is not None and watcher.stdout is not None:
                         if select.select([watcher.stdout], [], [], 0)[0]:
                             data = os.read(watcher.stdout.fileno(), 4096)
                             changed = bool(data)
@@ -347,7 +369,7 @@ def main():
                                         wayland_text = None
                     # 事件模式下再次复制相同文本也会采集；没有可用监听时退回有界轮询，轮询只经 X11 读取（见 `clipboard_text`）。
                     if watcher is None or changed:
-                        text = clipboard_text()
+                        text = native_wayland.read() if native_wayland is not None else clipboard_text()
                         identity = (str(directory), text)
                         # Reading the selection can block while runtime options
                         # or preferences change. Match watch-mode revalidation
@@ -368,6 +390,8 @@ def main():
                     next_cloud_poll = time.monotonic() + CLOUD_POLL_INTERVAL
                     try:
                         def sample():
+                            if native_wayland is not None:
+                                return native_wayland.read()
                             if os.environ.get("DISPLAY"):
                                 return clipboard_text()
                             if watcher_kind == "wayland" and watcher is not None:
@@ -376,14 +400,17 @@ def main():
                                     return None
                                 return wayland_text
                             return None
-                        cloud.poll(sample, write_clipboard,
-                                   receive_allowed=bool(os.environ.get("DISPLAY")))
+                        cloud.poll(sample, native_wayland.write if native_wayland is not None else write_clipboard,
+                                   receive_allowed=native_wayland is not None or bool(os.environ.get("DISPLAY")),
+                                   revision=(lambda: native_wayland.generation) if native_wayland is not None else (lambda: None),
+                                   remote=(lambda: native_wayland.remote) if native_wayland is not None else (lambda: False))
                     except (OSError, ValueError, TypeError, subprocess.SubprocessError, json.JSONDecodeError):
                         pass
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
                 stop_watch(watcher)
                 watcher = None
                 watcher_kind = None
+                native_wayland = None
                 retry_watch = time.monotonic() + WATCH_RETRY_DELAY
                 last = None
                 wayland_text = None

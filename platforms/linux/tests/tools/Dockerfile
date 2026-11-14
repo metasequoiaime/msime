@@ -1,5 +1,5 @@
 FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
-RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build pkg-config libasound2-dev libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev dbus ibus ibus-gtk3 gir1.2-gtk-3.0 xvfb xauth xdotool x11-xkb-utils python3-pyqt5 python3-pyqt6 qtwayland5 qt6-wayland sway libwayland-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build pkg-config libasound2-dev libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev dbus ibus ibus-gtk3 gir1.2-gtk-3.0 xvfb xauth xdotool x11-xkb-utils python3-pyqt5 python3-pyqt6 qtwayland5 qt6-wayland sway wl-clipboard libwayland-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /source
 
 # Paths are relative to the build context, which is platforms/linux/tests. Both
