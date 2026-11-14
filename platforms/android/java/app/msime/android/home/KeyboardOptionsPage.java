@@ -43,6 +43,7 @@ import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.NineKeyCompositionActionPolicy;
 import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
 import app.msime.android.RecentClipboardSuggestion;
@@ -312,6 +313,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 NineKeySwipePolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE),
                 value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value)).help("手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动");
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
+            String compositionAction = settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION);
+            GroupCard.Row[] compositionActionRow = new GroupCard.Row[1];
+            compositionActionRow[0] = gestures.nav("九键组字按钮", null,
+                NineKeyCompositionActionPolicy.label(compositionAction),
+                () -> pickNineKeyCompositionAction(compositionAction, compositionActionRow[0]))
+                .help("组字时 1 键显示并执行分词或重输；空闲时仍是常用标点。");
         }
         String quickDeleteScope = settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE);
         GroupCard.Row[] quickDeleteRow = new GroupCard.Row[1];
@@ -757,6 +764,18 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 row.setValue(nineKeySwipeLabel(value));
                 // 选哪项写哪项的写法（关闭也写 `off`），写进共享偏好、不写本机键；存好后重画，下次打开选项单时勾选的是新值，距离滑块跟着置灰或恢复。
                 savePreference(NineKeySwipePolicy.PREFERENCE, value);
+            });
+        }
+        sheet.show();
+    }
+
+    private void pickNineKeyCompositionAction(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "九键组字按钮", null);
+        for (String value : new String[] {NineKeyCompositionActionPolicy.SEPARATE,
+                NineKeyCompositionActionPolicy.REWRITE}) {
+            sheet.option(NineKeyCompositionActionPolicy.label(value), value.equals(selected), () -> {
+                row.setValue(NineKeyCompositionActionPolicy.label(value));
+                saveLocalSetting(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION, value);
             });
         }
         sheet.show();

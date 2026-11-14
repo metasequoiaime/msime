@@ -111,6 +111,13 @@ public final class AndroidLocalSettingsSmoke {
             && !voice.synced().containsKey(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), "microphone timing and sensitivity stay local");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
         check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
+        check(NineKeyCompositionActionPolicy.SEPARATE.equals(
+            settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION)), "nine-key composition action defaults to separate");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION).synced,
+            "nine-key composition action stays local");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION)
+            .accept(NineKeyCompositionActionPolicy.REWRITE).equals(NineKeyCompositionActionPolicy.REWRITE),
+            "rewrite action is accepted");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");

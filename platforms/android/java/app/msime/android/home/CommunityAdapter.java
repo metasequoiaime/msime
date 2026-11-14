@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.CommunityActionPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardSkin;
@@ -117,15 +118,13 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         notifyDataSetChanged();
     }
 
-    /** Set the pill state of every entry named in `values` (keys from {@link #key}); entries not named keep theirs. */
+    /** 按本机已获取列表同步所有卡片状态，并保留正在进行的操作。 */
     public void setActions(Map<String, Action> values) {
-        // The initial disk read can finish after the user has already started an install. Keep
-        // BUSY visible until that operation reports its own terminal state, or the same item can
-        // be tapped again while the first write is still in flight.
         for (Map.Entry<String, Action> entry : values.entrySet()) {
             if (actions.get(entry.getKey()) == Action.BUSY) continue;
             actions.put(entry.getKey(), entry.getValue());
         }
+        CommunityActionPolicy.removeStale(actions, values, Action.BUSY);
         notifyDataSetChanged();
     }
 

@@ -149,6 +149,26 @@ public final class StickerPackModelSmoke {
         check(!StickerPackModel.sendsExpression(new String[] {"image/png"}, 1), "PNG editors keep commitContent");
         check(!StickerPackModel.sendsExpression(null, 0) && !StickerPackModel.sendsExpression(null, 2),
             "editors that do not write 1 fall back to the clipboard");
+        // 一次发送走哪条路：声明收 PNG 的直接发；微信式输入框先走它的私有命令，不先试 commitContent；其余的先复制再试着直发。
+        check(StickerPackModel.route(new String[] {"image/png"}, 0) == StickerPackModel.Route.DECLARED
+            && StickerPackModel.route(new String[] {"image/png"}, 1) == StickerPackModel.Route.DECLARED,
+            "editors that declare PNG are sent to directly");
+        check(StickerPackModel.route(null, 1) == StickerPackModel.Route.EXPRESSION
+            && StickerPackModel.route(new String[] {"image/gif"}, 1) == StickerPackModel.Route.EXPRESSION,
+            "the private expression command comes before any commitContent attempt");
+        check(StickerPackModel.route(null, 0) == StickerPackModel.Route.UNDECLARED
+            && StickerPackModel.route(new String[0], 0) == StickerPackModel.Route.UNDECLARED
+            && StickerPackModel.route(new String[] {"image/gif"}, 2) == StickerPackModel.Route.UNDECLARED,
+            "everything else is an undeclared editor");
+        // 未声明的输入框：commitContent 返回 true 不代表图片进了输入框（真机上 Flutter 应用的文本框就把它丢了），所以任何结果都要有一句提示。
+        check("已发送水杉娘「开心」，没有出现时长按输入框粘贴".equals(StickerPackModel.undeclaredNotice(pack, happy, true, true)),
+            "an accepted sticker still tells the user where the copy is");
+        check(StickerPackModel.copiedNotice(pack, happy).equals(StickerPackModel.undeclaredNotice(pack, happy, false, true)),
+            "a refused sticker keeps the clipboard notice");
+        check("已尝试发送水杉娘「开心」".equals(StickerPackModel.undeclaredNotice(pack, happy, true, false)),
+            "an accepted sticker without a clipboard copy does not promise a paste");
+        check("无法复制这张表情".equals(StickerPackModel.undeclaredNotice(pack, happy, false, false)),
+            "nothing delivered is reported");
         check("SUPPORT_SOGOU_EXPRESSION".equals(StickerPackModel.EXPRESSION_EXTRA)
             && "com.sogou.inputmethod.exp.commit".equals(StickerPackModel.EXPRESSION_COMMAND)
             && "EXP_PATH_URI".equals(StickerPackModel.EXPRESSION_URI), "the names match what WeChat reads");
