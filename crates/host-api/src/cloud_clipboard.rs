@@ -277,13 +277,22 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
         .and_then(Value::as_str)
         .ok_or(INVALID)?;
     let field = |name: &str| action.get(name).and_then(Value::as_str).ok_or(INVALID);
+    let expected_user_id = action
+        .get("expected_user_id")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .ok_or(INVALID)
+        })
+        .transpose()?;
     match operation {
         "list" => {
             let search = action
                 .get("search")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            clipboard_value(session.clipboard(search, device_name))
+            clipboard_value(session.clipboard_for_user(search, device_name, expected_user_id))
         }
         "set_enabled" => {
             let enabled = action
@@ -297,7 +306,7 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
         }
         "add" => {
             let text = field("text")?;
-            clipboard_value(session.add_clipboard(text, device_name))
+            clipboard_value(session.add_clipboard_for_user(text, device_name, expected_user_id))
         }
         "delete" => {
             let id = field("id")?;
@@ -754,6 +763,39 @@ mod tests {
                     "delete:*".to_owned(),
                 ]
             );
+        }
+
+        #[test]
+        fn bound_automatic_sync_never_requests_a_different_account() {
+            let (session, calls) = session(signed_in());
+            for action in [
+                json!({"operation": "list", "expected_user_id": "synthetic-other"}),
+                json!({"operation": "add", "text": "合成复制", "expected_user_id": "synthetic-other"}),
+            ] {
+                assert_eq!(
+                    account_request(&session, &action, None),
+                    Err("account_cancelled")
+                );
+            }
+            for invalid in [json!(null), json!(42), json!("")] {
+                assert_eq!(
+                    account_request(
+                        &session,
+                        &json!({"operation": "list", "expected_user_id": invalid}),
+                        None
+                    ),
+                    Err("invalid_cloud_clipboard")
+                );
+            }
+            assert!(calls.lock().unwrap().is_empty());
+            let page = account_request(
+                &session,
+                &json!({"operation": "list", "expected_user_id": "synthetic-user"}),
+                None,
+            )
+            .unwrap();
+            assert_eq!(page["enabled"], false);
+            assert_eq!(calls.lock().unwrap().len(), 1);
         }
 
         #[test]
