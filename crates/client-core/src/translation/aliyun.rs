@@ -17,6 +17,7 @@ pub const SCENES: [(&str, &str); 6] = [
     ("finance", "金融"),
 ];
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {

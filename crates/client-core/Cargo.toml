@@ -7,7 +7,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+preferences-schema = ["dep:schemars", "msime-client-base/preferences-schema"]
+
 [dependencies]
+schemars = { version = "1.2.2", optional = true, features = ["uuid1"] }
 msime-client-base = { path = "../client-base" }
 msime-path-trust = { path = "../path-trust" }
 serde.workspace = true
