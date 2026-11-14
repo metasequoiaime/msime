@@ -2370,6 +2370,7 @@ fn candidate_badge_defaults_follow_windows_factory_config() {
     assert!(defaults.candidate_fixed_badge);
     assert_eq!(defaults.candidate_fixed_badge_style, "paperclip");
     assert_eq!(defaults.candidate_ai_badge_style, "robot");
+    assert!(defaults.candidate_cloud_badge);
 
     // 旧文档缺这几个键时按 Windows v0.11.1 的出厂配置补上。
     let mut legacy = serde_json::to_value(&defaults).unwrap();
@@ -2377,16 +2378,19 @@ fn candidate_badge_defaults_follow_windows_factory_config() {
     fields.remove("candidate_fixed_badge");
     fields.remove("candidate_fixed_badge_style");
     fields.remove("candidate_ai_badge_style");
+    fields.remove("candidate_cloud_badge");
     let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
     assert!(parsed.candidate_fixed_badge);
     assert_eq!(parsed.candidate_fixed_badge_style, "paperclip");
     assert_eq!(parsed.candidate_ai_badge_style, "robot");
+    assert!(parsed.candidate_cloud_badge);
 
     // 用户显式保存的选择原样往返。
     let saved = Preferences {
         candidate_fixed_badge: false,
         candidate_fixed_badge_style: "dot".to_string(),
         candidate_ai_badge_style: "whale".to_string(),
+        candidate_cloud_badge: false,
         ..defaults
     };
     let round_tripped =
@@ -2394,6 +2398,7 @@ fn candidate_badge_defaults_follow_windows_factory_config() {
     assert!(!round_tripped.candidate_fixed_badge);
     assert_eq!(round_tripped.candidate_fixed_badge_style, "dot");
     assert_eq!(round_tripped.candidate_ai_badge_style, "whale");
+    assert!(!round_tripped.candidate_cloud_badge);
 }
 
 #[test]

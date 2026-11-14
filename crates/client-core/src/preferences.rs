@@ -2515,6 +2515,9 @@ pub struct Preferences {
     /// 出厂默认对齐 Windows v0.11.1 的 `candidate_ai_badge_style = "robot"`。
     #[serde(default = "default_candidate_ai_badge_style")]
     pub candidate_ai_badge_style: String,
+    /// 云候选的来源角标是否显示。关闭只隐藏 `☁️`，不改变候选身份、编号或选词行为。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub candidate_cloud_badge: bool,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -4902,6 +4905,7 @@ impl Default for Preferences {
             candidate_fixed_badge: true,
             candidate_fixed_badge_style: default_candidate_fixed_badge_style(),
             candidate_ai_badge_style: default_candidate_ai_badge_style(),
+            candidate_cloud_badge: true,
             english_suggestions: true,
             english_online_candidates: false,
             translation_target_language: TranslationTargetLanguage::default(),

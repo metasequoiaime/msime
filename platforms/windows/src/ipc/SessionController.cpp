@@ -28,9 +28,11 @@ SessionController::SessionController(
     SessionPump::EventHandler event, std::function<bool()> healthy,
     std::function<void()> stop_service, std::chrono::milliseconds interval,
     std::string preferences_directory, SessionPump::Presentation presentation,
-    PreferenceMonitor::Published published)
+    PreferenceMonitor::Published published,
+    std::shared_ptr<std::atomic<bool>> candidate_cloud_badge)
     : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
+      candidates_(std::move(candidate_cloud_badge)),
       presentation_(std::move(presentation)), event_(std::move(event)),
       input_(focus_, clients, input_capacity, std::move(options)),
       cloud_([this](CloudCandidateWorker::Result result) {
