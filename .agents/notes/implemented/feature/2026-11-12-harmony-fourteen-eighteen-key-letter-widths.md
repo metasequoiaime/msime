@@ -12,6 +12,10 @@ HarmonyOS 读取共享偏好 `touch_fourteen_key_letter_widths`，缺字段和�
 
 账号同步把该共享偏好加入 `TouchHostKeys`，Android 与鸿蒙分别使用 `platform.android.fourteen_key_letter_widths` 和 `platform.harmony.fourteen_key_letter_widths`，避免两台设备互相覆盖；设置预览与键盘使用同一份宽度规则和两枚胶囊（「等宽」「宽窄」）。
 
+`@Builder` 中只保留组件调用，按键份额作为参数交给普通的 `fourteenKeyOptions` / `eighteenKeyOptions` 方法构造。ArkTS 的真实 HAP 编译拒绝在 Builder 分支内声明 `KeyOptions` 变量和赋值；Node 几何测试与 TypeScript 子集检查不能替代这项编译。方法的默认份额仍为 1，长按键外层的份额规则不变。
+
+设置预览按键面中的字母数计算份额，双拼的 `L;` 仍只有一个字母，取 0.75 份；兼带的分号不把它变成双字母键。预览与原生宽度策略的逐排行为对照同时覆盖全拼、双拼的 14/18 键及两种宽度模式，防止预览与实际几何分叉。
+
 ## Alternatives considered
 
 - **只在 `KeyboardView.ets` 中为第二排加固定空白。** 这样可快速改变视觉，但无法复用到设置预览，也无法给第一、三排计算同一单位宽度，容易重新产生死区，因此采用独立几何策略并让占位格拥有按键动作。
@@ -19,4 +23,4 @@ HarmonyOS 读取共享偏好 `touch_fourteen_key_letter_widths`，缺字段和�
 
 ## Consequences
 
-键盘和设置预览的三排宽度会随偏好即时重排，组字状态不被打断；双字母键面更容易辨认，第二排空白仍可输入。共享偏好字段和设置控件增加了跨文件维护面。当前工作区没有 HarmonyOS ArkTS 编译器、签名 HAP 或可接受的真机，因此 Node 行为测试和 Rust 同步测试可运行，HAP、设备触摸转发和真实设置页验收仍需 CI/设备开发者补做，PR 保持 draft 直到这些证据补齐。
+键盘和设置预览的三排宽度会随偏好即时重排，组字状态不被打断；双字母键面更容易辨认，第二排空白仍可输入。共享偏好字段和设置控件增加了跨文件维护面。DevEco 工具链已可用于完整 HAP 构建，当前仍没有可接受签名的设备。设备触摸转发、字距、真实设置页验收和前后截图尚缺，PR 保持 draft，构建与设备证据分别列在验证段。

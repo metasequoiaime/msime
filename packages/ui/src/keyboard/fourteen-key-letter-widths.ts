@@ -25,8 +25,11 @@ export function withFourteenKeyLetterWidths(
   mode: FourteenKeyLetterWidth,
 ): PreviewKey[][] {
   if (mode === "equal" || rows.length === 0) return rows.map((row) => [...row]);
+  // 双拼 L 键兼带的分号不增加字母数，份额仍与原生键盘的单字母键一致。
+  const letterWeight = (key: PreviewKey) =>
+    key.weight * (key.label.replace(/[^A-Z]/gi, "").length === 1 ? 0.75 : 1);
   const lettersWeight = (row: readonly PreviewKey[]) =>
-    row.reduce((sum, key) => sum + (key.label.length > 1 ? key.weight : key.weight * 0.75), 0);
+    row.reduce((sum, key) => sum + letterWeight(key), 0);
   const first = lettersWeight(rows[0]);
   return rows.map((row, rowIndex) => {
     const last = rowIndex === rows.length - 1;
@@ -35,9 +38,7 @@ export function withFourteenKeyLetterWidths(
     const cells: PreviewKey[] = [];
     if (last) cells.push({ label: row[0]?.label ?? "", weight: rest, code: row[0]?.code });
     else if (rest > 0.0001) cells.push({ label: "", weight: rest });
-    letterCells.forEach((key) =>
-      cells.push({ ...key, weight: key.label.length > 1 ? key.weight : key.weight * 0.75 }),
-    );
+    letterCells.forEach((key) => cells.push({ ...key, weight: letterWeight(key) }));
     if (last)
       cells.push({
         label: row[row.length - 1]?.label ?? "",

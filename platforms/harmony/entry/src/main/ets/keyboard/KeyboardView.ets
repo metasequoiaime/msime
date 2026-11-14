@@ -6542,9 +6542,7 @@ struct KeyboardView {
     if (FourteenKeyLayout.holdOptions(key).length > 0) {
       this.fourteenKeyHoldKey(key, share)
     } else {
-      const options: KeyOptions = this.fourteenKeyOptions(key);
-      options.share = share;
-      this.flexibleKey(options)
+      this.flexibleKey(this.fourteenKeyOptions(key, share))
     }
   }
 
@@ -6553,13 +6551,11 @@ struct KeyboardView {
     if (EighteenKeyLayout.holdOptions(key).length > 0) {
       this.eighteenKeyHoldKey(key, share)
     } else {
-      const options: KeyOptions = this.eighteenKeyOptions(key);
-      options.share = share;
-      this.flexibleKey(options)
+      this.flexibleKey(this.eighteenKeyOptions(key, share))
     }
   }
 
-  private eighteenKeyOptions(key: FourteenKey): KeyOptions {
+  private eighteenKeyOptions(key: FourteenKey, share: number = 1): KeyOptions {
     return {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
@@ -6568,6 +6564,7 @@ struct KeyboardView {
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
+      share: share,
       action: () => this.tapEighteenKey(key)
     };
   }
@@ -6725,7 +6722,7 @@ struct KeyboardView {
       ? this.eighteenSwipeLetter : face;
   }
 
-  private fourteenKeyOptions(key: FourteenKey): KeyOptions {
+  private fourteenKeyOptions(key: FourteenKey, share: number = 1): KeyOptions {
     return {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
@@ -6733,6 +6730,7 @@ struct KeyboardView {
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
+      share: share,
       action: () => this.tapFourteenKey(key)
     };
   }
