@@ -64,6 +64,7 @@ pub fn language_name(code: &str) -> Option<&'static str> {
 }
 
 /// 三个桌面宿主共用的显式选择。缺字段时保持关闭，旧云服务设置不受影响。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct LocalTranslationPreferences {

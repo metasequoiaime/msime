@@ -16,6 +16,9 @@ const USAGE: &str = "usage: {program} expand <keys>... [--scheme <scheme>] [--li
        {program} session
        {program} config [--json]
        {program} config get <key>... [--json]
+       {program} config schema | revision
+       {program} config validate <file.json>
+       {program} config apply <file.json> <expected-revision>
        {program} config set <key>=<value>...
        {program} [flags] tools | call <tool> [<args>]
        {program} [flags] prompts | prompt <name> [<args>]
@@ -32,6 +35,12 @@ Testing by hand:
   config                   Your preferences, one key = value per line
   config get <key>...      Only the values of these preferences, one per line
   config set <key>=<value> Change some, such as scheme=shuangpin
+  config schema           Generate the complete preference JSON Schema
+  config revision         Read the revision without printing preferences
+  config validate <file>  Preview a JSON Merge Patch without writing
+  config apply <file> <n>  Apply that patch only at revision n
+  config apply needs --allow-write outside a terminal.
+  Document commands accept --state-dir without a settings application.
   With more than one <keys>, each one's candidates follow a # <keys> line.
   With --json and more than one <keys>, each gets one line of JSON.
   Blank lines and lines starting with # in the keys from stdin are skipped.
@@ -163,6 +172,12 @@ pub enum Command {
         changes: Vec<(String, Value)>,
         json: bool,
     },
+    /// 完整偏好键表、只读预检和带 CAS 的文档补丁应用。
+    ConfigSchema,
+    DocumentConfig {
+        config: Config,
+        operation: crate::config_document::Operation,
+    },
     Help,
     Version,
 }
@@ -174,6 +189,10 @@ impl Command {
             Command::Expand { config, .. } => config.allow_dictionary_read = true,
             Command::Session(config) => config.allow_dictionary_read = true,
             Command::SetConfig { config, .. } => config.allow_write = true,
+            Command::DocumentConfig {
+                config,
+                operation: crate::config_document::Operation::Apply { .. },
+            } => config.allow_write = true,
             _ => {}
         }
         self
@@ -267,15 +286,32 @@ pub fn parse(
             _ => return Err(format!("unknown argument {}", arg.to_string_lossy())),
         }
     }
+    // 键表完全由类型生成，不能依赖 HOME、安装包声明或宿主选项的位置。
+    if positional == ["config", "schema"] && scheme.is_none() && limit.is_none() {
+        return Ok(Command::ConfigSchema);
+    }
+    let state_dir = state_dir.or_else(|| env("MSIME_CLIENT_STATE_DIR").map(PathBuf::from));
+    let document_command = positional.first().is_some_and(|word| word == "config")
+        && positional
+            .get(1)
+            .is_some_and(|word| matches!(word.as_str(), "revision" | "validate" | "apply"));
     let options = match options {
         Some(path) => path,
         None => env("MSIME_CLIENT_HOST_OPTIONS")
             .or_else(|| env("MSIME_IBUS_OPTIONS"))
             .map(PathBuf::from)
+            .or_else(|| {
+                document_command
+                    .then(|| {
+                        state_dir
+                            .as_ref()
+                            .map(|directory| directory.join("runtime-options.json"))
+                    })
+                    .flatten()
+            })
             .or_else(|| default_options_path(&env))
             .ok_or("no runtime options found; pass --options <path>")?,
     };
-    let state_dir = state_dir.or_else(|| env("MSIME_CLIENT_STATE_DIR").map(PathBuf::from));
     for path in std::iter::once(&options).chain(state_dir.iter()) {
         if !path.is_absolute() {
             return Err(format!("{} must be an absolute path", path.display()));
@@ -330,6 +366,19 @@ pub fn parse(
         Some("config") if scheme.is_none() && limit.is_none() => {
             return match positional.get(1).map(String::as_str) {
                 None => Ok(Command::ShowConfig { config, json }),
+                Some("revision" | "validate" | "apply") => {
+                    use crate::config_document::Operation;
+                    let operation = match positional[1].as_str() {
+                        "revision" if positional.len() == 2 => Operation::Revision,
+                        "validate" if positional.len() == 3 => Operation::Validate { file: positional[2].clone() },
+                        "apply" if positional.len() == 4 => Operation::Apply {
+                            file: positional[2].clone(),
+                            expected_revision: positional[3].parse().map_err(|_| "config apply needs a nonnegative revision")?,
+                        },
+                        _ => return Err("use config schema | revision | validate <file> | apply <file> <expected-revision>".into()),
+                    };
+                    Ok(Command::DocumentConfig { config, operation })
+                }
                 Some("set") if positional.len() > 2 => {
                     let changes = positional[2..]
                         .iter()
@@ -1031,5 +1080,46 @@ mod tests {
         };
 
         assert!(config.read_options().is_err());
+    }
+}
+
+#[cfg(test)]
+mod document_command_tests {
+    use super::*;
+
+    #[test]
+    fn schema_does_not_need_any_environment_and_apply_only_gets_terminal_write_intent() {
+        let args = |items: &[&str]| items.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            parse(args(&["config", "schema"]), |_| None).unwrap(),
+            Command::ConfigSchema
+        );
+        let directory = if cfg!(windows) {
+            "C:\\synthetic-state"
+        } else {
+            "/synthetic-state"
+        };
+        let parsed = parse(
+            args(&[
+                "--state-dir",
+                directory,
+                "config",
+                "apply",
+                "patch.json",
+                "0",
+            ]),
+            |_| None,
+        )
+        .unwrap();
+        let Command::DocumentConfig { config, .. } = &parsed else {
+            panic!("document command expected")
+        };
+        assert!(!config.allow_write);
+        assert!(!config.allow_dictionary_read);
+        let Command::DocumentConfig { config, .. } = parsed.run_by_a_person() else {
+            panic!("document command expected")
+        };
+        assert!(config.allow_write);
+        assert!(!config.allow_dictionary_read);
     }
 }
