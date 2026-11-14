@@ -3749,7 +3749,7 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
   check(KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5, "双拼 18 键使用 C ABI 的网格编号 5");
 });
 
-group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
+group("14/18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
   const letter = (dx: number, dy: number): string => EighteenKeySwipePolicy.letter("we", dx, dy);
   check(EighteenKeySwipePolicy.THRESHOLD_VP === 24, "阈值与 Android 的 24 dp、iOS 的 24 pt 相同");
   check(
@@ -3785,6 +3785,14 @@ group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一
             .length === 2,
       ),
     "横滑的键正是有长按字母的那八个双字母键",
+  );
+  const fourteenTwoLetterKeys = FourteenKeyLayout.rows()
+    .flat()
+    .filter((key) => EighteenKeySwipePolicy.swipeable(key.letters))
+    .map((key) => key.letters);
+  check(
+    fourteenTwoLetterKeys.join(" ") === "qw er ty ui op as df gh jk zx cv bn",
+    "14 键全拼和双拼的双字母键也全部接入横滑",
   );
 
   const gesture = new EighteenKeySwipeGesture();

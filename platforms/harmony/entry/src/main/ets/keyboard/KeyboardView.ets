@@ -924,9 +924,9 @@ struct KeyboardView {
   private semicolonKey: GlideKeyRect | null = null;
   /** 每个被跟踪手指的长按计时器。 */
   private hintHoldTimers: Map<number, number> = new Map<number, number>();
-  /** 双拼 18 键两个字母的键上的横滑。 */
+  /** 14/18 键两个字母的键上的横滑。 */
   private eighteenSwipes: EighteenKeySwipeGesture = new EighteenKeySwipeGesture();
-  /** 横滑正选中字母的那个 18 键（`FourteenKey.letters`）和选中的大写字母；没有时都为空串。 */
+  /** 横滑正选中字母的那个 14/18 键（`FourteenKey.letters`）和选中的大写字母；没有时都为空串。 */
   @State eighteenSwipeKey: string = '';
   @State eighteenSwipeLetter: string = '';
   /** 拼音九键字母层 1–9 键的上滑或下滑（共享偏好 `touch_nine_key_swipe_digits`，`NineKeySwipePolicy`）。 */
@@ -6427,7 +6427,7 @@ struct KeyboardView {
   /**
    * 全拼 14 键的字母层，与 Android（`ImeLetterRows`）和 iOS（`FourteenKeyLayout`）同一张表：`QW ER TY UI OP` / `AS DF GH JK L`（不缩进）/ `[分词] ZX CV BN M [⌫]`，四行等高，总高度与 26 键相同，底行就是 26 键的 `designActionRow`。
    *
-   * 键面写两个大字母，没有角标；不画 Shift，不接滑行、角标滑动和双拼提示。点一下把这一组的首字母交给引擎（`pressGridKey`），长按弹出这一键的两个字母。
+   * 键面写两个大字母，没有角标；不画 Shift。全拼和双拼的两字母键沿 18 键双拼的规则横滑限定一个字母，点一下把这一组的首字母交给引擎（`pressGridKey`），长按弹出这一键的两个字母。
    */
   @Builder
   fourteenKeyFace() {
@@ -6512,7 +6512,7 @@ struct KeyboardView {
     this.actionRow()
   }
 
-  /** 14 键的一个字母键：两个字母的键可以长按，L、M 只有点按。 */
+  /** 14 键的一个字母键：两个字母的键可以横滑或长按，L、M 只有点按。 */
   @Builder
   fourteenKeyButton(key: FourteenKey) {
     if (FourteenKeyLayout.holdOptions(key).length > 0) {
@@ -6589,13 +6589,14 @@ struct KeyboardView {
     }))
   }
 
-  /** 两个字母的 18 键是否接横滑：只有双拼 18 键，全拼 18 键只点按。 */
+  /** 两个字母的 14/18 键是否接横滑：全拼和双拼都接，五笔 14 键仍只点按。 */
   private swipesEighteenKey(): boolean {
-    return this.scheme.engineScheme === 'shuangpin' && this.drawsEighteenKey();
+    return (this.drawsFourteenKey() || this.drawsEighteenKey())
+      && (this.scheme.engineScheme === 'quanpin' || this.scheme.engineScheme === 'shuangpin');
   }
 
   /**
-   * 双拼 18 键两个字母的键上的一次触摸（`EighteenKeySwipePolicy`）：拖动时键面画选中的字母，抬手把它以大写精确标记交给引擎；回到起点、同一键上的第二根手指和系统取消都不输入。没越过阈值的触摸交给这个键的点击。
+   * 14/18 键全拼或双拼两个字母的键上的一次触摸（`EighteenKeySwipePolicy`）：拖动时键面画选中的字母，抬手把它以大写精确标记交给引擎；回到起点、同一键上的第二根手指和系统取消都不输入。没越过阈值的触摸交给这个键的点击。
    */
   private eighteenKeySwipeTouch(key: FourteenKey, event: TouchEvent): void {
     if (!this.swipesEighteenKey()) {
@@ -6621,7 +6622,11 @@ struct KeyboardView {
         const letter: string = this.eighteenSwipes.up(key.letters, touch.id, touch.windowX, touch.windowY);
         this.endEighteenSwipeFace(key.letters);
         KeyboardSession.shared.keyUp(touch.id);
-        this.typeEighteenKeyLetter(key, letter);
+        if (this.drawsEighteenKey()) {
+          this.typeEighteenKeyLetter(key, letter);
+        } else {
+          this.typeFourteenKeyLetter(key, letter);
+        }
       }
     } else if (event.type === TouchType.Cancel) {
       this.eighteenSwipes.cancel(key.letters);
@@ -6644,12 +6649,36 @@ struct KeyboardView {
     }
   }
 
+  /** 14 键的点击：横滑手势没有接管时送整组，否则送选中的精确字母。 */
+  private clickFourteenKey(key: FourteenKey, event: ClickEvent): void {
+    if (!this.swipesEighteenKey()) {
+      this.tapFourteenKey(key);
+      return;
+    }
+    const tap: EighteenKeyTap = this.eighteenSwipes.click(key.letters, event.windowX, event.windowY);
+    if (tap.group) {
+      this.tapFourteenKey(key);
+    } else {
+      this.endEighteenSwipeFace(key.letters);
+      this.typeFourteenKeyLetter(key, tap.letter);
+    }
+  }
+
   /** 横滑选中的字母以大写精确标记送入当前网格；键位与点按、长按同记在这一键上。 */
   private typeEighteenKeyLetter(key: FourteenKey, letter: string): void {
     if (letter.length === 0) {
       return;
     }
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.eighteenKey(key.letters));
+    KeyboardSession.shared.pressGridKey(letter.charCodeAt(0));
+  }
+
+  /** 14 键横滑选中的字母以大写精确标记送入当前网格。 */
+  private typeFourteenKeyLetter(key: FourteenKey, letter: string): void {
+    if (letter.length === 0) {
+      return;
+    }
+    KeyboardSession.shared.softKeyPress(KeyIdPolicy.fourteenKey(key.letters));
     KeyboardSession.shared.pressGridKey(letter.charCodeAt(0));
   }
 
@@ -6682,6 +6711,7 @@ struct KeyboardView {
     return {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
+      swipeLetters: key.letters,
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
@@ -6739,7 +6769,7 @@ struct KeyboardView {
     this.openSymbolSurface();
   }
 
-  /** 两个字母的 14 键：点按同 `fourteenKeyOptions`，长按弹出这两个字母。 */
+  /** 两个字母的 14 键：点按同 `fourteenKeyOptions`，横滑可限定一个字母，长按弹出这两个字母。 */
   @Builder
   fourteenKeyHoldKey(key: FourteenKey) {
     Column() {
@@ -6759,9 +6789,13 @@ struct KeyboardView {
     .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
     .animation({ duration: KEY_PRESS_MS })
     .responseRegion(this.keyHitRegion())
-    .onClick(() => this.tapFourteenKey(key))
+    .onTouch((event: TouchEvent): void => this.eighteenKeySwipeTouch(key, event))
+    .onClick((event: ClickEvent): void => this.clickFourteenKey(key, event))
     .gesture(LongPressGesture().onAction(() => {
-      // 长按也是按了这一键一次，不管最后选哪个字母。
+      if (this.swipesEighteenKey() && !this.eighteenSwipes.hold(key.letters)) {
+        // 横滑已经接管这次按压，长按不再弹出字母。
+        return;
+      }
       KeyboardSession.shared.softKeyPress(KeyIdPolicy.fourteenKey(key.letters));
       this.openKeyHold(FourteenKeyLayout.holdOptions(key));
     }))

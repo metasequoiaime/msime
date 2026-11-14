@@ -43,11 +43,11 @@ Status: implemented
 
 ## Consequences
 
-- 收益：宿主只需在 14／18 键的两字母键上送大写，四种字母网格的编辑、恢复和上屏行为一致，iOS、鸿蒙以后接入时不用再改引擎。全拼的限定发生在每一处截断（`PATH_LIMIT`、`QUERY_PATH_LIMIT`、简拼 `INITIALS_CODE_LIMIT` 与 `INITIALS_ROW_LIMIT`、英文前缀预算）之前，只会让留下的读法更相关，不会少掉整组输入本来留得住的相容读法。
+- 收益：宿主只需在 14／18 键的两字母键上送大写，四种字母网格的编辑、恢复和上屏行为一致。Android、iOS 与鸿蒙都复用同一套精确码契约，全拼的限定发生在每一处截断（`PATH_LIMIT`、`QUERY_PATH_LIMIT`、简拼 `INITIALS_CODE_LIMIT` 与 `INITIALS_ROW_LIMIT`、英文前缀预算）之前，只会让留下的读法更相关，不会少掉整组输入本来留得住的相容读法。
 - 代价：14 键双拼派生表的别名变多，每个两键编码最多四种写法；全拼每次有精确码的刷新多一次不超过 `DIGIT_LIMIT` 位的换码和逐片段核对，没有精确码时只多一次扫描，不新增堆分配。在随包词库上逐键计时（`grid_key` 加快照，14 键和 18 键各五句），一个精确码与整组输入的耗时在多次运行的波动之内，两字母键全部标成精确码时每键耗时降到约十分之一。
 - `editing_text` 和读音行的原样键码兜底里会出现大写标记，所有网格恢复路径都必须保留大小写，规则同十八键笔记。宿主写进输入框的是 `nine_key_reading`，看不到它。
 - Android 的纵滑出符号、长按选项和横滑在同一个触摸监听里互斥判定（[14/18 键角标符号的 Android 实现](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)），所以全拼键多了横滑也不会和纵滑抢：纵向为主才算纵滑。代价是全拼两字母键上横向抖得大一点（超过 24 dp）就成了限定字母，与十八键双拼一直以来的手感相同。
-- iOS 的 14／18 键全拼和双拼已复用同一横滑识别器；鸿蒙仍待宿主接入。[鸿蒙双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md)当时以「全拼网格 4 不接受大写精确标记」为由不给全拼 18 键横滑，引擎这一条现在不成立了，鸿蒙接入时可以重新考虑。
+- iOS 和鸿蒙的 14／18 键全拼和双拼都复用同一横滑判定；鸿蒙的宿主把 `EighteenKeySwipeGesture` 同时挂到 14 键和 18 键的双字母键，按当前方案只在全拼、双拼网格启用，五笔 14 键仍只点按。此前鸿蒙只接双拼 18 键，是因为当时全拼网格不接受大写精确标记；引擎契约已补齐后，这个限制已移除。
 
 ## Related decisions
 
@@ -65,3 +65,4 @@ Status: implemented
 - Android 宿主：`EighteenKeySwipePolicySmoke` 加上哪些键能横滑（全拼、双拼的两字母键能，单字母键、`L;`、五笔和其他方案不能）；手势状态仍由 `GridKeyGesturePolicySmoke` 覆盖。
 - Android 设备：注入真实触摸。14／18 键双拼都跑原来十八键双拼的一组（右滑、取消、回中心、反向重选、左滑、横滑后点按仍是整组，触摸注入抽到 `GridSwipeTouch` 共用）；14 键全拼和 18 键全拼各加一段：右滑 BN 后拼音只剩 n 开头，左滑后只剩 b 开头。
 - iOS 宿主测试：14 键全拼实际驱动 `EighteenKeySwipeGestureRecognizer`，横滑 BN、UI 后打出「你好」，并确认单字母键不挂识别器；18 键全拼的原有测试同步确认两字母键可横滑。共享 iOS Simulator job 负责完整 XCTest，真实 iPhone 横滑和截图仍需设备验收。
+- HarmonyOS 宿主逻辑：14 键与 18 键的双字母键都接入 `EighteenKeySwipeGesture`；全拼、双拼送大写精确码，五笔仍送整组。`bash platforms/harmony/tests/run.sh` 和 ArkTS 子集检查覆盖策略、键表及触摸接线；HAP、签名设备和真实编辑器的横滑验收仍待有鸿蒙工具链与设备的开发者完成。
