@@ -3489,12 +3489,19 @@ struct KeyboardView {
       : `${key.description}，长按输入 ${options.join('、')}`;
   }
 
+  /** 组字时回车是否原样上屏编码：只有 26 键的字母编码方案是，九键、14/18 键、日语、注音、英文和本地模式都不是（`ReturnKeyAction.commitsSpelling`）。和 `strokeFace` 一样按键盘自己选的方案和此刻画的键面判断。 */
+  private returnCommitsSpelling(): boolean {
+    return ReturnKeyAction.commitsSpelling(
+      SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english, this.localMode),
+      KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode), this.drawsFourteenKey());
+  }
+
   private activateReturn(): void {
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.ENTER);
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
       this.japanese, this.editing.length > 0, this.candidates.length,
       KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace(),
-      this.strokeFace(), this.prediction);
+      this.strokeFace(), this.prediction, this.tibetanFace(), this.returnCommitsSpelling());
     if (dispatch === ReturnDispatch.COMMIT_RAW) {
       KeyboardSession.shared.commitRaw();
     } else if (dispatch === ReturnDispatch.FINISH_THEN_EDITOR) {
