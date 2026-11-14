@@ -4,6 +4,7 @@ import { NativeCleanup } from './NativeCleanup';
  */
 import client from 'libmsimeclient.so';
 import fs from '@ohos.file.fs';
+import { FileCopy } from './FileCopy';
 import util from '@ohos.util';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { SharedStateMirror, MirrorImportHandlers } from './SharedStateMirror';
@@ -338,7 +339,7 @@ export class SharedStateSync {
         // 键盘那本清空了：没有要并的。上一版留着，直到键盘的清走记录说它已经清走了。
         return true;
       }
-      fs.copyFileSync(publishedPath, staging);
+      FileCopy.copy(publishedPath, staging);
       if (!PersonalWordbookPolicy.mergeAccepted(client.personalWordbookMerge(PersonalWordbookPolicy.mergeRequest(
         stateDirectory, staging, previousText === null ? null : previousPath)))) {
         KeyboardLog.warn('keyboard personal wordbook not merged yet: refused or the wordbook is full');

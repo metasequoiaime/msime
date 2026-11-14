@@ -262,6 +262,7 @@ export function DictionarySettingsPage() {
                   {mobilePlatform && feedback}
                   <DictionaryEntries
                     kind={dictionaryKind}
+                    allowBundledActions={client.host?.platform === "macos"}
                     entries={phrases}
                     form={phraseForm}
                     busy={phraseBusy}

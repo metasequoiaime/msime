@@ -19,6 +19,12 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             KeyLayoutBackupDeviceChecks.run(getTargetContext());
             return;
         }
+        livePreferences(false);
+        livePreferences(true);
+    }
+
+    /** 默认行内拼写仍跑完整热更新；页数只在确实显示读音行的设置下验收。 */
+    private void livePreferences(boolean keyboardSpelling) throws Exception {
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(Files.readAllBytes(new File(root, "runtime-options.json").toPath()), StandardCharsets.UTF_8));
         File directory = new File(options.getString("preferences_directory")).getCanonicalFile();
@@ -29,6 +35,8 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
         JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
             .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
                 .put("candidate_page_size", 5).put("chinese_punctuation", true).put("learning", false));
+        if (keyboardSpelling)
+            snapshot.getJSONObject("preferences").put("touch_spelling_position", "candidate_bar");
         try {
             stage = "baseline preferences";
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
@@ -42,16 +50,19 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             stage = "baseline typing";
             typePhrase();
             stage = "baseline five candidates";
-            // 横向候选条连续列出全部候选，不再只装引擎当前页（#9472，见 2026-10-23-android-continuous-candidate-strip.md），每页几个只体现在候选条旁的引擎页码上。
+            // 横向候选条连续列出全部候选；移除空铅笔行后，页码只随可见读音行出现。
             awaitAny(candidateAt(5));
-            int fivePerPage = pageCount();
+            stage = keyboardSpelling ? "visible reading row baseline page count" : "inline baseline candidates";
+            int fivePerPage = keyboardSpelling ? pageCount() : 0;
             stage = "active composition defers preferences";
             snapshot.put("revision", revision + 2);
             snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             await(imeTextContains("设置将在组词结束后应用"));
-            // 全拼组字在输入框里按音节分词显示（#9448，见 2026-10-23-quanpin-host-preedit-segmentation.md）。
-            await(field("msime-test-plain").and(node -> equalsText("ni'hao", node.getText())));
+            // 行内拼写必须保留原组字；候选栏拼写则不能把拼音写进编辑器。
+            await(field("msime-test-plain").and(node -> keyboardSpelling
+                ? node.isShowingHintText() || node.getText() == null || node.getText().length() == 0
+                : equalsText("ni'hao", node.getText())));
             stage = "commit preserves composition";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
@@ -67,9 +78,11 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             typePhrase();
             awaitAny(candidateAt(2));
             // 同一组字的候选总数 n 不变：每页 5 个时页数是 ⌈n/5⌉，换成每页 2 个后应是 ⌈n/2⌉；页数仍按 5 个或按默认的 6 个计都落不进这个范围。
-            int twoPerPage = pageCount();
-            if (twoPerPage < (5 * fivePerPage - 3) / 2 || twoPerPage > (5 * fivePerPage + 1) / 2)
-                throw new AssertionError("Page count " + twoPerPage + " does not follow page size 2 after " + fivePerPage + " pages of 5");
+            if (keyboardSpelling) {
+                int twoPerPage = pageCount();
+                if (twoPerPage < (5 * fivePerPage - 3) / 2 || twoPerPage > (5 * fivePerPage + 1) / 2)
+                    throw new AssertionError("Page count " + twoPerPage + " does not follow page size 2 after " + fivePerPage + " pages of 5");
+            }
             stage = "updated second candidate selection";
             tap(candidateAt(2));
             await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("ni'hao")));
@@ -97,7 +110,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             shellDiscard("screencap -p /data/local/tmp/msime-preferences-failure.png");
             throw error;
         } finally {
-            // Stop editor first; the next session starts with the restored configuration.
+            // 先离开编辑器，下个会话使用还原后的配置。
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }

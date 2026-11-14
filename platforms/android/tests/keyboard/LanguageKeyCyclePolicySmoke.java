@@ -59,6 +59,10 @@ public final class LanguageKeyCyclePolicySmoke {
             "a nine-key Chinese user goes to Japanese nine-key");
         check(is(LanguageKeyCyclePolicy.next(true, KeyboardScheme.QUANPIN, true, bothJapanese, KeyboardScheme.QUANPIN),
             Kind.SCHEME, KeyboardScheme.JAPANESE), "a 26-key Chinese user goes to Japanese 26-key");
+        check(is(LanguageKeyCyclePolicy.next(true, KeyboardScheme.QUANPIN, true,
+            List.of(KeyboardScheme.QUANPIN, KeyboardScheme.JAPANESE_NINE_KEY), KeyboardScheme.QUANPIN),
+            Kind.SCHEME, KeyboardScheme.JAPANESE_NINE_KEY),
+            "a 26-key Chinese user keeps the only configured Japanese nine-key entry");
         check(is(LanguageKeyCyclePolicy.next(true, KeyboardScheme.JAPANESE_NINE_KEY, false, bothJapanese,
             KeyboardScheme.QUANPIN_NINE_KEY), Kind.SCHEME, KeyboardScheme.KOREAN),
             "Japanese is one stop, then Korean");
