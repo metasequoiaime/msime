@@ -2095,6 +2095,23 @@ final class ImePanels {
                     return true;
                 });
                 View cell = clipboardSwipeCell(card, item, swiped, reveal, ordinal);
+                if (!clipboardSelectionMode) {
+                    LinearLayout withDetail = LayoutPolicy.row(s);
+                    KeyboardIconKey detail = new KeyboardIconKey(s, KeyboardIconKey.Kind.INFO);
+                    detail.setKeyboardRole(KeyboardKeyRole.GLYPH);
+                    detail.setText("详情");
+                    detail.setContentDescription("查看这条剪贴板记录详情");
+                    ViewPolicy.clearMinimumSize(detail);
+                    ViewPolicy.clearStateListAnimator(detail);
+                    ViewPolicy.setPadding(detail, 0, 0, 0, 0);
+                    bindFeedbackAction(detail, () -> openClipboardDetail(
+                        item, ClipboardDetailPolicy.Origin.LIST));
+                    detail.setLayoutParams(new LinearLayout.LayoutParams(s.pixels(38),
+                        LinearLayout.LayoutParams.MATCH_PARENT));
+                    withDetail.addView(cell, new LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                    cell = withDetail;
+                }
                 placeClipboardCell(index, items.size(), cell);
                 if (managed) {
                     actionItem = item;

@@ -63,6 +63,8 @@ public final class KeyboardIconPaths {
         FEEDBACK(true, 1.7f),
         /** design panel 关于 */
         ABOUT(true, 1.7f),
+        /** Lucide-style info (剪贴板详情) */
+        INFO(true, 1.7f),
         /** Lucide-style external-link (打开官网) */
         WEBSITE(true, 1.7f),
         /** design on-state check badge */
@@ -186,6 +188,7 @@ public final class KeyboardIconPaths {
             case INCOGNITO -> appendIncognito(p);
             case FEEDBACK -> appendFeedback(p);
             case ABOUT -> appendAbout(p);
+            case INFO -> appendInfo(p);
             case WEBSITE -> appendWebsite(p);
             case CHECK -> appendCheck(p);
             case AI_ASSIST -> appendAiAssist(p);
@@ -735,6 +738,19 @@ public final class KeyboardIconPaths {
     }
 
     private static void appendAbout(Path p) {
+        p.moveTo(12f, 22f);
+        p.cubicTo(17.5228f, 22f, 22f, 17.5228f, 22f, 12f);
+        p.cubicTo(22f, 6.4772f, 17.5228f, 2f, 12f, 2f);
+        p.cubicTo(6.4772f, 2f, 2f, 6.4772f, 2f, 12f);
+        p.cubicTo(2f, 17.5228f, 6.4772f, 22f, 12f, 22f);
+        p.close();
+        p.moveTo(12f, 16f);
+        p.lineTo(12f, 12f);
+        p.moveTo(12f, 8f);
+        p.lineTo(12.01f, 8f);
+    }
+
+    private static void appendInfo(Path p) {
         p.moveTo(12f, 22f);
         p.cubicTo(17.5228f, 22f, 22f, 17.5228f, 22f, 12f);
         p.cubicTo(22f, 6.4772f, 17.5228f, 2f, 12f, 2f);

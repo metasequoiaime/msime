@@ -705,6 +705,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
         return result;
     }
+
     /**
      * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
      *
