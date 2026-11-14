@@ -300,7 +300,8 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
         openFloatingPreview();
         touch(described("查看剪贴板全文的记录详情"));
         previewClosed();
-        await(described("返回剪贴板全文预览"));
+        // 返回入口已移到底部；80 行合成正文会让它暂时位于滚动视口之外。
+        awaitAny(described("返回剪贴板全文预览"));
         for (var window : automation.getWindows()) {
             if (findAny(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())
                     && equalsText("记录详情", node.getText())) != null)
