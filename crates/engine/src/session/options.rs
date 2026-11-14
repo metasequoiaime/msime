@@ -214,7 +214,7 @@ pub struct SessionSnapshot {
     /// 前导键在等辅助码（还没输或只输了一位）时它在 `editing_text` 里的位置，否则为 `None`。显示快照的 `preedit` 已经把它紧挨着插在辅助码前面（`ni;`、全拼 `ni';F`），只插不删；`editing_text` 和光标不含它，前导键只在光标位于末尾时生效，所以光标总在它后面。
     pub helpcode_trigger: Option<HelpcodeTrigger>,
     pub nine_key_spellings: Vec<String>,
-    /// 九键组字时的读音行：首选候选覆盖的数字显示成它的拼音，其余数字按 `preedit` 原样显示（`xi'an`、`yi'c`、`ni'hao'9`）；首选不是拼音候选时为空。只用于显示，`preedit` 仍是数字。
+    /// 九键组字时的读音行：首选候选覆盖的数字显示成它的拼音，其余数字接着按音节切出拼音（`xi'an`、`yi'c`），全拼网格上切不开的那一键显示成这个键上的一个字母（`ni'hao's's`）。全拼九键在拼音组字期间非空、不含数字，去掉 `'` 后一位对一个已按的键：首选是英文词时是这个词的字母，首选给不出读音（模糊音行、emoji、日期时间行）或没有候选时是已按的键切出的拼写，数字全部锁定时是锁定的拼写。双拼网格切不成对的数字仍原样显示，首选给不出读音时为空；英文专用模式为空。只用于显示，`preedit` 仍是数字。
     pub nine_key_reading: String,
     /// 九宫格候选只留单字（`set_nine_key_filter`）。
     pub nine_key_single_character: bool,

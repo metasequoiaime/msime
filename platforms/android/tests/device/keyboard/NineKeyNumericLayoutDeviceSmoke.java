@@ -133,9 +133,10 @@ public final class NineKeyNumericLayoutDeviceSmoke extends DeviceSmoke {
                 Rect left = bounds(described("符号栏，可上下滑动"));
                 Rect right = bounds(described("按键 删除"));
                 Rect action = bounds(key(digits ? "0" : "符"));
-                int outerWidth = right.right + horizontalMargin - left.left;
+                // 左列的符号栏是一整条底轨，和键帽一样按半个键距内缩（`ImeLayoutRows.applySidebarRail`），所以与右列的键帽同样加回两侧键距再比列宽。
+                int outerWidth = right.right + horizontalMargin - (left.left - horizontalMargin);
                 int gridWidth = last.right - first.left + 2 * horizontalMargin;
-                if (Math.abs(left.width() - outerWidth * 0.15f) > 3
+                if (Math.abs(left.width() + 2 * horizontalMargin - outerWidth * 0.15f) > 3
                         || Math.abs(right.width() + 2 * horizontalMargin - outerWidth * 0.15f) > 3
                         || Math.abs(gridWidth - outerWidth * 0.70f) > 3)
                     throw new AssertionError("九宫格外框必须为 15% / 70% / 15%："

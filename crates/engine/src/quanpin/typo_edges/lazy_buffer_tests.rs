@@ -3,7 +3,7 @@ use crate::ime::personal_rerank::allocations::{count, measure};
 use crate::quanpin::fixture::Fixture;
 use crate::types::autocorrect_type;
 
-// 固定 ffb35a03751e1c2fdf139f13b142f83b0558f75b 的完整收集路径；规划与查库 helper 两侧共用。
+// 固定 ffb35a03751e1c2fdf139f13b142f83b0558f75b 的完整收集路径，加上之后的重切分键、全拼罚分折扣和同键只查一次；规划与查库 helper 两侧共用。
 fn legacy_collect_typo_edges(
     database: &PinyinDatabase,
     span_cache: &mut FifoCache<String, Vec<DictRow>>,
@@ -12,11 +12,15 @@ fn legacy_collect_typo_edges(
     literal_best: &SentencePath,
     autocorrect_types: u32,
 ) -> Vec<TypoEdge> {
-    let planned = plan_keys(profile, segments, literal_best, autocorrect_types);
+    let mut planned = plan_keys(profile, segments, literal_best, autocorrect_types);
+    plan_resegmented_keys(segments, autocorrect_types, &mut planned);
+    for entry in &mut planned {
+        entry.penalty *= QUANPIN_TYPO_PENALTY_SCALE;
+    }
 
-    let mut misses = Vec::with_capacity(planned.len());
+    let mut misses: Vec<String> = Vec::with_capacity(planned.len());
     for entry in &planned {
-        if span_cache.get_ref(&entry.key).is_none() {
+        if span_cache.get_ref(&entry.key).is_none() && !misses.contains(&entry.key) {
             misses.push(entry.key.clone());
         }
     }
@@ -50,6 +54,8 @@ const TYPES: u32 = autocorrect_type::TRANSPOSITION
     | autocorrect_type::MISSING_OR_EXTRA;
 
 fn input(length: usize) -> (Vec<String>, SentencePath) {
+    // 纠错表在进程里第一次查时才建，先建好，免得哪一侧碰上建表、分配次数随测试顺序变。
+    crate::pinyin::autocorrect::has_correction_key(b"");
     let segments = vec!["zhuang".to_owned(); length];
     let words = vec!["甲".to_owned(); length];
     let literal = SentencePath {
@@ -99,7 +105,8 @@ fn all_warm_empty_rows_skip_both_unused_buffers() {
     assert_eq!(legacy_heap.minimum_bytes, 0);
     assert_eq!(heap.remaining_bytes, 0);
     assert!(legacy_heap.remaining_bytes > 0);
-    assert!(heap.peak_bytes < legacy_heap.peak_bytes);
+    // 峰值出在两侧共用的重切分规划上，查库阶段省下的缓冲压不低它；懒分配由上面的分配次数和返回存储断言盯着。
+    assert!(heap.peak_bytes <= legacy_heap.peak_bytes);
     println!(
         "全热空查询：分配 {}→{}，峰值 {}→{}，返回存储 {}→{}",
         legacy_heap.allocations,
@@ -360,7 +367,8 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
             assert_eq!(edges.capacity(), 0);
             assert_eq!(heap.remaining_bytes, 0);
             assert!(legacy_heap.remaining_bytes > 0);
-            assert!(heap.peak_bytes < legacy_heap.peak_bytes);
+            // 同上：峰值出在共用的重切分规划上。
+            assert!(heap.peak_bytes <= legacy_heap.peak_bytes);
         } else {
             assert_eq!(heap.allocations, legacy_heap.allocations);
             assert_eq!(edges.capacity(), edges.len());
