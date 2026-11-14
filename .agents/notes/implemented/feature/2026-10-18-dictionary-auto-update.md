@@ -18,7 +18,7 @@ Status: implemented
 
 不可变 Release 附件（含 manifest）复用 `resource_packs::PROJECT_MIRRORS`，优先从现有 `https://dl.msime.app/gh/` CDN 获取，网络、HTTP、长度或摘要失败时逐文件回退 GitHub 原地址；版本 API 不经过永久缓存 CDN。摘要始终来自官方 HTTPS API，CDN 不提供信任依据。manifest 复用 `local_models::download_from_mirrors`，写入更新目录中的匿名暂存文件；词库文件复用资源包的断点续传（`local_models::download_partial`），在用户镜像、CDN、原地址之间换源，停滞超时、续传和进度规则见[词库在线更新的停滞超时、断点续传与用户镜像](../bug-fix/2026-10-29-dictionary-update-stalled-download.md)。核对后再交给 ResourceStore；选择记录与资源代次继续保留 GitHub 原地址，不因下载渠道变化而换代。
 
-完整下载到独立不可变目录后原子发布选择记录，下一次宿主准备或启动刷新时采用；工作词库通过现有 prepare_options_for 从持久日志回放个人词条和学习。下载失败保留当前选择，格式不兼容时寻找更新的兼容版本，已安装资源损坏时使用随包基线。提供自动开关、状态、手动检查与回退，回退关闭自动检查防止马上升回去。
+完整下载到独立不可变目录后原子发布选择记录，下一次宿主准备或启动刷新时采用；工作词库通过现有 prepare_options_for 从持久日志回放个人词条和学习。下载失败保留当前选择，格式不兼容时寻找更新的兼容版本，已安装资源损坏时使用随包基线。提供自动开关、状态、手动检查与回退。按 [#10879 授权的撤回与回退规则](../bug-fix/2026-11-14-dictionary-withdrawal-and-rollback.md)，手动回退保留用户的自动更新开关，只跳过被回退的版本；明确撤回的当前版本在上一槽完整且仍为正式版时自动切回。
 
 鸿蒙只随 `installed.json` 的变化镜像已完成的不可变代次，先发布文件再发布选择，不复制 `incoming-*` 暂存目录；设置桥继续观察任务完成，切换设置页不会丢掉发布。键盘在焦点边界结束组字、重建会话后采用自己的镜像与用户日志。iOS 和鸿蒙查询更新状态不准备工作词库，也不获取输入会话的维护锁。
 

@@ -41,7 +41,7 @@ public:
       (*result.request)["enabled"] = SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED;
     } else if (id == dictionary_updates_rollback) {
       (*result.request)["command"] = "rollback";
-      result.confirmation = L"恢复上一版官方词库并关闭自动更新？下次启动输入法时生效，个人词条和学习记录保留。";
+      result.confirmation = L"恢复上一版官方词库并跳过这一版？有更新的版本时仍会自动更新；下次启动输入法时生效，个人词条和学习记录保留。";
     } else if (id != dictionary_updates_refresh) result.request.reset();
     return result;
   }
