@@ -1299,6 +1299,7 @@ install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSI
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 include(cmake/LocalTranslation.cmake)
+include(cmake/DictionaryCollections.cmake)
 set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")

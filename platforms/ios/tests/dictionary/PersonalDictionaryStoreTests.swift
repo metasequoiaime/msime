@@ -7,6 +7,24 @@ private func letterCode(_ prefix: String, _ index: Int) -> String {
 }
 
 final class PersonalDictionaryStoreTests: XCTestCase {
+  func testQueueEditsKeepCollectionAlreadyPresentReceipts() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = PersonalDictionaryStore(directory: root)
+    _ = try store.enqueue(previous: nil, replacement: .init(key: "synthetic", value: "合成词"))
+    let file = root.appendingPathComponent("PersonalDictionary/sync.json")
+    var document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    let receipts = ["pinyin:3:one合成词"]
+    document["alreadyPresent"] = receipts
+    document["snapshotDate"] = "updated"
+    try JSONSerialization.data(withJSONObject: document).write(to: file)
+    XCTAssertNil(try store.read().snapshotDate)
+    try store.requestRefresh()
+    XCTAssertEqual(try store.read().alreadyPresent, receipts)
+    let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    XCTAssertEqual(saved["alreadyPresent"] as? [String], receipts)
+  }
+
   func testQueueRejectsASymlinkedLockFile() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-dictionary-lock-test-\(UUID().uuidString)")
     let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-dictionary-lock-target-\(UUID().uuidString)")

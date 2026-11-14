@@ -234,6 +234,18 @@ public final class DictionaryCollectionsStore {
         }
     }
 
+    /** 多选操作的校验、去重和提交统一由共享集合服务执行。 */
+    public static Result<View> changeSelected(Context context, List<String> ids, Boolean enabled) {
+        try {
+            JSONObject request = action(enabled == null ? "delete_many" : "set_enabled_many")
+                .put("ids", new JSONArray(ids));
+            if (enabled != null) request.put("enabled", enabled);
+            return collections(context, request, true);
+        } catch (JSONException error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
     public static Result<View> setEnabled(Context context, String id, boolean enabled) {
         try {
             return collections(context, action("set_enabled").put("id", id).put("enabled", enabled), true);
@@ -267,6 +279,11 @@ public final class DictionaryCollectionsStore {
      * @param bytes 文件内容；`scel` 这类二进制格式按 base64 传，其余按 UTF-8 文本传。文本格式收到 zip 压缩包时取里面的词库文本（见 {@link #textFromArchive}）
      */
     public static Result<View> importFile(Context context, String format, String name, byte[] bytes) {
+        return importFile(context, format, null, name, bytes);
+    }
+
+    /** 导入到已有分组时保留其名字、启停状态及共享去重规则。 */
+    public static Result<View> importFile(Context context, String format, String id, String name, byte[] bytes) {
         if (bytes == null || bytes.length == 0) return Result.failed(failureMessage("import_empty"));
         if (!binaryFormat(format) && isZipArchive(bytes)) {
             bytes = textFromArchive(bytes);
@@ -278,6 +295,7 @@ public final class DictionaryCollectionsStore {
         }
         try {
             JSONObject request = action("import").put("name", name).put("kind", "pinyin").put("format", format);
+            if (id != null) request.put("id", id);
             if (binaryFormat(format)) {
                 request.put("bytes_base64", java.util.Base64.getEncoder().encodeToString(bytes));
             } else {
@@ -579,6 +597,7 @@ public final class DictionaryCollectionsStore {
         switch (code) {
             case "collections_name_invalid": return "词库名需要 1–32 个字，首尾不能有空格。";
             case "collections_limit": return "词库数量或词条数已达上限。";
+            case "collections_source_conflict": return "此分组不能接收该来源，请新建分组导入。";
             case "collections_not_found": return "这个词库已经不在了，列表已刷新。";
             case "builtin_locked": return "内置词库始终启用，不能停用或改名。";
             case "unsupported_format": return "暂不支持这种文件格式。";

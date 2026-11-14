@@ -36,6 +36,12 @@ struct DictionarySettingsView: View {
           }
           .buttonStyle(PressFillButtonStyle())
           .accessibilityIdentifier("personalDictionaryLink")
+          DesignDivider(leading: 20)
+          NavigationLink(destination: DictionaryCollectionsView()) {
+            DesignNavRowLabel(title: "词库分组")
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("dictionaryCollectionsLink")
         }
         DesignCard {
           Button { importing = true } label: {
@@ -313,15 +319,15 @@ struct DictionarySettingsView: View {
     guard !clearingLearning else { return }
     clearingLearning = true
     defer { clearingLearning = false }
-    let outcome: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+    let outcome: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
       Result { try MetasequoiaInputSessionBridge.resetLearnedData() }
     }.value
     switch outcome {
-    case .success:
+    case .success(let collectionsRequeued):
       CommunityDictionaryImports.forgetAll()
       try? store.requestRefresh()
       reload()
-      message = ClearLearningCopy.cleared
+      message = collectionsRequeued ? ClearLearningCopy.cleared : ClearLearningCopy.collectionsFailed
     case .failure(let error):
       message = (error as? MetasequoiaInputSessionBridge.LearnedDataResetFailure) == .busy
         ? ClearLearningCopy.busy : ClearLearningCopy.failed

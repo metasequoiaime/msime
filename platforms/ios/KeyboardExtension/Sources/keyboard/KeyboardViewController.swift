@@ -6337,6 +6337,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var applied = false
     defer { if applied { recordDictionaryChange() } }
     do {
+      applied = try session.synchronizeDictionaryCollections()
       let state = try store.read()
       guard force || state.needsKeyboardSynchronization || store.listingIsStale() else { return }
       synchronizingPersonalDictionary = true

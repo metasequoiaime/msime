@@ -2076,6 +2076,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return false
   }
 
+  /// 集合待发项经 Rust 交付，保留已有词条回执；会话只在确有待处理项时让出维护权。
+  func synchronizeDictionaryCollections() throws -> Bool {
+    let options = try dictionaryStateVersionOptions()
+    guard try DictionaryCollectionsBridge.needsSynchronization(options: options) else { return false }
+    return try withDictionaryMaintenance {
+      try DictionaryCollectionsBridge.synchronize(options: options, budget: 100)
+    }
+  }
+
   func applyPersonalPrevious(_ previous: [String: Any]?, replacement: [String: Any]?, requestID: String) throws {
     var action: [String: Any] = ["operation": "edit", "request_id": requestID]
     action["previous"] = previous ?? NSNull()
@@ -2107,8 +2116,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   /// 设置 App「词库 › 学习」的「清除学习记录」：与五笔查码、词库同步一样经 `msime_client_prepare_host` 解析出键盘用的那套词库路径，发词库请求 `reset`，换回随包的工作词库、清空学习日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和自造词），共享偏好、常用语、剪贴板和打字统计不动。Rust 要独占的维护权；键盘扩展收起时就销毁会话放掉它，键盘还开着时是 `.busy`，什么也不换。键盘扩展有没有完全访问，状态目录都是 App Group 里的同一个 `MSIME`（`bootstrapOptions`），没有另一份：没开完全访问时键盘写不了 App Group，它学到的东西本来就落不了盘，所以这里清的就是键盘下次读的那一份。读写文件，调用方放到主线程之外。
+  @discardableResult
   static func resetLearnedData(resources: URL? = PersonalDictionaryBridge.packagedResources,
-                               stateRoot: URL? = nil) throws {
+                               stateRoot: URL? = nil) throws -> Bool {
     guard let resources else { throw LearnedDataResetFailure.failed }
     let result: [String: Any]
     do {
@@ -2120,6 +2130,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       throw LearnedDataResetFailure.failed
     }
     guard result["reset"] as? Bool == true else { throw LearnedDataResetFailure.failed }
+    return result["collections_error"] == nil
   }
 
   /// 五笔查码（#6789）：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码。给设置 App 用，不建输入会话：经 `msime_client_prepare_host` 解析出选项后发词库请求 `wubi_codes`，host-api 只读打开会话用的同一份五笔码表，不拿词库维护租约，键盘开着也能查。

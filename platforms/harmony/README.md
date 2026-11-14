@@ -1,5 +1,7 @@
 # HarmonyOS 输入宿主
 
+命名词库的导入、多选管理与同步边界见[词库分组](../../docs/dictionary-groups.md)。
+
 ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用、账号、社区、AI、语音、手写、候选与词库都在本目录内。能力对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、哪些是按平台特性裁剪而不是欠账。
 
 ## AI 生成类功能目前不提供

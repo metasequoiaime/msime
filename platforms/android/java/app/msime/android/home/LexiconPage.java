@@ -169,14 +169,19 @@ public final class LexiconPage extends ReloadingDetailPage {
             installed.addView(KeyboardSheets.badgeNavRow(context, "粤", "粤语词库", cantoneseCount, "已启用",
                 ThemeColorPolicy.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_CANTONESE, "粤语词库")));
         }
-        for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
-            String subtitle = NumberPolicy.groupedCount(collection.entryCount())
-                + DictionaryCollectionsStore.pendingDescription(collection.pending())
-                + ("community".equals(collection.sourceType()) ? " · 社区" : "");
-            installed.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
-                subtitle, collection.enabled() ? "已启用" : "已停用",
-                collection.enabled() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.subText(context),
-                () -> openDetail(collection.id(), collection.name())));
+        for (String source : List.of("user", "import", "community")) {
+            GroupCard group = null;
+            for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
+                if (!source.equals(collection.sourceType())) continue;
+                if (group == null) group = GroupCard.add(sectionColumn(target, "已安装"),
+                    LexiconGroupDialogs.sourceTitle(source)).withDividers(58);
+                String subtitle = NumberPolicy.groupedCount(collection.entryCount())
+                    + DictionaryCollectionsStore.pendingDescription(collection.pending());
+                group.addView(KeyboardSheets.badgeNavRow(context, TextPolicy.initial(collection.name(), "词"), collection.name(),
+                    subtitle, collection.enabled() ? "已启用" : "已停用",
+                    collection.enabled() ? ThemeColorPolicy.accent(context) : ThemeColorPolicy.subText(context),
+                    () -> openDetail(collection.id(), collection.name())));
+            }
         }
         installed.help("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
         if (!current.failure().isEmpty()) installed.note(current.failure());
@@ -238,6 +243,10 @@ public final class LexiconPage extends ReloadingDetailPage {
         });
         menu.getMenu().add("导入词库").setOnMenuItemClickListener(item -> {
             showImportSources();
+            return true;
+        });
+        menu.getMenu().add("批量管理").setOnMenuItemClickListener(item -> {
+            if (model != null) LexiconGroupDialogs.manage(this, model.view(), () -> reload(false));
             return true;
         });
         menu.getMenu().add("刷新词库").setOnMenuItemClickListener(item -> {
@@ -342,7 +351,7 @@ public final class LexiconPage extends ReloadingDetailPage {
             MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage("unavailable"));
             return;
         }
-        OptionSheet sheet = new OptionSheet(requireContext(), "导入来源", "导入的词条会成为一个新的词库");
+        OptionSheet sheet = new OptionSheet(requireContext(), "导入来源", null);
         for (DictionaryCollectionsStore.ImportSource source : sources) {
             sheet.option(source.label(), false, () -> {
                 pendingFormat = source.format();
@@ -355,9 +364,15 @@ public final class LexiconPage extends ReloadingDetailPage {
     private void onImportPicked(@Nullable Uri uri) {
         if (uri == null || getView() == null) return;
         String chosen = pendingFormat;
-        HostTask.run(this, context -> importFrom(context, uri, chosen), message -> {
-            MsToast.show(requireContext(), message == null ? DictionaryCollectionsStore.failureMessage("") : message);
-            reload(false);
+        HostTask.run(this, context -> displayName(context, uri), displayName -> {
+            if (model == null) return;
+            String format = DictionaryCollectionsStore.formatForFile(displayName, chosen);
+            LexiconGroupDialogs.importTarget(requireContext(), model.view(), format,
+                DictionaryCollectionsStore.nameFromFile(displayName), (id, name) ->
+                    HostTask.run(this, context -> importFrom(context, uri, format, id, name), message -> {
+                        MsToast.show(requireContext(), message == null ? DictionaryCollectionsStore.failureMessage("") : message);
+                        reload(false);
+                    }));
         });
     }
 
@@ -365,8 +380,7 @@ public final class LexiconPage extends ReloadingDetailPage {
     static final String SCEL_PERSONAL_USE_NOTICE =
         "搜狗细胞词库的整理成果属于原作者，导入的词只供你在本机使用，不能发布到社区。";
 
-    private static String importFrom(Context context, Uri uri, String chosen) {
-        String displayName = displayName(context, uri);
+    private static String importFrom(Context context, Uri uri, String format, String id, String name) {
         byte[] bytes;
         try {
             bytes = readAll(context, uri);
@@ -374,10 +388,8 @@ public final class LexiconPage extends ReloadingDetailPage {
             return "读取文件失败，请重新选择。";
         }
         if (bytes == null) return DictionaryCollectionsStore.failureMessage("collections_too_large");
-        String format = DictionaryCollectionsStore.formatForFile(displayName, chosen);
-        String name = DictionaryCollectionsStore.nameFromFile(displayName);
         DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> result =
-            DictionaryCollectionsStore.importFile(context, format, name, bytes);
+            DictionaryCollectionsStore.importFile(context, format, id, name, bytes);
         if (!result.ok()) return result.failure();
         DictionaryCollectionsStore.ImportReport report = result.value().importReport();
         // 细胞词库导入后说明只供本机使用：第三方词库的整理成果属于原作者，社区发布会拦下这些词（.agents/notes/implemented/feature/2026-10-17-scel-community-publish-guard.md）。

@@ -1,3 +1,4 @@
+#include "../src/settings/DictionaryCollectionsLauncher.h"
 #include "../src/settings/LocalTranslationLauncher.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
@@ -5929,7 +5930,9 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (!state || state->restricted() ||
           (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)) return;
-      if (std::strcmp(panel_, "local-translation") == 0)
+      if (std::strcmp(panel_, "dictionary-groups") == 0)
+        msime::linux_host::launch_dictionary_collections(state->options_path_);
+      else if (std::strcmp(panel_, "local-translation") == 0)
         msime::linux_host::launch_local_translation(state->options_path_);
       else launchDesktopPanel(panel_);
     } catch (...) {}
@@ -7426,6 +7429,9 @@ public:
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
              {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+             {&dictionary_groups_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary-groups"},
+#endif
              {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
              {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
              {&scheme_quanpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-quanpin"},
@@ -7919,6 +7925,9 @@ public:
 #ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
         {&local_translation_action_, true},
 #endif
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+        {&dictionary_groups_action_, true},
+#endif
         {&settings_action_, true}, {&about_action_, true},
         {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
         {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
@@ -8275,6 +8284,9 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+  FcitxDesktopPanelAction dictionary_groups_action_{&factory_, "dictionary-groups", "词库分组…"};
+#endif
   FcitxDesktopPanelAction local_translation_action_{&factory_, "local-translation", "本地模型翻译…"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
   FcitxToolbarAction toolbar_action_;

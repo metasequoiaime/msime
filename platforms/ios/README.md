@@ -1,5 +1,7 @@
 # iOS App 与键盘扩展
 
+命名词库的导入、多选管理与同步边界见[词库分组](../../docs/dictionary-groups.md)。
+
 ## 目录结构
 
 App 业务位于 `App/Sources/<feature>/`，键盘扩展位于 `KeyboardExtension/Sources/<feature>/`，共享 SwiftUI/UIKit 位于 `SharedUI/<feature>/`；`KeyboardTests/`、`ServiceTests/`、`TransportTests/` 和 `UITests/` 分别覆盖键盘、服务、桥接和界面边界。

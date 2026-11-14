@@ -56,11 +56,13 @@ struct PersonalDictionaryState: Codable, Sendable {
   enum CodingKeys: String, CodingKey {
     case version, requests, entries, hasMore, snapshotDate, snapshotError
     case pageOffset, requestedPageOffset, requestedKind, requestedQuery, pageKind, pageQuery
-    case exportRequest, exportResult
+    case exportRequest, exportResult, alreadyPresent
     case refreshID = "refreshId"
     case completedRefreshID = "completedRefreshId"
   }
   var version = 1
+  /// 保留共享集合的已有词条回执，界面写队列时不能丢掉归属保护。
+  var alreadyPresent: [String] = []
   var requests: [PersonalWordRequest] = []
   var entries: [PersonalWord] = []
   var hasMore = false
@@ -87,10 +89,16 @@ struct PersonalDictionaryState: Codable, Sendable {
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
+    alreadyPresent = try values.decodeIfPresent([String].self, forKey: .alreadyPresent) ?? []
     requests = try values.decodeIfPresent([PersonalWordRequest].self, forKey: .requests) ?? []
     entries = try values.decodeIfPresent([PersonalWord].self, forKey: .entries) ?? []
     hasMore = try values.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
-    snapshotDate = try values.decodeIfPresent(Date.self, forKey: .snapshotDate)
+    // Rust 的已更新标记不是时间戳；没有可用日期时让原生列表按原规则刷新。
+    if (try? values.decode(String.self, forKey: .snapshotDate)) == "updated" {
+      snapshotDate = nil
+    } else {
+      snapshotDate = try values.decodeIfPresent(Date.self, forKey: .snapshotDate)
+    }
     snapshotError = try values.decodeIfPresent(String.self, forKey: .snapshotError)
     pageOffset = try values.decodeIfPresent(Int.self, forKey: .pageOffset) ?? 0
     requestedPageOffset = try values.decodeIfPresent(Int.self, forKey: .requestedPageOffset) ?? 0
@@ -276,6 +284,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard data.count <= maximumBytes,
           let state = try? Self.decoder().decode(PersonalDictionaryState.self, from: data),
           state.version == 1, state.requests.count <= 160, state.entries.count <= 100,
+          state.alreadyPresent.count <= 1024, state.alreadyPresent.allSatisfy({ !$0.isEmpty }),
           state.pageOffset >= 0, state.pageOffset <= 1_000_000,
           state.requestedPageOffset >= 0, state.requestedPageOffset <= 1_000_000,
           state.requestedQuery.utf8.count <= Self.maximumQueryBytes,
