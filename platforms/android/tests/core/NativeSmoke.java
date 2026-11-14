@@ -7,6 +7,15 @@ import java.util.regex.Pattern;
 public final class NativeSmoke {
     static void success(String response) { if (!response.contains("\"ok\":true")) throw new AssertionError(response); }
     public static void main(String[] args) throws Exception {
+        if (!"喫".equals(NativeClient.convertToTraditional("吃", 0))
+                || !"吃".equals(NativeClient.convertToTraditional("吃", 1))
+                || !"裏面".equals(NativeClient.convertToTraditional("里面", 0))
+                || !"裡面".equals(NativeClient.convertToTraditional("里面", 1))
+                || !"軟件".equals(NativeClient.convertToTraditional("软件", 1))
+                || !"軟體".equals(NativeClient.convertToTraditional("软件", 2))
+                || NativeClient.convertToTraditional("软件", 3) != null) {
+            throw new AssertionError("Android JNI OpenCC variants disagree with s2t / s2tw / s2twp");
+        }
         if (!NativeClient.prepareHost("{\"resources\":\"relative\",\"state_root\":\"relative\"}").contains("\"ok\":false")) {
             throw new AssertionError("bootstrap accepted relative paths");
         }

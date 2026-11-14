@@ -41,6 +41,7 @@ public final class ChineseOutputPolicySmoke {
         check(ChineseOutputPolicy.candidateOutput("hello網絡中国", true, true, 18, han)
             .equals("hello網絡中国"));
         check(ChineseOutputPolicy.candidateOutput("中国", true, true, 0, han).equals("中國"));
+        positiveConversion();
         // 粤拼下的简繁开关只切粤拼自己的字形，默认繁体；其余方案和粤拼的英文模式照旧看全局开关。
         check(ChineseOutputPolicy.switchFollowsCantonese(false, 5));
         check(!ChineseOutputPolicy.switchFollowsCantonese(true, 5));
@@ -60,5 +61,28 @@ public final class ChineseOutputPolicySmoke {
         check(ChineseOutputPolicy.traditionalVariantCode("s2twp") == 2);
         check(ChineseOutputPolicy.traditionalVariantCode("unknown") == 0);
         System.out.println("Android Chinese output: boundaries and conversion failure fallback passed");
+    }
+    static void positiveConversion() {
+        String[] variants = {"s2t", "s2tw", "s2twp"};
+        for (int index = 0; index < variants.length; index++) {
+            int actualVariant = ChineseOutputPolicy.traditionalVariantCode(variants[index]);
+            check(actualVariant == index);
+            ChineseOutputPolicy.Converter converter = text -> {
+                check(text.equals("头发软件里面"));
+                return "converted-whole-phrase-" + actualVariant;
+            };
+            String expected = "converted-whole-phrase-" + actualVariant;
+            check(ChineseOutputPolicy.output("头发软件里面", true, true, converter)
+                .equals(expected));
+            for (int source : new int[] {0, 2, 3, 14}) {
+                check(ChineseOutputPolicy.candidateOutput("头发软件里面", true, true,
+                    source, converter).equals(expected));
+            }
+            check(ChineseOutputPolicy.output("广东省", true, true,
+                text -> {
+                    check(text.equals("广东省"));
+                    return "converted-annotation-" + actualVariant;
+                }).equals("converted-annotation-" + actualVariant));
+        }
     }
 }
