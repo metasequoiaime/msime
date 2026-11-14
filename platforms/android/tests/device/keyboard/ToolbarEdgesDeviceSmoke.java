@@ -686,8 +686,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             if (child instanceof ViewGroup group) result.addAll(clipboardCardViews(group));
         }
         return result;
-    }/var/folders/rk/nnwp390s41b72k1vbxqbfyvw0000gn/T/tmpao37m6ty/t
-    /**
+    }    /**
      * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
      *
      * <p>只在 360dp 量「顶行不需横滑」，恰好避开了会超宽的情形：「更多」原来是横向滚动里最后一个，最先被挤出屏外。删除后的「撤销」原来也在顶行里，240dp 时靠它把顶行撑宽；它改成浮在面板右下角以后（#10073），从 240dp 往下收窄键盘，直到顶行确实超宽再量。

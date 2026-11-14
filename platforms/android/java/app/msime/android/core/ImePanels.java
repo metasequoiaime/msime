@@ -2111,8 +2111,7 @@ final class ImePanels {
                     withDetail.addView(cell, new LinearLayout.LayoutParams(0,
                         LinearLayout.LayoutParams.WRAP_CONTENT, 1));
                     cell = withDetail;
-                }/var/folders/rk/nnwp390s41b72k1vbxqbfyvw0000gn/T/tmph6laua80/t
-                placeClipboardCell(index, items.size(), cell);
+                }                placeClipboardCell(index, items.size(), cell);
                 if (managed) {
                     actionItem = item;
                     clipboardListedActionItem = item;
