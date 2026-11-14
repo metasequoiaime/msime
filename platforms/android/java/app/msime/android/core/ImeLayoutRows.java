@@ -841,8 +841,6 @@ final class ImeLayoutRows {
         s.keyId(zero, "Nine0");
         s.bindCountedAction(zero, face == null ? () -> commitNineKeyLiteral("0") : () -> s.character('0'));
     }
-    }
-
     /** 九键双拼的一个数字键：数字作主标签，表用到它时附简短提示、点按送这个数字；没用到时只印数字，0 原样上屏，其他键不送。 */
     private NineKeyDigitButton shuangpinKey(java.util.List<NineKeyShuangpinKeypad.Face> faces, char digit) {
         NineKeyShuangpinKeypad.Face face = NineKeyShuangpinKeypad.face(faces, digit);
