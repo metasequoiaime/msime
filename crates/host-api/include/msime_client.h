@@ -1276,6 +1276,9 @@ char *msime_client_parse_surface_route(const uint8_t *value, size_t length);
  * string_free. The first call parses the tables (a few milliseconds in
  * release builds). */
 char *msime_client_simplified_to_traditional(const uint8_t *text, size_t length);
+/* 用共享的短语级 OpenCC t2s 表把 UTF-8 繁体中文转换为简体中文。传入 NULL、超过 1 MiB、
+ * 非法 UTF-8 或含内嵌 NUL 时返回 NULL；调用方应保留原文。用 string_free 释放结果。 */
+char *msime_client_traditional_to_simplified(const uint8_t *text, size_t length);
 /* 同上，但按 variant 选 OpenCC 配置：0 s2t、1 s2tw（臺灣字形）、2 s2twp
  * （臺灣字形加惯用词），与偏好 traditional_chinese_variant 的 "s2t"、"s2tw"、
  * "s2twp" 一一对应。未知的 variant 与其它非法输入一样返回 NULL。臺灣配置的

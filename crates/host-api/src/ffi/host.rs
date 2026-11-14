@@ -62,12 +62,35 @@ pub unsafe extern "C" fn msime_client_simplified_to_traditional(
     if text.is_null() || length > MAX_TRADITIONAL_CONVERSION_BYTES {
         return std::ptr::null_mut();
     }
-    // SAFETY: guaranteed by the documented caller contract.
+    // 安全性：由调用方遵守的接口契约保证。
     let bytes = unsafe { std::slice::from_raw_parts(text, length) };
     let Ok(text) = std::str::from_utf8(bytes) else {
         return std::ptr::null_mut();
     };
     let converted = msime_client_core::chinese_conversion::simplified_to_traditional(text);
+    CString::new(converted).map_or(std::ptr::null_mut(), CString::into_raw)
+}
+
+/// 用共享的 OpenCC `t2s` 表把繁体中文转换为简体中文。
+///
+/// 传入空指针、非法 UTF-8 或内嵌 NUL 时返回空指针，调用方应保留原文。结果必须用
+/// `msime_client_string_free` 释放。
+/// # Safety
+/// `text` 指向长度为 `length` 的可读字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_traditional_to_simplified(
+    text: *const u8,
+    length: usize,
+) -> *mut c_char {
+    if text.is_null() || length > MAX_TRADITIONAL_CONVERSION_BYTES {
+        return std::ptr::null_mut();
+    }
+    // 安全性：由调用方遵守的接口契约保证。
+    let bytes = unsafe { std::slice::from_raw_parts(text, length) };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return std::ptr::null_mut();
+    };
+    let converted = msime_client_core::chinese_conversion::traditional_to_simplified(text);
     CString::new(converted).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
