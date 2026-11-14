@@ -197,7 +197,11 @@ pub fn parse(body: &[u8]) -> Option<String> {
     if text.len() > 4096 {
         return None;
     }
-    Some(super::format_translation_gloss(text).unwrap_or_default())
+    if text.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+        Some(String::new())
+    } else {
+        super::format_translation_gloss(text)
+    }
 }
 
 #[derive(Deserialize)]
@@ -353,6 +357,7 @@ mod tests {
             r#"{"Code":"200","Data":{"Translated":"wrong"}}"#,
             r#"{"Code":200,"Data":{}}"#,
             r#"{"Code":200,"Data":{"Translated":null}}"#,
+            r#"{"Code":200,"Data":{"Translated":"invalid\u0000answer"}}"#,
             "not json",
         ] {
             assert!(parse(body.as_bytes()).is_none());
