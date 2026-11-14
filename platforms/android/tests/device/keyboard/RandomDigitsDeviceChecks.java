@@ -286,8 +286,19 @@ final class RandomDigitsDeviceChecks {
     }
 
     private Rect[] fixedBounds() {
-        return Arrays.stream(new String[] {".", "+", "-", "*", "/", "⌫"})
-            .map(label -> bounds(t.awaitStableBounds(t.key(label)))).toArray(Rect[]::new);
+        String previousStage = t.stage;
+        try {
+            return Arrays.stream(new String[] {".", "+", "-", "*", "/", "⌫"})
+                .map(label -> {
+                    t.stage = previousStage + " 固定键位置 " + label;
+                    // 侧栏在小屏上可滚动，每次都先展示同一个目标，再比较重排前后的真实位置。
+                    AccessibilityNodeInfo node = t.awaitAny(t.key(label));
+                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+                    return bounds(t.awaitStableBounds(t.key(label)));
+                }).toArray(Rect[]::new);
+        } finally {
+            t.stage = previousStage;
+        }
     }
 
     private void physical(Predicate<AccessibilityNodeInfo> match) throws Exception {

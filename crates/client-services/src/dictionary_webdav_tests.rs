@@ -33,6 +33,7 @@ fn the_key_ring_lives_under_its_own_prefix() {
         inner: Box::new(recorder.clone()),
         prefix: KEYRING,
         roots_pending: AtomicBool::new(false),
+        layout: AtomicUsize::new(LAYOUT_UNKNOWN),
     };
     let clock = WallClock;
     let dav = Dav::new(&prefixed, &clock);
@@ -42,15 +43,113 @@ fn the_key_ring_lives_under_its_own_prefix() {
     let sent = recorder.sent.lock().unwrap().clone();
     assert!(!sent.is_empty());
     for (_, path, destination) in &sent {
-        assert!(
-            path.starts_with("msime-dictionary/keyring/msime-clipboard/"),
-            "{path}"
-        );
+        assert!(path.starts_with("msime-dictionary/keyring/"), "{path}");
+        assert!(!path.starts_with("msime-dictionary/keyring/msime-clipboard/"));
         if let Some(destination) = destination {
-            assert!(destination.starts_with("msime-dictionary/keyring/msime-clipboard/"));
+            assert!(destination.starts_with("msime-dictionary/keyring/"));
+            assert!(!destination.starts_with("msime-dictionary/keyring/msime-clipboard/"));
         }
     }
     assert_eq!(sent.len(), 3);
+}
+
+#[test]
+fn the_key_ring_reads_the_published_nested_layout() {
+    #[derive(Default)]
+    struct LegacyRecorder {
+        sent: Mutex<Vec<String>>,
+    }
+
+    impl DavHttp for Arc<LegacyRecorder> {
+        fn send(&self, request: &DavRequest<'_>) -> Result<DavResponse, RelayError> {
+            self.sent.lock().unwrap().push(request.path.to_owned());
+            let status = if request
+                .path
+                .starts_with("msime-dictionary/keyring/msime-clipboard/")
+            {
+                207
+            } else {
+                404
+            };
+            Ok(DavResponse {
+                status,
+                retry_after: None,
+                body: Vec::new(),
+            })
+        }
+    }
+
+    let recorder = Arc::new(LegacyRecorder::default());
+    let prefixed = Prefixed {
+        inner: Box::new(recorder.clone()),
+        prefix: KEYRING,
+        roots_pending: AtomicBool::new(false),
+        layout: AtomicUsize::new(LAYOUT_UNKNOWN),
+    };
+    let request = DavRequest {
+        method: "PROPFIND",
+        path: "msime-clipboard/v1/",
+        depth: Some("1"),
+        destination: None,
+        body: None,
+        limit: 4096,
+    };
+    assert_eq!(prefixed.send(&request).unwrap().status, 207);
+    assert_eq!(
+        recorder.sent.lock().unwrap().as_slice(),
+        [
+            "msime-dictionary/keyring/v1/",
+            "msime-dictionary/keyring/msime-clipboard/v1/"
+        ]
+    );
+    assert_eq!(prefixed.layout.load(Ordering::SeqCst), LAYOUT_LEGACY);
+}
+
+#[test]
+fn temporary_probe_errors_do_not_choose_a_key_ring_layout() {
+    struct Responses(Mutex<std::collections::VecDeque<(&'static str, u16)>>);
+    impl DavHttp for Arc<Responses> {
+        fn send(&self, request: &DavRequest<'_>) -> Result<DavResponse, RelayError> {
+            let (path, status) = self.0.lock().unwrap().pop_front().expect("预期的探测请求");
+            assert_eq!(request.path, path);
+            Ok(DavResponse {
+                status,
+                retry_after: None,
+                body: Vec::new(),
+            })
+        }
+    }
+    const FLAT: &str = "msime-dictionary/keyring/v1/";
+    const LEGACY: &str = "msime-dictionary/keyring/msime-clipboard/v1/";
+    for status in [401, 403, 429, 500, 503] {
+        for legacy_probe in [false, true] {
+            let mut responses = std::collections::VecDeque::new();
+            if legacy_probe {
+                responses.push_back((FLAT, 404));
+            }
+            responses.push_back((if legacy_probe { LEGACY } else { FLAT }, status));
+            responses.extend([(FLAT, 404), (LEGACY, 207)]);
+            let transport = Arc::new(Responses(Mutex::new(responses)));
+            let prefixed = Prefixed {
+                inner: Box::new(transport.clone()),
+                prefix: KEYRING,
+                roots_pending: AtomicBool::new(false),
+                layout: AtomicUsize::new(LAYOUT_UNKNOWN),
+            };
+            let request = DavRequest {
+                method: "PROPFIND",
+                path: "msime-clipboard/v1/",
+                depth: Some("1"),
+                destination: None,
+                body: None,
+                limit: 4096,
+            };
+            // 鉴权、限流和服务端错误都不能证明目录存在；重试必须重新探测并读到原有密钥串。
+            assert_eq!(prefixed.send(&request).unwrap().status, status);
+            assert_eq!(prefixed.send(&request).unwrap().status, 207);
+            assert!(transport.0.lock().unwrap().is_empty());
+        }
+    }
 }
 
 #[test]

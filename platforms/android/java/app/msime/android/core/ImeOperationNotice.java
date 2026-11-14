@@ -6,14 +6,11 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.TextView;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -25,8 +22,6 @@ final class ImeOperationNotice {
     private Toast legacyToast;
     private Runnable dismissTask;
     private View acknowledgementOverlay;
-    private View acknowledgementCard;
-    private boolean acknowledgementWindow;
 
     ImeOperationNotice(MSIMEInputService service) { s = service; }
 
@@ -47,27 +42,10 @@ final class ImeOperationNotice {
             noticeView = null;
         }
         if (acknowledgementOverlay != null) {
-            if (acknowledgementWindow) {
-                try { s.getSystemService(WindowManager.class).removeViewImmediate(acknowledgementOverlay); }
-                catch (IllegalArgumentException detached) { /* 系统已撤销输入法令牌。 */ }
-            } else {
-                ViewParent parent = acknowledgementOverlay.getParent();
-                if (parent instanceof ViewGroup group) group.removeView(acknowledgementOverlay);
-            }
+            try { s.getSystemService(WindowManager.class).removeViewImmediate(acknowledgementOverlay); }
+            catch (IllegalArgumentException detached) { /* 系统已撤销输入法令牌。 */ }
             acknowledgementOverlay = null;
-            acknowledgementWindow = false;
         }
-        acknowledgementCard = null;
-    }
-
-    /** Android 9 的透明全高父窗口只接收键区触摸，确认卡片需额外加入可触摸区域。 */
-    void includeAcknowledgementTouchRegion(android.graphics.Region region) {
-        if (acknowledgementWindow || acknowledgementCard == null
-                || !acknowledgementCard.isShown()) return;
-        int[] location = new int[2];
-        acknowledgementCard.getLocationInWindow(location);
-        region.op(location[0], location[1], location[0] + acknowledgementCard.getWidth(),
-            location[1] + acknowledgementCard.getHeight(), android.graphics.Region.Op.UNION);
     }
 
     /** 在不改变输入法窗口测量边界的独立层中显示需要确认的操作提示。 */
@@ -97,40 +75,28 @@ final class ImeOperationNotice {
         doneParams.gravity = Gravity.END;
         card.addView(done, doneParams);
 
-        if (Build.VERSION.SDK_INT >= 30) {
-            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                Math.min(s.pixels(360), Math.max(s.pixels(240), root.getWidth() - s.pixels(32))),
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT);
-            params.token = root.getWindowToken();
-            params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
-            params.gravity = Gravity.CENTER;
-            params.setTitle("MSIME clipboard insertion notice");
-            params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
-            try {
-                s.getSystemService(WindowManager.class).addView(card, params);
-            } catch (WindowManager.BadTokenException | IllegalStateException unavailable) {
-                return;
-            }
-            acknowledgementOverlay = card;
-            acknowledgementWindow = true;
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            Math.min(s.pixels(360), Math.max(s.pixels(240), root.getWidth() - s.pixels(32))),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT);
+        // 旧系统需允许附属窗口越过键区布局，否则屏幕中央的卡片会被限制在键盘内。
+        // 不扩父窗口的触摸区域：Android 9 的无障碍窗口边界由该区域计算。
+        if (Build.VERSION.SDK_INT < 30)
+            params.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        params.token = root.getWindowToken();
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
+        params.gravity = Gravity.CENTER;
+        params.setTitle("MSIME clipboard insertion notice");
+        params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
+        try {
+            s.getSystemService(WindowManager.class).addView(card, params);
+        } catch (WindowManager.BadTokenException | IllegalStateException unavailable) {
             return;
         }
-
-        // Android 9 的子窗口受裁剪，改用根视图覆盖层；全高父窗口保持原测量，仅把卡片补进触摸区域。
-        FrameLayout overlay = new FrameLayout(s);
-        overlay.setClickable(true);
-        overlay.addView(card, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
-        if (root instanceof ViewGroup group) {
-            group.addView(overlay, LayoutPolicy.frameMatchParentParams());
-            acknowledgementOverlay = overlay;
-            acknowledgementCard = card;
-            acknowledgementWindow = false;
-        }
+        acknowledgementOverlay = card;
     }
 
     void show(long request, String message) {

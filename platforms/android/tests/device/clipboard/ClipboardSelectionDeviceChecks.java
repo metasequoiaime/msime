@@ -200,7 +200,7 @@ final class ClipboardSelectionDeviceChecks {
             monitor.join(5000);
         }
         if (monitor.isAlive()) throw new AssertionError("IME observer did not stop");
-        if (failure.get() != null) throw new AssertionError("Clipboard interaction disturbed IME", failure.get());
+        if (failure.get() != null) throw new AssertionError("Clipboard interaction disturbed IME: " + failure.get().getMessage(), failure.get());
     }
 
     private void touch(Predicate<AccessibilityNodeInfo> match) {

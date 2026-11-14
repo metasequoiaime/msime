@@ -99,6 +99,7 @@ public final class SkinsPage extends ReloadingDetailPage {
         tabs.setOptions(List.of("内置", "我的", "社区"), section);
         tabs.setOnSelect(index -> {
             section = index;
+            if (section == 1) reload();
             renderSection();
             scrollView().scrollTo(0, 0);
         });

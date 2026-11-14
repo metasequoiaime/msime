@@ -27,19 +27,26 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
     private float density;
     /** 带 `-e capacity true` 时只跑剪贴板容量专项。默认清单已满 100 项 instrumentation，容量专项借这个始终声明、同样指向产品包的入口；原先借的 ClipboardCategoriesDeviceSmoke 只在 MSIME_ANDROID_CLIPBOARD_CATEGORIES_SMOKE=1 的清单里才有，完整套件一跑到它就报 Unknown instrumentation target。 */
     private boolean capacityOnly;
+    private String compact;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         capacityOnly = arguments != null && "true".equals(arguments.getString("capacity"));
+        compact = arguments == null ? null : arguments.getString("compact");
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (compact != null) return "紧凑候选行、工具栏尺寸与空闲／组字／上屏的稳定窗口";
         return capacityOnly
             ? "main and visitor clipboard histories retain sixty synthetic entries at the saved capacity"
             : "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (compact != null) {
+            new CompactCandidateToolbarDeviceChecks(this).run(compact);
+            return;
+        }
         if (capacityOnly) {
             ClipboardCapacityDeviceSmoke.runCapacity(getTargetContext(), this);
             return;

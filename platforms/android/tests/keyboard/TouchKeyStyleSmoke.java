@@ -126,7 +126,8 @@ public final class TouchKeyStyleSmoke {
 
     private static void twentySixKeyRows() {
         int layout = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
-        expect(layout, TouchKeyStyle.Row.STANDARD, entries(LAYER, 1.25f, SYMBOL, 1.05f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
+        expect(layout, TouchKeyStyle.Row.STANDARD,
+            entries(LAYER, 1.25f, SYMBOL, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
         expect(layout, TouchKeyStyle.Row.COMMA_PERIOD,
             entries(LAYER, 1.25f, SYMBOL, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
         expect(layout, TouchKeyStyle.Row.LONG_SPACE, entries(LAYER, 1.25f, COMMA, 1f, SPACE, 5.05f, LANGUAGE, 1.05f, RETURN, 1.9f));
@@ -473,9 +474,9 @@ public final class TouchKeyStyleSmoke {
         TouchKeyStyle.NumberPadSpace platform = TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT;
         check(TouchKeyStyle.SYMBOL_FIRST_PREFERENCE.equals("touch_twenty_six_symbol_first"), "symbol-first key matches client-core");
         check(slots(KeyboardActionRow.designEntries(standard, false, false, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
-            .equals(List.of(SYMBOL, LAYER, SPACE, COMMA, LANGUAGE, RETURN)), "standard 26 key puts 符 first");
+            .equals(List.of(SYMBOL, LAYER, PERIOD, SPACE, COMMA, LANGUAGE, RETURN)), "standard 26 key puts 符 first");
         check(slots(KeyboardActionRow.designEntries(standard, true, false, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
-            .equals(List.of(SYMBOL, LAYER, GLOBE, SPACE, COMMA, LANGUAGE, RETURN)), "the globe stays right after 123");
+            .equals(List.of(SYMBOL, LAYER, GLOBE, PERIOD, SPACE, COMMA, LANGUAGE, RETURN)), "the globe stays right after 123");
         check(slots(KeyboardActionRow.designEntries(standard, false, false, false, false, TouchKeyStyle.Row.COMMA_PERIOD, true, platform))
             .equals(List.of(SYMBOL, LAYER, COMMA, SPACE, PERIOD, LANGUAGE, RETURN)), "comma_period swaps too");
         check(slots(KeyboardActionRow.designEntries(standard, false, false, false, true, TouchKeyStyle.Row.STANDARD, true, platform))
@@ -497,7 +498,7 @@ public final class TouchKeyStyleSmoke {
                 .equals(KeyboardActionRow.designEntries(layout, true)), layout + " is unchanged");
         // 交换中/英与 123 叠在互换之后：符 仍在最左。
         check(slots(KeyboardActionRow.designEntries(standard, false, true, false, false, TouchKeyStyle.Row.STANDARD, true, platform))
-            .equals(List.of(SYMBOL, LANGUAGE, SPACE, COMMA, LAYER, RETURN)), "the language/number swap still applies");
+            .equals(List.of(SYMBOL, LANGUAGE, PERIOD, SPACE, COMMA, LAYER, RETURN)), "the language/number swap still applies");
         // 借来的数字九宫格：返回键留在字母层 123 那一格。
         check(!KeyboardActionRow.numberPadLayerFirst(standard, TouchKeyStyle.Row.STANDARD, true)
             && KeyboardActionRow.numberPadLayerFirst(standard, TouchKeyStyle.Row.STANDARD, false)
@@ -634,7 +635,7 @@ public final class TouchKeyStyleSmoke {
 
         // 中文 26 键。
         expectLeft(standard, false, TouchKeyStyle.Row.STANDARD, false,
-            entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+            entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f));
         expectLeft(standard, false, TouchKeyStyle.Row.COMMA_PERIOD, false,
             entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.9f));
         expectLeft(standard, false, TouchKeyStyle.Row.LONG_SPACE, false,
@@ -642,7 +643,7 @@ public final class TouchKeyStyleSmoke {
         expectLeft(standard, false, TouchKeyStyle.Row.EMOJI, false,
             entries(LAYER, 1.25f, EMOJI, 1.05f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
         expectLeft(standard, false, TouchKeyStyle.Row.STANDARD, true,
-            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f));
         expectLeft(standard, false, TouchKeyStyle.Row.COMMA_PERIOD, true,
             entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.9f));
         // 英文 26 键：中/英与中文 26 键停在同一格（第三格），切中/英时不跳。
@@ -653,7 +654,7 @@ public final class TouchKeyStyleSmoke {
         check(slots(english).indexOf(LANGUAGE) == slots(row(standard, false, TouchKeyStyle.Row.STANDARD, false, true)).indexOf(LANGUAGE),
             "中/英 sits in the same slot on the Chinese and English 26 key");
         check(slots(KeyboardActionRow.designEntries(KeyboardLayout.KOREAN_LAYOUT, false, false, false, false,
-            TouchKeyStyle.Row.STANDARD, false, platform, true)).equals(List.of(LAYER, SYMBOL, LANGUAGE, SPACE, COMMA, RETURN)), "Korean too");
+            TouchKeyStyle.Row.STANDARD, false, platform, true)).equals(List.of(LAYER, SYMBOL, LANGUAGE, PERIOD, SPACE, COMMA, RETURN)), "Korean too");
         // 14 / 18 键和大千注音。
         for (int layout : new int[] {fourteen, KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT})
             check(row(layout, false, TouchKeyStyle.Row.STANDARD, false, true)
@@ -673,9 +674,9 @@ public final class TouchKeyStyleSmoke {
         }
         // 地球键照旧紧跟 123（互换后紧跟 123）。
         check(slots(row(standard, true, TouchKeyStyle.Row.STANDARD, false, true))
-            .equals(List.of(LAYER, GLOBE, SYMBOL, LANGUAGE, SPACE, COMMA, RETURN)), "the globe stays right after 123");
+            .equals(List.of(LAYER, GLOBE, SYMBOL, LANGUAGE, PERIOD, SPACE, COMMA, RETURN)), "the globe stays right after 123");
         check(slots(row(standard, true, TouchKeyStyle.Row.STANDARD, true, true))
-            .equals(List.of(SYMBOL, LAYER, GLOBE, LANGUAGE, SPACE, COMMA, RETURN)), "the globe stays right after the swapped 123");
+            .equals(List.of(SYMBOL, LAYER, GLOBE, LANGUAGE, PERIOD, SPACE, COMMA, RETURN)), "the globe stays right after the swapped 123");
         check(slots(row(nine, true, TouchKeyStyle.Row.STANDARD, false, true))
             .equals(List.of(SYMBOL, LAYER, GLOBE, LANGUAGE, SPACE, RETURN)), "nine-key globe");
 
@@ -728,9 +729,9 @@ public final class TouchKeyStyleSmoke {
             }
         }
 
-        // 本机「交换语言键与数字键」最后一步，按键对调：叠出百度「经典」中英 | 符 | 123 | 空格。
+        // 本机「交换语言键与数字键」最后一步，按键对调：叠出百度「经典」的前三键 中英 | 符 | 123，26 键标准底行的句号仍紧挨空格左边。
         check(KeyboardActionRow.designEntries(standard, false, true, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true)
-            .equals(entries(LANGUAGE, 1.05f, SYMBOL, 1.05f, LAYER, 1.25f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f)), "26 key left + swap");
+            .equals(entries(LANGUAGE, 1.05f, SYMBOL, 1.05f, LAYER, 1.25f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f)), "26 key left + swap");
         check(slots(KeyboardActionRow.designEntries(nine, false, true, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true))
             .equals(List.of(SYMBOL, LANGUAGE, LAYER, SPACE, RETURN)), "nine key left + swap");
         check(slots(KeyboardActionRow.numberPadEntries(standard, false, true, TouchKeyStyle.Row.STANDARD, false, platform, true))

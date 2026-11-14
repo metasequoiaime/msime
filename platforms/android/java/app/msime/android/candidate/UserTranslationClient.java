@@ -10,11 +10,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 用用户自己选的服务（小牛、自定义、腾讯）给候选词翻译，写法照 iOS 的 {@code TranslationProviderClient}。每个请求都由共享层构造（签名、鉴权头和 DeepL 与 DeepLX 的格式差别都在 Rust 里），每个回复都由共享层解析，这里只决定发哪些词、用 {@link TranslationHttpTransport} 搬字节。
+ * 用用户自己选的服务（小牛、自定义、腾讯、阿里云）给候选词翻译，写法照 iOS 的 {@code TranslationProviderClient}。每个请求都由共享层构造（签名、鉴权头和 DeepL 与 DeepLX 的格式差别都在 Rust 里），每个回复都由共享层解析，这里只决定发哪些词、用 {@link TranslationHttpTransport} 搬字节。
  *
  * <ul>
  * <li>只翻译不超过 {@link #MAX_SOURCE_CODE_POINTS} 个字的词，按码点计，与共享层按 Unicode 标量计数一致；更长的词不发。</li>
- * <li>腾讯一次最多 {@link #TENCENT_BATCH} 个词，带秒级时间戳；小牛和自定义一词一请求，小牛带毫秒时间戳。源语言固定是中文，目标语言是 store 传进来的代码。</li>
+ * <li>腾讯一次最多 {@link #TENCENT_BATCH} 个词，带秒级时间戳；小牛、自定义和阿里云一词一请求，小牛带毫秒时间戳。源语言固定是中文，目标语言是 store 传进来的代码。</li>
  * <li>逐词（逐批）之间问一次 store 的 stale，用户接着打字后立刻停下，不把过期的一页发完。</li>
  * <li>问过的词连同回答（包括「没有译文」）记在 {@link UserTranslationMemory} 里，再问时直接用记下的，不联网；失败后的退避也在那里。</li>
  * </ul>
@@ -87,9 +87,23 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
             if (stale.getAsBoolean() || memory.serviceBackingOff()) break;
             String word = texts.get(index);
             result.set(index, route.provider() == CandidateTranslationRoute.Provider.NIUTRANS
-                ? niutrans(word, language) : custom(word, language));
+                ? niutrans(word, language) : route.provider() == CandidateTranslationRoute.Provider.ALIYUN
+                    ? aliyun(word, language) : custom(word, language));
         }
         return result;
+    }
+
+    private String aliyun(String word, String language) throws JSONException {
+        JSONObject descriptor = AliyunTranslationPolicy.request(route, word, language);
+        if (descriptor == null) return null;
+        byte[] body = TranslationHttpTransport.post(descriptor);
+        if (body == null) { memory.unreachable(); return null; }
+        JSONObject parsed = AliyunTranslationPolicy.parse(body);
+        if (parsed == null || !JsonPolicy.strictTrue(parsed.opt("valid"))) {
+            memory.failed(language, word);
+            return null;
+        }
+        return answer(language, word, JsonPolicy.strictStringOrEmpty(parsed.opt("translation")));
     }
 
     private String niutrans(String word, String language) throws JSONException {

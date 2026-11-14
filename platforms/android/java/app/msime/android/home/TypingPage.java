@@ -333,7 +333,10 @@ public final class TypingPage extends ReloadingDetailPage {
         GroupCard chinese = GroupCard.add(sectionColumn(target, "中文"), "中文");
         InputFeatureToggle traditional = InputFeatureToggle.TRADITIONAL_OUTPUT;
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());
-        chinese.nav("中文字符集", null, traditionalOn ? "繁体" : "简体", () -> pickCharset(traditionalOn));
+        String traditionalVariant = InputViewValuePolicy.textOr(preferences, "traditional_chinese_variant", "s2t");
+        chinese.nav("中文字符集", null, traditionalCharsetTitle(traditionalOn, traditionalVariant),
+            () -> pickCharset(traditionalOn, traditionalVariant))
+            .help("选择简体、标准繁体、台湾正体或台湾用词；繁体变体只影响显示和上屏");
         InputFeatureToggle spacing = InputFeatureToggle.CHINESE_ENGLISH_SPACING;
         chinese.toggle(spacing.title(), null,
             preferences.optBoolean(spacing.key(), spacing.enabledByDefault()),
@@ -792,11 +795,28 @@ public final class TypingPage extends ReloadingDetailPage {
 
     // ---- 中文、辅助码、翻译 ----
 
-    private void pickCharset(boolean traditional) {
+    private static String traditionalCharsetTitle(boolean traditional, String variant) {
+        if (!traditional) return "简体";
+        return switch (variant) {
+            case "s2tw" -> "台湾正体";
+            case "s2twp" -> "台湾用词";
+            default -> "繁体";
+        };
+    }
+
+    private void pickCharset(boolean traditional, String variant) {
         OptionSheet sheet = new OptionSheet(requireContext(), "中文字符集", null);
-        String key = InputFeatureToggle.TRADITIONAL_OUTPUT.key();
-        sheet.option("简体", !traditional, () -> savePreferences(values -> values.put(key, false)));
-        sheet.option("繁体", traditional, () -> savePreferences(values -> values.put(key, true)));
+        sheet.option("简体", !traditional,
+            () -> savePreferences(values -> values.put("traditional_chinese_output", false)));
+        sheet.option("繁体", traditional && "s2t".equals(variant),
+            () -> savePreferences(values -> values.put("traditional_chinese_output", true)
+                .put("traditional_chinese_variant", "s2t")));
+        sheet.option("台湾正体", traditional && "s2tw".equals(variant),
+            () -> savePreferences(values -> values.put("traditional_chinese_output", true)
+                .put("traditional_chinese_variant", "s2tw")));
+        sheet.option("台湾用词", traditional && "s2twp".equals(variant),
+            () -> savePreferences(values -> values.put("traditional_chinese_output", true)
+                .put("traditional_chinese_variant", "s2twp")));
         sheet.show();
     }
 

@@ -4,6 +4,7 @@ pub mod dictionary;
 pub mod engine;
 #[cfg(test)]
 pub(crate) mod fixture;
+mod fuzzy_completion_order;
 pub mod scheme;
 pub mod series;
 pub mod typo_edges;
