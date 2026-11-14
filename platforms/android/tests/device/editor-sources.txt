@@ -208,6 +208,7 @@ platforms/android/tests/device/candidate/HeavyEqualsCandidateDeviceSmoke.java
 platforms/android/tests/device/candidate/HandEmojiCandidateDeviceSmoke.java
 platforms/android/tests/device/keyboard/HelpcodeImportDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateExpansionDeviceSmoke.java
+platforms/android/tests/device/candidate/CandidatePanelRefreshDeviceChecks.java
 
 platforms/android/tests/device/voice/VoiceRecognitionLifecycleDeviceSmoke.java
 platforms/android/tests/device/voice/OfflineVoiceDeviceCases.java
