@@ -656,6 +656,10 @@ fn shuangpin_profile_name(profile: ShuangpinProfileKind) -> &'static str {
         ShuangpinProfileKind::Microsoft => "microsoft",
         ShuangpinProfileKind::Custom => "custom",
         ShuangpinProfileKind::SmartAbc => "smart_abc",
+        ShuangpinProfileKind::Sogou => "sogou",
+        ShuangpinProfileKind::Jiajia => "jiajia",
+        ShuangpinProfileKind::Ziguang => "ziguang",
+        ShuangpinProfileKind::Guobiao => "guobiao",
     }
 }
 

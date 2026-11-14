@@ -106,6 +106,11 @@ test("the helper exposes the complete stable scheme order", () => {
     "nine_key_shuangpin",
     "eighteen_key",
     "cantonese_shuangpin",
+    "smart_abc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -218,7 +223,7 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
 });
 
 test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(21);
+  expect(allTouchKeyboardSchemes).toHaveLength(26);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
@@ -231,6 +236,11 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "nine_key_shuangpin",
     "eighteen_key",
     "cantonese_shuangpin",
+    "smart_abc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
   // 没有列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表回退（client-core 的 `LEGACY_DEFAULT_ENABLED`），日语和韩语不会在升级后消失。
@@ -460,17 +470,17 @@ test("the Stroke keypad keeps its own title under either layout", () => {
   }
 });
 
-test.each(["custom", "smart_abc"] as const)("%s shows on the Xiaohe keyboard", (profile) => {
+test("custom shows on the Xiaohe keyboard", () => {
   const custom: Preferences = {
     ...preferences,
     scheme: "shuangpin",
-    shuangpin_profile: profile,
+    shuangpin_profile: "custom",
     touch_keyboard_schemes: { enabled: ["quanpin", "xiaohe"] },
   };
 
   expect(inferredTouchKeyboardScheme(custom)).toBe("xiaohe");
   expect(touchKeyboardSchemeTitle({ ...custom, touch_keyboard_schemes: undefined })).toBe(
-    profile === "custom" ? "自定义双拼" : "智能 ABC 双拼",
+    "自定义双拼",
   );
   // 先离开双拼再回来：记住的中文方案是双拼时，同样落在小鹤的键盘上。
   expect(
@@ -480,6 +490,20 @@ test.each(["custom", "smart_abc"] as const)("%s shows on the Xiaohe keyboard", (
       last_chinese_scheme: "shuangpin",
     }),
   ).toBe("xiaohe");
+});
+
+test("smart ABC uses its own touch keyboard when enabled", () => {
+  const smartAbc: Preferences = {
+    ...preferences,
+    scheme: "shuangpin",
+    shuangpin_profile: "smart_abc",
+    touch_keyboard_schemes: { enabled: ["quanpin", "smart_abc"] },
+  };
+
+  expect(inferredTouchKeyboardScheme(smartAbc)).toBe("smart_abc");
+  expect(touchKeyboardSchemeTitle({ ...smartAbc, touch_keyboard_schemes: undefined })).toBe(
+    "智能 ABC 双拼",
+  );
 });
 
 test("九键双拼默认关闭，启用后写入全拼方案与独立布局并可回读", () => {

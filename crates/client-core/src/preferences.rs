@@ -1122,11 +1122,16 @@ pub enum TouchKeyboardScheme {
     EighteenKey,
     /// 粤语双拼 26 键：与粤拼共用词典，按选中入口显式解释同形两键码。
     CantoneseShuangpin,
+    SmartAbc,
+    Sogou,
+    Jiajia,
+    Ziguang,
+    Guobiao,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 26] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -1148,6 +1153,11 @@ impl TouchKeyboardScheme {
         Self::NineKeyShuangpin,
         Self::EighteenKey,
         Self::CantoneseShuangpin,
+        Self::SmartAbc,
+        Self::Sogou,
+        Self::Jiajia,
+        Self::Ziguang,
+        Self::Guobiao,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
@@ -4805,6 +4815,10 @@ pub enum ShuangpinProfile {
     Shoudao,
     Microsoft,
     SmartAbc,
+    Sogou,
+    Jiajia,
+    Ziguang,
+    Guobiao,
     /// 用户自己的键位表，见 `Preferences::shuangpin_custom_profile`。
     Custom,
 }

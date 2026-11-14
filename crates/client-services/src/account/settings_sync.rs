@@ -431,6 +431,10 @@ fn shuangpin_schema(profile: ShuangpinProfile) -> Option<&'static str> {
         ShuangpinProfile::Ziranma => Some("ziranma"),
         ShuangpinProfile::Shoudao => Some("shoudao"),
         ShuangpinProfile::Microsoft => Some("microsoft"),
+        ShuangpinProfile::Sogou => Some("sogou"),
+        ShuangpinProfile::Jiajia => Some("jiajia"),
+        ShuangpinProfile::Ziguang => Some("ziguang"),
+        ShuangpinProfile::Guobiao => Some("guobiao"),
         ShuangpinProfile::Custom | ShuangpinProfile::SmartAbc => None,
     }
 }
@@ -1426,6 +1430,10 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
             "ziranma" => ShuangpinProfile::Ziranma,
             "shoudao" => ShuangpinProfile::Shoudao,
             "microsoft" => ShuangpinProfile::Microsoft,
+            "sogou" => ShuangpinProfile::Sogou,
+            "jiajia" => ShuangpinProfile::Jiajia,
+            "ziguang" => ShuangpinProfile::Ziguang,
+            "guobiao" => ShuangpinProfile::Guobiao,
             _ => return None,
         };
         Some(())

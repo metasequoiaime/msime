@@ -3,10 +3,10 @@ import Foundation
 enum ChineseInputScheme: String, CaseIterable {
   // 「高情商回复」已改为工具栏入口，不再是方案。旧版存下的 `thoughtfulReply`（App Group）或 `thoughtful_reply`（共享文档）在这里认不出来，与其他未知值一样走 `InputSchemePreference` 的回退：已选的落到全拼 26 键或第一个可用方案，启用列表里直接忽略。
   // 新方案按 client-core 的 `TouchKeyboardScheme::ALL` 只往后追加，九键双拼排在全拼 14 键后，启用列表也按这个顺序写回文档。
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke, fourteenKey, nineKeyShuangpin, eighteenKey, cantoneseShuangpin
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan, stroke, fourteenKey, nineKeyShuangpin, eighteenKey, cantoneseShuangpin, smartAbc, sogou, jiajia, ziguang, guobiao
 
   /// 全新安装默认不打开、要用户自己启用的方案。全拼 14 键、18 键和九键双拼也不默认打开，与 client-core 的 `DEFAULT_ENABLED` 一致。
-  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin]
+  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke, .fourteenKey, .nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao]
 
   /// 两种普通话九宫格共用候选列与布局，组码规则分别由引擎的网格决定。
   var isMandarinNineKey: Bool { self == .nineKey || self == .nineKeyShuangpin }
@@ -19,13 +19,15 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Cantonese Jyutping on the 26 letter keys: Traditional candidates from the Cantonese dictionary, learned under the same learning switches as pinyin.
   var isCantonese: Bool { self == .cantonese || self == .cantoneseShuangpin }
 
-  /// 26 键字母层第二排 L 右边是否有 `;` 键。微软双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案不加这个键：全拼、小鹤等方案的 `;` 不是编码键；普通粤拼在一个声母后按 `;` 引擎也会当双拼韵母（`CantoneseScheme::accepts_semicolon`），但普通粤拼用户把 ing、ik 完整拼出来，用不上这个键。
-  var showsSemicolonFinalKey: Bool { self == .microsoft || self == .cantoneseShuangpin }
+  /// 26 键字母层第二排 L 右边是否有 `;` 键。微软、搜狗和紫光双拼把 ing 放在 `;` 上，粤语双拼把 ing 和 ik 放在 `;` 上（引擎 `cantonese::shuangpin`），少了这个键这些音节就打不出来，所以选了方案就一直显示，不设开关（#10099）。其他方案不加这个键：全拼、小鹤等方案的 `;` 不是编码键；普通粤拼在一个声母后按 `;` 引擎也会当双拼韵母（`CantoneseScheme::accepts_semicolon`），但普通粤拼用户把 ing、ik 完整拼出来，用不上这个键。
+  var showsSemicolonFinalKey: Bool { self == .microsoft || self == .sogou || self == .ziguang || self == .cantoneseShuangpin }
 
   /// `;` 键的读屏标签：先说它是分号，再说它在当前方案里是哪个韵母。不显示这个键的方案只说「分号」。
   var semicolonFinalKeyAccessibilityLabel: String {
     switch self {
     case .microsoft: "分号，微软双拼 ing"
+    case .sogou: "分号，搜狗双拼 ing"
+    case .ziguang: "分号，紫光双拼 ing"
     case .cantoneseShuangpin: "分号，粤语双拼 ing 和 ik"
     default: "分号"
     }
@@ -71,7 +73,7 @@ enum ChineseInputScheme: String, CaseIterable {
   var engineScheme: String {
     switch self {
     case .quanpin, .nineKey, .fourteenKey, .eighteenKey, .nineKeyShuangpin, .handwriting: "quanpin"
-    case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
+    case .shuangpin, .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
     case .korean: "korean"
@@ -99,6 +101,11 @@ enum ChineseInputScheme: String, CaseIterable {
     switch self {
     case .shuangpin: "xiaohe"
     case .ziranma, .microsoft, .shoudao: rawValue
+    case .smartAbc: "smart_abc"
+    case .sogou: "sogou"
+    case .jiajia: "jiajia"
+    case .ziguang: "ziguang"
+    case .guobiao: "guobiao"
     default: nil
     }
   }
@@ -113,6 +120,11 @@ enum ChineseInputScheme: String, CaseIterable {
     case .ziranma: "ziranma"
     case .microsoft: "microsoft"
     case .shoudao: "shoudao"
+    case .smartAbc: "smart_abc"
+    case .sogou: "sogou"
+    case .jiajia: "jiajia"
+    case .ziguang: "ziguang"
+    case .guobiao: "guobiao"
     case .wubi: "wubi"
     case .japaneseNineKey: "japanese_nine_key"
     case .japanese: "japanese"
@@ -134,7 +146,7 @@ enum ChineseInputScheme: String, CaseIterable {
     switch self {
     // 全拼的 26 键、9 键、14 键、18 键、九键双拼和手写使用全拼引擎，用哪种键盘由 `cloudKeyboardLayout` 说明。
     case .quanpin, .nineKey, .fourteenKey, .eighteenKey, .nineKeyShuangpin, .handwriting: "quanpin"
-    case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
+    case .shuangpin, .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao: "shuangpin"
     case .wubi: "wubi"
     case .japanese, .japaneseNineKey: "japanese"
     case .korean: "korean"
@@ -163,6 +175,11 @@ enum ChineseInputScheme: String, CaseIterable {
     case .ziranma: "自然码双拼"
     case .microsoft: "微软双拼"
     case .shoudao: "首道双拼"
+    case .smartAbc: "智能 ABC 双拼"
+    case .sogou: "搜狗双拼"
+    case .jiajia: "加加双拼"
+    case .ziguang: "紫光双拼"
+    case .guobiao: "国标双拼"
     case .wubi: WubiProfilePreference.title(WubiProfilePreference.profile)
     case .japanese: "日语 26 键"
     case .japaneseNineKey: "日语 9 键"
@@ -446,7 +463,7 @@ enum InputSchemePreference {
   /// 留下的那一种依次取：`selected` 本身是双拼且在 `schemes` 里时就是它；否则是共享文档 `shuangpin_profile`（`profile`，缺省或不认识时按小鹤，与 client-core 的缺省相同）对应的那一种；它不在 `schemes` 里时取 `schemes` 里第一种双拼。大多数人只用一种双拼，四种都列出来会把手写挤到第二页（#6450）；换双拼方案在 App 的「双拼」子菜单里。与 Android、鸿蒙的 `KeyboardScheme.pickerSchemes` 一致。
   static func pickerSchemes(_ schemes: [ChineseInputScheme], selected: ChineseInputScheme?, shuangpinProfile profile: String?) -> [ChineseInputScheme] {
     let shuangpin = schemes.filter { $0.shuangpinProfile != nil }
-    let configured = ["ziranma", "microsoft", "shoudao"].contains(profile ?? "") ? profile : "xiaohe"
+    let configured = ["ziranma", "microsoft", "shoudao", "smart_abc", "sogou", "jiajia", "ziguang", "guobiao"].contains(profile ?? "") ? profile : "xiaohe"
     let kept = selected.flatMap { $0.shuangpinProfile != nil && schemes.contains($0) ? $0 : nil }
       ?? shuangpin.first { $0.shuangpinProfile == configured } ?? shuangpin.first
     return schemes.filter { $0.shuangpinProfile == nil || $0 == kept }

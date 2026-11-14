@@ -16,6 +16,11 @@ export function CloudShuangpinProfileOptions() {
       <option value="ziranma">自然码</option>
       <option value="microsoft">微软</option>
       <option value="shoudao">首道</option>
+      <option value="smart_abc">智能 ABC</option>
+      <option value="sogou">搜狗</option>
+      <option value="jiajia">加加</option>
+      <option value="ziguang">紫光</option>
+      <option value="guobiao">国标</option>
     </>
   );
 }

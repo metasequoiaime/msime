@@ -48,6 +48,11 @@ final class KeyboardSchemePickerView: UIView {
       case .ziranma: glyph = "自"; badge = "双"
       case .microsoft: glyph = "微"; badge = "双"
       case .shoudao: glyph = "S"; badge = "双"
+      case .smartAbc: glyph = "智"; badge = "双"
+      case .sogou: glyph = "搜"; badge = "双"
+      case .jiajia: glyph = "加"; badge = "双"
+      case .ziguang: glyph = "紫"; badge = "双"
+      case .guobiao: glyph = "国"; badge = "双"
       case .wubi: glyph = "五"; badge = WubiProfilePreference.badge(WubiProfilePreference.profile)
       case .japanese: glyph = "あ"; badge = "26"
       case .japaneseNineKey: glyph = "あ"; badge = "9"

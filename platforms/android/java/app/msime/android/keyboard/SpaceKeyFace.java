@@ -94,6 +94,11 @@ public final class SpaceKeyFace extends KeyboardPressButton {
             case ZIRANMA -> "双拼 · 自然码";
             case MICROSOFT -> "双拼 · 微软";
             case SHOUDAO -> "双拼 · 首道";
+            case SMART_ABC -> "双拼 · 智能 ABC";
+            case SOGOU -> "双拼 · 搜狗";
+            case JIAJIA -> "双拼 · 加加";
+            case ZIGUANG -> "双拼 · 紫光";
+            case GUOBIAO -> "双拼 · 国标";
             case NINE_KEY_SHUANGPIN -> "九键双拼";
             case WUBI -> KeyboardScheme.WUBI_98.equals(KeyboardScheme.normalizedWubiProfile(wubiProfile))
                 ? "五笔 98" : "五笔 86";

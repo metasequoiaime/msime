@@ -63,14 +63,17 @@ public final class TypingPage extends ReloadingDetailPage {
     };
 
     private static final List<KeyboardScheme> SHUANGPIN = List.of(KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
-        KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO);
+        KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.SMART_ABC, KeyboardScheme.SOGOU,
+        KeyboardScheme.JIAJIA, KeyboardScheme.ZIGUANG, KeyboardScheme.GUOBIAO);
 
     /** 手机设置页的一行：中文方案族独立成行，其它语言按语言成行。 */
     private enum Language {
         QUANPIN("拼", "全拼", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
             KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.QUANPIN_NINE_KEY),
         SHUANGPIN("双", "双拼", KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
-            KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.NINE_KEY_SHUANGPIN),
+            KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.SMART_ABC,
+            KeyboardScheme.SOGOU, KeyboardScheme.JIAJIA, KeyboardScheme.ZIGUANG,
+            KeyboardScheme.GUOBIAO, KeyboardScheme.NINE_KEY_SHUANGPIN),
         WUBI("五", "五笔", KeyboardScheme.WUBI),
         ZHUYIN("注", "注音", KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY),
         STROKE("笔", "笔画", KeyboardScheme.STROKE),
@@ -606,6 +609,11 @@ public final class TypingPage extends ReloadingDetailPage {
             case ZIRANMA -> "自然码";
             case MICROSOFT -> "微软";
             case SHOUDAO -> "首道";
+            case SMART_ABC -> "智能 ABC";
+            case SOGOU -> "搜狗";
+            case JIAJIA -> "加加";
+            case ZIGUANG -> "紫光";
+            case GUOBIAO -> "国标";
             default -> "小鹤";
         };
     }

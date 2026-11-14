@@ -389,10 +389,20 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
       .getAllByRole("button")
       .filter((button) => !button.hasAttribute("data-info-tip"))
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([...touchSchemeLabels, "全拼 14 键", "九键双拼", "全拼 18 键"]);
+  ).toEqual([
+    ...touchSchemeLabels,
+    "全拼 14 键",
+    "九键双拼",
+    "全拼 18 键",
+    "智能 ABC 双拼",
+    "搜狗双拼",
+    "加加双拼",
+    "紫光双拼",
+    "国标双拼",
+  ]);
   // 高情商回复是键盘工具栏上的工具，不是输入方案。
   expect(within(group).queryByText("高情商回复")).toBeNull();
-  expect(within(group).getAllByRole("switch")).toHaveLength(14);
+  expect(within(group).getAllByRole("switch")).toHaveLength(19);
   // 全拼 14 键、九键双拼与全拼 18 键追加在原有列表后，默认不启用。
   expect(
     (screen.getByRole("switch", { name: "显示输入方案 全拼 14 键" }) as HTMLInputElement).checked,
@@ -446,8 +456,13 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     "九键双拼",
     "全拼 18 键",
     "粤语双拼",
+    "智能 ABC 双拼",
+    "搜狗双拼",
+    "加加双拼",
+    "紫光双拼",
+    "国标双拼",
   ]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(21);
+  expect(within(group).getAllByRole("switch")).toHaveLength(26);
   for (const label of [
     "粤拼 26 键",
     "粤语双拼",
@@ -823,15 +838,13 @@ test("Android touch scheme selection, fallback, last-visible guard and save payl
       .getByRole("button", { name: "设为当前输入方案 全拼 26 键" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
-  for (const label of touchSchemeLabels.slice(1)) {
-    const toggle = screen.getByRole("switch", {
-      name: `显示输入方案 ${label}`,
-    }) as HTMLInputElement;
-    if (toggle.checked) fireEvent.click(toggle);
-  }
   const last = screen.getByRole("switch", {
     name: "显示输入方案 全拼 26 键",
   }) as HTMLInputElement;
+  for (const toggle of screen.getAllByRole("switch") as HTMLInputElement[]) {
+    if (toggle === last) continue;
+    if (toggle.checked) fireEvent.click(toggle);
+  }
   expect(last.checked).toBe(true);
   expect(last.disabled).toBe(true);
   saveSettingsNow();
@@ -8147,7 +8160,17 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼方案",
-    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼", "智能 ABC 双拼"],
+    options: [
+      "小鹤双拼",
+      "自然码双拼",
+      "首道双拼",
+      "微软双拼",
+      "智能 ABC 双拼",
+      "搜狗双拼",
+      "加加双拼",
+      "紫光双拼",
+      "国标双拼",
+    ],
   },
   {
     page: "input",

@@ -2617,7 +2617,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 9,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 14,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -3502,7 +3502,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 20,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 25,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -15976,7 +15976,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 20,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 25,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -18586,7 +18586,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 20 &&
+      KeyboardScheme.SCHEMES.length === 25 &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
@@ -18759,13 +18759,13 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和词典，默认不启用，带 ; 韵母键", () => {
   const shuangpin: SchemeDefinition = KeyboardScheme.CANTONESE_SHUANGPIN;
   check(
-    KeyboardScheme.SCHEMES[KeyboardScheme.SCHEMES.length - 1] === shuangpin &&
+    KeyboardScheme.SCHEMES[19] === shuangpin &&
       shuangpin.preferenceId === "cantonese_shuangpin" &&
       shuangpin.engineScheme === "cantonese" &&
       shuangpin.touchKeyboardLayout === "twenty_six_key" &&
       shuangpin.glyph === "粤" &&
       shuangpin.badge === "双",
-    "按 append-only 排在最后，与共享 TouchKeyboardScheme::ALL 一致",
+    "按 append-only 排在新增双拼之前，与共享 TouchKeyboardScheme::ALL 一致",
   );
   check(
     !KeyboardScheme.DEFAULT_ENABLED.includes(shuangpin) &&
@@ -18799,14 +18799,16 @@ group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和�
   );
   check(
     KeyboardScheme.semicolonFinalLabel(shuangpin) === "分号，粤语双拼 ing 和 ik" &&
-      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === null,
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === "分号，微软双拼 ing" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.SOGOU) === "分号，搜狗双拼 ing" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.ZIGUANG) === "分号，紫光双拼 ing",
     "粤语双拼的 ; 键读出它打的韵母",
   );
 });
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 20 &&
+    KeyboardScheme.SCHEMES.length === 25 &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",

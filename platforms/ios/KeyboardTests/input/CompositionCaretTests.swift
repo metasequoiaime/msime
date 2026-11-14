@@ -60,7 +60,8 @@ final class CompositionCaretTests: XCTestCase {
 
   func testOnlyALetteredPinyinSpellingIsEditedBySyllable() {
     XCTAssertEqual(ChineseInputScheme.allCases.filter(\.editsBySyllable),
-                   [.quanpin, .shuangpin, .ziranma, .microsoft, .shoudao])
+                   [.quanpin, .shuangpin, .ziranma, .microsoft, .shoudao,
+                    .smartAbc, .sogou, .jiajia, .ziguang, .guobiao])
   }
 
   func testOnlyAQuickFlickMovesBySyllable() {

@@ -5723,9 +5723,14 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::NineKeyShuangpin,
             TouchKeyboardScheme::EighteenKey,
             TouchKeyboardScheme::CantoneseShuangpin,
+            TouchKeyboardScheme::SmartAbc,
+            TouchKeyboardScheme::Sogou,
+            TouchKeyboardScheme::Jiajia,
+            TouchKeyboardScheme::Ziguang,
+            TouchKeyboardScheme::Guobiao,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 21);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 26);
     // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
     for scheme in [
         TouchKeyboardScheme::FourteenKey,
@@ -5746,6 +5751,11 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
         (TouchKeyboardScheme::FourteenKey, "fourteen_key"),
         (TouchKeyboardScheme::NineKeyShuangpin, "nine_key_shuangpin"),
+        (TouchKeyboardScheme::SmartAbc, "smart_abc"),
+        (TouchKeyboardScheme::Sogou, "sogou"),
+        (TouchKeyboardScheme::Jiajia, "jiajia"),
+        (TouchKeyboardScheme::Ziguang, "ziguang"),
+        (TouchKeyboardScheme::Guobiao, "guobiao"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
         assert_eq!(

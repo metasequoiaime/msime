@@ -50,6 +50,11 @@ pub fn local_account_preferences(
         "ziranma" => Some(("shuangpin", Some("ziranma"), "twenty_six_key")),
         "microsoft" => Some(("shuangpin", Some("microsoft"), "twenty_six_key")),
         "shoudao" => Some(("shuangpin", Some("shoudao"), "twenty_six_key")),
+        "smartAbc" => Some(("shuangpin", Some("smart_abc"), "twenty_six_key")),
+        "sogou" => Some(("shuangpin", Some("sogou"), "twenty_six_key")),
+        "jiajia" => Some(("shuangpin", Some("jiajia"), "twenty_six_key")),
+        "ziguang" => Some(("shuangpin", Some("ziguang"), "twenty_six_key")),
+        "guobiao" => Some(("shuangpin", Some("guobiao"), "twenty_six_key")),
         "wubi" => Some(("wubi", None, "twenty_six_key")),
         "japanese" => Some(("japanese", None, "twenty_six_key")),
         "japaneseNineKey" => Some(("japanese", None, "nine_key")),
@@ -233,7 +238,8 @@ impl IosPreferencePlan {
                     .unwrap_or_else(|| "xiaohe".into());
                 match profile.as_str() {
                     "xiaohe" => Some("shuangpin".into()),
-                    "ziranma" | "microsoft" | "shoudao" => Some(profile),
+                    "ziranma" | "microsoft" | "shoudao" | "smart_abc" | "sogou" | "jiajia"
+                    | "ziguang" | "guobiao" => Some(profile),
                     _ => return Err(AccountError::Invalid),
                 }
             }
@@ -434,6 +440,11 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "ziranma" => Ok(TouchKeyboardScheme::Ziranma),
         "microsoft" => Ok(TouchKeyboardScheme::Microsoft),
         "shoudao" => Ok(TouchKeyboardScheme::Shoudao),
+        "smartAbc" => Ok(TouchKeyboardScheme::SmartAbc),
+        "sogou" => Ok(TouchKeyboardScheme::Sogou),
+        "jiajia" => Ok(TouchKeyboardScheme::Jiajia),
+        "ziguang" => Ok(TouchKeyboardScheme::Ziguang),
+        "guobiao" => Ok(TouchKeyboardScheme::Guobiao),
         "wubi" => Ok(TouchKeyboardScheme::Wubi),
         "japaneseNineKey" => Ok(TouchKeyboardScheme::JapaneseNineKey),
         "japanese" => Ok(TouchKeyboardScheme::Japanese),
@@ -484,7 +495,12 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         TouchKeyboardScheme::Xiaohe
         | TouchKeyboardScheme::Ziranma
         | TouchKeyboardScheme::Microsoft
-        | TouchKeyboardScheme::Shoudao => {
+        | TouchKeyboardScheme::Shoudao
+        | TouchKeyboardScheme::SmartAbc
+        | TouchKeyboardScheme::Sogou
+        | TouchKeyboardScheme::Jiajia
+        | TouchKeyboardScheme::Ziguang
+        | TouchKeyboardScheme::Guobiao => {
             preferences.scheme = InputScheme::Shuangpin;
             preferences.last_chinese_scheme = Some(ChineseScheme::Shuangpin);
             preferences.shuangpin_profile = match selected {
@@ -492,6 +508,11 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
                 TouchKeyboardScheme::Ziranma => ShuangpinProfile::Ziranma,
                 TouchKeyboardScheme::Microsoft => ShuangpinProfile::Microsoft,
                 TouchKeyboardScheme::Shoudao => ShuangpinProfile::Shoudao,
+                TouchKeyboardScheme::SmartAbc => ShuangpinProfile::SmartAbc,
+                TouchKeyboardScheme::Sogou => ShuangpinProfile::Sogou,
+                TouchKeyboardScheme::Jiajia => ShuangpinProfile::Jiajia,
+                TouchKeyboardScheme::Ziguang => ShuangpinProfile::Ziguang,
+                TouchKeyboardScheme::Guobiao => ShuangpinProfile::Guobiao,
                 _ => unreachable!(),
             };
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
