@@ -5813,6 +5813,8 @@ pub enum PreferencesError {
     InvalidCloudCandidateProvider,
     #[error("clipboard history limit must be one of 50, 100, 200, 500 or 1000")]
     InvalidClipboardHistoryLimit,
+    #[error("preferences patch must be an object with supported fields")]
+    InvalidPatch,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -5950,7 +5952,7 @@ impl PreferencesStore {
         }
         let preferences = current.preferences.clone();
         // 还没有文件，也就没有未知键。
-        self.save_locked(current, &[], 0, preferences, false)
+        self.save_locked(current, &[], 0, preferences, false, false)
     }
 
     /// 修复损坏文件时垫底的默认偏好。
@@ -6141,7 +6143,7 @@ impl PreferencesStore {
         let revision = current.revision;
         let preferences = current.preferences.clone();
         let consent = self
-            .save_locked(current, &unknown, revision, preferences, true)?
+            .save_locked(current, &unknown, revision, preferences, true, false)?
             .preferences
             .usage_reporting_consent;
         Ok(LoadedUsageReportingConsent {
@@ -6297,7 +6299,61 @@ impl PreferencesStore {
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, unknown) = self.read_locked_keeping_unknown()?;
-        self.save_locked(current, &unknown, expected_revision, preferences, false)
+        self.save_locked(
+            current,
+            &unknown,
+            expected_revision,
+            preferences,
+            false,
+            false,
+        )
+    }
+
+    /// 在偏好锁内合并局部字段。`null` 删除键，数组整体替换；未知键只能沿用盘上已有的值。
+    pub fn apply_patch(
+        &self,
+        expected_revision: u64,
+        patch: &serde_json::Value,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
+        if !patch.is_object() {
+            return Err(PreferencesError::InvalidPatch);
+        }
+        let _lock = self.lock()?;
+        let (current, unknown) = self.read_locked_keeping_unknown()?;
+        if current.revision != expected_revision {
+            return Err(PreferencesError::Conflict);
+        }
+        let mut document = document_for_disk(&current, &unknown)?;
+        let preferences = document
+            .get_mut("preferences")
+            .ok_or(PreferencesError::InvalidPatch)?;
+        let (_, original_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
+        merge_preferences_patch(preferences, patch);
+        let (next, patched_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
+        if patched_unknown != original_unknown {
+            return Err(PreferencesError::InvalidPatch);
+        }
+        if newer_list_values(preferences)
+            .iter()
+            .any(|field| patch_replaces_path(patch, &field.path))
+        {
+            return Err(PreferencesError::InvalidPatch);
+        }
+        next.validate()?;
+        let retained_unknown: Vec<_> = unknown
+            .iter()
+            .filter(|field| !field.elements || !patch_replaces_path(patch, &field.path))
+            .cloned()
+            .collect();
+        let removed_unknown = retained_unknown.len() != unknown.len();
+        self.save_locked(
+            current,
+            &retained_unknown,
+            expected_revision,
+            next,
+            false,
+            removed_unknown,
+        )
     }
 
     /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
@@ -6406,7 +6462,14 @@ impl PreferencesStore {
                 });
             }
         }
-        self.save_locked(current, &unknown, expected_revision, preferences, false)
+        self.save_locked(
+            current,
+            &unknown,
+            expected_revision,
+            preferences,
+            false,
+            false,
+        )
     }
 
     /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
@@ -6418,7 +6481,7 @@ impl PreferencesStore {
         let current = self.read_locked()?;
         let restored = current.preferences.restored_to_defaults_for(self.edition());
         // 恢复默认值连同更新版本写下的设置一起清掉：用户要的是整份回到默认。
-        self.save_locked(current, &[], expected_revision, restored, false)
+        self.save_locked(current, &[], expected_revision, restored, false, false)
     }
 
     /// `save` 的主体，调用方已持有锁并读出了 `current`。`unknown` 是盘上文档里本版本不认识的键，写入时原样放回。
@@ -6429,6 +6492,7 @@ impl PreferencesStore {
         expected_revision: u64,
         mut preferences: Preferences,
         initialize_reporting: bool,
+        force_write: bool,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
@@ -6493,7 +6557,7 @@ impl PreferencesStore {
         preferences.shuangpin_helpcode.modes = preferences.shuangpin_helpcode.modes.normalized();
         preferences.validate()?;
         // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
-        if current.revision > 0 && preferences == current.preferences {
+        if current.revision > 0 && preferences == current.preferences && !force_write {
             return Ok(current);
         }
         let snapshot = PreferencesSnapshot {
@@ -6849,6 +6913,43 @@ fn restore_unknown_fields(preferences: &mut serde_json::Value, unknown: &[Unknow
             .entry(key.clone())
             .or_insert_with(|| field.value.clone());
     }
+}
+
+/// JSON Merge Patch 的对象递归合并规则。`null` 删除成员，其他值替换成员。
+fn merge_preferences_patch(target: &mut serde_json::Value, patch: &serde_json::Value) {
+    let serde_json::Value::Object(changes) = patch else {
+        *target = patch.clone();
+        return;
+    };
+    if !target.is_object() {
+        *target = serde_json::json!({});
+    }
+    let fields = target.as_object_mut().expect("target is an object");
+    for (key, value) in changes {
+        if value.is_null() {
+            fields.remove(key);
+        } else {
+            merge_preferences_patch(
+                fields.entry(key.clone()).or_insert(serde_json::Value::Null),
+                value,
+            );
+        }
+    }
+}
+
+/// 数组补丁替换整个列表，不能把旧版本不认识的列表元素再接回去。
+fn patch_replaces_path(patch: &serde_json::Value, path: &[String]) -> bool {
+    let mut node = patch;
+    for segment in path {
+        let serde_json::Value::Object(fields) = node else {
+            return true;
+        };
+        let Some(next) = fields.get(segment) else {
+            return false;
+        };
+        node = next;
+    }
+    !node.is_object()
 }
 
 /// Whether `preferences` is a document `load` would accept.
