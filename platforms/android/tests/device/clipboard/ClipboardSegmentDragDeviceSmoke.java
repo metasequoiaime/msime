@@ -23,8 +23,10 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private boolean fixedCardsOnly;
     private boolean previewActionsOnly;
     private boolean firstRecordOnly;
+    private boolean selectionOnly;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        selectionOnly = arguments != null && "true".equals(arguments.getString("selection-only"));
         fixedCardsOnly = arguments != null && "true".equals(arguments.getString("fixed-cards-only"));
         previewActionsOnly = arguments != null && "true".equals(arguments.getString("preview-actions-only"));
         firstRecordOnly = arguments != null && "true".equals(arguments.getString("first-record-only"));
@@ -33,6 +35,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private static String word(int i) { return "Synthetic" + (char) ('A' + i); }
 
     @Override protected String successDescription() {
+        if (selectionOnly) return "five clipboard selections and acknowledgement preserve IME bounds and editor focus";
         if (firstRecordOnly) return "first clipboard record exposes inline actions after clear and copy in single and double columns";
         if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
         if (previewActionsOnly) return "right-swipe detail exposes insert and edit actions without changing history";
@@ -40,6 +43,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (selectionOnly) { ClipboardSelectionDeviceChecks.run(this); return; }
         File root = getTargetContext().getFilesDir();
         JSONObject options = read(new File(root, "runtime-options.json"));
         File preferences = new File(options.getString("preferences_directory"), "preferences.json");

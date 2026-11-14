@@ -1935,15 +1935,19 @@ final class ImePanels {
                 clipboardSelectedTexts.size() + " 项已选择", 12);
             header.addView(selected, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", this::exitClipboardSelection);
-            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），只在选中 1 到 4 项时可用；导出和删除仍可用到 20 项。
+            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），选中 1 到 4 项时提交，超过时显示确认提示；导出和删除仍可用到 20 项。
             Button insert = clipboardAction(header, "插入", () -> {
+                if (!ClipboardSelectionPolicy.canInsert(clipboardSelectedTexts.size())) {
+                    s.showClipboardInsertionLimitNotice();
+                    return;
+                }
                 java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
                 exitClipboardSelection();
                 s.insertClipboardTexts(selectedTexts);
             });
-            ViewPolicy.setEnabled(insert, ClipboardSelectionPolicy.canInsert(clipboardSelectedTexts.size()));
+            ViewPolicy.setEnabled(insert, !clipboardSelectedTexts.isEmpty());
             insert.setContentDescription(clipboardSelectedTexts.size() > ClipboardSelectionPolicy.MAX_INSERTIONS
-                ? "插入不可用，" + ClipboardSelectionPolicy.INSERTION_LIMIT_HINT : "按序号插入选中的剪贴板记录");
+                ? "插入后提示上限，" + ClipboardSelectionPolicy.INSERTION_LIMIT_HINT : "按序号插入选中的剪贴板记录");
             Button export = clipboardAction(header, "导出", () -> {
                 java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
                 exitClipboardSelection();
@@ -2059,8 +2063,6 @@ final class ImePanels {
                             clipboardSelectedTexts.remove(item.text());
                         } else if (ClipboardSelectionPolicy.canSelect(clipboardSelectedTexts.size())) {
                             clipboardSelectedTexts.add(item.text());
-                            if (ClipboardSelectionPolicy.exceedsInsertionCap(clipboardSelectedTexts.size()))
-                                s.notice(ClipboardSelectionPolicy.INSERTION_LIMIT_HINT);
                         } else {
                             s.notice("最多只能选择 " + ClipboardSelectionPolicy.MAX_SELECTIONS + " 项");
                         }
@@ -2083,7 +2085,8 @@ final class ImePanels {
                         + "点按选择剪贴板记录");
                     ViewPolicy.setSelected(card, ordinal >= 0);
                     // 右上角要留给序号角标，正文右边多让出一截，长文字不会压在角标底下。
-                    if (ordinal >= 0) LayoutPolicy.setPaddingDp(card, s, 12, 8, 30, 8);
+                    if (ClipboardSelectionPolicy.hasOrdinalBadge(ordinal))
+                        LayoutPolicy.setPaddingDp(card, s, 12, 8, 30, 8);
                 }
                 card.setOnLongClickListener(ignored -> {
                     s.imeKeyFeedback.playFeedback(card);
@@ -2673,7 +2676,7 @@ final class ImePanels {
             FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END);
         cell.addView(trash, trashParams);
         cell.addView(card, LayoutPolicy.frameMatchParentParams());
-        if (ordinal >= 0) {
+        if (ClipboardSelectionPolicy.hasOrdinalBadge(ordinal)) {
             // 多选时选中项右上角画序号 ①②③④（#10411），占的正是置顶角标的位置；置顶仍写在卡片的元信息里（「已置顶 · …」），这里不叠两个角标。单列和多列网格放的都是这个左滑格，两种排法都带角标。角标画在卡片自己的浮层里而不是这一格里：带阴影的皮肤会给卡片抬高度，高度为 0 的兄弟视图会被卡片盖住，见 ClipboardOrdinalBadgeDrawable。
             ClipboardOrdinalBadgeDrawable badge = new ClipboardOrdinalBadgeDrawable(
                 ClipboardSelectionPolicy.ordinalLabel(ordinal),
