@@ -30,7 +30,7 @@ Status: implemented
 - API 31 以上的短冒烟会复用输入法进程；右滑详情专项由 `smoke.sh` 在启动 instrumentation 前强停产品，再重绑输入法，避免旧会话保留关闭剪贴板历史或其它模式的快照。强停不能放在测试代码里，因为该 instrumentation 以产品进程为目标。
 - 右滑详情的合成记录通过 `ClipboardHistoryStore.restoreMany` 写入移动端公开存储入口，不再由测试直接伪造历史文件，确保夹具与输入法实际读取的模式、容量和类别路径一致。
 - 右滑详情专项的偏好通过 `HostStore.savePreferences` 发布，保留共享偏好锁和修订号校验，避免设置文件直写后 `:ime` 进程仍持有另一份快照。
-- 真机阶段探针确认短路径在偏好和历史写入完成后、重启输入法之前卡住。`UiAutomation.executeShellCommand` 直接执行命令，不解释 `for` 和命令替换；原夹具把 shell 循环传给它，管道读取一直不结束。改为直接执行 `pidof` 并排空输出，再由同 UID 的 `android.os.Process.killProcess` 结束 `:ime`，不扩大产品权限或强停 instrumentation 本体。
+- 真机阶段探针确认短路径在偏好和历史写入完成后、重启输入法之前卡住。`UiAutomation.executeShellCommand` 直接执行命令，不解释 `for` 和命令替换；原夹具把 shell 循环传给它，管道读取一直不结束。改为直接执行 `pidof` 并排空输出，再由同 UID 的 `android.os.Process.killProcess` 结束 `:ime`，不扩大产品权限或强停 instrumentation 本体。修复后同机走到原生编辑页，确认首启临时说明会遮住编辑框；夹具只实际点击这张已知说明的「知道了」，不写首启标记或跳过其他弹窗，沿用现有原生设置专项的做法。
 - API 34 以上的无障碍树可能把滚动容器里的剪贴板卡片标成不可见；设备契约用 `awaitAny` 找到带「右滑查看详情」描述的卡片，先请求滚入视口，再等屏幕边界连续两次稳定后注入手势，详情正文仍在滚动到视口后用可见节点核对。
 - 设备夹具写入主模式前显式保存 `ClipboardModeStore.Mode.MAIN`，避免复用设备状态时输入法服务从访客目录读历史而测试只准备了主目录。
 - 同步新版详情布局时，保留 develop 已移除固定标题、正文顶部不穿透触摸、来源元信息不显示的断言；右滑专项改用底部返回入口识别详情，长正文先滚动到操作行再点编辑，保留原文逐行插入和修改后记录身份断言。真实设备截图、最终 quick 与 API 35 的结果记入 PR 验证段，全部成功前不合并。

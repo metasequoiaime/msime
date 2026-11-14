@@ -345,7 +345,12 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             new Rect(cardBounds.right - 8, cardBounds.centerY(), cardBounds.right - 7, cardBounds.centerY() + 1), false);
         awaitAny(described("返回剪贴板历史列表"));
         bringIntoView(described("编辑这条剪贴板记录"));
+        stage = "detail edit opens the native editor with the full original record";
         touch(described("编辑这条剪贴板记录"));
+        // 覆盖安装后主应用会先显示一次已知说明，像其他原生编辑专项一样实际确认它。
+        AccessibilityNodeInfo editorReady = await(described("剪贴板记录的文字")
+            .or(key("临时说明（首次运行）")));
+        if (equalsText("临时说明（首次运行）", editorReady.getText())) tap(key("知道了"));
         await(described("剪贴板记录的文字").and(node -> equalsText(original, node.getText())));
         android.os.Bundle changed = new android.os.Bundle();
         changed.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replacement);
