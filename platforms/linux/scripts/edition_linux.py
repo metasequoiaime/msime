@@ -116,7 +116,7 @@ RULES: dict[str, list[Rule]] = {
     "scripts/msime-linux-online-provider": [CLIENT_DIRECTORY],
     "data/msime-linux.xml.in": [
         ("engine language", r"<language>zh</language>", lambda n: f"<language>{n['ibus_language']}</language>"),
-        CLIENT_DIRECTORY, PACKAGE, DISPLAY_NAME,
+        COMMANDS, CLIENT_DIRECTORY, PACKAGE, DISPLAY_NAME,
     ],
     "data/msime-linux-clipboard.service.in": [CLIENT_DIRECTORY],
     # 这两个单元只按前缀找程序，没有要换的名字；列在这里是为了让改写后的检查（不留下 full 的名字）照样覆盖它们。
@@ -130,6 +130,8 @@ RULES: dict[str, list[Rule]] = {
         COMMANDS, PACKAGE, DISPLAY_NAME, ENGLISH_NAME,
         ("English name in About", r"About MSIME\b", lambda n: f"About {n['en']}"),
     ],
+    # 各版设置壳的可执行文件都叫 msime-linux-desktop，窗口标识保持这个名字。
+    "data/ibus-setup-msime-linux.desktop.in": [COMMANDS, PACKAGE, DISPLAY_NAME, ENGLISH_NAME],
     "data/omarchy/menu.in": [
         COMMANDS, DISPLAY_NAME,
         ("Fcitx5 addon to reload", r"\"'msime'\"", lambda n: f"\"'{n['fcitx5_addon']}'\""),
