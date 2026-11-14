@@ -21,6 +21,8 @@ platforms/android/tests/device/core/EditorProbeProvider.java
 platforms/android/tests/device/clipboard/ClipboardImageDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidatePanelDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateCanvasDeviceSmoke.java
+platforms/android/tests/device/candidate/CompactCandidateToolbarDeviceChecks.java
+platforms/android/tests/device/candidate/CompactCandidateHeightDeviceChecks.java
 platforms/android/tests/device/keyboard/MultilingualInputDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateUpstreamSkinDeviceSmoke.java
 platforms/android/tests/device/candidate/AiCandidateSeatDeviceSmoke.java
@@ -29,6 +31,7 @@ platforms/android/tests/device/keyboard/PagedTileGridGestureDeviceSmoke.java
 platforms/android/tests/device/keyboard/CopyDeviceInfoDeviceSmoke.java
 platforms/android/tests/device/keyboard/WorldClockDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiPickerDeviceSmoke.java
+platforms/android/tests/device/keyboard/StickerEditorActivity.java
 platforms/android/tests/device/keyboard/PairedPunctuationDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeySidebarPairDeviceSmoke.java
 platforms/android/tests/device/keyboard/LetterHintPunctuationDeviceSmoke.java
@@ -297,3 +300,5 @@ platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
 platforms/android/tests/device/clipboard/CloudClipboardReceiveDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
+platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
+platforms/android/tests/device/keyboard/AliyunTranslationDeviceChecks.java

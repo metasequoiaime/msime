@@ -23,12 +23,14 @@ public class KeyHintButton extends KeyboardPressButton {
     private final Paint cornerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int basePaddingTop;
     private final int basePaddingBottom;
+    private final int basePaddingRight;
     private String hintText = "";
     private int hintColor = Color.GRAY;
     private String cornerHint = "";
     private int cornerHintColor = Color.GRAY;
     private float unhintedTextSize;
     private int hintWidth;
+    private int hintHeight;
 
     @SuppressWarnings("this-escape")
     public KeyHintButton(Context context) {
@@ -36,6 +38,7 @@ public class KeyHintButton extends KeyboardPressButton {
         KeyboardTypographyPolicy.normalizeKeyCap(this);
         basePaddingTop = getPaddingTop();
         basePaddingBottom = getPaddingBottom();
+        basePaddingRight = getPaddingRight();
         hintPaint.setTextAlign(Paint.Align.CENTER);
         cornerPaint.setTextAlign(Paint.Align.RIGHT);
         ViewPolicy.setAllCapsFalse(this);
@@ -61,55 +64,63 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (cornerHint.equals(next)) return;
         cornerHint = next;
-        if (!hintText.isEmpty()) updateHintInsets();
+        updateHintInsets();
         invalidate();
     }
 
     /** 提示占据独立区域；主标签按剩余宽高缩放，不能因底部提示把字母推到右上角符号上。 */
     private void updateHintInsets() {
-        updateHintInsets(getWidth());
+        updateHintInsets(getWidth(), getHeight());
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);
-        if (!hintText.isEmpty() && hintWidth != width) updateHintInsets(width);
+        int height = MeasureSpec.getSize(heightMeasureSpec);
+        if ((!hintText.isEmpty() || !cornerHint.isEmpty()) && (hintWidth != width || hintHeight != height))
+            updateHintInsets(width, height);
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
 
-    private void updateHintInsets(int width) {
+    private void updateHintInsets(int width, int height) {
         hintWidth = width;
-        if (hintText.isEmpty()) {
+        hintHeight = height;
+        float scale = CompactKeyTypography.scale(getContext(), height);
+        if (hintText.isEmpty() && cornerHint.isEmpty()) {
             setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE);
             if (unhintedTextSize > 0) setTextSize(TypedValue.COMPLEX_UNIT_PX, unhintedTextSize);
             unhintedTextSize = 0;
-            ViewPolicy.setPadding(this, getPaddingLeft(), basePaddingTop, getPaddingRight(), basePaddingBottom);
+            ViewPolicy.setPadding(this, getPaddingLeft(), basePaddingTop, basePaddingRight, basePaddingBottom);
             return;
         }
         if (unhintedTextSize == 0) unhintedTextSize = getTextSize();
-        ViewPolicy.setTextSize(hintPaint, KeyboardTypographyPolicy.keySp(getContext(), 9));
+        ViewPolicy.setTextSize(hintPaint, KeyboardTypographyPolicy.keySp(getContext(), 9) * scale);
         Paint.FontMetrics bottom = hintPaint.getFontMetrics();
-        int bottomInset = (int) Math.ceil(bottom.bottom - bottom.top)
-            + DimensionPolicy.pixels(getContext(), 4);
+        int bottomInset = hintText.isEmpty() ? basePaddingBottom
+            : (int) Math.ceil(bottom.bottom - bottom.top + DimensionPolicy.floatPixels(getContext(), 4) * scale);
         int topInset = basePaddingTop;
+        int rightInset = basePaddingRight;
         if (!cornerHint.isEmpty()) {
-            ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP));
+            ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP) * scale);
             Paint.FontMetrics corner = cornerPaint.getFontMetrics();
             // 宽键帽的中央字母与右上角标能横向错开，无需把整行顶部都让给角标。
             Paint main = new Paint(getPaint());
-            main.setTextSize(unhintedTextSize);
+            main.setTextSize(unhintedTextSize * scale);
             KeyHintWidthPolicy.Widths widths = KeyHintWidthPolicy.measure(getText().toString(), cornerHint,
                 main::measureText, cornerPaint::measureText);
             float mainWidth = widths.main();
             float cornerWidth = widths.corner()
-                + DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP + 2);
-            if (width <= 0 || mainWidth + 2 * cornerWidth > width)
-                topInset = (int) Math.ceil(DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP)
-                    + corner.descent - corner.ascent) + DimensionPolicy.pixels(getContext(), 2);
+                + DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP + 2) * scale;
+            if (hintText.isEmpty()) {
+                // 没有底部提示时优先横向错开，保留低键帽里主字母所需的高度。
+                rightInset += (int) Math.ceil(Math.max(0, mainWidth + 2 * cornerWidth - width));
+            } else if (width <= 0 || mainWidth + 2 * cornerWidth > width)
+                topInset = (int) Math.ceil(DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP) * scale
+                    + corner.descent - corner.ascent + DimensionPolicy.floatPixels(getContext(), 2) * scale);
         }
-        ViewPolicy.setPadding(this, getPaddingLeft(), topInset, getPaddingRight(), bottomInset);
+        ViewPolicy.setPadding(this, getPaddingLeft(), topInset, rightInset, bottomInset);
         setMaxLines(1);
         setHorizontallyScrolling(false);
-        int maximum = Math.max(2, Math.round(unhintedTextSize));
+        int maximum = Math.max(2, Math.round(unhintedTextSize * scale));
         setAutoSizeTextTypeUniformWithConfiguration(1, maximum, 1, TypedValue.COMPLEX_UNIT_PX);
     }
 
@@ -129,18 +140,20 @@ public class KeyHintButton extends KeyboardPressButton {
     }
 
     private void drawCornerHint(Canvas canvas) {
-        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP));
+        float scale = CompactKeyTypography.scale(getContext(), getHeight());
+        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), CORNER_HINT_SP) * scale);
         cornerPaint.setColor(cornerHintColor);
         cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
-        float baseline = DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP) - metrics.ascent;
+        float baseline = DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP) * scale - metrics.ascent;
         canvas.drawText(cornerHint,
-            getWidth() - DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP), baseline,
+            getWidth() - DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP) * scale, baseline,
             cornerPaint);
     }
 
     private void drawBottomHint(Canvas canvas) {
-        float size = KeyboardTypographyPolicy.keySp(getContext(), 9);
+        float scale = CompactKeyTypography.scale(getContext(), getHeight());
+        float size = KeyboardTypographyPolicy.keySp(getContext(), 9) * scale;
         float available = BoundsPolicy.bounded(getWidth() - getPaddingLeft() - getPaddingRight()
             - DimensionPolicy.pixels(getContext(), 4), 1f, Float.MAX_VALUE);
         ViewPolicy.setTextSize(hintPaint, size);
@@ -149,7 +162,7 @@ public class KeyHintButton extends KeyboardPressButton {
         hintPaint.setColor(hintColor);
         hintPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = hintPaint.getFontMetrics();
-        float baseline = getHeight() - DimensionPolicy.pixels(getContext(), 2) - metrics.bottom;
+        float baseline = getHeight() - DimensionPolicy.floatPixels(getContext(), 2) * scale - metrics.bottom;
         canvas.drawText(hintText, getWidth() / 2f, baseline, hintPaint);
     }
 }

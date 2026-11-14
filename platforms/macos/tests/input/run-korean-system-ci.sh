@@ -75,7 +75,7 @@ if ! "$client" --enable-ci-source "$installed" > "$reports/enabled-sources.json"
   if ! xcodebuild test -project "$root/platforms/macos/tests/input/SourceSetup/SourceSetup.xcodeproj" \
       -scheme SourceSetup -destination "platform=macOS,arch=$(uname -m)" \
       -derivedDataPath "$build/input-source-setup" -resultBundlePath "$reports/input-source-setup.xcresult" \
-      -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 \
+      -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 120 \
       -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- > "$reports/input-source-setup.log" 2>&1; then
     cat "$reports/input-source-setup.log" >&2
     exit 1

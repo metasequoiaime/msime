@@ -111,6 +111,13 @@ public final class AndroidLocalSettingsSmoke {
             && !voice.synced().containsKey(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), "microphone timing and sensitivity stay local");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
         check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
+        check(NineKeyCompositionActionPolicy.SEPARATE.equals(
+            settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION)), "nine-key composition action defaults to separate");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION).synced,
+            "nine-key composition action stays local");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION)
+            .accept(NineKeyCompositionActionPolicy.REWRITE).equals(NineKeyCompositionActionPolicy.REWRITE),
+            "rewrite action is accepted");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");
@@ -197,7 +204,9 @@ public final class AndroidLocalSettingsSmoke {
         check(Integer.valueOf(-46).equals(height.accept(-46)), "height 75%");
         check(Integer.valueOf(55).equals(height.accept(55)), "height 130%");
         check(Integer.valueOf(129).equals(height.accept(129)), "height 170% (#8779)");
-        check(height.accept(-47) == null && height.accept(130) == null, "height outside the design range");
+        check(Integer.valueOf(-92).equals(height.accept(-92)), "height 50% (#11425)");
+        check(Integer.valueOf(-74).equals(height.accept(-74)), "height 60% persists");
+        check(height.accept(-93) == null && height.accept(130) == null, "height outside the design range");
 
         // 浮动键盘（#5621）：默认关，位置默认水平居中、贴底，千分比 0–1000，工具栏按钮默认不显示。
         AndroidLocalSettings.Snapshot fresh = AndroidLocalSettings.defaults();

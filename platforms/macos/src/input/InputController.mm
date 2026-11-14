@@ -4594,7 +4594,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
             if (cleared[@"view"]) _view = cleared[@"view"];
         }
     }
-    if (_appearance.englishMode && !_managedEnglishComposition && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+    if (_appearance.englishMode && !_managedEnglishComposition && ![self quickPhraseModeActive] && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
     }
     [self syncPageSize];
@@ -5465,8 +5465,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self apply:@{@"view": view}];
     return YES;
 }
+#include "InputControllerQuickPhrase.inc"
 
 - (BOOL)synchronizeManagedEnglishMode {
+    if ([self quickPhraseModeActive]) return YES;
     return [self setManagedEnglishEnabled:_appearance.englishMode && _englishOnlineCandidatesEnabled];
 }
 
@@ -8219,6 +8221,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self toggleVoiceInput:nil];
         return YES;
     }
+    if ([self handleQuickPhraseHotkey:event]) return YES;
     const NSEventModifierFlags competing = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption;
     if (_doubaoVoiceRequest) [self cancelDoubaoVoiceInput];
     if (_liveVoiceToken) [self cancelLiveVoiceInput];
@@ -8326,7 +8329,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // English mode normally leaves keys to the application, but the Chinese
     // punctuation lock and full-width setting still belong to the IME. This
     // mirrors the closed-IME path used by the other native hosts.
-    if (_appearance.englishMode && (!_managedEnglishComposition || managedLiteralKey)) {
+    if (_appearance.englishMode && ![self quickPhraseModeActive] && (!_managedEnglishComposition || managedLiteralKey)) {
         const NSEventModifierFlags competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
                                                 NSEventModifierFlagCommand;
         if (!(event.modifierFlags & competing) && event.characters.length == 1) {
@@ -10500,7 +10503,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     }
     // 普通候选页结束上一轮展开布局，不能把旧字号或皮肤的视口带到下一次展开。
     _expandedViewportHeight = 0;
-    if (_appearance.englishMode && !_managedEnglishComposition) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
+    if (_appearance.englishMode && !_managedEnglishComposition && ![self quickPhraseModeActive]) { _renderedCandidateView = nil; [self resetCandidateAnchor]; [self hideCandidatePanel:"english_mode"]; return; }
     NSArray *rawCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
     NSArray *candidates = MSIMEVisibleCandidates(MSIMEReorderedPinnedCandidates(rawCandidates, MSIMECandidatePinCode(_view)));
     // 固定页也按可见行装满：占位只在首屏出现，第一次发现后持续从当前代次的完整快照分页，直到占位被真实结果替换。

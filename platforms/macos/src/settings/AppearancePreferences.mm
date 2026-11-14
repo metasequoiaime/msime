@@ -1,4 +1,5 @@
 #import "AppearancePreferences.h"
+#import "QuickPhraseHotkeyControl.h"
 #import "SettingsLayout.h"
 #import "../backend/account/BackendAccountEntry.h"
 #import "../candidate/CandidateFontCache.h"
@@ -1115,6 +1116,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     msime::mac::ToggleChord _fullWidthToggleChord;
     msime::mac::ToggleChord _punctuationToggleChord;
     msime::mac::ToggleChord _voiceInputToggleChord;
+    msime::mac::ToggleChord _quickPhraseToggleChord;
+    NSString *_sharedQuickPhraseHotkey;
+    NSDictionary *_quickPhraseKeybindings;
+    MSIMEQuickPhraseHotkeyControl *_quickPhraseHotkeyControl;
     NSSwitch *_characterSetShortcutToggle;
     NSMutableDictionary *_sharedHelpcodeOptions;
     // 共享文档里每个方案选中的辅助码表插件 id，空串是没有选；文档没读过时没有这一项。
@@ -1350,6 +1355,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         _fullWidthToggleChord = msime::mac::FactoryFullWidthToggleChord();
         _punctuationToggleChord = msime::mac::FactoryPunctuationToggleChord();
         _voiceInputToggleChord = msime::mac::UnboundToggleChord();
+        _quickPhraseToggleChord = MSIMEDecodeToggleChord(MSIMEToggleHotkeyChords(@{@"enter_quick_phrase": self.quickPhraseHotkey})[@"quick_phrase"]);
         [self reloadSkins];
     }
     return self;
@@ -1418,6 +1424,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (NSDictionary<NSString *, id> *)sharedPreferencesByMerging:(NSDictionary<NSString *, id> *)snapshot {
     if (![snapshot isKindOfClass:NSDictionary.class]) return nil;
     NSMutableDictionary *merged = [snapshot mutableCopy];
+    if ([_defaults objectForKey:@"MSIMEClientQuickPhraseHotkey"] != nil) {
+        NSMutableDictionary *keys = [snapshot[@"keybindings"] isKindOfClass:NSDictionary.class] ? [snapshot[@"keybindings"] mutableCopy] : [NSMutableDictionary dictionary];
+        keys[@"enter_quick_phrase"] = self.quickPhraseHotkey;
+        merged[@"keybindings"] = keys;
+    }
     if ([_defaults objectForKey:DefaultImeModeKey] != nil) merged[@"default_ime_mode"] = self.defaultImeMode;
     if ([_defaults objectForKey:ImeModeScopeKey] != nil) merged[@"ime_mode_scope"] = self.imeModeScope;
     // 整张表一起写，MSIMEMergePreferenceSnapshot 对这个键整体替换而不是逐项合并，移除的规则才会从文档里消失。表为空时写空对象，偏好库保存时把它省掉。载入过文档时取文档那张表（加上本窗口的改动和收得下、等待发布的旧规则），文档没有这个键时取本地键里的整张表；只写偏好库收得下的部分（PublishableInputModeRules），否则整份保存都会被拒。
@@ -1681,6 +1692,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         button.enabled = shiftLetterEntry || [button.identifier isEqual:ShiftLetterEntryMode];
     }
 }
+#include "AppearanceQuickPhraseHotkey.inc"
+
 - (void)localModeChanged:(NSButton *)sender {
     [self setLocalMode:sender.identifier enabled:sender.state == NSControlStateValueOn];
     [self refreshLocalModeButtons];
@@ -2308,6 +2321,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         _fullWidthToggleChord = MSIMEDecodeToggleChord(chords[@"full_width"]);
         _punctuationToggleChord = MSIMEDecodeToggleChord(chords[@"punctuation"]);
         _voiceInputToggleChord = MSIMEDecodeToggleChord(chords[@"voice_input"]);
+        _quickPhraseToggleChord = MSIMEDecodeToggleChord(chords[@"quick_phrase"]);
+        _quickPhraseKeybindings = [keys isKindOfClass:NSDictionary.class] ? [keys copy] : @{};
+        _sharedQuickPhraseHotkey = [_quickPhraseKeybindings[@"enter_quick_phrase"] isKindOfClass:NSString.class] ? _quickPhraseKeybindings[@"enter_quick_phrase"] : @"";
+        _quickPhraseHotkeyControl.recorder.binding = self.quickPhraseHotkey;
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
@@ -4364,11 +4381,20 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         else [modeButtons addObject:button];
     }
     [self refreshLocalModeButtons];
+    __weak MSIMEAppearancePreferences *hotkeyPreferences = self;
+    _quickPhraseHotkeyControl = [[MSIMEQuickPhraseHotkeyControl alloc] initWithSnapshot:^NSDictionary *{
+        MSIMEAppearancePreferences *prefs = hotkeyPreferences;
+        if (!prefs) return @{};
+        return @{ @"keybindings": prefs->_quickPhraseKeybindings ?: @{}, @"voice_ctrl_f9": @(prefs.voiceHotkeyCtrlF9) };
+    } apply:^(NSString *chord) { hotkeyPreferences.quickPhraseHotkey = chord; }];
+    _quickPhraseHotkeyControl.recorder.binding = self.quickPhraseHotkey;
     NSBox *localModesCard = MSIMECardWithViews(@[
         MSIMEDetailLabel(@"未组词时按 Shift 加一个字母，临时切到另一种输入方式。关掉总开关后 Shift+字母照常打出大写字母，下面各模式的开关保留。"),
         shiftLetterEntryButton,
         MSIMECardSeparator(),
         [self settingCheckboxes:modeButtons columns:2],
+        MSIMECardSeparator(),
+        [self settingRow:@"快捷短语附加快捷键" control:_quickPhraseHotkeyControl],
     ], 8.0);
     localModesCard.accessibilityLabel = @"快捷模式卡片";
 
