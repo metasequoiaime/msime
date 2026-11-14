@@ -985,10 +985,7 @@ impl HostSession {
                 .unwrap_or(preferences.candidate_page_size),
         );
         options.first_page_rows = usize::from(page_size);
-        // Unconditional, because `Runtime::crop_alternative_readings` runs whether or not a model is
-        // attached: the host always shows one whole-sentence reading. Asking for the rest only ever
-        // gives it more to choose from, and even with no model the engine's own pick among them is
-        // better than the one it makes when it searches without alternatives.
+        // Unconditional, because `Runtime::demote_runner_up_readings` (`ordering::runner_up_order_pinned`) runs whether or not a model is attached: the host keeps only the leading whole-sentence readings on the first page and moves the rest behind the list. Asking for the rest only ever gives it more to choose from, and even with no model the engine's own pick among them is better than the one it makes when it searches without alternatives.
         options.sentence_alternatives = true;
         apply_local_mode_resource_gates(&mut options, self.edition);
         options.paired_punctuation = preferences.paired_punctuation;

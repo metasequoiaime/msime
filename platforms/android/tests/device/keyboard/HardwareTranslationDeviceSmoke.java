@@ -21,18 +21,23 @@ import org.json.JSONObject;
 public final class HardwareTranslationDeviceSmoke extends DeviceSmoke {
     // 清单已达 100 个 instrumentation：数字回归复用这个硬件按键入口，可单独运行合成事件部分。
     private boolean digitsOnly;
+    private boolean aliyunOnly;
 
     @Override public void onCreate(Bundle arguments) {
+        aliyunOnly = arguments != null && "true".equals(arguments.getString("aliyun-only"));
         digitsOnly = arguments != null && "true".equals(arguments.getString("digits-only"));
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
+        if (aliyunOnly) return "阿里云通用/专业版 JNI、原生选路、缓存归属和响应边界";
         return digitsOnly ? "native service hardware digit routing with synthetic key events"
             : "native service digit routing; Ctrl+Enter translation commits, sense pages and editor pass-through";
     }
 
     @Override protected void runChecks() throws Exception {
+        AliyunTranslationDeviceChecks.run(this);
+        if (aliyunOnly) return;
         HardwareDigitChecks.run(this);
         if (digitsOnly) return;
         ParcelFileDescriptor[] uinput = null;

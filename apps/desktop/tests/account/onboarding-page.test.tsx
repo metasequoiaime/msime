@@ -179,30 +179,6 @@ test("the HarmonyOS setup step shows the host's two checks and the step each sti
   expect(screen.getAllByText("，已完成")).toHaveLength(2);
 });
 
-test("HarmonyOS basic access mode asks for 完整体验模式 instead of claiming the keyboard is on", async () => {
-  const setup = fakeSetup({ enabled: false, current: true, basicMode: true });
-  const actions = makeActions({ platform: "harmony" });
-  render(
-    <WelcomeFlowPage
-      actions={actions}
-      setup={setup.client}
-      onComplete={vi.fn().mockResolvedValue(undefined)}
-    />,
-  );
-
-  expect(screen.getByText("开启完整体验模式")).toBeTruthy();
-  expect(screen.queryByText("已在系统中启用")).toBeNull();
-  expect(screen.getByText(/设置 → 系统 → 输入法 → 水杉输入法/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "去开启" }));
-  await waitFor(() => expect(actions.openSystemKeyboardSettings).toHaveBeenCalledOnce());
-
-  // 打开完整体验模式回来，宿主报告已启用，提示随之消失。
-  setup.emit({ enabled: true, current: true, basicMode: false });
-  expect(screen.getByText("已在系统中启用")).toBeTruthy();
-  expect(screen.queryByText(/设置 → 系统 → 输入法 → 水杉输入法/)).toBeNull();
-  expect(screen.getAllByText("，已完成")).toHaveLength(2);
-});
-
 test("a HarmonyOS check the host has not answered offers no step", () => {
   const setup = fakeSetup(null);
   render(

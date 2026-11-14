@@ -2578,6 +2578,8 @@ static void TestToggleHotkeyRebinding(void) {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+#include "QuickPhraseHotkeyChecks.inc"
+
 static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutClient *client = [ShortcutClient new];
@@ -15497,6 +15499,10 @@ int main(int argc, char **argv) {
             TestEditableShiftController();
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--quick-phrase-hotkey") {
+            TestQuickPhraseHotkeyRouting();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--toggle-hotkeys") {
             @autoreleasepool { TestCharacterSetShortcut(); }
             @autoreleasepool { TestInputStateHUDs(); }
@@ -17600,6 +17606,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestCharacterSetShortcut(); }
         @autoreleasepool { TestInputStateHUDs(); }
         @autoreleasepool { TestToggleHotkeyRebinding(); }
+        @autoreleasepool { TestQuickPhraseHotkeyRouting(); }
         @autoreleasepool { TestVimModeEscapeRouting(); }
         @autoreleasepool { TestNextWordPredictionKeysTypeNormally(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }
