@@ -311,7 +311,7 @@ fn capabilities_describe_each_host() {
     assert!(linux.traditional_chinese_variants);
     assert!(HostCapabilities::for_platform(HostPlatform::Android).traditional_chinese_variants);
     assert!(!windows.traditional_chinese_variants);
-    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语编码进普通候选也是这两个。
+    // 只有向会话报告大写锁定的宿主提供「大写锁定时使用英文标点」，目前是 macOS 和 Linux；快捷短语能力独立按下方矩阵验证。
     for platform in [
         HostPlatform::Windows,
         HostPlatform::Android,
@@ -319,7 +319,7 @@ fn capabilities_describe_each_host() {
         HostPlatform::Harmony,
     ] {
         let host = HostCapabilities::for_platform(platform);
-        assert!(!host.caps_lock_punctuation && !host.quick_phrase_candidates);
+        assert!(!host.caps_lock_punctuation);
     }
     assert!(macos.caps_lock_punctuation && macos.quick_phrase_candidates);
     assert!(linux.caps_lock_punctuation && linux.quick_phrase_candidates);
@@ -557,6 +557,24 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
     let mut document: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
     document["unexpected"] = serde_json::Value::Bool(true);
     assert!(serde_json::from_value::<HostCapabilities>(document).is_err());
+}
+
+#[test]
+fn windows_requests_quick_phrase_candidates_with_desktop_hosts() {
+    for (platform, expected) in [
+        (HostPlatform::Windows, true),
+        (HostPlatform::Macos, true),
+        (HostPlatform::Linux, true),
+        (HostPlatform::Android, false),
+        (HostPlatform::Ios, false),
+        (HostPlatform::Harmony, false),
+    ] {
+        assert_eq!(
+            HostCapabilities::for_platform(platform).quick_phrase_candidates,
+            expected,
+            "{platform:?}"
+        );
+    }
 }
 
 #[test]
