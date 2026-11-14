@@ -7,15 +7,23 @@ public final class ToolbarSizePolicySmoke {
 
     public static void main(String[] args) {
         check(ToolbarSizePolicy.percent(90) == 90);
+        check(ToolbarSizePolicy.percent(50) == 50);
+        check(ToolbarSizePolicy.percent(80) == 80);
         check(ToolbarSizePolicy.percent(150) == 150);
         check(ToolbarSizePolicy.percent(89) == 100);
+        check(ToolbarSizePolicy.percent(40) == 100);
         check(ToolbarSizePolicy.percent(151) == 100);
         check(ToolbarSizePolicy.heightDp(90) == 50);
+        check(ToolbarSizePolicy.heightDp(50) == 44);
+        check(ToolbarSizePolicy.heightDp(70) == 44);
+        check(ToolbarSizePolicy.heightDp(80) == 45);
         check(ToolbarSizePolicy.heightDp(100) == 56);
         check(ToolbarSizePolicy.heightDp(150) == 84);
         check(ToolbarSizePolicy.buttonHeightDp(90) == 44);
+        check(ToolbarSizePolicy.buttonHeightDp(50) == 44);
         check(ToolbarSizePolicy.buttonHeightDp(150) == 66);
         check(ToolbarSizePolicy.buttonWidthDp(40, 90) == 40);
+        check(ToolbarSizePolicy.buttonWidthDp(40, 50) == 40);
         check(ToolbarSizePolicy.buttonWidthDp(40, 150) == 60);
         // #11108：90% 和 100% 的按钮仍有 44 dp 最小触摸区，不能让读音行出现时把总高单独抬高 2 dp。
         check(ToolbarSizePolicy.stableHeight(50, 56) == 56);
@@ -49,16 +57,16 @@ public final class ToolbarSizePolicySmoke {
         check(ToolbarSizePolicy.drawPercent(50) == 50);
         check(ToolbarSizePolicy.drawPercent(0) == 1);
         check(ToolbarSizePolicy.drawPercent(400) == 150);
-        // 预览按读音行 14 加缩放后的 42 dp 候选行，与键盘的 ImeToolbar 常量一致。
+        // #11424：无释义预览按读音行 14 加缩放后的 32 dp 候选行，释义设计高仍是 42。
         check(ImeToolbar.READING_ROW_DP == 14 && ImeToolbar.CANDIDATE_LINE_DP == 42);
-        check(ToolbarSizePolicy.followedHeightDp(100) == 56);
-        check(ToolbarSizePolicy.followedHeightDp(50) == 35);
-        check(ToolbarSizePolicy.followedHeightDp(200) == 98);
-        check(ToolbarSizePolicy.followedHeightDp(30) == 56);
+        check(ToolbarSizePolicy.followedHeightDp(100) == 46);
+        check(ToolbarSizePolicy.followedHeightDp(50) == 30);
+        check(ToolbarSizePolicy.followedHeightDp(200) == 78);
+        check(ToolbarSizePolicy.followedHeightDp(30) == 46);
         // 默认 100% 时预览和键盘的按钮仍是原来的 44 dp，没有调过的用户看不到变化。
         check(ToolbarSizePolicy.followedButtonHeight(ToolbarSizePolicy.followedHeightDp(100), 44,
             ToolbarSizePolicy.followedHeightDp(100)) == 44);
         check(ToolbarSizePolicy.followedButtonHeight(ToolbarSizePolicy.followedHeightDp(50), 44,
-            ToolbarSizePolicy.followedHeightDp(100)) == 35);
+            ToolbarSizePolicy.followedHeightDp(100)) == 30);
     }
 }

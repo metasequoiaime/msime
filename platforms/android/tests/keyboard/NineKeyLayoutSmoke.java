@@ -1,4 +1,5 @@
 import app.msime.android.NineKeyLayout;
+import app.msime.android.NineKeyCompositionActionPolicy;
 import java.util.List;
 
 public final class NineKeyLayoutSmoke {
@@ -36,6 +37,11 @@ public final class NineKeyLayoutSmoke {
         check(!NineKeyLayout.separatesSyllables(separator, true, true));
         check(!NineKeyLayout.separatesSyllables(letters, false, true));
         check(NineKeyLayout.face(separator, false, true).equals("分词"));
+        check(NineKeyLayout.face(separator, false, true, NineKeyCompositionActionPolicy.REWRITE).equals("重输"));
+        check(!NineKeyLayout.separatesSyllables(separator, false, true, NineKeyCompositionActionPolicy.REWRITE));
+        check(NineKeyLayout.description(separator, false, true, NineKeyCompositionActionPolicy.REWRITE)
+            .equals("重输，清空未上屏拼音"));
+        check(NineKeyLayout.face(separator, false, false, NineKeyCompositionActionPolicy.REWRITE).equals("@#"));
         check(NineKeyLayout.face(separator, false, false).equals("@#"));
         check(NineKeyLayout.face(separator, true, true).equals("1"));
         check(NineKeyLayout.face(letters, false, true).equals("ABC"));

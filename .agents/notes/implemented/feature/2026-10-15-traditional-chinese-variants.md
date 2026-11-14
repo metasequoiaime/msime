@@ -14,7 +14,7 @@ Status: implemented
 
 **C 接口**：`msime_client_convert_to_traditional(text, length, variant)`，`variant` 0/1/2 对应三个配置名，未知编号返回 NULL（调用方保留原文）。旧的 `msime_client_simplified_to_traditional` 保留，等于 variant 0。宿主读偏好时把配置名换成编号存进会话状态，`platforms/common/ChineseTextConversion.h` 的 `traditional_variant_code` 是这条换算的唯一 C++ 实现，认不出的名字按 `s2t`。
 
-**宿主能力**：`HostCapabilities::traditional_chinese_variants`，Linux（IBus 的 `ClientEngine.cpp` 与 Fcitx5 的 `FcitxEngine.cpp`）和 macOS（`ChineseTextConversion.mm` 经 `msime_client_convert_to_traditional`，见[macOS 繁体输出接入臺灣变体](2026-11-03-macos-traditional-chinese-variants.md)）为真。设置页「中文输出」（`packages/ui/src/settings/traditional-chinese-output-section.tsx`）在能力为真时列简体、繁体、台湾正体、台湾用词四项，否则只列简体、繁体；能力为假的宿主上存着的臺灣变体显示成「繁体」，选择时也不改写它——那个宿主本来就按 `s2t` 转换。其余平台接上变体时，把能力打开即可，设置页不用再改。
+**宿主能力**：`HostCapabilities::traditional_chinese_variants`，Linux（IBus 的 `ClientEngine.cpp` 与 Fcitx5 的 `FcitxEngine.cpp`）、macOS（`ChineseTextConversion.mm`，见[macOS 繁体输出接入臺灣变体](2026-11-03-macos-traditional-chinese-variants.md)）和 Android（`AndroidChineseTextConversion` 经 JNI，见[Android 繁体输出接入臺灣变体](2026-11-12-android-traditional-chinese-variants.md)）为真。设置页「中文输出」（`packages/ui/src/settings/traditional-chinese-output-section.tsx`）在能力为真时列简体、繁体、台湾正体、台湾用词四项，否则只列简体、繁体；能力为假的宿主上存着的臺灣变体显示成「繁体」，选择时也不改写它——那个宿主本来就按 `s2t` 转换。其余平台接上变体时，把能力打开即可，设置页不用再改。
 
 **共享偏好转换**：`packages/ui/src/settings/chinese-output-preferences.ts` 持有三个偏好类型、`chineseOutputForm` 和 `chineseOutputPatch`，总偏好类型直接依赖这个无 React 模块。组件只负责选项文案与输入方案提示，并重导出原来的公开类型。缺省变体仍是 `s2t`；选择简体不写变体，选择当前变体只写开关，不支持变体的宿主显示标准繁体并保留已存值。鸿蒙手机的二元「中文字符集」控件保持其原有布局和布尔补丁。
 
@@ -30,7 +30,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：Linux 用户可以选臺灣正体或臺灣惯用词；转换与用同一份词典的 OpenCC 逐字一致；新增配置只需在 `TraditionalVariant` 加一项、补词典和编号。
-- **代价**：多带三份词典（约 21 KB）；臺灣变体比 `s2t` 多一次分段和一遍扫描。Windows、iOS、Android、HarmonyOS 在接上之前一律按 `s2t` 转换；它们各自的原生设置面（Android 的 `InputFeatureToggle`、鸿蒙手机的「中文字符集」、Windows 托盘）仍是开关。
+- **代价**：多带三份词典（约 21 KB）；臺灣变体比 `s2t` 多一次分段和一遍扫描。Windows、iOS、HarmonyOS 在接上之前一律按 `s2t` 转换；鸿蒙手机的「中文字符集」与 Windows 托盘仍是开关。Android 原生输入页已接入四选，工具栏 / 菜单仍是开关。
 - **重访信号**：OpenCC 固定提交升级时，臺灣词典要和 `ST*` 词典一起换；OpenCC 若改了 `s2tw.json`/`s2twp.json` 的分段或词典组，`convert_to_traditional` 要跟着改。
 
 ## Verification
