@@ -50,7 +50,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (portraitOnly) return "portrait split live setting, native control and narrow cover window fallback";
         if (panelFitOnly) return "function panel and input-scheme picker fit without vertical scrolling at every keyboard height";
-        return "keyboard adjust overlay: height, bottom lift, width, position, reset, confirm and save on hide; editor frame fixed while adjusting; persistence, restart, bottom padding, panels that fit every height and a bottom row as tall as the letter rows";
+        return "keyboard adjust overlay: height, bottom lift, width, position, reset, confirm and save on hide; editor frame fixed while adjusting; persistence, restart, bottom padding, panels that fit the original 75%–110% range and a bottom row as tall as the letter rows";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -69,7 +69,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
             .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
                 .put("touch_keyboard_height_adjustment", 0));
-        // 设计范围的键盘高度（75%..170%）存在 Android 本地设置里，不在共享偏好里。
+        // 设计范围的键盘高度（50%..170%）存在 Android 本地设置里，不在共享偏好里。
         File localSettings = new File(new File(new File(root, "bootstrap"), "state"), LOCAL_SETTINGS_FILE);
         byte[] originalLocal = localSettings.exists() ? Files.readAllBytes(localSettings.toPath()) : null;
         JSONObject localBaseline = new JSONObject().put("version", 1).put("settings", new JSONObject());
@@ -89,6 +89,12 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             restartIme();
             openEditor();
             awaitHeightSetting(localSettings, expandedScreen ? 55 : -12);
+            openHeightBar();
+            int formFactorPercent = app.msime.android.KeyboardHeightPolicy.heightAdjustmentToPercent(
+                expandedScreen ? 55 : -12);
+            if (Math.round(await(heightSlider()).getRangeInfo().getCurrent()) != formFactorPercent)
+                throw new AssertionError("当前屏幕未读取对应的键盘高度");
+            confirm();
             publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
             restartIme();
             openEditor();
@@ -119,7 +125,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             setHeight(top);
             confirm();
             if (top >= 170) awaitHeightSetting(localSettings, 129);
-            else awaitLocalSetting(localSettings, HEIGHT_SETTING, value -> value > 55, "a height above 130%");
+            else awaitLocalSetting(localSettings, heightSetting(), value -> value > 55, "a height above 130%");
             int maximum = keyHeight("n");
             if (top > 130 && maximum <= tall)
                 throw new AssertionError(top + "% did not enlarge key faces beyond 130%: " + tall + " -> " + maximum);
@@ -133,6 +139,19 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (shortHeight >= standard)
                 throw new AssertionError("Shorter keyboard did not shrink key faces: "
                     + standard + " -> " + shortHeight);
+
+            // #11425：保留 75% 回归后，再从真实调整入口走到新增下限，并验证持久化和实际键高。
+            stage = "decrease keyboard height to 50 percent";
+            openHeightBar();
+            if (Math.round(await(heightSlider()).getRangeInfo().getMin()) != 50)
+                throw new AssertionError("Height control did not expose the 50% floor");
+            setHeight(50);
+            confirm();
+            awaitHeightSetting(localSettings, -92);
+            int minimumHeight = keyHeight("n");
+            if (minimumHeight <= 0 || minimumHeight >= shortHeight)
+                throw new AssertionError("50% did not shrink usable key faces below 75%: "
+                    + shortHeight + " -> " + minimumHeight);
 
             // 没有「取消」：不点「确认」就按返回键收起键盘，照「确认」保存。110% 是 18 dp（KeyboardHeightPolicy.heightPercentToAdjustment）。
             stage = "hiding mid-adjustment keeps the height";
@@ -193,13 +212,13 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     throw new AssertionError("Independent bottom padding target was not preserved: " + heightDp);
             }
 
-            // 底行与字母键同高（#6354、#6472）：默认、75% 和 130% 时空格键都和「n」一样高——底行和三行键一起均分高度调整，两者最多差 1 dp。默认高度时从「q」的上沿到空格的下沿是四行 52 dp 加三份行距（229 dp），与原来三行 56 dp 加 39 dp 的底栏键帽（228 dp）基本相同。同样关掉键盘底栏，排除手势导航 AVD 上的差异。
+            // 底行与字母键同高（#6354、#6472）：默认、75%、130% 和新增 50% 时空格键都和「n」一样高——底行和三行键一起均分高度调整，两者最多差 1 dp。默认高度时从「q」的上沿到空格的下沿是四行 52 dp 加三份行距（229 dp），与原来三行 56 dp 加 39 dp 的底栏键帽（228 dp）基本相同。同样关掉键盘底栏，排除手势导航 AVD 上的差异。
             stage = "bottom row matches the letter rows";
             float density = getTargetContext().getResources().getDisplayMetrics().density;
             int tolerance = Math.round(density) + 2;
-            for (int adjustment : new int[] {0, -46, 55}) {
+            for (int adjustment : new int[] {0, -46, 55, -92}) {
                 Rect letter = settledKeyBounds(localSettings, new JSONObject().put(BOTTOM_BAR_SETTING, false)
-                    .put(HEIGHT_SETTING, adjustment));
+                    .put(heightSetting(), adjustment));
                 Rect space = keyBounds("空格");
                 if (Math.abs(space.height() - letter.height()) > tolerance)
                     throw new AssertionError("Bottom row is not as tall as the letter rows at " + adjustment
@@ -257,7 +276,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             for (int percent : PANEL_FIT_PERCENTS) {
                 stage = "function panel fits at " + percent + "%";
                 publish(localSettings, new JSONObject().put("version", 1).put("settings",
-                    new JSONObject().put(HEIGHT_SETTING, app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(percent))).toString()
+                    new JSONObject().put(heightSetting(), app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(percent))).toString()
                     .getBytes(StandardCharsets.UTF_8));
                 restartIme();
                 openEditor();
@@ -661,7 +680,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         return bounds.height();
     }
 
-    /** 「键盘调整」的上沿柄：读屏描述「键盘高度」，范围是 75% 到窗口封顶处，每次滚动调整 5%。 */
+    /** 「键盘调整」的上沿柄：读屏描述「键盘高度」，范围是 50% 到窗口封顶处，每次滚动调整 5%。 */
     private java.util.function.Predicate<AccessibilityNodeInfo> heightSlider() {
         return handle(TOP_HANDLE);
     }
@@ -748,8 +767,14 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Height adjustment never reached " + target);
     }
 
+    /** 保存和回读都按当前形态选择键；窄屏继续覆盖原来的设置键。 */
+    private String heightSetting() {
+        return getTargetContext().getResources().getConfiguration().smallestScreenWidthDp >= 600
+            ? LARGE_HEIGHT_SETTING : HEIGHT_SETTING;
+    }
+
     private void awaitHeightSetting(File file, int expected) throws Exception {
-        awaitLocalSetting(file, HEIGHT_SETTING, value -> value == expected, expected + " dp");
+        awaitLocalSetting(file, heightSetting(), value -> value == expected, expected + " dp");
     }
 
     /** 等本地设置里这个整数项满足条件；没写过的项不算。 */

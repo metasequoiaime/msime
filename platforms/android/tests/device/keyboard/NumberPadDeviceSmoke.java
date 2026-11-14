@@ -446,12 +446,19 @@ public final class NumberPadDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("Number keys are not arranged in three rows: " + java.util.Arrays.toString(cells)
                     + "; " + imeTexts());
         }
+        String previousStage = stage;
         for (String value : new String[] {"0", ".", "+", "-", "*", "/"}) {
             Rect bounds = new Rect();
+            stage = previousStage + " number action " + value;
+            // 左侧符号列可滚动，API 28 正确把屏外的除号标为不可见；先走真实读屏滚动路径再验收点击面积。
+            AccessibilityNodeInfo candidate = awaitAny(key(value));
+            if (!candidate.isVisibleToUser())
+                candidate.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
             AccessibilityNodeInfo node = awaitStableBounds(key(value));
             node.getBoundsInScreen(bounds);
             if (!node.isClickable() || bounds.isEmpty()) throw new AssertionError("Numeric action is not reachable");
         }
+        stage = previousStage;
     }
 
     /** 整组坐标连续两拍一致后才比较同行同列，避免逐键等待把窗口过渡的不同帧拼到一起。 */

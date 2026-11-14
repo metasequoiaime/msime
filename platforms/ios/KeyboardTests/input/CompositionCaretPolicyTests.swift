@@ -58,6 +58,15 @@ final class CompositionCaretPolicyTests: XCTestCase {
     // 选过拼音之后：ni'426 对 64426；首选是简拼行时读音是首字母（m't 对 68）。
     XCTAssertEqual(CompositionCaretPolicy.tapTarget(display: "ni'426", editing: "64426", tapped: 4), 3)
     XCTAssertEqual(CompositionCaretPolicy.tapTarget(display: "m't", editing: "68", tapped: 2), 1)
+    // 多按或按错一键切不成音节时，切不开的那一键在读音里是键上的一个字母、单独成段（ni'hao's's 对 6442677），照样一位对一键。
+    XCTAssertEqual(CompositionCaretPolicy.alignment("ni'hao's's", "6442677"), [0, 1, 2, 2, 3, 4, 5, 5, 6, 6, 7])
+    XCTAssertEqual(CompositionCaretPolicy.tapTarget(display: "ni'hao's's", editing: "6442677", tapped: 7), 5, "tap on the first stray key")
+    XCTAssertEqual(CompositionCaretPolicy.tapTarget(display: "ni'hao's's", editing: "6442677", tapped: 9), 6, "tap on the second stray key")
+    XCTAssertEqual(CompositionCaretPolicy.markIndex(display: "ni'hao's's", editing: "6442677", caret: 5, keyGrid: true), 7)
+    XCTAssertEqual(CompositionCaretPolicy.markIndex(display: "ni'hao's's", editing: "6442677", caret: 6, keyGrid: true), 9)
+    XCTAssertEqual(CompositionCaretPolicy.displayOffset(display: "ni'hao's's", editing: "6442677", caret: 7, keyGrid: true), 10)
+    // 九键首行是英文词时读音是这个词的字母（good 对 4663）。
+    XCTAssertEqual(CompositionCaretPolicy.alignment("good", "4663"), [0, 1, 2, 3, 4])
     // 编辑条在末尾也画光标，分隔后的光标跟着分隔。
     XCTAssertEqual(CompositionCaretPolicy.displayOffset(display: "ni'hao", editing: "64426", caret: 5, keyGrid: true), 6)
     XCTAssertEqual(CompositionCaretPolicy.displayOffset(display: "ni'hao", editing: "64426", caret: 2, keyGrid: true), 3)

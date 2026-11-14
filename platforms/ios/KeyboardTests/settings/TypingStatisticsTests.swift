@@ -651,9 +651,9 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertTrue(letters.allSatisfy { TypingKeyHeatmap.sharedFaces($0, nineKey: false).isEmpty })
     XCTAssertEqual(nine.filter { !TypingKeyHeatmap.sharedFaces($0, nineKey: true).isEmpty }.map(\.face), ["，。？", "！"])
     XCTAssertEqual(TypingKeyHeatmap.sharedFaces(TypingKeyHeatmap.nineKeySidebar, nineKey: true), ["！"])
-    // 两块键盘都没画的键列在其他键里：英文模式的 Shift、九键数字层的 0 和句点。
+    // 键盘没画的键列在其他键里：英文模式的 Shift、九键数字层的 0；句点画在 26 键标准底行的空格左边，九键上没有，只在九键的其他键里。
     let others = TypingKeyHeatmap(counts: [TypingKeyID.shift: 5, "Nine0": 4, "Period": 3, TypingKeyID.pinyinSeparator: 2])
-    XCTAssertEqual(others.others(nineKey: false).map(\.id), [TypingKeyID.shift, "Nine0", "Period"])
+    XCTAssertEqual(others.others(nineKey: false).map(\.id), [TypingKeyID.shift, "Nine0"])
     XCTAssertEqual(others.others(nineKey: true).map(\.id), [TypingKeyID.shift, "Nine0", "Period"])
   }
 
@@ -662,7 +662,7 @@ final class TypingStatisticsTests: XCTestCase {
     "shiftButton": TypingKeyID.pinyinSeparator, "letterDeleteKey": TypingKeyID.backspace,
     "symbolPanelKey": TypingKeyID.symbol, "layoutToggleButton": TypingKeyID.layer, "inputModeSwitchButton": TypingKeyID.globe,
     "spaceKey": TypingKeyID.space, "bottomLanguageKey": TypingKeyID.language, "returnKey": TypingKeyID.enter,
-    "quickPunctuationKey": TypingKeyID.quickPunctuation,
+    "quickPunctuationKey": TypingKeyID.quickPunctuation, "bottomPeriodKey": "Period",
     "nineKeyDelete": TypingKeyID.backspace, "nineKeyMiddleKey": TypingKeyID.pinyinSeparator,
     "nineKeyClosingMark": TypingKeyID.punctuation,
   ]

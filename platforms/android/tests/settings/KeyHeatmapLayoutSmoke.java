@@ -74,6 +74,12 @@ public final class KeyHeatmapLayoutSmoke {
             && faces(third).equals(List.of("分词", "Z", "X", "C", "V", "B", "N", "M", "⌫")),
             "the 26-key letter rows as the user sees them");
         bottom(rows.get(3), KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        // 标准底行在空格左边画句号键：句号的次数落在这一格，不再列进「其他键」；没有句号键的表情键样式仍列在那里。
+        check(!KeyHeatmapLayout.sharedIds(rows).contains("Period"), "only one key on the 26-key heatmap counts Period");
+        check(KeyHeatmapLayout.others(Map.of("Period", 2L, "Comma", 1L), rows).isEmpty(),
+            "the standard 26-key heatmap draws both 。 and ，");
+        check(KeyHeatmapLayout.others(Map.of("Period", 2L, "Comma", 1L), KeyHeatmapLayout.soft(TouchKeyStyle.Row.EMOJI, false))
+            .equals(List.of("Period")), "a row style without the period key lists Period under 其他键");
     }
 
     private static void nine() {
@@ -120,11 +126,11 @@ public final class KeyHeatmapLayoutSmoke {
             check(row.get(index).weight() == entries.get(index).weight(), "action key " + index + " is as wide as on the keyboard");
         }
         boolean comma = KeyboardActionRow.usesCommaSecondaryPeriod(touchLayout);
-        check(faces(row).equals(comma ? List.of("123", "符", "空格", "，", "中", "↵")
+        check(faces(row).equals(comma ? List.of("123", "符", "。", "空格", "，", "中", "↵")
             : List.of("符", "123", "空格", "中", "↵")), "底行键面跟随实际布局");
         List<List<String>> ids = new ArrayList<>(row.size());
         for (Key key : row) ids.add(key.ids());
-        check(ids.equals(comma ? List.of(List.of("SoftLayer"), List.of("SoftSymbol"), List.of("Space"),
+        check(ids.equals(comma ? List.of(List.of("SoftLayer"), List.of("SoftSymbol"), List.of("Period"), List.of("Space"),
             List.of("Comma"), List.of("SoftLanguage"), List.of("Enter"))
             : List.of(List.of("SoftSymbol"), List.of("SoftLayer"), List.of("Space"), List.of("SoftLanguage"),
             List.of("Enter"))), "底行按键统计跟随实际布局");
@@ -190,7 +196,7 @@ public final class KeyHeatmapLayoutSmoke {
             "with them both are drawn");
         // 「中/英键放在空格左边」（#10228）：热力图底行与键盘按同一条规则重排，只换次序，记的 id 不变；字母和九宫格不动。
         check(faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.STANDARD, false, false, true)))
-                .equals(List.of("123", "符", "中", "空格", "，", "↵"))
+                .equals(List.of("123", "符", "中", "。", "空格", "，", "↵"))
             && faces(last(KeyHeatmapLayout.soft(TouchKeyStyle.Row.COMMA_PERIOD, false, true, true)))
                 .equals(List.of("符", "123", "中", "，", "空格", "。", "↵"))
             && faces(last(KeyHeatmapLayout.nine(TouchKeyStyle.Row.STANDARD, true))).equals(List.of("符", "123", "中", "空格", "↵"))
@@ -294,7 +300,7 @@ public final class KeyHeatmapLayoutSmoke {
         String letterRows = read("core/ImeLetterRows.java");
         String layoutRows = read("core/ImeLayoutRows.java");
         String bottomRow = read("core/ImeBottomRow.java");
-        check(service.contains("keyId(button(controls, \"符\", imePanels::showSymbolPanel), \"SoftSymbol\")")
+        check(service.contains("keyId(button(controls, \"符\", () -> imeLayoutRows.symbolPanelKey()), \"SoftSymbol\")")
             && service.contains("keyId(layerButton, \"SoftLayer\")")
             && service.contains("languageButton = keyId(button(controls, \"中/英\", this::toggleInputLanguage), \"SoftLanguage\")"),
             "the keyboard still records 符, 123 and 中 under the ids the heatmap draws");

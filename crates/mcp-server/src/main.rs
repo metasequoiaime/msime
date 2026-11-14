@@ -10,6 +10,7 @@ mod config;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod crash_reporting;
 mod diagnostics;
+mod keyboard_skins;
 mod plugin_community;
 mod plugins;
 mod preferences;

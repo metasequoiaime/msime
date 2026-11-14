@@ -88,10 +88,19 @@ fn tail_corrections_still_remove_only_quanpin_dictionary_deference() {
                 ..row("甲")
             };
             rows[1] = row("乙");
-            rows[count - 1].corrected = true;
+            rows[count - 1] = OrderRow {
+                source,
+                corrected: true,
+                ..rows[count - 1]
+            };
             // 即使纠错行自己不参与比较，全拼仍按原规则撤销整表的词典豁免。
             assert_eq!(rerank_pick(&mut model(), "甲", 0, false, &rows), Some(1));
             assert_eq!(rerank_pick(&mut model(), "甲", 1, false, &rows), None);
+            // 纠错的是词网格整句、旁边又有字面整句时（输入读得通，引擎另给的纠错整句），它不撤销豁免。
+            if count > 2 {
+                rows[count - 1].source = LATTICE_SOURCE;
+                assert_eq!(rerank_pick(&mut model(), "甲", 0, false, &rows), None);
+            }
         }
     }
 }
@@ -143,6 +152,11 @@ fn shuangpin_corrected_leader_skips_model_preparation() {
             allocations::count_bytes(|| rerank_pick(&mut model, "甲", 1, false, &counted));
         assert_eq!(measured, (None, 0, 0));
         assert_eq!(counted.reads.get(), 1);
+        // 全拼：旁边是字面整句时，坐首位的纠错整句是引擎按分差定的，同样不比较；旁边不是词网格整句时照常比较。
+        assert_eq!(rerank_pick(&mut model, "甲", 0, false, &rows), None);
+        for other in &mut rows[1..] {
+            other.source = DICTIONARY_SOURCES[0];
+        }
         assert_eq!(rerank_pick(&mut model, "甲", 0, false, &rows), Some(1));
     }
 }
