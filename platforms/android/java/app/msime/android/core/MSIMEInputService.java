@@ -454,6 +454,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
+    /** 剪贴板详情底部操作行是否右对齐，来自本地设置 `platform.android.clipboard_detail_action_alignment`。 */
+    boolean clipboardDetailActionsRight;
     /** 本地设置「撤销时长」，删除时读取；改了设置只影响之后的删除。 */
     int clipboardUndoSeconds = ClipboardUndoPolicy.DEFAULT_SECONDS;
     /** 本地设置「剪贴板删除数据验证」；访客模式下即使关闭也要求认证。 */
@@ -1663,24 +1665,32 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 删除键先删选区；没有前文可删时交给编辑器处理引用等控件，其余按码位删字并追踪回声。 */
+    /** 删除键先删选区；普通文字与表情按字素边界删除，空框交给编辑器处理引用。 */
     void deleteCodePointBeforeCursor() {
         clearQuickDeleteUndo();
         dropDeferredToolbarTaps();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
         if (deleteSelection()) return;
-        CharSequence before = InputConnectionGuard.textBeforeCursor(connection, 2);
-        if (before != null && before.length() == 0) {
-            // 空框外的艾特与引用不属于周边文字，应用只有收到退格事件才能处理；读取失败不当作空框。
+        CharSequence before = EditorBackspaceBoundary.before(connection);
+        int length = EditorBackspaceBoundary.length(before);
+        if (before != null && (length == 0 || EditorBackspaceBoundary.shouldDelegate(before, length))) {
+            // 空框引用、不完整范围和私有占位交给编辑器；未知长度不猜回声，不保留横滑恢复。
             selectionEcho.invalidate();
             imeLetterRows.invalidateBackspaceScrub();
             sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
             return;
         }
-        if (InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0)) {
-            imeLetterRows.recordBackspaceScrubDelete(before);
-            selectionEcho.deleteCodePointBefore();
+        boolean multiplePoints = length > 0
+            && Character.codePointCount(before, before.length() - length, before.length()) > 1;
+        boolean deleted = multiplePoints
+            ? InputConnectionGuard.deleteSurroundingText(connection, length, 0)
+            : InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0);
+        if (deleted) {
+            if (multiplePoints) imeLetterRows.invalidateBackspaceScrub();
+            else imeLetterRows.recordBackspaceScrubDelete(before);
+            if (length > 0) selectionEcho.deleteBefore(length);
+            else selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
             imeLetterRows.invalidateBackspaceScrub();
@@ -3266,6 +3276,8 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         clipboardColumns = ClipboardLayoutPolicy.columns(
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
+        clipboardDetailActionsRight = ClipboardDetailActionPolicy.isRight(
+            localSettings.choice(AndroidLocalSettings.CLIPBOARD_DETAIL_ACTION_ALIGNMENT));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         clipboardUndoSeconds = localSettings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);

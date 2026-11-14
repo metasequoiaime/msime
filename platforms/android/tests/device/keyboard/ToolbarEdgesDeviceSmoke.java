@@ -5,6 +5,7 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -303,6 +304,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             }
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
+            checkClipboardDetailActionAlignment(type, service, panels, cards, surface, loader, density);
             checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
             checkClipboardDeleteRestoresPanelAfterAuthentication(type, service, panels, surface);
             checkClipboardSingleDeleteUndo(type, service, panels, cards);
@@ -633,6 +635,65 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         return result;
     }
 
+    /** #11288：详情底部「插入」「返回」随本机设置保持左对齐或右对齐。 */
+    private static void checkClipboardDetailActionAlignment(Class<?> type, Object service, Object panels,
+            ViewGroup cards, ViewGroup surface, ClassLoader loader, float density) throws Exception {
+        Field localSettings = field(type, "localSettings");
+        Object originalSettings = localSettings.get(service);
+        Method apply = method(type, "applyLocalSettings");
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        Method returnFromDetail = method(panels.getClass(), "returnFromClipboardDetail");
+        Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
+        Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
+        constructor.setAccessible(true);
+        int width = Math.round(360 * density);
+        int height = Math.round(300 * density);
+        try {
+            for (String choice : new String[] {"left", "right"}) {
+                localSettings.set(service, constructor.newInstance(Map.of(
+                    "platform.android.clipboard_detail_action_alignment", choice)));
+                apply.invoke(service);
+                render.invoke(panels);
+                layout(surface, width, height);
+                java.util.List<View> records = clipboardCardViews(cards);
+                check(!records.isEmpty(), "clipboard detail alignment has no synthetic records");
+                View record = records.get(0);
+                long downTime = android.os.SystemClock.uptimeMillis();
+                int[] gestures = {android.view.MotionEvent.ACTION_DOWN,
+                    android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+                // 详情入口已改为卡片右滑，沿真实触摸路径打开，仍覆盖出厂左对齐。
+                for (int index = 0; index < gestures.length; index++) {
+                    android.view.MotionEvent event = android.view.MotionEvent.obtain(downTime,
+                        downTime + index * 40, gestures[index],
+                        index == 0 ? 20 * density : 180 * density, record.getHeight() / 2f, 0);
+                    try { record.dispatchTouchEvent(event); }
+                    finally { event.recycle(); }
+                }
+                layout(surface, width, height);
+                View insert = descendant(surface, view -> describedAs(view, "插入这条剪贴板记录"));
+                check(insert != null && insert.getParent() instanceof LinearLayout,
+                    "clipboard detail action row is missing for " + choice);
+                LinearLayout actions = (LinearLayout) insert.getParent();
+                int actual = Gravity.getAbsoluteGravity(actions.getGravity(), actions.getLayoutDirection())
+                    & Gravity.HORIZONTAL_GRAVITY_MASK;
+                int expected = "right".equals(choice) ? Gravity.RIGHT : Gravity.LEFT;
+                check(actual == expected,
+                    "clipboard detail action row alignment is " + actual + ", expected " + expected
+                        + " for " + choice);
+                View last = actions.getChildAt(actions.getChildCount() - 1);
+                int leftGap = insert.getLeft() - actions.getPaddingLeft();
+                int rightGap = actions.getWidth() - actions.getPaddingRight() - last.getRight();
+                check("right".equals(choice) ? rightGap < leftGap : leftGap < rightGap,
+                    "clipboard detail action buttons did not move to " + choice);
+                returnFromDetail.invoke(panels);
+            }
+        } finally {
+            localSettings.set(service, originalSettings);
+            apply.invoke(service);
+            render.invoke(panels);
+        }
+    }
+
     private static java.util.List<View> clipboardCardViews(ViewGroup root) {
         java.util.List<View> result = new java.util.ArrayList<>();
         for (int index = 0; index < root.getChildCount(); index++) {
@@ -644,6 +705,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
         return result;
     }
+
     /**
      * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
      *
