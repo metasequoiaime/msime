@@ -161,6 +161,8 @@ export type Preferences = PunctuationPreferences &
     touch_twenty_six_key_style?: "standard" | "comma_period" | "long_space" | "emoji";
     /** 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_fourteen_key_style?: "standard" | "long_space" | "emoji";
+    /** 手机触屏 14/18 键三排字母键宽度；缺省为现有等宽。 */
+    touch_fourteen_key_letter_widths?: "equal" | "varied";
     /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式；除 `tall_return`（右侧大回车：回车跨右列下两行，符 移到符号栏下方，右列的 ！ 并进符号栏）外，符号栏和右侧功能列不变。缺省为现有底行，client-core 不写进文档；桌面宿主保留、不读。 */
     touch_nine_key_style?: "standard" | "comma_period" | "emoji" | "tall_return";
     /** 手机触屏九键字母层（拼音九键、九键双拼、笔画）左侧符号栏的符号，按显示顺序。缺省或空数组是各端出厂表（三端都是 ， 。 ？），等于出厂表时写空数组；读入时 client-core 逐项丢掉不合规的项（空串、含空白或控制字符、超过 4 个码位、重复），最多 30 项、用空格连起来不超过 200 个 UTF-16 单元。空数组不写进文档；桌面宿主保留、不读。 */

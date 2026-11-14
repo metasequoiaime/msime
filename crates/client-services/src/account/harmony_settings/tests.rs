@@ -102,6 +102,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
         touch_keyboard_layout: TouchKeyboardLayout::NineKey,
         global_theme: GlobalTheme::Night,
         touch_key_spacing_tenths: 40,
+        touch_fourteen_key_letter_widths: crate::preferences::TouchFourteenKeyLetterWidths::Varied,
         ..Preferences::default()
     };
     local.frequency.mode = FrequencyMode::Linear;
@@ -137,6 +138,10 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
         string("dusk")
     );
     assert_eq!(values[HARMONY_KEYBOARD_LAYOUT], string("nine_key"));
+    assert_eq!(
+        values["platform.harmony.fourteen_key_letter_widths"],
+        string("varied")
+    );
     assert_eq!(
         values["platform.harmony.touch_key_spacing_tenths"],
         AccountPreferenceValue::Integer(40)
@@ -176,6 +181,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "custom_candidate_skin_dark",
             "custom_keyboard_skin",
             "custom_theme_base",
+            "fourteen_key_letter_widths",
             "fourteen_key_style",
             "global_theme",
             "haptic_strength",
@@ -608,6 +614,10 @@ fn a_value_this_host_has_no_meaning_for_skips_only_its_key() {
         (
             "platform.harmony.fourteen_key_style",
             string("comma_period"),
+        ),
+        (
+            "platform.harmony.fourteen_key_letter_widths",
+            string("split"),
         ),
         ("platform.harmony.nine_key_style", string("long_space")),
         ("platform.harmony.number_pad_space", string("space_in_grid")),
@@ -1106,6 +1116,7 @@ fn every_exported_key_round_trips() {
         touch_shuangpin_key_hints: !Preferences::default().touch_shuangpin_key_hints,
         touch_twenty_six_key_style: TouchTwentySixKeyStyle::Emoji,
         touch_fourteen_key_style: TouchFourteenKeyStyle::LongSpace,
+        touch_fourteen_key_letter_widths: crate::preferences::TouchFourteenKeyLetterWidths::Varied,
         touch_nine_key_style: TouchNineKeyStyle::Emoji,
         touch_number_row: !Preferences::default().touch_number_row,
         touch_twenty_six_symbol_first: !Preferences::default().touch_twenty_six_symbol_first,

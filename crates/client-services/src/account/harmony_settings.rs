@@ -56,6 +56,7 @@ const HARMONY_KEYS: TouchHostKeys = TouchHostKeys {
     quanpin_shift: "platform.harmony.quanpin_shift",
     twenty_six_key_style: "platform.harmony.twenty_six_key_style",
     fourteen_key_style: "platform.harmony.fourteen_key_style",
+    fourteen_key_letter_widths: "platform.harmony.fourteen_key_letter_widths",
     nine_key_style: "platform.harmony.nine_key_style",
     number_row: "platform.harmony.number_row",
     twenty_six_symbol_first: "platform.harmony.twenty_six_symbol_first",
