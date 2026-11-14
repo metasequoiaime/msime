@@ -212,7 +212,12 @@ int main(int argc, char** argv) {
   count = calls.size(); allow = false; click(dictionary_clear_quick_phrases);
   assert(calls.size() == count);
   allow = true; click(dictionary_clear_quick_phrases);
-  assert(calls.back().at("operation") == "clear_quick_phrases");
+  // 成功清空后还会刷新当前列表，两次请求都必须完成。
+  assert(calls.size() == count + 2);
+  assert(calls[count].at("operation") == "clear_quick_phrases");
+  assert(calls[count + 1].at("operation") == "browse");
+  assert(calls[count + 1].at("kind") == "quick_phrase");
+  assert(calls[count + 1].at("offset") == 0);
   assert(text(dictionary_notice).find("已清空 1 条快捷短语") != std::string::npos);
   assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 0);
   choose(dictionary_kind, local_kind(L"pinyin"));

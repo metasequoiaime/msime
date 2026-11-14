@@ -30,4 +30,4 @@ Status: implemented
 - `cargo test -p msime-engine user_dictionary::personal::tests::clear_quick_phrases`：事务成功、保留内置行和失败回滚用例通过。
 - `cargo check -p msime-host-api --tests`：共享 host-api 及其测试目标编译通过。
 - React 词库管理测试覆盖确认取消、成功返回删除条数和共享操作失败提示。
-- Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。
+- Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；CI 首次执行发现新增断言只期待最后一条为清空请求，实际成功路径随后会刷新列表。断言改为核对清空、当前快捷短语第一页刷新这两条请求的顺序，保留取消不发请求、实际删除条数和列表内容断言；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。
