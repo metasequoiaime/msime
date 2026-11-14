@@ -170,7 +170,7 @@ Java 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate
 
 双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 `/` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。用户还可以在设置的键盘页「双拼键位提示」开启它，对应共享偏好 `touch_shuangpin_key_hints`（缺省为关，账号同步键 `platform.android.shuangpin_key_hints`）；关闭时字母键不画提示、11dp 的下边距收回，TalkBack 也不再念「双拼提示」。粤语双拼（#10438）也画：它和普通粤拼是同一个引擎方案（scheme 5），`ShuangpinKeyHintPolicy.rememberedProfile` 按选中的触屏方案 `cantonese_shuangpin` 区分，用引擎的保留名 `cantonese` 经同一个 `NativeClient.shuangpinKeyHints` 取键面；普通粤拼、会话没跑粤拼时不画。设置页这一行在本版本有双拼或粤拼时列出。
 
-顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好，只在 Android 展示与插入边界用共享 OpenCC s2t 转换（`msime_client_simplified_to_traditional`，与 Windows、macOS、iOS、HarmonyOS 同一套词表）：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。转换器拒收的文本保留原文，不伪装已转换。
+顶部“简 / 繁”快捷键消费共享 `traditional_chinese_output` 偏好；Android 在展示与插入边界按 `traditional_chinese_variant` 选择共享 OpenCC `s2t`、`s2tw` 或 `s2twp` 转换（`msime_client_convert_to_traditional`，与其他宿主同一套词表）：Engine 候选原文、候选身份、组合文本和输入算法保持不变。候选条、展开候选面板、Engine 最终提交和手写候选使用同一规则；日语方案、临时日语和 dedicated English 保留原文。快捷键通过共享 revision CAS 乐观刷新当前候选，冲突或写入失败恢复最近接受值；顶部语音入口开启时让出同一快捷位，高情商回复优先于语音。转换器拒收的文本保留原文，不伪装已转换。
 
 “全角输入”沿用 Apple 键盘扩展的直接输出边界：Android 更多工具页提供持久化开关，宿主明确直写的 ASCII 字符、空格和九键字面在开启后转换为 Unicode 全角；Engine 的中文组合、候选身份、手写结果、日语和本地模式保持原文。专用英文模式虽由 Android Engine 管理组合，但其最终英文 commit 在同一宿主边界转换，保证键盘内英文候选与 Apple 的直接英文输入一致。
 

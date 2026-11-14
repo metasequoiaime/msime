@@ -14,6 +14,8 @@ Status: implemented
 
 Android 的分类顺序与默认页由 [常用表情默认页](2026-10-21-android-common-emoji-default.md)部分取代：常用始终第一并默认打开，水杉娘可用时第二；其他平台和本篇素材、发送策略继续有效。
 
+Android 的发送尝试策略由[未声明图片类型的输入框仍尝试直接发送](../bug-fix/2026-11-10-android-sticker-optimistic-content.md)部分取代：声明收 PNG 的输入框和微信式输入框照下文不变；其余没声明图片类型的输入框先复制到剪贴板，再试一次 `commitContent`，不论结果都提示。素材、PNG、FileProvider 和其他平台策略不变。
+
 点一张就发出去，各端按平台能力走不同的路，但都发 PNG（保留透明）：
 
 - Android：输入框通过 `EditorInfo.contentMimeTypes` 声明收 `image/png` 时，把这张转成 PNG 写进 `cache/sticker-images/`，经本应用的 FileProvider 用 `commitContent` 直接发出去。输入框不收图，或者没收下，就把同一个 content URI 放进系统剪贴板，提示「已复制水杉娘「X」，长按输入框粘贴发送」。键盘自己写进剪贴板的这张不会被「最近复制」当成用户刚复制的图片。

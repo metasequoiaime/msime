@@ -11,12 +11,13 @@ public final class TranslationServiceSettingsPolicy {
     /** 腾讯云地域的字节上限。 */
     public static final int MAX_REGION_BYTES = 64;
 
-    /** 页面上的六个选项，顺序就是单选列表的顺序。 */
+    /** 页面上的翻译服务选项，顺序就是单选列表的顺序。 */
     public enum Choice {
         NONE("不使用", null),
         ACCOUNT("水杉账号", null),
         NIUTRANS("小牛翻译", "translation.niutrans"),
         TENCENT("腾讯云机器翻译", "translation.tencent"),
+        ALIYUN("阿里云机器翻译", "translation.aliyun"),
         CUSTOM("自定义（DeepLX 或 DeepL API）", "translation.custom"),
         /** 复用「AI 润色与回复」页的服务商、接口地址、令牌和模型，写 `translation_ai`；配置在那一页改，这里没有自己的凭据和连接测试。 */
         AI("AI 辅助", null);

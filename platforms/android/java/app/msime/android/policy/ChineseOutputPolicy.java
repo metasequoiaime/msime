@@ -2,12 +2,20 @@ package app.msime.android;
 
 /** Host-boundary Simplified/Traditional output policy without Android dependencies. */
 public final class ChineseOutputPolicy {
+    public static final String STANDARD_VARIANT = "s2t";
     @FunctionalInterface
     public interface Converter {
         String convert(String text);
     }
 
     private ChineseOutputPolicy() {}
+
+    /** 把共享偏好的变体名映射为 host-api 的 OpenCC 编号；缺省和未知值都按标准繁体。 */
+    public static int traditionalVariantCode(String variant) {
+        if ("s2tw".equals(variant)) return 1;
+        if ("s2twp".equals(variant)) return 2;
+        return 0;
+    }
 
     /** 来源 18 已由共享运行时逐段转换，日文汉字必须保持原样。 */
     public static String candidateOutput(String text, boolean traditional, boolean applies,
