@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -464,14 +465,14 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             int scrolled = Math.round(60 * density);
             scroll.scrollTo(0, scrolled);
             check(scroll.getScrollY() == scrolled, "synthetic clipboard history did not scroll before opening the menu");
-            Rect cardBefore = bounds(surface, describedViews(cards, "查看这条剪贴板记录详情").get(0));
+            Rect cardBefore = bounds(surface, clipboardCardViews(cards).get(0));
             View more = descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作"));
             check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
             layout(surface, width, height);
             check(scroll.getScrollY() == scrolled,
                 "opening the clipboard more menu scrolled the list: " + scrolled + " -> " + scroll.getScrollY());
-            Rect cardAfter = bounds(surface, describedViews(cards, "查看这条剪贴板记录详情").get(0));
+            Rect cardAfter = bounds(surface, clipboardCardViews(cards).get(0));
             check(cardAfter.equals(cardBefore), "opening the clipboard more menu moved the cards: "
                 + cardBefore.toShortString() + " -> " + cardAfter.toShortString());
             // 菜单容器没有无障碍说明（免得 TalkBack 多停一个不能操作的节点），按菜单里「分类」那一项找回容器。
@@ -550,11 +551,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             render.invoke(panels);
         }
     }
-    /**
-     * 菜单开着时点一条的 ⓘ 看详情（读屏按节点点击，不经过浮层），再返回：菜单已收起，返回后刚看的那条要停在离开时的位置（#10037）。
-     *
-     * <p>菜单原来画在列表最上面，记下的滚动位置要减掉它那一截；现在它浮在列表上面（#10969），列表位置与菜单开合无关，这里守住返回后不错位。
-     */
+    /** 菜单开着时进入一条记录的详情再返回：菜单已收起，返回后刚看的那条要停在离开时的位置。 */
     private static void checkClipboardMoreDetailReturn(Class<?> type, Object service, Object panels,
             ViewGroup cards, ViewGroup surface, float density) throws Exception {
         Field open = field(panels.getClass(), "clipboardMoreOpen");
@@ -569,19 +566,55 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             layout(surface, width, height);
             check(descendant(surface, view -> describedAs(view, "管理剪贴板分类")) != null,
                 "clipboard more menu is not open before opening a record's details");
-            java.util.List<View> details = describedViews(cards, "查看这条剪贴板记录详情");
-            check(details.size() > target, "synthetic clipboard history has too few detail buttons");
-            View detail = details.get(target);
-            scroll.scrollTo(0, bounds(cards, detail).top - Math.round(40 * density));
+            java.util.List<View> records = clipboardCardViews(cards);
+            check(records.size() > target, "synthetic clipboard history has too few cards");
+            View record = records.get(target);
+            scroll.scrollTo(0, bounds(cards, record).top - Math.round(40 * density));
             check(scroll.getScrollY() > 0, "clipboard history did not scroll before opening details");
-            int before = bounds(surface, detail).top;
-            check(detail.performClick() && !open.getBoolean(panels),
-                "clipboard detail button did not close the more menu");
+            int before = bounds(surface, record).top;
+            Class<?> itemType = type.getClassLoader().loadClass("app.msime.android.ClipboardHistory$Item");
+            String recordText = ((android.widget.TextView) record).getText().toString();
+            Object item = itemType.getConstructor(String.class, long.class, boolean.class)
+                .newInstance(recordText, 1700000000000L, false);
+            Class<?> originType = type.getClassLoader().loadClass("app.msime.android.ClipboardDetailPolicy$Origin");
+            Object listOrigin = originType.getField("LIST").get(null);
+            method(panels.getClass(), "openClipboardDetail", itemType, originType).invoke(panels, item, listOrigin);
+            check(!open.getBoolean(panels), "clipboard detail did not close the more menu");
+            ViewGroup header = (ViewGroup) field(type, "clipboardHeader").get(service);
+            layout(surface, width, height);
+            check(header.getVisibility() == View.GONE && header.getChildCount() == 0,
+                "clipboard detail still draws the removed top back button or title");
+            FrameLayout.LayoutParams detailScrollParams =
+                (FrameLayout.LayoutParams) scroll.getLayoutParams();
+            check(detailScrollParams.topMargin == 0,
+                "clipboard detail still reserves the removed top header height");
+            long touchTime = android.os.SystemClock.uptimeMillis();
+            android.view.MotionEvent down = android.view.MotionEvent.obtain(
+                touchTime, touchTime, android.view.MotionEvent.ACTION_DOWN, width / 2f, 1f, 0);
+            android.view.MotionEvent up = android.view.MotionEvent.obtain(
+                touchTime, touchTime + 20, android.view.MotionEvent.ACTION_UP, width / 2f, 1f, 0);
+            boolean downHandled;
+            boolean upHandled;
+            try {
+                downHandled = surface.dispatchTouchEvent(down);
+                upHandled = surface.dispatchTouchEvent(up);
+            } finally {
+                down.recycle();
+                up.recycle();
+            }
+            check(downHandled && upHandled && surface.isClickable(),
+                "clipboard detail top area touch was not consumed by the clipboard panel");
+            check(descendant(surface, view -> view instanceof Button
+                    && describedAs(view, "返回剪贴板历史列表")) != null,
+                "clipboard detail lost its accessible bottom return action");
+            check(descendant(surface, view -> view instanceof android.widget.TextView
+                    && "记录详情".contentEquals(((android.widget.TextView) view).getText())) == null,
+                "clipboard detail title is still present after removing the top header");
             int restored = saved.getInt(panels);
             method(panels.getClass(), "returnFromClipboardDetail").invoke(panels);
             layout(surface, width, height);
             scroll.scrollTo(0, restored);
-            java.util.List<View> returned = describedViews(cards, "查看这条剪贴板记录详情");
+            java.util.List<View> returned = clipboardCardViews(cards);
             check(returned.size() > target, "clipboard history did not come back after details");
             int after = bounds(surface, returned.get(target)).top;
             check(after == before, "clipboard record moved after returning from details with the more menu open: "
@@ -596,6 +629,18 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             View child = root.getChildAt(index);
             if (describedAs(child, text)) result.add(child);
             if (child instanceof ViewGroup group) result.addAll(describedViews(group, text));
+        }
+        return result;
+    }
+
+    private static java.util.List<View> clipboardCardViews(ViewGroup root) {
+        java.util.List<View> result = new java.util.ArrayList<>();
+        for (int index = 0; index < root.getChildCount(); index++) {
+            View child = root.getChildAt(index);
+            CharSequence description = child.getContentDescription();
+            if (description != null && description.toString().contains("左滑删除")
+                    && description.toString().contains("长按管理")) result.add(child);
+            if (child instanceof ViewGroup group) result.addAll(clipboardCardViews(group));
         }
         return result;
     }
