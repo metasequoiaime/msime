@@ -19,6 +19,7 @@ function harness() {
   const timers = new Map();
   let nextTimer = 0;
   let rebuilds = 0;
+  let clipboardStarts = 0;
   const Session = vm.runInNewContext(javascript, {
     setTimeout: callback => { timers.set(++nextTimer, callback); return nextTimer; },
     clearTimeout: timer => timers.delete(timer),
@@ -30,6 +31,8 @@ function harness() {
     personalDictionarySettled: false, personalDictionaryTimer: -1,
     personalDictionaryStalls: 0, snapshotQueueTimer: -1, snapshotQueueStalls: 0,
     localMode: 'none', composing: () => false,
+    clipboardCaptureVisible: false,
+    clipboardCapture: { start() { clipboardStarts++; } },
     restartIdleSession() {
       rebuilds++;
       this.personalDictionaryStalls++;
@@ -37,7 +40,7 @@ function harness() {
       this.scheduleDictionarySnapshotPoll();
     },
   });
-  return { session, timers, rebuilds: () => rebuilds,
+  return { session, timers, rebuilds: () => rebuilds, clipboardStarts: () => clipboardStarts,
     tick() {
       const [id, callback] = timers.entries().next().value;
       timers.delete(id);
@@ -54,6 +57,8 @@ assert.equal(hiddenProgress.rebuilds(), 1);
 assert.equal(hiddenProgress.timers.size, 0, '隐藏后才停滞的队列不能再次排程，也不能重新启动快照查询');
 hiddenProgress.session.keyboardShown();
 assert.equal(hiddenProgress.session.idleDictionaryVisible, true);
+assert.equal(hiddenProgress.session.clipboardCaptureVisible, true);
+assert.equal(hiddenProgress.clipboardStarts(), 1, '显示键盘时恢复剪贴板采集');
 assert.equal(hiddenProgress.timers.size, 2, '重新显示时恢复卡住队列的退避重试');
 
 const hiddenStall = harness();
@@ -80,7 +85,9 @@ resumed.session.keyboardShown();
 assert.equal(resumed.timers.size, 2, '重复显示事件不能重复排程');
 resumed.session.pauseIdleDictionaryWork();
 resumed.session.inputClient = undefined;
+const clipboardStartsBeforeBlur = resumed.clipboardStarts();
 resumed.session.keyboardShown();
+assert.equal(resumed.clipboardStarts(), clipboardStartsBeforeBlur, '失焦后迟到的显示事件不能恢复剪贴板采集');
 assert.equal(resumed.timers.size, 0, '失焦后迟到的显示事件不能恢复任务');
 assert.equal(resumed.session.idleDictionaryVisible, false);
 resumed.session.inputClient = {};

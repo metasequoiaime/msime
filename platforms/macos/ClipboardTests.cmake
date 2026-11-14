@@ -23,7 +23,7 @@ endfunction()
 set(clipboard_catalog_sources src/backend/clipboard/BackendClipboardTextLimits.swift src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
   src/backend/emoji/BackendEmojiClipboardHistory.swift)
 set(clipboard_monitor_sources ${clipboard_catalog_sources} src/backend/clipboard/BackendClipboardCapture.swift
-  src/backend/clipboard/BackendClipboardMonitor.swift)
+  src/backend/clipboard/BackendClipboardSamplingBuffer.swift src/backend/clipboard/BackendClipboardMonitor.swift)
 set(clipboard_row_sources src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiClipboardRow.swift
   src/backend/emoji/BackendEmojiClipboardTooltip.swift)
 
@@ -33,6 +33,7 @@ msime_clipboard_swift_test(clipboard-history-observation tests/emoji/EmojiClipbo
   ${clipboard_catalog_sources})
 msime_clipboard_swift_test(clipboard-capture tests/clipboard/ClipboardCaptureTest.swift src/backend/clipboard/BackendClipboardCapture.swift src/backend/clipboard/BackendClipboardTextLimits.swift)
 msime_clipboard_swift_test(clipboard-monitor tests/clipboard/ClipboardMonitorTest.swift ${clipboard_monitor_sources})
+msime_clipboard_swift_test(clipboard-continuous-copy tests/clipboard/ClipboardContinuousCopyTest.swift ${clipboard_monitor_sources})
 msime_clipboard_swift_test(clipboard-service tests/clipboard/ClipboardServiceTest.swift
   ${clipboard_monitor_sources} src/backend/clipboard/BackendClipboardService.swift)
 msime_clipboard_swift_test(clipboard-preview tests/emoji/EmojiClipboardPreviewTest.swift ${clipboard_row_sources})

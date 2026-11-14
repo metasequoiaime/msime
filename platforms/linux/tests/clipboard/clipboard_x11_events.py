@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Exercise clipboard ownership events on an isolated Xvfb display."""
-import ctypes
 import json
 import os
 from pathlib import Path
@@ -10,6 +9,12 @@ import sys
 import tempfile
 import time
 import unittest
+import signal
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk
 
 ROOT = Path(__file__).resolve().parents[2]
 WATCHER = Path(sys.argv.pop(1)).resolve()
@@ -17,31 +22,16 @@ WATCHER = Path(sys.argv.pop(1)).resolve()
 
 class ClipboardEvents(unittest.TestCase):
     def test_identical_copies_and_disable_reenable(self):
-        x11 = ctypes.CDLL("libX11.so.6")
-        pointer, number = ctypes.c_void_p, ctypes.c_ulong
-        signatures = {
-            "XOpenDisplay": ([ctypes.c_char_p], pointer),
-            "XDefaultRootWindow": ([pointer], number),
-            "XInternAtom": ([pointer, ctypes.c_char_p, ctypes.c_int], number),
-            "XCreateSimpleWindow": ([pointer, number, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
-                                     ctypes.c_uint, ctypes.c_uint, number, number], number),
-            "XSetSelectionOwner": ([pointer, number, number, number], ctypes.c_int),
-            "XSync": ([pointer, ctypes.c_int], ctypes.c_int),
-            "XCloseDisplay": ([pointer], ctypes.c_int),
-        }
-        for name, (arguments, result) in signatures.items():
-            function = getattr(x11, name)
-            function.argtypes, function.restype = arguments, result
-        display = x11.XOpenDisplay(None)
-        self.assertTrue(display)
-        self.addCleanup(x11.XCloseDisplay, display)
-        root_window = x11.XDefaultRootWindow(display)
-        clipboard = x11.XInternAtom(display, b"CLIPBOARD", 0)
-        window = x11.XCreateSimpleWindow(display, root_window, 0, 0, 1, 1, 0, 0, 0)
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        self.addCleanup(clipboard.clear)
+        initial = "synthetic identical clipboard"
+        clipboard.set_text(initial, -1)
+        def pump():
+            while GLib.MainContext.default().iteration(False):
+                pass
         def copy_again():
-            # Same owner and same text: this is invisible to text-only polling.
-            x11.XSetSelectionOwner(display, clipboard, window, 0)
-            x11.XSync(display, 0)
+            clipboard.set_text(initial, -1)
+            pump()
         with tempfile.TemporaryDirectory(prefix="msime-x11-clipboard-") as directory:
             root = Path(directory)
             monitor = root / "msime-linux-clipboard-monitor"
@@ -53,10 +43,10 @@ class ClipboardEvents(unittest.TestCase):
                 path = root / name
                 path.write_text("#!" + sys.executable + "\n" + source)
                 path.chmod(0o700)
-            executable("xclip", "import sys\nsys.stdout.write('synthetic identical clipboard')\n")
             executable("msime-linux-clipboard-capture", "import os, sys\n"
-                       "assert sys.stdin.buffer.read() == b'synthetic identical clipboard'\n"
-                       "with open(os.environ['MSIME_TEST_CAPTURES'], 'a') as log: log.write('capture\\n')\n")
+                       "import json\n"
+                       "text = sys.stdin.buffer.read().decode('utf-8')\n"
+                       "with open(os.environ['MSIME_TEST_CAPTURES'], 'a') as log: log.write(json.dumps(text) + '\\n')\n")
             options = root / "runtime.json"
             options.write_text(json.dumps({"preferences_directory": str(root)}))
             def enable(value):
@@ -74,7 +64,8 @@ class ClipboardEvents(unittest.TestCase):
             def wait_count(expected):
                 deadline = time.monotonic() + 4
                 while count() < expected and process.poll() is None and time.monotonic() < deadline:
-                    time.sleep(0.01)
+                    pump()
+                    time.sleep(0.001)
                 self.assertIsNone(process.poll(), "monitor exited")
                 self.assertEqual(count(), expected)
             try:
@@ -83,13 +74,28 @@ class ClipboardEvents(unittest.TestCase):
                 wait_count(2)
                 copy_again()
                 wait_count(3)
+                # 保存进程停顿时，监听器仍要把三次正文分别排队，不能只剩最后一次。
+                os.kill(process.pid, signal.SIGSTOP)
+                texts = ["synthetic alpha\nline", "synthetic beta 中文", "synthetic gamma🙂"]
+                try:
+                    for text in texts:
+                        clipboard.set_text(text, -1)
+                        deadline = time.monotonic() + 0.2
+                        while time.monotonic() < deadline:
+                            pump()
+                            time.sleep(0.001)
+                finally:
+                    os.kill(process.pid, signal.SIGCONT)
+                wait_count(6)
+                values = [json.loads(line) for line in log.read_text().splitlines()]
+                self.assertEqual(values, [initial] * 3 + texts)
                 enable(False)
                 time.sleep(1)
                 copy_again()
                 time.sleep(1)
-                self.assertEqual(count(), 3)
+                self.assertEqual(count(), 6)
                 enable(True)
-                wait_count(4)
+                wait_count(7)
             finally:
                 process.terminate()
                 process.wait(timeout=4)

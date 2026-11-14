@@ -189,6 +189,7 @@ platforms/android/tests/device/clipboard/ClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardCapacityDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardContinuousCopyDeviceChecks.java
 platforms/android/tests/device/clipboard/ClipboardRetentionRaceDeviceChecks.java
 platforms/android/tests/device/clipboard/ClipboardShareSinkActivity.java
 platforms/android/tests/device/clipboard/ClipboardSegmentActionsDeviceSmoke.java

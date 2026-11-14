@@ -59,7 +59,10 @@ class WaylandWatch(unittest.TestCase):
                         "    with log.open('a') as output: output.write('x11-read\\n')\n"
                         "    sys.stdout.write('synthetic xwayland clipboard')\n"
                         "    raise SystemExit(0)\n"
-                        "print(flush=True)\n"
+                        "with log.open('a') as output: output.write('x11-read\\n')\n"
+                        "data = b'synthetic xwayland clipboard'\n"
+                        "sys.stdout.buffer.write(len(data).to_bytes(4, 'big') + data)\n"
+                        "sys.stdout.buffer.flush()\n"
                         "time.sleep(30)\n")
         path.chmod(0o700)
 
