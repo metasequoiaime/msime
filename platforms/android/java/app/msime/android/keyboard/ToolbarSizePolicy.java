@@ -2,7 +2,7 @@ package app.msime.android;
 
 /** Android 空闲工具栏的独立尺寸；未显式设置时由调用方继续沿用候选栏高度，按钮和图标随行高缩小（{@link #followedButtonHeight}）。 */
 public final class ToolbarSizePolicy {
-    public static final int MIN_PERCENT = 90;
+    public static final int MIN_PERCENT = 50;
     public static final int MAX_PERCENT = 150;
     public static final int DEFAULT_PERCENT = 100;
     private static final int BASE_HEIGHT_DP = 56;
@@ -15,7 +15,7 @@ public final class ToolbarSizePolicy {
     }
 
     public static int heightDp(int percent) {
-        return Math.round(BASE_HEIGHT_DP * ToolbarSizePolicy.percent(percent) / 100f);
+        return Math.max(44, Math.round(BASE_HEIGHT_DP * ToolbarSizePolicy.percent(percent) / 100f));
     }
 
     public static int buttonHeightDp(int percent) {
@@ -53,10 +53,10 @@ public final class ToolbarSizePolicy {
         return designRow > 0 ? Math.min(button, designRow) : button;
     }
 
-    /** 设置页预览用：跟随候选栏时空闲行的默认高度，即 {@code ImeToolbar.READING_ROW_DP} 的读音行加上按「候选栏大小」缩放的 {@code ImeToolbar.CANDIDATE_LINE_DP} 候选行。读音字号放大或多行释义时键盘里的实际行高会更高。 */
+    /** 设置页预览用：读音行加无释义候选行的设计高度；实际字体较大或开启释义时键盘行高会更高。 */
     public static int followedHeightDp(int candidateScalePercent) {
         return ImeToolbar.READING_ROW_DP + CandidateScalePolicy.dimension(
-            ImeToolbar.CANDIDATE_LINE_DP, CandidateScalePolicy.percent(candidateScalePercent));
+            CandidateStripHeightPolicy.PLAIN_LINE_DP, CandidateScalePolicy.percent(candidateScalePercent));
     }
 
     public static int idleSpacerPx(int idleHeight, int composingHeight) {
