@@ -27,7 +27,7 @@ Status: implemented
 
 ## Verification
 
-共享签名使用独立 Python HMAC/SHA256 固定向量；5 项阿里云核心测试、1 项连接探测测试、15 项凭据回归、16 项设置文件回归通过；共享库 Clippy 以 `-D warnings` 通过。Android JNI 头文件交叉编译、350 项 JVM 冒烟、设备套件编译与 `compileFullReleaseJavaWithJavac` 通过。真实 APK 与设备 JNI 回放、最终 quick、截图上传尚在执行，不把仅编译计为设备验收。
+共享签名使用独立 Python HMAC/SHA256 固定向量；5 项阿里云核心测试、1 项连接探测测试、15 项凭据回归、16 项设置文件回归通过；共享库 Clippy 以 `-D warnings` 通过。Android JNI 头文件交叉编译、350 项 JVM 冒烟、设备套件编译与 `compileFullReleaseJavaWithJavac` 通过。原生 APK 构建通过；在 API 28、API 35 专用模拟器上安装后，通过真实产品类加载器执行 JNI 与选路专项，覆盖两版本、签名头、缓存归属、非法控制字符、错误响应、合法空回答、凭据缺失和总开关。API 35 原生页完成服务选择、专业版场景切换及香港／专业版／医疗冷启动保留；前后截图上传后下载并逐字节核对。最终 quick `20261114-152058` 通过（9 分 53 秒）。首次 quick 因新配置未列入平台专属字段清单失败；补齐仅 Android 原生设置可达的归属记录后重跑通过，不向 React 增加入口。HarmonyOS 暂存与 Linux 容器编译因远端环境缺依赖跳过，不把跳过记为通过，也不把编译计为设备验收。
 
 设备回归复用现有 `HardwareTranslationDeviceSmoke`，可用 `-e aliyun-only true` 单独执行合成描述器与原生选路；不增加已达 100 项上限的 instrumentation。生产方法经产品类加载器调用，不用测试替身代替 Rust。
 
