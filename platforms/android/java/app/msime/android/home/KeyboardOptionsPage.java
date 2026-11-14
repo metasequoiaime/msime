@@ -43,6 +43,7 @@ import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.NineKeyFlickPolicy;
 import app.msime.android.NineKeyCompositionActionPolicy;
 import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
@@ -65,7 +66,7 @@ import org.json.JSONObject;
 /**
  * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、拼音显示位置、双拼显示原始按键、原始按键按音节分隔、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏、键盘底部高度）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼显示原始按键与按音节分隔、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`shuangpin_preedit_uses_raw`、`shuangpin_preedit_separated`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 50–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼显示原始按键与按音节分隔、双拼键位提示、全拼组字保留 Shift、九键 flick 阈值和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`shuangpin_preedit_uses_raw`、`shuangpin_preedit_separated`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_flick_threshold`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 50–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
@@ -299,20 +300,19 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
         gestures.toggle("显示字母键角标", null, settings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS),
             checked -> saveLocalSetting(AndroidLocalSettings.LETTER_CORNER_HINTS, checked)).help("26 键和 14/18 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入");
-        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。它在共享偏好 `touch_nine_key_swipe_digits` 里、随账号同步，三端同一行、同一套文字（#10229）；本机旧值在 reload 里先迁过来。本版本没有拼音九键时不列。
+        // 九键字母 flick 只在拼音九键可用；方向和阈值三端共用，数字改由长按输入。旧的数字滑动字段继续保留以兼容旧文档，但不再作为设置入口。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {
-            String nineKeySwipe = NineKeySwipePolicy.mode(
-                JsonPolicy.strictString(preferences.opt(NineKeySwipePolicy.PREFERENCE)));
-            GroupCard.Row[] nineKeySwipeRow = new GroupCard.Row[1];
-            nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", null,
-                nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0])).help("沿所选方向滑动输入数字，反方向弹出字母。");
-            // 九键单独的判定距离（#6208）：键高，快速连打时手指往上带一下就会被当成上滑；26 键的「滑动输入符号」阈值不受影响。距离仍是 Android 本机设置，iOS 和鸿蒙固定 24，不随账号同步。
-            GroupCard.Row distanceRow = gestures.slider("九键滑动距离", null,
-                NineKeySwipePolicy.MIN_THRESHOLD_DP, NineKeySwipePolicy.MAX_THRESHOLD_DP,
-                NineKeySwipePolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE),
-                value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value)).help("手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动");
-            distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
+            int threshold = preferences.optInt(NineKeyFlickPolicy.PREFERENCE, -1);
+            if (threshold < NineKeyFlickPolicy.MIN_THRESHOLD_DP || threshold > NineKeyFlickPolicy.MAX_THRESHOLD_DP
+                    || (threshold - NineKeyFlickPolicy.MIN_THRESHOLD_DP) % NineKeyFlickPolicy.THRESHOLD_STEP_DP != 0) {
+                threshold = NineKeyFlickPolicy.DEFAULT_THRESHOLD_DP;
+            }
+            gestures.slider("九键 flick 阈值", null,
+                NineKeyFlickPolicy.MIN_THRESHOLD_DP, NineKeyFlickPolicy.MAX_THRESHOLD_DP,
+                NineKeyFlickPolicy.THRESHOLD_STEP_DP, threshold,
+                value -> value + " dp", value -> savePreference(NineKeyFlickPolicy.PREFERENCE, value))
+                .help("手指移动超过这个距离才输入上、左或右方向对应的字母；数字请长按输入");
             String compositionAction = settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION);
             GroupCard.Row[] compositionActionRow = new GroupCard.Row[1];
             compositionActionRow[0] = gestures.nav("九键组字按钮", null,
@@ -757,18 +757,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         return ClipboardLayoutPolicy.columns(value) == 2 ? "双列" : "单列";
     }
 
-    private void pickNineKeySwipe(String selected, GroupCard.Row row) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "九键滑动输入数字", null);
-        for (String value : new String[] {NineKeySwipePolicy.OFF, SwipeHintPolicy.UP, SwipeHintPolicy.DOWN}) {
-            sheet.option(nineKeySwipeLabel(value), value.equals(selected), () -> {
-                row.setValue(nineKeySwipeLabel(value));
-                // 选哪项写哪项的写法（关闭也写 `off`），写进共享偏好、不写本机键；存好后重画，下次打开选项单时勾选的是新值，距离滑块跟着置灰或恢复。
-                savePreference(NineKeySwipePolicy.PREFERENCE, value);
-            });
-        }
-        sheet.show();
-    }
-
     private void pickNineKeyCompositionAction(String selected, GroupCard.Row row) {
         OptionSheet sheet = new OptionSheet(requireContext(), "九键组字按钮", null);
         for (String value : new String[] {NineKeyCompositionActionPolicy.SEPARATE,
@@ -779,11 +767,6 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
             });
         }
         sheet.show();
-    }
-
-    /** 行值和选项单三项共用，三端逐字相同。 */
-    private static String nineKeySwipeLabel(String value) {
-        return SwipeHintPolicy.UP.equals(value) ? "上滑" : SwipeHintPolicy.DOWN.equals(value) ? "下滑" : "关闭";
     }
 
     private static String swipeDirectionLabel(String value) {

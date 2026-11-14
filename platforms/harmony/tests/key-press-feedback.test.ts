@@ -173,15 +173,16 @@ function adapter() {
   const View = new Function(
     "KeyboardSession",
     "TouchType",
-    "NineKeySwipe",
+    "NineKeyFlick",
+    "NineKeyFlickPolicy",
     "NineKeyLayout",
     "KeyIdPolicy",
     "GlideTypingPolicy",
     require("module").stripTypeScriptTypes(
       `class View {${methods(viewSource, [
         "keyPressTouch",
-        "nineKeySwipeTouch",
-        "typeNineKeySwipeDigit",
+        "nineKeyFlickTouch",
+        "typeNineKeyFlickCharacter",
         "eighteenKeySwipeTouch",
         "commaSwipeTouch",
         "letterHintTouch",
@@ -191,15 +192,15 @@ function adapter() {
   )(
     { shared: session },
     touchTypes,
-    { DIGIT: 1 },
+    { FIRST: 1, SECOND: 2, THIRD: 3, NONE: 0 },
+    { character: (): string => "a" },
     { digitHint: (): string => "2" },
     { nineKey: (): string => "synthetic-key", character: (): string => "synthetic-key" },
     { request: (): string => "synthetic-glide" },
   );
   const view = new View();
   view.keyFacesShowKeys = (): boolean => true;
-  view.nineKeySwipes = { up: (): number => 1 };
-  view.endNineKeySwipeFace = (): void => {};
+  view.nineKeyFlicks = { up: (): number => 1, swallows: (): boolean => true };
   const event = (type: number, id: number) => ({ type, changedTouches: [{ id }] });
   return { session, view, event, timers, vibrations: (): number => vibrations };
 }
@@ -225,7 +226,7 @@ group("九键子控件松手上屏在容器收到抬起之前绑定自己的按�
   f.view.keyPressTouch(f.event(touchTypes.Down, 10));
   f.view.keyPressTouch(f.event(touchTypes.Down, 20));
   const up = f.event(touchTypes.Up, 20);
-  f.view.nineKeySwipeTouch({ input: "abc" }, up);
+  f.view.nineKeyFlickTouch({ input: "abc" }, up);
   f.view.keyPressTouch(up);
   while (f.timers.length > 0) f.timers.shift()!();
   f.view.keyPressTouch(f.event(touchTypes.Up, 10));

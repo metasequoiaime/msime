@@ -383,70 +383,56 @@ test("puts the one-handed side number pad switch in the phone 布局 group with 
   ).toBeTruthy();
 });
 
-// 九键滑动输入数字（#10229）：三端同一行文字、同一组选项，在 26 键「滑动方向」和「显示字母键角标」（#10587）之后。
-test("lists 九键滑动输入数字 after 滑动方向 and 显示字母键角标 and hands each choice's own spelling back", () => {
-  const onNineKeySwipeDigitsChange = vi.fn();
-  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
-  expect(screen.queryByLabelText("九键滑动输入数字")).toBeNull();
-
-  rerender(
+// 九键 flick 阈值（#11244）：三端同一范围和步进，数字改由长按输入。
+test("lists 九键 flick 阈值 after 显示字母键角标 and forwards the value", () => {
+  const onNineKeyFlickThresholdChange = vi.fn();
+  render(
     <TouchKeyboardGeometrySection
       {...baseProps}
       letterCornerHints={true}
-      nineKeySwipeDigits="off"
-      onNineKeySwipeDigitsChange={onNineKeySwipeDigitsChange}
+      nineKeyFlickThreshold={24}
+      onNineKeyFlickThresholdChange={onNineKeyFlickThresholdChange}
     />,
   );
-  const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
+  const row = screen.getByLabelText("九键 flick 阈值") as HTMLInputElement;
   const cornerHints = screen.getByLabelText("显示字母键角标");
-  expect(row.value).toBe("off");
-  expect([...row.options].map((option) => [option.value, option.textContent])).toEqual([
-    ["off", "关闭"],
-    ["up", "上滑"],
-    ["down", "下滑"],
-  ]);
-  expect(screen.getByText("沿所选方向滑动输入数字，反方向弹出字母。")).toBeTruthy();
-  expect(
-    screen.getByLabelText("滑动方向").compareDocumentPosition(cornerHints) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  expect(row.value).toBe("24");
+  expect([row.min, row.max, row.step]).toEqual(["14", "48", "2"]);
   expect(cornerHints.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(
     row.compareDocumentPosition(screen.getByLabelText("滑行输入")) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  for (const value of ["up", "down", "off"] as const) {
-    fireEvent.change(row, { target: { value } });
-    expect(onNineKeySwipeDigitsChange).toHaveBeenLastCalledWith(value);
-  }
+  fireEvent.change(row, { target: { value: "30" } });
+  expect(onNineKeyFlickThresholdChange).toHaveBeenLastCalledWith(30);
 });
 
-test("九键滑动输入数字 does not follow the 26 key switch or the local save", () => {
+test("九键 flick 阈值 does not follow the 26 key switch or the local save", () => {
   render(
     <TouchKeyboardGeometrySection
       {...baseProps}
       swipeSymbols={false}
       tabletFullKeysBusy
-      nineKeySwipeDigits="up"
-      onNineKeySwipeDigitsChange={vi.fn()}
+      nineKeyFlickThreshold={28}
+      onNineKeyFlickThresholdChange={vi.fn()}
     />,
   );
-  const row = screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement;
-  expect(row.value).toBe("up");
+  const row = screen.getByLabelText("九键 flick 阈值") as HTMLInputElement;
+  expect(row.value).toBe("28");
   expect(row.disabled).toBe(false);
 });
 
-test("draws the gestures group for 九键滑动输入数字 alone", () => {
+test("draws the gestures group for 九键 flick 阈值 alone", () => {
   render(
     <TouchKeyboardGeometrySection
       {...baseProps}
       glideTyping={undefined}
       swipeSymbols={undefined}
-      nineKeySwipeDigits="down"
-      onNineKeySwipeDigitsChange={vi.fn()}
+      nineKeyFlickThreshold={32}
+      onNineKeyFlickThresholdChange={vi.fn()}
     />,
   );
   expect(screen.getByText("手势")).toBeTruthy();
   expect(screen.queryByLabelText("滑动输入符号")).toBeNull();
-  expect((screen.getByLabelText("九键滑动输入数字") as HTMLSelectElement).value).toBe("down");
+  expect((screen.getByLabelText("九键 flick 阈值") as HTMLInputElement).value).toBe("32");
 });

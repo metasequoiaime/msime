@@ -3,8 +3,8 @@
 //! 写回分两步：宿主先按 [`IosPreferencePlan::requested_native`] 写 App Group，再拿实际保存下来的值调 [`IosPreferencePlan::apply_shared`] 写共享偏好，后一步失败时宿主把 App Group 恢复成旧值。
 
 use super::settings_sync::{
-    account_wubi_schema, frequency_account_preferences, insert_bool, insert_string,
-    valid_haptic_strength,
+    account_wubi_schema, frequency_account_preferences, insert_bool, insert_integer,
+    insert_mobile_shared_settings, insert_string, valid_haptic_strength,
 };
 use crate::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
@@ -12,6 +12,7 @@ use crate::account::{
 use crate::preferences::{
     ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
     TouchKeyboardScheme, TouchKeyboardSkinDesign, WubiProfile,
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE, TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP,
 };
 use crate::skin::theme::GlobalTheme;
 use msime_client_core::ios_keyboard::IosKeyboardPreferences;
@@ -82,6 +83,13 @@ pub fn local_account_preferences(
         insert_string(&mut settings, IOS_KEYBOARD_LAYOUT, layout);
         insert_bool(&mut settings, "platform.ios.nine_key", layout == "nine_key");
     }
+    insert_mobile_shared_settings(&mut settings, shared);
+    // 旧 iOS 版本只认识平台键；保留它一段时间，新的设备应用时优先读上面的跨平台键。
+    insert_integer(
+        &mut settings,
+        "platform.ios.nine_key_flick_threshold",
+        i64::from(shared.touch_nine_key_flick_threshold),
+    );
     insert_bool(
         &mut settings,
         "platform.ios.sound_enabled",
@@ -164,6 +172,27 @@ fn integer_setting(
     }
 }
 
+fn nine_key_flick_threshold_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+) -> Result<Option<u16>, AccountError> {
+    integer_setting(settings, "input.nine_key_flick_threshold")?
+        .or(integer_setting(
+            settings,
+            "platform.ios.nine_key_flick_threshold",
+        )?)
+        .map(|value| {
+            let value = u16::try_from(value).map_err(|_| AccountError::Invalid)?;
+            if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&value)
+                || !(value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                    .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+            {
+                return Err(AccountError::Invalid);
+            }
+            Ok(value)
+        })
+        .transpose()
+}
+
 /// 账号的 `input.schema` 装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。
 const UNSYNCED_NATIVE_SCHEMES: [&str; 5] =
     ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"];
@@ -191,6 +220,7 @@ pub struct IosPreferencePlan {
     haptics_enabled: Option<bool>,
     haptic_strength: Option<String>,
     dictionary_learning: Option<bool>,
+    nine_key_flick_threshold: Option<u16>,
     frequency_mode: Option<FrequencyMode>,
     frequency_trigger_count: Option<u8>,
     frequency_linear_step: Option<u8>,
@@ -319,6 +349,7 @@ impl IosPreferencePlan {
             haptics_enabled: bool_setting(values, "platform.ios.haptics_enabled")?,
             haptic_strength,
             dictionary_learning: bool_setting(values, "platform.ios.dictionary_learning")?,
+            nine_key_flick_threshold: nine_key_flick_threshold_setting(values)?,
             frequency_mode,
             frequency_trigger_count,
             frequency_linear_step,
@@ -402,6 +433,9 @@ impl IosPreferencePlan {
         }
         if self.dictionary_learning.is_some() {
             preferences.learning = native.dictionary_learning;
+        }
+        if let Some(value) = self.nine_key_flick_threshold {
+            preferences.touch_nine_key_flick_threshold = value;
         }
         if self.global_theme.is_some() {
             preferences.global_theme =
@@ -1095,6 +1129,14 @@ mod tests {
             AccountPreferenceValue::String("nine_key".into())
         );
         assert_eq!(
+            settings["platform.ios.nine_key_flick_threshold"],
+            AccountPreferenceValue::Integer(24)
+        );
+        assert_eq!(
+            settings["input.nine_key_flick_threshold"],
+            AccountPreferenceValue::Integer(24)
+        );
+        assert_eq!(
             settings["input.character_set"],
             AccountPreferenceValue::String("traditional".into())
         );
@@ -1212,6 +1254,14 @@ mod tests {
                     AccountPreferenceValue::Boolean(false),
                 ),
                 (
+                    "platform.ios.nine_key_flick_threshold".into(),
+                    AccountPreferenceValue::Integer(28),
+                ),
+                (
+                    "input.nine_key_flick_threshold".into(),
+                    AccountPreferenceValue::Integer(30),
+                ),
+                (
                     "platform.ios.global_theme".into(),
                     AccountPreferenceValue::String("night".into()),
                 ),
@@ -1256,6 +1306,7 @@ mod tests {
             preferences.touch_keyboard_schemes.selected,
             Some(TouchKeyboardScheme::JapaneseNineKey)
         );
+        assert_eq!(preferences.touch_nine_key_flick_threshold, 30);
         assert!(preferences.traditional_chinese_output);
         assert!(!preferences.learning);
         assert_eq!(preferences.global_theme, GlobalTheme::Night);
@@ -1375,6 +1426,19 @@ mod tests {
             let mut preferences = Preferences::default();
             assert_eq!(
                 plan.apply_shared(&native(), &mut preferences),
+                Err(AccountError::Invalid)
+            );
+        }
+        for value in [13, 25, 49] {
+            let cloud = AccountPreferences {
+                revision: 10,
+                settings: BTreeMap::from([(
+                    "platform.ios.nine_key_flick_threshold".into(),
+                    AccountPreferenceValue::Integer(value),
+                )]),
+            };
+            assert_eq!(
+                IosPreferencePlan::from_cloud(&cloud),
                 Err(AccountError::Invalid)
             );
         }

@@ -184,6 +184,7 @@ fn export_maps_this_hosts_preferences_under_its_own_namespace() {
             "keyboard_layout",
             "language_key_side",
             "nine_key_digit_symbols",
+            "nine_key_flick_threshold",
             "nine_key_style",
             "nine_key_swipe",
             "nine_key_symbols",
@@ -1167,9 +1168,11 @@ fn split_keyboard_switch_syncs_under_the_harmony_key_and_its_bounds_stay_local()
         AccountPreferenceValue::Boolean(false)
     );
     assert!(!settings.contains_key("platform.android.split_keyboard"));
-    assert!(settings.keys().all(|key| !key.contains("threshold")
+    assert!(settings.keys().all(|key| (!key.contains("threshold")
         && !key.contains("gap")
-        && !key.contains("portrait")));
+        && !key.contains("portrait"))
+        || key == "platform.harmony.nine_key_flick_threshold"
+        || key == "input.nine_key_flick_threshold"));
 
     let local = Preferences::default();
     let applied = apply(
