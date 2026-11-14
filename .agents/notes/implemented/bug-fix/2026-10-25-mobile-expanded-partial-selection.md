@@ -16,7 +16,7 @@ Status: implemented
 
 各端的接法：
 
-- **Android**：`ImeCandidates` 的格子点击交给 `MSIMEInputService.selectPanelCandidate`。选词（以及清笔画）那次 `apply` 用 `renderingSuppressed` 压住重画：面板此时已标成收起，画一次会先把面板收掉（九键面板还会复位左栏、排队清筛选），紧接着又重开。状态定下来以后，留着就走 `openCandidatePanel(true)` 取新一代快照再画一次，不留就直接画。手指还按着候选时这次 `render` 照旧被 `candidateTreeHeld` 延后，松手补的那一帧按定下来的状态画；面板内容跟的是 `candidatePanelSnapshot` 的代次，不靠 `View.isPressed()`，所以不会重现 #9107 的「补帧前状态已过去」，也不会留下旧一代的格子。普通网格在 `renderExpandedCandidates` 里遇到代次不符仍然收起，部分选词路径在画之前已换上新快照，走不到那里。
+- **Android**：`ImeCandidates` 的格子点击交给 `MSIMEInputService.selectPanelCandidate`。选词（以及清笔画）那次 `apply` 用 `renderingSuppressed` 压住重画：面板此时已标成收起，画一次会先把面板收掉（九键面板还会复位左栏、排队清筛选），紧接着又重开。状态定下来以后，留着就走 `openCandidatePanel(true)` 取新一代快照再画一次，不留就直接画。手指还按着候选时这次 `render` 照旧被 `candidateTreeHeld` 延后，松手补的那一帧按定下来的状态画；面板内容跟的是 `candidatePanelSnapshot` 的代次，不靠 `View.isPressed()`，所以不会重现 #9107 的「补帧前状态已过去」，也不会留下旧一代的格子。普通网格在 `renderExpandedCandidates` 里遇到未同步的代次仍然收起，部分选词路径在画之前已换上新快照，走不到那里。同次组字的异步刷新按 [#11454 的决定](2026-11-14-android-expanded-async-refresh.md)同样先同步完整快照，本篇关于其他组字变化的边界保留。
 - **iOS**：`selectPanelCandidate` 先选再决定收不收（先收起再清筛选会换一代，这次选择就过期了）。画这次快照时 `candidatePanelFollowsSelection` 让 `refreshCandidatePanelAnnotations` 对普通网格也按新的一代原地 `reload`，与九键面板换代的处理相同；画完按策略决定是否 `closeKeyboardPicker()`。
 - **HarmonyOS**：`chooseAny` 返回引擎是否接受。选词的回报经 `onChanged` 同步走到 `refreshExpanded`，面板留着就已经是新的一代；不留时 `show(SURFACE_NONE)`，`leaveNineKeyPanel` 照旧清筛选。
 

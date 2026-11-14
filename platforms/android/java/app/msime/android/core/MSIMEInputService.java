@@ -4993,7 +4993,7 @@ public final class MSIMEInputService extends InputMethodService {
                 return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
             }
         }, () -> session, next -> {
-            view = next;
+            ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
         }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
 
@@ -5107,7 +5107,7 @@ public final class MSIMEInputService extends InputMethodService {
                         != targetSession) return;
                 // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
                 imeTranslationSenses.followOnlineRefresh(next);
-                view = next;
+                ImeCandidatePanelRefresh.accept(this, next);
                 render();
                 JSONObject current = onlineQuery(targetSession);
                 if (current != null) refreshed.set(current.toString());
