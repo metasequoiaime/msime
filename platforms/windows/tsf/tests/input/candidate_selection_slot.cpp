@@ -5,6 +5,7 @@
 #include <utility>
 
 using msime::windows::candidate_selection_slot;
+using msime::windows::should_follow_server_selection_reply;
 using msime::windows::tip_candidate_selection_index;
 
 namespace {
@@ -48,4 +49,11 @@ int main() {
   for (const auto &[code, text] : keys)
     require(tip_candidate_selection_index(code, text, false, page) == std::optional<std::size_t>(0),
             "A selection key on the minimal mirror did not pick its only row");
+
+  // Server 的候选页只剩八行时，宿主页没有第九个槽位也必须消费 Server 的无动作回执。
+  require(should_follow_server_selection_reply(true, true),
+          "A missing host slot did not follow the Server reply");
+  require(!should_follow_server_selection_reply(false, true) &&
+              !should_follow_server_selection_reply(true, false),
+          "A missing host page or request followed a Server reply");
 }

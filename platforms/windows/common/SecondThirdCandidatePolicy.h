@@ -57,6 +57,12 @@ tip_candidate_selection_index(std::uint32_t keycode, std::uint32_t text, bool en
   return slot;
 }
 
+// 宿主会话的一页没有按键对应的候选时，仍要读 Server 的选词回执。Server 的候选窗可能已经翻到另一页，或者只剩八行；直接返回会把回执留在管道里，下一次按键就会读到旧结果。
+inline bool should_follow_server_selection_reply(bool holds_engine_page,
+                                                 bool has_request) {
+  return holds_engine_page && has_request;
+}
+
 // 微软双拼把 ';' 当作韵母 ing：光标前、上一个 '\'' 之后的字母数是奇数（刚打完声母）时，它是输入。与 EditPolicy.h 的 edit_kind 和 TIP 归类按键时的同一条判断相同。
 template <typename Text>
 bool microsoft_shuangpin_final_position(const Text &editing, std::size_t caret) {
