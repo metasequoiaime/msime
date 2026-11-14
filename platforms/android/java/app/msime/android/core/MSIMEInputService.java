@@ -106,9 +106,8 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long KEY_PRESS_FLUSH_DELAY_MILLIS = 30_000;
     private static final String INPUT_MODE_PREFERENCES = "android-input-modes";
     static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
-    /** 剪贴板补读用的「上一次处理过的那一条」，只存身份（复制时刻和文字散列），见 {@link ClipboardCapturePolicy}。 */
+    /** 剪贴板补读按模式记「上一次处理过的那一条」，只存身份（复制时刻和文字散列），见 {@link ClipboardCapturePolicy}。 */
     private static final String CLIPBOARD_CAPTURE_PREFERENCES = "android-clipboard-capture";
-    private static final String HANDLED_CLIP_KEY = "handled_clip";
     private static final String EMOJI_RECENTS_KEY = "items";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
@@ -364,6 +363,8 @@ public final class MSIMEInputService extends InputMethodService {
     java.util.List<String> nineKeySidebarSymbols = java.util.List.of();
     /** 九宫格数字键盘左列那张表，来自共享偏好 `touch_nine_key_digit_sidebar_symbols`；空表表示用出厂表。 */
     java.util.List<String> nineKeyDigitSidebarSymbols = java.util.List.of();
+    /** 拼音九键组字时 1 键的动作，来自 Android 本机设置，缺省保留「分词」。 */
+    String nineKeyCompositionAction = NineKeyCompositionActionPolicy.SEPARATE;
     /** 大屏单手模式空出来那一侧放什么（#10203），来自共享偏好 `touch_one_handed_side_panel`，缺省空着；画不画还要看单手、屏宽和键面，见 {@link OneHandSidePadPolicy#shown}。 */
     OneHandSidePadPolicy.Panel oneHandedSidePanel = OneHandSidePadPolicy.Panel.OFF;
     /** 中/英键排在空格左边，来自共享偏好 `touch_language_key_side`（只有 `left` 算），缺省在右边、紧挨回车。 */
@@ -3258,6 +3259,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardDeleteAuthenticationEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_DELETE_AUTHENTICATION);
         clipboardSuggestionActionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION);
         clipboardSuggestionActionKind = localSettings.choice(AndroidLocalSettings.CLIPBOARD_SUGGESTION_ACTION_KIND);
+        nineKeyCompositionAction = localSettings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION);
         toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
         toolbarTextEdit = localSettings.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT);
         floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
@@ -7570,6 +7572,16 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardMode = next;
         ClipboardModeStore.save(this, next);
         clipboardHistory = ClipboardHistoryStore.forMode(this, next);
+        if (next == ClipboardModePolicy.Mode.VISITOR) {
+            // 访客模式的历史独立于主模式开关，切换后立即允许复制监听和面板补读。
+            clipboardHistoryEnabled = true;
+        } else if (preferencesSnapshot != null) {
+            JSONObject preferences = preferencesSnapshot.optJSONObject("preferences");
+            clipboardHistoryEnabled = preferences != null
+                && preferences.optBoolean("clipboard_history", false);
+        }
+        // 模式切换后先展示新模式的本机历史；不能沿用上一模式停留的云端标签或异步状态。
+        clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         closeClipboardHistory();
         if (button != null) {
             button.setKind(ClipboardModePolicy.enterIcon(next, true)
@@ -9018,13 +9030,24 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 上一次处理过的剪贴板身份，存在本进程的 SharedPreferences 里，键盘进程被回收后仍然记得；只有身份，没有文字。 */
     private String handledClipIdentity() {
-        return getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE)
-            .getString(HANDLED_CLIP_KEY, null);
+        android.content.SharedPreferences preferences = getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE);
+        String key = ClipboardModePolicy.handledClipPreferenceKey(clipboardMode);
+        String identity = preferences.getString(key, null);
+        // 访客模式隔离前旧版本只有一份 handled_clip：它属于主模式，不能让它挡住访客模式的首次补读。
+        if (identity == null && clipboardMode == ClipboardModePolicy.Mode.MAIN) {
+            String legacy = preferences.getString(ClipboardModePolicy.legacyHandledClipPreferenceKey(), null);
+            if (legacy != null) {
+                preferences.edit().putString(key, legacy)
+                    .remove(ClipboardModePolicy.legacyHandledClipPreferenceKey()).apply();
+                identity = legacy;
+            }
+        }
+        return identity;
     }
 
     private void rememberHandledClip(String identity) {
         getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE).edit()
-            .putString(HANDLED_CLIP_KEY, identity).apply();
+            .putString(ClipboardModePolicy.handledClipPreferenceKey(clipboardMode), identity).apply();
     }
 
     /**
