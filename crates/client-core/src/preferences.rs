@@ -16,6 +16,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub mod candidate_color;
 mod clipboard_retention;
+mod patch;
 mod reporting_authority;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
@@ -5813,6 +5814,8 @@ pub enum PreferencesError {
     InvalidCloudCandidateProvider,
     #[error("clipboard history limit must be one of 50, 100, 200, 500 or 1000")]
     InvalidClipboardHistoryLimit,
+    #[error("preferences patch must be an object with supported fields")]
+    InvalidPatch,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -5950,7 +5953,7 @@ impl PreferencesStore {
         }
         let preferences = current.preferences.clone();
         // 还没有文件，也就没有未知键。
-        self.save_locked(current, &[], 0, preferences, false)
+        self.save_locked(current, &[], 0, preferences, false, false)
     }
 
     /// 修复损坏文件时垫底的默认偏好。
@@ -6141,7 +6144,7 @@ impl PreferencesStore {
         let revision = current.revision;
         let preferences = current.preferences.clone();
         let consent = self
-            .save_locked(current, &unknown, revision, preferences, true)?
+            .save_locked(current, &unknown, revision, preferences, true, false)?
             .preferences
             .usage_reporting_consent;
         Ok(LoadedUsageReportingConsent {
@@ -6297,7 +6300,14 @@ impl PreferencesStore {
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, unknown) = self.read_locked_keeping_unknown()?;
-        self.save_locked(current, &unknown, expected_revision, preferences, false)
+        self.save_locked(
+            current,
+            &unknown,
+            expected_revision,
+            preferences,
+            false,
+            false,
+        )
     }
 
     /// 把 Android 本机旧开关迁进共享偏好；在同一把锁里核对修订号和原始字段。较新版本写入的样式不能被宽松反序列化后的默认值覆盖，迁移数字行时也要原样保留。
@@ -6406,7 +6416,14 @@ impl PreferencesStore {
                 });
             }
         }
-        self.save_locked(current, &unknown, expected_revision, preferences, false)
+        self.save_locked(
+            current,
+            &unknown,
+            expected_revision,
+            preferences,
+            false,
+            false,
+        )
     }
 
     /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
@@ -6418,7 +6435,7 @@ impl PreferencesStore {
         let current = self.read_locked()?;
         let restored = current.preferences.restored_to_defaults_for(self.edition());
         // 恢复默认值连同更新版本写下的设置一起清掉：用户要的是整份回到默认。
-        self.save_locked(current, &[], expected_revision, restored, false)
+        self.save_locked(current, &[], expected_revision, restored, false, false)
     }
 
     /// `save` 的主体，调用方已持有锁并读出了 `current`。`unknown` 是盘上文档里本版本不认识的键，写入时原样放回。
@@ -6429,6 +6446,7 @@ impl PreferencesStore {
         expected_revision: u64,
         mut preferences: Preferences,
         initialize_reporting: bool,
+        force_write: bool,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
@@ -6492,8 +6510,8 @@ impl PreferencesStore {
         // 双拼辅助码触发方式的互斥规则在写入端归一：末尾间接与句中间接的同一枚触发键只能归一边（句中开着时归句中），`mid_sentence` 与 `direct_helpcode` 同真时按万象式直接。
         preferences.shuangpin_helpcode.modes = preferences.shuangpin_helpcode.modes.normalized();
         preferences.validate()?;
-        // Hosts save whenever a setting might have changed, several processes and controllers at a time, and every reader reloads and reapplies the whole document when the revision moves. Writing the same settings again would cost an fsync under the exclusive lock and a reload everywhere for nothing, so an unchanged document keeps its revision. An existing file only: the first save still creates it.
-        if current.revision > 0 && preferences == current.preferences {
+        // 多宿主可能重复保存同一设置，内容相同时保留修订号，避免重复落盘和重新加载；首次保存仍创建文件。补丁明确移除未知数组元素时，即使已知偏好相同也必须写回。
+        if current.revision > 0 && preferences == current.preferences && !force_write {
             return Ok(current);
         }
         let snapshot = PreferencesSnapshot {
@@ -7291,6 +7309,8 @@ fn redact_sensitive_keys(value: &mut serde_json::Value) {
     }
 }
 
+#[cfg(test)]
+mod patch_tests;
 #[cfg(test)]
 mod tests;
 
