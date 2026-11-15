@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-三端拼音九键 1–9 键保留轻点组字和长按选项；原来的数字滑动路径不再作为输入入口，数字继续通过长按选项输入。flick 只在有字母的 2–9 键上生效，判定以按下点为基准，取纵横位移较大的轴：上滑取第一个字母，左滑取第二个字母，右滑取第三个字母；下滑、超过现有字母数量的方向和 1 键均无动作。方向判定严格超过阈值，阈值使用共享偏好 `touch_nine_key_flick_threshold`，范围 14–48、步进 2、默认 24，三端设置页均可修改并随共享偏好同步；账号文档使用跨平台 `input.nine_key_flick_threshold`，同时保留 iOS、Android 和 HarmonyOS 的平台键以兼容旧客户端。iOS 只有在全拼九键字母层接管 flick，符号层、九键双拼、长按菜单、光标手势和 VoiceOver 不抢触摸。保留旧的 `touch_nine_key_swipe_digits` 字段读取兼容，但宿主不再使用它驱动输入。
+三端拼音九键 1–9 键保留轻点组字和长按选项；原来的数字滑动路径不再作为输入入口，数字继续通过长按选项输入。flick 只在有字母的 2–9 键上生效，判定以按下点为基准，取纵横位移较大的轴：上滑取第一个字母，左滑取第二个字母，右滑取第三个字母；下滑、超过现有字母数量的方向和 1 键均无动作。方向判定严格超过阈值，阈值使用共享偏好 `touch_nine_key_flick_threshold`，范围 14–48、步进 2、默认 24，Android/iOS 原生设置页可修改，并随共享偏好在三端同步；HarmonyOS 的原生设置入口尚未实现，按维护者确认的原生路线撤回新增共享滑块，PR 保持 Draft；账号文档使用跨平台 `input.nine_key_flick_threshold`，同时保留 iOS、Android 和 HarmonyOS 的平台键以兼容旧客户端。iOS 只有在全拼九键字母层接管 flick，符号层、九键双拼、长按菜单、光标手势和 VoiceOver 不抢触摸。保留旧的 `touch_nine_key_swipe_digits` 字段读取兼容，但宿主不再使用它驱动输入。
 
 完整偏好 Schema 公开九键 flick 阈值及默认值 24，便于文件事务命令和脚本查询。默认值仍从落盘文档省略；只给 Schema 覆盖 `skip_serializing_if`，不改变实际序列化和用户设置。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 Android 当前分支 arm64 原生 APK 构建通过；API 28/35 专用 AVD 的系统输入法四向触摸回放通过，覆盖全部 2–9 键字母、下滑和 1 键无动作、取消、长按数字及共享阈值 14/48。API 35 的预览与长按拖选专项通过；鸿蒙 `tests/run.sh` 全套通过，包含新的触摸所有权行为测试。Swift 的真实状态机代码独立回放通过。iOS 27 专用模拟器的系统键盘与独立编辑器实测通过：v5 回放全部 2–9 键的上/左/右、下滑无动作和长按数字；v7 在重新编译测试宿主后验证阈值 48/14 对下一次系统触摸生效。期间发现首行长按菜单会越出扩展上边界，已用边界约束修复并由同一回放覆盖。Android 设置改前/改后原尺寸截图保留在本机产物目录，图床下载回验为 PNG 且字节一致。
 
-真实 ArkTS 编译补验发现 `KeyboardSession.appearance` 的初始对象缺少新增的 `nineKeyFlickThreshold`，已补上策略默认值；`ohpm install` 后的 `hvigorw assembleHap --no-daemon` 通过（`20261113-182849`）。这次产物只作为 ArkTS 编译与打包证据，没有暂存本分支的 Rust/NAPI 库和核心词库，也没有签名，不能作为可安装产品包。`tests/run.sh`、`pnpm run verify-notes` 与全平台 quick（`20261113-183128`）通过。`20261114-153606` 随后在 head `f2f9fa35aa` 完成同源 Rust/NAPI、核心词库、设置 bundle、语音运行库、`ohpm install` 和 HAP 打包；239,187,429 字节，SHA-256 `48282ec1498c0fc82df0a1de31892fd81a79eccdb00e6b294766dfa512d69bf3`。包内代码段及资源与暂存文件核对一致。`hdc list targets -v` 仍返回空列表，签名设备验收未完成。
+真实 ArkTS 编译补验发现 `KeyboardSession.appearance` 的初始对象缺少新增的 `nineKeyFlickThreshold`，已补上策略默认值；`ohpm install` 后的 `hvigorw assembleHap --no-daemon` 通过（`20261113-182849`）。这次产物只作为 ArkTS 编译与打包证据，没有暂存本分支的 Rust/NAPI 库和核心词库，也没有签名，不能作为可安装产品包。`tests/run.sh`、`pnpm run verify-notes` 与全平台 quick（`20261113-183128`）通过。`20261114-153606` 随后在 head `f2f9fa35aa` 完成同源 Rust/NAPI、核心词库、设置 bundle、语音运行库、`ohpm install` 和 HAP 打包；239,187,429 字节，SHA-256 `48282ec1498c0fc82df0a1de31892fd81a79eccdb00e6b294766dfa512d69bf3`。包内代码段及资源与暂存文件核对一致。后续已连接 USB 真机并找到有效调试签名：head `7fa94fa195` 的同源 HAP 经签名校验后成功 `hdc install -r`，保留应用数据；系统输入法真实编辑器验证 ABC 上滑 `a`、左滑 `b`、右滑 `c`、下滑无动作及长按选择数字 `2`。普通点按产生中文预编辑与候选；原“编辑器文字不变”的断言没有考虑 composing 文本，不计作产品失败。合成文本已清空，26 键、词语学习与打字统计均恢复原值。后续撤回共享控件不改变键盘行为，但最终包仍需重新构建。
 
 与后续 develop 对齐时，Android 键盘设置保留九键 flick 阈值，并同时保留已落地的「九键组字按钮」与分词/重输选择；不恢复被本需求替代的数字滑动设置。合并结果重新运行宿主行为测试和 quick，设备结果按对应提交区分。
 
@@ -34,4 +34,4 @@ Android 当前分支 arm64 原生 APK 构建通过；API 28/35 专用 AVD 的系
 
 ## Consequences
 
-九键字母可通过一次方向手势直接输入，数字入口统一为长按；7/9 的第四个字母仍可从长按选项输入。用户可在任一移动端调整同一阈值，三端下一次触摸都使用新值。旧方向字段仍占据少量兼容代码和测试，但不会改变新手势行为；真实设备仍需分别验收 Android、iOS 和 HarmonyOS 的视觉反馈、触摸取消及设置同步。
+九键字母可通过一次方向手势直接输入，数字入口统一为长按；7/9 的第四个字母仍可从长按选项输入。用户可在 Android/iOS 原生设置调整同一阈值，三端下一次触摸都使用新值；HarmonyOS 缺原生调节入口，不能视为需求全部实现。旧方向字段仍占据少量兼容代码和测试，但不会改变新手势行为；真实设备仍需分别验收 Android、iOS 和 HarmonyOS 的视觉反馈、触摸取消及设置同步。

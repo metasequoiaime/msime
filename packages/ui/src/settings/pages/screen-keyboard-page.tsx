@@ -392,17 +392,6 @@ export function ScreenKeyboardSettingsPage() {
                   }
                 : undefined
             }
-            // 九键字母 flick 阈值：三端共享，只有提供全拼九键的触屏宿主显示。
-            nineKeyFlickThreshold={
-              mobilePlatform && supportedInputSchemes(host).includes("quanpin")
-                ? typeof draft.touch_nine_key_flick_threshold === "number" &&
-                  draft.touch_nine_key_flick_threshold >= 14 &&
-                  draft.touch_nine_key_flick_threshold <= 48 &&
-                  (draft.touch_nine_key_flick_threshold - 14) % 2 === 0
-                  ? draft.touch_nine_key_flick_threshold
-                  : 24
-                : undefined
-            }
             tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
             onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
               onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -436,9 +425,6 @@ export function ScreenKeyboardSettingsPage() {
                   : { touch_keyboard_split_threshold: change.threshold }),
                 ...(change.gap === undefined ? {} : { touch_keyboard_split_gap: change.gap }),
               })
-            }
-            onNineKeyFlickThresholdChange={(touch_nine_key_flick_threshold) =>
-              onPreferencesChange({ touch_nine_key_flick_threshold })
             }
             onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
             onHarmonyToolbarChange={(harmony_toolbar) => onPreferencesChange({ harmony_toolbar })}

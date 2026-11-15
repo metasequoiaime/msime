@@ -45,8 +45,6 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   swipeSymbolsDirection?: SwipeSymbolsDirection;
   /** 「显示字母键角标」开关，在宿主键盘实现了它时传入；不传则不画这一行。 */
   letterCornerHints?: boolean;
-  /** 九键字母 flick 阈值（共享偏好 `touch_nine_key_flick_threshold`），提供拼音九键的触屏宿主给出当前值；不传则不画这一行。 */
-  nineKeyFlickThreshold?: number;
   /** 宿主的触屏 26 键双拼会在字母键底部画键位提示时给出这个开关；没有时不画这一行。 */
   shuangpinKeyHints?: boolean;
   /** 宿主的触屏全拼 26 键组字会保留 ⇧ 臂辅助码（`touch_quanpin_shift`）时给出这个开关；没有时不画这一行。 */
@@ -64,7 +62,6 @@ export interface TouchKeyboardGeometrySectionProps extends TouchKeyboardToolbarS
   onSwipeSymbolsChange?: (enabled: boolean) => void;
   onSwipeSymbolsDirectionChange?: (direction: SwipeSymbolsDirection) => void;
   onLetterCornerHintsChange?: (enabled: boolean) => void;
-  onNineKeyFlickThresholdChange?: (value: number) => void;
   onShuangpinKeyHintsChange?: (enabled: boolean) => void;
   onQuanpinShiftChange?: (enabled: boolean) => void;
   onOneHandedSidePanelChange?: (enabled: boolean) => void;
@@ -105,7 +102,6 @@ export function TouchKeyboardGeometrySection({
   swipeSymbols,
   swipeSymbolsDirection = "up",
   letterCornerHints,
-  nineKeyFlickThreshold,
   shuangpinKeyHints,
   quanpinShift,
   oneHandedSidePanel,
@@ -123,7 +119,6 @@ export function TouchKeyboardGeometrySection({
   onSwipeSymbolsChange,
   onSwipeSymbolsDirectionChange,
   onLetterCornerHintsChange,
-  onNineKeyFlickThresholdChange,
   onShuangpinKeyHintsChange,
   onQuanpinShiftChange,
   onOneHandedSidePanelChange,
@@ -332,8 +327,7 @@ export function TouchKeyboardGeometrySection({
       )}
       {(glideTyping !== undefined ||
         swipeSymbols !== undefined ||
-        letterCornerHints !== undefined ||
-        nineKeyFlickThreshold !== undefined) && (
+        letterCornerHints !== undefined) && (
         <GroupList title="手势">
           {swipeSymbols !== undefined && (
             <>
@@ -369,18 +363,6 @@ export function TouchKeyboardGeometrySection({
               disabled={tabletFullKeysBusy}
               checked={letterCornerHints}
               onChange={(enabled) => onLetterCornerHintsChange?.(enabled)}
-            />
-          )}
-          {nineKeyFlickThreshold !== undefined && (
-            <SliderRow
-              title="九键 flick 阈值"
-              description="手指移动超过这个距离才输入上、左或右方向对应的字母；数字请长按输入"
-              min={14}
-              max={48}
-              step={2}
-              value={nineKeyFlickThreshold}
-              valueText={`${nineKeyFlickThreshold} dp`}
-              onChange={(value) => onNineKeyFlickThresholdChange?.(value)}
             />
           )}
           {glideTyping !== undefined && (
