@@ -23,7 +23,7 @@ Status: implemented
 - 两端均有确认提示，取消不会发起写操作。
 - 本机回滚仍受宿主存储故障影响，若回滚本身失败，用户需要刷新列表核对；云端完整快照大小受现有快照上限约束，导出或预览失败时不进行替换。
 
-本机逐条删除与回滚的实现后来由[共享事务实现](../architecture/2026-11-14-quick-phrase-clear-shared-transaction.md)取代；云端快照筛选已由同一笔记记录的 `snapshot_clear_quick_phrases` host-api 操作承载，本篇保留云端清空的边界和并发决定。原生界面和确认后的 CAS 提交仍未接入。
+本机逐条删除与回滚的实现后来由[共享事务实现](../architecture/2026-11-14-quick-phrase-clear-shared-transaction.md)取代；云端快照筛选已由同一笔记记录的 `snapshot_clear_quick_phrases` host-api 操作承载，本篇保留云端清空的边界和并发决定。Linux 本机入口已由独立 GTK 窗口接入，macOS 原生云词库窗口也已接入导出、筛选、确认后的版本校验和 CAS 恢复；Windows 与 Linux 的共享云词库面板仍等待原生迁移，暂不新增共享 React 按钮。
 
 ## Verification
 
@@ -31,5 +31,7 @@ Status: implemented
 - `pnpm --dir apps/desktop run typecheck`：通过。
 - `pnpm run lint`：通过；仅报告仓库已有的两个未使用导入警告。
 - `pnpm run format:check` 与 `git diff --check`：通过。
+
+2026-11-16：macOS 原生云词库模型新增快捷短语清空链路，使用合成 Rust 替身覆盖导出、Host API 筛选、CAS 预览/恢复、列表刷新和返回条数；真实 macOS 窗口截图与账号云端实测留作后续验收，不作为代码推进前置。
 
 2026-11-13 复核发现原实现直接拿预览返回的新版本提交旧快照，会丢掉导出与确认之间其他设备对非快捷短语词库的修改。新增真实确认交互的 hook 回归先复现并发新词被覆盖，修后分别覆盖确认期间更新、预览之后更新、无并发正常清空：两个冲突路径均保留其他词库和快捷短语，无并发时只删除快捷短语。相关 4 个测试文件共 54 项通过；没有修改通用“从旧备份恢复”的语义。

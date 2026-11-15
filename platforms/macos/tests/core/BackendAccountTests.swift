@@ -407,6 +407,14 @@ private final class CloudPreferences: @unchecked Sendable {
         guard let path = action["path"] as? String else { return FakeRust.failure("invalid_cloud_dictionary") }
         try? Data("合成\tci\t100\n".utf8).write(to: URL(fileURLWithPath: path))
         return FakeRust.ok(["path": path, "filename": "dictionary-pinyin.tsv", "bytes": 14])
+      case "snapshot_export":
+        return FakeRust.ok(["text": "synthetic-snapshot"])
+      case "snapshot_clear_quick_phrases":
+        return FakeRust.ok(["text": "synthetic-filtered-snapshot", "entries": 2, "revision": 7])
+      case "snapshot_restore_preview":
+        return FakeRust.ok(["snapshot": ["sha256": String(repeating: "a", count: 64)], "expectedRevision": 7])
+      case "snapshot_restore":
+        return FakeRust.ok(["revision": 8, "reset": false])
       default: return FakeRust.failure("invalid_cloud_dictionary")
       }
     }
@@ -440,6 +448,13 @@ private final class CloudPreferences: @unchecked Sendable {
     let exported = FakeRust.calls("export_file").last?.action
     try require(model.message == "云词库已导出。" && exported?["path"] as? String == destination.path && exported?["format"] as? String == "standard"
                 && (try? String(contentsOf: destination, encoding: .utf8)) == "合成\tci\t100\n")
+    model.kind = .quick
+    model.refresh(); try await finished(model)
+    model.clearQuickPhrases(); try await finished(model)
+    let clearOperations = FakeRust.calls.compactMap(\.operation).filter { $0 != "status" }
+    try require(model.message == "已清空 2 条云端快捷短语。"
+                && clearOperations.suffix(5).elementsEqual(["snapshot_export", "snapshot_clear_quick_phrases", "snapshot_restore_preview", "snapshot_restore", "list"])
+                && FakeRust.calls("snapshot_restore").last?.action["revision"] as? Int == 7)
     // 打开窗口时的账号已经不是登录的那个：不发云词库请求。
     let wrongAccount = MacDictionaryModel(accountID: "previous-account", rust: FakeRust.account)
     let before = FakeRust.calls.filter { $0.entry == "cloud_dictionary" }.count
