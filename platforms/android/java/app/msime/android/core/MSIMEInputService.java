@@ -10676,9 +10676,12 @@ public final class MSIMEInputService extends InputMethodService {
             if (capture != null) capture.deleted(selected);
             initialCursor = capture == null ? -1 : quickDeleteCursor(target);
         }
+        boolean[] unreadableBefore = {false};
         long deleted = BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
             @Override public CharSequence textBeforeCursor(int length) {
-                return InputConnectionGuard.textBeforeCursor(target, length);
+                CharSequence before = InputConnectionGuard.textBeforeCursor(target, length);
+                if (before == null) unreadableBefore[0] = true;
+                return before;
             }
 
             @Override public boolean deleteBeforeCursor(int length) {
@@ -10688,6 +10691,13 @@ public final class MSIMEInputService extends InputMethodService {
                 return accepted;
             }
         }, capture);
+        // 一些编辑器完全拒绝上下文读取，但仍支持删除范围请求。快速清除本来就是用户确认的
+        // “删掉前文”，此时删除交给编辑器执行；因为正文不可读，不保存无法核对的撤回备份。
+        if (unreadableBefore[0] && deleted == 0) {
+            QuickDeleteFallback.deleteBeforeCursor(target);
+            deleted = 0;
+            if (capture != null) capture = null;
+        }
         selectionEcho.expect();
         int cursor = capture == null ? -1 : quickDeleteCursor(target);
         CharSequence before = capture == null ? null
