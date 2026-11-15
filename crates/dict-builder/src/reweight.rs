@@ -1,10 +1,10 @@
 //! `reweight` 阶段：按万象拼音（rime-wanxiang）在构建期重算全拼表里与万象共有的行的权重，插在 `quanpin` 之后、`places-supplement` 之前。
 //!
-//! 万象的 17 份 `dicts/*.dict.yaml` 由 msime-dictionary 逐字节收在 `sources/pinyin/wanxiang/`，登记在它的 `upstream.lock.json`（上游名 [`REFERENCE`]），提交等于 msime 锁文件的同名 reference。checkout 的记录里没有这个上游时（登记之前的 msime-dictionary 提交，包括 `dict-v2.0.56` 及更早的版本）阶段什么也不做，产物与没有这个阶段时逐字节相同。
+//! 万象词库数据仓库 rime-wanxiang-data 的 15 份 `dicts/*.dict.yaml`（[`IMPORTED`] 加 [`RECORDED_ONLY`]）由 msime-dictionary 逐字节收在 `sources/pinyin/wanxiang/`，登记在它的 `upstream.lock.json`（上游名 [`REFERENCE`]），提交等于 msime 锁文件的同名 reference。此前收的是配置仓库 rime-wanxiang `7ab73ee` 的 17 份；数据仓库不再有 `lianxiang`、`renming`，msime-dictionary#140 随之删掉，这里也不再读。checkout 的记录里没有这个上游时（登记之前的 msime-dictionary 提交，包括 `dict-v2.0.56` 及更早的版本）阶段什么也不做，产物与没有这个阶段时逐字节相同。
 //!
-//! 第一步总是做：复现 msime-dictionary#84 当时一次性写进源文件的换算。权重取自万象 `wanxiang.dict.yaml` 导入的 16 份词库里除错音表 `cuoyin` 以外的 15 份（[`IMPORTED`]，与 #84 相同；`cuoyin` 和不在导入之列的中英混写表 `mixed` 不提供权重，见 [`RECORDED_ONLY`]）。万象的读音去掉声调、ü 写成 v、音节之间用 `'`（[`normalize_reading`]）；只认显式写了非负整数权重的行，同一个「词＋全拼」出现多次时取最高的权重。源文件里一行的「词＋全拼」在万象里有权重时，新权重是 `round(万象权重 × 文件系数)`，四舍五入、用整数算（[`FILE_SCALES`]：`single-chars.txt` 9.42，`rime-ice.txt` 9.2，`rime-ice-supplement.txt` 9.28，就是 #84 用的系数）；其余行不动。源文件现在的权重正是这样算出来的（三份文件里与万象共有的 597343 行全部吻合），所以第一步不改变任何一行；它的用处是以后在原路径重新生成补充表、或者换新的上游提交时，对齐结果不会被冲掉。
+//! 第一步总是做：按 msime-dictionary#84 当时一次性写进源文件的换算重算。权重取自万象 `wanxiang.dict.yaml` 导入的词库里除错音表 `cuoyin` 以外、本仓登记的 13 份（[`IMPORTED`]；`cuoyin` 和不在导入之列的中英混写表 `mixed` 不提供权重，见 [`RECORDED_ONLY`]）。万象的读音去掉声调、ü 写成 v、音节之间用 `'`（[`normalize_reading`]）；只认显式写了非负整数权重的行，同一个「词＋全拼」出现多次时取最高的权重。源文件里一行的「词＋全拼」在万象里有权重时，新权重是 `round(万象权重 × 文件系数)`，四舍五入、用整数算（[`FILE_SCALES`]：`single-chars.txt` 9.42，`rime-ice.txt` 9.2，`rime-ice-supplement.txt` 9.28，就是 #84 用的系数）；其余行不动。按 `7ab73ee` 的数据，源文件的权重正是这样算出来的（当时三份文件里与万象共有的 597343 行全部吻合），第一步不改变任何一行；换了上游提交或重新生成补充表之后，它按新的万象数据重算共有的行，对齐结果不会被冲掉。
 //!
-//! 第二步由 msime-dictionary 的 `curation/pinyin-reweight.txt`（[`SETTINGS`]）打开，文件不在时不做，见 [`Settings`]：`renming`（人名）和 `duoyin`（多音兼容读音）两份词库各用一个缩放比例，乘在文件系数之前；`unattested-cap` 让万象 17 份词库在任何读音下都不收的多字词，不高于同一全拼键上万象权重达到门槛（默认 100）的词（dict-cleanse 方案 2.1「碎片、虚词组合」）。`curation/pinyin-reweight-exempt.txt`（[`EXEMPT`]）列出第二步不碰的行。
+//! 第二步由 msime-dictionary 的 `curation/pinyin-reweight.txt`（[`SETTINGS`]）打开，文件不在时不做，见 [`Settings`]：`duoyin`（多音兼容读音）词库用一个缩放比例，乘在文件系数之前；`unattested-cap` 让登记的全部万象词库在任何读音下都不收的多字词，不高于同一全拼键上万象权重达到门槛（默认 100）的词（dict-cleanse 方案 2.1「碎片、虚词组合」）。`curation/pinyin-reweight-exempt.txt`（[`EXEMPT`]）列出第二步不碰的行。
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,11 +22,10 @@ pub const REFERENCE: &str = "rime-wanxiang";
 /// 万象词库在 msime-dictionary 里的目录，结尾带 `/`，与 `UPSTREAM_FILES` 的目录前缀写法相同。
 pub const DIRECTORY: &str = "sources/pinyin/wanxiang/";
 
-/// 提供权重的万象词库，文件名是 `<名字>.dict.yaml`：`wanxiang.dict.yaml` 的 import_tables 一共 16 份，这里是除 `cuoyin` 以外的 15 份，按它的次序。不用 `cuoyin` 是 #84 的选择，不是上游方案的做法。
-pub const IMPORTED: [&str; 15] = [
+/// 提供权重的万象词库，文件名是 `<名字>.dict.yaml`：#84 用的是 `wanxiang.dict.yaml` import_tables 里除 `cuoyin` 以外的 15 份，按它的次序；rime-wanxiang-data 的 `dicts/` 不再有其中的 `lianxiang`、`renming`，剩下这 13 份。不用 `cuoyin` 是 #84 的选择，不是上游方案的做法。
+pub const IMPORTED: [&str; 13] = [
     "zi",
     "jichu",
-    "lianxiang",
     "duoyin",
     "shici",
     "diming",
@@ -36,12 +35,11 @@ pub const IMPORTED: [&str; 15] = [
     "mingren",
     "yiren",
     "wuzhong",
-    "renming",
     "taifeng",
     "fangyan",
 ];
 
-/// 不提供权重的两份：`cuoyin` 收的是错误读音（`wanxiang.dict.yaml` 导入它，#84 没有用它的权重），`mixed` 是中英混写的词（不在 import_tables 里）。第二步判断一个词是否被万象收录时也读它们：方案 2.1 的口径是全套 17 份。
+/// 不提供权重的两份：`cuoyin` 收的是错误读音（`wanxiang.dict.yaml` 导入它，#84 没有用它的权重），`mixed` 是中英混写的词（不在 import_tables 里）。第二步判断一个词是否被万象收录时也读它们：方案 2.1 的口径是登记的全套词库（现在 15 份）。
 pub const RECORDED_ONLY: [&str; 2] = ["cuoyin", "mixed"];
 
 /// 第二步的开关和缩放比例，维护者审定的表，放在 `curation/`。
@@ -94,18 +92,16 @@ pub struct Exemption {
 
 /// `curation/pinyin-reweight.txt`：第二步的开关和参数。一行 `名字<TAB>值`，`#` 开头的行和空行不算：
 ///
-/// - `unattested-cap`：`on` 或 `off`。打开时，万象 17 份词库（[`IMPORTED`] 加 [`RECORDED_ONLY`]）在任何读音下都没有收的多字词，如果权重不低于同一全拼键上「万象权重达到 `cap-leader-minimum`」的词里最高的那个，就压到它下面：同键被压的几行按原来的次序依次排在它下面（减 1、减 2……，最低到 1），原来权重相同的仍然相同。万象收了这个词、只是读音不同的行不压，那是方案 3.2「非标准读音」一类，要逐条审。单字不动，万象单字表的读音不全（嗯 只收 ng、n），单字的首选不能交给它。同键门槛以上的词换算后权重不到 2 时，这个键不压。
+/// - `unattested-cap`：`on` 或 `off`。打开时，登记的全部万象词库（[`IMPORTED`] 加 [`RECORDED_ONLY`]）在任何读音下都没有收的多字词，如果权重不低于同一全拼键上「万象权重达到 `cap-leader-minimum`」的词里最高的那个，就压到它下面：同键被压的几行按原来的次序依次排在它下面（减 1、减 2……，最低到 1），原来权重相同的仍然相同。万象收了这个词、只是读音不同的行不压，那是方案 3.2「非标准读音」一类，要逐条审。单字不动，万象单字表的读音不全（嗯 只收 ng、n），单字的首选不能交给它。同键门槛以上的词换算后权重不到 2 时，这个键不压。
 /// - `cap-leader-minimum`：正整数，默认 100。只在 `unattested-cap on` 时可以写。
-/// - `renming`、`duoyin`：正的小数，最多两位，不大于 10，乘在这份词库的权重上、再乘文件系数。默认 1，即与其他词库同等对待（第一步的做法）。
+/// - `duoyin`：正的小数，最多两位，不大于 10，乘在这份词库的权重上、再乘文件系数。默认 1，即与其他词库同等对待（第一步的做法）。
 ///
-/// 写了没有列出的名字、重复写同一个名字、值写错，构建失败。文件在、但每一项都等于默认值时也失败：那样的文件什么也不改，留着只会让人以为第二步开着。豁免表 [`EXEMPT`] 由 [`Settings::load`] 读进 `exempt`，见那里的规则。
+/// 以前还有 `renming`（人名词库的比例）；rime-wanxiang-data 不再有 `renming.dict.yaml`，写了它构建失败，免得一个不起作用的比例让人以为它还在压人名。写了没有列出的名字、重复写同一个名字、值写错，构建失败。文件在、但每一项都等于默认值时也失败：那样的文件什么也不改，留着只会让人以为第二步开着。豁免表 [`EXEMPT`] 由 [`Settings::load`] 读进 `exempt`，见那里的规则。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub unattested_cap: bool,
     /// `unattested-cap` 的门槛：同键上万象原始权重达到它的词才能定上限。
     pub cap_leader_minimum: i64,
-    /// `renming` 的缩放比例，百分之一。
-    pub renming: i64,
     /// `duoyin` 的缩放比例，百分之一。
     pub duoyin: i64,
     /// 第二步不碰的行。
@@ -117,7 +113,6 @@ impl Default for Settings {
         Self {
             unattested_cap: false,
             cap_leader_minimum: DEFAULT_CAP_LEADER_MINIMUM,
-            renming: 100,
             duoyin: 100,
             exempt: Vec::new(),
         }
@@ -181,19 +176,15 @@ impl Settings {
                             format!("{at}: cap-leader-minimum is a positive whole number, not {value:?}")
                         })?;
                 }
-                "renming" | "duoyin" => {
-                    let scale = parse_hundredths(value)
+                "duoyin" => {
+                    settings.duoyin = parse_hundredths(value)
                         .filter(|scale| (1..=MAXIMUM_SCALE).contains(scale))
                         .with_context(|| {
                             format!("{at}: {name} is a positive number with at most two decimals, at most 10, not {value:?}")
                         })?;
-                    if name == "renming" {
-                        settings.renming = scale;
-                    } else {
-                        settings.duoyin = scale;
-                    }
                 }
-                _ => bail!("{at}: {name:?} is not a setting; the settings are unattested-cap, cap-leader-minimum, renming and duoyin"),
+                "renming" => bail!("{at}: renming is no longer a setting: rime-wanxiang-data has no renming.dict.yaml, so the scale would change nothing; delete the line"),
+                _ => bail!("{at}: {name:?} is not a setting; the settings are unattested-cap, cap-leader-minimum and duoyin"),
             }
         }
         if seen.contains("cap-leader-minimum") && !settings.unattested_cap {
@@ -232,7 +223,7 @@ impl Settings {
 
     /// 第二步是否打开：开关或比例里至少有一项不是默认值。
     pub fn second_step(&self) -> bool {
-        self.unattested_cap || self.renming != 100 || self.duoyin != 100
+        self.unattested_cap || self.duoyin != 100
     }
 
     /// 从 `--dictionary` checkout 读。[`SETTINGS`] 不在时是默认值（只做第一步）。豁免表 [`EXEMPT`] 只能和打开第二步的 [`SETTINGS`] 一起存在：只删 [`SETTINGS`] 回滚第二步而留下豁免表时构建失败，两份要一起删。
@@ -253,7 +244,6 @@ impl Settings {
     /// 一份万象词库的缩放比例，百分之一。
     fn scale(&self, name: &str) -> i64 {
         match name {
-            "renming" => self.renming,
             "duoyin" => self.duoyin,
             _ => 100,
         }
@@ -270,8 +260,7 @@ impl Settings {
             "off".to_owned()
         };
         format!(
-            "second step: unattested-cap {cap}, renming {}, duoyin {}, {} exempt",
-            format_hundredths(self.renming),
+            "second step: unattested-cap {cap}, duoyin {}, {} exempt",
             format_hundredths(self.duoyin),
             self.exempt.len()
         )
@@ -386,7 +375,7 @@ pub struct Counts {
     pub shared: usize,
     /// 文件系数换算改了权重的行。源文件已经是对齐后的样子时为 0。
     pub aligned: usize,
-    /// `renming`、`duoyin` 的缩放比例又改了权重的行。
+    /// `duoyin` 的缩放比例又改了权重的行。
     pub scaled: usize,
     /// `unattested-cap` 压下去的行。
     pub capped: usize,
@@ -458,7 +447,7 @@ pub fn apply(
     }
     // 每个「词＋全拼」两份万象权重：缩放比例都按 1 的（第一步）和按设置缩放的。
     let mut attestations: HashMap<(&str, &str), (Attestation, Attestation)> = HashMap::new();
-    // 万象 17 份词库在任何读音下收了的多字词，只在打开 unattested-cap 时收集。
+    // 登记的万象词库在任何读音下收了的多字词，只在打开 unattested-cap 时收集。
     let mut listed: HashSet<&str> = HashSet::new();
     for (name, text) in wanxiang {
         if settings.unattested_cap {
@@ -645,7 +634,7 @@ pub fn apply(
     Ok(counts)
 }
 
-/// checkout 登记了万象时，17 份词库的名字和内容，[`IMPORTED`] 在前、[`RECORDED_ONLY`] 在后；没有登记时为 `None`，阶段不做。17 份都按 `upstream.lock.json` 校验字节：登记的是整套 `dicts/`，少了哪一份、哪一份被改过都让构建失败。
+/// checkout 登记了万象时，15 份词库的名字和内容，[`IMPORTED`] 在前、[`RECORDED_ONLY`] 在后；没有登记时为 `None`，阶段不做。15 份都按 `upstream.lock.json` 校验字节：登记的是整套 `dicts/`，少了哪一份、哪一份被改过都让构建失败。
 pub fn load(sources: &Sources) -> Result<Option<Vec<(&'static str, String)>>> {
     let Some(dictionary) = sources.dictionary.as_ref() else {
         bail!("the reweight stage reads msime-dictionary's {DIRECTORY}; pass --dictionary <msime-dictionary checkout>");
@@ -921,19 +910,16 @@ mod tests {
     }
 
     #[test]
-    fn renming_and_duoyin_scales_apply_before_the_file_scale_and_only_where_they_lead() {
+    fn the_duoyin_scale_applies_before_the_file_scale_and_only_where_it_leads() {
         let rows = [
-            ("张勇", "zhang'yong", 42982),
             ("张开", "zhang'kai", 211655),
             ("多重", "duo'zhong", 335920),
         ];
         let mut connection = database(&rows);
-        let text = "张勇\tzhang'yong\t42982\n张开\tzhang'kai\t211655\n多重\tduo'zhong\t335920\n";
-        let renming = format!("{HEADER}张勇\tzhāng yǒng\t4672\n张开\tzhāng kāi\t23006\n");
+        let text = "张开\tzhang'kai\t211655\n多重\tduo'zhong\t335920\n";
         let jichu = format!("{HEADER}张开\tzhāng kāi\t20000\n");
-        let duoyin = format!("{HEADER}多重\tduō zhòng\t36513\n");
+        let duoyin = format!("{HEADER}张开\tzhāng kāi\t23006\n多重\tduō zhòng\t36513\n");
         let settings = Settings {
-            renming: 41,
             duoyin: 50,
             ..Settings::default()
         };
@@ -944,18 +930,12 @@ mod tests {
                 text,
                 accepted: None,
             }],
-            &[
-                ("jichu", &jichu),
-                ("duoyin", &duoyin),
-                ("renming", &renming),
-            ],
+            &[("jichu", &jichu), ("duoyin", &duoyin)],
             &settings,
         )
         .unwrap();
-        assert_eq!(counts.scaled, 3);
-        // 4672 × 0.41 × 9.2 = 17622.78。
-        assert_eq!(weight(&connection, "张勇", "zhang'yong"), Some(17623));
-        // max(20000, 23006 × 0.41) × 9.2：jichu 的权重更高，用它。
+        assert_eq!(counts.scaled, 2);
+        // max(20000, 23006 × 0.5) × 9.2：jichu 的权重更高，用它。
         assert_eq!(weight(&connection, "张开", "zhang'kai"), Some(184000));
         // 36513 × 0.5 × 9.2 = 167959.8。
         assert_eq!(weight(&connection, "多重", "duo'zhong"), Some(167960));
@@ -1016,10 +996,10 @@ mod tests {
     #[test]
     fn settings_parse_names_values_and_reject_mistakes() {
         assert_eq!(
-            Settings::parse("# 第二步\nunattested-cap\ton\nrenming\t0.41\nduoyin\t1\n").unwrap(),
+            Settings::parse("# 第二步\nunattested-cap\ton\nduoyin\t0.41\n").unwrap(),
             Settings {
                 unattested_cap: true,
-                renming: 41,
+                duoyin: 41,
                 ..Settings::default()
             }
         );
@@ -1032,15 +1012,16 @@ mod tests {
         assert_eq!(Settings::parse("duoyin\t0.5\n").unwrap().duoyin, 50);
         for (text, needle) in [
             ("unattested-cap\tyes\n", "on or off"),
-            ("renming\t0\n", "positive"),
-            ("renming\t0.415\n", "positive"),
-            ("renming\t11\n", "positive"),
-            ("renming\t-1\n", "positive"),
-            ("renming\t1.\n", "positive"),
-            ("renming\t0.4\nrenming\t0.5\n", "listed twice"),
+            ("duoyin\t0\n", "positive"),
+            ("duoyin\t0.415\n", "positive"),
+            ("duoyin\t11\n", "positive"),
+            ("duoyin\t-1\n", "positive"),
+            ("duoyin\t1.\n", "positive"),
+            ("duoyin\t0.4\nduoyin\t0.5\n", "listed twice"),
             ("zi\t0.5\n", "not a setting"),
-            ("renming 0.4\n", "TAB"),
-            ("unattested-cap\toff\nrenming\t1\n", "changes nothing"),
+            ("renming\t0.41\n", "no renming.dict.yaml"),
+            ("duoyin 0.4\n", "TAB"),
+            ("unattested-cap\toff\nduoyin\t1\n", "changes nothing"),
             ("", "changes nothing"),
             (
                 "unattested-cap\ton\ncap-leader-minimum\t0\n",
@@ -1051,7 +1032,7 @@ mod tests {
                 "positive whole number",
             ),
             (
-                "renming\t0.41\ncap-leader-minimum\t100\n",
+                "duoyin\t0.41\ncap-leader-minimum\t100\n",
                 "only applies with unattested-cap on",
             ),
         ] {
@@ -1060,14 +1041,12 @@ mod tests {
         }
         assert_eq!(Settings::default().describe(), "first step only");
         assert_eq!(
-            Settings::parse("unattested-cap\ton\nrenming\t0.41\n")
-                .unwrap()
-                .describe(),
-            "second step: unattested-cap on (leaders weighted at least 100), renming 0.41, duoyin 1.00, 0 exempt"
+            Settings::parse("unattested-cap\ton\n").unwrap().describe(),
+            "second step: unattested-cap on (leaders weighted at least 100), duoyin 1.00, 0 exempt"
         );
         assert_eq!(
             Settings::parse("duoyin\t0.5\n").unwrap().describe(),
-            "second step: unattested-cap off, renming 1.00, duoyin 0.50, 0 exempt"
+            "second step: unattested-cap off, duoyin 0.50, 0 exempt"
         );
     }
 
@@ -1114,13 +1093,13 @@ mod tests {
 
     #[test]
     fn only_a_leader_weighted_at_least_the_minimum_sets_the_ceiling() {
-        // 万象 lianxiang 只收了 资讯有限公司，权重是底值 10（换算后 92）：不到 100，不给 咨询有限公司 定上限。
+        // 万象 jichu 只收了 资讯有限公司，权重是底值 10（换算后 92）：不到 100，不给 咨询有限公司 定上限。
         let rows = [
             ("咨询有限公司", "zi'xun'you'xian'gong'si", 51835),
             ("资讯有限公司", "zi'xun'you'xian'gong'si", 92),
         ];
         let text = phrases(&rows);
-        let lianxiang = format!("{HEADER}资讯有限公司\tzī xùn yǒu xiàn gōng sī\t10\n");
+        let jichu = format!("{HEADER}资讯有限公司\tzī xùn yǒu xiàn gōng sī\t10\n");
         let mut connection = database(&rows);
         let input = [Input {
             path: RIME_ICE,
@@ -1130,7 +1109,7 @@ mod tests {
         let counts = apply(
             &mut connection,
             &input,
-            &[("lianxiang", &lianxiang)],
+            &[("jichu", &jichu)],
             &cap(),
         )
         .unwrap();
@@ -1148,7 +1127,7 @@ mod tests {
         let counts = apply(
             &mut connection,
             &input,
-            &[("lianxiang", &lianxiang)],
+            &[("jichu", &jichu)],
             &settings,
         )
         .unwrap();
@@ -1230,13 +1209,13 @@ mod tests {
 
     #[test]
     fn a_ceiling_below_two_caps_nothing() {
-        // renming 0.01 把 万象 10 换算成 round(0.1 × 9.2) = 1：压到 0 也排不到它下面，这个键不压。
+        // duoyin 0.01 把 万象 10 换算成 round(0.1 × 9.2) = 1：压到 0 也排不到它下面，这个键不压。
         let rows = [("月的", "yue'de", 463120), ("约的", "yue'de", 1)];
         let text = phrases(&rows);
-        let renming = format!("{HEADER}约的\tyuē de\t10\n");
+        let duoyin = format!("{HEADER}约的\tyuē de\t10\n");
         let settings = Settings {
             cap_leader_minimum: 10,
-            renming: 1,
+            duoyin: 1,
             ..cap()
         };
         let mut connection = database(&rows);
@@ -1247,7 +1226,7 @@ mod tests {
                 text: &text,
                 accepted: None,
             }],
-            &[("renming", &renming)],
+            &[("duoyin", &duoyin)],
             &settings,
         )
         .unwrap();
@@ -1264,7 +1243,7 @@ mod tests {
             ("顾磐", "gu'pan", 1766),
         ];
         let text = phrases(&rows);
-        let renming = format!("{HEADER}李四\tlǐ sì\t6268\n");
+        let duoyin = format!("{HEADER}李四\tlǐ sì\t6268\n");
         let jichu = format!("{HEADER}李斯\tlǐ sī\t3934\n顾磐\tgù pán\t192\n");
         let exempt = |pairs: &[(&str, &str)]| {
             pairs
@@ -1278,7 +1257,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let settings = Settings {
-            renming: 41,
+            duoyin: 41,
             exempt: exempt(&[("李四", "li'si"), ("顾盼", "gu'pan")]),
             ..cap()
         };
@@ -1287,7 +1266,7 @@ mod tests {
             text: &text,
             accepted: None,
         }];
-        let wanxiang = [("jichu", jichu.as_str()), ("renming", renming.as_str())];
+        let wanxiang = [("jichu", jichu.as_str()), ("duoyin", duoyin.as_str())];
         let mut connection = database(&rows);
         let counts = apply(&mut connection, &input, &wanxiang, &settings).unwrap();
         assert_eq!(
@@ -1298,7 +1277,7 @@ mod tests {
                 ..Counts::default()
             }
         );
-        // 6268 × 9.2 = 57665.6：李四 停在第一步，不乘 renming 的 0.41；顾盼 不被压。
+        // 6268 × 9.2 = 57665.6：李四 停在第一步，不乘 duoyin 的 0.41；顾盼 不被压。
         assert_eq!(weight(&connection, "李四", "li'si"), Some(57666));
         assert_eq!(weight(&connection, "顾盼", "gu'pan"), Some(9880));
         // 豁免的行第二步本来就不改，或者全拼表里没有这一行：失败。
@@ -1310,7 +1289,7 @@ mod tests {
             ),
         ] {
             let settings = Settings {
-                renming: 41,
+                duoyin: 41,
                 exempt: exempt(pairs),
                 ..cap()
             };
@@ -1376,12 +1355,15 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), IMPORTED.len() + RECORDED_ONLY.len());
+        // rime-wanxiang-data 的 dicts/ 不再有这两份，读它们会让每次构建都找不到文件。
+        assert!(!names.contains(&"lianxiang") && !names.contains(&"renming"));
+        assert_eq!(names.len(), 15);
         assert_eq!(
             dictionary_path("zi"),
             "sources/pinyin/wanxiang/zi.dict.yaml"
         );
         assert_eq!(
-            crate::sources::upstream_reference(&dictionary_path("renming")),
+            crate::sources::upstream_reference(&dictionary_path("zi")),
             Some(REFERENCE)
         );
     }
