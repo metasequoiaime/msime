@@ -10,12 +10,14 @@ use crate::nine_key::KeyGrid;
 #[cfg(test)]
 pub const MAX_EXPANSIONS: usize = 16;
 
-/// 全拼 14 键的组码（`KeyGrid::FourteenKey::code_of` 的结果）在五笔里的代表字母。ZX 记成 `x`；不是 14 键组码时为 `None`。
+/// 全拼 14 键的组码（`KeyGrid::FourteenKey::code_of` 的结果）在五笔里的代表字母。ZX 记成 `x`；不是 14 键组码时为 `None`。全拼 14 键的大写精确字母不是五笔的组码，五笔 14 键只点按整组。
 pub fn representative(group_code: u8) -> Option<u8> {
     if group_code == b'z' {
         return Some(b'x');
     }
-    (KeyGrid::FourteenKey.code_of(group_code) == Some(group_code)).then_some(group_code)
+    (group_code.is_ascii_lowercase()
+        && KeyGrid::FourteenKey.code_of(group_code) == Some(group_code))
+    .then_some(group_code)
 }
 
 /// 字母所在键的代表字母；`z` 不是五笔码，没有代表字母。
@@ -103,6 +105,9 @@ mod tests {
         assert_eq!(representative(b'x'), None);
         assert_eq!(representative(b'w'), None);
         assert_eq!(representative(b'q'), Some(b'q'));
+        // 全拼 14 键横滑的大写精确字母不进五笔。
+        assert_eq!(representative(b'Q'), None);
+        assert_eq!(representative_of(b'W'), None);
     }
 
     #[test]

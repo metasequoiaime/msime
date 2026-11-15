@@ -277,7 +277,7 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
   const names = within(full)
     .getAllByRole("img")
     .map((cap) => cap.getAttribute("aria-label"));
-  // 全拼中文模式：字母印大写，Shift 位是分词，底行为 123 | 符 | 空格 | 逗号 | 中 | 回车。
+  // 全拼中文模式：字母印大写，Shift 位是分词，底行为 123 | 符 | 句号 | 空格 | 逗号 | 中 | 回车。
   expect(names.slice(0, 3)).toEqual(["Q，0 次", "W，0 次", "E，0 次"]);
   expect(names.slice(19)).toEqual([
     "分词，4 次",
@@ -291,6 +291,7 @@ test("按键 draws the HarmonyOS touch keyboard and lists the keys it has no pla
     "退格，0 次",
     "123，0 次",
     "符号，2 次",
+    ".，0 次",
     "空格，6 次",
     ",，7 次",
     "中/英，0 次",

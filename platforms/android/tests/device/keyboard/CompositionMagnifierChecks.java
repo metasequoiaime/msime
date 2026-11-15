@@ -57,7 +57,10 @@ final class CompositionMagnifierChecks {
                 select(s.await(s.field("msime-test-plain")), 1);
                 s.await(s.described("拼写编辑面板"));
                 s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 1));
-                assertImeWindowStable(s, keyboardBefore, 600);
+                // 行内拼写时读音行不留空行（SpellingEditorPolicy.reserveHeader），编辑条要盖在读音行上，所以打开时窗口可以长高一行；打开期间不能再动。
+                Rect editing = settledImeBounds(s);
+                assertGrewAtMostOneRow(s, keyboardBefore, editing);
+                assertImeWindowStable(s, editing, 600);
                 if (!nineKey) {
                     s.stage = "magnifier inserts and deletes in the middle without losing the suffix";
                     s.tap(s.key("h"));
@@ -85,13 +88,17 @@ final class CompositionMagnifierChecks {
                     && node.getTextSelectionStart() == node.getText().length()));
                 drag(s, text, text.left + 4, 1400);
                 s.await(s.described("放大拼写").and(node -> node.getTextSelectionStart() == 0));
-                s.stage = "magnifier completion preserves candidates and the keyboard entry reopens it";
+                s.stage = "magnifier completion preserves candidates and an editor selection reopens it";
                 s.tap(s.described("完成拼写编辑"));
                 s.await(s.describedPrefix("候选 1："));
-                assertImeWindowStable(s, keyboardBefore, 600);
+                // 完成后光标回到末尾，读音行重新收起，窗口回到打开前的位置。
+                assertImeWindowStable(s, settledImeBounds(s), 600);
+                if (!keyboardBefore.equals(settledImeBounds(s)))
+                    throw new AssertionError("Done did not restore the keyboard height");
                 if (panelVisible(s))
                     throw new AssertionError("Done did not close editing");
-                s.tap(s.described("编辑拼写"));
+                // 拼写铅笔已移除（2026-11-10-mobile-remove-spelling-pens.md），行内拼写只能从输入框选区重新打开。
+                select(s.await(s.field("msime-test-plain")), 1);
                 s.await(s.described("拼写编辑面板"));
                 s.tap(s.describedPrefix("候选 1："));
                 s.stage = "magnifier closes after candidate commit";
@@ -119,7 +126,7 @@ final class CompositionMagnifierChecks {
         return false;
     }
 
-    /** 放大拼写开关只改覆盖层可见性，不应让输入法窗口消失或改变高度。 */
+    /** 等输入法窗口的位置连续几次不变后返回它；放大拼写打开或关闭时窗口不应消失。 */
     private static Rect settledImeBounds(DeviceSmoke s) {
         Rect previous = null;
         int stable = 0;
@@ -135,6 +142,16 @@ final class CompositionMagnifierChecks {
             SystemClock.sleep(100);
         }
         throw new AssertionError("Input method window bounds did not settle");
+    }
+
+    /** 打开编辑条最多让出一行读音行：下边不动，上边最多上移一行。 */
+    private static void assertGrewAtMostOneRow(DeviceSmoke s, Rect before, Rect after) {
+        float density = s.getTargetContext().getResources().getDisplayMetrics().density;
+        int grown = before.top - after.top;
+        if (after.bottom != before.bottom || after.left != before.left || after.right != before.right
+                || grown < 0 || grown > 64 * density)
+            throw new AssertionError("Opening the spelling editor moved the keyboard by more than one row: "
+                + before + " -> " + after);
     }
 
     private static void assertImeWindowStable(DeviceSmoke s, Rect expected, long durationMillis) {
@@ -172,7 +189,7 @@ final class CompositionMagnifierChecks {
             s.await(s.field("msime-test-plain").and(node -> node.refresh()
                 && DeviceSmoke.equalsText(expected, node.getText())));
         }
-        s.tap(s.described("编辑拼写"));
+        select(s.await(s.field("msime-test-plain")), prefix.length() + 1);
         AccessibilityNodeInfo text = s.await(s.described("放大拼写").and(node ->
             node.getText() != null && node.getText().length() >= 35));
         select(text, 0);

@@ -142,7 +142,9 @@ impl InputClass {
                     Self::Commit
                 }
                 Command::Cancel => Self::Cancel,
-                Command::CycleKanaVariant | Command::ConvertHanja => Self::Other,
+                Command::CycleKanaVariant | Command::ConvertHanja | Command::EnterQuickPhrase => {
+                    Self::Other
+                }
             },
             Action::ResetCache
             | Action::PinCandidate(_)

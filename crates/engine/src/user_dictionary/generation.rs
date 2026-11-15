@@ -1,7 +1,7 @@
 //! 代次准备（core-session.md §12、data-formats.md §3、`runtime_paths.cpp:116-182`）：`user_data/dictionaries/<content id>` 里是经 backup API 复制的 `msime-pinyin.db` 与 `msime-english.db`（资源单独发布的 `msime-wubi.db` 五笔码表并回前者），回放过用户日志，旁边还有 n-gram 表。不读 `msime-pinyin.db` 的方案集合（见 `SchemeSet::reads_main_dictionary`）准备的代次没有它；不要求 `msime-english.db` 的集合（见 `SchemeSet::requires_english_dictionary`）在资源目录没带它时，代次里也没有它。
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -510,9 +510,27 @@ fn copy_database(source: &Path, target: &Path) -> Result<()> {
 pub(super) fn copy_private_file(source: &Path, target: &Path) -> io::Result<u64> {
     let mut input = crate::paths::open_file_no_follow(source)?;
     let mut output = create_private_file(target)?;
-    let copied = io::copy(&mut input, &mut output)?;
+    let copied = copy_by_read_write(&mut input, &mut output)?;
     output.sync_all()?;
     Ok(copied)
+}
+
+/// 只用 read 和 write 在两个文件之间拷贝。
+///
+/// `io::copy` 和 `fs::copy` 在 Linux（包括 OpenHarmony）上遇到文件对文件会先用 `copy_file_range`、`sendfile` 交给内核拷贝，系统调用失败时才退回读写。鸿蒙输入法处于基础访问模式时，键盘进程有 seccomp 系统调用白名单，白名单外的调用不返回错误，而是让内核以 SIGSYS 直接杀掉进程，标准库来不及退回，键盘就弹不出来。引擎在键盘进程里建词库代次，所以这里显式读写。
+fn copy_by_read_write(input: &mut fs::File, output: &mut fs::File) -> io::Result<u64> {
+    let mut buffer = vec![0u8; 256 * 1024];
+    let mut copied: u64 = 0;
+    loop {
+        let read = match input.read(&mut buffer) {
+            Ok(0) => return Ok(copied),
+            Ok(read) => read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        output.write_all(&buffer[..read])?;
+        copied += read as u64;
+    }
 }
 
 fn create_private_file(path: &Path) -> io::Result<fs::File> {
@@ -812,7 +830,7 @@ pub(super) fn stage_generation_copies(
                 .suffix(STAGE_SUFFIX)
                 .make_in(generation, create_private_file)?
                 .into_parts();
-            io::copy(&mut input, &mut output)?;
+            copy_by_read_write(&mut input, &mut output)?;
             output.sync_all()?;
             incoming
         };

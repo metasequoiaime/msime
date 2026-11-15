@@ -5,9 +5,12 @@ set -euo pipefail
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Set ANDROID_SDK_ROOT or ANDROID_HOME}}
 api=${1:?Usage: install-sdk-packages.sh <api-level>}
 case "$api" in
-  28|35) ;;
+  28|35|37) ;;
   *) echo "Unsupported Android API level: $api" >&2; exit 2 ;;
 esac
+# Android 17 的正式系统镜像使用带小版本的 SDK 包名。
+image_api=$api
+[[ "$api" != 37 ]] || image_api=37.0
 
 manager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
 packages=(
@@ -16,7 +19,7 @@ packages=(
   'platforms;android-36'
   emulator
   platform-tools
-  "system-images;android-${api};default;x86_64"
+  "system-images;android-${image_api};default;x86_64"
 )
 
 ready() {
@@ -25,7 +28,7 @@ ready() {
     && [[ -f "$android_sdk/build-tools/35.0.0/package.xml" ]] \
     && [[ -f "$android_sdk/platforms/android-35/package.xml" ]] \
     && [[ -f "$android_sdk/platforms/android-36/package.xml" ]] \
-    && [[ -f "$android_sdk/system-images/android-${api}/default/x86_64/package.xml" ]]
+    && [[ -f "$android_sdk/system-images/android-${image_api}/default/x86_64/package.xml" ]]
 }
 
 if ready; then exit 0; fi
@@ -42,7 +45,7 @@ for attempt in 1 2 3; do
       "$android_sdk/build-tools/35.0.0" \
       "$android_sdk/platforms/android-35" \
       "$android_sdk/platforms/android-36" \
-      "$android_sdk/system-images/android-${api}/default/x86_64"
+      "$android_sdk/system-images/android-${image_api}/default/x86_64"
   fi
   echo "Install Android SDK packages for API $api (attempt $attempt/3)"
   # sdkmanager 退出时 yes 会收到 SIGPIPE；只忽略 yes 的退出码，保留 sdkmanager 的结果。

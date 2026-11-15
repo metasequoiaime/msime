@@ -5,6 +5,7 @@
 #include "CandidateListUIPresenter.h"
 #include "Ipc.h"
 #include "KeyPressStatisticsQueue.h"
+#include "ContextStackChangePolicy.h"
 
 void CMetasequoiaIME::_SyncHostContextFocus(_In_opt_ ITfContext *context)
 {
@@ -262,16 +263,20 @@ STDAPI CMetasequoiaIME::OnPopContext(_In_ ITfContext *pContext)
 
 void CMetasequoiaIME::_HandleFocusedContextStackChange(_In_opt_ ITfContext *changedContext)
 {
-    if (!IsNamedpipeFocusStateOwner(this) || changedContext == nullptr || _pThreadMgr == nullptr)
+    const bool ownsFocusState = IsNamedpipeFocusStateOwner(this);
+    if (!ownsFocusState || changedContext == nullptr || _pThreadMgr == nullptr)
     {
         return;
     }
 
     ITfDocumentMgr *changedDocument = nullptr;
     ITfDocumentMgr *focusedDocument = nullptr;
-    if (FAILED(changedContext->GetDocumentMgr(&changedDocument)) || changedDocument == nullptr ||
-        FAILED(_pThreadMgr->GetFocus(&focusedDocument)) || focusedDocument == nullptr ||
-        changedDocument != focusedDocument)
+    const HRESULT changedDocumentHr = changedContext->GetDocumentMgr(&changedDocument);
+    const HRESULT focusedDocumentHr = _pThreadMgr->GetFocus(&focusedDocument);
+    const bool documentsMatch = changedDocument != nullptr && focusedDocument != nullptr &&
+                                _IsSameComObject(changedDocument, focusedDocument);
+    if (FAILED(changedDocumentHr) || changedDocument == nullptr || FAILED(focusedDocumentHr) ||
+        focusedDocument == nullptr || !documentsMatch)
     {
         if (changedDocument)
         {
@@ -285,16 +290,22 @@ void CMetasequoiaIME::_HandleFocusedContextStackChange(_In_opt_ ITfContext *chan
     }
 
     ITfContext *newTopContext = nullptr;
-    if (FAILED(focusedDocument->GetTop(&newTopContext)) || newTopContext == nullptr)
+    const HRESULT topContextHr = focusedDocument->GetTop(&newTopContext);
+    if (FAILED(topContextHr) || newTopContext == nullptr)
     {
         focusedDocument->Release();
         changedDocument->Release();
         return;
     }
-    const bool topContextChanged = newTopContext != _pTextEditSinkContext;
+    const bool topContextChanged = !_IsSameComObject(newTopContext, _pTextEditSinkContext);
+    const auto action = msime::windows::tsf::DecideFocusedContextStackChange({
+        ownsFocusState, changedContext != nullptr, changedDocument != nullptr, focusedDocument != nullptr, documentsMatch,
+        newTopContext != nullptr, topContextChanged});
     _SyncHostContextFocus(newTopContext);
     newTopContext->Release();
-    if (!topContextChanged)
+    // QQ 可能先通知文档获得焦点，再异步压入第一个 context；此时必须在压入回调里恢复语言栏按钮。
+    _UpdateLanguageBarOnSetFocus(focusedDocument);
+    if (action != msime::windows::tsf::FocusedContextStackChangeAction::RefreshLanguageBarAndRebindTextEditSink)
     {
         focusedDocument->Release();
         changedDocument->Release();
