@@ -33,4 +33,5 @@ Status: implemented
 - `cargo check -p msime-host-api --tests`：共享 host-api 及其测试目标编译通过。
 - 本机清空的 React 专属 hook 和对应三项测试随新增 Web 入口一并撤回；共享事务、云端快照并发回归与 Windows 原生确认/刷新测试保留。
 - `cargo test -p msime-host-api cloud_dictionary::quick_phrase --lib`：共享云端快照筛选的快捷短语记录、无条目原文保留和畸形输入拒绝用例通过。
+- 快照中的 `position`/`selection` 记录没有 `kind` 字段，筛选时按快捷短语条目的 `(code, word)` 关联移除；筛选结果再次通过完整快照校验，避免只做文本匹配留下非法快照。
 - Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；CI 首次执行发现新增断言只期待最后一条为清空请求，实际成功路径随后会刷新列表。断言改为核对清空、当前快捷短语第一页刷新这两条请求的顺序，保留取消不发请求、实际删除条数和列表内容断言；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。

@@ -5,6 +5,7 @@
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 const INVALID: &str = "snapshot_invalid";
 const MAX_SNAPSHOT_BYTES: usize = 512 * 1024 * 1024;
@@ -17,6 +18,7 @@ pub fn filter_snapshot(text: &str) -> Result<Value, &'static str> {
     if text.is_empty() || text.len() > MAX_SNAPSHOT_BYTES {
         return Err(INVALID);
     }
+    crate::dictionary_snapshot::inspect_snapshot_bytes(text.as_bytes()).map_err(|_| INVALID)?;
     let mut lines = text.split('\n').collect::<Vec<_>>();
     if lines.last() == Some(&"") {
         lines.pop();
@@ -56,24 +58,40 @@ pub fn filter_snapshot(text: &str) -> Result<Value, &'static str> {
         return Err(INVALID);
     }
 
+    let records = lines[1..lines.len() - 1]
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).map_err(|_| INVALID))
+        .collect::<Result<Vec<_>, _>>()?;
+    let quick_keys = records
+        .iter()
+        .filter(|record| record.get("type").and_then(Value::as_str) == Some("entry"))
+        .filter_map(|record| {
+            let data = record.get("data")?.as_object()?;
+            if data.get("kind").and_then(Value::as_str) != Some("quick") {
+                return None;
+            }
+            Some((
+                data.get("code")?.as_str()?.to_owned(),
+                data.get("word")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect::<HashSet<_>>();
+
     let mut kept = Vec::with_capacity(lines.len());
     kept.push(serde_json::to_string(&header).map_err(|_| INVALID)?);
     let mut entries = 0usize;
-    for line in &lines[1..lines.len() - 1] {
-        if line.is_empty() {
-            return Err(INVALID);
-        }
-        let record: Value = serde_json::from_str(line).map_err(|_| INVALID)?;
+    for record in records {
         let record_type = record.get("type").and_then(Value::as_str);
-        let removable = matches!(
-            record_type,
-            Some("entry" | "overlay" | "position" | "selection")
-        ) && record
-            .get("data")
-            .and_then(Value::as_object)
+        let data = record.get("data").and_then(Value::as_object);
+        let kind_is_quick = data
             .and_then(|data| data.get("kind"))
             .and_then(Value::as_str)
             == Some("quick");
+        let is_quick_learning = data
+            .and_then(|data| Some((data.get("code")?.as_str()?, data.get("word")?.as_str()?)))
+            .is_some_and(|key| quick_keys.contains(&(key.0.to_owned(), key.1.to_owned())));
+        let removable = matches!(record_type, Some("entry" | "overlay")) && kind_is_quick
+            || matches!(record_type, Some("position" | "selection")) && is_quick_learning;
         if removable {
             if record_type == Some("entry") {
                 entries += 1;
@@ -122,11 +140,12 @@ mod tests {
     #[test]
     fn removes_quick_entries_and_learning_records_but_keeps_other_kinds() {
         let text = snapshot(&[
-            r#"{"type":"entry","data":{"kind":"quick","code":"k","word":"快捷","weight":1}}"#,
-            r#"{"type":"overlay","deleted":false,"data":{"kind":"quick","code":"k","word":"快捷","weight":2}}"#,
-            r#"{"type":"position","data":{"kind":"quick","context":"k","code":"k","word":"快捷","position":1}}"#,
-            r#"{"type":"selection","data":{"kind":"quick","context":"k","code":"k","word":"快捷","count":1}}"#,
-            r#"{"type":"entry","data":{"kind":"pinyin","code":"ni","word":"你","weight":1}}"#,
+            r#"{"type":"entry","data":{"id":"quick-entry","kind":"quick","code":"k","word":"快捷","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            r#"{"type":"entry","data":{"id":"pinyin-entry","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            r#"{"type":"overlay","deleted":false,"data":{"id":"quick-entry","kind":"quick","code":"k","word":"快捷","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            r#"{"type":"overlay","deleted":false,"data":{"id":"pinyin-entry","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            r#"{"type":"position","data":{"context":"k","code":"k","word":"快捷","position":1}}"#,
+            r#"{"type":"selection","data":{"context":"k","code":"k","word":"快捷","count":1}}"#,
         ]);
         let result = filter_snapshot(&text).unwrap();
         assert_eq!(result["entries"], 1);
@@ -134,12 +153,14 @@ mod tests {
         assert!(filtered.contains("\"kind\":\"pinyin\""));
         assert!(!filtered.contains("\"kind\":\"quick\""));
         assert!(filtered.ends_with('\n'));
+        assert!(crate::dictionary_snapshot::inspect_snapshot_bytes(filtered.as_bytes()).is_ok());
     }
 
     #[test]
     fn preserves_original_bytes_when_no_quick_entry_exists() {
         let text = snapshot(&[
-            r#"{"type":"entry","data":{"kind":"pinyin","code":"ni","word":"你","weight":1}}"#,
+            r#"{"type":"entry","data":{"id":"pinyin-entry","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            r#"{"type":"overlay","deleted":false,"data":{"id":"pinyin-entry","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
         ]);
         let result = filter_snapshot(&text).unwrap();
         assert_eq!(result["entries"], 0);
