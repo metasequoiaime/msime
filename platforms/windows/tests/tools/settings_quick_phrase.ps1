@@ -1,4 +1,4 @@
-# 由 settings_ui.ps1 在隔离合成设置目录里调用，验证省略字段后的真实控件回读。
+﻿# 由 settings_ui.ps1 在隔离合成设置目录里调用，验证省略字段后的真实控件回读。
 function Assert-QuickPhraseSettings($window) {
     function Find-QuickPhraseToggle($window) {
         $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '快捷短语混输')
