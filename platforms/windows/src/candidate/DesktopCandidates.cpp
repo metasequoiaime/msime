@@ -130,6 +130,7 @@ struct DesktopCandidates::State {
             }, owner.callbacks.click, settings->fonts.size, settings->fonts.preedit_size,
             settings->fonts.family, settings->fonts.fallback, std::nullopt,
             settings->layout.horizontal, settings->layout.show_preedit,
+            settings->layout.show_preedit_area,
             owner.callbacks.page, owner.callbacks.rendered, settings->mouse_wheel, false);
         // 必须先撤掉登记，再由 candidates 的析构销毁 HWND。
         struct WindowRegistration {

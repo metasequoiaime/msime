@@ -229,7 +229,7 @@ int main() {
       value->y = invalid_candidate_anchor_y;
       CandidateWindow receipted(
           [&] { return value; }, {}, 16, 16, "Segoe UI", {}, std::nullopt,
-          false, true, {},
+          false, true, true, {},
           [&](const CandidatePresentation &shown) {
             receipts.push_back(shown.render_serial);
           });

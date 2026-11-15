@@ -1264,7 +1264,8 @@ int wmain(int argc, wchar_t **argv) {
             .value_or(CandidateLayoutSettings{});
     auto candidate_layout = std::make_shared<std::atomic<unsigned>>(
         CandidateLayoutSettings{
-            config.horizontal_candidates, config.candidate_show_preedit, true,
+            config.horizontal_candidates, config.candidate_show_preedit,
+            config.candidate_show_preedit_area, true,
             stored_candidate_layout.show_app_logo,
             stored_candidate_layout.reserved_gloss_lines,
             stored_candidate_layout.show_page_number}

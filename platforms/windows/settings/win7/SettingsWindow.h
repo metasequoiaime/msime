@@ -55,7 +55,7 @@ enum ControlId {
   appearance_layout = 1300, appearance_page_size, appearance_logo, appearance_follow,
   appearance_font_preset, appearance_font_family, appearance_english_font, appearance_fonts_save,
   appearance_fonts_refresh, appearance_fonts_status, appearance_font_size, appearance_preedit_size,
-  appearance_scale, appearance_opacity, appearance_radius, appearance_preedit, appearance_inline,
+  appearance_scale, appearance_opacity, appearance_radius, appearance_preedit, appearance_preedit_area, appearance_inline,
   appearance_game_overlay, appearance_game_always, appearance_game_always_remove,
   appearance_game_never, appearance_game_never_remove, appearance_game_name, appearance_game_list,
   appearance_game_add, appearance_game_profile, appearance_preview, appearance_page_number,

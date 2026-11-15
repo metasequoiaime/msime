@@ -34,6 +34,8 @@ struct PreviewConfig {
   std::vector<std::string> candidate_fallback_fonts;
   // "pinyin" shows the reading above the list; "empty" hides that line.
   bool candidate_show_preedit = true;
+  // 区域开关与文字样式独立；旧预览配置缺字段时按开启。
+  bool candidate_show_preedit_area = true;
   std::optional<bool> candidate_selected_bar;
   // 与 FloatingToolbarSettings::items 同序同缺省：表情和屏幕键盘缺省关。快照里缺这六个键、或偏好的缩放和字号超出范围读不出工具栏设置时，按钮仍与 macOS 和 client-core 的缺省一致。
   std::array<bool, 6> floating_toolbar_items{true, true, true, false, false, true};
@@ -79,7 +81,7 @@ struct PreviewConfig {
       throw std::invalid_argument("Invalid preview preedit style");
     if (value.contains("appearance")) {
       const auto &appearance = value.at("appearance");
-      if (!appearance.is_object() || appearance.size() > 9 ||
+      if (!appearance.is_object() || appearance.size() > 10 ||
           !appearance.contains("skin_directory") ||
           !appearance.at("skin_directory").is_string())
         throw std::invalid_argument("Invalid preview appearance");
@@ -92,7 +94,7 @@ struct PreviewConfig {
           "dark_theme",             "candidate_font_size",
           "candidate_preedit_font_size", "candidate_font",
           "candidate_selected_bar", "candidate_fallback_fonts",
-          "candidate_preedit_style"};
+          "candidate_preedit_style", "candidate_preedit_area"};
       for (const auto &entry : appearance.items()) {
         bool recognized = false;
         for (const auto &name : known)
@@ -169,6 +171,12 @@ struct PreviewConfig {
           result.candidate_show_preedit = false;
         else
           throw std::invalid_argument("Invalid candidate preedit style");
+      }
+      if (appearance.contains("candidate_preedit_area")) {
+        if (!appearance.at("candidate_preedit_area").is_boolean())
+          throw std::invalid_argument("Invalid candidate preedit area");
+        result.candidate_show_preedit_area =
+            appearance.at("candidate_preedit_area").get<bool>();
       }
       if (appearance.contains("candidate_selected_bar")) {
         if (!appearance.at("candidate_selected_bar").is_boolean())

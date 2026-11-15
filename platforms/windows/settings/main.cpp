@@ -12716,6 +12716,8 @@ private:
         1, 9);
     const double font = std::clamp(document_.Number(L"candidate_font_size", 18),
                                    12.0, 32.0);
+    const bool preedit_area =
+        document_.Boolean(L"show_candidate_preedit_area", true);
     const bool preedit =
         document_.String(L"candidate_preedit_style", L"pinyin") != L"empty";
     // 首行的水杉 logo 随 `show_app_logo`（缺值读成关，与「布局」里那一行相同）。
@@ -12803,7 +12805,7 @@ private:
     body.Margin(Thickness{pad_x, pad_y, pad_x, 10 * scale});
     body.Spacing(6 * scale);
     // 首行照共享页的样例：打头是水杉 logo（候选窗的 16 DIP 见方、隔 6 DIP，CandidateCardSize.h 的 logo_side、logo_gap），再是拼音 ni'mf 和光标；拼音隐藏时首行只剩 logo，logo 也不画时整行不画，与候选窗一致。
-    if (brand || preedit) {
+    if (preedit_area && (brand || preedit)) {
       StackPanel head;
       head.Orientation(Orientation::Horizontal);
       head.Spacing(6 * scale);
@@ -12817,7 +12819,7 @@ private:
         head.Children().Append(logo);
       }
       // The candidate window draws the preedit in the accent colour at semibold; the caret after it is the shared sample's 1.5 DIP bar, 1.2 em high.
-      if (preedit) {
+      if (preedit_area && preedit) {
         const double preedit_size =
             std::clamp(document_.Number(L"candidate_preedit_font_size", 15), 12.0, 32.0) *
             scale;
@@ -13006,6 +13008,9 @@ private:
 
     if (in_tab(tab, L"preedit")) {
       auto preedit = add_group(page, L"预编辑");
+      bool_row(preedit, 0xE8D2, L"显示候选窗预编辑区",
+               L"关闭后候选窗只显示候选项列表", L"show_candidate_preedit_area", true,
+               true);
       number_select_row(preedit, 0xE8E9, L"预编辑字号", L"",
                         L"candidate_preedit_font_size", candidate_font_sizes(), 15, L"");
       select_row(
