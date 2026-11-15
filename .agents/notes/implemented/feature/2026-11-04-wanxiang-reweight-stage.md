@@ -56,4 +56,4 @@ msime-dictionary#84（提交 `060c102515f176ca3dfaf2a2cba1f320901ef414`）把 `s
 - 第二步的权重只进全拼表。`PinyinCuration::rows`（五笔三个补充表与区划生成器的门槛和同码排序）、`curation::custom_promotions`（判断 custom 是否提了权）和 `cleanse-report` 读的仍是源文件的原始权重。第二步没打开，这个不一致现在不会出现；打开前要让它们改读阶段之后的权重。
 - 上限在补充表重新生成之前没有收益，打开它的前提是带上 vetoes-overrides 审定的误伤作豁免；renming 要先审 60 个首选变化的键。复算用的两份清单（上限压的 631 行和它们在覆盖表里的值、renming 首选变化的 60 个键）留在本地评测目录，没有进仓库。
 
-相关：[词库清洗走 curation/ 表](2026-11-04-dictionary-curation-tables.md)定了 `curation/` 的共同规则，这张开关表是它的一张；[万象权重的署名](../process/2026-10-29-rime-wanxiang-weights-attribution.md)定了署名渠道，本次只在署名文件和来源说明里补上构建期重算和第二步的改动说明。
+相关：[词库清洗走 curation/ 表](2026-11-04-dictionary-curation-tables.md)定了 `curation/` 的共同规则，这张开关表是它的一张；[万象权重的署名](../process/2026-10-29-rime-wanxiang-weights-attribution.md)定了署名渠道，本次只在署名文件和来源说明里补上构建期重算和第二步的改动说明。[万象改取数据仓库 rime-wanxiang-data](2026-11-16-wanxiang-data-source.md) 取代了这里的数据来源与 `renming` 比例：登记的词库变为 15 份，`lianxiang`、`renming` 不再读，`renming` 设置取消。
