@@ -1,6 +1,7 @@
 #include "CandidateCardSize.h"
 #include "../../compat/WindowsDpi.h"
 #include "CandidateClickWorker.h"
+#include "../../compat/WindowsVersion.h"
 #include "CandidateFlyoutWindow.h"
 #include "CandidateWindow.h"
 #include "FloatingToolbarWindow.h"
