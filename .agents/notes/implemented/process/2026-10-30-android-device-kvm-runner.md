@@ -36,3 +36,5 @@ Status: implemented
 托管镜像的磁盘余量不稳定：装完 NDK、SDK 和系统镜像后，模拟器开机要为 userdata 分区留出 7.2 GB，2026-11-01 develop 推送的 API 28 两次只剩 6.7 GB，模拟器报 Not enough space 退出，开机步骤空等 10 分钟超时（#10516）。设备 job 因此在装工具之前先删掉用不到的预装工具链（dotnet、Swift、GHC、Boost、CodeQL），并在日志里留下清理前后的 `df`。
 
 模拟器内部的 /data 同样紧：崩溃专项一步已经装过 265 MB 的 APK 并启动过应用，完整冒烟再用 `install -r` 覆盖时，包管理器要在旧 APK、它的 dex 产物和首启数据之外再腾出一份新 APK 的空间。2026-11-05 #10934 的 API 35 两次在这里报 `INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location`，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟一步因此先卸掉 `app.msime.android` 再交给 smoke.sh，前后各记一次 `/data` 的 `df`，以后再报空间不足时有数可查。
+
+API 37 的定向运行 `42809951810` 在首次安装阶段报相同存储错误，尚未进入界面测试，因此不能用来判断 #11161 的重叠触摸。原日志只在第二次安装前记录 `/data`，现在在 Rust 设备单测前后和首次安装前记录可用空间。cargo runner 每次覆盖同一个 `core-tests` 文件，原本会把最后一个程序留在设备；现在通过退出清理只移除这个已结束的程序，成功和失败都保留原退出码，不删除测试目录或其他文件。合成 adb 用例覆盖成功、测试失败、上传失败、清理失败及拒绝非测试 AVD；是否足以解除 API 37 的安装失败仍需实际设备运行证明，不将残留程序直接认定为唯一根因。

@@ -60,14 +60,18 @@ public final class SpaceCopyEditorActivity extends Activity {
                 super.onInitializeAccessibilityNodeInfo(info);
                 info.getExtras().putInt("synthetic-copy-attempts", copies);
                 info.getExtras().putInt("synthetic-select-all-attempts", selections);
+                // 系统只为非空文本发布标准选区；合成夹具单独暴露真实 EditText 选区以验证空框。
+                info.getExtras().putInt("synthetic-selection-start", getSelectionStart());
+                info.getExtras().putInt("synthetic-selection-end", getSelectionEnd());
             }
         };
         editor.setInputType(InputType.TYPE_CLASS_TEXT | (getIntent().getBooleanExtra("password", false)
             ? InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_TEXT_FLAG_MULTI_LINE));
         editor.setContentDescription("msime-test-copy-source");
-        editor.setText("合成复制😀甲乙\n第二行");
-        editor.setSelection(getIntent().getIntExtra("selection-start", 3),
-            getIntent().getIntExtra("selection-end", 3));
+        boolean empty = getIntent().getBooleanExtra("empty", false);
+        editor.setText(empty ? "" : "合成复制😀甲乙\n第二行");
+        editor.setSelection(getIntent().getIntExtra("selection-start", empty ? 0 : 3),
+            getIntent().getIntExtra("selection-end", empty ? 0 : 3));
         layout.addView(editor, new LinearLayout.LayoutParams(-1, 240));
         EditText other = new EditText(this);
         other.setContentDescription("msime-test-copy-other");

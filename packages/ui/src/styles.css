@@ -935,6 +935,14 @@
   }
 }
 
+/* 主题轮播限制每张皮肤预览自己的高度，避免滚动轨道被迫截断仍然超高的皮肤卡片。 */
+@utility theme-carousel-viewport {
+  & [data-skin-preview] {
+    max-height: 520px;
+    overflow: hidden !important;
+  }
+}
+
 @utility skin-card-preview {
   /* The `system` theme has no palette and a theme's unset slots keep the platform defaults, which the document declares for the settings window's own theme. A preview is drawn in its own light or dark (`data-preview-theme`, from the colour mode and the per-surface override), so it re-declares the same defaults for that mode; a theme's palette on the element's inline style still wins. */
   &[data-preview-theme="dark"] {

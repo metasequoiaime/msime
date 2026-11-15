@@ -7,9 +7,11 @@ mod candidates;
 mod cli;
 mod community;
 mod config;
+mod config_document;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod crash_reporting;
 mod diagnostics;
+mod keyboard_skins;
 mod plugin_community;
 mod plugins;
 mod preferences;
@@ -145,6 +147,10 @@ fn run() -> ExitCode {
                 json,
             }),
         ),
+        Ok(config::Command::ConfigSchema) => return config_document::run_schema(),
+        Ok(config::Command::DocumentConfig { config, operation }) => {
+            return config_document::run(&config, operation);
+        }
         Ok(config::Command::Help) => {
             eprintln!("{}", config::usage());
             return ExitCode::SUCCESS;

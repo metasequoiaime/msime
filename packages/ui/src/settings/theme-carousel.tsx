@@ -104,7 +104,12 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
   }
 
   return (
-    <section aria-roledescription="carousel" aria-label="主题列表" onKeyDown={onKeyDown}>
+    <section
+      className={settings.themeCarouselViewport}
+      aria-roledescription="carousel"
+      aria-label="主题列表"
+      onKeyDown={onKeyDown}
+    >
       <div ref={track} className={settings.themeCarouselTrack} onScroll={onScroll}>
         {slides.map((child, slide) => (
           <div

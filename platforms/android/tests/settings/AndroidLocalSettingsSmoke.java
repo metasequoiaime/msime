@@ -111,6 +111,13 @@ public final class AndroidLocalSettingsSmoke {
             && !voice.synced().containsKey(AndroidLocalSettings.VOICE_VAD_SENSITIVITY), "microphone timing and sensitivity stay local");
         check(!settings.bool(AndroidLocalSettings.INCOGNITO), "incognito default");
         check("before".equals(settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE)), "quick delete keeps the cursor-before default");
+        check(NineKeyCompositionActionPolicy.SEPARATE.equals(
+            settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION)), "nine-key composition action defaults to separate");
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION).synced,
+            "nine-key composition action stays local");
+        check(AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION)
+            .accept(NineKeyCompositionActionPolicy.REWRITE).equals(NineKeyCompositionActionPolicy.REWRITE),
+            "rewrite action is accepted");
         check(!settings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO), "contribute audio default");
         check(settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT) == 0, "height default");
         check(!settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT), "height is not explicit by default");
@@ -197,11 +204,14 @@ public final class AndroidLocalSettingsSmoke {
         check(Integer.valueOf(-46).equals(height.accept(-46)), "height 75%");
         check(Integer.valueOf(55).equals(height.accept(55)), "height 130%");
         check(Integer.valueOf(129).equals(height.accept(129)), "height 170% (#8779)");
-        check(height.accept(-47) == null && height.accept(130) == null, "height outside the design range");
+        check(Integer.valueOf(-92).equals(height.accept(-92)), "height 50% (#11425)");
+        check(Integer.valueOf(-74).equals(height.accept(-74)), "height 60% persists");
+        check(height.accept(-93) == null && height.accept(130) == null, "height outside the design range");
 
         // 浮动键盘（#5621）：默认关，位置默认水平居中、贴底，千分比 0–1000，工具栏按钮默认不显示。
         AndroidLocalSettings.Snapshot fresh = AndroidLocalSettings.defaults();
         check(!fresh.bool(AndroidLocalSettings.FLOATING_KEYBOARD), "floating keyboard off by default");
+        check(!fresh.bool(AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE), "automatic landscape floating off by default");
         check(!fresh.bool(AndroidLocalSettings.TOOLBAR_FLOATING), "floating toolbar button hidden by default");
         // 工具栏的文本编辑按钮（#6351）：默认不显示，只在本机。
         check(!fresh.bool(AndroidLocalSettings.TOOLBAR_TEXT_EDIT), "text edit toolbar button hidden by default");
@@ -258,6 +268,7 @@ public final class AndroidLocalSettingsSmoke {
         check(Boolean.TRUE.equals(synced.get(AndroidLocalSettings.KEY_POPUP)), "synced carries defaults");
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
                 AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
+                AndroidLocalSettings.FLOATING_KEYBOARD_AUTO_LANDSCAPE,
                 AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
                 AndroidLocalSettings.HARDWARE_CARET_CANDIDATES, AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE,
                 AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.TOOLBAR_TEXT_EDIT, AndroidLocalSettings.BOTTOM_BAR, AndroidLocalSettings.BOTTOM_PADDING,

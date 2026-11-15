@@ -22,6 +22,7 @@ public final class CandidateTranslationRoute {
         NIUTRANS,
         CUSTOM,
         TENCENT,
+        ALIYUN,
         /** 复用现有 AI 助手配置的 Chat Completions 翻译。 */
         AI
     }
@@ -63,6 +64,13 @@ public final class CandidateTranslationRoute {
             region.isEmpty() ? DEFAULT_TENCENT_REGION : region);
     }
 
+    static CandidateTranslationRoute aliyun(String id, String key, String region, String edition, String scene) {
+        return new CandidateTranslationRoute(Provider.ALIYUN, edition, scene, "", id, key, region);
+    }
+
+    public String aliyunEdition() { return appId; }
+    public String aliyunScene() { return apiKey; }
+
     static CandidateTranslationRoute ai(String provider, String endpoint, String model, String token) {
         return new CandidateTranslationRoute(Provider.AI, provider, token, endpoint, "", "", model);
     }
@@ -72,7 +80,7 @@ public final class CandidateTranslationRoute {
     /** 是不是键盘直接请求的用户服务（含复用 AI 助手配置），这些路径不经过水杉账号。 */
     public boolean userService() {
         return provider == Provider.NIUTRANS || provider == Provider.CUSTOM
-            || provider == Provider.TENCENT || provider == Provider.AI;
+            || provider == Provider.TENCENT || provider == Provider.ALIYUN || provider == Provider.AI;
     }
 
     /** 小牛翻译的 App ID。 */
