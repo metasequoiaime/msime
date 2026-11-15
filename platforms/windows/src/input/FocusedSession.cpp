@@ -192,8 +192,7 @@ FocusedSession::key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
   gate_.with_active(lease, [&] {
     result = composer_->dispatch(session_, packet, lease.epoch, path, uiless,
                                  std::move(local_text));
-    if (result && result->host_navigation)
-      late_hide_eligible_ = true;
+    late_hide_eligible_ = result && result->host_navigation.has_value();
     publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
@@ -690,8 +689,7 @@ std::optional<PendingReply> FocusedSession::configured_key(
       result = composer_->configured_key(session_, packet, lease.epoch, style,
                                          bindings, std::move(local_text),
                                          word_binding);
-      if (result && result->host_navigation)
-        late_hide_eligible_ = true;
+      late_hide_eligible_ = result && result->host_navigation.has_value();
     }
     // 上屏音在派发时已经由核心出过，这里只画上屏特效；之后才构建在线查询，不给它们添延迟。
     publish_commit_feedback(result);

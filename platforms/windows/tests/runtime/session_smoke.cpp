@@ -470,6 +470,28 @@ int main(int argc, char **argv) {
       require(moved && moved->host_navigation &&
                   focused.confirm(first.pending, packet.request_id),
               "Candidate navigation fixture did not produce a reply");
+      packet.request_id = 5;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      auto continued = focused.key(first.pending, packet, ReplyPath::Composition);
+      require(continued && focused.confirm(first.pending, packet.request_id) &&
+                  !continued->host_navigation &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate navigation fixture did not clear its late-hide eligibility");
+      require(focused.hide_candidate(first.pending, true) ==
+                  HideCandidateDisposition::Cancelled &&
+                  focused.view().at("editing_text").get<std::string>().empty(),
+              "A late hide after ordinary input preserved the composition");
+      packet.request_id = 6;
+      packet.keycode = 0x26;
+      packet.wch = 0;
+      packet.modifiers_down = 0;
+      moved = focused.configured_key(first.pending, packet,
+                                     TsfPreeditStyle::Local, navigation);
+      require(moved && moved->host_navigation &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Candidate navigation fixture could not re-arm late-hide handling");
       require(focused.hide_candidate(first.pending, true) ==
                   HideCandidateDisposition::Late &&
                   !focused.view().at("editing_text").get<std::string>().empty(),
