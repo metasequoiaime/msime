@@ -9064,7 +9064,7 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
   // 徽章已经放在光标旁时不再发面板提示：macOS 只显示一处。
   if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) return;
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
-  if (auto *instance = engine_->instance()) {
+  if (engine_->instance()) {
     mode_hud_deferred_update_.schedule(label, [this](const std::string &deferred_label) {
       // Fcitx5 的自定义提示会同步刷新输入面板；把它排到按键或焦点事件返回后，避免 Qt 输入法模块在事件栈内重入。
       if (!ic_.hasFocus() || restricted() || privateInput()) return;
