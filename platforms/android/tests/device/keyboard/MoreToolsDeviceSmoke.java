@@ -150,14 +150,14 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             tap(key("更多"));
             tap(tool("输入方式"));
             await(described("输入方案卡片 英文 26 键").and(node ->
-                equalsText("已选中", node.getStateDescription())));
+                equalsText("已选中", state(node, "已选中", "未选中"))));
             tap(described("输入方案卡片 " + originalScheme));
             await(key("n"));
             // 收起面板应回到字母键盘，不能回到已关闭的功能菜单。
             tap(key("更多"));
             tap(tool("输入方式"));
             await(described("输入方案卡片 " + originalScheme).and(node ->
-                equalsText("已选中", node.getStateDescription())));
+                equalsText("已选中", state(node, "已选中", "未选中"))));
             tap(described("返回键盘"));
             await(key("n"));
             if (visible(toolPanel())) throw new AssertionError("返回键盘后功能菜单仍可见");
