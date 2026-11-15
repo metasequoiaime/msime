@@ -1,4 +1,5 @@
 #include "FloatingToolbarWindow.h"
+#include "../../compat/WindowsVersion.h"
 #include "../../compat/WindowsDpi.h"
 #include "AccessibleWindow.h"
 #include "FloatingToolbarPlacement.h"
