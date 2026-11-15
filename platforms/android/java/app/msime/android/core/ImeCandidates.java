@@ -16,6 +16,7 @@ import org.json.JSONObject;
 /** 候选按钮的构建与样式、展开的候选面板和长按候选打开的释义卡片；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
 final class ImeCandidates {
     private final MSIMEInputService s;
+    private final CandidateStripSizing stripSizing;
     private String styleCacheKey;
     private int selectedBackground;
     private int selectedText;
@@ -40,7 +41,10 @@ final class ImeCandidates {
 
     ImeCandidates(MSIMEInputService s) {
         this.s = s;
+        stripSizing = new CandidateStripSizing(s);
     }
+
+    int stripHeightDp(int glossRows) { return stripSizing.heightDp(glossRows); }
 
     /** 每次外观变化只解析一次；候选包生效时，候选按钮与候选面板使用同一套配色。 */
     private void ensureStyleCache() {

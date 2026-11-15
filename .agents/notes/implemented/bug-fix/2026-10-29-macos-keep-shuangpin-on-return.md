@@ -26,6 +26,8 @@ Status: implemented
 
 按键只看 `NSEventTypeKeyDown`：切换输入源用的 Caps Lock 和 Ctrl 松开是 flagsChanged，可能先于切回时的报告送到，算进去会提前清掉标记。
 
+切回报告算不算「系统落在中」后来收窄为只看离开时的入口，见 [macOS 从别的输入源直接选「水杉全拼」时照它改方案](2026-11-12-macos-switch-in-honors-picked-mode.md)。
+
 ## Historical audit
 
 - [macOS 恢复输入源时避免重复选择模式](2026-10-21-macos-input-source-restore.md)：部分重叠。那篇决定激活时延后一轮主队列、按 TIS 实际输入源校准记录；本篇因为它带来的两种到达顺序，才把「刚切进」单独记成标记，不改变它的时序。

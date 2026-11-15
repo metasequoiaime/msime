@@ -65,6 +65,24 @@ run_case() {
   printf '%s\n' "$result"
   [[ "$result" == *"MSIME_VOICE_LIFECYCLE_PASSED: $scenario"* ]]
 }
+if [[ "$mode" == empty ]]; then
+  mkdir -p target/android
+  for scenario in timeout no-match empty-result; do
+    setup=$("$adb" -s "$serial" shell am instrument -w -e enabled true -e empty "$scenario" \
+      app.msime.android.test/app.msime.android.test.SyntheticSpeechSetup)
+    [[ "$setup" == *MSIME_SPEECH_SETUP_PASSED* ]]
+    shot=/sdcard/Android/data/app.msime.android/files/voice-empty-$scenario.png
+    failure_shot=/sdcard/Android/data/app.msime.android/files/voice-empty-$scenario-failure.png
+    "$adb" -s "$serial" shell rm -f "$shot" "$failure_shot"
+    result=$("$adb" -s "$serial" shell am instrument -w -e voice-empty "$scenario" \
+      app.msime.android.test/app.msime.android.test.VoiceProviderCatalogDeviceSmoke)
+    printf '%s\n' "$result"
+    "$adb" -s "$serial" pull "$shot" "target/android/voice-empty-$scenario-api$api.png" >/dev/null 2>&1 || true
+    "$adb" -s "$serial" pull "$failure_shot" "target/android/voice-empty-$scenario-failure-api$api.png" >/dev/null 2>&1 || true
+    [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || exit 1
+  done
+  exit
+fi
 if [[ "$mode" == hold ]]; then
   # smoke.sh 只走 hold 模式；人物检查不需要合成语音或麦克风，放在这里才会真的执行。
   result=$("$adb" -s "$serial" shell am instrument -w -e scenario voice-mascot \

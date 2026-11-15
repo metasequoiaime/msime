@@ -60,6 +60,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private WebView web;
     private boolean settingsSearchAnchor;
     private boolean skinDelete;
+    private boolean skinRefresh;
     private boolean vocabulary;
     private boolean noticeQueue;
     private boolean phraseNotes;
@@ -70,6 +71,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
 
     @Override public void onCreate(Bundle arguments) {
         settingsSearchAnchor = arguments != null && "true".equals(arguments.getString("settings-search-anchor"));
+        skinRefresh = arguments != null && "true".equals(arguments.getString("skin-refresh"));
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
         vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
         noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
@@ -89,6 +91,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         if (phraseCategories) return "native common phrase categories, accordion defaults, insertion and ZIP backup";
         if (phraseNotes) return "native common phrase note CRUD, persistence, backup and body-only keyboard insertion";
         if (noticeQueue) return "native settings content loads while notice fetch and dismissal are blocked";
+        if (skinRefresh) return "native skin tabs reload newly saved designs and clear deleted community actions";
         if (skinDelete) return "native saved skin cancellation, removal, empty library and active design preservation";
         if (vocabulary) return "bundled wordbooks extracted, listed through JNI and answered";
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
@@ -120,6 +123,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         }
         if (noticeQueue) {
             new NoticeQueueDeviceCheck(this).run();
+            return;
+        }
+        if (skinRefresh) {
+            new SkinTabRefreshDeviceCheck(this).run();
             return;
         }
         if (skinDelete) {
