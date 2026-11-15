@@ -109,7 +109,7 @@ test("「符」与「123」互换和数字行跟着偏好", () => {
   const rows = rowsFor({ touch_twenty_six_symbol_first: true, touch_number_row: true });
   expect(rows[0]).toEqual([..."1234567890"]);
   expect(rows).toHaveLength(5);
-  expect(rows.at(-1)).toEqual(["符", "123", "空格", "，", "中", "↵"]);
+  expect(rows.at(-1)).toEqual(["符", "123", "。", "空格", "，", "中", "↵"]);
   // 14/18 键底行没有 符，互换不动它，数字行照样加。
   const fourteen = rowsFor({
     ...fourteenKey,
@@ -122,11 +122,12 @@ test("「符」与「123」互换和数字行跟着偏好", () => {
 
 test("「中/英键放在空格左边」三类预览都跟着排，日语 26 键同样排，九键换了左列的表时底行照样排", () => {
   const left: Partial<Preferences> = { touch_language_key_side: "left" };
-  expect(rowsFor(left).at(-1)).toEqual(["123", "符", "中", "空格", "，", "↵"]);
+  expect(rowsFor(left).at(-1)).toEqual(["123", "符", "中", "。", "空格", "，", "↵"]);
   expect(rowsFor({ ...left, touch_twenty_six_symbol_first: true }).at(-1)).toEqual([
     "符",
     "123",
     "中",
+    "。",
     "空格",
     "，",
     "↵",
@@ -134,6 +135,16 @@ test("「中/英键放在空格左边」三类预览都跟着排，日语 26 键
   expect(rowsFor({ ...left, ...fourteenKey }).at(-1)).toEqual(
     labels(withLanguageKeyLeft(fourteenKeyBottomRows.standard, true)),
   );
+  // 日语 26 键不受样式影响，固定画 26 键一族的标准底行：句号紧挨空格，中/英 排在句号左边。
+  expect(rowsFor({ ...left, ...japanese }).at(-1)).toEqual([
+    "123",
+    "符",
+    "中",
+    "。",
+    "空格",
+    "，",
+    "↵",
+  ]);
   expect(rowsFor({ ...left, ...japanese }).at(-1)).toEqual(
     labels(withLanguageKeyLeft(twentySixKeyBottomRows.standard, true)),
   );
@@ -163,10 +174,20 @@ test("九键双拼和笔画也画九宫格外框，底行跟着 9 键样式，�
   }
 });
 
-test("日语 26 键不按中文 26 键的样式排，没有偏好时画标准 26 键", () => {
-  expect(rowsFor({ ...japanese, touch_twenty_six_key_style: "long_space" }).at(-1)).toEqual(
-    labels(twentySixKeyBottomRows.standard),
-  );
+test("日语 26 键不按中文 26 键的样式排、固定画带句号的标准底行，没有偏好时画标准 26 键", () => {
+  for (const style of ["standard", "comma_period", "long_space", "emoji"] as const) {
+    expect(rowsFor({ ...japanese, touch_twenty_six_key_style: style }).at(-1), style).toEqual([
+      "123",
+      "符",
+      "。",
+      "空格",
+      "，",
+      "中",
+      "↵",
+    ]);
+  }
+  // 中文 26 键的标准样式是同一行：句号紧挨空格左边。
+  expect(rowsFor({}).at(-1)).toEqual(["123", "符", "。", "空格", "，", "中", "↵"]);
   const rows = harmonyTouchRowsForPreferences(undefined).map(labels);
   expect(rows).toHaveLength(4);
   expect(rows.at(-1)).toEqual(labels(twentySixKeyBottomRows.standard));

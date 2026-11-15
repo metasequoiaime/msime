@@ -2578,6 +2578,8 @@ static void TestToggleHotkeyRebinding(void) {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+#include "QuickPhraseHotkeyChecks.inc"
+
 static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutClient *client = [ShortcutClient new];
@@ -2953,6 +2955,12 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 // opening the settings window and finding a checkbox, which is a long way round for something the
 // user turns on and off while typing. The item writes the same preference that checkbox writes, so
 // the two cannot disagree and the choice survives a restart.
+// 清空共享的模式记录，连同离开时的入口：每段测试都从「进程刚启动、还没离开过水杉」开始，前一段留下的入口不会让这一段的报告被当成回到原入口。要测离开时在某个入口的，清空之后自己写 left。
+static void ForgetSystemInputMode() {
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    MSIMESharedSystemInputModeState().left = nil;
+}
+
 @interface ModeSelectingClient : ShortcutClient
 @property(nonatomic, strong) NSMutableArray<NSString *> *selectedModes;
 - (void)selectInputMode:(NSString *)identifier;
@@ -3005,7 +3013,7 @@ static void TestRestoredInputModeActivation() {
         [controller setValue:appearance forKey:@"appearance"];
         [controller setValue:client forKey:@"activeClient"];
         controller.selectedSource = @"com.apple.keylayout.US";
-        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        ForgetSystemInputMode();
         MSIMEFocusedController = controller;
         return controller;
     };
@@ -3071,7 +3079,7 @@ static void TestRestoredInputModeActivation() {
     assert(controller.synchronizationCalls == 0 && client.selectedModes.count == 0);
     assert([MSIMESharedSystemInputModeState().current isEqual:MSIMEEnglishInputModeID]);
     MSIMEFocusedController = nil;
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -3104,7 +3112,7 @@ static void TestSwitchBackKeepsShuangpin() {
         ModeSelectingClient *client = [ModeSelectingClient new];
         [controller setValue:client forKey:@"activeClient"];
         appearance.inputScheme = @"shuangpin";
-        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        ForgetSystemInputMode();
         return client;
     };
 
@@ -3149,8 +3157,45 @@ static void TestSwitchBackKeepsShuangpin() {
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"quanpin"]);
 
+    // 离开时在「双」，从别的输入源直接选了「水杉全拼」：这是用户挑的入口，方案改成全拼，菜单栏不再被选回「双」。报告先于激活校准到达。
+    client = switchBack();
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"] && !appearance.englishMode);
+    assert(client.selectedModes.count == 0);
+
+    // 同一件事，激活校准先到：校准记下「中」，同步按双拼选回「双」，随后到达的「中」报告仍把方案改成全拼，再把菜单栏选回「中」。
+    client = switchBack();
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEChineseInputModeID));
+    [controller syncSystemInputModeForClient:client];
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    assert([MSIMESharedSystemInputModeState().current isEqualToString:MSIMEChineseInputModeID]);
+
+    // 离开时就在「中」，回来还是「中」：系统把用户送回原来的入口，双拼不动，菜单栏选回「双」。
+    client = switchBack();
+    MSIMESharedSystemInputModeState().left = MSIMEChineseInputModeID;
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+
+    // 只加了「双」一个入口、在设置里把方案改成全拼：离开时在「双」，回来系统报告的还是「双」，全拼留得住。在水杉里按过键之后再报告「双」是用户选的，改成双拼。
+    client = switchBack();
+    appearance.inputScheme = @"quanpin";
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    client = switchBack();
+    appearance.inputScheme = @"quanpin";
+    MSIMESharedSystemInputModeState().left = MSIMEShuangpinInputModeID;
+    MSIMESharedSystemInputModeState().switchedIn = false;
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+
     MSIMEFocusedController = nil;
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -3176,7 +3221,7 @@ static void TestSwitchInReportKeepsStartingEnglish() {
         [appearance applySharedInputPreferences:preferences];
         // 离开水杉时输入源监视器清掉记住的模式和系统模式记录，这里照做。
         [appearance resetRememberedInputModes];
-        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        ForgetSystemInputMode();
         SwitchInModeClient *client = [SwitchInModeClient new];
         client.bundleIdentifier = @"org.example.first";
         [controller setValue:client forKey:@"activeClient"];
@@ -3216,7 +3261,7 @@ static void TestSwitchInReportKeepsStartingEnglish() {
     assert(appearance.englishMode);
 
     MSIMEFocusedController = nil;
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -3470,13 +3515,13 @@ static void TestOptInSchemeModes() {
         ((SchemeHostSession *)[reporter valueForKey:@"session"]).hostOptions = @{@"language_dictionaries": dictionaryDirectory};
         [reporter setValue:emptyDictionaries forKey:@"preferencesDirectory"];
         [reporter setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
-        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        ForgetSystemInputMode();
         [reporter systemDidReportInputMode:MSIMECantoneseInputModeID client:[reporter valueForKey:@"activeClient"]];
         return reportAppearance.inputScheme;
     };
     assert([reportCantonese(emptyDictionaries) isEqual:@"quanpin"]);
     assert([reportCantonese(dictionaries) isEqual:@"cantonese"]);
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     [NSFileManager.defaultManager removeItemAtPath:emptyDictionaries error:nil];
     MSIMERemoveTestPreferenceSuite(reportDefaults, reportSuite);
 
@@ -6431,7 +6476,7 @@ static void TestModeSwitchReachesTheSessionBeforeTheNextKey() {
     [controller setValue:[root stringByAppendingPathComponent:@"preferences"] forKey:@"preferencesDirectory"];
     [controller setValue:[[HiddenCandidatePanel alloc] init] forKey:@"panel"];
     MSIMEFocusedController = controller;
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     auto scheme = ^NSInteger { return [[controller valueForKey:@"view"][@"scheme"] integerValue]; };
     auto type = ^(unsigned short keyCode, NSString *letter) {
         assert([controller handleEvent:KeypadKey(keyCode, letter, 0, NO) client:client]);
@@ -6471,7 +6516,7 @@ static void TestModeSwitchReachesTheSessionBeforeTheNextKey() {
     assert(!error && [stored[@"preferences"][@"scheme"] isEqual:@"korean"]);
 
     MSIMEFocusedController = nil;
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -6506,7 +6551,7 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     ModeController *controller = freshProcess(defaults);
     MSIMEAppearancePreferences *prefs = [controller valueForKey:@"appearance"];
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     ModeSelectingClient *client = [ModeSelectingClient new];
     assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client]);
     assert([prefs.inputScheme isEqual:@"quanpin"] && [prefs.lastSyncedInputScheme isEqual:@"quanpin"]);
@@ -6529,7 +6574,7 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
     defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     controller = freshProcess(defaults);
     prefs = [controller valueForKey:@"appearance"];
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     client = [ModeSelectingClient new];
     [controller setValue:client forKey:@"activeClient"];
     [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
@@ -6537,7 +6582,7 @@ static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
 
     [controller deactivateServer:client];
     MSIMEFocusedController = nil;
-    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ForgetSystemInputMode();
     [NSFileManager.defaultManager removeItemAtPath:root error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     method_setImplementation(baseDeactivation, originalDeactivation);
@@ -6654,7 +6699,7 @@ static void TestStartupVoicePreferences() {
             assert(saved && !error);
         }
         if (entry == 1 || entry == 5) {
-            MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+            ForgetSystemInputMode();
             [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
             assert([prefs.inputScheme isEqual:@"korean"]);
         }
@@ -7658,12 +7703,37 @@ static void TestCapsLockTap() {
     [controller pollCapsLockTap];
     assert(gCapsReleases == 1 && prefs.englishMode);
     assert(session.capsLockCalls == reports && !session.capsLock);
-    // 系统撤回锁定后紧跟着送来的旧 Caps Lock 修饰位不能让英文重新变成大写。
-    assert([controller handleEvent:LayoutKey(0, @"A", NSEventModifierFlagCapsLock) client:client]);
+    // 关闭状态事件可能先于窗口服务器翻译出的字母抵达；即使字母事件已经没有 Caps Lock 修饰位，也不能让英文重新变成大写。
+    assert(![controller handleEvent:capsOff(1.1) client:client]);
+    assert([controller handleEvent:LayoutKey(0, @"A", 0) client:client]);
     assert([client.insertions.lastObject isEqual:@"a"] && !session.capsLock);
-    // 撤回之后系统报来的「大写锁定关」不会再切换，也不用报告。
+    // 撤回之后系统再次报来的「大写锁定关」不会再切换，也不用报告。
     assert(![controller handleEvent:capsOff(1.2) client:client]);
     assert(prefs.englishMode && session.capsLockCalls == reports);
+
+    // 保留旧回归：字母仍带 Caps Lock 修饰位时同样还原；另用独立控制器验证关闭边沿先到的新时序。
+    const NSUInteger releasesBeforeStaleCases = gCapsReleases;
+    for (NSEventModifierFlags letterFlags : {NSEventModifierFlags(NSEventModifierFlagCapsLock), NSEventModifierFlags(0)}) {
+        ModeController *staleController = [ModeController alloc];
+        ShortcutClient *staleClient = [ShortcutClient new];
+        [staleController setValue:prefs forKey:@"appearance"];
+        [staleController setValue:staleClient forKey:@"activeClient"];
+        [staleController setValue:session forKey:@"session"];
+        prefs.englishMode = NO;
+        gCapsNow = 1200; gCapsHeld = true;
+        assert(![staleController handleEvent:capsOn(1.2) client:staleClient]);
+        gCapsNow = 1250; gCapsHeld = false;
+        [staleController pollCapsLockTap];
+        assert(prefs.englishMode && !session.capsLock);
+        if (!letterFlags) assert(![staleController handleEvent:capsOff(1.3) client:staleClient]);
+        assert([staleController handleEvent:LayoutKey(0, @"A", letterFlags) client:staleClient]);
+        assert([staleClient.insertions.lastObject isEqual:@"a"] && !session.capsLock);
+        assert(session.capsLockCalls == reports);
+        [staleController setValue:nil forKey:@"session"];
+        [staleController setValue:nil forKey:@"activeClient"];
+    }
+    assert(gCapsReleases == releasesBeforeStaleCases + 2);
+    gCapsReleases = releasesBeforeStaleCases;
 
     // 再轻点一次切回中文。
     gCapsNow = 2000; gCapsHeld = true;
@@ -8880,6 +8950,28 @@ static void TestInputSourceModeReset() {
     [NSNotificationCenter.defaultCenter removeObserver:saveObserver];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     monitoredSource = nil;
+}
+
+// 系统输入源切换通知先于旧会话清理到达：正在组的字母必须原样上屏，不能被随后重置丢掉。
+static void TestRawCompositionCommitsBeforeInputSourceSwitch() {
+    NSString *suite = [@"msime.source-switch-raw." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"msime", @"candidates": @[] } forKey:@"view"];
+    session.rawTransition = @{ @"handled": @YES, @"commit": @"msime",
+                               @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    MSIMEFocusedController = controller;
+    MSIMECommitRawCompositionBeforeInputSourceSwitch();
+    assert(session.rawCommitCalls == 1 && [client.committed isEqualToString:@"msime"]);
+    assert(![[controller valueForKey:@"view"][@"editing_text"] length]);
+    MSIMEFocusedController = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 // Punctuation and width are runtime state of each app, like the reference's per-thread TSF compartments: the toggles never save, another app starts from the saved value, a Chinese/English switch puts punctuation back in step with the mode, and a new saved starting value applies everywhere.
@@ -13251,6 +13343,7 @@ static void TestSessionUnavailableIsReported() {
 
 @interface SessionRecoveryController : MSIMEInputController
 @property(strong) NSDictionary *testOptions;
+@property(strong) NSDictionary *createdOptions;
 @property NSUInteger optionReads;
 @property NSUInteger creations;
 @property NSUInteger failures;
@@ -13263,6 +13356,7 @@ static void TestSessionUnavailableIsReported() {
 }
 - (MSIMEClientSession *)createSessionWithOptions:(NSDictionary *)options error:(NSError **)error {
     ++self.creations;
+    self.createdOptions = options;
     if (self.creations <= self.failures) {
         if (error) *error = [NSError errorWithDomain:@"synthetic" code:1
             userInfo:@{NSLocalizedDescriptionKey:@"dictionary access unavailable"}];
@@ -13532,6 +13626,38 @@ static void TestIdleSessionRecovery() {
     [active setValue:nil forKey:@"activeClient"];
     [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
     assert([MSIMEInputController dictionarySessionHolders].count == 0);
+
+    // #11315：运行时选项文件故意保留旧的全拼，但共享偏好文档已经切到双拼。首个会话必须直接使用文档里的方案，不能等后台轮询后才生效。
+    NSString *sharedPreferences = [root stringByAppendingPathComponent:@"shared-preferences"];
+    NSDictionary *sharedInitial = [MSIMEClientSession loadPreferencesInDirectory:sharedPreferences error:&error];
+    assert(sharedInitial && !error);
+    NSMutableDictionary *sharedValues = [sharedInitial[@"preferences"] mutableCopy];
+    sharedValues[@"scheme"] = @"shuangpin";
+    sharedValues[@"last_chinese_scheme"] = @"shuangpin";
+    NSDictionary *sharedSaved = [MSIMEClientSession savePreferencesInDirectory:sharedPreferences
+        expectedRevision:[sharedInitial[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version":@1, @"revision":sharedInitial[@"revision"], @"preferences":sharedValues} error:&error];
+    assert(sharedSaved && !error);
+    NSMutableDictionary *startupOptions = [options mutableCopy];
+    startupOptions[@"preferences_directory"] = sharedPreferences;
+    startupOptions[@"preferences"] = @{@"scheme":@"quanpin", @"default_ime_mode":@"chinese", @"learning":@NO};
+    NSString *suite = [@"msime.startup-scheme." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    SessionRecoveryController *startup = [SessionRecoveryController alloc];
+    startup.testOptions = startupOptions;
+    [startup setValue:appearance forKey:@"appearance"];
+    [startup setValue:[ShortcutClient new] forKey:@"activeClient"];
+    assert([[startup applySharedInputPreferencesBeforeFirstUse][@"preferences"][@"scheme"] isEqual:@"shuangpin"]);
+    [startup prepareSession];
+    MSIMEClientSession *startupSession = [startup valueForKey:@"session"];
+    assert(startupSession && [startup.createdOptions[@"preferences"][ @"scheme"] isEqual:@"shuangpin"]);
+    assert([[startupSession viewWithError:&error][@"scheme"] isEqual:@1] && !error);
+    [startup setValue:nil forKey:@"activeClient"];
+    [MSIMEInputController releaseIdleDictionarySessionsKeeping:0];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
     assert(setrlimit(RLIMIT_NOFILE, &previous) == 0);
     TestSessionRecoveryNotice(options);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
@@ -15371,6 +15497,10 @@ int main(int argc, char **argv) {
         // 可重绑切换热键的重绑路径单独可跑：全量 suite 里皮肤颜色断言在无图形会话的机器上先于它中止。
         if (argc == 2 && std::string(argv[1]) == "--editable-shift") {
             TestEditableShiftController();
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--quick-phrase-hotkey") {
+            TestQuickPhraseHotkeyRouting();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--toggle-hotkeys") {
@@ -17400,6 +17530,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestRawCompositionCommitsBeforeInputSourceSwitch(); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
         @autoreleasepool { TestRealSessionComposition(); }
@@ -17475,6 +17606,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestCharacterSetShortcut(); }
         @autoreleasepool { TestInputStateHUDs(); }
         @autoreleasepool { TestToggleHotkeyRebinding(); }
+        @autoreleasepool { TestQuickPhraseHotkeyRouting(); }
         @autoreleasepool { TestVimModeEscapeRouting(); }
         @autoreleasepool { TestNextWordPredictionKeysTypeNormally(); }
         @autoreleasepool { TestDedicatedEnglish(appearance); }

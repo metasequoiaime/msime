@@ -3,20 +3,31 @@ use crate::ime::personal_rerank::allocations::{count, measure};
 use crate::quanpin::fixture::Fixture;
 use crate::types::autocorrect_type;
 
-// 固定 ffb35a03751e1c2fdf139f13b142f83b0558f75b 的完整收集路径；规划与查库 helper 两侧共用。
+// 固定 ffb35a03751e1c2fdf139f13b142f83b0558f75b 的完整收集路径，加上之后的字母级纠错键、全拼罚分折扣和同键只查一次；规划与查库 helper 两侧共用。
 fn legacy_collect_typo_edges(
     database: &PinyinDatabase,
     span_cache: &mut FifoCache<String, Vec<DictRow>>,
+    edit_cache: &mut EditWindowCache,
     profile: &PersonalTypoProfile,
     segments: &[String],
     literal_best: &SentencePath,
     autocorrect_types: u32,
 ) -> Vec<TypoEdge> {
-    let planned = plan_keys(profile, segments, literal_best, autocorrect_types);
+    let mut planned = plan_keys(profile, segments, literal_best, autocorrect_types);
+    plan_edit_keys(
+        segments,
+        literal_best,
+        autocorrect_types,
+        edit_cache,
+        &mut planned,
+    );
+    for entry in &mut planned {
+        entry.penalty *= QUANPIN_TYPO_PENALTY_SCALE;
+    }
 
-    let mut misses = Vec::with_capacity(planned.len());
+    let mut misses: Vec<String> = Vec::with_capacity(planned.len());
     for entry in &planned {
-        if span_cache.get_ref(&entry.key).is_none() {
+        if span_cache.get_ref(&entry.key).is_none() && !misses.contains(&entry.key) {
             misses.push(entry.key.clone());
         }
     }
@@ -45,6 +56,27 @@ fn legacy_collect_typo_edges(
     edges
 }
 
+/// 产品的完整规划：一换一的键加字母级纠错键，罚分打过全拼折扣。预热缓存和计算期望都要按它来，只按 `plan_keys` 预热时字母级的键仍会未命中。
+fn plan_all(
+    profile: &PersonalTypoProfile,
+    segments: &[String],
+    literal_best: &SentencePath,
+    autocorrect_types: u32,
+) -> Vec<PlannedKey> {
+    let mut planned = plan_keys(profile, segments, literal_best, autocorrect_types);
+    plan_edit_keys(
+        segments,
+        literal_best,
+        autocorrect_types,
+        &mut EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY),
+        &mut planned,
+    );
+    for entry in &mut planned {
+        entry.penalty *= QUANPIN_TYPO_PENALTY_SCALE;
+    }
+    planned
+}
+
 const TYPES: u32 = autocorrect_type::TRANSPOSITION
     | autocorrect_type::NEIGHBOR
     | autocorrect_type::MISSING_OR_EXTRA;
@@ -68,26 +100,47 @@ fn all_warm_empty_rows_skip_both_unused_buffers() {
     let profile = PersonalTypoProfile::shared(&fixture.journal());
     let database = PinyinDatabase::open(&fixture.database());
     let (segments, literal) = input(6);
-    let planned = plan_keys(&profile, &segments, &literal, TYPES);
+    let planned = plan_all(&profile, &segments, &literal, TYPES);
     assert!(!planned.is_empty());
     let mut legacy_cache = FifoCache::new(512);
+    let mut legacy_edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
     let mut cache = FifoCache::new(512);
+    let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
     for entry in &planned {
         legacy_cache.insert(entry.key.clone(), vec![]);
         cache.insert(entry.key.clone(), vec![]);
     }
+    // 全命中：窗口改法也先算好，计量区间里两侧都不再往缓存里写。
+    plan_edit_keys(
+        &segments,
+        &literal,
+        TYPES,
+        &mut legacy_edit_cache,
+        &mut Vec::new(),
+    );
+    plan_edit_keys(&segments, &literal, TYPES, &mut edit_cache, &mut Vec::new());
     let (legacy_edges, legacy_heap) = measure(|| {
         legacy_collect_typo_edges(
             &database,
             &mut legacy_cache,
+            &mut legacy_edit_cache,
             &profile,
             &segments,
             &literal,
             TYPES,
         )
     });
-    let (edges, heap) =
-        measure(|| collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, TYPES));
+    let (edges, heap) = measure(|| {
+        collect_typo_edges(
+            &database,
+            &mut cache,
+            &mut edit_cache,
+            &profile,
+            &segments,
+            &literal,
+            TYPES,
+        )
+    });
     assert_eq!(edges, legacy_edges);
     assert_eq!(
         heap.allocations + 2,
@@ -99,7 +152,8 @@ fn all_warm_empty_rows_skip_both_unused_buffers() {
     assert_eq!(legacy_heap.minimum_bytes, 0);
     assert_eq!(heap.remaining_bytes, 0);
     assert!(legacy_heap.remaining_bytes > 0);
-    assert!(heap.peak_bytes < legacy_heap.peak_bytes);
+    // 峰值出在两侧共用的字母级规划上，查库阶段省下的缓冲压不低它；懒分配由上面的分配次数和返回存储断言盯着。
+    assert!(heap.peak_bytes <= legacy_heap.peak_bytes);
     println!(
         "全热空查询：分配 {}→{}，峰值 {}→{}，返回存储 {}→{}",
         legacy_heap.allocations,
@@ -138,11 +192,13 @@ fn warm_nonempty_rows_keep_order_penalties_and_exact_capacity() {
         .unwrap();
     let database = PinyinDatabase::open(&fixture.database());
     let (segments, literal) = input(6);
-    let planned = plan_keys(&profile, &segments, &literal, TYPES);
+    let planned = plan_all(&profile, &segments, &literal, TYPES);
     assert!(!planned.is_empty());
     for (length, only_last) in [(1, false), (4, false), (5, false), (1, true)] {
         let mut legacy_cache = FifoCache::new(512);
+        let mut legacy_edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
         let mut cache = FifoCache::new(512);
+        let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
         for (index, entry) in planned.iter().enumerate() {
             let values = if only_last && index + 1 != planned.len() {
                 vec![]
@@ -156,6 +212,7 @@ fn warm_nonempty_rows_keep_order_penalties_and_exact_capacity() {
             legacy_collect_typo_edges(
                 &database,
                 &mut legacy_cache,
+                &mut legacy_edit_cache,
                 &profile,
                 &segments,
                 &literal,
@@ -163,7 +220,15 @@ fn warm_nonempty_rows_keep_order_penalties_and_exact_capacity() {
             )
         });
         let (edges, allocations) = count(|| {
-            collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, TYPES)
+            collect_typo_edges(
+                &database,
+                &mut cache,
+                &mut edit_cache,
+                &profile,
+                &segments,
+                &literal,
+                TYPES,
+            )
         });
         assert!(!edges.is_empty());
         assert_same_edges(&edges, &legacy_edges);
@@ -179,20 +244,38 @@ fn sparse_first_hit_reserves_only_the_rows_it_has() {
     let profile = PersonalTypoProfile::shared(&fixture.journal());
     let database = PinyinDatabase::open(&fixture.database());
     let (segments, literal) = input(6);
-    let planned = plan_keys(&profile, &segments, &literal, TYPES);
+    let planned = plan_all(&profile, &segments, &literal, TYPES);
     assert!(planned.len() > TYPO_ROWS_PER_KEY);
     let mut cache = FifoCache::new(512);
+    let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
+    // 字母级纠错键里同一个键可能有几个跨度；每个键只写一次，后写的空结果不能盖掉第一个键的那一行。
     for (index, entry) in planned.iter().enumerate() {
+        if cache.get_ref(&entry.key).is_some() {
+            continue;
+        }
         cache.insert(
             entry.key.clone(),
             if index == 0 { rows(entry, 1) } else { vec![] },
         );
     }
 
-    let edges = collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, TYPES);
+    let edges = collect_typo_edges(
+        &database,
+        &mut cache,
+        &mut edit_cache,
+        &profile,
+        &segments,
+        &literal,
+        TYPES,
+    );
 
-    assert_eq!(edges.len(), 1);
-    assert_eq!(edges.capacity(), 1);
+    // 那一行词在这个键出现的每个跨度上各成一条边。
+    let spans = planned
+        .iter()
+        .filter(|entry| entry.key == planned[0].key)
+        .count();
+    assert_eq!(edges.len(), spans);
+    assert_eq!(edges.capacity(), spans);
 }
 
 #[test]
@@ -200,7 +283,7 @@ fn real_queries_and_partial_hits_keep_batch_fill_and_fifo_eviction() {
     let fixture = Fixture::new();
     let profile = PersonalTypoProfile::shared(&fixture.journal());
     let (segments, literal) = input(6);
-    let planned = plan_keys(&profile, &segments, &literal, TYPES);
+    let planned = plan_all(&profile, &segments, &literal, TYPES);
     assert!(planned.len() > 3);
     for (index, entry) in planned.iter().enumerate() {
         if index % 3 == 0 || index + 1 == planned.len() {
@@ -215,6 +298,8 @@ fn real_queries_and_partial_hits_keep_batch_fill_and_fifo_eviction() {
             let database = PinyinDatabase::open(&fixture.database());
             let mut legacy_cache = FifoCache::new(capacity);
             let mut cache = FifoCache::new(capacity);
+            let mut legacy_edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
+            let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
             if partial {
                 for (index, entry) in planned.iter().enumerate() {
                     if index % 2 == 0 {
@@ -234,6 +319,7 @@ fn real_queries_and_partial_hits_keep_batch_fill_and_fifo_eviction() {
                     legacy_collect_typo_edges(
                         &legacy_database,
                         &mut legacy_cache,
+                        &mut legacy_edit_cache,
                         &profile,
                         &segments,
                         &literal,
@@ -241,7 +327,15 @@ fn real_queries_and_partial_hits_keep_batch_fill_and_fifo_eviction() {
                     )
                 });
                 let (edges, allocations) = count(|| {
-                    collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, TYPES)
+                    collect_typo_edges(
+                        &database,
+                        &mut cache,
+                        &mut edit_cache,
+                        &profile,
+                        &segments,
+                        &literal,
+                        TYPES,
+                    )
                 });
                 assert_same_edges(&edges, &legacy_edges);
                 if edges.is_empty() {
@@ -275,10 +369,12 @@ fn guard_inputs_and_long_plans_keep_empty_results_without_output_storage() {
         for types in [0, TYPES] {
             // 不完整覆盖的字词路径不标记弱位置，两侧仍遵循相同规划顺序。
             literal.words = vec!["甲甲".to_owned(); length];
-            let planned = plan_keys(&profile, &segments, &literal, types);
-            assert!(planned.len() <= TYPO_KEY_BUDGET);
+            let planned = plan_all(&profile, &segments, &literal, types);
+            assert!(planned.len() <= TYPO_KEY_BUDGET + EDIT_KEY_BUDGET);
             let mut legacy_cache = FifoCache::new(512);
+            let mut legacy_edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
             let mut cache = FifoCache::new(512);
+            let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
             for entry in &planned {
                 legacy_cache.insert(entry.key.clone(), vec![]);
                 cache.insert(entry.key.clone(), vec![]);
@@ -287,6 +383,7 @@ fn guard_inputs_and_long_plans_keep_empty_results_without_output_storage() {
                 legacy_collect_typo_edges(
                     &database,
                     &mut legacy_cache,
+                    &mut legacy_edit_cache,
                     &profile,
                     &segments,
                     &literal,
@@ -294,7 +391,15 @@ fn guard_inputs_and_long_plans_keep_empty_results_without_output_storage() {
                 )
             });
             let (edges, allocations) = count(|| {
-                collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, types)
+                collect_typo_edges(
+                    &database,
+                    &mut cache,
+                    &mut edit_cache,
+                    &profile,
+                    &segments,
+                    &literal,
+                    types,
+                )
             });
             assert_same_edges(&edges, &legacy_edges);
             assert!(edges.is_empty());
@@ -311,7 +416,7 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
         let fixture = Fixture::new();
         let profile = PersonalTypoProfile::shared(&fixture.journal());
         let (segments, literal) = input(6);
-        let planned = plan_keys(&profile, &segments, &literal, TYPES);
+        let planned = plan_all(&profile, &segments, &literal, TYPES);
         assert!(!planned.is_empty());
         if with_rows {
             let entry = planned.last().unwrap();
@@ -323,9 +428,11 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
         // 区间外完成静态表和线程级状态初始化；该连接、缓存及结果随后全部析构。
         let prewarm_database = PinyinDatabase::open(&path);
         let mut prewarm_cache = FifoCache::new(512);
+        let mut prewarm_edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
         drop(legacy_collect_typo_edges(
             &prewarm_database,
             &mut prewarm_cache,
+            &mut prewarm_edit_cache,
             &profile,
             &segments,
             &literal,
@@ -336,8 +443,15 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
         let (legacy_edges, legacy_heap) = measure(|| {
             let database = PinyinDatabase::open(&path);
             let mut cache = FifoCache::new(512);
+            let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
             let edges = legacy_collect_typo_edges(
-                &database, &mut cache, &profile, &segments, &literal, TYPES,
+                &database,
+                &mut cache,
+                &mut edit_cache,
+                &profile,
+                &segments,
+                &literal,
+                TYPES,
             );
             drop(cache);
             drop(database);
@@ -346,8 +460,16 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
         let (edges, heap) = measure(|| {
             let database = PinyinDatabase::open(&path);
             let mut cache = FifoCache::new(512);
-            let edges =
-                collect_typo_edges(&database, &mut cache, &profile, &segments, &literal, TYPES);
+            let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
+            let edges = collect_typo_edges(
+                &database,
+                &mut cache,
+                &mut edit_cache,
+                &profile,
+                &segments,
+                &literal,
+                TYPES,
+            );
             drop(cache);
             drop(database);
             edges
@@ -360,12 +482,14 @@ fn cold_measurement_creates_and_drops_database_and_cache_inside_the_scope() {
             assert_eq!(edges.capacity(), 0);
             assert_eq!(heap.remaining_bytes, 0);
             assert!(legacy_heap.remaining_bytes > 0);
-            assert!(heap.peak_bytes < legacy_heap.peak_bytes);
+            // 同上：峰值出在共用的字母级规划上。
+            assert!(heap.peak_bytes <= legacy_heap.peak_bytes);
         } else {
             assert_eq!(heap.allocations, legacy_heap.allocations);
             assert_eq!(edges.capacity(), edges.len());
             assert!(heap.remaining_bytes < legacy_heap.remaining_bytes);
-            assert!(heap.peak_bytes < legacy_heap.peak_bytes);
+            // 峰值出在两侧共用的字母级规划上。
+            assert!(heap.peak_bytes <= legacy_heap.peak_bytes);
         }
         println!(
             "冷查询 with_rows={with_rows}：分配 {}→{}，峰值 {}→{}，返回存储 {}→{}",

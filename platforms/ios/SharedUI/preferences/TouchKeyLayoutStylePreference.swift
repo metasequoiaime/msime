@@ -3,7 +3,7 @@ import Foundation
 
 /// 「按键布局」里 26 键的底行样式，共享文档里是 `touch_twenty_six_key_style`（client-core `TouchTwentySixKeyStyle`），作用于手机中文 26 键字母层；英文 26 键和 iPad 全尺寸键盘不受它影响。各样式的排法见 `TouchBottomRowLayout`。
 enum TouchTwentySixKeyStyle: String, CaseIterable, Hashable {
-  /// 123 | 符 | 空格 | ，（长按出。）| 中/英 | 回车，即原来的底行。
+  /// 123 | 符 | 。 | 空格 | ，（长按出。）| 中/英 | 回车，与英文和其他语言的 26 键底行逐键同位置同宽。
   case standard
   /// 123 | 符 | ， | 空格 | 。 | 中/英 | 回车。
   case commaPeriod = "comma_period"
@@ -573,7 +573,7 @@ struct KeyboardPreviewFace: Equatable {
 
 /// 手机触屏底行按「按键布局」样式的排法：每个显示的键、从左到右的顺序和它在本行里的宽度份额。三端相同，见 .agents/notes/implemented/feature/2026-10-27-touch-key-layout-styles.md。
 ///
-/// 标准样式就是原来的底行（`KeyboardViewController` 的 `phoneActionWidths`、`nineKeyActionWidths` 等），表里照抄一份，供统计热力图、设置页预览和测试使用；其余样式由键盘控制器按这张表排列并加宽度约束。样式加的键都从空格里让出份额，整行总份额不变。地球键只在宿主要求时出现，占 1 份，从行宽里另外分；隐藏中/英键时它的 1.05 份交给空格。
+/// 标准样式是键盘自己的约束画的底行（`KeyboardViewController` 的 `phoneEnglishActionWidths`、`phoneActionWidths`、`nineKeyActionWidths` 等），表里照抄一份，供统计热力图、设置页预览和测试使用；其余样式由键盘控制器按这张表排列并加宽度约束。样式加的键都从空格里让出份额，整行总份额不变。地球键只在宿主要求时出现，占 1 份，从行宽里另外分；隐藏中/英键时它的 1.05 份交给空格。
 enum TouchBottomRowLayout {
   enum Slot: String, Hashable {
     case symbols, layer, globe, emoji, comma, space, period, zero, language, returnKey
@@ -602,13 +602,14 @@ enum TouchBottomRowLayout {
   static let nineKeyReturnWeight: CGFloat = 1.6
   static let zeroWeight: CGFloat = 1.05
 
-  /// 中文 26 键字母层。标准：123 | 符 | 空格 | ， | 中/英 | 回车；逗号句号在空格两侧：。从空格让出 1 份；长空格：符 的 1.05 份给空格；表情键：😀 占 符 的位置和份额。
+  /// 中文 26 键字母层。标准：123 | 符 | 。 | 空格 | ， | 中/英 | 回车，。从空格让出 1 份，与英文 26 键底行相同；逗号句号在空格两侧：， | 空格 | 。，同样是 。从空格让出 1 份；长空格：符 的 1.05 份给空格；表情键：😀 占 符 的位置和份额。
   static func twentySixKey(_ style: TouchTwentySixKeyStyle, globe: Bool, language: Bool = true) -> [Key] {
     var keys = [Key(.layer, layerWeight)]
     if globe { keys.append(Key(.globe, globeWeight)) }
     switch style {
     case .standard:
-      keys += [Key(.symbols, symbolsWeight), Key(.space, spaceWeight), Key(.comma, punctuationWeight)]
+      keys += [Key(.symbols, symbolsWeight), Key(.period, punctuationWeight),
+               Key(.space, spaceWeight - punctuationWeight), Key(.comma, punctuationWeight)]
     case .commaPeriod:
       keys += [Key(.symbols, symbolsWeight), Key(.comma, punctuationWeight),
                Key(.space, spaceWeight - punctuationWeight), Key(.period, punctuationWeight)]

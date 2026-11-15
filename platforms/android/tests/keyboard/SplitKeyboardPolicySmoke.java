@@ -229,12 +229,15 @@ public final class SplitKeyboardPolicySmoke {
                     weights[index] = entries.get(index).weight();
                     if (entries.get(index).slot() == KeyboardActionRow.DesignSlot.SPACE) space = index;
                 }
-                checkCenteredSpace(weights, space, "action row globe=" + globe + " layout=" + layout + " languageLeft=" + languageLeft);
-                // 常用标点键隐藏时（记 0）空隙仍然居中。
+                String label = "action row globe=" + globe + " layout=" + layout + " languageLeft=" + languageLeft;
+                // 宿主实际画的底行没有地球键（Android 9 起不画）、逗号一直在：不论中/英在哪一边，空隙都正好居中。
+                if (!globe) checkCenteredSpace(weights, space, label);
+                else checkCenteredOrFloored(weights, space, languageLeft, label);
+                // 常用标点键隐藏时（记 0）空隙仍然居中，除非句号和中/英都排在空格左边。
                 float[] noComma = weights.clone();
                 for (int index = 0; index < noComma.length; index++)
                     if (entries.get(index).slot() == KeyboardActionRow.DesignSlot.COMMA) noComma[index] = 0f;
-                checkCenteredSpace(noComma, space, "action row without the comma");
+                checkCenteredOrFloored(noComma, space, languageLeft, label + " without the comma");
             }
         }
         List<KeyboardLayout.LayerKey> bottom = KeyboardLayout.numberLayer(true).get(3);
@@ -249,6 +252,22 @@ public final class SplitKeyboardPolicySmoke {
         boolean threw = false;
         try { SplitKeyboardPolicy.leftSpaceWeight(lopsided, 3); } catch (IllegalArgumentException expected) { threw = true; }
         check(threw, "a missing space key is a programming error");
+    }
+
+    /**
+     * 标准底行在空格左边有句号；中/英也挪到空格左边后，左边再多一个地球键或右边少一个逗号，居中需要的左半个空格就窄过下限（{@link SplitKeyboardPolicy#MIN_SPACE_SHARE}）。这时左半个保留下限、右半个仍在，空隙比正中偏右不到一个键；其余排法必须正好居中。
+     */
+    private static void checkCenteredOrFloored(float[] weights, int space, boolean languageLeft, String label) {
+        float floor = weights[space] * SplitKeyboardPolicy.MIN_SPACE_SHARE;
+        float centred = sum(weights, 0, weights.length) / 2f - sum(weights, 0, space);
+        if (centred >= floor) {
+            checkCenteredSpace(weights, space, label);
+            return;
+        }
+        check(languageLeft, label + ": only 中/英 on the left can push the centre past the space's minimum half");
+        float left = SplitKeyboardPolicy.leftSpaceWeight(weights, space);
+        close(left, floor, label + ": the left space keeps its minimum share");
+        check(weights[space] - left > 0 && floor - centred < 1f, label + ": the right half stays and the gap is under one key off centre");
     }
 
     private static void checkCenteredSpace(float[] weights, int space, String label) {
