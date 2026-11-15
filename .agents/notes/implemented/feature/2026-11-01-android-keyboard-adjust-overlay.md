@@ -8,7 +8,7 @@ Status: implemented
 
 当场审计（`rg` 内联高度条、`InlineHeightBar`、键盘高度磁贴、水平位置）：
 
-- 部分取代 [键盘高度范围](2026-10-08-android-keyboard-height-range.md)：75%–170% 的范围、窗口封顶和存储照旧；内联条的「N% · H px」读数随内联条一起删掉。
+- 部分取代 [键盘高度范围](2026-10-08-android-keyboard-height-range.md)：高度范围、窗口封顶和存储复用同一策略（范围现按 #11425 扩为 50%–170%，见所链笔记）；内联条的「N% · H px」读数随内联条一起删掉。
 - 部分取代 [调整高度时固定输入法窗口](../bug-fix/2026-10-29-android-inline-height-drag-window.md)：全高窗口、固定避让边界、只把外框算作可触摸区域这一整套照旧，触发条件从内联高度条换成本遮罩，并多了抬高和收窄两种预览。
 - 部分取代 [键盘里调的高度被盖回去](../bug-fix/2026-10-08-touch-keyboard-height-reverts.md)：「收起即保存」照旧并扩大到四项；那篇留下的「点取消才放弃」不再成立，因为没有取消了。
 - 部分取代 [键盘底部高度滑块](2026-11-01-android-keyboard-bottom-height-slider.md) 的备选「在内联条加下沿拖动柄」：那篇因交互改动大留给以后，本篇就是那个以后；滑块和它的存法照旧，两处读写同一份。
@@ -28,7 +28,7 @@ Status: implemented
 ### 每个柄只动自己那条边，对边在屏幕上不动（下沿柄往上拖到高度下限后例外）
 
 - 上沿：改键盘高度，往上拖变高。只在窗口封顶（`KeyboardHeightPolicy.windowHeightAdjustment`）以内拖，存着的值高过封顶时从封顶处起算。
-- 下沿：改底部抬高，高度反向变化同样多，上沿不动（往上拖 d：抬高 +d、高度 −d）。从按下时的高度 h0、抬高 l0 出发，手指累计往上移 u：u ≥ 0 时抬高跟着手指走，`lift = min(l0 + u, 抬高上限)`，高度尽量反向让出同样多但不低于下限，`height = h0 − min(lift − l0, h0 − 高度下限)`，即先拿高度换抬高、上沿不动，高度到 75% 后整块继续上移（上沿也跟着上去），直到抬高到上限才停；u < 0 时抬高减少、高度反向增加，上沿不动，抬高到 0 或高度到上限时停。高度调整量和抬高都是 dp，在键盘总高里一比一相加，所以这一条只靠换算就成立，不用量布局。
+- 下沿：改底部抬高，高度反向变化同样多，上沿不动（往上拖 d：抬高 +d、高度 −d）。从按下时的高度 h0、抬高 l0 出发，手指累计往上移 u：u ≥ 0 时抬高跟着手指走，`lift = min(l0 + u, 抬高上限)`，高度尽量反向让出同样多但不低于下限，`height = h0 − min(lift − l0, h0 − 高度下限)`，即先拿高度换抬高、上沿不动，高度到 50% 后整块继续上移（上沿也跟着上去），直到抬高到上限才停；u < 0 时抬高减少、高度反向增加，上沿不动，抬高到 0 或高度到上限时停。高度调整量和抬高都是 dp，在键盘总高里一比一相加，所以这一条只靠换算就成立，不用量布局。
 - 左、右沿：改宽度，同时改水平位置让另一侧边不动。
 - 「移动」：按住拖动整块键盘，竖直改抬高、水平改位置，大小不变。
 - 拖动按按下处起算的位移报告（屏幕坐标），每一步都从按下时的值重新算，手指来回拖不累积误差；换算全在 `KeyboardAdjustPolicy`。
@@ -48,7 +48,7 @@ Status: implemented
 
 ### 读屏
 
-每个柄和「移动」都是可调节元素：RangeInfo 加前后滚动的增减动作，步长高度 5%、抬高 4 dp、宽度 5%、位置 50‰。上沿柄的范围是 75% 到窗口封顶对应的百分比；下沿柄的范围是抬高的 dp，只要抬高没到上限就提供「增」（高度到 75% 后整块上移），规则同拖动。左右柄的范围是宽度百分比，增减按这一侧实际伸缩得动不动给（`KeyboardAdjustPolicy.widthRange(value, side, …)`）：键盘贴着左边时左柄只提供「减」，贴着右边时右柄同样，不提供做了没反应的「增」。「移动」能左右移时前后滚动调位置、上下滚动（`ACTION_SCROLL_UP` / `DOWN`）调抬高，只能改抬高时前后滚动调抬高。三个按钮各有文字说明；柄的说明是「键盘高度」「键盘底部高度」「键盘宽度（左边）」「键盘宽度（右边）」。遮罩打开时键盘列和底栏设成 `IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS`：下面的按键只是预览，读屏不进去。
+每个柄和「移动」都是可调节元素：RangeInfo 加前后滚动的增减动作，步长高度 5%、抬高 4 dp、宽度 5%、位置 50‰。上沿柄的范围是 50% 到窗口封顶对应的百分比；下沿柄的范围是抬高的 dp，只要抬高没到上限就提供「增」（高度到 50% 后整块上移），规则同拖动。左右柄的范围是宽度百分比，增减按这一侧实际伸缩得动不动给（`KeyboardAdjustPolicy.widthRange(value, side, …)`）：键盘贴着左边时左柄只提供「减」，贴着右边时右柄同样，不提供做了没反应的「增」。「移动」能左右移时前后滚动调位置、上下滚动（`ACTION_SCROLL_UP` / `DOWN`）调抬高，只能改抬高时前后滚动调抬高。三个按钮各有文字说明；柄的说明是「键盘高度」「键盘底部高度」「键盘宽度（左边）」「键盘宽度（右边）」。遮罩打开时键盘列和底栏设成 `IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS`：下面的按键只是预览，读屏不进去。
 
 ### 存储
 
@@ -56,7 +56,7 @@ Status: implemented
 
 | 项 | 键 | 取值 |
 | --- | --- | --- |
-| 高度 | `platform.android.keyboard_height_adjustment` | 沿用现有的 −46..129 dp（75%–170%） |
+| 高度 | `platform.android.keyboard_height_adjustment` | 沿用现有的 −92..129 dp（50%–170%，#11425 扩展下限） |
 | 底部抬高 | `platform.android.bottom_padding` + `platform.android.bottom_padding_height` | 0–160 dp，复用设置页「键盘底部高度」的两项 |
 | 宽度 | `platform.android.keyboard_width_percent` | 60–100，缺省 100；拖动时另有下限：键盘不窄于 240 dp，两者取更宽 |
 | 水平位置 | `platform.android.keyboard_position_x` | 0–1000，剩余空间（可用宽度减键盘宽度）里的千分比，缺省 500 居中 |
@@ -83,6 +83,6 @@ Status: implemented
   - 手机横屏、浮动键盘、单手、分离式键盘里宽度和位置不生效，回到竖屏或停靠后存着的值才重新生效；设置页没有宽度和位置的控件，只能在键盘里调，或者在这里「重置」。
   - 「键盘调整」打开期间工具栏、候选行和自动填充行照常画在遮罩下面，不再像内联条那样替换工具栏行。
   - 撤销误操作只能再拖回去或重置。
-- 测试：`KeyboardAdjustPolicySmoke` 覆盖哪些柄显示、上沿只改高度且受窗口封顶、下沿一比一互换、高度到 75% 后抬高继续增加且高度停在下限（含一次拖动跨过下限）、抬高到 0 或上限停住、左右柄另一侧边不动（含 240 dp 下限）、「移动」大小不变、读屏范围和步长、中间一排按钮的宽度与间距（宽键盘原尺寸、只差一点时只收间距、最窄键盘让开左右柄且按钮不小于 48 dp、240–720 dp 各宽度都不压柄、不显示左右柄时用满宽度）；`AndroidLocalSettingsSmoke` 覆盖新键的范围、不同步、`keyboardAdjustEdits` 只写生效且变了的项和抬高的存法、`withEdits` 与写盘同一套校验；`LocalBackupPolicySmoke` 确认两项随本地备份走；`ms_w2_kb_ViewLogicSmoke` 钉住遮罩的颜色和说明；`FunctionPanelModelSmoke`、`SettingsSearchIndexSmoke` 钉住改名和搜索。以上由 `platforms/android/check-host.sh` 运行。设备套件 `KeyboardHeightDeviceSmoke` 改为驱动遮罩：上沿到 130%、窗口上限和 75%，返回键收起即保存且没有「取消」，重置，下沿抬 24 dp 时第一行键不动、空格上移 24 dp 并按 24 dp 存，右柄收窄到 80% 时左边不动，「移动」移到最右，左柄加宽时右边不动且收起即保存，重置加确认回到四项默认，收到最窄时中间三个按钮与左右柄、按钮彼此之间都至少隔 4 dp 且按钮不窄于 48 dp；`checkDragKeepsEditorFrame` 保留编辑器边框不动的断言，并加上抬高和收窄时边框也不动。`BottomPaddingHeightDeviceSmoke` 加了调整期间按预览抬高、关上后回到存着的值，以及 80% 贴左时外框的左右内边距。
+- 测试：`KeyboardAdjustPolicySmoke` 覆盖哪些柄显示、上沿只改高度且受窗口封顶、下沿一比一互换、高度到 50% 后抬高继续增加且高度停在下限（含一次拖动跨过下限）、抬高到 0 或上限停住、左右柄另一侧边不动（含 240 dp 下限）、「移动」大小不变、读屏范围和步长、中间一排按钮的宽度与间距（宽键盘原尺寸、只差一点时只收间距、最窄键盘让开左右柄且按钮不小于 48 dp、240–720 dp 各宽度都不压柄、不显示左右柄时用满宽度）；`AndroidLocalSettingsSmoke` 覆盖新键的范围、不同步、`keyboardAdjustEdits` 只写生效且变了的项和抬高的存法、`withEdits` 与写盘同一套校验；`LocalBackupPolicySmoke` 确认两项随本地备份走；`ms_w2_kb_ViewLogicSmoke` 钉住遮罩的颜色和说明；`FunctionPanelModelSmoke`、`SettingsSearchIndexSmoke` 钉住改名和搜索。以上由 `platforms/android/check-host.sh` 运行。设备套件 `KeyboardHeightDeviceSmoke` 改为驱动遮罩：上沿到 130%、窗口上限和 75%，返回键收起即保存且没有「取消」，重置，下沿抬 24 dp 时第一行键不动、空格上移 24 dp 并按 24 dp 存，右柄收窄到 80% 时左边不动，「移动」移到最右，左柄加宽时右边不动且收起即保存，重置加确认回到四项默认，收到最窄时中间三个按钮与左右柄、按钮彼此之间都至少隔 4 dp 且按钮不窄于 48 dp；`checkDragKeepsEditorFrame` 保留编辑器边框不动的断言，并加上抬高和收窄时边框也不动。`BottomPaddingHeightDeviceSmoke` 加了调整期间按预览抬高、关上后回到存着的值，以及 80% 贴左时外框的左右内边距。
 - 验收（2026-11-05，API 35 专用模拟器 `msime-client-test`，1080×2400、420 dpi，最窄键盘是 60% 即 247 dp）：`KeyboardHeightDeviceSmoke` 与 `BottomPaddingHeightDeviceSmoke` 通过。第一次跑时新加的最窄检查失败：按钮离左柄只有 9 px（应为 4 dp 即 10.5 px），原因是按钮宽和间距换像素时四舍五入，三个按钮加两段间距比 `actionRow` 算的宽了约 2 px；`KeyboardAdjustOverlay.onMeasure` 改为向下取整后通过。同一台模拟器上用 adb 截了改前改后：停靠全宽、收到最窄、最窄时的字母层和数字层、浮动键盘，四个问题在改前都能看到，改后都没有了。
 - 未验证：照片皮肤、平板 720 dp 外框里的收窄、API 28 全高窗口两侧的触摸都还没有人在设备上看过。

@@ -23,9 +23,23 @@ public final class FloatingKeyboardPolicy {
 
     private FloatingKeyboardPolicy() { }
 
-    /** 浮动键盘此刻是否生效：开关打开，且没有处在外接键盘的候选条模式（{@link HardwareKeyboardModePolicy}）——候选条停在底部。 */
+    /** 浮动键盘此刻是否生效：手动开关打开，且没有处在外接键盘的候选条模式（{@link HardwareKeyboardModePolicy}）。 */
     public static boolean active(boolean enabled, boolean hardwareKeyboardMode) {
-        return enabled && !hardwareKeyboardMode;
+        return active(enabled, false, false, hardwareKeyboardMode);
+    }
+
+    /**
+     * 浮动键盘此刻是否生效。打开「横屏自动浮动」后，横屏强制使用浮动面板，竖屏恢复停靠；
+     * 未打开时沿用手动浮动开关。外接键盘的候选条模式始终停靠。
+     */
+    public static boolean active(boolean enabled, boolean autoLandscape, boolean landscape,
+            boolean hardwareKeyboardMode) {
+        return !hardwareKeyboardMode && (autoLandscape ? landscape : enabled);
+    }
+
+    /** 自动模式在竖屏停靠，仍允许调整竖屏底部高度；只有持续手动浮动时禁用。 */
+    public static boolean canAdjustDockedBottomHeight(boolean enabled, boolean autoLandscape) {
+        return !active(enabled, autoLandscape, false, false);
     }
 
     /** 当前窗口宽度（dp）下浮动键盘的宽度（dp）：窗口的 80%，夹在 240–480 之间，且不超过窗口本身；窗口宽度未知时取 {@link #MIN_WIDTH_DP}。 */
