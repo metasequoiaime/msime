@@ -107,6 +107,9 @@ pub fn request<A: AccountApi, S: AccountSessionStorage>(
         CloudDictionaryRequest::SnapshotStatus => status(session, state, &options),
         CloudDictionaryRequest::SnapshotCancel => cancel(session, state, &options),
         CloudDictionaryRequest::SnapshotExport => export(session, state),
+        CloudDictionaryRequest::SnapshotClearQuickPhrases { text } => {
+            super::quick_phrase::filter_snapshot(&text)
+        }
         CloudDictionaryRequest::SnapshotRestorePreview { text } => {
             restore_preview(session, state, &text)
         }

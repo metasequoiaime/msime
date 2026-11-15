@@ -12,6 +12,8 @@ Status: implemented
 
 `clear_quick_phrases` 与 `edit`、`import`、`reset` 一样需要设置页先让输入宿主释放词库。移动端个人词库队列没有独占维护入口，继续拒绝该操作；支持该入口的桌面 host-api 通过共享契约调用。
 
+云端清空的快照筛选也下沉到 host-api 的 `snapshot_clear_quick_phrases` 操作。它校验完整快照后，只移除 `quick` 的 `entry`、`overlay`、`position` 和 `selection` 记录，重算正文摘要并返回原 revision 与实际用户词条数；没有用户快捷短语时原文按字节返回。桌面原生设置仍需在确认后使用既有 CAS 恢复接口提交，筛选操作本身不改变云端内容。
+
 ## Alternatives considered
 
 - 保留 React 逐条删除并补强回滚：改动较小，但无法保证跨条目的原子性，也会把来源筛选和恢复责任留在界面层。
@@ -23,11 +25,12 @@ Status: implemented
 - 新增了共享 host-api 操作和 C 契约文档，桌面适配器保留实际删除数量返回值，供原生宿主接入。
 - Windows 现代设置页和 Win7 设置页都通过同一个 host-api 操作清空；按钮只在个人快捷短语词库中出现，成功后显示删除条数并刷新第一页，Win7 入口还沿用现有确认和词库同步流程。
 - 移动端暂不提供该独占操作；移动设置页若接入时应复用同一语义，不能在队列层复制逐条回滚逻辑。
-- 云端清空仍沿用[快捷短语本机与云端清空边界](../feature/2026-11-12-quick-phrase-clear.md)中的快照 CAS 规则，本笔记只约束本机实现。
+- 云端清空仍沿用[快捷短语本机与云端清空边界](../feature/2026-11-12-quick-phrase-clear.md)中的快照 CAS 规则；共享筛选已进入 host-api，原生界面接入仍未完成。
 
 ## Verification
 
 - `cargo test -p msime-engine user_dictionary::personal::tests::clear_quick_phrases`：事务成功、保留内置行和失败回滚用例通过。
 - `cargo check -p msime-host-api --tests`：共享 host-api 及其测试目标编译通过。
 - 本机清空的 React 专属 hook 和对应三项测试随新增 Web 入口一并撤回；共享事务、云端快照并发回归与 Windows 原生确认/刷新测试保留。
+- `cargo test -p msime-host-api cloud_dictionary::quick_phrase --lib`：共享云端快照筛选的快捷短语记录、无条目原文保留和畸形输入拒绝用例通过。
 - Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；CI 首次执行发现新增断言只期待最后一条为清空请求，实际成功路径随后会刷新列表。断言改为核对清空、当前快捷短语第一页刷新这两条请求的顺序，保留取消不发请求、实际删除条数和列表内容断言；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。

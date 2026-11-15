@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod full_backup;
+pub mod quick_phrase;
 pub mod snapshot_files;
 
 use msime_client_core::{has_disallowed_control_with_options, is_bounded_text, is_bounded_utf16};
@@ -14,6 +15,9 @@ use serde::Deserialize;
 pub enum CloudDictionaryRequest {
     SnapshotPreview,
     SnapshotExport,
+    SnapshotClearQuickPhrases {
+        text: String,
+    },
     SnapshotRestorePreview {
         text: String,
     },
@@ -178,6 +182,13 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
         | CloudDictionaryRequest::SnapshotRestoreCancel
         | CloudDictionaryRequest::SnapshotChooseRestore
         | CloudDictionaryRequest::SnapshotCancel => Ok(()),
+        CloudDictionaryRequest::SnapshotClearQuickPhrases { text } => {
+            if valid_snapshot_text(text) {
+                Ok(())
+            } else {
+                Err("invalid cloud dictionary request")
+            }
+        }
         CloudDictionaryRequest::SnapshotRestorePreview { text } => {
             if valid_snapshot_text(text) {
                 Ok(())
@@ -455,6 +466,12 @@ mod tests {
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotChooseRestore).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotCancel).is_ok());
         assert!(validate_cloud_request(&CloudDictionaryRequest::SnapshotExport).is_ok());
+        assert!(
+            validate_cloud_request(&CloudDictionaryRequest::SnapshotClearQuickPhrases {
+                text: "{}".into(),
+            })
+            .is_ok()
+        );
         assert!(
             validate_cloud_request(&CloudDictionaryRequest::SnapshotRestorePreview {
                 text: "{\"type\":\"header\"}\n".into(),

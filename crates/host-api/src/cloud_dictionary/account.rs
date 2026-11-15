@@ -241,6 +241,7 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
         }),
         CloudDictionaryRequest::SnapshotPreview
         | CloudDictionaryRequest::SnapshotExport
+        | CloudDictionaryRequest::SnapshotClearQuickPhrases { .. }
         | CloudDictionaryRequest::SnapshotRestorePreview { .. }
         | CloudDictionaryRequest::SnapshotRestore { .. }
         | CloudDictionaryRequest::SnapshotRestoreNative { .. }
