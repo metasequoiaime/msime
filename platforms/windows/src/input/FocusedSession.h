@@ -188,6 +188,9 @@ private:
   std::optional<ReplyComposer> composer_;
   std::optional<nlohmann::json> preferences_retry_;
   ContinuationHide continuation_hide_;
+  // 只有候选导航刚产生回复时，后续排队的 HideCandidateWnd 才允许宽限；
+  // 普通焦点变化或宿主主动收起即使排队超过阈值也必须取消组字。
+  bool late_hide_eligible_ = false;
   // TIP 最近一次为之发过 Show 的联想代次（view 的 generation），0 表示还没有。见 show_candidate。
   uint64_t shown_prediction_generation_ = 0;
   // TIP 最近一次报的字段属性；旧 TIP 没协商到 FieldTraits，一直为空。

@@ -451,9 +451,29 @@ int main(int argc, char **argv) {
                   !focused.view().at("editing_text").get<std::string>().empty(),
               "Candidate hide fixture did not enter composition");
       require(focused.hide_candidate(first.pending, true) ==
+                  HideCandidateDisposition::Cancelled &&
+                  focused.view().at("editing_text").get<std::string>().empty(),
+              "An unrelated late candidate hide preserved the composition");
+      packet.request_id = 3;
+      require(focused.key(first.pending, packet, ReplyPath::Composition) &&
+                  focused.confirm(first.pending, packet.request_id) &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate hide fixture could not re-enter composition");
+      NavigationBindings navigation{};
+      navigation.arrows = true;
+      packet.request_id = 4;
+      packet.keycode = 0x26;
+      packet.wch = 0;
+      packet.modifiers_down = 0;
+      auto moved = focused.configured_key(first.pending, packet,
+                                          TsfPreeditStyle::Local, navigation);
+      require(moved && moved->host_navigation &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Candidate navigation fixture did not produce a reply");
+      require(focused.hide_candidate(first.pending, true) ==
                   HideCandidateDisposition::Late &&
                   !focused.view().at("editing_text").get<std::string>().empty(),
-              "Late candidate hide cancelled the active composition");
+              "Candidate navigation hide cancelled the active composition");
       require(focused.hide_candidate(first.pending) ==
                   HideCandidateDisposition::Cancelled &&
                   focused.view().at("editing_text").get<std::string>().empty(),
