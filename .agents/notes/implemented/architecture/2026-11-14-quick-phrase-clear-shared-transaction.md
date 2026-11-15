@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-本机清空通过 host-api 的 `clear_quick_phrases` 操作进入共享 Engine。Engine 在一次独占维护事务中读取 `user_dictionary_operations` 里 `dictionary='quick'` 且 `user_inserted=1` 的行，并复用单条删除的日志写入和输入上下文清理逻辑；任意一行失败时整个事务回滚，内置 `quick_parases` 行不参与删除。操作返回实际删除条数，React 只负责确认、调用和刷新，不再实现逐条删除或回滚。
+本机清空通过 host-api 的 `clear_quick_phrases` 操作进入共享 Engine。Engine 在一次独占维护事务中读取 `user_dictionary_operations` 里 `dictionary='quick'` 且 `user_inserted=1` 的行，并复用单条删除的日志写入和输入上下文清理逻辑；任意一行失败时整个事务回滚，内置 `quick_parases` 行不参与删除。操作返回实际删除条数，Windows 原生设置负责确认、调用和刷新，不在界面实现逐条删除或回滚。遵守全部界面原生化的迁移约定，共享 React 设置页撤回本次新增的本机清空按钮及其专属管理 hook；macOS、Linux 原生设置尚缺该入口，相关 PR 保持 Draft。共享 host-api 与桌面适配器接口保留，供原生迁移调用。
 
 `clear_quick_phrases` 与 `edit`、`import`、`reset` 一样需要设置页先让输入宿主释放词库。移动端个人词库队列没有独占维护入口，继续拒绝该操作；支持该入口的桌面 host-api 通过共享契约调用。
 
@@ -20,7 +20,7 @@ Status: implemented
 ## Consequences
 
 - 本机清空只影响用户快捷短语，内置短语和其他词库保持不变；事务失败时词库保持原状。
-- 新增了共享 host-api 操作和 C 契约文档，桌面 React 适配器可以直接显示实际删除数量。
+- 新增了共享 host-api 操作和 C 契约文档，桌面适配器保留实际删除数量返回值，供原生宿主接入。
 - Windows 现代设置页和 Win7 设置页都通过同一个 host-api 操作清空；按钮只在个人快捷短语词库中出现，成功后显示删除条数并刷新第一页，Win7 入口还沿用现有确认和词库同步流程。
 - 移动端暂不提供该独占操作；移动设置页若接入时应复用同一语义，不能在队列层复制逐条回滚逻辑。
 - 云端清空仍沿用[快捷短语本机与云端清空边界](../feature/2026-11-12-quick-phrase-clear.md)中的快照 CAS 规则，本笔记只约束本机实现。
@@ -29,5 +29,5 @@ Status: implemented
 
 - `cargo test -p msime-engine user_dictionary::personal::tests::clear_quick_phrases`：事务成功、保留内置行和失败回滚用例通过。
 - `cargo check -p msime-host-api --tests`：共享 host-api 及其测试目标编译通过。
-- React 词库管理测试覆盖确认取消、成功返回删除条数和共享操作失败提示。
+- 本机清空的 React 专属 hook 和对应三项测试随新增 Web 入口一并撤回；共享事务、云端快照并发回归与 Windows 原生确认/刷新测试保留。
 - Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；CI 首次执行发现新增断言只期待最后一条为清空请求，实际成功路径随后会刷新列表。断言改为核对清空、当前快捷短语第一页刷新这两条请求的顺序，保留取消不发请求、实际删除条数和列表内容断言；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。
