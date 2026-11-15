@@ -86,9 +86,13 @@ final class TranslationWindowDeviceChecks {
             text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "synthetic source");
             if (!source.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, text)) throw new AssertionError("原文不可编辑");
             smoke.stage = "translation actions remain above visible keyboard";
-            smoke.tap(smoke.described("翻译原文"));
+            // API 31 对 EditText 的无障碍 ACTION_CLICK 只改变焦点，不发真实触摸，输入法不会弹出；用 shell 的触摸注入走真实编辑器路径。
+            android.graphics.Rect sourceBounds = new android.graphics.Rect();
+            source.getBoundsInScreen(sourceBounds);
+            android.os.SystemClock.sleep(500);
+            smoke.shellDiscard("input tap " + sourceBounds.centerX() + " " + sourceBounds.centerY());
             android.graphics.Rect keyboard = new android.graphics.Rect();
-            smoke.awaitAny(smoke.key("更多")).getBoundsInScreen(keyboard);
+            smoke.awaitAny(smoke.described("更多")).getBoundsInScreen(keyboard);
             for (String title : new String[] {"复制译文", "插入"}) {
                 android.graphics.Rect bounds = new android.graphics.Rect();
                 smoke.awaitAny(node -> DeviceSmoke.equalsText(title, node.getText())).getBoundsInScreen(bounds);

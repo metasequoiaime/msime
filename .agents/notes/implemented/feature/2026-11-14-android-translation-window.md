@@ -29,6 +29,8 @@ Status: implemented
 
 新增行为测试覆盖原文或语言变化作废译文、迟到回复、重复交付和编辑器位置保护。Android 宿主 353 项 JVM 冒烟通过，产品 APK 和设备测试 APK 构建通过；基础版本 quick（运行 `20261114-185121`）通过。设备回环服务运行 `20261114-190401` 在 API 28/35 验证显式翻译请求、中英双向描述器、预览不提前上屏与手动插入，API 35 再验证从功能菜单到原编辑器的完整返回路径。截图随后发现按钮遮挡；修复后的产品 APK 与测试 APK 重建，API 28/35 的 `HardwareTranslationDeviceSmoke -e translation-window-only true` 再次通过，包含键盘上方按钮边界断言和 API 35 完整回插。最终截图还实点 `n`、`i`、空格，将“你”输入原文框，原聊天框未改变。最终 `20261114-192452` 的宿主检查、产品 APK 和 quick 门禁全部通过，API 35 对最终 APK 再次验收成功。AndroidX Activity 与只依赖 SDK 的 IME 入口保持编译边界，协议常量由入口持有，入口以组件名打开 Activity；带 AndroidX 的界面由产品 Gradle 与设备测试验证。结果与前后截图写入独立 PR。
 
+后续在 Pixel 3 XL（Android 12/API 31）复验时，发现 `UiAutomation` 对原文 `EditText` 的 `ACTION_CLICK` 只改变焦点、不拉起输入法，导致“更多”节点和输入法窗口根本不存在；代码中品牌键的稳定无障碍描述是“更多”，不能按可见文本匹配。设备测试改为等待 500 ms 后用 shell 触摸注入真实点击，并按描述匹配键盘边界；远端重建测试 APK、安装到 `8AFY0K0SC` 后，`HardwareTranslationDeviceSmoke -e translation-window-only true` 通过。
+
 ## Consequences
 
 不同服务支持的语言组合仍由该服务与共享描述器决定；失败显示固定提示，不展示凭据或原始服务回复。Activity 结束或进程重启后未插入结果不持久化。
