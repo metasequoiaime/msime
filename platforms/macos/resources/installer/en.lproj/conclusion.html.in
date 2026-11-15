@@ -8,6 +8,6 @@
 <li><strong>If this is the first time @NAME@ is installed on this Mac, choose Log Out from the Apple menu and log back in</strong>, then add @NAME@ in System Settings → Keyboard → Text Input → Input Sources. macOS lists a newly installed input method only after the next login; later updates do not need this.</li>
 <li>Once added, choose @MODE@ (or another of its modes) from the input menu in the menu bar, or press Control-Space to switch to it.</li>
 </ol>
-<p>Other users of this Mac open @NAME@ once and click 立即安装 (Install now).</p>
+<p>Other users of this Mac open @NAME@ once and follow the steps in its window.</p>
 </body>
 </html>

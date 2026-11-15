@@ -57,7 +57,8 @@ export function MacosInstallPage({
   onComplete: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("ready");
-  const [scope, setScope] = useState<"user" | "system">("user");
+  // 默认装进 /Library/Input Methods：macOS 只把这个目录里的第三方输入法算作安全输入源（HIToolbox 按 bundle 路径前缀判断），装在 ~/Library/Input Methods 的那份在密码框等安全输入期间会在输入法菜单里变灰、切不过去。
+  const [scope, setScope] = useState<"user" | "system">("system");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<InputSourceStartupStatus | null>(null);
   const outcome = useRef<InputSourceStartupStatus | null>(null);

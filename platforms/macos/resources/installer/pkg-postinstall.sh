@@ -1,7 +1,7 @@
 #!/bin/bash
 # 安装包的 postinstall 模板，platforms/macos/scripts/installer_package.py render 按版本把 @APP_BUNDLE@ 换成设置应用的文件名。Installer 以 root 运行它，参数 $2 是安装位置（/Applications）。
 #
-# 只做一件事：图形安装时以登录用户的身份打开刚装好的设置应用，让用户直接看到它的安装窗口（点「立即安装」把输入法装进自己的 ~/Library/Input Methods）。不写任何输入法目录、不注册输入源、不结束任何进程、不改属主：这些都由设置应用以用户身份完成，或者交给分发文件的 must-close。
+# 只做一件事：图形安装时以登录用户的身份打开刚装好的设置应用，让用户直接看到它的安装窗口（点「立即安装」安装输入法，默认经管理员授权装进 /Library/Input Methods，取消勾选「为所有用户安装」时装进自己的 ~/Library/Input Methods）。不写任何输入法目录、不注册输入源、不结束任何进程、不改属主：这些都由设置应用以用户身份完成，或者交给分发文件的 must-close。
 # 命令行、Homebrew 和 MDM 安装（installer 设了 COMMAND_LINE_INSTALL）、登录窗口或系统账户在前台时什么都不做。任何情况都以 0 退出：打不开应用不该让已经装好的应用被报成安装失败。
 set -u
 

@@ -140,3 +140,22 @@ test("修复结束后主动重读安装状态，无需等待窗口重新聚焦",
   expect(await screen.findByText("输入源已修复。")).toBeTruthy();
   expect(calls).toEqual(["install", "register", "refresh"]);
 });
+
+test("macOS 只为当前用户安装时说明安全输入期间会被停用，系统安装或范围未知时不提示", () => {
+  const restart = vi.fn(async () => {});
+  const rendered = render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      restartInputMethod={restart}
+      userOnlyInstall
+    />,
+  );
+  expect(screen.getByText(/安全输入期间，macOS\s*会停用装在用户目录里的输入法/)).toBeTruthy();
+  expect(screen.getByText(/保留「为所有用户安装」/)).toBeTruthy();
+  rendered.unmount();
+
+  render(<InputMethodServiceSection visible macos linux={false} restartInputMethod={restart} />);
+  expect(screen.queryByText(/安全输入期间/)).toBeNull();
+});

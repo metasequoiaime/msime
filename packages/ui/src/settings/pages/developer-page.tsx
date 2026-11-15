@@ -4,6 +4,7 @@ import { CommandLineToolsSection } from "../command-line-tools-section";
 import { commandLineCandidatesEnabled } from "../diagnostic-log-preferences";
 import { DataDirectorySection } from "../data-directory-section";
 import { InputMethodServiceSection } from "../input-method-service-section";
+import { inputSourceInstalledForUserOnly } from "../input-source-startup-model";
 import { UninstallSection } from "../uninstall-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
@@ -19,6 +20,7 @@ export function DeveloperSettingsPage() {
     showRestartInputMethod,
     showInstallInputSource,
     refreshInputSourceStartup,
+    inputSourceStartup,
     setDraft,
     busy,
     setError,
@@ -60,6 +62,7 @@ export function DeveloperSettingsPage() {
         restartInputMethod={client.restartInputMethod}
         installInputSource={showInstallInputSource ? client.installInputSource : undefined}
         onRepairFinished={refreshInputSourceStartup}
+        userOnlyInstall={inputSourceInstalledForUserOnly(inputSourceStartup)}
       />
       <DiagnosticLogsSection
         visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}
