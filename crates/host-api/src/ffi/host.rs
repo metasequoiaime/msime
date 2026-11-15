@@ -906,7 +906,7 @@ pub unsafe extern "C" fn msime_client_nine_key_shuangpin_layout(
 
 /// 26 键双拼方案在宿主看来的样子，见 [`crate::shuangpin_custom_layout`]。
 ///
-/// # Safety
+/// # 安全性
 /// `request` 指向 `length` 个可读的 UTF-8 字节，内容是 `{"profile": ..., "table"?: ...}`；空指针会被拒绝。
 /// 返回的响应必须用 `msime_client_string_free` 释放。
 #[no_mangle]
@@ -925,7 +925,7 @@ pub unsafe extern "C" fn msime_client_shuangpin_custom_layout(
         if request.is_null() || length > 16384 {
             return Err("invalid shuangpin request buffer".into());
         }
-        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        // 安全性：调用方契约保证指针可读，且上面已经检查了长度。
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: Request = serde_json::from_slice(bytes)
             .map_err(|error| format!("invalid shuangpin request: {error}"))?;
