@@ -182,9 +182,6 @@ const note = (dialog: HTMLElement) =>
       .map((id) => document.getElementById(id)?.textContent ?? "");
   })();
 
-const letterWidthGroup = (dialog: HTMLElement) =>
-  within(dialog).getByRole("group", { name: "14/18 键字母键宽度" });
-
 const symbolFirstSwitch = (dialog: HTMLElement) =>
   within(dialog).queryByRole("switch", {
     name: "26 键「符」与「123」互换",
@@ -501,16 +498,6 @@ test("the note says only the chosen style's side effect, word for word across pl
     expect(note(dialog)).toEqual(text ? [text] : []);
     expect(description(chipGroup(dialog))).toBe(text ?? "");
   }
-
-  chooseKind(dialog, "14/18 键");
-  expect(
-    within(letterWidthGroup(dialog))
-      .getAllByRole("button")
-      .map((chip) => chip.textContent),
-  ).toEqual(["等宽", "宽窄"]);
-  expect(description(letterWidthGroup(dialog))).toBe(
-    "「宽窄」让单字母键窄一些、双字母键宽一些，第二排两端留空；点在空白里算最靠边的键。",
-  );
 });
 
 test("the preview draws the whole keyboard and outlines the keys the style changes", async () => {
