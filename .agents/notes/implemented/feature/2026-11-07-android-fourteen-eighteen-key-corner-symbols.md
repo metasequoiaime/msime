@@ -24,7 +24,7 @@ Android 的 14/18 键字母键是普通按键：点按经 `gridKey` 送整组；
 - 按下时的气泡：本篇落地时只有 18 键双拼的两字母键按「按键弹出」画；之后 [Android 14/18 键字母键按下画气泡](2026-11-08-android-grid-letter-press-bubble.md) 让每个 14/18 键字母键按下都画。纵滑出符号或横滑选中字母时，气泡换成符号或字母（`gridGesturePreview`），同样跟随「按键弹出」。
 - 还没触发手势时监听返回 false，点按、按下态和长按计时都由按钮自己处理；触发后用 `cancelKeyTouch` 给按钮补一个取消，按钮不会再点击或长按。纵滑锁定后键面不变，按键气泡换成符号；横滑时键面和气泡换成选中的字母，与原来相同；反向纵滑打开选项。
 - 长按经按钮的长按回调，读屏的长按动作走同一条：组字中返回 false，按钮松手照常点按这一组；空闲时打开选项。
-- 松手：符号经 `ImeLayoutRows#commitGridLetterHint` 上屏；横滑选中的字母照旧经 `gridKey` 送大写精确标记；选项按 26 键的拖选收尾（`finishLetterOptions`），没拖进去时弹窗留着等点选；组字中没有触发手势的按压由这里补一次 `performClick`，即使位移让按钮自己取消了点击。多指、换指和系统取消什么都不输入。
+- 松手：符号经 `ImeLayoutRows#commitGridLetterHint` 上屏；横滑选中的字母照旧经 `gridKey` 送大写精确标记；选项按 26 键的拖选收尾（`finishLetterOptions`），没拖进去时弹窗留着等点选；组字中没有触发手势的按压、或关闭「滑动输入符号」后明确的纵滑，由这里补一次 `performClick`，即使位移让按钮自己取消了点击。关闭时只把超过原纵滑阈值、以纵向为主的移动记为补点按；横滑选中字母、长按选项、多指与系统取消仍优先，不重复输入。多指、换指和系统取消什么都不输入。
 - 一次滑出或选项里的选择、横滑都只记这个键一次（`countKey`），与 26 键相同。
 
 旧的 `bindEighteenKeySwipe`、`EighteenKeySwipePolicy.Gesture` 和 `FourteenKeyLayout.holdLetters` 被它取代，已删除；`EighteenKeySwipePolicy.letter` 的阈值和方向规则不变，由 `GridKeyGesturePolicy` 调用。26 键的 `bindLetterGestures` 和它的候选栏门控不变。
@@ -52,3 +52,7 @@ Android 的 14/18 键字母键是普通按键：点按经 `gridKey` 送整组；
 代价：14/18 键字母键从普通按键换成 `KeyHintButton`，字号自适应和角标在 18 键的窄键上要看真机效果。纵滑触发时按钮的按下态马上撤掉（26 键要到松手），按键气泡仍显示符号。读屏的长按在组字中不做事。
 
 验证：`GridLetterHintTableSmoke` 钉住两张表逐键相同、每键一个、没有数字、键盘内不重复、14 键没有 `% * & ¥`、中文和英文标点的键面、直角引号和 Engine 路由；`GridKeyGesturePolicySmoke` 钉住阈值、纵向为主、两种方向、开关关闭、反向选项、空闲长按、组字中按点按（含按压中途开始组字）、横滑重选和回中心、先触发者锁定、多指和换指取消；`EighteenKeySwipePolicySmoke` 只留横滑判定本身。`FourteenKeyDeviceSmoke` 和 `EighteenKeyQuanpinDeviceChecks` 改成验收单字母键 L 也有选项、两字母键的选项里有大写字母和符号。WSL 的 `check-host.sh` 通过（`TimestampDisplayPolicySmoke` 在 JDK 21 上的既有失败除外），设备套件 275 个源文件编译通过。设备专项 `GridLetterSymbolDeviceChecks`（`FourteenKeyDeviceSmoke -e grid_symbols true`，接进 `smoke.sh` 的完整路径）用真实触摸覆盖：缺省上滑出 `？：、；~/`，滑出后回到起点仍出符号；反向下滑打开选项并点选；组字中上滑和长按各算一次点按、不弹选项，接着选「你好」；上屏后的联想里上滑出 `！`；空闲长按 L 选大写；英文标点出 `?:`；下滑设置下下滑出符号、上滑开选项；关掉「滑动输入符号」后上滑是点按、长按照旧出选项；18 键全拼出 `¥%*…、（`，单字母 Q 反向开选项选 `；`，组字中上滑是点按。API 35（emulator-5580）和 API 28（emulator-5566）上这一项和 14 键（全拼、双拼、五笔）、18 键全拼、18 键双拼的原有专项都通过。真机键面另看截图。
+
+### #11313 的关闭滑动回归
+
+API 35 上用原有 `grid_symbols` 专项复现：关闭符号滑动后上滑 C/V，等待点按同键的拼写失败，界面已回到空闲键盘。`Gesture` 留在 `PENDING` 且 `forcesTap()` 只认组字状态，纵滑越过键帽时 Android 按钮取消点击，宿主没有补回。`GridKeyGesturePolicy` 现在记下关闭设置时明确的纵滑，复用原有松手补点按通道；原测试的开关、输入和点按等价断言保持。JVM 覆盖阈值、上下滑、横滑接管、长按、多指／系统取消和下次按压复位。设备验证结果在对应 PR 中记录。

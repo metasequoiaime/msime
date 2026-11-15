@@ -60,6 +60,7 @@ mod tests {
     fn test_service_answers_incomplete_configurations_without_the_network() {
         for service in [
             "translation.tencent",
+            "translation.aliyun",
             "translation.niutrans",
             "translation.custom",
         ] {

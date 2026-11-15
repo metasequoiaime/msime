@@ -70,10 +70,11 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             stage = "real nine-key digit entry";
             tap(key("MNO"));
             tap(key("JKL"));
-            // 九键按下的数字不写进输入框，写的是引擎给的拼音读音 `nine_key_reading`（MSIMEInputService.composingText）：引擎收到两个数字后有了候选，「展开」可用，输入框里有组字。首行是英文词时引擎不给九键读音，宿主退回 `preedit`，所以这里只断言组字写进了输入框，不断言其中没有数字。
+            // 九键按下的数字不写进输入框，写的是引擎给的拼音读音 `nine_key_reading`（MSIMEInputService.composingText）：引擎收到两个数字后有了候选，「展开」可用，输入框里有组字。全拼九键的读音在拼音组字期间总是非空、不含数字，首行是英文词时是这个词的字母，所以输入框里的组字不能有数字。
             await(key("展开").and(AccessibilityNodeInfo::isEnabled));
             await(field("msime-test-plain").and(node -> node.getText() != null
-                && node.getText().length() > 0 && !node.isShowingHintText()));
+                && node.getText().length() > 0 && !node.isShowingHintText()
+                && !node.getText().toString().matches("(?s).*[0-9].*")));
 
             // 固定词库的英文权重为零，验收完整候选集，不假定首页排序。
             stage = "complete nine-key English candidates";

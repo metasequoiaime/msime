@@ -50,10 +50,11 @@ use crate::types::{
     autocorrect_type, CandidateSource, FirstPageRows, FuzzyPinyinOptions, PersonalDictionaryKind,
     SentenceAssociationOptions, WordItem,
 };
-use crate::user_dictionary::journal::record_user_insert;
+use crate::user_dictionary::journal::{has_matching_user_weight, record_user_insert};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+use super::fuzzy_completion_order::lead_whole_fuzzy_before_completion;
 use super::series::{
     append_unique_words, defer_pooled_sentences, fold_reading, has_corrected_cut,
     lead_literal_abbreviation_phrases, mark_autocorrect_candidates, merge_alternative_rows,
@@ -62,7 +63,7 @@ use super::series::{
     AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
     MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
-use super::typo_edges::collect_typo_edges;
+use super::typo_edges::{collect_typo_edges, EditWindowCache, EDIT_WINDOW_CACHE_CAPACITY};
 
 #[cfg(test)]
 mod marking_buffer_tests;
@@ -95,6 +96,8 @@ const FUZZY_ROW_LIMIT: usize = 128;
 // k-best 纠错切分去掉主切分后最多 8 条，再加上完整音节图最多 32 条。
 const ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY: usize =
     AUTOCORRECT_CUT_KBEST - 1 + SYLLABLE_GRAPH_PATH_LIMIT;
+/// 纠错整句扣掉罚分后每处纠错比字面整句高出这么多，就坐第一条整句后面（第二位），不再排到整句块之后。胜过得更多的（`typo_lead_margin`，50）坐首位。整句块有好几条读法，块后的纠错句在手机候选栏上常常看不到：xianziawodayoduanhua 的「现在我打一段话」高出字面整句很多，却排在三条不成句的读法后面。罚分折扣 0.25（`QUANPIN_TYPO_PENALTY_SCALE`）下，10396 条原句里出纠错整句的 702 条、每处高出的中位数 4.4，超过 20 的 38 条，其中字面整句本来就是原句的只有 2 条（坐第二位不动首选，只把第二条字面读法往后挪一格）；1812 条合法拼音打错集里超过 20 的 503 条。
+pub const TYPO_SECOND_SEAT_MARGIN: f64 = 20.0;
 /// The masks whose lists depend on the typo profile and carry typo sentences.
 const TYPO_EDGE_TYPES: u32 = autocorrect_type::TRANSPOSITION
     | autocorrect_type::NEIGHBOR
@@ -236,6 +239,8 @@ pub struct QuanpinDictionary {
     fuzzy_cache: FifoCache<u64, CachedFuzzyCandidates>,
     /// Rows of typo-variant span keys, empty answers included. Dictionary rows only, so it is cleared with the other caches.
     typo_span_cache: FifoCache<String, Vec<DictRow>>,
+    /// 字母级纠错每个窗口的改法；只取决于字面音节和纠错开关，词库换代也不用清。
+    typo_edit_cache: EditWindowCache,
     /// 词网格每个跨度的 `query_lattice_span` 结果，空结果也存。哈希只做索引，命中后再核对上限和原样跨度，避免每次命中都拼接键字符串。
     lattice_span_cache: FifoCache<u64, CachedLatticeSpan>,
     /// 每条切分的 `query_segments_keyed_flat` 结果，键是切分本身；单字母首屏与完整 `query_initial` 行分别以前缀 `\u{1}`、`\u{2}` 区分。
@@ -314,6 +319,7 @@ impl QuanpinDictionary {
             resolution_cache: FifoCache::new(CACHE_CAPACITY),
             fuzzy_cache: FifoCache::new(CACHE_CAPACITY),
             typo_span_cache: FifoCache::new(TYPO_SPAN_CACHE_CAPACITY),
+            typo_edit_cache: EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY),
             lattice_span_cache: FifoCache::new(LATTICE_SPAN_CACHE_CAPACITY),
             segment_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
             longer_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
@@ -362,7 +368,9 @@ impl QuanpinDictionary {
             let rows = self.fuzzy_candidates(typed.as_ref(), fuzzy);
             // 同词的字面前缀不能遮住覆盖更多输入的模糊整词。
             merge_series_by_coverage(&mut result, rows);
+            promote_learned_fuzzy_rows(&mut result, &self.paths.user(USER_JOURNAL));
             yield_stand_in_sentence_to_fuzzy_rows(&mut result);
+            lead_whole_fuzzy_before_completion(&mut result, raw);
             // 按字母数重排会把多一个字母的删字纠错（shng → shang）排回字面简拼整词前面，哪怕模糊音一行也没查到；纠错在作用时把 `query_exact` 定下的先后和保座再做一遍（#9903）。
             if has_corrected_cut(
                 raw,
@@ -1441,9 +1449,18 @@ impl QuanpinDictionary {
         let span_limit = options.span_limit;
         let database = &self.database;
         let span_cache = &mut self.typo_span_cache;
+        let edit_cache = &mut self.typo_edit_cache;
         let profile = &*self.typo_profile;
         let mut typo_edges = |literal_best: &SentencePath| {
-            collect_typo_edges(database, span_cache, profile, segments, literal_best, types)
+            collect_typo_edges(
+                database,
+                span_cache,
+                edit_cache,
+                profile,
+                segments,
+                literal_best,
+                types,
+            )
         };
         let typo_source: Option<&mut TypoEdgeSource<'_>> = if typo_eligible {
             Some(&mut typo_edges)
@@ -1540,7 +1557,7 @@ impl QuanpinDictionary {
             })
         };
 
-        // A sentence that reads one or more syllables as a typo of another. It leads only when it beats the literal sentence by the lead margin per typo; otherwise it follows the whole-sentence rows, so a correction is offered without displacing what was typed.
+        // A sentence that reads one or more syllables as a typo of another. It leads only when it beats the literal sentence by the lead margin per typo, sits right behind the first sentence row when it beats it by the second-seat margin, and otherwise follows the whole-sentence rows, so a weaker correction is offered without displacing what was typed.
         let Some(typo) = typo else {
             return;
         };
@@ -1549,8 +1566,15 @@ impl QuanpinDictionary {
         }
         let mut at = whole_sentence_insert_position(result, segments);
         if !typo.leads(options.typo_lead_margin) {
-            while at < result.len() && result[at].sentence_association {
+            if typo.leads(TYPO_SECOND_SEAT_MARGIN)
+                && result.get(at).is_some_and(|item| item.sentence_association)
+            {
+                // 明显胜过字面整句的纠错句坐第一条整句后面；runtime 降位时保住这个座位（`ordering::runner_up_order_pinned`）。
                 at += 1;
+            } else {
+                while at < result.len() && result[at].sentence_association {
+                    at += 1;
+                }
             }
         }
         let mut sentence = WordItem::new(
@@ -1769,6 +1793,64 @@ impl QuanpinDictionary {
             self.personal_scored_keys
                 .retain(|key| series_cache.contains(key));
         }
+    }
+}
+
+/// 模糊行默认留在字面候选之后；用户调频过的模糊行要和同覆盖的字典行按新权重比较，否则它永远跨不过字面候选组（#11321）。只在日志确认这条权重由用户写入时启用，保留未学习模糊候选的原有站位。
+fn promote_learned_fuzzy_rows(rows: &mut [WordItem], user_db: &std::path::Path) {
+    let learned = rows.iter().any(|row| {
+        row.fuzzy
+            && row.source.is_dictionary()
+            && has_matching_user_weight(
+                user_db,
+                PersonalDictionaryKind::Pinyin,
+                &row.canonical_pinyin,
+                &row.word,
+                row.weight,
+            )
+    });
+    if !learned {
+        return;
+    }
+    let mut start = 0;
+    while start < rows.len() {
+        let coverage = rows[start]
+            .pinyin
+            .bytes()
+            .filter(|&byte| byte != b'\'')
+            .count();
+        let end = start
+            + rows[start..]
+                .iter()
+                .take_while(|row| {
+                    row.pinyin.bytes().filter(|&byte| byte != b'\'').count() == coverage
+                })
+                .count();
+        let bucket = &mut rows[start..end];
+        let positions: Vec<usize> = bucket
+            .iter()
+            .enumerate()
+            .filter_map(|(index, row)| row.source.is_dictionary().then_some(index))
+            .collect();
+        let mut dictionary: Vec<WordItem> = positions
+            .iter()
+            .map(|&index| bucket[index].clone())
+            .collect();
+        dictionary.sort_by_key(|row| {
+            let learned = !row.fuzzy
+                || has_matching_user_weight(
+                    user_db,
+                    PersonalDictionaryKind::Pinyin,
+                    &row.canonical_pinyin,
+                    &row.word,
+                    row.weight,
+                );
+            std::cmp::Reverse(if learned { row.weight } else { i64::MIN })
+        });
+        for (index, row) in positions.into_iter().zip(dictionary) {
+            bucket[index] = row;
+        }
+        start = end;
     }
 }
 

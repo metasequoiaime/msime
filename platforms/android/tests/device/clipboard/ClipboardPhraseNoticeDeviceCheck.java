@@ -184,9 +184,6 @@ final class ClipboardPhraseNoticeDeviceCheck {
         t.stage = operationStage + ": open menu";
         if (!t.await(card(text)).performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
             throw new AssertionError("Synthetic clipboard menu refused");
-        t.stage = operationStage + ": dismiss preview";
-        if (!t.await(t.described("关闭剪贴板全文预览")).performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            throw new AssertionError("Synthetic clipboard preview dismissal refused");
         t.automation.waitForIdle(300, 3000);
         t.dropStaleNodes();
         Predicate<AccessibilityNodeInfo> action = node -> DeviceSmoke.equalsText("添加到常用语", node.getText())

@@ -40,6 +40,7 @@ public final class KeyboardGeometrySmoke {
             + KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS / 10) == 236, "default key area stays 236 dp");
         // 键盘高度调整由四行均分：底行拿 floorDiv(调整量, 4)，三行键分其余部分，余数给前面的行。
         checkRows(0, 52, 52, 52, 52);       // 100%
+        checkRows(-92, 29, 29, 29, 29);     // 50%
         checkRows(-46, 41, 41, 40, 40);     // 75%
         checkRows(55, 66, 66, 66, 65);      // 130%
         checkRows(129, 85, 84, 84, 84);     // 170%
@@ -70,16 +71,19 @@ public final class KeyboardGeometrySmoke {
             check(tallest - shortest <= 1, "rows differ by at most 1 dp at " + adjustment);
         }
         // 百分比换算 round(184 × (p − 100) / 100)：逐档钉住，往返不变。
-        int[] percents = {75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160, 170};
-        int[] adjustments = {-46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110, 129};
+        int[] percents = {50, 60, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 140, 150, 160, 170};
+        int[] adjustments = {-92, -74, -55, -46, -37, -28, -18, -9, 0, 9, 18, 28, 37, 46, 55, 74, 92, 110, 129};
         for (int index = 0; index < percents.length; index++) {
             check(KeyboardHeightPolicy.heightPercentToAdjustment(percents[index]) == adjustments[index]);
             check(KeyboardHeightPolicy.heightAdjustmentToPercent(adjustments[index]) == percents[index]);
         }
-        check(KeyboardHeightPolicy.heightPercentToAdjustment(60) == -46);
+        check(KeyboardHeightPolicy.heightPercentToAdjustment(40) == -92);
         check(KeyboardHeightPolicy.heightPercentToAdjustment(200) == 129);
+        check(KeyboardHeightPolicy.designHeightAdjustment(-93) == -92);
+        check(KeyboardHeightPolicy.windowHeightAdjustment(-92, 360) == -92);
+        check(KeyboardHeightPolicy.DEFAULT_HEIGHT_PERCENT == 100, "原默认高度保持 100%");
         check(KeyboardHeightPolicy.designHeightAdjustment(Integer.MIN_VALUE) == 0);
-        check(KeyboardHeightPolicy.designHeightAdjustment(-60) == -46);
+        check(KeyboardHeightPolicy.designHeightAdjustment(-60) == -60);
         check(KeyboardHeightPolicy.designHeightAdjustment(60) == 60);
         check(KeyboardHeightPolicy.designHeightAdjustment(200) == 129);
         // #8779：130% 以内照画；更高的部分最多占窗口高度的 17%，但不低于 130% 的 55 dp。
@@ -113,7 +117,7 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardSpacingPolicy.layoutKeySpacing(61, KeyboardLayout.KOREAN_LAYOUT) == 60);
         check(KeyboardHeightPolicy.heightAdjustment(Integer.MIN_VALUE) == 0);
         // 九宫格加高只扩大上方键区；缩小时仍四行均分，底行不能被压扁。
-        for (int adjustment = -46; adjustment <= 129; adjustment++) {
+        for (int adjustment = -92; adjustment <= 129; adjustment++) {
             int bottom = KeyboardHeightPolicy.bottomRowAdjustment(adjustment, true);
             int grid = KeyboardHeightPolicy.keyRowsAdjustment(adjustment, true);
             check(bottom + grid == adjustment, "九宫格高度增量守恒 " + adjustment);

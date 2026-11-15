@@ -126,6 +126,15 @@ public final class CompositionCaretPolicySmoke {
         check(CompositionCaretPolicy.tapTarget(0, "ni'426", "64426", NINE, -1, 4) == 3, "locked spelling then digits");
         // 首选是简拼行时读音行是首字母（m't 对 68）。
         check(CompositionCaretPolicy.tapTarget(0, "m't", "68", NINE, -1, 2) == 1, "initials reading");
+        // 多按或按错一键切不成音节时，切不开的那一键在读音里是键上的一个字母、单独成段（ni'hao's's 对 6442677），照样一位对一键。
+        check(CompositionCaretPolicy.tapTarget(0, "ni'hao's's", "6442677", NINE, -1, 7) == 5, "tap on the first stray key");
+        check(CompositionCaretPolicy.tapTarget(0, "ni'hao's's", "6442677", NINE, -1, 9) == 6, "tap on the second stray key");
+        check(CompositionCaretPolicy.tapTarget(0, "ni'hao's's", "6442677", NINE, -1, 10) == 7, "tap at the end of a reading with stray keys");
+        check(CompositionCaretPolicy.markIndex("ni'hao's's", "6442677", NINE, 5, true) == 7, "caret before the first stray key");
+        check(CompositionCaretPolicy.markIndex("ni'hao's's", "6442677", NINE, 6, true) == 9, "caret between the stray keys");
+        check(CompositionCaretPolicy.displayOffset("ni'hao's's", "6442677", NINE, 7, true) == 10, "magnified caret after the stray keys");
+        // 九键首行是英文词时读音是这个词的字母（good 对 4663）。
+        check(CompositionCaretPolicy.tapTarget(0, "good", "4663", NINE, -1, 2) == 2, "an English leading row reads as its letters");
         // 粤拼的按键里本身就有空格。
         check(CompositionCaretPolicy.tapTarget(0, "nei hou", "nei hou", null, -1, 4) == 4, "a typed space is a key");
 

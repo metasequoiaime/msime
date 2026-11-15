@@ -211,12 +211,13 @@ int main() {
             MSIMEFinishSystemInputModeRestore(state);
             require(!MSIMESystemInputModeRestoring(state, 101), "The first report after unlocking did not close the window.");
         }
-        // 和控制器的顺序一致：采纳之前读 switchedIn，采纳之后清掉它。
+        // 和控制器的顺序一致：采纳之前读 switchedIn，采纳之后清掉它，再按离开时的入口判断这次报告是不是系统把用户送回来的。
         auto report = [](MSIMESystemInputModeState &state, NSString *mode, NSString *scheme) -> NSString * {
             const BOOL switchedIn = state.switchedIn;
             if (!MSIMEAdoptReportedInputMode(state, mode)) return @"not adopted";
             state.switchedIn = false;
-            return MSIMESchemeForReportedInputMode(MSIMEInputModeForID(mode), scheme, nil, Available, switchedIn) ?: @"kept";
+            return MSIMESchemeForReportedInputMode(MSIMEInputModeForID(mode), scheme, nil, Available,
+                                                   MSIMEReportReturnsToLeftInputMode(state, switchedIn, mode)) ?: @"kept";
         };
         {
             // 进程刚启动和离开水杉清空记录之后都算刚切进；清空时把标记一起恢复。
@@ -226,6 +227,58 @@ int main() {
             MSIMEAdoptReportedInputMode(state, MSIMEShuangpinInputModeID);
             MSIMEResetSystemInputModeState(state);
             require(state.switchedIn && state.current == nil, "Leaving the input method did not mark the record as just switched in.");
+            // 离开时显示的入口记进 left；紧接着再离开一次（中间没有报告也没有校准）不把它冲掉。
+            require([state.left isEqualToString:MSIMEShuangpinInputModeID], "Leaving the input method did not remember the mode it left on.");
+            MSIMEResetSystemInputModeState(state);
+            require([state.left isEqualToString:MSIMEShuangpinInputModeID], "Leaving twice in a row forgot the mode left on.");
+            require(MSIMESystemInputModeState{}.left == nil, "A fresh record claimed to know the mode left on.");
+        }
+        {
+            // 离开时在 双，从别的输入源直接选了 中：这是用户挑的入口，双拼改用全拼，不再弹回 双。报告先于激活校准。
+            MSIMESystemInputModeState state;
+            state.switchedIn = false;
+            MSIMEAdoptReportedInputMode(state, MSIMEShuangpinInputModeID);
+            MSIMEResetSystemInputModeState(state);
+            require(!MSIMEReportReturnsToLeftInputMode(state, YES, MSIMEChineseInputModeID) &&
+                        MSIMEReportReturnsToLeftInputMode(state, YES, MSIMEShuangpinInputModeID) &&
+                        !MSIMEReportReturnsToLeftInputMode(state, NO, MSIMEShuangpinInputModeID),
+                    "A report naming another mode than the one left on was taken as the system returning the user.");
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"quanpin"],
+                    "中 picked from another input source after leaving on 双 kept shuangpin.");
+        }
+        {
+            // 同一件事，激活校准先于报告：校准记下 中，同步按双拼选回 双，随后到达的 中 报告仍是用户挑的。
+            MSIMESystemInputModeState state;
+            InputModeRecordingClient *client = [InputModeRecordingClient new];
+            state.switchedIn = false;
+            MSIMEAdoptReportedInputMode(state, MSIMEShuangpinInputModeID);
+            MSIMEResetSystemInputModeState(state);
+            require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) &&
+                        MSIMESelectSystemInputMode(state, MSIMEShuangpinInputModeID, client, Available) &&
+                        [report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"quanpin"],
+                    "中 picked from another input source kept shuangpin when calibration ran first.");
+        }
+        {
+            // 离开时就在 中（方案是双拼而 双 当时选不上），回来还是 中：系统把用户送回原来的入口，方案不动。
+            MSIMESystemInputModeState state;
+            state.switchedIn = false;
+            MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID);
+            MSIMEResetSystemInputModeState(state);
+            require([report(state, MSIMEChineseInputModeID, @"shuangpin") isEqualToString:@"kept"],
+                    "Returning to the 中 the user left on moved shuangpin to quanpin.");
+        }
+        {
+            // 确知回到离开时的入口才算重复：入口未知、报告的是别的入口、或者已经在水杉里做过选择都不算。
+            MSIMESystemInputModeState state;
+            require(!MSIMEReportRepeatsLeftInputMode(state, YES, MSIMEShuangpinInputModeID),
+                    "A report was taken as repeating the mode left on before any mode had been left.");
+            state.switchedIn = false;
+            MSIMEAdoptReportedInputMode(state, MSIMEShuangpinInputModeID);
+            MSIMEResetSystemInputModeState(state);
+            require(MSIMEReportRepeatsLeftInputMode(state, YES, MSIMEShuangpinInputModeID) &&
+                        !MSIMEReportRepeatsLeftInputMode(state, YES, MSIMEChineseInputModeID) &&
+                        !MSIMEReportRepeatsLeftInputMode(state, NO, MSIMEShuangpinInputModeID),
+                    "Only a switch-in report naming the mode left on repeats it.");
         }
         {
             // 报告先于激活校准：切回后第一次报告 中，方案不动，同步把菜单栏重新选回 双；之后在水杉里从 双 切到 中，才改用全拼。

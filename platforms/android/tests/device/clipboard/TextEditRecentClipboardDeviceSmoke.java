@@ -19,12 +19,14 @@ import org.json.JSONObject;
 public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
     private boolean spaceCopyOnly;
     private boolean layoutOnly;
+    private boolean reportedDisplay;
     private boolean trackpadOnly;
     private static final String TEXT = "synthetic-copy-alpha";
     private static final String PREVIEW = "粘贴最近复制的内容：" + TEXT;
 
     @Override public void onCreate(Bundle arguments) {
         spaceCopyOnly = arguments != null && "true".equals(arguments.getString("space-copy-only"));
+        reportedDisplay = arguments != null && "true".equals(arguments.getString("reported-display"));
         layoutOnly = arguments != null && "true".equals(arguments.getString("layout-only"));
         trackpadOnly = arguments != null && "true".equals(arguments.getString("trackpad"));
         super.onCreate(arguments);
@@ -62,6 +64,7 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
             save(preferences, ++revision, values);
             publish(local, settings.toString().getBytes(StandardCharsets.UTF_8));
             if (layoutOnly) {
+                if (reportedDisplay) awaitReportedDisplay();
                 checkOrderSettings(preferences, values, revision);
                 new TextEditLineDeviceChecks(this).run();
                 checkLayoutModes(local, settings);
@@ -187,6 +190,21 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         }
     }
 
+    /** 验收所用参数必须实际进入产品配置，不能只把 shell 命令返回当作切换成功。 */
+    @SuppressWarnings("deprecation")
+    private void awaitReportedDisplay() {
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        do {
+            Configuration config = getTargetContext().getResources().getConfiguration();
+            android.graphics.Point size = new android.graphics.Point();
+            getTargetContext().getSystemService(android.view.WindowManager.class).getDefaultDisplay().getRealSize(size);
+            if (config.densityDpi == 480 && Math.abs(config.fontScale - 1.25f) < .01f
+                    && Math.min(size.x, size.y) == 1080 && Math.max(size.x, size.y) == 2376) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("报告屏幕的密度和字体缩放未生效");
+    }
+
     /** 专项不依赖剪贴板手势；逐一确认实际窗口中的所有操作，不用滚动或隐藏按钮。 */
     private void checkLayoutModes(File local, JSONObject settings) throws Exception {
         String automatic = shellText("settings get system accelerometer_rotation").trim();
@@ -244,6 +262,15 @@ public final class TextEditRecentClipboardDeviceSmoke extends DeviceSmoke {
         Rect select = bounds(awaitStableBounds(described("选择模式").and(AccessibilityNodeInfo::isClickable)));
         if (select.isEmpty() || !pad.contains(select) || select.centerX() < pad.centerX() || select.centerY() > pad.centerY())
             throw new AssertionError("Trackpad selection toggle is not in the trackpad's top-right corner in " + mode);
+        float density = getTargetContext().getResources().getDisplayMetrics().density;
+        Rect leftBottom = bounds(awaitStableBounds(described("移到行首，双击移到开头")));
+        Rect rightBottom = bounds(awaitStableBounds(described("移到行尾，双击移到结尾")));
+        // 底排不能被触控板削去高度，也不能在下方留下原先整行大小的空白。
+        if (Math.abs(leftBottom.top - rightBottom.top) > 1
+                || Math.abs(leftBottom.bottom - rightBottom.bottom) > 1
+                || panel.bottom - Math.min(leftBottom.bottom, rightBottom.bottom) > Math.ceil(8 * density))
+            throw new AssertionError("触控板底排裁切或下方留白：" + mode);
+        saveScreenshot("text-trackpad-" + mode + ".png");
         click("触控板");
         await(described("光标左移"));
         await(described("触控板").and(node -> !node.isChecked()));
