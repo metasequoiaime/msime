@@ -12,6 +12,7 @@ Status: implemented
 
 - 偏好文档里的结构不再带 `deny_unknown_fields`，读到不认识的键时忽略它。外层信封 `PreferencesSnapshot`（`format_version`、`revision`、`preferences`）仍然严格，信封格式变化由 `format_version` 管。
 - `PreferencesStore` 读文档时用 `serde_ignored`（`deserialize_keeping_unknown`）记下 `preferences` 之下本版本不认识的键路径和原值（`UnknownPreferenceField`）；`save` 在同一把锁里读出它们，写入时由 `restore_unknown_fields` 放回原处。于是旧版本保存不会抹掉新版本的设置。
+- Host API 的偏好轮询在首次重新解析一份文档时，把未知键的点号路径写入诊断出口；只写键名，不写取值，且同一份未变化的文档只报告一次。这样拼写错误或已退役的键仍能保持向前兼容，同时能在日志里被发现。
 - 放回的规则：
   - 只按对象键定位，经过数组元素的路径不收集，因为数组整个属于一个已知字段。例外是触屏方案启用列表和模糊音规则里本版本不认识的元素，它们接回同一个列表末尾（`newer_list_values`）。
   - 父对象这次因取默认值没写出时不放，不凭一个未知键重建半个已知对象。
@@ -19,6 +20,16 @@ Status: implemented
 - 「恢复默认设置」（`restore_defaults`）不放回未知键：用户要的是整份回到默认。第一次写文件（`write_first_document`）没有未知键。设置页的「修复」（`recover`）放回：它只换掉读不了的取值，不该顺手抹掉更新版本的设置。
 - Host API 的 `HostOptions::from_document`：运行时选项里的偏好副本读得进、通过校验就用副本，否则由实时的 `preferences.json` 顶替，实时文档也读不了时在内存里救下认得的设置（见 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md)）。带退役键的副本（#2830 的 `autocorrect`）现在自己就读得进，不再走顶替。
 - 设置文件导入（`settings_document::import_document`）仍然拒绝带未知设置的文件：它出自更新的版本，只导入认识的部分会悄悄丢掉其余设置，所以返回 `settings_document_unsupported`，行为与以前相同。
+
+### 文件配置入口（#10988）
+
+`msime-mcp config schema` 从实际 serde 类型生成完整键表，包含默认省略的可选字段与空数组元素类型。类型上的 `JsonSchema` 由可选 `preferences-schema` feature 启用，只有命令行包开启，不给默认移动宿主新增依赖。生成器遵循 serde 重命名；两种手工字符串序列化的类型按实际字符串形状提供 Schema。仅在 Schema 中取消 `skip_serializing_if`，让被磁盘省略的默认值仍能被查到，不改变磁盘序列化。
+
+`config validate <file>` 预检 JSON Merge Patch，`config revision` 只读修订号，`config apply <file> <expected-revision>` 在现有 `apply_patch` 事务里应用。合并和校验由共享的 `prepare_patch` 实现；预检通过原子文件读取获得快照，不创建目录/锁，不恢复坏文档。预检与应用之间仍可能有其他写入，因此应用必须显式提供 revision，锁内再次比较。输入沿用 1 MiB 上限与普通私有文件读取约束；错误只报类别，不回显取值。显式 `--state-dir` 支持没有设置应用的 dotfiles 场景，目录所属 edition 与升级默认规则不变。
+
+文件命令不注册成 MCP 工具。非终端调用的写命令必须带 `--allow-write`；终端亲自运行按原 `config set` 的授权意图处理。Schema 描述完整偏好形状及 full 默认值，不复制业务范围、跨字段约束或宿主支持表，最终行为以共享校验和当前版本的兼容读法为准。命令与限制见[文件配置文档](../../../../docs/preferences-cli.md)。
+
+历史检索：本篇与 #10988 的未知键、键表直接重叠，就地补齐；[运行时兼容恢复](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md)只涉及运行时容错，不修改恢复规则；WebDAV 设置同步提案处理同步而非文件事务，保持独立。
 
 ### 保存失败要看得见
 
@@ -31,13 +42,16 @@ Status: implemented
 - **把表单最后一行改成固定在窗口底部。** 保存状态无论滚到哪里都看得见，但六个平台、手机和桌面的布局都要跟着改，正常保存时也多一条常驻的底栏；失败才需要打断用户，放在页面顶部已有的错误区就够了。
 - **不加依赖，拿原始 JSON 和本版本序列化结果比对找未知键。** 很多字段取默认值时不写出（`skip_serializing_if`），比对会把它们误判成未知键并一直保留，用户再也恢复不了默认值；`serde_ignored` 在反序列化时直接拿到被忽略的路径，没有这个歧义。
 
+- **从默认 JSON 递归生成键表。** 最强的理由是不必新增派生元数据或依赖，但默认省略的字段、`None` 与空数组无法提供完整键名和元素类型，故使用实际 Rust 类型派生 Schema。
+- **更换 YAML/TOML 存储。** 手写文件更简洁，但会改变六端共享的原子文档与向前兼容边界；文件入口继续使用 JSON Merge Patch，避免重做存储层。
+
 ## Consequences
 
 [可选罗马字布局](../feature/2026-10-23-korean-romaja-layout.md)保留未知偏好字段，仅在磁盘读取时把未知布局字符串回退到两套式；设置提交仍严格校验。
 
 - **收益**：输入法和设置应用、`msime-mcp`、各平台宿主之间版本错开时，新增键不再让任何一方整份拒读，旧版本保存也不丢新版本的设置。以后新增偏好字段，不必再为旧版本拒读而权衡放在哪一层、默认时写不写出。
 - **代价与已知上限**：
-  - 拼错或退役的键不再报错，会作为未知键一直留在文档里。
+  - 拼错或退役的键不再报错，会作为未知键一直留在文档里；经 Host API 读取时会在诊断日志里报告路径，设置应用直接使用 `PreferencesStore::load` 的路径仍需后续接入可见提示。
   - 新版本给枚举加了新取值（例如新的输入方案名、新的键位名）时，旧版本照样读不了整份文档，本次不处理。后来由 [偏好文档读不了时输入运行时照常运行](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md) 接手：文本编辑排列、触屏方案和模糊音规则里的新取值读入时丢掉（后两者保存时接回），其余字段仍让整份文档读不了，但输入运行时不再因此停下。
   - 带自定义反序列化、先读成别的中间形状的字段，内部的未知键是否被记下，取决于中间形状是否经过同一个反序列化器；`#[serde(from = ...)]` 会经过。
   - 只有经由 `PreferencesStore` 的写入保留未知键：Linux 的 `runtime-options.json` 副本、导出的设置文件都只含本版本认识的键。
@@ -48,7 +62,10 @@ Status: implemented
 ## Verification
 
 - `settings_from_a_newer_build_are_read_and_kept_through_a_save`：在默认文档的每个对象里试放一个新键，任何结构报 `unknown field` 即失败（它找出了漏掉的 `StoredTouchKeyboardSchemePreferences`）；把所有结构里都放上新键后能读、改一项再保存后每个新键原样还在，恢复默认后全部清掉。`an_unknown_key_goes_back_only_into_a_written_section` 覆盖放回规则。
+- `load_reusing_exposes_unknown_key_paths_once_per_document_read`：共享层只交出键路径，且轮询复用同一份文档时不重复交出；`load_preferences_reports_unknown_keys_without_values_and_only_once`：Host API 诊断只写路径、不写合成值，文档字节变化后才再次报告。
 - 原来断言拒绝未知键的测试改为断言记为未知键；同一测试里拒绝未知取值的断言保留。导入拒绝更新版本文件的 `a_newer_or_damaged_document_is_refused_rather_than_partly_applied` 不改并通过。
 - `cargo test -p msime-client-core`：1436 项通过；`recover_suffixes_a_backup_name_that_is_taken` 在整套并行、机器满载时失败一次，它要两次备份落在同一秒内才撞名，单独连跑 3 次都通过，与本改动无关。`cargo test -p msime-host-api -p msime-mcp-server` 715 项通过，其中 `session_reads_live_preferences_when_the_options_copy_is_refused` 改为：带退役键的副本自己能建会话，类型不对的副本才由实时偏好顶替。client-core 与 host-api 的 Clippy（全部 target、警告视为错误）和 Rustfmt 通过。`msime-desktop` 没有在本地编译测试，交给 CI。
 - 合约脚本：`test-default-config-parity.py` 的正则不再要求 `FuzzyPinyinPreferences` 上有 `#[serde(deny_unknown_fields)]`；`test-preferences-field-parity.py` 仍检查设置页能写而 Rust 没有字段的键，后果改述为「留在文档里但永远不生效」。`bash scripts/run-checks.sh` 全部通过。
 - 设置页：新增 `settings-save-failure-visible.test.tsx`，保存被拒后顶部出现原因和「重试」，位置在表单之前，点「重试」再次保存；保存成功时顶部不出现。原有 `settings.test.tsx` 里失败重试和反复冲突两项改为只有一处「重试」、一处提示后通过。`apps/desktop` 的 `tsc --noEmit`、全部 3591 项 vitest、`format:check` 与 `lint` 通过。
+
+- 文件入口行为测试覆盖：空目录预检不写盘、预检与应用结果一致、非法字段与错键拒绝、已有未来字段保留，以及预检后 revision 冲突。独立 CLI 进程测试覆盖非终端写授权、完整 Schema、文件大小上限和错误不泄露取值。实际执行结果见本次 PR 验证段。

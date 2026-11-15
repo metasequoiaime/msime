@@ -6,6 +6,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.AiProviderSettings;
+import app.msime.android.AliyunTranslationPolicy;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.CandidateTranslationRoute;
 import app.msime.android.JsonPolicy;
@@ -19,9 +20,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 翻译服务：候选词在离线释义之外，用哪个在线服务补译文。可选不使用、水杉账号、小牛翻译、腾讯云机器翻译、自定义（DeepLX 或 DeepL API）、AI 辅助（复用「AI 润色与回复」页的配置）。
+ * 翻译服务：候选词在离线释义之外，用哪个在线服务补译文。可选不使用、水杉账号、小牛翻译、腾讯云机器翻译、阿里云机器翻译、自定义（DeepLX 或 DeepL API）、AI 辅助（复用「AI 润色与回复」页的配置）。
  *
- * <p>全部写在与桌面、iOS 相同的共享偏好里：`niutrans`、`custom_translation`、`tencent_tmt` 三段和 `translation_account`、`translation_ai`。选服务时三个 `enabled` 只开一个，腾讯没选时也显式写 false（它的默认值是开着），`translation_account` 只在选水杉账号时写 true、`translation_ai` 只在选 AI 辅助时写 true，否则删掉，与共享设置页的 `setTranslationProvider` 和 iOS 的 `select` 相同；别的服务的凭据保留，切回来不用重填。凭据与 AI 辅助的令牌一样只存在本机的偏好里，不随设置同步上传；密钥行只显示「已填写」或「未填写」。
+ * <p>全部写在与桌面、iOS 相同的共享偏好里：`niutrans`、`custom_translation`、`tencent_tmt`、`aliyun_translation` 四段和 `translation_account`、`translation_ai`。选服务时四个 `enabled` 只开一个，腾讯没选时也显式写 false（它的默认值是开着），`translation_account` 只在选水杉账号时写 true、`translation_ai` 只在选 AI 辅助时写 true，否则删掉，与共享设置页的 `setTranslationProvider` 和 iOS 的 `select` 相同；别的服务的凭据保留，切回来不用重填。凭据与 AI 辅助的令牌一样只存在本机的偏好里，不随设置同步上传；密钥行只显示「已填写」或「未填写」。
  *
  * <p>每个字段点开是一个输入框，按共享偏好的校验规则（{@link TranslationServiceSettingsPolicy}）当场说明哪里不行，不合规的值不会写入。键盘怎么选路见 {@link CandidateTranslationPolicy#route}：所选服务凭据不全时不联网，也不改用别的服务。
  */
@@ -41,7 +42,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
      */
     @Nullable private Choice chosen;
     /** 选了自己的服务（小牛、腾讯、自定义、AI）时，候选词怎样发出去、怎样计费。 */
-    private static final String USER_SERVICE_NOTE = "选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 256 字）直接发给该服务，不经过水杉服务器。小牛、自定义和 AI 每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。";
+    private static final String USER_SERVICE_NOTE = "选择自己的服务后，键盘把当前一页的中文候选（最多 10 个，每个不超过 256 字）直接发给该服务，不经过水杉服务器。小牛、阿里云、自定义和 AI 每个词单独请求一次；设置了第二目标语言时，每种语言各请求一次，都会消耗你在该服务的额度。离线释义查得到的语言仍优先显示离线释义。";
     private boolean testing;
 
     @Override protected void onContentDestroyed() {
@@ -117,7 +118,8 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         JSONObject custom = section(preferences, "custom_translation");
         JSONObject tencent = section(preferences, "tencent_tmt");
         boolean tencentEnabled = JsonPolicy.strictBoolean(tencent.opt("enabled"), true);
-        Choice stored = TranslationServiceSettingsPolicy.selected(
+        JSONObject aliyun = section(preferences, "aliyun_translation");
+        Choice stored = AliyunTranslationPolicy.enabled(aliyun) ? Choice.ALIYUN : TranslationServiceSettingsPolicy.selected(
             JsonPolicy.strictBoolean(preferences.opt("translation_account"), false),
             JsonPolicy.strictBoolean(niutrans.opt("enabled"), false),
             JsonPolicy.strictBoolean(custom.opt("enabled"), false),
@@ -147,6 +149,9 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             case TENCENT:
                 renderTencent(target, tencent);
                 break;
+            case ALIYUN:
+                AliyunTranslationSettings.render(this, sectionColumn(target, "配置"), aliyun);
+                break;
             case CUSTOM:
                 renderCustom(target, custom, state.endpointIssue());
                 break;
@@ -154,7 +159,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
                 renderAi(target, state.aiReady(), state.aiSummary());
                 break;
         }
-        if (selected.userService()) renderTest(target, selected, niutrans, custom, tencent, state.customBuildable());
+        if (selected.userService()) renderTest(target, selected, niutrans, custom, tencent, aliyun, state.customBuildable());
     }
 
     private void renderNiuTrans(LinearLayout target, JSONObject niutrans) {
@@ -208,9 +213,10 @@ public final class TranslationServicePage extends ReloadingDetailPage {
 
     /** 凭据是否齐全的提示和「测试连接」：测试用的是已经保存的值，与键盘实际用的一致。 */
     private void renderTest(LinearLayout target, Choice selected, JSONObject niutrans, JSONObject custom,
-            JSONObject tencent, boolean customBuildable) {
+            JSONObject tencent, JSONObject aliyun, boolean customBuildable) {
         GroupCard group = GroupCard.add(sectionColumn(target, "配置"), null);
-        CandidateTranslationRoute route = CandidateTranslationPolicy.route(true, false,
+        CandidateTranslationRoute route = selected == Choice.ALIYUN ? AliyunTranslationPolicy.route(true, aliyun)
+            : CandidateTranslationPolicy.route(true, false,
             selected == Choice.NIUTRANS, InputViewValuePolicy.text(niutrans, "app_id"), InputViewValuePolicy.text(niutrans, "apikey"),
             selected == Choice.CUSTOM, InputViewValuePolicy.text(custom, "endpoint"), InputViewValuePolicy.text(custom, "api_key"),
             selected == Choice.TENCENT, InputViewValuePolicy.text(tencent, "secret_id"), InputViewValuePolicy.text(tencent, "secret_key"), InputViewValuePolicy.text(tencent, "region"));
@@ -220,7 +226,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
             if (testing) return;
             testing = true;
             MsToast.show(requireContext(), "正在测试…");
-            JSONObject config = testConfig(selected, niutrans, custom, tencent);
+            JSONObject config = testConfig(selected, niutrans, custom, tencent, aliyun);
             HostTask.runNetwork(this, context -> ServiceCredentialTest.api(selected.testService(), config), result -> {
                 testing = false;
                 if (!isAdded()) return;
@@ -229,10 +235,12 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         }).help("用已保存的设置翻译一次「测试」，最长约 15 秒");
     }
 
-    private static JSONObject testConfig(Choice selected, JSONObject niutrans, JSONObject custom, JSONObject tencent) {
+    private static JSONObject testConfig(Choice selected, JSONObject niutrans, JSONObject custom, JSONObject tencent, JSONObject aliyun) {
         JSONObject config = new JSONObject();
         try {
             switch (selected) {
+                case ALIYUN:
+                    return new JSONObject(aliyun.toString());
                 case NIUTRANS:
                     config.put("app_id", InputViewValuePolicy.text(niutrans, "app_id")).put("apikey", InputViewValuePolicy.text(niutrans, "apikey"));
                     break;
@@ -260,10 +268,11 @@ public final class TranslationServicePage extends ReloadingDetailPage {
         sheet.show();
     }
 
-    /** 只开一个服务：三个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选水杉账号时写 true，`translation_ai` 只在选 AI 辅助时写 true。 */
+    /** 只开一个服务：四个 `enabled` 互斥，腾讯没选时显式写 false，`translation_account` 只在选水杉账号时写 true，`translation_ai` 只在选 AI 辅助时写 true。 */
     private void select(Choice choice) {
         chosen = choice;
         KeyboardSheets.save(this, preferences -> {
+            KeyboardSheets.child(preferences, "aliyun_translation").put("enabled", choice == Choice.ALIYUN);
             KeyboardSheets.child(preferences, "niutrans").put("enabled", choice == Choice.NIUTRANS);
             KeyboardSheets.child(preferences, "custom_translation").put("enabled", choice == Choice.CUSTOM);
             JSONObject tencent = KeyboardSheets.child(preferences, "tencent_tmt");
@@ -280,7 +289,7 @@ public final class TranslationServicePage extends ReloadingDetailPage {
     /**
      * 编辑一个字段：输入框里的值去掉首尾空白后按 `problem` 检查，不合规时在输入框下说明原因并禁用「保存」。密钥字段打开时是空的（不回显已存的密钥），留空保存表示清掉。
      */
-    private void edit(String title, @Nullable String message, String current, int inputType,
+    void edit(String title, @Nullable String message, String current, int inputType,
             Function<String, String> problem, String section, String key) {
         InputDialog dialog = new InputDialog(requireContext(), title, message);
         EditText field = dialog.addField(title, current, inputType);

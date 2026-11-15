@@ -113,6 +113,10 @@ chmod +x "$ANDROID_SDK_ROOT/emulator/emulator" "$ANDROID_SDK_ROOT/platform-tools
     def test_existing_complete_sdk_is_reused(self):
         self.assertEqual(self.run_installer("fail", installed=True), (0, 0))
 
+    def test_android11_image_download_and_reuse(self):
+        self.assertEqual(self.run_installer("corrupt", api="30"), (0, 2))
+        self.assertEqual(self.run_installer("fail", installed=True, api="30"), (0, 0))
+
     def test_android17_uses_versioned_image_package(self):
         self.assertEqual(self.run_installer("corrupt", api="37"), (0, 2))
         self.assertEqual(self.run_installer("fail", installed=True, api="37"), (0, 0))

@@ -6,6 +6,7 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
+pub mod aliyun;
 mod display;
 pub use display::{translation_runs, TranslationRun, TranslationRunRole};
 

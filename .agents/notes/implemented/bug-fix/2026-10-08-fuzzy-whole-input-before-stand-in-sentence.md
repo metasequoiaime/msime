@@ -34,6 +34,8 @@ Status: implemented
 
 ## Consequences
 
+- 模糊音整词与更长补全词的边界见[模糊整词先于补全](2026-11-13-fuzzy-whole-word-before-completion.md)：只在有补全词时提升覆盖全部输入的模糊整词，保留精确首选、整句让位和补全数量门槛。
+
 - **收益**：开模糊音、原拼音没有整词时，模糊读法的整词成为首选：`zongguo` →「中国」，`zengzai` →「正在」，`sangban` →「上班」，`cuanqi` →「传奇」，`zongguorenmin` →「中国人民」。不开模糊音、或原拼音有整词（`zhongguo`、`zhidao`、`shishi`、`zaijia` 等）时列表逐行不变。
 - **代价**：模糊行整体排到整句前面，不看权重，库里很冷的模糊整词也会排在整句之前（`zhuoye` 开 z=zh：作业、昨夜、左腋、坐夜，然后才是整句「琢也」）。这与「整句不压词库整词」的既有约定一致，精确整词同样如此。
 - **已知上限**：长句里只有一部分音节需要模糊读法时（`womenzaizongguo`），整句仍只按原拼音解出「我们在总国」。要解决得把模糊读法送进词网格，见上面第一条备选；出现这类反馈时重访。
@@ -44,3 +46,5 @@ Status: implemented
 - `crates/engine/src/quanpin/dictionary/tests.rs` 的 `whole_key_fuzzy_rows_lead_a_sentence_that_stood_in_for_a_missing_word` 用夹具词库覆盖三种情况：不开模糊音首选整句「总国」且没有「中国」；开 z=zh 后前三位是「中国、种过、总国」；`zhongguo` 首选精确「中国」；加入精确整词「宗国」后它仍在模糊「中国」之前。修复前这个测试在第二种情况失败（「总国」在首位）。`stand_in_sentence_yields_only_to_whole_input_fuzzy_rows` 直接钉住让位函数：补全词不算覆盖、另一种切分的精确整词阻止让位、首行是词库行时不动。
 - 在真实词库上用产品选项跑了 46 个 z/c/s 输入、模糊规则 0、1、7 三组，修复前后逐行对比：规则 0 全部相同；规则 1、7 只有原拼音无整词、整句居首的输入变化（上面「收益」列出的几条和 `zhuoye`），其余不变。真实词库金样集在修复前后输出逐字节相同。
 - Android 设备工作流不再设置 `MSIME_DEVICE_SMOKE_SKIP` 跳过 `FuzzyPinyinDeviceSmoke`。API 35 的完整设备套件检查开启 z=zh 后 `zongguo` 的首位是「中国」，以及关闭模糊音后候选和规则持久化；API 28 的 `--core` 路径只跑基础打字验收。
+
+模型入口的完整输入判定另见[纠错重排排除更长补全](2026-11-13-corrected-pinyin-completion-rerank.md)，本篇词典排序规则保持。
