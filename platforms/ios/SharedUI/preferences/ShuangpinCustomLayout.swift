@@ -117,14 +117,39 @@ struct ShuangpinCustomLayout: Decodable {
     if let problem = checked.problem { throw Failure(message: problem.message) }
     var selection: InputSchemePreference.Selection?
     guard MetasequoiaInputSessionBridge.updateSharedPreferences { document in
-      document[profileKey] = profile
-      if profile == "custom", let table { document[tableKey] = table }
-      selection = InputSchemePreference.write({ selected in
-        if !selected.enabled.contains(.shuangpin) { selected.enabled.append(.shuangpin) }
-        selected.scheme = .shuangpin
-      }, into: &document)
+      selection = write(profile: profile, table: table, into: &document)
     }, let selection else { return false }
     InputSchemePreference.mirror(selection)
     return true
+  }
+
+  /// 删除表只影响自定义方案，保留其他输入方案和个人词库。
+  static func remove(from document: inout [String: Any]) {
+    document.removeValue(forKey: tableKey)
+    if profile(in: document) == "custom" { document[profileKey] = "xiaohe" }
+  }
+
+  static func write(profile: String, table: Table?, into document: inout [String: Any]) -> InputSchemePreference.Selection? {
+    let scheme = ChineseInputScheme.allCases.first { $0.shuangpinProfile == profile } ?? .shuangpin
+    guard let selected = InputSchemePreference.write({ selection in
+      if !selection.enabled.contains(scheme) { selection.enabled.append(scheme) }
+      selection.scheme = scheme
+    }, into: &document) else { return nil }
+    // 入口映射会写内置方案名；实际码表必须最后写，和触屏入口一起原子保存。
+    document[profileKey] = profile
+    if profile == "custom", let table { document[tableKey] = table }
+    return selected
+  }
+
+  /// 键盘从其他方案回到普通双拼入口时保留用户配置；设置页仍可明确改选小鹤。
+  static func runtimeMapping(_ mapping: @escaping (inout [String: Any]) -> Void,
+                             scheme: ChineseInputScheme) -> (inout [String: Any]) -> Void {
+    { document in
+      let configured = document[profileKey] as? String
+      mapping(&document)
+      if scheme == .shuangpin, let configured, ["custom", "smart_abc"].contains(configured) {
+        document[profileKey] = configured
+      }
+    }
   }
 }

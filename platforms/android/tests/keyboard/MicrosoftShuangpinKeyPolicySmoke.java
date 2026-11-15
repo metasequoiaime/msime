@@ -7,6 +7,11 @@ public final class MicrosoftShuangpinKeyPolicySmoke {
     }
 
     public static void main(String[] args) {
+        check(MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.XIAOHE, "none", true));
+        check(!MicrosoftShuangpinKeyPolicy.visible(true, KeyboardScheme.XIAOHE, "none", true));
+        check(!MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.XIAOHE, "unicode", true));
+        check(MicrosoftShuangpinKeyPolicy.routesAsFinal(';', true, false, KeyboardScheme.XIAOHE, "none", true));
+        check(!MicrosoftShuangpinKeyPolicy.routesAsFinal(';', false, false, KeyboardScheme.XIAOHE, "none", true));
         check(MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.MICROSOFT, "none"));
         check(!MicrosoftShuangpinKeyPolicy.visible(true, KeyboardScheme.MICROSOFT, "none"));
         check(!MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.QUANPIN, "none"));

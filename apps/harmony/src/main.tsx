@@ -66,9 +66,6 @@ import {
   type CloudDictionaryPanelClient,
   type SettingsClient,
   type NineKeyShuangpinLayout,
-  type ShuangpinCustomProfile,
-  type ShuangpinCustomProblem,
-  type BuiltinShuangpinProfile,
   type Snapshot,
   type PreferencesRecovery,
   type UpdateCheckRequest,
@@ -151,8 +148,6 @@ interface NativeBridge {
   dictionary(action: string): string;
   /** 只计算九键双拼键位和错误，不读写偏好。 */
   nineKeyShuangpinLayout(request: string): string;
-  /** 只计算 26 键双拼键位和错误，不读写偏好。 */
-  shuangpinCustomLayout(request: string): string;
   /** 昵称草稿的共享纯计算，不读取登录会话。 */
   accountName(request: string): string;
   cloudDictionaryDownload(entry: string): string;
@@ -1833,24 +1828,6 @@ function makeClient(
       typeof native.nineKeyShuangpinLayout === "function"
         ? async (request) =>
             unwrap<NineKeyShuangpinLayout>(native.nineKeyShuangpinLayout(JSON.stringify(request)))
-        : undefined,
-    validateShuangpinCustomProfile:
-      typeof native.shuangpinCustomLayout === "function"
-        ? async (profile: ShuangpinCustomProfile): Promise<ShuangpinCustomProblem | null> => {
-            const value = unwrap<{ problem?: ShuangpinCustomProblem | null }>(
-              native.shuangpinCustomLayout(JSON.stringify({ profile: "custom", table: profile })),
-            );
-            return value.problem ?? null;
-          }
-        : undefined,
-    builtinShuangpinTable:
-      typeof native.shuangpinCustomLayout === "function"
-        ? async (profile: BuiltinShuangpinProfile): Promise<ShuangpinCustomProfile | null> => {
-            const value = unwrap<{ table: ShuangpinCustomProfile }>(
-              native.shuangpinCustomLayout(JSON.stringify({ profile })),
-            );
-            return value.table ?? null;
-          }
         : undefined,
     dictionaryCollections,
     typingStatistics,

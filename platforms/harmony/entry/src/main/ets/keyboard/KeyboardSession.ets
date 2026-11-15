@@ -7717,7 +7717,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.changePreferences(changes)) {
       return false;
     }
-    this.useScheme(KeyboardScheme.engineSchemeOf(selected), selected.shuangpinProfile);
+    this.useScheme(KeyboardScheme.engineSchemeOf(selected), mapping.shuangpinProfile);
     KeyboardLog.info(`scheme fell back to ${selected.preferenceId}: `
       + `${applied.preferenceId} is no longer enabled`);
     return true;
@@ -7725,9 +7725,9 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   schemeChanges(candidate: SchemeDefinition): Map<string, Object> {
     const current: Record<string, Object> | undefined = this.loadPreferenceDocument();
-    const mapping: PreferenceMapping = KeyboardScheme.mapping(candidate,
+    const mapping: PreferenceMapping = KeyboardScheme.mappingForRuntimeSelection(null, candidate,
       current === undefined ? null : this.text(current['last_chinese_scheme']),
-      current === undefined ? null : this.text(current['shuangpin_profile']));
+      current === undefined ? null : this.text(current['shuangpin_profile'])) as PreferenceMapping;
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('scheme', mapping.scheme);
     changes.set('last_chinese_scheme', mapping.lastChineseScheme);

@@ -891,7 +891,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
                               enabledSchemes: [ChineseInputScheme]) -> Bool {
     guard let mapping = Self.schemeMapping(scheme, enabledSchemes: enabledSchemes) else { return false }
-    return updateAndPersist(mapping)
+    return updateAndPersist(ShuangpinCustomLayout.runtimeMapping(mapping, scheme: scheme))
   }
 
   /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.

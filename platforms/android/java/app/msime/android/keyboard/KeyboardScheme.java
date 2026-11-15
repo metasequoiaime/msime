@@ -320,7 +320,12 @@ public enum KeyboardScheme {
             KeyboardScheme applied, KeyboardScheme selected,
             String currentLastChineseScheme, String currentProfile, AppEdition edition) {
         if (selected == null || selected == applied) return null;
-        return selected.mapping(currentLastChineseScheme, currentProfile, edition);
+        PreferenceMapping mapping = selected.mapping(currentLastChineseScheme, currentProfile, edition);
+        if (selected == XIAOHE && ("custom".equals(currentProfile) || "smart_abc".equals(currentProfile))) {
+            return new PreferenceMapping(mapping.scheme(), mapping.lastChineseScheme(),
+                currentProfile, mapping.touchKeyboardLayout());
+        }
+        return mapping;
     }
 
     /** 偏好里的方案、双拼方案和触屏布局对应的入口；本版本没有那个入口时是 {@link #fallback}，与 host-api 把本版本不含的方案回退到默认方案一致。 */
@@ -387,7 +392,7 @@ public enum KeyboardScheme {
 
     private static String normalizedProfile(String value) {
         if ("ziranma".equals(value) || "microsoft".equals(value) || "shoudao".equals(value)
-                || "custom".equals(value)) {
+                || "custom".equals(value) || "smart_abc".equals(value)) {
             return value;
         }
         return "xiaohe";

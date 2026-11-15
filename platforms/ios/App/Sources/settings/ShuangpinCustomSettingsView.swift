@@ -9,6 +9,8 @@ struct ShuangpinCustomSettingsView: View {
   @State private var saved = false
   @State private var importing = false
   @State private var exporting = false
+  @State private var deleting = false
+  @State private var hasSavedTable = false
   @State private var exportFile = ShuangpinCustomDocument(data: Data())
 
   var body: some View {
@@ -39,6 +41,10 @@ struct ShuangpinCustomSettingsView: View {
           }
           Button("导入 JSON 码表") { importing = true }.accessibilityIdentifier("shuangpinCustomImport")
           Button("导出 JSON 码表") { prepareExport() }.accessibilityIdentifier("shuangpinCustomExport")
+          if hasSavedTable {
+            Button("删除自定义方案", role: .destructive) { deleting = true }
+              .accessibilityIdentifier("shuangpinCustomDelete")
+          }
         } header: {
           DesignSectionHeader(title: "自定义", info: "导入导出包含声母、韵母和零声母音节映射，可与 Android 的双拼码表互用。")
         }
@@ -72,6 +78,18 @@ struct ShuangpinCustomSettingsView: View {
     }
     .navigationTitle("双拼自定义").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
+    .alert("删除自定义方案？", isPresented: $deleting) {
+      Button("删除", role: .destructive) {
+        guard MetasequoiaInputSessionBridge.updateSharedPreferences(ShuangpinCustomLayout.remove) else {
+          error = SettingsSaveFailure.message
+          return
+        }
+        reload()
+      }
+      Button("取消", role: .cancel) { }
+    } message: {
+      Text("保存的自定义表会删除；正在使用时改用小鹤双拼。内置方案和词库保留。")
+    }
     .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
       do {
         let url = try result.get()
@@ -100,6 +118,7 @@ struct ShuangpinCustomSettingsView: View {
 
   private func reload() {
     let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    hasSavedTable = !(document?[ShuangpinCustomLayout.tableKey] as? ShuangpinCustomLayout.Table ?? [:]).isEmpty
     profile = ShuangpinCustomLayout.profile(in: document)
     do {
       let current = try ShuangpinCustomLayout.current(in: document)

@@ -11,8 +11,8 @@ import app.msime.android.AppEdition;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.NativeClient;
-import app.msime.android.ShuangpinCustomKeypad;
 import app.msime.android.SchemePreferences;
+import app.msime.android.ShuangpinCustomKeypad;
 import app.msime.android.TextPolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.IOException;
@@ -118,11 +118,14 @@ public final class ShuangpinCustomPage extends ReloadingDetailPage {
 
         GroupCard editor = GroupCard.add(sectionColumn(target, "自定义"), "自定义表");
         editor.help("每个音节两位字母：先按声母所在的键，再按韵母所在的键；零声母音节直接给两位字母。分号可以作为韵母或第二个键。");
-        editor.button("从内置方案开始", "用一张内置的表替换正在编辑的表", "选择", this::startFromBuiltin);
+        editor.button("从内置方案开始", null, "选择", this::startFromBuiltin).help("用一张内置的表替换正在编辑的表");
         editor.button("导入", null, "导入", () -> openDocument.launch(
             new String[] {"application/json", "text/plain", "application/octet-stream"})).help("从 JSON 文件读入一张表");
         editor.button("导出", null, "导出",
             () -> createDocument.launch("双拼键位.json")).help("把正在编辑的表存成 JSON 文件");
+        if (savedTable != null && savedTable.length() > 0) {
+            editor.button("删除自定义方案", null, "删除", this::confirmDelete);
+        }
         JSONObject draftLayout = layout(ShuangpinCustomKeypad.CUSTOM_PROFILE, draft);
         JSONObject problem = draftLayout == null ? null : draftLayout.optJSONObject("problem");
         String saveSubtitle = problem != null ? problemText(problem)
@@ -216,26 +219,44 @@ public final class ShuangpinCustomPage extends ReloadingDetailPage {
             MsToast.show(requireContext(), checked == null ? "这张表不能用" : problemText(checked.optJSONObject("problem")));
             return;
         }
-        savePreferences(values -> {
-            values.put("shuangpin_custom_profile", table);
-            values.put("shuangpin_profile", ShuangpinCustomKeypad.CUSTOM_PROFILE);
-        }, () -> {
+        applyProfile(ShuangpinCustomKeypad.CUSTOM_PROFILE, table, () -> {
             draftChanged = false;
             MsToast.show(requireContext(), "已保存，双拼使用自定义表");
         });
     }
 
     private void chooseProfile(String profile) {
-        savePreferences(values -> values.put("shuangpin_profile", profile));
+        applyProfile(profile, null, () -> { });
+    }
+
+    private void confirmDelete() {
+        MessageDialog.confirm(requireContext(), "删除自定义方案？",
+            "保存的自定义表会删除；正在使用时改用小鹤双拼。内置方案和词库保留。", "删除", () ->
+                HostTask.run(this, context -> {
+                    JSONObject pending = ShuangpinCustomSelection.remove(HostStore.loadPreferences(context));
+                    return pending == null ? null : HostStore.savePreferences(context, pending);
+                }, saved -> {
+                    if (saved == null) {
+                        MsToast.show(requireContext(), "删除失败，请重试");
+                        return;
+                    }
+                    draftChanged = false;
+                    draft = null;
+                    reload();
+                }));
     }
 
     private void useKeyboard() {
+        applyProfile(profile(), null, () -> { });
+    }
+
+    private void applyProfile(String profile, @Nullable JSONObject table, Runnable then) {
         HostTask.run(this, context -> {
-            JSONObject pending = SchemePreferences.withScheme(HostStore.loadPreferences(context),
-                KeyboardScheme.XIAOHE, null);
+            JSONObject pending = ShuangpinCustomSelection.select(HostStore.loadPreferences(context), profile, table);
             return pending == null ? null : HostStore.savePreferences(context, pending);
         }, saved -> {
             if (saved == null) MsToast.show(requireContext(), "切换失败，保留当前方案");
+            else then.run();
             reload();
         });
     }

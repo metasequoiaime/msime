@@ -324,6 +324,7 @@ fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"
+check "自定义双拼保存与输入验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e shuangpin-custom true
 if [[ "$spelling_editor" == true ]]; then
   check "Spelling editor switch acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e spelling-editor-switch true
   finish "Dedicated Android AVD: spelling editor switch acceptance passed"

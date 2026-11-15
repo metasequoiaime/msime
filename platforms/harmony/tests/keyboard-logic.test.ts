@@ -16427,6 +16427,26 @@ group("a Korean syllable lists its Hanja and the open list takes the candidate k
   );
 });
 
+group("自定义普通双拼的入口切换保留码表和分号可达性", () => {
+  for (const profile of ["custom", "smart_abc"]) {
+    const away = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.XIAOHE, KeyboardScheme.QUANPIN, "shuangpin", profile);
+    check(away !== null && away.shuangpinProfile === profile, "离开双拼保留码表");
+    const back = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, "quanpin", profile);
+    check(back !== null && back.shuangpinProfile === profile, "返回普通双拼保留码表");
+    check(KeyboardScheme.mapping(KeyboardScheme.XIAOHE, "quanpin", profile).shuangpinProfile ===
+      "xiaohe", "明确选择内置方案仍使用内置码表");
+  }
+  check(KeyboardScheme.shuangpinSpaceLabel("custom") === "双拼 · 自定义" &&
+    KeyboardScheme.shuangpinSpaceLabel("smart_abc") === "双拼 · 智能 ABC", "普通入口显示实际码表名");
+  check(KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, true),
+    "共享自定义表使用分号时提供韵母键");
+  check(!KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, false) &&
+    !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.QUANPIN, true),
+    "无分号的表与非双拼不增加分号键");
+});
+
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
 // mock responses one microtask turn before reporting the suite result.
 setTimeout(() => {
