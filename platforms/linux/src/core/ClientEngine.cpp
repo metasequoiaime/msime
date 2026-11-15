@@ -1,4 +1,5 @@
 #include "../settings/LocalTranslationLauncher.h"
+#include "../settings/QuickPhraseClearLauncher.h"
 #include "ClientEngine.h"
 #include "../../../common/HostApiString.h"
 #include "../candidates/EmbeddedTranslation.h"
@@ -1670,6 +1671,8 @@ void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   if (panel && std::string_view(panel) == "local-translation")
     return msime::linux_host::launch_local_translation(configured.value("preferences_directory", std::string{}));
+  if (panel && std::string_view(panel) == "quick-phrase-clear")
+    return msime::linux_host::launch_quick_phrase_clear();
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
     command = MSIME_EDITION_SETTINGS_PROGRAM;
@@ -1723,6 +1726,9 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
     {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},
     {"DesktopTools/Dictionary", "dictionary", msime::linux_host::menu_label::kDictionary, DesktopPanelSlot::Extra},
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+    {"DesktopTools/QuickPhraseClear", "quick-phrase-clear", "清空快捷短语…", DesktopPanelSlot::Extra},
+#endif
     {"DesktopTools/Clipboard", "clipboard", msime::linux_host::menu_label::kLocalClipboard, DesktopPanelSlot::Tools},
     {"DesktopTools/Voice", "voice", msime::linux_host::menu_label::kVoicePanel, DesktopPanelSlot::Tools},
     {"DesktopTools/Help", "help", msime::linux_host::menu_label::kHelp, DesktopPanelSlot::Tools},
