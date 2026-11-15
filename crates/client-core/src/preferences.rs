@@ -16,8 +16,11 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub mod candidate_color;
 mod clipboard_retention;
+mod document;
 mod patch;
 mod reporting_authority;
+#[cfg(feature = "preferences-schema")]
+pub mod schema;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
 mod traditional_variant_read;
@@ -53,6 +56,7 @@ impl AccountPreferenceValue {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum InputScheme {
@@ -78,6 +82,7 @@ pub enum InputScheme {
 /// 桌面应用（Windows、macOS、Linux）检查更新时跟的发布通道：稳定版只认正式发布，测试版另外接受 develop 发出的 `-beta` 预发布，每日构建再接受滚动的 `nightly` 发布。选择规则在 `msime_client_services::update_check`，macOS 的 Sparkle 按它选 appcast。
 ///
 /// 读文档时不认识的值（以后的版本加的通道、手改的文件）按稳定版读，不让整份偏好读不出来；等于默认值时不写进文档。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateChannel {
@@ -123,6 +128,7 @@ impl<'de> Deserialize<'de> for UpdateChannel {
 /// 候选词翻译（在线、系统、账号和 AI 翻译服务，以及只为候选词翻译查的离线词典）画在哪些候选下面。「显示英文释义」开关的离线释义不受它限制，照旧每个候选都有。
 ///
 /// 新装和缺这个键的旧文档都是「仅当前高亮」：维护者认为每个候选都带一行译文太乱，而且只问高亮的那一个也省翻译接口的调用。读文档时不认识的值同样按「仅当前高亮」读。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateTranslationScope {
@@ -161,6 +167,7 @@ impl<'de> Deserialize<'de> for CandidateTranslationScope {
 }
 
 /// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchKeyboardLayout {
@@ -177,6 +184,7 @@ pub enum TouchKeyboardLayout {
 }
 
 /// 触屏双拼的字母键布局；与全拼的布局独立保存，切换方案后仍保留选择。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchShuangpinLayout {
@@ -193,6 +201,7 @@ impl TouchShuangpinLayout {
 }
 
 /// 触屏五笔的字母键布局；与全拼、双拼的布局独立保存，切换 86 / 98 码表后仍保留选择。14 键与全拼 14 键同一个键面，引擎按组展开五笔码表。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchWubiLayout {
@@ -210,6 +219,7 @@ impl TouchWubiLayout {
 /// 中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的排法；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 的整排键盘不受它影响。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchTwentySixKeyStyle {
@@ -262,6 +272,7 @@ impl<'de> Deserialize<'de> for TouchTwentySixKeyStyle {
 /// 14 键与 18 键字母层（全拼、双拼、五笔 14 键共用）底行的排法。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchFourteenKeyStyle {
@@ -310,6 +321,7 @@ impl<'de> Deserialize<'de> for TouchFourteenKeyStyle {
 /// 14 键与 18 键字母层（全拼、双拼、五笔 14 键共用）三排字母键的宽度怎么分（#11051）。只改三排字母键的宽度分配，键距、行距、键盘高度、顶部数字行、底行和符号层都不受影响。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchFourteenKeyStyle`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchFourteenKeyLetterWidths {
@@ -354,6 +366,7 @@ impl<'de> Deserialize<'de> for TouchFourteenKeyLetterWidths {
 /// 九键字母层（拼音九键、九键双拼、笔画共用这一框架）底行的排法；除 [`Self::TallReturn`] 外，左侧符号栏和右侧功能列不变。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchNineKeyStyle {
@@ -406,6 +419,7 @@ impl<'de> Deserialize<'de> for TouchNineKeyStyle {
 /// 手机触屏九宫格数字键盘（拼音九键、九键双拼、笔画自己的数字层，以及 26 键、14/18 键、手写借来的数字九宫格）里空格放在哪；0 总在底行。右侧大回车的数字层有自己的排法，不受它影响。桌面宿主原样保留、不使用。
 ///
 /// 三端出厂的排法各不相同，所以默认值是 [`Self::PlatformDefault`]：各端照自己原来的排法画（Android 空格在右列，iOS 空格在 0 右边，鸿蒙空格在 0 左边），三种排法三端都能选。读文档时不认识的值按默认读，不是字符串照样报错，与 [`CandidateTranslationScope`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchNumberPadSpace {
@@ -510,6 +524,7 @@ impl<'de> Deserialize<'de> for TouchOneHandedSidePanel {
 /// 手机触屏底行的中/英键放在空格哪一边（#10228）。默认 [`Self::Right`] 是原来的排法：中/英在空格右边、紧挨回车。[`Self::Left`] 把中/英挪到空格左边：它左边紧挨着的那一串空格、0、逗号、句号整体右移一格，中/英排到这一串的最左边，所以空格左边有标点时标点仍贴着空格、中/英在标点左边；各键宽度不变。作用于 26 键一族（含英文、韩文等同一条底行）、14/18 键、九键外框（含右侧大回车）、九宫格数字键盘和手写的底行，iPad 全尺寸键盘和鸿蒙 2in1 的底行不受影响；底行没有中/英（iOS 隐藏了中/英键）时不起作用。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchLanguageKeySide {
@@ -554,6 +569,7 @@ impl<'de> Deserialize<'de> for TouchLanguageKeySide {
 /// 手机触屏拼音九键字母层 1–9 键上的纵向滑动（#10229，接替 Android 本机设置 `platform.android.nine_key_swipe`，写法与它逐字相同）：沿所选方向滑过判定距离，松手输入键上印的数字；往反方向滑，弹出与长按相同的数字和字母选项（1 键没有字母，不弹）。九键双拼、笔画、数字层和别的键面不受影响。桌面宿主原样保留、不使用。
 ///
 /// 读文档时不认识的值按默认（关闭）读，不是字符串照样报错，与 [`TouchNumberPadSpace`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchNineKeySwipeDigits {
@@ -602,6 +618,7 @@ impl<'de> Deserialize<'de> for TouchNineKeySwipeDigits {
 /// 上屏后联想显示时候选栏右端放哪些按键（#10078）。只在 `next_word_prediction` 开着时有意义；普通组字的候选栏不受它影响。只有触屏宿主读它（候选栏右端有按键可放），桌面宿主的候选窗没有这两个键，原样保留。
 ///
 /// 读文档时不认识的值按默认读，不是字符串照样报错，与 [`TouchTwentySixKeyStyle`] 一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NextWordPredictionButtons {
@@ -648,6 +665,7 @@ impl<'de> Deserialize<'de> for NextWordPredictionButtons {
 }
 
 /// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NumberKeypadOrder {
@@ -659,6 +677,7 @@ pub enum NumberKeypadOrder {
 }
 
 /// 文本编辑面板可排序的侧边动作；方向、选择、文档边界与换行固定。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TextEditButton {
@@ -704,6 +723,7 @@ where
 }
 
 /// 触屏 26 键按「123」切到的数字层。桌面宿主原样保留、不使用。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TwentySixKeyNumberLayout {
@@ -715,6 +735,7 @@ pub enum TwentySixKeyNumberLayout {
 }
 
 /// 触屏键盘把正在拼写的内容（全拼、双拼、五笔、粤拼）放在哪里。桌面宿主原样保留、不使用：桌面候选窗画不画拼音行归 `candidate_preedit_style`，它的默认值是画，拿它当触屏的位置开关会让触屏默认把拼写挪出输入框。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSpellingPosition {
@@ -726,6 +747,7 @@ pub enum TouchSpellingPosition {
 }
 
 /// Android 文本编辑触控板的本机偏好；默认值、步长范围和恢复设置归共享层，不参与账号同步。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TextTrackpadPreferences {
@@ -766,6 +788,7 @@ impl TextTrackpadPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -775,6 +798,7 @@ pub enum TouchSkinKeyShape {
     Pebble,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyMaterial {
@@ -785,6 +809,7 @@ pub enum TouchSkinKeyMaterial {
 }
 
 /// Apple-compatible keyboard editor design: the keyboard half of the custom theme. Named designs live in a separate bounded library.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TouchKeyboardSkinDesign {
@@ -956,22 +981,28 @@ fn supported_skin_photo(bytes: &[u8]) -> bool {
 }
 
 /// What the `custom` global theme is made of. It is kept while another theme is selected, so switching back restores it.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomTheme {
     /// 自定义主题的底：`system` 或五个内置主题之一，不能是 `custom`，也不能是只在部分宿主上提供的 `native`（见 `GlobalTheme::is_base`）。皮肤包和取色器没设的候选颜色由它补上；没有键盘设计时，键盘也画它的。应用了皮肤包时，改用包清单自己的 `base`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "is_system_theme")]
     pub base: crate::theme::GlobalTheme,
     /// 浅色模式用的候选窗皮肤包（宿主皮肤目录里的文件夹名），也是没设 `candidate_skin_dark` 时深色模式用的那款。不会是全局主题 ID。皮肤包只在它 `base` 的明暗下绘制，见 `CustomTheme::candidate_skin_for`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_skin: Option<String>,
     /// 深色模式用的候选窗皮肤包。`None` 时深色模式也取 `candidate_skin`，只设过一款皮肤的旧文档因此照旧。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_skin_dark: Option<String>,
     /// The candidate colour pickers, drawn over the package's colours.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "CustomCandidateColors::is_empty")]
     pub candidate_colors: CustomCandidateColors,
     /// The keyboard editor design; community, saved and AI-generated keyboard skins are applied by writing it here. `None` until the user designs or applies one: the custom theme then draws the base theme's keyboard.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keyboard: Option<TouchKeyboardSkinDesign>,
 }
@@ -1064,24 +1095,33 @@ impl CustomTheme {
 }
 
 /// 八个候选颜色取色器，每项为 `#RRGGBB` 或未设置。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CustomCandidateColors {
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number: Option<String>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
     /// 选中候选（高亮行）的文字颜色（#10740）。没设时照旧推导：设了选中底色取色器时按底色亮度取黑或白，否则取皮肤包的 `selected_text`，再没有时内置底上取强调色；设了它就压过这几项，选中编号取同色的 `9D` 透明度。取值顺序见 `skin::theme::resolve`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_text: Option<String>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hover: Option<String>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surface: Option<String>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border: Option<String>,
 }
@@ -1093,6 +1133,7 @@ impl CustomCandidateColors {
 }
 
 /// Stable Apple-compatible entries shown by touch-keyboard scheme pickers.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchKeyboardScheme {
@@ -1187,10 +1228,13 @@ impl TouchKeyboardScheme {
     ];
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "StoredTouchKeyboardSchemePreferences")]
+#[cfg_attr(feature = "preferences-schema", schemars(!from))]
 pub struct TouchKeyboardSchemePreferences {
     pub enabled: BTreeSet<TouchKeyboardScheme>,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<TouchKeyboardScheme>,
 }
@@ -1340,6 +1384,7 @@ impl TouchKeyboardSchemePreferences {
 /// Windows starts in English, as the source product does: its factory template (`installer/default_config/config.default.toml`, `[input] default_ime_mode = "english"`) is what a fresh reference install runs with, and `platforms/windows/installer/config.default.toml` ships the same, but the running host reads this document, so the effective first-run value on Windows was Chinese. Both the Server's mode authority and the TIP's own read go through this default when the document has no value yet.
 ///
 /// The other hosts start in Chinese, because that is what this input method is for: opening in English means the first thing a new user does is find the switch. The macOS host already resolved anything but an explicit "english" to Chinese on its own. A stored value is untouched either way; this answers only for a document that does not have the key yet.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultImeMode {
@@ -1357,6 +1402,7 @@ impl Default for DefaultImeMode {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ImeModeScope {
@@ -1366,6 +1412,7 @@ pub enum ImeModeScope {
 }
 
 /// 「应用例外」里一个应用固定的起始模式。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppInputModeRule {
@@ -1406,6 +1453,7 @@ fn valid_app_identifier_list(apps: &[String]) -> bool {
 }
 
 /// 跨次上屏空格：只补新输入与前文的接缝。默认关，应用排除采用共享应用标识口径。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CrossCommitSpacing {
@@ -1428,6 +1476,7 @@ impl CrossCommitSpacing {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChineseScheme {
@@ -1471,6 +1520,7 @@ impl From<ChineseScheme> for InputScheme {
 }
 
 /// 韩语实体键盘布局；缺少字段时保留两套式。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum KoreanLayout {
@@ -1479,6 +1529,7 @@ pub enum KoreanLayout {
     Romaja,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct KoreanPreferences {
@@ -1486,6 +1537,7 @@ pub struct KoreanPreferences {
 }
 
 /// 桌面宿主的粤拼按什么解释：`Jyutping` 是普通粤拼，前两键不是完整音节、又能解成双拼码时自动按粤语双拼读；`Shuangpin` 从第一键起按粤语双拼两键一音节读，与粤拼同形的码（如 `oi`）也按双拼。触屏宿主不读这一项，粤语双拼在那里是独立的触屏方案（`TouchKeyboardScheme::CantoneseShuangpin`）。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CantoneseInputMethod {
@@ -1494,6 +1546,7 @@ pub enum CantoneseInputMethod {
     Shuangpin,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CantonesePreferences {
@@ -1507,6 +1560,7 @@ impl CantonesePreferences {
 }
 
 /// How Vietnamese letters and tones are typed. The Engine code is the declaration order (`vietnamese_input_method`).
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum VietnameseInputMethod {
@@ -1516,6 +1570,7 @@ pub enum VietnameseInputMethod {
 }
 
 /// Where the tone mark goes in an `oa`, `oe` or `uy` syllable: modern places it on the second vowel (hoà), classic on the first (hòa). The Engine code is the declaration order (`vietnamese_tone_style`).
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum VietnameseToneStyle {
@@ -1524,6 +1579,7 @@ pub enum VietnameseToneStyle {
     Classic,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct VietnamesePreferences {
@@ -1531,6 +1587,7 @@ pub struct VietnamesePreferences {
     pub tone_style: VietnameseToneStyle,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PunctuationLock {
@@ -1541,6 +1598,7 @@ pub enum PunctuationLock {
 }
 
 /// 中文标点下 `'` 和 `"` 键出哪种引号。`Corner` 按键对应：`'` 出「」，`"`（Shift+'）出『』。`CornerWhenTraditional` 在 `traditional_chinese_output` 打开时等于 `Corner`，否则等于 `Curly`；解析见 `crate::punctuation::punctuation_marks`。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum QuoteStyle {
@@ -1557,6 +1615,7 @@ impl QuoteStyle {
 }
 
 /// 中文标点下 `[` `]` 键出实心【】还是空心〖〗。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BracketStyle {
@@ -1571,6 +1630,7 @@ impl BracketStyle {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TranslationTargetLanguage {
@@ -1587,6 +1647,7 @@ pub enum TranslationTargetLanguage {
 /// The character width used by desktop hosts for printable ASCII output.
 /// This is separate from `floating_toolbar.fullwidth`, which controls whether
 /// the toolbar exposes the width switch.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CharacterWidthPreference {
@@ -1598,6 +1659,7 @@ pub enum CharacterWidthPreference {
 /// octagram `.gram` 语法模型选择：`None` 不用语法模型（默认），其余三项
 /// 各对应一个按需下载的资源包（`grammar-model-<变体>`）。白霜（GPL-3.0 且
 /// 构建链许可未声明）本轮不提供。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GrammarModel {
@@ -1615,6 +1677,7 @@ pub enum GrammarModel {
 }
 
 /// 整句联想的候选来源与模型重排。词网格一直默认开；逐键重排（`neural_keyboard`，整句联想「增强」）默认开，挂不挂、挂哪一档由 host-api 在每台设备上按自测速度决定（见 `.agents/notes/implemented/feature/2026-11-02-keystroke-reranker-default-on.md`）；桌面的停顿重排（`neural_desktop`）仍要自己打开，它要另下一个模型。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SentenceAssociationPreferences {
@@ -1636,6 +1699,7 @@ pub struct SentenceAssociationPreferences {
     /// `sentence_collocation_weight` 同名同出厂值；不进设置页，只在
     /// preferences.json 里手调，等于出厂值时不写进文档。键缺失、类型不符或
     /// 非有限值时回出厂值（见 `deserialize_sentence_collocation_weight`）。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_weight",
         skip_serializing_if = "is_default_sentence_collocation_weight"
@@ -1643,35 +1707,41 @@ pub struct SentenceAssociationPreferences {
     pub sentence_collocation_weight: f64,
     /// 搭配上下文与词的码点长度上限/下限，对应 Windows `sentence_collocation_max_length`
     /// / `sentence_collocation_min_length`；取值口径与写入约定同 `sentence_collocation_weight`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_max_length",
         skip_serializing_if = "is_default_sentence_collocation_max_length"
     )]
     pub sentence_collocation_max_length: i32,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_min_length",
         skip_serializing_if = "is_default_sentence_collocation_min_length"
     )]
     pub sentence_collocation_min_length: i32,
     /// 命中搭配的惩罚，对应 Windows `sentence_collocation_penalty`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_penalty",
         skip_serializing_if = "is_default_sentence_collocation_penalty"
     )]
     pub sentence_collocation_penalty: f64,
     /// 全部窗口未命中时的常数分，对应 Windows `sentence_collocation_non_penalty`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_non_penalty",
         skip_serializing_if = "is_default_sentence_collocation_non_penalty"
     )]
     pub sentence_collocation_non_penalty: f64,
     /// 搭配长度低于下限时的弱命中惩罚，对应 Windows `sentence_collocation_weak_penalty`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_weak_penalty",
         skip_serializing_if = "is_default_sentence_collocation_weak_penalty"
     )]
     pub sentence_collocation_weak_penalty: f64,
     /// 句尾词的「词+$」项惩罚，对应 Windows `sentence_collocation_rear_penalty`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         deserialize_with = "deserialize_sentence_collocation_rear_penalty",
         skip_serializing_if = "is_default_sentence_collocation_rear_penalty"
@@ -1810,6 +1880,7 @@ fn is_default_sentence_collocation_rear_penalty(value: &f64) -> bool {
     *value == SENTENCE_COLLOCATION_REAR_PENALTY_DEFAULT
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
     #[serde(default)]
@@ -1817,9 +1888,11 @@ pub struct Preferences {
     #[serde(default)]
     pub ime_mode_scope: ImeModeScope,
     /// 应用例外：切到这些应用时从固定的中文或英文开始，优先于按应用记忆、全局状态和 `default_ime_mode`，在全局作用域下同样生效；用户在应用里手动切换后，本次停留期间让位，离开再回来重新生效。macOS 按 bundle id、Windows 按进程基名、Linux 按输入法框架报告的程序名查找。没有规则时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub app_input_mode_rules: BTreeMap<String, AppInputModeRule>,
     /// Vim 模式：名单命中的前台应用里，交给应用的无修饰 Esc 同时把水杉切到英文，Vim 用户可以立刻输入 `hjkl`；组字开着时 Esc 仍只取消组字。标识口径与 `app_input_mode_rules` 相同（macOS 按 bundle id，Windows 按进程基名）。没有名单时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vim_mode_apps: Vec<String>,
     #[serde(default)]
@@ -1831,14 +1904,17 @@ pub struct Preferences {
     #[serde(default)]
     pub sentence_association: SentenceAssociationPreferences,
     /// 上屏后推荐下一词，独立于整句候选，默认关闭；只有声明了 `HostCapabilities::next_word_prediction` 的宿主读它（Android 原生键盘、Windows 原生设置都有入口）。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub next_word_prediction: bool,
     /// 上屏后联想时候选栏右端的按键，见 [`NextWordPredictionButtons`]；默认即现有的只有展开键，不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "NextWordPredictionButtons::is_default")]
     pub next_word_prediction_buttons: NextWordPredictionButtons,
     #[serde(default)]
     pub custom_translation: CustomTranslationPreferences,
     /// 嵌入式模型离线翻译；显式开启后独立使用本地目标语言。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "crate::local_translation::LocalTranslationPreferences::is_default"
@@ -1846,6 +1922,7 @@ pub struct Preferences {
     pub local_translation: crate::local_translation::LocalTranslationPreferences,
     #[serde(default)]
     pub tencent_tmt: TencentTmtPreferences,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "crate::translation::aliyun::Preferences::is_default"
@@ -1881,9 +1958,11 @@ pub struct Preferences {
     #[serde(default)]
     pub global_theme: crate::theme::GlobalTheme,
     /// Android 键盘浅色皮肤选择：`theme:<id>` 或 `design:<本机设计库 id>`；缺省时沿用 `global_theme`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub android_keyboard_skin_light: Option<String>,
     /// Android 键盘深色皮肤选择；格式同浅色槽位，缺省时沿用 `global_theme`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub android_keyboard_skin_dark: Option<String>,
     #[serde(default)]
@@ -1958,24 +2037,29 @@ pub struct Preferences {
     #[serde(default)]
     pub touch_keyboard_split_portrait: bool,
     /// 鸿蒙大屏（平板、折叠屏内屏）横屏时把 26 键一族和韩文键盘分成左右两半，规则与 Android 的 `SplitKeyboardPolicy` 相同。Android 的主开关在它自己的本机设置 `platform.android.split_keyboard` 里，不读这个字段；iOS 用 App Group 里的开关。默认关且不写进文档，其他宿主原样保留。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_keyboard_split: bool,
     /// 鸿蒙分离键盘开始启用的最短屏幕边（vp），480–1000、步进 20，默认 600，与 Android 本机设置 `platform.android.split_keyboard_threshold` 同一范围。默认值不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_touch_keyboard_split_threshold",
         skip_serializing_if = "is_default_touch_keyboard_split_threshold"
     )]
     pub touch_keyboard_split_threshold: u16,
     /// 鸿蒙分离键盘中间空隙至少占整行的百分比，10–40、步进 5，默认 25，与 Android 本机设置 `platform.android.split_keyboard_gap` 同一范围。默认值不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_touch_keyboard_split_gap",
         skip_serializing_if = "is_default_touch_keyboard_split_gap"
     )]
     pub touch_keyboard_split_gap: u8,
     /// Android 和 iOS 双拼键盘的 26 / 14 键选择；默认 26 键，其他宿主保留该字段。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchShuangpinLayout::is_default")]
     pub touch_shuangpin_layout: TouchShuangpinLayout,
     /// Android、iOS 和鸿蒙五笔键盘的 26 / 14 键选择；默认 26 键且不写进文档，其他宿主保留该字段。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchWubiLayout::is_default")]
     pub touch_wubi_layout: TouchWubiLayout,
     /// 触屏键盘列出哪些方案、选中哪一个；桌面宿主原样保留、不使用。
@@ -2011,33 +2095,41 @@ pub struct Preferences {
     #[serde(default = "disabled_by_default")]
     pub touch_shuangpin_key_hints: bool,
     /// Android 日语九键连点同一键时循环假名；关闭后每次轻点都追加键面假名，四向滑动不变。默认开，保留旧文档的输入习惯；其他宿主原样保留。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub touch_japanese_toggle_input: bool,
     /// 触屏键盘的拼写写进输入框还是只画在候选栏；缺这个键的旧文档读作输入框。
     #[serde(default)]
     pub touch_spelling_position: TouchSpellingPosition,
     /// Android 的拼写编辑入口；默认保留已有的点击编辑行为，关闭后不为笔图标预留空行。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub touch_spelling_editor: bool,
     /// 全拼 26 键组字时第三排左端默认保留 ⇧，点一下再输字母即臂辅助码；关闭后改画「分词」（送 `'` 断音节）。九键、14 键和 18 键有自己的分词键，不受它影响。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub touch_quanpin_shift: bool,
     /// 手机触屏中文 26 键字母层（全拼、26 键双拼、五笔 26 键、粤拼等）底行的样式，见 [`TouchTwentySixKeyStyle`]；英文 26 键、iPad 全尺寸键盘和鸿蒙 2in1 不受它影响。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchTwentySixKeyStyle::is_default")]
     pub touch_twenty_six_key_style: TouchTwentySixKeyStyle,
     /// 手机触屏 14 键与 18 键字母层（全拼、双拼、五笔 14 键）底行的样式，见 [`TouchFourteenKeyStyle`]。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchFourteenKeyStyle::is_default")]
     pub touch_fourteen_key_style: TouchFourteenKeyStyle,
     /// 手机触屏 14 键与 18 键三排字母键的宽度分法，见 [`TouchFourteenKeyLetterWidths`]。默认即原来的等宽且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "TouchFourteenKeyLetterWidths::is_default"
     )]
     pub touch_fourteen_key_letter_widths: TouchFourteenKeyLetterWidths,
     /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）底行的样式，见 [`TouchNineKeyStyle`]；除右侧大回车样式外，左侧符号栏和右侧功能列不变。默认即现有底行且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchNineKeyStyle::is_default")]
     pub touch_nine_key_style: TouchNineKeyStyle,
     /// 手机触屏九键字母层（拼音九键、九键双拼、笔画）左侧符号栏的符号，按显示顺序排列，规则见 [`normalize_nine_key_sidebar_symbols`]。空表表示用各端自己的出厂表（三端都是 ， 。 ？；右侧大回车样式时各端在出厂表末尾接 ！，自定义表原样使用），所以等于出厂表时宿主写空表。Android 的 14 键左侧底轨也读这张表。接替 Android 本机设置 `platform.android.nine_key_symbols`。读入时逐项丢掉不合规的元素（见 `deserialize_nine_key_sidebar_symbols`），不是数组时照样报错。空表不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
@@ -2045,6 +2137,7 @@ pub struct Preferences {
     )]
     pub touch_nine_key_sidebar_symbols: Vec<String>,
     /// 手机触屏九宫格数字键盘（拼音九键、九键双拼、笔画的数字层，以及 26 键、14/18 键、手写等借来的数字九宫格）左侧符号栏的符号，规则与 [`Self::touch_nine_key_sidebar_symbols`] 相同。空表表示用各端自己的出厂表，三端的出厂表本来就不同（Android 14 项，iOS 和鸿蒙是 + - * /）；`#+=` 不属于这张表，各端留在原来的位置。接替 Android 本机设置 `platform.android.nine_key_digit_symbols`。空表不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
@@ -2052,21 +2145,27 @@ pub struct Preferences {
     )]
     pub touch_nine_key_digit_sidebar_symbols: Vec<String>,
     /// 手机触屏 26 键、14 键和 18 键字母层上方加一行 1 到 0（九键和手写不加）；窗口太矮（如手机横屏）时由宿主按自己的高度门槛不画，存着的值不变。接替 Android 本机设置 `platform.android.number_row`。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_number_row: bool,
     /// 手机触屏 26 键字母层底行把 符 排到 123 左边（符 | 123 |（🌐）| …），原来是 123 |（🌐）| 符 | …；只作用于底行里有 符 的样式（标准、逗号句号在空格两侧），长空格和表情键样式没有 符、不受影响，英文和其他语言的 26 键底行同样以 123 | 符 打头，一并互换。从这块键面借来的数字九宫格跟着把返回键排在 符 后面。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_twenty_six_symbol_first: bool,
     /// 手机触屏九宫格数字键盘里空格的位置，见 [`TouchNumberPadSpace`]。默认是各端原来的排法且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchNumberPadSpace::is_default")]
     pub touch_number_pad_space: TouchNumberPadSpace,
     /// 大屏单手模式时空出来的一侧放什么，见 [`TouchOneHandedSidePanel`]。默认空着且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchOneHandedSidePanel::is_default")]
     pub touch_one_handed_side_panel: TouchOneHandedSidePanel,
     /// 手机触屏底行的中/英键在空格哪一边，见 [`TouchLanguageKeySide`]。默认在右边且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchLanguageKeySide::is_default")]
     pub touch_language_key_side: TouchLanguageKeySide,
     /// 手机触屏拼音九键 1–9 键滑动输入数字的方向，见 [`TouchNineKeySwipeDigits`]。接替 Android 本机设置 `platform.android.nine_key_swipe`，由 Android 宿主一次性迁入（[`PreferencesStore::migrate_android_key_layout`]）；判定距离仍是 Android 本机设置。默认关且不写进文档。桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchNineKeySwipeDigits::is_default")]
     pub touch_nine_key_swipe_digits: TouchNineKeySwipeDigits,
     /// 仅 Android 使用，其他宿主原样保留。
@@ -2079,31 +2178,38 @@ pub struct Preferences {
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
     /// HarmonyOS 手机键盘空闲工具栏上的五个工具和显示方式。默认全开、不隐藏，就是没有这组设置时鸿蒙键盘的样子；等于默认值时不写进文档，没有这个键的旧版本照样能读。`touch_toolbar` 的缺省（剪贴板关、没有常用语和输入方式）与鸿蒙工具栏对不上，所以另起一组。其他宿主不读它，设置页只在宿主报告 `touch_toolbar_tools` 时给出这组开关。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "HarmonyToolbarPreferences::is_default")]
     pub harmony_toolbar: HarmonyToolbarPreferences,
     /// 当前方案是日文、韩文、越南文或藏文时保留，记住要回到的中文方案。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
     /// `shuangpin_profile` 为 `custom` 时用的键位表。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_shuangpin_custom_profile`）；表缺失或不合法时宿主按小鹤运行。选别的方案时保留，切回 `custom` 还能用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub shuangpin_custom_profile: ShuangpinCustomProfile,
     /// 九键双拼（`touch_keyboard_layout` 为 `nine_key_shuangpin`）用哪张表。等于默认值时不写进文件，没用过九键双拼的文档与以前的版本相同。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "NineKeyShuangpinProfile::is_default")]
     pub nine_key_shuangpin_profile: NineKeyShuangpinProfile,
     /// `nine_key_shuangpin_profile` 为 `custom` 时用的表，形状与 `shuangpin_custom_profile` 相同，键是数字：`initials` 放 23 个声母，`finals` 放 33 个韵母，各一个数字；`zero_initials` 放 12 个零声母音节，各两位数字。这里只限制大小，合不合法由 Engine 判定（`msime_engine::validate_nine_key_shuangpin_table`）；表缺失或不合法时宿主按默认的内置方案运行。选别的方案时保留，空表不写进文件。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "ShuangpinCustomProfile::is_empty")]
     pub nine_key_shuangpin_custom_profile: ShuangpinCustomProfile,
     /// 「双拼预编辑」：真时预编辑画原始按键，假时画展开的全拼分词（自然码 `nimf` 画成 `ni'men`）。
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
     /// 「双拼预编辑」的第三档「双拼分隔」：`shuangpin_preedit_uses_raw` 为真时按音节在原始按键之间插 `'`（`nimf` 画成 `ni'mf`）；为假（拼音分词）时不读。单独成一个键而不是把上面那个布尔改成三选一：已经发出去的各端都按布尔读 `shuangpin_preedit_uses_raw`（macOS 账号同步的校验还要求它是布尔、键数固定），没有这个键的旧版本照样读得了新文档，读到的就是保留原始按键。等于默认值（关）时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub shuangpin_preedit_separated: bool,
     /// 「输入时显示双拼键位提示」：双拼组字时在候选窗旁显示当前方案的键位图，高亮刚按下的键，上屏后隐藏。macOS 和 Windows 画它。
     ///
     /// 没写过时为 `None`，不写进文档：这个开关以前只存在 macOS 本机的 defaults 里（`MSIMEClientShuangpinKeymap`），macOS 在文档从没带过这一项时仍读那里的旧选择，再由下一次保存写进文档；文档带着这一项载入过一次之后 macOS 删掉那个旧键，此后缺这一项在所有宿主上都是关。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shuangpin_keymap_hint: Option<bool>,
     /// The Vietnamese input method and tone placement.
@@ -2113,12 +2219,14 @@ pub struct Preferences {
     #[serde(default)]
     pub korean: KoreanPreferences,
     /// 桌面宿主的粤拼解释方式（普通粤拼或粤语双拼）。等于默认值时不写进文档，没动过这一项的文档与以前的版本相同。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "CantonesePreferences::is_default")]
     pub cantonese: CantonesePreferences,
     /// 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字，选一个字后剩下的拼写接着组字。默认关闭。
     #[serde(default)]
     pub single_character_only: bool,
     /// 移动光标后编辑光标后的部分（桌面宿主）：全拼、双拼的组字光标停在中间时，光标前的原文固定为当前的最佳转换，候选改为光标后那段的候选，首选是整句。默认关；关着时不写进文档，没有这个键的旧文档和旧版本都读作关。手机宿主不读它（host-api 只在桌面交给 Engine）。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub caret_edit_suffix: bool,
     pub candidate_page_size: u8,
@@ -2139,6 +2247,7 @@ pub struct Preferences {
     #[serde(default = "default_candidate_preedit_font_size")]
     pub candidate_preedit_font_size: u8,
     /// 候选译文字号，12–32 点；缺省使用宿主的 12pt 默认值，目前由 macOS 消费。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_translation_font_size: Option<u8>,
     /// Overall size of the floating candidate window, 50-200 percent. The host multiplies `candidate_font_size` and every piece of window geometry (paddings, row heights, header, arrows, insets, shadow) by it.
@@ -2148,45 +2257,57 @@ pub struct Preferences {
     #[serde(default = "default_candidate_opacity_percent")]
     pub candidate_opacity_percent: u8,
     /// Corner radius of the candidate card in points (DIP on Windows), 0-32. It wins over the skin package's `corner_radius_dip`, which wins over the host's own constant; absent means the host or skin decides. Row and selection radii become the smaller of the host's row radius and this.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_corner_radius: Option<u8>,
     /// 候选卡片边缘到候选的距离，单位为点（Windows 上为 DIP），0–16，在 `candidate_scale_percent` 缩放之前生效。它优先于皮肤包的内边距和宿主自己的常量（macOS 为 4pt）；缺省时由宿主或皮肤决定。宿主可以保留一个很小的下限，让选中高亮不压住卡片边框（macOS 至少留出边框的宽度）。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_padding: Option<u8>,
     /// 窗口水平内边距，0–16pt；缺省时沿用 `candidate_padding`，再跟随皮肤与宿主。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_padding_horizontal: Option<u8>,
     /// 窗口垂直内边距，0–16pt；缺省时沿用 `candidate_padding`，再跟随皮肤与宿主。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_padding_vertical: Option<u8>,
     /// 候选项左右各自的内边距，0–16pt；缺省时保留皮肤与宿主的留白。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_padding_horizontal: Option<u8>,
     /// 候选项上下各自的内边距，0–16pt；缺省时保留皮肤与宿主的行高规则。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_padding_vertical: Option<u8>,
     /// 选中与悬停背景的独立圆角，0–32pt；缺省时保留原有圆角推导。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_corner_radius: Option<u8>,
     /// 相邻候选项之间的间距，0–16pt；横排为列距，竖排为行距。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_item_spacing: Option<u8>,
     /// 候选窗口严格按文字所需的宽度收紧，不垫出厂最小宽度（Windows `appearance.candidate_window_fit_content`，出厂关）。与皮肤包 `skin.toml` 的 `fit_content` 是或关系：任一为真即收紧。默认关，关着时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub candidate_window_fit_content: bool,
     #[serde(default = "default_candidate_font_family")]
     pub candidate_font_family: String,
     /// Optional leading face for the Windows candidate glyph fallback chain.
     /// The host supplies its default; absent values preserve other hosts.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_english_font: Option<String>,
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
     /// 桌面候选窗文字的字重（#10748），作用于主字体、英文字体和回退字体画的全部候选窗文字；预编辑行至少半粗，见 [`CandidateFontWeight::preedit_value`]。字体族没有这一档字面时由宿主按就近的字面画。macOS、Windows 和 Linux 的候选窗读它，移动端键盘不读。默认常规，等于这个字段出现之前的画法，默认时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_default_candidate_font_weight")]
     pub candidate_font_weight: CandidateFontWeight,
     pub learning: bool,
     /// 回车上屏英文时把该英文单词写入英文词库，之后可作为候选出现（Windows `input.enter_learns_english_word`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `true`，所以等于出厂值时文档里不写这个键，没有它的旧版本照样按开启读；关掉后回车照常上屏，只是不学词。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub enter_learns_english_word: bool,
     #[serde(default)]
@@ -2201,18 +2322,23 @@ pub struct Preferences {
     #[serde(default)]
     pub traditional_chinese_output: bool,
     /// 繁体输出用哪套 OpenCC 配置（`s2t`、`s2tw`、`s2twp`），只在 `traditional_chinese_output` 打开时起作用；宿主转换时把它交给 `msime_client_convert_to_traditional`。默认 `s2t`，默认时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_default_traditional_variant")]
     pub traditional_chinese_variant: TraditionalVariant,
     /// 粤拼和粤语双拼输出简体：词库是繁体，打开后 Engine 在出候选时做繁转简（`chinese_conversion::cantonese_to_simplified`，嗰、喎等粤语用字保留）。与 `traditional_chinese_output` 互不影响，宿主在粤拼下的简繁按钮切换的是它。默认关，即粤拼照旧输出繁体；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub cantonese_simplified_output: bool,
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub chinese_english_spacing: bool,
     /// 跨次上屏的中英文边界补空格，独立于单次上屏内的空格开关，默认关。宿主必须提供光标前的真实字符；目前仅 macOS 接入。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub cross_commit_spacing: bool,
     /// 跨次空格的应用排除名单，macOS 使用 Bundle ID；写代码、网址或邮箱的应用可在这里保留原样。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cross_commit_spacing_excluded_apps: Vec<String>,
     pub chinese_punctuation: bool,
@@ -2239,6 +2365,7 @@ pub struct Preferences {
     #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_direct_letter: bool,
     /// 内部标记，不是设置：这份文档已经按「智能标点默认开」定过一次。macOS 和 Windows 以前默认关，旧文档把那个 `false` 明明白白存了下来，分不出「从没动过」和「自己关掉」，所以读到没有这个标记的文档时，在这两个平台上把智能标点、重复标点转中文和两种直出一次性打开，再标上它（`Preferences::settle_smart_punctuation_default`）；之后用户关掉就一直关着。新文档从一开始就带着它（`Default` 为真），缺键时按假读，也就是「这是旧文档」。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub smart_punctuation_migrated: bool,
     #[serde(default = "enabled_by_default")]
@@ -2249,15 +2376,19 @@ pub struct Preferences {
     #[serde(default)]
     pub caps_lock_ascii_punctuation: bool,
     /// 中文标点下引号键的样式（W#474、W#54）。等于默认值（弯引号）时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "QuoteStyle::is_default")]
     pub quote_style: QuoteStyle,
     /// 中文标点下方头括号键的样式（W#24）。等于默认值（实心）时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "BracketStyle::is_default")]
     pub bracket_style: BracketStyle,
     /// 顿号自定义：中文标点下 `\` 键输出顿号「、」（Windows v0.11.1 `input.enumeration_comma_backslash`）。默认开，等于默认值时不写进文档。两个顿号键都关掉时按「`\` 开」读，归一在 `crate::punctuation::punctuation_marks`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub enumeration_comma_backslash: bool,
     /// 顿号自定义：中文标点下 `/` 键输出顿号「、」。默认关：新架构的 `/` 在词首是命令模式触发键，现有用户的 `/` 从来不出顿号，和 Windows 升级用户（旧配置没有这个键时并成 `false`）一致；打开后词首仍打开命令模式，其余位置出顿号。等于默认值时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub enumeration_comma_slash: bool,
     #[serde(default)]
@@ -2267,21 +2398,25 @@ pub struct Preferences {
     #[serde(default)]
     pub word_character: WordCharacterPreferences,
     /// 用两个专用键直接选当前页的第二、第三个候选。等于默认值（关闭）时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "SecondThirdCandidatePreferences::is_default"
     )]
     pub second_third_candidate: SecondThirdCandidatePreferences,
     /// 五笔普通组字的二三候选字符，候选不足时保留原标点行为。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "WubiCandidateSelectionPreferences::is_default"
     )]
     pub wubi_candidate_selection: WubiCandidateSelectionPreferences,
     /// 普通退格在剩余拼写即将删空时，是否撤回最近一次选词；默认保持原行为。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub backspace_reverts_selection: bool,
     /// 造词时按 Esc 只丢掉还没选的拼写、保留已经选好的词，再按一次才整体取消（Windows `input.escape_keeps_selected_word` 的语义，即小狼毫的 `ClearNonConfirmedComposition`）。Windows 正式版 `installer/default_config/config.default.toml` 出厂为 `false`，关着时 Esc 连已选词一起丢掉，与旧行为一致；关着时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub escape_keeps_selected_word: bool,
     #[serde(default)]
@@ -2289,6 +2424,7 @@ pub struct Preferences {
     #[serde(default)]
     pub mixed_input: MixedInputPreferences,
     /// 连续多语言输入的语言集合；默认关闭，只有至少两种不同语言时才交给 Engine。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "MultilingualInputPreferences::is_default"
@@ -2297,9 +2433,11 @@ pub struct Preferences {
     #[serde(default)]
     pub local_modes: LocalModePreferences,
     /// Sound packs, background music, achievements and the enabled command tables. Left out of the document while every part is at its default, so a build from before plugins still reads a document that never touched them; the packs themselves and the @ name list live under the plugins directory, not here.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "PluginPreferences::is_default")]
     pub plugins: PluginPreferences,
     /// Windows 游戏里由水杉显示候选窗的开关和进程表，只有 Windows 的 TSF DLL 读取。等于默认值时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "GameCompatibilityPreferences::is_default"
@@ -2311,18 +2449,21 @@ pub struct Preferences {
     #[serde(default = "default_clipboard_history_limit")]
     pub clipboard_history_limit: usize,
     /// 云剪贴板改走用户自建的中继（协议见 `docs/cloud-clipboard-relay.md`）：地址为空表示不用中继，走水杉账号。配置了中继时云剪贴板只经中继，不再碰账号。令牌和语音、翻译服务的凭据一样明文存在这份文档里，列在 [`Preferences::credential_slots`]，不进设置文件导出（`settings_document::LOCAL_SECTIONS`）和账号设置同步。没配置时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "CloudClipboardRelayPreferences::is_default"
     )]
     pub cloud_clipboard_relay: CloudClipboardRelayPreferences,
     /// 云剪贴板存到用户的 WebDAV 网盘（`docs/cloud-clipboard-webdav.md`）：地址为空表示不用。与 [`Self::cloud_clipboard_relay`] 只能二选一；配置了就只走网盘，不再碰账号。应用密码和中继令牌一样明文存在这份文档里、列在 [`Preferences::credential_slots`]，账号在诊断快照里也换成 [`REDACTED`]；整组不进设置文件导出和账号设置同步，没配置时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "CloudClipboardWebDavPreferences::is_default"
     )]
     pub cloud_clipboard_webdav: CloudClipboardWebDavPreferences,
     /// 「我的词条」同步到用户的 WebDAV 网盘（`docs/dictionary-webdav-sync.md`）：地址为空表示不同步。与云剪贴板的网盘各配各的，可以是同一个网盘账号，也可以不是。应用密码列在 [`Preferences::credential_slots`]，账号在诊断快照里换成 [`REDACTED`]；整组不进设置文件导出、账号设置同步和 MCP，没配置时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "DictionarySyncWebDavPreferences::is_default"
@@ -2335,6 +2476,7 @@ pub struct Preferences {
     #[serde(default)]
     pub cloud_candidate_provider: crate::cloud::candidates::CloudCandidatePreferences,
     /// 用户内容请求（云候选、翻译、AI、语音、账号、更新检查、词库与模型下载）走哪个代理。默认值与 Windows 正式版的 `network.proxy_mode` / `network.proxy_server` 相同：跟随系统，不填服务器。`custom` 但服务器留空时按 `system` 处理。等于默认值时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "crate::network::NetworkPreferences::is_default"
@@ -2383,6 +2525,7 @@ pub struct Preferences {
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
     /// Optional second language for mobile candidate glosses. `None` shows a single language and is omitted from serialized snapshots.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
     /// 候选翻译服务选的是水杉账号时为真，候选词会发到 `https://api.msime.app/v1/translate`。新装和缺字段时都是关闭，必须由用户显式选择。
@@ -2392,15 +2535,18 @@ pub struct Preferences {
     #[serde(default)]
     pub translation_ai: bool,
     /// 内部标记，不是设置：这份文档已经按「AI 辅助翻译要显式选择」定过一次。Android 和 iOS 以前不读 `translation_ai`，AI 联想开着、又没选别的翻译服务时就用 AI 翻译候选；现在各端都只认 `translation_ai`，所以读到没有这个标记的文档时，在这两个平台上把当时实际在用 AI 翻译的情形一次性写成显式选择，再标上它（`Preferences::settle_translation_ai_selection`）；之后用户改选别的服务也不会再被改回来。新文档从一开始就带着它（`Default` 为真），缺键时按假读。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub translation_ai_migrated: bool,
     /// 内部标记，不是设置：这份文档已经按「整句联想默认『增强』」定过一次。`sentence_association.neural_keyboard` 以前默认关，每个字段都序列化，旧文档里的 `false` 分不出「从没动过」和「自己选了『标准』」，所以读到没有这个标记的文档时，词网格开着就把它一次性打开，再标上它（`Preferences::settle_keyboard_reranker_default`）；词网格关着是用户选了「关闭」，不动。之后用户选回「标准」就一直是「标准」。新文档从一开始就带着它（`Default` 为真），缺键时按假读。保存时只会从假变真（`PreferencesStore::save`），恢复默认设置和导入设置文件都不会把它清掉。不在任何设置页上显示。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub keyboard_reranker_migrated: bool,
     /// 向 `https://api.msime.app/v1/telemetry/events` 发送匿名使用报告（每日活跃、会话结束、崩溃摘要；见 `telemetry` 和 PRIVACY.md）。默认开启；关闭后停止全部上报并清空本地队列。读取方把缺失的键当作开启。
     #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
     /// 只属于本机的持续同意历史，由存储在开关保存时维护；提交方不能指定，损坏时不追认旧历史。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -2408,10 +2554,12 @@ pub struct Preferences {
     )]
     pub usage_reporting_consent: Option<UsageReportingConsent>,
     /// 桌面应用检查更新跟哪个发布通道，见 [`UpdateChannel`]。只属于本机：不随设置文件走（`settings_document::LOCAL_SECTIONS`），也不进账号同步。等于稳定版时不写进文档，没有这个键的旧文档按稳定版读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "UpdateChannel::is_default")]
     pub update_channel: UpdateChannel,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceInputPreferences {
     /// macOS 允许现有语音键在其他输入法下触发；缺省关闭，不改变既有输入手感。
@@ -2517,18 +2665,21 @@ pub struct VoiceInputPreferences {
     #[serde(default)]
     pub doubao_boosting_table_id: String,
     /// 点按开始的本地识别出字后停顿多久结束录音（毫秒），500–5000、步进 100，默认 1500，与 Android 本机设置 `platform.android.voice_pause_millis` 同一范围。鸿蒙和 iOS 读它；Android 的这一项在它自己的本机设置里，不读这个字段。`voice_input` 整组不进设置文件导出，账号同步也不导出这一项，所以只留在本机。默认值不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_voice_pause_millis",
         skip_serializing_if = "is_default_voice_pause_millis"
     )]
     pub pause_millis: u16,
     /// 判停灵敏度，10–90、默认 50：越高越容易判定说完、结束录音。只作用于按停顿结束的本地整段模型，宿主把它换成 Silero VAD 的判定阈值（灵敏度 ÷ 100，默认正是原来的 0.5）。与 `pause_millis` 一样只留在本机，默认值不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_voice_stop_sensitivity",
         skip_serializing_if = "is_default_voice_stop_sensitivity"
     )]
     pub stop_sensitivity: u8,
     /// 语音标点：识别结果上屏前怎么处理标点，`auto`（原样，出厂默认）、`omit_trailing`（去掉句末标点）、`omit_all`（去掉所有标点）、`space`（标点换成空格）。对所有识别服务和润色后的文本都生效，规则在 `msime_client_providers::voice::punctuation`，宿主上屏前经 `msime_client_voice_punctuation` 调用。读的时候不认识的值按 `auto` 处理，所以这里不校验取值，更新版本写下的新选项不会让旧版本读不了偏好。与 `doubao_enable_punc` 无关：那一项只决定豆包请求时要不要标点。默认值不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_voice_punctuation_mode",
         skip_serializing_if = "is_default_voice_punctuation_mode"
@@ -2624,6 +2775,7 @@ impl Default for VoiceInputPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiAssistantPreferences {
     #[serde(default = "source_ai_default")]
@@ -2660,6 +2812,7 @@ pub struct AiAssistantPreferences {
     pub prompt_custom_3: String,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct CustomTranslationPreferences {
     #[serde(default)]
@@ -2670,6 +2823,7 @@ pub struct CustomTranslationPreferences {
     pub api_key: String,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TencentTmtPreferences {
@@ -2679,6 +2833,7 @@ pub struct TencentTmtPreferences {
     pub region: String,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct NiuTransPreferences {
@@ -2741,6 +2896,7 @@ impl Default for AiAssistantPreferences {
 /// Diagnostic logging, off unless a user turns it on while reproducing a
 /// problem. The two hosts log separately because they are separate processes.
 /// Neither records keystrokes, input text or candidates.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DiagnosticLogPreferences {
@@ -2754,6 +2910,7 @@ pub struct DiagnosticLogPreferences {
 }
 
 /// Windows 游戏兼容：游戏声明自己画候选却不画时，由水杉的候选窗显示。DLL 在每次激活时读取，对已打开的游戏要重新激活输入法才生效。各项都等于默认值时不写进文档，没有这个键的旧版本照样能读。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GameCompatibilityPreferences {
@@ -2815,6 +2972,7 @@ fn valid_process_name(name: &str) -> bool {
         && name.as_bytes()[name.len() - 4..].eq_ignore_ascii_case(b".exe")
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FloatingToolbarPreferences {
     #[serde(default = "enabled_by_default")]
@@ -2882,6 +3040,7 @@ fn default_toolbar_auto_hide_delay() -> u16 {
 }
 
 /// 触屏工具栏的可选按钮；撤销和重做目前由 Android 宿主提供，其余宿主只保留设置。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TouchToolbarPreferences {
@@ -2916,6 +3075,7 @@ impl Default for TouchToolbarPreferences {
 }
 
 /// HarmonyOS 手机键盘空闲工具栏的工具开关和显示方式，缺哪个字段就取默认值。标志键和收起键固定在两端，不在这里。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct HarmonyToolbarPreferences {
@@ -2970,6 +3130,7 @@ impl Default for FloatingToolbarPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
@@ -2979,6 +3140,7 @@ pub enum ThemeMode {
     System,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingsTheme {
@@ -2988,6 +3150,7 @@ pub enum SettingsTheme {
     Light,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateLayout {
@@ -2996,6 +3159,7 @@ pub enum CandidateLayout {
     Vertical,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateCountMode {
@@ -3013,6 +3177,7 @@ fn default_candidate_columns() -> u8 {
 }
 
 /// 候选窗文字的字重。只有这四档：中文字体的字面大多落在这几档之间，更细或更轻的档位多数字体没有，选了也只会落到同一个字面上；斜体不提供，汉字没有真斜体，系统只能把字形硬倾斜。宿主各抄了一份字重表（macOS、Windows、Linux），scripts/test-candidate-font-weight-parity.py 核对它们的取值、数值和预编辑下限与这里一致。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateFontWeight {
@@ -3049,6 +3214,7 @@ fn is_default_candidate_font_weight(value: &CandidateFontWeight) -> bool {
     *value == CandidateFontWeight::default()
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidatePreeditStyle {
@@ -3057,6 +3223,7 @@ pub enum CandidatePreeditStyle {
     Empty,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PreeditStyle {
@@ -3066,15 +3233,18 @@ pub enum PreeditStyle {
     Empty,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalModePreferences {
     pub unicode: bool,
     /// Shift+T 日期时间快捷输入模式（Windows `utility.date_time_mode`，出厂开）。行内日期时间混入普通候选由 `date_time_inline` 单独开关。
     pub date_time: bool,
     /// 日期时间混进普通候选（对应 Windows `utility.date_time_candidates`）：全拼输入 `riqi`、`sj`、`xq`、`nongli` 时把当前日期、时间、星期或农历接在对应的词后面。与 `date_time`（T 模式）是两个独立开关；缺这个键的旧文档读作开——此前行内混入由 `date_time` 一并控制且默认开，保持同样的有效行为，开着时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub date_time_inline: bool,
     /// 日期时间混进普通候选时，第三位放一个「📅日期」入口，选中后候选窗换成这一组的全部格式（Windows `utility.date_time_menu`，出厂开）。依附 `date_time_inline`；缺这个键的旧文档读作开。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub date_time_menu: bool,
     pub quick_phrase: bool,
@@ -3082,6 +3252,7 @@ pub struct LocalModePreferences {
     pub kaomoji: bool,
     pub super_jianpin: bool,
     /// 双拼组字末尾按 `/` 把整段原文改成超级简拼（#10860）。依附 `super_jianpin`，不受 `shift_letter_entry` 管；`/` 已经是万象式辅助码结束键、辅助码前导键或顿号键时不生效（`crate::jianpin_slash::super_jianpin_slash_conflict`）。出厂开，缺这个键的旧文档读作开，开着时不写进文档：https://github.com/metasequoiaime/msime/issues/10860#issuecomment-6650508273 授权按最佳体验定。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub super_jianpin_slash: bool,
     pub temporary_english: bool,
@@ -3099,9 +3270,11 @@ pub struct LocalModePreferences {
     #[serde(default)]
     pub mention_places: bool,
     /// 拆字反查（`C`）：没有组字时 Shift+C，再输入字的各个部件的拼音找字。`None` 表示用户没动过开关，由宿主形态决定：触屏宿主（iOS、Android、HarmonyOS）读作开，屏幕键盘从菜单进入；桌面宿主读作关，因为打开后句首和中英混打的大写 C（C盘、C语言）会进入模式。Android 和 HarmonyOS 接实体键盘（含鸿蒙电脑）时 Shift+C 同样会进入模式，桌面的这个问题在那里仍然存在，而且这两个宿主不提供「Shift+字母」总开关，用户只能整项关掉拆字。只有用户动过开关时文档里才有这个键，缺键的文档读作 `None`，旧版本也只在这种情况下因 `deny_unknown_fields` 读不懂文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chaizi: Option<bool>,
     /// 符号模式（`S`）：没有组字时 Shift+S，再输入分组码（`xl` 希腊字母、`sx` 数学、`szq` 带圈数字、`jt` 箭头）或符号名（`alpha`、`infinity`）。默认开，与 Windows 正式版的出厂配置一致；缺这个键的旧文档读作开。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbol: bool,
     /// 「Shift+字母进入快捷模式」总开关：关掉后没有组字时 Shift+U/T/K/E/M/J/Y/R/V/C/S 不进入快捷模式，照常打出大写字母，上面各模式自己的开关保留原值。默认开，和以前的行为一样；缺这个键的旧文档读作开。
@@ -3135,6 +3308,7 @@ impl Default for LocalModePreferences {
 }
 
 /// 宿主在按键和上屏时绘制的打字特效。这是封闭集合：每种样式都内置在宿主里，特效包（`PluginKind::Effect`）只能从中选一种并在 `effect_pack` 的范围内调整参数，任何包都不能自带新样式。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectStyle {
@@ -3161,6 +3335,7 @@ impl EffectStyle {
 }
 
 /// What the plugin packs do: which pack sounds and how loud, and which command tables the `/` mode reads. Everything is off in a fresh profile. Pack ids name a built-in pack or one installed under the plugins directory; a host that cannot find the named pack stays silent rather than falling back to another.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PluginPreferences {
@@ -3176,6 +3351,7 @@ pub struct PluginPreferences {
     /// 0-100: how large and how long the effect is drawn. Only the host reads it.
     pub effect_intensity: u8,
     /// An installed effect pack whose style and parameters replace `effect_style` and `effect_intensity`; empty for none, which leaves those two in force. A selected pack that cannot be loaded draws no effect rather than falling back (`plugins::effect_pack::TypingEffect::resolve`). Left out of the document while empty, so a build from before effect packs still reads a document that never selected one.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "String::is_empty")]
     pub effect_pack: String,
     /// Count consecutive keys and show the count; a pause of `plugins::COMBO_IDLE_RESET_MILLIS` or a backspace starts it again.
@@ -3183,15 +3359,19 @@ pub struct PluginPreferences {
     /// Play the key sound pack's commit sample, pitched up, when the count reaches one of `plugins::COMBO_MILESTONES`.
     pub combo_tier_sound: bool,
     /// K 模式读取的已安装短语表包，按优先级排列，最多 `MAX_PHRASE_TABLES` 个。为空时不写进文档，没有这个键的旧版本照样能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub phrase_tables: Vec<String>,
     /// 设置页插件列表的展示顺序。条目是 `kind/id`，只影响列表，不参与任何插件运行顺序。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub plugin_order: Vec<String>,
     /// 全拼方案选用的已安装辅助码表包；为空表示沿用 `quanpin_helpcode.schema`；包载入失败时也回退到那个方案。为空时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "String::is_empty")]
     pub helpcode_pack_quanpin: String,
     /// 双拼方案选用的已安装辅助码表包，规则同 `helpcode_pack_quanpin`。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(skip_serializing_if = "String::is_empty")]
     pub helpcode_pack_shuangpin: String,
 }
@@ -3260,6 +3440,7 @@ impl PluginPreferences {
 }
 
 /// What a key sounds like.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KeySoundMode {
@@ -3275,6 +3456,7 @@ pub const DEFAULT_SOUND_PACK: &str = "default";
 /// 全新配置默认选中的旋律包。
 pub const DEFAULT_MELODY_PACK: &str = "twinkle";
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KeySoundPreferences {
@@ -3298,6 +3480,7 @@ impl Default for KeySoundPreferences {
 }
 
 /// A sound when text is committed, from the key sound pack's `commit` sample. Independent of the key sound switch.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CommitSoundPreferences {
@@ -3305,6 +3488,7 @@ pub struct CommitSoundPreferences {
 }
 
 /// The sequence pack a key plays a note of when `key_sound.mode` is `melody`.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MelodyPreferences {
@@ -3320,6 +3504,7 @@ impl Default for MelodyPreferences {
 }
 
 /// Background music, streamed from an installed music pack while the input method is active. Off, and with no pack chosen, until the user picks one.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MusicPreferences {
@@ -3340,6 +3525,7 @@ impl Default for MusicPreferences {
 }
 
 /// A short jingle, the key sound pack's `achievement` sample, when the commit count passes one of `plugins::ACHIEVEMENT_MILESTONES`.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AchievementPreferences {
@@ -3350,6 +3536,7 @@ pub struct AchievementPreferences {
 pub const DEFAULT_MIXED_INPUT_MINIMUM_PREFIX: u8 = 5;
 
 /// 连续多语言解码支持的语言；不依赖 Engine 或宿主的输入方案枚举。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MultilingualLanguage {
@@ -3359,6 +3546,7 @@ pub enum MultilingualLanguage {
 }
 
 /// 连续多语言输入的共享偏好。默认关闭，避免未完成接线的宿主改变行为。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MultilingualInputPreferences {
@@ -3403,14 +3591,17 @@ impl MultilingualInputPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MixedInputPreferences {
     /// 候选混输总开关（Windows `utility.mixed_candidates`）：关掉后英文、emoji、颜文字、符号、日文、快捷短语和行内日期时间都不再混进普通候选，各分开关的原值保留。后加的成员，开着时不写进文档，旧版本和没有这个键的文档都按开处理。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub enabled: bool,
     pub english: bool,
     pub minimum_prefix: u8,
     /// 中文状态下首页最多展示几个英文候选（Windows `general.cn_en_mixed_input_first_page_count`，1–3）：第一行英文进优先位置之后，其余英文紧跟它继续占首页的空位，放不下的照旧接在列表末尾。后加的成员，为 1 时不写进文档，旧版本和没有这个键的文档都按 1 处理。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_first_page_count",
         skip_serializing_if = "is_default_first_page_count"
@@ -3419,15 +3610,19 @@ pub struct MixedInputPreferences {
     pub emoji: bool,
     pub kaomoji: bool,
     /// 实验选项：全拼、双拼里给整段罗马字补一个日文转换候选（ohayou → おはよう）。后加的成员，缺省为关；关着时不写进文档，旧版本和只写前四项的宿主都还能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub japanese: bool,
     /// 打拼音出符号：全拼、双拼整段打出符号的名称时（`zhengfu`、`pingfangmi`），在候选里接着那个词给出符号（± ㎡）。后加的成员，所有宿主默认开；缺这个键的旧文档读作开，只有用户关掉时才写进文档（`"symbols": false`），开着时文档逐字节不变，旧版本和只写前四项的宿主都还能读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
     /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase: bool,
     /// 快捷短语参与调频（Windows `utility.quick_phrase_frequency`，出厂开）：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。默认开，与 Windows 出厂一致；只在混输打开时起作用，缺这个键的旧文档读作开。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase_frequency: bool,
 }
@@ -3460,6 +3655,7 @@ fn is_default_first_page_count(value: &u8) -> bool {
     *value == DEFAULT_MIXED_INPUT_FIRST_PAGE_COUNT
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FrequencyMode {
@@ -3483,6 +3679,7 @@ impl FrequencyMode {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrequencyPreferences {
     pub mode: FrequencyMode,
@@ -3500,6 +3697,7 @@ impl Default for FrequencyPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum WordCharacterKeys {
@@ -3508,6 +3706,7 @@ pub enum WordCharacterKeys {
     MinusEqual,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WordCharacterPreferences {
     pub enabled: bool,
@@ -3524,6 +3723,7 @@ impl Default for WordCharacterPreferences {
 }
 
 /// 选第二、第三个候选的那一对键。目前只有分号和单引号一种；留成枚举，是为了以后加左右 Shift 之类的键位时不必改文档格式。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SecondThirdCandidateKeys {
@@ -3533,6 +3733,7 @@ pub enum SecondThirdCandidateKeys {
 }
 
 /// 缺哪个字段就取默认值，宿主的设置页只写 `enabled` 也能读。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SecondThirdCandidatePreferences {
@@ -3562,6 +3763,7 @@ impl SecondThirdCandidatePreferences {
 }
 
 /// 五笔二三候选只占用两个不同的 ASCII 标点，不改变字母组码和数字选词。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WubiCandidateSelectionPreferences {
@@ -3654,6 +3856,7 @@ pub fn parse_relay_url(url: &str) -> Option<url::Url> {
 }
 
 /// 自建的云剪贴板中继：基地址和中继管理员发的令牌，两项要么都空（不用中继），要么都合规。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CloudClipboardRelayPreferences {
@@ -3679,6 +3882,7 @@ impl CloudClipboardRelayPreferences {
 }
 
 /// 存放云剪贴板的 WebDAV 网盘：用户选的文件夹地址、网盘账号和应用密码，三项要么都空（不用），要么都合规。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CloudClipboardWebDavPreferences {
@@ -3709,6 +3913,7 @@ impl CloudClipboardWebDavPreferences {
 }
 
 /// 存放「我的词条」的 WebDAV 网盘：用户选的文件夹地址、网盘账号和应用密码，三项要么都空（不同步），要么都合规。规则与 [`CloudClipboardWebDavPreferences`] 相同，客户端在文件夹下自己建 `msime-dictionary/`。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DictionarySyncWebDavPreferences {
@@ -3738,6 +3943,7 @@ impl DictionarySyncWebDavPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NavigationPreferences {
     pub minus_equal: bool,
@@ -3745,6 +3951,7 @@ pub struct NavigationPreferences {
     pub brackets: bool,
     pub tab: bool,
     pub page_up_down: bool,
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub mouse_wheel: bool,
     #[serde(alias = "candidate_arrow_navigation")]
@@ -3771,6 +3978,7 @@ impl Default for NavigationPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeybindingPreferences {
     #[serde(default = "enabled_by_default")]
@@ -3800,27 +4008,32 @@ pub struct KeybindingPreferences {
     #[serde(default)]
     pub trilingual_cycle: bool,
     /// 中英切换（英文候选模式）热键，写法见 [`crate::key_chord::KeyChord`]；空串表示不绑定。键名沿用旧版 Windows 的 `keybindings.toggle_english_candidates`，出厂值 `Ctrl+Shift+KeyE` 不写进文档，没有这个键的旧文档照出厂值读。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_toggle_english_candidates",
         skip_serializing_if = "is_default_toggle_english_candidates"
     )]
     pub toggle_english_candidates: String,
     /// 全角 / 半角切换热键（旧版 `keybindings.toggle_full_width`），出厂值 `Ctrl+Shift+Space`；空串表示不绑定。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_toggle_full_width",
         skip_serializing_if = "is_default_toggle_full_width"
     )]
     pub toggle_full_width: String,
     /// 中英文标点切换热键（旧版 `keybindings.toggle_punctuation`），出厂值 `Ctrl+Period`；空串表示不绑定。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(
         default = "default_toggle_punctuation",
         skip_serializing_if = "is_default_toggle_punctuation"
     )]
     pub toggle_punctuation: String,
     /// 额外的语音开始／结束热键；空串表示不绑定，不改变既有固定语音快捷键。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub toggle_voice_input: String,
     /// macOS 额外的快捷短语入口；缺省不绑定，保留 Shift+K。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub enter_quick_phrase: String,
 }
@@ -4705,6 +4918,7 @@ impl Default for Preferences {
 }
 
 /// Stable fuzzy-pinyin rule identifiers and bit assignments shared with the Engine and Apple host.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum FuzzyPinyinRule {
     #[serde(rename = "z-zh")]
@@ -4761,6 +4975,7 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct FuzzyPinyinPreferences {
     #[serde(default)]
@@ -4770,6 +4985,7 @@ pub struct FuzzyPinyinPreferences {
     pub rules: BTreeSet<FuzzyPinyinRule>,
     /// Internal marker used to distinguish first enable from an intentionally
     /// empty rule selection. It is persisted but never rendered by the UI.
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub seeded: bool,
 }
@@ -4784,6 +5000,7 @@ impl FuzzyPinyinPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuanpinPreferences {
     #[serde(default = "enabled_by_default")]
@@ -4801,6 +5018,7 @@ impl Default for QuanpinPreferences {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ShuangpinProfile {
@@ -4815,6 +5033,7 @@ pub enum ShuangpinProfile {
 }
 
 /// 九键双拼方案（#6572）。Engine 的编码是声明顺序（`NineKeyShuangpinKind`）；内置的三个方案和它们的来源见 `.agents/notes/implemented/feature/2026-10-10-nine-key-shuangpin.md`。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NineKeyShuangpinProfile {
@@ -4838,6 +5057,7 @@ impl NineKeyShuangpinProfile {
 /// 自定义双拼方案的键位表，与 Engine 的 `ShuangpinCustomTable` 一一对应：`initials` 只放 `zh` `ch` `sh`，`finals` 放 33 个韵母，`zero_initials` 放 12 个零声母音节的两键编码；键是小写字母或 `;`，`ü` 写作 `v`。导入导出用的也是这个 JSON 形状。
 ///
 /// 九键双拼的自定义表（`Preferences::nine_key_shuangpin_custom_profile`）用同一个形状，对应 Engine 的 `NineKeyShuangpinTable`：`initials` 放全部 23 个声母，键是数字。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ShuangpinCustomProfile {
     #[serde(default)]
@@ -4877,6 +5097,7 @@ impl ShuangpinCustomProfile {
 /// 五笔码表版本。Engine 的编码是声明顺序（`wubi_profile`）。
 ///
 /// 读盘时不认识的值（更新的版本加的码表版本）按 86 读（`settle_newer_values_on_read`），不让整份偏好读不了；设置提交仍由反序列化严格校验。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum WubiProfile {
     #[default]
@@ -4960,6 +5181,7 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
     }
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelpcodePreferences {
     /// Linux 的辅助码前导键；空串保留 Shift 加字母。
@@ -4972,12 +5194,15 @@ pub struct HelpcodePreferences {
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
     /// 一码辅助码严格排除不匹配候选；默认关闭，保持已有的一码重排行为。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub strict_filter: bool,
     /// 十四／十八键组码后可放下分隔符输入辅助码（引擎 `SessionOptions::grid_helpcode`）；默认关闭，关闭时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub grid: bool,
     /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
     pub modes: ShuangpinHelpcodeModes,
 }
@@ -4997,6 +5222,7 @@ impl Default for HelpcodePreferences {
 }
 
 /// 双拼辅助码的触发方式（Windows v0.11.1 `installer/default_config/config.default.toml` 的 `[helpcode]` 组）：末尾直接、末尾间接的三枚触发键、句中间接及它的三枚触发键、万象式直接及它的两枚四码结束标记。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ShuangpinHelpcodeModes {
