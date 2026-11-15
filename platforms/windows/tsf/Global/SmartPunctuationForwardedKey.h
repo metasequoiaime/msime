@@ -6,7 +6,7 @@ namespace Global
 //
 // 布局给了字符就以它为准：ASCII 字母数字记下（AltGr 打出的也算，那是用户打的字），其他字符一律失效，包括 Shift+数字的符号、Ctrl+字母的控制字符，以及 AZERTY 这类布局上数字行不按 Shift 打出的符号。
 //
-// 布局没给字符时才看虚拟键码，而且要先看修饰键：带 Ctrl、Alt 或 Win 的是快捷键，不产生字符，还可能粘贴、移动光标或切换标签页；Shift+数字行打出的是符号。只有不带这些修饰键的字母键、数字键和数字小键盘才补回字符。不依赖 `<windows.h>`，测试在任何主机上都能跑。
+// 布局没给字符时，这个辅助函数只用虚拟键码筛出可以查询布局的键，不代表已确认上屏字符。先看修饰键：带 Ctrl、Alt 或 Win 的是快捷键，不产生字符，还可能粘贴、移动光标或切换标签页；Shift+数字行打出的是符号。只有不带这些修饰键的字母键、数字键和数字小键盘才列为可查询。真正的影子入口必须经 `ResolveForwardedSmartPunctuationContext`，无布局结果就失效。不依赖 `<windows.h>`，测试在任何主机上都能跑。
 inline wchar_t ForwardedSmartPunctuationContext(unsigned code, wchar_t character, unsigned modifiers,
                                                 bool windowsKeyDown)
 {
@@ -39,5 +39,35 @@ inline wchar_t ForwardedSmartPunctuationContext(unsigned code, wchar_t character
         return static_cast<wchar_t>(L'0' + (code - 0x60u));
     }
     return L'\0';
+}
+// 只有 Windows 10 1607 起保证布局探测不消费死键；旧系统和未知版本不调用探测器。
+template <typename Query>
+inline wchar_t QueryForwardedLayoutCharacter(unsigned major, unsigned build, unsigned code, Query query)
+{
+    if (major < 10 || (major == 10 && build < 14393))
+    {
+        return L'\0';
+    }
+    return query(code);
+}
+
+// 虚拟键码只筛出值得查询的键，不能代替查询结果；零字符也可能表示死键或布局没有映射。
+template <typename Query>
+inline wchar_t ResolveForwardedSmartPunctuationContext(unsigned code, wchar_t character, unsigned modifiers,
+                                                       bool windowsKeyDown, Query query)
+{
+    if (character == 0)
+    {
+        if (ForwardedSmartPunctuationContext(code, 0, modifiers, windowsKeyDown) == 0)
+        {
+            return L'\0';
+        }
+        character = query(code);
+        if (character == 0)
+        {
+            return L'\0';
+        }
+    }
+    return ForwardedSmartPunctuationContext(code, character, modifiers, windowsKeyDown);
 }
 } // namespace Global

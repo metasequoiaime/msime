@@ -1,13 +1,10 @@
-// 转发给应用的按键在智能标点前文影子里记成什么：策略逐条钉住，TSF 里的接线按源码检查。
+// 转发按键的智能标点前文：以行为测试覆盖布局结果、旧系统边界和查询失败。
 //
 // 影子优先于文档回读，记错一次，下一个标点就走错半角或全角。只看虚拟键码不看修饰键时，英文模式的 Shift+5（打出 %）会被记成数字 5，Ctrl+1、Ctrl+V 会被记成数字和字母，切回中文后的第一个标点变成 ASCII（#11198 验收查出的两条回归）。
 #include "SmartPunctuationForwardedKey.h"
 
 #include <cstdio>
 #include <cstdlib>
-#include <fstream>
-#include <sstream>
-#include <string>
 
 namespace
 {
@@ -30,21 +27,9 @@ void check(bool condition, const char *what)
     }
 }
 
-std::string read(const std::string &path)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file)
-    {
-        std::fprintf(stderr, "FAIL: cannot open %s\n", path.c_str());
-        std::exit(EXIT_FAILURE);
-    }
-    std::ostringstream text;
-    text << file.rdbuf();
-    return text.str();
-}
 } // namespace
 
-int main(int argc, char **argv)
+int main()
 {
     using Global::ForwardedSmartPunctuationContext;
 
@@ -87,22 +72,50 @@ int main(int argc, char **argv)
     check(ForwardedSmartPunctuationContext(L'A', L'\0', kShift, false) == L'A', "Shift+字母没有字符值：仍是字母");
     check(ForwardedSmartPunctuationContext(kOemPeriod, L'\0', kNone, false) == L'\0', "其他键没有字符值：失效");
 
-    // 5. 接线：影子按当时的修饰键和布局字符归类，不能退回只看虚拟键码。
-    const std::string root = argc > 1 ? argv[1] : "platforms/windows/tsf";
-    const std::string composition = read(root + "/Composition/Composition.cpp");
-    check(composition.find("Global::ForwardedSmartPunctuationContext(code, character, modifiers, windowsKeyDown)") !=
-              std::string::npos,
-          "影子归类时带上修饰键和 Win 键");
-    check(composition.find("Global::ForwardedSmartPunctuationContext(code, wch)") == std::string::npos,
-          "不再只凭虚拟键码和 TIP 手里的字符归类");
-    check(composition.find("character = LayoutCharacterOfForwardedKey(code);") != std::string::npos,
-          "TIP 没拿到字符时先问键盘布局，再考虑虚拟键码");
+    // 5. 系统边界必须在调用查询器之前生效，旧系统上的死键不能被额外转换消费。
+    int calls = 0;
+    const auto translate = [&](unsigned) { ++calls; return L'1'; };
+    using Global::QueryForwardedLayoutCharacter;
+    check(QueryForwardedLayoutCharacter(6, 7601, L'1', translate) == 0, "Win7 不查询布局");
+    check(QueryForwardedLayoutCharacter(6, 9600, L'1', translate) == 0, "Win8.1 不查询布局");
+    check(QueryForwardedLayoutCharacter(10, 10240, L'1', translate) == 0, "Win10 1507 不查询布局");
+    check(QueryForwardedLayoutCharacter(10, 14392, L'1', translate) == 0, "1607 前一个构建不查询布局");
+    check(QueryForwardedLayoutCharacter(0, 0, L'1', translate) == 0, "未知版本不查询布局");
+    check(calls == 0, "不支持时查询器从未被调用，死键状态保持原样");
+    check(QueryForwardedLayoutCharacter(10, 14393, L'1', translate) == L'1', "1607 支持非破坏性查询");
+    check(QueryForwardedLayoutCharacter(10, 26100, L'1', translate) == L'1', "Win11 保留布局查询");
+    check(QueryForwardedLayoutCharacter(11, 1, L'1', translate) == L'1', "未来主版本保留查询");
+    check(calls == 3, "仅支持的版本调用查询器");
+
+    // 6. 在真正的影子解析入口，查询无结果就失效，不再把 AZERTY、死键或 API 失败猜成数字。
+    using Global::ResolveForwardedSmartPunctuationContext;
+    const auto unknown = [](unsigned) { return L'\0'; };
+    const auto azerty = [](unsigned) { return L'&'; };
+    check(ResolveForwardedSmartPunctuationContext(L'1', 0, kNone, false, unknown) == 0,
+          "布局查询失败不按虚拟键码补数字");
+    check(ResolveForwardedSmartPunctuationContext(L'A', 0, kNone, false, unknown) == 0,
+          "死键或查询失败不按虚拟键码补字母");
+    check(ResolveForwardedSmartPunctuationContext(L'1', 0, kNone, false, azerty) == 0,
+          "AZERTY 的 & 不记成数字 1");
+    check(ResolveForwardedSmartPunctuationContext(L'1', 0, kNone, false, translate) == L'1',
+          "现代系统确认的数字写进影子");
+    const auto legacy = [&](unsigned key) { return QueryForwardedLayoutCharacter(6, 7601, key, translate); };
+    const auto before = calls;
+    check(ResolveForwardedSmartPunctuationContext(L'1', 0, kNone, false, legacy) == 0,
+          "Win7 缺字符时回读文档");
+    check(ResolveForwardedSmartPunctuationContext(L'A', L'a', kNone, false, legacy) == L'a',
+          "Win7 已有可信字符时仍维护影子");
+    check(ResolveForwardedSmartPunctuationContext(L'1', 0, kCtrl, false, translate) == 0,
+          "Ctrl+1 不查布局、不维护影子");
+    check(ResolveForwardedSmartPunctuationContext(L'5', 0, kShift, false, translate) == 0,
+          "Shift+5 缺字符时不查布局");
+    check(calls == before, "旧系统、已有字符与快捷键没有额外布局调用");
 
     if (failures != 0)
     {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return EXIT_FAILURE;
     }
-    std::puts("转发按键的智能标点前文：策略与接线回归通过");
+    std::puts("转发按键的智能标点前文：策略与布局查询行为回归通过");
     return EXIT_SUCCESS;
 }

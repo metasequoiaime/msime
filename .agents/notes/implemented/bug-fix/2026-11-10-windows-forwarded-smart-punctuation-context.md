@@ -18,10 +18,12 @@ Windows 浏览器等 TSF 宿主有时不给输入法可读的光标前文；输�
 Windows TSF 的智能标点影子只记录确认的 ASCII 字母和数字，并且按这颗键真正打出的字符归类，规则集中在 `Global::ForwardedSmartPunctuationContext(code, character, modifiers, windowsKeyDown)`：
 
 - 键盘布局给了字符就以它为准。ASCII 字母数字记下（AltGr 打出的也算）；其他字符一律让影子失效，包括 Shift+数字的符号、Ctrl+字母的控制字符，以及 AZERTY 这类布局上数字行不按 Shift 打出的符号。
-- 布局没给字符时才看虚拟键码，并且先看修饰键：带 Ctrl、Alt 或 Win 的组合键是快捷键，不产生字符，还可能粘贴、移动光标或切换标签页，影子失效；Shift+数字行打出的是符号，影子失效。只有不带这些修饰键的字母键、数字键和数字小键盘才补回字符。
-- `_UpdateSmartPunctuationShadow` 在 `wch` 为空且虚拟键码看着像字母或数字时，先用 `ToUnicode` 问一次键盘布局（带「不改键盘状态」标志，不影响死键），再交给上面的规则；修饰键读的是 `_IsKeyEaten` 判断应用快捷键时用的同一份物理状态。
+- 布局没给字符时，虚拟键码只筛出值得查询布局的字母、数字和数字小键盘，不作为上屏字符。带 Ctrl、Alt 或 Win 的组合键、Shift+数字行直接让影子失效；布局查询没有结果时同样失效，不能把死键、查询失败或未知映射猜成 ASCII。
+- `_UpdateSmartPunctuationShadow` 经 `ResolveForwardedSmartPunctuationContext` 使用布局结果。`SmartPunctuationLayoutQuery.h` 复用 `compat/WindowsVersion.h` 的真实内核版本，只在 Windows 10 build 14393（1607）及以上调用带 `0x4` 的 `ToUnicode`。微软文档明确旧版本不支持该非破坏性标志；旧系统和版本查询失败时完全不调用额外转换，缺少 `wch` 就回读文档。修饰键仍读 `_IsKeyEaten` 使用的物理状态。
 
 其它转发字符、被输入法吃掉的键和编辑键继续清除影子。影子有效时优先于文档回读，影子失效后由文档回答。
+
+版本边界依据：[微软 ToUnicode 文档](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-tounicode)。相关的内核版本策略见 [Win7 Server 边界](2026-10-24-windows7-server-startup.md)。
 
 ## Alternatives considered
 
@@ -31,6 +33,7 @@ Windows TSF 的智能标点影子只记录确认的 ASCII 字母和数字，并�
 - **只按虚拟键码补回，不看修饰键（第一版）**：已撤回。Shift+5、Ctrl+1、Ctrl+V 的虚拟键码都落在字母数字范围内，实机上把符号和快捷键记成了前文，就是上面两条回归。
 - **只加修饰键判断，不问键盘布局**：不采用。能修掉美式布局上的两条回归，但 AZERTY 等布局的数字行不按 Shift 打出的是符号，英文模式下仍会被记成数字。
 - **让 `_IsKeyEaten` 在键盘关闭时也填字符**：不采用。直通统计把 `_IsKeyEaten` 交回的非空字符当作「键盘可用」的证明（`_NotePassthroughStatistics` 的 `keyboardKnownEnabled`），为了影子改这条契约会波及它。
+- **旧系统照样传 `0x4` 查询、失败再猜虚拟键码**：实现更少，但旧系统仍会改变死键状态，未知映射还可能把 AZERTY 符号记成数字。改为不调用、不猜测；代价是旧系统无法回读文档且缺 `wch` 时仍沿用原中文标点行为。
 - **粘贴等快捷键之后把影子记成字母**：不采用。快捷键改了什么无从得知，只能让影子失效、由文档回答。
 
 ## Consequences
@@ -39,4 +42,4 @@ Windows TSF 的智能标点影子只记录确认的 ASCII 字母和数字，并�
 - 标点、符号、快捷键、编辑键和其它非 ASCII 转发键会使旧上下文失效，不会把过期或错认的数字、字母带到下一次标点。读不回文档的宿主（例如经典记事本）在这些键之后出中文标点，与改动前一致。
 - 英文模式下 Shift+数字行一律不记，即使布局此时打出的是数字（AZERTY）；这时退回文档回读，行为与改动前一致。
 - `SmartPunctuationForwardedKey.h` 不再依赖 `<windows.h>`，`scripts/test-windows-native-run.py` 在任何主机上都会编译并执行这项测试；此前它在非 Windows 主机上被跳过，交叉编译的 CI 也只编译不执行。
-- 策略测试覆盖带字符值、缺字符值、数字小键盘、非 ASCII、Shift+数字、Ctrl/Alt/Win 组合键和 AltGr，并检查 `Composition.cpp` 的接线。`ToUnicode` 的布局查询和修饰键读取只能在 Windows 实机上验证；报告者环境的复验仍需完成。
+- 策略测试覆盖带字符值、数字小键盘、非 ASCII、Shift+数字、Ctrl/Alt/Win 组合键和 AltGr；布局查询行为测试覆盖 Win7、Win8.1、1607 前后、Win11、未来与未知版本，并用调用计数断言旧系统不执行查询，验证未知字符不会从虚拟键码复活。移除原有源码字符串接线断言。`ToUnicode` 与真实死键的集成仍需 Windows 实机验证，便携测试不代替报告者环境。
