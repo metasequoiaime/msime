@@ -10,7 +10,7 @@ export interface CloudPanelHeaderProps {
   backClassName?: string;
 }
 
-/** Shared title bar for the cloud panels, with an optional return action. */
+/** 云面板共用标题栏，可选返回操作。 */
 export function CloudPanelHeader({
   title,
   onClose,
