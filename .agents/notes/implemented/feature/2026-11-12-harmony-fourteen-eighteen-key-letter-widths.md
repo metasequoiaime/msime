@@ -10,7 +10,7 @@ Issue #11051 已在 Android 和 iOS 提供 14/18 键的「等宽 / 宽窄」选�
 
 HarmonyOS 读取共享偏好 `touch_fourteen_key_letter_widths`，缺字段和未知值按既有的 `equal`。新增 `FourteenKeyLetterWidths.ts` 作为键盘侧几何策略：`equal` 保持现有份额，`varied` 使用单字母键 0.75 份、双字母键 1 份，三排共用首排单位宽度。较短的第一、二排两端加入透明占位格，占位格分别把触摸转发给同排最外侧字母键；第三排让分词和删除键分掉两端剩余宽度。双字母键绘制使用 0.15em 字距，双拼 `L;` 使用 0.08em。
 
-账号同步把该共享偏好加入 `TouchHostKeys`，Android 与鸿蒙分别使用 `platform.android.fourteen_key_letter_widths` 和 `platform.harmony.fourteen_key_letter_widths`，避免两台设备互相覆盖；设置预览与键盘使用同一份宽度规则和两枚胶囊（「等宽」「宽窄」）。
+账号同步把该共享偏好加入 `TouchHostKeys`，Android 与鸿蒙分别使用 `platform.android.fourteen_key_letter_widths` 和 `platform.harmony.fourteen_key_letter_widths`，避免两台设备互相覆盖；设置预览与键盘按已有偏好使用同一份宽度规则，但不在共享设置页增加胶囊或新入口。维护者确认遵守原生迁移路线，缺少原生设置入口期间保持 Draft；Android、iOS 已有原生控件的范围不变。
 
 `@Builder` 中只保留组件调用，按键份额作为参数交给普通的 `fourteenKeyOptions` / `eighteenKeyOptions` 方法构造。ArkTS 的真实 HAP 编译拒绝在 Builder 分支内声明 `KeyOptions` 变量和赋值；Node 几何测试与 TypeScript 子集检查不能替代这项编译。方法的默认份额仍为 1，长按键外层的份额规则不变。
 
@@ -23,4 +23,4 @@ HarmonyOS 读取共享偏好 `touch_fourteen_key_letter_widths`，缺字段和�
 
 ## Consequences
 
-键盘和设置预览的三排宽度会随偏好即时重排，组字状态不被打断；双字母键面更容易辨认，第二排空白仍可输入。共享偏好字段和设置控件增加了跨文件维护面。DevEco 工具链已可用于完整 HAP 构建，当前仍没有可接受签名的设备。设备触摸转发、字距、真实设置页验收和前后截图尚缺，PR 保持 draft，构建与设备证据分别列在验证段。
+键盘和设置预览的三排宽度会随偏好即时重排，组字状态不被打断；双字母键面更容易辨认，第二排空白仍可输入。共享偏好字段和几何策略增加了跨文件维护面。DevEco 工具链已可用于完整 HAP 构建，USB 调试设备现已连接，升级安装仍缺设备可接受的签名配置。设备触摸转发、字距、真实设置页验收和前后截图尚缺，PR 保持 draft，构建与设备证据分别列在验证段。
