@@ -320,8 +320,16 @@ int main() {
     {
       std::optional<ModePresentation> value =
           ModePresentation{{{43, {4, 5, 6}}, 1, 1}, true, true, false};
+      const auto original_dpi = current_thread_dpi_context();
       FloatingToolbarWindow toolbar([&] { return value; },
                                     [](const ModeClick &) {});
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
+      require(window_awareness_is_expected(toolbar.handle()));
+      const auto no_redirection =
+          msime::windows::compat::no_redirection_bitmap_style();
+      if (no_redirection)
+        require((GetWindowLongPtrW(toolbar.handle(), GWL_EXSTYLE) &
+                 no_redirection) == no_redirection);
       const auto foreground = GetForegroundWindow();
       toolbar.refresh(true);
       UpdateWindow(toolbar.handle());
