@@ -389,20 +389,10 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
       .getAllByRole("button")
       .filter((button) => !button.hasAttribute("data-info-tip"))
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([
-    ...touchSchemeLabels,
-    "全拼 14 键",
-    "九键双拼",
-    "全拼 18 键",
-    "智能 ABC 双拼",
-    "搜狗双拼",
-    "加加双拼",
-    "紫光双拼",
-    "国标双拼",
-  ]);
+  ).toEqual([...touchSchemeLabels, "全拼 14 键", "九键双拼", "全拼 18 键"]);
   // 高情商回复是键盘工具栏上的工具，不是输入方案。
   expect(within(group).queryByText("高情商回复")).toBeNull();
-  expect(within(group).getAllByRole("switch")).toHaveLength(19);
+  expect(within(group).getAllByRole("switch")).toHaveLength(14);
   // 全拼 14 键、九键双拼与全拼 18 键追加在原有列表后，默认不启用。
   expect(
     (screen.getByRole("switch", { name: "显示输入方案 全拼 14 键" }) as HTMLInputElement).checked,
@@ -456,13 +446,8 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     "九键双拼",
     "全拼 18 键",
     "粤语双拼",
-    "智能 ABC 双拼",
-    "搜狗双拼",
-    "加加双拼",
-    "紫光双拼",
-    "国标双拼",
   ]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(26);
+  expect(within(group).getAllByRole("switch")).toHaveLength(21);
   for (const label of [
     "粤拼 26 键",
     "粤语双拼",
@@ -8160,17 +8145,7 @@ const referenceOptions: {
     page: "input",
     button: "输入",
     control: "双拼方案",
-    options: [
-      "小鹤双拼",
-      "自然码双拼",
-      "首道双拼",
-      "微软双拼",
-      "智能 ABC 双拼",
-      "搜狗双拼",
-      "加加双拼",
-      "紫光双拼",
-      "国标双拼",
-    ],
+    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼", "智能 ABC 双拼"],
   },
   {
     page: "input",
@@ -11034,4 +11009,50 @@ test("macOS 从输入法菜单进入云词库，设置页不提供重复入口",
   expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
   expect(screen.queryByRole("region", { name: "云词库" })).toBeNull();
   expect(openCloudDictionary).not.toHaveBeenCalled();
+});
+
+test("共享设置回显已存原生双拼值但不新增选择入口", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, scheme: "shuangpin", shuangpin_profile: "sogou" },
+  };
+  const save = vi.fn(async (revision: number, preferences: Snapshot["preferences"]) => ({
+    ...snapshot,
+    revision: revision + 1,
+    preferences,
+  }));
+  render(<SettingsPage client={{ load: async () => snapshot, save }} />);
+  await openInputSettings();
+  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
+  expect(profile.value).toBe("sogou");
+  expect(
+    (within(profile).getByRole("option", { name: "搜狗双拼" }) as HTMLOptionElement).disabled,
+  ).toBe(true);
+  expect(within(profile).queryByRole("option", { name: "加加双拼" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ shuangpin_profile: "sogou" }));
+});
+
+test("共享触屏设置保留原生已启用双拼而不提供其余新方案", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      scheme: "shuangpin",
+      shuangpin_profile: "sogou",
+      touch_keyboard_schemes: { enabled: ["quanpin", "sogou"], selected: "sogou" },
+    },
+  };
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), touchKeyboardSchemes: true }}
+    />,
+  );
+  await openInputSettings();
+  expect(
+    screen.getByRole("button", { name: "设为当前输入方案 搜狗双拼" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(screen.queryByRole("switch", { name: "显示输入方案 加加双拼" })).toBeNull();
 });

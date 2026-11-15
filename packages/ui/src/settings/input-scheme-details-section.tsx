@@ -47,6 +47,7 @@ export type { WubiProfile } from "./wubi-preferences";
 /**
  * 双拼方案的选项。这里和下面的五笔方案都写成返回 Fragment 的普通函数，鸿蒙手机的 `SelectRow` 才能从中读出面板选项。
  *
+ * 新增的原生双拼方案仅回显文档已有值，不能通过共享页面新选。
  * 「自定义双拼」在宿主能编辑它（`editable`）时列出；文档里已经是它而宿主编辑不了时也列出，但不能选，否则受控的选择框找不到这一项，会把第一项显示成当前方案。
  */
 function shuangpinProfileOptions(editable: boolean, current: ShuangpinProfile) {
@@ -57,10 +58,26 @@ function shuangpinProfileOptions(editable: boolean, current: ShuangpinProfile) {
       <option value="shoudao">首道双拼</option>
       <option value="microsoft">微软双拼</option>
       <option value="smart_abc">智能 ABC 双拼</option>
-      <option value="sogou">搜狗双拼</option>
-      <option value="jiajia">加加双拼</option>
-      <option value="ziguang">紫光双拼</option>
-      <option value="guobiao">国标双拼</option>
+      {current === "sogou" && (
+        <option value="sogou" disabled>
+          搜狗双拼
+        </option>
+      )}
+      {current === "jiajia" && (
+        <option value="jiajia" disabled>
+          加加双拼
+        </option>
+      )}
+      {current === "ziguang" && (
+        <option value="ziguang" disabled>
+          紫光双拼
+        </option>
+      )}
+      {current === "guobiao" && (
+        <option value="guobiao" disabled>
+          国标双拼
+        </option>
+      )}
       {(editable || current === "custom") && (
         <option value="custom" disabled={!editable}>
           自定义双拼
