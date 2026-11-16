@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::records::{LearningSyncRecord, LearningSyncState};
 
 const FORMAT: &str = "msime-learning-sync";
-const MAX_RECORDS: usize = 500_000;
+pub const MAX_LEARNING_SYNC_RECORDS: usize = 500_000;
 const MAX_PLAINTEXT_BYTES: usize = 128 * 1024 * 1024;
 
 /// 不带输入内容或解析器原始错误的传输边界错误。
@@ -110,7 +110,7 @@ pub fn read_learning_sync(reader: impl BufRead) -> Result<LearningSyncRead, Lear
         if record_type == "header" {
             return Err(LearningSyncReadError::Invalid);
         }
-        if records == MAX_RECORDS {
+        if records == MAX_LEARNING_SYNC_RECORDS {
             return Err(LearningSyncReadError::TooLarge);
         }
         records += 1;
@@ -136,12 +136,24 @@ pub fn read_learning_sync(reader: impl BufRead) -> Result<LearningSyncRead, Lear
 pub fn write_learning_sync(
     state: &LearningSyncState,
     content_id: &str,
+    writer: impl Write,
+) -> Result<(), LearningSyncReadError> {
+    write_selected_learning_sync(state, content_id, |_| true, writer)
+}
+
+/// 只编码选中的记录，仍使用协议顺序和相同的完整流检查，不修改源状态。
+/// 上传层用它截断调权；选择函数对每条记录只调用一次，页尾使用实际保留的数量。
+pub fn write_selected_learning_sync(
+    state: &LearningSyncState,
+    content_id: &str,
+    mut retain: impl FnMut(&LearningSyncRecord) -> bool,
     mut writer: impl Write,
 ) -> Result<(), LearningSyncReadError> {
     if content_id.is_empty() || content_id.len() > 512 || content_id.contains('\0') {
         return Err(LearningSyncReadError::Invalid);
     }
-    if state.records().len() > MAX_RECORDS {
+    let records: Vec<_> = state.records().filter(|record| retain(record)).collect();
+    if records.len() > MAX_LEARNING_SYNC_RECORDS {
         return Err(LearningSyncReadError::TooLarge);
     }
     let mut bytes = Vec::new();
@@ -153,7 +165,7 @@ pub fn write_learning_sync(
     };
     serde_json::to_writer(&mut bytes, &header).map_err(invalid)?;
     bytes.push(b'\n');
-    for record in state.records() {
+    for record in &records {
         serde_json::to_writer(&mut bytes, record).map_err(invalid)?;
         bytes.push(b'\n');
         if bytes.len() > MAX_PLAINTEXT_BYTES {
@@ -162,7 +174,7 @@ pub fn write_learning_sync(
     }
     let footer = Footer {
         record_type: "footer".into(),
-        records: state.records().len(),
+        records: records.len(),
     };
     serde_json::to_writer(&mut bytes, &footer).map_err(invalid)?;
     bytes.push(b'\n');

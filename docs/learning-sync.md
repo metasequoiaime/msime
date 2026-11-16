@@ -246,6 +246,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 只剩 `delete`、`pin`、`position` 仍放不下时这一轮不上传，仍提示 `learning_too_large`，其他设备的照常下载合并。
 - 服务端返回 413 `learning_quota`（账号合计超额）时，本机暂停上传，其他设备的照常下载合并，不靠截断解决。
 
+客户端上传准备在 `client-services/account/learning_sync/upload.rs`：保留 Engine 协议顺序和实际页尾数量，摘要取截断后的完整明文，观察上限显式取完整导出报告，包含省略的行和未知词库的有效时间；小于传入状态或超出时间范围的值拒绝，源状态不变。信封大小由 `client-core::cloud::learning_e2e::blob_envelope_size` 按实际 gzip、Padmé、头部和认证标签计算，不用压缩比估计。记录上限先精确省略最旧调权；字节超限时用确定的二分搜索保留一个已实测合格的前缀省略量，编码次数为对数级。gzip 大小不严格单调，因此不承诺全局最少省略量；不会省略非调权行。准备结果可按持久化计划的代次加密，但尚未接入上传下载轮次、节流或账号总额度处理，不能把此 API 当成完整同步入口。
+
 ## 错误码
 
 服务端返回：

@@ -15,7 +15,8 @@ pub use records::{
     LearningSyncRecord, LearningSyncState, MAX_LEARNING_SYNC_TIMESTAMP, MAX_LEARNING_SYNC_WEIGHT,
 };
 pub use stream::{
-    read_learning_sync, write_learning_sync, LearningSyncRead, LearningSyncReadError,
+    read_learning_sync, write_learning_sync, write_selected_learning_sync, LearningSyncRead,
+    LearningSyncReadError, MAX_LEARNING_SYNC_RECORDS,
 };
 
 #[cfg(test)]

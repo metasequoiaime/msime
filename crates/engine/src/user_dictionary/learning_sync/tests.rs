@@ -62,6 +62,46 @@ fn stream(records: &[serde_json::Value]) -> Vec<u8> {
 }
 
 #[test]
+fn selected_stream_counts_only_retained_rows_and_never_changes_source_state() {
+    let source = state([
+        weight(9, 100, ""),
+        position("a", 1, 10),
+        position("b", 1, 11),
+    ]);
+    let before = source.clone();
+    let mut calls = 0;
+    let mut bytes = Vec::new();
+    write_selected_learning_sync(
+        &source,
+        "synthetic-content",
+        |record| {
+            calls += 1;
+            !matches!(record, LearningSyncRecord::Weight { .. })
+        },
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(calls, 3);
+    let decoded = read_learning_sync(bytes.as_slice()).unwrap();
+    assert_eq!(
+        decoded.state,
+        state([position("a", 1, 10), position("b", 1, 11)])
+    );
+    assert_eq!(source, before);
+    assert_eq!(decoded.state.records().len(), 2);
+    assert_eq!(decoded.state.position_projection().len(), 1);
+    bytes.clear();
+    write_selected_learning_sync(&source, "synthetic-content", |_| false, &mut bytes).unwrap();
+    assert_eq!(
+        read_learning_sync(bytes.as_slice()).unwrap().state,
+        state([])
+    );
+    bytes.clear();
+    write_selected_learning_sync(&source, "synthetic-content", |_| true, &mut bytes).unwrap();
+    assert_eq!(bytes, encoded(&source));
+}
+
+#[test]
 fn operations_compare_time_then_delete_then_weight_and_display() {
     for (left, right, expected) in [
         (deleted(10), weight(11, 1, ""), weight(11, 1, "")),
