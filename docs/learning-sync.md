@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选及调权、删除的原始时间与权重，置顶时间由现有习惯搬迁保留。日志的完整 Lamport 写入与重置屏障、同步轮次和各平台接入仍按决策笔记里的分期落地；这些 Engine API 本身不发起上传。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选及调权、删除的原始时间与权重，置顶时间由现有习惯搬迁保留。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。日志的完整 Lamport 写入、重置与接纳的维护边界串行、同步轮次和各平台接入仍按决策笔记里的分期落地；这些基础 API 本身不发起上传。
 
 ## 与其他同步的关系
 
@@ -175,6 +175,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 后续合并跳过所有 `updated_at <= reset_floor` 的远端行，包含 `position` 和未显示的槽位冲突候选；在重置之前接纳的待合并文件也要在真正应用时重新检查屏障。新写本机行按「时间戳」取至少 `reset_floor + 1`，不能在清空旧行后退回仅用 `unixepoch()`。
 - 例如实际 Unix 秒为 100，本机在同一秒多次修改到逻辑时间 103，并已传给另一台设备。重置必须得到 `F >= 103`，对端重传这条旧行仍被过滤；本机重置后新写的行至少为 104。换钥重传也保留这个区别。
 - 这是对本机已观察逻辑时间的屏障，不是全账号的真实时间分界。离线设备有本机未见过、`updated_at > F` 的旧行时，它仍可在以后合并进来；对端在重置后新写、但 `updated_at <= F` 的行也会被过滤，直到该行在对端的逻辑时间超过屏障。仅凭逐行时间戳无法区分这两种情况，不能承诺「所有重置前的都不回来、所有重置后的都能合并」。界面说明本机重置的这一限制；跨设备协调重置需要另行设计，不在 v1 内。
+
+持久进度文件格式版本为 1，最多 4 MiB：顶层 `version` 和 `accounts`；账号项包含 `observed_max`、`reset_floor`、按密钥与来源设备分组的 `sources`，以及按本机设备分组的 `uploads`。来源进度含 `verified/applied`，上传进度含 `generation/key_id/sha256`。全部字段必填，映射键不能重复，`applied <= verified <= 2⁵³−1`，`reset_floor <= observed_max <= 2⁴⁰`；上传摘要为实际上传明文流的 SHA-256，不保存输入原文。文件损坏、未知版本、字段或范围不合法、超限都返回错误，原文件保留；不会重建为空状态或淘汰旧下限。每次读改写持有独立的 `learning.lock`，替换私有文件后同步目录。调用方只有在持久化成功后才能发布导出、接纳待合并文件或清空学习日志；存储层不代替 Engine 的独占维护权，也尚未接入这些调用点。
 
 ## 防回滚
 
