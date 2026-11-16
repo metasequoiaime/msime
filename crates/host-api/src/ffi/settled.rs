@@ -210,26 +210,80 @@ fn settled_on_session(session: &mut HostSession) -> Result<Value, String> {
 /// 在后台启动停顿重排。挂着延后到停顿的逐键模型时，当场带着它重解当前组字的一片，没解完回 `status: continue`（见 `deferred_on_session`）。无需模型或只做呈现整理时返回 `status: done` 和 `current: true`，
 /// 顺序变化时附带 `moved: true` 与 `view`；后台评分返回 `status: pending` 和 `token`。
 /// 每会话只允许一个任务，重复启动返回相同的令牌。
+///
+/// 每个回复都带 `deferred`：这个会话挂没挂延后到停顿的逐键模型。宿主据它定停顿多久起跑（[`with_deferred`]）。
 #[no_mangle]
 pub extern "C" fn msime_client_start_settled_rerank(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
-            if let Some(settled) = deferred_on_session(session) {
-                return settled;
-            }
-            if let Some(token) = open_token(handle) {
-                return Ok(json!({"status": "pending", "token": token}));
-            }
-            let Some(request) = session.runtime.begin_settled_rerank() else {
-                return settled_on_session(session);
-            };
-            match spawn_score(handle, request) {
-                Ok(token) => Ok(json!({"status": "pending", "token": token})),
-                Err(request) => {
-                    let score = msime_input_runtime::score_settled_rerank(*request);
-                    publish(session, score)
+            let reply = start_on_session(handle, session);
+            with_deferred(session, reply)
+        })
+    })
+}
+
+fn start_on_session(handle: u64, session: &mut HostSession) -> Result<Value, String> {
+    if let Some(settled) = deferred_on_session(session) {
+        return settled;
+    }
+    if let Some(token) = open_token(handle) {
+        return Ok(json!({"status": "pending", "token": token}));
+    }
+    let Some(request) = session.runtime.begin_settled_rerank() else {
+        return settled_on_session(session);
+    };
+    match spawn_score(handle, request) {
+        Ok(token) => Ok(json!({"status": "pending", "token": token})),
+        Err(request) => {
+            let score = msime_input_runtime::score_settled_rerank(*request);
+            publish(session, score)
+        }
+    }
+}
+
+/// 回复里记上 `deferred`：会话挂着延后到停顿的逐键模型时为真。两条路要的停顿不一样长。延后的模型在会话线程上分片跑、一片约 8 ms，打字的空隙里就该开始：2026-11-16 在 Mac 上照 143 ms 一键的节奏回放 typing-chat-v1 test，停顿 40 ms 起跑时空格 p95 0.31 ms、字母键 p95 3.5 ms，停顿 150 ms 起跑时重解在打字途中从不开始，整段的计算都落到空格上，空格 p95 280 ms。后台的落定模型（24M）每次要一两百毫秒，在打字的空隙里起跑只会白算，仍等 150 ms。宿主从回复里学到会话走的是哪一条。
+fn with_deferred(session: &HostSession, reply: Result<Value, String>) -> Result<Value, String> {
+    let mut reply = reply?;
+    if reply.is_object() {
+        reply["deferred"] = json!(session.runtime.has_deferred_scorer());
+    }
+    Ok(reply)
+}
+
+/// 上屏首选之前，把延后到停顿的逐键模型（`pause_rerank`）对当前组字的重解一片片做完再返回，结果与停顿后反复调 `msime_client_start_settled_rerank` 直到不再是 `continue` 相同：解完回 `{"status":"done","moved":…}`，代次前进时附带新 `view`。会话没挂延后的模型时什么都不做，回 `{"status":"none"}`；不碰后台的落定重排，也不等它。
+///
+/// 停顿重解还没做完时，屏幕上是不带模型解出的候选。宿主若照它上屏，首选就和不挂模型时一样：2026-11-16 在 Mac 上照 macOS 的空格（按候选窗画出的高亮项身份选词）回放 typing-chat-v1 test 的 220 段，打完立刻上屏的只对 140 段（63.6%），停下等重解完再上屏的对 186 段。所以宿主在空格这类「上屏高亮项」的键上先调它，再照新画出的高亮项上屏；数字键和点选是用户照看到的那一行选的，不调。每一片至少跑一次模型，所以一定会解完；已经解完（模型还挂在按键的位置上）时立即返回。
+#[no_mangle]
+pub extern "C" fn msime_client_finish_pause_rerank(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            let mut moved = false;
+            let mut last = None;
+            while let Some(settled) = deferred_on_session(session) {
+                let value = settled?;
+                moved |= value["moved"] == true;
+                let more = value["status"] == "continue";
+                if value.get("view").is_some() {
+                    last = Some(value);
+                }
+                if !more {
+                    break;
                 }
             }
+            if !session.runtime.has_deferred_scorer() {
+                return Ok(json!({"status": "none", "deferred": false}));
+            }
+            Ok(match last {
+                Some(mut value) => {
+                    value["status"] = json!("done");
+                    value["moved"] = json!(moved);
+                    value["deferred"] = json!(true);
+                    value
+                }
+                None => {
+                    json!({"status": "done", "moved": false, "current": true, "deferred": true})
+                }
+            })
         })
     })
 }

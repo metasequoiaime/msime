@@ -1,5 +1,7 @@
 #import "UpdateController.h"
 
+#import "SystemUpdateStaging.h"
+
 #import <Sparkle/Sparkle.h>
 
 // 官网下载页的 macOS 一栏读的就是本仓库的 macos-v 发布，GitHub 按钮旁边有国内镜像（dl.msime.app），国内打开 GitHub 发布页下载常常只有几十 KB/s。
@@ -71,7 +73,16 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 
 // 输入法是 LSBackgroundOnly，进程与登录会话同寿，Sparkle 的默认做法不适合它：它的重启会把 bundle 当成独立启动拉起，打开的是设置窗口（input_method_main.mm）；退出时安装很少等得到；委托若把后台下好的更新交还给 Sparkle，过了 SUScheduledImpatientCheckInterval 它会弹窗，抢走用户正在打字的应用的焦点。所以驱动留着安装闭包，在用户切到别的输入源或离开电脑时运行（installDownloadedUpdate，见控制器的 installDownloadedUpdateWhenAwayWithWorkspaceCenter:idleClock:）；退出先来的话 Sparkle 照常在退出时装。
 @interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver, SPUUpdaterDelegate>
-@property(nonatomic, readonly) SPUStandardUpdaterController *updaterController;
+// 装在用户目录时由标准控制器更新本 bundle；装在系统目录时没有它，见下面的 stagedUpdater。
+@property(nonatomic, readonly, nullable) SPUStandardUpdaterController *updaterController;
+// 装在 /Library/Input Methods 时的更新器：更新对象是用户缓存目录里的暂存副本（SystemUpdateStaging.h），暂存副本备好之后才创建，在那之前为 nil。
+@property(nonatomic, nullable) SPUUpdater *stagedUpdater;
+@property(nonatomic, nullable) SPUStandardUserDriver *stagedUserDriver;
+@property(nonatomic, nullable) NSURL *stagingURL;
+// 上一次提交给更新助手的构建号，同一个构建只提交一次。
+@property(nonatomic) long long submittedBuild;
+@property(nonatomic) BOOL submitting;
+@property(nonatomic, readonly, nullable) SPUUpdater *updater;
 @property(nonatomic, copy, nullable) void (^pendingInstall)(void);
 // pendingInstall 那个更新包所属的通道（MSIMEUpdateChannelOfArchiveName），换通道时据此决定还装不装它。
 @property(nonatomic, copy, nullable) NSString *pendingInstallChannel;
@@ -87,11 +98,93 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
     {
         // 先记下通道再启动 Sparkle：启动时它就会问 feed 地址，随后安排的检查也按这个通道取 appcast。
         _updateChannel = [MSIMEUpdateChannelFromPreference(channel) copy];
-        _updaterController = [[SPUStandardUpdaterController alloc] initWithStartingUpdater:YES
-                                                                           updaterDelegate:self
-                                                                        userDriverDelegate:nil];
+        if (MSIMEUpdateHostIsSystemInstall(NSBundle.mainBundle.bundlePath))
+            [self startUpdatingStagedCopy];
+        else
+            _updaterController = [[SPUStandardUpdaterController alloc] initWithStartingUpdater:YES
+                                                                               updaterDelegate:self
+                                                                            userDriverDelegate:nil];
     }
     return self;
+}
+
+- (nullable SPUUpdater *)updater
+{
+    return self.updaterController != nil ? self.updaterController.updater : self.stagedUpdater;
+}
+
+// 把系统目录里的这份拷到缓存目录当暂存副本（两百多 MB，放到后台队列），再让 Sparkle 以它为更新对象。applicationBundle 也是暂存副本：它不是一个在运行的应用，Sparkle 装更新时不用等谁退出，本进程照常工作。
+- (void)startUpdatingStagedCopy
+{
+    NSBundle *installed = NSBundle.mainBundle;
+    NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
+    if (caches == nil || installed.bundleIdentifier.length == 0) return;
+    NSURL *staging = MSIMEUpdateStagingURL(caches, installed.bundleIdentifier, installed.bundlePath.lastPathComponent);
+    NSURL *installedURL = installed.bundleURL;
+    __weak MetasequoiaSparkleUpdateDriver *weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+      BOOL prepared = MSIMEUpdatePrepareStaging([NSFileManager new], installedURL, staging);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        MetasequoiaSparkleUpdateDriver *driver = weakSelf;
+        NSBundle *host = prepared ? [NSBundle bundleWithURL:staging] : nil;
+        if (driver == nil || host == nil) return;
+        driver.stagingURL = staging;
+        driver.stagedUserDriver = [[SPUStandardUserDriver alloc] initWithHostBundle:host delegate:nil];
+        SPUUpdater *updater = [[SPUUpdater alloc] initWithHostBundle:host
+                                                   applicationBundle:host
+                                                          userDriver:driver.stagedUserDriver
+                                                            delegate:driver];
+        // 启动失败时不留下它：没有更新器，「检查更新…」显示为不可用，而不是点了没反应。
+        if ([updater startUpdater:nil]) driver.stagedUpdater = updater;
+      });
+    });
+}
+
+// 系统目录安装的更新分三步，每一步都要等上一步在磁盘上生效，所以每次只做当前该做的那一步：让 Sparkle 把下好的更新装进暂存副本，把变新的暂存副本提交给 root 更新助手，系统目录里的那份变新之后退出本进程。allowRestart 为 NO 时不做最后一步。
+- (void)advanceSystemUpdateAllowingRestart:(BOOL)allowRestart
+{
+    NSURL *staging = self.stagingURL;
+    if (staging == nil) return;
+    long long running = [[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] longLongValue];
+    long long installed = MSIMEUpdateBundleBuildOnDisk(NSBundle.mainBundle.bundleURL);
+    long long staged = MSIMEUpdateBundleBuildOnDisk(staging);
+    switch (MSIMESystemUpdateNextStep(running, installed, staged, self.submittedBuild))
+    {
+    case MSIMESystemUpdateStepRestart:
+        // 系统在下一次需要输入法时拉起新的那份。
+        if (allowRestart) [NSApp terminate:nil];
+        return;
+    case MSIMESystemUpdateStepSubmit: {
+        if (self.submitting) return;
+        self.submitting = YES;
+        __weak MetasequoiaSparkleUpdateDriver *weakSelf = self;
+        NSString *name = [NSString stringWithFormat:@"%d-%lld.app", NSProcessInfo.processInfo.processIdentifier, staged];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+          // 提交不进去（更新助手没装）时也记下这个构建，免得每次触发都再拷一遍；下次启动会再试。
+          MSIMEUpdateSubmitToSystemUpdater([NSFileManager new], staging, [NSURL fileURLWithPath:MSIMESystemUpdaterInboxPath isDirectory:YES], name);
+          dispatch_async(dispatch_get_main_queue(), ^{
+            MetasequoiaSparkleUpdateDriver *driver = weakSelf;
+            if (driver == nil) return;
+            driver.submitting = NO;
+            driver.submittedBuild = staged;
+          });
+        });
+        return;
+    }
+    case MSIMESystemUpdateStepInstallIntoStaging: {
+        void (^install)(void) = self.pendingInstall;
+        self.pendingInstall = nil;
+        self.pendingInstallChannel = nil;
+        if (install == nil) return;
+        install();
+        // Sparkle 装进暂存副本只要几秒，不必等到下一次切换输入源才提交。这一步不退出进程，所以不用再问用户手上有没有没做完的事。
+        __weak MetasequoiaSparkleUpdateDriver *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+          [weakSelf advanceSystemUpdateAllowingRestart:NO];
+        });
+        return;
+    }
+    }
 }
 
 - (void)setUpdateChannel:(NSString *)channel
@@ -106,7 +199,7 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
         self.pendingInstallChannel = nil;
     }
     // 换了通道就是换了 feed。按 SPUUpdater.h 的说明，设置变化后调用 resetUpdateCycle 重排检查计时，feed 变了时 Sparkle 会在后台马上检查一次；稍等片刻再重排，用户来回切换时只算最后一次。手动检查不受影响，下一次取 feed 时就读新通道。
-    [self.updaterController.updater resetUpdateCycleAfterShortDelay];
+    [self.updater resetUpdateCycleAfterShortDelay];
 }
 
 // Sparkle 每次检查前取 feed 地址都会问这里（SPUUpdater.feedURL），所以设置页改了通道，下一次检查就读新通道的 appcast。Info.plist 的 SUFeedURL 是稳定版的 feed，测试版和每日构建的地址由它推出；推不出来时返回 nil，Sparkle 用 SUFeedURL，也就是退回稳定版。
@@ -120,21 +213,29 @@ static NSString *const MetasequoiaReleasePageURL = @"https://msime.app/download/
 
 - (BOOL)canCheckForUpdates
 {
-    return self.updaterController.updater.canCheckForUpdates;
+    return self.updater.canCheckForUpdates;
 }
 
 - (BOOL)automaticallyChecksForUpdates
 {
-    return self.updaterController.updater.automaticallyChecksForUpdates;
+    return self.updater.automaticallyChecksForUpdates;
 }
 
 - (void)checkForUpdates:(id)sender
 {
-    [self.updaterController checkForUpdates:sender];
+    if (self.updaterController != nil)
+        [self.updaterController checkForUpdates:sender];
+    else
+        [self.stagedUpdater checkForUpdates];
 }
 
 - (void)installDownloadedUpdate
 {
+    if (self.updaterController == nil)
+    {
+        [self advanceSystemUpdateAllowingRestart:YES];
+        return;
+    }
     // 安装闭包只交出一次：切换输入源、熄屏、切走会话和闲置定时器可能在进程退出之前接连触发，不让 Sparkle 重复开始同一次安装。
     void (^install)(void) = self.pendingInstall;
     self.pendingInstall = nil;
