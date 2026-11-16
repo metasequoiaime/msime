@@ -338,6 +338,18 @@ fn dynamic_grammar_manifest(pack: ResourcePack, artifact: &crate::resources::Art
         "artifacts": [artifact],
     })
 }
+
+/// 万象 LTS 会在固定 Release 地址原地替换文件，目录中的摘要只用于描述当时的版本；下载器已经核对响应长度并确认 `.gram` 格式，因此这里接受本次响应的实际摘要。其他语法模型仍必须与目录摘要和长度完全一致。
+fn dynamic_artifact_matches_catalog(
+    pack: ResourcePack,
+    actual: &crate::resources::Artifact,
+    catalog: &crate::resources::Artifact,
+) -> bool {
+    pack == ResourcePack::GrammarWanxiang
+        || (actual.name == catalog.name
+            && actual.sha256.eq_ignore_ascii_case(&catalog.sha256)
+            && actual.size == catalog.size)
+}
 const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
 const PRONUNCIATIONS_LOCK: &str = include_str!("../../../resources/pronunciations.lock.json");
 const TARGET_PRONUNCIATIONS_LOCK: &str =
@@ -1353,9 +1365,7 @@ pub fn install_for_channel(
             progress,
             cancel,
         )?;
-        if dynamic.artifact.sha256 != model.artifact.sha256
-            || dynamic.artifact.size != model.artifact.size
-        {
+        if !dynamic_artifact_matches_catalog(pack, &dynamic.artifact, &model.artifact) {
             return Err(LocalModelError::ChecksumMismatch(
                 model.artifact.name.clone(),
             ));
@@ -1722,6 +1732,34 @@ mod tests {
         let mut invalid = channels;
         invalid.models.push(invalid.models[0].clone());
         assert!(validate_grammar_catalog(&invalid).is_err());
+    }
+
+    #[test]
+    fn wanxiang_accepts_a_replaced_release_asset_but_other_models_do_not() {
+        let catalog: GrammarCatalog = serde_json::from_str(EMBEDDED_GRAMMAR_CATALOG).unwrap();
+        let wanxiang = &catalog.models[0].artifact;
+        let mut replaced = wanxiang.clone();
+        replaced.sha256 = "a".repeat(64);
+        replaced.size += 1;
+        assert!(dynamic_artifact_matches_catalog(
+            ResourcePack::GrammarWanxiang,
+            &replaced,
+            wanxiang,
+        ));
+
+        let baguwen = &catalog.models[1].artifact;
+        let mut changed = baguwen.clone();
+        changed.sha256 = "b".repeat(64);
+        assert!(!dynamic_artifact_matches_catalog(
+            ResourcePack::GrammarBaguwen,
+            &changed,
+            baguwen,
+        ));
+        assert!(dynamic_artifact_matches_catalog(
+            ResourcePack::GrammarBaguwen,
+            baguwen,
+            baguwen,
+        ));
     }
 
     /// 国内网络常常连不上 raw.githubusercontent.com。读不到在线目录时，没装过的模型改用编译进来的锁文件安装，三个可下载的语法模型都要能从中找到，地址、长度、摘要和上游提交与锁文件一致；读得到时照用在线目录。

@@ -73,6 +73,8 @@ def routine(code: str, name: str) -> str:
 
 def main() -> int:
     script = SETUP.read_text(encoding="utf-8")
+    script = script.replace('#include "VcRuntimePrerequisite.iss"',
+                            SETUP.with_name("VcRuntimePrerequisite.iss").read_text(encoding="utf-8"))
     failures: list[str] = []
 
     def require(condition: bool, message: str) -> None:
@@ -84,52 +86,49 @@ def main() -> int:
     code = prerequisite_code(script)
     require(code != "", "no ReadWebView2Version ... InitializeSetup block to check")
     webview = routine(code, "ReadWebView2Version")
-    view = routine(code, "VCRuntimeInstalledInView")
+    file_check = routine(code, "VCRuntimeFileIsCompatible")
     installed = routine(code, "VCRuntimeIsInstalled")
     setup = routine(code, "InitializeSetup")
 
-    # Registry, not the filesystem. Setup.exe is a 32-bit process and Pascal
-    # Script's FileExists is redirected to SysWOW64, so probing for
-    # vcruntime140.dll reports the x86 runtime and calls an x64-only machine
-    # unequipped. Both registry views are named explicitly instead.
-    require("Software\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64" in script,
-            "VC runtime is not read from its x64 registry key")
+    # WebView2 仍按官方登记位置查找；VC 运行库由真实文件版本行为测试覆盖。
     require("EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" in script,
             "WebView2 is not read from the EdgeUpdate client key")
-    require(re.search(r"FileExists\([^)]*vcruntime", script, re.I) is None,
-            "VC runtime probed through the filesystem, which WOW64 redirects")
     for root in ("HKLM32", "HKLM64"):
         require(re.search(rf"RegQueryStringValue\(\s*{root}\s*,\s*WebView2ClientKey\s*,\s*'pv'", webview) is not None,
                 f"ReadWebView2Version does not read WebView2's pv from the {root} view")
-        require(re.search(rf"VCRuntimeInstalledInView\(\s*{root}\s*\)", installed) is not None,
-                f"VCRuntimeIsInstalled does not consult the {root} view")
     require(re.search(r"\bReadWebView2Version\b", setup) is not None,
             "InitializeSetup does not read the WebView2 version")
     require(re.search(r"\bVCRuntimeIsInstalled\b", setup) is not None,
             "InitializeSetup does not check the VC runtime")
 
-    # Installed=1 is true on a machine with only the 2015/2017 redistributable,
-    # which lacks vcruntime140_1.dll and still cannot start the Server.
-    require(re.search(r"Minor\s*>=\s*20", view) is not None,
-            "VC runtime accepted without requiring 14.20 or newer")
-    require(re.search(r"RegQueryDWordValue\(\s*RootKey\s*,\s*VCRuntimeKey\s*,\s*'Installed'", view) is not None,
-            "VC runtime Installed value is not read")
+    require("GetVersionNumbers(" in file_check,
+            "VC runtime must use the installer's native file version reader")
+    require("PowerShell" not in installed and "RegistryInstalled" not in installed,
+            "VC runtime checking must not launch PowerShell or trust stale registry values")
+    for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+        require(dll in installed,
+                f"VC runtime check does not inspect the native {dll}")
 
-    # A silent install is CI or a fleet deployment; a modal dialog there is a
-    # hang. Default to continuing, with the missing component in the log.
+    # WebView2 仍允许用户选择继续；VC 版本过旧会明确阻止安装，静默部署也必须
+    # 以失败退出，避免安装成功后在宿主进程里崩溃。
     require("SuppressibleMsgBox" in setup,
             "prerequisite prompt would block a silent install")
     require(re.search(r"SuppressibleMsgBox\([^;]*IDNO\)", setup, re.S) is not None,
             "silent install does not default to continuing")
-    require(setup.count("Log('Prerequisite missing:") == 2,
+    require(setup.count("Log('Prerequisite") == 2,
             "both missing prerequisites must be recorded in the install log")
 
-    # The install is not blocked: a user may be about to fetch the component.
-    require("MB_YESNO" in setup, "prerequisite prompt is not a yes/no choice")
+    require("MB_YESNO" in setup, "WebView2 prerequisite prompt is not a yes/no choice")
+    require(re.search(r"NeedsVCRuntime[\s\S]*?SuppressibleMsgBox\([^;]*mbError", setup) is not None,
+            "outdated VC runtime is not shown as a blocking error")
+    require("Result := False;" in setup and "if not WizardSilent" in setup,
+            "outdated VC runtime does not stop silent and interactive installs safely")
 
     for url in ("https://developer.microsoft.com/zh-cn/microsoft-edge/webview2",
                 "https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist"):
         require(url in script, f"missing download page: {url}")
+    require("https://aka.ms/vc14/vc_redist.x64.exe" in script,
+            "missing latest x64 VC runtime direct link")
     require(re.search(r"'http://", script) is None,
             "a download page is offered over plain http")
 

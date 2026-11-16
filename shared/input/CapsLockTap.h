@@ -7,6 +7,11 @@ namespace msime::input {
 // 「单按 Caps Lock 切换中英文」里轻点与长按的分界，三个桌面宿主共用：从按下（macOS 是大写锁定打开的那一刻）到松开不超过这个时长才算轻点。300 毫秒比单按 Shift、Control 的 500 毫秒短，因为长按 Caps Lock 是在要大写锁定，那一侧更该早点认定。
 inline constexpr std::int64_t kCapsLockTapThresholdMs = 300;
 
+// `GetKeyState(VK_CAPITAL)` 的低位就是切换后的大写锁定状态；高位只是当前按键是否按下。
+constexpr bool caps_lock_enabled_from_key_state(short keyState) {
+  return (keyState & 0x0001) != 0;
+}
+
 // 判定一次 Caps Lock 按键是不是轻点：开关打开、按下前大写锁定是关的、按下时没有别的键或修饰键按着、按着期间没有按别的键、并且在分界内松开。
 //
 // 时间由宿主给出（毫秒，同一个单调时钟），这里不读时钟也不碰系统的锁定状态，宿主的单测可以直接驱动它。认定为轻点之后，宿主负责切换中英文并把大写锁定撤回；其余情况一律照常保留大写锁定。

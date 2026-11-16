@@ -323,7 +323,7 @@ final class ImeCandidates {
             s.imeNineKeyPanel.dismiss();
             return;
         }
-        // 全拼九键的三栏面板：选拼音、⌫、筛选换了一代候选时不收起，重新取完整候选再画；组字结束时 eligible 为假，落到下面按代次收起。普通网格按代次收起，部分选词后由 selectPanelCandidate 先换上新一代的快照再画，走不到这里的收起。
+        // 九键三栏自行跟随筛选换代；普通网格在部分选词或同次组字的异步刷新时先同步快照，其他换代仍收起。
         if (s.imeNineKeyPanel.eligible() && s.imeNineKeyPanel.refreshSnapshot()) {
             if (!ViewPolicy.isGone(s.expandedCandidates)) {
                 s.expandedCandidates.removeAllViews();

@@ -591,12 +591,12 @@ fn disabled_and_daily_checks_do_not_access_the_network_but_manual_checks_do() {
 }
 
 #[test]
-fn rollback_keeps_the_bundle_locator_and_disables_automatic_reinstallation() {
+fn rollback_keeps_the_bundle_locator_and_automatic_update_setting() {
     let fixture = Fixture::new();
     fixture.release("dict-v2.0.10", b"synthetic dictionary", 1);
     check_with(&fixture.context, false, &fixture).unwrap();
     let result = rollback(&fixture.context).unwrap();
-    assert!(!result.enabled);
+    assert!(result.enabled);
     assert_eq!(result.version, "dict-v2.0.9");
     assert!(selected(&fixture.context.state_root, &fixture.context.baseline).is_none());
     assert_eq!(
@@ -1266,3 +1266,5 @@ fn switching_automatic_updates_off_during_a_stall_cancels_without_trying_other_s
     ));
     assert_eq!(std::fs::read(&partial).unwrap(), &data[..5]);
 }
+
+mod withdrawal;

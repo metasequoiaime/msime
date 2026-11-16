@@ -184,6 +184,7 @@ function adapter() {
         "nineKeyFlickTouch",
         "typeNineKeyFlickCharacter",
         "eighteenKeySwipeTouch",
+        "drawsEighteenKey",
         "commaSwipeTouch",
         "letterHintTouch",
         "glideUp",
@@ -200,6 +201,7 @@ function adapter() {
   );
   const view = new View();
   view.keyFacesShowKeys = (): boolean => true;
+  view.drawsEighteenKey = (): boolean => true;
   view.nineKeyFlicks = { up: (): number => 1, swallows: (): boolean => true };
   const event = (type: number, id: number) => ({ type, changedTouches: [{ id }] });
   return { session, view, event, timers, vibrations: (): number => vibrations };
