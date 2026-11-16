@@ -132,17 +132,27 @@ public final class ShuangpinCustomPage extends ReloadingDetailPage {
             : draftChanged ? "表可以用，还没有保存" : "表可以用";
         GroupCard.Row save = editor.button("保存并使用", saveSubtitle, "保存", this::saveDraft);
         save.setEnabled(problem == null);
+        // 每张双拼表的单位都一样，以内置表的单位为准：导入的表缺了的单位也列出来（空着，点进去补上），表里多出来的单位点进去删除，不然缺单位、多单位的表在本页改不好。
+        JSONObject builtin = layout(ShuangpinCustomKeypad.DEFAULT_PROFILE, null);
+        JSONObject known = builtin == null ? null : builtin.optJSONObject("table");
         for (String part : PARTS) {
             GroupCard units = GroupCard.add(sectionColumn(target, "自定义"), ShuangpinCustomKeypad.partTitle(part));
             JSONObject entries = draft.optJSONObject(part);
             if (entries == null) continue;
-            for (Iterator<String> names = sortedKeys(entries); names.hasNext(); ) {
-                String unit = names.next();
+            JSONObject knownUnits = known == null ? null : known.optJSONObject(part);
+            java.util.TreeSet<String> names = new java.util.TreeSet<>();
+            for (Iterator<String> keys = entries.keys(); keys.hasNext(); ) names.add(keys.next());
+            if (knownUnits != null) {
+                for (Iterator<String> keys = knownUnits.keys(); keys.hasNext(); ) names.add(keys.next());
+            }
+            for (String unit : names) {
                 String key = entries.optString(unit, "");
+                boolean extra = knownUnits != null && !knownUnits.has(unit);
                 boolean wrong = problem != null && part.equals(problem.optString("part"))
                     && unit.equals(problem.optString("unit"));
-                units.nav(ShuangpinCustomKeypad.unitLabel(unit), wrong ? problemText(problem) : null, key,
-                    () -> editUnit(part, unit, key));
+                String subtitle = wrong ? problemText(problem) : extra ? "多余项" : null;
+                units.nav(ShuangpinCustomKeypad.unitLabel(unit), subtitle, key.isEmpty() ? null : key,
+                    extra ? () -> confirmRemoveUnit(part, unit) : () -> editUnit(part, unit, key));
             }
         }
     }
@@ -192,6 +202,18 @@ public final class ShuangpinCustomPage extends ReloadingDetailPage {
             render();
         });
         dialog.show();
+    }
+
+    /** 表里多出来、双拼不认识的单位只能删掉。 */
+    private void confirmRemoveUnit(String part, String unit) {
+        MessageDialog.confirm(requireContext(), "删除多余项？",
+            ShuangpinCustomKeypad.partTitle(part) + "「" + ShuangpinCustomKeypad.unitLabel(unit) + "」不是双拼表里的单位", "删除", () -> {
+                JSONObject entries = draft == null ? null : draft.optJSONObject(part);
+                if (entries == null) return;
+                entries.remove(unit);
+                draftChanged = true;
+                render();
+            });
     }
 
     private void startFromBuiltin() {
@@ -354,12 +376,5 @@ public final class ShuangpinCustomPage extends ReloadingDetailPage {
         } catch (JSONException impossible) {
             throw new IllegalStateException(impossible);
         }
-    }
-
-    private static Iterator<String> sortedKeys(JSONObject object) {
-        List<String> names = new ArrayList<>(object.length());
-        for (Iterator<String> keys = object.keys(); keys.hasNext(); ) names.add(keys.next());
-        java.util.Collections.sort(names);
-        return names.iterator();
     }
 }

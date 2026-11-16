@@ -2664,6 +2664,26 @@ fn shuangpin_custom_layouts_share_tables_problems_and_key_hints() {
     assert_eq!(valid["value"]["problem"], Value::Null);
     assert_eq!(valid["value"]["keys"][0]["key"], "Q");
 
+    // 只有零声母用到 `;` 的表：`;` 键也要有提示，键盘才会显示这个键。
+    let mut zero_semicolon = builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe).unwrap();
+    zero_semicolon
+        .zero_initials
+        .insert("eng".into(), "e;".into());
+    assert!(!zero_semicolon.finals.values().any(|key| key == ";"));
+    let zero_semicolon =
+        shuangpin_custom_layout(json!({ "profile": "custom", "table": zero_semicolon }));
+    assert_eq!(
+        zero_semicolon["value"]["effective"], "custom",
+        "{zero_semicolon}"
+    );
+    let semicolon = zero_semicolon["value"]["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|face| face["key"] == ";")
+        .unwrap_or_else(|| panic!("no ; key face: {zero_semicolon}"));
+    assert_eq!(semicolon["hint"], "eng");
+
     assert_eq!(
         shuangpin_custom_layout(json!({ "profile": "unknown" }))["ok"],
         false

@@ -1711,7 +1711,25 @@ fn shuangpin_key_hint(table: &ShuangpinCustomProfile, key: &str) -> String {
         values.join(" ")
     };
     let initials = units(&table.initials);
-    let finals = units(&table.finals);
+    let mut finals = units(&table.finals);
+    // 零声母的第二个键可以是 `;`（Engine 的 `uses_semicolon_key` 也这样算）：把这些音节也记在 `;` 上，键盘按 `;` 有没有提示决定显不显示这个键，否则只在零声母里用到 `;` 的表在触屏上打不出这些音节。
+    if key == ";" {
+        let mut zero: Vec<&str> = table
+            .zero_initials
+            .iter()
+            .filter(|(syllable, code)| {
+                code.ends_with(';') && !finals.split(' ').any(|unit| unit == syllable.as_str())
+            })
+            .map(|(syllable, _)| syllable.as_str())
+            .collect();
+        zero.sort_unstable();
+        if !zero.is_empty() {
+            if !finals.is_empty() {
+                finals.push(' ');
+            }
+            finals.push_str(&zero.join(" "));
+        }
+    }
     match (initials.is_empty(), finals.is_empty()) {
         (true, true) => String::new(),
         (true, false) => finals,
