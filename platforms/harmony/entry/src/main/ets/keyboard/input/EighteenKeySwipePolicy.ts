@@ -1,5 +1,5 @@
 /**
- * 双拼 18 键两个字母的键上的左右横滑：左滑取左字母、右滑取右字母，以大写精确标记交给 `pressGridKey`，引擎把大写当作这一组里的那个小写字母（引擎在 14 键和 18 键的全拼、双拼网格都收，这里目前只在双拼 18 键送）。规则与 Android 的 `EighteenKeySwipePolicy`、iOS 的 `EighteenKeySwipeGestureRecognizer` 相同：横向位移超过 24 vp 且大于纵向的 1.5 倍才算横滑，与 Android 的 24 dp、iOS 的 24 pt 是同一个物理尺寸，正如 `SwipeHintPolicy` 把 Android 的 14 dp 写成 14 vp。
+ * 14/18 键全拼或双拼两个字母的键上的左右横滑：左滑取左字母、右滑取右字母，以大写精确标记交给 `pressGridKey`，引擎把大写当作这一组里的那个小写字母（引擎在 14 键和 18 键的全拼、双拼网格都收）。规则与 Android 的 `EighteenKeySwipePolicy`、iOS 的 `EighteenKeySwipeGestureRecognizer` 相同：横向位移超过 24 vp 且大于纵向的 1.5 倍才算横滑，与 Android 的 24 dp、iOS 的 24 pt 是同一个物理尺寸，正如 `SwipeHintPolicy` 把 Android 的 14 dp 写成 14 vp。
  *
  * 一旦越过阈值，这次按压就不再是点按：回到起点、同一键上落下第二根手指或系统取消都什么也不输入，反向拖过另一侧可以重选。长按先生效时不再横滑；横滑先接管时长按也不再弹出字母。抬手那一点也判一次，快速一甩只在抬手时才过阈值的，同样取那个字母。
  *
@@ -65,7 +65,7 @@ interface SwipePress {
   selected: string;
 }
 
-/** 双拼 18 键各键上正在进行的按压，按键上的字母（`FourteenKey.letters`）区分，两个拇指按在两个键上互不影响。 */
+/** 14/18 键各键上正在进行的按压，按键上的字母（`FourteenKey.letters`）区分，两个拇指按在两个键上互不影响。 */
 export class EighteenKeySwipeGesture {
   private readonly presses: Map<string, SwipePress> = new Map<string, SwipePress>();
 
