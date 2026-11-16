@@ -365,6 +365,8 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
         wubi_reverse_code: true,
+        wubi_phrase_learning: 0,
+        wubi_phrase_placement: 0,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
@@ -2020,6 +2022,34 @@ fn wubi_mixed_pinyin_reaches_engine_and_applies_after_composition() {
     assert_eq!(disabled["value"]["deferred"], false);
     SESSIONS.with(|sessions| {
         assert!(!sessions.borrow()[&handle].options.wubi_mixed_pinyin);
+    });
+    read(msime_client_destroy(handle));
+}
+
+/// 五笔造词时机与落库位置从偏好映射进引擎选项：非默认值到 Engine，缺省照默认（0 = thrice/bottom）。
+#[test]
+fn wubi_phrase_preferences_reach_engine_options() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    let mut preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        wubi_phrase_learning: WubiPhraseLearning::Once,
+        wubi_phrase_placement: WubiPhrasePlacement::Top,
+        ..Preferences::default()
+    };
+    update(handle, 1, &preferences);
+    SESSIONS.with(|sessions| {
+        let options = &sessions.borrow()[&handle].options;
+        assert_eq!(options.wubi_phrase_learning, 1);
+        assert_eq!(options.wubi_phrase_placement, 1);
+    });
+    preferences.wubi_phrase_learning = WubiPhraseLearning::Thrice;
+    preferences.wubi_phrase_placement = WubiPhrasePlacement::Bottom;
+    update(handle, 2, &preferences);
+    SESSIONS.with(|sessions| {
+        let options = &sessions.borrow()[&handle].options;
+        assert_eq!(options.wubi_phrase_learning, 0);
+        assert_eq!(options.wubi_phrase_placement, 0);
     });
     read(msime_client_destroy(handle));
 }
