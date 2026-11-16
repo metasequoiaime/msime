@@ -563,6 +563,7 @@ fn build_generation(
             inserted.map_err(|_| invalid_state())?;
         }
     }
+    super::position_state::seed_display(&transaction, "main", None).map_err(|_| invalid_state())?;
     transaction.commit().map_err(|_| invalid_state())?;
     drop(connection);
     prepare_runtime_paths_for(
@@ -706,7 +707,14 @@ pub fn merge_dictionary_state(
                             && bounded(value, MAX_VALUE_BYTES, false)
                             && (1..=5).contains(slot),
                     )?;
-                    if position.execute(params![context, key, value, slot])? == 1 {
+                    let already_present = transaction.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM personal_journal.fixed_candidate_position_state WHERE context_key=?1 AND entry_key=?2 AND value=?3)",
+                        params![context, key, value],
+                        |row| row.get::<_, bool>(0),
+                    )?;
+                    if !already_present
+                        && position.execute(params![context, key, value, slot])? == 1
+                    {
                         merge.positions += 1;
                     } else {
                         merge.kept += 1;
@@ -733,6 +741,7 @@ pub fn merge_dictionary_state(
             }
         }
     }
+    super::position_state::seed_display(&transaction, "personal_journal", None)?;
     transaction.commit()?;
     Ok(merge)
 }

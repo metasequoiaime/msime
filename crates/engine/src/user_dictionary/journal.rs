@@ -450,7 +450,7 @@ fn open_uncached(path: &Path) -> Result<JournalConnection> {
     })
 }
 
-/// Every `CREATE ... IF NOT EXISTS` of J:114-154 and NS:156-167, the `user_inserted` column check, then `PRAGMA user_version = 4` (informational only).
+/// 补齐日志表、`user_inserted` 和固定位置完整状态，最后写仅供说明的 `user_version = 4`。
 pub fn ensure_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(SCHEMA_SQL)?;
     let has_user_inserted = {
@@ -470,7 +470,8 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
             "ALTER TABLE user_dictionary_operations ADD COLUMN user_inserted INTEGER NOT NULL DEFAULT 0",
         )?;
     }
-    // Informational only: nothing reads it, and every table is created with IF NOT EXISTS, so an older engine that writes its own number back simply ignores the tables it does not know (J:177-178).
+    super::position_state::ensure_schema(connection)?;
+    // 版本号仅供说明，不作为迁移开关；旧引擎改写它时仍忽略不认识的表（J:177-178）。
     connection.execute_batch(&format!("PRAGMA user_version={SCHEMA_VERSION}"))?;
     Ok(())
 }

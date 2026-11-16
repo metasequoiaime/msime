@@ -14,7 +14,7 @@ pub type FindCandidate<'a> = dyn FnMut(&str, &str) -> Option<WordItem> + 'a;
 
 const FIXED_SLOT_COUNT: usize = 5;
 
-/// Slot 1..=5; the previous owner of the slot is evicted (J:905-927).
+/// 固定到 1..=5；本机显式占用会移除该槽位的旧候选（J:905-927）。
 pub fn set_fixed_position(
     user_db: &Path,
     context: &str,
@@ -31,17 +31,8 @@ pub fn set_fixed_position(
     }
     let journal = open_journal(user_db)?;
     journal.execute_batch("BEGIN IMMEDIATE")?;
-    journal
-        .prepare_cached(
-            "DELETE FROM fixed_candidate_positions WHERE context_key=?1 AND position=?2",
-        )?
-        .execute(params![context, position])?;
-    journal
-        .prepare_cached(
-            "INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES(?1,?2,?3,?4) ON CONFLICT(context_key,entry_key,value) DO UPDATE SET position=excluded.position",
-        )?
-        .execute(params![context, entry_key, value, position])?;
-    // Any `?` above leaves the transaction to the connection guard's rollback.
+    super::position_state::set(&journal, context, entry_key, value, position)?;
+    // 任一步失败都由连接守卫回滚，完整候选和显示投影不会只改一半。
     journal.execute_batch("COMMIT")?;
     Ok(())
 }
@@ -53,11 +44,9 @@ pub fn clear_fixed_position(
     value: &str,
 ) -> Result<()> {
     let journal = open_journal(user_db)?;
-    journal
-        .prepare_cached(
-            "DELETE FROM fixed_candidate_positions WHERE context_key=?1 AND entry_key=?2 AND value=?3",
-        )?
-        .execute(params![context, entry_key, value])?;
+    journal.execute_batch("BEGIN IMMEDIATE")?;
+    super::position_state::clear(&journal, context, entry_key, value)?;
+    journal.execute_batch("COMMIT")?;
     Ok(())
 }
 
