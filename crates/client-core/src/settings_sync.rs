@@ -1,14 +1,13 @@
 //! WebDAV 设置同步的无网络文档投影。
 //!
 //! 这里只负责把已经通过 `Preferences` 校验的本机偏好分成可同步的共享设置、主题
-//! 和本机设置。网络、设备批准、冲突合并和宿主触发留在后续切片；输入法宿主不能
+//! 和本机设置，并提供三方合并、事件链及密文信封。网络、设备批准和宿主触发留给服务层；输入法宿主不能
 //! 直接把完整偏好文件交给 WebDAV。
 
 use crate::edition::Edition;
 use crate::preferences::Preferences;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 /// WebDAV 设置域的文档格式名，与设置文件和其他同步域分开。
@@ -21,6 +20,13 @@ pub const MAX_DOCUMENT_BYTES: usize = 1 << 20;
 pub const EVENT_FORMAT: &str = "app.msime.settings-sync-event";
 pub const EVENT_VERSION: u64 = 1;
 pub const MAX_EVENT_BYTES: usize = MAX_DOCUMENT_BYTES + 4096;
+/// 从已批准的设备密钥派生设置同步专用密钥，不能复用云剪贴板或词库的标签。
+pub const KEY_INFO: &[u8] = b"msime-settings-v1-key";
+mod crypto;
+mod event;
+mod fields;
+pub use crypto::{MAX_SEALED_EVENT_BYTES, SealedSettingsEvent, SettingsSyncCipher};
+pub use event::SettingsSyncEvent;
 
 /// 偏好顶层字段在同步文档中的归属。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,21 +52,14 @@ const THEME_FIELDS: &[&str] = &[
     "custom_theme",
 ];
 
-/// `settings_document` 已经为导出文件定义了本机边界。同步域复用它，避免账号、
-/// WebDAV 凭据、模型路径和网络代理在两个导出入口出现不同的泄露规则。
-fn is_local_field(name: &str) -> bool {
-    crate::settings_document::LOCAL_SECTIONS.contains(&name)
-}
-
-/// 返回已知字段的同步归属；未知字段不会从已类型化的 `Preferences` 产生，但在
-/// 宿主传入字段名时仍按本机处理，防止未来字段未经审查就出网。
+/// 未审核的字段一律留在本机；设置文件导出与网盘自动上传的边界不同。
 pub fn classify_field(name: &str) -> SyncFieldClass {
-    if is_local_field(name) {
-        SyncFieldClass::Local
-    } else if THEME_FIELDS.contains(&name) {
+    if THEME_FIELDS.contains(&name) {
         SyncFieldClass::Theme
-    } else {
+    } else if fields::SHARED_FIELDS.contains(&name) {
         SyncFieldClass::Shared
+    } else {
+        SyncFieldClass::Local
     }
 }
 
@@ -82,6 +81,8 @@ pub struct SettingsSyncDocument {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSyncError {
+    Crypto,
+    RandomUnavailable,
     Serialization,
     InvalidPreferences,
     InvalidDocument,
@@ -103,88 +104,6 @@ pub struct SettingsSyncConflict {
 pub struct SettingsSyncMerge {
     pub document: SettingsSyncDocument,
     pub conflicts: Vec<SettingsSyncConflict>,
-}
-
-/// WebDAV 上追加写入的设置事件。事件正文在交给传输层前还应由独立的设置同步
-/// 密钥加密；这里只定义不可回退的顺序和哈希链接，避免把明文事件误当成日志协议。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SettingsSyncEvent {
-    pub format: String,
-    pub version: u64,
-    pub sequence: u64,
-    /// 设备公钥摘要（32 个小写十六进制字符）。
-    pub device_id: String,
-    /// 创世事件为空，后续事件必须是前一事件的 SHA-256 摘要。
-    pub parent: String,
-    pub document: SettingsSyncDocument,
-}
-
-impl SettingsSyncEvent {
-    pub fn new(
-        sequence: u64,
-        device_id: impl Into<String>,
-        parent: impl Into<String>,
-        document: SettingsSyncDocument,
-    ) -> Result<Self, SettingsSyncError> {
-        let event = Self {
-            format: EVENT_FORMAT.into(),
-            version: EVENT_VERSION,
-            sequence,
-            device_id: device_id.into(),
-            parent: parent.into(),
-            document,
-        };
-        event.validate()
-    }
-
-    pub fn from_json(bytes: &[u8]) -> Result<Self, SettingsSyncError> {
-        if bytes.len() > MAX_EVENT_BYTES {
-            return Err(SettingsSyncError::TooLarge);
-        }
-        let event: Self =
-            serde_json::from_slice(bytes).map_err(|_| SettingsSyncError::InvalidEvent)?;
-        event.validate()
-    }
-
-    pub fn to_json(&self) -> Result<Vec<u8>, SettingsSyncError> {
-        let event = self.clone().validate()?;
-        let bytes = serde_json::to_vec(&event).map_err(|_| SettingsSyncError::Serialization)?;
-        if bytes.len() > MAX_EVENT_BYTES {
-            return Err(SettingsSyncError::TooLarge);
-        }
-        Ok(bytes)
-    }
-
-    /// 返回事件的稳定摘要，供下一个事件写入 `parent`。
-    pub fn head(&self) -> Result<String, SettingsSyncError> {
-        Ok(hex::encode(Sha256::digest(&self.to_json()?)))
-    }
-
-    /// 检查事件是否紧接在 `previous` 后面；失败时拒绝回退、分叉或跳号。
-    pub fn validate_successor(&self, previous: &Self) -> Result<(), SettingsSyncError> {
-        if self.sequence != previous.sequence.saturating_add(1) || self.parent != previous.head()? {
-            return Err(SettingsSyncError::ChainMismatch);
-        }
-        Ok(())
-    }
-
-    fn validate(self) -> Result<Self, SettingsSyncError> {
-        if self.format != EVENT_FORMAT
-            || self.version != EVENT_VERSION
-            || !is_lower_hex(&self.device_id, 32)
-            || (self.sequence == 0 && !self.parent.is_empty())
-            || (self.sequence > 0 && !is_lower_hex(&self.parent, 64))
-        {
-            return Err(SettingsSyncError::InvalidEvent);
-        }
-        self.document.clone().validate()?;
-        let bytes = serde_json::to_vec(&self).map_err(|_| SettingsSyncError::Serialization)?;
-        if bytes.len() > MAX_EVENT_BYTES {
-            return Err(SettingsSyncError::TooLarge);
-        }
-        Ok(self)
-    }
 }
 
 fn is_lower_hex(value: &str, length: usize) -> bool {
@@ -225,8 +144,16 @@ impl SettingsSyncDocument {
             version: VERSION,
             shared,
             theme,
-            deleted_shared: BTreeSet::new(),
-            deleted_theme: BTreeSet::new(),
+            deleted_shared: fields::SHARED_FIELDS
+                .iter()
+                .filter(|field| !object.contains_key(**field))
+                .map(|field| (*field).to_owned())
+                .collect(),
+            deleted_theme: THEME_FIELDS
+                .iter()
+                .filter(|field| !object.contains_key(**field))
+                .map(|field| (*field).to_owned())
+                .collect(),
         };
         let bytes = serde_json::to_vec(&document).map_err(|_| SettingsSyncError::Serialization)?;
         if bytes.len() > MAX_DOCUMENT_BYTES {
@@ -247,6 +174,10 @@ impl SettingsSyncDocument {
     }
 
     fn validate(self) -> Result<Self, SettingsSyncError> {
+        let encoded = serde_json::to_vec(&self).map_err(|_| SettingsSyncError::Serialization)?;
+        if encoded.len() > MAX_DOCUMENT_BYTES {
+            return Err(SettingsSyncError::TooLarge);
+        }
         if self.format != FORMAT || self.version != VERSION {
             return Err(SettingsSyncError::InvalidDocument);
         }
@@ -273,15 +204,26 @@ impl SettingsSyncDocument {
                 return Err(SettingsSyncError::InvalidDocument);
             }
         }
-        let encoded = serde_json::to_vec(&self).map_err(|_| SettingsSyncError::Serialization)?;
-        if encoded.len() > MAX_DOCUMENT_BYTES {
-            return Err(SettingsSyncError::TooLarge);
+        let mut values = serde_json::to_value(Preferences::default())
+            .map_err(|_| SettingsSyncError::Serialization)?;
+        let object = values
+            .as_object_mut()
+            .ok_or(SettingsSyncError::Serialization)?;
+        object.extend(self.shared.clone());
+        object.extend(self.theme.clone());
+        let (typed, unknown) =
+            crate::preferences::deserialize_keeping_unknown::<Preferences>(&values, &[])
+                .map_err(|_| SettingsSyncError::InvalidDocument)?;
+        if !unknown.is_empty() || !crate::preferences::newer_list_values(&values).is_empty() {
+            return Err(SettingsSyncError::InvalidDocument);
         }
+        typed
+            .validate()
+            .map_err(|_| SettingsSyncError::InvalidDocument)?;
         Ok(self)
     }
 
-    /// 按基线做字段级三方合并。删除字段用“缺失”参与比较，因此旧快照不会把用户
-    /// 已删除的字段悄悄写回来。
+    /// 按基线做字段级三方合并。显式墓碑参与比较；旧文档未提供的字段沿用基线。
     pub fn merge(
         base: &Self,
         local: &Self,
@@ -364,7 +306,20 @@ impl SettingsSyncDocument {
             .cloned()
             .ok_or(SettingsSyncError::Serialization)?;
         for field in self.deleted_shared.iter().chain(self.deleted_theme.iter()) {
-            if let Some(value) = defaults.get(field) {
+            if field == "custom_theme" {
+                let skin = preferences.get(field).and_then(Value::as_object);
+                let mut reset = defaults
+                    .get(field)
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                for key in ["candidate_skin", "candidate_skin_dark"] {
+                    if let Some(value) = skin.and_then(|skin| skin.get(key)) {
+                        reset.insert(key.to_owned(), value.clone());
+                    }
+                }
+                preferences.insert(field.clone(), Value::Object(reset));
+            } else if let Some(value) = defaults.get(field) {
                 preferences.insert(field.clone(), value.clone());
             } else {
                 preferences.remove(field);
@@ -377,11 +332,15 @@ impl SettingsSyncDocument {
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
-                let mut merged_theme = current_theme;
                 let Some(remote_theme) = value.as_object() else {
                     return Err(SettingsSyncError::InvalidDocument);
                 };
-                merged_theme.extend(remote_theme.clone());
+                let mut merged_theme = remote_theme.clone();
+                for key in ["candidate_skin", "candidate_skin_dark"] {
+                    if let Some(value) = current_theme.get(key) {
+                        merged_theme.insert(key.to_owned(), value.clone());
+                    }
+                }
                 preferences.insert(field.clone(), Value::Object(merged_theme));
             } else {
                 preferences.insert(field.clone(), value.clone());
@@ -427,8 +386,14 @@ fn merge_map(
     let mut deleted = BTreeSet::new();
     for field in fields {
         let baseline = entry(base, base_deleted, &field);
-        let local_value = entry(local, local_deleted, &field);
-        let remote_value = entry(remote, remote_deleted, &field);
+        let local_value = match entry(local, local_deleted, &field) {
+            Entry::Missing => baseline,
+            value => value,
+        };
+        let remote_value = match entry(remote, remote_deleted, &field) {
+            Entry::Missing => baseline,
+            value => value,
+        };
         let local_changed = local_value != baseline;
         let remote_changed = remote_value != baseline;
         let selected = if !local_changed {
@@ -498,6 +463,12 @@ mod tests {
     #[test]
     fn classifies_local_theme_and_shared_fields() {
         assert_eq!(classify_field("scheme"), SyncFieldClass::Shared);
+        assert_eq!(classify_field("unreviewed_secret"), SyncFieldClass::Local);
+        assert_eq!(
+            classify_field("android_keyboard_skin_light"),
+            SyncFieldClass::Local
+        );
+        assert_eq!(classify_field("keybindings"), SyncFieldClass::Local);
         assert_eq!(classify_field("global_theme"), SyncFieldClass::Theme);
         assert_eq!(classify_field("voice_input"), SyncFieldClass::Local);
         assert_eq!(
@@ -701,6 +672,53 @@ mod tests {
         assert_eq!(
             applied.candidate_page_size,
             Preferences::default().candidate_page_size
+        );
+    }
+    #[test]
+    fn omitted_default_values_are_tombstones_and_theme_removal_keeps_only_local_references() {
+        let mut old = Preferences::default();
+        old.touch_number_row = true;
+        old.custom_theme.keyboard = Some(crate::preferences::TouchKeyboardSkinDesign::default());
+        old.custom_theme.candidate_skin = Some("local-skin".into());
+        let base = SettingsSyncDocument::from_preferences(&old).unwrap();
+        let reset = SettingsSyncDocument::from_preferences(&Preferences::default()).unwrap();
+        assert!(reset.deleted_shared.contains("touch_number_row"));
+        let merged = SettingsSyncDocument::merge(&base, &base, &reset).unwrap();
+        let applied = merged
+            .document
+            .apply_to_preferences(&old, Edition::full())
+            .unwrap();
+        assert!(!applied.touch_number_row);
+        assert!(applied.custom_theme.keyboard.is_none());
+        assert_eq!(
+            applied.custom_theme.candidate_skin.as_deref(),
+            Some("local-skin")
+        );
+    }
+
+    #[test]
+    fn external_documents_reject_unknown_fields_types_and_nested_theme_keys() {
+        let base = SettingsSyncDocument::from_preferences(&Preferences::default()).unwrap();
+        for (key, value) in [
+            ("unreviewed_secret", serde_json::json!("synthetic")),
+            ("candidate_page_size", serde_json::json!("bad")),
+        ] {
+            let mut bad = base.clone();
+            bad.shared.insert(key.into(), value);
+            assert_eq!(
+                SettingsSyncDocument::from_json(&serde_json::to_vec(&bad).unwrap()),
+                Err(SettingsSyncError::InvalidDocument)
+            );
+        }
+        let mut bad = base;
+        bad.deleted_theme.remove("custom_theme");
+        bad.theme.insert(
+            "custom_theme".into(),
+            serde_json::json!({"file_path": "/synthetic/private"}),
+        );
+        assert_eq!(
+            SettingsSyncDocument::from_json(&serde_json::to_vec(&bad).unwrap()),
+            Err(SettingsSyncError::InvalidDocument)
         );
     }
 }
