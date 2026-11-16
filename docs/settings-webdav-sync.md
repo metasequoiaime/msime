@@ -58,8 +58,10 @@ C 入口 `msime_client_settings_sync` 接受最多 64 KiB 的 UTF-8 JSON，返�
 }
 ```
 
-配置从宿主安全存储提供，不借用云剪贴板或词库同步配置，不进入同步文档、响应或日志。目录固定派生为 `preferences_directory/settings-sync`，包含私有状态、独立密钥串、密钥日志缓存和进程间锁；目录不能进入备份或设置导出。
+请求可以显式提供尚未保存的连接，也可以省略 `config`，由共享层读取本机 `settings_sync_webdav`；没有配置时返回 `settings_sync_not_configured`。该段与词库、云剪贴板的连接分别保存，应用密码进入本机凭据清单，诊断脱敏、设置导出、导入和 WebDAV 文档都不会迁移它。连接与其他网盘配置一样保存在应用私有偏好中，宿主不把它当作系统钥匙串。恢复默认保留已有连接，明确停止同步时清空三项。目录固定派生为 `preferences_directory/settings-sync`，包含私有状态、独立密钥串、密钥日志缓存和进程间锁；目录不能进入备份或设置导出。
 
+- `configuration`：离线返回偏好 `revision`、`configured`、`url`、`username`、`password_saved`，不返回应用密码，不建目录或身份。
+- `configure`：必填 `expected_revision`，用请求的 `config` 原子保存连接；不联网、不登记设备。旧修订返回 `conflict`。三项全空表示停止；非空连接必须三项合规。`keep_password: true` 只在草稿密码为空且地址、账号与已存连接逐字一致时沿用旧密码，不能把旧凭据带到另一个地址。响应与 `configuration` 相同。
 - `status`：不联网、不生成身份、不建目录；返回 `device_id`、`code`、`approved`、`joined`、`sequence` 和 `pending_write`。
 - `run`：一次联网同步，返回 `revision`、`uploaded`、`downloaded`、`conflicts`。
 - `scheduled`：必填 `trigger`，值为 `local_change`、`opened`、`periodic` 或 `manual`；由共享层决定是否联网，返回 `network`、可空的 `report`、`next_check_ms` 和 `status`。执行后的 `report` 使用 `Ok`/`Err` 表示结果，错误仅含稳定错误码；未执行时为 `null`。宿主按 `next_check_ms` 再从工作线程调用，不自己计算退避。
@@ -71,4 +73,4 @@ C 入口 `msime_client_settings_sync` 接受最多 64 KiB 的 UTF-8 JSON，返�
 
 `scheduled` 比较白名单投影摘要，本机专属字段变化不重置一分钟防抖；连续编辑最多等十分钟。打开页面距上次拉取至少一分钟，定时拉取间隔三十分钟。请求额度按本安装的滚动三十分钟窗口计算：自动最多 40 次，总计最多 60 次；每次传输之前私有落盘预扣，包含密钥串、目录操作和失败重试。额度用完会返回等待时间，改网盘配置、进程重启和时钟回拨不会清空已用额度。错误退避也持久化，手动操作可重试但不能绕过总额度。上传时的新编辑在下一轮继续发送，不被旧快照标为已经同步。
 
-旧 `run` 和设备管理入口保留原行为；新增原生自动同步使用 `scheduled`。中断后的显式冲突选择、连接探测、原生设置页的凭据保存与批准界面、宿主定时线程、保存信号、主题库迁移和六端接线仍未完成。当前 PR 保持 Draft，不新增 React 设置入口、不修改现有设置默认值。
+旧 `run` 和设备管理入口保留原行为；新增原生自动同步使用 `scheduled`。中断后的显式冲突选择、连接探测、原生设置页的连接编辑与批准界面、宿主定时线程、保存信号、主题库迁移和六端接线仍未完成。当前 PR 保持 Draft，不新增 React 设置入口、不修改现有设置默认值。

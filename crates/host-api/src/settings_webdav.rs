@@ -7,6 +7,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
 
+mod configuration;
+
 pub(crate) const INVALID: &str = "invalid_settings_sync";
 pub(crate) const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
@@ -21,13 +23,25 @@ struct Config {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Action {
+    Configuration {},
+    Configure {
+        expected_revision: u64,
+        #[serde(default)]
+        keep_password: bool,
+    },
     Status {},
     ScheduleStatus {},
     Run {},
-    Scheduled { trigger: ScheduleTrigger },
+    Scheduled {
+        trigger: ScheduleTrigger,
+    },
     Devices {},
-    Approve { device_id: String },
-    Reject { device_id: String },
+    Approve {
+        device_id: String,
+    },
+    Reject {
+        device_id: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -54,7 +68,8 @@ impl From<ScheduleTrigger> for SettingsSyncTrigger {
 #[serde(deny_unknown_fields)]
 struct Request {
     preferences_directory: String,
-    config: Config,
+    #[serde(default)]
+    config: Option<Config>,
     #[serde(default)]
     device_name: String,
     /// 只有设置应用在用户配置同步时显式允许生成身份；输入法进程保持默认的 false。
@@ -85,10 +100,33 @@ pub fn request_json(bytes: &[u8]) -> Result<Value, String> {
             return Err(INVALID.into());
         }
     }
+    let store = PreferencesStore::new(path);
+    if matches!(
+        request.action,
+        Action::Configuration {} | Action::Configure { .. }
+    ) {
+        return configuration::request(&store, &request);
+    }
+    let config = match request.config {
+        Some(config) => config,
+        None => {
+            let saved = configuration::load(&store)?
+                .preferences
+                .settings_sync_webdav;
+            if !saved.is_configured() {
+                return Err("settings_sync_not_configured".into());
+            }
+            Config {
+                url: saved.url,
+                username: saved.username,
+                password: saved.password,
+            }
+        }
+    };
     let service = SettingsWebDav::new(
-        &request.config.url,
-        &request.config.username,
-        &request.config.password,
+        &config.url,
+        &config.username,
+        &config.password,
         path.join("settings-sync"),
         &request.device_name,
     )
@@ -101,6 +139,7 @@ pub fn request_json(bytes: &[u8]) -> Result<Value, String> {
     let serialize =
         |value| serde_json::to_value(value).map_err(|_| "settings_sync_protocol".to_owned());
     match request.action {
+        Action::Configuration {} | Action::Configure { .. } => unreachable!(),
         Action::Status {} => serialize(service.status().map_err(|error| error.code().to_owned())?),
         Action::ScheduleStatus {} => serde_json::to_value(
             service

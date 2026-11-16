@@ -84,7 +84,9 @@ impl View<'_> {
         };
         let pull_due = self.last_pull.map_or(now, |at| at.saturating_add(interval));
         // 本机改动信号先记账，不能借首次轮询尚未发生而立即上传。
-        let due = if trigger == Trigger::LocalChange {
+        let due = if trigger == Trigger::LocalChange
+            || (trigger == Trigger::Periodic && self.last_pull.is_none())
+        {
             dirty_due.unwrap_or(pull_due)
         } else {
             dirty_due.map_or(pull_due, |dirty| dirty.min(pull_due))
@@ -159,6 +161,31 @@ mod tests {
         assert!(state.decide(Trigger::Opened, OPEN_INTERVAL_MS).network);
         assert!(!state.decide(Trigger::Periodic, OPEN_INTERVAL_MS).network);
         assert!(state.decide(Trigger::Periodic, PULL_INTERVAL_MS).network);
+    }
+
+    #[test]
+    fn initial_periodic_poll_keeps_the_first_edit_debounce() {
+        let state = View {
+            dirty_since: Some(10_000),
+            last_change: 10_000,
+            ..view()
+        };
+        assert!(!state.decide(Trigger::Periodic, 10_000).network);
+        assert_eq!(
+            state.decide(Trigger::Periodic, 10_000).next_check_ms,
+            DEBOUNCE_MS
+        );
+        assert!(
+            !state
+                .decide(Trigger::Periodic, 10_000 + DEBOUNCE_MS - 1)
+                .network
+        );
+        assert!(
+            state
+                .decide(Trigger::Periodic, 10_000 + DEBOUNCE_MS)
+                .network
+        );
+        assert!(state.decide(Trigger::Opened, 10_000).network);
     }
 
     #[test]
