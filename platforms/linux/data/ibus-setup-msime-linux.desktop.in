@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=MSIME Preferences
+Name[zh_CN]=水杉输入法首选项
+Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings
+TryExec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings
+Icon=msime-linux
+NoDisplay=true
+Terminal=false
+StartupNotify=true
+StartupWMClass=msime-linux-desktop
+Categories=Settings;

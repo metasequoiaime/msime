@@ -2,7 +2,7 @@
 
 use super::{
     deserialize_keeping_unknown, document_for_disk, newer_list_values, Preferences,
-    PreferencesError, PreferencesSnapshot, PreferencesStore,
+    PreferencesError, PreferencesSnapshot, PreferencesStore, UnknownPreferenceField,
 };
 
 impl PreferencesStore {
@@ -20,29 +20,7 @@ impl PreferencesStore {
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
         }
-        let mut document = document_for_disk(&current, &unknown)?;
-        let preferences = document
-            .get_mut("preferences")
-            .ok_or(PreferencesError::InvalidPatch)?;
-        let (_, original_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
-        merge_preferences_patch(preferences, patch);
-        let (next, patched_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
-        if patched_unknown != original_unknown {
-            return Err(PreferencesError::InvalidPatch);
-        }
-        if newer_list_values(preferences)
-            .iter()
-            .any(|field| patch_replaces_path(patch, &field.path))
-        {
-            return Err(PreferencesError::InvalidPatch);
-        }
-        next.validate()?;
-        let retained_unknown: Vec<_> = unknown
-            .iter()
-            .filter(|field| !field.elements || !patch_replaces_path(patch, &field.path))
-            .cloned()
-            .collect();
-        let removed_unknown = retained_unknown.len() != unknown.len();
+        let (next, retained_unknown, removed_unknown) = prepare_patch(&current, &unknown, patch)?;
         self.save_locked(
             current,
             &retained_unknown,
@@ -52,6 +30,41 @@ impl PreferencesStore {
             removed_unknown,
         )
     }
+}
+
+/// 预检和锁内应用共用的规则；这里只构造结果，不接触磁盘。
+pub(super) fn prepare_patch(
+    current: &PreferencesSnapshot,
+    unknown: &[UnknownPreferenceField],
+    patch: &serde_json::Value,
+) -> Result<(Preferences, Vec<UnknownPreferenceField>, bool), PreferencesError> {
+    if !patch.is_object() {
+        return Err(PreferencesError::InvalidPatch);
+    }
+    let mut document = document_for_disk(current, unknown)?;
+    let preferences = document
+        .get_mut("preferences")
+        .ok_or(PreferencesError::InvalidPatch)?;
+    let (_, original_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
+    merge_preferences_patch(preferences, patch);
+    let (next, patched_unknown) = deserialize_keeping_unknown::<Preferences>(preferences, &[])?;
+    if patched_unknown != original_unknown {
+        return Err(PreferencesError::InvalidPatch);
+    }
+    if newer_list_values(preferences)
+        .iter()
+        .any(|field| patch_replaces_path(patch, &field.path))
+    {
+        return Err(PreferencesError::InvalidPatch);
+    }
+    next.validate()?;
+    let retained_unknown: Vec<UnknownPreferenceField> = unknown
+        .iter()
+        .filter(|field| !field.elements || !patch_replaces_path(patch, &field.path))
+        .cloned()
+        .collect();
+    let removed_unknown = retained_unknown.len() != unknown.len();
+    Ok((next, retained_unknown, removed_unknown))
 }
 
 /// JSON Merge Patch 的对象递归合并规则。`null` 删除成员，其他值替换成员。

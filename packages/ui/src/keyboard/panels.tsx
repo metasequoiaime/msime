@@ -447,7 +447,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
 
   return (
     <main className={`native-panel ${cloud.clipboardPanel}`} aria-label="云剪贴板">
-      <CloudPanelHeader title="水杉云剪贴板" onClose={() => void client.close()} />
+      <CloudPanelHeader title="水杉云剪贴板" client={client} onClose={() => void client.close()} />
       <div className={cloud.clipboardBody}>
         <p className={cloud.clipboardNote}>
           只上传你明确选择的文本，不自动读取本地剪贴板；内容在设备上加密后才上传，服务器只保存密文。
@@ -619,7 +619,7 @@ export function CloudDictionaryPanel({
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库">
       {confirmation}
-      <CloudPanelHeader title="水杉云词库" onClose={() => void client.close()} />
+      <CloudPanelHeader title="水杉云词库" client={client} onClose={() => void client.close()} />
       <div className={cloud.dictionaryBody}>
         <p className={cloud.dictionaryNote}>
           词条同步到当前账号，可在其他设备使用。应用到本机后用于输入。
@@ -742,6 +742,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       {confirmation}
       <CloudPanelHeader
         title="导入与导出"
+        client={client}
         backClassName={cloud.dictionaryButton}
         onBack={() => void (client.back ? client.back() : client.close())}
         onClose={() => void client.close()}
@@ -907,6 +908,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       {confirmation}
       <CloudPanelHeader
         title="应用到本机"
+        client={client}
         backClassName={cloud.dictionaryButton}
         onBack={() => void (client.back ? client.back() : client.close())}
         onClose={() => void client.close()}
@@ -965,6 +967,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
       {confirmation}
       <CloudPanelHeader
         title="完整云词库目录"
+        client={client}
         backClassName={cloud.dictionaryButton}
         onBack={() => void (client.back ? client.back() : client.close())}
         onClose={() => void client.close()}
@@ -1115,6 +1118,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
       {confirmation}
       <CloudPanelHeader
         title="云端候选排序"
+        client={client}
         onBack={() => void (client.back ? client.back() : client.close())}
         onClose={() => void client.close()}
       />

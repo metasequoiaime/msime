@@ -238,6 +238,7 @@ const typingStatisticsUpload: TypingStatisticsUploadClient = {
 };
 const cloudDictionaryClient: CloudDictionaryPanelClient = {
   close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
+  beginWindowDrag: () => getCurrentWindow().startDragging(),
   request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
 };
 // 宿主把云词库导出写进「下载」，见 `createDesktopCloudDictionaryClient`；只有 Linux 的面板用它。
@@ -289,11 +290,13 @@ const resourcePacks: ResourcePackClient = {
     cancel: "resource_pack_cancel",
     progress: "resource-pack-progress",
   }),
+  importPack: (id) => invoke<string | null>("resource_pack_import", { id }),
   remove: (id) => invoke<boolean>("resource_pack_remove", { id }),
+  openExternalUrl: (url) => invoke<void>("open_external_url", { url }),
   checkGrammarUpdates: () => invoke("resource_pack_check_grammar_updates"),
 };
 const macosInstallClient: MacosInstallClient = {
-  install: (scope) => invoke("run_first_input_source_install", { scope }),
+  install: () => invoke("run_first_input_source_install"),
 };
 const localVoiceModels: LocalVoiceModelClient = {
   ...createTauriProgressClient<LocalVoiceModelList, LocalVoiceModelProgress>(invoke, listen, {
@@ -371,6 +374,7 @@ const client: SettingsClient = {
   cloudDictionary: cloudDictionaryClient,
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  migrateInputSourceToSystem: () => invoke("migrate_input_source_to_system"),
   inputSourceStartup,
   macosInputModes,
   onDeviceTranslation: {

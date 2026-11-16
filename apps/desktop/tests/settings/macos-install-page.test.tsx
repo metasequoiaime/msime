@@ -107,19 +107,13 @@ test("an install the session cannot see yet says a login comes first", async () 
   expect(screen.getByRole("button", { name: "进入设置" })).toBeTruthy();
 });
 
-test("首次安装默认当前用户，明确选择后才安装给所有用户", () => {
-  const install = vi.fn(async (_scope?: string) => status({}));
-  const rendered = render(<MacosInstallPage client={{ install }} onComplete={vi.fn()} />);
-  const allUsers = screen.getByRole("checkbox", { name: /为所有用户安装/ }) as HTMLInputElement;
-  expect(allUsers.checked).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
-  expect(install).toHaveBeenLastCalledWith("user");
-  rendered.unmount();
-
+// macOS 只把 /Library/Input Methods 里的第三方输入法算作安全输入源，装在用户目录的那份在安全输入期间会变灰，所以不提供只装给当前用户的选项。
+test("首次安装不提供安装范围的选择", () => {
+  const install = vi.fn(async () => status({}));
   render(<MacosInstallPage client={{ install }} onComplete={vi.fn()} />);
-  fireEvent.click(screen.getByRole("checkbox", { name: /为所有用户安装/ }));
+  expect(screen.queryByRole("checkbox")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
-  expect(install).toHaveBeenLastCalledWith("system");
+  expect(install).toHaveBeenCalledWith();
 });
 
 test("取消管理员授权保留重试入口，不宣称安装完成", async () => {

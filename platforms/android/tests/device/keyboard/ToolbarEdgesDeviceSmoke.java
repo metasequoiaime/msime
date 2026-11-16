@@ -5,6 +5,7 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -23,7 +24,11 @@ import java.util.concurrent.ExecutorService;
 
 /** 对安装产品实际测量窄屏、宽屏、算式胶囊和重排，保证横向滚动不带走两端按钮。 */
 public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private boolean clipboardModeOnly;
+    @Override public void onCreate(Bundle arguments) {
+        clipboardModeOnly = arguments != null && "true".equals(arguments.getString("clipboard-mode-only"));
+        super.onCreate(arguments); start();
+    }
 
     @Override public void onStart() {
         Throwable[] failure = new Throwable[1];
@@ -38,6 +43,10 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 attach.invoke(service, getTargetContext());
                 type.getMethod("onCreate").invoke(service);
                 type.getMethod("onCreateInputView").invoke(service);
+                if (clipboardModeOnly) {
+                    ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
+                    return;
+                }
                 Button undo = (Button) field(type, "undoShortcutButton").get(service);
                 Button redo = (Button) field(type, "redoShortcutButton").get(service);
                 check(!undo.isEnabled() && !redo.isEnabled(), "history controls enabled without editor");
@@ -113,6 +122,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 CompactCandidateHeightDeviceChecks.run(type, service, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
+                ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {
@@ -129,7 +139,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         Throwable error = failure[0];
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order with voice, hidden tools, resize and sticky clipboard header\n"
+            ? clipboardModeOnly
+                ? "MSIME_DEVICE_SMOKE_PASSED: clipboard mode redraw, local tab, isolated history counts and undo boundary\n"
+                : "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order with voice, hidden tools, resize, sticky clipboard header and mode isolation\n"
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
@@ -303,6 +315,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             }
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
+            checkClipboardDetailActionAlignment(type, service, panels, cards, surface, loader, density);
             checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
             checkClipboardDeleteRestoresPanelAfterAuthentication(type, service, panels, surface);
             checkClipboardSingleDeleteUndo(type, service, panels, cards);
@@ -633,6 +646,65 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         return result;
     }
 
+    /** #11288：详情底部「插入」「返回」随本机设置保持左对齐或右对齐。 */
+    private static void checkClipboardDetailActionAlignment(Class<?> type, Object service, Object panels,
+            ViewGroup cards, ViewGroup surface, ClassLoader loader, float density) throws Exception {
+        Field localSettings = field(type, "localSettings");
+        Object originalSettings = localSettings.get(service);
+        Method apply = method(type, "applyLocalSettings");
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        Method returnFromDetail = method(panels.getClass(), "returnFromClipboardDetail");
+        Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
+        Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
+        constructor.setAccessible(true);
+        int width = Math.round(360 * density);
+        int height = Math.round(300 * density);
+        try {
+            for (String choice : new String[] {"left", "right"}) {
+                localSettings.set(service, constructor.newInstance(Map.of(
+                    "platform.android.clipboard_detail_action_alignment", choice)));
+                apply.invoke(service);
+                render.invoke(panels);
+                layout(surface, width, height);
+                java.util.List<View> records = clipboardCardViews(cards);
+                check(!records.isEmpty(), "clipboard detail alignment has no synthetic records");
+                View record = records.get(0);
+                long downTime = android.os.SystemClock.uptimeMillis();
+                int[] gestures = {android.view.MotionEvent.ACTION_DOWN,
+                    android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+                // 详情入口已改为卡片右滑，沿真实触摸路径打开，仍覆盖出厂左对齐。
+                for (int index = 0; index < gestures.length; index++) {
+                    android.view.MotionEvent event = android.view.MotionEvent.obtain(downTime,
+                        downTime + index * 40, gestures[index],
+                        index == 0 ? 20 * density : 180 * density, record.getHeight() / 2f, 0);
+                    try { record.dispatchTouchEvent(event); }
+                    finally { event.recycle(); }
+                }
+                layout(surface, width, height);
+                View insert = descendant(surface, view -> describedAs(view, "插入这条剪贴板记录"));
+                check(insert != null && insert.getParent() instanceof LinearLayout,
+                    "clipboard detail action row is missing for " + choice);
+                LinearLayout actions = (LinearLayout) insert.getParent();
+                int actual = Gravity.getAbsoluteGravity(actions.getGravity(), actions.getLayoutDirection())
+                    & Gravity.HORIZONTAL_GRAVITY_MASK;
+                int expected = "right".equals(choice) ? Gravity.RIGHT : Gravity.LEFT;
+                check(actual == expected,
+                    "clipboard detail action row alignment is " + actual + ", expected " + expected
+                        + " for " + choice);
+                View last = actions.getChildAt(actions.getChildCount() - 1);
+                int leftGap = insert.getLeft() - actions.getPaddingLeft();
+                int rightGap = actions.getWidth() - actions.getPaddingRight() - last.getRight();
+                check("right".equals(choice) ? rightGap < leftGap : leftGap < rightGap,
+                    "clipboard detail action buttons did not move to " + choice);
+                returnFromDetail.invoke(panels);
+            }
+        } finally {
+            localSettings.set(service, originalSettings);
+            apply.invoke(service);
+            render.invoke(panels);
+        }
+    }
+
     private static java.util.List<View> clipboardCardViews(ViewGroup root) {
         java.util.List<View> result = new java.util.ArrayList<>();
         for (int index = 0; index < root.getChildCount(); index++) {
@@ -644,6 +716,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
         return result;
     }
+
     /**
      * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
      *
