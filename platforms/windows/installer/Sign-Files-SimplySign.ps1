@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    用 SimplySign 的 TOTP seed 自动计算动态码并签名一个或多个 EXE。
+    用 SimplySign 的 TOTP seed 自动计算动态码并签名一个或多个 EXE/DLL。
 
 .DESCRIPTION
     这个入口给 SSH/无桌面的 Windows runner 使用。它调用外部的 ssign.exe，
-    从 CERTUM_EMAIL 和 CERTUM_OTP 环境变量读取账号与 TOTP seed，不把 seed
-    放进命令行参数；签名完成后用 Windows SDK 的 signtool 和 Authenticode
+    从 CERTUM_EMAIL 和 CERTUM_OTP/CERTUM_TOKEN 环境变量读取账号与验证码，
+    不把秘密放进命令行参数；签名完成后用 Windows SDK 的 signtool 和 Authenticode
     再核对签名与 RFC 3161 时间戳。
 
     ssign 是独立的社区客户端，不属于 Certum。正式发布前应固定并审核
@@ -69,13 +69,13 @@ function Resolve-Targets {
                 throw "待签名文件不存在：$item"
             }
             $resolved = (Resolve-Path -LiteralPath $item).Path
-            if ([IO.Path]::GetExtension($resolved) -ine '.exe') {
-                throw "此入口只接受 .exe：$item"
+            if ([IO.Path]::GetExtension($resolved) -inotmatch '^\.(exe|dll)$') {
+                throw "此入口只接受 .exe/.dll：$item"
             }
             $resolved
         }
     )
-    if ($targets.Count -eq 0) { throw '没有待签名的 EXE。' }
+    if ($targets.Count -eq 0) { throw '没有待签名的 EXE/DLL。' }
     return @($targets | Sort-Object -Unique)
 }
 
@@ -85,24 +85,29 @@ function Assert-SignedExecutable {
         [Parameter(Mandatory)][string]$SignTool
     )
     & $SignTool verify /pa /all /v $Executable
-    if ($LASTEXITCODE -ne 0) { throw "EXE 签名校验失败：$Executable" }
+    if ($LASTEXITCODE -ne 0) { throw "二进制签名校验失败：$Executable" }
     $signature = Get-AuthenticodeSignature -LiteralPath $Executable
     if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {
-        throw "EXE 的 Authenticode 状态不是 Valid：$Executable ($($signature.Status))"
+        throw "二进制的 Authenticode 状态不是 Valid：$Executable ($($signature.Status))"
     }
     if (-not $signature.TimeStamperCertificate) {
-        throw "EXE 缺少 RFC 3161 时间戳：$Executable"
+        throw "二进制缺少可信时间戳：$Executable"
     }
 }
 
 if ([string]::IsNullOrWhiteSpace($env:CERTUM_EMAIL)) {
     throw '必须通过 CERTUM_EMAIL 环境变量提供 SimplySign 账号邮箱。'
 }
-if ([string]::IsNullOrWhiteSpace($env:CERTUM_OTP)) {
-    throw '必须通过 CERTUM_OTP 环境变量提供 TOTP seed；不要把 seed 写进命令行。'
+$hasOtp = -not [string]::IsNullOrWhiteSpace($env:CERTUM_OTP)
+$hasToken = -not [string]::IsNullOrWhiteSpace($env:CERTUM_TOKEN)
+if ($hasOtp -and $hasToken) {
+    throw 'CERTUM_OTP 和 CERTUM_TOKEN 不能同时设置。'
+}
+if (-not $hasOtp -and -not $hasToken) {
+    throw '必须通过 CERTUM_OTP 提供 TOTP seed，或通过 CERTUM_TOKEN 提供当前 6 位动态码；不要把秘密写进命令行。'
 }
 
-$targets = Resolve-Targets -InputPath $Path
+$targets = @(Resolve-Targets -InputPath $Path)
 $ssign = Resolve-Ssign -ExplicitPath $SsignPath
 $signTool = Find-SignTool -ExplicitPath $SignToolPath
 $ssignArgs = @('--timestamp-url', $TimestampUrl)
@@ -118,7 +123,7 @@ if ($OutputDirectory) {
     }
     $uniqueOutputs = @($outputs.Values | Sort-Object -Unique)
     if ($uniqueOutputs.Count -ne $targets.Count) {
-        throw '输出目录中存在同名 EXE，拒绝覆盖。'
+        throw '输出目录中存在同名文件，拒绝覆盖。'
     }
 } else {
     foreach ($target in $targets) { $outputs[$target] = $target }
@@ -126,8 +131,8 @@ if ($OutputDirectory) {
 $ssignArgs += $targets
 
 try {
-    Write-Host "使用 ssign 为 $($targets.Count) 个 EXE 计算动态码并签名。"
-    & $ssign @ssignArgs
+    Write-Host "使用 ssign 为 $($targets.Count) 个 EXE/DLL 签名。"
+    $clientOutput = & $ssign @ssignArgs 2>&1
     if ($LASTEXITCODE -ne 0) { throw "ssign 签名失败，退出码：$LASTEXITCODE" }
     foreach ($target in $targets) {
         $output = $outputs[$target]
@@ -138,6 +143,6 @@ try {
         Write-Host "签名并校验通过：$output"
     }
 } finally {
-    Remove-Item Env:CERTUM_OTP -ErrorAction SilentlyContinue
+    $clientOutput = $null
 }
 $global:LASTEXITCODE = 0

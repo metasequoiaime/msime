@@ -8,9 +8,13 @@ Status: implemented
 
 ## Decision
 
-仓库提供 `platforms/windows/installer/Sign-Exe-SimplySign.ps1` 作为单独的 SSH 签名入口。它只接受 `.exe`，把 `CERTUM_EMAIL` 和 `CERTUM_OTP` 留在当前进程的环境变量中，调用外部、由维护者自行固定和审核版本的 `ssign.exe`，一次调用签名全部输入文件，然后用 Windows SDK 的 `signtool verify /pa /all` 与 `Get-AuthenticodeSignature` 检查 Authenticode 状态和 RFC 3161 时间戳。没有凭据、工具或输入文件时在联网前失败；脚本不会下载 `ssign.exe`，也不会把 seed 作为参数传给子进程。
+仓库提供 `platforms/windows/installer/Sign-Files-SimplySign.ps1` 作为单独的 SSH 签名入口。它接受 `.exe` 和 `.dll`，把 `CERTUM_EMAIL` 和 `CERTUM_OTP`（自动化）或 `CERTUM_TOKEN`（单次人工签名）留在当前进程的环境变量中，调用外部、由维护者自行固定和审核版本的 `ssign.exe`，一次调用签名全部输入文件，然后用 Windows SDK 的 `signtool verify /pa /all` 与 `Get-AuthenticodeSignature` 检查 Authenticode 状态和 RFC 3161 时间戳。没有凭据、工具或输入文件时在联网前失败；脚本不会下载 `ssign.exe`，也不会把秘密作为参数传给子进程。
 
-这个入口只解决 `.exe` 的无桌面签名。现有 `Package-SimplySign.ps1` 继续负责完整安装包构建和 SimplySign Desktop 的手工证书存储流程；SignPath 的生产发布流程也保持不变。`ssign` 的版本、下载摘要和 seed 管理属于 runner 的运维配置，不进入仓库。
+`Sign-StagedPackage-SimplySign.ps1` 对完整暂存包执行「包内签名 → 编译安装器 → 外层签名」，保留已有可信上游签名，拒绝无效签名。两次客户端调用在本轮私有临时目录复用登录，结束或失败后删除缓存并清理凭据。独立文件入口保留调用方环境，以免清掉外层签名所需的一次性码。现有 `Package-SimplySign.ps1` 继续负责完整安装包构建和 SimplySign Desktop 的手工证书存储流程；SignPath 的生产发布流程也保持不变。`ssign` 的版本、下载摘要和 seed 管理属于 runner 的运维配置，不进入仓库。
+
+## 既有笔记归属
+
+[SignPath CI 签名](2026-10-08-windows-signpath-ci-signing.md)与本次部分重叠，但仍独立持有 CI 来源与人工审批约束，本次没有取代；[未签名 Server 的普通权限能力](../bug-fix/2026-10-21-windows-unsigned-server-and-settings-input.md)仍持有 UIAccess 构建开关，本次签名不会翻转它。
 
 ## Alternatives considered
 
@@ -20,8 +24,8 @@ Status: implemented
 
 ## Consequences
 
-维护者可以在专用 Windows runner 上通过 SSH 签一个或多个 EXE，脚本只需一次登录并自动计算验证码。输出文件默认原地签名，也可以用 `-OutputDirectory` 写入独立目录；每个输出都会经过签名和时间戳校验。
+维护者可以在专用 Windows runner 上通过 SSH 签一个或多个 EXE/DLL，脚本只需一次登录并自动计算验证码。输出文件默认原地签名，也可以用 `-OutputDirectory` 写入独立目录；每个输出都会经过签名和时间戳校验。
 
 代价是 `ssign` 不是 Certum 官方客户端，Certum 接口变化或服务条款变化都可能使入口失效；runner 必须保持时钟同步，并把 TOTP seed 当作私钥保管。seed 泄漏时需要重新签发 SimplySign 激活二维码。
 
-验证脚本覆盖缺少邮箱、缺少 seed、缺少 `ssign.exe` 和非 `.exe` 输入的前置失败路径；真实云签名需要维护者在 runner 上提供受保护凭据后单独执行。
+验证脚本使用合成客户端、校验器和编译器覆盖凭据缺失与互斥、EXE/DLL 批量传参、客户端失败、签名校验失败、缺少时间戳、先签包内再编译、外层签名、保留上游签名、复用登录目录、结束清理与最终摘要。真实云签名仍需提供当前动态码或受保护的 seed。
