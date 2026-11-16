@@ -34,6 +34,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.AppEdition;
 import app.msime.android.ClipboardLayoutPolicy;
+import app.msime.android.ClipboardDetailActionPolicy;
 import app.msime.android.ClipboardUndoPolicy;
 import app.msime.android.ClipboardAuthenticationActivity;
 import app.msime.android.ClipboardDeleteAuthenticationPolicy;
@@ -43,6 +44,7 @@ import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySwipePolicy;
+import app.msime.android.NineKeyCompositionActionPolicy;
 import app.msime.android.OneHandSidePadPolicy;
 import app.msime.android.QuanpinSeparatorPolicy;
 import app.msime.android.RecentClipboardSuggestion;
@@ -64,7 +66,7 @@ import org.json.JSONObject;
 /**
  * 键盘页：布局（中文键盘 26 / 9 键，双拼时是双拼的 26 / 14 / 18 键，五笔时是「五笔键盘」的 26 / 14 键、按键布局子页（三类键面的底行样式、九键与数字键盘的左侧符号和顶部数字行，{@link KeyLayoutStylesPage}）、拼音显示位置、双拼显示原始按键、原始按键按音节分隔、双拼键位提示、键盘高度、按键间距、行间距、分离式键盘、竖屏也分离、浮动键盘、键盘底栏、键盘底部高度）、按键反馈（按键音、音效、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、工具栏分页里的键盘工具栏（预览、显示方式、各按钮）与剪贴板（工具栏显示最近复制、排列）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼显示原始按键与按音节分隔、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`shuangpin_preedit_uses_raw`、`shuangpin_preedit_separated`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、竖屏分离、双拼显示原始按键与按音节分隔、双拼键位提示、全拼组字保留 Shift、九键滑动输入数字和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_split_portrait`、`shuangpin_preedit_uses_raw`、`shuangpin_preedit_separated`、`touch_shuangpin_key_hints`、`touch_quanpin_shift`、`touch_nine_key_swipe_digits`、`touch_toolbar.*`）；键盘高度、分离式键盘主开关、手机横屏分离式键盘、浮动键盘、物理键盘时候选栏跟随光标、键盘底栏、底部留白、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 50–170 % 显示，存的是 dp（{@link KeyboardHeightPolicy#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们；按键音用哪个音效包在共享偏好 `plugins.key_sound.pack` 里（{@link KeySoundPacks}）。
  */
 public class KeyboardOptionsPage extends ReloadingDetailPage {
     private final ClipboardExportActions clipboardExport = new ClipboardExportActions(this, this::reload);
@@ -312,6 +314,12 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 NineKeySwipePolicy.THRESHOLD_STEP_DP, settings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE),
                 value -> value + " dp", value -> saveLocalSetting(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, value)).help("手指移动超过这个距离才会触发；距离越大越不容易把快速连打误判成滑动");
             distanceRow.setEnabled(!NineKeySwipePolicy.OFF.equals(nineKeySwipe));
+            String compositionAction = settings.choice(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION);
+            GroupCard.Row[] compositionActionRow = new GroupCard.Row[1];
+            compositionActionRow[0] = gestures.nav("九键组字按钮", null,
+                NineKeyCompositionActionPolicy.label(compositionAction),
+                () -> pickNineKeyCompositionAction(compositionAction, compositionActionRow[0]))
+                .help("组字时 1 键显示并执行分词或重输；空闲时仍是常用标点。");
         }
         String quickDeleteScope = settings.choice(AndroidLocalSettings.QUICK_DELETE_SCOPE);
         GroupCard.Row[] quickDeleteRow = new GroupCard.Row[1];
@@ -412,6 +420,10 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", null, clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns)).help("剪贴板面板里一行显示几条记录");
+        String detailActionAlignment = settings.choice(AndroidLocalSettings.CLIPBOARD_DETAIL_ACTION_ALIGNMENT);
+        clipboard.nav("详情操作按键", null, ClipboardDetailActionPolicy.label(detailActionAlignment),
+            () -> pickClipboardDetailActionAlignment(detailActionAlignment))
+            .help("剪贴板详情底部的「插入」和「返回」按键靠左或靠右排列");
         // 删除剪贴板记录（单条或多选）后可撤销的秒数（#10073、#10080），只影响之后的删除；键盘每次删除时读这一项。
         int undoSeconds = settings.integer(AndroidLocalSettings.CLIPBOARD_UNDO_SECONDS);
         clipboard.nav("撤销时长", null,
@@ -712,6 +724,17 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         sheet.show();
     }
 
+    private void pickClipboardDetailActionAlignment(String selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "详情操作按键", null);
+        for (String value : new String[] {ClipboardDetailActionPolicy.LEFT,
+                ClipboardDetailActionPolicy.RIGHT}) {
+            sheet.option(ClipboardDetailActionPolicy.label(value), value.equals(selected),
+                () -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.CLIPBOARD_DETAIL_ACTION_ALIGNMENT,
+                    value, this::reload, this::reload));
+        }
+        sheet.show();
+    }
+
     private void pickClipboardUndoSeconds(int selected) {
         OptionSheet sheet = new OptionSheet(requireContext(), "撤销时长", null);
         for (int seconds = ClipboardUndoPolicy.MIN_SECONDS; seconds <= ClipboardUndoPolicy.MAX_SECONDS; seconds++) {
@@ -757,6 +780,18 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
                 row.setValue(nineKeySwipeLabel(value));
                 // 选哪项写哪项的写法（关闭也写 `off`），写进共享偏好、不写本机键；存好后重画，下次打开选项单时勾选的是新值，距离滑块跟着置灰或恢复。
                 savePreference(NineKeySwipePolicy.PREFERENCE, value);
+            });
+        }
+        sheet.show();
+    }
+
+    private void pickNineKeyCompositionAction(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "九键组字按钮", null);
+        for (String value : new String[] {NineKeyCompositionActionPolicy.SEPARATE,
+                NineKeyCompositionActionPolicy.REWRITE}) {
+            sheet.option(NineKeyCompositionActionPolicy.label(value), value.equals(selected), () -> {
+                row.setValue(NineKeyCompositionActionPolicy.label(value));
+                saveLocalSetting(AndroidLocalSettings.NINE_KEY_COMPOSITION_ACTION, value);
             });
         }
         sheet.show();

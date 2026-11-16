@@ -88,6 +88,40 @@ class CaptureDestination(unittest.TestCase):
         self.assertEqual(calls[0].args[0][-1], str(self.first))
         self.assertEqual(calls[0].kwargs["input"], b"synthetic clipboard fixture")
 
+    def test_queued_frames_and_partial_unicode_frame(self):
+        texts = ["synthetic alpha\nline", "synthetic 中文🙂", "synthetic gamma"]
+        frames = [len(text.encode()).to_bytes(4, "big") + text.encode() for text in texts]
+        pending = bytearray(frames[0] + frames[1][:-1])
+        with mock.patch.object(monitor.subprocess, "run") as capture:
+            monitor.capture_frames(pending, self.options, self.first, "synthetic-capture")
+            self.assertEqual([call.kwargs["input"] for call in capture.call_args_list], [texts[0].encode()])
+            pending.extend(frames[1][-1:] + frames[2])
+            monitor.capture_frames(pending, self.options, self.first, "synthetic-capture")
+            self.assertEqual([call.kwargs["input"] for call in capture.call_args_list],
+                             [text.encode() for text in texts])
+            self.assertEqual(pending, b"")
+
+    def test_disable_after_first_frame_discards_remaining_frames(self):
+        payload = b"synthetic text"
+        pending = bytearray((len(payload).to_bytes(4, "big") + payload) * 3)
+        with mock.patch.object(monitor.subprocess, "run", side_effect=lambda *a, **k:
+                               self.preferences(self.first, False)) as capture:
+            monitor.capture_frames(pending, self.options, self.first, "synthetic-capture")
+            self.assertEqual(capture.call_count, 1)
+
+    def test_destination_change_does_not_import_queued_old_frames(self):
+        self.configure(self.second)
+        payload = b"synthetic old destination"
+        pending = bytearray(len(payload).to_bytes(4, "big") + payload)
+        with mock.patch.object(monitor.subprocess, "run") as capture:
+            monitor.capture_frames(pending, self.options, self.first, "synthetic-capture")
+            capture.assert_not_called()
+
+    def test_oversized_frame_is_rejected(self):
+        with self.assertRaises(ValueError):
+            monitor.capture_frames(bytearray((monitor.MAX_TEXT_BYTES + 1).to_bytes(4, "big")),
+                                   self.options, self.first, "synthetic-capture")
+
 
 if __name__ == "__main__":
     unittest.main()

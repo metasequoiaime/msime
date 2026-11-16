@@ -1237,7 +1237,7 @@ final class ImeLetterRows {
                     switch (current.mode()) {
                         case PENDING -> {
                             if (!current.forcesTap()) return false;
-                            // 组字中的滑动必须等价于一次普通点按，即使位移让按钮自己取消了点击。先取消按钮自己的这次触摸，它不会再补一次点击或长按。
+                            // 组字中或关闭符号滑动后的纵滑等价于一次点按，即使位移让按钮取消点击。先取消按钮触摸，避免再补一次点击或长按。
                             cancelKeyTouch(key, event);
                             key.performClick();
                             return true;

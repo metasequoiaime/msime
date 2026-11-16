@@ -16,17 +16,20 @@ package app.msime.android;
 public final class AndroidChineseTextConversion {
     private AndroidChineseTextConversion() {}
 
-    public static String outputString(String text, boolean traditional, boolean dedicatedEnglish,
-                                      int scheme, String localMode) {
+    public static String outputString(String text, boolean traditional, String variant,
+                                      boolean dedicatedEnglish, int scheme, String localMode) {
         boolean applies = ChineseOutputPolicy.applies(dedicatedEnglish, scheme, localMode);
         return ChineseOutputPolicy.output(text, traditional, applies,
-            NativeClient::simplifiedToTraditional);
+            value -> NativeClient.convertToTraditional(value,
+                ChineseOutputPolicy.traditionalVariantCode(variant)));
     }
 
-    public static String candidateOutput(String text, boolean traditional, boolean dedicatedEnglish,
-                                         int scheme, String localMode, int source) {
+    public static String candidateOutput(String text, boolean traditional, String variant,
+                                         boolean dedicatedEnglish, int scheme, String localMode,
+                                         int source) {
         return ChineseOutputPolicy.candidateOutput(text, traditional,
             ChineseOutputPolicy.applies(dedicatedEnglish, scheme, localMode), source,
-            NativeClient::simplifiedToTraditional);
+            value -> NativeClient.convertToTraditional(value,
+                ChineseOutputPolicy.traditionalVariantCode(variant)));
     }
 }

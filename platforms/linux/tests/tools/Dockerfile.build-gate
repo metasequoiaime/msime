@@ -11,7 +11,7 @@
 # without installing it into the container on every run.
 FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  cmake ninja-build pkg-config python3 \
+  cmake ninja-build pkg-config python3 python3-gi gir1.2-gtk-3.0 \
   libasound2-dev libgtk-4-dev libclang-dev \
   libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   fcitx5-modules libpango1.0-dev \
   dbus dbus-bin xvfb xauth \
   && rm -rf /var/lib/apt/lists/*
-# xvfb 和 xauth 只给 ibus-mode-hint-x11-badge* 用：IBus 切换徽章的 X11 那条路要一个 X 服务器，xvfb-run 在单个测试里起停，镜像里不常驻任何服务。
+# X11 徽章与剪贴板行为测试各自在 xvfb-run 中起停，镜像不常驻显示服务；GTK3 的 Python 绑定只在隔离显示中提供合成剪贴板。
 # 仓库工具链声明要求这两个组件，预装后临时容器不再逐次补装；保留上面的 apt 缓存层。
 RUN rustup component add rustfmt clippy
 WORKDIR /source

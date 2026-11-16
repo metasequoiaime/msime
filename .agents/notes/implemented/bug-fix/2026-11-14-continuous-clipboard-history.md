@@ -1,0 +1,39 @@
+# Agent Note: 连续复制按变化保存剪贴板历史
+
+Status: implemented
+
+## Problem
+
+[#11448](https://github.com/metasequoiaime/msime/issues/11448) 报告连续复制后只读到最后一条，维护者确认处理六个平台。Windows 原生监视器每次 `WM_CLIPBOARDUPDATE` 都重置 80 毫秒防抖，到定时器才读取当前值，因此通知已经收到的前几条仍会被后续复制覆盖。现有测试只验证注册和退出，没有验证连续复制。
+
+## Decision
+
+Windows 每次变化通知立即读取并交给已有共享存储回调，只有系统剪贴板暂时被锁时才短暂、有限重试。读取必须在系统剪贴板锁内核对代次，持久化前释放系统锁，保留历史开关、启动不导入旧值、敏感格式排除与大小限制。测试在专用 Windows runner 真实写入三条合成内容、逐次派发系统变化通知，最终断言三条均收到；将该测试接入实际执行的 Windows CI。
+
+六端在同一 issue 的 PR 中处理：Android 保留实时监听并增加 API 28/35 系统连续复制验收；[macOS](2026-11-15-macos-continuous-clipboard-sampling.md)将 400 毫秒采样改为独立的 50 毫秒采样与保存队列；Linux 保留 Wayland 逐条监听并修复 X11；[iOS](../../implemented/feature/2026-11-15-ios-live-clipboard-history.md)与[HarmonyOS](../../implemented/feature/2026-11-15-harmony-live-clipboard-history.md)接入可见键盘的系统变化通知。各宿主沿用已有共享 Rust 历史开关、缺字段与出厂默认值。系统读权限、前台生命周期及监视器启动前已经覆盖的旧内容不能冒充可以恢复。
+
+Linux X11 监听器在每次 XFixes 通知时读取有界正文，通过四字节大端长度与原始 UTF-8 帧传给保存进程。保存进程依次消费全部帧，保留半帧，不再把多条标记合并后只读取当前值。正文仍只经管道传送，不进参数或日志；单帧不超过 12000 字节，目标目录改变时停止旧监听器并丢弃旧帧，每条保存前复核开关与目标目录。读取使用独立的 X11 连接，避免读取响应时吞掉监听连接上的所有权变化；窗口不映射、不抢焦点。默认标记模式和 `--read` 保留兼容。
+
+## Existing notes audit
+
+[Windows 剪贴板隐私与诊断](../../implemented/feature/2026-10-10-windows-clipboard-privacy-panel-statistics-host-diagnostics.md)部分重叠，保留全部排除格式和共享持久化边界。[Linux Wayland 无焦点读取](../../implemented/bug-fix/2026-10-10-linux-wayland-clipboard-no-focus-read.md)约束 Linux，不能为了捕获而创建抢焦点窗口。其他命中不涉及通知防抖；无需删除或否决旧提案。
+
+## Alternatives considered
+
+缩短防抖窗口能少改代码，但仍会主动丢弃窗口内已收到通知的内容，因此只在系统读取被占用时安排有限重试。把所有通知缓存为序号而不立刻读正文可以减少磁盘写入次数，但系统没有按旧序号取回已覆盖内容的接口，序号队列不能恢复文本。
+
+## Verification
+
+新增真实 Windows 消息用例依次复制三条并派发系统通知，断言按顺序收到三条，同时覆盖关闭开关、敏感格式与回调前释放系统锁。MinGW x64/Win32 的旧、新测试均静态链接成功，并在独立 Windows 11 验证机执行：相同用例的旧实现均退出 1，修复后均退出 0；执行前核对传输文件 SHA-256 一致。测试在新窗口站与桌面中运行，未触碰登录用户的系统剪贴板。真实运行也接入既有 CI 构建树。完整远端 quick `20261114-224722` 与本地笔记校验通过；macOS 构建机无 Docker，Linux 完整宿主由实际 Linux CI 独立验证，不能将该 quick 当作完整 Linux 产品验收。
+
+Linux 在隔离 Xvfb 中暂停保存进程，连续复制三条合成文本再恢复。固定基线的原监视器与原监听器只保存最后一条，断言应有六条却只有四条；修复后顺序全部保留，关闭/重开历史与相同内容重复复制也通过。七项既有读取用例（Unicode、换行、Latin1、INCR、上限、无所有者与读取截止时间）通过。此轮为直接编译实际 X11 逻辑、仅移除遥测启动的本地测试程序；不当作完整产品编译。两套真实二进制用例现已注册到 CTest，Linux native CI 已成功构建含遥测的完整宿主并通过 130 项 CTest，其中包含两套真实剪贴板程序回归；构建镜像补齐 GTK3 Python 绑定。Python 覆盖半帧、排队帧、超长帧、关闭开关和目录切换，Wayland 失败回退及事件路径也通过。
+
+## Consequences
+
+系统消息被调度前已经覆盖的内容仍无法追回。本 PR 不承诺进程未运行、移动端后台被挂起或未获系统权限时可以导入之前的历史，不改变任何开关默认值。
+
+## CI 构建模式
+
+Windows 系统回归由 `MSIME_WINDOWS_PIPE_ONLY=ON` 的轻量树执行。剪贴板存储库与监听用例必须在该模式的提前返回之前注册；原先只给完整宿主注册时，workflow 指定目标会报 `MSB1009`。补跑轻量配置的 x64/Win32 构建与实际 CTest，不能用之前手工直接编译的专项代替该接线验证。
+
+CI 接线修正后，远端 `20261115-000845` 在 x86_64、i686 两个 `MSIME_WINDOWS_PIPE_ONLY=ON` 树均成功编译链接 `windows-clipboard-monitor`，随后完整 quick 通过。MSVC CI 的实际运行结果仍单独核对，不用交叉编译代替。

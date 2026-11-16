@@ -118,6 +118,8 @@ pub struct KeyChord {
 pub enum KeyChordError {
     #[error("key chord is empty")]
     Empty,
+    #[error("shortcut requires Ctrl, Alt or Meta")]
+    MissingShortcutModifier,
     #[error("key chord has no main key")]
     MissingKey,
     #[error("unknown key name `{0}`")]

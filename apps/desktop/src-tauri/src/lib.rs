@@ -2785,6 +2785,27 @@ async fn install_input_source(
     })?
 }
 
+/// 设置页「迁移到系统目录」：经一次管理员授权把用户目录里的输入法换成系统目录里的一份，结果和修复一样写回启动检查状态。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn migrate_input_source_to_system(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<(), HostActionError> {
+    let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let state = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = macos_input_source::migrate_to_system(&resource_directory);
+        finish_input_source_repair(&state, &resource_directory, result)
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
 /// 「修复输入源」只在真正装坏时报失败：不是打包运行、没有随附的输入源（`SourceUnavailable`）时没有可装的，bundle 已经留在原处只等登记（`RegistrationPending`）时下一步的重新登记正好接上，这两种都让修复接着去重新登记。
 #[cfg(target_os = "macos")]
 fn repair_install_result(
@@ -2889,10 +2910,18 @@ fn run_input_source_startup(
     resource_directory: &std::path::Path,
     defer_first_install: bool,
 ) -> Option<InputSourceStartupStatus> {
-    input_source_startup_result(
+    let mut status = input_source_startup_result(
         resource_directory,
         macos_input_source::ensure_current(resource_directory, defer_first_install),
-    )
+    )?;
+    // 输入法本身是最新的，但系统安装的更新助手没装或者旧了：它只在管理员授权的安装里更换，所以和系统副本待更新一样提示授权修复。
+    if status.action == "up_to_date"
+        && status.installation_scope == Some(macos_input_source::InstallationScope::System)
+        && macos_input_source::system_updater_outdated(resource_directory)
+    {
+        status.action = "authorization_required";
+    }
+    Some(status)
 }
 
 #[cfg(target_os = "macos")]
@@ -3020,12 +3049,11 @@ async fn input_source_startup_status(
     })
 }
 
-/// 首次安装按钮按明确选择的范围安装；结果替换启动检查状态，供后续设置页读取。
+/// 首次安装一律装进 /Library/Input Methods（已有副本时沿用它的位置）：装在用户目录的输入法不算安全输入源，安全输入期间会被 macOS 停用。结果替换启动检查状态，供后续设置页读取。
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn run_first_input_source_install(
     app: tauri::AppHandle,
-    scope: Option<macos_input_source::InstallationScope>,
     state: tauri::State<'_, Arc<InputSourceStartupState>>,
 ) -> Result<InputSourceStartupStatus, HostActionError> {
     let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
@@ -3033,10 +3061,12 @@ async fn run_first_input_source_install(
     })?;
     let state = Arc::clone(&state);
     tauri::async_runtime::spawn_blocking(move || {
-        let scope = scope.unwrap_or(macos_input_source::InstallationScope::User);
         let status = input_source_startup_result(
             &resource_directory,
-            macos_input_source::first_install(&resource_directory, scope),
+            macos_input_source::first_install(
+                &resource_directory,
+                macos_input_source::InstallationScope::System,
+            ),
         );
         state.finish(status);
         input_source_status_now(
@@ -3056,7 +3086,7 @@ async fn run_first_input_source_install(
     })
 }
 
-/// 首次安装窗口为范围选项预留高度，完成后恢复设置窗口大小。
+/// 首次安装窗口的大小，完成后恢复设置窗口大小。
 #[cfg(target_os = "macos")]
 const FIRST_INSTALL_WINDOW_SIZE: (f64, f64) = (480.0, 480.0);
 /// The settings window's size and minimum, as declared for `main` in tauri.macos.conf.json.
@@ -3602,8 +3632,10 @@ async fn uninstall_input_source(
             macos_input_source::installed_bundle_path().map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
-        if macos_input_source::installation_scope(&installed)
-            == macos_input_source::InstallationScope::System
+        // 两处都没装时这个路径也指向系统目录（新安装的默认位置），那不是一份要请管理员手动移除的系统安装。
+        if installed.exists()
+            && macos_input_source::installation_scope(&installed)
+                == macos_input_source::InstallationScope::System
         {
             return Err(HostActionError {
                 code: "system_input_source",
@@ -5614,6 +5646,8 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            migrate_input_source_to_system,
             #[cfg(target_os = "macos")]
             input_source_startup_status,
             #[cfg(target_os = "macos")]
