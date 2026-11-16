@@ -414,6 +414,12 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
     private void captureAndRecognize() throws Exception {
         tap(node -> equalsText("拍照", node.getText()) && node.isEnabled());
         awaitAny(node -> equalsText("下一步", node.getText()));
+        AccessibilityNodeInfo selection = awaitAny(described("识别照片：默认全图，选择裁剪或涂抹调整范围"));
+        assertBelow(selection,
+            node -> equalsText("返回键盘", node.getText()),
+            node -> equalsText("裁剪", node.getText()),
+            node -> equalsText("涂抹", node.getText()),
+            node -> equalsText("下一步", node.getText()));
         screenshot("photo");
         tap(node -> equalsText("裁剪", node.getText()));
         awaitAny(described("拖动裁剪框四边或四角，选择识别区域"));
@@ -427,6 +433,13 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         tap(node -> equalsText("涂抹", node.getText()));
         tap(node -> equalsText("下一步", node.getText()));
         awaitAny(node -> equalsText("插入", node.getText()));
+        AccessibilityNodeInfo result = awaitAny(described("点选识别文字"));
+        assertBelow(result,
+            node -> equalsText("返回键盘", node.getText()),
+            node -> equalsText("全选文字", node.getContentDescription()),
+            node -> equalsText("重新拍照", node.getText()),
+            node -> equalsText("复制", node.getText()),
+            node -> equalsText("插入", node.getText()));
     }
 
     private void injectPhotoStroke(float fromX, float fromY, float toX, float toY) {
@@ -778,6 +791,10 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
         AccessibilityNodeInfo preview = awaitAny(described("拍照识字相机预览"));
         android.graphics.Rect previewBounds = new android.graphics.Rect();
         preview.getBoundsInScreen(previewBounds);
+        assertBelow(preview,
+            node -> equalsText("返回键盘", node.getText()),
+            node -> equalsText("拍照识字设置", node.getText()),
+            node -> equalsText("拍照", node.getText()));
         Bitmap frame = automation.takeScreenshot();
         check(frame != null, "independent camera frame is available");
         try { check(previewBounds.height() > frame.getHeight() / 2,
@@ -792,6 +809,20 @@ public final class OcrProductDeviceSmoke extends DeviceSmoke {
                 getTargetContext().getExternalFilesDir(null), "ocr-product-" + name + ".png"))) {
             check(image.compress(Bitmap.CompressFormat.PNG, 100, output), "write synthetic screenshot");
         } finally { image.recycle(); }
+    }
+
+    @SafeVarargs
+    private final void assertBelow(AccessibilityNodeInfo content,
+                                   java.util.function.Predicate<AccessibilityNodeInfo>... controls) {
+        android.graphics.Rect contentBounds = new android.graphics.Rect();
+        content.getBoundsInScreen(contentBounds);
+        for (java.util.function.Predicate<AccessibilityNodeInfo> control : controls) {
+            AccessibilityNodeInfo node = awaitAny(control);
+            android.graphics.Rect bounds = new android.graphics.Rect();
+            node.getBoundsInScreen(bounds);
+            check(bounds.top >= contentBounds.bottom,
+                "OCR operation controls stay below the page content: " + bounds + " / " + contentBounds);
+        }
     }
 
     private static void check(boolean value, String purpose) { if (!value) throw new AssertionError(purpose); }

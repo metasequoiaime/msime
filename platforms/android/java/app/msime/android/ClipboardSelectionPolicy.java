@@ -3,7 +3,7 @@ package app.msime.android;
 /** 输入法面板多选剪贴板记录的边界；导出和删除共用同一上限，按序号插入另有更小的上限（#10411）。 */
 public final class ClipboardSelectionPolicy {
     public static final int MAX_SELECTIONS = 20;
-    /** 一次最多按序号插入几条；超过时「插入」置灰，导出和删除照旧可用到 {@link #MAX_SELECTIONS} 条。 */
+    /** 一次最多按序号插入几条；超过时点「插入」显示上限提示，导出和删除照旧可用到 {@link #MAX_SELECTIONS} 条。 */
     public static final int MAX_INSERTIONS = 4;
     /** 带圈数字 ① 的码位；⑳ 正好是第 20 个，和选择上限对得上。 */
     private static final int FIRST_CIRCLED_DIGIT = 0x2460;
@@ -19,12 +19,18 @@ public final class ClipboardSelectionPolicy {
         return selectedCount >= 1 && selectedCount <= MAX_INSERTIONS;
     }
 
-    /** 第 `index` 个选中项（从 0 起）的角标：①、②……⑳。 */
+    /** 第 `index` 个可插入选中项（从 0 起）的角标；超过插入上限不再画角标。 */
     public static String ordinalLabel(int index) {
         if (index < 0 || index >= MAX_SELECTIONS) {
             throw new IllegalArgumentException("ordinal index out of range: " + index);
         }
+        if (index >= MAX_INSERTIONS) return "";
         return String.valueOf((char) (FIRST_CIRCLED_DIGIT + index));
+    }
+
+    /** 选中项是否应在卡片右上角画插入序号。 */
+    public static boolean hasOrdinalBadge(int index) {
+        return index >= 0 && index < MAX_INSERTIONS;
     }
 
     /**
@@ -50,11 +56,11 @@ public final class ClipboardSelectionPolicy {
         return joined.toString();
     }
 
-    /** 选中项超过插入上限、「插入」置灰时给的提示；导出和删除不受这个上限影响。 */
+    /** 用户明确点「插入」后显示的上限说明。 */
     public static final String INSERTION_LIMIT_HINT = "一次最多插入 " + MAX_INSERTIONS + " 项，导出和删除不受影响";
 
     /**
-     * 刚选中的这一项是否让「插入」从可用变成置灰，这时提示一次 {@link #INSERTION_LIMIT_HINT}。
+     * 刚选中的这一项是否首次超过插入上限；选择动作本身不显示提示。
      *
      * <p>提示不放进顶行的计数里：顶行套在横向滚动里按内容宽度量，计数一长，窄屏上「删除」就被挤到屏外。
      */

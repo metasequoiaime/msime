@@ -1,0 +1,6 @@
+{
+  "identifier": "clipboard-panel-drag",
+  "description": "允许移动独立剪贴板窗口，不允许调整窗口大小",
+  "windows": ["clipboard-panel"],
+  "permissions": ["core:window:allow-start-dragging"]
+}

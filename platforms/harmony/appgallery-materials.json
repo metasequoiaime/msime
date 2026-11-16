@@ -1,0 +1,5 @@
+{
+  "lang": "zh-CN",
+  "newFeatures": "优化键盘触摸事件处理，提升输入区域交互稳定性。",
+  "icon": "AppScope/resources/base/media/app_icon_appgallery.png"
+}

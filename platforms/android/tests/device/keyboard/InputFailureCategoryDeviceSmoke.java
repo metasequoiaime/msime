@@ -45,6 +45,8 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
         Object service = null;
         try {
             ClassLoader loader = getTargetContext().getClassLoader();
+            stage = "installed grapheme backspace boundaries";
+            EditorBackspaceBoundaryDeviceChecks.run(loader);
             Class<?> type = loader.loadClass("app.msime.android.MSIMEInputService");
             service = type.getConstructor().newInstance();
             Method attach = android.content.ContextWrapper.class.getDeclaredMethod(
@@ -143,7 +145,7 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                 (proxy, call, args) -> switch (call.getName()) {
                     case "getSelectedText" -> null;
                     case "getTextBeforeCursor" -> "synthetic";
-                    case "deleteSurroundingTextInCodePoints" -> false;
+                    case "deleteSurroundingText", "deleteSurroundingTextInCodePoints" -> false;
                     case "sendKeyEvent" -> {
                         fallbackEvents[0]++;
                         yield true;

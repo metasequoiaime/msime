@@ -64,6 +64,7 @@ pub fn language_name(code: &str) -> Option<&'static str> {
 }
 
 /// 三个桌面宿主共用的显式选择。缺字段时保持关闭，旧云服务设置不受影响。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct LocalTranslationPreferences {
@@ -241,10 +242,12 @@ mod plamo_tests {
     #[test]
     fn retired_targets_remain_readable_but_cannot_be_enabled() {
         for target in ["pt", "tr", "cs", "uk", "bo", "mn", "ug", "yue"] {
-            let mut preferences = crate::preferences::Preferences::default();
-            preferences.local_translation = LocalTranslationPreferences {
-                enabled: true,
-                target_language: target.into(),
+            let mut preferences = crate::preferences::Preferences {
+                local_translation: LocalTranslationPreferences {
+                    enabled: true,
+                    target_language: target.into(),
+                },
+                ..Default::default()
             };
             assert!(preferences.validate().is_ok());
             let selection = preferences.local_translation.clone();
