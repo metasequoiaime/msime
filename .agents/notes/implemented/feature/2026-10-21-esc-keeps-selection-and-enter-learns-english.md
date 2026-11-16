@@ -57,3 +57,7 @@ Status: implemented
 - 设置页：`pnpm --filter @msime/desktop test`（新增 `tests/settings/escape-keeps-selection.test.tsx`、`tests/settings/enter-learns-english.test.tsx`）与 `pnpm format:check`。
 
 相关笔记：[Windows 组字细节对齐 macOS](2026-10-10-windows-input-compose-mac-parity.md)（方向相反：那次是 Windows 补 macOS 已有的能力）。
+
+### Win7 帮助按钮的 COM 生命周期
+
+原生两项设置的说明使用系统帮助气泡，按钮的无障碍名称与说明由 `IAccPropServices` 提供。`SettingsWindow` 在自己的 STA apartment 仍有效时销毁窗口、清理帮助按钮及其无障碍接口，最后才调用 `CoUninitialize`；不能依赖 `State` 成员在析构函数返回后自然释放，因为这会在 apartment 结束后调用 COM 接口。`windows7-lifecycle` 直接创建并销毁生产设置窗口，分别覆盖窗口独占 COM 初始化和调用者已有 STA 两种情况，检查没有 COM 泄漏、也没有提前结束调用者的 apartment。

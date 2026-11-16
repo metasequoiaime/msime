@@ -3362,6 +3362,8 @@ SettingsWindow::~SettingsWindow() {
   if (state_->window) DestroyWindow(state_->window);
   state_->updates_worker.reset();
   state_->worker.reset();
+  // 帮助按钮持有 COM 无障碍对象，必须在窗口所属 apartment 结束前释放。
+  state_->info_tips.clear();
   if (state_->font) DeleteObject(state_->font);
   if (state_->heading_font) DeleteObject(state_->heading_font);
   if (state_->strong_font) DeleteObject(state_->strong_font);
