@@ -5,6 +5,7 @@
 #include "TypingEffectSignal.h"
 #include "msime_client.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -288,7 +289,9 @@ char *msime_client_resolve_online_candidates(uint64_t, const uint8_t *, size_t, 
 char *msime_client_clear_online_candidates(uint64_t, uint8_t) { return answer(nullptr); }
 char *msime_client_apply_translations(uint64_t, uint64_t, const uint8_t *, size_t) { return answer(nullptr); }
 char *msime_client_rerank_settled(uint64_t) {
-  throw std::runtime_error("Synchronous settled scoring blocks the input queue");
+  // C ABI 夹具不能向外抛异常；误用同步入口仍立即让测试失败。
+  std::fputs("Synchronous settled scoring blocks the input queue\n", stderr);
+  std::abort();
 }
 char *msime_client_start_settled_rerank(uint64_t) {
   ++settled_starts;
@@ -566,6 +569,22 @@ int main() {
       REQUIRE(focused.rerank_settled(lease).pending && settled_starts == 2);
       const auto current = focused.rerank_settled(lease);
       REQUIRE(!current.pending && current.view && current.view->at("generation") == fake_generation);
+
+      // 已送达的多义释义页也要冻结底层候选；关闭页面之后恢复原有后台评分时序。
+      fake_translation = "hello;world";
+      auto translate = key(0x0D, u'\r', 3);
+      translate.modifiers_down = PipeMetadata::CandidateActive | 2u;
+      const auto page = focused.configured_key(lease, translate, TsfPreeditStyle::Pinyin, {});
+      REQUIRE(page && page->source.transition.at("view").value("translation_page", 0u) != 0u);
+      REQUIRE(focused.confirm(lease, 3));
+      const auto starts_before_page = settled_starts;
+      const auto polls_before_page = settled_polls;
+      const auto paused = focused.rerank_settled(lease);
+      REQUIRE(!paused.pending && !paused.view);
+      REQUIRE(settled_starts == starts_before_page && settled_polls == polls_before_page);
+      REQUIRE(focused.configured_key(lease, key(0x1B, 0, 4), TsfPreeditStyle::Pinyin, {}).has_value());
+      REQUIRE(focused.confirm(lease, 4));
+      fake_translation.clear();
 
       settled_ready = false;
       REQUIRE(focused.rerank_settled(lease).pending);

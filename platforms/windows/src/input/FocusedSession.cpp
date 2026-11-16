@@ -555,7 +555,9 @@ FocusedSession::rerank_settled(const FocusLease &lease) {
   SettledRerankResult result;
   gate_.with_active(lease, [&] {
     if (composer_->has_pending()) result.pending = true;
-    else result = session_.rerank_settled(lease.epoch);
+    // 释义页沿用底层列表的代次；页面关闭前既不启动评分，也不接收在途评分。
+    else if (composer_->translation_page() == 0)
+      result = session_.rerank_settled(lease.epoch);
   });
   return result;
 }

@@ -160,7 +160,7 @@ import { VoiceListening } from './faces/VoiceListening';
 import { VOICE_MASCOT_FILE, VoiceListeningPolicy, VoiceListeningSession } from './faces/VoiceListeningPolicy';
 
 import { TextPolicy } from './TextPolicy';
-import { ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
+import { ToolbarCluster, ToolbarTools, TouchToolbarPolicy } from './TouchToolbarPolicy';
 import {
   CommaHold,
   CommaSwipeGesture,
@@ -4827,98 +4827,116 @@ struct KeyboardView {
   }
 
   /**
-   * 空闲时的工具条，即设计稿中的鸿蒙工具栏：等宽格，依次是标志（功能面板）、「表情」「常用语」「剪贴板」「皮肤」「输入方式」和「收起」。中间五个工具按 `harmony_toolbar` 显示，关掉的不占格；标志和收起固定在两端。
+   * 空闲时的工具条，即设计稿中的鸿蒙工具栏：依次是标志（功能面板）、「表情」「常用语」「剪贴板」「皮肤」「输入方式」和「收起」。标志固定在行首，其余可见工具和收起按固定格宽、固定间距聚到行尾，中间是可伸缩空白，与 iOS、Android 的工具栏相同；格宽和间距由 `TouchToolbarPolicy.cluster` 算，放不下时收窄。中间五个工具按 `harmony_toolbar` 显示，关掉的不占格。
    *
    * 面板已打开的工具显示为切换色底、强调色图标，再点一次收起面板。以前在这里以胶囊显示的语言、方案名、翻译和标点，现在和语音、回复面板、设置一样放在底行和功能面板里。长按这一行的任何按钮（含标志和收起）打开设置应用的「屏幕键盘」页，在那里选显示哪些工具，与 Android 长按工具栏打开「编辑工具栏」相同。
    */
   @Builder
   toolbarRow() {
     Row() {
-      Column() {
-        BrandTile({
-          active: this.brandActive(),
-          toggleBackground: this.skin.toggleBackground,
-          framePath: KeyboardIconPaths.BRAND_FRAME,
-          strokePath: KeyboardIconPaths.BRAND_STROKE,
-          sizeScale: KeyboardMetrics.toolbarScale(this.settings.candidateScalePercent),
-          spokenLabel: KeyAccessibilityPolicy.tools(),
-          onTap: (): void => this.tapBrand(),
-          onHold: (): void => this.openToolbarSettings()
-        })
-      }
-      .layoutWeight(1)
-      .height('100%')
-      .justifyContent(FlexAlign.Center)
-      if (this.longSpaceActive()) {
-        // 中文 26 键的长空格样式：底行没有 符，符号面板入口在标志右边，与 Android 长空格布局的顶部符号键同位。
-        this.toolbarTextButton('符', SURFACE_SYMBOLS, KeyAccessibilityPolicy.symbolPanel(), (): void => {
-          if (this.surface === SURFACE_SYMBOLS) {
-            this.show(SURFACE_NONE);
-            return;
-          }
-          KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
-          this.openSymbolSurface();
-        });
-      }
-      if (this.toolbarToolShown(this.toolbarTools.emoji)) {
-        this.toolbarButton(KeyboardIconPaths.TOOLBAR_EMOJI, SURFACE_EMOJI, KeyAccessibilityPolicy.emoji(),
-          (): void => {
-            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_EMOJI);
-            this.openEmojiSurface();
-          });
-      }
-      if (this.toolbarToolShown(this.toolbarTools.phrase)) {
-        this.toolbarButton(KeyboardIconPaths.TOOLBAR_PHRASE, SURFACE_PHRASES, KeyAccessibilityPolicy.phrase(),
-          (): void => this.togglePhrases());
-      }
-      if (this.toolbarToolShown(this.toolbarTools.clipboard)) {
-        this.toolbarButton(KeyboardIconPaths.TOOLBAR_CLIPBOARD, SURFACE_CLIPBOARD,
-          KeyAccessibilityPolicy.clipboard(), (): void => this.toggleClipboard());
-      }
-      if (this.toolbarToolShown(this.toolbarTools.skin)) {
-        this.toolbarButton(KeyboardIconPaths.TOOLBAR_SKIN, SURFACE_SKIN, KeyAccessibilityPolicy.skin(),
-          (): void => this.toggle(SURFACE_SKIN));
-      }
-      if (this.toolbarToolShown(this.toolbarTools.scheme)) {
-        this.toolbarButton(KeyboardIconPaths.TOOLBAR_SCHEME, SURFACE_SCHEME, KeyAccessibilityPolicy.scheme(),
-          (): void => this.toggle(SURFACE_SCHEME));
-      }
-      Column() {
+      Row({ space: this.toolbarCluster().gapVp }) {
         Column() {
-          KeyboardLineIcon({
-            d: KeyboardIconPaths.COLLAPSE,
-            iconSize: this.toolbarSized(KeyboardIconPaths.COLLAPSE_SIZE_VP),
-            stroke: KeyboardIconPaths.CHEVRON_STROKE,
-            color: this.skin.keyForeground
+          BrandTile({
+            active: this.brandActive(),
+            toggleBackground: this.skin.toggleBackground,
+            framePath: KeyboardIconPaths.BRAND_FRAME,
+            strokePath: KeyboardIconPaths.BRAND_STROKE,
+            sizeScale: KeyboardMetrics.toolbarScale(this.settings.candidateScalePercent),
+            spokenLabel: KeyAccessibilityPolicy.tools(),
+            onTap: (): void => this.tapBrand(),
+            onHold: (): void => this.openToolbarSettings()
           })
         }
-        .width(this.toolbarSized(TOOLBAR_BUTTON_VP))
-        .height(this.toolbarSized(TOOLBAR_BUTTON_VP))
+        .width(this.toolbarCluster().cellVp)
+        .height('100%')
         .justifyContent(FlexAlign.Center)
-        .borderRadius(this.toolbarSized(TOOLBAR_BUTTON_RADIUS_VP))
-        .stateStyles({
-          normal: {
-            .scale({ x: 1, y: 1 })
-          },
-          pressed: {
-            .scale({ x: TOOLBAR_PRESSED_SCALE, y: TOOLBAR_PRESSED_SCALE })
-          }
-        })
-        .animation({ duration: TOOLBAR_PRESS_MS })
-        .accessibilityText(KeyAccessibilityPolicy.collapse())
-        .onClick((): void => {
-          KeyboardSession.shared.dismiss();
-        })
-        .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
+        if (this.longSpaceActive()) {
+          // 中文 26 键的长空格样式：底行没有 符，符号面板入口在标志右边，与 Android 长空格布局的顶部符号键同位。
+          this.toolbarTextButton('符', SURFACE_SYMBOLS, KeyAccessibilityPolicy.symbolPanel(), (): void => {
+            if (this.surface === SURFACE_SYMBOLS) {
+              this.show(SURFACE_NONE);
+              return;
+            }
+            KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_SYMBOL);
+            this.openSymbolSurface();
+          });
+        }
       }
-      .layoutWeight(1)
       .height('100%')
-      .justifyContent(FlexAlign.Center)
+      // 可伸缩空白把后面的工具推到行尾；放不下时它的宽度变成 0，格子和间距由右侧两行自己收窄。
+      Blank().layoutWeight(1)
+      Row({ space: this.toolbarCluster().gapVp }) {
+        if (this.toolbarToolShown(this.toolbarTools.emoji)) {
+          this.toolbarButton(KeyboardIconPaths.TOOLBAR_EMOJI, SURFACE_EMOJI, KeyAccessibilityPolicy.emoji(),
+            (): void => {
+              KeyboardSession.shared.softKeyPress(KeyIdPolicy.SOFT_EMOJI);
+              this.openEmojiSurface();
+            });
+        }
+        if (this.toolbarToolShown(this.toolbarTools.phrase)) {
+          this.toolbarButton(KeyboardIconPaths.TOOLBAR_PHRASE, SURFACE_PHRASES, KeyAccessibilityPolicy.phrase(),
+            (): void => this.togglePhrases());
+        }
+        if (this.toolbarToolShown(this.toolbarTools.clipboard)) {
+          this.toolbarButton(KeyboardIconPaths.TOOLBAR_CLIPBOARD, SURFACE_CLIPBOARD,
+            KeyAccessibilityPolicy.clipboard(), (): void => this.toggleClipboard());
+        }
+        if (this.toolbarToolShown(this.toolbarTools.skin)) {
+          this.toolbarButton(KeyboardIconPaths.TOOLBAR_SKIN, SURFACE_SKIN, KeyAccessibilityPolicy.skin(),
+            (): void => this.toggle(SURFACE_SKIN));
+        }
+        if (this.toolbarToolShown(this.toolbarTools.scheme)) {
+          this.toolbarButton(KeyboardIconPaths.TOOLBAR_SCHEME, SURFACE_SCHEME, KeyAccessibilityPolicy.scheme(),
+            (): void => this.toggle(SURFACE_SCHEME));
+        }
+        Column() {
+          Column() {
+            KeyboardLineIcon({
+              d: KeyboardIconPaths.COLLAPSE,
+              iconSize: this.toolbarSized(KeyboardIconPaths.COLLAPSE_SIZE_VP),
+              stroke: KeyboardIconPaths.CHEVRON_STROKE,
+              color: this.skin.keyForeground
+            })
+          }
+          .width(this.toolbarSized(TOOLBAR_BUTTON_VP))
+          .height(this.toolbarSized(TOOLBAR_BUTTON_VP))
+          .justifyContent(FlexAlign.Center)
+          .borderRadius(this.toolbarSized(TOOLBAR_BUTTON_RADIUS_VP))
+          .stateStyles({
+            normal: {
+              .scale({ x: 1, y: 1 })
+            },
+            pressed: {
+              .scale({ x: TOOLBAR_PRESSED_SCALE, y: TOOLBAR_PRESSED_SCALE })
+            }
+          })
+          .animation({ duration: TOOLBAR_PRESS_MS })
+          .accessibilityText(KeyAccessibilityPolicy.collapse())
+          .onClick((): void => {
+            KeyboardSession.shared.dismiss();
+          })
+          .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
+        }
+        .width(this.toolbarCluster().cellVp)
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+      }
+      .height('100%')
     }
     .width('100%')
     .height('100%')
     .padding({ left: TOOLBAR_SIDE_PADDING_VP, right: TOOLBAR_SIDE_PADDING_VP })
     .alignItems(VerticalAlign.Center)
+  }
+
+  /** 空闲工具栏这一刻的格宽和间距（`TouchToolbarPolicy.cluster`）：格数是标志、收起、画着的「符」和显示的工具。 */
+  private toolbarCluster(): ToolbarCluster {
+    const tools: boolean[] = [this.toolbarTools.emoji, this.toolbarTools.phrase, this.toolbarTools.clipboard,
+      this.toolbarTools.skin, this.toolbarTools.scheme];
+    const cells: number = 2 + (this.longSpaceActive() ? 1 : 0)
+      + tools.filter((enabled: boolean): boolean => this.toolbarToolShown(enabled)).length;
+    return TouchToolbarPolicy.cluster(this.availableWidth - 2 * TOOLBAR_SIDE_PADDING_VP, cells,
+      this.toolbarSized(TOOLBAR_BUTTON_VP));
   }
 
   /** 工具栏上的这个工具画不画：工具栏设成隐藏、又因为长空格样式一直画着这一行时，与 Android 一样只留标志、符号和收起（切到英文 26 键时 符 也不在，只剩标志和收起）。 */
@@ -4955,7 +4973,7 @@ struct KeyboardView {
       .onClick(action)
       .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
     }
-    .layoutWeight(1)
+    .width(this.toolbarCluster().cellVp)
     .height('100%')
     .justifyContent(FlexAlign.Center)
   }
@@ -4992,7 +5010,7 @@ struct KeyboardView {
       // 长按被识别后这次触摸不再算点按，所以不会同时打开这个工具的面板。
       .gesture(LongPressGesture().onAction((): void => this.openToolbarSettings()))
     }
-    .layoutWeight(1)
+    .width(this.toolbarCluster().cellVp)
     .height('100%')
     .justifyContent(FlexAlign.Center)
   }
