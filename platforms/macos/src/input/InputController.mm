@@ -1772,6 +1772,7 @@ static constexpr uint64_t MSIMESessionRecoveryNoticeInterval = 60 * NSEC_PER_SEC
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate, MSIMEGlobalVoiceDeliveryTarget>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
+- (void)resetSessionForInputSourceSwitch;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
 - (NSDictionary *)serviceSnapshotQuery;
 - (NSDictionary *)serviceSnapshotView;
@@ -2673,6 +2674,20 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     MSIMEInputController *focused = MSIMEFocusedController;
     return (focused != nil && [focused hasUnfinishedInput]) || [MSIMEGlobalVoiceHost().owner globalVoiceBusy];
+}
+
+- (void)resetSessionForInputSourceSwitch {
+    if (!_session || !_activeClient) return;
+    NSDictionary *view = [_session setFocused:NO error:nil];
+    if (!view) return;
+    [self apply:view];
+    // 某些 macOS 版本的输入源监视器早于下一次 activateServer: 运行。保留会话对象，但让切回后的首键走正常的聚焦路径，再清掉 Engine 上下文。
+    _focusPending = YES;
+}
+
+void MSIMEResetFocusedInputSessionBeforeInputSourceSwitch(void) {
+    MSIMEInputController *focused = MSIMEFocusedController;
+    if (focused) [focused resetSessionForInputSourceSwitch];
 }
 
 void MSIMECommitRawCompositionBeforeInputSourceSwitch(void) {
