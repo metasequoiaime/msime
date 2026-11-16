@@ -7604,6 +7604,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 模式切换后先展示新模式的本机历史；不能沿用上一模式停留的云端标签或异步状态。
         clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
+        // 待撤销记录属于原模式，不能恢复到刚切换的另一份历史。
+        clipboardUndoTexts = null;
+        main.removeCallbacks(clipboardUndoTick);
         closeClipboardHistory();
         if (button != null) {
             button.setKind(ClipboardModePolicy.enterIcon(next, true)
@@ -7615,6 +7618,8 @@ public final class MSIMEInputService extends InputMethodService {
                     button.setKind(KeyboardIconKey.Kind.RETURN);
             }, 600L);
         }
+        // 手势监听器消费了整段触摸事件，没有后续点击触发的 render；立即重绘才能让提示图标在当前帧可见。
+        render();
     }
 
     void closeSchemePicker() {
