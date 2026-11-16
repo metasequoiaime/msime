@@ -8408,13 +8408,9 @@ void FcitxState::refreshToolbar() {
   engine_->arrangeStatusArea(&ic_);
 }
 
-// 候选页下方的辅助行：页码、本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
+// 候选页下方的辅助行：本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」、打字连击（有的时候），页码排在最后。classicui 横排时把这一行画在候选那一行的开头，页码放在最前面会挡在拼音前头；macOS 首行把「1 / 3」靠右画在拼音后面，这里照那个顺序排。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string FcitxState::candidateAux() const {
-  const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
-  const auto page_count =
-      msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
-  std::string aux = msime::linux_host::candidate_page_indicator(page, page_count);
-  if (!preferences_.value("show_candidate_page_number", true)) aux.clear();
+  std::string aux;
   const auto mode = view_.value("local_mode", std::string("none"));
   if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))
     aux += (aux.empty() ? "" : " · ") + std::string(modeLabel);
@@ -8434,6 +8430,12 @@ std::string FcitxState::candidateAux() const {
   msime::linux_host::append_caret_edit_suffix_hint(aux, msime::linux_host::caret_edit_suffix(view_), " · ");
   const auto combo = msime::linux_host::typing_combo_label(typing_combo_);
   if (!combo.empty()) aux += (aux.empty() ? "" : " · ") + combo;
+  if (preferences_.value("show_candidate_page_number", true)) {
+    const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
+    const auto page_count =
+        msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
+    aux += (aux.empty() ? "" : " · ") + msime::linux_host::candidate_page_indicator(page, page_count);
+  }
   return aux;
 }
 

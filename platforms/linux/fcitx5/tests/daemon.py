@@ -253,6 +253,11 @@ def main():
 
                     # Missing keys retain the old page indicator, independently of reading text.
                     assert aux(compose(None)).startswith("1 / "), "Legacy page indicator missing"
+                    # The reading leads and the page indicator trails it, as on macOS's first row.
+                    trailing = aux(compose(True, "pinyin"))
+                    indicator = trailing.rfind(" · 1 / ")
+                    assert 0 <= trailing.find("ni") < indicator and "/" not in trailing[indicator + len(" · 1 / "):], \
+                        "Page indicator did not trail the reading"
                     first = compose(False)
                     assert aux(first) == "", "Hidden page/preedit left an auxiliary line"
                     assert context.ProcessKeyEvent(ord("]"), 0, 0, False, 0)
