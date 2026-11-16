@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  inputSourceInstalledForUserOnly,
   inputSourceNeedsAdding,
   inputSourceNeedsRecheck,
   inputSourceNoticeVisible,
@@ -57,4 +58,23 @@ test("没有系统副本字段的旧宿主仍按添加状态判定", () => {
   };
   expect(inputSourceNeedsRecheck(status)).toBe(false);
   expect(inputSourceNoticeVisible(status)).toBe(false);
+});
+
+test("只有装好且范围为当前用户时才算用户目录安装，旧宿主不报范围时不下结论", () => {
+  const status = (overrides: Partial<InputSourceStartupStatus>): InputSourceStartupStatus => ({
+    action: "up_to_date",
+    enabled: true,
+    bundled_version: null,
+    installed_version: null,
+    ...overrides,
+  });
+  expect(inputSourceInstalledForUserOnly(status({ installation_scope: "user" }))).toBe(true);
+  expect(inputSourceInstalledForUserOnly(status({ installation_scope: "system" }))).toBe(false);
+  expect(inputSourceInstalledForUserOnly(status({}))).toBe(false);
+  expect(
+    inputSourceInstalledForUserOnly(
+      status({ action: "not_installed", installation_scope: "user" }),
+    ),
+  ).toBe(false);
+  expect(inputSourceInstalledForUserOnly(null)).toBe(false);
 });

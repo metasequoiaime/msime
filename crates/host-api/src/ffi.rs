@@ -1053,6 +1053,7 @@ fn load_onnx_reranker(directory: &Path) -> Option<msime_onnx_rerank::OnnxScorer>
 
 pub mod account;
 pub mod ai_skin;
+pub mod aliyun_translation;
 pub mod android_data;
 pub mod candidate_colors;
 pub mod candidates;
@@ -1095,6 +1096,7 @@ mod preference_schema_tests;
 
 // Every export has always been reachable at the crate root; the domain split
 // below is for readers, not for callers, so each module is flattened back out.
+pub use aliyun_translation::*;
 pub use android_data::*;
 pub use candidate_colors::*;
 pub use candidates::*;

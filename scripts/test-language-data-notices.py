@@ -79,12 +79,12 @@ DATA_LICENCES = {
     "resources/licenses/python-pinyin-MIT.txt": ("Copyright (c) 2016 mozillazg, 闲耘 <hotoo.cn@gmail.com>", "The above copyright notice and this permission notice shall be included in all"),
     "resources/licenses/rime-wubi86-jidian-Apache-2.0.txt": ("Version 2.0, January 2004", "4. Redistribution.", "END OF TERMS AND CONDITIONS"),
     # CC BY 4.0 第 3(a) 条要的署名、改动说明、许可证地址与全文（含第 5 节免责声明），以及权重进入的两个产物。
-    "resources/licenses/rime-wanxiang-CC-BY-4.0.txt": ("https://github.com/amzxyz/rime-wanxiang), release v18.0.16, commit {WANXIANG_COMMIT}", "Creator: amzxyz", "round(rime-wanxiang weight × factor)", "msime-pinyin.db", "msime-stroke.db", "https://creativecommons.org/licenses/by/4.0/", "Attribution 4.0 International", "Section 5 -- Disclaimer of Warranties and Limitation of Liability."),
+    "resources/licenses/rime-wanxiang-CC-BY-4.0.txt": ("https://github.com/amzxyz/rime-wanxiang-data), branch wanxiang, commit {WANXIANG_COMMIT}", "https://github.com/amzxyz/rime-wanxiang), release v18.0.16, commit 7ab73ee0c7f80190004233e70f954833df64c80e", "Creator: amzxyz", "round(rime-wanxiang weight × factor)", "msime-pinyin.db", "msime-stroke.db", "https://creativecommons.org/licenses/by/4.0/", "Attribution 4.0 International", "Section 5 -- Disclaimer of Warranties and Limitation of Liability."),
 }
 DATA_CHANNELS = tuple(NOTICE_CHANNELS) + ("platforms/windows/Notices.md", "platforms/ios/App/Sources/settings/AboutAndDownloadViews.swift")
 # 网页引擎只分发拼音库和五笔 86 库（不分发 msime-english.db、msime-others.db），引擎 C 库的数据包只带拼音库和英文词库。
-# rime-wanxiang 的提交写在署名文件、三份总览和 docs/third-party.md 里，换了提交却忘了改其中一处会失败。
-WANXIANG_COMMIT = "7ab73ee0c7f80190004233e70f954833df64c80e"
+# rime-wanxiang 的提交写在署名文件、三份总览和 docs/third-party.md 里，换了提交却忘了改其中一处会失败。msime-dictionary#140 起万象取自数据仓库 rime-wanxiang-data；当前发布的拼音库与笔画库的部分权重仍来自配置仓库 rime-wanxiang 的 7ab73ee，署名文件一并写着它。
+WANXIANG_COMMIT = "6b317736a8f90bb6dddf1423dbd1f0b83d4bf764"
 WANXIANG_LICENCE = "resources/licenses/rime-wanxiang-CC-BY-4.0.txt"
 # msime-engine-dictionary-NOTICE.md 的前半部分逐字取自 msime-dictionary 某个提交的 NOTICE.md，开头写明是哪个 dict-v 发布的源数据提交；词库锁换了发布却没有重新同步，会在这里失败。
 DESKTOP_LOCK = ROOT / "resources/desktop-dictionary.lock.json"

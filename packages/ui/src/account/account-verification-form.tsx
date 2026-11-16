@@ -1,4 +1,5 @@
 import { ActionButton } from "../core/action-button";
+import { isComposingKeyEvent } from "../core/ime-key-event";
 import { AccountInputField } from "./account-input-field";
 import { AccountVerificationCodeField } from "./account-verification-code-field";
 import type { useAccountVerification } from "./use-account-verification";
@@ -52,6 +53,12 @@ export function AccountVerificationForm({
         placeholder={sheet ? "6 位验证码" : undefined}
         value={code}
         disabled={busy}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || isComposingKeyEvent(event)) return;
+          if (busy || expired || !/^\d{6}$/.test(code)) return;
+          event.preventDefault();
+          onSignIn();
+        }}
         onChange={setCode}
       />
       <ActionButton

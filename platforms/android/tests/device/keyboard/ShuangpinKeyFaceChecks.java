@@ -29,8 +29,10 @@ final class ShuangpinKeyFaceChecks {
                     Context context = new ContextThemeWrapper(test.getTargetContext().createConfigurationContext(config),
                         android.R.style.Theme_Material_Light_NoActionBar);
                     for (int height : new int[] {40, 46, 52, 84, 29}) {
-                        if (height >= 40) for (int width : new int[] {28, 62, 72})
+                        for (int width : new int[] {28, 62, 72})
                             checkFace(context, "ShuangpinHintButton", "W", "uang iang", "2", width, height);
+                        for (String letter : new String[] {"Q", "W", "M"})
+                            checkFace(context, "KeyHintButton", letter, "", "1", 34, height);
                         checkFace(context, "NineKeyDigitButton", "9", "w x y z", "", 62, height);
                         checkFace(context, "NineKeyDigitButton", "2", "零 b p m f", "", 62, height);
                     }
@@ -71,10 +73,13 @@ final class ShuangpinKeyFaceChecks {
             Rect main = ink(bitmap, 1);
             Rect bottom = ink(bitmap, 2);
             Rect top = ink(bitmap, 0);
-            check(!main.isEmpty() && !bottom.isEmpty(), "主标签或底部提示消失");
-            check(main.bottom < bottom.top, "主标签和底部提示重叠");
+            check(!main.isEmpty() && (hint.isEmpty() || !bottom.isEmpty()), "主标签或底部提示消失");
+            check(hint.isEmpty() || main.bottom < bottom.top, "主标签和底部提示重叠");
             check(corner.isEmpty() || !top.isEmpty() && !Rect.intersects(main, top), "主标签和角标重叠");
             check(key.getLayout().getLineCount() == 1, "主标签折行");
+            if (type.equals("KeyHintButton"))
+                check(key.getTextSize() >= Math.min(18f, 22f * heightDp / 40f) * density * scale - 1,
+                    "单角标把主字母压成小字");
             if (type.equals("ShuangpinHintButton") && widthDp >= 62 && heightDp >= 46)
                 check(key.getTextSize() >= 18 * density * scale - 1,
                     "平板宽键仍把主字母压成小字：" + key.getTextSize() / density / scale);
@@ -82,6 +87,7 @@ final class ShuangpinKeyFaceChecks {
                 "主标签超出可用高度");
             // 就地开关提示要恢复原字号和居中位置，不能每开一次就再缩小一轮。
             keyType.getMethod("setHintText", String.class).invoke(key, "");
+            keyType.getMethod("setCornerHint", String.class).invoke(key, "");
             check(Math.abs(key.getTextSize() - 22 * density * scale) < 1, "关闭提示没有恢复字号");
             keyType.getMethod("setHintText", String.class).invoke(key, hint);
             check(key.getText().toString().equals(text), "提示混入节点主标签");
