@@ -48,6 +48,9 @@ final class ImeToolbar {
     private boolean recentClipImage;
     private int edgeButtonWidth;
     private int shortcutButtonHeight;
+    private int middleButtonWidth;
+    /** 收起键没被选为常驻、但此刻必须露出来（{@link MSIMEInputService#dismissKeyForced}），放在常驻按钮右边而不是中间滚动区。 */
+    private boolean dismissOnEdge;
     private int edgeDrawPercent = 100;
     private String styleCacheKey;
     private int iconColor;
@@ -116,6 +119,7 @@ final class ImeToolbar {
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
         int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
         edgeButtonWidth = edgeWidth;
+        middleButtonWidth = middleWidth;
         shortcutButtonHeight = height;
         // 26 键长空格样式的「符」与品牌键和右侧常驻按钮一起缩放，避免矮行裁掉图标。
         for (Button button : new Button[] {s.moreButton, s.symbolShortcutButton}) {
@@ -130,7 +134,7 @@ final class ImeToolbar {
         }
         for (Button button : shortcutButtons) {
             if (button == pinnedButton()) continue;
-            resizeButton(button, middleWidth, height);
+            resizeButton(button, dismissOnEdge && button == s.dismissShortcutButton ? edgeWidth : middleWidth, height);
             if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
         }
         Button result = s.imeCalculator.chip();
@@ -226,6 +230,38 @@ final class ImeToolbar {
             parent.addView(pinned, params);
             ViewPolicy.setMinimumWidth(pinned, s.pixels(40));
         }
+        placeForcedDismiss(order, parent);
+    }
+
+    /** 候选条模式的展开键、「显示方式：隐藏」时临时露出那一行的返回键都是收起键：常驻位换成别的工具时，这几种状态把它挪到常驻按钮右边，状态结束再放回中间滚动区它原来的顺位。 */
+    private void placeForcedDismiss(java.util.List<ToolbarOrderPolicy.Item> order, LinearLayout edge) {
+        Button dismiss = s.dismissShortcutButton;
+        dismissOnEdge = pinnedItem != ToolbarOrderPolicy.Item.DISMISS && s.dismissKeyForced;
+        if (pinnedItem == ToolbarOrderPolicy.Item.DISMISS) return;
+        LinearLayout target = dismissOnEdge ? edge : s.shortcutBar;
+        if (dismiss.getParent() == target
+                && (!dismissOnEdge || target.getChildAt(target.getChildCount() - 1) == dismiss)) return;
+        if (dismiss.getParent() instanceof LinearLayout oldParent) oldParent.removeView(dismiss);
+        int height = shortcutButtonHeight > 0 ? shortcutButtonHeight : s.pixels(44);
+        if (dismissOnEdge) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(edgeButtonWidth(), height);
+            params.setMarginStart(edge == s.shortcutToolbar ? s.pixels(1) : 0);
+            params.setMarginEnd(edge == s.shortcutToolbar ? s.pixels(1) : 0);
+            edge.addView(dismiss, params);
+            return;
+        }
+        // 中间滚动区最前面是算式结果，后面按排序排列，跳过放在常驻位的那一个。
+        int index = s.shortcutBar.indexOfChild(s.imeCalculator.chip()) >= 0 ? 1 : 0;
+        for (ToolbarOrderPolicy.Item item : order) {
+            if (item == ToolbarOrderPolicy.Item.DISMISS) break;
+            if (item != pinnedItem) index++;
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            middleButtonWidth > 0 ? middleButtonWidth : s.pixels(40), height, 1);
+        params.setMarginStart(s.pixels(1));
+        params.setMarginEnd(s.pixels(1));
+        s.shortcutBar.addView(dismiss, Math.min(index, s.shortcutBar.getChildCount()), params);
+        ViewPolicy.setMinimumWidth(dismiss, s.pixels(40));
     }
 
     private Button buttonFor(ToolbarOrderPolicy.Item item) {
@@ -612,9 +648,10 @@ final class ImeToolbar {
             symbol.setActiveFill(activeBackgroundColor);
             symbol.setIconColors(iconColor, activeIconColor);
         }
-        if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
-            dismiss.setIconColors(pinnedItem == ToolbarOrderPolicy.Item.DISMISS ? foregroundColor : iconColor,
-                pinnedItem == ToolbarOrderPolicy.Item.DISMISS ? foregroundColor : activeIconColor);
+        if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss) {
+            boolean edge = pinnedItem == ToolbarOrderPolicy.Item.DISMISS || dismissOnEdge;
+            dismiss.setIconColors(edge ? foregroundColor : iconColor, edge ? foregroundColor : activeIconColor);
+        }
         if (recentClipHistoryButton instanceof KeyboardShortcutButton history) {
             history.setActiveFill(activeBackgroundColor);
             history.setIconColors(iconColor, activeIconColor);

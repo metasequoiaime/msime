@@ -57,12 +57,71 @@ final class ToolbarPinnedDeviceCheck {
                     }
                 }
             }
+            settings.set(service, snapshot.newInstance(Map.of("platform.android.toolbar_pinned", "text_edit")));
+            recent.invoke(toolbar, null, false);
+            checkForcedDismiss(type, service, normal, middle, render);
         } finally {
             settings.set(service, original);
             recent.invoke(toolbar, null, false);
             order.invoke(toolbar);
             resize.invoke(toolbar, 100, false, 100, 100);
         }
+    }
+
+    /** 常驻位换成文本编辑、普通收起入口关着时，收起键仍是候选条模式唯一的展开入口，也是「显示方式：隐藏」时面板临时露出那一行的返回键：两种状态都要在常驻按钮右边露出来，状态结束后回到中间滚动区并隐藏。 */
+    private static void checkForcedDismiss(Class<?> type, Object service, ViewGroup normal, ViewGroup middle,
+            Method render) throws Exception {
+        Button dismiss = (Button) field(type, "dismissShortcutButton").get(service);
+        Button pinned = (Button) field(type, "textEditShortcutButton").get(service);
+        android.view.View emoji = (android.view.View) field(type, "emojiPanel").get(service);
+        Field hardware = field(type, "hardwareKeyboardMode");
+        Field expanded = field(type, "hardwareKeyboardUserExpanded");
+        Field hidden = field(type, "toolbarHidden");
+        Field enabled = field(type, "toolbarDismiss");
+        boolean hardwareBefore = hardware.getBoolean(service), expandedBefore = expanded.getBoolean(service);
+        boolean hiddenBefore = hidden.getBoolean(service), enabledBefore = enabled.getBoolean(service);
+        int emojiBefore = emoji.getVisibility();
+        try {
+            enabled.setBoolean(service, false);
+            hidden.setBoolean(service, false);
+            emoji.setVisibility(android.view.View.GONE);
+            render.invoke(service);
+            check(dismiss.getVisibility() != android.view.View.VISIBLE, "unpinned dismiss shown while its switch is off");
+            hardware.setBoolean(service, true);
+            render.invoke(service);
+            checkDismissOnEdge(dismiss, pinned, normal, middle, "显示软键盘", "candidate bar mode");
+            check(pinned.getVisibility() == android.view.View.VISIBLE, "pinned tool hidden in candidate bar mode");
+            check(dismiss.performClick(), "expand key has no action in candidate bar mode");
+            check(!hardware.getBoolean(service), "expand key did not leave candidate bar mode");
+            check(dismiss.getParent() == middle && dismiss.getVisibility() != android.view.View.VISIBLE,
+                "dismiss stayed on the edge after the soft keyboard expanded");
+            hidden.setBoolean(service, true);
+            emoji.setVisibility(android.view.View.VISIBLE);
+            render.invoke(service);
+            checkDismissOnEdge(dismiss, pinned, normal, middle, "返回键盘", "hidden toolbar with a panel open");
+            emoji.setVisibility(android.view.View.GONE);
+            hidden.setBoolean(service, false);
+            render.invoke(service);
+            check(dismiss.getParent() == middle && dismiss.getVisibility() != android.view.View.VISIBLE,
+                "dismiss stayed on the edge after the panel closed");
+            check(normal.getChildAt(normal.getChildCount() - 1) == pinned, "pinned tool lost rightmost position");
+        } finally {
+            hardware.setBoolean(service, hardwareBefore);
+            expanded.setBoolean(service, expandedBefore);
+            hidden.setBoolean(service, hiddenBefore);
+            enabled.setBoolean(service, enabledBefore);
+            emoji.setVisibility(emojiBefore);
+            render.invoke(service);
+        }
+    }
+
+    private static void checkDismissOnEdge(Button dismiss, Button pinned, ViewGroup normal, ViewGroup middle,
+            String description, String state) {
+        check(dismiss.getVisibility() == android.view.View.VISIBLE, "dismiss hidden in " + state);
+        check(description.contentEquals(dismiss.getContentDescription()), "dismiss reads wrong in " + state);
+        check(dismiss.getParent() == normal && middle.indexOfChild(dismiss) == -1, "dismiss not on the edge in " + state);
+        check(normal.getChildAt(normal.getChildCount() - 1) == dismiss
+            && normal.getChildAt(normal.getChildCount() - 2) == pinned, "dismiss not right of the pinned tool in " + state);
     }
 
     private static Field field(Class<?> type, String name) throws Exception {

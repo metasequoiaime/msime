@@ -483,6 +483,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarUndo;
     boolean toolbarRedo;
     boolean toolbarDismiss;
+    /** 收起键没选为常驻、「收起键盘」开关也关着时仍必须露出来的几种状态，每次 render 更新：候选条模式里它是展开软键盘的唯一入口；「显示方式：隐藏」时长空格样式留着的那一行、面板临时露出的那一行，都靠它返回键盘。这时 {@link ImeToolbar} 把它放到右端。 */
+    boolean dismissKeyForced;
     /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
     boolean floatingKeyboard;
     /** 横屏自动浮动：打开时横屏使用浮动面板、竖屏恢复停靠。 */
@@ -12807,8 +12809,9 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setSelected(clipboardShortcutButton, imePanels.clipboardPanelOpen());
         }
         if (dismissShortcutButton != null) {
+            dismissKeyForced = keysCollapsed || toolbarHidden && (longSpaceToolbarRowKept() || toolbarExitNeeded());
             ViewPolicy.setVisible(dismissShortcutButton,
-                toolbarItemVisible(toolbarDismiss, ToolbarOrderPolicy.Item.DISMISS));
+                dismissKeyForced || toolbarItemVisible(toolbarDismiss, ToolbarOrderPolicy.Item.DISMISS));
             dismissShortcutButton.setContentDescription(keysCollapsed ? "显示软键盘"
                 : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
             // 候选条模式里收起键朝上，点它展开软键盘。
