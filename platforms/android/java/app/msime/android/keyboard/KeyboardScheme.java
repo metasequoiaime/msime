@@ -34,7 +34,12 @@ public enum KeyboardScheme {
     // 全拼十八键使用共享引擎的多义组码；追加入口，保留已有方案顺序和默认启用列表。
     QUANPIN_EIGHTEEN_KEY("eighteen_key", "quanpin", null, "eighteen_key", "全拼 18 键", "拼", "18"),
     // 粤语双拼（#10523）：与粤拼共用 Engine 方案和词典，只靠 `touch_keyboard_schemes.selected` 让会话从第一键起按两键码解释。追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致；默认不启用（{@link #optIn}）。
-    CANTONESE_SHUANGPIN("cantonese_shuangpin", "cantonese", null, "twenty_six_key", "粤语双拼", "粤", "双");
+    CANTONESE_SHUANGPIN("cantonese_shuangpin", "cantonese", null, "twenty_six_key", "粤语双拼", "粤", "双"),
+    SMART_ABC("smart_abc", "shuangpin", "smart_abc", "twenty_six_key", "智能 ABC 双拼", "智", "双"),
+    SOGOU("sogou", "shuangpin", "sogou", "twenty_six_key", "搜狗双拼", "搜", "双"),
+    JIAJIA("jiajia", "shuangpin", "jiajia", "twenty_six_key", "加加双拼", "加", "双"),
+    ZIGUANG("ziguang", "shuangpin", "ziguang", "twenty_six_key", "紫光双拼", "紫", "双"),
+    GUOBIAO("guobiao", "shuangpin", "guobiao", "twenty_six_key", "国标双拼", "国", "双");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -134,14 +139,15 @@ public enum KeyboardScheme {
     }
 
     /**
-     * 偏好里没有 `touch_keyboard_schemes.enabled` 时不启用的方案：粤拼（含粤语双拼）、注音（大千和 9 键）、越南语、藏文、笔画、全拼 14 键和九键双拼。与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 有意保持一致，14 键也不在新装的默认列表 `DEFAULT_ENABLED` 里。
+     * 偏好里没有 `touch_keyboard_schemes.enabled` 时不启用的方案：粤拼（含粤语双拼）、注音（大千和 9 键）、越南语、藏文、笔画、全拼 14 键、九键双拼、全拼 18 键和新增的五种双拼。与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 有意保持一致。
      *
      * <p>没有列表的文档只可能出自默认值改成只有中文之前的版本，那时日语和韩语默认启用，所以这里不含它们，升级的用户键盘不变。新装的默认值（只有中文方案，日语、韩语由用户在「添加语言」里打开）由 client-core 决定并显式写进文档（`TouchKeyboardScheme::DEFAULT_ENABLED`），这里读到的总是那份列表。
      */
     public boolean optIn() {
         return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
             || this == TIBETAN || this == STROKE || this == QUANPIN_FOURTEEN_KEY
-            || this == NINE_KEY_SHUANGPIN || this == QUANPIN_EIGHTEEN_KEY || this == CANTONESE_SHUANGPIN;
+            || this == NINE_KEY_SHUANGPIN || this == QUANPIN_EIGHTEEN_KEY || this == CANTONESE_SHUANGPIN
+            || this == SMART_ABC || this == SOGOU || this == JIAJIA || this == ZIGUANG || this == GUOBIAO;
     }
 
     /** 日文词典资源包的 id，与 client-providers `ResourcePack::Japanese` 一致。 */
@@ -387,7 +393,8 @@ public enum KeyboardScheme {
 
     private static String normalizedProfile(String value) {
         if ("ziranma".equals(value) || "microsoft".equals(value) || "shoudao".equals(value)
-                || "custom".equals(value)) {
+                || "smart_abc".equals(value) || "sogou".equals(value) || "jiajia".equals(value)
+                || "ziguang".equals(value) || "guobiao".equals(value) || "custom".equals(value)) {
             return value;
         }
         return "xiaohe";

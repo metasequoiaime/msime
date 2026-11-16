@@ -431,14 +431,19 @@ pub fn account_wubi_schema(profile: WubiProfile) -> Option<&'static str> {
     }
 }
 
-/// 双拼方案在账号里的取值。现有账号契约尚未收录智能 ABC 和自定义表，不写这些取值，账号保留上次记录的方案，与 `account_input_schema` 对待未收录方案的方式相同。
+/// 双拼方案在账号里的取值。现有账号契约尚未收录智能 ABC、搜狗、加加、紫光、国标和自定义表，不写这些取值，账号保留上次记录的方案，与 `account_input_schema` 对待未收录方案的方式相同。已经发布的 iOS 读到不认识的 `input.shuangpin_schema` 会拒绝整份账号设置，所以搜狗、加加、紫光和国标要等能容忍未知取值的 iOS 版本发布后再开始上传；下载方向 `apply_input_settings` 已经认得它们。
 fn shuangpin_schema(profile: ShuangpinProfile) -> Option<&'static str> {
     match profile {
         ShuangpinProfile::Xiaohe => Some("xiaohe"),
         ShuangpinProfile::Ziranma => Some("ziranma"),
         ShuangpinProfile::Shoudao => Some("shoudao"),
         ShuangpinProfile::Microsoft => Some("microsoft"),
-        ShuangpinProfile::Custom | ShuangpinProfile::SmartAbc => None,
+        ShuangpinProfile::Custom
+        | ShuangpinProfile::SmartAbc
+        | ShuangpinProfile::Sogou
+        | ShuangpinProfile::Jiajia
+        | ShuangpinProfile::Ziguang
+        | ShuangpinProfile::Guobiao => None,
     }
 }
 
@@ -1455,6 +1460,10 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
             "ziranma" => ShuangpinProfile::Ziranma,
             "shoudao" => ShuangpinProfile::Shoudao,
             "microsoft" => ShuangpinProfile::Microsoft,
+            "sogou" => ShuangpinProfile::Sogou,
+            "jiajia" => ShuangpinProfile::Jiajia,
+            "ziguang" => ShuangpinProfile::Ziguang,
+            "guobiao" => ShuangpinProfile::Guobiao,
             _ => return None,
         };
         Some(())
