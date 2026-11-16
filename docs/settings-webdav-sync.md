@@ -1,6 +1,6 @@
 # 设置与主题的 WebDAV 同步
 
-对应 #10787。当前实现覆盖共享 Rust 文档边界、加密事件、独立设备批准、WebDAV 日志读写、持久化调度和宿主 C/JSON 入口，尚未在原生设置页开放，共享后台线程和启动契约已提供，但尚无平台自动启动它。完整范围见[设计](../.agents/notes/proposed/feature/2026-11-04-webdav-settings-theme-sync.md)，已实现的选择见[核心笔记](../.agents/notes/implemented/feature/2026-11-04-webdav-settings-sync-boundary.md)。不能据此宣称六端已支持。
+对应 #10787。当前实现覆盖共享 Rust 文档边界、加密事件、独立设备批准、WebDAV 日志读写、持久化调度和宿主 C/JSON 入口，尚未在原生设置页开放，共享后台线程已在 macOS IMK、Linux IBus 和 Fcitx5 的进程生命周期接线；这些平台仍缺原生连接配置页，其余平台仍缺启停接线。完整范围见[设计](../.agents/notes/proposed/feature/2026-11-04-webdav-settings-theme-sync.md)，已实现的选择见[核心笔记](../.agents/notes/implemented/feature/2026-11-04-webdav-settings-sync-boundary.md)。不能据此宣称六端已支持。
 
 ## 数据边界
 
@@ -75,4 +75,4 @@ C 入口 `msime_client_settings_sync` 接受最多 64 KiB 的 UTF-8 JSON，返�
 
 旧 `run` 和设备管理入口保留原行为；新增原生自动同步使用 `scheduled`。`msime_client_settings_sync_start` 接受 `{preferences_directory}`，只解析路径并创建后台线程，不在调用线程读文件或联网。线程每五秒检查偏好修订；修订变化调用 `local_change`，其余轮次按服务返回的间隔调用 `periodic`。未配置和未配对的安装不联网、不建同步身份或状态目录。重复启动同一目录无动作，切换目录必须等旧轮次退出；停止超时保留线程句柄，后续还能继续等待，防止宿主卸载前误报已结束。
 
-中断后的显式冲突选择、连接探测、原生设置页的连接编辑与批准界面、六端原生宿主的线程启动与停机接线、主题库迁移仍未完成。当前 PR 保持 Draft，不新增 React 设置入口、不修改现有设置默认值。
+中断后的显式冲突选择、连接探测、原生设置页的连接编辑与批准界面、Windows、Android、iOS 与 HarmonyOS 的线程启动与停机接线、主题库迁移仍未完成。当前 PR 保持 Draft，不新增 React 设置入口、不修改现有设置默认值。

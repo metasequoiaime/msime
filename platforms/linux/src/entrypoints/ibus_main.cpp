@@ -3,6 +3,7 @@
 #include "../core/LinuxEdition.h"
 #include "../core/RuntimeOptionsRefresh.h"
 #include "../core/RuntimeOptionsFile.h"
+#include "../core/SettingsSyncWorker.h"
 #include "../system/SystemTheme.h"
 #include "msime_client.h"
 #include <array>
@@ -258,6 +259,7 @@ int main(int argc, char **argv) {
   // Delivery runs after registration on a thread that is never joined, so an unreachable endpoint cannot delay the engine and exiting mid-request only leaves the events queued.
   msime::telemetry::start_flushing();
   const bool dictionary_sync = start_dictionary_sync(options_path, preferences_directory);
+  const bool settings_sync = msime::linux_host::start_settings_sync(preferences_directory);
   auto config_file = g_file_new_for_path(options_path);
   OptionsWatch options_watch{options_path, config_file, 0, {}};
   auto config_directory = g_file_get_parent(config_file);
@@ -307,6 +309,7 @@ int main(int argc, char **argv) {
   g_object_unref(bus);
   // 正在跑的那一次同步最多等两秒；没等完也不要紧，每一步都已写盘，进程随后退出。
   if (dictionary_sync) (void)msime_client_dictionary_sync_stop(2000);
+  if (settings_sync) (void)msime_client_settings_sync_stop(2000);
   // Every way out of the main loop is a normal end of this session.
   msime::telemetry::end();
   // 因停止信号退出：收尾已经做完，按这个信号的默认动作结束，退出状态与没有处理函数时相同。
