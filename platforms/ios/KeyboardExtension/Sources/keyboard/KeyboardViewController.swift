@@ -6356,6 +6356,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 这一轮有编辑写进了 Engine：结束后让词库同步记下来，包括后面一步失败的情况。
     var applied = false
     defer { if applied { recordDictionaryChange() } }
+    // 分组同步单独处理：分组数据损坏或维护繁忙时，不能连带停掉「我的词条」原有的队列同步。
+    do {
+      applied = try session.synchronizeDictionaryCollections()
+    } catch PersonalDictionaryStore.StoreError.busy {
+    } catch {
+      showDiagnostic(error.localizedDescription)
+    }
     do {
       let state = try store.read()
       guard force || state.needsKeyboardSynchronization || store.listingIsStale() else { return }
