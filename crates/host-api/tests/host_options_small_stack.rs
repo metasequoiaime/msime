@@ -3,8 +3,22 @@ use msime_host_api::{msime_client_create, msime_client_string_free};
 use serde_json::json;
 use std::ffi::CStr;
 
+// 只在真实 C ABI 的指针读取与配对释放中局部允许 unsafe。
+#[allow(unsafe_code)]
+fn call(document: &serde_json::Value) -> serde_json::Value {
+    let bytes = serde_json::to_vec(document).unwrap();
+    // 字节在调用期间有效，返回值只由本次 ABI 配对释放。
+    unsafe {
+        let raw = msime_client_create(bytes.as_ptr(), bytes.len());
+        assert!(!raw.is_null());
+        let reply = CStr::from_ptr(raw).to_bytes().to_vec();
+        msime_client_string_free(raw);
+        serde_json::from_slice(&reply).unwrap()
+    }
+}
+
 #[test]
-fn prepared_options_fit_a_512_kib_thread_stack() {
+fn prepared_options_fit_a_256_kib_thread_stack() {
     const CHILD: &str = "MSIME_HOST_OPTIONS_SMALL_STACK_CHILD";
     const COMPLETE: &str = "HOST_OPTIONS_SMALL_STACK_OK";
     if std::env::var_os(CHILD).is_none() {
@@ -12,7 +26,7 @@ fn prepared_options_fit_a_512_kib_thread_stack() {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "prepared_options_fit_a_512_kib_thread_stack",
+                "prepared_options_fit_a_256_kib_thread_stack",
                 "--nocapture",
             ])
             .env(CHILD, "1")
@@ -28,7 +42,7 @@ fn prepared_options_fit_a_512_kib_thread_stack() {
         return;
     }
 
-    // Windows 系统记事本预留 512 KiB 主线程栈；保留完整出厂偏好，不能删字段凑通过。
+    // 记事本只有 512 KiB 主线程栈；给系统和 TSF 调用链留一半，完整偏好仍须可解析。
     let defaults = serde_json::to_value(Preferences::default()).unwrap();
     let document = json!({
         "api_version": 999,
@@ -39,20 +53,9 @@ fn prepared_options_fit_a_512_kib_thread_stack() {
         "preferences": defaults,
     });
     std::thread::Builder::new()
-        .stack_size(512 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             // API 版本在完整配置解析后检查；用拒绝路径避免访问真实词库和用户目录。
-            let call = |document: &serde_json::Value| {
-                let bytes = serde_json::to_vec(document).unwrap();
-                // 字节在调用期间有效，返回值只由本次 ABI 配对释放。
-                unsafe {
-                    let raw = msime_client_create(bytes.as_ptr(), bytes.len());
-                    assert!(!raw.is_null());
-                    let reply = CStr::from_ptr(raw).to_bytes().to_vec();
-                    msime_client_string_free(raw);
-                    serde_json::from_slice::<serde_json::Value>(&reply).unwrap()
-                }
-            };
             assert_eq!(
                 call(&document),
                 json!({"ok": false, "error": "unsupported host API version"})
