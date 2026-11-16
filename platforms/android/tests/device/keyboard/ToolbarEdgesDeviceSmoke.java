@@ -24,7 +24,11 @@ import java.util.concurrent.ExecutorService;
 
 /** 对安装产品实际测量窄屏、宽屏、算式胶囊和重排，保证工具按固定格宽和间距聚在行尾、放不下时从最前面的工具起横向滚动，滚动不带走两端按钮。 */
 public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private boolean clipboardModeOnly;
+    @Override public void onCreate(Bundle arguments) {
+        clipboardModeOnly = arguments != null && "true".equals(arguments.getString("clipboard-mode-only"));
+        super.onCreate(arguments); start();
+    }
 
     @Override public void onStart() {
         Throwable[] failure = new Throwable[1];
@@ -39,6 +43,10 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 attach.invoke(service, getTargetContext());
                 type.getMethod("onCreate").invoke(service);
                 type.getMethod("onCreateInputView").invoke(service);
+                if (clipboardModeOnly) {
+                    ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
+                    return;
+                }
                 Button undo = (Button) field(type, "undoShortcutButton").get(service);
                 Button redo = (Button) field(type, "redoShortcutButton").get(service);
                 check(!undo.isEnabled() && !redo.isEnabled(), "history controls enabled without editor");
@@ -148,6 +156,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 CompactCandidateHeightDeviceChecks.run(type, service, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
+                ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {
@@ -164,7 +173,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         Throwable error = failure[0];
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, end cluster and scroll start at 240/320/600dp, calculator, order with voice, hidden tools, resize and sticky clipboard header\n"
+            ? clipboardModeOnly
+                ? "MSIME_DEVICE_SMOKE_PASSED: clipboard mode redraw, local tab, isolated history counts and undo boundary\n"
+                : "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, end cluster and scroll start at 240/320/600dp, calculator, order with voice, hidden tools, resize, sticky clipboard header and mode isolation\n"
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

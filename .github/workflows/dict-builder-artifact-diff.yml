@@ -217,13 +217,12 @@ jobs:
           else
             echo "::warning::sccache did not start; the Rust build runs without the compile cache"
           fi
-      # 两棵树共用一个产物目录，第二次编译只重编工作区里的 crate。
+      # 两棵树各用一个产物目录，依赖的编译结果由 sccache 共用。不能共用一个产物目录：cargo 给工作区 crate 算的哈希只看它在工作区里的相对路径，head/ 和 base/ 下的同一个 crate 落在同一份产物上；是否要重编又只比文件的修改时间，head 比 base 先检出，文件比 base 刚编出的产物旧，cargo 便当 head 已经编过，直接把 base 的构建器当成待测的构建器（「Compile the builder under test」0 秒完成，比较的是基准构建器和它自己）。
       - name: Install Rust
         run: |
           set -euo pipefail
           (cd head && rustup toolchain install)
           (cd base && rustup toolchain install)
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/bin"
       # 依赖树（包、版本、启用的特性）相同，构建器编出来的就是同一份代码，不用花两次编译和两次构建去确认产物没变。路径依赖带着检出目录（head/、base/），比较前去掉。
       - name: Check whether the lock change reaches the builder
@@ -247,6 +246,8 @@ jobs:
         if: ${{ steps.deps.outputs.skip != 'true' }}
         continue-on-error: true
         working-directory: base
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target-base
         run: |
           set -euo pipefail
           cargo build --release --locked -p msime-dict-builder
@@ -256,6 +257,8 @@ jobs:
         if: ${{ steps.deps.outputs.skip != 'true' }}
         continue-on-error: true
         working-directory: head
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target-head
         run: |
           set -euo pipefail
           cargo build --release --locked -p msime-dict-builder

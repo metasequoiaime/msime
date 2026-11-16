@@ -1,5 +1,9 @@
 # Android 输入宿主
 
+## 独立翻译窗口
+
+键盘功能菜单的「翻译」或语音设置中的「语音翻译」打开原生窗口。原文支持键盘、手写和语音；选择原文与译文语言，点击翻译后预览，再复制或插回原编辑器。每次最多 256 字，复用已配置的翻译服务，候选翻译开关不影响手动请求。输入位置改变时保留内存译文供复制；草稿和译文不主动保存到磁盘，关闭窗口或进程结束后不保留。
+
 ## 目录结构与验证入口
 
 Java 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；`voice/VoiceProviderPolicy.java` 只保留字段适配与严格解析，凭据预检、服务分类、鉴权模式和状态文案分别通过 `msime_client_voice_credential_issue`、`msime_client_mobile_voice_policy`、`msime_client_mobile_voice_status` 读取共享规则。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
