@@ -1,8 +1,8 @@
-//! 原生宿主的 WebDAV 设置同步 JSON 入口。除 `status` 外均会联网，宿主在工作线程调用。
+//! 原生宿主的 WebDAV 设置同步 JSON 入口。状态查询不联网，其余操作由宿主工作线程调用。
 //! 网盘草稿由宿主安全存储持有，不返回凭据，不借用现有词库或云剪贴板的配置。
 
 use msime_client_core::preferences::PreferencesStore;
-use msime_client_services::settings_webdav::SettingsWebDav;
+use msime_client_services::settings_webdav::{SettingsSyncTrigger, SettingsWebDav};
 use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
@@ -22,10 +22,32 @@ struct Config {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Action {
     Status {},
+    ScheduleStatus {},
     Run {},
+    Scheduled { trigger: ScheduleTrigger },
     Devices {},
     Approve { device_id: String },
     Reject { device_id: String },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ScheduleTrigger {
+    LocalChange,
+    Opened,
+    Periodic,
+    Manual,
+}
+
+impl From<ScheduleTrigger> for SettingsSyncTrigger {
+    fn from(trigger: ScheduleTrigger) -> Self {
+        match trigger {
+            ScheduleTrigger::LocalChange => Self::LocalChange,
+            ScheduleTrigger::Opened => Self::Opened,
+            ScheduleTrigger::Periodic => Self::Periodic,
+            ScheduleTrigger::Manual => Self::Manual,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -80,9 +102,21 @@ pub fn request_json(bytes: &[u8]) -> Result<Value, String> {
         |value| serde_json::to_value(value).map_err(|_| "settings_sync_protocol".to_owned());
     match request.action {
         Action::Status {} => serialize(service.status().map_err(|error| error.code().to_owned())?),
+        Action::ScheduleStatus {} => serde_json::to_value(
+            service
+                .schedule_status()
+                .map_err(|error| error.code().to_owned())?,
+        )
+        .map_err(|_| "settings_sync_protocol".into()),
         Action::Run {} => serde_json::to_value(
             service
                 .run(&PreferencesStore::new(path))
+                .map_err(|error| error.code().to_owned())?,
+        )
+        .map_err(|_| "settings_sync_protocol".into()),
+        Action::Scheduled { trigger } => serde_json::to_value(
+            service
+                .run_scheduled(&PreferencesStore::new(path), trigger.into())
                 .map_err(|error| error.code().to_owned())?,
         )
         .map_err(|_| "settings_sync_protocol".into()),
@@ -122,6 +156,21 @@ mod tests {
         assert_eq!(state["device_id"], Value::Null);
         assert_eq!(state["pending_write"], false);
         assert!(!state.to_string().contains("synthetic-secret"));
+        let schedule =
+            request_json(&request(&directory, json!({"operation":"schedule_status"}))).unwrap();
+        assert_eq!(schedule["pending_changes"], false);
+        assert_eq!(schedule["last_success_ms"], Value::Null);
+        assert!(!schedule.to_string().contains("synthetic-secret"));
+        for trigger in ["local_change", "opened", "periodic", "manual"] {
+            assert_eq!(
+                request_json(&request(
+                    &directory,
+                    json!({"operation":"scheduled", "trigger":trigger})
+                ))
+                .unwrap_err(),
+                "clipboard_identity_missing"
+            );
+        }
         assert_eq!(
             request_json(&request(&directory, json!({"operation":"run"}))).unwrap_err(),
             "clipboard_identity_missing"
@@ -136,6 +185,8 @@ mod tests {
             json!({"operation":"unknown"}),
             json!({"operation":"approve", "device_id":"bad"}),
             json!({"operation":"status", "unused":true}),
+            json!({"operation":"scheduled"}),
+            json!({"operation":"scheduled", "trigger":"unknown"}),
         ] {
             assert_eq!(
                 request_json(&request(root.path(), action)).unwrap_err(),

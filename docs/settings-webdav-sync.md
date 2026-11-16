@@ -1,6 +1,6 @@
 # 设置与主题的 WebDAV 同步
 
-对应 #10787。当前实现覆盖共享 Rust 文档边界、加密事件、独立设备批准、WebDAV 日志读写和宿主 C/JSON 入口，尚未在原生设置页开放，也未启用后台自动同步。完整范围见[设计](../.agents/notes/proposed/feature/2026-11-04-webdav-settings-theme-sync.md)，已实现的选择见[核心笔记](../.agents/notes/implemented/feature/2026-11-04-webdav-settings-sync-boundary.md)。不能据此宣称六端已支持。
+对应 #10787。当前实现覆盖共享 Rust 文档边界、加密事件、独立设备批准、WebDAV 日志读写、持久化调度和宿主 C/JSON 入口，尚未在原生设置页开放，也未接入宿主后台定时线程。完整范围见[设计](../.agents/notes/proposed/feature/2026-11-04-webdav-settings-theme-sync.md)，已实现的选择见[核心笔记](../.agents/notes/implemented/feature/2026-11-04-webdav-settings-sync-boundary.md)。不能据此宣称六端已支持。
 
 ## 数据边界
 
@@ -62,9 +62,13 @@ C 入口 `msime_client_settings_sync` 接受最多 64 KiB 的 UTF-8 JSON，返�
 
 - `status`：不联网、不生成身份、不建目录；返回 `device_id`、`code`、`approved`、`joined`、`sequence` 和 `pending_write`。
 - `run`：一次联网同步，返回 `revision`、`uploaded`、`downloaded`、`conflicts`。
+- `scheduled`：必填 `trigger`，值为 `local_change`、`opened`、`periodic` 或 `manual`；由共享层决定是否联网，返回 `network`、可空的 `report`、`next_check_ms` 和 `status`。执行后的 `report` 使用 `Ok`/`Err` 表示结果，错误仅含稳定错误码；未执行时为 `null`。宿主按 `next_check_ms` 再从工作线程调用，不自己计算退避。
+- `schedule_status`：离线返回 `pending_changes`、`last_success_ms`、`last_error` 和 `budget_wait_until`，不建目录或身份。
 - `devices`：登记/读取设备，结果与现有云剪贴板的设备列表同形。
 - `approve`、`reject`：另带 32 位小写十六进制 `device_id`，结果为设备列表。
 
 `create_identity` 默认 `false`。设置应用在用户首次配置时才能显式传 `true`，输入法进程保持 `false`；无身份时不建目录、不联网，返回 `clipboard_identity_missing`。除 `status` 外所有操作均可能阻塞联网，必须由宿主工作线程执行。
 
-共享自动调度、请求额度、退避状态持久化、中断后的显式冲突选择、连接探测、原生设置页的凭据保存与批准界面、主题库迁移和六端接线仍未完成。当前 PR 保持 Draft，不新增 React 设置入口、不修改现有设置默认值。
+`scheduled` 比较白名单投影摘要，本机专属字段变化不重置一分钟防抖；连续编辑最多等十分钟。打开页面距上次拉取至少一分钟，定时拉取间隔三十分钟。请求额度按本安装的滚动三十分钟窗口计算：自动最多 40 次，总计最多 60 次；每次传输之前私有落盘预扣，包含密钥串、目录操作和失败重试。额度用完会返回等待时间，改网盘配置、进程重启和时钟回拨不会清空已用额度。错误退避也持久化，手动操作可重试但不能绕过总额度。上传时的新编辑在下一轮继续发送，不被旧快照标为已经同步。
+
+旧 `run` 和设备管理入口保留原行为；新增原生自动同步使用 `scheduled`。中断后的显式冲突选择、连接探测、原生设置页的凭据保存与批准界面、宿主定时线程、保存信号、主题库迁移和六端接线仍未完成。当前 PR 保持 Draft，不新增 React 设置入口、不修改现有设置默认值。
