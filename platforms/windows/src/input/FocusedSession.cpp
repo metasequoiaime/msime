@@ -543,7 +543,12 @@ FocusedSession::rerank_settled(const FocusLease &lease) {
   if (!prepared(lease))
     return std::nullopt;
   std::optional<nlohmann::json> result;
-  gate_.with_active(lease, [&] { result = session_.rerank_settled(lease.epoch); });
+  gate_.with_active(lease, [&] {
+    // 按键回复尚未确认送达时，候选窗仍按旧代次显示；此时重排会推进 Engine 代次，随后到达的选词键就会被旧代次校验拒绝。释义页也复用 Engine 的代次，不能在页上重排底层列表。
+    if (composer_->has_pending() || composer_->translation_page() != 0)
+      return;
+    result = session_.rerank_settled(lease.epoch);
+  });
   return result;
 }
 std::optional<nlohmann::json>

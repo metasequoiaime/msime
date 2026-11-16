@@ -38,6 +38,7 @@ uint32_t fake_scheme = 0;
 std::string fake_conversion;
 uint64_t fake_generation = 1;
 uint32_t fake_lifecycle = 0;
+uint32_t fake_rerank_calls = 0;
 // 下一次选词只用掉一部分读音时剩下的字母（部分选词）；空时整段上屏。
 std::string fake_partial_left;
 // 假候选的来源（CandidateSource）；8 是整句，ServerSession::select 把它整段上屏、丢掉剩下的读音。
@@ -282,7 +283,10 @@ char *msime_client_apply_online_candidates(uint64_t, const uint8_t *, size_t, co
 char *msime_client_resolve_online_candidates(uint64_t, const uint8_t *, size_t, uint8_t) { return answer(nullptr); }
 char *msime_client_clear_online_candidates(uint64_t, uint8_t) { return answer(nullptr); }
 char *msime_client_apply_translations(uint64_t, uint64_t, const uint8_t *, size_t) { return answer(nullptr); }
-char *msime_client_rerank_settled(uint64_t) { return answer(nullptr); }
+char *msime_client_rerank_settled(uint64_t) {
+  ++fake_rerank_calls;
+  return answer(nullptr);
+}
 char *msime_client_reset_cache(uint64_t) { return answer(nullptr); }
 char *msime_client_update_preferences(uint64_t, const uint8_t *, size_t) {
   return answer({{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", view()}});
@@ -327,8 +331,12 @@ int main() {
       // 旧 TIP 的一个字母：按键在引擎处理之前报给核心，属性仍然未知（不带 KNOWN）。
       uint64_t request = 2;
       REQUIRE(focused.configured_key(lease, key('A', u'a', request), TsfPreeditStyle::Pinyin, {}).has_value());
+      REQUIRE(!focused.rerank_settled(lease).has_value());
+      REQUIRE(fake_rerank_calls == 0);
       REQUIRE(focused.confirm(lease, request++));
       EXPECT_TRACE({"key:0", "character:97"});
+      REQUIRE(!focused.rerank_settled(lease).has_value());
+      REQUIRE(fake_rerank_calls == 1);
 
       // 全屏应用到了前台：下一个键先报 FULLSCREEN（旧 TIP，属性仍未知），再报按键，然后才派发；离开全屏也一样排在按键前面。
       fake_fullscreen = true;
