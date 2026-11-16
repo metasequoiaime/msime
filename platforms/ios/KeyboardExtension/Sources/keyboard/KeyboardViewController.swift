@@ -2273,7 +2273,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.addGestureRecognizer(hold)
         button.accessibilityHint = letters.map { "长按输入 \(digit) 或 \($0)" } ?? "长按输入 1"
         if let key = button as? KeyboardKeyButton {
-          key.nineKeyFlickLetters = letters ?? ""
+          // 键面印的是大写（ABC），flick 输入小写，与长按菜单、Android 和 HarmonyOS 相同。
+          key.nineKeyFlickLetters = letters?.lowercased() ?? ""
           key.nineKeyFlickEnabled = { [weak self] in
             guard let self else { return false }
             return Self.nineKeyFlickIsEnabled(

@@ -12,6 +12,22 @@ public final class NineKeyFlickPolicy {
 
     private NineKeyFlickPolicy() {}
 
+    /** 合法的阈值：14–48 dp、步进 2，与 client-core 的 `TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE` 相同。 */
+    public static boolean valid(int value) {
+        return value >= MIN_THRESHOLD_DP && value <= MAX_THRESHOLD_DP
+            && (value - MIN_THRESHOLD_DP) % THRESHOLD_STEP_DP == 0;
+    }
+
+    /** 共享偏好 {@link #PREFERENCE} 的原值读成阈值；缺字段、不是整数或不合规时是默认 24（client-core 保存时不写默认值，缺字段就是 24）。 */
+    public static int threshold(Object stored) {
+        if (stored instanceof Number number) {
+            double value = number.doubleValue();
+            int threshold = number.intValue();
+            if (value == threshold && valid(threshold)) return threshold;
+        }
+        return DEFAULT_THRESHOLD_DP;
+    }
+
     /** 返回方向对应的字母序号；下滑和字母不足的方向没有动作。 */
     public static Letter letter(float downX, float downY, float currentX, float currentY,
             String letters, float thresholdDp) {

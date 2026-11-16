@@ -107,7 +107,7 @@ public final class AndroidLocalSettings {
     public static final String NUMBER_ROW = "platform.android.number_row";
     /** 旧版的「九键滑动输入数字」（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，只在本机。现在由共享偏好 `touch_nine_key_swipe_digits` 接替（#10229），这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；规格声明留着，否则读文件时这个键会被丢掉、迁移读不到。同步的 `platform.android.nine_key_swipe` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";
-    /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响九键滑动（共享偏好 `touch_nine_key_swipe_digits`），26 键的滑动阈值不变。只在本机、不随账号同步，iOS 和鸿蒙没有这一项（固定 24）。 */
+    /** 旧版的「九键滑动距离」（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只在本机。现在由三端共用的共享偏好 `touch_nine_key_flick_threshold`（{@link NineKeyFlickPolicy#PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值。 */
     public static final String NINE_KEY_SWIPE_DISTANCE = "platform.android.nine_key_swipe_distance";
     /** 拼音九键组字时 1 键的动作：`separate` 分词（默认），`rewrite` 重输；只在本机，不随账号同步。 */
     public static final String NINE_KEY_COMPOSITION_ACTION = "platform.android.nine_key_composition_action";

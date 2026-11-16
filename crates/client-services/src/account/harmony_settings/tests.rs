@@ -91,6 +91,36 @@ fn exported(preferences: &Preferences) -> BTreeMap<String, AccountPreferenceValu
     export_harmony_settings(preferences, Some(&feedback())).unwrap()
 }
 
+/// 跨平台键和本平台旧键同时在云端时以跨平台键为准，与 Android、iOS 相同；文档里没有跨平台键时才退回本平台键。
+#[test]
+fn nine_key_flick_threshold_prefers_the_shared_key_over_the_harmony_key() {
+    let schema = full_schema();
+    let applied = apply(
+        &Preferences::default(),
+        &[
+            (
+                "input.nine_key_flick_threshold",
+                AccountPreferenceValue::Integer(20),
+            ),
+            (
+                "platform.harmony.nine_key_flick_threshold",
+                AccountPreferenceValue::Integer(30),
+            ),
+        ],
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 20);
+    let applied = apply(
+        &Preferences::default(),
+        &[(
+            "platform.harmony.nine_key_flick_threshold",
+            AccountPreferenceValue::Integer(30),
+        )],
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 30);
+}
+
 #[test]
 fn export_maps_this_hosts_preferences_under_its_own_namespace() {
     let mut local = Preferences {

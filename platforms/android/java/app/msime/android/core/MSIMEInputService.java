@@ -371,7 +371,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean languageKeyLeft;
     /** 拼音九键「九键滑动输入数字」的方向，来自共享偏好 `touch_nine_key_swipe_digits`（{@link NineKeySwipePolicy#mode}），缺省关闭。只影响按键的触摸判定，不改键面，所以不进 touchGeometryKey；每次触摸判定时读当前值，改了下一次触摸就生效。 */
     String nineKeySwipeDigits = NineKeySwipePolicy.OFF;
-    /** 拼音九键字母 flick 的共享判定距离；缺字段时沿用 Android 旧本机设置，默认 24 dp。 */
+    /** 拼音九键字母 flick 的共享判定距离，缺字段或取值不合规时是默认 24 dp。旧的本机「九键滑动距离」由 {@link KeyLayoutStyleMigration} 迁进共享偏好一次，这里不再读它：默认 24 不写进共享偏好，拿旧距离当退路的话用户永远调不回 24。 */
     int nineKeyFlickThreshold = NineKeyFlickPolicy.DEFAULT_THRESHOLD_DP;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
@@ -3206,12 +3206,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private int nineKeyFlickThresholdFrom(JSONObject preferences) {
-        int stored = preferences == null ? -1 : preferences.optInt(
-            NineKeyFlickPolicy.PREFERENCE, -1);
-        if (stored >= NineKeyFlickPolicy.MIN_THRESHOLD_DP && stored <= NineKeyFlickPolicy.MAX_THRESHOLD_DP
-                && (stored - NineKeyFlickPolicy.MIN_THRESHOLD_DP) % NineKeyFlickPolicy.THRESHOLD_STEP_DP == 0)
-            return stored;
-        return localSettings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE);
+        return NineKeyFlickPolicy.threshold(preferences == null ? null : preferences.opt(NineKeyFlickPolicy.PREFERENCE));
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {

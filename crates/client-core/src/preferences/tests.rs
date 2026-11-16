@@ -691,6 +691,7 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
                 &custom,
                 &digits,
                 TouchNineKeySwipeDigits::Off,
+                None,
             )
             .unwrap();
         let absent = |value: &Option<serde_json::Value>| {
@@ -728,7 +729,8 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
                         false,
                         &custom,
                         &digits,
-                        TouchNineKeySwipeDigits::Off
+                        TouchNineKeySwipeDigits::Off,
+                        None
                     )
                     .unwrap()
                     .revision,
@@ -746,7 +748,15 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
     fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
     let before = fs::read(store.path()).unwrap();
     let saved = store
-        .migrate_android_key_layout(1, false, false, &[], &[], TouchNineKeySwipeDigits::Off)
+        .migrate_android_key_layout(
+            1,
+            false,
+            false,
+            &[],
+            &[],
+            TouchNineKeySwipeDigits::Off,
+            None,
+        )
         .unwrap();
     assert_eq!(saved.revision, 1);
     assert_eq!(fs::read(store.path()).unwrap(), before);
@@ -760,6 +770,7 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
             &strings(&[" ， ", "，", "toolong"]),
             &[],
             TouchNineKeySwipeDigits::Off,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -2555,6 +2566,7 @@ fn reporting_consent_survives_android_layout_migration_without_initializing_hist
                 &[],
                 &[],
                 TouchNineKeySwipeDigits::Off,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -11459,6 +11471,7 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
                     &[],
                     &[],
                     TouchNineKeySwipeDigits::Off,
+                    None,
                 )
                 .unwrap();
             let raw: serde_json::Value =
@@ -11483,7 +11496,8 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
                         number_row,
                         &[],
                         &[],
-                        TouchNineKeySwipeDigits::Off
+                        TouchNineKeySwipeDigits::Off,
+                        None
                     )
                     .unwrap()
                     .revision,
@@ -11496,7 +11510,8 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
                     true,
                     &[],
                     &[],
-                    TouchNineKeySwipeDigits::Up
+                    TouchNineKeySwipeDigits::Up,
+                    None
                 ),
                 Err(PreferencesError::Conflict)
             ));
@@ -11533,7 +11548,7 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         }
         fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
         let saved = store
-            .migrate_android_key_layout(1, false, false, &[], &[], local)
+            .migrate_android_key_layout(1, false, false, &[], &[], local, None)
             .unwrap();
         let raw: serde_json::Value =
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
@@ -11559,7 +11574,73 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         let before = fs::read(store.path()).unwrap();
         assert_eq!(
             store
-                .migrate_android_key_layout(saved.revision, false, false, &[], &[], local)
+                .migrate_android_key_layout(saved.revision, false, false, &[], &[], local, None)
+                .unwrap()
+                .revision,
+            saved.revision
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), before);
+    }
+}
+
+/// Android 旧的本机「九键滑动距离」只在共享阈值缺键时迁一次；默认 24、越界或步进不合规的旧值不写，别的设备同步来的值不被覆盖。
+#[test]
+fn android_layout_migration_moves_the_nine_key_swipe_distance_only_into_a_missing_threshold() {
+    // (共享文档里原来的值, 本机旧值, 迁移后文档里的值；None 表示不写这个键)
+    let cases: [(Option<u16>, Option<u16>, Option<u16>); 7] = [
+        (None, Some(40), Some(40)),
+        (None, Some(14), Some(14)),
+        (None, Some(24), None),
+        (None, Some(25), None),
+        (None, Some(50), None),
+        (None, None, None),
+        (Some(30), Some(40), Some(30)),
+    ];
+    for (shared, local, expected) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        document["revision"] = 1.into();
+        if let Some(shared) = shared {
+            document["preferences"]["touch_nine_key_flick_threshold"] = shared.into();
+        }
+        fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+        let saved = store
+            .migrate_android_key_layout(
+                1,
+                false,
+                false,
+                &[],
+                &[],
+                TouchNineKeySwipeDigits::Off,
+                local,
+            )
+            .unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(
+            raw["preferences"].get("touch_nine_key_flick_threshold"),
+            expected.map(serde_json::Value::from).as_ref(),
+            "{shared:?} {local:?}"
+        );
+        assert_eq!(
+            saved.preferences.touch_nine_key_flick_threshold,
+            expected.unwrap_or(TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT),
+            "{shared:?} {local:?}"
+        );
+        // 再迁一次不增加修订号，文件不变。
+        let before = fs::read(store.path()).unwrap();
+        assert_eq!(
+            store
+                .migrate_android_key_layout(
+                    saved.revision,
+                    false,
+                    false,
+                    &[],
+                    &[],
+                    TouchNineKeySwipeDigits::Off,
+                    local,
+                )
                 .unwrap()
                 .revision,
             saved.revision

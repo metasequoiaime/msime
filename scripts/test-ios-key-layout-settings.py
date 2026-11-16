@@ -230,7 +230,7 @@ class NineKeyFlickKeyboardContract(unittest.TestCase):
 
     def test_grid_keys_are_wired(self):
         layout = member(self.source, "  private func makeNineKeyLayout() -> UIView {")
-        for line in ("key.nineKeyFlickLetters = letters", "key.nineKeyFlickThreshold =",
+        for line in ("key.nineKeyFlickLetters = letters?.lowercased()", "key.nineKeyFlickThreshold =",
                      "key.onNineKeyFlick =", "self.commitNineKeyHoldOption(character)"):
             self.assertIn(line, layout)
 

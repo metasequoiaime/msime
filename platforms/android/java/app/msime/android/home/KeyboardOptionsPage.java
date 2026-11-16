@@ -304,11 +304,8 @@ public class KeyboardOptionsPage extends ReloadingDetailPage {
         // 九键字母 flick 只在拼音九键可用；方向和阈值三端共用，数字改由长按输入。旧的数字滑动字段继续保留以兼容旧文档，但不再作为设置入口。
         boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
         if (quanpinNineKey) {
-            int threshold = preferences.optInt(NineKeyFlickPolicy.PREFERENCE, -1);
-            if (threshold < NineKeyFlickPolicy.MIN_THRESHOLD_DP || threshold > NineKeyFlickPolicy.MAX_THRESHOLD_DP
-                    || (threshold - NineKeyFlickPolicy.MIN_THRESHOLD_DP) % NineKeyFlickPolicy.THRESHOLD_STEP_DP != 0) {
-                threshold = NineKeyFlickPolicy.DEFAULT_THRESHOLD_DP;
-            }
+            // 与键盘同一套读法（NineKeyFlickPolicy.threshold），设置页显示的就是键盘实际用的阈值。
+            int threshold = NineKeyFlickPolicy.threshold(preferences.opt(NineKeyFlickPolicy.PREFERENCE));
             gestures.slider("九键 flick 阈值", null,
                 NineKeyFlickPolicy.MIN_THRESHOLD_DP, NineKeyFlickPolicy.MAX_THRESHOLD_DP,
                 NineKeyFlickPolicy.THRESHOLD_STEP_DP, threshold,

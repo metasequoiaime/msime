@@ -6637,6 +6637,9 @@ impl PreferencesStore {
     /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
     ///
     /// `nine_key_swipe_digits` 是本机旧设置 `platform.android.nine_key_swipe` 严格解析后的值，没有旧值或旧值不认识时传 [`TouchNineKeySwipeDigits::Off`]：上滑或下滑只在共享字段缺键或明写 `off` 时写入，别的设备选的方向和较新版本的写法都原样留着。
+    ///
+    /// `nine_key_flick_threshold` 是本机旧设置「九键滑动距离」`platform.android.nine_key_swipe_distance` 的值，本机没有这个键时传 `None`：只在共享字段 `touch_nine_key_flick_threshold` 盘上缺键、旧值在 14–48 且步进合规、又不是默认 24 时写入；盘上已有的值（别的设备设的，或较新版本的写法）都不覆盖。
+    #[allow(clippy::too_many_arguments)]
     pub fn migrate_android_key_layout(
         &self,
         expected_revision: u64,
@@ -6645,6 +6648,7 @@ impl PreferencesStore {
         nine_key_symbols: &[String],
         nine_key_digit_symbols: &[String],
         nine_key_swipe_digits: TouchNineKeySwipeDigits,
+        nine_key_flick_threshold: Option<u16>,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, mut unknown) = self.read_locked_keeping_unknown()?;
@@ -6697,6 +6701,19 @@ impl PreferencesStore {
             && swipe.is_none_or(|value| value.as_str() == Some("off"))
         {
             preferences.touch_nine_key_swipe_digits = nine_key_swipe_digits;
+        }
+        if let Some(threshold) = nine_key_flick_threshold.filter(|value| {
+            TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(value)
+                && (value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                    .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+                && *value != TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+        }) {
+            if document
+                .pointer("/preferences/touch_nine_key_flick_threshold")
+                .is_none()
+            {
+                preferences.touch_nine_key_flick_threshold = threshold;
+            }
         }
         // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
         for (key, is_known) in [

@@ -4982,6 +4982,18 @@ final class NineKeyFlickTests: XCTestCase {
     XCTAssertNil(KeyboardLayoutPreference.sharedNineKeyFlickThreshold("24"))
   }
 
+  /// client-core 保存时不写默认的 24：文档里缺这个键就是 24，App Group 里别处留下的 30 必须跟着回到 24；文档读不到（nil）时才保持原值。
+  func testMirrorTreatsAMissingThresholdAsTheDefault() {
+    let original = KeyboardLayoutPreference.nineKeyFlickThreshold
+    defer { KeyboardLayoutPreference.nineKeyFlickThreshold = original }
+    KeyboardLayoutPreference.mirrorNineKeyFlickThreshold([KeyboardLayoutPreference.nineKeyFlickThresholdDocumentKey: 30])
+    XCTAssertEqual(KeyboardLayoutPreference.nineKeyFlickThreshold, 30)
+    KeyboardLayoutPreference.mirrorNineKeyFlickThreshold(nil)
+    XCTAssertEqual(KeyboardLayoutPreference.nineKeyFlickThreshold, 30)
+    KeyboardLayoutPreference.mirrorNineKeyFlickThreshold([:])
+    XCTAssertEqual(KeyboardLayoutPreference.nineKeyFlickThreshold, 24)
+  }
+
   func testDirectionsMapToLettersAndMissingDirectionsDoNothing() {
     typealias Policy = NineKeyFlickPolicy
     let down = CGPoint(x: 100, y: 100)
@@ -4990,9 +5002,9 @@ final class NineKeyFlickTests: XCTestCase {
     XCTAssertEqual(Policy.letter(down: down, current: CGPoint(x: 130, y: 100), letters: "ABC", threshold: 24), .third)
     XCTAssertEqual(Policy.letter(down: down, current: CGPoint(x: 100, y: 130), letters: "ABC", threshold: 24), .none)
     XCTAssertEqual(Policy.letter(down: down, current: CGPoint(x: 70, y: 100), letters: "A", threshold: 24), .none)
-    XCTAssertEqual(Policy.character("ABC", .first), "A")
-    XCTAssertEqual(Policy.character("ABC", .second), "B")
-    XCTAssertEqual(Policy.character("ABC", .third), "C")
+    XCTAssertEqual(Policy.character("abc", .first), "a")
+    XCTAssertEqual(Policy.character("abc", .second), "b")
+    XCTAssertEqual(Policy.character("abc", .third), "c")
     XCTAssertEqual(Policy.character("A", .third), "")
   }
 

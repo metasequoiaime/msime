@@ -331,7 +331,7 @@ final class ImeLayoutRows {
     /**
      * 九键与笔画键盘左侧的符号栏：数字键面默认一屏四项，笔画三项，其他键面最多五项，更多的上下滚动；点按原样上屏（全角模式下转全角），完整符号对的光标停在中间。{@code capped} 为假时整栏是一条按皮肤侧栏色画的底轨，符号不画键帽（字母层与 iOS 的 `drawBareInSidebar` 相同，数字层的运算符同样如此）；为真时每个符号一个键帽，目前没有键面这样画。
      *
-     * <p>{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
+     * <p>{@code tallReturn} 为真时按右侧大回车外框取符号（{@link #sidebarSymbols(boolean, boolean)}）。{@code zeroShortcut} 为真时，接到默认字母表末尾的 ！（{@link NineKeySidebarPolicy#appendedExclamationIndex}）带上拼音九键右列 ！ 原来的手势：右上角印 0，上滑滑出 0，长按选上标 ⁰ 或下标 ₀，否则大回车外框的字母层就没有直接输入 0 的地方了。笔画右列的 ！ 本来没有这个手势（笔画网格里有 0 键），笔画不带。
      */
     private FrameLayout symbolSidebar(boolean digits, boolean capped, boolean tallReturn, boolean zeroShortcut) {
         return symbolSidebar(digits, capped,
@@ -750,7 +750,7 @@ final class ImeLayoutRows {
         String last = punctuation.get(punctuation.size() - 1);
         NineKeyDigitButton exclamation = s.keyId(s.nineKeyGridKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
-        // 沿「九键滑动输入数字」的方向滑出 0（关闭或上滑时上滑，下滑时下滑，#10441），在右上角沿用九键数字提示，点按和长按行为不变。
+        // 上滑 14 dp 滑出 0，与 123 / #+= 层的 ！ 相同，在右上角沿用九键数字提示，点按和长按行为不变。
         exclamation.setDigitText("0");
         s.imeLetterRows.bindNineKeySuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);

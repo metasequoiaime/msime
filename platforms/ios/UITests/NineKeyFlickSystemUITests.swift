@@ -39,8 +39,9 @@ extension KeyboardExtensionEditorUITests {
                   withVelocity: 400, thenHoldForDuration: 0.05)
     }
     let directions = [CGVector(dx: 0, dy: -36), CGVector(dx: -36, dy: 0), CGVector(dx: 36, dy: 0)]
-    for (digit, letters) in [(2, "ABC"), (3, "DEF"), (4, "GHI"), (5, "JKL"),
-                             (6, "MNO"), (7, "PQR"), (8, "TUV"), (9, "WXY")] {
+    // 键面印大写，flick 输入小写，与长按菜单、Android 和 HarmonyOS 相同。
+    for (digit, letters) in [(2, "abc"), (3, "def"), (4, "ghi"), (5, "jkl"),
+                             (6, "mno"), (7, "pqr"), (8, "tuv"), (9, "wxy")] {
       for (offset, letter) in zip(directions, letters) {
         flick(digit, offset)
         expected.append(letter)
@@ -124,7 +125,7 @@ extension KeyboardExtensionEditorUITests {
     editor.buttons["nineKeyDelete"].tap()
     XCTAssertNotEqual(editor.buttons["returnKey"].label, "确认")
     flick(60)
-    XCTAssertEqual(field.value as? String, "A", "超过 48pt 才直接提交字母")
+    XCTAssertEqual(field.value as? String, "a", "超过 48pt 才直接提交字母")
     editor.terminate()
 
     try configure(14)
@@ -133,7 +134,7 @@ extension KeyboardExtensionEditorUITests {
     _ = try activeSystemKeyboard(in: editor, field: field)
     XCTAssertTrue(editor.buttons["nineKey2"].waitForExistence(timeout: 5))
     flick(20)
-    let received = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'A'"), object: field)
+    let received = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'a'"), object: field)
     XCTAssertEqual(XCTWaiter.wait(for: [received], timeout: 5), .completed,
                    "App Group 中的新阈值必须在下一次触摸生效")
     keepScreenshot("九键flick-设置阈值14生效", in: editor)

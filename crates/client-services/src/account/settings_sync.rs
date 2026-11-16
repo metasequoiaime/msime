@@ -535,7 +535,7 @@ pub fn export_android_settings(
     Ok(settings)
 }
 
-/// 三端键盘共用、但仍放在 `input.*` 命名空间的共享偏好；桌面也原样携带，避免设置同步时丢字段。
+/// 三端键盘共用、但仍放在 `input.*` 命名空间的共享偏好，只由 Android、鸿蒙和 iOS 导出和应用。桌面没有对应的设置项也不使用它，不导出：桌面上传时偏好里只有默认值，导出的话会把手机上改的阈值盖回默认；桌面不导出的键在合并上传时原样留在云端。
 pub(super) fn insert_mobile_shared_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
@@ -1066,7 +1066,6 @@ pub(super) fn export_desktop_settings_for(
 ) -> BTreeMap<String, AccountPreferenceValue> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
-    insert_mobile_shared_settings(&mut settings, preferences);
     insert_grammar_model(&mut settings, preferences);
     insert_plugin_settings(&mut settings, preferences);
     if host.shared_settings_page() {
@@ -1488,17 +1487,6 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     })?;
     applier.set_integer("input.frequency_linear_step", |preferences, value| {
         preferences.frequency.linear_step = u8::try_from(value).ok()?;
-        Some(())
-    })?;
-    applier.set_integer(MOBILE_NINE_KEY_FLICK_THRESHOLD, |preferences, value| {
-        let value = u16::try_from(value).ok()?;
-        if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&value)
-            || !(value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
-                .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
-        {
-            return None;
-        }
-        preferences.touch_nine_key_flick_threshold = value;
         Some(())
     })?;
     applier.set_bool("input.chinese_punctuation", |preferences, value| {
@@ -2225,7 +2213,17 @@ pub(super) fn apply_touch_settings(
         preferences.touch_nine_key_swipe_digits = TouchNineKeySwipeDigits::parse(value)?;
         Some(())
     })?;
-    applier.set_integer(keys.nine_key_flick_threshold, |preferences, value| {
+    // 九键 flick 阈值以三端共用的 `input.*` 键为准，与 iOS 相同；文档里没有它（只有旧版本上传过）时才退回本平台键。平台键只有本平台自己写，先应用跨平台键再拿它覆盖的话，别的平台刚改的值会被本机留在云端的旧平台键改回去，下一次上传还会把旧值推给其他设备。
+    let nine_key_flick_threshold_key = if applier
+        .integer(MOBILE_NINE_KEY_FLICK_THRESHOLD)?
+        .flatten()
+        .is_some()
+    {
+        MOBILE_NINE_KEY_FLICK_THRESHOLD
+    } else {
+        keys.nine_key_flick_threshold
+    };
+    applier.set_integer(nine_key_flick_threshold_key, |preferences, value| {
         let value = u16::try_from(value).ok()?;
         if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&value)
             || !(value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())

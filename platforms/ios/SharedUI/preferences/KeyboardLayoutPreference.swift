@@ -101,7 +101,7 @@ enum KeyboardLayoutPreference {
     return true
   }
 
-  /// 把共享文档里的几何与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；键盘和设置页每次出现都按文档对齐。文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不镜像它。
+  /// 把共享文档里的几何与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；九键 flick 阈值缺键或不合规时是默认 24（client-core 保存时不写默认值，缺键就是 24）；键盘和设置页每次出现都按文档对齐。文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不镜像它。
   static func mirrorGeometry(_ preferences: [String: Any]?) {
     guard let preferences else { return }
     defaults.set(normalizeQuickPunctuationSymbols(preferences["touch_quick_punctuation_symbols"] as? [String] ?? []),
@@ -111,17 +111,15 @@ enum KeyboardLayoutPreference {
     if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
       heightAdjustment = adjustment
     }
-    if let threshold = sharedNineKeyFlickThreshold(preferences[nineKeyFlickThresholdDocumentKey]) {
-      nineKeyFlickThreshold = threshold
-    }
+    nineKeyFlickThreshold = sharedNineKeyFlickThreshold(preferences[nineKeyFlickThresholdDocumentKey])
+      ?? nineKeyFlickThresholdDefault
   }
 
-  /// 首次加载键盘时只镜像九键 flick 阈值，不覆盖本机已经应用的键距、行距和高度。
+  /// 首次加载键盘时只镜像九键 flick 阈值，不覆盖本机已经应用的键距、行距和高度。文档读不到（`nil`）时保持原值；文档里缺键或不合规时是默认 24：默认值不写进文件，别处调回 24 后这里必须跟着回到 24。
   static func mirrorNineKeyFlickThreshold(_ preferences: [String: Any]?) {
-    guard let threshold = sharedNineKeyFlickThreshold(preferences?[nineKeyFlickThresholdDocumentKey]) else {
-      return
-    }
-    nineKeyFlickThreshold = threshold
+    guard let preferences else { return }
+    nineKeyFlickThreshold = sharedNineKeyFlickThreshold(preferences[nineKeyFlickThresholdDocumentKey])
+      ?? nineKeyFlickThresholdDefault
   }
 
   /// 保存九键 flick 阈值，只修改共享文档这一项；写入成功后同步 App Group 镜像。
