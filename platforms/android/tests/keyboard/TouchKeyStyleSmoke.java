@@ -368,15 +368,32 @@ public final class TouchKeyStyleSmoke {
         legacy.clear();
         legacy.put(AndroidLocalSettings.LONG_SPACE_LAYOUT, true);
         check(KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)), "long space pending");
-        // #10229：九键滑动输入数字的旧本机键同样要迁，关闭也算（迁完要删）；距离仍是本机设置，不让迁移一直挂着。
+        // #10229：九键滑动输入数字的旧本机键同样要迁，关闭也算（迁完要删）。
         legacy.clear();
         legacy.put(AndroidLocalSettings.NINE_KEY_SWIPE, NineKeySwipePolicy.OFF);
         check(KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)),
             "an explicit nine-key off still has to be deleted");
         legacy.clear();
-        legacy.put(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, 30);
-        check(!KeyLayoutStyleMigration.pending(new AndroidLocalSettings.Snapshot(legacy)),
-            "the nine-key swipe distance stays local and is not migrated");
+        // 旧的「九键滑动距离」迁进三端共用的 flick 阈值后删掉；默认 24 也算待删，但不迁（共享偏好不写默认值，缺键就是 24）。
+        legacy.put(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, 40);
+        AndroidLocalSettings.Snapshot distance = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(legacy));
+        check(KeyLayoutStyleMigration.pending(distance), "the legacy nine-key swipe distance has to be migrated and deleted");
+        check(Integer.valueOf(40).equals(KeyLayoutStyleMigration.legacyFlickThreshold(distance)),
+            "a custom legacy distance becomes the shared flick threshold");
+        legacy.put(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE, NineKeyFlickPolicy.DEFAULT_THRESHOLD_DP);
+        AndroidLocalSettings.Snapshot defaultDistance = new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(legacy));
+        check(KeyLayoutStyleMigration.pending(defaultDistance)
+            && KeyLayoutStyleMigration.legacyFlickThreshold(defaultDistance) == null,
+            "a default legacy distance is deleted without writing the shared threshold");
+        check(KeyLayoutStyleMigration.legacyFlickThreshold(new AndroidLocalSettings.Snapshot(Map.of())) == null,
+            "no legacy distance migrates nothing");
+        // 键盘只读共享阈值：共享偏好缺键（默认 24 不写进文件）时就是 24，本机旧距离 40 不再当退路，否则用户调回 24 后键盘仍用 40。
+        check(NineKeyFlickPolicy.threshold(null) == NineKeyFlickPolicy.DEFAULT_THRESHOLD_DP
+            && NineKeyFlickPolicy.threshold(24) == 24 && NineKeyFlickPolicy.threshold(40) == 40,
+            "the keyboard reads the shared threshold and treats a missing key as 24");
+        check(NineKeyFlickPolicy.threshold(25) == 24 && NineKeyFlickPolicy.threshold(50) == 24
+            && NineKeyFlickPolicy.threshold(30.5) == 24 && NineKeyFlickPolicy.threshold("30") == 24,
+            "an invalid shared threshold falls back to 24");
         check(!AndroidLocalSettings.spec(AndroidLocalSettings.LONG_SPACE_LAYOUT).synced
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NUMBER_ROW).synced
             && !AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_SWIPE).synced,
@@ -443,8 +460,8 @@ public final class TouchKeyStyleSmoke {
             && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SYMBOLS)
             && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS)
             && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE)
-            && !KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE)
-            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除五个已转换旧键，九键滑动距离留在本机");
+            && KeyLayoutStyleMigration.legacyKey(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE)
+            && !KeyLayoutStyleMigration.legacyKey("platform.android.synthetic"), "恢复时只移除六个已转换旧键");
         // 两张符号表：旧备份的文本转成账号文档的写法；等于出厂表或解析不出时写空串（出厂表）；备份里已有新字段时以新字段为准。账号字段名与旧键同名。
         String letters = "platform.android.nine_key_symbols";
         String digits = "platform.android.nine_key_digit_symbols";
@@ -471,6 +488,20 @@ public final class TouchKeyStyleSmoke {
             "不认识的九键滑动旧值不制造默认值");
         check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldNumber, true, oldNine, "up"), Map.of())
             .equals(Map.of(number, true, nine, "up")), "数字行和九键滑动一起恢复");
+
+        // 旧备份里的「九键滑动距离」转成九键 flick 阈值的平台键，默认 24 也写；备份已带新阈值（平台键或三端共用键）时以它为准，不合规的旧值不恢复。
+        String oldDistance = AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE;
+        String flick = "platform.android.nine_key_flick_threshold";
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldDistance, 40), Map.of())
+            .equals(Map.of(flick, 40)), "旧备份的九键滑动距离恢复成 flick 阈值");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldDistance, 24), Map.of())
+            .equals(Map.of(flick, 24)), "旧备份明确存着的 24 也恢复");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldDistance, 40), Map.of(flick, 30)).isEmpty()
+            && KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldDistance, 40),
+                Map.of("input.nine_key_flick_threshold", 30)).isEmpty(), "备份已带新阈值时不用旧距离");
+        check(KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldDistance, 25), Map.of()).isEmpty()
+            && KeyLayoutStyleMigration.restoredSharedEdits(Map.of(oldDistance, "40"), Map.of()).isEmpty(),
+            "不合规的旧距离不恢复");
     }
 
     /**
