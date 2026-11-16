@@ -51,6 +51,14 @@ public final class CloudClipboardReceivePolicySmoke {
         check(!precise.receive(precise.generation(), "synthetic invalid", "invalid", null, 0, true),
             "非法时间戳不能触发接收");
         check(!precise.receive(precise.generation(), "\u0000", LATE, null, 0, true), "非法文本不能触发接收");
+        CloudClipboardReceivePolicy skewed = new CloudClipboardReceivePolicy();
+        check(skewed.receive(skewed.generation(), "synthetic A", EARLY, null, 0, true, false), "首条云端内容可接收");
+        long written = EARLY_MS + 12_000;
+        check(skewed.receive(skewed.generation(), "synthetic B", "2026-11-13T00:00:06Z",
+                "synthetic A", written, true, true), "键盘自己写入的内容按本机时钟记时，不能挡住更新的云端修订");
+        CloudClipboardReceivePolicy restarted = new CloudClipboardReceivePolicy();
+        check(!restarted.receive(restarted.generation(), "synthetic older", EARLY,
+                "synthetic A", EARLY_MS + 1, true, true), "重启后还没有水位时，自己写入的内容仍按时间戳挡住更旧修订");
         System.out.println("CloudClipboardReceivePolicySmoke passed");
     }
 

@@ -55,6 +55,37 @@ public final class CloudClipboardReceiveDeviceSmoke extends Instrumentation {
                 changed.setAccessible(true);
                 changed.invoke(receiver, read.invoke(service));
 
+                // 键盘写入时系统按本机时钟记时间戳；比这个时间早、但比上一条云端修订新的远端复制仍要收下。
+                Object ordered = policyType.getConstructor().newInstance();
+                clipboard.clearPrimaryClip();
+                Object first = itemConstructor.newInstance("synthetic-first", "Synthetic first remote",
+                    Instant.now().minusSeconds(60).toString());
+                apply.invoke(receiver, ordered, 0L, pageConstructor.newInstance(true, List.of(first), "ready", ""));
+                Object next = itemConstructor.newInstance("synthetic-next", "Synthetic next remote",
+                    Instant.now().minusSeconds(30).toString());
+                apply.invoke(receiver, ordered, 0L, pageConstructor.newInstance(true, List.of(next), "ready", ""));
+                check("Synthetic next remote".contentEquals(clipboard.getPrimaryClip().getItemAt(0).getText()),
+                    "自己写入的时间戳挡住了更新的云端修订");
+
+                // 换输入框、重启输入和收起再弹出只作废生命周期，不能动接收策略的代次，否则在途结果推进水位后被丢弃，这条远端复制再也收不到。两次切换在同一次主线程任务里完成，排上的查询被第二次切换移除，不会触网。
+                Method active = receiverType.getDeclaredMethod("active", boolean.class);
+                active.setAccessible(true);
+                var policyField = receiverType.getDeclaredField("policy");
+                policyField.setAccessible(true);
+                var lifecycleField = receiverType.getDeclaredField("lifecycleGeneration");
+                lifecycleField.setAccessible(true);
+                Object live = policyField.get(receiver);
+                long requestGeneration = (long) policyType.getMethod("generation").invoke(live);
+                long lifecycle = lifecycleField.getLong(receiver);
+                active.invoke(receiver, true);
+                active.invoke(receiver, false);
+                active.invoke(receiver, true);
+                active.invoke(receiver, false);
+                check(policyField.get(receiver) == live
+                        && requestGeneration == (long) policyType.getMethod("generation").invoke(live),
+                    "输入视图生命周期作废了接收策略的代次");
+                check(lifecycleField.getLong(receiver) == lifecycle + 4, "输入视图生命周期没有作废在途结果");
+
                 for (String blocked : List.of("cancelled", "newer-local", "sensitive", "image", "disabled", "pending")) {
                     policy = policyType.getConstructor().newInstance();
                     clipboard.setPrimaryClip(ClipData.newPlainText("Synthetic local", "Synthetic local clipboard"));
@@ -94,7 +125,7 @@ public final class CloudClipboardReceiveDeviceSmoke extends Instrumentation {
         });
         Bundle result = new Bundle();
         result.putString("stream", failure[0] == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: cloud receive writes system clipboard, marks echoes and preserves cancelled, newer, sensitive and non-text content\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: cloud receive writes system clipboard, marks echoes, keeps policy across input lifecycle, orders after own writes and preserves cancelled, newer, sensitive and non-text content\n"
             : "MSIME_DEVICE_SMOKE_FAILED: synthetic cloud receive (" + failure[0].getClass().getSimpleName() + ") " + failure[0].getMessage() + "\n");
         finish(failure[0] == null ? -1 : 0, result);
     }
