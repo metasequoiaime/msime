@@ -1,9 +1,11 @@
 //! 显式的一次学习同步：先上传本机，再逐份认证、完整校验和合并。
-//! 尚无自动调度和持久待合并队列；维护租约忙时不接纳该份，下一次重新下载。
+//! 维护租约忙时保留已认证密文，空闲认领时重新校验；尚无自动调度。
 
 mod identity;
 mod metadata;
+mod pending;
 
+use super::pending::Pending;
 use super::state::{Acceptance, StateError, StateStore, Uploaded};
 use super::transport::{BlobRequest, BlobResponse};
 use super::upload::{prepare_upload, PreparedUpload};
@@ -30,6 +32,8 @@ pub enum RoundError {
     Learning(#[from] AccountLearningError),
     #[error(transparent)]
     State(#[from] StateError),
+    #[error(transparent)]
+    Pending(#[from] super::PendingError),
     #[error("learning sync is busy")]
     Busy,
     #[error("learning key not ready")]
@@ -59,11 +63,14 @@ pub struct RoundReport {
     pub dropped_weights: usize,
     pub upload_error: Option<RoundError>,
     pub downloads: Vec<DownloadReport>,
+    pub pending: Vec<DownloadReport>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct DownloadReport {
     pub device_id: String,
+    /// 仅在信封认证与完整流校验成功后填写，不信任元数据或本地文件头。
+    pub generation: Option<u64>,
     pub outcome: DownloadOutcome,
     pub dictionary_mismatch: bool,
 }
@@ -74,9 +81,10 @@ pub enum DownloadOutcome {
     AlreadyApplied,
     Undecryptable,
     Rollback,
-    /// 未发布到持久队列，下一轮重新下载，不推进 verified/applied。
-    Busy,
+    /// 已持久保存认证后的密文和 verified，等待独占维护权，不推进 applied。
+    Pending,
     MergeFailed,
+    Abandoned,
     Http {
         status: u16,
         retry_after_seconds: Option<u64>,
@@ -151,14 +159,35 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             Err(error) => return Err(error.into()),
         }
         // 首次本机上传和远端合并明确有先后顺序，不能提前把远端状态混进本机首份。
+        match self.merge_learning_pending_for_identity(login, &identity, context) {
+            Ok(pending) => report.pending = pending,
+            Err(RoundError::Busy) => {}
+            Err(error) => return Err(error),
+        }
         for blob in metadata
             .blobs
             .iter()
             .filter(|blob| blob.device_id != own_id)
         {
-            report
-                .downloads
-                .push(self.learning_round_download(login, &identity, &store, context, blob)?);
+            // 旧队列已处理同代次或更新的一份，保留本轮真实结果并避免重复下载或重试。
+            if let Some(index) = report.pending.iter().rposition(|pending| {
+                pending.device_id == blob.device_id
+                    && pending
+                        .generation
+                        .is_some_and(|generation| generation >= blob.revision)
+                    && matches!(
+                        pending.outcome,
+                        DownloadOutcome::Applied
+                            | DownloadOutcome::MergeFailed
+                            | DownloadOutcome::Abandoned
+                    )
+            }) {
+                report.downloads.push(report.pending.remove(index));
+            } else {
+                report
+                    .downloads
+                    .push(self.learning_round_download(login, &identity, &store, context, blob)?);
+            }
         }
         self.with_learning_identity(login, &identity, || Ok(()))?;
         Ok(report)
@@ -257,6 +286,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     ) -> Result<DownloadReport, RoundError> {
         let mut report = DownloadReport {
             device_id: blob.device_id.clone(),
+            generation: None,
             outcome: DownloadOutcome::Undecryptable,
             dictionary_mismatch: false,
         };
@@ -284,42 +314,53 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         let Ok(remote) = read_learning_sync(Cursor::new(opened.stream)) else {
             return Ok(report);
         };
+        report.generation = Some(opened.generation);
         report.dictionary_mismatch = remote.content_id != context.content_id;
+        let observed_max = remote.observed_max;
+        drop(remote);
         report.outcome = self.with_learning_identity(login, identity, || {
-            let Some(_maintenance) = maintenance(context.paths)? else {
-                return Ok(DownloadOutcome::Busy);
-            };
             let key = identity.keys.ready_key_id().ok_or(RoundError::NotReady)?;
             let acceptance = match store.accept_verified(
                 &login.user_id,
                 key,
                 &blob.device_id,
                 opened.generation,
-                remote.observed_max,
+                observed_max,
             ) {
                 Ok(acceptance) => acceptance,
                 Err(StateError::Rollback) => return Ok(DownloadOutcome::Rollback),
                 Err(error) => return Err(error.into()),
             };
-            // 先持久观察值，再更新本机写入时钟，真正应用时重读屏障。
-            let progress = store.read(&login.user_id)?;
-            advance_learning_sync_clock(context.paths, progress.observed_max)
-                .map_err(|_| RoundError::Local)?;
             if acceptance == Acceptance::AlreadyApplied {
                 return Ok(DownloadOutcome::AlreadyApplied);
             }
-            if merge_learning_sync_state(
-                context.paths,
-                context.main_dictionary,
-                &remote.state,
-                progress.reset_floor,
-            )
-            .is_err()
-            {
-                return Ok(DownloadOutcome::MergeFailed);
+            let queue = Pending::open(context.state_directory, identity.pending_binding(login)?)?;
+            queue.publish(&blob.device_id, opened.generation, &response.body)?;
+            let Some(_maintenance) = maintenance(context.paths)? else {
+                return Ok(DownloadOutcome::Pending);
+            };
+            for _ in 0..2 {
+                let is_current = match queue.claim(&blob.device_id) {
+                    Ok(Some(entry)) => entry.generation == opened.generation,
+                    Ok(None) => return Err(RoundError::Local),
+                    Err(super::PendingError::Invalid) => false,
+                    Err(error) => return Err(error.into()),
+                };
+                let applied = pending::apply_pending_source(
+                    &queue,
+                    store,
+                    login,
+                    identity,
+                    context,
+                    &blob.device_id,
+                )?
+                .ok_or(RoundError::Local)?;
+                // 先清理旧认领；当前下载的结果只取自当前代次，不能误报旧文件的结果。
+                if is_current {
+                    return Ok(applied.outcome);
+                }
             }
-            store.record_applied(&login.user_id, key, &blob.device_id, opened.generation)?;
-            Ok(DownloadOutcome::Applied)
+            Err(RoundError::Local)
         })?;
         Ok(report)
     }

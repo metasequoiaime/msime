@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选、置顶比较状态及调权、删除的原始时间与权重。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。本机写入已读取日志持久时间下限，重置和快照激活保留该下限；`client-services/account/learning_sync/round.rs` 已串起显式上传、下载校验及独占维护内的导出和合并；宿主重置、持久待合并、自动调度和各平台接入仍按决策笔记里的分期落地。该显式 API 尚无平台入口，不自动发起上传。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选、置顶比较状态及调权、删除的原始时间与权重。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。本机写入已读取日志持久时间下限，重置和快照激活保留该下限；`client-services/account/learning_sync/round.rs` 已串起显式上传、下载校验及独占维护内的导出和合并；密文待合并及显式空闲认领已接入；宿主重置、自动调度和各平台接入仍按决策笔记里的分期落地。该显式 API 尚无平台入口，不自动发起上传。
 
 ## 与其他同步的关系
 
@@ -178,7 +178,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 例如实际 Unix 秒为 100，本机在同一秒多次修改到逻辑时间 103，并已传给另一台设备。重置必须得到 `F >= 103`，对端重传这条旧行仍被过滤；本机重置后新写的行至少为 104。换钥重传也保留这个区别。
 - 这是对本机已观察逻辑时间的屏障，不是全账号的真实时间分界。离线设备有本机未见过、`updated_at > F` 的旧行时，它仍可在以后合并进来；对端在重置后新写、但 `updated_at <= F` 的行也会被过滤，直到该行在对端的逻辑时间超过屏障。仅凭逐行时间戳无法区分这两种情况，不能承诺「所有重置前的都不回来、所有重置后的都能合并」。界面说明本机重置的这一限制；跨设备协调重置需要另行设计，不在 v1 内。
 
-持久进度文件格式版本为 1，最多 4 MiB：顶层 `version` 和 `accounts`；账号项包含 `observed_max`、`reset_floor`、按密钥与来源设备分组的 `sources`，以及按本机设备分组的 `uploads`。来源进度含 `verified/applied`，上传进度含 `generation/key_id/sha256`。全部字段必填，映射键不能重复，`applied <= verified <= 2⁵³−1`，`reset_floor <= observed_max <= 2⁴⁰`；上传摘要为实际上传明文流的 SHA-256，不保存输入原文。文件损坏、未知版本、字段或范围不合法、超限都返回错误，原文件保留；不会重建为空状态或淘汰旧下限。每次读改写持有独立的 `learning.lock`，替换私有文件后同步目录。调用方只有在持久化成功后才能发布导出、接纳待合并文件或清空学习日志；存储层不代替 Engine 的独占维护权。显式轮次已在独占租约内调用导出观察、远端接纳、时钟更新和合并；宿主重置及持久待合并仍未接通。
+持久进度文件格式版本为 1，最多 4 MiB：顶层 `version` 和 `accounts`；账号项包含 `observed_max`、`reset_floor`、按密钥与来源设备分组的 `sources`，以及按本机设备分组的 `uploads`。来源进度含 `verified/applied`，上传进度含 `generation/key_id/sha256`。全部字段必填，映射键不能重复，`applied <= verified <= 2⁵³−1`，`reset_floor <= observed_max <= 2⁴⁰`；上传摘要为实际上传明文流的 SHA-256，不保存输入原文。文件损坏、未知版本、字段或范围不合法、超限都返回错误，原文件保留；不会重建为空状态或淘汰旧下限。每次读改写持有独立的 `learning.lock`，替换私有文件后同步目录。调用方只有在持久化成功后才能发布导出、接纳待合并文件或清空学习日志；存储层不代替 Engine 的独占维护权。显式轮次在独占租约内导出观察、更新时钟和合并；远端认证接纳先持久保存进度再发布密文，应用时重新读取屏障。宿主重置仍未接通。
 
 ## 防回滚
 
@@ -246,7 +246,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 只剩 `delete`、`pin`、`position` 仍放不下时这一轮不上传，仍提示 `learning_too_large`，其他设备的照常下载合并。
 - 服务端返回 413 `learning_quota`（账号合计超额）时，本机暂停上传，其他设备的照常下载合并，不靠截断解决。
 
-客户端上传准备在 `client-services/account/learning_sync/upload.rs`：保留 Engine 协议顺序和实际页尾数量，摘要取截断后的完整明文，观察上限显式取完整导出报告，包含省略的行和未知词库的有效时间；小于传入状态或超出时间范围的值拒绝，源状态不变。信封大小由 `client-core::cloud::learning_e2e::blob_envelope_size` 按实际 gzip、Padmé、头部和认证标签计算，不用压缩比估计。记录上限先精确省略最旧调权；字节超限时用确定的二分搜索保留一个已实测合格的前缀省略量，编码次数为对数级。gzip 大小不严格单调，因此不承诺全局最少省略量；不会省略非调权行。准备结果已用于显式同步轮次的加密上传：成功后才保存代次与摘要，413 不阻断下载，限流保留退避秒数后结束本轮。自动节流及持久待合并尚未接通，不能把此 API 当成完整产品入口。
+客户端上传准备在 `client-services/account/learning_sync/upload.rs`：保留 Engine 协议顺序和实际页尾数量，摘要取截断后的完整明文，观察上限显式取完整导出报告，包含省略的行和未知词库的有效时间；小于传入状态或超出时间范围的值拒绝，源状态不变。信封大小由 `client-core::cloud::learning_e2e::blob_envelope_size` 按实际 gzip、Padmé、头部和认证标签计算，不用压缩比估计。记录上限先精确省略最旧调权；字节超限时用确定的二分搜索保留一个已实测合格的前缀省略量，编码次数为对数级。gzip 大小不严格单调，因此不承诺全局最少省略量；不会省略非调权行。准备结果已用于显式同步轮次的加密上传：成功后才保存代次与摘要，413 不阻断下载，限流保留退避秒数后结束本轮。持久待合并已接通，自动节流与宿主入口仍未接通，不能把此 API 当成完整产品入口。
 
 ## 错误码
 
@@ -301,12 +301,20 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 
 共享账号适配层（`client-services/account/learning_sync/session.rs`）将上述驱动编码作为 `keystore` 字段，与持久登录绑定一起存成 `{ "login": { "user_id", "session_id" }, "keystore" }`。文件存储的 `learning-keystore` 保存这份 JSON，最多 4 KiB；驱动本身仍读写上面的 `v1.` 编码。只使用与当前登录编号相同的密钥，同账号重新登录也生成新设备身份；令牌刷新保留登录编号和密钥。读取、身份冲突比较和保存使用同一把账号刷新锁，存储错误不得回退剪贴板身份。宿主注入存储与 FFI 包装已支持独立的 `LEARNING_KEYSTORE=5` 项，用描述符的 `MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE=2` 位显式声明；原有描述符版本、布局、四项数值与匿名身份只创建语义不变。旧宿主不声明时绝不收到新项的回调，账号退出仍可用；已声明时退出账号尝试删除两个域的密钥后再报告错误。匿名槽和匿名文件包装始终拒绝学习密钥访问，文件与 Host 的 FFI 包装分别转调对应存储。Apple 标准原生布局已提供第五项：macOS 在同一账号目录保存私有文件，iOS 使用同一 Keychain 服务和访问组内独立的 `learning-keystore` account；没有第五项的自定义布局仍不声明能力。Swift 仅在明确 `invalid_session_store` 时清掉新能力位重试一次，复用同一 context 和有效期内的 agent 指针；明确失败释放一次，成功由 Rust 接管，不可解析结果不重试或提前释放。降级后的旧 Rust 删除账号时也尝试清学习项，旧 Swift 会话退出也先清该项、失败保留会话。Android 主进程通过独立适配器提供第五项，使用独立 SharedPreferences 和 AndroidKeyStore alias，AES/GCM 加密、同步提交；严格校验非空 UTF-8 与 4 KiB 上限，不复用剪贴板身份。JNI 只对明确支持的存储设置学习能力位，旧实现默认关闭，能力查询异常拒绝注册；不声明跨进程共享能力，输入进程仍经既有账号 provider。Windows、Linux 与 HarmonyOS 的既有 `directory` 账号路径直接使用共享文件存储，已具备独立学习槽，不需要新增注入式第五项。各平台学习同步生命周期和产品入口仍未接入，不代表六个平台已具备同步入口。能力位只声明存储能力，不开启上传。
 
+### 密文待合并缓存
+
+`cloud-sync/learning-pending/` 仅保存原始 MSL1 信封，不落盘解密的学习流。文件名为 `<binding>.<source>.pending` 或 `.claimed`：source 是 32 位小写十六进制来源设备；binding 是账号、具体登录会话、本机设备和当前已确认密钥编号的 SHA-256，长度前缀和域分隔避免拼接歧义。同账号重新登录也更换绑定，打开新绑定时只清理旧缓存，永不清理 `learning.json` 的观察时间或屏障。
+
+缓存头为 `MSLQ1\0`（6 字节）、尝试次数（1 字节）、代次（8 字节小端），随后是 84 字节至 8 MiB 的原始信封；它是本机格式，不改变 MSL1 网络格式。目录句柄绑定私有文件操作，`queue.lock` 跨进程串行发布、认领和应用，原子替换后同步目录。每来源最多一份已认领和一份更新的待认领密文，最多 20 个来源；满时返回错误，不淘汰进度。
+
+每次应用重新认证信封与完整流，要求代次等于已经持久接纳的 verified，最大逻辑时间已被观察；队列自身不能提高 verified。更新的 verified 使旧认领失效；已 applied 的文件只清缓存。尝试次数在 SQLite 动作前持久写入，重启不清零，同代次重复发布不覆盖旧次数；三次失败后或恢复到已记录三次的认领时放弃该缓存，不推进 applied、不清屏障。下一次网络轮次可以重新下载尚未 applied 的同代次，计数针对一份已入队缓存，不是永久禁止该代次恢复。此入口仍由宿主负责同步授权与空闲调度。
+
 ## 客户端驱动
 
 设备登记、建钥、批准、拒绝、移除、重置、反向核对和关闭由 Rust 的 sans-IO 驱动（`msime_client_core::cloud::learning_e2e`）完成，形状与 [云剪贴板的客户端驱动](cloud-clipboard-e2e.md#客户端驱动) 相同。C ABI 仍是 `msime_client_cloud_clipboard_e2e`（Android 经 JNI、HarmonyOS 经 NAPI 调同一个函数），请求顶层加 `"domain": "learning"`，开始和继续一个操作都要带；不带 `domain` 或为 `"clipboard"` 时是云剪贴板，已有宿主不受影响。桌面端和 client-services 在 Rust 里直接调 `learning_e2e::run`，身份冲突时答 `learning_keystore_conflict`。
 
 
-`BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。当前仅支持立即合并，维护权忙时返回 Busy 而不接纳进度、不声称已排队；持久待合并、自动节流及平台入口仍须单独接通。
+`BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。下载已认证并完整校验后，先持久保存 verified/observed_max，再原样保存 MSL1 密文；维护权忙时返回 Pending，不推进 applied。`learning_merge_pending` 为不发出数据请求的显式空闲入口，重新认证密文、读取持久进度和重置屏障，在独占维护内更新时钟与合并，成功才推进 applied。网络轮次首次上传之后也处理旧队列；已有队列结果覆盖同来源同代次或更新代次的重复下载，保留本轮 Applied/MergeFailed/Abandoned 的真实结果。初始导出前维护权就忙时仍返回 Busy。自动节流及平台入口仍须单独接通。
 
 上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
 

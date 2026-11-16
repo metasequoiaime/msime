@@ -552,7 +552,7 @@ fn reset_during_download_is_reread_before_applying_remote_rows() {
 }
 
 #[test]
-fn maintenance_busy_during_download_is_not_accepted_and_next_round_can_retry() {
+fn maintenance_busy_during_download_persists_verified_ciphertext_until_idle() {
     let pair = Pair::new();
     pair.remote(1, &[weight(9, 100)], "synthetic-v1");
     let paths = pair.paths.clone();
@@ -568,14 +568,49 @@ fn maintenance_busy_during_download_is_not_accepted_and_next_round_can_retry() {
     let report = session
         .learning_sync_once(&pair.login, "合成 A", &pair.context())
         .unwrap();
-    assert_eq!(report.downloads[0].outcome, DownloadOutcome::Busy);
-    assert_eq!(pair.progress(), RemoteProgress::default());
-    held.lock().unwrap().take();
+    assert_eq!(report.downloads[0].outcome, DownloadOutcome::Pending);
     assert_eq!(
-        pair.run().unwrap().downloads[0].outcome,
-        DownloadOutcome::Applied
+        pair.progress(),
+        RemoteProgress {
+            verified: 1,
+            applied: 0
+        }
     );
+    assert_eq!(pair.exported().records().len(), 0);
+    held.lock().unwrap().take();
+    let before = pair
+        .server
+        .lock()
+        .unwrap()
+        .round
+        .as_ref()
+        .unwrap()
+        .trace
+        .clone();
+    // 模拟持有词库的进程重启；服务端不再提供该文件，认领不应重新下载。
+    pair.edit_round(|round| {
+        round.blobs.clear();
+        round.download_status = Some(503);
+    });
+    let restarted = super::session(&pair.server, &pair.storage_a);
+    let merged = restarted
+        .learning_merge_pending(&pair.login, &pair.context())
+        .unwrap();
+    assert_eq!(merged[0].outcome, DownloadOutcome::Applied);
+    assert_eq!(
+        pair.server.lock().unwrap().round.as_ref().unwrap().trace,
+        before
+    );
+    assert_eq!(pair.exported(), state(&[weight(9, 100)]));
+    assert_eq!(pair.progress().applied, 1);
+    assert!(restarted
+        .learning_merge_pending(&pair.login, &pair.context())
+        .unwrap()
+        .is_empty());
 }
+
+#[path = "round/pending.rs"]
+mod pending;
 
 #[test]
 fn relogin_during_upload_cannot_record_uploaded_or_start_downloading() {

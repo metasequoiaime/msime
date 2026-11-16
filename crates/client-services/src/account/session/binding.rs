@@ -10,6 +10,23 @@ pub struct AccountLoginBinding {
 }
 
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
+    /// 本地副作用核对具体登录并持有会话锁，不获取或刷新令牌；调用方先持有存储写锁。
+    /// 闭包不能再次调用当前会话。
+    pub(in crate::account) fn with_local_login<T>(
+        &self,
+        login: &AccountLoginBinding,
+        operation: impl FnOnce() -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        let mut state = self.lock()?;
+        self.load_locked(&mut state)?;
+        if !state.saved.as_ref().is_some_and(|saved| {
+            saved.tokens.user.id == login.user_id && saved.session_id == Some(login.session_id)
+        }) {
+            return Err(AccountError::Cancelled);
+        }
+        operation()
+    }
+
     /// 只读本机登录身份；旧会话先在共享写锁内补持久编号，不返回凭据、不联网。
     pub fn login_binding(&self) -> Result<Option<AccountLoginBinding>, AccountError> {
         self.ensure_session_id()?;

@@ -15,10 +15,9 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         &self,
         login: &AccountLoginBinding,
     ) -> Result<Identity, RoundError> {
-        let (user, _, generation) = self.credentials_for_login(None, None, Some(login))?;
         self.storage
             .with_refresh_lock(|| {
-                self.with_generation(generation, Some(&user), || {
+                self.with_local_login(login, || {
                     let encoded = key_for_login(self.storage.load_learning_keystore()?, login)?
                         .ok_or(AccountError::Unavailable)?;
                     let keys = Keystore::parse(&encoded).ok_or(AccountError::Storage)?;
@@ -35,9 +34,8 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         identity: &Identity,
         operation: impl FnOnce() -> Result<T, RoundError>,
     ) -> Result<T, RoundError> {
-        let (user, _, generation) = self.credentials_for_login(None, None, Some(login))?;
         self.storage.with_refresh_lock(|| {
-            self.with_generation(generation, Some(&user), || {
+            self.with_local_login(login, || {
                 if key_for_login(self.storage.load_learning_keystore()?, login)?.as_deref()
                     != Some(identity.encoded.as_str())
                 {
