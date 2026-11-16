@@ -238,6 +238,7 @@ const typingStatisticsUpload: TypingStatisticsUploadClient = {
 };
 const cloudDictionaryClient: CloudDictionaryPanelClient = {
   close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
+  beginWindowDrag: () => getCurrentWindow().startDragging(),
   request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
 };
 // 宿主把云词库导出写进「下载」，见 `createDesktopCloudDictionaryClient`；只有 Linux 的面板用它。
