@@ -64,7 +64,7 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、可配置的右侧常驻按钮和中间工具；中间工具等分剩余宽度，放不下时横向滚动。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、浮动键盘、文本编辑、撤销、重做、语音、随机数字、收起；品牌键固定在行首，可配置的右侧常驻按钮（默认收起，{@link ToolbarPinnedPolicy}）固定在行尾，其余可见工具按固定格宽、固定间距聚到常驻按钮左边（{@link ToolbarClusterPolicy}，与 iOS 相同），图标间距不随可见工具的数量变化；放不下时中间的工具横向滚动，起始位置露出用户排在最前面的工具；哪些显示由 render 按 `touch_toolbar` 与本地设置决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         appliedOrder = null;
         s.shortcutBar.removeAllViews();
@@ -93,6 +93,10 @@ final class ImeToolbar {
         if (result.getParent() instanceof LinearLayout parent) parent.removeView(result);
         s.shortcutBar.addView(result, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(44)));
+        // 结果胶囊和工具之间的可伸缩空白：滚动区铺满视口（fillViewport），工具放得下时空白吃掉余下的宽度，工具靠行尾；放不下时空白宽度为 0，内容从头排起，滚动起始位置就是用户排在最前面的工具。
+        View spacer = new View(s);
+        spacer.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        s.shortcutBar.addView(spacer, new LinearLayout.LayoutParams(0, 0, 1));
         applyShortcutOrder();
         // 旧的回复、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。语音按钮回到了中间区（#10142）：「键盘 → 工具栏 → 语音」写的 `touch_voice_shortcut` 决定它显不显示，它和其他工具一样参与排序和尺寸调整。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
@@ -104,7 +108,7 @@ final class ImeToolbar {
     }
 
     /**
-     * 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开。
+     * 调整空闲工具栏的图标与点击区；滚动区的宽度由子按钮自然撑开，按钮之间的间距不随尺寸变化。
      *
      * <p>单独设了工具栏尺寸时按 {@code percent} 缩放。跟随候选栏时按钮是 44 dp，「候选栏大小」调小、这一行（{@code rowHeightPx}）矮于 44 dp 和 100% 时的行高（{@code designRowPx}）时，按钮高度取行高，图标和选中底块按同一比例缩小（#10137），按钮宽度不变，点击区不会变窄。
      */
@@ -117,7 +121,7 @@ final class ImeToolbar {
         int drawPercent = custom ? percent
             : ToolbarSizePolicy.followedPercent(rowHeightPx, followedButton, designRowPx);
         int edgeWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(44, percent));
-        int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(40, percent));
+        int middleWidth = s.pixels(ToolbarSizePolicy.buttonWidthDp(ToolbarClusterPolicy.CELL_DP, percent));
         edgeButtonWidth = edgeWidth;
         middleButtonWidth = middleWidth;
         shortcutButtonHeight = height;
@@ -137,6 +141,7 @@ final class ImeToolbar {
             resizeButton(button, dismissOnEdge && button == s.dismissShortcutButton ? edgeWidth : middleWidth, height);
             if (button instanceof KeyboardShortcutButton shortcut) shortcut.setSizePercent(drawPercent);
         }
+        applyEdgeGap(edgeWidth, middleWidth);
         Button result = s.imeCalculator.chip();
         if (result != null && result.getLayoutParams() != null
                 && result.getLayoutParams().height != height) {
@@ -170,6 +175,8 @@ final class ImeToolbar {
 
     int edgeButtonWidth() { return edgeButtonWidth > 0 ? edgeButtonWidth : s.pixels(44); }
 
+    private int middleButtonWidth() { return middleButtonWidth > 0 ? middleButtonWidth : s.pixels(ToolbarClusterPolicy.CELL_DP); }
+
     int edgeDrawPercent() { return edgeDrawPercent; }
 
     private static void resizeButton(Button button, int width, int height) {
@@ -179,6 +186,19 @@ final class ImeToolbar {
         button.getLayoutParams().height = height;
         button.setMinimumWidth(width);
         button.requestLayout();
+    }
+
+    /** 行尾的常驻按钮（以及被强制露出、排在它右边的收起键）比工具的格子宽，它们前面的间距按 {@link ToolbarClusterPolicy#edgeGap} 收窄，最后一个工具到常驻按钮的图标中心距与工具之间相同。放进「最近复制」那一行时不动，那里的间距由那一行自己排。 */
+    private void applyEdgeGap(int edgeWidth, int cellWidth) {
+        if (shortcutButtons == null) return;
+        int gap = ToolbarClusterPolicy.edgeGap(s.pixels(ToolbarClusterPolicy.GAP_DP), edgeWidth, cellWidth);
+        for (Button button : new Button[] {pinnedButton(), dismissOnEdge ? s.dismissShortcutButton : null}) {
+            if (button == null || button.getParent() != s.shortcutToolbar
+                    || !(button.getLayoutParams() instanceof LinearLayout.LayoutParams params)) continue;
+            if (params.getMarginStart() == gap) continue;
+            params.setMarginStart(gap);
+            button.requestLayout();
+        }
     }
 
     /** 长按由框架消费，不再触发该按钮原来的短按动作。 */
@@ -207,13 +227,15 @@ final class ImeToolbar {
             for (Button button : shortcutButtons) {
                 if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             }
+            // 算式结果和它后面的可伸缩空白保留为中间滚动区的头两项，常驻按钮不进滚动区。
+            int index = ToolbarClusterPolicy.LEADING_CHILDREN;
             for (ToolbarOrderPolicy.Item item : order) {
                 if (item == pinnedItem) continue;
                 Button button = buttonFor(item);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(s.pixels(40), s.pixels(44), 1);
-                params.setMarginStart(s.pixels(1));
-                params.setMarginEnd(s.pixels(1));
-                s.shortcutBar.addView(button, params);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    s.pixels(ToolbarClusterPolicy.CELL_DP), s.pixels(44));
+                params.setMarginStart(s.pixels(ToolbarClusterPolicy.GAP_DP));
+                s.shortcutBar.addView(button, Math.min(index++, s.shortcutBar.getChildCount()), params);
                 ViewPolicy.setMinimumWidth(button, s.pixels(40));
             }
             appliedOrder = order;
@@ -231,6 +253,7 @@ final class ImeToolbar {
             ViewPolicy.setMinimumWidth(pinned, s.pixels(40));
         }
         placeForcedDismiss(order, parent);
+        applyEdgeGap(edgeButtonWidth(), middleButtonWidth());
     }
 
     /** 候选条模式的展开键、「显示方式：隐藏」时临时露出那一行的返回键都是收起键：常驻位换成别的工具时，这几种状态把它挪到常驻按钮右边，状态结束再放回中间滚动区它原来的顺位。 */
@@ -250,16 +273,14 @@ final class ImeToolbar {
             edge.addView(dismiss, params);
             return;
         }
-        // 中间滚动区最前面是算式结果，后面按排序排列，跳过放在常驻位的那一个。
-        int index = s.shortcutBar.indexOfChild(s.imeCalculator.chip()) >= 0 ? 1 : 0;
+        // 中间滚动区最前面是算式结果和可伸缩空白，后面按排序排列，跳过放在常驻位的那一个。
+        int index = ToolbarClusterPolicy.LEADING_CHILDREN;
         for (ToolbarOrderPolicy.Item item : order) {
             if (item == ToolbarOrderPolicy.Item.DISMISS) break;
             if (item != pinnedItem) index++;
         }
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            middleButtonWidth > 0 ? middleButtonWidth : s.pixels(40), height, 1);
-        params.setMarginStart(s.pixels(1));
-        params.setMarginEnd(s.pixels(1));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(middleButtonWidth(), height);
+        params.setMarginStart(s.pixels(ToolbarClusterPolicy.GAP_DP));
         s.shortcutBar.addView(dismiss, Math.min(index, s.shortcutBar.getChildCount()), params);
         ViewPolicy.setMinimumWidth(dismiss, s.pixels(40));
     }

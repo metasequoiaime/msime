@@ -280,6 +280,25 @@ async fn install_pack<R: tauri::Runtime>(
     .await
 }
 
+/// 用系统文件选择器导入资源包。文件路径只在宿主侧经过，页面只收到安装结果或稳定错误码。
+async fn import_pack<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    installs: &LocalModelInstalls,
+    state_root: PathBuf,
+    pack: ResourcePack,
+    files: Vec<PathBuf>,
+) -> Result<PathBuf, HostActionError> {
+    run_install(
+        app,
+        installs,
+        &install_key(pack),
+        RESOURCE_PACK_PROGRESS_EVENT,
+        pack.id().to_owned(),
+        move |progress, cancel| resource_packs::import(&state_root, pack, &files, progress, cancel),
+    )
+    .await
+}
+
 /// 本机提供的每个资源包的安装状态、下载大小和对应的输入方案。
 #[tauri::command]
 pub(crate) async fn resource_packs<R: tauri::Runtime>(
@@ -341,6 +360,44 @@ pub(crate) async fn resource_pack_install<R: tauri::Runtime>(
     }
     let path = install_pack(&app, &installs, store.inner().clone(), pack).await?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// 通过系统文件选择器离线导入一个资源包；取消选择时返回 `null`，不改变当前安装。
+#[tauri::command]
+pub(crate) async fn resource_pack_import<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
+    installs: tauri::State<'_, LocalModelInstalls>,
+    store: tauri::State<'_, Arc<PreferencesStore>>,
+    id: String,
+) -> Result<Option<String>, HostActionError> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let pack = known_pack(&id)?;
+    if !offered_by(pack, crate::package_edition(), &installation(&app).await?) {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let dialog = app.dialog().file().set_parent(&window);
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        dialog
+            .set_title("选择下载好的模型文件")
+            .blocking_pick_files()
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let files = picked
+        .into_iter()
+        .filter_map(|file| file.into_path().ok())
+        .collect();
+    let path = import_pack(&app, &installs, state_root(store.inner()), pack, files).await?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// 卸载一个已发布的资源包，返回是否有目录被删。删除之前释放资源包钉住文件

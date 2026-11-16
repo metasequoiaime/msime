@@ -352,3 +352,17 @@ In the event of any conflict or inconsistency between the English text and the C
 Note
 
 “Spatial data” is defined with reference to the definition of “Geospatial Data” published by the Open Geospatial Consortium as “location properties related to any terrestrial feature or phenomena”. “Location properties” may include any information about the location or area of, and relationships among, and descriptive information about geographic features and phenomena. This includes remotely sensed data, vector map data, addresses, coordinates, etc. Note that “geospatial data” is more precise in many contexts than “geographic data” because geospatial data is often used in ways that do not involve a graphic representation, or map, created from the data.”
+
+<!-- upstream-sync:begin -->
+## 当前自动同步的上游快照
+
+本节由同步脚本生成，记录当前源文件的上游提交；前文的逐文件说明须在同一次改动中人工核对，不一致时以本节和 `upstream.lock.json` 为准。
+
+- 万象：作者 amzxyz，[rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data/tree/6b317736a8f90bb6dddf1423dbd1f0b83d4bf764/dicts)，提交 `6b317736a8f90bb6dddf1423dbd1f0b83d4bf764`。按 CC BY 4.0 使用，保留 RIME-LMDG 来源署名；本仓已登记的词表逐字节复制，未修改其内容；上游已不收的 `lianxiang.dict.yaml`、`renming.dict.yaml` 已从本仓删除。
+- rime-ice 中英文补充表：[iDvel/rime-ice](https://github.com/iDvel/rime-ice/tree/927e1cf1d3eeb9bf4be85e3f684dba4dd485b6f6)，提交 `927e1cf1d3eeb9bf4be85e3f684dba4dd485b6f6`，GPL-3.0。由干净的 msime 提交 `dd32cafd71458d1b19932496301d369bf1a973a6` 的 `rime-ice-supplement` 生成器生成；输入与完整去重集合见表头。词条取自新上游，权重为生成器输出，万象对齐仍由构建器 reweight 阶段完成。
+- `rime-ice.txt`、`single-chars.txt` 和基础英文表保留原有历史修正及来源提交；此次同步不把它们重建为上游原表，也不自动迁入无注音或不支持的读音。
+- 差集由 `scripts/update_rime_ice_only.py` 重新生成，完整输入摘要见 `sources/pinyin/rime-ice-only/manifest.json`。
+- 万象 LICENSE SHA-256：`9e5f1b3c610b9c2da5c313bf81d577a7d1acec686bdb0384edefa6df0f90cd94`；rime-ice LICENSE SHA-256：`3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`。两份许可证与此前固定上游提交逐字节相同；完整文本随同步报告保存。
+
+本节为待发布上游更新；前文随已发布词库保留的历史来源说明继续适用。
+<!-- upstream-sync:end -->

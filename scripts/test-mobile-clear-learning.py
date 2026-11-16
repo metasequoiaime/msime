@@ -41,7 +41,8 @@ class ClearLearningContract(unittest.TestCase):
         self.assertIn("开着云同步时，账号里的个人词库也会换成清除后的这一份，登录同一账号的其他设备同步时会跟着换掉，或者提示你选择。", android)
         self.assertIn("已添加的词库保留", android)
         self.assertIn("+ WEBDAV;", android)
-        self.assertIn("导入和从社区添加的词条也一并删除。", ios)
+        self.assertIn("未分组的导入和社区词条也一并删除", ios)
+        self.assertIn("词库分组保留", ios)
         ios_message = ios.split("static let confirmMessage", 1)[1].split("\n", 1)[0]
         self.assertNotIn("账号", ios_message)
         self.assertTrue(ios_message.endswith("+ webdav"), ios_message)
