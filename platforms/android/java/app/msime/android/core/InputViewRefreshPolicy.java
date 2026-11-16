@@ -42,6 +42,20 @@ public final class InputViewRefreshPolicy {
         return engineWanted && inputType == 0 && !inputViewShown && !hardwareKeyboardAttached;
     }
 
+    /**
+     * 某些 WebView/Compose 宿主会先回调 {@code onStartInput}，稍后才把
+     * {@code InputConnection} 接到输入法服务；这时第一次判断会落到“直接输入”。
+     * 键盘真正显示后连接已经可用，且仍在同一输入会话，就应重新走一次引擎启动。
+     * 已有连接、已有会话或密码/数字等不走引擎的编辑器都不重试。
+     */
+    public static boolean shouldRecoverLateConnection(
+            Object knownConnection, Object currentConnection, long session, boolean engineEditor) {
+        return knownConnection == null
+            && currentConnection != null
+            && session == 0
+            && engineEditor;
+    }
+
     /** 推迟的引擎启动只在同一次输入开始、同一个连接上接着做；已经有会话或换了输入框的不做。 */
     public static boolean shouldResumeDeferredStartup(
             long deferredGeneration,

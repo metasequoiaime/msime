@@ -14,7 +14,7 @@ import app.msime.android.KeyboardGeometry;
  */
 public final class KeyboardIconKey extends KeyboardPressButton {
     /** 键上画的图标。 */
-    public enum Kind { SHIFT, CAPS_LOCK, BACKSPACE, RETURN, EMOJI, CURSOR_LEFT, TOGGLE_NEXT, TRASH }
+    public enum Kind { SHIFT, CAPS_LOCK, BACKSPACE, RETURN, EMOJI, CURSOR_LEFT, TOGGLE_NEXT, TRASH, INFO }
 
     public static final float ICON_DP = 22f;
 
@@ -84,6 +84,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
             case CURSOR_LEFT -> KeyboardIconPaths.Icon.CURSOR_LEFT;
             case TOGGLE_NEXT -> KeyboardIconPaths.Icon.TOGGLE_NEXT;
             case TRASH -> KeyboardIconPaths.Icon.TRASH;
+            case INFO -> KeyboardIconPaths.Icon.INFO;
         };
     }
 
@@ -108,13 +109,14 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     private void drawCornerHint(Canvas canvas) {
         if (cornerHint.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
-        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP));
+        float scale = CompactKeyTypography.scale(getContext(), getHeight());
+        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP) * scale);
         cornerPaint.setColor(getCurrentTextColor());
         cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
-        float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) - metrics.ascent;
+        float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) * scale - metrics.ascent;
         canvas.drawText(cornerHint,
-            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP), baseline,
+            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) * scale, baseline,
             cornerPaint);
     }
 }

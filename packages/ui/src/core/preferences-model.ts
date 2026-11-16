@@ -187,6 +187,8 @@ export type Preferences = PunctuationPreferences &
     touch_language_key_side?: "right" | "left";
     /** 手机触屏拼音九键字母层 1–9 键的滑动：`up` 上滑输入键上的数字、下滑弹出数字和字母，`down` 反过来，`off` 没有滑动手势。缺键或不认识的值按 `off`，client-core 不写默认值；桌面宿主保留、不读。 */
     touch_nine_key_swipe_digits?: "off" | "up" | "down";
+    /** 手机触屏拼音九键字母 flick 阈值，14–48、步进 2，默认 24。 */
+    touch_nine_key_flick_threshold?: number;
     /** 触屏键盘的拼写写进输入框还是只画在候选栏；缺省为输入框。与桌面候选窗的 `candidate_preedit_style` 无关。 */
     touch_spelling_position?: "editor" | "candidate_bar";
     touch_toolbar?: Partial<TouchToolbarPreferences>;
@@ -235,6 +237,8 @@ export type Preferences = PunctuationPreferences &
     /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
     input_mode_status_item?: boolean;
     candidate_layout?: "horizontal" | "vertical";
+    /** Windows 候选窗是否保留预编辑首行；缺字段按开启，文字样式仍由 `candidate_preedit_style` 决定。 */
+    show_candidate_preedit_area?: boolean;
     show_candidate_page_number?: boolean;
     /** macOS 候选窗首行的输入状态文字和枝叶装饰，缺省显示。 */
     show_candidate_status?: boolean;

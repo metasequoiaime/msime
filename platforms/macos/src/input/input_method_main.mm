@@ -5,6 +5,7 @@
 #import "InputModeStatusItem.h"
 #import "InputSourceRegistration.h"
 #import "InputControllerActivity.h"
+#import "SettingsSyncWorker.h"
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
 #import "../settings/RuntimeOptionsRefresh.h"
@@ -183,6 +184,7 @@ int main(int argc, const char *argv[]) {
         MSIMEUsageReportingStart(reportingDirectory);
         // 同样只在输入法进程里：独立设置窗口已经在上面返回。
         MSIMEStartDictionarySync();
+        MSIMEStartSettingsSync(MSIMEDefaultClientStateDirectory(NSFileManager.defaultManager).path);
         // Recover a prior crashed capture before accepting new IMK sessions.
         // A running owner holds the journal lock, so this cannot undo its mute.
         [[[MSIMEVoiceAudioMuter alloc] init] restore];
@@ -212,7 +214,11 @@ int main(int argc, const char *argv[]) {
                 propertyGetter:[](TISInputSourceRef source, CFStringRef key) -> void * {
                     return (void *)TISGetInputSourceProperty(source, key);
                 } switchedAway:^{
-                    // 离开本输入法对应 TSF 的 Deactivate：它把开关、标点和全半角三个 compartment 一起清掉，所以不论 ime_mode_scope 是哪种，每个应用切回来时都从 default_ime_mode 和保存的标点、全半角开始。共享的模式记录也一并清空并标记为刚切进，切回时选哪个模式入口都当作用户的选择采纳；只有一个例外，切回后、按键之前报告的 中 只改中英状态，不把双拼等方案改成全拼，因为系统可能自己落在 中 入口上（#10199，见 MSIMESystemInputModeState 的 switchedIn）。焦点在客户端之间移动不会走到这里。
+                    // 切到别的输入源前先把正在组的字母原样交给编辑器；随后重置模式状态不能再找回这段组字。
+                    MSIMECommitRawCompositionBeforeInputSourceSwitch();
+                    // 原始组字交付完成后再结束焦点上下文，不能反过来清掉尚未交付的字母。
+                    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
+                    // 离开本输入法对应 TSF 的 Deactivate：它把开关、标点和全半角三个 compartment 一起清掉，所以不论 ime_mode_scope 是哪种，每个应用切回来时都从 default_ime_mode 和保存的标点、全半角开始。共享的模式记录也一并清空并标记为刚切进，切回时选哪个模式入口都当作用户的选择采纳；只有一个例外，切回后、按键之前报告的 中 如果就是离开时的入口（这里清空时记进 left），只改中英状态，不把双拼等方案改成全拼，因为那是系统把用户送回原来的入口，不是用户挑的（#10199，见 MSIMESystemInputModeState 的 switchedIn 和 left）。焦点在客户端之间移动不会走到这里。
                     MSIMEAppearancePreferences *preferences = [MSIMEAppearancePreferences sharedPreferences];
                     [preferences resetRememberedInputModes];
                     [preferences resetAllRuntimeInputState];
@@ -289,6 +295,7 @@ int main(int argc, const char *argv[]) {
         for (id observer in distributedObservers) [distributedCenter removeObserver:observer];
         // 正在跑的那一次同步最多等两秒，与使用统计收尾的宽限相同；没等完也不要紧，每一步都已写盘。被 SIGTERM 结束时不经过这里，进程直接退出，道理相同。
         (void)msime_client_dictionary_sync_stop(2000);
+        (void)msime_client_settings_sync_stop(2000);
         MSIMEUsageReportingStop();
         (void)server;
     }

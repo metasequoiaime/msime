@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudCandidateSource {
@@ -19,6 +20,7 @@ pub enum CloudCandidateSource {
     Custom,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum CloudHttpMethod {
@@ -27,6 +29,7 @@ pub enum CloudHttpMethod {
     Post,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudResponseFormat {
@@ -36,6 +39,7 @@ pub enum CloudResponseFormat {
     JsonPath,
 }
 
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct CloudCandidatePreferences {

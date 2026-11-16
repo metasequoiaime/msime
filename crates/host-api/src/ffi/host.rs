@@ -935,9 +935,14 @@ pub unsafe extern "C" fn msime_client_load_preferences(
             .take()
             .filter(|(cached, _)| cached == directory)
             .map(|(_, loaded)| loaded);
-        let loaded = PreferencesStore::new(directory)
+        let mut loaded = PreferencesStore::new(directory)
             .load_reusing(previous)
             .map_err(|e| e.to_string())?;
+        let unknown_key_paths = loaded.take_unknown_key_paths();
+        if !unknown_key_paths.is_empty() {
+            // 只报告路径，不报告未知键的值；同一份文档的后续轮询会从缓存读取并且不会重复报告。
+            crate::diagnostics::report("unknown preference keys", &unknown_key_paths.join(", "));
+        }
         let value = serde_json::to_value(&loaded.snapshot).map_err(|e| e.to_string())?;
         *LOADED_PREFERENCES
             .lock()
@@ -971,6 +976,9 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
         /// 本机旧设置 `platform.android.nine_key_swipe` 的原值；本机没有这个键时不带。
         #[serde(default)]
         nine_key_swipe: Option<String>,
+        /// 本机旧设置「九键滑动距离」`platform.android.nine_key_swipe_distance` 的原值；本机没有这个键时不带。
+        #[serde(default)]
+        nine_key_swipe_distance: Option<u16>,
     }
     response(|| {
         if request.is_null() || length > 65536 {
@@ -998,6 +1006,7 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
                     .as_deref()
                     .and_then(msime_client_core::preferences::TouchNineKeySwipeDigits::parse)
                     .unwrap_or_default(),
+                request.nine_key_swipe_distance,
             )
             .map_err(|error| error.to_string())?;
         serde_json::to_value(saved).map_err(|error| error.to_string())
@@ -1041,6 +1050,7 @@ pub unsafe extern "C" fn msime_client_toggle_hotkey_chords(
             "full_width": toggle_hotkey_chord(keys.full_width_chord()),
             "punctuation": toggle_hotkey_chord(keys.punctuation_chord()),
             "voice_input": toggle_hotkey_chord(keys.toggle_voice_input.parse().ok()),
+            "quick_phrase": toggle_hotkey_chord(keys.enter_quick_phrase.parse().ok()),
         }))
     })
 }

@@ -433,7 +433,7 @@ fn plan_weights(
     }
 }
 
-/// J:1348-1640. `Ok(true)` when a dictionary weight changed, so the caller resets its caches. A fixed candidate, empty key or value, or any write failure is an error the caller reports as `FREQUENCY_NOT_PERSISTED`.
+/// J:1348-1640。词频或影响排序的学习记录变化时返回 `Ok(true)`，调用方据此清除缓存；固定候选、空键值和写入失败由调用方报告为 `FREQUENCY_NOT_PERSISTED`。
 pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     check_request(request)?;
     if !request.force_top && request.mode == FrequencyAdjustmentMode::Disabled {
@@ -469,10 +469,27 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
         .position(|item| item.word == request.value)
         .ok_or_else(|| EngineError::failed(MISSING_ROW))?;
     if rank == 0 {
-        // Already the heaviest: the counter has done its job and no weight moves.
+        // 模糊行可能权重最高却仍在字面组之后；达到选择次数阈值时也要记下学习，查询才能让它跨组。原权重保持，不为制造记录再加权或压到托管上限。
+        let selected = database_candidates[rank];
+        let record_fuzzy = request.kind == PersonalDictionaryKind::Pinyin
+            && selected.fuzzy
+            && request
+                .ordered
+                .first()
+                .is_some_and(|row| row.word != selected.word);
+        if record_fuzzy {
+            write_upsert(
+                &transaction,
+                request.kind,
+                request.entry_key,
+                request.value,
+                selected.weight,
+                "",
+            )?;
+        }
         reset_selection(&transaction, request)?;
         transaction.commit()?;
-        return Ok(false);
+        return Ok(record_fuzzy);
     }
     let target = ranking_target(rank, request.mode, request.linear_step, request.force_top);
     let mut main = open_dictionary_for_writing(request.main_db)?;

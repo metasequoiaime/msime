@@ -176,6 +176,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
+    preferences.settings_sync_webdav.url = "https://SENTINEL-settings.example.test".into();
+    preferences.settings_sync_webdav.username = "SENTINEL-settings-user".into();
+    preferences.settings_sync_webdav.password = "SENTINEL-settings-password".into();
     let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
     let keys: Vec<&str> = exported.keys().map(String::as_str).collect();
     assert_eq!(
@@ -190,6 +193,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.frequency_mode",
             "input.frequency_trigger_count",
             "input.learning",
+            "input.nine_key_flick_threshold",
             "input.paired_punctuation",
             "input.quote_style",
             "input.schema",
@@ -216,6 +220,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_skin_light",
             "platform.android.language_key_side",
             "platform.android.nine_key_digit_symbols",
+            "platform.android.nine_key_flick_threshold",
             "platform.android.nine_key_style",
             "platform.android.nine_key_swipe",
             "platform.android.nine_key_symbols",
@@ -1180,6 +1185,9 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
     preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
+    preferences.settings_sync_webdav.url = "https://SENTINEL-settings.example.test".into();
+    preferences.settings_sync_webdav.username = "SENTINEL-settings-user".into();
+    preferences.settings_sync_webdav.password = "SENTINEL-settings-password".into();
     let exported = export_desktop_settings(&preferences);
     assert!(exported.keys().all(|key| {
         key.starts_with("input.")
@@ -1191,9 +1199,10 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         AccountPreferenceValue::String(text) if text.contains("SENTINEL")
     )));
     let android = export_android_settings(&preferences, None).unwrap();
+    // 九键 flick 阈值是手机三端共用的 `input.*` 键，桌面不导出。
     let shared: BTreeMap<_, _> = android
         .into_iter()
-        .filter(|(key, _)| key.starts_with("input."))
+        .filter(|(key, _)| key.starts_with("input.") && key != MOBILE_NINE_KEY_FLICK_THRESHOLD)
         .collect();
     let exported_input: BTreeMap<_, _> = exported
         .clone()
@@ -1209,6 +1218,58 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         exported.get("input.wubi_schema"),
         Some(&AccountPreferenceValue::String("wubi86".into()))
     );
+}
+
+/// 桌面没有九键 flick 阈值的设置项，导出的话桌面偏好里的默认 24 会在合并上传时盖掉手机上改的值；应用时也不动桌面偏好里的这个字段。
+#[test]
+fn settings_sync_desktop_hosts_neither_export_nor_apply_the_nine_key_flick_threshold() {
+    let preferences = Preferences {
+        touch_nine_key_flick_threshold: 34,
+        ..Preferences::default()
+    };
+    for host in [DesktopHost::MacOS, DesktopHost::Linux, DesktopHost::Windows] {
+        assert!(!export_desktop_settings_for(host, &preferences)
+            .contains_key(MOBILE_NINE_KEY_FLICK_THRESHOLD));
+        let cloud = document(BTreeMap::from([(
+            MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(34),
+        )]));
+        let applied =
+            apply_desktop_settings_for(host, &Preferences::default(), &cloud, &full_schema())
+                .unwrap();
+        assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 24);
+    }
+}
+
+/// 跨平台键和本平台旧键同时在云端时以跨平台键为准：iOS 改成 20 后，Android 留在云端的旧平台键 30 不能把它改回去。
+#[test]
+fn settings_sync_android_prefers_the_shared_nine_key_flick_threshold_over_its_platform_key() {
+    let schema = full_schema();
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([
+            (
+                MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(20),
+            ),
+            (
+                NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(30),
+            ),
+        ]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 20);
+    // 只有旧版本上传过、文档里还没有跨平台键时，退回本平台键。
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([(
+            NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(30),
+        )]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 30);
 }
 
 #[test]
@@ -1465,6 +1526,52 @@ fn settings_sync_punctuation_styles_round_trip() {
     .unwrap();
     assert_eq!(applied.preferences.quote_style, QuoteStyle::Curly);
     assert!(applied.skipped.is_empty());
+}
+/// 旧客户端上传的云快照没有 `input.traditional_variant`（只带 `input.character_set`），服务端字段表也可能还没有这个键：Android 应用这样的快照时保留本机已选的臺灣变体，不清回 `s2t`。
+#[test]
+fn android_settings_apply_keeps_the_local_traditional_variant_for_old_snapshots() {
+    for variant in [
+        TraditionalVariant::Taiwan,
+        TraditionalVariant::TaiwanPhrases,
+    ] {
+        let local = Preferences {
+            traditional_chinese_output: true,
+            traditional_chinese_variant: variant,
+            ..Preferences::default()
+        };
+        let mut old = export_android_settings(&local, Some(&feedback())).unwrap();
+        assert!(old.remove("input.traditional_variant").is_some());
+        old.insert(
+            "input.character_set".into(),
+            AccountPreferenceValue::String("simplified".into()),
+        );
+        let applied = apply(&local, old.clone(), &full_schema());
+        assert!(!applied.preferences.traditional_chinese_output);
+        assert_eq!(applied.preferences.traditional_chinese_variant, variant);
+        assert!(applied.skipped.is_empty());
+
+        let mut schema = full_schema();
+        schema.fields.remove("input.traditional_variant");
+        let applied = apply(&local, old, &schema);
+        assert_eq!(applied.preferences.traditional_chinese_variant, variant);
+    }
+    // 新快照里的变体照常应用；认不出的值（`s2hk`）只跳过这个键，由上面的未知取值用例覆盖。
+    let local = Preferences {
+        traditional_chinese_variant: TraditionalVariant::Taiwan,
+        ..Preferences::default()
+    };
+    let applied = apply(
+        &local,
+        BTreeMap::from([(
+            "input.traditional_variant".to_owned(),
+            AccountPreferenceValue::String("s2twp".into()),
+        )]),
+        &full_schema(),
+    );
+    assert_eq!(
+        applied.preferences.traditional_chinese_variant,
+        TraditionalVariant::TaiwanPhrases
+    );
 }
 #[test]
 fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
@@ -2109,9 +2216,11 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
 #[test]
 fn settings_sync_macos_round_trips_candidate_window_appearance_and_theme() {
     let local = Preferences::default();
-    let mut remote = Preferences::default();
-    remote.global_theme = GlobalTheme::Night;
-    remote.candidate_theme = SettingsTheme::Dark;
+    let mut remote = Preferences {
+        global_theme: GlobalTheme::Night,
+        candidate_theme: SettingsTheme::Dark,
+        ..Preferences::default()
+    };
     remote.custom_theme.base = GlobalTheme::Paper;
     remote.custom_theme.candidate_skin = Some("synthetic-skin".into());
     remote.custom_theme.candidate_skin_dark = Some("synthetic-dark".into());

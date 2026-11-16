@@ -49,6 +49,7 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import { NineKeyFlickPolicy } from './input/NineKeyFlickPolicy';
 import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
@@ -139,11 +140,14 @@ import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
+import { HarmonyClipboardHistoryCapture } from './clipboard/HarmonyClipboardHistoryCapture';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/CloudClipboardClient';
 import {
   CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
+import { CloudClipboardAutoReceive } from './clipboard/CloudClipboardAutoReceive';
+import { cloudClipboardSystemText } from './clipboard/CloudClipboardSystem';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
@@ -1056,8 +1060,10 @@ interface PreparedPreferences {
   touch_keyboard_split_gap?: number;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
-  /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
+  /** 旧九键数字滑动字段，保留以兼容旧文档；宿主不再使用。 */
   touch_nine_key_swipe_digits?: string;
+  /** 九键字母 flick 判定阈值，14–48、步进 2，默认 24。 */
+  touch_nine_key_flick_threshold?: number;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1243,8 +1249,10 @@ export interface KeyboardPreferences {
   readonly splitKeyboard: SplitKeyboardSettings;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
-  /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
+  /** 旧字段仅为兼容读取；九键数字改由长按输入。 */
   readonly nineKeySwipeDigits: string;
+  /** `touch_nine_key_flick_threshold`：九键字母 flick 的共享阈值。 */
+  readonly nineKeyFlickThreshold: number;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1336,7 +1344,7 @@ interface DictionaryCollectionsFlushResponse {
 /** 命名词库接受的操作，与 client-services 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
 const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
   'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
-  'install_community', 'queue_words', 'flush', 'third_party_matches',
+  'install_community', 'queue_words', 'flush', 'third_party_matches', 'delete_many', 'set_enabled_many',
 ];
 
 interface PersonalDictionarySyncResponse {
@@ -1503,6 +1511,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
   private clipboardHistoryEnabled: boolean = false;
+  private clipboardCaptureVisible: boolean = false;
+  private readonly clipboardCapture: HarmonyClipboardHistoryCapture = new HarmonyClipboardHistoryCapture(
+    (): boolean => this.clipboardCaptureVisible && this.editorAttributesKnown
+      && this.clipboardHistoryAllowed() && this.clipboardCaptureAllowed(),
+    (): Promise<boolean> => this.canReadClipboard(),
+    (text: string): boolean => this.captureClipboardHistory(text).failure !== ClipboardFailure.INVALID_FILE);
   // The two optional candidate annotations. Held here rather than in KeyboardPreferences because the
   // session builds the candidate entries itself; the view only draws what it is handed.
   private wubiCodeHint: boolean = true;
@@ -1527,6 +1541,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
   private cloudClipboardClient: CloudClipboardClient | undefined = undefined;
+  private cloudClipboardAutoReceive: CloudClipboardAutoReceive | undefined = undefined;
   private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
@@ -1614,7 +1629,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     oneHandedSidePanel: OneHandedSidePanel.OFF,
     splitKeyboard: SplitKeyboardPolicy.DEFAULTS,
     languageKeyLeft: false,
-    nineKeySwipeDigits: NineKeySwipePolicy.OFF
+    nineKeySwipeDigits: NineKeySwipePolicy.OFF,
+    nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(undefined)
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1705,6 +1721,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   keyboardShown(): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
     this.idleDictionaryVisible = true;
+    this.clipboardCaptureVisible = true;
+    this.clipboardCapture.start();
     this.scheduleDictionarySnapshotPoll();
     this.schedulePersonalDictionaryDrain();
   }
@@ -2077,7 +2095,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.touch_keyboard_split_portrait, preferences.touch_keyboard_split_threshold,
         preferences.touch_keyboard_split_gap),
       languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
-      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
+      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits),
+      nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(preferences.touch_nine_key_flick_threshold)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -2467,6 +2486,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Rebuild an idle Engine session without changing the editor-visible input mode. */
   private restartIdleSession(reason: string): void {
+    const captureVisible: boolean = this.clipboardCaptureVisible;
     const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
     const english: boolean = this.englishMode;
     const keyGrid: number = this.keyGrid;
@@ -2480,6 +2500,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     this.englishMode = english;
+    if (captureVisible && attached !== undefined) {
+      this.clipboardCaptureVisible = true;
+      this.clipboardCapture.start();
+    }
     this.keyGrid = keyGrid;
     if (attached !== undefined && this.inputClient === attached) {
       this.apply(client.focus(this.handle, true));
@@ -3937,6 +3961,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     // 先让视图离开键盘调整：离开时保存，此时会话还对着上一个编辑框。
     if (this.onEditorAttached !== undefined) {
       this.onEditorAttached();
@@ -3954,6 +3980,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
+    this.cloudClipboardReceiver().start();
     this.editorAttributesKnown = false;
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
@@ -3966,6 +3993,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.previewSupported = attribute.isTextPreviewSupported === true;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       this.editorAttributesKnown = true;
+      this.cloudClipboardReceiver().start();
       // A pack imported again under the same id, or removed, while another editor had focus is picked up here, as host-api re-stamps its packs on focus.
       this.soundPlayer.recheck();
       this.musicPlayer.recheck();
@@ -4023,6 +4051,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     // 按键反馈和手写板设置是另一个文件，设置应用写它时不会推进偏好修订号，所以每次获得焦点都要读取，而不只在构建会话时读取。文件存在却读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。
     this.refreshFeedback();
     this.followPrivacyMode();
+    this.clipboardCaptureVisible = true;
+    this.clipboardCapture.start();
     // 应用主题也一样：月份变了或在设置应用里选了主题，皮肤会立即重绘，而不是最多一分钟后。真正重绘皮肤的是视图的 reload 钩子。
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
@@ -4118,10 +4148,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   detach(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     // 宿主随后隐藏面板。先让视图停掉录音，取消发生在旧编辑框还连着的时候，与 Android 在 onFinishInput 里先取消语音再收尾一致。
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    this.cloudClipboardAutoReceive?.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.attributeGeneration++;
@@ -4164,6 +4197,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.cloudClipboardAutoReceive?.stop();
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.ownEdits.clear();
@@ -6834,6 +6870,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 隐私模式与会话构建时不再相符时重建会话。先提交正在进行的组字，与 Android 在重启前先完成组字的做法一样，这样已输入的内容不会因重建而丢失；处于本地模式时留待其结束，由下一次获得焦点时补上。
    */
   private followPrivacyMode(): void {
+    this.clipboardCapture.discardIfDisallowed();
     if (this.handle === 0 || this.sessionPrivate === this.feedbackCurrent.incognito
       || this.localMode !== 'none') {
       return;
@@ -7198,7 +7235,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
+  /** 上传用户选中的历史条目或可见键盘刚观察到的本机复制；共享层再次核对开关和绑定。 */
   async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
@@ -7213,6 +7250,22 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (cached !== undefined) return cached;
     const made: CloudClipboardClient = new CloudClipboardClient(this.stateDirectory);
     if (this.stateDirectory.length > 0) this.cloudClipboardClient = made;
+    return made;
+  }
+
+  private cloudClipboardReceiver(): CloudClipboardAutoReceive {
+    const cached: CloudClipboardAutoReceive | undefined = this.cloudClipboardAutoReceive;
+    if (cached !== undefined) return cached;
+    const made: CloudClipboardAutoReceive = new CloudClipboardAutoReceive({
+      visible: (): boolean => this.cloudClipboardVisible(),
+      readAllowed: (): Promise<boolean> => this.canReadClipboard(),
+      list: (): Promise<CloudClipboardBoundListing | null> => this.cloudClipboardItems(),
+      matches: (binding: string): boolean => this.cloudClipboard().matchesNow(binding),
+      read: (): Promise<string | null> => cloudClipboardSystemText(),
+      send: (text: string, binding: string): Promise<CloudClipboardSendOutcome> => this.sendToCloudClipboard(text, binding),
+      write: async (text: string): Promise<boolean> => (await this.copyText(text)) === null
+    });
+    this.cloudClipboardAutoReceive = made;
     return made;
   }
 
@@ -8616,6 +8669,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查，关掉缓存的释义词库。编辑框可能仍有焦点，所以不等 inputStop。 */
   keyboardHidden(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
