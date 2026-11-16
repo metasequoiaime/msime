@@ -260,4 +260,22 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn background_c_abi_rejects_invalid_buffers_without_starting_a_worker() {
+        unsafe {
+            for (pointer, size) in [
+                (std::ptr::null(), 1),
+                (std::ptr::dangling(), MAX_REQUEST_BYTES + 1),
+            ] {
+                let response = crate::msime_client_settings_sync_start(pointer, size);
+                let text = std::ffi::CStr::from_ptr(response)
+                    .to_str()
+                    .unwrap()
+                    .to_owned();
+                crate::msime_client_string_free(response);
+                assert!(text.contains(INVALID));
+            }
+        }
+    }
 }
