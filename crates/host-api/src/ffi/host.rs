@@ -976,6 +976,9 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
         /// 本机旧设置 `platform.android.nine_key_swipe` 的原值；本机没有这个键时不带。
         #[serde(default)]
         nine_key_swipe: Option<String>,
+        /// 本机旧设置「九键滑动距离」`platform.android.nine_key_swipe_distance` 的原值；本机没有这个键时不带。
+        #[serde(default)]
+        nine_key_swipe_distance: Option<u16>,
     }
     response(|| {
         if request.is_null() || length > 65536 {
@@ -1003,6 +1006,7 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
                     .as_deref()
                     .and_then(msime_client_core::preferences::TouchNineKeySwipeDigits::parse)
                     .unwrap_or_default(),
+                request.nine_key_swipe_distance,
             )
             .map_err(|error| error.to_string())?;
         serde_json::to_value(saved).map_err(|error| error.to_string())

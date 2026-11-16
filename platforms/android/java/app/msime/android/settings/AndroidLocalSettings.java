@@ -107,7 +107,7 @@ public final class AndroidLocalSettings {
     public static final String NUMBER_ROW = "platform.android.number_row";
     /** 旧版的「九键滑动输入数字」（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，只在本机。现在由共享偏好 `touch_nine_key_swipe_digits` 接替（#10229），这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；规格声明留着，否则读文件时这个键会被丢掉、迁移读不到。同步的 `platform.android.nine_key_swipe` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";
-    /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响九键滑动（共享偏好 `touch_nine_key_swipe_digits`），26 键的滑动阈值不变。只在本机、不随账号同步，iOS 和鸿蒙没有这一项（固定 24）。 */
+    /** 旧版的「九键滑动距离」（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只在本机。现在由三端共用的共享偏好 `touch_nine_key_flick_threshold`（{@link NineKeyFlickPolicy#PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值。 */
     public static final String NINE_KEY_SWIPE_DISTANCE = "platform.android.nine_key_swipe_distance";
     /** 拼音九键组字时 1 键的动作：`separate` 分词（默认），`rewrite` 重输；只在本机，不随账号同步。 */
     public static final String NINE_KEY_COMPOSITION_ACTION = "platform.android.nine_key_composition_action";
@@ -119,6 +119,8 @@ public final class AndroidLocalSettings {
     public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";
     /** 设计范围的键盘高度调整（dp，-92..129，即 50%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
+    /** 展开屏的键盘高度调整（dp，-92..129，即 50%..170%）。未写入时沿用 {@link #KEYBOARD_HEIGHT_ADJUSTMENT}，只在本机保存。 */
+    public static final String KEYBOARD_HEIGHT_ADJUSTMENT_LARGE = "platform.android.keyboard_height_adjustment_large";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
     public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";
     /** 横屏时自动浮动、竖屏时停靠（#11346），默认关；打开后忽略手动浮动开关，只在本机保存。 */
@@ -293,6 +295,7 @@ public final class AndroidLocalSettings {
             NineKeySidebarPolicy::normalize);
         choice(QUICK_DELETE_SCOPE, "before", false, "before", "all");
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
+        integer(KEYBOARD_HEIGHT_ADJUSTMENT_LARGE, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(FLOATING_KEYBOARD, false, false);
         bool(FLOATING_KEYBOARD_AUTO_LANDSCAPE, false, false);
         integer(FLOATING_KEYBOARD_X, FloatingKeyboardPolicy.DEFAULT_X_FRACTION, false, 0,

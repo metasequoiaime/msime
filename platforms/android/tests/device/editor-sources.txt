@@ -61,6 +61,7 @@ platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyEnglishDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyPanelDeviceSmoke.java
+platforms/android/tests/device/keyboard/NineKeyFlickDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyRecentSelectionDeviceChecks.java
 platforms/android/tests/device/keyboard/FourteenKeyDeviceSmoke.java
 platforms/android/tests/device/keyboard/EighteenKeyQuanpinDeviceChecks.java
@@ -309,5 +310,6 @@ platforms/android/tests/device/clipboard/ClipboardSelectionDeviceChecks.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
 platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
 platforms/android/tests/device/keyboard/AliyunTranslationDeviceChecks.java
-
+platforms/android/tests/device/community/CommunitySkinDownloadDeviceChecks.java
+platforms/android/tests/device/community/CommunitySkinDownloadTestProvider.java
 platforms/android/tests/device/keyboard/TranslationWindowDeviceChecks.java
