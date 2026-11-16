@@ -5,6 +5,8 @@ use std::sync::Mutex;
 
 #[path = "recovery_tests.rs"]
 mod recovery;
+#[path = "scheduled_tests.rs"]
+mod scheduled;
 
 #[derive(Default)]
 struct Disk {
@@ -145,6 +147,7 @@ fn service(root: &std::path::Path, drive: &Arc<Drive>, name: &str) -> SettingsWe
         device_name: format!("合成{name}"),
         http: drive.clone(),
         create_identity: true,
+        clock: Arc::new(Clock),
     }
 }
 

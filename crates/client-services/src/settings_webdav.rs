@@ -20,6 +20,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod log;
+mod schedule;
+pub use schedule::{SettingsSyncScheduleStatus, SettingsSyncScheduledRun, SettingsSyncTrigger};
 #[cfg(test)]
 mod tests;
 mod transaction;
@@ -164,6 +166,7 @@ pub struct SettingsWebDav {
     device_name: String,
     http: Arc<dyn DavHttp>,
     create_identity: bool,
+    clock: Arc<dyn Environment>,
 }
 
 impl SettingsWebDav {
@@ -186,6 +189,7 @@ impl SettingsWebDav {
             device_name: device_name.to_owned(),
             http,
             create_identity: true,
+            clock: Arc::new(Clock),
         })
     }
 
@@ -311,6 +315,13 @@ impl SettingsWebDav {
         preferences: &PreferencesStore,
     ) -> Result<SettingsSyncReport, SettingsWebDavError> {
         let _lock = self.lock()?;
+        self.run_locked(preferences)
+    }
+
+    fn run_locked(
+        &self,
+        preferences: &PreferencesStore,
+    ) -> Result<SettingsSyncReport, SettingsWebDavError> {
         let keyring = self.keyring();
         keyring.devices()?;
         let encoded = keyring
@@ -321,8 +332,7 @@ impl SettingsWebDav {
         let cipher =
             SettingsSyncCipher::from_keystore(&keystore).ok_or(SettingsWebDavError::Pending)?;
         let device = keystore.device_id();
-        let clock = Clock;
-        let log = log::EventLog::new(self.http.as_ref(), &clock);
+        let log = log::EventLog::new(self.http.as_ref(), self.clock.as_ref());
         let stored = self.recover_round(&device, preferences, &cipher, &log)?;
         let remote = log.pull(&cipher, stored.as_ref().map(|state| &state.remote))?;
         let snapshot = preferences.load()?;

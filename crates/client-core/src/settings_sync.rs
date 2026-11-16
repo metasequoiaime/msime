@@ -473,8 +473,10 @@ mod tests {
 
     #[test]
     fn projection_keeps_shared_and_portable_theme_but_drops_local_data() {
-        let mut preferences = Preferences::default();
-        preferences.scheme = InputScheme::Shuangpin;
+        let mut preferences = Preferences {
+            scheme: InputScheme::Shuangpin,
+            ..Preferences::default()
+        };
         preferences.voice_input.asr_token = "synthetic-token".into();
         preferences.network.proxy_server = "http://synthetic.invalid:8080".into();
         preferences.custom_theme.candidate_skin = Some("local-package".into());
@@ -653,8 +655,10 @@ mod tests {
 
     #[test]
     fn tombstones_survive_three_way_merge_and_reset_the_deleted_field() {
-        let mut current = Preferences::default();
-        current.candidate_page_size = 9;
+        let current = Preferences {
+            candidate_page_size: 9,
+            ..Preferences::default()
+        };
         let base = SettingsSyncDocument::from_preferences(&current).unwrap();
         let mut local = base.clone();
         local.shared.remove("candidate_page_size");
@@ -675,8 +679,10 @@ mod tests {
     }
     #[test]
     fn omitted_default_values_are_tombstones_and_theme_removal_keeps_only_local_references() {
-        let mut old = Preferences::default();
-        old.touch_number_row = true;
+        let mut old = Preferences {
+            touch_number_row: true,
+            ..Preferences::default()
+        };
         old.custom_theme.keyboard = Some(crate::preferences::TouchKeyboardSkinDesign::default());
         old.custom_theme.candidate_skin = Some("local-skin".into());
         let base = SettingsSyncDocument::from_preferences(&old).unwrap();

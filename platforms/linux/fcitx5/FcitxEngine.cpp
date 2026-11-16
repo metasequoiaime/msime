@@ -1,4 +1,5 @@
 #include "../src/settings/LocalTranslationLauncher.h"
+#include "../src/core/SettingsSyncWorker.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
 #include "../src/candidates/EmbeddedTranslation.h"
@@ -420,6 +421,9 @@ Json readOptions() {
 bool fcitx_dictionary_sync_started = false;
 
 void startDictionarySync(const Json &options) {
+  if (const auto directory = options.find("preferences_directory");
+      directory != options.end() && directory->is_string())
+    (void)msime::linux_host::start_settings_sync(directory->get_ref<const std::string &>());
   if (fcitx_dictionary_sync_started) return;
   try {
     const auto directory = options.value("preferences_directory", std::string{});
@@ -435,6 +439,7 @@ void startDictionarySync(const Json &options) {
 
 // 插件的代码在 Fcitx5 卸载它之后不能再运行：与 fcitx_detached_jobs 一样等后台线程真正退出（正在跑的那一次同步受锁的 5 秒等待和每个请求的超时约束）。
 void stopDictionarySync() {
+  (void)msime_client_settings_sync_stop(UINT32_MAX);
   if (!fcitx_dictionary_sync_started) return;
   (void)msime_client_dictionary_sync_stop(UINT32_MAX);
   fcitx_dictionary_sync_started = false;
