@@ -76,12 +76,13 @@ export const externalResourceNote = "px-6 pt-0 pb-3";
 /** 主题页逐张显示卡片，横向滚动吸附保留触控板和触屏切换。卡片拉伸到同一高度（最高那张的高度），翻页时卡片和下面的分页条都不跳。 */
 export const themeCarouselTrack =
   "flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
-/** 轮播里的每张皮肤预览自己限高，避免只裁轨道而让皮肤卡片仍保留超高的内在尺寸。 */
-export const themeCarouselViewport = "theme-carousel-viewport";
+/** 轮播里的每张皮肤预览自己限高，避免只裁轨道而让皮肤卡片仍保留超高的内在尺寸。三列网格把上一个、下一个箭头放在卡片左右两侧，按卡片高度居中；分页条在下面占满一行。 */
+export const themeCarouselViewport =
+  "theme-carousel-viewport grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2";
 /** The padding keeps the card's shadow and focus ring inside the track, which clips its overflow. 卡片撑满拉伸后的 slide，多出来的高度给卡片里的预览舞台，所以矮卡片是舞台留得多，卡片外面没有空白。 */
 export const themeCarouselSlide =
   "flex w-full shrink-0 snap-start flex-col p-1 [&>article]:flex [&>article]:flex-1 [&>article]:flex-col [&>article>[data-skin-preview]]:flex-1";
-export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";
+export const themeCarouselNav = "col-span-3 mt-2 flex items-center justify-center gap-3";
 export const themeCarouselArrow =
   "flex size-7 items-center justify-center rounded-full border border-edge bg-[var(--p-group-bg)] p-0 text-lg leading-none text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";
 export const themeCarouselDots = inlineItems;
