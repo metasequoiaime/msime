@@ -84,6 +84,7 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 ## Verification
 
 - #11509 的 `tests/input/fullwidth_session.cpp` 使用真实 Server 和 TIP 会话，覆盖中日文、半角／全角／半角、标点、原文字母、生产 Enter 路径及全角状态下重建；`tests/runtime/session_pump.cpp` 覆盖单独切换、状态快照和焦点恢复的真实队列落地。验证结果见对应 PR；不包含设备或真实编辑器验收。
+- `test-windows-smart-punctuation-revert.py` 继续执行原有重复标点条件，夹具补齐宽度 compartment、UTF-8 转换适配和真实共享映射头；新增全角、半角、中文标点与小键盘小数点的预取断言，66 项通过。新增预取用例关闭智能标点以明确进入预取路径，结束后恢复该开关，不改变原有回归的前置条件。
 
 - 公共抽取：`use-app-input-mode-rules.test.tsx` 独立调用 hook，覆盖手填校验、排序、修改、移除、名称回退、最新规则和回调、同步防重、取消/失败、当前上限及平台切换。控件的五项新增回归先在旧实现下失败，覆盖选择期间规则变化、重复打开、更换选择器后的旧成功/失败和卸载写回；原有名称生命周期和真实设置保存回归继续保留。此片不改变原生选择器或文件访问，只验证共享前端交互、类型与构建。
 
