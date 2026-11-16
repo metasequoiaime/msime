@@ -26,6 +26,26 @@ impl<'a> EventLog<'a> {
         br#"{"format":"app.msime.settings-sync-log","version":1}"#.to_vec()
     }
 
+    pub fn read_event(
+        &self,
+        cipher: &SettingsSyncCipher,
+        sequence: u64,
+    ) -> Result<Option<SettingsSyncEvent>, SettingsWebDavError> {
+        if sequence >= MAX_EVENTS {
+            return Err(SettingsWebDavError::LogFull);
+        }
+        self.dav
+            .get(&Self::path(sequence), MAX_SEALED_EVENT_BYTES as u64)?
+            .map(|bytes| {
+                let event = cipher.open_event(&SealedSettingsEvent::from_json(&bytes)?)?;
+                if event.sequence != sequence {
+                    return Err(RelayError::Rollback.into());
+                }
+                Ok(event)
+            })
+            .transpose()
+    }
+
     fn initialize(&self) -> Result<(), SettingsWebDavError> {
         for directory in [ROOT, V1, TMP] {
             self.dav.mkcol(directory)?;
@@ -91,7 +111,13 @@ impl<'a> EventLog<'a> {
                 return Err(RelayError::Rollback.into());
             }
         }
-        let start = known.map_or(0, |known| known.sequence + 1);
+        let start = match known {
+            Some(known) => known
+                .sequence
+                .checked_add(1)
+                .ok_or(SettingsWebDavError::Protocol)?,
+            None => 0,
+        };
         let end = numbers.last().copied();
         if let Some(end) = end {
             for sequence in start..=end {

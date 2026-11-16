@@ -120,6 +120,7 @@ mod tests {
         let state = request_json(&request(&directory, json!({"operation":"status"}))).unwrap();
         assert_eq!(state["joined"], false);
         assert_eq!(state["device_id"], Value::Null);
+        assert_eq!(state["pending_write"], false);
         assert!(!state.to_string().contains("synthetic-secret"));
         assert_eq!(
             request_json(&request(&directory, json!({"operation":"run"}))).unwrap_err(),

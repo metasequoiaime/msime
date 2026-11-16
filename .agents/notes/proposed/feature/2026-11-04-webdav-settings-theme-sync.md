@@ -8,7 +8,7 @@ Status: proposed
 
 ## Proposal
 
-核心的字段边界、文档应用、墓碑、事件链与密文信封已由[实现笔记](../../implemented/feature/2026-11-04-webdav-settings-sync-boundary.md) 承接；本设计中的自动调度、最终冲突策略和原生宿主接入继续保留。
+核心的字段边界、文档应用、墓碑、事件链、密文信封及可判定中断的私有事务恢复已由[实现笔记](../../implemented/feature/2026-11-04-webdav-settings-sync-boundary.md) 承接；本设计中的自动调度、最终冲突策略和原生宿主接入继续保留。
 
 ### 同步边界
 

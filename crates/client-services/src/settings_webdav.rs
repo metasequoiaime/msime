@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 mod log;
 #[cfg(test)]
 mod tests;
+mod transaction;
 
 const ROOT: &str = "msime-settings/";
 const KEYRING: &str = "msime-settings/keyring/";
@@ -37,6 +38,8 @@ pub enum SettingsWebDavError {
     Storage,
     #[error("settings changed during sync")]
     Conflict,
+    #[error("settings sync recovery needs a choice between local edits and the pending download")]
+    RecoveryConflict,
     #[error("settings sync protocol rejected the document")]
     Protocol,
     #[error("settings sync is waiting for device approval")]
@@ -53,6 +56,7 @@ impl SettingsWebDavError {
             Self::Invalid => "invalid_settings_sync",
             Self::Storage => "settings_sync_storage",
             Self::Conflict => "settings_conflict",
+            Self::RecoveryConflict => "settings_sync_recovery_conflict",
             Self::Protocol => "settings_sync_protocol",
             Self::Pending => "clipboard_device_pending",
             Self::LogFull => "settings_sync_log_full",
@@ -149,6 +153,7 @@ pub struct SettingsSyncStatus {
     pub approved: bool,
     pub joined: bool,
     pub sequence: Option<u64>,
+    pub pending_write: bool,
 }
 
 /// 配置由宿主提供，目录必须是本安装独占的 `settings-sync` 私有子目录。
@@ -242,6 +247,10 @@ impl SettingsWebDav {
             Some(keystore) => self.load_state(&keystore.device_id())?,
             None => None,
         };
+        let pending_write = match keystore.as_ref() {
+            Some(keystore) => self.has_pending(&keystore.device_id())?,
+            None => false,
+        };
         Ok(SettingsSyncStatus {
             device_id: keystore.as_ref().map(|keystore| keystore.device_id()),
             code: keystore
@@ -252,6 +261,7 @@ impl SettingsWebDav {
                 .is_some_and(|keystore| SettingsSyncCipher::from_keystore(keystore).is_some()),
             joined: state.is_some(),
             sequence: state.map(|state| state.remote.sequence),
+            pending_write,
         })
     }
 
@@ -311,9 +321,9 @@ impl SettingsWebDav {
         let cipher =
             SettingsSyncCipher::from_keystore(&keystore).ok_or(SettingsWebDavError::Pending)?;
         let device = keystore.device_id();
-        let stored = self.load_state(&device)?;
         let clock = Clock;
         let log = log::EventLog::new(self.http.as_ref(), &clock);
+        let stored = self.recover_round(&device, preferences, &cipher, &log)?;
         let remote = log.pull(&cipher, stored.as_ref().map(|state| &state.remote))?;
         let snapshot = preferences.load()?;
         let local = SettingsSyncDocument::from_preferences(&snapshot.preferences)?;
@@ -342,7 +352,6 @@ impl SettingsWebDav {
         let applied = merged
             .document
             .apply_to_preferences(&snapshot.preferences, preferences.edition())?;
-        let downloaded = applied != snapshot.preferences;
         // 先比较有效偏好，再决定上传，避免迁移标记或版本收窄导致空同步反复写日志。
         let needs_upload = remote
             .as_ref()
@@ -360,41 +369,21 @@ impl SettingsWebDav {
                 .map(SettingsSyncEvent::head)
                 .transpose()?
                 .unwrap_or_default();
-            let event = SettingsSyncEvent::new(sequence, &device, parent, merged.document)?;
-            log.append(&cipher, &event)?;
-            event
+            SettingsSyncEvent::new(sequence, &device, parent, merged.document)?
         } else {
             remote.ok_or(SettingsWebDavError::Protocol)?
         };
-        // 抢号成功后才写回本机。否则下载已生效而基线未推进，下轮会把远端改动误当
-        // 本机编辑，甚至覆盖另一台设备在竞争期间恢复的默认值。CAS 失败仍保留用户
-        // 的新编辑；已追加的事件可在下轮按旧基线重新合并，不重放为本机修改。
-        let saved = if downloaded {
-            preferences.save(snapshot.revision, applied)?
-        } else {
-            snapshot
-        };
-        let canonical = SettingsSyncDocument::from_preferences(&saved.preferences)?;
-        let state = StoredState {
-            version: 1,
-            relay: self.config.url().to_owned(),
-            space: self.config.space(),
-            device,
-            base: canonical,
-            remote: event,
-        };
-        let bytes = serde_json::to_vec(&state).map_err(|_| SettingsWebDavError::Storage)?;
-        if bytes.len() as u64 > STATE_LIMIT {
-            return Err(SettingsWebDavError::Storage);
-        }
-        self.storage()
-            .write_private(STATE_FILE, &bytes)
-            .map_err(|_| SettingsWebDavError::Storage)?;
-        Ok(SettingsSyncReport {
-            revision: saved.revision,
-            uploaded: needs_upload,
-            downloaded,
-            conflicts: Vec::new(),
-        })
+        self.finish_round(
+            &device,
+            preferences,
+            &cipher,
+            &log,
+            transaction::Round {
+                snapshot,
+                applied,
+                event,
+                upload: needs_upload,
+            },
+        )
     }
 }

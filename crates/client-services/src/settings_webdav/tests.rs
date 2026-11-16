@@ -3,6 +3,9 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
+#[path = "recovery_tests.rs"]
+mod recovery;
+
 #[derive(Default)]
 struct Disk {
     files: BTreeMap<String, Vec<u8>>,
@@ -11,6 +14,8 @@ struct Disk {
     unauthorized: bool,
     race_next_append: bool,
     competing_append: Option<Vec<u8>>,
+    append_hook: Option<Box<dyn FnOnce() + Send>>,
+    lose_append_response: bool,
 }
 #[derive(Default)]
 struct Drive(Mutex<Disk>);
@@ -75,7 +80,16 @@ impl DavHttp for Drive {
                 } else if !disk.directories.contains(&parent(&destination)) {
                     409
                 } else if let Some(bytes) = disk.files.remove(&path) {
+                    let settings_event = destination.starts_with("msime-settings/v1/e-");
                     disk.files.insert(destination, bytes);
+                    if settings_event {
+                        if let Some(hook) = disk.append_hook.take() {
+                            hook();
+                        }
+                        if std::mem::take(&mut disk.lose_append_response) {
+                            return Err(RelayError::Unavailable);
+                        }
+                    }
                     201
                 } else {
                     404
