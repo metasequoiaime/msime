@@ -26,6 +26,7 @@ import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.HostDeepLink;
 import app.msime.android.KeyboardHeightPolicy;
+import app.msime.android.KeyboardHeightSettingPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
@@ -292,7 +293,8 @@ public final class KeyboardFragment extends HomeTabFragment {
     private String value(PageId page, JSONObject preferences, String skin, String scheme) {
         switch (page) {
             case SKINS: return skin;
-            case KEYBOARD_OPTIONS: return keysSummary(preferences, local);
+            case KEYBOARD_OPTIONS: return keysSummary(preferences, local,
+                requireContext().getResources().getConfiguration().smallestScreenWidthDp);
             case TYPING: return scheme;
             case EXPRESSION:
                 return preferences.optBoolean("chinese_punctuation", true) ? "中文标点" : "英文标点";
@@ -405,12 +407,12 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     // ---- row values ----
 
-    private static String keysSummary(JSONObject preferences, AndroidLocalSettings.Snapshot local) {
+    private static String keysSummary(JSONObject preferences, AndroidLocalSettings.Snapshot local,
+                                      int smallestScreenWidthDp) {
         // 和键盘页一样按百分比显示：存的是 dp 调整量，MIN_VALUE 表示没有设置（即 100 %），超出范围的旧值先夹紧再换算。
         int percent = KeyboardHeightPolicy.heightAdjustmentToPercent(
-            local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-                ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-                : NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+            KeyboardHeightSettingPolicy.adjustment(local, smallestScreenWidthDp,
+                NumberPolicy.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE)));
         String layout = switch (InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key")) {
             case "nine_key" -> "九键";
             case "fourteen_key" -> "14 键";
