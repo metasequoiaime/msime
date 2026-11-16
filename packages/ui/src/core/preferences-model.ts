@@ -93,6 +93,8 @@ export type Preferences = PunctuationPreferences &
     candidate_fixed_badge_style?: "paperclip" | "pushpin" | "dot";
     /** AI 联想候选的来源角标样式；缺省为 `robot`（🤖），另一档是 `whale`（🐳）。 */
     candidate_ai_badge_style?: "robot" | "whale";
+    /** 云候选来源角标是否显示；Windows 原生候选窗消费，缺省开启。 */
+    candidate_cloud_badge?: boolean;
     english_suggestions?: boolean;
     english_online_candidates?: boolean;
     translation_target_language?: TranslationLanguage;
