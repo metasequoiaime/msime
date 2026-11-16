@@ -1973,6 +1973,9 @@ pub struct Preferences {
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
     pub candidate_preedit_style: CandidatePreeditStyle,
+    /// Windows 候选窗是否保留预编辑首行；缺字段按开启，`candidate_preedit_style` 仍单独决定首行文字。
+    #[serde(default = "enabled_by_default")]
+    pub show_candidate_preedit_area: bool,
     /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
@@ -4766,6 +4769,7 @@ impl Default for Preferences {
             custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
+            show_candidate_preedit_area: true,
             show_candidate_page_number: true,
             show_candidate_status: true,
             tsf_preedit_style: PreeditStyle::default(),
