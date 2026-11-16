@@ -82,6 +82,7 @@
 #import "InputModeStatusItem.h"
 #import "TypingEffectPanel.h"
 #import "InputModeIdentifiers.h"
+#import "InputModeIcons.h"
 #import "../voice/VoiceInputService.h"
 #import "../voice/VoiceProviderSocket.h"
 #import "../voice/VoiceWaveOverlay.h"
@@ -5103,6 +5104,16 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     (void)toolbar;
     return [self inputSchemeMenuWithCurrentTitle:nullptr];
 }
+- (NSDictionary *)modes:(id)sender {
+    NSDictionary *info = NSBundle.mainBundle.infoDictionary;
+    NSDictionary *modes = [super modes:sender];
+    NSString *directory = [self initialPreferencesDirectory];
+    NSDictionary *snapshot = directory ? [MSIMEClientSession loadPreferencesInDirectory:directory error:nil] : nil;
+    return MSIMEInputModesWithGlyphIcons(modes, info, snapshot[@"preferences"], ^BOOL(NSString *file) {
+        return [NSBundle.mainBundle pathForResource:file ofType:nil] != nil;
+    });
+}
+
 - (NSMenu *)menu {
     [self ensureAppearance];
     NSMenu *menu = [[NSMenu alloc] initWithTitle:MSIMEEditionDisplayName()];
