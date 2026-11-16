@@ -141,9 +141,9 @@ public final class ShuangpinCustomPage extends ReloadingDetailPage {
             if (entries == null) continue;
             JSONObject knownUnits = known == null ? null : known.optJSONObject(part);
             java.util.TreeSet<String> names = new java.util.TreeSet<>();
-            for (Iterator<String> keys = entries.keys(); keys.hasNext(); ) names.add(keys.next());
+            for (Iterator<String> it = entries.keys(); it.hasNext(); ) names.add(it.next());
             if (knownUnits != null) {
-                for (Iterator<String> keys = knownUnits.keys(); keys.hasNext(); ) names.add(keys.next());
+                for (Iterator<String> it = knownUnits.keys(); it.hasNext(); ) names.add(it.next());
             }
             for (String unit : names) {
                 String key = entries.optString(unit, "");
