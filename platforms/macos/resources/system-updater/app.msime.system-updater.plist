@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- crates/macos-system-updater 的 launchd 任务。MSIME_SYSTEM_UPDATER_VERSION 是助手的版本：助手自己只在管理员授权的安装里更换，静默更新不碰它，所以改了助手的行为（尤其是修了它的缺陷）就把这个数加一，设置应用发现已装的比随附的小时会提示授权修复（macos_input_source.rs 的 system_updater_outdated）。助手本身不读这个变量。设置应用在管理员授权的系统安装里把它装到 /Library/LaunchDaemons 并载入；收件目录里有东西时 launchd 以 root 启动助手，助手每次都把它清空后退出。标签和各路径与该 crate 的 LABEL、Layout::system 以及 apps/desktop/src-tauri/src/platform/macos/macos_input_source.rs 里的 SYSTEM_UPDATER_* 一致。 -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>app.msime.system-updater</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/PrivilegedHelperTools/app.msime.system-updater</string>
+	</array>
+	<key>QueueDirectories</key>
+	<array>
+		<string>/Library/Application Support/app.msime.system-updater/inbox</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>MSIME_SYSTEM_UPDATER_VERSION</key>
+		<string>1</string>
+	</dict>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardErrorPath</key>
+	<string>/Library/Logs/app.msime.system-updater.log</string>
+</dict>
+</plist>

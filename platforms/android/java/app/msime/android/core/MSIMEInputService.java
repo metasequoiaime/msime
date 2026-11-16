@@ -5009,7 +5009,7 @@ public final class MSIMEInputService extends InputMethodService {
                 return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
             }
         }, () -> session, next -> {
-            view = next;
+            ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
         }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
 
@@ -5123,7 +5123,7 @@ public final class MSIMEInputService extends InputMethodService {
                         != targetSession) return;
                 // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
                 imeTranslationSenses.followOnlineRefresh(next);
-                view = next;
+                ImeCandidatePanelRefresh.accept(this, next);
                 render();
                 JSONObject current = onlineQuery(targetSession);
                 if (current != null) refreshed.set(current.toString());
@@ -6416,7 +6416,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         boolean nextEnglish = !dedicatedEnglish;
         boolean previousSuppressed = renderingSuppressed;
+        // command(2/3) 结束当前组字时会先经 apply() 更新 view。若让它立刻重画，
+        // dedicatedEnglish 还是旧值，候选栏和工具栏会按一半旧状态、一半新状态测量，
+        // 中英文键切换时就会让输入法窗口短暂变高或变矮。把结束组字、切换语言和
+        // 自动大写合成一次重画；shouldRender=false 的调用仍保持原来的不重画语义。
         renderingSuppressed = renderingSuppressed || !shouldRender;
+        beginRenderBatch();
         try {
             if (dedicatedEnglish) command(3); else command(2);
             if (session == 0) return;
@@ -6441,6 +6446,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) {
             fail(error);
         } finally {
+            endRenderBatch();
             renderingSuppressed = previousSuppressed;
         }
     }

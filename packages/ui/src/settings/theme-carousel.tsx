@@ -110,6 +110,13 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
       aria-label="主题列表"
       onKeyDown={onKeyDown}
     >
+      <ActionButton
+        action={() => show(index - 1, true)}
+        className={settings.themeCarouselArrow}
+        ariaLabel="上一个主题"
+        disabled={index <= 0}
+        label="‹"
+      />
       <div ref={track} className={settings.themeCarouselTrack} onScroll={onScroll}>
         {slides.map((child, slide) => (
           <div
@@ -122,14 +129,14 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
           </div>
         ))}
       </div>
+      <ActionButton
+        action={() => show(index + 1, true)}
+        className={settings.themeCarouselArrow}
+        ariaLabel="下一个主题"
+        disabled={index >= count - 1}
+        label="›"
+      />
       <div className={settings.themeCarouselNav}>
-        <ActionButton
-          action={() => show(index - 1, true)}
-          className={settings.themeCarouselArrow}
-          ariaLabel="上一个主题"
-          disabled={index <= 0}
-          label="‹"
-        />
         <div className={settings.themeCarouselDots}>
           {labels.slice(windowStart, windowStart + MAX_CAROUSEL_DOTS).map((label, offset) => {
             const slide = windowStart + offset;
@@ -152,13 +159,6 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
         <span className={settings.themeCarouselCount}>
           {index + 1} / {count}
         </span>
-        <ActionButton
-          action={() => show(index + 1, true)}
-          className={settings.themeCarouselArrow}
-          ariaLabel="下一个主题"
-          disabled={index >= count - 1}
-          label="›"
-        />
         {/* 皮肤装多了以后翻走就很难找回来（#10746），这里一下回到在用的那张。停在那张时不可点，但始终占着位置，导航行不会随翻动左右跳。 */}
         <ActionButton
           action={() => show(selectedIndex, true)}
