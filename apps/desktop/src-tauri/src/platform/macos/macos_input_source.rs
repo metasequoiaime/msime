@@ -30,6 +30,12 @@ const MAX_INPUT_SOURCE_PREFERENCES_BYTES: usize = 1024 * 1024;
 const MAX_PLUTIL_VERSION_BYTES: usize = 1024;
 /// 所有用户共享的输入法目录；写入必须经过系统 Installer 的管理员授权。
 const SYSTEM_INPUT_METHODS: &str = "/Library/Input Methods";
+// root 更新助手（crates/macos-system-updater，标签是它的 `LABEL`）装好后在系统里的位置。系统目录归 root，登录用户的进程换不了里面的输入法，装好之后的更新交给它，不再每次要管理员密码。
+const SYSTEM_UPDATER_TOOL: &str = "/Library/PrivilegedHelperTools/app.msime.system-updater";
+const SYSTEM_UPDATER_JOB: &str = "/Library/LaunchDaemons/app.msime.system-updater.plist";
+const SYSTEM_UPDATER_INBOX: &str = "/Library/Application Support/app.msime.system-updater/inbox";
+// 助手要把 200 多 MB 的 bundle 拷进自己的目录再做深度签名校验，实测是几秒的事；留足余量，等不到就按需要授权处理。
+const SYSTEM_UPDATER_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
 
 #[derive(Debug)]
 pub(crate) enum InstallError {
@@ -450,7 +456,8 @@ fn installed_bundle_path_in(
             Err(_) => return Err(InstallError::Io),
         }
     }
-    Ok(user)
+    // 两处都没有时指向系统目录：只有装在那里的输入法才算安全输入源，新的安装不再落到用户目录。已有的用户副本仍然优先，上面已经返回了它。
+    Ok(system)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -562,16 +569,30 @@ fn build_system_package(source: &Path, work: &Path) -> Result<PathBuf, InstallEr
     Ok(package)
 }
 
-// 路径经 argv 传入，再由 AppleScript 按 shell 规则引用；管理员命令和目标不可由页面指定。
+// 路径经 argv 传入，再由 AppleScript 按 shell 规则引用；管理员命令和目标不可由页面指定。第 2、3 个参数是随设置应用分发的更新助手和它的 launchd 任务，有就在同一次授权里装上并载入。助手装不上不算安装失败：输入法已经装好，只是以后的更新还要再授权。
 const SYSTEM_INSTALL_SCRIPT: &str = r#"on run argv
+    set command to "/usr/sbin/installer -pkg " & quoted form of (item 1 of argv) & " -target / >/dev/null 2>&1"
+    if (count of argv) is 3 then
+        set command to command & " && { /bin/mkdir -p /Library/PrivilegedHelperTools \"/Library/Application Support/app.msime.system-updater/inbox\" && /bin/chmod 1777 \"/Library/Application Support/app.msime.system-updater/inbox\" && /usr/bin/install -o root -g wheel -m 755 " & quoted form of (item 2 of argv) & " /Library/PrivilegedHelperTools/app.msime.system-updater && /usr/bin/install -o root -g wheel -m 644 " & quoted form of (item 3 of argv) & " /Library/LaunchDaemons/app.msime.system-updater.plist && { /bin/launchctl bootout system/app.msime.system-updater; /bin/launchctl bootstrap system /Library/LaunchDaemons/app.msime.system-updater.plist || { /bin/sleep 2; /bin/launchctl bootstrap system /Library/LaunchDaemons/app.msime.system-updater.plist; }; }; true; } >/dev/null 2>&1"
+    end if
     try
-        do shell script "/usr/sbin/installer -pkg " & quoted form of (item 1 of argv) & " -target / >/dev/null 2>&1" with administrator privileges
+        do shell script command with administrator privileges
         return "installed"
     on error number errorNumber
         if errorNumber is -128 then return "cancelled"
         return "failed"
     end try
 end run"#;
+
+/// 随设置应用分发的更新助手和它的 launchd 任务：`Contents/MacOS/msime-system-updater` 与 `Contents/Resources/app.msime.system-updater.plist`。开发构建没有它们，系统安装照常进行，只是不装助手。
+fn packaged_system_updater(resource_directory: &Path) -> Option<(PathBuf, PathBuf)> {
+    let tool = resource_directory
+        .parent()?
+        .join("MacOS/msime-system-updater");
+    let job = resource_directory.join("app.msime.system-updater.plist");
+    let regular = |path: &Path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file());
+    (regular(&tool) && regular(&job)).then_some((tool, job))
+}
 
 fn system_install_result(output: Option<&[u8]>) -> Result<(), InstallError> {
     match output.map(|bytes| bytes.trim_ascii()) {
@@ -581,18 +602,22 @@ fn system_install_result(output: Option<&[u8]>) -> Result<(), InstallError> {
     }
 }
 
-fn install_system_bundle(source: &Path, target: &Path) -> Result<(), InstallError> {
+fn install_system_bundle(
+    source: &Path,
+    target: &Path,
+    updater: Option<&(PathBuf, PathBuf)>,
+) -> Result<(), InstallError> {
     let work = tempfile::Builder::new()
         .prefix("msime-system-install-")
         .tempdir()
         .map_err(|_| InstallError::Io)?;
     let package = build_system_package(source, work.path())?;
-    let output = bounded_command_output(
-        Command::new("/usr/bin/osascript")
-            .args(["-e", SYSTEM_INSTALL_SCRIPT])
-            .arg(&package),
-        128,
-    );
+    let mut command = Command::new("/usr/bin/osascript");
+    command.args(["-e", SYSTEM_INSTALL_SCRIPT]).arg(&package);
+    if let Some((tool, job)) = updater {
+        command.arg(tool).arg(job);
+    }
+    let output = bounded_command_output(&mut command, 128);
     system_install_result(output.as_deref())?;
     validate_bundle(target)?;
     // Installer 已完成系统目录事务。登记失败时保留已签名的新副本，等待当前用户下次登录。
@@ -790,7 +815,8 @@ fn install_unlocked(resource_directory: Option<&Path>, target: &Path) -> Result<
         &std::env::current_dir().map_err(|_| InstallError::SourceUnavailable)?,
     )?;
     if installation_scope(target) == InstallationScope::System {
-        let result = install_system_bundle(&source, target);
+        let updater = resource_directory.and_then(packaged_system_updater);
+        let result = install_system_bundle(&source, target, updater.as_ref());
         if result.is_ok() || matches!(result, Err(InstallError::RegistrationPending)) {
             stop_running_copies(target);
             refresh_system_input_source_lists();
@@ -809,6 +835,86 @@ fn install_unlocked(resource_directory: Option<&Path>, target: &Path) -> Result<
         refresh_system_input_source_lists();
     }
     result.map(|_| ())
+}
+
+/// 把 `source` 交给更新助手：先用点开头的名字拷进收件目录，拷完再改名。助手不碰点开头的条目，所以它看到的总是一份拷完的 bundle。返回提交在收件目录里的路径。
+fn submit_to_system_updater(source: &Path, inbox: &Path) -> Result<PathBuf, InstallError> {
+    validate_bundle(source)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let name = format!("{}-{stamp}.app", std::process::id());
+    let staging = inbox.join(format!(".{name}"));
+    let submission = inbox.join(&name);
+    let result = copy_tree(source, &staging)
+        .and_then(|()| fs::rename(&staging, &submission).map_err(|_| InstallError::Io));
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result.map(|()| submission)
+}
+
+/// 不经授权更新系统目录里的输入法：交给更新助手，等它把 `target` 换成 `source` 的构建。助手没装、它拒绝了这份 bundle 或者迟迟没换，都报需要授权，由「修复」走管理员授权的那条路。
+///
+/// 助手只装构建号更大的 bundle，所以不更大时不必提交：同版本不同修订的重打包、读不出版本的已装副本都属于这种情况。
+fn update_through_system_updater(
+    source: &Path,
+    target: &Path,
+    inbox: &Path,
+    wait: std::time::Duration,
+) -> Result<(), InstallError> {
+    let wanted = bundle_version(source).ok_or(InstallError::InvalidBundle)?;
+    if !bundle_version(target).is_some_and(|installed| installed.build < wanted.build) {
+        return Err(InstallError::AuthorizationRequired);
+    }
+    let submission =
+        submit_to_system_updater(source, inbox).map_err(|_| InstallError::AuthorizationRequired)?;
+    let updated =
+        || bundle_version(target).is_some_and(|installed| installed.build == wanted.build);
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if updated() {
+            return Ok(());
+        }
+        // 助手处理完一份提交，装上也好、拒绝也好，都会把它从收件目录删掉。提交没了而已装的那份没换，就是被拒绝了，不必等到时限。删除在交换之后，所以先再读一次版本。
+        if fs::symlink_metadata(&submission).is_err() {
+            return if updated() {
+                Ok(())
+            } else {
+                Err(InstallError::AuthorizationRequired)
+            };
+        }
+        if std::time::Instant::now() >= deadline {
+            // 没人来取（助手没在运行）：把提交收回。留在收件目录里的话，每次启动检查都会再攒下一份两百多 MB 的 bundle。
+            let _ = fs::remove_dir_all(&submission);
+            return Err(InstallError::AuthorizationRequired);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
+/// 启动检查对系统安装的处理：不弹授权。更新助手在时由它静默替换，然后和授权安装一样停掉旧进程、刷新输入源列表并重新登记。
+fn refresh_system_install_silently(source: &Path, target: &Path) -> Result<(), InstallError> {
+    let installed =
+        |path: &str| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file());
+    if !installed(SYSTEM_UPDATER_TOOL) || !installed(SYSTEM_UPDATER_JOB) {
+        return Err(InstallError::AuthorizationRequired);
+    }
+    update_through_system_updater(
+        source,
+        target,
+        Path::new(SYSTEM_UPDATER_INBOX),
+        SYSTEM_UPDATER_WAIT,
+    )?;
+    // 顺序与授权安装一致（`install_system_bundle` 之后才在 `install_unlocked` 里停进程）：先登记再停旧进程。反过来的话，系统会在 LaunchServices 记录还指着旧副本时重新拉起输入法。
+    validate_bundle(target)?;
+    let registered = register_installed_bundle(target);
+    stop_running_copies(target);
+    refresh_system_input_source_lists();
+    if registered.is_err() {
+        return Err(InstallError::RegistrationPending);
+    }
+    Ok(())
 }
 
 /// 装好之后要不要停掉旧进程、刷新系统设置的输入源缓存。`RegistrationPending` 也要：bundle 已经留在原处，而登记后查不到源不一定是「新标识符要等下次登录」，也可能只是 platforms/macos/README.md 记的那段登记后分钟级的注册表空窗；那时源过一会儿就进了注册表，系统设置「添加」对话框读的却仍是登录时写下的旧缓存，不清掉就要等到下次登录才列得出来。
@@ -1188,11 +1294,15 @@ pub(crate) fn ensure_current(
     let _guard = install_lock();
     let source = resource_directory.join(input_source_bundle_name());
     let target = installed_bundle_path()?;
-    ensure_current_with(&source, &target, defer_first_install, || {
-        install_with_authorization(installation_scope(&target), false, || {
-            install_unlocked(Some(resource_directory), &target)
-        })
-    })
+    ensure_current_with(
+        &source,
+        &target,
+        defer_first_install,
+        || match installation_scope(&target) {
+            InstallationScope::System => refresh_system_install_silently(&source, &target),
+            InstallationScope::User => install_unlocked(Some(resource_directory), &target),
+        },
+    )
 }
 
 /// The settings page's 「修复输入源」: like `ensure_current` it installs a missing copy, replaces an older one and never downgrades, but it also reinstalls a copy of the same version. A readable version says nothing about the rest of the bundle - a cleaner tool or a partial copy can leave the Info.plist intact and the executable, framework or signature broken - and the old 「安装 / 更新」 button this replaces overwrote such a copy.
@@ -1544,13 +1654,14 @@ mod tests {
     }
 
     #[test]
-    fn missing_installations_default_to_the_user_location() {
+    fn missing_installations_default_to_the_system_location() {
         let root = tempdir().unwrap();
         let user = root.path().join("user/Library/Input Methods");
         let system = root.path().join("system/Library/Input Methods");
+        // 装在用户目录的输入法在安全输入期间会被 macOS 停用，所以新的安装不再默认落在那里。
         assert_eq!(
             installed_bundle_path_in(&user, &system).unwrap(),
-            user.join(input_source_bundle_name())
+            system.join(input_source_bundle_name())
         );
         assert!(!user.exists() && !system.exists());
     }
@@ -1801,6 +1912,170 @@ mod tests {
         )
         .unwrap();
         bundle
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_submission_reaches_the_updater_inbox_under_its_final_name_only() {
+        let root = tempdir().unwrap();
+        let source = versioned_fixture(root.path(), "0.60.0", "60", b"new");
+        let inbox = root.path().join("inbox");
+        fs::create_dir(&inbox).unwrap();
+
+        submit_to_system_updater(&source, &inbox).unwrap();
+        let names: Vec<String> = fs::read_dir(&inbox)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 1, "{names:?}");
+        // 助手不碰点开头的条目；留下一个就等于这次提交永远不会被处理。
+        assert!(
+            !names[0].starts_with('.') && names[0].ends_with(".app"),
+            "{names:?}"
+        );
+        assert_eq!(
+            bundle_version(&inbox.join(&names[0])).map(|version| version.build),
+            Some(60)
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_silent_system_update_succeeds_once_the_updater_has_swapped_the_bundle() {
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join("new")).unwrap();
+        fs::create_dir(root.path().join("installed")).unwrap();
+        let source = versioned_fixture(&root.path().join("new"), "0.60.0", "60", b"new");
+        let target = versioned_fixture(&root.path().join("installed"), "0.59.0", "59", b"old");
+        let inbox = root.path().join("inbox");
+        fs::create_dir(&inbox).unwrap();
+
+        // 代替 root 助手：等提交出现，把已装的那份换成它。
+        let helper = {
+            let (inbox, target) = (inbox.clone(), target.clone());
+            std::thread::spawn(move || {
+                // 有上限：提交没出现时让断言失败，而不是让测试挂住。
+                for _ in 0..500 {
+                    let submitted = fs::read_dir(&inbox)
+                        .unwrap()
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .find(|path| !path.file_name().unwrap().to_string_lossy().starts_with('.'));
+                    if let Some(submitted) = submitted {
+                        fs::remove_dir_all(&target).unwrap();
+                        fs::rename(submitted, &target).unwrap();
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            })
+        };
+        let result = update_through_system_updater(
+            &source,
+            &target,
+            &inbox,
+            std::time::Duration::from_secs(20),
+        );
+        helper.join().unwrap();
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            bundle_version(&target).map(|version| version.build),
+            Some(60)
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_silent_system_update_asks_for_authorization_when_the_updater_would_not_or_did_not_install()
+    {
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join("new")).unwrap();
+        fs::create_dir(root.path().join("installed")).unwrap();
+        let source = versioned_fixture(&root.path().join("new"), "0.60.0", "60", b"new");
+        let inbox = root.path().join("inbox");
+        fs::create_dir(&inbox).unwrap();
+
+        // 同一个构建号（修复、同版本重打包）：助手不会装，所以不提交。
+        let same = versioned_fixture(&root.path().join("installed"), "0.60.0", "60", b"old");
+        let result = update_through_system_updater(
+            &source,
+            &same,
+            &inbox,
+            std::time::Duration::from_secs(20),
+        );
+        assert!(matches!(result, Err(InstallError::AuthorizationRequired)));
+        assert!(fs::read_dir(&inbox).unwrap().next().is_none());
+
+        // 提交了但没人来换（助手拒绝了，或者没在运行）：等到时限后报需要授权，已装的那份不动。
+        let older = versioned_fixture(&root.path().join("installed"), "0.59.0", "59", b"old");
+        let result = update_through_system_updater(
+            &source,
+            &older,
+            &inbox,
+            std::time::Duration::from_millis(300),
+        );
+        assert!(matches!(result, Err(InstallError::AuthorizationRequired)));
+        assert_eq!(
+            bundle_version(&older).map(|version| version.build),
+            Some(59)
+        );
+        // 没人取走的提交被收回，不在收件目录里越攒越多。
+        assert!(fs::read_dir(&inbox).unwrap().next().is_none());
+
+        // 助手拒绝了（删掉提交而没有换）：不等到时限。
+        let rejecting = {
+            let inbox = inbox.clone();
+            std::thread::spawn(move || {
+                for _ in 0..500 {
+                    let submitted = fs::read_dir(&inbox)
+                        .unwrap()
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .find(|path| !path.file_name().unwrap().to_string_lossy().starts_with('.'));
+                    if let Some(submitted) = submitted {
+                        fs::remove_dir_all(submitted).unwrap();
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            })
+        };
+        let started = std::time::Instant::now();
+        let result = update_through_system_updater(
+            &source,
+            &older,
+            &inbox,
+            std::time::Duration::from_secs(60),
+        );
+        rejecting.join().unwrap();
+        assert!(matches!(result, Err(InstallError::AuthorizationRequired)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(30));
+
+        // 收件目录不存在：助手没装好。
+        let result = update_through_system_updater(
+            &source,
+            &older,
+            &root.path().join("missing"),
+            std::time::Duration::from_secs(20),
+        );
+        assert!(matches!(result, Err(InstallError::AuthorizationRequired)));
+    }
+
+    #[test]
+    fn the_packaged_updater_is_found_beside_the_app_executable_and_only_when_complete() {
+        let root = tempdir().unwrap();
+        let resources = root.path().join("MSIME.app/Contents/Resources");
+        fs::create_dir_all(&resources).unwrap();
+        fs::create_dir_all(root.path().join("MSIME.app/Contents/MacOS")).unwrap();
+        assert!(packaged_system_updater(&resources).is_none());
+        let tool = root
+            .path()
+            .join("MSIME.app/Contents/MacOS/msime-system-updater");
+        fs::write(&tool, b"tool").unwrap();
+        assert!(packaged_system_updater(&resources).is_none());
+        let job = resources.join("app.msime.system-updater.plist");
+        fs::write(&job, b"job").unwrap();
+        assert_eq!(packaged_system_updater(&resources), Some((tool, job)));
     }
 
     fn version(short: &str, build: &str) -> BundleVersion {

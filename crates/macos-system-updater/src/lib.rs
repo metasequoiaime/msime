@@ -238,12 +238,16 @@ pub fn drain(layout: &Layout, host: &dyn Host) -> Vec<(OsString, Outcome)> {
     outcomes
 }
 
+/// 修改时间是提交方自己能设的：设到很久以后的条目也算被丢下的，否则它永远不过期，launchd 会因为目录非空每隔几秒起一次本程序。只差一点的（校时把时钟往回拨了）仍当作正在拷。
 fn abandoned(path: &Path) -> bool {
-    fs::symlink_metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-        .is_some_and(|age| age > ABANDONED_AFTER)
+    let Ok(modified) = fs::symlink_metadata(path).and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    let now = SystemTime::now();
+    let distance = now
+        .duration_since(modified)
+        .or_else(|_| modified.duration_since(now));
+    distance.is_ok_and(|distance| distance > ABANDONED_AFTER)
 }
 
 fn remove_entry(path: &Path) {
@@ -400,17 +404,31 @@ fn copy_tree(
     if !metadata.is_file() {
         return Err(Rejection::NotABundle);
     }
+    // 提交方在 lstat 之后还能把这个名字换成别的东西。不跟随链接、不阻塞地打开，再看打开的到底是什么：换成命名管道的话，普通的 open 会一直等写端，这个 root 进程就此挂住，launchd 不会再起第二个，之后所有更新都装不上。
+    let input = rustix::fs::open(
+        source,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::NONBLOCK
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|_| Rejection::Io)?;
+    let mut input = fs::File::from(input);
+    let metadata = input.metadata().map_err(|_| Rejection::Io)?;
+    if !metadata.is_file() {
+        return Err(Rejection::NotABundle);
+    }
     budget.bytes = budget
         .bytes
         .checked_sub(metadata.len())
         .ok_or(Rejection::TooLarge)?;
-    let mut input = fs::File::open(source).map_err(|_| Rejection::Io)?;
     let mut output = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(destination)
         .map_err(|_| Rejection::Io)?;
-    // 文件在 lstat 之后可能被换成更大的，所以按预算截断着读，而不是相信刚才读到的长度。
+    // 文件在 fstat 之后还可能被写长，所以按预算截断着读，而不是相信刚才读到的长度。
     let copied = io::copy(
         &mut io::Read::take(&mut input, metadata.len() + 1),
         &mut output,

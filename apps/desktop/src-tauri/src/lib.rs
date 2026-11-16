@@ -3603,8 +3603,10 @@ async fn uninstall_input_source(
             macos_input_source::installed_bundle_path().map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
-        if macos_input_source::installation_scope(&installed)
-            == macos_input_source::InstallationScope::System
+        // 两处都没装时这个路径也指向系统目录（新安装的默认位置），那不是一份要请管理员手动移除的系统安装。
+        if installed.exists()
+            && macos_input_source::installation_scope(&installed)
+                == macos_input_source::InstallationScope::System
         {
             return Err(HostActionError {
                 code: "system_input_source",
