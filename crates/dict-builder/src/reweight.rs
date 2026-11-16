@@ -24,19 +24,8 @@ pub const DIRECTORY: &str = "sources/pinyin/wanxiang/";
 
 /// 提供权重的万象词库，文件名是 `<名字>.dict.yaml`：#84 用的是 `wanxiang.dict.yaml` import_tables 里除 `cuoyin` 以外的 15 份，按它的次序；rime-wanxiang-data 的 `dicts/` 不再有其中的 `lianxiang`、`renming`，剩下这 13 份。不用 `cuoyin` 是 #84 的选择，不是上游方案的做法。
 pub const IMPORTED: [&str; 13] = [
-    "zi",
-    "jichu",
-    "duoyin",
-    "shici",
-    "diming",
-    "yixue",
-    "huaxue",
-    "yaopin",
-    "mingren",
-    "yiren",
-    "wuzhong",
-    "taifeng",
-    "fangyan",
+    "zi", "jichu", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren",
+    "wuzhong", "taifeng", "fangyan",
 ];
 
 /// 不提供权重的两份：`cuoyin` 收的是错误读音（`wanxiang.dict.yaml` 导入它，#84 没有用它的权重），`mixed` 是中英混写的词（不在 import_tables 里）。第二步判断一个词是否被万象收录时也读它们：方案 2.1 的口径是登记的全套词库（现在 15 份）。
@@ -911,10 +900,7 @@ mod tests {
 
     #[test]
     fn the_duoyin_scale_applies_before_the_file_scale_and_only_where_it_leads() {
-        let rows = [
-            ("张开", "zhang'kai", 211655),
-            ("多重", "duo'zhong", 335920),
-        ];
+        let rows = [("张开", "zhang'kai", 211655), ("多重", "duo'zhong", 335920)];
         let mut connection = database(&rows);
         let text = "张开\tzhang'kai\t211655\n多重\tduo'zhong\t335920\n";
         let jichu = format!("{HEADER}张开\tzhāng kāi\t20000\n");
@@ -1106,13 +1092,7 @@ mod tests {
             text: &text,
             accepted: None,
         }];
-        let counts = apply(
-            &mut connection,
-            &input,
-            &[("jichu", &jichu)],
-            &cap(),
-        )
-        .unwrap();
+        let counts = apply(&mut connection, &input, &[("jichu", &jichu)], &cap()).unwrap();
         assert_eq!(counts.capped, 0);
         assert_eq!(
             weight(&connection, "咨询有限公司", "zi'xun'you'xian'gong'si"),
@@ -1124,13 +1104,7 @@ mod tests {
             cap_leader_minimum: 10,
             ..cap()
         };
-        let counts = apply(
-            &mut connection,
-            &input,
-            &[("jichu", &jichu)],
-            &settings,
-        )
-        .unwrap();
+        let counts = apply(&mut connection, &input, &[("jichu", &jichu)], &settings).unwrap();
         assert_eq!(counts.capped, 1);
         assert_eq!(
             weight(&connection, "咨询有限公司", "zi'xun'you'xian'gong'si"),
