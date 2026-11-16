@@ -3406,6 +3406,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-macos-system-updater"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "msime-mcp-server"
 version = "0.1.0"
 dependencies = [

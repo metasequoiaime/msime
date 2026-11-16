@@ -36,7 +36,7 @@ class FloatingToolbar {
     std::string display_name;
     // 记位置的文件；空时只在这次运行里记住。
     std::optional<std::filesystem::path> position_file;
-    // 属主失焦时也收起。Wayland 会话里工具栏经 Xwayland 显示，看不到 Wayland 原生窗口是否全屏，失焦后留在屏幕上会盖住全屏的视频，所以那里失焦就收起，下一次获得焦点再出现。X11 会话照 macOS 留着。
+    // 属主失焦时也收起。纯 X11 会话照 macOS 留着；Wayland 会话不创建 X11 工具栏，沿状态区菜单回退。
     bool hide_on_focus_out = false;
     // 切换类的动作只对有焦点的属主生效（IBus：属性路径只认获得焦点的引擎）。属主失焦后工具栏留在屏幕上时，这些按钮和菜单项画成不能用，免得点了没反应；Fcitx5 把失焦的上下文留给状态区菜单，动作照样生效，不设这一项。
     bool actions_need_focus = false;
@@ -45,7 +45,7 @@ class FloatingToolbar {
   // 后端建不出来时返回空指针，宿主只用菜单里的「工具栏」子菜单。
   static std::unique_ptr<FloatingToolbar> create(OverlayLoop loop, Handler handler, Options options,
                                                  const SurfaceFactory &surfaces);
-  // 这个构建里能用的显示后端：X11（GNOME 的 Wayland 会话经 Xwayland 也用它）。见 FloatingToolbarFactory.cpp。
+  // 这个构建里能用的显示后端：纯 X11。Wayland 会话沿状态区菜单回退，见 FloatingToolbarFactory.cpp。
   static SurfaceFactory default_surfaces(OverlayLoop loop);
   ~FloatingToolbar();
   FloatingToolbar(const FloatingToolbar &) = delete;
