@@ -59,6 +59,13 @@ class AiServiceContract(unittest.TestCase):
 
         online.fetch = fetch
 
+    def test_null_candidate_reply_is_rejected(self):
+        self.respond(None)
+        query = self.ollama_query()
+        with self.assertRaises(ValueError):
+            online.ai(query, online.ollama_config(query["ai_assistant"]))
+        self.assertEqual(len(self.requests), 1)
+
     def test_model_catalogue_sits_beside_the_configured_endpoint(self):
         # 复用端点自己的 API 前缀而不是假定一个，这与 client-providers 的 ai::endpoint::models_url 为自己持有 token 的宿主所做的一致。
         self.assertEqual(

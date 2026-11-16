@@ -611,9 +611,10 @@ def strip_code_fence(content):
 
 
 _ai_protocol_client = None
+_AI_NO_BODY = object()
 
 
-def ai_candidate_protocol(query, limit, body=None):
+def ai_candidate_protocol(query, limit, body=_AI_NO_BODY):
     """只在共享层保留输入与切分规则，Python 负责序列化和传输。"""
     global _ai_protocol_client
     if _ai_protocol_client is None:
@@ -622,9 +623,9 @@ def ai_candidate_protocol(query, limit, body=None):
     document = {"mode": "pinyin", "scheme": 0, "generation": 0,
                 "identity": "", "query_text": "", "cache_key": "",
                 "cloud_eligible": False, "session_id": 0, **query}
-    payload = {"op": "message" if body is None else "parse",
+    payload = {"op": "message" if body is _AI_NO_BODY else "parse",
                "query": document, "limit": limit}
-    if body is not None:
+    if body is not _AI_NO_BODY:
         payload["body"] = json.dumps(body, ensure_ascii=False)
     reply = _ai_protocol_client._call("msime_client_ai_candidate_protocol", payload)
     return reply.get("value") if isinstance(reply, dict) and reply.get("ok") is True else None
