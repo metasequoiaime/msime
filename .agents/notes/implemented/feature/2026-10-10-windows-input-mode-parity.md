@@ -35,6 +35,8 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 **Alt+Shift+H 在 Windows 上同样切换全半角。** `_MatchChordInputHotkey` 在中文模式下、`toggle_fullwidth_option_shift_h` 开着、不带 Ctrl（AltGr 也报成 Ctrl+Alt）和 Win 时，把 Alt+Shift+H 当作全半角热键（`tsf/Global/FullwidthChordPolicy.h`），英文模式下原样交给应用，和 macOS 一样。Ctrl+Shift+Space 不受这个开关影响，macOS 也是这样。能力位 `fullwidth_chord` 加上 Windows，共享快捷键页按平台显示「Alt+Shift+H 切换全半角」。WinUI 快捷键页加同一个开关，「恢复默认快捷键」本来就整体恢复 `keybindings`，也会把它恢复。
 
+**全半角是宿主运行时状态，TIP 和 Server 的共享会话必须同步。** #11509 的工具栏已显示全角，但 `InputState::synchronize_input_mode` 把全半角事件只当显示通知，TIP 也没有调用既有宽度接口；因此共享层的 ASCII 全角转换读到的始终是半角。Server 将单独切换的 `keycode` 和激活／焦点恢复快照的 `modifiers_down` 都经带焦点租约的 `FocusedSession::set_character_width` 传给 Host API，已有回复尚未交付时禁止改动。TIP 的 compartment 回调同步自己的会话，`create_host_session` 也从当前 compartment 恢复宽度，覆盖词库维护后的重建。`_PrefetchPunctuationCommitText` 对旧表里的 ASCII 标点复用共享映射按当前宽度输出；非 ASCII 标点与成对补全保持原有路径。Enter 提交前仍严格核对原文观测，提交后的核对允许末尾原文的全角形式，旧宿主已选候选前缀保持原文字与宽度，统计记录最终输出。会话上屏宽度仍由共享转换处理，保留日文读音、网址、插件文字和非 ASCII 标点的既有语义；例如中文反引号的间隔号 `·` 不伪造另一种全角字符。不修改出厂默认值。
+
 **设置界面。** 新能力位 `app_input_mode_rules`（macOS、Windows，后来加上 Linux：按输入法框架报告的程序名，见 [Linux 账号云功能对齐](2026-10-20-linux-account-features-and-input-parity.md)）控制共享设置页「中英文」组里的规则表（`app-input-mode-rules-section.tsx`）：每条规则一行，显示应用名称、标识退到说明里，可以改模式、可以移除；末尾的「添加应用…」由宿主弹出系统的选应用对话框（`SettingsClient.pickApplication`，Tauri 命令 `pick_application`），新规则从中文开始。用户不知道也不该去查 Bundle ID 或进程名，所以标识从所选应用读出：macOS 的面板只接受应用程序包、默认打开 /Applications，Bundle ID 和名称由 `crates/host-macos/native/file_picker.mm` 读；Windows 选一个 `.exe`，取文件名。已有规则的名称在 macOS 上按 Bundle ID 向 LaunchServices 查（`applicationNames`，命令 `application_names`），没装的应用照旧显示标识。宿主不提供对话框时才退回手填标识，Windows 上粘贴完整路径时只取文件名。WinUI 设置的同一组有同样的规则表，写入前的校验在 `settings/AppInputModeRuleList.h`。两处校验和偏好库一致，另外要求 Windows 上以 `.exe` 结尾。
 
 `app-input-mode-rules.ts` 持有 `AppInputModeRule` 与 `PickedApplication`，入口偏好、`SettingsClient.pickApplication` 和规则组件直接引用同一份模型，规则校验模块不再从总入口反向导入类型。包入口保留 `AppInputModeRule` 导出并公开 `PickedApplication`；规则组件保留旧的 `PickedApplication` 转导出。选择取消仍返回 null，名称回退、宿主命令和名称查询契约保持不变。
@@ -48,6 +50,8 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 **MCP 也能读写这两项。** `crates/mcp-server/src/preferences.rs` 的 `get_preferences` 显示 `app_input_mode_rules`（模式沿用 `default_ime_mode` 的 `chinese`/`english`）和 `shuangpin_keymap_hint`（从没设置过时为 null，macOS 这时仍读本机旧设置）；`update_preferences` 可以整张替换规则表（`{}` 清空）、开关键位提示。规则表的合法性由存储层的同一条校验判定，不合法时整次更新被拒、原表不变，不在 MCP 里另写一份规则。
 
 ## Alternatives considered
+
+- **在 Windows 写入编辑器前再转换整段文字。** 可以直接修复可见的字母和 ASCII 符号，但会绕开共享层对网址、插件与方案的例外，还会使 TIP 与 Server 对本地上屏内容的核对不一致。同步宽度状态即可复用既有共享转换。
 
 - **只导出规则控件**：调用最少且整页测试完整，但无界面调用方仍要复制名称查询、草稿与选应用流程。提供独立领域 hook，控件继续使用相同纯模型和动作生命周期。
 - **选择期间冻结整个规则表**：能避免对话框闭包覆盖中途改动，但会阻止其他条目的正常编辑，也挡不住外部载入偏好。完成时合并当前受控值并重新校验，保留合法的并行编辑。
@@ -78,6 +82,8 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 - **何时重访**：产品决定 Windows 也要 Shift+空格时；有人反馈某类应用里徽标位置不对时，比如 UWP、游戏或远程桌面；macOS 的原生设置窗口下线时，本地旧键的回退可以一起删掉。
 
 ## Verification
+
+- #11509 的 `tests/input/fullwidth_session.cpp` 使用真实 Server 和 TIP 会话，覆盖中日文、半角／全角／半角、标点、原文字母、生产 Enter 路径及全角状态下重建；`tests/runtime/session_pump.cpp` 覆盖单独切换、状态快照和焦点恢复的真实队列落地。验证结果见对应 PR；不包含设备或真实编辑器验收。
 
 - 公共抽取：`use-app-input-mode-rules.test.tsx` 独立调用 hook，覆盖手填校验、排序、修改、移除、名称回退、最新规则和回调、同步防重、取消/失败、当前上限及平台切换。控件的五项新增回归先在旧实现下失败，覆盖选择期间规则变化、重复打开、更换选择器后的旧成功/失败和卸载写回；原有名称生命周期和真实设置保存回归继续保留。此片不改变原生选择器或文件访问，只验证共享前端交互、类型与构建。
 
