@@ -2,9 +2,9 @@
 
 Status: implemented
 
-「123 / #+= 层的底栏固定 46 dp、不分摊高度调整」这一条由 [底行默认与字母行同高](2026-10-10-android-equal-bottom-row.md) 部分取代：底行现在和键行同高（52 dp 加一份行距），分到四行均分后的那一份调整。当时防的压扁来自底栏拿了整份调整（75% 时压成 0 dp），不是来自均分。75%–170% 的范围和窗口封顶仍按本篇。
+「123 / #+= 层的底栏固定 46 dp、不分摊高度调整」这一条由 [底行默认与字母行同高](2026-10-10-android-equal-bottom-row.md) 部分取代：底行现在和键行同高（52 dp 加一份行距），分到四行均分后的那一份调整。当时防的压扁来自底栏拿了整份调整（75% 时压成 0 dp），不是来自均分。50%–170% 的范围和窗口封顶仍按本篇。
 
-内联高度条连同它「N% · H px」的读数已由 [键盘调整遮罩](2026-11-01-android-keyboard-adjust-overlay.md) 取代：功能面板的入口改名「键盘调整」，上沿柄只在窗口封顶以内拖，读屏范围的上限随窗口变。75%–170% 的范围、存储和窗口封顶仍按本篇。
+内联高度条连同它「N% · H px」的读数已由 [键盘调整遮罩](2026-11-01-android-keyboard-adjust-overlay.md) 取代：功能面板的入口改名「键盘调整」，上沿柄只在窗口封顶以内拖，读屏范围的上限随窗口变。50%–170% 的范围、存储和窗口封顶仍按本篇。
 
 ## Problem
 
@@ -12,13 +12,18 @@ Status: implemented
 
 追查时发现上限其实比 130% 还低：设置存的是设计范围的 dp 调整量（−46…55），但 `KeyboardGeometry.adjustedRowHeight` 按共享偏好 `touch_keyboard_height_adjustment` 的 −12…48 钳制，126%–130% 与 75%–93% 画出来都一样高，滑块两端是死区。另外 123 / #+= 层自带的底栏挂了高度角色，整份调整量在三行键之外又加了一遍，调高时这一层比字母层高出一截；范围放宽到 −46 后，75% 会把这条底栏压成 0 高。
 
+
+#11425：原有 75% 下限对希望减少屏幕占用的用户仍偏高。下限扩到 50%，默认 100%、已保存的 75%–170% 换算、共享偏好兼容和窗口上限保持不变。
+
 ## Decision
 
-- 百分比范围是 75%–170%，存为 dp 调整量 −46…129（`KeyboardGeometry.MAX_HEIGHT_PERCENT` / `MAX_DESIGN_HEIGHT_ADJUSTMENT_DP`，`AndroidLocalSettings.HEIGHT_ADJUSTMENT_MAX` 引用同一常量），仍只在本地设置 `platform.android.keyboard_height_adjustment`，共享偏好的 −12…48 不变。
+- 百分比范围是 50%–170%，存为 dp 调整量 −92…129（`KeyboardHeightPolicy.MAX_HEIGHT_PERCENT` / `MAX_DESIGN_HEIGHT_ADJUSTMENT_DP`，`AndroidLocalSettings.HEIGHT_ADJUSTMENT_MAX` 引用同一常量），仍只在本地设置 `platform.android.keyboard_height_adjustment`，共享偏好的 −12…48 不变。
 - `adjustedRowHeight` 按设计范围钳制，设置里的每一档都画出来。
 - 130%（55 dp）以内在任何窗口里照画；更高的部分由 `KeyboardGeometry.windowHeightAdjustment` 封顶到窗口高度（`Configuration.screenHeightDp`）的 17%，且不低于 55 dp：约 800 dp 高的竖屏手机能用满 170%，窗口较矮时按比例封顶。封顶只影响绘制，存着的值不变，旋转回来自动恢复。`ImeStyler.applyKeyboardHeight` 整棵树用同一个封顶后的值。
 - 内联高度条的说明是「上下拖动调整 · N% · H px」，H 是键盘外框（`keyboardSurface`）此刻的布局高度，由外框的布局回调传给 `InlineHeightBar.setHeightPixels`，拖动预览、旋转和封顶都会反映出来；说明比拖动柄宽时整体缩小字号。
 - 123 / #+= 层的底栏不挂高度角色，与功能行一样固定 46 dp。
+
+- 50% 下四行键帽各 29 dp，最小行距下键区共 132 dp；用户自行选择低高度。低于原 75% 的 40 dp 键帽时，主标签、底部提示、角标及间距按键高同步缩小；单角标也参与主字排版，避免字母与角标重叠；新增像素断言也覆盖原 40 dp 键帽的窄键。功能和输入方式面板保留原 44 dp 触摸下限，放不下时滚动，不随键帽一起压扁。
 
 ## Alternatives considered
 
@@ -29,6 +34,6 @@ Status: implemented
 
 ## Consequences
 
-- 收益：竖屏手机上能把键盘调到屏幕一半以上；滑块每一档都有效；调整时看得到实际高度。
-- 代价：设置页（宿主设置 App 的「键盘」页）的滑块只显示百分比，因为键盘窗口不在那个进程里，量不到实际高度；窗口不够高时 130% 以上的档位画出来一样高，内联条上的像素读数会停住。降级到旧版本时，本地存的 56…129 超出旧范围的部分会被丢弃，回到共享偏好或 100%。
-- 验证：`KeyboardGeometrySmoke` 钉住 75–170 的换算、17% 窗口封顶和行高钳制；`ms_w2_kb_ViewLogicSmoke` 钉住内联条的范围、文案和缩字；`AndroidLocalSettingsSmoke` 钉住本地设置的新范围。均由 `platforms/android/check-host.sh` 运行。Android 模拟器设备验收因本机可用磁盘低于仓库要求的 50 GB 门槛未运行，不能宣称已完成设备验证。
+- 收益：高度下限降到 50%，能减少屏幕占用；竖屏手机上仍能把键盘调到屏幕一半以上；滑块每一档都有效；调整时看得到实际高度。
+- 代价：设置页（宿主设置 App 的「键盘」页）的滑块只显示百分比，因为键盘窗口不在那个进程里，量不到实际高度；窗口不够高时 130% 以上的档位画出来一样高，内联条上的像素读数会停住。降级到旧版本时，本地存的 −92…−47 或 56…129 超出旧范围的部分会被丢弃，回到共享偏好或 100%。
+- 验证：`KeyboardGeometrySmoke` 钉住 50–170 的换算（保留原 75% 与默认行高），`KeyboardAdjustPolicySmoke` 覆盖新下限拖动与读屏步进、17% 窗口封顶和行高钳制；`ms_w2_kb_ViewLogicSmoke` 钉住内联条的范围、文案和缩字；`AndroidLocalSettingsSmoke` 钉住本地设置的新范围。均由 `platforms/android/check-host.sh` 运行。复用既有远端构建缓存完成原生 APK，API 35 的 `KeyboardHeightDeviceSmoke` 完整通过，包含新增的 50% 保存、拖动和面板可达性。API 28 的完整高度专项也通过。主标签与角标、双拼底部提示的像素断言在 API 28／35 通过，覆盖 29–84 dp 键帽、窄宽键和系统字体缩放 1／2 倍；关闭提示恢复原字号。保留真实设置页与键盘前后截图。

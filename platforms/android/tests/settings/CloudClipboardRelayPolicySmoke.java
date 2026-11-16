@@ -94,6 +94,16 @@ public final class CloudClipboardRelayPolicySmoke {
         }
         check("请填写服务器地址。".equals(CloudClipboardRelayPolicy.webdavUrlProblem("")),
             "an empty webdav address asks for the server address");
+        for (String draft : new String[] {"h", "ht", "https", "https:", "https:/", "https://"}) {
+            check(CloudClipboardRelayPolicy.webdavUrlProblem(draft) != null,
+                "the strict webdav gate still rejects an incomplete address: " + draft);
+            check(CloudClipboardRelayPolicy.webdavUrlProblemWhileTyping(draft) == null,
+                "an incomplete webdav address does not interrupt typing: " + draft);
+        }
+        check(CloudClipboardRelayPolicy.webdavUrlProblemWhileTyping("https://dav.example.test") == null,
+            "a complete webdav address remains valid while typing");
+        check(CloudClipboardRelayPolicy.webdavUrlProblemWhileTyping("ftp://dav.example.test") != null,
+            "an invalid scheme is still shown once a host is present");
         for (String url : new String[] {"", "http://dav.example.test/dav", "https://user@dav.example.test/dav",
                 "https://dav.example.test/dav?x=1", "dav.example.test"}) {
             String problem = CloudClipboardRelayPolicy.webdavUrlProblem(url);

@@ -14,6 +14,7 @@ const OWNER_LABELS: Record<string, string> = {
   toggle_full_width: "全角 / 半角切换",
   toggle_punctuation: "中英文标点切换",
   toggle_voice_input: "语音输入开始／结束",
+  enter_quick_phrase: "快捷短语附加快捷键",
   switch_language_shift: "Shift+Space 中英文切换",
   switch_language_ctrl_space: "Ctrl+Space 中英文切换",
   switch_language_ctrl_alt_space: "Ctrl+Alt+Space 中英文切换",

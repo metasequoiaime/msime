@@ -67,6 +67,22 @@ class KeyboardTryoutSourceContract(unittest.TestCase):
         guards = re.findall(r"if \(token != generation \|\| !alive\(\)\) return;", body)
         self.assertEqual(len(guards), 2, "both the success and the failure callback drop a stale reply")
 
+    def test_session_switch_refetches_default_model(self):
+        # 默认模型属于账号会话；换号后不能复用旧账号缓存的模型。
+        source = SOURCE.read_text()
+        switched = re.search(
+            r"private void abortForSessionChange\(\) \{(?P<body>.*?)\n    \}\n",
+            source,
+            re.S,
+        )
+        self.assertIsNotNone(switched, "could not locate the session change reset")
+        body = switched.group("body")
+        page = body.index('pageSessionId = "";')
+        model = body.index("model = null;", page)
+        bind = body.index("bindSession();", model)
+        self.assertLess(page, model)
+        self.assertLess(model, bind)
+
 
 if __name__ == "__main__":
     unittest.main()

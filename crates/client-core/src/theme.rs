@@ -6,6 +6,7 @@ use crate::host_surface::HostPlatform;
 use serde::{Deserialize, Serialize};
 
 /// The global theme id stored in `Preferences::global_theme`. The picker lists them in declaration order.
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GlobalTheme {
