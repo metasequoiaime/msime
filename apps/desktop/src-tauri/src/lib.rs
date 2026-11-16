@@ -1439,6 +1439,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::InvalidCloudClipboardRelay => "cloud_clipboard_relay_invalid",
                 PreferencesError::InvalidCloudClipboardWebDav => "cloud_clipboard_webdav_invalid",
                 PreferencesError::InvalidDictionarySyncWebDav => "dictionary_sync_webdav_invalid",
+                PreferencesError::InvalidSettingsSyncWebDav => "settings_sync_webdav_invalid",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",
             },
@@ -5615,6 +5616,8 @@ pub fn run() {
             desktop_resource_packs::resource_pack_check_grammar_updates,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_install,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_import,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_cancel,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
