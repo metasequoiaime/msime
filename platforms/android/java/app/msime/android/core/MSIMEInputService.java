@@ -372,6 +372,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean languageKeyLeft;
     /** 拼音九键「九键滑动输入数字」的方向，来自共享偏好 `touch_nine_key_swipe_digits`（{@link NineKeySwipePolicy#mode}），缺省关闭。只影响按键的触摸判定，不改键面，所以不进 touchGeometryKey；每次触摸判定时读当前值，改了下一次触摸就生效。 */
     String nineKeySwipeDigits = NineKeySwipePolicy.OFF;
+    /** 拼音九键字母 flick 的共享判定距离，缺字段或取值不合规时是默认 24 dp。旧的本机「九键滑动距离」由 {@link KeyLayoutStyleMigration} 迁进共享偏好一次，这里不再读它：默认 24 不写进共享偏好，拿旧距离当退路的话用户永远调不回 24。 */
+    int nineKeyFlickThreshold = NineKeyFlickPolicy.DEFAULT_THRESHOLD_DP;
     /** 日语九键连点同键时是否循环假名，旧设置和新装默认都开启。 */
     boolean japaneseToggleInputEnabled = InputFeatureToggle.JAPANESE_TOGGLE_INPUT.enabledByDefault();
     private boolean voiceInputEnabled = true;
@@ -3171,6 +3173,7 @@ public final class MSIMEInputService extends InputMethodService {
         oneHandedSidePanel = oneHandedSidePanelFrom(preferences);
         languageKeyLeft = languageKeyLeftFrom(preferences);
         nineKeySwipeDigits = nineKeySwipeDigitsFrom(preferences);
+        nineKeyFlickThreshold = nineKeyFlickThresholdFrom(preferences);
         applyJapaneseToggleInput(japaneseToggleInputFrom(preferences));
         splitKeyboardPortrait = preferences != null
             && preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -3241,6 +3244,10 @@ public final class MSIMEInputService extends InputMethodService {
     private static String nineKeySwipeDigitsFrom(JSONObject preferences) {
         return NineKeySwipePolicy.mode(preferences == null ? null
             : JsonPolicy.strictString(preferences.opt(NineKeySwipePolicy.PREFERENCE)));
+    }
+
+    private int nineKeyFlickThresholdFrom(JSONObject preferences) {
+        return NineKeyFlickPolicy.threshold(preferences == null ? null : preferences.opt(NineKeyFlickPolicy.PREFERENCE));
     }
 
     private static boolean japaneseToggleInputFrom(JSONObject preferences) {
@@ -3954,6 +3961,7 @@ public final class MSIMEInputService extends InputMethodService {
         OneHandSidePadPolicy.Panel nextOneHandedSidePanel = oneHandedSidePanelFrom(preferences);
         boolean nextLanguageKeyLeft = languageKeyLeftFrom(preferences);
         String nextNineKeySwipeDigits = nineKeySwipeDigitsFrom(preferences);
+        int nextNineKeyFlickThreshold = nineKeyFlickThresholdFrom(preferences);
         boolean nextJapaneseToggleInput = japaneseToggleInputFrom(preferences);
         boolean japaneseToggleInputChanged = japaneseToggleInputEnabled != nextJapaneseToggleInput;
         boolean nextSplitPortrait = preferences.optBoolean(SplitKeyboardPolicy.PORTRAIT_PREFERENCE, false);
@@ -4066,8 +4074,9 @@ public final class MSIMEInputService extends InputMethodService {
         oneHandedSidePanel = nextOneHandedSidePanel;
         // 中/英在空格哪一边同样进了 touchGeometryKey：底行签名带着它，右侧大回车外框由 render 里的 tallReturnStale 整块重建。
         languageKeyLeft = nextLanguageKeyLeft;
-        // 九键滑动只在触摸判定时读（bindNineKeySwipe），不用重画键盘，下一次触摸就按新方向判定。
+        // 九键 flick 只在触摸判定时读阈值，不用重画键盘，下一次触摸就按新阈值判定。
         nineKeySwipeDigits = nextNineKeySwipeDigits;
+        nineKeyFlickThreshold = nextNineKeyFlickThreshold;
         applyJapaneseToggleInput(nextJapaneseToggleInput);
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
