@@ -1,8 +1,9 @@
 //! 把用户确认的新词按各版五笔单字全码取码，并与回放日志一起保存。
 
 use rusqlite::{params, Connection, TransactionBehavior};
+use std::path::Path;
 
-use super::journal::{ensure_user_database, open_dictionary_for_writing};
+use super::journal::{ensure_user_database, open_dictionary_for_writing, tombstone_sql};
 use super::ranking::MANAGED_WEIGHT_CEILING;
 use super::replay::attach;
 use crate::assets;
@@ -15,6 +16,8 @@ use crate::wubi::code::phrase_code;
 const MAX_INITIAL_WEIGHT: i64 = 9;
 /// `Top`（置顶）档在同码没有任何行时给的初始权重，与手动加词的默认同级。
 const TOP_NEW_WORD_WEIGHT: i64 = 10;
+/// 本模块在回放日志上用的 attach 别名；每个连接独立 attach，与 `learn` 共用同名不冲突。
+const JOURNAL_ALIAS: &str = "wubi_phrase_journal";
 
 fn prefix(connection: &Connection, table: &str, character: char, length: usize) -> Option<String> {
     let mut statement = connection
@@ -140,6 +143,53 @@ pub(crate) fn learn(
     }
     transaction.commit()?;
     Ok(changed)
+}
+
+/// 对称删除已学的五笔词：86/98（新世纪随方案，[`learned_kinds`]）里除 `keep` 外的版本，按各自
+/// 码表独立推导四码，删行并写墓碑；推导失败的版本本来也学不进，直接跳过。返回删除的行数。
+/// 词库与日志在同一个事务里提交（与 [`learn`] 同一模式）。
+pub(crate) fn delete_other_learned_kinds(
+    main_db: &Path,
+    user_db: &Path,
+    keep: PersonalDictionaryKind,
+    profile: WubiProfileKind,
+    word: &str,
+) -> Result<usize> {
+    let mut connection = open_dictionary_for_writing(main_db)?;
+    ensure_user_database(user_db)?;
+    attach(&connection, user_db, JOURNAL_ALIAS)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut removed = 0;
+    for &kind in learned_kinds(profile) {
+        if kind == keep {
+            continue;
+        }
+        let table = kind.wubi_table().expect("五笔表");
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [table],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            continue;
+        }
+        let Some(Ok(code)) = phrase_code(word, |c, length| prefix(&transaction, table, c, length))
+        else {
+            continue;
+        };
+        // 行不存在（这一版本来就没学进）不算错，墓碑照写：这个用户已经删过这个词，之后也不该再学进这一版。
+        let deleted = transaction.execute(
+            &format!("DELETE FROM {table} WHERE key=?1 AND value=?2"),
+            params![code, word],
+        )?;
+        removed += deleted;
+        transaction.execute(
+            &tombstone_sql(JOURNAL_ALIAS),
+            params![kind.journal_name(), code, word],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -404,5 +454,167 @@ mod tests {
                 0
             );
         }
+    }
+
+    /// 对称删除：学词时 86/98 两版同时插行，删除也要两版都删。先删当前版（显示行 + 墓碑），
+    /// 再走 `delete_other_learned_kinds` 删另一版；重放零失败，`learn` 不复活。
+    #[test]
+    fn deleting_a_wubi_candidate_removes_both_learned_versions() {
+        let (_directory, paths) = fixture();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        let journal = paths.user(assets::USER_JOURNAL);
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
+        // 当前版（86）先走会话同一条删除：显示行 + 墓碑。
+        crate::user_dictionary::removal::delete_dictionary_candidate(
+            &main,
+            &journal,
+            PersonalDictionaryKind::Wubi,
+            "abef",
+            "甲乙",
+        )
+        .unwrap();
+        // 对称删另一版（98）。
+        assert_eq!(
+            crate::user_dictionary::wubi_learning::delete_other_learned_kinds(
+                &main,
+                &journal,
+                PersonalDictionaryKind::Wubi,
+                WubiProfileKind::Wubi86,
+                "甲乙",
+            )
+            .unwrap(),
+            1
+        );
+        let db = Connection::open(&main).unwrap();
+        for table in ["wubi86", "wubi98"] {
+            assert_eq!(
+                db.query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE value='甲乙'"),
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0,
+                "{table}"
+            );
+        }
+        let log = Connection::open(&journal).unwrap();
+        for (dictionary, key) in [("wubi", "abef"), ("wubi98", "ijmn")] {
+            assert_eq!(
+                log.query_row(
+                    "SELECT count(*) FROM user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value='甲乙' AND operation='delete'",
+                    rusqlite::params![dictionary, key],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                1,
+                "{dictionary}"
+            );
+        }
+        // 删过的词再凑不复活。
+        assert!(!learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
+        // 重放零失败。
+        let fresh = paths.cache.join("fresh.db");
+        Connection::open(&fresh)
+            .unwrap()
+            .execute_batch(TABLES)
+            .unwrap();
+        crate::ensure_english_schema(&paths.dictionary(assets::ENGLISH_DICTIONARY)).unwrap();
+        let replay = crate::replay_user_dictionary(
+            &journal,
+            &fresh,
+            &paths.dictionary(assets::ENGLISH_DICTIONARY),
+        );
+        assert_eq!(replay.failed, 0, "{replay:?}");
+    }
+
+    /// 推导不出码的版本学不进也就删不到：无行、无墓碑，也不算失败。
+    #[test]
+    fn unlearnable_codes_are_skipped_without_tombstones() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_path_buf();
+        let paths = RuntimePaths {
+            resources: root.clone(),
+            user_data: root.clone(),
+            cache: root.clone(),
+            dictionaries: root,
+        };
+        // 戊只在 86 表里有码，98 表里没有。
+        Connection::open(paths.dictionary(assets::MAIN_DICTIONARY))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+                 INSERT INTO wubi86 VALUES('abcd','甲',100),('eeee','戊',100);
+                 CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+                 INSERT INTO wubi98 VALUES('ijkl','甲',100);",
+            )
+            .unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        let journal = paths.user(assets::USER_JOURNAL);
+        // 甲戊：86 推得出 aeee 并学入；98 推不出，没学。
+        assert!(learn(
+            &paths,
+            "甲戊",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
+        assert_eq!(
+            Connection::open(&main)
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM wubi86 WHERE value='甲戊'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        // keep=86：另一版（98）推不出码，无行亦无墓碑，什么也不删。
+        assert_eq!(
+            crate::user_dictionary::wubi_learning::delete_other_learned_kinds(
+                &main,
+                &journal,
+                PersonalDictionaryKind::Wubi,
+                WubiProfileKind::Wubi86,
+                "甲戊",
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            Connection::open(&main)
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM wubi86 WHERE value='甲戊'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            Connection::open(&journal)
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi98'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
     }
 }
