@@ -21,4 +21,4 @@ inline bool start_settings_sync(const std::string &directory) {
   }
 }
 
-} // namespace msime::linux_host
+} // 命名空间 msime::linux_host
