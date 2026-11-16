@@ -10937,6 +10937,27 @@ group("each profile has its own table", () => {
   );
 });
 
+group("custom profile hints use the shared response and keep the same visibility gate", () => {
+  const custom: Map<string, string> = new Map<string, string>([
+    ["Q", "sh / iu"],
+    [";", "ing"],
+  ]);
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "none", true) === "sh / iu",
+    "custom key faces are looked up case-insensitively",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, ";", false, 1, "none", true) === "ing",
+    "custom tables can assign the semicolon key",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", true, 1, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 0, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "emoji", true) === "",
+    "custom hints obey the same English, scheme and local-mode guards",
+  );
+});
+
 group("Cantonese shuangpin labels its keys with the engine's face (#10438)", () => {
   // 与 crates/engine/src/cantonese/shuangpin.rs 的 `key_hints_label_every_key_with_what_it_types` 逐键相同：鸿蒙没有接 `msime_client_shuangpin_key_hints`，表是抄过来的，这里钉住不漂移。
   const expected: [string, string][] = [
@@ -16457,6 +16478,26 @@ group("a Korean syllable lists its Hanja and the open list takes the candidate k
     ) && log.join(",") === "convertHanja",
     "the Hanja key is consumed even when the Engine declines a lone jamo",
   );
+});
+
+group("自定义普通双拼的入口切换保留码表和分号可达性", () => {
+  for (const profile of ["custom", "smart_abc"]) {
+    const away = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.XIAOHE, KeyboardScheme.QUANPIN, "shuangpin", profile);
+    check(away !== null && away.shuangpinProfile === profile, "离开双拼保留码表");
+    const back = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, "quanpin", profile);
+    check(back !== null && back.shuangpinProfile === profile, "返回普通双拼保留码表");
+    check(KeyboardScheme.mapping(KeyboardScheme.XIAOHE, "quanpin", profile).shuangpinProfile ===
+      "xiaohe", "明确选择内置方案仍使用内置码表");
+  }
+  check(KeyboardScheme.shuangpinSpaceLabel("custom") === "双拼 · 自定义" &&
+    KeyboardScheme.shuangpinSpaceLabel("smart_abc") === "双拼 · 智能 ABC", "普通入口显示实际码表名");
+  check(KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, true),
+    "共享自定义表使用分号时提供韵母键");
+  check(!KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, false) &&
+    !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.QUANPIN, true),
+    "无分号的表与非双拼不增加分号键");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

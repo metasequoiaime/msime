@@ -575,7 +575,7 @@ public final class MSIMEInputService extends InputMethodService {
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
         new java.util.ArrayList<>(27);
     final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
-    private String shuangpinHintsProfile = "";
+    private String shuangpinHintsRequest = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
     final AppEdition edition = AppEdition.current();
@@ -5539,7 +5539,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 微软双拼的 ; 是韵母 ing：组字中交给 character()，引擎按双拼键处理；空闲时才是标点。#2004 加 ing 键时 type 走的都是 character()，b73a611a8 把 ASCII 标点改走 punctuation() 以后，组字中的 ; 被当成分号：打 b; 上屏「把；」，ing 韵母全打不出来。
         boolean microsoftFinal = MicrosoftShuangpinKeyPolicy.routesAsFinal(output, hasEngineComposition(),
             dedicatedEnglish, selectedScheme,
-            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"), customShuangpinSemicolon());
         boolean punctuationKey = SmartPunctuationContext.isAsciiPunctuation(output) && !microsoftFinal;
         int geometryId = touched && !punctuationKey
             ? imeTouchPoints.geometryFor(output, letterCase.usesUppercase()) : 0;
@@ -6010,6 +6010,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     // 双拼键上的提示同理（#6997）：view 没到时没有方案可查，提示全空、字母居中，会话一到提示和 11dp 下边距同时出现，整排字母往上一跳。记下上次的双拼方案，和布局记在同一个 SharedPreferences 里。
+    boolean customShuangpinSemicolon() {
+        return view != null && "custom".equals(view.optString("shuangpin_profile")) && shuangpinHints.containsKey(";");
+    }
+
     private static final String SHUANGPIN_PROFILE_HINT_KEY = "shuangpin_profile";
     private String shuangpinProfileHint;
 
@@ -6372,14 +6376,41 @@ public final class MSIMEInputService extends InputMethodService {
         boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
         boolean local = view != null && !"none".equals(localMode);
         boolean shifted = letterCase.usesUppercase();
-        if (!profile.equals(shuangpinHintsProfile)) {
-            shuangpinHintsProfile = profile;
+        JSONObject sharedPreferences = preferencesSnapshot == null
+            ? null : preferencesSnapshot.optJSONObject("preferences");
+        String hintRequest = profile;
+        if ("custom".equals(profile) && sharedPreferences != null) {
+            try {
+                JSONObject request = new JSONObject().put("profile", profile);
+                JSONObject table = sharedPreferences.optJSONObject("shuangpin_custom_profile");
+                if (table != null) request.put("table", table);
+                hintRequest = request.toString();
+            } catch (JSONException ignored) {
+                hintRequest = profile;
+            }
+        }
+        if (!hintRequest.equals(shuangpinHintsRequest)) {
+            shuangpinHintsRequest = hintRequest;
             shuangpinHints = java.util.Map.of();
             if (!profile.isEmpty()) {
                 try {
-                    shuangpinHints = ShuangpinKeyHintPolicy.decode(
-                        NativeClient.shuangpinKeyHints(profile));
-                } catch (RuntimeException | LinkageError ignored) {
+                    if ("custom".equals(profile)) {
+                        JSONObject response = new JSONObject(NativeClient.shuangpinCustomLayout(hintRequest));
+                        JSONObject value = response.optBoolean("ok", false) ? response.optJSONObject("value") : null;
+                        if (value != null) {
+                            java.util.Map<String, String> hints = new java.util.LinkedHashMap<>();
+                            JSONArray keys = value.optJSONArray("keys");
+                            if (keys != null) for (int index = 0; index < keys.length(); index++) {
+                                JSONObject key = keys.optJSONObject(index);
+                                if (key != null) hints.put(key.optString("key", ""), key.optString("hint", ""));
+                            }
+                            shuangpinHints = java.util.Map.copyOf(hints);
+                        }
+                    } else {
+                        shuangpinHints = ShuangpinKeyHintPolicy.decode(
+                            NativeClient.shuangpinKeyHints(profile));
+                    }
+                } catch (JSONException | RuntimeException | LinkageError ignored) {
                     // Native/profile failures hide hints rather than guessing another keymap.
                 }
             }
@@ -8933,7 +8964,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject preferences = pending.getJSONObject("preferences");
             String currentScheme = preferences.optString("scheme", edition.defaultScheme());
             String lastChinese = InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", currentScheme);
-            KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChinese,
+            KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(selectedScheme, scheme, lastChinese,
                 InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
             preferences.put("scheme", mapping.scheme());
             preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
@@ -12930,10 +12961,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (microsoftFinalKey != null) {
             String currentLocalMode = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
             boolean visible = MicrosoftShuangpinKeyPolicy.visible(
-                dedicatedEnglish, selectedScheme, currentLocalMode);
+                dedicatedEnglish, selectedScheme, currentLocalMode, customShuangpinSemicolon());
             ViewPolicy.setVisible(microsoftFinalKey, visible);
             ViewPolicy.setEnabled(microsoftFinalKey, visible && session != 0);
-            microsoftFinalKey.setContentDescription(MicrosoftShuangpinKeyPolicy.accessibilityLabel(selectedScheme));
+            microsoftFinalKey.setContentDescription(customShuangpinSemicolon()
+                ? "分号，自定义双拼 " + shuangpinHints.get(";") : MicrosoftShuangpinKeyPolicy.accessibilityLabel(selectedScheme));
         }
         if (layerButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;

@@ -1347,6 +1347,12 @@ struct KeyboardView {
     if (this.scheme.engineScheme !== 'shuangpin') {
       return '';
     }
+    // `custom` 没有单独的 SchemeDefinition，当前触屏方案仍沿用小鹤的入口；以共享偏好里的
+    // profile 为准，避免键盘继续画小鹤的提示而 Engine 已经按自定义表解码。
+    if (this.shuangpinProfile === 'custom') {
+      return ShuangpinKeyHintPolicy.hintMap(KeyboardSession.shared.shuangpinCustomKeyHints(),
+        letter, this.english, 1, this.localMode, this.shuangpinKeyHints);
+    }
     return ShuangpinKeyHintPolicy.hint(this.scheme.shuangpinProfile ?? this.shuangpinProfile,
       letter, this.english, 1, this.localMode, this.shuangpinKeyHints);
   }
@@ -2699,7 +2705,7 @@ struct KeyboardView {
       this.settings = KeyboardSession.shared.preferences();
     }
     KeyboardSession.shared.useScheme(KeyboardScheme.engineSchemeOf(candidate),
-      candidate.shuangpinProfile);
+      changes.get('shuangpin_profile') as string);
     if (this.english) {
       // Picking a Chinese scheme is a request to compose Chinese with it.
       this.english = KeyboardSession.shared.toggleLanguage();
@@ -3773,7 +3779,7 @@ struct KeyboardView {
       case 'nine_key_shuangpin':
         return '九键双拼';
       case 'xiaohe':
-        return '双拼 · 小鹤';
+        return KeyboardScheme.shuangpinSpaceLabel(this.shuangpinProfile);
       case 'ziranma':
         return '双拼 · 自然码';
       case 'microsoft':
@@ -3822,6 +3828,7 @@ struct KeyboardView {
     // 大小写不在这里：字母键的键面和读屏文字在绘制时按大小写现算（见 `KeyOptions.letter`），自动大写切换时键节点保持不变，正按着的键不会被重建。
     // 底行样式和数字行改变键的排列，与双拼提示开关一样放进键里，设置页改了之后已画好的键跟着重建。
     return `${this.english}:${this.localMode}:${this.shuangpinProfile}:${this.shuangpinKeyHints}:`
+      + `${KeyboardSession.shared.shuangpinCustomHintIdentity()}:`
       + `${this.quanpinShift}:${this.engineScheme}:${this.scheme.preferenceId}:${this.symbols}:${this.moreSymbols}:`
       + `${this.twentySixKeyStyle}:${this.fourteenKeyStyle}:${this.nineKeyStyle}:${this.numberRow}:`
       + `${this.twentySixSymbolFirst}:${this.numberPadSpace}:${this.languageKeyLeft}:`
@@ -3960,7 +3967,7 @@ struct KeyboardView {
   /**
    * 第二行字母是否以 ; 键结尾。
    *
-   * 微软双拼用分号拼 ing，粤语双拼用它拼 ing 和 ik，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。触屏上设计稿把这一行画成两端各缩进半个键的九个字母，; 键只在微软双拼和粤语双拼下出现，与 Android 一致（`MicrosoftShuangpinKeyPolicy`）。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
+   * 微软双拼用分号拼 ing，粤语双拼用它拼 ing 和 ik，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。触屏上设计稿把这一行画成两端各缩进半个键的九个字母，; 键在微软双拼、粤语双拼及共享自定义表使用分号时出现，与 Android 一致（`MicrosoftShuangpinKeyPolicy`）。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
    */
   private secondRowSemicolon(): boolean {
     if (this.symbols || this.koreanFace() || this.vietnameseFace() || this.tibetanFace()) {
@@ -3969,7 +3976,8 @@ struct KeyboardView {
     if (!this.touchDesign()) {
       return true;
     }
-    return !this.english && this.localMode === 'none' && KeyboardScheme.showsSemicolonFinal(this.scheme);
+    return !this.english && this.localMode === 'none' && KeyboardScheme.showsSemicolonFinal(this.scheme,
+      this.shuangpinProfile === 'custom' && KeyboardSession.shared.shuangpinCustomKeyHints().has(';'));
   }
 
   /** 第二行字母是否两端各缩进半个键：即触屏键盘的九字母行。 */
@@ -3977,8 +3985,11 @@ struct KeyboardView {
     return this.touchDesign() && !this.symbols && !this.secondRowSemicolon();
   }
 
-  /** What a screen reader says for a letter key under the current case. */
+  /** 当前键面的读屏标签，自定义分号使用共享键位提示。 */
   private letterLabel(letter: string): string {
+    if (letter === ';' && this.shuangpinProfile === 'custom' && this.secondRowSemicolon()) {
+      return `分号，自定义双拼 ${KeyboardSession.shared.shuangpinCustomKeyHints().get(';') ?? ''}`;
+    }
     // 粤语双拼的 `;` 读出它打的韵母，而不是「字母 ;」。
     const semicolonFinal: string | null = letter === ';' && this.touchDesign()
       ? KeyboardScheme.semicolonFinalLabel(this.scheme) : null;
