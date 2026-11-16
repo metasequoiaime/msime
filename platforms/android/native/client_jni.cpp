@@ -492,6 +492,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_nineKeyShuangpi
     return bounded_request(env, request, kSmallJsonRequestLimit,
         msime_client_nine_key_shuangpin_layout);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_shuangpinCustomLayoutRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kSmallJsonRequestLimit,
+        msime_client_shuangpin_custom_layout);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));
