@@ -6,6 +6,7 @@
 #include "Ipc.h"
 #include "KeyPressStatisticsQueue.h"
 #include "ContextStackChangePolicy.h"
+#include "CandidateFocusPolicy.h"
 
 void CMetasequoiaIME::_SyncHostContextFocus(_In_opt_ ITfContext *context)
 {
@@ -206,7 +207,10 @@ STDAPI CMetasequoiaIME::OnSetFocus(_In_ ITfDocumentMgr *pDocMgrFocus, _In_ ITfDo
         ITfContext *pTfContext = _pCandidateListUIPresenter->_GetContextDocument();
         if ((nullptr != pTfContext) && SUCCEEDED(pTfContext->GetDocumentMgr(&pCandidateListDocumentMgr)))
         {
-            if (pCandidateListDocumentMgr != pDocMgrFocus)
+            const bool candidateBelongsToFocus = msime::windows::tsf::candidate_belongs_to_focus(
+                pCandidateListDocumentMgr != nullptr, pDocMgrFocus != nullptr,
+                _IsSameComObject(pCandidateListDocumentMgr, pDocMgrFocus));
+            if (!candidateBelongsToFocus)
             {
                 _pCandidateListUIPresenter->OnKillThreadFocus();
             }
