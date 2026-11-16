@@ -8,10 +8,10 @@ const NONCE_BYTES: usize = 24;
 const TAG_BYTES: usize = 16;
 pub const MAX_SEALED_EVENT_BYTES: usize =
     (MAX_EVENT_BYTES + NONCE_BYTES + TAG_BYTES).div_ceil(3) * 4 + 4096;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine as _};
 use chacha20poly1305::{
-    Key, XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit, Payload},
+    Key, XChaCha20Poly1305, XNonce,
 };
 
 /// 设置同步的独立加密域。密钥材料来自现有设备批准密钥，但派生标签、密文前缀和

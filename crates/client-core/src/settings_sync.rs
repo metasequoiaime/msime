@@ -25,7 +25,7 @@ pub const KEY_INFO: &[u8] = b"msime-settings-v1-key";
 mod crypto;
 mod event;
 mod fields;
-pub use crypto::{MAX_SEALED_EVENT_BYTES, SealedSettingsEvent, SettingsSyncCipher};
+pub use crypto::{SealedSettingsEvent, SettingsSyncCipher, MAX_SEALED_EVENT_BYTES};
 pub use event::SettingsSyncEvent;
 
 /// 偏好顶层字段在同步文档中的归属。
@@ -170,7 +170,7 @@ impl SettingsSyncDocument {
         }
         let document: Self =
             serde_json::from_slice(bytes).map_err(|_| SettingsSyncError::InvalidDocument)?;
-        Ok(document.validate()?)
+        document.validate()
     }
 
     fn validate(self) -> Result<Self, SettingsSyncError> {
@@ -241,22 +241,16 @@ impl SettingsSyncDocument {
         }
         let mut conflicts = Vec::new();
         let (shared, deleted_shared) = merge_map(
-            &base.shared,
-            &local.shared,
-            &remote.shared,
-            &base.deleted_shared,
-            &local.deleted_shared,
-            &remote.deleted_shared,
+            (&base.shared, &base.deleted_shared),
+            (&local.shared, &local.deleted_shared),
+            (&remote.shared, &remote.deleted_shared),
             SyncFieldClass::Shared,
             &mut conflicts,
         );
         let (theme, deleted_theme) = merge_map(
-            &base.theme,
-            &local.theme,
-            &remote.theme,
-            &base.deleted_theme,
-            &local.deleted_theme,
-            &remote.deleted_theme,
+            (&base.theme, &base.deleted_theme),
+            (&local.theme, &local.deleted_theme),
+            (&remote.theme, &remote.deleted_theme),
             SyncFieldClass::Theme,
             &mut conflicts,
         );
@@ -364,15 +358,15 @@ impl SettingsSyncDocument {
 }
 
 fn merge_map(
-    base: &Map<String, Value>,
-    local: &Map<String, Value>,
-    remote: &Map<String, Value>,
-    base_deleted: &BTreeSet<String>,
-    local_deleted: &BTreeSet<String>,
-    remote_deleted: &BTreeSet<String>,
+    base: (&Map<String, Value>, &BTreeSet<String>),
+    local: (&Map<String, Value>, &BTreeSet<String>),
+    remote: (&Map<String, Value>, &BTreeSet<String>),
     class: SyncFieldClass,
     conflicts: &mut Vec<SettingsSyncConflict>,
 ) -> (Map<String, Value>, BTreeSet<String>) {
+    let (base, base_deleted) = base;
+    let (local, local_deleted) = local;
+    let (remote, remote_deleted) = remote;
     let fields: BTreeSet<_> = base
         .keys()
         .chain(local.keys())
@@ -503,6 +497,13 @@ mod tests {
     #[test]
     fn credential_slots_never_cross_the_sync_boundary() {
         let mut preferences = Preferences::default();
+        for (path, _) in preferences.credential_slots() {
+            assert_eq!(
+                classify_field(path.split('.').next().unwrap()),
+                SyncFieldClass::Local,
+                "{path}"
+            );
+        }
         preferences.voice_input.asr_token = "synthetic-secret".into();
         preferences.ai_assistant.token = "synthetic-secret".into();
         let text = SettingsSyncDocument::from_preferences(&preferences)
@@ -659,12 +660,10 @@ mod tests {
         local.shared.remove("candidate_page_size");
         local.deleted_shared.insert("candidate_page_size".into());
         let merged = SettingsSyncDocument::merge(&base, &local, &base).unwrap();
-        assert!(
-            merged
-                .document
-                .deleted_shared
-                .contains("candidate_page_size")
-        );
+        assert!(merged
+            .document
+            .deleted_shared
+            .contains("candidate_page_size"));
         let applied = merged
             .document
             .apply_to_preferences(&current, Edition::full())
