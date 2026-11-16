@@ -358,9 +358,17 @@ export class KeyboardScheme {
     GUOBIAO,
   ];
 
-  /** 第二排 L 右边带 `;` 韵母键的方案：微软、搜狗和紫光双拼（ing）以及粤语双拼（ing、ik），与 Android 和 iOS 一致。 */
-  static showsSemicolonFinal(scheme: SchemeDefinition): boolean {
+  /** 普通双拼入口按实际码表给出空格键短名。 */
+  static shuangpinSpaceLabel(profile: string): string {
+    if (profile === "custom") return "双拼 · 自定义";
+    if (profile === "smart_abc") return "双拼 · 智能 ABC";
+    return "双拼 · 小鹤";
+  }
+
+  /** 第二排 L 右边带 `;` 韵母键的方案：微软、搜狗和紫光双拼（ing）以及粤语双拼（ing、ik），与 Android 和 iOS 一致；自定义码表用到分号时由共享键位表提供。显示开关不影响它的可达性。 */
+  static showsSemicolonFinal(scheme: SchemeDefinition, customSemicolon: boolean = false): boolean {
     return (
+      (scheme.engineScheme === "shuangpin" && customSemicolon) ||
       scheme.preferenceId === MICROSOFT.preferenceId ||
       scheme.preferenceId === SOGOU.preferenceId ||
       scheme.preferenceId === ZIGUANG.preferenceId ||
@@ -650,7 +658,16 @@ export class KeyboardScheme {
     if (selected === null || selected === applied) {
       return null;
     }
-    return KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
+    const mapping: PreferenceMapping = KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
+    if (selected === XIAOHE && (currentProfile === "custom" || currentProfile === "smart_abc")) {
+      return {
+        scheme: mapping.scheme,
+        lastChineseScheme: mapping.lastChineseScheme,
+        shuangpinProfile: currentProfile,
+        touchKeyboardLayout: mapping.touchKeyboardLayout,
+      };
+    }
+    return mapping;
   }
 
   static fromPreferences(
@@ -904,6 +921,7 @@ export class KeyboardScheme {
       value === "ziranma" ||
       value === "microsoft" ||
       value === "shoudao" ||
+      value === "custom" ||
       value === "smart_abc" ||
       value === "sogou" ||
       value === "jiajia" ||

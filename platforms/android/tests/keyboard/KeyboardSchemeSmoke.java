@@ -89,6 +89,13 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.mappingForRuntimeSelection(
             KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN, "japanese", "custom", FULL)
             .shuangpinProfile().equals("custom"));
+        for (String profile : List.of("custom", "smart_abc")) {
+            check(KeyboardScheme.mappingForRuntimeSelection(
+                KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, "quanpin", profile, FULL)
+                .shuangpinProfile().equals(profile));
+            check(KeyboardScheme.QUANPIN.mapping("shuangpin", profile, FULL)
+                .shuangpinProfile().equals(profile));
+        }
         // 明确点选内置双拼入口时，才由该入口替换当前自定义方案。
         check(KeyboardScheme.ZIRANMA.mapping("shuangpin", "custom", FULL)
             .shuangpinProfile().equals("ziranma"));

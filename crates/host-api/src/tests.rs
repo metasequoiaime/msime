@@ -2635,6 +2635,65 @@ fn nine_key_shuangpin_layout(request: Value) -> Value {
     read(unsafe { msime_client_nine_key_shuangpin_layout(request.as_ptr(), request.len()) })
 }
 
+fn shuangpin_custom_layout(request: Value) -> Value {
+    let request = request.to_string();
+    read(unsafe { msime_client_shuangpin_custom_layout(request.as_ptr(), request.len()) })
+}
+
+#[test]
+fn shuangpin_custom_layouts_share_tables_problems_and_key_hints() {
+    let xiaohe = shuangpin_custom_layout(json!({ "profile": "xiaohe" }));
+    assert_eq!(xiaohe["ok"], true, "{xiaohe}");
+    let value = &xiaohe["value"];
+    assert_eq!(value["effective"], "xiaohe");
+    assert_eq!(value["table"]["finals"]["ing"], "k");
+    assert_eq!(value["keys"][0]["key"], "Q");
+    assert_eq!(value["keys"].as_array().unwrap().len(), 26);
+
+    let mut table = custom_shuangpin_table();
+    table.finals.remove("iong");
+    let broken = shuangpin_custom_layout(json!({ "profile": "custom", "table": table }));
+    assert_eq!(broken["value"]["effective"], "xiaohe", "{broken}");
+    assert_eq!(broken["value"]["problem"]["kind"], "missing_unit");
+
+    let valid = shuangpin_custom_layout(json!({
+        "profile": "custom",
+        "table": custom_shuangpin_table()
+    }));
+    assert_eq!(valid["value"]["effective"], "custom", "{valid}");
+    assert_eq!(valid["value"]["problem"], Value::Null);
+    assert_eq!(valid["value"]["keys"][0]["key"], "Q");
+
+    // 只有零声母用到 `;` 的表：`;` 键也要有提示，键盘才会显示这个键。
+    let mut zero_semicolon = builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe).unwrap();
+    zero_semicolon
+        .zero_initials
+        .insert("eng".into(), "e;".into());
+    assert!(!zero_semicolon.finals.values().any(|key| key == ";"));
+    let zero_semicolon =
+        shuangpin_custom_layout(json!({ "profile": "custom", "table": zero_semicolon }));
+    assert_eq!(
+        zero_semicolon["value"]["effective"], "custom",
+        "{zero_semicolon}"
+    );
+    let semicolon = zero_semicolon["value"]["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|face| face["key"] == ";")
+        .unwrap_or_else(|| panic!("no ; key face: {zero_semicolon}"));
+    assert_eq!(semicolon["hint"], "eng");
+
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "unknown" }))["ok"],
+        false
+    );
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "xiaohe", "extra": 1 }))["ok"],
+        false
+    );
+}
+
 /// 键面和编辑器从同一个接口取表：内置方案给出它的表和键面；自定义表给出问题的位置，不能用时键面是回退到的米旮旯 3；不认识的方案名报错。
 #[test]
 fn nine_key_shuangpin_layouts_give_tables_problems_and_key_faces() {
