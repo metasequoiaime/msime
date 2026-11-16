@@ -1,5 +1,5 @@
 use msime_client_core::preferences::Preferences;
-use msime_host_api::{msime_client_create, msime_client_string_free};
+use msime_host_api::{msime_client_create, msime_client_destroy, msime_client_string_free};
 use serde_json::json;
 use std::ffi::CStr;
 
@@ -10,6 +10,18 @@ fn call(document: &serde_json::Value) -> serde_json::Value {
     // 字节在调用期间有效，返回值只由本次 ABI 配对释放。
     unsafe {
         let raw = msime_client_create(bytes.as_ptr(), bytes.len());
+        assert!(!raw.is_null());
+        let reply = CStr::from_ptr(raw).to_bytes().to_vec();
+        msime_client_string_free(raw);
+        serde_json::from_slice(&reply).unwrap()
+    }
+}
+
+// 销毁也必须在创建会话的同一线程上完成。
+#[allow(unsafe_code)]
+fn destroy(session: u64) -> serde_json::Value {
+    unsafe {
+        let raw = msime_client_destroy(session);
         assert!(!raw.is_null());
         let reply = CStr::from_ptr(raw).to_bytes().to_vec();
         msime_client_string_free(raw);
@@ -52,6 +64,20 @@ fn prepared_options_fit_a_256_kib_thread_stack() {
         "dictionaries": "synthetic-dictionaries",
         "preferences": defaults,
     });
+    let root = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let mut valid = document.clone();
+    valid["api_version"] = json!(1);
+    for (field, directory) in [
+        ("resources", "resources"),
+        ("user_data", "user"),
+        ("cache", "cache"),
+        ("dictionaries", "dictionaries"),
+    ] {
+        valid[field] = json!(root.path().join(directory));
+    }
     std::thread::Builder::new()
         .stack_size(256 * 1024)
         .spawn(move || {
@@ -60,6 +86,11 @@ fn prepared_options_fit_a_256_kib_thread_stack() {
                 call(&document),
                 json!({"ok": false, "error": "unsupported host API version"})
             );
+            // 不能只验解析后的拒绝路径：真实编辑器还会在同一小栈上构造引擎会话。
+            let created = call(&valid);
+            assert_eq!(created["ok"], true, "{created}");
+            let session = created["value"]["session"].as_u64().unwrap();
+            assert_eq!(destroy(session)["ok"], true);
             let mut unknown_edition = document;
             unknown_edition["edition"] = json!("synthetic-unknown-edition");
             assert_eq!(

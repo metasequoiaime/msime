@@ -158,7 +158,8 @@ pub struct OnlineQuerySnapshot {
 
 /// Product glue over the core [`crate::Session`]: the core owns the candidate revision, teardown, the key grid, the helpcode table and the shuangpin profile, and this wrapper keeps only the product's options (the raw-commit learning switch, whether to show helpcodes, where to reload a helpcode table from). Thread-confined like the bridge session it replaces, which is host-api's threading model; the core session itself may move between threads.
 pub struct Session {
-    inner: crate::session::Session,
+    // 核心会话体积较大；宿主嵌套构造和移动时只传堆指针，保留编辑器的小栈。
+    inner: Box<crate::session::Session>,
     options: EngineOptions,
     _thread_confined: PhantomData<Rc<()>>,
 }
@@ -228,7 +229,7 @@ impl Session {
         // The C++ ran `options_for` a second time only to read the profile name back (bridge.cpp:430); that rerun recopied the same sidecar, so one mapping is enough. The bridge also loaded a second copy of the helpcode table only to annotate (bridge.cpp:431-435); the annotation now reads the table the core session filters with.
         let inner = crate::session::Session::new(session_options(options)?)?;
         Ok(Session {
-            inner,
+            inner: Box::new(inner),
             options: options.clone(),
             _thread_confined: PhantomData,
         })
