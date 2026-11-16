@@ -8,6 +8,8 @@
 //!
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
+mod learning;
+
 use super::session_store::{session_source, SessionStorage, Source};
 use super::with_bounded_bytes;
 use crate::*;
@@ -73,12 +75,13 @@ struct AccountRequest {
     action: Action,
 }
 
-/// 已有的操作（[`AccountAction`]）或 #8201 新增的（[`crate::account_ops::Operation`]）。两者都按 `operation` 区分、都拒绝未知字段，名字不重复，所以先试前者、不是它再试后者。
+/// 已有账号操作、扩展操作及学习密钥管理都按 `operation` 区分并拒绝未知字段；名称互不重复。
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Action {
     Account(AccountAction),
     Extended(crate::account_ops::Operation),
+    Learning(learning::Request),
 }
 
 /// Tauri 的 `account_*` 命令，名字去掉前缀；`choose_avatar` 的文件对话框由宿主自己弹，这里只收选好的路径。`preferences_*` 是 Windows 的设置同步，偏好目录由宿主传入（共享应用用的是它自己的偏好存储）。
@@ -786,6 +789,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                         ))
                     }
                     Action::Account(action) => run(&session, action),
+                    Action::Learning(action) => learning::run(&session, action),
                     Action::Extended(operation) => crate::account_ops::run(
                         &session,
                         || anonymous_session_with_agent(directory, agent),
@@ -811,6 +815,7 @@ pub unsafe extern "C" fn msime_client_account(request: *const u8, length: usize)
                     ))
                 }
                 Action::Account(action) => run(&entry.account, action),
+                Action::Learning(action) => learning::run(&entry.account, action),
                 Action::Extended(operation) => crate::account_ops::run(
                     &entry.account,
                     || Ok(Arc::clone(&entry.anonymous)),

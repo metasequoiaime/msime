@@ -316,6 +316,8 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 
 `BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。下载已认证并完整校验后，先持久保存 verified/observed_max，再原样保存 MSL1 密文；维护权忙时返回 Pending，不推进 applied。`learning_merge_pending` 为不发出数据请求的显式空闲入口，重新认证密文、读取持久进度和重置屏障，在独占维护内更新时钟与合并，成功才推进 applied。网络轮次首次上传之后也处理旧队列；已有队列结果覆盖同来源同代次或更新代次的重复下载，保留本轮 Applied/MergeFailed/Abandoned 的真实结果。初始导出前维护权就忙时仍返回 Busy。自动节流及平台入口仍须单独接通。
 
+账号 C 入口 `msime_client_account` 已提供显式密钥管理，目录与注入存储两种来源共用共享账号适配层。`action:{"operation":"learning_binding"}` 只读本机具体登录，返回 `{login:null}` 或 `{login:{user_id,session_id}}`，旧会话仅补持久编号，不登记设备、不创建密钥、不联网。宿主保存这次绑定，再传 `action:{"operation":"learning_operation","login":绑定,"device_name":"设备名称","request":{"op":"status"}}`；`request` 支持上文八个驱动操作，并严格拒绝未知和缺失字段。此操作可能联网，放在工作线程调用；不返回密钥串、驱动中间状态或访问令牌。同账号重新登录也使旧绑定失效，返回 `account_cancelled`；其他错误原样返回共享账号或驱动错误码。没有学习存储能力的旧注入宿主不会回退到剪贴板槽。该入口只接通设备与密钥管理，未接通数据轮次、空闲合并、原生设置或自动同步。
+
 上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
 
 `op`：
