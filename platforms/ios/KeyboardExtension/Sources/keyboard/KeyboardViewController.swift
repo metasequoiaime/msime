@@ -460,7 +460,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var usesLetterGrid: Bool { letterGrid != nil }
   /// 此刻第二排 L 右边是否显示 `;` 键：方案要它（微软双拼、粤语双拼），而且在中文模式、不在本地模式、不画 14/18 键网格。键的显隐和手机中间一排的缩进都按它算，切到英文或本地模式时 `;` 藏起来，中间一排要回到两侧各缩进半个键。
   private var showsSemicolonKey: Bool {
-    isChineseMode && inputScheme.showsSemicolonFinalKey && !isInLocalMode && !usesLetterGrid
+    isChineseMode && (inputScheme.showsSemicolonFinalKey || usesShuangpin && shuangpinKeyHints[";"]?.isEmpty == false)
+      && !isInLocalMode && !usesLetterGrid
+  }
+  private var semicolonKeyAccessibilityLabel: String {
+    if session.sharedPreferences?["shuangpin_profile"] as? String == "custom", let hint = shuangpinKeyHints[";"] {
+      return "分号，自定义双拼 \(hint)"
+    }
+    return inputScheme.semicolonFinalKeyAccessibilityLabel
   }
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
@@ -3817,7 +3824,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if letters == letterRows[1] {
       // 读屏标签随方案变化，由 `updateLetterCaseControls` 按当前方案写入。
-      let key = makeTouchKey(title: ";", accessibilityLabel: inputScheme.semicolonFinalKeyAccessibilityLabel) { [weak self] key in
+      let key = makeTouchKey(title: ";", accessibilityLabel: semicolonKeyAccessibilityLabel) { [weak self] key in
         self?.countKeyPress(TypingKeyID.character(";"))
         self?.handleCharacter(";", touchDown: key?.takeTouchDownLocation())
       }
@@ -5451,7 +5458,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       hintLabel.isHidden = hint == nil
       // `;` 键的标签已经说出它在当前方案里的韵母，不再按字母读，也不重复读键位提示。
       if lowercase == ";" {
-        button.accessibilityLabel = inputScheme.semicolonFinalKeyAccessibilityLabel
+        button.accessibilityLabel = semicolonKeyAccessibilityLabel
         button.accessibilityValue = nil
         continue
       }
@@ -5571,11 +5578,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 设计稿的空格键面：中文下是麦克风和方案简称，英文下是 `space`，符号层上是空格；手写板与其他方案一样显示方案名（手写），与 Android 的 SpaceKeyFace 一致。日语按按键的作用命名，空闲时是空白，选候选时是変換。麦克风只在 `voice`（「长按空格语音输入」）开着时画：关掉后长按空格改为移动光标，键面不能再暗示能按住说话（#10143），与 Android 的 `SpaceKeyFace.setShowsMic` 一致。不是 private：布局测试会固定它。
   static func spaceKeyFace(scheme: ChineseInputScheme, chinese: Bool, symbols: Bool, composing: Bool,
-                           voice: Bool) -> SpaceKeyFace {
+                           voice: Bool, shuangpinProfile: String? = nil) -> SpaceKeyFace {
     if chinese && scheme.isJapanese { return SpaceKeyFace(label: composing ? "変換" : "空白", mic: false) }
     if symbols { return SpaceKeyFace(label: "空格", mic: voice) }
     if !chinese { return SpaceKeyFace(label: "space", mic: voice) }
-    return SpaceKeyFace(label: scheme.shortLabel, mic: voice)
+    return SpaceKeyFace(label: scheme.shortLabel(shuangpinProfile: shuangpinProfile), mic: voice)
   }
 
   private func updateSpaceKeyTitle() {
@@ -5587,7 +5594,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       japaneseSpaceButton?.accessibilityLabel = japaneseTitle
     }
     let face = Self.spaceKeyFace(scheme: inputScheme, chinese: isChineseMode, symbols: showsSymbols, composing: hasComposition,
-                                 voice: spaceVoiceEnabled)
+                                 voice: spaceVoiceEnabled, shuangpinProfile: session.sharedPreferences?["shuangpin_profile"] as? String)
     let japanese = isChineseMode && inputScheme.isJapanese
     // 数字页的空格只有一个功能键宽，留出完整的文字空间，长按语音手势仍由原按键处理。
     let mic = face.mic && !numberPadShown
@@ -5954,7 +5961,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .stroke: session.switchToStroke()
     case .handwriting: session.switchToHandwriting()
     case .quanpin: session.switch(toShuangpin: usesShuangpin)
-    case .shuangpin: switchShuangpinLayout(profile: "xiaohe")
+    case .shuangpin: switchShuangpinLayout(profile: ShuangpinCustomLayout.profile(in: session.sharedPreferences))
     }
   }
 

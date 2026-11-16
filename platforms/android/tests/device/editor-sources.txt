@@ -310,6 +310,7 @@ platforms/android/tests/device/clipboard/ClipboardSelectionDeviceChecks.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
 platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
 platforms/android/tests/device/keyboard/AliyunTranslationDeviceChecks.java
+platforms/android/tests/device/settings/ShuangpinCustomDeviceChecks.java
 platforms/android/tests/device/community/CommunitySkinDownloadDeviceChecks.java
 platforms/android/tests/device/community/CommunitySkinDownloadTestProvider.java
 platforms/android/tests/device/keyboard/TranslationWindowDeviceChecks.java

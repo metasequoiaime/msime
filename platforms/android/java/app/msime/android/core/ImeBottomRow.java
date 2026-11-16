@@ -208,7 +208,8 @@ final class ImeBottomRow {
 
     /** 空格键面上的方案短名。 */
     private String spaceLabel() {
-        return SpaceKeyFace.schemeLabel(s.selectedScheme, s.wubiProfile, s.dedicatedEnglish);
+        return SpaceKeyFace.schemeLabel(s.selectedScheme, s.wubiProfile, s.dedicatedEnglish,
+            s.view == null ? null : s.view.optString("shuangpin_profile"));
     }
 
     void resetSpaceCursor() {
