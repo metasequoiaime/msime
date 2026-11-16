@@ -9113,6 +9113,8 @@ fn start_settled_rerank_without_a_model_finishes_on_the_caller() {
     assert_eq!(result["value"]["moved"], false);
     assert_eq!(result["value"]["current"], true);
     assert!(result["value"].get("view").is_none());
+    // 没挂延后到停顿的模型：宿主照落定重排的节奏等 150 ms 再起跑。
+    assert_eq!(result["value"]["deferred"], false);
 
     let missing = read(msime_client_poll_settled_rerank(handle, 0, true));
     assert_eq!(missing["value"]["status"], "done");
@@ -9248,7 +9250,7 @@ fn the_session_scorer_primes_the_context_off_the_keystroke() {
     }
 }
 
-/// 跑不进逐键预算的 ONNX 模型只在停顿时重解的宿主（鸿蒙，HostOptions 的 `pause_rerank`）上延后到停顿；只挂按键的宿主照旧，超过逐键上限就不挂。
+/// ONNX 模型只在停顿时重解的宿主（鸿蒙、安卓的键盘和 macOS 输入法，HostOptions 的 `pause_rerank`）上延后到停顿：手机上是跑不进逐键预算的，桌面上一律延后；只挂按键的宿主照旧，超过逐键上限就不挂。
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
@@ -9256,8 +9258,22 @@ fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
     let slow = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS + 1.0;
     let fast = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS;
     assert!(defers_to_pause(RerankerMount::KeystrokeOrPause, slow));
-    assert!(!defers_to_pause(RerankerMount::KeystrokeOrPause, fast));
+    // 桌面上停顿时重解的宿主不看一页的自测，总是延后：一页自测在桌面上预测不了真实的逐键开销。手机上一页够快就挂在按键上。
+    let desktop = cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ));
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, fast),
+        desktop
+    );
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, 0.0),
+        desktop
+    );
     assert!(!defers_to_pause(RerankerMount::Keystroke, slow));
+    assert!(!defers_to_pause(RerankerMount::Keystroke, 0.0));
     assert!(!defers_to_pause(RerankerMount::Off, slow));
     // 停顿时重解的宿主对加载放得更宽：设备刚装完应用、忙的那一刻自测会超过逐键上限。
     const { assert!(ffi::PAUSE_RERANK_LIMIT_MS > ffi::KEYSTROKE_RERANK_LIMIT_MS) };
