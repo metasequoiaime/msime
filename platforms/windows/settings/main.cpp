@@ -28303,6 +28303,8 @@ private:
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
+  const int repair = msime::settings::input_method::run_if_requested(command);
+  if (repair >= 0) return repair;
   const int gameProfileResult = msime::windows::game_profile::run_if_requested(command);
   if (gameProfileResult >= 0) return gameProfileResult;
   const auto route = msime::windows::requested_surface_route("settings");

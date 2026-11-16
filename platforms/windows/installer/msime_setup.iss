@@ -898,6 +898,24 @@ begin
   );
 end;
 
+function RepairInputMethodForUser: Boolean;
+var
+  ErrorCode: Integer;
+begin
+  { 安装器以管理员身份运行；只登记 TSF 不会把已被用户删除的 profile 加回当前用户键盘列表。用原用户身份调用设置宿主，让 input.dll 的 InstallLayoutOrTip 写入正确的用户配置。 }
+  Result := ShellExecAsOriginalUser(
+    '',
+    ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\{#MySettingsExeName}'),
+    '--repair-input-method',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ErrorCode
+  ) and (ErrorCode = 0);
+  if not Result then
+    Log('无法恢复当前用户的水杉输入法键盘列表，安装本体仍已完成。');
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Chosen: String;
@@ -1589,6 +1607,7 @@ begin
     if CreateWatchdogLogonTask then
       ConfigureWatchdogLogonTask;
     EnsureImeUserDataDir;
+    RepairInputMethodForUser;
     { Last: every step above that can fail raises before this, so a failed install keeps the previous data directory. }
     FinishDataDirMove;
   end;

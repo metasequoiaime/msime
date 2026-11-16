@@ -10,6 +10,8 @@
 #include "../SettingsInstance.h"
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
+  const int repair = msime::settings::input_method::run_if_requested(command);
+  if (repair >= 0) return repair;
   const int game_profile = msime::windows::game_profile::run_if_requested(command);
   if (game_profile >= 0) return game_profile;
   const auto route = msime::windows::requested_surface_route("settings");
