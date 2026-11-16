@@ -339,6 +339,42 @@ fn swapping_in_a_slow_scorer_closes_the_pool() {
     assert_eq!(prediction_contexts(&calls).len(), 1);
 }
 
+/// 延后到停顿的打分器（桌面写了 `pause_rerank` 的宿主）在上屏时照样给联想排序：它只是不在每个字母键上跑。不排的话，把模型从按键上挪走会让联想比挂在按键上时差。
+#[test]
+fn a_deferred_scorer_still_orders_prediction() {
+    let (scorer, calls) = stub(&[("东西", -1.0), ("醋", -1.5)]);
+    let (_directory, mut deferred) = runtime(None);
+    deferred.set_deferred_scorer(Some(scorer));
+    commit_chi(&mut deferred);
+    assert_eq!(
+        texts(&deferred),
+        ["醋", "东西", "饭", "好", "喝", "药", "苦", "亏"]
+    );
+    assert_eq!(prediction_contexts(&calls), ["今天吃"]);
+    // 换了词库代次也一样。
+    let (scorer, _) = stub(&[("东西", 0.0)]);
+    let (directory, mut replaced) = runtime(None);
+    replaced.set_deferred_scorer(Some(scorer));
+    replaced
+        .replace_engine(engine(directory.path()), 9)
+        .unwrap();
+    commit_chi(&mut replaced);
+    assert_eq!(texts(&replaced)[0], "东西");
+}
+
+/// 延后的打分器不报在预算之内时（手机上只做过挂不挂的自测的那一档）联想与没挂时逐行相同。
+#[test]
+fn a_slow_deferred_scorer_leaves_prediction_as_without_one() {
+    let (_directory, mut plain) = runtime(None);
+    commit_chi(&mut plain);
+    let (scorer, calls) = slow_stub(&[("东西", -1.0), ("醋", -1.5)]);
+    let (_directory, mut slow) = runtime(None);
+    slow.set_deferred_scorer(Some(scorer));
+    commit_chi(&mut slow);
+    assert_eq!(rows(&slow), rows(&plain));
+    assert!(prediction_contexts(&calls).is_empty());
+}
+
 #[test]
 fn a_replaced_engine_keeps_the_pool_closed_for_a_slow_scorer() {
     let (scorer, calls) = slow_stub(&[("东西", 0.0)]);

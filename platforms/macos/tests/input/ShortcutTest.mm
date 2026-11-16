@@ -141,6 +141,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic, copy) NSDictionary *fixtureView;
 @property(nonatomic) NSUInteger settledRerankCalls;
+@property(nonatomic) NSUInteger finishPauseRerankCalls;
+@property(nonatomic) NSUInteger finishCallsAtSelect;
 @property(nonatomic) NSUInteger rawCommitCalls;
 @property(nonatomic) NSUInteger commandCalls;
 @property(nonatomic, copy) NSDictionary *rawTransition;
@@ -213,6 +215,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
     (void)token; (void)accept; (void)error;
     return @{@"status":@"done", @"moved":@NO, @"current":@YES};
 }
+// 空格和组字中的标点上屏前调它；这个会话没有延后到停顿的模型，回答什么都没做。
+- (NSDictionary *)finishPauseRerankWithError:(NSError **)error {
+    (void)error; ++self.finishPauseRerankCalls; return @{@"status":@"none", @"deferred":@NO};
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
@@ -249,6 +255,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 }
 - (NSDictionary *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     (void)error; ++self.selectCalls; self.selectedGeneration = generation; self.selectedIndex = index;
+    self.finishCallsAtSelect = self.finishPauseRerankCalls;
     [self recordCall:@"select"];
     return nil;
 }
@@ -2821,9 +2828,11 @@ static void TestSessionOptions() {
     assert([requested[@"phrase_preedit"] isEqual:@YES]);
     assert([requested[@"quick_phrase_candidates"] isEqual:@YES]);
     assert([requested[@"korean_romaja"] isEqual:@YES]);
-    // 原配置中的字段及嵌套对象保持原样，宿主额外声明三项运行时能力。
+    // 整句联想「增强」的模型延后到停顿，宿主在停顿时分片重解、上屏前做完；丢了这一项模型就回到每个字母键上同步跑。
+    assert([requested[@"pause_rerank"] isEqual:@YES]);
+    // 原配置中的字段及嵌套对象保持原样，宿主额外声明四项运行时能力。
     for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
-    assert(requested.count == file.count + 3);
+    assert(requested.count == file.count + 4);
     // 不修改调用方的字典，原配置仍供其他读取方使用。
     assert(!file[@"phrase_preedit"]);
     assert(!file[@"korean_romaja"]);
@@ -2834,18 +2843,19 @@ static void TestSessionOptions() {
     assert([stale[@"phrase_preedit"] isEqual:@YES]);
     assert([stale[@"quick_phrase_candidates"] isEqual:@YES]);
     assert([stale[@"korean_romaja"] isEqual:@YES]);
+    assert([MSIMESessionOptions(@{@"api_version":@1, @"pause_rerank":@NO}, nil)[@"pause_rerank"] isEqual:@YES]);
 
     // The built-in sound packs live in the bundle, while resources is EngineResources in Application Support, so the host library cannot find them beside it: the bundle's directory is named, unless the options file names one itself.
     NSDictionary *sounds = MSIMESessionOptions(file, @"/synthetic/bundle/Contents/Resources/sound-packs");
     assert([sounds[@"sound_packs"] isEqual:@"/synthetic/bundle/Contents/Resources/sound-packs"]);
-    assert(sounds.count == file.count + 4 && !file[@"sound_packs"]);
+    assert(sounds.count == file.count + 5 && !file[@"sound_packs"]);
     NSDictionary *named = MSIMESessionOptions(@{@"api_version":@1, @"sound_packs":@"/configured/sound-packs"}, @"/synthetic/sound-packs");
     assert([named[@"sound_packs"] isEqual:@"/configured/sound-packs"]);
 
     // 下载词库缺少辅助码时，会话从当前输入法包回退；原始配置继续供旧宿主读取。
     NSDictionary *helpcodes = MSIMESessionOptions(file, nil, @"/synthetic/bundle/Contents/Resources");
     assert([helpcodes[@"helpcode_fallback_resources"] isEqual:@"/synthetic/bundle/Contents/Resources"]);
-    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 4);
+    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 5);
     assert(!MSIMESessionOptions(file, nil, @"relative/resources")[@"helpcode_fallback_resources"]);
     NSDictionary *explicitHelpcodes = MSIMESessionOptions(@{@"helpcode_fallback_resources":@"/configured/resources"},
         nil, @"/synthetic/bundle/Contents/Resources");
@@ -16386,8 +16396,11 @@ int main(int argc, char **argv) {
         // block has already sent one ASCII 'A' through it, so an absolute asciiCalls == 0 here asserts
         // something about another test rather than about this key.
         NSUInteger asciiCallsBeforeKeyboard = session.asciiCalls;
+        // 数字键照用户看到的那一行上屏，不先做停顿重解：重解会把那一行换到别的座位上。
+        const NSUInteger finishesBeforeKeyboard = session.finishPauseRerankCalls;
         assert([controller handleEvent:candidateKey(18, @"1") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        assert(session.finishCallsAtSelect == finishesBeforeKeyboard);
         // Slot 3 has no button in the painted panel. The key is consumed rather than selecting anything or
         // falling through to Engine numeric input, which would type a literal 3 into the composition.
         assert([controller handleEvent:candidateKey(20, @"3") client:client]);
@@ -16403,6 +16416,8 @@ int main(int argc, char **argv) {
         [controller renderCandidates];
         assert([controller handleEvent:candidateKey(49, @" ") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 2 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        // 空格上屏高亮项之前先把停顿重解做完（msime_client_finish_pause_rerank），选的是做完之后画出的那一项。
+        assert(session.finishCallsAtSelect > finishesBeforeKeyboard);
         const NSEventModifierFlags deleteModifiers = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
         NSEvent *(^deleteEvent)(unsigned short, NSEventModifierFlags, BOOL) = ^NSEvent *(unsigned short code, NSEventModifierFlags modifiers, BOOL repeat) {
             return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:modifiers timestamp:0 windowNumber:0 context:nil characters:@"!" charactersIgnoringModifiers:@"!" isARepeat:repeat keyCode:code];
