@@ -1292,6 +1292,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_customTranslati
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_niutransTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kTranslationRequestLimit, msime_client_niutrans_translation_http_request);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aliyunTranslationRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kTranslationResponseLimit, msime_client_aliyun_translation);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_tencentTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kTranslationRequestLimit, msime_client_tencent_translation_http_request);
 }

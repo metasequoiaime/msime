@@ -13,6 +13,7 @@
 #include "Ipc.h"
 #include "SmartPunctuationFingerprint.h"
 #include "SmartPunctuationDeferralPolicy.h"
+#include "SmartPunctuationLayoutQuery.h"
 #include "../Utils/PerfTimer.h"
 
 namespace
@@ -978,15 +979,28 @@ void CMetasequoiaIME::_UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool i
         return;
     }
 
-    if (isEaten || wch == 0 || std::iswprint(static_cast<wint_t>(wch)) == 0)
+    if (isEaten)
     {
-        // Eaten keys feed the composition and reach the document as committed
-        // text, which even a proxy store exposes, so let the document answer.
+        // Eaten keys feed the composition and reach the document as committed text, which even a proxy store exposes, so let the document answer.
         _InvalidateSmartPunctuationShadow();
         return;
     }
 
-    _smartPunctuationShadowChar = wch;
+    // 影子优先于文档回读，所以要按这颗键真正打出的字符归类，不能只看虚拟键码：Shift+5 打出的是 %，Ctrl+1、Ctrl+V 什么字符都不打，还可能粘贴或移走光标。修饰键读的是 _IsKeyEaten 判断应用快捷键时用的同一份物理状态。
+    const UINT modifiers = ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 ? 0b001u : 0u) |
+                           ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 ? 0b010u : 0u) |
+                           ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0 ? 0b100u : 0u);
+    const bool windowsKeyDown = (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+    const WCHAR context = Global::ResolveForwardedSmartPunctuationContext(
+        code, wch, modifiers, windowsKeyDown, Global::LayoutCharacterOfForwardedKey);
+    if (context == 0 || std::iswprint(static_cast<wint_t>(context)) == 0)
+    {
+        // 快捷键、符号和其他不能确认的键：旧影子不再描述光标前的文字，让文档回答。
+        _InvalidateSmartPunctuationShadow();
+        return;
+    }
+
+    _smartPunctuationShadowChar = context;
     _smartPunctuationShadowValid = true;
 }
 

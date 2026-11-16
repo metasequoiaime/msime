@@ -1,6 +1,7 @@
 #include "../src/overlay/FloatingPanelColors.h"
 #include "../src/overlay/FloatingToolbar.h"
 #include "../src/overlay/FloatingToolbarModel.h"
+#include "../src/overlay/FloatingToolbarPlatform.h"
 #include "../src/overlay/ShuangpinKeymapModel.h"
 
 #include <unistd.h>
@@ -122,6 +123,15 @@ void toolbar_config() {
   config = host::floating_toolbar_config(preferences, true, true);
   assert(config.scale == 1.0 && config.font_size == 24.0);
   assert(!host::floating_toolbar_config(Json{{"floating_toolbar", {{"enabled", false}}}}, true, true).enabled);
+}
+
+void toolbar_platform() {
+  // Xwayland 不是纯 X11：override-redirect 窗口仍可能被合成器当成新顶层窗口。
+  assert(host::floating_toolbar_should_use_x11(nullptr, ":0"));
+  assert(host::floating_toolbar_should_use_x11("", ":0"));
+  assert(!host::floating_toolbar_should_use_x11("wayland-0", ":0"));
+  assert(!host::floating_toolbar_should_use_x11("wayland-0", nullptr));
+  assert(!host::floating_toolbar_should_use_x11(nullptr, nullptr));
 }
 
 void toolbar_faces() {
@@ -450,6 +460,7 @@ void controller() {
 int main() {
   keymap_rules();
   toolbar_config();
+  toolbar_platform();
   toolbar_faces();
   toolbar_geometry();
   colors();

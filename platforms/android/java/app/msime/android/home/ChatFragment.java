@@ -464,6 +464,8 @@ public final class ChatFragment extends HomeTabFragment {
         MaterialButton send = sendAi;
         if (field == null || send == null) return;
         pageSessionId = "";
+        // 服务端的默认模型属于账号会话；换号后必须重新读取，不能把旧账号的模型带给新账号。
+        model = null;
         bindSession();
         messages.clear();
         if (chat != null) chat.removeAllViews();

@@ -15,6 +15,14 @@ public final class ClipboardModePolicySmoke {
         check(visitor.equals(new File(root, ClipboardModePolicy.VISITOR_DIRECTORY)),
             "visitor mode uses a separate directory");
         check(!visitor.equals(root), "visitor mode never aliases the main store");
+        check(ClipboardModePolicy.handledClipPreferenceKey(ClipboardModePolicy.Mode.MAIN)
+                .equals("handled_clip_main"),
+            "main mode has its own handled clipboard identity");
+        check(ClipboardModePolicy.handledClipPreferenceKey(ClipboardModePolicy.Mode.VISITOR)
+                .equals("handled_clip_visitor"),
+            "visitor mode has its own handled clipboard identity");
+        check(ClipboardModePolicy.legacyHandledClipPreferenceKey().equals("handled_clip"),
+            "the pre-isolation handled clipboard identity remains a migration source");
 
         check(ClipboardModePolicy.isValidSwipe(50, 200, 50, 100, 100, 50, 500),
             "an upward swipe into the keyboard toggles");
