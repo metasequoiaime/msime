@@ -280,8 +280,8 @@ fn unknown_records_are_counted_and_known_fields_still_validate() {
 fn malformed_or_out_of_range_records_never_return_partial_state() {
     let valid = serde_json::to_value(weight(10, 5, "")).unwrap();
     for (field, bad) in [
-        ("weight", serde_json::json!(0)),
-        ("weight", serde_json::json!(100_000_001)),
+        ("weight", serde_json::json!(-1)),
+        ("weight", serde_json::json!(MAX_LEARNING_SYNC_WEIGHT + 1)),
         ("updated_at", serde_json::json!(0)),
         ("updated_at", serde_json::json!((1u64 << 40) + 1)),
         ("updated_at", serde_json::json!(1.5)),
@@ -289,8 +289,8 @@ fn malformed_or_out_of_range_records_never_return_partial_state() {
         ("updated_at", serde_json::json!("10")),
         ("key", serde_json::json!("")),
         ("key", serde_json::json!("a".repeat(513))),
-        ("value", serde_json::json!("甲".repeat(683))),
-        ("display", serde_json::json!("a".repeat(2049))),
+        ("value", serde_json::json!("甲".repeat(1366))),
+        ("display", serde_json::json!("a".repeat(4097))),
         ("value", serde_json::json!("a\0b")),
     ] {
         let mut record = valid.clone();
@@ -320,6 +320,19 @@ fn malformed_or_out_of_range_records_never_return_partial_state() {
     assert!(state([])
         .insert(weight(MAX_LEARNING_SYNC_TIMESTAMP, 100_000_000, ""))
         .is_ok());
+}
+
+#[test]
+fn learned_weights_round_trip_the_full_sqlite_range_without_clamping() {
+    for frequency in [0, 100_000_001, 23_000_000_000, MAX_LEARNING_SYNC_WEIGHT] {
+        let expected = state([weight(10, frequency, "")]);
+        assert_eq!(
+            read_learning_sync(Cursor::new(encoded(&expected)))
+                .unwrap()
+                .state,
+            expected
+        );
+    }
 }
 
 #[test]

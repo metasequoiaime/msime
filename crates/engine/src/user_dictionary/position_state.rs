@@ -65,18 +65,27 @@ pub(crate) fn seed_display(
 
 /// 槽位冲突只影响显示；没有槽位唯一约束的完整表保留全部输家。
 fn project(connection: &Connection, context: &str) -> rusqlite::Result<()> {
+    project_in(connection, "main", context)
+}
+
+/// `schema` 仅接受本模块与同步合并传入的固定附加库别名。
+pub(crate) fn project_in(
+    connection: &Connection,
+    schema: &str,
+    context: &str,
+) -> rusqlite::Result<()> {
     connection.execute(
-        "DELETE FROM fixed_candidate_positions WHERE context_key=?1",
+        &format!("DELETE FROM {schema}.fixed_candidate_positions WHERE context_key=?1"),
         [context],
     )?;
     connection.execute(
-        "INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) \
-         SELECT c.context_key,c.entry_key,c.value,c.position FROM fixed_candidate_position_state c \
+        &format!("INSERT INTO {schema}.fixed_candidate_positions(context_key,entry_key,value,position) \
+         SELECT c.context_key,c.entry_key,c.value,c.position FROM {schema}.fixed_candidate_position_state c \
          WHERE c.context_key=?1 AND NOT EXISTS(\
-           SELECT 1 FROM fixed_candidate_position_state w \
+           SELECT 1 FROM {schema}.fixed_candidate_position_state w \
            WHERE w.context_key=c.context_key AND w.position=c.position AND (\
              w.updated_at>c.updated_at OR (w.updated_at=c.updated_at AND (\
-               w.entry_key<c.entry_key OR (w.entry_key=c.entry_key AND w.value<c.value)))))",
+               w.entry_key<c.entry_key OR (w.entry_key=c.entry_key AND w.value<c.value)))))"),
         [context],
     )?;
     Ok(())

@@ -851,7 +851,7 @@ pub fn carry_dictionary_rows(
 }
 
 /// 按回放的写法把一行改进工作词库（`transaction` 是 `open_edit_connection` 打开的连接）：编码拼不出表名时 `Ok(false)`，这一代没有那张表时是准备语句报的 no such table（[`missing_table`]）。
-fn apply_entry(
+pub(super) fn apply_entry(
     transaction: &rusqlite::Connection,
     kind: PersonalDictionaryKind,
     key: &[u8],
@@ -941,7 +941,7 @@ pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]
 }
 
 /// 语句准备时报「没有这张表」：SQLite 对它用通用的 `SQLITE_ERROR`，只能看消息区分。这时语句一条也没执行，跳过这一行不会留下半截修改。
-fn missing_table(error: &rusqlite::Error) -> bool {
+pub(super) fn missing_table(error: &rusqlite::Error) -> bool {
     matches!(
         error,
         rusqlite::Error::SqliteFailure(failure, Some(message))

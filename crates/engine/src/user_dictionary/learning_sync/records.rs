@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use super::stream::LearningSyncReadError;
 
 pub const MAX_LEARNING_SYNC_TIMESTAMP: u64 = 1 << 40;
+/// 学习权重沿用 SQLite 的非负整数范围，不能用手动新建词条的一亿上限截断英文调频。
+pub const MAX_LEARNING_SYNC_WEIGHT: u64 = i64::MAX as u64;
 
 /// v1 只传调权、删除、置顶和固定位置，不带用户词、整句联想或纠错记录。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +65,7 @@ impl LearningSyncRecord {
 
     pub(super) fn valid(&self) -> bool {
         let key = |text: &str| bounded(text, 512, false);
-        let value = |text: &str| bounded(text, 2048, false);
+        let value = |text: &str| bounded(text, 4096, false);
         let context = |text: &str| bounded(text, 1024, false);
         if !(1..=MAX_LEARNING_SYNC_TIMESTAMP).contains(&self.updated_at()) {
             return false;
@@ -80,8 +82,8 @@ impl LearningSyncRecord {
                 bounded(dictionary, 512, false)
                     && key(code)
                     && value(word)
-                    && (1..=100_000_000).contains(weight)
-                    && bounded(display, 2048, true)
+                    && *weight <= MAX_LEARNING_SYNC_WEIGHT
+                    && bounded(display, 4096, true)
             }
             Self::Delete {
                 dictionary,
@@ -141,7 +143,7 @@ impl LearningSyncRecord {
     }
 
     /// 只比较相同身份的记录；平局规则让任意设备顺序和重复传输都收敛。
-    fn priority(&self, other: &Self) -> Ordering {
+    pub(super) fn priority(&self, other: &Self) -> Ordering {
         self.updated_at()
             .cmp(&other.updated_at())
             .then_with(|| match (self, other) {

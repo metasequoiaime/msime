@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。日志的完整 Lamport 写入与重置屏障、数据库同步导出与应用、换代时搬迁完整状态、同步轮次和各平台接入仍按决策笔记里的分期落地；明文层 API 本身不会读取学习日志或发起上传。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。日志的完整 Lamport 写入与重置屏障、换代时搬迁完整状态、同步轮次和各平台接入仍按决策笔记里的分期落地；这些 Engine API 本身不发起上传。
 
 ## 与其他同步的关系
 
@@ -225,8 +225,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | 一个账号的设备 | 20 台，满了返回 409 `learning_device_limit` |
 | 明文流记录数 | 500,000 条（不含 header 与 footer） |
 | 解压后的明文流 | 128 MiB |
-| `key` / `value` / `display` / `context` | 512 / 2048 / 2048 / 1024 字节 |
-| `weight` | 1 到 100,000,000 |
+| `key` / `value` / `display` / `context` | 512 / 4096 / 4096 / 1024 字节，保留现有合法快捷短语的完整内容 |
+| `weight` | 0 到 2⁶³−1，沿用 SQLite 的非负整数范围；英文调频可超过手动新建词条的一亿上限，明文数值由 Rust 按整数处理，不经宿主浮点数转换 |
 | `position` | 1 到 5 |
 | `generation`（即 `revision`） | 1 到 2⁵³−1，JSON 里的数字和服务端的 `bigint` 都能精确表示；服务端拒收超出的，返回 400 `invalid_learning_blob` |
 | `updated_at` | 1 到 2⁴⁰（约公元 36812 年），超出的按格式不对处理，见「明文流」 |
