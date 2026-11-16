@@ -97,6 +97,11 @@ struct DesktopCandidates::State {
                               (value->view && !value->view->visible &&
                                (!previous->view || previous->view->visible))))
         cancel_menu();
+      // 已经拿到新帧，不再等桌面线程下一轮轮询；只叫醒目标桌面，同一帧的重复投递不增加请求。
+      if (value->routed && value->view &&
+          (!previous->routed || !previous->view ||
+           value->view->render_serial != previous->view->render_serial))
+        wake();
     }
     void run() noexcept {
       try {
