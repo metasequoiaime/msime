@@ -444,6 +444,16 @@ bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabl
     session_.set_chinese_punctuation(lease.epoch, enabled);
   });
 }
+bool FocusedSession::set_character_width(const FocusLease &lease, bool fullwidth) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Character width changed before reply delivery");
+    session_.set_character_width(lease.epoch, fullwidth);
+  });
+}
 bool FocusedSession::balance_paired_punctuation(const FocusLease &lease,
                                                 uint8_t opening) {
   check_thread();
@@ -537,13 +547,18 @@ bool FocusedSession::cancel_focus_token(uint64_t token) {
     return true;
   return cancel(*lease_);
 }
-std::optional<nlohmann::json>
+SettledRerankResult
 FocusedSession::rerank_settled(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))
-    return std::nullopt;
-  std::optional<nlohmann::json> result;
-  gate_.with_active(lease, [&] { result = session_.rerank_settled(lease.epoch); });
+    return {};
+  SettledRerankResult result;
+  gate_.with_active(lease, [&] {
+    if (composer_->has_pending()) result.pending = true;
+    // 释义页沿用底层列表的代次；页面关闭前既不启动评分，也不接收在途评分。
+    else if (composer_->translation_page() == 0)
+      result = session_.rerank_settled(lease.epoch);
+  });
   return result;
 }
 std::optional<nlohmann::json>

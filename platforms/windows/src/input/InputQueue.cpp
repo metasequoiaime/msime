@@ -311,18 +311,17 @@ bool InputState::synchronize_input_mode(const FocusLease &lease,
   auto *owner = session(lease.transport);
   if (!owner)
     return false;
-  // Full/half-width is a TSF presentation mode. The Engine does not own this
-  // compartment, but the event must still be accepted so ModeMailbox can
-  // publish the authoritative host notification to the toolbar.
+  // TSF 拥有模式状态，共享会话按同一宽度处理原文和标点上屏。
   if (packet.event_type == FanyImePipeEventType::DoubleSingleByteSwitch)
-    return true;
+    return owner->set_character_width(lease, packet.keycode != 0);
   if (packet.event_type == FanyImePipeEventType::PuncSwitch)
     return owner->set_chinese_punctuation(lease, packet.keycode != 0);
   if (!owner->set_input_enabled(lease, packet.keycode != 0))
     return false;
   if (packet.event_type == FanyImePipeEventType::StatusSnapshot ||
       packet.event_type == FanyImePipeEventType::FocusRestored)
-    return owner->set_chinese_punctuation(lease, packet.pinyin_length != 0);
+    return owner->set_chinese_punctuation(lease, packet.pinyin_length != 0) &&
+           owner->set_character_width(lease, packet.modifiers_down != 0);
   return true;
 }
 bool InputState::balance_paired_punctuation(
@@ -369,11 +368,11 @@ void InputState::show_candidate(const FocusLease &lease) {
   if (auto *owner = session(lease.transport))
     owner->show_candidate(lease);
 }
-std::optional<nlohmann::json>
+SettledRerankResult
 InputState::rerank_settled(const FocusLease &lease) {
   check_thread();
   auto *owner = session(lease.transport);
-  return owner ? owner->rerank_settled(lease) : std::nullopt;
+  return owner ? owner->rerank_settled(lease) : SettledRerankResult{};
 }
 std::optional<nlohmann::json>
 InputState::apply_cloud_response(const FocusLease &lease,

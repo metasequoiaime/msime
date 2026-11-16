@@ -49,6 +49,7 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import { NineKeyFlickPolicy } from './input/NineKeyFlickPolicy';
 import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
@@ -145,6 +146,8 @@ import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/Cl
 import {
   CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
+import { CloudClipboardAutoReceive } from './clipboard/CloudClipboardAutoReceive';
+import { cloudClipboardSystemText } from './clipboard/CloudClipboardSystem';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
@@ -769,6 +772,20 @@ interface NineKeyShuangpinLayoutReply {
   value?: NineKeyShuangpinRawLayout;
 }
 
+interface ShuangpinCustomRawFace {
+  key?: string;
+  hint?: string;
+}
+
+interface ShuangpinCustomRawLayout {
+  keys?: ShuangpinCustomRawFace[];
+}
+
+interface ShuangpinCustomLayoutReply {
+  ok: boolean;
+  value?: ShuangpinCustomRawLayout;
+}
+
 interface CreateResponse {
   ok: boolean;
   value: CreateValue;
@@ -947,6 +964,8 @@ interface PreparedPreferences {
   /** Read-only English word completions while typing directly in English. Defaults to on. */
   english_suggestions?: boolean;
   shuangpin_profile: string;
+  /** 自定义普通双拼的共享表；只有 `shuangpin_profile` 为 `custom` 时消费。 */
+  shuangpin_custom_profile?: Object;
   /** 双拼触屏字母组码布局；缺省为 26 键，与共享偏好保持一致。 */
   touch_shuangpin_layout?: string;
   /** 五笔触屏字母键布局：`twenty_six_key`（缺省，不写进文档）或 `fourteen_key`；与全拼、双拼布局独立。 */
@@ -1057,8 +1076,10 @@ interface PreparedPreferences {
   touch_keyboard_split_gap?: number;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
-  /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
+  /** 旧九键数字滑动字段，保留以兼容旧文档；宿主不再使用。 */
   touch_nine_key_swipe_digits?: string;
+  /** 九键字母 flick 判定阈值，14–48、步进 2，默认 24。 */
+  touch_nine_key_flick_threshold?: number;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1244,8 +1265,10 @@ export interface KeyboardPreferences {
   readonly splitKeyboard: SplitKeyboardSettings;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
-  /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
+  /** 旧字段仅为兼容读取；九键数字改由长按输入。 */
   readonly nineKeySwipeDigits: string;
+  /** `touch_nine_key_flick_threshold`：九键字母 flick 的共享阈值。 */
+  readonly nineKeyFlickThreshold: number;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1337,7 +1360,7 @@ interface DictionaryCollectionsFlushResponse {
 /** 命名词库接受的操作，与 client-services 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
 const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
   'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
-  'install_community', 'queue_words', 'flush', 'third_party_matches',
+  'install_community', 'queue_words', 'flush', 'third_party_matches', 'delete_many', 'set_enabled_many',
 ];
 
 interface PersonalDictionarySyncResponse {
@@ -1500,6 +1523,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private keyGrid: number = KeyGrid.NONE;
   private nineKeyShuangpinRequest: string = '';
   private nineKeyShuangpinFaceCache: NineKeyShuangpinFace[] = [];
+  private shuangpinCustomHintRequest: string = '';
+  private shuangpinCustomHintCache: Map<string, string> = new Map<string, string>();
   // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
@@ -1534,6 +1559,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
   private cloudClipboardClient: CloudClipboardClient | undefined = undefined;
+  private cloudClipboardAutoReceive: CloudClipboardAutoReceive | undefined = undefined;
   private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
@@ -1621,7 +1647,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     oneHandedSidePanel: OneHandedSidePanel.OFF,
     splitKeyboard: SplitKeyboardPolicy.DEFAULTS,
     languageKeyLeft: false,
-    nineKeySwipeDigits: NineKeySwipePolicy.OFF
+    nineKeySwipeDigits: NineKeySwipePolicy.OFF,
+    nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(undefined)
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -2086,7 +2113,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.touch_keyboard_split_portrait, preferences.touch_keyboard_split_threshold,
         preferences.touch_keyboard_split_gap),
       languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
-      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
+      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits),
+      nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(preferences.touch_nine_key_flick_threshold)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -2627,6 +2655,44 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`nine-key shuangpin layout unavailable: ${describeError(error)}`);
     }
     return this.nineKeyShuangpinFaceCache;
+  }
+
+  /** 普通 26 键双拼当前表的键位提示；键盘只读共享接口返回的提示，不复制表的校验规则。 */
+  shuangpinCustomKeyHints(): Map<string, string> {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    const table: Object | undefined = preferences?.shuangpin_custom_profile;
+    const request: string = JSON.stringify(table === undefined
+      ? { profile: 'custom' } : { profile: 'custom', table });
+    if (request === this.shuangpinCustomHintRequest) return this.shuangpinCustomHintCache;
+    this.shuangpinCustomHintRequest = request;
+    this.shuangpinCustomHintCache = new Map<string, string>();
+    try {
+      const reply: ShuangpinCustomLayoutReply = JSON.parse(
+        client.shuangpinCustomLayout(request)) as ShuangpinCustomLayoutReply;
+      if (reply.ok !== true || reply.value === undefined) return this.shuangpinCustomHintCache;
+      const keys: ShuangpinCustomRawFace[] = reply.value.keys ?? [];
+      for (const key of keys) {
+        if (typeof key.key === 'string' && typeof key.hint === 'string' && key.hint.length > 0) {
+          this.shuangpinCustomHintCache.set(key.key.toUpperCase(), key.hint);
+        }
+      }
+    } catch (error) {
+      KeyboardLog.error(`shuangpin custom layout unavailable: ${describeError(error)}`);
+    }
+    return this.shuangpinCustomHintCache;
+  }
+
+  /** 供键盘的 ForEach 身份使用，表变化时立即重画提示。 */
+  shuangpinCustomHintIdentity(): string {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    if (preferences?.shuangpin_profile !== 'custom') return preferences?.shuangpin_profile ?? '';
+    return this.shuangpinCustomHintRequestFor(preferences);
+  }
+
+  private shuangpinCustomHintRequestFor(preferences: PreparedPreferences): string {
+    const table: Object | undefined = preferences.shuangpin_custom_profile;
+    return JSON.stringify(table === undefined
+      ? { profile: 'custom' } : { profile: 'custom', table });
   }
 
   /**
@@ -3970,6 +4036,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
+    this.cloudClipboardReceiver().start();
     this.editorAttributesKnown = false;
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
@@ -3982,6 +4049,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.previewSupported = attribute.isTextPreviewSupported === true;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       this.editorAttributesKnown = true;
+      this.cloudClipboardReceiver().start();
       // A pack imported again under the same id, or removed, while another editor had focus is picked up here, as host-api re-stamps its packs on focus.
       this.soundPlayer.recheck();
       this.musicPlayer.recheck();
@@ -4142,6 +4210,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    this.cloudClipboardAutoReceive?.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.attributeGeneration++;
@@ -4184,6 +4253,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.cloudClipboardAutoReceive?.stop();
     this.clipboardCaptureVisible = false;
     this.clipboardCapture.stop();
     this.cancelPhraseCursor();
@@ -7221,7 +7291,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
+  /** 上传用户选中的历史条目或可见键盘刚观察到的本机复制；共享层再次核对开关和绑定。 */
   async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
@@ -7236,6 +7306,22 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (cached !== undefined) return cached;
     const made: CloudClipboardClient = new CloudClipboardClient(this.stateDirectory);
     if (this.stateDirectory.length > 0) this.cloudClipboardClient = made;
+    return made;
+  }
+
+  private cloudClipboardReceiver(): CloudClipboardAutoReceive {
+    const cached: CloudClipboardAutoReceive | undefined = this.cloudClipboardAutoReceive;
+    if (cached !== undefined) return cached;
+    const made: CloudClipboardAutoReceive = new CloudClipboardAutoReceive({
+      visible: (): boolean => this.cloudClipboardVisible(),
+      readAllowed: (): Promise<boolean> => this.canReadClipboard(),
+      list: (): Promise<CloudClipboardBoundListing | null> => this.cloudClipboardItems(),
+      matches: (binding: string): boolean => this.cloudClipboard().matchesNow(binding),
+      read: (): Promise<string | null> => cloudClipboardSystemText(),
+      send: (text: string, binding: string): Promise<CloudClipboardSendOutcome> => this.sendToCloudClipboard(text, binding),
+      write: async (text: string): Promise<boolean> => (await this.copyText(text)) === null
+    });
+    this.cloudClipboardAutoReceive = made;
     return made;
   }
 
@@ -7684,7 +7770,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.changePreferences(changes)) {
       return false;
     }
-    this.useScheme(KeyboardScheme.engineSchemeOf(selected), selected.shuangpinProfile);
+    this.useScheme(KeyboardScheme.engineSchemeOf(selected), mapping.shuangpinProfile);
     KeyboardLog.info(`scheme fell back to ${selected.preferenceId}: `
       + `${applied.preferenceId} is no longer enabled`);
     return true;
@@ -7692,9 +7778,9 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   schemeChanges(candidate: SchemeDefinition): Map<string, Object> {
     const current: Record<string, Object> | undefined = this.loadPreferenceDocument();
-    const mapping: PreferenceMapping = KeyboardScheme.mapping(candidate,
+    const mapping: PreferenceMapping = KeyboardScheme.mappingForRuntimeSelection(null, candidate,
       current === undefined ? null : this.text(current['last_chinese_scheme']),
-      current === undefined ? null : this.text(current['shuangpin_profile']));
+      current === undefined ? null : this.text(current['shuangpin_profile'])) as PreferenceMapping;
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('scheme', mapping.scheme);
     changes.set('last_chinese_scheme', mapping.lastChineseScheme);

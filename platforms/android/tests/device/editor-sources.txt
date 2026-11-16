@@ -61,6 +61,7 @@ platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyEnglishDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyPanelDeviceSmoke.java
+platforms/android/tests/device/keyboard/NineKeyFlickDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyRecentSelectionDeviceChecks.java
 platforms/android/tests/device/keyboard/FourteenKeyDeviceSmoke.java
 platforms/android/tests/device/keyboard/EighteenKeyQuanpinDeviceChecks.java
@@ -227,6 +228,8 @@ platforms/android/tests/device/keyboard/SpaceCopyEditorActivity.java
 platforms/android/tests/device/keyboard/NineKeyNumericLayoutDeviceSmoke.java
 platforms/android/tests/device/keyboard/TallReturnDeviceChecks.java
 platforms/android/tests/device/keyboard/ToolbarEdgesDeviceSmoke.java
+platforms/android/tests/device/keyboard/ToolbarPinnedDeviceCheck.java
+platforms/android/tests/device/clipboard/ToolbarPinnedClipboardDeviceChecks.java
 platforms/android/tests/device/keyboard/ToolbarScrollDeviceSmoke.java
 platforms/android/tests/device/settings/ChatNavigationDeviceSmoke.java
 platforms/android/tests/device/keyboard/EmojiCombinationLayoutDeviceSmoke.java
@@ -302,8 +305,12 @@ platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceMascotDeviceChecks.java
 platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
-
+platforms/android/tests/device/clipboard/CloudClipboardReceiveDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardSelectionDeviceChecks.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
 platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
 platforms/android/tests/device/keyboard/AliyunTranslationDeviceChecks.java
+platforms/android/tests/device/settings/ShuangpinCustomDeviceChecks.java
+platforms/android/tests/device/community/CommunitySkinDownloadDeviceChecks.java
+platforms/android/tests/device/community/CommunitySkinDownloadTestProvider.java
+platforms/android/tests/device/keyboard/TranslationWindowDeviceChecks.java

@@ -36,6 +36,8 @@ msime_clipboard_swift_test(clipboard-monitor tests/clipboard/ClipboardMonitorTes
 msime_clipboard_swift_test(clipboard-continuous-copy tests/clipboard/ClipboardContinuousCopyTest.swift ${clipboard_monitor_sources})
 msime_clipboard_swift_test(clipboard-service tests/clipboard/ClipboardServiceTest.swift
   ${clipboard_monitor_sources} src/backend/clipboard/BackendClipboardService.swift)
+msime_clipboard_swift_test(clipboard-cloud-auto-policy tests/clipboard/CloudClipboardAutoReceivePolicyTest.swift
+  src/backend/clipboard/BackendCloudClipboardAutoReceivePolicy.swift)
 msime_clipboard_swift_test(clipboard-preview tests/emoji/EmojiClipboardPreviewTest.swift ${clipboard_row_sources})
 msime_clipboard_swift_test(clipboard-tooltip tests/emoji/EmojiClipboardTooltipTest.swift ${clipboard_row_sources})
 msime_clipboard_swift_test(clipboard-window-close tests/emoji/EmojiWindowCloseTest.swift src/backend/emoji/BackendEmojiWindowController.swift)
