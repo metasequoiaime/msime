@@ -10118,6 +10118,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updatePreferredKeyboardHeight() {
     let adjustedHeight = preferredKeyboardHeight + sharedKeyboardHeightAdjustment + keyboardFrame.bottomLift
     if keyboardHeightConstraint?.constant != adjustedHeight { keyboardHeightConstraint?.constant = adjustedHeight }
+    keyboardInputContainerView?.updatePreferredHeight(adjustedHeight)
   }
 
   /// 此刻键盘调整的哪些项生效（`KeyboardAdjustCapabilities`）：iPhone 横屏和 iPad 上的手机形态不抬高、不收窄；单手模式和分离式键盘不收窄。
