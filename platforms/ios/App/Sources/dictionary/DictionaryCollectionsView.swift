@@ -114,7 +114,8 @@ struct DictionaryCollectionsView: View {
       NavigationStack {
         Form {
           Picker("词库类型", selection: $importKind) {
-            ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0.bridgeName) }
+            // 分组协议的种类名是 PersonalWordKind 的原始值（快捷短语为 `quickPhrase`），不是旧词条接口的 bridgeName。
+            ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0.rawValue) }
           }
           .onChange(of: importKind) { importTarget = "" }
           Picker("文件格式", selection: $importFormat) {
@@ -124,9 +125,10 @@ struct DictionaryCollectionsView: View {
             Text("汉字词表").tag("hans")
             Text("搜狗细胞词库").tag("scel")
           }
+          .onChange(of: importFormat) { importTarget = "" }
           Picker("导入到", selection: $importTarget) {
             Text("新建分组").tag("")
-            ForEach((document?.collections ?? []).filter { $0.kind == importKind && $0.source.type != "community" }) {
+            ForEach((document?.collections ?? []).filter(acceptsImport)) {
               Text($0.name).tag($0.id)
             }
           }
@@ -151,6 +153,12 @@ struct DictionaryCollectionsView: View {
 
   private func changeSelected(enabled: Bool) {
     perform(["operation": "set_enabled_many", "ids": Array(selection), "enabled": enabled])
+  }
+
+  /// 与共享层 `import_text` 的来源规则一致：社区分组不收导入；细胞词库只能进新建分组或同为细胞词库导入的分组。
+  private func acceptsImport(_ collection: DictionaryCollectionsBridge.Collection) -> Bool {
+    guard collection.kind == importKind, collection.source.type != "community" else { return false }
+    return importFormat != "scel" || (collection.source.type == "import" && collection.source.format == "scel")
   }
 
   private func startImport() {

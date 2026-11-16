@@ -62,7 +62,13 @@ enum DictionaryCollectionsBridge {
           FileManager.default.fileExists(atPath: directory + "/DictionaryCollections/index.json") else { return false }
     let value = try request(["operation": "load"], options: options)
     if (value["outbox_pending"] as? Int ?? 0) > 0 { return true }
-    return try PersonalDictionaryStore().read().requests.contains { $0.status == .pending && $0.id.hasPrefix("collections-") }
+    return try personalQueue(preferencesDirectory: directory).read().requests
+      .contains { $0.status == .pending && $0.id.hasPrefix("collections-") }
+  }
+
+  /// Rust 把集合请求排进 `<preferences_directory>/PersonalDictionary/sync.json`；iOS 的 preferences_directory 是 `<AppGroup>/MSIME`，不是 `PersonalDictionaryStore()` 默认的 App Group 根目录，所以必须从同一个目录推出队列位置。
+  static func personalQueue(preferencesDirectory directory: String) -> PersonalDictionaryStore {
+    PersonalDictionaryStore(directory: URL(fileURLWithPath: directory, isDirectory: true))
   }
 
   static func synchronize(options: Data, budget: Int) throws -> Bool {

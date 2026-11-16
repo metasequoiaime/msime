@@ -76,7 +76,7 @@ final class LexiconGroupDialogs {
             naming.show();
         });
         for (var item : view.collections()) {
-            if (!"pinyin".equals(item.kind()) || "community".equals(item.sourceType())) continue;
+            if (!item.acceptsImport(format)) continue;
             choices.option(item.name(), false, () -> target.selected(item.id(), item.name()));
         }
         choices.show();

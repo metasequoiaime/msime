@@ -42,9 +42,15 @@ public final class DictionaryCollectionsStore {
         return pending <= 0 ? "" : "，还有 " + NumberPolicy.groupedCount(pending) + "等键盘同步";
     }
 
-    /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`。 */
+    /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`，导入词库带来源格式 `sourceFormat`（其余为空串）。 */
     public record Collection(String id, String name, String kind, String sourceType, String resourceId,
-                             boolean enabled, int entryCount, int pending) {}
+                             String sourceFormat, boolean enabled, int entryCount, int pending) {
+        /** 能否作为某个格式文件的导入目标，与共享层 `import_text` 的来源规则一致：只收拼音、不收社区词库；细胞词库只能进同为细胞词库导入的分组。 */
+        public boolean acceptsImport(String format) {
+            if (!"pinyin".equals(kind) || "community".equals(sourceType)) return false;
+            return !"scel".equals(format) || ("import".equals(sourceType) && "scel".equals(sourceFormat));
+        }
+    }
 
     /** 一次导入的结果。 */
     public record ImportReport(int imported, int duplicates, int failed, boolean truncated, String applicationNotice) {}
@@ -632,10 +638,12 @@ public final class DictionaryCollectionsStore {
                 String type = source == null ? "user" : JsonPolicy.strictString(source.opt("type"));
                 String resource = source == null || !source.has("resource_id")
                     ? "" : JsonPolicy.strictString(source.opt("resource_id"));
+                String sourceFormat = source == null || !"import".equals(type) || !source.has("format")
+                    ? "" : JsonPolicy.strictString(source.opt("format"));
                 if (id == null || name == null || kind == null || enabled == null
                         || entryCount == null || pending == null || type == null
-                        || resource == null) continue;
-                collections.add(new Collection(id, name, kind, type, resource, enabled,
+                        || resource == null || sourceFormat == null) continue;
+                collections.add(new Collection(id, name, kind, type, resource, sourceFormat, enabled,
                     entryCount, pending));
             }
         }

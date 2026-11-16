@@ -47,13 +47,24 @@ final class ClearLearningTests: XCTestCase {
     let items = try XCTUnwrap(groups["collections"] as? [[String: Any]])
     XCTAssertEqual(items.first?["name"] as? String, "合成分组")
     XCTAssertEqual(items.first?["enabled"] as? Bool, true)
-    let queued = try PersonalDictionaryStore(directory: stateRoot).read().requests
+    let directory = try XCTUnwrap(options["preferences_directory"] as? String)
+    let queued = try DictionaryCollectionsBridge.personalQueue(preferencesDirectory: directory).read().requests
+    XCTAssertTrue(try DictionaryCollectionsBridge.needsSynchronization(options: optionsData))
     XCTAssertTrue(queued.contains { $0.status == .pending && $0.replacement?.key == "msimegroup" })
     let cleared = try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(options: options, offset: 0))
     XCTAssertFalse(cleared.entries.contains { $0.key == "msimegroup" && $0.value == "合成分组词" })
     _ = try DictionaryCollectionsBridge.synchronize(options: optionsData, budget: 2000)
     let page = try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(options: options, offset: 0))
     XCTAssertTrue(page.entries.contains { $0.key == "msimegroup" && $0.value == "合成分组词" })
+  }
+
+  /// 生产环境的 preferences_directory 是 `<AppGroup>/MSIME`，键盘判断要不要同步分组时读的队列必须就在它下面，而不是 `PersonalDictionaryStore()` 默认的 App Group 根目录。
+  func testCollectionQueueLivesUnderThePreferencesDirectory() throws {
+    let directory = MetasequoiaInputSessionBridge.sharedStateDirectory
+    try XCTSkipIf(directory.isEmpty, "App Group unavailable")
+    let file = try XCTUnwrap(DictionaryCollectionsBridge.personalQueue(preferencesDirectory: directory).exportFile)
+    XCTAssertEqual(file.deletingLastPathComponent().standardizedFileURL.path,
+                   URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent("PersonalDictionary").standardizedFileURL.path)
   }
 
   func testCopyNamesWhatGoesAndWhatStays() {
