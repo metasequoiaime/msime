@@ -1021,6 +1021,7 @@ impl Session {
                             | CandidateSource::CloudPending
                             | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
+                        && !crate::local::date_time::is_date_time_menu_item(item)
                         && !candidate_answers::is_longer_pinyin_completion(item)
                         && input.selection_completes_composition(item)
                 })
