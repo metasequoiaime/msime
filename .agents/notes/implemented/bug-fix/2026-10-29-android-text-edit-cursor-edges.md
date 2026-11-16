@@ -15,7 +15,7 @@ Status: implemented
 
 ### 不往外发越界的方向键
 
-`TextCursorEdgePolicy.plan` 决定一批方向键里实际发几个，触控板（`ImeTextEditPanel.moveTrackpad`）、面板的 ←↑↓→（`perform`）和空格拖动（`ImeBottomRow.moveEditorCursor`，主空格、分离式键盘右半边的空格和底栏移光标条都经它）共用 `ImeTextEditPanel.cursorPlan` 这一个入口。被扣掉的步不发键、不震动，触控板手势照常继续。
+`TextCursorEdgePolicy.plan` 决定一批方向键里实际发几个，触控板（`ImeTextEditPanel.moveTrackpad`）、面板的 ←↑↓→（`perform`）、空格拖动（`ImeSpaceCursor.move`，包括分离式键盘右半边的空格）和底栏移光标条（`ImeBottomRow.moveEditorCursor`）共用 `ImeTextEditPanel.cursorPlan` 这一个入口。被扣掉的步不发键、不震动，手势照常继续。空格的反馈时机见[空格滑动逐步振动](../feature/2026-11-13-android-space-cursor-haptics.md)，底栏不增加反馈。
 
 - 每批发键前只读一次、只读要走的那一侧（`getTextBeforeCursor` / `getTextAfterCursor`，至少 256、至多 1024 个字符）。不在批内逐键回读：编辑器处理 IME 发来的按键是先排进自己主线程队列的（`ViewRootImpl.dispatchKeyFromIme`），紧跟着发出的同步回读会先于这个键被处理，读到的还是旧文字。
 - 横向最多走「那一侧的字素数」步；字素用 `BreakIterator.getCharacterInstance`，代理对、组合附加符只算一步。纵向最多走 `max(1, 那一侧的换行数)` 步：软换行只会让真实行数更多，按换行数不会多走；同一行里只发一下（光标先到行首或文档开头）。斜向同一侧时，纵向只按横向走剩下的文字算。

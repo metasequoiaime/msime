@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`StrokeKeyboardLayout.face` 只返回笔画符号，名称继续通过 `accessibilityLabel` 提供给读屏。主符号上限从 26sp 调为 22sp，在 14–22sp 间按键帽宽高适配单行文字，继续遵守键盘字体缩放上限。笔画左栏采用独立键帽，一屏三项，与三行网格对齐；显式自定义符号仍可滚动。左右侧栏使用相同宽度权重，重输字号与九键一致，句点键面跟随中文标点设置。
+`StrokeKeyboardLayout.face` 只返回笔画符号，名称继续通过 `accessibilityLabel` 提供给读屏。主符号上限从 26sp 调为 22sp，在 14–22sp 间按键帽宽高适配单行文字，继续遵守键盘字体缩放上限。笔画左栏采用独立键帽（已由[九键左列连续底轨](2026-11-12-android-nine-key-shuangpin-three-rows.md)改回整条底轨），一屏三项，与三行网格对齐；显式自定义符号仍可滚动。左右侧栏使用相同宽度权重，重输字号与九键一致，句点键面跟随中文标点设置。
 
 ## Alternatives considered
 

@@ -30,5 +30,5 @@ macOS IMK 宿主按 Linux 同一条契约转换：
 ## Consequences
 
 - **收益**：macOS 繁体输出可以选臺灣字形；已写入的 `s2tw` 在升级后立刻生效，「吃」「裡面」不再被 `s2t` 换成「喫」「裏面」。`s2twp` 才会把「软件」换成「軟體」。
-- **代价**：臺灣变体比 `s2t` 多一次分段和一遍扫描，与 Linux 相同。Windows、iOS、Android、HarmonyOS 仍按 `s2t`。
+- **代价**：臺灣变体比 `s2t` 多一次分段和一遍扫描，与 Linux 相同。Android 已通过[自己的宿主接入](2026-11-12-android-traditional-chinese-variants.md)使用变体；Windows、iOS、HarmonyOS 仍按 `s2t`。
 - **重访信号**：其余平台接入时只打开能力位并改各自转换调用；不要在 macOS 上再加一份变体换算。

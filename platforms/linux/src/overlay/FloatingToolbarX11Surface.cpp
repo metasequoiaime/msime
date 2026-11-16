@@ -189,6 +189,14 @@ void FloatingToolbarX11Surface::handle_toolbar(const XEvent &event) {
     const auto hit = floating_toolbar_hit(layout_, event.xbutton.x / scale_, event.xbutton.y / scale_);
     if (event.xbutton.button == Button1) {
       if (hit.handle) {
+        // 拖动时指针通常会离开工具栏。没有主动抓取，XWayland 只把窗口内的
+        // MotionNotify 送回来，松开也可能落到下面的应用，Wayland 会话里拖动
+        // 看起来就像完全没有生效。
+        const int grab = XGrabPointer(display_, toolbar_->id(), False,
+                                      ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                                      GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+        if (grab != GrabSuccess) break;
+        pointer_grabbed_ = true;
         dragging_ = true;
         dragged_ = false;
         drag_pointer_x_ = event.xbutton.x_root;
@@ -215,6 +223,10 @@ void FloatingToolbarX11Surface::handle_toolbar(const XEvent &event) {
     if (callbacks_.interacted) callbacks_.interacted();
     if (dragging_) {
       dragging_ = false;
+      if (pointer_grabbed_) {
+        XUngrabPointer(display_, CurrentTime);
+        pointer_grabbed_ = false;
+      }
       if (dragged_ && callbacks_.moved) {
         const int margin = device(layout_.margin, scale_);
         callbacks_.moved({toolbar_->x() + margin, toolbar_->y() + margin});
@@ -353,6 +365,10 @@ void FloatingToolbarX11Surface::hide() {
   if (!toolbar_) return;
   close_menu();
   hide_tooltip();
+  if (pointer_grabbed_) {
+    XUngrabPointer(display_, CurrentTime);
+    pointer_grabbed_ = false;
+  }
   // 隐藏的窗口收不到离开事件，悬停中的按钮下次出现时不该还亮着，与 macOS 的 orderOut: 相同。
   hovered_.reset();
   pressed_.reset();

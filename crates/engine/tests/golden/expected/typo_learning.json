@@ -62,7 +62,7 @@
       "canonical_pinyin": "mei'guan'xi",
       "source": 8,
       "scheme": "quanpin",
-      "weight": 605,
+      "weight": 18605,
       "corrected_from": "meiganxi",
       "sentence_association": true,
       "sentence_words": [
@@ -255,6 +255,21 @@
     "candidate_count": 4,
     "candidates": [
      {
+      "word": "没关系",
+      "pinyin": "mei'gan'xi",
+      "canonical_pinyin": "mei'guan'xi",
+      "source": 8,
+      "scheme": "quanpin",
+      "weight": 43924,
+      "sentence_association": true,
+      "sentence_words": [
+       "没关系"
+      ],
+      "answers_key": true,
+      "corrected_from": "meiganxi",
+      "annotation": "meiganxi"
+     },
+     {
       "word": "没干系",
       "pinyin": "mei'gan'xi",
       "canonical_pinyin": "mei'gan'xi",
@@ -267,21 +282,6 @@
        "干",
        "系"
       ],
-      "answers_key": true
-     },
-     {
-      "word": "没关系",
-      "pinyin": "mei'gan'xi",
-      "canonical_pinyin": "mei'guan'xi",
-      "source": 8,
-      "scheme": "quanpin",
-      "weight": 28419,
-      "corrected_from": "meiganxi",
-      "sentence_association": true,
-      "sentence_words": [
-       "没关系"
-      ],
-      "annotation": "meiganxi",
       "answers_key": true
      },
      {

@@ -23,6 +23,8 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
+        # 阿里云翻译只在 Android 原生翻译设置页提供；packages/ui 不新增设置入口。
+        "aliyun_translation",
         # 嵌入式翻译只接三个桌面的原生入口；AGENTS.md 禁止向 React 新增设置，入口随同草稿 PR 接线。
         "local_translation",
         # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。

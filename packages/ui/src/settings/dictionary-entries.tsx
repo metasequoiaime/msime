@@ -23,6 +23,8 @@ export interface DictionaryPhraseForm {
 
 export interface DictionaryEntriesProps {
   kind: LocalDictionaryKind;
+  /** macOS 设置允许调整或删除随包快捷短语；其他共享宿主继续保持基础词库只读。 */
+  allowBundledActions?: boolean;
   entries: DictionaryEntry[];
   form: DictionaryPhraseForm | null;
   busy: boolean;
@@ -38,6 +40,7 @@ export interface DictionaryEntriesProps {
 /** 本地词条的单页编辑与查询结果。 */
 export function DictionaryEntries({
   kind,
+  allowBundledActions = false,
   entries,
   form,
   busy,
@@ -112,6 +115,7 @@ export function DictionaryEntries({
       )}
       <DictionaryEntryList
         kind={kind}
+        allowBundledActions={allowBundledActions}
         resource={false}
         entries={entries}
         busy={busy}
@@ -127,6 +131,7 @@ export function DictionaryEntries({
 /** 查询结果共用同一列表；资源类型即使来源标记异常也不出现写入操作。`resource` 由调用方说明：粤语既是个人词库也是资源词库，只看种类分不出来。 */
 export function DictionaryEntryList({
   kind,
+  allowBundledActions = false,
   resource,
   entries,
   busy,
@@ -136,6 +141,7 @@ export function DictionaryEntryList({
   onRemove,
 }: {
   kind: DictionaryLookupKind;
+  allowBundledActions?: boolean;
   resource: boolean;
   entries: DictionaryLookupEntry[];
   busy: boolean;
@@ -193,20 +199,23 @@ export function DictionaryEntryList({
                   {entry.source === "bundled" ? "内置" : "个人"}
                 </small>
                 <span className={settings.phraseEntryActions}>
-                  {entry.source !== "bundled" && onEdit && onRemove && (
-                    <>
-                      <ActionButton
-                        action={() => onEdit(entry as DictionaryEntry)}
-                        disabled={busy}
-                        label="编辑"
-                      />
-                      <ActionButton
-                        action={() => onRemove(entry as DictionaryEntry)}
-                        disabled={busy}
-                        label="删除"
-                      />
-                    </>
-                  )}
+                  {(entry.source !== "bundled" ||
+                    (allowBundledActions && kind === "quick_phrase")) &&
+                    onEdit &&
+                    onRemove && (
+                      <>
+                        <ActionButton
+                          action={() => onEdit(entry as DictionaryEntry)}
+                          disabled={busy}
+                          label={entry.source === "bundled" ? "调权重" : "编辑"}
+                        />
+                        <ActionButton
+                          action={() => onRemove(entry as DictionaryEntry)}
+                          disabled={busy}
+                          label="删除"
+                        />
+                      </>
+                    )}
                 </span>
               </>
             )}
