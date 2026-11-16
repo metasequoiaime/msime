@@ -25,4 +25,3 @@ Status: implemented
 ## Consequences
 
 正式版恢复一键自动提审，图标和版本特性由版本提交物控制，不再静默继承旧值。首次配置仍需在 AGC/secret 中维护截图、审核账号、VIP账号和备案信息；这些资料不全时，CI 应在提交前失败。Publishing API 的资料接口若发生权限或字段变化，会阻止提审但保留 GitHub release，可用恢复参数重试。
-

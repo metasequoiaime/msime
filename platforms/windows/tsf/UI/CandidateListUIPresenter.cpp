@@ -1,5 +1,6 @@
 #include "../../common/CandidateSources.h"
 #include "../HostServerSelection.h"
+#include "../CandidateNumberDispatch.h"
 #include "../../common/GameCompatProfile.h"
 #include "FanyDefines.h"
 #include "Globals.h"
@@ -449,7 +450,9 @@ HRESULT CMetasequoiaIME::_HandleCandidateWorker(TfEditCookie ec, _In_ ITfContext
             if (msime::tsf::ServerReplyDecidesSelection(reply->msg_type))
             {
                 const std::wstring serverReply(reply->candidate_string);
-                const HRESULT selected = _SelectHighlightedHostCandidate(ec, pContext, reply->msg_type, &serverReply);
+                const HRESULT selected = msime::tsf::CompleteServerCandidateSelection(reply->msg_type, S_OK, [&] {
+                    return _SelectHighlightedHostCandidate(ec, pContext, reply->msg_type, &serverReply);
+                });
                 // 宿主会话里找不到这个词（同形的不止一个、繁体输出下文字对不上）时，和空格一样写 Server 已经上屏的文字并丢掉宿主会话的组字：Server 的会话已经清空，什么都不写的话文档里少了这个词，两边的组字也从此分开。
                 if (selected == S_FALSE && reply->msg_type == Global::DataFromServerMsgType::Normal && !serverReply.empty())
                     return _CommitServerExactText(ec, pContext, serverReply);
@@ -642,20 +645,12 @@ HRESULT CMetasequoiaIME::_HandleCandidateSelectByNumber(TfEditCookie ec, _In_ IT
         // 宿主会话的真实一页按键的位置选，再由 _HandleCandidateWorker 向宿主会话选词；最小镜像只选第一项，上屏的候选来自 Server 的选词回复。
         const int iSelectAsNumber = _pCompositionProcessorEngine->GetCandidateListIndexRange()->GetIndex(
             uCode, wch, _pCandidateListUIPresenter->_HoldsEnginePage());
-        if (iSelectAsNumber == -1)
-        {
-            return S_FALSE;
-        }
-
-        if (_pCandidateListUIPresenter->_SetSelectionInPage(iSelectAsNumber))
-        {
-            return _HandleCandidateConvert(ec, pContext, requestId, prefetchedText);
-        }
-        // 宿主会话这一页没有这么多项，但选哪个词由 Server 那一页决定（它可能停在另一页上）：仍然读这个键的回复跟着选。以前在这里直接返回，回复没人读，Server 已经上屏或暂存了一段，宿主会话却原地不动。
-        if (requestId != FANY_IME_NO_REQUEST_ID && _pCandidateListUIPresenter->_HoldsEnginePage())
-        {
-            return _HandleCandidateWorker(ec, pContext, requestId, prefetchedText, /*localSlotSelected=*/false);
-        }
+        // 包括键位超出本地分页槽数的情形：请求既已发出，仍读取 Server 的选择或无动作回执。
+        return msime::tsf::DispatchCandidateNumber(iSelectAsNumber, _pCandidateListUIPresenter->_HoldsEnginePage(),
+            requestId != FANY_IME_NO_REQUEST_ID, S_FALSE,
+            [&](int slot) { return _pCandidateListUIPresenter->_SetSelectionInPage(slot); },
+            [&] { return _HandleCandidateConvert(ec, pContext, requestId, prefetchedText); },
+            [&] { return _HandleCandidateWorker(ec, pContext, requestId, prefetchedText, /*localSlotSelected=*/false); });
     }
 
     return S_FALSE;

@@ -7966,10 +7966,7 @@ struct KeyboardView {
   }
 
   /**
-   * Saves whatever the system clipboard holds now.
-   *
-   * Nothing is captured in the background. An input method that quietly recorded every copy would be
-   * collecting the user's text without being asked, so this happens only when the button is pressed.
+   * 显式保存当前正文；开启历史且已获系统权限时，键盘可见期间另由系统变化监听采集。
    */
   private captureClipboard(): void {
     if (!this.clipboardEnabled) {

@@ -23,6 +23,7 @@ mod online;
 pub mod options;
 mod plugin_commands;
 mod prediction;
+mod quick_phrase_entry;
 mod raw_commit;
 #[cfg(test)]
 mod tests;
