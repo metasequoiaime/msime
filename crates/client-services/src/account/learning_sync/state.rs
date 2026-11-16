@@ -166,6 +166,21 @@ impl StateStore {
         }
     }
 
+    /// 网络轮次跨进程串行，但不占用 Engine 的维护租约或进度文件的事务锁。
+    pub(crate) fn try_round(&self) -> Result<Option<file_lock::ScopedFileLock>, StateError> {
+        if !storage::create_directory_and_check(&self.directory)
+            .map_err(|_| StateError::Unavailable)?
+        {
+            return Err(StateError::Unavailable);
+        }
+        let directory = file_lock::open_private_directory(&self.directory)
+            .map_err(|_| StateError::Unavailable)?;
+        let file =
+            file_lock::open_private_lock_file_at(&directory, OsStr::new("learning-round.lock"))
+                .map_err(|_| StateError::Unavailable)?;
+        file_lock::ScopedFileLock::try_exclusive(file).map_err(|_| StateError::Unavailable)
+    }
+
     fn transaction<T>(
         &self,
         account: &str,

@@ -10,8 +10,11 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+mod round;
+
 #[derive(Default)]
 struct Server {
+    round: Option<round::RoundServer>,
     caller: Option<String>,
     key: Option<String>,
     devices: BTreeMap<String, Value>,
@@ -171,7 +174,7 @@ impl AccountApi for Api {
     }
     fn learning_blob(
         &self,
-        _: &BlobRequest<'_>,
+        request: &BlobRequest<'_>,
         token: &str,
     ) -> Result<BlobResponse, AccountError> {
         let mut server = self.server.lock().unwrap();
@@ -181,6 +184,14 @@ impl AccountApi for Api {
         } else {
             server.status_override.unwrap_or(200)
         };
+        if status == 200 && server.round.is_some() {
+            let result = round::handle(&mut server, request);
+            drop(server);
+            if let Some(after) = &self.after_request {
+                after();
+            }
+            return Ok(result);
+        }
         drop(server);
         if let Some(after) = &self.after_request {
             after();

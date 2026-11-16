@@ -16,7 +16,7 @@ struct BoundKeystore {
     keystore: String,
 }
 
-fn key_for_login(
+pub(super) fn key_for_login(
     stored: Option<String>,
     login: &AccountLoginBinding,
 ) -> Result<Option<String>, AccountError> {
