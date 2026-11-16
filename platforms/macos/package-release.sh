@@ -334,7 +334,7 @@ for target in "${rust_targets[@]}"; do
   printf '%s\n' "$ort_library_sha" > "$ort_stamp"
 done
 MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp -- -p msime-host-api -p msime-mcp-server --features msime-host-api/onnx-rerank,msime-host-api/local-translation
+  cargo_universal "$universal_dir" libmsime_host_api.a msime-mcp msime-system-updater -- -p msime-host-api -p msime-mcp-server -p msime-macos-system-updater --features msime-host-api/onnx-rerank,msime-host-api/local-translation
 # MSIME_HOST_LIBRARY is explicit: the CMake default is target/debug, which would link the debug Rust library into a Release bundle.
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
   -DMSIME_RELEASE_CRASH_SYMBOLS=ON \
@@ -378,6 +378,8 @@ fi
 # ---- MCP server ----
 # 已随 host 库编好（见上面的 cargo_universal）。
 strip_executable "$universal_dir/msime-mcp" --dsym "$universal_dir/msime-mcp.dSYM"
+# 系统目录输入法的 root 更新助手（crates/macos-system-updater），和 msime-mcp 一起随上面的 cargo_universal 编好。
+strip_executable "$universal_dir/msime-system-updater" --dsym "$universal_dir/msime-system-updater.dSYM"
 
 # 背单词的内置词书：要求带上时在编译之前就查，缺了不白编一遍。stage-resources.sh 把它们暂存到 target/macos/wordbooks，下面拷进设置应用的 Contents/Resources/wordbooks，即 EngineResources 的同级，设置应用按 resource_dir 读这里。
 wordbook_ids="$(python3 -c 'import json, sys; print(" ".join(book["id"] for book in json.load(open(sys.argv[1], encoding="utf-8"))["books"]))' resources/wordbook.lock.json)"
@@ -544,6 +546,10 @@ python3 platforms/macos/scripts/settings_updater.py --app "$app" --input-method 
 # A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
 ditto "$universal_dir/msime-mcp" "$app/Contents/MacOS/msime-mcp"
 sign "$app/Contents/MacOS/msime-mcp"
+# 更新助手和它的 launchd 任务只是随设置应用分发：设置应用在管理员授权的系统安装里把它们装到 /Library/PrivilegedHelperTools 和 /Library/LaunchDaemons（macos_input_source.rs 的 SYSTEM_INSTALL_SCRIPT），安装包自己不往那两个目录写东西。助手不带任何 entitlement。
+ditto "$universal_dir/msime-system-updater" "$app/Contents/MacOS/msime-system-updater"
+sign "$app/Contents/MacOS/msime-system-updater"
+ditto platforms/macos/resources/system-updater/app.msime.system-updater.plist "$app/Contents/Resources/app.msime.system-updater.plist"
 if [ -d "$glosses" ]; then
   ditto "$glosses" "$app/Contents/Resources/offline-glosses"
 fi
@@ -614,6 +620,9 @@ check_app() {
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
   test -x "$root/Contents/MacOS/msime-mcp"
   codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
+  test -x "$root/Contents/MacOS/msime-system-updater"
+  codesign --verify --strict "$root/Contents/MacOS/msime-system-updater"
+  plutil -lint "$resources_dir/app.msime.system-updater.plist" >/dev/null
   if [ "$offline_glosses" != true ]; then
     test ! -e "$resources_dir/offline-glosses"
   elif [ -d "$glosses" ]; then
@@ -699,7 +708,7 @@ check_app() {
   # 每个发布的可执行文件都在签名之前剥离（`strip_executable`），`strip -x` 之后任何架构里都不应再有局部符号（nm 类型 t、d、b、s）。不能拿调试映射（OSO stabs）来判断：Cargo 的 release profile 本来就去掉了 msime-mcp 和设置应用的调试信息，但没人剥离时它们仍带着几万个局部符号。
   local executable input_method_executable architecture local_symbols
   input_method_executable="$nested/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$nested/Contents/Info.plist")"
-  for executable in "$root/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$root/Contents/Info.plist")" "$root/Contents/MacOS/msime-mcp" "$input_method_executable" "$nested/Contents/MacOS/msime-voice-local"; do
+  for executable in "$root/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$root/Contents/Info.plist")" "$root/Contents/MacOS/msime-mcp" "$root/Contents/MacOS/msime-system-updater" "$input_method_executable" "$nested/Contents/MacOS/msime-voice-local"; do
     for architecture in "${architectures[@]}"; do
       local_symbols="$(nm -a -arch "$architecture" "$executable" | awk '$2 ~ /^[tdbs]$/' | wc -l | tr -d ' ')"
       test "$local_symbols" -eq 0 || {

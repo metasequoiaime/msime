@@ -7,6 +7,10 @@ if(MSIME_RELEASE_CRASH_SYMBOLS)
   add_compile_options("$<$<CONFIG:Release>:-gline-tables-only>")
 endif()
 enable_testing()
+add_executable(client-keyboard-layout-test tests/input/ClientKeyboardLayoutTest.mm)
+target_compile_options(client-keyboard-layout-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(client-keyboard-layout-test PRIVATE "-framework Foundation" "-framework Carbon" "-framework InputMethodKit")
+add_test(NAME client-keyboard-layout COMMAND client-keyboard-layout-test)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/backend" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/cloud" "${CMAKE_CURRENT_SOURCE_DIR}/src/dictionary" "${CMAKE_CURRENT_SOURCE_DIR}/src/settings" "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 add_executable(desktop-input-session-test tests/input/DesktopInputSessionTest.mm src/core/DesktopInputSession.mm)
 target_compile_options(desktop-input-session-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
@@ -1734,8 +1738,8 @@ foreach(msime_test IN LISTS msime_tests)
   endif()
 endforeach()
 
-# 控制器测试直接包含 InputController.mm，适配器随它们共用的 apple-client 链接。
-target_sources(apple-client PRIVATE src/cloud/EmbeddedTranslationBatch.mm src/translation/LocalTranslationWindow.mm)
+# 控制器测试直接包含 InputController.mm，适配器及分组窗口的有界文件读取随共用的 apple-client 链接。
+target_sources(apple-client PRIVATE src/cloud/EmbeddedTranslationBatch.mm src/translation/LocalTranslationWindow.mm src/dictionary/DictionaryCollectionsWindow.mm src/core/BoundedFileReader.mm)
 
 include(../common/tests/embedded_translation.cmake)
 

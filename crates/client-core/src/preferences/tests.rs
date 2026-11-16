@@ -10592,6 +10592,29 @@ fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
     );
 }
 
+#[test]
+fn candidate_preedit_area_defaults_on_and_round_trips_independently_of_style() {
+    let mut value = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    value
+        .get_mut("preferences")
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap()
+        .remove("show_candidate_preedit_area");
+    let loaded: PreferencesSnapshot = serde_json::from_value(value).unwrap();
+    assert!(loaded.preferences.show_candidate_preedit_area);
+
+    let mut preferences = loaded.preferences;
+    preferences.candidate_preedit_style = CandidatePreeditStyle::Empty;
+    preferences.show_candidate_preedit_area = false;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert_eq!(
+        restored.candidate_preedit_style,
+        CandidatePreeditStyle::Empty
+    );
+    assert!(!restored.show_candidate_preedit_area);
+}
+
 /// 写一份 `{"format_version": 1, "revision": 5, "preferences": ...}` 到存储的文件，返回写下的字节。
 fn write_document(store: &PreferencesStore, preferences: serde_json::Value) -> Vec<u8> {
     let bytes = serde_json::to_vec_pretty(&serde_json::json!({

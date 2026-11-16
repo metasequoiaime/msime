@@ -69,9 +69,8 @@ public:
   /// AI 回答为空、失败或被拒时告诉 Host API；共享内核已经不放 AI 占位行，视图不变。
   std::optional<nlohmann::json>
   resolve_ai_candidates(const FocusLease &lease, const std::string &query);
-  /// Re-rank with the settled model; nothing when the order held or no model
-  /// is installed, which is the answer on every one-model installation.
-  std::optional<nlohmann::json> rerank_settled(const FocusLease &lease);
+  // 会话线程只启动、收取后台评分，pending 时由控制器在下一轮再推进。
+  SettledRerankResult rerank_settled(const FocusLease &lease);
   std::optional<nlohmann::json> apply_cloud_response(const FocusLease &lease,
                                                      const std::string &query,
                                                      const std::string &body);

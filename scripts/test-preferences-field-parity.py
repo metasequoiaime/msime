@@ -56,6 +56,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "cantonese_simplified_output",
         # 14/18 键字母键宽度（#11051）先只在 Android 原生「按键布局」页提供；packages/ui 只修缺陷、不加新设置，iOS 与鸿蒙随各自的原生设置页接入。
         "touch_fourteen_key_letter_widths",
+        # WebDAV 设置同步连接属于本机凭据配置；原生设置页尚未在六端开放，packages/ui 迁移期不新增设置入口。
+        "settings_sync_webdav",
 
     },
     "KeybindingPreferences": set(),

@@ -96,8 +96,8 @@ public:
   std::optional<PendingReply> navigate(const FocusLease &lease,
                                        const FanyImeNamedpipeData &packet,
                                        const NavigationBindings &bindings);
-  /// Re-rank with the settled model once the host reports typing has stopped.
-  std::optional<nlohmann::json> rerank_settled(const FocusLease &lease);
+  // 只在回复送达后推进后台重排，旧租约不发布结果。
+  SettledRerankResult rerank_settled(const FocusLease &lease);
   std::optional<nlohmann::json>
   apply_cloud_response(const FocusLease &lease, const std::string &query,
                        const std::string &body);

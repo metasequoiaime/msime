@@ -156,6 +156,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_poll_settled_rerank(_handle, token, accept), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
 }
+- (NSDictionary *)finishPauseRerankWithError:(NSError **)error {
+    id value = decodeValue(msime_client_finish_pause_rerank(_handle), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
 - (NSDictionary *)onlineQueryWithError:(NSError **)error {
     id value = decodeValue(msime_client_online_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;
