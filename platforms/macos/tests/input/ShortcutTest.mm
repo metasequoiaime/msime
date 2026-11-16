@@ -8952,6 +8952,28 @@ static void TestInputSourceModeReset() {
     monitoredSource = nil;
 }
 
+// 输入源通知可能早于或替代 IMK 的 deactivateServer:；切出时必须结束 Engine 上下文，切回首键再重新聚焦。
+static void TestInputSourceSwitchResetsFocusedSession() {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    [controller setValue:@NO forKey:@"focusPending"];
+    MSIMEFocusedController = controller;
+
+    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
+
+    assert(session.focusCalls == 1);
+    assert([session.calls isEqualToArray:@[ @"focus:0" ]]);
+    assert([(NSNumber *)[controller valueForKey:@"focusPending"] boolValue]);
+    NSDictionary *view = [controller valueForKey:@"view"];
+    assert(![view[@"focused"] boolValue]);
+
+    MSIMEFocusedController = nil;
+}
+
 // 系统输入源切换通知先于旧会话清理到达：正在组的字母必须原样上屏，不能被随后重置丢掉。
 static void TestRawCompositionCommitsBeforeInputSourceSwitch() {
     NSString *suite = [@"msime.source-switch-raw." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -8970,6 +8992,14 @@ static void TestRawCompositionCommitsBeforeInputSourceSwitch() {
     MSIMECommitRawCompositionBeforeInputSourceSwitch();
     assert(session.rawCommitCalls == 1 && [client.committed isEqualToString:@"msime"]);
     assert(![[controller valueForKey:@"view"][@"editing_text"] length]);
+    // 同一切出通知先交付原文，再失焦；结束上下文不能吞掉原文或重复提交。
+    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
+    assert(([session.calls isEqualToArray:@[
+        [NSString stringWithFormat:@"command:%u", MSIME_COMMIT_RAW], @"focus:0"
+    ]]));
+    assert([(NSNumber *)[controller valueForKey:@"focusPending"] boolValue]);
+    MSIMECommitRawCompositionBeforeInputSourceSwitch();
+    assert(session.rawCommitCalls == 1 && [client.committed isEqualToString:@"msime"]);
     MSIMEFocusedController = nil;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -17530,6 +17560,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestInputSourceSwitchResetsFocusedSession(); }
         @autoreleasepool { TestRawCompositionCommitsBeforeInputSourceSwitch(); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }

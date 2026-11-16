@@ -1,4 +1,5 @@
 #import "../../src/core/UpdateController.h"
+#import "../../src/core/SystemUpdateStaging.h"
 
 #import <AppKit/AppKit.h>
 
@@ -320,6 +321,68 @@ int main()
         // 启动时带着偏好取共享控制器：已经存在时就是同一个控制器，只是换上偏好里的通道。
         MSIMEUpdateController *sameShared = [MSIMEUpdateController sharedControllerWithUpdateChannelPreference:@"beta"];
         assert(sameShared == shared && [shared.updateChannel isEqualToString:@"beta"]);
+    }
+    @autoreleasepool
+    {
+        // 只有系统目录里的安装要绕开自己换不了自己这件事。
+        assert(MSIMEUpdateHostIsSystemInstall(@"/Library/Input Methods/水杉输入法.app"));
+        assert(MSIMEUpdateHostIsSystemInstall(@"/Library/Input Methods/../Input Methods/水杉五笔.app"));
+        assert(!MSIMEUpdateHostIsSystemInstall(@"/Users/someone/Library/Input Methods/水杉输入法.app"));
+        assert(!MSIMEUpdateHostIsSystemInstall(@"/Library/Input Methods"));
+        assert(!MSIMEUpdateHostIsSystemInstall(nil));
+
+        // running、installed、staged、submitted：每次只做磁盘状态允许的那一步。
+        assert(MSIMESystemUpdateNextStep(10, 10, 10, 0) == MSIMESystemUpdateStepInstallIntoStaging);
+        assert(MSIMESystemUpdateNextStep(10, 10, 11, 0) == MSIMESystemUpdateStepSubmit);
+        // 同一个构建只提交一次，助手拒绝它时不反复拷两百多 MB。
+        assert(MSIMESystemUpdateNextStep(10, 10, 11, 11) == MSIMESystemUpdateStepInstallIntoStaging);
+        // 之后又下到更新的构建，照常提交。
+        assert(MSIMESystemUpdateNextStep(10, 10, 12, 11) == MSIMESystemUpdateStepSubmit);
+        // 助手换好了：退出让系统拉起新的，哪怕暂存副本又更新了一版。
+        assert(MSIMESystemUpdateNextStep(10, 11, 11, 11) == MSIMESystemUpdateStepRestart);
+        assert(MSIMESystemUpdateNextStep(10, 11, 12, 11) == MSIMESystemUpdateStepRestart);
+        // 暂存副本读不出构建号（缓存被清）时什么也不提交。
+        assert(MSIMESystemUpdateNextStep(10, 10, 0, 0) == MSIMESystemUpdateStepInstallIntoStaging);
+
+        NSFileManager *files = NSFileManager.defaultManager;
+        NSURL *root = [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:NSUUID.UUID.UUIDString isDirectory:YES];
+        void (^writeBundle)(NSURL *, NSString *) = ^(NSURL *bundle, NSString *build) {
+          NSURL *contents = [bundle URLByAppendingPathComponent:@"Contents" isDirectory:YES];
+          assert([files createDirectoryAtURL:contents withIntermediateDirectories:YES attributes:nil error:nil]);
+          NSDictionary *info = @{@"CFBundleIdentifier" : @"app.example.ime", @"CFBundleVersion" : build};
+          assert([info writeToURL:[contents URLByAppendingPathComponent:@"Info.plist"] error:nil]);
+        };
+        NSURL *installed = [root URLByAppendingPathComponent:@"Input Methods/Example.app" isDirectory:YES];
+        writeBundle(installed, @"10");
+        assert(MSIMEUpdateBundleBuildOnDisk(installed) == 10);
+        assert(MSIMEUpdateBundleBuildOnDisk([root URLByAppendingPathComponent:@"missing.app"]) == 0);
+
+        NSURL *staging = MSIMEUpdateStagingURL([root URLByAppendingPathComponent:@"Caches" isDirectory:YES], @"app.example.ime", @"Example.app");
+        assert([staging.path hasSuffix:@"/Caches/app.example.ime/system-update/Example.app"]);
+        // 没有暂存副本时从已装的那份拷一份。
+        assert(MSIMEUpdatePrepareStaging(files, installed, staging));
+        assert(MSIMEUpdateBundleBuildOnDisk(staging) == 10);
+        // Sparkle 已经把暂存副本更新了、还没换进系统目录：重新启动时不能拿旧的盖掉它。
+        writeBundle(staging, @"11");
+        assert(MSIMEUpdatePrepareStaging(files, installed, staging));
+        assert(MSIMEUpdateBundleBuildOnDisk(staging) == 11);
+        // 系统目录里的那份被别的途径换成了更新的（管理员修复）：暂存副本落后了，重新拷。
+        writeBundle(installed, @"12");
+        assert(MSIMEUpdatePrepareStaging(files, installed, staging));
+        assert(MSIMEUpdateBundleBuildOnDisk(staging) == 12);
+        // 已装的那份读不出构建号时不动暂存副本。
+        assert(!MSIMEUpdatePrepareStaging(files, [root URLByAppendingPathComponent:@"missing.app"], staging));
+        assert(MSIMEUpdateBundleBuildOnDisk(staging) == 12);
+
+        NSURL *inbox = [root URLByAppendingPathComponent:@"inbox" isDirectory:YES];
+        // 收件目录不存在：更新助手没装。
+        assert(!MSIMEUpdateSubmitToSystemUpdater(files, staging, inbox, @"1-12.app"));
+        assert([files createDirectoryAtURL:inbox withIntermediateDirectories:YES attributes:nil error:nil]);
+        assert(MSIMEUpdateSubmitToSystemUpdater(files, staging, inbox, @"1-12.app"));
+        // 只留下最终名字的那一份：点开头的条目助手不处理。
+        assert([[files contentsOfDirectoryAtPath:inbox.path error:nil] isEqualToArray:@[@"1-12.app"]]);
+        assert(MSIMEUpdateBundleBuildOnDisk([inbox URLByAppendingPathComponent:@"1-12.app"]) == 12);
+        [files removeItemAtURL:root error:nil];
     }
     std::puts("macOS update controller passed.");
     return 0;

@@ -5,6 +5,9 @@ use crate::cloud::clipboard_e2e::{HttpRequest, HttpResponse};
 use serde_json::json;
 use std::collections::BTreeMap;
 
+#[path = "clipboard_binding_tests.rs"]
+mod login_binding;
+
 fn token(byte: u8) -> String {
     std::iter::repeat_n(char::from(byte), 64).collect()
 }
