@@ -4232,37 +4232,35 @@ void underline_preedit(IBusText *text, guint length) {
                              IBUS_ATTR_UNDERLINE_SINGLE, 0,
                              static_cast<gint>(length));
 }
-// 候选页上方的辅助行：页码、候选预编辑显示拼音时的拼音、本地模式、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
+// 候选页上方的辅助行：候选预编辑显示拼音时的拼音、本地模式、光标后编辑生效时的「候选编辑：光标后」、打字连击（有的时候），页码排在最后。GNOME Shell 和 IBus 面板把这一行左对齐画成一个标签，页码放在最前面会挡在拼音前头；macOS 首行把「1 / 3」靠右画在拼音后面，这里照那个顺序排。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
-  auto paging = msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
-                                                            view.at("page_count").get<size_t>());
-  if (!state(engine).show_candidate_page_number) paging.clear();
+  std::string aux;
+  const auto append = [&aux](const std::string &part) {
+    if (part.empty()) return;
+    if (!aux.empty()) aux += "  · ";
+    aux += part;
+  };
   if (state(engine).candidate_preedit_style == "pinyin") {
     const auto candidate_preedit = view.value("preedit", std::string{});
     if (!candidate_preedit.empty()) {
-      if (!paging.empty()) paging += "  · ";
       const auto editing_text = view.value("editing_text", std::string{});
       const auto caret = view.value("caret_position", editing_text.size());
       const auto preedit_caret = view.find("preedit_caret");
-      paging += msime::linux_host::candidate_preedit_with_caret(
+      append(msime::linux_host::candidate_preedit_with_caret(
           candidate_preedit, editing_text, caret,
           preedit_caret != view.end() && preedit_caret->is_number_unsigned()
               ? std::optional<std::size_t>(preedit_caret->get<std::size_t>())
-              : std::nullopt);
+              : std::nullopt));
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();
-  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) {
-    if (!paging.empty()) paging += "  · ";
-    paging += label;
-  }
-  msime::linux_host::append_caret_edit_suffix_hint(paging, msime::linux_host::caret_edit_suffix(view), "  · ");
-  const auto combo = msime::linux_host::typing_combo_label(state(engine).typing_combo);
-  if (!combo.empty()) {
-    if (!paging.empty()) paging += "  · ";
-    paging += combo;
-  }
-  return paging;
+  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) append(label);
+  msime::linux_host::append_caret_edit_suffix_hint(aux, msime::linux_host::caret_edit_suffix(view), "  · ");
+  append(msime::linux_host::typing_combo_label(state(engine).typing_combo));
+  if (state(engine).show_candidate_page_number)
+    append(msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
+                                                        view.at("page_count").get<size_t>()));
+  return aux;
 }
 // 语音浮层事件源所属的引擎及其存活标记：比引擎活得久的事件源看到标记已清除，就移除自己，不碰已释放的状态。
 struct WaveOverlaySource {

@@ -1522,6 +1522,16 @@ int main(int argc, char **argv) {
       visibility["preferences"]["show_candidate_page_number"] = true;
       compose();
       require(seen.auxiliary.rfind("1 / ", 0) == 0, "Re-enabled page indicator missing");
+      // GNOME Shell draws the auxiliary line as one left-aligned label: the reading leads and the page indicator trails it, as on macOS's first row.
+      visibility["preferences"]["candidate_preedit_style"] = "pinyin";
+      compose();
+      {
+        const auto reading = seen.auxiliary.find("ni");
+        const auto indicator = seen.auxiliary.rfind("  · 1 / ");
+        require(reading != std::string::npos && indicator != std::string::npos && reading < indicator &&
+                    seen.auxiliary.find('/', indicator + 8) == std::string::npos && seen.auxiliary_visible,
+                "Page indicator did not trail the reading");
+      }
       visibility["preferences"]["show_candidate_page_number"] = false;
       visibility["preferences"]["candidate_preedit_style"] = "pinyin";
       compose();
