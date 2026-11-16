@@ -44,7 +44,8 @@ public:
       std::chrono::milliseconds interval = std::chrono::milliseconds(100),
       std::string preferences_directory = {},
       SessionPump::Presentation presentation = {},
-      PreferenceMonitor::Published published = {});
+      PreferenceMonitor::Published published = {},
+      std::shared_ptr<std::atomic<bool>> candidate_cloud_badge = {});
   ~SessionController();
   SessionController(const SessionController &) = delete;
   SessionController &operator=(const SessionController &) = delete;
