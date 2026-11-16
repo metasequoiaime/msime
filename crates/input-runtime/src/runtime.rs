@@ -1317,6 +1317,8 @@ impl<E: InputEngine> Runtime<E> {
         }
         self.deferred_mounted = None;
         self.deferred_scorer = scorer.map(DeferredScorer::new);
+        // 联想候选池跟着给联想排序的打分器走，延后的那一个也算（`orders_prediction`）。
+        self.engine.set_prediction_pool(self.orders_prediction());
     }
 
     /// 是否挂着延后到停顿的打分器（[`Self::set_deferred_scorer`]），宿主的停顿调用据此走 [`Self::settle_deferred_scorer`]。
@@ -3352,10 +3354,20 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
+    ///
+    /// 延后到停顿的打分器（[`Self::set_deferred_scorer`]）也算：它只是不在每个字母键上跑，上屏时排一池联想仍是一次性的开销。不算的话，桌面把模型延后之后上屏后联想就不再按模型排，比挂在按键上时差。手机上延后的那一档只做过挂不挂的自测、不报在预算之内，照旧不排。
     fn orders_prediction(&self) -> bool {
-        self.reranker
-            .as_deref()
+        self.prediction_scorer()
             .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
+    }
+
+    /// 给上屏后联想排序的打分器：按键上挂着的那一个，没有时是延后到停顿的那一个。
+    fn prediction_scorer(&self) -> Option<&dyn CandidateScorer> {
+        self.reranker.as_deref().or_else(|| {
+            self.deferred_scorer
+                .as_ref()
+                .map(|deferred| deferred.scorer.as_ref())
+        })
     }
 
     /// 交给引擎拼整句时给前缀打分的模型：挂着的逐键打分器给出的那一份（[`CandidateScorer::sentence_scorer`]），没挂或它不给时为 `None`。
@@ -3381,8 +3393,10 @@ impl<E: InputEngine> Runtime<E> {
         if !self.orders_prediction() {
             return;
         }
-        let Some(scorer) = self.reranker.as_mut() else {
-            return;
+        let scorer = match (self.reranker.as_mut(), self.deferred_scorer.as_mut()) {
+            (Some(scorer), _) => scorer,
+            (None, Some(deferred)) => &mut deferred.scorer,
+            (None, None) => return,
         };
         let before = if self.phrase_prefix.is_empty() {
             std::borrow::Cow::Borrowed(self.ai_context.as_str())

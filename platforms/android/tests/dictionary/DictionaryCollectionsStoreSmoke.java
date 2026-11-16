@@ -77,11 +77,17 @@ public final class DictionaryCollectionsStoreSmoke {
         check(DictionaryCollectionsStore.importSources(List.of()).isEmpty());
 
         DictionaryCollectionsStore.View view = new DictionaryCollectionsStore.View(List.of(
-            new DictionaryCollectionsStore.Collection("c1", "网络流行语", "pinyin", "community", "r1", true, 10, 0),
-            new DictionaryCollectionsStore.Collection("c2", "工作", "pinyin", "user", "", false, 0, 0)),
+            new DictionaryCollectionsStore.Collection("c1", "网络流行语", "pinyin", "community", "r1", "", true, 10, 0),
+            new DictionaryCollectionsStore.Collection("c2", "工作", "pinyin", "user", "", "", false, 0, 0)),
             List.of("txt"), 0, null);
         check(view.installed("r1") && !view.installed("r2"));
         check(view.find("c2").name().equals("工作") && view.find("c3") == null);
+        // 细胞词库只能导进同为细胞词库导入的分组；自建或其他格式导入的分组只收文本格式，社区词库都不收。
+        var rimeImport = new DictionaryCollectionsStore.Collection("c4", "Rime", "pinyin", "import", "", "rime", true, 1, 0);
+        var scelImport = new DictionaryCollectionsStore.Collection("c5", "搜狗", "pinyin", "import", "", "scel", true, 1, 0);
+        check(view.find("c2").acceptsImport("txt") && !view.find("c2").acceptsImport("scel"));
+        check(rimeImport.acceptsImport("rime") && !rimeImport.acceptsImport("scel"));
+        check(scelImport.acceptsImport("scel") && !view.find("c1").acceptsImport("txt"));
 
         check(DictionaryCollectionsStore.failureMessage("builtin_locked").contains("内置"));
         check(DictionaryCollectionsStore.failureMessage("import_malformed").equals("文件不完整或已损坏，请重新下载。"));
