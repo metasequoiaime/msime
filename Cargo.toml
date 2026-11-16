@@ -82,9 +82,9 @@ opt-level = 3
 [profile.dev.package.serde_json]
 opt-level = 3
 
-# 系统编辑器的小栈要留给 TSF 调用链；优化宿主 ABI 中泛型反序列化产生的栈临时值。
+# 系统编辑器的小栈要留给 TSF 调用链；充分优化宿主 ABI 中泛型反序列化产生的栈临时值。
 [profile.dev.package.msime-host-api]
-opt-level = 1
+opt-level = 3
 
 # The key-sound mixer renders in the audio callback and decodes music as it plays, so an unoptimised build glitches audibly; kira's documentation asks for these. Local macOS installs are dev builds (above).
 [profile.dev.package.kira]
