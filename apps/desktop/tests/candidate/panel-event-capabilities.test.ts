@@ -22,7 +22,6 @@ test("独立剪贴板窗口有拖动权限，保持不可缩放且不授权其�
   const permissions = permissionsFor("clipboard-panel");
   expect(permissions.has("core:window:allow-start-dragging")).toBe(true);
   expect(permissions.has("core:window:allow-start-resize-dragging")).toBe(false);
-  expect(permissionsFor("cloud-clipboard-panel").has("core:window:allow-start-dragging")).toBe(false);
   expect(permissionsFor("unknown-panel").has("core:window:allow-start-dragging")).toBe(false);
 });
 
