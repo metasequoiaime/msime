@@ -63,6 +63,7 @@ export function DeveloperSettingsPage() {
         installInputSource={showInstallInputSource ? client.installInputSource : undefined}
         onRepairFinished={refreshInputSourceStartup}
         userOnlyInstall={inputSourceInstalledForUserOnly(inputSourceStartup)}
+        migrateToSystem={client.migrateInputSourceToSystem}
       />
       <DiagnosticLogsSection
         visible={!client.host || linuxPlatform || windowsPlatform || macosPlatform}

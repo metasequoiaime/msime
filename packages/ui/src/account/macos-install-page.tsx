@@ -127,9 +127,6 @@ export function MacosInstallPage({
         <p className="mt-2 mb-0 text-[13px] text-secondary">适用于 macOS 13 及以上版本</p>
       )}
       <div className="mt-11 flex w-[260px] flex-col items-stretch">
-        {(phase === "ready" || result?.action === "failed" || result?.action === "cancelled") && (
-          <p className="mt-0 mb-3 text-center text-[12px] text-secondary">安装需要管理员密码</p>
-        )}
         {phase === "installing" ? (
           <div
             role="progressbar"

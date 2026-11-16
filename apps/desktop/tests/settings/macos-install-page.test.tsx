@@ -108,11 +108,10 @@ test("an install the session cannot see yet says a login comes first", async () 
 });
 
 // macOS 只把 /Library/Input Methods 里的第三方输入法算作安全输入源，装在用户目录的那份在安全输入期间会变灰，所以不提供只装给当前用户的选项。
-test("首次安装不提供安装范围的选择，并事先说明需要管理员密码", () => {
+test("首次安装不提供安装范围的选择", () => {
   const install = vi.fn(async () => status({}));
   render(<MacosInstallPage client={{ install }} onComplete={vi.fn()} />);
   expect(screen.queryByRole("checkbox")).toBeNull();
-  expect(screen.getByText("安装需要管理员密码")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "立即安装" }));
   expect(install).toHaveBeenCalledWith();
 });

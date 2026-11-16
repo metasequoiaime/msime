@@ -2785,6 +2785,27 @@ async fn install_input_source(
     })?
 }
 
+/// 设置页「迁移到系统目录」：经一次管理员授权把用户目录里的输入法换成系统目录里的一份，结果和修复一样写回启动检查状态。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn migrate_input_source_to_system(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<InputSourceStartupState>>,
+) -> Result<(), HostActionError> {
+    let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let state = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = macos_input_source::migrate_to_system(&resource_directory);
+        finish_input_source_repair(&state, &resource_directory, result)
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
 /// 「修复输入源」只在真正装坏时报失败：不是打包运行、没有随附的输入源（`SourceUnavailable`）时没有可装的，bundle 已经留在原处只等登记（`RegistrationPending`）时下一步的重新登记正好接上，这两种都让修复接着去重新登记。
 #[cfg(target_os = "macos")]
 fn repair_install_result(
@@ -2889,10 +2910,18 @@ fn run_input_source_startup(
     resource_directory: &std::path::Path,
     defer_first_install: bool,
 ) -> Option<InputSourceStartupStatus> {
-    input_source_startup_result(
+    let mut status = input_source_startup_result(
         resource_directory,
         macos_input_source::ensure_current(resource_directory, defer_first_install),
-    )
+    )?;
+    // 输入法本身是最新的，但系统安装的更新助手没装或者旧了：它只在管理员授权的安装里更换，所以和系统副本待更新一样提示授权修复。
+    if status.action == "up_to_date"
+        && status.installation_scope == Some(macos_input_source::InstallationScope::System)
+        && macos_input_source::system_updater_outdated(resource_directory)
+    {
+        status.action = "authorization_required";
+    }
+    Some(status)
 }
 
 #[cfg(target_os = "macos")]
@@ -5615,6 +5644,8 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            migrate_input_source_to_system,
             #[cfg(target_os = "macos")]
             input_source_startup_status,
             #[cfg(target_os = "macos")]

@@ -837,6 +837,37 @@ fn install_unlocked(resource_directory: Option<&Path>, target: &Path) -> Result<
     result.map(|_| ())
 }
 
+/// 任务文件里记的助手版本（`EnvironmentVariables.MSIME_SYSTEM_UPDATER_VERSION`），读不出来时为 None。
+fn system_updater_version(job: &Path) -> Option<u64> {
+    plist_string(job, "EnvironmentVariables.MSIME_SYSTEM_UPDATER_VERSION")?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// 系统安装的更新助手是不是该换了：没装（早先的系统安装没有它）或者比设置应用随附的旧。助手自己只在管理员授权的安装里更换，所以这时要提示授权修复。不是打包运行、没有随附的助手时没有可换的，不算。
+fn system_updater_outdated_with(packaged_job: Option<&Path>, installed_job: &Path) -> bool {
+    let Some(packaged) = packaged_job.and_then(system_updater_version) else {
+        return false;
+    };
+    system_updater_version(installed_job).is_none_or(|installed| installed < packaged)
+}
+
+pub(crate) fn system_updater_outdated(resource_directory: &Path) -> bool {
+    let packaged = packaged_system_updater(resource_directory);
+    let tool_installed =
+        fs::symlink_metadata(SYSTEM_UPDATER_TOOL).is_ok_and(|metadata| metadata.is_file());
+    system_updater_outdated_with(
+        packaged.as_ref().map(|(_, job)| job.as_path()),
+        // 程序不在时任务文件说什么都不算数。
+        if tool_installed {
+            Path::new(SYSTEM_UPDATER_JOB)
+        } else {
+            Path::new("")
+        },
+    )
+}
+
 /// 把 `source` 交给更新助手：先用点开头的名字拷进收件目录，拷完再改名。助手不碰点开头的条目，所以它看到的总是一份拷完的 bundle。返回提交在收件目录里的路径。
 fn submit_to_system_updater(source: &Path, inbox: &Path) -> Result<PathBuf, InstallError> {
     validate_bundle(source)?;
@@ -1340,6 +1371,79 @@ pub(crate) fn first_install(
         install_with_authorization(installation_scope(&target), true, || {
             install_unlocked(Some(resource_directory), &target)
         })
+    })
+}
+
+/// 「迁移到系统目录」：把装在用户目录的输入法换成 `/Library/Input Methods` 里的一份，再移走用户副本。装在用户目录的输入法不算安全输入源，安全输入期间会被 macOS 停用；启用的输入源按 bundle 标识记在系统偏好里，标识没变，所以换位置之后不用重新添加，个人数据也不在 bundle 里。
+pub(crate) fn migrate_to_system(resource_directory: &Path) -> Result<RefreshOutcome, InstallError> {
+    if !is_packaged_resource_directory(resource_directory) {
+        return Err(InstallError::SourceUnavailable);
+    }
+    let _guard = install_lock();
+    let bundled = resource_directory.join(input_source_bundle_name());
+    let user = home_input_methods()?.join(input_source_bundle_name());
+    let system = Path::new(SYSTEM_INPUT_METHODS).join(input_source_bundle_name());
+    let updater = packaged_system_updater(resource_directory);
+    let outcome = migrate_to_system_with(
+        &bundled,
+        &user,
+        &system,
+        |source| install_system_bundle(source, &system, updater.as_ref()),
+        stop_running_copies,
+    )?;
+    // 用户副本移走之后再登记一次：安装时那次登记是在两份并存的情况下做的。
+    let registered = register_installed_bundle(&system);
+    stop_running_copies(&system);
+    refresh_system_input_source_lists();
+    if registered.is_err() {
+        return Err(InstallError::RegistrationPending);
+    }
+    Ok(outcome)
+}
+
+/// 迁移时装进系统目录的那一份：用户副本比设置应用随附的新（Sparkle 更新过它）而且完好时用它，否则用随附的。拿随附的旧版本去换会把用户悄悄退回旧版本。
+fn migration_source<'a>(bundled: &'a Path, user: &'a Path) -> &'a Path {
+    let newer = match (bundle_version(user), bundle_version(bundled)) {
+        (Some(installed), Some(bundled)) => installed > bundled,
+        _ => false,
+    };
+    if newer && validate_bundle(user).is_ok() {
+        user
+    } else {
+        bundled
+    }
+}
+
+/// The migration against explicit paths, with the privileged install and the process stop injected so tests never ask for authorization.
+fn migrate_to_system_with<I, S>(
+    bundled: &Path,
+    user: &Path,
+    system: &Path,
+    install: I,
+    stop: S,
+) -> Result<RefreshOutcome, InstallError>
+where
+    I: FnOnce(&Path) -> Result<(), InstallError>,
+    S: FnOnce(&Path),
+{
+    validate_bundle(bundled)?;
+    match fs::symlink_metadata(user) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+        // 没有用户副本就没有可迁移的；链接不是我们装的，不去动它指向的东西。
+        _ => return Err(InstallError::InvalidBundle),
+    }
+    match install(migration_source(bundled, user)) {
+        Ok(()) | Err(InstallError::RegistrationPending) => {}
+        Err(error) => return Err(error),
+    }
+    // 系统副本装好之后才动用户副本：授权被取消或安装失败时上面已经返回，原来的安装原样留着。
+    validate_bundle(system).map_err(|_| InstallError::InvalidBundle)?;
+    stop(user);
+    fs::remove_dir_all(user).map_err(|_| InstallError::Io)?;
+    Ok(RefreshOutcome {
+        refresh: Refresh::Install,
+        bundled: bundle_version(bundled),
+        installed: bundle_version(system),
     })
 }
 
@@ -2061,6 +2165,57 @@ mod tests {
         assert!(matches!(result, Err(InstallError::AuthorizationRequired)));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_updater_needs_replacing_when_it_is_missing_or_older_than_the_packaged_one() {
+        let root = tempdir().unwrap();
+        let job = |name: &str, version: &str| {
+            let path = root.path().join(name);
+            fs::write(
+                &path,
+                format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>Label</key><string>app.msime.system-updater</string><key>EnvironmentVariables</key><dict><key>MSIME_SYSTEM_UPDATER_VERSION</key><string>{version}</string></dict></dict></plist>\n"
+                ),
+            )
+            .unwrap();
+            path
+        };
+        let packaged = job("packaged.plist", "2");
+        assert_eq!(system_updater_version(&packaged), Some(2));
+        assert!(system_updater_outdated_with(
+            Some(&packaged),
+            &job("older.plist", "1")
+        ));
+        assert!(!system_updater_outdated_with(
+            Some(&packaged),
+            &job("same.plist", "2")
+        ));
+        // 已装的比随附的新：新版设置应用装过，又打开了留在别处的旧版，不往回换。
+        assert!(!system_updater_outdated_with(
+            Some(&packaged),
+            &job("newer.plist", "3")
+        ));
+        // 早先的系统安装没有助手。
+        assert!(system_updater_outdated_with(
+            Some(&packaged),
+            &root.path().join("missing.plist")
+        ));
+        // 开发构建不带助手，没有可换的。
+        assert!(!system_updater_outdated_with(
+            None,
+            &job("installed.plist", "1")
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_shipped_updater_job_declares_its_version() {
+        let job = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../platforms/macos/resources/system-updater/app.msime.system-updater.plist",
+        );
+        assert!(system_updater_version(&job).is_some_and(|version| version >= 1));
+    }
+
     #[test]
     fn the_packaged_updater_is_found_beside_the_app_executable_and_only_when_complete() {
         let root = tempdir().unwrap();
@@ -2076,6 +2231,126 @@ mod tests {
         let job = resources.join("app.msime.system-updater.plist");
         fs::write(&job, b"job").unwrap();
         assert_eq!(packaged_system_updater(&resources), Some((tool, job)));
+    }
+
+    /// 随附的和用户目录里的各放一份带版本的 bundle，返回 (随附, 用户, 系统) 的路径；系统目录是空的。
+    #[cfg(target_os = "macos")]
+    fn migration_fixture(
+        root: &Path,
+        bundled_build: &str,
+        user_build: &str,
+    ) -> (PathBuf, PathBuf, PathBuf) {
+        for directory in ["bundled", "user", "system"] {
+            fs::create_dir(root.join(directory)).unwrap();
+        }
+        let bundled = versioned_fixture(&root.join("bundled"), "0.60.0", bundled_build, b"bundled");
+        let user = versioned_fixture(&root.join("user"), "0.60.0", user_build, b"user");
+        (bundled, user, root.join("system/fixture.app"))
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migration_installs_the_system_copy_before_it_removes_the_user_copy() {
+        let root = tempdir().unwrap();
+        let (bundled, user, system) = migration_fixture(root.path(), "60", "59");
+        let stopped = std::cell::RefCell::new(Vec::new());
+
+        let outcome = migrate_to_system_with(
+            &bundled,
+            &user,
+            &system,
+            |source| {
+                // 安装那一刻用户副本还在：授权失败时要原样留着它。
+                assert!(user.is_dir());
+                copy_tree(source, &system)
+            },
+            |path| stopped.borrow_mut().push(path.to_path_buf()),
+        )
+        .unwrap();
+        assert!(!user.exists());
+        assert_eq!(*stopped.borrow(), [user.clone()]);
+        assert_eq!(
+            bundle_version(&system).map(|version| version.build),
+            Some(60)
+        );
+        assert_eq!(outcome.installed.map(|version| version.build), Some(60));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migration_keeps_a_user_copy_that_is_newer_than_the_bundled_one() {
+        let root = tempdir().unwrap();
+        // Sparkle 已经把用户副本更新到比设置应用随附的新。
+        let (bundled, user, system) = migration_fixture(root.path(), "60", "61");
+
+        migrate_to_system_with(
+            &bundled,
+            &user,
+            &system,
+            |source| copy_tree(source, &system),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            bundle_version(&system).map(|version| version.build),
+            Some(61)
+        );
+        assert!(!user.exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_cancelled_or_failed_migration_leaves_the_user_copy_in_place() {
+        for failure in [InstallError::Cancelled, InstallError::Io] {
+            let root = tempdir().unwrap();
+            let (bundled, user, system) = migration_fixture(root.path(), "60", "59");
+            let stopped = std::cell::Cell::new(false);
+            let expected = std::mem::discriminant(&failure);
+
+            let result = migrate_to_system_with(
+                &bundled,
+                &user,
+                &system,
+                |_| Err(failure),
+                |_| stopped.set(true),
+            );
+            assert_eq!(
+                result.as_ref().err().map(std::mem::discriminant),
+                Some(expected)
+            );
+            assert_eq!(bundle_version(&user).map(|version| version.build), Some(59));
+            assert!(!stopped.get());
+            assert!(!system.exists());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migration_refuses_when_there_is_no_real_user_copy_or_the_install_left_nothing() {
+        let root = tempdir().unwrap();
+        let (bundled, user, system) = migration_fixture(root.path(), "60", "59");
+
+        // 安装报成功但系统目录里没有可用的 bundle：不能删掉用户唯一的那份。
+        let result = migrate_to_system_with(&bundled, &user, &system, |_| Ok(()), |_| {});
+        assert!(matches!(result, Err(InstallError::InvalidBundle)));
+        assert!(user.is_dir());
+
+        fs::remove_dir_all(&user).unwrap();
+        std::os::unix::fs::symlink(&bundled, &user).unwrap();
+        let called = std::cell::Cell::new(false);
+        let result = migrate_to_system_with(
+            &bundled,
+            &user,
+            &system,
+            |_| {
+                called.set(true);
+                Ok(())
+            },
+            |_| {},
+        );
+        assert!(matches!(result, Err(InstallError::InvalidBundle)));
+        assert!(!called.get());
+        assert!(bundled.is_dir());
     }
 
     fn version(short: &str, build: &str) -> BundleVersion {

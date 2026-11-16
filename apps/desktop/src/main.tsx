@@ -372,6 +372,7 @@ const client: SettingsClient = {
   cloudDictionary: cloudDictionaryClient,
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  migrateInputSourceToSystem: () => invoke("migrate_input_source_to_system"),
   inputSourceStartup,
   macosInputModes,
   onDeviceTranslation: {

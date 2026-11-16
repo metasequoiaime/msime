@@ -141,8 +141,15 @@ test("修复结束后主动重读安装状态，无需等待窗口重新聚焦",
   expect(calls).toEqual(["install", "register", "refresh"]);
 });
 
-test("macOS 装在用户目录时说明安全输入期间会被停用，系统安装或范围未知时不提示", () => {
+test("macOS 装在用户目录时提供迁移，系统安装或范围未知时不提供", async () => {
   const restart = vi.fn(async () => {});
+  const calls: string[] = [];
+  const migrate = vi.fn(async () => {
+    calls.push("migrate");
+  });
+  const refresh = vi.fn(async () => {
+    calls.push("refresh");
+  });
   const rendered = render(
     <InputMethodServiceSection
       visible
@@ -150,12 +157,44 @@ test("macOS 装在用户目录时说明安全输入期间会被停用，系统�
       linux={false}
       restartInputMethod={restart}
       userOnlyInstall
+      migrateToSystem={migrate}
+      onRepairFinished={refresh}
     />,
   );
-  expect(screen.getByText(/安全输入期间，macOS\s*会停用装在用户目录里的输入法/)).toBeTruthy();
-  expect(screen.getByText(/先在本页底部卸载.*再重新安装/)).toBeTruthy();
+  expect(screen.getByText("迁移到系统目录")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "迁移" }));
+  expect(await screen.findByText("已迁移到系统目录。")).toBeTruthy();
+  // 迁移结束后重读安装状态，提示和按钮才会随新的安装位置消失。
+  expect(calls).toEqual(["migrate", "refresh"]);
   rendered.unmount();
 
-  render(<InputMethodServiceSection visible macos linux={false} restartInputMethod={restart} />);
+  render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      restartInputMethod={restart}
+      migrateToSystem={migrate}
+    />,
+  );
   expect(screen.queryByText(/安全输入期间/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "迁移" })).toBeNull();
+});
+
+test("取消迁移的授权时说明输入法仍在原处，并照样重读安装状态", async () => {
+  const refresh = vi.fn(async () => {});
+  render(
+    <InputMethodServiceSection
+      visible
+      macos
+      linux={false}
+      restartInputMethod={vi.fn(async () => {})}
+      userOnlyInstall
+      migrateToSystem={() => Promise.reject({ code: "cancelled" })}
+      onRepairFinished={refresh}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "迁移" }));
+  expect(await screen.findByText(/已取消管理员授权，输入法仍在原来的位置/)).toBeTruthy();
+  expect(refresh).toHaveBeenCalled();
 });
