@@ -1202,7 +1202,7 @@ public final class MSIMEInputService extends InputMethodService {
             || CandidatePageLabelPolicy.shown(preferences.opt(CandidatePageLabelPolicy.PREFERENCE));
         // 键距、行距、语音快捷键、数字键顺序和双拼键位提示同理：副本里是出厂值，onStartInput 紧接着就按它重建键行，调过键距的用户每换一个输入框，键盘都先按出厂间距排一帧，实时偏好到了才跳回来。副本这条路径保留当前几何，也就是上次真正读到的偏好或 onCreate 按皮肤片段算好的那一份。键高例外：本地设置里有键高时那份是实时的，照旧跟着刷新；没有时 heightAdjustmentFrom 会退回副本里的出厂值，所以要先判断。
         if (live) applyTouchGeometry(preferences);
-        else if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT))
+        else if (KeyboardHeightSettingPolicy.hasLocal(localSettings, keyboardSmallestWidthDp()))
             adoptSavedHeightAdjustment(heightAdjustmentFrom(preferences));
         // 工具栏按钮开关与皮肤同理：runtime-options.json 那份出厂默认里剪贴板按钮是关的，拿它画，新打开的应用里工具栏先少一格、其余按钮跟着挪位，一两秒后实时偏好到了才补回来（#5680）。那条路径改用上次真正读到的开关，没有时才退回这份副本。
         JSONObject toolbar = live || rememberedToolbar == null
@@ -2398,8 +2398,9 @@ public final class MSIMEInputService extends InputMethodService {
         operationNotice.cancel();
         spaceCopyNotice.cancel();
         hideVoiceEmptyNotice();
-        super.onConfigurationChanged(configuration);
+        // 先记下新屏幕宽度再交给系统：super 可能同步重启输入，那时 applyEditorPreferences 按 keyboardSmallestWidthDp() 选键高，必须已经是新屏幕的那一键。
         keyboardSmallestScreenWidthDp = configuration.smallestScreenWidthDp;
+        super.onConfigurationChanged(configuration);
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
             hardwareKeyboardMode, hardwareKeyboardAttached, attached);
@@ -2436,10 +2437,12 @@ public final class MSIMEInputService extends InputMethodService {
                 keyboardAdjustKeyboardTop = KeyboardHeightPolicy.UNRECORDED_KEYBOARD_TOP;
             keyboardAdjustConfiguration = new Configuration(configuration);
         }
-        if (keyboardRoot == null) return;
+        // 跨过 600dp（折叠屏展开或合上）：换成新屏幕保存的键高。applyLocalSettings 不管键高，每秒重读在偏好和本地设置都没变时也不会重算，不在这里换，键盘会一直按上一块屏幕的高度画，键距滑块等保存路径还会把旧屏幕的值写进新屏幕的键。上面已经退出了「键盘调整」，这里同时丢掉旧屏幕的拖动预览。
         if (heightFormFactorChanged) {
             refreshLocalSettings();
+            adoptSavedHeightAdjustment(heightAdjustmentFrom(preferences));
         }
+        if (keyboardRoot == null) return;
         imeStyler.applyKeyboardSurfaceGeometry();
         imeStyler.applyKeyboardGeometry();
         renderLayoutSettingsState();
@@ -3852,14 +3855,14 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * {@link #applyPreferencesSnapshot} 在偏好文档之外读的输入：会话、偏好目录、本地设置（含应用主题）、月份（季节配色）、系统明暗、学习开关、键盘内调高度、剪贴板模式与存储、候选包解析结果、设计库文件。其中任何一项变了，即使文档没变也要整套应用。
+     * {@link #applyPreferencesSnapshot} 在偏好文档之外读的输入：会话、偏好目录、本地设置（含应用主题）、月份（季节配色）、系统明暗、学习开关、键盘内调高度、屏幕形态（折叠屏两块屏幕各有键高）、剪贴板模式与存储、候选包解析结果、设计库文件。其中任何一项变了，即使文档没变也要整套应用。
      */
     private java.util.List<Object> preferencesApplyInputs() {
         Object library = preferencesDirectory.isEmpty() ? null
             : CandidateSkinStamp.file(java.nio.file.Paths.get(preferencesDirectory, "CustomSkins", "library.json"));
         return java.util.Arrays.asList(session, preferencesDirectory, AndroidLocalSettings.load(this),
             java.time.LocalDate.now().getMonthValue(), systemDark(), learningSuppressed(), keyboardAdjustActive,
-            clipboardMode, clipboardHistory, candidateSkinResolver.state(), library);
+            KeyboardFormFactorPolicy.expanded(keyboardSmallestWidthDp()), clipboardMode, clipboardHistory, candidateSkinResolver.state(), library);
     }
 
     private void rememberAppliedPreferences(String response, java.util.List<Object> inputs) {

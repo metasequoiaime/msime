@@ -26,6 +26,18 @@ public final class KeyboardHeightSettingPolicySmoke {
             "compact screens ignore the large value");
         check(KeyboardHeightSettingPolicy.adjustment(both, 600, 18) == -12,
             "expanded screens prefer their independent value");
+        check(!KeyboardHeightSettingPolicy.hasLocal(empty, 599) && !KeyboardHeightSettingPolicy.hasLocal(empty, 600),
+            "no local height falls back to the shared preference");
+        AndroidLocalSettings.Snapshot largeOnly = new AndroidLocalSettings.Snapshot(Map.of(
+            AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT_LARGE, 55));
+        check(KeyboardHeightSettingPolicy.hasLocal(largeOnly, 600),
+            "an expanded screen with only the large value has a local height");
+        check(!KeyboardHeightSettingPolicy.hasLocal(largeOnly, 599),
+            "a compact screen ignores the large value when deciding whether a local height exists");
+        check(KeyboardHeightSettingPolicy.hasLocal(legacy, 599) && KeyboardHeightSettingPolicy.hasLocal(legacy, 600),
+            "the legacy value counts as local on both form factors");
+        check(KeyboardHeightSettingPolicy.adjustment(largeOnly, 600, 18) == 55,
+            "expanded screens read a large value saved without a legacy value");
         System.out.println("Android keyboard height form-factor policy passed");
     }
 

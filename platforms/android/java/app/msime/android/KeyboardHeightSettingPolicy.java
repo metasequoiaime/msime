@@ -11,6 +11,12 @@ public final class KeyboardHeightSettingPolicy {
             : AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT;
     }
 
+    /** 本机设置里有没有 {@link #adjustment} 会读到的键高：当前形态的键，或展开屏回退用的旧键。两者没有时 adjustment 退回共享偏好。 */
+    public static boolean hasLocal(AndroidLocalSettings.Snapshot local, int smallestScreenWidthDp) {
+        return local.has(keyFor(smallestScreenWidthDp))
+            || local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT);
+    }
+
     /**
      * 读取当前形态的键盘高度。
      *
