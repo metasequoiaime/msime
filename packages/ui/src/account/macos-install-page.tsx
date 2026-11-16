@@ -6,8 +6,8 @@ import { useTimeout } from "../core/use-timeout";
 import { logo } from "../settings/app-resources";
 
 export interface MacosInstallClient {
-  /** 按用户明确选择的范围安装输入法并登记；系统范围由宿主请求管理员授权。 */
-  install: (scope: "user" | "system") => Promise<InputSourceStartupStatus>;
+  /** 把输入法装进 /Library/Input Methods 并登记，宿主为此请求管理员授权。不提供只装给当前用户的选项：macOS 只把这个目录里的第三方输入法算作安全输入源（HIToolbox 按 bundle 路径前缀判断），装在 ~/Library/Input Methods 的那份在密码框等安全输入期间会在输入法菜单里变灰、切不过去。 */
+  install: () => Promise<InputSourceStartupStatus>;
 }
 
 /**
@@ -39,8 +39,7 @@ function resultTitle(status: InputSourceStartupStatus): string {
 /** Adding the input source to the System Settings list is left to the settings page's status notice, which also covers a login that has to come first; this only points there. */
 function resultLead(status: InputSourceStartupStatus): string {
   if (status.action === "failed") return "没能把输入法安装到本机，可以再试一次。";
-  if (status.action === "cancelled")
-    return "已保留原有安装。准备好后可以重新选择安装范围再试一次。";
+  if (status.action === "cancelled") return "已保留原有安装。准备好后可以再试一次。";
   if (status.action === "login_required")
     return "输入法已复制到本机，但 macOS 要到下次登录才会把新装的输入法列进系统设置。请先注销并重新登录，再按设置页的提示在系统设置里添加它。";
   if (status.enabled === true)
@@ -57,8 +56,6 @@ export function MacosInstallPage({
   onComplete: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("ready");
-  // 默认装进 /Library/Input Methods：macOS 只把这个目录里的第三方输入法算作安全输入源（HIToolbox 按 bundle 路径前缀判断），装在 ~/Library/Input Methods 的那份在密码框等安全输入期间会在输入法菜单里变灰、切不过去。
-  const [scope, setScope] = useState<"user" | "system">("system");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<InputSourceStartupStatus | null>(null);
   const outcome = useRef<InputSourceStartupStatus | null>(null);
@@ -91,7 +88,7 @@ export function MacosInstallPage({
     setProgress(0);
     setPhase("installing");
     void client
-      .install(scope)
+      .install()
       .catch((): InputSourceStartupStatus => ({
         action: "failed",
         enabled: null,
@@ -101,7 +98,7 @@ export function MacosInstallPage({
       .then((status) => {
         outcome.current = status;
       });
-  }, [client, phase, scope]);
+  }, [client, phase]);
 
   const percent = Math.floor(progress);
   return (
@@ -131,14 +128,7 @@ export function MacosInstallPage({
       )}
       <div className="mt-11 flex w-[260px] flex-col items-stretch">
         {(phase === "ready" || result?.action === "failed" || result?.action === "cancelled") && (
-          <label className="mb-3 flex items-center gap-2 text-[12px] text-secondary">
-            <input
-              type="checkbox"
-              checked={scope === "system"}
-              onChange={(event) => setScope(event.target.checked ? "system" : "user")}
-            />
-            为所有用户安装（需要管理员权限）
-          </label>
+          <p className="mt-0 mb-3 text-center text-[12px] text-secondary">安装需要管理员密码</p>
         )}
         {phase === "installing" ? (
           <div

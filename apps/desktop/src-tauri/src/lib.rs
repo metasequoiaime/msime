@@ -3020,12 +3020,11 @@ async fn input_source_startup_status(
     })
 }
 
-/// 首次安装按钮按明确选择的范围安装；结果替换启动检查状态，供后续设置页读取。
+/// 首次安装一律装进 /Library/Input Methods（已有副本时沿用它的位置）：装在用户目录的输入法不算安全输入源，安全输入期间会被 macOS 停用。结果替换启动检查状态，供后续设置页读取。
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn run_first_input_source_install(
     app: tauri::AppHandle,
-    scope: Option<macos_input_source::InstallationScope>,
     state: tauri::State<'_, Arc<InputSourceStartupState>>,
 ) -> Result<InputSourceStartupStatus, HostActionError> {
     let resource_directory = app.path().resource_dir().map_err(|_| HostActionError {
@@ -3033,10 +3032,12 @@ async fn run_first_input_source_install(
     })?;
     let state = Arc::clone(&state);
     tauri::async_runtime::spawn_blocking(move || {
-        let scope = scope.unwrap_or(macos_input_source::InstallationScope::User);
         let status = input_source_startup_result(
             &resource_directory,
-            macos_input_source::first_install(&resource_directory, scope),
+            macos_input_source::first_install(
+                &resource_directory,
+                macos_input_source::InstallationScope::System,
+            ),
         );
         state.finish(status);
         input_source_status_now(
@@ -3056,7 +3057,7 @@ async fn run_first_input_source_install(
     })
 }
 
-/// 首次安装窗口为范围选项预留高度，完成后恢复设置窗口大小。
+/// 首次安装窗口的大小，完成后恢复设置窗口大小。
 #[cfg(target_os = "macos")]
 const FIRST_INSTALL_WINDOW_SIZE: (f64, f64) = (480.0, 480.0);
 /// The settings window's size and minimum, as declared for `main` in tauri.macos.conf.json.

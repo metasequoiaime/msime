@@ -59,8 +59,8 @@ export function InputMethodServiceSection({
       </SettingsGroupNote>
       {macos && userOnlyInstall && (
         <SettingsGroupNote inline>
-          水杉输入法目前只为当前用户安装。输入密码等安全输入期间，macOS
-          会停用装在用户目录里的输入法：它在输入法菜单里变灰，切换不过去。要避免这一点，请先在本页底部卸载（词库和偏好默认保留），再重新安装并保留「为所有用户安装」。
+          水杉输入法目前装在当前用户的目录里。输入密码等安全输入期间，macOS
+          会停用装在用户目录里的输入法：它在输入法菜单里变灰，切换不过去。要避免这一点，请先在本页底部卸载（词库和偏好默认保留），再重新安装。
         </SettingsGroupNote>
       )}
       <Row title={macos ? "修复输入源" : "立即重启输入法服务"}>

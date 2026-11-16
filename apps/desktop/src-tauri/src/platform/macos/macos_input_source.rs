@@ -1210,7 +1210,7 @@ pub(crate) fn repair(resource_directory: &Path) -> Result<RefreshOutcome, Instal
     })
 }
 
-/// 首次安装页显式选择范围；已安装副本继续沿用其位置，避免生成第二份。
+/// 首次安装按给定范围安装（设置应用一律传系统范围）；已安装副本继续沿用其位置，避免生成第二份。
 pub(crate) fn first_install(
     resource_directory: &Path,
     scope: InstallationScope,
