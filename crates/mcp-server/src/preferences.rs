@@ -51,6 +51,10 @@ pub enum Profile {
     Shoudao,
     Microsoft,
     SmartAbc,
+    Sogou,
+    Jiajia,
+    Ziguang,
+    Guobiao,
     /// 用户自己的键位表，即 `shuangpin_custom_profile`。没有可用的表时不能选它。
     Custom,
 }
@@ -289,6 +293,10 @@ impl From<ShuangpinProfile> for Profile {
             ShuangpinProfile::Shoudao => Self::Shoudao,
             ShuangpinProfile::Microsoft => Self::Microsoft,
             ShuangpinProfile::SmartAbc => Self::SmartAbc,
+            ShuangpinProfile::Sogou => Self::Sogou,
+            ShuangpinProfile::Jiajia => Self::Jiajia,
+            ShuangpinProfile::Ziguang => Self::Ziguang,
+            ShuangpinProfile::Guobiao => Self::Guobiao,
             ShuangpinProfile::Custom => Self::Custom,
         }
     }
@@ -302,6 +310,10 @@ impl From<Profile> for ShuangpinProfile {
             Profile::Shoudao => Self::Shoudao,
             Profile::Microsoft => Self::Microsoft,
             Profile::SmartAbc => Self::SmartAbc,
+            Profile::Sogou => Self::Sogou,
+            Profile::Jiajia => Self::Jiajia,
+            Profile::Ziguang => Self::Ziguang,
+            Profile::Guobiao => Self::Guobiao,
             Profile::Custom => Self::Custom,
         }
     }
@@ -1019,6 +1031,10 @@ mod tests {
             ShuangpinProfile::Shoudao,
             ShuangpinProfile::Microsoft,
             ShuangpinProfile::SmartAbc,
+            ShuangpinProfile::Sogou,
+            ShuangpinProfile::Jiajia,
+            ShuangpinProfile::Ziguang,
+            ShuangpinProfile::Guobiao,
             ShuangpinProfile::Custom,
         ] {
             same(json!(Profile::from(profile)), json!(profile));

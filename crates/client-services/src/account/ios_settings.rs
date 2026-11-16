@@ -192,10 +192,19 @@ fn nine_key_flick_threshold_setting(
         })
         .transpose()
 }
-
-/// 账号的 `input.schema` 装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。
-const UNSYNCED_NATIVE_SCHEMES: [&str; 5] =
-    ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"];
+/// 账号装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。粤拼、注音、越南文、藏文和笔画是 `input.schema` 装不下；智能 ABC、搜狗、加加、紫光和国标双拼是 `input.shuangpin_schema` 还不能写（已经发布的 iOS 读到不认识的双拼方案会拒绝整份账号设置，见 `settings_sync::shuangpin_schema`），只写 `input.schema = shuangpin` 又会让别的设备退回小鹤。
+const UNSYNCED_NATIVE_SCHEMES: [&str; 10] = [
+    "cantonese",
+    "zhuyin",
+    "vietnamese",
+    "tibetan",
+    "stroke",
+    "smartAbc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
+];
 
 /// iOS 的触屏布局键，取值与 Android 的 `platform.android.keyboard_layout` 相同。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以下载时不认识的取值当作没有这一项。
 const IOS_KEYBOARD_LAYOUT: &str = "platform.ios.keyboard_layout";
@@ -261,10 +270,13 @@ impl IosPreferencePlan {
             Some("shuangpin") => {
                 let profile = string_setting(values, "input.shuangpin_schema")?
                     .unwrap_or_else(|| "xiaohe".into());
+                // 不认识的双拼方案（更新的版本加的）只跳过方案这一项、保留本机的方案，与 `input.wubi_schema` 相同；拒绝整份文档会让这台设备从此收不到任何设置。
                 match profile.as_str() {
                     "xiaohe" => Some("shuangpin".into()),
-                    "ziranma" | "microsoft" | "shoudao" => Some(profile),
-                    _ => return Err(AccountError::Invalid),
+                    "smart_abc" => Some("smartAbc".into()),
+                    "ziranma" | "microsoft" | "shoudao" | "sogou" | "jiajia" | "ziguang"
+                    | "guobiao" => Some(profile),
+                    _ => None,
                 }
             }
             Some("wubi") => Some("wubi".into()),
@@ -468,6 +480,11 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "ziranma" => Ok(TouchKeyboardScheme::Ziranma),
         "microsoft" => Ok(TouchKeyboardScheme::Microsoft),
         "shoudao" => Ok(TouchKeyboardScheme::Shoudao),
+        "smartAbc" => Ok(TouchKeyboardScheme::SmartAbc),
+        "sogou" => Ok(TouchKeyboardScheme::Sogou),
+        "jiajia" => Ok(TouchKeyboardScheme::Jiajia),
+        "ziguang" => Ok(TouchKeyboardScheme::Ziguang),
+        "guobiao" => Ok(TouchKeyboardScheme::Guobiao),
         "wubi" => Ok(TouchKeyboardScheme::Wubi),
         "japaneseNineKey" => Ok(TouchKeyboardScheme::JapaneseNineKey),
         "japanese" => Ok(TouchKeyboardScheme::Japanese),
@@ -518,7 +535,12 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         TouchKeyboardScheme::Xiaohe
         | TouchKeyboardScheme::Ziranma
         | TouchKeyboardScheme::Microsoft
-        | TouchKeyboardScheme::Shoudao => {
+        | TouchKeyboardScheme::Shoudao
+        | TouchKeyboardScheme::SmartAbc
+        | TouchKeyboardScheme::Sogou
+        | TouchKeyboardScheme::Jiajia
+        | TouchKeyboardScheme::Ziguang
+        | TouchKeyboardScheme::Guobiao => {
             preferences.scheme = InputScheme::Shuangpin;
             preferences.last_chinese_scheme = Some(ChineseScheme::Shuangpin);
             preferences.shuangpin_profile = match selected {
@@ -526,6 +548,11 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
                 TouchKeyboardScheme::Ziranma => ShuangpinProfile::Ziranma,
                 TouchKeyboardScheme::Microsoft => ShuangpinProfile::Microsoft,
                 TouchKeyboardScheme::Shoudao => ShuangpinProfile::Shoudao,
+                TouchKeyboardScheme::SmartAbc => ShuangpinProfile::SmartAbc,
+                TouchKeyboardScheme::Sogou => ShuangpinProfile::Sogou,
+                TouchKeyboardScheme::Jiajia => ShuangpinProfile::Jiajia,
+                TouchKeyboardScheme::Ziguang => ShuangpinProfile::Ziguang,
+                TouchKeyboardScheme::Guobiao => ShuangpinProfile::Guobiao,
                 _ => unreachable!(),
             };
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
@@ -1410,6 +1437,112 @@ mod tests {
             assert_eq!(preferences.scheme, InputScheme::Wubi, "{unknown}");
             assert!(preferences.traditional_chinese_output, "{unknown}");
         }
+    }
+
+    /// 新增的五种双拼方案：App Group 的原生值通过校验，上传时不写方案（已经发布的 iOS 不认识），下载别的设备写着的方案时能落到本机并写进共享偏好。
+    #[test]
+    fn the_new_shuangpin_schemes_stay_local_on_upload_and_apply_on_download() {
+        for (native_scheme, cloud_profile, touch, profile) in [
+            (
+                "smartAbc",
+                "smart_abc",
+                TouchKeyboardScheme::SmartAbc,
+                ShuangpinProfile::SmartAbc,
+            ),
+            (
+                "sogou",
+                "sogou",
+                TouchKeyboardScheme::Sogou,
+                ShuangpinProfile::Sogou,
+            ),
+            (
+                "jiajia",
+                "jiajia",
+                TouchKeyboardScheme::Jiajia,
+                ShuangpinProfile::Jiajia,
+            ),
+            (
+                "ziguang",
+                "ziguang",
+                TouchKeyboardScheme::Ziguang,
+                ShuangpinProfile::Ziguang,
+            ),
+            (
+                "guobiao",
+                "guobiao",
+                TouchKeyboardScheme::Guobiao,
+                ShuangpinProfile::Guobiao,
+            ),
+        ] {
+            let mut local = native();
+            local.input_scheme = native_scheme.into();
+            assert!(local.is_valid(), "{native_scheme}");
+            let exported =
+                local_account_preferences(&local, &Preferences::default(), None).unwrap();
+            assert!(!exported.contains_key("input.schema"), "{native_scheme}");
+            assert!(
+                !exported.contains_key("input.shuangpin_schema"),
+                "{native_scheme}"
+            );
+
+            let cloud = AccountPreferences {
+                revision: 12,
+                settings: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceValue::String("shuangpin".into()),
+                    ),
+                    (
+                        "input.shuangpin_schema".into(),
+                        AccountPreferenceValue::String(cloud_profile.into()),
+                    ),
+                ]),
+            };
+            let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+            let mut current = native();
+            current.input_scheme = "quanpin".into();
+            let requested = plan.requested_native(&current).unwrap();
+            assert!(requested.is_valid(), "{native_scheme}");
+            assert_eq!(requested.input_scheme, native_scheme);
+            let mut preferences = Preferences::default();
+            preferences.touch_keyboard_schemes.enabled.insert(touch);
+            plan.apply_shared(&requested, &mut preferences).unwrap();
+            assert_eq!(
+                preferences.scheme,
+                InputScheme::Shuangpin,
+                "{native_scheme}"
+            );
+            assert_eq!(preferences.shuangpin_profile, profile, "{native_scheme}");
+        }
+    }
+
+    /// 更新的版本加的双拼方案只跳过方案这一项，不拒绝整份文档。
+    #[test]
+    fn an_unknown_cloud_shuangpin_profile_keeps_the_local_scheme_and_the_rest_applies() {
+        let cloud = AccountPreferences {
+            revision: 13,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("shuangpin".into()),
+                ),
+                (
+                    "input.shuangpin_schema".into(),
+                    AccountPreferenceValue::String("future_profile".into()),
+                ),
+                (
+                    "input.character_set".into(),
+                    AccountPreferenceValue::String("traditional".into()),
+                ),
+            ]),
+        };
+        let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+        let mut current = native();
+        current.input_scheme = "wubi".into();
+        current.traditional_chinese_output = false;
+        let requested = plan.requested_native(&current).unwrap();
+        assert_eq!(requested.input_scheme, "wubi");
+        assert!(requested.traditional_chinese_output);
     }
 
     #[test]

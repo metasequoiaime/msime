@@ -1878,7 +1878,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       for button in buttons {
         applyLetterFont(to: button)
         if let entry = letterGridButtons.first(where: { $0.button === button }) {
-          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme == .microsoft)
+          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme.showsSemicolonFinalKey)
         }
         button.setNeedsUpdateConfiguration()
       }
@@ -5942,7 +5942,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .nineKeyShuangpin: session.switchToNineKeyShuangpin()
     case .fourteenKey: session.switchToFourteenKey()
     case .eighteenKey: session.switchToEighteenKey()
-    case .ziranma, .microsoft, .shoudao: switchShuangpinLayout(profile: inputScheme.rawValue)
+    case .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao:
+      switchShuangpinLayout(profile: inputScheme.shuangpinProfile ?? "xiaohe")
     case .wubi: letterGrid == .fourteenKey ? session.switchToFourteenKeyWubi() : session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .korean: session.switchToKorean()
@@ -7338,7 +7339,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for row in fourteenKeyRowViews where row.isHidden == (shownGrid == .fourteenKey) { row.isHidden = shownGrid != .fourteenKey }
     for row in eighteenKeyRowViews where row.isHidden == (shownGrid == .eighteenKey) { row.isHidden = shownGrid != .eighteenKey }
     updateFourteenKeySeparator()
-    let semicolon = fourteenKey && inputScheme == .microsoft
+    let semicolon = fourteenKey && inputScheme.showsSemicolonFinalKey
     for (button, key) in letterGridButtons {
       button.configuration?.title = key.face(semicolon: semicolon)
       button.accessibilityLabel = key.accessibilityLabel(semicolon: semicolon)
@@ -8283,7 +8284,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !isChineseMode { return .english }
     if inputScheme == .nineKeyShuangpin { return .nineKey }
     if inputScheme == .cantoneseShuangpin { return .cantonese }
-    return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
+    return TypingSource.of(inputScheme) ?? .unknown
   }
 
   /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。`continuesComposition` 表示同一次渲染随后还要标记剩下的组字（部分选词）。
