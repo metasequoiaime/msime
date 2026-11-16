@@ -371,7 +371,7 @@ final class ImeLetterRows {
             : JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
         if (localMode.isEmpty()) localMode = "none";
         return s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
-            s.dedicatedEnglish, s.selectedScheme, localMode);
+            s.dedicatedEnglish, s.selectedScheme, localMode, s.customShuangpinSemicolon());
     }
 
     /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化或换到另一种布局之后。 */
