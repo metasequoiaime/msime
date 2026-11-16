@@ -9,7 +9,7 @@ Status: implemented
 Server 在空格和数字键分派前调用 `SessionController::wait_candidate_render_for_key`，最多等 `candidate_render_wait_max_ms`（30ms），等候选窗画出当前这一页的回执（`CandidateMailbox::wait_rendered`）。回执能不能在 30ms 内到，取决于候选窗什么时候读到新快照，而它完全靠轮询：
 
 - 0.3.0（报告者的版本）由 Server 主循环刷新候选窗，主循环每轮 `MsgWaitForMultipleObjectsEx` 最多睡 50ms；主线程上装着低级键盘钩子，物理按键会顺带叫醒它（推断，未在 Windows 上测量）。
-- 当前 develop 改由 [桌面候选路由](../feature/2026-10-24-windows-desktop-candidate-routing.md) 的协调线程和桌面线程刷新，两级各 `WaitForSingleObject`/`MsgWaitForMultipleObjectsEx` 16ms，和物理按键不再有任何关联。
+- 本修复前的 [桌面候选路由](../feature/2026-10-24-windows-desktop-candidate-routing.md) 由协调线程和桌面线程刷新，两级各 `WaitForSingleObject`/`MsgWaitForMultipleObjectsEx` 16ms，和物理按键不再有任何关联。
 
 Server 进程没有调用 `timeBeginPeriod`。按 [timeBeginPeriod 说明](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)，Windows 10 2004 起其他进程提高的计时精度不再作用于本进程，16ms 的等待按默认 15.6ms 精度要 16–31ms，50ms 的要 50–62.5ms。所以按键一旦排在上一键刚发布的新页后面，屏障大概率空等满 30ms，回包时间是 30ms 加上引擎处理，正好落在 53–61ms。
 
@@ -23,7 +23,7 @@ TIP 超时后关管道、重连，并把整段组字前缀摊回队首重放（[
 
 - 绘制请求只发信号：回调必须不阻塞、不回调信箱或控制器。信箱在独立的 `render_request_mutex_` 下调用它，`set_render_request({})` 返回时正在进行的调用已经结束，所以撤掉之后旧回调不会再被调用。
 - 已经画到这一页时不请求，屏障直接通过；信箱停止时也不请求。
-- `DesktopCandidates::wake()` 置位协调线程的自动复位事件。协调线程从 `WaitForMultipleObjects(stop, wake)` 醒来后立即读一次快照，交给各桌面线程，并置位每个桌面线程自己的唤醒事件；桌面线程的 `MsgWaitForMultipleObjectsEx` 带上这个事件，醒来后刷新并绘制，`WM_PAINT` 末尾照旧发回执。没有被叫醒时两级仍按原来的 16ms 轮询。
+- `DesktopCandidates::wake()` 置位协调线程的自动复位事件。协调线程从 `WaitForMultipleObjects(stop, wake)` 醒来后立即读一次快照，交给各桌面线程，并置位每个桌面线程自己的唤醒事件；桌面线程的 `MsgWaitForMultipleObjectsEx` 带上这个事件，醒来后刷新并绘制，`WM_PAINT` 末尾照旧发回执。普通新帧交付后也立即唤醒目标桌面线程，见[候选帧交付唤醒](2026-11-16-windows-candidate-frame-wake.md)；协调线程与无新帧时的桌面线程仍按原来的 16ms 轮询。
 - 空格、数字键的按键屏障，以及点选、候选菜单、翻页三条点击路径的屏障都经过 `wait_rendered`，都得到同样的叫醒。
 
 屏障的语义和 30ms 上限不变：仍然是等这一页画出来，或者有界超时后照常分派。变的只是这 30ms 花在真正的绘制上，而不是花在等候选窗下一次轮询上。
@@ -36,6 +36,7 @@ TIP 超时后关管道、重连，并把整段组字前缀摊回队首重放（[
 - [跨平台候选绘制边界](../architecture/2026-10-13-cross-platform-candidate-rendering-boundaries.md)：部分重叠，30ms 上限的事实不变，补充叫醒并互链。
 - [游戏候选叠加](../feature/2026-10-08-windows-game-candidate-overlay.md)：相关，它让策略隐藏也发回执、选词键不白等 30ms；本篇沿用这条回执规则，不改动。
 - [候选非阻塞读取](2026-10-23-windows-candidate-read-contention.md)：相关，协调线程被叫醒后的读取仍是非阻塞的，争用时保留旧帧的规则不变。
+- [候选帧交付唤醒](2026-11-16-windows-candidate-frame-wake.md)：部分重叠，补充普通新帧交付后的目标桌面通知，保留本篇的主动屏障请求和 30ms 上限；后续 Win7 真实编辑器对照与原生桌面测试见该篇。
 
 ## Alternatives considered
 
