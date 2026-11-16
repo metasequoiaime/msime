@@ -36,3 +36,5 @@ Status: implemented
 Mac 编译机直接编译真实 `BackspacePressState.swift`，8 组行为回归通过。另从固定 `origin/develop` 和当前控制器各取原始按压方法，用 Foundation 的真实 `Timer` 与合成计数叶节点验证分发：旧方法在“开始、首拍连删、滑出、滑回松手”序列删两次，预期一次；修复后同序列、100 次点按和重复松手、旧计时器与旧按键均按预期。该探针只验证原始分发方法，不包含完整 UIKit 控制器、输入代理或真实编辑器。
 
 CI 已实际执行完整 iOS 测试并暴露手写删除键 `sendActions(for: .touchUpInside)` 被误拦的回归；本次保留该测试原样。补充的原始生产 target-action 方法探针显示旧提交的无触摸激活删除 0 次，修复后为 1 次，真实事件的长按滑回、100 次点按及旧 Timer/按键守卫仍通过；同一段原始方法也通过 iOS UIKit SDK 的静态类型检查，未启动模拟器。状态行为回归扩为 9 组。
+
+CI 的后续结果包（run `43920330445`）包含 1644 项通过、14 项跳过和 1 项崩溃：`NineKeyKeyboardTests.testKeyPositionsStayFixedWhileComposingAndClearing` 用无参数 `perform` 调用了现在接收按键和事件的已注册 action。该调用没有满足 Objective-C 双参数签名，不能作为有效松手事件；修正为传入原删除键及空事件，仍表示原来的程序化单删。原输入、方案、布局宽度、候选断言和位置断言全部保留，不改产品事件处理或既有回归前置。离线结果包只用于调查，没有因此启动本机模拟器或重跑设备测试。
