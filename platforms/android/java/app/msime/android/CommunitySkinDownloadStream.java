@@ -13,8 +13,8 @@ import org.json.JSONObject;
 /** 完整皮肤设计走管道，照片的 Base64 字符串不进入 Binder 事务。 */
 public final class CommunitySkinDownloadStream {
     public static final String PATH = "skin-download";
-    // 共享设计最多含 512000 字节照片；为 Base64 和其余有界字段留出空间。
-    private static final int MAX_REPLY_BYTES = 1024 * 1024;
+    // 共享设计最多含 512000 字节照片，Base64 后约 682668 字符；Android 的 JSONObject.toString() 把每个 '/' 转义成 "\/"，最坏时照片串翻倍到约 1.37 MB，再为其余有界字段留出空间。
+    private static final int MAX_REPLY_BYTES = 2 * 1024 * 1024;
 
     private CommunitySkinDownloadStream() {}
 

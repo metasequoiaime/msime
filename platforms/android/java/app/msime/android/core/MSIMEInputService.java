@@ -1070,6 +1070,8 @@ public final class MSIMEInputService extends InputMethodService {
     final Paint emojiGlyphPaint = new Paint();
     private java.util.List<EmojiCatalogModel.Item> emojiCombinationItems;
     final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
+    /** 键盘里点开还没获取的社区皮肤时，完整下载在这条线程上等主进程走完网络（可能先注册匿名账号再重试）；不能排在 `preferencesWorker` 上，否则下一个输入框的建会话和偏好保存都要等下载结束，键盘一直停在「准备中」。 */
+    final ExecutorService skinDownloadWorker = Executors.newSingleThreadExecutor();
     /** 键盘里常用语的读取和「添加到常用语」都在这条线程上排队（#10086）：`preferencesWorker` 在每个新输入框里先做建会话前的偏好读取和个人词库同步，常用语排在它后面，会话在建时点开的常用语面板要一直显示「正在读取」到会话快建好。读写放在同一条线程上，刚添加的那条在随后打开的面板里一定读得到。 */
     final ExecutorService commonPhrasesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
@@ -2521,6 +2523,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLayoutRows.shutdown();
         imeDebugOverlay.shutdown();
         cloudClipboardWorker.shutdownNow();
+        skinDownloadWorker.shutdownNow();
         candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
         englishSuggestionWorker.shutdownNow();
@@ -7942,10 +7945,10 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 键盘皮肤面板只保存当前明暗的键盘选择短引用；另一种明暗的选择不变。候选条、表情和手写也按这一明暗的选择取皮肤（见 {@link #surfaceSkin}），候选皮肤包槽位不变。 */
-    void saveKeyboardSkin(String identifier, JSONObject design, String libraryId) {
+    /** 键盘皮肤面板只保存当前明暗的键盘选择短引用；另一种明暗的选择不变。候选条、表情和手写也按这一明暗的选择取皮肤（见 {@link #surfaceSkin}），候选皮肤包槽位不变。返回 false 表示这次选择没被接受（没有会话、另一次保存还没回来或偏好读不出），调用方不记换装统计；已经是这款皮肤时返回 true。 */
+    boolean saveKeyboardSkin(String identifier, JSONObject design, String libraryId) {
         if (skinSaving || traditionalOutputSaving || session == 0
-                || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return;
+                || preferencesSnapshot == null || preferencesDirectory.isEmpty()) return false;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
         final JSONObject pending;
@@ -7963,7 +7966,7 @@ public final class MSIMEInputService extends InputMethodService {
             String key = app.msime.android.KeyboardSkinModeChoice.key(dark);
             String choice = design == null ? app.msime.android.KeyboardSkinModeChoice.theme(identifier)
                 : app.msime.android.KeyboardSkinModeChoice.design(libraryId);
-            if (choice.equals(preferences.optString(key))) return;
+            if (choice.equals(preferences.optString(key))) return true;
             preferences.put(key, choice);
             if (design != null) {
                 applyDesignFeedback(preferences, design);
@@ -7971,7 +7974,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
-            return;
+            return false;
         }
         skin = design == null ? keyboardSkin(preferences) : KeyboardSkin.custom(design,
             KeyboardSkin.resolveDark(InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
@@ -8012,7 +8015,9 @@ public final class MSIMEInputService extends InputMethodService {
             });
         } catch (RuntimeException error) {
             finishKeyboardSkinSave(operation, targetSession, targetDirectory, null);
+            return false;
         }
+        return true;
     }
 
     /** 自定义设计带的按键音（P23）写进偏好的 `plugins.key_sound.pack`；「静音」不改音效包，只是不播（本地按键音开关）。按键动画在本地设置里，由 saveKeyboardSkin 另外写。 */

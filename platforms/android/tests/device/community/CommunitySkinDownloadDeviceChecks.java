@@ -51,7 +51,7 @@ public final class CommunitySkinDownloadDeviceChecks {
             }
             if (!"合成下载失败".equals(reply.getString("error")) || reply.optJSONObject("design") != null)
                 throw new AssertionError("Failure reply became an installable skin");
-            for (byte[] invalid : new byte[][] {new byte[0], new byte[1024 * 1024 + 1]}) {
+            for (byte[] invalid : new byte[][] {new byte[0], new byte[2 * 1024 * 1024 + 1]}) {
                 try {
                     read.invoke(null, new ByteArrayInputStream(invalid));
                     throw new AssertionError("Invalid skin stream accepted");

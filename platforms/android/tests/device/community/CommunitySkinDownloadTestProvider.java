@@ -26,7 +26,7 @@ public final class CommunitySkinDownloadTestProvider extends ContentProvider {
             .loadClass("app.msime.android.CommunitySkinDownloadStream");
     }
 
-    /** 1×1 PNG 加有界的合成文本块，照片仍在共享的 512000 字节上限内。 */
+    /** 1×1 PNG 加有界的合成文本块，照片仍在共享的 512000 字节上限内。文本块用 0xFF 填充，Base64 几乎全是 '/'，覆盖 JSONObject.toString() 把 '/' 转义成 "\/" 后的最坏长度。 */
     static String photo() throws Exception {
         Bitmap bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         ByteArrayOutputStream png = new ByteArrayOutputStream();
@@ -36,7 +36,7 @@ public final class CommunitySkinDownloadTestProvider extends ContentProvider {
         ByteArrayOutputStream result = new ByteArrayOutputStream();
         result.write(original, 0, original.length - 12);
         byte[] text = new byte[500000];
-        Arrays.fill(text, (byte) 'A');
+        Arrays.fill(text, (byte) 0xFF);
         byte[] keyword = "Synthetic\0".getBytes(StandardCharsets.US_ASCII);
         System.arraycopy(keyword, 0, text, 0, keyword.length);
         byte[] type = "tEXt".getBytes(StandardCharsets.US_ASCII);
