@@ -22,6 +22,7 @@ space_copy=false
 theme=false
 key_faces=false
 spelling_editor=false
+clipboard_selection=false
 voice_empty=false
 # 单次 instrumentation 默认不设上限：完整套件里 NumberPadDeviceSmoke 一项就要跑约 6.5 分钟，整套的总时长由 workflow 的 timeout-minutes 兜底。需要给单次运行加上限时设置 MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS（秒）。
 instrumentation_timeout_seconds=${MSIME_DEVICE_INSTRUMENTATION_TIMEOUT_SECONDS:-}
@@ -46,8 +47,9 @@ for option in "${@:2}"; do
     --theme) theme=true ;;
     --key-faces) key_faces=true ;;
     --spelling-editor) spelling_editor=true ;;
+    --clipboard-selection) clipboard_selection=true ;;
     --voice-empty) voice_empty=true ;;
-    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--trackpad-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor] [--voice-empty]" >&2; exit 1 ;;
+    *) echo "usage: smoke.sh [emulator-5580] [--core] [--risk] [--settings] [--handwriting] [--statistics] [--feedback] [--diagnostics] [--text-edit-layout] [--trackpad-layout] [--oobe] [--crash-only] [--pr] [--release] [--space-copy] [--theme] [--key-faces] [--spelling-editor] [--voice-empty] [--clipboard-selection]" >&2; exit 1 ;;
   esac
 done
 [[ "$serial" == emulator-* ]] || { echo "Only the dedicated emulator is supported" >&2; exit 1; }
@@ -106,6 +108,18 @@ stop() {
 }
 device_alive() {
   [[ $("$adb" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]
+}
+# `am force-stop` returns before the old IME process has disappeared on some API 35 images.
+# Wait for the product process to be gone before the clipboard fixture starts; otherwise
+# the instrumentation can reconnect to a session holding the previous clipboard snapshot.
+wait_product_stopped() {
+  local attempt pids
+  for attempt in $(seq 1 40); do
+    pids=$("$adb" -s "$serial" shell pidof app.msime.android 2>/dev/null | tr -d '\r' || true)
+    [[ -z "$pids" ]] && return 0
+    sleep 0.25
+  done
+  return 1
 }
 # 清除合成锁屏 PIN（DeviceCredentialFixture.PIN）：用到它的套件中途失败或崩溃时来不及清，留下的锁屏会挡住后面的套件。只在确有凭据时清除，理由见 clipboard-export.sh 的 clear_credential。
 clear_credential() {
@@ -281,8 +295,15 @@ run_instrumentation() {
   local limit=()
   [[ -z "$instrumentation_timeout_seconds" ]] || limit=(timeout --foreground "${instrumentation_timeout_seconds}s")
   if (( sdk >= 31 )) && [[ "$target" == app.msime.android ]]; then
-    "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
-    ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
+    if [[ "${MSIME_DEVICE_SKIP_HOME_START:-false}" != true ]]; then
+      "$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.android.home.HomeActivity >/dev/null
+      ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument --no-restart "${@:2}" -w "$component"
+    else
+      # 剪贴板专项先由外层 force-stop 并等待产品进程退出；此时不能用
+      # `--no-restart`，API 35 会在目标进程不存在时触发系统空指针。
+      # 普通 instrument 会创建一个全新的产品进程，避免复用旧剪贴板快照。
+      ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
+    fi
   else
     ${limit[@]+"${limit[@]}"} "$adb" -s "$serial" shell am instrument "${@:2}" -w "$component"
   fi
@@ -322,6 +343,10 @@ if [[ "$key_faces" == true ]]; then
   check "Shuangpin key face acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.NineKeyShuangpinDeviceSmoke -e faces_only true
   finish "Dedicated Android AVD: key face acceptance passed"
 fi
+if [[ "$clipboard_selection" == true ]]; then
+  check "Clipboard selection acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e selection-only true
+  finish "Dedicated Android AVD: clipboard selection acceptance passed"
+fi
 if [[ "$voice_empty" == true ]]; then
   check_script "空语音顶部提示验收失败" platforms/android/tests/device/voice-lifecycle.sh "$serial" empty
   finish "Dedicated Android AVD: empty voice notice acceptance passed"
@@ -330,6 +355,12 @@ if [[ "$pr" == true ]]; then
   # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键由 nightly 完整回归覆盖，剪贴板持久化由风险矩阵和发版覆盖。
   check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
   check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
+  check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
+  # 剪贴板右滑详情只跑这一条短路径；完整分词、滚动和剪贴板操作仍留给 develop、nightly 和发版。
+  # 这条 instrumentation 以产品进程为目标，不能在测试代码里强停自己；由 shell 在启动前清掉前一条短测试留下的偏好快照。
+  "$adb" -s "$serial" shell am force-stop app.msime.android
+  wait_product_stopped || stop "app.msime.android did not stop before the clipboard detail fixture"
+  MSIME_DEVICE_SKIP_HOME_START=true check "Clipboard detail swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e preview-actions-only true
   finish "Dedicated Android AVD: PR smoke acceptance passed"
 fi
 if [[ "$risk" == true || "$release" == true ]]; then
@@ -495,6 +526,7 @@ check "Native common phrase note acceptance failed" MSIME_DEVICE_SMOKE_PASSED ru
 check "Native common phrase category acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e phrase-categories true
 # 触控板通过独立编辑器验收真实 DPAD、选区、临时面板和密码回读，最低 API 同样覆盖。
 check "Text trackpad acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e trackpad true
+check "Clipboard selection acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.ClipboardSegmentDragDeviceSmoke -e selection-only true
 
 # 真实恢复和撤销涉及应用私有目录，最低 API 的核心验收也执行合成备份回归。
 check "Layout backup restore acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.PreferencesDeviceSmoke -e backup-layout true

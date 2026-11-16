@@ -45,7 +45,7 @@ export interface HostCapabilities {
   candidate_page_number: boolean;
   /** 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo（macOS、Windows 和 Linux 的 Fcitx5）。 */
   app_logo?: boolean;
-  /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（Linux 与 macOS）；没有时设置页只给简体和繁体。 */
+  /** 宿主按 `traditional_chinese_variant` 选 OpenCC 的 s2t、s2tw 或 s2twp 做繁体转换（Linux、macOS 与 Android）；没有时设置页只给简体和繁体。 */
   traditional_chinese_variants?: boolean;
   /** 宿主按 `expand_candidates` 让横排候选窗按 Tab、↓ 展开成多行候选网格（macOS，以及 X11 上用原生画布画候选窗的 Linux Fcitx5）。 */
   expand_candidates?: boolean;

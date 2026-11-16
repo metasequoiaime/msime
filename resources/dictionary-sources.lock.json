@@ -30,7 +30,7 @@
     },
     "rime-ice-supplement": {
       "repository": "https://github.com/iDvel/rime-ice.git",
-      "commit": "3aea6d3694fb3d94ec663641f021f788822897ad"
+      "commit": "927e1cf1d3eeb9bf4be85e3f684dba4dd485b6f6"
     },
     "McBopomofo": {
       "repository": "https://github.com/openvanilla/McBopomofo.git",
@@ -65,8 +65,8 @@
       "commit": "26753884f1984add422f3b0249ccee8613deaff6"
     },
     "rime-wanxiang": {
-      "repository": "https://github.com/amzxyz/rime-wanxiang.git",
-      "commit": "7ab73ee0c7f80190004233e70f954833df64c80e"
+      "repository": "https://github.com/amzxyz/rime-wanxiang-data.git",
+      "commit": "6b317736a8f90bb6dddf1423dbd1f0b83d4bf764"
     }
   },
   "mozc": {

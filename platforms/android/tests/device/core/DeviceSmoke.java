@@ -184,8 +184,13 @@ public class DeviceSmoke extends Instrumentation {
                 : successDescription()) + "\n");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
-            // Only fixed test-stage messages, never serialize editor contents.
-            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + error.getClass().getSimpleName() + ")" + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
+            // 只记录固定测试阶段和测试代码栈，不序列化编辑器正文或异常中的私人数据。
+            StringBuilder frames = new StringBuilder();
+            for (StackTraceElement frame : error.getStackTrace()) {
+                if (frame.getClassName().startsWith("app.msime.android.test."))
+                    frames.append("\n  at ").append(frame);
+            }
+            result.putString("stream", "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + error.getClass().getSimpleName() + ")" + (error instanceof AssertionError ? " " + error.getMessage() : "") + frames + "\n");
             finish(Activity.RESULT_CANCELED, result);
         }
     }
