@@ -163,6 +163,27 @@ int main() {
         static_cast<unsigned long long>(rendered.load()),
         static_cast<unsigned long long>(paged.load()), wrong_desktop.load());
   });
+  // 普通连打沿用同一个焦点租约，只更新候选帧；没有主动屏障通知也要持续交付到原桌面。
+  for (uint64_t serial = 11; serial < 19; ++serial) {
+    {
+      std::lock_guard lock(mutex);
+      source->render_serial = serial;
+      source->preedit = "synthetic" + std::to_string(serial);
+      source->candidates.front().text = source->preedit;
+      first.paint_requested.store(true);
+    }
+    wait_for([&] {
+      if (rendered.load() == serial) return true;
+      // 私有桌面不自动重绘；新快照到达前的绘制消息不能代替这一帧的绘制。
+      first.paint_requested.store(true);
+      return false;
+    }, router, "same-focus candidate update", [&] {
+      std::fprintf(stderr, "expected=%llu rendered=%llu visible=%u,%u\n",
+          static_cast<unsigned long long>(serial),
+          static_cast<unsigned long long>(rendered.load()), first.visible.load(), second.visible.load());
+    });
+    assert(first.visible.load() == 1 && second.visible.load() == 0);
+  }
   show(second, 2);
   wait_for([&] { return !first.visible.load() && second.visible.load() == 1 && rendered.load() == 2; }, router, "second desktop rendering");
   if (second.desktop_visible.load()) {
