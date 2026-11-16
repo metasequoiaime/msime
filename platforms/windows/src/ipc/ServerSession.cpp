@@ -185,6 +185,10 @@ void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
   check_active(epoch);
   response(msime_client_set_chinese_punctuation(session_, enabled));
 }
+void ServerSession::set_character_width(uint64_t epoch, bool fullwidth) {
+  check_active(epoch);
+  response(msime_client_set_character_width(session_, fullwidth));
+}
 void ServerSession::balance_paired_punctuation(uint64_t epoch,
                                                uint8_t opening) {
   check_active(epoch);
