@@ -82,3 +82,7 @@ runtime 降位（`Runtime::demote_runner_up_readings`）和网页引擎（`engin
 ## 历史笔记检索
 
 检索了「纠错整句」「typo sentence」「typo_lead_margin」「runner_up」相关笔记。[双拼非首选整句纠错候选保留](2026-10-24-shuangpin-nonleading-typo-candidate.md)持有双拼的取舍并写明全拼沿用胜过字面整句的规则，本篇保留这条规则，只改全拼的罚分和座位，互链不改它。[全辅音简拼排在全拼纠错前面](2026-10-29-quanpin-jianpin-over-autocorrect.md)持有 `resolve_series_query` 那道门，本篇不动门。[另一种切分的整句读法](2026-11-06-pooled-readings-of-other-segmentations.md)持有降位时整句池的规则，本篇在同一个函数里加保座，池的规则不变。[纠错键规划去重](../testing/2026-10-08-typo-key-planning-dedup.md)和[纠错边懒缓冲](../testing/2026-10-10-typo-edge-lazy-buffers.md)是一换一键的性能约束，本篇沿用并说明对照测试的改动。
+
+## 后续决定
+
+[全拼字母级纠错与重排提升门槛](2026-11-14-quanpin-letter-edits-and-rerank-margin.md)取代本篇的重切分枚举、罚分、座位阈值和重排规则；本篇保留 #11405 当时的参数及取舍，字面读法保护和座位识别仍沿用。

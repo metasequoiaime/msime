@@ -793,6 +793,11 @@ public final class NativeClient {
         return TextPolicy.utf8(niutransTranslationHttpRequestRaw(utf8(requestJson)));
     }
 
+    /** 阿里云机器翻译的共享目录、校验、签名和解析，不记录请求或响应。 */
+    public static String aliyunTranslation(String requestJson) {
+        return TextPolicy.utf8(aliyunTranslationRaw(utf8(requestJson)));
+    }
+
     /** 腾讯云机器翻译的签名描述器：请求 {@code {config:{enabled,secret_id,secret_key,region},texts,source_language,target_language,timestamp}}（timestamp 是秒），value 带签过名的 {@code body_utf8}，要逐字节原样发送。不做 I/O。 */
     public static String tencentTranslationHttpRequest(String requestJson) {
         return TextPolicy.utf8(tencentTranslationHttpRequestRaw(utf8(requestJson)));
@@ -915,6 +920,13 @@ public final class NativeClient {
     public static String simplifiedToTraditional(String text) {
         if (text == null || text.isEmpty()) return text;
         byte[] converted = simplifiedToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8));
+        return converted == null ? null : TextPolicy.utf8(converted);
+    }
+
+    /** 按共享偏好的 OpenCC 变体转换文本；未知编号由 host-api 拒绝，调用方保留原文。 */
+    public static String convertToTraditional(String text, int variant) {
+        if (text == null || text.isEmpty()) return text;
+        byte[] converted = convertToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8), variant);
         return converted == null ? null : TextPolicy.utf8(converted);
     }
 
@@ -1229,6 +1241,7 @@ public final class NativeClient {
     private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
+    private static native byte[] convertToTraditionalRaw(byte[] text, int variant);
     private static native byte[] resetCacheRaw(long session);
     private static native byte[] startSettledRerankRaw(long session);
     private static native byte[] pollSettledRerankRaw(long session, long token, boolean accept);
@@ -1290,6 +1303,7 @@ public final class NativeClient {
     private static native byte[] testVoiceCredentialRaw(byte[] request);
     private static native byte[] customTranslationHttpRequestRaw(byte[] request);
     private static native byte[] niutransTranslationHttpRequestRaw(byte[] request);
+    private static native byte[] aliyunTranslationRaw(byte[] request);
     private static native byte[] tencentTranslationHttpRequestRaw(byte[] request);
     private static native byte[] parseCustomTranslationResponseRaw(byte[] body);
     private static native byte[] parseNiuTransTranslationResponseRaw(byte[] body);

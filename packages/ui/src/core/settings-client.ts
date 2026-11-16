@@ -192,6 +192,8 @@ export interface SettingsClient {
   restartInputMethod?: () => Promise<void>;
   /** macOS 先安装或更新独立的 InputMethodKit 包，再注册输入源。 */
   installInputSource?: () => Promise<void>;
+  /** macOS 经一次管理员授权把装在用户目录的输入法换成 /Library/Input Methods 里的一份；装在用户目录的那份在安全输入期间会被系统停用。 */
+  migrateInputSourceToSystem?: () => Promise<void>;
   /** macOS 上哪几个输入模式已经加入输入法列表，用于「方案」里的「菜单栏入口」提示。 */
   macosInputModes?: MacosInputModesClient;
   /** macOS 每次启动安装或刷新输入法，此处报告结果。 */

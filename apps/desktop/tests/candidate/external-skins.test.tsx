@@ -756,6 +756,19 @@ test("an external card is styled as the built-in theme cards are", async () => {
   );
 });
 
+test("a package card leaves out the package's own description and explains only an unusable package", () => {
+  const { rerender } = render(packageCard(sample));
+  const card = screen.getByRole("article", { name: "Sample skin" });
+  expect(within(card).queryByText("Sample description")).toBeNull();
+  expect(within(card).queryByText(/^基于 /)).toBeNull();
+
+  rerender(packageCard(sample, { layout: "vertical" }));
+  expect(within(card).queryByText("Sample description")).toBeNull();
+  expect(
+    within(card).getByText("当前布局或明暗模式不受支持（horizontal，dark/light）"),
+  ).toBeTruthy();
+});
+
 test("choosing a package makes it the custom theme's skin, and the 自定义 card drops it", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,

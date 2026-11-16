@@ -26,6 +26,14 @@ export function inputSourceNeedsAdding(status: InputSourceStartupStatus | null):
   );
 }
 
+/** 生效的那份装在用户目录：安全输入期间 macOS 会停用它（见 platforms/macos/README.md）。旧宿主不报范围时不下结论。 */
+export function inputSourceInstalledForUserOnly(status: InputSourceStartupStatus | null): boolean {
+  return (
+    status?.installation_scope === "user" &&
+    ["installed", "updated", "up_to_date"].includes(status.action)
+  );
+}
+
 /** 等用户添加输入源或移除系统目录副本时继续重查。 */
 export function inputSourceNeedsRecheck(status: InputSourceStartupStatus | null): boolean {
   return inputSourceNeedsAdding(status) || Boolean(status?.system_bundles?.length);
