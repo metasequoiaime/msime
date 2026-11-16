@@ -5616,6 +5616,8 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_install,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_import,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_cancel,
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_resource_packs::resource_pack_remove,
