@@ -106,6 +106,21 @@ test("the arrows step one theme and stop at either end", () => {
   expect(screen.getByText("2 / 3")).toBeTruthy();
 });
 
+test("the arrows sit on either side of the cards and the row below keeps the dots", () => {
+  renderCarousel(0);
+  const track = screen.getByRole("article", { name: labels[0] }).parentElement!.parentElement!;
+  const previous = screen.getByRole("button", { name: "上一个主题" });
+  const next = screen.getByRole("button", { name: "下一个主题" });
+
+  expect(track.previousElementSibling).toBe(previous);
+  expect(track.nextElementSibling).toBe(next);
+  expect(track.parentElement?.className).toContain("grid-cols-[auto_minmax(0,1fr)_auto]");
+  const nav = next.nextElementSibling!;
+  expect(nav.className).toContain("col-span-3");
+  expect(nav.contains(screen.getByRole("button", { name: "查看水杉" }))).toBe(true);
+  expect(nav.contains(previous) || nav.contains(next)).toBe(false);
+});
+
 test("a dot or an arrow key jumps to that theme", () => {
   renderCarousel(0);
 
