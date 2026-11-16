@@ -9,6 +9,10 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
             "quanpin label");
         check("双拼 · 小鹤".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, false)),
             "xiaohe label");
+        check("双拼 · 自定义".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, false, "custom")),
+            "自定义普通双拼显示实际码表名");
+        check("space".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, true, "custom")),
+            "英文模式仍显示空格用途");
         check("五笔 86".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.WUBI, KeyboardScheme.WUBI_86, false)),
             "wubi 86 label");
         check("五笔 98".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.WUBI, KeyboardScheme.WUBI_98, false)),

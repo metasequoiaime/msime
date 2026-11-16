@@ -84,6 +84,15 @@ public final class SpaceKeyFace extends KeyboardPressButton {
      * @param wubiProfile 五笔的码表版本（{@link KeyboardScheme#WUBI_86} / {@link KeyboardScheme#WUBI_98}）
      * @param english 是否处于英文输入
      */
+    public static String schemeLabel(KeyboardScheme scheme, String wubiProfile, boolean english,
+            String shuangpinProfile) {
+        if (!english && scheme == KeyboardScheme.XIAOHE) {
+            if ("custom".equals(shuangpinProfile)) return "双拼 · 自定义";
+            if ("smart_abc".equals(shuangpinProfile)) return "双拼 · 智能 ABC";
+        }
+        return schemeLabel(scheme, wubiProfile, english);
+    }
+
     public static String schemeLabel(KeyboardScheme scheme, String wubiProfile, boolean english) {
         if (english) return "space";
         if (scheme == null) return "全拼";
