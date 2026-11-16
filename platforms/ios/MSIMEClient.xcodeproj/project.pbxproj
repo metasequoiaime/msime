@@ -1164,7 +1164,6 @@
 		F235E4D26B6672B8F6632555 /* AISkinService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C593401E864A58F7F8763D1 /* AISkinService.swift */; };
 		F25B46E301948DF865571C7C /* DoubaoVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */; };
 		F2683763002AF661FC8367FA /* MetasequoiaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F03A68AA9F5CC4B135BEAD1 /* MetasequoiaTheme.swift */; };
-		F270E7DDA8F58FFE94540496 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = EB027780E4C879DB77CA7DFF /* LICENSE */; };
 		F297FEFE35FF7DE8D5C593F7 /* TranslationProviderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D877D6A4E98C4CAED197AC82 /* TranslationProviderSettingsView.swift */; };
 		F30091B95C6FFDBDD233B375 /* CloudClipboardRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61012216361C7060D0B5D98 /* CloudClipboardRelay.swift */; };
 		F32E97F86CA340F56FA8E59F /* CompositionCaretPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D0F07A3F356D22DD94A230 /* CompositionCaretPolicy.swift */; };
@@ -1854,7 +1853,6 @@
 		E8B4AA60393F58C6D45A8A49 /* WubiCodeLookupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiCodeLookupView.swift; sourceTree = "<group>"; };
 		E9D8B85A610A0F839A008BCA /* IOSCloudDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSCloudDictionary.swift; sourceTree = "<group>"; };
 		EABB18AC690CFF2CE8BDB5C9 /* PunctuationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PunctuationSettingsView.swift; sourceTree = "<group>"; };
-		EB027780E4C879DB77CA7DFF /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		EB1C37136F9383ADAA59AA50 /* rerank-model-small */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "rerank-model-small"; path = "../../target/ios/rerank-model-small"; sourceTree = SOURCE_ROOT; };
 		EB2FB215B2D5062E9E93D429 /* OnlineCandidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineCandidateTests.swift; sourceTree = "<group>"; };
 		EB4F837E06F04517EF053E1E /* QuickPhraseCursorKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPhraseCursorKeyboardTests.swift; sourceTree = "<group>"; };
@@ -2608,7 +2606,6 @@
 		800ECB9BA4846B8B7A96E699 /* 11406-custom-shuangpin */ = {
 			isa = PBXGroup;
 			children = (
-				EB027780E4C879DB77CA7DFF /* LICENSE */,
 			);
 			name = "11406-custom-shuangpin";
 			path = ../..;
@@ -3407,7 +3404,7 @@
 				D01D3BD63697B467209A4EE9 /* Assets.xcassets in Resources */,
 				5DEF6271B362D6938DEEFF7A /* ECDICT-MIT.txt in Resources */,
 				EEDABC563F556FDBBE40A504 /* GoogleSignIn-Dependencies.txt in Resources */,
-				F270E7DDA8F58FFE94540496 /* LICENSE in Resources */,
+				B3D1199B76D5DF485F20A3BF /* LICENSE in Resources */,
 				301F0BC99740BCF9A6676CDB /* LaunchScreen.storyboard in Resources */,
 				7EB33C5330748EE93BA3A1DB /* MLKit-Dependencies.txt in Resources */,
 				84B7B0B173F1C93261D00BFC /* MLKit-NOTICES.txt in Resources */,
