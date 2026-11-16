@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::preferences::AI_PROVIDERS;
 
+pub mod alignment;
 pub mod endpoint;
 pub mod jev;
 pub mod provider_catalog;
@@ -69,8 +70,8 @@ pub struct AiTranslationRequest {
 
 pub const DEFAULT_TRANSLATION_PROMPT: &str = "你是一个机器翻译服务。把用户给出的文本从 source_language 翻译成 target_language。只翻译文本本身，保留原意和标点，不要解释、注释或改写。只输出合法 JSON，不要输出 Markdown：{\"translation\":\"译文\"}。没有合适译文时输出空字符串。";
 
-/// The system prompt a blank prompt slot stands for. It used to exist only in the Windows installer's default configuration, so every other host that never wrote a prompt sent an empty system message and got replies the JSON parser rejects.
-pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。";
+/// 空白提示词槽位使用的协议；本地推断的切分可调整，用户手动边界必须保留。
+pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。input 是原始全拼按键（保留手动单引号分隔符），segmented_pinyin 是本地推断的切分，explicit_boundaries 是去掉单引号后用户指定边界的字母偏移。没有 input 时只能沿用本地切分。结合 context 消除音节边界歧义，可以提出其他合法切分，但必须完整覆盖原输入、保留所有手动边界，不得增删字母。\n\n每个中文字符对应一个合法拼音音节，读音必须相符。英文缩写、产品名或技术术语可占用一个或多个连续音节，但字母必须与对应输入区间逐字相同（忽略大小写），允许中英文间有空格，不得凭语义增字、漏字、翻译或改写。例：woxiwangaikeyi 可返回「我希望 AI 可以」，segmentation 为 [\"wo\",\"xi\",\"wang\",\"ai\",\"ke\",\"yi\"]；GitHub 可对应 [\"git\",\"hub\"]。\n\n只输出合法 JSON，不要解释或 Markdown：{\"candidates\":[{\"text\":\"候选内容\",\"segmentation\":[\"每段音节或英文输入区间\"]}]}。按推荐程度排序，不超过 candidate_limit；没有合理结果返回空数组。";
 
 /// 英文模式按原始拼写与前文补全、纠错，不将字母拆成拼音。
 pub const DEFAULT_ENGLISH_CANDIDATE_PROMPT: &str = "你是一个英文输入法补全和拼写纠错服务。用户提供 mode=english、原始字母串 input、前文 context 和候选数量 candidate_limit。结合前文返回最可能的完整英文单词，保留合理的大小写，纠正常见拼写错误。不要把字母当作拼音，不翻译成中文，不解释。只输出合法 JSON：{\"candidates\":[{\"text\":\"英文单词\"}]}。按推荐程度降序，数量不超过 candidate_limit；没有合理结果返回空数组。";
@@ -183,16 +184,7 @@ pub fn chat_completion_body(
         return Err(AiError::InvalidConfiguration);
     }
     // JSON 模式要求对话里出现 "json" 这个词。把 Chat Completions 转成 Responses API 的网关（如 EveryAPI 上的 GPT-6 系列）会把 system 消息放进 `instructions`，只检查 input，于是只在 system 提示里写 JSON 的请求一律 400。在 user 消息里带上 `output_format` 字段，任何提示都能满足这个检查。
-    #[derive(Serialize)]
-    struct UserMessage<'a> {
-        #[serde(flatten)]
-        request: &'a AiSuggestionRequest,
-        output_format: &'static str,
-    }
-    let user = UserMessage {
-        request,
-        output_format: "json",
-    };
+    let user = alignment::user_message(request)?;
     let uses_thinking = uses_deepseek_thinking(provider, endpoint, thinking);
     let mut body = serde_json::json!({
         "model":model, "stream":false, "temperature":0.2,
@@ -469,6 +461,14 @@ fn strip_code_fence(content: &str) -> &str {
 /// Preserve provider order, omit invalid/duplicate entries, and honor the caller's
 /// configured limit. None denotes an invalid envelope; an empty list is no result.
 pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSuggestionResponse> {
+    parse_chat_completion_with(body, limit, |_, _| true)
+}
+
+fn parse_chat_completion_with(
+    body: &[u8],
+    limit: u8,
+    mut accepts: impl FnMut(&serde_json::Value, &str) -> bool,
+) -> Option<AiSuggestionResponse> {
     if body.len() > 1024 * 1024 || !(1..=10).contains(&limit) {
         return None;
     }
@@ -493,6 +493,7 @@ pub fn parse_chat_completion_response(body: &[u8], limit: u8) -> Option<AiSugges
         if text.trim().is_empty()
             || !crate::text::is_bounded_text(text, 4096)
             || candidates.iter().any(|candidate| candidate.text == text)
+            || !accepts(entry, text)
         {
             continue;
         }
@@ -521,7 +522,7 @@ impl AiSuggestionRequest {
     pub fn validate(&self) -> Result<(), AiError> {
         match self.mode {
             AiInputMode::Pinyin => {
-                if !self.input.is_empty()
+                if (!self.input.is_empty() && !alignment::valid_raw_input(&self.input))
                     || self.segmented_pinyin.is_empty()
                     || self.segmented_pinyin.len() > 128
                     || self

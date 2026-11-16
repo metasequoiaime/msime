@@ -274,6 +274,17 @@ static NSDictionary *decode(char *response, NSError **error) {
     id value = decodeValue(msime_client_parse_ai_response((const uint8_t *)body.bytes, body.length, (uint8_t)limit), error);
     return [value isKindOfClass:NSArray.class] ? value : nil;
 }
++ (NSArray<NSString *> *)parseAICandidateResponse:(NSData *)body query:(NSDictionary *)query limit:(NSUInteger)limit error:(NSError **)error {
+    if (![body isKindOfClass:NSData.class] || body.length > 1048576 || limit < 1 || limit > 10 ||
+        ![NSJSONSerialization isValidJSONObject:query]) { setError(error, @"AI 候选响应格式错误"); return nil; }
+    NSString *text = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
+    if (!text) return nil;
+    NSDictionary *request = @{@"op":@"parse", @"query":query, @"body":text, @"limit":@(limit)};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
+    if (!data || data.length > 8 * 1024 * 1024) return nil;
+    id value = decodeValue(msime_client_ai_candidate_protocol((const uint8_t *)data.bytes, data.length), error);
+    return [value isKindOfClass:NSArray.class] ? value : nil;
+}
 + (NSDictionary *)learnedTranslationRequest:(NSDictionary *)request error:(NSError **)error {
     if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"用户释义请求格式错误"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];

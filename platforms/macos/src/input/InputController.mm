@@ -3230,7 +3230,7 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
             return;
         }
     }
-    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor,
+    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor, @"query": online,
         @"candidate_limit": config[@"candidate_limit"] ?: @3 } ];
     uint64_t epoch = _aiEpoch; MSIMEClientSession *session = _session; id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;

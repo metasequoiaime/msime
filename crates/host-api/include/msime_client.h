@@ -858,6 +858,10 @@ char *msime_client_ai_test(const uint8_t *request, size_t length);
 char *msime_client_ai_http_request(const uint8_t *request, size_t length);
 // Successful HTTP body <=1MiB, limit 1..10. Returns a string array or null.
 char *msime_client_parse_ai_response(const uint8_t *body, size_t length, uint8_t limit);
+// 内存协议，JSON <=8MiB：{op:message|parse,query:OnlineQuery,limit:1..10,body?:HTTP正文字符串}。
+// message 返回 {message,default_prompt}；parse 返回通过输入覆盖与读音校验的候选数组或 null。
+// 不变更会话；应用候选仍需当前查询的身份和代次。请求和响应含用户输入，不可记录。
+char *msime_client_ai_candidate_protocol(const uint8_t *request, size_t length);
 // Worker-thread disk I/O. JSON <=64KiB: {directory:absolute private user path,
 // action:lookup|remember,target_language,generation,items:[{text,direction,translation?}]}.
 // At most 9 items, directions english_to_chinese/chinese_to_english. Remember

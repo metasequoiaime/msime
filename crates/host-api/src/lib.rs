@@ -12,7 +12,6 @@ use msime_client_core::edition::Edition;
 use msime_client_core::host_surface::{
     offered_input_schemes, HostCapabilities, HostPlatform, SurfaceRoute,
 };
-use msime_client_providers::ai::AiSuggestionRequest;
 use msime_client_services::dictionary::access::DictionaryAccess;
 /// 按用户的设置打一串键看候选，给 `msime-mcp candidates` 用。
 pub mod candidate_preview;

@@ -4894,43 +4894,6 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /**
-     * The candidate texts inside a Chat Completions reply, in provider order.
-     *
-     * <p>An empty list means the reply supplies nothing, whether it was rejected or simply had no
-     * candidates; either way nothing reaches Engine. Bounds and the per-entry rules belong to
-     * {@link OnlineCandidatePolicy}, so only the envelope shape is read here.
-     */
-    private java.util.List<String> aiCandidateTexts(String body) {
-        java.util.List<String> texts = java.util.List.of();
-        if (!OnlineCandidatePolicy.acceptsAiBody(body)) return texts;
-        try {
-            JSONObject envelope = new JSONObject(body);
-            if (!envelope.isNull("error")) return texts;
-            JSONArray choices = envelope.optJSONArray("choices");
-            if (choices == null || choices.length() == 0) return texts;
-            JSONObject message = choices.getJSONObject(0).optJSONObject("message");
-            if (message == null) return texts;
-            String content = JsonPolicy.strictString(message.opt("content"));
-            if (content == null) return texts;
-            if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
-            JSONArray entries = new JSONObject(OnlineCandidatePolicy.stripCodeFence(content))
-                .optJSONArray("candidates");
-            if (entries == null) return texts;
-            texts = new java.util.ArrayList<>(entries.length());
-            for (int index = 0; index < entries.length(); index++) {
-                JSONObject entry = entries.optJSONObject(index);
-                if (entry != null) {
-                    String text = JsonPolicy.strictString(entry.opt("text"));
-                    if (text != null) texts.add(text);
-                }
-            }
-            return texts;
-        } catch (JSONException | RuntimeException error) {
-            return java.util.List.of();
-        }
-    }
-
     /** The AI HTTPS descriptor in this envelope, or null when it no longer matches the settings. */
     private static JSONObject aiRequestDescriptor(String raw) {
         if (raw == null) return null;
@@ -5066,8 +5029,8 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
                 () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
             if (descriptor == null) return;
-            java.util.List<String> candidates = OnlineCandidatePolicy.aiCandidates(
-                aiCandidateTexts(OnlineCandidateTransport.ai(descriptor)), limit);
+            java.util.List<String> candidates = AiCandidateResponse.parse(
+                OnlineCandidateTransport.ai(descriptor), queryDocument, limit);
             if (candidates.isEmpty()) return;
             JSONArray payload = new JSONArray();
             for (String candidate : candidates) payload.put(candidate);

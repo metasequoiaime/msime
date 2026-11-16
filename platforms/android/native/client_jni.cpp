@@ -873,6 +873,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiRequestForQue
     env->ReleaseByteArrayElements(query, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiCandidateProtocolRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, 8 * 1024 * 1024, msime_client_ai_candidate_protocol);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, 65536, msime_client_ai_translation_http_request);
 }

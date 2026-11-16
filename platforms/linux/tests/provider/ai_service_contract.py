@@ -291,6 +291,22 @@ class AiServiceContract(unittest.TestCase):
         online.ai({**query, "ai_assistant": {**options, "prompt_id": "custom", "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent, [])
 
+    def test_pinyin_candidate_metadata_reaches_shared_validation(self):
+        options = {"enabled": True, "provider": PRIVATE["provider"],
+                   "model": PRIVATE["model"], "endpoint": PRIVATE["endpoint"], "candidate_limit": 3}
+        query = {"ai_eligible": True, "identity": "0:woxiwangaikeyi", "scheme": 0,
+                 "pinyin_segments": ["wo", "xi", "wan", "gai", "ke", "yi"],
+                 "ai_assistant": options}
+        entries = [
+            {"text": "我很希望 AI 可以", "segmentation": ["wo", "xi", "wang", "ai", "ke", "yi"]},
+            {"text": "我希望 AI 可以", "segmentation": ["wo", "xi", "wang", "ai", "ke", "yi"]},
+        ]
+        self.respond({"choices": [{"message": {"content": json.dumps({"candidates": entries})}}]})
+        self.assertEqual(online.ai(query, PRIVATE), [{"text": "我希望 AI 可以", "source": 1}])
+        sent = json.loads(self.requests[0]["body"]["messages"][1]["content"])
+        self.assertEqual(sent["input"], "woxiwangaikeyi")
+        self.assertEqual(sent["explicit_boundaries"], [])
+
     def test_builtin_prompt_matches_client_core(self):
         # The provider cannot import the Rust constant at run time, so keep the two copies from drifting apart here. The Rust literal only uses escapes JSON shares (\n and \").
         source = (REPOSITORY / "crates/client-providers/src/ai.rs").read_text()

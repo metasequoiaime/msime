@@ -1523,6 +1523,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ai_alternative_readings_do_not_learn_unverified_local_syllables() {
+        let fixture = Fixture::new(
+            &[("ni", "你", 100), ("hao", "好", 100), ("ni'ni", "妮妮", 1)],
+            &[],
+        );
+        let mut session = fixture.session(|_| {});
+        type_text(&mut session, "nihao");
+        let query = session.online_query().unwrap();
+        assert!(session.apply_online_candidates(
+            &query,
+            &["拟好".into()],
+            CandidateSource::AiSuggestion
+        ));
+        let result = select_word(&mut session, "拟好");
+        assert_eq!(result.commit.as_deref(), Some("拟好"));
+        assert_eq!(result.diagnostic, None);
+        assert_eq!(
+            fixture.main_count("SELECT count(*) FROM tbl_2_n WHERE key='ni''hao' AND value='拟好'"),
+            0
+        );
+        assert_eq!(fixture.journal_count("SELECT count(*) FROM user_dictionary_operations WHERE key='ni''hao' AND value='拟好'"), 0);
+    }
+
     /// Fixture F_TC (test_typo_correction_input_session.cpp:120-142).
     fn typo_fixture() -> Fixture {
         let fixture = Fixture::new(
