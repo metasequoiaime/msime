@@ -6,11 +6,19 @@ import AppKit
   func text() -> String?
 }
 
-@MainActor struct MacPasteboardSource: MacClipboardSource {
+@MainActor protocol MacClipboardWriter {
+  func setText(_ text: String)
+}
+
+@MainActor struct MacPasteboardSource: MacClipboardSource, MacClipboardWriter {
   let pasteboard: NSPasteboard
   var changeCount: Int { pasteboard.changeCount }
   var types: [NSPasteboard.PasteboardType]? { pasteboard.types }
   func text() -> String? { pasteboard.string(forType: .string) }
+  func setText(_ text: String) {
+    pasteboard.clearContents()
+    pasteboard.setString(text, forType: .string)
+  }
 }
 
 /// Sampling only: the host owns scheduling, shared enablement and persistence.

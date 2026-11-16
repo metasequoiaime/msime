@@ -24,6 +24,11 @@ struct WordCharacterResult {
   KeyResult key;
   bool exact;
 };
+// 一次非阻塞的停顿重排推进；pending 时下一轮再收取，view 只属于仍有效的组字。
+struct SettledRerankResult {
+  bool pending = false;
+  std::optional<nlohmann::json> view;
+};
 
 // Lives on the Server input queue, never inside the injected TSF DLL. The pipe
 // router authenticates/negotiates a client before constructing its session, and
@@ -87,9 +92,8 @@ public:
   std::optional<std::string> online_query(uint64_t epoch);
   std::optional<std::string> ai_request(uint64_t epoch,
                                         const std::string &query);
-  /// Re-rank with the settled model; the refreshed view, or nothing when the
-  /// order did not move or no settled model is installed.
-  std::optional<nlohmann::json> rerank_settled(uint64_t epoch);
+  // 启动或收取后台评分，不在输入队列里等待模型。
+  SettledRerankResult rerank_settled(uint64_t epoch);
   std::optional<nlohmann::json>
   apply_cloud_response(uint64_t epoch, const std::string &query,
                        const std::string &body);
@@ -155,6 +159,8 @@ private:
   uint64_t client_;
   uint64_t session_ = 0;
   uint64_t epoch_ = 0;
+  uint64_t settled_token_ = 0;
+  uint64_t settled_epoch_ = 0;
   bool active_ = false;
   bool input_enabled_ = true;
   bool traditional_output_ = false;

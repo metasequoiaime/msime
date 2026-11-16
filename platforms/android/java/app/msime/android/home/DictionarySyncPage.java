@@ -451,10 +451,11 @@ public final class DictionarySyncPage extends ReloadingDetailPage {
         AtomicReference<List<String>> tested = new AtomicReference<>();
         dialog.setValidator(values -> {
             String urlProblem = CloudClipboardRelayPolicy.webdavUrlProblem(values.get(0));
+            String urlInputProblem = CloudClipboardRelayPolicy.webdavUrlProblemWhileTyping(values.get(0));
             String accountProblem = CloudClipboardRelayPolicy.usernameProblem(values.get(1));
             String passwordProblem = keepPassword && values.get(2).isEmpty()
                 ? null : CloudClipboardRelayPolicy.passwordProblem(values.get(2));
-            url.setError(values.get(0).isEmpty() ? null : urlProblem);
+            url.setError(values.get(0).isEmpty() ? null : urlInputProblem);
             account.setError(values.get(1).isEmpty() ? null : accountProblem);
             password.setError(values.get(2).isEmpty() ? null : passwordProblem);
             if (tested.get() != null && !tested.get().equals(values)) {

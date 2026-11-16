@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// 一个最小的 msime-dictionary checkout 和读它的 `Build`。`registered` 时 `upstream.lock.json` 登记 `rime-wanxiang` 和 17 份万象词库，msime 的锁总是有这个 reference。
+/// 一个最小的 msime-dictionary checkout 和读它的 `Build`。`registered` 时 `upstream.lock.json` 登记 `rime-wanxiang` 和 15 份万象词库，msime 的锁总是有这个 reference。
 fn fixture(registered: bool) -> (tempfile::TempDir, PathBuf, PathBuf, Build) {
     let temporary = tempfile::tempdir().unwrap();
     let root = temporary.path().join("builder");

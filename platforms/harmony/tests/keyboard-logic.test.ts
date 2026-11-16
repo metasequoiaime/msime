@@ -380,6 +380,7 @@ import {
   CloudClipboardSendOutcome,
   CloudClipboardState,
 } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardPolicy";
+import { CloudClipboardReceivePolicy } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardReceivePolicy";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import {
   HeldKeys,
@@ -3749,7 +3750,7 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
   check(KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5, "双拼 18 键使用 C ABI 的网格编号 5");
 });
 
-group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
+group("14/18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
   const letter = (dx: number, dy: number): string => EighteenKeySwipePolicy.letter("we", dx, dy);
   check(EighteenKeySwipePolicy.THRESHOLD_VP === 24, "阈值与 Android 的 24 dp、iOS 的 24 pt 相同");
   check(
@@ -3785,6 +3786,14 @@ group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一
             .length === 2,
       ),
     "横滑的键正是有长按字母的那八个双字母键",
+  );
+  const fourteenTwoLetterKeys = FourteenKeyLayout.rows()
+    .flat()
+    .filter((key) => EighteenKeySwipePolicy.swipeable(key.letters))
+    .map((key) => key.letters);
+  check(
+    fourteenTwoLetterKeys.join(" ") === "qw er ty ui op as df gh jk zx cv bn",
+    "14 键全拼和双拼的双字母键也全部接入横滑",
   );
 
   const gesture = new EighteenKeySwipeGesture();
@@ -13606,6 +13615,50 @@ group("cloud clipboard text follows the shared clipboard bounds", () => {
   );
   check(!CloudClipboardPolicy.validText(42), "only strings are text");
 });
+
+group(
+  "cloud clipboard auto receive baselines local copies without blocking later remote copies",
+  () => {
+    const item = (hour: number) => ({
+      id: "a".repeat(64),
+      text: `合成云端文本 ${hour}`,
+      updatedAt: `2026-10-01T${hour}:00:00Z`,
+      pinned: false,
+      device: "Synthetic device",
+    });
+    const policy = new CloudClipboardReceivePolicy();
+    policy.begin("合成本机复制");
+    check(!policy.receive(item(99), "合成本机复制"), "invalid dates cannot establish a baseline");
+    check(
+      !policy.receive(item(10), "合成本机复制"),
+      "existing content preserves the initial local copy",
+    );
+    check(!policy.receive(item(10), "合成本机复制"), "the initial cloud page is not replayed");
+    check(
+      policy.receive(item(11), "合成本机复制"),
+      "later remote content replaces an unchanged local copy",
+    );
+    policy.markRemote(item(11));
+    policy.received(item(11).text);
+    check(!policy.receive(item(10), item(11).text), "deletion never replays an older entry");
+    check(
+      !policy.receive(item(12), "合成并发复制"),
+      "a local change during the request wins this response",
+    );
+    check(!policy.receive(item(12), "合成并发复制"), "the skipped response is not replayed");
+    check(policy.receive(item(13), "合成并发复制"), "a subsequent remote copy is still reachable");
+    policy.markRemote(item(13));
+    policy.markRemote(item(10));
+    check(!policy.receive(item(12), "合成并发复制"), "the watermark never moves backwards");
+    policy.begin("合成本机复制");
+    check(!policy.receive(null, "合成本机复制"), "an empty first page establishes a baseline");
+    check(policy.receive(item(10), "合成本机复制"), "a new binding has an independent watermark");
+    policy.begin("");
+    check(policy.receive(item(10), ""), "a truly empty clipboard can receive the first page");
+    check(!policy.receive(item(11), null), "a read failure or non-text clipboard is not empty");
+    check(!policy.receive(item(12), null), "non-text clipboard protection persists");
+  },
+);
 
 group("cloud clipboard listings are read whole", () => {
   const id = (digit: string) => digit.repeat(64);
