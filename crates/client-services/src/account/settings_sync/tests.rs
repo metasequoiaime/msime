@@ -193,6 +193,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.frequency_mode",
             "input.frequency_trigger_count",
             "input.learning",
+            "input.nine_key_flick_threshold",
             "input.paired_punctuation",
             "input.quote_style",
             "input.schema",
@@ -219,6 +220,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_skin_light",
             "platform.android.language_key_side",
             "platform.android.nine_key_digit_symbols",
+            "platform.android.nine_key_flick_threshold",
             "platform.android.nine_key_style",
             "platform.android.nine_key_swipe",
             "platform.android.nine_key_symbols",
@@ -1166,9 +1168,10 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         AccountPreferenceValue::String(text) if text.contains("SENTINEL")
     )));
     let android = export_android_settings(&preferences, None).unwrap();
+    // 九键 flick 阈值是手机三端共用的 `input.*` 键，桌面不导出。
     let shared: BTreeMap<_, _> = android
         .into_iter()
-        .filter(|(key, _)| key.starts_with("input."))
+        .filter(|(key, _)| key.starts_with("input.") && key != MOBILE_NINE_KEY_FLICK_THRESHOLD)
         .collect();
     let exported_input: BTreeMap<_, _> = exported
         .clone()
@@ -1184,6 +1187,58 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         exported.get("input.wubi_schema"),
         Some(&AccountPreferenceValue::String("wubi86".into()))
     );
+}
+
+/// 桌面没有九键 flick 阈值的设置项，导出的话桌面偏好里的默认 24 会在合并上传时盖掉手机上改的值；应用时也不动桌面偏好里的这个字段。
+#[test]
+fn settings_sync_desktop_hosts_neither_export_nor_apply_the_nine_key_flick_threshold() {
+    let preferences = Preferences {
+        touch_nine_key_flick_threshold: 34,
+        ..Preferences::default()
+    };
+    for host in [DesktopHost::MacOS, DesktopHost::Linux, DesktopHost::Windows] {
+        assert!(!export_desktop_settings_for(host, &preferences)
+            .contains_key(MOBILE_NINE_KEY_FLICK_THRESHOLD));
+        let cloud = document(BTreeMap::from([(
+            MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(34),
+        )]));
+        let applied =
+            apply_desktop_settings_for(host, &Preferences::default(), &cloud, &full_schema())
+                .unwrap();
+        assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 24);
+    }
+}
+
+/// 跨平台键和本平台旧键同时在云端时以跨平台键为准：iOS 改成 20 后，Android 留在云端的旧平台键 30 不能把它改回去。
+#[test]
+fn settings_sync_android_prefers_the_shared_nine_key_flick_threshold_over_its_platform_key() {
+    let schema = full_schema();
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([
+            (
+                MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(20),
+            ),
+            (
+                NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(30),
+            ),
+        ]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 20);
+    // 只有旧版本上传过、文档里还没有跨平台键时，退回本平台键。
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([(
+            NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(30),
+        )]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 30);
 }
 
 #[test]

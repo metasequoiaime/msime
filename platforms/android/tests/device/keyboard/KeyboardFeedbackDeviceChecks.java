@@ -82,13 +82,19 @@ final class KeyboardFeedbackDeviceChecks {
                 touch(abc, MotionEvent.ACTION_DOWN, 0);
                 touch(abc, MotionEvent.ACTION_UP, 0);
                 expectPreview("ABC", false);
-                test.stage = "nine-key numeric swipe updates and cancellation hides preview";
+            });
+            // 点按通过框架消息队列执行；先让这次松手完成，再开始下一次独立触摸。
+            test.waitForIdleSync();
+            onMain(() -> {
+                Button abc = find((ViewGroup) field(type, "keyRows").get(service), "ABC");
+                if (clicks[0] != 1) throw new AssertionError("普通点按次数：" + clicks[0]);
+                test.stage = "nine-key letter flick updates and cancellation hides preview";
                 touch(abc, MotionEvent.ACTION_DOWN, 0);
                 touch(abc, MotionEvent.ACTION_MOVE, -100);
-                expectPreview("2", true);
+                expectPreview("a", true);
                 touch(abc, MotionEvent.ACTION_CANCEL, -100);
-                expectPreview("2", false);
-                if (!"ABC".contentEquals(abc.getText())) throw new AssertionError("Cancelled swipe left numeric face");
+                expectPreview("a", false);
+                if (!"ABC".contentEquals(abc.getText())) throw new AssertionError("Cancelled flick changed the key face");
             });
             checkDragSelect();
             onMain(() -> {
@@ -115,7 +121,7 @@ final class KeyboardFeedbackDeviceChecks {
             });
             test.waitForIdleSync();
             onMain(() -> {
-                if (clicks[0] != 1) throw new AssertionError("Nine-key tap was swallowed or duplicated");
+                if (clicks[0] != 1) throw new AssertionError("Nine-key tap was swallowed or duplicated: " + clicks[0]);
             });
             checkGridPreview(false);
             checkGridPreview(true);
@@ -136,7 +142,7 @@ final class KeyboardFeedbackDeviceChecks {
     }
 
     /**
-     * 九键反方向滑出、长按弹出的数字与字母选项跟着同一次按压拖选（#10443）：滑进选项松手选中一次；没滑进过就松手，弹窗留着等点选，下一次按下这个键时关掉；滑进又滑出再松手关闭且不输入；长按后拖选松手选中，并由补发的 CANCEL 收起按键的按下态；系统 CANCEL 关闭弹窗且不输入。选项的点击换成计数，不依赖输入连接；计数之后照原样关闭弹窗。
+     * 九键长按弹出的数字与字母选项跟着同一次按压拖选（#10443）：滑进选项松手选中一次；没滑进过就松手，弹窗留着等点选，下一次按下这个键时关掉；滑进又滑出再松手关闭且不输入；长按后拖选松手选中，并由补发的 CANCEL 收起按键的按下态；系统 CANCEL 关闭弹窗且不输入。选项的点击换成计数，不依赖输入连接；计数之后照原样关闭弹窗。
      */
     private void checkDragSelect() throws Exception {
         int[] picked = {0};
@@ -145,12 +151,12 @@ final class KeyboardFeedbackDeviceChecks {
         onMain(() -> {
             rows[0] = field(type, "imeLayoutRows").get(service);
             abc[0] = find((ViewGroup) field(type, "keyRows").get(service), "ABC");
-            test.stage = "nine-key letter swipe opens drag-tracked options";
-            swipeLetters(abc[0], rows[0]);
+            test.stage = "nine-key long press opens drag-tracked options";
+            holdOptions(abc[0], rows[0]);
         });
         test.waitForIdleSync();
         onMain(() -> {
-            test.stage = "nine-key swipe dragged into an option commits it on release";
+            test.stage = "nine-key hold dragged into an option commits it on release";
             float[] at = pickable(rows[0], picked);
             touchRaw(abc[0], MotionEvent.ACTION_MOVE, at[0], at[1]);
             touchRaw(abc[0], MotionEvent.ACTION_UP, at[0], at[1]);
@@ -158,8 +164,8 @@ final class KeyboardFeedbackDeviceChecks {
             if (field(type, "nineKeyHoldPopup").get(service) != null) throw new AssertionError("Committed option left popup open");
             if (abc[0].isPressed()) throw new AssertionError("Nine-key swipe left the key pressed");
             if (!"ABC".contentEquals(abc[0].getText())) throw new AssertionError("Letter swipe changed the key face");
-            test.stage = "nine-key swipe released without entering an option keeps the popup for tapping";
-            swipeLetters(abc[0], rows[0]);
+            test.stage = "nine-key hold released without entering an option keeps the popup for tapping";
+            holdOptions(abc[0], rows[0]);
             touch(abc[0], MotionEvent.ACTION_UP, 100);
             if (field(type, "nineKeyHoldPopup").get(service) == null) throw new AssertionError("Released swipe closed the options");
             if (field(rows[0].getClass(), "letterOptionsEntered").getBoolean(rows[0]))
@@ -168,8 +174,8 @@ final class KeyboardFeedbackDeviceChecks {
             if (tracks(rows[0], abc[0]) || field(type, "nineKeyHoldPopup").get(service) != null)
                 throw new AssertionError("New press on the key kept the stale options");
             touch(abc[0], MotionEvent.ACTION_CANCEL, 0);
-            test.stage = "nine-key swipe entering then leaving the options closes them without input";
-            swipeLetters(abc[0], rows[0]);
+            test.stage = "nine-key hold entering then leaving the options closes them without input";
+            holdOptions(abc[0], rows[0]);
         });
         test.waitForIdleSync();
         onMain(() -> {
@@ -198,8 +204,8 @@ final class KeyboardFeedbackDeviceChecks {
             touchRaw(abc[0], MotionEvent.ACTION_UP, at[0], at[1]);
             if (picked[0] != 2) throw new AssertionError("Long-press drag did not commit the option once");
             if (abc[0].isPressed()) throw new AssertionError("Synthesized CANCEL did not release the long-pressed key");
-            test.stage = "system cancel closes swipe options without input";
-            swipeLetters(abc[0], rows[0]);
+            test.stage = "system cancel closes hold options without input";
+            holdOptions(abc[0], rows[0]);
             touch(abc[0], MotionEvent.ACTION_CANCEL, 100);
             if (field(type, "nineKeyHoldPopup").get(service) != null) throw new AssertionError("Cancelled swipe left options open");
             if (picked[0] != 2) throw new AssertionError("Cancelled swipe committed an option");
@@ -207,12 +213,15 @@ final class KeyboardFeedbackDeviceChecks {
         });
     }
 
-    /** setLocal 把数字设在上滑，下滑越过阈值就弹出字母选项，并且这个弹窗跟着这次按压拖选。 */
-    private void swipeLetters(Button key, Object rows) throws Exception {
+    /** 长按弹出数字和字母；方向 flick 不再弹出选项。 */
+    private void holdOptions(Button key, Object rows) throws Exception {
         touch(key, MotionEvent.ACTION_DOWN, 0);
-        touch(key, MotionEvent.ACTION_MOVE, 100);
+        key.performLongClick();
+        // 直接调用长按不会写入框架的已长按标记；只取消按钮内部点按，保留监听器的弹窗拖选。
+        MotionEvent cancel = MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, 0, 0, 0);
+        try { key.onTouchEvent(cancel); } finally { cancel.recycle(); }
         if (field(type, "nineKeyHoldPopup").get(service) == null || !tracks(rows, key))
-            throw new AssertionError("Nine-key letter swipe did not open drag-tracked options");
+            throw new AssertionError("Nine-key long press did not open drag-tracked options");
     }
 
     private static boolean tracks(Object rows, Button key) throws Exception {
@@ -404,8 +413,8 @@ final class KeyboardFeedbackDeviceChecks {
         var constructor = snapshot.getDeclaredConstructor(Map.class);
         constructor.setAccessible(true);
         field(type, "localSettings").set(service, constructor.newInstance(Map.of("platform.android.key_popup", popup)));
-        // 九键滑动输入数字在共享偏好 touch_nine_key_swipe_digits 里（#10229）；这个合成服务没有会话、不读偏好文件，直接给它读到的值，与 applyTouchGeometry 读到 "up" 时相同。
-        field(type, "nineKeySwipeDigits").set(service, "up");
+        // 合成服务使用共享设置的出厂阈值，不依赖本机旧数字滑动偏好。
+        field(type, "nineKeyFlickThreshold").setInt(service, 24);
     }
 
     private void expectPreview(String label, boolean shown) throws Exception {
