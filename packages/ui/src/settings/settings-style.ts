@@ -273,12 +273,12 @@ export const panelPreviewLabel = "mb-[18px] text-xs text-muted";
 // ---- the desktop window chrome ----
 
 /*
- * Only Windows and Linux draw a caption in the page: macOS keeps its native traffic lights over the sidebar, and HarmonyOS 2-in-1 and the phones leave the frame to the system. Windows 11 is 48 high with the brand on the left, a search box centred on the window and 46px caption buttons; the GNOME headerbar is 46 high, with a left pane that lines up with the 240px sidebar and the page name in the middle.
+ * Only Windows and Linux draw a caption in the page: macOS keeps its native traffic lights over the sidebar, and HarmonyOS 2-in-1 and the phones leave the frame to the system. Windows 11 is 48 high with the brand on the left, a search box centred on the window and 46px caption buttons; the GNOME headerbar is 46 high, split like a libadwaita split view: its left pane is part of the 240px sidebar column (same fill, one continuous divider) and the right part takes the page background with the page name in the middle, so no line runs across the window and nothing crosses the sidebar divider at the top.
  */
 export const titlebar =
-  "relative flex h-[var(--titlebar-height)] flex-shrink-0 items-center justify-between gap-3 bg-[var(--p-chrome)] pl-3 text-[var(--p-text)] select-none win:[--titlebar-height:48px] linux:border-b linux:border-[var(--p-hair)] linux:pl-0 linux:[--titlebar-height:46px]";
+  "relative flex h-[var(--titlebar-height)] flex-shrink-0 items-center justify-between gap-3 bg-[var(--p-chrome)] pl-3 text-[var(--p-text)] select-none win:[--titlebar-height:48px] linux:bg-[var(--p-bg)] linux:pl-0 linux:[--titlebar-height:46px]";
 export const titlebarBrand =
-  "flex min-w-0 items-center gap-2 [&>img]:size-[18px] [&>img]:shrink-0 linux:w-60 linux:shrink-0 linux:self-stretch linux:justify-center linux:border-r linux:border-[var(--p-hair)] max-phone:linux:w-auto max-phone:linux:border-r-0 max-phone:linux:px-3";
+  "flex min-w-0 items-center gap-2 [&>img]:size-[18px] [&>img]:shrink-0 linux:w-60 linux:shrink-0 linux:self-stretch linux:justify-center linux:border-r linux:border-[var(--p-hair)] linux:bg-[#2e2e32] linux:light-theme:bg-[#ebebed] max-phone:linux:w-auto max-phone:linux:border-r-0 max-phone:linux:bg-transparent max-phone:linux:px-3";
 export const title =
   "min-w-0 overflow-hidden text-xs font-normal tracking-[0.2px] text-ellipsis whitespace-nowrap linux:text-[15px] linux:font-bold linux:tracking-normal";
 export const titlebarSubtitle = "shrink-0 text-xs text-[var(--p-sub)]";
