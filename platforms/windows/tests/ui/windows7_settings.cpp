@@ -621,6 +621,8 @@ int main() {
   select_tab(L"选词与翻页");
   assert(IsWindowVisible(escape_help) && !IsWindowVisible(help_popup(escape_help)));
   assert(store.load().snapshot->revision() == before_escape_help);
+  // 仅在气泡交互期间显示窗口，后续持久化夹具恢复原来的隐藏宿主条件。
+  ShowWindow(host, SW_HIDE);
   SendMessageW(escape_keeps, BM_CLICK, 0, 0);
   pump_until([&] { return IsWindowEnabled(escape_keeps) != FALSE; });
   assert(store.load().snapshot->preferences().at("escape_keeps_selected_word") == true);
@@ -744,8 +746,10 @@ int main() {
   const HWND enter_learns = GetDlgItem(body, enter_learns_english_word);
   assert(enter_learns && caption(enter_learns) == L"回车学英文词");
   const auto before_enter_help = store.load().snapshot->revision();
+  ShowWindow(host, SW_SHOWNOACTIVATE);
   check_help(body, enter_learns_english_word_help, enter_learns,
       L"按回车上屏输入的英文时，把这个单词写入英文词库，之后可以作为候选出现。");
+  ShowWindow(host, SW_HIDE);
   assert(store.load().snapshot->revision() == before_enter_help);
   assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_CHECKED);
   SendMessageW(enter_learns, BM_CLICK, 0, 0);
