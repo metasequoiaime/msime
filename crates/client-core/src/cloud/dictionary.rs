@@ -198,11 +198,11 @@ mod tests {
     /// 云词库候选面板的双拼方案选项来自 `packages/ui` 的 `CloudShuangpinProfileOptions`；这里拒绝的取值会让该选项下的每次请求都失败。
     #[test]
     fn every_cloud_shuangpin_profile_option_is_a_valid_candidate_query() {
-        let source = std::fs::read_to_string(concat!(
+        // Embedded at compile time: android-device.yml runs this test binary on the emulator, where the source tree does not exist.
+        let source = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../packages/ui/src/keyboard/cloud-scheme-options.tsx"
-        ))
-        .unwrap();
+        ));
         let body = source
             .split("export function CloudShuangpinProfileOptions")
             .nth(1)
