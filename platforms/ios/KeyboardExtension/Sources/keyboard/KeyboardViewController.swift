@@ -161,6 +161,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let fullwidthShortcut = UIButton()
   private let punctuationShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
+  private var clipboardHistoryPreferencesReady = false
+  private lazy var clipboardHistoryCapture = KeyboardClipboardHistoryCapture(allowed: { [weak self] in
+    guard let self, self.isPresented, self.view.window != nil, self.hasFullAccess,
+          self.clipboardHistoryPreferencesReady else { return false }
+    return self.privacyGate.allows(.clipboardHistory) && self.session.sharedPreferences?["clipboard_history"] as? Bool == true
+  }, save: KeyboardClipboardHistoryCapture.saveToHistory)
   private var skinPicker: KeyboardSkinPickerView?
   private var schemePicker: KeyboardSchemePickerView?
   private var phrasesPanel: KeyboardPhrasesView?
@@ -1073,6 +1079,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     prepareKeyFeedback()
     // 收起之后才到的 `viewDidAppear` 不再开始维护：`viewWillDisappear` 已经停了定时器、放了锁，这里再开一轮会把锁重新取回来，而键盘已经不在屏幕上。
     guard isPresented else { return }
+    clipboardHistoryCapture.start()
     // 出现时先跑一轮词库维护，不必等两秒的定时器：两份队列文件在后台读，个人词库只在有待应用的编辑、设置页要求刷新或上次列出已超过 15 分钟（`PersonalDictionaryStore.listingLifetime`）时才同步，快照版本照常按 `DictionarySnapshotWorker.idleVersionPollInterval`（已有版本、没有活动请求时一分钟）节流。以前这里每次出现都在主线程上强制同步一次个人词库、强制重算一次词库版本，没有任何变化时也要读写共享文件、查询引擎。
     startIdleMaintenance()
     personalDictionaryTimer?.invalidate()
@@ -1121,6 +1128,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    clipboardHistoryPreferencesReady = false
     candidateCanvasActive = true
     isPresented = true
     // 不清候选皮肤的请求键：键里已有皮肤 id、明暗、主题和清单的修改时间与大小，皮肤真的换了照样重新加载。以前这里每次出现都清掉它，跟随桌面候选皮肤的用户每次出现都要丢掉快照、在后台把整包图片重新读一遍解一遍，候选条先退回配色再换回皮肤。
@@ -1180,6 +1188,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // the keyboard appears without blocking UIKit's input lifecycle.
     session.reloadSharedPreferences { [weak self] loaded in
       guard let self else { return }
+      self.clipboardHistoryPreferencesReady = loaded
+      self.clipboardHistoryCapture.discardIfDisallowed()
       // Not applied also covers a document no newer than the one the session has, which is not a failure.
       guard loaded else { DiagnosticLog.shared.write("preferences_not_applied"); return }
       self.configureDiagnosticLog()
@@ -1371,6 +1381,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func textDidChange(_ textInput: UITextInput?) {
     super.textDidChange(textInput)
+    clipboardHistoryCapture.discardIfDisallowed()
     let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy)
     if let previous = asynchronousInputDocument, previous != document {
       inputDeliveryEpoch &+= 1
@@ -1405,6 +1416,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    clipboardHistoryCapture.stop()
     readAloudSpeaker.stop()
     candidateCanvasActive = false
     isPresented = false
@@ -1475,6 +1487,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// expiring activity 到期，系统马上要挂起扩展（#10910）。在主线程上同步执行，返回之前放掉 App Group 里的全部锁。还显示着就按收起走 `viewWillDisappear`、`viewDidDisappear` 的全套。iPhone XR 上量到：宿主在时活动不计时；宿主被结束后活动让扩展继续跑，通常由 `maintenanceTick` 在两秒内发现视图不在窗口里、放锁并结束活动；定时器没赶上（主线程被占着、定时器还没起）时，约 25 秒后系统发出到期，走这里。
   private func releaseLocksBeforeSuspension() {
+    clipboardHistoryCapture.stop()
     let start = ProcessInfo.processInfo.systemUptime
     DiagnosticLog.shared.write("suspension_imminent presented=\(isPresented ? 1 : 0) window=\(viewIfLoaded?.window != nil ? 1 : 0) session_held=\(session.holdsSession ? 1 : 0)")
     if isPresented {
@@ -3208,6 +3221,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let self else { return }
         incognito.toggle()
         KeyboardPrivacyPreference.incognito = incognito
+        clipboardHistoryCapture.discardIfDisallowed()
         applyLearningPreferences()
         // 隐私会话立即禁止上屏后联想，运行时当场清掉建议，但设置隐私的接口只回一个布尔值：另取会话此刻的视图重画，候选条上不留旧联想。
         if incognito && enginePrediction { render(session.currentSnapshot()) }

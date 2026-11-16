@@ -23,8 +23,10 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private boolean fixedCardsOnly;
     private boolean previewActionsOnly;
     private boolean firstRecordOnly;
+    private boolean selectionOnly;
 
     @Override public void onCreate(android.os.Bundle arguments) {
+        selectionOnly = arguments != null && "true".equals(arguments.getString("selection-only"));
         fixedCardsOnly = arguments != null && "true".equals(arguments.getString("fixed-cards-only"));
         previewActionsOnly = arguments != null && "true".equals(arguments.getString("preview-actions-only"));
         firstRecordOnly = arguments != null && "true".equals(arguments.getString("first-record-only"));
@@ -33,6 +35,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     private static String word(int i) { return "Synthetic" + (char) ('A' + i); }
 
     @Override protected String successDescription() {
+        if (selectionOnly) return "five clipboard selections and acknowledgement preserve IME bounds and editor focus";
         if (firstRecordOnly) return "first clipboard record exposes inline actions after clear and copy in single and double columns";
         if (fixedCardsOnly) return "fixed clipboard cards delegate vertical drags to history without insertion";
         if (previewActionsOnly) return "right-swipe detail exposes insert and edit actions without changing history";
@@ -40,6 +43,7 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (selectionOnly) { ClipboardSelectionDeviceChecks.run(this); return; }
         File root = getTargetContext().getFilesDir();
         JSONObject options = read(new File(root, "runtime-options.json"));
         File preferences = new File(options.getString("preferences_directory"), "preferences.json");
@@ -137,11 +141,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             detailActions(history);
             firstRecordActions(history, local);
         } catch (Exception | AssertionError error) {
-            if (firstRecordOnly) {
+            if (firstRecordOnly || previewActionsOnly) {
                 Bitmap screenshot = automation.takeScreenshot();
                 if (screenshot != null) {
                     try (var output = new java.io.FileOutputStream(new File(getTargetContext().getCacheDir(),
-                            "clipboard-first-record-failure.png"))) {
+                            firstRecordOnly ? "clipboard-first-record-failure.png" : "clipboard-detail-failure.png"))) {
                         screenshot.compress(Bitmap.CompressFormat.PNG, 100, output);
                     } finally { screenshot.recycle(); }
                 }
@@ -331,9 +335,11 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             && !node.getText().toString().startsWith("记录时间：时间未知")
             && !node.getText().toString().contains("来源 App：")
             && !node.getText().toString().contains("包名：");
+        stage = "detail metadata remains reachable after blank touch";
         bringIntoView(recordDetails);
         if (!java.util.Arrays.equals(seeded, Files.readAllBytes(history.toPath())))
-            throw new AssertionError("Opening detail changed history");
+            throw new AssertionError("Opening detail changed history; before=" + historyShape(seeded)
+                + "; after=" + historyShape(Files.readAllBytes(history.toPath())));
         stage = "detail insertion preserves every original line in a multiline editor";
         bringIntoView(described("插入这条剪贴板记录"));
         touch(described("插入这条剪贴板记录"));
@@ -414,12 +420,29 @@ public final class ClipboardSegmentDragDeviceSmoke extends DeviceSmoke {
             AccessibilityNodeInfo node = awaitAny(match);
             if (node.isVisibleToUser()) return node;
             AccessibilityNodeInfo parent = node.getParent();
-            while (parent != null && !parent.isScrollable()) parent = parent.getParent();
+            // 旧系统会缓存父节点的滚动能力；详情替换短卡片后需重新读取，不能沿旧树误判没有滚动容器。
+            while (parent != null) {
+                if (parent.refresh() && parent.isScrollable()) break;
+                parent = parent.getParent();
+            }
             if (parent == null || !parent.performAction(
                     AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.getId())) break;
             SystemClock.sleep(150);
         }
         return await(match);
+    }
+
+    private String historyShape(byte[] bytes) throws Exception {
+        JSONArray items = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < items.length(); index++) {
+            JSONObject item = items.getJSONObject(index);
+            result.append("{length=").append(item.optString("text").length())
+                .append(", timestamp=").append(item.optLong("timestampMs"))
+                .append(", pinned=").append(item.optBoolean("pinned"))
+                .append(", keys=").append(item.names()).append('}');
+        }
+        return result.toString();
     }
 
     /** 通过移动端剪贴板公开入口写入夹具，避免 API 31 以上复用进程时直写文件与宿主状态分叉。 */

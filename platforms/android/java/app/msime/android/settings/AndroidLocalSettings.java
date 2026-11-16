@@ -91,6 +91,8 @@ public final class AndroidLocalSettings {
     public static final String AUTO_CAPITALIZATION = "platform.android.auto_capitalization";
     /** 剪贴板面板一行排几条（{@link ClipboardLayoutPolicy}）：`one` 单列、`two` 双列，默认单列。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
+    /** 剪贴板详情底部「插入」「返回」操作行的水平对齐，默认左对齐，只在本机。 */
+    public static final String CLIPBOARD_DETAIL_ACTION_ALIGNMENT = "platform.android.clipboard_detail_action_alignment";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
     /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
@@ -115,7 +117,7 @@ public final class AndroidLocalSettings {
     public static final String NINE_KEY_DIGIT_SYMBOLS = "platform.android.nine_key_digit_symbols";
     /** 退格键上滑快速删除的范围：默认只删光标前，可选清空整个输入框。 */
     public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";
-    /** 设计范围的键盘高度调整（dp，-46..129，即 75%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 设计范围的键盘高度调整（dp，-92..129，即 50%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
     public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";
@@ -265,6 +267,8 @@ public final class AndroidLocalSettings {
         bool(AUTO_CAPITALIZATION, false, false);
         choice(CLIPBOARD_COLUMNS, ClipboardLayoutPolicy.ONE_COLUMN, false,
             ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS);
+        choice(CLIPBOARD_DETAIL_ACTION_ALIGNMENT, ClipboardDetailActionPolicy.LEFT, false,
+            ClipboardDetailActionPolicy.LEFT, ClipboardDetailActionPolicy.RIGHT);
         bool(CLIPBOARD_SUGGESTION, true, false);
         integer(CLIPBOARD_UNDO_SECONDS, ClipboardUndoPolicy.DEFAULT_SECONDS, false,
             ClipboardUndoPolicy.MIN_SECONDS, ClipboardUndoPolicy.MAX_SECONDS, 1);
