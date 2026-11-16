@@ -66,17 +66,20 @@ char *msime_client_refresh_host_from(const uint8_t *path, size_t length,
 #define MSIME_CLIENT_SESSION_STORE_VERSION 1
 /* flags：钥匙串、App Group 这类多个进程读写同一份会话的存储必须置位。置位时每次访问都重新读，刷新、登录、退出、改资料和补登录 ID 时持 lock(item)；不置位时会话读一次后缓存在进程里，lock/unlock 可以为 NULL。 */
 #define MSIME_CLIENT_SESSION_STORE_SHARED 1u
+/* 宿主显式支持独立的学习密钥槽。未置位时 Rust 不调用 LEARNING_KEYSTORE 的 load/save/remove，既有四项和退出登录仍照常工作。声明此位的宿主必须实现第五项；旧 Rust 会拒绝此位，宿主若支持跨版本加载，应在 invalid_session_store 时以原 flags 重试注册，失败的注册不接管 context。此位只声明存储能力，不开启同步。 */
+#define MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE 2u
 typedef enum msime_client_session_item {
   MSIME_CLIENT_SESSION_ITEM_ACCOUNT = 1,            /* 登录会话；也是 lock/unlock 的一个 item */
   MSIME_CLIENT_SESSION_ITEM_CLIPBOARD_KEYSTORE = 2, /* 云剪贴板密钥串，UTF-8，不带换行；属于 ACCOUNT 槽，清掉登录会话时一起删除 */
   MSIME_CLIENT_SESSION_ITEM_ANONYMOUS = 3,          /* 本机匿名账号的会话；也是 lock/unlock 的一个 item */
   MSIME_CLIENT_SESSION_ITEM_ANONYMOUS_IDENTITY = 4, /* 匿名账号的身份 {subject,secret}；save 是「不存在才写」 */
+  MSIME_CLIENT_SESSION_ITEM_LEARNING_KEYSTORE = 5,  /* 绑定具体登录的学习同步密钥 JSON，UTF-8，最多 4 KiB；与 ACCOUNT 共用刷新锁，退出时一起删除，仅在声明 LEARNING_KEYSTORE 能力时调用 */
 } msime_client_session_item;
 /* 64 位目标上 80 字节：version@0、layout@4、flags@8、（填充 4 字节）、client_agent@16、context@24、load@32、save@40、remove@48、lock@56、unlock@64、release@72。 */
 typedef struct msime_client_session_store {
   uint32_t version;         /* MSIME_CLIENT_SESSION_STORE_VERSION */
   uint32_t layout;          /* 0 = native SavedAccountSession；1 = apple BackendSavedSession（expiresAt 为 2001 年起的秒数，含 sessionID）。读取时两种都接受，写入按这里选的布局 */
-  uint32_t flags;           /* MSIME_CLIENT_SESSION_STORE_SHARED 或 0；其他位必须为 0 */
+  uint32_t flags;           /* MSIME_CLIENT_SESSION_STORE_SHARED、MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE 的位或，或 0；其他位必须为 0 */
   const char *client_agent; /* 可为 NULL，此时 User-Agent 与不带 client_agent 的目录模式相同（MSIME/Android）；否则是以 NUL 结尾、不超过 256 字节的可打印 ASCII，形状为 msime-<android|ios|macos|windows|linux|harmony>/<版本，1 到 32 个 [0-9A-Za-z.+_-]> (<设备>; <系统>; edition=<id>)，括号部分可省略、里面不能有括号；注册时复制，之后不再读 */
   void *context;            /* 原样交回每个回调；注册成功后要一直有效到 release 被调用 */
   intptr_t (*load)(void *context, uint32_t item, uint8_t *buffer, size_t capacity); /* 把该项写进 buffer：>0 是写入的字节数，0 是不存在，<0 是失败；大于 capacity 按失败处理 */

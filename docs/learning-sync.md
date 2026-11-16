@@ -299,7 +299,7 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 编码是 `v1.<b64(设备私钥)>`；有账号密钥时再接 `.<key_id>.<b64(K_learn)>.<b64(批准者公钥)>.<状态>`，状态是 `confirmed`（本机生成的，或者用户已核对一致）、`unconfirmed`（已解开封装、等用户核对）、`rejected`（用户点了「不一致」，密钥一栏写 `-`，只留编号和批准者）或 `rotated`（本机原来有核对过的密钥，账号换了钥、本机还没被重新允许；密钥一栏写 `-`，只留旧编号和旧批准者，作为回报 `learning_key_rotated` 的标记）。只有 `confirmed` 的密钥能加解密。开头那段私钥就是设备身份，`Keystore::same_identity` 只比这一段。
 
 
-共享账号适配层（`client-services/account/learning_sync/session.rs`）将上述驱动编码作为 `keystore` 字段，与持久登录绑定一起存成 `{ "login": { "user_id", "session_id" }, "keystore" }`。文件存储的 `learning-keystore` 保存这份 JSON，最多 4 KiB；驱动本身仍读写上面的 `v1.` 编码。只使用与当前登录编号相同的密钥，同账号重新登录也生成新设备身份；令牌刷新保留登录编号和密钥。读取、身份冲突比较和保存使用同一把账号刷新锁，存储错误不得回退剪贴板身份。目前宿主注入存储与平台生命周期尚未接入，不代表六个平台已具备同步入口。
+共享账号适配层（`client-services/account/learning_sync/session.rs`）将上述驱动编码作为 `keystore` 字段，与持久登录绑定一起存成 `{ "login": { "user_id", "session_id" }, "keystore" }`。文件存储的 `learning-keystore` 保存这份 JSON，最多 4 KiB；驱动本身仍读写上面的 `v1.` 编码。只使用与当前登录编号相同的密钥，同账号重新登录也生成新设备身份；令牌刷新保留登录编号和密钥。读取、身份冲突比较和保存使用同一把账号刷新锁，存储错误不得回退剪贴板身份。宿主注入存储与 FFI 包装已支持独立的 `LEARNING_KEYSTORE=5` 项，用描述符的 `MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE=2` 位显式声明；原有描述符版本、布局、四项数值与匿名身份只创建语义不变。旧宿主不声明时绝不收到新项的回调，账号退出仍可用；已声明时退出账号尝试删除两个域的密钥后再报告错误。匿名槽和匿名文件包装始终拒绝学习密钥访问，文件与 Host 的 FFI 包装分别转调对应存储。既有原生宿主尚未提供第五项或声明能力，平台生命周期也未接入，不代表六个平台已具备同步入口。能力位只声明存储能力，不开启上传；新宿主加载旧 Rust 的注册降级和 context 生命周期须随原生接线实现。
 
 ## 客户端驱动
 
