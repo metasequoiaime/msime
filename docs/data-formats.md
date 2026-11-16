@@ -237,7 +237,7 @@ PRAGMA user_version=3;
 
 ### 6.1 模式与版本
 
-每次打开都执行全部 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表，新旧引擎可以交替打开同一个日志。现有用户多是只有前四张表的 v3 日志。一共 13 张表。
+每次打开都执行 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`；`position_state::ensure_schema` 在保存点里创建完整固定候选表并迁移旧投影，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表。现有用户多是只有前四张表的 v3 日志。一共 14 张表。新增的完整候选表不改变资源词库的格式版本，旧引擎仍读显示投影；但旧写入方删除、移动已有固定身份不会更新完整表，降级修改后的完整状态不保证兼容。
 
 ### 6.2 `user_dictionary_operations`
 
@@ -280,6 +280,13 @@ CREATE TABLE IF NOT EXISTS fixed_candidate_positions(
     context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,
     position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 5),
     PRIMARY KEY(context_key,entry_key,value),UNIQUE(context_key,position));
+CREATE TABLE fixed_candidate_position_state(
+    context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 5),
+    updated_at INTEGER NOT NULL CHECK(updated_at BETWEEN 1 AND 1099511627776),
+    PRIMARY KEY(context_key,entry_key,value));
+CREATE INDEX fixed_candidate_position_slots
+    ON fixed_candidate_position_state(context_key,position,updated_at);
 CREATE TABLE IF NOT EXISTS pick_transitions(
     previous_key TEXT NOT NULL,previous_value TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,
     count INTEGER NOT NULL DEFAULT 0,
@@ -327,13 +334,16 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(
 | --- | --- |
 | `personal_dictionary_receipts` | 个人词典编辑请求的回执，按 `request_id` 去重 |
 | `candidate_selection_state` | 调频的选中计数。`context_key` 以 `cantonese:` 开头的是粤语的计数（后接粤拼键），词库快照不收 |
-| `fixed_candidate_positions` | 固定位置（1 到 5） |
+| `fixed_candidate_positions` | 固定位置显示投影（1 到 5），每个上下文的同一槽位只有一行 |
+| `fixed_candidate_position_state` | 完整固定候选，含槽位冲突的隐藏身份与真实时间；首次迁移旧投影行的时间为 1 |
 | `pick_transitions` | 连续选中的两个词，够多次就成词 |
 | `pinyin_typo_counts`、`pinyin_autocorrect_suppressions` | 全拼纠错的学习与按输入关闭纠错 |
 | `shuangpin_typo_counts`、`shuangpin_autocorrect_suppressions` | 双拼的同上，按 `profile` 区分 |
 | `pinned_candidates` | 置顶的候选 |
 | `personal_bigram`、`personal_trigram` | 个人 n-gram 计数 |
 | `quick_phrase_slots` | 快捷短语的位置 |
+
+完整固定候选按 `(context_key,entry_key,value)` 存储，没有槽位唯一约束。显示投影按槽位中时间较大的候选胜出，平局取 `(entry_key,value)` 字节序较小者；隐藏身份仍参与同步。迁移建表与导入处于同一保存点，失败时连表回滚、下次可重试。本机显式固定仍移除目标槽位的旧候选，取消固定删除对应完整身份，两张表同事务更新。云快照换代保留完整表和学习操作的原始时间，旧格式备份继续只带显示投影，恢复新身份的时间为 1；同步流与冲突规则见[输入习惯同步协议](learning-sync.md)。
 
 ## 7. `msime-bigram.bin` 与 `msime-trigram.bin`（MSNG）
 

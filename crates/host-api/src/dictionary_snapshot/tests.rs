@@ -1102,6 +1102,9 @@ struct LearningDevice {
     options: msime_engine::host::EngineOptions,
 }
 
+#[path = "learning_sync_tests.rs"]
+mod learning_sync_tests;
+
 impl LearningDevice {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();

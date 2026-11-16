@@ -757,6 +757,17 @@ pub fn carry_dictionary_rows(
     main_dictionary: bool,
     kinds: &[PersonalDictionaryKind],
 ) -> Result<usize> {
+    carry_dictionary_rows_filtered(active, staged, main_dictionary, kinds, false)
+}
+
+/// `learning_only` 只搬调权和删除；用户词仍由云端快照决定。
+pub(super) fn carry_dictionary_rows_filtered(
+    active: &RuntimePaths,
+    staged: &RuntimePaths,
+    main_dictionary: bool,
+    kinds: &[PersonalDictionaryKind],
+    learning_only: bool,
+) -> Result<usize> {
     use super::personal::open_edit_connection;
     use rusqlite::OptionalExtension;
 
@@ -772,10 +783,13 @@ pub fn carry_dictionary_rows(
         let connection = open_database(&source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let mut statement = connection.prepare(
             "SELECT key,value,operation,weight,display,user_inserted,updated_at
-             FROM user_dictionary_operations WHERE dictionary=?1 ORDER BY updated_at,rowid",
+             FROM user_dictionary_operations WHERE dictionary=?1
+             AND (?2=0 OR operation='delete' OR user_inserted=0)
+             AND (?2=0 OR dictionary!='pinyin' OR operation='delete' OR weight>0)
+             ORDER BY updated_at,rowid",
         )?;
         for kind in kinds {
-            let mut cursor = statement.query([kind.journal_name()])?;
+            let mut cursor = statement.query(params![kind.journal_name(), learning_only])?;
             while let Some(row) = cursor.next()? {
                 let operation: String = row.get(2)?;
                 if operation != "upsert" && operation != "delete" {

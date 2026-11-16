@@ -1630,13 +1630,13 @@ where
     Ok(json!({"activated": true}))
 }
 
-/// 云同步的「下载」和「应用到本机」整份换上云端快照时，把即将换下来的这一代学到的东西并进新的一代（#10043）：学习调权、删除记录、固定位置和选词计数（与本地备份的输入记录相同，见 [`learning_records`]），以及输入习惯（整句联想、选词对、拼写纠错、自动纠错抑制和置顶，见 [`habits::export_learning_habits`]）。云端快照只有用户自己的词，云同步上传时 `include_learning` 为假，不并回来的话每一次下载都会清空本机学到的全部东西。
+/// 云同步的「下载」和「应用到本机」整份换上云端快照时，把即将换下来的这一代学到的东西并进新的一代（#10043）：学习调权、删除记录和完整固定候选（Engine 原样搬迁），选词计数（见 [`learning_records`]），以及输入习惯（整句联想、选词对、拼写纠错、自动纠错抑制和置顶，见 [`habits::export_learning_habits`]）。云端快照只有用户自己的词，云同步上传时 `include_learning` 为假，不并回来的话每一次下载都会清空本机学到的全部东西。
 ///
-/// 调用方持有独占维护权，已经调过 `close_cached_databases`（排着的整句联想已经写进旧日志），新的一代还没换入。合并规则与本地备份恢复相同（`merge_dictionary_state`、`merge_learning_habits`）：新的一代里已有的保留新的一代，所以快照里的用户词以云端为准；选词计数和输入习惯的计数取大。中间文件写在这次准备的私有暂存目录 `scratch` 里，随它一起删掉。
+/// 调用方持有独占维护权，已经调过 `close_cached_databases`（排着的整句联想已经写进旧日志），新的一代还没换入。同身份已有记录时保留新的一代，所以快照里的用户词以云端为准；固定候选保留全部身份，槽位冲突按同步投影决胜。调权与删除保留原始时间、显示文本和完整权重，选词计数与输入习惯的计数仍按备份规则取大。中间文件写在这次准备的私有暂存目录 `scratch` 里，随它一起删掉。
 ///
 /// 云同步还不收的种类（[`LOCAL_ONLY_KINDS`]，新世纪五笔）云端快照里一条也没有，用户自己的词也不在快照里，所以先把它们在旧的一代日志里的全部行（用户的词、学习调权、删除记录）原样并进新的一代（`carry_dictionary_rows`），不然每一次下载都会删掉本机的新世纪词。之后的输入记录合并看到这些行已在，保留它们。
 ///
-/// 旧的一代里读不出来的那一类（日志有不是 UTF-8 的行等）不并，与加这一步之前一样整份换掉，不让一份坏日志挡住以后每一次下载。往新的一代里写失败（磁盘满、I/O 失败）时报错：激活不做，旧的一代原样留着，请求留在队列里下次再试。
+/// 调权与固定候选完整读取失败，或往新的一代里写失败（磁盘满、I/O 失败）时报错：激活不做，旧的一代原样留着，请求留在队列里下次再试。
 fn carry_local_learning(
     active: &EngineOptions,
     staged: &EngineOptions,
@@ -1646,15 +1646,17 @@ fn carry_local_learning(
     const REVISION: i64 = 1;
     msime_engine::host::carry_dictionary_rows(active, staged, &LOCAL_ONLY_KINDS)
         .map_err(|_| FAILED)?;
+    msime_engine::host::carry_learning_sync_state(active, staged).map_err(|_| FAILED)?;
     if let Ok(learning) = learning_records(
         active,
         REVISION,
         &snapshot_timestamp_now(),
         MAX_SNAPSHOT_RECORDS - 1,
     ) {
-        let records = learning.records();
+        // 调权、删除和固定候选已原样搬迁；备份格式只负责仍按原规则合并的选词计数。
+        let records = learning.selections.len();
         if records > 0 {
-            // 与 [`queue_learning_merge`] 写的待合并文件同一个形状：header、输入记录（overlay 在 position 之前，position 在 selection 之前）、footer。
+            // 与待合并文件同一信封，只含选词计数。
             let mut body = Vec::new();
             let mut push = |line: &Value| {
                 body.extend_from_slice(line.to_string().as_bytes());
@@ -1666,12 +1668,7 @@ fn carry_local_learning(
                 "version": 1,
                 "revision": REVISION,
             }));
-            for line in learning
-                .overlays
-                .iter()
-                .chain(&learning.positions)
-                .chain(&learning.selections)
-            {
+            for line in &learning.selections {
                 push(line);
             }
             let checksum = hex::encode(Sha256::digest(&body));

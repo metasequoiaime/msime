@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。日志的完整 Lamport 写入与重置屏障、换代时搬迁完整状态、同步轮次和各平台接入仍按决策笔记里的分期落地；这些 Engine API 本身不发起上传。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选及调权、删除的原始时间与权重，置顶时间由现有习惯搬迁保留。日志的完整 Lamport 写入与重置屏障、同步轮次和各平台接入仍按决策笔记里的分期落地；这些 Engine API 本身不发起上传。
 
 ## 与其他同步的关系
 
