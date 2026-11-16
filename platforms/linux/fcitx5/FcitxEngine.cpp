@@ -1,4 +1,6 @@
+#include "../src/settings/DictionaryCollectionsLauncher.h"
 #include "../src/settings/LocalTranslationLauncher.h"
+#include "../src/core/SettingsSyncWorker.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
 #include "../src/candidates/EmbeddedTranslation.h"
@@ -420,6 +422,9 @@ Json readOptions() {
 bool fcitx_dictionary_sync_started = false;
 
 void startDictionarySync(const Json &options) {
+  if (const auto directory = options.find("preferences_directory");
+      directory != options.end() && directory->is_string())
+    (void)msime::linux_host::start_settings_sync(directory->get_ref<const std::string &>());
   if (fcitx_dictionary_sync_started) return;
   try {
     const auto directory = options.value("preferences_directory", std::string{});
@@ -435,6 +440,7 @@ void startDictionarySync(const Json &options) {
 
 // 插件的代码在 Fcitx5 卸载它之后不能再运行：与 fcitx_detached_jobs 一样等后台线程真正退出（正在跑的那一次同步受锁的 5 秒等待和每个请求的超时约束）。
 void stopDictionarySync() {
+  (void)msime_client_settings_sync_stop(UINT32_MAX);
   if (!fcitx_dictionary_sync_started) return;
   (void)msime_client_dictionary_sync_stop(UINT32_MAX);
   fcitx_dictionary_sync_started = false;
@@ -5945,7 +5951,9 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (!state || state->restricted() ||
           (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)) return;
-      if (std::strcmp(panel_, "local-translation") == 0)
+      if (std::strcmp(panel_, "dictionary-groups") == 0)
+        msime::linux_host::launch_dictionary_collections(state->options_path_);
+      else if (std::strcmp(panel_, "local-translation") == 0)
         msime::linux_host::launch_local_translation(state->options_path_);
       else launchDesktopPanel(panel_);
     } catch (...) {}
@@ -7442,6 +7450,9 @@ public:
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
              {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+             {&dictionary_groups_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary-groups"},
+#endif
              {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
              {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
              {&scheme_quanpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-quanpin"},
@@ -7935,6 +7946,9 @@ public:
 #ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
         {&local_translation_action_, true},
 #endif
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+        {&dictionary_groups_action_, true},
+#endif
         {&settings_action_, true}, {&about_action_, true},
         {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
         {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
@@ -8291,6 +8305,9 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+  FcitxDesktopPanelAction dictionary_groups_action_{&factory_, "dictionary-groups", "词库分组…"};
+#endif
   FcitxDesktopPanelAction local_translation_action_{&factory_, "local-translation", "本地模型翻译…"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
   FcitxToolbarAction toolbar_action_;

@@ -161,6 +161,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let fullwidthShortcut = UIButton()
   private let punctuationShortcut = UIButton()
   private var clipboardPanel: KeyboardClipboardView?
+  private let cloudClipboardAutoReceive = KeyboardCloudClipboardAutoReceive()
   private var clipboardHistoryPreferencesReady = false
   private lazy var clipboardHistoryCapture = KeyboardClipboardHistoryCapture(allowed: { [weak self] in
     guard let self, self.isPresented, self.view.window != nil, self.hasFullAccess,
@@ -1079,6 +1080,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     prepareKeyFeedback()
     // 收起之后才到的 `viewDidAppear` 不再开始维护：`viewWillDisappear` 已经停了定时器、放了锁，这里再开一轮会把锁重新取回来，而键盘已经不在屏幕上。
     guard isPresented else { return }
+    cloudClipboardAutoReceive.start { [weak self] in
+      guard let self else { return false }
+      return self.hasFullAccess && self.privacyGate.allows(.cloudClipboard)
+    }
     clipboardHistoryCapture.start()
     // 出现时先跑一轮词库维护，不必等两秒的定时器：两份队列文件在后台读，个人词库只在有待应用的编辑、设置页要求刷新或上次列出已超过 15 分钟（`PersonalDictionaryStore.listingLifetime`）时才同步，快照版本照常按 `DictionarySnapshotWorker.idleVersionPollInterval`（已有版本、没有活动请求时一分钟）节流。以前这里每次出现都在主线程上强制同步一次个人词库、强制重算一次词库版本，没有任何变化时也要读写共享文件、查询引擎。
     startIdleMaintenance()
@@ -1416,6 +1421,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    cloudClipboardAutoReceive.stop()
     clipboardHistoryCapture.stop()
     readAloudSpeaker.stop()
     candidateCanvasActive = false
@@ -6350,6 +6356,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 这一轮有编辑写进了 Engine：结束后让词库同步记下来，包括后面一步失败的情况。
     var applied = false
     defer { if applied { recordDictionaryChange() } }
+    // 分组同步单独处理：分组数据损坏或维护繁忙时，不能连带停掉「我的词条」原有的队列同步。
+    do {
+      applied = try session.synchronizeDictionaryCollections()
+    } catch PersonalDictionaryStore.StoreError.busy {
+    } catch {
+      showDiagnostic(error.localizedDescription)
+    }
     do {
       let state = try store.read()
       guard force || state.needsKeyboardSynchronization || store.listingIsStale() else { return }

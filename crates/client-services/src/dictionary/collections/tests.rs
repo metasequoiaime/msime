@@ -1449,3 +1449,5 @@ fn third_party_matches_without_collections_is_empty() {
         .unwrap();
     assert_eq!(view.third_party_matches, Some(Vec::new()));
 }
+
+mod batch;
