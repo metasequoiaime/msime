@@ -294,7 +294,7 @@ const resourcePacks: ResourcePackClient = {
   checkGrammarUpdates: () => invoke("resource_pack_check_grammar_updates"),
 };
 const macosInstallClient: MacosInstallClient = {
-  install: (scope) => invoke("run_first_input_source_install", { scope }),
+  install: () => invoke("run_first_input_source_install"),
 };
 const localVoiceModels: LocalVoiceModelClient = {
   ...createTauriProgressClient<LocalVoiceModelList, LocalVoiceModelProgress>(invoke, listen, {
@@ -372,6 +372,7 @@ const client: SettingsClient = {
   cloudDictionary: cloudDictionaryClient,
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  migrateInputSourceToSystem: () => invoke("migrate_input_source_to_system"),
   inputSourceStartup,
   macosInputModes,
   onDeviceTranslation: {
