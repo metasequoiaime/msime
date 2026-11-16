@@ -96,6 +96,16 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(ChineseInputScheme.allCases.suffix(8), [.nineKeyShuangpin, .eighteenKey, .cantoneseShuangpin, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao], "the scheme order is persisted, so new schemes go last")
   }
 
+  /// 每种 26 键双拼都按自己的来源计入打字统计；智能 ABC 的统计键与共享统计的 `smart_abc` 一致，否则共享层拒收这一笔。
+  func testEveryShuangpinSchemeCountsUnderItsOwnTypingSource() {
+    XCTAssertEqual(TypingSource.smartAbc.rawValue, "smart_abc")
+    for scheme in ChineseInputScheme.allCases where scheme.shuangpinProfile != nil {
+      let source = TypingSource.of(scheme)
+      XCTAssertNotNil(source, "\(scheme)")
+      XCTAssertNotEqual(source, .unknown, "\(scheme)")
+    }
+  }
+
   func testCantoneseShuangpinHasItsOwnSavedSelection() {
     let scheme = ChineseInputScheme.cantoneseShuangpin
     XCTAssertEqual(scheme.engineScheme, "cantonese")

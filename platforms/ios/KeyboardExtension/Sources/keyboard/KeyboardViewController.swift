@@ -8209,7 +8209,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !isChineseMode { return .english }
     if inputScheme == .nineKeyShuangpin { return .nineKey }
     if inputScheme == .cantoneseShuangpin { return .cantonese }
-    return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
+    return TypingSource.of(inputScheme) ?? .unknown
   }
 
   /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。`continuesComposition` 表示同一次渲染随后还要标记剩下的组字（部分选词）。

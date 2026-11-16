@@ -8,7 +8,7 @@ export function CloudPinyinSchemeOptions() {
   );
 }
 
-/** Shared shuangpin profile choices used by the cloud dictionary catalog and candidate panels. */
+/** Shared shuangpin profile choices used by the cloud dictionary catalog and candidate panels. Keep this list in step with the profiles `valid_candidate_query` in crates/client-core/src/cloud/dictionary.rs accepts; a value it rejects makes every candidate request fail. */
 export function CloudShuangpinProfileOptions() {
   return (
     <>
@@ -17,10 +17,6 @@ export function CloudShuangpinProfileOptions() {
       <option value="microsoft">微软</option>
       <option value="shoudao">首道</option>
       <option value="smart_abc">智能 ABC</option>
-      <option value="sogou">搜狗</option>
-      <option value="jiajia">加加</option>
-      <option value="ziguang">紫光</option>
-      <option value="guobiao">国标</option>
     </>
   );
 }

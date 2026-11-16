@@ -195,6 +195,32 @@ mod tests {
         ));
     }
 
+    /// 云词库候选面板的双拼方案选项来自 `packages/ui` 的 `CloudShuangpinProfileOptions`；这里拒绝的取值会让该选项下的每次请求都失败。
+    #[test]
+    fn every_cloud_shuangpin_profile_option_is_a_valid_candidate_query() {
+        let source = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../packages/ui/src/keyboard/cloud-scheme-options.tsx"
+        ))
+        .unwrap();
+        let body = source
+            .split("export function CloudShuangpinProfileOptions")
+            .nth(1)
+            .unwrap();
+        let profiles: Vec<&str> = body
+            .split("<option value=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert!(profiles.contains(&"xiaohe"));
+        for profile in profiles {
+            assert!(
+                valid_candidate_query("nihk", "pinyin", "shuangpin", profile, 100),
+                "{profile}"
+            );
+        }
+    }
+
     #[test]
     fn validates_dictionary_values() {
         let value = DictionaryValue {

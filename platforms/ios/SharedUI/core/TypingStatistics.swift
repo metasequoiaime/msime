@@ -3,7 +3,14 @@ import Darwin
 import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao, smartAbc, sogou, jiajia, ziguang, guobiao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao
+  // 共享统计（Rust `TypingSource::SmartAbc`）的键是 `smart_abc`，不是方案的原始值 `smartAbc`。
+  case smartAbc = "smart_abc"
+  case sogou, jiajia, ziguang, guobiao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  /// 方案在统计里记成的来源：智能 ABC 的方案原始值 `smartAbc` 与统计键 `smart_abc` 不同，其余同名方案直接按原始值取。
+  static func of(_ scheme: ChineseInputScheme) -> TypingSource? {
+    scheme == .smartAbc ? .smartAbc : TypingSource(rawValue: scheme.rawValue)
+  }
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"

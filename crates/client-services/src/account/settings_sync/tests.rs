@@ -328,26 +328,57 @@ fn settings_sync_leaves_a_custom_shuangpin_profile_on_the_device() {
 
 #[test]
 fn settings_sync_preserves_a_local_smart_abc_profile() {
-    let local = Preferences {
-        shuangpin_profile: ShuangpinProfile::SmartAbc,
-        ..Preferences::default()
-    };
-    let exported = export_android_settings(&local, None).unwrap();
-    assert!(!exported.contains_key("input.shuangpin_schema"));
-    let values = BTreeMap::from([(
-        "input.shuangpin_schema".into(),
-        AccountPreferenceValue::String("microsoft".into()),
-    )]);
-    let applied = apply(
-        &local,
-        values,
-        &schema_for(&[("input.shuangpin_schema", "string")]),
-    );
-    assert_eq!(
-        applied.preferences.shuangpin_profile,
-        ShuangpinProfile::SmartAbc
-    );
-    assert!(applied.skipped.is_empty());
+    // 智能 ABC、搜狗、加加、紫光和国标都还不上传：已经发布的 iOS 读到不认识的双拼方案会拒绝整份账号设置。
+    for profile in [
+        ShuangpinProfile::SmartAbc,
+        ShuangpinProfile::Sogou,
+        ShuangpinProfile::Jiajia,
+        ShuangpinProfile::Ziguang,
+        ShuangpinProfile::Guobiao,
+    ] {
+        let local = Preferences {
+            shuangpin_profile: profile,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&local, None).unwrap();
+        assert!(
+            !exported.contains_key("input.shuangpin_schema"),
+            "{profile:?}"
+        );
+        let values = BTreeMap::from([(
+            "input.shuangpin_schema".into(),
+            AccountPreferenceValue::String("microsoft".into()),
+        )]);
+        let applied = apply(
+            &local,
+            values,
+            &schema_for(&[("input.shuangpin_schema", "string")]),
+        );
+        assert_eq!(applied.preferences.shuangpin_profile, profile);
+        assert!(applied.skipped.is_empty());
+    }
+}
+
+#[test]
+fn settings_sync_applies_downloaded_new_shuangpin_profiles() {
+    for (value, profile) in [
+        ("sogou", ShuangpinProfile::Sogou),
+        ("jiajia", ShuangpinProfile::Jiajia),
+        ("ziguang", ShuangpinProfile::Ziguang),
+        ("guobiao", ShuangpinProfile::Guobiao),
+    ] {
+        let values = BTreeMap::from([(
+            "input.shuangpin_schema".into(),
+            AccountPreferenceValue::String(value.into()),
+        )]);
+        let applied = apply(
+            &Preferences::default(),
+            values,
+            &schema_for(&[("input.shuangpin_schema", "string")]),
+        );
+        assert_eq!(applied.preferences.shuangpin_profile, profile);
+        assert!(applied.skipped.is_empty());
+    }
 }
 
 #[test]
