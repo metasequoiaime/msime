@@ -73,6 +73,11 @@ pub struct SettingsSyncDocument {
     pub shared: Map<String, Value>,
     /// 可移植主题选择和自定义定义。
     pub theme: Map<String, Value>,
+    /// 明确删除的顶层字段。缺字段本身只表示旧文档没有携带该字段，不能表达删除。
+    #[serde(default)]
+    pub deleted_shared: BTreeSet<String>,
+    #[serde(default)]
+    pub deleted_theme: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +225,8 @@ impl SettingsSyncDocument {
             version: VERSION,
             shared,
             theme,
+            deleted_shared: BTreeSet::new(),
+            deleted_theme: BTreeSet::new(),
         };
         let bytes = serde_json::to_vec(&document).map_err(|_| SettingsSyncError::Serialization)?;
         if bytes.len() > MAX_DOCUMENT_BYTES {
@@ -252,6 +259,11 @@ impl SettingsSyncDocument {
             if classify_field(field) != SyncFieldClass::Theme {
                 return Err(SettingsSyncError::InvalidDocument);
             }
+        }
+        if !valid_tombstones(&self.deleted_shared, SyncFieldClass::Shared, &self.shared)
+            || !valid_tombstones(&self.deleted_theme, SyncFieldClass::Theme, &self.theme)
+        {
+            return Err(SettingsSyncError::InvalidDocument);
         }
         if let Some(custom) = self.theme.get("custom_theme") {
             let Some(custom) = custom.as_object() else {
@@ -286,17 +298,23 @@ impl SettingsSyncDocument {
             return Err(SettingsSyncError::InvalidDocument);
         }
         let mut conflicts = Vec::new();
-        let shared = merge_map(
+        let (shared, deleted_shared) = merge_map(
             &base.shared,
             &local.shared,
             &remote.shared,
+            &base.deleted_shared,
+            &local.deleted_shared,
+            &remote.deleted_shared,
             SyncFieldClass::Shared,
             &mut conflicts,
         );
-        let theme = merge_map(
+        let (theme, deleted_theme) = merge_map(
             &base.theme,
             &local.theme,
             &remote.theme,
+            &base.deleted_theme,
+            &local.deleted_theme,
+            &remote.deleted_theme,
             SyncFieldClass::Theme,
             &mut conflicts,
         );
@@ -305,6 +323,8 @@ impl SettingsSyncDocument {
             version: VERSION,
             shared,
             theme,
+            deleted_shared,
+            deleted_theme,
         }
         .validate()?;
         Ok(SettingsSyncMerge {
@@ -338,6 +358,18 @@ impl SettingsSyncDocument {
             .as_object()
             .cloned()
             .ok_or(SettingsSyncError::Serialization)?;
+        let defaults = serde_json::to_value(Preferences::default())
+            .map_err(|_| SettingsSyncError::Serialization)?
+            .as_object()
+            .cloned()
+            .ok_or(SettingsSyncError::Serialization)?;
+        for field in self.deleted_shared.iter().chain(self.deleted_theme.iter()) {
+            if let Some(value) = defaults.get(field) {
+                preferences.insert(field.clone(), value.clone());
+            } else {
+                preferences.remove(field);
+            }
+        }
         for (field, value) in self.shared.iter().chain(self.theme.iter()) {
             if *field == "custom_theme" {
                 let current_theme = preferences
@@ -376,20 +408,27 @@ fn merge_map(
     base: &Map<String, Value>,
     local: &Map<String, Value>,
     remote: &Map<String, Value>,
+    base_deleted: &BTreeSet<String>,
+    local_deleted: &BTreeSet<String>,
+    remote_deleted: &BTreeSet<String>,
     class: SyncFieldClass,
     conflicts: &mut Vec<SettingsSyncConflict>,
-) -> Map<String, Value> {
+) -> (Map<String, Value>, BTreeSet<String>) {
     let fields: BTreeSet<_> = base
         .keys()
         .chain(local.keys())
         .chain(remote.keys())
+        .chain(base_deleted)
+        .chain(local_deleted)
+        .chain(remote_deleted)
         .cloned()
         .collect();
     let mut merged = Map::new();
+    let mut deleted = BTreeSet::new();
     for field in fields {
-        let baseline = base.get(&field);
-        let local_value = local.get(&field);
-        let remote_value = remote.get(&field);
+        let baseline = entry(base, base_deleted, &field);
+        let local_value = entry(local, local_deleted, &field);
+        let remote_value = entry(remote, remote_deleted, &field);
         let local_changed = local_value != baseline;
         let remote_changed = remote_value != baseline;
         let selected = if !local_changed {
@@ -403,11 +442,41 @@ fn merge_map(
             });
             local_value
         };
-        if let Some(value) = selected {
-            merged.insert(field, value.clone());
+        match selected {
+            Entry::Value(value) => {
+                merged.insert(field, value.clone());
+            }
+            Entry::Deleted => {
+                deleted.insert(field);
+            }
+            Entry::Missing => {}
         }
     }
-    merged
+    (merged, deleted)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Entry<'a> {
+    Missing,
+    Deleted,
+    Value(&'a Value),
+}
+
+fn entry<'a>(map: &'a Map<String, Value>, deleted: &BTreeSet<String>, field: &str) -> Entry<'a> {
+    map.get(field)
+        .map(Entry::Value)
+        .or_else(|| deleted.contains(field).then_some(Entry::Deleted))
+        .unwrap_or(Entry::Missing)
+}
+
+fn valid_tombstones(
+    deleted: &BTreeSet<String>,
+    class: SyncFieldClass,
+    values: &Map<String, Value>,
+) -> bool {
+    deleted.iter().all(|field| {
+        classify_field(field) == class && !values.contains_key(field) && !field.is_empty()
+    })
 }
 
 fn portable_custom_theme(value: &Value) -> Value {
@@ -513,6 +582,8 @@ mod tests {
                 ("candidate_page_size".into(), Value::from(5)),
             ]),
             theme: Map::new(),
+            deleted_shared: BTreeSet::new(),
+            deleted_theme: BTreeSet::new(),
         };
         let mut local = base.clone();
         local
@@ -605,6 +676,31 @@ mod tests {
         assert_eq!(
             SettingsSyncEvent::new(0, "a".repeat(32), "", oversized),
             Err(SettingsSyncError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn tombstones_survive_three_way_merge_and_reset_the_deleted_field() {
+        let mut current = Preferences::default();
+        current.candidate_page_size = 9;
+        let base = SettingsSyncDocument::from_preferences(&current).unwrap();
+        let mut local = base.clone();
+        local.shared.remove("candidate_page_size");
+        local.deleted_shared.insert("candidate_page_size".into());
+        let merged = SettingsSyncDocument::merge(&base, &local, &base).unwrap();
+        assert!(
+            merged
+                .document
+                .deleted_shared
+                .contains("candidate_page_size")
+        );
+        let applied = merged
+            .document
+            .apply_to_preferences(&current, Edition::full())
+            .unwrap();
+        assert_eq!(
+            applied.candidate_page_size,
+            Preferences::default().candidate_page_size
         );
     }
 }
