@@ -135,6 +135,13 @@ char *msime_client_dictionary_sync(const uint8_t *request, size_t length);
  * settings_sync_log_full 以及 WebDAV/设备批准错误码。布局、限制和未实现范围见 docs/settings-webdav-sync.md。
  */
 char *msime_client_settings_sync(const uint8_t *request, size_t length);
+/* 后台设置同步：最多 64 KiB 的 {preferences_directory: 绝对路径}，返回 {}。
+ * 调用线程不读文件或联网；后台每 5 秒检查本机修订，保存后用 local_change 报告，
+ * 其余轮次按共享 next_check_ms 调 periodic。只用已登记身份，不配置、不配对、不上传默认安装。
+ * 同一目录重复启动无动作；换目录时旧轮次未结束返回 settings_sync_busy。
+ * stop 返回线程是否已退出；超时后仍可再次等待，UINT32_MAX 等待当前轮次结束。 */
+char *msime_client_settings_sync_start(const uint8_t *request, size_t length);
+bool msime_client_settings_sync_stop(uint32_t timeout_ms);
 /* 输入法进程里的「我的词条」自动同步：起一个后台线程，替宿主调上面的 run，宿主不用自己排定时器。macOS 的 IMK 进程、Linux 的 IBus 和 Fcitx5 宿主在进程里起一次，退出时 msime_client_dictionary_sync_stop。request 是 length 字节（最多 64 KiB）的 UTF-8 JSON {options_path: 运行时配置文件 runtime-options.json 的绝对路径, directory: 放本机同步状态的绝对路径目录，与设置应用的相同（macOS 是 ~/Library/Application Support/<设置应用 bundle id>/dictionary-sync，Linux 是共享状态目录下的 dictionary-sync）}。Value 是 {}；request 不合法时 error 是 invalid_dictionary_sync，线程起不来是 dictionary_sync_unavailable。已经在跑时换成这一次的请求。后台线程每一轮重读 options_path 和偏好：没配置 dictionary_sync_webdav，或者本机还没有设置应用生成的设备身份时，不读词库、不联网，每 5 分钟再看一次（只用已有身份，与 create_identity: false 相同，从不生成身份）。能同步时起来先调一次 periodic，之后按每次结果的 next_check_ms 调 periodic；每 5 秒看一次个人词库文件（Engine 日志库和它的 WAL）的大小和修改时间，变了之后等它安静一轮（一直在变时最多一分钟）再读一遍「我的词条」，与上一次同步开头核对过的相比真的加了或删了词才调 local_change，打字学到的权重和选择次数不算。不请输入法让出词库（输入会话占着词库时远端改动留到打开设置时写进来），另一个进程（设置应用）正在同步时最多等 5 秒，等不到 30 秒后再来。不在调用线程上做任何文件或网络操作。 */
 char *msime_client_dictionary_sync_start(const uint8_t *request, size_t length);
 /* 叫停上面的后台同步：不再开始新的一步，正在跑的那一次跑完为止（每一步都写盘，进程中途退出也不丢不重）。最多等 timeout_ms 毫秒让后台线程退出，UINT32_MAX 一直等到它退出；返回它是否已经退出，没有在跑时为 true。没等到时线程照样在那一次跑完后自己结束。代码可能被卸载的宿主（Fcitx5 插件）要一直等。 */

@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
 
+pub(crate) mod background;
 mod configuration;
 
 pub(crate) const INVALID: &str = "invalid_settings_sync";
