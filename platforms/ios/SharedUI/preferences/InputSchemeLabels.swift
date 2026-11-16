@@ -9,6 +9,11 @@ extension ChineseInputScheme {
     case .ziranma: "双拼 · 自然码"
     case .microsoft: "双拼 · 微软"
     case .shoudao: "双拼 · 首道"
+    case .smartAbc: "双拼 · 智能 ABC"
+    case .sogou: "双拼 · 搜狗"
+    case .jiajia: "双拼 · 加加"
+    case .ziguang: "双拼 · 紫光"
+    case .guobiao: "双拼 · 国标"
     case .wubi: WubiProfilePreference.shortTitle(WubiProfilePreference.profile)
     default: title
     }

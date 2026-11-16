@@ -4819,6 +4819,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let returnTitles: [ChineseInputScheme: String] = [
       .quanpin: "拼音", .shuangpin: "拼音", .ziranma: "拼音", .microsoft: "拼音", .shoudao: "拼音", .wubi: "拼音",
       .cantonese: "拼音", .cantoneseShuangpin: "拼音", .handwriting: "拼音",
+      .smartAbc: "拼音", .sogou: "拼音", .jiajia: "拼音", .ziguang: "拼音", .guobiao: "拼音",
       .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔", .nineKey: "九键", .nineKeyShuangpin: "九键",
       .japanese: "ABC", .japaneseNineKey: "あいう", .korean: "한", .vietnamese: "ABC", .tibetan: "ABC", .zhuyin: "注",
     ]
@@ -4912,6 +4913,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let expected: [ChineseInputScheme: String] = [
       .quanpin: "拼音", .shuangpin: "拼音", .ziranma: "拼音", .microsoft: "拼音", .shoudao: "拼音", .wubi: "拼音",
       .cantonese: "拼音", .cantoneseShuangpin: "拼音", .handwriting: "拼音",
+      .smartAbc: "拼音", .sogou: "拼音", .jiajia: "拼音", .ziguang: "拼音", .guobiao: "拼音",
       .fourteenKey: "14键", .eighteenKey: "18键", .stroke: "笔", .nineKey: "九键", .nineKeyShuangpin: "九键",
       .japanese: "ABC", .japaneseNineKey: "あいう", .korean: "한", .vietnamese: "ABC", .tibetan: "ABC", .zhuyin: "注",
     ]
@@ -4935,6 +4937,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let moreTitles: [ChineseInputScheme: String] = [
       .quanpin: "拼音", .shuangpin: "拼音", .ziranma: "拼音", .microsoft: "拼音", .shoudao: "拼音", .wubi: "拼音",
       .cantonese: "拼音", .cantoneseShuangpin: "拼音", .handwriting: "拼音",
+      .smartAbc: "拼音", .sogou: "拼音", .jiajia: "拼音", .ziguang: "拼音", .guobiao: "拼音",
       .fourteenKey: "拼音", .eighteenKey: "拼音", .stroke: "拼音", .nineKey: "拼音", .nineKeyShuangpin: "拼音",
       .japanese: "拼音", .japaneseNineKey: "あいう", .korean: "ABC", .vietnamese: "ABC", .tibetan: "ABC", .zhuyin: "123",
     ]

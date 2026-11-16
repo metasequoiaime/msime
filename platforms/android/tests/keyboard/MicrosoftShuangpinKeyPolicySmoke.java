@@ -20,14 +20,19 @@ public final class MicrosoftShuangpinKeyPolicySmoke {
         check(!MicrosoftShuangpinKeyPolicy.routesAsFinal(',', true, false, KeyboardScheme.MICROSOFT, "none"));
         // 粤语双拼把 ing、ik 放在 ; 上，键和路由与微软双拼相同；普通粤拼不显示这个键。
         check(MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.CANTONESE_SHUANGPIN, "none"));
+        check(MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.SOGOU, "none"));
+        check(MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.ZIGUANG, "none"));
         check(!MicrosoftShuangpinKeyPolicy.visible(true, KeyboardScheme.CANTONESE_SHUANGPIN, "none"));
         check(!MicrosoftShuangpinKeyPolicy.visible(false, KeyboardScheme.CANTONESE, "none"));
         check(MicrosoftShuangpinKeyPolicy.routesAsFinal(';', true, false, KeyboardScheme.CANTONESE_SHUANGPIN, "none"));
         check(!MicrosoftShuangpinKeyPolicy.routesAsFinal(';', false, false, KeyboardScheme.CANTONESE_SHUANGPIN, "none"));
         check(!MicrosoftShuangpinKeyPolicy.routesAsFinal(';', true, false, KeyboardScheme.CANTONESE, "none"));
-        check(MicrosoftShuangpinKeyPolicy.accessibilityLabel(KeyboardScheme.MICROSOFT).equals("微软双拼 ing"));
+        check(MicrosoftShuangpinKeyPolicy.accessibilityLabel(KeyboardScheme.MICROSOFT)
+            .equals("分号，微软双拼 ing"));
         check(MicrosoftShuangpinKeyPolicy.accessibilityLabel(KeyboardScheme.CANTONESE_SHUANGPIN)
             .equals("分号，粤语双拼 ing 和 ik"));
+        check(MicrosoftShuangpinKeyPolicy.accessibilityLabel(KeyboardScheme.SOGOU).equals("分号，搜狗双拼 ing"));
+        check(MicrosoftShuangpinKeyPolicy.accessibilityLabel(KeyboardScheme.ZIGUANG).equals("分号，紫光双拼 ing"));
         System.out.println("Android Microsoft double-pinyin key policy passed");
     }
 }
