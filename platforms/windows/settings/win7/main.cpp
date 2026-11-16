@@ -8,6 +8,7 @@
 #include "../../compat/WindowsDpi.h"
 #include "../../common/GameCompatProfile.h"
 #include "../SettingsInstance.h"
+#include "../InputMethodSetup.h"
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
   const int repair = msime::settings::input_method::run_if_requested(command);

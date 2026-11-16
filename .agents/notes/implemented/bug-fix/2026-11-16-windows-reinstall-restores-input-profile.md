@@ -27,6 +27,6 @@ Windows 的 TSF 安装注册只调用 `ITfInputProcessorProfileMgr::RegisterProf
 ## Verification
 
 - `windows-installer-launch` 契约测试：编译并运行通过，确认安装器以原用户身份调用 `--repair-input-method`，且在迁移清理之后完成修复。
-- `scripts/test-windows-native-run.py`：未通过；该稀疏工作树缺少 `crates/host-api/include`，导致仓库中已有的 39 个测试无法找到 `msime_client.h`，不是本改动的断言失败。
+- `python3 scripts/test-windows-native-run.py`：完整检出下 198 项通过，2 项宿主差异排除，116 项需要 Windows 构建，20 项非测试。原稀疏检出缺头文件的失败不计为通过。
 - MinGW `x86_64-w64-mingw32-g++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only`：`InputMethodSetup.h` 通过。
-- MinGW 语法检查：`InputMethodSetup.h` 通过。
+- Windows CI 暴露 Win7 入口遗漏 `InputMethodSetup.h`，现补齐直接依赖；MinGW 对实际 `win7/main.cpp` 的 `-fsyntax-only` 检查通过，使用产品的 edition、Unicode 和 `NOMINMAX` 定义。已有 `GameCompatProfile.h` 的结构体部分初始化仍有告警；MSVC 完整构建由更新后的 PR 检查覆盖，不将交叉语法检查表述为链接或系统验收。
