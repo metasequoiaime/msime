@@ -11,6 +11,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.text.InputType;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -24,8 +25,11 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import static app.msime.android.ImeTranslationEntry.ACCEPTED;
 import static app.msime.android.ImeTranslationEntry.EDITOR;
+import static app.msime.android.ImeTranslationEntry.NO_LEARNING;
 import static app.msime.android.ImeTranslationEntry.RECEIVER;
+import static app.msime.android.ImeTranslationEntry.REPLY;
 import static app.msime.android.ImeTranslationEntry.TEXT;
 import java.util.List;
 import java.util.UUID;
@@ -52,6 +56,11 @@ public final class TranslationActivity extends Activity {
     private boolean busy;
     private boolean destroyed;
     private long voiceGeneration;
+    // 上次未能回插的译文只供复制，不能插进这次打开时的另一个编辑器。
+    private boolean retainedPreview;
+    // 输入法未确认接管（接收器过期、输入法服务已销毁或进程已退出）后，这个窗口不再回插。
+    private boolean returnLost;
+    private long insertAttempt;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -100,6 +109,8 @@ public final class TranslationActivity extends Activity {
         source.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         source.setPrivateImeOptions(EDITOR);
+        if (getIntent().getBooleanExtra(NO_LEARNING, false))
+            source.setImeOptions(source.getImeOptions() | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         source.setMinLines(3);
         source.setMaxLines(5);
         source.setSaveEnabled(false);
@@ -127,18 +138,7 @@ public final class TranslationActivity extends Activity {
             getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("译文", draft.answer()));
             status.setText("译文已复制");
         });
-        insert = button(actions, "插入", () -> {
-            String text = draft.answer();
-            if (text.isEmpty()) return;
-            ResultReceiver receiver = getIntent().getParcelableExtra(RECEIVER);
-            if (receiver == null) { status.setText("请从输入法的翻译入口打开，或复制译文"); return; }
-            draft.consume();
-            Bundle payload = new Bundle();
-            payload.putString(TEXT, text);
-            receiver.send(RESULT_OK, payload);
-            insert.setEnabled(false);
-            finish();
-        });
+        insert = button(actions, "插入", this::insert);
         root.addView(actions);
         setContentView(root);
         ViewCompat.requestApplyInsets(root);
@@ -152,6 +152,7 @@ public final class TranslationActivity extends Activity {
         if (retained != null && !retained.isEmpty()) {
             long request = draft.invalidate();
             draft.complete(request, retained);
+            retainedPreview = true;
             showAnswer();
             status.setText("输入位置已变化，请复制译文");
         }
@@ -192,6 +193,7 @@ public final class TranslationActivity extends Activity {
 
     private void invalidate() {
         draft.invalidate();
+        retainedPreview = false;
         if (result == null) return;
         result.setText("");
         status.setText("");
@@ -202,7 +204,7 @@ public final class TranslationActivity extends Activity {
     private void showAnswer() {
         result.setText(draft.answer());
         boolean ready = !draft.answer().isEmpty();
-        insert.setEnabled(ready && getIntent().hasExtra(RECEIVER));
+        insert.setEnabled(ready && !retainedPreview && !returnLost && getIntent().hasExtra(RECEIVER));
         copy.setEnabled(ready);
     }
 
@@ -213,6 +215,7 @@ public final class TranslationActivity extends Activity {
         String sourceLanguage = CODES[from.getSelectedItemPosition()];
         String targetLanguage = CODES[to.getSelectedItemPosition()];
         long request = draft.invalidate();
+        retainedPreview = false;
         showAnswer();
         if (text.isEmpty() || text.codePointCount(0, text.length()) > UserTranslationClient.MAX_SOURCE_CODE_POINTS) {
             status.setText("请输入 1–256 字原文"); return;
@@ -250,6 +253,39 @@ public final class TranslationActivity extends Activity {
                 else if (draft.current(request)) status.setText(message);
             });
         });
+    }
+
+    /** 输入法确认接管后才领取译文并关闭窗口；拒绝或超时不回复时保留译文供复制。 */
+    private void insert() {
+        String text = draft.answer();
+        if (text.isEmpty() || retainedPreview || returnLost) return;
+        ResultReceiver receiver = getIntent().getParcelableExtra(RECEIVER);
+        if (receiver == null) { status.setText("请从输入法的翻译入口打开，或复制译文"); return; }
+        long attempt = ++insertAttempt;
+        insert.setEnabled(false);
+        Bundle payload = new Bundle();
+        payload.putString(TEXT, text);
+        payload.putParcelable(REPLY, new ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, Bundle ignored) {
+                if (destroyed || attempt != insertAttempt) return;
+                insertAttempt++;
+                if (code == ACCEPTED) { draft.consume(); finish(); }
+                else returnFailed();
+            }
+        });
+        receiver.send(RESULT_OK, payload);
+        // 输入法进程已退出时 send 静默丢弃，收不到任何回复。
+        main.postDelayed(() -> {
+            if (destroyed || attempt != insertAttempt) return;
+            insertAttempt++;
+            returnFailed();
+        }, 2000);
+    }
+
+    private void returnFailed() {
+        returnLost = true;
+        showAnswer();
+        status.setText("无法插入，请复制译文");
     }
 
     private String directory() {

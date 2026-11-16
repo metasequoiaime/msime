@@ -71,9 +71,13 @@ final class TranslationWindowDeviceChecks {
             if (config.optJSONObject("ai_assistant") != null) config.getJSONObject("ai_assistant").put("enabled", false);
             Files.write(preferences.toPath(), snapshot.toString().getBytes(StandardCharsets.UTF_8));
             ResultReceiver receiver = new ResultReceiver(new Handler(Looper.getMainLooper())) {
+                @SuppressWarnings("deprecation")
                 @Override protected void onReceiveResult(int code, Bundle data) {
-                    if (code == android.app.Activity.RESULT_OK && data != null)
-                        delivered.set(data.getString("translation_text"));
+                    if (code != android.app.Activity.RESULT_OK || data == null) return;
+                    delivered.set(data.getString("translation_text"));
+                    // 窗口等输入法确认接管后才关闭，合成接收器照输入法的协议回复 ACCEPTED。
+                    ResultReceiver reply = data.getParcelable("translation_reply");
+                    if (reply != null) reply.send(1, Bundle.EMPTY);
                 }
             };
             smoke.stage = "translation window opens";

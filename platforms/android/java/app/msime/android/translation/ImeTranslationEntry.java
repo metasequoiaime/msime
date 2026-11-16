@@ -12,27 +12,47 @@ final class ImeTranslationEntry {
     static final String EDITOR = "app.msime.android.translation-source";
     static final String RECEIVER = "translation_receiver";
     static final String TEXT = "translation_text";
+    static final String REPLY = "translation_reply";
+    static final String NO_LEARNING = "translation_no_learning";
+    static final int ACCEPTED = 1, INVALID = 2;
     private final MSIMEInputService s;
     private long generation;
     private String retained = "";
 
     ImeTranslationEntry(MSIMEInputService service) { s = service; }
 
+    @SuppressWarnings("deprecation")
     void open() {
         s.closeMoreTools();
-        TranslationReturnTarget target = retained.isEmpty() && s.voiceInsertionReady() ? capture() : null;
+        EditorInfo info = s.getCurrentInputEditorInfo();
+        // 键盘正连着翻译窗口自己的原文框：窗口已在前台，再点「翻译」不能作废它持有的接收器。
+        if (info != null && EDITOR.equals(info.privateImeOptions)) return;
+        // 上次未能交付的译文只给窗口预览复制，新的回插目标照常按当前编辑器取。
+        TranslationReturnTarget target = s.voiceInsertionReady() ? capture() : null;
         long operation = ++generation;
+        // 旧窗口持有的接收器此时已作废，整栈清掉换成新实例，不能把旧窗口带回前台。
         Intent intent = new Intent().setClassName(s, "app.msime.android.TranslationActivity")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
         if (!retained.isEmpty()) intent.putExtra(TEXT, retained);
+        // 原编辑器禁止个性化学习时，窗口原文框同样禁止，在窗口里打的字不进个人词库。
+        if (info != null && (!EditorPolicy.allowLearning(info.imeOptions) || EditorPolicy.password(info.inputType)))
+            intent.putExtra(NO_LEARNING, true);
         if (target != null) intent.putExtra(RECEIVER, new ResultReceiver(s.main) {
             @Override protected void onReceiveResult(int code, Bundle data) {
-                if (operation != generation || code != android.app.Activity.RESULT_OK || data == null) return;
+                ResultReceiver reply = data == null ? null : data.getParcelable(REPLY);
+                if (reply == null) return;
                 String text = data.getString(TEXT, "");
-                if (text.isEmpty() || text.length() > 4096) return;
+                if (operation != generation || code != android.app.Activity.RESULT_OK
+                        || text.isEmpty() || text.length() > 4096) {
+                    reply.send(INVALID, Bundle.EMPTY);
+                    return;
+                }
                 // 先作废接收器，再等待原编辑器恢复，重复消息不能另起一次插入。
                 long delivery = ++generation;
                 retained = text;
+                // 原编辑器要等窗口关闭后才重新连上，这里只确认译文已由输入法接管；写不进去时保留在 retained，下次打开窗口可复制。
+                reply.send(ACCEPTED, Bundle.EMPTY);
                 deliver(delivery, target, text, 30);
             }
         });
