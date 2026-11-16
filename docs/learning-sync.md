@@ -298,9 +298,15 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 
 编码是 `v1.<b64(设备私钥)>`；有账号密钥时再接 `.<key_id>.<b64(K_learn)>.<b64(批准者公钥)>.<状态>`，状态是 `confirmed`（本机生成的，或者用户已核对一致）、`unconfirmed`（已解开封装、等用户核对）、`rejected`（用户点了「不一致」，密钥一栏写 `-`，只留编号和批准者）或 `rotated`（本机原来有核对过的密钥，账号换了钥、本机还没被重新允许；密钥一栏写 `-`，只留旧编号和旧批准者，作为回报 `learning_key_rotated` 的标记）。只有 `confirmed` 的密钥能加解密。开头那段私钥就是设备身份，`Keystore::same_identity` 只比这一段。
 
+
+共享账号适配层（`client-services/account/learning_sync/session.rs`）将上述驱动编码作为 `keystore` 字段，与持久登录绑定一起存成 `{ "login": { "user_id", "session_id" }, "keystore" }`。文件存储的 `learning-keystore` 保存这份 JSON，最多 4 KiB；驱动本身仍读写上面的 `v1.` 编码。只使用与当前登录编号相同的密钥，同账号重新登录也生成新设备身份；令牌刷新保留登录编号和密钥。读取、身份冲突比较和保存使用同一把账号刷新锁，存储错误不得回退剪贴板身份。目前宿主注入存储与平台生命周期尚未接入，不代表六个平台已具备同步入口。
+
 ## 客户端驱动
 
 设备登记、建钥、批准、拒绝、移除、重置、反向核对和关闭由 Rust 的 sans-IO 驱动（`msime_client_core::cloud::learning_e2e`）完成，形状与 [云剪贴板的客户端驱动](cloud-clipboard-e2e.md#客户端驱动) 相同。C ABI 仍是 `msime_client_cloud_clipboard_e2e`（Android 经 JNI、HarmonyOS 经 NAPI 调同一个函数），请求顶层加 `"domain": "learning"`，开始和继续一个操作都要带；不带 `domain` 或为 `"clipboard"` 时是云剪贴板，已有宿主不受影响。桌面端和 client-services 在 Rust 里直接调 `learning_e2e::run`，身份冲突时答 `learning_keystore_conflict`。
+
+
+`BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。这些是账号与传输基础层，尚未串成完整上传下载轮次；待合并、独占维护、节流和平台入口仍须单独接通。
 
 上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
 
