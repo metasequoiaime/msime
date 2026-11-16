@@ -323,14 +323,16 @@ void session_pump_tests(const std::string &options) {
       mode.pinyin_length = 1;
       transport.packets.push_back(mode);
       transport.packets.push_back(key);
+      ++key.request_id;
     }
     unsigned keys = 0;
     SessionPump pump(transport, queue, gate,
-        [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &) -> std::optional<PendingReply> {
+        [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &packet) -> std::optional<PendingReply> {
           const bool fullwidth = keys++ != 1;
           const auto view = state.dedicated_english(lease, false);
           require(view && view->at("character_width") == (fullwidth ? "Fullwidth" : "Halfwidth"));
-          return std::nullopt;
+          // 生产主通道每个按键都要派发并确认回复，不能只观察后返回空值。
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
         }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
     require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 3);
     queue.stop();

@@ -83,6 +83,8 @@ Server 换客户端时用 `process_image_base_name`（`src/system/ProcessImageNa
 
 ## Verification
 
+- 全半角主通道回归使用递增请求号，并经 `configured_key` 取得真实回复、确认交付，保持三种模式事件及全角／半角／全角断言；仅观察状态后返回空回复会使生产 pump 在第一键主动断开，不能构成有效回归。Windows 实跑还暴露了旧会话测试与 [10-28 运行时偏好补救决定](../bug-fix/2026-10-28-preferences-forward-compat-runtime.md) 不一致：原来的两个缺字段输入保留，改验内存补救、不落盘，并另外覆盖共享出厂默认偏好；不支持的 API 版本仍必须拒绝。此处不改变产品默认值或错误处理。
+
 - #11509 的 `tests/input/fullwidth_session.cpp` 使用真实 Server 和 TIP 会话，覆盖中日文、半角／全角／半角、标点、原文字母、生产 Enter 路径及全角状态下重建；`tests/runtime/session_pump.cpp` 覆盖单独切换、状态快照和焦点恢复的真实队列落地。验证结果见对应 PR；不包含设备或真实编辑器验收。
 - `test-windows-smart-punctuation-revert.py` 继续执行原有重复标点条件，夹具补齐宽度 compartment、UTF-8 转换适配和真实共享映射头；新增全角、半角、中文标点与小键盘小数点的预取断言，66 项通过。新增预取用例关闭智能标点以明确进入预取路径，结束后恢复该开关，不改变原有回归的前置条件。
 
