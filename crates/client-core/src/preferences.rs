@@ -23,8 +23,10 @@ mod reporting_authority;
 pub mod schema;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
+mod settings_webdav;
 mod traditional_variant_read;
 pub use reporting_consent::UsageReportingConsent;
+pub use settings_webdav::SettingsSyncWebDavPreferences;
 
 /// The largest preference document accepted by the shared host boundary. This
 /// covers a validated custom skin photo while preventing a damaged local file
@@ -1971,6 +1973,9 @@ pub struct Preferences {
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
     pub candidate_preedit_style: CandidatePreeditStyle,
+    /// Windows 候选窗是否保留预编辑首行；缺字段按开启，`candidate_preedit_style` 仍单独决定首行文字。
+    #[serde(default = "enabled_by_default")]
+    pub show_candidate_preedit_area: bool,
     /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
@@ -2469,6 +2474,13 @@ pub struct Preferences {
         skip_serializing_if = "DictionarySyncWebDavPreferences::is_default"
     )]
     pub dictionary_sync_webdav: DictionarySyncWebDavPreferences,
+    /// 设置和可移植主题的独立网盘连接；凭据和整个连接段只留本机。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(
+        default,
+        skip_serializing_if = "SettingsSyncWebDavPreferences::is_default"
+    )]
+    pub settings_sync_webdav: SettingsSyncWebDavPreferences,
     /// 向所选云候选服务发送当前组字。新装默认关闭；旧文档缺开关时沿用开启行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
@@ -4757,6 +4769,7 @@ impl Default for Preferences {
             custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
+            show_candidate_preedit_area: true,
             show_candidate_page_number: true,
             show_candidate_status: true,
             tsf_preedit_style: PreeditStyle::default(),
@@ -4888,6 +4901,7 @@ impl Default for Preferences {
             cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
             cloud_clipboard_webdav: CloudClipboardWebDavPreferences::default(),
             dictionary_sync_webdav: DictionarySyncWebDavPreferences::default(),
+            settings_sync_webdav: SettingsSyncWebDavPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
             cloud_candidate_provider: Default::default(),
@@ -5498,6 +5512,7 @@ impl Preferences {
         next.cloud_clipboard_relay = self.cloud_clipboard_relay.clone();
         next.cloud_clipboard_webdav = self.cloud_clipboard_webdav.clone();
         next.dictionary_sync_webdav = self.dictionary_sync_webdav.clone();
+        next.settings_sync_webdav = self.settings_sync_webdav.clone();
         next.cloud_candidate_provider = self.cloud_candidate_provider.clone();
         // 代理是为了让这台机器连得上服务：恢复默认设置把服务凭据留下了，代理地址跟着留下，否则所有出口会一起断。
         next.network = self.network.clone();
@@ -5508,7 +5523,7 @@ impl Preferences {
     }
 
     /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
-    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 17] {
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 18] {
         [
             (
                 "voice_input.asr_app_key",
@@ -5578,6 +5593,10 @@ impl Preferences {
                 "dictionary_sync_webdav.password",
                 CredentialSlot::Text(&mut self.dictionary_sync_webdav.password),
             ),
+            (
+                "settings_sync_webdav.password",
+                CredentialSlot::Text(&mut self.settings_sync_webdav.password),
+            ),
         ]
     }
 
@@ -5611,7 +5630,11 @@ impl Preferences {
         // 自定义地址、请求头和模板都可能含不以敏感词命名的令牌，整组不进入诊断。
         value["cloud_candidate_provider"] = REDACTED.into();
         // 网盘账号常是登录邮箱，不是凭据也不进诊断。
-        for section in ["cloud_clipboard_webdav", "dictionary_sync_webdav"] {
+        for section in [
+            "cloud_clipboard_webdav",
+            "dictionary_sync_webdav",
+            "settings_sync_webdav",
+        ] {
             if let Some(webdav) = value
                 .get_mut(section)
                 .and_then(serde_json::Value::as_object_mut)
@@ -5774,6 +5797,9 @@ impl Preferences {
         }
         if !self.dictionary_sync_webdav.validate() {
             return Err(PreferencesError::InvalidDictionarySyncWebDav);
+        }
+        if !self.settings_sync_webdav.validate() {
+            return Err(PreferencesError::InvalidSettingsSyncWebDav);
         }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
@@ -6097,6 +6123,8 @@ pub enum PreferencesError {
         "dictionary sync webdav needs an https address (http only for loopback) without query, fragment or credentials, an account without a colon and an app password"
     )]
     InvalidDictionarySyncWebDav,
+    #[error("设置同步网盘需要合规的 HTTPS 地址（本机回环可用 HTTP）、账号和应用密码")]
+    InvalidSettingsSyncWebDav,
     #[error(
         "云候选配置无效：请检查地址、方法、请求头、JSON 模板、响应路径和超时（100–10000 毫秒）"
     )]
@@ -7561,7 +7589,7 @@ pub fn is_sensitive_key(name: &str) -> bool {
 }
 
 /// 用户可以自填的服务地址。地址本身不是凭据，但有的服务把密钥放在查询串或 `user:password@` 里，诊断快照只留协议、主机、端口和路径。
-const DIAGNOSTIC_ENDPOINTS: [&str; 7] = [
+const DIAGNOSTIC_ENDPOINTS: [&str; 8] = [
     "/voice_input/asr_endpoint",
     "/voice_input/polish_endpoint",
     "/ai_assistant/endpoint",
@@ -7569,6 +7597,7 @@ const DIAGNOSTIC_ENDPOINTS: [&str; 7] = [
     "/cloud_clipboard_relay/url",
     "/cloud_clipboard_webdav/url",
     "/dictionary_sync_webdav/url",
+    "/settings_sync_webdav/url",
 ];
 
 /// 去掉地址里的用户信息、查询串和片段；解析不了的地址整个换成 [`REDACTED`]，因为看不出密钥藏在哪。

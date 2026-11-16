@@ -1,5 +1,11 @@
 # Android 输入宿主
 
+命名词库的导入、多选管理与同步边界见[词库分组](../../docs/dictionary-groups.md)。
+
+## 独立翻译窗口
+
+键盘功能菜单的「翻译」或语音设置中的「语音翻译」打开原生窗口。原文支持键盘、手写和语音；选择原文与译文语言，点击翻译后预览，再复制或插回原编辑器。每次最多 256 字，复用已配置的翻译服务，候选翻译开关不影响手动请求。输入位置改变时保留内存译文供复制；草稿和译文不主动保存到磁盘，关闭窗口或进程结束后不保留。
+
 ## 目录结构与验证入口
 
 Java 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。发布的 APK 的设置界面是原生 Java：设置 App 的各页在 `home/`，另有 `settings/`、`account/`、`community/`、`statistics/` 下的页面；设置的校验、默认值与持久化应当经 JNI 调共享 Rust 层，不在 Java 里复制 Rust 业务（归属见[设置界面按平台归属](../../docs/ARCHITECTURE.md#设置界面按平台归属)）；`voice/VoiceProviderPolicy.java` 只保留字段适配与严格解析，凭据预检、服务分类、鉴权模式和状态文案分别通过 `msime_client_voice_credential_issue`、`msime_client_mobile_voice_policy`、`msime_client_mobile_voice_status` 读取共享规则。语音服务和豆包接口目录已由 `VoiceProviderCatalog` 读取共享 Rust，凭据换槽与换服务字段补丁由 `VoiceProviderSettings` 经 JNI 调用共享 `provider_settings`。语音接口地址提示经 `msime_client_voice_endpoint_issue` 复用运行时 URL 解析与移动宿主输入限制，JNI 失败时阻止保存。`packages/ui` 与 `apps/desktop/src-tauri/src/platform/android/` 的 React 设置只进不发布的 Tauri 合包，见下文「两个 APK 入口，不要选错」。
@@ -149,6 +155,8 @@ Java 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate
 删除键（26 键、九键、注音、笔画、手写等所有经 `ImeLetterRows.bindBackspaceRepeat` 绑定的退格）按下立即删一次，按住 420 ms 后开始连删并逐级加速：前 8 次每 70 ms，接下来 12 次每 45 ms，之后每 30 ms（`BackspaceRepeatPolicy`，#5585）。按住往上滑离开键的上沿 8 dp 后停止连删，键上方弹出「快速删除」框（`QuickDeleteOverlay`）；滑到框里（通常是键上沿往上 40 dp，九键第一排的删除键上方空间不够时框缩到至少 28 dp；连这样的框都放不下时，例如工具栏隐藏且没在组字，这次按压不支持上滑，照常连删）框换成强调色并振动一次，此时松手先清掉手写墨迹、丢掉组字和选中的文字，再删掉光标前的全部文字；待命后滑回框外再松手什么也不删。判定与分段删除在无 Android 依赖的 `BackspaceSwipePolicy` 里：每轮用 `getTextBeforeCursor` 读至多 4096 个 UTF-16 单元，只用来确定这一轮删多长，按读到的长度 `deleteSurroundingText`，最多 256 轮；读到的文字不保存、不记录。`BackspaceRepeatPolicySmoke` 与 `BackspaceSwipePolicySmoke` 验证加速时刻表、弹出/待命/取消的阈值、框的位置，以及重复文字、短读和不配合的编辑器下的删除。
 
 按键区（`KeyboardKeyArea`：26 键各行、九键的标点列和网格、底部功能行、大屏侧边数字键盘）里的键在手指按下时就出声、振动，抬手上屏时不再给第二次（#10757）：按键区在把按下交给键之前回调 `ImeKeyFeedback.pressed`，这次按键在按下分发里或抬手时的 `playFeedback` 只计数、播按键动画；长按选项、连删、上滑清空待命这些按住期间的确认照常反馈，上滑清空松手执行和松手才补判出的长按语音经 `ImeKeyFeedback.confirm` 照常反馈。规则在无 Android 依赖的 `KeyPressFeedbackPolicy`，`KeyPressFeedbackPolicySmoke` 覆盖；按键区在什么时候把哪个键交给回调（直接命中、空隙、回车让给中/英、多指、不可用的键、`ACTION_CANCEL` 和滑行接管）由设备套件的 `KeyPressAreaDeviceChecks`（`OptionSheetDeviceSmoke -e key-feedback press-area`）覆盖；决定见[移动键盘按下即给按键反馈](../../.agents/notes/implemented/feature/2026-11-03-mobile-key-feedback-on-press.md)。候选栏、工具栏和面板不在按键区里，仍在点击时反馈。
+
+空闲工具栏的排法与 iOS、鸿蒙相同：品牌键固定在行首，其余可见工具和收起键聚到行尾，工具是 40 dp 的格子、相邻两格间隔 8 dp，图标间距不随可见工具的数量和工具栏尺寸变化（`ToolbarClusterPolicy`，`ToolbarClusterPolicySmoke` 覆盖）。品牌键、长空格样式的「符」和收起键在滚动区之外，保持 44 dp 的点击区；中间的工具放不下时横向滚动，起始位置露出算式结果和用户排在最前面的工具。真实布局由设备套件的 `ToolbarEdgesDeviceSmoke` 在 240、320、600 dp 宽下核对；决定见[Android 与鸿蒙空闲工具栏图标聚拢到右侧](../../.agents/notes/implemented/bug-fix/2026-11-12-touch-toolbar-cluster.md)。
 
 功能面板第 3 页的「文本编辑」打开文本编辑面板；设置「键盘工具栏」里打开「文本编辑」（本地设置 `platform.android.toolbar_text_edit`，默认关，只在本机，#6351）后，工具栏上也有一个按钮直接开关它（#5625，`ImeTextEditPanel`，键与动作在无 Android 依赖的 `TextEditPanelModel`）：和常用语、剪贴板面板一样盖在键区上、顶边对齐工具栏下沿，收起键此时是「返回键盘」。4 × 4 的布局照 Gboard 的编辑面板：左边 ← 和 → 各占三行，中间一列 ↑、选择、↓，下面一行 移到开头、移到结尾、删除，右边一列 全选、复制、剪切、粘贴。打开前先由 Engine 完成组字，之后所有动作直接作用于编辑器：方向键发 DPAD 按键事件，「选择」开着时先按下左 Shift 再发带 Shift 的方向键（EditText 只认文字缓冲里记着的 Shift，WebView 看事件的 meta），延伸选区；开头和结尾是 Ctrl+Home / Ctrl+End，到整篇文档的两端；全选、复制、剪切、粘贴走 `InputConnection.performContextMenuAction`，编辑器不支持粘贴时退回到直接上屏剪贴板里的文字，复制和剪切不退回（那要宿主自己读选中的文字，会绕过密码框禁止复制的规则）；删除发退格键事件，有选区时删选区，按住连发、上滑同样有快速删除。方向键和删除按住连发，节奏与删除键相同。剪切、粘贴和删除之后「选择」自动关闭。`TextEditPanelModelSmoke` 验证 4 × 4 网格的覆盖、按键码、修饰键与菜单动作。
 

@@ -48,6 +48,7 @@ pub mod preferences;
 pub mod punctuation;
 pub mod resources;
 pub mod settings_document;
+pub mod settings_sync;
 use msime_client_base::storage;
 use msime_client_base::text;
 

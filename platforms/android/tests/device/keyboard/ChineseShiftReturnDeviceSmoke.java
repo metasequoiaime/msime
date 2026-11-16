@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.View;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import java.io.File;
@@ -81,6 +82,8 @@ public final class ChineseShiftReturnDeviceSmoke extends Instrumentation {
                 Object rows = field(type, "imeLetterRows").get(service);
                 method(rows.getClass(), "rebuildKeyRows").invoke(rows);
                 method(type, "render").invoke(service);
+                float density = getTargetContext().getResources().getDisplayMetrics().density;
+                checkLanguageSwitchHeight(type, service, density);
                 List<?> originalKeys = new ArrayList<>((List<?>) field(type, "shuangpinKeyButtons").get(service));
                 checkLetterFaces(type, service, true, originalKeys);
                 for (int cycle = 0; cycle < 3; cycle++) {
@@ -182,6 +185,32 @@ public final class ChineseShiftReturnDeviceSmoke extends Instrumentation {
     private static boolean english(Class<?> type, Object service) throws Exception {
         return field(type, "dedicatedEnglish").getBoolean(service);
     }
+
+    /** 中英键切换时只允许最终状态参与测量，输入法窗口的顶部候选/工具栏总高应保持不变。 */
+    private static void checkLanguageSwitchHeight(Class<?> type, Object service, float density)
+            throws Exception {
+        View region = (View) field(type, "candidateCanvasRegion").get(service);
+        Method render = method(type, "render");
+        Method toggle = method(type, "toggleInputLanguage");
+        int chinese = measureHeight(region, density);
+        toggle.invoke(service);
+        render.invoke(service);
+        int english = measureHeight(region, density);
+        check(chinese == english,
+            "双拼中英文切换改变顶部候选/工具栏高度：中文=" + chinese + "，英文=" + english);
+        toggle.invoke(service);
+        render.invoke(service);
+        int restored = measureHeight(region, density);
+        check(chinese == restored,
+            "双拼切回中文后顶部候选/工具栏高度未恢复：初始=" + chinese + "，恢复=" + restored);
+    }
+
+    private static int measureHeight(View view, float density) {
+        view.measure(View.MeasureSpec.makeMeasureSpec(Math.round(600 * density), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return view.getMeasuredHeight();
+    }
+
     private static void checkLetterFaces(Class<?> type, Object service, boolean uppercase,
             List<?> originalKeys) throws Exception {
         List<?> keys = (List<?>) field(type, "shuangpinKeyButtons").get(service);

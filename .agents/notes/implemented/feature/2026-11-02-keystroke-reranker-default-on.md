@@ -71,6 +71,7 @@ host-api 的 `ffi::keyboard_reranker` 在开关打开时决定挂哪一个、挂
   - 15 ms 这条线是用一台老安卓、一台 Mac 的两个模型推出来的比例；量化或模型换代后要重跑 `calibrate`、`rerank_latency` 并更新 `KEYSTROKE_RERANK_LIMIT_MS` 旁的数字。
   - 迁移标记 `keyboard_reranker_migrated` 用掉了；以后再翻这个默认值要另立标记。
 - **跟进**：Android 的 ONNX 接入（`feat/android-onnx-reranker`，还没合）把 6x256 做成资源包，原计划在设置里选成「增强」时下载。默认开以后大多数用户不会去选，那边要改成「增强」开着（包括默认）而资源包没装时提示或自动下载，否则 Android 用户实际挂的是随包模型或什么都不挂。各桌面平台的 ONNX 接入（#10657、#10666、#10673）合入后，桌面默认挂的从 `model-v1` 换成 8x448。
+- **一页自测在桌面上挡不住卡顿**：macOS 上一页 1.4 ms 的 6x256 配 32 条挂在按键上，真实整键 p95 9–90 ms，机器一忙就成倍放大。macOS 输入法因此改成把模型延后到停顿、上屏前做完重解，挂不挂仍按本篇的上限，挂在哪里另由 [macOS 把整句联想模型挪出按键](../../implemented/bug-fix/2026-11-16-macos-keystroke-reranker-at-pause.md) 决定。
 
 ## Historical audit
 

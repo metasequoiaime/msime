@@ -57,6 +57,7 @@ test -x /build/stage/usr/local/bin/msime-linux-ibus
 test -x /build/stage/usr/local/bin/msime-linux-dictionary
 test -x /build/stage/usr/local/bin/msime-linux-cloud-dictionary
 test -x /build/stage/usr/local/bin/msime-linux-cloud-clipboard
+test -x /build/stage/usr/local/bin/msime-linux-cloud-clipboard-sync
 test -x /build/stage/usr/local/bin/msime-linux-voice
 test -f /build/stage/usr/local/share/ibus/component/msime-linux.xml
 test -f /build/stage/usr/local/etc/xdg/autostart/msime-linux-clipboard.desktop

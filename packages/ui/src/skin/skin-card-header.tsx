@@ -5,7 +5,8 @@ export interface SkinCardHeaderProps {
   title: ReactNode;
   theme: "dark" | "light";
   selected: boolean;
-  description: ReactNode;
+  /** 标题下的一行说明；不传就不占这一行。 */
+  description?: ReactNode;
   details?: ReactNode;
   actions: ReactNode;
 }
@@ -26,7 +27,7 @@ export function SkinCardHeader({
           {title}（{theme === "dark" ? "深色" : "浅色"}）
           {selected && <span className={settings.skinCardInUse}>使用中</span>}
         </span>
-        <span className={settings.skinCardDescription}>{description}</span>
+        {description && <span className={settings.skinCardDescription}>{description}</span>}
         {details}
       </div>
       <div className={settings.skinCardActions}>{actions}</div>
