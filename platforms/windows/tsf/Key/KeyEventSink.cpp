@@ -2509,7 +2509,7 @@ void CMetasequoiaIME::_QueueCapsLockEdge()
 {
     if (_msgWndHandle && PostMessage(_msgWndHandle, WM_ApplyCapsLockEdge, 0, 0))
         return;
-    _ApplyCapsLockEdge((GetKeyState(VK_CAPITAL) & 0x0001) == 0);
+    _ApplyCapsLockEdge(msime::input::caps_lock_enabled_from_key_state(GetKeyState(VK_CAPITAL)));
 }
 
 //+---------------------------------------------------------------------------

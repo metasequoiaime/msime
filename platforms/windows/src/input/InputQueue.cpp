@@ -368,11 +368,11 @@ void InputState::show_candidate(const FocusLease &lease) {
   if (auto *owner = session(lease.transport))
     owner->show_candidate(lease);
 }
-std::optional<nlohmann::json>
+SettledRerankResult
 InputState::rerank_settled(const FocusLease &lease) {
   check_thread();
   auto *owner = session(lease.transport);
-  return owner ? owner->rerank_settled(lease) : std::nullopt;
+  return owner ? owner->rerank_settled(lease) : SettledRerankResult{};
 }
 std::optional<nlohmann::json>
 InputState::apply_cloud_response(const FocusLease &lease,

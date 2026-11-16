@@ -493,22 +493,29 @@ std::optional<std::string> ServerSession::ai_request(uint64_t epoch,
     return std::nullopt;
   }
 }
-std::optional<nlohmann::json>
+SettledRerankResult
 ServerSession::rerank_settled(uint64_t epoch) {
   check_active(epoch);
   try {
-    const auto value = response(msime_client_rerank_settled(session_));
-    // Nothing moved is the common answer and is not a result: redrawing an
-    // identical candidate list on every pause is a flicker with no cause the
-    // user can see. It is also what an installation with no settled model
-    // installed always answers.
-    if (!value.is_object() || !value.value("moved", false) ||
-        !value.contains("view") || !value.at("view").is_object())
-      return std::nullopt;
-    return value.at("view");
+    const bool polling = settled_token_ != 0;
+    const auto value = response(polling
+        ? msime_client_poll_settled_rerank(session_, settled_token_, settled_epoch_ == epoch)
+        : msime_client_start_settled_rerank(session_));
+    const auto status = value.at("status").get<std::string>();
+    if (status == "pending") {
+      settled_token_ = value.at("token").get<uint64_t>();
+      if (!polling) settled_epoch_ = epoch;
+      return {true, std::nullopt};
+    }
+    settled_token_ = 0;
+    // 旧焦点或旧组字的评分只归还模型；下一轮再为当前组字启动，仍给新按键让路。
+    const bool pending = status == "continue" || (polling && !value.value("current", false));
+    if (value.contains("view") && value.at("view").is_object())
+      return {pending, value.at("view")};
+    return {pending, std::nullopt};
   } catch (...) {
-    // A reranking pass is an improvement, never a reason to stop input.
-    return std::nullopt;
+    // 宿主 ABI 的错误不能中断输入；下次停顿仍可收回在途任务。
+    return {};
   }
 }
 std::optional<nlohmann::json>

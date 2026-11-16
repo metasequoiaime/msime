@@ -113,7 +113,7 @@ bool emit_clipboard() {
 }
 } // namespace
 
-// 默认模式保留变化标记；--watch-text 逐条发送有界正文，--read 读取一次。
+// 默认模式保留变化标记；--watch-text 逐条发送有界正文，--read 读取一次，状态 3 专门表示没有选区所有者。
 int main(int argc, char **argv) {
   const bool read = argc == 2 && std::strcmp(argv[1], "--read") == 0;
   const bool watch_text = argc == 2 && std::strcmp(argv[1], "--watch-text") == 0;
@@ -122,6 +122,10 @@ int main(int argc, char **argv) {
   Display *display = XOpenDisplay(nullptr);
   if (!display) return 1;
   if (read) {
+    if (XGetSelectionOwner(display, XInternAtom(display, "CLIPBOARD", False)) == None) {
+      XCloseDisplay(display);
+      return 3;
+    }
     std::string text;
     const bool ok = read_clipboard(display, text) &&
         std::fwrite(text.data(), 1, text.size(), stdout) == text.size();
