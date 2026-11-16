@@ -1017,7 +1017,7 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
-/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；每片若推进了候选代次，就附带新的 view，即使 moved 为假；宿主收到 view 必须更新候选身份。 */
+/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；每片若推进了候选代次，就附带新的 view，即使 moved 为假；宿主收到 view 必须更新候选身份。每个回复都带 "deferred"：会话挂着延后到停顿的模型时为 true。它在会话线程上分片跑，宿主应在打字的空隙里就起跑（macOS 停顿 40 ms），否则整段的计算都落在上屏那一键上；为 false 时走后台的落定模型，起跑太早只会白算（macOS 仍等 150 ms）。 */
 char *msime_client_start_settled_rerank(uint64_t session);
 /* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
  * 完成后返回 {"status":"done","moved":...,"current":...}。
@@ -1025,6 +1025,8 @@ char *msime_client_start_settled_rerank(uint64_t session);
  * 未知令牌返回 {"status":"done","moved":false,"current":false}。
  * 宿主已离开原组字时传 accept=false，只归还仍适用的模型。必须在会话线程调用。 */
 char *msime_client_poll_settled_rerank(uint64_t session, uint64_t token, bool accept);
+/* 上屏高亮项之前（空格这类键），把延后到停顿的模型对当前组字的重解一片片做完再返回：解完返回 {"status":"done","moved":...,"current":true}，代次前进时附带新的 view，宿主据它重画、再照新画出的高亮项上屏。会话没有延后的模型时什么都不做，返回 {"status":"none"}；两种回复都带 "deferred"，含义同上；不启动也不等待后台的落定重排。停顿重解没做完时屏幕上是不带模型的候选，照它上屏首选就和不挂模型一样。数字键和点选照用户看到的那一行上屏，不调用。必须在会话线程调用。 */
+char *msime_client_finish_pause_rerank(uint64_t session);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact
