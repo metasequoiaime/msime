@@ -17,6 +17,7 @@
 #import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
 #import "InputControllerActivity.h"
+#import "ClientKeyboardLayout.h"
 #import "../core/UpdateController.h"
 #include "../../../common/DictionaryQuiesceLease.h"
 #import "../core/ScreenKeyboardPanel.h"
@@ -1772,6 +1773,7 @@ static constexpr uint64_t MSIMESessionRecoveryNoticeInterval = 60 * NSEC_PER_SEC
 @interface MSIMEInputController : IMKInputController <MSIMEFloatingToolbarDelegate, MSIMEInputSessionRecoveryDelegate, MSIMEGlobalVoiceDeliveryTarget>
 - (MSIMECustomTranslationBatch *)aiBatchForItems:(NSArray<NSDictionary *> *)items
                                        completion:(void (^)(NSArray<NSDictionary *> *))completion;
+- (void)resetSessionForInputSourceSwitch;
 - (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error;
 - (NSDictionary *)serviceSnapshotQuery;
 - (NSDictionary *)serviceSnapshotView;
@@ -2673,6 +2675,20 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
 BOOL MSIMEInputControllerHasUnfinishedInput(void) {
     MSIMEInputController *focused = MSIMEFocusedController;
     return (focused != nil && [focused hasUnfinishedInput]) || [MSIMEGlobalVoiceHost().owner globalVoiceBusy];
+}
+
+- (void)resetSessionForInputSourceSwitch {
+    if (!_session || !_activeClient) return;
+    NSDictionary *view = [_session setFocused:NO error:nil];
+    if (!view) return;
+    [self apply:view];
+    // 某些 macOS 版本的输入源监视器早于下一次 activateServer: 运行。保留会话对象，但让切回后的首键走正常的聚焦路径，再清掉 Engine 上下文。
+    _focusPending = YES;
+}
+
+void MSIMEResetFocusedInputSessionBeforeInputSourceSwitch(void) {
+    MSIMEInputController *focused = MSIMEFocusedController;
+    if (focused) [focused resetSessionForInputSourceSwitch];
 }
 
 void MSIMECommitRawCompositionBeforeInputSourceSwitch(void) {
@@ -5673,6 +5689,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)setValue:(id)value forTag:(long)tag client:(id)sender {
     if (tag == kTextServiceInputModePropertyTag) [self systemDidReportInputMode:value client:sender];
     [super setValue:value forTag:tag client:sender];
+    if (tag == kTextServiceInputModePropertyTag) MSIMEPrepareClientKeyboardLayout(sender);
 }
 - (void)systemDidReportInputMode:(id)value client:(id)sender {
     // 切换属于将收到下一个按键的会话，也就是持有焦点的控制器的会话，不论系统通知的是哪个控制器。
@@ -6642,6 +6659,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     [self resetModifierTap];
     [self abandonCapsLockTap];
     [super activateServer:sender];
+    MSIMEPrepareClientKeyboardLayout(sender);
     [self ensureAppearance];
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];

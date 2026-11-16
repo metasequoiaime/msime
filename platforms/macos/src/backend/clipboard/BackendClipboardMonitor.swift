@@ -15,47 +15,58 @@ import AppKit
   private let capture: MacClipboardCapture
   init(source: any MacClipboardSource) { capture = MacClipboardCapture(source: source) }
 
-  func run(interval: UInt64 = 400_000_000,
+  func run(interval: UInt64 = 50_000_000,
     enabled: () async throws -> Bool,
     save: (String) async throws -> Bool,
     publish: (Status) -> Void
   ) async {
-    defer { _ = capture.sample(enabled: false) }
-    var previous: Status?
-    while !Task.isCancelled {
-      let status: Status
-      do {
-        let allowed = try await enabled()
-        guard !Task.isCancelled else { return }
-        if !allowed {
-          _ = capture.sample(enabled: false)
-          status = .disabled
-        } else if let sample = capture.sample(enabled: true) {
-          do {
-            let saved = try await save(sample.text)
-            guard !Task.isCancelled else { return }
-            if saved {
-              capture.acknowledge(sample)
-              status = .monitoring
-            } else {
-              _ = capture.sample(enabled: false)
-              status = .disabled
-            }
-          } catch {
-            status = .saveFailed
-          }
-        } else {
-          status = .monitoring
-        }
-      } catch {
-        _ = capture.sample(enabled: false)
-        status = .unavailable
+    let buffer = MacClipboardSamplingBuffer(capture: capture)
+    let sampler = Task { @MainActor in
+      while !Task.isCancelled {
+        buffer.sample()
+        do { try await Task.sleep(nanoseconds: interval) }
+        catch { return }
       }
-      guard !Task.isCancelled else { return }
-      if previous != status { publish(status); previous = status }
-      do { try await Task.sleep(nanoseconds: interval) }
-      catch { return }
     }
+    defer { sampler.cancel(); buffer.setEnabled(false) }
+    var previous: Status?
+    await withTaskCancellationHandler {
+      while !Task.isCancelled {
+        let status: Status
+        do {
+          let allowed = try await enabled()
+          guard !Task.isCancelled else { return }
+          buffer.setEnabled(allowed)
+          buffer.sample()
+          if !allowed {
+            status = .disabled
+          } else if let sample = buffer.first {
+            do {
+              let saved = try await save(sample.text)
+              guard !Task.isCancelled else { return }
+              if saved {
+                buffer.saved(sample)
+                status = .monitoring
+              } else {
+                buffer.setEnabled(false)
+                status = .disabled
+              }
+            } catch {
+              status = .saveFailed
+            }
+          } else {
+            status = .monitoring
+          }
+        } catch {
+          buffer.setEnabled(false)
+          status = .unavailable
+        }
+        guard !Task.isCancelled else { return }
+        if previous != status { publish(status); previous = status }
+        do { try await Task.sleep(nanoseconds: interval) }
+        catch { return }
+      }
+    } onCancel: { sampler.cancel() }
   }
 
   static func run(directory: String, publish: (Status) -> Void) async {

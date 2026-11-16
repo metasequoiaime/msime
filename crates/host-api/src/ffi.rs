@@ -1120,3 +1120,6 @@ pub use voice::*;
 pub use windows_handwriting::*;
 #[cfg(windows)]
 pub use windows_voice::*;
+
+mod settings_sync;
+pub use settings_sync::*;

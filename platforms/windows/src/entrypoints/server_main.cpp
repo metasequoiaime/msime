@@ -65,6 +65,7 @@
 #include "../../../common/ReadAloudText.h"
 #include "DictionarySyncSchedule.h"
 #include "DictionarySyncWorker.h"
+#include "SettingsSyncWorker.h"
 #include "../../common/DictionarySyncDirectory.h"
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
@@ -2467,6 +2468,10 @@ int wmain(int argc, wchar_t **argv) {
         notice("Dictionary sync unavailable; continuing without automatic dictionary sync");
       }
     }
+    startup_stage = "settings_sync";
+    SettingsSyncWorker settings_sync;
+    if (production && !settings_sync.start(true, prepared.at("value")))
+      notice("Settings sync unavailable; continuing without automatic settings sync");
     startup_stage = "message_loop";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
@@ -2839,6 +2844,7 @@ int wmain(int argc, wchar_t **argv) {
       update_notifier->stop();
     // 自动同步同理：正在联网时最多等两秒，之后放手。
     dictionary_sync->stop();
+    settings_sync.stop();
     candidates.stop();
     for (auto &line : candidates.take_diagnostics())
       notice(std::move(line));
