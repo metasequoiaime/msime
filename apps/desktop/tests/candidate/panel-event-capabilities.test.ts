@@ -18,6 +18,14 @@ function permissionsFor(window: string) {
   );
 }
 
+test("独立剪贴板窗口有拖动权限，保持不可缩放且不授权其他窗口", () => {
+  const permissions = permissionsFor("clipboard-panel");
+  expect(permissions.has("core:window:allow-start-dragging")).toBe(true);
+  expect(permissions.has("core:window:allow-start-resize-dragging")).toBe(false);
+  expect(permissionsFor("cloud-clipboard-panel").has("core:window:allow-start-dragging")).toBe(false);
+  expect(permissionsFor("unknown-panel").has("core:window:allow-start-dragging")).toBe(false);
+});
+
 // These windows subscribe to preferences-changed; voice-panel also subscribes to
 // voice-update. Both listen and unlisten are required for the subscription lifecycle.
 test.each(["keyboard-panel", "handwriting-panel", "voice-panel", "emoji-panel"])(
