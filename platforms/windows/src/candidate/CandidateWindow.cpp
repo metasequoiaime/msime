@@ -1130,7 +1130,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const double scale = layout_scale(dpi);
   CandidateCardInput input;
   input.horizontal = horizontal_;
-  input.preedit_visible = show_preedit_area_;
+  input.preedit_visible = show_preedit_ && show_preedit_area_;
   input.font_size = font_size_;
   input.preedit_font_size = preedit_font_size_;
   input.max_width = static_cast<double>(available_width) / scale / 2.0;
@@ -1176,7 +1176,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       canvas_.active
           ? candidate_canvas_content_offset(
                 canvas_, candidate_canvas_base_padding(candidate_card_metrics(
-                             font_size_, preedit_font_size_, show_preedit_area_,
+                             font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
                              show_app_logo_ && show_preedit_area_,
                              input.page_width > 0.0 && show_preedit_area_, input.skin, input.number_width,
                              input.line_height, input.hint_width > 0.0)))
@@ -1258,7 +1258,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
 std::vector<CandidateItemWidths>
 CandidateWindow::measure_items(const CandidatePresentation &value) {
   const auto metrics =
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_area_);
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_);
   std::vector<CandidateItemWidths> items;
   items.reserve(value.candidates.size());
   for (const auto &candidate : value.candidates) {
@@ -1278,7 +1278,7 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
 double CandidateWindow::number_label_width(size_t count,
                                            const CandidateSkinMetrics &skin) {
   const auto size = static_cast<float>(
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_area_,
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
                              show_app_logo_ && show_preedit_area_, false, skin)
           .number_font);
   double widest = 0.0;
@@ -1312,7 +1312,7 @@ double CandidateWindow::reserved_secondary_height(size_t lines) {
   if (lines < 2)
     return 0.0;
   const auto metrics =
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_area_);
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_);
   // 和 macOS reservedGlossHeightForFont 量「X\nX」一样：每行一个 X，宽度给足，不会折行。
   std::wstring placeholder = L"X";
   for (size_t line = 1; line < lines; ++line)
@@ -1324,7 +1324,7 @@ double CandidateWindow::reserved_secondary_height(size_t lines) {
 CandidateWrapMeasure
 CandidateWindow::wrap_measure(const CandidatePresentation &value) {
   const auto metrics =
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_area_);
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_);
   // Copies, not references: the measure outlives neither call, but it must not depend on that.
   struct Runs {
     std::wstring text, annotation, translation;
@@ -1523,7 +1523,7 @@ void CandidateWindow::paint() {
                                                  font_fallback_.Get(), font_weight_)
                                 : 0.0;
   const auto metrics = candidate_card_metrics(
-      font_size_, preedit_font_size_, show_preedit_area_,
+      font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
       show_app_logo_ && show_preedit_area_, !label.empty() && show_preedit_area_, skin,
       number_label_width(value->candidates.size(), skin), candidate_line_height(*value),
       hint_width > 0.0);
