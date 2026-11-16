@@ -62,13 +62,17 @@ export class SharedDictionaryResources {
   }
 
   remove(pack: string): string {
-    const result: string = client.resourcePackRemove(JSON.stringify({ state_root: this.rootForPack(pack), pack: pack }));
-    if (SHARED_DICTIONARY_PACKS.includes(pack) && (JSON.parse(result) as PackReply).ok === true) {
-      const access: NativeDictionaryResourceAccess = new NativeDictionaryResourceAccess();
-      access.remove(this.privateRoot, pack);
-      access.remove(this.mirror.legacyDictionaryResourceRoot(), pack);
+    const root: string = this.rootForPack(pack);
+    if (SHARED_DICTIONARY_PACKS.includes(pack)) {
+      // 先清理可被再次收编的来源；失败时保留共享资源，避免假成功或升级后复活。
+      const legacyRoots: string[] = [this.privateRoot, this.mirror.legacyDictionaryResourceRoot()];
+      for (const legacy of legacyRoots) {
+        if (legacy === root) continue;
+        const result: string = client.resourcePackRemove(JSON.stringify({ state_root: legacy, pack: pack }));
+        if ((JSON.parse(result) as PackReply).ok !== true) return result;
+      }
     }
-    return result;
+    return client.resourcePackRemove(JSON.stringify({ state_root: root, pack: pack }));
   }
 
 

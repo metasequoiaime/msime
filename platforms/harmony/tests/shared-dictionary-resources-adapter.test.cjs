@@ -147,6 +147,15 @@ async function run() {
   assert.equal(calls.filter(([kind]) => kind === "adopt").length, count);
   set(local, "japanese");
   set(legacy, "japanese");
+  failures.add(local);
+  assert.equal(JSON.parse(adapter.remove("japanese")).ok, false, "私有旧副本清理失败要报告失败");
+  assert.ok(packs.has(`${shared}/resource-packs/japanese`));
+  assert.ok(packs.has(`${legacy}/resource-packs/japanese`));
+  failures.clear();
+  failures.add(legacy);
+  assert.equal(JSON.parse(adapter.remove("japanese")).ok, false, "旧副本清理失败不能报告卸载成功");
+  assert.ok(packs.has(`${shared}/resource-packs/japanese`), "清理旧副本失败保留当前可用资源");
+  failures.clear();
   assert.equal(JSON.parse(adapter.remove("japanese")).ok, true);
   await adapter.prepare();
   assert.equal(
@@ -160,7 +169,8 @@ async function run() {
   failures.add(shared);
   const before = calls.length;
   assert.equal(JSON.parse(adapter.remove("wubi")).ok, false);
-  assert.equal(calls.length, before + 1, "共享卸载失败不清理旧来源");
+  assert.ok(calls.length > before);
+  assert.ok(packs.has(`${shared}/resource-packs/wubi`), "共享卸载失败保留当前资源且报告失败");
   failures.clear();
   const keyboard = "/synthetic/keyboard/state";
   set(keyboard, "wubi");
