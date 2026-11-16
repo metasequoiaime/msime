@@ -1510,6 +1510,15 @@ int main() {
   select_value(appearance_inline, 1);
   assert(store.load().snapshot->preferences().at("candidate_preedit_style") == "empty");
   assert(store.load().snapshot->preferences().at("tsf_preedit_style") == "pinyin");
+  // 预编辑文字样式和候选窗区域独立；关闭区域后保留已选的样式。
+  const bool previous_preedit_area =
+      store.load().snapshot->preferences().value("show_candidate_preedit_area", true);
+  click(appearance_preedit_area);
+  assert(store.load().snapshot->preferences().at("show_candidate_preedit_area") ==
+         !previous_preedit_area);
+  click(appearance_preedit_area);
+  assert(store.load().snapshot->preferences().at("show_candidate_preedit_area") ==
+         previous_preedit_area);
   const bool previous_logo = store.load().snapshot->preferences().at("show_app_logo").get<bool>();
   click(appearance_logo);
   assert(store.load().snapshot->preferences().at("show_app_logo").get<bool>() != previous_logo);
