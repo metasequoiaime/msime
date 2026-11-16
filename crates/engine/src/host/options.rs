@@ -16,7 +16,8 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
-    TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    TextConversion, WubiInputOptions, WubiPhraseLearning, WubiPhrasePlacement, WubiProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{
     downloaded_wubi_pending, merge_downloaded_wubi, open_prepared_runtime_paths_for,
@@ -519,6 +520,9 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             mixed_pinyin: options.wubi_mixed_pinyin,
             z_wildcard: options.wubi_z_wildcard,
             profile: wubi_profile,
+            // A-4 接偏好管线（`input.wubi_phrase_learning` / `input.wubi_phrase_placement`）之前先给默认值。
+            wubi_phrase_learning: WubiPhraseLearning::default(),
+            wubi_phrase_placement: WubiPhrasePlacement::default(),
         },
         // 桥接层从没把它交给宿主（api-contract §1a），产品一直按开。
         personal_context: true,

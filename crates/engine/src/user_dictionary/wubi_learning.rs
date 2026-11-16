@@ -3,15 +3,18 @@
 use rusqlite::{params, Connection, TransactionBehavior};
 
 use super::journal::{ensure_user_database, open_dictionary_for_writing};
+use super::ranking::MANAGED_WEIGHT_CEILING;
 use super::replay::attach;
 use crate::assets;
 use crate::error::Result;
 use crate::paths::RuntimePaths;
-use crate::types::{PersonalDictionaryKind, WubiProfileKind};
+use crate::types::{PersonalDictionaryKind, WubiPhrasePlacement, WubiProfileKind};
 use crate::wubi::code::phrase_code;
 
 /// 自动生成的词不挤占已有同码候选；显式调频仍由原来的学习规则负责。
 const MAX_INITIAL_WEIGHT: i64 = 9;
+/// `Top`（置顶）档在同码没有任何行时给的初始权重，与手动加词的默认同级。
+const TOP_NEW_WORD_WEIGHT: i64 = 10;
 
 fn prefix(connection: &Connection, table: &str, character: char, length: usize) -> Option<String> {
     let mut statement = connection
@@ -51,8 +54,15 @@ fn learned_kinds(profile: WubiProfileKind) -> &'static [PersonalDictionaryKind] 
     }
 }
 
-/// 只补缺失词，不覆盖已有编码、权重或删除决定。`profile` 是会话当前的五笔版本，决定学不学新世纪（[`learned_kinds`]）。返回是否改变了工作词库。
-pub(crate) fn learn(paths: &RuntimePaths, word: &str, profile: WubiProfileKind) -> Result<bool> {
+/// 只补缺失词，不覆盖已有编码、权重或删除决定。`profile` 是会话当前的五笔版本，决定学不学新世纪
+/// （[`learned_kinds`]）；`placement` 决定初始权重档（[`MAX_INITIAL_WEIGHT`] 沉底 / [`TOP_NEW_WORD_WEIGHT`]
+/// 与同码已有行最大权重 + 1 置顶）。返回是否改变了工作词库。
+pub(crate) fn learn(
+    paths: &RuntimePaths,
+    word: &str,
+    profile: WubiProfileKind,
+    placement: WubiPhrasePlacement,
+) -> Result<bool> {
     if word.chars().count() < 2 || !word.chars().all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
         return Ok(false);
     }
@@ -95,14 +105,29 @@ pub(crate) fn learn(paths: &RuntimePaths, word: &str, profile: WubiProfileKind) 
         if existing || deleted {
             continue;
         }
-        let minimum: Option<i64> = transaction.query_row(
-            &format!("SELECT MIN(weight) FROM {table} WHERE key=?1"),
-            [&code],
-            |row| row.get(0),
-        )?;
-        let weight = minimum.map_or(MAX_INITIAL_WEIGHT, |minimum| {
-            minimum.saturating_sub(1).clamp(0, MAX_INITIAL_WEIGHT)
-        });
+        let weight = match placement {
+            WubiPhrasePlacement::Bottom => {
+                let minimum: Option<i64> = transaction.query_row(
+                    &format!("SELECT MIN(weight) FROM {table} WHERE key=?1"),
+                    [&code],
+                    |row| row.get(0),
+                )?;
+                minimum.map_or(MAX_INITIAL_WEIGHT, |minimum| {
+                    minimum.saturating_sub(1).clamp(0, MAX_INITIAL_WEIGHT)
+                })
+            }
+            // 置顶：各表独立取同码已有行的最大权重 + 1，只管入库这一次，之后照常参与调频（不是永远浮顶）。
+            WubiPhrasePlacement::Top => {
+                let maximum: Option<i64> = transaction.query_row(
+                    &format!("SELECT MAX(weight) FROM {table} WHERE key=?1"),
+                    [&code],
+                    |row| row.get(0),
+                )?;
+                maximum.map_or(TOP_NEW_WORD_WEIGHT, |maximum| {
+                    maximum.saturating_add(1).min(MANAGED_WEIGHT_CEILING)
+                })
+            }
+        };
         transaction.execute(
             &format!("INSERT INTO {table}(key,value,weight) VALUES(?1,?2,?3)"),
             params![code, word, weight],
@@ -147,8 +172,20 @@ mod tests {
     #[test]
     fn derived_wubi_words_keep_native_rank_and_survive_replay() {
         let (_directory, paths) = fixture();
-        assert!(learn(&paths, "甲乙", WubiProfileKind::Wubi86).unwrap());
-        assert!(!learn(&paths, "甲乙", WubiProfileKind::Wubi86).unwrap());
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
+        assert!(!learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
         let db = Connection::open(paths.dictionary(assets::MAIN_DICTIONARY)).unwrap();
         assert_eq!(
             db.query_row(
@@ -211,7 +248,7 @@ mod tests {
         };
         for profile in [WubiProfileKind::Wubi86, WubiProfileKind::Wubi98] {
             let (_directory, paths) = fixture();
-            assert!(learn(&paths, "甲乙", profile).unwrap());
+            assert!(learn(&paths, "甲乙", profile, WubiPhrasePlacement::Bottom).unwrap());
             assert_eq!(
                 count(&paths, "SELECT count(*) FROM wubixsj WHERE value='甲乙'"),
                 0
@@ -223,7 +260,13 @@ mod tests {
             assert_eq!(journal(&paths), 0, "{profile:?}");
         }
         let (_directory, paths) = fixture();
-        assert!(learn(&paths, "甲乙", WubiProfileKind::WubiXsj).unwrap());
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::WubiXsj,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
         assert_eq!(
             Connection::open(paths.dictionary(assets::MAIN_DICTIONARY))
                 .unwrap()
@@ -244,7 +287,13 @@ mod tests {
             .unwrap()
             .execute_batch("DROP TABLE wubixsj")
             .unwrap();
-        assert!(learn(&paths, "甲乙", WubiProfileKind::WubiXsj).unwrap());
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::WubiXsj,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
         assert_eq!(journal(&paths), 0);
     }
 
@@ -270,7 +319,13 @@ mod tests {
                 [],
             )
             .unwrap();
-        assert!(!learn(&paths, "甲乙", WubiProfileKind::Wubi86).unwrap());
+        assert!(!learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
         assert_eq!(
             db.query_row("SELECT weight FROM wubi86 WHERE value='甲乙'", [], |r| {
                 r.get::<_, i64>(0)
@@ -295,7 +350,13 @@ mod tests {
         let db = Connection::open(paths.dictionary(assets::MAIN_DICTIONARY)).unwrap();
         db.execute("INSERT INTO wubi86 VALUES('axcd','甲',100)", [])
             .unwrap();
-        assert!(learn(&paths, "甲乙", WubiProfileKind::Wubi86).unwrap());
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
         assert_eq!(
             db.query_row(
                 "SELECT count(*) FROM wubi86 WHERE value='甲乙'",
@@ -307,7 +368,13 @@ mod tests {
         );
         for word in ["甲", "甲丙", "甲乙丙丁乙", "甲A乙", "甲㐀乙"] {
             assert!(
-                !learn(&paths, word, WubiProfileKind::Wubi86).unwrap(),
+                !learn(
+                    &paths,
+                    word,
+                    WubiProfileKind::Wubi86,
+                    WubiPhrasePlacement::Bottom
+                )
+                .unwrap(),
                 "{word}"
             );
         }
@@ -318,7 +385,13 @@ mod tests {
         let (_directory, paths) = fixture();
         ensure_user_database(&paths.user(assets::USER_JOURNAL)).unwrap();
         Connection::open(paths.user(assets::USER_JOURNAL)).unwrap().execute_batch("CREATE TRIGGER reject_second BEFORE INSERT ON user_dictionary_operations WHEN NEW.dictionary='wubi98' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();
-        assert!(learn(&paths, "甲乙", WubiProfileKind::Wubi86).is_err());
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .is_err());
         let db = Connection::open(paths.dictionary(assets::MAIN_DICTIONARY)).unwrap();
         for table in ["wubi86", "wubi98"] {
             assert_eq!(

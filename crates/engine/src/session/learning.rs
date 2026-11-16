@@ -4,6 +4,8 @@
 
 use std::{borrow::Cow, time::Duration};
 
+use crate::time::Instant;
+
 use super::composition::{
     append_canonical_pinyin, fold_autocorrect_letters, normalize_canonical_pinyin_for_word,
 };
@@ -21,7 +23,7 @@ use crate::shuangpin::typo_edges::{touch_correction_pairs, CorrectionPair, Learn
 use crate::text::{count_utf8_chars, is_all_han, is_han};
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, LocalInputMode,
-    PersonalDictionaryKind, SchemeType, ShuangpinProfileKind, WordItem,
+    PersonalDictionaryKind, SchemeType, ShuangpinProfileKind, WordItem, WubiPhraseLearning,
 };
 use crate::user_dictionary::journal::is_user_deleted;
 use crate::user_dictionary::picks::{clear_pick_transition, record_pick_transition};
@@ -40,6 +42,12 @@ pub const PICK_PAIR_WORD_THRESHOLD: i64 = 3;
 pub const MAX_PICK_PAIR_WORD_CHARS: usize = 4;
 /// Hosts do not report everything between two compositions (their own English mode, modifier shortcuts, caret moves by mouse), so picks further apart than this are not treated as one phrase.
 pub const PICK_PAIR_MAX_GAP_SECONDS: u64 = 10;
+/// 五笔累积段整段的字数上限，与引擎自己能存的词宽同级，封住 `pick_transitions` 单键尺寸。
+pub const MAX_WUBI_RUN_CHARS: usize = 12;
+/// 五笔累积段的片段数上限。与字数上限、素材规则叠加兜底：12 字里放不下 8 个多字片段，单字片段又被素材规则限制，8 片段单独触发不到，留着防将来上限改动后段无限变宽。
+pub const MAX_WUBI_RUN_PIECES: usize = 8;
+/// 五笔累积段在 `pick_transitions` 里的 `previous_key` 哨兵。拼音凑对键全是规范拼音（小写字母和 `'`），含连字符的它不会撞。
+pub const WUBI_RUN_SENTINEL: &str = "wubi-run";
 
 /// An explicit pick among alternatives says more than accepting a decoded sentence, so it counts twice (IS:1181).
 pub(super) const DICTIONARY_PICK_TIMES: u32 = 2;
@@ -636,6 +644,111 @@ impl InputSession {
             &previous.word,
             &current_key,
             &current.word,
+        );
+        None
+    }
+
+    /// 五笔自造词的关闭阈值：`Thrice` 与拼音凑对同一个 3 次，`Once` 打 1 次就记。两种时机走同一条
+    /// `close_wubi_run` 路径，只有阈值不同。
+    fn wubi_run_threshold(&self) -> i64 {
+        match self.engine.wubi_input_options().wubi_phrase_learning {
+            WubiPhraseLearning::Thrice => PICK_PAIR_WORD_THRESHOLD,
+            WubiPhraseLearning::Once => 1,
+        }
+    }
+
+    /// 把一次五笔原生上屏记成累积段的一个片段（`commit.rs` 的 early-return 分支调用）：与上一片段
+    /// 间隔 ≤10s、合并 ≤12 字且片段数 <8 就续段；否则先关闭上一段（凑满阈值即落库），再以本片段
+    /// 开新段。无论哪条路都把新段写回 `chain.last_pick`。返回需要合并进上屏结果的诊断。
+    pub(super) fn note_wubi_pick(&mut self, word: &str, now: Instant) -> Option<String> {
+        let open = self.chain.last_pick.take();
+        let mut diagnostic = None;
+        let run = match open.as_ref() {
+            Some(previous) if Self::continues_wubi_run(previous, word, now) => {
+                let mut pieces = previous.pieces.clone();
+                pieces.push(count_utf8_chars(word) as u8);
+                super::chain::Pick {
+                    canonical_pinyin: String::new(),
+                    word: join_words(&previous.word, word),
+                    committed_at: now,
+                    pieces,
+                }
+            }
+            Some(previous) => {
+                diagnostic = self.close_wubi_run(previous);
+                Self::new_wubi_run(word, now)
+            }
+            None => Self::new_wubi_run(word, now),
+        };
+        self.chain.last_pick = Some(run);
+        diagnostic
+    }
+
+    /// 上一片段能否续进当前段：上一段是五笔段（`pieces` 非空且 `canonical_pinyin` 为空，拼音 pick
+    /// 不可能两者同时成立）、间隔 ≤10s、合并后 ≤12 字且片段数 <8。
+    fn continues_wubi_run(previous: &super::chain::Pick, word: &str, now: Instant) -> bool {
+        !previous.pieces.is_empty()
+            && previous.canonical_pinyin.is_empty()
+            && now.saturating_duration_since(previous.committed_at)
+                <= Duration::from_secs(PICK_PAIR_MAX_GAP_SECONDS)
+            && count_utf8_chars(&previous.word) + count_utf8_chars(word) <= MAX_WUBI_RUN_CHARS
+            && previous.pieces.len() < MAX_WUBI_RUN_PIECES
+    }
+
+    fn new_wubi_run(word: &str, now: Instant) -> super::chain::Pick {
+        super::chain::Pick {
+            canonical_pinyin: String::new(),
+            word: word.to_owned(),
+            committed_at: now,
+            pieces: vec![count_utf8_chars(word) as u8],
+        }
+    }
+
+    /// 关闭一个五笔累积段：不足两个片段、超上限、或 >4 字段里混着单字片段的段不计数；否则按整段
+    /// 全文记 `pick_transitions`（哨兵 previous_key），凑满 [`Self::wubi_run_threshold`] 时经
+    /// `wubi_learning::learn` 落库并清计数。日志与落库失败用拼音凑对同一组诊断码；计数留着让下一次
+    /// 同段的出现重试。
+    pub(super) fn close_wubi_run(&mut self, run: &super::chain::Pick) -> Option<String> {
+        if run.pieces.len() < 2
+            || run.pieces.len() > MAX_WUBI_RUN_PIECES
+            || count_utf8_chars(&run.word) > MAX_WUBI_RUN_CHARS
+            || (count_utf8_chars(&run.word) > MAX_PICK_PAIR_WORD_CHARS
+                && run.pieces.iter().any(|&piece| piece <= 1))
+        {
+            return None;
+        }
+        let Ok(count) = record_pick_transition(
+            self.journal_path(),
+            WUBI_RUN_SENTINEL,
+            "",
+            &run.word,
+            &run.word,
+        ) else {
+            return Some(diagnostics::PICK_TRANSITION_NOT_PERSISTED.to_owned());
+        };
+        if count < self.wubi_run_threshold() {
+            return None;
+        }
+        let wubi = self.engine.wubi_input_options();
+        // 词被用户删过时 `learn` 自己跳过并返回 Ok(false)，计数照常清掉——与拼音凑对的删词不复活同一条路。
+        if crate::user_dictionary::wubi_learning::learn(
+            &self.paths,
+            &run.word,
+            wubi.profile,
+            wubi.wubi_phrase_placement,
+        )
+        .is_err()
+        {
+            return Some(diagnostics::PHRASE_NOT_PERSISTED.to_owned());
+        }
+        // The phrase engine only resets its own cache; the typing engine must see the new word on its next query.
+        self.engine.reset_cache();
+        let _ = clear_pick_transition(
+            self.journal_path(),
+            WUBI_RUN_SENTINEL,
+            "",
+            &run.word,
+            &run.word,
         );
         None
     }
