@@ -3090,6 +3090,7 @@ dependencies = [
  "libc",
  "msime-path-trust",
  "rustix",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "tempfile",
@@ -3115,6 +3116,7 @@ dependencies = [
  "msime-path-trust",
  "reqwest 0.12.28",
  "rustix",
+ "schemars 1.2.2",
  "serde",
  "serde_ignored",
  "serde_json",
@@ -3401,6 +3403,15 @@ dependencies = [
  "llama-cpp-2",
  "msime-client-core",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "msime-macos-system-updater"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -4940,6 +4951,7 @@ dependencies = [
  "schemars_derive 1.2.2",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

@@ -56,6 +56,7 @@ assert "xdg-shell.xml" in cmake_fcitx5
 assert "wlr-layer-shell-unstable-v1.xml" in cmake_fcitx5
 
 source = (root / "fcitx5/FcitxEngine.cpp").read_text()
+mode_hud_deferred = (root / "src/overlay/ModeHudDeferredUpdate.h").read_text()
 # 动作名写成 MSIME_EDITION_FCITX5_ADDON "-<名字>"，按版本带上插件名（src/core/LinuxEdition.h）；下面按 full 展开后的名字（msime-<名字>）检查。
 assert 'registerAction("msime-' not in source
 source = source.replace('MSIME_EDITION_FCITX5_ADDON "-', '"msime-')
@@ -85,6 +86,9 @@ assert "try" in stream_update and "catch (...)" in stream_update
 # 中英文切换提示：面板那个弹出物必须排在面板更新之后，先弹再刷会被 clearPanel()/render()
 # 收掉，表现为提示时有时无。
 assert "showCustomInputMethodInformation" in source
+assert "mode_hud_deferred_update_.schedule(label" in source
+assert "mode_hud_deferred_update_.cancel();" in source
+assert "void schedule(std::string label, Callback callback);" in mode_hud_deferred
 # 低版本开发头没有自定义提示 API 时仍要保留面板文字回退，不能把整个提示函数随宏裁掉。
 assert "MSIME_FCITX5_CUSTOM_IM_INFORMATION" in source
 assert "setAuxUp(fcitx::Text(label))" in source

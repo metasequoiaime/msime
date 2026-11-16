@@ -15,7 +15,7 @@ path = "src/main.rs"
 cc = "1"
 
 [dependencies]
-msime-client-core = { path = "../client-core" }
+msime-client-core = { path = "../client-core", features = ["preferences-schema"] }
 msime-client-services = { path = "../client-services" }
 msime-host-api = { path = "../host-api" }
 # 读代理给的本机文件时拒绝路径上的符号链接，规则与皮肤图片和插件导入相同。

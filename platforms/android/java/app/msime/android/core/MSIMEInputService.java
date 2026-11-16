@@ -781,6 +781,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     void showClipboardPhraseNotice(long request, String text) { operationNotice.show(request, text); }
 
+    void showClipboardInsertionLimitNotice() {
+        operationNotice.showAcknowledgement(ClipboardSelectionPolicy.INSERTION_LIMIT_HINT);
+    }
+
     /** 复制的代次：每次「复制全部」加一，最后一次说了算；服务销毁时也加一。 */
     private long deviceInfoCopyGeneration;
     /**
@@ -5005,7 +5009,7 @@ public final class MSIMEInputService extends InputMethodService {
                 return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
             }
         }, () -> session, next -> {
-            view = next;
+            ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
         }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
 
@@ -5119,7 +5123,7 @@ public final class MSIMEInputService extends InputMethodService {
                         != targetSession) return;
                 // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
                 imeTranslationSenses.followOnlineRefresh(next);
-                view = next;
+                ImeCandidatePanelRefresh.accept(this, next);
                 render();
                 JSONObject current = onlineQuery(targetSession);
                 if (current != null) refreshed.set(current.toString());
@@ -6412,7 +6416,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         boolean nextEnglish = !dedicatedEnglish;
         boolean previousSuppressed = renderingSuppressed;
+        // command(2/3) 结束当前组字时会先经 apply() 更新 view。若让它立刻重画，
+        // dedicatedEnglish 还是旧值，候选栏和工具栏会按一半旧状态、一半新状态测量，
+        // 中英文键切换时就会让输入法窗口短暂变高或变矮。把结束组字、切换语言和
+        // 自动大写合成一次重画；shouldRender=false 的调用仍保持原来的不重画语义。
         renderingSuppressed = renderingSuppressed || !shouldRender;
+        beginRenderBatch();
         try {
             if (dedicatedEnglish) command(3); else command(2);
             if (session == 0) return;
@@ -6437,6 +6446,7 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) {
             fail(error);
         } finally {
+            endRenderBatch();
             renderingSuppressed = previousSuppressed;
         }
     }
@@ -10681,9 +10691,12 @@ public final class MSIMEInputService extends InputMethodService {
             if (capture != null) capture.deleted(selected);
             initialCursor = capture == null ? -1 : quickDeleteCursor(target);
         }
+        boolean[] unreadableBefore = {false};
         long deleted = BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
             @Override public CharSequence textBeforeCursor(int length) {
-                return InputConnectionGuard.textBeforeCursor(target, length);
+                CharSequence before = InputConnectionGuard.textBeforeCursor(target, length);
+                if (before == null) unreadableBefore[0] = true;
+                return before;
             }
 
             @Override public boolean deleteBeforeCursor(int length) {
@@ -10693,6 +10706,13 @@ public final class MSIMEInputService extends InputMethodService {
                 return accepted;
             }
         }, capture);
+        // 一些编辑器完全拒绝上下文读取，但仍支持删除范围请求。快速清除本来就是用户确认的
+        // “删掉前文”，此时删除交给编辑器执行；因为正文不可读，不保存无法核对的撤回备份。
+        if (unreadableBefore[0] && deleted == 0) {
+            QuickDeleteFallback.deleteBeforeCursor(target);
+            deleted = 0;
+            if (capture != null) capture = null;
+        }
         selectionEcho.expect();
         int cursor = capture == null ? -1 : quickDeleteCursor(target);
         CharSequence before = capture == null ? null
