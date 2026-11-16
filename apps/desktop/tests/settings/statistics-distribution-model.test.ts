@@ -26,6 +26,10 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
     "microsoft",
     "shoudao",
     "smart_abc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
     "wubi",
     "cantonese",
     "zhuyin",
@@ -48,7 +52,7 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
   const frozen = Object.freeze({ characters: Object.freeze({}), sources: Object.freeze(sources) });
   const { languageSlices, sourceSlices } = statisticsDistributionSlices(frozen);
   expect(languageSlices.map(({ id, count }) => [id, count])).toEqual([
-    ["chinese", 13],
+    ["chinese", 17],
     ["japanese", 2],
     ["korean", 3],
     ["vietnamese", 4],
@@ -81,6 +85,10 @@ test("中文语言扇区聚合全部中文方案，其他来源保留独立模�
     "microsoft",
     "shoudao",
     "smart_abc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
     "wubi",
     "japanese",
     "korean",

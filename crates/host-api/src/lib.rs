@@ -1540,6 +1540,10 @@ fn profile_code(profile: ShuangpinProfile) -> u8 {
         ShuangpinProfile::Microsoft => 3,
         ShuangpinProfile::SmartAbc => 5,
         ShuangpinProfile::Custom => 4,
+        ShuangpinProfile::Sogou => 6,
+        ShuangpinProfile::Jiajia => 7,
+        ShuangpinProfile::Ziguang => 8,
+        ShuangpinProfile::Guobiao => 9,
     }
 }
 
