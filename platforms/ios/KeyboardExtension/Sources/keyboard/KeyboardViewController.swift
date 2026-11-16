@@ -4670,7 +4670,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 按下就响退格声（`keyPressFeedback`），松手删一个字时不再响；按住连删时每删一下仍各响一下（`repeatBackspace`）。
     (delete as? KeyboardKeyButton)?.pressSoundClass = .backspace
     delete.addTarget(self, action: #selector(beginBackspacePress(_:)), for: .touchDown)
-    delete.addTarget(self, action: #selector(finishBackspacePress(_:)), for: .touchUpInside)
+    delete.addTarget(self, action: #selector(finishBackspacePress(_:event:)), for: .touchUpInside)
     delete.addTarget(self, action: #selector(pauseBackspacePress(_:)), for: .touchDragExit)
     delete.addTarget(self, action: #selector(cancelBackspacePress(_:)), for: [.touchUpOutside, .touchCancel])
     (delete as? KeyboardKeyButton)?.onAccessibilityActivate = { [weak self] in
@@ -7981,9 +7981,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     backspaceRepeatTimer = timer
   }
 
-  @objc private func finishBackspacePress(_ sender: UIButton) {
-    guard let delete = backspacePress.finish(ObjectIdentifier(sender)) else { return }
+  @objc private func finishBackspacePress(_ sender: UIButton, event: UIEvent?) {
+    let owner = ObjectIdentifier(sender)
+    let programmatic = event == nil && !backspacePress.owns(owner)
+    guard let delete = backspacePress.finish(owner, programmaticActivation: event == nil) else { return }
     cancelBackspacePress()
+    if programmatic { countKeyPress(TypingKeyID.backspace) }
     if delete { handleBackspace() }
   }
 

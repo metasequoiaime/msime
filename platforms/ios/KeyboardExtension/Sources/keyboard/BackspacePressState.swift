@@ -31,9 +31,13 @@ struct BackspacePressState<Owner: Equatable> {
     return true
   }
 
-  /// nil 表示旧按键或没有对应按下；有效松手只返回一次是否需要单删。
-  mutating func finish(_ owner: Owner) -> Bool? {
-    guard owns(owner) else { return nil }
+  /// 触摸松手须匹配按压；没有触摸事件的程序化激活仍能独立单删。
+  mutating func finish(_ owner: Owner, programmaticActivation: Bool = false) -> Bool? {
+    guard owns(owner) else {
+      guard programmaticActivation else { return nil }
+      cancel()
+      return true
+    }
     let delete = !repeated
     cancel()
     return delete

@@ -56,9 +56,21 @@ struct BackspacePressTests {
     check(press.nextRepeat() == nil, "组字或手写删除结束后不进入正文")
     check(press.finish(1) == false, "停止连删仍保留本次长按身份")
 
+    check(press.finish(1, programmaticActivation: true) == true, "没有触摸的显式程序化激活单删一次")
+    check(press.nextRepeat() == nil, "程序化激活不启动连删")
+    press.begin(1)
+    press.cancel()
+    check(press.finish(1) == nil, "真实触摸取消后的迟到松手仍被忽略")
+    check(press.finish(1, programmaticActivation: true) == true, "取消不影响下一次程序化激活")
+    press.begin(1)
+    check(press.nextRepeat() == true, "旧按压发生连删")
+    check(press.finish(2, programmaticActivation: true) == true, "另一控件的程序化激活是独立操作")
+    check(press.nextRepeat() == nil, "程序化激活终止旧按压")
+    check(press.finish(1) == nil, "旧控件迟到松手不追加删除")
+
     check(BackspaceRepeatTiming.initialDelay < 0.4, "长按首拍应早于旧实现")
     check(BackspaceRepeatTiming.initialDelay > BackspaceRepeatTiming.interval,
           "首拍仍须有明确的长按等待")
-    print("iOS 删除按压：8 组行为回归通过")
+    print("iOS 删除按压：9 组行为回归通过")
   }
 }
