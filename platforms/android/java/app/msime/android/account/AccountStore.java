@@ -70,7 +70,8 @@ public final class AccountStore {
             if (!AccountSessionRoutingPolicy.ownsSession(processName, application.getPackageName()))
                 throw new IllegalStateException("account store owner");
             if (registered > 0) throw new IllegalStateException("account store registered");
-            Object value = value(NativeClient.sessionStoreRegister(new Items(application), clientAgent(application)));
+            Object value = value(NativeClient.sessionStoreRegister(
+                AccountLearningSessionStore.create(application, new Items(application)), clientAgent(application)));
             long id = value instanceof JSONObject object ? NumberPolicy.strictLong(object.opt("session_store"), 0) : 0;
             if (id <= 0) throw new Failure("account_unavailable", 0);
             registered = id;
