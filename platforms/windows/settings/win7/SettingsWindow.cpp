@@ -16,6 +16,7 @@
 #include "GlossForm.h"
 #include "TranslationForm.h"
 #include "../LocalTranslationWindow.h"
+#include "../DictionaryCollectionsWindow.h"
 #include "CandidateAppearanceForm.h"
 #include "AiForm.h"
 #include "AccountForm.h"
@@ -2809,6 +2810,11 @@ struct SettingsWindow::State {
     }
     auto dictionary_change = dictionary_form.command(command);
     if (dictionary_change.handled) {
+      if (dictionary_change.groups) {
+        const auto options = runtime_options();
+        if (options.is_object()) msime::settings::show_dictionary_collections(window, options.dump());
+        return;
+      }
       if (dictionary_change.route) {
         const bool opened = surface_launcher ? surface_launcher(*dictionary_change.route) : launch_surface(*dictionary_change.route);
         SetWindowTextW(status, opened ? L"已打开词库同步。" : L"无法打开词库同步，请检查安装文件。");

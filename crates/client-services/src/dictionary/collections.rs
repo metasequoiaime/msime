@@ -206,6 +206,13 @@ pub enum DictionaryCollectionsAction {
         id: String,
         enabled: bool,
     },
+    DeleteMany {
+        ids: Vec<String>,
+    },
+    SetEnabledMany {
+        ids: Vec<String>,
+        enabled: bool,
+    },
     AddWords {
         id: String,
         entries: Vec<PersonalWord>,
@@ -256,6 +263,8 @@ pub enum DictionaryCollectionsError {
     Invalid,
     #[error("dictionary collection name is invalid")]
     InvalidName,
+    #[error("dictionary collection import source conflicts with its target")]
+    SourceConflict,
     #[error("dictionary collection limit reached")]
     Limit,
     #[error("dictionary collection was not found")]
@@ -284,6 +293,7 @@ impl DictionaryCollectionsError {
             Self::Invalid => "collections_invalid",
             Self::InvalidName => "collections_name_invalid",
             Self::Limit => "collections_limit",
+            Self::SourceConflict => "collections_source_conflict",
             Self::NotFound => "collections_not_found",
             Self::BuiltinLocked => "builtin_locked",
             Self::UnsupportedFormat | Self::Import(ImportError::UnsupportedFormat) => {
@@ -381,6 +391,10 @@ impl DictionaryCollectionsStore {
             DictionaryCollectionsAction::Delete { id } => self.delete(&id),
             DictionaryCollectionsAction::SetEnabled { id, enabled } => {
                 self.set_enabled(&id, enabled)
+            }
+            DictionaryCollectionsAction::DeleteMany { ids } => self.delete_many(&ids),
+            DictionaryCollectionsAction::SetEnabledMany { ids, enabled } => {
+                self.set_enabled_many(&ids, enabled)
             }
             DictionaryCollectionsAction::AddWords { id, entries } => self.add_words(&id, entries),
             DictionaryCollectionsAction::RemoveWords { id, entries } => {
@@ -557,7 +571,15 @@ impl DictionaryCollectionsStore {
         let mut state = self.read_state(&lock.directory)?;
         let existing: HashSet<String> = match target {
             Some(id) => {
-                if state.metadata(id)?.kind != request.kind {
+                let metadata = state.metadata(id)?;
+                // 社区更新会替换集合；细胞词库的来源用于发布保护，不能在合并时丢掉。
+                if matches!(metadata.source, CollectionSource::Community { .. })
+                    || (request.format == SCEL_FORMAT
+                        && !matches!(&metadata.source, CollectionSource::Import { format } if format == SCEL_FORMAT))
+                {
+                    return Err(DictionaryCollectionsError::SourceConflict);
+                }
+                if metadata.kind != request.kind {
                     return Err(DictionaryCollectionsError::Invalid);
                 }
                 state
@@ -2003,6 +2025,8 @@ fn parse_hans(
     }
     (words, report)
 }
+
+mod batch;
 
 #[cfg(test)]
 mod tests;
