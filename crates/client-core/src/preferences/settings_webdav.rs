@@ -82,8 +82,10 @@ mod tests {
 
     #[test]
     fn settings_webdav_round_trips_locally_but_never_enters_portable_documents() {
-        let mut preferences = Preferences::default();
-        preferences.settings_sync_webdav = configured();
+        let preferences = Preferences {
+            settings_sync_webdav: configured(),
+            ..Preferences::default()
+        };
         let root = tempfile::tempdir().unwrap();
         let store = PreferencesStore::new(root.path());
         store.save(0, preferences.clone()).unwrap();
@@ -118,8 +120,10 @@ mod tests {
 
     #[test]
     fn settings_webdav_credentials_and_account_are_redacted() {
-        let mut preferences = Preferences::default();
-        preferences.settings_sync_webdav = configured();
+        let mut preferences = Preferences {
+            settings_sync_webdav: configured(),
+            ..Preferences::default()
+        };
         assert!(preferences
             .credential_slots()
             .iter()
