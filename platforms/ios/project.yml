@@ -281,6 +281,7 @@ targets:
       - path: ../../shared/backend/account/BackendAccountClient.swift
       - path: ../../shared/backend/clients/BackendChatClient.swift
       - path: ../../shared/backend/account/BackendAccountSession.swift
+      - path: ../../shared/backend/storage/BackendLearningKeystore.swift
       - path: ../../shared/backend/account/BackendAnonymousAccount.swift
       - path: ../../shared/backend/storage/BackendLocalStore.swift
       - path: ../../shared/backend/storage/BackendBoundedFileReader.swift

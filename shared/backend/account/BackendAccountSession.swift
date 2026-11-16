@@ -117,8 +117,9 @@ struct BackendKeychain: BackendSessionStorage {
     }
     guard status == errSecSuccess else { throw BackendAccountClient.Failure(status: 0) }
   }
-  /// 连同同一服务名下的云剪贴板密钥串一起删除：退出登录时密钥串必须随会话一起消失（`docs/cloud-clipboard-e2e.md`）。先删密钥串，它删不掉时会话也留着，退出登录整体失败，用户可以重试。
+  /// 先删除同一服务的学习与剪贴板密钥，再删会话；密钥删不掉时会话保留，用户可以重试。
   func clear() throws {
+    try BackendLearningKeystore.clearKeychain(service: service)
     try BackendKeychainClipboardKeystore(accessGroup: accessGroup, service: service).clear()
     let status = SecItemDelete(anyGroupQuery as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else { throw BackendAccountClient.Failure(status: 0) }
@@ -323,8 +324,9 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
       return
     }
     defer { close(directoryDescriptor) }
-    // 云剪贴板密钥串随会话一起删除，先删它：删不掉时会话也留着，退出登录整体失败。
-    guard unlinkat(directoryDescriptor, BackendDesktopClipboardKeystoreFile.fileName, 0) == 0 || errno == ENOENT,
+    // 两个域的密钥串随会话一起删除；任一密钥删不掉时会话保留，退出登录失败。
+    guard unlinkat(directoryDescriptor, BackendLearningKeystore.name, 0) == 0 || errno == ENOENT,
+          unlinkat(directoryDescriptor, BackendDesktopClipboardKeystoreFile.fileName, 0) == 0 || errno == ENOENT,
           unlinkat(directoryDescriptor, Self.fileName, 0) == 0 || errno == ENOENT else {
       throw BackendAccountClient.Failure(status: 0)
     }

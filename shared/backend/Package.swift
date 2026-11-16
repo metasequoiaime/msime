@@ -29,6 +29,7 @@ let package = Package(
         "clients/BackendSnapshotClient.swift",
         "storage/BackendLocalStore.swift",
         "storage/BackendBoundedFileReader.swift",
+        "storage/BackendLearningKeystore.swift",
       ]
     ),
     .testTarget(

@@ -72,7 +72,9 @@ final class RustSessionStoreTests: XCTestCase {
   func testStandardLayoutIsTheKeychainAndAppGroupOfTheSwiftSessions() {
     let layout = BackendRustStoreLayout.standard
     guard case let .keychain(service, account, group) = layout.account,
-          case let .keychain(keystoreService, keystoreAccount, keystoreGroup) = layout.clipboardKeystore else {
+          case let .keychain(keystoreService, keystoreAccount, keystoreGroup) = layout.clipboardKeystore,
+          let learningLocation = layout.learningKeystore,
+          case let .keychain(learningService, learningAccount, learningGroup) = learningLocation else {
       return XCTFail("iOS keeps the account in the keychain")
     }
     XCTAssertEqual(service, "app.msime.backend.account")
@@ -81,6 +83,9 @@ final class RustSessionStoreTests: XCTestCase {
     XCTAssertEqual(keystoreService, "app.msime.backend.account")
     XCTAssertEqual(keystoreAccount, "cloud-clipboard-keystore")
     XCTAssertEqual(keystoreGroup, MSIMEAppEdition.appGroupIdentifier)
+    XCTAssertEqual(learningService, service)
+    XCTAssertEqual(learningAccount, "learning-keystore")
+    XCTAssertEqual(learningGroup, group)
     let lock = (BackendAccountSession.defaultRefreshLock as? BackendFileRefreshLock)?.url
     XCTAssertEqual(layout.accountLock, lock)
     XCTAssertEqual(layout.anonymousLock, lock)
@@ -101,7 +106,9 @@ final class RustSessionStoreTests: XCTestCase {
                                    accessGroup: "group.synthetic"),
       anonymous: .localStore(directory: root, fileName: BackendAnonymousAccount.sessionFileName),
       anonymousIdentity: .localStore(directory: root, fileName: BackendAnonymousAccount.identityFileName),
-      accountLock: lock, anonymousLock: lock)
+      accountLock: lock, anonymousLock: lock,
+      learningKeystore: .keychain(service: BackendKeychain.defaultService, account: BackendRustStoreLayout.learningKeystoreName,
+                                 accessGroup: "group.synthetic"))
     let id = try BackendRustSessionStore(layout: layout, keychain: keychain.calls, backgroundActivity: nil).register(with: client, clientAgent: agent).get()
     defer { _ = client.unregister(id) }
 
@@ -122,6 +129,7 @@ final class RustSessionStoreTests: XCTestCase {
     // Swift 存进钥匙串的登录会话优先。
     keychain.set(BackendKeychain.sessionAccount, try JSONEncoder().encode(session("synthetic-user", token: "a")))
     keychain.set(BackendKeychainClipboardKeystore.account, Data("synthetic-keystore".utf8))
+    keychain.set(BackendRustStoreLayout.learningKeystoreName, Data("synthetic-learning".utf8))
     let signedIn = try await status()
     XCTAssertEqual(signedIn, "synthetic-user")
     token = try accessToken(id)
@@ -132,6 +140,7 @@ final class RustSessionStoreTests: XCTestCase {
     _ = try await client.call(.account, ["session_store": id, "action": ["operation": "forget"]])
     XCTAssertNil(keychain.item(BackendKeychain.sessionAccount))
     XCTAssertNil(keychain.item(BackendKeychainClipboardKeystore.account))
+    XCTAssertNil(keychain.item(BackendRustStoreLayout.learningKeystoreName))
     XCTAssertTrue(FileManager.default.fileExists(atPath: lock.path))
     let afterForget = try await status()
     XCTAssertNil(afterForget)
