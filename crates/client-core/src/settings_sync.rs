@@ -8,6 +8,7 @@ use crate::edition::Edition;
 use crate::preferences::Preferences;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 /// WebDAV 设置域的文档格式名，与设置文件和其他同步域分开。
@@ -16,6 +17,10 @@ pub const FORMAT: &str = "app.msime.settings-sync";
 pub const VERSION: u64 = 1;
 /// 单个同步文档的上限；图片主题已经在 `TouchKeyboardSkinDesign` 中受更小的限制。
 pub const MAX_DOCUMENT_BYTES: usize = 1 << 20;
+/// 事件信封的格式名；事件信封与其他 WebDAV 日志域分开，便于独立轮换密钥。
+pub const EVENT_FORMAT: &str = "app.msime.settings-sync-event";
+pub const EVENT_VERSION: u64 = 1;
+pub const MAX_EVENT_BYTES: usize = MAX_DOCUMENT_BYTES + 4096;
 
 /// 偏好顶层字段在同步文档中的归属。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +81,8 @@ pub enum SettingsSyncError {
     InvalidPreferences,
     InvalidDocument,
     TooLarge,
+    InvalidEvent,
+    ChainMismatch,
 }
 
 /// 两台设备同时修改同一个字段时交给宿主显示的冲突。
@@ -91,6 +98,95 @@ pub struct SettingsSyncConflict {
 pub struct SettingsSyncMerge {
     pub document: SettingsSyncDocument,
     pub conflicts: Vec<SettingsSyncConflict>,
+}
+
+/// WebDAV 上追加写入的设置事件。事件正文在交给传输层前还应由独立的设置同步
+/// 密钥加密；这里只定义不可回退的顺序和哈希链接，避免把明文事件误当成日志协议。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsSyncEvent {
+    pub format: String,
+    pub version: u64,
+    pub sequence: u64,
+    /// 设备公钥摘要（32 个小写十六进制字符）。
+    pub device_id: String,
+    /// 创世事件为空，后续事件必须是前一事件的 SHA-256 摘要。
+    pub parent: String,
+    pub document: SettingsSyncDocument,
+}
+
+impl SettingsSyncEvent {
+    pub fn new(
+        sequence: u64,
+        device_id: impl Into<String>,
+        parent: impl Into<String>,
+        document: SettingsSyncDocument,
+    ) -> Result<Self, SettingsSyncError> {
+        let event = Self {
+            format: EVENT_FORMAT.into(),
+            version: EVENT_VERSION,
+            sequence,
+            device_id: device_id.into(),
+            parent: parent.into(),
+            document,
+        };
+        event.validate()
+    }
+
+    pub fn from_json(bytes: &[u8]) -> Result<Self, SettingsSyncError> {
+        if bytes.len() > MAX_EVENT_BYTES {
+            return Err(SettingsSyncError::TooLarge);
+        }
+        let event: Self =
+            serde_json::from_slice(bytes).map_err(|_| SettingsSyncError::InvalidEvent)?;
+        event.validate()
+    }
+
+    pub fn to_json(&self) -> Result<Vec<u8>, SettingsSyncError> {
+        let event = self.clone().validate()?;
+        let bytes = serde_json::to_vec(&event).map_err(|_| SettingsSyncError::Serialization)?;
+        if bytes.len() > MAX_EVENT_BYTES {
+            return Err(SettingsSyncError::TooLarge);
+        }
+        Ok(bytes)
+    }
+
+    /// 返回事件的稳定摘要，供下一个事件写入 `parent`。
+    pub fn head(&self) -> Result<String, SettingsSyncError> {
+        Ok(hex::encode(Sha256::digest(&self.to_json()?)))
+    }
+
+    /// 检查事件是否紧接在 `previous` 后面；失败时拒绝回退、分叉或跳号。
+    pub fn validate_successor(&self, previous: &Self) -> Result<(), SettingsSyncError> {
+        if self.sequence != previous.sequence.saturating_add(1) || self.parent != previous.head()? {
+            return Err(SettingsSyncError::ChainMismatch);
+        }
+        Ok(())
+    }
+
+    fn validate(self) -> Result<Self, SettingsSyncError> {
+        if self.format != EVENT_FORMAT
+            || self.version != EVENT_VERSION
+            || !is_lower_hex(&self.device_id, 32)
+            || (self.sequence == 0 && !self.parent.is_empty())
+            || (self.sequence > 0 && !is_lower_hex(&self.parent, 64))
+        {
+            return Err(SettingsSyncError::InvalidEvent);
+        }
+        self.document.clone().validate()?;
+        let bytes = serde_json::to_vec(&self).map_err(|_| SettingsSyncError::Serialization)?;
+        if bytes.len() > MAX_EVENT_BYTES {
+            return Err(SettingsSyncError::TooLarge);
+        }
+        Ok(self)
+    }
+}
+
+fn is_lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 impl SettingsSyncDocument {
@@ -475,5 +571,40 @@ mod tests {
             Some("installed-skin")
         );
         assert!(applied.custom_theme.keyboard.is_some());
+    }
+
+    #[test]
+    fn event_chain_rejects_wrong_parent_and_round_trips() {
+        let document = SettingsSyncDocument::from_preferences(&Preferences::default()).unwrap();
+        let first = SettingsSyncEvent::new(0, "a".repeat(32), "", document.clone()).unwrap();
+        let second =
+            SettingsSyncEvent::new(1, "b".repeat(32), first.head().unwrap(), document).unwrap();
+        second.validate_successor(&first).unwrap();
+        let encoded = second.to_json().unwrap();
+        assert_eq!(SettingsSyncEvent::from_json(&encoded).unwrap(), second);
+
+        let wrong =
+            SettingsSyncEvent::new(1, "b".repeat(32), "0".repeat(64), second.document).unwrap();
+        assert_eq!(
+            wrong.validate_successor(&first),
+            Err(SettingsSyncError::ChainMismatch)
+        );
+    }
+
+    #[test]
+    fn event_validation_rejects_bad_device_ids_and_oversized_payloads() {
+        let document = SettingsSyncDocument::from_preferences(&Preferences::default()).unwrap();
+        assert_eq!(
+            SettingsSyncEvent::new(0, "not-a-device", "", document.clone()),
+            Err(SettingsSyncError::InvalidEvent)
+        );
+        let mut oversized = document;
+        oversized
+            .shared
+            .insert("future".into(), Value::String("x".repeat(MAX_EVENT_BYTES)));
+        assert_eq!(
+            SettingsSyncEvent::new(0, "a".repeat(32), "", oversized),
+            Err(SettingsSyncError::TooLarge)
+        );
     }
 }
