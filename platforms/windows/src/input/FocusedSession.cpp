@@ -537,17 +537,17 @@ bool FocusedSession::cancel_focus_token(uint64_t token) {
     return true;
   return cancel(*lease_);
 }
-std::optional<nlohmann::json>
+SettledRerankResult
 FocusedSession::rerank_settled(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))
-    return std::nullopt;
-  std::optional<nlohmann::json> result;
+    return {};
+  SettledRerankResult result;
   gate_.with_active(lease, [&] {
-    // 按键回复尚未确认送达时，候选窗仍按旧代次显示；此时重排会推进 Engine 代次，随后到达的选词键就会被旧代次校验拒绝。释义页也复用 Engine 的代次，不能在页上重排底层列表。
-    if (composer_->has_pending() || composer_->translation_page() != 0)
-      return;
-    result = session_.rerank_settled(lease.epoch);
+    if (composer_->has_pending()) result.pending = true;
+    // 释义页沿用底层列表的代次；页面关闭前既不启动评分，也不接收在途评分。
+    else if (composer_->translation_page() == 0)
+      result = session_.rerank_settled(lease.epoch);
   });
   return result;
 }

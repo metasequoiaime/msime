@@ -14,7 +14,7 @@ import org.json.JSONObject;
  *
  * <ul>
  * <li>只翻译不超过 {@link #MAX_SOURCE_CODE_POINTS} 个字的词，按码点计，与共享层按 Unicode 标量计数一致；更长的词不发。</li>
- * <li>腾讯一次最多 {@link #TENCENT_BATCH} 个词，带秒级时间戳；小牛、自定义和阿里云一词一请求，小牛带毫秒时间戳。源语言固定是中文，目标语言是 store 传进来的代码。</li>
+ * <li>腾讯一次最多 {@link #TENCENT_BATCH} 个词，带秒级时间戳；小牛、自定义和阿里云一词一请求，小牛带毫秒时间戳。候选默认以中文为源语言，独立翻译窗口可显式提供源语言；每个客户端的缓存只服务于一种源语言。</li>
  * <li>逐词（逐批）之间问一次 store 的 stale，用户接着打字后立刻停下，不把过期的一页发完。</li>
  * <li>问过的词连同回答（包括「没有译文」）记在 {@link UserTranslationMemory} 里，再问时直接用记下的，不联网；失败后的退避也在那里。</li>
  * </ul>
@@ -30,6 +30,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
     private static final int MAX_GLOSS_BYTES = 4096;
 
     private final CandidateTranslationRoute route;
+    private final String sourceLanguage;
     private final UserTranslationMemory memory;
 
     public UserTranslationClient(CandidateTranslationRoute route) {
@@ -37,8 +38,18 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
     }
 
     UserTranslationClient(CandidateTranslationRoute route, UserTranslationMemory memory) {
+        this(route, memory, "zh");
+    }
+
+    /** 源语言固定在客户端上，避免中英双向请求共用回答缓存。 */
+    public UserTranslationClient(CandidateTranslationRoute route, String sourceLanguage) {
+        this(route, new UserTranslationMemory(() -> TimeUnit.NANOSECONDS.toMillis(System.nanoTime())), sourceLanguage);
+    }
+
+    private UserTranslationClient(CandidateTranslationRoute route, UserTranslationMemory memory, String sourceLanguage) {
         this.route = route;
         this.memory = memory;
+        this.sourceLanguage = sourceLanguage;
     }
 
     /** 这个客户端绑定的路由；键盘拿它判断偏好重读后能不能沿用这个客户端和它记下的回答。 */
@@ -94,7 +105,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
     }
 
     private String aliyun(String word, String language) throws JSONException {
-        JSONObject descriptor = AliyunTranslationPolicy.request(route, word, language);
+        JSONObject descriptor = AliyunTranslationPolicy.request(route, word, sourceLanguage, language);
         if (descriptor == null) return null;
         byte[] body = TranslationHttpTransport.post(descriptor);
         if (body == null) { memory.unreachable(); return null; }
@@ -110,7 +121,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
         JSONObject request = new JSONObject()
             .put("config", new JSONObject().put("enabled", true)
                 .put("app_id", route.appId()).put("apikey", route.apiKey()))
-            .put("text", word).put("source_language", "zh").put("target_language", language)
+            .put("text", word).put("source_language", sourceLanguage).put("target_language", language)
             .put("timestamp", Long.toString(System.currentTimeMillis()));
         JSONObject descriptor = descriptor(NativeClient.niutransTranslationHttpRequest(request.toString()));
         if (descriptor == null) return null;
@@ -130,7 +141,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
         JSONObject request = new JSONObject()
             .put("config", new JSONObject().put("enabled", true)
                 .put("endpoint", route.endpoint()).put("api_key", route.apiKey()))
-            .put("text", word).put("source_language", "zh").put("target_language", language);
+            .put("text", word).put("source_language", sourceLanguage).put("target_language", language);
         // DeepL 地址没填密钥之类，共享层构造不出请求：这个词不联网，也就谈不上额度，不记退避。
         JSONObject descriptor = descriptor(NativeClient.customTranslationHttpRequest(request.toString()));
         if (descriptor == null) return null;
@@ -154,7 +165,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
             .put("enabled", true).put("provider", route.aiProvider()).put("endpoint", route.endpoint())
             .put("model", route.aiModel()).put("tokens", tokens);
         JSONObject descriptor = descriptor(NativeClient.aiTranslationHttpRequest(
-            config.toString(), word, "zh", language));
+            config.toString(), word, sourceLanguage, language));
         if (descriptor == null) return null;
         byte[] body = TranslationHttpTransport.post(descriptor);
         if (body == null) {
@@ -176,7 +187,7 @@ public final class UserTranslationClient implements CandidateTranslationStore.Se
         JSONObject request = new JSONObject()
             .put("config", new JSONObject().put("enabled", true).put("secret_id", route.secretId())
                 .put("secret_key", route.secretKey()).put("region", route.region()))
-            .put("texts", words).put("source_language", "zh").put("target_language", language)
+            .put("texts", words).put("source_language", sourceLanguage).put("target_language", language)
             .put("timestamp", TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()));
         JSONObject descriptor = descriptor(NativeClient.tencentTranslationHttpRequest(request.toString()));
         if (descriptor == null) return;

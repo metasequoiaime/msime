@@ -126,6 +126,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeCandidates imeCandidates;
     ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
+    ImeTranslationEntry imeTranslationEntry;
     ImeWorldClock imeWorldClock;
     ImeOcr imeOcr;
     ImePanels imePanels;
@@ -1053,6 +1054,12 @@ public final class MSIMEInputService extends InputMethodService {
     /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
     private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> {
         captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
+        try {
+            PrimaryClip clip = readPrimaryClip();
+            imePanels.autoCloudClipboard.changed(clip);
+        } catch (SecurityException ignored) {
+            // 系统拒绝读取时由本机历史和云同步共同跳过这次变化。
+        }
         offerRecentClip(true);
     };
     /** 只让当前输入框的启动任务占用工作线程；旧任务可能还在收尾，但不能再排队读偏好或同步词库。 */
@@ -2148,6 +2155,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeCandidates = new ImeCandidates(this);
         imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
+        imeTranslationEntry = new ImeTranslationEntry(this);
         imeWorldClock = new ImeWorldClock(this);
         imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
@@ -2223,12 +2231,22 @@ public final class MSIMEInputService extends InputMethodService {
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
         refreshLocalSettings();
+        imePanels.autoCloudClipboard.active(true);
         imeKeyFeedback.prepare();
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
         if (inlineAutofill != null) inlineAutofill.showInput();
         Telemetry.inputViewShown(this);
         Telemetry.resumeConsentWatch(this);
         cancelInputViewRefresh();
+        InputConnection shownConnection = getCurrentInputConnection();
+        boolean engineEditor = info != null && EditorPolicy.useEngine(info.inputType);
+        if (InputViewRefreshPolicy.shouldRecoverLateConnection(
+                connection, shownConnection, session, engineEditor)) {
+            // 某些宿主在 onStartInput 时还没有交出连接；键盘显示时连接已到位，
+            // 重新走一次运行时准备，避免把这类文本框永久留在“直接输入”。
+            connection = shownConnection;
+            startInputRuntime(info, restarting, false, engineStartGeneration, true, true, false);
+        }
         resumeDeferredInputStart(info);
         // 同一编辑器的键盘视图可以单独收起、再显示。收起时启动代次作废，但这不会触发新的
         // onStartInput；把那次尚未建成的会话重新排上，避免一直停在「准备中」的直接输入状态。
@@ -2268,6 +2286,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
         hideVoiceEmptyNotice();
@@ -2309,6 +2328,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
         hideVoiceEmptyNotice();
@@ -2471,7 +2491,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onDestroy() {
+        imePanels.autoCloudClipboard.active(false);
         if (readAloudSpeaker != null) readAloudSpeaker.shutdown();
+        if (imeTranslationEntry != null) imeTranslationEntry.destroy();
         if (imeOcr != null) imeOcr.destroy();
         operationNotice.cancel();
         spaceCopyNotice.cancel();
@@ -7604,6 +7626,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 模式切换后先展示新模式的本机历史；不能沿用上一模式停留的云端标签或异步状态。
         clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
+        // 待撤销记录属于原模式，不能恢复到刚切换的另一份历史。
+        clipboardUndoTexts = null;
+        main.removeCallbacks(clipboardUndoTick);
         closeClipboardHistory();
         if (button != null) {
             button.setKind(ClipboardModePolicy.enterIcon(next, true)
@@ -7615,6 +7640,8 @@ public final class MSIMEInputService extends InputMethodService {
                     button.setKind(KeyboardIconKey.Kind.RETURN);
             }, 600L);
         }
+        // 手势监听器消费了整段触摸事件，没有后续点击触发的 render；立即重绘才能让提示图标在当前帧可见。
+        render();
     }
 
     void closeSchemePicker() {

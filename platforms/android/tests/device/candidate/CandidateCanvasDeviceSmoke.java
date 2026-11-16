@@ -38,7 +38,7 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
         if (compact != null) return "紧凑候选行、工具栏尺寸与空闲／组字／上屏的稳定窗口";
         return capacityOnly
-            ? "main and visitor clipboard histories retain sixty synthetic entries at the saved capacity"
+            ? "clipboard capacity and live continuous copies survive an input method restart"
             : "candidate canvas: native rasters, nine-slice, widgets, insets, APNG/GIF/WebP, decoration words and invalidation";
     }
 
@@ -49,6 +49,7 @@ public final class CandidateCanvasDeviceSmoke extends DeviceSmoke {
         }
         if (capacityOnly) {
             ClipboardCapacityDeviceSmoke.runCapacity(getTargetContext(), this);
+            ClipboardContinuousCopyDeviceChecks.run(this);
             return;
         }
         loader = getTargetContext().getClassLoader();

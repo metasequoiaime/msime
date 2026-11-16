@@ -230,6 +230,7 @@ target_compile_options(msime-python-crash PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-python-crash PRIVATE msime-linux-auxiliary-telemetry)
 set_target_properties(msime-python-crash PROPERTIES INSTALL_RPATH "$ORIGIN")
 install(TARGETS msime-python-crash LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+include(cmake/WaylandClipboard.cmake)
 add_executable(msime-linux-ibus src/entrypoints/ibus_main.cpp src/system/SystemTheme.cpp)
 target_sources(msime-linux-ibus PRIVATE ../common/Telemetry.cpp ../common/CrashRecorder.cpp)
 target_include_directories(msime-linux-ibus PRIVATE ../common)
@@ -261,6 +262,9 @@ target_link_libraries(msime-linux-cloud-dictionary PRIVATE msime-ibus-host)
 add_executable(msime-linux-cloud-clipboard src/providers/cloud_clipboard_request.cpp)
 target_compile_options(msime-linux-cloud-clipboard PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-cloud-clipboard PRIVATE msime-ibus-host)
+add_executable(msime-linux-cloud-clipboard-sync src/providers/cloud_clipboard_sync.cpp)
+target_compile_options(msime-linux-cloud-clipboard-sync PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(msime-linux-cloud-clipboard-sync PRIVATE msime-ibus-host)
 add_executable(msime-linux-online src/providers/online_request.cpp)
 target_compile_options(msime-linux-online PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-online PRIVATE msime-ibus-host)
@@ -309,11 +313,14 @@ add_executable(msime-linux-emoji src/providers/emoji_request.cpp)
 target_compile_options(msime-linux-emoji PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 set(MSIME_AUXILIARY_TARGETS msime-linux-dictionary msime-linux-cloud-dictionary
-  msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
+  msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-clipboard
   msime-linux-clipboard-capture msime-linux-handwriting msime-linux-voice msime-linux-emoji
   msime-voice-local)
 if(TARGET msime-linux-clipboard-watch-x11)
   list(APPEND MSIME_AUXILIARY_TARGETS msime-linux-clipboard-watch-x11)
+endif()
+if(TARGET msime-linux-clipboard-watch-wayland)
+  list(APPEND MSIME_AUXILIARY_TARGETS msime-linux-clipboard-watch-wayland)
 endif()
 foreach(auxiliary IN LISTS MSIME_AUXILIARY_TARGETS)
   target_link_libraries(${auxiliary} PRIVATE msime-linux-auxiliary-telemetry)
@@ -518,6 +525,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-dictionary-quiesce-lease-test PRIVATE src)
   target_link_libraries(linux-dictionary-quiesce-lease-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-dictionary-quiesce-lease COMMAND linux-dictionary-quiesce-lease-test)
+  add_executable(linux-settings-sync-worker-test tests/core/settings_sync_worker.cpp)
+  target_compile_options(linux-settings-sync-worker-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-settings-sync-worker-test PRIVATE src ../../crates/host-api/include)
+  target_link_libraries(linux-settings-sync-worker-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-settings-sync-worker COMMAND linux-settings-sync-worker-test)
   add_executable(linux-emoji-plugin-groups-test tests/core/emoji_plugin_groups.cpp)
   target_compile_options(linux-emoji-plugin-groups-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-emoji-plugin-groups-test PRIVATE src)
@@ -540,7 +552,7 @@ if(BUILD_TESTING)
     --client-directory "${MSIME_CLIENT_DIRECTORY}"
     --telemetry-directory "${MSIME_EDITION_FCITX5_ADDON}")
   foreach(auxiliary IN LISTS MSIME_AUXILIARY_TARGETS)
-    if(NOT auxiliary STREQUAL "msime-linux-clipboard-watch-x11")
+    if(NOT auxiliary MATCHES "^msime-linux-clipboard-watch-(x11|wayland)$")
       list(APPEND auxiliary_crash_arguments --binary "${auxiliary}" $<TARGET_FILE:${auxiliary}>)
     endif()
   endforeach()
@@ -565,6 +577,15 @@ if(BUILD_TESTING)
         --telemetry-directory "${MSIME_EDITION_FCITX5_ADDON}"
         --binary msime-linux-clipboard-watch-x11 $<TARGET_FILE:msime-linux-clipboard-watch-x11>)
     set_tests_properties(linux-x11-auxiliary-crash-capture PROPERTIES TIMEOUT 45)
+    add_test(NAME linux-clipboard-x11-events
+      COMMAND "${MSIME_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/clipboard/clipboard_x11_events.py"
+        $<TARGET_FILE:msime-linux-clipboard-watch-x11>)
+    add_test(NAME linux-clipboard-x11-read
+      COMMAND "${MSIME_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/clipboard/clipboard_x11_read.py"
+        $<TARGET_FILE:msime-linux-clipboard-watch-x11> $<TARGET_FILE:msime-test-x11-string-owner>)
+    set_tests_properties(linux-clipboard-x11-events linux-clipboard-x11-read PROPERTIES TIMEOUT 30)
   endif()
   add_executable(common-crash-recorder-test ../common/tests/crash_recorder.cpp ../common/CrashRecorder.cpp)
   target_compile_options(common-crash-recorder-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
@@ -781,7 +802,7 @@ if(BUILD_TESTING)
                    $<TARGET_FILE:msime-linux-ibus> "${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.xml")
   set_tests_properties(linux-ibus-demand-activation PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 endif()
-install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
+install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-clipboard
                 msime-linux-handwriting msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(BUILD_TESTING AND MSIME_LINUX_VOICE)
@@ -794,6 +815,7 @@ foreach(MSIME_EDITION_SCRIPT msime-linux-ibus-launcher msime-linux-first-run-gui
 endforeach()
 install(PROGRAMS scripts/msime-linux-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-linux-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES scripts/msime_clipboard_cloud.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来。词库锁无条件随装，它是这个入口据以校验和取回的依据——它此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
 # 命令名以版本的包名开头（full 仍是 msime-linux-setup）；随装的词库锁是本版本的锁（full 是 desktop-dictionary.lock.json 本身，其他版本是 resources/editions/<id>.lock.json），装成同一个文件名，msime-linux-setup 据它校验和取回本版本的词库。
 msime_edition_source(MSIME_SETUP_SOURCE scripts/msime-linux-setup)
@@ -1201,11 +1223,14 @@ if(MSIME_DESKTOP_BINARY)
   # 设置命令和桌面入口以版本的包名命名（full 仍是 msime-linux-settings 和 msime-linux.desktop）。
   msime_edition_source(MSIME_SETTINGS_SOURCE data/msime-linux-settings.in)
   msime_edition_source(MSIME_DESKTOP_ENTRY_SOURCE data/msime-linux.desktop.in)
+  msime_edition_source(MSIME_IBUS_SETUP_ENTRY_SOURCE data/ibus-setup-msime-linux.desktop.in)
   configure_file("${MSIME_SETTINGS_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}-settings @ONLY)
   configure_file("${MSIME_DESKTOP_ENTRY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.desktop @ONLY)
+  configure_file("${MSIME_IBUS_SETUP_ENTRY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/ibus-setup-${MSIME_EDITION_IBUS_ENGINE}.desktop @ONLY)
   install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-linux-desktop)
   install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.desktop DESTINATION "${MSIME_SYSTEM_DATADIR}/applications")
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ibus-setup-${MSIME_EDITION_IBUS_ENGINE}.desktop DESTINATION "${MSIME_SYSTEM_DATADIR}/applications")
   # The Omarchy theme-set hook runs msime-linux-settings, so it ships with it; msime-linux-setup links it into ~/.config/omarchy/hooks/theme-set.d on an Omarchy desktop.
   msime_edition_source(MSIME_OMARCHY_SOURCE data/omarchy/theme-set.in)
   configure_file("${MSIME_OMARCHY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/omarchy/theme-set @ONLY)
@@ -1299,11 +1324,15 @@ install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSI
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 include(cmake/LocalTranslation.cmake)
-set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
+set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 if(TARGET msime-linux-clipboard-watch-x11)
   set_target_properties(msime-linux-clipboard-watch-x11 PROPERTIES
+    INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
+endif()
+if(TARGET msime-linux-clipboard-watch-wayland)
+  set_target_properties(msime-linux-clipboard-watch-wayland PROPERTIES
     INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
 endif()
 # 本地语音程序与共享库安装在同一目录，不使用 bin 目录的相对路径。
@@ -1518,10 +1547,18 @@ if(MSIME_VOICE_RUNTIME_DIR OR MSIME_INSTALL_RERANK_MODELS)
        "${CMAKE_CURRENT_SOURCE_DIR}/data/licenses/onnxruntime-ThirdPartyNotices.txt")
   list(APPEND MSIME_NOTICE_NAMES onnxruntime-MIT.txt onnxruntime-ThirdPartyNotices.txt)
 endif()
-# wayland-scanner compiles the layer-shell and xdg-shell protocol code into the IBus host, the wave overlay and the Fcitx5 addon, and only when xdg-shell.xml was found (both the IBus and the Fcitx5 side require it). The layer-shell license (HPND) asks for its notice in supporting documentation and xdg-shell's (MIT) in all copies, so the <copyright> block of the XML actually compiled is written out as the notice.
+# 对实际编译的 Wayland 协议提取完整版权块并随包分发：浮层依赖 layer-shell / xdg-shell，原生剪贴板独立依赖 data-control，不因缺浮层协议而漏掉通知。
+set(MSIME_PROTOCOL_XMLS "")
+set(MSIME_PROTOCOL_NOTICES "")
 if(MSIME_XDG_SHELL_XML)
   set(MSIME_PROTOCOL_XMLS "${CMAKE_CURRENT_SOURCE_DIR}/data/wayland/wlr-layer-shell-unstable-v1.xml" "${MSIME_XDG_SHELL_XML}")
   set(MSIME_PROTOCOL_NOTICES wayland-wlr-layer-shell-LICENSE.txt wayland-xdg-shell-LICENSE.txt)
+endif()
+if(TARGET msime-linux-clipboard-watch-wayland)
+  list(APPEND MSIME_PROTOCOL_XMLS "${MSIME_DATA_CONTROL_XML}")
+  list(APPEND MSIME_PROTOCOL_NOTICES wayland-wlr-data-control-LICENSE.txt)
+endif()
+if(MSIME_PROTOCOL_XMLS)
   foreach(MSIME_PROTOCOL_XML MSIME_PROTOCOL_NOTICE IN ZIP_LISTS MSIME_PROTOCOL_XMLS MSIME_PROTOCOL_NOTICES)
     file(READ "${MSIME_PROTOCOL_XML}" MSIME_PROTOCOL_CONTENT)
     if(NOT MSIME_PROTOCOL_CONTENT MATCHES "<copyright>(.*)</copyright>")

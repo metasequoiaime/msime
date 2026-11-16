@@ -189,6 +189,7 @@ platforms/android/tests/device/clipboard/ClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/PinyinClipboardEditPreparation.java
 platforms/android/tests/device/clipboard/ClipboardEditDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardCapacityDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardContinuousCopyDeviceChecks.java
 platforms/android/tests/device/clipboard/ClipboardRetentionRaceDeviceChecks.java
 platforms/android/tests/device/clipboard/ClipboardShareSinkActivity.java
 platforms/android/tests/device/clipboard/ClipboardSegmentActionsDeviceSmoke.java
@@ -285,6 +286,7 @@ platforms/android/tests/device/keyboard/KeyPressAreaDeviceChecks.java
 platforms/android/tests/device/candidate/RelativeDateDeviceSmoke.java
 
 platforms/android/tests/device/clipboard/ClipboardCategoriesDeviceSmoke.java
+platforms/android/tests/device/clipboard/ClipboardModeDeviceChecks.java
 
 platforms/android/tests/device/keyboard/TrackpadEditorActivity.java
 platforms/android/tests/device/keyboard/TextTrackpadDeviceChecks.java
@@ -300,8 +302,10 @@ platforms/android/tests/device/keyboard/AboutEasterEggDeviceSmoke.java
 platforms/android/tests/device/voice/VoiceMascotDeviceChecks.java
 platforms/android/tests/device/voice/VoiceHoldDeviceChecks.java
 platforms/android/tests/device/settings/BootstrapPackagedDeviceSmoke.java
-
+platforms/android/tests/device/clipboard/CloudClipboardReceiveDeviceSmoke.java
 platforms/android/tests/device/clipboard/ClipboardSelectionDeviceChecks.java
 platforms/android/tests/device/voice/VoiceEmptyNoticeDeviceChecks.java
 platforms/android/tests/device/settings/SkinTabRefreshDeviceCheck.java
 platforms/android/tests/device/keyboard/AliyunTranslationDeviceChecks.java
+
+platforms/android/tests/device/keyboard/TranslationWindowDeviceChecks.java
