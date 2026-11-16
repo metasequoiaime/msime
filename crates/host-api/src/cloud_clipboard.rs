@@ -6,7 +6,8 @@ use msime_client_core::{
     is_bounded_utf16, is_lower_hex,
 };
 use msime_client_services::account::{
-    AccountApi, AccountClipboardError, AccountError, AccountSessionStorage, BackendAccountSession,
+    AccountApi, AccountClipboardError, AccountError, AccountLoginBinding, AccountSessionStorage,
+    BackendAccountSession,
 };
 use msime_client_services::clipboard_relay::{
     RelayClipboard, RelayConfig, RelayError, RelayTransport, RETENTION_DAYS,
@@ -95,9 +96,22 @@ pub fn validate_relay_request(request: &Value) -> Result<(), &'static str> {
     }
 }
 
-/// `msime_client_account_cloud_clipboard` 接受的动作，与 [`validate_relay_request`] 相同：除 [`validate_request`] 的九个，还有平台账号路径本来就有的置顶、保留期和清空（Swift `BackendClipboardClient`、Android `CloudClipboardApi`）。由 [`account_request`] 答。
+/// 账号接受中继的全部动作，以及只读本机持久登录绑定的 `binding`。由 [`account_request`] 答。
 pub fn validate_account_request(request: &Value) -> Result<(), &'static str> {
-    validate_relay_request(request)
+    if request.get("operation").and_then(Value::as_str) == Some("binding") {
+        Ok(())
+    } else {
+        validate_relay_request(request)
+    }
+}
+
+/// provider 原有动作之外只增加登录绑定握手，不扩大共享面板可发送的动作。
+pub fn validate_provider_request(request: &Value) -> Result<(), &'static str> {
+    if request.get("operation").and_then(Value::as_str) == Some("binding") {
+        Ok(())
+    } else {
+        validate_request(request)
+    }
 }
 
 /// 偏好目录里配置的中继（HTTP 中继或 WebDAV 网盘）；没有配置时为 `None`。偏好读不了时是 `storage`，配置不合规时是 `relay_not_configured`。不联网。
@@ -277,13 +291,41 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
         .and_then(Value::as_str)
         .ok_or(INVALID)?;
     let field = |name: &str| action.get(name).and_then(Value::as_str).ok_or(INVALID);
+    let expected_user_id = action
+        .get("expected_user_id")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .ok_or(INVALID)
+        })
+        .transpose()?;
+    let expected_login: Option<AccountLoginBinding> = action
+        .get("expected_login")
+        .map(|value| serde_json::from_value(value.clone()).map_err(|_| INVALID))
+        .transpose()?;
+    if expected_login
+        .as_ref()
+        .is_some_and(|login| login.user_id.is_empty() || !is_bounded_text(&login.user_id, 256))
+    {
+        return Err(INVALID);
+    }
     match operation {
+        "binding" => session
+            .login_binding()
+            .map(|binding| json!(binding))
+            .map_err(|error| error.code()),
         "list" => {
             let search = action
                 .get("search")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            clipboard_value(session.clipboard(search, device_name))
+            clipboard_value(session.clipboard_for_login(
+                search,
+                device_name,
+                expected_user_id,
+                expected_login.as_ref(),
+            ))
         }
         "set_enabled" => {
             let enabled = action
@@ -297,7 +339,12 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
         }
         "add" => {
             let text = field("text")?;
-            clipboard_value(session.add_clipboard(text, device_name))
+            clipboard_value(session.add_clipboard_for_login(
+                text,
+                device_name,
+                expected_user_id,
+                expected_login.as_ref(),
+            ))
         }
         "delete" => {
             let id = field("id")?;
@@ -511,6 +558,12 @@ mod tests {
         assert!(validate_request(&json!({"operation":"add","text":"bad\u{0007}"})).is_err());
         assert!(validate_request(&json!({"operation":"delete","id":"bad/id"})).is_err());
         assert!(validate_request(&json!({"operation":"unknown"})).is_err());
+        let binding = json!({"operation": "binding"});
+        assert!(validate_account_request(&binding).is_ok());
+        assert!(validate_provider_request(&binding).is_ok());
+        assert!(validate_request(&binding).is_err());
+        assert!(validate_relay_request(&binding).is_err());
+        assert!(validate_provider_request(&json!({"operation": "clear"})).is_err());
     }
 
     mod account {
@@ -754,6 +807,86 @@ mod tests {
                     "delete:*".to_owned(),
                 ]
             );
+        }
+
+        #[test]
+        fn bound_automatic_sync_never_requests_a_different_account() {
+            let (session, calls) = session(signed_in());
+            for action in [
+                json!({"operation": "list", "expected_user_id": "synthetic-other"}),
+                json!({"operation": "add", "text": "合成复制", "expected_user_id": "synthetic-other"}),
+            ] {
+                assert_eq!(
+                    account_request(&session, &action, None),
+                    Err("account_cancelled")
+                );
+            }
+            for invalid in [json!(null), json!(42), json!("")] {
+                assert_eq!(
+                    account_request(
+                        &session,
+                        &json!({"operation": "list", "expected_user_id": invalid}),
+                        None
+                    ),
+                    Err("invalid_cloud_clipboard")
+                );
+            }
+            assert!(calls.lock().unwrap().is_empty());
+            let page = account_request(
+                &session,
+                &json!({"operation": "list", "expected_user_id": "synthetic-user"}),
+                None,
+            )
+            .unwrap();
+            assert_eq!(page["enabled"], false);
+            assert_eq!(calls.lock().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn persistent_login_binding_is_local_and_rejects_stale_or_malformed_actions() {
+            let (session, calls) = session(signed_in());
+            let login = account_request(&session, &json!({"operation": "binding"}), None).unwrap();
+            assert_eq!(login["user_id"], "synthetic-user");
+            assert_eq!(login.as_object().unwrap().len(), 2);
+            assert!(login["session_id"].is_string());
+            assert!(calls.lock().unwrap().is_empty());
+            let mut stale = login.clone();
+            stale["session_id"] = json!("00000000-0000-4000-8000-000000000001");
+            for operation in ["list", "add"] {
+                assert_eq!(
+                    account_request(
+                        &session,
+                        &json!({"operation": operation, "text": "合成复制", "expected_login": stale}),
+                        None,
+                    ),
+                    Err("account_cancelled")
+                );
+            }
+            for invalid in [
+                json!(null),
+                json!({"user_id": "synthetic-user"}),
+                json!({"user_id": "", "session_id": login["session_id"]}),
+                json!({"user_id": "synthetic-user", "session_id": "invalid"}),
+                json!({"user_id": "synthetic-user", "session_id": login["session_id"], "token": "synthetic"}),
+            ] {
+                assert_eq!(
+                    account_request(
+                        &session,
+                        &json!({"operation": "list", "expected_login": invalid}),
+                        None,
+                    ),
+                    Err("invalid_cloud_clipboard")
+                );
+            }
+            assert!(calls.lock().unwrap().is_empty());
+            let page = account_request(
+                &session,
+                &json!({"operation": "list", "expected_login": login}),
+                None,
+            )
+            .unwrap();
+            assert_eq!(page["enabled"], false);
+            assert_eq!(calls.lock().unwrap().len(), 1);
         }
 
         #[test]

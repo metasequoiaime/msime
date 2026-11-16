@@ -63,7 +63,12 @@ public final class AliyunTranslationPolicy {
     }
 
     public static JSONObject request(CandidateTranslationRoute route, String word, String language) throws JSONException {
+        return request(route, word, "zh", language);
+    }
+
+    /** 独立翻译窗口显式指定源语言；候选入口继续以中文请求。 */
+    public static JSONObject request(CandidateTranslationRoute route, String word, String source, String language) throws JSONException {
         return call(new JSONObject().put("operation", "request").put("config", config(route))
-            .put("text", word).put("source_language", "zh").put("target_language", language));
+            .put("text", word).put("source_language", source).put("target_language", language));
     }
 }

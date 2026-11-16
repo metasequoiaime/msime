@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev libxrandr-dev \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev libcairo2-dev \
   fcitx5-modules libpango1.0-dev \
-  dbus dbus-bin xvfb xauth \
+  dbus dbus-bin xvfb xauth sway wl-clipboard \
   && rm -rf /var/lib/apt/lists/*
 # X11 徽章与剪贴板行为测试各自在 xvfb-run 中起停，镜像不常驻显示服务；GTK3 的 Python 绑定只在隔离显示中提供合成剪贴板。
 # 仓库工具链声明要求这两个组件，预装后临时容器不再逐次补装；保留上面的 apt 缓存层。
