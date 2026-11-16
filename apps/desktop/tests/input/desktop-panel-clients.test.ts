@@ -45,7 +45,11 @@ function setup(clipboardHistory?: boolean) {
     load: vi.fn(async () => snapshot),
     save: vi.fn(async (_revision: number, _preferences: Snapshot["preferences"]) => snapshot),
   };
-  const cloudDictionary = { close: vi.fn(async () => {}), request: vi.fn(async () => ({})) };
+  const cloudDictionary = {
+    close: vi.fn(async () => {}),
+    beginWindowDrag: () => getCurrentWindow().startDragging(),
+    request: vi.fn(async () => ({})),
+  };
   const clients = createDesktopPanelClients(
     preferences,
     cloudDictionary,
@@ -118,6 +122,13 @@ test("键盘与手写保持窗口拖动和各自的输入命令", async () => {
     ["submit_handwriting_candidate", { candidate: "合成候选" }],
     ["copy_text", { text: "合成候选" }],
   ]);
+});
+
+test("云剪贴板和云词库提供标题拖动", async () => {
+  const { clients } = setup();
+  await clients.cloudClipboard.beginWindowDrag!();
+  await clients.cloudDictionary.beginWindowDrag!();
+  expect(bridge.drag).toHaveBeenCalledTimes(2);
 });
 
 test("表情面板提供标题拖动和八方向原生缩放，不改输入目标", async () => {

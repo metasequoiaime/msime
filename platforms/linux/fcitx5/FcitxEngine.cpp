@@ -7070,7 +7070,7 @@ public:
     };
     return loop;
   }
-  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。只在开关开着、有上下文接手时才建；建不出来（没有 X 服务器）时记下来不再重试，之后只有状态区的「工具栏」子菜单。
+  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。只在纯 X11 开关开着、有上下文接手时才建；Wayland 或没有 X 服务器时沿状态区的「工具栏」子菜单回退。
   msime::linux_host::FloatingToolbar *floatingToolbar(bool create) {
     if (!floating_toolbar_ && create && !floating_toolbar_unavailable_) {
       msime::linux_host::FloatingToolbar::Options options;
