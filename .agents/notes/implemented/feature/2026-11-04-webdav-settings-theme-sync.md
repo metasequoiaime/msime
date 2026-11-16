@@ -8,11 +8,11 @@ Status: implemented
 
 ## Decision
 
-第一阶段在 `client-core::settings_sync` 建立无网络的文档投影。输入必须是已经通过 `Preferences::validate` 的类型化偏好，输出固定为 `app.msime.settings-sync`、版本 1 的 JSON 文档，分成 `shared` 和 `theme` 两个对象。
+第一阶段在 `client-core::settings_sync` 建立无网络的文档投影和三方合并契约。输入必须是已经通过 `Preferences::validate` 的类型化偏好，输出固定为 `app.msime.settings-sync`、版本 1 的 JSON 文档，分成 `shared` 和 `theme` 两个对象；读取外部文档时严格检查格式、版本和域边界。
 
 `settings_document::LOCAL_SECTIONS` 是本机边界的唯一来源，账号凭据、网络代理、语音/AI、云剪贴板和词库 WebDAV 等字段永远不进入同步文档。主题字段单独放进 `theme`；自定义主题保留可移植定义，删除 `candidate_skin` 和 `candidate_skin_dark` 这类本机皮肤库引用。文档上限为 1 MiB，超过上限直接失败，不截断、不静默丢弃。
 
-网络传输、设备批准、独立密钥、事件链、三方合并、自动触发和原生设置页接入继续作为后续切片；本阶段不新增 `packages/ui` 设置入口，也不改变任何默认值。
+三方合并按字段比较基线：一端未改时采用另一端的修改，两端同时改同一字段时保留本地值并返回冲突清单，删除也参与比较。网络传输、设备批准、独立密钥、事件链、自动触发和原生设置页接入继续作为后续切片；本阶段不新增 `packages/ui` 设置入口，也不改变任何默认值。
 
 ## Alternatives considered
 
@@ -22,6 +22,6 @@ Status: implemented
 
 ## Consequences
 
-- 共享 Rust 现在有可供 WebDAV 驱动和宿主调用的稳定文档边界，测试明确证明合成凭据与代理不会出网。
+- 共享 Rust 现在有可供 WebDAV 驱动和宿主调用的稳定文档边界与字段级合并结果，测试明确证明合成凭据与代理不会出网，格式错误和本机皮肤引用会被拒绝。
 - 主题选择和自定义键盘设计可以进入后续加密事件；本机候选皮肤包仍需单独设计可移植清单，因此 #10787 仍未完成自动同步。
 - 当前没有网络、设备或宿主行为变化；Android、iOS、HarmonyOS、Windows、macOS、Linux 的设置页和自动调度仍待独立切片接入。

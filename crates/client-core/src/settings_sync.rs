@@ -7,6 +7,7 @@
 use crate::preferences::Preferences;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 
 /// WebDAV 设置域的文档格式名，与设置文件和其他同步域分开。
 pub const FORMAT: &str = "app.msime.settings-sync";
@@ -58,6 +59,7 @@ pub fn classify_field(name: &str) -> SyncFieldClass {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettingsSyncDocument {
     pub format: String,
     pub version: u64,
@@ -71,7 +73,23 @@ pub struct SettingsSyncDocument {
 pub enum SettingsSyncError {
     Serialization,
     InvalidPreferences,
+    InvalidDocument,
     TooLarge,
+}
+
+/// 两台设备同时修改同一个字段时交给宿主显示的冲突。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsSyncConflict {
+    pub class: SyncFieldClass,
+    pub field: String,
+}
+
+/// 三方合并结果。没有冲突的字段已经合入；冲突字段保留本地值，调用方必须提示用户
+/// 后再决定是否采用远端值，不能在后台静默覆盖用户刚保存的设置。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingsSyncMerge {
+    pub document: SettingsSyncDocument,
+    pub conflicts: Vec<SettingsSyncConflict>,
 }
 
 impl SettingsSyncDocument {
@@ -113,13 +131,137 @@ impl SettingsSyncDocument {
         Ok(document)
     }
 
+    /// 读取 WebDAV 事件中的明文文档。加密、设备批准和事件链由上层驱动负责；这里
+    /// 仍然严格检查格式、版本、域边界和主题可移植性。
+    pub fn from_json(bytes: &[u8]) -> Result<Self, SettingsSyncError> {
+        if bytes.len() > MAX_DOCUMENT_BYTES {
+            return Err(SettingsSyncError::TooLarge);
+        }
+        let document: Self =
+            serde_json::from_slice(bytes).map_err(|_| SettingsSyncError::InvalidDocument)?;
+        Ok(document.validate()?)
+    }
+
+    fn validate(self) -> Result<Self, SettingsSyncError> {
+        if self.format != FORMAT || self.version != VERSION {
+            return Err(SettingsSyncError::InvalidDocument);
+        }
+        for field in self.shared.keys() {
+            if classify_field(field) != SyncFieldClass::Shared {
+                return Err(SettingsSyncError::InvalidDocument);
+            }
+        }
+        for field in self.theme.keys() {
+            if classify_field(field) != SyncFieldClass::Theme {
+                return Err(SettingsSyncError::InvalidDocument);
+            }
+        }
+        if let Some(custom) = self.theme.get("custom_theme") {
+            let Some(custom) = custom.as_object() else {
+                return Err(SettingsSyncError::InvalidDocument);
+            };
+            if custom.contains_key("candidate_skin") || custom.contains_key("candidate_skin_dark") {
+                return Err(SettingsSyncError::InvalidDocument);
+            }
+        }
+        let encoded = serde_json::to_vec(&self).map_err(|_| SettingsSyncError::Serialization)?;
+        if encoded.len() > MAX_DOCUMENT_BYTES {
+            return Err(SettingsSyncError::TooLarge);
+        }
+        Ok(self)
+    }
+
+    /// 按基线做字段级三方合并。删除字段用“缺失”参与比较，因此旧快照不会把用户
+    /// 已删除的字段悄悄写回来。
+    pub fn merge(
+        base: &Self,
+        local: &Self,
+        remote: &Self,
+    ) -> Result<SettingsSyncMerge, SettingsSyncError> {
+        base.clone().validate()?;
+        local.clone().validate()?;
+        remote.clone().validate()?;
+        if base.format != local.format
+            || base.format != remote.format
+            || base.version != local.version
+            || base.version != remote.version
+        {
+            return Err(SettingsSyncError::InvalidDocument);
+        }
+        let mut conflicts = Vec::new();
+        let shared = merge_map(
+            &base.shared,
+            &local.shared,
+            &remote.shared,
+            SyncFieldClass::Shared,
+            &mut conflicts,
+        );
+        let theme = merge_map(
+            &base.theme,
+            &local.theme,
+            &remote.theme,
+            SyncFieldClass::Theme,
+            &mut conflicts,
+        );
+        let document = Self {
+            format: FORMAT.to_owned(),
+            version: VERSION,
+            shared,
+            theme,
+        }
+        .validate()?;
+        Ok(SettingsSyncMerge {
+            document,
+            conflicts,
+        })
+    }
+
     pub fn to_json(&self) -> Result<String, SettingsSyncError> {
-        let bytes = serde_json::to_vec(self).map_err(|_| SettingsSyncError::Serialization)?;
+        let validated = self.clone().validate()?;
+        let bytes = serde_json::to_vec(&validated).map_err(|_| SettingsSyncError::Serialization)?;
         if bytes.len() > MAX_DOCUMENT_BYTES {
             return Err(SettingsSyncError::TooLarge);
         }
         String::from_utf8(bytes).map_err(|_| SettingsSyncError::Serialization)
     }
+}
+
+fn merge_map(
+    base: &Map<String, Value>,
+    local: &Map<String, Value>,
+    remote: &Map<String, Value>,
+    class: SyncFieldClass,
+    conflicts: &mut Vec<SettingsSyncConflict>,
+) -> Map<String, Value> {
+    let fields: BTreeSet<_> = base
+        .keys()
+        .chain(local.keys())
+        .chain(remote.keys())
+        .cloned()
+        .collect();
+    let mut merged = Map::new();
+    for field in fields {
+        let baseline = base.get(&field);
+        let local_value = local.get(&field);
+        let remote_value = remote.get(&field);
+        let local_changed = local_value != baseline;
+        let remote_changed = remote_value != baseline;
+        let selected = if !local_changed {
+            remote_value
+        } else if !remote_changed || local_value == remote_value {
+            local_value
+        } else {
+            conflicts.push(SettingsSyncConflict {
+                class,
+                field: field.clone(),
+            });
+            local_value
+        };
+        if let Some(value) = selected {
+            merged.insert(field, value.clone());
+        }
+    }
+    merged
 }
 
 fn portable_custom_theme(value: &Value) -> Value {
@@ -182,5 +324,74 @@ mod tests {
             .to_json()
             .unwrap();
         assert!(!text.contains("synthetic-secret"), "{text}");
+    }
+
+    #[test]
+    fn json_round_trip_rejects_local_sections_and_skin_references() {
+        let preferences = Preferences::default();
+        let document = SettingsSyncDocument::from_preferences(&preferences).unwrap();
+        let text = document.to_json().unwrap();
+        assert_eq!(
+            SettingsSyncDocument::from_json(text.as_bytes()).unwrap(),
+            document
+        );
+
+        let mut leaked = document.clone();
+        leaked
+            .shared
+            .insert("voice_input".into(), Value::Object(Map::new()));
+        assert_eq!(
+            SettingsSyncDocument::from_json(&serde_json::to_vec(&leaked).unwrap()),
+            Err(SettingsSyncError::InvalidDocument)
+        );
+
+        let mut custom = Map::new();
+        custom.insert("candidate_skin".into(), Value::String("local".into()));
+        let mut skin_leak = document;
+        skin_leak
+            .theme
+            .insert("custom_theme".into(), Value::Object(custom));
+        assert_eq!(
+            SettingsSyncDocument::from_json(&serde_json::to_vec(&skin_leak).unwrap()),
+            Err(SettingsSyncError::InvalidDocument)
+        );
+    }
+
+    #[test]
+    fn three_way_merge_keeps_independent_changes_and_reports_same_field_conflicts() {
+        let base = SettingsSyncDocument {
+            format: FORMAT.into(),
+            version: VERSION,
+            shared: Map::from_iter([
+                ("scheme".into(), Value::String("quanpin".into())),
+                ("candidate_page_size".into(), Value::from(5)),
+            ]),
+            theme: Map::new(),
+        };
+        let mut local = base.clone();
+        local
+            .shared
+            .insert("scheme".into(), Value::String("shuangpin".into()));
+        let mut remote = base.clone();
+        remote
+            .shared
+            .insert("candidate_page_size".into(), Value::from(8));
+        let merged = SettingsSyncDocument::merge(&base, &local, &remote).unwrap();
+        assert!(merged.conflicts.is_empty());
+        assert_eq!(merged.document.shared["scheme"], "shuangpin");
+        assert_eq!(merged.document.shared["candidate_page_size"], 8);
+
+        remote
+            .shared
+            .insert("scheme".into(), Value::String("wubi".into()));
+        let conflict = SettingsSyncDocument::merge(&base, &local, &remote).unwrap();
+        assert_eq!(
+            conflict.conflicts,
+            vec![SettingsSyncConflict {
+                class: SyncFieldClass::Shared,
+                field: "scheme".into(),
+            }]
+        );
+        assert_eq!(conflict.document.shared["scheme"], "shuangpin");
     }
 }
