@@ -275,8 +275,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let numberHint: UILabel?
   }
   private var nineKeyGridKeys: [NineKeyGridKey] = []
-  /// 「九键滑动输入数字」（共享偏好 `touch_nine_key_swipe_digits`，#10229），键盘出现时从共享文档同步；九宫格的键每次判定时经 `activeNineKeySwipeDigits` 读它。
-  private var nineKeySwipeDigits = NineKeySwipeDigits.mirrored
+  /// 九键 flick 的共享判定阈值。
+  private var nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
   /// 26 键双拼画不画键位提示（共享偏好 `touch_shuangpin_key_hints`），键盘出现时从共享文档同步，绘制键面时不再读 App Group。
   private var shuangpinKeyHintsEnabled = KeyboardLayoutPreference.shuangpinKeyHints
 
@@ -460,7 +460,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var usesLetterGrid: Bool { letterGrid != nil }
   /// 此刻第二排 L 右边是否显示 `;` 键：方案要它（微软双拼、粤语双拼），而且在中文模式、不在本地模式、不画 14/18 键网格。键的显隐和手机中间一排的缩进都按它算，切到英文或本地模式时 `;` 藏起来，中间一排要回到两侧各缩进半个键。
   private var showsSemicolonKey: Bool {
-    isChineseMode && inputScheme.showsSemicolonFinalKey && !isInLocalMode && !usesLetterGrid
+    isChineseMode && (inputScheme.showsSemicolonFinalKey || usesShuangpin && shuangpinKeyHints[";"]?.isEmpty == false)
+      && !isInLocalMode && !usesLetterGrid
+  }
+  private var semicolonKeyAccessibilityLabel: String {
+    if session.sharedPreferences?["shuangpin_profile"] as? String == "custom", let hint = shuangpinKeyHints[";"] {
+      return "分号，自定义双拼 \(hint)"
+    }
+    return inputScheme.semicolonFinalKeyAccessibilityLabel
   }
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
@@ -983,8 +990,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     TouchKeyLayoutStyle.mirror(session.sharedPreferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
     letterGridWidthMode = keyLayoutStyle.letterWidths
-    NineKeySwipeDigits.mirror(session.sharedPreferences)
-    nineKeySwipeDigits = NineKeySwipeDigits.mirrored
+    KeyboardLayoutPreference.mirrorNineKeyFlickThreshold(session.sharedPreferences)
+    nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 输入习惯（学习、调频、离线释义、候选翻译与语言）同理以文档为准。镜像里没写过释义开关时读作开启，而文档默认关闭（`candidate_english_gloss` 是 opt-in）；不先抄过来，下面按镜像算出的顶栏会多留一行释义，键盘高 4pt，等后台重载把文档抄进镜像后又缩回去，文档没有更新时重载不抄，就一直按镜像显示释义。
     InputHabitPreference.mirror(InputHabitPreference.settings(in: session.sharedPreferences))
     shuangpinLayout = TouchShuangpinLayoutPreference.layout
@@ -1878,7 +1885,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       for button in buttons {
         applyLetterFont(to: button)
         if let entry = letterGridButtons.first(where: { $0.button === button }) {
-          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme == .microsoft)
+          applyLetterGridFaceSpacing(to: button, key: entry.key, semicolon: entry.key.letters == "l" && inputScheme.showsSemicolonFinalKey)
         }
         button.setNeedsUpdateConfiguration()
       }
@@ -2292,13 +2299,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         button.addGestureRecognizer(hold)
         button.accessibilityHint = letters.map { "长按输入 \(digit) 或 \($0)" } ?? "长按输入 1"
         if let key = button as? KeyboardKeyButton {
-          key.nineKeySwipeDigit = digit
-          key.nineKeySwipeHasLetters = letters != nil
-          key.nineKeySwipeHint = number
-          key.nineKeySwipeMode = { [weak self] in self?.activeNineKeySwipeDigits ?? .off }
-          key.onNineKeySwipe = { [weak self, weak key] gesture in
+          // 键面印的是大写（ABC），flick 输入小写，与长按菜单、Android 和 HarmonyOS 相同。
+          key.nineKeyFlickLetters = letters?.lowercased() ?? ""
+          key.nineKeyFlickEnabled = { [weak self] in
+            guard let self else { return false }
+            return Self.nineKeyFlickIsEnabled(
+              showsSymbols: self.showsSymbols,
+              isNineKey: self.inputScheme == .nineKey,
+              holdPopupPresented: self.nineKeyHoldPopup != nil,
+              cursorSwipeActive: self.cursorSwipeActive,
+              voiceOverRunning: self.isVoiceOverRunning())
+          }
+          key.nineKeyFlickThreshold = { [weak self] in self?.nineKeyFlickThreshold ?? NineKeyFlickPolicy.threshold }
+          key.onNineKeyFlick = { [weak self, weak key] character in
             guard let self, let key else { return }
-            self.handleNineKeySwipe(gesture, from: key, digit: digit)
+            self.countKeyPress(TypingKeyID.nineKey(digit))
+            self.commitNineKeyHoldOption(character)
+            key.isHighlighted = false
           }
         }
         nineKeyGridKeys.append(
@@ -2573,6 +2590,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 九键 2–9 按住多久弹出数字与字母菜单，理由见 `makeNineKeyLayout` 里设置它的地方。
   static let nineKeyHoldDuration: TimeInterval = 0.5
 
+  /// 九键 flick 只属于全拼九键字母层；其它层或接管触摸的功能不能让它抢走横滑。
+  static func nineKeyFlickIsEnabled(
+    showsSymbols: Bool,
+    isNineKey: Bool,
+    holdPopupPresented: Bool,
+    cursorSwipeActive: Bool,
+    voiceOverRunning: Bool
+  ) -> Bool {
+    !showsSymbols && isNineKey && !holdPopupPresented && !cursorSwipeActive && !voiceOverRunning
+  }
+
   private static let nineKeyLetters: [Int: String] = [
     2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ",
   ]
@@ -2583,27 +2611,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 长按替代点按，只统计一次；菜单选项经字面输入路径上屏，1 不进入拼音引擎。
     countKeyPress(TypingKeyID.nineKey(key.tag))
     showKeyHoldOptions(from: key, options: Self.nineKeyHoldOptions(key.tag))
-  }
-
-  /// 九宫格的键此刻按哪种「九键滑动输入数字」判定：只在拼音九键的字母层生效；数字层（包括别的键面借来的数字九宫格）、九键双拼、长按菜单已经弹出、横滑移光标接管了触摸、读屏开着时一律按关闭，点按和长按照旧。
-  var activeNineKeySwipeDigits: NineKeySwipeDigits {
-    guard nineKeySwipeDigits != .off, !showsSymbols, inputScheme == .nineKey, nineKeyHoldPopup == nil,
-          !cursorSwipeActive, !isVoiceOverRunning() else { return .off }
-    return nineKeySwipeDigits
-  }
-
-  /// 九键滑动的结果（#10229）。沿设定方向松手：记一次这个键（与点按同一个统计 id），按长按菜单里选数字的同一条路径上屏（先结束组字再上屏、跟随全角开关，按键反馈也在那里出）。反方向滑过：与长按一样记一次这个键，弹出同样的数字和字母，之后从菜单里选的不再记。
-  private func handleNineKeySwipe(_ gesture: NineKeySwipePolicy.Gesture, from key: UIButton, digit: Int) {
-    switch gesture {
-    case .digit:
-      countKeyPress(numberPadKeyID(digit))
-      commitNineKeyHoldOption(String(digit))
-    case .letters:
-      countKeyPress(TypingKeyID.nineKey(digit))
-      showKeyHoldOptions(from: key, options: Self.nineKeyHoldOptions(digit))
-    case .none:
-      break
-    }
   }
 
   static func nineKeyHoldOptions(_ digit: Int) -> [String] {
@@ -2649,18 +2656,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
     view.addSubview(backdrop)
     backdrop.addSubview(options)
-    let centred = options.centerXAnchor.constraint(equalTo: key.centerXAnchor)
-    centred.priority = .defaultHigh
     NSLayoutConstraint.activate([
       backdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       backdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       backdrop.topAnchor.constraint(equalTo: view.topAnchor),
       backdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      options.bottomAnchor.constraint(equalTo: key.topAnchor, constant: -6),
-      centred,
-      options.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 6),
-      options.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -6),
     ])
+    KeyboardHoldOptionsLayout.activate(options, from: key, in: view)
     nineKeyHoldPopup = backdrop
     UIAccessibility.post(notification: .layoutChanged, argument: options)
   }
@@ -3822,7 +3824,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if letters == letterRows[1] {
       // 读屏标签随方案变化，由 `updateLetterCaseControls` 按当前方案写入。
-      let key = makeTouchKey(title: ";", accessibilityLabel: inputScheme.semicolonFinalKeyAccessibilityLabel) { [weak self] key in
+      let key = makeTouchKey(title: ";", accessibilityLabel: semicolonKeyAccessibilityLabel) { [weak self] key in
         self?.countKeyPress(TypingKeyID.character(";"))
         self?.handleCharacter(";", touchDown: key?.takeTouchDownLocation())
       }
@@ -5456,7 +5458,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       hintLabel.isHidden = hint == nil
       // `;` 键的标签已经说出它在当前方案里的韵母，不再按字母读，也不重复读键位提示。
       if lowercase == ";" {
-        button.accessibilityLabel = inputScheme.semicolonFinalKeyAccessibilityLabel
+        button.accessibilityLabel = semicolonKeyAccessibilityLabel
         button.accessibilityValue = nil
         continue
       }
@@ -5576,11 +5578,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 设计稿的空格键面：中文下是麦克风和方案简称，英文下是 `space`，符号层上是空格；手写板与其他方案一样显示方案名（手写），与 Android 的 SpaceKeyFace 一致。日语按按键的作用命名，空闲时是空白，选候选时是変換。麦克风只在 `voice`（「长按空格语音输入」）开着时画：关掉后长按空格改为移动光标，键面不能再暗示能按住说话（#10143），与 Android 的 `SpaceKeyFace.setShowsMic` 一致。不是 private：布局测试会固定它。
   static func spaceKeyFace(scheme: ChineseInputScheme, chinese: Bool, symbols: Bool, composing: Bool,
-                           voice: Bool) -> SpaceKeyFace {
+                           voice: Bool, shuangpinProfile: String? = nil) -> SpaceKeyFace {
     if chinese && scheme.isJapanese { return SpaceKeyFace(label: composing ? "変換" : "空白", mic: false) }
     if symbols { return SpaceKeyFace(label: "空格", mic: voice) }
     if !chinese { return SpaceKeyFace(label: "space", mic: voice) }
-    return SpaceKeyFace(label: scheme.shortLabel, mic: voice)
+    return SpaceKeyFace(label: scheme.shortLabel(shuangpinProfile: shuangpinProfile), mic: voice)
   }
 
   private func updateSpaceKeyTitle() {
@@ -5592,7 +5594,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       japaneseSpaceButton?.accessibilityLabel = japaneseTitle
     }
     let face = Self.spaceKeyFace(scheme: inputScheme, chinese: isChineseMode, symbols: showsSymbols, composing: hasComposition,
-                                 voice: spaceVoiceEnabled)
+                                 voice: spaceVoiceEnabled, shuangpinProfile: session.sharedPreferences?["shuangpin_profile"] as? String)
     let japanese = isChineseMode && inputScheme.isJapanese
     // 数字页的空格只有一个功能键宽，留出完整的文字空间，长按语音手势仍由原按键处理。
     let mic = face.mic && !numberPadShown
@@ -5947,7 +5949,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .nineKeyShuangpin: session.switchToNineKeyShuangpin()
     case .fourteenKey: session.switchToFourteenKey()
     case .eighteenKey: session.switchToEighteenKey()
-    case .ziranma, .microsoft, .shoudao: switchShuangpinLayout(profile: inputScheme.rawValue)
+    case .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao:
+      switchShuangpinLayout(profile: inputScheme.shuangpinProfile ?? "xiaohe")
     case .wubi: letterGrid == .fourteenKey ? session.switchToFourteenKeyWubi() : session.switchToWubi()
     case .japanese, .japaneseNineKey: session.switchToJapanese()
     case .korean: session.switchToKorean()
@@ -5958,7 +5961,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .stroke: session.switchToStroke()
     case .handwriting: session.switchToHandwriting()
     case .quanpin: session.switch(toShuangpin: usesShuangpin)
-    case .shuangpin: switchShuangpinLayout(profile: "xiaohe")
+    case .shuangpin: switchShuangpinLayout(profile: ShuangpinCustomLayout.profile(in: session.sharedPreferences))
     }
   }
 
@@ -6495,6 +6498,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let skinChanged = KeyboardTheme.reload(preferences, dark: drawsDark) != previousTheme
     // 高度也抄进 App Group：原先只抄键距、行距和语音入口，高度只进了这个控制器，于是布局面板打开时显示、提交时写回的都是 App Group 里可能过时的高度。
     KeyboardLayoutPreference.mirrorGeometry(preferences)
+    nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 键盘调整开着时保留正在预览的高度：重读多半是键盘出现时发出、晚到的那一次，不是用户要的改动；离开调整时预览会存下，覆盖文档里的值。
     if adjustOverlay == nil,
        let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
@@ -6511,9 +6515,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       quanpinShiftEnabled = KeyboardLayoutPreference.quanpinShift
       updateLetterCaseControls()
     }
-    // 「九键滑动输入数字」不改键面，下一次触摸判定时就用新值，不用重画。
-    NineKeySwipeDigits.mirror(preferences)
-    nineKeySwipeDigits = NineKeySwipeDigits(in: preferences)
+    // 九键 flick 不改键面，下一次触摸判定时就用新阈值，不用重画。
     // 「按键布局」：样式或数字行变了，下面的 `updateKeyboardLayoutIfNeeded` 当场重排底行和数字行。只动键面，不碰会话，正在组的字照常继续。
     let previousLetterGridWidthMode = letterGridWidthMode
     TouchKeyLayoutStyle.mirror(preferences)
@@ -7344,7 +7346,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for row in fourteenKeyRowViews where row.isHidden == (shownGrid == .fourteenKey) { row.isHidden = shownGrid != .fourteenKey }
     for row in eighteenKeyRowViews where row.isHidden == (shownGrid == .eighteenKey) { row.isHidden = shownGrid != .eighteenKey }
     updateFourteenKeySeparator()
-    let semicolon = fourteenKey && inputScheme == .microsoft
+    let semicolon = fourteenKey && inputScheme.showsSemicolonFinalKey
     for (button, key) in letterGridButtons {
       button.configuration?.title = key.face(semicolon: semicolon)
       button.accessibilityLabel = key.accessibilityLabel(semicolon: semicolon)
@@ -8289,7 +8291,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !isChineseMode { return .english }
     if inputScheme == .nineKeyShuangpin { return .nineKey }
     if inputScheme == .cantoneseShuangpin { return .cantonese }
-    return TypingSource(rawValue: inputScheme.rawValue) ?? .unknown
+    return TypingSource.of(inputScheme) ?? .unknown
   }
 
   /// 运行时提交替换行内预编辑；显式定位在同一次临时标记里指定选区，再取消标记提交完整正文。`continuesComposition` 表示同一次渲染随后还要标记剩下的组字（部分选词）。

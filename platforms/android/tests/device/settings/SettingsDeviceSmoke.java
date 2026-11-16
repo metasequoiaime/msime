@@ -68,8 +68,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean screenCapture;
     private boolean voiceTriggers;
     private boolean localVoicePause;
+    private boolean shuangpinCustom;
 
     @Override public void onCreate(Bundle arguments) {
+        shuangpinCustom = arguments != null && "true".equals(arguments.getString("shuangpin-custom"));
         settingsSearchAnchor = arguments != null && "true".equals(arguments.getString("settings-search-anchor"));
         skinRefresh = arguments != null && "true".equals(arguments.getString("skin-refresh"));
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
@@ -84,6 +86,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
+        if (shuangpinCustom) return "自定义双拼文件边界、原生保存并使用、独立键盘进程提示和实际输入";
         if (settingsSearchAnchor) return "native settings search opens the matched row and section from both result groups";
         if (voiceTriggers) return "voice trigger combinations, existing settings and independent toolbar switches";
         if (localVoicePause) return "local voice pause and sensitivity settings save and survive page recreation";
@@ -97,6 +100,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (shuangpinCustom) {
+            new ShuangpinCustomDeviceChecks(this).run();
+            return;
+        }
         if (settingsSearchAnchor) {
             new SettingsSearchAnchorDeviceChecks(this).run();
             return;
