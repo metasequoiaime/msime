@@ -10,7 +10,9 @@
 namespace msime::windows {
 struct CandidateLayoutSettings {
   bool horizontal = false;
+  // `candidate_preedit_style` 决定文字，区域开关单独决定首行是否存在。
   bool show_preedit = true;
+  bool show_preedit_area = true;
   // The shared `wubi_code_hint`, which is on when the document does not say.
   bool wubi_code_hint = true;
   // 共享偏好 `show_app_logo`：首行左端画不画水杉 logo。新装默认关，文档里没有这个键时也按关处理，和 macOS 一致。
@@ -21,13 +23,15 @@ struct CandidateLayoutSettings {
   bool show_page_number = true;
   // The switches travel in one atomic value between monitor and UI threads.
   constexpr unsigned encode() const {
-    return (horizontal ? 1u : 0u) | (show_preedit ? 2u : 0u) | (wubi_code_hint ? 4u : 0u) |
+    return (horizontal ? 1u : 0u) | (show_preedit ? 2u : 0u) |
+           (show_preedit_area ? 128u : 0u) | (wubi_code_hint ? 4u : 0u) |
            (show_app_logo ? 8u : 0u) | ((reserved_gloss_lines > 2u ? 2u : reserved_gloss_lines) << 4) |
            (show_page_number ? 64u : 0u);
   }
   static constexpr CandidateLayoutSettings decode(unsigned value) {
-    return {(value & 1u) != 0, (value & 2u) != 0, (value & 4u) != 0, (value & 8u) != 0,
-            (value >> 4) & 3u, (value & 64u) != 0};
+    return {(value & 1u) != 0, (value & 2u) != 0, (value & 128u) != 0,
+            (value & 4u) != 0, (value & 8u) != 0, (value >> 4) & 3u,
+            (value & 64u) != 0};
   }
 };
 
@@ -139,6 +143,10 @@ candidate_layout_settings(const nlohmann::json &preferences,
     if ((layout != "horizontal" && layout != "vertical") ||
         (preedit != "pinyin" && preedit != "empty"))
       return std::nullopt;
+    const auto preedit_area = preferences.find("show_candidate_preedit_area");
+    if (preedit_area != preferences.end() && !preedit_area->is_boolean() &&
+        !preedit_area->is_null())
+      return std::nullopt;
     const auto hint = preferences.find("wubi_code_hint");
     if (hint != preferences.end() && !hint->is_boolean() && !hint->is_null())
       return std::nullopt;
@@ -149,6 +157,8 @@ candidate_layout_settings(const nlohmann::json &preferences,
     if (page_number != preferences.end() && !page_number->is_boolean() && !page_number->is_null())
       return std::nullopt;
     return CandidateLayoutSettings{layout == "horizontal", preedit != "empty",
+                                   preedit_area == preferences.end() || preedit_area->is_null() ||
+                                       preedit_area->get<bool>(),
                                    hint == preferences.end() || hint->is_null() || hint->get<bool>(),
                                    logo != preferences.end() && logo->is_boolean() && logo->get<bool>(),
                                    candidate_reserved_gloss_lines(preferences, offline_languages),

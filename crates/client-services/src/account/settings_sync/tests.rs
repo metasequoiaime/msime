@@ -176,6 +176,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
+    preferences.settings_sync_webdav.url = "https://SENTINEL-settings.example.test".into();
+    preferences.settings_sync_webdav.username = "SENTINEL-settings-user".into();
+    preferences.settings_sync_webdav.password = "SENTINEL-settings-password".into();
     let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
     let keys: Vec<&str> = exported.keys().map(String::as_str).collect();
     assert_eq!(
@@ -1149,6 +1152,9 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
     preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
+    preferences.settings_sync_webdav.url = "https://SENTINEL-settings.example.test".into();
+    preferences.settings_sync_webdav.username = "SENTINEL-settings-user".into();
+    preferences.settings_sync_webdav.password = "SENTINEL-settings-password".into();
     let exported = export_desktop_settings(&preferences);
     assert!(exported.keys().all(|key| {
         key.starts_with("input.")
@@ -1434,6 +1440,52 @@ fn settings_sync_punctuation_styles_round_trip() {
     .unwrap();
     assert_eq!(applied.preferences.quote_style, QuoteStyle::Curly);
     assert!(applied.skipped.is_empty());
+}
+/// 旧客户端上传的云快照没有 `input.traditional_variant`（只带 `input.character_set`），服务端字段表也可能还没有这个键：Android 应用这样的快照时保留本机已选的臺灣变体，不清回 `s2t`。
+#[test]
+fn android_settings_apply_keeps_the_local_traditional_variant_for_old_snapshots() {
+    for variant in [
+        TraditionalVariant::Taiwan,
+        TraditionalVariant::TaiwanPhrases,
+    ] {
+        let local = Preferences {
+            traditional_chinese_output: true,
+            traditional_chinese_variant: variant,
+            ..Preferences::default()
+        };
+        let mut old = export_android_settings(&local, Some(&feedback())).unwrap();
+        assert!(old.remove("input.traditional_variant").is_some());
+        old.insert(
+            "input.character_set".into(),
+            AccountPreferenceValue::String("simplified".into()),
+        );
+        let applied = apply(&local, old.clone(), &full_schema());
+        assert!(!applied.preferences.traditional_chinese_output);
+        assert_eq!(applied.preferences.traditional_chinese_variant, variant);
+        assert!(applied.skipped.is_empty());
+
+        let mut schema = full_schema();
+        schema.fields.remove("input.traditional_variant");
+        let applied = apply(&local, old, &schema);
+        assert_eq!(applied.preferences.traditional_chinese_variant, variant);
+    }
+    // 新快照里的变体照常应用；认不出的值（`s2hk`）只跳过这个键，由上面的未知取值用例覆盖。
+    let local = Preferences {
+        traditional_chinese_variant: TraditionalVariant::Taiwan,
+        ..Preferences::default()
+    };
+    let applied = apply(
+        &local,
+        BTreeMap::from([(
+            "input.traditional_variant".to_owned(),
+            AccountPreferenceValue::String("s2twp".into()),
+        )]),
+        &full_schema(),
+    );
+    assert_eq!(
+        applied.preferences.traditional_chinese_variant,
+        TraditionalVariant::TaiwanPhrases
+    );
 }
 #[test]
 fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
@@ -2078,9 +2130,11 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
 #[test]
 fn settings_sync_macos_round_trips_candidate_window_appearance_and_theme() {
     let local = Preferences::default();
-    let mut remote = Preferences::default();
-    remote.global_theme = GlobalTheme::Night;
-    remote.candidate_theme = SettingsTheme::Dark;
+    let mut remote = Preferences {
+        global_theme: GlobalTheme::Night,
+        candidate_theme: SettingsTheme::Dark,
+        ..Preferences::default()
+    };
     remote.custom_theme.base = GlobalTheme::Paper;
     remote.custom_theme.candidate_skin = Some("synthetic-skin".into());
     remote.custom_theme.candidate_skin_dark = Some("synthetic-dark".into());

@@ -61,6 +61,11 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                     await(languageKey());
                     stage = layout[0] + (swapped ? " swapped positions" : " default positions");
                     checkPositions(key("123"), swapped);
+                    if (layout[0].equals("quanpin")) {
+                        // #11001：字母层左下的第一、第二个动作键，切到数字层后仍保持同一语义顺序。
+                        checkSymbolOrder(swapped ? languageKey() : key("123"),
+                            described("打开符号面板"), layout[0] + " letter bottom order");
+                    }
                     if (layout[0].equals("japanese_nine_key") && swapped) {
                         // 交换后日语九键的语言键在左列最下一格，符 在它上面（#10437）。
                         stage = "japanese_nine_key language key at bottom of left column";
@@ -73,6 +78,10 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
                         await(key("英"));
                         checkPositions(key("123"), swapped);
                         tap(key("123"));
+                        if (layout[0].equals("quanpin")) {
+                            checkSymbolOrder(swapped ? languageKey() : described("返回原键盘"),
+                                described("打开符号面板"), layout[0] + " number bottom order");
+                        }
                         // 英文也借数字九宫格：底行有语言键，返回键（印 ABC）与它按同一个交换设置排，返回后字母层照样保持交换位置。
                         await(described("返回原键盘").and(node -> equalsText("ABC", node.getText())));
                         checkPositions(described("返回原键盘"), swapped);
@@ -125,6 +134,16 @@ public final class LanguageNumberKeySwapDeviceSmoke extends DeviceSmoke {
         awaitStableBounds(layerKey).getBoundsInScreen(layer);
         if (swapped ? language.centerX() >= layer.centerX() : language.centerX() <= layer.centerX())
             throw new AssertionError("Language/number keys did not use selected order");
+    }
+
+    private void checkSymbolOrder(Predicate<AccessibilityNodeInfo> first,
+            Predicate<AccessibilityNodeInfo> symbol, String label) throws Exception {
+        Rect firstBounds = new Rect(), symbolBounds = new Rect();
+        awaitStableBounds(first).getBoundsInScreen(firstBounds);
+        awaitStableBounds(symbol).getBoundsInScreen(symbolBounds);
+        if (firstBounds.centerX() >= symbolBounds.centerX())
+            throw new AssertionError(label + " 应保持第一键在符号键左侧：first="
+                + firstBounds.toShortString() + " symbol=" + symbolBounds.toShortString());
     }
 
     private void checkBelowSymbol() throws Exception {

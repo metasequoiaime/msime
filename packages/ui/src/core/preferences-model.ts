@@ -237,6 +237,8 @@ export type Preferences = PunctuationPreferences &
     /** macOS 菜单栏里常驻显示当前输入模式（中/双/五/日……，英文时为「英」）的状态项，默认关闭。 */
     input_mode_status_item?: boolean;
     candidate_layout?: "horizontal" | "vertical";
+    /** Windows 候选窗是否保留预编辑首行；缺字段按开启，文字样式仍由 `candidate_preedit_style` 决定。 */
+    show_candidate_preedit_area?: boolean;
     show_candidate_page_number?: boolean;
     /** macOS 候选窗首行的输入状态文字和枝叶装饰，缺省显示。 */
     show_candidate_status?: boolean;

@@ -45,6 +45,16 @@ if ! grep -qF 'KeyboardSession.shared.pressSpace();' \
   echo "Harmony touch Space must select the highlighted candidate and type a space when the runtime declines it" >&2
   exit 1
 fi
+# 基础访问模式下键盘进程有 seccomp 系统调用白名单，里面没有 sendfile；`@ohos.file.fs` 的拷贝接口底层用它，进程会被 SIGSYS 直接杀掉，键盘弹不出来。键盘进程里的拷贝一律走 FileCopy（只用 read/write）。
+keyboard_copies=$(grep -rnE 'copyFileSync|fs\.copyFile|copyDirSync|fs\.copyDir|moveFileSync|fs\.moveFile' \
+  --exclude=FileCopy.ets \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard" \
+  "$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability" || true)
+if [ -n "$keyboard_copies" ]; then
+  echo "Keyboard-process code must copy files with FileCopy: the fs copy APIs use sendfile, which basic access mode's seccomp filter kills the process for" >&2
+  echo "$keyboard_copies" >&2
+  exit 1
+fi
 # 字母键的 ForEach 按 faceKey() 判定子树是否重建。「双拼键位提示」不在这个键里时，键盘开着切换开关，已经画好的字母键会一直留着旧提示。
 face_key_body=$(sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
@@ -970,6 +980,7 @@ for source in "$here"/*.test.ts; do
 done
 # 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
 node "$here/telemetry-adapter.test.cjs"
+node "$here/cloud-clipboard-receive-adapter.test.cjs"
 bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"

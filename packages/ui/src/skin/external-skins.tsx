@@ -336,9 +336,10 @@ export function ExternalSkinCard({
         title={skin.name}
         theme={theme}
         selected={selected}
+        // 包自己写的说明（常常是一大段介绍和出处）不上卡片，卡片只在用不了时说明原因。
         description={
           compatible
-            ? skin.description || `基于 ${themeEntry(skin.base).title}`
+            ? undefined
             : `当前布局或明暗模式不受支持（${skin.layouts.join("/")}，${skin.themes.join("/")}）`
         }
         details={

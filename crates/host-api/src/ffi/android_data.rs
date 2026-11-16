@@ -116,6 +116,10 @@ struct DictionaryCollectionsRequest {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum HostDictionaryCollectionsAction {
+    SynchronizeSettings {
+        #[serde(default = "default_collection_sync_budget")]
+        budget_millis: u16,
+    },
     Synchronize {
         #[serde(default = "default_collection_sync_budget")]
         budget_millis: u16,
@@ -138,7 +142,7 @@ impl HanReadings for EngineReadings<'_> {
     }
 }
 
-/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，普通操作见 client-services `dictionary::collections`，返回集合视图。`synchronize` 的 `budget_millis` 为 1–2000，默认 2000；在软预算内逐批应用个人队列并补充集合待发项，返回总 `pending_count`、`failed_count` 与整个调用累计的 `sent`、`applied_count`（Engine 确认的 `Written` 请求数，含幂等重试）；每批个人队列至多 128 项、集合直接应用至多 4096 项，整批后释放维护租约。失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
+/// 命名词库。请求 `{options: 宿主选项（须带 preferences_directory）, action: {operation, ...}}`，普通操作见 client-services `dictionary::collections`，返回集合视图。`synchronize_settings` 先经共享维护租约协调桌面输入会话；`synchronize` 不打断会话。两者的 `budget_millis` 为 1–2000，默认 2000；在软预算内逐批应用个人队列并补充集合待发项，返回总 `pending_count`、`failed_count` 与整个调用累计的 `sent`、`applied_count`（Engine 确认的 `Written` 请求数，含幂等重试）；每批个人队列至多 128 项、集合直接应用至多 4096 项，整批后释放维护租约。失败时 `error` 是稳定错误码（`collections_*`、`builtin_locked`、`unsupported_format` 等）。
 /// # Safety
 /// `request` 必须指向 `length` 字节的可读内存，拒绝空指针。
 /// 返回值必须用 `msime_client_string_free` 释放。
@@ -167,6 +171,42 @@ pub unsafe extern "C" fn msime_client_dictionary_collections(
                         .validate()
                         .map_err(|_| "collections_invalid".to_owned())?;
                     let action = match request.action {
+                        HostDictionaryCollectionsAction::SynchronizeSettings { budget_millis } => {
+                            if !(1..=2000).contains(&budget_millis) {
+                                return Err("collections_invalid".into());
+                            }
+                            let options = request.options;
+                            let root = options
+                                .preferences_directory
+                                .as_deref()
+                                .filter(|path| Path::new(path).is_absolute())
+                                .ok_or("personal dictionary shared directory unavailable")?;
+                            let personal = PersonalDictionaryStore::new(
+                                Path::new(root).join("PersonalDictionary"),
+                            );
+                            let state = personal.read().map_err(|error| error.to_string())?;
+                            let collections = DictionaryCollectionsStore::new(root, personal)
+                                .load()
+                                .map_err(|error| error.code().to_owned())?;
+                            if state.pending_count() == 0 && collections.outbox_pending == 0 {
+                                return Ok(serde_json::json!({"pending_count": 0,
+                                    "failed_count": state.requests.iter().filter(|item| item.status ==
+                                        msime_client_services::dictionary::personal::PersonalWordRequestStatus::Failed).count(),
+                                    "sent": 0, "applied_count": 0}));
+                            }
+                            let directory = options.user_data.clone();
+                            let mut hosts =
+                                msime_client_services::dictionary::quiesce::QuiescedHosts::new(
+                                    Some(&directory),
+                                    || {},
+                                );
+                            return hosts.run(|| {
+                                crate::dictionary::synchronize_collections_with_budget(
+                                    &options,
+                                    std::time::Duration::from_millis(u64::from(budget_millis)),
+                                )
+                            });
+                        }
                         HostDictionaryCollectionsAction::Synchronize { budget_millis } => {
                             if !(1..=2000).contains(&budget_millis) {
                                 return Err("collections_invalid".into());

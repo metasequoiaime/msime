@@ -610,6 +610,19 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTra
     env->ReleaseByteArrayElements(text, bytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_convertToTraditionalRaw(
+        JNIEnv *env, jclass, jbyteArray text, jint variant) {
+    if (!text || variant < 0 || variant > 2) return nullptr;
+    jsize length = env->GetArrayLength(text);
+    if (length <= 0 || length > kTraditionalConversionLimit) return nullptr;
+    jbyte *bytes = env->GetByteArrayElements(text, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_convert_to_traditional(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length),
+        static_cast<uint32_t>(variant));
+    env->ReleaseByteArrayElements(text, bytes, JNI_ABORT);
+    return response(env, result);
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resetCacheRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_reset_cache(static_cast<uint64_t>(handle)));
 }
@@ -1278,6 +1291,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_customTranslati
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_niutransTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kTranslationRequestLimit, msime_client_niutrans_translation_http_request);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aliyunTranslationRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kTranslationResponseLimit, msime_client_aliyun_translation);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_tencentTranslationHttpRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kTranslationRequestLimit, msime_client_tencent_translation_http_request);

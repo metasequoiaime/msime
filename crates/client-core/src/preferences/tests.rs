@@ -6702,6 +6702,125 @@ fn wubi_profile_defaults_to_86_and_reads_unknown_values_as_86() {
     assert!(Preferences::from_submission(submitted).is_err());
 }
 
+/// Android 把完整文档的 `traditional_chinese_variant` 缺键、非字符串或认不出的值按 `s2t` 读，
+/// 其余字段和 revision 不受影响；关掉 `applies` 等价于其余平台，仍然严格拒绝。
+#[test]
+fn traditional_variant_falls_back_on_read_only_on_android() {
+    let base = r#"{"format_version":1,"revision":3,"preferences":{"scheme":"quanpin","candidate_page_size":5,"learning":false,"chinese_punctuation":true,"traditional_chinese_output":true"#;
+    for (name, expected) in [
+        ("s2t", TraditionalVariant::Standard),
+        ("s2tw", TraditionalVariant::Taiwan),
+        ("s2twp", TraditionalVariant::TaiwanPhrases),
+    ] {
+        let mut document: serde_json::Value =
+            serde_json::from_str(&(base.to_owned() + "}}")).unwrap();
+        document["preferences"]["traditional_chinese_variant"] = name.into();
+        traditional_variant_read::settle(&mut document, true);
+        let loaded: PreferencesSnapshot = serde_json::from_value(document).unwrap();
+        assert_eq!(loaded.preferences.traditional_chinese_variant, expected);
+    }
+    for malformed in [
+        base.to_owned() + "}}",
+        base.to_owned() + r#","traditional_chinese_variant":"s2hk"}}"#,
+        base.to_owned() + r#","traditional_chinese_variant":1}}"#,
+    ] {
+        let mut document: serde_json::Value = serde_json::from_str(&malformed).unwrap();
+        traditional_variant_read::settle(&mut document, true);
+        let loaded: PreferencesSnapshot = serde_json::from_value(document).unwrap();
+        assert_eq!(
+            loaded.preferences.traditional_chinese_variant,
+            TraditionalVariant::Standard,
+            "{malformed}"
+        );
+        assert!(loaded.preferences.traditional_chinese_output, "{malformed}");
+        assert_eq!(loaded.revision, 3, "{malformed}");
+
+        let mut strict: serde_json::Value = serde_json::from_str(&malformed).unwrap();
+        traditional_variant_read::settle(&mut strict, false);
+        if malformed.contains("traditional_chinese_variant") {
+            assert!(
+                serde_json::from_value::<PreferencesSnapshot>(strict).is_err(),
+                "{malformed}"
+            );
+        } else {
+            assert_eq!(
+                serde_json::from_value::<PreferencesSnapshot>(strict)
+                    .unwrap()
+                    .preferences
+                    .traditional_chinese_variant,
+                TraditionalVariant::Standard,
+                "{malformed}"
+            );
+        }
+    }
+    // 其余字段同时损坏时仍然整份读不了，不被这条宽松路径掩盖。
+    let other_invalid = base.to_owned() + r#","candidate_page_size":"five"}}"#;
+    let mut document: serde_json::Value = serde_json::from_str(&other_invalid).unwrap();
+    traditional_variant_read::settle(&mut document, true);
+    assert!(serde_json::from_value::<PreferencesSnapshot>(document).is_err());
+}
+
+#[test]
+fn traditional_variant_store_reload_does_not_keep_the_previous_document_variant() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    for initial in ["s2tw", "s2twp"] {
+        for next in [
+            None,
+            Some(serde_json::json!("s2hk")),
+            Some(serde_json::json!(1)),
+        ] {
+            let mut document = serde_json::json!({
+                "format_version": 1, "revision": 7,
+                "preferences": {"scheme": "quanpin", "learning": false, "chinese_punctuation": true,
+                    "traditional_chinese_output": true,
+                    "traditional_chinese_variant": initial, "candidate_page_size": 7}
+            });
+            fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+            let previous = store.load_reusing(None).unwrap();
+            assert_eq!(
+                previous.snapshot.preferences.traditional_chinese_variant,
+                if initial == "s2tw" {
+                    TraditionalVariant::Taiwan
+                } else {
+                    TraditionalVariant::TaiwanPhrases
+                }
+            );
+            document["revision"] = 8.into();
+            if let Some(value) = next {
+                document["preferences"]["traditional_chinese_variant"] = value;
+            } else {
+                document["preferences"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("traditional_chinese_variant");
+            }
+            let bytes = serde_json::to_vec(&document).unwrap();
+            fs::write(store.path(), &bytes).unwrap();
+            let loaded = store.load_reusing(Some(previous));
+            if traditional_variant_read::FALLS_BACK_ON_READ
+                || document["preferences"]
+                    .get("traditional_chinese_variant")
+                    .is_none()
+            {
+                let loaded = loaded.unwrap();
+                assert_eq!(
+                    loaded.snapshot.preferences.traditional_chinese_variant,
+                    TraditionalVariant::Standard
+                );
+                assert_eq!(loaded.snapshot.revision, 8);
+                assert!(loaded.snapshot.preferences.traditional_chinese_output);
+                assert_eq!(loaded.snapshot.preferences.candidate_page_size, 7);
+                assert_eq!(store.load().unwrap(), loaded.snapshot);
+            } else {
+                assert!(loaded.is_err());
+                assert!(store.load().is_err());
+            }
+            assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        }
+    }
+}
+
 #[test]
 fn try_load_distinguishes_busy_missing_and_corrupt() {
     let dir = tempfile::tempdir().unwrap();
@@ -6733,6 +6852,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..PreferencesSnapshot::default()
         },
+        unknown_key_paths: Vec::new(),
     };
     assert_eq!(
         store.load_reusing(Some(stale)).unwrap().snapshot,
@@ -6758,6 +6878,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..loaded.snapshot.clone()
         },
+        unknown_key_paths: Vec::new(),
         ..loaded.clone()
     };
     assert_eq!(
@@ -6780,6 +6901,25 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
     assert_eq!(reloaded.snapshot, store.load().unwrap());
     fs::write(store.path(), "broken").unwrap();
     assert!(store.load_reusing(Some(reloaded)).is_err());
+}
+
+#[test]
+fn load_reusing_exposes_unknown_key_paths_once_per_document_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["synthetic_unknown_preferences_path"] = "synthetic-value".into();
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+    let mut loaded = store.load_reusing(None).unwrap();
+    assert_eq!(
+        loaded.take_unknown_key_paths(),
+        ["synthetic_unknown_preferences_path"]
+    );
+    assert!(loaded.take_unknown_key_paths().is_empty());
+
+    let reused = store.load_reusing(Some(loaded)).unwrap();
+    assert!(reused.unknown_key_paths.is_empty());
 }
 
 #[test]
@@ -10455,6 +10595,29 @@ fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
         restored.candidate_preedit_style,
         Preferences::default().candidate_preedit_style
     );
+}
+
+#[test]
+fn candidate_preedit_area_defaults_on_and_round_trips_independently_of_style() {
+    let mut value = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    value
+        .get_mut("preferences")
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap()
+        .remove("show_candidate_preedit_area");
+    let loaded: PreferencesSnapshot = serde_json::from_value(value).unwrap();
+    assert!(loaded.preferences.show_candidate_preedit_area);
+
+    let mut preferences = loaded.preferences;
+    preferences.candidate_preedit_style = CandidatePreeditStyle::Empty;
+    preferences.show_candidate_preedit_area = false;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert_eq!(
+        restored.candidate_preedit_style,
+        CandidatePreeditStyle::Empty
+    );
+    assert!(!restored.show_candidate_preedit_area);
 }
 
 /// 写一份 `{"format_version": 1, "revision": 5, "preferences": ...}` 到存储的文件，返回写下的字节。

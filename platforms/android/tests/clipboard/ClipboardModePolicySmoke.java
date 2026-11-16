@@ -15,6 +15,14 @@ public final class ClipboardModePolicySmoke {
         check(visitor.equals(new File(root, ClipboardModePolicy.VISITOR_DIRECTORY)),
             "visitor mode uses a separate directory");
         check(!visitor.equals(root), "visitor mode never aliases the main store");
+        check(ClipboardModePolicy.handledClipPreferenceKey(ClipboardModePolicy.Mode.MAIN)
+                .equals("handled_clip_main"),
+            "main mode has its own handled clipboard identity");
+        check(ClipboardModePolicy.handledClipPreferenceKey(ClipboardModePolicy.Mode.VISITOR)
+                .equals("handled_clip_visitor"),
+            "visitor mode has its own handled clipboard identity");
+        check(ClipboardModePolicy.legacyHandledClipPreferenceKey().equals("handled_clip"),
+            "the pre-isolation handled clipboard identity remains a migration source");
 
         check(ClipboardModePolicy.isValidSwipe(50, 200, 50, 100, 100, 50, 500),
             "an upward swipe into the keyboard toggles");
@@ -22,8 +30,10 @@ public final class ClipboardModePolicySmoke {
             "a short hold is not a toggle");
         check(!ClipboardModePolicy.isValidSwipe(50, 200, 180, 100, 100, 50, 500),
             "a wide diagonal swipe is not a toggle");
-        check(!ClipboardModePolicy.isValidSwipe(50, 200, 50, -1, 100, 50, 500),
-            "a swipe outside the keyboard is not a toggle");
+        check(ClipboardModePolicy.isValidSwipe(50, 100, 50, -1, 100, 50, 500),
+            "an upward flick may finish just above the keyboard");
+        check(!ClipboardModePolicy.isValidSwipe(50, 200, 50, -151, 100, 50, 500),
+            "a flick that travels too far above the keyboard is not a toggle");
         check(ClipboardModePolicy.enterIcon(ClipboardModePolicy.Mode.MAIN, false)
                 == ClipboardModePolicy.EnterIcon.RETURN,
             "main mode keeps the return icon");

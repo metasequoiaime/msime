@@ -14,6 +14,8 @@ public final class CandidateAppearanceSmoke {
         check(CandidateAppearance.fontSize(32) == 32);
         check(CandidateAppearance.fontSize(11) == 16);
         check(CandidateAppearance.fontSize(33) == 16);
+        // 设置页的两个字号滑块必须与宿主实际接受的范围一致。
+        check(CandidateAppearance.MIN_FONT_SIZE == 12 && CandidateAppearance.MAX_FONT_SIZE == 32);
         // 候选条按钮只有 30dp 的触控下限，与 iOS、鸿蒙相同；皮肤的 itemMinWidth 是桌面候选窗的格宽，不用于候选条。
         check(CandidateAppearance.STRIP_CHIP_MIN_WIDTH_DP == 30);
 
