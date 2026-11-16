@@ -273,7 +273,7 @@ export const panelPreviewLabel = "mb-[18px] text-xs text-muted";
 // ---- the desktop window chrome ----
 
 /*
- * Only Windows and Linux draw a caption in the page: macOS keeps its native traffic lights over the sidebar, and HarmonyOS 2-in-1 and the phones leave the frame to the system. Windows 11 is 48 high with the brand on the left, a search box centred on the window and 46px caption buttons; the GNOME headerbar is 46 high, split like a libadwaita split view: its left pane is part of the 240px sidebar column (same fill, one continuous divider) and the right part takes the page background with the page name in the middle, so no line runs across the window and nothing crosses the sidebar divider at the top.
+ * 只有 Windows 和 Linux 在页面里画标题栏；macOS 把原生红绿灯叠在侧栏上，HarmonyOS 二合一与手机由系统画外框。Windows 11 标题栏高 48px，左侧为品牌、中间为搜索框、右侧为 46px 宽的窗口按钮。GNOME 标题栏高 46px，沿用 libadwaita 分栏布局：左侧属于 240px 宽的侧栏列，底色和竖分隔线连续；右侧使用页面底色、居中显示页面名，不画横贯窗口的底线，避免顶部出现横竖交叉。
  */
 export const titlebar =
   "relative flex h-[var(--titlebar-height)] flex-shrink-0 items-center justify-between gap-3 bg-[var(--p-chrome)] pl-3 text-[var(--p-text)] select-none win:[--titlebar-height:48px] linux:bg-[var(--p-bg)] linux:pl-0 linux:[--titlebar-height:46px]";
