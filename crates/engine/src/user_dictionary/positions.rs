@@ -193,20 +193,18 @@ pub(crate) fn apply_fixed_positions_with_state(
 /// 每个上下文保留一个置顶值；本机修改推进逻辑时间后替换（J:671-680）。
 pub fn record_pinned_candidate(user_db: &Path, context: &str, value: &str) -> Result<()> {
     let journal = open_journal(user_db)?;
-    journal
-        .prepare_cached(
-            "INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES(?1,?2,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(context_key) DO UPDATE SET value=excluded.value,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
-        )?
-        .execute(params![context, value])?;
+    journal.execute_batch("BEGIN IMMEDIATE")?;
+    super::pin_state::set(&journal, context, value)?;
+    journal.execute_batch("COMMIT")?;
     Ok(())
 }
 
-/// Drops `value`'s pin in `context` only; a pin of another word there stays.
+/// 只取消当前上下文的这个词，其他词的置顶不变。
 pub fn clear_pinned_candidate(user_db: &Path, context: &str, value: &str) -> Result<()> {
     let journal = open_journal(user_db)?;
-    journal
-        .prepare_cached("DELETE FROM pinned_candidates WHERE context_key=?1 AND value=?2")?
-        .execute(params![context, value])?;
+    journal.execute_batch("BEGIN IMMEDIATE")?;
+    super::pin_state::clear(&journal, context, value)?;
+    journal.execute_batch("COMMIT")?;
     Ok(())
 }
 

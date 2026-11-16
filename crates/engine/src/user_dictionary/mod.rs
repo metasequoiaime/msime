@@ -11,6 +11,7 @@ pub mod learning_sync;
 pub mod ngram_store;
 pub mod personal;
 pub mod picks;
+pub(crate) mod pin_state;
 pub(crate) mod position_state;
 pub mod positions;
 pub mod ranking;

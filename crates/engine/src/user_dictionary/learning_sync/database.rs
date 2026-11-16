@@ -10,7 +10,7 @@ use crate::assets;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
 use crate::types::PersonalDictionaryKind;
-use crate::user_dictionary::{journal, ngram_store, personal, position_state, state};
+use crate::user_dictionary::{journal, ngram_store, personal, pin_state, position_state, state};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct LearningSyncExport {
@@ -155,9 +155,17 @@ pub fn stream_learning_sync_state(
             }
         }
         if has_table(&transaction, "pinned_candidates")? {
-            let mut statement = transaction.prepare(
-                "SELECT context_key,value,updated_at FROM pinned_candidates ORDER BY context_key",
-            )?;
+            let query = if has_table(&transaction, "pinned_candidate_state")? {
+                "SELECT c.context_key,c.value,c.updated_at FROM pinned_candidate_state c \
+                 WHERE NOT EXISTS(SELECT 1 FROM pinned_candidates d WHERE d.context_key=c.context_key \
+                   AND (d.updated_at>c.updated_at OR (d.updated_at=c.updated_at AND d.value>c.value))) \
+                 UNION ALL SELECT d.context_key,d.value,d.updated_at FROM pinned_candidates d \
+                 WHERE NOT EXISTS(SELECT 1 FROM pinned_candidate_state c WHERE c.context_key=d.context_key \
+                   AND (c.updated_at>d.updated_at OR (c.updated_at=d.updated_at AND c.value>=d.value))) ORDER BY 1"
+            } else {
+                "SELECT context_key,value,updated_at FROM pinned_candidates ORDER BY context_key"
+            };
+            let mut statement = transaction.prepare(query)?;
             let mut rows = statement.query([])?;
             while let Some(row) = rows.next()? {
                 push(pin(row)?)?;
@@ -223,6 +231,7 @@ fn merge(
     let mut connection = personal::open_edit_connection(paths, main_dictionary)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     position_state::seed_display(&transaction, "personal_journal", None)?;
+    pin_state::seed_display(&transaction, "personal_journal")?;
     let mut result = LearningSyncMerge::default();
     let mut contexts = BTreeSet::new();
     let mut removed_context = Vec::new();
@@ -316,7 +325,7 @@ fn merge(
                 updated_at,
             } => {
                 let local = transaction.query_row(
-                    "SELECT context_key,value,updated_at FROM personal_journal.pinned_candidates WHERE context_key=?1",
+                    "SELECT context_key,value,updated_at FROM personal_journal.pinned_candidate_state WHERE context_key=?1",
                     [context], pin,
                 ).optional()?;
                 if local.is_some_and(|record| !incoming.priority(&record).is_gt()) {
@@ -324,7 +333,7 @@ fn merge(
                     continue;
                 }
                 transaction.execute(
-                    "INSERT INTO personal_journal.pinned_candidates(context_key,value,updated_at) VALUES(?1,?2,?3) \
+                    "INSERT INTO personal_journal.pinned_candidate_state(context_key,value,updated_at) VALUES(?1,?2,?3) \
                      ON CONFLICT(context_key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
                     params![context,value,*updated_at as i64],
                 )?;
@@ -360,6 +369,7 @@ fn merge(
     for context in contexts {
         position_state::project_in(&transaction, "personal_journal", context)?;
     }
+    pin_state::project(&transaction, "personal_journal")?;
     transaction.commit()?;
     ngram_store::forget_journal_rows(&file, &removed_context);
     Ok(result)

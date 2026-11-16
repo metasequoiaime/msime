@@ -147,3 +147,47 @@ fn failed_projection_rolls_back_all_fixed_candidates() {
         0
     );
 }
+
+#[test]
+fn carry_preserves_hidden_pin_and_its_comparison_history() {
+    let active = fixture();
+    let staged = fixture();
+    Connection::open(active.journal()).unwrap().execute_batch(
+        "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES('pinyin','jia','甲','delete',0,'',0,20); INSERT INTO pinned_candidate_state VALUES('synthetic','甲',10);"
+    ).unwrap();
+    carry_learning_sync_state(&paths(&active), &paths(&staged), true).unwrap();
+    let target = Connection::open(staged.journal()).unwrap();
+    assert_eq!(
+        target
+            .query_row(
+                "SELECT value,updated_at FROM pinned_candidate_state",
+                [],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            )
+            .unwrap(),
+        ("甲".into(), 10)
+    );
+    assert_eq!(
+        target
+            .query_row("SELECT count(*) FROM pinned_candidates", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    let mut older = super::super::LearningSyncState::default();
+    older
+        .insert(LearningSyncRecord::Pin {
+            context: "synthetic".into(),
+            value: "乙".into(),
+            updated_at: 9,
+        })
+        .unwrap();
+    super::super::merge_learning_sync_state(&paths(&staged), true, &older, 0).unwrap();
+    assert_eq!(
+        target
+            .query_row("SELECT count(*) FROM pinned_candidates", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}

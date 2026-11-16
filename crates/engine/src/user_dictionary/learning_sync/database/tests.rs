@@ -345,7 +345,10 @@ fn remote_delete_removes_the_word_pin_and_every_ngram_reference() {
         ),
         0
     );
-    assert_eq!(export(&dir).0, remote);
+    // 删词仍清可见置顶与联想；同步导出保留隐藏胜者，避免改变到达次序后丢失比较历史。
+    let mut expected = remote;
+    expected.insert(pinned("甲", 1)).unwrap();
+    assert_eq!(export(&dir).0, expected);
 }
 
 #[test]
@@ -589,4 +592,141 @@ fn a_later_failure_restores_deleted_words_pins_and_ngram_rows() {
         ),
         1
     );
+}
+
+#[test]
+fn delete_and_pin_converge_across_every_arrival_order_and_restart() {
+    let deletion = LearningSyncRecord::Delete {
+        dictionary: "pinyin".into(),
+        key: "jia".into(),
+        value: "甲".into(),
+        updated_at: 20,
+    };
+    let records = [
+        state([deletion]),
+        state([pinned("甲", 10)]),
+        state([pinned("乙", 9)]),
+    ];
+    let mut expected = LearningSyncState::default();
+    for record in &records {
+        expected.combine(record);
+    }
+    for order in [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        let dir = fixture();
+        for i in order {
+            apply(&dir, &records[i]);
+            release_thread_journal();
+        }
+        assert_eq!(export(&dir).0, expected, "{order:?}");
+        assert_eq!(
+            query(&dir, "SELECT count(*) FROM pinned_candidates"),
+            0,
+            "{order:?}"
+        );
+        let encoded = {
+            let mut bytes = Vec::new();
+            write_learning_sync(&export(&dir).0, "synthetic-content", &mut bytes).unwrap();
+            bytes
+        };
+        let decoded = read_learning_sync(Cursor::new(encoded)).unwrap();
+        let restored = fixture();
+        apply(&restored, &decoded.state);
+        assert_eq!(export(&restored).0, expected);
+        assert_eq!(
+            query(&restored, "SELECT count(*) FROM pinned_candidates"),
+            0
+        );
+        apply(&dir, &records[2]);
+        assert_eq!(
+            query(&dir, "SELECT count(*) FROM pinned_candidates"),
+            0,
+            "较旧的另一个词不能因胜者隐藏而上位"
+        );
+    }
+}
+
+#[test]
+fn a_later_weight_reprojects_the_same_pin_in_every_order() {
+    let deletion = state([LearningSyncRecord::Delete {
+        dictionary: "pinyin".into(),
+        key: "jia".into(),
+        value: "甲".into(),
+        updated_at: 20,
+    }]);
+    let restore = state([LearningSyncRecord::Weight {
+        dictionary: "pinyin".into(),
+        key: "jia".into(),
+        value: "甲".into(),
+        weight: 9,
+        display: "".into(),
+        updated_at: 21,
+    }]);
+    let pin = state([pinned("甲", 10)]);
+    for order in [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        let dir = fixture();
+        let states = [&deletion, &restore, &pin];
+        for i in order {
+            apply(&dir, states[i]);
+        }
+        assert_eq!(
+            query(
+                &dir,
+                "SELECT count(*) FROM pinned_candidates WHERE value='甲'"
+            ),
+            1,
+            "{order:?}"
+        );
+    }
+}
+
+#[test]
+fn local_delete_keeps_the_hidden_pin_for_later_sync_comparison() {
+    let dir = fixture();
+    crate::user_dictionary::positions::record_pinned_candidate(&dir.journal(), "synthetic", "甲")
+        .unwrap();
+    crate::user_dictionary::removal::delete_dictionary_candidate(
+        &dir.main_db(),
+        &dir.journal(),
+        PersonalDictionaryKind::Pinyin,
+        "jia",
+        "甲",
+    )
+    .unwrap();
+    assert_eq!(query(&dir, "SELECT count(*) FROM pinned_candidates"), 0);
+    let (exported, _) = export(&dir);
+    assert!(exported
+        .records()
+        .any(|r| matches!(r,LearningSyncRecord::Pin{value,..} if value=="甲")));
+    let other = fixture();
+    apply(&other, &exported);
+    assert_eq!(export(&other).0, exported);
+    assert_eq!(query(&other, "SELECT count(*) FROM pinned_candidates"), 0);
+}
+
+#[test]
+fn failed_pin_projection_rolls_back_the_comparison_state() {
+    let dir = fixture();
+    open_journal(&dir.journal()).unwrap().execute_batch(
+        "CREATE TRIGGER reject_pin BEFORE INSERT ON pinned_candidates BEGIN SELECT RAISE(ABORT,'synthetic rejection'); END;"
+    ).unwrap();
+    assert!(merge_learning_sync_state(&paths(&dir), true, &state([pinned("甲", 10)]), 0).is_err());
+    assert_eq!(
+        query(&dir, "SELECT count(*) FROM pinned_candidate_state"),
+        0
+    );
+    assert_eq!(query(&dir, "SELECT count(*) FROM pinned_candidates"), 0);
 }

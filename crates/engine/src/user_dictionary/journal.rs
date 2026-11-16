@@ -39,6 +39,7 @@ display TEXT NOT NULL DEFAULT '',\
 user_inserted INTEGER NOT NULL DEFAULT 0,\
 updated_at INTEGER NOT NULL DEFAULT(unixepoch()),\
 PRIMARY KEY(dictionary,key,value));\
+CREATE INDEX IF NOT EXISTS pinned_candidate_deleted_words ON user_dictionary_operations(value) WHERE dictionary='pinyin' AND operation='delete';\
 CREATE TABLE IF NOT EXISTS personal_dictionary_receipts( request_id TEXT PRIMARY KEY, payload TEXT NOT NULL);\
 CREATE TABLE IF NOT EXISTS candidate_selection_state(\
 context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,\
@@ -450,7 +451,7 @@ fn open_uncached(path: &Path) -> Result<JournalConnection> {
     })
 }
 
-/// 补齐日志表、`user_inserted` 和固定位置完整状态，最后写仅供说明的 `user_version = 4`。
+/// 补齐日志表、`user_inserted`、固定位置及置顶完整状态，最后写仅供说明的 `user_version = 4`。
 pub fn ensure_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(SCHEMA_SQL)?;
     let has_user_inserted = {
@@ -471,6 +472,7 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
         )?;
     }
     super::position_state::ensure_schema(connection)?;
+    super::pin_state::ensure_schema(connection)?;
     // 版本号仅供说明，不作为迁移开关；旧引擎改写它时仍忽略不认识的表（J:177-178）。
     connection.execute_batch(&format!("PRAGMA user_version={SCHEMA_VERSION}"))?;
     Ok(())

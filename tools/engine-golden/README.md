@@ -140,3 +140,5 @@ Since #5667 / #5907 the mixed emoji and kaomoji rows no longer take the priority
 #10123 之后，全拼、双拼中由 Shift 字母进入、只含字母的本地模式遇到不收的字母，整串连同这个字母转回普通字面组字，不再提交原文并透传。`local_unicode_edges` 中 `U` 后的 `g` 因此保留 `Ug` 组字（原文候选、`segment_boundaries`），随后的 `Cancel` 改为已处理；含数字的 Unicode 码位和其他步骤继续保留原断言。见 `.agents/notes/implemented/bug-fix/2026-10-29-shortcut-letter-rejection-keeps-composing.md`。
 
 #9696 之后，五笔在没有组字时也打开输入不经过方案拼写的 Shift+字母模式（U、T、Y、S，加上原有的 K、C），参考引擎在五笔下拒绝 U、T。`local_shortcuts_outside_pinyin` 因此在 U、T 之后各加一步 `Cancel`，U、T 两步记录进入 Unicode 和日期时间模式（兜底行是入口字母）；E、M 按拼音拼写查，仍保留参考的拒绝断言。见 `.agents/notes/implemented/bug-fix/2026-10-25-wubi-scheme-free-shift-modes.md`。
+
+#10043 的学习同步增加完整比较状态表。十个已有场景的 `dump_journal` 只补入 `fixed_candidate_position_state` 与 `pinned_candidate_state` 实际多出的行：前者保留槽位冲突候选，后者保留删词后隐藏的置顶胜者。原有场景输入、默认选项、可见置顶与固定位置、删词、n-gram、候选和上屏断言全部保留，未重录参考数据，也未在回放器里忽略新表。新状态的时间戳、收敛、迁移、隐藏与失败回滚另由 Engine 行为测试覆盖。

@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选及调权、删除的原始时间与权重，置顶时间由现有习惯搬迁保留。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。日志的完整 Lamport 写入、重置与接纳的维护边界串行、同步轮次和各平台接入仍按决策笔记里的分期落地；这些基础 API 本身不发起上传。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选、置顶比较状态及调权、删除的原始时间与权重。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。日志的完整 Lamport 写入、重置与接纳的维护边界串行、同步轮次和各平台接入仍按决策笔记里的分期落地；这些基础 API 本身不发起上传。
 
 ## 与其他同步的关系
 
@@ -123,7 +123,7 @@ UTF-8 的 NDJSON，一行一条记录，顺序固定，同样的学习数据总�
 
 - `weight`：日志里 `operation='upsert'` 且 `user_inserted=0` 的行，即内置词学到的权重，包括阶梯降权写下的那些行。`user_inserted=1` 的行不导出，它们归词库同步。
 - `delete`：日志里全部 `operation='delete'` 的行（删除记录）。
-- `pin`：`pinned_candidates` 的行。
+- `pin`：`pinned_candidate_state` 的完整行，包括删词隐藏的胜者；旧日志从 `pinned_candidates` 读取。
 - `position`：固定位置的完整候选状态，每个 `(context, key, value)` 一条，带 `position` 和必填 `updated_at`。第一期先迁移现有 `fixed_candidate_positions`：旧行的时间戳设为 `1`；新增或移动时按下节更新。候选表只按身份唯一，不能有 `(context, position)` 唯一约束；显示用的 `fixed_candidate_positions` 仍是槽位唯一的投影。被槽位冲突暂时隐藏的候选也导出、计入记录数和上限，摘要与重启恢复不能只读显示投影。备份恢复仍用自己的格式和合并语义；它替换或合并固定位置时必须同步候选状态，不能只改显示表后让旧候选在重算时回来。
 - 排序：`weight` 与 `delete` 按 `(dictionary, key, value)` 混排，然后 `pin` 按 `context`，然后 `position` 按 `(context, key, value)`；字符串按 UTF-8 字节比较。
 - `updated_at` 是这一行在日志里的逻辑修改时间，以 Unix 秒为起点并按下节单调推进，可能超前于实际时钟，不是导出时间。
@@ -138,7 +138,7 @@ Engine 的 `read_learning_sync` 接受解密后的 `BufRead`，完整校验后�
 
 ## 时间戳
 
-Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinned_candidates` 或固定位置候选状态的语句，都把 `updated_at` 写成 `min(max(unixepoch(), 旧值 + 1, reset_floor + 1), 2⁴⁰)`；第一次插入没有旧值，取 `min(max(unixepoch(), reset_floor + 1), 2⁴⁰)`。`reset_floor` 是当前账号在本机的重置屏障，没有时为 0，定义见「本机重置屏障」。同一行的时间戳因此单调递增：收到一条带「未来时间」的远端行之后，本机下一次修改这一行仍然比它大，重置后新写的行也高于屏障。合并写入远端行时原样保留它的 `updated_at`。上限 2⁴⁰ 与「上限与额度」一致，保证不会溢出 SQLite 的 64 位整数，也不会写出别的设备拒收的值；碰到之后这一行再改也停在 2⁴⁰，按平局规则比较，不能再保证新修改胜出。屏障已到这个上限时，也不能再保证重置后的新行能通过屏障。
+Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinned_candidate_state` 或固定位置候选状态的语句，都把 `updated_at` 写成 `min(max(unixepoch(), 旧值 + 1, reset_floor + 1), 2⁴⁰)`；第一次插入没有旧值，取 `min(max(unixepoch(), reset_floor + 1), 2⁴⁰)`。`reset_floor` 是当前账号在本机的重置屏障，没有时为 0，定义见「本机重置屏障」。同一行的时间戳因此单调递增：收到一条带「未来时间」的远端行之后，本机下一次修改这一行仍然比它大，重置后新写的行也高于屏障。合并写入远端行时原样保留它的 `updated_at`。上限 2⁴⁰ 与「上限与额度」一致，保证不会溢出 SQLite 的 64 位整数，也不会写出别的设备拒收的值；碰到之后这一行再改也停在 2⁴⁰，按平局规则比较，不能再保证新修改胜出。屏障已到这个上限时，也不能再保证重置后的新行能通过屏障。
 
 未达到上限时，这保证之后的修改能胜出，不保证「真实时间更晚的先胜」：两台设备在各自时钟下几乎同时改同一行时，时钟快的一方胜。
 
@@ -153,8 +153,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | 数据 | 第一期 | 规则 |
 | --- | --- | --- |
 | `weight` 与 `delete` | 同步 | 按 `(dictionary, key, value)` 比较：`updated_at` 大的胜；相同时 `delete` 胜；都是 `weight` 时 `weight` 大的胜；再相同时 `display` 按字节大的胜。本机这一行 `user_inserted=1` 时从不被远端行覆盖。远端行写进本机时记为 `user_inserted=0`，写法与 `merge_dictionary_state` 相同（先改工作词库，再记日志）。一次调频写下的一组行（含阶梯降权）共用同一个时间戳 `g`（见「时间戳」），所以在两组都写过的行上，`g` 大的那一组整组胜出；两组的 `g` 恰好相等时按上面的平局规则逐行比较，组可能被拆开，这只在两台设备同一秒调同一组时发生，接受 |
-| `delete` 胜出时的副作用 | 同步 | 与本机删词相同：删掉这个词的置顶，删掉包含它的整句联想记录（`removal.rs` 的删词事务）。删除记录必须同步：连续选词造词前会查删除记录，不同步的话对端会把删掉的词又造回来 |
-| `pin` | 同步 | 按 `context` 比较 `updated_at`，大的胜，相同时 `value` 按字节大的胜。26 键取消置顶只发生在删词时，由 `delete` 的副作用带过去。九宫格的置顶和固定到第 1 位也写一条 `pin`（上下文 `nine-key:<数字>:<锁定>`），用户取消那个词的固定或把它挪到别的槽位时删掉本机这一条，和 `position` 的取消固定一样不留删除记录，远端副本以后仍可能把它带回来 |
+| `delete` 胜出时的副作用 | 同步 | 与本机删词相同：隐藏这个词的置顶显示，保留置顶比较状态，删掉包含它的整句联想记录（`removal.rs` 的删词事务）。删除记录必须同步：连续选词造词前会查删除记录，不同步的话对端会把删掉的词又造回来 |
+| `pin` | 同步 | 按 `context` 比较 `updated_at`，大的胜，相同时 `value` 按字节大的胜。完整胜者保存于 `pinned_candidate_state`；显示投影排除仍有拼音删除记录的词，删除与置顶到达次序不改变比较状态，较旧的其他词不能因胜者隐藏而替代它。26 键取消置顶只发生在删词时，由 `delete` 的副作用带过去。九宫格的置顶和固定到第 1 位也写一条 `pin`（上下文 `nine-key:<数字>:<锁定>`），用户取消那个词的固定或把它挪到别的槽位时删掉本机这一条，和 `position` 的取消固定一样不留删除记录，远端副本以后仍可能把它带回来 |
 | `position` | 同步，无删除记录 | 同一 `(context, key, value)` 取 `updated_at` 较大的那条，时间相同取较小的 `position`；本机与远端一视同仁，不用 `INSERT OR IGNORE` 保留本机。将完整候选状态合并并持久化之后，对每个 `(context, position)` 取时间较大的候选，时间相同取 `(key, value)` 字节序较小者，生成显示投影；输家保留在候选表中。合并、投影和重新导出不更新时间戳。取消固定只删除本机对应候选并重算投影，不留删除记录，远端副本以后仍可能把它带回来，第一期不承诺传播取消 |
 | 快捷短语槽位（`quick_phrase_slots`） | 第二期 | 不在任何导出流里，第二期给它加时间戳和删除记录 |
 | 整句联想（`personal_bigram`、`personal_trigram`） | 第二期 | 按设备分槽：每台设备上传自己计数最高的 5 万条；接收方按来源设备另存，读取时本机计数加上远端计数之和；远端合计截到 20 万行；移除设备时删掉它的贡献 |

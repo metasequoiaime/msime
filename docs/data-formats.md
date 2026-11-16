@@ -237,7 +237,7 @@ PRAGMA user_version=3;
 
 ### 6.1 模式与版本
 
-每次打开都执行 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`；`position_state::ensure_schema` 在保存点里创建完整固定候选表并迁移旧投影，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表。现有用户多是只有前四张表的 v3 日志。一共 14 张表。新增的完整候选表不改变资源词库的格式版本，旧引擎仍读显示投影；但旧写入方删除、移动已有固定身份不会更新完整表，降级修改后的完整状态不保证兼容。
+每次打开都执行 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`；`position_state::ensure_schema` 在保存点里创建完整固定候选表并迁移旧投影，`pin_state::ensure_schema` 在保存点中迁移置顶的完整比较状态，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表。现有用户多是只有前四张表的 v3 日志。一共 15 张表。新增的完整候选表不改变资源词库的格式版本，旧引擎仍读显示投影；但旧写入方删除、移动已有固定身份不会更新完整表，降级修改后的完整状态不保证兼容。
 
 ### 6.2 `user_dictionary_operations`
 
@@ -317,6 +317,10 @@ CREATE TABLE IF NOT EXISTS pinned_candidates(
     context_key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL DEFAULT(unixepoch()));
+CREATE TABLE IF NOT EXISTS pinned_candidate_state(
+    context_key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS personal_bigram(
     previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),
     PRIMARY KEY(previous,word)) WITHOUT ROWID;
@@ -339,11 +343,14 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(
 | `pick_transitions` | 连续选中的两个词，够多次就成词 |
 | `pinyin_typo_counts`、`pinyin_autocorrect_suppressions` | 全拼纠错的学习与按输入关闭纠错 |
 | `shuangpin_typo_counts`、`shuangpin_autocorrect_suppressions` | 双拼的同上，按 `profile` 区分 |
-| `pinned_candidates` | 置顶的候选 |
+| `pinned_candidates` | 置顶显示投影，排除仍有拼音删除记录的词 |
+| `pinned_candidate_state` | 每个上下文按同步全序保留的置顶，包括因删词隐藏的胜者；迁移保留旧时间 |
 | `personal_bigram`、`personal_trigram` | 个人 n-gram 计数 |
 | `quick_phrase_slots` | 快捷短语的位置 |
 
-本机写入 `user_dictionary_operations`、`pinned_candidates` 和完整固定候选时，`updated_at` 取当前秒数与同一身份旧时间加一的较大者，并封顶 2⁴⁰；新增行时间至少为 1。同一次调频中实际改写的阶梯行和选中行共用整组时间，未改写行不参与计算。同步应用保留远端时间，旧备份导入的新身份继续用时间 1。账号重置屏障尚未接到本机写入点，相关目标与限制见[输入习惯同步协议](learning-sync.md#时间戳)。
+本机写入 `user_dictionary_operations`、`pinned_candidate_state` 和完整固定候选时，`updated_at` 取当前秒数与同一身份旧时间加一的较大者，并封顶 2⁴⁰；新增行时间至少为 1。同一次调频中实际改写的阶梯行和选中行共用整组时间，未改写行不参与计算。同步应用保留远端时间，旧备份导入的新身份继续用时间 1。账号重置屏障尚未接到本机写入点，相关目标与限制见[输入习惯同步协议](learning-sync.md#时间戳)。
+
+`pinned_candidate_deleted_words` 是删除记录的按词面部分索引，避免每个置顶投影扫描全部学习行。置顶按 `context_key` 保存完整比较状态，删词只清显示投影，隐藏胜者仍参与后续比较、导出和云快照换代。同步结束后，仍有拼音删除记录的词不进入置顶投影；较新调权替换删除记录后重新计算投影。本机显式置顶推进完整状态的时间，取消同时删完整状态和显示行。旧格式备份仍只导出可见置顶；恢复时完整状态优先，避免较旧备份替换隐藏胜者。旧客户端不会维护完整状态，降级删除或替换已有上下文不保证兼容。
 
 完整固定候选按 `(context_key,entry_key,value)` 存储，没有槽位唯一约束。显示投影按槽位中时间较大的候选胜出，平局取 `(entry_key,value)` 字节序较小者；隐藏身份仍参与同步。迁移建表与导入处于同一保存点，失败时连表回滚、下次可重试。本机显式固定仍移除目标槽位的旧候选，取消固定删除对应完整身份，两张表同事务更新。云快照换代保留完整表和学习操作的原始时间，旧格式备份继续只带显示投影，恢复新身份的时间为 1；同步流与冲突规则见[输入习惯同步协议](learning-sync.md)。
 
