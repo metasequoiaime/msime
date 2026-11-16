@@ -1419,13 +1419,17 @@ where
     msime_engine::close_cached_databases();
     // 排着的整句联想此刻已经写进旧日志，在同一把锁里把旧的一代学到的东西并进新的一代，再换入：入队到激活之间学到的也带得过去，合并失败时旧的一代原样留着。
     // 用户加的粤语词不论哪种激活都要带过去（云端「应用到本机」、本地备份恢复都一样）：快照装不下它们，新的一代里本来就没有。
-    let carried = carry_cantonese_words(active, staged).and_then(|()| {
-        if prepared.keep_local_learning {
-            carry_local_learning(active, staged, prepared.directory.path())
-        } else {
-            Ok(())
-        }
-    });
+    // 时间下限不属于可替换的学习内容，即使用户选择不保留本机学习也必须带到新日志。
+    let carried = msime_engine::host::carry_learning_sync_clock(active, staged)
+        .map_err(|_| "snapshot learning clock unavailable")
+        .and_then(|()| carry_cantonese_words(active, staged))
+        .and_then(|()| {
+            if prepared.keep_local_learning {
+                carry_local_learning(active, staged, prepared.directory.path())
+            } else {
+                Ok(())
+            }
+        });
     // 合并在新的一代上开过连接，不论成败都先全部关掉：成功时 Windows 不让移动打开着的 SQLite 文件；失败时调用方要删掉暂存的新一代，同样删不掉打开着的文件。
     msime_engine::close_cached_databases();
     carried?;

@@ -13,6 +13,10 @@ use crate::user_dictionary::wubi_learning;
 
 const FUTURE: i64 = 10_000_000_000;
 
+fn floor(dir: &Dir, value: u64) {
+    crate::advance_learning_sync_clock(&paths(dir), value).unwrap();
+}
+
 fn paths(dir: &Dir) -> RuntimePaths {
     let root = dir.root.path();
     RuntimePaths {
@@ -277,4 +281,99 @@ fn a_failed_group_write_rolls_back_dictionary_and_journal_together() {
             .unwrap(),
         0
     );
+}
+
+#[test]
+fn new_and_existing_local_rows_read_the_persistent_floor_after_reopening() {
+    let dir = Dir::new();
+    let kind = PersonalDictionaryKind::English;
+    record_user_insert(&dir.journal(), kind, "existing", "Existing", 1, "").unwrap();
+    let cached = open_journal(&dir.journal()).unwrap();
+    std::thread::scope(|scope| {
+        scope.spawn(|| floor(&dir, FUTURE as u64)).join().unwrap();
+    });
+    // 连接在另一线程推进屏障之前已经缓存，写入仍须读到新下限。
+    write_upsert(&cached, kind, "existing", "Existing", 2, "").unwrap();
+    write_upsert(&cached, kind, "fresh", "Fresh", 1, "").unwrap();
+    assert_eq!(stamp(&dir, "existing", "Existing"), FUTURE + 1);
+    assert_eq!(stamp(&dir, "fresh", "Fresh"), FUTURE + 1);
+    drop(cached);
+    release_thread_journal();
+    record_user_insert(&dir.journal(), kind, "user", "User", 1, "").unwrap();
+    assert_eq!(stamp(&dir, "user", "User"), FUTURE + 1);
+    open_journal(&dir.journal())
+        .unwrap()
+        .execute(
+            &tombstone_sql("main"),
+            params!["english", "deleted", "Deleted"],
+        )
+        .unwrap();
+    assert_eq!(stamp(&dir, "deleted", "Deleted"), FUTURE + 1);
+    floor(&dir, 1);
+    record_user_insert(&dir.journal(), kind, "later", "Later", 1, "").unwrap();
+    assert_eq!(stamp(&dir, "later", "Later"), FUTURE + 1);
+}
+
+#[test]
+fn attached_journal_edits_deletes_and_wubi_creation_exceed_the_floor() {
+    let dir = Dir::new();
+    dir.english(&[("bundled", "Bundled", 1)]);
+    dir.wubi(&[("abcd", "甲", 100), ("efgh", "乙", 100)]);
+    floor(&dir, FUTURE as u64);
+    let paths = paths(&dir);
+    let personal = entry(PersonalDictionaryKind::English, "user", "User", 1);
+    edit_personal_dictionary(&paths, None, Some(&personal), "").unwrap();
+    assert_eq!(stamp(&dir, "user", "User"), FUTURE + 1);
+    edit_personal_dictionary(&paths, Some(&personal), None, "").unwrap();
+    assert_eq!(stamp(&dir, "user", "User"), FUTURE + 2);
+    let bundled = entry(PersonalDictionaryKind::English, "bundled", "Bundled", 1);
+    edit_bundled_dictionary_entry(&paths, &bundled, Some(2), "").unwrap();
+    assert_eq!(stamp(&dir, "bundled", "Bundled"), FUTURE + 1);
+    let bundled = entry(PersonalDictionaryKind::English, "bundled", "Bundled", 2);
+    edit_bundled_dictionary_entry(&paths, &bundled, None, "").unwrap();
+    assert_eq!(stamp(&dir, "bundled", "Bundled"), FUTURE + 2);
+    assert!(wubi_learning::learn(&paths, "甲乙", WubiProfileKind::Wubi86).unwrap());
+    assert_eq!(stamp(&dir, "abef", "甲乙"), FUTURE + 1);
+}
+
+#[test]
+fn new_pin_position_and_ranking_group_exceed_the_floor_and_saturate() {
+    for previous in [FUTURE as u64, MAX_LEARNING_SYNC_TIMESTAMP] {
+        let dir = Dir::new();
+        let words = ["甲", "乙", "丙", "丁", "戊"];
+        let rows: Vec<_> = words.iter().map(|word| ("ni", *word, 5000)).collect();
+        dir.pinyin(&rows);
+        floor(&dir, previous);
+        let expected = (previous + 1).min(MAX_LEARNING_SYNC_TIMESTAMP) as i64;
+        record_pinned_candidate(&dir.journal(), "synthetic", "甲").unwrap();
+        set_fixed_position(&dir.journal(), "synthetic", "a", "甲", 1).unwrap();
+        let journal = open_journal(&dir.journal()).unwrap();
+        for table in ["pinned_candidate_state", "fixed_candidate_position_state"] {
+            assert_eq!(
+                journal
+                    .query_row(&format!("SELECT updated_at FROM {table}"), [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                expected
+            );
+        }
+        drop(journal);
+        let ordered: Vec<_> = words.iter().map(|word| item("ni", word, 5000)).collect();
+        assert!(adjust_candidate_ranking(&RankingRequest {
+            main_db: &dir.main_db(),
+            user_db: &dir.journal(),
+            context_key: "ni",
+            ordered: &ordered,
+            entry_key: "ni",
+            value: "戊",
+            mode: FrequencyAdjustmentMode::Promote,
+            linear_step: 1,
+            trigger_count: 1,
+            force_top: false,
+            kind: PersonalDictionaryKind::Pinyin,
+        })
+        .unwrap());
+        assert_eq!(stamp(&dir, "ni", "丁"), expected);
+        assert_eq!(stamp(&dir, "ni", "戊"), expected);
+    }
 }

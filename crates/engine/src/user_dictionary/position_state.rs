@@ -101,7 +101,7 @@ pub(crate) fn set(
 ) -> rusqlite::Result<()> {
     seed_display(connection, "main", Some(context))?;
     let timestamp: i64 = connection.query_row(
-        "SELECT min(max(min(COALESCE(MAX(updated_at),0),?4)+1,unixepoch()),?4) \
+        "SELECT min(max(min(COALESCE(MAX(updated_at),0),?4)+1,unixepoch(),COALESCE((SELECT reset_floor FROM learning_sync_clock WHERE singleton=1),0)+1),?4) \
          FROM fixed_candidate_position_state WHERE context_key=?1 AND entry_key=?2 AND value=?3",
         params![context, key, value, MAX_LEARNING_SYNC_TIMESTAMP as i64],
         |row| row.get(0),

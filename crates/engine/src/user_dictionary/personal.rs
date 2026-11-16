@@ -862,7 +862,7 @@ fn apply_personal_edit(
         ""
     };
     connection.execute(
-        "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,?4,?5,?6,1,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation=excluded.operation, weight=excluded.weight,display=excluded.display,user_inserted=1,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
+        "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,?4,?5,?6,1,min(max(unixepoch(),COALESCE((SELECT reset_floor FROM personal_journal.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation=excluded.operation, weight=excluded.weight,display=excluded.display,user_inserted=1,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
         params![
             entry.kind.journal_name(),
             key,

@@ -20,7 +20,11 @@ pub fn carry_learning_sync_state(
     staged: &RuntimePaths,
     main_dictionary: bool,
 ) -> Result<usize> {
+    active.validate()?;
     staged.validate()?;
+    let floor = crate::user_dictionary::learning_floor::read_path(
+        &active.user(crate::assets::USER_JOURNAL),
+    )?;
     let mut positions = Vec::new();
     let mut pins = Vec::new();
     stream_learning_sync_state(active, &mut |record| {
@@ -44,11 +48,12 @@ pub fn carry_learning_sync_state(
         ],
         true,
     )?;
-    if positions.is_empty() && pins.is_empty() {
+    if positions.is_empty() && pins.is_empty() && floor == 0 {
         return Ok(operations);
     }
     let mut connection = personal::open_edit_connection(staged, main_dictionary)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    crate::user_dictionary::learning_floor::advance_in(&transaction, "personal_journal", floor)?;
     position_state::seed_display(&transaction, "personal_journal", None)?;
     pin_state::seed_display(&transaction, "personal_journal")?;
     let mut contexts = BTreeSet::new();

@@ -14,7 +14,7 @@ pub(crate) fn ranking_timestamp<'a>(
 ) -> rusqlite::Result<i64> {
     let ceiling = MAX_LEARNING_SYNC_TIMESTAMP as i64;
     let mut timestamp =
-        connection.query_row("SELECT min(max(unixepoch(),1),?1)", [ceiling], |row| {
+        connection.query_row("SELECT min(max(unixepoch(),COALESCE((SELECT reset_floor FROM learning_sync_clock WHERE singleton=1),0)+1),?1)", [ceiling], |row| {
             row.get::<_, i64>(0)
         })?;
     let mut existing = connection.prepare_cached(

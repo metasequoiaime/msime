@@ -51,7 +51,7 @@ pub(crate) fn set(connection: &Connection, context: &str, value: &str) -> rusqli
     seed_display(connection, "main")?;
     connection.execute(
         "INSERT INTO pinned_candidate_state(context_key,value,updated_at) \
-         VALUES(?1,?2,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(context_key) \
+         VALUES(?1,?2,min(max(unixepoch(),COALESCE((SELECT reset_floor FROM main.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(context_key) \
          DO UPDATE SET value=excluded.value,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
         params![context,value],
     )?;

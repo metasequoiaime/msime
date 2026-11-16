@@ -7,6 +7,7 @@ mod database;
 mod records;
 mod stream;
 
+pub use super::learning_floor::{advance_learning_sync_clock, carry_learning_sync_clock};
 pub use carry::carry_learning_sync_state;
 pub use database::{
     merge_learning_sync_state, stream_learning_sync_state, LearningSyncExport, LearningSyncMerge,

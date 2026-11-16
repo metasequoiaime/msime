@@ -92,14 +92,14 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(\
 code TEXT PRIMARY KEY,slot INTEGER NOT NULL CHECK(slot>=0));";
 
 /// J:96-102。调频保留用户词标记；本机修改在已有逻辑时间后递增，并封顶 2⁴⁰。
-pub(crate) const UPSERT_JOURNAL_SQL: &str = "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,updated_at) VALUES(?1,?2,?3,'upsert',?4,?5,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight, display=excluded.display,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)";
+pub(crate) const UPSERT_JOURNAL_SQL: &str = "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,updated_at) VALUES(?1,?2,?3,'upsert',?4,?5,min(max(unixepoch(),COALESCE((SELECT reset_floor FROM main.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight, display=excluded.display,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)";
 
 /// J:547-559。用户词也保留原身份的逻辑时间。
-const USER_INSERT_SQL: &str = "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,'upsert',?4,?5,1,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight, display=excluded.display,user_inserted=1,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)";
+const USER_INSERT_SQL: &str = "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,'upsert',?4,?5,1,min(max(unixepoch(),COALESCE((SELECT reset_floor FROM main.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight, display=excluded.display,user_inserted=1,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)";
 
 /// J:583-596。`schema` 为内部固定别名；删词保留用户来源，并推进该身份的逻辑时间。
 pub(crate) fn tombstone_sql(schema: &str) -> String {
-    format!("INSERT INTO {schema}.user_dictionary_operations(dictionary,key,value,operation,updated_at) VALUES(?1,?2,?3,'delete',min(max(unixepoch(),1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='delete',weight=0,display='', updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)")
+    format!("INSERT INTO {schema}.user_dictionary_operations(dictionary,key,value,operation,updated_at) VALUES(?1,?2,?3,'delete',min(max(unixepoch(),COALESCE((SELECT reset_floor FROM {schema}.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='delete',weight=0,display='', updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)")
 }
 
 /// Bumped by `close_cached_journals`; a connection opened under an older value closes when its operation ends instead of being kept.
@@ -451,7 +451,7 @@ fn open_uncached(path: &Path) -> Result<JournalConnection> {
     })
 }
 
-/// 补齐日志表、`user_inserted`、固定位置及置顶完整状态，最后写仅供说明的 `user_version = 4`。
+/// 补齐日志表、`user_inserted`、完整候选和学习时间下限，最后写仅供说明的 `user_version = 4`。
 pub fn ensure_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(SCHEMA_SQL)?;
     let has_user_inserted = {
@@ -473,6 +473,7 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
     }
     super::position_state::ensure_schema(connection)?;
     super::pin_state::ensure_schema(connection)?;
+    super::learning_floor::ensure_schema(connection)?;
     // 版本号仅供说明，不作为迁移开关；旧引擎改写它时仍忽略不认识的表（J:177-178）。
     connection.execute_batch(&format!("PRAGMA user_version={SCHEMA_VERSION}"))?;
     Ok(())

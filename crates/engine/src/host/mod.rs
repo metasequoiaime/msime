@@ -50,7 +50,8 @@ pub use glosses::{
     release_gloss_caches, save_candidate_gloss, PHONETIC_LANGUAGES,
 };
 pub use learning_sync::{
-    carry_learning_sync_state, merge_learning_sync_state, stream_learning_sync_state,
+    advance_learning_sync_clock, carry_learning_sync_clock, carry_learning_sync_state,
+    merge_learning_sync_state, stream_learning_sync_state,
 };
 pub use options::{
     downloaded_wubi_merge_pending, merge_downloaded_wubi_dictionary, open_prepared_options_for,

@@ -237,7 +237,7 @@ PRAGMA user_version=3;
 
 ### 6.1 模式与版本
 
-每次打开都执行 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`；`position_state::ensure_schema` 在保存点里创建完整固定候选表并迁移旧投影，`pin_state::ensure_schema` 在保存点中迁移置顶的完整比较状态，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表。现有用户多是只有前四张表的 v3 日志。一共 15 张表。新增的完整候选表不改变资源词库的格式版本，旧引擎仍读显示投影；但旧写入方删除、移动已有固定身份不会更新完整表，降级修改后的完整状态不保证兼容。
+每次打开都执行 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`；`position_state::ensure_schema` 在保存点里创建完整固定候选表并迁移旧投影，`pin_state::ensure_schema` 在保存点中迁移置顶的完整比较状态，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表。现有用户多是只有前四张表的 v3 日志。一共 16 张表。新增的完整候选表不改变资源词库的格式版本，旧引擎仍读显示投影；但旧写入方删除、移动已有固定身份不会更新完整表，降级修改后的完整状态不保证兼容。
 
 ### 6.2 `user_dictionary_operations`
 
@@ -332,10 +332,14 @@ CREATE TABLE IF NOT EXISTS personal_trigram(
 CREATE INDEX IF NOT EXISTS personal_trigram_word ON personal_trigram(word);
 CREATE TABLE IF NOT EXISTS quick_phrase_slots(
     code TEXT PRIMARY KEY,slot INTEGER NOT NULL CHECK(slot>=0));
+CREATE TABLE IF NOT EXISTS learning_sync_clock(
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    reset_floor INTEGER NOT NULL CHECK(reset_floor BETWEEN 0 AND 1099511627776));
 ```
 
 | 表 | 内容 |
 | --- | --- |
+| `learning_sync_clock` | 本机学习时间下限，至多一行；缺行按零，不写入备份或同步明文；重置与任何快照激活均保留，只能递增 |
 | `personal_dictionary_receipts` | 个人词典编辑请求的回执，按 `request_id` 去重 |
 | `candidate_selection_state` | 调频的选中计数。`context_key` 以 `cantonese:` 开头的是粤语的计数（后接粤拼键），词库快照不收 |
 | `fixed_candidate_positions` | 固定位置显示投影（1 到 5），每个上下文的同一槽位只有一行 |
@@ -348,7 +352,7 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(
 | `personal_bigram`、`personal_trigram` | 个人 n-gram 计数 |
 | `quick_phrase_slots` | 快捷短语的位置 |
 
-本机写入 `user_dictionary_operations`、`pinned_candidate_state` 和完整固定候选时，`updated_at` 取当前秒数与同一身份旧时间加一的较大者，并封顶 2⁴⁰；新增行时间至少为 1。同一次调频中实际改写的阶梯行和选中行共用整组时间，未改写行不参与计算。同步应用保留远端时间，旧备份导入的新身份继续用时间 1。账号重置屏障尚未接到本机写入点，相关目标与限制见[输入习惯同步协议](learning-sync.md#时间戳)。
+v1 支持的本机学习写入（调频、删词、个人词编辑、五笔造词、置顶和固定候选）在写入语句中读取 `learning_sync_clock.reset_floor`，`updated_at` 取当前秒数、同一身份旧时间加一与下限加一的最大值，并封顶 2⁴⁰；缺下限时仍至少为 1。同一次调频中实际改写的阶梯行和选中行共用整组时间，未改写行不参与计算。同步应用保留远端时间，旧备份导入的新身份继续用时间 1。这个本机下限不出现在备份或同步明文中，不影响版本哈希；重置空日志、云端或本地快照激活均从本机原日志保留，快照不能降低它，即使选择不保留学习内容也一样。账号持久屏障到该下限的宿主接线尚未完成，不能宣称跨设备重置已生效；相关目标与饱和限制见[输入习惯同步协议](learning-sync.md#时间戳)。
 
 `pinned_candidate_deleted_words` 是删除记录的按词面部分索引，避免每个置顶投影扫描全部学习行。置顶按 `context_key` 保存完整比较状态，删词只清显示投影，隐藏胜者仍参与后续比较、导出和云快照换代。同步结束后，仍有拼音删除记录的词不进入置顶投影；较新调权替换删除记录后重新计算投影。本机显式置顶推进完整状态的时间，取消同时删完整状态和显示行。旧格式备份仍只导出可见置顶；恢复时完整状态优先，避免较旧备份替换隐藏胜者。旧客户端不会维护完整状态，降级删除或替换已有上下文不保证兼容。
 
