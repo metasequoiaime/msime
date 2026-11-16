@@ -787,6 +787,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
           cargo build --locked -p msime-host-api -j 2
           if ($LASTEXITCODE -ne 0) { throw 'Settings host library build failed' }
+          # 真实系统编辑器的主线程可能只有 512 KiB 栈；运行完整默认配置的 C ABI 回归。
+          cargo test --locked -p msime-host-api --test host_options_small_stack -j 2
+          if ($LASTEXITCODE -ne 0) { throw 'Small-stack host options regression failed' }
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = @(& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe')
           if ($msbuild.Count -lt 1) { throw 'MSBuild not found' }
