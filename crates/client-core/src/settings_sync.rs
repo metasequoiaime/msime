@@ -4,6 +4,7 @@
 //! 和本机设置。网络、设备批准、冲突合并和宿主触发留在后续切片；输入法宿主不能
 //! 直接把完整偏好文件交给 WebDAV。
 
+use crate::edition::Edition;
 use crate::preferences::Preferences;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -224,6 +225,55 @@ impl SettingsSyncDocument {
         }
         String::from_utf8(bytes).map_err(|_| SettingsSyncError::Serialization)
     }
+
+    /// 将同步文档应用到当前偏好。同步文档只覆盖共享字段和可移植主题字段，
+    /// 本机字段（凭据、路径、代理和宿主能力相关设置）始终沿用 `current`。
+    ///
+    /// 复用设置文件导入的版本、未知字段和版本裁剪规则，避免 WebDAV 下载和
+    /// 本地设置文件导入各自维护一套不同的偏好安全边界。
+    pub fn apply_to_preferences(
+        &self,
+        current: &Preferences,
+        edition: &Edition,
+    ) -> Result<Preferences, SettingsSyncError> {
+        self.clone().validate()?;
+        let mut preferences = serde_json::to_value(current)
+            .map_err(|_| SettingsSyncError::Serialization)?
+            .as_object()
+            .cloned()
+            .ok_or(SettingsSyncError::Serialization)?;
+        for (field, value) in self.shared.iter().chain(self.theme.iter()) {
+            if *field == "custom_theme" {
+                let current_theme = preferences
+                    .get(field)
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut merged_theme = current_theme;
+                let Some(remote_theme) = value.as_object() else {
+                    return Err(SettingsSyncError::InvalidDocument);
+                };
+                merged_theme.extend(remote_theme.clone());
+                preferences.insert(field.clone(), Value::Object(merged_theme));
+            } else {
+                preferences.insert(field.clone(), value.clone());
+            }
+        }
+        let mut document = Map::new();
+        document.insert(
+            "format".into(),
+            Value::String(crate::settings_document::FORMAT.into()),
+        );
+        document.insert(
+            "version".into(),
+            Value::from(crate::settings_document::VERSION),
+        );
+        document.insert("preferences".into(), Value::Object(preferences));
+        let bytes = serde_json::to_vec(&Value::Object(document))
+            .map_err(|_| SettingsSyncError::Serialization)?;
+        crate::settings_document::import_document(&bytes, current, edition)
+            .map_err(|_| SettingsSyncError::InvalidDocument)
+    }
 }
 
 fn merge_map(
@@ -393,5 +443,37 @@ mod tests {
             }]
         );
         assert_eq!(conflict.document.shared["scheme"], "shuangpin");
+    }
+
+    #[test]
+    fn applying_a_remote_document_preserves_local_fields_and_skin_references() {
+        let mut current = Preferences::default();
+        current.voice_input.asr_token = "synthetic-local-token".into();
+        current.network.proxy_server = "http://synthetic.invalid:8080".into();
+        current.custom_theme.candidate_skin = Some("installed-skin".into());
+
+        let mut remote = SettingsSyncDocument::from_preferences(&current).unwrap();
+        remote
+            .shared
+            .insert("candidate_page_size".into(), Value::from(9));
+        remote.theme.insert(
+            "custom_theme".into(),
+            serde_json::json!({"keyboard": {"background": 0x123456}}),
+        );
+
+        let applied = remote
+            .apply_to_preferences(&current, Edition::full())
+            .unwrap();
+        assert_eq!(applied.candidate_page_size, 9);
+        assert_eq!(applied.voice_input.asr_token, "synthetic-local-token");
+        assert_eq!(
+            applied.network.proxy_server,
+            "http://synthetic.invalid:8080"
+        );
+        assert_eq!(
+            applied.custom_theme.candidate_skin.as_deref(),
+            Some("installed-skin")
+        );
+        assert!(applied.custom_theme.keyboard.is_some());
     }
 }
