@@ -211,3 +211,34 @@ fn english_spelling_correction_and_generic_reply_parsing_remain_available() {
         "合成回复"
     );
 }
+
+#[test]
+fn invalid_entries_do_not_discard_neighbors_or_consume_the_limit() {
+    let mut request = request("nihao", &["ni", "hao"]);
+    request.candidate_limit = 2;
+    for invalid in [
+        json!(null),
+        json!({}),
+        json!(42),
+        json!(true),
+        json!("synthetic"),
+        json!([]),
+        json!({"text":null}),
+        json!({"text":12}),
+        json!({"text":true}),
+        json!({"text":{}}),
+        json!({"text":[]}),
+        json!({"text":"bad\ntext"}),
+        json!({"text":"你".repeat(1366)}),
+    ] {
+        assert_eq!(
+            parse(
+                &request,
+                json!([
+                    {"text":"你好"}, invalid, {"text":"拟好"}, {"text":"你好"}, {"text":"你号"}
+                ])
+            ),
+            vec!["你好", "拟好"]
+        );
+    }
+}

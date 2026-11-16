@@ -884,39 +884,6 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
       !OnlineCandidatePolicy.hasActiveWork("", false, 0),
     "a vanished online query invalidates queued or in-flight work",
   );
-  const response = JSON.stringify({
-    choices: [
-      {
-        message: {
-          content: JSON.stringify({
-            candidates: [
-              { text: "你好" },
-              { text: "你好" },
-              { text: "世界" },
-              { text: "bad\ntext" },
-            ],
-          }),
-        },
-      },
-    ],
-  });
-  const values = OnlineCandidatePolicy.aiCandidates(response, 3);
-  check(
-    values !== null && values.length === 2 && values[0] === "你好" && values[1] === "世界",
-    "AI response keeps provider order and removes duplicates or controls",
-  );
-  check(
-    OnlineCandidatePolicy.aiCandidates(JSON.stringify({ error: { code: "bad" } }), 3) === null,
-    "AI error envelope is rejected",
-  );
-  check(
-    OnlineCandidatePolicy.aiCandidates(response, 0) === null,
-    "AI candidate limit stays within shared bounds",
-  );
-  check(
-    OnlineCandidatePolicy.aiCandidates("x".repeat(1024 * 1024 + 1), 3) === null,
-    "oversized AI response is rejected before parsing",
-  );
   check(
     OnlineCandidatePolicy.acceptsCloudBody("你".repeat(128 * 1024)) === false,
     "oversized UTF-8 cloud responses are rejected by byte size",
@@ -982,39 +949,6 @@ group("private text writes require every UTF-8 byte", () => {
   check(!utf8WriteComplete("synthetic", 8), "a short private text write is refused");
   check(utf8WriteComplete("你", 3), "a multibyte private text write uses UTF-8 bytes");
   check(!utf8WriteComplete("你", 2), "a short multibyte private text write is refused");
-});
-
-group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
-  for (const invalid of [
-    null,
-    {},
-    42,
-    true,
-    "synthetic",
-    [],
-    { text: null },
-    { text: 12 },
-    { text: true },
-    { text: {} },
-    { text: [] },
-  ]) {
-    const response = JSON.stringify({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              candidates: [{ text: "甲" }, invalid, { text: "乙" }, { text: "甲" }, { text: "丙" }],
-            }),
-          },
-        },
-      ],
-    });
-    const values = OnlineCandidatePolicy.aiCandidates(response, 2);
-    check(
-      values !== null && values.join(",") === "甲,乙",
-      `无效候选 ${JSON.stringify(invalid)} 不丢弃整批结果`,
-    );
-  }
 });
 
 group("keeps translation provider policy bounded and credential-free in signatures", () => {
