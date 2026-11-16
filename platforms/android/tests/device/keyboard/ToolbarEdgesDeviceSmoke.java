@@ -123,6 +123,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
                 ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
+                CandidateDisplayPreferenceDeviceChecks.run(type, service, loader, density);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {

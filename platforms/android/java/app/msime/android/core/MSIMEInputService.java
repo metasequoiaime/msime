@@ -334,7 +334,7 @@ public final class MSIMEInputService extends InputMethodService {
     int candidatePreeditFontSize = 16;
     int candidateScalePercent = 100;
     /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
-    private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
+    String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
     boolean spellingEditorEnabled = true;
     private boolean spellingHeaderReserved = true;
     CandidateAppearance.Palette candidateAppearance =
@@ -1216,10 +1216,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyAiPreferences(preferences);
         applyClipboardPreference(preferences, source);
         applyChineseOutputPreference(preferences);
-        applyCandidateGlossPreference(preferences);
-        spellingPosition = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
-        spellingEditorEnabled = preferences == null || preferences.optBoolean("touch_spelling_editor", true);
+        ImeCandidateDisplayPreferences.apply(this, preferences, source);
         applyEnglishSuggestionsPreference(preferences);
         applyCandidateTranslationPreference(preferences);
         applyWubiCodeHintPreference(preferences);
@@ -2194,6 +2191,7 @@ public final class MSIMEInputService extends InputMethodService {
             handwritingSkin = surfaceSkin(hint, "handwriting_theme");
             applyCandidateAppearance(hint);
             applyTouchGeometry(hint);
+            ImeCandidateDisplayPreferences.restoreHint(this, hint);
         }
         Telemetry.beginInputSession(this);
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -2720,20 +2718,18 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 跟着引擎会话走的状态：偏好快照和由它算出的皮肤、释义、翻译、五笔设置，以及偏好轮询和保存中的标记。会话销毁时一起清掉，新会话建好后由实时偏好重新填上。 */
+    /** 清理会话快照、资源可用性、异步结果、翻译路由和保存标记；候选释义、读音与拼写行的显示选择保留，避免换框时闪回初值。 */
     private void stopSessionState() {
         preferencesReloader.stop();
         preferenceSaveGeneration++;
         preferencesDirectory = "";
         emojiResources = "";
         candidateGlossResources = "";
-        candidatePronunciationEnabled = false;
         candidatePronunciationAvailable = false;
         candidatePronunciationPackInstalled = false;
         candidateTargetPronunciationPackInstalled = false;
         invalidateCandidatePronunciations();
         candidateGlossStateRoot = "";
-        candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
         candidateTranslationAccount = false;
         candidateTranslationTargets = java.util.List.of("en");
@@ -3402,7 +3398,7 @@ public final class MSIMEInputService extends InputMethodService {
                 composingText(view, InputViewValuePolicy.editingText(view), true));
     }
 
-    private void applyCandidateGlossPreference(JSONObject preferences) {
+    void applyCandidateGlossPreference(JSONObject preferences) {
         boolean next = preferences != null
             && preferences.optBoolean("candidate_english_gloss", true);
         if (candidateEnglishGloss != next) invalidateCandidateGlosses();
@@ -7251,7 +7247,8 @@ public final class MSIMEInputService extends InputMethodService {
         "android_keyboard_skin_light", "android_keyboard_skin_dark",
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
-        "candidate_scale_percent",
+        "candidate_scale_percent", "candidate_english_gloss", "candidate_pronunciation",
+        "touch_spelling_position", "touch_spelling_editor",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
