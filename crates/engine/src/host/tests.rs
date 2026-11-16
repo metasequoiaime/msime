@@ -43,6 +43,8 @@ fn options(root: &Path) -> EngineOptions {
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
         wubi_reverse_code: true,
+        wubi_phrase_learning: 0,
+        wubi_phrase_placement: 0,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,

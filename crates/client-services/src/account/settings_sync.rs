@@ -19,8 +19,9 @@ use crate::preferences::{
     SecondThirdCandidateKeys, SettingsTheme, ShuangpinProfile, ThemeMode,
     TouchFourteenKeyLetterWidths, TouchFourteenKeyStyle, TouchKeyboardLayout, TouchLanguageKeySide,
     TouchNineKeyStyle, TouchNineKeySwipeDigits, TouchNumberPadSpace, TouchOneHandedSidePanel,
-    TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
-    TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE, TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP,
+    TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout, WubiPhraseLearning,
+    WubiPhrasePlacement, WubiProfile, TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE,
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -721,6 +722,22 @@ pub(super) fn insert_input_settings(
         }
     }
     insert_bool(settings, "input.learning", preferences.learning);
+    insert_string(
+        settings,
+        "input.wubi_phrase_learning",
+        match preferences.wubi_phrase_learning {
+            WubiPhraseLearning::Thrice => "thrice",
+            WubiPhraseLearning::Once => "once",
+        },
+    );
+    insert_string(
+        settings,
+        "input.wubi_phrase_placement",
+        match preferences.wubi_phrase_placement {
+            WubiPhrasePlacement::Bottom => "bottom",
+            WubiPhrasePlacement::Top => "top",
+        },
+    );
     insert_string(
         settings,
         "input.frequency_mode",
@@ -1482,6 +1499,22 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     })?;
     applier.set_bool("input.learning", |preferences, value| {
         preferences.learning = value
+    })?;
+    applier.set_string("input.wubi_phrase_learning", |preferences, value| {
+        preferences.wubi_phrase_learning = match value {
+            "thrice" => WubiPhraseLearning::Thrice,
+            "once" => WubiPhraseLearning::Once,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_string("input.wubi_phrase_placement", |preferences, value| {
+        preferences.wubi_phrase_placement = match value {
+            "bottom" => WubiPhrasePlacement::Bottom,
+            "top" => WubiPhrasePlacement::Top,
+            _ => return None,
+        };
+        Some(())
     })?;
     applier.set_string("input.frequency_mode", |preferences, value| {
         preferences.frequency.mode = match value {

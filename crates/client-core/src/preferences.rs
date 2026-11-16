@@ -2051,6 +2051,14 @@ pub struct Preferences {
     /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
+    /// 五笔自造词的时机（`input.wubi_phrase_learning`）：`thrice` 凑 3 次才记（默认，等于这个字段出现之前的语义），`once` 打 1 次就记。缺键按默认读，默认时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_default_wubi_phrase_learning")]
+    pub wubi_phrase_learning: WubiPhraseLearning,
+    /// 五笔自造词落库时的初始权重档（`input.wubi_phrase_placement`）：`bottom` 沉底（默认，同码已有行最小权重 −1），`top` 置顶（同码已有行最大权重 + 1，86/98 各表独立算；只管入库这一次，之后照常参与调频）。缺键按默认读，默认时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_default_wubi_phrase_placement")]
+    pub wubi_phrase_placement: WubiPhrasePlacement,
     /// 五笔用 86、98 还是新世纪码表；个人词条和学习记录也按它分开存。
     #[serde(default)]
     pub wubi_profile: WubiProfile,
@@ -3255,6 +3263,58 @@ impl CandidateFontWeight {
 
 fn is_default_candidate_font_weight(value: &CandidateFontWeight) -> bool {
     *value == CandidateFontWeight::default()
+}
+
+fn is_default_wubi_phrase_learning(value: &WubiPhraseLearning) -> bool {
+    *value == WubiPhraseLearning::default()
+}
+
+fn is_default_wubi_phrase_placement(value: &WubiPhrasePlacement) -> bool {
+    *value == WubiPhrasePlacement::default()
+}
+
+/// 五笔自造词的时机。`thrice` 凑 3 次才记（默认，等于这个字段出现之前的语义），`once` 打 1 次就记；
+/// 两种时机走引擎同一条关闭路径，只有阈值不同。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WubiPhraseLearning {
+    #[default]
+    Thrice,
+    Once,
+}
+
+impl WubiPhraseLearning {
+    /// 文档和账号设置里的写法，不认识的值为 `None`。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "thrice" => Some(Self::Thrice),
+            "once" => Some(Self::Once),
+            _ => None,
+        }
+    }
+}
+
+/// 五笔自造词落库时的初始权重档。`bottom` 沉底（默认，同码已有行最小权重 −1），`top` 置顶
+/// （同码已有行最大权重 + 1，86/98 各表独立算；只管入库这一次，之后照常参与调频）。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WubiPhrasePlacement {
+    #[default]
+    Bottom,
+    Top,
+}
+
+impl WubiPhrasePlacement {
+    /// 文档和账号设置里的写法，不认识的值为 `None`。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "bottom" => Some(Self::Bottom),
+            "top" => Some(Self::Top),
+            _ => None,
+        }
+    }
 }
 
 #[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
@@ -4828,6 +4888,8 @@ impl Default for Preferences {
             wubi_z_wildcard: false,
             wubi_fifth_code_top_commit: true,
             wubi_mixed_pinyin: false,
+            wubi_phrase_learning: WubiPhraseLearning::default(),
+            wubi_phrase_placement: WubiPhrasePlacement::default(),
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
@@ -7276,6 +7338,22 @@ fn settle_newer_values_on_read(document: &mut serde_json::Value) {
             .is_some_and(|value| WubiProfile::parse(value).is_none())
         {
             *profile = "wubi86".into();
+        }
+    }
+    if let Some(learning) = document.pointer_mut("/preferences/wubi_phrase_learning") {
+        if learning
+            .as_str()
+            .is_some_and(|value| WubiPhraseLearning::parse(value).is_none())
+        {
+            *learning = "thrice".into();
+        }
+    }
+    if let Some(placement) = document.pointer_mut("/preferences/wubi_phrase_placement") {
+        if placement
+            .as_str()
+            .is_some_and(|value| WubiPhrasePlacement::parse(value).is_none())
+        {
+            *placement = "bottom".into();
         }
     }
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {

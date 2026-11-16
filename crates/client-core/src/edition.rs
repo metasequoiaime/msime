@@ -523,6 +523,9 @@ const ACCOUNT_HARMONY_LAYOUT_KEY: &str = "platform.harmony.keyboard_layout";
 const ACCOUNT_SHUANGPIN_KEY: &str = "input.shuangpin_schema";
 /// 五笔版本（86/98）的键，理由同上。
 const ACCOUNT_WUBI_KEY: &str = "input.wubi_schema";
+/// 五笔自造词的时机与落库位置：只在五笔方案上有意义，跟五笔版本键一起按版本过滤。
+const ACCOUNT_WUBI_PHRASE_LEARNING_KEY: &str = "input.wubi_phrase_learning";
+const ACCOUNT_WUBI_PHRASE_PLACEMENT_KEY: &str = "input.wubi_phrase_placement";
 
 /// 账号设置里 `input.schema` 的值对应的方案；不是字符串或不认识的取值返回 `None`。
 fn account_scheme(settings: &BTreeMap<String, AccountPreferenceValue>) -> Option<InputScheme> {
@@ -573,6 +576,8 @@ pub fn filter_uploaded_account_settings(
     }
     if !edition.is_some_and(|edition| edition.offers(InputScheme::Wubi)) {
         settings.remove(ACCOUNT_WUBI_KEY);
+        settings.remove(ACCOUNT_WUBI_PHRASE_LEARNING_KEY);
+        settings.remove(ACCOUNT_WUBI_PHRASE_PLACEMENT_KEY);
     }
 }
 
@@ -1318,6 +1323,38 @@ mod tests {
                 "input.shuangpin_schema",
                 "input.wubi_schema"
             ]
+        );
+    }
+
+    /// 造词时机与落库位置只在五笔方案上有意义：不提供五笔的版本不上传（也不盖掉账号里别的设备记下的值），提供五笔的版本照常上传。
+    #[test]
+    fn wubi_phrase_keys_follow_the_wubi_edition() {
+        let mut extra = account_settings("wubi");
+        for key in ["input.wubi_phrase_learning", "input.wubi_phrase_placement"] {
+            extra.insert(
+                key.to_owned(),
+                AccountPreferenceValue::String("once".to_owned()),
+            );
+        }
+        let mut uploaded = extra.clone();
+        filter_uploaded_account_settings(
+            Some(Edition::by_id("pinyin").expect("edition")),
+            &mut uploaded,
+        );
+        assert!(!uploaded.contains_key("input.wubi_phrase_learning"));
+        assert!(!uploaded.contains_key("input.wubi_phrase_placement"));
+        let mut uploaded = extra.clone();
+        filter_uploaded_account_settings(
+            Some(Edition::by_id("wubi").expect("edition")),
+            &mut uploaded,
+        );
+        assert_eq!(
+            uploaded.get("input.wubi_phrase_learning"),
+            extra.get("input.wubi_phrase_learning")
+        );
+        assert_eq!(
+            uploaded.get("input.wubi_phrase_placement"),
+            extra.get("input.wubi_phrase_placement")
         );
     }
 }
