@@ -68,6 +68,17 @@ fn prepared_options_fit_a_256_kib_thread_stack() {
     for name in ["resources", "user", "cache", "dictionaries"] {
         std::fs::create_dir(root.path().join(name)).unwrap();
     }
+    // 空资源目录会跳过 SQLite 打开路径；使用合成词库覆盖真实装机时的构造深度。
+    for directory in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(root.path().join(directory).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO tbl_2_n VALUES('ni','n','合成',100);
+                 CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
+            )
+            .unwrap();
+    }
     let mut valid = document.clone();
     valid["api_version"] = json!(1);
     for (field, directory) in [
