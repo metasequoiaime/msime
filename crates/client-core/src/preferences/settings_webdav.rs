@@ -96,7 +96,7 @@ mod tests {
             .unwrap()
             .to_json()
             .unwrap();
-        for text in [&exported, std::str::from_utf8(&document).unwrap()] {
+        for text in [&exported, &document] {
             assert!(!text.contains("settings_sync_webdav"));
             assert!(!text.contains("synthetic-app-password"));
             assert!(!text.contains("dav.example.test"));
