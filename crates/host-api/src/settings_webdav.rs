@@ -1,5 +1,5 @@
-//! 原生宿主的 WebDAV 设置同步 JSON 入口。状态查询不联网，其余操作由宿主工作线程调用。
-//! 网盘草稿由宿主安全存储持有，不返回凭据，不借用现有词库或云剪贴板的配置。
+//! 原生宿主的 WebDAV 设置同步 JSON 入口。连接与状态查询不联网，调用均由宿主工作线程执行。
+//! 网盘连接只留本机，不返回应用密码，不借用现有词库或云剪贴板的配置。
 
 use msime_client_core::preferences::PreferencesStore;
 use msime_client_services::settings_webdav::{SettingsSyncTrigger, SettingsWebDav};
