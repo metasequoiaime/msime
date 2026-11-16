@@ -320,7 +320,7 @@ impl InputSession {
     /// input_session_composition.cpp:562-600.
     pub(super) fn learn_sentence_candidate(&mut self, index: usize) -> Option<String> {
         // Local shortcuts and English/Japanese modes also use Generated candidates, but they are not pinyin sentences and must never enter the pinyin user dictionary. A native wubi row is not one either, while a pinyin row beside it in a mixed list is (overlays.md §3.3).
-        let (typo_diagnostic, online, canonical, word) = {
+        let (typo_diagnostic, source, canonical, word) = {
             let selected = self.ranking_list().get(index)?;
             if !self.can_learn_sentence_candidate(selected) {
                 return None;
@@ -339,12 +339,12 @@ impl InputSession {
             let canonical =
                 normalize_canonical_pinyin_for_word(&selected_canonical, &selected.word);
             let word = selected.word.clone();
-            (typo_diagnostic, online, canonical, word)
+            (typo_diagnostic, selected.source, canonical, word)
         };
         if canonical.is_empty() || segment_count(&canonical) > MAX_LEARNED_SENTENCE_SYLLABLES {
             return typo_diagnostic;
         }
-        if online && !self.online_word_matches_reading(&canonical, &word) {
+        if source.is_online() && !self.online_word_matches_reading(&canonical, &word, source) {
             return typo_diagnostic;
         }
         if self
@@ -366,8 +366,13 @@ impl InputSession {
             && !Self::is_wubi_native_candidate(selected)
     }
 
-    /// Providers return bare words, so the only reading to check an online row against is the typed one. A character absent from every single-character table cannot be checked and is accepted so rare words stay learnable (input_session_composition.cpp:538-560).
-    fn online_word_matches_reading(&mut self, canonical: &str, word: &str) -> bool {
+    /// 在线行沿用当前切分学习。AI 可以采用另一条合法切分，词库未收录的字不能反过来作为当前读音正确的证据；云词的罕见字兼容规则保持不变。
+    fn online_word_matches_reading(
+        &mut self,
+        canonical: &str,
+        word: &str,
+        source: CandidateSource,
+    ) -> bool {
         let syllables = normalized_syllables(canonical);
         let mut characters = word.chars();
         let engine = self.canonical_phrase_engine();
@@ -379,7 +384,9 @@ impl InputSession {
                 return false;
             }
             let han = character.to_string();
-            if engine.find_candidate(syllable, &han).is_none() && engine.knows_han_char(&han) {
+            if engine.find_candidate(syllable, &han).is_none()
+                && (source == CandidateSource::AiSuggestion || engine.knows_han_char(&han))
+            {
                 return false;
             }
         }
