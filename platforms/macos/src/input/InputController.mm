@@ -8787,8 +8787,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _armedGlossColumn > 0 && [self commitHighlightedGlossColumn:_armedGlossColumn client:sender]) return YES;
     // NSTextInputClient 没有设置光标的接口，所以跨过后半个是把光标后已知的那个后半个整个替换掉，光标随之后移，字不会重复。
     //
-    // 只在本宿主记着自己补过的后半个时才读光标后的字：什么都没记时读回来既跨不过、也没有可清的，却要在每个键上向应用同步来回两次（`selectedRange` 和 `attributedSubstringFromRange:`）。
-    if (_appearance.pairedPunctuation && !_pairedPunctuation.empty() && event.characters.length == 1 &&
+    // 只有这个键匹配本宿主补出的后半个时才查询文档；普通字母不能跨过，不必向应用同步来回两次。
+    if (_appearance.pairedPunctuation && event.characters.length == 1 &&
+        _pairedPunctuation.matches(event.characters.UTF8String ?: "") &&
         !MSIMESpellingSymbolString(_view, event.characters) &&
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         NSString *following = MSIMETextClientFollowingCharacter((id<MSIMETextClient>)sender);
