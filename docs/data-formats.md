@@ -343,6 +343,8 @@ CREATE TABLE IF NOT EXISTS quick_phrase_slots(
 | `personal_bigram`、`personal_trigram` | 个人 n-gram 计数 |
 | `quick_phrase_slots` | 快捷短语的位置 |
 
+本机写入 `user_dictionary_operations`、`pinned_candidates` 和完整固定候选时，`updated_at` 取当前秒数与同一身份旧时间加一的较大者，并封顶 2⁴⁰；新增行时间至少为 1。同一次调频中实际改写的阶梯行和选中行共用整组时间，未改写行不参与计算。同步应用保留远端时间，旧备份导入的新身份继续用时间 1。账号重置屏障尚未接到本机写入点，相关目标与限制见[输入习惯同步协议](learning-sync.md#时间戳)。
+
 完整固定候选按 `(context_key,entry_key,value)` 存储，没有槽位唯一约束。显示投影按槽位中时间较大的候选胜出，平局取 `(entry_key,value)` 字节序较小者；隐藏身份仍参与同步。迁移建表与导入处于同一保存点，失败时连表回滚、下次可重试。本机显式固定仍移除目标槽位的旧候选，取消固定删除对应完整身份，两张表同事务更新。云快照换代保留完整表和学习操作的原始时间，旧格式备份继续只带显示投影，恢复新身份的时间为 1；同步流与冲突规则见[输入习惯同步协议](learning-sync.md)。
 
 ## 7. `msime-bigram.bin` 与 `msime-trigram.bin`（MSNG）

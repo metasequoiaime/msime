@@ -190,12 +190,12 @@ pub(crate) fn apply_fixed_positions_with_state(
     candidates.append(&mut ai);
 }
 
-/// One pinned value per context; a later pin replaces it (J:671-680).
+/// 每个上下文保留一个置顶值；本机修改推进逻辑时间后替换（J:671-680）。
 pub fn record_pinned_candidate(user_db: &Path, context: &str, value: &str) -> Result<()> {
     let journal = open_journal(user_db)?;
     journal
         .prepare_cached(
-            "INSERT INTO pinned_candidates(context_key,value) VALUES(?1,?2) ON CONFLICT(context_key) DO UPDATE SET value=excluded.value,updated_at=unixepoch()",
+            "INSERT INTO pinned_candidates(context_key,value,updated_at) VALUES(?1,?2,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(context_key) DO UPDATE SET value=excluded.value,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
         )?
         .execute(params![context, value])?;
     Ok(())

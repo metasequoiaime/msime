@@ -108,7 +108,7 @@ pub(crate) fn learn(paths: &RuntimePaths, word: &str, profile: WubiProfileKind) 
             params![code, word, weight],
         )?;
         transaction.execute(
-            "INSERT INTO wubi_phrase_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES(?1,?2,?3,'upsert',?4,'',1) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight,user_inserted=1,updated_at=unixepoch()",
+            "INSERT INTO wubi_phrase_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,'upsert',?4,'',1,min(max(unixepoch(),1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight,user_inserted=1,updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
             params![kind.journal_name(), code, word, weight],
         )?;
         changed = true;
