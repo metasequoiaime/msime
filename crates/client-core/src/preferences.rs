@@ -584,6 +584,11 @@ pub enum TouchNineKeySwipeDigits {
     Down,
 }
 
+/// 手机触屏拼音九键字母 flick 的判定距离，三端共用同一范围和默认值。
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE: std::ops::RangeInclusive<u16> = 14..=48;
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP: u16 = 2;
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT: u16 = 24;
+
 impl TouchNineKeySwipeDigits {
     /// 文档和同步键里的写法。
     pub fn as_str(self) -> &'static str {
@@ -2173,6 +2178,13 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchNineKeySwipeDigits::is_default")]
     pub touch_nine_key_swipe_digits: TouchNineKeySwipeDigits,
+    /// 手机触屏拼音九键字母层上/左/右 flick 的判定距离（dp / pt / vp 按各端物理单位解释），三端同步。14–48、步进 2，默认 24；桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(
+        default = "default_touch_nine_key_flick_threshold",
+        skip_serializing_if = "is_default_touch_nine_key_flick_threshold"
+    )]
+    pub touch_nine_key_flick_threshold: u16,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -4679,6 +4691,14 @@ fn is_default_touch_keyboard_split_gap(value: &u8) -> bool {
     *value == TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
 }
 
+fn default_touch_nine_key_flick_threshold() -> u16 {
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+}
+
+fn is_default_touch_nine_key_flick_threshold(value: &u16) -> bool {
+    *value == TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+}
+
 fn default_touch_row_spacing_tenths() -> u8 {
     70
 }
@@ -4825,6 +4845,7 @@ impl Default for Preferences {
             touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
             touch_language_key_side: TouchLanguageKeySide::default(),
             touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
+            touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -5836,6 +5857,12 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchKeyboardSplit);
         }
+        if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&self.touch_nine_key_flick_threshold)
+            || !(self.touch_nine_key_flick_threshold - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+        {
+            return Err(PreferencesError::InvalidNineKeyFlickThreshold);
+        }
         if self.touch_quick_punctuation_symbols
             != normalize_touch_quick_symbols(&self.touch_quick_punctuation_symbols)
         {
@@ -6039,6 +6066,8 @@ pub enum PreferencesError {
     InvalidTouchKeyboardSpacing,
     #[error("分离键盘启用宽度须为 480–1000、步进 20，中间空隙须为 10–40%、步进 5")]
     InvalidTouchKeyboardSplit,
+    #[error("九键 flick 阈值须为 14–48、步进 2")]
+    InvalidNineKeyFlickThreshold,
     #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
@@ -6640,6 +6669,9 @@ impl PreferencesStore {
     /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
     ///
     /// `nine_key_swipe_digits` 是本机旧设置 `platform.android.nine_key_swipe` 严格解析后的值，没有旧值或旧值不认识时传 [`TouchNineKeySwipeDigits::Off`]：上滑或下滑只在共享字段缺键或明写 `off` 时写入，别的设备选的方向和较新版本的写法都原样留着。
+    ///
+    /// `nine_key_flick_threshold` 是本机旧设置「九键滑动距离」`platform.android.nine_key_swipe_distance` 的值，本机没有这个键时传 `None`：只在共享字段 `touch_nine_key_flick_threshold` 盘上缺键、旧值在 14–48 且步进合规、又不是默认 24 时写入；盘上已有的值（别的设备设的，或较新版本的写法）都不覆盖。
+    #[allow(clippy::too_many_arguments)]
     pub fn migrate_android_key_layout(
         &self,
         expected_revision: u64,
@@ -6648,6 +6680,7 @@ impl PreferencesStore {
         nine_key_symbols: &[String],
         nine_key_digit_symbols: &[String],
         nine_key_swipe_digits: TouchNineKeySwipeDigits,
+        nine_key_flick_threshold: Option<u16>,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, mut unknown) = self.read_locked_keeping_unknown()?;
@@ -6700,6 +6733,19 @@ impl PreferencesStore {
             && swipe.is_none_or(|value| value.as_str() == Some("off"))
         {
             preferences.touch_nine_key_swipe_digits = nine_key_swipe_digits;
+        }
+        if let Some(threshold) = nine_key_flick_threshold.filter(|value| {
+            TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(value)
+                && (value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                    .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+                && *value != TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+        }) {
+            if document
+                .pointer("/preferences/touch_nine_key_flick_threshold")
+                .is_none()
+            {
+                preferences.touch_nine_key_flick_threshold = threshold;
+            }
         }
         // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
         for (key, is_known) in [

@@ -36,6 +36,77 @@ enum SwipeHintPolicy {
   }
 }
 
+
+/// 拼音九键字母层的四向 flick：上、左、右依次输入键面前三个字母，下滑无动作。
+enum NineKeyFlickPolicy {
+  enum Letter: Equatable { case none, first, second, third }
+  static let threshold: CGFloat = 24
+  static let minimumThreshold: CGFloat = 14
+  static let maximumThreshold: CGFloat = 48
+  static let thresholdStep: CGFloat = 2
+
+  static func letter(down: CGPoint, current: CGPoint, letters: String, threshold: CGFloat) -> Letter {
+    guard !letters.isEmpty, threshold.isFinite, threshold >= 0 else { return .none }
+    let dx = current.x - down.x
+    let dy = current.y - down.y
+    let horizontal = abs(dx)
+    let vertical = abs(dy)
+    guard max(horizontal, vertical) > threshold else { return .none }
+    let index: Int
+    if vertical >= horizontal {
+      guard dy < 0 else { return .none }
+      index = 0
+    } else {
+      index = dx < 0 ? 1 : 2
+    }
+    guard index < letters.count else { return .none }
+    switch index {
+    case 0: return .first
+    case 1: return .second
+    default: return .third
+    }
+  }
+
+  static func character(_ letters: String, _ letter: Letter) -> String {
+    let index: Int
+    switch letter {
+    case .first: index = 0
+    case .second: index = 1
+    case .third: index = 2
+    case .none: return ""
+    }
+    guard index < letters.count else { return "" }
+    return String(Array(letters)[index])
+  }
+}
+
+struct NineKeyFlickTracker: Equatable {
+  private(set) var letter: NineKeyFlickPolicy.Letter = .none
+  private(set) var consumed = false
+  private var down: CGPoint?
+
+  mutating func begin(at point: CGPoint) {
+    down = point
+    letter = .none
+    consumed = false
+  }
+
+  mutating func move(to point: CGPoint, letters: String, threshold: CGFloat) -> NineKeyFlickPolicy.Letter? {
+    guard !consumed, let down, threshold.isFinite, threshold >= 0,
+          point.x.isFinite, point.y.isFinite, down.x.isFinite, down.y.isFinite,
+          max(abs(point.x - down.x), abs(point.y - down.y)) > threshold else { return nil }
+    consumed = true
+    let next = NineKeyFlickPolicy.letter(down: down, current: point, letters: letters, threshold: threshold)
+    letter = next
+    return next
+  }
+
+  mutating func finish() -> NineKeyFlickPolicy.Letter {
+    defer { self = NineKeyFlickTracker() }
+    return letter
+  }
+}
+
 /// 拼音九键字母层 1–9 键的滑动（「九键滑动输入数字」，`NineKeySwipeDigits`，#10229），与 Android `NineKeySwipePolicy.gesture`、鸿蒙 `NineKeySwipePolicy` 逐条相同：只看纵向位移（窗口坐标向下为正，不看横向），沿设定方向严格超过 `threshold` 是输入数字，反方向严格超过、并且这个键有字母（2–9）是弹出数字和字母；设置关着时什么也不判。
 enum NineKeySwipePolicy {
   enum Gesture: Equatable {
