@@ -6,6 +6,7 @@ pub mod bundled;
 pub mod generation;
 pub mod habits;
 pub mod journal;
+pub mod learning_sync;
 pub mod ngram_store;
 pub mod personal;
 pub mod picks;

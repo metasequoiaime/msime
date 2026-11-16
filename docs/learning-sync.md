@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。其余部分（Engine 的时间戳与合并、同步轮次、各平台接入）按决策笔记里的分期落地，落地时改动这份文档，不另起一份。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`。日志的 Lamport 写入、完整候选表迁移、数据库导出与应用、同步轮次和各平台接入仍按决策笔记里的分期落地；明文层 API 本身不会读取学习日志或发起上传。
 
 ## 与其他同步的关系
 
@@ -131,6 +131,10 @@ UTF-8 的 NDJSON，一行一条记录，顺序固定，同样的学习数据总�
 - `dictionary` 只取 Engine 认识的种类（`pinyin`、`wubi`、`wubi98`、`quick`、`english`），其余的行不导出；读到不认识的种类时跳过这一条。
 - 不认识的 `type` 跳过并计数，不让整份失败：第二期在同一版本里加整句联想的记录，旧客户端照样合并它认识的部分。只有不兼容的改动才升 `version`，读到更高的 `version` 时整份跳过，提示升级。
 - 记录数和 `footer.records` 不符、`footer` 之后还有内容、字段缺失或类型不对、数值超出「上限与额度」里的范围（包括 `updated_at`），按解不开处理。
+
+Engine 的 `read_learning_sync` 接受解密后的 `BufRead`，完整校验后一次返回 `LearningSyncRead`；中途 I/O 失败、缺页尾、重复已知字段或格式不合法时，不返回可应用的部分状态。它在读取时限制到 128 MiB 加一个用于检测超限的字节，未知类型、未知词库与重复身份都计入最多 500,000 条的原始记录数。未知词库的已知记录仍校验全部字段并计入 `observed_max`，但不写入状态；未知类型只计入 `skipped`。`write_learning_sync` 按上述固定顺序写确定字节，超限在写到输出之前返回错误；上传层的调权截断、压缩与信封大小处理不在这个 API 内。
+
+`LearningSyncState::combine` 对每个身份保存规则胜者，`position_projection` 才按槽位生成显示视图，后者不修改状态。`after_reset_floor` 过滤远端状态中不高于屏障的所有行，包括未显示候选；调用方必须在独占维护边界内读取当前屏障再应用，不能把这个纯过滤函数当成重置屏障的持久化实现。
 
 ## 时间戳
 

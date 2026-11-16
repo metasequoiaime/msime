@@ -108,6 +108,10 @@ pub use user_dictionary::bundled::{
 };
 pub use user_dictionary::generation::{prepare_runtime_paths, prepare_runtime_paths_for};
 pub use user_dictionary::journal::quarantine_corrupt_journal;
+pub use user_dictionary::learning_sync::{
+    read_learning_sync, write_learning_sync, LearningSyncRead, LearningSyncReadError,
+    LearningSyncRecord, LearningSyncState, MAX_LEARNING_SYNC_TIMESTAMP,
+};
 pub use user_dictionary::personal::{
     edit_personal_dictionary, personal_dictionary_entries, validate_personal_dictionary_entry,
     PersonalDictionaryPage,
