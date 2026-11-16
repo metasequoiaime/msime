@@ -53,6 +53,7 @@ public:
   void reset_cache();
   void set_input_enabled(uint64_t epoch, bool enabled);
   void set_chinese_punctuation(uint64_t epoch, bool enabled);
+  void set_character_width(uint64_t epoch, bool fullwidth);
   // The TSF inserted the closing half of a pair whose opening the Engine resolved, so pay back the nesting the opening advanced. A no-op when the count is already zero.
   void balance_paired_punctuation(uint64_t epoch, uint8_t opening);
   // 即时切换宿主和共享运行时的简繁投影，保留组字；落盘由调用方负责。
