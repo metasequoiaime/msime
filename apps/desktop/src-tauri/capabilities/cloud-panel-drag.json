@@ -1,0 +1,6 @@
+{
+  "identifier": "cloud-panel-drag",
+  "description": "允许移动云剪贴板和云词库窗口",
+  "windows": ["cloud-clipboard-panel", "cloud-dictionary-panel"],
+  "permissions": ["core:window:allow-start-dragging"]
+}

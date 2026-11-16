@@ -1,3 +1,4 @@
+import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
 import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
 import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
@@ -665,6 +666,7 @@ struct Settings {
   });
   // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
   @State privacyGranted: boolean = false;
+  @State private showDictionaryGroups: boolean = false;
   // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
   private privacyRequired: boolean = false;
   // 本进程是否已经自动弹过一次；回到前台时的 onPageShow 不再弹。
@@ -930,7 +932,14 @@ struct Settings {
   }
 
   build() {
+    Stack() {
     Column() {
+      if (!this.launchCover && this.privacyGranted && !this.privacyRequired) {
+      Row() {
+        Blank()
+        Button('词库分组').onClick((): void => { this.showDictionaryGroups = true; })
+      }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      }
       if (this.notices.length > 0 && !this.noticeHeld) {
         this.noticeCard()
       }
@@ -981,6 +990,15 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
+    .visibility(this.showDictionaryGroups ? Visibility.None : Visibility.Visible)
+    if (this.showDictionaryGroups) {
+      DictionaryCollectionsPanel({
+        request: (action: string): Promise<string> => this.bridge.dictionaryCollections(action),
+        changed: (): void => this.bridge.publishShared(),
+        back: (): void => { this.showDictionaryGroups = false; }
+      })
+    }
+    }.width('100%').height('100%')
     // web view 背后的页面自身背景，让页面绘制前的那段时间和它周围的空隙在深色模式下不会闪白；页面告知它绘制的颜色后就用那个颜色。
     .backgroundColor(this.pageBackground.length > 0 ? this.pageBackground : $r('app.color.settings_page_background'))
   }
@@ -2465,7 +2483,7 @@ class SettingsBridge {
   }
 
   /** 词库页的命名词库：建、删、启停、加词、导入、装社区词库。导入可达 16 MiB，所以走 startRequest 在原生工作线程上做。 */
-  private dictionaryCollections(action: string): Promise<string> {
+  dictionaryCollections(action: string): Promise<string> {
     if (this.context === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'collections_io' }));
     }

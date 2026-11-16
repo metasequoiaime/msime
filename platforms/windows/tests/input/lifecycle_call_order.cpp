@@ -5,6 +5,7 @@
 #include "TypingEffectSignal.h"
 #include "msime_client.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -48,6 +49,11 @@ std::string fake_translation;
 bool fake_fullscreen = false;
 // InputState 建的会话用真实的前台窗口判断全屏，比较时去掉 FULLSCREEN 位。
 bool mask_fullscreen = false;
+bool settled_ready = false;
+uint64_t settled_generation = 0;
+unsigned settled_starts = 0;
+unsigned settled_polls = 0;
+bool settled_accept = true;
 
 void record(const char *name, uint64_t value = 0) { calls.push_back({name, value}); }
 
@@ -282,7 +288,26 @@ char *msime_client_apply_online_candidates(uint64_t, const uint8_t *, size_t, co
 char *msime_client_resolve_online_candidates(uint64_t, const uint8_t *, size_t, uint8_t) { return answer(nullptr); }
 char *msime_client_clear_online_candidates(uint64_t, uint8_t) { return answer(nullptr); }
 char *msime_client_apply_translations(uint64_t, uint64_t, const uint8_t *, size_t) { return answer(nullptr); }
-char *msime_client_rerank_settled(uint64_t) { return answer(nullptr); }
+char *msime_client_rerank_settled(uint64_t) {
+  // C ABI 夹具不能向外抛异常；误用同步入口仍立即让测试失败。
+  std::fputs("Synchronous settled scoring blocks the input queue\n", stderr);
+  std::abort();
+}
+char *msime_client_start_settled_rerank(uint64_t) {
+  ++settled_starts;
+  settled_generation = fake_generation;
+  return answer({{"status", "pending"}, {"token", 23}});
+}
+char *msime_client_poll_settled_rerank(uint64_t, uint64_t job, bool accept) {
+  REQUIRE(job == 23);
+  ++settled_polls;
+  settled_accept = accept;
+  if (!settled_ready) return answer({{"status", "pending"}, {"token", job}});
+  const bool current = accept && settled_generation == fake_generation;
+  auto value = nlohmann::json{{"status", "done"}, {"current", current}, {"moved", current}};
+  if (current) value["view"] = view();
+  return answer(value);
+}
 char *msime_client_reset_cache(uint64_t) { return answer(nullptr); }
 char *msime_client_update_preferences(uint64_t, const uint8_t *, size_t) {
   return answer({{"handled", true}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", view()}});
@@ -519,6 +544,64 @@ int main() {
                     "set_field_traits:" + std::to_string(MSIME_TRAIT_SECURE | MSIME_TRAIT_KNOWN)});
     }
     EXPECT_TRACE({"destroy:0"});
+    // 后台模型尚未完成时，真实 FocusedSession 仍可接收和确认新按键；旧评分只归还模型，不能发布到新组字或新焦点。
+    {
+      FocusGate gate;
+      FocusedSession focused(gate, client, R"({"preferences":{}})");
+      focused.set_typing_statistics_sink([](const std::string &, TypingSource) {});
+      const PipeTicket ticket{client, {11, 12, 13}};
+      const auto first = gate.begin(ticket, token);
+      REQUIRE(first && focused.prepare(first->pending));
+      REQUIRE(gate.acknowledge(first->pending, [] { return true; }));
+      const auto lease = first->pending;
+      REQUIRE(focused.configured_key(lease, key('A', u'a', 1), TsfPreeditStyle::Pinyin, {}).has_value());
+      // 回复还没送达时连启动也不能做，避免改掉待确认回复的候选身份。
+      REQUIRE(focused.rerank_settled(lease).pending && settled_starts == 0);
+      REQUIRE(focused.confirm(lease, 1));
+      REQUIRE(focused.rerank_settled(lease).pending && settled_starts == 1);
+      REQUIRE(focused.rerank_settled(lease).pending && settled_polls == 1);
+      REQUIRE(focused.configured_key(lease, key('B', u'b', 2), TsfPreeditStyle::Pinyin, {}).has_value());
+      REQUIRE(focused.confirm(lease, 2));
+      settled_ready = true;
+      auto stale = focused.rerank_settled(lease);
+      REQUIRE(stale.pending && !stale.view);
+      REQUIRE(focused.rerank_settled(lease).pending && settled_starts == 2);
+      const auto current = focused.rerank_settled(lease);
+      REQUIRE(!current.pending && current.view && current.view->at("generation") == fake_generation);
+
+      // 已送达的多义释义页也要冻结底层候选；关闭页面之后恢复原有后台评分时序。
+      fake_translation = "hello;world";
+      auto translate = key(0x0D, u'\r', 3);
+      translate.modifiers_down = PipeMetadata::CandidateActive | 2u;
+      const auto page = focused.configured_key(lease, translate, TsfPreeditStyle::Pinyin, {});
+      REQUIRE(page && page->source.transition.at("view").value("translation_page", 0u) != 0u);
+      REQUIRE(focused.confirm(lease, 3));
+      const auto starts_before_page = settled_starts;
+      const auto polls_before_page = settled_polls;
+      const auto paused = focused.rerank_settled(lease);
+      REQUIRE(!paused.pending && !paused.view);
+      REQUIRE(settled_starts == starts_before_page && settled_polls == polls_before_page);
+      REQUIRE(focused.configured_key(lease, key(0x1B, 0, 4), TsfPreeditStyle::Pinyin, {}).has_value());
+      REQUIRE(focused.confirm(lease, 4));
+      fake_translation.clear();
+
+      settled_ready = false;
+      REQUIRE(focused.rerank_settled(lease).pending);
+      REQUIRE(focused.cancel(lease));
+      const auto second = gate.begin(ticket, token + 1);
+      REQUIRE(second && focused.prepare(second->pending));
+      REQUIRE(gate.acknowledge(second->pending, [] { return true; }));
+      const auto polls = settled_polls;
+      const auto rejected = focused.rerank_settled(lease);
+      REQUIRE(!rejected.pending && !rejected.view && settled_polls == polls);
+      settled_ready = true;
+      stale = focused.rerank_settled(second->pending);
+      REQUIRE(stale.pending && !stale.view && !settled_accept);
+      REQUIRE(focused.rerank_settled(second->pending).pending && settled_starts == 4);
+      REQUIRE(focused.rerank_settled(second->pending).view.has_value());
+      REQUIRE(focused.cancel(second->pending));
+    }
+    calls.clear();
     std::cout << "Windows lifecycle call order checks passed\n";
     return 0;
   } catch (const std::exception &error) {

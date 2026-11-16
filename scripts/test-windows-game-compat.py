@@ -32,6 +32,7 @@ HARNESS = r'''
 #include <vector>
 #include <stdexcept>
 #include "uiless_page.h"
+#include "CapsLockTap.h"
 #define _In_
 using HWND = void*;
 struct POINT { long x, y; };
@@ -167,12 +168,12 @@ int main() {
  ime._msgWndHandle = 0;
  toggle = false;
  ime._QueueCapsLockEdge();
- assert(Global::CapsLockEnabled.load());
+ assert(!Global::CapsLockEnabled.load() && ime.armedBefore);
  ime._msgWndHandle = reinterpret_cast<HWND>(1);
  postOk = false;
  toggle = true;
  ime._QueueCapsLockEdge();
- assert(!Global::CapsLockEnabled.load() && ime.armedBefore);
+ assert(Global::CapsLockEnabled.load() && !ime.armedBefore);
  ITfContextView context;
  Global::current_process_name = L"Minecraft.Windows.exe";
  // 首键右下角和组字后系统组合窗的位置都归一到同一显示器工作区，不二次缩放。
@@ -198,7 +199,8 @@ def main() -> int:
     test_down = function(sink, "STDAPI CMetasequoiaIME::OnTestKeyDown(")
     assert "_QueueCapsLockEdge();" in test_down
     assert "Global::CapsLockEnabled.store(!lockWasOn" not in test_down
-    assert "caseWM_ApplyCapsLockEdge:pIME->_ApplyCapsLockEdge((GetKeyState(VK_CAPITAL)&0x0001)!=0);" in "".join(ime.split())
+    normalized_ime = "".join(ime.split())
+    assert "caseWM_ApplyCapsLockEdge:pIME->_ApplyCapsLockEdge(msime::input::caps_lock_enabled_from_key_state(GetKeyState(VK_CAPITAL)));" in normalized_ime
     methods = [function(sink, f"void CMetasequoiaIME::{name}(")
                for name in ("_ApplyCapsLockEdge", "_QueueCapsLockEdge")]
     methods.append(function(layout, "POINT GetPhysicalTextAnchor("))
@@ -214,7 +216,7 @@ def main() -> int:
         source = pathlib.Path(directory) / "test.cpp"
         binary = pathlib.Path(directory) / "test"
         source.write_text(HARNESS.replace("@FUNCTIONS@", "\n".join(methods)))
-        subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I" + str(ROOT / "shared/contracts"), str(source), "-o", str(binary)], check=True)
+        subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I" + str(ROOT / "shared/contracts"), "-I" + str(ROOT / "shared/input"), str(source), "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
     print("Windows game compatibility: TSF/IMM Caps Lock timing, Bedrock physical anchors and candidate ordering and focus-bound sends passed")
     return 0

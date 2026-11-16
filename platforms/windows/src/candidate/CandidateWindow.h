@@ -68,6 +68,7 @@ public:
                            std::vector<std::string> fallback_fonts = {},
                            std::optional<bool> dark_theme = std::nullopt,
                            bool horizontal = false, bool show_preedit = true,
+                           bool show_preedit_area = true,
                            Page page = {}, Rendered rendered = {},
                            bool mouse_wheel = false, bool attach_typing_effect = true);
   ~CandidateWindow();
@@ -324,6 +325,7 @@ private:
   std::optional<bool> dark_theme_;
   bool horizontal_ = false;
   bool show_preedit_ = true;
+  bool show_preedit_area_ = true;
   bool wubi_code_hint_ = true;
   // 共享偏好 `show_app_logo`，经 set_layout 即时生效；关掉时首行不画 logo。
   bool show_app_logo_ = false;

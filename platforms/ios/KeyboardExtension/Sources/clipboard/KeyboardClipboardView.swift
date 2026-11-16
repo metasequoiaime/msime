@@ -1,6 +1,6 @@
 import UIKit
 
-/// iOS shows a paste notice whenever a keyboard reads what is on the pasteboard, so history is never recorded in the background the way the desktop records it. The change count and `hasStrings` can be read without that notice: they tell the panel that text has been copied since the last save, and the user's tap does the actual read.
+/// 未开启自动采集时只检查变化计数和文本类型，由用户点按读取；自动采集成功后同步更新保存标记。
 enum ClipboardCapturePrompt {
   static let key = "clipboard.lastCapturedChangeCount"
 
