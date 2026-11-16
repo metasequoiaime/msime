@@ -447,6 +447,16 @@ bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabl
     session_.set_chinese_punctuation(lease.epoch, enabled);
   });
 }
+bool FocusedSession::set_character_width(const FocusLease &lease, bool fullwidth) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Character width changed before reply delivery");
+    session_.set_character_width(lease.epoch, fullwidth);
+  });
+}
 bool FocusedSession::balance_paired_punctuation(const FocusLease &lease,
                                                 uint8_t opening) {
   check_thread();

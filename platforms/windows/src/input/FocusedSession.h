@@ -142,6 +142,7 @@ public:
   bool reset_cache();
   bool set_input_enabled(const FocusLease &lease, bool enabled);
   bool set_chinese_punctuation(const FocusLease &lease, bool enabled);
+  bool set_character_width(const FocusLease &lease, bool fullwidth);
   // Leaves the composition and any pending reply alone: the nesting count is not part of either.
   bool balance_paired_punctuation(const FocusLease &lease, uint8_t opening);
   // Retain at most one latest snapshot while a reply is pending. True means

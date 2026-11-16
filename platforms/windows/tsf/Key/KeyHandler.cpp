@@ -1,3 +1,4 @@
+#include "../../common/CharacterWidthText.h"
 #include "Private.h"
 #include "Globals.h"
 #include "EditSession.h"
@@ -2281,6 +2282,16 @@ std::wstring CMetasequoiaIME::_PrefetchPunctuationCommitText(UINT code, WCHAR wc
         return {};
     }
     const WCHAR *punctuation = _pCompositionProcessorEngine->GetPunctuation(wch);
+    // 预取是宿主自行输出的标点，不经过会话派发；复用共享 ASCII 映射处理当前全角状态。
+    if (punctuation && punctuation[0] >= L' ' && punctuation[0] <= L'~')
+    {
+        BOOL fullwidth = FALSE;
+        CCompartment(_pThreadMgr, _tfClientId, Global::MetasequoiaIMEGuidCompartmentDoubleSingleByte)
+            ._GetCompartmentBOOL(fullwidth);
+        if (fullwidth)
+            return FanyUtils::string_to_wstring(msime::windows::fullwidth_ascii_text(
+                FanyUtils::wstring_to_string(punctuation)));
+    }
     return punctuation ? punctuation : L"";
 }
 

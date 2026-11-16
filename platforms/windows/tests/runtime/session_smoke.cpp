@@ -865,7 +865,27 @@ int main(int argc, char **argv) {
       auto incomplete = native_options;
       incomplete["preferences"].erase("candidate_page_size");
       incomplete["preferences"].erase("chinese_punctuation");
-      rejected([&] { ServerSession invalid(42, incomplete.dump()); });
+      // 10-28 起共享运行时在内存中补救偏好副本；保留原来的缺字段输入，验证仍可建会话且不写回。
+      ServerSession recovered(42, incomplete.dump());
+      recovered.activate(1);
+      require(recovered.view().at("editing_text") == "" &&
+                  recovered.view().at("chinese_text") == true,
+              "Incomplete native preferences did not recover in memory");
+      require(!std::filesystem::exists(root / "native-config" / "user_data" / "preferences.json"),
+              "Runtime preference recovery wrote a replacement document");
+      auto unsupported = native_options;
+      unsupported["api_version"] = 999;
+      rejected([&] { ServerSession invalid(42, unsupported.dump()); });
+      // 另保留共享出厂默认设置的启动用例，不只测试经过夹具裁剪的偏好。
+      auto defaults = msime::host_api::own_string(msime_client_default_preferences());
+      require(defaults != nullptr, "Shared factory preferences unavailable");
+      auto factory_options = test_host_options(root / "native-factory-config");
+      factory_options["preferences"] = Json::parse(defaults.get()).at("value");
+      ServerSession factory(42, factory_options.dump());
+      factory.activate(1);
+      require(factory.view().at("focused") == true &&
+                  factory.view().at("editing_text") == "",
+              "Factory native preferences failed shared host initialization");
       ServerSession native(42, native_options.dump());
       native.activate(1);
       require(native.view().at("editing_text") == "",
