@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include "../InputMethodSetup.h"
 #include "SettingsChrome.h"
+#include "InfoTip.h"
 #include "KeyboardSkinPage.h"
 #include "SettingsRoutes.h"
 #include "AboutForm.h"
@@ -976,6 +977,7 @@ struct SettingsWindow::State {
     int top;
     int height;
     Surface surface = Surface::shortcuts;
+    InfoTip* help = nullptr;
   };
   HWND window = nullptr;
   HWND body = nullptr;
@@ -1053,6 +1055,7 @@ struct SettingsWindow::State {
   bool failed = false;
   bool com_initialized = false;
   std::vector<Item> items;
+  std::vector<std::unique_ptr<InfoTip>> info_tips;
   std::unique_ptr<Worker> worker;
   std::unique_ptr<Worker> updates_worker;
   bool updates_busy = false;
@@ -1113,6 +1116,13 @@ struct SettingsWindow::State {
     HWND child = add(body, type, caption, style, id);
     items.push_back({child, top, height});
     return child;
+  }
+
+  void row_help(int id, const wchar_t* title, const wchar_t* text) {
+    auto help = std::make_unique<InfoTip>(body, id, font, title, text);
+    if (!help->ready()) failed = true;
+    items.back().help = help.get();
+    info_tips.push_back(std::move(help));
   }
 
   bool controls() {
@@ -1543,10 +1553,11 @@ struct SettingsWindow::State {
     item(L"STATIC", L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。", SS_LEFT, -1, 216, 48);
     item(L"BUTTON", L"Esc 保留已选词", WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
         escape_keeps_selected_word, 282, 28);
-    item(L"STATIC", L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。", SS_LEFT, -1, 318, 48);
-    item(L"STATIC", L"翻页方式", SS_LEFT, -1, 384, 24);
-    item(L"STATIC", L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页。把以词定字占用的键组改为翻页，会在同一次保存中关闭以词定字。", SS_LEFT, -1, 420, 64);
-    int top = 496;
+    row_help(escape_keeps_selected_word_help, L"Esc 保留已选词",
+        L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。");
+    item(L"STATIC", L"翻页方式", SS_LEFT, -1, 330, 24);
+    item(L"STATIC", L"Shift+Tab / Tab 和 PageUp / PageDown 在候选窗口显示时始终翻页。把以词定字占用的键组改为翻页，会在同一次保存中关闭以词定字。", SS_LEFT, -1, 366, 64);
+    int top = 442;
     for (const auto& field : navigation_checks) {
       item(L"BUTTON", field.label, WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, field.id, top, 28);
       top += 40;
@@ -1635,8 +1646,13 @@ struct SettingsWindow::State {
     for (const auto& field : candidate_checks) {
       if (field.id == mixed_japanese && !MSIME_EDITION_TEMPORARY_JAPANESE) continue;
       item(L"BUTTON", field.title, WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY, field.id, top, 28);
-      item(L"STATIC", field.description, SS_LEFT, -1, top + 36, 48);
-      top += 100;
+      if (field.id == enter_learns_english_word) {
+        row_help(enter_learns_english_word_help, field.title, field.description);
+        top += 44;
+      } else {
+        item(L"STATIC", field.description, SS_LEFT, -1, top + 36, 48);
+        top += 100;
+      }
       if (field.id == mixed_english) {
         item(L"STATIC", L"首页英文候选数", SS_LEFT, -1, top, 24);
         item(L"STATIC", L"首页有空间时优先排列的英文候选数。", SS_LEFT, -1, top + 32, 28);
@@ -1850,6 +1866,7 @@ struct SettingsWindow::State {
       // 隐藏页面的控件很多；重复显隐和相同坐标移动仍会触发系统布局消息。
       const bool was_visible = (GetWindowLongPtrW(item.handle, GWL_STYLE) & WS_VISIBLE) != 0;
       if (visible != was_visible) ShowWindow(item.handle, visible ? SW_SHOW : SW_HIDE);
+      if (item.help) item.help->visible(visible);
       if (!visible) continue;
       const int top = reference ? 0 : dip(*scheme_top) - scroll;
       int width = std::max(client.right - dip(24), 1L);
@@ -1873,6 +1890,7 @@ struct SettingsWindow::State {
         placed_top += dip(4);
       }
       RECT previous{};
+      if (item.help) width = item.help->layout(item.handle, left, placed_top, width, height, dpi);
       if (GetWindowRect(item.handle, &previous)) MapWindowPoints(nullptr, body, reinterpret_cast<POINT*>(&previous), 2);
       if (previous.left != left || previous.top != placed_top || previous.right != left + width || previous.bottom != placed_top + height)
         MoveWindow(item.handle, left, placed_top, width, height, TRUE);
@@ -2408,6 +2426,7 @@ struct SettingsWindow::State {
   }
 
   void command(WPARAM command) {
+    for (const auto& tip : info_tips) if (tip->command(command)) return;
     const int id = LOWORD(command);
     if (id == setup_action && HIWORD(command) == BN_CLICKED) {
       const bool changed = input_method_state == input_method::InputMethodState::missing
