@@ -12,6 +12,8 @@ pub struct Pick {
     pub canonical_pinyin: String,
     pub word: String,
     pub committed_at: Instant,
+    /// 每个片段的字数。拼音 pick 恒空；五笔累积段非空（连同空的 `canonical_pinyin` 一起标记这是五笔段）。
+    pub pieces: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -74,6 +76,7 @@ mod tests {
             canonical_pinyin: "ni".to_owned(),
             word: "你".to_owned(),
             committed_at: now,
+            pieces: Vec::new(),
         });
         chain.reset();
         assert!(chain.previous.is_none() && chain.earlier.is_none());

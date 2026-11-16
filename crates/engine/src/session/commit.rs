@@ -9,6 +9,7 @@ use crate::pinyin::segment::{join_segments, split_segments};
 use crate::pinyin::syllables::normalize_umlaut_aliases;
 use crate::quanpin::QuanpinEngine;
 use crate::text::count_utf8_chars;
+use crate::text::is_all_han;
 use crate::types::{
     CandidateEdge, CandidateSource, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType,
     WordItem,
@@ -356,8 +357,21 @@ impl InputSession {
             && !self.dedicated_english
             && follows_pinyin)
         {
+            // `record_personal_context` 对五笔走 `chain.reset()`，会把未关闭的累积段一起抹掉，
+            // 所以先取走，记完上下文再放回去记这次片段（见 `note_wubi_pick`）。
+            let open_wubi_run = self.chain.last_pick.take();
             self.record_context_into(&mut diagnostic, Some(&selected), false, false);
-            self.chain.last_pick = None;
+            let wubi_run_word = self
+                .wubi_run_material(&selected)
+                .then(|| selected.word.clone());
+            if let Some(word) = wubi_run_word {
+                self.chain.last_pick = open_wubi_run;
+                if let Some(run_diagnostic) = self.note_wubi_pick(&word, self.steady_now()) {
+                    diagnostic.get_or_insert(run_diagnostic);
+                }
+            } else {
+                self.chain.last_pick = None;
+            }
             self.reset_composition();
             return committed(text, diagnostic);
         }
@@ -397,6 +411,7 @@ impl InputSession {
                 canonical_pinyin: transition.selected_canonical_pinyin.clone(),
                 word: selected.word.to_string(),
                 committed_at: self.steady_now(),
+                pieces: Vec::new(),
             });
         // Recording the context has already ended the chain for a commit that does not follow the previous one.
         if opens_composition {
@@ -442,6 +457,19 @@ impl InputSession {
         self.reset_commit_context();
     }
 
+    /// 五笔原生上屏能否作为累积造词的片段：五笔方案的原生候选、本地模式关、学习与个人上下文开、
+    /// 全汉字且 1..=12 字（`MAX_WUBI_RUN_CHARS`）。混输里拼音来的候选由拼音路径处理，不进这里。
+    pub(super) fn wubi_run_material(&self, item: &WordItem) -> bool {
+        self.is_wubi()
+            && Self::is_wubi_native_candidate(item)
+            && self.local_mode == LocalInputMode::None
+            && !self.dedicated_english
+            && self.learning_enabled
+            && self.personal_context_enabled
+            && is_all_han(&item.word)
+            && (1..=super::learning::MAX_WUBI_RUN_CHARS).contains(&count_utf8_chars(&item.word))
+    }
+
     /// Store a phrase under a complete quanpin key. Quanpin and shuangpin share the canonical dictionary, so the key never goes back through a shuangpin profile (input_session_composition.cpp:522-536).
     pub(super) fn store_user_phrase_from_canonical_pinyin(
         &mut self,
@@ -450,8 +478,13 @@ impl InputSession {
     ) -> Result<()> {
         self.canonical_phrase_engine()
             .create_word_from_canonical_pinyin(pinyin, word)?;
-        let profile = self.engine.wubi_input_options().profile;
-        if crate::user_dictionary::wubi_learning::learn(&self.paths, word, profile)? {
+        let wubi = self.engine.wubi_input_options();
+        if crate::user_dictionary::wubi_learning::learn(
+            &self.paths,
+            word,
+            wubi.profile,
+            wubi.wubi_phrase_placement,
+        )? {
             self.engine.reset_cache();
         }
         Ok(())
