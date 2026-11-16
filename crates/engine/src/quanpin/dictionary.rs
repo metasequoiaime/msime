@@ -63,7 +63,7 @@ use super::series::{
     AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
     MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
-use super::typo_edges::collect_typo_edges;
+use super::typo_edges::{collect_typo_edges, EditWindowCache, EDIT_WINDOW_CACHE_CAPACITY};
 
 #[cfg(test)]
 mod marking_buffer_tests;
@@ -96,8 +96,8 @@ const FUZZY_ROW_LIMIT: usize = 128;
 // k-best 纠错切分去掉主切分后最多 8 条，再加上完整音节图最多 32 条。
 const ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY: usize =
     AUTOCORRECT_CUT_KBEST - 1 + SYLLABLE_GRAPH_PATH_LIMIT;
-/// 纠错整句扣掉罚分后每处纠错比字面整句高出这么多，就坐第一条整句后面（第二位），不再排到整句块之后。胜过得更多的（`typo_lead_margin`，30）坐首位。整句块有好几条读法，块后的纠错句在手机候选栏上常常看不到：xianziawodayoduanhua 的「现在我打一段话」高出字面整句约 40，却排在三条不成句的读法后面。在合法拼音打错集和原句集上，原句里出纠错整句的只有 7/466 条、每处最多高 10.1；门槛 15 时原句一条都不动，打错集里纠错句就是原句的 399 条中 163 条坐上第二位（门槛 10 时原句动 1 条）。
-pub const TYPO_SECOND_SEAT_MARGIN: f64 = 15.0;
+/// 纠错整句扣掉罚分后每处纠错比字面整句高出这么多，就坐第一条整句后面（第二位），不再排到整句块之后。胜过得更多的（`typo_lead_margin`，50）坐首位。整句块有好几条读法，块后的纠错句在手机候选栏上常常看不到：xianziawodayoduanhua 的「现在我打一段话」高出字面整句很多，却排在三条不成句的读法后面。罚分折扣 0.25（`QUANPIN_TYPO_PENALTY_SCALE`）下，10396 条原句里出纠错整句的 702 条、每处高出的中位数 4.4，超过 20 的 38 条，其中字面整句本来就是原句的只有 2 条（坐第二位不动首选，只把第二条字面读法往后挪一格）；1812 条合法拼音打错集里超过 20 的 503 条。
+pub const TYPO_SECOND_SEAT_MARGIN: f64 = 20.0;
 /// The masks whose lists depend on the typo profile and carry typo sentences.
 const TYPO_EDGE_TYPES: u32 = autocorrect_type::TRANSPOSITION
     | autocorrect_type::NEIGHBOR
@@ -239,6 +239,8 @@ pub struct QuanpinDictionary {
     fuzzy_cache: FifoCache<u64, CachedFuzzyCandidates>,
     /// Rows of typo-variant span keys, empty answers included. Dictionary rows only, so it is cleared with the other caches.
     typo_span_cache: FifoCache<String, Vec<DictRow>>,
+    /// 字母级纠错每个窗口的改法；只取决于字面音节和纠错开关，词库换代也不用清。
+    typo_edit_cache: EditWindowCache,
     /// 词网格每个跨度的 `query_lattice_span` 结果，空结果也存。哈希只做索引，命中后再核对上限和原样跨度，避免每次命中都拼接键字符串。
     lattice_span_cache: FifoCache<u64, CachedLatticeSpan>,
     /// 每条切分的 `query_segments_keyed_flat` 结果，键是切分本身；单字母首屏与完整 `query_initial` 行分别以前缀 `\u{1}`、`\u{2}` 区分。
@@ -317,6 +319,7 @@ impl QuanpinDictionary {
             resolution_cache: FifoCache::new(CACHE_CAPACITY),
             fuzzy_cache: FifoCache::new(CACHE_CAPACITY),
             typo_span_cache: FifoCache::new(TYPO_SPAN_CACHE_CAPACITY),
+            typo_edit_cache: EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY),
             lattice_span_cache: FifoCache::new(LATTICE_SPAN_CACHE_CAPACITY),
             segment_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
             longer_row_cache: FifoCache::new(ROW_CACHE_CAPACITY),
@@ -1446,9 +1449,18 @@ impl QuanpinDictionary {
         let span_limit = options.span_limit;
         let database = &self.database;
         let span_cache = &mut self.typo_span_cache;
+        let edit_cache = &mut self.typo_edit_cache;
         let profile = &*self.typo_profile;
         let mut typo_edges = |literal_best: &SentencePath| {
-            collect_typo_edges(database, span_cache, profile, segments, literal_best, types)
+            collect_typo_edges(
+                database,
+                span_cache,
+                edit_cache,
+                profile,
+                segments,
+                literal_best,
+                types,
+            )
         };
         let typo_source: Option<&mut TypoEdgeSource<'_>> = if typo_eligible {
             Some(&mut typo_edges)
@@ -1557,7 +1569,7 @@ impl QuanpinDictionary {
             if typo.leads(TYPO_SECOND_SEAT_MARGIN)
                 && result.get(at).is_some_and(|item| item.sentence_association)
             {
-                // 明显胜过字面整句的纠错句坐第一条整句后面；runtime 降位时保住这个座位（`ordering::runner_up_order_pooled`）。
+                // 明显胜过字面整句的纠错句坐第一条整句后面；runtime 降位时保住这个座位（`ordering::runner_up_order_pinned`）。
                 at += 1;
             } else {
                 while at < result.len() && result[at].sentence_association {

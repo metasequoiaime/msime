@@ -406,13 +406,13 @@ final class ImeBottomRow {
                             button.setText("移动光标");
                             if (button instanceof SpaceKeyFace face) face.setTransientLabel("移动光标");
                             button.setContentDescription("正在移动光标");
-                            moveEditorCursor(s.cursorMovement.advance(
+                            ImeSpaceCursor.move(s, button, s.cursorMovement.advance(
                                 event.getX(), s.connection, s.pixels(12)));
                         }
                         return true;
                     }
                     if (dragging[0]) {
-                        moveEditorCursor(s.cursorMovement.advance(
+                        ImeSpaceCursor.move(s, button, s.cursorMovement.advance(
                             event.getX(), s.connection, s.pixels(12)));
                         if (!s.cursorMovement.isActive()) {
                             dragging[0] = false;

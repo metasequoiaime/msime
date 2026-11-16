@@ -112,6 +112,8 @@ public final class AccountFailureText {
             case "account_network" -> "连接失败，请检查网络后重试。";
             case "account_too_large" -> "对话太长了，清空后再试。";
             case "account_unauthorized" -> "请先登录后再和 AI 对话。";
+            case "account_unavailable" -> "对话服务暂时不可用，请稍后重试。";
+            case "account_invalid" -> "对话请求无效，请清空对话后重试。";
             default -> "请求失败，请检查登录状态或稍后重试。";
         };
     }

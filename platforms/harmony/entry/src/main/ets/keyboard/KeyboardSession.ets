@@ -139,6 +139,7 @@ import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
+import { HarmonyClipboardHistoryCapture } from './clipboard/HarmonyClipboardHistoryCapture';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/CloudClipboardClient';
 import {
@@ -1503,6 +1504,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
   private clipboardHistoryEnabled: boolean = false;
+  private clipboardCaptureVisible: boolean = false;
+  private readonly clipboardCapture: HarmonyClipboardHistoryCapture = new HarmonyClipboardHistoryCapture(
+    (): boolean => this.clipboardCaptureVisible && this.editorAttributesKnown
+      && this.clipboardHistoryAllowed() && this.clipboardCaptureAllowed(),
+    (): Promise<boolean> => this.canReadClipboard(),
+    (text: string): boolean => this.captureClipboardHistory(text).failure !== ClipboardFailure.INVALID_FILE);
   // The two optional candidate annotations. Held here rather than in KeyboardPreferences because the
   // session builds the candidate entries itself; the view only draws what it is handed.
   private wubiCodeHint: boolean = true;
@@ -1705,6 +1712,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   keyboardShown(): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
     this.idleDictionaryVisible = true;
+    this.clipboardCaptureVisible = true;
+    this.clipboardCapture.start();
     this.scheduleDictionarySnapshotPoll();
     this.schedulePersonalDictionaryDrain();
   }
@@ -2467,6 +2476,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Rebuild an idle Engine session without changing the editor-visible input mode. */
   private restartIdleSession(reason: string): void {
+    const captureVisible: boolean = this.clipboardCaptureVisible;
     const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
     const english: boolean = this.englishMode;
     const keyGrid: number = this.keyGrid;
@@ -2480,6 +2490,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     this.englishMode = english;
+    if (captureVisible && attached !== undefined) {
+      this.clipboardCaptureVisible = true;
+      this.clipboardCapture.start();
+    }
     this.keyGrid = keyGrid;
     if (attached !== undefined && this.inputClient === attached) {
       this.apply(client.focus(this.handle, true));
@@ -3937,6 +3951,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     // 先让视图离开键盘调整：离开时保存，此时会话还对着上一个编辑框。
     if (this.onEditorAttached !== undefined) {
       this.onEditorAttached();
@@ -4023,6 +4039,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     // 按键反馈和手写板设置是另一个文件，设置应用写它时不会推进偏好修订号，所以每次获得焦点都要读取，而不只在构建会话时读取。文件存在却读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。
     this.refreshFeedback();
     this.followPrivacyMode();
+    this.clipboardCaptureVisible = true;
+    this.clipboardCapture.start();
     // 应用主题也一样：月份变了或在设置应用里选了主题，皮肤会立即重绘，而不是最多一分钟后。真正重绘皮肤的是视图的 reload 钩子。
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
@@ -4118,6 +4136,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   detach(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     // 宿主随后隐藏面板。先让视图停掉录音，取消发生在旧编辑框还连着的时候，与 Android 在 onFinishInput 里先取消语音再收尾一致。
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
@@ -4164,6 +4184,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.ownEdits.clear();
@@ -6834,6 +6856,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 隐私模式与会话构建时不再相符时重建会话。先提交正在进行的组字，与 Android 在重启前先完成组字的做法一样，这样已输入的内容不会因重建而丢失；处于本地模式时留待其结束，由下一次获得焦点时补上。
    */
   private followPrivacyMode(): void {
+    this.clipboardCapture.discardIfDisallowed();
     if (this.handle === 0 || this.sessionPrivate === this.feedbackCurrent.incognito
       || this.localMode !== 'none') {
       return;
@@ -8616,6 +8639,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查，关掉缓存的释义词库。编辑框可能仍有焦点，所以不等 inputStop。 */
   keyboardHidden(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }

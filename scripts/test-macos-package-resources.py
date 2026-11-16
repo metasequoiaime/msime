@@ -37,6 +37,8 @@ PACKAGING_INPUTS = (
     "platforms/macos/scripts/edition_bundle.py",
     "platforms/macos/scripts/engine_resources_budget.py",
     "platforms/macos/resources/installer/",
+    "platforms/macos/resources/system-updater/",
+    "crates/macos-system-updater/",
     "platforms/macos/stage-resources.sh",
     "apps/desktop/src-tauri/tauri.macos.conf.json",
     "resources/desktop-dictionary.lock.json",
