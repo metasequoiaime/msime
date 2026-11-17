@@ -31,8 +31,18 @@ function Assert-QuickPhraseSettings($window) {
     $toggle = Show-QuickPhraseToggle $window
     $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
     if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw '新装快捷短语混输应关闭' }
+    # 展开后滚到真实控件可见的位置，截图保留关闭、开启与重启后的回读状态。
+    $content = Find-ById $window 'settings-content'
+    $scroll = $null
+    if ($content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $scroll.Current.VerticallyScrollable) {
+        $scroll.SetScrollPercent(-1, 100)
+    }
+    Start-Sleep -Milliseconds 350
+    if ($toggle.Current.IsOffscreen) { throw '快捷短语混输开关没有出现在展开截图中' }
+    Save-Window $window 'quick-phrase-expanded-off.png'
     $pattern.Toggle()
     Wait-QuickPhraseSaved $true
+    Save-Window $window 'quick-phrase-expanded-on.png'
     $script:process.CloseMainWindow() | Out-Null
     if (-not $script:process.WaitForExit(10000)) { throw '快捷短语保存后窗口未退出' }
     $window = Start-SettingsWindow 'settings:input'
