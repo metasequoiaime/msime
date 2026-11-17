@@ -56,6 +56,7 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
 mod mixed_initials;
 mod short_words;
+mod syllable_helpcode_order;
 
 use mixed_initials::has_mixed_initials;
 
@@ -329,13 +330,7 @@ impl ShuangpinDictionary {
         candidates: &mut Vec<WordItem>,
         keymap: &HelpcodeKeymap,
     ) {
-        if self.syllable_helpcodes.is_empty() {
-            return;
-        }
-        candidates.retain(|item| {
-            !is_pinyin_word(item)
-                || satisfies_syllable_helpcodes(&self.syllable_helpcodes, &item.word, keymap)
-        });
+        syllable_helpcode_order::filter_and_demote(candidates, &self.syllable_helpcodes, keymap);
     }
 
     /// Series and helpcode answers carry the reranked sentence rows, which depend on the committed context. The C++ bypassed these caches while a model was loaded because its rows arrived asynchronously; scoring here is synchronous, so the trimmed context joins the key instead and a commit moves to fresh entries without clearing the context-free row cache (overlays.md §1.6.2). Without a reranker no answer reads the context, so the key stays the raw input.
