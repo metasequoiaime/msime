@@ -2356,6 +2356,9 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub cantonese_simplified_output: bool,
+    /// 鸿蒙注音输出简体：注音词库是繁体，鸿蒙宿主在显示与上屏边界做繁转简。与 `traditional_chinese_output` 互不影响，注音下的简繁按钮切换的是它；默认关，即注音照旧输出繁体。其他宿主保留这个字段但不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub zhuyin_simplified_output: bool,
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
@@ -4900,6 +4903,7 @@ impl Default for Preferences {
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
             cantonese_simplified_output: false,
+            zhuyin_simplified_output: false,
             chinese_english_spacing: false,
             cross_commit_spacing: false,
             cross_commit_spacing_excluded_apps: Vec::new(),

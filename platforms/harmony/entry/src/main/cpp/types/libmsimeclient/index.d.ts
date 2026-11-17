@@ -19,6 +19,8 @@ export const hostCapabilities: (platform: string) => string;
  * Simplified to Traditional through the shared phrase-level OpenCC s2t tables, the conversion the Windows, macOS, Linux and Android hosts use. Unlike the methods around it this answers with the converted text itself rather than a JSON response, and with null for text the C ABI refuses (an embedded NUL), in which case the caller keeps its own text.
  */
 export const simplifiedToTraditional: (text: string) => string | null;
+/** 通过共享的短语级 OpenCC t2s 表把繁体转换为简体。 */
+export const traditionalToSimplified: (text: string) => string | null;
 
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
