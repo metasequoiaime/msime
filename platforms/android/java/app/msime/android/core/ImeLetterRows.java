@@ -1147,12 +1147,13 @@ final class ImeLetterRows {
         s.keyId(keyButton, eighteen ? EighteenKeyLayout.keyId(key) : FourteenKeyLayout.keyId(key));
         String face = FourteenKeyLayout.face(key, fourteenShuangpin());
         keyButton.setText(face);
-        // 双字母键面两个字母之间留一点字距（#11051）；18 键的自适应字号按带字距的宽度量，窄屏上照样单行。
+        // 双字母键面两个字母之间留一点字距（#11051）；字号按带字距的宽度收，窄屏上照样单行。
         keyButton.setLetterSpacing(FourteenKeyLayout.faceLetterSpacing(face));
         keyButton.setContentDescription(FourteenKeyLayout.accessibilityLabel(key, fourteenShuangpin()));
         if ("l".equals(key.letters())) fourteenLKey = keyButton;
-        if (eighteen) KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 12, 22);
-        else KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
+        // 14 键和 18 键同一个基准字号：先定 22 sp，再交给 KeyHintButton 按键宽收（setGridFace），角标开关前后都一样。18 键原来只开了自适应字号、没设字号，角标一来就把工厂的 14 sp 记成基准，字母比 14 键小一圈。
+        KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
+        keyButton.setGridFace(true);
         keyButton.setKeyboardRole(KeyboardKeyRole.KEY);
         gridLetterButtons.add(keyButton);
         gridLetterKeys.add(key);
