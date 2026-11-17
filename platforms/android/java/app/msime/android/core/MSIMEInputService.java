@@ -1576,14 +1576,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 按键的键位 id（`Backspace`、`Space`、`Enter`…）；没有登记的控件为 null。按键反馈靠它给键分类，不去猜无障碍描述。 */
     String keyIdOf(View key) { return key == null ? null : keyIds.get(key); }
 
-    /**
-     * Count one key press for the heatmap: its id and its local day, nothing else.
-     *
-     * <p>Presses are batched here and written by the worker -- on {@link KeyPressBatch#FLUSH_PRESSES} presses, at the first press of a new day (the old day first, under its own date), when the editor or the keyboard goes away, and otherwise half a minute after the batch opened. The worker's queue is short and every write rewrites the whole document under the file lock, so it never sees a single key.
-     */
+    /** 按下时取得来源，按日、256 次或 30 秒攒批；语言切换不改变已经记下的来源。 */
     void countKey(String id) {
         if (id == null || !imePrivacyGate.countsKeys()) return;
-        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString());
+        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString(), typingSource());
         if (previous != null) writeKeyPresses(previous);
         if (keyPresses.full()) {
             flushKeyPresses();
@@ -1611,13 +1607,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyStatisticsDirectory.isEmpty()) return;
         final String request;
         try {
-            JSONObject keys = new JSONObject();
-            for (java.util.Map.Entry<String, Long> entry : flush.keys().entrySet())
-                keys.put(entry.getKey(), entry.getValue().longValue());
-            request = new JSONObject().put("directory", keyStatisticsDirectory).put("action",
-                new JSONObject().put("operation", "record_keys").put("day", flush.day())
-                    .put("keys", keys))
-                .toString();
+            request = KeyPressRequest.encode(keyStatisticsDirectory, flush);
         } catch (JSONException error) {
             reportTypingStatisticsFailure();
             return;

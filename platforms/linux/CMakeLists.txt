@@ -772,6 +772,11 @@ if(BUILD_TESTING)
   target_include_directories(linux-typing-statistics-test PRIVATE src ../../crates/host-api/include)
   target_link_libraries(linux-typing-statistics-test PRIVATE "${MSIME_HOST_LIBRARY}" Threads::Threads)
   add_test(NAME linux-typing-statistics COMMAND linux-typing-statistics-test)
+  add_executable(linux-typing-key-sources-test tests/core/typing_key_sources.cpp)
+  target_compile_options(linux-typing-key-sources-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-typing-key-sources-test PRIVATE src ../../crates/host-api/include)
+  target_link_libraries(linux-typing-key-sources-test PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
+  add_test(NAME linux-typing-key-sources COMMAND linux-typing-key-sources-test)
   add_executable(linux-panel-input-channel-test tests/core/panel_input_channel.cpp)
   target_compile_options(linux-panel-input-channel-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-panel-input-channel-test PRIVATE src src/system)
@@ -1324,10 +1329,15 @@ install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSI
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 include(cmake/LocalTranslation.cmake)
+include(cmake/QuickPhraseClear.cmake)
 include(cmake/DictionaryCollections.cmake)
 set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-cloud-clipboard-sync msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
+if(TARGET msime-linux-quick-phrase-clear)
+  set_target_properties(msime-linux-quick-phrase-clear PROPERTIES
+    INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
+endif()
 if(TARGET msime-linux-clipboard-watch-x11)
   set_target_properties(msime-linux-clipboard-watch-x11 PROPERTIES
     INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
