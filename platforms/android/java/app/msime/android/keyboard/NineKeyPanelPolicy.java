@@ -104,19 +104,17 @@ public final class NineKeyPanelPolicy {
         return mode == Mode.STROKE ? Mode.SPELLING : Mode.STROKE;
     }
 
-    /** 拼音/笔画键的键面：显示当前所在的模式。 */
-    public static String modeTitle(Mode mode) {
-        return mode == Mode.STROKE ? "笔画" : "拼音";
-    }
+    /**
+     * 笔画键的键面。键面固定写着它开启的筛选，开没开由选中态（高亮）表示，不随状态换字：键面写当前状态时（「拼音」「全部」），用户在关着的状态下看不到能切到什么（#11117）。
+     */
+    public static final String STROKE_TITLE = "笔画";
+
+    /** 单字键的键面，固定不变，开着时高亮；理由同 {@link #STROKE_TITLE}。 */
+    public static final String SINGLE_CHARACTER_TITLE = "单字";
 
     /** 读屏文字说的是按下去会切到哪一边。 */
     public static String modeDescription(Mode mode) {
         return mode == Mode.STROKE ? "切换到拼音" : "切换到笔画筛选";
-    }
-
-    /** 全部/单字键的键面：显示当前的筛选。 */
-    public static String singleCharacterTitle(boolean singleCharacter) {
-        return singleCharacter ? "单字" : "全部";
     }
 
     public static String singleCharacterDescription(boolean singleCharacter) {

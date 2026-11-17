@@ -62,6 +62,7 @@ platforms/android/tests/device/keyboard/FuzzyPinyinDeviceSmoke.java
 platforms/android/tests/device/candidate/CandidateGlossDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyEnglishDeviceSmoke.java
 platforms/android/tests/device/keyboard/NineKeyPanelDeviceSmoke.java
+platforms/android/tests/device/keyboard/NineKeyPanelActionColumnChecks.java
 platforms/android/tests/device/keyboard/NineKeyFlickDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyRecentSelectionDeviceChecks.java
 platforms/android/tests/device/keyboard/FourteenKeyDeviceSmoke.java
@@ -70,6 +71,7 @@ platforms/android/tests/device/keyboard/FourteenKeyShuangpinDeviceChecks.java
 platforms/android/tests/device/keyboard/FourteenKeyWubiDeviceChecks.java
 platforms/android/tests/device/keyboard/EighteenKeyGeometryDeviceChecks.java
 platforms/android/tests/device/keyboard/GridLetterSymbolDeviceChecks.java
+platforms/android/tests/device/keyboard/GridKeyMetricsDeviceChecks.java
 platforms/android/tests/device/keyboard/GridSpellingEditorChecks.java
 platforms/android/tests/device/keyboard/GridSwipeTouch.java
 platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java

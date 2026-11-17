@@ -35,16 +35,37 @@ begin
     VCRuntimeFileIsCompatible(ExpandConstant('{sys}\vcruntime140_1.dll'));
 end;
 
-{ 日志和判断读同一份实际文件，不显示可能缺失或过期的注册表值。 }
-function ReadVCRuntimeVersion: String;
+function VCRuntimeFileStatus(const Filename, DisplayName: String): String;
 var
+  VersionMS, VersionLS: Cardinal;
   Version: String;
+  NativeFilename: String;
 begin
-  Result := '';
-  if GetVersionNumbersString(VCRuntimeNativePath(ExpandConstant('{sys}\msvcp140.dll')), Version) then
-    Result := 'msvcp140=' + Version;
-  if GetVersionNumbersString(VCRuntimeNativePath(ExpandConstant('{sys}\vcruntime140.dll')), Version) then
-    Result := Result + '; vcruntime140=' + Version;
-  if GetVersionNumbersString(VCRuntimeNativePath(ExpandConstant('{sys}\vcruntime140_1.dll')), Version) then
-    Result := Result + '; vcruntime140_1=' + Version;
+  NativeFilename := VCRuntimeNativePath(Filename);
+  if not FileExists(NativeFilename) then
+  begin
+    Result := DisplayName + '=缺失';
+    exit;
+  end;
+  if not GetVersionNumbers(NativeFilename, VersionMS, VersionLS) then
+  begin
+    Result := DisplayName + '=无法读取版本';
+    exit;
+  end;
+  if not GetVersionNumbersString(NativeFilename, Version) then
+    Version := '未知版本';
+  Result := DisplayName + '=' + Version;
+  if not VCRuntimeFileIsCompatible(Filename) then
+    Result := Result + '（低于' + VCRuntimeMinimumVersion + '）';
+end;
+
+{ 日志和判断读同一组实际文件，不显示可能残留或不完整的注册表登记。 }
+function ReadVCRuntimeVersion: String;
+begin
+  Result := VCRuntimeFileStatus(
+    ExpandConstant('{sys}\msvcp140.dll'), 'msvcp140.dll');
+  Result := Result + '; ' + VCRuntimeFileStatus(
+    ExpandConstant('{sys}\vcruntime140.dll'), 'vcruntime140.dll');
+  Result := Result + '; ' + VCRuntimeFileStatus(
+    ExpandConstant('{sys}\vcruntime140_1.dll'), 'vcruntime140_1.dll');
 end;
