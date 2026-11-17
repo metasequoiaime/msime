@@ -164,6 +164,13 @@ class AppGalleryTests(unittest.TestCase):
                 AGC.check_result({"ret": ret})
             self.assertNotIn("private contact", str(error.exception))
 
+    def test_rejection_names_the_endpoint_but_not_huaweis_message(self):
+        with self.assertRaises(AGC.ReleaseError) as error:
+            AGC.check_result({"ret": {"code": 204144641, "msg": "private contact"}},
+                             endpoint="PUT /publish/v2/app-language-info")
+        self.assertIn("code=204144641，接口 PUT /publish/v2/app-language-info", str(error.exception))
+        self.assertNotIn("private contact", str(error.exception))
+
     def test_missing_token_or_credentials_fail(self):
         with self.assertRaises(AGC.ReleaseError):
             AGC.Client("123", "", "")
