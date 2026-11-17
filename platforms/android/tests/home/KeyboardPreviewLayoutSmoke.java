@@ -65,7 +65,7 @@ public final class KeyboardPreviewLayoutSmoke {
         List<List<Key>> rows = Preview.STANDARD.rows();
         check(rows.equals(KeyLayoutStylesPolicy.keyboard(Kind.TWENTY_SIX, Row.STANDARD, false, false)),
             "without preferences the preview is the standard 26-key keyboard");
-        check(faces(last(rows)).equals(List.of("123", "符", "空格", "，", "中", "↵")), "standard 26-key bottom row");
+        check(faces(last(rows)).equals(List.of("123", "符", "。", "空格", "，", "中", "↵")), "standard 26-key bottom row");
         check(!faces(last(rows)).equals(List.of("123", "，", "空格", "。", "中", "↵")), "the old hard-coded bottom row is gone");
         check(faces(rows.get(1)).size() == 9 && faces(rows.get(1)).get(0).equals("A"), "second letter row, Chinese-mode faces");
     }
@@ -107,16 +107,16 @@ public final class KeyboardPreviewLayoutSmoke {
         check(numbers.with(Kind.FOURTEEN).rows().size() == 5, "14/18 keys draw the number row");
         check(numbers.with(Kind.NINE).rows().size() == 4, "9 keys never draw the number row");
         Preview symbolFirst = new Preview(Kind.TWENTY_SIX, TouchKeyStyle.Styles.DEFAULT, false, false, true, false);
-        check(faces(last(symbolFirst.rows())).equals(List.of("符", "123", "空格", "，", "中", "↵")), "符 goes before 123");
+        check(faces(last(symbolFirst.rows())).equals(List.of("符", "123", "。", "空格", "，", "中", "↵")), "符 goes before 123");
         check(faces(last(symbolFirst.with(Kind.NINE).rows())).equals(faces(last(Preview.STANDARD.with(Kind.NINE).rows()))),
             "the 26-key swap leaves 9 keys alone");
     }
 
     private static void swapLanguageNumber() {
         Preview swapped = new Preview(Kind.TWENTY_SIX, TouchKeyStyle.Styles.DEFAULT, false, false, false, true);
-        check(faces(last(swapped.rows())).equals(List.of("中", "符", "空格", "，", "123", "↵")), "26 keys swap 123 and 中");
+        check(faces(last(swapped.rows())).equals(List.of("中", "符", "。", "空格", "，", "123", "↵")), "26 keys swap 123 and 中");
         check(faces(last(new Preview(Kind.TWENTY_SIX, TouchKeyStyle.Styles.DEFAULT, false, false, true, true).rows()))
-            .equals(List.of("符", "中", "空格", "，", "123", "↵")), "符 moves first, then 123 and 中 swap");
+            .equals(List.of("符", "中", "。", "空格", "，", "123", "↵")), "符 moves first, then 123 and 中 swap");
         check(faces(last(swapped.with(Kind.NINE).rows())).equals(List.of("符", "中", "空格", "123", "↵")), "9 keys swap 123 and 中");
         // 与键盘按同一项设置排的底行逐键相同，宽度跟着键走。
         for (Kind kind : Kind.values()) {
@@ -169,7 +169,7 @@ public final class KeyboardPreviewLayoutSmoke {
     private static void languageLeft() {
         Preview left = KeyLayoutStylesPolicy.preview(ALL, KeyboardScheme.QUANPIN, SIX, SIX, TouchKeyStyle.Styles.DEFAULT,
             false, false, false, List.of(), true);
-        check(left.languageLeft() && faces(last(left.rows())).equals(List.of("123", "符", "中", "空格", "，", "↵")),
+        check(left.languageLeft() && faces(last(left.rows())).equals(List.of("123", "符", "中", "。", "空格", "，", "↵")),
             "26 keys put 中 left of the space");
         check(faces(last(left.with(Kind.NINE).rows())).equals(List.of("符", "123", "中", "空格", "↵")),
             "9 keys put 中 left of the space");

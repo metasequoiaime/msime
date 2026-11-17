@@ -28,9 +28,11 @@ SessionController::SessionController(
     SessionPump::EventHandler event, std::function<bool()> healthy,
     std::function<void()> stop_service, std::chrono::milliseconds interval,
     std::string preferences_directory, SessionPump::Presentation presentation,
-    PreferenceMonitor::Published published)
+    PreferenceMonitor::Published published,
+    std::shared_ptr<std::atomic<bool>> candidate_cloud_badge)
     : inbox_(inbox), transport_(transport), healthy_(std::move(healthy)),
       stop_service_(std::move(stop_service)), interval_(interval),
+      candidates_(std::move(candidate_cloud_badge)),
       presentation_(std::move(presentation)), event_(std::move(event)),
       input_(focus_, clients, input_capacity, std::move(options)),
       cloud_([this](CloudCandidateWorker::Result result) {
@@ -139,11 +141,7 @@ SessionController::SessionController(
                presentation_.disconnected(ticket);
            },
            [this](const FocusLease &lease, const PendingReply &reply) {
-             // Every delivered reply restarts the settle clock, so the pass
-             // only runs when the user has actually stopped, and never between
-             // the keystrokes of ordinary typing — which is what keeps the
-             // larger model off the keystroke path, where it measures p95
-             // 153ms against a 16ms frame.
+             // 送达后重置停顿时钟；模型在后台评分，停顿结束后到来的按键也不等待它。
              settled_pending_ = lease;
              settled_since_ = std::chrono::steady_clock::now();
              if (reply.online_query) {
@@ -911,31 +909,35 @@ void SessionController::push_uiless_candidates(const FocusLease &lease,
   }
 }
 
-// 静止 150 毫秒后重排：本地模型比云候选等待更短，不挤进连续按键之间。
+// 静止 150 毫秒后启动后台重排；服务 tick 只排入一次非阻塞推进。
 constexpr auto kSettledRerankDelay = std::chrono::milliseconds(150);
 
 void SessionController::run_settled_rerank() {
-  if (!settled_pending_ || stopping_)
+  if (stopping_)
     return;
-  if (std::chrono::steady_clock::now() - settled_since_ < kSettledRerankDelay)
+  if (settled_tick_ && settled_tick_->wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
     return;
-  const auto lease = *settled_pending_;
-  // Cleared before the work is queued: a composition is ranked once, and a
-  // keystroke arriving meanwhile sets it again with a fresh clock.
-  settled_pending_.reset();
   try {
-    (void)input_.submit([this, lease](InputState &state) {
-      if (stopping_ || !transport_.current(lease.transport))
+    settled_tick_ = input_.submit([this](InputState &state) {
+      if (stopping_ || !settled_pending_ ||
+          std::chrono::steady_clock::now() - settled_since_ < kSettledRerankDelay)
         return;
-      if (auto view = state.rerank_settled(lease)) {
-        candidates_.online(lease, *view);
-        push_uiless_candidates(lease, *view);
+      const auto lease = *settled_pending_;
+      if (!transport_.current(lease.transport)) {
+        settled_pending_.reset();
+        return;
+      }
+      auto result = state.rerank_settled(lease);
+      if (!result.pending) settled_pending_.reset();
+      if (result.view) {
+        candidates_.online(lease, *result.view);
+        push_uiless_candidates(lease, *result.view);
         push_host_candidates(lease, 2, {}, nullptr);
         refresh_expansion(lease);
       }
     });
   } catch (...) {
-    // A reranking pass must never stop the input queue.
+    // 队列停止或分配失败时不影响已接收的按键。
   }
 }
 

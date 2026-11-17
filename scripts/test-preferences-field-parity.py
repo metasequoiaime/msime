@@ -23,6 +23,8 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
+        # 阿里云翻译只在 Android 原生翻译设置页提供；packages/ui 不新增设置入口。
+        "aliyun_translation",
         # 嵌入式翻译只接三个桌面的原生入口；AGENTS.md 禁止向 React 新增设置，入口随同草稿 PR 接线。
         "local_translation",
         # 智能标点默认开的一次性迁移标记，不是设置：读入时由 client-core 设上，保存时只增不减，设置页不显示也不写它。
@@ -37,6 +39,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_japanese_toggle_input",
         # 文本编辑触控板仅由 Android 原生设置页呈现，其他宿主保留文档字段，不在 React 页提供无效入口。
         "android_text_trackpad",
+        # 拼写编辑只由 Android 原生键盘设置页提供，React 页不承载该面板。
+        "touch_spelling_editor",
         # 键盘浅色与深色皮肤只在 Android 原生皮肤页编辑，React 设置页不承载 Android 键盘。
         "android_keyboard_skin_light",
         "android_keyboard_skin_dark",
@@ -54,6 +58,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "zhuyin_simplified_output",
         # 14/18 键字母键宽度（#11051）先只在 Android 原生「按键布局」页提供；packages/ui 只修缺陷、不加新设置，iOS 与鸿蒙随各自的原生设置页接入。
         "touch_fourteen_key_letter_widths",
+        # WebDAV 设置同步连接属于本机凭据配置；原生设置页尚未在六端开放，packages/ui 迁移期不新增设置入口。
+        "settings_sync_webdav",
 
     },
     "KeybindingPreferences": set(),

@@ -44,7 +44,8 @@ public:
       std::chrono::milliseconds interval = std::chrono::milliseconds(100),
       std::string preferences_directory = {},
       SessionPump::Presentation presentation = {},
-      PreferenceMonitor::Published published = {});
+      PreferenceMonitor::Published published = {},
+      std::shared_ptr<std::atomic<bool>> candidate_cloud_badge = {});
   ~SessionController();
   SessionController(const SessionController &) = delete;
   SessionController &operator=(const SessionController &) = delete;
@@ -142,15 +143,10 @@ private:
   // 展开开着、而手里的完整候选列表不是眼下这一代时，排一个任务去取（CandidateMailbox::expansion_due）。同一时刻最多排一个；取的时候引擎代次前进了，就先发布新的 view，再交出列表。只在发布了新一页之后调用，不阻塞。
   void refresh_expansion(const FocusLease &lease);
   std::atomic<bool> expansion_queued_{false};
-  /// The composition that has been standing still, and since when.
-  ///
-  /// Windows has no run loop here to hang a timer on, so the settle pass rides
-  /// the existing service tick: the lease is recorded when a reply is
-  /// delivered, and the pass runs on the first tick after the delay has
-  /// elapsed. Cleared once it has run, so a composition is ranked once rather
-  /// than on every tick that follows.
+  // 租约和停顿时钟只在输入队列读写；控制线程通过最多一个排队任务推进，避免跨线程竞态和轮询积压。
   std::optional<FocusLease> settled_pending_;
   std::chrono::steady_clock::time_point settled_since_{};
+  std::optional<std::future<InputTaskStatus>> settled_tick_;
   void run_settled_rerank();
   void push_host_candidates(const FocusLease &, unsigned, const std::string &, const nlohmann::json &);
   HostCandidateRelay host_candidates_;

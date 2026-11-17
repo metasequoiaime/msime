@@ -2,6 +2,8 @@
 #include "ipc/ReplyComposer.h"
 #include "../../tsf/EngineSessionAdapter.h"
 #include "../../tsf/HostServerSelection.h"
+#include "../../tsf/CandidateNumberDispatch.h"
+#include "../../common/SecondThirdCandidatePolicy.h"
 #include "../../tsf/IPC/ReplyWaitPolicy.h"
 #include "../../../../shared/contracts/quick_phrase_cursor_pipe.h"
 #include <chrono>
@@ -195,6 +197,44 @@ void ignored_past_last_page() {
   s.same();
 }
 
+// 五项分页上按 9 必须消费无动作回执并完成按键，之后还可继续组字。
+void ignored_past_configured_page() {
+  phase = "digit nine past configured page";
+  const auto root = std::filesystem::temp_directory_path() /
+      ("msime-shuangpin-nine-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(root);
+  struct Cleanup { std::filesystem::path root;
+    ~Cleanup() { std::error_code error; std::filesystem::remove_all(root, error); }
+  } cleanup{root};
+  Sessions s(make_options(root));
+  s.type("nihc");
+  for (const auto key : {static_cast<unsigned>('9'), 0x69u}) {
+    const auto before = s.tip_view();
+    require(before.candidates.size() <= 5, "the host page has no ninth candidate");
+    const auto slot = candidate_selection_slot(static_cast<unsigned>(key), '9');
+    require(slot == std::optional<std::size_t>(8), "both digit rows request slot nine");
+    const auto local = tip_candidate_selection_index(static_cast<unsigned>(key), '9', true, 5);
+    require(!local, "the configured local page has no ninth slot");
+    const auto reply = s.key(static_cast<unsigned>(key), L'9');
+    require(reply.encoded && reply.encoded->packet.msg_type == FanyImeReplyType::NavigationIgnored,
+            "the server acknowledges a no-op without committing text");
+    bool consumed = false;
+    const int result = msime::tsf::DispatchCandidateNumber(-1, true, true, 1,
+        [](int) { throw std::runtime_error("An absent slot was selected"); return false; },
+        [] { throw std::runtime_error("An absent slot was converted"); return 1; }, [&] {
+          consumed = true;
+          return msime::tsf::CompleteServerCandidateSelection(reply.encoded->packet.msg_type, 0,
+              [] { throw std::runtime_error("An acknowledged no-op edited composition"); return 1; });
+        });
+    require(consumed && result == 0, "the key completes without dirtying the session or replaying");
+    require(s.tip_view().editing_text == before.editing_text &&
+            s.tip_view().phrase_prefix == before.phrase_prefix && !reply.committed_text,
+            "an ignored ninth candidate keeps the composition and commits nothing");
+    s.same();
+    s.type("ni");
+  }
+}
+
 // 数字键的回复没在软等待里到（#10826：CPU 吃紧时 Server 回包超过 100ms）。按键已经送到 Server，它照样选中并上屏了这个词；TIP 读到的是 SoftReplyMiss，必须按「读不到回复」退回本地这一页上按键位置的那一项（_HandleCandidateWorker），两边各上屏一次同一个词。以前软等待的结果帧是 Normal、文字为空，被当成 Server 的决定：宿主会话找不到空文字，选词返回 S_FALSE，延迟队列把整段读音连同数字键重放一遍，CPU 一直吃紧就一遍遍重来，最多八次后丢掉。
 void reply_missed_selects_local_slot() {
   phase = "digit reply missed";
@@ -237,6 +277,7 @@ int main(int argc, char **argv) {
     scenario(Paging::Keyboard, 2, '3', "拟", true);
     scenario(Paging::Keyboard, 1, '5', "鲵好", false);
     ignored_past_last_page();
+    ignored_past_configured_page();
     reply_missed_selects_local_slot();
   } catch (const std::exception &error) {
     std::fprintf(stderr, "FAIL at %s: %s\n", phase, error.what());

@@ -60,6 +60,8 @@ public:
       const bool optional_boolean = change.value.is_boolean() &&
           (change.path == std::vector<std::string>{"navigation", "mouse_wheel"} ||
            change.path == std::vector<std::string>{"backspace_reverts_selection"} ||
+           change.path == std::vector<std::string>{"escape_keeps_selected_word"} ||
+           change.path == std::vector<std::string>{"enter_learns_english_word"} ||
            change.path == std::vector<std::string>{"chinese_english_spacing"} ||
            change.path == std::vector<std::string>{"caret_edit_suffix"} ||
            change.path == std::vector<std::string>{"next_word_prediction"} ||
@@ -148,7 +150,7 @@ private:
       if (field == "combo_counter" || field == "combo_tier_sound") return value.is_boolean();
       if (field == "effect_intensity") return value.is_number_integer();
       if (field == "effect_style" || field == "effect_pack" || field == "helpcode_pack_quanpin" || field == "helpcode_pack_shuangpin") return value.is_string();
-      if (field == "command_tables" || field == "phrase_tables") return value.is_array() && std::all_of(value.begin(), value.end(), [](const Json& item) { return item.is_string(); });
+      if (field == "command_tables" || field == "phrase_tables" || field == "plugin_order") return value.is_array() && std::all_of(value.begin(), value.end(), [](const Json& item) { return item.is_string(); });
       return false;
     }
     if (path.size() != 3) return false;

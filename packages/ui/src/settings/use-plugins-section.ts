@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { InputScheme } from "../core/input-scheme";
 import type { ConfirmRequest } from "../core/confirm";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import { withoutRemovedPack, type PluginPreferences } from "./plugin-preferences";
+import {
+  orderedPluginKeys,
+  withoutRemovedPack,
+  type PluginPreferences,
+} from "./plugin-preferences";
 import {
   missingSelections,
   packKindLabel,
@@ -331,6 +335,18 @@ export function usePluginsSection({
         : phrase_tables.filter((table) => table !== id),
     });
 
+  const reorderPlugin = (source: string, target: string) => {
+    if (source === target) return;
+    const keys = orderedPluginKeys(catalog.packages, preferences.plugin_order);
+    const from = keys.indexOf(source);
+    const to = keys.indexOf(target);
+    if (from < 0 || to < 0) return;
+    const next = [...keys];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChange({ ...preferences, plugin_order: next });
+  };
+
   const mentionIssue = mentionListIssue(mentions);
   const mentionsDirty = JSON.stringify(mentions) !== JSON.stringify(savedMentions);
   mentionsDirtyRef.current = mentionsDirty;
@@ -392,6 +408,7 @@ export function usePluginsSection({
     moveScript,
     setCommandTable,
     setPhraseTable,
+    reorderPlugin,
     saveMentions,
   };
 }

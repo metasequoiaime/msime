@@ -22,9 +22,9 @@ enum EighteenKeyLayout {
   }
 }
 
-/// 18 键双拼的横滑：两个字母的键左滑取左边的字母，右滑取右边的字母，松手时把这个字母作为精确组码交给当前双拼网格。规则与 Android 的 `EighteenKeySwipePolicy` 相同：横向位移超过 24pt 且大于纵向位移的 1.5 倍才接手，轻微抖动和纵向移动仍是普通点按。
+/// 14/18 键全拼或双拼的横滑：两个字母的键左滑取左边的字母，右滑取右边的字母，松手时把这个字母作为精确组码交给当前网格。规则与 Android 的 `EighteenKeySwipePolicy` 相同：横向位移超过 24pt 且大于纵向位移的 1.5 倍才接手，轻微抖动和纵向移动仍是普通点按。
 ///
-/// 送出的是大写 ASCII：`msime_client_grid_key` 只在十八键双拼里把 A–Z 当作同一网格里的精确小写字母，它不是 Shift，也不上屏英文字母。
+/// 送出的是大写 ASCII：`msime_client_grid_key` 在 14 键和 18 键的全拼、双拼网格里把 A–Z 当作同一网格里的精确小写字母（五笔 14 键不收），它不是 Shift，也不上屏英文字母。
 enum EighteenKeySwipePolicy {
   static let threshold: CGFloat = 24
 

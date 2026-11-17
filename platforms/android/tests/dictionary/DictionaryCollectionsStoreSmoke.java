@@ -1,7 +1,13 @@
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.JsonPolicy;
 import app.msime.android.NumberPolicy;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public final class DictionaryCollectionsStoreSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -71,11 +77,17 @@ public final class DictionaryCollectionsStoreSmoke {
         check(DictionaryCollectionsStore.importSources(List.of()).isEmpty());
 
         DictionaryCollectionsStore.View view = new DictionaryCollectionsStore.View(List.of(
-            new DictionaryCollectionsStore.Collection("c1", "网络流行语", "pinyin", "community", "r1", true, 10, 0),
-            new DictionaryCollectionsStore.Collection("c2", "工作", "pinyin", "user", "", false, 0, 0)),
+            new DictionaryCollectionsStore.Collection("c1", "网络流行语", "pinyin", "community", "r1", "", true, 10, 0),
+            new DictionaryCollectionsStore.Collection("c2", "工作", "pinyin", "user", "", "", false, 0, 0)),
             List.of("txt"), 0, null);
         check(view.installed("r1") && !view.installed("r2"));
         check(view.find("c2").name().equals("工作") && view.find("c3") == null);
+        // 细胞词库只能导进同为细胞词库导入的分组；自建或其他格式导入的分组只收文本格式，社区词库都不收。
+        var rimeImport = new DictionaryCollectionsStore.Collection("c4", "Rime", "pinyin", "import", "", "rime", true, 1, 0);
+        var scelImport = new DictionaryCollectionsStore.Collection("c5", "搜狗", "pinyin", "import", "", "scel", true, 1, 0);
+        check(view.find("c2").acceptsImport("txt") && !view.find("c2").acceptsImport("scel"));
+        check(rimeImport.acceptsImport("rime") && !rimeImport.acceptsImport("scel"));
+        check(scelImport.acceptsImport("scel") && !view.find("c1").acceptsImport("txt"));
 
         check(DictionaryCollectionsStore.failureMessage("builtin_locked").contains("内置"));
         check(DictionaryCollectionsStore.failureMessage("import_malformed").equals("文件不完整或已损坏，请重新下载。"));
@@ -94,5 +106,54 @@ public final class DictionaryCollectionsStoreSmoke {
         check(DictionaryCollectionsStore.exportBytesAfterPage(
             DictionaryCollectionsStore.MAX_EXPORT_BYTES - 3, "中")
             == DictionaryCollectionsStore.MAX_EXPORT_BYTES);
+
+        // Gboard 导出的是 PersonalDictionary.zip，词条在里面的 dictionary.txt：压缩包要解出文本再导入，不能当文本读成一串控制字符。
+        byte[] gboard = "# Gboard Dictionary version:1\n\nshuishan\t水杉\tzh-CN\n".getBytes(StandardCharsets.UTF_8);
+        check(!DictionaryCollectionsStore.isZipArchive(gboard));
+        check(!DictionaryCollectionsStore.isZipArchive(new byte[] {'P', 'K'}));
+        check(!DictionaryCollectionsStore.isZipArchive(null));
+        byte[] archive = zip(new String[] {"dictionary.txt"}, new byte[][] {gboard});
+        check(DictionaryCollectionsStore.isZipArchive(archive));
+        check(Arrays.equals(DictionaryCollectionsStore.textFromArchive(archive), gboard));
+        // 没有条目的合法 ZIP 只有中央目录结束签名；仍应走压缩包错误提示，而不是按文本解析控制字符。
+        byte[] emptyArchive = zip(new String[0], new byte[0][]);
+        check(DictionaryCollectionsStore.isZipArchive(emptyArchive));
+        check(DictionaryCollectionsStore.textFromArchive(emptyArchive) == null);
+        // 有 dictionary.txt 就用它，不论排在第几个、在不在子目录里；别的条目不看。
+        check(Arrays.equals(DictionaryCollectionsStore.textFromArchive(zip(
+            new String[] {"readme.txt", "Export/Dictionary.TXT", "icon.png"},
+            new byte[][] {"x".getBytes(StandardCharsets.UTF_8), gboard, new byte[] {0, 1}})), gboard));
+        // 没有 dictionary.txt 时，只有一个 .txt 才用它；多个说不准，没有也取不到。
+        check(Arrays.equals(DictionaryCollectionsStore.textFromArchive(zip(
+            new String[] {"words.txt", "icon.png"}, new byte[][] {gboard, new byte[] {0}})), gboard));
+        check(DictionaryCollectionsStore.textFromArchive(zip(
+            new String[] {"a.txt", "b.txt"}, new byte[][] {gboard, gboard})) == null);
+        check(DictionaryCollectionsStore.textFromArchive(zip(
+            new String[] {"icon.png"}, new byte[][] {new byte[] {0}})) == null);
+        // 解压后超过导入上限的条目不读完；截断的包按取不到处理。
+        check(DictionaryCollectionsStore.textFromArchive(zip(new String[] {"dictionary.txt"},
+            new byte[][] {new byte[DictionaryCollectionsStore.MAX_IMPORT_BYTES + 1]})) == null);
+        check(DictionaryCollectionsStore.textFromArchive(Arrays.copyOf(archive, archive.length / 2)) == null);
+        // 空的 dictionary.txt 解得出来，由导入报「文件是空的」。
+        check(DictionaryCollectionsStore.textFromArchive(zip(new String[] {"dictionary.txt"}, new byte[][] {new byte[0]})).length == 0);
+        check(DictionaryCollectionsStore.failureMessage("import_archive_without_text").contains(".txt"));
+        boolean offersZip = false;
+        for (DictionaryCollectionsStore.ImportSource source : DictionaryCollectionsStore.importSources(List.of("txt", "hans"))) {
+            if (source.format().equals("txt")) offersZip = Arrays.asList(source.mimeTypes()).contains("application/zip");
+            else check(!Arrays.asList(source.mimeTypes()).contains("application/zip"));
+        }
+        check(offersZip);
+    }
+
+    static byte[] zip(String[] names, byte[][] contents) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream output = new ZipOutputStream(bytes)) {
+            for (int index = 0; index < names.length; index++) {
+                output.putNextEntry(new ZipEntry(names[index]));
+                output.write(contents[index]);
+                output.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
     }
 }

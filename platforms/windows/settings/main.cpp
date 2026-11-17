@@ -13,6 +13,7 @@
 #include "../common/SurfaceRouteArgument.h"
 #include "SettingsInstance.h"
 #include "LocalTranslationWindow.h"
+#include "DictionaryCollectionsWindow.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -77,6 +78,7 @@
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
 #include "SentencePackModel.h"
+#include "SchemeResourcePackCatalog.h"
 #include "SettingsDocumentFile.h"
 #include "SettingsMascotIntro.h"
 #include "SettingsNavIcons.h"
@@ -12715,6 +12717,8 @@ private:
         1, 9);
     const double font = std::clamp(document_.Number(L"candidate_font_size", 18),
                                    12.0, 32.0);
+    const bool preedit_area =
+        document_.Boolean(L"show_candidate_preedit_area", true);
     const bool preedit =
         document_.String(L"candidate_preedit_style", L"pinyin") != L"empty";
     // 首行的水杉 logo 随 `show_app_logo`（缺值读成关，与「布局」里那一行相同）。
@@ -12802,7 +12806,7 @@ private:
     body.Margin(Thickness{pad_x, pad_y, pad_x, 10 * scale});
     body.Spacing(6 * scale);
     // 首行照共享页的样例：打头是水杉 logo（候选窗的 16 DIP 见方、隔 6 DIP，CandidateCardSize.h 的 logo_side、logo_gap），再是拼音 ni'mf 和光标；拼音隐藏时首行只剩 logo，logo 也不画时整行不画，与候选窗一致。
-    if (brand || preedit) {
+    if (preedit_area && (brand || preedit)) {
       StackPanel head;
       head.Orientation(Orientation::Horizontal);
       head.Spacing(6 * scale);
@@ -12816,7 +12820,7 @@ private:
         head.Children().Append(logo);
       }
       // The candidate window draws the preedit in the accent colour at semibold; the caret after it is the shared sample's 1.5 DIP bar, 1.2 em high.
-      if (preedit) {
+      if (preedit_area && preedit) {
         const double preedit_size =
             std::clamp(document_.Number(L"candidate_preedit_font_size", 15), 12.0, 32.0) *
             scale;
@@ -13005,6 +13009,9 @@ private:
 
     if (in_tab(tab, L"preedit")) {
       auto preedit = add_group(page, L"预编辑");
+      bool_row(preedit, 0xE8D2, L"显示候选窗预编辑区",
+               L"关闭后候选窗只显示候选项列表", L"show_candidate_preedit_area", true,
+               true);
       number_select_row(preedit, 0xE8E9, L"预编辑字号", L"",
                         L"candidate_preedit_font_size", candidate_font_sizes(), 15, L"");
       select_row(
@@ -14006,6 +14013,11 @@ private:
     if (chinese(scheme) && chinese_schemes.size() > 1)
       scheme_cards(group, chinese_schemes, scheme);
 
+    if (const auto *pack = msime::settings::scheme_resource::for_scheme(scheme)) {
+      request_sentence_packs();
+      sentence_pack_row(group, std::wstring(pack->id), std::wstring(pack->title));
+    }
+
     if (scheme == L"shuangpin") {
       // 选项顺序与共享页 shuangpinProfileOptions 相同。Windows 还没有自定义双拼的编辑页，平时不列「自定义双拼」；文档里已经是它（比如在 macOS 上选的、同步过来）时照共享页列出一项灰的，否则下拉框找不到当前值，显示成空白。
       std::vector<Option> profiles{{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
@@ -14325,6 +14337,9 @@ private:
     bool_row(word, 0xE8AB, L"退格键回退已选候选词",
              L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。",
              L"backspace_reverts_selection", true);
+    bool_row(word, 0xE8AB, L"Esc 保留已选词",
+             L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。",
+             L"escape_keeps_selected_word", false);
 
     // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 6> paging_keys{{
@@ -14368,6 +14383,8 @@ private:
     }
     bool_row(group, 0xE753, L"云候选", L"仅将当前正在组的拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
              L"cloud_candidates", false);
+    bool_row(group, 0xE753, L"显示云候选来源角标", L"在云候选末尾显示 ☁️；关闭后只隐藏标识，不影响候选内容和选词",
+             L"candidate_cloud_badge", true);
 
     const auto stored = document_.Value(L"cloud_candidate_provider");
     const std::wstring stored_text = stored && stored.ValueType() == JsonValueType::Object
@@ -14578,7 +14595,7 @@ private:
     const bool installing = sentence_pack_installing_.count(pack) > 0;
     const bool removing = sentence_pack_removing_.count(pack) > 0;
     // 副标题和按钮由 SentencePackModel.h 决定：状态没读回时只说「正在读取」、读失败时只给「重试」，都不给「下载」（#10839）。
-    const auto view = spk::row_view(sentence_packs_.knowledge, sentence_pack_status(pack), installing,
+    const auto view = msime::settings::scheme_resource::row_view(pack, sentence_packs_.knowledge, sentence_pack_status(pack), installing,
                                     sentence_pack_importing_.count(pack) > 0, removing,
                                     grammar_updates_available_.count(pack) > 0);
     const std::wstring subtitle(view.subtitle);
@@ -14637,7 +14654,10 @@ private:
       below.Margin(Thickness{0, 6, 0, 0});
       extra = below;
     }
-    inline_subtitle(add_row(group, 0xE8C1, title, subtitle, actions, extra));
+    auto row = add_row(group, 0xE8C1, title, subtitle, actions, extra);
+    A11y::SetAutomationId(row, L"resource-pack-" + pack);
+    auto status = row_subtitle(row);
+    A11y::SetAutomationId(status, L"resource-pack-" + pack + L"-state");
   }
 
   static std::wstring grammar_pack_for_model(std::wstring const &model) {
@@ -14678,8 +14698,12 @@ private:
     request.SetNamedValue(L"state_root", JsonValue::CreateStringValue(hstring(root.wstring())));
     run_host(
         [body = utf8(request.Stringify())] {
-          return take_response(msime_client_resource_packs(
+          auto response = take_response(msime_client_resource_packs(
               reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+          if (response.ok)
+            response.text = msime::settings::scheme_resource::with_bundled_resources(
+                response.text, runtime_options_document());
+          return response;
         },
         [this](Response const &response) {
           bool ok = false;
@@ -14693,7 +14717,8 @@ private:
                 const auto object = item.GetObject();
                 const auto id = named_string(object, L"id");
                 if (id == L"settled-model" || id == L"grammar-model-wanxiang" ||
-                    id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact") {
+                    id == L"grammar-model-baguwen" || id == L"grammar-model-baguwen-compact" ||
+                    msime::settings::scheme_resource::find(id)) {
                   SentencePackStatus status{id, named_string(object, L"state"), {}};
                   for (auto const &file : named_objects(object, L"import_files"))
                     status.import_files.push_back({named_string(file, L"name"), named_string(file, L"url"),
@@ -14839,8 +14864,10 @@ private:
 
   fire_and_forget remove_sentence_pack(std::wstring const &id) {
     const bool settled = id == L"settled-model";
-    if (!co_await confirm(settled ? L"删除桌面神经联想模型" : L"删除语法模型",
-                          settled ? L"删除后切换输入框即可退回不经神经模型重排的整句候选。确定删除？"
+    const bool dictionary = msime::settings::scheme_resource::find(id) != nullptr;
+    if (!co_await confirm(dictionary ? L"删除方案词库" : settled ? L"删除桌面神经联想模型" : L"删除语法模型",
+                          dictionary ? L"删除后对应方案可能不可用，需要重新下载词库。确定删除？"
+                              : settled ? L"删除后切换输入框即可退回不经神经模型重排的整句候选。确定删除？"
                                   : L"删除后切换输入框即可退回无语法模型的候选行为。确定删除？",
                           L"删除"))
       co_return;
@@ -14934,6 +14961,9 @@ private:
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
                L"next_word_prediction", false);
+      bool_row(candidates, 0xE8AB, L"回车学英文词",
+               L"按回车上屏输入的英文时，把这个单词写入英文词库，之后可以作为候选出现。",
+               L"enter_learns_english_word", true);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
@@ -17027,7 +17057,7 @@ private:
     add_row(group, 0xE72C, L"检查词库更新", L"",
       button_control(running ? L"更新中…" : L"检查更新", [this] { dictionary_update_request(L"check"); }, known && !running));
     if (known && dictionary_update_status_->GetNamedBoolean(L"can_rollback", false))
-      add_row(group, 0xE777, L"恢复上一版词库", L"恢复后关闭自动更新，下次启动生效",
+      add_row(group, 0xE777, L"恢复上一版词库", L"恢复后跳过这一版，有更新的版本时仍会自动更新；下次启动生效",
         button_control(L"恢复", [this] { dictionary_update_request(L"rollback"); }, !running));
     auto note = group_note(dictionary_update_text());
     A11y::SetAutomationId(note, L"dictionary-update-status");
@@ -17039,6 +17069,12 @@ private:
 
   // 共享页的 DictionarySettingsPage 在 macOS 桌面上的样子。顶上是词库页的导航（make_lexicon_nav），然后是词库操作的结果（make_lexicon_feedback，在标签下面、面板上面，切标签时清掉），「完善公共词库」在所有标签之上一直显示。「查找词库」是本地词库管理（build_lexicon_lookup）；「管理词库」依次是导入与导出、词库更新、「更多」里的背单词和学习数据（build_lexicon_manage）；「云端词库」只有打开云词库面板的一行：共享页在这里内嵌整个云词库，本窗口不嵌网页，面板仍由 MSIME.exe 显示。背单词是从「管理词库」进入的子页（build_vocabulary_view），打开时整页只画它。
   void build_lexicon_page(StackPanel const &page) {
+    auto groups = add_group(page, L"词库分组");
+    add_row(groups, 0xE8F1, L"词库分组", L"", button_control(L"管理分组…", [this] {
+      HWND owner = nullptr;
+      check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+      if (const auto options = runtime_options_document()) msime::settings::show_dictionary_collections(owner, *options);
+    }));
     if (!indexing_) {
       lexicon_results_host_ = nullptr;
       lexicon_feedback_bar_ = nullptr;
@@ -20935,6 +20971,7 @@ private:
     value.combo_counter = document_.Boolean(L"plugins.combo_counter", value.combo_counter);
     value.combo_tier_sound = document_.Boolean(L"plugins.combo_tier_sound", value.combo_tier_sound);
     value.phrase_tables = document_.Strings(L"plugins.phrase_tables");
+    value.plugin_order = document_.Strings(L"plugins.plugin_order");
     value.helpcode_pack_quanpin =
         document_.String(L"plugins.helpcode_pack_quanpin", value.helpcode_pack_quanpin);
     value.helpcode_pack_shuangpin =
@@ -20979,6 +21016,7 @@ private:
     flag(L"plugins.combo_counter", before.combo_counter, after.combo_counter);
     flag(L"plugins.combo_tier_sound", before.combo_tier_sound, after.combo_tier_sound);
     list(L"plugins.phrase_tables", before.phrase_tables, after.phrase_tables);
+    list(L"plugins.plugin_order", before.plugin_order, after.plugin_order);
     word(L"plugins.helpcode_pack_quanpin", before.helpcode_pack_quanpin, after.helpcode_pack_quanpin);
     word(L"plugins.helpcode_pack_shuangpin", before.helpcode_pack_shuangpin,
          after.helpcode_pack_shuangpin);
@@ -20990,6 +21028,22 @@ private:
     if (next == before)
       return;
     change([&](PreferencesDocument &doc) { write_plugin_preferences(doc, before, next); }, true);
+  }
+
+  // 列表卡片的排序只写展示顺序，不改变指令表、短语表或脚本插件的运行顺序。
+  void reorder_plugin_list(std::wstring const &source, std::wstring const &target) {
+    auto next = plugin_preferences();
+    auto order = pg::normalized_plugin_order(plugin_catalog_.packages, next.plugin_order);
+    const auto from = std::find(order.begin(), order.end(), source);
+    const auto to = std::find(order.begin(), order.end(), target);
+    if (from == order.end() || to == order.end() || from == to)
+      return;
+    const auto item = *from;
+    order.erase(from);
+    const auto target_after = std::find(order.begin(), order.end(), target);
+    order.insert(target_after, item);
+    next.plugin_order = std::move(order);
+    change_plugins(next);
   }
 
   // 指令表详情和 @ 名单里的「打开」按钮就地打开「输入 → 快捷模式」里的开关，写的是同一个键。
@@ -21513,12 +21567,14 @@ private:
 
   // 插件库的一张卡片（macOS 插件库的 `LibraryCard`）：整张是一个按钮，读屏读到标题，说明和标记作为帮助文本。左边 40 DIP 的图标块，中间是半粗体标题、次要色说明和强调色标记，右边淡出的「›」；12 圆角、1 DIP 细描边、分组卡片的底色，悬停和按下时底色和描边换成淡强调色。`shortcut` 是顶部的快捷卡片（「声音与效果」「@ 名单」）：至少 80 DIP 高、16 内边距、图标与文字相隔 14、14 DIP 标题和 12 DIP 说明，图标块 12 圆角、铺淡强调色、图标用强调色；插件卡片至少 76 DIP 高、14 内边距、相隔 12、13 DIP 标题（放不下时截断，悬停提示全名）和 11 DIP 说明，图标块 10 圆角、中性底、次要色图标，悬停和按下时图标换成强调色。
   Button plugin_library_card(wchar_t glyph, std::wstring const &title, std::wstring const &description,
-                             std::wstring const &marker, bool shortcut, std::function<void()> open) {
+                             std::wstring const &marker, bool shortcut, std::function<void()> open,
+                             std::vector<FrameworkElement> controls = {},
+                             std::wstring drag_key = {}) {
     record(title, description);
     Grid content;
     content.ColumnSpacing(shortcut ? 14 : 12);
     for (auto width : {GridLength{40, GridUnitType::Pixel}, GridLength{1, GridUnitType::Star},
-                       GridLength{1, GridUnitType::Auto}}) {
+                       GridLength{1, GridUnitType::Auto}, GridLength{1, GridUnitType::Auto}}) {
       ColumnDefinition column;
       column.Width(width);
       content.ColumnDefinitions().Append(column);
@@ -21557,11 +21613,21 @@ private:
       texts.Children().Append(make_text(marker, 11, palette_.accent));
     Grid::SetColumn(texts, 1);
     content.Children().Append(texts);
+    if (!controls.empty()) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(4);
+      actions.VerticalAlignment(VerticalAlignment::Center);
+      for (auto const &control : controls)
+        actions.Children().Append(control);
+      Grid::SetColumn(actions, 2);
+      content.Children().Append(actions);
+    }
     auto chevron = make_icon(0xE76C, 12, palette_.sub);
     chevron.Opacity(.6);
     chevron.VerticalAlignment(VerticalAlignment::Center);
     A11y::SetAccessibilityView(chevron, Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
-    Grid::SetColumn(chevron, 2);
+    Grid::SetColumn(chevron, 3);
     content.Children().Append(chevron);
 
     Button card;
@@ -21599,6 +21665,33 @@ private:
     if (!help.empty())
       A11y::SetHelpText(card, hstring(help));
     card.Click([open = std::move(open)](Inspectable const &, RoutedEventArgs const &) { open(); });
+    if (!shortcut && !drag_key.empty()) {
+      card.CanDrag(true);
+      card.AllowDrop(true);
+      card.DragStarting([drag_key](
+                            Microsoft::UI::Xaml::UIElement const &,
+                            Microsoft::UI::Xaml::DragStartingEventArgs const &args) {
+        args.Data().SetText(hstring(drag_key));
+        args.Data().RequestedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+      });
+      card.DragOver([](Inspectable const &, Microsoft::UI::Xaml::DragEventArgs const &args) {
+        args.AcceptedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+      });
+      card.Drop([this, drag_key](Inspectable const &, Microsoft::UI::Xaml::DragEventArgs const &args) {
+        const auto view = args.DataView();
+        if (!view.Contains(Windows::ApplicationModel::DataTransfer::StandardDataFormats::Text()))
+          return;
+        args.AcceptedOperation(Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+        view.GetTextAsync().Completed(
+            [this, drag_key](auto const &operation, Windows::Foundation::AsyncStatus status) {
+              if (status != Windows::Foundation::AsyncStatus::Completed)
+                return;
+              const std::wstring source = operation.GetResults().c_str();
+              if (source != drag_key)
+                reorder_plugin_list(source, drag_key);
+            });
+      });
+    }
     mark_search_target(title, card);
     return card;
   }
@@ -22040,6 +22133,10 @@ private:
         indexing_ ? std::wstring(pg::library_all) : pg::library_selected_kind(plugin_library_kind_, categories);
     const auto query = indexing_ ? std::wstring() : pg::library_query(plugin_library_query_);
     const auto groups = pg::library_groups(plugin_catalog_.packages, missing, categories, selected, query);
+    const auto plugin_order = pg::normalized_plugin_order(plugin_catalog_.packages, preferences.plugin_order);
+    std::map<std::wstring, std::size_t> plugin_order_index;
+    for (std::size_t index = 0; index < plugin_order.size(); ++index)
+      plugin_order_index.emplace(plugin_order[index], index);
     if (plugin_catalog_state_ == PluginCatalogState::loading && !indexing_)
       sections.Children().Append(plugin_empty_message(L"正在读取插件…"));
     if (plugin_catalog_state_ == PluginCatalogState::failed)
@@ -22047,7 +22144,11 @@ private:
     if (loaded && groups.empty())
       sections.Children().Append(plugin_empty_message(pg::library_empty_message(query)));
     const auto running = plugin_running_scripts();
-    for (auto const &group : groups) {
+    for (auto group : groups) {
+      std::stable_sort(group.packs.begin(), group.packs.end(), [&](auto const *left, auto const *right) {
+        return plugin_order_index.at(pg::plugin_key(left->kind, left->id)) <
+               plugin_order_index.at(pg::plugin_key(right->kind, right->id));
+      });
       const auto title = pg::library_section_title(group.kind);
       if (indexing_)
         group_index_ = title;
@@ -22080,14 +22181,47 @@ private:
       if (group.packs.empty() && group.gone.empty() && loaded)
         note(L"还没有导入指令表。");
       auto grid = responsive_grid(245, 10, 2);
-      for (auto const *pack : group.packs) {
+      for (std::size_t pack_index = 0; pack_index < group.packs.size(); ++pack_index) {
+        auto const *pack = group.packs[pack_index];
         const auto key = L"pack/" + pack->kind + L"/" + pack->id;
         const auto marker = pack->kind == L"script" ? pg::script_marker(*pack, plugin_grants(), running)
                                                     : pg::pack_marker(*pack, preferences, kinds, modes);
+        std::vector<FrameworkElement> controls;
+        if (pack->kind == L"command_table" || pack->kind == L"phrase_table") {
+          const bool command = pack->kind == L"command_table";
+          const auto table = command ? pg::command_table_switch(preferences, pack->id)
+                                     : pg::phrase_table_switch(preferences, pack->id);
+          controls.push_back(toggle_control(L"启用", table.on, [this, command, id = pack->id](bool on) {
+            auto next = plugin_preferences();
+            auto &tables = command ? next.command_tables : next.phrase_tables;
+            tables = pg::with_table(tables, id, on);
+            change_plugins(next);
+          }, !table.full));
+        }
+        // WinUI 的拖放事件和共享页使用同一份顺序字段；另外提供键盘和读屏可达的上移、下移操作。
+        const auto source_order_key = pg::plugin_key(pack->kind, pack->id);
+        if (pack_index > 0) {
+          const auto target_order_key = pg::plugin_key(group.packs[pack_index - 1]->kind,
+                                                       group.packs[pack_index - 1]->id);
+          controls.push_back(button_control(L"↑", [this, source_order_key, target_order_key] {
+            reorder_plugin_list(source_order_key, target_order_key);
+          }));
+        } else {
+          controls.push_back(button_control(L"↑", [] {}, false));
+        }
+        if (pack_index + 1 < group.packs.size()) {
+          const auto target_order_key = pg::plugin_key(group.packs[pack_index + 1]->kind,
+                                                       group.packs[pack_index + 1]->id);
+          controls.push_back(button_control(L"↓", [this, source_order_key, target_order_key] {
+            reorder_plugin_list(source_order_key, target_order_key);
+          }));
+        } else {
+          controls.push_back(button_control(L"↓", [] {}, false));
+        }
         auto card = plugin_library_card(plugin_kind_glyph(pack->kind), pack->name, pg::pack_row_description(*pack),
                                         marker, false, [this, kind = pack->kind, id = pack->id, key] {
                                           open_plugin_view(PluginView::pack, kind, id, key);
-                                        });
+                                        }, std::move(controls), pg::plugin_key(pack->kind, pack->id));
         grid.Children().Append(card);
         rows.emplace_back(key, card);
       }
@@ -28189,6 +28323,8 @@ private:
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
+  const int repair = msime::settings::input_method::run_if_requested(command);
+  if (repair >= 0) return repair;
   const int gameProfileResult = msime::windows::game_profile::run_if_requested(command);
   if (gameProfileResult >= 0) return gameProfileResult;
   const auto route = msime::windows::requested_surface_route("settings");

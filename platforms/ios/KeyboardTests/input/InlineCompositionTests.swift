@@ -46,7 +46,7 @@ final class InlineCompositionTests: XCTestCase {
   }
 }
 
-/// 拼写固定写进输入框（拼音分词），候选栏不再画读音：读音那一段只画打开放大拼写编辑条的笔（#10591），候选按键时不左右移动；九键写进去的是拼音，不是数字键。
+/// 拼写固定写进输入框（拼音分词），候选栏不再画读音：没有可见读音时不保留编辑入口，候选按键时不左右移动；九键写进去的是拼音，不是数字键。
 @MainActor
 final class InlineCompositionDefaultTests: XCTestCase {
   private var savedScheme: ChineseInputScheme?
@@ -89,8 +89,9 @@ final class InlineCompositionDefaultTests: XCTestCase {
     for letter in ["N", "I", "H", "A", "O"] {
       try tap({ $0.accessibilityLabel == "字母 \(letter)" }, in: controller)
       let preedit = try XCTUnwrap(try view("preeditButton", in: controller) as? UIButton)
-      XCTAssertEqual(preedit.configuration?.title ?? "", "", "the strip draws no reading after \(letter)")
-      XCTAssertNotNil(preedit.configuration?.image, "only the pen that opens the spelling editor after \(letter)")
+      XCTAssertEqual(preedit.configuration?.title ?? "", "", "候选栏在 \(letter) 后不重复画拼写")
+      XCTAssertNil(preedit.configuration?.image, "候选栏不显示拼写编辑铅笔")
+      XCTAssertTrue(preedit.isHidden, "没有可见读音时不保留空白编辑入口")
       let chip = try view("candidate-1", in: controller)
       firstCandidateX.append(chip.convert(chip.bounds, to: controller.view).minX)
     }
@@ -105,8 +106,23 @@ final class InlineCompositionDefaultTests: XCTestCase {
     XCTAssertFalse(marked.isEmpty)
     XCTAssertFalse(marked.contains { $0.isNumber }, marked)
     let preedit = try XCTUnwrap(try view("preeditButton", in: controller) as? UIButton)
-    XCTAssertEqual(preedit.configuration?.title ?? "", "", "the strip draws no reading")
-    XCTAssertNotNil(preedit.configuration?.image, "only the pen that opens the spelling editor")
+    XCTAssertEqual(preedit.configuration?.title ?? "", "", "候选栏不重复画九键拼写")
+    XCTAssertNil(preedit.configuration?.image, "候选栏不显示拼写编辑铅笔")
+    XCTAssertTrue(preedit.isHidden, "没有可见读音时不保留空白编辑入口")
+  }
+
+  /// 多按一键切不成音节（6442677，末尾两个 7 接不上任何音节）时，写进输入框的仍是一位对一键的字母，不退回数字。
+  func testNineKeyMarksLettersWhenAKeyIsMistyped() throws {
+    let controller = controller(.nineKey)
+    for digit in [6, 4, 4, 2, 6, 7, 7] {
+      try tap({ $0.accessibilityIdentifier == "nineKey\(digit)" }, in: controller)
+      let marked = controller.inlineMarkedText
+      XCTAssertFalse(marked.isEmpty)
+      XCTAssertFalse(marked.contains { $0.isNumber }, marked)
+    }
+    let marked = controller.inlineMarkedText
+    XCTAssertEqual(marked.filter { $0 != "'" }.count, 7, marked)
+    XCTAssertNotNil(CompositionCaretPolicy.alignment(marked, "6442677"), marked)
   }
 
   /// 候选按 #10330 立即呈现：每按一个键，候选条上的词块、读音和展开箭头都直接画成新状态，图层上不挂任何动画。

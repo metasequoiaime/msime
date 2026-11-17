@@ -9,6 +9,10 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
             "quanpin label");
         check("双拼 · 小鹤".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, false)),
             "xiaohe label");
+        check("双拼 · 自定义".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, false, "custom")),
+            "自定义普通双拼显示实际码表名");
+        check("space".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, true, "custom")),
+            "英文模式仍显示空格用途");
         check("五笔 86".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.WUBI, KeyboardScheme.WUBI_86, false)),
             "wubi 86 label");
         check("五笔 98".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.WUBI, KeyboardScheme.WUBI_98, false)),
@@ -32,11 +36,13 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
 
         List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.designEntries(
             KeyboardLayout.STANDARD_TOUCH_LAYOUT, false);
-        check(row.size() == 6 && row.get(0).slot() == KeyboardActionRow.DesignSlot.LAYER
+        check(row.size() == 7 && row.get(0).slot() == KeyboardActionRow.DesignSlot.LAYER
             && row.get(1).slot() == KeyboardActionRow.DesignSlot.SYMBOL_PANEL
-            && row.get(3).slot() == KeyboardActionRow.DesignSlot.COMMA
-            && row.get(4).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
-            && row.get(5).slot() == KeyboardActionRow.DesignSlot.RETURN, "123 | 符 | 空格 | ， | 中 | ↵");
+            && row.get(2).slot() == KeyboardActionRow.DesignSlot.PERIOD
+            && row.get(3).slot() == KeyboardActionRow.DesignSlot.SPACE
+            && row.get(4).slot() == KeyboardActionRow.DesignSlot.COMMA
+            && row.get(5).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
+            && row.get(6).slot() == KeyboardActionRow.DesignSlot.RETURN, "123 | 符 | 。 | 空格 | ， | 中 | ↵");
         List<KeyboardActionRow.DesignEntry> nine = KeyboardActionRow.designEntries(
             KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true);
         check(nine.stream().noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.COMMA),

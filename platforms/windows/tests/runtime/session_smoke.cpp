@@ -430,6 +430,78 @@ int main(int argc, char **argv) {
               "English mode persisted a Japanese toggle");
     }
     {
+      // 方向键后排队到达的旧隐藏通知只能收起界面，不能取消已经确认的组字。
+      using namespace msime::windows;
+      FocusGate gate;
+      FocusedSession focused(gate, 42, options.dump());
+      PipeTicket ticket{42, {1, 2, 3}};
+      auto first = *gate.begin(ticket, 77);
+      require(focused.prepare(first.pending), "Candidate hide fixture preparation failed");
+      require(gate.acknowledge(first.pending, [] { return true; }),
+              "Candidate hide fixture fence failed");
+      FanyImeNamedpipeData packet{};
+      packet.event_type = FanyImePipeEventType::KeyEvent;
+      packet.client_id = 42;
+      packet.request_id = 2;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      auto composing = focused.key(first.pending, packet, ReplyPath::Composition);
+      require(composing && focused.confirm(first.pending, packet.request_id) &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate hide fixture did not enter composition");
+      require(focused.hide_candidate(first.pending, true) ==
+                  HideCandidateDisposition::Cancelled &&
+                  focused.view().at("editing_text").get<std::string>().empty(),
+              "An unrelated late candidate hide preserved the composition");
+      packet.request_id = 3;
+      require(focused.key(first.pending, packet, ReplyPath::Composition) &&
+                  focused.confirm(first.pending, packet.request_id) &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate hide fixture could not re-enter composition");
+      NavigationBindings navigation{};
+      navigation.arrows = true;
+      packet.request_id = 4;
+      packet.keycode = 0x26;
+      packet.wch = 0;
+      packet.modifiers_down = 0;
+      auto moved = focused.configured_key(first.pending, packet,
+                                          TsfPreeditStyle::Local, navigation);
+      require(moved && moved->host_navigation &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Candidate navigation fixture did not produce a reply");
+      packet.request_id = 5;
+      packet.keycode = 'U';
+      packet.wch = 'U';
+      packet.modifiers_down = 1;
+      auto continued = focused.key(first.pending, packet, ReplyPath::Composition);
+      require(continued && focused.confirm(first.pending, packet.request_id) &&
+                  !continued->host_navigation &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate navigation fixture did not clear its late-hide eligibility");
+      require(focused.hide_candidate(first.pending, true) ==
+                  HideCandidateDisposition::Cancelled &&
+                  focused.view().at("editing_text").get<std::string>().empty(),
+              "A late hide after ordinary input preserved the composition");
+      packet.request_id = 6;
+      packet.keycode = 0x26;
+      packet.wch = 0;
+      packet.modifiers_down = 0;
+      moved = focused.configured_key(first.pending, packet,
+                                     TsfPreeditStyle::Local, navigation);
+      require(moved && moved->host_navigation &&
+                  focused.confirm(first.pending, packet.request_id),
+              "Candidate navigation fixture could not re-arm late-hide handling");
+      require(focused.hide_candidate(first.pending, true) ==
+                  HideCandidateDisposition::Late &&
+                  !focused.view().at("editing_text").get<std::string>().empty(),
+              "Candidate navigation hide cancelled the active composition");
+      require(focused.hide_candidate(first.pending) ==
+                  HideCandidateDisposition::Cancelled &&
+                  focused.view().at("editing_text").get<std::string>().empty(),
+              "Normal candidate hide did not cancel the composition");
+    }
+    {
       using namespace msime::windows;
       FocusGate gate;
       FocusedSession focused(gate, 42, options.dump());
@@ -793,7 +865,27 @@ int main(int argc, char **argv) {
       auto incomplete = native_options;
       incomplete["preferences"].erase("candidate_page_size");
       incomplete["preferences"].erase("chinese_punctuation");
-      rejected([&] { ServerSession invalid(42, incomplete.dump()); });
+      // 10-28 起共享运行时在内存中补救偏好副本；保留原来的缺字段输入，验证仍可建会话且不写回。
+      ServerSession recovered(42, incomplete.dump());
+      recovered.activate(1);
+      require(recovered.view().at("editing_text") == "" &&
+                  recovered.view().at("chinese_text") == true,
+              "Incomplete native preferences did not recover in memory");
+      require(!std::filesystem::exists(root / "native-config" / "user_data" / "preferences.json"),
+              "Runtime preference recovery wrote a replacement document");
+      auto unsupported = native_options;
+      unsupported["api_version"] = 999;
+      rejected([&] { ServerSession invalid(42, unsupported.dump()); });
+      // 另保留共享出厂默认设置的启动用例，不只测试经过夹具裁剪的偏好。
+      auto defaults = msime::host_api::own_string(msime_client_default_preferences());
+      require(defaults != nullptr, "Shared factory preferences unavailable");
+      auto factory_options = test_host_options(root / "native-factory-config");
+      factory_options["preferences"] = Json::parse(defaults.get()).at("value");
+      ServerSession factory(42, factory_options.dump());
+      factory.activate(1);
+      require(factory.view().at("focused") == true &&
+                  factory.view().at("editing_text") == "",
+              "Factory native preferences failed shared host initialization");
       ServerSession native(42, native_options.dump());
       native.activate(1);
       require(native.view().at("editing_text") == "",
@@ -1291,6 +1383,38 @@ int main(int argc, char **argv) {
         key('I', 'i');
         require(session.view().at("editing_text") == "ni",
                 "Composition did not recover after unsegmentable pinyin");
+      }
+      {
+        using namespace msime::windows;
+        // 报告者输入的 `windows` 同样没有候选，回车必须沿用原文上屏路径。
+        session.cancel_composition(epoch);
+        require(session.view().at("editing_text") == "",
+                "Raw Enter follow-up did not start from an empty composition");
+        ReplyComposer raw_composer(42, epoch);
+        constexpr std::string_view raw = "windows";
+        const auto expected = std::string(raw);
+        for (const char c : raw)
+          key(c - 'a' + 'A', c);
+        const auto invalid = session.view();
+        require(invalid.at("editing_text") == expected &&
+                    invalid.at("candidates").empty(),
+                "Reported windows input did not remain candidate-free raw text");
+        FanyImeNamedpipeData invalid_enter{};
+        invalid_enter.client_id = 42;
+        invalid_enter.event_type = FanyImePipeEventType::KeyEvent;
+        invalid_enter.request_id = request++;
+        invalid_enter.keycode = 0x0D;
+        invalid_enter.pinyin_length = static_cast<int>(raw.size());
+        for (size_t i = 0; i < raw.size(); ++i)
+          invalid_enter.pinyin_string[i] = raw[i];
+        const auto pending = raw_composer.configured_key(
+            session, invalid_enter, epoch, TsfPreeditStyle::Pinyin, {},
+            expected);
+        require(pending && !pending->encoded &&
+                    pending->source.transition.at("commit") == expected &&
+                    session.view().at("editing_text") == "",
+                "Reported windows raw Enter did not clear the Engine composition");
+        raw_composer.confirm_delivery(42, epoch, invalid_enter.request_id);
       }
       {
         using namespace msime::windows;

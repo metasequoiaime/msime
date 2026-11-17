@@ -191,7 +191,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
   }
 
   /// 失败时保留实际界面，区分入口、遮挡和产品行为，不能只看断言行号。
-  private func keepScreenshot(_ name: String, in app: XCUIApplication) {
+  func keepScreenshot(_ name: String, in app: XCUIApplication) {
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = name
     shot.lifetime = .keepAlways
@@ -212,7 +212,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
   ///
   /// `fullAccess` 是测试要的「允许完全访问」状态；返回开关最后是否就是这个状态（没走到开关时为假）。
   @discardableResult
-  private func addKeyboardInSettingsIfNeeded(fullAccess wanted: Bool = true) -> Bool {
+  func addKeyboardInSettingsIfNeeded(fullAccess wanted: Bool = true) -> Bool {
     let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
     settings.launch()
     defer { settings.terminate() }
@@ -303,7 +303,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
   }
 
   /// 共用系统键盘识别与切换流程，编辑器可以属于产品宿主或独立测试应用。
-  private func activeSystemKeyboard(in app: XCUIApplication, field: XCUIElement,
+  func activeSystemKeyboard(in app: XCUIApplication, field: XCUIElement,
                                     toolbarTest: Bool = false) throws -> XCUIElement {
     // 编辑器出现时自动聚焦，键盘动画期间再次点击可能误触按键。
     let focused = XCTNSPredicateExpectation(
@@ -337,11 +337,18 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     if globe.waitForExistence(timeout: 6) {
       // 从系统列表直接选中扩展，避免同名系统键盘影响轮转。
       globe.press(forDuration: 1)
-      let entry = app.descendants(matching: .any)
-        .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
-      if entry.waitForExistence(timeout: 3) {
-        entry.tap()
-        if try waitForKeyboard(timeout: 6) { return readyKeyboard() }
+      keepScreenshot("系统键盘选择列表", in: app)
+      for host in [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")] {
+        let tree = XCTAttachment(string: host.debugDescription)
+        tree.name = "系统键盘选择列表-可访问树"
+        tree.lifetime = .keepAlways
+        add(tree)
+        let entry = host.descendants(matching: .any)
+          .matching(NSPredicate(format: "label BEGINSWITH %@", "水杉输入法")).firstMatch
+        if entry.waitForExistence(timeout: 3) {
+          entry.tap()
+          if try waitForKeyboard(timeout: 6) { return readyKeyboard() }
+        }
       }
       // 全新的 iOS 27 模拟器默认启用十四个键盘，其中几个显示名相同，所以轮转次数要覆盖整圈，而不是只点寥寥几次。
       for _ in 0..<20 {
@@ -1427,9 +1434,12 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       XCTAssertTrue(link.waitForExistence(timeout: 10))
       link.tap()
     }
-    func openMandarin() {
+    func openLanguage(for schemeIdentifier: String) {
       openSettings("inputSettingsLink")
-      let row = app.buttons["inputLanguage_mandarin"]
+      let language = schemeIdentifier.contains("shuangpin") || schemeIdentifier.contains("ziranma")
+        || schemeIdentifier.contains("microsoft") || schemeIdentifier.contains("shoudao")
+        ? "shuangpin" : "mandarin"
+      let row = app.buttons["inputLanguage_\(language)"]
       XCTAssertTrue(row.waitForExistence(timeout: 5))
       row.tap()
       XCTAssertTrue(app.buttons["designOptionSheetCancel"].waitForExistence(timeout: 5))
@@ -1439,7 +1449,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
                     "选项退场后才会保存，不能提前终止宿主")
     }
     func selectScheme(_ identifier: String) {
-      openMandarin()
+      openLanguage(for: identifier)
       let option = app.buttons[identifier]
       XCTAssertTrue(option.waitForExistence(timeout: 5))
       option.tap()
@@ -1452,7 +1462,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
       picker.tap()
     }
 
-    openMandarin()
+    openLanguage(for: "inputScheme_quanpin")
     let previousScheme = try XCTUnwrap(app.buttons.allElementsBoundByIndex.first {
       $0.identifier.hasPrefix("inputScheme_") && $0.isSelected
     }?.identifier, "此专项需要已启用的普通话方案")

@@ -24,6 +24,21 @@ public class SyntheticSpeechService extends RecognitionService {
         } catch (RemoteException disconnected) {
             return;
         }
+        String empty = getSharedPreferences("synthetic-speech", 0).getString("empty", "");
+        if (!empty.isEmpty()) {
+            // 空结果专项经过真实系统识别回调，不读取麦克风或联网。
+            handler.postDelayed(() -> {
+                try {
+                    if (empty.equals("empty-result")) {
+                        Bundle result = new Bundle();
+                        result.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, new java.util.ArrayList<>());
+                        callback.results(result);
+                    } else callback.error(empty.equals("no-match")
+                        ? SpeechRecognizer.ERROR_NO_MATCH : SpeechRecognizer.ERROR_SPEECH_TIMEOUT);
+                } catch (RemoteException disconnected) { /* 输入法已经退出时不再投递。 */ }
+            }, 800);
+            return;
+        }
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try {
                 callback.error(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS);

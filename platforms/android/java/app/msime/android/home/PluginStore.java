@@ -323,7 +323,7 @@ final class PluginStore {
             plugins == null ? "" : JsonPolicy.strictStringOrEmpty(plugins.opt("helpcode_pack_shuangpin")),
             KeyboardFeedbackStore.load(context).soundEnabled(),
             modes == null || JsonPolicy.strictBoolean(modes.opt("quick_phrase"), true),
-            modes != null && JsonPolicy.strictBoolean(modes.opt("command"), false));
+            modes != null && JsonPolicy.strictBoolean(modes.opt("command"), false), ids(plugins, "plugin_order"));
     }
 
     private static List<String> ids(@Nullable JSONObject plugins, String key) {
@@ -336,23 +336,50 @@ final class PluginStore {
         return List.copyOf(ids);
     }
 
-    /** 写入短语表或指令表的启用顺序；空列表时去掉这个键，与共享页「为空时文档里不写」一致。 */
-    static void putTables(JSONObject preferences, String kind, List<String> tables) throws JSONException {
-        String key = PluginCatalogPolicy.PHRASE_TABLE.equals(kind) ? "phrase_tables" : "command_tables";
-        JSONObject plugins = KeyboardSheets.child(preferences, "plugins");
-        if (tables.isEmpty()) plugins.remove(key);
-        else plugins.put(key, new JSONArray(tables));
+    private static String tablesKey(String kind) {
+        return PluginCatalogPolicy.PHRASE_TABLE.equals(kind) ? "phrase_tables" : "command_tables";
     }
 
-    /** 包从磁盘删除之后的偏好：指着它的选择回到默认，启用它的短语表、指令表把它移除；与共享页 `withoutRemovedPack` 相同。 */
+    /** 写入短语表或指令表的启用顺序；空列表时去掉这个键，与共享页「为空时文档里不写」一致。 */
+    static void putTables(JSONObject preferences, String kind, List<String> tables) throws JSONException {
+        JSONObject plugins = KeyboardSheets.child(preferences, "plugins");
+        if (tables.isEmpty()) plugins.remove(tablesKey(kind));
+        else plugins.put(tablesKey(kind), new JSONArray(tables));
+    }
+
+    /** 启用或停用一个短语表、指令表：「我的插件」列表行上的开关和详情页的「启用」共用这一处写入，按此刻偏好里的列表算（{@link PluginCatalogPolicy#switchedTables}）。 */
+    static void setTable(JSONObject preferences, String kind, String pack, boolean enabled) throws JSONException {
+        List<String> tables = ids(preferences.optJSONObject("plugins"), tablesKey(kind));
+        putTables(preferences, kind, PluginCatalogPolicy.switchedTables(tables, pack, enabled));
+    }
+
+    /** 写入列表的展示顺序；空列表时去掉这个键。 */
+    private static void putPluginOrder(JSONObject preferences, List<String> order) throws JSONException {
+        if (order.isEmpty()) {
+            JSONObject plugins = preferences.optJSONObject("plugins");
+            if (plugins != null) plugins.remove("plugin_order");
+        } else {
+            KeyboardSheets.child(preferences, "plugins").put("plugin_order", new JSONArray(order));
+        }
+    }
+
+    /** 一个分组拖动之后写回整份展示顺序：`packs` 是目录里所有的包，`group` 是这一组的键按新的先后；按此刻偏好里的顺序算（{@link PluginCatalogPolicy#reorderedPluginKeys}）。 */
+    static void reorderGroup(JSONObject preferences, List<PluginCatalogPolicy.Pack> packs, List<String> group)
+            throws JSONException {
+        putPluginOrder(preferences, PluginCatalogPolicy.reorderedPluginKeys(packs,
+            ids(preferences.optJSONObject("plugins"), "plugin_order"), group));
+    }
+
+    /** 包从磁盘删除之后的偏好：指着它的选择回到默认，启用它的短语表、指令表把它移除，展示顺序里它的那一条去掉；与共享页 `withoutRemovedPack` 相同。 */
     static void withoutRemovedPack(JSONObject preferences, String kind, String id) throws JSONException {
         JSONObject plugins = preferences.optJSONObject("plugins");
         if (plugins == null) return;
+        List<String> order = ids(plugins, "plugin_order");
+        List<String> kept = PluginCatalogPolicy.withoutPluginOrder(order, kind, id);
+        if (kept.size() != order.size()) putPluginOrder(preferences, kept);
         switch (kind) {
             case PluginCatalogPolicy.PHRASE_TABLE, PluginCatalogPolicy.COMMAND_TABLE ->
-                putTables(preferences, kind, PluginCatalogPolicy.withTable(
-                    ids(plugins, PluginCatalogPolicy.PHRASE_TABLE.equals(kind) ? "phrase_tables" : "command_tables"),
-                    id, false));
+                putTables(preferences, kind, PluginCatalogPolicy.withTable(ids(plugins, tablesKey(kind)), id, false));
             case PluginCatalogPolicy.HELPCODE -> {
                 for (String key : HelpcodeChoicePolicy.PACK_KEYS) {
                     if (id.equals(plugins.optString(key, ""))) plugins.put(key, "");

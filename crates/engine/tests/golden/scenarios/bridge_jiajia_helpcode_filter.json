@@ -1,6 +1,6 @@
 {
  "name": "bridge_jiajia_helpcode_filter",
- "source": "resources/helpcodes/jiajia_helpcode.txt:5607,6606,7754; fixture M rows tests/src/test_input_session.cpp:384-430,534-535",
+ "source": "resources/helpcodes/jiajia_helpcode.txt:15864,18266,20850; fixture M rows tests/src/test_input_session.cpp:384-430,534-535",
  "note": "Synthetic fixture (not from a ctest): three verbatim lines of the carried jiajia table, which the jiajia overlay registers as the sixth helpcode schema.",
  "covers": [
   "helpcode"

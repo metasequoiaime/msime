@@ -8,7 +8,7 @@ on:
       sign: {description: Generate signed artifacts without publishing a GitHub release, required: false, default: false, type: boolean}
       source_release: {description: Repackage a released signed HAP for AppGallery without rebuilding (requires signing and publish=false), required: false, default: '', type: string}
       appgallery:
-        description: 华为测试专区（auto 在 main 正式发版时上传并提交公开测试审核，其他情况不上传）
+        description: 华为测试专区（auto 在 main 正式发版时自动上传并提交公开测试，其他情况不上传）
         required: false
         default: auto
         type: choice
@@ -47,7 +47,6 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '版本号须为 X.Y.Z' >&2; exit 1; }
           echo "value=$version" >> "$GITHUB_OUTPUT"
-          # auto 只在 main 的正式发版时上传并提交公开测试，截图等素材由华为沿用最近的测试或在架版本；beta 与 alpha 的 versionCode 与随后的正式版相同，不进华为测试专区。
           if [[ "$APPGALLERY" == auto ]]; then
             if [[ "$GITHUB_REF_NAME" == main && "$PUBLISH" == true ]]; then APPGALLERY=public-test; else APPGALLERY=none; fi
           fi
@@ -85,8 +84,9 @@ jobs:
         run: |
           python3 scripts/test-harmony-appgallery.py
           python3 platforms/harmony/appgallery-release.py --check-only --mode "$MODE" --version "$VERSION" \
-            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID" \
+            --materials platforms/harmony/appgallery-materials.json
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         with: {distribution: temurin, java-version: '21'}
       # 发布必须在耗时构建前确认正式证书与共享沙箱授权，缺凭据时不降级为未签名包。
@@ -273,4 +273,5 @@ jobs:
           TEST_PACKAGE_ID: ${{ inputs.test_package_id }}
         run: |
           python3 platforms/harmony/appgallery-release.py --input "$APP" --mode "$MODE" --version "$VERSION" \
-            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID"
+            --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID" \
+            --materials platforms/harmony/appgallery-materials.json

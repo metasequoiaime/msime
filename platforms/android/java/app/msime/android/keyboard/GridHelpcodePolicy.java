@@ -3,7 +3,7 @@ package app.msime.android;
 /**
  * 十四／十八键网格辅助码在 Android 键盘上的规则。辅助码的状态、匹配和清理都在引擎里（`msime_client_grid_helpcode`），这里只决定按键送哪个操作、怎么画和读。
  *
- * <p>上滑「分词」键放下分隔符；之后字母键送整组（{@link #GROUP}），十八键双拼的横滑送确定字母（{@link #EXACT}，小写）；引擎此时不再收 `grid_key`。长按字母弹层照旧结束组字再上屏字母，不进辅助码槽。视图的 `grid_helpcode_display` 非空就是放下了分隔符。
+ * <p>上滑「分词」键放下分隔符；之后字母键送整组（{@link #GROUP}），14/18 键两字母键的横滑送确定字母（{@link #EXACT}，小写）；引擎此时不再收 `grid_key`。长按字母弹层照旧结束组字再上屏字母，不进辅助码槽。视图的 `grid_helpcode_display` 非空就是放下了分隔符。
  */
 public final class GridHelpcodePolicy {
     /** `msime_client_grid_helpcode` 的操作号。 */
@@ -20,7 +20,7 @@ public final class GridHelpcodePolicy {
 
     private GridHelpcodePolicy() {}
 
-    /** 字母键送哪个操作：没有分隔符时 {@link #NONE}；有分隔符时大写（十八键双拼横滑的确定字母标记）送 {@link #EXACT}，其余送 {@link #GROUP}，字母一律转成小写送出。 */
+    /** 字母键送哪个操作：没有分隔符时 {@link #NONE}；有分隔符时大写（14/18 键横滑的确定字母标记）送 {@link #EXACT}，其余送 {@link #GROUP}，字母一律转成小写送出。 */
     public static int letterOp(String display, char letter) {
         if (display == null || display.isEmpty()) return NONE;
         return letter >= 'A' && letter <= 'Z' ? EXACT : GROUP;

@@ -141,7 +141,7 @@ struct PluginDetailView: View {
     let command = pack.kind == .commandTable
     let enabled = command ? library.preferences.commandTables : library.preferences.phraseTables
     let position = enabled.firstIndex(of: pack.id)
-    let full = position == nil && enabled.count >= PluginPreferences.maximumTables
+    let full = PluginCatalogPolicy.tableSwitch(pack, preferences: library.preferences).full
     let modeOn = command ? library.preferences.commandMode : library.preferences.quickPhraseMode
     let schemeNote = PluginCatalogPolicy.schemeTableModeNote(library.scheme, kind: pack.kind)
     Section {

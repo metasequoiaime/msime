@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ThemeCarousel } from "@msime/ui";
+import { utilityCss } from "../support/utility-css";
 
 afterEach(() => {
   cleanup();
@@ -74,6 +75,13 @@ test("卡片一律拉伸到最高那张的高度：切换、滑动都不改轨�
   // 高度来自 flex 的拉伸，不是逐张测量：轨道不能是 items-start，slide 要把卡片撑满。
   expect(track.className).not.toContain("items-start");
   expect(track.children[0].className).toContain("[&>article]:flex-1");
+  expect(track.parentElement?.className).toContain("theme-carousel-viewport");
+});
+
+test("轮播在每张皮肤预览上限制高度，而不是只限制滚动轨道", () => {
+  expect(utilityCss("theme-carousel-viewport").replace(/\s+/g, "")).toContain(
+    ".theme-carousel-viewport[data-skin-preview]{max-height:520px;overflow:hidden!important;}",
+  );
 });
 
 test("opens on the selected theme and keeps every card mounted", () => {
@@ -96,6 +104,21 @@ test("the arrows step one theme and stop at either end", () => {
   expect(next.disabled).toBe(true);
   fireEvent.click(previous);
   expect(screen.getByText("2 / 3")).toBeTruthy();
+});
+
+test("the arrows sit on either side of the cards and the row below keeps the dots", () => {
+  renderCarousel(0);
+  const track = screen.getByRole("article", { name: labels[0] }).parentElement!.parentElement!;
+  const previous = screen.getByRole("button", { name: "上一个主题" });
+  const next = screen.getByRole("button", { name: "下一个主题" });
+
+  expect(track.previousElementSibling).toBe(previous);
+  expect(track.nextElementSibling).toBe(next);
+  expect(track.parentElement?.className).toContain("grid-cols-[auto_minmax(0,1fr)_auto]");
+  const nav = next.nextElementSibling!;
+  expect(nav.className).toContain("col-span-3");
+  expect(nav.contains(screen.getByRole("button", { name: "查看水杉" }))).toBe(true);
+  expect(nav.contains(previous) || nav.contains(next)).toBe(false);
 });
 
 test("a dot or an arrow key jumps to that theme", () => {

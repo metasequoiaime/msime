@@ -3,7 +3,14 @@ import Darwin
 import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao
+  // 共享统计（Rust `TypingSource::SmartAbc`）的键是 `smart_abc`，不是方案的原始值 `smartAbc`。
+  case smartAbc = "smart_abc"
+  case sogou, jiajia, ziguang, guobiao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  /// 方案在统计里记成的来源：智能 ABC 的方案原始值 `smartAbc` 与统计键 `smart_abc` 不同，其余同名方案直接按原始值取。
+  static func of(_ scheme: ChineseInputScheme) -> TypingSource? {
+    scheme == .smartAbc ? .smartAbc : TypingSource(rawValue: scheme.rawValue)
+  }
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
@@ -14,6 +21,11 @@ enum TypingSource: String, CaseIterable {
     case .ziranma: "自然码双拼"
     case .microsoft: "微软双拼"
     case .shoudao: "首道双拼"
+    case .smartAbc: "智能 ABC 双拼"
+    case .sogou: "搜狗双拼"
+    case .jiajia: "加加双拼"
+    case .ziguang: "紫光双拼"
+    case .guobiao: "国标双拼"
     // 86 与 98 五笔共用一个统计来源，这里只写「五笔」。
     case .wubi: "五笔"
     case .japanese: "日语"
@@ -504,9 +516,9 @@ struct TypingKeyHeatmap: Equatable {
     row.map { Cell("Key\($0)", String($0)) }
   }
 
-  /// 手机竖屏默认中文全拼 26 键：字母键面大写，第三排左端为 ⇧（关闭「组字时保留 Shift」后改为「分词」，记 `'`），右端为 ⌫；底行为 123 | 符 | 空格 | ， | 中 | 回车，逗号长按输入句号。iPhone 自带地球键时不画自己的地球键。
+  /// 手机竖屏默认中文全拼 26 键：字母键面大写，第三排左端为 ⇧（关闭「组字时保留 Shift」后改为「分词」，记 `'`），右端为 ⌫；底行为 123 | 符 | 。 | 空格 | ， | 中 | 回车，逗号长按也输入句号。iPhone 自带地球键时不画自己的地球键。
   ///
-  /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneActionWidths` 的权重，空格为 4。用户选了别的「按键布局」时画 `letterRows(for:)`。
+  /// 宽度照键盘的约束：前两排字母等宽，第二排两侧各缩进本行宽度的 5%（`keyboardMiddleRowInset`）；第三排的分词键和 ⌫ 在键盘上固定 44pt，iPhone 17 竖屏时约是同排字母键的 1.2 倍；底行是 `phoneEnglishActionWidths` 的权重，句号 1、空格 3。用户选了别的「按键布局」时画 `letterRows(for:)`。
   static let keyboardRows: [[Cell]] = letterRows(for: TouchKeyLayoutStyle())
 
   /// 按用户的「按键布局」画的 26 键：底行照 `TouchBottomRowLayout.twentySixKey`（打开「符」与「123」互换时 符 排在 123 左边，中/英键放在空格左边时照 `TouchBottomRowLayout.languageBeforeSpace` 重排），打开顶部数字行时字母上方多一排 1 到 0（记 `Digit1`…`Digit0`）。

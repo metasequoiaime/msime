@@ -63,6 +63,8 @@ public final class KeyboardIconPaths {
         FEEDBACK(true, 1.7f),
         /** design panel 关于 */
         ABOUT(true, 1.7f),
+        /** Lucide-style info (剪贴板详情) */
+        INFO(true, 1.7f),
         /** Lucide-style external-link (打开官网) */
         WEBSITE(true, 1.7f),
         /** design on-state check badge */
@@ -95,8 +97,6 @@ public final class KeyboardIconPaths {
         TRASH(true, 1.7f),
         /** Lucide-style x (关闭上屏后联想) */
         CLOSE(true, 1.8f),
-        /** Lucide-style pencil (读音行的编辑拼写入口) */
-        SPELLING_EDIT(true, 1.7f),
         /** open box ␣ (数字页空格键) */
         SPACE_BAR(true, 1.7f),
         /** Lucide-style rotate-ccw (键盘调整 重置) */
@@ -188,6 +188,7 @@ public final class KeyboardIconPaths {
             case INCOGNITO -> appendIncognito(p);
             case FEEDBACK -> appendFeedback(p);
             case ABOUT -> appendAbout(p);
+            case INFO -> appendInfo(p);
             case WEBSITE -> appendWebsite(p);
             case CHECK -> appendCheck(p);
             case AI_ASSIST -> appendAiAssist(p);
@@ -204,7 +205,6 @@ public final class KeyboardIconPaths {
             case TEXT_EDIT -> appendTextEdit(p);
             case TRASH -> appendTrash(p);
             case CLOSE -> appendClose(p);
-            case SPELLING_EDIT -> appendSpellingEdit(p);
             case SPACE_BAR -> appendSpaceBar(p);
             case ADJUST_RESET -> appendAdjustReset(p);
             case ADJUST_MOVE -> appendAdjustMove(p);
@@ -750,6 +750,19 @@ public final class KeyboardIconPaths {
         p.lineTo(12.01f, 8f);
     }
 
+    private static void appendInfo(Path p) {
+        p.moveTo(12f, 22f);
+        p.cubicTo(17.5228f, 22f, 22f, 17.5228f, 22f, 12f);
+        p.cubicTo(22f, 6.4772f, 17.5228f, 2f, 12f, 2f);
+        p.cubicTo(6.4772f, 2f, 2f, 6.4772f, 2f, 12f);
+        p.cubicTo(2f, 17.5228f, 6.4772f, 22f, 12f, 22f);
+        p.close();
+        p.moveTo(12f, 16f);
+        p.lineTo(12f, 12f);
+        p.moveTo(12f, 8f);
+        p.lineTo(12.01f, 8f);
+    }
+
     private static void appendWebsite(Path p) {
         p.moveTo(14f, 3f);
         p.lineTo(21f, 3f);
@@ -992,19 +1005,6 @@ public final class KeyboardIconPaths {
         p.lineTo(6f, 18f);
         p.moveTo(6f, 6f);
         p.lineTo(18f, 18f);
-    }
-
-    private static void appendSpellingEdit(Path p) {
-        p.moveTo(4f, 20f);
-        p.lineTo(5.2f, 15.6f);
-        p.lineTo(16f, 4.8f);
-        p.cubicTo(16.9139f, 4.1678f, 18.149f, 4.2794f, 18.9348f, 5.0652f);
-        p.cubicTo(19.7206f, 5.851f, 19.8322f, 7.0861f, 19.2f, 8f);
-        p.lineTo(8.4f, 18.8f);
-        p.lineTo(4f, 20f);
-        p.close();
-        p.moveTo(14f, 6.8f);
-        p.lineTo(17.2f, 10f);
     }
 
     private static void appendSpaceBar(Path p) {

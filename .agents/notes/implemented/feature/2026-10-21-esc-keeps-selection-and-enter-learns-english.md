@@ -30,7 +30,8 @@ Status: implemented
 ### 各平台的现状
 
 - **macOS**：Esc 此前写死整体丢弃（`crates/input-runtime/src/runtime.rs`），回车学词此前写死开启。现在两项都可配；默认值（Esc 关、回车学开）与旧行为一致，升级不改变手感。
-- **Windows 新架构**：`platforms/windows` 里两项都是 0，v0.11.1 的遗留设置没有搬过来。新宿主与 macOS 共用同一份 runtime/engine，因此这两项随共享偏好一起补齐；Windows 使用原生 WinUI 设置页，本 PR 没有为它增加设置控件。
+- **Windows 新架构**：新宿主与 macOS 共用同一份 runtime/engine，因此两项随共享偏好一起补齐；现代 WinUI 设置页和 Win7 设置页现在都暴露「Esc 保留已选词」与「回车学英文词」，写回同一份共享偏好。回车原样上屏拼音本来就是宿主既有行为，本次只补齐设置可达性，不改变默认值。
+  Win7 的这两项说明使用独立 `InfoTip.h` 系统气泡组件，按[设置说明规则](2026-11-01-settings-descriptions-behind-info-tip.md)放在标题旁的「?」中：悬停或键盘聚焦显示，点击固定，再点、Esc、失焦或切换页面收起。帮助按钮通过系统无障碍属性提供「标题的说明：正文」名称，对应开关保留说明属性；帮助操作不写偏好，缺省值和序列化规则不变；存量页面其余说明不在此次改动范围。
 - **Linux**：此前没有这两项，行为来自共享 runtime/engine。现在设置页（Tauri 设置应用）显示两行，值由共享偏好驱动。
 - **HarmonyOS**：同上，设置页经 ArkWeb 加载的共享 rawfile 显示两行；宿主不额外读这两项，行为仍在共享层。
 
@@ -44,7 +45,7 @@ Status: implemented
 
 ## Consequences
 
-- **收益**：v0.11.1 的两项遗留设置以共同能力的形式回到新架构，六个平台共享层一次补齐；默认值与旧行为一致，升级零行为变化。判定逻辑照搬 Windows 的谓词，没有引入新的产品决定。
+- **收益**：v0.11.1 的两项遗留设置以共同能力的形式回到新架构，Windows 两套原生设置页也能访问；默认值与旧行为一致，升级零行为变化。判定逻辑照搬 Windows 的谓词，没有引入新的产品决定。
 - **代价与已知上限**：共享偏好新增两个键，`Preferences` 文档和 MCP/账号同步的镜像表暂时没有收录它们（按最小方案只接产品路径与设置页）；需要跨设备同步时再补 `crates/mcp-server/src/preferences.rs` 与 `crates/client-services/src/account/settings_sync.rs`。本机只在单元测试层面验证了 runtime/engine/设置页，没有在六个平台的真机上交互验证。
 
 ## Verification
@@ -56,3 +57,7 @@ Status: implemented
 - 设置页：`pnpm --filter @msime/desktop test`（新增 `tests/settings/escape-keeps-selection.test.tsx`、`tests/settings/enter-learns-english.test.tsx`）与 `pnpm format:check`。
 
 相关笔记：[Windows 组字细节对齐 macOS](2026-10-10-windows-input-compose-mac-parity.md)（方向相反：那次是 Windows 补 macOS 已有的能力）。
+
+### Win7 帮助按钮的 COM 生命周期
+
+原生两项设置的说明使用系统帮助气泡，按钮的无障碍名称与说明由 `IAccPropServices` 提供。`SettingsWindow` 在自己的 STA apartment 仍有效时销毁窗口、清理帮助按钮及其无障碍接口，最后才调用 `CoUninitialize`；不能依赖 `State` 成员在析构函数返回后自然释放，因为这会在 apartment 结束后调用 COM 接口。`windows7-lifecycle` 直接创建并销毁生产设置窗口，分别覆盖窗口独占 COM 初始化和调用者已有 STA 两种情况，检查没有 COM 泄漏、也没有提前结束调用者的 apartment。

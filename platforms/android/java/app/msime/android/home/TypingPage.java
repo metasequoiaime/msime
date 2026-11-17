@@ -17,6 +17,7 @@ import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.NativeClient;
 import app.msime.android.NineKeyShuangpinKeypad;
+import app.msime.android.ShuangpinCustomKeypad;
 import app.msime.android.JsonPolicy;
 import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
@@ -63,14 +64,17 @@ public final class TypingPage extends ReloadingDetailPage {
     };
 
     private static final List<KeyboardScheme> SHUANGPIN = List.of(KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
-        KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO);
+        KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.SMART_ABC, KeyboardScheme.SOGOU,
+        KeyboardScheme.JIAJIA, KeyboardScheme.ZIGUANG, KeyboardScheme.GUOBIAO);
 
     /** 手机设置页的一行：中文方案族独立成行，其它语言按语言成行。 */
     private enum Language {
         QUANPIN("拼", "全拼", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_FOURTEEN_KEY,
             KeyboardScheme.QUANPIN_EIGHTEEN_KEY, KeyboardScheme.QUANPIN_NINE_KEY),
         SHUANGPIN("双", "双拼", KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA,
-            KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.NINE_KEY_SHUANGPIN),
+            KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.SMART_ABC,
+            KeyboardScheme.SOGOU, KeyboardScheme.JIAJIA, KeyboardScheme.ZIGUANG,
+            KeyboardScheme.GUOBIAO, KeyboardScheme.NINE_KEY_SHUANGPIN),
         WUBI("五", "五笔", KeyboardScheme.WUBI),
         ZHUYIN("注", "注音", KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY),
         STROKE("笔", "笔画", KeyboardScheme.STROKE),
@@ -284,6 +288,12 @@ public final class TypingPage extends ReloadingDetailPage {
             languages.addView(KeyboardSheets.badgeNavRow(context, language.badge, language.title, null,
                 shown == null ? null : schemeLabel(shown, preferences),
                 () -> showLanguage(language, offered, applied, preferences, state)));
+            if (language == Language.SHUANGPIN && SHUANGPIN.stream().anyMatch(offered::contains)) {
+                String profile = ShuangpinCustomKeypad.normalizedProfile(
+                    InputViewValuePolicy.textOr(preferences, "shuangpin_profile", ShuangpinCustomKeypad.DEFAULT_PROFILE));
+                languages.nav("双拼方案与自定义", null, ShuangpinCustomKeypad.profileTitle(profile),
+                    () -> SettingsNavigator.open(context, PageId.SHUANGPIN_CUSTOM, null));
+            }
             if (language == Language.SHUANGPIN && offered.contains(KeyboardScheme.NINE_KEY_SHUANGPIN)) {
                 // 九键双拼是一种键盘加一张表：面板里只选中这个键盘，表在这一页里选、编辑、导入和导出，与 iOS 的「九键双拼方案与自定义」相同。
                 String table = NineKeyShuangpinKeypad.normalizedProfile(InputViewValuePolicy.textOr(preferences,
@@ -333,7 +343,10 @@ public final class TypingPage extends ReloadingDetailPage {
         GroupCard chinese = GroupCard.add(sectionColumn(target, "中文"), "中文");
         InputFeatureToggle traditional = InputFeatureToggle.TRADITIONAL_OUTPUT;
         boolean traditionalOn = preferences.optBoolean(traditional.key(), traditional.enabledByDefault());
-        chinese.nav("中文字符集", null, traditionalOn ? "繁体" : "简体", () -> pickCharset(traditionalOn));
+        String traditionalVariant = InputViewValuePolicy.textOr(preferences, "traditional_chinese_variant", "s2t");
+        chinese.nav("中文字符集", null, traditionalCharsetTitle(traditionalOn, traditionalVariant),
+            () -> pickCharset(traditionalOn, traditionalVariant))
+            .help("选择简体、标准繁体、台湾正体或台湾用词；繁体变体只影响显示和上屏");
         InputFeatureToggle spacing = InputFeatureToggle.CHINESE_ENGLISH_SPACING;
         chinese.toggle(spacing.title(), null,
             preferences.optBoolean(spacing.key(), spacing.enabledByDefault()),
@@ -603,6 +616,11 @@ public final class TypingPage extends ReloadingDetailPage {
             case ZIRANMA -> "自然码";
             case MICROSOFT -> "微软";
             case SHOUDAO -> "首道";
+            case SMART_ABC -> "智能 ABC";
+            case SOGOU -> "搜狗";
+            case JIAJIA -> "加加";
+            case ZIGUANG -> "紫光";
+            case GUOBIAO -> "国标";
             default -> "小鹤";
         };
     }
@@ -792,11 +810,28 @@ public final class TypingPage extends ReloadingDetailPage {
 
     // ---- 中文、辅助码、翻译 ----
 
-    private void pickCharset(boolean traditional) {
+    private static String traditionalCharsetTitle(boolean traditional, String variant) {
+        if (!traditional) return "简体";
+        return switch (variant) {
+            case "s2tw" -> "台湾正体";
+            case "s2twp" -> "台湾用词";
+            default -> "繁体";
+        };
+    }
+
+    private void pickCharset(boolean traditional, String variant) {
         OptionSheet sheet = new OptionSheet(requireContext(), "中文字符集", null);
-        String key = InputFeatureToggle.TRADITIONAL_OUTPUT.key();
-        sheet.option("简体", !traditional, () -> savePreferences(values -> values.put(key, false)));
-        sheet.option("繁体", traditional, () -> savePreferences(values -> values.put(key, true)));
+        sheet.option("简体", !traditional,
+            () -> savePreferences(values -> values.put("traditional_chinese_output", false)));
+        sheet.option("繁体", traditional && "s2t".equals(variant),
+            () -> savePreferences(values -> values.put("traditional_chinese_output", true)
+                .put("traditional_chinese_variant", "s2t")));
+        sheet.option("台湾正体", traditional && "s2tw".equals(variant),
+            () -> savePreferences(values -> values.put("traditional_chinese_output", true)
+                .put("traditional_chinese_variant", "s2tw")));
+        sheet.option("台湾用词", traditional && "s2twp".equals(variant),
+            () -> savePreferences(values -> values.put("traditional_chinese_output", true)
+                .put("traditional_chinese_variant", "s2twp")));
         sheet.show();
     }
 

@@ -1,5 +1,4 @@
 import { AccountPage } from "../account/account-page";
-import { desktopDownloadUrl } from "./app-resources";
 import { useAccountPageActions } from "./use-account-page-actions";
 import type { SettingsPageModel, SettingsPageProps } from "./use-settings-page-model";
 
@@ -105,8 +104,6 @@ export function SettingsAccountPage({ model, onReplayOnboarding }: SettingsAccou
             }
           : undefined
       }
-      copyText={client.copyText}
-      desktopDownloadUrl={desktopDownloadUrl}
       appVersion={currentAppVersion}
     />
   );

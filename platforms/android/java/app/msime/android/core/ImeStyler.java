@@ -191,7 +191,7 @@ final class ImeStyler {
             node.setLayoutParams(params);
         } else if (node instanceof KeyboardSpacer spacer
                 && spacer.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams params) {
-            // 宽窄第二排两端的占位格不是键，只朝外补这一排少扣的键距（KeyboardSpacer#setOuterHalfGaps）。
+            // 占位格（宽窄第二排两端、26 键第二排的缩进）不是键，只朝外补这一排少扣的键距（KeyboardSpacer#setOuterHalfGaps），26 键的缩进不补。
             int halfGap = s.halfSpacingPixels(layoutKeySpacingTenths());
             params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);
             spacer.setLayoutParams(params);
