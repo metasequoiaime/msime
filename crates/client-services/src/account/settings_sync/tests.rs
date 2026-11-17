@@ -193,6 +193,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.frequency_mode",
             "input.frequency_trigger_count",
             "input.learning",
+            "input.nine_key_flick_threshold",
             "input.paired_punctuation",
             "input.quote_style",
             "input.schema",
@@ -219,6 +220,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_skin_light",
             "platform.android.language_key_side",
             "platform.android.nine_key_digit_symbols",
+            "platform.android.nine_key_flick_threshold",
             "platform.android.nine_key_style",
             "platform.android.nine_key_swipe",
             "platform.android.nine_key_symbols",
@@ -331,26 +333,57 @@ fn settings_sync_leaves_a_custom_shuangpin_profile_on_the_device() {
 
 #[test]
 fn settings_sync_preserves_a_local_smart_abc_profile() {
-    let local = Preferences {
-        shuangpin_profile: ShuangpinProfile::SmartAbc,
-        ..Preferences::default()
-    };
-    let exported = export_android_settings(&local, None).unwrap();
-    assert!(!exported.contains_key("input.shuangpin_schema"));
-    let values = BTreeMap::from([(
-        "input.shuangpin_schema".into(),
-        AccountPreferenceValue::String("microsoft".into()),
-    )]);
-    let applied = apply(
-        &local,
-        values,
-        &schema_for(&[("input.shuangpin_schema", "string")]),
-    );
-    assert_eq!(
-        applied.preferences.shuangpin_profile,
-        ShuangpinProfile::SmartAbc
-    );
-    assert!(applied.skipped.is_empty());
+    // 智能 ABC、搜狗、加加、紫光和国标都还不上传：已经发布的 iOS 读到不认识的双拼方案会拒绝整份账号设置。
+    for profile in [
+        ShuangpinProfile::SmartAbc,
+        ShuangpinProfile::Sogou,
+        ShuangpinProfile::Jiajia,
+        ShuangpinProfile::Ziguang,
+        ShuangpinProfile::Guobiao,
+    ] {
+        let local = Preferences {
+            shuangpin_profile: profile,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&local, None).unwrap();
+        assert!(
+            !exported.contains_key("input.shuangpin_schema"),
+            "{profile:?}"
+        );
+        let values = BTreeMap::from([(
+            "input.shuangpin_schema".into(),
+            AccountPreferenceValue::String("microsoft".into()),
+        )]);
+        let applied = apply(
+            &local,
+            values,
+            &schema_for(&[("input.shuangpin_schema", "string")]),
+        );
+        assert_eq!(applied.preferences.shuangpin_profile, profile);
+        assert!(applied.skipped.is_empty());
+    }
+}
+
+#[test]
+fn settings_sync_applies_downloaded_new_shuangpin_profiles() {
+    for (value, profile) in [
+        ("sogou", ShuangpinProfile::Sogou),
+        ("jiajia", ShuangpinProfile::Jiajia),
+        ("ziguang", ShuangpinProfile::Ziguang),
+        ("guobiao", ShuangpinProfile::Guobiao),
+    ] {
+        let values = BTreeMap::from([(
+            "input.shuangpin_schema".into(),
+            AccountPreferenceValue::String(value.into()),
+        )]);
+        let applied = apply(
+            &Preferences::default(),
+            values,
+            &schema_for(&[("input.shuangpin_schema", "string")]),
+        );
+        assert_eq!(applied.preferences.shuangpin_profile, profile);
+        assert!(applied.skipped.is_empty());
+    }
 }
 
 #[test]
@@ -616,7 +649,7 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
 
     let unknown_values = [
         ("input.character_set", "cyrillic"),
-        ("input.shuangpin_schema", "sogou"),
+        ("input.shuangpin_schema", "unknown_profile"),
         ("input.wubi_schema", "wubi2030"),
         ("input.frequency_mode", "random"),
         ("input.quote_style", "semantic"),
@@ -1166,9 +1199,10 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         AccountPreferenceValue::String(text) if text.contains("SENTINEL")
     )));
     let android = export_android_settings(&preferences, None).unwrap();
+    // 九键 flick 阈值是手机三端共用的 `input.*` 键，桌面不导出。
     let shared: BTreeMap<_, _> = android
         .into_iter()
-        .filter(|(key, _)| key.starts_with("input."))
+        .filter(|(key, _)| key.starts_with("input.") && key != MOBILE_NINE_KEY_FLICK_THRESHOLD)
         .collect();
     let exported_input: BTreeMap<_, _> = exported
         .clone()
@@ -1184,6 +1218,58 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         exported.get("input.wubi_schema"),
         Some(&AccountPreferenceValue::String("wubi86".into()))
     );
+}
+
+/// 桌面没有九键 flick 阈值的设置项，导出的话桌面偏好里的默认 24 会在合并上传时盖掉手机上改的值；应用时也不动桌面偏好里的这个字段。
+#[test]
+fn settings_sync_desktop_hosts_neither_export_nor_apply_the_nine_key_flick_threshold() {
+    let preferences = Preferences {
+        touch_nine_key_flick_threshold: 34,
+        ..Preferences::default()
+    };
+    for host in [DesktopHost::MacOS, DesktopHost::Linux, DesktopHost::Windows] {
+        assert!(!export_desktop_settings_for(host, &preferences)
+            .contains_key(MOBILE_NINE_KEY_FLICK_THRESHOLD));
+        let cloud = document(BTreeMap::from([(
+            MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(34),
+        )]));
+        let applied =
+            apply_desktop_settings_for(host, &Preferences::default(), &cloud, &full_schema())
+                .unwrap();
+        assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 24);
+    }
+}
+
+/// 跨平台键和本平台旧键同时在云端时以跨平台键为准：iOS 改成 20 后，Android 留在云端的旧平台键 30 不能把它改回去。
+#[test]
+fn settings_sync_android_prefers_the_shared_nine_key_flick_threshold_over_its_platform_key() {
+    let schema = full_schema();
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([
+            (
+                MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(20),
+            ),
+            (
+                NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(30),
+            ),
+        ]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 20);
+    // 只有旧版本上传过、文档里还没有跨平台键时，退回本平台键。
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([(
+            NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(30),
+        )]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 30);
 }
 
 #[test]

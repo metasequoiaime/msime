@@ -117,8 +117,9 @@ class NativeRead(unittest.TestCase):
     def test_no_owner_returns_no_text(self):
         self.clipboard.clear()
         result = self.read()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 3)
         self.assertEqual(result.stdout, b"")
+        self.assertEqual(monitor.read_command([str(READER), "--read"], empty_status=3), "")
 
     def test_unresponsive_owner_has_one_deadline(self):
         x11 = ctypes.CDLL("libX11.so.6")

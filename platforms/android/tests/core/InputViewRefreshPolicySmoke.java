@@ -51,6 +51,14 @@ public final class InputViewRefreshPolicySmoke {
             "an ordinary text field keeps building its session before the window shows");
         check(!InputViewRefreshPolicy.defersEngineStartup(false, typeNull, false, false),
             "nothing is deferred for an input start that wants no engine");
+        check(InputViewRefreshPolicy.shouldRecoverLateConnection(null, connection, 0, true),
+            "a connection delivered when the keyboard shows can recover a text editor");
+        check(!InputViewRefreshPolicy.shouldRecoverLateConnection(connection, connection, 0, true),
+            "an already known connection must not restart the editor");
+        check(!InputViewRefreshPolicy.shouldRecoverLateConnection(null, connection, 3, true),
+            "a live session must not be replaced by late-connection recovery");
+        check(!InputViewRefreshPolicy.shouldRecoverLateConnection(null, connection, 0, false),
+            "password or numeric editors must not recover an Engine session");
         check(InputViewRefreshPolicy.shouldResumeDeferredStartup(7, 7, 0, connection, connection, true),
             "showing the keyboard on the deferring editor starts its session");
         check(!InputViewRefreshPolicy.shouldResumeDeferredStartup(-1, 7, 0, connection, connection, true),

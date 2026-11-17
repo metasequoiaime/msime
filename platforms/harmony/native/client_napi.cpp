@@ -275,6 +275,8 @@ TEXT_ENTRY(ResolveAppTheme, msime_client_resolve_app_theme)
 TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 // 九键双拼的表、问题和键面；请求与 Android、iOS 共用同一份 JSON 契约。
 TEXT_ENTRY(NineKeyShuangpinLayout, msime_client_nine_key_shuangpin_layout)
+// 26 键双拼的表、问题和键位提示；请求与 Android、iOS 共用同一份 JSON 契约。
+TEXT_ENTRY(ShuangpinCustomLayout, msime_client_shuangpin_custom_layout)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
 TEXT_ENTRY(SkinToolbarImageLayout, msime_client_skin_toolbar_image_layout)
@@ -1784,6 +1786,24 @@ static napi_value SimplifiedToTraditional(napi_env env, napi_callback_info info)
     return response(env, converted);
 }
 
+// 鸿蒙注音输出开关使用的共享 OpenCC t2s 转换。与上面的反向转换一样，这里直接返回文本；
+// C ABI 拒绝输入时返回 null。
+static napi_value TraditionalToSimplified(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string text;
+    char *converted = nullptr;
+    if (arguments(env, info, 1, argv) && argumentText(env, argv[0], text)) {
+        converted = msime_client_traditional_to_simplified(
+            reinterpret_cast<const uint8_t *>(text.data()), text.size());
+    }
+    if (!converted) {
+        napi_value none = nullptr;
+        napi_get_null(env, &none);
+        return none;
+    }
+    return response(env, converted);
+}
+
 static napi_value DoubaoEncodeFrame(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     int32_t message_type = 0;
@@ -1950,6 +1970,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("handwriting", Handwriting),
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("simplifiedToTraditional", SimplifiedToTraditional),
+        ENTRY("traditionalToSimplified", TraditionalToSimplified),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
         ENTRY("themeCatalog", ThemeCatalog),
@@ -1958,6 +1979,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("resolveAppTheme", ResolveAppTheme),
         ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("nineKeyShuangpinLayout", NineKeyShuangpinLayout),
+        ENTRY("shuangpinCustomLayout", ShuangpinCustomLayout),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarImageLayout", SkinToolbarImageLayout),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),

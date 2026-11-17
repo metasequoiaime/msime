@@ -19,6 +19,7 @@ final class ShuangpinKeyFaceChecks {
     private ShuangpinKeyFaceChecks() { }
 
     static void verify(Instrumentation test) throws Exception {
+        KeyHintMainLabelChecks.verify(test);
         ShuangpinUniformKeyFaceChecks.verify(test);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         test.runOnMainSync(() -> {
@@ -52,7 +53,9 @@ final class ShuangpinKeyFaceChecks {
         float density = context.getResources().getDisplayMetrics().density;
         float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
         key.setBackground(null);
-        key.setGravity(Gravity.CENTER);
+        check((key.getGravity() & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL
+                && (key.getGravity() & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.CENTER_VERTICAL,
+            "键帽文字必须水平垂直居中");
         key.setText(text);
         key.setTextSize(TypedValue.COMPLEX_UNIT_PX, 22 * density * scale);
         key.setTextColor(Color.GREEN);
