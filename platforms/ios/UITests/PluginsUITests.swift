@@ -44,6 +44,47 @@ final class PluginsUITests: XCTestCase {
     app.buttons["pluginsTab-0"].tap()
     PluginsUITestFlow.remove(name, in: app)
   }
+
+  /// 在「我的插件」的行上直接启用和停用一个短语表：不进详情，行尾的标记跟着变。
+  func testEnablingAPhraseTableFromItsRow() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    PluginsUITestFlow.openPluginsPage(app)
+
+    let name = "合成行开关\(Int.random(in: 100...999))"
+    PluginsUITestFlow.create(in: app, kind: "phrase_table", name: name, fields: [
+      ("第 1 条短语的编码", "zqhk"), ("第 1 条短语的文字", "合成行开关"),
+    ])
+    XCTAssertTrue(app.staticTexts["pluginSavedNote"].waitForExistence(timeout: 15))
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+
+    let toggle = app.switches.matching(NSPredicate(
+      format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "pluginRowEnabled.phrase_table/", name)).firstMatch
+    XCTAssertTrue(toggle.waitForExistence(timeout: 10), "短语表的行上应当有启用开关")
+    PluginsUITestFlow.reveal(toggle, in: app)
+    PluginsUITestFlow.keep("插件-行上的启用开关", app, in: self)
+    XCTAssertEqual(toggle.value as? String, "0")
+    // 标记以「已启用」开头，后面是排位或「K 模式未开」；行按钮把名字和标记读成一个标签时也算。
+    let markers = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "已启用"))
+    let markedRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", name, "已启用"))
+    let before = markers.count
+    XCTAssertEqual(markedRow.count, 0)
+
+    toggle.tap()
+    XCTAssertEqual(toggle.value as? String, "1")
+    XCTAssertTrue(markedRow.firstMatch.waitForExistence(timeout: 5) || markers.count == before + 1, "启用后行尾应当有标记")
+    XCTAssertTrue(app.navigationBars["插件"].exists, "拨开关不应当推入详情")
+    PluginsUITestFlow.keep("插件-行上启用之后", app, in: self)
+
+    toggle.tap()
+    XCTAssertEqual(toggle.value as? String, "0")
+    XCTAssertEqual(markedRow.count, 0)
+    XCTAssertEqual(markers.count, before)
+
+    // 删掉这次做的包，不把它留给后面的用例。
+    PluginsUITestFlow.remove(name, in: app)
+  }
 }
 
 /// 插件页上的几步，键盘的界面用例也用它在插件页里做包。

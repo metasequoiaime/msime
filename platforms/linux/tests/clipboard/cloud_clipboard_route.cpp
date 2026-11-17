@@ -1,4 +1,5 @@
 #include "../../src/clipboard/CloudClipboardRoute.h"
+#include "../../src/clipboard/CloudClipboardLoginBinding.h"
 #include <cassert>
 #include <iostream>
 #include <vector>
@@ -35,10 +36,59 @@ struct Fixture {
 };
 
 int main() {
+  const Json local_login{{"user_id", "synthetic-local"}, {"session_id", "synthetic-local-login"}};
+  const Json provider_login{{"user_id", "synthetic-provider"}, {"session_id", "synthetic-provider-login"}};
+  bool read_local = false;
+  auto local = [&] { read_local = true; return local_login; };
+  auto provider = [&](const std::string &socket) {
+    assert(socket == "/synthetic/independent.sock");
+    return provider_login;
+  };
+  assert(msime::linux_host::cloud_clipboard_login_binding(
+      "/synthetic/independent.sock", provider, local) == provider_login);
+  assert(!read_local);
+  assert(msime::linux_host::cloud_clipboard_login_binding({}, provider, local) == local_login);
+  assert(read_local);
+  for (const auto &invalid : {Json(), Json::object(), Json{{"ok", false}},
+       Json{{"user_id", "synthetic-provider"}, {"session_id", ""}},
+       Json{{"user_id", "synthetic-provider"}, {"session_id", 1}},
+       Json{{"user_id", "synthetic-provider"}, {"session_id", "synthetic"}, {"token", "synthetic"}}}) {
+    read_local = false;
+    bool rejected = false;
+    try {
+      msime::linux_host::cloud_clipboard_login_binding(
+          "/synthetic/independent.sock", [&](const std::string &) { return invalid; }, local);
+    } catch (const std::exception &) { rejected = true; }
+    assert(rejected);
+    assert(!read_local);
+  }
+
+  Fixture add;
+  const auto added = msime::linux_host::cloud_clipboard_request(
+      "/synthetic/state", {}, "/synthetic/auto.sock",
+      Json{{"operation", "add"}, {"text", "合成上传"}},
+      [&](const std::string &path) {
+        assert(path == "/synthetic/state");
+        add.calls.push_back("source");
+        return Json{{"source", "relay"}};
+      },
+      [&](const Json &request) {
+        add.calls.push_back("relay");
+        add.relay_request = request;
+        return Json{{"accepted", true}};
+      },
+      [&](const std::string &, const Json &) {
+        assert(false && "relay route must not use provider");
+        return Json::object();
+      });
+  assert(added.at("accepted") == true);
+  assert((add.calls == std::vector<std::string>{"source", "relay"}));
+  assert(add.relay_request.at("action") == Json({{"operation", "add"}, {"text", "合成上传"}}));
+
   Fixture explicit_provider;
   explicit_provider.source_fails = true;
   assert(!explicit_provider.list("/synthetic/explicit.sock").at("enabled").get<bool>());
-  assert(explicit_provider.calls == std::vector<std::string>{"/synthetic/explicit.sock"});
+  assert((explicit_provider.calls == std::vector<std::string>{"/synthetic/explicit.sock"}));
 
   Fixture relay;
   assert(relay.list().at("items").at(0).at("text") == "合成中继条目");
@@ -56,12 +106,12 @@ int main() {
   assert(discovered.calls == std::vector<std::string>({"source", "/synthetic/auto.sock"}));
   discovered.calls.clear();
   assert(discovered.list({}, {}).empty());
-  assert(discovered.calls == std::vector<std::string>{"source"});
+  assert((discovered.calls == std::vector<std::string>{"source"}));
 
   Fixture legacy;
   legacy.source_fails = true;
   assert(legacy.list({}, "/synthetic/auto.sock", {}).at("enabled") == false);
-  assert(legacy.calls == std::vector<std::string>{"/synthetic/auto.sock"});
+  assert((legacy.calls == std::vector<std::string>{"/synthetic/auto.sock"}));
 
   for (int failure = 0; failure < 4; ++failure) {
     Fixture rejected;

@@ -15,7 +15,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 26 键双拼的按下点（#10018）在安装产品里的验收：注入真实的触摸（不是无障碍点击，那条路不带按下点），按在键的边角和键距里时组字的是命中的那个键；按错的一键偏向想按的键时，纠错整句出现在候选里，而同样的按键经无障碍点击（没有按下点、按平面表计价）时它不在候选里。开着「显示调试信息」时宿主把注册的几何写到 `files/debug/key-geometry.json`，这里核对它和无障碍树里各键的位置一致，再经 instrumentation 状态（`msime_key_geometry_<名字>`）交给 smoke.sh 存下来，用来替换评测的参考布局。
+ * 26 键双拼的按下点（#10018）在安装产品里的验收：注入真实的触摸（不是无障碍点击，那条路不带按下点），按在键的边角和键距里时组字的是命中的那个键，按在第二排两端的半键缩进里时组字的是 A、L；按错的一键偏向想按的键时，纠错整句出现在候选里，而同样的按键经无障碍点击（没有按下点、按平面表计价）时它不在候选里。开着「显示调试信息」时宿主把注册的几何写到 `files/debug/key-geometry.json`，这里核对它和无障碍树里各键的位置一致，再经 instrumentation 状态（`msime_key_geometry_<名字>`）交给 smoke.sh 存下来，用来替换评测的参考布局。
  *
  * <p>经 `MicrosoftShuangpinDeviceSmoke -e shuangpin-touch true` 运行，不增加 instrumentation 入口（API 35 的清单最多 100 个）。偏好、本地设置和导出文件都在结束时还原。
  */
@@ -85,6 +85,21 @@ final class ShuangpinTouchDeviceChecks {
             clear(1);
             touch(g.left - (g.left - f.right) / 4f, g.centerY());
             awaitField("g");
+            clear(1);
+
+            // 第二排两端的半键缩进归同一排最外侧的键（KeyboardSpacer）。按下点离 A、L 的键帽超过一整个键距，
+            // 已经出了键自己的外边距，没有占位格的归属这一下会丢。
+            t.stage = "shuangpin touch: a press in the row-2 indent composes A or L";
+            Rect a = bounds("a");
+            Rect l = bounds("l");
+            float reach = a.width() * 0.3f;
+            if (reach <= g.left - f.right || a.left - reach < 1)
+                throw new AssertionError("缩进太窄，测不到键距以外：" + a + " " + f + " " + g);
+            touch(a.left - reach, a.centerY());
+            awaitField("a");
+            clear(1);
+            touch(l.right + reach, l.centerY());
+            awaitField("l");
             clear(1);
 
             // 小鹤 mw gr xi 是「没关系」；按成 gf（f 在 r 的右下方）就是一处邻键误触。

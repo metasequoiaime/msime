@@ -15,6 +15,15 @@ serial=${MSIME_ANDROID_TEST_SERIAL:-emulator-5580}
 avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test || "$avd_name" == msime-client-test-api* ]] || { echo "Refusing a non-test AVD" >&2; exit 1; }
 [[ $("$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r') == 1 ]] || { echo "Test AVD has not booted" >&2; exit 1; }
+# 单测结束后只清掉本次上传的程序，避免它继续占用后续 APK 安装需要的 /data 空间。
+# 清理失败不覆盖测试原本的退出码；设备掉线时保留原始失败供 CI 定位。
+cleanup_binary() {
+  local status=$?
+  trap - EXIT
+  "$adb" -s "$serial" shell rm -f /data/local/tmp/msime-rust-tests/core-tests || true
+  exit "$status"
+}
+trap cleanup_binary EXIT
 "$adb" -s "$serial" shell mkdir -p /data/local/tmp/msime-rust-tests
 "$adb" -s "$serial" push "$binary" /data/local/tmp/msime-rust-tests/core-tests >/dev/null
 "$adb" -s "$serial" shell chmod 700 /data/local/tmp/msime-rust-tests/core-tests

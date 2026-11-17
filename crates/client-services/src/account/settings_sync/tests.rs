@@ -68,8 +68,9 @@ fn full_schema() -> AccountPreferenceSchema {
     schema
 }
 
-/// msime-cloud#1277 加进字段表、此前没有宿主导出的共享偏好；两个思考强度和三个快捷键只有 macOS 能改，共享层的宿主都不导出。
+/// `msime-cloud#1277` 加进字段表、此前没有宿主导出的共享偏好，加上插件列表展示顺序；两个思考强度和三个快捷键只有 macOS 能改，共享层的宿主都不导出。
 const NEW_SHARED_KEYS: &[(&str, &str)] = &[
+    ("plugins.plugin_order", "string"),
     ("mixed_input.quick_phrase", "boolean"),
     ("mixed_input.quick_phrase_frequency", "boolean"),
     ("sentence_association.grammar_model", "string"),
@@ -175,6 +176,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
+    preferences.settings_sync_webdav.url = "https://SENTINEL-settings.example.test".into();
+    preferences.settings_sync_webdav.username = "SENTINEL-settings-user".into();
+    preferences.settings_sync_webdav.password = "SENTINEL-settings-password".into();
     let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
     let keys: Vec<&str> = exported.keys().map(String::as_str).collect();
     assert_eq!(
@@ -189,6 +193,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "input.frequency_mode",
             "input.frequency_trigger_count",
             "input.learning",
+            "input.nine_key_flick_threshold",
             "input.paired_punctuation",
             "input.quote_style",
             "input.schema",
@@ -215,6 +220,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.keyboard_skin_light",
             "platform.android.language_key_side",
             "platform.android.nine_key_digit_symbols",
+            "platform.android.nine_key_flick_threshold",
             "platform.android.nine_key_style",
             "platform.android.nine_key_swipe",
             "platform.android.nine_key_symbols",
@@ -327,26 +333,57 @@ fn settings_sync_leaves_a_custom_shuangpin_profile_on_the_device() {
 
 #[test]
 fn settings_sync_preserves_a_local_smart_abc_profile() {
-    let local = Preferences {
-        shuangpin_profile: ShuangpinProfile::SmartAbc,
-        ..Preferences::default()
-    };
-    let exported = export_android_settings(&local, None).unwrap();
-    assert!(!exported.contains_key("input.shuangpin_schema"));
-    let values = BTreeMap::from([(
-        "input.shuangpin_schema".into(),
-        AccountPreferenceValue::String("microsoft".into()),
-    )]);
-    let applied = apply(
-        &local,
-        values,
-        &schema_for(&[("input.shuangpin_schema", "string")]),
-    );
-    assert_eq!(
-        applied.preferences.shuangpin_profile,
-        ShuangpinProfile::SmartAbc
-    );
-    assert!(applied.skipped.is_empty());
+    // 智能 ABC、搜狗、加加、紫光和国标都还不上传：已经发布的 iOS 读到不认识的双拼方案会拒绝整份账号设置。
+    for profile in [
+        ShuangpinProfile::SmartAbc,
+        ShuangpinProfile::Sogou,
+        ShuangpinProfile::Jiajia,
+        ShuangpinProfile::Ziguang,
+        ShuangpinProfile::Guobiao,
+    ] {
+        let local = Preferences {
+            shuangpin_profile: profile,
+            ..Preferences::default()
+        };
+        let exported = export_android_settings(&local, None).unwrap();
+        assert!(
+            !exported.contains_key("input.shuangpin_schema"),
+            "{profile:?}"
+        );
+        let values = BTreeMap::from([(
+            "input.shuangpin_schema".into(),
+            AccountPreferenceValue::String("microsoft".into()),
+        )]);
+        let applied = apply(
+            &local,
+            values,
+            &schema_for(&[("input.shuangpin_schema", "string")]),
+        );
+        assert_eq!(applied.preferences.shuangpin_profile, profile);
+        assert!(applied.skipped.is_empty());
+    }
+}
+
+#[test]
+fn settings_sync_applies_downloaded_new_shuangpin_profiles() {
+    for (value, profile) in [
+        ("sogou", ShuangpinProfile::Sogou),
+        ("jiajia", ShuangpinProfile::Jiajia),
+        ("ziguang", ShuangpinProfile::Ziguang),
+        ("guobiao", ShuangpinProfile::Guobiao),
+    ] {
+        let values = BTreeMap::from([(
+            "input.shuangpin_schema".into(),
+            AccountPreferenceValue::String(value.into()),
+        )]);
+        let applied = apply(
+            &Preferences::default(),
+            values,
+            &schema_for(&[("input.shuangpin_schema", "string")]),
+        );
+        assert_eq!(applied.preferences.shuangpin_profile, profile);
+        assert!(applied.skipped.is_empty());
+    }
 }
 
 #[test]
@@ -612,7 +649,7 @@ fn settings_sync_unknown_enum_values_skip_only_their_key() {
 
     let unknown_values = [
         ("input.character_set", "cyrillic"),
-        ("input.shuangpin_schema", "sogou"),
+        ("input.shuangpin_schema", "unknown_profile"),
         ("input.wubi_schema", "wubi2030"),
         ("input.frequency_mode", "random"),
         ("input.quote_style", "semantic"),
@@ -1148,6 +1185,9 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
     preferences.dictionary_sync_webdav.url = "https://SENTINEL-dictionary.example.test".into();
     preferences.dictionary_sync_webdav.username = "SENTINEL-dictionary-user".into();
     preferences.dictionary_sync_webdav.password = "SENTINEL-dictionary-password".into();
+    preferences.settings_sync_webdav.url = "https://SENTINEL-settings.example.test".into();
+    preferences.settings_sync_webdav.username = "SENTINEL-settings-user".into();
+    preferences.settings_sync_webdav.password = "SENTINEL-settings-password".into();
     let exported = export_desktop_settings(&preferences);
     assert!(exported.keys().all(|key| {
         key.starts_with("input.")
@@ -1159,9 +1199,10 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         AccountPreferenceValue::String(text) if text.contains("SENTINEL")
     )));
     let android = export_android_settings(&preferences, None).unwrap();
+    // 九键 flick 阈值是手机三端共用的 `input.*` 键，桌面不导出。
     let shared: BTreeMap<_, _> = android
         .into_iter()
-        .filter(|(key, _)| key.starts_with("input."))
+        .filter(|(key, _)| key.starts_with("input.") && key != MOBILE_NINE_KEY_FLICK_THRESHOLD)
         .collect();
     let exported_input: BTreeMap<_, _> = exported
         .clone()
@@ -1177,6 +1218,123 @@ fn settings_sync_desktop_export_is_the_shared_input_keys_and_its_own_settings() 
         exported.get("input.wubi_schema"),
         Some(&AccountPreferenceValue::String("wubi86".into()))
     );
+}
+
+/// 桌面没有九键 flick 阈值的设置项，导出的话桌面偏好里的默认 24 会在合并上传时盖掉手机上改的值；应用时也不动桌面偏好里的这个字段。
+#[test]
+fn settings_sync_desktop_hosts_neither_export_nor_apply_the_nine_key_flick_threshold() {
+    let preferences = Preferences {
+        touch_nine_key_flick_threshold: 34,
+        ..Preferences::default()
+    };
+    for host in [DesktopHost::MacOS, DesktopHost::Linux, DesktopHost::Windows] {
+        assert!(!export_desktop_settings_for(host, &preferences)
+            .contains_key(MOBILE_NINE_KEY_FLICK_THRESHOLD));
+        let cloud = document(BTreeMap::from([(
+            MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(34),
+        )]));
+        let applied =
+            apply_desktop_settings_for(host, &Preferences::default(), &cloud, &full_schema())
+                .unwrap();
+        assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 24);
+    }
+}
+
+/// 跨平台键和本平台旧键同时在云端时以跨平台键为准：iOS 改成 20 后，Android 留在云端的旧平台键 30 不能把它改回去。
+#[test]
+fn settings_sync_android_prefers_the_shared_nine_key_flick_threshold_over_its_platform_key() {
+    let schema = full_schema();
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([
+            (
+                MOBILE_NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(20),
+            ),
+            (
+                NINE_KEY_FLICK_THRESHOLD.into(),
+                AccountPreferenceValue::Integer(30),
+            ),
+        ]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 20);
+    // 只有旧版本上传过、文档里还没有跨平台键时，退回本平台键。
+    let applied = apply(
+        &Preferences::default(),
+        BTreeMap::from([(
+            NINE_KEY_FLICK_THRESHOLD.into(),
+            AccountPreferenceValue::Integer(30),
+        )]),
+        &schema,
+    );
+    assert_eq!(applied.preferences.touch_nine_key_flick_threshold, 30);
+}
+
+#[test]
+fn settings_sync_plugin_order_round_trips_on_all_desktop_hosts() {
+    let mut remote = Preferences::default();
+    remote.plugins.plugin_order = vec![
+        "phrase_table/synthetic-phrases".into(),
+        "command_table/synthetic-commands".into(),
+    ];
+    let expected = AccountPreferenceValue::String(
+        serde_json::to_string(&remote.plugins.plugin_order).unwrap(),
+    );
+
+    for host in [DesktopHost::Windows, DesktopHost::Linux, DesktopHost::MacOS] {
+        let exported = export_desktop_settings_for(host, &remote);
+        assert_eq!(exported.get(PLUGIN_ORDER), Some(&expected));
+        let applied = apply_desktop_settings_for(
+            host,
+            &Preferences::default(),
+            &document(exported),
+            &full_schema(),
+        )
+        .unwrap();
+        assert!(
+            applied.skipped.is_empty(),
+            "{host:?}: {:?}",
+            applied.skipped
+        );
+        assert_eq!(
+            applied.preferences.plugins.plugin_order,
+            remote.plugins.plugin_order
+        );
+    }
+}
+
+#[test]
+fn settings_sync_plugin_order_skips_invalid_json_without_affecting_other_keys() {
+    for value in [
+        "not-json",
+        "[1]",
+        "[\"command_table/synthetic\",\"command_table/synthetic\"]",
+        "[\"../escape\"]",
+        "[\"command_table/\"]",
+    ] {
+        let settings = BTreeMap::from([
+            (
+                PLUGIN_ORDER.to_owned(),
+                AccountPreferenceValue::String(value.into()),
+            ),
+            (
+                "input.learning".to_owned(),
+                AccountPreferenceValue::Boolean(true),
+            ),
+        ]);
+        let applied = apply_desktop_settings_for(
+            DesktopHost::MacOS,
+            &Preferences::default(),
+            &document(settings),
+            &full_schema(),
+        )
+        .unwrap();
+        assert_eq!(applied.skipped, [PLUGIN_ORDER]);
+        assert!(applied.preferences.learning);
+        assert!(applied.preferences.plugins.plugin_order.is_empty());
+    }
 }
 
 #[test]
@@ -1368,6 +1526,52 @@ fn settings_sync_punctuation_styles_round_trip() {
     .unwrap();
     assert_eq!(applied.preferences.quote_style, QuoteStyle::Curly);
     assert!(applied.skipped.is_empty());
+}
+/// 旧客户端上传的云快照没有 `input.traditional_variant`（只带 `input.character_set`），服务端字段表也可能还没有这个键：Android 应用这样的快照时保留本机已选的臺灣变体，不清回 `s2t`。
+#[test]
+fn android_settings_apply_keeps_the_local_traditional_variant_for_old_snapshots() {
+    for variant in [
+        TraditionalVariant::Taiwan,
+        TraditionalVariant::TaiwanPhrases,
+    ] {
+        let local = Preferences {
+            traditional_chinese_output: true,
+            traditional_chinese_variant: variant,
+            ..Preferences::default()
+        };
+        let mut old = export_android_settings(&local, Some(&feedback())).unwrap();
+        assert!(old.remove("input.traditional_variant").is_some());
+        old.insert(
+            "input.character_set".into(),
+            AccountPreferenceValue::String("simplified".into()),
+        );
+        let applied = apply(&local, old.clone(), &full_schema());
+        assert!(!applied.preferences.traditional_chinese_output);
+        assert_eq!(applied.preferences.traditional_chinese_variant, variant);
+        assert!(applied.skipped.is_empty());
+
+        let mut schema = full_schema();
+        schema.fields.remove("input.traditional_variant");
+        let applied = apply(&local, old, &schema);
+        assert_eq!(applied.preferences.traditional_chinese_variant, variant);
+    }
+    // 新快照里的变体照常应用；认不出的值（`s2hk`）只跳过这个键，由上面的未知取值用例覆盖。
+    let local = Preferences {
+        traditional_chinese_variant: TraditionalVariant::Taiwan,
+        ..Preferences::default()
+    };
+    let applied = apply(
+        &local,
+        BTreeMap::from([(
+            "input.traditional_variant".to_owned(),
+            AccountPreferenceValue::String("s2twp".into()),
+        )]),
+        &full_schema(),
+    );
+    assert_eq!(
+        applied.preferences.traditional_chinese_variant,
+        TraditionalVariant::TaiwanPhrases
+    );
 }
 #[test]
 fn android_keyboard_skin_mode_slots_sync_without_overwriting_global_theme() {
@@ -1900,7 +2104,7 @@ fn nine_key_swipe_digits_syncs_by_its_wire_names() {
     );
 }
 
-/// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 只有语法模型，Linux 是除思考强度和快捷键之外的全部。
+/// 每个宿主只导出本机设置页能改、运行时也读的新增共享偏好：Android 一个都不导出，Windows 还导出插件列表顺序，Linux 是除思考强度和快捷键之外的全部。
 #[test]
 fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
     let preferences = new_shared_preferences();
@@ -1909,12 +2113,13 @@ fn settings_sync_new_shared_keys_follow_what_each_host_can_change() {
     let windows = export_desktop_settings_for(DesktopHost::Windows, &preferences);
     assert_eq!(
         exported_new_keys(&windows),
-        ["sentence_association.grammar_model"]
+        ["plugins.plugin_order", "sentence_association.grammar_model"]
     );
     let linux = export_desktop_settings_for(DesktopHost::Linux, &preferences);
     assert_eq!(
         exported_new_keys(&linux),
         [
+            "plugins.plugin_order",
             "mixed_input.quick_phrase",
             "mixed_input.quick_phrase_frequency",
             "sentence_association.grammar_model",
@@ -2011,9 +2216,11 @@ fn settings_sync_macos_round_trips_the_shared_page_keys_and_leaves_the_rest() {
 #[test]
 fn settings_sync_macos_round_trips_candidate_window_appearance_and_theme() {
     let local = Preferences::default();
-    let mut remote = Preferences::default();
-    remote.global_theme = GlobalTheme::Night;
-    remote.candidate_theme = SettingsTheme::Dark;
+    let mut remote = Preferences {
+        global_theme: GlobalTheme::Night,
+        candidate_theme: SettingsTheme::Dark,
+        ..Preferences::default()
+    };
     remote.custom_theme.base = GlobalTheme::Paper;
     remote.custom_theme.candidate_skin = Some("synthetic-skin".into());
     remote.custom_theme.candidate_skin_dark = Some("synthetic-dark".into());

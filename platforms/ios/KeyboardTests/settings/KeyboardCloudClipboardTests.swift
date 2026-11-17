@@ -105,6 +105,7 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
     let data = try! JSONSerialization.data(withJSONObject: ["id": id, "text": text, "updated_at": "2026-09-30T08:00:00Z"])
     return try! JSONDecoder().decode(BackendAccountClient.ClipboardItem.self, from: data)
   }
+  func replaceRows(_ rows: [BackendAccountClient.ClipboardItem]) { lock.withLock { stored = rows } }
   func fail(with error: Error?) { lock.withLock { failure = error } }
   func setEnabled(_ enabled: Bool) { lock.withLock { enabledValue = enabled } }
   func setPending(_ code: String?) { lock.withLock { pendingCode = code } }
@@ -162,6 +163,142 @@ private final class FakeCloudClipboard: KeyboardCloudClipboardService, @unchecke
 
 @MainActor
 final class KeyboardCloudClipboardTests: XCTestCase {
+  private func remote(_ hour: Int) -> BackendAccountClient.ClipboardItem {
+    let data = try! JSONSerialization.data(withJSONObject: [
+      "id": String(repeating: "a", count: 64), "text": "合成云端文本", "updated_at": "2026-10-01T\(hour):00:00Z"
+    ])
+    return try! JSONDecoder().decode(BackendAccountClient.ClipboardItem.self, from: data)
+  }
+
+  func testExistingLocalCopyOnlyBaselinesTheFirstRemotePage() {
+    var policy = KeyboardCloudClipboardReceivePolicy()
+    policy.begin(changeCount: 7, hasItems: true)
+    XCTAssertFalse(policy.receive(remote(99), changeCount: 7))
+    XCTAssertFalse(policy.receive(remote(10), changeCount: 7))
+    XCTAssertFalse(policy.receive(remote(10), changeCount: 7))
+    XCTAssertTrue(policy.receive(remote(11), changeCount: 7))
+    policy.markRemote(remote(11))
+    policy.received(changeCount: 8)
+    XCTAssertFalse(policy.receive(remote(10), changeCount: 8))
+    XCTAssertTrue(policy.receive(remote(12), changeCount: 8))
+  }
+
+  func testLocalCopyDuringRequestBaselinesThatResponseThenAcceptsLaterCopies() {
+    var policy = KeyboardCloudClipboardReceivePolicy()
+    policy.begin(changeCount: 7, hasItems: false)
+    XCTAssertTrue(policy.receive(remote(10), changeCount: 7))
+    // 模拟网络请求期间用户复制；即使云端时间更晚，本轮仍保留本机内容。
+    XCTAssertFalse(policy.receive(remote(11), changeCount: 8))
+    XCTAssertFalse(policy.receive(remote(11), changeCount: 8))
+    XCTAssertTrue(policy.receive(remote(12), changeCount: 8))
+    policy.localChanged(changeCount: 9)
+    XCTAssertFalse(policy.receive(remote(13), changeCount: 9))
+    XCTAssertTrue(policy.receive(remote(14), changeCount: 9))
+  }
+
+  func testEmptyRemotePageEstablishesBaselineAndBindingChangeResetsWatermark() {
+    var policy = KeyboardCloudClipboardReceivePolicy()
+    policy.begin(changeCount: 7, hasItems: true)
+    XCTAssertFalse(policy.receive(nil, changeCount: 7))
+    XCTAssertTrue(policy.receive(remote(10), changeCount: 7))
+    policy.markRemote(remote(12))
+    policy.begin(changeCount: 7, hasItems: true)
+    XCTAssertFalse(policy.receive(remote(10), changeCount: 7))
+    XCTAssertTrue(policy.receive(remote(11), changeCount: 7))
+  }
+
+  func testNonEmptySystemClipboardReceivesANewerRemoteCopy() async throws {
+    let service = FakeCloudClipboard()
+    service.replaceRows([remote(10)])
+    let pasteboard = UIPasteboard.withUniqueName()
+    defer { UIPasteboard.remove(withName: pasteboard.name) }
+    pasteboard.string = "合成本机文本"
+    let receiver = KeyboardCloudClipboardAutoReceive(service: service, pasteboard: pasteboard)
+    receiver.start { true }
+    defer { receiver.stop() }
+    for _ in 0..<200 where service.pageCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    XCTAssertEqual(pasteboard.string, "合成本机文本")
+    service.replaceRows([remote(11)])
+    for _ in 0..<800 where pasteboard.string != "合成云端文本" { try await Task.sleep(nanoseconds: 5_000_000) }
+    XCTAssertEqual(pasteboard.string, "合成云端文本")
+  }
+
+  func testVisibleKeyboardUploadsANewLocalCopyWithoutEchoingReceivedText() async throws {
+    let service = FakeCloudClipboard(items: ["合成已有远端文本"])
+    let pasteboard = UIPasteboard.withUniqueName()
+    defer { UIPasteboard.remove(withName: pasteboard.name) }
+    pasteboard.string = "合成已有本机文本"
+    let receiver = KeyboardCloudClipboardAutoReceive(service: service, pasteboard: pasteboard)
+    receiver.start { true }
+    defer { receiver.stop() }
+    for _ in 0..<200 where service.pageCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    XCTAssertTrue(service.uploads.isEmpty)
+    pasteboard.string = "合成新复制"
+    for _ in 0..<800 where service.uploads.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
+    XCTAssertEqual(service.uploads, ["合成新复制"])
+    XCTAssertEqual(pasteboard.string, "合成新复制")
+    service.replaceRows([remote(13)])
+    for _ in 0..<800 where pasteboard.string != "合成云端文本" { try await Task.sleep(nanoseconds: 5_000_000) }
+    XCTAssertEqual(pasteboard.string, "合成云端文本")
+    let receivedPages = service.pageCount
+    for _ in 0..<800 where service.pageCount == receivedPages { try await Task.sleep(nanoseconds: 5_000_000) }
+    XCTAssertEqual(service.uploads, ["合成新复制"])
+  }
+
+  func testChangingAccountDoesNotUploadTheExistingLocalCopy() async throws {
+    let service = FakeCloudClipboard()
+    let pasteboard = UIPasteboard.withUniqueName()
+    defer { UIPasteboard.remove(withName: pasteboard.name) }
+    pasteboard.string = "合成初始复制"
+    let receiver = KeyboardCloudClipboardAutoReceive(service: service, pasteboard: pasteboard)
+    receiver.start { true }
+    defer { receiver.stop() }
+    for _ in 0..<200 where service.pageCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    service.switchAccount(items: [])
+    pasteboard.string = "合成换号前复制"
+    for _ in 0..<800 where service.pageCount < 2 { try await Task.sleep(nanoseconds: 5_000_000) }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    XCTAssertGreaterThanOrEqual(service.pageCount, 2)
+    XCTAssertTrue(service.uploads.isEmpty)
+  }
+
+  func testStoppedReceiverCannotWriteALateResponseAfterRestart() async throws {
+    let service = FakeCloudClipboard(items: ["合成旧会话文本"])
+    service.holdNextPage()
+    let pasteboard = UIPasteboard.withUniqueName()
+    defer { UIPasteboard.remove(withName: pasteboard.name) }
+    let receiver = KeyboardCloudClipboardAutoReceive(service: service, pasteboard: pasteboard)
+    receiver.start { true }
+    for _ in 0..<200 where !service.isHolding { try await Task.sleep(nanoseconds: 5_000_000) }
+    XCTAssertTrue(service.isHolding)
+    receiver.stop()
+    service.replace([])
+    receiver.start { true }
+    defer { receiver.stop() }
+    for _ in 0..<200 where service.pageCount < 2 { try await Task.sleep(nanoseconds: 5_000_000) }
+    XCTAssertEqual(service.pageCount, 2)
+    service.release()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    XCTAssertEqual(pasteboard.numberOfItems, 0)
+  }
+
+  func testNonTextClipboardIsNotAnEmptyDestination() async throws {
+    let service = FakeCloudClipboard(items: ["合成远端文本"])
+    let pasteboard = UIPasteboard.withUniqueName()
+    defer { UIPasteboard.remove(withName: pasteboard.name) }
+    let original = Data([1, 2, 3, 4])
+    pasteboard.setItems([["public.png": original]])
+    let receiver = KeyboardCloudClipboardAutoReceive(service: service, pasteboard: pasteboard)
+    receiver.start { true }
+    defer { receiver.stop() }
+    for _ in 0..<200 where service.pageCount == 0 { try await Task.sleep(nanoseconds: 5_000_000) }
+    try await Task.sleep(nanoseconds: 50_000_000)
+    XCTAssertEqual(pasteboard.data(forPasteboardType: "public.png"), original)
+  }
+
   func testNativeServiceBindsEveryDriverEntryToItsLogin() async throws {
     for operation in ["page", "add", "upload"] {
       let tokens = BackendAccountClient.Tokens(access_token: ClipboardAccountProtocol.oldToken,

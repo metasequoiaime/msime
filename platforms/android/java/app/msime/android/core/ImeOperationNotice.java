@@ -10,15 +10,18 @@ import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.TextView;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
-/** 剪贴板添加常用语的临时结果：独立显示，不占键盘布局、不取编辑器焦点。 */
+/** 输入法操作的临时结果：独立显示，不占键盘布局、不取编辑器焦点。 */
 final class ImeOperationNotice {
     private final MSIMEInputService s;
     private long generation;
     private TextView noticeView;
     private Toast legacyToast;
     private Runnable dismissTask;
+    private View acknowledgementOverlay;
 
     ImeOperationNotice(MSIMEInputService service) { s = service; }
 
@@ -38,11 +41,71 @@ final class ImeOperationNotice {
             catch (IllegalArgumentException detached) { /* 系统已撤销输入法令牌。 */ }
             noticeView = null;
         }
+        if (acknowledgementOverlay != null) {
+            try { s.getSystemService(WindowManager.class).removeViewImmediate(acknowledgementOverlay); }
+            catch (IllegalArgumentException detached) { /* 系统已撤销输入法令牌。 */ }
+            acknowledgementOverlay = null;
+        }
+    }
+
+    /** 在不改变输入法窗口测量边界的独立层中显示需要确认的操作提示。 */
+    void showAcknowledgement(String message) {
+        cancel();
+        View root = s.keyboardRoot;
+        if (message == null || message.isEmpty() || root == null || !root.isAttachedToWindow()
+                || !s.isInputViewShown()) return;
+        LinearLayout card = LayoutPolicy.column(s);
+        card.setPadding(s.pixels(20), s.pixels(16), s.pixels(20), s.pixels(8));
+        card.setBackground(DrawablePolicy.rounded(Color.BLACK, s.pixels(12)));
+        TextView label = new TextView(s);
+        label.setText(message);
+        label.setTextSize(16);
+        label.setTextColor(Color.WHITE);
+        label.setGravity(Gravity.CENTER);
+        label.setMaxLines(4);
+        label.setContentDescription(message);
+        label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        card.addView(label, LayoutPolicy.matchWidthWrapParams());
+        Button done = new Button(s);
+        done.setText("知道了");
+        done.setTextColor(Color.WHITE);
+        done.setContentDescription("知道了");
+        done.setOnClickListener(ignored -> cancel());
+        LinearLayout.LayoutParams doneParams = LayoutPolicy.wrapParams();
+        doneParams.gravity = Gravity.END;
+        card.addView(done, doneParams);
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            Math.min(s.pixels(360), Math.max(s.pixels(240), root.getWidth() - s.pixels(32))),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT);
+        // 旧系统需允许附属窗口越过键区布局，否则屏幕中央的卡片会被限制在键盘内。
+        // 不扩父窗口的触摸区域：Android 9 的无障碍窗口边界由该区域计算。
+        if (Build.VERSION.SDK_INT < 30)
+            params.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        params.token = root.getWindowToken();
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
+        params.gravity = Gravity.CENTER;
+        params.setTitle("MSIME clipboard insertion notice");
+        params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
+        try {
+            s.getSystemService(WindowManager.class).addView(card, params);
+        } catch (WindowManager.BadTokenException | IllegalStateException unavailable) {
+            return;
+        }
+        acknowledgementOverlay = card;
+    }
+
+    void show(long request, String message) {
+        show(request, message, "常用语操作提示：", "MSIME common phrase notice", 3000);
     }
 
     // Toast.setView 只用于 Android 11 之前仍支持自定义顶部提示的分支。
     @SuppressWarnings("deprecation")
-    void show(long request, String message) {
+    void show(long request, String message, String descriptionPrefix, String windowTitle, long timeoutMillis) {
         View root = s.keyboardRoot;
         if (request != generation || message == null || message.isEmpty()
                 || root == null || !root.isAttachedToWindow() || !s.isInputViewShown()) return;
@@ -55,7 +118,7 @@ final class ImeOperationNotice {
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
         label.setPadding(s.pixels(16), s.pixels(10), s.pixels(16), s.pixels(10));
         label.setBackground(DrawablePolicy.rounded(Color.BLACK, s.pixels(12)));
-        label.setContentDescription("常用语操作提示：" + message);
+        label.setContentDescription(descriptionPrefix + message);
         label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         // 现代子窗口允许点按关闭以保留无障碍可见性；旧版 Toast 由系统处理触摸。
         label.setOnClickListener(ignored -> cancel());
@@ -87,7 +150,7 @@ final class ImeOperationNotice {
             params.token = root.getWindowToken();
             params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
             params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            params.setTitle("MSIME common phrase notice");
+            params.setTitle(windowTitle);
             // 提示是输入法窗口之外单开的子窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
             params.flags = ScreenCaptureProtectionPolicy.windowFlags(params.flags, s.screenCaptureProtected);
             params.y = top + s.pixels(8);
@@ -98,7 +161,7 @@ final class ImeOperationNotice {
             }
             noticeView = label;
         }
-        int duration = 3000;
+        int duration = Math.toIntExact(timeoutMillis);
         AccessibilityManager accessibility = s.getSystemService(AccessibilityManager.class);
         if (Build.VERSION.SDK_INT >= 29 && accessibility != null)
             duration = accessibility.getRecommendedTimeoutMillis(duration, AccessibilityManager.FLAG_CONTENT_TEXT);

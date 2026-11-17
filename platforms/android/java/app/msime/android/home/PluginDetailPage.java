@@ -108,7 +108,7 @@ public final class PluginDetailPage extends ReloadingDetailPage {
 
         if ((pack.kind() + "/" + pack.id()).equals(justSaved)) {
             boolean phrase = PluginCatalogPolicy.PHRASE_TABLE.equals(pack.kind());
-            List<String> tables = phrase ? selection.phraseTables() : selection.commandTables();
+            List<String> tables = selection.tables(pack.kind());
             GroupCard.add(target, null).note(PluginEditorPolicy.authoredSaveNote(pack.kind(), tables.contains(pack.id()),
                 phrase ? selection.quickPhraseMode() : selection.commandMode()));
         }
@@ -232,7 +232,7 @@ public final class PluginDetailPage extends ReloadingDetailPage {
             }
             case PluginCatalogPolicy.COMMAND_TABLE, PluginCatalogPolicy.PHRASE_TABLE -> {
                 boolean phrase = PluginCatalogPolicy.PHRASE_TABLE.equals(pack.kind());
-                List<String> tables = phrase ? selection.phraseTables() : selection.commandTables();
+                List<String> tables = selection.tables(pack.kind());
                 GroupCard.Row toggle = use.toggle("启用", PluginCatalogPolicy.tableSwitchDescription(pack.kind(), tables, pack.id()),
                     tables.contains(pack.id()), checked -> setTable(pack.kind(), pack.id(), checked));
                 toggle.setEnabled(PluginCatalogPolicy.tableSwitchEnabled(tables, pack.id()));
@@ -288,17 +288,7 @@ public final class PluginDetailPage extends ReloadingDetailPage {
     }
 
     private void setTable(String kind, String pack, boolean enabled) {
-        savePreferences(preferences -> {
-            JSONObject plugins = preferences.optJSONObject("plugins");
-            JSONArray stored = plugins == null ? null
-                : plugins.optJSONArray(PluginCatalogPolicy.PHRASE_TABLE.equals(kind) ? "phrase_tables" : "command_tables");
-            List<String> tables = new java.util.ArrayList<>();
-            for (int index = 0; stored != null && index < stored.length(); index++) {
-                String id = JsonPolicy.strictString(stored.opt(index));
-                if (id != null && !id.isEmpty()) tables.add(id);
-            }
-            PluginStore.putTables(preferences, kind, PluginCatalogPolicy.withTable(tables, pack, enabled));
-        });
+        savePreferences(preferences -> PluginStore.setTable(preferences, kind, pack, enabled));
     }
 
     /** 就地打开快捷模式：`local_modes.quick_phrase`（K 模式）或 `local_modes.command`（/ 指令）。 */

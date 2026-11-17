@@ -29,6 +29,11 @@ inline nlohmann::json candidate_appearance(const std::filesystem::path &state,
                                                            : "vertical";
   appearance["candidate_preedit_style"] =
       text("candidate_preedit_style", "pinyin") == "empty" ? "empty" : "pinyin";
+  const auto preedit_area = preferences.find("show_candidate_preedit_area");
+  appearance["candidate_preedit_area"] =
+      preedit_area != preferences.end() && preedit_area->is_boolean()
+          ? preedit_area->get<bool>()
+          : true;
   // Mirrors PreviewConfig's own bounds, so anything kept here will load.
   auto printable = [](const std::string &value, size_t limit) {
     return !value.empty() && value.size() <= limit &&

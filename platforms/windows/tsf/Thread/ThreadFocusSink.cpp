@@ -3,6 +3,7 @@
 #include "MetasequoiaIME.h"
 #include "CandidateListUIPresenter.h"
 #include "KeyPressStatisticsQueue.h"
+#include "CandidateFocusPolicy.h"
 #include <debugapi.h>
 #include <cwchar>
 #include "fmt/xchar.h"
@@ -83,7 +84,10 @@ STDAPI CMetasequoiaIME::OnSetThreadFocus()
 
         if ((nullptr != pTfContext) && SUCCEEDED(pTfContext->GetDocumentMgr(&pCandidateListDocumentMgr)))
         {
-            if (pCandidateListDocumentMgr == _pDocMgrLastFocused)
+            const bool candidateBelongsToLastFocus = msime::windows::tsf::candidate_belongs_to_focus(
+                pCandidateListDocumentMgr != nullptr, _pDocMgrLastFocused != nullptr,
+                _IsSameComObject(pCandidateListDocumentMgr, _pDocMgrLastFocused));
+            if (candidateBelongsToLastFocus)
             {
                 _pCandidateListUIPresenter->OnSetThreadFocus();
             }

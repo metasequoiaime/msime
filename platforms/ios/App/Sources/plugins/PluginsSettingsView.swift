@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// 设置里的「插件」页，照共享设置页插件页的结构画成原生 SwiftUI：标题下固定「我的插件 / 社区插件」两段。
 ///
-/// 「我的插件」按类型分组列出这台设备用得上的包（`PluginKind.phoneOrder`），点进详情启用、选用、编辑或删除；下面是「制作插件」（新建短语表、指令表、符号集或单词本）和「导入插件」（系统文件选择器选 `.zip`，手机上不导入文件夹）。特效包、音乐包和旋律音效包装着也不列，只用一行说明有几个。包装在 App Group 的 `<共享状态目录>/plugins`，键盘下次获得焦点时读到。
+/// 「我的插件」按类型分组列出这台设备用得上的包（`PluginKind.phoneOrder`），指令表和短语表在行上直接启用，点进详情启用、选用、编辑或删除；右上角的「排序」进入排序状态，在一组里拖动调整先后（`plugins.plugin_order`，只影响列表）；下面是「制作插件」（新建短语表、指令表、符号集或单词本）和「导入插件」（系统文件选择器选 `.zip`，手机上不导入文件夹）。特效包、音乐包和旋律音效包装着也不列，只用一行说明有几个。包装在 App Group 的 `<共享状态目录>/plugins`，键盘下次获得焦点时读到。
 struct PluginsSettingsView: View {
   enum Segment: Hashable, CaseIterable {
     case mine, community
@@ -63,6 +63,13 @@ struct PluginListView: View {
   @State private var savedKey: String?
   @State private var importing = false
   @State private var message: String?
+  /// 「排序」状态：行尾换成拖动手柄，行不再推入详情，也不显示开关。
+  @State private var editMode = EditMode.inactive
+
+  /// 有哪一组装着两个以上的包时才有东西可排。
+  private var reorderable: Bool {
+    library.state == .loaded && library.catalog.groups(missing: []).contains { $0.packs.count > 1 }
+  }
 
   var body: some View {
     Form {
@@ -73,10 +80,14 @@ struct PluginListView: View {
       case .failed:
         Section { Text("插件列表没有读取成功，重新打开这个页面会再试一次。").foregroundStyle(.secondary) }.designRow()
       case .loaded:
-        let groups = library.catalog.groups(missing: missing)
+        let groups = library.catalog.groups(missing: missing, order: library.preferences.pluginOrder)
         ForEach(groups) { group in
           Section {
+            // 拖动用系统 List 的拖拽，只在排序状态下打开；一组的 ForEach 各管各的，包不会被拖到别的类型里。
             ForEach(group.packs) { pack in packRow(pack) }
+              .onMove(perform: editMode.isEditing ? { source, destination in
+                if !library.movePacks(in: group, from: source, to: destination) { message = SettingsSaveFailure.message }
+              } : nil)
             ForEach(group.missing) { entry in missingRow(entry) }
             if group.kind == .commandTable && group.packs.isEmpty && group.missing.isEmpty {
               Text("还没有导入指令表。").foregroundStyle(.secondary)
@@ -131,6 +142,17 @@ struct PluginListView: View {
       }
     }
     .designPage()
+    .environment(\.editMode, $editMode)
+    .toolbar {
+      if reorderable || editMode.isEditing {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button(editMode.isEditing ? "完成" : "排序") {
+            withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+          }
+          .accessibilityIdentifier("pluginsReorder")
+        }
+      }
+    }
     .navigationDestination(item: $route) { route in
       switch route {
       case .pack(let key): PluginDetailView(library: library, key: key)
@@ -160,10 +182,43 @@ struct PluginListView: View {
     // 内置插件的版本和作者都一样，所以这一行只留能把它们区分开的内容；详情页仍然显示全部信息。
     let description = [pack.builtin ? nil : pack.version, !pack.builtin ? pack.author.map { "作者 \($0)" } : nil]
       .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-    return Button { route = .pack(pack.key) } label: {
-      PluginRowLabel(title: pack.label, detail: description, marker: library.marker(pack))
+    let table = pack.kind == .commandTable || pack.kind == .phraseTable
+    return Group {
+      if editMode.isEditing {
+        PluginRowLabel(title: pack.label, detail: description, marker: library.marker(pack), showsChevron: false)
+          .accessibilityElement(children: .combine)
+      } else if table {
+        // 行上有两个控件：名字那一块和箭头推入详情，开关只管启用。按钮用 plain 样式，各自只响应自己那一块，点开关不会连带推入详情。
+        HStack(spacing: 8) {
+          Button { route = .pack(pack.key) } label: {
+            PluginRowLabel(title: pack.label, detail: description, marker: library.marker(pack), showsChevron: false)
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("pluginPack.\(pack.key)")
+          tableToggle(pack)
+          Button { route = .pack(pack.key) } label: { DesignChevron(fontSize: 13).contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .accessibilityHidden(true)
+        }
+      } else {
+        Button { route = .pack(pack.key) } label: {
+          PluginRowLabel(title: pack.label, detail: description, marker: library.marker(pack))
+        }
+        .accessibilityIdentifier("pluginPack.\(pack.key)")
+      }
     }
-    .accessibilityIdentifier("pluginPack.\(pack.key)")
+  }
+
+  /// 指令表、短语表行上的「启用」开关：与详情里的开关同一条规则、同一条写入路径，启用满了而它没启用时不能点。
+  private func tableToggle(_ pack: PluginPackage) -> some View {
+    let state = PluginCatalogPolicy.tableSwitch(pack, preferences: library.preferences)
+    return Toggle("启用\(pack.name)", isOn: Binding(get: { state.enabled }, set: { on in
+      if !library.setTable(pack, enabled: on) { message = SettingsSaveFailure.message }
+    }))
+    .labelsHidden()
+    .disabled(state.full)
+    .accessibilityLabel("启用\(pack.name)")
+    .accessibilityIdentifier("pluginRowEnabled.\(pack.key)")
   }
 
   private func missingRow(_ entry: PluginMissingSelection) -> some View {
@@ -174,11 +229,12 @@ struct PluginListView: View {
   }
 }
 
-/// 列表里的一行：名字、版本和作者，行尾是使用状态和箭头。
+/// 列表里的一行：名字、版本和作者，行尾是使用状态和箭头；行上另有开关或拖动手柄时不画箭头。
 struct PluginRowLabel: View {
   let title: String
   let detail: String
   let marker: String?
+  var showsChevron = true
 
   var body: some View {
     HStack(spacing: 8) {
@@ -190,7 +246,7 @@ struct PluginRowLabel: View {
       if let marker {
         Text(marker).font(.footnote).foregroundStyle(MetasequoiaTheme.accent).multilineTextAlignment(.trailing)
       }
-      DesignChevron(fontSize: 13)
+      if showsChevron { DesignChevron(fontSize: 13) }
     }
     .contentShape(Rectangle())
   }

@@ -173,6 +173,8 @@ struct Preferences {
   bool combo_counter = false;
   bool combo_tier_sound = false;
   std::vector<std::wstring> phrase_tables;
+  // 设置页插件列表的展示顺序，条目为 kind/id；不影响插件运行顺序。
+  std::vector<std::wstring> plugin_order;
   std::wstring helpcode_pack_quanpin;
   std::wstring helpcode_pack_shuangpin;
 
@@ -186,7 +188,7 @@ struct Preferences {
            effect_intensity == other.effect_intensity && effect_pack == other.effect_pack &&
            combo_counter == other.combo_counter && combo_tier_sound == other.combo_tier_sound &&
            phrase_tables == other.phrase_tables && helpcode_pack_quanpin == other.helpcode_pack_quanpin &&
-           helpcode_pack_shuangpin == other.helpcode_pack_shuangpin;
+           helpcode_pack_shuangpin == other.helpcode_pack_shuangpin && plugin_order == other.plugin_order;
   }
   bool operator!=(Preferences const &other) const { return !(*this == other); }
 };
@@ -227,9 +229,22 @@ inline std::vector<std::wstring> without(std::vector<std::wstring> list, std::ws
   return list;
 }
 
+inline std::wstring plugin_key(std::wstring_view kind, std::wstring_view id) {
+  return std::wstring(kind) + L"/" + std::wstring(id);
+}
+
+inline std::vector<std::wstring> without_plugin_key(std::vector<std::wstring> keys,
+                                                     std::wstring_view kind,
+                                                     std::wstring_view id) {
+  const auto key = plugin_key(kind, id);
+  keys.erase(std::remove(keys.begin(), keys.end(), key), keys.end());
+  return keys;
+}
+
 // 包从磁盘删除之后的设置：选中它的选择回到默认值（特效包回到无），启用它的指令表或短语表被移除（`withoutRemovedPack`）。
 inline Preferences without_removed_pack(Preferences preferences, std::wstring_view kind,
                                         std::wstring_view id) {
+  preferences.plugin_order = without_plugin_key(std::move(preferences.plugin_order), kind, id);
   if (kind == L"phrase_table") {
     preferences.phrase_tables = without(preferences.phrase_tables, id);
     return preferences;
@@ -1459,6 +1474,23 @@ struct LibraryGroup {
   std::vector<Package const *> packs;
   std::vector<MissingSelection const *> gone;
 };
+
+inline std::vector<std::wstring> normalized_plugin_order(std::vector<Package> const &packages,
+                                                          std::vector<std::wstring> const &stored) {
+  std::vector<std::wstring> result;
+  std::set<std::wstring> available;
+  for (auto const &pack : packages)
+    available.insert(plugin_key(pack.kind, pack.id));
+  for (auto const &key : stored)
+    if (available.erase(key))
+      result.push_back(key);
+  for (auto const &pack : packages) {
+    const auto key = plugin_key(pack.kind, pack.id);
+    if (available.erase(key))
+      result.push_back(key);
+  }
+  return result;
+}
 
 // 按筛选和查询列出的分节（`groups`）：选中的类型或全部类型里，匹配查询的包和缺失的选择；空的分节略去，只有指令表在没在搜索时仍然列出（它带着 / 指令的说明）。
 inline std::vector<LibraryGroup> library_groups(std::vector<Package> const &packages,

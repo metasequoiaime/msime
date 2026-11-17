@@ -86,6 +86,14 @@ public final class CloudClipboardRelayPolicy {
         return urlProblem(url, true);
     }
 
+    /** WebDAV 地址输入过程中的问题；协议分隔符或主机尚未输入完时不弹出错误，避免逐字符输入被中断。 */
+    public static String webdavUrlProblemWhileTyping(String url) {
+        if (url == null || url.isEmpty()) return null;
+        int separator = url.indexOf("://");
+        if (separator < 0 || separator + 3 >= url.length()) return null;
+        return webdavUrlProblem(url);
+    }
+
     private static String urlProblem(String url, boolean webdav) {
         String name = webdav ? "服务器地址" : "中继地址";
         String full = webdav ? FULL_WEBDAV_URL : FULL_URL;

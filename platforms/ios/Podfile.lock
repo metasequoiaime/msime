@@ -85,13 +85,13 @@ SPEC REPOS:
     - SSZipArchive
 
 SPEC CHECKSUMS:
-  AppAuth: 5dec4b6a833eb0342b26bacbc5f3af694f71274a
+  AppAuth: b19b479e4e20f31869ce3fc2302312dc3fce98b8
   AppCheckCore: be8fce5469f68d7f6a29aa94b25f097409ff7fdc
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
-  GoogleSignIn: 7627569b027be4beb872416c38859a2e5d5e1075
+  GoogleSignIn: 8af05db9a053ccc0cda45cb7a8bdae9d4a233305
   GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
-  GTMAppAuth: 66e839a30bb63acb109b8986a0c3f642d56d48fd
+  GTMAppAuth: d5a53b9611d30bb40d92293f72f12c3ac3a08321
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   MLKitCommon: 47d47b50a031d00db62f1b0efe5a1d8b09a3b2e6
   MLKitDigitalInkRecognition: d352ba532b816e7a930b8fa2e180288352c4736c

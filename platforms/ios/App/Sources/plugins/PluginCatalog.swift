@@ -177,10 +177,13 @@ struct PluginCatalog: Equatable, Sendable {
     self.issues = issues
   }
 
-  /// 「我的插件」的分组：按 `PluginKind.phoneOrder`，只留有包或有找不到的选择的类型。指令表一组总在，它带着 / 指令的说明。
-  func groups(missing: [PluginMissingSelection]) -> [PluginGroup] {
-    PluginKind.phoneOrder.compactMap { kind in
+  /// 「我的插件」的分组：按 `PluginKind.phoneOrder`，只留有包或有找不到的选择的类型。指令表一组总在，它带着 / 指令的说明。组内的包按 `order`（`plugins.plugin_order`）排，见 `PluginOrderPolicy.orderedKeys`。
+  func groups(missing: [PluginMissingSelection], order: [String] = []) -> [PluginGroup] {
+    let keys = PluginOrderPolicy.orderedKeys(packages, order: order)
+    let rank = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
+    return PluginKind.phoneOrder.compactMap { kind in
       let packs = packages.filter { $0.kind == kind && $0.usedOnPhone }
+        .sorted { (rank[$0.key] ?? keys.count) < (rank[$1.key] ?? keys.count) }
       let gone = missing.filter { $0.kind == kind }
       guard !packs.isEmpty || !gone.isEmpty || kind == .commandTable else { return nil }
       return PluginGroup(kind: kind, packs: packs, missing: gone)
@@ -211,6 +214,8 @@ struct PluginPreferences: Equatable, Sendable {
   var keySoundPack = KeySoundPackPolicy.defaultPack
   var commandTables: [String] = []
   var phraseTables: [String] = []
+  /// `plugins.plugin_order`：列表的展示顺序，条目是 `kind/id`，不影响任何插件的运行顺序。
+  var pluginOrder: [String] = []
   var helpcodeQuanpin = ""
   var helpcodeShuangpin = ""
   /// `local_modes.quick_phrase`，缺省为开。
@@ -225,6 +230,7 @@ struct PluginPreferences: Equatable, Sendable {
     keySoundPack = KeySoundPackPolicy.selectedPack(in: document)
     commandTables = plugins["command_tables"] as? [String] ?? []
     phraseTables = plugins["phrase_tables"] as? [String] ?? []
+    pluginOrder = plugins["plugin_order"] as? [String] ?? []
     helpcodeQuanpin = plugins["helpcode_pack_quanpin"] as? String ?? ""
     helpcodeShuangpin = plugins["helpcode_pack_shuangpin"] as? String ?? ""
     let modes = document?["local_modes"] as? [String: Any] ?? [:]
@@ -250,6 +256,70 @@ struct PluginMissingSelection: Equatable, Identifiable, Sendable {
   var reason: String {
     guard mismatched else { return "已不在本机" }
     return "但它是按键旋律，不能用作按键音效"
+  }
+}
+
+/// 「我的插件」的展示顺序（`plugins.plugin_order`），与共享设置页的 `pluginKey`、`orderedPluginKeys`、`reorderPlugin` 相同：只管列表怎么排，不改指令表、短语表的优先级。
+enum PluginOrderPolicy {
+  /// client-core `PluginPreferences::validate` 接受的条数上限。
+  static let maximumEntries = 256
+
+  /// 目录里全部包的展示顺序：先是 `order` 里提到的，目录里没有的和重复的不算；没提到的包按目录原来的先后接在后面。
+  static func orderedKeys(_ packages: [PluginPackage], order: [String]) -> [String] {
+    let available = Set(packages.map(\.key))
+    var seen = Set<String>()
+    var result: [String] = []
+    for key in order + packages.map(\.key) where available.contains(key) && seen.insert(key).inserted {
+      result.append(key)
+    }
+    return result
+  }
+
+  /// 在一组里拖动之后的整份顺序。`group` 是这一组显示着的键；拖动只在这一组占着的位置上换先后，其他类型的包位置不变。`group` 里有目录中没有的键时原样返回。
+  static func reordered(_ packages: [PluginPackage], order: [String], group: [String], from source: IndexSet,
+                        to destination: Int) -> [String] {
+    var keys = orderedKeys(packages, order: order)
+    let members = Set(group)
+    let slots = keys.indices.filter { members.contains(keys[$0]) }
+    guard slots.count == group.count else { return keys }
+    for (slot, key) in zip(slots, moved(group, from: source, to: destination)) { keys[slot] = key }
+    return keys
+  }
+
+  /// `List` 的 `onMove` 给的移动：`destination` 是移走之前的下标，等于条数时放到末尾。越界的下标不算。
+  static func moved(_ items: [String], from source: IndexSet, to destination: Int) -> [String] {
+    let picked = source.filter(items.indices.contains)
+    let target = min(max(destination, 0), items.count)
+    var rest = items.enumerated().filter { !picked.contains($0.offset) }.map(\.element)
+    rest.insert(contentsOf: picked.map { items[$0] }, at: target - picked.filter { $0 < target }.count)
+    return rest
+  }
+
+  /// client-core 收不收这份顺序：最多 256 条，每条是 `kind/id`，两段都是合规的 id（`safe_id`），没有重复。不收的不写，免得整份文档被拒。
+  static func isWritable(_ keys: [String]) -> Bool {
+    guard keys.count <= maximumEntries, Set(keys).count == keys.count else { return false }
+    return keys.allSatisfy { key in
+      guard let slash = key.firstIndex(of: "/") else { return false }
+      return isSafeID(key[..<slash]) && isSafeID(key[key.index(after: slash)...])
+    }
+  }
+
+  /// `client-base::text::safe_id`：1 到 64 字节，只有小写 ASCII 字母、数字、点、连字符和下划线，首字符是字母或数字。
+  static func isSafeID(_ id: Substring) -> Bool {
+    let bytes = Array(id.utf8)
+    guard let first = bytes.first, bytes.count <= 64, first != 0x2E, first != 0x2D, first != 0x5F else { return false }
+    return bytes.allSatisfy { (0x61...0x7A).contains($0) || (0x30...0x39).contains($0) || $0 == 0x2E || $0 == 0x2D || $0 == 0x5F }
+  }
+
+  /// 写下整份顺序；`plugins` 里的其他键原样保留。
+  static func setOrder(_ keys: [String], document: inout [String: Any]) {
+    PluginCatalogPolicy.updatePlugins(&document) { $0["plugin_order"] = keys }
+  }
+
+  /// 包删掉以后把它从顺序里去掉；顺序里没有它时文档不动。
+  static func removeKey(_ key: String, document: inout [String: Any]) {
+    guard let order = (document["plugins"] as? [String: Any])?["plugin_order"] as? [String], order.contains(key) else { return }
+    setOrder(order.filter { $0 != key }, document: &document)
   }
 }
 
@@ -290,6 +360,13 @@ enum PluginCatalogPolicy {
     default:
       return nil
     }
+  }
+
+  /// 指令表或短语表的「启用」开关：是否已启用，以及是否因为已经启用满 `maximumTables` 个而不能再启用。列表行和详情用同一条规则。
+  static func tableSwitch(_ pack: PluginPackage, preferences: PluginPreferences) -> (enabled: Bool, full: Bool) {
+    let tables = pack.kind == .commandTable ? preferences.commandTables : preferences.phraseTables
+    let enabled = tables.contains(pack.id)
+    return (enabled, !enabled && tables.count >= PluginPreferences.maximumTables)
   }
 
   /// 辅助码表用在哪个方案上：「用于全拼」「用于双拼」「用于全拼和双拼」，都没用时为 nil。
@@ -354,8 +431,9 @@ enum PluginCatalogPolicy {
     }
   }
 
-  /// 包删掉以后的设置：启用它的表移除，选它的辅助码清掉，选它的按键音效包回到内置的 `default`，与 `withoutRemovedPack` 相同。单词本和符号集没有偏好。
+  /// 包删掉以后的设置：启用它的表移除，选它的辅助码清掉，选它的按键音效包回到内置的 `default`，列表顺序里它的那一条也去掉，与 `withoutRemovedPack` 相同。单词本和符号集除了顺序没有别的偏好。
   static func withoutRemovedPack(_ kind: PluginKind, id: String, document: inout [String: Any]) {
+    PluginOrderPolicy.removeKey("\(kind.rawValue)/\(id)", document: &document)
     switch kind {
     case .commandTable, .phraseTable:
       let key = kind == .commandTable ? "command_tables" : "phrase_tables"

@@ -237,7 +237,7 @@ final class TallReturnDeviceChecks {
         awaitCondition(() -> findVisible(t.described("键盘功能行")) == null);
     }
 
-    /** 九键双拼：网格四行，⌫ 占前两行、重输第三行，回车从第四行顶边画到底行底边；外框其余部分与拼音九键相同。 */
+    /** 九键双拼：网格只有 1–9 三行，外框与拼音九键相同（⌫ 第一行、重输第二行、回车从第三行顶边画到底行底边）；0 在网格下方那一行空格的右边。 */
     private void shuangpinFrame(File preferences, JSONObject values) throws Exception {
         t.stage = "tall-return nine-key shuangpin frame";
         switchTo(preferences, values, t.described("按键 0，韵母 u ü ei"));
@@ -256,19 +256,24 @@ final class TallReturnDeviceChecks {
         Rect rewrite = bounds(t.key("重输"));
         Rect enter = bounds(t.describedPrefix("换行"));
         System.out.println("tall return shuangpin: delete=" + delete + " rewrite=" + rewrite + " enter=" + enter
-            + " rows=" + two + " " + five + " " + eight + " " + zero + " symbol=" + symbol);
+            + " rows=" + two + " " + five + " " + eight + " zero=" + zero + " symbol=" + symbol);
+        // 侧栏整体按键距内缩（`ImeLayoutRows.applySidebarRail`），符号栏的可点范围与看到的底轨、下面的 符 键帽同宽；只看对称会放过符号列铺满整列、比底轨宽的情形。
         if (symbol.top < sidebar.bottom || Math.abs(symbol.left - sidebar.left) > tolerance
                 || Math.abs(symbol.right - sidebar.right) > tolerance)
             throw new AssertionError("九键双拼：符 应在符号栏正下方且同宽：符 " + symbol + "，符号栏 " + sidebar);
         if (Math.abs(layer.left - one.left) > tolerance || Math.abs(language.right - three.right) > tolerance
-                || layer.top < zero.bottom)
-            throw new AssertionError("九键双拼：123 | 空格 | 中 应在网格下方且与网格同宽：" + layer + " " + language);
-        if (Math.abs(delete.top - two.top) > tolerance || Math.abs(delete.bottom - five.bottom) > tolerance)
-            throw new AssertionError("九键双拼：⌫ 应占网格前两行：⌫ " + delete + "，第一行 " + two + "，第二行 " + five);
-        if (Math.abs(rewrite.top - eight.top) > tolerance || Math.abs(rewrite.bottom - eight.bottom) > tolerance)
-            throw new AssertionError("九键双拼：重输 应在网格第三行：重输 " + rewrite + "，第三行 " + eight);
-        if (Math.abs(enter.top - zero.top) > tolerance || Math.abs(enter.bottom - symbol.bottom) > tolerance)
-            throw new AssertionError("九键双拼：回车应从网格第四行的顶边画到底行的底边：回车 " + enter + "，第四行 " + zero + "，底行 " + symbol);
+                || layer.top < eight.bottom)
+            throw new AssertionError("九键双拼：123 | 空格 | 0 | 中 应在网格下方且与网格同宽：" + layer + " " + language);
+        if (Math.abs(zero.top - layer.top) > tolerance || zero.left < layer.right || zero.right > language.left)
+            throw new AssertionError("九键双拼：0 应在网格下方那一行、123 与 中 之间：0 " + zero + "，123 " + layer + "，中 " + language);
+        if (Math.abs(sidebar.bottom - eight.bottom) > tolerance)
+            throw new AssertionError("九键双拼：符号栏应与三行网格同高：符号栏 " + sidebar + "，第三行 " + eight);
+        if (Math.abs(delete.top - two.top) > tolerance || Math.abs(delete.bottom - two.bottom) > tolerance)
+            throw new AssertionError("九键双拼：⌫ 应在网格第一行：⌫ " + delete + "，第一行 " + two);
+        if (Math.abs(rewrite.top - five.top) > tolerance || Math.abs(rewrite.bottom - five.bottom) > tolerance)
+            throw new AssertionError("九键双拼：重输 应在网格第二行：重输 " + rewrite + "，第二行 " + five);
+        if (Math.abs(enter.top - eight.top) > tolerance || Math.abs(enter.bottom - symbol.bottom) > tolerance)
+            throw new AssertionError("九键双拼：回车应从网格第三行的顶边画到底行的底边：回车 " + enter + "，第三行 " + eight + "，底行 " + symbol);
         for (Rect key : new Rect[] {rewrite, enter}) {
             if (Math.abs(key.left - delete.left) > tolerance || Math.abs(key.right - delete.right) > tolerance)
                 throw new AssertionError("九键双拼：⌫、重输、回车应在同一列：" + key + "，⌫ " + delete);

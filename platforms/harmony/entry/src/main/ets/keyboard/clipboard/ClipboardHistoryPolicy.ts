@@ -8,7 +8,7 @@
 import { utf8Length } from "../Utf8";
 
 const MAX_CHARS: number = 10000;
-const MAX_BYTES: number = 40000;
+const MAX_BYTES: number = 100000;
 
 interface GraphemeSegment {
   readonly segment: string;

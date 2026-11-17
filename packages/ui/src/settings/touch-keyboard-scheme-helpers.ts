@@ -11,6 +11,11 @@ export type TouchKeyboardScheme =
   | "ziranma"
   | "microsoft"
   | "shoudao"
+  | "smart_abc"
+  | "sogou"
+  | "jiajia"
+  | "ziguang"
+  | "guobiao"
   | "wubi"
   | "japanese_nine_key"
   | "japanese"
@@ -45,6 +50,11 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
     case "ziranma":
     case "microsoft":
     case "shoudao":
+    case "smart_abc":
+    case "sogou":
+    case "jiajia":
+    case "ziguang":
+    case "guobiao":
       return "shuangpin";
     case "japanese":
     case "japanese_nine_key":
@@ -136,6 +146,11 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["nine_key_shuangpin", "九键双拼"],
   ["eighteen_key", "全拼 18 键"],
   ["cantonese_shuangpin", "粤语双拼"],
+  ["smart_abc", "智能 ABC 双拼"],
+  ["sogou", "搜狗双拼"],
+  ["jiajia", "加加双拼"],
+  ["ziguang", "紫光双拼"],
+  ["guobiao", "国标双拼"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -151,7 +166,12 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "nine_key_shuangpin" &&
     scheme !== "fourteen_key" &&
     scheme !== "eighteen_key" &&
-    scheme !== "cantonese_shuangpin",
+    scheme !== "cantonese_shuangpin" &&
+    scheme !== "smart_abc" &&
+    scheme !== "sogou" &&
+    scheme !== "jiajia" &&
+    scheme !== "ziguang" &&
+    scheme !== "guobiao",
 );
 
 /**
@@ -203,11 +223,8 @@ function touchSchemeOf(
 ): TouchKeyboardScheme {
   switch (scheme) {
     case "shuangpin":
-      // 自定义和智能 ABC 没有独立的触屏键面，回退小鹤；保留文档里的双拼偏好。
-      return preferences.shuangpin_profile === "custom" ||
-        preferences.shuangpin_profile === "smart_abc"
-        ? "xiaohe"
-        : preferences.shuangpin_profile;
+      // 自定义表没有独立的触屏入口，回退小鹤；内置方案各自保留触屏入口。
+      return preferences.shuangpin_profile === "custom" ? "xiaohe" : preferences.shuangpin_profile;
     case "quanpin":
     case "wubi":
     case "japanese":
@@ -259,7 +276,19 @@ export function selectTouchKeyboardScheme(
       touch_keyboard_layout: "nine_key_shuangpin",
       touch_keyboard_schemes,
     };
-  if (["xiaohe", "ziranma", "microsoft", "shoudao"].includes(selected))
+  if (
+    [
+      "xiaohe",
+      "ziranma",
+      "microsoft",
+      "shoudao",
+      "smart_abc",
+      "sogou",
+      "jiajia",
+      "ziguang",
+      "guobiao",
+    ].includes(selected)
+  )
     return {
       ...preferences,
       scheme: "shuangpin",
@@ -419,7 +448,18 @@ export const touchKeyboardLanguages: readonly TouchKeyboardLanguage[] = [
     id: "mandarin_shuangpin",
     badge: "双",
     title: "双拼",
-    schemes: ["xiaohe", "ziranma", "microsoft", "shoudao", "nine_key_shuangpin"],
+    schemes: [
+      "xiaohe",
+      "ziranma",
+      "microsoft",
+      "shoudao",
+      "nine_key_shuangpin",
+      "smart_abc",
+      "sogou",
+      "jiajia",
+      "ziguang",
+      "guobiao",
+    ],
   },
   { id: "mandarin_wubi", badge: "五", title: "五笔", schemes: ["wubi"] },
   { id: "mandarin_zhuyin", badge: "注", title: "注音", schemes: ["zhuyin", "zhuyin_nine_key"] },

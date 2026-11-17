@@ -1,10 +1,16 @@
 package app.msime.android.policy;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * 插件页的列表、详情和社区插件共用的规则：哪些类型在手机上生效、列表行尾的「使用中」标记、偏好里指着已不在的包的选择、删包后偏好怎么改、短语表和指令表的启用顺序，以及失败码对应的句子。
+ * 插件页的列表、详情和社区插件共用的规则：哪些类型在手机上生效、列表行尾的「使用中」标记、偏好里指着已不在的包的选择、删包后偏好怎么改、短语表和指令表的启用顺序、列表的展示顺序（`plugins.plugin_order`），以及失败码对应的句子。
  *
  * <p>规则照共享设置页的 `plugin-catalog-helpers.ts`、`plugin-preferences.ts` 和 `community-helpers.ts` 的 `communityPluginMessage` 移植，只保留手机上会生效的部分：手机播按键音效包（`mode = "keys"`）、读短语表、指令表、辅助码表、单词本和符号集；特效包、音乐包、按键旋律（`mode = "sequence"`）和脚本插件在手机上不生效，列表不列，只报一个数。按键音的开关在 Android 是键盘页「按键反馈」里的本机开关（`KeyboardFeedbackStore`），不是共享偏好的 `plugins.key_sound.enabled`，所以「使用中」看的是那个开关。
  *
@@ -24,6 +30,8 @@ public final class PluginCatalogPolicy {
 
     /** `PluginPreferences::MAX_COMMAND_TABLES`、`MAX_PHRASE_TABLES`。 */
     public static final int MAX_TABLES = 16;
+    /** `PluginPreferences::validate` 给 `plugins.plugin_order` 的条数上限。 */
+    public static final int MAX_PLUGIN_ORDER = 256;
     /** 短语表详情最多预览的行数。 */
     public static final int PHRASE_PREVIEW_ROWS = 20;
     /** 单词本详情预览的单词数。 */
@@ -50,10 +58,16 @@ public final class PluginCatalogPolicy {
      * @param keySoundOn 本机的按键音开关
      * @param quickPhraseMode `local_modes.quick_phrase`（缺省开）
      * @param commandMode `local_modes.command`（缺省关）
+     * @param pluginOrder `plugins.plugin_order`：列表的展示顺序，条目是 `kind/id`；原样读出，未知和重复的键由 {@link #orderedPluginKeys} 忽略
      */
     public record Selection(String keySoundPack, List<String> phraseTables, List<String> commandTables,
             String helpcodeQuanpin, String helpcodeShuangpin, boolean keySoundOn, boolean quickPhraseMode,
-            boolean commandMode) {}
+            boolean commandMode, List<String> pluginOrder) {
+        /** 这一类已启用的表，按启用顺序：短语表或指令表。 */
+        public List<String> tables(String kind) {
+            return PHRASE_TABLE.equals(kind) ? phraseTables : commandTables;
+        }
+    }
 
     /** 各类插件统一的显示名，与共享页 `kindLabels` 相同；不认识的类型显示「插件」。 */
     public static String kindLabel(String kind) {
@@ -241,6 +255,90 @@ public final class PluginCatalogPolicy {
     /** 这个表还能不能启用：已经启用的总能停用，没启用的要没满。 */
     public static boolean tableSwitchEnabled(List<String> tables, String id) {
         return tables.contains(id) || tables.size() < MAX_TABLES;
+    }
+
+    /** 列表行和详情页的「启用」开关共用的写入规则：已经满了时不再启用新的表（原样返回），其余与 {@link #withTable} 相同。 */
+    public static List<String> switchedTables(List<String> tables, String id, boolean enabled) {
+        if (enabled && !tableSwitchEnabled(tables, id)) return List.copyOf(tables);
+        return withTable(tables, id, enabled);
+    }
+
+    /** 列表行上开关的读屏名称：点名是哪个插件；不能启用时带上原因。 */
+    public static String tableSwitchLabel(String kind, List<String> tables, Pack pack) {
+        String label = "启用「" + pack.name() + "」";
+        return tableSwitchEnabled(tables, pack.id()) ? label : label + "，" + tableSwitchDescription(kind, tables, pack.id());
+    }
+
+    // ---- 列表的展示顺序：只影响「我的插件」里的排列，不改变短语表、指令表的生效先后 ----
+
+    /** 列表排序用的稳定键 `kind/id`，不同类型的同名 id 不会相撞；与共享页 `pluginKey` 相同。 */
+    public static String pluginKey(String kind, String id) {
+        return kind + "/" + id;
+    }
+
+    /** 目录里所有包的展示顺序：偏好里提到的在前（未知、重复和已删除的键忽略），没提到的按目录原来的先后接在后面；与共享页 `orderedPluginKeys` 相同。 */
+    public static List<String> orderedPluginKeys(List<Pack> packs, List<String> order) {
+        Set<String> available = new HashSet<>();
+        for (Pack pack : packs) available.add(pluginKey(pack.kind(), pack.id()));
+        Set<String> result = new LinkedHashSet<>();
+        for (String key : order) if (available.contains(key)) result.add(key);
+        for (Pack pack : packs) result.add(pluginKey(pack.kind(), pack.id()));
+        return List.copyOf(result);
+    }
+
+    /** 「我的插件」里一个类型分组列出的包，按展示顺序：只有手机上生效的。 */
+    public static List<Pack> groupInOrder(List<Pack> packs, String kind, List<String> order) {
+        List<String> keys = orderedPluginKeys(packs, order);
+        Map<String, Integer> rank = new HashMap<>();
+        for (int index = 0; index < keys.size(); index++) rank.put(keys.get(index), index);
+        List<Pack> group = new ArrayList<>();
+        for (Pack pack : packs) if (pack.kind().equals(kind) && usedOnPhone(pack)) group.add(pack);
+        group.sort((left, right) -> Integer.compare(rank.get(pluginKey(left.kind(), left.id())),
+            rank.get(pluginKey(right.kind(), right.id()))));
+        return List.copyOf(group);
+    }
+
+    /**
+     * 一个分组拖动之后要写回 `plugins.plugin_order` 的整份顺序：先按 {@link #orderedPluginKeys} 排出目录里所有包的键，再把这一组原来占着的那些位置按 `group` 的新先后重新填上，别的组和这一组里没列出的包都留在原位。`group` 里目录中没有的键和重复的键忽略。结果经 {@link #storablePluginOrder}，一定通得过 client-core 的校验；为空时调用方去掉这个键。
+     */
+    public static List<String> reorderedPluginKeys(List<Pack> packs, List<String> order, List<String> group) {
+        List<String> keys = orderedPluginKeys(packs, order);
+        Set<String> moved = new LinkedHashSet<>();
+        for (String key : group) if (keys.contains(key)) moved.add(key);
+        Iterator<String> next = moved.iterator();
+        List<String> result = new ArrayList<>(keys.size());
+        for (String key : keys) result.add(moved.contains(key) ? next.next() : key);
+        return storablePluginOrder(result);
+    }
+
+    /** 只留下 client-core 肯收的条目：`kind/id` 两段都过 `safe_id`、不重复、最多 {@link #MAX_PLUGIN_ORDER} 条；超出的包读回来时按目录原来的先后排在后面。 */
+    public static List<String> storablePluginOrder(List<String> keys) {
+        Set<String> result = new LinkedHashSet<>();
+        for (String key : keys) {
+            if (result.size() >= MAX_PLUGIN_ORDER) break;
+            int slash = key.indexOf('/');
+            if (slash > 0 && safeId(key.substring(0, slash)) && safeId(key.substring(slash + 1))) result.add(key);
+        }
+        return List.copyOf(result);
+    }
+
+    /** `client-base::text::safe_id`：1 到 64 个小写字母、数字、`.`、`-`、`_`，以字母或数字开头。 */
+    public static boolean safeId(String id) {
+        if (id == null || id.isEmpty() || id.length() > 64) return false;
+        for (int index = 0; index < id.length(); index++) {
+            char value = id.charAt(index);
+            boolean alphanumeric = (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9');
+            if (!alphanumeric && (index == 0 || (value != '.' && value != '-' && value != '_'))) return false;
+        }
+        return true;
+    }
+
+    /** 包从磁盘删除之后的展示顺序：去掉它的那一条；与共享页 `withoutPluginOrder` 相同。 */
+    public static List<String> withoutPluginOrder(List<String> order, String kind, String id) {
+        String removed = pluginKey(kind, id);
+        List<String> next = new ArrayList<>(order.size());
+        for (String key : order) if (!key.equals(removed)) next.add(key);
+        return List.copyOf(next);
     }
 
     /** 单词本插件在背单词里的词书 id：`client-services::plugins::wordbook_pack::book_id`。 */

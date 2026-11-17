@@ -20,6 +20,7 @@ use crate::preferences::{
     TouchFourteenKeyLetterWidths, TouchFourteenKeyStyle, TouchKeyboardLayout, TouchLanguageKeySide,
     TouchNineKeyStyle, TouchNineKeySwipeDigits, TouchNumberPadSpace, TouchOneHandedSidePanel,
     TouchTwentySixKeyStyle, TraditionalVariant, TwentySixKeyNumberLayout, WubiProfile,
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE, TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -65,6 +66,10 @@ const ONE_HANDED_SIDE_PANEL: &str = "platform.android.one_handed_side_panel";
 const LANGUAGE_KEY_SIDE: &str = "platform.android.language_key_side";
 /// 共享偏好 `touch_nine_key_swipe_digits`；账号字段表收录它之前上传时会被滤掉。与 [`NUMBER_ROW`] 一样，Android 本机设置文件里有一个同名、不同步的旧键（不在 [`ANDROID_LOCAL_SETTINGS`] 里），它的值由宿主迁进这个共享偏好。
 const NINE_KEY_SWIPE: &str = "platform.android.nine_key_swipe";
+/// 共享偏好 `touch_nine_key_flick_threshold`；Android 和鸿蒙各自使用平台命名空间，值范围与 client-core 相同。
+const NINE_KEY_FLICK_THRESHOLD: &str = "platform.android.nine_key_flick_threshold";
+/// 三端共用的九键 flick 阈值；平台键保留给旧版本兼容，新的移动端都以这个键为准。
+pub(super) const MOBILE_NINE_KEY_FLICK_THRESHOLD: &str = "input.nine_key_flick_threshold";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -103,6 +108,7 @@ pub(super) struct TouchHostKeys {
     pub(super) one_handed_side_panel: &'static str,
     pub(super) language_key_side: &'static str,
     pub(super) nine_key_swipe_digits: &'static str,
+    pub(super) nine_key_flick_threshold: &'static str,
     /// 按键音、振动开关、振动强度，值来自宿主本地存储。
     pub(super) feedback: [&'static str; 3],
 }
@@ -136,6 +142,7 @@ const ANDROID_KEYS: TouchHostKeys = TouchHostKeys {
     one_handed_side_panel: ONE_HANDED_SIDE_PANEL,
     language_key_side: LANGUAGE_KEY_SIDE,
     nine_key_swipe_digits: NINE_KEY_SWIPE,
+    nine_key_flick_threshold: NINE_KEY_FLICK_THRESHOLD,
     feedback: ANDROID_FEEDBACK_KEYS,
 };
 /// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
@@ -146,6 +153,9 @@ pub const MAX_CUSTOM_KEYBOARD_SKINS_BYTES: usize = 786_432;
 const MAX_KEY_SOUND_PACK_CHARS: usize = 64;
 /// 语音识别语言的长度上限，与服务端字段表相同。
 const MAX_VOICE_LANGUAGE_CHARS: usize = 16;
+
+/// 设置页插件卡片的展示顺序。账号偏好值只允许标量，因此以 JSON 字符串保存数组。
+const PLUGIN_ORDER: &str = "plugins.plugin_order";
 
 /// 工具栏按钮在同步文档里的键，与 `touch_toolbar` 的成员一一对应。常用语、输入方式和「隐藏」三个开关在 Android 本地设置里，见 [`ANDROID_LOCAL_SETTINGS`]。
 const TOOLBAR_KEYS: [&str; 8] = [
@@ -421,14 +431,19 @@ pub fn account_wubi_schema(profile: WubiProfile) -> Option<&'static str> {
     }
 }
 
-/// 双拼方案在账号里的取值。现有账号契约尚未收录智能 ABC 和自定义表，不写这些取值，账号保留上次记录的方案，与 `account_input_schema` 对待未收录方案的方式相同。
+/// 双拼方案在账号里的取值。现有账号契约尚未收录智能 ABC、搜狗、加加、紫光、国标和自定义表，不写这些取值，账号保留上次记录的方案，与 `account_input_schema` 对待未收录方案的方式相同。已经发布的 iOS 读到不认识的 `input.shuangpin_schema` 会拒绝整份账号设置，所以搜狗、加加、紫光和国标要等能容忍未知取值的 iOS 版本发布后再开始上传；下载方向 `apply_input_settings` 已经认得它们。
 fn shuangpin_schema(profile: ShuangpinProfile) -> Option<&'static str> {
     match profile {
         ShuangpinProfile::Xiaohe => Some("xiaohe"),
         ShuangpinProfile::Ziranma => Some("ziranma"),
         ShuangpinProfile::Shoudao => Some("shoudao"),
         ShuangpinProfile::Microsoft => Some("microsoft"),
-        ShuangpinProfile::Custom | ShuangpinProfile::SmartAbc => None,
+        ShuangpinProfile::Custom
+        | ShuangpinProfile::SmartAbc
+        | ShuangpinProfile::Sogou
+        | ShuangpinProfile::Jiajia
+        | ShuangpinProfile::Ziguang
+        | ShuangpinProfile::Guobiao => None,
     }
 }
 
@@ -504,7 +519,11 @@ pub(super) fn frequency_account_preferences(
     ])
 }
 
-fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: i64) {
+pub(super) fn insert_integer(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+    value: i64,
+) {
     settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
 }
 
@@ -515,9 +534,22 @@ pub fn export_android_settings(
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
+    insert_mobile_shared_settings(&mut settings, preferences);
     insert_touch_settings(&mut settings, preferences, feedback, &ANDROID_KEYS)?;
     insert_new_android_settings(&mut settings, preferences);
     Ok(settings)
+}
+
+/// 三端键盘共用、但仍放在 `input.*` 命名空间的共享偏好，只由 Android、鸿蒙和 iOS 导出和应用。桌面没有对应的设置项也不使用它，不导出：桌面上传时偏好里只有默认值，导出的话会把手机上改的阈值盖回默认；桌面不导出的键在合并上传时原样留在云端。
+pub(super) fn insert_mobile_shared_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_integer(
+        settings,
+        MOBILE_NINE_KEY_FLICK_THRESHOLD,
+        i64::from(preferences.touch_nine_key_flick_threshold),
+    );
 }
 
 /// 触屏宿主的平台键：触屏布局、主题、键距与键盘高度、语音键、数字层、双拼键位提示、组字 Shift、底行样式与数字行，`feedback` 不为空时再加按键反馈三个键。Android 和鸿蒙各按自己的 [`TouchHostKeys`] 导出。
@@ -629,6 +661,11 @@ pub(super) fn insert_touch_settings(
         settings,
         keys.nine_key_swipe_digits,
         preferences.touch_nine_key_swipe_digits.as_str(),
+    );
+    insert_integer(
+        settings,
+        keys.nine_key_flick_threshold,
+        preferences.touch_nine_key_flick_threshold as i64,
     );
     if let Some(feedback) = feedback {
         insert_bool(settings, keys.feedback[0], feedback.sound_enabled);
@@ -1035,6 +1072,7 @@ pub(super) fn export_desktop_settings_for(
     let mut settings = BTreeMap::new();
     insert_input_settings(&mut settings, preferences);
     insert_grammar_model(&mut settings, preferences);
+    insert_plugin_settings(&mut settings, preferences);
     if host.shared_settings_page() {
         insert_quick_phrase_mixing(&mut settings, preferences);
         insert_local_mode_extras(&mut settings, preferences);
@@ -1079,6 +1117,19 @@ fn insert_grammar_model(
             GrammarModel::BaguwenCompact => "baguwen_compact",
             GrammarModel::Baishuang => "baishuang",
         },
+    );
+}
+
+/// 插件列表的展示顺序。它只影响设置页，不改变插件的加载、执行或候选处理顺序。
+fn insert_plugin_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(
+        settings,
+        PLUGIN_ORDER,
+        &serde_json::to_string(&preferences.plugins.plugin_order)
+            .unwrap_or_else(|_| "[]".to_owned()),
     );
 }
 
@@ -1348,6 +1399,22 @@ fn validate_cloud_document(
     Ok(())
 }
 
+/// 解析设置页插件展示顺序。账号协议里的值是字符串，内容必须是通过本机偏好校验的
+/// `kind/id` 数组；未知插件由设置页按当前目录追加，不能借同步写入任意路径或重复项。
+fn parse_plugin_order(value: &str) -> Option<Vec<String>> {
+    let order = serde_json::from_str::<Vec<String>>(value).ok()?;
+    (order.len() <= 256
+        && order.iter().enumerate().all(|(index, key)| {
+            let Some((kind, id)) = key.split_once('/') else {
+                return false;
+            };
+            crate::skin::catalog::safe_id(kind)
+                && crate::skin::catalog::safe_id(id)
+                && !order[..index].contains(key)
+        }))
+    .then_some(order)
+}
+
 /// [`insert_input_settings`] 的反方向，Android 与桌面宿主共用。
 fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     // 本机不提供的方案（较新设备上的粤拼、注音、越南文或笔画）保留本机的方案，文档里其他的键照常应用。
@@ -1393,6 +1460,10 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
             "ziranma" => ShuangpinProfile::Ziranma,
             "shoudao" => ShuangpinProfile::Shoudao,
             "microsoft" => ShuangpinProfile::Microsoft,
+            "sogou" => ShuangpinProfile::Sogou,
+            "jiajia" => ShuangpinProfile::Jiajia,
+            "ziguang" => ShuangpinProfile::Ziguang,
+            "guobiao" => ShuangpinProfile::Guobiao,
             _ => return None,
         };
         Some(())
@@ -1473,6 +1544,16 @@ fn apply_input_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
     })?;
     applier.set_bool("input.wubi_fifth_code_top_commit", |preferences, value| {
         preferences.wubi_fifth_code_top_commit = value
+    })?;
+    Ok(())
+}
+
+/// [`insert_plugin_settings`] 的反方向。顺序是设置页的本地展示状态，插件目录变化时由
+/// 共享页面负责补齐缺失项；同步只接受格式合法且不重复的条目。
+fn apply_plugin_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string(PLUGIN_ORDER, |preferences, value| {
+        preferences.plugins.plugin_order = parse_plugin_order(value)?;
+        Some(())
     })?;
     Ok(())
 }
@@ -1880,6 +1961,7 @@ pub(super) fn apply_desktop_settings_for(
         skipped: Vec::new(),
     };
     apply_input_settings(&mut applier)?;
+    apply_plugin_settings(&mut applier)?;
     apply_grammar_model(&mut applier)?;
     if host.shared_settings_page() {
         apply_quick_phrase_mixing(&mut applier)?;
@@ -2140,7 +2222,27 @@ pub(super) fn apply_touch_settings(
         preferences.touch_nine_key_swipe_digits = TouchNineKeySwipeDigits::parse(value)?;
         Some(())
     })?;
-
+    // 九键 flick 阈值以三端共用的 `input.*` 键为准，与 iOS 相同；文档里没有它（只有旧版本上传过）时才退回本平台键。平台键只有本平台自己写，先应用跨平台键再拿它覆盖的话，别的平台刚改的值会被本机留在云端的旧平台键改回去，下一次上传还会把旧值推给其他设备。
+    let nine_key_flick_threshold_key = if applier
+        .integer(MOBILE_NINE_KEY_FLICK_THRESHOLD)?
+        .flatten()
+        .is_some()
+    {
+        MOBILE_NINE_KEY_FLICK_THRESHOLD
+    } else {
+        keys.nine_key_flick_threshold
+    };
+    applier.set_integer(nine_key_flick_threshold_key, |preferences, value| {
+        let value = u16::try_from(value).ok()?;
+        if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&value)
+            || !(value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+        {
+            return None;
+        }
+        preferences.touch_nine_key_flick_threshold = value;
+        Some(())
+    })?;
     extra(&mut applier)?;
 
     if let Some(value) = applier.boolean(keys.feedback[0])? {

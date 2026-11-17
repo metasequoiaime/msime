@@ -823,15 +823,13 @@ test("Android touch scheme selection, fallback, last-visible guard and save payl
       .getByRole("button", { name: "设为当前输入方案 全拼 26 键" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
-  for (const label of touchSchemeLabels.slice(1)) {
-    const toggle = screen.getByRole("switch", {
-      name: `显示输入方案 ${label}`,
-    }) as HTMLInputElement;
-    if (toggle.checked) fireEvent.click(toggle);
-  }
   const last = screen.getByRole("switch", {
     name: "显示输入方案 全拼 26 键",
   }) as HTMLInputElement;
+  for (const toggle of screen.getAllByRole("switch") as HTMLInputElement[]) {
+    if (toggle === last) continue;
+    if (toggle.checked) fireEvent.click(toggle);
+  }
   expect(last.checked).toBe(true);
   expect(last.disabled).toBe(true);
   saveSettingsNow();
@@ -11011,4 +11009,50 @@ test("macOS 从输入法菜单进入云词库，设置页不提供重复入口",
   expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
   expect(screen.queryByRole("region", { name: "云词库" })).toBeNull();
   expect(openCloudDictionary).not.toHaveBeenCalled();
+});
+
+test("共享设置回显已存原生双拼值但不新增选择入口", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, scheme: "shuangpin", shuangpin_profile: "sogou" },
+  };
+  const save = vi.fn(async (revision: number, preferences: Snapshot["preferences"]) => ({
+    ...snapshot,
+    revision: revision + 1,
+    preferences,
+  }));
+  render(<SettingsPage client={{ load: async () => snapshot, save }} />);
+  await openInputSettings();
+  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
+  expect(profile.value).toBe("sogou");
+  expect(
+    (within(profile).getByRole("option", { name: "搜狗双拼" }) as HTMLOptionElement).disabled,
+  ).toBe(true);
+  expect(within(profile).queryByRole("option", { name: "加加双拼" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ shuangpin_profile: "sogou" }));
+});
+
+test("共享触屏设置保留原生已启用双拼而不提供其余新方案", async () => {
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      scheme: "shuangpin",
+      shuangpin_profile: "sogou",
+      touch_keyboard_schemes: { enabled: ["quanpin", "sogou"], selected: "sogou" },
+    },
+  };
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), touchKeyboardSchemes: true }}
+    />,
+  );
+  await openInputSettings();
+  expect(
+    screen.getByRole("button", { name: "设为当前输入方案 搜狗双拼" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(screen.queryByRole("switch", { name: "显示输入方案 加加双拼" })).toBeNull();
 });

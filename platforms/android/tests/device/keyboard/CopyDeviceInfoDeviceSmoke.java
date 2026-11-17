@@ -105,14 +105,17 @@ public final class CopyDeviceInfoDeviceSmoke extends DeviceSmoke {
                 stage = "device information disabled suggestions retain feedback";
                 await(described("提示：已复制设备信息"));
             }
+            stage = "device information whitelist and build time";
             String[] lines = copied.split("\\n");
-            // 白名单（#10045 扩展）：原十一项去掉单行的屏幕分辨率，加上 CPU 名称，屏幕参数自成一组放在最后，没有亮度。
-            String[] labels = {"应用版本", "品牌", "型号", "系统版本", "系统构建", "处理器架构", "CPU 名称",
+            // 构建时间是应用版本字段的第二行；严格列出它，继续拒绝白名单外的设备信息。
+            String[] labels = {"应用版本", "构建时间", "品牌", "型号", "系统版本", "系统构建", "处理器架构", "CPU 名称",
                 "存储空间", "运行内存", "Android System WebView", "键盘", "屏幕参数"};
             String[] screenLabels = {"分辨率", "密度", "字体缩放", "尺寸大小", "宽高比", "刷新率", "HDR", "HDR 能力", "广色域"};
             if (lines.length != labels.length + screenLabels.length + 2 || !lines[0].endsWith(" 设备信息")
                 || !lines[1].startsWith("用于反馈问题时定位输入法与设备兼容性"))
                 throw new AssertionError("Device information whitelist changed");
+            if (!lines[3].equals("构建时间：" + app.msime.android.AppVersionPolicy.buildTime()))
+                throw new AssertionError("Device information build time differs from the installed build");
             for (int index = 0; index < labels.length; index++)
                 if (!lines[index + 2].startsWith(labels[index] + "："))
                     throw new AssertionError("Device information field missing: " + labels[index]);

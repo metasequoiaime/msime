@@ -1,9 +1,6 @@
 package app.msime.android.test;
 
-import android.graphics.Rect;
 import android.os.SystemClock;
-import android.view.InputDevice;
-import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.File;
@@ -87,7 +84,7 @@ final class FourteenKeyShuangpinDeviceChecks {
             t.tap(candidate("你好"));
             t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你好你好", node.getText())));
 
-            if (eighteen) exactSwipeChecks();
+            exactSwipeChecks();
 
             t.stage = "fourteen shuangpin English and symbols";
             t.tap(t.key("中"));
@@ -161,77 +158,47 @@ final class FourteenKeyShuangpinDeviceChecks {
         }
     }
 
-    /** 真实触摸覆盖左右选择、反向重选、取消、回中心及手势之后的普通点按。 */
+    /**
+     * 真实触摸覆盖左右选择、反向重选、取消、回中心及手势之后的普通点按；14 键和 18 键双拼相同（#8930、#11040）。小鹤「你好」是 N I H C：18 键在 BN、IO、H、XC 上，14 键在 BN、UI、GH、CV 上，i 在 IO 键左边、UI 键右边。
+     */
     private void exactSwipeChecks() throws Exception {
+        String iKey = eighteen ? "按键 I O" : "按键 U I";
+        float iSide = eighteen ? -40 : 40;
         editor(false);
-        t.stage = "eighteen exact right swipe";
-        gesture("按键 B N", false, 40);
+        t.stage = layoutTitle + " exact right swipe";
+        GridSwipeTouch.swipe(t, "按键 B N", false, 40);
         t.await(reading("n"));
-        t.stage = "eighteen exact swipe cancellation";
-        gesture("按键 B N", true, -40);
+        t.stage = layoutTitle + " exact swipe cancellation";
+        GridSwipeTouch.swipe(t, "按键 B N", true, -40);
         t.await(reading("n"));
-        t.stage = "eighteen exact swipe return to center";
-        gesture("按键 B N", false, 40, 0);
+        t.stage = layoutTitle + " exact swipe return to center";
+        GridSwipeTouch.swipe(t, "按键 B N", false, 40, 0);
         t.await(reading("n"));
-        t.stage = "eighteen exact swipe reversal";
-        gesture("按键 I O", false, 40, -40);
+        t.stage = layoutTitle + " exact swipe reversal";
+        GridSwipeTouch.swipe(t, iKey, false, -iSide, iSide);
         t.await(t.described("选择拼音 ni"));
         absent(t.described("选择拼音 bi"));
-        gesture("字母 H", false);
-        gesture("按键 X C", false, 40);
+        if (eighteen) GridSwipeTouch.swipe(t, "字母 H", false);
+        else GridSwipeTouch.swipe(t, "按键 G H", false, 40);
+        GridSwipeTouch.swipe(t, eighteen ? "按键 X C" : "按键 C V", false, eighteen ? 40 : -40);
         t.tap(candidate("你好"));
         t.await(t.field("msime-test-plain").and(node -> DeviceSmoke.equalsText("你好", node.getText())));
 
-        t.stage = "eighteen exact left letter";
-        gesture("按键 B N", false, -40);
-        gesture("按键 I O", false, -40);
+        t.stage = layoutTitle + " exact left letter";
+        GridSwipeTouch.swipe(t, "按键 B N", false, -40);
+        GridSwipeTouch.swipe(t, iKey, false, iSide);
         t.await(t.described("选择拼音 bi"));
         absent(t.described("选择拼音 ni"));
         t.tap(t.key("⌫"));
         t.tap(t.key("⌫"));
 
-        t.stage = "eighteen taps stay ambiguous after swipe";
-        gesture("按键 B N", false);
-        gesture("按键 I O", false);
+        t.stage = layoutTitle + " taps stay ambiguous after swipe";
+        GridSwipeTouch.swipe(t, "按键 B N", false);
+        GridSwipeTouch.swipe(t, iKey, false);
         t.await(t.described("选择拼音 bi"));
         t.await(t.described("选择拼音 ni"));
         t.tap(t.key("⌫"));
         t.tap(t.key("⌫"));
-    }
-
-    /** 从节点中心注入坐标事件；不使用无障碍点击代替横滑。 */
-    private void gesture(String description, boolean cancel, float... offsetsDp) throws Exception {
-        t.automation.waitForIdle(500, 5000);
-        AccessibilityNodeInfo key = t.awaitStableBounds(t.described(description));
-        Rect bounds = new Rect();
-        key.getBoundsInScreen(bounds);
-        float density = t.getTargetContext().getResources().getDisplayMetrics().density;
-        float x = bounds.centerX();
-        float y = bounds.centerY();
-        long down = SystemClock.uptimeMillis();
-        injectTouch(down, MotionEvent.ACTION_DOWN, x, y);
-        try {
-            for (float offset : offsetsDp) {
-                SystemClock.sleep(16);
-                x = bounds.centerX() + offset * density;
-                injectTouch(down, MotionEvent.ACTION_MOVE, x, y);
-            }
-            injectTouch(down, cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, x, y);
-        } catch (Exception | AssertionError error) {
-            injectTouch(down, MotionEvent.ACTION_CANCEL, x, y);
-            throw error;
-        }
-        t.dropStaleNodes();
-    }
-
-    private void injectTouch(long down, int action, float x, float y) {
-        MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
-        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-        try {
-            if (!t.automation.injectInputEvent(event, true)) throw new AssertionError("横滑触摸注入被拒绝");
-        } finally {
-            event.recycle();
-        }
     }
 
     private void commitQing() throws Exception {

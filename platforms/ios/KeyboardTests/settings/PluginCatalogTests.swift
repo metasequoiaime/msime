@@ -130,6 +130,104 @@ final class PluginCatalogTests: XCTestCase {
     XCTAssertEqual(plugins?["helpcode_pack_quanpin"] as? String, "")
   }
 
+  /// 展示顺序先按 `plugin_order`，目录里没有的和重复的键不算，没提到的包按目录原来的先后接在后面；分组里的包照这个顺序排，类型的先后不变。
+  func testPluginOrderIgnoresUnknownAndDuplicateKeys() {
+    let packages = [
+      PluginPackage(kind: .commandTable, id: "a", name: "A"), PluginPackage(kind: .phraseTable, id: "p", name: "P"),
+      PluginPackage(kind: .commandTable, id: "b", name: "B"), PluginPackage(kind: .commandTable, id: "c", name: "C"),
+      PluginPackage(kind: .music, id: "rain", name: "雨声"),
+    ]
+    let order = ["command_table/c", "phrase_table/gone", "command_table/c", "nonsense", "command_table/a"]
+    XCTAssertEqual(PluginOrderPolicy.orderedKeys(packages, order: order),
+                   ["command_table/c", "command_table/a", "phrase_table/p", "command_table/b", "music/rain"])
+    XCTAssertEqual(PluginOrderPolicy.orderedKeys(packages, order: []), packages.map(\.key), "没有保存过顺序时就是目录的顺序")
+    let preferences = PluginPreferences(document: ["plugins": ["plugin_order": order]])
+    XCTAssertEqual(preferences.pluginOrder, order)
+    XCTAssertEqual(PluginPreferences(document: [:]).pluginOrder, [])
+    let groups = PluginCatalog(packages: packages).groups(missing: [], order: preferences.pluginOrder)
+    XCTAssertEqual(groups.map(\.kind), [.commandTable, .phraseTable])
+    XCTAssertEqual(groups[0].packs.map(\.id), ["c", "a", "b"])
+    XCTAssertEqual(PluginCatalog(packages: packages).groups(missing: [])[0].packs.map(\.id), ["a", "b", "c"])
+  }
+
+  /// 在一组里拖动只换这一组占着的位置，写下的是目录里全部包的顺序（含这台设备不列的类型）；`plugins` 里的其他键原样保留。
+  func testReorderingWithinAGroupWritesTheFullOrder() {
+    let packages = [
+      PluginPackage(kind: .commandTable, id: "a", name: "A"), PluginPackage(kind: .phraseTable, id: "p", name: "P"),
+      PluginPackage(kind: .commandTable, id: "b", name: "B"), PluginPackage(kind: .music, id: "rain", name: "雨声"),
+      PluginPackage(kind: .commandTable, id: "c", name: "C"),
+    ]
+    let group = ["command_table/a", "command_table/b", "command_table/c"]
+    // 把第一个拖到末尾。
+    let last = PluginOrderPolicy.reordered(packages, order: [], group: group, from: IndexSet(integer: 0), to: 3)
+    XCTAssertEqual(last, ["command_table/b", "phrase_table/p", "command_table/c", "music/rain", "command_table/a"])
+    // 在已保存的顺序上把最后一个拖到最前。
+    let saved = ["phrase_table/p", "command_table/b", "command_table/a", "stale/key"]
+    let first = PluginOrderPolicy.reordered(packages, order: saved, group: ["command_table/b", "command_table/a", "command_table/c"],
+                                            from: IndexSet(integer: 2), to: 0)
+    XCTAssertEqual(first, ["phrase_table/p", "command_table/c", "command_table/b", "music/rain", "command_table/a"])
+    // 拖回原位不变；组里有目录中没有的键时也不动。
+    XCTAssertEqual(PluginOrderPolicy.reordered(packages, order: [], group: group, from: IndexSet(integer: 1), to: 2), packages.map(\.key))
+    XCTAssertEqual(PluginOrderPolicy.reordered(packages, order: [], group: ["command_table/a", "command_table/zz"],
+                                               from: IndexSet(integer: 0), to: 2), packages.map(\.key))
+    XCTAssertEqual(PluginOrderPolicy.moved(["a", "b", "c", "d"], from: IndexSet([0, 2]), to: 4), ["b", "d", "a", "c"])
+    XCTAssertEqual(PluginOrderPolicy.moved(["a", "b", "c", "d"], from: IndexSet(integer: 3), to: 1), ["a", "d", "b", "c"])
+
+    var document: [String: Any] = ["plugins": ["command_tables": ["a"], "effect_pack": "spark", "plugin_order": saved]]
+    XCTAssertTrue(PluginOrderPolicy.isWritable(first))
+    PluginOrderPolicy.setOrder(first, document: &document)
+    let plugins = document["plugins"] as? [String: Any]
+    XCTAssertEqual(plugins?["plugin_order"] as? [String], first)
+    XCTAssertEqual(plugins?["command_tables"] as? [String], ["a"], "拖动不改启用顺序")
+    XCTAssertEqual(plugins?["effect_pack"] as? String, "spark")
+  }
+
+  /// client-core 不收的顺序不写：超过 256 条、有重复、不是 `kind/id`、哪一段不是合规的 id。
+  func testPluginOrderThatTheCoreRejectsIsNotWritable() {
+    XCTAssertTrue(PluginOrderPolicy.isWritable([]))
+    XCTAssertTrue(PluginOrderPolicy.isWritable(["symbol_set/my-arrows.v2", "sound/0day"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound/a", "sound/a"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound/"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound/Upper"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound/-dash"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound/a/b"]))
+    XCTAssertFalse(PluginOrderPolicy.isWritable(["sound/" + String(repeating: "a", count: 65)]))
+    XCTAssertTrue(PluginOrderPolicy.isWritable((0..<256).map { "sound/p\($0)" }))
+    XCTAssertFalse(PluginOrderPolicy.isWritable((0..<257).map { "sound/p\($0)" }))
+  }
+
+  /// 删掉一个包以后顺序里它的那一条也去掉，哪一种类型都一样；顺序里没有它时不凭空写出 `plugins`。
+  func testRemovingAPackDropsItsOrderEntry() {
+    var document: [String: Any] = ["plugins": [
+      "plugin_order": ["wordbook/w", "command_table/a", "sound/clicky", "phrase_table/a"], "command_tables": ["a"],
+    ]]
+    PluginCatalogPolicy.withoutRemovedPack(.wordbook, id: "w", document: &document)
+    PluginCatalogPolicy.withoutRemovedPack(.commandTable, id: "a", document: &document)
+    PluginCatalogPolicy.withoutRemovedPack(.music, id: "absent", document: &document)
+    let plugins = document["plugins"] as? [String: Any]
+    XCTAssertEqual(plugins?["plugin_order"] as? [String], ["sound/clicky", "phrase_table/a"], "同 id 的短语表不受影响")
+    XCTAssertEqual(plugins?["command_tables"] as? [String], [])
+    var empty: [String: Any] = [:]
+    PluginCatalogPolicy.withoutRemovedPack(.symbolSet, id: "arrows", document: &empty)
+    XCTAssertNil(empty["plugins"])
+  }
+
+  /// 行上和详情里的「启用」开关同一条规则：启用满 16 个之后，没启用的不能再启用，已启用的仍能停用。
+  func testTableSwitchStopsAtTheLimit() {
+    let full = (0..<PluginPreferences.maximumTables).map { "t\($0)" }
+    let preferences = PluginPreferences(document: ["plugins": ["command_tables": full, "phrase_tables": ["addr"]]])
+    let state = { (kind: PluginKind, id: String) in
+      PluginCatalogPolicy.tableSwitch(PluginPackage(kind: kind, id: id, name: id), preferences: preferences)
+    }
+    XCTAssertTrue(state(.commandTable, "t3").enabled)
+    XCTAssertFalse(state(.commandTable, "t3").full)
+    XCTAssertFalse(state(.commandTable, "new").enabled)
+    XCTAssertTrue(state(.commandTable, "new").full)
+    XCTAssertTrue(state(.phraseTable, "addr").enabled)
+    XCTAssertFalse(state(.phraseTable, "new").full)
+  }
+
   func testErrorMessagesMatchTheSharedPage() {
     XCTAssertEqual(PluginCatalogPolicy.errorMessage(.init(code: "plugin_invalid", detail: "短语编码 DH 必须是 1 到 32 个小写字母"), fallback: "x"),
                    "插件不符合要求（短语编码 DH 必须是 1 到 32 个小写字母）。")

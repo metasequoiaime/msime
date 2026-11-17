@@ -559,6 +559,47 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     attachScreenshot(of: controller, named: "Fourteen-key nihao")
   }
 
+  /// 全拼 14 键的两字母键横滑限定精确字母；点按其余键仍按整组输入，精确标记不写进输入框。
+  func testQuanpinFourteenKeySwipesPickExactLetters() throws {
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    let bn = try swipeGesture(on: "BN", in: controller)
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(bn))
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(try swipeGesture(on: "UI", in: controller)))
+    XCTAssertNil(try button("fourteenKeyL", in: controller).gestureRecognizers?.first { $0 is EighteenKeySwipeGestureRecognizer },
+                 "single-letter keys do not swipe")
+
+    try swipe("BN", through: [40], in: controller)
+    try swipe("UI", through: [40], in: controller)
+    try tap(["GH", "AS", "OP"], in: controller)
+    XCTAssertTrue(candidates(in: controller).contains { $0.contains("你好") }, "\(candidates(in: controller))")
+    XCTAssertTrue(shown(try button("readingSpelling_ni", in: controller)))
+    XCTAssertNil(spellingButton("bi", in: controller), "the exact letters still offered bi")
+    XCTAssertEqual(controller.inlineMarkedText, "", "the exact markers are not written into the editor")
+  }
+
+  /// 双拼 14 键的两字母键复用同一横滑识别器；BN 右滑、UI 左滑后只保留 ni 读音。
+  func testShuangpinFourteenKeySwipesPickExactLetters() throws {
+    let previousDocument = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences())
+    let previousLayout = TouchShuangpinLayoutPreference.layout
+    defer {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0 = previousDocument }
+      TouchShuangpinLayoutPreference.layout = previousLayout
+    }
+    XCTAssertTrue(InputSchemePreference.select(.shuangpin))
+    XCTAssertTrue(TouchShuangpinLayoutPreference.save(.fourteenKey))
+    let controller = makeController(width: 390)
+    defer { controller.viewDidDisappear(false) }
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(try swipeGesture(on: "BN", in: controller)))
+    XCTAssertTrue(controller.gestureRecognizerShouldBegin(try swipeGesture(on: "UI", in: controller)))
+
+    try swipe("BN", through: [40], in: controller)
+    try swipe("UI", through: [40], in: controller)
+    XCTAssertTrue(shown(try button("readingSpelling_ni", in: controller)))
+    XCTAssertNil(spellingButton("bi", in: controller), "the exact letters still offered bi")
+    XCTAssertEqual(controller.inlineMarkedText, "", "the exact markers are not written into the editor")
+  }
+
   /// 全拼 14 键点读音打开放大拼写编辑条：编辑条画的是读音（引擎首选的 `bu'hao` 或 `ni'hao`），不是组码 `bugao`（#10591）；点 h 前面，引擎的光标落在 GH 那一键前。在拼音选择条上选 ni 之后编辑条画 `ni'hao`。
   func testTheSpellingEditorShowsTheReadingAndPlacesTheCaretOnTheKeys() throws {
     let controller = makeController(width: 390)
@@ -850,6 +891,40 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     controller.view.layoutIfNeeded()
   }
 
+  @discardableResult
+  private func swipe(_ face: String, through offsets: [CGFloat], in controller: KeyboardViewController) throws -> UIGestureRecognizer.State {
+    let button = try button("fourteenKey\(face)", in: controller)
+    let installed = try swipeGesture(on: face, in: controller)
+    let gesture = EighteenKeySwipeGestureRecognizer(letters: installed.letters, target: controller,
+                                                     action: NSSelectorFromString("handleEighteenKeySwipe:"))
+    button.addGestureRecognizer(gesture)
+    defer { button.removeGestureRecognizer(gesture) }
+    let center = CGPoint(x: button.bounds.midX, y: button.bounds.midY)
+    let touch = FourteenKeyScriptedTouch(at: center)
+    gesture.touchesBegan([touch], with: UIEvent())
+    var recognized = false
+    for offset in offsets {
+      touch.point = CGPoint(x: center.x + offset, y: center.y)
+      gesture.touchesMoved([touch], with: UIEvent())
+      if gesture.state == .began || gesture.state == .changed {
+        recognized = true
+        controller.perform(NSSelectorFromString("handleEighteenKeySwipe:"), with: gesture)
+      }
+    }
+    gesture.touchesEnded([touch], with: UIEvent())
+    let state = gesture.state
+    if recognized || state == .ended {
+      controller.perform(NSSelectorFromString("handleEighteenKeySwipe:"), with: gesture)
+    }
+    controller.view.layoutIfNeeded()
+    return state
+  }
+
+  private func swipeGesture(on face: String, in controller: KeyboardViewController) throws -> EighteenKeySwipeGestureRecognizer {
+    try XCTUnwrap(try button("fourteenKey\(face)", in: controller).gestureRecognizers?
+      .compactMap { $0 as? EighteenKeySwipeGestureRecognizer }.first, "\(face) has no swipe")
+  }
+
   /// 五笔 14 键的左端键总是「符」，所以按读音行判断是否在组字：空闲时它写「水杉输入法」。
   private func wubiComposing(_ controller: KeyboardViewController) -> Bool {
     let title = preedit(in: controller)
@@ -879,6 +954,10 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     descendants(controller.view).compactMap { $0 as? UIButton }
       .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
       .compactMap { $0.configuration?.attributedTitle.map { String($0.characters) } ?? $0.configuration?.title }
+  }
+
+  private func spellingButton(_ spelling: String, in controller: KeyboardViewController) -> UIView? {
+    descendants(controller.view).first { $0.accessibilityIdentifier == "readingSpelling_\(spelling)" && shown($0) }
   }
 
   /// 记下键盘写进输入框的文字和光标位移；文档身份固定，空格拖动才认它是同一个输入框。
@@ -955,4 +1034,16 @@ final class FourteenKeyKeyboardTests: XCTestCase {
     attachment.lifetime = .keepAlways
     add(attachment)
   }
+}
+
+/// 位置由测试给出的一根手指：手势识别器只读它在键上的位置。
+private final class FourteenKeyScriptedTouch: UITouch {
+  var point: CGPoint
+
+  init(at point: CGPoint) {
+    self.point = point
+    super.init()
+  }
+
+  override func location(in view: UIView?) -> CGPoint { point }
 }

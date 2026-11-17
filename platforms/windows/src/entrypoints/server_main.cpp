@@ -13,6 +13,7 @@
 #include "DesktopCandidates.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
+#include "CloudClipboardAutoSync.h"
 #include "ComponentFailure.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
@@ -65,6 +66,7 @@
 #include "../../../common/ReadAloudText.h"
 #include "DictionarySyncSchedule.h"
 #include "DictionarySyncWorker.h"
+#include "SettingsSyncWorker.h"
 #include "../../common/DictionarySyncDirectory.h"
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
@@ -75,6 +77,7 @@
 #include "Telemetry.h"
 #include "TelemetryConsent.h"
 #include "RevisionFence.h"
+#include "TsfConfigDeliveryTracker.h"
 #include "WindowsServer.h"
 #include "ipc_negotiation.h"
 #include <windows.h>
@@ -1263,11 +1266,14 @@ int wmain(int argc, wchar_t **argv) {
             .value_or(CandidateLayoutSettings{});
     auto candidate_layout = std::make_shared<std::atomic<unsigned>>(
         CandidateLayoutSettings{
-            config.horizontal_candidates, config.candidate_show_preedit, true,
+            config.horizontal_candidates, config.candidate_show_preedit,
+            config.candidate_show_preedit_area, true,
             stored_candidate_layout.show_app_logo,
             stored_candidate_layout.reserved_gloss_lines,
             stored_candidate_layout.show_page_number}
             .encode());
+    auto candidate_cloud_badge = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences").value("candidate_cloud_badge", true));
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -1324,13 +1330,14 @@ int wmain(int argc, wchar_t **argv) {
              " error=" + std::to_string(error));
     };
     options.preferences_directory = config.state_root.u8string();
+    options.candidate_cloud_badge = candidate_cloud_badge;
     options.preferences_published =
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
          toolbar_enabled, follow_cursor, game_anchor_top, shuangpin_keymap_enabled, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, app_mode_rules,
          input_mode_hud_enabled, input_mode_hud_logo, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
-         tsf_config_revision, candidate_theme, toolbar_settings,
+         tsf_config_revision, candidate_theme, toolbar_settings, candidate_cloud_badge,
          language_dictionaries, update_channel, dictionary_sync](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
@@ -1346,6 +1353,8 @@ int wmain(int argc, wchar_t **argv) {
             candidate_style->publish(snapshot.revision(), *style);
           if (auto layout = candidate_layout_settings(preferences, offline_gloss_languages))
             candidate_layout->store(layout->encode(), std::memory_order_release);
+          candidate_cloud_badge->store(
+              preferences.value("candidate_cloud_badge", true), std::memory_order_release);
           traditional_output->store(
               preferences.value("traditional_chinese_output", false),
               std::memory_order_release);
@@ -1600,11 +1609,13 @@ int wmain(int argc, wchar_t **argv) {
           return *voice_config;
         },
         [&] { return server.mode_view().has_value(); });
+    CloudClipboardAutoSync cloud_clipboard(config.state_root);
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [&](std::string text) {
+          text = normalize_clipboard_text(std::move(text));
           const auto request = nlohmann::json{
               {"directory", config.state_root.u8string()},
-              {"text", normalize_clipboard_text(std::move(text))}}.dump();
+              {"text", text}}.dump();
           // The shared writer preserves pinned entries, timestamps and the
           // preference/history locking used by the Tauri panel.
           auto reply = msime::host_api::own_string(
@@ -2411,7 +2422,7 @@ int wmain(int argc, wchar_t **argv) {
     // 主桌面的前台呈现方式变化与 QUNS 耗时；候选窗的诊断由所属桌面线程汇总。
     auto logged_presentation = ForegroundPresentation::Windowed;
     bool quns_cost_logged = false;
-    uint64_t tsf_config_applied_revision = 0;
+    msime::windows::TsfConfigDeliveryTracker tsf_config_delivery;
     uint64_t caps_lock_applied_revision = 0;
     // 后台更新检查只在受管理的 Server 里做：预览实例是开发和测试用的，不该替用户联网，也不该弹通知。线程五分钟后第一次调用共享层，之后每小时一次（UpdateNotifier.h）；有新版本时弹一个临时的通知区域气泡，点它和托盘的「关于」一样打开设置窗口的「关于」页。记录放在本用户的目录（UpdateRecordDirectory.h）而不是状态根：安装后的状态根整台机器共用，几个用户共用一份「提醒过哪个构建」会让后登录的用户收不到通知。拿不到这个目录或建不出窗口时只记一条诊断，不影响输入。
     startup_stage = "update_notifier";
@@ -2465,6 +2476,10 @@ int wmain(int argc, wchar_t **argv) {
         notice("Dictionary sync unavailable; continuing without automatic dictionary sync");
       }
     }
+    startup_stage = "settings_sync";
+    SettingsSyncWorker settings_sync;
+    if (production && !settings_sync.start(true, prepared.at("value")))
+      notice("Settings sync unavailable; continuing without automatic settings sync");
     startup_stage = "message_loop";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
@@ -2617,17 +2632,18 @@ int wmain(int argc, wchar_t **argv) {
       // Push the TSF-local settings whenever they changed, so turning smart
       // punctuation off takes effect on the text being typed now.
       const auto current_tsf_config_revision = tsf_config_revision->snapshot();
-      if (current_tsf_config_revision != tsf_config_applied_revision) {
-        if (const auto view = server.mode_view()) {
-          msime::windows::TsfLocalConfig pending;
-          {
-            std::lock_guard<std::mutex> lock(*tsf_config_mutex);
-            pending = *tsf_config;
-          }
-          if (server.send_tsf_config(pending))
-            if (tsf_config_revision->is_current(current_tsf_config_revision))
-              tsf_config_applied_revision = current_tsf_config_revision;
+      const auto current_tsf_tickets = server.current_tsf_tickets();
+      if (tsf_config_delivery.needs_send(current_tsf_config_revision, current_tsf_tickets)) {
+        // 配置属于每条已注册的 TSF 管道，不依赖当前是否已经建立焦点会话。
+        // 开始菜单、搜索框等宿主可能在 mode_view() 为空时先完成注册；若在这里等待焦点，TIP 会一直保留编译时默认值。
+        msime::windows::TsfLocalConfig pending;
+        {
+          std::lock_guard<std::mutex> lock(*tsf_config_mutex);
+          pending = *tsf_config;
         }
+        if (server.send_tsf_config(pending) &&
+            tsf_config_revision->is_current(current_tsf_config_revision))
+          tsf_config_delivery.mark_sent(current_tsf_config_revision, current_tsf_tickets);
       }
       // One CN/EN state follows the user between applications when the scope
       // is global. Each TSF client keeps its own mode, so a newly focused one
@@ -2836,6 +2852,7 @@ int wmain(int argc, wchar_t **argv) {
       update_notifier->stop();
     // 自动同步同理：正在联网时最多等两秒，之后放手。
     dictionary_sync->stop();
+    settings_sync.stop();
     candidates.stop();
     for (auto &line : candidates.take_diagnostics())
       notice(std::move(line));

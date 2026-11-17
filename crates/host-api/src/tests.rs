@@ -1046,6 +1046,9 @@ fn traditional_variant_conversion_boundary_selects_the_configuration() {
         unsafe { msime_client_string_free(raw) };
         Some(text)
     };
+    assert_eq!(convert("吃".as_bytes(), 0).as_deref(), Some("喫"));
+    assert_eq!(convert("吃".as_bytes(), 1).as_deref(), Some("吃"));
+    assert_eq!(convert("吃".as_bytes(), 2).as_deref(), Some("吃"));
     assert_eq!(
         convert("软件里面".as_bytes(), 0).as_deref(),
         Some("軟件裏面")
@@ -2632,6 +2635,65 @@ fn nine_key_shuangpin_layout(request: Value) -> Value {
     read(unsafe { msime_client_nine_key_shuangpin_layout(request.as_ptr(), request.len()) })
 }
 
+fn shuangpin_custom_layout(request: Value) -> Value {
+    let request = request.to_string();
+    read(unsafe { msime_client_shuangpin_custom_layout(request.as_ptr(), request.len()) })
+}
+
+#[test]
+fn shuangpin_custom_layouts_share_tables_problems_and_key_hints() {
+    let xiaohe = shuangpin_custom_layout(json!({ "profile": "xiaohe" }));
+    assert_eq!(xiaohe["ok"], true, "{xiaohe}");
+    let value = &xiaohe["value"];
+    assert_eq!(value["effective"], "xiaohe");
+    assert_eq!(value["table"]["finals"]["ing"], "k");
+    assert_eq!(value["keys"][0]["key"], "Q");
+    assert_eq!(value["keys"].as_array().unwrap().len(), 26);
+
+    let mut table = custom_shuangpin_table();
+    table.finals.remove("iong");
+    let broken = shuangpin_custom_layout(json!({ "profile": "custom", "table": table }));
+    assert_eq!(broken["value"]["effective"], "xiaohe", "{broken}");
+    assert_eq!(broken["value"]["problem"]["kind"], "missing_unit");
+
+    let valid = shuangpin_custom_layout(json!({
+        "profile": "custom",
+        "table": custom_shuangpin_table()
+    }));
+    assert_eq!(valid["value"]["effective"], "custom", "{valid}");
+    assert_eq!(valid["value"]["problem"], Value::Null);
+    assert_eq!(valid["value"]["keys"][0]["key"], "Q");
+
+    // 只有零声母用到 `;` 的表：`;` 键也要有提示，键盘才会显示这个键。
+    let mut zero_semicolon = builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe).unwrap();
+    zero_semicolon
+        .zero_initials
+        .insert("eng".into(), "e;".into());
+    assert!(!zero_semicolon.finals.values().any(|key| key == ";"));
+    let zero_semicolon =
+        shuangpin_custom_layout(json!({ "profile": "custom", "table": zero_semicolon }));
+    assert_eq!(
+        zero_semicolon["value"]["effective"], "custom",
+        "{zero_semicolon}"
+    );
+    let semicolon = zero_semicolon["value"]["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|face| face["key"] == ";")
+        .unwrap_or_else(|| panic!("no ; key face: {zero_semicolon}"));
+    assert_eq!(semicolon["hint"], "eng");
+
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "unknown" }))["ok"],
+        false
+    );
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "xiaohe", "extra": 1 }))["ok"],
+        false
+    );
+}
+
 /// 键面和编辑器从同一个接口取表：内置方案给出它的表和键面；自定义表给出问题的位置，不能用时键面是回退到的米旮旯 3；不认识的方案名报错。
 #[test]
 fn nine_key_shuangpin_layouts_give_tables_problems_and_key_faces() {
@@ -3512,12 +3574,12 @@ fn korean_hanja_conversion_crosses_the_host_boundary() {
     assert!(refused["value"]["commit"].is_null());
     assert_eq!(refused["value"]["view"]["preedit"], "ㄱ");
 
-    // 17 和 18 是整句改字的光标键，韩文里进不了改字，与字母光标键一样写出音节；19 是宿主自己上屏后的取消（MSIME_CANCEL_AFTER_HOST_COMMIT），20 是宿主替失焦结束组字（MSIME_FINISH_ON_FOCUS_LOSS），是导航命令前的最后一个，下一个编号仍未定义。
+    // 17 和 18 是整句改字的光标键，韩文里进不了改字，与字母光标键一样写出音节；19 是宿主自己上屏后的取消（MSIME_CANCEL_AFTER_HOST_COMMIT），20 是宿主替失焦结束组字（MSIME_FINISH_ON_FOCUS_LOSS），21 是快捷短语入口；导航命令前的 99 仍未定义。
     let left = read(msime_client_command(handle, 17));
     assert_eq!(left["value"]["handled"], false);
     assert_eq!(left["value"]["commit"], "ㄱ");
     assert_eq!(
-        read(msime_client_command(handle, 21))["error"],
+        read(msime_client_command(handle, 99))["error"],
         "unknown input command"
     );
     read(msime_client_destroy(handle));
@@ -3882,6 +3944,46 @@ fn a_malformed_glide_request_fails_without_touching_the_session() {
         false
     );
     assert_eq!(read(msime_client_view(handle))["value"]["editing_text"], "");
+    read(msime_client_destroy(handle));
+}
+
+/// 全拼九键打错键、整串切不成音节时，`View.nine_key_reading` 仍然非空、没有数字，去掉 `'` 后一位对一个已按的键、字母印在那个键上。三端宿主对非空读音原样显示并逐位对上按键，读音为空或带数字时只能退回去画整串数字。
+#[test]
+fn a_mistyped_nine_key_run_still_reads_as_letters_across_the_host_boundary() {
+    const KEY_LETTERS: [&str; 10] = [
+        "", "", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz",
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    assert_eq!(read(msime_client_view(handle))["value"]["nine_key"], true);
+    // 64426 是夹具里的 ni'hao；末尾多按两个 7、中间多按一个 7、第一键按错，三种都切不成音节。
+    for keys in ["6442677", "64742664426", "7764426644267"] {
+        let mut typed = Value::Null;
+        for (count, &key) in keys.as_bytes().iter().enumerate() {
+            typed = read(msime_client_character(handle, key, false));
+            assert_eq!(typed["value"]["handled"], true, "{typed}");
+            // 每按一键都成立，不只是打完之后。
+            let view = &typed["value"]["view"];
+            let reading = view["nine_key_reading"].as_str().unwrap();
+            let letters: Vec<u8> = reading.bytes().filter(|&byte| byte != b'\'').collect();
+            assert_eq!(letters.len(), count + 1, "{keys}: {reading}");
+            for (&letter, &pressed) in letters.iter().zip(keys.as_bytes()) {
+                assert!(
+                    KEY_LETTERS[usize::from(pressed - b'0')]
+                        .as_bytes()
+                        .contains(&letter),
+                    "{keys}: {reading}"
+                );
+            }
+        }
+        assert_eq!(typed["value"]["view"]["editing_text"], keys, "{typed}");
+        read(msime_client_command(handle, 3));
+    }
     read(msime_client_destroy(handle));
 }
 
@@ -7217,6 +7319,42 @@ fn try_preferences_reader_reports_contention_without_defaults() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn load_preferences_reports_unknown_keys_without_values_and_only_once() {
+    let _sink = capture_diagnostics();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_str().unwrap();
+    let document = directory.path().join("preferences.json");
+    let mut value =
+        serde_json::to_value(msime_client_core::preferences::PreferencesSnapshot::default())
+            .unwrap();
+    value["preferences"]["synthetic_unknown_preferences_path"] = "synthetic-secret".into();
+    std::fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+
+    let first = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(first["ok"], true, "{first}");
+    let reports = captured_diagnostics("synthetic_unknown_preferences_path");
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(!reports[0].contains("synthetic-secret"), "{reports:?}");
+
+    let second = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(
+        captured_diagnostics("synthetic_unknown_preferences_path").len(),
+        1
+    );
+
+    value["preferences"]["synthetic_second_unknown_path"] = true.into();
+    std::fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
+    let third = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(third["ok"], true, "{third}");
+    assert_eq!(
+        captured_diagnostics("synthetic_unknown_preferences_path").len(),
+        2
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn recover_preferences_backs_up_malformed_documents_only() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().to_str().unwrap();
@@ -8975,6 +9113,8 @@ fn start_settled_rerank_without_a_model_finishes_on_the_caller() {
     assert_eq!(result["value"]["moved"], false);
     assert_eq!(result["value"]["current"], true);
     assert!(result["value"].get("view").is_none());
+    // 没挂延后到停顿的模型：宿主照落定重排的节奏等 150 ms 再起跑。
+    assert_eq!(result["value"]["deferred"], false);
 
     let missing = read(msime_client_poll_settled_rerank(handle, 0, true));
     assert_eq!(missing["value"]["status"], "done");
@@ -9110,7 +9250,7 @@ fn the_session_scorer_primes_the_context_off_the_keystroke() {
     }
 }
 
-/// 跑不进逐键预算的 ONNX 模型只在停顿时重解的宿主（鸿蒙，HostOptions 的 `pause_rerank`）上延后到停顿；只挂按键的宿主照旧，超过逐键上限就不挂。
+/// ONNX 模型只在停顿时重解的宿主（鸿蒙、安卓的键盘和 macOS 输入法，HostOptions 的 `pause_rerank`）上延后到停顿：手机上是跑不进逐键预算的，桌面上一律延后；只挂按键的宿主照旧，超过逐键上限就不挂。
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
@@ -9118,8 +9258,22 @@ fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
     let slow = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS + 1.0;
     let fast = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS;
     assert!(defers_to_pause(RerankerMount::KeystrokeOrPause, slow));
-    assert!(!defers_to_pause(RerankerMount::KeystrokeOrPause, fast));
+    // 桌面上停顿时重解的宿主不看一页的自测，总是延后：一页自测在桌面上预测不了真实的逐键开销。手机上一页够快就挂在按键上。
+    let desktop = cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ));
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, fast),
+        desktop
+    );
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, 0.0),
+        desktop
+    );
     assert!(!defers_to_pause(RerankerMount::Keystroke, slow));
+    assert!(!defers_to_pause(RerankerMount::Keystroke, 0.0));
     assert!(!defers_to_pause(RerankerMount::Off, slow));
     // 停顿时重解的宿主对加载放得更宽：设备刚装完应用、忙的那一刻自测会超过逐键上限。
     const { assert!(ffi::PAUSE_RERANK_LIMIT_MS > ffi::KEYSTROKE_RERANK_LIMIT_MS) };
@@ -21337,6 +21491,8 @@ fn wubi_reads_the_bundled_table_then_the_downloaded_pack_and_falls_back_without_
         on_demand,
         cfg!(any(
             target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
             target_os = "android",
             target_os = "ios",
             target_env = "ohos"

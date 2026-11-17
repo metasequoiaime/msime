@@ -308,14 +308,15 @@ test("Harmony uses the mobile account flow instead of desktop account controls",
   expect(window.history.state).toMatchObject({ accountSubpage: "profile" });
 });
 
-test("mobile account restores a subpage already represented by history", async () => {
+test("Harmony ignores the removed download subpage from stale history", async () => {
   window.history.replaceState(
     { msimeSettings: true, page: "account", accountSubpage: "download" },
     "",
   );
-  harmonyMe({ client: account(), desktopDownloadUrl: "https://msime.app/download/" });
+  harmonyMe({ client: account() });
 
-  expect(await screen.findByRole("heading", { name: "其他平台下载" })).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "未登录，点按登录" })).not.toBeNull();
+  expect(screen.queryByRole("heading", { name: "其他平台下载" })).toBeNull();
 });
 
 test("Harmony 2-in-1 uses desktop account controls even though its platform is Harmony", async () => {
@@ -1048,6 +1049,20 @@ test("mobile 我的 follows the design's groups: tools, content, then the walkth
   expect(screen.queryByRole("button", { name: "重新查看新手引导" })).toBeNull();
 });
 
+test.each(["android", "ios"] as const)(
+  "%s 我的 keeps the cross-platform download entry",
+  async (platform) => {
+    const openDownload = vi.fn();
+    render(
+      <AccountPage client={account()} platform={platform} onOpenDesktopDownload={openDownload} />,
+    );
+
+    const tools = within(await screen.findByRole("region", { name: "工具" }));
+    fireEvent.click(tools.getByRole("button", { name: "其他平台下载" }));
+    expect(openDownload).toHaveBeenCalledOnce();
+  },
+);
+
 test("a touch host without an account client still reaches help and about from 我的", () => {
   const openFeedback = vi.fn();
   const openAbout = vi.fn();
@@ -1696,7 +1711,6 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
     onOpenPage,
     onOpenUrl,
     appTheme: appThemeClient(),
-    desktopDownloadUrl: "https://msime.app/download/",
     appVersion: "1.2.3",
     onOpenCloudDictionary: record("dictionary"),
     onOpenCloudClipboard: record("clipboard"),
@@ -1739,7 +1753,7 @@ test("Harmony 我的 groups its rows with real values and destinations", async (
   expect(onOpenPage).toHaveBeenLastCalledWith("privacy");
   expect(onOpenUrl).not.toHaveBeenCalledWith("https://msime.app/privacy/");
 
-  expect(screen.getByRole("button", { name: "其他平台下载" }).textContent).toContain("7 个平台");
+  expect(screen.queryByRole("button", { name: "其他平台下载" })).toBeNull();
   expect(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }).textContent).toContain("1.2.3");
   fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: /^(关于|关于水杉)$/ }));
@@ -1780,43 +1794,17 @@ test("Harmony 应用主题 saves the theme chosen in its action sheet", async ()
   expect(screen.getByRole("button", { name: "应用主题" }).textContent).toContain("冬雪");
 });
 
-test("Harmony 其他平台下载 is a pushed page that copies and opens the one download page", async () => {
-  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+test("Harmony 我的 does not expose the cross-platform download entry", async () => {
   const onOpenUrl = vi.fn();
-  const copyText = vi.fn().mockResolvedValue(undefined);
   harmonyMe({
     client: account(),
     onOpenUrl,
-    copyText,
-    desktopDownloadUrl: "https://msime.app/download/",
   });
 
-  fireEvent.click(await screen.findByRole("button", { name: "其他平台下载" }));
-  expect(await screen.findByRole("heading", { name: "其他平台下载" })).not.toBeNull();
-  expect(window.history.state).toMatchObject({ accountSubpage: "download" });
-  expect(screen.getByText("msime.app/download")).not.toBeNull();
-
-  fireEvent.click(screen.getByRole("button", { name: "复制下载页链接" }));
-  expect(copyText).toHaveBeenCalledWith("https://msime.app/download/");
-  expect(await screen.findByText("已复制下载链接")).not.toBeNull();
-  expect(screen.getByRole("button", { name: "已复制下载页链接" }).textContent).toBe("已复制");
-
-  const desktop = within(screen.getByRole("region", { name: "电脑" }));
-  expect(desktop.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(
-    ["获取，HarmonyOS 2in1", "获取，Windows", "获取，macOS", "获取，Linux"],
-  );
-  fireEvent.click(desktop.getByRole("button", { name: "获取，Windows" }));
-  expect(onOpenUrl).toHaveBeenCalledWith("https://msime.app/download/");
-  const phones = within(screen.getByRole("region", { name: "手机和平板" }));
-  expect(phones.queryByRole("button", { name: "获取，HarmonyOS" })).toBeNull();
-  expect(phones.getByText("当前设备")).not.toBeNull();
-  expect(screen.queryByText("发送链接")).toBeNull();
-
-  act(() => {
-    window.history.replaceState({ msimeSettings: true, page: "account" }, "");
-    window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
-  });
-  expect(await screen.findByRole("button", { name: "其他平台下载" })).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "未登录，点按登录" })).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "其他平台下载" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "其他平台下载" })).toBeNull();
+  expect(onOpenUrl).not.toHaveBeenCalled();
 });
 
 test("Harmony 个人资料 lists the account, copies its ID, renames in a sheet and signs out", async () => {

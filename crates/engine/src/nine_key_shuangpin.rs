@@ -788,7 +788,7 @@ pub fn nine_key_shuangpin(
     Ok(leaked)
 }
 
-/// 将已解析的 26 键双拼方案投到字母组；分号与 L 共键，缓存同时区分方案和布局。九键用户表的数字校验不变。
+/// 将已解析的 26 键双拼方案投到字母组；分号与 L 共键，缓存同时区分方案和布局。两种布局都派生整组与大写精确字母的混合编码。九键用户表的数字校验不变。
 fn letter_key_shuangpin(
     profile: &'static crate::shuangpin::ShuangpinProfile,
     eighteen_key: bool,
@@ -858,41 +858,39 @@ fn letter_key_shuangpin(
             })
             .collect::<Option<Vec<_>>>()?,
     };
-    if eighteen_key {
-        // 原方案的单字母键用大写标记精确输入；整组编码仍排在前面，默认编码不变。
-        for &unit in &INITIALS {
-            let raw = if unit.len() == 1 {
-                unit.as_bytes()[0]
-            } else {
-                profile
-                    .initials
-                    .iter()
-                    .find(|(name, _)| *name == unit)?
-                    .1
-                    .as_bytes()[0]
-            };
-            canonical.initials.push((unit, raw.to_ascii_uppercase()));
-        }
-        for &unit in &FINALS {
-            let raw = profile
-                .finals
+    // 14 键和 18 键都用大写标记原方案的单个精确字母；整组编码仍排在前面，默认编码不变。
+    for &unit in &INITIALS {
+        let raw = if unit.len() == 1 {
+            unit.as_bytes()[0]
+        } else {
+            profile
+                .initials
                 .iter()
                 .find(|(name, _)| *name == unit)?
                 .1
-                .as_bytes()[0];
-            if raw.is_ascii_lowercase() {
-                canonical.finals.push((unit, raw.to_ascii_uppercase()));
-            }
+                .as_bytes()[0]
+        };
+        canonical.initials.push((unit, raw.to_ascii_uppercase()));
+    }
+    for &unit in &FINALS {
+        let raw = profile
+            .finals
+            .iter()
+            .find(|(name, _)| *name == unit)?
+            .1
+            .as_bytes()[0];
+        if raw.is_ascii_lowercase() {
+            canonical.finals.push((unit, raw.to_ascii_uppercase()));
         }
-        for &(unit, raw) in profile.zero_initials {
-            let [first, second] = *raw.as_bytes() else {
-                return None;
-            };
-            let group = [key(first)?, key(second)?];
-            for pair in precise_pair_variants([first, second], group) {
-                if !canonical.zero_initials.contains(&(unit, pair)) {
-                    canonical.zero_initials.push((unit, pair));
-                }
+    }
+    for &(unit, raw) in profile.zero_initials {
+        let [first, second] = *raw.as_bytes() else {
+            return None;
+        };
+        let group = [key(first)?, key(second)?];
+        for pair in precise_pair_variants([first, second], group) {
+            if !canonical.zero_initials.contains(&(unit, pair)) {
+                canonical.zero_initials.push((unit, pair));
             }
         }
     }
@@ -908,12 +906,7 @@ fn letter_key_shuangpin(
                 continue;
             };
             let group = [key(first)?, key(second)?];
-            let variants = if eighteen_key {
-                precise_pair_variants([first, second], group).to_vec()
-            } else {
-                vec![group]
-            };
-            for code in variants {
+            for code in precise_pair_variants([first, second], group) {
                 if table.codes.get(syllable) != Some(&code) {
                     let aliases = table.aliases.entry(syllable).or_default();
                     if !aliases.contains(&code) {
@@ -1116,9 +1109,28 @@ mod tests {
         }
     }
 
+    /// 含大写的编码只收原方案的对应读法：每个这样的编码查到的音节，正好是原方案里与它相容的两键读法（大写那一位等于原字母，小写那一位与原字母同组）；两位都大写时只有一个。14 键和 18 键相同，内置表与等价的自定义表相同。
     #[test]
-    fn eighteen_key_exact_pairs_match_only_the_source_profile() {
+    fn letter_grid_exact_codes_match_only_compatible_source_pairs() {
         use crate::types::ShuangpinProfileKind;
+        use std::collections::{BTreeMap, BTreeSet};
+        type Resolve = fn(
+            ShuangpinProfileKind,
+            Option<&crate::ShuangpinCustomTable>,
+        ) -> crate::Result<&'static NineKeyShuangpin>;
+        type Layout<'a> = (&'a str, Resolve, &'a dyn Fn(u8) -> u8);
+        let fourteen_group = |letter: u8| {
+            if letter == b';' {
+                b'l'
+            } else {
+                crate::KeyGrid::FourteenKey.code_of(letter).unwrap()
+            }
+        };
+        let eighteen_group = |letter: u8| crate::nine_key::eighteen_key_code(letter).unwrap();
+        let layouts: [Layout; 2] = [
+            ("14", resolve_fourteen_key_shuangpin, &fourteen_group),
+            ("18", resolve_eighteen_key_shuangpin, &eighteen_group),
+        ];
         for kind in [
             ShuangpinProfileKind::Xiaohe,
             ShuangpinProfileKind::Ziranma,
@@ -1128,31 +1140,72 @@ mod tests {
         ] {
             let profile = crate::shuangpin::profile::profile(kind).unwrap();
             let custom = crate::shuangpin::custom::builtin_table(kind).unwrap();
-            for table in [
-                resolve_eighteen_key_shuangpin(kind, None).unwrap(),
-                resolve_eighteen_key_shuangpin(ShuangpinProfileKind::Custom, Some(&custom))
-                    .unwrap(),
-            ] {
+            for (layout, resolve, group) in layouts {
+                let choices = |letter: u8| {
+                    let mut choices = vec![group(letter)];
+                    if letter.is_ascii_lowercase() {
+                        choices.push(letter.to_ascii_uppercase());
+                    }
+                    choices
+                };
+                let mut expected: BTreeMap<[u8; 2], BTreeSet<String>> = BTreeMap::new();
                 for first in b'a'..=b'z' {
-                    for second in b'a'..=b'z' {
+                    for second in (b'a'..=b'z').chain(std::iter::once(b';')) {
                         let raw = String::from_utf8(vec![first, second]).unwrap();
-                        let expected =
+                        let syllable =
                             crate::shuangpin::utils::cvt_single_sp_to_pinyin(&raw, profile);
-                        let exact = [first.to_ascii_uppercase(), second.to_ascii_uppercase()];
-                        let found: Vec<_> = table
-                            .coded_syllables()
-                            .filter(|(_, code)| **code == exact)
-                            .map(|(syllable, _)| syllable)
-                            .collect();
-                        if expected.is_empty() {
-                            assert!(found.is_empty(), "{kind:?} {raw}: {found:?}");
-                        } else {
-                            assert_eq!(found, [expected.as_str()], "{kind:?} {raw}");
+                        if syllable.is_empty() {
+                            continue;
+                        }
+                        for left in choices(first) {
+                            for right in choices(second) {
+                                if left.is_ascii_uppercase() || right.is_ascii_uppercase() {
+                                    expected
+                                        .entry([left, right])
+                                        .or_default()
+                                        .insert(syllable.clone());
+                                }
+                            }
                         }
                     }
                 }
+                assert!(
+                    expected
+                        .iter()
+                        .filter(|(code, _)| code.iter().all(u8::is_ascii_uppercase))
+                        .all(|(_, syllables)| syllables.len() == 1),
+                    "{kind:?} {layout}"
+                );
+                for table in [
+                    resolve(kind, None).unwrap(),
+                    resolve(ShuangpinProfileKind::Custom, Some(&custom)).unwrap(),
+                ] {
+                    let mut found: BTreeMap<[u8; 2], BTreeSet<String>> = BTreeMap::new();
+                    for (syllable, code) in table.coded_syllables() {
+                        if code.iter().any(u8::is_ascii_uppercase) {
+                            found.entry(*code).or_default().insert(syllable.to_owned());
+                        }
+                    }
+                    assert_eq!(found, expected, "{kind:?} {layout}");
+                }
             }
         }
+    }
+
+    /// 只打了声母那一位时，大写的精确声母只收这个字母起头的读法；14 键的整组 `b` 同时是 b 和 n。
+    #[test]
+    fn fourteen_key_exact_initial_narrows_the_one_key_piece() {
+        use crate::types::ShuangpinProfileKind;
+        let table = resolve_fourteen_key_shuangpin(ShuangpinProfileKind::Xiaohe, None).unwrap();
+        assert_eq!(table.matching_prefix_len("ni", "b"), Some(1));
+        assert_eq!(table.matching_prefix_len("bi", "b"), Some(1));
+        assert_eq!(table.matching_prefix_len("ni", "N"), Some(1));
+        assert_eq!(table.matching_prefix_len("bi", "N"), None);
+        assert_eq!(table.piece_code_len("n", "N"), Some(1));
+        assert_eq!(table.piece_code_len("b", "N"), None);
+        assert_eq!(table.matching_prefix_len("ni", "Nu"), Some(2));
+        assert_eq!(table.matching_prefix_len("ni", "NU"), None);
+        assert_eq!(table.matching_prefix_len("nu", "NU"), Some(2));
     }
 
     #[test]

@@ -54,6 +54,7 @@ public final class GridKeyGesturePolicy {
         private final boolean hasSymbol;
         private String direction;
         private boolean tapsOnly;
+        private boolean disabledVerticalSwipe;
         private int pointer;
         private float downX;
         private float downY;
@@ -61,7 +62,7 @@ public final class GridKeyGesturePolicy {
         private char selected;
 
         /**
-         * @param exactLetters 横滑可限定的两个小写字母（18 键双拼的两字母键）；null 表示这个键没有横滑
+         * @param exactLetters 横滑可限定的两个小写字母（14/18 键全拼和双拼的两字母键，见 {@link EighteenKeySwipePolicy#exactLetters}）；null 表示这个键没有横滑
          * @param hasSymbol 这个键有角标符号
          */
         public Gesture(String exactLetters, boolean hasSymbol) {
@@ -81,6 +82,7 @@ public final class GridKeyGesturePolicy {
             downY = y;
             direction = symbolDirection;
             tapsOnly = composing;
+            disabledVerticalSwipe = false;
             mode = Mode.PENDING;
             selected = 0;
         }
@@ -122,6 +124,9 @@ public final class GridKeyGesturePolicy {
                 mode = Mode.SYMBOL;
             } else if (!tapsOnly && vertical(opposite(direction), dx, dy)) {
                 mode = Mode.OPTIONS;
+            } else if (direction == null && (vertical(SwipeHintPolicy.UP, dx, dy)
+                    || vertical(SwipeHintPolicy.DOWN, dx, dy))) {
+                disabledVerticalSwipe = true;
             }
             return mode != before;
         }
@@ -148,9 +153,9 @@ public final class GridKeyGesturePolicy {
         public boolean consumed() { return mode != Mode.PENDING; }
 
         /**
-         * 松手时是否要由手势补一次普通点按：组字中没有触发手势的按压一律算一次点按，即使位移让按钮自己取消了点击。空闲时交给按钮，返回 false。
+         * 松手时是否要由手势补一次普通点按：组字中或关闭符号滑动后的纵滑，即使位移让按钮取消点击，也仍按一次点按处理。其他空闲按压交给按钮。
          */
-        public boolean forcesTap() { return mode == Mode.PENDING && tapsOnly; }
+        public boolean forcesTap() { return mode == Mode.PENDING && (tapsOnly || disabledVerticalSwipe); }
 
         private boolean invalid(int pointerId, int pointers, float x, float y) {
             return pointers != 1 || pointerId != pointer || !Float.isFinite(x) || !Float.isFinite(y);
