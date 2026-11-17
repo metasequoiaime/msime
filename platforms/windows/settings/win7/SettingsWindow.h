@@ -87,7 +87,7 @@ enum ControlId {
   statistics_enabled = 1800, statistics_privacy, statistics_retention, statistics_upload,
   statistics_upload_notice, statistics_overview, statistics_scope, statistics_chart_kind,
   statistics_chart, statistics_chart_text, statistics_days, statistics_day_detail,
-  statistics_notice, statistics_reset, statistics_calendar, statistics_speed,
+  statistics_notice, statistics_reset, statistics_calendar, statistics_speed, statistics_key_language,
   account_qq_refresh = 1900, account_qq_list, account_qq_code, account_qq_redeem,
   account_qq_remove, account_qq_notice, account_devices_refresh, account_devices_list,
   account_device_detail, account_device_revoke, account_devices_notice,

@@ -96,6 +96,8 @@
 #include "TranslationServiceSettings.h"
 #include "TypingStatisticsModel.h"
 #include "TypingAchievementsView.h"
+#include "TypingKeyLanguagesData.h"
+#include "TypingKeyLanguagePicker.h"
 #include "VoiceSettings.h"
 #include "../src/input/ToggleHotkeyChord.h"
 #include "msime_client.h"
@@ -3307,6 +3309,7 @@ namespace typing = msime::settings::typing;
 struct StatisticsStatus {
   typing::Statistics statistics;
   std::optional<typing::AchievementsSnapshot> achievements;
+  typing::DailyKeyLanguages key_languages;
   bool never_written = true;
   std::optional<uint64_t> last_written_ms;
   std::string signature;
@@ -3409,6 +3412,9 @@ std::optional<StatisticsStatus> statistics_status(Response const &response) {
     if (const auto keys = named(L"dailyKeys"); keys.ValueType() == JsonValueType::Object)
       for (auto const &entry : keys.GetObject())
         statistics.daily_keys[utf8(entry.Key())] = statistics_counts(entry.Value());
+    const auto languages = typing::key_languages_from_winrt(named(L"dailyKeyLanguages"));
+    if (!languages) return std::nullopt;
+    status.key_languages = std::move(*languages);
     return status;
   } catch (...) {
     return std::nullopt;
@@ -19532,6 +19538,7 @@ private:
     stats_day_.reset();
     stats_selected_.reset();
     stats_tab_ = L"keys";
+    stats_key_language_ = "all";
     stats_calendar_offset_ = 0;
     stats_details_offset_ = 0;
     stats_upload_.reset();
@@ -20349,8 +20356,13 @@ private:
   // 「按键热力图」：当前范围内每个键按了多少次，画在记下这些次数的那种键盘上。
   void stats_keys(StackPanel const &page, typing::Statistics const &statistics,
                   std::optional<std::vector<std::string>> const &scope, std::wstring const &scope_label) {
-    const auto model = typing::keyboard_model(typing::scoped_key_counts(statistics.daily_keys, scope));
+    const typing::KeyLanguageSnapshot languages(statistics.daily_keys, stats_->key_languages, scope);
+    stats_key_language_ = languages.resolved(stats_key_language_);
+    const auto model = typing::keyboard_model(languages.counts(stats_key_language_));
     auto body = stats_section(page, L"按键热力图 · " + scope_label);
+    typing::append_key_language_picker(body, languages, stats_key_language_,
+        [this](std::wstring const &title) { return make_text(title, 13, palette_.text); },
+        [this](std::string const &language) { stats_key_language_ = language; redraw_stats(); });
     if (model.total == 0) {
       body.Children().Append(stats_empty(L"这段时间还没有按键记录"));
     } else {
@@ -28189,6 +28201,7 @@ private:
   std::optional<std::string> stats_selected_;
   std::optional<std::string> stats_day_;
   std::wstring stats_tab_ = L"keys";
+  std::string stats_key_language_ = "all";
   // 日历热力图和按日明细的横向滚动位置，跨重画保留。
   double stats_calendar_offset_ = 0;
   double stats_details_offset_ = 0;

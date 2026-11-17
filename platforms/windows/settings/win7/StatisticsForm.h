@@ -3,6 +3,7 @@
 #include "ControlText.h"
 #include "SettingsWindow.h"
 #include "StatisticsData.h"
+#include "StatisticsKeyLanguagePicker.h"
 #include <commctrl.h>
 #include <functional>
 #include <map>
@@ -49,6 +50,7 @@ public:
     control(statistics_speed, L"STATIC", L"每日速度", SS_OWNERDRAW | WS_BORDER, 200);
     combo(statistics_scope, L"查看范围", {L"整个保留期", L"最近 7 天", L"最近 30 天", L"选中的一天"});
     combo(statistics_chart_kind, L"图表", {L"按键", L"趋势", L"类型", L"模式", L"方案", L"候选", L"成就"});
+    combo(statistics_key_language, L"按键语言", {L"全部"});
     control(statistics_chart, L"STATIC", L"统计图表", SS_OWNERDRAW | WS_BORDER, 320);
     control(statistics_chart_text, L"EDIT", L"", WS_TABSTOP | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_READONLY, 240);
     control(-1, L"STATIC", L"逐日明细（选择一天后可切换范围）", SS_LEFT, 48);
@@ -62,6 +64,8 @@ public:
     enabled_ = enabled;
     for (const auto& item : controls_) EnableWindow(item.second, enabled && status_.has_value());
     EnableWindow(get(statistics_upload), enabled && upload_.has_value() && (upload_->signed_in || upload_->enabled));
+    EnableWindow(get(statistics_key_language), enabled && status_.has_value()
+        && SendMessageW(get(statistics_chart_kind), CB_GETCURSEL, 0, 0) == 0);
   }
   bool loaded() const { return status_.has_value(); }
   void completed(const Json& response) {
@@ -115,6 +119,9 @@ public:
     if (!controls_.count(id)) return {};
     Command result; result.handled = true;
     if (!enabled_ || !status_) return result;
+    if (notice == CBN_SELCHANGE && id == statistics_key_language) {
+      key_language_picker_.choose(get(id)); update_chart(); return result;
+    }
     if (notice == CBN_SELCHANGE && (id == statistics_chart_kind || id == statistics_scope)) { update_chart(); return result; }
     if (id == statistics_days && notice == LBN_SELCHANGE) {
       const auto selected = SendMessageW(get(id), LB_GETCURSEL, 0, 0);
@@ -210,10 +217,14 @@ private:
     const auto kind = SendMessageW(get(statistics_chart_kind), CB_GETCURSEL, 0, 0);
     const auto& statistics = status_->statistics;
     const auto keys = scope();
-    keyboard_ = statistics_model::keyboard_model(statistics_model::scoped_key_counts(statistics.daily_keys, keys));
+    const statistics_model::KeyLanguageSnapshot languages(statistics.daily_keys, status_->key_languages, keys);
+    key_language_picker_.update(get(statistics_key_language), languages);
+    const auto& key_counts = languages.counts(key_language_picker_.selection());
+    keyboard_ = statistics_model::keyboard_model(key_counts);
+    EnableWindow(get(statistics_key_language), enabled_ && kind == 0);
     const auto detail = statistics_model::scoped_breakdown(statistics, keys);
     if (kind == 0) {
-      for (const auto& key : statistics_model::scoped_key_counts(statistics.daily_keys, keys))
+      for (const auto& key : key_counts)
         chart_rows_.push_back({key.first, statistics_model::key_label(key.first), key.second, statistics_model::chart_palette[0], L""});
     } else if (kind == 1) {
       auto days = keys.value_or(std::vector<std::string>{});
@@ -250,6 +261,7 @@ private:
   std::optional<statistics_data::Status> status_;
   std::optional<msime::settings::typing::UploadStatus> upload_;
   std::optional<std::string> selected_day_;
+  StatisticsKeyLanguagePicker key_language_picker_;
   std::vector<msime::settings::typing::DailyDetailRow> days_;
   std::vector<msime::settings::typing::Slice> chart_rows_;
   msime::settings::typing::KeyboardModel keyboard_;
