@@ -1,4 +1,5 @@
 import app.msime.android.InputSchemeTraits;
+import app.msime.android.KeyboardLayout;
 import app.msime.android.SpellingEditorPolicy;
 
 /** 编辑开关只移除空入口行，读音、状态及非拼写方案不受影响。 */
@@ -27,6 +28,13 @@ public final class SpellingEditorPolicySmoke {
             check(SpellingEditorPolicy.reserveHeader(false, scheme, false, false, "", "", true),
                 "退出模式等动作必须可达");
         }
+        // 读音行常驻只给 14/18 键（拼音条在读音行上）；九键、26 键和英文键盘（屏幕上是 26 键）不常驻。
+        check(SpellingEditorPolicy.keyboardReadingRow(KeyboardLayout.FOURTEEN_KEY_LAYOUT), "14 键从空闲起预留读音行");
+        check(SpellingEditorPolicy.keyboardReadingRow(KeyboardLayout.EIGHTEEN_KEY_LAYOUT), "18 键从空闲起预留读音行");
+        check(!SpellingEditorPolicy.keyboardReadingRow(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT),
+            "九键与 26 键一样不预留读音行");
+        check(!SpellingEditorPolicy.keyboardReadingRow(KeyboardLayout.STANDARD_TOUCH_LAYOUT),
+            "26 键和英文键盘不预留读音行");
         check(SpellingEditorPolicy.reserveHeader(false, InputSchemeTraits.JAPANESE,
             false, true, "", "", false), "日语候选行保持原布局");
     }

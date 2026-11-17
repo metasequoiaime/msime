@@ -3178,7 +3178,12 @@ int main(int argc, char **argv) {
             "clipboard history management menu attached");
     require(engine.cloud_clipboard_menu_.actions().size() == 5,
             "cloud clipboard menu attached");
-    require(engine.desktop_tools_menu_.actions().size() == 7,
+    require(engine.desktop_tools_menu_.actions().size() ==
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+                8,
+#else
+                7,
+#endif
             "desktop tools menu attached");
     // 状态区按 macOS 输入法菜单的顺序：中文输入、英文候选模式；繁体、全角、标点、译文；输入方案、主题；显示工具栏与工具栏子菜单、表情面板、云剪贴板、云词库、屏幕键盘、手写、语音；设置、关于；之后才是 Linux 独有的词库…。
     {

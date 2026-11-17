@@ -141,6 +141,7 @@ class Workspace(unittest.TestCase):
             "HOME": str(self.work),
             "GH_TOKEN": "synthetic",
             "GH_STORE": str(self.store),
+            "EDITIONS": getattr(self, "selected_editions", ",".join(entry["id"] for entry in windows_table())),
             "VERSION": "1.1.0",
             "RELEASE": release,
             "PRERELEASE": "false",
@@ -208,6 +209,26 @@ class PublishStepTests(Workspace):
         self.assertEqual(sorted(line.split("  ", 1)[1] for line in sums), sorted(installers), "SHA256SUMS lists exactly the installers")
         for line in sums:
             self.assertEqual(line, sha256_line(self.dist / line.split("  ", 1)[1]))
+
+    def test_full_only_publishes_one_installer_and_its_sidecar(self):
+        self.selected_editions = "full"
+        installer = "MetasequoiaIME-Full_Setup_v1.1.0.exe"
+        keep = {installer, f"{installer}.sha256", "msime-windows-full-1.1.0-symbols.zip"}
+        for path in self.dist.iterdir():
+            if path.name not in keep:
+                path.unlink()
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.published()[2:]), sorted([installer, f"{installer}.sha256", "SHA256SUMS"]))
+        notes = (self.work / "published-notes.md").read_text(encoding="utf-8")
+        self.assertIn(installer, notes)
+        self.assertNotIn("MetasequoiaIME-Wubi_Setup", notes)
+
+    def test_full_selection_rejects_extra_edition_artifacts(self):
+        self.selected_editions = "full"
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.work / "published.txt").exists())
 
     def test_notes_start_with_the_download_guide(self):
         result = self.publish()

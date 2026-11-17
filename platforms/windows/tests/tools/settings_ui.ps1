@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
+. (Join-Path $PSScriptRoot 'settings_capture.ps1')
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -1320,7 +1321,7 @@ function Invoke-WubiLookup($window, [string]$text, [string]$header) {
     return $content
 }
 function Save-Window($element, [string]$file) {
-    $bounds = $element.Current.BoundingRectangle
+    $bounds = Get-SettingsCaptureBounds $element
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
     $bitmap = New-Object Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
     $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -1613,6 +1614,8 @@ try {
                     $back.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
                     Select-PageTab $window 'lexicon-tab-manage' '导入与导出'
                     Select-PageTab $window 'lexicon-tab-cloud' '打开云词库'
+                    $cloudClear = Find-ById $window 'lexicon-clear-cloud-quick-phrases'
+                    if (-not $cloudClear -or -not $cloudClear.Current.IsEnabled -or $cloudClear.Current.IsOffscreen) { throw '云端快捷短语清空入口不可见或不可用' }
                     Save-Window $window "$theme-$width-lexicon-cloud.png"
                     Select-PageTab $window 'lexicon-tab-lookup' '词条或编码'
                 }

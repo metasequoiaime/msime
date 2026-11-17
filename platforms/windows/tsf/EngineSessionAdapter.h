@@ -1,5 +1,6 @@
 #pragma once
 #include "msime_client.h"
+#include "KeyTypingSource.h"
 #include <memory>
 #include <optional>
 namespace msime::windows { class HostOnlineCandidateSync; }
@@ -62,6 +63,10 @@ public:
   bool create(const std::string &, std::string *);
   void destroy() noexcept;
   bool valid() const noexcept { return session_ != 0; }
+  msime::windows::TypingSource key_typing_source(int scheme, bool dedicated,
+                                                bool chinese) const noexcept {
+    return key_typing_source_.source(scheme, dedicated, chinese);
+  }
   bool character(uint8_t, bool, std::string *, std::string *);
   bool panel_character(uint8_t, bool, bool, std::string *, std::string *);
   bool command(uint32_t, std::string *, std::string *);
@@ -92,6 +97,7 @@ public:
   bool reload_preferences(const std::string &, std::string *, std::string *);
 private:
   bool response(char *, std::string *, std::string *) const;
+  mutable KeyTypingSource key_typing_source_;
   uint64_t session_ = 0;
   std::unique_ptr<msime::windows::HostOnlineCandidateSync> online_;
 };

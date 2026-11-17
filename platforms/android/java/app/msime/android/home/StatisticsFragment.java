@@ -42,6 +42,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.NumberPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsModel;
+import app.msime.android.TypingKeyLanguages.Language;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Achievement;
 import app.msime.android.TypingStatisticsSummary.Habits;
@@ -60,14 +61,14 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 统计 tab：分段 概览 / 习惯 / 按键 / 成就，数字全部来自共享统计库的 `summary` 操作（口径在 Rust），页面只排版。
+ * 统计 tab：分段 概览 / 习惯 / 按键 / 成就 / 明细，数字全部来自共享统计库的 `summary` 操作（口径在 Rust），页面只排版。
  *
  * <p>统计只保存聚合计数，不保存输入内容，所以设计里的「常用词」「最常打错」两张卡不做：它们需要记下用户打过的词。记录开关、保留期、刷新和清空收在右上角的菜单里。没有读到数据时页面明说，不拿 0 或示例数字填。
  */
 public final class StatisticsFragment extends HomeTabFragment {
     /** 页面上的分段；和 {@link TypingStatisticsModel.Section} 无关，那是旧分布图的枚举，设备测试 APK 仍编译它。 */
     private enum Tab {
-        OVERVIEW("概览"), HABITS("习惯"), KEYS("按键"), ACHIEVEMENTS("成就");
+        OVERVIEW("概览"), HABITS("习惯"), KEYS("按键"), ACHIEVEMENTS("成就"), DETAILS("明细");
 
         final String label;
 
@@ -89,6 +90,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     private boolean uploadBusy;
     /** 按键热力图上次选的布局；null 表示还没选过，按数据决定。 */
     @Nullable private Boolean nineKey;
+    @Nullable private Language keyLanguage;
     /** 热力图的 26 键和 9 键布局，按用户当前的底行样式与数字行；还没读到偏好时是标准底行。 */
     private List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts = List.of(KeyHeatmapLayout.SOFT, KeyHeatmapLayout.NINE);
     private boolean authorized;
@@ -384,6 +386,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             case HABITS -> habits(context, content, summary.habits());
             case KEYS -> keys(context, content, summary);
             case ACHIEVEMENTS -> achievements(context, content, summary.achievements());
+            case DETAILS -> StatisticsDailyDetailsView.add(content, summary.dailyDetails());
         }
     }
 
@@ -455,7 +458,14 @@ public final class StatisticsFragment extends HomeTabFragment {
     // ---- 按键 ----
 
     private void keys(Context context, LinearLayout content, TypingStatisticsSummary value) {
-        Map<String, Long> presses = weekKeys();
+        List<String> keyDays = weekKeyDays();
+        List<Language> languages = statistics == null ? List.of() : statistics.keyLanguagesForDays(keyDays);
+        if (keyLanguage != null && !languages.contains(keyLanguage)) keyLanguage = null;
+        StatisticsKeyLanguagePicker.add(content, languages, keyLanguage, language -> {
+            keyLanguage = language;
+            render();
+        });
+        Map<String, Long> presses = statistics == null ? Map.of() : statistics.keysForDays(keyDays, keyLanguage);
         boolean nine = nineKey != null ? nineKey : KeyHeatmapView.prefersNine(presses);
         LinearLayout row = header(context, content, "按键热力图", null);
         SegmentedControl layout = new SegmentedControl(context);
@@ -547,11 +557,11 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     /** 近 7 天每个键的按键次数，和按键 KPI 同一个时间窗。 */
-    private Map<String, Long> weekKeys() {
-        if (statistics == null || summary == null) return Map.of();
+    private List<String> weekKeyDays() {
+        if (summary == null) return List.of();
         List<String> days = new ArrayList<>(summary.overview().last7().size());
         for (TypingStatisticsSummary.DayCount day : summary.overview().last7()) days.add(day.day());
-        return statistics.keysForDays(days);
+        return days;
     }
 
     // ---- 成就 ----

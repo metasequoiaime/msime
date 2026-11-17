@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+#11546 的新增宿主明细改由[统计对齐的共享 Rust 模型](../../implemented/feature/2026-11-17-statistics-platform-parity.md)派生，沿用本篇的记录日、分类折叠和历史未知值口径；本篇既有 TypeScript 调用链与视图抽取仍保留。
+
 现有类型、保留期选项和四组纯计算原样归入 `packages/ui/src/settings/typing-statistics-model.ts`。页面与概览直接依赖模型，页面旧路径保留重导出，包入口的公开符号集合保持不变。异步读取、轮询、摘要与本地日期刷新归入 `use-typing-statistics-state.ts`（见[读取状态边界](../simplification/2026-10-23-typing-statistics-state.md)）；日历与按键热力图视图归入 `statistics-heatmaps.tsx`，共用选择按钮归入 `statistics-chart-button.tsx`（见[热力图视图边界](../simplification/2026-10-23-statistics-heatmaps.md)）；分布扇区构造归入纯 `statistics-distribution-model.ts`，分布图与候选命中位置视图归入 `statistics-distributions.tsx`（见[分布模型与视图边界](../simplification/2026-10-23-statistics-distributions.md)）；每日趋势的柱图与手机折线、速度和小时对比归入 `statistics-trends.tsx`，内部保留几何计算与日均说明（见[趋势视图边界](../simplification/2026-10-23-statistics-trends.md)）；按日明细的标题、九列表格、空态和说明归入 `statistics-daily-details.tsx`，只接收已有 `DailyDetailRow[]`，页面继续调用 `dailyDetailRows` 并决定显示条件；手机与 HarmonyOS 摘要外观共用的溢出菜单归入 `statistics-options-menu.tsx`，只接收开关、忙碌状态、可选保留期及动作回调；页面保留 `update` 调用、清空确认和宿主能力判断。提示文案仍在页面。皮肤徽章的 `recordSkin` 仍是可选的后台记录：共享 UI 通过 `recordSkinSafely` 捕获同步抛出和异步拒绝，换肤动作不因统计存储失败而中断或产生未处理异常。
 
 保留 60 秒速度门槛、并列时最早日期、未测活跃时间的 `null`、完整 24 桶小时基线和所有现有过滤行为；不更改存储、宿主契约或 Windows C++ 实现。Windows 的来源注释同步新路径。按日明细保留「汉字 / 字母」列名、千分位与时长格式、速度四舍五入、未知值 `null` 与已测量零值的区别；模型负责最新 30 个记录日和分类折叠，视图按传入顺序显示，不重做筛选或排序。

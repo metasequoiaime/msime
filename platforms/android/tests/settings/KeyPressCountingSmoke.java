@@ -1,6 +1,7 @@
 import android.view.KeyEvent;
 import app.msime.android.KeyHeatmapLayout;
 import app.msime.android.KeyPressBatch;
+import app.msime.android.TypingSource;
 import app.msime.android.KeyPressIds;
 import java.util.HashSet;
 import java.util.List;
@@ -113,6 +114,20 @@ public final class KeyPressCountingSmoke {
         KeyPressBatch.Flush full = batch.drain();
         check(full.keys().get("KeyE") == KeyPressBatch.FLUSH_PRESSES, "held presses are counted, not lost");
 
+        batch.add("KeyA", "2026-09-22", TypingSource.QUANPIN);
+        batch.add("KeyA", "2026-09-22", TypingSource.ENGLISH);
+        batch.add("Tab", "2026-09-22", TypingSource.ENGLISH);
+        check(!batch.full(), "切换语言仍在同一批内");
+        KeyPressBatch.Flush mixed = batch.drain();
+        check(mixed.keys().equals(Map.of("KeyA", 2L, "Tab", 1L)), "语言分组保留总数");
+        check(mixed.sources().get(TypingSource.QUANPIN).equals(Map.of("KeyA", 1L)),
+            "写出时不会把中文键改记为最后使用的英文");
+        check(mixed.sources().get(TypingSource.ENGLISH).equals(Map.of("KeyA", 1L, "Tab", 1L)),
+            "功能键仍带来源，由共享层统一归组");
+        batch.add("KeyB", "2026-09-23", TypingSource.JAPANESE);
+        check(mixed.sources().get(TypingSource.QUANPIN).equals(Map.of("KeyA", 1L)),
+            "后续批次不会修改已交回的快照");
+        batch.clear();
         batch.add("KeyA", "2026-09-22");
         batch.clear();
         check(batch.isEmpty() && batch.add("KeyA", "2026-09-23") == null,

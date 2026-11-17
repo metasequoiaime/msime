@@ -1,7 +1,8 @@
 #include "KeyPressStatisticsQueue.h"
 
 #include "Ipc.h"
-#include "../../common/AuxMessage.h"
+#include "../../common/AuxTypingKeySources.h"
+#include "../../common/TypingKeyBatch.h"
 
 #include <cstdint>
 #include <map>
@@ -13,12 +14,8 @@
 
 namespace
 {
-// One local day's counts. The day is fixed when the first press is counted, so presses before midnight are never filed under the day they happen to be flushed on.
-struct KeyBatch
-{
-    std::wstring day;
-    std::map<std::wstring, uint64_t> counts;
-};
+// 日期在按下时固定，封批和发送不会重标记历史来源。
+using KeyBatch = msime::windows::TypingKeyBatch;
 
 // Statistics ship disabled and the TIP cannot read the switch itself, so the Server's answer is the switch: nothing is counted until a probe has been answered "OK", and the first unanswered batch drops everything and stops counting again.
 enum class Consent
@@ -37,6 +34,7 @@ bool g_drainInFlight = false;
 bool g_probeRequested = false;
 bool g_timerArmed = false;
 Consent g_consent = Consent::Unknown;
+bool g_sourceFormat = false;
 ULONGLONG g_refusedUntil = 0;
 
 constexpr unsigned FlushPresses = 256;
@@ -67,8 +65,15 @@ void SealPendingLocked()
     g_pendingPresses = 0;
 }
 
-bool SendBatch(const KeyBatch &batch)
+bool SendBatch(const KeyBatch &batch, bool sourceFormat)
 {
+    if (sourceFormat)
+    {
+        for (const auto &[source, counts] : batch.sources)
+            for (const auto &message : msime::windows::aux_typing_key_sources_messages(batch.day, source, counts))
+                if (!SendToAuxNamedpipe(message, true)) return false;
+        return true;
+    }
     for (const auto &message : msime::windows::aux_typing_keys_messages(batch.day, batch.counts))
     {
         if (!SendToAuxNamedpipe(message, true))
@@ -89,6 +94,7 @@ void CALLBACK DrainKeyPressStatistics(PTP_CALLBACK_INSTANCE instance, void *cont
         AcquireSRWLockExclusive(&g_queueLock);
         batches.swap(g_outbox);
         const bool probe = g_probeRequested;
+        bool sourceFormat = g_sourceFormat;
         g_probeRequested = false;
         if (batches.empty() && !probe)
         {
@@ -99,20 +105,29 @@ void CALLBACK DrainKeyPressStatistics(PTP_CALLBACK_INSTANCE instance, void *cont
         }
         ReleaseSRWLockExclusive(&g_queueLock);
 
-        bool accepted = !probe || SendToAuxNamedpipe(msime::windows::aux_typing_keys_probe(LocalDay()), true);
+        bool accepted = true;
+        if (probe)
+        {
+            const auto format = msime::windows::probe_typing_key_sources(LocalDay(), [](const std::wstring &message) {
+                return SendToAuxNamedpipe(message, true);
+            });
+            accepted = format.has_value();
+            if (format) sourceFormat = *format;
+        }
         for (const auto &batch : batches)
         {
             if (!accepted)
             {
                 break;
             }
-            accepted = SendBatch(batch);
+            accepted = SendBatch(batch, sourceFormat);
         }
 
         AcquireSRWLockExclusive(&g_queueLock);
         if (accepted)
         {
             g_consent = Consent::Enabled;
+            g_sourceFormat = sourceFormat;
         }
         else
         {
@@ -194,7 +209,7 @@ void ArmTimerLocked()
 }
 } // namespace
 
-void QueueKeyPressStatistics(const wchar_t *keyId)
+void QueueKeyPressStatistics(const wchar_t *keyId, msime::windows::TypingSource source)
 {
     const ULONGLONG now = GetTickCount64();
     std::wstring day = LocalDay();
@@ -229,7 +244,7 @@ void QueueKeyPressStatistics(const wchar_t *keyId)
         g_pending.day = std::move(day);
         ArmTimerLocked();
     }
-    ++g_pending.counts[keyId];
+    g_pending.add(keyId, source);
     if (++g_pendingPresses >= FlushPresses)
     {
         SealPendingLocked();

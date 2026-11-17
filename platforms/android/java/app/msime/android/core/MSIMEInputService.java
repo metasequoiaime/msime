@@ -1576,14 +1576,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 按键的键位 id（`Backspace`、`Space`、`Enter`…）；没有登记的控件为 null。按键反馈靠它给键分类，不去猜无障碍描述。 */
     String keyIdOf(View key) { return key == null ? null : keyIds.get(key); }
 
-    /**
-     * Count one key press for the heatmap: its id and its local day, nothing else.
-     *
-     * <p>Presses are batched here and written by the worker -- on {@link KeyPressBatch#FLUSH_PRESSES} presses, at the first press of a new day (the old day first, under its own date), when the editor or the keyboard goes away, and otherwise half a minute after the batch opened. The worker's queue is short and every write rewrites the whole document under the file lock, so it never sees a single key.
-     */
+    /** 按下时取得来源，按日、256 次或 30 秒攒批；语言切换不改变已经记下的来源。 */
     void countKey(String id) {
         if (id == null || !imePrivacyGate.countsKeys()) return;
-        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString());
+        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString(), typingSource());
         if (previous != null) writeKeyPresses(previous);
         if (keyPresses.full()) {
             flushKeyPresses();
@@ -1611,13 +1607,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyStatisticsDirectory.isEmpty()) return;
         final String request;
         try {
-            JSONObject keys = new JSONObject();
-            for (java.util.Map.Entry<String, Long> entry : flush.keys().entrySet())
-                keys.put(entry.getKey(), entry.getValue().longValue());
-            request = new JSONObject().put("directory", keyStatisticsDirectory).put("action",
-                new JSONObject().put("operation", "record_keys").put("day", flush.day())
-                    .put("keys", keys))
-                .toString();
+            request = KeyPressRequest.encode(keyStatisticsDirectory, flush);
         } catch (JSONException error) {
             reportTypingStatisticsFailure();
             return;
@@ -5198,7 +5188,9 @@ public final class MSIMEInputService extends InputMethodService {
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
-        int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
+        int reserved = CandidateTranslationPolicy.reservedRows(
+            CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
+            CandidateHintRows.rows(this));
         int line = imeCandidates.stripHeightDp(reserved);
         ViewPolicy.setFixedHeight(candidateLine, pixels(line));
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
@@ -10136,9 +10128,17 @@ public final class MSIMEInputService extends InputMethodService {
             return CandidateGlossPolicy.hanjaAnnotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
                 translation,
                 candidateEnglishGloss || candidateTranslationsEnabled);
-        return CandidateGlossPolicy.annotation(chineseOutput(InputViewValuePolicy.textOr(candidate, "annotation", ""), view),
+        // 纠错行的原串不画在候选字下面，改在候选字后面画 *（CandidateCorrectionMarkPolicy）。
+        String annotation = CandidateCorrectionMarkPolicy.visibleAnnotation(
+            InputViewValuePolicy.textOr(candidate, "annotation", ""), candidateCorrected(candidate));
+        return CandidateGlossPolicy.annotation(chineseOutput(annotation, view),
             translation,
             candidateEnglishGloss || candidateTranslationsEnabled);
+    }
+
+    /** 引擎改过这一行的拼写（View JSON 的 `corrected`），候选字后面画 *。 */
+    static boolean candidateCorrected(JSONObject candidate) {
+        return candidate != null && JsonPolicy.strictTrue(candidate.opt(CandidateCorrectionMarkPolicy.CORRECTED_FIELD));
     }
 
     /** 候选释义禁止来源即使因同词候选合并拿到译文，也不能在 Android 的候选条、读屏或菜单里出现。 */
@@ -10357,7 +10357,8 @@ public final class MSIMEInputService extends InputMethodService {
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
         boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
-        button.setText(candidateLabel(number, text, annotation, highlighted, corrected));
+        String word = CandidateCorrectionMarkPolicy.markedWord(text, candidateCorrected(candidate));
+        button.setText(candidateLabel(number, word, annotation, highlighted, corrected));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -12788,7 +12789,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean modeLabel = !message.isEmpty();
             spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
                 toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
-                    || drawsKeyGrid(displayedTouchLayout(view)), idle,
+                    || SpellingEditorPolicy.keyboardReadingRow(displayedTouchLayout(view)), idle,
                 preedit == null ? "" : preedit.getText(),
                 status == null || idle && !modeLabel ? "" : status.getText(),
                 ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));
