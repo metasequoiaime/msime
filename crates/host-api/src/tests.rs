@@ -4,6 +4,7 @@
 
 use super::*;
 
+mod ai_pinyin_alignment;
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
 mod local_translation;
