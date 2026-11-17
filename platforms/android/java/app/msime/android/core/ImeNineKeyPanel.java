@@ -3,7 +3,6 @@ package app.msime.android;
 import app.msime.android.LayoutPolicy;
 
 import android.graphics.Color;
-import android.os.Build;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
@@ -18,7 +17,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 全拼九键的展开候选面板：点候选条右端的展开键后，键区换成三栏。左栏是与收起时侧栏相同的拼音列（可切成五个笔画键），中间是可纵向滚动的完整候选，右栏是 返回、⌫、重输、拼音/笔画、全部/单字。
+ * 全拼九键的展开候选面板：点候选条右端的展开键后，键区换成三栏。左栏是与收起时侧栏相同的拼音列（可切成五个笔画键），中间是可纵向滚动的完整候选，右栏一列五个功能键：返回、⌫、重输，再是「笔画」「单字」两个开关（键面固定，开着时高亮）。
  *
  * <p>选拼音、⌫ 和筛选都会让候选换一代，这个面板不因此收起，而是重新取完整候选再画；选了只覆盖前面一段的候选时同样留着，换上剩下组字的候选（{@link MSIMEInputService#selectPanelCandidate}）。组字结束（含整句上屏）或点「返回」才收起。筛选状态归引擎（`View.nine_key_single_character`、`View.nine_key_strokes`），面板只记左栏当前是拼音还是笔画。其他布局的展开面板仍是 {@link ImeCandidates#renderExpandedCandidates} 原来那块整面网格。
  */
@@ -34,7 +33,6 @@ final class ImeNineKeyPanel {
     private FrameLayout candidateHolder;
     private ImeCandidateGrid candidateGrid;
     private Button modeButton;
-    private Button allButton;
     private Button singleButton;
     private NineKeyPanelPolicy.Mode mode = NineKeyPanelPolicy.Mode.SPELLING;
     private long renderedGeneration = -1;
@@ -83,25 +81,20 @@ final class ImeNineKeyPanel {
         candidateGrid = new ImeCandidateGrid(s, candidateScroll, false);
         root.addView(candidateScroll, margined(3));
 
+        // 右栏五个功能键竖排一列，每个键占满右栏宽度（与 iOS 右栏相同）。右栏只有整栏宽的约 1/5，排成多列时每个键只剩十几 dp，两个字的键面会被切成一个字。
         LinearLayout actions = LayoutPolicy.column(s);
-        LinearLayout utilityRow = LayoutPolicy.row(s);
-        addInlineAction(utilityRow, pressButton("返回", 15, KeyboardKeyRole.ACCENT, "收起候选面板", () -> {
+        addAction(actions, actionButton("返回", 15, "收起候选面板", () -> {
             s.closeCandidatePanel();
             s.render();
         }));
-        addInlineAction(utilityRow, pressButton("⌫", 16, KeyboardKeyRole.ACCENT, "候选面板 删除", this::backspace));
-        addInlineAction(utilityRow, pressButton("重输", 15, KeyboardKeyRole.ACCENT, "候选面板 重输",
-            () -> s.command(3)));
-        addAction(actions, utilityRow);
-        modeButton = pressButton("", 15, KeyboardKeyRole.ACCENT, "", this::toggleMode);
-        // 两个筛选状态和输入模式放在同一排，确保三个入口都在键盘可视区域内。
-        LinearLayout filterRow = LayoutPolicy.row(s);
-        allButton = pressButton("全部", 15, KeyboardKeyRole.ACCENT, "显示全部候选", () -> setSingleCharacter(false));
-        singleButton = pressButton("单字", 15, KeyboardKeyRole.ACCENT, "只显示单字", () -> setSingleCharacter(true));
-        addInlineAction(filterRow, modeButton);
-        addInlineAction(filterRow, allButton);
-        addInlineAction(filterRow, singleButton);
-        addAction(actions, filterRow);
+        addAction(actions, actionButton("⌫", 16, "候选面板 删除", this::backspace));
+        addAction(actions, actionButton("重输", 15, "候选面板 重输", () -> s.command(3)));
+        // 笔画、单字是两个开关：键面固定，开着时高亮（选中态），关着是普通功能键色。
+        modeButton = actionButton(NineKeyPanelPolicy.STROKE_TITLE, 15, "", this::toggleMode);
+        addAction(actions, modeButton);
+        singleButton = actionButton(NineKeyPanelPolicy.SINGLE_CHARACTER_TITLE, 15, "",
+            this::toggleSingleCharacter);
+        addAction(actions, singleButton);
         root.addView(actions, margined(0.8f));
         ViewPolicy.hide(root);
         return root;
@@ -118,19 +111,17 @@ final class ImeNineKeyPanel {
     }
 
     private void addAction(LinearLayout actions, Button button) {
-        addAction(actions, (View) button);
-    }
-
-    private void addAction(LinearLayout actions, View view) {
         LinearLayout.LayoutParams params = LayoutPolicy.weightedWidthParams(1);
         params.setMargins(0, s.pixels(2), 0, s.pixels(2));
-        actions.addView(view, params);
+        actions.addView(button, params);
     }
 
-    private void addInlineAction(LinearLayout row, View view) {
-        LinearLayout.LayoutParams params = LayoutPolicy.weightedMatchParentParams(1);
-        params.setMargins(s.pixels(2), 0, s.pixels(2), 0);
-        row.addView(view, params);
+    /** 右栏功能键：键面只占一行，键矮（键盘调得低、横屏）或字体大时在 {@code sizeSp} 和功能键下限之间缩小，不被切掉。 */
+    private Button actionButton(String label, float sizeSp, String description, Runnable action) {
+        Button button = pressButton(label, sizeSp, KeyboardKeyRole.ACCENT, description, action);
+        KeyboardTypographyPolicy.setFittedKeyTextSize(button,
+            KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, sizeSp);
+        return button;
     }
 
     private Button pressButton(String label, float sizeSp, KeyboardKeyRole role, String description,
@@ -242,22 +233,12 @@ final class ImeNineKeyPanel {
     }
 
     private void renderActions() {
-        modeButton.setText(NineKeyPanelPolicy.modeTitle(mode));
+        // 键面在 build 里定死；这里只换选中态和读屏描述（说按下去会怎样），读屏另外报「已选中」。
         modeButton.setContentDescription(NineKeyPanelPolicy.modeDescription(mode));
         ViewPolicy.setSelected(modeButton, mode == NineKeyPanelPolicy.Mode.STROKE);
         boolean single = singleCharacter();
-        allButton.setText(NineKeyPanelPolicy.singleCharacterTitle(false));
-        allButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(true));
-        ViewPolicy.setSelected(allButton, !single);
-        singleButton.setText(NineKeyPanelPolicy.singleCharacterTitle(true));
-        // 单字入口沿用原切换键的读屏语义：当前筛选切换后，描述提示下一步可切换到的状态。
         singleButton.setContentDescription(NineKeyPanelPolicy.singleCharacterDescription(single));
         ViewPolicy.setSelected(singleButton, single);
-        if (Build.VERSION.SDK_INT >= 30) {
-            modeButton.setStateDescription(NineKeyPanelPolicy.modeTitle(mode));
-            allButton.setStateDescription(NineKeyPanelPolicy.singleCharacterTitle(false));
-            singleButton.setStateDescription(NineKeyPanelPolicy.singleCharacterTitle(true));
-        }
     }
 
     /** 皮肤：整块面板用键盘底，左栏是和侧栏一样的圆角底条，中间候选区用候选面的底色。按钮由全键盘的样式通道按角色上色。 */
@@ -336,8 +317,7 @@ final class ImeNineKeyPanel {
         else s.render();
     }
 
-    private void setSingleCharacter(boolean value) {
-        if (value == singleCharacter()) return;
-        s.setNineKeyFilter(value, strokesFilter());
+    private void toggleSingleCharacter() {
+        s.setNineKeyFilter(!singleCharacter(), strokesFilter());
     }
 }
