@@ -53,7 +53,7 @@ export struct CustomShuangpinPanel {
   private askBack(): void {
     if (this.busy) return;
     if (this.model === undefined || !this.model.dirty) { this.back(); return; }
-    this.getUIContext().showAlertDialog({ title: '放弃未保存的修改？',
+    this.getUIContext().showAlertDialog({ title: '放弃未保存的修改？', message: '',
       primaryButton: { value: '继续编辑', action: (): void => {} },
       secondaryButton: { value: '放弃', action: (): void => this.back() }
     });
@@ -65,7 +65,7 @@ export struct CustomShuangpinPanel {
       this.model?.template(this.profiles[index]); this.update();
     };
     if (this.model?.dirty !== true) { apply(); return; }
-    this.getUIContext().showAlertDialog({ title: '用模板替换当前草稿？',
+    this.getUIContext().showAlertDialog({ title: '用模板替换当前草稿？', message: '',
       primaryButton: { value: '取消', action: (): void => {} },
       secondaryButton: { value: '替换', action: apply }
     });
@@ -74,7 +74,7 @@ export struct CustomShuangpinPanel {
   private requestImport(): void {
     if (this.busy) return;
     if (this.model?.dirty !== true) { this.importFile(); return; }
-    this.getUIContext().showAlertDialog({ title: '导入并替换当前草稿？',
+    this.getUIContext().showAlertDialog({ title: '导入并替换当前草稿？', message: '',
       primaryButton: { value: '取消', action: (): void => {} },
       secondaryButton: { value: '继续', action: (): void => { this.importFile(); } }
     });
