@@ -15,6 +15,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code KEYBOARD_HEIGHT_ADJUSTMENT}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
     private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
     private static final String HEIGHT_SETTING = "platform.android.keyboard_height_adjustment";
+    private static final String LARGE_HEIGHT_SETTING = "platform.android.keyboard_height_adjustment_large";
     /** {@code AndroidLocalSettings.BOTTOM_BAR} 与 {@code BOTTOM_PADDING}，同样写字面值。 */
     private static final String BOTTOM_BAR_SETTING = "platform.android.bottom_bar";
     private static final String BOTTOM_PADDING_SETTING = "platform.android.bottom_padding";
@@ -80,6 +81,23 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
             restartIme();
             openEditor();
+            stage = "height setting follows the current screen form factor";
+            boolean expandedScreen = getTargetContext().getResources().getConfiguration().smallestScreenWidthDp >= 600;
+            JSONObject formFactorSettings = new JSONObject().put("version", 1).put("settings",
+                new JSONObject().put(HEIGHT_SETTING, -12).put(LARGE_HEIGHT_SETTING, 55));
+            publish(localSettings, formFactorSettings.toString().getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
+            awaitHeightSetting(localSettings, expandedScreen ? 55 : -12);
+            openHeightBar();
+            int formFactorPercent = app.msime.android.KeyboardHeightPolicy.heightAdjustmentToPercent(
+                expandedScreen ? 55 : -12);
+            if (Math.round(await(heightSlider()).getRangeInfo().getCurrent()) != formFactorPercent)
+                throw new AssertionError("当前屏幕未读取对应的键盘高度");
+            confirm();
+            publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
+            restartIme();
+            openEditor();
             stage = "baseline keyboard height";
             int standard = keyHeight("n");
 
@@ -107,7 +125,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             setHeight(top);
             confirm();
             if (top >= 170) awaitHeightSetting(localSettings, 129);
-            else awaitLocalSetting(localSettings, HEIGHT_SETTING, value -> value > 55, "a height above 130%");
+            else awaitLocalSetting(localSettings, heightSetting(), value -> value > 55, "a height above 130%");
             int maximum = keyHeight("n");
             if (top > 130 && maximum <= tall)
                 throw new AssertionError(top + "% did not enlarge key faces beyond 130%: " + tall + " -> " + maximum);
@@ -200,7 +218,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             int tolerance = Math.round(density) + 2;
             for (int adjustment : new int[] {0, -46, 55, -92}) {
                 Rect letter = settledKeyBounds(localSettings, new JSONObject().put(BOTTOM_BAR_SETTING, false)
-                    .put(HEIGHT_SETTING, adjustment));
+                    .put(heightSetting(), adjustment));
                 Rect space = keyBounds("空格");
                 if (Math.abs(space.height() - letter.height()) > tolerance)
                     throw new AssertionError("Bottom row is not as tall as the letter rows at " + adjustment
@@ -258,7 +276,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             for (int percent : PANEL_FIT_PERCENTS) {
                 stage = "function panel fits at " + percent + "%";
                 publish(localSettings, new JSONObject().put("version", 1).put("settings",
-                    new JSONObject().put(HEIGHT_SETTING, app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(percent))).toString()
+                    new JSONObject().put(heightSetting(), app.msime.android.KeyboardHeightPolicy.heightPercentToAdjustment(percent))).toString()
                     .getBytes(StandardCharsets.UTF_8));
                 restartIme();
                 openEditor();
@@ -749,8 +767,14 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Height adjustment never reached " + target);
     }
 
+    /** 保存和回读都按当前形态选择键；窄屏继续覆盖原来的设置键。 */
+    private String heightSetting() {
+        return getTargetContext().getResources().getConfiguration().smallestScreenWidthDp >= 600
+            ? LARGE_HEIGHT_SETTING : HEIGHT_SETTING;
+    }
+
     private void awaitHeightSetting(File file, int expected) throws Exception {
-        awaitLocalSetting(file, HEIGHT_SETTING, value -> value == expected, expected + " dp");
+        awaitLocalSetting(file, heightSetting(), value -> value == expected, expected + " dp");
     }
 
     /** 等本地设置里这个整数项满足条件；没写过的项不算。 */

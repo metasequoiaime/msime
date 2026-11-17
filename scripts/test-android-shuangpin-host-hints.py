@@ -14,6 +14,21 @@ package app.msime.android;
 import java.util.*;
 
 public final class HostHintsSmoke {
+    static final class JSONException extends Exception { }
+    static final class JSONArray {
+        int length() { return 0; }
+        JSONObject optJSONObject(int index) { return null; }
+    }
+    static final class JSONObject {
+        JSONObject() { }
+        JSONObject(String value) throws JSONException { }
+        JSONObject put(String key, Object value) throws JSONException { return this; }
+        JSONObject optJSONObject(String key) { return null; }
+        JSONArray optJSONArray(String key) { return null; }
+        boolean optBoolean(String key, boolean fallback) { return fallback; }
+        String optString(String key, String fallback) { return fallback; }
+        @Override public String toString() { return "{}"; }
+    }
     static final class View { int scheme; String profile;
         View(int scheme, String profile) { this.scheme=scheme; this.profile=profile; } }
     static final class InputViewValuePolicy {
@@ -44,12 +59,17 @@ public final class HostHintsSmoke {
             requested=profile;
             return "{\"ok\":true,\"value\":{\"I\":\"gw / i\"}}";
         }
+        static String shuangpinCustomLayout(String request) {
+            return "{\"ok\":true,\"value\":{\"keys\":[]}}";
+        }
     }
     View view=new View(5, "");
     Selected selectedScheme=new Selected();
     long session=1;
     boolean dedicatedEnglish=false, shuangpinKeyHintsEnabled=true;
     String remembered="", shuangpinHintsProfile="";
+    String shuangpinHintsRequest="";
+    JSONObject preferencesSnapshot=null;
     Map<String,String> shuangpinHints=Map.of();
     Skin skin=new Skin();
     LetterCase letterCase=new LetterCase();

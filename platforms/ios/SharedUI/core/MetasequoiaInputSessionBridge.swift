@@ -55,6 +55,8 @@ private func msimeClientSmartPunctuationArmRaw(_ session: UInt64, _ request: Uns
 private func msimeClientSmartPunctuationDecideRaw(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_nine_key_shuangpin_layout")
 private func msimeClientNineKeyShuangpinLayout(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_shuangpin_custom_layout")
+private func msimeClientShuangpinCustomLayout(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_shuangpin_key_hints")
 private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
@@ -889,7 +891,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
                               enabledSchemes: [ChineseInputScheme]) -> Bool {
     guard let mapping = Self.schemeMapping(scheme, enabledSchemes: enabledSchemes) else { return false }
-    return updateAndPersist(mapping)
+    return updateAndPersist(ShuangpinCustomLayout.runtimeMapping(mapping, scheme: scheme))
   }
 
   /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.
@@ -1898,6 +1900,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return try JSONDecoder().decode(NineKeyShuangpinLayout.self, from: JSONSerialization.data(withJSONObject: value))
   }
 
+  /// 26 键双拼的表、问题和字母键提示，不在 Swift 侧复制校验规则。
+  static func shuangpinCustomLayout(profile: String, table: ShuangpinCustomLayout.Table? = nil) throws -> ShuangpinCustomLayout {
+    var request: [String: Any] = ["profile": profile]
+    if let table { request["table"] = table }
+    let data = try JSONSerialization.data(withJSONObject: request)
+    let value = try data.withUnsafeBytes { bytes in
+      try decode(msimeClientShuangpinCustomLayout(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+    }
+    return try JSONDecoder().decode(ShuangpinCustomLayout.self, from: JSONSerialization.data(withJSONObject: value))
+  }
+
   func nineKeySpellings() -> [String] {
     ((try? view()["nine_key_spellings"] as? [String]) ?? [])
   }
@@ -1915,8 +1928,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // either way; only the scheme says whether the keys are running it.
     guard let snapshot = try? view(),
           Self.strictUInt64(snapshot["scheme"]) == UInt64(Self.shuangpinSchemeCode),
-          let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty,
-          let data = profile.data(using: .utf8) else { return [:] }
+          let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty else { return [:] }
+    if profile == "custom" {
+      let table = sharedPreferences?[ShuangpinCustomLayout.tableKey] as? ShuangpinCustomLayout.Table
+      return (try? Self.shuangpinCustomLayout(profile: profile, table: table).keys.reduce(into: [:]) { $0[$1.key] = $1.hint }) ?? [:]
+    }
+    guard let data = profile.data(using: .utf8) else { return [:] }
     let response = try? data.withUnsafeBytes { bytes -> Any in
       try Self.decode(msimeClientShuangpinKeyHints(
         bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
@@ -2076,6 +2093,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return false
   }
 
+  /// 集合待发项经 Rust 交付，保留已有词条回执；会话只在确有待处理项时让出维护权。
+  func synchronizeDictionaryCollections() throws -> Bool {
+    let options = try dictionaryStateVersionOptions()
+    guard try DictionaryCollectionsBridge.needsSynchronization(options: options) else { return false }
+    return try withDictionaryMaintenance {
+      try DictionaryCollectionsBridge.synchronize(options: options, budget: 100)
+    }
+  }
+
   func applyPersonalPrevious(_ previous: [String: Any]?, replacement: [String: Any]?, requestID: String) throws {
     var action: [String: Any] = ["operation": "edit", "request_id": requestID]
     action["previous"] = previous ?? NSNull()
@@ -2107,8 +2133,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   /// 设置 App「词库 › 学习」的「清除学习记录」：与五笔查码、词库同步一样经 `msime_client_prepare_host` 解析出键盘用的那套词库路径，发词库请求 `reset`，换回随包的工作词库、清空学习日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和自造词），共享偏好、常用语、剪贴板和打字统计不动。Rust 要独占的维护权；键盘扩展收起时就销毁会话放掉它，键盘还开着时是 `.busy`，什么也不换。键盘扩展有没有完全访问，状态目录都是 App Group 里的同一个 `MSIME`（`bootstrapOptions`），没有另一份：没开完全访问时键盘写不了 App Group，它学到的东西本来就落不了盘，所以这里清的就是键盘下次读的那一份。读写文件，调用方放到主线程之外。
+  @discardableResult
   static func resetLearnedData(resources: URL? = PersonalDictionaryBridge.packagedResources,
-                               stateRoot: URL? = nil) throws {
+                               stateRoot: URL? = nil) throws -> Bool {
     guard let resources else { throw LearnedDataResetFailure.failed }
     let result: [String: Any]
     do {
@@ -2120,6 +2147,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       throw LearnedDataResetFailure.failed
     }
     guard result["reset"] as? Bool == true else { throw LearnedDataResetFailure.failed }
+    return result["collections_error"] == nil
   }
 
   /// 五笔查码（#6789）：`text` 里每个不同汉字（以及整段作为一个词）在 86 和 98 码表里的编码。给设置 App 用，不建输入会话：经 `msime_client_prepare_host` 解析出选项后发词库请求 `wubi_codes`，host-api 只读打开会话用的同一份五笔码表，不拿词库维护租约，键盘开着也能查。

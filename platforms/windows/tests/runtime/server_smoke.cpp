@@ -1,6 +1,7 @@
 #include "CandidateCardSize.h"
 #include "../../compat/WindowsDpi.h"
 #include "CandidateClickWorker.h"
+#include "../../compat/WindowsVersion.h"
 #include "CandidateFlyoutWindow.h"
 #include "CandidateWindow.h"
 #include "FloatingToolbarWindow.h"
@@ -229,7 +230,7 @@ int main() {
       value->y = invalid_candidate_anchor_y;
       CandidateWindow receipted(
           [&] { return value; }, {}, 16, 16, "Segoe UI", {}, std::nullopt,
-          false, true, {},
+          false, true, true, {},
           [&](const CandidatePresentation &shown) {
             receipts.push_back(shown.render_serial);
           });
@@ -320,10 +321,26 @@ int main() {
     {
       std::optional<ModePresentation> value =
           ModePresentation{{{43, {4, 5, 6}}, 1, 1}, true, true, false};
-      FloatingToolbarWindow toolbar([&] { return value; },
-                                    [](const ModeClick &) {});
+      const auto original_dpi = current_thread_dpi_context();
+      DPI_AWARENESS_CONTEXT layout_context = nullptr;
+      FloatingToolbarWindow toolbar([&] {
+        layout_context = current_thread_dpi_context();
+        return value;
+      }, [](const ModeClick &) {});
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
+      require(window_awareness_is_expected(toolbar.handle()));
+      const auto no_redirection =
+          msime::windows::compat::no_redirection_bitmap_style();
+      if (no_redirection)
+        require((GetWindowLongPtrW(toolbar.handle(), GWL_EXSTYLE) &
+                 no_redirection) == no_redirection);
       const auto foreground = GetForegroundWindow();
       toolbar.refresh(true);
+      // 刷新从不感知 DPI 的 Server 调用时也按物理像素摆放，返回后恢复调用方上下文。
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
+      if (compat::dpi_api().set_thread)
+        require(same_dpi_context(layout_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) ||
+                (running_under_wine() && same_dpi_context(layout_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)));
       UpdateWindow(toolbar.handle());
       require(IsWindowVisible(toolbar.handle()) && !toolbar.failed());
       require(GetForegroundWindow() == foreground);

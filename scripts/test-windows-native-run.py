@@ -104,6 +104,11 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     ),
     # TIP 新建宿主会话时立即套上偏好快照（#10867）：真实会话，合成词库。
     "input/host_session_preferences.cpp": (["tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True),
+    # 全半角在两份真实会话的原文、标点和重建路径上生效。
+    "input/fullwidth_session.cpp": (
+        ["src/ipc/ReplyComposer.cpp", "src/ipc/ReplyCodec.cpp", "src/ipc/ServerSession.cpp", "src/input/ChineseTextConversion.cpp",
+         "tsf/EngineSessionAdapter.cpp", "tsf/EngineResponse.cpp"], True,
+    ),
     "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
     "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
     "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),

@@ -628,6 +628,10 @@ pub enum ShuangpinProfileKind {
     /// 用户自定义的键位，表在 [`ShuangpinCustomTable`] 里（`EngineOptions::shuangpin_custom_profile`、`SessionOptions::shuangpin_custom_profile`），没有内置的表。
     Custom = 4,
     SmartAbc = 5,
+    Sogou = 6,
+    Jiajia = 7,
+    Ziguang = 8,
+    Guobiao = 9,
 }
 
 impl ShuangpinProfileKind {
@@ -639,6 +643,10 @@ impl ShuangpinProfileKind {
             3 => Self::Microsoft,
             4 => Self::Custom,
             5 => Self::SmartAbc,
+            6 => Self::Sogou,
+            7 => Self::Jiajia,
+            8 => Self::Ziguang,
+            9 => Self::Guobiao,
             _ => return None,
         })
     }
@@ -652,6 +660,10 @@ impl ShuangpinProfileKind {
             "microsoft" => Self::Microsoft,
             "custom" => Self::Custom,
             "smart_abc" => Self::SmartAbc,
+            "sogou" => Self::Sogou,
+            "jiajia" => Self::Jiajia,
+            "ziguang" => Self::Ziguang,
+            "guobiao" => Self::Guobiao,
             _ => return None,
         })
     }
@@ -664,6 +676,10 @@ impl ShuangpinProfileKind {
             Self::Microsoft => "microsoft",
             Self::Custom => "custom",
             Self::SmartAbc => "smart_abc",
+            Self::Sogou => "sogou",
+            Self::Jiajia => "jiajia",
+            Self::Ziguang => "ziguang",
+            Self::Guobiao => "guobiao",
         }
     }
 }
