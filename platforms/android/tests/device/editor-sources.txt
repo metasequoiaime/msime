@@ -75,6 +75,7 @@ platforms/android/tests/device/keyboard/GridSwipeTouch.java
 platforms/android/tests/device/keyboard/NumberPadDeviceSmoke.java
 platforms/android/tests/device/keyboard/RandomDigitsDeviceChecks.java
 platforms/android/tests/device/keyboard/NineKeyShuangpinDeviceSmoke.java
+platforms/android/tests/device/keyboard/KeyHintMainLabelChecks.java
 platforms/android/tests/device/keyboard/ShuangpinKeyFaceChecks.java
 platforms/android/tests/device/keyboard/ShuangpinUniformKeyFaceChecks.java
 platforms/android/tests/device/settings/SettingsDeviceSmoke.java
