@@ -1,4 +1,5 @@
 #include "../../../common/SecondThirdCandidatePolicy.h"
+#include "../../CandidateNumberDispatch.h"
 #include <cstddef>
 #include <optional>
 #include <stdexcept>
@@ -15,6 +16,31 @@ void require(bool condition, const char *message) {
 } // namespace
 
 int main() {
+  // 第九个槽位不存在时仍读取回复，并将明确的无动作回执算作成功。
+  unsigned reads = 0, edits = 0;
+  const auto dispatch = [&](int slot, bool engine_page, bool reply_expected, bool selectable, unsigned reply) {
+    return msime::tsf::DispatchCandidateNumber(slot, engine_page, reply_expected, 1,
+        [&](int) { return selectable; }, [&] { ++edits; return 0; }, [&] {
+          ++reads;
+          return msime::tsf::CompleteServerCandidateSelection(reply, 0, [&] { ++edits; return 1; });
+        });
+  };
+  require(dispatch(-1, true, true, false, FanyImeReplyType::NavigationIgnored) == 0 && reads == 1 && edits == 0,
+          "An out-of-page key left a reply unread or retried an acknowledged no-op");
+  require(dispatch(8, true, true, false, FanyImeReplyType::OutofRange) == 0 && reads == 2 && edits == 0,
+          "A short local page retried an out-of-range acknowledgement");
+  require(dispatch(-1, false, true, false, FanyImeReplyType::NavigationIgnored) == 1 && reads == 2,
+          "A legacy presenter tried to follow a host-session reply");
+  require(dispatch(-1, true, false, false, FanyImeReplyType::NavigationIgnored) == 1 && reads == 2,
+          "A local action read a reply without a request");
+  require(dispatch(0, true, true, true, FanyImeReplyType::Normal) == 0 && reads == 2 && edits == 1,
+          "A valid local slot bypassed its conversion handler");
+  for (unsigned reply : {FanyImeReplyType::Normal, FanyImeReplyType::NeedToCreateWord,
+                        FanyImeReplyType::TransportUnavailable}) {
+    bool called = false;
+    require(msime::tsf::CompleteServerCandidateSelection(reply, 0, [&] { called = true; return 1; }) == 1 && called,
+            "A text or unavailable reply was mistaken for an acknowledged no-op");
+  }
   require(candidate_selection_slot(0xBA, ';') == std::optional<std::size_t>(1) &&
               candidate_selection_slot(0xDE, '\'') == std::optional<std::size_t>(2) &&
               candidate_selection_slot('1', '1') == std::optional<std::size_t>(0) &&

@@ -66,6 +66,19 @@ int main(int argc, char **argv) {
       throw std::runtime_error(
           "Expected one Server and one Watchdog invocation");
 
+    const auto repair = between(script, "function RepairInputMethodForUser",
+                                "function NextButtonClick");
+    contains(repair, "{#MySettingsExeName}",
+             "Installer does not invoke the native settings host for profile repair");
+    contains(repair, "'--repair-input-method'",
+             "Installer does not use the dedicated profile repair command");
+    contains(repair, "ShellExecAsOriginalUser",
+             "Profile repair would write the elevated user's keyboard list");
+    const auto repair_post_install = between(script, "procedure CurStepChanged",
+                                             "{ 选了删除数据时");
+    contains(repair_post_install, "RepairInputMethodForUser;",
+             "Profile repair is not part of the successful post-install path");
+
     // The product data can be hundreds of MiB, so the fixed source exposes a
     // visible destination page instead of making /DATADIR an undocumented
     // deployment-only escape hatch. The target is later recursively removed
@@ -218,7 +231,7 @@ int main(int argc, char **argv) {
     const auto post_install = between(script, "if CurStep = ssPostInstall then",
                                       "procedure CurUninstallStepChanged");
     const auto finish_call = post_install.find("FinishDataDirMove;");
-    for (const char *step : {"CreateWatchdogLogonTask then", "EnsureImeUserDataDir;"})
+    for (const char *step : {"CreateWatchdogLogonTask then", "EnsureImeUserDataDir;", "RepairInputMethodForUser;"})
       if (finish_call == std::string::npos ||
           post_install.find(step) == std::string::npos ||
           post_install.find(step) > finish_call)

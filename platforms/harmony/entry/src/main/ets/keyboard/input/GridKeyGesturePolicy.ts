@@ -9,7 +9,7 @@ export enum GridKeyGestureMode {
   CANCELLED = "cancelled",
 }
 
-/** 14/18 键角标长按、纵滑和 18 键双拼横滑的统一一次按压状态机。 */
+/** 14/18 键角标长按、纵滑和 14/18 键全拼及双拼横滑的统一一次按压状态机。 */
 export class GridKeyGesturePolicy {
   private readonly exactLetters: string | null;
   private readonly hasSymbol: boolean;

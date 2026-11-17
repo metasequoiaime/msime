@@ -300,7 +300,7 @@ public final class KeyHeatmapLayoutSmoke {
         String letterRows = read("core/ImeLetterRows.java");
         String layoutRows = read("core/ImeLayoutRows.java");
         String bottomRow = read("core/ImeBottomRow.java");
-        check(service.contains("keyId(button(controls, \"符\", imePanels::showSymbolPanel), \"SoftSymbol\")")
+        check(service.contains("keyId(button(controls, \"符\", () -> imeLayoutRows.symbolPanelKey()), \"SoftSymbol\")")
             && service.contains("keyId(layerButton, \"SoftLayer\")")
             && service.contains("languageButton = keyId(button(controls, \"中/英\", this::toggleInputLanguage), \"SoftLanguage\")"),
             "the keyboard still records 符, 123 and 中 under the ids the heatmap draws");

@@ -1,6 +1,7 @@
 #include "CandidateCardSize.h"
 #include "../../compat/WindowsDpi.h"
 #include "CandidateClickWorker.h"
+#include "../../compat/WindowsVersion.h"
 #include "CandidateFlyoutWindow.h"
 #include "CandidateWindow.h"
 #include "FloatingToolbarWindow.h"
@@ -229,7 +230,7 @@ int main() {
       value->y = invalid_candidate_anchor_y;
       CandidateWindow receipted(
           [&] { return value; }, {}, 16, 16, "Segoe UI", {}, std::nullopt,
-          false, true, {},
+          false, true, true, {},
           [&](const CandidatePresentation &shown) {
             receipts.push_back(shown.render_serial);
           });
@@ -320,10 +321,26 @@ int main() {
     {
       std::optional<ModePresentation> value =
           ModePresentation{{{43, {4, 5, 6}}, 1, 1}, true, true, false};
-      FloatingToolbarWindow toolbar([&] { return value; },
-                                    [](const ModeClick &) {});
+      const auto original_dpi = current_thread_dpi_context();
+      DPI_AWARENESS_CONTEXT layout_context = nullptr;
+      FloatingToolbarWindow toolbar([&] {
+        layout_context = current_thread_dpi_context();
+        return value;
+      }, [](const ModeClick &) {});
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
+      require(window_awareness_is_expected(toolbar.handle()));
+      const auto no_redirection =
+          msime::windows::compat::no_redirection_bitmap_style();
+      if (no_redirection)
+        require((GetWindowLongPtrW(toolbar.handle(), GWL_EXSTYLE) &
+                 no_redirection) == no_redirection);
       const auto foreground = GetForegroundWindow();
       toolbar.refresh(true);
+      // 刷新从不感知 DPI 的 Server 调用时也按物理像素摆放，返回后恢复调用方上下文。
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
+      if (compat::dpi_api().set_thread)
+        require(same_dpi_context(layout_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) ||
+                (running_under_wine() && same_dpi_context(layout_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)));
       UpdateWindow(toolbar.handle());
       require(IsWindowVisible(toolbar.handle()) && !toolbar.failed());
       require(GetForegroundWindow() == foreground);
@@ -420,6 +437,29 @@ int main() {
       overlay.set_actions_visible(false);
       pump();
       require(click_through());
+      const auto action_point = [&] {
+        RECT client{};
+        require(GetClientRect(overlay.handle(), &client));
+        const double scale = msime::windows::compat::window_dpi(overlay.handle()) / 96.0;
+        return MAKELPARAM(static_cast<int>(18.0 * scale), client.bottom / 2);
+      };
+      // 动作按钮按下后若状态先收起，浮层必须主动交还鼠标捕获。
+      overlay.set_actions_visible(true);
+      pump();
+      SendMessageW(overlay.handle(), WM_LBUTTONDOWN, MK_LBUTTON, action_point());
+      require(GetCapture() == overlay.handle());
+      overlay.set_actions_visible(false);
+      pump();
+      require(GetCapture() != overlay.handle());
+      // 隐藏路径也必须释放捕获，否则不可见浮层会吞掉其他进程的点击。
+      overlay.set_actions_visible(true);
+      pump();
+      SendMessageW(overlay.handle(), WM_LBUTTONDOWN, MK_LBUTTON, action_point());
+      require(GetCapture() == overlay.handle());
+      overlay.hide();
+      pump();
+      require(!IsWindowVisible(overlay.handle()));
+      require(GetCapture() != overlay.handle());
       // A failure without a detail is a pill, one with a detail the taller transcript card, and a headline wider than the card widens it.
       overlay.set_failure(L"Synthetic failure", L"");
       pump();

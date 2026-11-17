@@ -5,9 +5,11 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -20,9 +22,13 @@ import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
-/** 对安装产品实际测量窄屏、宽屏、算式胶囊和重排，保证横向滚动不带走两端按钮。 */
+/** 对安装产品实际测量窄屏、宽屏、算式胶囊和重排，保证工具按固定格宽和间距聚在行尾、放不下时从最前面的工具起横向滚动，滚动不带走两端按钮。 */
 public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private boolean clipboardModeOnly;
+    @Override public void onCreate(Bundle arguments) {
+        clipboardModeOnly = arguments != null && "true".equals(arguments.getString("clipboard-mode-only"));
+        super.onCreate(arguments); start();
+    }
 
     @Override public void onStart() {
         Throwable[] failure = new Throwable[1];
@@ -37,6 +43,10 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 attach.invoke(service, getTargetContext());
                 type.getMethod("onCreate").invoke(service);
                 type.getMethod("onCreateInputView").invoke(service);
+                if (clipboardModeOnly) {
+                    ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
+                    return;
+                }
                 Button undo = (Button) field(type, "undoShortcutButton").get(service);
                 Button redo = (Button) field(type, "redoShortcutButton").get(service);
                 check(!undo.isEnabled() && !redo.isEnabled(), "history controls enabled without editor");
@@ -61,6 +71,11 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 Object calculator = field(type, "imeCalculator").get(service);
                 Button result = (Button) method(calculator.getClass(), "chip").invoke(calculator);
                 float density = getTargetContext().getResources().getDisplayMetrics().density;
+                // 排法（.agents/notes/implemented/bug-fix/2026-11-12-touch-toolbar-cluster.md）：工具是 40dp 的格子、相邻两格间隔 8dp，放得下时整串贴着滚动区的行尾，放不下时从行首排起。位置按 ToolbarClusterPolicy 算，这里拿真实布局逐个对。
+                Class<?> cluster = loader.loadClass("app.msime.android.ToolbarClusterPolicy");
+                Method toolOffset = cluster.getMethod("toolOffset", int.class, int.class, int.class, int.class, int.class, int.class);
+                Method scrollRange = cluster.getMethod("scrollRange", int.class, int.class, int.class, int.class, int.class);
+                int cell = Math.round(40 * density), gap = Math.round(8 * density);
                 // 先超宽再收窄，覆盖旧滚动偏移在布局变化后被重新钳制的路径。
                 for (int widthDp : new int[] {600, 320, 240, 600}) {
                     for (boolean showResult : new boolean[] {false, true}) {
@@ -73,10 +88,36 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                         check(Math.abs(left.width() - 44 * density) <= 1, "brand touch width changed");
                         check(left.left >= 0 && right.right <= row.getWidth(), "toolbar edge clipped");
                         check(Math.abs(right.width() - 44 * density) <= 1, "dismiss touch width changed");
+                        String at = widthDp + "/" + showResult;
+                        // 原来每个工具带权重等分剩余宽度，只要求不窄于 40dp；现在格宽固定，宽屏上也不拉宽。
                         for (Button button : buttons)
-                            check(button.getWidth() >= Math.round(40 * density), "tool shrank below minimum width");
+                            check(button.getWidth() == cell, "tool is not one fixed cell wide at " + at + ": " + button.getWidth());
+                        Rect port = bounds(row, scroll);
+                        int chip = showResult ? result.getWidth() : 0;
+                        check(!showResult || bounds(row, result).left == port.left,
+                            "calculator chip left the start of the scroll area at " + at);
+                        int range = (Integer) scrollRange.invoke(null, port.width(), chip, buttons.length, cell, gap);
+                        for (int index = 0; index < buttons.length; index++) {
+                            int expected = (Integer) toolOffset.invoke(null, index, port.width(), chip, buttons.length, cell, gap);
+                            check(bounds(row, buttons[index]).left - port.left == expected,
+                                "tool " + index + " is off the cluster grid at " + at + ": "
+                                    + (bounds(row, buttons[index]).left - port.left) + " != " + expected);
+                        }
+                        if (range == 0) {
+                            // 放得下：最后一个工具贴着滚动区的行尾，第一个工具前面是空白，不再从行首铺开。
+                            check(bounds(row, buttons[buttons.length - 1]).right == port.right,
+                                "fitting tools are not flush with the end at " + at);
+                            check(bounds(row, buttons[0]).left - port.left >= gap, "fitting tools lost their leading gap at " + at);
+                        } else if (!showResult) {
+                            // 放不下：滚动位置 0 时用户排在最前面的工具整个露在滚动区里。
+                            Rect first = bounds(row, buttons[0]);
+                            check(first.left == port.left + gap && first.right <= port.right,
+                                "first tool is not visible at the scroll start at " + at + ": " + first.toShortString());
+                        }
+                        if (widthDp == 600 && !showResult) check(range == 0, "wide toolbar should not need to scroll");
                         scroll.scrollTo(Math.max(0, bar.getWidth() - scroll.getWidth()), 0);
                         if (widthDp <= 320) check(scroll.getScrollX() > 0, "narrow toolbar cannot scroll");
+                        else if (range == 0) check(scroll.getScrollX() == 0, "fitting toolbar still scrolls at " + at);
                         check(left.equals(bounds(row, more)) && right.equals(bounds(row, dismiss)),
                             "scroll moved fixed toolbar edges");
                         Rect last = bounds(row, buttons[buttons.length - 1]);
@@ -97,20 +138,27 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 Object toolbar = field(type, "imeToolbar").get(service);
                 method(toolbar.getClass(), "applyShortcutOrder").invoke(toolbar);
                 check(bar.getChildAt(0) == result, "calculator lost first position");
-                check(bar.getChildAt(1) == voice, "voice button did not follow the saved order");
+                // 结果胶囊后面多了一格可伸缩空白，工具从第 2 个子视图排起（原来是第 1 个）。
+                check(!(bar.getChildAt(1) instanceof Button), "stretch space lost its place after the calculator chip");
+                check(bar.getChildAt(2) == voice, "voice button did not follow the saved order");
                 for (int index = 0; index < buttons.length; index++)
-                    check(bar.getChildAt(index + 2) == buttons[buttons.length - index - 1],
+                    check(bar.getChildAt(index + 3) == buttons[buttons.length - index - 1],
                         "custom order changed tool identity");
                 for (int index = 1; index < buttons.length; index++) buttons[index].setVisibility(View.GONE);
                 voice.setVisibility(View.GONE);
                 result.setVisibility(View.GONE);
                 layout(row, Math.round(320 * density), Math.round(64 * density));
                 check(scroll.getScrollX() == 0, "hidden tools left stale scroll offset");
-                check(buttons[0].getWidth() >= scroll.getWidth() - 2 * Math.round(density),
-                    "single visible tool did not fill available width");
+                // 原来只剩一个工具时它独占整个滚动区；现在仍是一格宽，贴着行尾。
+                check(buttons[0].getWidth() == cell && bounds(row, buttons[0]).right == bounds(row, scroll).right,
+                    "single visible tool is not one cell at the end: " + bounds(row, buttons[0]).toShortString());
                 checkToolbarHeightStability(type, service, loader, density);
+                CompactCandidateHeightDeviceChecks.run(type, service, density);
                 checkVoiceTileRetained(type, service);
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
+                ToolbarPinnedDeviceCheck.run(type, service, loader);
+                ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
+                CandidateDisplayPreferenceDeviceChecks.run(type, service, loader, density);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {
@@ -127,7 +175,9 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Bundle result = new Bundle();
         Throwable error = failure[0];
         result.putString("stream", error == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, 240/320/600dp, calculator, order with voice, hidden tools, resize and sticky clipboard header\n"
+            ? clipboardModeOnly
+                ? "MSIME_DEVICE_SMOKE_PASSED: clipboard mode redraw, local tab, isolated history counts and undo boundary\n"
+                : "MSIME_DEVICE_SMOKE_PASSED: toolbar fixed edges, end cluster and scroll start at 240/320/600dp, calculator, order with voice, hidden tools, resize, sticky clipboard header and mode isolation\n"
             : "MSIME_DEVICE_SMOKE_FAILED: toolbar layout (" + error.getClass().getSimpleName() + ")"
                 + (error instanceof AssertionError ? " " + error.getMessage() : "") + "\n");
         finish(error == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
@@ -146,7 +196,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         Field settings = field(type, "localSettings");
         Method update = method(type, "updateCandidateViewportHeight");
         try {
-            for (int percent : new int[] {90, 100, 150}) {
+            for (int percent : new int[] {50, 70, 90, 100, 150}) {
                 settings.set(service, constructor.newInstance(Map.of(
                     "platform.android.toolbar_size_percent", percent)));
                 header.setVisibility(View.GONE);
@@ -301,6 +351,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             }
             checkClipboardClearConfirm(panels, header, surface, density);
             checkClipboardMoreMenu(type, service, panels, header, cards, surface, density);
+            checkClipboardDetailActionAlignment(type, service, panels, cards, surface, loader, density);
             checkClipboardUndoFloating(type, service, panels, header, surface, scroll, cards, density);
             checkClipboardDeleteRestoresPanelAfterAuthentication(type, service, panels, surface);
             checkClipboardSingleDeleteUndo(type, service, panels, cards);
@@ -463,14 +514,14 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             int scrolled = Math.round(60 * density);
             scroll.scrollTo(0, scrolled);
             check(scroll.getScrollY() == scrolled, "synthetic clipboard history did not scroll before opening the menu");
-            Rect cardBefore = bounds(surface, describedViews(cards, "查看这条剪贴板记录详情").get(0));
+            Rect cardBefore = bounds(surface, clipboardCardViews(cards).get(0));
             View more = descendant(header, view -> view instanceof Button
                 && describedAs(view, "更多剪贴板操作"));
             check(more.performClick() && open.getBoolean(panels), "clipboard more button did not open the menu");
             layout(surface, width, height);
             check(scroll.getScrollY() == scrolled,
                 "opening the clipboard more menu scrolled the list: " + scrolled + " -> " + scroll.getScrollY());
-            Rect cardAfter = bounds(surface, describedViews(cards, "查看这条剪贴板记录详情").get(0));
+            Rect cardAfter = bounds(surface, clipboardCardViews(cards).get(0));
             check(cardAfter.equals(cardBefore), "opening the clipboard more menu moved the cards: "
                 + cardBefore.toShortString() + " -> " + cardAfter.toShortString());
             // 菜单容器没有无障碍说明（免得 TalkBack 多停一个不能操作的节点），按菜单里「分类」那一项找回容器。
@@ -549,11 +600,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             render.invoke(panels);
         }
     }
-    /**
-     * 菜单开着时点一条的 ⓘ 看详情（读屏按节点点击，不经过浮层），再返回：菜单已收起，返回后刚看的那条要停在离开时的位置（#10037）。
-     *
-     * <p>菜单原来画在列表最上面，记下的滚动位置要减掉它那一截；现在它浮在列表上面（#10969），列表位置与菜单开合无关，这里守住返回后不错位。
-     */
+    /** 菜单开着时进入一条记录的详情再返回：菜单已收起，返回后刚看的那条要停在离开时的位置。 */
     private static void checkClipboardMoreDetailReturn(Class<?> type, Object service, Object panels,
             ViewGroup cards, ViewGroup surface, float density) throws Exception {
         Field open = field(panels.getClass(), "clipboardMoreOpen");
@@ -568,19 +615,55 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
             layout(surface, width, height);
             check(descendant(surface, view -> describedAs(view, "管理剪贴板分类")) != null,
                 "clipboard more menu is not open before opening a record's details");
-            java.util.List<View> details = describedViews(cards, "查看这条剪贴板记录详情");
-            check(details.size() > target, "synthetic clipboard history has too few detail buttons");
-            View detail = details.get(target);
-            scroll.scrollTo(0, bounds(cards, detail).top - Math.round(40 * density));
+            java.util.List<View> records = clipboardCardViews(cards);
+            check(records.size() > target, "synthetic clipboard history has too few cards");
+            View record = records.get(target);
+            scroll.scrollTo(0, bounds(cards, record).top - Math.round(40 * density));
             check(scroll.getScrollY() > 0, "clipboard history did not scroll before opening details");
-            int before = bounds(surface, detail).top;
-            check(detail.performClick() && !open.getBoolean(panels),
-                "clipboard detail button did not close the more menu");
+            int before = bounds(surface, record).top;
+            Class<?> itemType = type.getClassLoader().loadClass("app.msime.android.ClipboardHistory$Item");
+            String recordText = ((android.widget.TextView) record).getText().toString();
+            Object item = itemType.getConstructor(String.class, long.class, boolean.class)
+                .newInstance(recordText, 1700000000000L, false);
+            Class<?> originType = type.getClassLoader().loadClass("app.msime.android.ClipboardDetailPolicy$Origin");
+            Object listOrigin = originType.getField("LIST").get(null);
+            method(panels.getClass(), "openClipboardDetail", itemType, originType).invoke(panels, item, listOrigin);
+            check(!open.getBoolean(panels), "clipboard detail did not close the more menu");
+            ViewGroup header = (ViewGroup) field(type, "clipboardHeader").get(service);
+            layout(surface, width, height);
+            check(header.getVisibility() == View.GONE && header.getChildCount() == 0,
+                "clipboard detail still draws the removed top back button or title");
+            FrameLayout.LayoutParams detailScrollParams =
+                (FrameLayout.LayoutParams) scroll.getLayoutParams();
+            check(detailScrollParams.topMargin == 0,
+                "clipboard detail still reserves the removed top header height");
+            long touchTime = android.os.SystemClock.uptimeMillis();
+            android.view.MotionEvent down = android.view.MotionEvent.obtain(
+                touchTime, touchTime, android.view.MotionEvent.ACTION_DOWN, width / 2f, 1f, 0);
+            android.view.MotionEvent up = android.view.MotionEvent.obtain(
+                touchTime, touchTime + 20, android.view.MotionEvent.ACTION_UP, width / 2f, 1f, 0);
+            boolean downHandled;
+            boolean upHandled;
+            try {
+                downHandled = surface.dispatchTouchEvent(down);
+                upHandled = surface.dispatchTouchEvent(up);
+            } finally {
+                down.recycle();
+                up.recycle();
+            }
+            check(downHandled && upHandled && surface.isClickable(),
+                "clipboard detail top area touch was not consumed by the clipboard panel");
+            check(descendant(surface, view -> view instanceof Button
+                    && describedAs(view, "返回剪贴板历史列表")) != null,
+                "clipboard detail lost its accessible bottom return action");
+            check(descendant(surface, view -> view instanceof android.widget.TextView
+                    && "记录详情".contentEquals(((android.widget.TextView) view).getText())) == null,
+                "clipboard detail title is still present after removing the top header");
             int restored = saved.getInt(panels);
             method(panels.getClass(), "returnFromClipboardDetail").invoke(panels);
             layout(surface, width, height);
             scroll.scrollTo(0, restored);
-            java.util.List<View> returned = describedViews(cards, "查看这条剪贴板记录详情");
+            java.util.List<View> returned = clipboardCardViews(cards);
             check(returned.size() > target, "clipboard history did not come back after details");
             int after = bounds(surface, returned.get(target)).top;
             check(after == before, "clipboard record moved after returning from details with the more menu open: "
@@ -598,6 +681,78 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
         }
         return result;
     }
+
+    /** #11288：详情底部「插入」「返回」随本机设置保持左对齐或右对齐。 */
+    private static void checkClipboardDetailActionAlignment(Class<?> type, Object service, Object panels,
+            ViewGroup cards, ViewGroup surface, ClassLoader loader, float density) throws Exception {
+        Field localSettings = field(type, "localSettings");
+        Object originalSettings = localSettings.get(service);
+        Method apply = method(type, "applyLocalSettings");
+        Method render = method(panels.getClass(), "renderClipboardHistory");
+        Method returnFromDetail = method(panels.getClass(), "returnFromClipboardDetail");
+        Class<?> snapshot = loader.loadClass("app.msime.android.AndroidLocalSettings$Snapshot");
+        Constructor<?> constructor = snapshot.getDeclaredConstructor(Map.class);
+        constructor.setAccessible(true);
+        int width = Math.round(360 * density);
+        int height = Math.round(300 * density);
+        try {
+            for (String choice : new String[] {"left", "right"}) {
+                localSettings.set(service, constructor.newInstance(Map.of(
+                    "platform.android.clipboard_detail_action_alignment", choice)));
+                apply.invoke(service);
+                render.invoke(panels);
+                layout(surface, width, height);
+                java.util.List<View> records = clipboardCardViews(cards);
+                check(!records.isEmpty(), "clipboard detail alignment has no synthetic records");
+                View record = records.get(0);
+                long downTime = android.os.SystemClock.uptimeMillis();
+                int[] gestures = {android.view.MotionEvent.ACTION_DOWN,
+                    android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+                // 详情入口已改为卡片右滑，沿真实触摸路径打开，仍覆盖出厂左对齐。
+                for (int index = 0; index < gestures.length; index++) {
+                    android.view.MotionEvent event = android.view.MotionEvent.obtain(downTime,
+                        downTime + index * 40, gestures[index],
+                        index == 0 ? 20 * density : 180 * density, record.getHeight() / 2f, 0);
+                    try { record.dispatchTouchEvent(event); }
+                    finally { event.recycle(); }
+                }
+                layout(surface, width, height);
+                View insert = descendant(surface, view -> describedAs(view, "插入这条剪贴板记录"));
+                check(insert != null && insert.getParent() instanceof LinearLayout,
+                    "clipboard detail action row is missing for " + choice);
+                LinearLayout actions = (LinearLayout) insert.getParent();
+                int actual = Gravity.getAbsoluteGravity(actions.getGravity(), actions.getLayoutDirection())
+                    & Gravity.HORIZONTAL_GRAVITY_MASK;
+                int expected = "right".equals(choice) ? Gravity.RIGHT : Gravity.LEFT;
+                check(actual == expected,
+                    "clipboard detail action row alignment is " + actual + ", expected " + expected
+                        + " for " + choice);
+                View last = actions.getChildAt(actions.getChildCount() - 1);
+                int leftGap = insert.getLeft() - actions.getPaddingLeft();
+                int rightGap = actions.getWidth() - actions.getPaddingRight() - last.getRight();
+                check("right".equals(choice) ? rightGap < leftGap : leftGap < rightGap,
+                    "clipboard detail action buttons did not move to " + choice);
+                returnFromDetail.invoke(panels);
+            }
+        } finally {
+            localSettings.set(service, originalSettings);
+            apply.invoke(service);
+            render.invoke(panels);
+        }
+    }
+
+    private static java.util.List<View> clipboardCardViews(ViewGroup root) {
+        java.util.List<View> result = new java.util.ArrayList<>();
+        for (int index = 0; index < root.getChildCount(); index++) {
+            View child = root.getChildAt(index);
+            CharSequence description = child.getContentDescription();
+            if (description != null && description.toString().contains("左滑删除")
+                    && description.toString().contains("长按管理")) result.add(child);
+            if (child instanceof ViewGroup group) result.addAll(clipboardCardViews(group));
+        }
+        return result;
+    }
+
     /**
      * 键盘窄到顶行内容比键盘宽、左边那些按钮要横滑时，「更多」钉在横向滚动外面，仍整个落在键盘宽度以内（#10037）。
      *

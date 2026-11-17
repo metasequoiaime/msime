@@ -46,6 +46,7 @@ const compiled = require("module").stripTypeScriptTypes(
 );
 
 interface GridView {
+  previewLetter: string;
   gridGestures: Map<string, GridKeyGesturePolicy>;
   gridTapSwallows: Set<string>;
   holdGridKey(key: FourteenKey, eighteen: boolean): void;
@@ -81,6 +82,7 @@ function fixture(composing: boolean, swipe = true): { view: GridView; calls: str
         insert: (text: string): void => {
           calls.push(`insert:${text}`);
         },
+        keyUp: (): void => {},
         pressGridKey: (code: number): void => {
           calls.push(`grid:${String.fromCharCode(code)}`);
         },
@@ -95,6 +97,7 @@ function fixture(composing: boolean, swipe = true): { view: GridView; calls: str
   ) as new () => GridView;
   const view = new Constructor();
   Object.assign(view, {
+    previewLetter: "",
     gridGestures: new Map(),
     gridTapSwallows: new Set(),
     feedback: {
@@ -103,8 +106,17 @@ function fixture(composing: boolean, swipe = true): { view: GridView; calls: str
       keyPopup: false,
     },
     swipesEighteenKey: (): boolean => true,
+    showEighteenSwipeFace: (_letters: string, letter: string): void => {
+      view.previewLetter = letter;
+    },
+    endEighteenSwipeFace: (): void => {
+      view.previewLetter = "";
+    },
     hideKeyPreview: (): void => {},
     showKeyPreview: (): void => {},
+    typeFourteenKeyLetter: (_key: FourteenKey, letter: string): void => {
+      calls.push(`fourteen:${letter}`);
+    },
     typeEighteenKeyLetter: (_key: FourteenKey, letter: string): void => {
       calls.push(`letter:${letter}`);
     },
@@ -200,4 +212,25 @@ policy.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
 policy.move(1, 1, 100, 80);
 check(policy.up(1, 2, 100, 80) === GridKeyGestureMode.CANCELLED, "松手时仍为多指的纵滑不输入符号");
 check(!new GridKeyGesturePolicy(null, false).hold(), "没有有效按压或角标不能触发长按");
+
+// 整合 develop 后的契约：14/18 键同样保留精确横滑，按键统计不能串到另一种网格。
+for (const eighteen of [false, true]) {
+  const rows = eighteen ? EighteenKeyLayout.rows() : FourteenKeyLayout.rows();
+  const key = rows.flat().find((key) => key.letters.length === 2)!;
+  for (const composing of [false, true]) {
+    const { view, calls } = fixture(composing);
+    touch(view, key, eighteen, "down");
+    touch(view, key, eighteen, "move", 130, 100);
+    check(view.previewLetter === key.letters[1].toUpperCase(), "横滑时键面显示精确字母");
+    touch(view, key, eighteen, "up", 130, 100);
+    check(view.previewLetter === "", "松手后键面恢复整组");
+    view.clickGridKey(key, eighteen);
+    check(
+      JSON.stringify(calls) ===
+        JSON.stringify([`${eighteen ? "letter" : "fourteen"}:${key.letters[1].toUpperCase()}`]),
+      `${eighteen ? 18 : 14} 键组字=${composing} 横滑只输入一次精确字母`,
+    );
+  }
+}
+
 console.log("14/18 键真实宿主：长按、组字、标点路由、单次统计、点击吞噬和取消均通过");

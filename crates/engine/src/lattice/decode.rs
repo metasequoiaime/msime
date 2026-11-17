@@ -58,7 +58,7 @@ pub struct LatticeOptions<'a> {
     pub personal_max_bonus: f64,
     /// Paths to emit; 0 emits all (`sentence_alternatives`).
     pub emit: usize,
-    /// How far, per typo edge, the corrected sentence has to beat the literal one before it takes the leading seat. Infinite keeps it behind the whole-sentence rows, where it only adds a candidate. Swept with eval_sentences --autocorrect-types 7: margins of 8 and 4 moved clean top-1 at every base cost from 8 to 28 (sentences-v2 46.5% -> 45.2%, sentences-neutral-v1 19.5% -> 18.4..18.9%).
+    /// 全拼纠错整句每处纠错必须胜过字面整句的分差，达到后才坐首位；不足时坐第二位或整句块后面（`quanpin::dictionary::TYPO_SECOND_SEAT_MARGIN`）。参考罚分下用 `eval_sentences --autocorrect-types 7` 扫过 8 和 4，各档成本 8 到 28 都损失原句首选（sentences-v2 46.5% → 45.2%，sentences-neutral-v1 19.5% → 18.4–18.9%），因此当时保持无穷大。改为 0.25 折罚分（`QUANPIN_TYPO_PENALTY_SCALE`）并加入字母级编辑后，10396 条原句的每处最大分差是 45.1，1812 条合法拼音打错中有 28 条超过 50，故取 50 留出余量：错误首选会在按空格时直接上屏。
     pub typo_lead_margin: f64,
     /// Beam of the typo pass, which only needs its best path. At 8 and at 4 the typo and clean eval numbers were the same as at the full beam, and the pass cost dropped from about 0.45 ms to 0.1-0.2 ms per query.
     pub typo_beam: usize,
@@ -160,7 +160,7 @@ impl Default for LatticeOptions<'_> {
             personal_reference_probability: 0.05,
             personal_max_bonus: 2.5,
             emit: 0,
-            typo_lead_margin: f64::INFINITY,
+            typo_lead_margin: 50.0,
             typo_beam: 8,
             bigram: None,
             trigram: None,
@@ -1588,6 +1588,7 @@ pub(super) fn decode_typo_on_graph_with_policy(
         if !usable(typo) {
             continue;
         }
+        // The phrase bonus counts the typed columns the edge covers, not the syllables of its reading: every path tiles the same columns, so a re-segmented edge (现在 over xian'zi'a) has to earn the bonus a literal phrase over those columns would, or a longer literal reading (现在啊) always wins. Re-segmented keys have at least two syllables, so a lone character never gets the phrase rate.
         extra[typo.start].push(Edge {
             end: typo.end,
             word: typo.value.clone(),

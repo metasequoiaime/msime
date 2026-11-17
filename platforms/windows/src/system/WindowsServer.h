@@ -12,6 +12,7 @@ struct WindowsServerOptions {
   std::string
       preferences_directory; // Explicit shared store; empty disables polling.
   PreferenceMonitor::Published preferences_published;
+  std::shared_ptr<std::atomic<bool>> candidate_cloud_badge;
 };
 // Starts an actual native service when constructed. The caller must explicitly
 // choose names and implement native key/UI behavior; this never registers TSF.

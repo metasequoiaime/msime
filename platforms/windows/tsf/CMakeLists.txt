@@ -43,6 +43,16 @@ else()
 endif()
 add_test(NAME msime-tsf-deferred-smart-punctuation
   COMMAND msime-tsf-deferred-smart-punctuation-test ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(msime-tsf-smart-punctuation-forwarded-key-test tests/input/smart_punctuation_forwarded_key.cpp)
+target_compile_features(msime-tsf-smart-punctuation-forwarded-key-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-smart-punctuation-forwarded-key-test PRIVATE Global)
+if(MSVC)
+  target_compile_options(msime-tsf-smart-punctuation-forwarded-key-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-smart-punctuation-forwarded-key-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-smart-punctuation-forwarded-key
+  COMMAND msime-tsf-smart-punctuation-forwarded-key-test ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(msime-tsf-client-key-router-test tests/input/client_key_router.cpp)
 target_compile_features(msime-tsf-client-key-router-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-client-key-router-test PRIVATE . Global IME Header Key)
@@ -89,6 +99,9 @@ else()
   target_compile_options(msime-tsf-host-delay-path-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endif()
 add_test(NAME msime-tsf-host-delay-path COMMAND msime-tsf-host-delay-path-test)
+if(MSVC)
+  add_subdirectory(tests/host_delay_load)
+endif()
 add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
@@ -212,6 +225,16 @@ else()
   target_compile_options(msime-tsf-context-stack-change-policy-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endif()
 add_test(NAME msime-tsf-context-stack-change-policy COMMAND msime-tsf-context-stack-change-policy-test)
+# 候选所属文档按 COM identity 判断，避免 Firefox 等宿主返回不同接口包装时误隐藏候选。
+add_executable(msime-tsf-candidate-focus-policy-test tests/input/candidate_focus_policy.cpp)
+target_compile_features(msime-tsf-candidate-focus-policy-test PRIVATE cxx_std_17)
+target_include_directories(msime-tsf-candidate-focus-policy-test PRIVATE .)
+if(MSVC)
+  target_compile_options(msime-tsf-candidate-focus-policy-test PRIVATE /UNDEBUG /W4 /WX /utf-8)
+else()
+  target_compile_options(msime-tsf-candidate-focus-policy-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+endif()
+add_test(NAME msime-tsf-candidate-focus-policy COMMAND msime-tsf-candidate-focus-policy-test)
 add_executable(msime-tsf-korean-key-test tests/input/korean_key.cpp)
 target_compile_features(msime-tsf-korean-key-test PRIVATE cxx_std_17)
 target_include_directories(msime-tsf-korean-key-test PRIVATE ../../../crates/host-api/include)
@@ -410,6 +433,7 @@ add_library(msime-tsf SHARED
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
   TsfHostDelayLoad.cpp
+  TsfHostImports.cpp
 )
 add_dependencies(msime-tsf msime-tsf-crash-wer)
 add_dependencies(msime-tsf-class-factory-test msime-tsf)

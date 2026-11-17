@@ -30,7 +30,8 @@ WindowsServer::WindowsServer(WindowsServerOptions options,
       [this] { return service_->failure() == ERROR_SUCCESS; },
       [this] { service_->stop(); }, std::chrono::milliseconds(100),
       std::move(options.preferences_directory), std::move(presentation),
-      std::move(options.preferences_published));
+      std::move(options.preferences_published),
+      std::move(options.candidate_cloud_badge));
 }
 WindowsServer::~WindowsServer() { stop(); }
 } // namespace msime::windows

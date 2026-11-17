@@ -42,10 +42,28 @@ public final class GridKeyGesturePolicySmoke {
 
         // 开关关闭：两种纵滑都不响应，长按照旧。
         g = gesture(null, null, false);
+        g.move(1, 1, 100, 95);
+        check(!g.forcesTap(), "关闭时轻微移动仍交给按钮");
         g.move(1, 1, 100, 60);
+        check(g.forcesTap(), "关闭时上滑离开键帽仍补一次点按");
         g.move(1, 1, 100, 140);
         check(g.mode() == Mode.PENDING, "关闭时纵滑不触发");
+        check(g.forcesTap(), "关闭时反向下滑也补一次点按");
         check(g.hold() && g.mode() == Mode.OPTIONS, "关闭时长按照旧打开选项");
+        check(!g.forcesTap(), "长按打开选项后不补点按");
+        g = gesture("we", null, false);
+        g.move(1, 1, 100, 140);
+        check(g.forcesTap(), "两字母键关闭时下滑也补一次点按");
+        g.move(1, 1, 130, 100);
+        check(g.mode() == Mode.LETTER && !g.forcesTap(), "随后横滑限定字母不重复点按");
+        g = gesture(null, null, false);
+        g.move(1, 1, 140, 100);
+        check(!g.forcesTap(), "关闭时纯横移不强制点按");
+        g.move(1, 1, 100, 60);
+        g.cancel();
+        check(!g.forcesTap(), "关闭时纵滑被系统取消不输入");
+        g.start(1, 100, 100, UP, false);
+        check(!g.forcesTap(), "新按压不继承关闭时的纵滑");
 
         // 空闲长按。
         g = gesture(null, UP, false);

@@ -2,6 +2,7 @@
 
 mod bilingual_glide;
 mod bilingual_glide_quality;
+mod fuzzy_heaviest;
 mod invalid_pinyin;
 mod sentence_excluded;
 
@@ -772,6 +773,43 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
         ).unwrap();
         assert!(learned > 0, "模糊两键选择必须按标准读音学习");
     }
+}
+
+#[test]
+fn quanpin_fuzzy_selection_can_cross_the_literal_candidate_group() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_z VALUES('zi''qian','zq','自谦',300),('zi''qian','zq','自前',200),('zi''qian','zq','资遣',100);\
+INSERT INTO tbl_2_z VALUES('zhi''qian','zq','之前',50);",
+    );
+    let mut session = Fixture::session_with(&fixture, |options| {
+        options.helpcode = false;
+        options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut session, "ziqian");
+    let initial = words(&session);
+    let initial_index = index_of(&session, "之前");
+    assert!(
+        initial_index >= 3,
+        "模糊候选必须先位于字面候选之后: {initial:?}"
+    );
+    assert_eq!(
+        session.select(initial_index).commit.as_deref(),
+        Some("之前")
+    );
+
+    let mut next = Fixture::session_with(&fixture, |options| {
+        options.helpcode = false;
+        options.fuzzy_pinyin.rules = crate::types::fuzzy_rule::Z_ZH;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut next, "ziqian");
+    let learned = words(&next);
+    assert!(
+        index_of(&next, "之前") < 3,
+        "选择模糊候选后应能进入字面候选组前列: {learned:?}"
+    );
 }
 
 fn select_word(session: &mut Session, word: &str) -> crate::types::KeyResult {
@@ -7393,8 +7431,9 @@ fn date_time_menu_opens_the_full_format_list() {
     let first = words(&session);
     assert_eq!(first[2], "📅日期", "{first:?}");
     let menu = &session.snapshot().candidates[2];
-    assert_eq!(menu.source, CandidateSource::Generated);
+    assert_eq!(menu.source, CandidateSource::Fallback);
     assert_eq!(menu.pinyin, "menu:riqi");
+    assert!(!session.snapshot().candidate_answers_key[2]);
 
     // 选中入口：不上屏，候选窗换成 T 模式的整组格式，组字原样留着。
     let result = session.select(2);
@@ -7405,6 +7444,8 @@ fn date_time_menu_opens_the_full_format_list() {
     assert_eq!(page[0], "2026年8月9日");
     assert_eq!(page[16], "丙午年六月二十七日");
     assert!(!session.snapshot().preedit.is_empty());
+    assert!(!session.expand_initial_candidates());
+    assert_eq!(words(&session), page);
 
     // 页里选一条格式：照常上屏并结束组字。
     assert_eq!(session.select(1).commit.as_deref(), Some("2026-08-09"));
