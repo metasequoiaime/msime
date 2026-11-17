@@ -24,6 +24,7 @@ struct Server {
     reject: Option<String>,
     refreshes: usize,
     status_override: Option<u16>,
+    after_refresh: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl Server {
@@ -144,7 +145,14 @@ impl AccountApi for Api {
         Ok(tokens())
     }
     fn refresh(&self, _: &str) -> Result<AccountTokens, AccountError> {
-        self.server.lock().unwrap().refreshes += 1;
+        let after_refresh = {
+            let mut server = self.server.lock().unwrap();
+            server.refreshes += 1;
+            server.after_refresh.clone()
+        };
+        if let Some(after_refresh) = after_refresh {
+            after_refresh();
+        }
         let mut tokens = tokens();
         tokens.access_token = "c".repeat(64);
         Ok(tokens)

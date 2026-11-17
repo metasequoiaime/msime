@@ -12,6 +12,7 @@ pub(super) struct RoundServer {
     blobs: BTreeMap<String, (u64, Vec<u8>)>,
     trace: Vec<String>,
     upload_status: Option<u16>,
+    upload_error_body: Vec<u8>,
     download_status: Option<u16>,
     metadata_patch: Option<fn(&mut Value)>,
     download_override: Option<Vec<u8>>,
@@ -49,7 +50,7 @@ pub(super) fn handle(server: &mut Server, request: &BlobRequest<'_>) -> BlobResp
         } => {
             round.trace.push(format!("upload:{device_id}:{generation}"));
             if let Some(status) = round.upload_status {
-                return blob_response(status, vec![]);
+                return blob_response(status, round.upload_error_body.clone());
             }
             if round
                 .blobs
@@ -614,6 +615,9 @@ mod pending;
 
 #[path = "round/rate_limit.rs"]
 mod rate_limit;
+
+#[path = "round/schedule.rs"]
+mod schedule;
 
 #[test]
 fn relogin_during_upload_cannot_record_uploaded_or_start_downloading() {

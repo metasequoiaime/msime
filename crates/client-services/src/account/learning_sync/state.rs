@@ -16,6 +16,9 @@ pub const MAX_STATE_BYTES: usize = 4 * 1024 * 1024;
 const STATE_FILE: &str = "learning.json";
 const LOCK_FILE: &str = "learning.lock";
 
+mod schedule;
+pub use schedule::{ScheduleProgress, ScheduleStatus, SkipReason};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StateError {
     #[error("learning state unavailable")]
@@ -57,6 +60,9 @@ pub struct AccountProgress {
     /// 本机设备上传代次跨换钥保留，服务端回滚后也继续递增。
     #[serde(deserialize_with = "unique_map")]
     pub uploads: BTreeMap<String, Uploaded>,
+    /// 独立授权和调度限制与账号进度一起原子保存；旧文件缺此字段时不开启同步。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<ScheduleProgress>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

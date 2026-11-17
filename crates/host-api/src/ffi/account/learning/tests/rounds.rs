@@ -6,6 +6,7 @@ use msime_engine::{LearningSyncRecord, LearningSyncState, RuntimePaths};
 
 mod contexts;
 mod reset;
+mod schedule;
 mod server;
 use server::Server;
 

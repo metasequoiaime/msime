@@ -58,10 +58,14 @@ pub(super) fn failure(error: RoundError) -> Failure {
 }
 
 pub(super) fn round_report(report: RoundReport) -> Value {
-    json!({ "uploaded": report.uploaded, "upload_unchanged": report.upload_unchanged,
+    let mut value = json!({ "uploaded": report.uploaded, "upload_unchanged": report.upload_unchanged,
         "dropped_weights": report.dropped_weights,
         "upload_error": report.upload_error.map(|error| failure(error).json()),
-        "downloads": downloads(report.downloads), "pending": downloads(report.pending) })
+        "downloads": downloads(report.downloads), "pending": downloads(report.pending) });
+    if report.upload_paused {
+        value["upload_paused"] = json!(true);
+    }
+    value
 }
 
 pub(super) fn downloads(reports: Vec<DownloadReport>) -> Vec<Value> {

@@ -1,5 +1,5 @@
 //! 显式的一次学习同步：先上传本机，再逐份认证、完整校验和合并。
-//! 维护租约忙时保留已认证密文，空闲认领时重新校验；尚无自动调度。
+//! 维护租约忙时保留已认证密文；宿主持久调度由同目录 schedule 模块提供。
 
 mod identity;
 mod metadata;
@@ -62,6 +62,8 @@ pub struct RoundReport {
     pub upload_unchanged: bool,
     pub dropped_weights: usize,
     pub upload_error: Option<RoundError>,
+    /// 账号额度暂停期间仍可接收其他设备，不把暂停误报为明文摘要未变。
+    pub upload_paused: bool,
     pub downloads: Vec<DownloadReport>,
     pub pending: Vec<DownloadReport>,
 }
@@ -92,7 +94,7 @@ pub enum DownloadOutcome {
 }
 
 /// 宿主显式传入已选定的一代词库；调用方负责本机学习开关与同步授权。
-/// 当前仅供手动轮次接线，自动调度须补持久节流后再使用。
+/// 产品宿主使用同目录 schedule 模块，不能用低层显式轮次绕过持久授权和限制。
 pub struct RoundContext<'a> {
     pub paths: &'a RuntimePaths,
     pub state_directory: &'a Path,
@@ -110,11 +112,27 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         context.paths.validate().map_err(|_| RoundError::Local)?;
         let store = StateStore::new(context.state_directory);
         let _round = store.try_round()?.ok_or(RoundError::Busy)?;
-        let status = self.learning_operation(Operation::Status, device_name, Some(login))?;
-        if status["status"] != "ready" {
-            return Err(RoundError::NotReady);
+        self.learning_sync_round(login, device_name, context, None, false)
+    }
+
+    pub(super) fn learning_sync_round(
+        &self,
+        login: &AccountLoginBinding,
+        device_name: &str,
+        context: &RoundContext<'_>,
+        schedule: Option<super::schedule::Lease>,
+        upload_paused: bool,
+    ) -> Result<RoundReport, RoundError> {
+        let store = StateStore::new(context.state_directory);
+        // 调度只使用本机已确认密钥；登记、建钥和批准留给用户显式管理。
+        if schedule.is_none() {
+            let status = self.learning_operation(Operation::Status, device_name, Some(login))?;
+            if status["status"] != "ready" {
+                return Err(RoundError::NotReady);
+            }
         }
-        let identity = self.learning_identity(login)?;
+        let mut identity = self.learning_identity(login)?;
+        identity.schedule = schedule;
         let own_id = identity.keys.device_id();
         let key = identity.keys.ready_key_id().ok_or(RoundError::NotReady)?;
         let metadata = self.learning_round_request(
@@ -125,38 +143,47 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         successful(&metadata)?;
         let metadata = Metadata::read(&metadata.body, &own_id, key)?;
 
-        let (local, observed_max) = self.with_learning_identity(login, &identity, || {
-            let _maintenance = maintenance(context.paths)?.ok_or(RoundError::Busy)?;
-            let mut state = LearningSyncState::default();
-            let exported = stream_learning_sync_state(context.paths, &mut |record| {
-                state.insert(record.clone()).is_ok()
-            })
-            .map_err(|_| RoundError::Local)?;
-            store.observe(&login.user_id, exported.observed_max)?;
-            advance_learning_sync_clock(context.paths, store.read(&login.user_id)?.observed_max)
+        let mut report = RoundReport {
+            upload_paused,
+            ..RoundReport::default()
+        };
+        if !upload_paused {
+            let (local, observed_max) = self.with_learning_identity(login, &identity, || {
+                let _maintenance = maintenance(context.paths)?.ok_or(RoundError::Busy)?;
+                let mut state = LearningSyncState::default();
+                let exported = stream_learning_sync_state(context.paths, &mut |record| {
+                    state.insert(record.clone()).is_ok()
+                })
                 .map_err(|_| RoundError::Local)?;
-            Ok((state, exported.observed_max))
-        })?;
-        // 压缩和截断在释放维护权以后执行；导出已先持久观察，失败不能发布半份快照。
-        let prepared = prepare_upload(&local, context.content_id, observed_max);
-        drop(local);
-        let mut report = RoundReport::default();
-        match prepared {
-            Ok(prepared) => {
-                report.dropped_weights = prepared.dropped_weights;
-                match self.learning_round_upload(login, &identity, &store, &metadata, &prepared) {
-                    Ok(Some(generation)) => report.uploaded = Some(generation),
-                    Ok(None) => report.upload_unchanged = true,
-                    Err(error) if upload_failure_can_continue(&error) => {
-                        report.upload_error = Some(error)
+                store.observe(&login.user_id, exported.observed_max)?;
+                advance_learning_sync_clock(
+                    context.paths,
+                    store.read(&login.user_id)?.observed_max,
+                )
+                .map_err(|_| RoundError::Local)?;
+                Ok((state, exported.observed_max))
+            })?;
+            // 压缩和截断在释放维护权以后执行；导出已先持久观察，失败不能发布半份快照。
+            let prepared = prepare_upload(&local, context.content_id, observed_max);
+            drop(local);
+            match prepared {
+                Ok(prepared) => {
+                    report.dropped_weights = prepared.dropped_weights;
+                    match self.learning_round_upload(login, &identity, &store, &metadata, &prepared)
+                    {
+                        Ok(Some(generation)) => report.uploaded = Some(generation),
+                        Ok(None) => report.upload_unchanged = true,
+                        Err(error) if upload_failure_can_continue(&error) => {
+                            report.upload_error = Some(error)
+                        }
+                        Err(error) => return Err(error),
                     }
-                    Err(error) => return Err(error),
                 }
+                Err(LearningSyncReadError::TooLarge) => {
+                    report.upload_error = Some(RoundError::Stream(LearningSyncReadError::TooLarge));
+                }
+                Err(error) => return Err(error.into()),
             }
-            Err(LearningSyncReadError::TooLarge) => {
-                report.upload_error = Some(RoundError::Stream(LearningSyncReadError::TooLarge));
-            }
-            Err(error) => return Err(error.into()),
         }
         // 首次本机上传和远端合并明确有先后顺序，不能提前把远端状态混进本机首份。
         match self.merge_learning_pending_for_identity(login, &identity, context) {
@@ -200,7 +227,17 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         identity: &Identity,
     ) -> Result<BlobResponse, RoundError> {
         self.with_learning_identity(login, identity, || Ok(()))?;
-        let response = self.learning_blob_for_login(request, login)?;
+        let response = self.learning_blob_for_login_observed(
+            request,
+            login,
+            || self.with_learning_identity(login, identity, || Ok(())),
+            |response| {
+                if let Some(schedule) = &identity.schedule {
+                    schedule.response(login, request, response)?;
+                }
+                self.with_learning_identity(login, identity, || Ok(()))
+            },
+        )?;
         self.with_learning_identity(login, identity, || Ok(()))?;
         Ok(response)
     }

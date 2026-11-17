@@ -14,7 +14,14 @@ pub(crate) struct Context {
     main_dictionary: bool,
 }
 
-impl Context {
+/// 本机授权操作不依赖词库代次仍可用，损坏或换代后也能取消和关闭同步。
+pub(crate) struct ControlContext {
+    options: HostOptions,
+    paths: RuntimePaths,
+    state: PathBuf,
+}
+
+impl ControlContext {
     pub(crate) fn parse(mut document: Value) -> Result<Self, String> {
         let invalid = || "learning_invalid_options".to_owned();
         // 与词库管理入口相同，Linux 宿主附带的候选皮肤目录不属于 Engine 选项。
@@ -34,10 +41,6 @@ impl Context {
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
             .ok_or_else(invalid)?;
-        // 查询这个会话的资源清单，而非后台最新选择；旧会话可能仍持有上一代。
-        let specification = crate::dictionary_updates::specification_for_options(&options)
-            .map_err(|_| invalid())?;
-        let content_id = specification.generation().map_err(|_| invalid())?;
         let paths = RuntimePaths {
             resources: PathBuf::from(&options.resources),
             user_data: PathBuf::from(&options.user_data),
@@ -45,6 +48,38 @@ impl Context {
             dictionaries: PathBuf::from(&options.dictionaries),
         };
         paths.validate().map_err(|_| invalid())?;
+        Ok(Self {
+            options,
+            paths,
+            state,
+        })
+    }
+
+    pub(crate) fn state_directory(&self) -> &std::path::Path {
+        &self.state
+    }
+
+    pub(crate) fn require_learning(&self) -> Result<(), String> {
+        if self.options.preferences.learning {
+            Ok(())
+        } else {
+            Err("learning_disabled".to_owned())
+        }
+    }
+}
+
+impl Context {
+    pub(crate) fn parse(document: Value) -> Result<Self, String> {
+        let invalid = || "learning_invalid_options".to_owned();
+        let ControlContext {
+            options,
+            paths,
+            state,
+        } = ControlContext::parse(document)?;
+        // 查询这个会话的资源清单，而非后台最新选择；旧会话可能仍持有上一代。
+        let specification = crate::dictionary_updates::specification_for_options(&options)
+            .map_err(|_| invalid())?;
+        let content_id = specification.generation().map_err(|_| invalid())?;
         // 不能让旧运行时选项按新词库标识上传，也不从自由目录名猜 content_id。
         if paths.dictionaries != paths.user_data.join("dictionaries").join(&content_id) {
             return Err(invalid());
@@ -62,6 +97,14 @@ impl Context {
     pub(crate) fn reset(&self) -> Result<Value, RoundError> {
         crate::dictionary::reset::under_maintenance(&self.options, Some(&self.state))
             .map_err(|_| RoundError::Local)
+    }
+
+    pub(crate) fn require_learning(&self) -> Result<(), String> {
+        if self.options.learning {
+            Ok(())
+        } else {
+            Err("learning_disabled".to_owned())
+        }
     }
 
     pub(crate) fn borrowed(&self) -> RoundContext<'_> {

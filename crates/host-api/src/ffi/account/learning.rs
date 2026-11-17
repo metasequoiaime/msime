@@ -6,6 +6,7 @@ use msime_client_services::account::{AccountApi, AccountLoginBinding, AccountSes
 
 mod data;
 mod reset_settings;
+mod schedule;
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
@@ -27,6 +28,39 @@ pub(super) enum Request {
         login: AccountLoginBinding,
         device_name: String,
         options: Value,
+    },
+    /// 原生设置只读本机授权和持久限制，不触发设备管理。
+    #[serde(rename = "learning_schedule_status")]
+    ScheduleStatus {
+        login: AccountLoginBinding,
+        options: Value,
+    },
+    /// 独立同步授权；开启前必须已开启本机学习。
+    #[serde(rename = "learning_set_sync_enabled")]
+    SetSyncEnabled {
+        login: AccountLoginBinding,
+        options: Value,
+        enabled: bool,
+    },
+    /// 用户明确恢复额度暂停，不清除服务端退避或小时节流。
+    #[serde(rename = "learning_resume_upload")]
+    ResumeUpload {
+        login: AccountLoginBinding,
+        options: Value,
+    },
+    /// 生命周期使在途轮次失效，保留独立开关和服务端限制。
+    #[serde(rename = "learning_cancel_scheduled")]
+    CancelScheduled {
+        login: AccountLoginBinding,
+        options: Value,
+    },
+    /// 正式宿主共用的自动及手动入口，不能绕过持久授权和限制。
+    #[serde(rename = "learning_sync_scheduled")]
+    SyncScheduled {
+        login: AccountLoginBinding,
+        device_name: String,
+        options: Value,
+        automatic: bool,
     },
     /// 只清本机，先持久保存账号屏障，不依赖学习同步是否开启。
     #[serde(rename = "learning_reset_local")]
@@ -85,6 +119,20 @@ pub(super) fn run<A: AccountApi, S: AccountSessionStorage>(
                 .map(data::round_report)
                 .map_err(data::failure)
         }
+        Request::ScheduleStatus { login, options } => schedule::status(session, &login, options),
+        Request::SetSyncEnabled {
+            login,
+            options,
+            enabled,
+        } => schedule::enable(session, &login, options, enabled),
+        Request::ResumeUpload { login, options } => schedule::resume(session, &login, options),
+        Request::CancelScheduled { login, options } => schedule::cancel(session, &login, options),
+        Request::SyncScheduled {
+            login,
+            device_name,
+            options,
+            automatic,
+        } => schedule::sync(session, &login, &device_name, options, automatic),
         Request::ResetLocal { login, options } => {
             let context = data::Context::parse(options)?;
             session

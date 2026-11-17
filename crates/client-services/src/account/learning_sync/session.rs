@@ -121,17 +121,34 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         request: &BlobRequest<'_>,
         login: &AccountLoginBinding,
     ) -> Result<BlobResponse, AccountError> {
+        self.learning_blob_for_login_observed(request, login, || Ok(()), |_| Ok(()))
+    }
+
+    /// 限流和额度在登录取消检查前记录；观察器不得把旧响应交给新登录消费。
+    pub(super) fn learning_blob_for_login_observed<E: From<AccountError>>(
+        &self,
+        request: &BlobRequest<'_>,
+        login: &AccountLoginBinding,
+        mut authorize: impl FnMut() -> Result<(), E>,
+        mut observe: impl FnMut(&BlobResponse) -> Result<(), E>,
+    ) -> Result<BlobResponse, E> {
         let (user, token, generation) = self.credentials_for_login(None, None, Some(login))?;
+        // 凭据刷新可能阻塞；返回后重新核对取消状态，再发出数据请求。
+        authorize()?;
         let mut response = self.api.learning_blob(request, &token)?;
+        observe(&response)?;
         if response.status == 401 {
             let (_, refreshed, now) =
                 self.credentials_for_login(Some(&token), Some(&user), Some(login))?;
             if now != generation {
-                return Err(AccountError::Cancelled);
+                return Err(AccountError::Cancelled.into());
             }
+            authorize()?;
             response = self.api.learning_blob(request, &refreshed)?;
+            observe(&response)?;
         }
         self.with_generation(generation, Some(&user), || Ok(response))
+            .map_err(E::from)
     }
 }
 

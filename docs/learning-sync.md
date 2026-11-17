@@ -246,7 +246,16 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 只剩 `delete`、`pin`、`position` 仍放不下时这一轮不上传，仍提示 `learning_too_large`，其他设备的照常下载合并。
 - 服务端返回 413 `learning_quota`（账号合计超额）时，本机暂停上传，其他设备的照常下载合并，不靠截断解决。
 
-客户端上传准备在 `client-services/account/learning_sync/upload.rs`：保留 Engine 协议顺序和实际页尾数量，摘要取截断后的完整明文，观察上限显式取完整导出报告，包含省略的行和未知词库的有效时间；小于传入状态或超出时间范围的值拒绝，源状态不变。信封大小由 `client-core::cloud::learning_e2e::blob_envelope_size` 按实际 gzip、Padmé、头部和认证标签计算，不用压缩比估计。记录上限先精确省略最旧调权；字节超限时用确定的二分搜索保留一个已实测合格的前缀省略量，编码次数为对数级。gzip 大小不严格单调，因此不承诺全局最少省略量；不会省略非调权行。准备结果已用于显式同步轮次的加密上传：成功后才保存代次与摘要，413 不阻断下载，限流保留退避秒数后结束本轮。持久待合并已接通，自动节流与宿主入口仍未接通，不能把此 API 当成完整产品入口。
+客户端上传准备在 `client-services/account/learning_sync/upload.rs`：保留 Engine 协议顺序和实际页尾数量，摘要取截断后的完整明文，观察上限显式取完整导出报告，包含省略的行和未知词库的有效时间；小于传入状态或超出时间范围的值拒绝，源状态不变。信封大小由 `client-core::cloud::learning_e2e::blob_envelope_size` 按实际 gzip、Padmé、头部和认证标签计算，不用压缩比估计。记录上限先精确省略最旧调权；字节超限时用确定的二分搜索保留一个已实测合格的前缀省略量，编码次数为对数级。gzip 大小不严格单调，因此不承诺全局最少省略量；不会省略非调权行。准备结果已用于显式同步轮次的加密上传：成功后才保存代次与摘要，413 不阻断下载，限流保留退避秒数后结束本轮。持久待合并已接通，共享持久节流已由下节的调度入口提供；平台生命周期和原生入口仍未接通，不能把低层轮次 API 当成完整产品入口。
+
+## 共享持久调度
+
+`BackendAccountSession::learning_sync_scheduled` 供原生宿主的自动及手动入口使用；它要求已经准备的运行时选项和本机已确认 learning 密钥，不登记设备、建钥或批准设备。平台定时器、生命周期和原生管理 UI 仍须接通，低层 `learning_sync_once` 不替代这个产品入口。
+
+- `learning_schedule_status` 只读当前具体登录的独立授权及限制，不联网、不生成密钥。`learning_set_sync_enabled` 显式修改授权；旧进度缺少 `schedule` 时关闭，重新登录后再次开启。
+- 授权、小时截止时间、服务端退避、上传额度暂停与授权修订写入账号的 `cloud-sync/learning.json`。请求前持久预留一小时，崩溃、重启和关闭后重开都不能绕过；手动仅绕过小时节流。回拨时不提前解除，溢出截止时间不回绕。
+- 429 的退避秒数在检查轮次取消之前持久化，没有秒数时等待 60 秒。上传的 413 只有正文错误码为 `learning_quota` 时暂停上传；其他设备继续下载合并。普通信封大小错误不触发账号额度暂停。`learning_resume_upload` 是用户显式恢复，不清除服务端退避和小时节流。
+- 数据请求前后（包括 401 重试）及本地提交重新核对具体登录、完整密钥和授权修订，关闭再立即开启也使旧轮次失效。旧请求返回时即使已经重新登录，也先将限流与额度限制保存到原账号，再丢弃其数据结果。返回只含 `disabled/throttled/backoff` 跳过原因、截止时间、暂停状态及原轮次报告，不返回持久登录编号、密钥或错误正文。
 
 ## 错误码
 
@@ -314,22 +323,27 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 设备登记、建钥、批准、拒绝、移除、重置、反向核对和关闭由 Rust 的 sans-IO 驱动（`msime_client_core::cloud::learning_e2e`）完成，形状与 [云剪贴板的客户端驱动](cloud-clipboard-e2e.md#客户端驱动) 相同。C ABI 仍是 `msime_client_cloud_clipboard_e2e`（Android 经 JNI、HarmonyOS 经 NAPI 调同一个函数），请求顶层加 `"domain": "learning"`，开始和继续一个操作都要带；不带 `domain` 或为 `"clipboard"` 时是云剪贴板，已有宿主不受影响。桌面端和 client-services 在 Rust 里直接调 `learning_e2e::run`，身份冲突时答 `learning_keystore_conflict`。
 
 
-`BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。下载已认证并完整校验后，先持久保存 verified/observed_max，再原样保存 MSL1 密文；维护权忙时返回 Pending，不推进 applied。`learning_merge_pending` 为不发出数据请求的显式空闲入口，重新认证密文、读取持久进度和重置屏障，在独占维护内更新时钟与合并，成功才推进 applied。网络轮次首次上传之后也处理旧队列；已有队列结果覆盖同来源同代次或更新代次的重复下载，保留本轮 Applied/MergeFailed/Abandoned 的真实结果。初始导出前维护权就忙时仍返回 Busy。自动节流及平台入口仍须单独接通。
+`BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。下载已认证并完整校验后，先持久保存 verified/observed_max，再原样保存 MSL1 密文；维护权忙时返回 Pending，不推进 applied。`learning_merge_pending` 为不发出数据请求的显式空闲入口，重新认证密文、读取持久进度和重置屏障，在独占维护内更新时钟与合并，成功才推进 applied。网络轮次首次上传之后也处理旧队列；已有队列结果覆盖同来源同代次或更新代次的重复下载，保留本轮 Applied/MergeFailed/Abandoned 的真实结果。初始导出前维护权就忙时仍返回 Busy。自动及手动产品入口使用下述持久调度；平台生命周期和原生入口仍须接通。
 
 账号 C 入口 `msime_client_account` 已提供显式密钥管理，目录与注入存储两种来源共用共享账号适配层。`action:{"operation":"learning_binding"}` 只读本机具体登录，返回 `{login:null}` 或 `{login:{user_id,session_id}}`，旧会话仅补持久编号，不登记设备、不创建密钥、不联网。宿主保存这次绑定，再传 `action:{"operation":"learning_operation","login":绑定,"device_name":"设备名称","request":{"op":"status"}}`；`request` 支持上文八个驱动操作，并严格拒绝未知和缺失字段。此操作可能联网，放在工作线程调用；不返回密钥串、驱动中间状态或访问令牌。同账号重新登录也使旧绑定失效，返回 `account_cancelled`；其他错误原样返回共享账号或驱动错误码。没有学习存储能力的旧注入宿主不会回退到剪贴板槽。密钥管理不隐式启动学习数据轮次。
 
 同一账号 C 入口还提供显式数据与本机重置操作，目录和注入存储使用相同契约：
 
 - `action:{"operation":"learning_sync_once","login":绑定,"device_name":"设备名称","options":运行时选项文档}` 执行一次加密上传、下载与合并，返回 `{uploaded,upload_unchanged,dropped_weights,upload_error,downloads,pending}`。`uploaded` 为本轮上传代次或 `null`；`upload_error` 为可继续下载的上传失败或 `null`，不以部分成功冒充完整上传。此操作可能联网，应在工作线程调用。
+- `action:{"operation":"learning_schedule_status","login":绑定,"options":运行时选项文档}` 只读 `{enabled,automatic_after_ms,retry_after_ms,upload_paused}`，不返回登录编号或授权修订，不登记设备、创建密钥或联网。旧进度缺字段时默认关闭，重新登录须再次开启。
+- `action:{"operation":"learning_set_sync_enabled","login":绑定,"options":运行时选项文档,"enabled":true或false}` 修改独立持久授权，返回上述状态；开启要求 `preferences.learning:true`，关闭不受本机学习开关限制，不调用管理驱动。
+- `action:{"operation":"learning_resume_upload","login":绑定,"options":运行时选项文档}` 显式恢复额度暂停，要求本机学习及独立同步均已开启，返回状态；不清退避及小时限制。
+- `action:{"operation":"learning_cancel_scheduled","login":绑定,"options":运行时选项文档}` 在生命周期结束、切换运行时或本机学习关闭时使旧轮次失效，返回状态；它保留用户的独立开关、小时限制、服务端退避和额度暂停，不联网。
+- `action:{"operation":"learning_sync_scheduled","login":绑定,"device_name":"设备名称","options":运行时选项文档,"automatic":true或false}` 为正式宿主统一执行自动或手动同步。要求本机学习开启，只用已确认的密钥；返回 `{skipped,status,round}`，跳过时 `round:null`、执行时 `skipped:null`。`automatic:false` 只绕过小时节流，不能绕过独立授权、服务端退避及额度暂停。上传暂停时轮次报告额外带 `upload_paused:true`，仍接收远端。此操作可能联网，应在工作线程调用。
 - `action:{"operation":"learning_merge_pending","login":绑定,"options":运行时选项文档}` 返回 `{pending:[报告]}`，只认领和应用已接纳的密文，不联网、不因令牌过期触发刷新。
 - `action:{"operation":"learning_reset_local","login":绑定,"options":运行时选项文档}` 只清本机，不需要 ready 密钥或同步授权、不联网、不刷新过期令牌。先核对具体登录并取得独占维护权，导出本机最大逻辑时间，持久保存覆盖本机、当前时刻和已观察数据的账号屏障，再推进 Engine 时钟并清除本地备份待合并与学习记录。任何前置步骤失败都不清记录，清除失败保留屏障供重试；随后重新排入启用的命名词库。返回沿用旧重置的 `{reset,collections_requeued,collections_error?}`，集合重排失败仍明确返回已重置，不能把它误报为未清除。账号锁顺序与同步一致，密文队列在以后应用时重新读取屏障。
 - `action:{"operation":"learning_reset_settings","options":运行时选项文档}` 供原生设置执行既有清除动作，在共享层读取并绑定本机登录。只有明确未登录时沿用旧清除，账号或屏障读取失败不回退。Windows WinUI/Win7 使用此入口，保留词库维护租约、Server/TIP 释放与重试及 `dictionary_busy` 等旧设置错误码；成功后仍标记 WebDAV 词库变更。此操作不联网、不生成学习密钥，也不启用同步。
 
-`options` 复用 `msime_client_create` 的文档与版本校验，必须提供绝对 `preferences_directory` 和四个绝对运行时路径；兼容 Linux 附带的 `candidate_skin_catalog`。词库内容标识从该会话资源目录对应的完整清单计算，下载代次按已有或保留的清单解析，不随后台最新选择漂移；工作代次必须匹配 `user_data/dictionaries/<清单代次>`，不匹配或选项不合法时返回 `learning_invalid_options`，不生成学习身份、不启动网络。主词库参与规则从版本允许的方案集合取得，调用方不能单独覆盖；`read_only_state:true` 返回 `learning_read_only`，不启动网络或写入。
+`options` 复用 `msime_client_create` 的文档与版本校验，必须提供绝对 `preferences_directory` 和四个绝对运行时路径；兼容 Linux 附带的 `candidate_skin_catalog`。词库内容标识从该会话资源目录对应的完整清单计算，下载代次按已有或保留的清单解析，不随后台最新选择漂移；工作代次必须匹配 `user_data/dictionaries/<清单代次>`，不匹配或选项不合法时返回 `learning_invalid_options`，不生成学习身份、不启动网络。状态、授权、恢复和取消只校验公共的版本、偏好及绝对路径，不依赖词库代次仍然可用，词库换代失败时也能关闭同步；执行数据轮次仍完整校验清单和工作代次。主词库参与规则从版本允许的方案集合取得，调用方不能单独覆盖；`read_only_state:true` 返回 `learning_read_only`，不启动网络或写入。
 
 下载及待合并报告是 `{device_id,generation,outcome,dictionary_mismatch}`。`generation` 仅在信封认证和完整流校验后填写；`outcome` 为 `applied`、`already_applied`、`undecryptable`、`rollback`、`pending`、`merge_failed`、`abandoned` 或 `http`。HTTP 失败另带 `http_status` 及已知时的 `retry_after_seconds`。整轮或上传 HTTP 错误同样使用固定 `learning_http`、`http_status` 与可选秒数；不返回服务端原始错误正文。其他轮次错误使用固定码区分维护忙、待批准、换钥、元数据、进度文件、队列、流与本地存储失败，不序列化底层异常文本。已有账号操作的错误形状保持不变。
 
-同步与离线合并仍要求宿主在调用前检查本机学习开关和独立同步授权；它们不创建自动任务、不提供节流豁免，也不替代尚未接通的原生设置与生命周期。未获授权时宿主不得调用。自动节流、各平台重置动作接线和原生入口仍须完成。
+产品宿主统一调用持久调度入口：开启、恢复和执行同步时，共享 Host API 检查本机学习开关，关闭时仍允许撤回授权；学习关闭返回 `learning_disabled`，不写入授权、不启动网络。宿主在学习关闭、切换运行时或生命周期结束时须调用 `learning_cancel_scheduled` 取消在途结果，保留用户的独立开关；用户关闭同步时则调用 `learning_set_sync_enabled:false` 撤回授权。低层 `learning_sync_once` 和 `learning_merge_pending` 仍要求调用方检查本机学习和独立同步授权，不可作为绕过产品调度的入口。各平台现有重置动作已接线，原生同步管理入口及生命周期仍须完成。
 
 上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
 

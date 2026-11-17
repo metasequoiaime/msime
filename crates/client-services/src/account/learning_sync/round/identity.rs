@@ -8,6 +8,7 @@ use msime_client_core::cloud::learning_e2e::Keystore;
 pub(super) struct Identity {
     encoded: String,
     pub keys: Keystore,
+    pub schedule: Option<super::super::schedule::Lease>,
 }
 
 impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
@@ -21,7 +22,11 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                     let encoded = key_for_login(self.storage.load_learning_keystore()?, login)?
                         .ok_or(AccountError::Unavailable)?;
                     let keys = Keystore::parse(&encoded).ok_or(AccountError::Storage)?;
-                    Ok(Identity { encoded, keys })
+                    Ok(Identity {
+                        encoded,
+                        keys,
+                        schedule: None,
+                    })
                 })
             })
             .map_err(RoundError::from)
@@ -41,7 +46,12 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 {
                     return Err(AccountError::Cancelled);
                 }
-                Ok(operation())
+                Ok((|| {
+                    if let Some(schedule) = &identity.schedule {
+                        schedule.check(login)?;
+                    }
+                    operation()
+                })())
             })
         })?
     }
