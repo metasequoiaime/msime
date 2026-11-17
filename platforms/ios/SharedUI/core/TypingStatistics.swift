@@ -451,44 +451,6 @@ enum TypingKeyID {
   }
 }
 
-/// One batch for the store: press counts for the local day they were pressed on.
-struct TypingKeyBatch: Equatable {
-  let day: String
-  let keys: [String: Int]
-}
-
-/// The keyboard's in-memory tally between writes. The store locks, rewrites and fsyncs the whole document per call, so presses are counted here and handed over in batches: when this many have piled up, when the day turns, and whenever the keyboard flushes on its timer or on going away. The counts belong to the day they were pressed on, never the day they happen to be written.
-struct TypingKeyCounter {
-  static let flushThreshold = 256
-
-  private(set) var day: String?
-  private(set) var counts: [String: Int] = [:]
-  private(set) var presses = 0
-
-  /// Count one press of `id` on `day`, and return what has to be written now: the earlier day's counts when the day changed, then this day's when they reached the threshold. An id the store does not know is dropped, so one stray key never costs the rest of the batch.
-  mutating func record(_ id: String, day: String) -> [TypingKeyBatch] {
-    guard TypingKeyID.known.contains(id) else { return [] }
-    var ready: [TypingKeyBatch] = []
-    if self.day != day, let previous = drain() { ready.append(previous) }
-    self.day = day
-    counts[id, default: 0] += 1
-    presses += 1
-    if presses >= Self.flushThreshold, let full = drain() { ready.append(full) }
-    return ready
-  }
-
-  /// Everything counted so far, emptying the tally; `nil` when nothing was.
-  mutating func drain() -> TypingKeyBatch? {
-    defer {
-      day = nil
-      counts = [:]
-      presses = 0
-    }
-    guard let day, !counts.isEmpty else { return nil }
-    return TypingKeyBatch(day: day, keys: counts)
-  }
-}
-
 /// The 按键 page's figures: the soft keyboard it draws, the nine-key grid when there are nine-key presses to show, the keys neither has a place for, and the most pressed keys.
 struct TypingKeyHeatmap: Equatable {
   struct Key: Equatable {
@@ -1242,10 +1204,10 @@ struct TypingStatisticsStore {
     _ = try call(["operation": "reset"])
   }
 
-  /// Add one batch of key press counts to `day`, the local day they were pressed on. Returns how many presses the store took: 0 when statistics are off, which is the keyboard's cue to stop counting.
-  func recordKeys(_ keys: [String: Int], day: String) throws -> Int {
+  /// 把本地按下日的整批按键交给共享层；来源在按下时取得，缺省时兼容旧宿主。返回 0 表示统计关闭。
+  func recordKeys(_ keys: [String: Int], day: String, sources: [String: [String: Int]]? = nil) throws -> Int {
     guard !keys.isEmpty else { return 0 }
-    let value = try call(["operation": "record_keys", "day": day, "keys": keys])
+    let value = try call(TypingKeyBatch.request(keys: keys, day: day, sources: sources))
     let maximum = keys.values.filter { $0 > 0 }.reduce(0) { partial, count in
       partial > Int.max - count ? Int.max : partial + count
     }
