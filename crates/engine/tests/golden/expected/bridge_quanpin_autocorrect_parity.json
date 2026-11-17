@@ -70,7 +70,7 @@
       "gau"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },
@@ -136,7 +136,7 @@
       "hauzh"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },
@@ -204,7 +204,7 @@
       "g"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },
@@ -271,7 +271,7 @@
       "shang"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },

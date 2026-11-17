@@ -114,6 +114,8 @@ Trimmed: only the first 9 candidates per row are kept (the runtime's page size c
 
 ## Overlay behaviour that the pinned ctests reject
 
+#11508 允许原始全拼提供英文输入区间，不再要求本地切分全部是完整拼音。300 条脚本回归中 20 份预期仅把实测产生差异的 `online_query.ai_eligible` 从 `false` 改为 `true`；候选、上屏、排序、学习、既有输入和设置前置条件保持原断言。备选切分和手动边界另由共享协议及 Host API 完整会话测试覆盖。
+
 Four reference ctests fail against this build because an overlay changed what the pinned test asserts. The overlay behaviour is the product and is what the goldens record (each such scenario has a `note`):
 
 - `wubi_input_session` -> `wubi_prefix_codes`: `wq` gives [你, 父子, 爷, 你] (apply_engine_wubi_prefix_learning.py ordering, no dedup).
