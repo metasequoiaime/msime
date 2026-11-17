@@ -89,5 +89,5 @@ test 在规则定下后只跑一次，用配对 McNemar。下表是 8x448 在池
   - Pixel 3 XL 这类慢手机：与上一篇相同，仍是 9 条。
   - Mac 这类桌面：8x448 仍配 9 条。
 - 只装一个模型、或挂上的是小模型时，第一次挂上要多量一次。量一次约 4 次图运行，Pixel 上约 40 ms，每个进程只做一次。
-- 系数表是在 Mac 和 Pixel 3 XL 上量的。模型或 ONNX Runtime 换代后，要用 `rerank_latency --sentence-pool` 和 `calibrate` 重量。
+- 系数表是在 Mac 和 Pixel 3 XL 上量的。模型或 ONNX Runtime 换代后，要用 `rerank_latency --sentence-pool` 和 `calibrate` 重量。系数是在模型进整句束搜索之前、只量 runtime 那一层得出的；2026-11-16 走宿主整条路径的 `rerank_replay` 上，Mac 的桌面系数低估了几十倍，macOS 因此把模型延后到停顿，池仍按这张表定，见 [macOS 把整句联想模型挪出按键](../../implemented/bug-fix/2026-11-16-macos-keystroke-reranker-at-pause.md)。
 - iPhone 17 的 24 条是推算出来的，第一次在 iPhone 上跑 `rerank_latency` 时要核对。

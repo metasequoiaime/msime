@@ -60,6 +60,8 @@ public:
       const bool optional_boolean = change.value.is_boolean() &&
           (change.path == std::vector<std::string>{"navigation", "mouse_wheel"} ||
            change.path == std::vector<std::string>{"backspace_reverts_selection"} ||
+           change.path == std::vector<std::string>{"escape_keeps_selected_word"} ||
+           change.path == std::vector<std::string>{"enter_learns_english_word"} ||
            change.path == std::vector<std::string>{"chinese_english_spacing"} ||
            change.path == std::vector<std::string>{"caret_edit_suffix"} ||
            change.path == std::vector<std::string>{"next_word_prediction"} ||

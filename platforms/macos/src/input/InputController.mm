@@ -22,6 +22,7 @@
 #include "../../../common/DictionaryQuiesceLease.h"
 #import "../core/ScreenKeyboardPanel.h"
 #import "../dictionary/DictionaryWindowController.h"
+#import "../dictionary/DictionaryCollectionsWindow.h"
 #import "../core/ClientDictionaryRuntime.h"
 #import "../settings/AppearancePreferences.h"
 #import "InputMenu.h"
@@ -2047,6 +2048,8 @@ static NSImage *MSIMECandidateLogoImage() {
     uint64_t _settledPollEpoch;
     MSIMEClientSession *_settledPollSession;
     id _settledPollClient;
+    // 上一次停顿重排或上屏前重解的回复说这个会话挂着延后到停顿的模型（`deferred`）时记下它：这样的会话停顿 40 ms 就起跑，其余仍等 150 ms，见 kPauseRerankDelay。换了会话就不再相等，回到 150 ms 直到新会话的回复说明。
+    __weak MSIMEClientSession *_deferredRerankSession;
     MSIMECloudCandidateRequest *_cloudRequest;
     NSDictionary *_cloudQuery;
     uint64_t _cloudEpoch;
@@ -4311,6 +4314,10 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
 static const NSTimeInterval kSettledRerankDelay = 0.15;
 /// 主线程只轮询后台结果，不运行模型前向计算，避免后续按键排队。
 static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
+/// 会话挂着延后到停顿的逐键模型（会话选项 `pause_rerank`，回复里 `deferred` 为真）时，停顿这么久就开始分片重解，在打字的空隙里把模型的计算做掉。分数备忘在同一段组字里保留，到按空格时剩下的很少：2026-11-16 照 143 ms 一键的节奏回放 typing-chat-v1 test，40 ms 起跑时空格 p95 0.31 ms、字母键 p95 3.5 ms；照 kSettledRerankDelay 等 150 ms 时打字途中从不起跑，整段的计算都落到空格上，空格 p95 280 ms。后台的落定模型一次要一两百毫秒，仍等 kSettledRerankDelay。
+static const NSTimeInterval kPauseRerankDelay = 0.04;
+/// 延后到停顿的逐键模型（会话选项 `pause_rerank`）一片没解完、回 `continue` 时，隔这么久再跑下一片。用计时器而不是当场接着跑：run loop 先处理这期间到达的按键，按键最多等一片（约 8 ms 的模型时间）；有新按键时组字变了，下一片照新的组字重新开始。
+static const NSTimeInterval kPauseRerankSliceGap = 0.001;
 
 - (void)cancelSettledRerank {
     [_settledTimer invalidate];
@@ -4376,6 +4383,17 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
 /// 每次刷新都重新等待真实输入停顿，再在后台评分；新按键继续立即处理。
 /// 结果仅发布到仍匹配的组字；未安装模型时立即结束，仅顺序变化才重绘候选窗口。
 - (void)scheduleSettledRerank {
+    [self scheduleSettledRerankAfter:_session && _session == _deferredRerankSession ? kPauseRerankDelay : kSettledRerankDelay];
+}
+
+/// 记下回复说的这个会话挂没挂延后到停顿的模型（host-api 每个停顿重排和上屏前重解的回复都带 `deferred`）。
+- (void)notePauseRerankReply:(NSDictionary *)reply session:(MSIMEClientSession *)session {
+    if (![reply[@"deferred"] isKindOfClass:NSNumber.class]) return;
+    if (MSIMEStrictBoolean(reply[@"deferred"])) _deferredRerankSession = session;
+    else if (_deferredRerankSession == session) _deferredRerankSession = nil;
+}
+
+- (void)scheduleSettledRerankAfter:(NSTimeInterval)delay {
     [self cancelSettledRerank];
     if (_settledToken != 0) return;
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode) return;
@@ -4383,7 +4401,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
     MSIMEClientSession *session = _session;
     id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
-    _settledTimer = [NSTimer timerWithTimeInterval:kSettledRerankDelay repeats:NO block:^(NSTimer *timer) {
+    _settledTimer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
         (void)timer;
         MSIMEInputController *controller = weakSelf;
         if (!controller) return;
@@ -4392,6 +4410,7 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
             controller->_activeClient != client || controller->_focusPending ||
             controller->_appearance.englishMode) return;
         NSDictionary *started = [session startSettledRerankWithError:nil];
+        [controller notePauseRerankReply:started session:session];
         if ([started[@"status"] isEqual:@"pending"]) {
             uint64_t token = 0;
             if (!MSIMEStrictUnsignedInteger(started[@"token"], &token) || token == 0) return;
@@ -4404,9 +4423,20 @@ static const NSTimeInterval kSettledRerankPoll = 1.0 / 60.0;
         }
         // Same shape the cloud path applies — a transition carrying the refreshed view — so it
         // goes through the same method rather than a second way of updating the window.
-        if (MSIMEStrictBoolean(started[@"moved"])) [controller apply:started];
+        // 延后的模型每一片都推进候选代次，文字没换位置（moved 为假）时也带着新 view：不收的话候选窗上画的还是旧代次的身份，空格和数字键照它选词时会被会话当成过期而吞掉。
+        if (MSIMEStrictBoolean(started[@"moved"]) || [started[@"view"] isKindOfClass:NSDictionary.class]) [controller apply:started];
+        // apply: 会重新排一次停顿计时；没解完的那一片要接着跑，用短间隔覆盖它。
+        if ([started[@"status"] isEqual:@"continue"]) [controller scheduleSettledRerankAfter:kPauseRerankSliceGap];
     }];
     [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
+}
+
+/// 上屏高亮项的键（空格、组字中的标点）交给会话之前调用：延后到停顿的逐键模型对当前组字的重解还没做完时，先当场做完、重画，再照新画出的高亮项上屏（host-api 的 `msime_client_finish_pause_rerank`）。不做的话，打完拼音马上按空格的人上屏的是不带模型的首选：2026-11-16 照这个宿主的空格回放 typing-chat-v1 test 的 220 段，打完立刻上屏只对 140 段，等重解完再上屏对 186 段。已经解完、没挂延后的模型或没有组字时立即返回。数字键和点选照用户看到的那一行上屏，不走这里。
+- (void)finishPauseRerankBeforeCommit {
+    if (!_session || !_activeClient || _focusPending || ![_view[@"editing_text"] length]) return;
+    NSDictionary *finished = [_session finishPauseRerankWithError:nil];
+    [self notePauseRerankReply:finished session:_session];
+    if ([finished[@"view"] isKindOfClass:NSDictionary.class]) [self apply:finished];
 }
 
 - (void)synchronizeCloudCandidates {
@@ -5165,6 +5195,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSMenuItem *cloudDictionary = [[NSMenuItem alloc] initWithTitle:@"云词库…" action:@selector(showCloudDictionary:) keyEquivalent:@""];
     cloudDictionary.target = self;
     [menu addItem:cloudDictionary];
+    NSMenuItem *groups = [[NSMenuItem alloc] initWithTitle:@"词库分组…" action:@selector(showDictionaryGroups:) keyEquivalent:@""];
+    groups.target = self;
+    [menu addItem:groups];
     NSMenuItem *keyboard = [[NSMenuItem alloc] initWithTitle:@"水杉屏幕键盘…" action:@selector(showScreenKeyboard:) keyEquivalent:@""];
     keyboard.target = self;
     [menu addItem:keyboard];
@@ -6503,6 +6536,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [[MSIMEPreferencesWindowController sharedController] showAndActivateWithPageIdentifier:@"appearance"];
     });
 }
+- (void)showDictionaryGroups:(id)sender {
+    (void)sender;
+    if (!_session) [self prepareSession];
+    if (_session) [MSIMEDictionaryCollectionsWindow showWithOptions:_session.hostOptions];
+}
 - (void)showDictionary:(id)sender {
     (void)sender;
     // 只捕获弱引用，理由同 showCloudClipboard:；回退在主线程执行，在那里再取强引用。
@@ -6866,6 +6904,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions, NSString 
     requested[@"korean_romaja"] = @YES;
     // macOS 让快捷短语编码参与普通候选；其他宿主仍保留显式 K 模式入口。这是临时宿主能力，不写入偏好。
     requested[@"quick_phrase_candidates"] = @YES;
+    // 整句联想「增强」的模型不在每个字母键上跑，停顿时由 scheduleSettledRerank 分片重解、上屏前由 finishPauseRerankBeforeCommit 做完（host-api 的 `pause_rerank`，桌面上一律延后）。挂在按键上时模型在这个线程上同步跑，机器一忙（编译、模拟器）就被放大几十倍：2026-11-16 回放整键 p95 9–90 ms、p99 24–235 ms，延后后 p95 2.9 ms、p99 8.7 ms，上屏的首选与挂在按键上相同。
+    requested[@"pause_rerank"] = @YES;
     // An options file that names a directory itself keeps it.
     if (soundPacks.length && !requested[@"sound_packs"]) requested[@"sound_packs"] = soundPacks;
     // 旧目录或在线更新代次可能没有内置码表，当前输入法包提供只读回退，不改写磁盘配置。
@@ -8728,6 +8768,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         // Space commits the highlighted item shown by the panel. Keep the
         // identity fence symmetric with numeric and mouse selection.
+        // 先把停顿重解做完：重画之后，读到的就是带着模型排出的高亮项。
+        [self finishPauseRerankBeforeCommit];
         NSDictionary *identifier = MSIMERenderedHighlightedCandidateIdentity(_panel);
         if (identifier) {
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
@@ -8880,12 +8922,16 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         case 125: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_NEXT_CANDIDATE; break;
     }
     NSDictionary *transition = nil;
+    // 候选窗没画出来时的空格同样上屏首选（MSIME_COMMIT_CANDIDATE），先把停顿重解做完。
+    if (command == MSIME_COMMIT_CANDIDATE && event.keyCode == 49) [self finishPauseRerankBeforeCommit];
     if (command != UINT32_MAX) transition = [self candidateCommand:command];
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
         const BOOL shift = (event.modifierFlags & NSEventModifierFlagShift) != 0;
         unichar typed = [event.characters characterAtIndex:0];
         if (MSIMESchemeTrait(_view, msime::mac::scheme::FoldsLetterCase)) typed = (unichar)msime::mac::KoreanKeyLetter((char)typed, shift);
         _punctuationKeyInFlight = MSIMEASCIIPunctuation(typed) ? typed : 0;
+        // 组字中的标点连同首选一起上屏（`nihao,` 写出「你好，」），与空格一样先把停顿重解做完。拼写用的符号（注音的声调键、双拼的 `;`）是输入，不是上屏。
+        if (_punctuationKeyInFlight && !MSIMESpellingSymbol(_view, typed)) [self finishPauseRerankBeforeCommit];
         transition = [_session typeASCII:(uint8_t)typed shift:shift error:nil];
     }
     if (!transition) { _punctuationKeyInFlight = 0; return NO; }

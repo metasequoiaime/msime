@@ -3,7 +3,14 @@ import Darwin
 import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, fourteenKey, eighteenKey, shuangpin, ziranma, microsoft, shoudao
+  // 共享统计（Rust `TypingSource::SmartAbc`）的键是 `smart_abc`，不是方案的原始值 `smartAbc`。
+  case smartAbc = "smart_abc"
+  case sogou, jiajia, ziguang, guobiao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
+  /// 方案在统计里记成的来源：智能 ABC 的方案原始值 `smartAbc` 与统计键 `smart_abc` 不同，其余同名方案直接按原始值取。
+  static func of(_ scheme: ChineseInputScheme) -> TypingSource? {
+    scheme == .smartAbc ? .smartAbc : TypingSource(rawValue: scheme.rawValue)
+  }
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
@@ -14,6 +21,11 @@ enum TypingSource: String, CaseIterable {
     case .ziranma: "自然码双拼"
     case .microsoft: "微软双拼"
     case .shoudao: "首道双拼"
+    case .smartAbc: "智能 ABC 双拼"
+    case .sogou: "搜狗双拼"
+    case .jiajia: "加加双拼"
+    case .ziguang: "紫光双拼"
+    case .guobiao: "国标双拼"
     // 86 与 98 五笔共用一个统计来源，这里只写「五笔」。
     case .wubi: "五笔"
     case .japanese: "日语"

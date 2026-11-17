@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """用真实 Host API 和独立故障进程校验辅助进程采集；不调用遥测网络接口。"""
 
+import errno
 import json
 import os
 from pathlib import Path
@@ -81,8 +82,12 @@ class Helper:
                 # 队列可在存在检查之后被清理；下一拍重新确认两类记录都已消失。
                 pass
             except PermissionError as error:
-                # Windows 上打开正在被删除（delete pending）或正被替换的队列文件得到 ERROR_ACCESS_DENIED（5）或 ERROR_SHARING_VIOLATION（32），与上面的 FileNotFoundError 是同一种清理进行中的过渡状态；其他权限错误照常抛出。
-                if getattr(error, "winerror", None) not in (5, 32):
+                # Windows 的 CRT 打开文件有时只报告 EACCES，不附带原生错误码。
+                # 这些删除中或占用状态只触发重试，仍须观察到队列真正清空。
+                winerror = getattr(error, "winerror", None)
+                crt_access_denied = (platform.system() == "Windows"
+                                     and winerror is None and error.errno == errno.EACCES)
+                if winerror not in (5, 32) and not crt_access_denied:
                     raise
             time.sleep(0.05)
         raise AssertionError("explicit off did not clear pending events and records")

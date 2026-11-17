@@ -1030,6 +1030,36 @@ fn traditional_conversion_boundary_returns_text_or_null() {
 }
 
 #[test]
+fn traditional_to_simplified_conversion_boundary_returns_text_or_null() {
+    let convert = |bytes: &[u8]| {
+        // 安全性：切片的生命周期覆盖调用过程。
+        let raw = unsafe { msime_client_traditional_to_simplified(bytes.as_ptr(), bytes.len()) };
+        if raw.is_null() {
+            return None;
+        }
+        // 安全性：非空结果是本库拥有的 NUL 结尾字符串。
+        let text = unsafe { std::ffi::CStr::from_ptr(raw) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        // 安全性：结果只释放一次。
+        unsafe { msime_client_string_free(raw) };
+        Some(text)
+    };
+    assert_eq!(convert("頭髮".as_bytes()).as_deref(), Some("头发"));
+    assert_eq!(convert(b"").as_deref(), Some(""));
+    assert_eq!(convert(b"\xff\xfe"), None);
+    assert_eq!(convert(b"a\0b"), None);
+    // 安全性：空指针属于接口契约覆盖的输入。
+    assert!(unsafe { msime_client_traditional_to_simplified(std::ptr::null(), 4) }.is_null());
+    let fixture = b"fixture";
+    assert!(
+        unsafe { msime_client_traditional_to_simplified(fixture.as_ptr(), (1 << 20) + 1) }
+            .is_null()
+    );
+}
+
+#[test]
 fn traditional_variant_conversion_boundary_selects_the_configuration() {
     let convert = |bytes: &[u8], variant: u32| {
         // SAFETY: the slice outlives the call.
@@ -2634,6 +2664,65 @@ fn a_nine_key_shuangpin_layout_starts_the_grid_with_the_chosen_table() {
 fn nine_key_shuangpin_layout(request: Value) -> Value {
     let request = request.to_string();
     read(unsafe { msime_client_nine_key_shuangpin_layout(request.as_ptr(), request.len()) })
+}
+
+fn shuangpin_custom_layout(request: Value) -> Value {
+    let request = request.to_string();
+    read(unsafe { msime_client_shuangpin_custom_layout(request.as_ptr(), request.len()) })
+}
+
+#[test]
+fn shuangpin_custom_layouts_share_tables_problems_and_key_hints() {
+    let xiaohe = shuangpin_custom_layout(json!({ "profile": "xiaohe" }));
+    assert_eq!(xiaohe["ok"], true, "{xiaohe}");
+    let value = &xiaohe["value"];
+    assert_eq!(value["effective"], "xiaohe");
+    assert_eq!(value["table"]["finals"]["ing"], "k");
+    assert_eq!(value["keys"][0]["key"], "Q");
+    assert_eq!(value["keys"].as_array().unwrap().len(), 26);
+
+    let mut table = custom_shuangpin_table();
+    table.finals.remove("iong");
+    let broken = shuangpin_custom_layout(json!({ "profile": "custom", "table": table }));
+    assert_eq!(broken["value"]["effective"], "xiaohe", "{broken}");
+    assert_eq!(broken["value"]["problem"]["kind"], "missing_unit");
+
+    let valid = shuangpin_custom_layout(json!({
+        "profile": "custom",
+        "table": custom_shuangpin_table()
+    }));
+    assert_eq!(valid["value"]["effective"], "custom", "{valid}");
+    assert_eq!(valid["value"]["problem"], Value::Null);
+    assert_eq!(valid["value"]["keys"][0]["key"], "Q");
+
+    // 只有零声母用到 `;` 的表：`;` 键也要有提示，键盘才会显示这个键。
+    let mut zero_semicolon = builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe).unwrap();
+    zero_semicolon
+        .zero_initials
+        .insert("eng".into(), "e;".into());
+    assert!(!zero_semicolon.finals.values().any(|key| key == ";"));
+    let zero_semicolon =
+        shuangpin_custom_layout(json!({ "profile": "custom", "table": zero_semicolon }));
+    assert_eq!(
+        zero_semicolon["value"]["effective"], "custom",
+        "{zero_semicolon}"
+    );
+    let semicolon = zero_semicolon["value"]["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|face| face["key"] == ";")
+        .unwrap_or_else(|| panic!("no ; key face: {zero_semicolon}"));
+    assert_eq!(semicolon["hint"], "eng");
+
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "unknown" }))["ok"],
+        false
+    );
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "xiaohe", "extra": 1 }))["ok"],
+        false
+    );
 }
 
 /// 键面和编辑器从同一个接口取表：内置方案给出它的表和键面；自定义表给出问题的位置，不能用时键面是回退到的米旮旯 3；不认识的方案名报错。
@@ -9055,6 +9144,8 @@ fn start_settled_rerank_without_a_model_finishes_on_the_caller() {
     assert_eq!(result["value"]["moved"], false);
     assert_eq!(result["value"]["current"], true);
     assert!(result["value"].get("view").is_none());
+    // 没挂延后到停顿的模型：宿主照落定重排的节奏等 150 ms 再起跑。
+    assert_eq!(result["value"]["deferred"], false);
 
     let missing = read(msime_client_poll_settled_rerank(handle, 0, true));
     assert_eq!(missing["value"]["status"], "done");
@@ -9190,7 +9281,7 @@ fn the_session_scorer_primes_the_context_off_the_keystroke() {
     }
 }
 
-/// 跑不进逐键预算的 ONNX 模型只在停顿时重解的宿主（鸿蒙，HostOptions 的 `pause_rerank`）上延后到停顿；只挂按键的宿主照旧，超过逐键上限就不挂。
+/// ONNX 模型只在停顿时重解的宿主（鸿蒙、安卓的键盘和 macOS 输入法，HostOptions 的 `pause_rerank`）上延后到停顿：手机上是跑不进逐键预算的，桌面上一律延后；只挂按键的宿主照旧，超过逐键上限就不挂。
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
@@ -9198,8 +9289,22 @@ fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
     let slow = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS + 1.0;
     let fast = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS;
     assert!(defers_to_pause(RerankerMount::KeystrokeOrPause, slow));
-    assert!(!defers_to_pause(RerankerMount::KeystrokeOrPause, fast));
+    // 桌面上停顿时重解的宿主不看一页的自测，总是延后：一页自测在桌面上预测不了真实的逐键开销。手机上一页够快就挂在按键上。
+    let desktop = cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ));
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, fast),
+        desktop
+    );
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, 0.0),
+        desktop
+    );
     assert!(!defers_to_pause(RerankerMount::Keystroke, slow));
+    assert!(!defers_to_pause(RerankerMount::Keystroke, 0.0));
     assert!(!defers_to_pause(RerankerMount::Off, slow));
     // 停顿时重解的宿主对加载放得更宽：设备刚装完应用、忙的那一刻自测会超过逐键上限。
     const { assert!(ffi::PAUSE_RERANK_LIMIT_MS > ffi::KEYSTROKE_RERANK_LIMIT_MS) };
