@@ -297,6 +297,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             login,
             identity,
         )?;
+        // 读取额度按账号共享；一台设备返回限流就结束本轮，不能继续请求其他设备。
+        if response.status == 429 {
+            successful(&response)?;
+        }
         if !(200..300).contains(&response.status) {
             report.outcome = DownloadOutcome::Http {
                 status: response.status,
