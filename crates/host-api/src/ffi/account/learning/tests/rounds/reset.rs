@@ -1,6 +1,9 @@
 //! 清除前持久屏障失败时不能删记录，重试与离线认领仍遵守同一屏障。
 
 use super::*;
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+mod desktop;
 use msime_client_services::account::learning_sync::state::StateStore;
 use rusqlite::Connection;
 

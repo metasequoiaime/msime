@@ -83,6 +83,7 @@ pub mod cloud_sync;
 mod dictionary;
 /// 「我的词条」经 WebDAV 网盘同步的宿主入口，见 `msime_client_dictionary_sync`。公开 [`dictionary_webdav::request_json`]，给直接链接这个 crate 的 Tauri 设置应用用，免得它绕一圈 C ABI。
 pub mod dictionary_webdav;
+mod learning_context;
 /// 设置与可移植主题的 WebDAV 同步宿主入口。
 pub mod settings_webdav;
 /// 同一台设备上两个各有一份个人词库的进程之间交换「我的词条」，见 `msime_client_user_words_mirror`。

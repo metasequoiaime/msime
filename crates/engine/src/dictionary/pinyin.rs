@@ -24,6 +24,8 @@ use crate::pinyin::syllables::{
     intact_pinyin_set, is_intact, is_prefix, prefix_pinyin_set,
 };
 
+mod shuangpin_lattice;
+
 pub const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 /// Weight of a word the user or learning inserts (QD:1243).
 pub const INSERTED_WEIGHT: i64 = 10_000;
