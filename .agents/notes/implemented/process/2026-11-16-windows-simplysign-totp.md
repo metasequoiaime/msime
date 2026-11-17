@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+本篇的「只提供 SSH 入口、不自动接入发布」范围决定由维护者随后要求的 [Windows SimplySign 自动发布](2026-11-17-windows-simplysign-release.md) 部分取代；无桌面客户端、会话清理和保留上游有效签名的决定继续沿用。
+
 仓库提供 `platforms/windows/installer/Sign-Files-SimplySign.ps1` 作为单独的 SSH 签名入口。它接受 `.exe` 和 `.dll`，把 `CERTUM_EMAIL` 和 `CERTUM_OTP`（自动化）或 `CERTUM_TOKEN`（单次人工签名）留在当前进程的环境变量中，调用外部、由维护者自行固定和审核版本的 `ssign.exe`，一次调用签名全部输入文件，然后用 Windows SDK 的 `signtool verify /pa /all` 与 `Get-AuthenticodeSignature` 检查 Authenticode 状态和 RFC 3161 时间戳。没有凭据、工具或输入文件时在联网前失败；脚本不会下载 `ssign.exe`，也不会把秘密作为参数传给子进程。
 
 `Sign-StagedPackage-SimplySign.ps1` 对完整暂存包执行「包内签名 → 编译安装器 → 外层签名」，保留已有可信上游签名，拒绝无效签名。两次客户端调用在本轮私有临时目录复用登录，结束或失败后删除缓存并清理凭据。独立文件入口保留调用方环境，以免清掉外层签名所需的一次性码。现有 `Package-SimplySign.ps1` 继续负责完整安装包构建和 SimplySign Desktop 的手工证书存储流程；SignPath 的生产发布流程也保持不变。`ssign` 的版本、下载摘要和 seed 管理属于 runner 的运维配置，不进入仓库。
