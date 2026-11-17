@@ -94,8 +94,9 @@ void show_cloud_quick_phrase_clear(HWND owner, const std::string &account) {
   data.dialog.cx = 240; data.dialog.cy = 110;
   try {
     auto envelope = Json::parse(account); envelope.erase("client_agent");
-    const auto directory = std::filesystem::u8path(envelope.at("directory").get<std::string>());
-    envelope["snapshot_directory"] = (directory / ("native-quick-clear-" + std::to_string(GetCurrentProcessId()))).u8string();
+    const std::filesystem::path directory(wide(envelope.at("directory").get<std::string>()));
+    const auto snapshot = (directory / ("native-quick-clear-" + std::to_string(GetCurrentProcessId()))).u8string();
+    envelope["snapshot_directory"] = std::string(reinterpret_cast<const char *>(snapshot.data()), snapshot.size());
     Window state(std::move(envelope));
     DialogBoxIndirectParamW(GetModuleHandleW(nullptr), &data.dialog, owner, procedure, reinterpret_cast<LPARAM>(&state));
   } catch (...) { MessageBoxW(owner, L"无法读取账号目录，请重新打开设置。", L"云端快捷短语", MB_OK | MB_ICONERROR); }

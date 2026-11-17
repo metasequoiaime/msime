@@ -11,6 +11,7 @@
 using Json = nlohmann::json;
 namespace {
 std::atomic<int> mode{0}, writes{0}, cancels{0}, failures{0};
+constexpr const char *account_directory = "C:\\msime-合成账号";
 constexpr const char *token = "a3be8604-3229-48e1-a1de-7316dc70cb43";
 void expect(bool condition, const char *message) {
   if (!condition) { ++failures; std::fprintf(stderr, "%s\n", message); }
@@ -63,6 +64,9 @@ void capture(HWND window, const std::filesystem::path &path) {
 // 只替换云端传输边界，窗口、异步模型、确认和错误反馈均执行生产代码。
 extern "C" char *msime_client_cloud_dictionary(const uint8_t *bytes, size_t length) {
   const auto request = Json::parse(bytes, bytes + length);
+  expect(request.at("directory") == account_directory, "账号目录没有保留 UTF-8 字符串");
+  expect(request.at("snapshot_directory") == std::string(account_directory) + "\\native-quick-clear-" +
+      std::to_string(GetCurrentProcessId()), "预览目录没有保留 UTF-8 字符串");
   const auto action = request.at("action");
   const auto operation = action.at("operation").get<std::string>();
   Json response;
@@ -104,7 +108,7 @@ int main(int argc, char **argv) {
       SendMessageW(window, WM_CLOSE, 0, 0);
     });
     msime::settings::show_cloud_quick_phrase_clear(nullptr,
-        Json{{"directory", "C:\\msime-synthetic-account"}, {"action", {{"operation", "status"}}}}.dump());
+        Json{{"directory", account_directory}, {"action", {{"operation", "status"}}}}.dump());
     driver.join();
     expect(writes == (scenario == 0 || scenario == 4 ? 1 : 0), "取消、无条目或未登录发起了写请求");
     expect(cancels == 1, "关闭窗口没有丢弃内存预览");
