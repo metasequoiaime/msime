@@ -658,7 +658,11 @@ export class KeyboardScheme {
     if (selected === null || selected === applied) {
       return null;
     }
-    const mapping: PreferenceMapping = KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
+    const mapping: PreferenceMapping = KeyboardScheme.mapping(
+      selected,
+      currentLastChineseScheme,
+      currentProfile,
+    );
     if (selected === XIAOHE && (currentProfile === "custom" || currentProfile === "smart_abc")) {
       return {
         scheme: mapping.scheme,
