@@ -12,6 +12,7 @@
 #include "../HostConfiguration.h"
 #include "../HostSessionMaintenance.h"
 #include "../HostSessionStart.h"
+#include "../HostCandidateFallback.h"
 #include "../../common/DictionaryQuiesceLease.h"
 #include <msctf.h>
 #include <string>
@@ -611,6 +612,25 @@ void CCompositionProcessorEngine::GetCandidateList(_Inout_ CMetasequoiaImeArray<
                     item->_EngineGeneration = result.view.generation;
                     item->_EngineIndex = candidate.index;
                     item->_EngineHighlighted = candidate.highlighted;
+                }
+            }
+            if (result.view.candidates.empty())
+            {
+                const auto fallback = msime::tsf::HostCandidateFallback(result.view);
+                if (!fallback.empty())
+                {
+                    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, fallback.data(),
+                                                          static_cast<int>(fallback.size()), nullptr, 0);
+                    std::wstring text(static_cast<size_t>(length > 0 ? length : 0), L'\0');
+                    if (length > 0)
+                        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, fallback.data(),
+                                            static_cast<int>(fallback.size()), text.data(), length);
+                    auto *item = pCandidateList->Append();
+                    if (item)
+                    {
+                        item->_ItemString.Set(text.c_str(), text.size());
+                        item->_FindKeyCode.Set(text.c_str(), text.size());
+                    }
                 }
             }
             return;
