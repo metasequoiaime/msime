@@ -36,6 +36,6 @@ UIKit 的默认 `inputView` setter 会把控制器的 `view` 也替换成这个�
 
 ## Verification
 
-- #11389 新增 `KeyboardInputSizingTests`：在控制器尚未显示时查询实际 `inputView`，用零、系统键盘和整屏高度的提议验证首轮拟合；独立容器用例覆盖连续高度改变、带优先级拟合、内部视图按 frame 跟随、宿主必需高度以及拒绝无效更新。原有内存释放测试保持不变。
+- #11389 新增 `KeyboardInputSizingTests`，检出的 Xcode 工程也将该文件加入 `MSIMEKeyboardTests` 的编译源；使用 `xcodegen` 生成对应引用，保留既有 CocoaPods 接线，同时补齐整合后的 AI 候选协议和退格状态源码及其测试引用，避免直接打开检出工程时缺少编译输入：在控制器尚未显示时查询实际 `inputView`，用零、系统键盘和整屏高度的提议验证首轮拟合；独立容器用例覆盖连续高度改变、带优先级拟合、内部视图按 frame 跟随、宿主必需高度以及拒绝无效更新。原有内存释放测试保持不变。
 - 使用 Mac Catalyst SDK 编译并执行真实 `KeyboardInputView.swift` 的独立 UIKit 探针，只替代无关的按键音偏好；四轮目标高度、三种提议高度、两种拟合入口、内容 frame 跟随、必需高度和无效更新均通过。基线真实容器在首次拟合返回零尺寸，负对照退出码为 1。该探针不包含完整控制器，不等于整个 `MSIMEKeyboardTests` 已运行。
 - 尚未在报告者的微信与实体 iPhone 中复验闪动，不把源码分析或尺寸用例等同于系统转场已确认恢复。

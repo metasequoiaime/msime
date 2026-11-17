@@ -12,6 +12,8 @@ Status: implemented
 
 独立剪贴板的拖动回归测试通过标题栏的真实指针按下和移动事件验证，设置页内嵌面板则明确验证不会调用宿主拖动接口。
 
+窗口能力同时受 Tauri 权限控制。`clipboard-panel-drag` 只向 `clipboard-panel` 授予 `core:window:allow-start-dragging`，不授予缩放；只恢复前端回调会使真实窗口仍被权限拒绝。权限测试按窗口合并全部 capability 后检查实际授权，避免只测客户端 mock 而遗漏宿主边界。
+
 ## Related notes
 
 - [桌面符号直接选择子分类并允许调整面板大小](../feature/2026-10-21-desktop-symbol-leaf-categories-and-resize.md)：原先记录了独立剪贴板不透传几何能力；本篇收窄该约定，保留其不可缩放边界。
@@ -24,4 +26,6 @@ Status: implemented
 
 ## Consequences
 
-独立剪贴板窗口可以通过标题栏移动，窗口尺寸保持固定；设置页内嵌面板不会把拖动事件交给宿主窗口。测试覆盖了三种装配模式的缩放与拖动能力边界。真实 Windows 窗口和报告者环境的验收仍需在 Draft PR 中补做。
+独立剪贴板窗口可以通过标题栏移动，窗口尺寸保持固定；设置页内嵌面板不会把拖动事件交给宿主窗口。测试覆盖三种装配模式的缩放与拖动能力边界，以及实际窗口权限。当前 Linux 原生宿主通过 `msime-linux-settings --panel clipboard` 使用该独立面板；Windows 报告视频对应的云剪贴板已由 #11485 修复，本修复不再声称覆盖它。
+
+在 `ssh pve9` 的 Linux 桌面中，通过原生宿主启动器和独立合成状态验收：相同的图形控制台鼠标拖动，缺少 capability 时窗口停在 `(150,160)` 并显示「无法移动面板，请重试」；授权后移动至 `(340,160)`，尺寸始终为 `560×620`，关闭按钮成功隐藏窗口。前后截图保留并附在 PR。构建使用与 Linux 打包脚本一致的 `--features tauri/custom-protocol`，避免开发构建连接未启动的 Vite；Wayland 合成器的拖动验收使用图形控制台鼠标，不能用 `xdotool` 的合成指针代替。

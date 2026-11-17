@@ -84,6 +84,8 @@ struct Observation {
   std::vector<std::string> registered_keys;
   // The 输入方案 menu's entries as it was last sent, each with whether it is checked. An update sends the entries before the menu, so the list is whole once the menu itself arrives.
   std::map<std::string, bool> scheme_entries;
+  // 方案菜单在异步保存结束前不可操作；勾选与文件一致还不足以表示保存回调已结束。
+  bool scheme_sensitive = false;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -194,7 +196,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.clipboard_clear_name.clear();
       seen.clipboard_clear_sensitive = false;
     }
-    if (key == "Scheme") seen.scheme_entries.clear();
+    if (key == "Scheme") {
+      seen.scheme_entries.clear();
+      seen.scheme_sensitive = ibus_property_get_sensitive(property);
+    }
     if (key.rfind("Scheme/", 0) == 0 && ibus_property_get_prop_type(property) == PROP_TYPE_RADIO)
       seen.scheme_entries[key] = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "DesktopTools/Help") seen.desktop_help = true;
@@ -1335,11 +1340,12 @@ int main(int argc, char **argv) {
         require(key(IBUS_J, chord_mask), "a held Ctrl+Shift+J repeat escaped");
       require(key(IBUS_j, chord_mask | IBUS_RELEASE_MASK), "the Ctrl+Shift+J release escaped");
       require(stored_becomes("shuangpin", "shuangpin"), "Ctrl+Shift+J did not return from Japanese to shuangpin");
-      // 存储里的方案已经显示在菜单上，说明那次保存和随后的发布都走完了。
+      // 偏好轮询可能先于保存完成回调发布新方案，菜单恢复可操作后才接受下一次切换。
       const auto settled = [&] {
         try {
           const auto scheme = stored().value("scheme", std::string("quanpin"));
-          return seen.scheme_entries[scheme == "japanese" ? "Scheme/Japanese" : "Scheme/Shuangpin"];
+          return seen.scheme_sensitive &&
+                 seen.scheme_entries[scheme == "japanese" ? "Scheme/Japanese" : "Scheme/Shuangpin"];
         } catch (...) {
           return false;
         }
@@ -1364,6 +1370,29 @@ int main(int argc, char **argv) {
         wait_until([&] { return stored_scheme() == "shuangpin" && settled(); });
       }
       require(stored_becomes("shuangpin", "shuangpin"), "the double press did not end back on shuangpin");
+      require(wait_until(settled), "the store did not settle before the blocked save");
+      // 用偏好锁固定保存中状态，验证勾选和文件仍一致时也不能把禁用菜单当作完成。
+      const auto blocked_revision = stored_revision();
+      const int pending_scheme_lock =
+          open((root / "preferences.lock").c_str(), O_CREAT | O_RDWR, 0600);
+      require(pending_scheme_lock >= 0 && flock(pending_scheme_lock, LOCK_EX | LOCK_NB) == 0,
+              "Cannot lock pending Japanese scheme preference");
+      const bool first_taken = chord();
+      const bool pending_observed = wait_until([&] { return !seen.scheme_sensitive; });
+      const bool pending_settled = settled();
+      const bool second_taken = chord();
+      const auto pending_revision = stored_revision();
+      flock(pending_scheme_lock, LOCK_UN);
+      close(pending_scheme_lock);
+      require(first_taken && second_taken, "a pending Japanese toggle reached the application");
+      require(pending_observed && !pending_settled,
+              "the disabled scheme menu was mistaken for a completed save");
+      require(pending_revision == blocked_revision,
+              "Japanese toggle changed preferences while their lock was held");
+      require(stored_becomes("japanese", "shuangpin") && wait_until(settled),
+              "the blocked Japanese toggle did not finish after unlocking");
+      require(chord() && stored_becomes("shuangpin", "shuangpin") && wait_until(settled),
+              "Japanese toggle did not return to shuangpin after the blocked save");
       // 英文模式交给应用。
       invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_UNCHECKED));
       require(wait_until([&] { return !seen.input_enabled; }), "English mode fixture failed");
@@ -1493,6 +1522,16 @@ int main(int argc, char **argv) {
       visibility["preferences"]["show_candidate_page_number"] = true;
       compose();
       require(seen.auxiliary.rfind("1 / ", 0) == 0, "Re-enabled page indicator missing");
+      // GNOME Shell 把辅助行画成一个左对齐标签；拼音在前、页码在后，与 macOS 首行的顺序一致。
+      visibility["preferences"]["candidate_preedit_style"] = "pinyin";
+      compose();
+      {
+        const auto reading = seen.auxiliary.find("ni");
+        const auto indicator = seen.auxiliary.rfind("  · 1 / ");
+        require(reading != std::string::npos && indicator != std::string::npos && reading < indicator &&
+                    seen.auxiliary.find('/', indicator + 8) == std::string::npos && seen.auxiliary_visible,
+                "Page indicator did not trail the reading");
+      }
       visibility["preferences"]["show_candidate_page_number"] = false;
       visibility["preferences"]["candidate_preedit_style"] = "pinyin";
       compose();

@@ -203,7 +203,7 @@ final class ImeBottomBar {
         if (window == null || !(window.peekDecorView() instanceof ViewGroup decor)) return false;
         for (int index = 0; index < decor.getChildCount(); index++) {
             View child = decor.getChildAt(index);
-            if (ViewPolicy.isVisible(child)
+            if (KeyboardBottomBarPolicy.systemImeButtonsDrawn(ViewPolicy.isVisible(child), child.getHeight())
                     && "NavigationBarFrame".equals(child.getClass().getSimpleName())) return true;
         }
         return false;

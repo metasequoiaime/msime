@@ -57,3 +57,5 @@ Android 实体键盘的可打印键走 `character()`，引擎随契约出「」�
 - 代价：Windows 和 Linux 上在中文标点下打花括号的用户（LaTeX、代码）要切英文标点或英文模式，没有开关；Windows 全角模式的 `{` 不再出 ｛｝。日文方案在 Windows、Linux 上的 `{` `}` 也随契约出「」；macOS 的日文在成对补全打开时仍走宿主的花括号补全，没有跟着改。
 - Windows 组字中按 `{` `}` 的路径没改（它们不在 `CommitWithHighlightedCandPunc`，Server 的 `candidate_punctuation` 也不认它们），只是出的字换成「」。
 - 验证：`cargo test -p msime-engine` 与 `cargo test -p msime-host-api --lib punctuation` 通过，其中 `punctuation::tests::shifted_brackets_give_corner_quotes` 按新语义重写（旧实现下 `{}{{}` 出「『」「』，断言必然失败）；`python3 shared/contracts/punctuation/generate.py --check` 通过；`punctuation_contract.cpp`、Linux 的 `smart_punctuation_space.cpp` 与 `paired_punctuation.cpp`（含弯引号样式下 `'` 不跨过 `{` 补出的」）、Windows TSF 的 `punctuation_key_policy.cpp` 与 `paired_punctuation_wiring.cpp` 用主机编译器单独编译运行通过。iOS 的 `SymbolLayerLayout.input` 用 `swiftc` 单独编译 `KeyboardLayoutTables.swift` 加一个断言脚本验证 `{` `}` 在中文层按字面插入；`NineKeyKeyboardTests` 的同一组断言已改，留给 CI 的 iOS 测试跑。Windows、Linux 宿主没有整体编译，也没有在记事本、IBus、Fcitx5 里实际打字验收，留给 PR 的 CI 与真机。
+
+字面右标点的同步查询仅在可能跨过时执行，见[普通字母不查询文档](../bug-fix/2026-11-17-macos-paired-key-document-reads.md)；本篇的键位与字形分流继续适用。

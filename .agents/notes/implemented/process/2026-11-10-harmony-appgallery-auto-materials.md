@@ -25,3 +25,7 @@ Status: implemented
 ## Consequences
 
 正式版恢复一键自动提审，图标和版本特性由版本提交物控制，不再静默继承旧值。首次配置仍需在 AGC/secret 中维护截图、审核账号、VIP账号和备案信息；这些资料不全时，CI 应在提交前失败。Publishing API 的资料接口若发生权限或字段变化，会阻止提审但保留 GitHub release，可用恢复参数重试。
+
+## Update 2026-11-17
+
+harmony-v0.5.0 是资料同步第一次真正运行：图标上传地址请求通过，`PUT /publish/v2/app-file-info` 被拒（code 204144641），用 `test_package_id` 重试结果相同。改为只同步 `app-language-info` 的新版本特性，同步失败仍然阻断提审；图标是应用级资料，在版本之间沿用，换图标时在 AGC 控制台手动上传仓库里的 `app_icon_appgallery.png`。没有采用「图标失败只警告」：接口持续拒绝时那段代码每次都失败，只留下一行没人看的警告。被拒的具体原因（API 不允许改鸿蒙应用图标，还是账号缺权限）没能从华为文档确认。

@@ -147,3 +147,5 @@ macOS 普通中文方案在中文标点开启时把 `Shift+[` / `Shift+]` 分别
   - Android：`platforms/android/check-host.sh` 的 JVM 冒烟；
   - HarmonyOS：`platforms/harmony/tests/run.sh`；
   - 共享设置页：`apps/desktop/tests/settings/punctuation-section.test.tsx`。
+
+普通字母的文档查询开销由[独立修复](../bug-fix/2026-11-17-macos-paired-key-document-reads.md)收敛，字形转换仍按本篇契约处理。

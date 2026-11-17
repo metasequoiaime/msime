@@ -4,6 +4,7 @@
 
 use super::*;
 
+mod ai_pinyin_alignment;
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
 mod local_translation;
@@ -1024,6 +1025,36 @@ fn traditional_conversion_boundary_returns_text_or_null() {
     let fixture = b"fixture";
     assert!(
         unsafe { msime_client_simplified_to_traditional(fixture.as_ptr(), (1 << 20) + 1) }
+            .is_null()
+    );
+}
+
+#[test]
+fn traditional_to_simplified_conversion_boundary_returns_text_or_null() {
+    let convert = |bytes: &[u8]| {
+        // 安全性：切片的生命周期覆盖调用过程。
+        let raw = unsafe { msime_client_traditional_to_simplified(bytes.as_ptr(), bytes.len()) };
+        if raw.is_null() {
+            return None;
+        }
+        // 安全性：非空结果是本库拥有的 NUL 结尾字符串。
+        let text = unsafe { std::ffi::CStr::from_ptr(raw) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        // 安全性：结果只释放一次。
+        unsafe { msime_client_string_free(raw) };
+        Some(text)
+    };
+    assert_eq!(convert("頭髮".as_bytes()).as_deref(), Some("头发"));
+    assert_eq!(convert(b"").as_deref(), Some(""));
+    assert_eq!(convert(b"\xff\xfe"), None);
+    assert_eq!(convert(b"a\0b"), None);
+    // 安全性：空指针属于接口契约覆盖的输入。
+    assert!(unsafe { msime_client_traditional_to_simplified(std::ptr::null(), 4) }.is_null());
+    let fixture = b"fixture";
+    assert!(
+        unsafe { msime_client_traditional_to_simplified(fixture.as_ptr(), (1 << 20) + 1) }
             .is_null()
     );
 }
@@ -2633,6 +2664,65 @@ fn a_nine_key_shuangpin_layout_starts_the_grid_with_the_chosen_table() {
 fn nine_key_shuangpin_layout(request: Value) -> Value {
     let request = request.to_string();
     read(unsafe { msime_client_nine_key_shuangpin_layout(request.as_ptr(), request.len()) })
+}
+
+fn shuangpin_custom_layout(request: Value) -> Value {
+    let request = request.to_string();
+    read(unsafe { msime_client_shuangpin_custom_layout(request.as_ptr(), request.len()) })
+}
+
+#[test]
+fn shuangpin_custom_layouts_share_tables_problems_and_key_hints() {
+    let xiaohe = shuangpin_custom_layout(json!({ "profile": "xiaohe" }));
+    assert_eq!(xiaohe["ok"], true, "{xiaohe}");
+    let value = &xiaohe["value"];
+    assert_eq!(value["effective"], "xiaohe");
+    assert_eq!(value["table"]["finals"]["ing"], "k");
+    assert_eq!(value["keys"][0]["key"], "Q");
+    assert_eq!(value["keys"].as_array().unwrap().len(), 26);
+
+    let mut table = custom_shuangpin_table();
+    table.finals.remove("iong");
+    let broken = shuangpin_custom_layout(json!({ "profile": "custom", "table": table }));
+    assert_eq!(broken["value"]["effective"], "xiaohe", "{broken}");
+    assert_eq!(broken["value"]["problem"]["kind"], "missing_unit");
+
+    let valid = shuangpin_custom_layout(json!({
+        "profile": "custom",
+        "table": custom_shuangpin_table()
+    }));
+    assert_eq!(valid["value"]["effective"], "custom", "{valid}");
+    assert_eq!(valid["value"]["problem"], Value::Null);
+    assert_eq!(valid["value"]["keys"][0]["key"], "Q");
+
+    // 只有零声母用到 `;` 的表：`;` 键也要有提示，键盘才会显示这个键。
+    let mut zero_semicolon = builtin_shuangpin_custom_profile(ShuangpinProfile::Xiaohe).unwrap();
+    zero_semicolon
+        .zero_initials
+        .insert("eng".into(), "e;".into());
+    assert!(!zero_semicolon.finals.values().any(|key| key == ";"));
+    let zero_semicolon =
+        shuangpin_custom_layout(json!({ "profile": "custom", "table": zero_semicolon }));
+    assert_eq!(
+        zero_semicolon["value"]["effective"], "custom",
+        "{zero_semicolon}"
+    );
+    let semicolon = zero_semicolon["value"]["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|face| face["key"] == ";")
+        .unwrap_or_else(|| panic!("no ; key face: {zero_semicolon}"));
+    assert_eq!(semicolon["hint"], "eng");
+
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "unknown" }))["ok"],
+        false
+    );
+    assert_eq!(
+        shuangpin_custom_layout(json!({ "profile": "xiaohe", "extra": 1 }))["ok"],
+        false
+    );
 }
 
 /// 键面和编辑器从同一个接口取表：内置方案给出它的表和键面；自定义表给出问题的位置，不能用时键面是回退到的米旮旯 3；不认识的方案名报错。
@@ -9054,6 +9144,8 @@ fn start_settled_rerank_without_a_model_finishes_on_the_caller() {
     assert_eq!(result["value"]["moved"], false);
     assert_eq!(result["value"]["current"], true);
     assert!(result["value"].get("view").is_none());
+    // 没挂延后到停顿的模型：宿主照落定重排的节奏等 150 ms 再起跑。
+    assert_eq!(result["value"]["deferred"], false);
 
     let missing = read(msime_client_poll_settled_rerank(handle, 0, true));
     assert_eq!(missing["value"]["status"], "done");
@@ -9189,7 +9281,7 @@ fn the_session_scorer_primes_the_context_off_the_keystroke() {
     }
 }
 
-/// 跑不进逐键预算的 ONNX 模型只在停顿时重解的宿主（鸿蒙，HostOptions 的 `pause_rerank`）上延后到停顿；只挂按键的宿主照旧，超过逐键上限就不挂。
+/// ONNX 模型只在停顿时重解的宿主（鸿蒙、安卓的键盘和 macOS 输入法，HostOptions 的 `pause_rerank`）上延后到停顿：手机上是跑不进逐键预算的，桌面上一律延后；只挂按键的宿主照旧，超过逐键上限就不挂。
 #[cfg(feature = "onnx-rerank")]
 #[test]
 fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
@@ -9197,8 +9289,22 @@ fn only_a_pausing_host_defers_a_model_too_slow_for_keys() {
     let slow = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS + 1.0;
     let fast = ffi::PAUSE_HOST_KEYSTROKE_PAGE_MS;
     assert!(defers_to_pause(RerankerMount::KeystrokeOrPause, slow));
-    assert!(!defers_to_pause(RerankerMount::KeystrokeOrPause, fast));
+    // 桌面上停顿时重解的宿主不看一页的自测，总是延后：一页自测在桌面上预测不了真实的逐键开销。手机上一页够快就挂在按键上。
+    let desktop = cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    ));
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, fast),
+        desktop
+    );
+    assert_eq!(
+        defers_to_pause(RerankerMount::KeystrokeOrPause, 0.0),
+        desktop
+    );
     assert!(!defers_to_pause(RerankerMount::Keystroke, slow));
+    assert!(!defers_to_pause(RerankerMount::Keystroke, 0.0));
     assert!(!defers_to_pause(RerankerMount::Off, slow));
     // 停顿时重解的宿主对加载放得更宽：设备刚装完应用、忙的那一刻自测会超过逐键上限。
     const { assert!(ffi::PAUSE_RERANK_LIMIT_MS > ffi::KEYSTROKE_RERANK_LIMIT_MS) };
@@ -9781,95 +9887,109 @@ fn settle_keyboard_reranker(handle: u64) {
     });
 }
 
-/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: attached on the default 增强, dropped when the user picks 标准, attached again when the switch turns back on. It is attached to the runtime alone; the Engine's own keyboard-model rerank stays off throughout. It takes the real model from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests do, and without one a tiny context-free model (`write_context_free_sentence_model`), so CI, which has no model, still checks that session creation and every preference update use `keyboard_reranker_enabled`.
+/// 默认「增强」与重新打开开关时都遵守逐键预算；「标准」和镜像会话始终不挂载，引擎层的键盘模型始终关闭。最小有效模型覆盖可挂载的开关路径；提供真实模型时保留相同的出厂设置，并核对会话挂载与设备校准结论一致。
 #[test]
 fn keyboard_reranker_follows_the_keyboard_model_switch() {
     let synthetic = tempfile::tempdir().unwrap();
-    let model = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
+    let model = synthetic.path().join(ffi::SENTENCE_MODEL_FILE);
+    write_context_free_sentence_model(&model);
+    let mut models = vec![(model, true)];
+    if let Some(model) = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
         .into_iter()
         .filter_map(std::env::var_os)
         .map(|directory| std::path::PathBuf::from(directory).join(ffi::SENTENCE_MODEL_FILE))
         .find(|path| path.is_file())
-        .unwrap_or_else(|| {
-            let path = synthetic.path().join(ffi::SENTENCE_MODEL_FILE);
-            write_context_free_sentence_model(&path);
-            path
-        });
-    let create_with = |root: &std::path::Path, preferences: &Preferences, extra: Value| {
-        let path = |name| {
-            let path = root.join(name);
-            std::fs::create_dir_all(&path).unwrap();
-            path
+    {
+        assert!(
+            ffi::sentence_model("", model.to_str()).is_some(),
+            "真实模型必须能够加载：{}",
+            model.display()
+        );
+        // 同一路径的校准结果会缓存，会话必须遵守它；超过预算时默认增强也不能强行挂载。
+        let expected_attached =
+            ffi::bundled_keyboard_reranker("", model.to_str(), ffi::KEYSTROKE_RERANK_LIMIT_MS)
+                .is_some();
+        models.push((model, expected_attached));
+    }
+    for (model, expected_attached) in models {
+        let create_with = |root: &std::path::Path, preferences: &Preferences, extra: Value| {
+            let path = |name| {
+                let path = root.join(name);
+                std::fs::create_dir_all(&path).unwrap();
+                path
+            };
+            let mut options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "sentence_model": model, "preferences": preferences });
+            for (key, value) in extra.as_object().unwrap() {
+                options[key] = value.clone();
+            }
+            let options = options.to_string();
+            let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+            assert_eq!(created["ok"], true, "{created}");
+            created["value"]["session"].as_u64().unwrap()
         };
-        let mut options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "sentence_model": model, "preferences": preferences });
-        for (key, value) in extra.as_object().unwrap() {
-            options[key] = value.clone();
-        }
-        let options = options.to_string();
-        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
-        assert_eq!(created["ok"], true, "{created}");
-        created["value"]["session"].as_u64().unwrap()
-    };
-    let create = |root: &std::path::Path, preferences: &Preferences| {
-        create_with(root, preferences, json!({}))
-    };
-    // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
-    let attached = |handle: u64| {
-        settle_keyboard_reranker(handle);
+        let create = |root: &std::path::Path, preferences: &Preferences| {
+            create_with(root, preferences, json!({}))
+        };
+        // 挂没挂 runtime 的逐键重排器；引擎那层键盘模型在任何时候都不打开。
+        let attached = |handle: u64| {
+            settle_keyboard_reranker(handle);
+            SESSIONS.with(|sessions| {
+                let session = &sessions.borrow()[&handle];
+                assert!(!session.options.sentence_association.neural_keyboard);
+                session.runtime.has_reranker()
+            })
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut preferences = chinese_preferences();
+        assert!(preferences.sentence_association.neural_keyboard);
+        let handle = create(directory.path(), &preferences);
+        // 会话建立时不等模型加载：逐键重排器在后台挂，挂好之前 runtime 上什么都没挂（#10743）。
         SESSIONS.with(|sessions| {
             let session = &sessions.borrow()[&handle];
-            assert!(!session.options.sentence_association.neural_keyboard);
-            session.runtime.has_reranker()
-        })
-    };
+            assert!(session.keyboard_reranker_loading.is_some());
+            assert!(!session.runtime.has_reranker());
+        });
+        assert_eq!(
+            attached(handle),
+            expected_attached,
+            "默认增强的挂载结果必须符合逐键预算：{}",
+            model.display()
+        );
 
-    let directory = tempfile::tempdir().unwrap();
-    let mut preferences = chinese_preferences();
-    assert!(preferences.sentence_association.neural_keyboard);
-    let handle = create(directory.path(), &preferences);
-    // 会话建立时不等模型加载：逐键重排器在后台挂，挂好之前 runtime 上什么都没挂（#10743）。
-    SESSIONS.with(|sessions| {
-        let session = &sessions.borrow()[&handle];
-        assert!(session.keyboard_reranker_loading.is_some());
-        assert!(!session.runtime.has_reranker());
-    });
-    assert!(
-        attached(handle),
-        "the default 增强 attaches the keyboard model when the session opens"
-    );
+        preferences.sentence_association.neural_keyboard = false;
+        assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+        assert!(!attached(handle));
 
-    preferences.sentence_association.neural_keyboard = false;
-    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
-    assert!(!attached(handle));
+        preferences.sentence_association.neural_keyboard = true;
+        assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+        assert_eq!(attached(handle), expected_attached);
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 
-    preferences.sentence_association.neural_keyboard = true;
-    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
-    assert!(attached(handle));
-    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        // 镜像会话（Windows TIP 在应用进程里的宿主会话，`keyboard_reranker: false`）建立时和开关再打开时都不挂：候选窗的顺序是它跟着的那个会话排的。
+        let directory = tempfile::tempdir().unwrap();
+        let mirror = create_with(
+            directory.path(),
+            &preferences,
+            json!({ "keyboard_reranker": false }),
+        );
+        assert!(
+            !attached(mirror),
+            "a mirror session never loads the keyboard model"
+        );
+        preferences.sentence_association.neural_keyboard = false;
+        assert_eq!(update(mirror, 1, &preferences)["value"]["deferred"], false);
+        preferences.sentence_association.neural_keyboard = true;
+        assert_eq!(update(mirror, 2, &preferences)["value"]["deferred"], false);
+        assert!(!attached(mirror));
+        assert_eq!(read(msime_client_destroy(mirror))["ok"], true);
 
-    // 镜像会话（Windows TIP 在应用进程里的宿主会话，`keyboard_reranker: false`）建立时和开关再打开时都不挂：候选窗的顺序是它跟着的那个会话排的。
-    let directory = tempfile::tempdir().unwrap();
-    let mirror = create_with(
-        directory.path(),
-        &preferences,
-        json!({ "keyboard_reranker": false }),
-    );
-    assert!(
-        !attached(mirror),
-        "a mirror session never loads the keyboard model"
-    );
-    preferences.sentence_association.neural_keyboard = false;
-    assert_eq!(update(mirror, 1, &preferences)["value"]["deferred"], false);
-    preferences.sentence_association.neural_keyboard = true;
-    assert_eq!(update(mirror, 2, &preferences)["value"]["deferred"], false);
-    assert!(!attached(mirror));
-    assert_eq!(read(msime_client_destroy(mirror))["ok"], true);
-
-    let directory = tempfile::tempdir().unwrap();
-    preferences.sentence_association.neural_keyboard = false;
-    let handle = create(directory.path(), &preferences);
-    assert!(!attached(handle), "标准 must not run the keyboard model");
-    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        let directory = tempfile::tempdir().unwrap();
+        preferences.sentence_association.neural_keyboard = false;
+        let handle = create(directory.path(), &preferences);
+        assert!(!attached(handle), "标准 must not run the keyboard model");
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+    }
 }
 
 /// 随包句子模型（没有 ONNX 模型的构建）挂上之前先量一页重负载：在上限之内才挂，超过就不挂；每个模型路径在进程里只量一次，之后按结论定，不再量。

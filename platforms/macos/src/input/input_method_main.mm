@@ -5,6 +5,7 @@
 #import "InputModeStatusItem.h"
 #import "InputSourceRegistration.h"
 #import "InputControllerActivity.h"
+#import "SettingsSyncWorker.h"
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
 #import "../settings/RuntimeOptionsRefresh.h"
@@ -183,6 +184,7 @@ int main(int argc, const char *argv[]) {
         MSIMEUsageReportingStart(reportingDirectory);
         // 同样只在输入法进程里：独立设置窗口已经在上面返回。
         MSIMEStartDictionarySync();
+        MSIMEStartSettingsSync(MSIMEDefaultClientStateDirectory(NSFileManager.defaultManager).path);
         // Recover a prior crashed capture before accepting new IMK sessions.
         // A running owner holds the journal lock, so this cannot undo its mute.
         [[[MSIMEVoiceAudioMuter alloc] init] restore];
@@ -293,6 +295,7 @@ int main(int argc, const char *argv[]) {
         for (id observer in distributedObservers) [distributedCenter removeObserver:observer];
         // 正在跑的那一次同步最多等两秒，与使用统计收尾的宽限相同；没等完也不要紧，每一步都已写盘。被 SIGTERM 结束时不经过这里，进程直接退出，道理相同。
         (void)msime_client_dictionary_sync_stop(2000);
+        (void)msime_client_settings_sync_stop(2000);
         MSIMEUsageReportingStop();
         (void)server;
     }

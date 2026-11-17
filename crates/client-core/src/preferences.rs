@@ -23,8 +23,10 @@ mod reporting_authority;
 pub mod schema;
 pub use reporting_authority::{ReportingAuthority, ReportingAuthorization};
 mod reporting_consent;
+mod settings_webdav;
 mod traditional_variant_read;
 pub use reporting_consent::UsageReportingConsent;
+pub use settings_webdav::SettingsSyncWebDavPreferences;
 
 /// The largest preference document accepted by the shared host boundary. This
 /// covers a validated custom skin photo while preventing a damaged local file
@@ -581,6 +583,11 @@ pub enum TouchNineKeySwipeDigits {
     /// 下滑输入数字，上滑弹出数字和字母。
     Down,
 }
+
+/// 手机触屏拼音九键字母 flick 的判定距离，三端共用同一范围和默认值。
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE: std::ops::RangeInclusive<u16> = 14..=48;
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP: u16 = 2;
+pub const TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT: u16 = 24;
 
 impl TouchNineKeySwipeDigits {
     /// 文档和同步键里的写法。
@@ -1168,11 +1175,16 @@ pub enum TouchKeyboardScheme {
     EighteenKey,
     /// 粤语双拼 26 键：与粤拼共用词典，按选中入口显式解释同形两键码。
     CantoneseShuangpin,
+    SmartAbc,
+    Sogou,
+    Jiajia,
+    Ziguang,
+    Guobiao,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 26] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -1194,6 +1206,11 @@ impl TouchKeyboardScheme {
         Self::NineKeyShuangpin,
         Self::EighteenKey,
         Self::CantoneseShuangpin,
+        Self::SmartAbc,
+        Self::Sogou,
+        Self::Jiajia,
+        Self::Ziguang,
+        Self::Guobiao,
     ];
 
     /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。全拼 14 键也不默认启用：它是全拼的另一种键面，由用户在全拼的布局选择或「添加语言」里打开。
@@ -1971,6 +1988,9 @@ pub struct Preferences {
     pub candidate_layout: CandidateLayout,
     #[serde(default)]
     pub candidate_preedit_style: CandidatePreeditStyle,
+    /// Windows 候选窗是否保留预编辑首行；缺字段按开启，`candidate_preedit_style` 仍单独决定首行文字。
+    #[serde(default = "enabled_by_default")]
+    pub show_candidate_preedit_area: bool,
     /// Show the current/total page text in Linux candidate panels, independently of preedit. On macOS it also governs the ‹ › page arrows beside that text, so with the logo and the reading hidden too the card loses its top row. Paging by key and wheel is unaffected on both.
     #[serde(default = "enabled_by_default")]
     pub show_candidate_page_number: bool,
@@ -2168,6 +2188,13 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "TouchNineKeySwipeDigits::is_default")]
     pub touch_nine_key_swipe_digits: TouchNineKeySwipeDigits,
+    /// 手机触屏拼音九键字母层上/左/右 flick 的判定距离（dp / pt / vp 按各端物理单位解释），三端同步。14–48、步进 2，默认 24；桌面宿主原样保留、不使用。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(
+        default = "default_touch_nine_key_flick_threshold",
+        skip_serializing_if = "is_default_touch_nine_key_flick_threshold"
+    )]
+    pub touch_nine_key_flick_threshold: u16,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -2329,6 +2356,9 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub cantonese_simplified_output: bool,
+    /// 鸿蒙注音输出简体：注音词库是繁体，鸿蒙宿主在显示与上屏边界做繁转简。与 `traditional_chinese_output` 互不影响，注音下的简繁按钮切换的是它；默认关，即注音照旧输出繁体。其他宿主保留这个字段但不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub zhuyin_simplified_output: bool,
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
@@ -2469,6 +2499,13 @@ pub struct Preferences {
         skip_serializing_if = "DictionarySyncWebDavPreferences::is_default"
     )]
     pub dictionary_sync_webdav: DictionarySyncWebDavPreferences,
+    /// 设置和可移植主题的独立网盘连接；凭据和整个连接段只留本机。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(
+        default,
+        skip_serializing_if = "SettingsSyncWebDavPreferences::is_default"
+    )]
+    pub settings_sync_webdav: SettingsSyncWebDavPreferences,
     /// 向所选云候选服务发送当前组字。新装默认关闭；旧文档缺开关时沿用开启行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
@@ -2515,6 +2552,9 @@ pub struct Preferences {
     /// 出厂默认对齐 Windows v0.11.1 的 `candidate_ai_badge_style = "robot"`。
     #[serde(default = "default_candidate_ai_badge_style")]
     pub candidate_ai_badge_style: String,
+    /// 云候选的来源角标是否显示。关闭只隐藏 `☁️`，不改变候选身份、编号或选词行为。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub candidate_cloud_badge: bool,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -4664,6 +4704,14 @@ fn is_default_touch_keyboard_split_gap(value: &u8) -> bool {
     *value == TOUCH_KEYBOARD_SPLIT_GAP_DEFAULT
 }
 
+fn default_touch_nine_key_flick_threshold() -> u16 {
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+}
+
+fn is_default_touch_nine_key_flick_threshold(value: &u16) -> bool {
+    *value == TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+}
+
 fn default_touch_row_spacing_tenths() -> u8 {
     70
 }
@@ -4757,6 +4805,7 @@ impl Default for Preferences {
             custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
+            show_candidate_preedit_area: true,
             show_candidate_page_number: true,
             show_candidate_status: true,
             tsf_preedit_style: PreeditStyle::default(),
@@ -4809,6 +4858,7 @@ impl Default for Preferences {
             touch_one_handed_side_panel: TouchOneHandedSidePanel::default(),
             touch_language_key_side: TouchLanguageKeySide::default(),
             touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
+            touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -4853,6 +4903,7 @@ impl Default for Preferences {
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
             cantonese_simplified_output: false,
+            zhuyin_simplified_output: false,
             chinese_english_spacing: false,
             cross_commit_spacing: false,
             cross_commit_spacing_excluded_apps: Vec::new(),
@@ -4888,6 +4939,7 @@ impl Default for Preferences {
             cloud_clipboard_relay: CloudClipboardRelayPreferences::default(),
             cloud_clipboard_webdav: CloudClipboardWebDavPreferences::default(),
             dictionary_sync_webdav: DictionarySyncWebDavPreferences::default(),
+            settings_sync_webdav: SettingsSyncWebDavPreferences::default(),
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
             cloud_candidate_provider: Default::default(),
@@ -4902,6 +4954,7 @@ impl Default for Preferences {
             candidate_fixed_badge: true,
             candidate_fixed_badge_style: default_candidate_fixed_badge_style(),
             candidate_ai_badge_style: default_candidate_ai_badge_style(),
+            candidate_cloud_badge: true,
             english_suggestions: true,
             english_online_candidates: false,
             translation_target_language: TranslationTargetLanguage::default(),
@@ -5028,6 +5081,10 @@ pub enum ShuangpinProfile {
     Shoudao,
     Microsoft,
     SmartAbc,
+    Sogou,
+    Jiajia,
+    Ziguang,
+    Guobiao,
     /// 用户自己的键位表，见 `Preferences::shuangpin_custom_profile`。
     Custom,
 }
@@ -5498,6 +5555,7 @@ impl Preferences {
         next.cloud_clipboard_relay = self.cloud_clipboard_relay.clone();
         next.cloud_clipboard_webdav = self.cloud_clipboard_webdav.clone();
         next.dictionary_sync_webdav = self.dictionary_sync_webdav.clone();
+        next.settings_sync_webdav = self.settings_sync_webdav.clone();
         next.cloud_candidate_provider = self.cloud_candidate_provider.clone();
         // 代理是为了让这台机器连得上服务：恢复默认设置把服务凭据留下了，代理地址跟着留下，否则所有出口会一起断。
         next.network = self.network.clone();
@@ -5508,7 +5566,7 @@ impl Preferences {
     }
 
     /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
-    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 17] {
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 18] {
         [
             (
                 "voice_input.asr_app_key",
@@ -5578,6 +5636,10 @@ impl Preferences {
                 "dictionary_sync_webdav.password",
                 CredentialSlot::Text(&mut self.dictionary_sync_webdav.password),
             ),
+            (
+                "settings_sync_webdav.password",
+                CredentialSlot::Text(&mut self.settings_sync_webdav.password),
+            ),
         ]
     }
 
@@ -5611,7 +5673,11 @@ impl Preferences {
         // 自定义地址、请求头和模板都可能含不以敏感词命名的令牌，整组不进入诊断。
         value["cloud_candidate_provider"] = REDACTED.into();
         // 网盘账号常是登录邮箱，不是凭据也不进诊断。
-        for section in ["cloud_clipboard_webdav", "dictionary_sync_webdav"] {
+        for section in [
+            "cloud_clipboard_webdav",
+            "dictionary_sync_webdav",
+            "settings_sync_webdav",
+        ] {
             if let Some(webdav) = value
                 .get_mut(section)
                 .and_then(serde_json::Value::as_object_mut)
@@ -5775,6 +5841,9 @@ impl Preferences {
         if !self.dictionary_sync_webdav.validate() {
             return Err(PreferencesError::InvalidDictionarySyncWebDav);
         }
+        if !self.settings_sync_webdav.validate() {
+            return Err(PreferencesError::InvalidSettingsSyncWebDav);
+        }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
         {
@@ -5805,6 +5874,12 @@ impl Preferences {
                 .is_multiple_of(TOUCH_KEYBOARD_SPLIT_GAP_STEP)
         {
             return Err(PreferencesError::InvalidTouchKeyboardSplit);
+        }
+        if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&self.touch_nine_key_flick_threshold)
+            || !(self.touch_nine_key_flick_threshold - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+        {
+            return Err(PreferencesError::InvalidNineKeyFlickThreshold);
         }
         if self.touch_quick_punctuation_symbols
             != normalize_touch_quick_symbols(&self.touch_quick_punctuation_symbols)
@@ -6009,6 +6084,8 @@ pub enum PreferencesError {
     InvalidTouchKeyboardSpacing,
     #[error("分离键盘启用宽度须为 480–1000、步进 20，中间空隙须为 10–40%、步进 5")]
     InvalidTouchKeyboardSplit,
+    #[error("九键 flick 阈值须为 14–48、步进 2")]
+    InvalidNineKeyFlickThreshold,
     #[error("触控板水平步长须为 4–48 dp，垂直步长须为 8–96 dp")]
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
@@ -6097,6 +6174,8 @@ pub enum PreferencesError {
         "dictionary sync webdav needs an https address (http only for loopback) without query, fragment or credentials, an account without a colon and an app password"
     )]
     InvalidDictionarySyncWebDav,
+    #[error("设置同步网盘需要合规的 HTTPS 地址（本机回环可用 HTTP）、账号和应用密码")]
+    InvalidSettingsSyncWebDav,
     #[error(
         "云候选配置无效：请检查地址、方法、请求头、JSON 模板、响应路径和超时（100–10000 毫秒）"
     )]
@@ -6608,6 +6687,9 @@ impl PreferencesStore {
     /// `nine_key_symbols` / `nine_key_digit_symbols` 是本机旧键 `platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols` 里用户自定义的表：宿主只在旧值解析得出、又不等于 Android 出厂表时传非空表，等于出厂表或解析不出时传空表（什么也不迁）。共享偏好里这一项在盘上缺键或是空数组时才写入规范化后的表；盘上已经有非空数组（别的设备或较新版本写的，哪怕本版本读出来全被丢掉）时不拿本机旧值覆盖。
     ///
     /// `nine_key_swipe_digits` 是本机旧设置 `platform.android.nine_key_swipe` 严格解析后的值，没有旧值或旧值不认识时传 [`TouchNineKeySwipeDigits::Off`]：上滑或下滑只在共享字段缺键或明写 `off` 时写入，别的设备选的方向和较新版本的写法都原样留着。
+    ///
+    /// `nine_key_flick_threshold` 是本机旧设置「九键滑动距离」`platform.android.nine_key_swipe_distance` 的值，本机没有这个键时传 `None`：只在共享字段 `touch_nine_key_flick_threshold` 盘上缺键、旧值在 14–48 且步进合规、又不是默认 24 时写入；盘上已有的值（别的设备设的，或较新版本的写法）都不覆盖。
+    #[allow(clippy::too_many_arguments)]
     pub fn migrate_android_key_layout(
         &self,
         expected_revision: u64,
@@ -6616,6 +6698,7 @@ impl PreferencesStore {
         nine_key_symbols: &[String],
         nine_key_digit_symbols: &[String],
         nine_key_swipe_digits: TouchNineKeySwipeDigits,
+        nine_key_flick_threshold: Option<u16>,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let (current, mut unknown) = self.read_locked_keeping_unknown()?;
@@ -6668,6 +6751,19 @@ impl PreferencesStore {
             && swipe.is_none_or(|value| value.as_str() == Some("off"))
         {
             preferences.touch_nine_key_swipe_digits = nine_key_swipe_digits;
+        }
+        if let Some(threshold) = nine_key_flick_threshold.filter(|value| {
+            TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(value)
+                && (value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                    .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+                && *value != TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT
+        }) {
+            if document
+                .pointer("/preferences/touch_nine_key_flick_threshold")
+                .is_none()
+            {
+                preferences.touch_nine_key_flick_threshold = threshold;
+            }
         }
         // 只在此次迁移接回未知样式，不改变设置页主动选择新样式的保存规则。
         for (key, is_known) in [
@@ -7561,7 +7657,7 @@ pub fn is_sensitive_key(name: &str) -> bool {
 }
 
 /// 用户可以自填的服务地址。地址本身不是凭据，但有的服务把密钥放在查询串或 `user:password@` 里，诊断快照只留协议、主机、端口和路径。
-const DIAGNOSTIC_ENDPOINTS: [&str; 7] = [
+const DIAGNOSTIC_ENDPOINTS: [&str; 8] = [
     "/voice_input/asr_endpoint",
     "/voice_input/polish_endpoint",
     "/ai_assistant/endpoint",
@@ -7569,6 +7665,7 @@ const DIAGNOSTIC_ENDPOINTS: [&str; 7] = [
     "/cloud_clipboard_relay/url",
     "/cloud_clipboard_webdav/url",
     "/dictionary_sync_webdav/url",
+    "/settings_sync_webdav/url",
 ];
 
 /// 去掉地址里的用户信息、查询串和片段；解析不了的地址整个换成 [`REDACTED`]，因为看不出密钥藏在哪。

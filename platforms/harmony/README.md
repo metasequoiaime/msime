@@ -1,5 +1,7 @@
 # HarmonyOS 输入宿主
 
+命名词库的导入、多选管理与同步边界见[词库分组](../../docs/dictionary-groups.md)。
+
 ArkTS 宿主与 NAPI 原生边界是完整实现：键盘扩展、设置应用、账号、社区、AI、语音、手写、候选与词库都在本目录内。能力对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、哪些是按平台特性裁剪而不是欠账。
 
 ## AI 生成类功能目前不提供
@@ -54,7 +56,7 @@ AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设�
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
-繁体输出只在显示与上屏边界转换：候选条与展开候选面板的显示文字、Engine 提交、`insert` 与 `insertWithSource` 经过 `KeyboardSession.asTraditional`，Engine 的候选原文、候选身份（按序号选择）和组合文本保持简体；由 `ChineseOutputPolicy` 决定是否适用（dedicated English、日语方案、临时日语保留原文），转换本身走 NAPI `simplifiedToTraditional` 调共享导出 `msime_client_simplified_to_traditional`，即 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、iOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，ICU `i18n.Transliterator` 的逐字转换分不开这两个「发」。C ABI 拒绝的输入（内嵌 NUL）返回 `null`，保留原文。`scripts/test-harmony-traditional-output.py` 钉住从 C 头文件到调用点的这条接线，并拒绝宿主源码里重新出现 ICU 转写。
+繁简输出只在显示与上屏边界转换：候选条与展开候选面板的显示文字、Engine 提交、`insert` 与 `insertWithSource` 经过 `KeyboardSession.asTraditional`，Engine 的候选原文、候选身份（按序号选择）和组合文本保持原样；由 `ChineseOutputPolicy` 决定是否适用。普通中文方案使用全局繁体输出开关和 NAPI `simplifiedToTraditional`，注音方案在鸿蒙复用同一简繁按钮、使用独立的 `zhuyin_simplified_output` 偏好和 NAPI `traditionalToSimplified`，默认都保持现有繁体行为。共享转换分别调用 `msime_client_simplified_to_traditional` 与 `msime_client_traditional_to_simplified` 的 OpenCC 词级表，因此「头发」出「頭髮」、「发展」出「發展」；ICU `i18n.Transliterator` 的逐字转换分不开这两个「发」。dedicated English、日语方案和临时日语模式保留原文；C ABI 拒绝的输入（内嵌 NUL）返回 `null`，保留原文。`scripts/test-harmony-traditional-output.py` 钉住从 C 头文件到调用点的两条接线，并拒绝宿主源码里重新出现 ICU 转写。
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
 
@@ -114,7 +116,7 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 `openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时，「设置」首页状态卡片上的「试用键盘」打开共享的子页面「试用键盘」（`packages/ui/src/keyboard/try-keyboard-page.tsx`），那才是这里"让我看看键盘"的诚实版本：按 Android 试用页的聊天样式，一进页面就把焦点交给输入框，系统弹出当前输入法；AI 生成类功能打开时，登录后打的字可以作为 AI 对话发出去，走的是设置页已有的 `chat` 通道；目前总闸关着，页面不带发送键，只用来打字。这一页不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
 
-云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。云端只在面板打开和点「刷新」时读取一次，没有轮询，复制时不上传，也不读系统剪贴板；点一条就插入当前编辑器。本机历史长按一条出现「发到云剪贴板」，只有已登录（或选了自建中继、WebDAV 网盘）且云剪贴板已开启时可用。密码框里没有「云端」这一栏，读取期间换了编辑器的结果直接丢弃，判断都在 `keyboard/clipboard/CloudClipboardPolicy.ts`。每个请求先问 Rust 该走哪条路（`msime_client_cloud_clipboard_source`）：设置里选了自建中继或 WebDAV 网盘就只经 `msime_client_relay_cloud_clipboard`，否则经 `msime_client_account_cloud_clipboard`，目录都是键盘沙箱自己的 `files/state`；设置应用里的登录经共享沙箱的会话镜像采用过来（见下文「账号与云端业务在 Rust 里」）。键盘不自己生成云剪贴板的设备身份：请求带 `create_identity: false`，用设置应用经共享沙箱镜像过来的密钥串，设置应用还没用过云剪贴板时提示先在应用里打开一次，一台手机只登记一台设备（`scripts/test-harmony-cloud-clipboard-identity.py` 守着调用点）。
+云剪贴板在键盘里也有一份：剪贴板面板（手机的剪贴板键面、2in1 表情面板的剪贴板页）分「本机」与「云端」两栏。键盘获得允许读取系统剪贴板和隐私联网授权、且编辑框可见时，每三秒轮询一次云端新条目并写入系统剪贴板；面板打开和点「刷新」仍会立即读取一次。可见键盘观察到的新本机文本会自动上传，初始已有内容和换账号／中继前的内容不自动补传；系统收起键盘后不保证继续监听。接收回声不上传，图片、非文本与读取失败不当作空剪贴板覆盖。云端条目点选后插入当前编辑器，本机历史仍可长按选择「发到云剪贴板」。只有已登录（或选了自建中继、WebDAV 网盘）且云剪贴板已开启时云端操作可用。密码框里没有「云端」一栏，读取期间换了编辑器的结果直接丢弃，自动接收的状态与文本新旧判断在 `keyboard/clipboard/CloudClipboardReceivePolicy.ts`，列表校验仍在 `CloudClipboardPolicy.ts`。每个请求先问 Rust 该走哪条路（`msime_client_cloud_clipboard_source`）：设置里选了自建中继或 WebDAV 网盘就只经 `msime_client_relay_cloud_clipboard`，否则经 `msime_client_account_cloud_clipboard`，目录都是键盘沙箱自己的 `files/state`；设置应用里的登录经共享沙箱的会话镜像采用过来（见下文「账号与云端业务在 Rust 里」）。键盘不自己生成云剪贴板的设备身份：请求带 `create_identity: false`，用设置应用经共享沙箱镜像过来的密钥串，设置应用还没用过云剪贴板时提示先在应用里打开一次，一台手机只登记一台设备（`scripts/test-harmony-cloud-clipboard-identity.py` 守着调用点）。
 
 云剪贴板是端到端加密的，协议和宿主的职责见 [docs/cloud-clipboard-e2e.md](../../docs/cloud-clipboard-e2e.md)。列表、上传和设备管理（`devices`、`approve`、`reject`、`remove`、`reset`）、删除和开关都由 Rust 驱动和发送；驱动的错误码（`clipboard_device_pending`、`clipboard_sync_disabled`、`clipboard_key_conflict` 等）原样作为 `{ok:false,error}` 交给设置页和键盘。本机的密钥串仍是与会话同目录的 `files/state/cloud-clipboard-keystore`，Rust 读写的就是原来那一份，所以升级以后不会重新登记、不会出现「等待批准」；完整体验模式下设置应用把它镜像给键盘，键盘只用这一份；退出登录、注销和会话失效时随会话一起删除，换一个账号登录时不再删除（迁移差异 M3）。登记到服务端的设备名由宿主每次带上：`@ohos.deviceInfo` 的 `marketName`，没有时用 `productModel`，再没有时是「HarmonyOS 设备」。置顶、保留期和清空 Rust 也支持，共享页面在本宿主上还没有入口，宿主不放行。
 
@@ -558,7 +560,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 粤语、注音与越南语
 
-选择器末尾在「韩语 26 键」之后再加三张卡：「粤语」（`KeyboardScheme.CANTONESE`，Engine 方案名 `cantonese`，编号 5）、「注音」（`ZHUYIN`，`zhuyin`，编号 6）和「越南语」（`VIETNAMESE`，`vietnamese`，编号 7）。三者默认都不启用（`DEFAULT_ENABLED` 不含它们），由用户在设置页打开。粤语和注音是中文方案：选中时它们自己就是 `last_chinese_scheme`，「中文」回到它们，打字统计记在 `cantonese`、`zhuyin` 名下；越南语和日语、韩语一样不是中文方案，选中时保留原来的 `last_chinese_scheme`，统计记在 `vietnamese` 名下。三者都不学进主词库，所以候选长按没有置顶、降权、删除；简繁转换开关对它们不起作用（粤语与注音本来就是繁体）。快捷栏和语言键上粤语、注音显示「中」，越南语显示「越」。
+选择器末尾在「韩语 26 键」之后再加三张卡：「粤语」（`KeyboardScheme.CANTONESE`，Engine 方案名 `cantonese`，编号 5）、「注音」（`ZHUYIN`，`zhuyin`，编号 6）和「越南语」（`VIETNAMESE`，`vietnamese`，编号 7）。三者默认都不启用（`DEFAULT_ENABLED` 不含它们），由用户在设置页打开。粤语和注音是中文方案：选中时它们自己就是 `last_chinese_scheme`，「中文」回到它们，打字统计记在 `cantonese`、`zhuyin` 名下；越南语和日语、韩语一样不是中文方案，选中时保留原来的 `last_chinese_scheme`，统计记在 `vietnamese` 名下。三者都不学进主词库，所以候选长按没有置顶、降权、删除；粤语使用自己的简体输出偏好，注音在鸿蒙使用 `zhuyin_simplified_output`，越南语不参与简繁转换。快捷栏和语言键上粤语、注音显示「中」，越南语显示「越」。
 
 方案之间的差异不再逐处写方案名，而是集中在 `SchemeTraits.ts`：它按 Engine 的方案编号逐条镜像 `crates/engine/src/types.rs` 里 `SchemeType` 的谓词（`is_chinese`、`uses_chinese_punctuation`、`commits_on_blur`、`locks_caret`、`has_openable_candidate_list` 等），每个谓词写成“对哪些编号成立”的列表，`scripts/test-scheme-traits-parity.py` 读这个文件，常量编号、`NAMES` 或任一谓词与 Engine 不一致时失败。`input/SchemeCompositionPolicy.ts` 是原 Korean 专用组字策略的推广：韩语、注音、越南语的组字行画 Engine 的 `preedit`（写出来的字，而不是按键），光标固定在末尾；韩语和注音的候选只在用户打开的列表里出现，是否打开以视图的 `candidate_list_open` 为准。英文模式和本地工具模式下这些规则都不生效。
 
@@ -776,7 +778,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步仓库里的不透明 216×216 图标和 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试。图标和版本特性不再从 AGC 旧资料静默继承；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
+正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试，所以每次发版前要把这段文字改成这一版的内容。应用图标不经 API 同步：harmony-v0.5.0 发布时 `PUT /publish/v2/app-file-info` 被华为以 code 204144641 拒绝，而图标是应用级资料、在版本之间沿用，换图标时把仓库里不透明的 216×216 `app_icon_appgallery.png` 在 AGC 控制台手动上传一次即可；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 

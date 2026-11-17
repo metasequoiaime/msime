@@ -13,17 +13,19 @@ public final class ToolbarOrderPolicySmoke {
         check(custom.equals(List.of(ToolbarOrderPolicy.Item.TEXT_EDIT, ToolbarOrderPolicy.Item.SKIN,
             ToolbarOrderPolicy.Item.EMOJI, ToolbarOrderPolicy.Item.PHRASE, ToolbarOrderPolicy.Item.CLIPBOARD,
             ToolbarOrderPolicy.Item.SCHEME, ToolbarOrderPolicy.Item.FLOATING,
-            ToolbarOrderPolicy.Item.UNDO, ToolbarOrderPolicy.Item.REDO, ToolbarOrderPolicy.Item.VOICE, ToolbarOrderPolicy.Item.RANDOM_DIGITS)),
+            ToolbarOrderPolicy.Item.UNDO, ToolbarOrderPolicy.Item.REDO, ToolbarOrderPolicy.Item.VOICE,
+            ToolbarOrderPolicy.Item.RANDOM_DIGITS, ToolbarOrderPolicy.Item.DISMISS)),
             "missing items append in default order");
         // 新增按钮按引入顺序补在末尾，已有工具保持原顺序和开关归属。
-        check(defaults.get(defaults.size() - 1) == ToolbarOrderPolicy.Item.RANDOM_DIGITS, "新增随机数字补在末尾");
+        check(defaults.get(defaults.size() - 2) == ToolbarOrderPolicy.Item.RANDOM_DIGITS, "新增随机数字补在末尾");
+        check(defaults.get(defaults.size() - 1) == ToolbarOrderPolicy.Item.DISMISS, "收起键盘补在工具栏末尾");
         check(!AndroidLocalSettings.defaults().bool(AndroidLocalSettings.TOOLBAR_RANDOM_DIGITS), "随机数字入口默认关闭");
         check(ToolbarOrderPolicy.Item.VOICE.id.equals("voice") && ToolbarOrderPolicy.Item.VOICE.label.equals("语音")
             && ToolbarOrderPolicy.Item.VOICE.preferenceKey.equals("touch_voice_shortcut"), "voice identity and switch");
         String legacy = "redo,undo,text_edit,floating,scheme,skin,clipboard,phrase,emoji";
         List<ToolbarOrderPolicy.Item> upgraded = ToolbarOrderPolicy.ordered(legacy);
-        check(ToolbarOrderPolicy.format(upgraded).equals(legacy + ",voice,random_digits"), "a stored order from before voice keeps its order and gains voice");
-        check(ToolbarOrderPolicy.normalize(legacy).equals(legacy + ",voice,random_digits"), "normalizing a pre-voice order appends voice");
+        check(ToolbarOrderPolicy.format(upgraded).equals(legacy + ",voice,random_digits,dismiss"), "a stored order from before voice keeps its order and gains newer buttons");
+        check(ToolbarOrderPolicy.normalize(legacy).equals(legacy + ",voice,random_digits,dismiss"), "normalizing a pre-voice order appends newer buttons");
         check(ToolbarOrderPolicy.ordered("voice,emoji,voice").get(0) == ToolbarOrderPolicy.Item.VOICE
             && ToolbarOrderPolicy.ordered("voice,emoji,voice").size() == defaults.size(), "voice can lead and is not duplicated");
         check(ToolbarOrderPolicy.ordered(ToolbarOrderPolicy.format(custom)).equals(custom), "stable IDs round trip");

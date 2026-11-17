@@ -152,6 +152,8 @@ final class ImeFunctionPanel {
                     s.toggleHandwritingScheme();
                 }, null),
                 FunctionPanelView.State.NONE, ready);
+            case TRANSLATION -> add(entries, states, enabled,
+                glyph(item, "译", s.imeTranslationEntry::open), FunctionPanelView.State.NONE, true);
             case DICTIONARY -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.LEXICON, () -> host("LEXICON"), null),
                 FunctionPanelView.State.NONE, true);
