@@ -15,6 +15,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ((Get-FileHash -LiteralPath $SsignPath -Algorithm SHA256).Hash -ine $SsignSha256) { throw 'ssign 客户端摘要与固定配置不符。' }
 if (-not (Test-Path -LiteralPath $CredentialPath -PathType Leaf)) { throw '缺少当前用户的 DPAPI 签名凭据。' }
+$signatureCache = ''
 $plain = $null
 $uriText = $null
 try {
@@ -26,13 +27,23 @@ try {
     if ($uri.Scheme -ne 'otpauth' -or $uri.Host -ne 'totp' -or $query['issuer'] -ne 'Certum' -or $query['algorithm'] -ne 'SHA256' -or $query['digits'] -ne '6' -or $query['period'] -ne '30') { throw '签名凭据必须是 Certum SHA256、6 位、30 秒 TOTP。' }
     $label = [Uri]::UnescapeDataString($uri.AbsolutePath.TrimStart('/'))
     if (-not $label.StartsWith('Certum:') -or -not $label.Substring(7).Contains('@') -or [string]::IsNullOrWhiteSpace($query['secret'])) { throw '签名凭据缺少账号或 seed。' }
+    if ($env:GITHUB_RUN_ID) {
+        if ($env:GITHUB_RUN_ID -notmatch '^\d+$') { throw '签名缓存需要有效的 GitHub 运行 ID。' }
+        $cacheRoot = Join-Path $env:LOCALAPPDATA 'CertumAutomation/signature-cache'
+        New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+        # 发布并发组和签名矩阵均串行；只保留本轮缓存，失败重跑沿用，下一轮回收旧文件。
+        Get-ChildItem -LiteralPath $cacheRoot -Directory |
+            Where-Object { $_.Name -match '^\d+$' -and $_.Name -ne $env:GITHUB_RUN_ID } |
+            Remove-Item -Recurse -Force
+        $signatureCache = Join-Path $cacheRoot "$env:GITHUB_RUN_ID/$($CertificateThumbprint.ToUpperInvariant())"
+    }
     $env:CERTUM_EMAIL = $label.Substring(7)
     $env:CERTUM_OTP = $query['secret']
     Remove-Item Env:CERTUM_TOKEN -ErrorAction SilentlyContinue
     # 每个版本使用新会话，等到下一个时间窗再登录，避免刚被上一版本或桌面登录消耗的验证码。
     $delay = 31 - ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() % 30)
     Start-Sleep -Seconds $delay
-    & (Join-Path $PSScriptRoot 'Sign-StagedPackage-SimplySign.ps1') -PackageRoot $PackageRoot -OutputDirectory $OutputDirectory -Edition $Edition -SsignPath $SsignPath -SignToolPath $SignToolPath -IsccPath $IsccPath -CertificateThumbprint $CertificateThumbprint
+    & (Join-Path $PSScriptRoot 'Sign-StagedPackage-SimplySign.ps1') -PackageRoot $PackageRoot -OutputDirectory $OutputDirectory -Edition $Edition -SsignPath $SsignPath -SignToolPath $SignToolPath -IsccPath $IsccPath -CertificateThumbprint $CertificateThumbprint -SignatureCacheDirectory $signatureCache
     if ($LASTEXITCODE -ne 0) { throw 'SimplySign 安装包签名失败。' }
 } catch {
     # 解密和 URI 解析异常可能包含原始凭据，CI 只输出固定错误。
