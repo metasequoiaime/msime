@@ -26,6 +26,22 @@ final class TypingKeyLanguageDocumentTests: XCTestCase {
     XCTAssertEqual(languages.keys(for: .english), ["KeyA": 5])
   }
 
+  func testHeatmapTotalSaturatesWithoutDistortingPercentages() {
+    let ids = Array(TypingKeyID.all.prefix(147))
+    XCTAssertEqual(ids.count, 147)
+    let perKey = 63_000_000_000_000_000
+    let counts = Dictionary(uniqueKeysWithValues: ids.map { ($0, perKey) })
+    let heatmap = TypingKeyHeatmap(counts: counts)
+    XCTAssertEqual(heatmap.total, Int.max)
+    XCTAssertEqual(heatmap.percent(ids[0]), 100.0 / 147, accuracy: 1e-12)
+    XCTAssertEqual(ids.reduce(0.0) { $0 + heatmap.percent($1) }, 100, accuracy: 1e-10)
+    XCTAssertEqual(heatmap.level(ids[0]), 1)
+    let ordinary = TypingKeyHeatmap(counts: ["KeyA": 3, "Space": 1, "KeyB": -1])
+    XCTAssertEqual(ordinary.total, 4)
+    XCTAssertEqual(ordinary.percent("KeyA"), 75)
+    XCTAssertEqual(TypingKeyHeatmap(counts: [:]).percent("KeyA"), 0)
+  }
+
   func testMalformedBucketDoesNotLookLikeEmptyHistory() {
     XCTAssertThrowsError(try JSONDecoder().decode(TypingStatistics.self,
       from: Data(#"{"dailyKeyLanguages":{"2026-11-10":{"english":{"KeyA":"5"}}}}"#.utf8)))

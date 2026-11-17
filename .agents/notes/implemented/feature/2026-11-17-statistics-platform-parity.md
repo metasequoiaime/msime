@@ -34,7 +34,7 @@ Windows 的皮肤成就事件从 Server 实际套用主题的路径提交，因�
 
 Android 的 `KeyPressBatch` 同时持有总数与来源计数，交给工作线程的是双层不可变快照；`countKey` 在主线程取得来源，`KeyPressRequest` 只编码聚合请求。跨午夜、256 次和 30 秒写出、隐私编辑器排除及统计开关继续沿用已有路径。Android 原生按键页通过 `StatisticsKeyLanguagePicker` 提供语言筛选，复用摘要的近 7 天窗口。`TypingKeyLanguages` 只聚合共享层已分类的每日桶，不复制分类规则；只列窗口内有记录的语言，并提供「通用键」「未分类」及完整总计「全部」。旧共享库没有新字段时仅保留「全部」，不能展示为零次输入。筛选只作用于热力图和其他键列表，已有近 7 天全部输入的 KPI 保持原口径。Windows、macOS、Linux 与 HarmonyOS 的原生筛选仍需继续实现，不能把移动端入口等同于全平台可达。
 
-iOS 的按键批次主体独立于巨型控制器和存储文件，`countKeyPress` 在主线程读取既有 `typingSource` 并立即按来源计数；后台写出只转交快照，不重新读取模式。`TypingKeyPressBatch.swift` 继续沿用日切换、256 次、30 秒及键盘收起封批，语言切换不额外落盘。Swift 嵌套字典按值交给后台队列。旧的无来源构造和计数入口统一使用 `unknown`；直接调用 `recordKeys` 仍可省略来源。键位校验、完全访问、隐私门禁和统计开关维持原有路径，没有增加 FFI 查询或改变云端上传。iOS 原生按键页通过独立 `StatisticsKeyLanguagePicker` 提供语言筛选，使用同一近七天窗口；`TypingKeyLanguages` 只聚合共享语言桶，热力图与其他键列表共用筛选快照，KPI 继续使用完整摘要。缺少新字段的旧文档只显示「全部」，窗口内无记录的语言不列，重新加载后失效的选择回到全部；未知的未来语言仍计入完整总计。
+iOS 的按键批次主体独立于巨型控制器和存储文件，`countKeyPress` 在主线程读取既有 `typingSource` 并立即按来源计数；后台写出只转交快照，不重新读取模式。`TypingKeyPressBatch.swift` 继续沿用日切换、256 次、30 秒及键盘收起封批，语言切换不额外落盘。Swift 嵌套字典按值交给后台队列。旧的无来源构造和计数入口统一使用 `unknown`；直接调用 `recordKeys` 仍可省略来源。键位校验、完全访问、隐私门禁和统计开关维持原有路径，没有增加 FFI 查询或改变云端上传。iOS 原生按键页通过独立 `StatisticsKeyLanguagePicker` 提供语言筛选，使用同一近七天窗口；`TypingKeyLanguages` 只聚合共享语言桶，热力图与其他键列表共用筛选快照，KPI 继续使用完整摘要。缺少新字段的旧文档只显示「全部」，窗口内无记录的语言不列，重新加载后失效的选择回到全部；未知的未来语言仍计入完整总计。共享单键每日计数虽有上限，147 个键的合法七天累计仍可能超过 Swift 的 `Int.max`；热力图的整数总计在该边界饱和，占比直接使用浮点总和，避免饱和分母把百分比放大。正常计数和默认值保持不变。
 
 Windows 物理键在 TSF 入口按下时捕获来源，当前引擎视图从既有响应 JSON 的解析结果提取轻量快照，不新增逐键 FFI 或 JSON 解析。快照不读取上一键的 `commit_context`；没有视图的在线查询保留当前值，销毁与失败清掉快照，下一次有效视图前记未知来源。偏好改变方案或专用英文而尚未重载时，使用配置中的新方案，不沿用旧本地模式；IME 关闭态归英文。
 
@@ -79,7 +79,7 @@ HarmonyOS 在现有 `recordKey` 中取得 `typingSource`，实体键在路由前
 
 `typing-key-sources.test.ts` 使用实际鸿蒙计数器、来源规则和请求编码，验证混合语言不封批、嵌套快照隔离、JSON 传输、跨日、256 次、关闭清空、旧调用、非法键排除和实体键持键规则。原有键位和批次测试不改前置条件；测试由现有 `tests/*.test.ts` 遍历自动执行，不新增源码 grep。
 
-`test-ios-statistics-key-languages.py` 在 macOS 主机编译实际展示模型，覆盖时间窗口、通用/未分类、旧历史、未来语言、值快照、失效选择回退及溢出。`TypingKeyLanguageDocumentTests` 用实际文档解码检查新增字段接线、旧文档和畸形数据；本地未运行需要 iOS 的 XCTest，具体执行结果以 PR 验证段为准。
+`test-ios-statistics-key-languages.py` 在 macOS 主机编译实际展示模型，覆盖时间窗口、通用/未分类、旧历史、未来语言、值快照、失效选择回退及溢出。`TypingKeyLanguageDocumentTests` 用实际文档解码检查新增字段接线、旧文档和畸形数据；主机用例还覆盖 146 键边界内总计、147 键跨界饱和、两个 `Int.max` 键各占 50%、空与非正计数，以及普通计数的占比；实际文档测试包含真实 `TypingKeyHeatmap` 的总计和占比接线。本地未运行需要 iOS 的 XCTest，具体执行结果以 PR 验证段为准。
 
 ## Consequences
 

@@ -42,6 +42,24 @@ struct TypingKeyLanguageTests {
     precondition(newer.available == [.all] && newer.keys(for: .all) == ["KeyA": 7])
     let duplicate = TypingKeyLanguages(dailyKeys: totals, dailyLanguages: groups, days: [first, first])
     precondition(duplicate.keys(for: .all) == ["KeyA": 1])
-    print("iOS 按键语言：七天窗口、旧历史、通用/未知分组、重载回退、值快照和溢出检查通过")
+    let perKey = 63_000_000_000_000_000
+    let safeCounts = Dictionary(uniqueKeysWithValues: (0..<146).map { ("synthetic-\($0)", perKey) })
+    var largeCounts = safeCounts
+    largeCounts["synthetic-146"] = perKey
+    precondition(TypingKeyLanguages.saturatedTotal(safeCounts) == 9_198_000_000_000_000_000)
+    precondition(TypingKeyLanguages.saturatedTotal(largeCounts) == Int.max)
+    let share = TypingKeyLanguages.percentage(perKey, in: largeCounts)
+    precondition(abs(share - 100.0 / 147) < 1e-12)
+    precondition(abs(share * 147 - 100) < 1e-10)
+    let twoLargeKeys = ["KeyA": Int.max, "KeyB": Int.max]
+    precondition(TypingKeyLanguages.saturatedTotal(twoLargeKeys) == Int.max)
+    precondition(TypingKeyLanguages.percentage(Int.max, in: twoLargeKeys) == 50)
+    let ordinary = ["KeyA": 3, "Space": 1, "zero": 0, "negative": Int.min]
+    precondition(TypingKeyLanguages.saturatedTotal(ordinary) == 4)
+    precondition(TypingKeyLanguages.percentage(3, in: ordinary) == 75)
+    precondition(TypingKeyLanguages.saturatedTotal([:]) == 0)
+    precondition(TypingKeyLanguages.percentage(0, in: [:]) == 0)
+    precondition(TypingKeyLanguages.saturatedTotal(["KeyA": 0, "KeyB": Int.min]) == 0)
+    print("iOS 按键语言：时间窗口、历史兼容、快照、分组回退、逐键及跨键溢出、占比检查通过")
   }
 }

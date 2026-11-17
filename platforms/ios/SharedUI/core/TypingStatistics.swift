@@ -595,7 +595,7 @@ struct TypingKeyHeatmap: Equatable {
     self.counts = counts.filter { $0.value > 0 }
   }
 
-  var total: Int { counts.values.reduce(0, +) }
+  var total: Int { TypingKeyLanguages.saturatedTotal(counts) }
   var maximum: Int { counts.values.max() ?? 0 }
   var showsNineKey: Bool { Self.nineKeyRows.joined().contains { counts[$0] != nil } }
 
@@ -609,8 +609,7 @@ struct TypingKeyHeatmap: Equatable {
 
   /// 某个键在窗口内全部按键次数中的占比，单位为百分比，分母也算上没画在任何键盘上的键；一次都没按过时为 0。
   func percent(_ id: String) -> Double {
-    let total = total
-    return total == 0 ? 0 : Double(count(id)) * 100 / Double(total)
+    TypingKeyLanguages.percentage(count(id), in: counts)
   }
 
   /// 设计稿按键位占全部按键次数的比例分出的五级热度：26 键键盘上是 ≥7%、≥4.5%、≥2% 和超过 0.5%；九键键盘上一格承载三到四个字母，所以是 ≥12%、≥9%、≥5% 和只要按过。

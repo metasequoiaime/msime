@@ -53,6 +53,19 @@ struct TypingKeyLanguages {
     return selection == .all ? total : (groups[selection.rawValue] ?? [:])
   }
 
+  /// 跨键总和可能超过 Int；整数展示饱和，不能让统计页崩溃。
+  static func saturatedTotal(_ counts: [String: Int]) -> Int {
+    counts.values.filter { $0 > 0 }.reduce(0) { total, count in
+      total > Int.max - count ? Int.max : total + count
+    }
+  }
+
+  /// 占比直接按浮点总和计算，不能用饱和后的整数做分母。
+  static func percentage(_ count: Int, in counts: [String: Int]) -> Double {
+    let total = counts.values.filter { $0 > 0 }.reduce(0.0) { $0 + Double($1) }
+    return total == 0 ? 0 : Double(max(0, count)) * 100 / total
+  }
+
   private static func merge(_ keys: [String: Int], into result: inout [String: Int]) {
     for (key, count) in keys where count > 0 {
       let old = result[key, default: 0]
