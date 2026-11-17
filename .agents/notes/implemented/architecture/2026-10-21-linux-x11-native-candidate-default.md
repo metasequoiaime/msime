@@ -17,7 +17,7 @@ macOS 候选窗的每个像素都由水杉自己画：首行有 logo、半粗体
 - **macOS 结构的内容。** 首行、行与释义、底部的本地模式与连击行、悬停与手形指针、按下与选中、选中条（没设颜色时跟随主题 accent）、顶带装饰、皮肤背景图（cover／contain／stretch，裁在圆角里）、有合成器时的卡片投影（取 classicui 主题那一层，窗口四周按投影边距放大，定位时贴光标的仍是卡片）、宽度上限与下限、横排宽度记忆、竖排翻转记忆、光标下方 4pt 的定位，都逐条对照 `renderCandidates` 与 `candidatePageGeometry`，数值取自 `shared/candidate`。滚轮翻不翻页照 classicui 落盘的 `WheelForPaging`（缺省为开），与原先 classicui 画候选窗时一样：水杉的「鼠标滚轮」开关动过就会写进这一项，从没动过就沿用桌面原有设置；只照水杉的开关会让从没碰过它的 X11 用户升级后滚轮翻页悄悄关掉，设置页「从未开启过时沿用 Fcitx5 原有设置」的说明也随之不对。动效只播清单显式写了的预设，进场和退场要合成器，桌面关掉动画（GNOME 的 `enable-animations`、KDE 的 `AnimationDurationFactor=0`）时什么都不播、帧动画停在首帧，DPMS 熄屏时不再定时唤醒。
 - **展开网格。** `expand_candidates` 打开、横排、不止一页时，↓、Tab（不看 Tab 翻页开没开，与 macOS 相同）或展开键打开网格，只有高亮所在的行画序号，序号列却每行都按「1」…「n」量（与 macOS 相同），高亮换行时文字不左右跳；一次看得见的行数取皮肤共享版式的 `expandRows`（2–8）加 1，没有时 5 行；网格里的 - = 在日语里仍是输入；状态在 `FcitxState`（`expanded_*`，与 canvas 包的卷轴共用），键盘规则是共享的 `StepExpandedGrid`，候选经 `msime_client_all_candidates` 复制、`msime_client_select_any_candidate` 选择，与 macOS 相同；复制会推进代次时先重读当前页再核对。网格只在原生画布上存在。
 - **设置页的能力位由宿主报告。** Fcitx5 在 X11 会话里画 macOS 结构时，`candidate-panel.json` 带 `"renderer":"native_canvas"`；client-core 的 `linux_native_canvas_renderer` 读它，Tauri 外壳据此调用 `HostCapabilities::apply_linux_native_canvas`，给出展开候选、拼音字号和选中外观三项。原生画布画编号色、强调色和固定候选的颜色，所以选中外观打开时，编号和强调色取色器下面不再写「此项仅对 IBus 生效」。按平台给的能力位不变：IBus 和 Wayland 用户看不到画不出来的开关。
-- **classicui 和 IBus 也向 macOS 靠一步。** 页码统一写成「1 / 3」（`candidate_page_indicator`）；classicui 画 canvas 面板时，整个落在角切片里的自由挂件画进面板图，Wayland 上也看得到。
+- **classicui 和 IBus 也向 macOS 靠一步。** 页码统一写成「1 / 3」（`candidate_page_indicator`），在两个宿主的辅助文本中排在拼音、本地模式、光标后编辑提示和连击之后；隐藏页码时不留下分隔符。classicui 横排仍把整段辅助文本放在候选行开头，本决定只约束这段文本内部的顺序；classicui 画 canvas 面板时，整个落在角切片里的自由挂件画进面板图，Wayland 上也看得到。
 
 ## Alternatives considered
 
@@ -46,3 +46,4 @@ macOS 候选窗的每个像素都由水杉自己画：首行有 logo、半粗体
 - 真实窗口：Fcitx5 验收镜像（Xvfb、独立 D-Bus、真实 GTK 编辑器、sway）里跑 `fcitx5-container.sh` 的全部用例加上 `page-number-visibility` 与六项帧动画，42 项中 40 项通过；`fcitx5-native-chrome-{horizontal,vertical}` 用 `system` 主题检查原生窗口出现、首行翻页、悬停、展开网格和点选，以及非 canvas 皮肤包的顶带装饰；Wayland 的六项 canvas 用例照旧通过。没过的 `fcitx5-native-context` 和 `fcitx5-native-ai` 都停在「Disabled expression mode must pass through」，同一镜像里别的分支也是这样，与本篇无关。IBus 的 `ibus-engine-smoke` 通过了「1 / 」页码的检查，停在之后一条同样早已存在的智能标点检查上。
 - 验收里修了两处与本篇相关的老问题：`fcitx5-container.sh` 按前缀嵌套的 ctest 正则超出 CMake 正则 10 组括号的上限，一个用例也不跑，改成逐个列出用例名；canvas 翻页验收的两轮行高相同，等待在热更新生效前就会通过，横排改为等翻页分隔线出现或消失再取按钮位置（修之前在构建机负载高时偶发点错位置，修之后连跑六轮通过）。
 - 客户端自己画候选面板（`ClientSideInputPanel`）时原生画布让给客户端：`fcitx5-page-number-visibility` 用这种上下文验收，原生画布接管时客户端收不到候选。
+- 页码行为验收同时检查拼音在前、页码在最后，以及隐藏、翻页、选词和重新启用。Fcitx5 的选词提交计数以按空格前的数量为基准；前面已有普通提交与切换输入法提交原文，不能再把总次数写死为 2，否则会误报或在实际提交前通过等待。该用例接入完整容器与资源宿主两份清单，并核对 JUnit 报告里实际执行且未跳过。2026-11-17 在 pve9 的 Ubuntu 虚拟机上，原断言复现超时，修正后 Fcitx5 页码用例通过；同源 IBus 页码用例也通过。
