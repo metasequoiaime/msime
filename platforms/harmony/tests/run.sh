@@ -960,6 +960,8 @@ node "$here/ai-candidate-response-adapter.test.cjs"
 node "$here/cloud-clipboard-receive-adapter.test.cjs"
 node "$here/nine-key-flick-panel-adapter.test.cjs"
 node "$here/shuangpin-separator-adapter.test.cjs"
+node "$here/letter-width-panel-adapter.test.cjs"
+node "$here/letter-width-row-adapter.test.cjs"
 bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"
