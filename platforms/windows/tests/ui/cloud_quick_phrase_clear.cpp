@@ -15,16 +15,17 @@ constexpr const char *token = "a3be8604-3229-48e1-a1de-7316dc70cb43";
 void expect(bool condition, const char *message) {
   if (!condition) { ++failures; std::fprintf(stderr, "%s\n", message); }
 }
+BOOL CALLBACK find_dialog(HWND window, LPARAM data) {
+  DWORD process = 0; GetWindowThreadProcessId(window, &process);
+  wchar_t title[64]{}; GetWindowTextW(window, title, 64);
+  if (process == GetCurrentProcessId() && std::wstring(title) == L"清空云端快捷短语") {
+    *reinterpret_cast<HWND *>(data) = window; return FALSE;
+  }
+  return TRUE;
+}
 HWND dialog() {
   HWND result = nullptr;
-  EnumWindows(+[](HWND window, LPARAM data) -> BOOL {
-    DWORD process = 0; GetWindowThreadProcessId(window, &process);
-    wchar_t title[64]{}; GetWindowTextW(window, title, 64);
-    if (process == GetCurrentProcessId() && std::wstring(title) == L"清空云端快捷短语") {
-      *reinterpret_cast<HWND *>(data) = window; return FALSE;
-    }
-    return TRUE;
-  }, reinterpret_cast<LPARAM>(&result));
+  EnumWindows(find_dialog, reinterpret_cast<LPARAM>(&result));
   return result;
 }
 std::wstring status(HWND window) {

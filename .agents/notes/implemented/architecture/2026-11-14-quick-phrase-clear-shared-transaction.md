@@ -43,3 +43,5 @@ Windows 现代 WinUI、Win7、macOS 与 Linux 的原生入口使用 `quick_clear
 - Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；CI 首次执行发现新增断言只期待最后一条为清空请求，实际成功路径随后会刷新列表。断言改为核对清空、当前快捷短语第一页刷新这两条请求的顺序，保留取消不发请求、实际删除条数和列表内容断言；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。
 
 真实 C ABI 明确拒绝文本版 `snapshot_export`、`snapshot_restore_preview` 和 `snapshot_restore`。macOS 云端清空不调用这些入口；Swift 替身按同样规则拒绝文本快照，回归覆盖实际令牌传递、空列表不提交和冲突不重试，避免替身支持产品不支持的操作。
+
+完整 quick 首轮在 i686 的新增 UI 测试编译失败：普通无捕获 lambda 不能转换成 32 位 Win32 的 `WNDENUMPROC`。改为显式 `BOOL CALLBACK` 枚举回调，保持生产窗口与五个场景不变；`target/windows-pipe-cross-i686` 的 `windows-cloud-quick-phrase-clear` 重新编译和链接通过。首轮其余阶段成功不记作整轮 quick 成功，最终仍运行完整门禁。
