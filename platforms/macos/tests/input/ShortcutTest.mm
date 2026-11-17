@@ -7640,6 +7640,30 @@ static void TestInputModeStatusItem() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 模式字形图标开关（#11521）：默认保留品牌图标，原生设置窗口与共享文档使用同一布尔值。
+static void TestInputModeGlyphIconsPreference() {
+    NSString *suite = [@"msime.mode-glyph-icons." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.inputModeGlyphIcons);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"input_mode_glyph_icons"] isEqual:@NO]);
+    NSButton *toggle = (id)PreferenceControl(prefs, NSSelectorFromString(@"inputModeGlyphIconsChanged:"));
+    assert(toggle.state == NSControlStateValueOff);
+    toggle.state = NSControlStateValueOn;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(prefs.inputModeGlyphIcons);
+    [prefs applySharedCandidatePreferences:@{@"input_mode_glyph_icons": @YES}];
+    assert(prefs.inputModeGlyphIcons);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"input_mode_glyph_icons"] isEqual:@YES]);
+    // 非布尔值不能覆盖当前设置，避免损坏的共享字段误开功能。
+    [prefs applySharedCandidatePreferences:@{@"input_mode_glyph_icons": @"true"}];
+    assert(prefs.inputModeGlyphIcons);
+    [prefs setInputModeGlyphIcons:NO];
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!reopened.inputModeGlyphIcons);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 单按 Caps Lock 切换中英文。合成的时钟、按键状态和撤回大写锁定：单测不能动跑测试那台机器的真实大写锁定。
 static std::int64_t gCapsNow = 0;
 static bool gCapsHeld = false;
@@ -17598,6 +17622,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
+        @autoreleasepool { TestInputModeGlyphIconsPreference(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey(); }
         // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。
