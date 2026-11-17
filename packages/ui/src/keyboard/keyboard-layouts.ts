@@ -1,7 +1,7 @@
 import type { TouchKeyboardScheme } from "../settings/touch-keyboard-scheme-helpers";
 
 /**
- * A key drawn in a keyboard preview. `code` is the W3C `KeyboardEvent.code` (or soft-keyboard id) the statistics store counts the key under; it is absent on spacers and on keys the store has no id for. `rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车），下一行在它下面留一个没有 `label` 的占位。`stack` 是一格里自上而下等高排的几个键：九键左列换成用户的符号表时整列是跨网格各行的一格，里面是表里的前几项（`label` 是它们用空格连起来的写法）。
+ * 键盘预览中的键。`code` 是统计使用的 W3C `KeyboardEvent.code` 或软键盘 id，占位格和没有统计 id 的键省略它。`rowSpan` 为 2 的键从所在行往下多占一行（九键「右侧大回车」的回车），下一行在它下面留一个没有 `label` 的占位。`stack` 是一格里自上而下等高排的几个键：九键左列换成用户的符号表时整列是跨网格各行的一格，里面是表里的前几项（`label` 是它们用空格连起来的写法）。`letterPitch` 表示整排按含键距的份额分配，实际键帽再扣一道键距；用于宽窄字母排，避免占位格额外压缩短排。
  */
 export type PreviewKey = {
   label: string;
@@ -9,6 +9,7 @@ export type PreviewKey = {
   code?: string;
   rowSpan?: number;
   stack?: readonly string[];
+  letterPitch?: boolean;
 };
 
 const key = (label: string, weight = 1, code?: string): PreviewKey =>
