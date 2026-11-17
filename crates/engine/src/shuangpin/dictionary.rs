@@ -54,7 +54,10 @@ use crate::types::{
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+mod mixed_initials;
 mod short_words;
+
+use mixed_initials::has_mixed_initials;
 
 // 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
 const SMALL_PREFIX_DEDUP: usize = 64;
@@ -493,7 +496,8 @@ impl ShuangpinDictionary {
             self.profile,
         ));
         let incomplete_tail = segments.split_last().is_some_and(|(last, leading)| {
-            !is_intact(last) && has_only_complete_pinyin_segments(leading)
+            !is_intact(last)
+                && (has_only_complete_pinyin_segments(leading) || has_mixed_initials(leading))
         });
         let mut candidates = self.generate(pure, segmentation, rows_key);
         // Every shorter prefix group follows, longest first; phrase creation picks from them (SD:215-231). The reference appended each group whole, so a word several groups answer (a manual delimiter leaves empty pieces, and ni'''nn'i holds the ni group three times) was listed once per group; a word already listed keeps its first, longest-prefix seat instead.
@@ -547,11 +551,7 @@ impl ShuangpinDictionary {
             segmentation,
             self.profile,
         ));
-        if !has_only_complete_pinyin_segments(&segments)
-            && !segments.split_last().is_some_and(|(last, leading)| {
-                !is_intact(last) && has_only_complete_pinyin_segments(leading)
-            })
-        {
+        if !has_only_complete_pinyin_segments(&segments) && !has_mixed_initials(&segments) {
             return Vec::new();
         }
         let mut options = self.sentence_tables.options(self.sentence_alternatives);
@@ -570,7 +570,7 @@ impl ShuangpinDictionary {
         let mut lookup = |span: &[String]| {
             // 先按辅助码过滤再做搜索，不能用普通查询的每段截断提前丢掉目标字。
             self.database
-                .query_lattice_span_with_trailing_initial(span, UNLIMITED_ROWS)
+                .query_lattice_span_with_mixed_initials(span, UNLIMITED_ROWS)
         };
         let mut paths = decode_constrained_sentences(&segments, &mut lookup, &options, accepts);
         if options.emit > 0 {
@@ -632,12 +632,9 @@ impl ShuangpinDictionary {
         options.personal = (!model.is_empty()).then_some(&*model);
         let database = &self.database;
         let span_limit = options.span_limit;
-        if segments.split_last().is_some_and(|(last, leading)| {
-            !is_intact(last) && has_only_complete_pinyin_segments(leading)
-        }) {
-            let mut lookup = |span: &[String]| {
-                database.query_lattice_span_with_trailing_initial(span, span_limit)
-            };
+        if has_mixed_initials(segments) {
+            let mut lookup =
+                |span: &[String]| database.query_lattice_span_with_mixed_initials(span, span_limit);
             let paths = decode_sentences(segments, &mut lookup, &options);
             merge_decoded(
                 candidates,

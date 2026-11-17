@@ -5,6 +5,7 @@ mod bilingual_glide_quality;
 mod fuzzy_heaviest;
 mod invalid_pinyin;
 mod sentence_excluded;
+mod shuangpin_mixed_initials;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
