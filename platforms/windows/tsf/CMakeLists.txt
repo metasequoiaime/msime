@@ -99,6 +99,9 @@ else()
   target_compile_options(msime-tsf-host-delay-path-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endif()
 add_test(NAME msime-tsf-host-delay-path COMMAND msime-tsf-host-delay-path-test)
+if(MSVC)
+  add_subdirectory(tests/host_delay_load)
+endif()
 add_test(NAME msime-tsf-host-library-config COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
   "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/host-library-config-test"
@@ -430,6 +433,7 @@ add_library(msime-tsf SHARED
   IME/MetasequoiaIME.rc
   IME/MetasequoiaIME.def
   TsfHostDelayLoad.cpp
+  TsfHostImports.cpp
 )
 add_dependencies(msime-tsf msime-tsf-crash-wer)
 add_dependencies(msime-tsf-class-factory-test msime-tsf)

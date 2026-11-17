@@ -33,6 +33,7 @@
 #include "../Utils/PerfTimer.h"
 #include "../HostConfiguration.h"
 #include "../ModulePath.h"
+#include "../TsfHostImports.h"
 // The TSF sources use the Windows SDK max macro under MSVC; the Engine contract calls std::numeric_limits<...>::max(), which that macro would rewrite.
 #pragma push_macro("max")
 #undef max
@@ -1528,6 +1529,9 @@ STDAPI_(ULONG) CMetasequoiaIME::Release()
 
 STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClientId, DWORD dwFlags)
 {
+    const HRESULT hostImports = msime::tsf::LoadHostImports();
+    if (FAILED(hostImports)) return hostImports;
+
     try {
         _crashCapture = std::make_unique<msime::tsf::TsfCrashCapture>();
     } catch (...) {
