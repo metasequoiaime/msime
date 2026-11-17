@@ -954,6 +954,7 @@ for source in "$here"/*.test.ts; do
 done
 # 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
 node "$here/telemetry-adapter.test.cjs"
+node "$here/shared-dictionary-resources-adapter.test.cjs"
 node "$here/ai-candidate-response-adapter.test.cjs"
 node "$here/cloud-clipboard-receive-adapter.test.cjs"
 bash "$here/check-native-capture.sh"

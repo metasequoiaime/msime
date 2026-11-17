@@ -376,6 +376,8 @@ export const resourcePackInstall: (
   request: string,
   progress?: (document: string) => void,
 ) => Promise<string>;
+/** 在工作线程按锁校验旧文件并改名收编，不复制资源。 */
+export const resourcePackAdopt: (request: string) => Promise<string>;
 export const resourcePackCancel: (pack: string) => void;
 export const resourcePackRemove: (request: string) => string;
 
