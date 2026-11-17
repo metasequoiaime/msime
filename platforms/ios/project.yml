@@ -437,6 +437,7 @@ targets:
       - path: App/Sources/keyboard/KeyboardChatModel.swift
       - path: App/Sources/keyboard/IOSCloudClipboard.swift
       - path: App/Sources/dictionary/IOSCloudDictionary.swift
+      - path: App/Sources/dictionary/IOSAccountLearningReset.swift
       - path: App/Sources/settings/TypingUpload.swift
       - path: App/Sources/account/QQLinksService.swift
       - path: App/Sources/account/CloudSync.swift
