@@ -164,6 +164,17 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.reservedGlossRows(1, true) == 1
                 && CandidateTranslationPolicy.reservedGlossRows(2, true) == 2,
             "the 훈음 shares the first gloss row, so Korean reserves no more rows than any other scheme");
+        // 没开释义时，辅助码、五笔编码这类提示出现在这一页才多留一行；没有提示保持紧凑，开着释义时提示落在已留的行里。
+        check(CandidateTranslationPolicy.reservedRows(0, 0) == 0,
+            "no gloss and no hint keeps the compact strip");
+        check(CandidateTranslationPolicy.reservedRows(0, 1) == 1,
+            "a helpcode or wubi code hint on the page reserves its row with glosses off");
+        check(CandidateTranslationPolicy.reservedRows(2, 1) == 2,
+            "a hint shares the gloss rows already reserved");
+        check(CandidateTranslationPolicy.reservedRows(1, 2) == 2,
+            "a two-row hint takes the larger of the two");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("(ZG)") - 1 == 1,
+            "a single-line hint is one row under the candidate");
         // 水杉账号会收到候选词，只有明确选了它才走；用户自己的服务（含凭据可用的腾讯）总是优先。
         check(!account(true, false, false, false, false),
             "candidate translations alone never select the account");
