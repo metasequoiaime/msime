@@ -94,6 +94,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             await(described(PANEL));
             await(inPanel(described("候选面板 重输")));
             await(inPanel(described("只显示单字")));
+            NineKeyPanelActionColumnChecks.check(this, this::inPanel);
 
             stage = "lock ning inside the panel";
             tap(inPanel(described("选择拼音 ning")));
@@ -118,16 +119,19 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
 
             stage = "single-character filter";
             tap(inPanel(described("只显示单字")));
-            await(inPanel(described("显示全部候选")).and(AccessibilityNodeInfo::isSelected));
+            // 单字是开关：开着时高亮，键面仍是「单字」，不换成「全部」。
+            NineKeyPanelActionColumnChecks.toggle(this, this::inPanel, "显示全部候选", "单字", true);
             AccessibilityNodeInfo first = await(inPanel(describedPrefix("候选 1：")));
             String text = first.getText() == null ? "" : first.getText().toString().split("\n")[0];
             if (text.codePointCount(0, text.length()) != 1)
                 throw new AssertionError("Single-character filter left a longer candidate");
             tap(inPanel(described("显示全部候选")));
-            await(inPanel(described("只显示单字")));
+            NineKeyPanelActionColumnChecks.toggle(this, this::inPanel, "只显示单字", "单字", false);
 
             stage = "stroke column toggle";
             tap(inPanel(described("切换到笔画筛选")));
+            // 笔画同样是开关：开着时高亮，键面仍是「笔画」，不换成「拼音」。
+            NineKeyPanelActionColumnChecks.toggle(this, this::inPanel, "切换到拼音", "笔画", true);
             await(inPanel(described("笔画筛选 横")));
             await(inPanel(described("未选笔画")));
             tap(inPanel(described("切换到拼音")));
