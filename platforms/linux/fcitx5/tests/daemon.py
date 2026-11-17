@@ -253,7 +253,7 @@ def main():
 
                     # Missing keys retain the old page indicator, independently of reading text.
                     assert aux(compose(None)).startswith("1 / "), "Legacy page indicator missing"
-                    # The reading leads and the page indicator trails it, as on macOS's first row.
+                    # 拼音在前、页码在后，与 macOS 首行的顺序一致。
                     trailing = aux(compose(True, "pinyin"))
                     indicator = trailing.rfind(" · 1 / ")
                     assert 0 <= trailing.find("ni") < indicator and "/" not in trailing[indicator + len(" · 1 / "):], \
@@ -265,8 +265,9 @@ def main():
                     assert aux(panels[-1]) == "", "Paging restored the hidden indicator"
                     assert context.ProcessKeyEvent(ord("["), 0, 0, False, 0)
                     wait(lambda: panels[-1][4] == first[4])
+                    commits_before_selection = len(commits)
                     assert context.ProcessKeyEvent(32, 0, 0, False, 0)
-                    wait(lambda: len(commits) == 2)
+                    wait(lambda: len(commits) == commits_before_selection + 1)
                     assert commits[-1] == "你好", "Hidden indicator broke candidate selection"
                     assert aux(compose(True)).startswith("1 / "), "Re-enabled page indicator missing"
                     reading = aux(compose(False, "pinyin"))

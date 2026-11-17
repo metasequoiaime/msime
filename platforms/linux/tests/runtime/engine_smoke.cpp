@@ -1522,7 +1522,7 @@ int main(int argc, char **argv) {
       visibility["preferences"]["show_candidate_page_number"] = true;
       compose();
       require(seen.auxiliary.rfind("1 / ", 0) == 0, "Re-enabled page indicator missing");
-      // GNOME Shell draws the auxiliary line as one left-aligned label: the reading leads and the page indicator trails it, as on macOS's first row.
+      // GNOME Shell 把辅助行画成一个左对齐标签；拼音在前、页码在后，与 macOS 首行的顺序一致。
       visibility["preferences"]["candidate_preedit_style"] = "pinyin";
       compose();
       {
