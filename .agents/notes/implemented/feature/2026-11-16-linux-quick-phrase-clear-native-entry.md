@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-Linux 在 GTK 4.8 原生设置窗口中提供独立的「清空快捷短语」入口。IBus 和 Fcitx5 的桌面菜单都通过继承的运行配置路径启动同一个 `msime-linux-<edition>-quick-phrase-clear` 程序；窗口只负责确认、调用 `msime_client_settings_dictionary` 的 `clear_quick_phrases` 操作和显示实际清除条数，事务、维护租约、CAS 无关的本机词库语义继续由共享 Engine/host-api 负责。没有 GTK 4.8 时不编译该窗口，也不在菜单中暴露不可用入口。
+Linux 在 GTK 4.8 原生设置窗口中提供独立的「清空快捷短语」入口。IBus 和 Fcitx5 的桌面菜单都通过继承的运行配置路径启动同一个 `msime-linux-<edition>-quick-phrase-clear` 程序；窗口只负责确认、调用 `msime_client_settings_dictionary` 的 `clear_quick_phrases` 操作和显示实际清除条数，事务、维护租约、CAS 无关的本机词库语义继续由共享 Engine/host-api 负责。同一窗口另提供独立的「清空云端快捷短语」按钮，通过共享 Rust 的 `quick_clear_preview` 取得条数，在 GTK 确认后以一次性令牌提交；账号目录沿用运行配置的 `preferences_directory`，与 Linux 设置应用的会话存储一致。无条目或取消不写云端，登录变化、确认期间并发更新和 CAS 冲突由共享层拒绝。关闭窗口会等请求结束并丢弃预览，不退出到后台继续清空。没有 GTK 4.8 时不编译该窗口，也不在菜单中暴露不可用入口。
 
 入口作为独立菜单动作接入，保留现有 Linux 词库页面的其他管理能力，不把整个共享词库页面临时重写成 GTK 窗口。运行配置路径只从宿主继承的 `MSIME_CLIENT_HOST_OPTIONS` / `MSIME_FCITX5_OPTIONS` 读取，不能从窗口参数接受任意目录；命令行参数仅用于宿主传入的绝对路径。
 

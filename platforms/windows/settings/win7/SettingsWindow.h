@@ -116,6 +116,7 @@ enum ControlId {
   dictionary_groups_open,
   dictionary_updates_enabled = 2250, dictionary_updates_version, dictionary_updates_refresh,
   dictionary_updates_check, dictionary_updates_rollback, dictionary_updates_notice,
+  dictionary_clear_cloud_quick_phrases,
 };
 
 class SettingsWindow {

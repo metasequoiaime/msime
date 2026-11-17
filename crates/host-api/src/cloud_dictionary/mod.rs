@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod full_backup;
+mod quick_clear;
 pub mod quick_phrase;
 pub mod snapshot_files;
 
@@ -15,6 +16,11 @@ use serde::Deserialize;
 pub enum CloudDictionaryRequest {
     SnapshotPreview,
     SnapshotExport,
+    QuickClearPreview,
+    QuickClearApply {
+        token: String,
+    },
+    QuickClearCancel,
     SnapshotClearQuickPhrases {
         text: String,
     },
@@ -177,6 +183,8 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
     };
     match request {
         CloudDictionaryRequest::SnapshotPreview
+        | CloudDictionaryRequest::QuickClearPreview
+        | CloudDictionaryRequest::QuickClearCancel
         | CloudDictionaryRequest::SnapshotExport
         | CloudDictionaryRequest::SnapshotStatus
         | CloudDictionaryRequest::SnapshotRestoreCancel
@@ -207,7 +215,8 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
                 Err("invalid cloud dictionary request")
             }
         }
-        CloudDictionaryRequest::SnapshotRestoreNative { token } => {
+        CloudDictionaryRequest::SnapshotRestoreNative { token }
+        | CloudDictionaryRequest::QuickClearApply { token } => {
             if valid_token(token) {
                 Ok(())
             } else {

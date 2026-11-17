@@ -23,7 +23,7 @@ Status: implemented
 - 两端均有确认提示，取消不会发起写操作。
 - 本机回滚仍受宿主存储故障影响，若回滚本身失败，用户需要刷新列表核对；云端完整快照大小受现有快照上限约束，导出或预览失败时不进行替换。
 
-本机逐条删除与回滚的实现后来由[共享事务实现](../architecture/2026-11-14-quick-phrase-clear-shared-transaction.md)取代；云端快照筛选已由同一笔记记录的 `snapshot_clear_quick_phrases` host-api 操作承载，本篇保留云端清空的边界和并发决定。Linux 本机入口已由独立 GTK 窗口接入，macOS 原生云词库窗口也已接入导出、筛选、确认后的版本校验和 CAS 恢复；Windows 与 Linux 的共享云词库面板仍等待原生迁移，暂不新增共享 React 按钮。
+本机逐条删除与回滚的实现后来由[共享事务实现](../architecture/2026-11-14-quick-phrase-clear-shared-transaction.md)取代；云端快照筛选已由同一笔记记录的 `snapshot_clear_quick_phrases` host-api 操作承载，本篇保留云端清空的边界和并发决定。Linux 本机入口已由独立 GTK 窗口接入，macOS 原生云词库窗口也已接入导出、筛选、确认后的版本校验和 CAS 恢复；Windows（WinUI 与 Win7）的词库页和 Linux 独立 GTK 窗口已接入原生云端清空入口；完整词库面板继续按既有迁移计划处理，本任务没有新增 React 按钮。
 
 ## Verification
 

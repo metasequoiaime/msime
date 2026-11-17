@@ -287,6 +287,28 @@ mod tests {
     }
 
     #[test]
+    fn quick_phrase_filter_uses_the_snapshot_dispatcher() {
+        use sha2::{Digest, Sha256};
+        let directory = tempfile::tempdir().unwrap();
+        let body = "{\"type\":\"header\",\"format\":\"msime-dictionary-snapshot\",\"version\":1,\"revision\":7}\n";
+        let text = format!(
+            "{body}{}\n",
+            json!({"type": "footer", "records": 1, "sha256": hex::encode(Sha256::digest(body.as_bytes()))})
+        );
+        let request = CloudDictionaryRequest::SnapshotClearQuickPhrases { text: text.clone() };
+        assert!(!dictionary_account::handled_by_account(&request));
+        let result = call(json!({
+            "directory": directory.path().join("account"),
+            "snapshot_directory": directory.path().join("snapshots"),
+            "action": {"operation": "snapshot_clear_quick_phrases", "text": text},
+        }));
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(result["value"]["entries"], 0);
+        assert_eq!(result["value"]["revision"], 7);
+        assert_eq!(result["value"]["text"], text);
+    }
+
+    #[test]
     fn whole_snapshot_text_does_not_cross_the_c_boundary() {
         let directory = tempfile::tempdir().unwrap();
         let account = directory.path().join("account");

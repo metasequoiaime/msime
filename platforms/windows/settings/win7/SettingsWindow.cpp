@@ -17,6 +17,7 @@
 #include "TranslationForm.h"
 #include "../LocalTranslationWindow.h"
 #include "../DictionaryCollectionsWindow.h"
+#include "../CloudQuickPhraseClearWindow.h"
 #include "CandidateAppearanceForm.h"
 #include "AiForm.h"
 #include "AccountForm.h"
@@ -2810,6 +2811,10 @@ struct SettingsWindow::State {
     }
     auto dictionary_change = dictionary_form.command(command);
     if (dictionary_change.handled) {
+      if (dictionary_change.cloud_quick_clear) {
+        msime::settings::show_cloud_quick_phrase_clear(window, account_request({{"operation", "status"}}).dump());
+        return;
+      }
       if (dictionary_change.groups) {
         const auto options = runtime_options();
         if (options.is_object()) msime::settings::show_dictionary_collections(window, options.dump());

@@ -27,6 +27,7 @@ public:
     std::optional<std::string> route;
     // 「词库分组…」在设置窗口内打开分组对话框（settings/DictionaryCollectionsWindow.cpp），不经面板进程，所以不能走 route。
     bool groups = false;
+    bool cloud_quick_clear = false;
   };
   int create(const std::function<HWND(const wchar_t*, const wchar_t*, DWORD, int, int, int)>& row) {
     int top = 0;
@@ -70,6 +71,7 @@ public:
     add(dictionary_save, L"BUTTON", L"保存词条", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_delete, L"BUTTON", L"删除所选词条…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_clear_quick_phrases, L"BUTTON", L"清空快捷短语…", WS_TABSTOP | BS_PUSHBUTTON, 32);
+    add(dictionary_clear_cloud_quick_phrases, L"BUTTON", L"清空云端快捷短语…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(-1, L"STATIC", L"导入格式（导出仅支持前两种 TSV 格式）", SS_LEFT, 42);
     add(dictionary_format, WC_COMBOBOXW, L"文件格式", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, 240);
     formats();
@@ -102,6 +104,7 @@ public:
     if (id == dictionary_format && notification == CBN_SELCHANGE) { update(); return result; }
     if (id == dictionary_entries && notification == LBN_SELCHANGE) { selected_entry(); update(); return result; }
     if (notification != BN_CLICKED) return result;
+    if (id == dictionary_clear_cloud_quick_phrases) { result.cloud_quick_clear = true; return result; }
     if (id == dictionary_groups_open) { result.groups = true; return result; }
     if (id == dictionary_sync_open) { result.route = "dictionary-sync"; return result; }
     if (id == dictionary_search || id == dictionary_user_only) { offset_ = 0; result.request = list_request(); }
@@ -266,6 +269,7 @@ private:
     EnableWindow(get(dictionary_save), editable && (ready_ || !previous_));
     EnableWindow(get(dictionary_delete), editable && ready_ && previous_.has_value());
     EnableWindow(get(dictionary_clear_quick_phrases), editable && kind() == "quick_phrase");
+    EnableWindow(get(dictionary_clear_cloud_quick_phrases), enabled_ && !resource() && kind() == "quick_phrase");
     EnableWindow(get(dictionary_export), editable && (format() == "standard" || format() == "windows"));
     EnableWindow(get(dictionary_previous), enabled_ && ready_ && offset_ > 0);
     EnableWindow(get(dictionary_next), enabled_ && ready_ && has_more_ && offset_ <= 1000000 - page_size);
