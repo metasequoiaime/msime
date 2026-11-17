@@ -49,7 +49,7 @@ try {
     }
     $form.Show()
     $area = [Windows.Forms.Screen]::FromHandle($form.Handle).WorkingArea
-    if (-not [SettingsWindowProbe]::SetWindowPos($form.Handle, [IntPtr]::Zero, $area.Right - 120, $area.Bottom - 120, 0, 0, 0x0015)) { throw 'Fixture move failed' }
+    if (-not [SettingsWindowProbe]::SetWindowPos($form.Handle, [IntPtr]::Zero, $area.Right - 580, $area.Bottom - 400, 0, 0, 0x0015)) { throw 'Fixture move failed' }
     [Windows.Forms.Application]::DoEvents()
     $element = [Windows.Automation.AutomationElement]::FromHandle($form.Handle)
     $before = $element.Current.BoundingRectangle
