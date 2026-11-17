@@ -378,7 +378,11 @@ private final class CloudPreferences: @unchecked Sendable {
   }
   /// 云词库窗口经 Rust（#8201 迁移计划 4c）：列表、增删改、导入和导出发出的 action，以及导出由 Rust 直接写进用户选的位置。
   @MainActor static func rustDictionaryModel() async throws {
-    final class Cloud: @unchecked Sendable { var entries: [[String: Any]] = [] }
+    final class Cloud: @unchecked Sendable {
+      var entries: [[String: Any]] = []
+      var clearEntries = 2
+      var clearConflict = false
+    }
     let cloud = Cloud()
     let entryID = String(repeating: "d", count: 64)
     FakeRust.answer { call in
@@ -407,14 +411,16 @@ private final class CloudPreferences: @unchecked Sendable {
         guard let path = action["path"] as? String else { return FakeRust.failure("invalid_cloud_dictionary") }
         try? Data("合成\tci\t100\n".utf8).write(to: URL(fileURLWithPath: path))
         return FakeRust.ok(["path": path, "filename": "dictionary-pinyin.tsv", "bytes": 14])
-      case "snapshot_export":
-        return FakeRust.ok(["text": "synthetic-snapshot"])
-      case "snapshot_clear_quick_phrases":
-        return FakeRust.ok(["text": "synthetic-filtered-snapshot", "entries": 2, "revision": 7])
-      case "snapshot_restore_preview":
-        return FakeRust.ok(["snapshot": ["sha256": String(repeating: "a", count: 64)], "expectedRevision": 7])
-      case "snapshot_restore":
-        return FakeRust.ok(["revision": 8, "reset": false])
+      // 与真实 C ABI 一样拒绝文本快照，不能靠替身掩盖产品入口不可用。
+      case "snapshot_export", "snapshot_restore_preview", "snapshot_restore":
+        return FakeRust.failure("snapshot_unavailable")
+      case "quick_clear_preview":
+        return FakeRust.ok(["token": "synthetic-quick-clear", "entries": cloud.clearEntries, "revision": 7])
+      case "quick_clear_apply":
+        guard action["token"] as? String == "synthetic-quick-clear" else { return FakeRust.failure("snapshot_invalid") }
+        if cloud.clearConflict { return FakeRust.failure("account_conflict") }
+        return FakeRust.ok(["cleared": cloud.clearEntries, "revision": 8])
+      case "quick_clear_cancel": return FakeRust.ok(NSNull())
       default: return FakeRust.failure("invalid_cloud_dictionary")
       }
     }
@@ -453,8 +459,22 @@ private final class CloudPreferences: @unchecked Sendable {
     model.clearQuickPhrases(); try await finished(model)
     let clearOperations = FakeRust.calls.compactMap(\.operation).filter { $0 != "status" }
     try require(model.message == "已清空 2 条云端快捷短语。"
-                && clearOperations.suffix(5).elementsEqual(["snapshot_export", "snapshot_clear_quick_phrases", "snapshot_restore_preview", "snapshot_restore", "list"])
-                && FakeRust.calls("snapshot_restore").last?.action["revision"] as? Int == 7)
+                && clearOperations.suffix(4).elementsEqual(["quick_clear_preview", "quick_clear_apply", "list", "quick_clear_cancel"])
+                && FakeRust.calls("snapshot_export").isEmpty && FakeRust.calls("snapshot_restore").isEmpty)
+    // 空列表不提交，版本冲突不自动重试，非快捷短语类型没有云端清空动作。
+    cloud.clearEntries = 0
+    let appliedBeforeEmpty = FakeRust.calls("quick_clear_apply").count
+    model.clearQuickPhrases(); try await finished(model)
+    try require(model.message == "当前没有可清空的云端快捷短语。" && FakeRust.calls("quick_clear_apply").count == appliedBeforeEmpty)
+    cloud.clearEntries = 2; cloud.clearConflict = true
+    model.clearQuickPhrases(); try await finished(model)
+    try require(model.page == nil && model.message == "云端内容已被其他设备更新，请刷新后重新确认。"
+                && FakeRust.calls("quick_clear_apply").count == appliedBeforeEmpty + 1
+                && FakeRust.calls.compactMap(\.operation).last == "quick_clear_cancel")
+    model.kind = .pinyin
+    let previewedBeforePinyin = FakeRust.calls("quick_clear_preview").count
+    model.clearQuickPhrases()
+    try require(!model.busy && FakeRust.calls("quick_clear_preview").count == previewedBeforePinyin)
     // 打开窗口时的账号已经不是登录的那个：不发云词库请求。
     let wrongAccount = MacDictionaryModel(accountID: "previous-account", rust: FakeRust.account)
     let before = FakeRust.calls.filter { $0.entry == "cloud_dictionary" }.count

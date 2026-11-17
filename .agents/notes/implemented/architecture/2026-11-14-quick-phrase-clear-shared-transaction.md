@@ -14,7 +14,7 @@ Status: implemented
 
 云端清空的快照筛选也下沉到 host-api 的 `snapshot_clear_quick_phrases` 操作。它校验完整快照后，只移除 `quick` 的 `entry`、`overlay`、`position` 和 `selection` 记录，重算正文摘要并返回原 revision 与实际用户词条数；没有用户快捷短语时原文按字节返回。桌面原生设置仍需在确认后使用既有 CAS 恢复接口提交，筛选操作本身不改变云端内容。
 
-Windows 现代 WinUI、Win7 与 Linux 的新增原生入口使用 `quick_clear_preview` / `quick_clear_apply` / `quick_clear_cancel`。完整快照下载、校验和过滤留在 Rust；界面只拿到实际条数、导出 revision 和一次性令牌，避免 C ABI 4 MiB 请求上限截断完整快照。预览按账号与登录代次绑定，只保留最新一份，15 分钟后拒绝提交；取消丢弃内存正文，不访问云端。确认时先比对云端当前 revision，已变化就不发送恢复；比对后再发生写入，由服务端 CAS 拒绝。两次联网都经 `authenticated_as` 固定原登录，换号和同账号重新登录不能提交旧快照。令牌在请求发起前消费，失败后重新预览，不重试旧正文。窗口关闭时先结束进行中的动作，再丢弃预览。
+Windows 现代 WinUI、Win7、macOS 与 Linux 的原生入口使用 `quick_clear_preview` / `quick_clear_apply` / `quick_clear_cancel`。完整快照下载、校验和过滤留在 Rust；界面只拿到实际条数、导出 revision 和一次性令牌，避免 C ABI 4 MiB 请求上限截断完整快照。预览按账号与登录代次绑定，只保留最新一份，15 分钟后拒绝提交；取消丢弃内存正文，不访问云端。确认时先比对云端当前 revision，已变化就不发送恢复；比对后再发生写入，由服务端 CAS 拒绝。两次联网都经 `authenticated_as` 固定原登录，换号和同账号重新登录不能提交旧快照。令牌在请求发起前消费，失败后重新预览，不重试旧正文。窗口关闭时先结束进行中的动作，再丢弃预览。
 
 原生临时目录按进程区分，避免两个进程互相清理对方尚在使用的下载文件；只使用既有私有文件工具，不让界面解析或改写快照。`SnapshotClearQuickPhrases` 同时补入共享分发分类，避免 C 入口把快照筛选误当作普通账号请求而漏检临时目录。
 
@@ -31,7 +31,7 @@ Windows 现代 WinUI、Win7 与 Linux 的新增原生入口使用 `quick_clear_p
 - 新增了共享 host-api 操作和 C 契约文档，桌面适配器保留实际删除数量返回值，供原生宿主接入。
 - Windows 现代设置页和 Win7 设置页都通过同一个 host-api 操作清空；按钮只在个人快捷短语词库中出现，成功后显示删除条数并刷新第一页，Win7 入口还沿用现有确认和词库同步流程。
 - 移动端暂不提供该独占操作；移动设置页若接入时应复用同一语义，不能在队列层复制逐条回滚逻辑。
-- 云端清空仍沿用[快捷短语本机与云端清空边界](../feature/2026-11-12-quick-phrase-clear.md)中的快照 CAS 规则；共享筛选已进入 host-api，Windows、Win7、Linux 原生界面现使用共享预览与确认接口，macOS 保留已有原生快照流程。
+- 云端清空仍沿用[快捷短语本机与云端清空边界](../feature/2026-11-12-quick-phrase-clear.md)中的快照 CAS 规则；共享筛选已进入 host-api，Windows、Win7、Linux 原生界面现使用共享预览与确认接口，macOS 同样使用共享预览与确认接口。
 
 ## Verification
 
@@ -41,3 +41,5 @@ Windows 现代 WinUI、Win7 与 Linux 的新增原生入口使用 `quick_clear_p
 - `cargo test -p msime-host-api cloud_dictionary::quick_phrase --lib`：共享云端快照筛选的快捷短语记录、无条目原文保留和畸形输入拒绝用例通过。
 - 快照中的 `position`/`selection` 记录没有 `kind` 字段，筛选时按快捷短语条目的 `(code, word)` 关联移除；筛选结果再次通过完整快照校验，避免只做文本匹配留下非法快照。
 - Windows Win7 原生词库测试补覆盖确认取消、成功刷新和非快捷短语禁用；CI 首次执行发现新增断言只期待最后一条为清空请求，实际成功路径随后会刷新列表。断言改为核对清空、当前快捷短语第一页刷新这两条请求的顺序，保留取消不发请求、实际删除条数和列表内容断言；本机没有 Windows 宿主，现代 WinUI/Win7 的真实窗口截图与设备交互仍交由 Windows CI 和报告者环境验收。
+
+真实 C ABI 明确拒绝文本版 `snapshot_export`、`snapshot_restore_preview` 和 `snapshot_restore`。macOS 云端清空不调用这些入口；Swift 替身按同样规则拒绝文本快照，回归覆盖实际令牌传递、空列表不提交和冲突不重试，避免替身支持产品不支持的操作。

@@ -355,6 +355,13 @@ mod tests {
             "action": { "operation": "list", "kind": "pinyin", "offset": 0, "search": "" },
         }));
         assert_eq!(error(signed_out), "account_unauthorized");
+        // 原生清空必须进入共享预览，不能落到 C ABI 已禁用的文本快照入口。
+        let quick_preview = call(json!({
+            "directory": account,
+            "snapshot_directory": directory.path().join("quick-snapshots"),
+            "action": { "operation": "quick_clear_preview" },
+        }));
+        assert_eq!(error(quick_preview), "account_unauthorized");
         // 没登录时取消排队的快照也报未登录，不碰队列；临时目录照样建好。
         let snapshots = directory.path().join("snapshots");
         let cancelled = call(json!({

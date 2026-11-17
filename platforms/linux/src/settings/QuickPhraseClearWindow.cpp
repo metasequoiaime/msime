@@ -169,7 +169,7 @@ struct Window {
       if (!self.cloud || self.busy()) return;
       self.cloud->preview(); self.show_status("正在读取云端快捷短语…"); self.update_actions();
     }), this);
-    status = gtk_label_new("只删除本机用户添加的快捷短语。");
+    status = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(status), 0);
     gtk_label_set_wrap(GTK_LABEL(status), TRUE);
     gtk_box_append(GTK_BOX(box), status);
