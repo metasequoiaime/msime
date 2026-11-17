@@ -778,7 +778,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步仓库里的不透明 216×216 图标和 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试。图标和版本特性不再从 AGC 旧资料静默继承；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
+正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试，所以每次发版前要把这段文字改成这一版的内容。应用图标不经 API 同步：harmony-v0.5.0 发布时 `PUT /publish/v2/app-file-info` 被华为以 code 204144641 拒绝，而图标是应用级资料、在版本之间沿用，换图标时把仓库里不透明的 216×216 `app_icon_appgallery.png` 在 AGC 控制台手动上传一次即可；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 
