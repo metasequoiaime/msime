@@ -19,7 +19,8 @@ param(
     [string]$Description,
     [string]$Url,
     [string]$SignToolPath,
-    [ValidatePattern('^$|^[a-fA-F0-9]{40}$')][string]$CertificateThumbprint
+    [ValidatePattern('^$|^[a-fA-F0-9]{40}$')][string]$CertificateThumbprint,
+    [string]$SignatureCacheDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -128,21 +129,78 @@ if ($OutputDirectory) {
 } else {
     foreach ($target in $targets) { $outputs[$target] = $target }
 }
-$ssignArgs += $targets
-
+$cacheLock = $null
 try {
-    Write-Host "使用 ssign 为 $($targets.Count) 个 EXE/DLL 签名。"
-    $clientOutput = & $ssign @ssignArgs 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "ssign 签名失败，退出码：$LASTEXITCODE" }
+    $cacheRoot = $null
+    $cacheContext = $null
+    if ($SignatureCacheDirectory) {
+        if (-not $CertificateThumbprint) { throw '复用签名缓存必须指定发布证书指纹。' }
+        Add-Type -AssemblyName System.Security
+        New-Item -ItemType Directory -Force -Path $SignatureCacheDirectory | Out-Null
+        $cacheRoot = (Resolve-Path -LiteralPath $SignatureCacheDirectory).Path
+        $cacheLock = [IO.File]::Open((Join-Path $cacheRoot '.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $cacheContext = ConvertTo-Json -Compress -InputObject @($CertificateThumbprint.ToUpperInvariant(), $TimestampUrl, $Description, $Url)
+    }
+    # 先取所有未签名字节的摘要，再改写任何文件；文件名和所在版本不影响复用。
+    $groups = [ordered]@{}
     foreach ($target in $targets) {
-        $output = $outputs[$target]
-        if (-not (Test-Path -LiteralPath $output -PathType Leaf)) {
-            throw "ssign 没有生成签名文件：$output"
+        $sourceHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+        if (-not $groups.Contains($sourceHash)) { $groups[$sourceHash] = @() }
+        $groups[$sourceHash] += $target
+    }
+    $pending = @()
+    $signedByHash = @{}
+    foreach ($sourceHash in $groups.Keys) {
+        if ($cacheRoot) {
+            $cached = Join-Path $cacheRoot "$sourceHash.exe"
+            $seal = Join-Path $cacheRoot "$sourceHash.dpapi"
+            if ((Test-Path -LiteralPath $cached) -or (Test-Path -LiteralPath $seal)) {
+                if (-not (Test-Path -LiteralPath $cached -PathType Leaf) -or -not (Test-Path -LiteralPath $seal -PathType Leaf)) { throw '签名缓存不完整。' }
+                # DPAPI 将签后摘要绑定到原文件摘要、证书和签名参数，不能把另一份合法签名文件冒充缓存命中。
+                $binding = [Text.Encoding]::UTF8.GetBytes("$sourceHash`n$cacheContext")
+                $expectedHash = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($seal), $binding, [Security.Cryptography.DataProtectionScope]::CurrentUser))
+                if ($expectedHash -cne (Get-FileHash -LiteralPath $cached -Algorithm SHA256).Hash) { throw '签名缓存摘要不匹配。' }
+                Assert-SignedExecutable -Executable $cached -SignTool $signTool
+                $signedByHash[$sourceHash] = $cached
+                continue
+            }
         }
-        Assert-SignedExecutable -Executable $output -SignTool $signTool
-        Write-Host "签名并校验通过：$output"
+        $pending += $groups[$sourceHash][0]
+    }
+    if ($pending.Count -gt 0) {
+        $ssignArgs += $pending
+        Write-Host "使用 ssign 为 $($pending.Count) 个唯一 EXE/DLL 签名。"
+        $clientOutput = & $ssign @ssignArgs 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "ssign 签名失败，退出码：$LASTEXITCODE" }
+    }
+    foreach ($sourceHash in $groups.Keys) {
+        if (-not $signedByHash.ContainsKey($sourceHash)) {
+            $output = $outputs[$groups[$sourceHash][0]]
+            if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw "ssign 没有生成签名文件：$output" }
+            Assert-SignedExecutable -Executable $output -SignTool $signTool
+            $signedByHash[$sourceHash] = $output
+            if ($cacheRoot) {
+                $cached = Join-Path $cacheRoot "$sourceHash.exe"
+                $seal = Join-Path $cacheRoot "$sourceHash.dpapi"
+                Copy-Item -LiteralPath $output -Destination $cached
+                $binding = [Text.Encoding]::UTF8.GetBytes("$sourceHash`n$cacheContext")
+                $signedHash = [Text.Encoding]::UTF8.GetBytes((Get-FileHash -LiteralPath $cached -Algorithm SHA256).Hash)
+                [IO.File]::WriteAllBytes($seal, [Security.Cryptography.ProtectedData]::Protect($signedHash, $binding, [Security.Cryptography.DataProtectionScope]::CurrentUser))
+            }
+        }
+        foreach ($target in $groups[$sourceHash]) {
+            $output = $outputs[$target]
+            if ($output -ine $signedByHash[$sourceHash]) { Copy-Item -LiteralPath $signedByHash[$sourceHash] -Destination $output -Force }
+            Assert-SignedExecutable -Executable $output -SignTool $signTool
+            Write-Host "签名并校验通过：$output"
+        }
+    }
+    Write-Host "签名统计：新增 $($pending.Count) 个唯一文件，复用 $($targets.Count - $pending.Count) 个文件。"
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value "- SimplySign：新增 $($pending.Count) 个唯一文件签名，复用 $($targets.Count - $pending.Count) 个文件。"
     }
 } finally {
+    if ($null -ne $cacheLock) { $cacheLock.Dispose() }
     $clientOutput = $null
 }
 $global:LASTEXITCODE = 0

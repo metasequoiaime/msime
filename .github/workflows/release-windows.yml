@@ -450,7 +450,7 @@ jobs:
           name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload-signed/
           if-no-files-found: error
-  # 复用 SSH 的无桌面入口。六个版本串行使用同一签名身份，构建与安装验证仍留在临时 runner。
+  # 六个版本串行使用同一签名身份，按 GITHUB_RUN_ID 共享相同文件的签名缓存；构建与安装验证仍留在临时 runner。
   package-simplysign:
     needs: [source, release]
     if: needs.source.outputs.simplysign == 'true'
