@@ -604,8 +604,8 @@ fn next_change_goes_out_automatically(
     opened.report.unwrap();
 }
 
-/// 第一台设备配置时最多这么多个请求：密钥串 23 个（建布局、登记、生成密钥），词库 12 个（建布局、写格式文件和第一份检查点、发出本机的词）。
-const FIRST_DEVICE_SETUP_REQUESTS: usize = 35;
+/// 第一台设备配置时最多这么多个请求：密钥串 24 个（建布局、探测一次旧布局、登记、生成密钥），词库 12 个（建布局、写格式文件和第一份检查点、发出本机的词）。
+const FIRST_DEVICE_SETUP_REQUESTS: usize = 36;
 
 /// 坚果云真机（2026-10-28，iOS）：第一台设备保存配置后的第一次同步用掉了全部 40 个自动额度，之后半小时里改词、定时和回到 App 都不联网，「上次同步」停在配置时。配置时的请求属于用户的操作，不能挤掉之后的自动同步。iOS 保存后以 `manual` 跑第一次，共享设置页和 Win7 以 `opened`，两种都要覆盖。
 #[test]
@@ -626,6 +626,16 @@ fn first_device_setup_leaves_the_automatic_budget_for_the_next_change() {
             "{setup:?}: first-device setup sent {} requests:\n{}",
             server.requests(),
             server.log()
+        );
+        assert_eq!(
+            server
+                .log()
+                .lines()
+                .filter(|request| *request
+                    == "PROPFIND /dav/msime-dictionary/keyring/msime-clipboard/v1/")
+                .count(),
+            1,
+            "{setup:?}: the extra setup request only probes the legacy layout once"
         );
         eprintln!(
             "{setup:?}: first-device setup sent {} requests",
@@ -768,7 +778,7 @@ fn two_devices_pair_and_sync_their_words_through_a_real_webdav_server() {
     assert_eq!(inside, vec!["keyring".to_owned(), "v1".to_owned()]);
     assert_eq!(
         server.list("msime-dictionary/keyring/"),
-        vec!["msime-clipboard".to_owned()]
+        vec!["v1".to_owned()]
     );
 }
 

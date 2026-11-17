@@ -34,7 +34,7 @@ export function DictionaryUpdates({
       {status?.can_rollback && (
         <ActionRow
           title="恢复上一版词库"
-          description="恢复后关闭自动更新，下次启动生效"
+          description="恢复后跳过这一版，有更新的版本时仍会自动更新；下次启动生效"
           label="恢复"
           disabled={running}
           action={() => action("rollback")}

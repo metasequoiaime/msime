@@ -45,7 +45,12 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     private final Tokens tokens;
 
     public BackendTranslationClient(Context context) {
-        this(BackendTranslationClient::httpExchange, sharedTokens(context.getApplicationContext()));
+        this(context, "zh");
+    }
+
+    /** 手动文本翻译复用账号传输与共享校验，源语言由窗口指定。 */
+    public BackendTranslationClient(Context context, String sourceLanguage) {
+        this(rust(sourceLanguage), BackendTranslationClient::httpExchange, sharedTokens(context.getApplicationContext()));
     }
 
     /** 设备冒烟用：请求和解读走真的 Rust，HTTP 和令牌换成内存实现。 */
@@ -88,10 +93,12 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     }
 
     /** 经 JNI 调 Rust 的 {@code msime_client_account_gloss}：不联网、不读会话，任意线程。失败是 {@link AccountStore.Failure}，带 Rust 的账号错误码。 */
-    private static final Gloss RUST = new Gloss() {
+    private static final Gloss RUST = rust("zh");
+
+    private static Gloss rust(String sourceLanguage) { return new Gloss() {
         @Override public Plan request(List<String> texts, String target) throws Exception {
             JSONObject plan = call(new JSONObject().put("operation", "request")
-                .put("texts", new JSONArray(texts)).put("source_lang", "ZH").put("target_lang", target));
+                .put("texts", new JSONArray(texts)).put("source_lang", sourceLanguage).put("target_lang", target));
             return new Plan(JsonPolicy.strictStringOrEmpty(plan.opt("method")),
                 JsonPolicy.strictStringOrEmpty(plan.opt("path")),
                 TextPolicy.utf8Bytes(JsonPolicy.strictStringOrEmpty(plan.opt("body"))));
@@ -117,7 +124,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             if (!(value instanceof JSONObject answer)) throw new AccountStore.Failure("account_unavailable", 0);
             return answer;
         }
-    };
+    }; }
 
     /** 不跟随重定向，响应体按 {@link #MAX_RESPONSE_BYTES} 读；错误响应读不完时当作空的交给 Rust 按状态码解读。 */
     private static CloudApi.Exchange httpExchange(String method, String path,

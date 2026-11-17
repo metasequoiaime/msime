@@ -9,12 +9,19 @@ import app.msime.android.AndroidAccountSessionStorage;
 
 /** Verifies encrypted session persistence inside the isolated fixture package. */
 public final class AccountStorageDeviceSmoke extends Instrumentation {
+    private boolean skinDownload;
+
     @Override public void onCreate(Bundle arguments) {
+        skinDownload = arguments != null && "true".equals(arguments.getString("skin-download"));
         super.onCreate(arguments);
         start();
     }
 
     @Override public void onStart() {
+        if (skinDownload) {
+            CommunitySkinDownloadDeviceChecks.run(this);
+            return;
+        }
         Bundle result = new Bundle();
         AndroidAccountSessionStorage storage =
             new AndroidAccountSessionStorage(getContext());

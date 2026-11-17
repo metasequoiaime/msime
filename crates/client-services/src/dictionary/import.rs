@@ -12,6 +12,12 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod rime_pinyin;
+
+#[cfg(test)]
+#[path = "import/rime_pinyin_tests.rs"]
+mod rime_pinyin_tests;
+
 /// Rows examined from one file. Beyond this the remainder is reported as
 /// truncated rather than silently dropped or rejected wholesale, because each
 /// import holds the dictionary maintenance lock.
@@ -371,7 +377,13 @@ fn parse_row(
     } else {
         (columns[0].trim(), columns[1].trim())
     };
-    let key = key.to_ascii_lowercase();
+    let key = if format == ImportFormat::Rime
+        && matches!(kind, ImportKind::Pinyin | ImportKind::QuickPhrase)
+    {
+        rime_pinyin::normalize(key, kind == ImportKind::QuickPhrase)
+    } else {
+        key.to_ascii_lowercase()
+    };
     let weight = match columns.get(2).map(|value| value.trim()) {
         // Gboard 第三列是语言，不含词频，也不按目标词库过滤语言。
         _ if format == ImportFormat::Gboard => DEFAULT_WEIGHT,

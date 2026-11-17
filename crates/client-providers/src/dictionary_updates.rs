@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod withdrawal;
+
 const API: &str =
     "https://api.github.com/repos/metasequoiaime/msime-dictionary/releases?per_page=100";
 const DOWNLOAD: &str = "https://github.com/metasequoiaime/msime-dictionary/releases/download/";
@@ -616,11 +618,16 @@ pub fn rollback(context: &UpdateContext) -> Result<UpdateStatus, UpdateError> {
     if let Some(previous) = &installed.previous {
         validate_selection(previous, &context.baseline)?;
     }
+    if let Some(current) = &installed.active {
+        validate_selection(current, &context.baseline)?;
+        // 先记住跳过的版本再发布回退，不改开关；中断只会多跳过一次，不会立即重装问题版本。
+        withdrawal::remember_skipped(&context.state_root, &current.version)?;
+    } else if installed.previous.is_none() {
+        return Err(UpdateError::Invalid);
+    }
     let current = installed.active.take();
     installed.active = installed.previous.take();
     installed.previous = current;
-    // 回退同时关闭自动更新，避免下一次检查立即装回同一版。
-    write(&folder.join("config.json"), &Config { enabled: false })?;
     write(&folder.join("installed.json"), &installed)?;
     let mut result = status(context);
     result.phase = "rolled_back".into();
@@ -1072,9 +1079,18 @@ fn check_with(
     write(&folder.join("status.json"), &status)?;
     let result = (|| {
         let bytes = fetch(transport, API, 16 * 1024 * 1024)?;
+        if switched_off(&folder, enabled_at_start) {
+            return Err(UpdateError::Cancelled);
+        }
         let mut releases: Vec<Release> =
             serde_json::from_slice(&bytes).map_err(|_| UpdateError::Invalid)?;
+        if withdrawal::restore_previous(context, &releases)? {
+            status.phase = "rolled_back".into();
+            return Ok(());
+        }
+        let skipped = withdrawal::skipped_version(&context.state_root)?;
         releases.retain(|r| !r.draft && !r.prerelease && version(&r.tag_name).is_some());
+        releases.retain(|r| version(&r.tag_name) != skipped);
         releases.sort_by_key(|r| std::cmp::Reverse(version(&r.tag_name)));
         let current = version(&status.version);
         let active = selected(&context.state_root, &context.baseline);

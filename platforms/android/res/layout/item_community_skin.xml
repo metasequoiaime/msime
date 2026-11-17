@@ -118,6 +118,15 @@
                 android:textColor="?attr/colorPrimary"
                 android:textFontWeight="600"
                 android:textSize="12sp" />
+
+            <ProgressBar
+                android:id="@+id/community_item_action_progress"
+                style="?android:attr/progressBarStyleSmall"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_marginStart="2dp"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、手机横屏分离式键盘、工具栏尺寸及工具栏上的浮动键盘和文本编辑按钮、键盘底栏和底部留白、键盘宽度与水平位置只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十八项随云同步交给 client-services 的 `android_local`（crates/client-services/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、防止截屏、语音数据贡献、开发者选项、键盘高度、浮动键盘的开关与位置、物理键盘时候选栏跟随光标、手机横屏分离式键盘、工具栏尺寸、工具栏上的浮动键盘、文本编辑按钮、右侧常驻按钮和收起键盘按钮、键盘底栏和底部留白、键盘宽度与水平位置只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -91,6 +91,8 @@ public final class AndroidLocalSettings {
     public static final String AUTO_CAPITALIZATION = "platform.android.auto_capitalization";
     /** 剪贴板面板一行排几条（{@link ClipboardLayoutPolicy}）：`one` 单列、`two` 双列，默认单列。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
+    /** 剪贴板详情底部「插入」「返回」操作行的水平对齐，默认左对齐，只在本机。 */
+    public static final String CLIPBOARD_DETAIL_ACTION_ALIGNMENT = "platform.android.clipboard_detail_action_alignment";
     /** 工具栏显示最近复制的文字或图片（{@link RecentClipboardSuggestion}，图片见 #6781），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
     /** 剪贴板删除记录（单条或多选）后可撤销的秒数（{@link ClipboardUndoPolicy}，#10073、#10080），5 到 9 秒，默认 5 秒。同步字段表里没有这个键，只在本机。 */
@@ -105,18 +107,24 @@ public final class AndroidLocalSettings {
     public static final String NUMBER_ROW = "platform.android.number_row";
     /** 旧版的「九键滑动输入数字」（{@link NineKeySwipePolicy}）：关闭、上滑输入数字或下滑输入数字，默认关闭，只在本机。现在由共享偏好 `touch_nine_key_swipe_digits` 接替（#10229），这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；规格声明留着，否则读文件时这个键会被丢掉、迁移读不到。同步的 `platform.android.nine_key_swipe` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SWIPE = "platform.android.nine_key_swipe";
-    /** 拼音九键滑动的判定距离（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只影响九键滑动（共享偏好 `touch_nine_key_swipe_digits`），26 键的滑动阈值不变。只在本机、不随账号同步，iOS 和鸿蒙没有这一项（固定 24）。 */
+    /** 旧版的「九键滑动距离」（dp，{@link NineKeySwipePolicy#MIN_THRESHOLD_DP}..{@link NineKeySwipePolicy#MAX_THRESHOLD_DP}，默认 {@link NineKeySwipePolicy#DEFAULT_THRESHOLD_DP}），只在本机。现在由三端共用的共享偏好 `touch_nine_key_flick_threshold`（{@link NineKeyFlickPolicy#PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值。 */
     public static final String NINE_KEY_SWIPE_DISTANCE = "platform.android.nine_key_swipe_distance";
+    /** 拼音九键组字时 1 键的动作：`separate` 分词（默认），`rewrite` 重输；只在本机，不随账号同步。 */
+    public static final String NINE_KEY_COMPOSITION_ACTION = "platform.android.nine_key_composition_action";
     /** 旧版的九键左侧符号（字母键面那张表，用空格分开），只在本机。现在由共享偏好 `touch_nine_key_sidebar_symbols`（{@link NineKeySidebarPolicy#LETTER_PREFERENCE}）接替，这个键只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删；留着声明是为了读出升级前写下的值（不认识的键在读取时会被丢掉）。同步的 `platform.android.nine_key_symbols` 与它同名，但走共享偏好，不经这个文件。 */
     public static final String NINE_KEY_SYMBOLS = "platform.android.nine_key_symbols";
     /** 旧版的九键数字键盘左侧符号，格式同 {@link #NINE_KEY_SYMBOLS}，只在本机。现在由共享偏好 `touch_nine_key_digit_sidebar_symbols`（{@link NineKeySidebarPolicy#DIGIT_PREFERENCE}）接替，同样只由 {@link KeyLayoutStyleMigration} 读一次、迁完即删。 */
     public static final String NINE_KEY_DIGIT_SYMBOLS = "platform.android.nine_key_digit_symbols";
     /** 退格键上滑快速删除的范围：默认只删光标前，可选清空整个输入框。 */
     public static final String QUICK_DELETE_SCOPE = "platform.android.quick_delete_scope";
-    /** 设计范围的键盘高度调整（dp，-46..129，即 75%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 设计范围的键盘高度调整（dp，-92..129，即 50%..170%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
+    /** 展开屏的键盘高度调整（dp，-92..129，即 50%..170%）。未写入时沿用 {@link #KEYBOARD_HEIGHT_ADJUSTMENT}，只在本机保存。 */
+    public static final String KEYBOARD_HEIGHT_ADJUSTMENT_LARGE = "platform.android.keyboard_height_adjustment_large";
     /** 浮动键盘（{@link FloatingKeyboardPolicy}），默认关。位置与屏幕尺寸相关，开关与位置都只在本机，不随账号同步。 */
     public static final String FLOATING_KEYBOARD = "platform.android.floating_keyboard";
+    /** 横屏时自动浮动、竖屏时停靠（#11346），默认关；打开后忽略手动浮动开关，只在本机保存。 */
+    public static final String FLOATING_KEYBOARD_AUTO_LANDSCAPE = "platform.android.floating_keyboard_auto_landscape";
     /** 浮动键盘在可移动范围里的水平 / 竖直位置，千分比（0 最左 / 最上，1000 最右 / 最下）。 */
     public static final String FLOATING_KEYBOARD_X = "platform.android.floating_keyboard_x";
     public static final String FLOATING_KEYBOARD_Y = "platform.android.floating_keyboard_y";
@@ -126,6 +134,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_FLOATING = "platform.android.toolbar_floating";
     /** 可选工具按钮的稳定 ID 排列，只在本机保存。 */
     public static final String TOOLBAR_ORDER = "platform.android.toolbar_order";
+    /** 工具栏右侧常驻按钮的稳定 ID，默认是收起键盘，只在本机保存。 */
+    public static final String TOOLBAR_PINNED = "platform.android.toolbar_pinned";
     /** 空闲工具栏独立尺寸；未写入时仍跟随候选栏高度。 */
     public static final String TOOLBAR_SIZE_PERCENT = "platform.android.toolbar_size_percent";
     /** 符号面板分类的稳定 ID 排列，只在本机保存。 */
@@ -134,6 +144,8 @@ public final class AndroidLocalSettings {
     public static final String TOOLBAR_RANDOM_DIGITS = "platform.android.toolbar_random_digits";
     /** 工具栏上的「文本编辑」按钮（#6351），点按开关文本编辑面板，默认不显示；同步字段表里没有这个键，先只在本机。 */
     public static final String TOOLBAR_TEXT_EDIT = "platform.android.toolbar_text_edit";
+    /** 工具栏排序里的「收起键盘」按钮，默认关闭；默认右侧常驻位仍保留它。 */
+    public static final String TOOLBAR_DISMISS = "platform.android.toolbar_dismiss";
     /** 手势导航下垫在键区下面的底栏（{@link KeyboardBottomBarPolicy}），默认开。是否出现还取决于导航栏的高度，换一台设备时意义不同，同步字段表里也没有这个键，只在本机。 */
     public static final String BOTTOM_BAR = "platform.android.bottom_bar";
     /** 键区下面垫一段不可点的空白（{@link KeyboardBottomBarPolicy#paddingShown}），把回车等底行键抬离屏幕底边（#6392），默认关。和键盘底栏一样与设备的导航方式有关，同步字段表里也没有这个键，只在本机。 */
@@ -261,6 +273,8 @@ public final class AndroidLocalSettings {
         bool(AUTO_CAPITALIZATION, false, false);
         choice(CLIPBOARD_COLUMNS, ClipboardLayoutPolicy.ONE_COLUMN, false,
             ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS);
+        choice(CLIPBOARD_DETAIL_ACTION_ALIGNMENT, ClipboardDetailActionPolicy.LEFT, false,
+            ClipboardDetailActionPolicy.LEFT, ClipboardDetailActionPolicy.RIGHT);
         bool(CLIPBOARD_SUGGESTION, true, false);
         integer(CLIPBOARD_UNDO_SECONDS, ClipboardUndoPolicy.DEFAULT_SECONDS, false,
             ClipboardUndoPolicy.MIN_SECONDS, ClipboardUndoPolicy.MAX_SECONDS, 1);
@@ -273,13 +287,17 @@ public final class AndroidLocalSettings {
             SwipeHintPolicy.DOWN);
         integer(NINE_KEY_SWIPE_DISTANCE, NineKeySwipePolicy.DEFAULT_THRESHOLD_DP, false,
             NineKeySwipePolicy.MIN_THRESHOLD_DP, NineKeySwipePolicy.MAX_THRESHOLD_DP, NineKeySwipePolicy.THRESHOLD_STEP_DP);
+        choice(NINE_KEY_COMPOSITION_ACTION, NineKeyCompositionActionPolicy.SEPARATE, false,
+            NineKeyCompositionActionPolicy.SEPARATE, NineKeyCompositionActionPolicy.REWRITE);
         text(NINE_KEY_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), false,
             NineKeySidebarPolicy::normalize);
         text(NINE_KEY_DIGIT_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), false,
             NineKeySidebarPolicy::normalize);
         choice(QUICK_DELETE_SCOPE, "before", false, "before", "all");
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
+        integer(KEYBOARD_HEIGHT_ADJUSTMENT_LARGE, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(FLOATING_KEYBOARD, false, false);
+        bool(FLOATING_KEYBOARD_AUTO_LANDSCAPE, false, false);
         integer(FLOATING_KEYBOARD_X, FloatingKeyboardPolicy.DEFAULT_X_FRACTION, false, 0,
             FloatingKeyboardPolicy.MAX_FRACTION, 1);
         integer(FLOATING_KEYBOARD_Y, FloatingKeyboardPolicy.DEFAULT_Y_FRACTION, false, 0,
@@ -290,6 +308,8 @@ public final class AndroidLocalSettings {
         bool(TOOLBAR_RANDOM_DIGITS, false, false);
         text(TOOLBAR_ORDER, ToolbarOrderPolicy.format(ToolbarOrderPolicy.DEFAULT_ORDER), false,
             ToolbarOrderPolicy::normalize);
+        choice(TOOLBAR_PINNED, ToolbarPinnedPolicy.DEFAULT.id, false, ToolbarPinnedPolicy.choices());
+        bool(TOOLBAR_DISMISS, false, false);
         integer(TOOLBAR_SIZE_PERCENT, ToolbarSizePolicy.DEFAULT_PERCENT, false,
             ToolbarSizePolicy.MIN_PERCENT, ToolbarSizePolicy.MAX_PERCENT, 10);
         text(SYMBOL_CATEGORY_ORDER, SymbolCategoryOrderPolicy.format(SymbolCategoryOrderPolicy.DEFAULT_ORDER), false,
