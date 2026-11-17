@@ -88,6 +88,7 @@ NOT_APPLICABLE = {
     "harmony_toolbar": "the HarmonyOS phone keyboard's toolbar tools and display mode; the page offers them only where the host reports `touch_toolbar_tools`",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
+    "zhuyin_simplified_output": "仅 HarmonyOS 注音宿主复用简繁按钮转换候选与上屏文字；macOS 没有该注音简体输出入口",
     "next_word_prediction_buttons": "只有触屏键盘在上屏后联想的候选栏右端画关闭键与展开键；macOS 的联想画在普通候选窗里，Esc 关闭、点选上屏，没有这两个键可放，共享设置页桌面输入页的「上屏后联想」不列出这一行（`showButtons={false}`）",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
     "candidate_cloud_badge": "仅 Windows 原生候选窗消费云候选来源角标开关；macOS 候选窗在本 issue 范围内继续固定显示云来源徽标，macOS 设置页不提供这一项",
