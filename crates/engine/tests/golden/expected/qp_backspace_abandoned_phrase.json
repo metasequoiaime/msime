@@ -188,7 +188,7 @@
       "l"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },
@@ -320,7 +320,7 @@
       "t"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },

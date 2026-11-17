@@ -1572,7 +1572,7 @@
       "n"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },

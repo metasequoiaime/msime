@@ -120,6 +120,17 @@ fn online_identity(scheme: SchemeType, input: &str) -> String {
     identity
 }
 
+/// 全拼的本地切分不是 AI 的唯一合法路径；英文区间也可能落在不完整音节里。
+fn raw_quanpin_ai_eligible(scheme: SchemeType, input: &str) -> bool {
+    scheme == SchemeType::Quanpin
+        && !input.is_empty()
+        && input.len() <= 256
+        && input.bytes().any(|byte| byte.is_ascii_alphabetic())
+        && input
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic() || byte == b'\'')
+}
+
 impl InputSession {
     fn english_online_input(&self) -> Option<(&str, &'static str)> {
         if !self.english_online_candidates_enabled || self.online_requests.exhausted {
@@ -229,11 +240,12 @@ impl InputSession {
             &request.normalized_segmentation
         });
         query.cloud_eligible = true;
-        query.ai_eligible = !query.pinyin_segments.is_empty()
-            && query
-                .pinyin_segments
-                .iter()
-                .all(|segment| is_complete_pinyin_input(segment));
+        query.ai_eligible = raw_quanpin_ai_eligible(request.scheme, input)
+            || (!query.pinyin_segments.is_empty()
+                && query
+                    .pinyin_segments
+                    .iter()
+                    .all(|segment| is_complete_pinyin_input(segment)));
         Some(query)
     }
 
@@ -438,7 +450,8 @@ impl InputSession {
         } else {
             &request.normalized_segmentation
         };
-        let ai_eligible = segments_match(&query.pinyin_segments, segmentation)?;
+        let complete = segments_match(&query.pinyin_segments, segmentation)?;
+        let ai_eligible = complete || raw_quanpin_ai_eligible(request.scheme, input);
         (query.cloud_eligible && query.ai_eligible == ai_eligible).then_some(OnlineAnswerState {
             cloud_eligible: true,
             ai_eligible,
