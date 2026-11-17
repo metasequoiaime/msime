@@ -100,6 +100,8 @@ struct TypingStatistics: Decodable {
   var dailyHours: [String: [Int]] = [:]
   /// Key presses per local day, keyed by the ids in `TypingKeyID.all`. Only how many times each key went down that day: no order, no time of day, no text. Documents written before the key heatmap have no such field.
   var dailyKeys: [String: [String: Int]] = [:]
+  /// 共享层已分类的本地日、语言、键位计数；旧文档缺失时不推断历史语言。
+  var dailyKeyLanguages: [String: [String: [String: Int]]] = [:]
 
   /// The retention choices the statistics page offers, as on Windows.
   static let retentionChoices = [30, 90, 180, 365]
@@ -116,7 +118,7 @@ struct TypingStatistics: Decodable {
 
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case enabled, total, days, detail, dailyDetails, retention, dailyActiveMs, dailyHours, dailyKeys
+    case enabled, total, days, detail, dailyDetails, retention, dailyActiveMs, dailyHours, dailyKeys, dailyKeyLanguages
   }
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -129,6 +131,7 @@ struct TypingStatistics: Decodable {
     dailyActiveMs = try values.decodeIfPresent([String: Int].self, forKey: .dailyActiveMs) ?? [:]
     dailyHours = try values.decodeIfPresent([String: [Int]].self, forKey: .dailyHours) ?? [:]
     dailyKeys = try values.decodeIfPresent([String: [String: Int]].self, forKey: .dailyKeys) ?? [:]
+    dailyKeyLanguages = try values.decodeIfPresent([String: [String: [String: Int]]].self, forKey: .dailyKeyLanguages) ?? [:]
   }
 
   static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
@@ -451,44 +454,6 @@ enum TypingKeyID {
   }
 }
 
-/// One batch for the store: press counts for the local day they were pressed on.
-struct TypingKeyBatch: Equatable {
-  let day: String
-  let keys: [String: Int]
-}
-
-/// The keyboard's in-memory tally between writes. The store locks, rewrites and fsyncs the whole document per call, so presses are counted here and handed over in batches: when this many have piled up, when the day turns, and whenever the keyboard flushes on its timer or on going away. The counts belong to the day they were pressed on, never the day they happen to be written.
-struct TypingKeyCounter {
-  static let flushThreshold = 256
-
-  private(set) var day: String?
-  private(set) var counts: [String: Int] = [:]
-  private(set) var presses = 0
-
-  /// Count one press of `id` on `day`, and return what has to be written now: the earlier day's counts when the day changed, then this day's when they reached the threshold. An id the store does not know is dropped, so one stray key never costs the rest of the batch.
-  mutating func record(_ id: String, day: String) -> [TypingKeyBatch] {
-    guard TypingKeyID.known.contains(id) else { return [] }
-    var ready: [TypingKeyBatch] = []
-    if self.day != day, let previous = drain() { ready.append(previous) }
-    self.day = day
-    counts[id, default: 0] += 1
-    presses += 1
-    if presses >= Self.flushThreshold, let full = drain() { ready.append(full) }
-    return ready
-  }
-
-  /// Everything counted so far, emptying the tally; `nil` when nothing was.
-  mutating func drain() -> TypingKeyBatch? {
-    defer {
-      day = nil
-      counts = [:]
-      presses = 0
-    }
-    guard let day, !counts.isEmpty else { return nil }
-    return TypingKeyBatch(day: day, keys: counts)
-  }
-}
-
 /// The 按键 page's figures: the soft keyboard it draws, the nine-key grid when there are nine-key presses to show, the keys neither has a place for, and the most pressed keys.
 struct TypingKeyHeatmap: Equatable {
   struct Key: Equatable {
@@ -630,7 +595,7 @@ struct TypingKeyHeatmap: Equatable {
     self.counts = counts.filter { $0.value > 0 }
   }
 
-  var total: Int { counts.values.reduce(0, +) }
+  var total: Int { TypingKeyLanguages.saturatedTotal(counts) }
   var maximum: Int { counts.values.max() ?? 0 }
   var showsNineKey: Bool { Self.nineKeyRows.joined().contains { counts[$0] != nil } }
 
@@ -644,8 +609,7 @@ struct TypingKeyHeatmap: Equatable {
 
   /// 某个键在窗口内全部按键次数中的占比，单位为百分比，分母也算上没画在任何键盘上的键；一次都没按过时为 0。
   func percent(_ id: String) -> Double {
-    let total = total
-    return total == 0 ? 0 : Double(count(id)) * 100 / Double(total)
+    TypingKeyLanguages.percentage(count(id), in: counts)
   }
 
   /// 设计稿按键位占全部按键次数的比例分出的五级热度：26 键键盘上是 ≥7%、≥4.5%、≥2% 和超过 0.5%；九键键盘上一格承载三到四个字母，所以是 ≥12%、≥9%、≥5% 和只要按过。
@@ -1242,10 +1206,10 @@ struct TypingStatisticsStore {
     _ = try call(["operation": "reset"])
   }
 
-  /// Add one batch of key press counts to `day`, the local day they were pressed on. Returns how many presses the store took: 0 when statistics are off, which is the keyboard's cue to stop counting.
-  func recordKeys(_ keys: [String: Int], day: String) throws -> Int {
+  /// 把本地按下日的整批按键交给共享层；来源在按下时取得，缺省时兼容旧宿主。返回 0 表示统计关闭。
+  func recordKeys(_ keys: [String: Int], day: String, sources: [String: [String: Int]]? = nil) throws -> Int {
     guard !keys.isEmpty else { return 0 }
-    let value = try call(["operation": "record_keys", "day": day, "keys": keys])
+    let value = try call(TypingKeyBatch.request(keys: keys, day: day, sources: sources))
     let maximum = keys.values.filter { $0 > 0 }.reduce(0) { partial, count in
       partial > Int.max - count ? Int.max : partial + count
     }

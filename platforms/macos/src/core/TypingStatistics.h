@@ -241,10 +241,11 @@ constexpr bool IsModifierPress(unsigned short keyCode, uint64_t modifierFlags) {
     }
 }
 
-// One batch of key heatmap counts: the presses of a single local day, by key id, as the `keys` of a `record_keys` request.
+// 一个本地日的按键总计及按下时的来源聚合，不保存输入内容或切换顺序。
 struct KeyPressFlush {
     std::string day;
     std::map<std::string, uint64_t> keys;
+    std::map<std::string, std::map<std::string, uint64_t>> sources;
 };
 
 // A session's in-memory key heatmap counts, so the store is written once per batch and never per key. Counts belong to the day the key was pressed on: a press on a new day hands back the old day's counts first, so a batch that crosses midnight is never filed under the day it happens to be flushed on. The host also drains it on focus loss, on destruction and on a timer.
@@ -253,23 +254,26 @@ public:
     // The press total at which a batch is due without waiting for the timer.
     static constexpr uint64_t kFlushThreshold = 256;
 
-    // Counts one press of `keyId` on `day` and returns the batches now due, oldest first: the previous day's counts when `day` differs from theirs, then this day's once they reach kFlushThreshold.
-    std::vector<KeyPressFlush> record(std::string_view day, std::string_view keyId) {
+    // 按下时固定来源。跨日和阈值沿用原封批规则，切换来源不增加写盘。
+    std::vector<KeyPressFlush> record(std::string_view day, std::string_view keyId,
+                                     TypingSource source = TypingSource::Unknown) {
         std::vector<KeyPressFlush> due;
         due.reserve(2);
         if (presses_ != 0 && day != day_) due.push_back(*drain());
         if (presses_ == 0) day_.assign(day);
         ++keys_[std::string(keyId)];
+        ++sources_[std::string(TypingSourceId(source))][std::string(keyId)];
         if (++presses_ >= kFlushThreshold) due.push_back(*drain());
         return due;
     }
 
-    // Hands back everything collected and empties the batch, or nothing when it is already empty.
+    // 移交独立快照并清空；空批次不写出。
     std::optional<KeyPressFlush> drain() {
         if (presses_ == 0) return std::nullopt;
-        KeyPressFlush flush{std::move(day_), std::move(keys_)};
+        KeyPressFlush flush{std::move(day_), std::move(keys_), std::move(sources_)};
         day_.clear();
         keys_.clear();
+        sources_.clear();
         presses_ = 0;
         return flush;
     }
@@ -282,6 +286,7 @@ public:
 private:
     std::string day_;
     std::map<std::string, uint64_t> keys_;
+    std::map<std::string, std::map<std::string, uint64_t>> sources_;
     uint64_t presses_ = 0;
 };
 
