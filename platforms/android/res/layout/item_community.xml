@@ -92,5 +92,14 @@
             android:textColor="?attr/colorPrimary"
             android:textFontWeight="600"
             android:textSize="13sp" />
+
+        <ProgressBar
+            android:id="@+id/community_item_action_progress"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="4dp"
+            android:importantForAccessibility="no"
+            android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

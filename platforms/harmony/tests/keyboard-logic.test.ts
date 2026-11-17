@@ -380,6 +380,7 @@ import {
   CloudClipboardSendOutcome,
   CloudClipboardState,
 } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardPolicy";
+import { CloudClipboardReceivePolicy } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardReceivePolicy";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import {
   HeldKeys,
@@ -2617,7 +2618,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 9,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 14,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -3502,7 +3503,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 20,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 25,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -10936,6 +10937,27 @@ group("each profile has its own table", () => {
   );
 });
 
+group("custom profile hints use the shared response and keep the same visibility gate", () => {
+  const custom: Map<string, string> = new Map<string, string>([
+    ["Q", "sh / iu"],
+    [";", "ing"],
+  ]);
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "none", true) === "sh / iu",
+    "custom key faces are looked up case-insensitively",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, ";", false, 1, "none", true) === "ing",
+    "custom tables can assign the semicolon key",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", true, 1, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 0, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "emoji", true) === "",
+    "custom hints obey the same English, scheme and local-mode guards",
+  );
+});
+
 group("Cantonese shuangpin labels its keys with the engine's face (#10438)", () => {
   // 与 crates/engine/src/cantonese/shuangpin.rs 的 `key_hints_label_every_key_with_what_it_types` 逐键相同：鸿蒙没有接 `msime_client_shuangpin_key_hints`，表是抄过来的，这里钉住不漂移。
   const expected: [string, string][] = [
@@ -13594,6 +13616,50 @@ group("cloud clipboard text follows the shared clipboard bounds", () => {
   check(!CloudClipboardPolicy.validText(42), "only strings are text");
 });
 
+group(
+  "cloud clipboard auto receive baselines local copies without blocking later remote copies",
+  () => {
+    const item = (hour: number) => ({
+      id: "a".repeat(64),
+      text: `合成云端文本 ${hour}`,
+      updatedAt: `2026-10-01T${hour}:00:00Z`,
+      pinned: false,
+      device: "Synthetic device",
+    });
+    const policy = new CloudClipboardReceivePolicy();
+    policy.begin("合成本机复制");
+    check(!policy.receive(item(99), "合成本机复制"), "invalid dates cannot establish a baseline");
+    check(
+      !policy.receive(item(10), "合成本机复制"),
+      "existing content preserves the initial local copy",
+    );
+    check(!policy.receive(item(10), "合成本机复制"), "the initial cloud page is not replayed");
+    check(
+      policy.receive(item(11), "合成本机复制"),
+      "later remote content replaces an unchanged local copy",
+    );
+    policy.markRemote(item(11));
+    policy.received(item(11).text);
+    check(!policy.receive(item(10), item(11).text), "deletion never replays an older entry");
+    check(
+      !policy.receive(item(12), "合成并发复制"),
+      "a local change during the request wins this response",
+    );
+    check(!policy.receive(item(12), "合成并发复制"), "the skipped response is not replayed");
+    check(policy.receive(item(13), "合成并发复制"), "a subsequent remote copy is still reachable");
+    policy.markRemote(item(13));
+    policy.markRemote(item(10));
+    check(!policy.receive(item(12), "合成并发复制"), "the watermark never moves backwards");
+    policy.begin("合成本机复制");
+    check(!policy.receive(null, "合成本机复制"), "an empty first page establishes a baseline");
+    check(policy.receive(item(10), "合成本机复制"), "a new binding has an independent watermark");
+    policy.begin("");
+    check(policy.receive(item(10), ""), "a truly empty clipboard can receive the first page");
+    check(!policy.receive(item(11), null), "a read failure or non-text clipboard is not empty");
+    check(!policy.receive(item(12), null), "non-text clipboard protection persists");
+  },
+);
+
 group("cloud clipboard listings are read whole", () => {
   const id = (digit: string) => digit.repeat(64);
   // 端到端加密驱动 `list` 的结果形状，见 docs/cloud-clipboard-e2e.md 的「结果」。
@@ -15984,7 +16050,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 20,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 25,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -16412,6 +16478,26 @@ group("a Korean syllable lists its Hanja and the open list takes the candidate k
     ) && log.join(",") === "convertHanja",
     "the Hanja key is consumed even when the Engine declines a lone jamo",
   );
+});
+
+group("自定义普通双拼的入口切换保留码表和分号可达性", () => {
+  for (const profile of ["custom", "smart_abc"]) {
+    const away = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.XIAOHE, KeyboardScheme.QUANPIN, "shuangpin", profile);
+    check(away !== null && away.shuangpinProfile === profile, "离开双拼保留码表");
+    const back = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, "quanpin", profile);
+    check(back !== null && back.shuangpinProfile === profile, "返回普通双拼保留码表");
+    check(KeyboardScheme.mapping(KeyboardScheme.XIAOHE, "quanpin", profile).shuangpinProfile ===
+      "xiaohe", "明确选择内置方案仍使用内置码表");
+  }
+  check(KeyboardScheme.shuangpinSpaceLabel("custom") === "双拼 · 自定义" &&
+    KeyboardScheme.shuangpinSpaceLabel("smart_abc") === "双拼 · 智能 ABC", "普通入口显示实际码表名");
+  check(KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, true),
+    "共享自定义表使用分号时提供韵母键");
+  check(!KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, false) &&
+    !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.QUANPIN, true),
+    "无分号的表与非双拼不增加分号键");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
@@ -18594,7 +18680,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 20 &&
+      KeyboardScheme.SCHEMES.length === 25 &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
@@ -18767,13 +18853,13 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和词典，默认不启用，带 ; 韵母键", () => {
   const shuangpin: SchemeDefinition = KeyboardScheme.CANTONESE_SHUANGPIN;
   check(
-    KeyboardScheme.SCHEMES[KeyboardScheme.SCHEMES.length - 1] === shuangpin &&
+    KeyboardScheme.SCHEMES[19] === shuangpin &&
       shuangpin.preferenceId === "cantonese_shuangpin" &&
       shuangpin.engineScheme === "cantonese" &&
       shuangpin.touchKeyboardLayout === "twenty_six_key" &&
       shuangpin.glyph === "粤" &&
       shuangpin.badge === "双",
-    "按 append-only 排在最后，与共享 TouchKeyboardScheme::ALL 一致",
+    "按 append-only 排在新增双拼之前，与共享 TouchKeyboardScheme::ALL 一致",
   );
   check(
     !KeyboardScheme.DEFAULT_ENABLED.includes(shuangpin) &&
@@ -18807,14 +18893,16 @@ group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和�
   );
   check(
     KeyboardScheme.semicolonFinalLabel(shuangpin) === "分号，粤语双拼 ing 和 ik" &&
-      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === null,
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === "分号，微软双拼 ing" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.SOGOU) === "分号，搜狗双拼 ing" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.ZIGUANG) === "分号，紫光双拼 ing",
     "粤语双拼的 ; 键读出它打的韵母",
   );
 });
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 20 &&
+    KeyboardScheme.SCHEMES.length === 25 &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",

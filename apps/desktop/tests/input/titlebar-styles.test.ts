@@ -49,7 +49,15 @@ test("titlebar uses the platform tokens and each platform's caption dimensions",
   // Windows 11 captions are 48 high and GNOME headerbars 46; the upstream 32 stays the fallback.
   expect(titlebar).toContain("win:[--titlebar-height:48px]");
   expect(titlebar).toContain("linux:[--titlebar-height:46px]");
-  expect(titlebar).toContain("linux:border-b");
+  // GNOME 的标题栏按分栏视图画：右半边接内容底色、不画底线，左边与侧栏同色，竖分隔线从顶到底只有一条，顶部不出现横竖交叉。
+  expect(titlebar).toContain("linux:bg-[var(--p-bg)]");
+  expect(titlebar.some((utility) => utility.startsWith("linux:border-b"))).toBe(false);
+  const brand = utilities(settings.titlebarBrand);
+  expect(brand).toContain("linux:bg-[#2e2e32]");
+  expect(brand).toContain("linux:light-theme:bg-[#ebebed]");
+  const sidebar = utilities(settings.sidebar);
+  expect(sidebar).toContain("linux:bg-[#2e2e32]");
+  expect(sidebar).toContain("linux:light-theme:bg-[#ebebed]");
 
   const controls = utilities(settings.windowControls);
   expect(controls).toContain("[&>button]:h-[var(--titlebar-height)]");

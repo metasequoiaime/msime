@@ -505,7 +505,8 @@ bool render_shot(const GalleryShot &shot, const Look &look, const Defaults &defa
         },
         [](const CandidateClick &) {}, defaults.fonts.size, defaults.fonts.preedit_size,
         defaults.fonts.family, defaults.fonts.fallback, shot.dark, shot.horizontal,
-        defaults.layout.show_preedit, [](const CandidatePage &) {},
+        defaults.layout.show_preedit, defaults.layout.show_preedit_area,
+        [](const CandidatePage &) {},
         [&](const CandidatePresentation &) { ++frames; }, false);
     window.set_expansion_handler([&](const FocusLease &, bool open) { server_open = open; });
     window.set_fonts(defaults.fonts);

@@ -47,9 +47,12 @@ final class ImePanels {
     /** 符号集插件目录读取的代次；换输入框或关闭面板时作废旧结果。 */
     private long pluginSymbolReadGeneration;
 
+    final ImeCloudClipboardAutoReceive autoCloudClipboard;
+
     ImePanels(MSIMEInputService s) {
         this.s = s;
         clipboardPreview = new ClipboardTextPreview(s);
+        autoCloudClipboard = new ImeCloudClipboardAutoReceive(s);
     }
 
     void dismissClipboardPreview() {
@@ -635,7 +638,7 @@ final class ImePanels {
             namedKeys.add(skin.key());
             choices.add(new MSIMEInputService.SkinChoice("custom", item.name(), skin, design, item.id()));
         }
-        // 社区里还没获取的皮肤：目录由 App 缓存（键盘不为浏览目录联网），选中时先存进皮肤库再换上。
+        // 社区里还没获取的皮肤：目录由 App 缓存，选中时按 ID 完整下载后再存进皮肤库并换上。
         java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> uninstalled = new java.util.HashMap<>();
         for (CommunitySkinCache.Entry entry : communityItems) {
             if (libraryIds.contains(entry.id())) continue;
@@ -682,26 +685,56 @@ final class ImePanels {
                     ViewPolicy.setSelected(other, other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
-                // 选中即换色并收起面板回到键盘，换上的皮肤直接在键盘上看。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
+                // 选中即收起面板回到键盘。还没获取的社区皮肤要先走完整下载，排在保存选择之前；下载失败时保留当前皮肤。
+                // 网络下载在 skinDownloadWorker 上等，不占 preferencesWorker（那条线程还要给下一个输入框建会话、写偏好）；下载成功后只把写皮肤库这一步排回 preferencesWorker，保证它排在随后的保存之前。
                 CommunitySkinCache.Entry install = uninstalled.get(choice);
                 if (install != null) {
                     final String directory = s.preferencesDirectory;
-                    s.preferencesWorker.execute(() -> {
-                        boolean saved = false;
-                        try {
-                            saved = CustomSkinLibrary.add(java.nio.file.Paths.get(directory),
-                                install.id(), install.name(), install.design());
-                        } catch (java.io.IOException | RuntimeException error) {
-                            android.util.Log.w("MSIMESkin", "Community skin was not saved to the library", error);
-                        }
-                        boolean installed = saved;
-                        s.main.post(() -> {
-                            if (installed) s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
-                            else s.notice("皮肤保存失败，保留当前皮肤");
+                    try {
+                        s.skinDownloadWorker.execute(() -> {
+                            CommunityCatalog.Download download = null;
+                            try {
+                                download = CommunitySkinDownloadBridge.download(s, install.id());
+                            } catch (RuntimeException error) {
+                                android.util.Log.w("MSIMESkin", "Community skin download failed", error);
+                            }
+                            if (download == null || download.failed()) {
+                                String failure = download == null ? "皮肤下载失败，请稍后重试。" : download.failure();
+                                s.main.post(() -> failSkinInstall(failure));
+                                return;
+                            }
+                            JSONObject design = download.design();
+                            try {
+                                s.preferencesWorker.execute(() -> {
+                                    boolean saved = false;
+                                    String failure = "皮肤下载失败，请稍后重试。";
+                                    try {
+                                        saved = CustomSkinLibrary.add(java.nio.file.Paths.get(directory),
+                                            install.id(), install.name(), design);
+                                        if (!saved) failure = "皮肤库已满，请先在键盘里删掉一些。";
+                                    } catch (java.io.IOException | RuntimeException error) {
+                                        android.util.Log.w("MSIMESkin", "Community skin was not saved to the library", error);
+                                    }
+                                    boolean installed = saved;
+                                    String saveFailure = failure;
+                                    s.main.post(() -> {
+                                        if (!installed) failSkinInstall(saveFailure);
+                                        // 下载期间会话可能已换掉或另一次保存还没回来，这时保存不会开始，不记换装。
+                                        else if (s.saveKeyboardSkin(choice.id(), design, choice.libraryId()))
+                                            s.recordSkinStatistics("custom");
+                                        else failSkinInstall("皮肤已存进皮肤库，但这次没换上，请重新选择。");
+                                    });
+                                });
+                            } catch (java.util.concurrent.RejectedExecutionException stopped) {
+                                // 服务已销毁，没有键盘可以换皮肤。
+                            }
                         });
-                    });
-                } else s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
-                s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
+                    } catch (java.util.concurrent.RejectedExecutionException stopped) {
+                        failSkinInstall("皮肤下载失败，请稍后重试。");
+                    }
+                } else if (s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId())) {
+                    s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
+                }
                 styleSkinPicker(cards);
                 s.closeSkinPicker();
                 s.render();
@@ -716,6 +749,12 @@ final class ImePanels {
 
     private static String choiceKey(MSIMEInputService.SkinChoice choice) {
         return choice.design() == null ? "theme:" + choice.id() : "design:" + choice.design().toString().hashCode();
+    }
+
+    /** 社区皮肤没装上：清掉临时选中态并提示，键盘保留当前皮肤。 */
+    private void failSkinInstall(String message) {
+        pendingSkinKey = null;
+        s.notice(message);
     }
 
     /** 皮肤保存回来（成功或失败）后清掉临时选中态，下次按偏好画。 */
@@ -1435,14 +1474,14 @@ final class ImePanels {
     }
 
     /** 「云端」这一刻归谁：`id` 是水杉账号编号或中继的绑定，`generation` 是账号的登录代次（中继为 0），`relay` 说明走哪条路。 */
-    private record CloudOwner(boolean relay, String id, long generation) {}
+    record CloudOwner(boolean relay, String id, long generation) {}
 
     /**
      * 「云端」这一刻归谁。偏好里配置了自建中继或 WebDAV 网盘时是中继或网盘，绑定由地址和令牌（网盘是地址和账号）算出（{@link CloudClipboardRelay#binding}），不需要登录；否则是水杉账号的登录绑定，读不到时为 null。
      *
      * <p>只看内存里的偏好快照，不读文件，主线程上可以调用。快照最多晚一秒（偏好每秒重读一次），所以后台线程真正发请求之前还会再问一次共享层（{@link CloudClipboardRelay#selected}），两边不一致就按失败处理，绝不改走账号。
      */
-    private CloudOwner cloudClipboardOwner() {
+    CloudOwner cloudClipboardOwner() {
         JSONObject preferences = s.preferencesSnapshot == null ? null : s.preferencesSnapshot.optJSONObject("preferences");
         String relay = CloudClipboardRelay.binding(preferences);
         if (!relay.isEmpty()) return new CloudOwner(true, relay, 0L);
@@ -1601,6 +1640,17 @@ final class ImePanels {
         } catch (java.util.concurrent.RejectedExecutionException error) {
             s.notice("未能发到云剪贴板，请稍后重试");
         }
+    }
+
+    /** 复制时固定账号与选路；后台校验和上传不依赖面板是否打开。 */
+    void autoSyncClipboardText(String text) {
+        if (!CloudClipboardPanelPolicy.autoUploadEligible(
+                cloudClipboardAllowed(), s.clipboardMode == ClipboardModePolicy.Mode.VISITOR, text)) return;
+        CloudOwner owner = cloudClipboardOwner();
+        if (owner == null || owner.id().isEmpty()) return;
+        ImeCloudClipboardAutoSync.submit(s.cloudClipboardWorker,
+            new ImeCloudClipboardAutoSync.Binding(owner.relay(), owner.id(), owner.generation()),
+            text, ImeCloudClipboardAutoSync.backend(s));
     }
 
     void insertCloudClipboardText(String text) {

@@ -1,3 +1,4 @@
+import app.msime.android.ShuangpinCustomKeypad;
 import app.msime.android.ShuangpinKeyHintPolicy;
 import java.util.Map;
 
@@ -66,6 +67,14 @@ public final class ShuangpinKeyHintPolicySmoke {
                 && ShuangpinKeyHintPolicy.profileWithoutView(true, "cantonese", "cantonese").isEmpty()
                 && ShuangpinKeyHintPolicy.profileWithoutView(true, "xiaohe", "quanpin").equals("xiaohe"),
             "The remembered Cantonese face is used only while Cantonese shuangpin stays selected");
+        check(ShuangpinCustomKeypad.normalizedProfile("custom").equals("custom")
+                && ShuangpinCustomKeypad.normalizedProfile("unknown").equals("xiaohe"),
+            "Custom double-pinyin profile normalization");
+        check(ShuangpinCustomKeypad.validKey("finals", ";")
+                && ShuangpinCustomKeypad.validKey("zero_initials", "aa")
+                && !ShuangpinCustomKeypad.validKey("initials", ";")
+                && !ShuangpinCustomKeypad.validKey("zero_initials", ";a"),
+            "Custom double-pinyin key validation");
         System.out.println("Android double-pinyin key hints passed");
     }
 }

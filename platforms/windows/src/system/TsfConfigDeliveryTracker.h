@@ -2,6 +2,7 @@
 
 #include "../ipc/PipeTicket.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -17,7 +18,7 @@ public:
       return true;
     if (current.size() != delivered_.size())
       return true;
-    for (size_t i = 0; i < current.size(); ++i)
+    for (std::size_t i = 0; i < current.size(); ++i)
       if (!same_ticket(current[i], delivered_[i]))
         return true;
     return false;

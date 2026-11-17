@@ -8,8 +8,10 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Process;
+import android.os.ParcelFileDescriptor;
 import android.util.Base64;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -18,7 +20,7 @@ import java.nio.file.Path;
 import org.json.JSONObject;
 
 /**
- * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献，以及主进程记着的账号绑定（`sync_state`）。
+ * 向本应用的其他进程提供登录账号或「登录的优先、否则匿名」的 access token，代 `:ime` 上传语音贡献、完整下载社区皮肤，以及主进程记着的账号绑定（`sync_state`）。
  *
  * <p>声明在主进程里且不导出，只有本 uid 能调到它。`:ime` 键盘因此从不持有 refresh token、也从不刷新，轮换的 refresh token 才不会被用两次。回答的是原生登录自己的会话（Rust 经 {@link AccountStore} 持有并刷新）；令牌只放在回复里，这里不记日志。回复里的 session_id 是账号编号（user.id）。
  */
@@ -69,6 +71,30 @@ public final class AccountSessionProvider extends ContentProvider {
             reply.putLong(AccountSessionRoutingPolicy.KEY_BINDING_GENERATION, binding.generation());
         }
         return reply;
+    }
+
+    /** 主进程执行社区皮肤完整下载；`:ime` 只通过 provider 请求，自己不联网。 */
+    @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+        if (Binder.getCallingUid() != Process.myUid()) throw new SecurityException("skin download");
+        var segments = uri.getPathSegments();
+        if (!"r".equals(mode) || segments.size() != 2
+                || !CommunitySkinDownloadStream.PATH.equals(segments.get(0))
+                || !CommunityCatalog.validDownloadId(segments.get(1))) {
+            throw new FileNotFoundException("skin download unavailable");
+        }
+        Context context = getContext();
+        JSONObject design = null;
+        String failure = "皮肤下载失败，请稍后重试。";
+        try {
+            if (context != null) {
+                CommunityCatalog.Download download = new CommunityCatalog(context).downloadSkin(segments.get(1));
+                design = download.design();
+                failure = download.failure();
+            }
+        } catch (Exception | LinkageError error) {
+            // 异常不携带设计、账号或底层日志跨进程返回。
+        }
+        return CommunitySkinDownloadStream.open(this, uri, design, failure);
     }
 
     private static BackendAccount.SessionCredential currentToken(Context context, String rejectedToken) throws Exception {
