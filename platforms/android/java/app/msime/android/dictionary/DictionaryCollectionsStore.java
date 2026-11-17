@@ -42,9 +42,15 @@ public final class DictionaryCollectionsStore {
         return pending <= 0 ? "" : "，还有 " + NumberPolicy.groupedCount(pending) + "等键盘同步";
     }
 
-    /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`。 */
+    /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`，导入词库带来源格式 `sourceFormat`（其余为空串）。 */
     public record Collection(String id, String name, String kind, String sourceType, String resourceId,
-                             boolean enabled, int entryCount, int pending) {}
+                             String sourceFormat, boolean enabled, int entryCount, int pending) {
+        /** 能否作为某个格式文件的导入目标，与共享层 `import_text` 的来源规则一致：只收拼音、不收社区词库；细胞词库只能进同为细胞词库导入的分组。 */
+        public boolean acceptsImport(String format) {
+            if (!"pinyin".equals(kind) || "community".equals(sourceType)) return false;
+            return !"scel".equals(format) || ("import".equals(sourceType) && "scel".equals(sourceFormat));
+        }
+    }
 
     /** 一次导入的结果。 */
     public record ImportReport(int imported, int duplicates, int failed, boolean truncated, String applicationNotice) {}
@@ -234,6 +240,18 @@ public final class DictionaryCollectionsStore {
         }
     }
 
+    /** 多选操作的校验、去重和提交统一由共享集合服务执行。 */
+    public static Result<View> changeSelected(Context context, List<String> ids, Boolean enabled) {
+        try {
+            JSONObject request = action(enabled == null ? "delete_many" : "set_enabled_many")
+                .put("ids", new JSONArray(ids));
+            if (enabled != null) request.put("enabled", enabled);
+            return collections(context, request, true);
+        } catch (JSONException error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
     public static Result<View> setEnabled(Context context, String id, boolean enabled) {
         try {
             return collections(context, action("set_enabled").put("id", id).put("enabled", enabled), true);
@@ -264,15 +282,26 @@ public final class DictionaryCollectionsStore {
      *
      * @param format client-services 的格式名（来自 {@link View#formats}）
      * @param name 新词库的名字，已经按 {@link #nameFromFile} 收好
-     * @param bytes 文件内容；`scel` 这类二进制格式按 base64 传，其余按 UTF-8 文本传
+     * @param bytes 文件内容；`scel` 这类二进制格式按 base64 传，其余按 UTF-8 文本传。文本格式收到 zip 压缩包时取里面的词库文本（见 {@link #textFromArchive}）
      */
     public static Result<View> importFile(Context context, String format, String name, byte[] bytes) {
+        return importFile(context, format, null, name, bytes);
+    }
+
+    /** 导入到已有分组时保留其名字、启停状态及共享去重规则。 */
+    public static Result<View> importFile(Context context, String format, String id, String name, byte[] bytes) {
         if (bytes == null || bytes.length == 0) return Result.failed(failureMessage("import_empty"));
+        if (!binaryFormat(format) && isZipArchive(bytes)) {
+            bytes = textFromArchive(bytes);
+            if (bytes == null) return Result.failed(failureMessage("import_archive_without_text"));
+            if (bytes.length == 0) return Result.failed(failureMessage("import_empty"));
+        }
         if (bytes.length > (binaryFormat(format) ? MAX_SCEL_IMPORT_BYTES : MAX_IMPORT_BYTES)) {
             return Result.failed(failureMessage("collections_too_large"));
         }
         try {
             JSONObject request = action("import").put("name", name).put("kind", "pinyin").put("format", format);
+            if (id != null) request.put("id", id);
             if (binaryFormat(format)) {
                 request.put("bytes_base64", java.util.Base64.getEncoder().encodeToString(bytes));
             } else {
@@ -496,13 +525,65 @@ public final class DictionaryCollectionsStore {
         return "scel".equals(format);
     }
 
+    /** 文件是不是 zip 压缩包：识别本地文件头、空压缩包和分卷文件的标准签名。 */
+    public static boolean isZipArchive(byte[] bytes) {
+        return bytes != null && bytes.length >= 4 && bytes[0] == 'P' && bytes[1] == 'K'
+            && (bytes[2] == 3 && bytes[3] == 4
+                || bytes[2] == 5 && bytes[3] == 6
+                || bytes[2] == 7 && bytes[3] == 8);
+    }
+
+    /** 压缩包里最多看这么多个条目，再多就不是词库导出的包了。 */
+    private static final int MAX_ARCHIVE_ENTRIES = 64;
+
     /**
-     * 导入来源对话框的选项：只列 client-services 实际接受的格式，按「文本、搜狗、Rime、纯汉字」排；`standard` 和 `windows` 是文本文件的两种列顺序，由 client-services 在 `txt` 里自动识别，不单独列出。
+     * 从 zip 压缩包里取出词库文本。Gboard 的「导出」给的是 `PersonalDictionary.zip`，词条在里面的 `dictionary.txt`；把压缩包直接当文本读，里面全是控制字符，client-services 只能答「无法识别的字符」。
+     *
+     * <p>有 `dictionary.txt` 就用它，没有时包里只有一个 `.txt` 才用那一个，多个 `.txt` 说不准该用哪个，不猜。解压后超过 {@link #MAX_IMPORT_BYTES} 的条目不读完，按取不到处理，所以压缩炸弹撑不大内存。
+     *
+     * @return 文本文件的内容；包里没有可用的文本、包已损坏或解压后太大时为 null
+     */
+    public static byte[] textFromArchive(byte[] archive) {
+        byte[] only = null;
+        int texts = 0;
+        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(archive))) {
+            java.util.zip.ZipEntry entry;
+            for (int seen = 0; seen < MAX_ARCHIVE_ENTRIES && (entry = zip.getNextEntry()) != null; seen++) {
+                if (entry.isDirectory()) continue;
+                String path = TextPolicy.lowercase(entry.getName());
+                if (!path.endsWith(".txt")) continue;
+                byte[] content = readEntry(zip);
+                if (content == null) return null;
+                String file = path.substring(path.lastIndexOf('/') + 1);
+                if (file.equals("dictionary.txt")) return content;
+                only = content;
+                texts++;
+            }
+        } catch (java.io.IOException | IllegalArgumentException error) {
+            // 损坏的包，或条目名不是合法编码。
+            return null;
+        }
+        return texts == 1 ? only : null;
+    }
+
+    /** 读完当前条目；超过导入上限时返回 null。 */
+    private static byte[] readEntry(java.util.zip.ZipInputStream zip) throws java.io.IOException {
+        java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[64 * 1024];
+        for (int read; (read = zip.read(buffer)) != -1; ) {
+            if (output.size() + read > MAX_IMPORT_BYTES) return null;
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
+    }
+
+    /**
+     * 导入来源对话框的选项：只列 client-services 实际接受的格式，按「文本、搜狗、Rime、纯汉字」排；`standard` 和 `windows` 是文本文件的两种列顺序，由 client-services 在 `txt` 里自动识别，不单独列出。文本一项也让选 zip：Gboard 导出的是压缩包，文件选择器按 `text/plain` 过滤时它是灰的。
      */
     public static List<ImportSource> importSources(List<String> formats) {
         List<ImportSource> sources = new ArrayList<>(formats.size());
         if (formats.contains("txt")) {
-            sources.add(new ImportSource("txt", "文本文件（.txt）", new String[] {"text/plain"}));
+            sources.add(new ImportSource("txt", "文本文件（.txt，或 Gboard 导出的 .zip）", new String[] {"text/plain", "application/zip"}));
         }
         if (formats.contains("scel")) {
             sources.add(new ImportSource("scel", "搜狗细胞词库（.scel）", new String[] {"application/octet-stream", "*/*"}));
@@ -522,12 +603,14 @@ public final class DictionaryCollectionsStore {
         switch (code) {
             case "collections_name_invalid": return "词库名需要 1–32 个字，首尾不能有空格。";
             case "collections_limit": return "词库数量或词条数已达上限。";
+            case "collections_source_conflict": return "此分组不能接收该来源，请新建分组导入。";
             case "collections_not_found": return "这个词库已经不在了，列表已刷新。";
             case "builtin_locked": return "内置词库始终启用，不能停用或改名。";
             case "unsupported_format": return "暂不支持这种文件格式。";
             case "import_empty": return "文件是空的。";
             case "collections_too_large": return "文件太大，词库存不下。";
             case "import_control_characters": return "文件里有无法识别的字符，请确认是文本格式。";
+            case "import_archive_without_text": return "压缩包里没有找到词库文本，请解压后选择里面的 .txt 文件。";
             case "import_no_usable_rows": return "没有读到可用的词条，请检查文件格式。";
             case "import_malformed": return "文件不完整或已损坏，请重新下载。";
             case "collections_corrupt": return "词库文件已损坏，为避免丢失没有改动它。";
@@ -555,10 +638,12 @@ public final class DictionaryCollectionsStore {
                 String type = source == null ? "user" : JsonPolicy.strictString(source.opt("type"));
                 String resource = source == null || !source.has("resource_id")
                     ? "" : JsonPolicy.strictString(source.opt("resource_id"));
+                String sourceFormat = source == null || !"import".equals(type) || !source.has("format")
+                    ? "" : JsonPolicy.strictString(source.opt("format"));
                 if (id == null || name == null || kind == null || enabled == null
                         || entryCount == null || pending == null || type == null
-                        || resource == null) continue;
-                collections.add(new Collection(id, name, kind, type, resource, enabled,
+                        || resource == null || sourceFormat == null) continue;
+                collections.add(new Collection(id, name, kind, type, resource, sourceFormat, enabled,
                     entryCount, pending));
             }
         }

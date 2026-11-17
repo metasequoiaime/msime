@@ -138,9 +138,13 @@ public final class CandidateExpansionDeviceSmoke extends Instrumentation {
                 }
             }
         });
+        if (failure[0] == null) {
+            try { CandidatePanelRefreshDeviceChecks.run(this, next -> stage = next); }
+            catch (Exception | AssertionError error) { failure[0] = error; }
+        }
         Bundle result = new Bundle();
         result.putString("stream", failure[0] == null
-            ? "MSIME_DEVICE_SMOKE_PASSED: shoudao gloss and panel expansion, rapid typing and repeated candidate selection\n"
+            ? "MSIME_DEVICE_SMOKE_PASSED: shoudao expansion, async panel refresh, stale callbacks and candidate selection\n"
             : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + failure[0].getClass().getSimpleName() + ")\n");
         finish(failure[0] == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
     }

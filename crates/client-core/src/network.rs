@@ -13,6 +13,7 @@ use std::sync::{OnceLock, RwLock};
 pub const MAX_PROXY_SERVER_BYTES: usize = 512;
 
 /// `network.proxy_mode` 的三个用户选项与 Windows 正式版相同；`CustomRequired` 仅表示运行时降级后仍需代理。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyMode {
@@ -40,6 +41,7 @@ impl std::fmt::Display for RequiredProxyUnavailable {
 impl std::error::Error for RequiredProxyUnavailable {}
 
 /// 偏好文档里的 `network` 一节。默认值与 Windows 正式版一致：跟随系统代理，不填服务器。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct NetworkPreferences {

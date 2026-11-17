@@ -1,3 +1,4 @@
+#include "../settings/DictionaryCollectionsLauncher.h"
 #include "../settings/LocalTranslationLauncher.h"
 #include "../settings/QuickPhraseClearLauncher.h"
 #include "ClientEngine.h"
@@ -1669,6 +1670,8 @@ void dismiss_mode_badge(const IBusEngine *engine);
 #endif
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
+  if (panel && std::string_view(panel) == "dictionary-groups")
+    return msime::linux_host::launch_dictionary_collections(configured.value("preferences_directory", std::string{}));
   if (panel && std::string_view(panel) == "local-translation")
     return msime::linux_host::launch_local_translation(configured.value("preferences_directory", std::string{}));
   if (panel && std::string_view(panel) == "quick-phrase-clear")
@@ -1722,6 +1725,9 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/Handwriting", "handwriting", msime::linux_host::menu_label::kHandwriting, DesktopPanelSlot::Top},
 #ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
     {"DesktopTools/LocalTranslation", "local-translation", "本地模型翻译…", DesktopPanelSlot::Footer},
+#endif
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+    {"DesktopTools/DictionaryGroups", "dictionary-groups", "词库分组…", DesktopPanelSlot::Footer},
 #endif
     {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
     {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},

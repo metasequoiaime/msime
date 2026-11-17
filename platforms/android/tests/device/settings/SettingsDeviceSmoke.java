@@ -60,6 +60,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private WebView web;
     private boolean settingsSearchAnchor;
     private boolean skinDelete;
+    private boolean skinRefresh;
     private boolean vocabulary;
     private boolean noticeQueue;
     private boolean phraseNotes;
@@ -67,9 +68,12 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private boolean screenCapture;
     private boolean voiceTriggers;
     private boolean localVoicePause;
+    private boolean shuangpinCustom;
 
     @Override public void onCreate(Bundle arguments) {
+        shuangpinCustom = arguments != null && "true".equals(arguments.getString("shuangpin-custom"));
         settingsSearchAnchor = arguments != null && "true".equals(arguments.getString("settings-search-anchor"));
+        skinRefresh = arguments != null && "true".equals(arguments.getString("skin-refresh"));
         skinDelete = arguments != null && "true".equals(arguments.getString("skin-delete"));
         vocabulary = arguments != null && "true".equals(arguments.getString("vocabulary"));
         noticeQueue = arguments != null && "true".equals(arguments.getString("notice-queue"));
@@ -82,6 +86,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected String successDescription() {
+        if (shuangpinCustom) return "自定义双拼文件边界、原生保存并使用、独立键盘进程提示和实际输入";
         if (settingsSearchAnchor) return "native settings search opens the matched row and section from both result groups";
         if (voiceTriggers) return "voice trigger combinations, existing settings and independent toolbar switches";
         if (localVoicePause) return "local voice pause and sensitivity settings save and survive page recreation";
@@ -89,11 +94,16 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         if (phraseCategories) return "native common phrase categories, accordion defaults, insertion and ZIP backup";
         if (phraseNotes) return "native common phrase note CRUD, persistence, backup and body-only keyboard insertion";
         if (noticeQueue) return "native settings content loads while notice fetch and dismissal are blocked";
+        if (skinRefresh) return "native skin tabs reload newly saved designs and clear deleted community actions";
         if (skinDelete) return "native saved skin cancellation, removal, empty library and active design preservation";
         if (vocabulary) return "bundled wordbooks extracted, listed through JNI and answered";
         return "React community entry, save, named custom skin CRUD, Apple custom keyboard design, keyboard geometry reset, scheme visibility fallback, persistence and cross-process IME application";
     }
     @Override protected void runChecks() throws Exception {
+        if (shuangpinCustom) {
+            new ShuangpinCustomDeviceChecks(this).run();
+            return;
+        }
         if (settingsSearchAnchor) {
             new SettingsSearchAnchorDeviceChecks(this).run();
             return;
@@ -120,6 +130,10 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         }
         if (noticeQueue) {
             new NoticeQueueDeviceCheck(this).run();
+            return;
+        }
+        if (skinRefresh) {
+            new SkinTabRefreshDeviceCheck(this).run();
             return;
         }
         if (skinDelete) {

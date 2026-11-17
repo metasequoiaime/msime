@@ -1175,6 +1175,50 @@ fn typo_sentence_follows_the_literal_sentence() {
     assert_eq!(correct[0].word, "没关系");
 }
 
+/// `xianzia` 是 `xianzai` 的乱序，整串读得成 xian'zi'a，没有一个音节能单独换掉，只有把 zi'a 合回一个音节才读得通。
+fn resegmented_typo_fixture() -> Fixture {
+    let fixture = Fixture::new();
+    fixture
+        .insert("xian", "先", 1000)
+        .insert("xian'zi", "仙子", 800)
+        .insert("zi", "子", 1000)
+        .insert("a", "啊", 1000)
+        .insert("wo", "我", 1000)
+        .insert("zai", "在", 1000)
+        .insert("xian'zai", "现在", 100_000)
+        .insert("zai'wo", "在我", 100);
+    fixture.table("xian'zai'wo");
+    fixture
+}
+
+#[test]
+fn a_typo_that_splits_one_syllable_into_legal_ones_gets_a_typo_sentence() {
+    let fixture = resegmented_typo_fixture();
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    dictionary.set_sentence_alternatives(true);
+
+    let off = query(&mut dictionary, "xianziawo", "xian'zi'a'wo", NONE);
+    assert_eq!(typo_row(&off), None);
+
+    let listed = query(&mut dictionary, "xianziawo", "xian'zi'a'wo", BOTH);
+    let row = typo_row(&listed).expect("the re-segmented typo sentence appears");
+    let item = &listed[row];
+    assert_eq!(item.word, "现在我");
+    assert_eq!(item.corrected_from, "xianziawo");
+    assert_eq!(item.canonical_pinyin, "xian'zai'wo");
+    // 纠错句远胜字面整句（现在 100000 对 仙子 800），坐第一条整句后面，不排到整句块之后。
+    assert_eq!(
+        row,
+        position(&listed, "仙子啊我") + 1,
+        "{:?}",
+        words(&listed)
+    );
+
+    let correct = query(&mut dictionary, "xianzaiwo", "xian'zai'wo", BOTH);
+    assert_eq!(typo_row(&correct), None);
+    assert_eq!(correct[0].word, "现在我");
+}
+
 #[test]
 fn typo_sentence_never_leads_a_strong_literal_phrase() {
     let fixture = typo_fixture(true);

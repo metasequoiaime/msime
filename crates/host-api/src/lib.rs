@@ -84,6 +84,8 @@ pub mod cloud_sync;
 mod dictionary;
 /// 「我的词条」经 WebDAV 网盘同步的宿主入口，见 `msime_client_dictionary_sync`。公开 [`dictionary_webdav::request_json`]，给直接链接这个 crate 的 Tauri 设置应用用，免得它绕一圈 C ABI。
 pub mod dictionary_webdav;
+/// 设置与可移植主题的 WebDAV 同步宿主入口。
+pub mod settings_webdav;
 /// 同一台设备上两个各有一份个人词库的进程之间交换「我的词条」，见 `msime_client_user_words_mirror`。
 mod user_words_mirror;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
@@ -985,10 +987,7 @@ impl HostSession {
                 .unwrap_or(preferences.candidate_page_size),
         );
         options.first_page_rows = usize::from(page_size);
-        // Unconditional, because `Runtime::crop_alternative_readings` runs whether or not a model is
-        // attached: the host always shows one whole-sentence reading. Asking for the rest only ever
-        // gives it more to choose from, and even with no model the engine's own pick among them is
-        // better than the one it makes when it searches without alternatives.
+        // Unconditional, because `Runtime::demote_runner_up_readings` (`ordering::runner_up_order_pinned`) runs whether or not a model is attached: the host keeps only the leading whole-sentence readings on the first page and moves the rest behind the list. Asking for the rest only ever gives it more to choose from, and even with no model the engine's own pick among them is better than the one it makes when it searches without alternatives.
         options.sentence_alternatives = true;
         apply_local_mode_resource_gates(&mut options, self.edition);
         options.paired_punctuation = preferences.paired_punctuation;
@@ -1541,6 +1540,10 @@ fn profile_code(profile: ShuangpinProfile) -> u8 {
         ShuangpinProfile::Microsoft => 3,
         ShuangpinProfile::SmartAbc => 5,
         ShuangpinProfile::Custom => 4,
+        ShuangpinProfile::Sogou => 6,
+        ShuangpinProfile::Jiajia => 7,
+        ShuangpinProfile::Ziguang => 8,
+        ShuangpinProfile::Guobiao => 9,
     }
 }
 
@@ -1677,6 +1680,103 @@ pub fn builtin_shuangpin_custom_profile(
         finals: map(table.finals),
         zero_initials: map(table.zero_initials),
     })
+}
+
+/// 26 键双拼方案在宿主看来的样子：设置页和键盘从同一份表取键位提示，
+/// 自定义表不能用时按小鹤运行并保留问题给设置页显示。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinCustomLayout {
+    pub effective: ShuangpinProfile,
+    pub table: ShuangpinCustomProfile,
+    pub problem: Option<ShuangpinCustomProblem>,
+    pub keys: Vec<ShuangpinKeyFace>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinKeyFace {
+    pub key: String,
+    pub hint: String,
+}
+
+const SHUANGPIN_KEY_ORDER: [&str; 27] = [
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a", "s", "d", "f", "g", "h", "j", "k", "l",
+    "z", "x", "c", "v", "b", "n", "m", ";",
+];
+
+fn shuangpin_key_hint(table: &ShuangpinCustomProfile, key: &str) -> String {
+    let units = |part: &std::collections::BTreeMap<String, String>| {
+        let mut values: Vec<String> = part
+            .iter()
+            .filter(|(_, mapped)| mapped.eq_ignore_ascii_case(key))
+            .map(|(unit, _)| {
+                unit.strip_prefix('v')
+                    .map_or_else(|| unit.clone(), |rest| format!("ü{rest}"))
+            })
+            .collect();
+        values.sort();
+        values.join(" ")
+    };
+    let initials = units(&table.initials);
+    let mut finals = units(&table.finals);
+    // 零声母的第二个键可以是 `;`（Engine 的 `uses_semicolon_key` 也这样算）：把这些音节也记在 `;` 上，键盘按 `;` 有没有提示决定显不显示这个键，否则只在零声母里用到 `;` 的表在触屏上打不出这些音节。
+    if key == ";" {
+        let mut zero: Vec<&str> = table
+            .zero_initials
+            .iter()
+            .filter(|(syllable, code)| {
+                code.ends_with(';') && !finals.split(' ').any(|unit| unit == syllable.as_str())
+            })
+            .map(|(syllable, _)| syllable.as_str())
+            .collect();
+        zero.sort_unstable();
+        if !zero.is_empty() {
+            if !finals.is_empty() {
+                finals.push(' ');
+            }
+            finals.push_str(&zero.join(" "));
+        }
+    }
+    match (initials.is_empty(), finals.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => finals,
+        (false, true) => initials,
+        (false, false) => format!("{initials} / {finals}"),
+    }
+}
+
+/// 26 键双拼方案的表、问题和每个字母键的提示。不落盘，编辑中的每次修改都可以调用。
+pub fn shuangpin_custom_layout(
+    profile: ShuangpinProfile,
+    custom: &ShuangpinCustomProfile,
+) -> ShuangpinCustomLayout {
+    let problem = (profile == ShuangpinProfile::Custom)
+        .then(|| custom_shuangpin_profile_problem(custom))
+        .flatten();
+    let effective = if profile == ShuangpinProfile::Custom && problem.is_some() {
+        ShuangpinProfile::Xiaohe
+    } else {
+        profile
+    };
+    let table = builtin_shuangpin_custom_profile(effective).unwrap_or_else(|| custom.clone());
+    let keys = SHUANGPIN_KEY_ORDER
+        .iter()
+        .filter_map(|key| {
+            let hint = shuangpin_key_hint(&table, key);
+            if hint.is_empty() {
+                return None;
+            }
+            Some(ShuangpinKeyFace {
+                key: key.to_ascii_uppercase(),
+                hint,
+            })
+        })
+        .collect();
+    ShuangpinCustomLayout {
+        effective,
+        table,
+        problem,
+        keys,
+    }
 }
 
 /// 把双拼方案写进 Engine 选项。选的是自定义方案时先让 Engine 校验用户的表：表是空的或不合法时按小鹤运行，返回原因，免得一张写坏的表让 Engine 建不起来、整个输入法停在旧会话上。

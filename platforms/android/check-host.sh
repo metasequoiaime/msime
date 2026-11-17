@@ -1072,16 +1072,14 @@ if ! rg -q 'clipboardAction\(header, "插入"' \
   echo "Android clipboard multi-selection must insert 1 to 4 records in ordinal order with badges (#10411)" >&2
   exit 1
 fi
-# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览，顶栏和底部操作行的两个「返回」都按来源给读屏说明。
+# 长按全文预览的「详情」排在「插入」左边，详情页返回时回到这个预览（#9963）。返回到哪一级由 ClipboardDetailPolicySmoke 覆盖；接线在 PopupWindow 和面板里，JVM 冒烟碰不到，这里钉住：预览先加「详情」再加「插入」，本机记录的预览把详情交给 Origin.PREVIEW，返回经 reopensPreview 决定是否重开预览。详情页的顶部栏及其触摸命中由 ToolbarEdgesDeviceSmoke 覆盖。
 if ! rg -U -q 'addAction\(actions, "详情",[^\n]*\n\s*if \(insert != null\) addAction\(actions, "插入"' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardTextPreview.java" \
   || ! rg -q 'openClipboardDetail\(item, ClipboardDetailPolicy\.Origin\.PREVIEW\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
   || ! rg -A 10 'private void returnFromClipboardDetail\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
-    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\(' \
-  || [ "$(rg -c 'ClipboardDetailPolicy\.backDescription\(clipboardDetailOrigin\)' \
-    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java")" != 2 ]; then
+    | rg_q_stdin 'ClipboardDetailPolicy\.reopensPreview\('; then
   echo "Android clipboard full-text preview must offer 详情 left of 插入 and return to the preview (#9963)" >&2
   exit 1
 fi
@@ -1201,11 +1199,12 @@ if ! rg -q '@Override public void onTrimMemory\(int level\)' \
   echo "Android IME must release process-level model caches on memory pressure" >&2
   exit 1
 fi
-# Simplified/Traditional output is the shared OpenCC s2t tables, phrase-level, and the same
-# conversion Windows and Linux use. This host converted one character at a time through
-# android.icu.Transliterator, which turns 头发 into 頭發 and is silently unavailable below API 29.
-if ! rg -q 'NativeClient::simplifiedToTraditional' \
+# 简繁输出使用共享的词级 OpenCC 表，并通过 Android 设置页提供 s2tw 和 s2twp 变体。旧实现按字符调用
+# android.icu.Transliterator，会把「头发」变成「頭發」，且在 API 29 以下不可用。
+if ! rg -q 'NativeClient\.convertToTraditional' \
     "$repo_root/platforms/android/java/app/msime/android/core/AndroidChineseTextConversion.java" \
+  || ! rg -q 'traditionalVariantCode' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/ChineseOutputPolicy.java" \
   || rg -q '^import android\.icu\.text\.Transliterator' "$repo_root/platforms/android/java"; then
   echo "Android Simplified/Traditional output must use the shared converter" >&2
   exit 1
@@ -1323,38 +1322,6 @@ if [[ "$legacy_readers" != "platforms/android/java/app/msime/android/settings/Ke
   echo "Android touch key layout styles must read the shared preferences, migrate the two legacy local keys before any settings export or live read, re-render when they change, and draw the number row on 14/18 keys" >&2
   exit 1
 fi
-# 九键滑动输入数字（#10229）：方向在共享偏好 touch_nine_key_swipe_digits 里、随账号同步，判定规则、宽松读法和迁移的纯逻辑由 NineKeySwipePolicySmoke 和 TouchKeyStyleSmoke 覆盖；接线在 InputMethodService、键盘页和迁移里，JVM 冒烟碰不到，这里钉住：本机旧键 platform.android.nine_key_swipe 只有迁移读（AndroidLocalSettings 声明它、KeyLayoutStyleMigration 把它交给 client-core 后删掉，距离不删）；键盘的两条偏好路径都从共享偏好读，滑动判定读服务上的当前值；键盘页这一行读写共享偏好，不再写本机键；反方向弹出的选项跟着这次按压拖选（#10443），移动、抬手和取消都交给字母选项的拖选入口。
-nine_key_legacy_readers=$(rg -l 'AndroidLocalSettings\.NINE_KEY_SWIPE\b' "$repo_root/platforms/android/java" | sed "s#^$repo_root/##" | LC_ALL=C sort | tr '\n' ' ')
-keyboard_options="$repo_root/platforms/android/java/app/msime/android/home/KeyboardOptionsPage.java"
-if [[ "$nine_key_legacy_readers" != "platforms/android/java/app/msime/android/settings/KeyLayoutStyleMigration.java " ]] \
-  || ! rg -q 'request\.put\("nine_key_swipe", local\.choice\(AndroidLocalSettings\.NINE_KEY_SWIPE\)\);' "$style_migration" \
-  || ! rg -q 'removal\.put\(AndroidLocalSettings\.NINE_KEY_SWIPE, null\);' "$style_migration" \
-  || rg -q 'removal\.put\(AndroidLocalSettings\.NINE_KEY_SWIPE_DISTANCE' "$style_migration" \
-  || ! rg -q 'local\.has\(AndroidLocalSettings\.NINE_KEY_SWIPE\)' "$style_migration" \
-  || ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
-    | rg_q_stdin 'nineKeySwipeDigits = nineKeySwipeDigitsFrom\(preferences\);' \
-  || ! sed -n '/private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {$/,/^    }$/p' "$account_service" \
-    | rg_q_stdin 'String nextNineKeySwipeDigits = nineKeySwipeDigitsFrom\(preferences\);' \
-  || ! rg -q 'nineKeySwipeDigits = nextNineKeySwipeDigits;' "$account_service" \
-  || ! sed -n '/private static String nineKeySwipeDigitsFrom(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
-    | rg_q_stdin 'NineKeySwipePolicy\.mode\(' \
-  || ! sed -n '/private static final String\[\] SKIN_HINT_KEYS = {/,/};$/p' "$account_service" | rg_q_stdin 'NineKeySwipePolicy\.PREFERENCE' \
-  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 's\.nineKeySwipeDigits, downY\[0\],' \
-  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" \
-    | rg_q_stdin 's\.localSettings\.integer\(AndroidLocalSettings\.NINE_KEY_SWIPE_DISTANCE\)' \
-  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'moveLetterOptions\(keyButton, event\);' \
-  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'finishLetterOptions\(keyButton, event\)' \
-  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" | rg_q_stdin 'cancelLetterOptions\(keyButton\);' \
-  || ! sed -n '/private void bindNineKeySwipe(/,/^    }$/p' "$layout_rows" \
-    | rg_q_stdin 'key\.label\(\)\.toLowerCase\(java\.util\.Locale\.ROOT\), true\);' \
-  || ! rg -q 'JsonPolicy\.strictString\(preferences\.opt\(NineKeySwipePolicy\.PREFERENCE\)\)' "$keyboard_options" \
-  || ! sed -n '/private void pickNineKeySwipe(/,/^    }$/p' "$keyboard_options" | rg_q_stdin 'savePreference\(NineKeySwipePolicy\.PREFERENCE, value\);' \
-  || ! rg -q '"沿所选方向滑动输入数字，反方向弹出字母。"' "$keyboard_options" \
-  || ! sed -n '/private static String nineKeySwipeLabel(/,/^    }$/p' "$keyboard_options" \
-    | rg_q_stdin '"上滑" : SwipeHintPolicy\.DOWN\.equals\(value\) \? "下滑" : "关闭"'; then
-  echo "Android nine-key swipe digits must read and write the shared touch_nine_key_swipe_digits, read the current value on every touch, and leave the legacy local key to KeyLayoutStyleMigration only, and let the swipe-opened options be drag-selected (#10443)" >&2
-  exit 1
-fi
 # 长空格样式留着的工具栏行看用户的 26 键样式和这块键盘的中文键面，不看此刻的中/英（TouchKeyStyle.Styles.keepsToolbarRow，规则由 TouchKeyStyleSmoke 覆盖）；这里钉住宿主的接线：工具栏行和隐藏工具栏时藏起按钮都读 longSpaceToolbarRowKept，英文模式下中文键面取只在中文时更新的 touchLayoutHint。之前读的是按此刻语言算的 longSpaceLayoutActive，工具栏隐藏时每次切中/英这一行都出没一次，键盘高度跟着跳。自动数字行与共享偏好分开传给 drawsNumberRow，自动数字行不扩到 14/18 键。
 if ! sed -n '/boolean toolbarRowHidden() {$/,/^    }$/p' "$account_service" | rg_q_stdin 'if \(longSpaceToolbarRowKept\(\)\) return false;' \
   || ! sed -n '/boolean longSpaceToolbarRowKept() {$/,/^    }$/p' "$account_service" \
@@ -1407,7 +1374,7 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'eighteen = KeyLayoutStylesPolicy.eighteen(current, shuangpinLayout);' <<< "$style_render" \
   || ! rg_q_stdin -F 'numbers.toggle("顶部数字行", null, numberRow, checked -> {' <<< "$style_render" \
   || ! rg_q_stdin -F '}).help(NUMBER_ROW_NOTE);' <<< "$style_render" \
-  || ! rg_q_stdin -F 'save(edited -> edited.put(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked));' <<< "$style_render" \
+  || ! rg_q_stdin -F 'save(TouchKeyStyle.NUMBER_ROW_PREFERENCE, checked);' <<< "$style_render" \
   || ! rg_q_stdin -F 'if (kinds.size() > 1) {' <<< "$style_section" \
   || ! rg_q_stdin -U 'segments\.setOnSelect\(index -> \{\n\s*kind = kinds\.get\(index\);\n\s*refreshStyles\(\);\n\s*\}\);' <<< "$style_section" \
   || rg_q_stdin -F 'HorizontalScrollView' <<< "$style_section" \
@@ -1423,7 +1390,7 @@ if ! rg_q_stdin -U 'if \(!groups\.numberRow\(\)\) return;\n\s*GroupCard numbers 
   || ! rg_q_stdin -F 'info.setClassName(Button.class.getName());' <<< "$style_chip" \
   || ! rg_q_stdin -F 'info.setStateDescription(checked ? "已选择" : "未选择");' <<< "$style_chip" \
   || ! sed -n '/    private void choose(/,/^    }$/p' "$style_page" \
-    | rg_q_stdin -U 'styles = shown\.with\(styles, option\);\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(shown\.preference, option\.wire\)\);' \
+    | rg_q_stdin -U 'styles = shown\.with\(styles, option\);\n\s*refreshStyles\(\);\n\s*save\(shown\.preference, option\.wire\);' \
   || ! rg -qF 'KeyboardSheets.save(this, edit, null, this::reload);' "$style_page" \
   || ! rg -qF 'setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);' "$style_preview" \
   || rg -q 'BottomRowPreview|styleGroup\(|optionRow\(|group\.footer\(' "$style_page" \
@@ -1546,7 +1513,7 @@ fi
 if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   || ! rg -qF '+ ":" + numberPadSpace.resolved() + ":" + languageLeft' "$bottom_row_file" \
   || ! sed -n '/    private LinearLayout tallReturnMiddleColumn(/,/^    }$/p' "$layout_rows" \
-    | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft)) {' \
+    | rg_q_stdin -F 's.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS), digits, languageLeft);' \
   || ! sed -n '/    boolean tallReturnStale() {$/,/^    }$/p' "$layout_rows" | rg_q_stdin -F 'builtTallReturnLanguageLeft != s.languageKeyLeft' \
   || ! rg_q_stdin -F 'languageLeft = TouchKeyStyle.languageLeft(preferences.opt(TouchKeyStyle.LANGUAGE_KEY_SIDE_PREFERENCE));' <<< "$style_render" \
   || ! rg_q_stdin -U '\n        \}\n\s*//.*\n\s*toggles\.toggle\(TouchKeyStyle\.LANGUAGE_LEFT_TITLE, null, languageLeft, checked -> \{\n\s*languageLeft = checked;\n\s*refreshStyles\(\);\n\s*save\(edited -> edited\.put\(TouchKeyStyle\.LANGUAGE_KEY_SIDE_PREFERENCE, TouchKeyStyle\.languageKeySideWire\(checked\)\)\);\n\s*\}\)\.help\(TouchKeyStyle\.LANGUAGE_LEFT_NOTE\);' <<< "$style_section" \
@@ -1603,7 +1570,7 @@ for builder in 'void rebuildNineKeyRows() {' 'void rebuildStrokeRows() {'; do
   fi
 done
 if ! rg -q 'imeLetterRows\.numberPadStale\(\) \|\| imeLayoutRows\.tallReturnStale\(\)\)' "$account_service" \
-  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, true, tallReturn, true\);' "$layout_rows" \
+  || ! rg -q 'FrameLayout sidebar = symbolSidebar\(digits, false, tallReturn, true\);' "$layout_rows" \
   || ! rg -q 'case TALL_RETURN -> "右侧大回车";' "$style_policy" \
   || ! rg -qF 'case NINE -> nineActionColumn(converted(KeyHeatmapLayout.nine(offered(kind, style), languageLeft)));' "$style_policy"; then
   echo "Android tall-return wiring is missing: render must rebuild on tallReturnStale, the sidebar must read the tall table, and the settings page must label 右侧大回车 and preview the whole nine-key frame" >&2
@@ -1628,24 +1595,22 @@ if ! rg_q_stdin 'int frameLayout = s\.displayedTouchLayout\(s\.view\);' <<< "$ni
   echo "Android rebuildNineKeyRows must size the tall-return frame by the displayed face, so stroke's number layer keeps the stroke frame" >&2
   exit 1
 fi
-# 右侧大回车接到符号栏末尾的 ！ 接替拼音九键右列 ！ 的手势（右上角印 0、沿「九键滑动输入数字」的方向滑出 0、长按上下标 0），否则字母层没有直接输入 0 的地方；哪一格由 NineKeySidebarPolicy.appendedExclamationIndex 定（NineKeySidebarPolicySmoke 钉住），绑定在 symbolSidebar 里。笔画右列的 ！ 本来没有这个手势，笔画不带。
+# 右侧大回车接到符号栏末尾的 ！ 接替拼音九键右列 ！ 的手势（右上角印 0、上滑滑出 0、长按上下标 0），否则字母层没有直接输入 0 的地方；哪一格由 NineKeySidebarPolicy.appendedExclamationIndex 定（NineKeySidebarPolicySmoke 钉住），绑定在 symbolSidebar 里。笔画右列的 ！ 本来没有这个手势，笔画不带。
 sidebar_body=$(sed -n '/    private FrameLayout symbolSidebar(boolean digits, boolean capped, int visibleRows, boolean tallReturn,$/,/^    }$/p' "$layout_rows")
 if ! rg_q_stdin 'NineKeySidebarPolicy\.appendedExclamationIndex\(digits,' <<< "$sidebar_body" \
   || ! rg_q_stdin 'exclamation\.setDigitText\(SuperscriptShortcutPolicy\.ZERO\);' <<< "$sidebar_body" \
   || ! rg_q_stdin 's\.imeLetterRows\.bindNineKeySuperscriptShortcut\(exclamation, symbol\);' <<< "$sidebar_body" \
-  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, true, true, false\)' "$layout_rows"; then
+  || ! rg -q 'FrameLayout sidebar = tallReturn \? symbolSidebar\(false, false, true, false\)' "$layout_rows"; then
   echo "Android tall-return sidebar ！ must carry the right-column ！ zero gestures on nine-key and not on stroke" >&2
   exit 1
 fi
-# 拼音九键字母层的 ！（右列，及右侧大回车接到符号栏末尾的那个）滑出 0 的方向跟「九键滑动输入数字」走，选下滑时下滑出 0，与 1–9 键一致（#10441）；123 / #+= 符号页的 ！ 仍是固定上滑。方向和阈值每次按下时从服务上读，不在建键时定死。
-superscript_nine_body=$(sed -n '/    private void bindSuperscriptShortcut(Button key, String text, boolean nineKey) {$/,/^    }$/p' "$letter_rows")
+# 拼音九键字母层的 ！（右列，及右侧大回车接到符号栏末尾的那个）与 123 / #+= 符号页的 ！ 相同，固定上滑 14 dp 滑出 0。「九键滑动输入数字」改成三向 flick 后没有了设置入口，旧的下滑选择和本机「九键滑动距离」不能再影响 ！。
+nine_superscript_body=$(sed -n '/    void bindNineKeySuperscriptShortcut(Button key, String text) {$/,/^    }$/p' "$letter_rows")
 if ! rg -q 's\.imeLetterRows\.bindNineKeySuperscriptShortcut\(exclamation, last\);' "$layout_rows" \
   || [[ $(rg -c 'bindNineKeySuperscriptShortcut\(' "$layout_rows") != 2 ]] \
-  || ! rg -q 'bindSuperscriptShortcut\(key, text\);' "$letter_rows" \
-  || ! rg_q_stdin 'SuperscriptShortcutPolicy\.zeroThresholdDp\(s\.nineKeySwipeDigits,' <<< "$superscript_nine_body" \
-  || ! rg_q_stdin 'SuperscriptShortcutPolicy\.swiped\(direction\[0\], threshold\[0\], downY\[0\],' <<< "$superscript_nine_body" \
-  || ! rg -q 'return SuperscriptShortcutPolicy\.zeroDirection\(s\.nineKeySwipeDigits\);' "$letter_rows"; then
-  echo "Android nine-key ！ must swipe out 0 in the 九键滑动输入数字 direction read at touch time, while the 123 / #+= ！ keeps the fixed up-swipe" >&2
+  || ! rg_q_stdin 'bindSuperscriptShortcut\(key, text\);' <<< "$nine_superscript_body" \
+  || rg -q 'nineKeySwipeDigits|NINE_KEY_SWIPE_DISTANCE' "$letter_rows"; then
+  echo "Android nine-key ！ must swipe out 0 with the fixed up-swipe of the 123 / #+= ！, without reading the retired 九键滑动输入数字 setting" >&2
   exit 1
 fi
 # 拼音九键格子上的长按数字画在右上角，字号和上边距与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP，基线按 ascent 算），右边单独向内收至 12 dp，给圆角和胶囊键帽的顶部曲线让出空间；iOS 的 keyNumberHint 仍是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它使用专用常量，而不是让数字贴到圆角外。
@@ -2126,14 +2091,6 @@ fi
 if rg -q 'button\.setTextColor\(accent\)' \
     "$repo_root/platforms/android/java/app/msime/android/keyboard/KeyboardLayoutAdjustView.java"; then
   echo "Android layout bar buttons must take actionForeground, not the accent they sit on" >&2
-  exit 1
-fi
-# `deleteSurroundingText` 只删选区以外的字：选中开头的「你好」按删除毫无反应，选中中间的文字会删掉选区前一个字。键盘上的删除键都要经 `deleteCodePointBeforeCursor`，由它先删选区；笔画布局曾经绕过它直接调 InputConnection。只允许该入口和它使用的断开保护层调用码位删除，布局不能绕过入口。
-if ! rg -q 'if \(deleteSelection\(\)\) return;' \
-    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-  || rg -l '\.deleteSurroundingTextInCodePoints\(' "$repo_root/platforms/android/java" \
-    | rg -v '/core/(MSIMEInputService|InputConnectionGuard)\.java$' >/dev/null; then
-  echo "Android delete keys must go through deleteCodePointBeforeCursor, which deletes a selection first" >&2
   exit 1
 fi
 # 符号面板的分类键和锁定键用 setSelected 表示当前项，但键帽颜色只在上色时读一次 isSelected()（ImeStyler.styleButton）。#5597 就是只改了选中状态、没有重新上色：点「网络」后右侧换了，左侧高亮仍停在「常用」。每一处改选中状态的地方都要紧跟一次 restyle。

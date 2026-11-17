@@ -25,6 +25,8 @@ public:
     bool save = false;
     // 打开另一个窗口的路由：「词库同步…」打开 Win7 的词库同步面板（panels/win7/DictionarySyncWindow.cpp）。
     std::optional<std::string> route;
+    // 「词库分组…」在设置窗口内打开分组对话框（settings/DictionaryCollectionsWindow.cpp），不经面板进程，所以不能走 route。
+    bool groups = false;
   };
   int create(const std::function<HWND(const wchar_t*, const wchar_t*, DWORD, int, int, int)>& row) {
     int top = 0;
@@ -76,6 +78,7 @@ public:
     add(dictionary_export_all, L"BUTTON", L"导出全部个人词库…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_reset, L"BUTTON", L"清除全部学习数据…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     // 「我的词条」经 WebDAV 网盘同步：Win7 导航不收云端同步的页面，与云剪贴板一样在独立面板里设置。
+    add(dictionary_groups_open, L"BUTTON", L"词库分组…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_sync_open, L"BUTTON", L"词库同步（WebDAV 网盘）…", WS_TABSTOP | BS_PUSHBUTTON, 32);
     add(dictionary_notice, L"STATIC", L"", SS_LEFT, 140);
     return top;
@@ -99,6 +102,7 @@ public:
     if (id == dictionary_format && notification == CBN_SELCHANGE) { update(); return result; }
     if (id == dictionary_entries && notification == LBN_SELCHANGE) { selected_entry(); update(); return result; }
     if (notification != BN_CLICKED) return result;
+    if (id == dictionary_groups_open) { result.groups = true; return result; }
     if (id == dictionary_sync_open) { result.route = "dictionary-sync"; return result; }
     if (id == dictionary_search || id == dictionary_user_only) { offset_ = 0; result.request = list_request(); }
     else if (id == dictionary_previous || id == dictionary_next) {

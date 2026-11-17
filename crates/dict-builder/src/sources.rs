@@ -89,7 +89,7 @@ const UPSTREAM_FILES: [(&str, &str); 20] = [
         crate::wubi86_table::RIME_WUBI,
         crate::wubi86_table::RIME_WUBI_REFERENCE,
     ),
-    // 万象拼音 `dicts/` 下 17 份词库的原样副本，`reweight` 阶段按它重算全拼权重。
+    // 万象词库数据仓库 rime-wanxiang-data `dicts/` 下 15 份词库的原样副本，`reweight` 阶段按它重算全拼权重。
     (crate::reweight::DIRECTORY, crate::reweight::REFERENCE),
 ];
 

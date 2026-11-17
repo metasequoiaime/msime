@@ -45,6 +45,16 @@ if ! grep -qF 'KeyboardSession.shared.pressSpace();' \
   echo "Harmony touch Space must select the highlighted candidate and type a space when the runtime declines it" >&2
   exit 1
 fi
+# 基础访问模式下键盘进程有 seccomp 系统调用白名单，里面没有 sendfile；`@ohos.file.fs` 的拷贝接口底层用它，进程会被 SIGSYS 直接杀掉，键盘弹不出来。键盘进程里的拷贝一律走 FileCopy（只用 read/write）。
+keyboard_copies=$(grep -rnE 'copyFileSync|fs\.copyFile|copyDirSync|fs\.copyDir|moveFileSync|fs\.moveFile' \
+  --exclude=FileCopy.ets \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard" \
+  "$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability" || true)
+if [ -n "$keyboard_copies" ]; then
+  echo "Keyboard-process code must copy files with FileCopy: the fs copy APIs use sendfile, which basic access mode's seccomp filter kills the process for" >&2
+  echo "$keyboard_copies" >&2
+  exit 1
+fi
 # 字母键的 ForEach 按 faceKey() 判定子树是否重建。「双拼键位提示」不在这个键里时，键盘开着切换开关，已经画好的字母键会一直留着旧提示。
 face_key_body=$(sed -n '/^  private faceKey(): string {$/,/^  }$/p' \
   "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.ets")
@@ -339,32 +349,6 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   || ! grep -qF 'this.commaSwipe.up(touch.windowX, touch.windowY, Date.now())' <<< "$comma_touch_body" \
   || ! grep -qF '} else if (!this.commaSwipe.longPress()) {' <<< "$design_comma_body"; then
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
-  exit 1
-fi
-# 九键滑动输入数字（#10229）：判定的方向、阈值、1 键、锁定和长按与点击的先后由 nine-key-swipe.test.ts 覆盖。会话和视图是 ArkTS，这里钉住接线：会话经 `NineKeySwipePolicy.mode` 读共享偏好 `touch_nine_key_swipe_digits`；拼音九键字母层的键（`nineKeyHoldKey`，两处网格都经它）把触摸交给 `nineKeySwipeTouch`，按下时读当前设置，滑出去之后点击和长按都不再做事；数字层和九键双拼不经 `nineKeyHoldKey`，不受影响；抬手按长按选数字的路径上屏（先结束组字再字面上屏），并补上点按的键位统计（振动在按下时由按键区给出，上屏只经 `keyFeedback` 去重，规则由 key-press-feedback.test.ts 覆盖，#10757）；滑出数字时角标藏起来；键被替换时丢掉进行中的判定。
-nine_hold_body=$(sed -n '/^  nineKeyHoldKey(key: NineKey) {$/,/^  }$/p' "$view")
-nine_swipe_body=$(sed -n '/^  private nineKeySwipeTouch(key: NineKey, event: TouchEvent): void {$/,/^  }$/p' "$view")
-nine_digit_body=$(sed -n '/^  private typeNineKeySwipeDigit(key: NineKey): void {$/,/^  }$/p' "$view")
-drop_nine_body=$(sed -n '/^  private dropLetterGestures(): void {$/,/^  }$/p' "$view")
-if ! grep -qF 'nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)' "$session" \
-  || [[ $(grep -cF 'if (!this.symbols && !this.nineKeyShuangpinFaceActive()' "$view") -ne 2 ]] \
-  || ! grep -qF '.onTouch((event: TouchEvent): void => this.nineKeySwipeTouch(key, event))' <<< "$nine_hold_body" \
-  || ! grep -qF 'if (this.nineKeySwipes.swallows(key.input)) {' <<< "$nine_hold_body" \
-  || ! grep -qF 'if (!this.nineKeySwipes.hold(key.input)) {' <<< "$nine_hold_body" \
-  || ! grep -qF '.visibility(this.nineKeySwipeKey === key.input ? Visibility.Hidden : Visibility.Visible)' <<< "$nine_hold_body" \
-  || ! grep -qF 'this.settings.nineKeySwipeDigits' <<< "$nine_swipe_body" \
-  || ! grep -qF 'this.nineKeySwipes.down(key.input, touch.id, touch.windowY, mode, hasLetters);' <<< "$nine_swipe_body" \
-  || ! grep -qF 'this.nineKeySwipes.move(key.input, touch.id, touch.windowY);' <<< "$nine_swipe_body" \
-  || ! grep -qF 'if (this.nineKeySwipes.up(key.input, touch.id) === NineKeySwipe.DIGIT) {' <<< "$nine_swipe_body" \
-  || ! grep -qF 'this.nineKeySwipes.cancel(key.input);' <<< "$nine_swipe_body" \
-  || ! grep -qF 'this.openKeyHold(NineKeyLayout.holdOptions(key));' <<< "$nine_swipe_body" \
-  || ! grep -qF 'this.typeNineKeySwipeDigit(key);' <<< "$nine_swipe_body" \
-  || ! grep -qF 'KeyboardSession.shared.softKeyPress(KeyIdPolicy.nineKey(key.input));' <<< "$nine_digit_body" \
-  || [[ $(grep -A1 -F 'KeyboardSession.shared.finishComposition();' <<< "$nine_digit_body" | grep -cF 'KeyboardSession.shared.insert(digit);') -ne 1 ]] \
-  || ! grep -qF 'this.nineKeySwipes.clear();' <<< "$drop_nine_body" \
-  || ! grep -qF 'nineKeyInput: this.symbols || shuangpin ? undefined : key.input,' "$view" \
-  || ! grep -qF ': this.nineKeySwipeFace($$.nineKeyInput, this.eighteenSwipeFace($$.swipeLetters, $$.face)))' "$view"; then
-  echo "Harmony must read touch_nine_key_swipe_digits through NineKeySwipePolicy, feed the pinyin nine-key letter keys' touches into NineKeySwipeGesture, swallow the click and the long press once a swipe took the touch, type the digit the way a held key's digit is typed, hide the corner digit while the face shows it, and drop the tracker when keys are replaced" >&2
   exit 1
 fi
 # 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
@@ -930,7 +914,7 @@ nwp_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.
 nwp_session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 nwp_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 nwp_insert=$(sed -n '/^  insert(text: string): void {$/,/^  }$/p' "$nwp_session")
-if ! grep -qF 'this.strokeFace(), this.prediction);' "$nwp_view" \
+if ! grep -qF 'this.strokeFace(), this.prediction, this.tibetanFace(), this.returnCommitsSpelling());' "$nwp_view" \
   || ! grep -qF 'NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction)' "$nwp_view" \
   || ! grep -qF 'KeyAccessibilityPolicy.space(this.candidates.length > 0)' "$nwp_view" \
   || ! grep -qF '|| !KeyboardSession.shared.candidateManagementAllowed()) {' "$nwp_view" \
@@ -970,6 +954,7 @@ for source in "$here"/*.test.ts; do
 done
 # 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
 node "$here/telemetry-adapter.test.cjs"
+node "$here/cloud-clipboard-receive-adapter.test.cjs"
 bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"

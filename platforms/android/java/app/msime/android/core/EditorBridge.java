@@ -15,6 +15,7 @@ public final class EditorBridge {
         default void positionCommitCursor(String text, String suffix) {}
     }
     private boolean composing;
+    private String composingText;
     public boolean apply(Sink sink, String commit, String editing) {
         return apply(sink, commit, editing, null);
     }
@@ -47,13 +48,16 @@ public final class EditorBridge {
         if (commit != null) {
             if (!sink.commit(commit)) return false;
             composing = false;
+            composingText = null;
         }
         if (!editing.isEmpty()) {
             if (!sink.compose(editing)) return false;
             composing = true;
+            composingText = editing;
         } else if (composing) {
             if (!sink.compose("")) return false;
             composing = false;
+            composingText = null;
             if (!sink.finish()) return false;
         }
         return true;
@@ -61,8 +65,26 @@ public final class EditorBridge {
     /** External selection/focus changes must not delete an editor's new selection. */
     public void abandon(Sink sink) {
         composing = false;
+        composingText = null;
         try { sink.finish(); }
         catch (RuntimeException disconnected) { /* 连接已断开时没有组字可结束。 */ }
+    }
+
+    public boolean refreshComposition(Sink sink, String editing, String marked,
+            int composingStart, int composingEnd, int selectionStart, int selectionEnd) {
+        if (composingText == null || composingText.equals(editing)
+                || !composingText.equals(marked) || composingStart < 0
+                || composingEnd <= composingStart || selectionStart != composingEnd
+                || selectionEnd != composingEnd) return true;
+        return apply(sink, null, editing);
+    }
+
+    public void finishInPlace(Sink sink, String drawn, String settled, String marked,
+            int composingStart, int composingEnd, int selectionStart, int selectionEnd) {
+        if (composingText == null || !composingText.equals(marked)
+                || drawn.equals(settled) && composingText.equals(settled))
+            abandon(sink);
+        else settle(sink, settled, composingStart, composingEnd, selectionStart, selectionEnd);
     }
 
     /**
@@ -70,6 +92,7 @@ public final class EditorBridge {
      */
     public void discard(Sink sink, int composingStart, int composingEnd, int selectionStart, int selectionEnd) {
         composing = false;
+        composingText = null;
         if (!begin(sink)) return;
         try {
             try {
@@ -97,6 +120,7 @@ public final class EditorBridge {
             return;
         }
         composing = false;
+        composingText = null;
         if (!begin(sink)) return;
         try {
             try {

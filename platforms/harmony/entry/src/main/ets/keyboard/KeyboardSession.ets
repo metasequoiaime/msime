@@ -49,6 +49,10 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import {
+  BackspaceFlickAction, BackspaceFlickTextPolicy, BackspaceFlickTextSnapshot
+} from './input/BackspaceFlickPolicy';
+import { NineKeyFlickPolicy } from './input/NineKeyFlickPolicy';
 import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
@@ -139,11 +143,14 @@ import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
+import { HarmonyClipboardHistoryCapture } from './clipboard/HarmonyClipboardHistoryCapture';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import { CloudClipboardBoundListing, CloudClipboardClient } from './clipboard/CloudClipboardClient';
 import {
   CloudClipboardPolicy, CloudClipboardSendOutcome
 } from './clipboard/CloudClipboardPolicy';
+import { CloudClipboardAutoReceive } from './clipboard/CloudClipboardAutoReceive';
+import { cloudClipboardSystemText } from './clipboard/CloudClipboardSystem';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
@@ -768,6 +775,20 @@ interface NineKeyShuangpinLayoutReply {
   value?: NineKeyShuangpinRawLayout;
 }
 
+interface ShuangpinCustomRawFace {
+  key?: string;
+  hint?: string;
+}
+
+interface ShuangpinCustomRawLayout {
+  keys?: ShuangpinCustomRawFace[];
+}
+
+interface ShuangpinCustomLayoutReply {
+  ok: boolean;
+  value?: ShuangpinCustomRawLayout;
+}
+
 interface CreateResponse {
   ok: boolean;
   value: CreateValue;
@@ -946,6 +967,8 @@ interface PreparedPreferences {
   /** Read-only English word completions while typing directly in English. Defaults to on. */
   english_suggestions?: boolean;
   shuangpin_profile: string;
+  /** 自定义普通双拼的共享表；只有 `shuangpin_profile` 为 `custom` 时消费。 */
+  shuangpin_custom_profile?: Object;
   /** 双拼触屏字母组码布局；缺省为 26 键，与共享偏好保持一致。 */
   touch_shuangpin_layout?: string;
   /** 五笔触屏字母键布局：`twenty_six_key`（缺省，不写进文档）或 `fourteen_key`；与全拼、双拼布局独立。 */
@@ -998,6 +1021,8 @@ interface PreparedPreferences {
   traditional_chinese_output: boolean;
   /** 粤拼和粤语双拼输出简体，繁转简在 Engine 里做；关着时文档里没有这个键。 */
   cantonese_simplified_output?: boolean;
+  /** 鸿蒙注音输出简体，繁转简在宿主显示与上屏边界做；关着时文档里没有这个键。 */
+  zhuyin_simplified_output?: boolean;
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
@@ -1056,8 +1081,10 @@ interface PreparedPreferences {
   touch_keyboard_split_gap?: number;
   /** 中/英键在空格哪一边（right / left）；默认 right，不写进文档。 */
   touch_language_key_side?: string;
-  /** 九键滑动输入数字（off / up / down）；默认 off，不写进文档。 */
+  /** 旧九键数字滑动字段，保留以兼容旧文档；宿主不再使用。 */
   touch_nine_key_swipe_digits?: string;
+  /** 九键字母 flick 判定阈值，14–48、步进 2，默认 24。 */
+  touch_nine_key_flick_threshold?: number;
   /** 手机工具栏的五个工具和显示方式；等于默认值时 client-core 不写进文档。 */
   harmony_toolbar?: ToolbarToolsDocument;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
@@ -1243,8 +1270,10 @@ export interface KeyboardPreferences {
   readonly splitKeyboard: SplitKeyboardSettings;
   /** `touch_language_key_side` 为 `left`：触屏底行的 中/英 排到空格左边（`TouchLayoutStylePolicy.languageKeyLeft`），其余值和缺键都按右。 */
   readonly languageKeyLeft: boolean;
-  /** `touch_nine_key_swipe_digits`：拼音九键字母层 1–9 键沿这个方向滑动输入数字、反方向弹出字母，缺键和不认识的值按 `off`（`NineKeySwipePolicy.mode`）。 */
+  /** 旧字段仅为兼容读取；九键数字改由长按输入。 */
   readonly nineKeySwipeDigits: string;
+  /** `touch_nine_key_flick_threshold`：九键字母 flick 的共享阈值。 */
+  readonly nineKeyFlickThreshold: number;
 }
 
 /** 刚保存的整份偏好文档，按键盘关心的字段读回来，替换缓存里那份准备时的偏好。 */
@@ -1336,7 +1365,7 @@ interface DictionaryCollectionsFlushResponse {
 /** 命名词库接受的操作，与 client-services 的 `DictionaryCollectionsAction` 一致；别的一律在桥上拒绝。 */
 const DICTIONARY_COLLECTION_OPERATIONS: string[] = [
   'load', 'create', 'rename', 'delete', 'set_enabled', 'add_words', 'remove_words', 'import',
-  'install_community', 'queue_words', 'flush', 'third_party_matches',
+  'install_community', 'queue_words', 'flush', 'third_party_matches', 'delete_many', 'set_enabled_many',
 ];
 
 interface PersonalDictionarySyncResponse {
@@ -1376,6 +1405,8 @@ enum InputCommand {
 
 const JAPANESE_SCHEME: number = 3;
 
+type BackspaceFlickUndo = BackspaceFlickTextSnapshot;
+
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
  * committed text. The ability creates it; the panel's UI reads state back through onChanged.
@@ -1391,6 +1422,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 本会话注册过的 26 键双拼键位几何，会话一换就作废。 */
   private keyGeometry: KeyGeometryRegistry = new KeyGeometryRegistry();
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private static readonly FLICK_CONTEXT_UNITS: number = 64;
+  private static readonly FLICK_READ_CHUNK: number = 4096;
+  private static readonly FLICK_MAX_UNITS: number = 1024 * 1024;
+  private backspaceFlickUndo: BackspaceFlickUndo | null = null;
+  private backspaceFlickOneUndo: BackspaceFlickUndo | null = null;
   // 系统收起键盘后编辑框可能仍有焦点，空闲工作不能只靠 inputClient 判断是否显示。
   private idleDictionaryVisible: boolean = false;
   private personalDictionarySettled: boolean = true;
@@ -1499,10 +1535,18 @@ export class KeyboardSession implements HardwareKeyTarget {
   private keyGrid: number = KeyGrid.NONE;
   private nineKeyShuangpinRequest: string = '';
   private nineKeyShuangpinFaceCache: NineKeyShuangpinFace[] = [];
+  private shuangpinCustomHintRequest: string = '';
+  private shuangpinCustomHintCache: Map<string, string> = new Map<string, string>();
   // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
   private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
   private clipboardHistoryEnabled: boolean = false;
+  private clipboardCaptureVisible: boolean = false;
+  private readonly clipboardCapture: HarmonyClipboardHistoryCapture = new HarmonyClipboardHistoryCapture(
+    (): boolean => this.clipboardCaptureVisible && this.editorAttributesKnown
+      && this.clipboardHistoryAllowed() && this.clipboardCaptureAllowed(),
+    (): Promise<boolean> => this.canReadClipboard(),
+    (text: string): boolean => this.captureClipboardHistory(text).failure !== ClipboardFailure.INVALID_FILE);
   // The two optional candidate annotations. Held here rather than in KeyboardPreferences because the
   // session builds the candidate entries itself; the view only draws what it is handed.
   private wubiCodeHint: boolean = true;
@@ -1527,6 +1571,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private sharedMirror: SharedStateMirror | null = null;
   private sharedFullMode: () => boolean = (): boolean => false;
   private cloudClipboardClient: CloudClipboardClient | undefined = undefined;
+  private cloudClipboardAutoReceive: CloudClipboardAutoReceive | undefined = undefined;
   private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
@@ -1614,7 +1659,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     oneHandedSidePanel: OneHandedSidePanel.OFF,
     splitKeyboard: SplitKeyboardPolicy.DEFAULTS,
     languageKeyLeft: false,
-    nineKeySwipeDigits: NineKeySwipePolicy.OFF
+    nineKeySwipeDigits: NineKeySwipePolicy.OFF,
+    nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(undefined)
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   /**
@@ -1705,6 +1751,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   keyboardShown(): void {
     if (this.handle === 0 || this.inputClient === undefined) return;
     this.idleDictionaryVisible = true;
+    this.clipboardCaptureVisible = true;
+    this.clipboardCapture.start();
     this.scheduleDictionarySnapshotPoll();
     this.schedulePersonalDictionaryDrain();
   }
@@ -2077,7 +2125,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.touch_keyboard_split_portrait, preferences.touch_keyboard_split_threshold,
         preferences.touch_keyboard_split_gap),
       languageKeyLeft: TouchLayoutStylePolicy.languageKeyLeft(preferences.touch_language_key_side),
-      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits)
+      nineKeySwipeDigits: NineKeySwipePolicy.mode(preferences.touch_nine_key_swipe_digits),
+      nineKeyFlickThreshold: NineKeyFlickPolicy.threshold(preferences.touch_nine_key_flick_threshold)
     };
     // The theme's bar, then the package's `[toolbar]` colours for that mode, then its stylesheet.
     const toolbarColors: CandidateColors = GlobalTheme.candidateColors(
@@ -2222,6 +2271,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
       this.cantoneseSimplified = preferences.cantonese_simplified_output === true;
+      this.zhuyinSimplified = preferences.zhuyin_simplified_output === true;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
@@ -2467,6 +2517,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Rebuild an idle Engine session without changing the editor-visible input mode. */
   private restartIdleSession(reason: string): void {
+    const captureVisible: boolean = this.clipboardCaptureVisible;
     const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
     const english: boolean = this.englishMode;
     const keyGrid: number = this.keyGrid;
@@ -2480,6 +2531,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     this.englishMode = english;
+    if (captureVisible && attached !== undefined) {
+      this.clipboardCaptureVisible = true;
+      this.clipboardCapture.start();
+    }
     this.keyGrid = keyGrid;
     if (attached !== undefined && this.inputClient === attached) {
       this.apply(client.focus(this.handle, true));
@@ -2567,15 +2622,20 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.traditional;
   }
 
-  /** 简繁按钮和功能面板「繁」显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  /** 简繁按钮和功能面板「繁」显示的字形：粤拼、注音看各自选择（默认繁体），其余方案看全局开关。 */
   showsTraditional(): boolean {
     return ChineseOutputPolicy.showsTraditional(this.characterSetFollowsCantonese(), this.traditional,
-      this.cantoneseSimplified);
+      this.cantoneseSimplified, this.characterSetFollowsZhuyin(), this.zhuyinSimplified);
   }
 
   /** 见 `ChineseOutputPolicy.switchFollowsCantonese`。 */
   private characterSetFollowsCantonese(): boolean {
     return ChineseOutputPolicy.switchFollowsCantonese(this.schemeName, this.englishMode);
+  }
+
+  /** 注音下简繁按钮切换 `zhuyin_simplified_output`，英文模式仍使用全局开关。 */
+  private characterSetFollowsZhuyin(): boolean {
+    return ChineseOutputPolicy.switchFollowsZhuyin(this.schemeName, this.englishMode);
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -2613,6 +2673,44 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`nine-key shuangpin layout unavailable: ${describeError(error)}`);
     }
     return this.nineKeyShuangpinFaceCache;
+  }
+
+  /** 普通 26 键双拼当前表的键位提示；键盘只读共享接口返回的提示，不复制表的校验规则。 */
+  shuangpinCustomKeyHints(): Map<string, string> {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    const table: Object | undefined = preferences?.shuangpin_custom_profile;
+    const request: string = JSON.stringify(table === undefined
+      ? { profile: 'custom' } : { profile: 'custom', table });
+    if (request === this.shuangpinCustomHintRequest) return this.shuangpinCustomHintCache;
+    this.shuangpinCustomHintRequest = request;
+    this.shuangpinCustomHintCache = new Map<string, string>();
+    try {
+      const reply: ShuangpinCustomLayoutReply = JSON.parse(
+        client.shuangpinCustomLayout(request)) as ShuangpinCustomLayoutReply;
+      if (reply.ok !== true || reply.value === undefined) return this.shuangpinCustomHintCache;
+      const keys: ShuangpinCustomRawFace[] = reply.value.keys ?? [];
+      for (const key of keys) {
+        if (typeof key.key === 'string' && typeof key.hint === 'string' && key.hint.length > 0) {
+          this.shuangpinCustomHintCache.set(key.key.toUpperCase(), key.hint);
+        }
+      }
+    } catch (error) {
+      KeyboardLog.error(`shuangpin custom layout unavailable: ${describeError(error)}`);
+    }
+    return this.shuangpinCustomHintCache;
+  }
+
+  /** 供键盘的 ForEach 身份使用，表变化时立即重画提示。 */
+  shuangpinCustomHintIdentity(): string {
+    const preferences: PreparedPreferences | undefined = this.preparedPreferences;
+    if (preferences?.shuangpin_profile !== 'custom') return preferences?.shuangpin_profile ?? '';
+    return this.shuangpinCustomHintRequestFor(preferences);
+  }
+
+  private shuangpinCustomHintRequestFor(preferences: PreparedPreferences): string {
+    const table: Object | undefined = preferences.shuangpin_custom_profile;
+    return JSON.stringify(table === undefined
+      ? { profile: 'custom' } : { profile: 'custom', table });
   }
 
   /**
@@ -3501,6 +3599,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         (key: string, value: boolean): boolean => this.writePreference(key, value));
       return this.showsTraditional();
     }
+    if (this.characterSetFollowsZhuyin()) {
+      this.zhuyinSimplified = ChineseOutputPolicy.toggledZhuyinSimplified(this.zhuyinSimplified,
+        (key: string, value: boolean): boolean => this.writePreference(key, value));
+      this.publishCurrentCandidates();
+      return this.showsTraditional();
+    }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
       return this.traditional;
     }
@@ -3937,6 +4041,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     // 先让视图离开键盘调整：离开时保存，此时会话还对着上一个编辑框。
     if (this.onEditorAttached !== undefined) {
       this.onEditorAttached();
@@ -3945,6 +4051,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
     this.cancelPhraseCursor();
+    this.backspaceFlickUndo = null;
+    this.backspaceFlickOneUndo = null;
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -3954,6 +4062,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
+    this.cloudClipboardReceiver().start();
     this.editorAttributesKnown = false;
     this.updateMusic();
     this.keyStatisticsEditorKnown = false;
@@ -3966,6 +4075,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.previewSupported = attribute.isTextPreviewSupported === true;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       this.editorAttributesKnown = true;
+      this.cloudClipboardReceiver().start();
       // A pack imported again under the same id, or removed, while another editor had focus is picked up here, as host-api re-stamps its packs on focus.
       this.soundPlayer.recheck();
       this.musicPlayer.recheck();
@@ -4023,6 +4133,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     // 按键反馈和手写板设置是另一个文件，设置应用写它时不会推进偏好修订号，所以每次获得焦点都要读取，而不只在构建会话时读取。文件存在却读不到时保留上次的值，一次读取失败不能把隐私模式当成关闭。
     this.refreshFeedback();
     this.followPrivacyMode();
+    this.clipboardCaptureVisible = true;
+    this.clipboardCapture.start();
     // 应用主题也一样：月份变了或在设置应用里选了主题，皮肤会立即重绘，而不是最多一分钟后。真正重绘皮肤的是视图的 reload 钩子。
     if (this.refreshAppTheme(true) && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
@@ -4118,10 +4230,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   detach(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     // 宿主随后隐藏面板。先让视图停掉录音，取消发生在旧编辑框还连着的时候，与 Android 在 onFinishInput 里先取消语音再收尾一致。
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }
+    this.cloudClipboardAutoReceive?.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.attributeGeneration++;
@@ -4164,6 +4279,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.cloudClipboardAutoReceive?.stop();
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     this.cancelPhraseCursor();
     this.editorGeneration++;
     this.ownEdits.clear();
@@ -4354,6 +4472,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       return;
     }
+    this.backspaceFlickUndo = null;
+    this.backspaceFlickOneUndo = null;
     this.cancelPhraseCursor();
     this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
@@ -4373,6 +4493,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   editorSelectionChanged(collapsed: boolean = true): void {
     // 编辑器先回报 `textChange` 再回报 `selectionChange`（见 `EditEchoLedger`），这里读到的就是紧挨着的那次 `textChange` 是不是键盘自己的回声；下面会把它清掉。
     const ownEcho: boolean = this.phraseCursorOwnEcho;
+    if (!ownEcho) {
+      this.backspaceFlickUndo = null;
+      this.backspaceFlickOneUndo = null;
+    }
     if (this.phraseCursor !== null) {
       if (collapsed && this.phraseCursorOwnEcho) {
         this.resumePhraseCursor();
@@ -5009,6 +5133,115 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 删除键上滑清空光标前文本，并保留本会话内可验证的撤回快照。 */
+  flickBackspace(action: BackspaceFlickAction): void {
+    switch (action) {
+      case BackspaceFlickAction.CLEAR:
+        this.flickClearBeforeCursor();
+        break;
+      case BackspaceFlickAction.RESTORE:
+        this.flickRestore(this.backspaceFlickUndo);
+        break;
+      case BackspaceFlickAction.DELETE_ONE:
+        this.flickDeleteOne();
+        break;
+      case BackspaceFlickAction.RESTORE_ONE:
+        this.flickRestore(this.backspaceFlickOneUndo);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private flickContext(value: string | null | undefined, preceding: boolean): string {
+    if (value === null || value === undefined) return '';
+    return BackspaceFlickTextPolicy.context(value, preceding, KeyboardSession.FLICK_CONTEXT_UNITS);
+  }
+
+  private flickClearBeforeCursor(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    this.backspaceFlickUndo = null;
+    // 组字由引擎负责清空；编辑器正文不应在组字状态下被误删。
+    if (this.composing()) {
+      this.discardComposition();
+      return;
+    }
+    const removed: string[] = [];
+    let units: number = 0;
+    try {
+      while (units < KeyboardSession.FLICK_MAX_UNITS) {
+        const before: string = inputClient.getForwardSync(
+          Math.min(KeyboardSession.FLICK_READ_CHUNK, KeyboardSession.FLICK_MAX_UNITS - units));
+        if (before.length === 0) break;
+        const count: number = TextPolicy.characters(before).length;
+        if (count === 0) break;
+        this.editEditorSync((): void => inputClient.deleteForwardSync(count));
+        removed.unshift(before);
+        units += count;
+      }
+      if (removed.length === 0) return;
+      this.backspaceFlickUndo = {
+        text: removed.join(''),
+        cursor: inputClient.getTextIndexAtCursorSync(),
+        before: this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true),
+        after: this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false),
+        generation: this.editorGeneration,
+      };
+    } catch (error) {
+      this.backspaceFlickUndo = null;
+      KeyboardLog.error(`backspace flick clear unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private flickDeleteOne(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    this.backspaceFlickOneUndo = null;
+    if (this.composing()) {
+      this.backspace();
+      return;
+    }
+    try {
+      const before: string = inputClient.getForwardSync(1);
+      const deletion = BackspaceFlickTextPolicy.deleteBeforeCursor(
+        before, TextPolicy.characters(before).length);
+      if (deletion.deleted.length === 0) return;
+      const after: string = this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false);
+      this.editEditorSync((): void => inputClient.deleteForwardSync(
+        TextPolicy.characters(deletion.deleted).length));
+      this.backspaceFlickOneUndo = {
+        text: deletion.deleted,
+        cursor: inputClient.getTextIndexAtCursorSync(),
+        before: this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true),
+        after,
+        generation: this.editorGeneration,
+      };
+    } catch (error) {
+      this.backspaceFlickOneUndo = null;
+      KeyboardLog.error(`backspace flick delete unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private flickRestore(snapshot: BackspaceFlickUndo | null): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (snapshot === null || inputClient === undefined || snapshot.generation !== this.editorGeneration) return;
+    try {
+      const cursor: number = inputClient.getTextIndexAtCursorSync();
+      const before: string = this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true);
+      const after: string = this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false);
+      if (!BackspaceFlickTextPolicy.canRestore(snapshot, cursor, before, after, this.editorGeneration)) {
+        return;
+      }
+      this.editEditorSync((): void => inputClient.insertTextSync(snapshot.text));
+    } catch (error) {
+      KeyboardLog.error(`backspace flick restore unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (snapshot === this.backspaceFlickUndo) this.backspaceFlickUndo = null;
+    if (snapshot === this.backspaceFlickOneUndo) this.backspaceFlickOneUndo = null;
+  }
+
   /** Throw the composition away without committing it, which is what 重输 means. */
   cancel(): void {
     if (this.translationPage !== null) {
@@ -5374,10 +5607,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (commit !== null && commit !== undefined && commit.length > 0
         && this.inputClient !== undefined) {
       // 来源 18 的中文片段已由运行时转换，按提交上下文保留日文和英文。
-      const output: string = value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit);
+      const output: string = value.commit_context?.script_conversion === false
+        && !this.characterSetFollowsZhuyin() ? commit : this.asTraditional(commit);
       const requestedSuffix: string | null | undefined = value.commit_cursor_suffix;
       const convertedSuffix: string | null = typeof requestedSuffix === 'string'
-        ? (value.commit_context?.script_conversion === false ? requestedSuffix : this.asTraditional(requestedSuffix))
+        ? (value.commit_context?.script_conversion === false && !this.characterSetFollowsZhuyin()
+          ? requestedSuffix : this.asTraditional(requestedSuffix))
         : null;
       const suffix: string | null = QuickPhraseCursor.suffix(commit, requestedSuffix, output, convertedSuffix);
       if (suffix !== null && suffix.length > 0 && inputClient !== undefined) {
@@ -5484,8 +5719,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 按键区按下即振动（#10757）：按下时振过的按键，上屏时不再振第二次。 */
   private readonly keyPress: KeyPressFeedback = new KeyPressFeedback();
   private traditional: boolean = false;
-  /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
+  /** 共享偏好 `cantonese_simplified_output` 与 `zhuyin_simplified_output`，见对应的方案判定。 */
   private cantoneseSimplified: boolean = false;
+  private zhuyinSimplified: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
@@ -6834,6 +7070,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * 隐私模式与会话构建时不再相符时重建会话。先提交正在进行的组字，与 Android 在重启前先完成组字的做法一样，这样已输入的内容不会因重建而丢失；处于本地模式时留待其结束，由下一次获得焦点时补上。
    */
   private followPrivacyMode(): void {
+    this.clipboardCapture.discardIfDisallowed();
     if (this.handle === 0 || this.sessionPrivate === this.feedbackCurrent.incognito
       || this.localMode !== 'none') {
       return;
@@ -7198,7 +7435,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     return true;
   }
 
-  /** Uploads one local history entry the user chose; nothing reaches the cloud clipboard any other way. */
+  /** 上传用户选中的历史条目或可见键盘刚观察到的本机复制；共享层再次核对开关和绑定。 */
   async sendToCloudClipboard(text: string, binding: string): Promise<CloudClipboardSendOutcome> {
     // 面板只在云端那一半可见时提供「发到云剪贴板」；如果隐私模式在提供之后才开启，这里守住这条线。
     if (!this.cloudClipboardVisible()) {
@@ -7213,6 +7450,22 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (cached !== undefined) return cached;
     const made: CloudClipboardClient = new CloudClipboardClient(this.stateDirectory);
     if (this.stateDirectory.length > 0) this.cloudClipboardClient = made;
+    return made;
+  }
+
+  private cloudClipboardReceiver(): CloudClipboardAutoReceive {
+    const cached: CloudClipboardAutoReceive | undefined = this.cloudClipboardAutoReceive;
+    if (cached !== undefined) return cached;
+    const made: CloudClipboardAutoReceive = new CloudClipboardAutoReceive({
+      visible: (): boolean => this.cloudClipboardVisible(),
+      readAllowed: (): Promise<boolean> => this.canReadClipboard(),
+      list: (): Promise<CloudClipboardBoundListing | null> => this.cloudClipboardItems(),
+      matches: (binding: string): boolean => this.cloudClipboard().matchesNow(binding),
+      read: (): Promise<string | null> => cloudClipboardSystemText(),
+      send: (text: string, binding: string): Promise<CloudClipboardSendOutcome> => this.sendToCloudClipboard(text, binding),
+      write: async (text: string): Promise<boolean> => (await this.copyText(text)) === null
+    });
+    this.cloudClipboardAutoReceive = made;
     return made;
   }
 
@@ -7661,7 +7914,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.changePreferences(changes)) {
       return false;
     }
-    this.useScheme(KeyboardScheme.engineSchemeOf(selected), selected.shuangpinProfile);
+    this.useScheme(KeyboardScheme.engineSchemeOf(selected), mapping.shuangpinProfile);
     KeyboardLog.info(`scheme fell back to ${selected.preferenceId}: `
       + `${applied.preferenceId} is no longer enabled`);
     return true;
@@ -7669,9 +7922,9 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   schemeChanges(candidate: SchemeDefinition): Map<string, Object> {
     const current: Record<string, Object> | undefined = this.loadPreferenceDocument();
-    const mapping: PreferenceMapping = KeyboardScheme.mapping(candidate,
+    const mapping: PreferenceMapping = KeyboardScheme.mappingForRuntimeSelection(null, candidate,
       current === undefined ? null : this.text(current['last_chinese_scheme']),
-      current === undefined ? null : this.text(current['shuangpin_profile']));
+      current === undefined ? null : this.text(current['shuangpin_profile'])) as PreferenceMapping;
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('scheme', mapping.scheme);
     changes.set('last_chinese_scheme', mapping.lastChineseScheme);
@@ -7907,11 +8160,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Simplified to Traditional, where the user asked for it and the text is Chinese to begin with.
+   * 按当前输出开关在鸿蒙宿主边界转换文本。
    *
-   * The conversion is the shared phrase-level OpenCC s2t tables compiled into the native library, the same one the Windows, macOS, Linux and Android hosts call, so 头发 becomes 頭髮 and 发展 becomes 發展 here exactly as there. A converter that fails must not lose the text, so anything it cannot do falls back to what came in. The policy decides whether it applies at all; dedicated English, Japanese and the temporary Japanese mode are not Chinese output however the setting reads.
+   * 普通路径使用共享的短语级 OpenCC s2t 表；注音下的独立偏好反向使用 t2s。两条路径
+   * 都在 native library 中执行，转换失败时保留原文。
    */
   private asTraditional(text: string, source: number = -1): string {
+    if (this.characterSetFollowsZhuyin()) {
+      return ChineseOutputPolicy.candidateOutput(text, this.zhuyinSimplified, true, source,
+        (value: string): string | null => client.traditionalToSimplified(value));
+    }
     return ChineseOutputPolicy.candidateOutput(text, this.traditional,
       ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode),
       source,
@@ -8616,6 +8874,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** 键盘收起（系统的 keyboardHide，例如返回手势）：停掉键盘内的语音识别，把攒着的打字统计写盘，停下词库的空闲检查，关掉缓存的释义词库。编辑框可能仍有焦点，所以不等 inputStop。 */
   keyboardHidden(): void {
+    this.clipboardCaptureVisible = false;
+    this.clipboardCapture.stop();
     if (this.onPanelHidden !== undefined) {
       this.onPanelHidden();
     }

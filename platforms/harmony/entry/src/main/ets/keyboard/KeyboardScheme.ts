@@ -97,6 +97,56 @@ const SHOUDAO: SchemeDefinition = {
   glyph: "S",
   badge: "双",
 };
+const SMART_ABC: SchemeDefinition = {
+  id: "SMART_ABC",
+  preferenceId: "smart_abc",
+  engineScheme: "shuangpin",
+  shuangpinProfile: "smart_abc",
+  touchKeyboardLayout: "twenty_six_key",
+  title: "智能 ABC 双拼",
+  glyph: "智",
+  badge: "双",
+};
+const SOGOU: SchemeDefinition = {
+  id: "SOGOU",
+  preferenceId: "sogou",
+  engineScheme: "shuangpin",
+  shuangpinProfile: "sogou",
+  touchKeyboardLayout: "twenty_six_key",
+  title: "搜狗双拼",
+  glyph: "搜",
+  badge: "双",
+};
+const JIAJIA: SchemeDefinition = {
+  id: "JIAJIA",
+  preferenceId: "jiajia",
+  engineScheme: "shuangpin",
+  shuangpinProfile: "jiajia",
+  touchKeyboardLayout: "twenty_six_key",
+  title: "加加双拼",
+  glyph: "加",
+  badge: "双",
+};
+const ZIGUANG: SchemeDefinition = {
+  id: "ZIGUANG",
+  preferenceId: "ziguang",
+  engineScheme: "shuangpin",
+  shuangpinProfile: "ziguang",
+  touchKeyboardLayout: "twenty_six_key",
+  title: "紫光双拼",
+  glyph: "紫",
+  badge: "双",
+};
+const GUOBIAO: SchemeDefinition = {
+  id: "GUOBIAO",
+  preferenceId: "guobiao",
+  engineScheme: "shuangpin",
+  shuangpinProfile: "guobiao",
+  touchKeyboardLayout: "twenty_six_key",
+  title: "国标双拼",
+  glyph: "国",
+  badge: "双",
+};
 const WUBI: SchemeDefinition = {
   id: "WUBI",
   preferenceId: "wubi",
@@ -259,6 +309,11 @@ export class KeyboardScheme {
   static readonly ZIRANMA: SchemeDefinition = ZIRANMA;
   static readonly MICROSOFT: SchemeDefinition = MICROSOFT;
   static readonly SHOUDAO: SchemeDefinition = SHOUDAO;
+  static readonly SMART_ABC: SchemeDefinition = SMART_ABC;
+  static readonly SOGOU: SchemeDefinition = SOGOU;
+  static readonly JIAJIA: SchemeDefinition = JIAJIA;
+  static readonly ZIGUANG: SchemeDefinition = ZIGUANG;
+  static readonly GUOBIAO: SchemeDefinition = GUOBIAO;
   static readonly WUBI: SchemeDefinition = WUBI;
   static readonly JAPANESE_NINE_KEY: SchemeDefinition = JAPANESE_NINE_KEY;
   static readonly JAPANESE: SchemeDefinition = JAPANESE;
@@ -296,21 +351,37 @@ export class KeyboardScheme {
     QUANPIN_FOURTEEN_KEY,
     QUANPIN_EIGHTEEN_KEY,
     CANTONESE_SHUANGPIN,
+    SMART_ABC,
+    SOGOU,
+    JIAJIA,
+    ZIGUANG,
+    GUOBIAO,
   ];
 
-  /** 第二排 L 右边带 `;` 韵母键的方案：微软双拼（ing）和粤语双拼（ing、ik），与 Android 的 `MicrosoftShuangpinKeyPolicy.showsSemicolonFinal`、iOS 的 `showsSemicolonFinalKey` 一致。 */
-  static showsSemicolonFinal(scheme: SchemeDefinition): boolean {
+  /** 普通双拼入口按实际码表给出空格键短名。 */
+  static shuangpinSpaceLabel(profile: string): string {
+    if (profile === "custom") return "双拼 · 自定义";
+    if (profile === "smart_abc") return "双拼 · 智能 ABC";
+    return "双拼 · 小鹤";
+  }
+
+  /** 第二排 L 右边带 `;` 韵母键的方案：微软、搜狗和紫光双拼（ing）以及粤语双拼（ing、ik），与 Android 和 iOS 一致；自定义码表用到分号时由共享键位表提供。显示开关不影响它的可达性。 */
+  static showsSemicolonFinal(scheme: SchemeDefinition, customSemicolon: boolean = false): boolean {
     return (
+      (scheme.engineScheme === "shuangpin" && customSemicolon) ||
       scheme.preferenceId === MICROSOFT.preferenceId ||
+      scheme.preferenceId === SOGOU.preferenceId ||
+      scheme.preferenceId === ZIGUANG.preferenceId ||
       scheme.preferenceId === CANTONESE_SHUANGPIN.preferenceId
     );
   }
 
   /** 粤语双拼 `;` 韵母键的读屏标签，与 iOS 相同；其他方案为 null，`;` 照旧按字母键读。 */
   static semicolonFinalLabel(scheme: SchemeDefinition): string | null {
-    return scheme.preferenceId === CANTONESE_SHUANGPIN.preferenceId
-      ? "分号，粤语双拼 ing 和 ik"
-      : null;
+    if (scheme.preferenceId === CANTONESE_SHUANGPIN.preferenceId) return "分号，粤语双拼 ing 和 ik";
+    if (scheme.preferenceId === SOGOU.preferenceId) return "分号，搜狗双拼 ing";
+    if (scheme.preferenceId === ZIGUANG.preferenceId) return "分号，紫光双拼 ing";
+    return scheme.preferenceId === MICROSOFT.preferenceId ? "分号，微软双拼 ing" : null;
   }
 
   /** 26 键符号层按键实际发出的字符：藏文方案下第三排的 `=` 换成威利叠写用的 `+`，让组字中的叠写（如 `pad+ma`）走标点路由交给引擎；符号面板直接写入编辑框，不能用来叠写。其他方案原样发出。 */
@@ -452,7 +523,12 @@ export class KeyboardScheme {
             candidate !== QUANPIN_FOURTEEN_KEY &&
             candidate !== QUANPIN_EIGHTEEN_KEY &&
             candidate !== NINE_KEY_SHUANGPIN &&
-            candidate !== CANTONESE_SHUANGPIN)) &&
+            candidate !== CANTONESE_SHUANGPIN &&
+            candidate !== SMART_ABC &&
+            candidate !== SOGOU &&
+            candidate !== JIAJIA &&
+            candidate !== ZIGUANG &&
+            candidate !== GUOBIAO)) &&
         KeyboardScheme.offeredBy(candidate, edition),
     );
   }
@@ -582,7 +658,16 @@ export class KeyboardScheme {
     if (selected === null || selected === applied) {
       return null;
     }
-    return KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
+    const mapping: PreferenceMapping = KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
+    if (selected === XIAOHE && (currentProfile === "custom" || currentProfile === "smart_abc")) {
+      return {
+        scheme: mapping.scheme,
+        lastChineseScheme: mapping.lastChineseScheme,
+        shuangpinProfile: currentProfile,
+        touchKeyboardLayout: mapping.touchKeyboardLayout,
+      };
+    }
+    return mapping;
   }
 
   static fromPreferences(
@@ -771,7 +856,7 @@ export class KeyboardScheme {
   }
 
   /**
-   * 英文 26 键字母层的底行在空格左边另放独立句点：123 | 符 | . | 空格 | , | 中 | 回车，与 iOS、Android 一致；中文 26 键仍只有逗号、长按输入句号。
+   * 英文 26 键字母层的底行在空格左边另放独立句点：123 | 符 | . | 空格 | , | 中 | 回车，与 iOS、Android 一致。26 键一族的标准底行（中文各方案、韩文、越南语、藏文、日语罗马字）现在在同一位置也有句号，`TouchLayoutStylePolicy.designRow` 不再靠这个判定区分排法；它只说明此刻画的是英文 26 键底行。
    *
    * @param english 当前是英文模式
    * @param commaSecondaryPeriod 底行是 26 键字母层那一行（`designRowUsesCommaSecondaryPeriod`）
@@ -781,7 +866,7 @@ export class KeyboardScheme {
   }
 
   /**
-   * 触屏 26 键字母层使用 123 | 符 | 空格 | ， | 中/英 | 回车，长按逗号输入句号；14 键和大千注音保留独立逗号句号。只用于设计底行，九键、笔画、手写和假名网格沿用各自底行。
+   * 触屏 26 键字母层使用 123 | 符 | 空格 | ， | 中/英 | 回车这一族底行，长按逗号输入句号（标准底行在空格左边另有句号或句点：123 | 符 | 。 | 空格 | ， | 中/英 | 回车，中英文和各语言相同）；14 键和大千注音保留独立逗号句号。只用于设计底行，九键、笔画、手写和假名网格沿用各自底行。
    *
    * @param rulesScheme 按键实际交给的方案（`SchemeCompositionPolicy.selectedRulesScheme`），英文和本地模式下不是注音
    */
@@ -832,7 +917,17 @@ export class KeyboardScheme {
   }
 
   private static normalizedProfile(value: string | null): string {
-    if (value === "ziranma" || value === "microsoft" || value === "shoudao") {
+    if (
+      value === "ziranma" ||
+      value === "microsoft" ||
+      value === "shoudao" ||
+      value === "custom" ||
+      value === "smart_abc" ||
+      value === "sogou" ||
+      value === "jiajia" ||
+      value === "ziguang" ||
+      value === "guobiao"
+    ) {
       return value;
     }
     return "xiaohe";

@@ -86,10 +86,11 @@ public final class AccountSessionRoutingPolicy {
         throw new IllegalStateException("anonymous account unavailable");
     }
 
-    /** Provider 只回答本 UID 的两种令牌方法、语音贡献与读账号绑定；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
+    /** Provider 的 call 只回答本 UID 的令牌、语音贡献与账号绑定；皮肤下载另走只读管道。 */
     public static boolean accepts(String method, int callingUid, int ownUid) {
         return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_SHARED_ACCESS_TOKEN.equals(method)
-                || METHOD_VOICE_CONTRIBUTION.equals(method) || METHOD_SYNC_STATE.equals(method))
+                || METHOD_VOICE_CONTRIBUTION.equals(method)
+                || METHOD_SYNC_STATE.equals(method))
             && callingUid == ownUid;
     }
 

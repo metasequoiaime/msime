@@ -371,7 +371,7 @@ final class ImeLetterRows {
             : JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
         if (localMode.isEmpty()) localMode = "none";
         return s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
-            s.dedicatedEnglish, s.selectedScheme, localMode);
+            s.dedicatedEnglish, s.selectedScheme, localMode, s.customShuangpinSemicolon());
     }
 
     /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化或换到另一种布局之后。 */
@@ -1237,7 +1237,7 @@ final class ImeLetterRows {
                     switch (current.mode()) {
                         case PENDING -> {
                             if (!current.forcesTap()) return false;
-                            // 组字中的滑动必须等价于一次普通点按，即使位移让按钮自己取消了点击。先取消按钮自己的这次触摸，它不会再补一次点击或长按。
+                            // 组字中或关闭符号滑动后的纵滑等价于一次点按，即使位移让按钮取消点击。先取消按钮触摸，避免再补一次点击或长按。
                             cancelKeyTouch(key, event);
                             key.performClick();
                             return true;
@@ -1543,45 +1543,32 @@ final class ImeLetterRows {
         return key;
     }
 
+    /** 拼音九键字母层的叹号（右列的 ！，右侧大回车时是接到符号栏末尾的 ！）：与 123 / #+= 层相同，固定上滑 14 dp 输入 0。原先滑出 0 的方向和距离跟「九键滑动输入数字」走（#10441）；九键改成三向 flick 后那一项不再有设置入口，旧的下滑选择和本机距离不能留在 ！ 上关不掉。 */
+    void bindNineKeySuperscriptShortcut(Button key, String text) {
+        bindSuperscriptShortcut(key, text);
+    }
+
     /** 123 / #+= 层的叹号：上滑 14 dp 输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
     void bindSuperscriptShortcut(Button key, String text) {
-        bindSuperscriptShortcut(key, text, false);
-    }
-
-    /** 拼音九键字母层的叹号（右列的 ！，右侧大回车时是接到符号栏末尾的 ！）：同上，但滑出 0 的方向和距离跟「九键滑动输入数字」走（{@link SuperscriptShortcutPolicy#zeroDirection}、{@link SuperscriptShortcutPolicy#zeroThresholdDp}，#10441），每次按下时读当前值，设置页改了下一次触摸就生效，与 1–9 键的 {@code ImeLayoutRows.bindNineKeySwipe} 相同。 */
-    void bindNineKeySuperscriptShortcut(Button key, String text) {
-        bindSuperscriptShortcut(key, text, true);
-    }
-
-    private void bindSuperscriptShortcut(Button key, String text, boolean nineKey) {
         if (!SuperscriptShortcutPolicy.applies(text)) return;
-        final String[] direction = {nineKey ? nineKeyZeroDirection() : SwipeHintPolicy.UP};
-        key.setContentDescription(SuperscriptShortcutPolicy.description(text, direction[0]));
+        final String direction = SwipeHintPolicy.UP;
+        key.setContentDescription(SuperscriptShortcutPolicy.description(text, direction));
         key.setOnLongClickListener(ignored -> {
             s.imeLayoutRows.showSuperscriptOptions(key);
             return true;
         });
         final float[] downY = new float[1];
-        final float[] threshold = {SwipeHintPolicy.THRESHOLD_DP};
+        final float threshold = SwipeHintPolicy.THRESHOLD_DP;
         final boolean[] swiped = new boolean[1];
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN -> {
                     downY[0] = DimensionPolicy.fromPixels(s, event.getY());
                     swiped[0] = false;
-                    if (nineKey) {
-                        String next = nineKeyZeroDirection();
-                        threshold[0] = SuperscriptShortcutPolicy.zeroThresholdDp(s.nineKeySwipeDigits,
-                            s.localSettings.integer(AndroidLocalSettings.NINE_KEY_SWIPE_DISTANCE));
-                        if (!next.equals(direction[0])) {
-                            direction[0] = next;
-                            key.setContentDescription(SuperscriptShortcutPolicy.description(text, next));
-                        }
-                    }
                     return false;
                 }
                 case android.view.MotionEvent.ACTION_MOVE -> {
-                    if (!swiped[0] && SuperscriptShortcutPolicy.swiped(direction[0], threshold[0], downY[0],
+                    if (!swiped[0] && SuperscriptShortcutPolicy.swiped(direction, threshold, downY[0],
                             DimensionPolicy.fromPixels(s, event.getY()))) {
                         swiped[0] = true;
                         key.cancelLongPress();
@@ -1609,9 +1596,5 @@ final class ImeLetterRows {
                 default -> { return swiped[0]; }
             }
         });
-    }
-
-    private String nineKeyZeroDirection() {
-        return SuperscriptShortcutPolicy.zeroDirection(s.nineKeySwipeDigits);
     }
 }

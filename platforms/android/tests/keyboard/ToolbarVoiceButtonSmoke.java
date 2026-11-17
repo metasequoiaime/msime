@@ -7,28 +7,11 @@ import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 工具栏语音按钮保留排序接线，设置写顶层共享偏好；组合入口的状态与保存由设备专项验证。 */
+/** 工具栏设置写顶层共享偏好；按钮身份、排序和最近复制切换由设备专项验证。 */
 public final class ToolbarVoiceButtonSmoke {
     public static void main(String[] args) throws Exception {
         String key = ToolbarOrderPolicy.Item.VOICE.preferenceKey;
         check("touch_voice_shortcut".equals(key), "the voice tool is switched by touch_voice_shortcut");
-
-        String toolbar = read("core/ImeToolbar.java");
-        String install = body(toolbar, "void installShortcutBar(Button dismissButton) {");
-        // 只看按钮在不在两张表里，表里其他按钮怎么排、换不换行都不影响。
-        check(body(install, "shortcutButtons = new Button[] {").contains("s.voiceShortcutButton"),
-            "the voice button is one of the middle tools");
-        String retired = body(install, "for (Button retired : new Button[] {");
-        check(retired.contains("s.replyShortcutButton") && !retired.contains("voiceShortcutButton"),
-            "the voice button is no longer retired from the toolbar");
-        check(body(toolbar, "private void applyShortcutOrder() {").contains("case VOICE -> s.voiceShortcutButton;"),
-            "the voice button follows the saved order");
-
-        String service = read("core/MSIMEInputService.java");
-        check(body(service, "boolean toolbarRowHidden() {").contains("|| touchVoiceShortcutEnabled);"),
-            "a toolbar with only the voice button still shows its row");
-        check(service.contains("ViewPolicy.setVisible(voiceShortcutButton, touchVoiceShortcutEnabled);"),
-            "the voice button shows exactly when its switch is on");
 
         String options = read("home/KeyboardOptionsPage.java");
         check(body(options, "private static boolean toolbarButton(")

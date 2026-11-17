@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import struct
 import shutil
 import subprocess
 from pathlib import Path
@@ -94,6 +95,14 @@ class AppGalleryTests(unittest.TestCase):
         self.run_release(self.client([*self.upload_replies(), state()]), mode="upload")
         self.assertEqual(len(self.transport.calls), 5)
 
+    def test_material_sync_updates_features_without_touching_the_icon(self):
+        client = self.client([ok()])
+        client.sync_materials(lang="zh-CN", new_features="合成测试")
+        calls = self.transport.calls
+        self.assertFalse(any("/app-file-info" in call[1] or "/upload-url/" in call[1] for call in calls))
+        self.assertIn("/publish/v2/app-language-info?", calls[-1][1])
+        self.assertEqual(calls[-1][3], {"lang": "zh-CN", "newFeatures": "合成测试"})
+
     def test_resume_package_and_draft_avoids_duplicate_creation(self):
         client = self.client([state(), ok(), ok()])
         self.run_release(client, package_id="pkg-1", version_id="draft-1")
@@ -149,6 +158,13 @@ class AppGalleryTests(unittest.TestCase):
             with self.subTest(ret=ret), self.assertRaises(AGC.ReleaseError) as error:
                 AGC.check_result({"ret": ret})
             self.assertNotIn("private contact", str(error.exception))
+
+    def test_rejection_names_the_endpoint_but_not_huaweis_message(self):
+        with self.assertRaises(AGC.ReleaseError) as error:
+            AGC.check_result({"ret": {"code": 204144641, "msg": "private contact"}},
+                             endpoint="PUT /publish/v2/app-language-info")
+        self.assertIn("code=204144641，接口 PUT /publish/v2/app-language-info", str(error.exception))
+        self.assertNotIn("private contact", str(error.exception))
 
     def test_missing_token_or_credentials_fail(self):
         with self.assertRaises(AGC.ReleaseError):
@@ -264,10 +280,11 @@ class AppGalleryTests(unittest.TestCase):
     def test_workflow_defaults_and_signing_gates(self):
         workflow = (ROOT / ".github/workflows/release-harmony.yml").read_text()
         self.assertIn("options: [auto, none, upload, public-test]", workflow)
-        self.assertIn("default: none, type: string", workflow)
+        self.assertIn("default: auto", workflow)
         self.assertEqual(workflow.count("if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}"), 5)
-        # Only the version step reads the raw input; every gate uses the resolved mode so auto never forces signing.
+        # 只有版本步骤读取原始模式；所有门禁都读取解析后的模式。
         self.assertEqual(workflow.count("inputs.appgallery"), 1)
+        self.assertIn("--materials platforms/harmony/appgallery-materials.json", workflow)
         self.assertLess(workflow.index("--check-only --mode"), workflow.index("Build the HarmonyOS settings page"))
         self.assertLess(workflow.index("name: appgallery-msime-harmony"), workflow.index("id: appgallery"))
         # AppGallery runs after the GitHub release so a Huawei parse failure or timeout cannot hold back the release.
@@ -308,6 +325,28 @@ class AppGalleryTests(unittest.TestCase):
                                         cwd=ROOT, capture_output=True)
                 self.assertEqual(result.returncode, 0)
                 self.assertIn(f"appgallery={mode}\n", output.read_text())
+
+    def test_materials_file_has_opaque_appgallery_icon(self):
+        materials = AGC.load_materials(ROOT / "platforms/harmony/appgallery-materials.json", "0.4.1")
+        icon = materials["icon"]
+        self.assertEqual(materials["lang"], "zh-CN")
+        self.assertTrue(materials["new_features"])
+        self.assertTrue(icon.is_file())
+        data = icon.read_bytes()
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
+        self.assertEqual((width, height, bit_depth, color_type), (216, 216, 8, 2))
+
+    def test_materials_paths_do_not_depend_on_current_directory(self):
+        with mock.patch.object(Path, "cwd", return_value=Path(self.temp.name)):
+            materials = AGC.load_materials(ROOT / "platforms/harmony/appgallery-materials.json", "0.4.1")
+        self.assertEqual(materials["icon"], ROOT / "platforms/harmony/AppScope/resources/base/media/app_icon_appgallery.png")
+
+    def test_materials_reject_icons_outside_the_materials_directory(self):
+        config = Path(self.temp.name) / "materials.json"
+        config.write_text(json.dumps({"lang": "zh-CN", "newFeatures": "合成测试", "icon": "../outside.png"}))
+        with self.assertRaises(AGC.ReleaseError):
+            AGC.load_materials(config, "0.4.1")
 
     def test_real_transport_streams_bytes_and_refuses_redirects(self):
         received = []

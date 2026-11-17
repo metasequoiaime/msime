@@ -155,6 +155,25 @@ fn phrases(count: usize, special: &[(usize, &str)]) -> String {
 }
 
 #[test]
+fn rime_tone_marks_survive_settings_import_batches() {
+    for (kind, expected) in [("pinyin", "ni hao"), ("quick_phrase", "nihao")] {
+        let mut host = FakeHost::new();
+        let mut text = String::from("---\nname: synthetic\n...\n");
+        for index in 0..2100 {
+            text.push_str(&format!("合成词条{index}\tnǐ hǎo\t123\n"));
+        }
+        let report = host.import(kind, "rime", &text, "tone-import").unwrap();
+        assert_eq!(report["applied"], 2100);
+        assert_eq!(report["failed"], 0);
+        assert_eq!(report["truncated"], false);
+        assert_eq!(host.store.len(), 2100);
+        assert!(host.store.iter().all(|(key, _)| key == expected));
+        assert!(host.actions.len() >= 3);
+        assert!(host.actions.iter().all(|action| action["format"] == "rime"));
+    }
+}
+
+#[test]
 fn gboard_batches_keep_the_detected_format_without_repeating_the_header() {
     let mut host = FakeHost::new();
     let mut text = String::from("\u{feff}# Gboard Dictionary version:1\n");

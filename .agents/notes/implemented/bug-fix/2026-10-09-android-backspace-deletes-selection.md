@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+普通非空文字的单码位删除决定由[完整字素退格](2026-11-14-android-backspace-graphemes.md)部分取代；本文仍持有选区优先规则。
+
 删除键的公共入口 `deleteCodePointBeforeCursor` 先用 `getSelectedText(0)` 询问编辑器有没有选区；有就用 `commitText("", 1)` 以空串替换选区，并作废选区回声预期，不再删光标前的字；没有选区时照旧按码位删一个字。笔画布局改为调用这个入口。`check-host.sh` 加了守卫：入口必须先删选区，`MSIMEInputService` 以外不许直接调用 `deleteSurroundingTextInCodePoints`。
 
 日文九键轮切（`stepJapaneseToggle`）也经过这个入口，它删的是刚上屏的上一个假名，此时光标总是收拢的，不会走到删选区的分支。
