@@ -10,6 +10,7 @@
 #include "CandidateSkin.h"
 #include "CandidateThemeSettings.h"
 #include "SkinResourceRevision.h"
+#include "SkinTypingStatistics.h"
 #include "DesktopCandidates.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
@@ -1744,6 +1745,7 @@ int wmain(int argc, wchar_t **argv) {
     auto current_candidate_theme = candidate_theme_values(
         prepared.at("value").at("preferences"));
     std::map<std::string, CandidateThemeResolution> resolved_themes;
+    AppliedSkinStatistics applied_skin_statistics;
     // Package assets by id, read from the catalog once per package and forgotten with the resolved themes.
     std::map<std::string, msime::windows::CandidateSkinAssets> skin_assets;
     auto package_assets = [&](const std::string &id)
@@ -2571,6 +2573,10 @@ int wmain(int argc, wchar_t **argv) {
           }
           candidate_dark_applied = dark;
           candidate_horizontal_applied = candidate_horizontal;
+          if (auto id = applied_skin_statistics.observe(
+                  current_candidate_theme.value("global_theme", std::string("system")),
+                  theme.candidate_skin))
+            record_skin_statistics_async(config.state_root.u8string(), *id);
           candidate_theme_dirty = false;
           ++candidate_settings.appearance_revision;
           ++candidate_theme_generation;

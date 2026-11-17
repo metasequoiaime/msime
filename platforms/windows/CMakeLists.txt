@@ -297,6 +297,17 @@ else()
 endif()
 add_test(NAME windows-voice-typing-statistics COMMAND windows-voice-typing-statistics)
 set_tests_properties(windows-voice-typing-statistics PROPERTIES TIMEOUT 10)
+# 实际套用皮肤的成就事件，不依赖 Windows 绘制或设置窗口。
+add_executable(windows-skin-typing-statistics tests/input/skin_typing_statistics.cpp)
+target_include_directories(windows-skin-typing-statistics PRIVATE src/input)
+target_link_libraries(windows-skin-typing-statistics PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-skin-typing-statistics PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+else()
+  target_compile_options(windows-skin-typing-statistics PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-skin-typing-statistics COMMAND windows-skin-typing-statistics)
+set_tests_properties(windows-skin-typing-statistics PROPERTIES TIMEOUT 10)
 # Which punctuation ends the composition with the highlighted candidate. The
 # set is the reference's, character for character; one missing mark is a key
 # that quietly stops doing that, visible only while typing.

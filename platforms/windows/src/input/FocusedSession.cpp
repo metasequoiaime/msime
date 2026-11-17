@@ -8,6 +8,7 @@
 #include "PredictionPolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
+#include "SkinTypingStatistics.h"
 #include "../voice/VoiceTypingStatistics.h"
 #include <ctime>
 #include <memory>
@@ -74,6 +75,11 @@ void record_voice_duration_async(const std::string &directory, uint64_t millisec
   if (!local)
     return;
   auto request = typing_statistics_record_voice_request(directory, local->day, milliseconds);
+  if (!request.empty())
+    submit_typing_statistics_request(std::move(request));
+}
+void record_skin_statistics_async(const std::string &directory, const std::string &id) {
+  auto request = typing_statistics_record_skin_request(directory, id);
   if (!request.empty())
     submit_typing_statistics_request(std::move(request));
 }
