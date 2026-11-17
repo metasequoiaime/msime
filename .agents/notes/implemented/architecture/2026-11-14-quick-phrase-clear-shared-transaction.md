@@ -45,3 +45,7 @@ Windows 现代 WinUI、Win7、macOS 与 Linux 的原生入口使用 `quick_clear
 真实 C ABI 明确拒绝文本版 `snapshot_export`、`snapshot_restore_preview` 和 `snapshot_restore`。macOS 云端清空不调用这些入口；Swift 替身按同样规则拒绝文本快照，回归覆盖实际令牌传递、空列表不提交和冲突不重试，避免替身支持产品不支持的操作。
 
 完整 quick 首轮在 i686 的新增 UI 测试编译失败：普通无捕获 lambda 不能转换成 32 位 Win32 的 `WNDENUMPROC`。改为显式 `BOOL CALLBACK` 枚举回调，保持生产窗口与五个场景不变；`target/windows-pipe-cross-i686` 的 `windows-cloud-quick-phrase-clear` 重新编译和链接通过。首轮其余阶段成功不记作整轮 quick 成功，最终仍运行完整门禁。
+
+本轮整合后的完整 quick（`20261117-134840`）40 分 31 秒、退出码 0，包含修复后的 x86_64/i686 pipe-only 编译。API 28 专用模拟器上，四个共享 crate 共 2,777 项测试、维护租约 13 项和新增清空事务 2 项通过；首次装包冒烟因尚未生成 APK 停止，不记作装包成功。
+
+旧版 Linux 包在两个架构均暴露了测试运行器的依赖缺口：源码树 provider 合约已经通过共享 C ABI 校验 AI 候选，但 legacy 的干净运行容器只有已安装的库，源码树没有 debug 库，合约因此把合法候选读作空列表。运行器沿安装包生成的 `msime_voice_paths.py` 相对路径设置 `MSIME_HOST_LIBRARY`，明确使用刚安装的同版本库；保留配置发现、权限变更和候选内容的原断言，不复制 Python 版拼音规则，也不把缺库当作可跳过的测试。

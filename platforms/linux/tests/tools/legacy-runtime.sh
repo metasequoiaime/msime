@@ -30,6 +30,20 @@ sys.argv = sys.argv[1:]
 sys.path[0] = os.path.dirname(os.path.abspath(sys.argv[0]))
 runpy.run_path(sys.argv[0], run_name="__main__")
 '
+# 合约从源码树加载 provider，AI 候选协议仍须调用刚安装的同版本共享库。
+# 显式沿安装包生成的相对路径定位，避免误用源码树中缺失或过时的 debug 库。
+export MSIME_HOST_LIBRARY
+MSIME_HOST_LIBRARY=$(python3 - <<'PYTHON'
+import runpy
+from pathlib import Path
+
+scripts = Path("/usr/bin")
+paths = runpy.run_path(str(scripts / "msime_voice_paths.py"))
+library = (scripts / paths["HOST_LIBRARY"]).resolve(strict=True)
+assert library.is_file(), "installed host library is unavailable"
+print(library)
+PYTHON
+)
 mapfile -t contracts < platforms/linux/tests/tools/python-contracts.list
 for contract in "${contracts[@]}"; do
   case "$contract" in */panel_keymap.py|*/doubao_auth.py) continue ;; esac
