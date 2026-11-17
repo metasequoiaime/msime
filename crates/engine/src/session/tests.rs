@@ -7431,8 +7431,9 @@ fn date_time_menu_opens_the_full_format_list() {
     let first = words(&session);
     assert_eq!(first[2], "📅日期", "{first:?}");
     let menu = &session.snapshot().candidates[2];
-    assert_eq!(menu.source, CandidateSource::Generated);
+    assert_eq!(menu.source, CandidateSource::Fallback);
     assert_eq!(menu.pinyin, "menu:riqi");
+    assert!(!session.snapshot().candidate_answers_key[2]);
 
     // 选中入口：不上屏，候选窗换成 T 模式的整组格式，组字原样留着。
     let result = session.select(2);
@@ -7443,6 +7444,8 @@ fn date_time_menu_opens_the_full_format_list() {
     assert_eq!(page[0], "2026年8月9日");
     assert_eq!(page[16], "丙午年六月二十七日");
     assert!(!session.snapshot().preedit.is_empty());
+    assert!(!session.expand_initial_candidates());
+    assert_eq!(words(&session), page);
 
     // 页里选一条格式：照常上屏并结束组字。
     assert_eq!(session.select(1).commit.as_deref(), Some("2026-08-09"));
