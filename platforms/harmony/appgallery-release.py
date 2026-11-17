@@ -62,7 +62,7 @@ class Transport:
         return result
 
 
-def check_result(result, *, token=False):
+def check_result(result, *, token=False, endpoint=""):
     ret = result.get("ret")
     if token and ret is None and isinstance(result.get("access_token"), str) and result["access_token"]:
         return result
@@ -74,7 +74,9 @@ def check_result(result, *, token=False):
     code = ret.get("code") if isinstance(ret, dict) else None
     if type(code) not in (int, str) or str(code) != "0":
         safe_code = str(code) if re.fullmatch(r"[0-9-]{1,16}", str(code)) else "unknown"
-        raise ReleaseError(f"华为拒绝请求（code={safe_code}）；请在控制台核对权限和资料")
+        # Only our own endpoint constant is echoed; Huawei's message text may contain account data and stays out of logs.
+        where = f"，接口 {endpoint}" if endpoint else ""
+        raise ReleaseError(f"华为拒绝请求（code={safe_code}{where}）；请在控制台核对权限和资料")
     return result
 
 
@@ -139,7 +141,7 @@ class Client:
         query = {"appId": self.app_id, **query}
         return check_result(self.transport.request(
             method, BASE + path + "?" + urllib.parse.urlencode(query), self.headers,
-            None if body is None else json.dumps(body).encode()))
+            None if body is None else json.dumps(body).encode()), endpoint=f"{method} {path}")
 
     def check_access(self):
         # 此只读列表允许尚无测试版本的应用；app-info 的测试查询必须提供 versionId。
