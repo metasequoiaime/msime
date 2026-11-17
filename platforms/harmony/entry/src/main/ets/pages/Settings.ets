@@ -1,5 +1,6 @@
 import { CustomShuangpinPanel } from './CustomShuangpinPanel';
 import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
+import { KeyboardLetterWidthsPanel } from './KeyboardLetterWidthsPanel';
 import { NineKeyFlickPanel } from './NineKeyFlickPanel';
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
 import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
@@ -670,6 +671,8 @@ struct Settings {
   // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
   @State privacyGranted: boolean = false;
   @State private showDictionaryGroups: boolean = false;
+  @State private showKeyboardLetterWidths: boolean = false;
+  @State private keyboardLetterWidthsRefresh: number = 0;
   @State private showCustomShuangpin: boolean = false;
   @State private customRefresh: number = 0;
   @State private customBackRequest: number = 0;
@@ -731,6 +734,7 @@ struct Settings {
     this.bridge.watchSetup();
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
+      this.keyboardLetterWidthsRefresh++;
       this.customRefresh++;
       this.bridge.resumeStatistics();
       this.bridge.syncShared();
@@ -782,8 +786,17 @@ struct Settings {
     this.bridge.refreshPreferencesIfChanged(true);
   }
 
+  private closeKeyboardLetterWidths(): void {
+    this.showKeyboardLetterWidths = false;
+    this.bridge.refreshPreferencesIfChanged(true);
+  }
+
   /** 系统返回先退出原生面板，再走已有页面历史；无处可退时交给系统。 */
   onBackPress(): boolean {
+    if (this.showKeyboardLetterWidths) {
+      this.closeKeyboardLetterWidths();
+      return true;
+    }
     if (this.showCustomShuangpin) {
       this.customBackRequest++;
       return true;
@@ -956,6 +969,7 @@ struct Settings {
     Column() {
       if (!this.launchCover && !this.privacyRequired) {
       Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
+        Button('键盘布局').onClick((): void => { this.showKeyboardLetterWidths = true; })
         Button('自定义双拼').onClick((): void => { this.showCustomShuangpin = true; })
         Button('九键四向滑动').onClick((): void => { this.showNineKeyFlick = true; })
         if (this.privacyGranted) {
@@ -1013,7 +1027,7 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
-    .visibility(this.showDictionaryGroups || this.showNineKeyFlick || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
     if (this.showCustomShuangpin) {
       CustomShuangpinPanel({
         bridge: {
@@ -1035,6 +1049,14 @@ struct Settings {
         savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
         refresh: this.flickRefresh,
         back: (): void => this.closeNineKeyFlick()
+      })
+    }
+    if (this.showKeyboardLetterWidths) {
+      KeyboardLetterWidthsPanel({
+        loadPreferences: (): string => this.bridge.loadPreferences(),
+        savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+        refresh: this.keyboardLetterWidthsRefresh,
+        back: (): void => this.closeKeyboardLetterWidths()
       })
     }
     if (this.showDictionaryGroups) {
