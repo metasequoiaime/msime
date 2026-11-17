@@ -34,6 +34,7 @@ public class KeyHintButton extends KeyboardPressButton {
     private float unhintedTextSize;
     private int hintWidth;
     private int hintHeight;
+    private boolean gridFace;
     private final RecentResults<InsetInput, Insets> insetCache = new RecentResults<>(8);
 
     /**
@@ -42,7 +43,7 @@ public class KeyHintButton extends KeyboardPressButton {
      * <p>14/18 键的分词键在组字开始和结束时换「辅」角标，每次都让整排重新布局；LinearLayout 的 forceUniformWidth 又把每个字母键按两种宽度各量一遍。只记上一次的尺寸时两次都对不上，每个键每次布局都从头量 26 个字母和角标；两种宽度的字号上界又不同，TextView 的自动字号每量一次就重配一次、逐档排版试字号，打字时一帧要一百多毫秒。按输入记下内边距和字号后，重新布局只是查表，值没变就什么都不设。
      */
     private record InsetInput(int width, int height, String label, String hintText, String cornerHint,
-            float unhintedTextSize, Typeface typeface, float letterSpacing, float textScaleX,
+            float unhintedTextSize, boolean gridFace, Typeface typeface, float letterSpacing, float textScaleX,
             float keySp, int paddingLeft) { }
 
     /** 量出来的上、右、下内边距和主标签的字号（px）。 */
@@ -108,6 +109,16 @@ public class KeyHintButton extends KeyboardPressButton {
         invalidate();
     }
 
+    /**
+     * 14/18 键的字母键面：主标签始终按键宽收字号（关掉角标时也收，双字母键面在窄屏上不会被截），并且在居中的主标签碰不到右上角角标时保持居中，不再为角标左移或让出顶部；只有键矮到真的会碰上时才退回 26 键的避让规则。
+     */
+    public final void setGridFace(boolean value) {
+        if (gridFace == value) return;
+        gridFace = value;
+        updateHintInsets();
+        invalidate();
+    }
+
     /** 带提示的键面字号由 {@link #updateHintInsets(int, int)} 按键收过；工厂随后指定的字号记成新的基准，再按它重收。 */
     @Override public void setTextSize(int unit, float size) {
         if (unhintedTextSize > 0) {
@@ -127,7 +138,7 @@ public class KeyHintButton extends KeyboardPressButton {
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);
         int height = MeasureSpec.getSize(heightMeasureSpec);
-        if ((!hintText.isEmpty() || !cornerHint.isEmpty()) && (hintWidth != width || hintHeight != height))
+        if ((!hintText.isEmpty() || !cornerHint.isEmpty() || gridFace) && (hintWidth != width || hintHeight != height))
             updateHintInsets(width, height);
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
@@ -135,7 +146,7 @@ public class KeyHintButton extends KeyboardPressButton {
     private void updateHintInsets(int width, int height) {
         hintWidth = width;
         hintHeight = height;
-        if (hintText.isEmpty() && cornerHint.isEmpty()) {
+        if (hintText.isEmpty() && cornerHint.isEmpty() && !gridFace) {
             if (getAutoSizeTextType() != TextView.AUTO_SIZE_TEXT_TYPE_NONE)
                 setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE);
             float restoredSize = unhintedTextSize;
@@ -147,7 +158,7 @@ public class KeyHintButton extends KeyboardPressButton {
         if (unhintedTextSize == 0) unhintedTextSize = getTextSize();
         Paint paint = getPaint();
         InsetInput input = new InsetInput(width, height, getText().toString(), hintText, cornerHint, unhintedTextSize,
-            paint.getTypeface(), paint.getLetterSpacing(), paint.getTextScaleX(),
+            gridFace, paint.getTypeface(), paint.getLetterSpacing(), paint.getTextScaleX(),
             KeyboardTypographyPolicy.keySp(getContext(), 1), getPaddingLeft());
         Insets insets = insetCache.get(input);
         if (insets == null) {
@@ -186,7 +197,9 @@ public class KeyHintButton extends KeyboardPressButton {
             float cornerWidth = widths.corner()
                 + DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP + 2) * scale;
             int horizontalInset = (int) Math.ceil(Math.max(0, mainWidth + 2 * cornerWidth - width));
-            if (hintText.isEmpty() && width > 0
+            if (gridFace && hintText.isEmpty() && cornerClear(main, corner, width, height, bottomInset, scale)) {
+                // 居中的主标签在角标下方，两者不相交：照常居中，不左移也不让出顶部。
+            } else if (hintText.isEmpty() && width > 0
                     && width - getPaddingLeft() - rightInset - horizontalInset >= Math.ceil(mainWidth)) {
                 // 横向错开必须仍放得下完整主标签；窄屏或大字体改为上下分区。
                 rightInset += horizontalInset;
@@ -243,6 +256,32 @@ public class KeyHintButton extends KeyboardPressButton {
             LETTER_BOUNDS.put(input, bounds);
         }
         return bounds;
+    }
+
+    /**
+     * 居中的主标签和右上角角标按画出来的墨迹会不会相碰（再留 1 dp）：角标的墨迹框按它的字形和画法（右对齐、上 {@link #CORNER_HINT_TOP_DP}、右 {@link #CORNER_HINT_RIGHT_DP}）算，主标签的框按居中时的排版宽度和大写字母的墨迹高度（同一副键盘每个键一样，键面都是大写字母）算。两框上下错开或左右错开就不相碰。
+     *
+     * <p>不按角标字体的行高（ascent 到 descent）算：系统字体的行高可以比字形高得多（HyperOS 的 MiSans 上 10 sp 的角标行高比墨迹高出一大截），按行高算会把放得下的键判成相碰，单字母左移、宽键面下沉。
+     */
+    private boolean cornerClear(Paint main, Paint.FontMetrics corner, int width, int height, int bottomInset,
+            float scale) {
+        if (width <= 0 || height <= 0) return false;
+        Rect capitals = new Rect();
+        String letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        main.getTextBounds(letters, 0, letters.length(), capitals);
+        float content = height - basePaddingTop - bottomInset;
+        float labelTop = basePaddingTop + (content - capitals.height()) / 2f;
+        String label = getText().toString();
+        float left = getPaddingLeft();
+        float labelRight = left + (width - left - basePaddingRight + main.measureText(label)) / 2f;
+        Rect hint = new Rect();
+        cornerPaint.getTextBounds(cornerHint, 0, cornerHint.length(), hint);
+        float baseline = DimensionPolicy.floatPixels(getContext(), CORNER_HINT_TOP_DP) * scale - corner.ascent;
+        float anchor = width - DimensionPolicy.floatPixels(getContext(), CORNER_HINT_RIGHT_DP) * scale;
+        float hintLeft = anchor - cornerPaint.measureText(cornerHint) + hint.left;
+        float hintBottom = baseline + hint.bottom;
+        float gap = DimensionPolicy.floatPixels(getContext(), 1) * scale;
+        return labelTop >= hintBottom + gap || labelRight + gap <= hintLeft;
     }
 
     public final String cornerHint() { return cornerHint; }
