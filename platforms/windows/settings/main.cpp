@@ -17147,6 +17147,13 @@ private:
       auto cloud = add_group(page, L"云词库");
       shell_row(cloud, 0xE753, L"云词库", L"管理同步到账号的词条和备份", L"打开云词库",
                 nav::shell_links::cloud_dictionary);
+      auto clear = button_control(L"清空…", [this] {
+        HWND owner = nullptr;
+        check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+        msime::settings::show_cloud_quick_phrase_clear(owner, account_body(account_action(L"status")));
+      });
+      A11y::SetAutomationId(clear, L"lexicon-clear-cloud-quick-phrases");
+      add_row(cloud, 0xE74D, L"清空云端快捷短语", L"其他云端词库保留；确认前显示实际条数。", clear);
       build_dictionary_sync(page);
     }
   }
@@ -17352,13 +17359,6 @@ private:
         clear.as<Button>().Padding(Thickness{12, 0, 12, 0});
         A11y::SetAutomationId(clear, L"lexicon-clear-quick-phrases");
         actions.Children().Append(clear);
-        auto cloud_clear = button_control(L"清空云端快捷短语…", [this] {
-          HWND owner = nullptr;
-          check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
-          msime::settings::show_cloud_quick_phrase_clear(owner, account_body(account_action(L"status")));
-        }, !lexicon_busy_);
-        A11y::SetAutomationId(cloud_clear, L"lexicon-clear-cloud-quick-phrases");
-        actions.Children().Append(cloud_clear);
       }
       footer.Children().Append(actions);
     }
