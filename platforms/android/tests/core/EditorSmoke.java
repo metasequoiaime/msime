@@ -63,6 +63,7 @@ public final class EditorSmoke {
         }
     }
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
+    static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
     public static void main(String[] args) {
         // 定位必须等提交已应用，再开始下一段组字；拒写与定位断连不能重复提交。
         EditorBridge cursorBridge = new EditorBridge();
