@@ -10,12 +10,15 @@ Windows 输入 `wi` 这类无法切分成音节的全拼后，旧版本曾出现
 
 在 Engine 会话回归中固定以下契约：无效全拼仍显示为可编辑原文；`CommitRaw` 提交原文并清空编辑状态；下一次输入可以重新组字。Windows `session_smoke` 通过真实 `ServerSession` 和 `ReplyComposer` 补同一条宿主路径，使用合成的 `wi`、回车和 `ni` 数据验证原文提交、会话清空及后续恢复。产品逻辑没有为单个字母串增加特殊分支，避免把无效拼音变成不可编辑状态。
 
+#11544 暴露了此前只测 Engine/Server 的覆盖缺口：`CCompositionProcessorEngine::IsVirtualKeyNeed` 在 `CANDIDATE_NONE` 且仍组字时，把回车分派到 `CATEGORY_COMPOSING / FUNCTION_FINALIZE_CANDIDATELIST`，处理器只尝试选中候选再取消组字；空列表没有文字可写。这个入口现在与 `CANDIDATE_INCREMENTAL` 一样，分派到 `CATEGORY_CANDIDATE / FUNCTION_FINALIZE_CANDIDATELISTForVKReturn`，由现有宿主原文提交处理器提交并清空会话。显式转换列表在此前已将 `fComposing` 置为假，不经过本分支，其回车选词保持原规则；无组字回车、空格转换及其他功能键不改。
+
 ## Existing notes audit
 
 按 `wi`、无效全拼、`CommitRaw`、原文回车和宿主会话检索活跃笔记。已有全拼候选与原文提交笔记分别持有 Engine 命令和 Windows Enter 观测的通用契约；本篇只补充无法切分全拼在真实 Windows 会话中的端到端回归，不改变其它 scheme 的提交规则。
 
 ## Alternatives considered
 
+- **在共用的 `_HandleCompositionFinalize` 中为缺候选增加原文回退**：能让多个调用方得到容错；但这个处理器还服务继续输入、结束文本存储等路径，扩大它的提交语义会影响其他键的取消或转换边界。本次只修回车的分派，复用已有原文处理器。
 - **在 Windows 宿主里为 `wi` 增加专门恢复分支**：可以针对报告字符串绕过现象，但会让宿主和 Engine 的编辑状态分叉，也无法覆盖其他无法切分的字母串，因此不采用。
 - **只增加 Engine 单测**：能证明核心命令可恢复，却不能验证 Windows `ReplyComposer` 的原文提交和确认送达路径，因此同时保留宿主回归。
 
@@ -25,6 +28,8 @@ Windows 输入 `wi` 这类无法切分成音节的全拼后，旧版本曾出现
 - `rbuild bash scripts/verify-local.sh --quick` 通过；其中 Windows 本机可移植测试 191 项通过，Rust workspace、Android host Java、共享 Apple bridge、Windows contracts 和 notes 校验通过。Windows MinGW 原生编译在远端环境未配置，交给 PR 的 Windows 构建 job 编译并运行 `windows-session-smoke`。
 - 未改变界面、资源或文件读写，不需要截图或设备验收。
 
+- #11544 的 `scripts/test-windows-empty-candidate-enter.py` 编译生产功能键分类分支和真实枚举：修前 20 项检查只有空候选回车失败，修后全部通过。覆盖空/非空候选的回车、只探测不接结果、无组字、退格、Delete、Esc、空格、Tab/Shift+Tab 和左右键原规则。这是生产分派代码回归，不等同完整 TSF/QQ/报告者编辑器的运行证据；既有 Engine/Server 回归继续保留。
+
 ## Consequences
 
-当前实现继续由 Engine 的通用原文提交规则处理无效全拼；新增回归会在 Windows 宿主路径被改坏时阻止合入。无法在本机远端环境执行 Windows 真机/原生宿主安装验收，PR 保持 draft，待 Windows CI 完成后再决定是否关闭 issue。
+当前实现继续由 Engine 的通用原文提交规则处理无效全拼；新增回归会在 Windows 宿主路径被改坏时阻止合入。无法在本机远端环境执行 Windows 真机/原生宿主安装验收，缺少的真实编辑器验证写进 PR 验证段，不把它当作未实现，也不改变已覆盖实现的 `Fixes` 关系。
