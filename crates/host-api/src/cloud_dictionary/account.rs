@@ -26,6 +26,10 @@ pub fn handled_by_account(request: &CloudDictionaryRequest) -> bool {
     !matches!(
         request,
         CloudDictionaryRequest::SnapshotPreview
+            | CloudDictionaryRequest::SnapshotClearQuickPhrases { .. }
+            | CloudDictionaryRequest::QuickClearPreview
+            | CloudDictionaryRequest::QuickClearApply { .. }
+            | CloudDictionaryRequest::QuickClearCancel
             | CloudDictionaryRequest::SnapshotExport
             | CloudDictionaryRequest::SnapshotRestorePreview { .. }
             | CloudDictionaryRequest::SnapshotRestore { .. }
@@ -240,7 +244,11 @@ pub fn account_request<A: AccountApi, S: AccountSessionStorage>(
                 .map_err(|error| error.code())
         }),
         CloudDictionaryRequest::SnapshotPreview
+        | CloudDictionaryRequest::QuickClearPreview
+        | CloudDictionaryRequest::QuickClearApply { .. }
+        | CloudDictionaryRequest::QuickClearCancel
         | CloudDictionaryRequest::SnapshotExport
+        | CloudDictionaryRequest::SnapshotClearQuickPhrases { .. }
         | CloudDictionaryRequest::SnapshotRestorePreview { .. }
         | CloudDictionaryRequest::SnapshotRestore { .. }
         | CloudDictionaryRequest::SnapshotRestoreNative { .. }

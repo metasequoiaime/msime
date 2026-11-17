@@ -1,5 +1,6 @@
 #include "../src/settings/DictionaryCollectionsLauncher.h"
 #include "../src/settings/LocalTranslationLauncher.h"
+#include "../src/settings/QuickPhraseClearLauncher.h"
 #include "../src/core/SettingsSyncWorker.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
@@ -563,6 +564,8 @@ bool emojiGroupsResultCurrent(const Json &result, uint64_t generation,
 
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
+  if (std::strcmp(panel, "quick-phrase-clear") == 0)
+    return msime::linux_host::launch_quick_phrase_clear();
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command) command = MSIME_EDITION_SETTINGS_PROGRAM;
   // About, help, feedback and the local dictionary are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
@@ -7424,6 +7427,9 @@ public:
     // 手写、屏幕键盘、表情面板、云词库、云剪贴板和「显示工具栏」与 macOS 一样挂在状态区顶层（arrangeStatusArea）；这里只剩 macOS 菜单里没有的入口。手写识别板只认汉字，不提供手写的版本（日文、越南文和藏文版，LinuxEdition.h 的 MSIME_EDITION_HANDWRITING 为 0）不列它，见 arrangeStatusArea。
     desktop_tools_menu_.addAction(&desktop_clipboard_action_);
     desktop_tools_menu_.addAction(&desktop_voice_action_);
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+    desktop_tools_menu_.addAction(&quick_phrase_clear_action_);
+#endif
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
     desktop_tools_menu_.addAction(&reload_service_action_);
@@ -7449,6 +7455,9 @@ public:
              {&website_action_, MSIME_EDITION_FCITX5_ADDON "-website"},
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+             {&quick_phrase_clear_action_, MSIME_EDITION_FCITX5_ADDON "-quick-phrase-clear"},
+#endif
              {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
 #ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
              {&dictionary_groups_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary-groups"},
@@ -8305,6 +8314,9 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+  FcitxDesktopPanelAction quick_phrase_clear_action_{&factory_, "quick-phrase-clear", "清空快捷短语…"};
+#endif
 #ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
   FcitxDesktopPanelAction dictionary_groups_action_{&factory_, "dictionary-groups", "词库分组…"};
 #endif
