@@ -186,6 +186,7 @@ import {
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import { SharedStateMirror } from './SharedStateMirror';
+import { SharedDictionaryResources } from './SharedDictionaryResources';
 import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
@@ -1297,6 +1298,7 @@ interface PreparedOptions {
   phrase_preedit?: boolean;
   /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
   rerank_models?: string;
+  dictionary_resource_root?: string;
   /** 这个键盘在停顿时调 `startSettledRerank`（`schedulePauseRerank`）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。 */
   pause_rerank?: boolean;
 }
@@ -2228,6 +2230,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       requested.phrase_preedit = true;
       if (this.rerankModelsDirectory.length > 0) {
         requested.rerank_models = this.rerankModelsDirectory;
+      }
+      if (this.sharedMirror !== null) {
+        requested.dictionary_resource_root = this.sharedMirror.dictionaryResourceRoot();
       }
       requested.pause_rerank = true;
       // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
@@ -4212,6 +4217,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.sharedMirror === null || this.stateDirectory.length === 0) {
       return;
     }
+    SharedDictionaryResources.removePrivateCopies(this.sharedMirror, this.stateDirectory);
     const fullMode: boolean = this.sharedFullMode();
     const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, fullMode);
     // 设置应用发布的会话由 Rust 在锁里决定要不要采用；这里排一次让本地状态尽早跟上，云剪贴板这类认证请求自己经 `beforeRequest` 再排一次。基础访问模式下键盘不交换会话。
