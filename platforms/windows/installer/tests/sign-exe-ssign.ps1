@@ -73,7 +73,7 @@ $global:LASTEXITCODE = if ($env:MSIME_SYNTHETIC_VERIFY_FAILURE) { 1 } else { 0 }
         if ($content -notin @('synthetic-signed', 'synthetic-vendor')) { throw '未检查签名输出文件' }
         [pscustomobject]@{
             Status = 'Valid'
-            SignerCertificate = [pscustomobject]@{ Subject = 'CN=Synthetic' }
+            SignerCertificate = [pscustomobject]@{ Subject = 'CN=Synthetic'; Thumbprint = ('A' * 40) }
             TimeStamperCertificate = if ($env:MSIME_SYNTHETIC_NO_TIMESTAMP) { $null } else { [pscustomobject]@{} }
         }
     }
@@ -96,6 +96,8 @@ $global:LASTEXITCODE = if ($env:MSIME_SYNTHETIC_VERIFY_FAILURE) { 1 } else { 0 }
     $env:MSIME_SYNTHETIC_NO_TIMESTAMP = '1'
     Assert-Throws '缺少时间戳' { & $script -Path $inputFile -SsignPath $fakeClient -SignToolPath $fakeVerifier } '缺少可信时间戳'
     Remove-Item Env:MSIME_SYNTHETIC_NO_TIMESTAMP
+    Assert-Throws '错误的发布证书' { & $script -Path $inputFile -SsignPath $fakeClient -SignToolPath $fakeVerifier -CertificateThumbprint ('B' * 40) } '签名证书与发布配置不符'
+    & $script -Path $inputFile -SsignPath $fakeClient -SignToolPath $fakeVerifier -CertificateThumbprint ('A' * 40)
 
     # 编译器替身在包内文件全部带签名后才生成安装器；验证两次调用复用会话并最终清理。
     Copy-Item -LiteralPath $script -Destination (Join-Path $root 'Sign-Files-SimplySign.ps1')

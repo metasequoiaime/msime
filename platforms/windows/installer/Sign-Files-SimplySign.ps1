@@ -3,13 +3,9 @@
     用 SimplySign 的 TOTP seed 自动计算动态码并签名一个或多个 EXE/DLL。
 
 .DESCRIPTION
-    这个入口给 SSH/无桌面的 Windows runner 使用。它调用外部的 ssign.exe，
-    从 CERTUM_EMAIL 和 CERTUM_OTP/CERTUM_TOKEN 环境变量读取账号与验证码，
-    不把秘密放进命令行参数；签名完成后用 Windows SDK 的 signtool 和 Authenticode
-    再核对签名与 RFC 3161 时间戳。
+    这个入口给 SSH/无桌面的 Windows runner 使用。它调用外部的 ssign.exe，从 CERTUM_EMAIL 和 CERTUM_OTP/CERTUM_TOKEN 环境变量读取账号与验证码，不把秘密放进命令行参数；签名完成后用 Windows SDK 的 signtool 和 Authenticode 再核对签名与 RFC 3161 时间戳。
 
-    ssign 是独立的社区客户端，不属于 Certum。正式发布前应固定并审核
-    ssign.exe 的来源；本脚本不会自动下载或替换它。
+    ssign 是独立的社区客户端，不属于 Certum。正式发布前应固定并审核 ssign.exe 的来源；本脚本不会自动下载或替换它。
 #>
 [CmdletBinding()]
 param(
@@ -22,7 +18,8 @@ param(
     [string]$TimestampUrl = 'http://time.certum.pl',
     [string]$Description,
     [string]$Url,
-    [string]$SignToolPath
+    [string]$SignToolPath,
+    [ValidatePattern('^$|^[a-fA-F0-9]{40}$')][string]$CertificateThumbprint
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,6 +89,9 @@ function Assert-SignedExecutable {
     }
     if (-not $signature.TimeStamperCertificate) {
         throw "二进制缺少可信时间戳：$Executable"
+    }
+    if ($CertificateThumbprint -and $signature.SignerCertificate.Thumbprint -ine $CertificateThumbprint) {
+        throw "二进制签名证书与发布配置不符：$Executable"
     }
 }
 
