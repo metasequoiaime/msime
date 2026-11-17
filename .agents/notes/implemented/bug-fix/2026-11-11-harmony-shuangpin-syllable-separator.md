@@ -12,6 +12,8 @@ Status: implemented
 
 这次沿用既有的 `tapLetterShift`、`KeyIdPolicy.character("'")` 和引擎撇号入口，不在键盘视图另造双拼编码或编辑器状态。行为边界与[中文全拼触屏分词键](../feature/2026-10-15-quanpin-touch-separator.md)一致，但修正其“其他方案保留大小写”的鸿蒙特例；Android 和 iOS 的既有行为不在本 issue 范围内。
 
+视图把 `quanpinShift` 作为 `shiftKept` 传给策略，不在调用外层提前返回。模拟器验收确认：只扩展纯策略、保留外层 `!this.quanpinShift` 时，小鹤仍显示 Shift；这也偏离了[全拼 Shift 偏好的既有接线约定](../feature/2026-10-26-touch-quanpin-shift-preference.md)。修复保持偏好的默认值和用户现值不变。
+
 ## Alternatives considered
 
 - **只修改双拼键帽，不修改动作**：改动表面最小，但点击仍会切换大小写，无法输入 issue 所需的分词符，因此不能采用。
@@ -25,5 +27,6 @@ Status: implemented
 ## Verification
 
 - 新增纯策略覆盖：四种双拼方案显示分词且忽略 `touch_quanpin_shift`，全拼开关边界、英文、符号、本地模式、九键全拼和五笔边界保持原断言。
-- 待执行：`pnpm run verify-notes`、`git diff --check`、`bash platforms/harmony/check-host.sh`、`bash platforms/harmony/tests/run.sh`；若本机工具链和磁盘允许，再执行 HAP 构建和设备验收。
-- 当前尚未在真实鸿蒙编辑器中完成触屏双拼分词验收，PR 验证段会明确列出该缺口。
+- `shuangpin-separator-adapter.test.cjs` 执行真实 `KeyboardView.usesQuanpinSeparator` 与 `tapLetterShift`：四种双拼分别覆盖开关两值和触屏边界，组字时派发 `Quote` 与撇号，空闲时不向编辑器插入撇号，非分词分支仍切换大小写。测试在旧视图上因 `XIAOHE shift=true` 失败，修复后通过。
+- `pnpm run verify-notes`、`git diff --check`、完整 `bash platforms/harmony/tests/run.sh` 与真实 `hvigorw assembleHap --no-daemon` 均通过。当前仓库已没有旧的 `platforms/harmony/check-host.sh`，不能将它列为已执行检查。
+- HarmonyOS 6.0.2/API 22 手机模拟器实际安装完整 HAP：小鹤显示「分词」，回到前台和冷启动后仍保持；原全拼方案及 Shift 行为已在冷启动后恢复并回读。验收没有向编辑器注入文本，保留实际前后截图。组字中的撇号派发由真实视图方法回归验证，尚未在签名真机或报告者编辑器验收，不把模拟器画面计作真机上屏。
