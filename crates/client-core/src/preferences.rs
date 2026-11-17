@@ -3657,7 +3657,7 @@ pub struct MixedInputPreferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
-    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（Windows、macOS、Linux）生效；这些宿主此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase: bool,
