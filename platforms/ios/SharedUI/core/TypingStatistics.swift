@@ -100,6 +100,8 @@ struct TypingStatistics: Decodable {
   var dailyHours: [String: [Int]] = [:]
   /// Key presses per local day, keyed by the ids in `TypingKeyID.all`. Only how many times each key went down that day: no order, no time of day, no text. Documents written before the key heatmap have no such field.
   var dailyKeys: [String: [String: Int]] = [:]
+  /// 共享层已分类的本地日、语言、键位计数；旧文档缺失时不推断历史语言。
+  var dailyKeyLanguages: [String: [String: [String: Int]]] = [:]
 
   /// The retention choices the statistics page offers, as on Windows.
   static let retentionChoices = [30, 90, 180, 365]
@@ -116,7 +118,7 @@ struct TypingStatistics: Decodable {
 
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case enabled, total, days, detail, dailyDetails, retention, dailyActiveMs, dailyHours, dailyKeys
+    case enabled, total, days, detail, dailyDetails, retention, dailyActiveMs, dailyHours, dailyKeys, dailyKeyLanguages
   }
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -129,6 +131,7 @@ struct TypingStatistics: Decodable {
     dailyActiveMs = try values.decodeIfPresent([String: Int].self, forKey: .dailyActiveMs) ?? [:]
     dailyHours = try values.decodeIfPresent([String: [Int]].self, forKey: .dailyHours) ?? [:]
     dailyKeys = try values.decodeIfPresent([String: [String: Int]].self, forKey: .dailyKeys) ?? [:]
+    dailyKeyLanguages = try values.decodeIfPresent([String: [String: [String: Int]]].self, forKey: .dailyKeyLanguages) ?? [:]
   }
 
   static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
