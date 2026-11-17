@@ -42,6 +42,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.NumberPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsModel;
+import app.msime.android.TypingKeyLanguages.Language;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Achievement;
 import app.msime.android.TypingStatisticsSummary.Habits;
@@ -89,6 +90,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     private boolean uploadBusy;
     /** 按键热力图上次选的布局；null 表示还没选过，按数据决定。 */
     @Nullable private Boolean nineKey;
+    @Nullable private Language keyLanguage;
     /** 热力图的 26 键和 9 键布局，按用户当前的底行样式与数字行；还没读到偏好时是标准底行。 */
     private List<List<List<KeyHeatmapLayout.Key>>> heatmapLayouts = List.of(KeyHeatmapLayout.SOFT, KeyHeatmapLayout.NINE);
     private boolean authorized;
@@ -456,7 +458,14 @@ public final class StatisticsFragment extends HomeTabFragment {
     // ---- 按键 ----
 
     private void keys(Context context, LinearLayout content, TypingStatisticsSummary value) {
-        Map<String, Long> presses = weekKeys();
+        List<String> keyDays = weekKeyDays();
+        List<Language> languages = statistics == null ? List.of() : statistics.keyLanguagesForDays(keyDays);
+        if (keyLanguage != null && !languages.contains(keyLanguage)) keyLanguage = null;
+        StatisticsKeyLanguagePicker.add(content, languages, keyLanguage, language -> {
+            keyLanguage = language;
+            render();
+        });
+        Map<String, Long> presses = statistics == null ? Map.of() : statistics.keysForDays(keyDays, keyLanguage);
         boolean nine = nineKey != null ? nineKey : KeyHeatmapView.prefersNine(presses);
         LinearLayout row = header(context, content, "按键热力图", null);
         SegmentedControl layout = new SegmentedControl(context);
@@ -548,11 +557,11 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     /** 近 7 天每个键的按键次数，和按键 KPI 同一个时间窗。 */
-    private Map<String, Long> weekKeys() {
-        if (statistics == null || summary == null) return Map.of();
+    private List<String> weekKeyDays() {
+        if (summary == null) return List.of();
         List<String> days = new ArrayList<>(summary.overview().last7().size());
         for (TypingStatisticsSummary.DayCount day : summary.overview().last7()) days.add(day.day());
-        return statistics.keysForDays(days);
+        return days;
     }
 
     // ---- 成就 ----
