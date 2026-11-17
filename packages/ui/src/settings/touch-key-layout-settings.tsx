@@ -55,6 +55,10 @@ import {
   withSymbolFirst,
   type NineKeySidebarKind,
 } from "../keyboard/touch-key-layout-styles";
+import {
+  fourteenKeyLetterWidth,
+  withFourteenKeyLetterWidths,
+} from "../keyboard/fourteen-key-letter-widths";
 
 /** 「按键布局」子页上提供哪几种键盘类型：版本没有的键盘类型不进分段控件。 */
 export type TouchKeyLayoutGroups = {
@@ -199,6 +203,16 @@ function harmonyStyledRows(
     return [...nineKeySidebarStack(rows.slice(0, -1), sidebar), rows[rows.length - 1]];
   }
   const letters = harmonyTouchKeyboardRows[layout].slice(0, -1);
+  const letterRows =
+    layout === "fourteen_key" ||
+    layout === "eighteen_key" ||
+    layout === "fourteen_key_shuangpin" ||
+    layout === "eighteen_key_shuangpin"
+      ? withFourteenKeyLetterWidths(
+          letters.slice(0, 3),
+          preferences ? fourteenKeyLetterWidth(preferences) : "equal",
+        )
+      : letters.slice(0, 3);
   const bottom = withLanguageKeyLeft(
     layout === "twenty_six_key"
       ? withSymbolFirst(
@@ -211,7 +225,7 @@ function harmonyStyledRows(
     preferences ? languageKeyLeft(preferences) : false,
   );
   const numberRow = preferences?.touch_number_row === true ? [numberRowKeys] : [];
-  return [...numberRow, ...letters, bottom];
+  return [...numberRow, ...letterRows, bottom];
 }
 
 /**
@@ -280,6 +294,7 @@ export function keyLayoutPreviewRows(
     ...(key.code === undefined ? {} : { code: key.code }),
     ...(key.rowSpan === undefined ? {} : { rowSpan: key.rowSpan }),
     ...(key.stack === undefined ? {} : { stack: key.stack }),
+    ...(key.letterPitch === undefined ? {} : { letterPitch: key.letterPitch }),
     tone: key.code === "Enter" ? "return" : tone,
     highlighted: key.stack !== undefined || highlighted(key),
   });
@@ -322,6 +337,11 @@ function keySpan(rowSpan: number | undefined): CSSProperties {
   };
 }
 
+function letterSpacing(label: string): string | undefined {
+  if (label.length <= 1) return undefined;
+  return label.includes(";") ? "0.08em" : "0.15em";
+}
+
 /** 整块键盘预览：画成真实键盘的样子，各行按份额铺满整行，这个样式与「标准」不同的键用强调色描边。只是示意，不可点，读屏跳过它（样式胶囊本身有名字，下方的说明讲副作用）。 */
 function KeyLayoutPreview({
   kind,
@@ -343,54 +363,79 @@ function KeyLayoutPreview({
       aria-hidden="true"
       data-key-layout-preview={kind}
     >
-      {rows.map((row, rowIndex) => (
-        <div
-          key={rowIndex}
-          className="flex min-h-0"
-          style={{ gap: PREVIEW_GAP_PX, flex: `${row.numberRow ? NUMBER_ROW_UNITS : 1} 1 0%` }}
-          data-key-layout-row={row.numberRow ? "number" : rowIndex}
-        >
-          {row.keys.map((key, index) =>
-            key.stack ? (
-              <span
-                key={index}
-                className="flex min-w-0 flex-col"
-                style={{ flex: `${key.weight} 1 0%`, gap: PREVIEW_GAP_PX, ...keySpan(key.rowSpan) }}
-                data-key-stack=""
-                data-row-span={key.rowSpan}
-                data-weight={key.weight}
-              >
-                {key.stack.map((label, at) => (
-                  <span
-                    key={at}
-                    className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
-                    data-key-code={key.code}
-                    data-key-tone={key.tone}
-                    data-highlighted={key.highlighted ? "" : undefined}
-                  >
-                    {label}
-                  </span>
-                ))}
-              </span>
-            ) : key.label ? (
-              <span
-                key={index}
-                className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...key.label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
-                style={{ flex: `${key.weight} 1 0%`, ...keySpan(key.rowSpan) }}
-                data-key-code={key.code}
-                data-key-tone={key.tone}
-                data-highlighted={key.highlighted ? "" : undefined}
-                data-row-span={key.rowSpan}
-                data-weight={key.weight}
-              >
-                {key.label}
-              </span>
-            ) : (
-              <span key={index} style={{ flex: `${key.weight} 1 0%` }} data-weight={key.weight} />
-            ),
-          )}
-        </div>
-      ))}
+      {rows.map((row, rowIndex) => {
+        const pitch = row.keys[0]?.letterPitch === true;
+        const total = row.keys.reduce((sum, key) => sum + key.weight, 0);
+        const keyWidth = (key: KeyLayoutPreviewKey): CSSProperties =>
+          pitch
+            ? {
+                flex: "0 0 auto",
+                width: `calc(${(100 * key.weight) / total}% - ${key.label ? PREVIEW_GAP_PX : 0}px)`,
+                marginInline: key.label ? PREVIEW_GAP_PX / 2 : 0,
+              }
+            : { flex: `${key.weight} 1 0%` };
+        return (
+          <div
+            key={rowIndex}
+            className="flex min-h-0"
+            style={{
+              gap: pitch ? 0 : PREVIEW_GAP_PX,
+              flex: `${row.numberRow ? NUMBER_ROW_UNITS : 1} 1 0%`,
+              width: pitch ? `calc(100% + ${PREVIEW_GAP_PX}px)` : undefined,
+              marginLeft: pitch ? -PREVIEW_GAP_PX / 2 : undefined,
+            }}
+            data-key-layout-row={row.numberRow ? "number" : rowIndex}
+          >
+            {row.keys.map((key, index) =>
+              key.stack ? (
+                <span
+                  key={index}
+                  className="flex min-w-0 flex-col"
+                  style={{
+                    flex: `${key.weight} 1 0%`,
+                    gap: PREVIEW_GAP_PX,
+                    ...keySpan(key.rowSpan),
+                  }}
+                  data-key-stack=""
+                  data-row-span={key.rowSpan}
+                  data-weight={key.weight}
+                >
+                  {key.stack.map((label, at) => (
+                    <span
+                      key={at}
+                      className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
+                      data-key-code={key.code}
+                      data-key-tone={key.tone}
+                      data-highlighted={key.highlighted ? "" : undefined}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </span>
+              ) : key.label ? (
+                <span
+                  key={index}
+                  className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...key.label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
+                  style={{
+                    ...keyWidth(key),
+                    letterSpacing: letterSpacing(key.label),
+                    ...keySpan(key.rowSpan),
+                  }}
+                  data-key-code={key.code}
+                  data-key-tone={key.tone}
+                  data-highlighted={key.highlighted ? "" : undefined}
+                  data-row-span={key.rowSpan}
+                  data-weight={key.weight}
+                >
+                  {key.label}
+                </span>
+              ) : (
+                <span key={index} style={keyWidth(key)} data-weight={key.weight} />
+              ),
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -451,7 +496,7 @@ function StyleChips<T extends string>({
 }
 
 /**
- * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明，26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；每个分段的卡片里都有「中/英键放在空格左边」开关（26 键分段里排在互换开关之后，三个分段是同一个偏好，切分段时状态不变），打开时预览把 中/英 画到空格左边并描边它；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first`、`touch_language_key_side`（打开写 `left`、关上写 `right`）或 `touch_number_row`，键盘开着时当场换排法。
+ * 「按键布局」子页的内容，三端一致：最上面是键盘类型分段控件（26 键 | 14/18 键 | 9 键，只列版本提供的类型，只有一种时不画），默认停在用户当前在用的中文键盘类型；下面是这一类键盘的整块预览、一排样式胶囊和当前样式的说明；26 键分段在同一张卡片里再列「26 键「符」与「123」互换」开关，打开时预览把 符 画在 123 左边并描边这两个键；每个分段的卡片里都有「中/英键放在空格左边」开关（26 键分段里排在互换开关之后，三个分段是同一个偏好，切分段时状态不变），打开时预览把 中/英 画到空格左边并描边它；样式卡片下面是「数字键盘」一组（空格在右列、0 右边或 0 左边的一排胶囊加组末说明，没选过时选中鸿蒙原来的「空格在 0 左边」，不画预览）；最后单独一组是「顶部数字行」开关。切分段只换预览和胶囊，不写偏好；点胶囊写共享偏好 `touch_twenty_six_key_style`、`touch_fourteen_key_style`、`touch_nine_key_style` 或 `touch_number_pad_space`，开关写 `touch_twenty_six_symbol_first`、`touch_language_key_side`（打开写 `left`、关上写 `right`）或 `touch_number_row`，键盘开着时当场换排法。
  *
  * 三类键盘的内容都挂着，只是不在当前分段的隐藏起来：设置项搜索因此扫得到每个样式名和互换开关，命中别的分段里的项时由 SettingsSearchReveal 切过去；「中/英键放在空格左边」每个分段都显示，命中它时停在当前分段（子页刚打开时是用户在用的那一类，判断不了时是第一段）。`open` 是子页是否打开，关上时分段回到默认，下次打开仍停在当前在用的键盘类型。
  */
