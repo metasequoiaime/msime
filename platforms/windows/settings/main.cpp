@@ -14383,6 +14383,8 @@ private:
     }
     bool_row(group, 0xE753, L"云候选", L"仅将当前正在组的拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
              L"cloud_candidates", false);
+    bool_row(group, 0xE753, L"显示云候选来源角标", L"在云候选末尾显示 ☁️；关闭后只隐藏标识，不影响候选内容和选词",
+             L"candidate_cloud_badge", true);
 
     const auto stored = document_.Value(L"cloud_candidate_provider");
     const std::wstring stored_text = stored && stored.ValueType() == JsonValueType::Object
@@ -28321,6 +28323,8 @@ private:
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
+  const int repair = msime::settings::input_method::run_if_requested(command);
+  if (repair >= 0) return repair;
   const int gameProfileResult = msime::windows::game_profile::run_if_requested(command);
   if (gameProfileResult >= 0) return gameProfileResult;
   const auto route = msime::windows::requested_surface_route("settings");

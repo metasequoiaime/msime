@@ -10,6 +10,8 @@ SignPath Foundation 的开源计划已经批准了项目 `msime-windows`，签�
 
 ## Decision
 
+[Windows SimplySign 自动发布](2026-11-17-windows-simplysign-release.md) 增加独立的 Certum 路径；本篇的 GitHub 托管来源、第三方文件排除与人工审批约束仍只适用于 SignPath。
+
 `release-windows.yml` 带上 SignPath 签名路径，由仓库变量 `WINDOWS_SIGNING_PROVIDER=signpath` 打开，默认关闭，关闭时行为与原来一样（未签名，Depot runner）。
 
 未签名包的 Server 权限行为由 [Windows 未签名包与设置输入修复](../../implemented/bug-fix/2026-10-21-windows-unsigned-server-and-settings-input.md) 部分取代：签名服务开关仍默认关闭，普通包关闭 UIAccess，生产可信签名流程保留 UIAccess。
