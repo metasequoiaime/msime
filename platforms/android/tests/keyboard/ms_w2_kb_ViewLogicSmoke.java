@@ -82,7 +82,7 @@ public final class ms_w2_kb_ViewLogicSmoke {
             800, KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS);
         float minimumKeyArea = KeyboardHeightPolicy.keyAreaHeightDp(KeyboardHeightPolicy.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP,
             800, KeyboardSpacingPolicy.MIN_ROW_SPACING_TENTHS);
-        check(near(minimumKeyArea, 178f) && near(defaultKeyArea, 236f), "key area spans 178–236 dp from 75% / 4 dp to default");
+        check(near(minimumKeyArea, 132f) && near(defaultKeyArea, 236f), "key area spans 132–236 dp from 50% / 4 dp to default");
         check(near(KeyboardHeightPolicy.keyAreaHeightDp(0, 360, -1), defaultKeyArea), "landscape key area matches portrait");
         checkPicker(PagedTileGrid.pickerGrid(false, defaultKeyArea - chrome, row), 3, 1f, "100% is full size");
         float eighty = KeyboardHeightPolicy.keyAreaHeightDp(KeyboardHeightPolicy.heightPercentToAdjustment(80), 800,
@@ -91,12 +91,12 @@ public final class ms_w2_kb_ViewLogicSmoke {
         float seventyFive = KeyboardHeightPolicy.keyAreaHeightDp(KeyboardHeightPolicy.heightPercentToAdjustment(75), 800,
             KeyboardSpacingPolicy.DEFAULT_ROW_SPACING_TENTHS);
         checkPicker(PagedTileGrid.pickerGrid(false, seventyFive - chrome, row), 2, 1f, "75% falls back to two rows");
-        checkPicker(PagedTileGrid.pickerGrid(false, minimumKeyArea - chrome, row), 2, 1f, "the minimum height fits two rows");
+        checkPicker(PagedTileGrid.pickerGrid(false, minimumKeyArea - chrome, row), 2, PagedTileGrid.PICKER_MIN_TILE_DP / row, "the minimum height fits two rows");
         // 输入方式面板：卡片 56 dp，网格以外 = 内边距 14 + 6、页点格 10 和上下各 6（ImePanels）。
         float schemeChrome = 42f;
         checkPicker(PagedTileGrid.pickerGrid(false, defaultKeyArea - schemeChrome, KeyboardSchemeCard.HEIGHT_DP), 3, 1f,
             "the scheme picker is full size at 100%");
-        checkPicker(PagedTileGrid.pickerGrid(false, minimumKeyArea - schemeChrome, KeyboardSchemeCard.HEIGHT_DP), 2, 1f,
+        checkPicker(PagedTileGrid.pickerGrid(false, minimumKeyArea - schemeChrome, KeyboardSchemeCard.HEIGHT_DP), 2, PagedTileGrid.PICKER_MIN_TILE_DP / KeyboardSchemeCard.HEIGHT_DP,
             "the scheme picker fits two rows at the minimum height");
         check(PagedTileGrid.pageCount(23, PagedTileGrid.perPage(4, 3)) == 2
             && PagedTileGrid.pageCount(23, PagedTileGrid.perPage(4, 2)) == 3, "function tools paginate by rows");

@@ -49,7 +49,7 @@
     "local_mode": "none",
     "normalized_segmentation": "q",
     "online_query": {
-     "ai_eligible": false,
+     "ai_eligible": true,
      "cache_key": "q",
      "cloud_eligible": true,
      "pinyin_segments": [
@@ -86,7 +86,7 @@
     "local_mode": "none",
     "normalized_segmentation": "q",
     "online_query": {
-     "ai_eligible": false,
+     "ai_eligible": true,
      "cache_key": "q",
      "cloud_eligible": true,
      "pinyin_segments": [

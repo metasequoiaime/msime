@@ -446,6 +446,8 @@ mod tests {
             expected.push("ocr-module-android");
         }
         expected.push("rerank-model-small");
+        // 离线翻译模型已加入固定资源目录，默认状态的完整清单也包含它。
+        expected.push("local-translation");
         assert_eq!(ids, expected);
         for pack in listed["value"].as_array().unwrap() {
             assert_eq!(pack["state"], "missing");

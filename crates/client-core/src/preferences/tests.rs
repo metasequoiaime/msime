@@ -691,6 +691,7 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
                 &custom,
                 &digits,
                 TouchNineKeySwipeDigits::Off,
+                None,
             )
             .unwrap();
         let absent = |value: &Option<serde_json::Value>| {
@@ -728,7 +729,8 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
                         false,
                         &custom,
                         &digits,
-                        TouchNineKeySwipeDigits::Off
+                        TouchNineKeySwipeDigits::Off,
+                        None
                     )
                     .unwrap()
                     .revision,
@@ -746,7 +748,15 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
     fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
     let before = fs::read(store.path()).unwrap();
     let saved = store
-        .migrate_android_key_layout(1, false, false, &[], &[], TouchNineKeySwipeDigits::Off)
+        .migrate_android_key_layout(
+            1,
+            false,
+            false,
+            &[],
+            &[],
+            TouchNineKeySwipeDigits::Off,
+            None,
+        )
         .unwrap();
     assert_eq!(saved.revision, 1);
     assert_eq!(fs::read(store.path()).unwrap(), before);
@@ -760,6 +770,7 @@ fn android_layout_migration_moves_custom_nine_key_sidebars_only_into_absent_tabl
             &strings(&[" ， ", "，", "toolong"]),
             &[],
             TouchNineKeySwipeDigits::Off,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -1006,6 +1017,35 @@ fn nine_key_swipe_digits_wire_strings_are_pinned_and_unknown_strings_read_as_off
     let mut wrong = legacy;
     wrong["touch_nine_key_swipe_digits"] = true.into();
     assert!(serde_json::from_value::<Preferences>(wrong).is_err());
+}
+
+#[test]
+fn nine_key_flick_threshold_defaults_round_trip_and_validates() {
+    let defaults = Preferences::default();
+    assert_eq!(defaults.touch_nine_key_flick_threshold, 24);
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("touch_nine_key_flick_threshold")
+        .is_none());
+    for value in [14, 26, 48] {
+        let configured = Preferences {
+            touch_nine_key_flick_threshold: value,
+            ..Preferences::default()
+        };
+        assert_eq!(
+            serde_json::from_value::<Preferences>(serde_json::to_value(&configured).unwrap())
+                .unwrap(),
+            configured
+        );
+        assert!(configured.validate().is_ok());
+    }
+    for value in [13, 15, 49] {
+        let configured = Preferences {
+            touch_nine_key_flick_threshold: value,
+            ..Preferences::default()
+        };
+        assert!(configured.validate().is_err());
+    }
 }
 
 #[test]
@@ -2370,6 +2410,7 @@ fn candidate_badge_defaults_follow_windows_factory_config() {
     assert!(defaults.candidate_fixed_badge);
     assert_eq!(defaults.candidate_fixed_badge_style, "paperclip");
     assert_eq!(defaults.candidate_ai_badge_style, "robot");
+    assert!(defaults.candidate_cloud_badge);
 
     // 旧文档缺这几个键时按 Windows v0.11.1 的出厂配置补上。
     let mut legacy = serde_json::to_value(&defaults).unwrap();
@@ -2377,16 +2418,19 @@ fn candidate_badge_defaults_follow_windows_factory_config() {
     fields.remove("candidate_fixed_badge");
     fields.remove("candidate_fixed_badge_style");
     fields.remove("candidate_ai_badge_style");
+    fields.remove("candidate_cloud_badge");
     let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
     assert!(parsed.candidate_fixed_badge);
     assert_eq!(parsed.candidate_fixed_badge_style, "paperclip");
     assert_eq!(parsed.candidate_ai_badge_style, "robot");
+    assert!(parsed.candidate_cloud_badge);
 
     // 用户显式保存的选择原样往返。
     let saved = Preferences {
         candidate_fixed_badge: false,
         candidate_fixed_badge_style: "dot".to_string(),
         candidate_ai_badge_style: "whale".to_string(),
+        candidate_cloud_badge: false,
         ..defaults
     };
     let round_tripped =
@@ -2394,6 +2438,7 @@ fn candidate_badge_defaults_follow_windows_factory_config() {
     assert!(!round_tripped.candidate_fixed_badge);
     assert_eq!(round_tripped.candidate_fixed_badge_style, "dot");
     assert_eq!(round_tripped.candidate_ai_badge_style, "whale");
+    assert!(!round_tripped.candidate_cloud_badge);
 }
 
 #[test]
@@ -2526,6 +2571,7 @@ fn reporting_consent_survives_android_layout_migration_without_initializing_hist
                 &[],
                 &[],
                 TouchNineKeySwipeDigits::Off,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -5723,9 +5769,14 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::NineKeyShuangpin,
             TouchKeyboardScheme::EighteenKey,
             TouchKeyboardScheme::CantoneseShuangpin,
+            TouchKeyboardScheme::SmartAbc,
+            TouchKeyboardScheme::Sogou,
+            TouchKeyboardScheme::Jiajia,
+            TouchKeyboardScheme::Ziguang,
+            TouchKeyboardScheme::Guobiao,
         ]
     );
-    assert_eq!(TouchKeyboardScheme::ALL.len(), 21);
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 26);
     // 全拼 14 键和九键双拼也不在以前的默认列表里，没存列表的旧文档不会凭空多出它们。
     for scheme in [
         TouchKeyboardScheme::FourteenKey,
@@ -5746,6 +5797,11 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
         (TouchKeyboardScheme::FourteenKey, "fourteen_key"),
         (TouchKeyboardScheme::NineKeyShuangpin, "nine_key_shuangpin"),
+        (TouchKeyboardScheme::SmartAbc, "smart_abc"),
+        (TouchKeyboardScheme::Sogou, "sogou"),
+        (TouchKeyboardScheme::Jiajia, "jiajia"),
+        (TouchKeyboardScheme::Ziguang, "ziguang"),
+        (TouchKeyboardScheme::Guobiao, "guobiao"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
         assert_eq!(
@@ -6697,6 +6753,125 @@ fn wubi_profile_defaults_to_86_and_reads_unknown_values_as_86() {
     assert!(Preferences::from_submission(submitted).is_err());
 }
 
+/// Android 把完整文档的 `traditional_chinese_variant` 缺键、非字符串或认不出的值按 `s2t` 读，
+/// 其余字段和 revision 不受影响；关掉 `applies` 等价于其余平台，仍然严格拒绝。
+#[test]
+fn traditional_variant_falls_back_on_read_only_on_android() {
+    let base = r#"{"format_version":1,"revision":3,"preferences":{"scheme":"quanpin","candidate_page_size":5,"learning":false,"chinese_punctuation":true,"traditional_chinese_output":true"#;
+    for (name, expected) in [
+        ("s2t", TraditionalVariant::Standard),
+        ("s2tw", TraditionalVariant::Taiwan),
+        ("s2twp", TraditionalVariant::TaiwanPhrases),
+    ] {
+        let mut document: serde_json::Value =
+            serde_json::from_str(&(base.to_owned() + "}}")).unwrap();
+        document["preferences"]["traditional_chinese_variant"] = name.into();
+        traditional_variant_read::settle(&mut document, true);
+        let loaded: PreferencesSnapshot = serde_json::from_value(document).unwrap();
+        assert_eq!(loaded.preferences.traditional_chinese_variant, expected);
+    }
+    for malformed in [
+        base.to_owned() + "}}",
+        base.to_owned() + r#","traditional_chinese_variant":"s2hk"}}"#,
+        base.to_owned() + r#","traditional_chinese_variant":1}}"#,
+    ] {
+        let mut document: serde_json::Value = serde_json::from_str(&malformed).unwrap();
+        traditional_variant_read::settle(&mut document, true);
+        let loaded: PreferencesSnapshot = serde_json::from_value(document).unwrap();
+        assert_eq!(
+            loaded.preferences.traditional_chinese_variant,
+            TraditionalVariant::Standard,
+            "{malformed}"
+        );
+        assert!(loaded.preferences.traditional_chinese_output, "{malformed}");
+        assert_eq!(loaded.revision, 3, "{malformed}");
+
+        let mut strict: serde_json::Value = serde_json::from_str(&malformed).unwrap();
+        traditional_variant_read::settle(&mut strict, false);
+        if malformed.contains("traditional_chinese_variant") {
+            assert!(
+                serde_json::from_value::<PreferencesSnapshot>(strict).is_err(),
+                "{malformed}"
+            );
+        } else {
+            assert_eq!(
+                serde_json::from_value::<PreferencesSnapshot>(strict)
+                    .unwrap()
+                    .preferences
+                    .traditional_chinese_variant,
+                TraditionalVariant::Standard,
+                "{malformed}"
+            );
+        }
+    }
+    // 其余字段同时损坏时仍然整份读不了，不被这条宽松路径掩盖。
+    let other_invalid = base.to_owned() + r#","candidate_page_size":"five"}}"#;
+    let mut document: serde_json::Value = serde_json::from_str(&other_invalid).unwrap();
+    traditional_variant_read::settle(&mut document, true);
+    assert!(serde_json::from_value::<PreferencesSnapshot>(document).is_err());
+}
+
+#[test]
+fn traditional_variant_store_reload_does_not_keep_the_previous_document_variant() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    for initial in ["s2tw", "s2twp"] {
+        for next in [
+            None,
+            Some(serde_json::json!("s2hk")),
+            Some(serde_json::json!(1)),
+        ] {
+            let mut document = serde_json::json!({
+                "format_version": 1, "revision": 7,
+                "preferences": {"scheme": "quanpin", "learning": false, "chinese_punctuation": true,
+                    "traditional_chinese_output": true,
+                    "traditional_chinese_variant": initial, "candidate_page_size": 7}
+            });
+            fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+            let previous = store.load_reusing(None).unwrap();
+            assert_eq!(
+                previous.snapshot.preferences.traditional_chinese_variant,
+                if initial == "s2tw" {
+                    TraditionalVariant::Taiwan
+                } else {
+                    TraditionalVariant::TaiwanPhrases
+                }
+            );
+            document["revision"] = 8.into();
+            if let Some(value) = next {
+                document["preferences"]["traditional_chinese_variant"] = value;
+            } else {
+                document["preferences"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("traditional_chinese_variant");
+            }
+            let bytes = serde_json::to_vec(&document).unwrap();
+            fs::write(store.path(), &bytes).unwrap();
+            let loaded = store.load_reusing(Some(previous));
+            if traditional_variant_read::FALLS_BACK_ON_READ
+                || document["preferences"]
+                    .get("traditional_chinese_variant")
+                    .is_none()
+            {
+                let loaded = loaded.unwrap();
+                assert_eq!(
+                    loaded.snapshot.preferences.traditional_chinese_variant,
+                    TraditionalVariant::Standard
+                );
+                assert_eq!(loaded.snapshot.revision, 8);
+                assert!(loaded.snapshot.preferences.traditional_chinese_output);
+                assert_eq!(loaded.snapshot.preferences.candidate_page_size, 7);
+                assert_eq!(store.load().unwrap(), loaded.snapshot);
+            } else {
+                assert!(loaded.is_err());
+                assert!(store.load().is_err());
+            }
+            assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        }
+    }
+}
+
 #[test]
 fn try_load_distinguishes_busy_missing_and_corrupt() {
     let dir = tempfile::tempdir().unwrap();
@@ -6728,6 +6903,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..PreferencesSnapshot::default()
         },
+        unknown_key_paths: Vec::new(),
     };
     assert_eq!(
         store.load_reusing(Some(stale)).unwrap().snapshot,
@@ -6753,6 +6929,7 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
             revision: 99,
             ..loaded.snapshot.clone()
         },
+        unknown_key_paths: Vec::new(),
         ..loaded.clone()
     };
     assert_eq!(
@@ -6775,6 +6952,25 @@ fn load_reusing_skips_decoding_only_while_the_document_bytes_are_unchanged() {
     assert_eq!(reloaded.snapshot, store.load().unwrap());
     fs::write(store.path(), "broken").unwrap();
     assert!(store.load_reusing(Some(reloaded)).is_err());
+}
+
+#[test]
+fn load_reusing_exposes_unknown_key_paths_once_per_document_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    document["preferences"]["synthetic_unknown_preferences_path"] = "synthetic-value".into();
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+
+    let mut loaded = store.load_reusing(None).unwrap();
+    assert_eq!(
+        loaded.take_unknown_key_paths(),
+        ["synthetic_unknown_preferences_path"]
+    );
+    assert!(loaded.take_unknown_key_paths().is_empty());
+
+    let reused = store.load_reusing(Some(loaded)).unwrap();
+    assert!(reused.unknown_key_paths.is_empty());
 }
 
 #[test]
@@ -10452,6 +10648,29 @@ fn candidate_status_defaults_on_and_can_be_disabled_without_changing_preedit() {
     );
 }
 
+#[test]
+fn candidate_preedit_area_defaults_on_and_round_trips_independently_of_style() {
+    let mut value = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    value
+        .get_mut("preferences")
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap()
+        .remove("show_candidate_preedit_area");
+    let loaded: PreferencesSnapshot = serde_json::from_value(value).unwrap();
+    assert!(loaded.preferences.show_candidate_preedit_area);
+
+    let mut preferences = loaded.preferences;
+    preferences.candidate_preedit_style = CandidatePreeditStyle::Empty;
+    preferences.show_candidate_preedit_area = false;
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&preferences).unwrap()).unwrap();
+    assert_eq!(
+        restored.candidate_preedit_style,
+        CandidatePreeditStyle::Empty
+    );
+    assert!(!restored.show_candidate_preedit_area);
+}
+
 /// 写一份 `{"format_version": 1, "revision": 5, "preferences": ...}` 到存储的文件，返回写下的字节。
 fn write_document(store: &PreferencesStore, preferences: serde_json::Value) -> Vec<u8> {
     let bytes = serde_json::to_vec_pretty(&serde_json::json!({
@@ -11290,6 +11509,7 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
                     &[],
                     &[],
                     TouchNineKeySwipeDigits::Off,
+                    None,
                 )
                 .unwrap();
             let raw: serde_json::Value =
@@ -11314,7 +11534,8 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
                         number_row,
                         &[],
                         &[],
-                        TouchNineKeySwipeDigits::Off
+                        TouchNineKeySwipeDigits::Off,
+                        None
                     )
                     .unwrap()
                     .revision,
@@ -11327,7 +11548,8 @@ fn android_layout_migration_checks_original_style_and_preserves_newer_styles() {
                     true,
                     &[],
                     &[],
-                    TouchNineKeySwipeDigits::Up
+                    TouchNineKeySwipeDigits::Up,
+                    None
                 ),
                 Err(PreferencesError::Conflict)
             ));
@@ -11364,7 +11586,7 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         }
         fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
         let saved = store
-            .migrate_android_key_layout(1, false, false, &[], &[], local)
+            .migrate_android_key_layout(1, false, false, &[], &[], local, None)
             .unwrap();
         let raw: serde_json::Value =
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
@@ -11390,7 +11612,73 @@ fn android_layout_migration_moves_the_nine_key_swipe_only_over_off_or_a_missing_
         let before = fs::read(store.path()).unwrap();
         assert_eq!(
             store
-                .migrate_android_key_layout(saved.revision, false, false, &[], &[], local)
+                .migrate_android_key_layout(saved.revision, false, false, &[], &[], local, None)
+                .unwrap()
+                .revision,
+            saved.revision
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), before);
+    }
+}
+
+/// Android 旧的本机「九键滑动距离」只在共享阈值缺键时迁一次；默认 24、越界或步进不合规的旧值不写，别的设备同步来的值不被覆盖。
+#[test]
+fn android_layout_migration_moves_the_nine_key_swipe_distance_only_into_a_missing_threshold() {
+    // (共享文档里原来的值, 本机旧值, 迁移后文档里的值；None 表示不写这个键)
+    let cases: [(Option<u16>, Option<u16>, Option<u16>); 7] = [
+        (None, Some(40), Some(40)),
+        (None, Some(14), Some(14)),
+        (None, Some(24), None),
+        (None, Some(25), None),
+        (None, Some(50), None),
+        (None, None, None),
+        (Some(30), Some(40), Some(30)),
+    ];
+    for (shared, local, expected) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut document = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        document["revision"] = 1.into();
+        if let Some(shared) = shared {
+            document["preferences"]["touch_nine_key_flick_threshold"] = shared.into();
+        }
+        fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+        let saved = store
+            .migrate_android_key_layout(
+                1,
+                false,
+                false,
+                &[],
+                &[],
+                TouchNineKeySwipeDigits::Off,
+                local,
+            )
+            .unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(
+            raw["preferences"].get("touch_nine_key_flick_threshold"),
+            expected.map(serde_json::Value::from).as_ref(),
+            "{shared:?} {local:?}"
+        );
+        assert_eq!(
+            saved.preferences.touch_nine_key_flick_threshold,
+            expected.unwrap_or(TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT),
+            "{shared:?} {local:?}"
+        );
+        // 再迁一次不增加修订号，文件不变。
+        let before = fs::read(store.path()).unwrap();
+        assert_eq!(
+            store
+                .migrate_android_key_layout(
+                    saved.revision,
+                    false,
+                    false,
+                    &[],
+                    &[],
+                    TouchNineKeySwipeDigits::Off,
+                    local,
+                )
                 .unwrap()
                 .revision,
             saved.revision

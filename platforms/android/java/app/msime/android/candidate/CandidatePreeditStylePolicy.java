@@ -74,7 +74,7 @@ public final class CandidatePreeditStylePolicy {
     }
 
     /**
-     * 写进输入框的拼写（不含已选的那一段）。九键和九键双拼（{@code keyGrid}）的 `editing_text` 和 `preedit` 是按下的数字（64426），写的是引擎给的拼音读音 `nine_key_reading`（ni'hao），与候选栏原来画的读音是同一段；只有引擎没给读音时才退回 `preedit`。其余写 `preedit`（双拼按「双拼预编辑」可以是 ni'hao），它为空时退回 `editing_text`。
+     * 写进输入框的拼写（不含已选的那一段）。九键和九键双拼（{@code keyGrid}）的 `editing_text` 和 `preedit` 是按下的数字（64426），写的是引擎给的拼音读音 `nine_key_reading`（ni'hao），与候选栏原来画的读音是同一段；全拼九键在拼音组字期间读音总是非空、不含数字，只有引擎没给读音时（九键双拼的首行给不出读音、英文专用模式）才退回 `preedit`。其余写 `preedit`（双拼按「双拼预编辑」可以是 ni'hao），它为空时退回 `editing_text`。
      */
     public static String inlineSpelling(boolean keyGrid, String nineKeyReading, String preedit, String editingText) {
         if (keyGrid && nineKeyReading != null && !nineKeyReading.isEmpty()) return nineKeyReading;

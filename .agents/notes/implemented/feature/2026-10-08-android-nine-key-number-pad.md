@@ -85,4 +85,4 @@ Android 数字层的 0 与空格位置由[底行中间的数字 0](2026-10-16-an
 
 数字 1 的提示与长按入口，以及九键底行 0 的字形规则见 [手机九键保留符号入口的数字 1](../bug-fix/2026-10-13-mobile-nine-key-one-hint.md)。这里的键位布局不变。
 
-笔画的三行独立键帽和单行符号排版见[笔画符号键面](../bug-fix/2026-10-13-android-stroke-key-face-fit.md)。
+笔画的单行符号排版见[笔画符号键面](../bug-fix/2026-10-13-android-stroke-key-face-fit.md)；字母层左栏现在是整条底轨，见[九键左列连续底轨](../bug-fix/2026-11-12-android-nine-key-shuangpin-three-rows.md)。

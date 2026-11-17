@@ -103,7 +103,11 @@ import {
   NineKeyPanelPolicy,
 } from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
 import { CandidatePanelSelectionPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePanelSelectionPolicy";
-import { TouchLayoutStylePolicy } from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
+import {
+  DesignRowEntry,
+  StyledFace,
+  TouchLayoutStylePolicy,
+} from "../entry/src/main/ets/keyboard/TouchLayoutStylePolicy";
 import {
   LayerCharacterRoute,
   LayerKey,
@@ -376,6 +380,7 @@ import {
   CloudClipboardSendOutcome,
   CloudClipboardState,
 } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardPolicy";
+import { CloudClipboardReceivePolicy } from "../entry/src/main/ets/keyboard/clipboard/CloudClipboardReceivePolicy";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import {
   HeldKeys,
@@ -880,39 +885,6 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
       !OnlineCandidatePolicy.hasActiveWork("", false, 0),
     "a vanished online query invalidates queued or in-flight work",
   );
-  const response = JSON.stringify({
-    choices: [
-      {
-        message: {
-          content: JSON.stringify({
-            candidates: [
-              { text: "你好" },
-              { text: "你好" },
-              { text: "世界" },
-              { text: "bad\ntext" },
-            ],
-          }),
-        },
-      },
-    ],
-  });
-  const values = OnlineCandidatePolicy.aiCandidates(response, 3);
-  check(
-    values !== null && values.length === 2 && values[0] === "你好" && values[1] === "世界",
-    "AI response keeps provider order and removes duplicates or controls",
-  );
-  check(
-    OnlineCandidatePolicy.aiCandidates(JSON.stringify({ error: { code: "bad" } }), 3) === null,
-    "AI error envelope is rejected",
-  );
-  check(
-    OnlineCandidatePolicy.aiCandidates(response, 0) === null,
-    "AI candidate limit stays within shared bounds",
-  );
-  check(
-    OnlineCandidatePolicy.aiCandidates("x".repeat(1024 * 1024 + 1), 3) === null,
-    "oversized AI response is rejected before parsing",
-  );
   check(
     OnlineCandidatePolicy.acceptsCloudBody("你".repeat(128 * 1024)) === false,
     "oversized UTF-8 cloud responses are rejected by byte size",
@@ -978,39 +950,6 @@ group("private text writes require every UTF-8 byte", () => {
   check(!utf8WriteComplete("synthetic", 8), "a short private text write is refused");
   check(utf8WriteComplete("你", 3), "a multibyte private text write uses UTF-8 bytes");
   check(!utf8WriteComplete("你", 2), "a short multibyte private text write is refused");
-});
-
-group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
-  for (const invalid of [
-    null,
-    {},
-    42,
-    true,
-    "synthetic",
-    [],
-    { text: null },
-    { text: 12 },
-    { text: true },
-    { text: {} },
-    { text: [] },
-  ]) {
-    const response = JSON.stringify({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              candidates: [{ text: "甲" }, invalid, { text: "乙" }, { text: "甲" }, { text: "丙" }],
-            }),
-          },
-        },
-      ],
-    });
-    const values = OnlineCandidatePolicy.aiCandidates(response, 2);
-    check(
-      values !== null && values.join(",") === "甲,乙",
-      `无效候选 ${JSON.stringify(invalid)} 不丢弃整批结果`,
-    );
-  }
 });
 
 group("keeps translation provider policy bounded and credential-free in signatures", () => {
@@ -2613,7 +2552,7 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 9,
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 14,
     "a null list means every scheme but the six the user turns on",
   );
 });
@@ -3498,7 +3437,7 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
 group("全拼 14 键是追加在最后的一张卡，只给全拼，默认不启用", () => {
   const fourteen: SchemeDefinition = KeyboardScheme.QUANPIN_FOURTEEN_KEY;
   check(
-    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 20,
+    KeyboardScheme.SCHEMES[17] === fourteen && KeyboardScheme.SCHEMES.length === 25,
     "按 append-only 排在笔画之后",
   );
   check(
@@ -3745,7 +3684,7 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
   check(KeyGrid.EIGHTEEN_KEY_SHUANGPIN === 5, "双拼 18 键使用 C ABI 的网格编号 5");
 });
 
-group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
+group("14/18 键横滑限定组里的一个字母，与 Android、iOS 同一规则", () => {
   const letter = (dx: number, dy: number): string => EighteenKeySwipePolicy.letter("we", dx, dy);
   check(EighteenKeySwipePolicy.THRESHOLD_VP === 24, "阈值与 Android 的 24 dp、iOS 的 24 pt 相同");
   check(
@@ -3781,6 +3720,14 @@ group("双拼 18 键横滑限定组里的一个字母，与 Android、iOS 同一
             .length === 2,
       ),
     "横滑的键正是有长按字母的那八个双字母键",
+  );
+  const fourteenTwoLetterKeys = FourteenKeyLayout.rows()
+    .flat()
+    .filter((key) => EighteenKeySwipePolicy.swipeable(key.letters))
+    .map((key) => key.letters);
+  check(
+    fourteenTwoLetterKeys.join(" ") === "qw er ty ui op as df gh jk zx cv bn",
+    "14 键全拼和双拼的双字母键也全部接入横滑",
   );
 
   const gesture = new EighteenKeySwipeGesture();
@@ -4087,51 +4034,98 @@ group("英文九键字母层：句点紧挨空格左边、逗号紧挨空格右�
   check(NineKeyLayout.sideMarks().join(" ") === ", . ?", "左列仍是 , . ?，句点保留在左列");
 });
 
-group("26 键底行保留逗号并长按句号；14 键和大千注音保留独立句号", () => {
-  const leads = (
-    scheme: string,
-    english: boolean,
-    fourteenKey: boolean,
-    symbols: boolean,
-  ): boolean =>
-    KeyboardScheme.designRowUsesCommaSecondaryPeriod(
-      SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
-      KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
-      symbols,
+group(
+  "26 键底行保留逗号并长按句号，26 键一族的标准底行在空格左边另放句号；14 键和大千注音保留独立句号",
+  () => {
+    const leads = (
+      scheme: string,
+      english: boolean,
+      fourteenKey: boolean,
+      symbols: boolean,
+    ): boolean =>
+      KeyboardScheme.designRowUsesCommaSecondaryPeriod(
+        SchemeCompositionPolicy.selectedRulesScheme(scheme, english, "none"),
+        KeyboardScheme.usesFourteenKeyFace(fourteenKey, english, "none"),
+        symbols,
+      );
+    for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
+      check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层使用逗号长按句号`);
+      check(leads(scheme, true, false, false), `${scheme} 切到英文仍使用逗号长按句号`);
+      check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
+    }
+    check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
+    check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行使用逗号长按句号");
+    check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
+    check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行使用逗号长按句号");
+    // 英文 26 键在空格左边另放句点：123 | 符 | . | 空格 | , | 中 | 回车；这个判定只说明此刻是英文，26 键一族的底行不分中英文都有句号（见下），非 26 键底行不加。
+    for (const scheme of ["quanpin", "shuangpin", "wubi", "zhuyin"]) {
+      check(
+        KeyboardScheme.designRowHasEnglishPeriod(true, leads(scheme, true, false, false)),
+        `${scheme} 切到英文，空格左边有句点`,
+      );
+      check(
+        !KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
+        `${scheme} 中文时不走英文句点这条判定`,
+      );
+    }
+    // 中文 26 键的标准样式（全拼、双拼、五笔等，视图按 `StyledFace.TWENTY_SIX` 交来）：123 | 符 | 。 | 空格 | ， | 中 | 回车，与英文底行逐格同键位、同份额；韩文、越南语、藏文这些不受样式影响的 26 键（`StyledFace.NONE`）也是这同一行，切中/英时不跳。
+    const slots = (row: DesignRowEntry[]): string =>
+      row.map((item: DesignRowEntry) => `${item.slot}:${item.share}`).join(" ");
+    const chineseStandard: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+      leads("quanpin", false, false, false),
+      KeyboardScheme.designRowHasEnglishPeriod(false, leads("quanpin", false, false, false)),
+      StyledFace.TWENTY_SIX,
+      TouchLayoutStylePolicy.STANDARD,
     );
-  for (const scheme of ["quanpin", "shuangpin", "wubi", "korean", "vietnamese", "tibetan"]) {
-    check(leads(scheme, false, false, false), `${scheme} 的 26 键字母层使用逗号长按句号`);
-    check(leads(scheme, true, false, false), `${scheme} 切到英文仍使用逗号长按句号`);
-    check(!leads(scheme, false, false, true), `${scheme} 的符号行不带 符`);
-  }
-  check(!leads("quanpin", false, true, false), "14 键第三行已有 符，底行保留逗号句号");
-  check(leads("quanpin", true, true, false), "14 键切到英文画 26 键，底行使用逗号长按句号");
-  check(!leads("zhuyin", false, false, false), "大千注音保留逗号句号");
-  check(leads("zhuyin", true, false, false), "注音切到英文画 26 键，底行使用逗号长按句号");
-  // 英文 26 键在空格左边另放句点：123 | 符 | . | 空格 | , | 中 | 回车；中文和非 26 键底行不加。
-  for (const scheme of ["quanpin", "shuangpin", "wubi", "zhuyin"]) {
+    const englishRow: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+      leads("quanpin", true, false, false),
+      KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, false)),
+      StyledFace.NONE,
+      TouchLayoutStylePolicy.STANDARD,
+    );
     check(
-      KeyboardScheme.designRowHasEnglishPeriod(true, leads(scheme, true, false, false)),
-      `${scheme} 切到英文，空格左边有句点`,
+      slots(chineseStandard) ===
+        "layer:1.25 symbol_panel:1.05 period:1 space:3 comma:1 language:1.05 return:1.9",
+      `中文 26 键标准：句号紧挨空格左边，实际 ${slots(chineseStandard)}`,
+    );
+    check(slots(chineseStandard) === slots(englishRow), "中文标准与英文底行逐槽位同键位、同份额");
+    for (const scheme of ["korean", "vietnamese", "tibetan"]) {
+      const row: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+        leads(scheme, false, false, false),
+        KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
+        StyledFace.NONE,
+        TouchLayoutStylePolicy.STANDARD,
+      );
+      check(
+        slots(row) === slots(englishRow),
+        `${scheme} 26 键底行与英文逐槽位相同，实际 ${slots(row)}`,
+      );
+    }
+    // 14 键和大千注音不是这一族：没有 符，句号仍在空格右边。
+    const zhuyinRow: DesignRowEntry[] = TouchLayoutStylePolicy.designRow(
+      leads("zhuyin", false, false, false),
+      false,
+      StyledFace.NONE,
+      TouchLayoutStylePolicy.STANDARD,
     );
     check(
-      !KeyboardScheme.designRowHasEnglishPeriod(false, leads(scheme, false, false, false)),
-      `${scheme} 中文 26 键不加句点`,
+      slots(zhuyinRow) === "layer:1.25 comma:1 space:4 period:1 language:1.05 return:1.9",
+      `大千注音底行不变，实际 ${slots(zhuyinRow)}`,
     );
-  }
-  check(
-    !KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)),
-    "英文符号行不加句点",
-  );
-  check(
-    KeyboardScheme.designRowUsesCommaSecondaryPeriod(
-      SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
-      false,
-      false,
-    ),
-    "本地模式画 26 键，底行使用逗号长按句号",
-  );
-});
+    check(
+      !KeyboardScheme.designRowHasEnglishPeriod(true, leads("quanpin", true, false, true)),
+      "英文符号行不加句点",
+    );
+    check(
+      KeyboardScheme.designRowUsesCommaSecondaryPeriod(
+        SchemeCompositionPolicy.selectedRulesScheme("zhuyin", false, "unicode"),
+        false,
+        false,
+      ),
+      "本地模式画 26 键，底行使用逗号长按句号",
+    );
+  },
+);
 
 console.log("NumberSymbolLayout");
 
@@ -7164,9 +7158,14 @@ group("clipboard entries are bounded in characters and in UTF-8 bytes", () => {
     "ten thousand emoji fit at the shared character and byte limits",
   );
   const family = "👩‍👩‍👧‍👦";
-  const byteBoundary = family.repeat(Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)));
+  const byteBoundary = family.repeat(
+    Math.floor(ClipboardHistoryPolicy.MAX_BYTES / utf8Length(family)),
+  );
   check(utf8Length(byteBoundary) <= ClipboardHistoryPolicy.MAX_BYTES, "byte-boundary fixture fits");
-  check(ClipboardHistoryPolicy.acceptable(byteBoundary) === true, "exactly at the byte bound is accepted");
+  check(
+    ClipboardHistoryPolicy.acceptable(byteBoundary) === true,
+    "exactly at the byte bound is accepted",
+  );
   check(
     ClipboardHistoryPolicy.acceptable(byteBoundary + family) === false,
     "one grapheme over the byte bound is refused",
@@ -7258,6 +7257,45 @@ group("粤拼下按简繁开关只写粤拼字形，存储接受了才翻转", (
     writes.join(",") ===
       "cantonese_simplified_output=true,cantonese_simplified_output=false,cantonese_simplified_output=true,cantonese_simplified_output=false",
     `只写粤拼自己的偏好，全局简繁不动：${writes.join(",")}`,
+  );
+});
+
+group("注音下的简繁开关只写注音字形，存储接受了才翻转", () => {
+  const writes: string[] = [];
+  const store =
+    (accepts: boolean) =>
+    (key: string, value: boolean): boolean => {
+      writes.push(`${key}=${value}`);
+      return accepts;
+    };
+  check(ChineseOutputPolicy.switchFollowsZhuyin("zhuyin", false), "注音跟随注音开关");
+  check(!ChineseOutputPolicy.switchFollowsZhuyin("zhuyin", true), "英文模式照旧看全局开关");
+  check(!ChineseOutputPolicy.switchFollowsZhuyin("quanpin", false), "全拼不跟随注音开关");
+  check(ChineseOutputPolicy.showsTraditional(false, false, false, true, false), "注音默认显示繁体");
+  check(
+    !ChineseOutputPolicy.showsTraditional(false, true, false, true, true),
+    "注音选了简体就显示简体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(false, store(true)) === true,
+    "存储接受后切到简体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(true, store(true)) === false,
+    "再按一次切回繁体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(false, store(false)) === false,
+    "存储拒绝时保持繁体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(true, store(false)) === true,
+    "存储拒绝时保持简体",
+  );
+  check(
+    writes.join(",") ===
+      "zhuyin_simplified_output=true,zhuyin_simplified_output=false,zhuyin_simplified_output=true,zhuyin_simplified_output=false",
+    `只写注音自己的偏好，全局简繁不动：${writes.join(",")}`,
   );
 });
 
@@ -7556,6 +7594,71 @@ group("with pairing on every quote press opens a fresh pair, as the reference do
   );
 });
 
+group("回车只在编码就是用户键入的拉丁字母时原样上屏编码（#11120）", () => {
+  // 触屏回车的分派和视图里一样拼：方案自己的规则号、九键网格和 14/18 键网格是否画着。
+  const touchReturn = (
+    rulesScheme: number,
+    nineKeyFace: boolean,
+    letterGridFace: boolean,
+    candidateCount: number,
+  ): ReturnDispatch =>
+    ReturnKeyAction.dispatch(
+      false,
+      true,
+      candidateCount,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      ReturnKeyAction.commitsSpelling(rulesScheme, nineKeyFace, letterGridFace),
+    );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.SHUANGPIN, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.WUBI, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.WUBI, false, false, 0) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.CANTONESE, false, false, 3) === ReturnDispatch.COMMIT_RAW,
+    "全拼、双拼、五笔、粤拼的 26 键组字回车上屏键入的字母，有没有候选都一样",
+  );
+  check(
+    touchReturn(SchemeTraits.JAPANESE, false, false, 2) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.JAPANESE, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "日语 26 键的罗马字不是用户想写的字：回车上屏高亮候选（にほん），不上屏 nihon",
+  );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.SHUANGPIN, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.QUANPIN, true, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "全拼九键和九键双拼的编码是数字串：回车上屏首选（你好），不上屏 64426",
+  );
+  check(
+    touchReturn(SchemeTraits.ZHUYIN, false, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.ZHUYIN, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "注音候选列表打开时回车选中高亮行、组字保留；列表没开时上屏转换结果",
+  );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.SHUANGPIN, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.WUBI, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "14 键和 18 键的编码是每组的代表字母，不是用户打的码：回车上屏首选",
+  );
+  check(
+    touchReturn(-1, false, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(-1, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(-1, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "英文和本地工具模式不归方案的规则管，回车照旧",
+  );
+  check(
+    !ReturnKeyAction.commitsSpelling(SchemeTraits.KOREAN, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.VIETNAMESE, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.TIBETAN, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.STROKE, false, false),
+    "韩文、越南语、藏文和笔画各有自己的回车分支，不走这条规则",
+  );
+});
+
 group("return performs an editor action only when nothing else claimed it", () => {
   const send = 4;
   check(ReturnKeyAction.performsEditorAction(send, false) === true, "send is an editor action");
@@ -7590,7 +7693,26 @@ group("return performs an editor action only when nothing else claimed it", () =
   );
   check(
     ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
-    "a candidate-less non-Japanese composition is still finished before Return",
+    "a candidate-less composition whose code is not the user's letters is still finished before Return",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "a composition whose code is not the user's letters commits the highlighted candidate",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, false, false, false, true) ===
+      ReturnDispatch.COMMIT_RAW,
+    "a candidate-less letter-code composition commits its raw spelling",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3, false, false, false, false, false, false, true) ===
+      ReturnDispatch.COMMIT_RAW,
+    "a letter-code composition with candidates commits its raw spelling instead of the first candidate",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, false, 0, false, false, false, false, false, false, true) ===
+      ReturnDispatch.EDITOR,
+    "an idle Return in a letter-code scheme belongs to the editor",
   );
   check(
     ReturnKeyAction.dispatch(false, true, 3, false, false, false, true) ===
@@ -10872,6 +10994,27 @@ group("each profile has its own table", () => {
   );
 });
 
+group("custom profile hints use the shared response and keep the same visibility gate", () => {
+  const custom: Map<string, string> = new Map<string, string>([
+    ["Q", "sh / iu"],
+    [";", "ing"],
+  ]);
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "none", true) === "sh / iu",
+    "custom key faces are looked up case-insensitively",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, ";", false, 1, "none", true) === "ing",
+    "custom tables can assign the semicolon key",
+  );
+  check(
+    ShuangpinKeyHintPolicy.hintMap(custom, "q", true, 1, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 0, "none", true) === "" &&
+      ShuangpinKeyHintPolicy.hintMap(custom, "q", false, 1, "emoji", true) === "",
+    "custom hints obey the same English, scheme and local-mode guards",
+  );
+});
+
 group("Cantonese shuangpin labels its keys with the engine's face (#10438)", () => {
   // 与 crates/engine/src/cantonese/shuangpin.rs 的 `key_hints_label_every_key_with_what_it_types` 逐键相同：鸿蒙没有接 `msime_client_shuangpin_key_hints`，表是抄过来的，这里钉住不漂移。
   const expected: [string, string][] = [
@@ -13530,6 +13673,50 @@ group("cloud clipboard text follows the shared clipboard bounds", () => {
   check(!CloudClipboardPolicy.validText(42), "only strings are text");
 });
 
+group(
+  "cloud clipboard auto receive baselines local copies without blocking later remote copies",
+  () => {
+    const item = (hour: number) => ({
+      id: "a".repeat(64),
+      text: `合成云端文本 ${hour}`,
+      updatedAt: `2026-10-01T${hour}:00:00Z`,
+      pinned: false,
+      device: "Synthetic device",
+    });
+    const policy = new CloudClipboardReceivePolicy();
+    policy.begin("合成本机复制");
+    check(!policy.receive(item(99), "合成本机复制"), "invalid dates cannot establish a baseline");
+    check(
+      !policy.receive(item(10), "合成本机复制"),
+      "existing content preserves the initial local copy",
+    );
+    check(!policy.receive(item(10), "合成本机复制"), "the initial cloud page is not replayed");
+    check(
+      policy.receive(item(11), "合成本机复制"),
+      "later remote content replaces an unchanged local copy",
+    );
+    policy.markRemote(item(11));
+    policy.received(item(11).text);
+    check(!policy.receive(item(10), item(11).text), "deletion never replays an older entry");
+    check(
+      !policy.receive(item(12), "合成并发复制"),
+      "a local change during the request wins this response",
+    );
+    check(!policy.receive(item(12), "合成并发复制"), "the skipped response is not replayed");
+    check(policy.receive(item(13), "合成并发复制"), "a subsequent remote copy is still reachable");
+    policy.markRemote(item(13));
+    policy.markRemote(item(10));
+    check(!policy.receive(item(12), "合成并发复制"), "the watermark never moves backwards");
+    policy.begin("合成本机复制");
+    check(!policy.receive(null, "合成本机复制"), "an empty first page establishes a baseline");
+    check(policy.receive(item(10), "合成本机复制"), "a new binding has an independent watermark");
+    policy.begin("");
+    check(policy.receive(item(10), ""), "a truly empty clipboard can receive the first page");
+    check(!policy.receive(item(11), null), "a read failure or non-text clipboard is not empty");
+    check(!policy.receive(item(12), null), "non-text clipboard protection persists");
+  },
+);
+
 group("cloud clipboard listings are read whole", () => {
   const id = (digit: string) => digit.repeat(64);
   // 端到端加密驱动 `list` 的结果形状，见 docs/cloud-clipboard-e2e.md 的「结果」。
@@ -15798,6 +15985,30 @@ group("nine-key writes its pinyin reading into the field, never the digits", () 
     SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "64426", "ni'426", "") === "ni'426",
     "only when the Engine has no reading does the field fall back to its preedit",
   );
+  // 多按或按错一键切不成音节时，切不开的那一键在读音里是键上的一个字母（6442677 是 ni'hao's's）；首行是英文词时读音是这个词的字母（4663 是 good）。宿主原样画、原样写，不换回数字。
+  for (const [editing, strayReading] of [
+    ["6442677", "ni'hao's's"],
+    ["4663", "good"],
+  ]) {
+    const shown: string = SchemeCompositionPolicy.reading(
+      SchemeTraits.QUANPIN,
+      editing,
+      editing,
+      strayReading,
+    );
+    const written: string = SchemeCompositionPolicy.fieldSpelling(
+      SchemeTraits.QUANPIN,
+      editing,
+      editing,
+      strayReading,
+    );
+    check(shown === strayReading, `the strip draws ${strayReading} as the Engine gave it`);
+    check(written === strayReading, `the field receives ${strayReading} as the Engine gave it`);
+    check(
+      !/[0-9]/.test(shown + written),
+      `${strayReading} carries no digits to the strip or the field`,
+    );
+  }
   check(
     SchemeCompositionPolicy.fieldSpelling(SchemeTraits.QUANPIN, "nihao", "ni'hao", "") ===
       "ni'hao" &&
@@ -15896,7 +16107,7 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 20,
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 25,
     "appended after the first ten, as the shared seventeen-entry picker has it",
   );
   check(
@@ -16324,6 +16535,26 @@ group("a Korean syllable lists its Hanja and the open list takes the candidate k
     ) && log.join(",") === "convertHanja",
     "the Hanja key is consumed even when the Engine declines a lone jamo",
   );
+});
+
+group("自定义普通双拼的入口切换保留码表和分号可达性", () => {
+  for (const profile of ["custom", "smart_abc"]) {
+    const away = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.XIAOHE, KeyboardScheme.QUANPIN, "shuangpin", profile);
+    check(away !== null && away.shuangpinProfile === profile, "离开双拼保留码表");
+    const back = KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, "quanpin", profile);
+    check(back !== null && back.shuangpinProfile === profile, "返回普通双拼保留码表");
+    check(KeyboardScheme.mapping(KeyboardScheme.XIAOHE, "quanpin", profile).shuangpinProfile ===
+      "xiaohe", "明确选择内置方案仍使用内置码表");
+  }
+  check(KeyboardScheme.shuangpinSpaceLabel("custom") === "双拼 · 自定义" &&
+    KeyboardScheme.shuangpinSpaceLabel("smart_abc") === "双拼 · 智能 ABC", "普通入口显示实际码表名");
+  check(KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, true),
+    "共享自定义表使用分号时提供韵母键");
+  check(!KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, false) &&
+    !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.QUANPIN, true),
+    "无分号的表与非双拼不增加分号键");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
@@ -18506,7 +18737,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 20 &&
+      KeyboardScheme.SCHEMES.length === 25 &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
@@ -18679,13 +18910,13 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
 group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和词典，默认不启用，带 ; 韵母键", () => {
   const shuangpin: SchemeDefinition = KeyboardScheme.CANTONESE_SHUANGPIN;
   check(
-    KeyboardScheme.SCHEMES[KeyboardScheme.SCHEMES.length - 1] === shuangpin &&
+    KeyboardScheme.SCHEMES[19] === shuangpin &&
       shuangpin.preferenceId === "cantonese_shuangpin" &&
       shuangpin.engineScheme === "cantonese" &&
       shuangpin.touchKeyboardLayout === "twenty_six_key" &&
       shuangpin.glyph === "粤" &&
       shuangpin.badge === "双",
-    "按 append-only 排在最后，与共享 TouchKeyboardScheme::ALL 一致",
+    "按 append-only 排在新增双拼之前，与共享 TouchKeyboardScheme::ALL 一致",
   );
   check(
     !KeyboardScheme.DEFAULT_ENABLED.includes(shuangpin) &&
@@ -18719,14 +18950,16 @@ group("粤语双拼是追加在最后的一张卡：粤拼的方案、布局和�
   );
   check(
     KeyboardScheme.semicolonFinalLabel(shuangpin) === "分号，粤语双拼 ing 和 ik" &&
-      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === null,
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.MICROSOFT) === "分号，微软双拼 ing" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.SOGOU) === "分号，搜狗双拼 ing" &&
+      KeyboardScheme.semicolonFinalLabel(KeyboardScheme.ZIGUANG) === "分号，紫光双拼 ing",
     "粤语双拼的 ; 键读出它打的韵母",
   );
 });
 
 group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
-    KeyboardScheme.SCHEMES.length === 20 &&
+    KeyboardScheme.SCHEMES.length === 25 &&
       KeyboardScheme.SCHEMES[15] === KeyboardScheme.TIBETAN &&
       KeyboardScheme.SCHEMES[16] === KeyboardScheme.STROKE,
     "appended after Tibetan, as the shared TouchKeyboardScheme::ALL appends it",
@@ -19305,7 +19538,8 @@ group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方�
     "快捷栏写「藏」，英文模式优先",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION &&
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, false, false, true) ===
+      ReturnDispatch.FINISH_COMPOSITION &&
       ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
     "触屏回车走共享规则：组字时只提交藏文、不换行，没有组字时交给编辑框",
   );

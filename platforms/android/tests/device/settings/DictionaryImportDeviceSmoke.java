@@ -158,6 +158,36 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
                     check(!cursor.moveToNext(), "collection-owned ranking word not removed");
                 }
             }
+            stage = "import Gboard archive through installed store and native dictionary";
+            byte[] archive;
+            try (java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
+                try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(bytes)) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry("dictionary.txt"));
+                    zip.write("# Gboard Dictionary version:1\na\t嗄\tzh-CN\n".getBytes(StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+                archive = bytes.toByteArray();
+            }
+            report = importReport(importFile, context, "合成 Gboard 归档", "standard", archive);
+            check((int) report.getClass().getMethod("imported").invoke(report) == 1, "archive import count");
+            check((int) report.getClass().getMethod("failed").invoke(report) == 0, "archive parse failed");
+            JSONObject archiveSync = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+                .put("options", options).put("action", new JSONObject().put("operation", "synchronize")).toString());
+            if (archiveSync.getInt("failed_count") != 0 || archiveSync.getInt("pending_count") != 0) {
+                JSONArray requests = new JSONObject(new String(Files.readAllBytes(new File(root,
+                    "preferences/PersonalDictionary/sync.json").toPath()), StandardCharsets.UTF_8)).getJSONArray("requests");
+                for (int index = 0; index < requests.length(); index++) {
+                    JSONObject request = requests.getJSONObject(index);
+                    check(!"failed".equals(request.getString("status")), "archive application: " + request.optString("error"));
+                }
+                throw new AssertionError("archive synchronization pending=" + archiveSync.getInt("pending_count"));
+            }
+            try (SQLiteDatabase db = SQLiteDatabase.openDatabase(new File(root, "dictionaries/msime-pinyin.db").getPath(), null, SQLiteDatabase.OPEN_READONLY);
+                    android.database.Cursor cursor = db.rawQuery("SELECT count(*) FROM tbl_1_a WHERE value=?", new String[] {"嗄"})) {
+                check(cursor.moveToFirst() && cursor.getInt(0) == 1, "archive word not applied to native dictionary");
+            }
+            stage = "manage selected groups and import into an existing group";
+            checkGroupManagement(store, context, options, optionsText);
             stage = "import 33555 synthetic Rime words through installed store";
             long capacityStart = android.os.SystemClock.uptimeMillis();
             report = importReport(importFile, context, "合成容量回归", "rime", capacityRows());
@@ -208,7 +238,7 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
                 result.putString("measurement", "MSIME_CAPACITY_THROUGHPUT words=33555 elapsed_ms="
                     + (android.os.SystemClock.uptimeMillis() - capacityStart) + " rounds=" + rounds + " longest_sync_ms=" + longest);
             }
-            result.putString("result", "MSIME_DICTIONARY_IMPORT_PASSED: 74 words applied, sixth word in nine-key candidates, busy queue retried, Rime ranking retained; 33555 Rime words imported and reloaded without truncation");
+            result.putString("result", "MSIME_DICTIONARY_IMPORT_PASSED: 74 words applied, sixth word in nine-key candidates, busy queue retried, Rime ranking retained; 33555 Rime words imported and reloaded without truncation; Gboard zip applied to native dictionary");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | LinkageError | AssertionError error) {
             Throwable cause = error instanceof java.lang.reflect.InvocationTargetException
@@ -247,7 +277,11 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
     }
 
     private static Object importReport(Method method, Context context, String name, String format, String text) throws Exception {
-        Object imported = method.invoke(null, context, format, name, text.getBytes(StandardCharsets.UTF_8));
+        return importReport(method, context, name, format, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Object importReport(Method method, Context context, String name, String format, byte[] bytes) throws Exception {
+        Object imported = method.invoke(null, context, format, name, bytes);
         check((boolean) imported.getClass().getMethod("ok").invoke(imported), "installed import rejected");
         Object view = imported.getClass().getMethod("value").invoke(imported);
         return view.getClass().getMethod("importReport").invoke(view);
@@ -269,6 +303,53 @@ public final class DictionaryImportDeviceSmoke extends Instrumentation {
             for (int index = 0; index < expected.length; index++) check(expected[index].equals(candidates.getJSONObject(index).getString("text")), "ranking order changed");
         } finally {
             destroy(handle);
+        }
+    }
+
+    private void checkGroupManagement(Class<?> store, Context context, JSONObject options, String optionsText) throws Exception {
+        JSONObject loaded = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+            .put("options", options).put("action", new JSONObject().put("operation", "load")).toString());
+        String first = null;
+        for (int i = 0; i < loaded.getJSONArray("collections").length(); i++) {
+            JSONObject group = loaded.getJSONArray("collections").getJSONObject(i);
+            if ("合成导入".equals(group.getString("name"))) first = group.getString("id");
+        }
+        check(first != null, "original group missing");
+        Method selected = store.getMethod("changeSelected", Context.class, java.util.List.class, Boolean.class);
+        Object disabled = selected.invoke(null, context, java.util.List.of(first), Boolean.FALSE);
+        check((boolean) disabled.getClass().getMethod("ok").invoke(disabled), "batch disable failed");
+        synchronize(optionsText);
+        Method into = store.getMethod("importFile", Context.class, String.class, String.class, String.class, byte[].class);
+        Object imported = into.invoke(null, context, "standard", first, "不应替换原名", rows(0, 2).getBytes(StandardCharsets.UTF_8));
+        check((boolean) imported.getClass().getMethod("ok").invoke(imported), "existing target import failed");
+        Object view = imported.getClass().getMethod("value").invoke(imported);
+        Object report = view.getClass().getMethod("importReport").invoke(view);
+        check((int) report.getClass().getMethod("imported").invoke(report) == 0, "existing target duplicated entries");
+        check((int) report.getClass().getMethod("duplicates").invoke(report) == 2, "existing target duplicate report");
+        Method original = store.getMethod("importFile", Context.class, String.class, String.class, byte[].class);
+        importReport(original, context, "合成重叠分组", rows(0, 2));
+        loaded = value("dictionaryCollections", new Class<?>[] {String.class}, new JSONObject()
+            .put("options", options).put("action", new JSONObject().put("operation", "load")).toString());
+        String second = null;
+        for (int i = 0; i < loaded.getJSONArray("collections").length(); i++) {
+            JSONObject group = loaded.getJSONArray("collections").getJSONObject(i);
+            if (first.equals(group.getString("id"))) {
+                check(!group.getBoolean("enabled"), "target import enabled disabled group");
+                check("合成导入".equals(group.getString("name")), "target import renamed group");
+                check(group.getInt("entry_count") == 74, "target import changed unique entries");
+            }
+            if ("合成重叠分组".equals(group.getString("name"))) second = group.getString("id");
+        }
+        check(second != null, "overlapping group missing");
+        Object enabled = selected.invoke(null, context, java.util.List.of(first, second, first), Boolean.TRUE);
+        check((boolean) enabled.getClass().getMethod("ok").invoke(enabled), "batch enable failed");
+        synchronize(optionsText);
+        Object deleted = selected.invoke(null, context, java.util.List.of(second), null);
+        check((boolean) deleted.getClass().getMethod("ok").invoke(deleted), "batch delete failed");
+        synchronize(optionsText);
+        try (SQLiteDatabase db = SQLiteDatabase.openDatabase(new File(context.getFilesDir(), "dictionaries/msime-pinyin.db").getPath(), null, SQLiteDatabase.OPEN_READONLY);
+                android.database.Cursor cursor = db.rawQuery("SELECT count(*) FROM tbl_2_n", null)) {
+            check(cursor.moveToFirst() && cursor.getInt(0) == 83, "deleting overlap removed surviving group entries");
         }
     }
 

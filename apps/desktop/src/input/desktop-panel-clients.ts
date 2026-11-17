@@ -63,6 +63,7 @@ export function createDesktopPanelClients(
     },
     cloudClipboard: {
       ...textPanelClient("cloud-clipboard-panel"),
+      beginWindowDrag: () => getCurrentWindow().startDragging(),
       canSendText: () => invoke<boolean>("cloud_clipboard_can_send_text"),
       request: (action) => invoke("cloud_clipboard_request", { action }),
     },

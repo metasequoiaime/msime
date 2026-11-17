@@ -160,9 +160,13 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               if (!transport_.current(ticket))
                 return;
               auto delivered_packet = packet;
+              const bool late_hide =
+                  packet.event_type == FanyImePipeEventType::HideCandidateWnd &&
+                  input_.current_task_wait() >= std::chrono::milliseconds(24);
               if (route.route &&
                   packet.event_type == FanyImePipeEventType::HideCandidateWnd) {
-                const auto disposition = state.hide_candidate(*route.route);
+                const auto disposition =
+                    state.hide_candidate(*route.route, late_hide);
                 if (disposition == HideCandidateDisposition::Rejected)
                   return;
                 if (disposition == HideCandidateDisposition::Suppressed)
@@ -182,9 +186,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
                       FanyImePipeEventType::PairedPunctuationAutoClosed &&
                   !state.balance_paired_punctuation(*route.route, packet))
                 return;
-              if (delivered_packet.event_type ==
-                      FanyImePipeEventType::HideCandidateWnd &&
-                  input_.current_task_wait() >= std::chrono::milliseconds(24))
+              if (late_hide)
                 delivered_packet.modifiers_down |= internal_late_event;
               if (route.route)
                 eligible = focus_.with_active(*route.route, [&] {

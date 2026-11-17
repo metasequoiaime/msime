@@ -41,7 +41,7 @@ export const nineKeyStyleNotes: Readonly<Partial<Record<NineKeyStyle, string>>> 
   tall_return: "回车竖占两行，符号键在左下角。",
 };
 
-/** 设置页整块键盘预览里，这个样式与「标准」不同、要用强调色描边的键，按键 id（`PreviewKey.code`）认，不比较键面文字；标准样式不高亮。三端高亮同一组键。 */
+/** 设置页整块键盘预览里，这个样式与「标准」不同、要用强调色描边的键，按键 id（`PreviewKey.code`）认，不比较键面文字；标准样式不高亮（26 键标准空格左边的句号是标准排法本身，不描边）。三端高亮同一组键。 */
 export const twentySixKeyStyleHighlights: Readonly<Record<TwentySixKeyStyle, readonly string[]>> = {
   standard: [],
   comma_period: ["Comma", "Period"],
@@ -309,10 +309,18 @@ const comma = key("，", 1, "Comma");
 const period = key("。", 1, "Period");
 
 /**
- * HarmonyOS 手机中文 26 键每种样式的底行，键序、份额和键 id 与键盘的 `TouchLayoutStylePolicy.designRow` 相同（鸿蒙没有地球键）：标准 123 | 符 | 空格 | ， | 中 | 回车；逗号句号在空格两侧 123 | 符 | ， | 空格 | 。 | 中 | 回车，句号占从空格让出的一份；长空格 123 | ， | 空格 | 中 | 回车，符 的宽度给空格；表情键 123 | 😀 | 空格 | ， | 中 | 回车，😀 占 符 的位置和宽度。
+ * HarmonyOS 手机中文 26 键每种样式的底行，键序、份额和键 id 与键盘的 `TouchLayoutStylePolicy.designRow` 相同（鸿蒙没有地球键）：标准 123 | 符 | 。 | 空格 | ， | 中 | 回车，句号在空格左边、占从空格让出的一份，与英文 26 键底行逐键同位置、同份额，逗号长按输入句号照旧，日语罗马字、韩文等不受样式影响的 26 键固定画的也是这一行；逗号句号在空格两侧 123 | 符 | ， | 空格 | 。 | 中 | 回车，句号占从空格让出的一份；长空格 123 | ， | 空格 | 中 | 回车，符 的宽度给空格；表情键 123 | 😀 | 空格 | ， | 中 | 回车，😀 占 符 的位置和宽度。
  */
 export const twentySixKeyBottomRows: Record<TwentySixKeyStyle, PreviewKey[]> = {
-  standard: [layer, symbol, key("空格", 4, "Space"), comma, language, key("↵", 1.9, "Enter")],
+  standard: [
+    layer,
+    symbol,
+    period,
+    key("空格", 3, "Space"),
+    comma,
+    language,
+    key("↵", 1.9, "Enter"),
+  ],
   comma_period: [
     layer,
     symbol,

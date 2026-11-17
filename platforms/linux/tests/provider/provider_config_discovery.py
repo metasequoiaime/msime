@@ -25,7 +25,7 @@ def local_fetch(url, *args, **kwargs):
     if url == "https://tmt.tencentcloudapi.com/":
         return {"Response": {"TargetTextList": ["synthetic translation"]}}
     if url == "https://provider.example.invalid/":
-        return {"choices": [{"message": {"content": json.dumps({"candidates": [{"text": "synthetic candidate"}]})}}]}
+        return {"choices": [{"message": {"content": json.dumps({"candidates": [{"text": "你好"}]})}}]}
     raise AssertionError("unexpected endpoint")
 module.fetch = local_fetch
 import os

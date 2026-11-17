@@ -11,7 +11,7 @@
 
 namespace msime::linux_host {
 
-// 悬浮工具栏的显示后端。FloatingToolbar 管什么时候显示、空闲隐藏和位置记忆，后端只管把工具栏、菜单和提示画出来并报告指针做了什么。现在只有 X11 后端（FloatingToolbarX11Surface），GNOME 的 Wayland 会话经 Xwayland 也走它；拿不到后端时宿主只有菜单里的「工具栏」子菜单。
+// 悬浮工具栏的显示后端。FloatingToolbar 管什么时候显示、空闲隐藏和位置记忆，后端只管把工具栏、菜单和提示画出来并报告指针做了什么。现在只有纯 X11 后端（FloatingToolbarX11Surface）；Wayland 会话拿不到后端时宿主只有菜单里的「工具栏」子菜单。
 class FloatingToolbarSurface {
  public:
   struct Callbacks {

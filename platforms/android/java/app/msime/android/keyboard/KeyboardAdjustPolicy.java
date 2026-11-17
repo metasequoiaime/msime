@@ -5,7 +5,7 @@ package app.msime.android;
  *
  * <p>四个柄各自只动自己那条边，对边在屏幕上不动：上沿柄只改高度；下沿柄改底部抬高，高度反向变化同样多，上沿不动，往上拖到高度下限后整块继续上移、上沿跟着上去；左、右沿柄改宽度，同时改水平位置让另一侧边不动。「移动」整块平移，大小不变：竖直方向只改抬高，水平方向只改位置。
  *
- * <p>竖直方向的单位都是 dp：高度是设计范围的调整量（{@link KeyboardHeightPolicy}，-46..129），抬高是键区下沿到底栏或导航区的额外距离（{@link KeyboardBottomBarPolicy#extraPaddingDp}，0 到 160 减去底栏占用的 40）。两者在键盘总高里一比一相加，所以下沿柄把一份挪给另一份时上沿不动；高度让到下限以后只剩抬高在加，上沿才开始跟着往上走。高度只在窗口封顶（{@link KeyboardHeightPolicy#windowHeightAdjustment}）以内拖动：封顶以上的那段画出来一样高，拖进去手指和边就对不上了。水平方向用像素：宽度存成可用宽度的百分比，位置存成剩余空间（可用宽度减键盘宽度）里的千分比。
+ * <p>竖直方向的单位都是 dp：高度是设计范围的调整量（{@link KeyboardHeightPolicy}，-92..129），抬高是键区下沿到底栏或导航区的额外距离（{@link KeyboardBottomBarPolicy#extraPaddingDp}，0 到 160 减去底栏占用的 40）。两者在键盘总高里一比一相加，所以下沿柄把一份挪给另一份时上沿不动；高度让到下限以后只剩抬高在加，上沿才开始跟着往上走。高度只在窗口封顶（{@link KeyboardHeightPolicy#windowHeightAdjustment}）以内拖动：封顶以上的那段画出来一样高，拖进去手指和边就对不上了。水平方向用像素：宽度存成可用宽度的百分比，位置存成剩余空间（可用宽度减键盘宽度）里的千分比。
  */
 public final class KeyboardAdjustPolicy {
     /** 宽度的百分比范围与缺省值（本地设置 `platform.android.keyboard_width_percent`）。 */

@@ -213,7 +213,11 @@ bool CCompositionProcessorEngine::InitializeHostSession(const std::string &optio
 {
     if (!_hostEngineAdapter)
         _hostEngineAdapter = std::make_unique<msime::tsf::EngineSessionAdapter>();
-    return msime::tsf::create_host_session(*_hostEngineAdapter, options, preferenceSnapshot, error);
+    BOOL fullwidth = FALSE;
+    if (_pOwnerThreadMgr)
+        CCompartment(_pOwnerThreadMgr, _tfClientId, Global::MetasequoiaIMEGuidCompartmentDoubleSingleByte)
+            ._GetCompartmentBOOL(fullwidth);
+    return msime::tsf::create_host_session(*_hostEngineAdapter, options, preferenceSnapshot, error, fullwidth != FALSE);
 }
 
 bool CCompositionProcessorEngine::RefreshHostSessionForDictionaryMaintenance(bool composing)
@@ -1610,8 +1614,12 @@ HRESULT CCompositionProcessorEngine::CompartmentCallback(_In_ void *pv, REFGUID 
         CCompartment CompartmentDoubleSingleByte(pThreadMgr, fakeThis->_tfClientId,
                                                  Global::MetasequoiaIMEGuidCompartmentDoubleSingleByte);
         CompartmentDoubleSingleByte._GetCompartmentBOOL(isDoubleSingleByte);
-        // 0: halfwidth, 1: fullwidth
-        // SendDoubleSingleByteSwitchEventToUIProcessViaNamedPipe(isDoubleSingleByte ? 1 : 0);
+        // TIP 本地回车、标点与 Server 使用同一个宽度状态。
+        if (auto *host = fakeThis->GetHostEngineAdapter(); host && host->valid())
+        {
+            std::string ignored, error;
+            (void)host->character_width(isDoubleSingleByte != FALSE, &ignored, &error);
+        }
         if (ownerWindow && IsWindow(ownerWindow))
         {
             PostMessage(ownerWindow, WM_UpdateDoubleSingleByte, (WPARAM)(isDoubleSingleByte ? 1 : 0), 0);
@@ -2561,8 +2569,9 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
             case VK_RETURN:
                 if (pKeyState)
                 {
-                    pKeyState->Category = CATEGORY_COMPOSING;
-                    pKeyState->Function = FUNCTION_FINALIZE_CANDIDATELIST;
+                    // 空候选仍有可编辑原文，回车须提交它，不能按空列表选词后取消组字。
+                    pKeyState->Category = CATEGORY_CANDIDATE;
+                    pKeyState->Function = FUNCTION_FINALIZE_CANDIDATELISTForVKReturn;
                 }
                 return TRUE;
             case VK_ESCAPE:
