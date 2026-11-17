@@ -20,6 +20,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private boolean eighteenKey;
     private boolean eighteenShuangpin;
     private boolean gridSymbols;
+    private boolean gridMetrics;
 
     @Override public void onCreate(android.os.Bundle arguments) {
         shuangpinOnly = arguments != null && "true".equals(arguments.getString("shuangpin_only"));
@@ -27,6 +28,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
         eighteenKey = arguments != null && "true".equals(arguments.getString("eighteen_key"));
         eighteenShuangpin = arguments != null && "true".equals(arguments.getString("eighteen_shuangpin"));
         gridSymbols = arguments != null && "true".equals(arguments.getString("grid_symbols"));
+        gridMetrics = arguments != null && "true".equals(arguments.getString("grid_metrics"));
         super.onCreate(arguments);
     }
 
@@ -34,6 +36,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
 
     @Override protected String successDescription() {
+        if (gridMetrics) return "九键、26 键与 14/18 键的读音行分组，纠错候选画 *、编码提示加高候选行，14/18 键字母同字号且居中";
         if (gridSymbols) return "14/18 键角标符号的滑动、选项、组字中点按与设置";
         if (eighteenShuangpin) return "十八键双拼设置、组码、消歧、分号、自定义表、布局回落与几何";
         if (eighteenKey) return "十八键全拼设置、组码、消歧、实体字母、布局回落与几何";
@@ -43,6 +46,10 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
     }
 
     @Override protected void runChecks() throws Exception {
+        if (gridMetrics) {
+            GridKeyMetricsDeviceChecks.run(this);
+            return;
+        }
         if (gridSymbols) {
             GridLetterSymbolDeviceChecks.run(this);
             return;
@@ -184,6 +191,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(described(PANEL));
             await(inPanel(described("选择拼音 shu")));
             await(inPanel(described("只显示单字")));
+            NineKeyPanelActionColumnChecks.check(this, this::inPanel);
             stage = "close the three-column panel";
             tap(inPanel(described("收起候选面板")));
             awaitGone(described(PANEL));

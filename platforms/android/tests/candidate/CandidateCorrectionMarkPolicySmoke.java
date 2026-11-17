@@ -19,6 +19,21 @@ public final class CandidateCorrectionMarkPolicySmoke {
         check(!CandidateCorrectionMarkPolicy.confident("true"), "a string is not a JSON boolean");
         check(!CandidateCorrectionMarkPolicy.confident(1), "a number is not a JSON boolean");
 
+        // 所有纠错行：候选字后面画 *，原串（corrected_from）不再画在候选字下面；辅助码和五笔码照旧画。
+        check("corrected".equals(CandidateCorrectionMarkPolicy.CORRECTED_FIELD), "corrected field name");
+        check(CandidateCorrectionMarkPolicy.markedWord("中国", true).equals("中国*"), "a corrected word ends with *");
+        check(CandidateCorrectionMarkPolicy.markedWord("中国", false).equals("中国"), "other words are unchanged");
+        check(CandidateCorrectionMarkPolicy.visibleAnnotation("zhognguo", true).isEmpty(),
+            "the typed letters of a corrected row are not drawn under it");
+        check(CandidateCorrectionMarkPolicy.visibleAnnotation("mwgfxi", true).isEmpty(),
+            "the typed shuangpin keys of a corrected row are not drawn under it");
+        check(CandidateCorrectionMarkPolicy.visibleAnnotation("(ZG)", true).equals("(ZG)"),
+            "a helpcode on a corrected row stays");
+        check(CandidateCorrectionMarkPolicy.visibleAnnotation("zhognguo khlg", true).equals("khlg"),
+            "a wubi code after the typed letters stays");
+        check(CandidateCorrectionMarkPolicy.visibleAnnotation("wqiy", false).equals("wqiy"),
+            "an uncorrected row keeps its annotation");
+
         // 读屏：带标记的行在注释和音标之后补「，已纠正」，其余行描述不变。
         check(CandidateCorrectionMarkPolicy.accessibilitySuffix(true).equals("，已纠正"), "spoken mark");
         check(CandidateCorrectionMarkPolicy.accessibilitySuffix(false).isEmpty(), "no spoken mark otherwise");

@@ -8,6 +8,8 @@
 #include "PredictionPolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
+#include "SkinTypingStatistics.h"
+#include "../voice/VoiceTypingStatistics.h"
 #include <ctime>
 #include <memory>
 #include <stdexcept>
@@ -62,11 +64,25 @@ void record_typing_statistics_async(const std::string &directory,
 }
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
-                              const std::map<std::string, uint64_t> &keys) {
-  auto request = typing_statistics_record_keys_request(directory, day, keys);
+                              const std::map<std::string, uint64_t> &keys,
+                              std::string_view source) {
+  auto request = typing_statistics_record_keys_request(directory, day, keys, source);
   if (request.empty())
     return;
   submit_typing_statistics_request(std::move(request));
+}
+void record_voice_duration_async(const std::string &directory, uint64_t milliseconds) {
+  const auto local = local_time_parts(std::time(nullptr));
+  if (!local)
+    return;
+  auto request = typing_statistics_record_voice_request(directory, local->day, milliseconds);
+  if (!request.empty())
+    submit_typing_statistics_request(std::move(request));
+}
+void record_skin_statistics_async(const std::string &directory, const std::string &id) {
+  auto request = typing_statistics_record_skin_request(directory, id);
+  if (!request.empty())
+    submit_typing_statistics_request(std::move(request));
 }
 std::optional<FocusedSession::Commit> FocusedSession::pending_commit() const {
   if (!composer_ || !composer_->has_pending())
