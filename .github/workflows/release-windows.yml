@@ -36,53 +36,26 @@ jobs:
           $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
           # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
           $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
-      # SignPath 签名由本仓库的变量 WINDOWS_SIGNING_PROVIDER=signpath 打开；它不能建在组织级，否则别的仓库会一起打开。打开时其余配置缺一项就失败，不悄悄退回未签名；不设置时照旧发未签名安装包。只签 main 的正式版和 develop 的 beta：其他分支的 -alpha 是试验构建，不占用签名和审批，照旧不签名。
-      # 输入 signpath_test 不看这个开关，在任何分支上用 test-signing 策略走一遍签名任务：测试证书不受系统信任，策略不需要审批，所以这种运行从不发布（publish 任务被跳过），只用来验证签名链路。签名流程见 docs/code-signing-policy.md。
+      # 签名配置只在本仓库启用；SimplySign 使用受发布工作流限制的专用 runner，密钥不进入 GitHub。
       - id: signing
-        env: {PROVIDER: "${{ vars.WINDOWS_SIGNING_PROVIDER }}", TEST: "${{ inputs.signpath_test }}", PUBLISH: "${{ inputs.publish }}", TOKEN_SET: "${{ secrets.SIGNPATH_TOKEN != '' }}", ORGANIZATION: "${{ vars.SIGNPATH_ORGANIZATION_ID }}", PROJECT: "${{ vars.SIGNPATH_PROJECT_SLUG }}", POLICY: "${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}"}
-        run: |
-          require() {
-            missing=()
-            [[ "$TOKEN_SET" == true ]] || missing+=(secrets.SIGNPATH_TOKEN)
-            [[ -n "$ORGANIZATION" ]] || missing+=(vars.SIGNPATH_ORGANIZATION_ID)
-            [[ -n "$PROJECT" ]] || missing+=(vars.SIGNPATH_PROJECT_SLUG)
-            for name in "$@"; do missing+=("$name"); done
-            if (( ${#missing[@]} )); then echo "::error::SignPath 签名缺少配置：${missing[*]}"; exit 1; fi
-          }
-          if [[ "$TEST" == true ]]; then
-            require
-            echo 'signpath=true' >> "$GITHUB_OUTPUT"
-            echo 'policy=test-signing' >> "$GITHUB_OUTPUT"
-            echo '::notice::signpath_test：用 SignPath test-signing 策略签名，安装包带不受信任的测试证书，本次运行不发布。'
-            exit 0
-          fi
-          if [[ "$PUBLISH" != true ]]; then
-            echo 'signpath=false' >> "$GITHUB_OUTPUT"
-            echo '::notice::非发布构建不调用 SignPath，使用未签名安装包。'
-            exit 0
-          fi
-          case "$PROVIDER" in
-            '')
-              echo 'signpath=false' >> "$GITHUB_OUTPUT"
-              echo '::notice::WINDOWS_SIGNING_PROVIDER 未设置，本次发布未签名的安装包。' ;;
-            signpath)
-              if [[ -n "$POLICY" ]]; then require; else require vars.SIGNPATH_SIGNING_POLICY_SLUG; fi
-              if [[ "$GITHUB_REF_NAME" != main && "$GITHUB_REF_NAME" != develop ]]; then
-                echo 'signpath=false' >> "$GITHUB_OUTPUT"
-                echo "::notice::$GITHUB_REF_NAME 不是 main 或 develop，本次发布未签名的 -alpha 安装包。"
-              else
-                echo 'signpath=true' >> "$GITHUB_OUTPUT"
-                echo "policy=$POLICY" >> "$GITHUB_OUTPUT"
-              fi ;;
-            *)
-              echo "::error::未知的 WINDOWS_SIGNING_PROVIDER：$PROVIDER（只能是 signpath，或者不设置）"; exit 1 ;;
-          esac
+        env:
+          PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          TEST: ${{ inputs.signpath_test }}
+          PUBLISH: ${{ inputs.publish }}
+          TOKEN_SET: ${{ secrets.SIGNPATH_TOKEN != '' }}
+          ORGANIZATION: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SSIGN_SHA256: ${{ vars.WINDOWS_SSIGN_SHA256 }}
+          CERTIFICATE_THUMBPRINT: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT }}
+        run: bash platforms/windows/scripts/select-release-signing.sh
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
       policy: ${{ steps.signing.outputs.policy }}
       signpath: ${{ steps.signing.outputs.signpath }}
+      simplysign: ${{ steps.signing.outputs.simplysign }}
   # The Rust half of the client (host DLLs, MCP server, Tauri panel shell) does not depend on the edition, so it is built once per architecture here, in parallel, rather than six times over in every edition's job, where it was most of the build time.
   rust:
     needs: source
@@ -331,7 +304,7 @@ jobs:
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
       - name: Build Windows client
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}", SERVER_UIACCESS: "${{ needs.source.outputs.signpath == 'true' && needs.source.outputs.policy != 'test-signing' }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}", SERVER_UIACCESS: "${{ needs.source.outputs.simplysign == 'true' || (needs.source.outputs.signpath == 'true' && needs.source.outputs.policy != 'test-signing') }}"}
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
           # Build-Client.ps1 defaults to the Visual Studio 2022 generator; the runner image moves between Visual Studio releases, so name the one it has.
@@ -477,9 +450,58 @@ jobs:
           name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload-signed/
           if-no-files-found: error
-  # 签名时先把签好的二进制放回暂存包，再编译安装包；不签名时 sign-payload 被跳过，这里直接编译。!failure() 让被跳过的 sign-payload 不连带跳过本任务。
+  # 复用 SSH 的无桌面入口。六个版本串行使用同一签名身份，构建与安装验证仍留在临时 runner。
+  package-simplysign:
+    needs: [source, release]
+    if: needs.source.outputs.simplysign == 'true'
+    runs-on:
+      group: windows-signing
+      labels: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+    permissions: {contents: read}
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: platforms/windows/installer
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-staged-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: platforms/windows/installer
+      - name: 签名包内文件、编译并签名安装器
+        shell: pwsh
+        env:
+          EDITION: ${{ matrix.edition }}
+          SSIGN_SHA256: ${{ vars.WINDOWS_SSIGN_SHA256 }}
+          CERTIFICATE_THUMBPRINT: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT }}
+        run: |
+          ./platforms/windows/installer/Invoke-CiSimplySign.ps1 -PackageRoot (Join-Path $PWD 'platforms/windows/installer') -OutputDirectory (Join-Path $env:RUNNER_TEMP 'simplysign-dist') -Edition $env:EDITION -SsignSha256 $env:SSIGN_SHA256 -CertificateThumbprint $env:CERTIFICATE_THUMBPRINT
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: |
+            ${{ runner.temp }}/simplysign-dist/*.exe
+            ${{ runner.temp }}/simplysign-dist/*.exe.sha256
+          if-no-files-found: error
+      - name: 清理签名暂存文件
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($path in @('server_exe', 'tsf_dll', 'app_data')) {
+            $directory = Join-Path $PWD "platforms/windows/installer/$path"
+            if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
+          }
+          $output = Join-Path $env:RUNNER_TEMP 'simplysign-dist'
+          if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Recurse -Force }
+  # SignPath 放回已签文件后编译，SimplySign 下载已签安装包，未签名路径直接编译；三条路径都在临时 runner 装卸验收。!failure() 允许未选择的签名分支被跳过。
   package:
-    needs: [source, release, sign-payload]
+    needs: [source, release, sign-payload, package-simplysign]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ${{ needs.source.outputs.signpath == 'true' && 'windows-2025' || 'depot-windows-2025-8' }}
     timeout-minutes: 60
@@ -492,7 +514,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: needs.source.outputs.simplysign == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: dist
+      - if: needs.source.outputs.simplysign != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: msime-staged-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: platforms/windows/installer
@@ -508,9 +536,10 @@ jobs:
         # test-signing 的测试证书链不到受信任的根，见脚本里 -TestCertificate 的说明。
         run: ./platforms/windows/installer/SignPath-PackageBinaries.ps1 -Mode Restore -Edition $env:EDITION -Directory (Join-Path $env:RUNNER_TEMP 'signpath-payload-signed') -TestCertificate:($env:POLICY -eq 'test-signing')
       - name: Compile installer
+        if: needs.source.outputs.simplysign != 'true'
         shell: pwsh
         env: {VERSION: "${{ needs.release.outputs.version }}", EDITION: "${{ matrix.edition }}"}
-        # 安装包本身在 sign-installers 里签名；不签名时它就是发布出去的那一份，维护者可以用 installer/Package-SimplySign.ps1 在本地打出签名版替换。
+        # SignPath 的外层安装包在 sign-installers 签名；SimplySign 的完整安装包由 package-simplysign 提供，此步骤跳过。
         run: |
           $ErrorActionPreference = 'Stop'
           $inno = "${env:ProgramFiles(x86)}\Inno Setup 6"
@@ -537,7 +566,8 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $PWD "dist/$name.sha256"), "$hash  $name`n")
           Get-ChildItem dist | Format-Table Name, Length
       # 签名时这一份还要交给 sign-installers，名字不能匹配下游取安装包用的 msime-windows-* 模式；不签名时它就是最终的安装包。
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: needs.source.outputs.simplysign != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ needs.source.outputs.signpath == 'true' && 'msime-unsigned-installer-windows' || 'msime-windows' }}-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist/
