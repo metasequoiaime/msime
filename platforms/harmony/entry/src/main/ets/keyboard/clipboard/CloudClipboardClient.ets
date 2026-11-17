@@ -89,6 +89,10 @@ export class CloudClipboardClient {
   }
 
   async matches(binding: string): Promise<boolean> {
+    return this.matchesNow(binding);
+  }
+
+  matchesNow(binding: string): boolean {
     if (this.stateDirectory.length === 0 || binding.length === 0) return false;
     return this.currentBinding() === binding;
   }

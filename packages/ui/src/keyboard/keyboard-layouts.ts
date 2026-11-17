@@ -180,7 +180,12 @@ export function harmonyTouchLayout(
     selected === "xiaohe" ||
     selected === "ziranma" ||
     selected === "microsoft" ||
-    selected === "shoudao"
+    selected === "shoudao" ||
+    selected === "smart_abc" ||
+    selected === "sogou" ||
+    selected === "jiajia" ||
+    selected === "ziguang" ||
+    selected === "guobiao"
   ) {
     return shuangpinLayout === "fourteen_key"
       ? "fourteen_key_shuangpin"

@@ -95,18 +95,13 @@ class AppGalleryTests(unittest.TestCase):
         self.run_release(self.client([*self.upload_replies(), state()]), mode="upload")
         self.assertEqual(len(self.transport.calls), 5)
 
-    def test_material_sync_uploads_opaque_icon_and_updates_features(self):
-        icon = ROOT / "platforms/harmony/AppScope/resources/base/media/app_icon_appgallery.png"
-        client = self.client([ok(urlInfo={"url": "https://obs.example.invalid/icon?signature=synthetic",
-                                    "method": "PUT", "headers": {"Authorization": "synthetic-obs"},
-                                    "objectId": "CN/icon.png"}), None, ok(), ok()])
-        client.sync_materials(icon, lang="zh-CN", new_features="合成测试")
+    def test_material_sync_updates_features_without_touching_the_icon(self):
+        client = self.client([ok()])
+        client.sync_materials(lang="zh-CN", new_features="合成测试")
         calls = self.transport.calls
-        self.assertIn("/publish/v2/app-file-info?", calls[3][1])
-        self.assertEqual(calls[3][3], {"lang": "zh-CN", "fileType": 0,
-                                       "files": [{"fileDestUrl": "CN/icon.png"}]})
-        self.assertIn("/publish/v2/app-language-info?", calls[4][1])
-        self.assertEqual(calls[4][3], {"lang": "zh-CN", "newFeatures": "合成测试"})
+        self.assertFalse(any("/app-file-info" in call[1] or "/upload-url/" in call[1] for call in calls))
+        self.assertIn("/publish/v2/app-language-info?", calls[-1][1])
+        self.assertEqual(calls[-1][3], {"lang": "zh-CN", "newFeatures": "合成测试"})
 
     def test_resume_package_and_draft_avoids_duplicate_creation(self):
         client = self.client([state(), ok(), ok()])
@@ -163,6 +158,13 @@ class AppGalleryTests(unittest.TestCase):
             with self.subTest(ret=ret), self.assertRaises(AGC.ReleaseError) as error:
                 AGC.check_result({"ret": ret})
             self.assertNotIn("private contact", str(error.exception))
+
+    def test_rejection_names_the_endpoint_but_not_huaweis_message(self):
+        with self.assertRaises(AGC.ReleaseError) as error:
+            AGC.check_result({"ret": {"code": 204144641, "msg": "private contact"}},
+                             endpoint="PUT /publish/v2/app-language-info")
+        self.assertIn("code=204144641，接口 PUT /publish/v2/app-language-info", str(error.exception))
+        self.assertNotIn("private contact", str(error.exception))
 
     def test_missing_token_or_credentials_fail(self):
         with self.assertRaises(AGC.ReleaseError):

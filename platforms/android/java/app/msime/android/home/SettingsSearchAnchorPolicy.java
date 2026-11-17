@@ -40,10 +40,12 @@ public final class SettingsSearchAnchorPolicy {
         return null;
     }
 
-    /** 页面上的一段文字是不是目标那一行的标题：去掉首尾空白后完全相同。只是包含不算，「显示页码」不能落在一行更长的标题上。 */
+    /** 页面上的一段文字是不是目标那一行的标题：去掉首尾空白后完全相同；展开屏的高度行接受原来的高度目标。只是包含不算，「显示页码」不能落在一行更长的标题上。 */
     public static boolean labels(CharSequence text, String anchor) {
         if (text == null || anchor == null) return false;
         String wanted = anchor.trim();
-        return !wanted.isEmpty() && text.toString().trim().equals(wanted);
+        String label = text.toString().trim();
+        return !wanted.isEmpty() && (label.equals(wanted)
+            || ("键盘高度".equals(wanted) && "键盘高度（展开屏）".equals(label)));
     }
 }
