@@ -322,8 +322,11 @@ int main() {
       std::optional<ModePresentation> value =
           ModePresentation{{{43, {4, 5, 6}}, 1, 1}, true, true, false};
       const auto original_dpi = current_thread_dpi_context();
-      FloatingToolbarWindow toolbar([&] { return value; },
-                                    [](const ModeClick &) {});
+      DPI_AWARENESS_CONTEXT layout_context = nullptr;
+      FloatingToolbarWindow toolbar([&] {
+        layout_context = current_thread_dpi_context();
+        return value;
+      }, [](const ModeClick &) {});
       require(same_dpi_context(original_dpi, current_thread_dpi_context()));
       require(window_awareness_is_expected(toolbar.handle()));
       const auto no_redirection =
@@ -333,6 +336,11 @@ int main() {
                  no_redirection) == no_redirection);
       const auto foreground = GetForegroundWindow();
       toolbar.refresh(true);
+      // 刷新从不感知 DPI 的 Server 调用时也按物理像素摆放，返回后恢复调用方上下文。
+      require(same_dpi_context(original_dpi, current_thread_dpi_context()));
+      if (compat::dpi_api().set_thread)
+        require(same_dpi_context(layout_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) ||
+                (running_under_wine() && same_dpi_context(layout_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)));
       UpdateWindow(toolbar.handle());
       require(IsWindowVisible(toolbar.handle()) && !toolbar.failed());
       require(GetForegroundWindow() == foreground);

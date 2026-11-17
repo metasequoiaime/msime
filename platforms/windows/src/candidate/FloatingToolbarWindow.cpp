@@ -136,7 +136,7 @@ bool FloatingToolbarWindow::usable(int button) const {
 }
 ToolbarMenuAnchor FloatingToolbarWindow::menu_anchor(std::optional<size_t> index,
                                                      int x) const {
-  // 工具栏不感知 DPI，这里（它的窗口过程里）量到的外框和点击坐标都是逻辑坐标；弹出菜单在每显示器感知的上下文里按物理像素摆放，所以在每显示器感知的上下文里再量一次同一个外框，把锚点换过去。缩放不是 100% 时不换的话，菜单会开到离按钮很远的地方，副屏旁边还可能开到另一块屏上。
+  // 菜单锚点统一使用物理像素；显式进入每显示器 DPI 上下文，避免调用方的线程感知级别影响坐标。
   RECT window{};
   GetWindowRect(window_, &window);
   RECT physical = window;
@@ -361,6 +361,7 @@ void FloatingToolbarWindow::hide() {
 void FloatingToolbarWindow::refresh(bool enabled) {
   if (failed_) return;
   try {
+    DpiScope dpi_scope;
     if (!enabled) { hide(); return; }
     const auto value = reader_();
     // ModeMailbox::snapshot() try-locks the mailbox and the focus gate, so it

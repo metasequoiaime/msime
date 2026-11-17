@@ -8,7 +8,7 @@ Windows 报告实际悬浮工具栏整体模糊，而设置页里的同一工具
 
 ## Decision
 
-悬浮工具栏创建窗口前复用[Windows DPI 与 DirectComposition 兼容层](../../implemented/feature/2026-10-23-windows-optional-dpi-and-composition.md)里的 `ThreadDpiScope`，让窗口继承 `PerMonitorV2`；创建样式同时复用 `no_redirection_bitmap_style()`，让 DirectComposition 的透明表面直接交给合成器，旧系统由兼容层返回零并继续走已有回退。Server 冒烟测试核对窗口 DPI 上下文和新系统上的样式位。既有兼容层的决定保持不变，本篇记录悬浮工具栏漏接这条窗口级约定的修补。
+悬浮工具栏创建窗口前复用[Windows DPI 与 DirectComposition 兼容层](../../implemented/feature/2026-10-23-windows-optional-dpi-and-composition.md)里的 `ThreadDpiScope`，让窗口继承 `PerMonitorV2`；创建样式同时复用 `no_redirection_bitmap_style()`，让 DirectComposition 的透明表面直接交给合成器，旧系统由兼容层返回零并继续走已有回退。刷新布局也在同一作用域内计算物理像素并调用 `SetWindowPos`，退出时恢复调用方上下文。只在创建时切换会让不感知 DPI 的 Server 在 125% 系统缩放下把已经换算过的尺寸再次放大：Windows 11 实测从应有的 333×100 变成 416×125。Server 冒烟测试核对窗口与刷新回调的 DPI 上下文、调用方上下文恢复和新系统上的样式位。既有兼容层的决定保持不变，本篇记录悬浮工具栏漏接这条窗口级约定的修补。
 
 这只修窗口创建与合成边界，不改变工具栏大小、字体、布局、颜色、默认位置或用户偏好。
 
@@ -21,3 +21,5 @@ Windows 报告实际悬浮工具栏整体模糊，而设置页里的同一工具
 ## Consequences
 
 悬浮工具栏在 Windows 10/11 的高 DPI 显示器上按自身 DPI 绘制，避免整条工具栏被 DWM 拉伸；跨显示器时沿用窗口已有的 `WM_DPICHANGED` 重建逻辑。旧系统不声明新样式时仍使用原有分层窗口路径。代价是工具栏创建路径多一个可失败的 PMv2 作用域，失败会沿用既有组件失败处理；服务器全局 DPI 行为保持不变。
+
+Windows 11 build 26300 的交互桌面使用真实 `FloatingToolbarWindow`、同一组合状态和缓存的产品渲染库，在 125% 系统缩放下完成前后截图；验收后恢复原来的系统缩放。截图只包含合成状态和纯色背景。
