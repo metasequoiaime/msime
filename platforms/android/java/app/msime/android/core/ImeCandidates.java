@@ -243,7 +243,8 @@ final class ImeCandidates {
             : InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "preedit", "");
         String annotation = s.candidatePronunciationAnnotation(s.candidateAnnotation(candidate, typed), candidate);
         boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
-        button.setText(s.candidateLabel("", text, annotation, highlighted, corrected));
+        String word = CandidateCorrectionMarkPolicy.markedWord(text, MSIMEInputService.candidateCorrected(candidate));
+        button.setText(s.candidateLabel("", word, annotation, highlighted, corrected));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
