@@ -1,3 +1,4 @@
+#include "../../common/CharacterWidthText.h"
 #include "ReplyComposer.h"
 #include "CandidateContinuation.h"
 #include "CandidateSources.h"
@@ -151,15 +152,16 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
     }
     break;
   case ReplyPath::LocalCommit:
-    // Legacy Enter inserts the prefix plus its local raw buffer. This is a
-    // completion acknowledgement, not a second text insertion frame.
-    if (!raw.empty() || !local_text || *local_text != commit_prefix + delta)
+    // TIP 已经完成上屏；提交前核对原文，这里只允许共享层的 ASCII 宽度转换。
+    if (!raw.empty() || !local_text ||
+        local_text->compare(0, commit_prefix.size(), commit_prefix) != 0 ||
+        !raw_commit_width_matches(std::string_view(*local_text).substr(commit_prefix.size()), delta,
+                                 view.value("character_width", std::string{}) == "Fullwidth"))
       next.encoded = EncodedReply{ReplyError::InvalidFields, {}};
     else {
       next.next_prefix.clear();
-      // Inserted by the TSF itself; the observation was validated against the
-      // prefix and Engine state above, so it is in the document either way.
-      next.committed_text = *local_text;
+      // 统计与反馈记录最终宽度的文字，原文观测只用于核对。
+      next.committed_text = commit_prefix + delta;
     }
     break;
   case ReplyPath::Selection:

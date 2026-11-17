@@ -507,6 +507,7 @@ pub struct VirtualRelay {
     env: Box<dyn Environment>,
     directory: PathBuf,
     locks: bool,
+    refresh_pending: std::sync::atomic::AtomicBool,
 }
 
 impl VirtualRelay {
@@ -523,6 +524,7 @@ impl VirtualRelay {
             env: Box::new(SystemEnvironment),
             directory,
             locks,
+            refresh_pending: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -539,6 +541,7 @@ impl VirtualRelay {
             env: Box::new(SystemEnvironment),
             directory,
             locks,
+            refresh_pending: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -556,7 +559,15 @@ impl VirtualRelay {
             env,
             directory,
             locks,
+            refresh_pending: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// 独立同步域的每轮操作先核对远端设备批准；同一轮驱动内仍复用短缓存。
+    pub(crate) fn refresh_on_next_request(self) -> Self {
+        self.refresh_pending
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self
     }
 
     pub(crate) fn config(&self) -> &RelayConfig {
@@ -633,6 +644,9 @@ impl VirtualRelay {
             relay: self,
             dav: Dav::new(self.http.as_ref(), self.env.as_ref()),
             stored: self.load()?,
+            force_refresh: self
+                .refresh_pending
+                .swap(false, std::sync::atomic::Ordering::SeqCst),
             synced: false,
             dirty: false,
         };
@@ -661,6 +675,7 @@ struct Session<'a> {
     relay: &'a VirtualRelay,
     dav: Dav<'a>,
     stored: Option<StoredLog>,
+    force_refresh: bool,
     /// 这一次请求里已经和网盘对过。
     synced: bool,
     dirty: bool,
@@ -672,9 +687,10 @@ impl Session<'_> {
     }
 
     fn fresh(&self) -> bool {
-        self.stored.as_ref().is_some_and(|stored| {
-            self.relay.env.now_ms().saturating_sub(stored.synced_at_ms) < FRESH_MS
-        })
+        !self.force_refresh
+            && self.stored.as_ref().is_some_and(|stored| {
+                self.relay.env.now_ms().saturating_sub(stored.synced_at_ms) < FRESH_MS
+            })
     }
 
     fn ledger(&self) -> Result<&Ledger, RelayError> {

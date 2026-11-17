@@ -47,7 +47,7 @@ enum InputLanguage: String, CaseIterable, Identifiable {
   var schemes: [ChineseInputScheme] {
     switch self {
     case .quanpin: [.quanpin, .fourteenKey, .eighteenKey, .nineKey]
-    case .shuangpin: [.shuangpin, .ziranma, .microsoft, .shoudao, .nineKeyShuangpin]
+    case .shuangpin: [.shuangpin, .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao, .nineKeyShuangpin]
     case .wubi: [.wubi]
     case .zhuyin: [.zhuyin]
     case .stroke: [.stroke]

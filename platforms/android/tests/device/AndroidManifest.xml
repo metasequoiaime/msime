@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.msime.android.test" android:versionCode="1" android:versionName="1">
+    <queries><package android:name="app.msime.android" /></queries>
     <instrumentation android:name="app.msime.android.test.CloudCandidateTransportDeviceSmoke" android:targetPackage="app.msime.android" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -87,6 +88,7 @@
     <instrumentation android:name="app.msime.android.test.CompositionBatchDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.BatchCompositionDeviceSmoke" android:targetPackage="app.msime.android.test" />
     <application android:label="MSIME Editor Fixture" android:allowBackup="false">
+        <provider android:name="app.msime.android.test.CommunitySkinDownloadTestProvider" android:authorities="app.msime.android.test.skin-download" android:exported="false" android:process=":skin_download" />
         <activity android:name="app.msime.android.test.OfflineVoiceCallerActivity" android:exported="true" />
         <activity android:name="app.msime.android.test.CompositionSearchEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />
         <activity android:name="app.msime.android.test.InlineAutofillEditorActivity" android:exported="true" android:windowSoftInputMode="adjustResize" />

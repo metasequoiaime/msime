@@ -13,6 +13,7 @@
 #include "DesktopCandidates.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
+#include "CloudClipboardAutoSync.h"
 #include "ComponentFailure.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
@@ -65,6 +66,7 @@
 #include "../../../common/ReadAloudText.h"
 #include "DictionarySyncSchedule.h"
 #include "DictionarySyncWorker.h"
+#include "SettingsSyncWorker.h"
 #include "../../common/DictionarySyncDirectory.h"
 #include "VoiceControllerListener.h"
 #include "VoiceHotkey.h"
@@ -1264,11 +1266,14 @@ int wmain(int argc, wchar_t **argv) {
             .value_or(CandidateLayoutSettings{});
     auto candidate_layout = std::make_shared<std::atomic<unsigned>>(
         CandidateLayoutSettings{
-            config.horizontal_candidates, config.candidate_show_preedit, true,
+            config.horizontal_candidates, config.candidate_show_preedit,
+            config.candidate_show_preedit_area, true,
             stored_candidate_layout.show_app_logo,
             stored_candidate_layout.reserved_gloss_lines,
             stored_candidate_layout.show_page_number}
             .encode());
+    auto candidate_cloud_badge = std::make_shared<std::atomic<bool>>(
+        prepared.at("value").at("preferences").value("candidate_cloud_badge", true));
     // Keep the native listener on the same file used by the shared desktop
     // shell; this is the cross-process handoff for the clipboard panel.
     ClipboardHistory clipboard_history(config.state_root / "clipboard_history.json");
@@ -1325,13 +1330,14 @@ int wmain(int argc, wchar_t **argv) {
              " error=" + std::to_string(error));
     };
     options.preferences_directory = config.state_root.u8string();
+    options.candidate_cloud_badge = candidate_cloud_badge;
     options.preferences_published =
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
          toolbar_enabled, follow_cursor, game_anchor_top, shuangpin_keymap_enabled, typing_feedback, candidate_mouse_wheel, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, app_mode_rules,
          input_mode_hud_enabled, input_mode_hud_logo, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
-         tsf_config_revision, candidate_theme, toolbar_settings,
+         tsf_config_revision, candidate_theme, toolbar_settings, candidate_cloud_badge,
          language_dictionaries, update_channel, dictionary_sync](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
@@ -1347,6 +1353,8 @@ int wmain(int argc, wchar_t **argv) {
             candidate_style->publish(snapshot.revision(), *style);
           if (auto layout = candidate_layout_settings(preferences, offline_gloss_languages))
             candidate_layout->store(layout->encode(), std::memory_order_release);
+          candidate_cloud_badge->store(
+              preferences.value("candidate_cloud_badge", true), std::memory_order_release);
           traditional_output->store(
               preferences.value("traditional_chinese_output", false),
               std::memory_order_release);
@@ -1601,11 +1609,13 @@ int wmain(int argc, wchar_t **argv) {
           return *voice_config;
         },
         [&] { return server.mode_view().has_value(); });
+    CloudClipboardAutoSync cloud_clipboard(config.state_root);
     ClipboardMonitor clipboard_monitor(
         clipboard_history, [&](std::string text) {
+          text = normalize_clipboard_text(std::move(text));
           const auto request = nlohmann::json{
               {"directory", config.state_root.u8string()},
-              {"text", normalize_clipboard_text(std::move(text))}}.dump();
+              {"text", text}}.dump();
           // The shared writer preserves pinned entries, timestamps and the
           // preference/history locking used by the Tauri panel.
           auto reply = msime::host_api::own_string(
@@ -2466,6 +2476,10 @@ int wmain(int argc, wchar_t **argv) {
         notice("Dictionary sync unavailable; continuing without automatic dictionary sync");
       }
     }
+    startup_stage = "settings_sync";
+    SettingsSyncWorker settings_sync;
+    if (production && !settings_sync.start(true, prepared.at("value")))
+      notice("Settings sync unavailable; continuing without automatic settings sync");
     startup_stage = "message_loop";
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
@@ -2838,6 +2852,7 @@ int wmain(int argc, wchar_t **argv) {
       update_notifier->stop();
     // 自动同步同理：正在联网时最多等两秒，之后放手。
     dictionary_sync->stop();
+    settings_sync.stop();
     candidates.stop();
     for (auto &line : candidates.take_diagnostics())
       notice(std::move(line));

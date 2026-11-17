@@ -174,9 +174,11 @@ def check_edition(errors: list[str], generator, table: dict, entry: dict, others
         cask = generator.cask(CASK.read_text(encoding="utf-8"), edition_id, "1.2.3", "0" * 64)
         if f'cask "{macos["cask"]}"' not in cask or f"/{macos['dmg_prefix']}-#{{version}}-universal.pkg\"" not in cask:
             errors.append(f"{where}: the cask does not name {macos['cask']} and download {macos['dmg_prefix']}-VERSION-universal.pkg")
-        # pkg 段装的是这个版本自己的安装包；pkg 不认 --appdir，卸载按 <settings_bundle_id>.pkg 回执，再兜底删掉 /Applications 里本版本的应用。
+        # pkg 段装的是这个版本自己的安装包；pkg 不认 --appdir，卸载按 <settings_bundle_id>.pkg 回执，再兜底删掉 /Applications 里本版本的应用。输入法由设置应用装进系统目录（回执 <input_method_bundle_id>.system-install），卸载要连它和早先装在用户目录的那份一起删，否则卸掉设置应用后输入法还留在输入法列表里。
         app = f"/Applications/{entry['display_name']['en']}.app"
-        for expected in (f'pkg "{macos["dmg_prefix"]}-#{{version}}-universal.pkg"', f'pkgutil: "{macos["settings_bundle_id"]}.pkg"', f'"{app}"', "auto_updates true"):
+        receipts = f'pkgutil:   ["{macos["settings_bundle_id"]}.pkg", "{macos["input_method_bundle_id"]}.system-install"]'
+        input_method = f"Library/Input Methods/{macos['input_method_name']}.app"
+        for expected in (f'pkg "{macos["dmg_prefix"]}-#{{version}}-universal.pkg"', receipts, f'"{app}"', f'"/{input_method}"', f'"~/{input_method}"', 'launchctl: "app.msime.system-updater"', "auto_updates true"):
             if expected not in cask:
                 errors.append(f"{where}: the cask lacks {expected}")
         if 'app "' in cask or "#{appdir}" in cask:

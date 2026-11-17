@@ -32,6 +32,10 @@ public final class AccountSessionRoutingSmoke {
             "our own keyboard may hand a voice contribution to the main process");
         check(!AccountSessionRoutingPolicy.accepts("voice_contribution", 10124, 10123),
             "another uid cannot upload through the main process");
+        check(!AccountSessionRoutingPolicy.accepts("skin_download", 10123, 10123),
+            "skin downloads use a read-only stream instead of a token call");
+        check(!AccountSessionRoutingPolicy.accepts("skin_download", 10124, 10123),
+            "another uid cannot download through the main process");
         check(!AccountSessionRoutingPolicy.accepts("anonymous_access_token", 10123, 10123),
             "there is no anonymous-only token any more: Rust has no such source");
         check(!AccountSessionRoutingPolicy.accepts(null, 10123, 10123), "a missing method is refused");

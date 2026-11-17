@@ -4,12 +4,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <atomic>
+#include <memory>
 
 namespace msime::windows {
 // Single latest value, not an unbounded per-key UI event queue. Publish only
 // from the input queue's confirmed-delivery callback under the focus gate.
 class CandidateMailbox final {
 public:
+  explicit CandidateMailbox(std::shared_ptr<std::atomic<bool>> show_cloud_badge = {})
+      : show_cloud_badge_(std::move(show_cloud_badge)) {}
   void rendered(const FocusLease &lease, uint64_t render_serial) {
     std::lock_guard lock(mutex_);
     if (!latest_ || stopped_ || latest_->lease.epoch != lease.epoch ||
@@ -50,7 +54,7 @@ public:
   }
   void delivered(const FocusLease &lease, const PendingReply &reply,
                  const FanyImeNamedpipeData &packet) {
-    auto value = candidate_presentation(lease, reply, packet);
+    auto value = candidate_presentation(lease, reply, packet, cloud_badge_enabled());
     std::lock_guard lock(mutex_);
     if (!stopped_) {
       attach_candidate_readings(value.candidates, readings_);
@@ -171,6 +175,9 @@ public:
   }
 
 private:
+  bool cloud_badge_enabled() const {
+    return !show_cloud_badge_ || show_cloud_badge_->load(std::memory_order_acquire);
+  }
   static bool same_lease(const FocusLease &a, const FocusLease &b) {
     return a.epoch == b.epoch && a.token == b.token && same_ticket(a.transport, b.transport);
   }
@@ -238,7 +245,8 @@ private:
       const int caret_anchor_y = latest_->caret_anchor_y;
       latest_ =
           candidate_presentation_from_view(lease, view, latest_->x, latest_->y,
-                                           prefix, latest_->traditional_output);
+                                           prefix, latest_->traditional_output,
+                                           cloud_badge_enabled());
       latest_->game_host = game_host;
       latest_->caret_anchor_known = caret_anchor_known;
       latest_->caret_anchor_x = caret_anchor_x;
@@ -432,6 +440,7 @@ private:
   }
 
   std::mutex mutex_;
+  std::shared_ptr<std::atomic<bool>> show_cloud_badge_;
   bool stopped_ = false;
   bool suppressed_ = false;
   std::optional<std::chrono::steady_clock::time_point> pending_hide_;

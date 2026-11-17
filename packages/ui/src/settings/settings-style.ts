@@ -76,12 +76,13 @@ export const externalResourceNote = "px-6 pt-0 pb-3";
 /** 主题页逐张显示卡片，横向滚动吸附保留触控板和触屏切换。卡片拉伸到同一高度（最高那张的高度），翻页时卡片和下面的分页条都不跳。 */
 export const themeCarouselTrack =
   "flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
-/** 轮播里的每张皮肤预览自己限高，避免只裁轨道而让皮肤卡片仍保留超高的内在尺寸。 */
-export const themeCarouselViewport = "theme-carousel-viewport";
+/** 轮播里的每张皮肤预览自己限高，避免只裁轨道而让皮肤卡片仍保留超高的内在尺寸。三列网格把上一个、下一个箭头放在卡片左右两侧，按卡片高度居中；分页条在下面占满一行。 */
+export const themeCarouselViewport =
+  "theme-carousel-viewport grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2";
 /** The padding keeps the card's shadow and focus ring inside the track, which clips its overflow. 卡片撑满拉伸后的 slide，多出来的高度给卡片里的预览舞台，所以矮卡片是舞台留得多，卡片外面没有空白。 */
 export const themeCarouselSlide =
   "flex w-full shrink-0 snap-start flex-col p-1 [&>article]:flex [&>article]:flex-1 [&>article]:flex-col [&>article>[data-skin-preview]]:flex-1";
-export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";
+export const themeCarouselNav = "col-span-3 mt-2 flex items-center justify-center gap-3";
 export const themeCarouselArrow =
   "flex size-7 items-center justify-center rounded-full border border-edge bg-[var(--p-group-bg)] p-0 text-lg leading-none text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";
 export const themeCarouselDots = inlineItems;
@@ -272,12 +273,12 @@ export const panelPreviewLabel = "mb-[18px] text-xs text-muted";
 // ---- the desktop window chrome ----
 
 /*
- * Only Windows and Linux draw a caption in the page: macOS keeps its native traffic lights over the sidebar, and HarmonyOS 2-in-1 and the phones leave the frame to the system. Windows 11 is 48 high with the brand on the left, a search box centred on the window and 46px caption buttons; the GNOME headerbar is 46 high, with a left pane that lines up with the 240px sidebar and the page name in the middle.
+ * 只有 Windows 和 Linux 在页面里画标题栏；macOS 把原生红绿灯叠在侧栏上，HarmonyOS 二合一与手机由系统画外框。Windows 11 标题栏高 48px，左侧为品牌、中间为搜索框、右侧为 46px 宽的窗口按钮。GNOME 标题栏高 46px，沿用 libadwaita 分栏布局：左侧属于 240px 宽的侧栏列，底色和竖分隔线连续；右侧使用页面底色、居中显示页面名，不画横贯窗口的底线，避免顶部出现横竖交叉。
  */
 export const titlebar =
-  "relative flex h-[var(--titlebar-height)] flex-shrink-0 items-center justify-between gap-3 bg-[var(--p-chrome)] pl-3 text-[var(--p-text)] select-none win:[--titlebar-height:48px] linux:border-b linux:border-[var(--p-hair)] linux:pl-0 linux:[--titlebar-height:46px]";
+  "relative flex h-[var(--titlebar-height)] flex-shrink-0 items-center justify-between gap-3 bg-[var(--p-chrome)] pl-3 text-[var(--p-text)] select-none win:[--titlebar-height:48px] linux:bg-[var(--p-bg)] linux:pl-0 linux:[--titlebar-height:46px]";
 export const titlebarBrand =
-  "flex min-w-0 items-center gap-2 [&>img]:size-[18px] [&>img]:shrink-0 linux:w-60 linux:shrink-0 linux:self-stretch linux:justify-center linux:border-r linux:border-[var(--p-hair)] max-phone:linux:w-auto max-phone:linux:border-r-0 max-phone:linux:px-3";
+  "flex min-w-0 items-center gap-2 [&>img]:size-[18px] [&>img]:shrink-0 linux:w-60 linux:shrink-0 linux:self-stretch linux:justify-center linux:border-r linux:border-[var(--p-hair)] linux:bg-[#2e2e32] linux:light-theme:bg-[#ebebed] max-phone:linux:w-auto max-phone:linux:border-r-0 max-phone:linux:bg-transparent max-phone:linux:px-3";
 export const title =
   "min-w-0 overflow-hidden text-xs font-normal tracking-[0.2px] text-ellipsis whitespace-nowrap linux:text-[15px] linux:font-bold linux:tracking-normal";
 export const titlebarSubtitle = "shrink-0 text-xs text-[var(--p-sub)]";

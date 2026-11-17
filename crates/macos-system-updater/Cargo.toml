@@ -1,0 +1,25 @@
+[package]
+name = "msime-macos-system-updater"
+description = "The root launchd job that replaces the input method in /Library/Input Methods with a verified newer build."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "msime-system-updater"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# renameat_with(RENAME_SWAP)：把验证过的新 bundle 和已装的那份原子交换。
+rustix = { workspace = true, features = ["fs", "process"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

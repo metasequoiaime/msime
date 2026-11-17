@@ -305,6 +305,38 @@ void local_commit_rejection_pump_tests(const std::string &options) {
   }
 }
 void session_pump_tests(const std::string &options) {
+  // #11509：模式快照与单独切换都必须传给会话，不只改变工具栏。
+  for (auto event : {FanyImePipeEventType::StatusSnapshot,
+                     FanyImePipeEventType::FocusRestored,
+                     FanyImePipeEventType::DoubleSingleByteSwitch}) {
+    FocusGate gate;
+    InputQueue queue(gate, 2, 8, options);
+    FixtureTransport transport;
+    const auto active = transport.packets.front();
+    auto key = transport.packets[1];
+    transport.packets = {active};
+    for (bool fullwidth : {true, false, true}) {
+      auto mode = active;
+      mode.event_type = event;
+      mode.keycode = event == FanyImePipeEventType::DoubleSingleByteSwitch ? fullwidth : 1;
+      mode.modifiers_down = fullwidth ? 1 : 0;
+      mode.pinyin_length = 1;
+      transport.packets.push_back(mode);
+      transport.packets.push_back(key);
+      ++key.request_id;
+    }
+    unsigned keys = 0;
+    SessionPump pump(transport, queue, gate,
+        [&](InputState &state, const FocusLease &lease, const FanyImeNamedpipeData &packet) -> std::optional<PendingReply> {
+          const bool fullwidth = keys++ != 1;
+          const auto view = state.dedicated_english(lease, false);
+          require(view && view->at("character_width") == (fullwidth ? "Fullwidth" : "Halfwidth"));
+          // 生产主通道每个按键都要派发并确认回复，不能只观察后返回空值。
+          return state.configured_key(lease, packet, TsfPreeditStyle::Local, {});
+        }, [](const FocusRoute &, const FanyImeNamedpipeData &) { return true; });
+    require(pump.run(transport.ticket) == PumpResult::Disconnected && keys == 3);
+    queue.stop();
+  }
   ordered_preference_pump_tests(options);
   grouped_panel_pump_tests(options);
   // 真实 pump 的主通道：协商后的本地 UI-less 只收到导航意图；旧宿主仍收到候选页。

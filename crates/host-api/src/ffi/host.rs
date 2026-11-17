@@ -460,7 +460,7 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
         if directory.is_null() || length == 0 || length > 16_384 {
             return Err("invalid preferences directory".into());
         }
-        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        // 安全性：调用方契约保证指针可读，且上面已经检查了长度。
         let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
         let directory = std::str::from_utf8(bytes).map_err(|_| "invalid preferences directory")?;
         if !std::path::Path::new(directory).is_absolute() {
@@ -904,6 +904,39 @@ pub unsafe extern "C" fn msime_client_nine_key_shuangpin_layout(
     })
 }
 
+/// 26 键双拼方案在宿主看来的样子，见 [`crate::shuangpin_custom_layout`]。
+///
+/// # Safety
+/// `request` 指向 `length` 个可读的 UTF-8 字节，内容是 `{"profile": ..., "table"?: ...}`；空指针会被拒绝。
+/// 返回的响应必须用 `msime_client_string_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_shuangpin_custom_layout(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        profile: msime_client_core::preferences::ShuangpinProfile,
+        #[serde(default)]
+        table: msime_client_core::preferences::ShuangpinCustomProfile,
+    }
+    response(|| {
+        if request.is_null() || length > 16384 {
+            return Err("invalid shuangpin request buffer".into());
+        }
+        // 安全性：调用方契约保证指针可读，且上面已经检查了长度。
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: Request = serde_json::from_slice(bytes)
+            .map_err(|error| format!("invalid shuangpin request: {error}"))?;
+        serde_json::to_value(crate::shuangpin_custom_layout(
+            request.profile,
+            &request.table,
+        ))
+        .map_err(|error| error.to_string())
+    })
+}
+
 /// 进程里 `msime_client_load_preferences` 最近读到的一份偏好，连同它所在的目录：Android 键盘显示期间每秒在工作线程上读一次，偏好文件没变时不再解析和校验，见 [`PreferencesStore::load_reusing`]。
 static LOADED_PREFERENCES: Mutex<
     Option<(String, msime_client_core::preferences::LoadedPreferences)>,
@@ -976,6 +1009,9 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
         /// 本机旧设置 `platform.android.nine_key_swipe` 的原值；本机没有这个键时不带。
         #[serde(default)]
         nine_key_swipe: Option<String>,
+        /// 本机旧设置「九键滑动距离」`platform.android.nine_key_swipe_distance` 的原值；本机没有这个键时不带。
+        #[serde(default)]
+        nine_key_swipe_distance: Option<u16>,
     }
     response(|| {
         if request.is_null() || length > 65536 {
@@ -1003,6 +1039,7 @@ pub unsafe extern "C" fn msime_client_migrate_android_key_layout(
                     .as_deref()
                     .and_then(msime_client_core::preferences::TouchNineKeySwipeDigits::parse)
                     .unwrap_or_default(),
+                request.nine_key_swipe_distance,
             )
             .map_err(|error| error.to_string())?;
         serde_json::to_value(saved).map_err(|error| error.to_string())

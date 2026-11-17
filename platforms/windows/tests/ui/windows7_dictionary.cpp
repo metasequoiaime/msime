@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
       if (synthetic_updates) {
         const auto command = request.at("action").at("command");
         if (command == "check") (*synthetic_updates)["phase"] = "checking";
-        if (command == "rollback") { (*synthetic_updates)["enabled"] = false; (*synthetic_updates)["pending_restart"] = true; }
+        if (command == "rollback") { (*synthetic_updates)["pending_restart"] = true; }
         return Json{{"ok", true}, {"value", *synthetic_updates}}.dump();
       }
     }
@@ -238,6 +238,7 @@ int main(int argc, char** argv) {
   allow = false; count = calls.size(); update_click(dictionary_updates_rollback); assert(calls.size() == count);
   allow = true; update_click(dictionary_updates_rollback);
   assert(calls.back().at("command") == "rollback" && text(dictionary_updates_notice).find("下次启动") != std::string::npos);
+  assert(SendMessageW(GetDlgItem(body, dictionary_updates_enabled), BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   bad_updates = true; update_click(dictionary_updates_refresh);
   assert(!IsWindowEnabled(GetDlgItem(body, dictionary_updates_enabled)) && !IsWindowEnabled(GetDlgItem(body, dictionary_updates_check)));
   bad_updates = false; SendMessageW(host, WM_TIMER, 74, 0); wait_updates();
