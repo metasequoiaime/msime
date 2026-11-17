@@ -34,14 +34,23 @@ function Assert-QuickPhraseSettings($window) {
     # 展开后滚到真实控件可见的位置，截图保留关闭、开启与重启后的回读状态。
     $content = Find-ById $window 'settings-content'
     $scroll = $null
+    $scrollItem = $null
+    if ($toggle.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scrollItem)) {
+        $scrollItem.ScrollIntoView()
+    }
     if ($content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll) -and $scroll.Current.VerticallyScrollable) {
-        $scroll.SetScrollPercent(-1, 100)
+        # 后面仍有模型设置，直接滚到底会把目标开关再次移出视口。
+        for ($percent = 0; $toggle.Current.IsOffscreen -and $percent -le 100; $percent += 5) {
+            $scroll.SetScrollPercent(-1, $percent)
+            Start-Sleep -Milliseconds 100
+        }
     }
     Start-Sleep -Milliseconds 350
     if ($toggle.Current.IsOffscreen) { throw '快捷短语混输开关没有出现在展开截图中' }
     Save-Window $window 'quick-phrase-expanded-off.png'
     $pattern.Toggle()
     Wait-QuickPhraseSaved $true
+    Start-Sleep -Milliseconds 250
     Save-Window $window 'quick-phrase-expanded-on.png'
     $script:process.CloseMainWindow() | Out-Null
     if (-not $script:process.WaitForExit(10000)) { throw '快捷短语保存后窗口未退出' }

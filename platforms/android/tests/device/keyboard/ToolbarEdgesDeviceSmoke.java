@@ -158,6 +158,7 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 checkLongSpaceGestureAfterRecreation(type, service, loader);
                 ToolbarPinnedDeviceCheck.run(type, service, loader);
                 ClipboardModeDeviceChecks.run(getTargetContext(), type, service, loader);
+                CandidateDisplayPreferenceDeviceChecks.run(type, service, loader, density);
             } catch (Exception | AssertionError error) { failure[0] = error; }
             finally {
                 if (service != null) {

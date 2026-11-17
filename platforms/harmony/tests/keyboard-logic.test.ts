@@ -7326,6 +7326,45 @@ group("粤拼下按简繁开关只写粤拼字形，存储接受了才翻转", (
   );
 });
 
+group("注音下的简繁开关只写注音字形，存储接受了才翻转", () => {
+  const writes: string[] = [];
+  const store =
+    (accepts: boolean) =>
+    (key: string, value: boolean): boolean => {
+      writes.push(`${key}=${value}`);
+      return accepts;
+    };
+  check(ChineseOutputPolicy.switchFollowsZhuyin("zhuyin", false), "注音跟随注音开关");
+  check(!ChineseOutputPolicy.switchFollowsZhuyin("zhuyin", true), "英文模式照旧看全局开关");
+  check(!ChineseOutputPolicy.switchFollowsZhuyin("quanpin", false), "全拼不跟随注音开关");
+  check(ChineseOutputPolicy.showsTraditional(false, false, false, true, false), "注音默认显示繁体");
+  check(
+    !ChineseOutputPolicy.showsTraditional(false, true, false, true, true),
+    "注音选了简体就显示简体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(false, store(true)) === true,
+    "存储接受后切到简体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(true, store(true)) === false,
+    "再按一次切回繁体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(false, store(false)) === false,
+    "存储拒绝时保持繁体",
+  );
+  check(
+    ChineseOutputPolicy.toggledZhuyinSimplified(true, store(false)) === true,
+    "存储拒绝时保持简体",
+  );
+  check(
+    writes.join(",") ===
+      "zhuyin_simplified_output=true,zhuyin_simplified_output=false,zhuyin_simplified_output=true,zhuyin_simplified_output=false",
+    `只写注音自己的偏好，全局简繁不动：${writes.join(",")}`,
+  );
+});
+
 group("traditional output never loses text when conversion fails", () => {
   const upper = (text: string): string => text.toUpperCase();
   check(
@@ -7621,6 +7660,71 @@ group("with pairing on every quote press opens a fresh pair, as the reference do
   );
 });
 
+group("回车只在编码就是用户键入的拉丁字母时原样上屏编码（#11120）", () => {
+  // 触屏回车的分派和视图里一样拼：方案自己的规则号、九键网格和 14/18 键网格是否画着。
+  const touchReturn = (
+    rulesScheme: number,
+    nineKeyFace: boolean,
+    letterGridFace: boolean,
+    candidateCount: number,
+  ): ReturnDispatch =>
+    ReturnKeyAction.dispatch(
+      false,
+      true,
+      candidateCount,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      ReturnKeyAction.commitsSpelling(rulesScheme, nineKeyFace, letterGridFace),
+    );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.SHUANGPIN, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.WUBI, false, false, 3) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.WUBI, false, false, 0) === ReturnDispatch.COMMIT_RAW &&
+      touchReturn(SchemeTraits.CANTONESE, false, false, 3) === ReturnDispatch.COMMIT_RAW,
+    "全拼、双拼、五笔、粤拼的 26 键组字回车上屏键入的字母，有没有候选都一样",
+  );
+  check(
+    touchReturn(SchemeTraits.JAPANESE, false, false, 2) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.JAPANESE, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "日语 26 键的罗马字不是用户想写的字：回车上屏高亮候选（にほん），不上屏 nihon",
+  );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.SHUANGPIN, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.QUANPIN, true, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "全拼九键和九键双拼的编码是数字串：回车上屏首选（你好），不上屏 64426",
+  );
+  check(
+    touchReturn(SchemeTraits.ZHUYIN, false, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.ZHUYIN, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "注音候选列表打开时回车选中高亮行、组字保留；列表没开时上屏转换结果",
+  );
+  check(
+    touchReturn(SchemeTraits.QUANPIN, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.SHUANGPIN, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(SchemeTraits.WUBI, false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "14 键和 18 键的编码是每组的代表字母，不是用户打的码：回车上屏首选",
+  );
+  check(
+    touchReturn(-1, false, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(-1, true, false, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      touchReturn(-1, false, false, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "英文和本地工具模式不归方案的规则管，回车照旧",
+  );
+  check(
+    !ReturnKeyAction.commitsSpelling(SchemeTraits.KOREAN, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.VIETNAMESE, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.TIBETAN, false, false) &&
+      !ReturnKeyAction.commitsSpelling(SchemeTraits.STROKE, false, false),
+    "韩文、越南语、藏文和笔画各有自己的回车分支，不走这条规则",
+  );
+});
+
 group("return performs an editor action only when nothing else claimed it", () => {
   const send = 4;
   check(ReturnKeyAction.performsEditorAction(send, false) === true, "send is an editor action");
@@ -7655,7 +7759,26 @@ group("return performs an editor action only when nothing else claimed it", () =
   );
   check(
     ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
-    "a candidate-less non-Japanese composition is still finished before Return",
+    "a candidate-less composition whose code is not the user's letters is still finished before Return",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "a composition whose code is not the user's letters commits the highlighted candidate",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, false, false, false, true) ===
+      ReturnDispatch.COMMIT_RAW,
+    "a candidate-less letter-code composition commits its raw spelling",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3, false, false, false, false, false, false, true) ===
+      ReturnDispatch.COMMIT_RAW,
+    "a letter-code composition with candidates commits its raw spelling instead of the first candidate",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, false, 0, false, false, false, false, false, false, true) ===
+      ReturnDispatch.EDITOR,
+    "an idle Return in a letter-code scheme belongs to the editor",
   );
   check(
     ReturnKeyAction.dispatch(false, true, 3, false, false, false, true) ===
@@ -16483,21 +16606,39 @@ group("a Korean syllable lists its Hanja and the open list takes the candidate k
 group("自定义普通双拼的入口切换保留码表和分号可达性", () => {
   for (const profile of ["custom", "smart_abc"]) {
     const away = KeyboardScheme.mappingForRuntimeSelection(
-      KeyboardScheme.XIAOHE, KeyboardScheme.QUANPIN, "shuangpin", profile);
+      KeyboardScheme.XIAOHE,
+      KeyboardScheme.QUANPIN,
+      "shuangpin",
+      profile,
+    );
     check(away !== null && away.shuangpinProfile === profile, "离开双拼保留码表");
     const back = KeyboardScheme.mappingForRuntimeSelection(
-      KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE, "quanpin", profile);
+      KeyboardScheme.QUANPIN,
+      KeyboardScheme.XIAOHE,
+      "quanpin",
+      profile,
+    );
     check(back !== null && back.shuangpinProfile === profile, "返回普通双拼保留码表");
-    check(KeyboardScheme.mapping(KeyboardScheme.XIAOHE, "quanpin", profile).shuangpinProfile ===
-      "xiaohe", "明确选择内置方案仍使用内置码表");
+    check(
+      KeyboardScheme.mapping(KeyboardScheme.XIAOHE, "quanpin", profile).shuangpinProfile ===
+        "xiaohe",
+      "明确选择内置方案仍使用内置码表",
+    );
   }
-  check(KeyboardScheme.shuangpinSpaceLabel("custom") === "双拼 · 自定义" &&
-    KeyboardScheme.shuangpinSpaceLabel("smart_abc") === "双拼 · 智能 ABC", "普通入口显示实际码表名");
-  check(KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, true),
-    "共享自定义表使用分号时提供韵母键");
-  check(!KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, false) &&
-    !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.QUANPIN, true),
-    "无分号的表与非双拼不增加分号键");
+  check(
+    KeyboardScheme.shuangpinSpaceLabel("custom") === "双拼 · 自定义" &&
+      KeyboardScheme.shuangpinSpaceLabel("smart_abc") === "双拼 · 智能 ABC",
+    "普通入口显示实际码表名",
+  );
+  check(
+    KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, true),
+    "共享自定义表使用分号时提供韵母键",
+  );
+  check(
+    !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.XIAOHE, false) &&
+      !KeyboardScheme.showsSemicolonFinal(KeyboardScheme.QUANPIN, true),
+    "无分号的表与非双拼不增加分号键",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
@@ -19481,7 +19622,8 @@ group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方�
     "快捷栏写「藏」，英文模式优先",
   );
   check(
-    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION &&
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, false, false, true) ===
+      ReturnDispatch.FINISH_COMPOSITION &&
       ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
     "触屏回车走共享规则：组字时只提交藏文、不换行，没有组字时交给编辑框",
   );
