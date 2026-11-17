@@ -10,12 +10,18 @@
 #include <iterator>
 #include <new>
 #include <string>
+#include "../compat/WindowsVersion.h"
 #if defined(MSIME_WINDOWS7_EMOJI_SHAPING)
 #include "Windows7EmojiShaping.h"
 #endif
 
 namespace msime::windows::compat {
 inline D2D1_DRAW_TEXT_OPTIONS enable_color_font(D2D1_DRAW_TEXT_OPTIONS options) {
+  // 彩色字形标志从 Windows 8.1 开始支持；Win7 会让整次 EndDraw 以 E_INVALIDARG 失败。
+  const auto &version = kernel_version();
+  if (!version || version->dwMajorVersion < 6 ||
+      (version->dwMajorVersion == 6 && version->dwMinorVersion < 3))
+    return options;
   return static_cast<D2D1_DRAW_TEXT_OPTIONS>(
       static_cast<UINT32>(options) | static_cast<UINT32>(D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT));
 }
