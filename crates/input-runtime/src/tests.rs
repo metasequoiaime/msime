@@ -10931,6 +10931,7 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod date_time_menu_order;
 mod deferred_scorer;
 mod grid_helpcode;
 mod sentence_pool;
