@@ -67,6 +67,51 @@ final class MacDictionaryModel: ObservableObject {
       _ = try await self.request(["operation": "delete", "kind": kind.rawValue, "id": entry.id, "revision": entry.revision])
     }
   }
+  /// 整份快照留在共享 Rust，原生窗口只传一次性令牌；C ABI 不支持文本快照导出和恢复。
+  func clearQuickPhrases() {
+    guard kind == .quick, !busy, !closed else { return }
+    let selected = kind
+    let query = search
+    busy = true; message = nil
+    pending = Task {
+      defer { busy = false }
+      var previewed = false
+      do {
+        try await requireAccount()
+        let preview = try BackendRustAccount.object(try await request(["operation": "quick_clear_preview"]))
+        guard let token = preview["token"] as? String, !token.isEmpty,
+              let entries = preview["entries"] as? NSNumber, entries.int64Value >= 0 else {
+          throw BackendRustClient.Failure.invalidResponse
+        }
+        previewed = true
+        try await requireAccount()
+        var cleared = 0
+        if entries.int64Value > 0 {
+          let result = try BackendRustAccount.object(try await request([
+            "operation": "quick_clear_apply", "token": token,
+          ]))
+          guard let count = result["cleared"] as? NSNumber, count.int64Value >= 0 else {
+            throw BackendRustClient.Failure.invalidResponse
+          }
+          cleared = count.intValue
+          try await requireAccount()
+        }
+        let result = try BackendRustAccount.decode(BackendAccountClient.DictionaryPage.self, try await request([
+          "operation": "list", "kind": selected.rawValue, "offset": 0, "search": query,
+        ]))
+        try await requireAccount()
+        guard kind == selected, search == query else { throw CancellationError() }
+        page = result
+        message = cleared > 0 ? "已清空 \(cleared) 条云端快捷短语。" : "当前没有可清空的云端快捷短语。"
+      } catch is CancellationError {
+        page = nil
+      } catch {
+        page = nil
+        if !Task.isCancelled { message = error.localizedDescription }
+      }
+      if previewed { _ = try? await request(["operation": "quick_clear_cancel"]) }
+    }
+  }
   func chooseImport() {
     guard !busy, panel == nil else { return }
     let selected = NSOpenPanel()
@@ -149,6 +194,7 @@ struct MacCloudDictionaryView: View {
   @State private var weight = "100000"
   @State private var deleting: BackendAccountClient.DictionaryEntry?
   @State private var importing = false
+  @State private var clearingQuickPhrases = false
   @State private var management: Management?
   private enum Management: String, Identifiable { case catalog, candidates; var id: String { rawValue } }
   init(accountID: String) { _model = StateObject(wrappedValue: MacDictionaryModel(accountID: accountID)) }
@@ -168,6 +214,9 @@ struct MacCloudDictionaryView: View {
       HStack {
         Button("完整词库目录…") { management = .catalog }
         Button("云端候选与排序…") { management = .candidates }
+        if model.kind == .quick {
+          Button("清空云端快捷短语", role: .destructive) { clearingQuickPhrases = true }
+        }
       }.disabled(model.busy)
       List(model.page?.entries ?? []) { row in
         HStack {
@@ -227,5 +276,11 @@ struct MacCloudDictionaryView: View {
       Button("取消", role: .cancel) { }
       Button("上传") { model.uploadImport() }
     } message: { Text("文件内容将上传到当前账号。重复或无效词条会导致整批拒绝，不会自动覆盖已有词条。") }
+    .alert("清空云端快捷短语？", isPresented: $clearingQuickPhrases) {
+      Button("取消", role: .cancel) { }
+      Button("清空", role: .destructive) { model.clearQuickPhrases() }
+    } message: {
+      Text("将永久删除当前账号的全部云端快捷短语，本机词库和其他云端词库不受影响。此操作无法撤销。")
+    }
   }
 }

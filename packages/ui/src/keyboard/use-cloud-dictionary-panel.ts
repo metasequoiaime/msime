@@ -4,6 +4,7 @@ import { useLatestRef } from "../core/use-latest-ref";
 import { usePanelAction } from "./use-panel-action";
 import { cloudDictionaryErrorMessage } from "./cloud-dictionary-errors";
 import { cloudDictionaryEntries, cloudResponseInteger } from "./cloud-response";
+import { removeQuickPhraseSnapshotRecords } from "./cloud-quick-phrase-snapshot";
 import type { CloudDictionaryEntryFormValue } from "./cloud-dictionary-entry-form";
 import type {
   CloudDictionaryKind,
@@ -199,6 +200,47 @@ export function useCloudDictionaryPanel(client: CloudDictionaryPanelClient, embe
     setForm(null);
   }
 
+  function clearQuickPhrases() {
+    if (kind !== "quick" || !client.snapshot || client.snapshotNative || busyRef.current) return;
+    return run(async (revision) => {
+      const exported = await client.request({ operation: "snapshot_export" });
+      if (!isCurrent(revision)) return;
+      const snapshotText = exported.text ?? exported.content;
+      if (typeof snapshotText !== "string" || !snapshotText) throw new Error("invalid snapshot");
+      const filtered = await removeQuickPhraseSnapshotRecords(snapshotText);
+      if (!isCurrent(revision)) return;
+      if (!filtered.entries) {
+        setNotice("当前没有可清空的云端快捷短语。");
+        return;
+      }
+      const confirmed = await confirm({
+        title: "清空云端快捷短语",
+        message: `将永久删除 ${filtered.entries} 条云端快捷短语，本机词库不受影响。此操作无法撤销。`,
+        confirmLabel: "清空",
+        danger: true,
+      });
+      if (!confirmed || !isCurrent(revision)) return;
+      const preview = await client.request({
+        operation: "snapshot_restore_preview",
+        text: filtered.text,
+      });
+      if (!isCurrent(revision) || !preview.snapshot || typeof preview.expectedRevision !== "number")
+        throw new Error("invalid snapshot preview");
+      // 清空是基于导出版本的定向删除；确认期间有其他更新时，不用较新的预览版本覆盖回旧快照。
+      if (preview.expectedRevision !== filtered.revision)
+        throw Object.assign(new Error("conflict"), { code: "conflict" });
+      await client.request({
+        operation: "snapshot_restore",
+        text: filtered.text,
+        expected_sha256: preview.snapshot.sha256,
+        revision: filtered.revision,
+      });
+      if (!isCurrent(revision)) return;
+      await load(revision, 0, searchRef.current, kind);
+      if (isCurrent(revision)) setNotice(`已清空 ${filtered.entries} 条云端快捷短语。`);
+    }, "清空云端快捷短语失败，云端词库未改变，请刷新后重试");
+  }
+
   return {
     confirmation,
     kind,
@@ -220,6 +262,7 @@ export function useCloudDictionaryPanel(client: CloudDictionaryPanelClient, embe
     changeKind,
     changeForm,
     cancelForm,
+    clearQuickPhrases,
   };
 }
 

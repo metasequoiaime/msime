@@ -10,6 +10,7 @@
 #include "CandidateSkin.h"
 #include "CandidateThemeSettings.h"
 #include "SkinResourceRevision.h"
+#include "SkinTypingStatistics.h"
 #include "DesktopCandidates.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
@@ -1574,11 +1575,12 @@ int wmain(int argc, wchar_t **argv) {
           return *voice_config;
         },
         [&](const FocusLease &lease) { return server.focus_current(lease); },
-        // 原生语音上屏的文字记入打字统计，来源 voice；统计关闭时共享入口自己什么也不写。全屏应用前台时里程碑提示音保持安静，与其他统计来源一致。
-        [statistics_directory = config.state_root.u8string()](const std::string &text) {
+        // 原生语音上屏后记录来源 voice 的文字与采集时长；统计关闭时共享入口不写。全屏应用前台时里程碑提示音保持安静，与其他统计来源一致。
+        [statistics_directory = config.state_root.u8string()](const std::string &text, uint64_t milliseconds) {
           record_typing_statistics_async(
               statistics_directory, text, TypingSource::Voice,
               foreground_is_fullscreen(GetForegroundWindow()));
+          record_voice_duration_async(statistics_directory, milliseconds);
         });
     voice_session = voice.get();
     VoiceControllerMailbox voice_controller_mailbox;
@@ -1743,6 +1745,7 @@ int wmain(int argc, wchar_t **argv) {
     auto current_candidate_theme = candidate_theme_values(
         prepared.at("value").at("preferences"));
     std::map<std::string, CandidateThemeResolution> resolved_themes;
+    AppliedSkinStatistics applied_skin_statistics;
     // Package assets by id, read from the catalog once per package and forgotten with the resolved themes.
     std::map<std::string, msime::windows::CandidateSkinAssets> skin_assets;
     auto package_assets = [&](const std::string &id)
@@ -2319,7 +2322,7 @@ int wmain(int argc, wchar_t **argv) {
           std::map<std::string, uint64_t> keys;
           for (const auto &[key, count] : batch.counts)
             keys.emplace(ascii(key), count);
-          record_typing_keys_async(statistics_directory, ascii(batch.day), keys);
+          record_typing_keys_async(statistics_directory, ascii(batch.day), keys, ascii(batch.source));
           return true;
         },
         // TIP 交给应用的键：没有组字时的空格、回车、退格、数字这些不经过会话的按键路径，TIP 单独报来，排进输入队列出按键音、计入连击，不等它执行。按键音和打字特效都关着时不排、不回 "OK"，TIP 就停一阵不发。
@@ -2570,6 +2573,10 @@ int wmain(int argc, wchar_t **argv) {
           }
           candidate_dark_applied = dark;
           candidate_horizontal_applied = candidate_horizontal;
+          if (auto id = applied_skin_statistics.observe(
+                  current_candidate_theme.value("global_theme", std::string("system")),
+                  theme.candidate_skin))
+            record_skin_statistics_async(config.state_root.u8string(), *id);
           candidate_theme_dirty = false;
           ++candidate_settings.appearance_revision;
           ++candidate_theme_generation;

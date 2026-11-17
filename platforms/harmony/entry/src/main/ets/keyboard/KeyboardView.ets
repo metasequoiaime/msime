@@ -6891,8 +6891,8 @@ struct KeyboardView {
   }
 
   private usesQuanpinSeparator(): boolean {
-    return !this.quanpinShift && KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
-      this.english, this.symbols, this.localMode);
+    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+      this.english, this.symbols, this.localMode, this.quanpinShift);
   }
 
   private tapLetterShift(): void {

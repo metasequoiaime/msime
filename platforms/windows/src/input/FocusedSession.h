@@ -20,7 +20,12 @@ void record_typing_statistics_async(const std::string &directory,
 // Hands one day's per-key press counts to the shared store on a detached thread. Same contract as above: nothing to record or a store with statistics off writes nothing.
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
-                              const std::map<std::string, uint64_t> &keys);
+                              const std::map<std::string, uint64_t> &keys,
+                              std::string_view source = {});
+// 原生语音已上屏后，后台记录实际采集时长；统计开关、保留期和日累计上限仍由共享库处理。
+void record_voice_duration_async(const std::string &directory, uint64_t milliseconds);
+// Server 实际套用皮肤后，在后台提交皮肤 ID；不阻塞绘制或设置通知。
+void record_skin_statistics_async(const std::string &directory, const std::string &id);
 // PredictionKept：会话停在上屏后联想、TIP 还没为这一代联想发过 Show，这个隐藏是上屏结束组字顺带发出的，联想留着，候选窗先藏起来等 Show。Late：延迟到达的旧隐藏只交给候选窗宽限，不取消仍在进行的组字。
 enum class HideCandidateDisposition {
   Rejected,
