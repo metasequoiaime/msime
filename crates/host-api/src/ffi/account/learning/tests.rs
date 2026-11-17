@@ -224,6 +224,8 @@ fn explicit_disable_uses_authenticated_learning_endpoint_and_returns_no_key() {
                 Err(error) => panic!("synthetic server accept failed: {error}"),
             }
         };
+        // 监听端轮询接入，接收流仍按下面的五秒超时阻塞读取完整请求。
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();

@@ -326,6 +326,8 @@ fi
 # ---- 验收：失败记下后继续，只有上面 record_failure 列出的情况才停 ----
 check "System input acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DeviceSmoke
 [[ ${#failures[@]} -eq 0 ]] || stop "the system input path failed, and every later check types through the same keyboard"
+check "自定义双拼保存与输入验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e shuangpin-custom true
+check "社区皮肤完整照片传输验收失败" MSIME_SKIN_DOWNLOAD_STREAM_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.AccountStorageDeviceSmoke -e skin-download true
 if [[ "$spelling_editor" == true ]]; then
   check "Spelling editor switch acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CompositionRestartDeviceSmoke -e spelling-editor-switch true
   finish "Dedicated Android AVD: spelling editor switch acceptance passed"
@@ -600,6 +602,8 @@ do
     check "${entry#*|}" MSIME_DEVICE_SMOKE_PASSED run_instrumentation "app.msime.android.test/app.msime.android.test.$suite"
   fi
 done
+# 常驻工具必须在系统复制触发的预览中真正响应点按，默认套件仍按原配置单独运行。
+check "最近复制行的常驻文本编辑验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.TextEditRecentClipboardDeviceSmoke -e pinned-clipboard true
 # 18 键双拼复用字母组布局入口，避免超过 Android 35 的清单数量限制。
 check "十八键双拼验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.FourteenKeyDeviceSmoke -e eighteen_shuangpin true
 # 14/18 键角标符号（#11063）同样复用字母组入口：真实触摸覆盖滑出符号、反向选项、组字中点按和三项滑动设置。

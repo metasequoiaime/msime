@@ -71,6 +71,7 @@ host-api 的 `ffi::keyboard_reranker` 在开关打开时决定挂哪一个、挂
   - 15 ms 这条线是用一台老安卓、一台 Mac 的两个模型推出来的比例；量化或模型换代后要重跑 `calibrate`、`rerank_latency` 并更新 `KEYSTROKE_RERANK_LIMIT_MS` 旁的数字。
   - 迁移标记 `keyboard_reranker_migrated` 用掉了；以后再翻这个默认值要另立标记。
 - **跟进**：Android 的 ONNX 接入（`feat/android-onnx-reranker`，还没合）把 6x256 做成资源包，原计划在设置里选成「增强」时下载。默认开以后大多数用户不会去选，那边要改成「增强」开着（包括默认）而资源包没装时提示或自动下载，否则 Android 用户实际挂的是随包模型或什么都不挂。各桌面平台的 ONNX 接入（#10657、#10666、#10673）合入后，桌面默认挂的从 `model-v1` 换成 8x448。
+- **一页自测在桌面上挡不住卡顿**：macOS 上一页 1.4 ms 的 6x256 配 32 条挂在按键上，真实整键 p95 9–90 ms，机器一忙就成倍放大。macOS 输入法因此改成把模型延后到停顿、上屏前做完重解，挂不挂仍按本篇的上限，挂在哪里另由 [macOS 把整句联想模型挪出按键](../../implemented/bug-fix/2026-11-16-macos-keystroke-reranker-at-pause.md) 决定。
 
 ## Historical audit
 
@@ -86,8 +87,10 @@ host-api 的 `ffi::keyboard_reranker` 在开关打开时决定挂哪一个、挂
 
 ## Verification
 
+- 开关回归测试始终用最小有效句子模型验证可挂载路径；设置了 `MSIME_EVAL_RESOURCES` 或 `MSIME_NEURAL_MODEL_DIR` 时，还用真实模型和出厂默认偏好验证会话挂载遵守缓存的设备校准结论。默认增强和重新打开开关不等于无条件挂载，标准和镜像会话始终不挂。2026-11-17 的 Ubuntu debug 验证中，真实模型一页分别测到 30.2 ms 和 36.7 ms，超过既有 15 ms 上限；修正旧测试的无条件挂载预期，不改变模型、默认设置或产品预算。
+
 - `msime-client-core`（Studio，macOS）747 项全部通过，其中新加的 `keyboard_reranker_defaults_on_when_the_key_is_absent`、`keyboard_reranker_settle_turns_on_standard_but_keeps_off`（「标准」打开、「关闭」不动、带标记的 `false` 保留）、`released_documents_read_as_enhanced`（六个已发布版本的文档读成「增强」、文件不变）、`keyboard_reranker_migration_runs_once_and_an_explicit_standard_sticks`（旧文档读入时打开、写入方漏掉标记照样落盘、选回「标准」后再读仍是「标准」、恢复默认回到「增强」）、`keyboard_reranker_recovery_migrates_a_legacy_document`，以及 `settings_document::tests::an_old_file_keeps_its_sentence_level_and_this_machine_s_marker`。
-- `msime-host-api` 1116 项全部通过；`--features onnx-rerank`（Studio 用 `fetch_onnxruntime.py` 取的 `aarch64-apple-darwin` 精简库）下 `keyboard_reranker_prefers_the_onnx_model_when_one_is_installed` 覆盖：只装大的时量上限不换档、超了返回 `OverLimit` 而不是 `Unavailable`；两档都装时大模型过不了换档线、小模型超上限时什么都不挂，量过的结论留着不再加载，上限放宽后按量过的数挂上小的；内存不够只能用小的时也过上限。`the_bundled_keyboard_reranker_is_attached_only_within_the_keystroke_limit` 覆盖随包模型在上限之内挂、0 ms 上限不挂、没有文件不挂；`keyboard_reranker_follows_the_keyboard_model_switch` 改成默认挂、选「标准」摘下、再选「增强」挂上。
+- `msime-host-api` 1116 项全部通过；`--features onnx-rerank`（Studio 用 `fetch_onnxruntime.py` 取的 `aarch64-apple-darwin` 精简库）下 `keyboard_reranker_prefers_the_onnx_model_when_one_is_installed` 覆盖：只装大的时量上限不换档、超了返回 `OverLimit` 而不是 `Unavailable`；两档都装时大模型过不了换档线、小模型超上限时什么都不挂，量过的结论留着不再加载，上限放宽后按量过的数挂上小的；内存不够只能用小的时也过上限。`the_bundled_keyboard_reranker_is_attached_only_within_the_keystroke_limit` 覆盖随包模型在上限之内挂、0 ms 上限不挂、没有文件不挂；`keyboard_reranker_follows_the_keyboard_model_switch` 覆盖默认增强和重新选择增强时按预算挂载，选「标准」摘下；最小有效模型始终覆盖挂载路径，真实模型保留设备预算约束。
 - 一页耗时的真机数字来自 `crates/onnx-rerank` 的 `calibrate` 示例（交叉编译到 `aarch64-linux-android`，`adb` 推到 Pixel 3 XL 上跑）和一个与 `calibrate_bundled` 同页的一次性程序（未入库），Mac 是这台开发机。
 - `apps/desktop` vitest 全部 885 个文件通过，新加 `sentence-keyboard-rerank-row.test.tsx`（桌面行只列标准和增强、缺键显示增强、选标准只写 `neural_keyboard`、五笔版不列、macOS 和 Linux 输入页都在「候选与联想」里列出它），`expression-harmony` 和 `sentence-association-preferences` 改成默认「增强」。
 - iOS `SentenceAssociationSettingsTests` 改成缺键读「增强」、显式 `false` 读「标准」。Windows 的 `scripts/test-windows-input-habits-settings.py` 检查 WinUI 行的位置、版本门、键和文案；Win7 的 `windows7_settings.cpp` 加了下拉框的读写用例。WinUI、Win7 的 C++ 和 iOS、Android 的原生改动本机没有编译，由 CI 编译；没有在真实输入法里装机验证。

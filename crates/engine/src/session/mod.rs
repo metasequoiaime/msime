@@ -52,7 +52,8 @@ use input::InputSession;
 pub use options::{HelpcodeTrigger, SessionOptions, SessionSnapshot};
 
 pub struct Session {
-    input: InputSession,
+    // 输入会话包含多套提供者和候选状态；嵌套构造时只移动堆指针，保留编辑器的小栈。
+    input: Box<InputSession>,
     nine_key: NineKeySession,
     /// 触屏的组码网格：九键的数字从 `character` 进来，14 键的字母从 `grid_key` 进来；`None` 是不用网格。
     key_grid: Option<KeyGrid>,
@@ -84,7 +85,7 @@ impl Session {
     pub fn new(options: SessionOptions) -> Result<Session> {
         options.paths.validate()?;
         crate::user_dictionary::generation::check_read_only_layout(&options.paths)?;
-        let input = InputSession::new(&options)?;
+        let input = Box::new(InputSession::new(&options)?);
         let mut nine_key = NineKeySession::new(
             &options.paths,
             options.learning,
@@ -1021,6 +1022,7 @@ impl Session {
                             | CandidateSource::CloudPending
                             | CandidateSource::Contact
                     ) && !input.is_url_completion(item)
+                        && !crate::local::date_time::is_date_time_menu_item(item)
                         && !candidate_answers::is_longer_pinyin_completion(item)
                         && input.selection_completes_composition(item)
                 })

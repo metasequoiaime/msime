@@ -320,7 +320,7 @@ pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static
     inspect_snapshot_reader(file)
 }
 
-fn inspect_snapshot_bytes(bytes: &[u8]) -> Result<SnapshotMetadata, &'static str> {
+pub(crate) fn inspect_snapshot_bytes(bytes: &[u8]) -> Result<SnapshotMetadata, &'static str> {
     if bytes.is_empty() || bytes.len() as u64 > MAX_SNAPSHOT_BYTES {
         return Err("invalid snapshot file");
     }

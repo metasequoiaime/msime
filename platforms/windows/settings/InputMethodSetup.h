@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <cstring>
+#include <cwchar>
 #include <string>
 #include <vector>
 #include "../../../shared/contracts/msime_edition.h"
@@ -82,6 +83,15 @@ inline bool add_input_method() {
   using Install = BOOL(WINAPI *)(LPCWSTR, DWORD);
   const auto install = input_dll_function<Install>("InstallLayoutOrTip");
   return install && install(input_method_id, 0) != FALSE;
+}
+
+// 安装器以管理员身份运行，不能直接替当前用户写键盘列表；安装器改为以
+// 原用户身份启动设置宿主，再由这里调用 input.dll。参数必须单独处理，不能
+// 经过设置路由，否则重装后 profile 仍可能只是已注册但未启用。
+inline int run_if_requested(const wchar_t *command) {
+  if (!command || std::wcscmp(command, L"--repair-input-method") != 0)
+    return -1;
+  return add_input_method() ? 0 : 1;
 }
 
 inline bool make_input_method_default() {

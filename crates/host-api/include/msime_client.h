@@ -259,6 +259,7 @@ char *msime_client_ai_skin_job(const uint8_t *request, size_t length);
 /* 云词库面板的请求，与 Windows 设置应用的 cloud_dictionary_request 用同一份分发，会话是 msime_client_account 里的同一个对象（同一份 account-session.json，或注入的存储）。Request 是 length 字节（最多 4 MiB）的 UTF-8 JSON {directory, legacy_directory?, snapshot_directory?, options?, action}：directory 与 legacy_directory 同 msime_client_account，也可以同样用 session_store 代替它们；snapshot_directory 是本用户私有的临时目录的绝对路径（Windows 设置应用用 %LOCALAPPDATA%\<tauri identifier>\dictionary-snapshots），放预览下载和导出、恢复的中转文件，不能是下面的快照队列目录，所有 snapshot_* 操作和 export_file 必需；它在本进程里第一次用到时会清掉上次运行留下的 download-*.ndjson、export-*.ndjson、export-*.tsv、restore-*.ndjson 和原子写入的临时文件，所以不要让两个同时运行的进程共用一个；options 是本机的 HostOptions 文档（对象，user_data 必须是绝对路径），snapshot_preview、snapshot_enqueue、snapshot_status、snapshot_cancel 必需，快照队列放在 user_data 的上一级目录下的 dictionary-snapshots，暂存在 dictionary-snapshot-staging。
  * 账号云词库，action 与 cloud_dictionary_request 的相同，返回形状也相同：{operation:"list",kind,offset,search} → 一页 {entries,has_more,offset}；{operation:"catalog",kind,code,offset,scheme,profile} → {catalog_entries,has_more,offset,revision,normalized}；{operation:"changes",after,limit}；{operation:"add"|"update"|"edit_catalog"|"candidates"|"remove_candidate"|"fixed_positions"|"set_fixed_position"|"delete"|"import",...}；{operation:"rank",...} → {revision,changed,selection_count}；{operation:"export",kind,format} → {text,filename}；{operation:"export_file",kind,format,path} → {path,filename,bytes}（#8201 的 P7）：与 export 相同的请求，正文最多 384 MiB，不放进响应，而是边下载边写进 snapshot_directory 里的 export-*.tsv（不进内存，要求与 export 相同：非空、UTF-8、不含 NUL），通过以后才经 path 旁边的临时文件 .msime-export-* 复制过去换入 path；预检和清理与下面的 snapshot_export_file 相同：path 是宿主选的保存位置的绝对路径，上级目录必须已经存在、不经过符号链接，否则在下载之前就是 account_invalid；未登录、联网失败、正文不合格或写入失败时 path 上原有的文件原样保留，中转文件总会删掉；filename 是与 export 相同的建议文件名 dictionary-<kind>.tsv，bytes 是写入的字节数；要带 snapshot_directory。kind 是 pinyin、wubi、wubi98、quick、english 之一，format 是 standard 或 windows。
  * 完整快照：{operation:"snapshot_status"} → 快照队列状态（不含账号 id），面板轮询时它也会处理当前账号排队中的请求，最多每 60 秒一次；{operation:"snapshot_preview"} → {previewToken, snapshot}：下载云端整份词库到 snapshot_directory 并校验；{operation:"snapshot_enqueue",token} → 队列状态：预览之后账号没换、云端也没改动时入列，并马上请输入会话放开词库、在本进程里准备并激活新的一代，放不开时留在队列里；{operation:"snapshot_cancel"} → 队列状态，丢掉预览并取消当前账号排队中的请求。整份快照可能有 512 MiB，所以备份与恢复走文件：{operation:"snapshot_export_file",path} → {path,filename,snapshot}：path 是宿主选的保存位置的绝对路径（上级目录必须已经存在、不经过符号链接，否则在下载之前就是 account_invalid），先下载到 snapshot_directory 校验，通过以后才经 path 旁边的临时文件 .msime-export-* 复制过去换入 path；未登录、联网失败、校验不过或写入失败时 path 上原有的文件原样保留；进程在复制中途被杀时留在 path 旁边的临时文件，下次往同一个目录导出时删掉（只删超过一小时没有改动的）；{operation:"snapshot_restore_preview_file",path} → {snapshot,expectedRevision}：path 是宿主选的备份文件（普通文件、不跟随符号链接、最多 512 MiB 的 UTF-8），复制进 snapshot_directory 校验，再读云端当前的 revision；{operation:"snapshot_restore_file",path,expected_sha256,revision} → {revision,reset}：expected_sha256 是预览给出的 snapshot.sha256，文件在预览之后变了是 account_invalid，revision 是预览给出的 expectedRevision，云端在这之后被改过是 account_conflict。snapshot 是快照元数据，不含 fileSha256 和 engineRecords。文本版的 snapshot_export、snapshot_restore_preview、snapshot_restore，以及 macOS 的 snapshot_restore_native、snapshot_restore_cancel、snapshot_choose_restore 都是 snapshot_unavailable。
+ * 原生云端快捷短语清空：action={operation:"quick_clear_preview"} → {token,entries,revision}，下载并校验快照后在共享层移除 quick 记录，快照正文不经过 C ABI；{operation:"quick_clear_apply",token} → {cleared,revision}，核对原登录代次、确认期间的云端版本，再按导出 revision 提交服务端 CAS；冲突不覆盖云端，不重试旧快照。令牌仅在本进程的同一个 snapshot_directory 内可用，一次性消费、15 分钟过期，重新预览替换旧令牌。entries=0 不发写请求；{operation:"quick_clear_cancel"} 丢弃内存预览，不修改云端。三条都需要 snapshot_directory，不需要 options。
  * 失败时 error 是 invalid_cloud_dictionary（请求或参数不合法、缺了要的目录或 options、directory 与 session_store 不是恰好给一个、id 没有注册），会话问题是 account_* 码，快照问题是 snapshot_busy、snapshot_conflict、snapshot_invalid、snapshot_unavailable。会阻塞网络、读写文件，「应用到本机」还要等输入会话放开词库：放在工作线程上调用。 */
 char *msime_client_cloud_dictionary(const uint8_t *request, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 1 MiB.
@@ -340,6 +341,7 @@ char *msime_client_dictionary(const uint8_t *request, size_t length);
  * dictionary_reset_rejected, dictionary_bundled_readonly, dictionary_invalid_entry,
  * dictionary_invalid_word or storage. {operation:"reset"} restores the bundled dictionaries
  * and clears all learned data, returning {reset:true}. Blocks: call off the UI thread. */
+/* 设置页另支持 {operation:"clear_quick_phrases"}：在一次事务中删除所有用户快捷短语并返回 {cleared:n}，内置行保留；失败码为 dictionary_clear_rejected。 */
 char *msime_client_settings_dictionary(const uint8_t *request, size_t length);
 /* Smart punctuation follow-up gestures. The host holds the snapshots: they belong
  * to its editor, not to Engine, and a session rebuilt while the keyboard was away
@@ -432,6 +434,8 @@ char *msime_client_shuangpin_key_hints(const uint8_t *profile, size_t length);
 char *msime_client_shuangpin_zero_initials(const uint8_t *profile, size_t length);
 /* 九键双拼方案在宿主看来的样子。request 是 JSON {"profile": "migala2"|"migala3"|"gushi2_low"|"custom", "table"?: {initials, finals, zero_initials}}，table 是 custom 用的表（与 nine_key_shuangpin_custom_profile 同形，键是数字）。Value 是 {effective, table, problem, keys}：effective 是输入法实际用的方案（custom 的表不能用时是默认的 migala3，与建会话时的回退相同），table 是它的表，problem 是 custom 表的问题（形状同自定义双拼表的问题，只有 unknown_unit、duplicate_unit、missing_unit、invalid_key 四种，能用时为 null），keys 按 1 到 9、0 的顺序列出每个用到的数字键的 {key, initials, finals, zero_initial}，键面从这里取，宿主不另存键位。不留存任何东西，编辑表时每改一格都可以调用。不认识的方案名或多余的字段报错。 */
 char *msime_client_nine_key_shuangpin_layout(const uint8_t *request, size_t length);
+/* 26 键双拼方案在宿主看来的样子。request 是 JSON {"profile":"xiaohe"|"ziranma"|"shoudao"|"microsoft"|"smart_abc"|"custom","table"?:{initials,finals,zero_initials}}。返回值是 {effective,table,problem,keys}；自定义表不能用时按小鹤运行并返回问题，keys 是字母键及其声母/韵母提示。编辑器每改一格都可以调用，不落盘。 */
+char *msime_client_shuangpin_custom_layout(const uint8_t *request, size_t length);
 /* 规范化中文触屏快捷符号：{symbols: string[]}，最多 64 KiB。标准响应 value 为去重的单字素列表，最多十二项；无有效项时返回共享默认值。不落盘，用 string_free 释放。 */
 char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
 
@@ -864,6 +868,10 @@ char *msime_client_ai_test(const uint8_t *request, size_t length);
 char *msime_client_ai_http_request(const uint8_t *request, size_t length);
 // Successful HTTP body <=1MiB, limit 1..10. Returns a string array or null.
 char *msime_client_parse_ai_response(const uint8_t *body, size_t length, uint8_t limit);
+// 内存协议，JSON <=8MiB：{op:message|parse,query:OnlineQuery,limit:1..10,body?:HTTP正文字符串}。
+// message 返回 {message,default_prompt}；parse 返回通过输入覆盖与读音校验的候选数组或 null。
+// 不变更会话；应用候选仍需当前查询的身份和代次。请求和响应含用户输入，不可记录。
+char *msime_client_ai_candidate_protocol(const uint8_t *request, size_t length);
 // Worker-thread disk I/O. JSON <=64KiB: {directory:absolute private user path,
 // action:lookup|remember,target_language,generation,items:[{text,direction,translation?}]}.
 // At most 9 items, directions english_to_chinese/chinese_to_english. Remember
@@ -1023,7 +1031,7 @@ char *msime_client_command(uint64_t session, uint32_t command);
  * window alone without serializing a view it will discard. Inert, and immediately false, when no
  * settled model is installed. */
 char *msime_client_rerank_settled(uint64_t session);
-/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；每片若推进了候选代次，就附带新的 view，即使 moved 为假；宿主收到 view 必须更新候选身份。 */
+/* 宿主等待输入停顿后，在后台启动模型评分。无需改动或只做呈现整理时返回 {"status":"done","moved":false,"current":true}；呈现整理改变顺序时返回 {"status":"done","moved":true,"current":true,"view":...}。后台评分返回 {"status":"pending","token":N}，经 msime_client_poll_settled_rerank 轮询；每会话只运行一个任务，重复启动返回相同令牌，评分期间可以继续处理按键。宿主在会话选项里写了 "pause_rerank": true、而这台设备跑不进逐键预算时，整句联想「增强」的模型延后到这里：当场在会话线程上带着它重解当前组字的一片（约 8 ms 的模型时间），解完返回 "done"，没解完返回 {"status":"continue","moved":false,"current":true}，宿主先处理排队的输入，没有新按键就再调一次；每片若推进了候选代次，就附带新的 view，即使 moved 为假；宿主收到 view 必须更新候选身份。每个回复都带 "deferred"：会话挂着延后到停顿的模型时为 true。它在会话线程上分片跑，宿主应在打字的空隙里就起跑（macOS 停顿 40 ms），否则整段的计算都落在上屏那一键上；为 false 时走后台的落定模型，起跑太早只会白算（macOS 仍等 150 ms）。 */
 char *msime_client_start_settled_rerank(uint64_t session);
 /* token 来自启动接口；评分未完成时返回 {"status":"pending","token":N}，
  * 完成后返回 {"status":"done","moved":...,"current":...}。
@@ -1031,6 +1039,8 @@ char *msime_client_start_settled_rerank(uint64_t session);
  * 未知令牌返回 {"status":"done","moved":false,"current":false}。
  * 宿主已离开原组字时传 accept=false，只归还仍适用的模型。必须在会话线程调用。 */
 char *msime_client_poll_settled_rerank(uint64_t session, uint64_t token, bool accept);
+/* 上屏高亮项之前（空格这类键），把延后到停顿的模型对当前组字的重解一片片做完再返回：解完返回 {"status":"done","moved":...,"current":true}，代次前进时附带新的 view，宿主据它重画、再照新画出的高亮项上屏。会话没有延后的模型时什么都不做，返回 {"status":"none"}；两种回复都带 "deferred"，含义同上；不启动也不等待后台的落定重排。停顿重解没做完时屏幕上是不带模型的候选，照它上屏首选就和不挂模型一样。数字键和点选照用户看到的那一行上屏，不调用。必须在会话线程调用。 */
+char *msime_client_finish_pause_rerank(uint64_t session);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact
@@ -1308,6 +1318,9 @@ char *msime_client_parse_surface_route(const uint8_t *value, size_t length);
  * string_free. The first call parses the tables (a few milliseconds in
  * release builds). */
 char *msime_client_simplified_to_traditional(const uint8_t *text, size_t length);
+/* 用共享的短语级 OpenCC t2s 表把 UTF-8 繁体中文转换为简体中文。传入 NULL、超过 1 MiB、
+ * 非法 UTF-8 或含内嵌 NUL 时返回 NULL；调用方应保留原文。用 string_free 释放结果。 */
+char *msime_client_traditional_to_simplified(const uint8_t *text, size_t length);
 /* 同上，但按 variant 选 OpenCC 配置：0 s2t、1 s2tw（臺灣字形）、2 s2twp
  * （臺灣字形加惯用词），与偏好 traditional_chinese_variant 的 "s2t"、"s2tw"、
  * "s2twp" 一一对应。未知的 variant 与其它非法输入一样返回 NULL。臺灣配置的
@@ -1419,7 +1432,7 @@ char *msime_client_world_clock(const uint8_t *request, size_t length);
  * 设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
 
 char *msime_client_common_phrases(const uint8_t *request, size_t length);
-/* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"queue_words"{entries}|"flush"|"synchronize"|"third_party_matches"{entries}, ...}}，格式见 client-services 的 dictionary::collections；import 的 format 为 "scel"（搜狗细胞词库）时文件按 base64 放在 bytes_base64（不超过 8 MiB），不带 text，结构损坏时是 import_malformed；queue_words 把不属于任何集合的词（本地备份恢复的个人词库，每次最多 20000 个）排进待发送队列，value 带 queued；third_party_matches 只读地核对最多 128 个准备发布到社区的词，value 的 third_party_matches 是其中出现在搜狗细胞词库导入的集合里的下标。词条经个人词库队列传过去，键盘在下一次会话时应用。synchronize 在 budget_millis（1–2000，默认 2000）毫秒软预算内逐批应用个人队列并补充待发项，每批个人队列至多 128 项，集合直接应用至多 4096 项，在整批结束后释放维护租约，返回 {synchronized,pending_count,failed_count,snapshot_error,sent,applied_count}，sent 和 applied_count 累计整个调用，后者累计个人队列的 Written 确认（含幂等重试）；pending_count 包括未发送的集合条目；普通操作的 Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
+/* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"delete_many"{ids}|"set_enabled"|"set_enabled_many"{ids,enabled}|"add_words"|"remove_words"|"import"|"install_community"|"queue_words"{entries}|"flush"|"synchronize"|"synchronize_settings"|"third_party_matches"{entries}, ...}}，格式见 client-services 的 dictionary::collections；import 的 format 为 "scel"（搜狗细胞词库）时文件按 base64 放在 bytes_base64（不超过 8 MiB），不带 text，结构损坏时是 import_malformed；queue_words 把不属于任何集合的词（本地备份恢复的个人词库，每次最多 20000 个）排进待发送队列，value 带 queued；third_party_matches 只读地核对最多 128 个准备发布到社区的词，value 的 third_party_matches 是其中出现在搜狗细胞词库导入的集合里的下标。词条经个人词库队列传过去，键盘在下一次会话时应用。synchronize 在 budget_millis（1–2000，默认 2000）毫秒软预算内逐批应用个人队列并补充待发项，每批个人队列至多 128 项，集合直接应用至多 4096 项，在整批结束后释放维护租约，返回 {synchronized,pending_count,failed_count,snapshot_error,sent,applied_count}，sent 和 applied_count 累计整个调用，后者累计个人队列的 Written 确认（含幂等重试）；pending_count 包括未发送的集合条目；synchronize_settings 在确有待发项时先用共享维护租约协调桌面会话；多选先校验全部 id，一次最多 32 个。普通操作的 Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
 char *msime_client_dictionary_collections(const uint8_t *request, size_t length);
 /* 诊断包（<=65536 字节）：{state_root: 偏好目录, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: 绝对路径|null}, destination: .zip 的绝对路径|null}。输入事件和性能记录只有恰好是 {t_ms, kind, duration_ms} 时才保留，kind 以 client-services diagnostics.rs 的 EVENT_KINDS 为准（按键、候选、面板、ime_start/ime_finish、input_failure_*、engine_session_*、engine_call、candidate_rendered、voice_engine_*、touch_layout_* 等），不在里面的种类整行丢掉，带其他任何键（text、key、candidate……）的整行都丢掉并计数。崩溃记录只保留异常类型和栈帧：异常说明可能带着正在输入的文字，message 只留冒号前的异常类型，stack 的说明行同样处理，路径只留文件名。input_failure_* 仅供本地诊断，云端上传器须按服务端白名单过滤。配置快照把所有凭据换成 "<redacted>"。给了 destination 时写出 zip，value 是 {path,bytes,counts}；没给时 value 是 {counts,sections}，sections 是上传请求体的对象（crash_logs、perf_trace、input_events、config_snapshot）。错误：diagnostics_invalid、diagnostics_source、diagnostics_preferences、diagnostics_write。在工作线程上调用。 */
 char *msime_client_diagnostic_bundle(const uint8_t *request, size_t length);

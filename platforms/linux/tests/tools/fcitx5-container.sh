@@ -10,7 +10,7 @@ cmake --build /build/fcitx5 --target msime-fcitx5 fcitx5-native-test linux-candi
 # 用例名逐个列出、只用一组括号：CMake 的正则最多容纳 10 组括号，原先按前缀嵌套的写法超出上限，ctest 报「Too many parentheses」后一个用例也不跑。
 names=(linux-candidate-fcitx-canvas linux-candidate-native-canvas linux-candidate-native-canvas-chrome
   fcitx5-custom-voice-hotkey fcitx5-helpcode-trigger fcitx5-candidate-rows fcitx5-native-context fcitx5-native-ai fcitx5-native-smart-abc fcitx5-daemon-frontend
-  fcitx5-gtk-editor fcitx5-ibus-gtk-editor fcitx5-mode-hint-preferences
+  fcitx5-gtk-editor fcitx5-ibus-gtk-editor fcitx5-mode-hint-preferences fcitx5-page-number-visibility
   fcitx5-shuangpin-helpcode-editor-on fcitx5-shuangpin-helpcode-editor-off)
 for layout in horizontal vertical; do
   names+=("fcitx5-candidate-font-pixels-$layout")
@@ -21,12 +21,19 @@ for layout in horizontal vertical; do
     "fcitx5-wayland-canvas-$layout-gif" "fcitx5-wayland-canvas-$layout-webp")
 done
 if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
-  # CI 的资源宿主门禁只跑要词库的宿主用例：默认分支 fcitx5-native-context（含按住说话、组合键取消、迟到结果）和自定义语音快捷键；真实窗口、画布这些不靠词库的用例由完整容器验收跑。
-  names=(fcitx5-native-context fcitx5-custom-voice-hotkey)
+  # CI 的资源宿主门禁跑默认分支 fcitx5-native-context（含按住说话、组合键取消、迟到结果）、自定义语音快捷键和页码显示/翻页/选词；其他真实窗口与画布用例由完整容器验收跑。
+  names=(fcitx5-native-context fcitx5-custom-voice-hotkey fcitx5-page-number-visibility)
 fi
 pattern="^($(IFS='|'; echo "${names[*]}"))\$"
 ctest --test-dir /build/fcitx5 -R "$pattern" \
   --output-on-failure --output-junit /build/fcitx5-acceptance.xml
+python3 - /build/fcitx5-acceptance.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+tests = [test for test in ET.parse(sys.argv[1]).getroot().findall("testcase") if test.get("name") == "fcitx5-page-number-visibility"]
+assert len(tests) == 1 and tests[0].get("status") == "run" and tests[0].find("skipped") is None, "页码行为验收未执行"
+PY
 if [[ ${MSIME_RESOURCE_SMOKE_ONLY:-0} == 1 ]]; then
   echo "Fcitx5 resource host acceptance passed"
   exit 0

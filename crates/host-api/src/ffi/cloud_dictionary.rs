@@ -287,6 +287,28 @@ mod tests {
     }
 
     #[test]
+    fn quick_phrase_filter_uses_the_snapshot_dispatcher() {
+        use sha2::{Digest, Sha256};
+        let directory = tempfile::tempdir().unwrap();
+        let body = "{\"type\":\"header\",\"format\":\"msime-dictionary-snapshot\",\"version\":1,\"revision\":7}\n";
+        let text = format!(
+            "{body}{}\n",
+            json!({"type": "footer", "records": 1, "sha256": hex::encode(Sha256::digest(body.as_bytes()))})
+        );
+        let request = CloudDictionaryRequest::SnapshotClearQuickPhrases { text: text.clone() };
+        assert!(!dictionary_account::handled_by_account(&request));
+        let result = call(json!({
+            "directory": directory.path().join("account"),
+            "snapshot_directory": directory.path().join("snapshots"),
+            "action": {"operation": "snapshot_clear_quick_phrases", "text": text},
+        }));
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(result["value"]["entries"], 0);
+        assert_eq!(result["value"]["revision"], 7);
+        assert_eq!(result["value"]["text"], text);
+    }
+
+    #[test]
     fn whole_snapshot_text_does_not_cross_the_c_boundary() {
         let directory = tempfile::tempdir().unwrap();
         let account = directory.path().join("account");
@@ -333,6 +355,13 @@ mod tests {
             "action": { "operation": "list", "kind": "pinyin", "offset": 0, "search": "" },
         }));
         assert_eq!(error(signed_out), "account_unauthorized");
+        // 原生清空必须进入共享预览，不能落到 C ABI 已禁用的文本快照入口。
+        let quick_preview = call(json!({
+            "directory": account,
+            "snapshot_directory": directory.path().join("quick-snapshots"),
+            "action": { "operation": "quick_clear_preview" },
+        }));
+        assert_eq!(error(quick_preview), "account_unauthorized");
         // 没登录时取消排队的快照也报未登录，不碰队列；临时目录照样建好。
         let snapshots = directory.path().join("snapshots");
         let cancelled = call(json!({

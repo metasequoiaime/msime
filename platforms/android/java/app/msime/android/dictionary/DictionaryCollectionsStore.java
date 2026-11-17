@@ -42,9 +42,15 @@ public final class DictionaryCollectionsStore {
         return pending <= 0 ? "" : "，还有 " + NumberPolicy.groupedCount(pending) + "等键盘同步";
     }
 
-    /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`。 */
+    /** 一个命名词库；`sourceType` 是 `user`、`import` 或 `community`，社区词库带 `resourceId`，导入词库带来源格式 `sourceFormat`（其余为空串）。 */
     public record Collection(String id, String name, String kind, String sourceType, String resourceId,
-                             boolean enabled, int entryCount, int pending) {}
+                             String sourceFormat, boolean enabled, int entryCount, int pending) {
+        /** 能否作为某个格式文件的导入目标，与共享层 `import_text` 的来源规则一致：只收拼音、不收社区词库；细胞词库只能进同为细胞词库导入的分组。 */
+        public boolean acceptsImport(String format) {
+            if (!"pinyin".equals(kind) || "community".equals(sourceType)) return false;
+            return !"scel".equals(format) || ("import".equals(sourceType) && "scel".equals(sourceFormat));
+        }
+    }
 
     /** 一次导入的结果。 */
     public record ImportReport(int imported, int duplicates, int failed, boolean truncated, String applicationNotice) {}
@@ -234,6 +240,18 @@ public final class DictionaryCollectionsStore {
         }
     }
 
+    /** 多选操作的校验、去重和提交统一由共享集合服务执行。 */
+    public static Result<View> changeSelected(Context context, List<String> ids, Boolean enabled) {
+        try {
+            JSONObject request = action(enabled == null ? "delete_many" : "set_enabled_many")
+                .put("ids", new JSONArray(ids));
+            if (enabled != null) request.put("enabled", enabled);
+            return collections(context, request, true);
+        } catch (JSONException error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
     public static Result<View> setEnabled(Context context, String id, boolean enabled) {
         try {
             return collections(context, action("set_enabled").put("id", id).put("enabled", enabled), true);
@@ -267,6 +285,11 @@ public final class DictionaryCollectionsStore {
      * @param bytes 文件内容；`scel` 这类二进制格式按 base64 传，其余按 UTF-8 文本传。文本格式收到 zip 压缩包时取里面的词库文本（见 {@link #textFromArchive}）
      */
     public static Result<View> importFile(Context context, String format, String name, byte[] bytes) {
+        return importFile(context, format, null, name, bytes);
+    }
+
+    /** 导入到已有分组时保留其名字、启停状态及共享去重规则。 */
+    public static Result<View> importFile(Context context, String format, String id, String name, byte[] bytes) {
         if (bytes == null || bytes.length == 0) return Result.failed(failureMessage("import_empty"));
         if (!binaryFormat(format) && isZipArchive(bytes)) {
             bytes = textFromArchive(bytes);
@@ -278,6 +301,7 @@ public final class DictionaryCollectionsStore {
         }
         try {
             JSONObject request = action("import").put("name", name).put("kind", "pinyin").put("format", format);
+            if (id != null) request.put("id", id);
             if (binaryFormat(format)) {
                 request.put("bytes_base64", java.util.Base64.getEncoder().encodeToString(bytes));
             } else {
@@ -579,6 +603,7 @@ public final class DictionaryCollectionsStore {
         switch (code) {
             case "collections_name_invalid": return "词库名需要 1–32 个字，首尾不能有空格。";
             case "collections_limit": return "词库数量或词条数已达上限。";
+            case "collections_source_conflict": return "此分组不能接收该来源，请新建分组导入。";
             case "collections_not_found": return "这个词库已经不在了，列表已刷新。";
             case "builtin_locked": return "内置词库始终启用，不能停用或改名。";
             case "unsupported_format": return "暂不支持这种文件格式。";
@@ -613,10 +638,12 @@ public final class DictionaryCollectionsStore {
                 String type = source == null ? "user" : JsonPolicy.strictString(source.opt("type"));
                 String resource = source == null || !source.has("resource_id")
                     ? "" : JsonPolicy.strictString(source.opt("resource_id"));
+                String sourceFormat = source == null || !"import".equals(type) || !source.has("format")
+                    ? "" : JsonPolicy.strictString(source.opt("format"));
                 if (id == null || name == null || kind == null || enabled == null
                         || entryCount == null || pending == null || type == null
-                        || resource == null) continue;
-                collections.add(new Collection(id, name, kind, type, resource, enabled,
+                        || resource == null || sourceFormat == null) continue;
+                collections.add(new Collection(id, name, kind, type, resource, sourceFormat, enabled,
                     entryCount, pending));
             }
         }

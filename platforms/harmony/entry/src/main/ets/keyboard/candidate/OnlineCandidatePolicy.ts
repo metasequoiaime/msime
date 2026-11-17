@@ -1,5 +1,4 @@
 import { utf8Length } from "../Utf8";
-import { TextPolicy } from "../TextPolicy";
 
 export interface OnlineAssistantConfig {
   enabled: boolean;
@@ -29,27 +28,6 @@ export interface OnlineQuery {
   cloud_candidates: boolean;
   cloud_request?: CloudHttpDescriptor | null;
   ai_assistant?: OnlineAssistantConfig | null;
-}
-
-interface AiMessage {
-  content?: string;
-}
-
-interface AiChoice {
-  message?: AiMessage;
-}
-
-interface AiEnvelope {
-  choices?: AiChoice[];
-  error?: Object | null;
-}
-
-interface AiCandidate {
-  text?: unknown;
-}
-
-interface AiContent {
-  candidates?: unknown[];
 }
 
 /** Bounds and identifies asynchronous cloud/AI results before they return to Engine. */
@@ -100,49 +78,5 @@ export class OnlineCandidatePolicy {
   /** A replaced or vanished query must invalidate any timer or request for the old composition. */
   static hasActiveWork(signature: string, timerActive: boolean, requestCount: number): boolean {
     return signature.length > 0 || timerActive || requestCount > 0;
-  }
-
-  static aiCandidates(body: string, limit: number): string[] | null {
-    if (
-      utf8Length(body) > OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES ||
-      !Number.isInteger(limit) ||
-      limit < 1 ||
-      limit > 10
-    ) {
-      return null;
-    }
-    try {
-      const envelope: AiEnvelope = JSON.parse(body) as AiEnvelope;
-      if (
-        (envelope.error !== undefined && envelope.error !== null) ||
-        envelope.choices === undefined ||
-        envelope.choices.length === 0
-      ) {
-        return null;
-      }
-      const content: string | undefined = envelope.choices[0].message?.content;
-      if (content === undefined || utf8Length(content) > 64 * 1024) return null;
-      const document: AiContent = JSON.parse(content) as AiContent;
-      if (document.candidates === undefined || !Array.isArray(document.candidates)) return null;
-      const result: string[] = [];
-      for (const candidate of document.candidates) {
-        if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate))
-          continue;
-        const text: unknown = (candidate as AiCandidate).text;
-        if (
-          typeof text !== "string" ||
-          text.trim().length === 0 ||
-          utf8Length(text) > 4096 ||
-          TextPolicy.hasControl(text)
-        ) {
-          continue;
-        }
-        if (!result.includes(text)) result.push(text);
-        if (result.length === limit) break;
-      }
-      return result;
-    } catch {
-      return null;
-    }
   }
 }

@@ -19,6 +19,8 @@ export const hostCapabilities: (platform: string) => string;
  * Simplified to Traditional through the shared phrase-level OpenCC s2t tables, the conversion the Windows, macOS, Linux and Android hosts use. Unlike the methods around it this answers with the converted text itself rather than a JSON response, and with null for text the C ABI refuses (an embedded NUL), in which case the caller keeps its own text.
  */
 export const simplifiedToTraditional: (text: string) => string | null;
+/** 通过共享的短语级 OpenCC t2s 表把繁体转换为简体。 */
+export const traditionalToSimplified: (text: string) => string | null;
 
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
@@ -40,6 +42,8 @@ export const resolveAppTheme: (request: string) => string;
 export const dictionaryManifest: (resources: string) => string;
 /** 九键双拼方案的表、问题和每个数字键的键面；请求为 `{profile, table?}`。 */
 export const nineKeyShuangpinLayout: (request: string) => string;
+/** 26 键双拼方案的表、问题和字母键提示；请求为 `{profile, table?}`。 */
+export const shuangpinCustomLayout: (request: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
 export const skinResource: (request: string) => string;
 export const skinToolbarImageLayout: (request: string) => string;
@@ -230,6 +234,7 @@ export const aiEndpointCheck: (endpoint: string) => string;
 export const aiRequestForQuery: (handle: number, query: string) => string;
 export const aiHttpRequest: (request: string) => string;
 export const parseAiResponse: (body: string, limit: number) => string;
+export const aiCandidateProtocol: (request: string) => string;
 export const applyCloudResponse: (handle: number, query: string, body: string) => string;
 export const applyOnlineCandidates: (
   handle: number,
@@ -371,6 +376,8 @@ export const resourcePackInstall: (
   request: string,
   progress?: (document: string) => void,
 ) => Promise<string>;
+/** 在工作线程按锁校验旧文件并改名收编，不复制资源。 */
+export const resourcePackAdopt: (request: string) => Promise<string>;
 export const resourcePackCancel: (pack: string) => void;
 export const resourcePackRemove: (request: string) => string;
 

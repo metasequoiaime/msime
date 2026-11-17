@@ -1,5 +1,7 @@
 # Linux 原生宿主（IBus 与 Fcitx5）
 
+命名词库的导入、多选管理与同步边界见[词库分组](../../docs/dictionary-groups.md)。
+
 桌面内置模型的安装、语言选择与离线翻译入口见[桌面离线翻译](../../docs/local-translation.md)。
 
 ## 目录结构

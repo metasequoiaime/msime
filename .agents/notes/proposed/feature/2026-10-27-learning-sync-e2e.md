@@ -175,7 +175,7 @@ Engine 的明文流与纯合并已经按这份契约实现于 `crates/engine/src
 
 Android 的 `DictionaryCollectionsStore.resetLearning` 委托独立的 `AccountLearningReset`：先用注入的主进程会话存储查询 `learning_binding`，有具体登录时原样传给 `learning_reset_local`。只有成功回答明确为 `login:null` 才使用旧的本机重置；存储不可用、回答缺字段、换号或屏障写入失败均直接失败，不以无屏障重置兜底。整个过程只读本机认证，不刷新或发起网络请求，成功后仍按原路径标记整份词库同步、重排并写回命名词库。学习同步的维护忙 `learning_busy` 沿用现有忙提示。新增适配不包含界面、上传授权或自动调度；iOS 的接线见下节，桌面与 HarmonyOS 的重置接线仍缺。
 
-旧 `check-host.sh` 中截取 `resetLearning` 函数体、要求它直接拼旧请求的 grep/awk 守卫随接线删除。页面确认与工作线程入口仍由既有移动端检查覆盖，屏障失败不清除、账号切换、维护忙及集合重排由真实 C ABI/SQLite 行为测试覆盖；不把源码字符串改成新字符串来继续限制实现。
+旧 `check-host.sh` 中截取 `resetLearning` 函数体、要求它直接拼旧请求的 grep/awk 守卫随接线删除。页面确认与工作线程入口仍由既有移动端检查覆盖，屏障失败不清除、账号切换、维护忙及集合重排由真实 C ABI/SQLite 行为测试覆盖；不把源码字符串改成新字符串来继续限制实现。管理接口的回环测试服务在非阻塞监听端接入后，显式把接收流切回阻塞，保持原有五秒读超时；否则请求头稍晚到达时可能立即报 `WouldBlock`。HTTP 方法、认证、返回值与密钥保留断言保持原样。
 
 备选是单独暴露「保存屏障」后让宿主另发旧重置请求：复用入口最多，但两次调用间释放维护权，可能漏掉间隙里已观察或新写的记录；因此清除闭包放在共享边界内部，宿主不拼两次调用。
 
@@ -223,4 +223,4 @@ Android 的 `DictionaryCollectionsStore.resetLearning` 委托独立的 `AccountL
 
 ### iOS 清除入口的账号屏障
 
-iOS 设置 App 的清除现在经 `IOSAccountLearningReset` 使用 `BackendRustAccount.resetLearnedData`：只把明确的 `login: null` 当作未登录，已登录时传递原样捕获的 `user_id/session_id` 和本次宿主选项，调用 Rust 的账号本机重置；存储错误、登录形状损坏、同账号重新登录或屏障保存失败不能退回旧本机重置。旧本机桥继续被键盘扩展共享，账号适配仅放在 App 源码，避免为扩展引入另一套账号函数表和锁。共享 Swift 测试覆盖路由与拒绝回退，iOS 原真实词库回归保留原输入、默认值和维护忙条件。重新生成的 Xcode 工程同时补齐此前遗漏的 `BackendLearningKeystore.swift` 产品与测试引用，新 App 适配只进入 App 和键盘测试 target。设备验收与完整跨设备同步仍是独立缺口。
+iOS 设置 App 的清除现在经 `IOSAccountLearningReset` 使用 `BackendRustAccount.resetLearnedData`：只把明确的 `login: null` 当作未登录，已登录时传递原样捕获的 `user_id/session_id` 和本次宿主选项，调用 Rust 的账号本机重置；存储错误、登录形状损坏、同账号重新登录或屏障保存失败不能退回旧本机重置。旧本机桥继续被键盘扩展共享，账号适配仅放在 App 源码，避免为扩展引入另一套账号函数表和锁。适配器保留命名分组重排的独立结果：本机桥返回的布尔值或账号重置返回的 `collections_error` 都交回现有提示路径，不能把「已清除但分组词未写回」报成全部成功，也不能报成尚未清除。共享 Swift 测试覆盖路由与拒绝回退，iOS 原真实词库回归保留原输入、默认值、维护忙、分组重排及空闲写回条件。重新生成的 Xcode 工程同时补齐此前遗漏的 `BackendLearningKeystore.swift` 产品与测试引用，新 App 适配只进入 App 和键盘测试 target。整合 develop 后按 XcodeGen 结果补入退格按压状态及 AI 候选协议的源码引用，避免控制器已更新而工程仍漏编依赖；保留既有 CocoaPods 配置与稳定资源路径，不提交构建机目录名。设备验收与完整跨设备同步仍是独立缺口。

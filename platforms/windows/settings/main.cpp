@@ -13,6 +13,8 @@
 #include "../common/SurfaceRouteArgument.h"
 #include "SettingsInstance.h"
 #include "LocalTranslationWindow.h"
+#include "DictionaryCollectionsWindow.h"
+#include "CloudQuickPhraseClearWindow.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -76,6 +78,8 @@
 #include "PreferencePath.h"
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
+#include "QuickPhraseClearModel.h"
+#include "QuickPhraseSettingsModel.h"
 #include "SentencePackModel.h"
 #include "SchemeResourcePackCatalog.h"
 #include "SettingsDocumentFile.h"
@@ -419,6 +423,8 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
     return L"拼音表不可用，无法校验这条词的读音。";
   if (code == L"dictionary_reset_rejected")
     return L"清除学习数据失败，请关闭正在使用输入法的程序后重试。";
+  if (code == L"dictionary_clear_rejected")
+    return L"清空快捷短语失败，请关闭正在使用输入法的程序后重试。";
   if (code == L"dictionary_unavailable")
     return L"无法打开用户词库，请检查输入法是否正在运行。";
   if (code == L"dictionary_invalid_word")
@@ -608,13 +614,14 @@ Response dictionary_sync_call(std::optional<std::string> const &options, std::st
       dictionary_sync_conflicted);
 }
 
-// 改「我的词条」的三种词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
+// 改「我的词条」的词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
 bool dictionary_write(std::string const &action) {
   JsonObject parsed{nullptr};
   if (!JsonObject::TryParse(text(action), parsed))
     return false;
   const auto operation = named_string(parsed, L"operation");
-  return operation == L"edit" || operation == L"import" || operation == L"reset";
+  return operation == L"edit" || operation == L"import" || operation == L"reset" ||
+         operation == L"clear_quick_phrases";
 }
 
 // 以 local_change 记一次本机改动：只记录、不联网，Rust 按防抖稍后发送；没配网盘时 Rust 只答 dictionary_sync_not_configured。另放到线程池上跑，词库页不等它：Server 的自动同步正在联网时它要等那把文件锁。
@@ -804,8 +811,8 @@ public:
     return lookup(defaults_, nav::preference_path(key));
   }
 
-  bool Boolean(std::wstring_view key, bool fallback) const {
-    const auto value = Value(key);
+  bool Boolean(std::wstring_view key, bool fallback, bool stored_only = false) const {
+    const auto value = stored_only ? lookup(preferences_, nav::preference_path(key)) : Value(key);
     return value && value.ValueType() == JsonValueType::Boolean
                ? value.GetBoolean()
                : fallback;
@@ -5796,8 +5803,8 @@ private:
 
   void bool_row(StackPanel const &group, wchar_t glyph, std::wstring const &title,
                 std::wstring const &subtitle, std::wstring key, bool fallback,
-                bool redraw = false, bool enabled = true) {
-    const bool on = document_.Boolean(key, fallback);
+                bool redraw = false, bool enabled = true, bool stored_only = false) {
+    const bool on = document_.Boolean(key, fallback, stored_only);
     add_row(group, glyph, title, subtitle,
             toggle_control(title, on,
                            [this, key, redraw](bool value) {
@@ -12716,6 +12723,8 @@ private:
         1, 9);
     const double font = std::clamp(document_.Number(L"candidate_font_size", 18),
                                    12.0, 32.0);
+    const bool preedit_area =
+        document_.Boolean(L"show_candidate_preedit_area", true);
     const bool preedit =
         document_.String(L"candidate_preedit_style", L"pinyin") != L"empty";
     // 首行的水杉 logo 随 `show_app_logo`（缺值读成关，与「布局」里那一行相同）。
@@ -12803,7 +12812,7 @@ private:
     body.Margin(Thickness{pad_x, pad_y, pad_x, 10 * scale});
     body.Spacing(6 * scale);
     // 首行照共享页的样例：打头是水杉 logo（候选窗的 16 DIP 见方、隔 6 DIP，CandidateCardSize.h 的 logo_side、logo_gap），再是拼音 ni'mf 和光标；拼音隐藏时首行只剩 logo，logo 也不画时整行不画，与候选窗一致。
-    if (brand || preedit) {
+    if (preedit_area && (brand || preedit)) {
       StackPanel head;
       head.Orientation(Orientation::Horizontal);
       head.Spacing(6 * scale);
@@ -12817,7 +12826,7 @@ private:
         head.Children().Append(logo);
       }
       // The candidate window draws the preedit in the accent colour at semibold; the caret after it is the shared sample's 1.5 DIP bar, 1.2 em high.
-      if (preedit) {
+      if (preedit_area && preedit) {
         const double preedit_size =
             std::clamp(document_.Number(L"candidate_preedit_font_size", 15), 12.0, 32.0) *
             scale;
@@ -13006,6 +13015,9 @@ private:
 
     if (in_tab(tab, L"preedit")) {
       auto preedit = add_group(page, L"预编辑");
+      bool_row(preedit, 0xE8D2, L"显示候选窗预编辑区",
+               L"关闭后候选窗只显示候选项列表", L"show_candidate_preedit_area", true,
+               true);
       number_select_row(preedit, 0xE8E9, L"预编辑字号", L"",
                         L"candidate_preedit_font_size", candidate_font_sizes(), 15, L"");
       select_row(
@@ -14331,6 +14343,9 @@ private:
     bool_row(word, 0xE8AB, L"退格键回退已选候选词",
              L"关闭后，退格只删除剩余拼写，保留已选文字；拼写删空时上屏已选文字。",
              L"backspace_reverts_selection", true);
+    bool_row(word, 0xE8AB, L"Esc 保留已选词",
+             L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。",
+             L"escape_keeps_selected_word", false);
 
     // Tab 和 PageUp/PageDown 两组固定开启，不再列出（NavigationPolicy.h 的 preference_navigation，HostCapabilities.tab_page_paging_switches）：关掉只会让它们在组字时被吃掉，并不交还应用。
     const std::array<std::pair<const wchar_t *, const wchar_t *>, 6> paging_keys{{
@@ -14374,6 +14389,8 @@ private:
     }
     bool_row(group, 0xE753, L"云候选", L"仅将当前正在组的拼写发送给 " + cloud_recipient + L"；不发送已上屏内容、词库或历史",
              L"cloud_candidates", false);
+    bool_row(group, 0xE753, L"显示云候选来源角标", L"在云候选末尾显示 ☁️；关闭后只隐藏标识，不影响候选内容和选词",
+             L"candidate_cloud_badge", true);
 
     const auto stored = document_.Value(L"cloud_candidate_provider");
     const std::wstring stored_text = stored && stored.ValueType() == JsonValueType::Object
@@ -14950,11 +14967,15 @@ private:
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
                L"next_word_prediction", false);
+      bool_row(candidates, 0xE8AB, L"回车学英文词",
+               L"按回车上屏输入的英文时，把这个单词写入英文词库，之后可以作为候选出现。",
+               L"enter_learns_english_word", true);
       // 与共享页一样，少有人改的混输开关收在组末的「更多选项」里。
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
           focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
-              focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
+              focus_row_ == L"日文混输（实验）" || focus_row_ == L"快捷短语混输" ||
+              focus_row_ == L"只出单字" ||
               focus_row_ == L"移动光标后编辑光标后的部分" ||
               focus_row_ == L"本地整句联想");
       // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
@@ -14974,7 +14995,13 @@ private:
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);
-      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。共享页把它排在「快捷短语混输」旁边，Windows 没有那一行，排在「只出单字」后面。
+      // 快捷短语开启时共享层省略字段；只读已存对象，按共享层的缺字段规则回退为开启。
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::title),
+               std::wstring(msime::settings::quick_phrase::description),
+               std::wstring(msime::settings::quick_phrase::preference),
+               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
                L"caret_edit_suffix", false);
@@ -16385,6 +16412,39 @@ private:
     });
   }
 
+  fire_and_forget clear_quick_phrases() {
+    if (lexicon_busy_ || !lexicon_resource_kind_.empty() || lexicon_kind_ != L"quick_phrase")
+      co_return;
+    auto strong = get_strong();
+    if (!co_await confirm(std::wstring(msime::settings::quick_phrase_clear::title),
+                          std::wstring(msime::settings::quick_phrase_clear::confirmation),
+                          std::wstring(msime::settings::quick_phrase_clear::confirm_button)))
+      co_return;
+    JsonObject action;
+    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(text(msime::settings::quick_phrase_clear::operation)));
+    lexicon_feedback_.clear();
+    lexicon_request(action, [this](Response const &response) {
+      if (!response.ok) {
+        set_lexicon_feedback(dictionary_error_text(response_error(response), L"quick_phrase",
+                                                   L"清空快捷短语失败，请稍后重试。"),
+                             InfoBarSeverity::Error);
+        return;
+      }
+      try {
+        const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+        const auto cleared = msime::settings::quick_phrase_clear::count_from_number(
+            value.GetNamedNumber(L"cleared"));
+        if (!cleared)
+          throw std::runtime_error("invalid quick phrase clear count");
+        set_lexicon_feedback(msime::settings::quick_phrase_clear::success_message(*cleared),
+                             InfoBarSeverity::Success);
+        lexicon_list(0);
+      } catch (...) {
+        set_lexicon_feedback(L"清空快捷短语后无法刷新词库，请手动刷新确认。", InfoBarSeverity::Error);
+      }
+    });
+  }
+
   fire_and_forget reset_learned_data() {
     if (lexicon_busy_)
       co_return;
@@ -17055,6 +17115,12 @@ private:
 
   // 共享页的 DictionarySettingsPage 在 macOS 桌面上的样子。顶上是词库页的导航（make_lexicon_nav），然后是词库操作的结果（make_lexicon_feedback，在标签下面、面板上面，切标签时清掉），「完善公共词库」在所有标签之上一直显示。「查找词库」是本地词库管理（build_lexicon_lookup）；「管理词库」依次是导入与导出、词库更新、「更多」里的背单词和学习数据（build_lexicon_manage）；「云端词库」只有打开云词库面板的一行：共享页在这里内嵌整个云词库，本窗口不嵌网页，面板仍由 MSIME.exe 显示。背单词是从「管理词库」进入的子页（build_vocabulary_view），打开时整页只画它。
   void build_lexicon_page(StackPanel const &page) {
+    auto groups = add_group(page, L"词库分组");
+    add_row(groups, 0xE8F1, L"词库分组", L"", button_control(L"管理分组…", [this] {
+      HWND owner = nullptr;
+      check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+      if (const auto options = runtime_options_document()) msime::settings::show_dictionary_collections(owner, *options);
+    }));
     if (!indexing_) {
       lexicon_results_host_ = nullptr;
       lexicon_feedback_bar_ = nullptr;
@@ -17089,6 +17155,13 @@ private:
       auto cloud = add_group(page, L"云词库");
       shell_row(cloud, 0xE753, L"云词库", L"管理同步到账号的词条和备份", L"打开云词库",
                 nav::shell_links::cloud_dictionary);
+      auto clear = button_control(L"清空…", [this] {
+        HWND owner = nullptr;
+        check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+        msime::settings::show_cloud_quick_phrase_clear(owner, account_body(account_action(L"status")));
+      });
+      A11y::SetAutomationId(clear, L"lexicon-clear-cloud-quick-phrases");
+      add_row(cloud, 0xE74D, L"清空云端快捷短语", L"其他云端词库保留；确认前显示实际条数。", clear);
       build_dictionary_sync(page);
     }
   }
@@ -17282,10 +17355,20 @@ private:
     footer.ColumnDefinitions().Append(gap_column);
     footer.ColumnDefinitions().Append(pager_column);
     if (!resource) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(8);
       auto add = button_control(L"新增词条", [this] { edit_lexicon_entry(std::nullopt); }, !lexicon_busy_);
       add.as<Button>().Padding(Thickness{12, 0, 12, 0});
       A11y::SetAutomationId(add, L"lexicon-add");
-      footer.Children().Append(add);
+      actions.Children().Append(add);
+      if (kind == L"quick_phrase") {
+        auto clear = button_control(L"清空快捷短语", [this] { clear_quick_phrases(); }, !lexicon_busy_);
+        clear.as<Button>().Padding(Thickness{12, 0, 12, 0});
+        A11y::SetAutomationId(clear, L"lexicon-clear-quick-phrases");
+        actions.Children().Append(clear);
+      }
+      footer.Children().Append(actions);
     }
     StackPanel pager;
     pager.Orientation(Orientation::Horizontal);
@@ -28303,6 +28386,8 @@ private:
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command, int) {
+  const int repair = msime::settings::input_method::run_if_requested(command);
+  if (repair >= 0) return repair;
   const int gameProfileResult = msime::windows::game_profile::run_if_requested(command);
   if (gameProfileResult >= 0) return gameProfileResult;
   const auto route = msime::windows::requested_surface_route("settings");

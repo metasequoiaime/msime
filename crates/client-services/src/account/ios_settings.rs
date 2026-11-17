@@ -3,8 +3,8 @@
 //! 写回分两步：宿主先按 [`IosPreferencePlan::requested_native`] 写 App Group，再拿实际保存下来的值调 [`IosPreferencePlan::apply_shared`] 写共享偏好，后一步失败时宿主把 App Group 恢复成旧值。
 
 use super::settings_sync::{
-    account_wubi_schema, frequency_account_preferences, insert_bool, insert_string,
-    valid_haptic_strength,
+    account_wubi_schema, frequency_account_preferences, insert_bool, insert_integer,
+    insert_mobile_shared_settings, insert_string, valid_haptic_strength,
 };
 use crate::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
@@ -12,6 +12,7 @@ use crate::account::{
 use crate::preferences::{
     ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
     TouchKeyboardScheme, TouchKeyboardSkinDesign, WubiProfile,
+    TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE, TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP,
 };
 use crate::skin::theme::GlobalTheme;
 use msime_client_core::ios_keyboard::IosKeyboardPreferences;
@@ -82,6 +83,13 @@ pub fn local_account_preferences(
         insert_string(&mut settings, IOS_KEYBOARD_LAYOUT, layout);
         insert_bool(&mut settings, "platform.ios.nine_key", layout == "nine_key");
     }
+    insert_mobile_shared_settings(&mut settings, shared);
+    // 旧 iOS 版本只认识平台键；保留它一段时间，新的设备应用时优先读上面的跨平台键。
+    insert_integer(
+        &mut settings,
+        "platform.ios.nine_key_flick_threshold",
+        i64::from(shared.touch_nine_key_flick_threshold),
+    );
     insert_bool(
         &mut settings,
         "platform.ios.sound_enabled",
@@ -164,9 +172,39 @@ fn integer_setting(
     }
 }
 
-/// 账号的 `input.schema` 装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。
-const UNSYNCED_NATIVE_SCHEMES: [&str; 5] =
-    ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"];
+fn nine_key_flick_threshold_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+) -> Result<Option<u16>, AccountError> {
+    integer_setting(settings, "input.nine_key_flick_threshold")?
+        .or(integer_setting(
+            settings,
+            "platform.ios.nine_key_flick_threshold",
+        )?)
+        .map(|value| {
+            let value = u16::try_from(value).map_err(|_| AccountError::Invalid)?;
+            if !TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.contains(&value)
+                || !(value - TOUCH_NINE_KEY_FLICK_THRESHOLD_RANGE.start())
+                    .is_multiple_of(TOUCH_NINE_KEY_FLICK_THRESHOLD_STEP)
+            {
+                return Err(AccountError::Invalid);
+            }
+            Ok(value)
+        })
+        .transpose()
+}
+/// 账号装不下的 iOS 键盘方案：导出时不写方案、九键开关和触屏布局，应用时本机是其中之一就保留本机的方案（见 `requested_native`）。粤拼、注音、越南文、藏文和笔画是 `input.schema` 装不下；智能 ABC、搜狗、加加、紫光和国标双拼是 `input.shuangpin_schema` 还不能写（已经发布的 iOS 读到不认识的双拼方案会拒绝整份账号设置，见 `settings_sync::shuangpin_schema`），只写 `input.schema = shuangpin` 又会让别的设备退回小鹤。
+const UNSYNCED_NATIVE_SCHEMES: [&str; 10] = [
+    "cantonese",
+    "zhuyin",
+    "vietnamese",
+    "tibetan",
+    "stroke",
+    "smartAbc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
+];
 
 /// iOS 的触屏布局键，取值与 Android 的 `platform.android.keyboard_layout` 相同。服务端只限它是不超过 32 字节的字符串，以后可能多出别的取值，所以下载时不认识的取值当作没有这一项。
 const IOS_KEYBOARD_LAYOUT: &str = "platform.ios.keyboard_layout";
@@ -191,6 +229,7 @@ pub struct IosPreferencePlan {
     haptics_enabled: Option<bool>,
     haptic_strength: Option<String>,
     dictionary_learning: Option<bool>,
+    nine_key_flick_threshold: Option<u16>,
     frequency_mode: Option<FrequencyMode>,
     frequency_trigger_count: Option<u8>,
     frequency_linear_step: Option<u8>,
@@ -231,10 +270,13 @@ impl IosPreferencePlan {
             Some("shuangpin") => {
                 let profile = string_setting(values, "input.shuangpin_schema")?
                     .unwrap_or_else(|| "xiaohe".into());
+                // 不认识的双拼方案（更新的版本加的）只跳过方案这一项、保留本机的方案，与 `input.wubi_schema` 相同；拒绝整份文档会让这台设备从此收不到任何设置。
                 match profile.as_str() {
                     "xiaohe" => Some("shuangpin".into()),
-                    "ziranma" | "microsoft" | "shoudao" => Some(profile),
-                    _ => return Err(AccountError::Invalid),
+                    "smart_abc" => Some("smartAbc".into()),
+                    "ziranma" | "microsoft" | "shoudao" | "sogou" | "jiajia" | "ziguang"
+                    | "guobiao" => Some(profile),
+                    _ => None,
                 }
             }
             Some("wubi") => Some("wubi".into()),
@@ -319,6 +361,7 @@ impl IosPreferencePlan {
             haptics_enabled: bool_setting(values, "platform.ios.haptics_enabled")?,
             haptic_strength,
             dictionary_learning: bool_setting(values, "platform.ios.dictionary_learning")?,
+            nine_key_flick_threshold: nine_key_flick_threshold_setting(values)?,
             frequency_mode,
             frequency_trigger_count,
             frequency_linear_step,
@@ -403,6 +446,9 @@ impl IosPreferencePlan {
         if self.dictionary_learning.is_some() {
             preferences.learning = native.dictionary_learning;
         }
+        if let Some(value) = self.nine_key_flick_threshold {
+            preferences.touch_nine_key_flick_threshold = value;
+        }
         if self.global_theme.is_some() {
             preferences.global_theme =
                 GlobalTheme::from_id(&native.global_theme).ok_or(AccountError::Invalid)?;
@@ -434,6 +480,11 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "ziranma" => Ok(TouchKeyboardScheme::Ziranma),
         "microsoft" => Ok(TouchKeyboardScheme::Microsoft),
         "shoudao" => Ok(TouchKeyboardScheme::Shoudao),
+        "smartAbc" => Ok(TouchKeyboardScheme::SmartAbc),
+        "sogou" => Ok(TouchKeyboardScheme::Sogou),
+        "jiajia" => Ok(TouchKeyboardScheme::Jiajia),
+        "ziguang" => Ok(TouchKeyboardScheme::Ziguang),
+        "guobiao" => Ok(TouchKeyboardScheme::Guobiao),
         "wubi" => Ok(TouchKeyboardScheme::Wubi),
         "japaneseNineKey" => Ok(TouchKeyboardScheme::JapaneseNineKey),
         "japanese" => Ok(TouchKeyboardScheme::Japanese),
@@ -484,7 +535,12 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         TouchKeyboardScheme::Xiaohe
         | TouchKeyboardScheme::Ziranma
         | TouchKeyboardScheme::Microsoft
-        | TouchKeyboardScheme::Shoudao => {
+        | TouchKeyboardScheme::Shoudao
+        | TouchKeyboardScheme::SmartAbc
+        | TouchKeyboardScheme::Sogou
+        | TouchKeyboardScheme::Jiajia
+        | TouchKeyboardScheme::Ziguang
+        | TouchKeyboardScheme::Guobiao => {
             preferences.scheme = InputScheme::Shuangpin;
             preferences.last_chinese_scheme = Some(ChineseScheme::Shuangpin);
             preferences.shuangpin_profile = match selected {
@@ -492,6 +548,11 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
                 TouchKeyboardScheme::Ziranma => ShuangpinProfile::Ziranma,
                 TouchKeyboardScheme::Microsoft => ShuangpinProfile::Microsoft,
                 TouchKeyboardScheme::Shoudao => ShuangpinProfile::Shoudao,
+                TouchKeyboardScheme::SmartAbc => ShuangpinProfile::SmartAbc,
+                TouchKeyboardScheme::Sogou => ShuangpinProfile::Sogou,
+                TouchKeyboardScheme::Jiajia => ShuangpinProfile::Jiajia,
+                TouchKeyboardScheme::Ziguang => ShuangpinProfile::Ziguang,
+                TouchKeyboardScheme::Guobiao => ShuangpinProfile::Guobiao,
                 _ => unreachable!(),
             };
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
@@ -1095,6 +1156,14 @@ mod tests {
             AccountPreferenceValue::String("nine_key".into())
         );
         assert_eq!(
+            settings["platform.ios.nine_key_flick_threshold"],
+            AccountPreferenceValue::Integer(24)
+        );
+        assert_eq!(
+            settings["input.nine_key_flick_threshold"],
+            AccountPreferenceValue::Integer(24)
+        );
+        assert_eq!(
             settings["input.character_set"],
             AccountPreferenceValue::String("traditional".into())
         );
@@ -1212,6 +1281,14 @@ mod tests {
                     AccountPreferenceValue::Boolean(false),
                 ),
                 (
+                    "platform.ios.nine_key_flick_threshold".into(),
+                    AccountPreferenceValue::Integer(28),
+                ),
+                (
+                    "input.nine_key_flick_threshold".into(),
+                    AccountPreferenceValue::Integer(30),
+                ),
+                (
                     "platform.ios.global_theme".into(),
                     AccountPreferenceValue::String("night".into()),
                 ),
@@ -1256,6 +1333,7 @@ mod tests {
             preferences.touch_keyboard_schemes.selected,
             Some(TouchKeyboardScheme::JapaneseNineKey)
         );
+        assert_eq!(preferences.touch_nine_key_flick_threshold, 30);
         assert!(preferences.traditional_chinese_output);
         assert!(!preferences.learning);
         assert_eq!(preferences.global_theme, GlobalTheme::Night);
@@ -1361,6 +1439,112 @@ mod tests {
         }
     }
 
+    /// 新增的五种双拼方案：App Group 的原生值通过校验，上传时不写方案（已经发布的 iOS 不认识），下载别的设备写着的方案时能落到本机并写进共享偏好。
+    #[test]
+    fn the_new_shuangpin_schemes_stay_local_on_upload_and_apply_on_download() {
+        for (native_scheme, cloud_profile, touch, profile) in [
+            (
+                "smartAbc",
+                "smart_abc",
+                TouchKeyboardScheme::SmartAbc,
+                ShuangpinProfile::SmartAbc,
+            ),
+            (
+                "sogou",
+                "sogou",
+                TouchKeyboardScheme::Sogou,
+                ShuangpinProfile::Sogou,
+            ),
+            (
+                "jiajia",
+                "jiajia",
+                TouchKeyboardScheme::Jiajia,
+                ShuangpinProfile::Jiajia,
+            ),
+            (
+                "ziguang",
+                "ziguang",
+                TouchKeyboardScheme::Ziguang,
+                ShuangpinProfile::Ziguang,
+            ),
+            (
+                "guobiao",
+                "guobiao",
+                TouchKeyboardScheme::Guobiao,
+                ShuangpinProfile::Guobiao,
+            ),
+        ] {
+            let mut local = native();
+            local.input_scheme = native_scheme.into();
+            assert!(local.is_valid(), "{native_scheme}");
+            let exported =
+                local_account_preferences(&local, &Preferences::default(), None).unwrap();
+            assert!(!exported.contains_key("input.schema"), "{native_scheme}");
+            assert!(
+                !exported.contains_key("input.shuangpin_schema"),
+                "{native_scheme}"
+            );
+
+            let cloud = AccountPreferences {
+                revision: 12,
+                settings: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceValue::String("shuangpin".into()),
+                    ),
+                    (
+                        "input.shuangpin_schema".into(),
+                        AccountPreferenceValue::String(cloud_profile.into()),
+                    ),
+                ]),
+            };
+            let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+            let mut current = native();
+            current.input_scheme = "quanpin".into();
+            let requested = plan.requested_native(&current).unwrap();
+            assert!(requested.is_valid(), "{native_scheme}");
+            assert_eq!(requested.input_scheme, native_scheme);
+            let mut preferences = Preferences::default();
+            preferences.touch_keyboard_schemes.enabled.insert(touch);
+            plan.apply_shared(&requested, &mut preferences).unwrap();
+            assert_eq!(
+                preferences.scheme,
+                InputScheme::Shuangpin,
+                "{native_scheme}"
+            );
+            assert_eq!(preferences.shuangpin_profile, profile, "{native_scheme}");
+        }
+    }
+
+    /// 更新的版本加的双拼方案只跳过方案这一项，不拒绝整份文档。
+    #[test]
+    fn an_unknown_cloud_shuangpin_profile_keeps_the_local_scheme_and_the_rest_applies() {
+        let cloud = AccountPreferences {
+            revision: 13,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("shuangpin".into()),
+                ),
+                (
+                    "input.shuangpin_schema".into(),
+                    AccountPreferenceValue::String("future_profile".into()),
+                ),
+                (
+                    "input.character_set".into(),
+                    AccountPreferenceValue::String("traditional".into()),
+                ),
+            ]),
+        };
+        let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+        let mut current = native();
+        current.input_scheme = "wubi".into();
+        current.traditional_chinese_output = false;
+        let requested = plan.requested_native(&current).unwrap();
+        assert_eq!(requested.input_scheme, "wubi");
+        assert!(requested.traditional_chinese_output);
+    }
+
     #[test]
     fn download_rejects_frequency_values_outside_shared_bounds() {
         for key in [
@@ -1375,6 +1559,19 @@ mod tests {
             let mut preferences = Preferences::default();
             assert_eq!(
                 plan.apply_shared(&native(), &mut preferences),
+                Err(AccountError::Invalid)
+            );
+        }
+        for value in [13, 25, 49] {
+            let cloud = AccountPreferences {
+                revision: 10,
+                settings: BTreeMap::from([(
+                    "platform.ios.nine_key_flick_threshold".into(),
+                    AccountPreferenceValue::Integer(value),
+                )]),
+            };
+            assert_eq!(
+                IosPreferencePlan::from_cloud(&cloud),
                 Err(AccountError::Invalid)
             );
         }

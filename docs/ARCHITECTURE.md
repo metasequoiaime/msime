@@ -57,6 +57,8 @@ Tauri 在 macOS、Linux 和现代 Windows 上还承载共享面板：表情与�
 
 新增的桌面离线翻译遵循原生迁移方向，入口独立于上述旧设置容器：macOS 输入菜单打开 `src/translation/LocalTranslationWindow.mm`，Linux IBus/Fcitx5 菜单启动 GTK4 的 `msime-linux-local-translation`，Windows 原生翻译页打开 `settings/LocalTranslationWindow.cpp`。语言目录、设置 CAS、资源包和推理由共享 Rust 持有，经 Host API 调用；没有扩展冻结的 AppKit 回退设置或增加 React 入口。运行库在现代 macOS、Windows x64 和当前 Linux 发行构建中启用，Win7 与 Linux legacy 不包含；详情见[桌面离线翻译](../.agents/notes/implemented/feature/2026-11-05-embedded-desktop-translation.md)。
 
+命名词库的分组管理由共享 `client-services::dictionary::collections` 持有名称、来源、去重、启停和归属保护，六端原生入口只适配同一组 Host API 动作。Android/iOS 从词库页进入，macOS/Linux 从输入菜单进入，Windows 从原生词库页进入，HarmonyOS 从设置宿主的原生入口进入。分组元数据只在本机，账号与 WebDAV 的个人词条同步边界不变；详见[词库分组管理](../.agents/notes/implemented/feature/2026-11-14-dictionary-collection-groups.md)。
+
 ### 设置项说明收进「?」
 
 这是全平台的设计语言，六个平台的设置界面（共享 React 设置页、Windows、iOS、Android 原生设置）一律遵守：设置页不常驻解释性说明。每个设置项的解释放在标题旁一个「?」里，桌面（macOS、Linux、Windows）悬停或键盘聚焦时弹出气泡、点一下固定，手机（iOS、Android、HarmonyOS）点「?」弹出、点别处收起；一组设置共用的解释段落放在组标题旁的「?」里。页面上能看到的只有标题、控件和下面这些必须一眼看到的内容。决定的理由和放弃的方案见[决策笔记](../.agents/notes/implemented/feature/2026-11-01-settings-descriptions-behind-info-tip.md)。
