@@ -275,6 +275,17 @@ else()
 endif()
 add_test(NAME windows-typing-statistics COMMAND windows-typing-statistics)
 set_tests_properties(windows-typing-statistics PROPERTIES TIMEOUT 10)
+# 原生语音采集时长与共享统计请求，不依赖麦克风或 Windows 桌面。
+add_executable(windows-voice-typing-statistics tests/voice/voice_typing_statistics.cpp)
+target_include_directories(windows-voice-typing-statistics PRIVATE src/voice)
+target_link_libraries(windows-voice-typing-statistics PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-voice-typing-statistics PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+else()
+  target_compile_options(windows-voice-typing-statistics PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-voice-typing-statistics COMMAND windows-voice-typing-statistics)
+set_tests_properties(windows-voice-typing-statistics PROPERTIES TIMEOUT 10)
 # Which punctuation ends the composition with the highlighted candidate. The
 # set is the reference's, character for character; one missing mark is a key
 # that quietly stops doing that, visible only while typing.

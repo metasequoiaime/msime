@@ -21,6 +21,8 @@ void record_typing_statistics_async(const std::string &directory,
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
                               const std::map<std::string, uint64_t> &keys);
+// 原生语音已上屏后，后台记录实际采集时长；统计开关、保留期和日累计上限仍由共享库处理。
+void record_voice_duration_async(const std::string &directory, uint64_t milliseconds);
 // PredictionKept：会话停在上屏后联想、TIP 还没为这一代联想发过 Show，这个隐藏是上屏结束组字顺带发出的，联想留着，候选窗先藏起来等 Show。Late：延迟到达的旧隐藏只交给候选窗宽限，不取消仍在进行的组字。
 enum class HideCandidateDisposition {
   Rejected,

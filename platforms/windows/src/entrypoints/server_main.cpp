@@ -1574,11 +1574,12 @@ int wmain(int argc, wchar_t **argv) {
           return *voice_config;
         },
         [&](const FocusLease &lease) { return server.focus_current(lease); },
-        // 原生语音上屏的文字记入打字统计，来源 voice；统计关闭时共享入口自己什么也不写。全屏应用前台时里程碑提示音保持安静，与其他统计来源一致。
-        [statistics_directory = config.state_root.u8string()](const std::string &text) {
+        // 原生语音上屏后记录来源 voice 的文字与采集时长；统计关闭时共享入口不写。全屏应用前台时里程碑提示音保持安静，与其他统计来源一致。
+        [statistics_directory = config.state_root.u8string()](const std::string &text, uint64_t milliseconds) {
           record_typing_statistics_async(
               statistics_directory, text, TypingSource::Voice,
               foreground_is_fullscreen(GetForegroundWindow()));
+          record_voice_duration_async(statistics_directory, milliseconds);
         });
     voice_session = voice.get();
     VoiceControllerMailbox voice_controller_mailbox;

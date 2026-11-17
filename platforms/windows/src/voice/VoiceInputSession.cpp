@@ -5,6 +5,7 @@
 #include "VoiceHotwordTexts.h"
 #include "VoicePunctuation.h"
 #include "VoiceRequestCancellation.h"
+#include "VoiceTypingStatistics.h"
 
 #include "LocalAsr.h"
 #include "LocalAsrAudioQueue.h"
@@ -925,16 +926,16 @@ void VoiceInputSession::stop() {
   }
   tasks_.emplace_back(std::async(
       std::launch::async,
-      [this, samples = std::move(samples), lease = *lease, config, session,
+      [this, samples = std::move(samples), captured_frames, lease = *lease, config, session,
        doubao, local_stream, review, start_window = start_window_,
        cancelled = std::move(cancelled)]() mutable {
-        finish(std::move(samples), lease, config, session, std::move(doubao),
+        finish(std::move(samples), captured_frames, lease, config, session, std::move(doubao),
                std::move(local_stream), std::move(cancelled), review,
                start_window);
       }));
 }
 
-void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
+void VoiceInputSession::finish(std::vector<float> samples, std::size_t captured_frames, FocusLease lease,
                                VoiceInputConfig config, uint64_t session,
                                std::shared_ptr<DoubaoAsrClient> doubao,
                                std::shared_ptr<OnDeviceAsrStream> local_stream,
@@ -1163,7 +1164,8 @@ void VoiceInputSession::finish(std::vector<float> samples, FocusLease lease,
   if (delivered > 0 && !review && commit_recorder_)
     commit_recorder_(delivered >= converted.size()
                          ? final_text
-                         : utf8(std::wstring_view(converted).substr(0, delivered)));
+                         : utf8(std::wstring_view(converted).substr(0, delivered)),
+                     voice_statistics_milliseconds(captured_frames, kSampleRate));
   release_doubao();
   {
     std::lock_guard lock(config_mutex_);

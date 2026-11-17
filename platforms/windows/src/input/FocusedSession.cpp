@@ -8,6 +8,7 @@
 #include "PredictionPolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
+#include "../voice/VoiceTypingStatistics.h"
 #include <ctime>
 #include <memory>
 #include <stdexcept>
@@ -67,6 +68,14 @@ void record_typing_keys_async(const std::string &directory,
   if (request.empty())
     return;
   submit_typing_statistics_request(std::move(request));
+}
+void record_voice_duration_async(const std::string &directory, uint64_t milliseconds) {
+  const auto local = local_time_parts(std::time(nullptr));
+  if (!local)
+    return;
+  auto request = typing_statistics_record_voice_request(directory, local->day, milliseconds);
+  if (!request.empty())
+    submit_typing_statistics_request(std::move(request));
 }
 std::optional<FocusedSession::Commit> FocusedSession::pending_commit() const {
   if (!composer_ || !composer_->has_pending())
