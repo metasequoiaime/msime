@@ -249,6 +249,14 @@ pub fn dictionary_edit_batch(
     ))
 }
 
+/// 一次事务删除所有用户快捷短语；维护租约由 host-api 持有。
+pub fn dictionary_clear_quick_phrases(options: &EngineOptions) -> Result<usize> {
+    released(personal::clear_quick_phrases_with(
+        &runtime_paths(options),
+        main_dictionary(options),
+    ))
+}
+
 /// 集合直达导入的专用批量入口，使用更大的有界事务；普通编辑仍限制为 128 项。
 pub fn dictionary_edit_collection_batch(
     options: &EngineOptions,
