@@ -83,13 +83,20 @@ public final class TypingStatisticsSummary {
     private final Habits habits;
     private final Keys keys;
     private final List<Achievement> achievements;
+    private final List<TypingStatisticsDailyDetails.Row> dailyDetails;
 
     public TypingStatisticsSummary(Overview overview, Habits habits, Keys keys,
             List<Achievement> achievements) {
+        this(overview, habits, keys, achievements, null);
+    }
+
+    public TypingStatisticsSummary(Overview overview, Habits habits, Keys keys,
+            List<Achievement> achievements, List<TypingStatisticsDailyDetails.Row> dailyDetails) {
         this.overview = overview;
         this.habits = habits;
         this.keys = keys;
         this.achievements = List.copyOf(achievements);
+        this.dailyDetails = dailyDetails == null ? null : List.copyOf(dailyDetails);
     }
 
     public Overview overview() { return overview; }
@@ -99,6 +106,8 @@ public final class TypingStatisticsSummary {
     public Keys keys() { return keys; }
 
     public List<Achievement> achievements() { return achievements; }
+
+    public List<TypingStatisticsDailyDetails.Row> dailyDetails() { return dailyDetails; }
 
     /** 已解锁的徽章数。 */
     public int unlockedCount() {
@@ -146,7 +155,7 @@ public final class TypingStatisticsSummary {
                 run == null ? null : new Run(
                     strictCount(run.opt("characters")), run.optString("day", "")),
                 positions(keys.optJSONArray("positions"))),
-            badges);
+            badges, TypingStatisticsDailyDetails.from(value.optJSONArray("daily_details")));
     }
 
     // ---- 文案 ----

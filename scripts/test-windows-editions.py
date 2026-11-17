@@ -8,7 +8,7 @@
 - full 和其他版本走同一套写法，没有只属于 full 的分支：引入版本之前的那组标识属于 msime-windows，full 现在有自己的一组；
 - Windows 原生代码和 Rust 侧不自己写 full 或 msime-windows 的 CLSID、profile 和注册表键：这些值只能出现在生成的头文件、版本表、生成器和本检查允许的地方，否则某个版本会悄悄用上 full 的名字，或者碰到 msime-windows 的注册。
 - 每个版本注册在它的默认方案所属的语言下（版本表 `langid`）：中文版本是简体中文 0x0804，日文版 0x0411，越南文版 0x042A，藏文版 0x0451。TSF 按它把文本服务列在 Windows 设置的对应语言下；
-- `release-windows.yml` 的发布矩阵恰好是有 Windows 段的全部版本：少了一个，那个版本就不出安装包，共存检查（按 `edition_windows.py editions` 找安装包）也会因找不到它而失败。
+- `release-windows.yml` 的四个版本矩阵共用同一选择：full 只发布完整版，all 完整列出版本表中的 Windows 版本。
 
 ISPP 的真实编译只能在装了 Inno Setup 的 Windows 上做（`release-windows.yml`）；这里的预处理器只认 `#include`、`#define`、`#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`、`#error`、资源条目使用的 `#sub`／`#for`／`#call`、文件枚举与 SHA-256 函数，以及行内 `{#表达式}`，遇到别的指令就失败，免得在它看不懂的地方给出错误的结论。
 """
@@ -467,16 +467,27 @@ def check_languages(errors: list[str], editions: list[dict]) -> None:
 
 
 def check_release_matrix(errors: list[str], editions: list[dict]) -> None:
-    # 构建（release）、编译安装包（package）和 Windows on Arm 冒烟（arm64）各有一份版本矩阵，每一份都要齐：package 少一个版本，那个版本就没有安装包，签名时 SignPath 也收不到它。
-    matches = list(re.finditer(r"^\s+edition: \[([^\]]*)\]\s*$", RELEASE_WORKFLOW.read_text(encoding="utf-8"), re.MULTILINE))
-    if not matches:
-        errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} has no edition matrix")
-        return
+    # 四个作业共用 source 的选择，防止构建、签名和安装检查各用不同范围。
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    matrices = [line.strip() for line in workflow.splitlines() if line.strip().startswith("edition:")]
+    expected_matrix = "edition: ${{ fromJSON(needs.source.outputs.edition_matrix) }}"
+    if matrices != [expected_matrix] * 4:
+        errors.append("Windows release must share its selected edition matrix across all four jobs")
     expected = [entry["id"] for entry in editions]
-    for match in matches:
-        matrix = [item.strip() for item in match.group(1).split(",") if item.strip()]
-        if sorted(matrix) != sorted(expected) or len(set(matrix)) != len(matrix):
-            errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} has an edition matrix {matrix}, but the editions with Windows identifiers are {expected}")
+    for selection, selected in [(None, expected), ("all", expected), ("full", [FULL])]:
+        for as_json in [False, True]:
+            command = [sys.executable, str(GENERATOR), "editions"]
+            if selection:
+                command += ["--selection", selection]
+            if as_json:
+                command += ["--json"]
+            result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+            actual = json.loads(result.stdout) if as_json else result.stdout.strip().split(",")
+            if actual != selected:
+                errors.append(f"edition selection {selection!r}, JSON={as_json}: {actual} != {selected}")
+    invalid = subprocess.run([sys.executable, str(GENERATOR), "editions", "--selection", "unknown"], capture_output=True, timeout=30)
+    if invalid.returncode == 0:
+        errors.append("invalid edition selection must fail before building or signing")
 
 
 def main() -> int:

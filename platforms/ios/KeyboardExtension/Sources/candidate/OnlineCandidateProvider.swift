@@ -108,7 +108,7 @@ final class OnlineCandidateProvider {
           let descriptor = session.aiRequest(query: aiDocument),
           let request = Self.aiRequest(descriptor) else { return }
     guard let body = await transport.fetch(request), target == epoch else { return }
-    let candidates = MetasequoiaInputSessionBridge.parseAIResponse(body, limit: limit)
+    let candidates = MetasequoiaInputSessionBridge.parseAICandidateResponse(body, query: aiDocument, limit: limit)
     guard !candidates.isEmpty else { return }
     if apply({ try self.session.applyOnlineCandidates(query: aiDocument, candidates: candidates, source: 1) }) != nil {
       aiApplied = true

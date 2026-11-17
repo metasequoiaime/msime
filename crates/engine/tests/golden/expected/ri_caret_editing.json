@@ -232,7 +232,7 @@
       "i"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },
@@ -344,7 +344,7 @@
       "i"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },
@@ -401,7 +401,7 @@
       "i"
      ],
      "cloud_eligible": true,
-     "ai_eligible": false
+     "ai_eligible": true
     }
    }
   },

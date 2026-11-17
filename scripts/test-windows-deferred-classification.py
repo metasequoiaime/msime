@@ -283,6 +283,57 @@ struct Fixture {
     }
 };
 int main() {
+    // 普通组字的 Shift 数字符号走标点入口；屏障重分类也不能把物理数字键改成选词。
+    Global::CommitWithHighlightedCandPunc = {L'!', L'@', L'#', L'$', L'%', L'^', L'&', L'*', L'('};
+    for (int scheme : {msime::windows::scheme::Quanpin, msime::windows::scheme::Shuangpin}) {
+        for (bool barrier : {false, true}) {
+            const std::wstring symbols = L"!@#$%^&*(";
+            for (UINT slot = 0; slot < symbols.size(); ++slot) {
+                Fixture f;
+                Global::InputModeScheme = scheme;
+                f.finishSelection(L"ceui", false);
+                f.ime._deferredKeyProjectionValid = false;
+                f.ime._deferredKeyClassificationPending = barrier;
+                check(f.capture('1' + slot, symbols[slot], 1), "Shift 数字符号由输入法接管");
+                f.ime._DrainOneDeferredKeyDown();
+                const auto expected = symbols[slot] == L'@' ? FUNCTION_INPUT : FUNCTION_PUNCTUATION;
+                check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] == expected,
+                      "Shift 数字符号保留标点或邮箱入口，不走数字选词");
+                check(f.ime.observedCharacter == symbols[slot] && f.ime.observedModifiers == 1,
+                      "回放保留符号原文和 Shift 修饰键");
+            }
+        }
+    }
+    Global::CommitWithHighlightedCandPunc.clear();
+    for (bool unicode : {false, true}) {
+        Fixture f;
+        f.finishSelection(unicode ? L"U4e" : L"ceui", false);
+        f.engine.current.unicodeMode = unicode;
+        f.ime._deferredKeyProjectionValid = false;
+        f.ime._deferredKeyClassificationPending = false;
+        check(f.capture('3', unicode ? L'#' : L'3', unicode ? 1 : 0), "既有数字选择仍被接管");
+        f.ime._DrainOneDeferredKeyDown();
+        check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] == FUNCTION_SELECT_BY_NUMBER,
+              "裸数字和 Unicode 的 Shift 数字继续选词");
+    }
+    // 本地模式在普通数字规则之前处理：网址和算式保留各自的拼写与选词约定。
+    for (bool url : {false, true}) {
+        for (bool spelled : {false, true}) {
+            Fixture f;
+            f.finishSelection(url ? L"https://" : L"V1", url);
+            Global::ExpressionModeEnabled = !url;
+            f.ime._deferredKeyProjectionValid = false;
+            f.ime._deferredKeyClassificationPending = false;
+            const UINT key = spelled ? (url ? '3' : '8') : '1';
+            const WCHAR symbol = spelled ? (url ? L'#' : L'*') : (url ? L'\\' : L'!');
+            check(f.capture(key, symbol, 1), "本地模式继续接管 Shift 数字键");
+            f.ime._DrainOneDeferredKeyDown();
+            check(f.ime.dispatched.size() == 1 && f.ime.dispatched[0] ==
+                      (spelled ? FUNCTION_INPUT : FUNCTION_SELECT_BY_NUMBER),
+                  "本地模式按拼写表输入符号或按物理槽位选词");
+            Global::ExpressionModeEnabled = false;
+        }
+    }
     for (bool notificationOnly : {false, true}) {
         Fixture f;
         f.finishSelection(L"", false);

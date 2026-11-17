@@ -234,6 +234,7 @@ export const aiEndpointCheck: (endpoint: string) => string;
 export const aiRequestForQuery: (handle: number, query: string) => string;
 export const aiHttpRequest: (request: string) => string;
 export const parseAiResponse: (body: string, limit: number) => string;
+export const aiCandidateProtocol: (request: string) => string;
 export const applyCloudResponse: (handle: number, query: string, body: string) => string;
 export const applyOnlineCandidates: (
   handle: number,
@@ -375,6 +376,8 @@ export const resourcePackInstall: (
   request: string,
   progress?: (document: string) => void,
 ) => Promise<string>;
+/** 在工作线程按锁校验旧文件并改名收编，不复制资源。 */
+export const resourcePackAdopt: (request: string) => Promise<string>;
 export const resourcePackCancel: (pack: string) => void;
 export const resourcePackRemove: (request: string) => string;
 

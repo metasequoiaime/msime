@@ -1592,6 +1592,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// 候选回复按查询的原始输入验证；不复用聊天与翻译的宽松解析器。
+  static func parseAICandidateResponse(_ body: Data, query: Data, limit: Int) -> [String] {
+    AICandidateProtocol.parse(body, query: query, limit: limit, decode: decode)
+  }
+
   /// The candidate texts in an AI reply, by the shared parser; empty when it supplies none.
   static func parseAIResponse(_ body: Data, limit: Int) -> [String] {
     guard !body.isEmpty, body.count <= 1_048_576, (1...10).contains(limit) else { return [] }

@@ -86,6 +86,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="LocalTranslationWindow.cpp" />
     <ClCompile Include="DictionaryCollectionsWindow.cpp" />
+    <ClCompile Include="CloudQuickPhraseClearWindow.cpp" />
     <ClCompile Include="..\..\common\CrashRecorder.cpp" />
     <ClCompile Include="..\..\common\Telemetry.cpp" />
     <ClCompile Include="..\msimeui\src\AnimatedImage.cpp" />

@@ -14,6 +14,7 @@
 #include "SettingsInstance.h"
 #include "LocalTranslationWindow.h"
 #include "DictionaryCollectionsWindow.h"
+#include "CloudQuickPhraseClearWindow.h"
 #undef GetCurrentTime
 #undef GetObject
 
@@ -77,6 +78,8 @@
 #include "PreferencePath.h"
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
+#include "QuickPhraseClearModel.h"
+#include "QuickPhraseSettingsModel.h"
 #include "SentencePackModel.h"
 #include "SchemeResourcePackCatalog.h"
 #include "SettingsDocumentFile.h"
@@ -92,6 +95,9 @@
 #include "ToolbarLayout.h"
 #include "TranslationServiceSettings.h"
 #include "TypingStatisticsModel.h"
+#include "TypingAchievementsView.h"
+#include "TypingKeyLanguagesData.h"
+#include "TypingKeyLanguagePicker.h"
 #include "VoiceSettings.h"
 #include "../src/input/ToggleHotkeyChord.h"
 #include "msime_client.h"
@@ -420,6 +426,8 @@ std::wstring dictionary_error_text(std::wstring const &code, std::wstring_view k
     return L"拼音表不可用，无法校验这条词的读音。";
   if (code == L"dictionary_reset_rejected")
     return L"清除学习数据失败，请关闭正在使用输入法的程序后重试。";
+  if (code == L"dictionary_clear_rejected")
+    return L"清空快捷短语失败，请关闭正在使用输入法的程序后重试。";
   if (code == L"dictionary_unavailable")
     return L"无法打开用户词库，请检查输入法是否正在运行。";
   if (code == L"dictionary_invalid_word")
@@ -609,13 +617,14 @@ Response dictionary_sync_call(std::optional<std::string> const &options, std::st
       dictionary_sync_conflicted);
 }
 
-// 改「我的词条」的三种词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
+// 改「我的词条」的词库写操作，与 settings_dictionary::action_requires_quiesce 相同。
 bool dictionary_write(std::string const &action) {
   JsonObject parsed{nullptr};
   if (!JsonObject::TryParse(text(action), parsed))
     return false;
   const auto operation = named_string(parsed, L"operation");
-  return operation == L"edit" || operation == L"import" || operation == L"reset";
+  return operation == L"edit" || operation == L"import" || operation == L"reset" ||
+         operation == L"clear_quick_phrases";
 }
 
 // 以 local_change 记一次本机改动：只记录、不联网，Rust 按防抖稍后发送；没配网盘时 Rust 只答 dictionary_sync_not_configured。另放到线程池上跑，词库页不等它：Server 的自动同步正在联网时它要等那把文件锁。
@@ -805,8 +814,8 @@ public:
     return lookup(defaults_, nav::preference_path(key));
   }
 
-  bool Boolean(std::wstring_view key, bool fallback) const {
-    const auto value = Value(key);
+  bool Boolean(std::wstring_view key, bool fallback, bool stored_only = false) const {
+    const auto value = stored_only ? lookup(preferences_, nav::preference_path(key)) : Value(key);
     return value && value.ValueType() == JsonValueType::Boolean
                ? value.GetBoolean()
                : fallback;
@@ -3299,6 +3308,8 @@ namespace typing = msime::settings::typing;
 // 打字统计的一次状态：统计、文件是否写过和最后写入的时间。signature 是整个回答，轮询时据此判断有没有新数据，与共享页比较 JSON.stringify(next) 一样。
 struct StatisticsStatus {
   typing::Statistics statistics;
+  std::optional<typing::AchievementsSnapshot> achievements;
+  typing::DailyKeyLanguages key_languages;
   bool never_written = true;
   std::optional<uint64_t> last_written_ms;
   std::string signature;
@@ -3401,6 +3412,9 @@ std::optional<StatisticsStatus> statistics_status(Response const &response) {
     if (const auto keys = named(L"dailyKeys"); keys.ValueType() == JsonValueType::Object)
       for (auto const &entry : keys.GetObject())
         statistics.daily_keys[utf8(entry.Key())] = statistics_counts(entry.Value());
+    const auto languages = typing::key_languages_from_winrt(named(L"dailyKeyLanguages"));
+    if (!languages) return std::nullopt;
+    status.key_languages = std::move(*languages);
     return status;
   } catch (...) {
     return std::nullopt;
@@ -5797,8 +5811,8 @@ private:
 
   void bool_row(StackPanel const &group, wchar_t glyph, std::wstring const &title,
                 std::wstring const &subtitle, std::wstring key, bool fallback,
-                bool redraw = false, bool enabled = true) {
-    const bool on = document_.Boolean(key, fallback);
+                bool redraw = false, bool enabled = true, bool stored_only = false) {
+    const bool on = document_.Boolean(key, fallback, stored_only);
     add_row(group, glyph, title, subtitle,
             toggle_control(title, on,
                            [this, key, redraw](bool value) {
@@ -14968,7 +14982,8 @@ private:
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
           focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
-              focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
+              focus_row_ == L"日文混输（实验）" || focus_row_ == L"快捷短语混输" ||
+              focus_row_ == L"只出单字" ||
               focus_row_ == L"移动光标后编辑光标后的部分" ||
               focus_row_ == L"本地整句联想");
       // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
@@ -14988,7 +15003,13 @@ private:
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);
-      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。共享页把它排在「快捷短语混输」旁边，Windows 没有那一行，排在「只出单字」后面。
+      // 快捷短语开启时共享层省略字段；只读已存对象，按共享层的缺字段规则回退为开启。
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::title),
+               std::wstring(msime::settings::quick_phrase::description),
+               std::wstring(msime::settings::quick_phrase::preference),
+               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
                L"caret_edit_suffix", false);
@@ -16399,6 +16420,39 @@ private:
     });
   }
 
+  fire_and_forget clear_quick_phrases() {
+    if (lexicon_busy_ || !lexicon_resource_kind_.empty() || lexicon_kind_ != L"quick_phrase")
+      co_return;
+    auto strong = get_strong();
+    if (!co_await confirm(std::wstring(msime::settings::quick_phrase_clear::title),
+                          std::wstring(msime::settings::quick_phrase_clear::confirmation),
+                          std::wstring(msime::settings::quick_phrase_clear::confirm_button)))
+      co_return;
+    JsonObject action;
+    action.SetNamedValue(L"operation", JsonValue::CreateStringValue(text(msime::settings::quick_phrase_clear::operation)));
+    lexicon_feedback_.clear();
+    lexicon_request(action, [this](Response const &response) {
+      if (!response.ok) {
+        set_lexicon_feedback(dictionary_error_text(response_error(response), L"quick_phrase",
+                                                   L"清空快捷短语失败，请稍后重试。"),
+                             InfoBarSeverity::Error);
+        return;
+      }
+      try {
+        const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+        const auto cleared = msime::settings::quick_phrase_clear::count_from_number(
+            value.GetNamedNumber(L"cleared"));
+        if (!cleared)
+          throw std::runtime_error("invalid quick phrase clear count");
+        set_lexicon_feedback(msime::settings::quick_phrase_clear::success_message(*cleared),
+                             InfoBarSeverity::Success);
+        lexicon_list(0);
+      } catch (...) {
+        set_lexicon_feedback(L"清空快捷短语后无法刷新词库，请手动刷新确认。", InfoBarSeverity::Error);
+      }
+    });
+  }
+
   fire_and_forget reset_learned_data() {
     if (lexicon_busy_)
       co_return;
@@ -17109,6 +17163,13 @@ private:
       auto cloud = add_group(page, L"云词库");
       shell_row(cloud, 0xE753, L"云词库", L"管理同步到账号的词条和备份", L"打开云词库",
                 nav::shell_links::cloud_dictionary);
+      auto clear = button_control(L"清空…", [this] {
+        HWND owner = nullptr;
+        check_hresult(get_strong().as<Window>().as<::IWindowNative>()->get_WindowHandle(&owner));
+        msime::settings::show_cloud_quick_phrase_clear(owner, account_body(account_action(L"status")));
+      });
+      A11y::SetAutomationId(clear, L"lexicon-clear-cloud-quick-phrases");
+      add_row(cloud, 0xE74D, L"清空云端快捷短语", L"其他云端词库保留；确认前显示实际条数。", clear);
       build_dictionary_sync(page);
     }
   }
@@ -17302,10 +17363,20 @@ private:
     footer.ColumnDefinitions().Append(gap_column);
     footer.ColumnDefinitions().Append(pager_column);
     if (!resource) {
+      StackPanel actions;
+      actions.Orientation(Orientation::Horizontal);
+      actions.Spacing(8);
       auto add = button_control(L"新增词条", [this] { edit_lexicon_entry(std::nullopt); }, !lexicon_busy_);
       add.as<Button>().Padding(Thickness{12, 0, 12, 0});
       A11y::SetAutomationId(add, L"lexicon-add");
-      footer.Children().Append(add);
+      actions.Children().Append(add);
+      if (kind == L"quick_phrase") {
+        auto clear = button_control(L"清空快捷短语", [this] { clear_quick_phrases(); }, !lexicon_busy_);
+        clear.as<Button>().Padding(Thickness{12, 0, 12, 0});
+        A11y::SetAutomationId(clear, L"lexicon-clear-quick-phrases");
+        actions.Children().Append(clear);
+      }
+      footer.Children().Append(actions);
     }
     StackPanel pager;
     pager.Orientation(Orientation::Horizontal);
@@ -19467,6 +19538,7 @@ private:
     stats_day_.reset();
     stats_selected_.reset();
     stats_tab_ = L"keys";
+    stats_key_language_ = "all";
     stats_calendar_offset_ = 0;
     stats_details_offset_ = 0;
     stats_upload_.reset();
@@ -19578,11 +19650,19 @@ private:
     request.SetNamedValue(L"action", action);
     request.SetNamedValue(L"status", JsonValue::CreateBooleanValue(true));
     const auto body = utf8(request.Stringify());
+    const bool with_achievements = current_page_ == "stats";
+    const auto statistics_directory = state_directory().wstring();
+    const auto statistics_day = local_day();
     auto weak = get_weak();
     auto queue = DispatcherQueue();
     co_await resume_background();
     auto status = statistics_status(take_response(msime_client_typing_statistics(
         reinterpret_cast<const uint8_t *>(body.data()), body.size())));
+    if (status && with_achievements) {
+      status->achievements = typing::load_achievements(statistics_directory, statistics_day,
+                                                     runtime_options_document());
+      status->signature += status->achievements ? status->achievements->signature : "summary_unavailable";
+    }
     queue.TryEnqueue([weak, done = std::move(done), status = std::move(status)] {
       if (auto self = weak.get(); self && !self->closed_)
         done(status);
@@ -20276,8 +20356,13 @@ private:
   // 「按键热力图」：当前范围内每个键按了多少次，画在记下这些次数的那种键盘上。
   void stats_keys(StackPanel const &page, typing::Statistics const &statistics,
                   std::optional<std::vector<std::string>> const &scope, std::wstring const &scope_label) {
-    const auto model = typing::keyboard_model(typing::scoped_key_counts(statistics.daily_keys, scope));
+    const typing::KeyLanguageSnapshot languages(statistics.daily_keys, stats_->key_languages, scope);
+    stats_key_language_ = languages.resolved(stats_key_language_);
+    const auto model = typing::keyboard_model(languages.counts(stats_key_language_));
     auto body = stats_section(page, L"按键热力图 · " + scope_label);
+    typing::append_key_language_picker(body, languages, stats_key_language_,
+        [this](std::wstring const &title) { return make_text(title, 13, palette_.text); },
+        [this](std::string const &language) { stats_key_language_ = language; redraw_stats(); });
     if (model.total == 0) {
       body.Children().Append(stats_empty(L"这段时间还没有按键记录"));
     } else {
@@ -20787,14 +20872,14 @@ private:
     auto tabs = segmented_control(
         L"统计内容",
         {{L"keys", L"按键"}, {L"trend", L"趋势"}, {L"kind", L"类型"}, {L"mode", L"模式"},
-         {L"scheme", L"方案"}, {L"ranks", L"候选"}},
+         {L"scheme", L"方案"}, {L"ranks", L"候选"}, {L"achievements", L"成就"}},
         stats_tab_,
         [this](std::wstring const &value) {
           // 桌面上切换标签时保留选中的那一天：它的柱子在「趋势」里，其他标签正是用来看这一天的分项。
           stats_tab_ = value;
           redraw_stats();
         },
-        true, false, 6, L"statistics-tab");
+        true, false, 7, L"statistics-tab");
     tabs.HorizontalAlignment(HorizontalAlignment::Left);
     tabs.Margin(Thickness{0, 24, 0, 0});
     page.Children().Append(tabs);
@@ -20820,6 +20905,11 @@ private:
       stats_details(page, statistics, today);
     if (stats_tab_ == L"ranks")
       stats_candidate_ranks(page, statistics);
+    if (stats_tab_ == L"achievements")
+      typing::append_achievements(stats_section(page, L"成就"), status.achievements,
+          [this](std::wstring const &text, bool title) {
+            return make_text(text, title ? 15 : 13, title ? palette_.text : palette_.sub);
+          });
 
     auto group = add_group(page, L"");
     group.Margin(Thickness{0, 28, 0, 0});
@@ -28111,6 +28201,7 @@ private:
   std::optional<std::string> stats_selected_;
   std::optional<std::string> stats_day_;
   std::wstring stats_tab_ = L"keys";
+  std::string stats_key_language_ = "all";
   // 日历热力图和按日明细的横向滚动位置，跨重画保留。
   double stats_calendar_offset_ = 0;
   double stats_details_offset_ = 0;

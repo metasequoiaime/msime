@@ -647,6 +647,10 @@ fn an_invalid_dictionary_entry_keeps_its_own_code() {
         error_code("bundled dictionary entry is read-only"),
         "dictionary_bundled_readonly"
     );
+    assert_eq!(
+        error_code("quick phrase clear rejected"),
+        "dictionary_clear_rejected"
+    );
 }
 
 #[test]
@@ -659,6 +663,9 @@ fn dictionary_mutations_quiesce_but_reads_do_not() {
     ));
     assert!(action_requires_quiesce(
         &serde_json::json!({"operation": "reset"})
+    ));
+    assert!(action_requires_quiesce(
+        &serde_json::json!({"operation": "clear_quick_phrases"})
     ));
     assert!(!action_requires_quiesce(
         &serde_json::json!({"operation": "list"})

@@ -595,6 +595,10 @@ static napi_value queueRequest(napi_env env, napi_callback_info info, RequestCal
     return promise;
 }
 
+static napi_value ResourcePackAdopt(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_resource_pack_adopt, "MSIME resource pack adoption");
+}
+
 static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
 }
@@ -1298,6 +1302,16 @@ static napi_value AiHttpRequest(napi_env env, napi_callback_info info) {
         return response(env, msime_client_ai_http_request(nullptr, 0));
     }
     return response(env, msime_client_ai_http_request(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+}
+
+static napi_value AiCandidateProtocol(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string request;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], request)) {
+        return response(env, msime_client_ai_candidate_protocol(nullptr, 0));
+    }
+    return response(env, msime_client_ai_candidate_protocol(
         reinterpret_cast<const uint8_t *>(request.data()), request.size()));
 }
 
@@ -2062,6 +2076,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("aiRequestForQuery", AiRequestForQuery),
         ENTRY("aiHttpRequest", AiHttpRequest),
         ENTRY("parseAiResponse", ParseAiResponse),
+        ENTRY("aiCandidateProtocol", AiCandidateProtocol),
         ENTRY("applyCloudResponse", ApplyCloudResponse),
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("resolveOnlineCandidates", ResolveOnlineCandidates),
@@ -2125,6 +2140,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceLocalModelRemove", VoiceLocalModelRemove),
         ENTRY("resourcePacks", ResourcePacks),
         ENTRY("resourcePackInstall", ResourcePackInstall),
+        ENTRY("resourcePackAdopt", ResourcePackAdopt),
         ENTRY("resourcePackCancel", ResourcePackCancel),
         ENTRY("resourcePackRemove", ResourcePackRemove),
         ENTRY("doubaoEncodeFrame", DoubaoEncodeFrame),

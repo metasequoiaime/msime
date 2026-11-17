@@ -37,12 +37,23 @@
 
 @interface SpacingController : MSIMEInputController
 @property(nonatomic) BOOL secure;
+@property(nonatomic) BOOL switchesModeDuringEvent;
+@property(nonatomic) msime::mac::TypingSource lastKeySource;
 @end
 @implementation SpacingController
 - (void)ensureAppearance {}
 - (void)prepareSession {}
 - (BOOL)secureEventInputActive { return self.secure; }
-- (void)recordKeyPress:(NSEvent *)event client:(id)sender { (void)event; (void)sender; }
+- (void)recordKeyPress:(NSEvent *)event client:(id)sender source:(msime::mac::TypingSource)source {
+    (void)event; (void)sender;
+    self.lastKeySource = source;
+}
+- (BOOL)handleKeyEvent:(NSEvent *)event client:(id)sender {
+    if (!self.switchesModeDuringEvent) return [super handleKeyEvent:event client:sender];
+    MSIMEAppearancePreferences *appearance = [self valueForKey:@"appearance"];
+    appearance.englishMode = YES;
+    return NO;
+}
 - (void)recordPassthroughKey:(NSEvent *)event client:(id)sender { (void)event; (void)sender; }
 - (void)reportKeyToLifecycle:(NSEvent *)event { (void)event; }
 - (void)renderCandidates {}
@@ -152,6 +163,22 @@ int main() {
         [controller apply:@{@"commit":@"AB", @"commit_context":@{@"scheme":@0, @"local_mode":@"temporary_english"},
             @"view":[session viewWithError:nil]}];
         assert([client.document isEqual:@"甲AB"]);
+        // 通过真实事件分派检查快照时序：键内切模式也不能重标这个键。
+        const bool statisticsBefore = MSIMETypingStatisticsEnabled.exchange(true);
+        controller.switchesModeDuringEvent = YES;
+        appearance.englishMode = NO;
+        [controller setValue:client forKey:@"activeClient"];
+        [controller setValue:@{@"scheme": @0, @"local_mode": @"none"} forKey:@"view"];
+        [controller handleEvent:Key(@"A") client:client];
+        assert(appearance.englishMode && controller.lastKeySource == msime::mac::TypingSource::Quanpin);
+        // 英文关闭态不被上一次留下的临时日文模式覆盖。
+        [controller setValue:@{@"scheme": @0, @"local_mode": @"temporary_japanese"} forKey:@"view"];
+        [controller handleEvent:Key(@"A") client:client];
+        assert(controller.lastKeySource == msime::mac::TypingSource::English);
+        // 尚未接管的新客户端不能借用旧客户端视图。
+        [controller handleEvent:Key(@"A") client:Client(@"合成")];
+        assert(controller.lastKeySource == msime::mac::TypingSource::Unknown);
+        MSIMETypingStatisticsEnabled.store(statisticsBefore);
         [controller setValue:nil forKey:@"session"];
         session = nil;
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);

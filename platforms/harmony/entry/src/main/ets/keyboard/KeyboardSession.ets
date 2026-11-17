@@ -26,6 +26,7 @@ import {
 } from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
+import { typingKeyPressRequest, TypingStatisticsKeysRequest } from './TypingKeyPressRequest';
 import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
 import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
@@ -128,6 +129,7 @@ import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { AiGenerationGate } from './AiGenerationGate';
 import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
+import { AiCandidateResponse } from './candidate/AiCandidateResponse';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
@@ -185,6 +187,7 @@ import {
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import { SharedStateMirror } from './SharedStateMirror';
+import { SharedDictionaryResources } from './SharedDictionaryResources';
 import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
@@ -344,17 +347,6 @@ interface TypingStatisticsRecordResponse {
   ok: boolean;
   value?: TypingStatisticsRecordValue;
   error?: string;
-}
-
-interface TypingStatisticsKeysAction {
-  operation: string;
-  day: string;
-  keys: Record<string, number>;
-}
-
-interface TypingStatisticsKeysRequest {
-  directory: string;
-  action: TypingStatisticsKeysAction;
 }
 
 interface TypingStatisticsVoiceAction {
@@ -1292,6 +1284,7 @@ interface PreparedOptions {
   phrase_preedit?: boolean;
   /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
   rerank_models?: string;
+  dictionary_resource_root?: string;
   /** 这个键盘在停顿时调 `startSettledRerank`（`schedulePauseRerank`）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。 */
   pause_rerank?: boolean;
 }
@@ -2221,6 +2214,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       requested.phrase_preedit = true;
       if (this.rerankModelsDirectory.length > 0) {
         requested.rerank_models = this.rerankModelsDirectory;
+      }
+      if (this.sharedMirror !== null) {
+        requested.dictionary_resource_root = this.sharedMirror.dictionaryResourceRoot();
       }
       requested.pause_rerank = true;
       // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
@@ -3354,7 +3350,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       || this.stateDirectory.length === 0) {
       return;
     }
-    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()));
+    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()), this.typingSource());
     for (const flush of due) {
       this.sendKeyPresses(flush);
     }
@@ -3386,12 +3382,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private sendKeyPresses(flush: KeyPressFlush): void {
     if (this.stateDirectory.length === 0) return;
-    const action: TypingStatisticsKeysAction = {
-      operation: 'record_keys', day: flush.day, keys: flush.keys
-    };
-    const requestDocument: TypingStatisticsKeysRequest = {
-      directory: this.stateDirectory, action: action
-    };
+    const requestDocument: TypingStatisticsKeysRequest = typingKeyPressRequest(this.stateDirectory, flush);
     const generation: number = this.attributeGeneration;
     taskpool.execute(writeKeyPresses, JSON.stringify(requestDocument)).then((response: Object): void => {
       const value: Record<string, Object> = JSON.parse(response as string) as Record<string, Object>;
@@ -4205,6 +4196,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.sharedMirror === null || this.stateDirectory.length === 0) {
       return;
     }
+    SharedDictionaryResources.removePrivateCopies(this.sharedMirror, this.stateDirectory);
     const fullMode: boolean = this.sharedFullMode();
     const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, fullMode);
     // 设置应用发布的会话由 Rust 在锁里决定要不要采用；这里排一次让本地状态尽早跟上，云剪贴板这类认证请求自己经 `beforeRequest` 再排一次。基础访问模式下键盘不交换会话。
@@ -6244,7 +6236,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
         || response.responseCode >= 300 || typeof response.result !== 'string') return false;
-      const candidates: string[] | null = OnlineCandidatePolicy.aiCandidates(response.result, limit);
+      const candidates: string[] | null = AiCandidateResponse.parse(response.result, queryDocument, limit);
       if (candidates === null || candidates.length === 0) return false;
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyOnlineCandidates(
         handle, queryDocument, JSON.stringify(candidates), 1)) as NativeReply<OnlineApplyValue>;
