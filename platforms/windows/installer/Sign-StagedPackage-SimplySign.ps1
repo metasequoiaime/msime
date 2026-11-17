@@ -10,7 +10,8 @@ param(
     [string]$SignToolPath,
     [string]$IsccPath,
     [ValidatePattern('^$|^[a-fA-F0-9]{40}$')][string]$CertificateThumbprint,
-    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full'
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
+    [string]$SignatureCacheDirectory
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -40,7 +41,7 @@ New-Item -ItemType Directory -Path $sessionRoot | Out-Null
 try {
     # 两次 ssign 调用共享本轮登录；外层签名完成后删除会话，不交给后续 runner 作业。
     $env:XDG_RUNTIME_DIR = $sessionRoot
-    $signArgs = @{ SsignPath = $SsignPath; SignToolPath = $SignToolPath; CertificateThumbprint = $CertificateThumbprint }
+    $signArgs = @{ SsignPath = $SsignPath; SignToolPath = $SignToolPath; CertificateThumbprint = $CertificateThumbprint; SignatureCacheDirectory = $SignatureCacheDirectory }
     if ($unsigned.Count -gt 0) {
         & (Join-Path $PSScriptRoot 'Sign-Files-SimplySign.ps1') -Path $unsigned @signArgs
         if ($LASTEXITCODE -ne 0) { throw '包内 EXE/DLL 签名失败。' }
