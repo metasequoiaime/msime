@@ -2569,8 +2569,9 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
             case VK_RETURN:
                 if (pKeyState)
                 {
-                    pKeyState->Category = CATEGORY_COMPOSING;
-                    pKeyState->Function = FUNCTION_FINALIZE_CANDIDATELIST;
+                    // 空候选仍有可编辑原文，回车须提交它，不能按空列表选词后取消组字。
+                    pKeyState->Category = CATEGORY_CANDIDATE;
+                    pKeyState->Function = FUNCTION_FINALIZE_CANDIDATELISTForVKReturn;
                 }
                 return TRUE;
             case VK_ESCAPE:
