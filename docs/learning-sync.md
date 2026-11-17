@@ -316,7 +316,18 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 
 `BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。下载已认证并完整校验后，先持久保存 verified/observed_max，再原样保存 MSL1 密文；维护权忙时返回 Pending，不推进 applied。`learning_merge_pending` 为不发出数据请求的显式空闲入口，重新认证密文、读取持久进度和重置屏障，在独占维护内更新时钟与合并，成功才推进 applied。网络轮次首次上传之后也处理旧队列；已有队列结果覆盖同来源同代次或更新代次的重复下载，保留本轮 Applied/MergeFailed/Abandoned 的真实结果。初始导出前维护权就忙时仍返回 Busy。自动节流及平台入口仍须单独接通。
 
-账号 C 入口 `msime_client_account` 已提供显式密钥管理，目录与注入存储两种来源共用共享账号适配层。`action:{"operation":"learning_binding"}` 只读本机具体登录，返回 `{login:null}` 或 `{login:{user_id,session_id}}`，旧会话仅补持久编号，不登记设备、不创建密钥、不联网。宿主保存这次绑定，再传 `action:{"operation":"learning_operation","login":绑定,"device_name":"设备名称","request":{"op":"status"}}`；`request` 支持上文八个驱动操作，并严格拒绝未知和缺失字段。此操作可能联网，放在工作线程调用；不返回密钥串、驱动中间状态或访问令牌。同账号重新登录也使旧绑定失效，返回 `account_cancelled`；其他错误原样返回共享账号或驱动错误码。没有学习存储能力的旧注入宿主不会回退到剪贴板槽。该入口只接通设备与密钥管理，未接通数据轮次、空闲合并、原生设置或自动同步。
+账号 C 入口 `msime_client_account` 已提供显式密钥管理，目录与注入存储两种来源共用共享账号适配层。`action:{"operation":"learning_binding"}` 只读本机具体登录，返回 `{login:null}` 或 `{login:{user_id,session_id}}`，旧会话仅补持久编号，不登记设备、不创建密钥、不联网。宿主保存这次绑定，再传 `action:{"operation":"learning_operation","login":绑定,"device_name":"设备名称","request":{"op":"status"}}`；`request` 支持上文八个驱动操作，并严格拒绝未知和缺失字段。此操作可能联网，放在工作线程调用；不返回密钥串、驱动中间状态或访问令牌。同账号重新登录也使旧绑定失效，返回 `account_cancelled`；其他错误原样返回共享账号或驱动错误码。没有学习存储能力的旧注入宿主不会回退到剪贴板槽。密钥管理不隐式启动学习数据轮次。
+
+同一账号 C 入口还提供两个显式数据操作，目录和注入存储使用相同契约：
+
+- `action:{"operation":"learning_sync_once","login":绑定,"device_name":"设备名称","options":运行时选项文档}` 执行一次加密上传、下载与合并，返回 `{uploaded,upload_unchanged,dropped_weights,upload_error,downloads,pending}`。`uploaded` 为本轮上传代次或 `null`；`upload_error` 为可继续下载的上传失败或 `null`，不以部分成功冒充完整上传。此操作可能联网，应在工作线程调用。
+- `action:{"operation":"learning_merge_pending","login":绑定,"options":运行时选项文档}` 返回 `{pending:[报告]}`，只认领和应用已接纳的密文，不联网、不因令牌过期触发刷新。
+
+`options` 复用 `msime_client_create` 的文档与版本校验，必须提供绝对 `preferences_directory` 和四个绝对运行时路径；兼容 Linux 附带的 `candidate_skin_catalog`。词库内容标识从该会话资源目录对应的完整清单计算，下载代次按已有或保留的清单解析，不随后台最新选择漂移；工作代次必须匹配 `user_data/dictionaries/<清单代次>`，不匹配或选项不合法时返回 `learning_invalid_options`，不生成学习身份、不启动网络。主词库参与规则从版本允许的方案集合取得，调用方不能单独覆盖；`read_only_state:true` 返回 `learning_read_only`，不启动网络或写入。
+
+下载及待合并报告是 `{device_id,generation,outcome,dictionary_mismatch}`。`generation` 仅在信封认证和完整流校验后填写；`outcome` 为 `applied`、`already_applied`、`undecryptable`、`rollback`、`pending`、`merge_failed`、`abandoned` 或 `http`。HTTP 失败另带 `http_status` 及已知时的 `retry_after_seconds`。整轮或上传 HTTP 错误同样使用固定 `learning_http`、`http_status` 与可选秒数；不返回服务端原始错误正文。其他轮次错误使用固定码区分维护忙、待批准、换钥、元数据、进度文件、队列、流与本地存储失败，不序列化底层异常文本。已有账号操作的错误形状保持不变。
+
+两个数据操作仍要求宿主在调用前检查本机学习开关和独立同步授权；它们不创建自动任务、不提供节流豁免，也不替代尚未接通的原生设置与生命周期。未获授权时宿主不得调用。自动节流、重置屏障接线和各平台原生入口仍须完成。
 
 上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
 

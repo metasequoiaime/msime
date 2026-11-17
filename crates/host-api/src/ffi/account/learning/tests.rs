@@ -9,6 +9,8 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod rounds;
+
 fn call(source: &Value, action: Value) -> Value {
     let mut request = source.clone();
     request["action"] = action;

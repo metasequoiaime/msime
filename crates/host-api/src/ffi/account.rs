@@ -75,7 +75,7 @@ struct AccountRequest {
     action: Action,
 }
 
-/// 已有账号操作、扩展操作及学习密钥管理都按 `operation` 区分并拒绝未知字段；名称互不重复。
+/// 已有账号操作、扩展操作及学习同步都按 `operation` 区分并拒绝未知字段；名称互不重复。
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Action {
@@ -271,10 +271,24 @@ pub(super) fn anonymous_session_with_agent(
     Ok(session)
 }
 
-/// `msime_client_account` 的一次失败：错误码，以及新操作里服务端给了 `Retry-After` 时的秒数。已有操作的失败没有后者，响应与以前相同。
+/// `msime_client_account` 的一次失败：错误码、已知时的退避秒数，以及学习数据 HTTP 失败的状态码。旧操作不附带新状态字段。
 pub(super) struct Failure {
     pub(super) code: String,
     pub(super) retry_after_seconds: Option<u64>,
+    pub(super) http_status: Option<u16>,
+}
+
+impl Failure {
+    fn json(self) -> Value {
+        let mut value = json!({ "error": self.code });
+        if let Some(seconds) = self.retry_after_seconds {
+            value["retry_after_seconds"] = json!(seconds);
+        }
+        if let Some(status) = self.http_status {
+            value["http_status"] = json!(status);
+        }
+        value
+    }
 }
 
 impl From<String> for Failure {
@@ -282,6 +296,7 @@ impl From<String> for Failure {
         Self {
             code,
             retry_after_seconds: None,
+            http_status: None,
         }
     }
 }
@@ -291,6 +306,7 @@ impl From<crate::account_ops::OperationFailure> for Failure {
         Self {
             code: failure.code.to_owned(),
             retry_after_seconds: failure.retry_after_seconds,
+            http_status: None,
         }
     }
 }
@@ -301,17 +317,17 @@ impl From<msime_client_services::account::AccountFailure> for Failure {
     }
 }
 
-/// 与 crate 的 `response` 相同，失败时多一个可选的 `retry_after_seconds`：`{"ok":false,"error":code,"retry_after_seconds":N}`，只在已知时出现。
+/// 与 crate 的 `response` 相同，失败时可附带 `retry_after_seconds` 与学习数据的 `http_status`；只在已知时出现。
 pub(super) fn account_failure_response(
     operation: impl FnOnce() -> Result<Value, Failure>,
 ) -> *mut c_char {
     let value = match catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(value)) => json!({ "ok": true, "value": value }),
-        Ok(Err(Failure {
-            code,
-            retry_after_seconds: Some(seconds),
-        })) => json!({ "ok": false, "error": code, "retry_after_seconds": seconds }),
-        Ok(Err(Failure { code, .. })) => json!({ "ok": false, "error": code }),
+        Ok(Err(failure)) => {
+            let mut value = failure.json();
+            value["ok"] = json!(false);
+            value
+        }
         Err(_) => json!({ "ok": false, "error": "internal runtime failure" }),
     };
     // JSON 会转义 NUL，这里不会有内部的 NUL。
