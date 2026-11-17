@@ -74,7 +74,11 @@ fn context_uses_retained_session_manifest_and_edition_scheme_set() {
 #[test]
 fn data_action_requires_precise_fields_before_creating_keys() {
     let harness = Harness::new();
-    for operation in ["learning_sync_once", "learning_merge_pending"] {
+    for operation in [
+        "learning_sync_once",
+        "learning_merge_pending",
+        "learning_reset_local",
+    ] {
         let mut valid =
             json!({"operation": operation, "login": harness.login, "options": harness.options});
         if operation == "learning_sync_once" {

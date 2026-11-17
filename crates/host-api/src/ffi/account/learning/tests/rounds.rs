@@ -5,6 +5,7 @@ use msime_client_core::cloud::learning_e2e::{self, Keystore, Persisted};
 use msime_engine::{LearningSyncRecord, LearningSyncState, RuntimePaths};
 
 mod contexts;
+mod reset;
 mod server;
 use server::Server;
 

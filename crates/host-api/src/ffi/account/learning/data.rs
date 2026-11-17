@@ -9,6 +9,7 @@ use msime_client_services::account::learning_sync::{state::StateError, PendingEr
 use msime_engine::{LearningSyncReadError, RuntimePaths};
 
 pub(super) struct Context {
+    options: crate::EngineOptions,
     paths: RuntimePaths,
     state: PathBuf,
     content_id: String,
@@ -50,12 +51,19 @@ impl Context {
         if paths.dictionaries != paths.user_data.join("dictionaries").join(&content_id) {
             return Err(invalid());
         }
+        let main_dictionary = engine_schemes(options.edition()).reads_main_dictionary();
         Ok(Self {
+            options: options.into_engine_options(),
             paths,
             state,
             content_id,
-            main_dictionary: engine_schemes(options.edition()).reads_main_dictionary(),
+            main_dictionary,
         })
+    }
+
+    pub(super) fn reset(&self) -> Result<Value, RoundError> {
+        crate::dictionary::reset::under_maintenance(&self.options, Some(&self.state))
+            .map_err(|_| RoundError::Local)
     }
 
     pub(super) fn borrowed(&self) -> RoundContext<'_> {

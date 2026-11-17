@@ -4,6 +4,7 @@
 
 mod http;
 mod pending;
+mod reset;
 pub mod round;
 mod session;
 pub mod state;

@@ -27,6 +27,12 @@ pub(super) enum Request {
         device_name: String,
         options: Value,
     },
+    /// 只清本机，先持久保存账号屏障，不依赖学习同步是否开启。
+    #[serde(rename = "learning_reset_local")]
+    ResetLocal {
+        login: AccountLoginBinding,
+        options: Value,
+    },
     /// 持有词库的宿主空闲时调用；不联网，不刷新令牌。
     #[serde(rename = "learning_merge_pending")]
     MergePending {
@@ -73,6 +79,12 @@ pub(super) fn run<A: AccountApi, S: AccountSessionStorage>(
             session
                 .learning_sync_once(&login, &device_name, &context.borrowed())
                 .map(data::round_report)
+                .map_err(data::failure)
+        }
+        Request::ResetLocal { login, options } => {
+            let context = data::Context::parse(options)?;
+            session
+                .with_learning_reset(&login, &context.borrowed(), || context.reset())
                 .map_err(data::failure)
         }
         Request::MergePending { login, options } => {
