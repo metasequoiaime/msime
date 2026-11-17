@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""运行真实振动调度，确认慢服务期间不排队，完成后仍可继续振动。"""
+"""运行真实振动调度，确认按键不排旧反馈、触控板不丢步且失败后仍可继续振动。"""
 
 from pathlib import Path
 import shutil
@@ -22,13 +22,19 @@ public final class Build {
 package android.os;
 public class VibrationEffect {
     public static final int EFFECT_TICK = 1, EFFECT_CLICK = 2, EFFECT_HEAVY_CLICK = 3, DEFAULT_AMPLITUDE = -1;
+    private final int primitiveCount;
+    private VibrationEffect() { this(0); }
+    private VibrationEffect(int primitiveCount) { this.primitiveCount = primitiveCount; }
+    public int primitiveCount() { return primitiveCount; }
     public static VibrationEffect createPredefined(int effect) { return new VibrationEffect(); }
     public static VibrationEffect createOneShot(long duration, int amplitude) { return new VibrationEffect(); }
+    public static VibrationEffect createWaveform(long[] timings, int[] amplitudes, int repeat) { return new VibrationEffect(); }
     public static Composition startComposition() { return new Composition(); }
     public static final class Composition {
         public static final int PRIMITIVE_TICK = 1, PRIMITIVE_CLICK = 2;
-        public Composition addPrimitive(int primitive, float scale) { return this; }
-        public VibrationEffect compose() { return new VibrationEffect(); }
+        private int primitiveCount;
+        public Composition addPrimitive(int primitive, float scale) { primitiveCount++; return this; }
+        public VibrationEffect compose() { return new VibrationEffect(primitiveCount); }
     }
 }
 ''',
@@ -83,6 +89,9 @@ public final class HapticsPendingCheck {
         var field = KeyboardHaptics.class.getDeclaredField("worker");
         field.setAccessible(true);
         ExecutorService worker = (ExecutorService) field.get(null);
+        field = KeyboardHaptics.class.getDeclaredField("stepsWorker");
+        field.setAccessible(true);
+        ExecutorService stepsWorker = (ExecutorService) field.get(null);
         KeyboardHaptics.play(slow, null, HapticStrength.MEDIUM);
         if (!started.await(5, TimeUnit.SECONDS)) throw new AssertionError("worker did not enter vibrator");
         for (int i = 0; i < 20; i++) KeyboardHaptics.play(slow, null, HapticStrength.MEDIUM);
@@ -102,6 +111,45 @@ public final class HapticsPendingCheck {
         KeyboardHaptics.play(slow, null, HapticStrength.MEDIUM);
         worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
         if (calls.get() != 3) throw new AssertionError("absent vibrator did not reopen slot");
+
+        CountDownLatch stepsStarted = new CountDownLatch(1), stepsRelease = new CountDownLatch(1);
+        AtomicInteger stepCalls = new AtomicInteger(), stepPrimitives = new AtomicInteger();
+        Vibrator queued = new Vibrator() {
+            private boolean first = true;
+            @Override public synchronized boolean hasVibrator() {
+                if (first) {
+                    first = false;
+                    stepsStarted.countDown();
+                    try {
+                        if (!stepsRelease.await(5, TimeUnit.SECONDS)) throw new AssertionError("steps release missing");
+                    } catch (InterruptedException error) {
+                        throw new AssertionError(error);
+                    }
+                }
+                return true;
+            }
+            @Override public void vibrate(VibrationEffect effect) {
+                stepCalls.incrementAndGet();
+                stepPrimitives.addAndGet(effect.primitiveCount());
+            }
+        };
+        KeyboardHaptics.playSteps(queued, null, HapticStrength.MEDIUM, 2);
+        if (!stepsStarted.await(5, TimeUnit.SECONDS)) throw new AssertionError("steps worker did not enter vibrator");
+        KeyboardHaptics.playSteps(queued, null, HapticStrength.MEDIUM, 3);
+        stepsRelease.countDown();
+        stepsWorker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        if (stepCalls.get() < 1 || stepPrimitives.get() != 5)
+            throw new AssertionError("trackpad steps were not preserved: calls=" + stepCalls.get()
+                + ", primitives=" + stepPrimitives.get());
+
+        Vibrator broken = new Vibrator() {
+            @Override public boolean hasVibrator() { throw new IllegalStateException("dead vibrator"); }
+        };
+        KeyboardHaptics.playSteps(broken, null, HapticStrength.MEDIUM, 1);
+        stepsWorker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        KeyboardHaptics.playSteps(queued, null, HapticStrength.MEDIUM, 1);
+        stepsWorker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        if (stepCalls.get() != 3) throw new AssertionError("failed trackpad vibration did not reopen slot: calls=" + stepCalls.get());
     }
 }
 '''

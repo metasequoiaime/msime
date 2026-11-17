@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
 import { answerConfirm } from "../support/confirm";
+import { testHost } from "../support/host";
 // Not re-exported from the package root; take it from the module that owns it.
 import {
   DICTIONARY_PAGE_SIZE,
@@ -47,10 +48,18 @@ function dictionaryClient(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function openDictionary(dictionary: ReturnType<typeof dictionaryClient>) {
+async function openDictionary(
+  dictionary: ReturnType<typeof dictionaryClient>,
+  host?: Parameters<typeof testHost>[0],
+) {
   render(
     <SettingsPage
-      client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        dictionary: dictionary as never,
+        host: host ? testHost(host) : undefined,
+      }}
     />,
   );
   await settingsFormReady();
@@ -124,6 +133,30 @@ test("a bundled row is badged and has no edit or delete actions", async () => {
   expect(screen.queryByRole("button", { name: "调权重" })).toBeNull();
   expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(1);
   expect(screen.queryByDisplayValue("电话")).toBeNull();
+});
+
+test("macOS can re-weight or delete bundled quick phrases", async () => {
+  const bundled: DictionaryEntry = {
+    kind: "quick_phrase",
+    key: "addr",
+    value: "示例地址",
+    weight: 500,
+    source: "bundled",
+  };
+  const dictionary = dictionaryClient({
+    list: vi.fn().mockResolvedValue({ entries: [bundled], has_more: false }),
+  });
+  await openDictionary(dictionary, { platform: "macos" });
+  expect(screen.getByRole("button", { name: "调权重" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "删除" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "调权重" }));
+  const key = screen.getByRole("textbox", { name: "编码" }) as HTMLInputElement;
+  const value = screen.getByRole("textbox", { name: /^短语/ }) as HTMLInputElement;
+  expect(key.value).toBe("addr");
+  expect(value.value).toBe("示例地址");
+  expect(key.readOnly).toBe(true);
+  expect(value.readOnly).toBe(true);
 });
 
 test("Android personal dictionary JSON import previews and queues only after confirmation", async () => {

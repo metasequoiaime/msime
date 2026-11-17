@@ -1,6 +1,6 @@
 //! 统计页的派生指标：从 [`TypingStatistics`] 算出概览、习惯、按键和徽章，所有平台读同一份结果。
 //!
-//! 只有 Android 的统计页用这些派生指标。这里只有纯函数：日期由宿主传入，不读时钟，结果只取决于参数。
+//! 这里只有纯函数：日期由宿主传入，不读时钟，结果只取决于参数。
 
 use super::{TypingBreakdown, TypingStatistics, HOURS};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,17 @@ const NIGHT_HOURS: [usize; 5] = [23, 0, 1, 2, 3];
 /// 「早起鸟」计入的本地小时：4 点到 5 点，也就是早上 6 点以前。
 const EARLY_HOURS: [usize; 2] = [4, 5];
 /// 算作双拼的输入来源。
-const SHUANGPIN_SOURCES: [&str; 5] = ["shuangpin", "ziranma", "microsoft", "shoudao", "smart_abc"];
+const SHUANGPIN_SOURCES: [&str; 9] = [
+    "shuangpin",
+    "ziranma",
+    "microsoft",
+    "shoudao",
+    "smart_abc",
+    "sogou",
+    "jiajia",
+    "ziguang",
+    "guobiao",
+];
 /// 每字按键数的分子除了 `KeyA`–`KeyZ`，还有九键上带字母的 2–9 格；其余按键（空格、退格、符号）不是在拼字。
 const NINE_SPELLING_KEYS: [&str; 8] = [
     "Nine2", "Nine3", "Nine4", "Nine5", "Nine6", "Nine7", "Nine8", "Nine9",
@@ -135,6 +145,8 @@ pub struct TypingSummary {
     pub habits: HabitsSummary,
     pub keys: KeysSummary,
     pub achievements: Vec<AchievementSummary>,
+    /// 截至宿主今天最近 30 个记录日，按日期倒序。
+    pub daily_details: Vec<super::DailyDetailRow>,
 }
 
 /// 16 枚徽章，顺序就是统计页的排列顺序。分组决定奖章的配色，和原型 `proto_script.js` 一致，所以「夜猫子」「早起鸟」和连续天数同组。
@@ -399,6 +411,7 @@ pub fn summarize(
         habits,
         keys,
         achievements,
+        daily_details: super::daily_details::daily_details(statistics, today),
     }
 }
 

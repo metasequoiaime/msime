@@ -32,8 +32,6 @@ const ACTIVE_GAP_LIMIT_MS: u64 = 10_000;
 pub const MAX_VOICE_MS_PER_CALL: u64 = 600_000;
 /// `skins_tried` 最多记这么多款。徽章只要 5 款，上限只防止文件被一个出错的宿主无限撑大。
 pub const MAX_SKINS_TRIED: usize = 64;
-/// 连续输入（`current_run`、`longest_run`）只在 Android 上记：只有 Android 的统计页显示它，其他宿主写出的统计文件保持原样。测试里也打开，好覆盖计法。
-const TRACKS_TYPING_RUNS: bool = cfg!(any(target_os = "android", test));
 /// `record` 攒下的上屏，距上次读写这个目录的统计文件满这么久后，由下一次上屏一起写出。
 ///
 /// 每次上屏都整份读、解析、重写并 fsync 统计文件（Apple 上是 F_FULLFSYNC），在低端手机上英文模式每个字母一次，耗电发热；30 秒写一次是维护者定下的跨平台约定，宿主另在键盘收起、输入框失焦和进程退出前调 `flush`。进程被杀时最多丢这么久的计数，与按键热力图的批次相同。
@@ -41,7 +39,13 @@ pub const COMMIT_FLUSH_INTERVAL_MS: u64 = 30_000;
 /// 一个目录最多攒这么多次上屏，到了就写，不再等 [`COMMIT_FLUSH_INTERVAL_MS`]：只为给内存设个上限，正常打字 30 秒到不了。
 const MAX_PENDING_COMMITS: usize = 1024;
 
+mod daily_details;
+mod key_languages;
 mod metrics;
+pub use daily_details::DailyDetailRow;
+pub use key_languages::{
+    is_common_key_id, KeyCounts, KeyLanguage, KeyLanguageCounts, KeySourceCounts,
+};
 /// 每日计数上传到云端（用户打开「上传到云端」后）。
 pub mod upload;
 pub use metrics::{
@@ -114,7 +118,7 @@ where
     Ok(StatisticsRetention::parse(&value))
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TypingSource {
     Quanpin,
@@ -129,6 +133,10 @@ pub enum TypingSource {
     Shoudao,
     #[serde(rename = "smart_abc")]
     SmartAbc,
+    Sogou,
+    Jiajia,
+    Ziguang,
+    Guobiao,
     Wubi,
     Japanese,
     Korean,
@@ -158,6 +166,10 @@ impl TypingSource {
             Self::Microsoft => "microsoft",
             Self::Shoudao => "shoudao",
             Self::SmartAbc => "smart_abc",
+            Self::Sogou => "sogou",
+            Self::Jiajia => "jiajia",
+            Self::Ziguang => "ziguang",
+            Self::Guobiao => "guobiao",
             Self::Wubi => "wubi",
             Self::Japanese => "japanese",
             Self::Korean => "korean",
@@ -650,6 +662,9 @@ pub struct TypingStatistics {
     /// Not tied to `days`: keys are pressed on days that commit nothing (navigation, deleting, typing into an app with the input method in English), so a day may appear here and nowhere else. Absent from files written before this existed, which `default` reads as no key history.
     #[serde(default)]
     pub daily_keys: BTreeMap<String, BTreeMap<String, u64>>,
+    /// 每日按键的语言聚合；功能键归通用键，旧宿主缺少来源的可打印键归未分类。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub daily_key_languages: BTreeMap<String, KeyLanguageCounts>,
     /// How long recorded days are kept.
     #[serde(default, deserialize_with = "retention_or_forever")]
     pub retention: StatisticsRetention,
@@ -659,10 +674,10 @@ pub struct TypingStatistics {
     /// what "first" is measured against. It is a day key, not a clock reading.
     #[serde(default)]
     pub last_pruned_day: String,
-    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零。下面六项只有 Android 写入；为空时不序列化，其他宿主写出的文件与加这几项之前相同。
+    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零；为空时不序列化。
     #[serde(default, skip_serializing_if = "CommitEfficiency::is_empty")]
     pub efficiency: CommitEfficiency,
-    /// 正在进行的这段连续输入，由 `record_at` 按活跃间隔累加或重新开始（只在 [`TRACKS_TYPING_RUNS`] 时）。
+    /// 正在进行的这段连续输入，由各宿主共用的 `record_at` 按活跃间隔累加或重新开始。
     #[serde(default, skip_serializing_if = "TypingRun::is_empty")]
     pub current_run: TypingRun,
     /// 单次最长的连续输入；并列时保留先出现的那段。
@@ -698,6 +713,7 @@ impl Default for TypingStatistics {
             daily_active_ms: BTreeMap::new(),
             daily_hours: BTreeMap::new(),
             daily_keys: BTreeMap::new(),
+            daily_key_languages: BTreeMap::new(),
             last_commit_ms: 0,
             retention: StatisticsRetention::Forever,
             last_pruned_day: String::new(),
@@ -802,6 +818,7 @@ impl TypingStatistics {
             validate_day(day).map_err(|_| TypingStatisticsError::InvalidDocument)?;
             validate_key_counts(keys)?;
         }
+        self.validate_key_languages()?;
         if !self.efficiency.is_consistent() {
             return Err(TypingStatisticsError::InvalidDocument);
         }
@@ -862,6 +879,7 @@ impl TypingStatistics {
         self.daily_active_ms.retain(|day, _| *day >= boundary);
         self.daily_hours.retain(|day, _| *day >= boundary);
         self.daily_keys.retain(|day, _| *day >= boundary);
+        self.daily_key_languages.retain(|day, _| *day >= boundary);
         self.daily_voice_ms.retain(|day, _| *day >= boundary);
         // Subtraction keeps whatever `total` and `detail` hold beyond the per-day records, which a document written by an older build can have. Where that leaves the counters out of step with each other - `total` below the retained days, or a category sum above `total` - validate() would reject the document this write produces, so fall back to what the retained days themselves say.
         let retained = self
@@ -923,23 +941,21 @@ impl TypingStatistics {
                 .saturating_add(active_ms)
                 .min(MAX_ACTIVE_MS_PER_DAY);
         }
-        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。只有 Android 的统计页显示它。
-        if TRACKS_TYPING_RUNS {
-            if active_ms > 0 && self.current_run.characters > 0 {
-                self.current_run.characters = self
-                    .current_run
-                    .characters
-                    .saturating_add(count)
-                    .min(MAX_COUNT);
-            } else {
-                self.current_run = TypingRun {
-                    characters: count,
-                    day: day.to_owned(),
-                };
-            }
-            if self.current_run.characters > self.longest_run.characters {
-                self.longest_run = self.current_run.clone();
-            }
+        // 连续输入：所有宿主都按同一活跃间隔累加或重新开始，统计开关仍由写入入口检查。
+        if active_ms > 0 && self.current_run.characters > 0 {
+            self.current_run.characters = self
+                .current_run
+                .characters
+                .saturating_add(count)
+                .min(MAX_COUNT);
+        } else {
+            self.current_run = TypingRun {
+                characters: count,
+                day: day.to_owned(),
+            };
+        }
+        if self.current_run.characters > self.longest_run.characters {
+            self.longest_run = self.current_run.clone();
         }
         // Never moves backwards. A clock set back would otherwise make every later commit look
         // like it followed a huge pause, and the first one after the correction would be counted
@@ -1243,8 +1259,9 @@ impl TypingStatisticsStore {
         let bytes = crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
             TypingStatisticsError::InvalidDocument
         })?;
-        let value: TypingStatistics = serde_json::from_slice(&bytes)?;
+        let mut value: TypingStatistics = serde_json::from_slice(&bytes)?;
         value.validate()?;
+        value.include_unclassified_keys();
         self.observe_file(&value);
         Ok(value)
     }
@@ -1547,48 +1564,6 @@ impl TypingStatisticsStore {
             .map(|(enabled, _)| enabled)
     }
 
-    /// Count key presses for `day`, each entry adding `count` presses of one [`KEY_IDS`] key, under one lock, one read and at most one write. Returns how many presses were added.
-    ///
-    /// `day` is the local day the presses happened on. A host that batches across midnight flushes the old day's counts under the old day before it counts anything for the new one; stamping them with the day of the flush would move typing onto a day it did not happen on.
-    ///
-    /// The batch is applied whole or not at all. An unknown key id or a zero count rejects it before the document is opened, because either one means the host is sending something this contract does not describe, and keeping the valid part would hide that. An empty batch touches nothing on disk, and statistics being off drops the batch without writing, the same answers `record_selections` gives. Retention runs on the first write of a day, exactly as `record` does it.
-    pub fn record_keys(
-        &self,
-        day: &str,
-        keys: &BTreeMap<String, u64>,
-    ) -> Result<u64, TypingStatisticsError> {
-        validate_day(day)?;
-        if keys
-            .iter()
-            .any(|(key, count)| *count == 0 || !is_known_key_id(key))
-        {
-            return Err(TypingStatisticsError::InvalidKey);
-        }
-        let presses = keys
-            .values()
-            .try_fold(0_u64, |sum, count| sum.checked_add(*count))
-            .filter(|sum| *sum <= MAX_COUNT)
-            .ok_or(TypingStatisticsError::CountExhausted)?;
-        if presses == 0 {
-            return Ok(0);
-        }
-        let lock = self.lock()?;
-        let mut value = self.read_locked(&lock)?;
-        if !value.enabled {
-            return Ok(0);
-        }
-        let day_keys = value.daily_keys.entry(day.to_owned()).or_default();
-        for (key, count) in keys {
-            checked_increment(day_keys, key, *count)?;
-        }
-        if value.last_pruned_day != day {
-            value.apply_retention(day);
-            value.last_pruned_day = day.to_owned();
-        }
-        self.write_locked(&lock, &value)?;
-        Ok(presses)
-    }
-
     /// 记一次语音输入的时长，计在宿主给出的本地日 `day` 上，返回记入的毫秒数。
     ///
     /// `milliseconds` 为 0 或超过 [`MAX_VOICE_MS_PER_CALL`] 时整次拒绝，因为那说明宿主的计时出了错。统计关闭时不写，返回 0；一天累计不超过一天的毫秒数。保留期和 `record` 一样在每天第一次写入时执行。
@@ -1727,6 +1702,7 @@ impl TypingStatisticsStore {
         value.daily_active_ms.clear();
         value.daily_hours.clear();
         value.daily_keys.clear();
+        value.daily_key_languages.clear();
         // Including when typing last happened: it is the only field that survives a reset by
         // saying anything about the user at all.
         value.last_commit_ms = 0;

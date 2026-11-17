@@ -1,4 +1,7 @@
+#include "../src/settings/DictionaryCollectionsLauncher.h"
 #include "../src/settings/LocalTranslationLauncher.h"
+#include "../src/settings/QuickPhraseClearLauncher.h"
+#include "../src/core/SettingsSyncWorker.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
 #include "../src/candidates/EmbeddedTranslation.h"
@@ -74,6 +77,9 @@
 #include "../src/core/MenuLabels.h"
 #include "../src/core/ReplacedProgram.h"
 #include "../src/overlay/ModeBadgePlacement.h"
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+#include "../src/overlay/ModeHudDeferredUpdate.h"
+#endif
 #ifdef MSIME_FCITX5_MODE_BADGE
 #include "../src/overlay/ModeBadgeSurface.h"
 #endif
@@ -110,6 +116,7 @@
 #include "../src/core/JsonInteger.h"
 #include "../src/clipboard/CloudClipboardRoute.h"
 #include "../src/system/TypingStatistics.h"
+#include "../src/system/TypingKeyPressRequest.h"
 #include "SystemTheme.h"
 #include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
@@ -417,6 +424,9 @@ Json readOptions() {
 bool fcitx_dictionary_sync_started = false;
 
 void startDictionarySync(const Json &options) {
+  if (const auto directory = options.find("preferences_directory");
+      directory != options.end() && directory->is_string())
+    (void)msime::linux_host::start_settings_sync(directory->get_ref<const std::string &>());
   if (fcitx_dictionary_sync_started) return;
   try {
     const auto directory = options.value("preferences_directory", std::string{});
@@ -432,6 +442,7 @@ void startDictionarySync(const Json &options) {
 
 // 插件的代码在 Fcitx5 卸载它之后不能再运行：与 fcitx_detached_jobs 一样等后台线程真正退出（正在跑的那一次同步受锁的 5 秒等待和每个请求的超时约束）。
 void stopDictionarySync() {
+  (void)msime_client_settings_sync_stop(UINT32_MAX);
   if (!fcitx_dictionary_sync_started) return;
   (void)msime_client_dictionary_sync_stop(UINT32_MAX);
   fcitx_dictionary_sync_started = false;
@@ -554,6 +565,8 @@ bool emojiGroupsResultCurrent(const Json &result, uint64_t generation,
 
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
+  if (std::strcmp(panel, "quick-phrase-clear") == 0)
+    return msime::linux_host::launch_quick_phrase_clear();
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command) command = MSIME_EDITION_SETTINGS_PROGRAM;
   // About, help, feedback and the local dictionary are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
@@ -584,11 +597,27 @@ class FcitxState : public fcitx::InputContextProperty {
 public:
   // system_dark is the engine's last probed appearance, so a context opened between probes starts in it rather than in light until the next change.
   FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop, bool system_dark)
-      : ic_(ic), engine_(engine), loop_(&loop), system_dark_(system_dark) {
+      : ic_(ic), engine_(engine), loop_(&loop), system_dark_(system_dark)
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+        , mode_hud_deferred_update_(loop)
+#endif
+  {
     wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
         [this](msime::linux_host::WaveOverlayModel::Action action) { handleVoiceOverlayAction(action); });
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
+          // 焦点不在这里、也没有会话时这一批刷新无事可做：失焦时 close() 已经放掉会话、
+          // 写完按键统计、收起浮层，剩下的读取只对活着的会话有意义。而 Fcitx5 会为进过的
+          // 每个输入框各留一份 FcitxState 和它自己的这一拍，照旧每拍跑一遍，成本随今天点过
+          // 的窗口数线性叠加：每一拍都要经宿主 ABI 读偏好与 provider 套接字（各是一次 JSON），
+          // 还会把 UI 更新推给前端。跳到下一拍，只留下保存重试这类真正需要跑完的任务。
+          const bool idle = !ic_.hasFocus() && !session_ && !preferences_job_.valid() &&
+                            !preferences_save_job_.valid();
+          if (idle) {
+            timer->setNextInterval(250000);
+            timer->setOneShot();
+            return true;
+          }
           refreshDictionaryQuiesce();
           refreshProviderSockets();
           refreshPreferences();
@@ -628,6 +657,9 @@ public:
   }
   ~FcitxState() override { close(); }
   void close() {
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+    mode_hud_deferred_update_.cancel();
+#endif
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     if (native_canvas_) native_canvas_->hide();
     discardExpanded();
@@ -767,6 +799,9 @@ public:
   // 菜单动作能否作用到这个上下文：有焦点，或者它是失焦后托盘仍然指向的那一个。FcitxEngine 在这里只是前向声明，定义在它之后。
   bool menuTarget() const;
   void clearPanel() {
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+    mode_hud_deferred_update_.cancel();
+#endif
 #ifndef MSIME_FCITX5_CUSTOM_IM_INFORMATION
     mode_hud_aux_id_++;
     mode_hud_aux_timer_.reset();
@@ -4192,7 +4227,7 @@ public:
   // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复只开新的一轮、不出声不画，见 keyDown。
   std::uint32_t typing_combo_ = 0;
   msime::linux_host::KeyRepeat key_repeat_;
-  // Every key event MSIME receives passes through here before key() routes it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; a raw code below 8 has no evdev key behind it (a synthetic event, such as a panel's typed key).
+  // 在 key() 分派前采集物理键及来源，包含组字和透传。raw code 小于 8 的合成事件不计入。
   void countKeyPress(const fcitx::KeyEvent &event) {
     const auto code = event.rawKey().code();
     if (code < 8) return;
@@ -4213,22 +4248,21 @@ public:
     if (id.empty() || options_path_.empty() || options_path_.front() != '/') return;
     const auto day = msime::linux_host::local_day(std::time(nullptr));
     if (day.empty()) return;
-    flushKeyPresses(key_presses_.add(id, options_path_, day, now));
+    const auto source = msime::linux_host::typing_key_press_source(
+        input_enabled_, view_, [this] { return typingSource(); });
+    flushKeyPresses(key_presses_.add(id, options_path_, day, now, source));
   }
   // Writes the pending key presses now, for FcitxEngine's teardown.
   void flushPendingKeyPresses() { flushKeyPresses(key_presses_.take()); }
-  // Sends one batch to the store's record_keys operation on the calling thread.
+  // 在调用线程上写出一批按键总计和按下时的来源快照。
   static void writeKeyPresses(const msime::linux_host::KeyPressBatch &pending) {
     try {
-      const auto request = Json{
-          {"directory", pending.directory},
-          {"action", Json{{"operation", "record_keys"}, {"day", pending.day}, {"keys", pending.keys}}}}
-                               .dump();
+      const auto request = msime::linux_host::typing_key_press_request(pending).dump();
       if (auto *raw = msime_client_typing_statistics(
               reinterpret_cast<const uint8_t *>(request.data()), request.size()))
         msime::host_api::discard_string(raw);
     } catch (...) {
-      // Statistics are best effort and must never affect typing.
+      // 统计失败不能影响输入。
     }
   }
   // Writes a batch of key press counts on its own thread, as recordTypingStatistics does for commits, or on the loop once the addon is unloading (see ~FcitxEngine).
@@ -4519,6 +4553,9 @@ public:
   std::unique_ptr<fcitx::EventSourceIO> wave_overlay_io_;
   int wave_overlay_io_fd_ = -1;
   bool system_dark_ = false;
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+  msime::linux_host::ModeHudDeferredUpdate mode_hud_deferred_update_;
+#endif
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
   bool translation_candidates_active_ = false;
@@ -5917,7 +5954,9 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (!state || state->restricted() ||
           (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)) return;
-      if (std::strcmp(panel_, "local-translation") == 0)
+      if (std::strcmp(panel_, "dictionary-groups") == 0)
+        msime::linux_host::launch_dictionary_collections(state->options_path_);
+      else if (std::strcmp(panel_, "local-translation") == 0)
         msime::linux_host::launch_local_translation(state->options_path_);
       else launchDesktopPanel(panel_);
     } catch (...) {}
@@ -7042,7 +7081,7 @@ public:
     };
     return loop;
   }
-  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。只在开关开着、有上下文接手时才建；建不出来（没有 X 服务器）时记下来不再重试，之后只有状态区的「工具栏」子菜单。
+  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。只在纯 X11 开关开着、有上下文接手时才建；Wayland 或没有 X 服务器时沿状态区的「工具栏」子菜单回退。
   msime::linux_host::FloatingToolbar *floatingToolbar(bool create) {
     if (!floating_toolbar_ && create && !floating_toolbar_unavailable_) {
       msime::linux_host::FloatingToolbar::Options options;
@@ -7388,6 +7427,9 @@ public:
     // 手写、屏幕键盘、表情面板、云词库、云剪贴板和「显示工具栏」与 macOS 一样挂在状态区顶层（arrangeStatusArea）；这里只剩 macOS 菜单里没有的入口。手写识别板只认汉字，不提供手写的版本（日文、越南文和藏文版，LinuxEdition.h 的 MSIME_EDITION_HANDWRITING 为 0）不列它，见 arrangeStatusArea。
     desktop_tools_menu_.addAction(&desktop_clipboard_action_);
     desktop_tools_menu_.addAction(&desktop_voice_action_);
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+    desktop_tools_menu_.addAction(&quick_phrase_clear_action_);
+#endif
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
     desktop_tools_menu_.addAction(&reload_service_action_);
@@ -7413,7 +7455,13 @@ public:
              {&website_action_, MSIME_EDITION_FCITX5_ADDON "-website"},
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+             {&quick_phrase_clear_action_, MSIME_EDITION_FCITX5_ADDON "-quick-phrase-clear"},
+#endif
              {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+             {&dictionary_groups_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary-groups"},
+#endif
              {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
              {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
              {&scheme_quanpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-quanpin"},
@@ -7907,6 +7955,9 @@ public:
 #ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
         {&local_translation_action_, true},
 #endif
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+        {&dictionary_groups_action_, true},
+#endif
         {&settings_action_, true}, {&about_action_, true},
         {&dictionary_action_, true}, {&maintenance_action_, focused}, {&nine_key_action_, true},
         {&clipboard_action_, focused}, {&cloud_clipboard_action_, focused}, {&emoji_action_, focused},
@@ -8263,6 +8314,12 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+  FcitxDesktopPanelAction quick_phrase_clear_action_{&factory_, "quick-phrase-clear", "清空快捷短语…"};
+#endif
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+  FcitxDesktopPanelAction dictionary_groups_action_{&factory_, "dictionary-groups", "词库分组…"};
+#endif
   FcitxDesktopPanelAction local_translation_action_{&factory_, "local-translation", "本地模型翻译…"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", msime::linux_host::menu_label::kSettings};
   FcitxToolbarAction toolbar_action_;
@@ -8375,13 +8432,9 @@ void FcitxState::refreshToolbar() {
   engine_->arrangeStatusArea(&ic_);
 }
 
-// 候选页下方的辅助行：页码、本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
+// 候选页下方的辅助行：本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」、打字连击（有的时候），页码排在最后。classicui 横排时把这一行画在候选那一行的开头，页码放在最前面会挡在拼音前头；macOS 首行把「1 / 3」靠右画在拼音后面，这里照那个顺序排。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string FcitxState::candidateAux() const {
-  const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
-  const auto page_count =
-      msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
-  std::string aux = msime::linux_host::candidate_page_indicator(page, page_count);
-  if (!preferences_.value("show_candidate_page_number", true)) aux.clear();
+  std::string aux;
   const auto mode = view_.value("local_mode", std::string("none"));
   if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))
     aux += (aux.empty() ? "" : " · ") + std::string(modeLabel);
@@ -8401,6 +8454,12 @@ std::string FcitxState::candidateAux() const {
   msime::linux_host::append_caret_edit_suffix_hint(aux, msime::linux_host::caret_edit_suffix(view_), " · ");
   const auto combo = msime::linux_host::typing_combo_label(typing_combo_);
   if (!combo.empty()) aux += (aux.empty() ? "" : " · ") + combo;
+  if (preferences_.value("show_candidate_page_number", true)) {
+    const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
+    const auto page_count =
+        msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
+    aux += (aux.empty() ? "" : " · ") + msime::linux_host::candidate_page_indicator(page, page_count);
+  }
   return aux;
 }
 
@@ -9036,12 +9095,19 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
   // 徽章已经放在光标旁时不再发面板提示：macOS 只显示一处。
   if (hint == msime::linux_host::ModeBadgeHint::CaretBadge) return;
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
-  if (auto *instance = engine_->instance()) {
+  if (engine_->instance()) {
+    mode_hud_deferred_update_.schedule(label, [this](const std::string &deferred_label) {
+      // Fcitx5 的自定义提示会同步刷新输入面板；把它排到按键或焦点事件返回后，避免 Qt 输入法模块在事件栈内重入。
+      if (!ic_.hasFocus() || restricted() || privateInput()) return;
+      auto *deferred_instance = engine_->instance();
+      if (!deferred_instance) return;
 #ifdef MSIME_FCITX5_HINT_FONT
-    instance->showCustomInputMethodInformation(&ic_, engine_->modeHintLabel(ic_.display(), label));
+      deferred_instance->showCustomInputMethodInformation(&ic_,
+          engine_->modeHintLabel(ic_.display(), deferred_label));
 #else
-    instance->showCustomInputMethodInformation(&ic_, label);
+      deferred_instance->showCustomInputMethodInformation(&ic_, deferred_label);
 #endif
+    });
   }
 #else
   // 5.1.11 以前的开发头没有 showCustomInputMethodInformation；辅助行仍是 Fcitx5 的稳定接口。

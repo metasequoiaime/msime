@@ -88,6 +88,13 @@ int main() {
     auto corrected_cloud = corrected;
     corrected_cloud.candidates[1].badge = " ☁️";
     require(candidate_primary_text(corrected_cloud.candidates[1]) == "五* ☁️");
+
+    auto cloud_view = view();
+    cloud_view["candidates"][1]["source"] = 2;
+    const auto cloud_shown = candidate_presentation_from_view(lease, cloud_view, 0, 0, "", false, true);
+    require(cloud_shown.candidates[1].badge == " ☁️");
+    const auto cloud_hidden = candidate_presentation_from_view(lease, cloud_view, 0, 0, "", false, false);
+    require(cloud_hidden.candidates[1].badge.empty());
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

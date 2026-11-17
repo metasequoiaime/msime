@@ -8,6 +8,8 @@
 #include "PredictionPolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
+#include "SkinTypingStatistics.h"
+#include "../voice/VoiceTypingStatistics.h"
 #include <ctime>
 #include <memory>
 #include <stdexcept>
@@ -62,11 +64,25 @@ void record_typing_statistics_async(const std::string &directory,
 }
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
-                              const std::map<std::string, uint64_t> &keys) {
-  auto request = typing_statistics_record_keys_request(directory, day, keys);
+                              const std::map<std::string, uint64_t> &keys,
+                              std::string_view source) {
+  auto request = typing_statistics_record_keys_request(directory, day, keys, source);
   if (request.empty())
     return;
   submit_typing_statistics_request(std::move(request));
+}
+void record_voice_duration_async(const std::string &directory, uint64_t milliseconds) {
+  const auto local = local_time_parts(std::time(nullptr));
+  if (!local)
+    return;
+  auto request = typing_statistics_record_voice_request(directory, local->day, milliseconds);
+  if (!request.empty())
+    submit_typing_statistics_request(std::move(request));
+}
+void record_skin_statistics_async(const std::string &directory, const std::string &id) {
+  auto request = typing_statistics_record_skin_request(directory, id);
+  if (!request.empty())
+    submit_typing_statistics_request(std::move(request));
 }
 std::optional<FocusedSession::Commit> FocusedSession::pending_commit() const {
   if (!composer_ || !composer_->has_pending())
@@ -165,6 +181,7 @@ bool FocusedSession::prepare(const FocusLease &lease) {
         composer_->cancel();
       preferences_retry_.reset();
       continuation_hide_.clear();
+      late_hide_eligible_ = false;
       // 先算好此刻的字段属性再获得焦点：activate 在 msime_client_focus(true) 之前把它原样再报一次，脚本运行时据此确认属性、把 focus_in 交给脚本。激活的会话随后成为背景音乐的所有者，放不放也看这时的属性，密码框和全屏前台都不放。
       refresh_field_traits();
       session_.activate(lease.epoch);
@@ -191,6 +208,7 @@ FocusedSession::key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
   gate_.with_active(lease, [&] {
     result = composer_->dispatch(session_, packet, lease.epoch, path, uiless,
                                  std::move(local_text));
+    late_hide_eligible_ = result && result->host_navigation.has_value();
     publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
@@ -261,6 +279,7 @@ FocusedSession::navigate(const FocusLease &lease,
   std::optional<PendingReply> result;
   gate_.with_active(lease, [&] {
     result = composer_->navigate(session_, packet, lease.epoch, bindings);
+    late_hide_eligible_ = result && result->host_navigation.has_value();
     publish_commit_feedback(result);
     attach_online_query(lease, result);
   });
@@ -444,6 +463,16 @@ bool FocusedSession::set_chinese_punctuation(const FocusLease &lease, bool enabl
     session_.set_chinese_punctuation(lease.epoch, enabled);
   });
 }
+bool FocusedSession::set_character_width(const FocusLease &lease, bool fullwidth) {
+  check_thread();
+  if (!prepared(lease))
+    return false;
+  return gate_.with_active(lease, [&] {
+    if (composer_->has_pending())
+      throw std::logic_error("Character width changed before reply delivery");
+    session_.set_character_width(lease.epoch, fullwidth);
+  });
+}
 bool FocusedSession::balance_paired_punctuation(const FocusLease &lease,
                                                 uint8_t opening) {
   check_thread();
@@ -463,10 +492,11 @@ bool FocusedSession::cancel_composition(const FocusLease &lease) {
     session_.cancel_composition(lease.epoch);
     composer_->cancel();
     continuation_hide_.clear();
+    late_hide_eligible_ = false;
   });
 }
 HideCandidateDisposition
-FocusedSession::hide_candidate(const FocusLease &lease) {
+FocusedSession::hide_candidate(const FocusLease &lease, bool late) {
   check_thread();
   if (!prepared(lease))
     return HideCandidateDisposition::Rejected;
@@ -475,6 +505,15 @@ FocusedSession::hide_candidate(const FocusLease &lease) {
     if (composer_->has_pending())
       throw std::logic_error("Composition hidden before reply delivery");
     const auto current = session_.view();
+    // 方向键等候选导航会先确认 Engine 的新视图，TIP 随后才补发旧的隐藏通知。
+    // 这类通知已经由 SessionPump 标记为延迟，不能把刚确认的组字一起取消。
+    if (late && late_hide_eligible_ &&
+        !current.at("editing_text").get<std::string>().empty()) {
+      late_hide_eligible_ = false;
+      disposition = HideCandidateDisposition::Late;
+      return;
+    }
+    late_hide_eligible_ = false;
     if (continuation_hide_.consume(ContinuationHide::Clock::now()) &&
         !current.at("editing_text").get<std::string>().empty()) {
       disposition = HideCandidateDisposition::Suppressed;
@@ -521,6 +560,7 @@ bool FocusedSession::cancel(const FocusLease &lease) {
   composer_->cancel();
   preferences_retry_.reset();
   continuation_hide_.clear();
+  late_hide_eligible_ = false;
   session_.set_active(false);
   session_.deactivate(lease.epoch);
   composer_.reset();
@@ -537,13 +577,18 @@ bool FocusedSession::cancel_focus_token(uint64_t token) {
     return true;
   return cancel(*lease_);
 }
-std::optional<nlohmann::json>
+SettledRerankResult
 FocusedSession::rerank_settled(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))
-    return std::nullopt;
-  std::optional<nlohmann::json> result;
-  gate_.with_active(lease, [&] { result = session_.rerank_settled(lease.epoch); });
+    return {};
+  SettledRerankResult result;
+  gate_.with_active(lease, [&] {
+    if (composer_->has_pending()) result.pending = true;
+    // 释义页沿用底层列表的代次；页面关闭前既不启动评分，也不接收在途评分。
+    else if (composer_->translation_page() == 0)
+      result = session_.rerank_settled(lease.epoch);
+  });
   return result;
 }
 std::optional<nlohmann::json>
@@ -675,6 +720,7 @@ std::optional<PendingReply> FocusedSession::configured_key(
       result = composer_->configured_key(session_, packet, lease.epoch, style,
                                          bindings, std::move(local_text),
                                          word_binding);
+      late_hide_eligible_ = result && result->host_navigation.has_value();
     }
     // 上屏音在派发时已经由核心出过，这里只画上屏特效；之后才构建在线查询，不给它们添延迟。
     publish_commit_feedback(result);

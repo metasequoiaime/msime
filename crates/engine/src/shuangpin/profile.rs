@@ -290,6 +290,225 @@ static SMART_ABC: ShuangpinProfile = ShuangpinProfile {
     ],
 };
 
+// 搜狗、加加、紫光和国标双拼的键位按公开方案表独立转录；这里只保存声韵母到键的映射，不复制第三方配置文件。
+static SOGOU: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Sogou,
+    initials: &[("sh", "u"), ("ch", "i"), ("zh", "v")],
+    zero_initials: &[
+        ("a", "oa"),
+        ("ai", "ol"),
+        ("an", "oj"),
+        ("ang", "oh"),
+        ("ao", "ok"),
+        ("e", "oe"),
+        ("ei", "oz"),
+        ("en", "of"),
+        ("eng", "og"),
+        ("er", "or"),
+        ("o", "oo"),
+        ("ou", "ob"),
+    ],
+    finals: &[
+        ("iu", "q"),
+        ("ei", "z"),
+        ("e", "e"),
+        ("uan", "r"),
+        ("ue", "t"),
+        ("ve", "t"),
+        ("un", "p"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "x"),
+        ("a", "a"),
+        ("ong", "s"),
+        ("iong", "s"),
+        ("ai", "l"),
+        ("en", "f"),
+        ("eng", "g"),
+        ("ang", "h"),
+        ("an", "j"),
+        ("uai", "y"),
+        ("ing", ";"),
+        ("uang", "d"),
+        ("iang", "d"),
+        ("ou", "b"),
+        ("ua", "w"),
+        ("ia", "w"),
+        ("ao", "k"),
+        ("ui", "v"),
+        ("v", "y"),
+        ("in", "n"),
+        ("iao", "c"),
+        ("ian", "m"),
+    ],
+};
+
+static JIAJIA: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Jiajia,
+    initials: &[("sh", "i"), ("ch", "u"), ("zh", "v")],
+    // 拼音加加的零声母音节以自身首字母作声母键，再按韵母键（a→aa、ai→as、en→er、er→eq）；a、e、o 都不是加加的声母键，这些码不会与声母加韵母的码冲突。
+    zero_initials: &[
+        ("a", "aa"),
+        ("ai", "as"),
+        ("an", "af"),
+        ("ang", "ag"),
+        ("ao", "ad"),
+        ("e", "ee"),
+        ("ei", "ew"),
+        ("en", "er"),
+        ("eng", "et"),
+        ("er", "eq"),
+        ("o", "oo"),
+        ("ou", "op"),
+    ],
+    finals: &[
+        ("iu", "n"),
+        ("ei", "w"),
+        ("e", "e"),
+        ("uan", "c"),
+        ("ue", "x"),
+        ("ve", "x"),
+        ("un", "z"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "m"),
+        ("a", "a"),
+        ("ong", "y"),
+        ("iong", "y"),
+        ("ai", "s"),
+        ("en", "r"),
+        ("eng", "t"),
+        ("ang", "g"),
+        ("an", "f"),
+        ("uai", "x"),
+        ("ing", "q"),
+        ("uang", "h"),
+        ("iang", "h"),
+        ("ou", "p"),
+        ("ua", "b"),
+        ("ia", "b"),
+        ("ao", "d"),
+        ("ui", "v"),
+        ("v", "v"),
+        ("in", "l"),
+        ("iao", "k"),
+        ("ian", "j"),
+    ],
+};
+
+static ZIGUANG: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Ziguang,
+    initials: &[("sh", "i"), ("ch", "a"), ("zh", "u")],
+    zero_initials: &[
+        ("a", "oa"),
+        ("ai", "op"),
+        ("an", "or"),
+        ("ang", "os"),
+        ("ao", "oq"),
+        ("e", "oe"),
+        ("ei", "ok"),
+        ("en", "ow"),
+        ("eng", "ot"),
+        ("er", "oj"),
+        ("o", "oo"),
+        ("ou", "oz"),
+    ],
+    finals: &[
+        ("iu", "j"),
+        ("ei", "k"),
+        ("e", "e"),
+        ("uan", "l"),
+        ("ue", "n"),
+        ("ve", "n"),
+        ("un", "m"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "d"),
+        ("a", "a"),
+        ("ong", "h"),
+        ("iong", "h"),
+        ("ai", "p"),
+        ("en", "w"),
+        ("eng", "t"),
+        ("ang", "s"),
+        ("an", "r"),
+        ("uai", "y"),
+        ("ing", ";"),
+        ("uang", "g"),
+        ("iang", "g"),
+        ("ou", "z"),
+        ("ua", "x"),
+        ("ia", "x"),
+        ("ao", "q"),
+        ("ui", "n"),
+        // 紫光双拼的单韵母 ü 留在 V 上（zh 在 U 上，V 空着），只有 üe、ue、ui 在 N 上；与 ue 同键会让 jue、que、xue、yue 解码成 ju、qu、xu、yu。
+        ("v", "v"),
+        ("in", "y"),
+        ("iao", "b"),
+        ("ian", "f"),
+    ],
+};
+
+static GUOBIAO: ShuangpinProfile = ShuangpinProfile {
+    kind: ShuangpinProfileKind::Guobiao,
+    initials: &[("sh", "u"), ("ch", "i"), ("zh", "v")],
+    zero_initials: &[
+        ("a", "aa"),
+        ("ai", "ak"),
+        ("an", "af"),
+        ("ang", "ag"),
+        ("ao", "ac"),
+        ("e", "ae"),
+        ("ei", "ab"),
+        ("en", "ar"),
+        ("eng", "ah"),
+        ("er", "al"),
+        ("o", "ao"),
+        ("ou", "ap"),
+    ],
+    finals: &[
+        ("iu", "y"),
+        ("ei", "b"),
+        ("e", "e"),
+        ("uan", "w"),
+        ("ue", "x"),
+        ("ve", "x"),
+        ("un", "z"),
+        ("u", "u"),
+        ("i", "i"),
+        ("uo", "o"),
+        ("o", "o"),
+        ("ie", "t"),
+        ("a", "a"),
+        ("ong", "s"),
+        ("iong", "s"),
+        ("ai", "k"),
+        ("en", "r"),
+        ("eng", "h"),
+        ("ang", "g"),
+        ("an", "f"),
+        ("uai", "y"),
+        ("ing", "j"),
+        ("uang", "n"),
+        ("iang", "n"),
+        ("ou", "p"),
+        ("ua", "q"),
+        ("ia", "q"),
+        ("ao", "c"),
+        ("ui", "v"),
+        ("v", "v"),
+        ("in", "l"),
+        ("iao", "m"),
+        ("ian", "d"),
+    ],
+};
+
 impl ShuangpinProfile {
     /// 有韵母放在 `;` 上，或零声母编码以 `;` 结尾。这时方案在奇数长度的片段之后接受 `;`，宿主把 `;` 当字母键送进来（`EngineSnapshot::microsoft_shuangpin`）。
     pub fn uses_semicolon_key(&self) -> bool {
@@ -314,6 +533,10 @@ pub fn profile(kind: ShuangpinProfileKind) -> Option<&'static ShuangpinProfile> 
         ShuangpinProfileKind::Shoudao => Some(&SHOUDAO),
         ShuangpinProfileKind::Microsoft => Some(&MICROSOFT),
         ShuangpinProfileKind::SmartAbc => Some(&SMART_ABC),
+        ShuangpinProfileKind::Sogou => Some(&SOGOU),
+        ShuangpinProfileKind::Jiajia => Some(&JIAJIA),
+        ShuangpinProfileKind::Ziguang => Some(&ZIGUANG),
+        ShuangpinProfileKind::Guobiao => Some(&GUOBIAO),
         ShuangpinProfileKind::Custom => None,
     }
 }
@@ -397,6 +620,10 @@ mod tests {
             ShuangpinProfileKind::Shoudao,
             ShuangpinProfileKind::Microsoft,
             ShuangpinProfileKind::SmartAbc,
+            ShuangpinProfileKind::Sogou,
+            ShuangpinProfileKind::Jiajia,
+            ShuangpinProfileKind::Ziguang,
+            ShuangpinProfileKind::Guobiao,
         ] {
             let selected = profile(kind).unwrap();
             assert_eq!(selected.kind, kind);
@@ -404,7 +631,12 @@ mod tests {
             assert_eq!(selected.finals.len(), 33);
             assert_eq!(
                 selected.uses_semicolon_key(),
-                kind == ShuangpinProfileKind::Microsoft
+                matches!(
+                    kind,
+                    ShuangpinProfileKind::Microsoft
+                        | ShuangpinProfileKind::Sogou
+                        | ShuangpinProfileKind::Ziguang
+                )
             );
         }
         assert!(profile(ShuangpinProfileKind::Custom).is_none());
@@ -426,6 +658,72 @@ mod tests {
         let xiaohe = profile(ShuangpinProfileKind::Xiaohe).unwrap();
         assert_eq!(key_of(xiaohe.initials, "zh"), Some("v"));
         assert_eq!(key_of(xiaohe.finals, "ing"), Some("k"));
+        let sogou = profile(ShuangpinProfileKind::Sogou).unwrap();
+        assert_eq!(key_of(sogou.finals, "ing"), Some(";"));
+        assert_eq!(key_of(sogou.finals, "iang"), Some("d"));
+        let jiajia = profile(ShuangpinProfileKind::Jiajia).unwrap();
+        assert_eq!(key_of(jiajia.initials, "sh"), Some("i"));
+        assert_eq!(key_of(jiajia.finals, "ing"), Some("q"));
+        assert_eq!(key_of(jiajia.zero_initials, "ai"), Some("as"));
+        assert_eq!(key_of(jiajia.zero_initials, "an"), Some("af"));
+        assert_eq!(key_of(jiajia.zero_initials, "en"), Some("er"));
+        assert_eq!(key_of(jiajia.zero_initials, "er"), Some("eq"));
+        assert_eq!(key_of(jiajia.zero_initials, "ou"), Some("op"));
+        let ziguang = profile(ShuangpinProfileKind::Ziguang).unwrap();
+        assert_eq!(key_of(ziguang.initials, "ch"), Some("a"));
+        assert_eq!(key_of(ziguang.finals, "ing"), Some(";"));
+        assert_eq!(key_of(ziguang.finals, "v"), Some("v"));
+        assert_eq!(key_of(ziguang.finals, "ve"), Some("n"));
+        let guobiao = profile(ShuangpinProfileKind::Guobiao).unwrap();
+        assert_eq!(key_of(guobiao.finals, "iang"), Some("n"));
+        assert_eq!(key_of(guobiao.zero_initials, "a"), Some("aa"));
+    }
+
+    /// 每个内置方案都要能把每个可接受的音节编成码，并按同一方案解回原音节；`encode_pinyin` 本身就会核对解码结果。jv、qv、xv、yv 只是 ju、qu、xu、yu 的别名，解码时归一成 u，不单独编码。
+    #[test]
+    fn every_built_in_profile_round_trips_every_accepted_syllable() {
+        use super::super::utils::{cvt_single_sp_to_pinyin, encode_pinyin};
+        for kind in [
+            ShuangpinProfileKind::Xiaohe,
+            ShuangpinProfileKind::Ziranma,
+            ShuangpinProfileKind::Shoudao,
+            ShuangpinProfileKind::Microsoft,
+            ShuangpinProfileKind::SmartAbc,
+            ShuangpinProfileKind::Sogou,
+            ShuangpinProfileKind::Jiajia,
+            ShuangpinProfileKind::Ziguang,
+            ShuangpinProfileKind::Guobiao,
+        ] {
+            let selected = profile(kind).unwrap();
+            let mut failed: Vec<&str> = accepted_syllables()
+                .iter()
+                .copied()
+                .filter(|syllable| !matches!(*syllable, "jv" | "qv" | "xv" | "yv"))
+                .filter(|syllable| encode_pinyin(syllable, selected).is_none())
+                .collect();
+            failed.sort_unstable();
+            // 首道双拼的 den 与它的零声母码冲突，一直编不出来（convert_eval 的 grid_keys 也这样断言）。
+            let expected: &[&str] = if kind == ShuangpinProfileKind::Shoudao {
+                &["den"]
+            } else {
+                &[]
+            };
+            assert_eq!(failed, expected, "{kind:?}");
+        }
+        let jiajia = profile(ShuangpinProfileKind::Jiajia).unwrap();
+        for (code, syllable) in [("as", "ai"), ("af", "an"), ("er", "en"), ("eq", "er")] {
+            assert_eq!(cvt_single_sp_to_pinyin(code, jiajia), syllable);
+        }
+        let ziguang = profile(ShuangpinProfileKind::Ziguang).unwrap();
+        for (code, syllable) in [
+            ("nv", "nv"),
+            ("lv", "lv"),
+            ("nn", "nve"),
+            ("xn", "xue"),
+            ("yn", "yue"),
+        ] {
+            assert_eq!(cvt_single_sp_to_pinyin(code, ziguang), syllable);
+        }
     }
 
     #[test]

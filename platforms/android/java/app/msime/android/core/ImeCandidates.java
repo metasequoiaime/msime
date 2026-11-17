@@ -16,6 +16,7 @@ import org.json.JSONObject;
 /** 候选按钮的构建与样式、展开的候选面板和长按候选打开的释义卡片；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
 final class ImeCandidates {
     private final MSIMEInputService s;
+    private final CandidateStripSizing stripSizing;
     private String styleCacheKey;
     private int selectedBackground;
     private int selectedText;
@@ -40,7 +41,10 @@ final class ImeCandidates {
 
     ImeCandidates(MSIMEInputService s) {
         this.s = s;
+        stripSizing = new CandidateStripSizing(s);
     }
+
+    int stripHeightDp(int glossRows) { return stripSizing.heightDp(glossRows); }
 
     /** 每次外观变化只解析一次；候选包生效时，候选按钮与候选面板使用同一套配色。 */
     private void ensureStyleCache() {
@@ -319,7 +323,7 @@ final class ImeCandidates {
             s.imeNineKeyPanel.dismiss();
             return;
         }
-        // 全拼九键的三栏面板：选拼音、⌫、筛选换了一代候选时不收起，重新取完整候选再画；组字结束时 eligible 为假，落到下面按代次收起。普通网格按代次收起，部分选词后由 selectPanelCandidate 先换上新一代的快照再画，走不到这里的收起。
+        // 九键三栏自行跟随筛选换代；普通网格在部分选词或同次组字的异步刷新时先同步快照，其他换代仍收起。
         if (s.imeNineKeyPanel.eligible() && s.imeNineKeyPanel.refreshSnapshot()) {
             if (!ViewPolicy.isGone(s.expandedCandidates)) {
                 s.expandedCandidates.removeAllViews();

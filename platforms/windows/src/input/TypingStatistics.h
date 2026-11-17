@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/TypingSource.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -15,133 +16,6 @@
 #include <utility>
 
 namespace msime::windows {
-// Private aggregate typing statistics for the Windows Server.
-//
-// The Server is the only process that sees every committed string, so it is
-// where the shared store is fed from. Nothing here retains text: the string is
-// handed straight to `msime_client_typing_statistics`, which classifies it in
-// memory and persists counts only. Same enum and identifiers as the Linux and
-// macOS hosts, because they all write the same document.
-enum class TypingSource {
-  Quanpin,
-  NineKey,
-  Shuangpin,
-  Ziranma,
-  Microsoft,
-  Shoudao,
-  Wubi,
-  Japanese,
-  Korean,
-  Cantonese,
-  Zhuyin,
-  Vietnamese,
-  Tibetan,
-  Stroke,
-  Handwriting,
-  English,
-  Local,
-  Ai,
-  Reply,
-  Voice,
-  Unknown,
-  SmartAbc,
-};
-
-constexpr std::string_view typing_source_id(TypingSource source) {
-  switch (source) {
-  case TypingSource::Quanpin:
-    return "quanpin";
-  case TypingSource::NineKey:
-    return "nineKey";
-  case TypingSource::Shuangpin:
-    return "shuangpin";
-  case TypingSource::Ziranma:
-    return "ziranma";
-  case TypingSource::Microsoft:
-    return "microsoft";
-  case TypingSource::Shoudao:
-    return "shoudao";
-  case TypingSource::SmartAbc:
-    return "smart_abc";
-  case TypingSource::Wubi:
-    return "wubi";
-  case TypingSource::Japanese:
-    return "japanese";
-  case TypingSource::Korean:
-    return "korean";
-  case TypingSource::Cantonese:
-    return "cantonese";
-  case TypingSource::Zhuyin:
-    return "zhuyin";
-  case TypingSource::Vietnamese:
-    return "vietnamese";
-  case TypingSource::Tibetan:
-    return "tibetan";
-  case TypingSource::Stroke:
-    return "stroke";
-  case TypingSource::Handwriting:
-    return "handwriting";
-  case TypingSource::English:
-    return "english";
-  case TypingSource::Local:
-    return "local";
-  case TypingSource::Ai:
-    return "ai";
-  case TypingSource::Reply:
-    return "reply";
-  case TypingSource::Voice:
-    return "voice";
-  case TypingSource::Unknown:
-    return "unknown";
-  }
-  return "unknown";
-}
-
-// 共享引擎在视图里用数字表示方案：0 全拼、1 双拼、2 五笔、3 日文、4 韩文、5 粤拼、6 注音、7 越南文、8 藏文、9 笔画。本地模式优先于键盘方案，与 Android、Apple 和 Linux 宿主一致。
-constexpr TypingSource
-resolve_typing_source(int scheme, bool nine_key, bool dedicated_english,
-                      std::string_view local_mode,
-                      std::string_view shuangpin_profile) {
-  if (local_mode == "temporary_japanese")
-    return TypingSource::Japanese;
-  if (!local_mode.empty() && local_mode != "none")
-    return TypingSource::Local;
-  if (dedicated_english)
-    return TypingSource::English;
-  switch (scheme) {
-  case 0:
-    return nine_key ? TypingSource::NineKey : TypingSource::Quanpin;
-  case 1:
-    if (shuangpin_profile == "ziranma")
-      return TypingSource::Ziranma;
-    if (shuangpin_profile == "microsoft")
-      return TypingSource::Microsoft;
-    if (shuangpin_profile == "shoudao")
-      return TypingSource::Shoudao;
-    if (shuangpin_profile == "smart_abc")
-      return TypingSource::SmartAbc;
-    return TypingSource::Shuangpin;
-  case 2:
-    return TypingSource::Wubi;
-  case 3:
-    return TypingSource::Japanese;
-  case 4:
-    return TypingSource::Korean;
-  case 5:
-    return TypingSource::Cantonese;
-  case 6:
-    return TypingSource::Zhuyin;
-  case 7:
-    return TypingSource::Vietnamese;
-  case 8:
-    return TypingSource::Tibetan;
-  case 9:
-    return TypingSource::Stroke;
-  default:
-    return TypingSource::Unknown;
-  }
-}
-
 // Attribute a commit to the mode that produced it, not to the mode left behind.
 // Committing can clear a local mode, so `commit_context` - the Engine's own
 // record of the scheme and local mode in force when the key was dispatched - is
@@ -240,14 +114,13 @@ inline std::string typing_statistics_record_request(std::string_view directory,
 inline std::string
 typing_statistics_record_keys_request(std::string_view directory,
                                       const std::string &day,
-                                      const std::map<std::string, uint64_t> &keys) {
+                                      const std::map<std::string, uint64_t> &keys,
+                                      std::string_view source = {}) {
   if (keys.empty() || directory.empty() || day.size() != 10)
     return {};
-  return nlohmann::json{{"directory", std::string(directory)},
-                        {"action", nlohmann::json{{"operation", "record_keys"},
-                                                  {"day", day},
-                                                  {"keys", keys}}}}
-      .dump();
+  nlohmann::json action{{"operation", "record_keys"}, {"day", day}, {"keys", keys}};
+  if (!source.empty()) action["sources"] = nlohmann::json{{std::string(source), keys}};
+  return nlohmann::json{{"directory", std::string(directory)}, {"action", std::move(action)}}.dump();
 }
 
 // The statistics switch as the Aux listener sees it. The listener must answer every statistics message within the DLL's 150 ms window, but the store keeps its enabled flag behind the same exclusive file lock a detached record holds for a whole read, validate, serialize and fsync, so asking the store from the listener thread makes the second message of a multi-part batch wait on the first one's write. The listener answers from this cached copy instead; a copy older than `lifetime` is refreshed on a detached thread while the stale answer is returned. A stale "on" records nothing, because the store checks the switch itself on every write; a stale "off" only delays counting until the DLL's next probe.

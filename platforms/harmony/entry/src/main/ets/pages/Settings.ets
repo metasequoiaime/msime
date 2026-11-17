@@ -1,3 +1,5 @@
+import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
+import { NineKeyFlickPanel } from './NineKeyFlickPanel';
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
 import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
 import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
@@ -79,6 +81,7 @@ import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 import { HarmonySharedSandboxPolicy } from '../keyboard/HarmonySharedSandboxPolicy';
 import { SharedStateMirror } from '../keyboard/SharedStateMirror';
+import { SharedDictionaryResources } from '../keyboard/SharedDictionaryResources';
 import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { UserWordsMirror } from '../keyboard/UserWordsMirror';
 import {
@@ -665,6 +668,9 @@ struct Settings {
   });
   // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
   @State privacyGranted: boolean = false;
+  @State private showDictionaryGroups: boolean = false;
+  @State private showNineKeyFlick: boolean = false;
+  @State private flickRefresh: number = 0;
   // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
   private privacyRequired: boolean = false;
   // 本进程是否已经自动弹过一次；回到前台时的 onPageShow 不再弹。
@@ -724,6 +730,7 @@ struct Settings {
       this.bridge.resumeStatistics();
       this.bridge.syncShared();
       this.bridge.refreshPreferencesIfChanged();
+      this.flickRefresh++;
       this.loadNotices();
       // 从系统的输入法界面返回就是设置状态改变的途径，所以在这里重新读取，与 Android 的 `ImeSetup` 在获得焦点时重新检查一样。
       this.bridge.refreshSetupState();
@@ -735,6 +742,7 @@ struct Settings {
       this.bridge.publishShared();
     };
     EntryAbility.onOpenPage = (link: SettingsLinkRequest): void => {
+      if (this.showNineKeyFlick) this.closeNineKeyFlick();
       this.bridge.openPage(link);
     };
   }
@@ -764,12 +772,17 @@ struct Settings {
     this.loadNotices();
   }
 
-  /**
-   * 系统返回手势和返回键先走页面自己的历史。
-   *
-   * 页面为每个子页面和引导步骤压入一条历史记录并监听 `popstate`，所以在 web view 里后退就是回到上一屏。只有无处可退时手势才交给系统，即退出应用。
-   */
+  private closeNineKeyFlick(): void {
+    this.showNineKeyFlick = false;
+    this.bridge.refreshPreferencesIfChanged(true);
+  }
+
+  /** 系统返回先退出原生面板，再走已有页面历史；无处可退时交给系统。 */
   onBackPress(): boolean {
+    if (this.showNineKeyFlick) {
+      this.closeNineKeyFlick();
+      return true;
+    }
     try {
       if (this.controller.accessBackward()) {
         this.controller.backward();
@@ -930,7 +943,17 @@ struct Settings {
   }
 
   build() {
+    Stack() {
     Column() {
+      if (!this.launchCover && !this.privacyRequired) {
+      Row() {
+        Blank()
+        Button('九键四向滑动').onClick((): void => { this.showNineKeyFlick = true; })
+        if (this.privacyGranted) {
+          Button('词库分组').onClick((): void => { this.showDictionaryGroups = true; })
+        }
+      }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      }
       if (this.notices.length > 0 && !this.noticeHeld) {
         this.noticeCard()
       }
@@ -981,6 +1004,23 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
+    .visibility(this.showDictionaryGroups || this.showNineKeyFlick ? Visibility.None : Visibility.Visible)
+    if (this.showNineKeyFlick) {
+      NineKeyFlickPanel({
+        loadPreferences: (): string => this.bridge.loadPreferences(),
+        savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+        refresh: this.flickRefresh,
+        back: (): void => this.closeNineKeyFlick()
+      })
+    }
+    if (this.showDictionaryGroups) {
+      DictionaryCollectionsPanel({
+        request: (action: string): Promise<string> => this.bridge.dictionaryCollections(action),
+        changed: (): void => this.bridge.publishShared(),
+        back: (): void => { this.showDictionaryGroups = false; }
+      })
+    }
+    }.width('100%').height('100%')
     // web view 背后的页面自身背景，让页面绘制前的那段时间和它周围的空隙在深色模式下不会闪白；页面告知它绘制的颜色后就用那个颜色。
     .backgroundColor(this.pageBackground.length > 0 ? this.pageBackground : $r('app.color.settings_page_background'))
   }
@@ -1001,6 +1041,8 @@ class SettingsBridge {
   private sharedSandboxAvailable: boolean = false;
   // 与键盘交换状态的共享沙箱镜像，拿不到共享目录时为 null；`sharedPublishTimer` 合并短时间内的多次改动，只发布一次。
   private sharedMirror: SharedStateMirror | null = null;
+  private sharedResources: SharedDictionaryResources | null = null;
+  private sharedResourcesReady: Promise<void> = Promise.resolve();
   private sharedPublishTimer: number = -1;
   // 与键盘交换「我的词条」（`UserWordsMirrorPolicy`）：上次做完时本方日志和键盘发布的标记、是否正在做、正在做时又被叫了一次，以及没做完时的重试。
   private userWordsMark: string | null = null;
@@ -1081,7 +1123,7 @@ class SettingsBridge {
       try { this.onboardingDone = (JSON.parse(seen) as OnboardingSeenValue).seen === true; }
       catch (_) { KeyboardLog.warn('onboarding seen marker is invalid'); }
     }
-    SharedStateMirror.resolve(context).then((groupDir: string | null): void => {
+    this.sharedResourcesReady = SharedStateMirror.resolve(context).then(async (groupDir: string | null): Promise<void> => {
       const sharedSandbox = HarmonySharedSandboxPolicy.status(groupDir);
       this.sharedSandboxAvailable = sharedSandbox.available;
       if (!sharedSandbox.available) {
@@ -1089,6 +1131,8 @@ class SettingsBridge {
         return;
       }
       this.sharedMirror = new SharedStateMirror(sharedSandbox.directory, context.filesDir);
+      this.sharedResources = new SharedDictionaryResources(this.sharedMirror, this.stateDirectory);
+      await this.sharedResources.prepare();
       this.syncShared();
     });
     this.accountBridge = new HarmonyAccountCloudBridge(context);
@@ -1246,14 +1290,8 @@ class SettingsBridge {
     }
   }
 
-  /**
-   * Hands the page the current document when it has moved since the page was given one.
-   *
-   * Called when the settings window comes back to the front, which on this host is the only moment
-   * a cross-process change can be noticed: the keyboard writes preferences from its toolbar and
-   * there is no listener between the two processes.
-   */
-  refreshPreferencesIfChanged(): void {
+  /** 回前台时按修订号通知已有页面；退出原生面板时强制交回快照，原生读写已记过修订号。 */
+  refreshPreferencesIfChanged(force: boolean = false): void {
     const reply: string = client.loadPreferences(this.stateDirectory);
     let current: number = this.observedRevision;
     try {
@@ -1266,7 +1304,7 @@ class SettingsBridge {
       KeyboardLog.error(`preference revision unreadable: ${describeError(error)}`);
       return;
     }
-    if (!PreferenceRevisionPolicy.changed(this.observedRevision, current)) {
+    if (!force && !PreferenceRevisionPolicy.changed(this.observedRevision, current)) {
       return;
     }
     this.observedRevision = current;
@@ -1709,7 +1747,7 @@ class SettingsBridge {
     return LocalVoiceModelPolicy.installReply(reply);
   }
 
-  /** 资源包只在设置进程安装；键盘进程通过 state/resource-packs 读已发布的整组文件。 */
+  /** 资源包只在设置进程安装，日文与五笔直接发布到键盘可只读访问的共享目录。 */
   private async resourcePack(document: string): Promise<string> {
     let action: ResourcePackAction;
     try {
@@ -1721,22 +1759,24 @@ class SettingsBridge {
     if (this.context === undefined || id.length > 128) {
       return JSON.stringify({ ok: false, error: 'resource_pack_invalid' });
     }
-    const root = this.stateDirectory;
-    if (action.operation === 'list') {
-      return client.resourcePacks(JSON.stringify({ state_root: root }));
-    }
     if (action.operation === 'cancel') {
       client.resourcePackCancel(id);
       return JSON.stringify({ ok: true, value: true });
     }
+    await this.sharedResourcesReady;
+    if (this.sharedResources !== null) await this.sharedResources.prepare();
+    const root = this.sharedResources === null ? this.stateDirectory : this.sharedResources.rootForPack(id);
+    if (action.operation === 'list') {
+      return this.resourcePacks();
+    }
     const request = JSON.stringify({ state_root: root, pack: id });
     if (action.operation === 'remove') {
-      return client.resourcePackRemove(request);
+      return this.sharedResources === null ? client.resourcePackRemove(request) : this.sharedResources.remove(id);
     }
     if (action.operation !== 'install') {
       return JSON.stringify({ ok: false, error: 'resource_pack_invalid' });
     }
-    const mirror = LocalVoiceModelPolicy.mirror(client.loadPreferences(root));
+    const mirror = LocalVoiceModelPolicy.mirror(client.loadPreferences(this.stateDirectory));
     const installRequest: Record<string, Object> = {};
     installRequest['state_root'] = root;
     installRequest['pack'] = id;
@@ -1747,6 +1787,7 @@ class SettingsBridge {
   }
 
   resourcePacks(): string {
+    if (this.sharedResources !== null) return this.sharedResources.list();
     return this.stateDirectory.length === 0
       ? JSON.stringify({ ok: false, error: 'invalid state root' })
       : client.resourcePacks(JSON.stringify({ state_root: this.stateDirectory }));
@@ -2465,7 +2506,7 @@ class SettingsBridge {
   }
 
   /** 词库页的命名词库：建、删、启停、加词、导入、装社区词库。导入可达 16 MiB，所以走 startRequest 在原生工作线程上做。 */
-  private dictionaryCollections(action: string): Promise<string> {
+  dictionaryCollections(action: string): Promise<string> {
     if (this.context === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'collections_io' }));
     }

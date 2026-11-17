@@ -22,7 +22,8 @@ use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::dictionary::DictRow;
 use crate::helpcode::{
-    match_single_helpcode, matches_double_helpcodes, HelpcodeKeymap, SingleHelpcodeMatch,
+    filter_candidates_with_double_helpcodes, match_single_helpcode, HelpcodeKeymap,
+    SingleHelpcodeMatch,
 };
 use crate::ime::online_batch::{
     replace_cached_online_candidate_batch, replace_online_candidate_batch,
@@ -53,7 +54,11 @@ use crate::types::{
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+mod mixed_initials;
 mod short_words;
+mod syllable_helpcode_order;
+
+use mixed_initials::has_mixed_initials;
 
 // 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
 const SMALL_PREFIX_DEDUP: usize = 64;
@@ -325,13 +330,7 @@ impl ShuangpinDictionary {
         candidates: &mut Vec<WordItem>,
         keymap: &HelpcodeKeymap,
     ) {
-        if self.syllable_helpcodes.is_empty() {
-            return;
-        }
-        candidates.retain(|item| {
-            !is_pinyin_word(item)
-                || satisfies_syllable_helpcodes(&self.syllable_helpcodes, &item.word, keymap)
-        });
+        syllable_helpcode_order::filter_and_demote(candidates, &self.syllable_helpcodes, keymap);
     }
 
     /// Series and helpcode answers carry the reranked sentence rows, which depend on the committed context. The C++ bypassed these caches while a model was loaded because its rows arrived asynchronously; scoring here is synchronous, so the trimmed context joins the key instead and a commit moves to fresh entries without clearing the context-free row cache (overlays.md §1.6.2). Without a reranker no answer reads the context, so the key stays the raw input.
@@ -492,7 +491,8 @@ impl ShuangpinDictionary {
             self.profile,
         ));
         let incomplete_tail = segments.split_last().is_some_and(|(last, leading)| {
-            !is_intact(last) && has_only_complete_pinyin_segments(leading)
+            !is_intact(last)
+                && (has_only_complete_pinyin_segments(leading) || has_mixed_initials(leading))
         });
         let mut candidates = self.generate(pure, segmentation, rows_key);
         // Every shorter prefix group follows, longest first; phrase creation picks from them (SD:215-231). The reference appended each group whole, so a word several groups answer (a manual delimiter leaves empty pieces, and ni'''nn'i holds the ni group three times) was listed once per group; a word already listed keeps its first, longest-prefix seat instead.
@@ -546,11 +546,7 @@ impl ShuangpinDictionary {
             segmentation,
             self.profile,
         ));
-        if !has_only_complete_pinyin_segments(&segments)
-            && !segments.split_last().is_some_and(|(last, leading)| {
-                !is_intact(last) && has_only_complete_pinyin_segments(leading)
-            })
-        {
+        if !has_only_complete_pinyin_segments(&segments) && !has_mixed_initials(&segments) {
             return Vec::new();
         }
         let mut options = self.sentence_tables.options(self.sentence_alternatives);
@@ -569,7 +565,7 @@ impl ShuangpinDictionary {
         let mut lookup = |span: &[String]| {
             // 先按辅助码过滤再做搜索，不能用普通查询的每段截断提前丢掉目标字。
             self.database
-                .query_lattice_span_with_trailing_initial(span, UNLIMITED_ROWS)
+                .query_lattice_span_with_mixed_initials(span, UNLIMITED_ROWS)
         };
         let mut paths = decode_constrained_sentences(&segments, &mut lookup, &options, accepts);
         if options.emit > 0 {
@@ -631,12 +627,9 @@ impl ShuangpinDictionary {
         options.personal = (!model.is_empty()).then_some(&*model);
         let database = &self.database;
         let span_limit = options.span_limit;
-        if segments.split_last().is_some_and(|(last, leading)| {
-            !is_intact(last) && has_only_complete_pinyin_segments(leading)
-        }) {
-            let mut lookup = |span: &[String]| {
-                database.query_lattice_span_with_trailing_initial(span, span_limit)
-            };
+        if has_mixed_initials(segments) {
+            let mut lookup =
+                |span: &[String]| database.query_lattice_span_with_mixed_initials(span, span_limit);
             let paths = decode_sentences(segments, &mut lookup, &options);
             merge_decoded(
                 candidates,
@@ -880,10 +873,7 @@ impl ShuangpinDictionary {
         let candidates = self.generate_series(pure, segmentation, &base_raw);
         let result = match help_codes.len() {
             1 => self.filter_with_single_helpcode(candidates, help_codes, raw, keymap),
-            2 => candidates
-                .into_iter()
-                .filter(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap))
-                .collect(),
+            2 => filter_candidates_with_double_helpcodes(candidates, help_codes, keymap),
             _ => return Vec::new(),
         };
         self.helpcode_cache_mut(help_codes.len(), reversed)
@@ -1366,9 +1356,20 @@ fn fill_single_helpcode_order(
     matches: &[SingleHelpcodeMatch],
     prefer_last: bool,
 ) -> usize {
+    // 输入辅助码表示用户不想要原首选；原首选命中且还有其他命中行时，放到命中组末尾。
+    let demote_first = matches.first().is_some_and(|matched| {
+        *matched != SingleHelpcodeMatch::None
+            && matches
+                .iter()
+                .skip(1)
+                .any(|other| *other != SingleHelpcodeMatch::None)
+    });
     let mut order_len = 0;
     for primary in [true, false] {
         for (index, matched) in matches.iter().enumerate() {
+            if demote_first && index == 0 {
+                continue;
+            }
             let selected = match matched {
                 SingleHelpcodeMatch::First => {
                     (!prefer_last && primary) || (prefer_last && !primary)
@@ -1383,6 +1384,11 @@ fn fill_single_helpcode_order(
                 order_len += 1;
             }
         }
+    }
+    if demote_first {
+        debug_assert!(order_len < order.len());
+        order[order_len] = 0;
+        order_len += 1;
     }
     for (index, matched) in matches.iter().enumerate() {
         if *matched == SingleHelpcodeMatch::None {
@@ -1638,7 +1644,7 @@ mod tests {
 
         let (result, unmatched) = reorder_single_helpcode_rows(rows, &matches, true);
 
-        assert_eq!(words(&result), ["甲", "丙"]);
+        assert_eq!(words(&result), ["丙", "甲"]);
         assert_eq!(words(&unmatched), ["乙"]);
     }
 
@@ -1657,7 +1663,7 @@ mod tests {
                 reorder_single_helpcode_rows(rows, &matches, false)
             });
 
-        assert_eq!(words(&result), ["甲", "乙", "丙"]);
+        assert_eq!(words(&result), ["乙", "丙", "甲"]);
         assert!(unmatched.is_empty());
         assert_eq!(
             allocations, 0,
@@ -1760,7 +1766,7 @@ mod tests {
             dictionary.filter_with_single_helpcode(candidates, "a", "", &keymap)
         });
 
-        assert_eq!(words(&filtered), ["你", "嗯", "好"]);
+        assert_eq!(words(&filtered), ["嗯", "你", "好"]);
         assert!(
             allocations < 12,
             "unexpected temporary allocations: {allocations}"

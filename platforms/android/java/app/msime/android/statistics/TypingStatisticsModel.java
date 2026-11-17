@@ -47,7 +47,7 @@ public final class TypingStatisticsModel {
     private static final Map<String, String> CHARACTER_KINDS = kinds();
     private static final Map<String, String> SOURCES = sources();
     private static final List<String> CHINESE_SOURCES = List.of(
-        "quanpin", "nineKey", "fourteenKey", "eighteenKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+        "quanpin", "nineKey", "fourteenKey", "eighteenKey", "shuangpin", "ziranma", "microsoft", "shoudao", "smart_abc", "sogou", "jiajia", "ziguang", "guobiao", "wubi",
         "cantonese", "zhuyin", "stroke");
 
     private final boolean enabled;
@@ -59,6 +59,7 @@ public final class TypingStatisticsModel {
     private final Map<String, Map<String, Long>> dailyCharacters;
     private final Map<String, Map<String, Long>> dailySources;
     private final Map<String, Map<String, Long>> dailyKeys;
+    private final TypingKeyLanguages keyLanguages;
 
     /**
      * @param days characters per `YYYY-MM-DD` day
@@ -73,6 +74,15 @@ public final class TypingStatisticsModel {
             Map<String, Map<String, Long>> dailyCharacters,
             Map<String, Map<String, Long>> dailySources,
             Map<String, Map<String, Long>> dailyKeys) {
+        this(enabled, total, retention, days, characters, commitSources, dailyCharacters,
+            dailySources, dailyKeys, new TypingKeyLanguages(Map.of()));
+    }
+
+    public TypingStatisticsModel(boolean enabled, long total, String retention,
+            Map<String, Long> days, Map<String, Long> characters, Map<String, Long> commitSources,
+            Map<String, Map<String, Long>> dailyCharacters,
+            Map<String, Map<String, Long>> dailySources,
+            Map<String, Map<String, Long>> dailyKeys, TypingKeyLanguages keyLanguages) {
         this.enabled = enabled;
         this.total = total;
         this.retention = retention;
@@ -82,6 +92,7 @@ public final class TypingStatisticsModel {
         this.dailyCharacters = dailyCharacters;
         this.dailySources = dailySources;
         this.dailyKeys = dailyKeys;
+        this.keyLanguages = keyLanguages;
     }
 
     public boolean enabled() { return enabled; }
@@ -206,6 +217,15 @@ public final class TypingStatisticsModel {
         return java.util.Collections.unmodifiableMap(result);
     }
 
+    /** 原生筛选消费共享层的语言桶，未选择语言时沿用完整总计。 */
+    public Map<String, Long> keysForDays(List<String> days, TypingKeyLanguages.Language language) {
+        return language == null ? keysForDays(days) : keyLanguages.keys(days, language);
+    }
+
+    public List<TypingKeyLanguages.Language> keyLanguagesForDays(List<String> days) {
+        return keyLanguages.available(days);
+    }
+
     /** The pressed keys of a scope, most pressed first, titled the way the page prints them. */
     private List<Slice> rankedKeys(String day) {
         Map<String, Long> counts = keys(day);
@@ -316,6 +336,11 @@ public final class TypingStatisticsModel {
         titles.put("ziranma", "自然码双拼");
         titles.put("microsoft", "微软双拼");
         titles.put("shoudao", "首道双拼");
+        titles.put("smart_abc", "智能 ABC 双拼");
+        titles.put("sogou", "搜狗双拼");
+        titles.put("jiajia", "加加双拼");
+        titles.put("ziguang", "紫光双拼");
+        titles.put("guobiao", "国标双拼");
         // 86 与 98 共用一个 `wubi` 来源，不按版本拆分，所以不带版本号。
         titles.put("wubi", "五笔");
         titles.put("japanese", "日语");

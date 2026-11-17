@@ -10931,6 +10931,7 @@ mod candidate_scorer;
 
 mod prediction_rerank;
 
+mod date_time_menu_order;
 mod deferred_scorer;
 mod grid_helpcode;
 mod sentence_pool;
@@ -11256,3 +11257,5 @@ fn the_fourteen_key_grid_is_offered_to_quanpin_and_wubi_only() {
         Err(RuntimeError::InvalidNineKeyScheme)
     ));
 }
+
+mod corrected_completion;

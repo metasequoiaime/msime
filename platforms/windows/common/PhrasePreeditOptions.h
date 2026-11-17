@@ -8,6 +8,7 @@ inline std::string phrase_preedit_options(const std::string &options) {
   auto document = nlohmann::json::parse(options);
   document["phrase_preedit"] = true;
   document["korean_romaja"] = true;
+  document["quick_phrase_candidates"] = true;
   return document.dump();
 }
 } // namespace msime::windows

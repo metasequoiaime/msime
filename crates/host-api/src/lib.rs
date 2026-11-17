@@ -12,7 +12,6 @@ use msime_client_core::edition::Edition;
 use msime_client_core::host_surface::{
     offered_input_schemes, HostCapabilities, HostPlatform, SurfaceRoute,
 };
-use msime_client_providers::ai::AiSuggestionRequest;
 use msime_client_services::dictionary::access::DictionaryAccess;
 /// 按用户的设置打一串键看候选，给 `msime-mcp candidates` 用。
 pub mod candidate_preview;
@@ -84,6 +83,8 @@ pub mod cloud_sync;
 mod dictionary;
 /// 「我的词条」经 WebDAV 网盘同步的宿主入口，见 `msime_client_dictionary_sync`。公开 [`dictionary_webdav::request_json`]，给直接链接这个 crate 的 Tauri 设置应用用，免得它绕一圈 C ABI。
 pub mod dictionary_webdav;
+/// 设置与可移植主题的 WebDAV 同步宿主入口。
+pub mod settings_webdav;
 /// 同一台设备上两个各有一份个人词库的进程之间交换「我的词条」，见 `msime_client_user_words_mirror`。
 mod user_words_mirror;
 // The exports live in `ffi`, but Rust consumers - this crate's own tests and
@@ -201,6 +202,7 @@ pub mod lifecycle;
 mod plugin_tables;
 // 对共享状态目录没有写权限的宿主怎么准备运行时（iOS 键盘没有完全访问，#10945）。
 mod read_only_state;
+mod shared_dictionary_resources;
 // 脚本插件：进程开关、每会话的实例和进程级的模块缓存、熔断。移动端是空壳。
 mod scripts;
 mod voice_capture;
@@ -299,7 +301,7 @@ thread_local! {
 struct HostSession {
     runtime: Runtime,
     options: EngineOptions,
-    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
+    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（Windows、macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
     quick_phrase_candidates_requested: bool,
     /// 原始宿主能力；偏好重建时不能从已经回退的有效布局推断它。
     korean_romaja_requested: bool,
@@ -334,7 +336,7 @@ struct HostSession {
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
-    /// 还没写进打字统计的上屏，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计；读音在写入时于后台线程查，不在输入线程上查。
+    /// 还没写进打字统计的上屏，和 `pending_selections` 一起写；读音在写入时于后台线程查，不在输入线程上查。
     pending_efficiency: Vec<EfficiencyCandidate>,
     /// 本进程所知的打字统计开关（`TypingStatisticsStore::known_enabled`），每次交出选词时更新；`None` 是本进程还没读过统计文件，下次要计效率时再问。统计关闭时效率一项都不查。
     statistics_enabled: Option<bool>,
@@ -346,6 +348,7 @@ struct HostSession {
     plugin_tables: plugin_tables::PluginTables,
     /// 按需下载资源包所在的状态目录（HostOptions 的 `preferences_directory`），不是绝对路径时为空。
     state_root: Option<PathBuf>,
+    dictionary_resource_root: Option<PathBuf>,
     /// HostOptions 记录的 `language_dictionaries` 目录：资源包里没有某个词库时退回这里的那份。
     recorded_language_dictionaries: Option<PathBuf>,
     /// 会话打开后有资源包新装好（或被移除），`options` 里的词典路径已经更新，Engine 还要在输入空闲时重建。
@@ -751,9 +754,9 @@ impl HostSession {
         }
     }
 
-    /// 选中的候选在派发前的样子，供上屏后计效率：不记统计的会话、统计关闭、非 Android 宿主或找不到这个候选时为 `None`。
+    /// 选中的候选在派发前的样子，供上屏后计效率：不记统计的会话、统计关闭或找不到这个候选时为 `None`。
     fn efficiency_candidate(&mut self, action: &Action) -> Option<EfficiencyCandidate> {
-        if !COUNTS_COMMIT_EFFICIENCY || self.private_session() {
+        if self.private_session() {
             return None;
         }
         let id = match action {
@@ -985,10 +988,7 @@ impl HostSession {
                 .unwrap_or(preferences.candidate_page_size),
         );
         options.first_page_rows = usize::from(page_size);
-        // Unconditional, because `Runtime::crop_alternative_readings` runs whether or not a model is
-        // attached: the host always shows one whole-sentence reading. Asking for the rest only ever
-        // gives it more to choose from, and even with no model the engine's own pick among them is
-        // better than the one it makes when it searches without alternatives.
+        // Unconditional, because `Runtime::demote_runner_up_readings` (`ordering::runner_up_order_pinned`) runs whether or not a model is attached: the host keeps only the leading whole-sentence readings on the first page and moves the rest behind the list. Asking for the rest only ever gives it more to choose from, and even with no model the engine's own pick among them is better than the one it makes when it searches without alternatives.
         options.sentence_alternatives = true;
         apply_local_mode_resource_gates(&mut options, self.edition);
         options.paired_punctuation = preferences.paired_punctuation;
@@ -1225,7 +1225,10 @@ impl HostSession {
                 self.keyboard_reranker_source = source;
             }
         }
-        let downloaded = state_root.map(DownloadedDictionaries::new);
+        let downloaded = state_root.map(|root| {
+            DownloadedDictionaries::new(root)
+                .with_resource_root(self.dictionary_resource_root.as_deref())
+        });
         let dictionaries = LanguageDictionaries::resolve(
             downloaded.as_ref(),
             self.recorded_language_dictionaries.as_deref(),
@@ -1541,6 +1544,10 @@ fn profile_code(profile: ShuangpinProfile) -> u8 {
         ShuangpinProfile::Microsoft => 3,
         ShuangpinProfile::SmartAbc => 5,
         ShuangpinProfile::Custom => 4,
+        ShuangpinProfile::Sogou => 6,
+        ShuangpinProfile::Jiajia => 7,
+        ShuangpinProfile::Ziguang => 8,
+        ShuangpinProfile::Guobiao => 9,
     }
 }
 
@@ -1677,6 +1684,103 @@ pub fn builtin_shuangpin_custom_profile(
         finals: map(table.finals),
         zero_initials: map(table.zero_initials),
     })
+}
+
+/// 26 键双拼方案在宿主看来的样子：设置页和键盘从同一份表取键位提示，
+/// 自定义表不能用时按小鹤运行并保留问题给设置页显示。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinCustomLayout {
+    pub effective: ShuangpinProfile,
+    pub table: ShuangpinCustomProfile,
+    pub problem: Option<ShuangpinCustomProblem>,
+    pub keys: Vec<ShuangpinKeyFace>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ShuangpinKeyFace {
+    pub key: String,
+    pub hint: String,
+}
+
+const SHUANGPIN_KEY_ORDER: [&str; 27] = [
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a", "s", "d", "f", "g", "h", "j", "k", "l",
+    "z", "x", "c", "v", "b", "n", "m", ";",
+];
+
+fn shuangpin_key_hint(table: &ShuangpinCustomProfile, key: &str) -> String {
+    let units = |part: &std::collections::BTreeMap<String, String>| {
+        let mut values: Vec<String> = part
+            .iter()
+            .filter(|(_, mapped)| mapped.eq_ignore_ascii_case(key))
+            .map(|(unit, _)| {
+                unit.strip_prefix('v')
+                    .map_or_else(|| unit.clone(), |rest| format!("ü{rest}"))
+            })
+            .collect();
+        values.sort();
+        values.join(" ")
+    };
+    let initials = units(&table.initials);
+    let mut finals = units(&table.finals);
+    // 零声母的第二个键可以是 `;`（Engine 的 `uses_semicolon_key` 也这样算）：把这些音节也记在 `;` 上，键盘按 `;` 有没有提示决定显不显示这个键，否则只在零声母里用到 `;` 的表在触屏上打不出这些音节。
+    if key == ";" {
+        let mut zero: Vec<&str> = table
+            .zero_initials
+            .iter()
+            .filter(|(syllable, code)| {
+                code.ends_with(';') && !finals.split(' ').any(|unit| unit == syllable.as_str())
+            })
+            .map(|(syllable, _)| syllable.as_str())
+            .collect();
+        zero.sort_unstable();
+        if !zero.is_empty() {
+            if !finals.is_empty() {
+                finals.push(' ');
+            }
+            finals.push_str(&zero.join(" "));
+        }
+    }
+    match (initials.is_empty(), finals.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => finals,
+        (false, true) => initials,
+        (false, false) => format!("{initials} / {finals}"),
+    }
+}
+
+/// 26 键双拼方案的表、问题和每个字母键的提示。不落盘，编辑中的每次修改都可以调用。
+pub fn shuangpin_custom_layout(
+    profile: ShuangpinProfile,
+    custom: &ShuangpinCustomProfile,
+) -> ShuangpinCustomLayout {
+    let problem = (profile == ShuangpinProfile::Custom)
+        .then(|| custom_shuangpin_profile_problem(custom))
+        .flatten();
+    let effective = if profile == ShuangpinProfile::Custom && problem.is_some() {
+        ShuangpinProfile::Xiaohe
+    } else {
+        profile
+    };
+    let table = builtin_shuangpin_custom_profile(effective).unwrap_or_else(|| custom.clone());
+    let keys = SHUANGPIN_KEY_ORDER
+        .iter()
+        .filter_map(|key| {
+            let hint = shuangpin_key_hint(&table, key);
+            if hint.is_empty() {
+                return None;
+            }
+            Some(ShuangpinKeyFace {
+                key: key.to_ascii_uppercase(),
+                hint,
+            })
+        })
+        .collect();
+    ShuangpinCustomLayout {
+        effective,
+        table,
+        problem,
+        keys,
+    }
 }
 
 /// 把双拼方案写进 Engine 选项。选的是自定义方案时先让 Engine 校验用户的表：表是空的或不合法时按小鹤运行，返回原因，免得一张写坏的表让 Engine 建不起来、整个输入法停在旧会话上。
@@ -2056,7 +2160,7 @@ fn japanese_dictionary(downloaded: Option<&DownloadedDictionaries>) -> Option<Pa
     let downloaded = downloaded?;
     downloaded.updated_file("msime-japanese.dat").or_else(|| {
         resource_packs::installed_file(
-            downloaded.root,
+            downloaded.resource_root,
             ResourcePack::Japanese,
             "msime-japanese.dat",
         )
@@ -2073,9 +2177,9 @@ fn wubi_dictionary(
         return None;
     }
     let downloaded = downloaded?;
-    downloaded
-        .updated_file(name)
-        .or_else(|| resource_packs::installed_file(downloaded.root, ResourcePack::Wubi, name))
+    downloaded.updated_file(name).or_else(|| {
+        resource_packs::installed_file(downloaded.resource_root, ResourcePack::Wubi, name)
+    })
 }
 
 /// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。
@@ -2095,6 +2199,7 @@ pub(crate) fn wubi_dictionary_missing(resources: &Path, wubi_dictionary: &str) -
 /// 它只活在一次解析里，不跨调用保留：下一次聚焦或建会话重新读、重新做全部路径检查，所以设置应用随时换掉的选择记录下一次就会看到，没有要失效的缓存。
 pub(crate) struct DownloadedDictionaries<'a> {
     root: &'a Path,
+    resource_root: &'a Path,
     selection: std::cell::OnceCell<Option<msime_client_providers::dictionary_updates::Selection>>,
     /// 选择记录里桌面词库代次和语言词库代次的目录，校验通过时为 `Some`。
     verified: [std::cell::OnceCell<Option<PathBuf>>; 2],
@@ -2105,6 +2210,7 @@ impl<'a> DownloadedDictionaries<'a> {
     pub(crate) fn new(root: &'a Path) -> Self {
         DownloadedDictionaries {
             root,
+            resource_root: root,
             selection: std::cell::OnceCell::new(),
             verified: Default::default(),
             canonical_root: std::cell::OnceCell::new(),
@@ -2285,6 +2391,9 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    /// 日文、五笔按需资源包的独立根目录；只在内存里由宿主注入。缺省仍从偏好目录读取，不改变用户数据和词库更新的位置。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dictionary_resource_root: Option<String>,
     /// The host draws a half-composed phrase itself: picking a candidate that covers only part of
     /// the input leaves the chosen piece in `view.phrase_prefix` instead of committing it, and the
     /// whole phrase commits at once when the composition ends. Absent means the previous behaviour,
@@ -2304,7 +2413,7 @@ struct HostOptions {
     /// `true`：宿主在用户停顿时调 `msime_client_start_settled_rerank`（鸿蒙的键盘在停顿 150 ms 后调）。这样的宿主上，跑不进逐键预算的设备不再干脆不挂整句联想「增强」的模型，而是延后到停顿时用它把当前组字重解一遍，见 [`ffi::RerankerMount::KeystrokeOrPause`]。缺省是不调：模型跑不进预算就不挂，与以前相同。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pause_rerank: Option<bool>,
-    /// macOS 和 Linux 的两个宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持其他宿主和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
+    /// Windows、macOS 和 Linux 的宿主把普通组字里的快捷短语也作为候选显示；缺省关闭以保持未打开偏好的用户和旧文档的入口契约。建会话时写进 `EngineOptions`，偏好变更重建 Engine 时沿用同一份选项。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     quick_phrase_candidates: Option<bool>,
     /// 仅完成键盘接入的桌面宿主显式打开；缺字段时同步偏好仍按两套式运行。
@@ -2469,7 +2578,10 @@ impl HostOptions {
     fn into_engine_options(self) -> EngineOptions {
         // 每个平台都这样查找；桌面宿主按发布包是否省略日文词典和语言词库决定是否从状态目录读取已下载资源。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
-        let downloaded = state_root.as_deref().map(DownloadedDictionaries::new);
+        let resource_root = self.dictionary_resource_root();
+        let downloaded = state_root.as_deref().map(|root| {
+            DownloadedDictionaries::new(root).with_resource_root(resource_root.as_deref())
+        });
         let dictionaries = LanguageDictionaries::resolve(
             downloaded.as_ref(),
             self.language_dictionaries.as_deref().map(Path::new),
@@ -3339,6 +3451,7 @@ fn prepared_host_options(
                 .ok_or("non-UTF-8 state path")?
                 .to_owned(),
         ),
+        dictionary_resource_root: None,
         phrase_preedit: None,
         selection_statistics: None,
         keyboard_reranker: None,
@@ -4120,10 +4233,7 @@ fn selected_position(action: &Action) -> Option<usize> {
     }
 }
 
-/// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它多查读音。测试里也打开，好覆盖计法。
-const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
-
-/// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计（鸿蒙和 iOS 本来就不计上屏效率）。其他宿主不变。
+/// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。
 const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(
     target_os = "android",
     target_env = "ohos",

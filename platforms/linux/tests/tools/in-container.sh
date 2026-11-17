@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ ${MSIME_ISOLATED_LINUX_TEST:-} == 1 && -d /resources && -d /build ]] || exit 2
-# 不依赖构建产物的 Python 合约测试列在 python-contracts.list 里，legacy 包的运行时验收（legacy-runtime.sh）在 Python 3.7 上跑同一份清单。
+# AI 候选校验经 Rust 协议运行，先构建共享库；legacy 在已安装包的库上跑同一份清单。
+cargo build -p msime-host-api --locked
+export MSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
 mapfile -t contracts < platforms/linux/tests/tools/python-contracts.list
 for contract in "${contracts[@]}"; do
   python3 "$contract"
 done
-cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes
 import re
@@ -57,6 +58,7 @@ test -x /build/stage/usr/local/bin/msime-linux-ibus
 test -x /build/stage/usr/local/bin/msime-linux-dictionary
 test -x /build/stage/usr/local/bin/msime-linux-cloud-dictionary
 test -x /build/stage/usr/local/bin/msime-linux-cloud-clipboard
+test -x /build/stage/usr/local/bin/msime-linux-cloud-clipboard-sync
 test -x /build/stage/usr/local/bin/msime-linux-voice
 test -f /build/stage/usr/local/share/ibus/component/msime-linux.xml
 test -f /build/stage/usr/local/etc/xdg/autostart/msime-linux-clipboard.desktop

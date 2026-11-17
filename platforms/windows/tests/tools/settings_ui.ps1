@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
+. (Join-Path $PSScriptRoot 'settings_capture.ps1')
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -110,6 +111,7 @@ public static class SettingsWindowProbe {
 '@
 . (Join-Path $PSScriptRoot 'settings_wheel.ps1')
 . (Join-Path $PSScriptRoot 'settings_snapshot.ps1')
+. (Join-Path $PSScriptRoot 'settings_scheme_resources.ps1')
 $programPath = (Resolve-Path -LiteralPath $Program).Path
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
@@ -590,6 +592,18 @@ function Find-SliderValue($window, $slider) {
     }
     return $found
 }
+function Wait-CandidatePageViewport($window, [DateTime]$deadline) {
+    do {
+        try {
+            $content = Find-ById $window 'settings-content'
+            if ($content) { return $content.Current.BoundingRectangle }
+        } catch [System.Windows.Automation.ElementNotAvailableException] {
+            # 控件树刷新期间重新查询，不能解引用缺失或已失效的正文节点。
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw '设置正文未就绪，无法核对候选数量滑块'
+}
 function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
     $range = $slider.GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern)
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
@@ -598,7 +612,7 @@ function Assert-CandidatePageSizeLabel($window, $slider, [int]$expected) {
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
         $bounds = $slider.Current.BoundingRectangle
-        $viewport = (Find-ById $window 'settings-content').Current.BoundingRectangle
+        $viewport = Wait-CandidatePageViewport $window $deadline
         if ($slider.Current.IsOffscreen -or $bounds.Height -le 0 -or
             $bounds.Top -lt $viewport.Top -or $bounds.Bottom -gt $viewport.Bottom) { throw '数值变化后候选数量滑块离开可视区域' }
         $label = Find-SliderValue $window $slider
@@ -1307,7 +1321,7 @@ function Invoke-WubiLookup($window, [string]$text, [string]$header) {
     return $content
 }
 function Save-Window($element, [string]$file) {
-    $bounds = $element.Current.BoundingRectangle
+    $bounds = Get-SettingsCaptureBounds $element
     if ($bounds.Width -lt 600 -or $bounds.Height -lt 400) { throw 'Settings window bounds are invalid' }
     $bitmap = New-Object Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
     $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -1326,6 +1340,7 @@ function Save-Window($element, [string]$file) {
         $bitmap.Dispose()
     }
 }
+. (Join-Path $PSScriptRoot 'settings_quick_phrase.ps1')
 try {
     New-Item -ItemType Directory -Force $state | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $state
@@ -1363,6 +1378,7 @@ try {
         )
         [IO.File]::WriteAllText((Join-Path $state 'clipboard_history.json'), ($entries | ConvertTo-Json -Depth 8))
         $window = Start-SettingsWindow 'settings:input'
+        $window = Assert-QuickPhraseSettings $window
         # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
         $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
@@ -1535,6 +1551,12 @@ try {
                         foreach ($name in @('二三候选', '自动纠错')) {
                             if (Find-ByName $content $name) { throw "Input page still shows $name" }
                         }
+                        if ($pair[0] -eq 'selection' -and -not (Find-ByName $content 'Esc 保留已选词')) {
+                            throw 'Input selection tab is missing Esc 保留已选词'
+                        }
+                        if ($pair[0] -eq 'candidates' -and -not (Find-ByName $content '回车学英文词')) {
+                            throw 'Input candidates tab is missing 回车学英文词'
+                        }
                         # Vim 模式名单紧跟应用例外，在「中英文」组里，共享偏好 `vim_mode_apps`。
                         if ($pair[0] -eq 'mode' -and -not (Find-ByName $content 'Vim 模式的程序文件名')) { throw 'Input mode tab is missing the Vim mode list' }
                         Save-Window $window "$theme-$width-typing-$($pair[0]).png"
@@ -1592,6 +1614,8 @@ try {
                     $back.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
                     Select-PageTab $window 'lexicon-tab-manage' '导入与导出'
                     Select-PageTab $window 'lexicon-tab-cloud' '打开云词库'
+                    $cloudClear = Find-ById $window 'lexicon-clear-cloud-quick-phrases'
+                    if (-not $cloudClear -or -not $cloudClear.Current.IsEnabled -or $cloudClear.Current.IsOffscreen) { throw '云端快捷短语清空入口不可见或不可用' }
                     Save-Window $window "$theme-$width-lexicon-cloud.png"
                     Select-PageTab $window 'lexicon-tab-lookup' '词条或编码'
                 }
@@ -2089,6 +2113,7 @@ try {
         $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
     } while ($saved.preferences.scheme -ne 'wubi' -and [DateTime]::UtcNow -lt $deadline)
     if ($saved.preferences.scheme -ne 'wubi') { throw 'Scheme was not saved: wubi' }
+    Assert-SchemeResources $window (Join-Path $wubiRoot 'resources/msime-wubi.db')
     # 下拉框在方案组里，页面从顶上往下滚到它露出来为止，展开的列表才在截图里。
     $content = Find-ById $window 'settings-content'
     $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)

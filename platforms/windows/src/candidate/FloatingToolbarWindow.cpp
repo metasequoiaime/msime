@@ -1,4 +1,5 @@
 #include "FloatingToolbarWindow.h"
+#include "../../compat/WindowsVersion.h"
 #include "../../compat/WindowsDpi.h"
 #include "AccessibleWindow.h"
 #include "FloatingToolbarPlacement.h"
@@ -25,6 +26,8 @@
 
 namespace msime::windows {
 namespace {
+// Server 进程本身不声明每显示器 DPI；工具栏窗口必须在创建时继承 PMv2，避免 DWM 用进程 DPI 的重定向位图缩放整条工具栏。
+using DpiScope = msime::windows::compat::ThreadDpiScope;
 constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar" MSIME_EDITION_NAME_SUFFIX;
 constexpr int kWidth = 732;
 constexpr int kHeight = 52;
@@ -133,7 +136,7 @@ bool FloatingToolbarWindow::usable(int button) const {
 }
 ToolbarMenuAnchor FloatingToolbarWindow::menu_anchor(std::optional<size_t> index,
                                                      int x) const {
-  // 工具栏不感知 DPI，这里（它的窗口过程里）量到的外框和点击坐标都是逻辑坐标；弹出菜单在每显示器感知的上下文里按物理像素摆放，所以在每显示器感知的上下文里再量一次同一个外框，把锚点换过去。缩放不是 100% 时不换的话，菜单会开到离按钮很远的地方，副屏旁边还可能开到另一块屏上。
+  // 菜单锚点统一使用物理像素；显式进入每显示器 DPI 上下文，避免调用方的线程感知级别影响坐标。
   RECT window{};
   GetWindowRect(window_, &window);
   RECT physical = window;
@@ -291,6 +294,7 @@ void FloatingToolbarWindow::run(size_t position, const ModePresentation &value, 
 FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
     : reader_(std::move(reader)), click_(std::move(click)) {
   if (!reader_ || !click_) throw std::invalid_argument("Missing toolbar callback");
+  DpiScope dpi_scope;
   WNDCLASSEXW type{};
   type.cbSize = sizeof(type);
   type.lpfnWndProc = procedure;
@@ -299,7 +303,9 @@ FloatingToolbarWindow::FloatingToolbarWindow(Reader reader, Click click)
   type.lpszClassName = kClassName;
   if (!RegisterClassExW(&type) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
     throw std::runtime_error("Toolbar class unavailable");
-  window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+  // DirectComposition 的透明表面不应由 DWM 维护重定向位图；旧系统由兼容层返回 0，继续走原有分层回退。
+  window_ = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST |
+                                msime::windows::compat::no_redirection_bitmap_style(),
                             kClassName, L"MSIME toolbar", WS_POPUP, 0, 0,
                             kWidth, kHeight, nullptr, nullptr, type.hInstance,
                             this);
@@ -355,6 +361,7 @@ void FloatingToolbarWindow::hide() {
 void FloatingToolbarWindow::refresh(bool enabled) {
   if (failed_) return;
   try {
+    DpiScope dpi_scope;
     if (!enabled) { hide(); return; }
     const auto value = reader_();
     // ModeMailbox::snapshot() try-locks the mailbox and the focus gate, so it

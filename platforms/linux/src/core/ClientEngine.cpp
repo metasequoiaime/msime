@@ -1,4 +1,6 @@
+#include "../settings/DictionaryCollectionsLauncher.h"
 #include "../settings/LocalTranslationLauncher.h"
+#include "../settings/QuickPhraseClearLauncher.h"
 #include "ClientEngine.h"
 #include "../../../common/HostApiString.h"
 #include "../candidates/EmbeddedTranslation.h"
@@ -83,6 +85,7 @@
 #include "../system/LifecycleFeedback.h"
 #include "../system/PanelInputChannel.h"
 #include "../system/TypingStatistics.h"
+#include "../system/TypingKeyPressRequest.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -1556,21 +1559,16 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
   g_object_unref(task);
 }
 
-// Sends one batch to the store's record_keys operation on the calling thread.
+// 在调用线程上写出一批按键总计和按下时的来源快照。
 void write_key_presses(const msime::linux_host::KeyPressBatch &request) {
   try {
-    const auto encoded = Json{
-        {"directory", request.directory},
-        {"action", Json{{"operation", "record_keys"},
-                          {"day", request.day},
-                          {"keys", request.keys}}}}
-                              .dump();
+    const auto encoded = msime::linux_host::typing_key_press_request(request).dump();
     auto *raw = msime_client_typing_statistics(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
     if (raw)
       msime::host_api::discard_string(raw);
   } catch (...) {
-    // Statistics are best effort and must never affect typing.
+    // 统计失败不能影响输入。
   }
 }
 // Key press writes still running on worker threads, which msime_ibus_shutdown_key_presses waits for.
@@ -1603,7 +1601,9 @@ void flush_key_presses(std::optional<msime::linux_host::KeyPressBatch> batch) {
   g_object_unref(task);
 }
 
-// Every key event the engine receives passes through here before the Engine sees it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; keycode 0 is a synthetic event with no physical key behind it. IBus passes no event time, so a repeat that arrives as a release and press pair is told apart by when the events reach the engine.
+msime::linux_host::TypingSource typing_source(const State &s);
+
+// 在引擎处理前记录物理键，包含组字键和透传键。IBus 没有事件时间，沿用到达时间排除合成重复。
 void count_key_press(IBusEngine *engine, guint keycode, guint flags) {
   auto &s = state(engine);
   if (flags & IBUS_RELEASE_MASK) {
@@ -1625,13 +1625,16 @@ void count_key_press(IBusEngine *engine, guint keycode, guint flags) {
   const auto day = msime::linux_host::local_day(std::time(nullptr));
   if (day.empty())
     return;
-  flush_key_presses(s.key_presses.add(id, directory, day, now));
+  const auto source = msime::linux_host::typing_key_press_source(
+      s.input_enabled, s.view, [&s] { return typing_source(s); });
+  flush_key_presses(s.key_presses.add(id, directory, day, now, source));
 }
 
 msime::linux_host::TypingSource typing_source(const State &s) {
-  const auto preferences = configured.value("preferences", Json::object());
-  const auto profile = s.shuangpin_profile_override.value_or(
-      preferences.value("shuangpin_profile", "xiaohe"));
+  const auto preferences = configured.find("preferences");
+  const auto profile = s.shuangpin_profile_override ? *s.shuangpin_profile_override
+      : preferences == configured.end() ? std::string("xiaohe")
+      : preferences->value("shuangpin_profile", std::string("xiaohe"));
   return msime::linux_host::resolve_typing_source(
       s.view.value("scheme", -1), s.view.value("nine_key", false),
       s.english_mode, s.view.value("local_mode", "none"), profile);
@@ -1668,8 +1671,12 @@ void dismiss_mode_badge(const IBusEngine *engine);
 #endif
 void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
+  if (panel && std::string_view(panel) == "dictionary-groups")
+    return msime::linux_host::launch_dictionary_collections(configured.value("preferences_directory", std::string{}));
   if (panel && std::string_view(panel) == "local-translation")
     return msime::linux_host::launch_local_translation(configured.value("preferences_directory", std::string{}));
+  if (panel && std::string_view(panel) == "quick-phrase-clear")
+    return msime::linux_host::launch_quick_phrase_clear();
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
     command = MSIME_EDITION_SETTINGS_PROGRAM;
@@ -1720,9 +1727,15 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
 #ifdef MSIME_HAS_LOCAL_TRANSLATION_SETTINGS
     {"DesktopTools/LocalTranslation", "local-translation", "本地模型翻译…", DesktopPanelSlot::Footer},
 #endif
+#ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
+    {"DesktopTools/DictionaryGroups", "dictionary-groups", "词库分组…", DesktopPanelSlot::Footer},
+#endif
     {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
     {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},
     {"DesktopTools/Dictionary", "dictionary", msime::linux_host::menu_label::kDictionary, DesktopPanelSlot::Extra},
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+    {"DesktopTools/QuickPhraseClear", "quick-phrase-clear", "清空快捷短语…", DesktopPanelSlot::Extra},
+#endif
     {"DesktopTools/Clipboard", "clipboard", msime::linux_host::menu_label::kLocalClipboard, DesktopPanelSlot::Tools},
     {"DesktopTools/Voice", "voice", msime::linux_host::menu_label::kVoicePanel, DesktopPanelSlot::Tools},
     {"DesktopTools/Help", "help", msime::linux_host::menu_label::kHelp, DesktopPanelSlot::Tools},
@@ -4232,37 +4245,35 @@ void underline_preedit(IBusText *text, guint length) {
                              IBUS_ATTR_UNDERLINE_SINGLE, 0,
                              static_cast<gint>(length));
 }
-// 候选页上方的辅助行：页码、候选预编辑显示拼音时的拼音、本地模式、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
+// 候选页上方的辅助行：候选预编辑显示拼音时的拼音、本地模式、光标后编辑生效时的「候选编辑：光标后」、打字连击（有的时候），页码排在最后。GNOME Shell 和 IBus 面板把这一行左对齐画成一个标签，页码放在最前面会挡在拼音前头；macOS 首行把「1 / 3」靠右画在拼音后面，这里照那个顺序排。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
-  auto paging = msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
-                                                            view.at("page_count").get<size_t>());
-  if (!state(engine).show_candidate_page_number) paging.clear();
+  std::string aux;
+  const auto append = [&aux](const std::string &part) {
+    if (part.empty()) return;
+    if (!aux.empty()) aux += "  · ";
+    aux += part;
+  };
   if (state(engine).candidate_preedit_style == "pinyin") {
     const auto candidate_preedit = view.value("preedit", std::string{});
     if (!candidate_preedit.empty()) {
-      if (!paging.empty()) paging += "  · ";
       const auto editing_text = view.value("editing_text", std::string{});
       const auto caret = view.value("caret_position", editing_text.size());
       const auto preedit_caret = view.find("preedit_caret");
-      paging += msime::linux_host::candidate_preedit_with_caret(
+      append(msime::linux_host::candidate_preedit_with_caret(
           candidate_preedit, editing_text, caret,
           preedit_caret != view.end() && preedit_caret->is_number_unsigned()
               ? std::optional<std::size_t>(preedit_caret->get<std::size_t>())
-              : std::nullopt);
+              : std::nullopt));
     }
   }
   const auto mode = view.at("local_mode").get<std::string>();
-  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) {
-    if (!paging.empty()) paging += "  · ";
-    paging += label;
-  }
-  msime::linux_host::append_caret_edit_suffix_hint(paging, msime::linux_host::caret_edit_suffix(view), "  · ");
-  const auto combo = msime::linux_host::typing_combo_label(state(engine).typing_combo);
-  if (!combo.empty()) {
-    if (!paging.empty()) paging += "  · ";
-    paging += combo;
-  }
-  return paging;
+  if (const char *label = msime::linux_host::candidate_local_mode_label(mode)) append(label);
+  msime::linux_host::append_caret_edit_suffix_hint(aux, msime::linux_host::caret_edit_suffix(view), "  · ");
+  append(msime::linux_host::typing_combo_label(state(engine).typing_combo));
+  if (state(engine).show_candidate_page_number)
+    append(msime::linux_host::candidate_page_indicator(view.at("page").get<size_t>(),
+                                                        view.at("page_count").get<size_t>()));
+  return aux;
 }
 // 语音浮层事件源所属的引擎及其存活标记：比引擎活得久的事件源看到标记已清除，就移除自己，不碰已释放的状态。
 struct WaveOverlaySource {

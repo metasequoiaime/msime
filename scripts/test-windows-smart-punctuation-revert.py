@@ -11,14 +11,18 @@ TSF = ROOT / 'platforms/windows/tsf'
 
 HARNESS = r'''
 #include <atomic>
+#include <codecvt>
 #include <cstdint>
 #include <cstdio>
 #include <cwctype>
+#include <locale>
 #include <optional>
 #include <string>
 #include <unordered_set>
 #include "PairedPunctuationHostPolicy.h"
 #include "CandidatePunctuationKeyPolicy.h"
+#include "CharacterWidthText.h"
+#include "HostPunctuationResult.h"
 
 #define _In_
 using WCHAR = wchar_t;
@@ -30,6 +34,7 @@ using HRESULT = int;
 using TfEditCookie = int;
 using TfClientId = unsigned;
 using HWND = void *;
+constexpr BOOL FALSE = 0;
 constexpr HRESULT S_OK = 0, E_FAIL = -2, E_INVALIDARG = -3;
 constexpr int CP_UTF8 = 0, MB_ERR_INVALID_CHARS = 0, ERROR_BROKEN_PIPE = 109, TF_DEFAULT_SELECTION = 0;
 constexpr int TF_ANCHOR_START = 0, TF_ANCHOR_END = 1;
@@ -47,6 +52,8 @@ WCHAR GetPairedPunctuationClosing(const std::wstring &) { return 0; }
 struct PerfTimer { double ElapsedMs() const { return 0; } };
 
 namespace Global {
+bool fullwidth = false;
+constexpr int MetasequoiaIMEGuidCompartmentDoubleSingleByte = 0;
 std::atomic<bool> SmartPunctuationEnabled{true};
 std::atomic<bool> SmartPunctuationDirectDigitEnabled{true};
 std::atomic<bool> SmartPunctuationDirectLetterEnabled{true};
@@ -82,6 +89,18 @@ struct ITfRange {
 };
 struct TF_SELECTION { ITfRange *range = nullptr; };
 struct ITfThreadMgr {};
+struct CCompartment {
+    CCompartment(ITfThreadMgr *, TfClientId, int) {}
+    void _GetCompartmentBOOL(BOOL &value) { value = Global::fullwidth; }
+};
+namespace FanyUtils {
+std::wstring string_to_wstring(const std::string &text) {
+    return std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>>{}.from_bytes(text);
+}
+std::string wstring_to_string(const std::wstring &text) {
+    return std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>>{}.to_bytes(text);
+}
+}
 // 没有选区的文档：原地改写走不通，读不回前文的宿主（QQ）也是这样。
 struct ITfContext {
     HRESULT GetSelection(TfEditCookie, int, ULONG, TF_SELECTION *, ULONG *fetched) { *fetched = 0; return E_FAIL; }
@@ -113,6 +132,7 @@ public:
         case L'.': return L"。";
         case L':': return L"：";
         case L';': return L"；";
+        case L'!': return L"!";
         default: return nullptr;
         }
     }
@@ -334,6 +354,19 @@ int main() {
               "没有字符的键仍然拒绝");
     }
 
+    // 标点预取使用真实共享宽度映射；关闭后恢复原标点，小键盘小数点保留原规则。
+    {
+        CMetasequoiaIME ime;
+        const bool smartPunctuation = Global::SmartPunctuationEnabled.exchange(false);
+        Global::fullwidth = true;
+        check(ime._PrefetchPunctuationCommitText(0, L'!') == L"！", "全角：预取 ASCII 标点转全角");
+        check(ime._PrefetchPunctuationCommitText(0, L':') == L"：", "全角：中文标点保持");
+        check(ime._PrefetchPunctuationCommitText(VK_DECIMAL, L'.') == L".", "全角：小键盘小数点保持");
+        Global::fullwidth = false;
+        check(ime._PrefetchPunctuationCommitText(0, L'!') == L"!", "半角：预取 ASCII 标点保持");
+        Global::SmartPunctuationEnabled.store(smartPunctuation);
+    }
+
     std::printf("smart punctuation revert expiry: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }
@@ -383,8 +416,9 @@ def main() -> int:
         unit.write_text(source, encoding='utf-8')
         # 生产函数里有只给 MSVC 计时日志用的局部变量，这里不当成错误。
         subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-Wno-unused-variable',
-                        '-Wno-unused-but-set-variable', '-Wno-unused-parameter',
-                        '-I' + str(TSF / 'Global'), str(unit), '-o', str(binary)], check=True)
+                        '-Wno-unused-but-set-variable', '-Wno-unused-parameter', '-Wno-deprecated-declarations',
+                        '-I' + str(TSF), '-I' + str(TSF / 'Global'), '-I' + str(ROOT / 'platforms/windows/common'),
+                        str(unit), '-o', str(binary)], check=True)
         return subprocess.run([str(binary)], check=False).returncode
 
 

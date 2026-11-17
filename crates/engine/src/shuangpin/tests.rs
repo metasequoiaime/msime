@@ -297,7 +297,7 @@ fn strict_single_helpcode_filters_direct_triggered_and_fuzzy_rows() {
     for (input, expected) in [
         ("nihcc", vec!["拟好"]),
         ("nihca", vec!["你好"]),
-        ("nihcE", vec!["你好", "拟好"]),
+        ("nihcE", vec!["拟好", "你好"]),
         ("nihcA", vec!["你好"]),
     ] {
         let mut typed = request(input, true);
@@ -2150,9 +2150,9 @@ fn incomplete_tail_keeps_generated_prefix_and_its_input_span() {
         .any(|row| row.source == CandidateSource::Generated));
 
     let rows = engine.query(&request("n'hc'ke'ji'q", false), None);
-    assert!(!rows
-        .iter()
-        .any(|row| row.source == CandidateSource::Generated));
+    assert_eq!(words(&rows)[0], "你好科技清");
+    assert_eq!(rows[0].canonical_pinyin, "ni'hao'ke'ji'qing");
+    assert_eq!(rows[0].source, CandidateSource::Generated);
 
     Connection::open(fixture.paths.dictionary(assets::MAIN_DICTIONARY))
         .unwrap()
@@ -2200,3 +2200,6 @@ fn two_key_tail_syllable_is_not_completed() {
     // 末尾单键 a 是零声母音节的第一键，也照旧补全到 ai。
     assert!(words(&engine.query(&request("gua", false), None)).contains(&"骨癌"));
 }
+
+#[path = "mixed_initial_tests.rs"]
+mod mixed_initial_tests;

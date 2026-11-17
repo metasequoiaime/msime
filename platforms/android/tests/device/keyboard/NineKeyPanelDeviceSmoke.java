@@ -17,20 +17,23 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
     private static final String PANEL = "九键候选面板";
     private boolean partialSelection;
     private boolean recentOnly;
+    private String flick;
 
     @Override public void onCreate(Bundle arguments) {
         partialSelection = arguments != null && "true".equals(arguments.getString("partial-selection"));
         recentOnly = arguments != null && "true".equals(arguments.getString("recent-learning"));
+        flick = arguments == null ? null : arguments.getString("four-way-flick");
         super.onCreate(arguments);
     }
 
     @Override protected String successDescription() {
-        return partialSelection ? "九键展开后连续逐字选词，面板留着并换上剩余组字的候选，选完整句上屏后收起"
+        return flick != null ? "九键四向 flick、取消、长按数字和共享阈值" : partialSelection ? "九键展开后连续逐字选词，面板留着并换上剩余组字的候选，选完整句上屏后收起"
             : recentOnly ? "nine-key spelling picks remain recorded and visible across input restarts with default model decisions"
             : "nine-key panel locks, backspace, filters and recent spelling selections";
     }
 
     @Override protected void runChecks() throws Exception {
+        if (flick != null) { new NineKeyFlickDeviceChecks(this).run("before".equals(flick)); return; }
         File root = getTargetContext().getFilesDir();
         JSONObject options = new JSONObject(new String(
             Files.readAllBytes(new File(root, "runtime-options.json").toPath()),
@@ -91,6 +94,7 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
             await(described(PANEL));
             await(inPanel(described("候选面板 重输")));
             await(inPanel(described("只显示单字")));
+            NineKeyPanelActionColumnChecks.check(this, this::inPanel);
 
             stage = "lock ning inside the panel";
             tap(inPanel(described("选择拼音 ning")));
@@ -115,16 +119,19 @@ public final class NineKeyPanelDeviceSmoke extends DeviceSmoke {
 
             stage = "single-character filter";
             tap(inPanel(described("只显示单字")));
-            await(inPanel(described("显示全部候选")).and(AccessibilityNodeInfo::isSelected));
+            // 单字是开关：开着时高亮，键面仍是「单字」，不换成「全部」。
+            NineKeyPanelActionColumnChecks.toggle(this, this::inPanel, "显示全部候选", "单字", true);
             AccessibilityNodeInfo first = await(inPanel(describedPrefix("候选 1：")));
             String text = first.getText() == null ? "" : first.getText().toString().split("\n")[0];
             if (text.codePointCount(0, text.length()) != 1)
                 throw new AssertionError("Single-character filter left a longer candidate");
             tap(inPanel(described("显示全部候选")));
-            await(inPanel(described("只显示单字")));
+            NineKeyPanelActionColumnChecks.toggle(this, this::inPanel, "只显示单字", "单字", false);
 
             stage = "stroke column toggle";
             tap(inPanel(described("切换到笔画筛选")));
+            // 笔画同样是开关：开着时高亮，键面仍是「笔画」，不换成「拼音」。
+            NineKeyPanelActionColumnChecks.toggle(this, this::inPanel, "切换到拼音", "笔画", true);
             await(inPanel(described("笔画筛选 横")));
             await(inPanel(described("未选笔画")));
             tap(inPanel(described("切换到拼音")));
