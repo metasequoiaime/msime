@@ -353,11 +353,12 @@ inline std::string local_day(std::time_t moment) {
   return day;
 }
 
-// Key presses counted for one preferences directory and one local day, ready for the store's record_keys operation.
+// 一个偏好目录、一个本地日的按键聚合；来源在按下时固定，不保存切换顺序。
 struct KeyPressBatch {
   std::string directory;
   std::string day;
   std::map<std::string, uint64_t> keys;
+  std::map<std::string, std::map<std::string, uint64_t>> sources;
 };
 
 // Per-key press counts a host keeps in memory between writes, so that the store, which takes its file lock and rewrites the whole document on every call, sees a batch at a time rather than one call per key. It holds nothing but counts: no order, no timing beyond the batch's age, no text.
@@ -400,9 +401,10 @@ public:
     released_code_ = kNoKey;
   }
 
-  // Counts one press of id, an answer from down(). Answers a batch the host should write now: the previous one when the directory or day changed, or this one once it holds kFlushPresses presses.
+  // 累计 down() 确认的一次按下。跨目录、跨日或达到阈值时交回批次；切换来源不封批。
   std::optional<KeyPressBatch> add(std::string_view id, const std::string &directory,
-                                   const std::string &day, int64_t now_microseconds) {
+                                   const std::string &day, int64_t now_microseconds,
+                                   TypingSource source = TypingSource::Unknown) {
     std::optional<KeyPressBatch> ready;
     if (presses_ > 0 && (batch_.directory != directory || batch_.day != day))
       ready = take();
@@ -412,6 +414,7 @@ public:
       started_microseconds_ = now_microseconds;
     }
     ++batch_.keys[std::string(id)];
+    ++batch_.sources[std::string(typing_source_id(source))][std::string(id)];
     if (++presses_ >= kFlushPresses)
       return take();
     return ready;

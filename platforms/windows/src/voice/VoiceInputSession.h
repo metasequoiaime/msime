@@ -84,8 +84,8 @@ public:
   using ConfigProvider = std::function<VoiceInputConfig()>;
   // 控制线程调用：租约是否仍是当前获得焦点的 TSF 客户端。maintain() 用它在焦点离开时取消原生语音。
   using FocusValidator = std::function<bool(const FocusLease &)>;
-  // 原生语音成功上屏后调用一次，参数是上屏的 UTF-8 文本，由 Server 记入打字统计（来源 voice）。在识别工作线程上调用，不得阻塞。
-  using CommitRecorder = std::function<void(const std::string &)>;
+  // 原生语音成功上屏后调用一次，参数是上屏的 UTF-8 文本和实际采集时长（毫秒），由 Server 记入共享统计。在识别工作线程上调用，不得阻塞。
+  using CommitRecorder = std::function<void(const std::string &, uint64_t)>;
 
   VoiceInputSession(WaveOverlay &overlay, LeaseProvider lease_provider,
                     Sender sender, ConfigProvider config_provider,
@@ -118,7 +118,7 @@ public:
 private:
   bool start(std::shared_ptr<VoiceReviewResult> review = {},
              std::string_view language = {});
-  void finish(std::vector<float> samples, FocusLease lease,
+  void finish(std::vector<float> samples, std::size_t captured_frames, FocusLease lease,
               VoiceInputConfig config, uint64_t session,
               std::shared_ptr<DoubaoAsrClient> doubao,
               std::shared_ptr<OnDeviceAsrStream> local_stream,

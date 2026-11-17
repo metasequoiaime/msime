@@ -26,6 +26,7 @@ import {
 } from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
+import { typingKeyPressRequest, TypingStatisticsKeysRequest } from './TypingKeyPressRequest';
 import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
 import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
@@ -346,17 +347,6 @@ interface TypingStatisticsRecordResponse {
   ok: boolean;
   value?: TypingStatisticsRecordValue;
   error?: string;
-}
-
-interface TypingStatisticsKeysAction {
-  operation: string;
-  day: string;
-  keys: Record<string, number>;
-}
-
-interface TypingStatisticsKeysRequest {
-  directory: string;
-  action: TypingStatisticsKeysAction;
 }
 
 interface TypingStatisticsVoiceAction {
@@ -3360,7 +3350,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       || this.stateDirectory.length === 0) {
       return;
     }
-    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()));
+    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()), this.typingSource());
     for (const flush of due) {
       this.sendKeyPresses(flush);
     }
@@ -3392,12 +3382,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private sendKeyPresses(flush: KeyPressFlush): void {
     if (this.stateDirectory.length === 0) return;
-    const action: TypingStatisticsKeysAction = {
-      operation: 'record_keys', day: flush.day, keys: flush.keys
-    };
-    const requestDocument: TypingStatisticsKeysRequest = {
-      directory: this.stateDirectory, action: action
-    };
+    const requestDocument: TypingStatisticsKeysRequest = typingKeyPressRequest(this.stateDirectory, flush);
     const generation: number = this.attributeGeneration;
     taskpool.execute(writeKeyPresses, JSON.stringify(requestDocument)).then((response: Object): void => {
       const value: Record<string, Object> = JSON.parse(response as string) as Record<string, Object>;
