@@ -64,8 +64,9 @@ void record_typing_statistics_async(const std::string &directory,
 }
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
-                              const std::map<std::string, uint64_t> &keys) {
-  auto request = typing_statistics_record_keys_request(directory, day, keys);
+                              const std::map<std::string, uint64_t> &keys,
+                              std::string_view source) {
+  auto request = typing_statistics_record_keys_request(directory, day, keys, source);
   if (request.empty())
     return;
   submit_typing_statistics_request(std::move(request));

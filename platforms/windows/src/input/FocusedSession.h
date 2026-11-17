@@ -20,7 +20,8 @@ void record_typing_statistics_async(const std::string &directory,
 // Hands one day's per-key press counts to the shared store on a detached thread. Same contract as above: nothing to record or a store with statistics off writes nothing.
 void record_typing_keys_async(const std::string &directory,
                               const std::string &day,
-                              const std::map<std::string, uint64_t> &keys);
+                              const std::map<std::string, uint64_t> &keys,
+                              std::string_view source = {});
 // 原生语音已上屏后，后台记录实际采集时长；统计开关、保留期和日累计上限仍由共享库处理。
 void record_voice_duration_async(const std::string &directory, uint64_t milliseconds);
 // Server 实际套用皮肤后，在后台提交皮肤 ID；不阻塞绘制或设置通知。

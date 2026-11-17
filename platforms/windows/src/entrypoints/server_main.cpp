@@ -2322,7 +2322,7 @@ int wmain(int argc, wchar_t **argv) {
           std::map<std::string, uint64_t> keys;
           for (const auto &[key, count] : batch.counts)
             keys.emplace(ascii(key), count);
-          record_typing_keys_async(statistics_directory, ascii(batch.day), keys);
+          record_typing_keys_async(statistics_directory, ascii(batch.day), keys, ascii(batch.source));
           return true;
         },
         // TIP 交给应用的键：没有组字时的空格、回车、退格、数字这些不经过会话的按键路径，TIP 单独报来，排进输入队列出按键音、计入连击，不等它执行。按键音和打字特效都关着时不排、不回 "OK"，TIP 就停一阵不发。
