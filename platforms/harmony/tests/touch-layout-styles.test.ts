@@ -25,6 +25,16 @@ import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics"
 import { StrokeLayout } from "../entry/src/main/ets/keyboard/input/StrokeLayout";
 import { SwipeHintPolicy } from "../entry/src/main/ets/keyboard/input/SwipeHintPolicy";
 import { LetterHintGesture } from "../entry/src/main/ets/keyboard/input/LetterHintGesture";
+import {
+  FourteenKey,
+  FourteenKeyLayout,
+} from "../entry/src/main/ets/keyboard/input/FourteenKeyLayout";
+import { EighteenKeyLayout } from "../entry/src/main/ets/keyboard/input/EighteenKeyLayout";
+import {
+  fourteenKeyLetterSpacing,
+  fourteenKeyLetterWidthMode,
+  fourteenKeyLetterWidthPlan,
+} from "../entry/src/main/ets/keyboard/input/FourteenKeyLetterWidths";
 
 let failures = 0;
 
@@ -71,6 +81,41 @@ const letters: NumberRowFace = {
 };
 
 console.log("TouchLayoutStylePolicy");
+
+group("14/18 键字母键宽度按共享偏好排布，并把第二排空白转发给最外侧键", () => {
+  check(fourteenKeyLetterWidthMode(undefined) === "equal", "缺字段按等宽");
+  check(fourteenKeyLetterWidthMode("varied") === "varied", "识别宽窄");
+  const fourteen = fourteenKeyLetterWidthPlanForTest(FourteenKeyLayout.rows(), "varied", 1.4);
+  check(
+    fourteen[1][0].kind === "pad" && fourteen[1][0].owner?.letters === "as",
+    "14 键左空白归 AS",
+  );
+  check(fourteen[1][fourteen[1].length - 1].owner?.letters === "l", "14 键右空白归 L");
+  const eighteen = fourteenKeyLetterWidthPlanForTest(EighteenKeyLayout.rows(), "varied", 1);
+  check(eighteen[1][0].kind === "pad" && eighteen[1][0].owner?.letters === "a", "18 键左空白归 A");
+  check(eighteen[1][eighteen[1].length - 1].owner?.letters === "l", "18 键右空白归 L");
+  check(
+    eighteen[2][0].kind === "edge" && eighteen[2][eighteen[2].length - 1].kind === "edge",
+    "第三排两端保留功能键",
+  );
+  check(
+    Math.abs(
+      eighteen[0].reduce((sum, cell) => sum + cell.weight, 0) -
+        eighteen[2].reduce((sum, cell) => sum + cell.weight, 0),
+    ) < 1e-9,
+    "三排使用同一单位宽度",
+  );
+  check(fourteenKeyLetterSpacing("WE") === 0.15, "双字母键使用字距");
+  check(fourteenKeyLetterSpacing("L;") === 0.08, "双拼 L 分号使用较小字距");
+});
+
+function fourteenKeyLetterWidthPlanForTest(
+  rows: readonly (readonly FourteenKey[])[],
+  mode: "equal" | "varied",
+  edgeWeight: number,
+) {
+  return fourteenKeyLetterWidthPlan(rows, mode, edgeWeight);
+}
 
 group("偏好读法：认识的样式原样保留，缺键、非字符串和不认识的值按 standard", () => {
   for (const style of ["standard", "comma_period", "long_space", "emoji"]) {

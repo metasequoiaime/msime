@@ -1,4 +1,5 @@
 import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
+import { KeyboardLetterWidthsPanel } from './KeyboardLetterWidthsPanel';
 import { NineKeyFlickPanel } from './NineKeyFlickPanel';
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
 import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
@@ -669,6 +670,8 @@ struct Settings {
   // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
   @State privacyGranted: boolean = false;
   @State private showDictionaryGroups: boolean = false;
+  @State private showKeyboardLetterWidths: boolean = false;
+  @State private keyboardLetterWidthsRefresh: number = 0;
   @State private showNineKeyFlick: boolean = false;
   @State private flickRefresh: number = 0;
   // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
@@ -727,6 +730,7 @@ struct Settings {
     this.bridge.watchSetup();
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
+      this.keyboardLetterWidthsRefresh++;
       this.bridge.resumeStatistics();
       this.bridge.syncShared();
       this.bridge.refreshPreferencesIfChanged();
@@ -777,8 +781,17 @@ struct Settings {
     this.bridge.refreshPreferencesIfChanged(true);
   }
 
+  private closeKeyboardLetterWidths(): void {
+    this.showKeyboardLetterWidths = false;
+    this.bridge.refreshPreferencesIfChanged(true);
+  }
+
   /** 系统返回先退出原生面板，再走已有页面历史；无处可退时交给系统。 */
   onBackPress(): boolean {
+    if (this.showKeyboardLetterWidths) {
+      this.closeKeyboardLetterWidths();
+      return true;
+    }
     if (this.showNineKeyFlick) {
       this.closeNineKeyFlick();
       return true;
@@ -948,6 +961,7 @@ struct Settings {
       if (!this.launchCover && !this.privacyRequired) {
       Row() {
         Blank()
+        Button('键盘布局').onClick((): void => { this.showKeyboardLetterWidths = true; })
         Button('九键四向滑动').onClick((): void => { this.showNineKeyFlick = true; })
         if (this.privacyGranted) {
           Button('词库分组').onClick((): void => { this.showDictionaryGroups = true; })
@@ -1004,13 +1018,21 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
-    .visibility(this.showDictionaryGroups || this.showNineKeyFlick ? Visibility.None : Visibility.Visible)
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick ? Visibility.None : Visibility.Visible)
     if (this.showNineKeyFlick) {
       NineKeyFlickPanel({
         loadPreferences: (): string => this.bridge.loadPreferences(),
         savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
         refresh: this.flickRefresh,
         back: (): void => this.closeNineKeyFlick()
+      })
+    }
+    if (this.showKeyboardLetterWidths) {
+      KeyboardLetterWidthsPanel({
+        loadPreferences: (): string => this.bridge.loadPreferences(),
+        savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+        refresh: this.keyboardLetterWidthsRefresh,
+        back: (): void => this.closeKeyboardLetterWidths()
       })
     }
     if (this.showDictionaryGroups) {
