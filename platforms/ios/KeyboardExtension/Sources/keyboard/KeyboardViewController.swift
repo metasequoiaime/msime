@@ -393,7 +393,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var cursorMovement = SpaceCursorMovement()
   private var spaceHoldMovesCursor = false
   private var backspaceRepeatTimer: Timer?
-  private var didRepeatBackspace = false
+  private var backspacePress = BackspacePressState<ObjectIdentifier>()
   private var renderedComposition = false
   private var requiresCandidateSelection = false
   private var hasComposition: Bool {
@@ -4676,12 +4676,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeIconKey(Self.backspaceIcon, accessibilityLabel: "删除")
     // 按下就响退格声（`keyPressFeedback`），松手删一个字时不再响；按住连删时每删一下仍各响一下（`repeatBackspace`）。
     (delete as? KeyboardKeyButton)?.pressSoundClass = .backspace
-    delete.addTarget(self, action: #selector(beginBackspacePress), for: .touchDown)
-    delete.addTarget(self, action: #selector(finishBackspacePress), for: .touchUpInside)
-    delete.addTarget(
-      self,
-      action: #selector(cancelBackspacePress),
-      for: [.touchUpOutside, .touchCancel, .touchDragExit])
+    delete.addTarget(self, action: #selector(beginBackspacePress(_:)), for: .touchDown)
+    delete.addTarget(self, action: #selector(finishBackspacePress(_:event:)), for: .touchUpInside)
+    delete.addTarget(self, action: #selector(pauseBackspacePress(_:)), for: .touchDragExit)
+    delete.addTarget(self, action: #selector(cancelBackspacePress(_:)), for: [.touchUpOutside, .touchCancel])
+    (delete as? KeyboardKeyButton)?.onAccessibilityActivate = { [weak self] in
+      guard let self else { return }
+      cancelBackspacePress()
+      countKeyPress(TypingKeyID.backspace)
+      handleBackspace()
+    }
     return delete
   }
 
@@ -7969,74 +7973,87 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(snapshot)
   }
 
-  /// Touch down counts the press once; the repeat a held key starts is the same press.
-  @objc private func beginBackspacePress() {
-    countKeyPress(TypingKeyID.backspace)
+  /// 按下只计一次；按键身份贯穿连删、滑出及松手。
+  @objc private func beginBackspacePress(_ sender: UIButton) {
     cancelBackspacePress()
-    didRepeatBackspace = false
-
+    countKeyPress(TypingKeyID.backspace)
+    backspacePress.begin(ObjectIdentifier(sender))
     let timer = Timer(
-      timeInterval: 0.075,
+      timeInterval: BackspaceRepeatTiming.interval,
       target: self,
-      selector: #selector(repeatBackspace),
+      selector: #selector(repeatBackspaceTimer(_:)),
       userInfo: nil,
       repeats: true)
-    timer.fireDate = Date(timeIntervalSinceNow: 0.4)
+    timer.fireDate = Date(timeIntervalSinceNow: BackspaceRepeatTiming.initialDelay)
     RunLoop.main.add(timer, forMode: .common)
     backspaceRepeatTimer = timer
   }
 
-  @objc private func finishBackspacePress() {
-    let repeated = didRepeatBackspace
+  @objc private func finishBackspacePress(_ sender: UIButton, event: UIEvent?) {
+    let owner = ObjectIdentifier(sender)
+    let programmatic = event == nil && !backspacePress.owns(owner)
+    guard let delete = backspacePress.finish(owner, programmaticActivation: event == nil) else { return }
     cancelBackspacePress()
-    if !repeated {
-      handleBackspace()
-    }
+    if programmatic { countKeyPress(TypingKeyID.backspace) }
+    if delete { handleBackspace() }
   }
 
-  @objc private func cancelBackspacePress() {
+  @objc private func pauseBackspacePress(_ sender: UIButton) {
+    guard backspacePress.pause(ObjectIdentifier(sender)) else { return }
+    stopBackspaceRepeat()
+  }
+
+  @objc private func cancelBackspacePress(_ sender: UIButton) {
+    guard backspacePress.owns(ObjectIdentifier(sender)) else { return }
+    cancelBackspacePress()
+  }
+
+  private func cancelBackspacePress() {
+    stopBackspaceRepeat()
+    backspacePress.cancel()
+  }
+
+  private func stopBackspaceRepeat() {
     backspaceRepeatTimer?.invalidate()
     backspaceRepeatTimer = nil
-    didRepeatBackspace = false
+    backspacePress.stopRepeating()
+  }
+
+  @objc private func repeatBackspaceTimer(_ timer: Timer) {
+    guard timer === backspaceRepeatTimer else { timer.invalidate(); return }
+    repeatBackspace()
   }
 
   @objc private func repeatBackspace() {
+    guard let first = backspacePress.nextRepeat() else { return }
     // 手写板上按住 ⌫ 一笔一笔撤回笔迹，笔迹撤完这次按住就结束，不会接着删文档里已经上屏的文字；要删文字得再按一次。
     if !handwriting.isHidden && handwriting.hasInk {
-      didRepeatBackspace = true
       handleBackspace()
       if !handwriting.hasInk {
-        backspaceRepeatTimer?.invalidate()
-        backspaceRepeatTimer = nil
+        stopBackspaceRepeat()
       }
       return
     }
-    // Holding backspace in a spelling takes it apart a syllable at a time, as Ctrl+Backspace does in the Windows composition, so a long spelling can be cut back to the syllable that went wrong instead of being thrown away whole. The hold ends with the composition: the repeat never carries on into text that is already in the document. Nine-key, wubi and the other schemes without lettered syllables keep the hold that clears the whole composition below.
-    // A Korean syllable, a Zhuyin conversion and a Vietnamese word are text already, so a held backspace takes them apart a key at a time and carries on into the document, as the system keyboards for those languages do.
+    // 拼音按音节连删，到组字结束就停；九键和五笔等没有字母音节的方案保留整段取消。
+    // 韩语、注音、越南语和藏语的组字已经是文字，保持逐键删除并继续处理正文。
     if composesInPlace {
-      didRepeatBackspace = true
       handleBackspace()
       return
     }
     if hasComposition && isChineseMode && inputScheme.editsBySyllable && !typesLetterGrid {
-      didRepeatBackspace = true
       playInputClick(.backspace)
       render(session.segmentBackspace())
       if !hasComposition {
-        backspaceRepeatTimer?.invalidate()
-        backspaceRepeatTimer = nil
+        stopBackspaceRepeat()
       }
       return
     }
-    if !didRepeatBackspace && hasComposition {
-      backspaceRepeatTimer?.invalidate()
-      backspaceRepeatTimer = nil
-      didRepeatBackspace = true
+    if first && hasComposition {
+      stopBackspaceRepeat()
       playInputClick(.backspace)
       render(session.cancel())
       return
     }
-    didRepeatBackspace = true
     handleBackspace()
   }
 
