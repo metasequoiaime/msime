@@ -2290,7 +2290,9 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
                 }
                 return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
             }
-            return setKeyState(CATEGORY_CANDIDATE, FUNCTION_SELECT_BY_NUMBER);
+            // 普通模式仅裸数字选词；Shift 产生的符号交给下方标点路径，与 Server 的判定一致。
+            if (capturedModifiers == 0)
+                return setKeyState(CATEGORY_CANDIDATE, FUNCTION_SELECT_BY_NUMBER);
         }
         if (*classifiedCode == L'0' && shadow.unicodeMode)
         {
