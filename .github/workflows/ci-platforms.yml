@@ -769,6 +769,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & platforms/windows/tests/tools/settings_snapshot_test.ps1
+      - name: Prepare the settings screenshot desktop
+        if: ${{ needs.changes.outputs.windows == 'true' }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop
+          & platforms/windows/tests/tools/settings_capture_test.ps1
+          & platforms/windows/tests/tools/settings_capture_desktop_test.ps1 -OutputDirectory target/windows-settings-capture-test
       # GitHub 的 Windows 镜像导出 VCPKG_INSTALLATION_ROOT；Depot 在同样的 C:\vcpkg 中提供它，但没有这个变量。
       - name: Locate vcpkg
         if: ${{ needs.changes.outputs.windows == 'true' }}
@@ -1031,7 +1039,7 @@ jobs:
         if: ${{ needs.changes.outputs.windows == 'true' }}
         shell: pwsh
         run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'sign-exe-ssign', 'installer_entry', 'package-files', 'repo-root') {
+          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration', 'signpath-payload', 'sign-exe-ssign', 'ci-simplysign', 'installer_entry', 'package-files', 'repo-root') {
             Write-Host "== $test"
             & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
             if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }

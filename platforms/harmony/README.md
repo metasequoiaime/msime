@@ -36,6 +36,8 @@ AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设�
 
 两个进程并不直接共用共享目录，而是各自保留私有的 `files/state`，经共享目录镜像对方要看到的那部分：设置应用改完设置后把偏好、按键反馈、应用主题、统计开关、皮肤、插件、社区回复库、隐私政策授权、「防止截屏」开关（完整体验模式下还有账号会话）发布到 `<共享目录>/msime/settings/`，键盘在启动和每次获得焦点时导入；完整体验模式下键盘把它改的偏好、刷新过的会话和打字统计发布到 `<共享目录>/msime/keyboard/`，设置窗口回到前台时导入。正在用的皮肤包被同名替换（重装图库作品、皮肤编辑器覆盖保存）时偏好修订号不变，键盘在获得焦点、导入完之后比较选中包的目录、`skin.toml` 和画出的装饰图、背景图的 inode、修改时间和大小，变了就重新应用外观，不必重启键盘（`tests/candidate-skin-package-identity.test.ts`）。不直接共用的原因、条目表和冲突规则见 `.agents/notes/implemented/architecture/2026-10-09-harmony-ime-shared-sandbox.md`。基础访问模式下是单向的：键盘工具栏里改的设置会被设置应用下次的改动覆盖，统计计数和登录会话不交换。
 
+日文和五笔的按需下载包不走状态镜像：设置应用安装到 `<共享目录>/msime/dictionary-resources/resource-packs/<id>`，键盘直接只读同一份资源。升级时在工作线程按锁校验并改名收编旧文件，成功后清理旧副本；偏好、用户词库和缓存仍在私有目录。未取得共享沙箱时保留私有路径。目录与迁移边界见 `.agents/notes/implemented/architecture/2026-11-16-harmony-shared-dictionary-resources.md`。
+
 ### 「我的词条」只有一份
 
 两个进程各有一份 Engine 日志（各自的 `files/state/user/msime_user.db`），这一点没有变：学习记录、候选顺序和固定位置只在键盘里，设置应用不打字。变的是「我的词条」——日志里 `user_inserted` 而且没删的词条，也就是设置页「我的词条」列出的、WebDAV 网盘同步的那一组，再加上设置页里加的粤语词（WebDAV 不同步它们，但键盘的粤语方案要从键盘自己的日志里读到它们才出候选），身份是（词库类别、编码、词）：两份经共享沙箱交换，收敛成同一组。以前键盘打字学到的词只在键盘那份里，设置页改的、导入的词只在设置应用那份里。规则在 Rust 的 `msime_client_user_words_mirror`（`crates/host-api/src/user_words_mirror.rs`，C 头文件里有完整说明），宿主一侧是 `keyboard/UserWordsMirror.ets` 和 `keyboard/UserWordsMirrorPolicy.ts`（`tests/user-words-mirror-policy.test.ts`，调用点由 `scripts/test-harmony-user-words-mirror.py` 守着）。决定与备选见 `.agents/notes/implemented/feature/2026-10-27-harmony-unified-user-words.md`。
@@ -56,7 +58,7 @@ AI 生成类功能的总闸关着时，社区也不列 AI 生成的皮肤：设�
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 Rust Engine（`crates/engine`）提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
-繁体输出只在显示与上屏边界转换：候选条与展开候选面板的显示文字、Engine 提交、`insert` 与 `insertWithSource` 经过 `KeyboardSession.asTraditional`，Engine 的候选原文、候选身份（按序号选择）和组合文本保持简体；由 `ChineseOutputPolicy` 决定是否适用（dedicated English、日语方案、临时日语保留原文），转换本身走 NAPI `simplifiedToTraditional` 调共享导出 `msime_client_simplified_to_traditional`，即 OpenCC s2t 词级转换，与 Windows、macOS、Linux、Android、iOS 逐字一致——「头发」出「頭髮」、「发展」出「發展」，ICU `i18n.Transliterator` 的逐字转换分不开这两个「发」。C ABI 拒绝的输入（内嵌 NUL）返回 `null`，保留原文。`scripts/test-harmony-traditional-output.py` 钉住从 C 头文件到调用点的这条接线，并拒绝宿主源码里重新出现 ICU 转写。
+繁简输出只在显示与上屏边界转换：候选条与展开候选面板的显示文字、Engine 提交、`insert` 与 `insertWithSource` 经过 `KeyboardSession.asTraditional`，Engine 的候选原文、候选身份（按序号选择）和组合文本保持原样；由 `ChineseOutputPolicy` 决定是否适用。普通中文方案使用全局繁体输出开关和 NAPI `simplifiedToTraditional`，注音方案在鸿蒙复用同一简繁按钮、使用独立的 `zhuyin_simplified_output` 偏好和 NAPI `traditionalToSimplified`，默认都保持现有繁体行为。共享转换分别调用 `msime_client_simplified_to_traditional` 与 `msime_client_traditional_to_simplified` 的 OpenCC 词级表，因此「头发」出「頭髮」、「发展」出「發展」；ICU `i18n.Transliterator` 的逐字转换分不开这两个「发」。dedicated English、日语方案和临时日语模式保留原文；C ABI 拒绝的输入（内嵌 NUL）返回 `null`，保留原文。`scripts/test-harmony-traditional-output.py` 钉住从 C 头文件到调用点的两条接线，并拒绝宿主源码里重新出现 ICU 转写。
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
 
@@ -560,7 +562,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ## 粤语、注音与越南语
 
-选择器末尾在「韩语 26 键」之后再加三张卡：「粤语」（`KeyboardScheme.CANTONESE`，Engine 方案名 `cantonese`，编号 5）、「注音」（`ZHUYIN`，`zhuyin`，编号 6）和「越南语」（`VIETNAMESE`，`vietnamese`，编号 7）。三者默认都不启用（`DEFAULT_ENABLED` 不含它们），由用户在设置页打开。粤语和注音是中文方案：选中时它们自己就是 `last_chinese_scheme`，「中文」回到它们，打字统计记在 `cantonese`、`zhuyin` 名下；越南语和日语、韩语一样不是中文方案，选中时保留原来的 `last_chinese_scheme`，统计记在 `vietnamese` 名下。三者都不学进主词库，所以候选长按没有置顶、降权、删除；简繁转换开关对它们不起作用（粤语与注音本来就是繁体）。快捷栏和语言键上粤语、注音显示「中」，越南语显示「越」。
+选择器末尾在「韩语 26 键」之后再加三张卡：「粤语」（`KeyboardScheme.CANTONESE`，Engine 方案名 `cantonese`，编号 5）、「注音」（`ZHUYIN`，`zhuyin`，编号 6）和「越南语」（`VIETNAMESE`，`vietnamese`，编号 7）。三者默认都不启用（`DEFAULT_ENABLED` 不含它们），由用户在设置页打开。粤语和注音是中文方案：选中时它们自己就是 `last_chinese_scheme`，「中文」回到它们，打字统计记在 `cantonese`、`zhuyin` 名下；越南语和日语、韩语一样不是中文方案，选中时保留原来的 `last_chinese_scheme`，统计记在 `vietnamese` 名下。三者都不学进主词库，所以候选长按没有置顶、降权、删除；粤语使用自己的简体输出偏好，注音在鸿蒙使用 `zhuyin_simplified_output`，越南语不参与简繁转换。快捷栏和语言键上粤语、注音显示「中」，越南语显示「越」。
 
 方案之间的差异不再逐处写方案名，而是集中在 `SchemeTraits.ts`：它按 Engine 的方案编号逐条镜像 `crates/engine/src/types.rs` 里 `SchemeType` 的谓词（`is_chinese`、`uses_chinese_punctuation`、`commits_on_blur`、`locks_caret`、`has_openable_candidate_list` 等），每个谓词写成“对哪些编号成立”的列表，`scripts/test-scheme-traits-parity.py` 读这个文件，常量编号、`NAMES` 或任一谓词与 Engine 不一致时失败。`input/SchemeCompositionPolicy.ts` 是原 Korean 专用组字策略的推广：韩语、注音、越南语的组字行画 Engine 的 `preedit`（写出来的字，而不是按键），光标固定在末尾；韩语和注音的候选只在用户打开的列表里出现，是否打开以视图的 `candidate_list_open` 为准。英文模式和本地工具模式下这些规则都不生效。
 
@@ -778,7 +780,7 @@ gh workflow run release-harmony.yml --ref develop \
   -f appgallery=public-test
 ```
 
-正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步仓库里的不透明 216×216 图标和 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试。图标和版本特性不再从 AGC 旧资料静默继承；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
+正式发版保持自动提审：`main` 上 `publish=true` 且 `appgallery=auto` 时，CI 自动上传包、同步 `platforms/harmony/appgallery-materials.json` 中的新版本特性，然后提交公开测试，所以每次发版前要把这段文字改成这一版的内容。应用图标不经 API 同步：harmony-v0.5.0 发布时 `PUT /publish/v2/app-file-info` 被华为以 code 204144641 拒绝，而图标是应用级资料、在版本之间沿用，换图标时把仓库里不透明的 216×216 `app_icon_appgallery.png` 在 AGC 控制台手动上传一次即可；截图、审核账号、VIP账号、隐私与备案等华为控制台不能由仓库安全生成的资料仍由 `HARMONY_AGC_TEST_CONFIG_JSON` 或 AGC 账号一次配置，CI 会在提交前检查应用资料文件存在。若资料同步失败，CI 不提交测试版本。华为上传在 GitHub 发布之后执行，API 拒绝资料、权限不足、包解析失败或超时会使任务失败，但不影响已经发出的 GitHub release，按下面的恢复路径补传即可，不要重跑整个任务。不会自动重试创建或提交请求，避免重复草稿。
 
 如果上传已经完成，重新运行时设置 `test_package_id` 为上次的 `package_id`，`test_version_id` 为上次的草稿 ID（如已创建），同时设置 `publish=false`、清空 `source_release`。恢复路径直接查询已有包并继续提交，跳过构建、签名和重复上传。已经提交或生效的版本应先在控制台确认状态，避免把恢复操作当成重复发布。
 

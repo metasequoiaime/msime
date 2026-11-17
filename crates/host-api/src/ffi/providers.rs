@@ -107,22 +107,7 @@ pub unsafe extern "C" fn msime_client_ai_request_for_query(
                     }
                 }
             }
-            let english = query.mode == msime_engine::OnlineInputMode::English;
-            let request = AiSuggestionRequest {
-                mode: if english {
-                    msime_client_providers::ai::AiInputMode::English
-                } else {
-                    msime_client_providers::ai::AiInputMode::Pinyin
-                },
-                input: if english {
-                    query.query_text
-                } else {
-                    String::new()
-                },
-                segmented_pinyin: query.pinyin_segments,
-                context: query.ai_context,
-                candidate_limit: config.candidate_limit,
-            };
+            let request = super::ai_candidates::suggestion_request(&query, config.candidate_limit);
             msime_client_providers::ai::chat_completion_http_request(&config, &request)
                 .map(|value| value.unwrap_or(Value::Null))
                 .map_err(|error| error.to_string())

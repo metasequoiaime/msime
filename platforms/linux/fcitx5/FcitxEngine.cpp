@@ -1,5 +1,6 @@
 #include "../src/settings/DictionaryCollectionsLauncher.h"
 #include "../src/settings/LocalTranslationLauncher.h"
+#include "../src/settings/QuickPhraseClearLauncher.h"
 #include "../src/core/SettingsSyncWorker.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
@@ -115,6 +116,7 @@
 #include "../src/core/JsonInteger.h"
 #include "../src/clipboard/CloudClipboardRoute.h"
 #include "../src/system/TypingStatistics.h"
+#include "../src/system/TypingKeyPressRequest.h"
 #include "SystemTheme.h"
 #include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
@@ -563,6 +565,8 @@ bool emojiGroupsResultCurrent(const Json &result, uint64_t generation,
 
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
+  if (std::strcmp(panel, "quick-phrase-clear") == 0)
+    return msime::linux_host::launch_quick_phrase_clear();
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command) command = MSIME_EDITION_SETTINGS_PROGRAM;
   // About, help, feedback and the local dictionary are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
@@ -4223,7 +4227,7 @@ public:
   // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复只开新的一轮、不出声不画，见 keyDown。
   std::uint32_t typing_combo_ = 0;
   msime::linux_host::KeyRepeat key_repeat_;
-  // Every key event MSIME receives passes through here before key() routes it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; a raw code below 8 has no evdev key behind it (a synthetic event, such as a panel's typed key).
+  // 在 key() 分派前采集物理键及来源，包含组字和透传。raw code 小于 8 的合成事件不计入。
   void countKeyPress(const fcitx::KeyEvent &event) {
     const auto code = event.rawKey().code();
     if (code < 8) return;
@@ -4244,22 +4248,21 @@ public:
     if (id.empty() || options_path_.empty() || options_path_.front() != '/') return;
     const auto day = msime::linux_host::local_day(std::time(nullptr));
     if (day.empty()) return;
-    flushKeyPresses(key_presses_.add(id, options_path_, day, now));
+    const auto source = msime::linux_host::typing_key_press_source(
+        input_enabled_, view_, [this] { return typingSource(); });
+    flushKeyPresses(key_presses_.add(id, options_path_, day, now, source));
   }
   // Writes the pending key presses now, for FcitxEngine's teardown.
   void flushPendingKeyPresses() { flushKeyPresses(key_presses_.take()); }
-  // Sends one batch to the store's record_keys operation on the calling thread.
+  // 在调用线程上写出一批按键总计和按下时的来源快照。
   static void writeKeyPresses(const msime::linux_host::KeyPressBatch &pending) {
     try {
-      const auto request = Json{
-          {"directory", pending.directory},
-          {"action", Json{{"operation", "record_keys"}, {"day", pending.day}, {"keys", pending.keys}}}}
-                               .dump();
+      const auto request = msime::linux_host::typing_key_press_request(pending).dump();
       if (auto *raw = msime_client_typing_statistics(
               reinterpret_cast<const uint8_t *>(request.data()), request.size()))
         msime::host_api::discard_string(raw);
     } catch (...) {
-      // Statistics are best effort and must never affect typing.
+      // 统计失败不能影响输入。
     }
   }
   // Writes a batch of key press counts on its own thread, as recordTypingStatistics does for commits, or on the loop once the addon is unloading (see ~FcitxEngine).
@@ -7424,6 +7427,9 @@ public:
     // 手写、屏幕键盘、表情面板、云词库、云剪贴板和「显示工具栏」与 macOS 一样挂在状态区顶层（arrangeStatusArea）；这里只剩 macOS 菜单里没有的入口。手写识别板只认汉字，不提供手写的版本（日文、越南文和藏文版，LinuxEdition.h 的 MSIME_EDITION_HANDWRITING 为 0）不列它，见 arrangeStatusArea。
     desktop_tools_menu_.addAction(&desktop_clipboard_action_);
     desktop_tools_menu_.addAction(&desktop_voice_action_);
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+    desktop_tools_menu_.addAction(&quick_phrase_clear_action_);
+#endif
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
     desktop_tools_menu_.addAction(&reload_service_action_);
@@ -7449,6 +7455,9 @@ public:
              {&website_action_, MSIME_EDITION_FCITX5_ADDON "-website"},
              {&toolbar_separator_, MSIME_EDITION_FCITX5_ADDON "-toolbar-separator"},
              {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+             {&quick_phrase_clear_action_, MSIME_EDITION_FCITX5_ADDON "-quick-phrase-clear"},
+#endif
              {&local_translation_action_, MSIME_EDITION_FCITX5_ADDON "-local-translation"},
 #ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
              {&dictionary_groups_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary-groups"},
@@ -8305,6 +8314,9 @@ public:
   bool vocabulary_listed_ = false;
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", msime::linux_host::menu_label::kCloudClipboard};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", msime::linux_host::menu_label::kDictionary};
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+  FcitxDesktopPanelAction quick_phrase_clear_action_{&factory_, "quick-phrase-clear", "清空快捷短语…"};
+#endif
 #ifdef MSIME_HAS_DICTIONARY_COLLECTIONS
   FcitxDesktopPanelAction dictionary_groups_action_{&factory_, "dictionary-groups", "词库分组…"};
 #endif
@@ -8420,13 +8432,9 @@ void FcitxState::refreshToolbar() {
   engine_->arrangeStatusArea(&ic_);
 }
 
-// 候选页下方的辅助行：页码、本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」，最后是打字连击（有的时候）。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
+// 候选页下方的辅助行：本地模式、候选预编辑显示拼音时的拼音、光标后编辑生效时的「候选编辑：光标后」、打字连击（有的时候），页码排在最后。classicui 横排时把这一行画在候选那一行的开头，页码放在最前面会挡在拼音前头；macOS 首行把「1 / 3」靠右画在拼音后面，这里照那个顺序排。提示排在连击前面，连击数随按键变宽变窄时提示不跟着挪（CaretEditSuffix.h）。
 std::string FcitxState::candidateAux() const {
-  const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
-  const auto page_count =
-      msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
-  std::string aux = msime::linux_host::candidate_page_indicator(page, page_count);
-  if (!preferences_.value("show_candidate_page_number", true)) aux.clear();
+  std::string aux;
   const auto mode = view_.value("local_mode", std::string("none"));
   if (const char *modeLabel = msime::linux_host::candidate_local_mode_label(mode))
     aux += (aux.empty() ? "" : " · ") + std::string(modeLabel);
@@ -8446,6 +8454,12 @@ std::string FcitxState::candidateAux() const {
   msime::linux_host::append_caret_edit_suffix_hint(aux, msime::linux_host::caret_edit_suffix(view_), " · ");
   const auto combo = msime::linux_host::typing_combo_label(typing_combo_);
   if (!combo.empty()) aux += (aux.empty() ? "" : " · ") + combo;
+  if (preferences_.value("show_candidate_page_number", true)) {
+    const auto page = msime::linux_host::strict_json_required_integer<int>(view_.at("page"));
+    const auto page_count =
+        msime::linux_host::strict_json_required_integer<int>(view_.at("page_count"));
+    aux += (aux.empty() ? "" : " · ") + msime::linux_host::candidate_page_indicator(page, page_count);
+  }
   return aux;
 }
 

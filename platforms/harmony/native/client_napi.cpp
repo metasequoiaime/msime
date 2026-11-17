@@ -595,6 +595,10 @@ static napi_value queueRequest(napi_env env, napi_callback_info info, RequestCal
     return promise;
 }
 
+static napi_value ResourcePackAdopt(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_resource_pack_adopt, "MSIME resource pack adoption");
+}
+
 static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
 }
@@ -1301,6 +1305,16 @@ static napi_value AiHttpRequest(napi_env env, napi_callback_info info) {
         reinterpret_cast<const uint8_t *>(request.data()), request.size()));
 }
 
+static napi_value AiCandidateProtocol(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string request;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], request)) {
+        return response(env, msime_client_ai_candidate_protocol(nullptr, 0));
+    }
+    return response(env, msime_client_ai_candidate_protocol(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+}
+
 static napi_value ParseAiResponse(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     std::string body;
@@ -1786,6 +1800,24 @@ static napi_value SimplifiedToTraditional(napi_env env, napi_callback_info info)
     return response(env, converted);
 }
 
+// 鸿蒙注音输出开关使用的共享 OpenCC t2s 转换。与上面的反向转换一样，这里直接返回文本；
+// C ABI 拒绝输入时返回 null。
+static napi_value TraditionalToSimplified(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string text;
+    char *converted = nullptr;
+    if (arguments(env, info, 1, argv) && argumentText(env, argv[0], text)) {
+        converted = msime_client_traditional_to_simplified(
+            reinterpret_cast<const uint8_t *>(text.data()), text.size());
+    }
+    if (!converted) {
+        napi_value none = nullptr;
+        napi_get_null(env, &none);
+        return none;
+    }
+    return response(env, converted);
+}
+
 static napi_value DoubaoEncodeFrame(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     int32_t message_type = 0;
@@ -1952,6 +1984,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("handwriting", Handwriting),
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("simplifiedToTraditional", SimplifiedToTraditional),
+        ENTRY("traditionalToSimplified", TraditionalToSimplified),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
         ENTRY("themeCatalog", ThemeCatalog),
@@ -2043,6 +2076,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("aiRequestForQuery", AiRequestForQuery),
         ENTRY("aiHttpRequest", AiHttpRequest),
         ENTRY("parseAiResponse", ParseAiResponse),
+        ENTRY("aiCandidateProtocol", AiCandidateProtocol),
         ENTRY("applyCloudResponse", ApplyCloudResponse),
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("resolveOnlineCandidates", ResolveOnlineCandidates),
@@ -2106,6 +2140,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceLocalModelRemove", VoiceLocalModelRemove),
         ENTRY("resourcePacks", ResourcePacks),
         ENTRY("resourcePackInstall", ResourcePackInstall),
+        ENTRY("resourcePackAdopt", ResourcePackAdopt),
         ENTRY("resourcePackCancel", ResourcePackCancel),
         ENTRY("resourcePackRemove", ResourcePackRemove),
         ENTRY("doubaoEncodeFrame", DoubaoEncodeFrame),

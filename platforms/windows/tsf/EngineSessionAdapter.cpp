@@ -1,4 +1,5 @@
 #include "EngineSessionAdapter.h"
+#include "KeyTypingSourceResponse.h"
 #include "../common/HostOnlineCandidateSync.h"
 #include "../../common/HostApiString.h"
 #include "../common/PanelCharacter.h"
@@ -18,20 +19,23 @@ EngineSessionAdapter::~EngineSessionAdapter() { destroy(); }
 bool EngineSessionAdapter::response(char *raw, std::string *out,
                                     std::string *error) const {
   auto owned = msime::host_api::own_string(raw);
-  if (!owned) { if (error) *error = "Engine returned no response"; return false; }
+  if (!owned) { key_typing_source_.reset(); if (error) *error = "Engine returned no response"; return false; }
   std::string text(owned.get());
   try {
     auto value = json::parse(text);
     if (!value.value("ok", false)) {
+      key_typing_source_.reset();
       if (error) {
         const auto code = value.value("error", "Engine request failed");
         *error = code.size() > 256 ? "Engine request failed" : code;
       }
       return false;
     }
+    const auto body = value.find("value");
+    if (body != value.end()) observe_key_typing_source(key_typing_source_, *body);
     if (out) *out = std::move(text);
     return true;
-  } catch (...) { if (error) *error = "Invalid Engine response"; return false; }
+  } catch (...) { key_typing_source_.reset(); if (error) *error = "Invalid Engine response"; return false; }
 }
 bool EngineSessionAdapter::create(const std::string &options, std::string *error) {
   destroy(); std::string result;
@@ -47,6 +51,7 @@ bool EngineSessionAdapter::create(const std::string &options, std::string *error
 }
 void EngineSessionAdapter::destroy() noexcept {
   online_.reset();
+  key_typing_source_.reset();
   if (session_) {
     auto response = msime::host_api::own_string(msime_client_destroy(session_));
     session_ = 0;
@@ -62,9 +67,10 @@ bool EngineSessionAdapter::panel_character(uint8_t value, bool shift, bool group
   try {
     const auto current = msime::windows::panel_response(msime_client_view(session_));
     const auto result = msime::windows::panel_character(session_, current, value, shift, grouped);
+    observe_key_typing_source(key_typing_source_, result);
     if (out) *out = json{{"ok", true}, {"value", result}}.dump();
     return true;
-  } catch (...) { if (error) *error = "Panel character operation failed"; return false; }
+  } catch (...) { key_typing_source_.reset(); if (error) *error = "Panel character operation failed"; return false; }
 }
 bool EngineSessionAdapter::command(uint32_t value, std::string *out, std::string *error) {
   if (!session_) { if (error) *error = "Engine session is not created"; return false; }

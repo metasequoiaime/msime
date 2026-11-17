@@ -1,3 +1,4 @@
+#include "../../common/AuxTypingKeySources.h"
 #include "AuxListener.h"
 #include "PipeIo.h"
 #include "PipeListener.h"
@@ -224,7 +225,7 @@ void AuxListener::run() {
         ++stats_.unknown_verb;
       continue;
     }
-    if (const auto keys = parse_aux_typing_keys(*text)) {
+    if (const auto keys = parse_any_aux_typing_keys(*text)) {
       // Counts per key only, but still the user's typing: they go to the sink and nowhere else, and silence is the answer whenever statistics are off.
       bool done = false;
       try {

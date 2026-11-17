@@ -914,7 +914,7 @@ nwp_view="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardView.
 nwp_session="$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets"
 nwp_ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 nwp_insert=$(sed -n '/^  insert(text: string): void {$/,/^  }$/p' "$nwp_session")
-if ! grep -qF 'this.strokeFace(), this.prediction);' "$nwp_view" \
+if ! grep -qF 'this.strokeFace(), this.prediction, this.tibetanFace(), this.returnCommitsSpelling());' "$nwp_view" \
   || ! grep -qF 'NextWordPredictionPolicy.composingCandidates(this.candidates.length, this.prediction)' "$nwp_view" \
   || ! grep -qF 'KeyAccessibilityPolicy.space(this.candidates.length > 0)' "$nwp_view" \
   || ! grep -qF '|| !KeyboardSession.shared.candidateManagementAllowed()) {' "$nwp_view" \
@@ -954,7 +954,11 @@ for source in "$here"/*.test.ts; do
 done
 # 实际 ArkTS 生命周期适配器在替代系统 API 后执行，补上纯策略测试碰不到的请求接线。
 node "$here/telemetry-adapter.test.cjs"
+node "$here/shared-dictionary-resources-adapter.test.cjs"
+node "$here/ai-candidate-response-adapter.test.cjs"
 node "$here/cloud-clipboard-receive-adapter.test.cjs"
+node "$here/nine-key-flick-panel-adapter.test.cjs"
+node "$here/shuangpin-separator-adapter.test.cjs"
 bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"

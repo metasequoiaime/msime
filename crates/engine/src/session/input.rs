@@ -1834,8 +1834,8 @@ impl InputSession {
 
     /// input_session_composition.cpp:379-385. While a caret prefix is decoded the prefix list is the one on screen, so it is the one widened; the reference's caret-prefix overlay widened only the hidden whole-input list and reported growth the host could not see.
     pub(super) fn expand_initial_candidates(&mut self) -> bool {
-        self.exit_date_time_menu();
-        if self.conversion.is_some() {
+        // 读取或翻页日期格式列表时没有暂扣词库行，保留当前页，避免显示快照与选中目标错位。
+        if self.conversion.is_some() || self.date_time_menu_page.is_some() {
             return false;
         }
         self.refresh_prefix_candidates();

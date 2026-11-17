@@ -10,6 +10,8 @@
 
 鸿蒙沿用共享层已有的 `japanese` 与 `wubi` 资源包。`on_demand_artifacts("ohos")` 允许这两组文件整体缺席，`stage-resources.sh` 在默认和发布模式下用 `verify_resources --omit-on-demand --platform ohos` 只把核心资源放入 HAP。设置应用通过现有的资源包锁文件、下载、校验和原子发布流程安装资源包；共享 UI 显示日文和五笔的下载行，安装进度经 NAPI 和 ArkWeb 桥接回页面。键盘进程只读取 `state/resource-packs` 中已经发布的完整目录，安装完成后下一次聚焦由 `host-api` 刷新词典路径。
 
+本篇的按需打包、下载和校验仍有效；资源目录镜像已由 [直接读取一份共享资源](../architecture/2026-11-16-harmony-shared-dictionary-resources.md) 取代，以满足 #11034 不重复复制的要求。原先选择镜像的理由如下。
+
 设置与键盘的 `state` 属于不同沙箱，不能把设置端安装成功当成键盘已经读到。日文和五笔各自作为 `SETTINGS_ENTRIES` 的目录条目，经现有共享沙箱镜像发布并导入到键盘私有目录；基础访问和完整体验模式都接收，键盘不反向发布。仅镜像 `resource-packs/japanese` 与 `resource-packs/wubi` 两个已发布目录，同级下载缓存和暂存目录不进镜像。卸载沿用缺席指纹通知键盘删除副本，重复聚焦不重复复制。
 
 ## Alternatives considered
@@ -22,4 +24,4 @@
 
 拼音用户的 HAP 和首次数据准备少了日文、五笔资源；选择日文或五笔时，设置页会提示并下载对应资源包。下载需要隐私政策授权，键盘进程不自行联网。开发者可设置 `MSIME_HARMONY_OMIT_ON_DEMAND=0` 打出包含两组资源的开发 HAP。
 
-`resource-pack-mirror.test.ts` 覆盖安装发布、两种访问模式导入、重复聚焦和卸载传播；补镜像前日文资源的断言失败，补齐后通过。首次安装仍需复制到共享目录和键盘私有目录，设备上的复制耗时与下载后实际输入还须验收，不将策略测试当作真机通过。
+原镜像测试曾覆盖安装发布、两种访问模式导入、重复聚焦和卸载传播；补镜像前日文资源的断言失败，补齐后通过。替代实现的 `shared-dictionary-resources.test.ts`、`shared-dictionary-resources-adapter.test.cjs` 与 Host API 回归验证直接共用资源，不再保留钉住复制行为的旧断言；验证范围见后续共享资源笔记。

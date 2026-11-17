@@ -2359,6 +2359,9 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub cantonese_simplified_output: bool,
+    /// 鸿蒙注音输出简体：注音词库是繁体，鸿蒙宿主在显示与上屏边界做繁转简。与 `traditional_chinese_output` 互不影响，注音下的简繁按钮切换的是它；默认关，即注音照旧输出繁体。其他宿主保留这个字段但不使用。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub zhuyin_simplified_output: bool,
     /// 中英文之间加空格：一次上屏的文本里，汉字与 ASCII 字母、数字相邻处插入一个半角空格（host-api 在全角转换之后做，见 `crates/host-api/src/chinese_english_spacing.rs`）。两次上屏之间不加，候选窗显示不变。默认关；关着时不写进文档，没有这个键的旧版本照样能读。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
@@ -2552,6 +2555,9 @@ pub struct Preferences {
     /// 出厂默认对齐 Windows v0.11.1 的 `candidate_ai_badge_style = "robot"`。
     #[serde(default = "default_candidate_ai_badge_style")]
     pub candidate_ai_badge_style: String,
+    /// 云候选的来源角标是否显示。关闭只隐藏 `☁️`，不改变候选身份、编号或选词行为。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub candidate_cloud_badge: bool,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -3654,7 +3660,7 @@ pub struct MixedInputPreferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
-    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（macOS、Linux）生效，它们此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（Windows、macOS、Linux）生效；这些宿主此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase: bool,
@@ -4901,6 +4907,7 @@ impl Default for Preferences {
             traditional_chinese_output: false,
             traditional_chinese_variant: TraditionalVariant::default(),
             cantonese_simplified_output: false,
+            zhuyin_simplified_output: false,
             chinese_english_spacing: false,
             cross_commit_spacing: false,
             cross_commit_spacing_excluded_apps: Vec::new(),
@@ -4951,6 +4958,7 @@ impl Default for Preferences {
             candidate_fixed_badge: true,
             candidate_fixed_badge_style: default_candidate_fixed_badge_style(),
             candidate_ai_badge_style: default_candidate_ai_badge_style(),
+            candidate_cloud_badge: true,
             english_suggestions: true,
             english_online_candidates: false,
             translation_target_language: TranslationTargetLanguage::default(),

@@ -335,7 +335,7 @@ public final class MSIMEInputService extends InputMethodService {
     int candidatePreeditFontSize = 16;
     int candidateScalePercent = 100;
     /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
-    private String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
+    String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
     boolean spellingEditorEnabled = true;
     private boolean spellingHeaderReserved = true;
     CandidateAppearance.Palette candidateAppearance =
@@ -1232,10 +1232,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyAiPreferences(preferences);
         applyClipboardPreference(preferences, source);
         applyChineseOutputPreference(preferences);
-        applyCandidateGlossPreference(preferences);
-        spellingPosition = CandidatePreeditStylePolicy.normalize(
-            InputViewValuePolicy.textOr(preferences, "touch_spelling_position", null));
-        spellingEditorEnabled = preferences == null || preferences.optBoolean("touch_spelling_editor", true);
+        ImeCandidateDisplayPreferences.apply(this, preferences, source);
         applyEnglishSuggestionsPreference(preferences);
         applyCandidateTranslationPreference(preferences);
         applyWubiCodeHintPreference(preferences);
@@ -1579,14 +1576,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 按键的键位 id（`Backspace`、`Space`、`Enter`…）；没有登记的控件为 null。按键反馈靠它给键分类，不去猜无障碍描述。 */
     String keyIdOf(View key) { return key == null ? null : keyIds.get(key); }
 
-    /**
-     * Count one key press for the heatmap: its id and its local day, nothing else.
-     *
-     * <p>Presses are batched here and written by the worker -- on {@link KeyPressBatch#FLUSH_PRESSES} presses, at the first press of a new day (the old day first, under its own date), when the editor or the keyboard goes away, and otherwise half a minute after the batch opened. The worker's queue is short and every write rewrites the whole document under the file lock, so it never sees a single key.
-     */
+    /** 按下时取得来源，按日、256 次或 30 秒攒批；语言切换不改变已经记下的来源。 */
     void countKey(String id) {
         if (id == null || !imePrivacyGate.countsKeys()) return;
-        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString());
+        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString(), typingSource());
         if (previous != null) writeKeyPresses(previous);
         if (keyPresses.full()) {
             flushKeyPresses();
@@ -1614,13 +1607,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyStatisticsDirectory.isEmpty()) return;
         final String request;
         try {
-            JSONObject keys = new JSONObject();
-            for (java.util.Map.Entry<String, Long> entry : flush.keys().entrySet())
-                keys.put(entry.getKey(), entry.getValue().longValue());
-            request = new JSONObject().put("directory", keyStatisticsDirectory).put("action",
-                new JSONObject().put("operation", "record_keys").put("day", flush.day())
-                    .put("keys", keys))
-                .toString();
+            request = KeyPressRequest.encode(keyStatisticsDirectory, flush);
         } catch (JSONException error) {
             reportTypingStatisticsFailure();
             return;
@@ -2212,6 +2199,7 @@ public final class MSIMEInputService extends InputMethodService {
             handwritingSkin = surfaceSkin(hint, "handwriting_theme");
             applyCandidateAppearance(hint);
             applyTouchGeometry(hint);
+            ImeCandidateDisplayPreferences.restoreHint(this, hint);
         }
         Telemetry.beginInputSession(this);
         ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -2766,20 +2754,18 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 跟着引擎会话走的状态：偏好快照和由它算出的皮肤、释义、翻译、五笔设置，以及偏好轮询和保存中的标记。会话销毁时一起清掉，新会话建好后由实时偏好重新填上。 */
+    /** 清理会话快照、资源可用性、异步结果、翻译路由和保存标记；候选释义、读音与拼写行的显示选择保留，避免换框时闪回初值。 */
     private void stopSessionState() {
         preferencesReloader.stop();
         preferenceSaveGeneration++;
         preferencesDirectory = "";
         emojiResources = "";
         candidateGlossResources = "";
-        candidatePronunciationEnabled = false;
         candidatePronunciationAvailable = false;
         candidatePronunciationPackInstalled = false;
         candidateTargetPronunciationPackInstalled = false;
         invalidateCandidatePronunciations();
         candidateGlossStateRoot = "";
-        candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
         candidateTranslationAccount = false;
         candidateTranslationTargets = java.util.List.of("en");
@@ -3461,7 +3447,7 @@ public final class MSIMEInputService extends InputMethodService {
                 composingText(view, InputViewValuePolicy.editingText(view), true));
     }
 
-    private void applyCandidateGlossPreference(JSONObject preferences) {
+    void applyCandidateGlossPreference(JSONObject preferences) {
         boolean next = preferences != null
             && preferences.optBoolean("candidate_english_gloss", true);
         if (candidateEnglishGloss != next) invalidateCandidateGlosses();
@@ -4955,43 +4941,6 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /**
-     * The candidate texts inside a Chat Completions reply, in provider order.
-     *
-     * <p>An empty list means the reply supplies nothing, whether it was rejected or simply had no
-     * candidates; either way nothing reaches Engine. Bounds and the per-entry rules belong to
-     * {@link OnlineCandidatePolicy}, so only the envelope shape is read here.
-     */
-    private java.util.List<String> aiCandidateTexts(String body) {
-        java.util.List<String> texts = java.util.List.of();
-        if (!OnlineCandidatePolicy.acceptsAiBody(body)) return texts;
-        try {
-            JSONObject envelope = new JSONObject(body);
-            if (!envelope.isNull("error")) return texts;
-            JSONArray choices = envelope.optJSONArray("choices");
-            if (choices == null || choices.length() == 0) return texts;
-            JSONObject message = choices.getJSONObject(0).optJSONObject("message");
-            if (message == null) return texts;
-            String content = JsonPolicy.strictString(message.opt("content"));
-            if (content == null) return texts;
-            if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
-            JSONArray entries = new JSONObject(OnlineCandidatePolicy.stripCodeFence(content))
-                .optJSONArray("candidates");
-            if (entries == null) return texts;
-            texts = new java.util.ArrayList<>(entries.length());
-            for (int index = 0; index < entries.length(); index++) {
-                JSONObject entry = entries.optJSONObject(index);
-                if (entry != null) {
-                    String text = JsonPolicy.strictString(entry.opt("text"));
-                    if (text != null) texts.add(text);
-                }
-            }
-            return texts;
-        } catch (JSONException | RuntimeException error) {
-            return java.util.List.of();
-        }
-    }
-
     /** The AI HTTPS descriptor in this envelope, or null when it no longer matches the settings. */
     private static JSONObject aiRequestDescriptor(String raw) {
         if (raw == null) return null;
@@ -5127,8 +5076,8 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
                 () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
             if (descriptor == null) return;
-            java.util.List<String> candidates = OnlineCandidatePolicy.aiCandidates(
-                aiCandidateTexts(OnlineCandidateTransport.ai(descriptor)), limit);
+            java.util.List<String> candidates = AiCandidateResponse.parse(
+                OnlineCandidateTransport.ai(descriptor), queryDocument, limit);
             if (candidates.isEmpty()) return;
             JSONArray payload = new JSONArray();
             for (String candidate : candidates) payload.put(candidate);
@@ -5239,7 +5188,9 @@ public final class MSIMEInputService extends InputMethodService {
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
-        int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
+        int reserved = CandidateTranslationPolicy.reservedRows(
+            CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
+            CandidateHintRows.rows(this));
         int line = imeCandidates.stripHeightDp(reserved);
         ViewPolicy.setFixedHeight(candidateLine, pixels(line));
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
@@ -7343,7 +7294,8 @@ public final class MSIMEInputService extends InputMethodService {
         "android_keyboard_skin_light", "android_keyboard_skin_dark",
         "candidate_theme", "candidate_font_family", "candidate_english_font", "candidate_fallback_fonts",
         "candidate_font_size", "candidate_preedit_font_size",
-        "candidate_scale_percent",
+        "candidate_scale_percent", "candidate_english_gloss", "candidate_pronunciation",
+        "touch_spelling_position", "touch_spelling_editor",
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
@@ -10176,9 +10128,17 @@ public final class MSIMEInputService extends InputMethodService {
             return CandidateGlossPolicy.hanjaAnnotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
                 translation,
                 candidateEnglishGloss || candidateTranslationsEnabled);
-        return CandidateGlossPolicy.annotation(chineseOutput(InputViewValuePolicy.textOr(candidate, "annotation", ""), view),
+        // 纠错行的原串不画在候选字下面，改在候选字后面画 *（CandidateCorrectionMarkPolicy）。
+        String annotation = CandidateCorrectionMarkPolicy.visibleAnnotation(
+            InputViewValuePolicy.textOr(candidate, "annotation", ""), candidateCorrected(candidate));
+        return CandidateGlossPolicy.annotation(chineseOutput(annotation, view),
             translation,
             candidateEnglishGloss || candidateTranslationsEnabled);
+    }
+
+    /** 引擎改过这一行的拼写（View JSON 的 `corrected`），候选字后面画 *。 */
+    static boolean candidateCorrected(JSONObject candidate) {
+        return candidate != null && JsonPolicy.strictTrue(candidate.opt(CandidateCorrectionMarkPolicy.CORRECTED_FIELD));
     }
 
     /** 候选释义禁止来源即使因同词候选合并拿到译文，也不能在 Android 的候选条、读屏或菜单里出现。 */
@@ -10397,7 +10357,8 @@ public final class MSIMEInputService extends InputMethodService {
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
         boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
-        button.setText(candidateLabel(number, text, annotation, highlighted, corrected));
+        String word = CandidateCorrectionMarkPolicy.markedWord(text, candidateCorrected(candidate));
+        button.setText(candidateLabel(number, word, annotation, highlighted, corrected));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -12828,7 +12789,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean modeLabel = !message.isEmpty();
             spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
                 toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
-                    || drawsKeyGrid(displayedTouchLayout(view)), idle,
+                    || SpellingEditorPolicy.keyboardReadingRow(displayedTouchLayout(view)), idle,
                 preedit == null ? "" : preedit.getText(),
                 status == null || idle && !modeLabel ? "" : status.getText(),
                 ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));

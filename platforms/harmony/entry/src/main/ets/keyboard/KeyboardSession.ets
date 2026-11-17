@@ -26,6 +26,7 @@ import {
 } from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
+import { typingKeyPressRequest, TypingStatisticsKeysRequest } from './TypingKeyPressRequest';
 import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
 import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
@@ -49,6 +50,9 @@ import { AppEdition } from './AppEdition';
 import { KeyboardScheme, KeyGrid, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { NineKeyShuangpinFace, normalizedNineKeyShuangpinProfile } from './input/NineKeyShuangpinKeypad';
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
+import {
+  BackspaceFlickAction, BackspaceFlickTextPolicy, BackspaceFlickTextSnapshot
+} from './input/BackspaceFlickPolicy';
 import { NineKeyFlickPolicy } from './input/NineKeyFlickPolicy';
 import { KeyPressFeedback } from './input/KeyPressFeedback';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
@@ -125,6 +129,7 @@ import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { AiGenerationGate } from './AiGenerationGate';
 import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
+import { AiCandidateResponse } from './candidate/AiCandidateResponse';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
@@ -182,6 +187,7 @@ import {
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import { SharedStateMirror } from './SharedStateMirror';
+import { SharedDictionaryResources } from './SharedDictionaryResources';
 import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
@@ -341,17 +347,6 @@ interface TypingStatisticsRecordResponse {
   ok: boolean;
   value?: TypingStatisticsRecordValue;
   error?: string;
-}
-
-interface TypingStatisticsKeysAction {
-  operation: string;
-  day: string;
-  keys: Record<string, number>;
-}
-
-interface TypingStatisticsKeysRequest {
-  directory: string;
-  action: TypingStatisticsKeysAction;
 }
 
 interface TypingStatisticsVoiceAction {
@@ -1018,6 +1013,8 @@ interface PreparedPreferences {
   traditional_chinese_output: boolean;
   /** 粤拼和粤语双拼输出简体，繁转简在 Engine 里做；关着时文档里没有这个键。 */
   cantonese_simplified_output?: boolean;
+  /** 鸿蒙注音输出简体，繁转简在宿主显示与上屏边界做；关着时文档里没有这个键。 */
+  zhuyin_simplified_output?: boolean;
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
@@ -1287,6 +1284,7 @@ interface PreparedOptions {
   phrase_preedit?: boolean;
   /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
   rerank_models?: string;
+  dictionary_resource_root?: string;
   /** 这个键盘在停顿时调 `startSettledRerank`（`schedulePauseRerank`）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。 */
   pause_rerank?: boolean;
 }
@@ -1400,6 +1398,8 @@ enum InputCommand {
 
 const JAPANESE_SCHEME: number = 3;
 
+type BackspaceFlickUndo = BackspaceFlickTextSnapshot;
+
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
  * committed text. The ability creates it; the panel's UI reads state back through onChanged.
@@ -1415,6 +1415,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 本会话注册过的 26 键双拼键位几何，会话一换就作废。 */
   private keyGeometry: KeyGeometryRegistry = new KeyGeometryRegistry();
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private static readonly FLICK_CONTEXT_UNITS: number = 64;
+  private static readonly FLICK_READ_CHUNK: number = 4096;
+  private static readonly FLICK_MAX_UNITS: number = 1024 * 1024;
+  private backspaceFlickUndo: BackspaceFlickUndo | null = null;
+  private backspaceFlickOneUndo: BackspaceFlickUndo | null = null;
   // 系统收起键盘后编辑框可能仍有焦点，空闲工作不能只靠 inputClient 判断是否显示。
   private idleDictionaryVisible: boolean = false;
   private personalDictionarySettled: boolean = true;
@@ -2210,6 +2215,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (this.rerankModelsDirectory.length > 0) {
         requested.rerank_models = this.rerankModelsDirectory;
       }
+      if (this.sharedMirror !== null) {
+        requested.dictionary_resource_root = this.sharedMirror.dictionaryResourceRoot();
+      }
       requested.pause_rerank = true;
       // 隐私模式下以关闭学习的方式构建会话，与 Android 的 `restartSessionForPrivacy` 相同：只改会话的副本，存储的文档保留用户自己的开关。
       if (this.feedbackCurrent.incognito) {
@@ -2259,6 +2267,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
       this.cantoneseSimplified = preferences.cantonese_simplified_output === true;
+      this.zhuyinSimplified = preferences.zhuyin_simplified_output === true;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
@@ -2609,15 +2618,20 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.traditional;
   }
 
-  /** 简繁按钮和功能面板「繁」显示的字形：粤拼下看粤拼自己的选择（默认繁体），其余方案看全局开关。 */
+  /** 简繁按钮和功能面板「繁」显示的字形：粤拼、注音看各自选择（默认繁体），其余方案看全局开关。 */
   showsTraditional(): boolean {
     return ChineseOutputPolicy.showsTraditional(this.characterSetFollowsCantonese(), this.traditional,
-      this.cantoneseSimplified);
+      this.cantoneseSimplified, this.characterSetFollowsZhuyin(), this.zhuyinSimplified);
   }
 
   /** 见 `ChineseOutputPolicy.switchFollowsCantonese`。 */
   private characterSetFollowsCantonese(): boolean {
     return ChineseOutputPolicy.switchFollowsCantonese(this.schemeName, this.englishMode);
+  }
+
+  /** 注音下简繁按钮切换 `zhuyin_simplified_output`，英文模式仍使用全局开关。 */
+  private characterSetFollowsZhuyin(): boolean {
+    return ChineseOutputPolicy.switchFollowsZhuyin(this.schemeName, this.englishMode);
   }
 
   /** What the user chose for the keyboard's appearance and scheme. */
@@ -3336,7 +3350,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       || this.stateDirectory.length === 0) {
       return;
     }
-    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()));
+    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()), this.typingSource());
     for (const flush of due) {
       this.sendKeyPresses(flush);
     }
@@ -3368,12 +3382,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private sendKeyPresses(flush: KeyPressFlush): void {
     if (this.stateDirectory.length === 0) return;
-    const action: TypingStatisticsKeysAction = {
-      operation: 'record_keys', day: flush.day, keys: flush.keys
-    };
-    const requestDocument: TypingStatisticsKeysRequest = {
-      directory: this.stateDirectory, action: action
-    };
+    const requestDocument: TypingStatisticsKeysRequest = typingKeyPressRequest(this.stateDirectory, flush);
     const generation: number = this.attributeGeneration;
     taskpool.execute(writeKeyPresses, JSON.stringify(requestDocument)).then((response: Object): void => {
       const value: Record<string, Object> = JSON.parse(response as string) as Record<string, Object>;
@@ -3579,6 +3588,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       // 繁转简在 Engine 里做：偏好交给会话后 Engine 在空闲时重建，组字中切换时等这段组字结束才生效。
       this.cantoneseSimplified = ChineseOutputPolicy.toggledCantoneseSimplified(this.cantoneseSimplified,
         (key: string, value: boolean): boolean => this.writePreference(key, value));
+      return this.showsTraditional();
+    }
+    if (this.characterSetFollowsZhuyin()) {
+      this.zhuyinSimplified = ChineseOutputPolicy.toggledZhuyinSimplified(this.zhuyinSimplified,
+        (key: string, value: boolean): boolean => this.writePreference(key, value));
+      this.publishCurrentCandidates();
       return this.showsTraditional();
     }
     if (!this.writePreference('traditional_chinese_output', !this.traditional)) {
@@ -4027,6 +4042,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.clearEnglishSuggestions();
     this.clearEmailSuffixes();
     this.cancelPhraseCursor();
+    this.backspaceFlickUndo = null;
+    this.backspaceFlickOneUndo = null;
     const editorGeneration: number = ++this.editorGeneration;
     const attributeGeneration: number = ++this.attributeGeneration;
     this.ownEdits.clear();
@@ -4179,6 +4196,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.sharedMirror === null || this.stateDirectory.length === 0) {
       return;
     }
+    SharedDictionaryResources.removePrivateCopies(this.sharedMirror, this.stateDirectory);
     const fullMode: boolean = this.sharedFullMode();
     const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, fullMode);
     // 设置应用发布的会话由 Rust 在锁里决定要不要采用；这里排一次让本地状态尽早跟上，云剪贴板这类认证请求自己经 `beforeRequest` 再排一次。基础访问模式下键盘不交换会话。
@@ -4446,6 +4464,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       return;
     }
+    this.backspaceFlickUndo = null;
+    this.backspaceFlickOneUndo = null;
     this.cancelPhraseCursor();
     this.caretContextEcho.textChanged(false, false, textLength);
     // A host edit may clear the field, replace the document or move text around the active composition. Commit what the user typed before the Engine's state can drift from the editor.
@@ -4465,6 +4485,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   editorSelectionChanged(collapsed: boolean = true): void {
     // 编辑器先回报 `textChange` 再回报 `selectionChange`（见 `EditEchoLedger`），这里读到的就是紧挨着的那次 `textChange` 是不是键盘自己的回声；下面会把它清掉。
     const ownEcho: boolean = this.phraseCursorOwnEcho;
+    if (!ownEcho) {
+      this.backspaceFlickUndo = null;
+      this.backspaceFlickOneUndo = null;
+    }
     if (this.phraseCursor !== null) {
       if (collapsed && this.phraseCursorOwnEcho) {
         this.resumePhraseCursor();
@@ -5101,6 +5125,115 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** 删除键上滑清空光标前文本，并保留本会话内可验证的撤回快照。 */
+  flickBackspace(action: BackspaceFlickAction): void {
+    switch (action) {
+      case BackspaceFlickAction.CLEAR:
+        this.flickClearBeforeCursor();
+        break;
+      case BackspaceFlickAction.RESTORE:
+        this.flickRestore(this.backspaceFlickUndo);
+        break;
+      case BackspaceFlickAction.DELETE_ONE:
+        this.flickDeleteOne();
+        break;
+      case BackspaceFlickAction.RESTORE_ONE:
+        this.flickRestore(this.backspaceFlickOneUndo);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private flickContext(value: string | null | undefined, preceding: boolean): string {
+    if (value === null || value === undefined) return '';
+    return BackspaceFlickTextPolicy.context(value, preceding, KeyboardSession.FLICK_CONTEXT_UNITS);
+  }
+
+  private flickClearBeforeCursor(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    this.backspaceFlickUndo = null;
+    // 组字由引擎负责清空；编辑器正文不应在组字状态下被误删。
+    if (this.composing()) {
+      this.discardComposition();
+      return;
+    }
+    const removed: string[] = [];
+    let units: number = 0;
+    try {
+      while (units < KeyboardSession.FLICK_MAX_UNITS) {
+        const before: string = inputClient.getForwardSync(
+          Math.min(KeyboardSession.FLICK_READ_CHUNK, KeyboardSession.FLICK_MAX_UNITS - units));
+        if (before.length === 0) break;
+        const count: number = TextPolicy.characters(before).length;
+        if (count === 0) break;
+        this.editEditorSync((): void => inputClient.deleteForwardSync(count));
+        removed.unshift(before);
+        units += count;
+      }
+      if (removed.length === 0) return;
+      this.backspaceFlickUndo = {
+        text: removed.join(''),
+        cursor: inputClient.getTextIndexAtCursorSync(),
+        before: this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true),
+        after: this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false),
+        generation: this.editorGeneration,
+      };
+    } catch (error) {
+      this.backspaceFlickUndo = null;
+      KeyboardLog.error(`backspace flick clear unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private flickDeleteOne(): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    this.backspaceFlickOneUndo = null;
+    if (this.composing()) {
+      this.backspace();
+      return;
+    }
+    try {
+      const before: string = inputClient.getForwardSync(1);
+      const deletion = BackspaceFlickTextPolicy.deleteBeforeCursor(
+        before, TextPolicy.characters(before).length);
+      if (deletion.deleted.length === 0) return;
+      const after: string = this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false);
+      this.editEditorSync((): void => inputClient.deleteForwardSync(
+        TextPolicy.characters(deletion.deleted).length));
+      this.backspaceFlickOneUndo = {
+        text: deletion.deleted,
+        cursor: inputClient.getTextIndexAtCursorSync(),
+        before: this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true),
+        after,
+        generation: this.editorGeneration,
+      };
+    } catch (error) {
+      this.backspaceFlickOneUndo = null;
+      KeyboardLog.error(`backspace flick delete unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private flickRestore(snapshot: BackspaceFlickUndo | null): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (snapshot === null || inputClient === undefined || snapshot.generation !== this.editorGeneration) return;
+    try {
+      const cursor: number = inputClient.getTextIndexAtCursorSync();
+      const before: string = this.flickContext(inputClient.getForwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), true);
+      const after: string = this.flickContext(inputClient.getBackwardSync(KeyboardSession.FLICK_CONTEXT_UNITS), false);
+      if (!BackspaceFlickTextPolicy.canRestore(snapshot, cursor, before, after, this.editorGeneration)) {
+        return;
+      }
+      this.editEditorSync((): void => inputClient.insertTextSync(snapshot.text));
+    } catch (error) {
+      KeyboardLog.error(`backspace flick restore unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (snapshot === this.backspaceFlickUndo) this.backspaceFlickUndo = null;
+    if (snapshot === this.backspaceFlickOneUndo) this.backspaceFlickOneUndo = null;
+  }
+
   /** Throw the composition away without committing it, which is what 重输 means. */
   cancel(): void {
     if (this.translationPage !== null) {
@@ -5466,10 +5599,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (commit !== null && commit !== undefined && commit.length > 0
         && this.inputClient !== undefined) {
       // 来源 18 的中文片段已由运行时转换，按提交上下文保留日文和英文。
-      const output: string = value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit);
+      const output: string = value.commit_context?.script_conversion === false
+        && !this.characterSetFollowsZhuyin() ? commit : this.asTraditional(commit);
       const requestedSuffix: string | null | undefined = value.commit_cursor_suffix;
       const convertedSuffix: string | null = typeof requestedSuffix === 'string'
-        ? (value.commit_context?.script_conversion === false ? requestedSuffix : this.asTraditional(requestedSuffix))
+        ? (value.commit_context?.script_conversion === false && !this.characterSetFollowsZhuyin()
+          ? requestedSuffix : this.asTraditional(requestedSuffix))
         : null;
       const suffix: string | null = QuickPhraseCursor.suffix(commit, requestedSuffix, output, convertedSuffix);
       if (suffix !== null && suffix.length > 0 && inputClient !== undefined) {
@@ -5576,8 +5711,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 按键区按下即振动（#10757）：按下时振过的按键，上屏时不再振第二次。 */
   private readonly keyPress: KeyPressFeedback = new KeyPressFeedback();
   private traditional: boolean = false;
-  /** 共享偏好 `cantonese_simplified_output`，见 `characterSetFollowsCantonese`。 */
+  /** 共享偏好 `cantonese_simplified_output` 与 `zhuyin_simplified_output`，见对应的方案判定。 */
   private cantoneseSimplified: boolean = false;
+  private zhuyinSimplified: boolean = false;
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
@@ -6100,7 +6236,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
         || response.responseCode >= 300 || typeof response.result !== 'string') return false;
-      const candidates: string[] | null = OnlineCandidatePolicy.aiCandidates(response.result, limit);
+      const candidates: string[] | null = AiCandidateResponse.parse(response.result, queryDocument, limit);
       if (candidates === null || candidates.length === 0) return false;
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyOnlineCandidates(
         handle, queryDocument, JSON.stringify(candidates), 1)) as NativeReply<OnlineApplyValue>;
@@ -8016,11 +8152,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Simplified to Traditional, where the user asked for it and the text is Chinese to begin with.
+   * 按当前输出开关在鸿蒙宿主边界转换文本。
    *
-   * The conversion is the shared phrase-level OpenCC s2t tables compiled into the native library, the same one the Windows, macOS, Linux and Android hosts call, so 头发 becomes 頭髮 and 发展 becomes 發展 here exactly as there. A converter that fails must not lose the text, so anything it cannot do falls back to what came in. The policy decides whether it applies at all; dedicated English, Japanese and the temporary Japanese mode are not Chinese output however the setting reads.
+   * 普通路径使用共享的短语级 OpenCC s2t 表；注音下的独立偏好反向使用 t2s。两条路径
+   * 都在 native library 中执行，转换失败时保留原文。
    */
   private asTraditional(text: string, source: number = -1): string {
+    if (this.characterSetFollowsZhuyin()) {
+      return ChineseOutputPolicy.candidateOutput(text, this.zhuyinSimplified, true, source,
+        (value: string): string | null => client.traditionalToSimplified(value));
+    }
     return ChineseOutputPolicy.candidateOutput(text, this.traditional,
       ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode),
       source,

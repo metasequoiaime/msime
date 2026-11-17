@@ -100,6 +100,7 @@
 #include "../core/PairedPunctuation.h"
 #include "../core/PairedPunctuation.h"
 #include "../core/TypingStatistics.h"
+#include "../core/TypingKeyPressRequest.h"
 #include "../core/DiagnosticLog.h"
 #include "../../../../shared/input/EnglishModeOutput.h"
 #include "../../../../shared/input/CapsLockTap.h"
@@ -279,11 +280,7 @@ static void MSIMERecordKeyPresses(NSString *directory, msime::mac::KeyPressFlush
     auto batch = std::make_shared<msime::mac::KeyPressFlush>(std::move(flush));
     NSString *path = [directory copy];
     (waitUntilWritten ? dispatch_sync : dispatch_async)(MSIMETypingStatisticsQueue(), ^{
-        NSMutableDictionary<NSString *, NSNumber *> *keys = [NSMutableDictionary dictionaryWithCapacity:batch->keys.size()];
-        for (const auto &[key, count] : batch->keys)
-            keys[[NSString stringWithUTF8String:key.c_str()]] = @(count);
-        NSDictionary *request = @{ @"directory": path, @"action": @{
-            @"operation": @"record_keys", @"day": [NSString stringWithUTF8String:batch->day.c_str()], @"keys": keys } };
+        NSDictionary *request = msime::mac::KeyPressRequest(path, *batch);
         NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
         if (!data) {
             msime_macos_diagnostic_write("stats: record_keys_failed reason=encode");
@@ -3234,7 +3231,7 @@ void MSIMERecordGlobalVoiceCommit(NSString *text) {
             return;
         }
     }
-    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor,
+    NSArray *items = @[ @{ @"text": @"ai", @"request": descriptor, @"query": online,
         @"candidate_limit": config[@"candidate_limit"] ?: @3 } ];
     uint64_t epoch = _aiEpoch; MSIMEClientSession *session = _session; id client = _activeClient;
     __weak MSIMEInputController *weakSelf = self;
@@ -7974,6 +7971,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             [[MSIMEFloatingToolbarPanel sharedPanel] wakeForInputDelegate:self];
     }
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted && !event.isARepeat) [self reportKeyToLifecycle:event];
+    const auto keyPressSource = MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed)
+        ? msime::mac::CaptureKeyPressSource(sender && sender == _activeClient, _appearance.englishMode, [&] {
+            return MSIMEResolveTypingSource(nil, _view, MSIMEStatisticsHostOptions(_session), NO);
+        }) : msime::mac::TypingSource::Unknown;
     _capsLockTapConsumedEvent = NO;
     const BOOL handled = [self handleKeyEvent:event client:sender];
     const BOOL finalHandled = handled || _capsLockTapConsumedEvent;
@@ -7986,7 +7987,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         }
         [self noteKeyForSmartPunctuationShadow:event eaten:finalHandled];
     }
-    if (!selfPosted) [self recordKeyPress:event client:sender];
+    if (!selfPosted) [self recordKeyPress:event client:sender source:keyPressSource];
     if (!finalHandled) [self recordPassthroughKey:event client:sender];
     const double elapsedMs = timed ? static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - started) / 1e6 : 0;
     if (timed && elapsedMs >= 8.0) {
@@ -8010,7 +8011,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 }
 
 // Counts one physical key press for the key heatmap, whether the input method consumes the key or hands it to the application. Only each key's press count per local day is kept, never the order or what was typed. A held key counts once, as does a modifier, which reports both edges as FlagsChanged. Nothing is collected while statistics are off or while a password field holds secure event input.
-- (void)recordKeyPress:(NSEvent *)event client:(id)sender {
+- (void)recordKeyPress:(NSEvent *)event client:(id)sender source:(msime::mac::TypingSource)source {
     if (!MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed)) {
         _keyPressBatch.clear();
         return;
@@ -8026,7 +8027,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     const std::string_view keyId = msime::mac::KeyIdForVirtualKeyCode(keyCode);
     if (keyId.empty()) return;
     // The day is taken at the press, so counts collected before midnight are written under the day they belong to.
-    for (msime::mac::KeyPressFlush &flush : _keyPressBatch.record(MSIMETypingStatisticsLocalDay().UTF8String, keyId))
+    for (msime::mac::KeyPressFlush &flush : _keyPressBatch.record(MSIMETypingStatisticsLocalDay().UTF8String, keyId, source))
         MSIMERecordKeyPresses([self keyPressStatisticsDirectory], std::move(flush), false);
     if (_keyPressBatch.empty()) {
         [_keyPressFlushTimer invalidate];
@@ -8798,8 +8799,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _armedGlossColumn > 0 && [self commitHighlightedGlossColumn:_armedGlossColumn client:sender]) return YES;
     // NSTextInputClient 没有设置光标的接口，所以跨过后半个是把光标后已知的那个后半个整个替换掉，光标随之后移，字不会重复。
     //
-    // 只在本宿主记着自己补过的后半个时才读光标后的字：什么都没记时读回来既跨不过、也没有可清的，却要在每个键上向应用同步来回两次（`selectedRange` 和 `attributedSubstringFromRange:`）。
-    if (_appearance.pairedPunctuation && !_pairedPunctuation.empty() && event.characters.length == 1 &&
+    // 只有这个键匹配本宿主补出的后半个时才查询文档；普通字母不能跨过，不必向应用同步来回两次。
+    if (_appearance.pairedPunctuation && event.characters.length == 1 &&
+        _pairedPunctuation.matches(event.characters.UTF8String ?: "") &&
         !MSIMESpellingSymbolString(_view, event.characters) &&
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         NSString *following = MSIMETextClientFollowingCharacter((id<MSIMETextClient>)sender);

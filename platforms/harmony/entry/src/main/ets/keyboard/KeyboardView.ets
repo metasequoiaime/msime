@@ -139,6 +139,7 @@ import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
 import { BackspaceHoldAction, BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
+import { BackspaceFlickAction, BackspaceFlickGesture } from './input/BackspaceFlickPolicy';
 import { FunctionPanelItem, FunctionPanelPolicy, PickerGrid } from './FunctionPanelPolicy';
 import { PROMOTION_TEXT } from './PromotionText';
 import { KeyboardFormFactorPolicy } from './KeyboardFormFactorPolicy';
@@ -841,6 +842,8 @@ struct KeyboardView {
   // A held Delete repeats, and letting go has to stop it, so the timer outlives the callback.
   private backspaceTimer: number = -1;
   private backspaceRepeated: boolean = false;
+  /** 删除键四向 flick 的当前手指；判定后停止长按连删，抬手再把动作交给会话。 */
+  private readonly backspaceFlick: BackspaceFlickGesture = new BackspaceFlickGesture();
   private dragged: boolean = false;
   private diagnosticTimer: number = -1;
   /** Clears the combo badge once the combo has ended for want of keys. */
@@ -1228,6 +1231,7 @@ struct KeyboardView {
     KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelHoverTip();
     this.cancelBackspace();
+    this.backspaceFlick.cancel();
     this.cancelHandwritingTimer();
     if (this.diagnosticTimer !== -1) {
       clearTimeout(this.diagnosticTimer);
@@ -3493,12 +3497,19 @@ struct KeyboardView {
       : `${key.description}，长按输入 ${options.join('、')}`;
   }
 
+  /** 组字时回车是否原样上屏编码：只有 26 键的字母编码方案是，九键、14/18 键、日语、注音、英文和本地模式都不是（`ReturnKeyAction.commitsSpelling`）。和 `strokeFace` 一样按键盘自己选的方案和此刻画的键面判断。 */
+  private returnCommitsSpelling(): boolean {
+    return ReturnKeyAction.commitsSpelling(
+      SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english, this.localMode),
+      KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode), this.drawsFourteenKey());
+  }
+
   private activateReturn(): void {
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.ENTER);
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
       this.japanese, this.editing.length > 0, this.candidates.length,
       KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace(),
-      this.strokeFace(), this.prediction);
+      this.strokeFace(), this.prediction, this.tibetanFace(), this.returnCommitsSpelling());
     if (dispatch === ReturnDispatch.COMMIT_RAW) {
       KeyboardSession.shared.commitRaw();
     } else if (dispatch === ReturnDispatch.FINISH_THEN_EDITOR) {
@@ -6743,8 +6754,8 @@ struct KeyboardView {
   }
 
   private usesQuanpinSeparator(): boolean {
-    return !this.quanpinShift && KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
-      this.english, this.symbols, this.localMode);
+    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+      this.english, this.symbols, this.localMode, this.quanpinShift);
   }
 
   private tapLetterShift(): void {
@@ -7526,14 +7537,36 @@ struct KeyboardView {
     .responseRegion(intoGaps ? this.keyHitRegion() : this.hitRegion(0, 0, 0, 0))
     .onTouch((event: TouchEvent): void => {
       if (event.type === TouchType.Down) {
+        if (event.changedTouches.length === 0) return;
+        const touch: TouchObject = event.changedTouches[0];
+        this.backspaceFlick.down(touch.id, touch.windowX, touch.windowY);
         this.startBackspace();
+      } else if (event.type === TouchType.Move) {
+        const moved: TouchObject[] = event.changedTouches.length > 0 ? event.changedTouches : event.touches;
+        for (const touch of moved) {
+          const action: BackspaceFlickAction = this.backspaceFlick.move(
+            touch.id, touch.windowX, touch.windowY);
+          if (action !== BackspaceFlickAction.NONE) {
+            // 一次触摸只做 flick；不能让已经开始的长按连删和 flick 叠加。
+            this.cancelBackspace();
+          }
+        }
       } else if (event.type === TouchType.Up) {
         for (const touch of event.changedTouches) {
+          const tracked: boolean = this.backspaceFlick.tracking(touch.id);
+          const action: BackspaceFlickAction = this.backspaceFlick.up(touch.id);
+          if (!tracked) continue;
           KeyboardSession.shared.keyUp(touch.id);
+          if (action !== BackspaceFlickAction.NONE) {
+            this.cancelBackspace();
+            KeyboardSession.shared.flickBackspace(action);
+          } else {
+            this.finishBackspace();
+          }
         }
-        this.finishBackspace();
       } else if (event.type === TouchType.Cancel) {
         this.cancelBackspace();
+        this.backspaceFlick.cancel();
       }
     })
   }

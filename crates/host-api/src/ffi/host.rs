@@ -62,12 +62,35 @@ pub unsafe extern "C" fn msime_client_simplified_to_traditional(
     if text.is_null() || length > MAX_TRADITIONAL_CONVERSION_BYTES {
         return std::ptr::null_mut();
     }
-    // SAFETY: guaranteed by the documented caller contract.
+    // 安全性：由调用方遵守的接口契约保证。
     let bytes = unsafe { std::slice::from_raw_parts(text, length) };
     let Ok(text) = std::str::from_utf8(bytes) else {
         return std::ptr::null_mut();
     };
     let converted = msime_client_core::chinese_conversion::simplified_to_traditional(text);
+    CString::new(converted).map_or(std::ptr::null_mut(), CString::into_raw)
+}
+
+/// 用共享的 OpenCC `t2s` 表把繁体中文转换为简体中文。
+///
+/// 传入空指针、非法 UTF-8 或内嵌 NUL 时返回空指针，调用方应保留原文。结果必须用
+/// `msime_client_string_free` 释放。
+/// # Safety
+/// `text` 指向长度为 `length` 的可读字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_traditional_to_simplified(
+    text: *const u8,
+    length: usize,
+) -> *mut c_char {
+    if text.is_null() || length > MAX_TRADITIONAL_CONVERSION_BYTES {
+        return std::ptr::null_mut();
+    }
+    // 安全性：由调用方遵守的接口契约保证。
+    let bytes = unsafe { std::slice::from_raw_parts(text, length) };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return std::ptr::null_mut();
+    };
+    let converted = msime_client_core::chinese_conversion::traditional_to_simplified(text);
     CString::new(converted).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
@@ -1189,10 +1212,12 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             /// knows which day the window is counted back from.
             day: String,
         },
-        /// Key presses a host batched in memory, as `{"KeyA": 3, ...}` press counts for the local day they happened on. Ids outside `KEY_IDS` or zero counts reject the whole batch.
+        /// 宿主在按下时按来源攒批；`sources` 缺省兼容旧宿主，提供时各来源之和必须等于 `keys`。
         RecordKeys {
             day: String,
             keys: std::collections::BTreeMap<String, u64>,
+            #[serde(default)]
+            sources: Option<msime_client_services::typing_statistics::KeySourceCounts>,
         },
         /// 派生指标（概览、习惯、按键、徽章），新解锁的徽章在锁内写进 `achievements`。隐私模式不影响它：它只读已经记下的数据。
         Summary {
@@ -1300,9 +1325,9 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 store.flush().map_err(|error| error.to_string())?;
                 Ok(Value::Null)
             }
-            StatisticsAction::RecordKeys { day, keys } => {
+            StatisticsAction::RecordKeys { day, keys, sources } => {
                 let recorded = store
-                    .record_keys(&day, &keys)
+                    .record_keys_by_source(&day, &keys, sources.as_ref())
                     .map_err(|error| error.to_string())?;
                 Ok(json!({"recorded": recorded}))
             }

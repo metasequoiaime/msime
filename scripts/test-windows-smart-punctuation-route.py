@@ -13,6 +13,7 @@ HARNESS = r'''
 #include <cstdio>
 #include <string>
 #include <optional>
+#include "HostPunctuationResult.h"
 using WCHAR = wchar_t;
 using BOOL = bool;
 using UINT = unsigned;
@@ -61,11 +62,17 @@ int MultiByteToWideChar(int, int, const char *, int, WCHAR *, int) { return 0; }
 struct CStringRange { void Set(const WCHAR *, std::size_t) {} };
 bool _QueueRepeatedSmartPunctuationReplacement(WCHAR) { return false; }
 int _AddCharAndFinalize(TfEditCookie, ITfContext *, CStringRange *) { return S_OK; }
-int cursorCommits = 0;
+int cursorCommits = 0, modeRefreshes = 0;
+int compositionStatus = S_OK;
 int _ApplyHostCompositionResult(TfEditCookie, ITfContext *, const msime::tsf::EngineResult &result) {
-    assert(result.has_commit && result.commit_cursor_suffix);
-    ++cursorCommits;
-    return S_OK;
+    if (result.has_commit) {
+        assert(result.commit_cursor_suffix);
+        ++cursorCommits;
+    } else {
+        assert(result.handled && result.commit.empty());
+        ++modeRefreshes;
+    }
+    return compositionStatus;
 }
 bool composing = false;
 bool _IsComposing() { return composing; }
@@ -120,7 +127,17 @@ int main() {
         entry(&engine, L'?');
     }
     assert(cursorCommits == 2 && "explicit cursor commits, including empty text, use the exact editor route");
-    std::puts("Windows TSF 标点入口：数字、字母、中文前文和三个开关的回归通过");
+    // 真实标点入口必须消费仅转换模式、没有上屏文本的引擎结果。
+    msime::tsf::probeResult = {};
+    msime::tsf::probeResult.handled = true;
+    composing = true;
+    _candidateMode = CANDIDATE_NONE;
+    assert(entry(&engine, L'/') == S_OK);
+    assert(modeRefreshes == 1);
+    compositionStatus = -1;
+    assert(entry(&engine, L'/') == -1);
+    assert(modeRefreshes == 2 && "refresh failure must not fall back to literal punctuation");
+    std::puts("Windows TSF 标点入口：智能标点、光标提交和无提交模式转换的回归通过");
 }
 '''
 
@@ -144,7 +161,7 @@ def main() -> None:
         code = Path(temporary) / 'route.cpp'
         executable = Path(temporary) / 'route'
         code.write_text(source, encoding='utf-8')
-        subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror', str(code), '-o', str(executable)], check=True)
+        subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I' + str(directory), str(code), '-o', str(executable)], check=True)
         subprocess.run([str(executable)], check=True)
 
 

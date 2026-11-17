@@ -22,6 +22,7 @@ HARNESS = r'''
 #include "PairedPunctuationHostPolicy.h"
 #include "CandidatePunctuationKeyPolicy.h"
 #include "CharacterWidthText.h"
+#include "HostPunctuationResult.h"
 
 #define _In_
 using WCHAR = wchar_t;
@@ -416,7 +417,7 @@ def main() -> int:
         # 生产函数里有只给 MSVC 计时日志用的局部变量，这里不当成错误。
         subprocess.run([compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-Wno-unused-variable',
                         '-Wno-unused-but-set-variable', '-Wno-unused-parameter', '-Wno-deprecated-declarations',
-                        '-I' + str(TSF / 'Global'), '-I' + str(ROOT / 'platforms/windows/common'),
+                        '-I' + str(TSF), '-I' + str(TSF / 'Global'), '-I' + str(ROOT / 'platforms/windows/common'),
                         str(unit), '-o', str(binary)], check=True)
         return subprocess.run([str(binary)], check=False).returncode
 

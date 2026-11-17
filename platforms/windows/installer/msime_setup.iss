@@ -275,6 +275,8 @@ const
     'https://developer.microsoft.com/zh-cn/microsoft-edge/webview2';
   VCRuntimeDownloadUrl =
     'https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist?view=msvc-170';
+  VCRuntimeDirectDownloadUrl =
+    'https://aka.ms/vc14/vc_redist.x64.exe';
 
 var
   VersionDirName: String;
@@ -325,6 +327,7 @@ end;
 function InitializeSetup: Boolean;
 var
   WebView2Version: String;
+  VCRuntimeStatus: String;
   NeedsWebView2: Boolean;
   NeedsVCRuntime: Boolean;
   Prompt: String;
@@ -343,10 +346,12 @@ begin
     Log('WebView2 Runtime found: ' + WebView2Version);
 
   NeedsVCRuntime := not VCRuntimeIsInstalled;
+  VCRuntimeStatus := ReadVCRuntimeVersion;
   if NeedsVCRuntime then
-    Log('Prerequisite missing or too old: Visual C++ ' + VCRuntimeMinimumVersion + '+ Redistributable (x64).')
+    Log('Prerequisite missing, incomplete, or too old: Visual C++ ' +
+      VCRuntimeMinimumVersion + '+ Redistributable (x64); files: ' + VCRuntimeStatus)
   else
-    Log('Visual C++ runtime found: ' + ReadVCRuntimeVersion);
+    Log('Visual C++ runtime found: ' + VCRuntimeStatus);
 
   if not (NeedsWebView2 or NeedsVCRuntime) then
     exit;
@@ -357,8 +362,10 @@ begin
     Prompt := Prompt + #13#10 +
       '● Visual C++ ' + VCRuntimeMinimumVersion + ' 或更新的可再发行组件包（x64）' + #13#10 +
       '   当前版本过旧时，Windows Server 2022 切换输入法可能导致资源管理器退出。' + #13#10 +
+      '   文件检查：' + VCRuntimeStatus + #13#10 +
+      '   注册表显示“已安装”不代表这三个 DLL 文件完整；请在“已安装的应用”中对 Visual C++ 项选择“修改”→“修复”。' + #13#10 +
       '   下载：' + VCRuntimeDownloadUrl + #13#10 +
-      '   直链：https://aka.ms/vc14/vc_redist.x64.exe' + #13#10 +
+      '   直链：' + VCRuntimeDirectDownloadUrl + #13#10 +
       '   必须先更新运行库，安装程序不会继续。';
   end;
   if NeedsWebView2 then
@@ -371,7 +378,7 @@ begin
   begin
     SuppressibleMsgBox(Prompt, mbError, MB_OK, IDOK);
     if not WizardSilent then
-      OpenDownloadPage(VCRuntimeDownloadUrl);
+      OpenDownloadPage(VCRuntimeDirectDownloadUrl);
     Result := False;
     exit;
   end;
@@ -386,7 +393,7 @@ begin
   then
   begin
     if NeedsVCRuntime then
-      OpenDownloadPage(VCRuntimeDownloadUrl);
+      OpenDownloadPage(VCRuntimeDirectDownloadUrl);
     if NeedsWebView2 then
       OpenDownloadPage(WebView2DownloadUrl);
     Result := False;
@@ -865,6 +872,24 @@ begin
   );
 end;
 
+function RepairInputMethodForUser: Boolean;
+var
+  ErrorCode: Integer;
+begin
+  { 安装器以管理员身份运行；只登记 TSF 不会把已被用户删除的 profile 加回当前用户键盘列表。用原用户身份调用设置宿主，让 input.dll 的 InstallLayoutOrTip 写入正确的用户配置。 }
+  Result := ShellExecAsOriginalUser(
+    '',
+    ExpandConstant('{autopf}\{#MyEditionInstallDir}\server\{#MySettingsExeName}'),
+    '--repair-input-method',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ErrorCode
+  ) and (ErrorCode = 0);
+  if not Result then
+    Log('无法恢复当前用户的水杉输入法键盘列表，安装本体仍已完成。');
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Chosen: String;
@@ -1280,7 +1305,8 @@ begin
   end;
 end;
 
-// 删掉系统目录里本版本以外的 msime_v* 目录，Keep 为空时连同版本根目录一起删。被占用的文件删不掉，留到下一次安装再试；卸载时它们已由 uninsrestartdelete 排到重启后删除。和 SystemDirExists 一样不用 Pascal 的文件函数，交给 ExecNativeSys 启动的 64 位 PowerShell；万一它不是 64 位进程，看到的 System32 其实是 SysWOW64，那时什么都不删。
+// 删除旧版本前先尝试删入口 DLL；仍被应用映射时整组依赖保留。系统目录交给原生
+// PowerShell，避免 Inno 7 的 WOW64 重定向；卸载时占用文件仍按原规则排到重启删除。
 procedure TryDeleteSystemVersionDirs(const Keep: String);
 var
   ResultCode: Integer;
@@ -1295,8 +1321,10 @@ begin
     '$keep = ''' + Keep + '''; ' +
     'if (-not (Test-Path -LiteralPath $root)) { exit 0 }; ' +
     'Get-ChildItem -LiteralPath $root -Filter ''msime_v*'' | Where-Object { $_.PSIsContainer } | ' +
-    'Where-Object { $_.Name -ine $keep } | ' +
-    'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; ' +
+    'Where-Object { $_.Name -ine $keep } | ForEach-Object { ' +
+    '$tip = Join-Path $_.FullName ''MetasequoiaImeTsf.dll''; ' +
+    'if (Test-Path -LiteralPath $tip) { try { [IO.File]::Delete($tip) } catch { return } }; ' +
+    'Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }; ' +
     'if (($keep -eq '''') -and -not (Get-ChildItem -LiteralPath $root -Force)) { ' +
     'Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue }"',
     '',
@@ -1309,11 +1337,9 @@ end;
 procedure TryDeleteOldVersionDirs(const RootPath: String);
 var
   FindRec: TFindRec;
+  Directory, TipPath: String;
 begin
-  if FindFirst(
-    AddBackslash(RootPath) + 'msime_v*',
-    FindRec
-  ) then
+  if FindFirst(AddBackslash(RootPath) + 'msime_v*', FindRec) then
   begin
     try
       repeat
@@ -1323,7 +1349,13 @@ begin
           (FindRec.Name <> '..') and
           (CompareText(FindRec.Name, VersionDirName) <> 0)
         then
-          TryDeleteTree(AddBackslash(RootPath) + FindRec.Name);
+        begin
+          Directory := AddBackslash(RootPath) + FindRec.Name;
+          TipPath := AddBackslash(Directory) + 'MetasequoiaImeTsf.dll';
+          { 未加载的旧 TIP 删掉后不再有新调用；被映射的 TIP 保留全部延迟依赖。}
+          if (not FileExists(TipPath)) or DeleteFile(TipPath) then
+            TryDeleteTree(Directory);
+        end;
       until not FindNext(FindRec);
     finally
       FindClose(FindRec);
@@ -1556,6 +1588,7 @@ begin
     if CreateWatchdogLogonTask then
       ConfigureWatchdogLogonTask;
     EnsureImeUserDataDir;
+    RepairInputMethodForUser;
     { Last: every step above that can fail raises before this, so a failed install keeps the previous data directory. }
     FinishDataDirMove;
   end;

@@ -48,13 +48,13 @@ extern "C" FARPROC WINAPI msime_tsf_host_delay_notify(
       info->szDll == nullptr) {
     return nullptr;
   }
-  const auto *expected = MSIME_TSF_HOST_DLL_NAME;
-  std::string expected_narrow;
-  for (const wchar_t *cursor = expected; *cursor != L'\0'; ++cursor) {
-    if (*cursor > 0x7f) return nullptr;
-    expected_narrow.push_back(static_cast<char>(*cursor));
+  constexpr wchar_t expected[] = MSIME_TSF_HOST_DLL_NAME;
+  char expected_narrow[sizeof(expected) / sizeof(wchar_t)]{};
+  for (size_t index = 0; index + 1 < sizeof(expected_narrow); ++index) {
+    if (expected[index] <= 0 || expected[index] > 0x7f) return nullptr;
+    expected_narrow[index] = static_cast<char>(expected[index]);
   }
-  if (_stricmp(info->szDll, expected_narrow.c_str()) != 0) return nullptr;
+  if (_stricmp(info->szDll, expected_narrow) != 0) return nullptr;
   const HMODULE module = load_host_library();
   if (module == nullptr) {
     // 绝对路径加载失败时不能回退到当前目录或 PATH，避免把错误版本的

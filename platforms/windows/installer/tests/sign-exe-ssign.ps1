@@ -58,6 +58,7 @@ foreach ($argument in $Arguments) {
     if ([IO.Path]::GetExtension($argument) -in @('.exe', '.dll') -and (Test-Path -LiteralPath $argument -PathType Leaf)) {
         $output = if ($outputRoot) { Join-Path $outputRoot ([IO.Path]::GetFileName($argument)) } else { $argument }
         [IO.File]::WriteAllText($output, 'synthetic-signed')
+        if ($env:MSIME_SYNTHETIC_FILES) { [IO.File]::AppendAllText($env:MSIME_SYNTHETIC_FILES, "$argument`n") }
     }
 }
 $global:LASTEXITCODE = 0
@@ -73,7 +74,7 @@ $global:LASTEXITCODE = if ($env:MSIME_SYNTHETIC_VERIFY_FAILURE) { 1 } else { 0 }
         if ($content -notin @('synthetic-signed', 'synthetic-vendor')) { throw '未检查签名输出文件' }
         [pscustomobject]@{
             Status = 'Valid'
-            SignerCertificate = [pscustomobject]@{ Subject = 'CN=Synthetic' }
+            SignerCertificate = [pscustomobject]@{ Subject = 'CN=Synthetic'; Thumbprint = ('A' * 40) }
             TimeStamperCertificate = if ($env:MSIME_SYNTHETIC_NO_TIMESTAMP) { $null } else { [pscustomobject]@{} }
         }
     }
@@ -96,6 +97,52 @@ $global:LASTEXITCODE = if ($env:MSIME_SYNTHETIC_VERIFY_FAILURE) { 1 } else { 0 }
     $env:MSIME_SYNTHETIC_NO_TIMESTAMP = '1'
     Assert-Throws '缺少时间戳' { & $script -Path $inputFile -SsignPath $fakeClient -SignToolPath $fakeVerifier } '缺少可信时间戳'
     Remove-Item Env:MSIME_SYNTHETIC_NO_TIMESTAMP
+    Assert-Throws '错误的发布证书' { & $script -Path $inputFile -SsignPath $fakeClient -SignToolPath $fakeVerifier -CertificateThumbprint ('B' * 40) } '签名证书与发布配置不符'
+    & $script -Path $inputFile -SsignPath $fakeClient -SignToolPath $fakeVerifier -CertificateThumbprint ('A' * 40)
+
+    # 同一批及不同版本的相同字节只签一次；不同字节必须独立签名。
+    $cache = Join-Path $root 'signature-cache'
+    $env:MSIME_SYNTHETIC_FILES = Join-Path $root 'signed-files.txt'
+    $cacheArgs = @{ SsignPath = $fakeClient; SignToolPath = $fakeVerifier; CertificateThumbprint = ('A' * 40); SignatureCacheDirectory = $cache }
+    [IO.File]::WriteAllText($inputFile, 'synthetic-unsigned')
+    [IO.File]::WriteAllText($library, 'synthetic-unsigned')
+    & $script -Path $inputFile,$library -OutputDirectory $outputDirectory @cacheArgs
+    if (@(Get-Content $env:MSIME_SYNTHETIC_FILES).Count -ne 1) { throw '相同字节重复消耗签名。' }
+    foreach ($file in @('input.exe', 'library.dll')) {
+        if ([IO.File]::ReadAllText((Join-Path $outputDirectory $file)) -ne 'synthetic-signed') { throw '未复制同批签名结果。' }
+    }
+    & $script -Path $inputFile,$library @cacheArgs
+    if (@(Get-Content $env:MSIME_SYNTHETIC_FILES).Count -ne 1) { throw '缓存命中仍调用签名服务。' }
+    foreach ($file in @($inputFile, $library)) {
+        if ([IO.File]::ReadAllText($file) -ne 'synthetic-signed') { throw '未复制跨调用签名结果。' }
+    }
+    [IO.File]::WriteAllText($inputFile, 'synthetic-different')
+    & $script -Path $inputFile @cacheArgs
+    if (@(Get-Content $env:MSIME_SYNTHETIC_FILES).Count -ne 2) { throw '不同字节错误复用了签名。' }
+    [IO.File]::WriteAllText($inputFile, 'synthetic-unsigned')
+    $sourceHash = (Get-FileHash $inputFile).Hash
+    $cachedFile = Join-Path $cache "$sourceHash.exe"
+    $sealFile = Join-Path $cache "$sourceHash.dpapi"
+    $env:MSIME_SYNTHETIC_NO_TIMESTAMP = '1'
+    Assert-Throws '缓存缺少时间戳' { & $script -Path $inputFile @cacheArgs } '缺少可信时间戳'
+    Remove-Item Env:MSIME_SYNTHETIC_NO_TIMESTAMP
+    $env:MSIME_SYNTHETIC_VERIFY_FAILURE = '1'
+    Assert-Throws '缓存签名校验失败' { & $script -Path $inputFile @cacheArgs } '签名校验失败'
+    Remove-Item Env:MSIME_SYNTHETIC_VERIFY_FAILURE
+    [IO.File]::WriteAllText($cachedFile, 'synthetic-vendor')
+    Assert-Throws '合法签名文件不能冒充缓存' { & $script -Path $inputFile @cacheArgs } '签名缓存摘要不匹配'
+    [IO.File]::WriteAllText($cachedFile, 'synthetic-signed')
+    Assert-Throws '签名参数不同不能复用' { & $script -Path $inputFile -Description 'different' @cacheArgs } 'Unprotect'
+    $cacheArgs.CertificateThumbprint = 'B' * 40
+    Assert-Throws '证书不同不能复用' { & $script -Path $inputFile @cacheArgs } 'Unprotect'
+    $cacheArgs.CertificateThumbprint = 'A' * 40
+    $otherSeal = Get-ChildItem $cache -Filter '*.dpapi' | Where-Object Name -ne "$sourceHash.dpapi" | Select-Object -First 1
+    Copy-Item $otherSeal.FullName $sealFile -Force
+    Assert-Throws '其他输入的缓存不能替换绑定' { & $script -Path $inputFile @cacheArgs } 'Unprotect'
+    Remove-Item $sealFile
+    Assert-Throws '部分缓存拒绝使用' { & $script -Path $inputFile @cacheArgs } '签名缓存不完整'
+    if (@(Get-Content $env:MSIME_SYNTHETIC_FILES).Count -ne 2) { throw '损坏缓存触发了额外签名。' }
+    Remove-Item Env:MSIME_SYNTHETIC_FILES
 
     # 编译器替身在包内文件全部带签名后才生成安装器；验证两次调用复用会话并最终清理。
     Copy-Item -LiteralPath $script -Destination (Join-Path $root 'Sign-Files-SimplySign.ps1')
@@ -105,7 +152,7 @@ param($IssPath, $SourceDirectory, $OutputDirectory, $Edition, $IsccPath)
 foreach ($relative in @('server_exe/app.exe', 'tsf_dll/host.dll')) {
     if ([IO.File]::ReadAllText((Join-Path $SourceDirectory $relative)) -ne 'synthetic-signed') { throw '编译发生在包内签名之前' }
 }
-[IO.File]::WriteAllText((Join-Path $OutputDirectory 'setup.exe'), 'synthetic-unsigned')
+[IO.File]::WriteAllText((Join-Path $OutputDirectory 'setup.exe'), "synthetic-installer-$Edition")
 $global:LASTEXITCODE = 0
 '@)
     $stage = Join-Path $root 'stage'
@@ -116,7 +163,9 @@ $global:LASTEXITCODE = 0
     $env:MSIME_SYNTHETIC_CALLS = Join-Path $root 'calls.txt'
     $oldRuntime = [Environment]::GetEnvironmentVariable('XDG_RUNTIME_DIR', 'Process')
     $packageOutput = Join-Path $root 'package-output'
-    & (Join-Path $root 'Sign-StagedPackage-SimplySign.ps1') -PackageRoot $stage -OutputDirectory $packageOutput -SsignPath $fakeClient -SignToolPath $fakeVerifier
+    $packageCache = Join-Path $root 'package-cache'
+    $env:MSIME_SYNTHETIC_FILES = Join-Path $root 'package-signed-files.txt'
+    & (Join-Path $root 'Sign-StagedPackage-SimplySign.ps1') -PackageRoot $stage -OutputDirectory $packageOutput -SsignPath $fakeClient -SignToolPath $fakeVerifier -CertificateThumbprint ('A' * 40) -SignatureCacheDirectory $packageCache
     $calls = @(Get-Content -LiteralPath $env:MSIME_SYNTHETIC_CALLS)
     if ($calls.Count -ne 2 -or $calls[0] -cne $calls[1] -or -not $calls[0]) { throw '包内与安装器未复用同一会话目录' }
     if (Test-Path -LiteralPath $calls[0]) { throw '签名会话没有清理' }
@@ -125,11 +174,16 @@ $global:LASTEXITCODE = 0
     if ([IO.File]::ReadAllText((Join-Path $stage 'server_exe/vendor.dll')) -ne 'synthetic-vendor') { throw '上游可信签名被覆盖' }
     $expectedHash = (Get-FileHash -LiteralPath (Join-Path $packageOutput 'setup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     if ((Get-Content -LiteralPath (Join-Path $packageOutput 'SHA256SUMS') -Raw).Trim() -cne "$expectedHash  setup.exe") { throw '摘要没有基于最终签名安装器计算' }
+    foreach ($relative in @('server_exe/app.exe', 'tsf_dll/host.dll')) { [IO.File]::WriteAllText((Join-Path $stage $relative), 'synthetic-unsigned') }
+    $env:CERTUM_OTP = 'synthetic-seed'
+    & (Join-Path $root 'Sign-StagedPackage-SimplySign.ps1') -PackageRoot $stage -OutputDirectory (Join-Path $root 'wubi-output') -Edition wubi -SsignPath $fakeClient -SignToolPath $fakeVerifier -CertificateThumbprint ('A' * 40) -SignatureCacheDirectory $packageCache
+    if (@(Get-Content $env:MSIME_SYNTHETIC_FILES).Count -ne 3) { throw '两个版本未做到共用一次包内签名、分别签名各自安装器。' }
+    if ($env:CERTUM_OTP -or $env:CERTUM_TOKEN) { throw '缓存命中后的整包签名仍保留凭据。' }
     $global:LASTEXITCODE = 0
     Write-Host 'SimplySign EXE/DLL 签名行为测试通过'
 } finally {
     Remove-Item Function:\Get-AuthenticodeSignature -ErrorAction SilentlyContinue
-    foreach ($name in @('MSIME_SYNTHETIC_ARGUMENTS', 'MSIME_SYNTHETIC_CALLS', 'MSIME_SYNTHETIC_SIGN_FAILURE', 'MSIME_SYNTHETIC_VERIFY_FAILURE', 'MSIME_SYNTHETIC_NO_TIMESTAMP')) {
+    foreach ($name in @('MSIME_SYNTHETIC_ARGUMENTS', 'MSIME_SYNTHETIC_CALLS', 'MSIME_SYNTHETIC_FILES', 'MSIME_SYNTHETIC_SIGN_FAILURE', 'MSIME_SYNTHETIC_VERIFY_FAILURE', 'MSIME_SYNTHETIC_NO_TIMESTAMP')) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
     }
     Remove-Item Env:CERTUM_EMAIL -ErrorAction SilentlyContinue
