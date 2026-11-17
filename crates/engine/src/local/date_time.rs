@@ -267,9 +267,9 @@ fn menu_label(kind: InlineDateTime) -> &'static str {
     }
 }
 
-/// 入口行的判定同参考 `is_date_time_menu_item`：这边的日期时间行都是 `Generated`，所以靠 `menu:` 前缀区分。
+/// 入口用 `Fallback` 与 `menu:` 前缀区分：它是换页动作，不能被当成 `Generated` 整句读法降位。
 pub(crate) fn is_date_time_menu_item(item: &WordItem) -> bool {
-    item.source == CandidateSource::Generated && item.pinyin.starts_with(MENU_PREFIX)
+    item.source == CandidateSource::Fallback && item.pinyin.starts_with(MENU_PREFIX)
 }
 
 /// 入口行记住的关键词，选中时按它给出 `query_date_time` 的整组格式。
@@ -407,7 +407,7 @@ pub(crate) fn insert_inline_date_time(
                 format!("{MENU_PREFIX}{keyword}"),
                 menu_label(kind),
                 0,
-                CandidateSource::Generated,
+                CandidateSource::Fallback,
                 "",
             ),
         );
@@ -908,7 +908,7 @@ mod tests {
         let menu = &candidates[2];
         assert!(is_date_time_menu_item(menu));
         assert_eq!(date_time_menu_keyword(menu), "rq");
-        assert_eq!(menu.source, CandidateSource::Generated);
+        assert_eq!(menu.source, CandidateSource::Fallback);
         // 其余行不是入口：前缀判定不会误伤普通日期行。
         assert!(!is_date_time_menu_item(&candidates[1]));
 
