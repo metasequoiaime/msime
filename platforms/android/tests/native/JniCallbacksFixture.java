@@ -5,17 +5,28 @@ import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import app.msime.android.LearningKeystoreSupport;
 
 /** `JniCallbacksTest.cpp` 在桌面 JVM 上驱动的 Java 一侧：一份内存里的会话存储（方法与 NativeClient.SessionStore 相同）和两个 listener，记下每次调用发生在哪条线程上。 */
 public final class JniCallbacksFixture {
+    /** 未声明新接口的旧代理即使有同名方法，也不能被查询。 */
+    public static final class LegacyCapability {
+        public int calls;
+
+        public boolean supportsLearningKeystore() {
+            calls++;
+            throw new UnsupportedOperationException("supportsLearningKeystore");
+        }
+    }
+
     /** 独立的新能力对象；外层旧夹具故意不提供可选方法。 */
-    public static final class LearningCapability {
+    public static final class LearningCapability implements LearningKeystoreSupport {
         public boolean supported;
         public boolean failing;
         public int calls;
         public final RuntimeException failure = new IllegalStateException("合成能力查询失败");
 
-        public boolean supportsLearningKeystore() {
+        @Override public boolean supportsLearningKeystore() {
             calls++;
             if (failing) throw failure;
             return supported;

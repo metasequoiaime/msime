@@ -102,27 +102,29 @@ void remember_java_vm(JavaVM *vm) noexcept {
 
 bool session_store_supports_learning(JNIEnv *env, jobject object) noexcept {
     if (!env || !object || env->ExceptionCheck()) return false;
-    jclass missing_method = env->FindClass("java/lang/NoSuchMethodError");
-    if (!missing_method) return false;
-    jclass type = env->GetObjectClass(object);
+    jclass missing_class = env->FindClass("java/lang/NoClassDefFoundError");
+    if (!missing_class) return false;
+    jclass type = env->FindClass("app/msime/android/LearningKeystoreSupport");
     if (!type) {
-        env->DeleteLocalRef(missing_method);
+        // 旧 Java 没有能力接口时兼容原四项；其他加载异常必须原样交回。
+        jthrowable failure = env->ExceptionOccurred();
+        if (failure) {
+            env->ExceptionClear();
+            if (!env->IsInstanceOf(failure, missing_class)) env->Throw(failure);
+            env->DeleteLocalRef(failure);
+        }
+        env->DeleteLocalRef(missing_class);
+        return false;
+    }
+    env->DeleteLocalRef(missing_class);
+    // 默认方法也会进入动态代理的处理器，不能靠同名方法推断旧宿主已经适配。
+    if (env->IsInstanceOf(object, type) != JNI_TRUE) {
+        env->DeleteLocalRef(type);
         return false;
     }
     jmethodID method = env->GetMethodID(type, "supportsLearningKeystore", "()Z");
     env->DeleteLocalRef(type);
-    if (!method) {
-        // 仅缺少可选方法属于兼容路径；查找失败的其他异常必须原样交回。
-        jthrowable failure = env->ExceptionOccurred();
-        if (failure) {
-            env->ExceptionClear();
-            if (!env->IsInstanceOf(failure, missing_method)) env->Throw(failure);
-            env->DeleteLocalRef(failure);
-        }
-        env->DeleteLocalRef(missing_method);
-        return false;
-    }
-    env->DeleteLocalRef(missing_method);
+    if (!method) return false;
     const jboolean supported = env->CallBooleanMethod(object, method);
     if (env->ExceptionCheck()) return false;
     return supported == JNI_TRUE;

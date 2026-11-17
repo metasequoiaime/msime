@@ -16,6 +16,8 @@ public final class AccountLearningSessionStoreSmoke {
         NativeClient.SessionStore store = new AccountLearningSessionStore(delegate, learning);
         check(!delegate.supportsLearningKeystore(), "旧存储默认不声明学习能力");
         check(store.supportsLearningKeystore(), "扩展存储声明学习能力");
+        check(!LearningKeystoreSupport.class.isInstance(delegate), "旧存储不接收新增能力查询");
+        check(store instanceof LearningKeystoreSupport, "产品扩展显式接入 JNI 能力接口");
         check(store.load(LEARNING) == null, "学习项初始不存在");
         for (int item = 1; item <= 4; item++) {
             byte[] bytes = ("synthetic-slot-" + item).getBytes(StandardCharsets.UTF_8);

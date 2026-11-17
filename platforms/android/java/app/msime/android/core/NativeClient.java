@@ -692,7 +692,7 @@ public final class NativeClient {
         /** 独立的学习同步密钥串，不与云剪贴板共用身份。 */
         int ITEM_LEARNING_KEYSTORE = 5;
 
-        /** 只有明确支持第五项的存储才声明能力，旧实现保持原四项契约。 */
+        /** 仅实现 LearningKeystoreSupport 的存储会被查询，旧代理保持原四项契约。 */
         default boolean supportsLearningKeystore() { return false; }
 
         /** 该项最后一次成功写入的字节；不存在时返回 null，空数组也按不存在处理。比 Rust 给的上限（会话和身份 65536 字节，密钥串 4096 字节）长的按失败处理。 */

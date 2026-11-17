@@ -4,7 +4,7 @@ import android.content.Context;
 import java.util.Objects;
 
 /** 仅扩展学习密钥槽；原四项及其剪贴板、匿名身份锁策略由原存储持有。 */
-final class AccountLearningSessionStore implements NativeClient.SessionStore {
+final class AccountLearningSessionStore implements NativeClient.SessionStore, LearningKeystoreSupport {
     private static final int MAX_BYTES = 4096;
     private final NativeClient.SessionStore delegate;
     private final Storage learning;

@@ -40,7 +40,7 @@ Engine 的明文流与纯合并已经按这份契约实现于 `crates/engine/src
 
 账号密钥槽是 `learning-keystore`，文件私有、有界、原子替换，退出时与账号和剪贴板密钥都尝试删除。存储内容用 `{login:{user_id,session_id},keystore}` 包住驱动原有编码：只绑定账号会让同账号重新登录复用服务端仍绑定旧会话的设备，只保存裸密钥则连换账号也会沿用旧身份，所以账号层只使用当前持久登录编号对应的密钥，其他登录留下的密钥视为本轮没有身份。读、比较、保存仍在账号刷新锁内完成，首次并发建身份采用先保存者，保存失败前不发请求；没有改剪贴板格式或刷新规则。账号适配与显式数据轮次尚未接入平台入口，不会自动开启上传，也不改变出厂默认值。
 
-宿主存储与 FFI 包装已支持独立学习密钥：`SessionStoreItem::LearningKeystore=5`，容量 4 KiB，内容仍由账号层绑定具体登录。`SessionStoreBackend::supports_learning_keystore` 默认为假；C 描述符版本 1 与结构布局不变，用 `MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE=2` 显式声明能力，未声明的宿主绝不收到第五项的读写或删除回调，退出账号仍删除原有两项。已声明时先尝试删除账号、剪贴板和学习三个项，再报告首个错误；匿名槽始终拒绝学习读写，匿名清理不触碰账号密钥。文件与 Host 的 FFI 会话包装均转调学习槽，匿名文件包装拒绝。新位只代表存储能力，不代表用户开启同步。Apple 标准布局已提供独立第五项：macOS 是同一账号状态目录的私有 `learning-keystore` 文件，iOS 是同一服务与访问组内独立的 `learning-keystore` 钥匙串 account；旧自定义布局默认不声明能力。Swift 注册只在明确 `invalid_session_store` 时清除新能力位重试一次，重试留在同一个 `client_agent.withCString` 生命周期内，复用同一个 context。明确失败最终释放一次，成功由 Rust 释放，回答不可解析时不重试、不提前释放可能已被 Rust 接管的 context。降级后的旧 Rust 删除账号项时也尝试删除学习项，两项都执行后报告失败；旧 Swift 退出路径先清学习密钥，失败则保留会话供重试。共享后端、macOS 固定测试源列表和 iOS 键盘固定源列表共同包含不依赖 Rust 的清理辅助文件，避免旧 Swift 会话引入键盘未链接的 Rust 模块。Android 主进程注册时用独立 `AccountLearningSessionStore` 包装原四项，学习项使用名为 `learning-keystore` 的独立 SharedPreferences 与 AndroidKeyStore alias，以 AES/GCM 加密并同步提交；新项严格按 UTF-8 限制非空且最多 4 KiB，其他项及原剪贴板锁策略保持委托。旧 `SessionStore` 默认不声明能力，JNI 只在查询返回真时设置学习能力位，不声明 SharedPreferences 不具备的跨进程共享能力；缺少可选方法仅清除 `NoSuchMethodError`，其他查询异常保留并在建立全局引用之前拒绝注册。现有 R8 规则完整保留宿主接口、类和成员，新增方法同样受保护。桌面 JVM 替身验证隔离、边界与失败传播，真实 JNI 在 `-Xcheck:jni` 下验证旧对象和能力异常；未运行 AndroidKeyStore 系统环境验证。Windows、Linux 和 HarmonyOS 原有 `directory` 账号路径由 Host API 直接构造共享 `FileAccountSessionStorage`，已使用前述文件学习槽，无需再增加宿主注入的第五项；这些平台的系统密钥库不在本切片中。各平台的学习入口和调度仍未接入。原 `flags=2` 非法用例的前提因正式定义此能力位而失效，改为拒绝未知位 4，并增加位 2 在两种布局、共享与非共享组合下的真实注册和回调行为测试，保留匿名身份只创建、共享锁和 context 恰好释放一次的断言。
+宿主存储与 FFI 包装已支持独立学习密钥：`SessionStoreItem::LearningKeystore=5`，容量 4 KiB，内容仍由账号层绑定具体登录。`SessionStoreBackend::supports_learning_keystore` 默认为假；C 描述符版本 1 与结构布局不变，用 `MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE=2` 显式声明能力，未声明的宿主绝不收到第五项的读写或删除回调，退出账号仍删除原有两项。已声明时先尝试删除账号、剪贴板和学习三个项，再报告首个错误；匿名槽始终拒绝学习读写，匿名清理不触碰账号密钥。文件与 Host 的 FFI 会话包装均转调学习槽，匿名文件包装拒绝。新位只代表存储能力，不代表用户开启同步。Apple 标准布局已提供独立第五项：macOS 是同一账号状态目录的私有 `learning-keystore` 文件，iOS 是同一服务与访问组内独立的 `learning-keystore` 钥匙串 account；旧自定义布局默认不声明能力。Swift 注册只在明确 `invalid_session_store` 时清除新能力位重试一次，重试留在同一个 `client_agent.withCString` 生命周期内，复用同一个 context。明确失败最终释放一次，成功由 Rust 释放，回答不可解析时不重试、不提前释放可能已被 Rust 接管的 context。降级后的旧 Rust 删除账号项时也尝试删除学习项，两项都执行后报告失败；旧 Swift 退出路径先清学习密钥，失败则保留会话供重试。共享后端、macOS 固定测试源列表和 iOS 键盘固定源列表共同包含不依赖 Rust 的清理辅助文件，避免旧 Swift 会话引入键盘未链接的 Rust 模块。Android 主进程注册时用独立 `AccountLearningSessionStore` 包装原四项，学习项使用名为 `learning-keystore` 的独立 SharedPreferences 与 AndroidKeyStore alias，以 AES/GCM 加密并同步提交；新项严格按 UTF-8 限制非空且最多 4 KiB，其他项及原剪贴板锁策略保持委托。旧 `SessionStore` 默认不声明能力；JNI 只对显式实现独立 `LearningKeystoreSupport` 接口的对象查询能力，返回真时才设置学习能力位，不声明 SharedPreferences 不具备的跨进程共享能力。旧 Java 缺少接口类时仅清除 `NoClassDefFoundError`，其他加载或查询异常保留并在建立全局引用之前拒绝注册。现有 R8 规则完整保留宿主接口、类和成员，新增方法同样受保护。桌面 JVM 替身验证隔离、边界与失败传播，真实 JNI 在 `-Xcheck:jni` 下验证旧对象和能力异常；未运行 AndroidKeyStore 系统环境验证。Windows、Linux 和 HarmonyOS 原有 `directory` 账号路径由 Host API 直接构造共享 `FileAccountSessionStorage`，已使用前述文件学习槽，无需再增加宿主注入的第五项；这些平台的系统密钥库不在本切片中。各平台的学习入口和调度仍未接入。原 `flags=2` 非法用例的前提因正式定义此能力位而失效，改为拒绝未知位 4，并增加位 2 在两种布局、共享与非共享组合下的真实注册和回调行为测试，保留匿名身份只创建、共享锁和 context 恰好释放一次的断言。
 
 显式轮次 `BackendAccountSession::learning_sync_once` 先确认设备 `ready`，读取当前元数据，再在 Engine 独占维护租约内完整导出、持久观察上限并更新日志时钟；先上传本机原状态，之后才逐份下载其他设备。摘要与已确认上传相同且服务端代次未变才跳过上传；服务端丢失或回滚时越过本机已上传代次重建副本，远端代次耗尽先删本机副本。上传仅在服务端成功且当前登录/密钥仍相同时推进，413 或本机受保护记录超限不阻断远端下载；元数据、上传及下载任一阶段限流都保留 `Retry-After` 并结束本轮，不在同一轮循环重试，也不继续请求其余设备。读取额度按账号共享，把下载的 429 当成单台设备失败并继续遍历，会在退避窗口内继续耗费请求；其他下载错误仍按单来源报告。多设备回归同时核对限流后的请求数量、未推进来源进度，以及下一轮恢复后两台设备都能实际解密合并。
 
@@ -197,10 +197,17 @@ Windows WinUI 的 `lexicon_request` 与 Win7 词库工作线程把既有清除�
 
 备选是单独暴露「保存屏障」后让宿主另发旧重置请求：复用入口最多，但两次调用间释放维护权，可能漏掉间隙里已观察或新写的记录；因此清除闭包放在共享边界内部，宿主不拼两次调用。
 
+### Android 旧存储代理的能力隔离
+
+API 28 的原 `SessionStoreDeviceSmoke` 暴露实际兼容性回归：Java 动态代理会把接口的 default 方法也交给旧处理器，新增 `supportsLearningKeystore` 即使默认返回假，仍可能抛出 `UnsupportedOperationException` 并使旧四项注册失败。JNI 先检查独立的 `LearningKeystoreSupport` 接口；只有新包装存储主动实现它才调用能力方法。同名方法、旧接口的默认方法都不算授权。能力类缺失兼容旧 Java，其他异常继续传播，避免掩盖新宿主的存储故障。桌面 JNI 夹具与设备源码的固定 javac 列表均包含独立接口，接口本身不依赖 Android 或 `NativeClient`。
+
+真实 JVM 的负对照编译旧 JNI：旧对象的同名抛错方法被调用，隔离断言失败；同一夹具编译修复后，在 `-Xcheck:jni` 下通过，旧对象零能力回调，新对象真/假及异常语义保持。完整 Android 宿主检查通过 NDK 语法、365 项 JVM 冒烟和 305 份设备套件源码编译。首轮遗漏设备源码列表导致 javac 失败，补齐列表后重新运行通过；原设备 `SessionStoreDeviceSmoke` 的输入、代理处理器和断言未改。最终 scheduler 源码的 API 28 四包设备单测及 13 项维护租约通过；包含 JNI 修复和锁定语言词库的整包验收另记实际终态。
+
 ## Alternatives considered
 
 - **数据 C 请求直接传 `content_id`、状态根和主词库标志**：宿主最容易接线，夹具也无需运行时文档。不用：六端会分别复制代次选择与版本方案规则，旧会话在后台切代后还可能错误标注内容身份；改为复用现有宿主选项与会话资源清单，只在边界校验 prepared 代次布局。
 
+- **直接调用旧 Java 接口的默认能力方法**：无需独立接口、接线最少，但动态代理不会自动执行默认方法，会把未知能力查询送入旧处理器；系统设备套件已复现注册失败。吞掉所有查询异常可以让旧代理继续工作，却同时掩盖新存储的真实故障，因此采用显式标记并只兼容能力类缺失。
 - **对所有宿主无条件增加第五个密钥回调**：接线最短，也让新宿主立即复用原有存储接口。但旧宿主会把未知项当成错误，连退出登录都失败；改成显式能力位，旧宿主维持原来的四项，新域不可用时拒绝且不回退剪贴板身份。
 
 - **同步沿用手动新建词条的一亿权重上限和 2048 字节提案上限**：校验范围较窄，复用新建词条的直觉简单。但合法英文调频超过 230 亿，现有快捷短语允许 4096 字节；拒收会让整份同步失败，截断会改变数据和排序。同步保留现有存储的有效范围，新建词条仍沿用原有编辑校验。

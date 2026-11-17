@@ -1694,7 +1694,9 @@ if [[ -n "$jni_platform" && -n "$java_home" && -f "$java_home/include/jni.h" && 
     && command -v "$host_cxx" >/dev/null 2>&1; then
   jni_test_dir="$output_dir/jni-callbacks"
   mkdir -p "$jni_test_dir"
-  javac --release 17 -Xlint:all -Werror -d "$jni_test_dir" "$repo_root/platforms/android/tests/native/JniCallbacksFixture.java"
+  javac --release 17 -Xlint:all -Werror -d "$jni_test_dir" \
+    "$repo_root/platforms/android/java/app/msime/android/core/LearningKeystoreSupport.java" \
+    "$repo_root/platforms/android/tests/native/JniCallbacksFixture.java"
   "$host_cxx" -std=c++17 -Wall -Wextra -Werror -pthread \
     -I"$java_home/include" -I"$java_home/include/$jni_platform" \
     "$repo_root/platforms/android/tests/native/JniCallbacksTest.cpp" \

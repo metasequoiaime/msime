@@ -66,7 +66,16 @@ struct Fixture {
 void learning_capability(Fixture &fixture) {
     JNIEnv *env = fixture.env;
     CHECK(!msime::android::session_store_supports_learning(env, fixture.object), "旧对象不声明学习能力");
-    CHECK(!env->ExceptionCheck(), "缺少可选方法不留下异常");
+    CHECK(!env->ExceptionCheck(), "旧对象不留下异常");
+    jclass legacy_type = env->FindClass("app/msime/android/nativetest/JniCallbacksFixture$LegacyCapability");
+    jobject legacy_object = env->NewObject(legacy_type, env->GetMethodID(legacy_type, "<init>", "()V"));
+    Fixture legacy{env, legacy_type, legacy_object};
+    CHECK(!msime::android::session_store_supports_learning(env, legacy_object), "同名方法不代表声明新能力");
+    CHECK(!env->ExceptionCheck(), "旧代理未处理的新方法不被调用");
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    CHECK(legacy.field("calls") == 0, "旧代理没有收到能力回调");
+    env->DeleteLocalRef(legacy_object);
+    env->DeleteLocalRef(legacy_type);
     jclass type = env->FindClass("app/msime/android/nativetest/JniCallbacksFixture$LearningCapability");
     jobject object = env->NewObject(type, env->GetMethodID(type, "<init>", "()V"));
     Fixture capability{env, type, object};
