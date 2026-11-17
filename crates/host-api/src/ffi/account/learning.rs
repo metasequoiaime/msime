@@ -5,6 +5,7 @@ use msime_client_core::cloud::learning_e2e::Operation;
 use msime_client_services::account::{AccountApi, AccountLoginBinding, AccountSessionStorage};
 
 mod data;
+mod reset_settings;
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]

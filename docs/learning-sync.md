@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选、置顶比较状态及调权、删除的原始时间与权重。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。本机写入已读取日志持久时间下限，重置和快照激活保留该下限；`client-services/account/learning_sync/round.rs` 已串起显式上传、下载校验及独占维护内的导出和合并；密文待合并及显式空闲认领已接入；账号绑定的显式本机重置已接通，Android 和 iOS 的清除学习入口已接线；其他平台重置入口、自动调度及同步管理 UI 仍按决策笔记里的分期落地。显式同步轮次尚无平台入口，不自动发起上传。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选、置顶比较状态及调权、删除的原始时间与权重。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。本机写入已读取日志持久时间下限，重置和快照激活保留该下限；`client-services/account/learning_sync/round.rs` 已串起显式上传、下载校验及独占维护内的导出和合并；密文待合并及显式空闲认领已接入；账号绑定的显式本机重置已接通，Android、iOS、macOS/Linux、Windows 和 HarmonyOS 的现有清除学习入口均已接线；自动调度及同步管理 UI 仍按决策笔记里的分期落地。显式同步轮次尚无平台入口，不自动发起上传。
 
 ## 与其他同步的关系
 
@@ -178,7 +178,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 例如实际 Unix 秒为 100，本机在同一秒多次修改到逻辑时间 103，并已传给另一台设备。重置必须得到 `F >= 103`，对端重传这条旧行仍被过滤；本机重置后新写的行至少为 104。换钥重传也保留这个区别。
 - 这是对本机已观察逻辑时间的屏障，不是全账号的真实时间分界。离线设备有本机未见过、`updated_at > F` 的旧行时，它仍可在以后合并进来；对端在重置后新写、但 `updated_at <= F` 的行也会被过滤，直到该行在对端的逻辑时间超过屏障。仅凭逐行时间戳无法区分这两种情况，不能承诺「所有重置前的都不回来、所有重置后的都能合并」。界面说明本机重置的这一限制；跨设备协调重置需要另行设计，不在 v1 内。
 
-持久进度文件格式版本为 1，最多 4 MiB：顶层 `version` 和 `accounts`；账号项包含 `observed_max`、`reset_floor`、按密钥与来源设备分组的 `sources`，以及按本机设备分组的 `uploads`。来源进度含 `verified/applied`，上传进度含 `generation/key_id/sha256`。全部字段必填，映射键不能重复，`applied <= verified <= 2⁵³−1`，`reset_floor <= observed_max <= 2⁴⁰`；上传摘要为实际上传明文流的 SHA-256，不保存输入原文。文件损坏、未知版本、字段或范围不合法、超限都返回错误，原文件保留；不会重建为空状态或淘汰旧下限。每次读改写持有独立的 `learning.lock`，替换私有文件后同步目录。调用方只有在持久化成功后才能发布导出、接纳待合并文件或清空学习日志；存储层不代替 Engine 的独占维护权。显式轮次在独占租约内导出观察、更新时钟和合并；远端认证接纳先持久保存进度再发布密文，应用时重新读取屏障。显式本机重置入口已经接通同一边界；Android 和 iOS 已将清除学习动作接到该入口，macOS/Linux 的现有设置命令直接复用同一屏障；Windows 原生设置和 HarmonyOS 仍须接线。
+持久进度文件格式版本为 1，最多 4 MiB：顶层 `version` 和 `accounts`；账号项包含 `observed_max`、`reset_floor`、按密钥与来源设备分组的 `sources`，以及按本机设备分组的 `uploads`。来源进度含 `verified/applied`，上传进度含 `generation/key_id/sha256`。全部字段必填，映射键不能重复，`applied <= verified <= 2⁵³−1`，`reset_floor <= observed_max <= 2⁴⁰`；上传摘要为实际上传明文流的 SHA-256，不保存输入原文。文件损坏、未知版本、字段或范围不合法、超限都返回错误，原文件保留；不会重建为空状态或淘汰旧下限。每次读改写持有独立的 `learning.lock`，替换私有文件后同步目录。调用方只有在持久化成功后才能发布导出、接纳待合并文件或清空学习日志；存储层不代替 Engine 的独占维护权。显式轮次在独占租约内导出观察、更新时钟和合并；远端认证接纳先持久保存进度再发布密文，应用时重新读取屏障。显式本机重置入口已经接通同一边界；Android 和 iOS 已将清除学习动作接到该入口，macOS/Linux 的现有设置命令直接复用同一屏障；Windows 原生设置与 HarmonyOS 的现有重置入口也已接入。
 
 ## 防回滚
 
@@ -363,3 +363,7 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 - `notice`：`pending` 时的原因，`learning_sas_mismatch`（拒绝过当前这份封装）或 `learning_key_rotated`（本机原来有密钥，账号换了钥，要重新被允许），否则为 `null`。`learning_key_rotated` 一直回报到本机重新拿到密钥（解开新封装或本机建钥、换钥）或关闭为止：密钥串里留着 `rotated` 标记，共用密钥串的设置页、面板和后台同步看到的都一样，不会被先取状态的那个进程用掉。
 - `approved`：只在 `approve` 的结果里有，批准者把 `approved.code` 显示给用户，与新设备的 `confirm.code` 核对。
 - `devices`：公钥与编号对得上的设备，最多 20 台，`code` 是各自的设备核对码。
+
+### HarmonyOS 现有清除入口
+
+`KeyboardSession.dictionary` 的 reset 分支经 `dictionaryLearningReset` 调用受限 C 入口 `msime_client_learning_reset_settings`。请求只接受绝对账号目录 `directory` 与已准备的运行时 `options`，内部固定为本机 reset；通用账号 action 和额外字段都被拒绝。它复用共享账号屏障，不联网、刷新或创建密钥，失败不回退。reset 同样需要维护窗口：组字中拒绝，空闲时释放并恢复会话、英文模式、布局及焦点。这是现有清除动作的接线；原生同步管理入口与自动调度仍未实现，尚不能在产品中发起跨设备同步。

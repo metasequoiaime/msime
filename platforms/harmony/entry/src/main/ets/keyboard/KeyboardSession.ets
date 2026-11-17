@@ -19,6 +19,7 @@ import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { PERSONAL_WORDBOOK_FAILURE, PersonalWordbookPolicy, PersonalWordbookRoute } from './PersonalWordbookPolicy';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
+import { DictionaryLearningResetRequest, validLearningResetAction } from './DictionaryLearningResetRequest';
 import { IdleDictionaryRetryPolicy, PersonalDictionaryDrain } from './IdleDictionaryRetryPolicy';
 import { UserWordsMirror } from './UserWordsMirror';
 import {
@@ -4686,16 +4687,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /**
-   * Run one shared dictionary-management action without violating the Engine maintenance lock.
+   * 在 Engine 维护锁内执行词库操作，清除学习先持久保存账号屏障。
    *
-   * Reads can coexist with the live session. A write briefly recreates an idle session so the
-   * Engine has exclusive dictionary access, but never cancels a composition to obtain it.
+   * 读取可与活动会话共存；写入只重建空闲会话，不能取消正在进行的组字。
    */
   dictionary(actionDocument: string, resources: string, stateRoot: string): string {
     let action: DictionaryAction;
     try {
       const decoded: DictionaryAction | null = JSON.parse(actionDocument) as DictionaryAction | null;
-      if (decoded === null || typeof decoded.operation !== 'string') {
+      if (decoded === null || typeof decoded.operation !== 'string' ||
+        (decoded.operation === 'reset' && !validLearningResetAction(decoded))) {
         return JSON.stringify({ ok: false, error: 'invalid dictionary action' });
       }
       action = decoded;
@@ -4742,9 +4743,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         return JSON.stringify(prepared);
       }
       const request: DictionaryRequest = { options: prepared.value, action: action };
-      // Same request shape, different store. The queued route writes the personal-dictionary file
-      // beside the preferences and is drained in bounded idle turns; the Engine route needs the
-      // maintenance lock this method has just taken.
+      // 队列写偏好旁的个人词库，空闲时分批认领；直接写 Engine 的路径使用上面取得的维护窗口。
       if (decision.queued) {
         result = client.personalDictionaryRequest(JSON.stringify(request));
         this.personalDictionarySettled = false;
@@ -4755,6 +4754,9 @@ export class KeyboardSession implements HardwareKeyTarget {
           this.personalDictionaryTimer = -1;
         }
         this.schedulePersonalDictionaryDrain();
+      } else if (action.operation === 'reset') {
+        const reset: DictionaryLearningResetRequest = { directory: stateRoot, options: prepared.value };
+        result = client.dictionaryLearningReset(JSON.stringify(reset));
       } else {
         result = client.dictionary(JSON.stringify(request));
       }

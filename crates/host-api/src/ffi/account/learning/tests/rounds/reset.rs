@@ -5,6 +5,7 @@ use super::*;
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 mod desktop;
 mod settings;
+mod settings_native;
 use msime_client_services::account::learning_sync::state::StateStore;
 use rusqlite::Connection;
 

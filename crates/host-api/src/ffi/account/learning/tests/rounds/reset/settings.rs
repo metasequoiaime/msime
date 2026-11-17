@@ -9,7 +9,7 @@ fn reset(harness: &Harness) -> Value {
     )
 }
 
-fn seed(harness: &Harness) -> LearningSyncState {
+pub(super) fn seed(harness: &Harness) -> LearningSyncState {
     let local = state(4, FUTURE);
     msime_engine::merge_learning_sync_state(&harness.paths, false, &local, 0).unwrap();
     local
