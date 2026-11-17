@@ -337,7 +337,7 @@ struct HostSession {
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
-    /// 还没写进打字统计的上屏，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计；读音在写入时于后台线程查，不在输入线程上查。
+    /// 还没写进打字统计的上屏，和 `pending_selections` 一起写；读音在写入时于后台线程查，不在输入线程上查。
     pending_efficiency: Vec<EfficiencyCandidate>,
     /// 本进程所知的打字统计开关（`TypingStatisticsStore::known_enabled`），每次交出选词时更新；`None` 是本进程还没读过统计文件，下次要计效率时再问。统计关闭时效率一项都不查。
     statistics_enabled: Option<bool>,
@@ -755,9 +755,9 @@ impl HostSession {
         }
     }
 
-    /// 选中的候选在派发前的样子，供上屏后计效率：不记统计的会话、统计关闭、非 Android 宿主或找不到这个候选时为 `None`。
+    /// 选中的候选在派发前的样子，供上屏后计效率：不记统计的会话、统计关闭或找不到这个候选时为 `None`。
     fn efficiency_candidate(&mut self, action: &Action) -> Option<EfficiencyCandidate> {
-        if !COUNTS_COMMIT_EFFICIENCY || self.private_session() {
+        if self.private_session() {
             return None;
         }
         let id = match action {
@@ -4234,10 +4234,7 @@ fn selected_position(action: &Action) -> Option<usize> {
     }
 }
 
-/// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它多查读音。测试里也打开，好覆盖计法。
-const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
-
-/// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计（鸿蒙和 iOS 本来就不计上屏效率）。其他宿主不变。
+/// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。
 const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(
     target_os = "android",
     target_env = "ohos",

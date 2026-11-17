@@ -96,6 +96,9 @@
 #include "ToolbarLayout.h"
 #include "TranslationServiceSettings.h"
 #include "TypingStatisticsModel.h"
+#include "TypingAchievementsView.h"
+#include "TypingKeyLanguagesData.h"
+#include "TypingKeyLanguagePicker.h"
 #include "VoiceSettings.h"
 #include "../src/input/ToggleHotkeyChord.h"
 #include "msime_client.h"
@@ -3306,6 +3309,8 @@ namespace typing = msime::settings::typing;
 // 打字统计的一次状态：统计、文件是否写过和最后写入的时间。signature 是整个回答，轮询时据此判断有没有新数据，与共享页比较 JSON.stringify(next) 一样。
 struct StatisticsStatus {
   typing::Statistics statistics;
+  std::optional<typing::AchievementsSnapshot> achievements;
+  typing::DailyKeyLanguages key_languages;
   bool never_written = true;
   std::optional<uint64_t> last_written_ms;
   std::string signature;
@@ -3408,6 +3413,9 @@ std::optional<StatisticsStatus> statistics_status(Response const &response) {
     if (const auto keys = named(L"dailyKeys"); keys.ValueType() == JsonValueType::Object)
       for (auto const &entry : keys.GetObject())
         statistics.daily_keys[utf8(entry.Key())] = statistics_counts(entry.Value());
+    const auto languages = typing::key_languages_from_winrt(named(L"dailyKeyLanguages"));
+    if (!languages) return std::nullopt;
+    status.key_languages = std::move(*languages);
     return status;
   } catch (...) {
     return std::nullopt;
@@ -19552,6 +19560,7 @@ private:
     stats_day_.reset();
     stats_selected_.reset();
     stats_tab_ = L"keys";
+    stats_key_language_ = "all";
     stats_calendar_offset_ = 0;
     stats_details_offset_ = 0;
     stats_upload_.reset();
@@ -19663,11 +19672,19 @@ private:
     request.SetNamedValue(L"action", action);
     request.SetNamedValue(L"status", JsonValue::CreateBooleanValue(true));
     const auto body = utf8(request.Stringify());
+    const bool with_achievements = current_page_ == "stats";
+    const auto statistics_directory = state_directory().wstring();
+    const auto statistics_day = local_day();
     auto weak = get_weak();
     auto queue = DispatcherQueue();
     co_await resume_background();
     auto status = statistics_status(take_response(msime_client_typing_statistics(
         reinterpret_cast<const uint8_t *>(body.data()), body.size())));
+    if (status && with_achievements) {
+      status->achievements = typing::load_achievements(statistics_directory, statistics_day,
+                                                     runtime_options_document());
+      status->signature += status->achievements ? status->achievements->signature : "summary_unavailable";
+    }
     queue.TryEnqueue([weak, done = std::move(done), status = std::move(status)] {
       if (auto self = weak.get(); self && !self->closed_)
         done(status);
@@ -20361,8 +20378,13 @@ private:
   // 「按键热力图」：当前范围内每个键按了多少次，画在记下这些次数的那种键盘上。
   void stats_keys(StackPanel const &page, typing::Statistics const &statistics,
                   std::optional<std::vector<std::string>> const &scope, std::wstring const &scope_label) {
-    const auto model = typing::keyboard_model(typing::scoped_key_counts(statistics.daily_keys, scope));
+    const typing::KeyLanguageSnapshot languages(statistics.daily_keys, stats_->key_languages, scope);
+    stats_key_language_ = languages.resolved(stats_key_language_);
+    const auto model = typing::keyboard_model(languages.counts(stats_key_language_));
     auto body = stats_section(page, L"按键热力图 · " + scope_label);
+    typing::append_key_language_picker(body, languages, stats_key_language_,
+        [this](std::wstring const &title) { return make_text(title, 13, palette_.text); },
+        [this](std::string const &language) { stats_key_language_ = language; redraw_stats(); });
     if (model.total == 0) {
       body.Children().Append(stats_empty(L"这段时间还没有按键记录"));
     } else {
@@ -20872,14 +20894,14 @@ private:
     auto tabs = segmented_control(
         L"统计内容",
         {{L"keys", L"按键"}, {L"trend", L"趋势"}, {L"kind", L"类型"}, {L"mode", L"模式"},
-         {L"scheme", L"方案"}, {L"ranks", L"候选"}},
+         {L"scheme", L"方案"}, {L"ranks", L"候选"}, {L"achievements", L"成就"}},
         stats_tab_,
         [this](std::wstring const &value) {
           // 桌面上切换标签时保留选中的那一天：它的柱子在「趋势」里，其他标签正是用来看这一天的分项。
           stats_tab_ = value;
           redraw_stats();
         },
-        true, false, 6, L"statistics-tab");
+        true, false, 7, L"statistics-tab");
     tabs.HorizontalAlignment(HorizontalAlignment::Left);
     tabs.Margin(Thickness{0, 24, 0, 0});
     page.Children().Append(tabs);
@@ -20905,6 +20927,11 @@ private:
       stats_details(page, statistics, today);
     if (stats_tab_ == L"ranks")
       stats_candidate_ranks(page, statistics);
+    if (stats_tab_ == L"achievements")
+      typing::append_achievements(stats_section(page, L"成就"), status.achievements,
+          [this](std::wstring const &text, bool title) {
+            return make_text(text, title ? 15 : 13, title ? palette_.text : palette_.sub);
+          });
 
     auto group = add_group(page, L"");
     group.Margin(Thickness{0, 28, 0, 0});
@@ -28196,6 +28223,7 @@ private:
   std::optional<std::string> stats_selected_;
   std::optional<std::string> stats_day_;
   std::wstring stats_tab_ = L"keys";
+  std::string stats_key_language_ = "all";
   // 日历热力图和按日明细的横向滚动位置，跨重画保留。
   double stats_calendar_offset_ = 0;
   double stats_details_offset_ = 0;

@@ -8453,7 +8453,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// One press of a soft key, by its id in `TypingKeyID`; `nil` is a key with no id, which is not counted. Secure and credential fields are skipped as well: iOS normally swaps in the system keyboard for secure ones, and a host that does not, or that marks a field only by its content type, still gets nothing recorded.
   private func countKeyPress(_ id: String?) {
     guard let id, countsKeyPresses, hasFullAccess, privacyGate.allows(.keys) else { return }
-    for batch in keyPresses.record(id, day: TypingStatistics.dayKey(Date())) { writeKeyPresses(batch) }
+    for batch in keyPresses.record(id, day: TypingStatistics.dayKey(Date()), source: typingSource.rawValue) {
+      writeKeyPresses(batch)
+    }
   }
 
   @objc private func flushKeyPresses() {
@@ -8478,7 +8480,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func writeKeyPresses(_ batch: TypingKeyBatch) {
     statisticsQueue.async { [weak self] in
       do {
-        let recorded = try TypingStatisticsStore().recordKeys(batch.keys, day: batch.day)
+        let recorded = try TypingStatisticsStore().recordKeys(batch.keys, day: batch.day, sources: batch.sources)
         // Nothing taken means statistics were turned off since the keyboard last asked.
         guard recorded == 0 else { return }
         DispatchQueue.main.async { [weak self] in

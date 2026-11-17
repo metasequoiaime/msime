@@ -3,8 +3,10 @@
  *
  * 这些 id 是 W3C `KeyboardEvent.code` 名，加上少数只在屏幕键盘上有的 id。这个列表必须与 `crates/client-services/src/typing_statistics.rs` 里的 `KEY_IDS` 完全一致：只要一批里有一个存储层不认识的 id，它就整批拒绝，所以在这里自造的 id 会悄悄让它前后的每次按键都丢掉。没有映射的键不计数，而不是按猜测归类。
  *
- * 离开这个文件的只有计数。没有顺序、没有时间戳、没有文本：一批就是一天加上每个键一个计数。
+ * 离开这个文件的只有计数。没有顺序、没有时间戳、没有文本：一批只含本地日、各键总计和按下时的来源聚合。
  */
+import { KeyPressSources } from "./KeyPressSources";
+
 export const KEY_IDS: readonly string[] = [
   "KeyA",
   "KeyB",
@@ -340,10 +342,11 @@ export class KeyIdPolicy {
   }
 }
 
-/** One write: the local day the presses happened on and how many times each key went down. */
+/** 一次写出的本地日、按键总计和按下时的来源计数。 */
 export interface KeyPressFlush {
   day: string;
   keys: Record<string, number>;
+  sources: Record<string, Record<string, number>>;
 }
 
 /**
@@ -360,9 +363,10 @@ export class KeyPressBatch {
   private day: string = "";
   private counts: Map<string, number> = new Map<string, number>();
   private presses: number = 0;
+  private readonly sources: KeyPressSources = new KeyPressSources();
 
-  /** Counts one press of `id` on `day`, and returns whatever is now due to be written, oldest day first. */
-  add(id: string, day: string): KeyPressFlush[] {
+  /** 按下时固定来源；跨日和阈值沿用原封批规则，切换来源不增加写盘。 */
+  add(id: string, day: string, source: string = "unknown"): KeyPressFlush[] {
     const due: KeyPressFlush[] = [];
     if (!KNOWN.has(id)) return due;
     if (this.presses > 0 && day !== this.day) {
@@ -371,6 +375,7 @@ export class KeyPressBatch {
     }
     this.day = day;
     this.counts.set(id, (this.counts.get(id) ?? 0) + 1);
+    this.sources.add(id, source);
     this.presses += 1;
     if (this.presses >= KeyPressBatch.FLUSH_PRESSES) {
       const full: KeyPressFlush | null = this.drain();
@@ -386,7 +391,7 @@ export class KeyPressBatch {
     this.counts.forEach((count: number, id: string): void => {
       keys[id] = count;
     });
-    const flush: KeyPressFlush = { day: this.day, keys: keys };
+    const flush: KeyPressFlush = { day: this.day, keys: keys, sources: this.sources.snapshot() };
     this.clear();
     return flush;
   }
@@ -394,6 +399,7 @@ export class KeyPressBatch {
   /** Drops everything held without writing it, for when recording was turned off. */
   clear(): void {
     this.counts = new Map<string, number>();
+    this.sources.clear();
     this.presses = 0;
     this.day = "";
   }

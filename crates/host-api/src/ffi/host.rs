@@ -1212,10 +1212,12 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             /// knows which day the window is counted back from.
             day: String,
         },
-        /// Key presses a host batched in memory, as `{"KeyA": 3, ...}` press counts for the local day they happened on. Ids outside `KEY_IDS` or zero counts reject the whole batch.
+        /// 宿主在按下时按来源攒批；`sources` 缺省兼容旧宿主，提供时各来源之和必须等于 `keys`。
         RecordKeys {
             day: String,
             keys: std::collections::BTreeMap<String, u64>,
+            #[serde(default)]
+            sources: Option<msime_client_services::typing_statistics::KeySourceCounts>,
         },
         /// 派生指标（概览、习惯、按键、徽章），新解锁的徽章在锁内写进 `achievements`。隐私模式不影响它：它只读已经记下的数据。
         Summary {
@@ -1323,9 +1325,9 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 store.flush().map_err(|error| error.to_string())?;
                 Ok(Value::Null)
             }
-            StatisticsAction::RecordKeys { day, keys } => {
+            StatisticsAction::RecordKeys { day, keys, sources } => {
                 let recorded = store
-                    .record_keys(&day, &keys)
+                    .record_keys_by_source(&day, &keys, sources.as_ref())
                     .map_err(|error| error.to_string())?;
                 Ok(json!({"recorded": recorded}))
             }
