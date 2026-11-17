@@ -62,7 +62,7 @@ class Transport:
         return result
 
 
-def check_result(result, *, token=False):
+def check_result(result, *, token=False, endpoint=""):
     ret = result.get("ret")
     if token and ret is None and isinstance(result.get("access_token"), str) and result["access_token"]:
         return result
@@ -74,7 +74,9 @@ def check_result(result, *, token=False):
     code = ret.get("code") if isinstance(ret, dict) else None
     if type(code) not in (int, str) or str(code) != "0":
         safe_code = str(code) if re.fullmatch(r"[0-9-]{1,16}", str(code)) else "unknown"
-        raise ReleaseError(f"华为拒绝请求（code={safe_code}）；请在控制台核对权限和资料")
+        # Only our own endpoint constant is echoed; Huawei's message text may contain account data and stays out of logs.
+        where = f"，接口 {endpoint}" if endpoint else ""
+        raise ReleaseError(f"华为拒绝请求（code={safe_code}{where}）；请在控制台核对权限和资料")
     return result
 
 
@@ -139,7 +141,7 @@ class Client:
         query = {"appId": self.app_id, **query}
         return check_result(self.transport.request(
             method, BASE + path + "?" + urllib.parse.urlencode(query), self.headers,
-            None if body is None else json.dumps(body).encode()))
+            None if body is None else json.dumps(body).encode()), endpoint=f"{method} {path}")
 
     def check_access(self):
         # 此只读列表允许尚无测试版本的应用；app-info 的测试查询必须提供 versionId。
@@ -188,17 +190,12 @@ class Client:
             self.transport.request("PUT", url, headers, source, binary=True)
         return object_id
 
-    def sync_materials(self, path, *, lang, new_features):
+    def sync_materials(self, *, lang, new_features):
+        # Only the release notes are synced. AGC rejects icon updates through PUT /publish/v2/app-file-info (code 204144641, seen on harmony-v0.5.0), and the icon is app-level information that carries over between versions, so it is maintained once in the AGC console from the repository's app_icon_appgallery.png.
         if not isinstance(lang, str) or not re.fullmatch(r"[A-Za-z]{2}(?:-[A-Za-z]{2,})?", lang):
             raise ReleaseError("华为应用资料语言无效")
         if not isinstance(new_features, str) or not 1 <= len(new_features) <= 500:
             raise ReleaseError("华为应用资料的新版本特性须为 1 至 500 字")
-        object_id = self.upload_file(path, release_type=6, max_size=500 * 1024,
-                                     expected_suffix=".png")
-        self.api("PUT", "/publish/v2/app-file-info", {
-            "lang": lang, "fileType": 0,
-            "files": [{"fileDestUrl": object_id}],
-        })
         self.api("PUT", "/publish/v2/app-language-info", {
             "lang": lang, "newFeatures": new_features,
         })
@@ -313,7 +310,7 @@ def release(client, *, path, mode, version_id="", package_id="", config=None,
     client.wait_package(package_id, timeout)
     record("package_status", "parsed")
     if materials is not None:
-        client.sync_materials(materials["icon"], lang=materials["lang"],
+        client.sync_materials(lang=materials["lang"],
                               new_features=materials["new_features"])
         record("materials_status", "synced")
     if mode == "upload":

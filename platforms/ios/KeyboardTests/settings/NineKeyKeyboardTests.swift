@@ -3936,10 +3936,9 @@ final class NineKeyKeyboardTests: XCTestCase {
             try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
           }
           XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
-          // The hostless XCTest runner does not route target/action through UIApplication.
-          // Invoke the registered release action to exercise the same callback as a key tap.
+          // 无宿主 XCTest 不经 UIApplication 分发，按注册的双参数签名传入按键和空事件。
           let releaseAction = try XCTUnwrap(delete.actions(forTarget: controller, forControlEvent: .touchUpInside)?.first)
-          controller.perform(NSSelectorFromString(releaseAction))
+          controller.perform(NSSelectorFromString(releaseAction), with: delete, with: nil)
           try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
           XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
         } else if phase == "cleared" {
