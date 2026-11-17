@@ -32,8 +32,6 @@ const ACTIVE_GAP_LIMIT_MS: u64 = 10_000;
 pub const MAX_VOICE_MS_PER_CALL: u64 = 600_000;
 /// `skins_tried` 最多记这么多款。徽章只要 5 款，上限只防止文件被一个出错的宿主无限撑大。
 pub const MAX_SKINS_TRIED: usize = 64;
-/// 连续输入（`current_run`、`longest_run`）只在 Android 上记：只有 Android 的统计页显示它，其他宿主写出的统计文件保持原样。测试里也打开，好覆盖计法。
-const TRACKS_TYPING_RUNS: bool = cfg!(any(target_os = "android", test));
 /// `record` 攒下的上屏，距上次读写这个目录的统计文件满这么久后，由下一次上屏一起写出。
 ///
 /// 每次上屏都整份读、解析、重写并 fsync 统计文件（Apple 上是 F_FULLFSYNC），在低端手机上英文模式每个字母一次，耗电发热；30 秒写一次是维护者定下的跨平台约定，宿主另在键盘收起、输入框失焦和进程退出前调 `flush`。进程被杀时最多丢这么久的计数，与按键热力图的批次相同。
@@ -41,7 +39,9 @@ pub const COMMIT_FLUSH_INTERVAL_MS: u64 = 30_000;
 /// 一个目录最多攒这么多次上屏，到了就写，不再等 [`COMMIT_FLUSH_INTERVAL_MS`]：只为给内存设个上限，正常打字 30 秒到不了。
 const MAX_PENDING_COMMITS: usize = 1024;
 
+mod daily_details;
 mod metrics;
+pub use daily_details::DailyDetailRow;
 /// 每日计数上传到云端（用户打开「上传到云端」后）。
 pub mod upload;
 pub use metrics::{
@@ -667,10 +667,10 @@ pub struct TypingStatistics {
     /// what "first" is measured against. It is a day key, not a clock reading.
     #[serde(default)]
     pub last_pruned_day: String,
-    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零。下面六项只有 Android 写入；为空时不序列化，其他宿主写出的文件与加这几项之前相同。
+    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零；为空时不序列化。
     #[serde(default, skip_serializing_if = "CommitEfficiency::is_empty")]
     pub efficiency: CommitEfficiency,
-    /// 正在进行的这段连续输入，由 `record_at` 按活跃间隔累加或重新开始（只在 [`TRACKS_TYPING_RUNS`] 时）。
+    /// 正在进行的这段连续输入，由各宿主共用的 `record_at` 按活跃间隔累加或重新开始。
     #[serde(default, skip_serializing_if = "TypingRun::is_empty")]
     pub current_run: TypingRun,
     /// 单次最长的连续输入；并列时保留先出现的那段。
@@ -931,23 +931,21 @@ impl TypingStatistics {
                 .saturating_add(active_ms)
                 .min(MAX_ACTIVE_MS_PER_DAY);
         }
-        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。只有 Android 的统计页显示它。
-        if TRACKS_TYPING_RUNS {
-            if active_ms > 0 && self.current_run.characters > 0 {
-                self.current_run.characters = self
-                    .current_run
-                    .characters
-                    .saturating_add(count)
-                    .min(MAX_COUNT);
-            } else {
-                self.current_run = TypingRun {
-                    characters: count,
-                    day: day.to_owned(),
-                };
-            }
-            if self.current_run.characters > self.longest_run.characters {
-                self.longest_run = self.current_run.clone();
-            }
+        // 连续输入：所有宿主都按同一活跃间隔累加或重新开始，统计开关仍由写入入口检查。
+        if active_ms > 0 && self.current_run.characters > 0 {
+            self.current_run.characters = self
+                .current_run
+                .characters
+                .saturating_add(count)
+                .min(MAX_COUNT);
+        } else {
+            self.current_run = TypingRun {
+                characters: count,
+                day: day.to_owned(),
+            };
+        }
+        if self.current_run.characters > self.longest_run.characters {
+            self.longest_run = self.current_run.clone();
         }
         // Never moves backwards. A clock set back would otherwise make every later commit look
         // like it followed a huge pause, and the first one after the correction would be counted
