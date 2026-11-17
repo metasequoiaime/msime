@@ -119,6 +119,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 /// Pure AI descriptor with credentials; never log it or follow HTTP redirects.
 + (nullable NSDictionary *)aiHTTPRequest:(NSDictionary *)request error:(NSError **)error;
 + (nullable NSArray<NSString *> *)parseAIResponse:(NSData *)body limit:(NSUInteger)limit error:(NSError **)error;
+/// 拼音候选按原始查询验证切分、输入覆盖和逐字读音，不适用于翻译或聊天。
++ (nullable NSArray<NSString *> *)parseAICandidateResponse:(NSData *)body query:(NSDictionary *)query limit:(NSUInteger)limit error:(NSError **)error;
 /// Worker-only private disk I/O; same bounded request as msime_client_learned_translation_request.
 /// Supply a private user directory, never packaged resources. Do not log learned text.
 + (nullable NSDictionary *)learnedTranslationRequest:(NSDictionary *)request error:(NSError **)error;

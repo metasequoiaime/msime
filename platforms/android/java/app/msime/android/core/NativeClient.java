@@ -1098,6 +1098,13 @@ public final class NativeClient {
     public static String aiRequestForQuery(long session, String query) {
         return TextPolicy.utf8(aiRequestForQueryRaw(session, boundedQuery(query)));
     }
+    /** 候选消息与回包的共享校验协议，只处理内存，不变更会话。 */
+    public static String aiCandidateProtocol(String request) {
+        if (request == null) throw new IllegalArgumentException("Missing AI candidate request");
+        byte[] bytes = request.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > 8 * 1024 * 1024) throw new IllegalArgumentException("AI candidate request is too large");
+        return TextPolicy.utf8(aiCandidateProtocolRaw(bytes));
+    }
     /** 使用当前 AI 凭据构造一次候选翻译请求。 */
     public static String aiTranslationHttpRequest(String config, String text, String source,
             String target) {
@@ -1289,6 +1296,7 @@ public final class NativeClient {
     private static native byte[] onlineQueryRaw(long session);
     private static native byte[] cloudRequestUrlRaw(byte[] query);
     private static native byte[] aiRequestForQueryRaw(long session, byte[] query);
+    private static native byte[] aiCandidateProtocolRaw(byte[] request);
     private static native byte[] aiTranslationHttpRequestRaw(byte[] request);
     private static native byte[] parseAiTranslationResponseRaw(byte[] body);
     private static native boolean aiTranslationReplyFailedRaw(byte[] body);

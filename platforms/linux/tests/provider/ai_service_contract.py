@@ -59,6 +59,13 @@ class AiServiceContract(unittest.TestCase):
 
         online.fetch = fetch
 
+    def test_null_candidate_reply_is_rejected(self):
+        self.respond(None)
+        query = self.ollama_query()
+        with self.assertRaises(ValueError):
+            online.ai(query, online.ollama_config(query["ai_assistant"]))
+        self.assertEqual(len(self.requests), 1)
+
     def test_model_catalogue_sits_beside_the_configured_endpoint(self):
         # 复用端点自己的 API 前缀而不是假定一个，这与 client-providers 的 ai::endpoint::models_url 为自己持有 token 的宿主所做的一致。
         self.assertEqual(
@@ -290,6 +297,22 @@ class AiServiceContract(unittest.TestCase):
         sent.clear()
         online.ai({**query, "ai_assistant": {**options, "prompt_id": "custom", "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent, [])
+
+    def test_pinyin_candidate_metadata_reaches_shared_validation(self):
+        options = {"enabled": True, "provider": PRIVATE["provider"],
+                   "model": PRIVATE["model"], "endpoint": PRIVATE["endpoint"], "candidate_limit": 3}
+        query = {"ai_eligible": True, "identity": "0:woxiwangaikeyi", "scheme": 0,
+                 "pinyin_segments": ["wo", "xi", "wan", "gai", "ke", "yi"],
+                 "ai_assistant": options}
+        entries = [
+            {"text": "我很希望 AI 可以", "segmentation": ["wo", "xi", "wang", "ai", "ke", "yi"]},
+            {"text": "我希望 AI 可以", "segmentation": ["wo", "xi", "wang", "ai", "ke", "yi"]},
+        ]
+        self.respond({"choices": [{"message": {"content": json.dumps({"candidates": entries})}}]})
+        self.assertEqual(online.ai(query, PRIVATE), [{"text": "我希望 AI 可以", "source": 1}])
+        sent = json.loads(self.requests[0]["body"]["messages"][1]["content"])
+        self.assertEqual(sent["input"], "woxiwangaikeyi")
+        self.assertEqual(sent["explicit_boundaries"], [])
 
     def test_builtin_prompt_matches_client_core(self):
         # The provider cannot import the Rust constant at run time, so keep the two copies from drifting apart here. The Rust literal only uses escapes JSON shares (\n and \").

@@ -198,4 +198,5 @@ if ($permissions -lt 0 -or $networkChoice -lt 0 -or $permissions -lt $networkCho
     throw 'Data-directory permissions are not applied after everything the installer writes there'
 }
 
+& (Join-Path $PSScriptRoot 'version-directory-cleanup.ps1')
 Write-Output 'Installer stops every IME process, removes the recorded DataDir, and opens it to the user'
