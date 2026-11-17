@@ -142,7 +142,7 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 
 未达到上限时，这保证之后的修改能胜出，不保证「真实时间更晚的先胜」：两台设备在各自时钟下几乎同时改同一行时，时钟快的一方胜。
 
-当前 Engine 已实现本机逐行递增和整组共用时间，覆盖调频、用户词编辑、内置词编辑、五笔造词、置顶和固定位置；每次 SQL 写入读取日志 `learning_sync_clock.reset_floor`，不依赖宿主缓存的配置。新增行至少为下限加一，旧行递增前先截到上限，避免历史非法大值加一溢出。`advance_learning_sync_clock` 提供在调用方独占维护权内推进下限的入口；该表只属于本机，不导出到备份或同步明文，重置和快照激活均保留，即使不保留学习内容也不能降低下限。账号 `reset_floor` 到此入口已由显式 `learning_reset_local` 接通：持久屏障和时钟推进成功后才清记录。Android 与 iOS 的清除学习入口已使用该账号绑定入口；只有明确未登录才使用旧本机重置。缺账号存储、登录读取失败或重登录时拒绝清除，不能绕过屏障；macOS/Linux 的现有设置命令复用已持有的账号会话，通过 `settings_dictionary::request_with_account` 走同一屏障，并沿用词库释放通知和租约重试；非重置动作不读取账号。Windows 原生设置与 HarmonyOS 的旧重置路径仍未接通账号屏障。
+当前 Engine 已实现本机逐行递增和整组共用时间，覆盖调频、用户词编辑、内置词编辑、五笔造词、置顶和固定位置；每次 SQL 写入读取日志 `learning_sync_clock.reset_floor`，不依赖宿主缓存的配置。新增行至少为下限加一，旧行递增前先截到上限，避免历史非法大值加一溢出。`advance_learning_sync_clock` 提供在调用方独占维护权内推进下限的入口；该表只属于本机，不导出到备份或同步明文，重置和快照激活均保留，即使不保留学习内容也不能降低下限。账号 `reset_floor` 到此入口已由显式 `learning_reset_local` 接通：持久屏障和时钟推进成功后才清记录。Android 与 iOS 的清除学习入口已使用该账号绑定入口；只有明确未登录才使用旧本机重置。缺账号存储、登录读取失败或重登录时拒绝清除，不能绕过屏障；macOS/Linux 的现有设置命令复用已持有的账号会话，通过 `settings_dictionary::request_with_account` 走同一屏障，并沿用词库释放通知和租约重试；非重置动作不读取账号。Windows WinUI/Win7 原生设置通过 `learning_reset_settings` 复用同一共享实现，集合写回失败时保留已清除事实并显示独立提示；HarmonyOS 的旧重置路径仍未接通账号屏障。
 
 一次调频在同一个事务里写下的一组行（被选中的那一行，加上阶梯降权改写的各行，见 `ranking.rs` 的 `adjust_candidate_ranking`）必须用同一个时间戳：事务先算 `g = max(unixepoch(), 这次要写的各行里已有的最大 updated_at + 1, reset_floor + 1)`，再把 `g` 写进这一组的每一行，`g` 同样封顶 2⁴⁰。逐行各算各的 `max` 不行：一行刚在这一秒里改过、或者刚合并进一条时钟偏快的远端行，它会得到「旧值 + 1」，同组其他行得到「现在」，一组行的时间戳参差不齐，逐行比较时这组就会被拆开，一部分用本机的、一部分用远端的。已接入的 `learning_clock::ranking_timestamp` 在日志 IMMEDIATE 事务里只扫描这次实际改写的身份，预先算出整组时间，再经 `update_ranked_weight` 原样写入；未改写的候选不参与这组时间计算。
 
@@ -323,6 +323,7 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 - `action:{"operation":"learning_sync_once","login":绑定,"device_name":"设备名称","options":运行时选项文档}` 执行一次加密上传、下载与合并，返回 `{uploaded,upload_unchanged,dropped_weights,upload_error,downloads,pending}`。`uploaded` 为本轮上传代次或 `null`；`upload_error` 为可继续下载的上传失败或 `null`，不以部分成功冒充完整上传。此操作可能联网，应在工作线程调用。
 - `action:{"operation":"learning_merge_pending","login":绑定,"options":运行时选项文档}` 返回 `{pending:[报告]}`，只认领和应用已接纳的密文，不联网、不因令牌过期触发刷新。
 - `action:{"operation":"learning_reset_local","login":绑定,"options":运行时选项文档}` 只清本机，不需要 ready 密钥或同步授权、不联网、不刷新过期令牌。先核对具体登录并取得独占维护权，导出本机最大逻辑时间，持久保存覆盖本机、当前时刻和已观察数据的账号屏障，再推进 Engine 时钟并清除本地备份待合并与学习记录。任何前置步骤失败都不清记录，清除失败保留屏障供重试；随后重新排入启用的命名词库。返回沿用旧重置的 `{reset,collections_requeued,collections_error?}`，集合重排失败仍明确返回已重置，不能把它误报为未清除。账号锁顺序与同步一致，密文队列在以后应用时重新读取屏障。
+- `action:{"operation":"learning_reset_settings","options":运行时选项文档}` 供原生设置执行既有清除动作，在共享层读取并绑定本机登录。只有明确未登录时沿用旧清除，账号或屏障读取失败不回退。Windows WinUI/Win7 使用此入口，保留词库维护租约、Server/TIP 释放与重试及 `dictionary_busy` 等旧设置错误码；成功后仍标记 WebDAV 词库变更。此操作不联网、不生成学习密钥，也不启用同步。
 
 `options` 复用 `msime_client_create` 的文档与版本校验，必须提供绝对 `preferences_directory` 和四个绝对运行时路径；兼容 Linux 附带的 `candidate_skin_catalog`。词库内容标识从该会话资源目录对应的完整清单计算，下载代次按已有或保留的清单解析，不随后台最新选择漂移；工作代次必须匹配 `user_data/dictionaries/<清单代次>`，不匹配或选项不合法时返回 `learning_invalid_options`，不生成学习身份、不启动网络。主词库参与规则从版本允许的方案集合取得，调用方不能单独覆盖；`read_only_state:true` 返回 `learning_read_only`，不启动网络或写入。
 

@@ -33,6 +33,9 @@ pub(super) enum Request {
         login: AccountLoginBinding,
         options: Value,
     },
+    /// 原生设置的清除入口：在共享层绑定本机登录，并保留旧词库维护协议。
+    #[serde(rename = "learning_reset_settings")]
+    ResetSettings { options: Value },
     /// 持有词库的宿主空闲时调用；不联网，不刷新令牌。
     #[serde(rename = "learning_merge_pending")]
     MergePending {
@@ -87,6 +90,13 @@ pub(super) fn run<A: AccountApi, S: AccountSessionStorage>(
                 .with_learning_reset(&login, &context.borrowed(), || context.reset())
                 .map_err(data::failure)
         }
+        Request::ResetSettings { options } => crate::settings_dictionary::request_with_account(
+            session,
+            &options,
+            &json!({ "operation": "reset" }),
+            || {},
+        )
+        .map_err(|code| code.to_owned().into()),
         Request::MergePending { login, options } => {
             let context = data::Context::parse(options)?;
             session

@@ -71,6 +71,7 @@
 #include "HistoryPagination.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
+#include "LearningResetFeedback.h"
 #include "McpConnect.h"
 #include "ModelErrorMessages.h"
 #include "PluginEditorModel.h"
@@ -16153,7 +16154,7 @@ private:
     return object;
   }
 
-  // Sends one dictionary action; `done` gets the response on the UI thread. Without host options there is nothing to send to.
+  // 词库操作在工作线程执行，清除经共享账号屏障；没有宿主选项时不发请求。
   void lexicon_request(JsonObject const &action, std::function<void(Response const &)> done) {
     const auto options = runtime_options_document();
     if (!options) {
@@ -16162,7 +16163,16 @@ private:
     }
     lexicon_busy_ = true;
     run_host(
-        [options = *options, body = utf8(action.Stringify())] {
+        [options = *options, body = utf8(action.Stringify()),
+         reset = action.GetNamedString(L"operation", L"") == L"reset"] {
+          if (reset) {
+            auto request = account_action(L"learning_reset_settings");
+            request.SetNamedValue(L"options", JsonValue::Parse(text(options)));
+            auto response = account_call(account_body(request));
+            if (response.ok)
+              note_dictionary_sync_change(options);
+            return response;
+          }
           return settings_dictionary_call(options, body);
         },
         [this, done = std::move(done)](Response const &response) {
@@ -16465,6 +16475,17 @@ private:
         learned_feedback_error_ = true;
         return;
       }
+      bool collections_pending = false;
+      try {
+        const auto value = JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
+        if (!value.GetNamedBoolean(L"reset", false))
+          throw std::runtime_error("unconfirmed reset");
+        collections_pending = value.HasKey(L"collections_error");
+      } catch (...) {
+        learned_feedback_ = msime::settings::learning_reset::unconfirmed;
+        learned_feedback_error_ = true;
+        return;
+      }
       ++lexicon_list_generation_;
       lexicon_listing_ = false;
       lexicon_entries_.clear();
@@ -16472,8 +16493,9 @@ private:
       lexicon_offset_ = 0;
       lexicon_status_ = L"已清除学习数据";
       lexicon_list_error_.clear();
-      learned_feedback_ = L"已清除所有学习数据；输入方案和设置保持不变。";
-      learned_feedback_error_ = false;
+      learned_feedback_ = collections_pending ? msime::settings::learning_reset::collections_pending
+                                               : msime::settings::learning_reset::completed;
+      learned_feedback_error_ = collections_pending;
     });
   }
 
