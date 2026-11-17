@@ -12778,7 +12778,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean modeLabel = !message.isEmpty();
             spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
                 toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
-                    || drawsKeyGrid(displayedTouchLayout(view)), idle,
+                    || SpellingEditorPolicy.keyboardReadingRow(displayedTouchLayout(view)), idle,
                 preedit == null ? "" : preedit.getText(),
                 status == null || idle && !modeLabel ? "" : status.getText(),
                 ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));
