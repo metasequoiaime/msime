@@ -21,6 +21,7 @@ Status: implemented
   - Fcitx5 的 `toggleJapanese` 走状态区菜单的 `selectScheme`，复用 `toggle_chord_held_` 让一次按下只切一次。
   - IBus 新增 `MenuPreference::JapaneseToggle`，经 `save_menu_preference` 一次写下 `scheme` 和 `last_chinese_scheme`，`japanese_chord_held` 吃掉同一次按下的自动重复和松开。上一次保存还没落盘时再按，这一下吃掉但不切换，和 Windows 工作线程忙时一样。没有偏好存储的预览实例不处理。
   - 两个宿主的菜单路径只在目标是中文方案时记 `last_chinese_scheme`，所以快捷键离开中文时自己补记当时跑的中文方案，否则回中文可能回到一个更早的方案。菜单路径本身不改。
+  - IBus 资源测试以“文件中的方案与菜单勾选一致，且方案菜单恢复可操作”为保存完成屏障。偏好轮询可能在保存完成回调前读到已落盘的新方案并发布禁用菜单，此时 `menu_save_pending` 仍为真；只比较方案会让下一轮快速连按都落进忙碌分支、不产生新修订号（ci-red #11495）。测试通过持有 `preferences.lock` 固定保存中状态，确认旧方案仍与文件一致时禁用菜单也不能判为完成，连按被消费且修订号不变，解锁后切换生效并能切回。
 
 ### 组字中按下
 
@@ -36,6 +37,7 @@ Status: implemented
 - **Windows 组字中先上屏再切换（和 Fcitx5 一样）**：理由是按键的那一刻就换方案，反馈更直接。没有采用：Ctrl+Shift+F 的回复是 NoReply，TIP 发出后不读回复，要先上屏就得另开一条读回复的路径，并处理断线重连时不能重放；而 host-api 的延后应用已经保证不丢字，托盘换方案也是这样。
 - **新建 `shared/input` 里的共享判定头文件**：理由是两个平台一份规则。没有采用：规则只有一句「中文方案去日语，否则回 last_chinese_scheme」，两边都有现成的 `IsChinese` 和 effective 工具，各写一个十几行的函数比新增一个跨平台头文件和它的构建接线更简单；两份函数用相同的回退顺序，各自有单测。
 - **托盘「输入方案」一行写出 Ctrl + Shift + J**：繁体输出旁就写着 Ctrl + Shift + F。没有做：那一行右侧已经写着当前方案名，再塞一个快捷键会挤掉它。
+- **将测试中的修订号等待和菜单等待拆开，或增加超时**：能提供分阶段诊断或容忍较慢的机器，但无法保证前一次保存的完成回调已结束；测试仍可能在 `menu_save_pending` 期间把两次按键都吃掉。保留原来的修订号增长断言，补充菜单可操作条件和锁控制的行为用例。
 
 ## Consequences
 
@@ -50,6 +52,7 @@ Status: implemented
 
 ## Verification
 
+- #11495：在远端 Linux arm64 容器里从本分支编译 IBus 宿主和 `ibus-engine-smoke`，复用已有 Linux Host API 动态库，锁定词库的全部文件经大小和 SHA-256 校验；`ctest -R '^ibus-japanese-toggle$' --repeat until-fail:3` 连续三次通过。临时移除菜单可操作条件的负对照在新增的禁用菜单断言失败，确认这条行为用例能拒绝原来的完成条件。未改产品实现或快捷键默认值；完整同源 Rust/宿主构建由 PR 检查继续覆盖。
 - `client-core`：`japanese_toggle_defaults_off_and_persists_an_explicit_enable` 覆盖默认关、旧文档缺键、保存读回且不动其他快捷键；`capabilities_describe_each_host` 断言只有 Windows 和 Linux 声明能力。
 - 共享设置页：`input-mode-shortcuts-section.test.tsx` 覆盖没有能力时不显示、缺省关、打开只写这一个键、说明里写出开发者工具冲突，以及 `offersJapaneseToggle` 在宿主没声明、版本缺日语或缺中文方案时为假。
 - Windows：`windows-input-scheme-traits` 覆盖目标方案的计算、各版本是否提供，以及 `japanese_toggle_write` 写回的两项（从存储里的名字出发：离开中文时记下实际运行的中文方案而不是存储里跑不起来的那个、日语和韩语回到上次的中文方案、它跑不起来时退回全拼并记成全拼、不同时提供两头的版本不写）；`windows_ipc_contract` 覆盖新协商位不和已有位重叠、新旧 TIP 与 Server 互配、修饰键组合；`msime-tsf-japanese-toggle` 钉住组合键、TSF 分类条件、四处特例、枚举序号、偏好键和 Server 的宣告与工作线程。这三项本机 clang 运行通过。`session_smoke` 和 `session_pump` 的新用例覆盖开关、英文状态、Engine 英文模式、回调拒绝时都不改组字、生产路由只在开关打开时调用回调，`preference_monitor` 覆盖开关的热重载；它们和 `KeyEventSink.cpp`、`Ipc.cpp`、`server_main.cpp` 等一起用 MinGW 做过语法检查（`server_main.cpp` 补上 `msimeui/include` 和 curl 头文件目录后 `-Wall -Wextra` 无告警），没有完整交叉链接，也没有在 Wine 下运行。WinUI 3 的原生设置窗口只能交给 Windows CI 编译。

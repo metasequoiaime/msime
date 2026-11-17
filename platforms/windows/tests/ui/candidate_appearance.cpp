@@ -46,6 +46,7 @@ int main() {
         {"theme", "light"},
         {"candidate_layout", "horizontal"},
         {"candidate_preedit_style", "empty"},
+        {"show_candidate_preedit_area", false},
         {"global_theme", "paper"},
         {"candidate_font_size", 22},
         {"candidate_preedit_font_size", 18},
@@ -58,6 +59,7 @@ int main() {
     require(!configured.dark_theme);
     require(configured.horizontal_candidates);
     require(!configured.candidate_show_preedit);
+    require(!configured.candidate_show_preedit_area);
     require(configured.candidate_font_size == 22);
     require(configured.candidate_preedit_font_size == 18);
     require(configured.candidate_font == "Synthetic Latin");

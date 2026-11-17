@@ -81,6 +81,8 @@ public final class AccountFailureTextSmoke {
         check(AccountFailureText.downloadLink("account_no_verified_email", 0).contains("复制链接"), "no verified email");
         check(AccountFailureText.chat("account_too_large", 0).contains("清空"), "an overlong conversation");
         check(AccountFailureText.chat("account_unauthorized", 0).contains("登录"), "chat needs a login");
+        check(AccountFailureText.chat("account_unavailable", 0).contains("服务暂时不可用"), "chat service failures do not blame login");
+        check(AccountFailureText.chat("account_invalid", 0).contains("请求无效"), "invalid chat requests are explained");
         System.out.println("Android account failure wording passed");
     }
 

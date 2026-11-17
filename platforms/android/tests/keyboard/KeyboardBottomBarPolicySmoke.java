@@ -6,10 +6,22 @@ package app.msime.android;
 public final class KeyboardBottomBarPolicySmoke {
     public static void main(String[] args) {
         navigationHeight();
+        systemImeButtonsHeight();
         otherStates();
         bottomMargin();
         bottomPadding();
         System.out.println("KeyboardBottomBarPolicySmoke ok");
+    }
+
+    private static void systemImeButtonsHeight() {
+        check(KeyboardBottomBarPolicy.systemImeButtonsDrawn(true, 1),
+            "a visible system bar with height draws the buttons");
+        check(!KeyboardBottomBarPolicy.systemImeButtonsDrawn(true, 0),
+            "a visible zero-height OEM placeholder does not draw buttons");
+        check(!KeyboardBottomBarPolicy.systemImeButtonsDrawn(false, 40),
+            "a hidden system bar does not draw buttons");
+        check(!KeyboardBottomBarPolicy.systemImeButtonsDrawn(true, -1),
+            "a negative height does not draw buttons");
     }
 
     private static void navigationHeight() {

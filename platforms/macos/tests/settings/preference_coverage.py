@@ -80,6 +80,7 @@ NOT_APPLICABLE = {
     "touch_number_pad_space": "仅 Android、iOS 与鸿蒙手机的触屏九宫格数字键盘读它（空格放在哪）；macOS 没有九宫格数字键盘",
     "touch_one_handed_side_panel": "仅 Android、iOS 与鸿蒙的大屏触屏键盘在单手模式下读它（空出来的一侧放不放数字键盘）；macOS 没有触屏单手模式",
     "touch_language_key_side": "仅 Android、iOS 与鸿蒙手机的触屏底行读它（中/英键在空格哪一边）；macOS 使用物理键盘，屏幕键盘面板是固定的整排键盘，没有中/英这个底行键",
+    "touch_nine_key_flick_threshold": "仅 Android、iOS 与鸿蒙手机的触屏拼音九键读它（九键字母 flick 的判定阈值）；macOS 没有九键字母键面，共享设置页也不提供此滑块",
     "touch_nine_key_swipe_digits": "仅 Android、iOS 与鸿蒙手机的触屏拼音九键读它（1–9 键滑动输入数字）；macOS 没有九键字母键面",
     "touch_spelling_position": "where the touch keyboard puts the spelling; macOS composes inline and its candidate window follows `candidate_preedit_style`",
     "touch_spelling_editor": "仅 Android 原生键盘提供拼写编辑入口；macOS 使用物理键盘和系统编辑器，不提供触屏拼写编辑面板，共享设置页也不显示此项",
@@ -89,6 +90,8 @@ NOT_APPLICABLE = {
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
     "next_word_prediction_buttons": "只有触屏键盘在上屏后联想的候选栏右端画关闭键与展开键；macOS 的联想画在普通候选窗里，Esc 关闭、点选上屏，没有这两个键可放，共享设置页桌面输入页的「上屏后联想」不列出这一行（`showButtons={false}`）",
     "game_compatibility": "Windows TSF only: whether the TIP skips ITfUIElementMgr for games that declare UI-less and draw nothing; macOS has no UI-less host contract",
+    "candidate_cloud_badge": "仅 Windows 原生候选窗消费云候选来源角标开关；macOS 候选窗在本 issue 范围内继续固定显示云来源徽标，macOS 设置页不提供这一项",
+    "show_candidate_preedit_area": "仅 Windows 候选窗使用的首行区域开关；macOS 候选窗的预编辑区域版式固定，不提供此设置入口，也不读取该字段",
     # 下面几条是嵌套子字段。父结构整体不适用时门禁不下降，所以这里列出的是父结构仍在 macOS 被读、但这一项本身不读的字段。
     "keybindings.switch_language_ctrl_space": "Ctrl+Space 换语言只在 Linux 提供：共享设置页按 `linux` 决定是否写这个字段（`packages/ui/src/settings/input-mode-shortcuts-model.ts` 的 `languageSwitchPatch`），macOS 走 Ctrl+Alt+Space 与 Caps Lock，不读这一项",
     "keybindings.toggle_japanese_ctrl_shift_j": "由 `HostCapabilities::japanese_toggle_shortcut` 门控，macOS 为 false（`crates/client-core/src/host_surface.rs`：macOS 把「日」声明成系统输入模式，用 Ctrl+空格和地球键轮换，不需要这个组合键），设置页不显示这一项",

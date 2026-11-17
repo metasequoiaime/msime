@@ -52,6 +52,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn schema_keeps_nine_key_flick_default_when_storage_omits_it() {
+        let stored = serde_json::to_value(Preferences::default()).unwrap();
+        assert!(stored.get("touch_nine_key_flick_threshold").is_none());
+        assert_eq!(
+            json_schema()["properties"]["touch_nine_key_flick_threshold"]["default"],
+            serde_json::json!(24)
+        );
+    }
+
+    #[test]
     fn schema_contains_omitted_optional_fields_and_empty_array_element_types() {
         let schema = json_schema();
         assert!(schema["properties"]["usage_reporting_consent"].is_object());

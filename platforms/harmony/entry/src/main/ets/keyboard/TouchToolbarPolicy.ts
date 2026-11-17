@@ -24,7 +24,16 @@ export interface ToolbarTools {
   readonly hidden: boolean;
 }
 
+/** 空闲工具栏这一刻每一格的宽度和相邻两格的间距，单位 vp。 */
+export interface ToolbarCluster {
+  readonly cellVp: number;
+  readonly gapVp: number;
+}
+
 export class TouchToolbarPolicy {
+  /** 相邻两个工具之间的间距，与 iOS、Android 的工具栏相同。 */
+  static readonly CLUSTER_GAP_VP: number = 8;
+
   /** 与 client-core 的 `HarmonyToolbarPreferences::default` 相同：五个工具全在、不隐藏，就是有这组设置之前的鸿蒙键盘。 */
   static readonly DEFAULT: ToolbarTools = {
     emoji: true,
@@ -68,6 +77,26 @@ export class TouchToolbarPolicy {
    */
   static stripShown(rowHidden: boolean, idle: boolean, panelOpen: boolean): boolean {
     return !rowHidden || !idle || panelOpen;
+  }
+
+  /**
+   * 空闲工具栏的排法：标志在行首，其余可见工具和收起键按固定格宽、固定间距聚到行尾，与 iOS、Android 相同，间距不随可见工具的数量变化。
+   *
+   * 这一行不能滚动。放不下时（窄的浮动键盘，或手机上五个工具加长空格样式的「符」）先把间距均匀收窄到 0，还放不下再把格子均匀收窄，退回原来等分整行的样子，不把收起键挤出去。
+   *
+   * @param widthVp 这一行除去两侧内边距后的宽度；还没量出来（不大于 0）时按设计尺寸
+   * @param cells 这一行画几格，含标志、符和收起
+   * @param cellVp 一格的设计宽度（工具按钮的边长，已乘工具条缩放）
+   */
+  static cluster(widthVp: number, cells: number, cellVp: number): ToolbarCluster {
+    const gap: number = TouchToolbarPolicy.CLUSTER_GAP_VP;
+    if (!(widthVp > 0) || cells <= 1 || cells * cellVp + (cells - 1) * gap <= widthVp) {
+      return { cellVp: cellVp, gapVp: gap };
+    }
+    if (cells * cellVp <= widthVp) {
+      return { cellVp: cellVp, gapVp: (widthVp - cells * cellVp) / (cells - 1) };
+    }
+    return { cellVp: widthVp / cells, gapVp: 0 };
   }
 
   private static flag(value: boolean | undefined, fallback: boolean): boolean {

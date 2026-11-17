@@ -31,6 +31,7 @@ mod early_cancels;
 pub mod notices;
 pub mod plugins;
 pub mod proxy;
+pub mod settings_webdav;
 pub mod skin;
 pub mod telemetry;
 pub mod typing_statistics;
