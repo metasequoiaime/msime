@@ -1522,6 +1522,16 @@ int main(int argc, char **argv) {
       visibility["preferences"]["show_candidate_page_number"] = true;
       compose();
       require(seen.auxiliary.rfind("1 / ", 0) == 0, "Re-enabled page indicator missing");
+      // GNOME Shell 把辅助行画成一个左对齐标签；拼音在前、页码在后，与 macOS 首行的顺序一致。
+      visibility["preferences"]["candidate_preedit_style"] = "pinyin";
+      compose();
+      {
+        const auto reading = seen.auxiliary.find("ni");
+        const auto indicator = seen.auxiliary.rfind("  · 1 / ");
+        require(reading != std::string::npos && indicator != std::string::npos && reading < indicator &&
+                    seen.auxiliary.find('/', indicator + 8) == std::string::npos && seen.auxiliary_visible,
+                "Page indicator did not trail the reading");
+      }
       visibility["preferences"]["show_candidate_page_number"] = false;
       visibility["preferences"]["candidate_preedit_style"] = "pinyin";
       compose();

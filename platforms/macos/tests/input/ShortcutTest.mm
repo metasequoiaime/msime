@@ -2061,6 +2061,13 @@ static void TestPairedPunctuationClosesBrace() {
     [controller apply:@{ @"commit": @"a", @"view": idle }];
     assert([client.committed isEqual:@"a}"] && [client.document isEqual:@"{a}"]);
     client.selection = NSMakeRange(2, 0);
+    // 已补右标点时，普通字母也不应同步读取应用文档；按键仍逐个交给会话。
+    const NSUInteger readsBeforeOrdinary = client.documentReads;
+    const NSUInteger asciiBeforeOrdinary = session.asciiCalls;
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    for (NSUInteger count = 0; count < 100; ++count) [controller handleEvent:letter client:client];
+    assert(client.documentReads == readsBeforeOrdinary && session.asciiCalls == asciiBeforeOrdinary + 100);
+    session.nextTransition = nil;
     const NSUInteger asciiBeforeStep = session.asciiCalls;
     assert([controller handleEvent:closeBrace client:client]);
     assert(session.asciiCalls == asciiBeforeStep && [client.document isEqual:@"{a}"] && client.selection.location == 3);
