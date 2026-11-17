@@ -16,6 +16,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   dbus xvfb xauth xdotool x11-xkb-utils python3-gi gir1.2-ibus-1.0 gir1.2-gtk-3.0 ibus-gtk3 >/dev/null
 echo "ibus-daemon $(dpkg-query -W -f '${Version}' ibus), $(python3 --version)"
 
+# 合约测试从源码树启动 provider；显式使用安装包记录的库路径，避免把 /source 当成安装前缀而漏掉 Rust AI 协议。路径缺失时在运行测试前失败，不退回构建树里的库。
+MSIME_HOST_LIBRARY=$(timeout 60 python3 - <<'PYTHON'
+from pathlib import Path
+import runpy
+
+paths = Path("/usr/bin/msime_voice_paths.py")
+library = paths.parent / runpy.run_path(str(paths))["HOST_LIBRARY"]
+print(library.resolve(strict=True))
+PYTHON
+)
+export MSIME_HOST_LIBRARY
+
 # 随包 Python 脚本的合约测试，与 in-container.sh 同一份清单，跳过两项：
 # - panel_keymap.py 核对的是 Tauri 设置窗口的按键表（apps/desktop），要 rustc 和内核头文件；legacy 包不带设置窗口。
 # - doubao_auth.py 测的是 websockets 15 的豆包传输，靠 importlib.metadata（Python 3.8 起才有）伪造版本，legacy 包上豆包识别本来不可用（README 已写明）。改为确认 3.7 上依赖检查报告不满足，而不是在导入时崩溃。
@@ -30,20 +42,6 @@ sys.argv = sys.argv[1:]
 sys.path[0] = os.path.dirname(os.path.abspath(sys.argv[0]))
 runpy.run_path(sys.argv[0], run_name="__main__")
 '
-# 合约从源码树加载 provider，AI 候选协议仍须调用刚安装的同版本共享库。
-# 显式沿安装包生成的相对路径定位，避免误用源码树中缺失或过时的 debug 库。
-export MSIME_HOST_LIBRARY
-MSIME_HOST_LIBRARY=$(python3 - <<'PYTHON'
-import runpy
-from pathlib import Path
-
-scripts = Path("/usr/bin")
-paths = runpy.run_path(str(scripts / "msime_voice_paths.py"))
-library = (scripts / paths["HOST_LIBRARY"]).resolve(strict=True)
-assert library.is_file(), "installed host library is unavailable"
-print(library)
-PYTHON
-)
 mapfile -t contracts < platforms/linux/tests/tools/python-contracts.list
 for contract in "${contracts[@]}"; do
   case "$contract" in */panel_keymap.py|*/doubao_auth.py) continue ;; esac

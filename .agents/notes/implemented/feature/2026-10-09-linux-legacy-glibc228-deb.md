@@ -26,6 +26,8 @@ Status: implemented
 - Python 3.7：随包的 `msime-linux-setup`、`msime-linux-voice-provider` 去掉海象运算符和 `Path.unlink(missing_ok=)`；`msime_voice_doubao.py` 把 `importlib.metadata` 的导入挪进原有的 `try`，3.7 上与缺少 websockets 一样报告依赖不满足（同一文件里 `gzip.compress(mtime=)` 也要 3.8，但依赖检查先失败，走不到）。ctest 里三个 Python 测试的 `unlink(missing_ok=)` 同样改掉。
 - 运行时验收要的测试改动：`daemon_smoke.sh` 在 `ibus version` 低于 1.5.20 时用 `unix:tmpdir=` 起守护进程（1.5.19 的 `bus/server.c` 只接受这种 `--address`，1.5.20 才加上 `unix:path=`），地址文件写在测试自己的目录，用 `ibus address` 读回，1.5.20 起的分支与原来逐行相同。合约测试里 `provider_config_discovery.py` 对已 `communicate` 过的进程不再调第二次（3.7 上 stderr 已关闭会抛 `ValueError`，bpo-35182 在 3.8 修掉），`ai_service_contract.py` 的字典 `|` 合并改成 `{**a, **b}`；测试大量用到 3.8 才有的 mock 调用记录 `.args`/`.kwargs`，不逐个改测试，`legacy-runtime.sh` 在测试进程里给 `unittest.mock._Call` 补上这两个只读属性再 `runpy` 运行测试文件。合约清单从 `in-container.sh` 抽到 `python-contracts.list`，两处共用；legacy 跳过 `panel_keymap.py`（核对 Tauri 设置窗口的按键表，要 rustc）和 `doubao_auth.py`（靠 `importlib.metadata` 伪造 websockets 版本），后者换成一条断言：3.7 上 `websocket_dependency()` 报告依赖不满足。
 
+合约测试从源码树加载 provider，AI 候选解析则调用 Rust Host API；`legacy-runtime.sh` 从已安装的 `/usr/bin/msime_voice_paths.py` 读取 `HOST_LIBRARY`，相对该文件解析为绝对路径后导出 `MSIME_HOST_LIBRARY`。路径不存在时立即失败。这样 Python 3.7 的候选、凭据权限和账号契约都使用安装包里的库，不依赖源码目录附近恰好存在开发构建，也不把 `/build/cargo/release` 的未安装副本当成包内库。
+
 ## Alternatives considered
 
 - **在 bookworm 门禁镜像里用 cargo-zigbuild 指定 `<triple>.2.28` 编译 Rust**：好处是沿用现有镜像和新编译器，分诊里列过这条路。没有采用：要新增 zig 和 cargo-zigbuild 两个工具依赖；而且只解决 Rust，C++ 宿主仍要对着 glibc 2.28、libstdc++ 8 和 IBus 1.5.19 的头文件与库编译，等于还要在 bookworm 里另备一个 buster sysroot。在 buster 容器里原生编译，两边一次解决，也不新增工具。
