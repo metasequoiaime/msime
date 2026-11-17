@@ -270,9 +270,11 @@ AiCandidateWorker::fetch(const std::string &query,
   const auto body = https_post(parsed_descriptor, is_cancelled);
   if (!body || body->empty() || (is_cancelled && is_cancelled()))
     return {};
-  auto raw = msime::host_api::own_string(
-      msime_client_parse_ai_response(
-          reinterpret_cast<const uint8_t *>(body->data()), body->size(), *limit));
+  const auto document = nlohmann::json{{"op", "parse"},
+      {"query", nlohmann::json::parse(query, nullptr, false)},
+      {"body", *body}, {"limit", *limit}}.dump();
+  auto raw = msime::host_api::own_string(msime_client_ai_candidate_protocol(
+      reinterpret_cast<const uint8_t *>(document.data()), document.size()));
   if (!raw)
     return {};
   try {
