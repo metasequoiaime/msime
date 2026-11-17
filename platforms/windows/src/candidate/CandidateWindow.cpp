@@ -347,7 +347,8 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
                                  std::string font_family,
                                  std::vector<std::string> fallback_fonts,
                                  std::optional<bool> dark_theme,
-                                 bool horizontal, bool show_preedit, Page page,
+                                 bool horizontal, bool show_preedit, bool show_preedit_area,
+                                 Page page,
                                  Rendered rendered, bool mouse_wheel, bool attach_typing_effect)
     : reader_(std::move(reader)), click_(std::move(click)), page_(std::move(page)),
       rendered_(std::move(rendered)),
@@ -356,7 +357,8 @@ CandidateWindow::CandidateWindow(Reader reader, Click click, unsigned font_size,
       palette_(candidate_native_palette(dark_theme.value_or(false))),
       font_family_(wide(font_family)), configured_font_family_(wide(font_family)),
       dark_theme_(dark_theme), horizontal_(horizontal),
-      show_preedit_(show_preedit), mouse_wheel_(mouse_wheel) {
+      show_preedit_(show_preedit), show_preedit_area_(show_preedit_area),
+      mouse_wheel_(mouse_wheel) {
   if (font_family_.empty() || font_family_.size() > 128)
     throw std::invalid_argument("Invalid candidate font family");
   if (font_size_ < 12 || font_size_ > 32 || preedit_font_size_ < 12 ||
@@ -628,6 +630,7 @@ void CandidateWindow::set_skin_canvas(CandidateSkinCanvas canvas) {
 }
 void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
   if (horizontal_ == settings.horizontal && show_preedit_ == settings.show_preedit &&
+      show_preedit_area_ == settings.show_preedit_area &&
       wubi_code_hint_ == settings.wubi_code_hint &&
       show_app_logo_ == settings.show_app_logo &&
       reserved_gloss_lines_ == settings.reserved_gloss_lines &&
@@ -635,6 +638,7 @@ void CandidateWindow::set_layout(CandidateLayoutSettings settings) {
     return;
   horizontal_ = settings.horizontal;
   show_preedit_ = settings.show_preedit;
+  show_preedit_area_ = settings.show_preedit_area;
   show_app_logo_ = settings.show_app_logo;
   show_page_number_ = settings.show_page_number;
   reserved_gloss_lines_ = settings.reserved_gloss_lines;
@@ -1126,7 +1130,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const double scale = layout_scale(dpi);
   CandidateCardInput input;
   input.horizontal = horizontal_;
-  input.preedit_visible = show_preedit_;
+  input.preedit_visible = show_preedit_ && show_preedit_area_;
   input.font_size = font_size_;
   input.preedit_font_size = preedit_font_size_;
   input.max_width = static_cast<double>(available_width) / scale / 2.0;
@@ -1135,7 +1139,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       static_cast<double>(available_width) / scale - 2.0 * 16.0;
   input.max_height = static_cast<double>(available_height) / scale / 2.0;
   input.skin_min_width = skin_min_width_;
-  input.logo_visible = show_app_logo_;
+  input.logo_visible = show_app_logo_ && show_preedit_area_;
   input.reserved_secondary_lines = reserved_secondary_lines(value);
   input.skin = skin_metrics(value);
   input.number_width = number_label_width(value.candidates.size(), input.skin);
@@ -1144,23 +1148,27 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   input.reserved_secondary_height =
       reserved_secondary_height(input.reserved_secondary_lines);
   // 拼音里画插入点时，光标两边的字各让开一点（candidate_preedit_caret），宽度先留出来。
-  if (show_preedit_)
+  if (show_preedit_ && show_preedit_area_)
     input.preedit_width =
         measured_width(device_, wide(value.preedit), font_family_,
                        static_cast<float>(preedit_font_size_), font_fallback_.Get(),
                        preedit_weight_) +
         (value.preedit_caret != std::string::npos ? candidate_preedit_caret_slot : 0.0);
   // 翻页和拼音共用首行；只要有 logo 或翻页，拼音隐藏时首行也照样画。卷轴展开的皮肤不画翻页，`show_candidate_page_number` 关掉时也不画。
-  input.page_width = input.skin.expand_panel
+  input.page_width = !show_preedit_area_
+                         ? 0.0
+                         : input.skin.expand_panel
                          ? 0.0
                          : measured_width(device_, pager_label(value, show_page_number_),
                                           font_family_,
                                           static_cast<float>(CandidateCardMetrics{}.pager_font),
                                           font_fallback_.Get(), font_weight_);
   // 首行右侧的提示（光标后编辑的「候选编辑：光标后」）和页码同一个字号；没有提示时宽度为 0，卡片和以前一样大。
-  input.hint_width = measured_width(device_, wide(candidate_header_hint(value)), font_family_,
-                                    static_cast<float>(CandidateCardMetrics{}.pager_font),
-                                    font_fallback_.Get(), font_weight_);
+  input.hint_width = show_preedit_area_
+                         ? measured_width(device_, wide(candidate_header_hint(value)), font_family_,
+                                          static_cast<float>(CandidateCardMetrics{}.pager_font),
+                                          font_fallback_.Get(), font_weight_)
+                         : 0.0;
   input.items = measure_items(value);
   input.wrapped = wrap_measure(value);
   // canvas：内容内边距让面板比这张卡片四边各大出 canvas_offset_，最小宽度按整块面板比。没有 canvas 时为 0。
@@ -1168,8 +1176,9 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
       canvas_.active
           ? candidate_canvas_content_offset(
                 canvas_, candidate_canvas_base_padding(candidate_card_metrics(
-                             font_size_, preedit_font_size_, show_preedit_, show_app_logo_,
-                             input.page_width > 0.0, input.skin, input.number_width,
+                             font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
+                             show_app_logo_ && show_preedit_area_,
+                             input.page_width > 0.0 && show_preedit_area_, input.skin, input.number_width,
                              input.line_height, input.hint_width > 0.0)))
           : CandidateCanvasEdges{};
   input.canvas_extra_width = canvas_offset_.left + canvas_offset_.right;
@@ -1249,7 +1258,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
 std::vector<CandidateItemWidths>
 CandidateWindow::measure_items(const CandidatePresentation &value) {
   const auto metrics =
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_);
   std::vector<CandidateItemWidths> items;
   items.reserve(value.candidates.size());
   for (const auto &candidate : value.candidates) {
@@ -1269,8 +1278,8 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
 double CandidateWindow::number_label_width(size_t count,
                                            const CandidateSkinMetrics &skin) {
   const auto size = static_cast<float>(
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_, show_app_logo_,
-                             false, skin)
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
+                             show_app_logo_ && show_preedit_area_, false, skin)
           .number_font);
   double widest = 0.0;
   for (size_t number = 1; number <= (std::min)(count, size_t{9}); ++number)
@@ -1303,7 +1312,7 @@ double CandidateWindow::reserved_secondary_height(size_t lines) {
   if (lines < 2)
     return 0.0;
   const auto metrics =
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_);
   // 和 macOS reservedGlossHeightForFont 量「X\nX」一样：每行一个 X，宽度给足，不会折行。
   std::wstring placeholder = L"X";
   for (size_t line = 1; line < lines; ++line)
@@ -1315,7 +1324,7 @@ double CandidateWindow::reserved_secondary_height(size_t lines) {
 CandidateWrapMeasure
 CandidateWindow::wrap_measure(const CandidatePresentation &value) {
   const auto metrics =
-      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_);
+      candidate_card_metrics(font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_);
   // Copies, not references: the measure outlives neither call, but it must not depend on that.
   struct Runs {
     std::wstring text, annotation, translation;
@@ -1505,15 +1514,17 @@ void CandidateWindow::paint() {
   // 皮肤的版式也和 card_bounds 一样解析，同一个序号宽度。卷轴展开的皮肤不画翻页。
   const auto skin = skin_metrics(*value);
   const auto label =
-      skin.expand_panel ? std::wstring{} : pager_label(*value, show_page_number_);
+      !show_preedit_area_ || skin.expand_panel ? std::wstring{} : pager_label(*value, show_page_number_);
   // 首行右侧的提示，和 card_bounds 量的是同一串字、同一个字号，有它时首行一定在；没有时宽度为 0，这一帧和没有这项功能时一样画。
   const auto hint_label = wide(candidate_header_hint(*value));
-  const double hint_width =
-      measured_width(device_, hint_label, font_family_,
-                     static_cast<float>(CandidateCardMetrics{}.pager_font), font_fallback_.Get(),
-                     font_weight_);
+  const double hint_width = show_preedit_area_
+                                ? measured_width(device_, hint_label, font_family_,
+                                                 static_cast<float>(CandidateCardMetrics{}.pager_font),
+                                                 font_fallback_.Get(), font_weight_)
+                                : 0.0;
   const auto metrics = candidate_card_metrics(
-      font_size_, preedit_font_size_, show_preedit_, show_app_logo_, !label.empty(), skin,
+      font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
+      show_app_logo_ && show_preedit_area_, !label.empty() && show_preedit_area_, skin,
       number_label_width(value->candidates.size(), skin), candidate_line_height(*value),
       hint_width > 0.0);
   // 卡片按窗口客户区排，和 card_bounds 定的窗口尺寸一致。渲染目标比窗口大（合成交换链按 64 像素分档、只增不减），按它的 GetSize() 排会把卡片右边和下边画到窗口外面裁掉。
@@ -1864,7 +1875,7 @@ void CandidateWindow::paint() {
         device_, combo, font_family_, static_cast<float>(metrics.pager_font),
         font_fallback_.Get(), DWRITE_FONT_WEIGHT_SEMI_BOLD);
     const double reading_width =
-        show_preedit_ ? measured_width(device_, wide(value->preedit), font_family_,
+        show_preedit_ && show_preedit_area_ ? measured_width(device_, wide(value->preedit), font_family_,
                                        static_cast<float>(preedit_font_size_),
                                        font_fallback_.Get(), preedit_weight_)
                       : 0.0;
@@ -1876,7 +1887,7 @@ void CandidateWindow::paint() {
                         preedit_rect, brush(flash > 0.0f && effect_.tier_up ? effect_accent_ : palette_.number),
                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
   }
-  if (show_preedit_) {
+  if (show_preedit_ && show_preedit_area_) {
     const D2D1_RECT_F &rect = preedit_rect;
     // A skin's preedit band is rounded like the rows, as msime-windows draws it, and its divider is a 1 DIP rule under the whole preedit row, across the card's content width.
     if (palette_.preedit_background && rect.right > rect.left)
@@ -2345,7 +2356,8 @@ void CandidateWindow::paint() {
       }
     }
     accessible_->publish(candidate_accessible_tree(
-        *painted_, painted_rows_, painted_pager_, metrics, show_preedit_,
+        *painted_, painted_rows_, painted_pager_, metrics,
+        show_preedit_ && show_preedit_area_,
         CandidateAccessibleFrame{frame.card_left, frame.card_top, frame.card_width,
                                  layout_scale(painted_dpi_)},
         static_cast<bool>(click_), static_cast<bool>(page_), MSIME_EDITION_DISPLAY_NAME_UTF8,

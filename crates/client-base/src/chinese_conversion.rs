@@ -35,6 +35,7 @@ const TS_PHRASES: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TSPhra
 const TS_CHARACTERS: &str = include_str!(concat!(env!("MSIME_OPENCC_DIR"), "/TSCharacters.txt"));
 
 /// 繁体输出用哪套 OpenCC 配置；偏好里存成配置名。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]

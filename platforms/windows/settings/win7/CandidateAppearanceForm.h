@@ -73,6 +73,7 @@ public:
     }
     note(L"不透明度只改变窗口背景、边框和皮肤图；文字、编号和高亮保持不透明。圆角选择“跟随皮肤”时不覆盖皮肤或主题的值。", 66);
     note(L"预编辑", 28);
+    control(appearance_preedit_area, L"BUTTON", L"显示候选窗预编辑区", WS_TABSTOP | BS_AUTOCHECKBOX);
     for (const auto& field : enum_fields) {
       if (field.id == appearance_layout) continue;
       note(field.title, 24);
@@ -119,6 +120,9 @@ public:
       if (!preferences.contains(key) || !preferences.at(key).is_boolean()) return false;
     if (preferences.contains("show_candidate_page_number") && !preferences.at("show_candidate_page_number").is_boolean() &&
         !preferences.at("show_candidate_page_number").is_null()) return false;
+    if (preferences.contains("show_candidate_preedit_area") &&
+        !preferences.at("show_candidate_preedit_area").is_boolean() &&
+        !preferences.at("show_candidate_preedit_area").is_null()) return false;
     if (!preferences.contains("candidate_page_size") || !preferences.at("candidate_page_size").is_number_integer()) return false;
     if (!preferences.contains("candidate_font_family") || !preferences.at("candidate_font_family").is_string()) return false;
     if (preferences.contains("candidate_english_font") && !preferences.at("candidate_english_font").is_string()) return false;
@@ -148,6 +152,13 @@ public:
     for (const auto& field : std::array<std::pair<int, const char*>, 2>{{{appearance_logo, "show_app_logo"}, {appearance_follow, "candidate_follow_cursor"}}})
       SendMessageW(get(field.first), BM_SETCHECK, preferences.at(field.second).get<bool>() ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(get(appearance_page_number), BM_SETCHECK, page_number_shown(preferences) ? BST_CHECKED : BST_UNCHECKED, 0);
+    const auto preedit_area = preferences.find("show_candidate_preedit_area");
+    SendMessageW(get(appearance_preedit_area), BM_SETCHECK,
+                 preedit_area == preferences.end() || preedit_area->is_null() ||
+                         preedit_area->get<bool>()
+                     ? BST_CHECKED
+                     : BST_UNCHECKED,
+                 0);
     const auto configuration = Json::array({preferences.at("candidate_font_family"), preferences.at("candidate_fallback_fonts"),
         preferences.value("candidate_english_font", "Segoe UI")});
     if (font_configuration_ != configuration) {
@@ -240,6 +251,8 @@ public:
         result.changes.push_back({{id == appearance_logo ? "show_app_logo" : "candidate_follow_cursor"}, SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED});
       else if (id == appearance_page_number)
         result.changes.push_back({{"show_candidate_page_number"}, SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED});
+      else if (id == appearance_preedit_area)
+        result.changes.push_back({{"show_candidate_preedit_area"}, SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED});
       else if (id == appearance_game_overlay) {
         auto games = game_preferences();
         games["candidate_overlay"] = SendMessageW(get(id), BM_GETCHECK, 0, 0) == BST_CHECKED;

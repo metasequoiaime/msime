@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/path-trust", "crates/client-base", "crates/client-core", "crates/client-providers", "crates/client-services", "crates/engine", "crates/engine-capi", "crates/engine-wasm", "crates/input-runtime", "crates/onnx-rerank", "crates/local-translation", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/mcp-server", "crates/dict-builder", "crates/backend-engine", "crates/pack-tool", "crates/script-runtime", "crates/script-sdk", "crates/clipboard-relay", "apps/desktop/src-tauri"]
+members = ["crates/path-trust", "crates/client-base", "crates/client-core", "crates/client-providers", "crates/client-services", "crates/engine", "crates/engine-capi", "crates/engine-wasm", "crates/input-runtime", "crates/onnx-rerank", "crates/local-translation", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/macos-system-updater", "crates/mcp-server", "crates/dict-builder", "crates/backend-engine", "crates/pack-tool", "crates/script-runtime", "crates/script-sdk", "crates/clipboard-relay", "apps/desktop/src-tauri"]
 # Everything except the desktop app: a bare `cargo test` should cover the
 # libraries, and msime-desktop needs a built frontend and a packaged platform
 # bundle before its build script will run.
@@ -17,6 +17,7 @@ default-members = [
     "crates/host-api",
     "crates/host-windows",
     "crates/host-macos",
+    "crates/macos-system-updater",
     "crates/mcp-server",
     "crates/script-runtime",
 ]
@@ -80,6 +81,14 @@ opt-level = 3
 
 [profile.dev.package.serde_json]
 opt-level = 3
+
+# 系统编辑器的小栈要留给 TSF 调用链；充分优化宿主 ABI 中泛型反序列化产生的栈临时值。
+[profile.dev.package.msime-host-api]
+opt-level = 3
+
+# 会话构造与核心会话的堆存储共同控制编辑器主线程上的栈占用。
+[profile.dev.package.msime-engine]
+opt-level = 1
 
 # The key-sound mixer renders in the audio callback and decodes music as it plays, so an unoptimised build glitches audibly; kira's documentation asks for these. Local macOS installs are dev builds (above).
 [profile.dev.package.kira]

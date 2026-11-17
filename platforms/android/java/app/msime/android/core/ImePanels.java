@@ -47,9 +47,12 @@ final class ImePanels {
     /** 符号集插件目录读取的代次；换输入框或关闭面板时作废旧结果。 */
     private long pluginSymbolReadGeneration;
 
+    final ImeCloudClipboardAutoReceive autoCloudClipboard;
+
     ImePanels(MSIMEInputService s) {
         this.s = s;
         clipboardPreview = new ClipboardTextPreview(s);
+        autoCloudClipboard = new ImeCloudClipboardAutoReceive(s);
     }
 
     void dismissClipboardPreview() {
@@ -635,7 +638,7 @@ final class ImePanels {
             namedKeys.add(skin.key());
             choices.add(new MSIMEInputService.SkinChoice("custom", item.name(), skin, design, item.id()));
         }
-        // 社区里还没获取的皮肤：目录由 App 缓存（键盘不为浏览目录联网），选中时先存进皮肤库再换上。
+        // 社区里还没获取的皮肤：目录由 App 缓存，选中时按 ID 完整下载后再存进皮肤库并换上。
         java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> uninstalled = new java.util.HashMap<>();
         for (CommunitySkinCache.Entry entry : communityItems) {
             if (libraryIds.contains(entry.id())) continue;
@@ -682,26 +685,56 @@ final class ImePanels {
                     ViewPolicy.setSelected(other, other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
-                // 选中即换色并收起面板回到键盘，换上的皮肤直接在键盘上看。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
+                // 选中即收起面板回到键盘。还没获取的社区皮肤要先走完整下载，排在保存选择之前；下载失败时保留当前皮肤。
+                // 网络下载在 skinDownloadWorker 上等，不占 preferencesWorker（那条线程还要给下一个输入框建会话、写偏好）；下载成功后只把写皮肤库这一步排回 preferencesWorker，保证它排在随后的保存之前。
                 CommunitySkinCache.Entry install = uninstalled.get(choice);
                 if (install != null) {
                     final String directory = s.preferencesDirectory;
-                    s.preferencesWorker.execute(() -> {
-                        boolean saved = false;
-                        try {
-                            saved = CustomSkinLibrary.add(java.nio.file.Paths.get(directory),
-                                install.id(), install.name(), install.design());
-                        } catch (java.io.IOException | RuntimeException error) {
-                            android.util.Log.w("MSIMESkin", "Community skin was not saved to the library", error);
-                        }
-                        boolean installed = saved;
-                        s.main.post(() -> {
-                            if (installed) s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
-                            else s.notice("皮肤保存失败，保留当前皮肤");
+                    try {
+                        s.skinDownloadWorker.execute(() -> {
+                            CommunityCatalog.Download download = null;
+                            try {
+                                download = CommunitySkinDownloadBridge.download(s, install.id());
+                            } catch (RuntimeException error) {
+                                android.util.Log.w("MSIMESkin", "Community skin download failed", error);
+                            }
+                            if (download == null || download.failed()) {
+                                String failure = download == null ? "皮肤下载失败，请稍后重试。" : download.failure();
+                                s.main.post(() -> failSkinInstall(failure));
+                                return;
+                            }
+                            JSONObject design = download.design();
+                            try {
+                                s.preferencesWorker.execute(() -> {
+                                    boolean saved = false;
+                                    String failure = "皮肤下载失败，请稍后重试。";
+                                    try {
+                                        saved = CustomSkinLibrary.add(java.nio.file.Paths.get(directory),
+                                            install.id(), install.name(), design);
+                                        if (!saved) failure = "皮肤库已满，请先在键盘里删掉一些。";
+                                    } catch (java.io.IOException | RuntimeException error) {
+                                        android.util.Log.w("MSIMESkin", "Community skin was not saved to the library", error);
+                                    }
+                                    boolean installed = saved;
+                                    String saveFailure = failure;
+                                    s.main.post(() -> {
+                                        if (!installed) failSkinInstall(saveFailure);
+                                        // 下载期间会话可能已换掉或另一次保存还没回来，这时保存不会开始，不记换装。
+                                        else if (s.saveKeyboardSkin(choice.id(), design, choice.libraryId()))
+                                            s.recordSkinStatistics("custom");
+                                        else failSkinInstall("皮肤已存进皮肤库，但这次没换上，请重新选择。");
+                                    });
+                                });
+                            } catch (java.util.concurrent.RejectedExecutionException stopped) {
+                                // 服务已销毁，没有键盘可以换皮肤。
+                            }
                         });
-                    });
-                } else s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId());
-                s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
+                    } catch (java.util.concurrent.RejectedExecutionException stopped) {
+                        failSkinInstall("皮肤下载失败，请稍后重试。");
+                    }
+                } else if (s.saveKeyboardSkin(choice.id(), choice.design(), choice.libraryId())) {
+                    s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
+                }
                 styleSkinPicker(cards);
                 s.closeSkinPicker();
                 s.render();
@@ -716,6 +749,12 @@ final class ImePanels {
 
     private static String choiceKey(MSIMEInputService.SkinChoice choice) {
         return choice.design() == null ? "theme:" + choice.id() : "design:" + choice.design().toString().hashCode();
+    }
+
+    /** 社区皮肤没装上：清掉临时选中态并提示，键盘保留当前皮肤。 */
+    private void failSkinInstall(String message) {
+        pendingSkinKey = null;
+        s.notice(message);
     }
 
     /** 皮肤保存回来（成功或失败）后清掉临时选中态，下次按偏好画。 */
@@ -1435,14 +1474,14 @@ final class ImePanels {
     }
 
     /** 「云端」这一刻归谁：`id` 是水杉账号编号或中继的绑定，`generation` 是账号的登录代次（中继为 0），`relay` 说明走哪条路。 */
-    private record CloudOwner(boolean relay, String id, long generation) {}
+    record CloudOwner(boolean relay, String id, long generation) {}
 
     /**
      * 「云端」这一刻归谁。偏好里配置了自建中继或 WebDAV 网盘时是中继或网盘，绑定由地址和令牌（网盘是地址和账号）算出（{@link CloudClipboardRelay#binding}），不需要登录；否则是水杉账号的登录绑定，读不到时为 null。
      *
      * <p>只看内存里的偏好快照，不读文件，主线程上可以调用。快照最多晚一秒（偏好每秒重读一次），所以后台线程真正发请求之前还会再问一次共享层（{@link CloudClipboardRelay#selected}），两边不一致就按失败处理，绝不改走账号。
      */
-    private CloudOwner cloudClipboardOwner() {
+    CloudOwner cloudClipboardOwner() {
         JSONObject preferences = s.preferencesSnapshot == null ? null : s.preferencesSnapshot.optJSONObject("preferences");
         String relay = CloudClipboardRelay.binding(preferences);
         if (!relay.isEmpty()) return new CloudOwner(true, relay, 0L);
@@ -1601,6 +1640,17 @@ final class ImePanels {
         } catch (java.util.concurrent.RejectedExecutionException error) {
             s.notice("未能发到云剪贴板，请稍后重试");
         }
+    }
+
+    /** 复制时固定账号与选路；后台校验和上传不依赖面板是否打开。 */
+    void autoSyncClipboardText(String text) {
+        if (!CloudClipboardPanelPolicy.autoUploadEligible(
+                cloudClipboardAllowed(), s.clipboardMode == ClipboardModePolicy.Mode.VISITOR, text)) return;
+        CloudOwner owner = cloudClipboardOwner();
+        if (owner == null || owner.id().isEmpty()) return;
+        ImeCloudClipboardAutoSync.submit(s.cloudClipboardWorker,
+            new ImeCloudClipboardAutoSync.Binding(owner.relay(), owner.id(), owner.generation()),
+            text, ImeCloudClipboardAutoSync.backend(s));
     }
 
     void insertCloudClipboardText(String text) {
@@ -1819,6 +1869,10 @@ final class ImePanels {
         ViewPolicy.hide(s.clipboardMoreOverlay);
         LayoutPolicy.setHorizontalPaddingDp(s.clipboardHeader, s, 8);
         LayoutPolicy.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
+        ViewPolicy.show(s.clipboardHeader);
+        FrameLayout.LayoutParams scrollParams = (FrameLayout.LayoutParams) s.clipboardScroll.getLayoutParams();
+        scrollParams.topMargin = s.pixels(32);
+        s.clipboardScroll.setLayoutParams(scrollParams);
         // 详情、分词、云端、确认清空和多选都不显示浮动「撤销」；画到本机列表常态时再打开。
         clipboardUndoAllowed = false;
         updateClipboardUndo();
@@ -1931,15 +1985,19 @@ final class ImePanels {
                 clipboardSelectedTexts.size() + " 项已选择", 12);
             header.addView(selected, LayoutPolicy.weightedMatchParentParams(1));
             clipboardAction(header, "取消", this::exitClipboardSelection);
-            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），只在选中 1 到 4 项时可用；导出和删除仍可用到 20 项。
+            // 「插入」按角标 ①②③④ 的顺序把选中的几条一次插进输入框（#10411），选中 1 到 4 项时提交，超过时显示确认提示；导出和删除仍可用到 20 项。
             Button insert = clipboardAction(header, "插入", () -> {
+                if (!ClipboardSelectionPolicy.canInsert(clipboardSelectedTexts.size())) {
+                    s.showClipboardInsertionLimitNotice();
+                    return;
+                }
                 java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
                 exitClipboardSelection();
                 s.insertClipboardTexts(selectedTexts);
             });
-            ViewPolicy.setEnabled(insert, ClipboardSelectionPolicy.canInsert(clipboardSelectedTexts.size()));
+            ViewPolicy.setEnabled(insert, !clipboardSelectedTexts.isEmpty());
             insert.setContentDescription(clipboardSelectedTexts.size() > ClipboardSelectionPolicy.MAX_INSERTIONS
-                ? "插入不可用，" + ClipboardSelectionPolicy.INSERTION_LIMIT_HINT : "按序号插入选中的剪贴板记录");
+                ? "插入后提示上限，" + ClipboardSelectionPolicy.INSERTION_LIMIT_HINT : "按序号插入选中的剪贴板记录");
             Button export = clipboardAction(header, "导出", () -> {
                 java.util.List<String> selectedTexts = new java.util.ArrayList<>(clipboardSelectedTexts);
                 exitClipboardSelection();
@@ -2055,8 +2113,6 @@ final class ImePanels {
                             clipboardSelectedTexts.remove(item.text());
                         } else if (ClipboardSelectionPolicy.canSelect(clipboardSelectedTexts.size())) {
                             clipboardSelectedTexts.add(item.text());
-                            if (ClipboardSelectionPolicy.exceedsInsertionCap(clipboardSelectedTexts.size()))
-                                s.notice(ClipboardSelectionPolicy.INSERTION_LIMIT_HINT);
                         } else {
                             s.notice("最多只能选择 " + ClipboardSelectionPolicy.MAX_SELECTIONS + " 项");
                         }
@@ -2070,7 +2126,7 @@ final class ImePanels {
                     }
                     s.insertClipboardText(item.text());
                 });
-                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，长按预览全文和管理");
+                card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，左滑删除，右滑查看详情，长按管理");
                 // 选中项的序号按点选先后算（LinkedHashSet 的迭代顺序），取消一项后后面的各项在这次重画时自然前移（#10411）。
                 int ordinal = clipboardSelectionMode
                     ? ClipboardSelectionPolicy.ordinal(clipboardSelectedTexts, item.text()) : -1;
@@ -2079,7 +2135,8 @@ final class ImePanels {
                         + "点按选择剪贴板记录");
                     ViewPolicy.setSelected(card, ordinal >= 0);
                     // 右上角要留给序号角标，正文右边多让出一截，长文字不会压在角标底下。
-                    if (ordinal >= 0) LayoutPolicy.setPaddingDp(card, s, 12, 8, 30, 8);
+                    if (ClipboardSelectionPolicy.hasOrdinalBadge(ordinal))
+                        LayoutPolicy.setPaddingDp(card, s, 12, 8, 30, 8);
                 }
                 card.setOnLongClickListener(ignored -> {
                     s.imeKeyFeedback.playFeedback(card);
@@ -2088,15 +2145,20 @@ final class ImePanels {
                     clipboardMoreOpen = false;
                     clipboardSwipedText = null;
                     renderClipboardHistory();
-                    showClipboardItemPreview(item);
                     return true;
                 });
                 View cell = clipboardSwipeCell(card, item, swiped, reveal, ordinal);
                 if (!clipboardSelectionMode) {
                     LinearLayout withDetail = LayoutPolicy.row(s);
-                    Button detail = MSIMEInputService.role(s.button(withDetail, "ⓘ",
-                        () -> openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST)), KeyboardKeyRole.GLYPH);
+                    KeyboardIconKey detail = new KeyboardIconKey(s, KeyboardIconKey.Kind.INFO);
+                    detail.setKeyboardRole(KeyboardKeyRole.GLYPH);
+                    detail.setText("详情");
                     detail.setContentDescription("查看这条剪贴板记录详情");
+                    ViewPolicy.clearMinimumSize(detail);
+                    ViewPolicy.clearStateListAnimator(detail);
+                    ViewPolicy.setPadding(detail, 0, 0, 0, 0);
+                    bindFeedbackAction(detail, () -> openClipboardDetail(
+                        item, ClipboardDetailPolicy.Origin.LIST));
                     detail.setLayoutParams(new LinearLayout.LayoutParams(s.pixels(38),
                         LinearLayout.LayoutParams.MATCH_PARENT));
                     withDetail.addView(cell, new LinearLayout.LayoutParams(0,
@@ -2223,28 +2285,25 @@ final class ImePanels {
 
     /** 详情仍在剪贴板面板内，返回重绘上一级列表，从全文预览进入时再重开预览；都不触碰输入框焦点。 */
     private void renderClipboardDetail(ClipboardHistory.Item item) {
-        LinearLayout header = LayoutPolicy.row(s);
-        ViewPolicy.setCenteredVertically(header);
-        Button back = clipboardAction(header, "返回", () -> {
-            returnFromClipboardDetail();
-        });
-        back.setContentDescription(ClipboardDetailPolicy.backDescription(clipboardDetailOrigin));
-        TextView title = ViewPolicy.centeredText(s, "记录详情", 14);
-        header.addView(title, LayoutPolicy.weightedMatchParentParams(1));
-        s.clipboardHeader.addView(header, LayoutPolicy.matchWidthHeightPx(s.pixels(36)));
+        // 详情页不再占用固定顶栏：顶部返回键和标题会挤压记录正文，标题空白区域的触摸还会穿透到键区。
+        ViewPolicy.hide(s.clipboardHeader);
+        FrameLayout.LayoutParams scrollParams = (FrameLayout.LayoutParams) s.clipboardScroll.getLayoutParams();
+        scrollParams.topMargin = 0;
+        s.clipboardScroll.setLayoutParams(scrollParams);
 
         TextView text = ViewPolicy.textLabel(s, item.text(), 16);
         LayoutPolicy.setSymmetricPaddingDp(text, s, 14, 12);
         s.clipboardPanel.addView(text, LayoutPolicy.matchWidthWrapParams());
         String time = ClipboardDetailPolicy.recordedAt(item.timestamp(), ZoneId.systemDefault());
-        TextView details = clipboardNote("记录时间：" + time + "\n来源 App："
-            + ClipboardDetailPolicy.sourceLabel(null) + "\n包名："
-            + ClipboardDetailPolicy.sourceLabel(null));
+        TextView details = clipboardNote("记录时间：" + time);
         details.setGravity(Gravity.START);
         LinearLayout actions = LayoutPolicy.row(s);
+        actions.setGravity(s.clipboardDetailActionsRight ? Gravity.END : Gravity.START);
         Button insert = clipboardAction(actions, "插入", () -> s.insertClipboardText(item.text()),
             KeyboardKeyRole.RETURN);
         insert.setContentDescription("插入这条剪贴板记录");
+        Button edit = clipboardAction(actions, "编辑", () -> s.editClipboardItem(item));
+        edit.setContentDescription("编辑这条剪贴板记录");
         // 底部「返回」和顶栏的那个回到同一级，读屏说明也要一致，否则从预览进入时读屏用户听不出它会重开预览。
         clipboardAction(actions, "返回", this::returnFromClipboardDetail)
             .setContentDescription(ClipboardDetailPolicy.backDescription(clipboardDetailOrigin));
@@ -2583,7 +2642,7 @@ final class ImePanels {
     private LinearLayout clipboardCardRow;
 
     /**
-     * 剪贴板卡片：键帽色圆角卡，最多显示三行，长文本从长按浮层阅读全文。正文后是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
+     * 剪贴板卡片：键帽色圆角卡，最多显示三行，长文本从右滑详情页阅读全文。正文后是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
      *
      * <p>`index`/`count` 决定它排在哪：单列时一条一行；双列（本地设置 `platform.android.clipboard_columns`，#5642）时两条一行等宽，最后一行只有一条时右边留空，不把它拉满整行。`selected` 的卡片（长按打开了操作行的那条）画成选中样式，元信息不再用次要色，免得压在强调色上看不清。
      */
@@ -2655,7 +2714,7 @@ final class ImePanels {
     private ClipboardSwipeCell clipboardSwipedCell;
 
     /**
-     * 本机历史的一格：底下靠右是删除按钮，上面盖着卡片。卡片往左滑让开，露出删除按钮，点它才删（#5962）；手势的判定在 {@link ClipboardSwipePolicy}。
+     * 本机历史的一格：底下靠右是删除按钮，上面盖着卡片。卡片往左滑让开，露出删除按钮，点它才删（#5962）；关闭的卡片向右滑进入详情（#11045）；手势的判定在 {@link ClipboardSwipePolicy}。
      *
      * <p>删除按钮只在卡片让开（拖动中或打开着）时显示，收着时是 `INVISIBLE`：按住卡片时按压动画会把卡片缩小一圈，底下的删除按钮若一直在，就会从卡片边上露出来（在模拟器上看到过）。收着时它也不可点、不被读屏读到。读屏用户和不会滑的用户仍然从长按操作行里的「删除」删。
      */
@@ -2685,7 +2744,7 @@ final class ImePanels {
             FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END);
         cell.addView(trash, trashParams);
         cell.addView(card, LayoutPolicy.frameMatchParentParams());
-        if (ordinal >= 0) {
+        if (ClipboardSelectionPolicy.hasOrdinalBadge(ordinal)) {
             // 多选时选中项右上角画序号 ①②③④（#10411），占的正是置顶角标的位置；置顶仍写在卡片的元信息里（「已置顶 · …」），这里不叠两个角标。单列和多列网格放的都是这个左滑格，两种排法都带角标。角标画在卡片自己的浮层里而不是这一格里：带阴影的皮肤会给卡片抬高度，高度为 0 的兄弟视图会被卡片盖住，见 ClipboardOrdinalBadgeDrawable。
             ClipboardOrdinalBadgeDrawable badge = new ClipboardOrdinalBadgeDrawable(
                 ClipboardSelectionPolicy.ordinalLabel(ordinal),
@@ -2704,7 +2763,8 @@ final class ImePanels {
             pinParams.setMarginEnd(s.pixels(2));
             cell.addView(pinMark, pinParams);
         }
-        ClipboardSwipeCell swipe = new ClipboardSwipeCell(card, trash, item.text(), reveal);
+        ClipboardSwipeCell swipe = new ClipboardSwipeCell(card, trash, item, reveal,
+            !clipboardSelectionMode);
         card.setTranslationX(open ? -reveal : 0f);
         swipe.showTrash(open);
         if (open) clipboardSwipedCell = swipe;
@@ -2730,10 +2790,12 @@ final class ImePanels {
     private final class ClipboardSwipeCell implements View.OnTouchListener {
         private final Button card;
         private final View trash;
+        private final ClipboardHistory.Item item;
         private final String text;
         private final float reveal;
         private final float density;
         private final int touchSlop;
+        private final boolean allowDetailSwipe;
         private android.animation.ObjectAnimator settling;
         private float downX;
         private float downY;
@@ -2741,13 +2803,17 @@ final class ImePanels {
         private boolean openAtDown;
         private boolean dragging;
         private boolean cancelledPress;
+        private boolean openingDetail;
         private android.view.VelocityTracker velocity;
 
-        ClipboardSwipeCell(Button card, View trash, String text, float reveal) {
+        ClipboardSwipeCell(Button card, View trash, ClipboardHistory.Item item, float reveal,
+                boolean allowDetailSwipe) {
             this.card = card;
             this.trash = trash;
-            this.text = text;
+            this.item = item;
+            this.text = item.text();
             this.reveal = reveal;
+            this.allowDetailSwipe = allowDetailSwipe;
             density = DimensionPolicy.density(s);
             touchSlop = android.view.ViewConfiguration.get(s).getScaledTouchSlop();
         }
@@ -2761,6 +2827,7 @@ final class ImePanels {
                     openAtDown = card.getTranslationX() < 0;
                     dragging = false;
                     cancelledPress = false;
+                    openingDetail = false;
                     recycleVelocity();
                     velocity = android.view.VelocityTracker.obtain();
                     track(event);
@@ -2771,7 +2838,9 @@ final class ImePanels {
                     float dx = event.getRawX() - downX;
                     float dy = event.getRawY() - downY;
                     if (!dragging) {
-                        if (!ClipboardSwipePolicy.claims(dx, dy, touchSlop, openAtDown)) {
+                        boolean detail = allowDetailSwipe
+                            && ClipboardSwipePolicy.claimsRight(dx, dy, touchSlop, openAtDown);
+                        if (!detail && !ClipboardSwipePolicy.claims(dx, dy, touchSlop, openAtDown)) {
                             // 外层列表没有足够内容可滚时不会接手纵向拖动；仍要撤销卡片按压，
                             // 否则手指始终留在卡片边界内，松手会被 Button 当作点按并插入正文。
                             if (!cancelledPress
@@ -2786,6 +2855,7 @@ final class ImePanels {
                             return false;
                         }
                         dragging = true;
+                        openingDetail = detail;
                         cancelledPress = true;
                         // 接手时卡片可能还在收回的动画里：停在当前位置，再从这里跟手，不跳。
                         stopSettling();
@@ -2797,32 +2867,66 @@ final class ImePanels {
                         cancel.recycle();
                         // 同一时间只有一条打开：开始滑这一条时先收回另一条。
                         if (clipboardSwipedCell != null && clipboardSwipedCell != this) closeClipboardSwipe();
-                        showTrash(true);
+                        if (!openingDetail) showTrash(true);
                     }
-                    card.setTranslationX(ClipboardSwipePolicy.offset(startOffset, dx, reveal));
+                    card.setTranslationX(openingDetail
+                        ? Math.min(Math.max(dx, 0f), reveal)
+                        : ClipboardSwipePolicy.offset(startOffset, dx, reveal));
                     return true;
                 }
                 case android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     boolean handled = dragging;
+                    float velocityX = 0f;
+                    if (velocity != null && event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
+                        track(event);
+                        velocity.computeCurrentVelocity(1000);
+                        velocityX = velocity.getXVelocity();
+                    }
+                    if (!dragging && event.getActionMasked() == android.view.MotionEvent.ACTION_UP
+                            && allowDetailSwipe && !openAtDown) {
+                        float gestureDx = event.getRawX() - downX;
+                        float gestureDy = event.getRawY() - downY;
+                        if (ClipboardSwipePolicy.claimsRight(gestureDx, gestureDy, touchSlop, false)) {
+                            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                            card.onTouchEvent(cancel);
+                            cancel.recycle();
+                            if (ClipboardSwipePolicy.settlesDetail(gestureDx, velocityX, reveal, density)) {
+                                clipboardActionText = null;
+                                openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST);
+                            }
+                            recycleVelocity();
+                            return true;
+                        }
+                    }
                     if (dragging) {
-                        float velocityX = 0f;
-                        if (velocity != null && event.getActionMasked() == android.view.MotionEvent.ACTION_UP) {
-                            track(event);
-                            velocity.computeCurrentVelocity(1000);
-                            velocityX = velocity.getXVelocity();
+                        if (openingDetail) {
+                            float gestureDx = event.getRawX() - downX;
+                            boolean enterDetail = event.getActionMasked() == android.view.MotionEvent.ACTION_UP
+                                && ClipboardSwipePolicy.settlesDetail(gestureDx, velocityX, reveal, density);
+                            openingDetail = false;
+                            if (enterDetail) {
+                                card.setTranslationX(0f);
+                                clipboardActionText = null;
+                                openClipboardDetail(item, ClipboardDetailPolicy.Origin.LIST);
+                            } else {
+                                settle(false);
+                            }
+                        } else {
+                            boolean open = ClipboardSwipePolicy.settlesOpen(card.getTranslationX(), velocityX, reveal, density);
+                            if (open) {
+                                clipboardSwipedText = text;
+                                clipboardSwipedCell = this;
+                            } else if (clipboardSwipedCell == this || text.equals(clipboardSwipedText)) {
+                                clipboardSwipedText = null;
+                                clipboardSwipedCell = null;
+                            }
+                            settle(open);
                         }
-                        boolean open = ClipboardSwipePolicy.settlesOpen(card.getTranslationX(), velocityX, reveal, density);
-                        if (open) {
-                            clipboardSwipedText = text;
-                            clipboardSwipedCell = this;
-                        } else if (clipboardSwipedCell == this || text.equals(clipboardSwipedText)) {
-                            clipboardSwipedText = null;
-                            clipboardSwipedCell = null;
-                        }
-                        settle(open);
                     }
                     dragging = false;
                     cancelledPress = false;
+                    openingDetail = false;
                     recycleVelocity();
                     return handled;
                 }

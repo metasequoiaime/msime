@@ -141,13 +141,22 @@ final class GridLetterSymbolDeviceChecks {
 
         // 关掉「滑动输入符号」：纵滑是普通点按，长按照旧打开选项。
         configure(false, "up", true, "按键 Q W");
+        t.stage = "fourteen tap baseline with swipes off";
+        t.tap(t.described("按键 C V"));
+        String tappedReading = t.await(t.described("编辑拼写")).getText().toString();
+        t.await(t.described("14 键拼音选择"));
+        expect("");
+        t.tap(t.key("⌫"));
+        awaitGone(t.described("编辑拼写"));
         t.stage = "fourteen swipes off";
         swipe("按键 C V", -SWIPE_DP);
         assertNoOptions();
-        t.await(t.describedPrefix("候选 1："));
+        // 单组 C/V 可以只有组字和拼音选项；与同键点按比较，不依赖词库是否给汉字候选。
+        t.await(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText(tappedReading, node.getText())));
+        t.await(t.described("14 键拼音选择"));
         expect("");
         t.tap(t.key("⌫"));
-        awaitGone(t.describedPrefix("候选 1："));
+        awaitGone(t.described("编辑拼写"));
         hold("按键 C V");
         t.await(t.described("输入 ？"));
         t.tap(t.described("输入 ？"));

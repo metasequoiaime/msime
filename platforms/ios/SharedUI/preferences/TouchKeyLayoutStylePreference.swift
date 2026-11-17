@@ -327,7 +327,8 @@ struct TouchKeyLayoutStyle: Equatable, Hashable {
 struct TouchKeyLayoutOffering: Equatable {
   /// 读 26 键样式的中文 26 键入口：全拼、各种双拼、五笔、粤拼。日文罗马字、韩文、越南文和藏文的 26 键画标准底行（键盘的 `drawsChineseTwentySixKey`），不算。
   static let twentySixKeySchemes: [ChineseInputScheme] = [
-    .quanpin, .shuangpin, .ziranma, .microsoft, .shoudao, .wubi, .cantonese, .cantoneseShuangpin,
+    .quanpin, .shuangpin, .ziranma, .microsoft, .shoudao, .smartAbc, .sogou, .jiajia, .ziguang, .guobiao,
+    .wubi, .cantonese, .cantoneseShuangpin,
   ]
   /// 有 14 键或 18 键的入口：全拼的两个入口，以及双拼和五笔可选的字母键布局。
   static let letterGridSchemes: [ChineseInputScheme] = [.fourteenKey, .eighteenKey, .shuangpin, .wubi]

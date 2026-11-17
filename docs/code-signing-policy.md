@@ -2,9 +2,15 @@
 
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 
-**Current status.** This repository's Windows releases are not signed through SignPath yet. The SignPath Foundation open source program has accepted the project `msime-windows`, whose current Windows product is built from [metasequoiaime/msime-windows](https://github.com/metasequoiaime/msime-windows) under [its own policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md). This repository holds the next-generation client of the same product, and we have asked SignPath Foundation to add it to that project. Until they do, the release workflow publishes unsigned installers, and a maintainer may replace them with installers signed on their machine with the project's Certum Open Source Developer certificate through SimplySign (`platforms/windows/installer/Package-SimplySign.ps1`). Once SignPath signing is enabled, installers signed with the SignPath Foundation certificate are built and signed only by the CI process described below, never on a local machine.
+**当前状态。** 本仓库支持两条独立的 Windows 签名路径。`WINDOWS_SIGNING_PROVIDER=simplysign` 使用维护者的 Certum Open Source Developer 证书，经专用签名 runner 自动签名；`signpath` 使用下文描述的 SignPath 流程。SignPath Foundation 已接受 `msime-windows` 项目，本仓库在完成同一项目的来源登记之前不启用其生产签名。变量未设置时保留未签名构建。
 
-## What gets signed
+## SimplySign 自动发布
+
+维护者在 `main` 或 `develop` 手动派发 Windows 发布工作流。构建固定到派发时的源码提交；专用 `windows-signing` runner 分组只允许本仓库这两个分支的发布工作流使用。TOTP seed 用签名用户的 Windows DPAPI 加密保存在该机器，不进入源码、artifact、命令行或 GitHub secret。
+
+工作流复用固定摘要的社区客户端 `ssign`，它不是 Certum 官方客户端。签名机串行处理六个版本：保留包内已有有效上游签名，签署尚未签名的 EXE/DLL，编译并签署安装器，核对可信签名、发布证书指纹与时间戳，最后计算摘要。安装器随后在临时 x64 和 ARM64 runner 运行装卸和并存验证，全部通过才发布；配置和验证失败不会退回未签名发布。这条路径不使用 SignPath Foundation 证书，也不适用其人工请求审批流程。配置入口见 [安装器文档](../platforms/windows/installer/README.md#ci-自动签名发布)。
+
+## What gets signed through SignPath
 
 Only Windows binaries the project builds from source in this repository, for each of the six editions (full, pinyin, wubi, japanese, vietnamese, tibetan):
 

@@ -9,6 +9,7 @@
 #include "../../../../shared/contracts/msime_edition.h"
 
 #include <commctrl.h>
+#include <oleacc.h>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -82,6 +83,83 @@ std::wstring caption(HWND window) {
   const int copied = GetWindowTextW(window, value.data(), static_cast<int>(value.size()));
   value.resize(static_cast<size_t>(copied));
   return value;
+}
+
+HWND help_popup(HWND button) {
+  std::pair<HWND, HWND> found{button, nullptr};
+  EnumThreadWindows(GetCurrentThreadId(), [](HWND window, LPARAM data) -> BOOL {
+    auto& result = *reinterpret_cast<std::pair<HWND, HWND>*>(data);
+    wchar_t type[64]{};
+    GetClassNameW(window, type, 64);
+    TOOLINFOW tool{};
+    tool.cbSize = sizeof(tool);
+    tool.hwnd = result.first;
+    tool.uId = reinterpret_cast<UINT_PTR>(result.first);
+    if (lstrcmpiW(type, TOOLTIPS_CLASSW) == 0 &&
+        SendMessageW(window, TTM_GETTOOLINFOW, 0, reinterpret_cast<LPARAM>(&tool))) {
+      result.second = window;
+      return FALSE;
+    }
+    return TRUE;
+  }, reinterpret_cast<LPARAM>(&found));
+  return found.second;
+}
+
+void check_help(HWND body, int help_id, HWND control, const wchar_t* description) {
+  const auto help = GetDlgItem(body, help_id);
+  const auto popup = help_popup(help);
+  assert(help && popup && caption(help) == L"?");
+  assert(!IsWindowVisible(popup));
+  const auto accessible_text = [](HWND target, bool name) {
+    IAccessible* accessible = nullptr;
+    assert(SUCCEEDED(AccessibleObjectFromWindow(target, static_cast<DWORD>(OBJID_CLIENT), IID_IAccessible,
+        reinterpret_cast<void**>(&accessible))));
+    VARIANT self{};
+    self.vt = VT_I4;
+    self.lVal = CHILDID_SELF;
+    BSTR text = nullptr;
+    const auto result = name ? accessible->get_accName(self, &text) : accessible->get_accDescription(self, &text);
+    assert(SUCCEEDED(result) && text);
+    const std::wstring value(text, SysStringLen(text));
+    SysFreeString(text);
+    accessible->Release();
+    return value;
+  };
+  assert(accessible_text(help, true) == caption(control) + L"的说明：" + description);
+  assert(accessible_text(control, false) == description);
+  // 页面上没有重复的解释；鼠标与键盘均可读到系统气泡中的原说明。
+  for (auto child = GetWindow(body, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT))
+    assert(!IsWindowVisible(child) || caption(child) != description);
+  SetFocus(control);
+  SendMessageW(help, WM_MOUSEMOVE, 0, MAKELPARAM(4, 4));
+  assert(IsWindowVisible(popup));
+  wchar_t text[512]{};
+  TOOLINFOW tool{};
+  tool.cbSize = sizeof(tool);
+  tool.hwnd = help;
+  tool.uId = reinterpret_cast<UINT_PTR>(help);
+  tool.lpszText = text;
+  SendMessageW(popup, TTM_GETTEXTW, std::size(text), reinterpret_cast<LPARAM>(&tool));
+  assert(std::wstring(text) == description);
+  SendMessageW(help, WM_MOUSELEAVE, 0, 0);
+  assert(!IsWindowVisible(popup));
+  SetFocus(help);
+  assert(IsWindowVisible(popup));
+  SetFocus(control);
+  assert(!IsWindowVisible(popup));
+  SendMessageW(help, BM_CLICK, 0, 0);
+  SendMessageW(help, WM_MOUSELEAVE, 0, 0);
+  assert(IsWindowVisible(popup));
+  SendMessageW(help, BM_CLICK, 0, 0);
+  assert(!IsWindowVisible(popup));
+  SetFocus(help);
+  MSG escape{};
+  escape.hwnd = help;
+  escape.message = WM_KEYDOWN;
+  escape.wParam = VK_ESCAPE;
+  if (!IsDialogMessageW(GetAncestor(body, GA_ROOT), &escape)) DispatchMessageW(&escape);
+  assert(!IsWindowVisible(popup));
+  SetFocus(control);
 }
 
 } // namespace
@@ -488,7 +566,8 @@ int main() {
   const HWND word = GetDlgItem(body, word_character_keys);
   const HWND brackets = GetDlgItem(body, navigation_brackets);
   const HWND backspace = GetDlgItem(body, backspace_reverts);
-  assert(word && brackets && backspace);
+  const HWND escape_keeps = GetDlgItem(body, escape_keeps_selected_word);
+  assert(word && brackets && backspace && escape_keeps);
   assert((GetWindowLongPtrW(word, GWL_STYLE) & WS_VISIBLE) != 0);
   assert(store.load().snapshot->revision() == saved.snapshot->revision());
   auto selection_seed = store.save(*saved.snapshot, {{{"word_character", "enabled"}, false},
@@ -526,6 +605,32 @@ int main() {
   saved = store.load();
   assert(saved.snapshot->preferences().value("backspace_reverts_selection", true) != previous_backspace);
   assert(saved.snapshot->preferences().at("word_character").at("enabled") == true);
+  assert(!saved.snapshot->preferences().contains("escape_keeps_selected_word"));
+  assert(SendMessageW(escape_keeps, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  const auto before_escape_help = store.load().snapshot->revision();
+  // 气泡只能在可见窗口上显示；原有控件测试此前无需显示宿主。
+  ShowWindow(host, SW_SHOWNOACTIVATE);
+  check_help(body, escape_keeps_selected_word_help, escape_keeps,
+      L"造词时按 Esc 只清除还没选的拼音、保留已选的词，再按一次 Esc 整体取消。");
+  assert(store.load().snapshot->revision() == before_escape_help);
+  const auto escape_help = GetDlgItem(body, escape_keeps_selected_word_help);
+  SendMessageW(escape_help, BM_CLICK, 0, 0);
+  assert(IsWindowVisible(help_popup(escape_help)));
+  select_tab(L"候选与联想");
+  assert(!IsWindowVisible(escape_help) && !IsWindowVisible(help_popup(escape_help)));
+  select_tab(L"选词与翻页");
+  assert(IsWindowVisible(escape_help) && !IsWindowVisible(help_popup(escape_help)));
+  assert(store.load().snapshot->revision() == before_escape_help);
+  // 仅在气泡交互期间显示窗口，后续持久化夹具恢复原来的隐藏宿主条件。
+  ShowWindow(host, SW_HIDE);
+  SendMessageW(escape_keeps, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(escape_keeps) != FALSE; });
+  assert(store.load().snapshot->preferences().at("escape_keeps_selected_word") == true);
+  assert(SendMessageW(escape_keeps, BM_GETCHECK, 0, 0) == BST_CHECKED);
+  SendMessageW(escape_keeps, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(escape_keeps) != FALSE; });
+  assert(!store.load().snapshot->preferences().contains("escape_keeps_selected_word"));
+  assert(SendMessageW(escape_keeps, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   const HWND mouse = GetDlgItem(body, navigation_mouse_wheel);
   assert(mouse && SendMessageW(mouse, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
   SendMessageW(mouse, BM_CLICK, 0, 0);
@@ -638,6 +743,23 @@ int main() {
   assert(!GetDlgItem(body, mixed_japanese));
 #endif
   const auto before_mixed = saved.snapshot->preferences().at("mixed_input");
+  const HWND enter_learns = GetDlgItem(body, enter_learns_english_word);
+  assert(enter_learns && caption(enter_learns) == L"回车学英文词");
+  const auto before_enter_help = store.load().snapshot->revision();
+  ShowWindow(host, SW_SHOWNOACTIVATE);
+  check_help(body, enter_learns_english_word_help, enter_learns,
+      L"按回车上屏输入的英文时，把这个单词写入英文词库，之后可以作为候选出现。");
+  ShowWindow(host, SW_HIDE);
+  assert(store.load().snapshot->revision() == before_enter_help);
+  assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_CHECKED);
+  SendMessageW(enter_learns, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(enter_learns) != FALSE; });
+  assert(store.load().snapshot->preferences().at("enter_learns_english_word") == false);
+  assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+  SendMessageW(enter_learns, BM_CLICK, 0, 0);
+  pump_until([&] { return IsWindowEnabled(enter_learns) != FALSE; });
+  assert(!store.load().snapshot->preferences().contains("enter_learns_english_word"));
+  assert(SendMessageW(enter_learns, BM_GETCHECK, 0, 0) == BST_CHECKED);
   const bool was_mixed = before_mixed.value("enabled", true);
   click(mixed_enabled);
   saved = store.load();
@@ -1388,6 +1510,15 @@ int main() {
   select_value(appearance_inline, 1);
   assert(store.load().snapshot->preferences().at("candidate_preedit_style") == "empty");
   assert(store.load().snapshot->preferences().at("tsf_preedit_style") == "pinyin");
+  // 预编辑文字样式和候选窗区域独立；关闭区域后保留已选的样式。
+  const bool previous_preedit_area =
+      store.load().snapshot->preferences().value("show_candidate_preedit_area", true);
+  click(appearance_preedit_area);
+  assert(store.load().snapshot->preferences().at("show_candidate_preedit_area") ==
+         !previous_preedit_area);
+  click(appearance_preedit_area);
+  assert(store.load().snapshot->preferences().at("show_candidate_preedit_area") ==
+         previous_preedit_area);
   const bool previous_logo = store.load().snapshot->preferences().at("show_app_logo").get<bool>();
   click(appearance_logo);
   assert(store.load().snapshot->preferences().at("show_app_logo").get<bool>() != previous_logo);

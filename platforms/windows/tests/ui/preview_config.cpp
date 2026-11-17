@@ -184,6 +184,7 @@ int main() {
             fonts.candidate_fallback_fonts[0] == "Microsoft YaHei" &&
             fonts.candidate_fallback_fonts[1] == "Segoe UI Emoji");
     require(fonts.candidate_show_preedit); // Showing the reading is the default.
+    require(fonts.candidate_show_preedit_area);
     document["appearance"] = {{"skin_directory", skins},
                               {"candidate_fallback_fonts",
                                nlohmann::json::array({"", "Segoe UI"})}};
@@ -201,6 +202,12 @@ int main() {
     document["appearance"] = {{"skin_directory", skins},
                               {"candidate_preedit_style", "pinyin"}};
     require(PreviewConfig::parse(document.dump()).candidate_show_preedit);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_preedit_area", false}};
+    require(!PreviewConfig::parse(document.dump()).candidate_show_preedit_area);
+    document["appearance"] = {{"skin_directory", skins},
+                              {"candidate_preedit_area", "false"}};
+    reject(document);
     // An unknown value must be refused rather than silently picking a layout.
     document["appearance"] = {{"skin_directory", skins},
                               {"candidate_preedit_style", "raw"}};

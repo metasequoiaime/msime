@@ -58,10 +58,12 @@ export function DesktopEmojiPanel({
         : undefined;
       setEmojiClient({
         ...baseClient,
-        // 内嵌页面和独立剪贴板没有表情窗口的几何权限，不把操作转发给它们所在的窗口。
-        ...(close || panelLabel !== "emoji-panel"
+        // 设置页内嵌面板没有自己的窗口；独立剪贴板虽然不能缩放，仍需保留标题栏拖动。
+        ...(close
           ? { beginWindowDrag: undefined, resizeWindow: undefined }
-          : {}),
+          : panelLabel === "emoji-panel"
+            ? {}
+            : { resizeWindow: undefined }),
         close: closePanel,
         clipboard,
         // 设置页里内嵌的面板（`close` 由设置页提供）不是独立窗口，插入后不关闭。

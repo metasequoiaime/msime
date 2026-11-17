@@ -3,9 +3,9 @@
 
 use super::*;
 use msime_engine::ordering::{
-    apply_order_with, ensure_engine_order, opening_particle_pick, rerank_needs_model, rerank_pick,
-    rerank_pick_within, rotate_to_front, runner_up_order_pooled, CandidateScorer,
-    ParallelOrderRows, SentenceScorer, StaticEvidence,
+    apply_order_with, engine_seated_correction, ensure_engine_order, opening_particle_pick,
+    rerank_needs_model, rerank_pick, rerank_pick_within, rotate_to_front, runner_up_order_pinned,
+    CandidateScorer, ParallelOrderRows, SentenceScorer, StaticEvidence,
 };
 use msime_engine::touch::{KeyGeometry, KeyTouch};
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
@@ -1317,6 +1317,8 @@ impl<E: InputEngine> Runtime<E> {
         }
         self.deferred_mounted = None;
         self.deferred_scorer = scorer.map(DeferredScorer::new);
+        // 联想候选池跟着给联想排序的打分器走，延后的那一个也算（`orders_prediction`）。
+        self.engine.set_prediction_pool(self.orders_prediction());
     }
 
     /// 是否挂着延后到停顿的打分器（[`Self::set_deferred_scorer`]），宿主的停顿调用据此走 [`Self::settle_deferred_scorer`]。
@@ -3268,11 +3270,30 @@ impl<E: InputEngine> Runtime<E> {
         } else {
             0
         };
-        let Some(order) = runner_up_order_pooled(
+        let rows = order_rows(snapshot);
+        // 引擎坐在第二位的纠错整句按引擎座位认：重排器把别的读法提到首位后它不再紧跟当前的第一条读法。表里没有纠错整句时不用看座位。
+        let pinned = if snapshot
+            .candidate_corrected
+            .iter()
+            .zip(&snapshot.candidate_sources)
+            .any(|(&corrected, &source)| {
+                corrected && source == msime_engine::ordering::LATTICE_SOURCE
+            }) {
+            if self.engine_order.len() == count {
+                engine_seated_correction(snapshot.scheme, &rows, &self.engine_order)
+            } else {
+                let identity: Vec<usize> = (0..count).collect();
+                engine_seated_correction(snapshot.scheme, &rows, &identity)
+            }
+        } else {
+            None
+        };
+        let Some(order) = runner_up_order_pinned(
             snapshot.scheme,
-            &order_rows(snapshot),
+            &rows,
             &snapshot.candidate_touch_supported,
             pool,
+            pinned,
         ) else {
             return false;
         };
@@ -3333,10 +3354,20 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
+    ///
+    /// 延后到停顿的打分器（[`Self::set_deferred_scorer`]）也算：它只是不在每个字母键上跑，上屏时排一池联想仍是一次性的开销。不算的话，桌面把模型延后之后上屏后联想就不再按模型排，比挂在按键上时差。手机上延后的那一档只做过挂不挂的自测、不报在预算之内，照旧不排。
     fn orders_prediction(&self) -> bool {
-        self.reranker
-            .as_deref()
+        self.prediction_scorer()
             .is_some_and(CandidateScorer::scores_prediction_pool_within_keystroke_budget)
+    }
+
+    /// 给上屏后联想排序的打分器：按键上挂着的那一个，没有时是延后到停顿的那一个。
+    fn prediction_scorer(&self) -> Option<&dyn CandidateScorer> {
+        self.reranker.as_deref().or_else(|| {
+            self.deferred_scorer
+                .as_ref()
+                .map(|deferred| deferred.scorer.as_ref())
+        })
     }
 
     /// 交给引擎拼整句时给前缀打分的模型：挂着的逐键打分器给出的那一份（[`CandidateScorer::sentence_scorer`]），没挂或它不给时为 `None`。
@@ -3362,8 +3393,10 @@ impl<E: InputEngine> Runtime<E> {
         if !self.orders_prediction() {
             return;
         }
-        let Some(scorer) = self.reranker.as_mut() else {
-            return;
+        let scorer = match (self.reranker.as_mut(), self.deferred_scorer.as_mut()) {
+            (Some(scorer), _) => scorer,
+            (None, Some(deferred)) => &mut deferred.scorer,
+            (None, None) => return,
         };
         let before = if self.phrase_prefix.is_empty() {
             std::borrow::Cow::Borrowed(self.ai_context.as_str())
@@ -4127,6 +4160,9 @@ impl<E: InputEngine> Runtime<E> {
             }
             // 进入整句改字时改的是用户高亮着的那一句，它可能被重排过，不在引擎的首位。
             // 高亮在插件插入的行上时从引擎的首行进入。
+            Action::Command(Command::EnterQuickPhrase) if !self.phrase_prefix.is_empty() => {
+                Ok(empty_result(false))
+            }
             Action::Command(Command::ConversionLeft) if self.cached.conversion.is_empty() => {
                 let seat = if self.is_inserted(self.highlighted) {
                     self.first_engine_seat()

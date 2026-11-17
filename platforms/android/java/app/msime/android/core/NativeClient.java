@@ -448,6 +448,17 @@ public final class NativeClient {
             throw new IllegalStateException("Nine-key shuangpin response is too large");
         return TextPolicy.utf8(result);
     }
+    /** 26 键双拼方案的表、问题和键位提示；设置页编辑时每改一格都可以调用。 */
+    public static String shuangpinCustomLayout(String request) {
+        if (request == null) throw new IllegalArgumentException("Missing shuangpin request");
+        byte[] bytes = request.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0 || bytes.length > NINE_KEY_SHUANGPIN_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Shuangpin request is too large");
+        byte[] result = shuangpinCustomLayoutRaw(bytes);
+        if (result == null || result.length > SHUANGPIN_HINT_RESPONSE_LIMIT)
+            throw new IllegalStateException("Shuangpin response is too large");
+        return TextPolicy.utf8(result);
+    }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String savePreferences(String directory, long expectedRevision, String snapshot) {
         if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
@@ -793,6 +804,11 @@ public final class NativeClient {
         return TextPolicy.utf8(niutransTranslationHttpRequestRaw(utf8(requestJson)));
     }
 
+    /** 阿里云机器翻译的共享目录、校验、签名和解析，不记录请求或响应。 */
+    public static String aliyunTranslation(String requestJson) {
+        return TextPolicy.utf8(aliyunTranslationRaw(utf8(requestJson)));
+    }
+
     /** 腾讯云机器翻译的签名描述器：请求 {@code {config:{enabled,secret_id,secret_key,region},texts,source_language,target_language,timestamp}}（timestamp 是秒），value 带签过名的 {@code body_utf8}，要逐字节原样发送。不做 I/O。 */
     public static String tencentTranslationHttpRequest(String requestJson) {
         return TextPolicy.utf8(tencentTranslationHttpRequestRaw(utf8(requestJson)));
@@ -915,6 +931,13 @@ public final class NativeClient {
     public static String simplifiedToTraditional(String text) {
         if (text == null || text.isEmpty()) return text;
         byte[] converted = simplifiedToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8));
+        return converted == null ? null : TextPolicy.utf8(converted);
+    }
+
+    /** 按共享偏好的 OpenCC 变体转换文本；未知编号由 host-api 拒绝，调用方保留原文。 */
+    public static String convertToTraditional(String text, int variant) {
+        if (text == null || text.isEmpty()) return text;
+        byte[] converted = convertToTraditionalRaw(text.getBytes(StandardCharsets.UTF_8), variant);
         return converted == null ? null : TextPolicy.utf8(converted);
     }
 
@@ -1205,6 +1228,7 @@ public final class NativeClient {
         boolean finalChunk);
     private static native byte[] shuangpinKeyHintsRaw(byte[] profile);
     private static native byte[] nineKeyShuangpinLayoutRaw(byte[] request);
+    private static native byte[] shuangpinCustomLayoutRaw(byte[] request);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
@@ -1229,6 +1253,7 @@ public final class NativeClient {
     private static native byte[] voiceWebSocketEndpointRaw(byte[] endpoint);
     private static native byte[] voiceProviderUpdateRaw(byte[] request);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
+    private static native byte[] convertToTraditionalRaw(byte[] text, int variant);
     private static native byte[] resetCacheRaw(long session);
     private static native byte[] startSettledRerankRaw(long session);
     private static native byte[] pollSettledRerankRaw(long session, long token, boolean accept);
@@ -1290,6 +1315,7 @@ public final class NativeClient {
     private static native byte[] testVoiceCredentialRaw(byte[] request);
     private static native byte[] customTranslationHttpRequestRaw(byte[] request);
     private static native byte[] niutransTranslationHttpRequestRaw(byte[] request);
+    private static native byte[] aliyunTranslationRaw(byte[] request);
     private static native byte[] tencentTranslationHttpRequestRaw(byte[] request);
     private static native byte[] parseCustomTranslationResponseRaw(byte[] body);
     private static native byte[] parseNiuTransTranslationResponseRaw(byte[] body);

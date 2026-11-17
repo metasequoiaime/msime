@@ -60,7 +60,7 @@ Mac 上自动打字验收（typing-chat-v1 的 test，220 段），2.0 的首选
 
 ## Consequences
 
-- **收益**：桌面聊天打字首选约高 6 个点，桌面整键 p95、p99 各快约 0.6 ms。
+- **收益**：桌面聊天打字首选约高 6 个点，桌面整键 p95、p99 各快约 0.6 ms。这两个延迟数是 `rerank_latency` 只量 runtime 那一层、并且在[模型进整句束搜索](2026-11-03-model-in-lattice-beam.md)之前量的；走宿主整条路径、每段上屏的 `rerank_replay` 上，6x256 配 32 条挂在按键上整键 p95 9–90 ms，macOS 因此把它延后到停顿，见 [macOS 把整句联想模型挪出按键](../../implemented/bug-fix/2026-11-16-macos-keystroke-reranker-at-pause.md)。选哪一档、池多大不变。
 - **代价**：sentences-v2 首选低 1.9 个点，全拼词 top5 低 1.1 个点（top1 不变）。桌面挂的是精度略低的模型，「增强」在只比较少数几条的场合（九宫格、单字裁决）比以前稍弱。
 - **重访信号**：大模型提速（比如换 ONNX Runtime 或量化方式）后，桌面上它能比较 16 条以上时，要重新比较「8x448 配大池」和「6x256 配 32 条」。
 

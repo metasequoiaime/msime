@@ -88,7 +88,7 @@ MIT 要求每份副本都附上版权与许可声明，Apache-2.0 第 4(a) 条�
 
 ### 词库里改编自 rime-wanxiang 的权重（CC BY 4.0）
 
-msime-dictionary 在 [#84](https://github.com/metasequoiaime/msime-dictionary/pull/84)（提交 `060c102515f176ca3dfaf2a2cba1f320901ef414`，自 `dict-v2.0.30` 起发布）把 `sources/pinyin/single-chars.txt`、`sources/pinyin/rime-ice.txt`、`sources/pinyin/rime-ice-supplement.txt` 里与万象共有的单字和词语的权重，改成 [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 发布 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）`dicts/` 下十五份词库的权重乘以每份文件一个系数（9.42、9.2、9.28）后取整；词条、读音和行序不变，没有从万象加入任何字、词或读音。上游以 CC BY 4.0 发布，第 3(a) 条要求分发时署名、给出许可证、写明改动。从 `dict-v2.1.0` 起，构建器的 `reweight` 阶段每次构建都按 msime-dictionary `sources/pinyin/wanxiang/` 里同一提交的 17 份词库重算这些权重（规则相同，产物不变），`places-supplement` 生成的地名表 `sources/pinyin/places.txt` 另以 round(万象最高权重 × 9.2) 为地名的权重下限（719 行由它定权）；msime-dictionary 的 `curation/` 否决表与覆盖表用万象收不收一个词或读音来挑行。覆盖表 `curation/pinyin-weight-overrides.txt` 的 2278 行里，恢复本地损坏权重的 546 行写的是 rime-ice 上游的权重；其余 1732 行（占位权重 233 行、碎片词 1473 行、非标准读音 13 行、车件 1 行、custom 越位 12 行）写的是同一全拼下另一个词在本仓的最终权重减 1，那个词按各节的规则多是万象收录、权重改编自万象的词（例如 嗷呜 2971 = 傲物 round(323 × 9.2) − 1），所以这些行的词虽然万象不收，权重仍由改编后的万象权重派生。当前词库锁所指的 `dict-v2.1.2`（源数据提交 `c239ba1a584511d15d33ff9c1c520897993f2013`）里，这些权重进入的产物是：
+msime-dictionary 在 [#84](https://github.com/metasequoiaime/msime-dictionary/pull/84)（提交 `060c102515f176ca3dfaf2a2cba1f320901ef414`，自 `dict-v2.0.30` 起发布）把 `sources/pinyin/single-chars.txt`、`sources/pinyin/rime-ice.txt`、`sources/pinyin/rime-ice-supplement.txt` 里与万象共有的单字和词语的权重，改成 [amzxyz/rime-wanxiang](https://github.com/amzxyz/rime-wanxiang) 发布 `v18.0.16`（提交 `7ab73ee0c7f80190004233e70f954833df64c80e`）`dicts/` 下十五份词库的权重乘以每份文件一个系数（9.42、9.2、9.28）后取整；词条、读音和行序不变，没有从万象加入任何字、词或读音。上游以 CC BY 4.0 发布，第 3(a) 条要求分发时署名、给出许可证、写明改动。从 `dict-v2.1.0` 起，构建器的 `reweight` 阶段每次构建都按 msime-dictionary `sources/pinyin/wanxiang/` 里同一提交的 17 份词库重算这些权重（规则相同，产物不变）。msime-dictionary#140 起，`sources/pinyin/wanxiang/` 改为万象词库数据仓库 [amzxyz/rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data) `wanxiang` 分支提交 `6b317736a8f90bb6dddf1423dbd1f0b83d4bf764` 的 15 份（数据仓库不再有 `lianxiang`、`renming`；`LICENSE` 与 `7ab73ee` 逐字节相同），`reweight` 按其中提供权重的 13 份重算共有行，此后发布的词库里这些权重改编自该提交，万象不再收录的行保留 #84 按 `7ab73ee` 改编的值；`places-supplement` 生成的地名表 `sources/pinyin/places.txt` 另以 round(万象最高权重 × 9.2) 为地名的权重下限（719 行由它定权）；msime-dictionary 的 `curation/` 否决表与覆盖表用万象收不收一个词或读音来挑行。覆盖表 `curation/pinyin-weight-overrides.txt` 的 2278 行里，恢复本地损坏权重的 546 行写的是 rime-ice 上游的权重；其余 1732 行（占位权重 233 行、碎片词 1473 行、非标准读音 13 行、车件 1 行、custom 越位 12 行）写的是同一全拼下另一个词在本仓的最终权重减 1，那个词按各节的规则多是万象收录、权重改编自万象的词（例如 嗷呜 2971 = 傲物 round(323 × 9.2) − 1），所以这些行的词虽然万象不收，权重仍由改编后的万象权重派生。当前词库锁所指的 `dict-v2.1.2`（源数据提交 `c239ba1a584511d15d33ff9c1c520897993f2013`）里，这些权重进入的产物是：
 
 | 产物 | 依据 | 分发渠道 |
 | --- | --- | --- |
@@ -183,12 +183,12 @@ print(json.loads(f.read(n))["__metadata__"]["attribution"])
 | --- | --- |
 | 文件 | `resources/helpcodes/jiajia_helpcode.txt`（方案标识 `jiajia`，加加辅助码） |
 | 来源仓库 | [metasequoiaime/MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) 的 `engine/helpcode/helpcodes/jiajia_helpcode.txt` |
-| 来源提交 | `566ff8b8320e7f56256544b2b1f0da8c8e7f037e` |
-| 内容摘要 | `sha256:6538d744547b590630e93160198ac16bf76112a51ec78b4dbae505b914761879`，7968 行 |
+| 来源提交 | `f7bb1134ef1c950f064e76b4ab81e98198fc857d`（[#1483](https://github.com/metasequoiaime/msime-windows/pull/1483)） |
+| 内容摘要 | `sha256:657cc28534087c3e0efba856a0d02e9f476d59b3213263beff517b5c676aad99`，21327 行 |
 | 登记方式 | `crates/engine/src/assets.rs` 的 `HELPCODES` 把它登记为第六套方案 `jiajia`，资源目录里的路径是 `helpcodes/jiajia_helpcode.txt` |
 | 许可状态 | **本仓库的 GPL-3.0 不覆盖这张表的内容** |
 
-按 NOTICE.md 的记录，本表的一部分条目直接来自拼音加加 5.x 安装包内的数据表 `fzm.bin`，而拼音加加是商业软件；来源仓库的 `engine/helpcode/NOTICE.md` 写明六张辅助码表没有任何一项拿到明确的再分发授权，并指出 `jiajia` 一行与其余五张性质不同（其余各表只是复现已发表的输入方案）。**在权利澄清之前不要假定这张表可以自由再分发**，打包发布前需确认它在目标渠道是否可接受。退出方式：从 `HELPCODES` 去掉 `jiajia` 那一行，并让该渠道的资源打包不再带上这张表；设置页随之少一个选项，其余各套不受影响。
+按 NOTICE.md 的记录，本表原有 7968 字的一部分条目直接来自拼音加加 5.x 安装包内的数据表 `fzm.bin`，而拼音加加是商业软件；2026-11 新增的 13359 字由源仓库的 `engine/helpcode/scripts/build_jiajia_helpcode.py` 从 rime-radical-pinyin 的拆字数据按同一规则生成，覆盖 GBK 大字符集和出货词库里的生僻字。来源仓库的 `engine/helpcode/NOTICE.md` 写明六张辅助码表没有任何一项拿到明确的再分发授权，并指出 `jiajia` 一行与其余五张性质不同（其余各表只是复现已发表的输入方案）。**在权利澄清之前不要假定这张表可以自由再分发**，打包发布前需确认它在目标渠道是否可接受。退出方式：从 `HELPCODES` 去掉 `jiajia` 那一行，并让该渠道的资源打包不再带上这张表；设置页随之少一个选项，其余各套不受影响。
 
 构成这张表所用的部件拆分与笔顺数据另有来源（rime-radical-pinyin，GPL-3.0，上游含 chaizi/CC-BY-3.0、CHISE/GPL-2+、yi-bai/ids/MIT；笔顺来自 cnchar，MIT），逐条同样见 NOTICE.md。另外五套辅助码表原先随 Engine 归档而来，现在同样放在 `resources/helpcodes/`，来源说明是从 Engine 原样带过来的 [`resources/helpcodes/ENGINE-NOTICE.md`](../resources/helpcodes/ENGINE-NOTICE.md)：它们同样没有拿到明确的再分发授权。
 
@@ -533,6 +533,7 @@ macOS 发布包可以不内置运行库，改为资源包 `voice-runtime-macos` 
 | macOS、Windows | [tplgy/cppcodec](https://github.com/tplgy/cppcodec) v0.2（标签提交 `302dc28f8fd5c8bf2ea8d7212aed3be884d5d166`，归档 SHA-256 `0edaea2a9d9709d456aa99a1c3e17812ed130f9ef2b5c2d152c230a5cbc5c482`），只有头文件 | MIT。`shared/voice` 的阿里云百炼请求把录音编成 Base64 数据 URL 时用它。只原样取 `base64_rfc4648.hpp` 需要的 8 个头文件，放在 `shared/voice/third_party/cppcodec/`，许可证全文在同目录 `LICENSE`；macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`）和 Windows 的 `Collect-Notices.ps1` 收录这份文本。Linux 不编译 `msime-voice-providers`，不带它 |
 | Windows | vcpkg 提供的 libcurl、fmt、nlohmann/json、utfcpp（清单与 baseline 在 `platforms/windows/vcpkg.json`） | 各自上游许可证；通知由 `platforms/windows/Collect-Notices.ps1` 收集 |
 | Linux | IBus / Fcitx5、GTK 栈、libcurl、ICU、xkbcommon、nlohmann/json、X11 与 Wayland 客户端库 | 各自上游许可证，按发行版依赖引入 |
+| Linux | `wlr-data-control-unstable-v1.xml`，取自 [swaywm/wlr-protocols](https://github.com/swaywm/wlr-protocols/blob/b010a03648b88d143236de193bddbfea0c08bc84/unstable/wlr-data-control-unstable-v1.xml) 固定提交 `b010a03648b88d143236de193bddbfea0c08bc84`，由 `wayland-scanner` 生成原生剪贴板代码 | HPND。许可证全文在 XML 的 `copyright` 块中，构建时提取为 `wayland-wlr-data-control-LICENSE.txt`，随 Linux 安装包的第三方通知分发；无额外分发限制 |
 | HarmonyOS | 华为标志 `packages/ui/src/assets/huawei-id/logo-red.svg`、`logo-white.svg`，原样取自 HarmonyOS SDK 6.1.1 的 HMS 资源 `hms/previewer/resources/resources/resources/base/media/huawei_id_logo_red.svg`、`huawei_id_logo_white.svg`（系统 `LoginWithHuaweiIDButton` 画的就是这两张）。只用在共享账号页的「华为账号登录」按钮上，按华为账号登录按钮规范放在文字左边 | **华为的商标，不是开源许可证**，按华为账号登录按钮规范使用 |
 | 桌面 | Tauri、React、Vite 等 | 见 `pnpm-lock.yaml` 与各自上游 |
 

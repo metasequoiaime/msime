@@ -152,6 +152,8 @@ final class ImeFunctionPanel {
                     s.toggleHandwritingScheme();
                 }, null),
                 FunctionPanelView.State.NONE, ready);
+            case TRANSLATION -> add(entries, states, enabled,
+                glyph(item, "译", s.imeTranslationEntry::open), FunctionPanelView.State.NONE, true);
             case DICTIONARY -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.LEXICON, () -> host("LEXICON"), null),
                 FunctionPanelView.State.NONE, true);
@@ -245,9 +247,9 @@ final class ImeFunctionPanel {
                 FunctionPanelView.State.NONE, s.session != 0 && !s.emojiResources.isEmpty());
             case FLOATING -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.FLOATING, s::toggleFloatingKeyboard, null),
-                toggle(s.floatingKeyboard),
-                // 外接键盘的候选条模式里浮动不生效。
-                !s.panelPreferenceSaving && !s.hardwareKeyboardMode);
+                toggle(s.floatingDrawn()),
+                // 外接键盘的候选条模式里浮动不生效；横屏自动模式由方向控制，不能再手动切换。
+                !s.panelPreferenceSaving && !s.hardwareKeyboardMode && !s.floatingKeyboardAutoLandscape);
             case CLIPBOARD -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.CLIPBOARD_HISTORY, () -> {
                     s.closeMoreTools();
