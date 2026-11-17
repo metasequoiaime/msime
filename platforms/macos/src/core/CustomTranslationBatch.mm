@@ -189,7 +189,10 @@
         } else if (strongSelf->_ai) {
             NSUInteger limit = [item[@"candidate_limit"] isKindOfClass:NSNumber.class]
                 ? [item[@"candidate_limit"] unsignedIntegerValue] : 10;
-            NSArray *values = body ? [MSIMEClientSession parseAIResponse:body limit:limit error:nil] : nil;
+            NSDictionary *query = [item[@"query"] isKindOfClass:NSDictionary.class] ? item[@"query"] : nil;
+            NSArray *values = !body ? nil : query
+                ? [MSIMEClientSession parseAICandidateResponse:body query:query limit:limit error:nil]
+                : [MSIMEClientSession parseAIResponse:body limit:limit error:nil];
             for (NSString *value in values) if ([value isKindOfClass:NSString.class] && value.length)
                 [results addObject:@{@"text":text, @"translation":value}];
         } else {

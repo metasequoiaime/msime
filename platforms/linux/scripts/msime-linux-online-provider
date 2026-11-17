@@ -40,6 +40,7 @@ HOST_LIBRARY_SYMBOLS = (
     "msime_client_ensure_anonymous_account_with_agent",
     "msime_client_client_agent",
     "msime_client_account",
+    "msime_client_ai_candidate_protocol",
 )
 # 「水杉账号」释义每次请求的超时，交给 msime_client_account 的 translate 作 timeout_ms：上限是原来 Python 发 /v1/translate 时的 2.5 秒，下限是 Rust 接受的最小值 1 秒。
 ACCOUNT_TRANSLATE_TIMEOUT_MS = (1000, 2500)
@@ -272,8 +273,8 @@ HTTP_WORKER_MAX_TIMEOUT = 10.0
 REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
 ONLINE_REQUEST_LINE_LIMIT = 131072
-# 空白提示词槽位所代表的联想提示词：Windows 把它编译进 AiAssistantConfig::prompt（ime_config.h），client-providers 把同样的文本存为 ai::DEFAULT_CANDIDATE_PROMPT，供在那里构造请求的宿主使用。共享偏好让这个槽位留空，所以没有这一份时，Linux 的每个 AI 请求都带着空的 system 消息，模型回的是 JSON 解析器拒收的散文。ai_service_contract.py 保证这份副本与 client-providers 的那份相同。
-DEFAULT_AI_PROMPT = "你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。\n\n优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。\n\n若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。\n\n只输出合法 JSON，不要解释或输出 Markdown：\n\n{\n\"candidates\": [\n{\n\"text\": \"候选内容\",\n\"type\": \"chinese或english\",\n\"confidence\": 0.98\n}\n]\n}\n\n候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。"
+# 空白槽位沿用共享 Rust 的默认协议；兼容现有提示词槽位和无凭据的 Ollama。
+DEFAULT_AI_PROMPT = "你是一个中文全拼输入法联想引擎。input 是原始全拼按键（保留手动单引号分隔符），segmented_pinyin 是本地推断的切分，explicit_boundaries 是去掉单引号后用户指定边界的字母偏移。没有 input 时只能沿用本地切分。结合 context 消除音节边界歧义，可以提出其他合法切分，但必须完整覆盖原输入、保留所有手动边界，不得增删字母。\n\n每个中文字符对应一个合法拼音音节，读音必须相符。英文缩写、产品名或技术术语可占用一个或多个连续音节，但字母必须与对应输入区间逐字相同（忽略大小写），允许中英文间有空格，不得凭语义增字、漏字、翻译或改写。例：woxiwangaikeyi 可返回「我希望 AI 可以」，segmentation 为 [\"wo\",\"xi\",\"wang\",\"ai\",\"ke\",\"yi\"]；GitHub 可对应 [\"git\",\"hub\"]。\n\n只输出合法 JSON，不要解释或 Markdown：{\"candidates\":[{\"text\":\"候选内容\",\"segmentation\":[\"每段音节或英文输入区间\"]}]}。按推荐程度排序，不超过 candidate_limit；没有合理结果返回空数组。"
 DEFAULT_TRANSLATION_PROMPT = "你是一个机器翻译服务。把用户给出的文本从 source_language 翻译成 target_language。只翻译文本本身，保留原意和标点，不要解释、注释或改写。只输出合法 JSON，不要输出 Markdown：{\"translation\":\"译文\"}。没有合适译文时输出空字符串。"
 
 
@@ -558,6 +559,9 @@ def ai_cache_key(query, config):
         return None
     identity["ai_context_sha256"] = hashlib.sha256(context.encode("utf-8")).hexdigest()
     identity["pinyin_segments"] = segments
+    # 原始输入及手动边界影响对齐，不能复用只有本地切分相同的旧答案。
+    identity["input_identity_sha256"] = hashlib.sha256(
+        str(query.get("identity", "")).encode("utf-8")).hexdigest()
     return json.dumps(identity, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":"))
 
@@ -606,6 +610,27 @@ def strip_code_fence(content):
     return fenced.split("\n", 1)[1] if "\n" in fenced else fenced
 
 
+_ai_protocol_client = None
+_AI_NO_BODY = object()
+
+
+def ai_candidate_protocol(query, limit, body=_AI_NO_BODY):
+    """只在共享层保留输入与切分规则，Python 负责序列化和传输。"""
+    global _ai_protocol_client
+    if _ai_protocol_client is None:
+        # 复用动态库加载和响应释放；此协议不读账号目录，也不触发账号服务。
+        _ai_protocol_client = RustAccountApi(".")
+    document = {"mode": "pinyin", "scheme": 0, "generation": 0,
+                "identity": "", "query_text": "", "cache_key": "",
+                "cloud_eligible": False, "session_id": 0, **query}
+    payload = {"op": "message" if body is _AI_NO_BODY else "parse",
+               "query": document, "limit": limit}
+    if body is not _AI_NO_BODY:
+        payload["body"] = json.dumps(body, ensure_ascii=False)
+    reply = _ai_protocol_client._call("msime_client_ai_candidate_protocol", payload)
+    return reply.get("value") if isinstance(reply, dict) and reply.get("ok") is True else None
+
+
 def ai(query, config):
     options = query.get("ai_assistant")
     if not query.get("ai_eligible") or not isinstance(options, dict) or not options.get("enabled"):
@@ -625,28 +650,25 @@ def ai(query, config):
     prompt = ai_prompt(options)
     if prompt is None:
         return None
+    message = ai_candidate_protocol(query, limit)
+    if not isinstance(message, dict):
+        return None
     body = {"model": config["model"], "stream": False, "temperature": 0.2,
             "max_tokens": 512, "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": prompt},
-                         {"role": "user", "content": json.dumps({
-                             "segmented_pinyin": segments, "context": context,
-                             "candidate_limit": limit, "output_format": "json"},
-                             ensure_ascii=False)}]}
+                         {"role": "user", "content": json.dumps(message["message"], ensure_ascii=False)}]}
     if config["provider"] == "deepseek" or disables_ark_seed_thinking(
             config["provider"], config["endpoint"], config["model"]):
         body["thinking"] = {"type": "disabled"}
     result = fetch(config["endpoint"], AI_REQUEST_TIMEOUT, body, config["token"],
                    connect_timeout=AI_CONNECT_TIMEOUT)
-    parsed = json.loads(strip_code_fence(result["choices"][0]["message"]["content"]))
-    values = parsed.get("candidates")
-    if not isinstance(values, list):
-        return None
+    values = ai_candidate_protocol(query, limit, result)
+    if values is None:
+        raise ValueError("Invalid AI candidate reply")
     rows = []
     seen = set()
     for value in values:
-        if not isinstance(value, dict):
-            continue
-        row = safely(candidate, value.get("text"), 1)
+        row = safely(candidate, value, 1)
         if row is None or row["text"] in seen:
             continue
         rows.append(row)

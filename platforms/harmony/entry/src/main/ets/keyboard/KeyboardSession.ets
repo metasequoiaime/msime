@@ -128,6 +128,7 @@ import { PrivacyGate, PrivacyRecord } from './PrivacyGate';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { AiGenerationGate } from './AiGenerationGate';
 import { OnlineCandidatePolicy, OnlineQuery, CloudHttpDescriptor } from './candidate/OnlineCandidatePolicy';
+import { AiCandidateResponse } from './candidate/AiCandidateResponse';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, AiTranslationConfig, TranslationCandidate
@@ -6250,7 +6251,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
         || response.responseCode >= 300 || typeof response.result !== 'string') return false;
-      const candidates: string[] | null = OnlineCandidatePolicy.aiCandidates(response.result, limit);
+      const candidates: string[] | null = AiCandidateResponse.parse(response.result, queryDocument, limit);
       if (candidates === null || candidates.length === 0) return false;
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyOnlineCandidates(
         handle, queryDocument, JSON.stringify(candidates), 1)) as NativeReply<OnlineApplyValue>;
