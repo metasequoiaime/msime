@@ -1339,6 +1339,7 @@ function Save-Window($element, [string]$file) {
         $bitmap.Dispose()
     }
 }
+. (Join-Path $PSScriptRoot 'settings_quick_phrase.ps1')
 try {
     New-Item -ItemType Directory -Force $state | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $state
@@ -1376,6 +1377,7 @@ try {
         )
         [IO.File]::WriteAllText((Join-Path $state 'clipboard_history.json'), ($entries | ConvertTo-Json -Depth 8))
         $window = Start-SettingsWindow 'settings:input'
+        $window = Assert-QuickPhraseSettings $window
         # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
         $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }

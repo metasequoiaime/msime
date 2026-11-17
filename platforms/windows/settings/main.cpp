@@ -79,6 +79,7 @@
 #include "PreferencesSaveFailure.h"
 #include "PunctuationSettings.h"
 #include "QuickPhraseClearModel.h"
+#include "QuickPhraseSettingsModel.h"
 #include "SentencePackModel.h"
 #include "SchemeResourcePackCatalog.h"
 #include "SettingsDocumentFile.h"
@@ -810,8 +811,8 @@ public:
     return lookup(defaults_, nav::preference_path(key));
   }
 
-  bool Boolean(std::wstring_view key, bool fallback) const {
-    const auto value = Value(key);
+  bool Boolean(std::wstring_view key, bool fallback, bool stored_only = false) const {
+    const auto value = stored_only ? lookup(preferences_, nav::preference_path(key)) : Value(key);
     return value && value.ValueType() == JsonValueType::Boolean
                ? value.GetBoolean()
                : fallback;
@@ -5802,8 +5803,8 @@ private:
 
   void bool_row(StackPanel const &group, wchar_t glyph, std::wstring const &title,
                 std::wstring const &subtitle, std::wstring key, bool fallback,
-                bool redraw = false, bool enabled = true) {
-    const bool on = document_.Boolean(key, fallback);
+                bool redraw = false, bool enabled = true, bool stored_only = false) {
+    const bool on = document_.Boolean(key, fallback, stored_only);
     add_row(group, glyph, title, subtitle,
             toggle_control(title, on,
                            [this, key, redraw](bool value) {
@@ -14973,7 +14974,8 @@ private:
       auto candidates_more = add_more_options(
           candidates, candidates_more_open_,
           focus_row_ == L"符号混输" || focus_row_ == L"颜文字混输" ||
-              focus_row_ == L"日文混输（实验）" || focus_row_ == L"只出单字" ||
+              focus_row_ == L"日文混输（实验）" || focus_row_ == L"快捷短语混输" ||
+              focus_row_ == L"只出单字" ||
               focus_row_ == L"移动光标后编辑光标后的部分" ||
               focus_row_ == L"本地整句联想");
       // 符号混输是后加的可选键，默认开，文档里平时没有它，回退值必须是 true。
@@ -14993,7 +14995,13 @@ private:
       bool_row(candidates_more, 0xE8C1, L"只出单字",
                L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字",
                L"single_character_only", false);
-      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。共享页把它排在「快捷短语混输」旁边，Windows 没有那一行，排在「只出单字」后面。
+      // 快捷短语开启时共享层省略字段；只读已存对象，按共享层的缺字段规则回退为开启。
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::title),
+               std::wstring(msime::settings::quick_phrase::description),
+               std::wstring(msime::settings::quick_phrase::preference),
+               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+      // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
                L"caret_edit_suffix", false);
