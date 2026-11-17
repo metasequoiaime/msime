@@ -495,7 +495,8 @@ jobs:
           ./platforms/windows/installer/Invoke-CiSimplySign.ps1 -PackageRoot (Join-Path $PWD 'platforms/windows/installer') -OutputDirectory (Join-Path $env:RUNNER_TEMP 'simplysign-dist') -Edition $env:EDITION -SsignSha256 $env:SSIGN_SHA256 -CertificateThumbprint $env:CERTIFICATE_THUMBPRINT
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          # SimplySign 的已签安装包不能与普通 package 产物共用名称；下游必须能按名称唯一取到这一份。
+          name: msime-simplysign-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: |
             ${{ runner.temp }}/simplysign-dist/*.exe
             ${{ runner.temp }}/simplysign-dist/*.exe.sha256
@@ -528,7 +529,7 @@ jobs:
       - if: needs.source.outputs.simplysign == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          name: msime-simplysign-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist
       - if: needs.source.outputs.simplysign != 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -591,7 +592,7 @@ jobs:
           $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
           if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
           ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION
-  # 所选版本的安装包合成一次 SignPath 签名请求，签好后重算 .sha256，作为一个 msime-windows-signed-<版本> 产物交给下游：它匹配 msime-windows-* 模式，coexistence 和 publish 不用区分签没签名。
+  # 所选版本的安装包合成一次 SignPath 签名请求，签好后重算 .sha256，作为一个 msime-windows-signed-<版本> 产物交给下游。
   sign-installers:
     needs: [source, release, package]
     if: ${{ !cancelled() && !failure() && needs.source.outputs.signpath == 'true' }}
@@ -655,7 +656,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: needs.source.outputs.simplysign == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: msime-simplysign-windows-*-${{ needs.release.outputs.version }}
+          path: dist
+          merge-multiple: true
+      - if: needs.source.outputs.signpath == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-windows-signed-${{ needs.release.outputs.version }}
+          path: dist
+      - if: needs.source.outputs.simplysign != 'true' && needs.source.outputs.signpath != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
           path: dist
@@ -683,10 +696,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      # SignPath 签名时所选安装包在同一个 msime-windows-signed-<版本> 产物里，每个任务取整份、只装自己那个。
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      # SignPath 签名时所选安装包在同一个 msime-windows-signed-<版本> 产物里；SimplySign 和未签名路径各有自己的版本产物。
+      - if: needs.source.outputs.simplysign == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: msime-windows-${{ needs.source.outputs.signpath == 'true' && 'signed' || matrix.edition }}-${{ needs.release.outputs.version }}
+          name: msime-simplysign-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: dist
+      - if: needs.source.outputs.signpath == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-windows-signed-${{ needs.release.outputs.version }}
+          path: dist
+      - if: needs.source.outputs.simplysign != 'true' && needs.source.outputs.signpath != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
           path: dist
       - name: Install and uninstall the package
         shell: pwsh
@@ -710,7 +734,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: needs.source.outputs.simplysign == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: msime-simplysign-windows-*-${{ needs.release.outputs.version }}
+          path: dist
+          merge-multiple: true
+      - if: needs.source.outputs.signpath == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: msime-windows-signed-${{ needs.release.outputs.version }}
+          path: dist
+      - if: needs.source.outputs.simplysign != 'true' && needs.source.outputs.signpath != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
           path: dist
