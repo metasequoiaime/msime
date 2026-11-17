@@ -39,6 +39,9 @@ public final class EditorSmoke {
             return !rejectVerification;
         }
     }
+    static final class CommitOnlySink extends Sink {
+        @Override public boolean compose(String value) { calls.add("compose-rejected:" + value); return false; }
+    }
     static final class DisconnectedSink implements EditorBridge.Sink {
         public void begin() {}
         public boolean commit(String value) { throw new AssertionError("commit must not run"); }
@@ -110,6 +113,16 @@ public final class EditorSmoke {
         sink.calls.clear();
         check(bridge.apply(sink, "你", "hao"));
         check(sink.calls.equals(List.of("begin", "commit:你", "compose:hao", "end")));
+        EditorBridge partialBridge = new EditorBridge();
+        CommitOnlySink partial = new CommitOnlySink();
+        check(!partialBridge.apply(partial, "你", "hao"));
+        check(partialBridge.compositionRejectedAfterCommit(),
+            "a committed candidate followed by a rejected composition is recoverable");
+        partial.calls.clear();
+        check(!partialBridge.apply(partial, null, "好"));
+        check(partial.calls.equals(List.of("begin", "compose-rejected:好", "end")));
+        check(!partialBridge.compositionRejectedAfterCommit(),
+            "a composition-only rejection is not reported as a partial commit");
         sink.calls.clear();
         check(bridge.apply(sink, null, ""));
         check(sink.calls.equals(List.of("begin", "compose:", "finish", "end")));

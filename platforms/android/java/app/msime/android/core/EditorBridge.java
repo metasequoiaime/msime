@@ -16,12 +16,22 @@ public final class EditorBridge {
     }
     private boolean composing;
     private String composingText;
+    /** 最近一次 apply 是否已提交正文、但编辑器拒绝了后续的非空组字。 */
+    private boolean lastCommitApplied;
+    private boolean lastCompositionRejected;
+
+    /** 最近一次批量写入是否因编辑器拒绝剩余组字而部分成功。 */
+    public boolean compositionRejectedAfterCommit() {
+        return lastCommitApplied && lastCompositionRejected;
+    }
     public boolean apply(Sink sink, String commit, String editing) {
         return apply(sink, commit, editing, null);
     }
 
     /** 显式光标先于下一段组字生效，读回和定位不发生在尚未应用的批次里。 */
     public boolean apply(Sink sink, String commit, String editing, String cursorSuffix) {
+        lastCommitApplied = false;
+        lastCompositionRejected = false;
         if (commit == null || cursorSuffix == null || cursorSuffix.isEmpty() || !commit.endsWith(cursorSuffix))
             return applyBatch(sink, commit, editing);
         if (!applyBatch(sink, commit, "")) return false;
@@ -47,11 +57,15 @@ public final class EditorBridge {
     private boolean applyWrites(Sink sink, String commit, String editing) {
         if (commit != null) {
             if (!sink.commit(commit)) return false;
+            lastCommitApplied = true;
             composing = false;
             composingText = null;
         }
         if (!editing.isEmpty()) {
-            if (!sink.compose(editing)) return false;
+            if (!sink.compose(editing)) {
+                lastCompositionRejected = true;
+                return false;
+            }
             composing = true;
             composingText = editing;
         } else if (composing) {
