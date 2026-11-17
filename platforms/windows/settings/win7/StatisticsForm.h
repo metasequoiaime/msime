@@ -48,7 +48,7 @@ public:
     control(-1, L"STATIC", L"最近 30 天速度（字 / 分钟）", SS_LEFT);
     control(statistics_speed, L"STATIC", L"每日速度", SS_OWNERDRAW | WS_BORDER, 200);
     combo(statistics_scope, L"查看范围", {L"整个保留期", L"最近 7 天", L"最近 30 天", L"选中的一天"});
-    combo(statistics_chart_kind, L"图表", {L"按键", L"趋势", L"类型", L"模式", L"方案", L"候选"});
+    combo(statistics_chart_kind, L"图表", {L"按键", L"趋势", L"类型", L"模式", L"方案", L"候选", L"成就"});
     control(statistics_chart, L"STATIC", L"统计图表", SS_OWNERDRAW | WS_BORDER, 320);
     control(statistics_chart_text, L"EDIT", L"", WS_TABSTOP | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_READONLY, 240);
     control(-1, L"STATIC", L"逐日明细（选择一天后可切换范围）", SS_LEFT, 48);
@@ -235,6 +235,7 @@ private:
     std::wstring text;
     for (const auto& row : chart_rows_) text += row.title + L"：" + statistics_model::zh_number(row.count) + L"\r\n";
     if (kind == 5) text = L"候选位次为整个保留期的计数。\r\n" + text;
+    if (kind == 6) text = statistics_model::achievements_text(status_->achievements);
     if (kind == 1) {
       const auto days = statistics_model::recent_days(statistics_model::desktop_trend_days, statistics_data::local_day());
       std::vector<std::string> day_keys; for (const auto& day : days) day_keys.push_back(day.key);
@@ -304,6 +305,11 @@ inline bool StatisticsForm::draw(const DRAWITEMSTRUCT& item) const {
       }
       text(L"30 天前 → 今天 · 最高 " + statistics_model::zh_number(maximum) + L" 字 / 分钟", RECT{rect.left, rect.bottom - 24, rect.right, rect.bottom});
     }
+  } else if (kind == 6) {
+    const auto &badges = status_ ? status_->achievements : std::optional<std::vector<statistics_model::Achievement>>{};
+    const size_t unlocked = badges ? static_cast<size_t>(std::count_if(badges->begin(), badges->end(),
+        [](const auto &badge) { return badge.unlocked_day.has_value(); })) : 0;
+    text(badges ? L"已解锁 " + std::to_wstring(unlocked) + L" / " + std::to_wstring(badges->size()) + L" 项成就" : L"成就暂时读不到。", rect);
   } else if (kind == 0 && !keyboard_.rows.empty()) {
     auto rows = keyboard_.rows;
     if (keyboard_.nine) rows.insert(rows.end(), keyboard_.nine->begin(), keyboard_.nine->end());

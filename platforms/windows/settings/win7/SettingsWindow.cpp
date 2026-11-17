@@ -643,6 +643,9 @@ private:
         auto action = job.credential.value_or(Json{{"operation", "load"}});
         statistics_response_ = theme_data::call(msime_client_typing_statistics,
             {{"directory", directory_.u8string()}, {"status", true}, {"action", job.statistics_upload ? Json{{"operation", "load"}} : action}});
+        if (statistics_response_->is_object())
+          (*statistics_response_)["summary"] = statistics_achievements::load(directory_.u8string(),
+              msime::settings::typing::day_key(statistics_data::local_day()), runtime_options());
         const auto account = account_directory();
         if (!account.empty()) {
           if (!job.statistics_upload) action = {{"operation", "typing_upload"}};

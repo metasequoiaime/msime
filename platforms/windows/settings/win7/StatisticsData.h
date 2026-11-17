@@ -2,12 +2,14 @@
 
 #include "ThemeData.h"
 #include "../TypingStatisticsModel.h"
+#include "StatisticsAchievementsData.h"
 
 namespace msime::settings::win7::statistics_data {
 
 namespace model = msime::settings::typing;
 struct Status {
   model::Statistics statistics;
+  std::optional<std::vector<model::Achievement>> achievements;
   bool never_written = true;
   std::optional<uint64_t> last_written_ms;
 };
@@ -28,6 +30,8 @@ inline std::optional<Status> parse(const Json& response) {
   const auto& object = value->at("statistics");
   if (!object.contains("enabled") || !object.at("enabled").is_boolean()) return std::nullopt;
   Status status;
+  if (response.contains("summary"))
+    status.achievements = statistics_achievements::parse(response.at("summary"));
   auto& statistics = status.statistics;
   statistics.enabled = object.at("enabled").get<bool>();
   if (object.contains("retention") && object.at("retention").is_string()) statistics.retention = object.at("retention").get<std::string>();
