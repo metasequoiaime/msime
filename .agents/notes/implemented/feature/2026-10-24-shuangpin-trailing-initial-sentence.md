@@ -16,6 +16,8 @@ Status: implemented
 
 ## Related decisions
 
+句中声母的原限制由 [双拼句中声母参与整句组词](../bug-fix/2026-11-17-shuangpin-mixed-initial-sentence.md) 扩展；末尾补全的严格匹配、完整读音和按键消费规则继续保留。
+
 对活跃笔记检索的相关结果分类如下：
 
 - [未完成尾音节保留前缀](../../implemented/bug-fix/2026-10-22-shuangpin-incomplete-tail-candidate-order.md)：部分重叠。保留其前缀回退；本决定扩展原先明确不做的末尾预测，不反写旧理由。

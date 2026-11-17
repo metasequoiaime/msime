@@ -46,6 +46,6 @@ export function withFourteenKeyLetterWidths(
         code: row[row.length - 1]?.code,
       });
     else if (rest > 0.0001) cells.push({ label: "", weight: rest });
-    return cells;
+    return cells.map((cell) => ({ ...cell, letterPitch: true }));
   });
 }

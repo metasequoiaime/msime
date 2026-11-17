@@ -52,11 +52,13 @@ public final class NineKeyPanelPolicySmoke {
         check(NineKeyPanelPolicy.strokesAfterToggle(Mode.SPELLING, "") == null, "enter keeps");
         check(NineKeyPanelPolicy.toggledMode(Mode.SPELLING) == Mode.STROKE, "toggle to stroke");
         check(NineKeyPanelPolicy.toggledMode(Mode.STROKE) == Mode.SPELLING, "toggle to spelling");
-        check(NineKeyPanelPolicy.modeTitle(Mode.SPELLING).equals("拼音"), "mode title");
-        check(NineKeyPanelPolicy.modeTitle(Mode.STROKE).equals("笔画"), "stroke title");
-        check(NineKeyPanelPolicy.singleCharacterTitle(false).equals("全部"), "all title");
-        check(NineKeyPanelPolicy.singleCharacterTitle(true).equals("单字"), "single title");
+        // 两个开关的键面固定写着它开启的筛选，开没开靠选中态，不随状态换成「拼音」「全部」（#11117）。
+        check(NineKeyPanelPolicy.STROKE_TITLE.equals("笔画"), "stroke title");
+        check(NineKeyPanelPolicy.SINGLE_CHARACTER_TITLE.equals("单字"), "single title");
+        check(NineKeyPanelPolicy.modeDescription(Mode.SPELLING).equals("切换到笔画筛选"), "stroke action");
+        check(NineKeyPanelPolicy.modeDescription(Mode.STROKE).equals("切换到拼音"), "spelling action");
         check(NineKeyPanelPolicy.singleCharacterDescription(false).equals("只显示单字"), "single action");
+        check(NineKeyPanelPolicy.singleCharacterDescription(true).equals("显示全部候选"), "all action");
 
         // 拼音栏的三种项：音节、限定首字母的大写字母、直接上屏的数字。
         check(NineKeyPanelPolicy.kind("ming") == SpellingKind.SYLLABLE, "syllable");

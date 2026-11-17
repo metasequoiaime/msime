@@ -294,6 +294,7 @@ export function keyLayoutPreviewRows(
     ...(key.code === undefined ? {} : { code: key.code }),
     ...(key.rowSpan === undefined ? {} : { rowSpan: key.rowSpan }),
     ...(key.stack === undefined ? {} : { stack: key.stack }),
+    ...(key.letterPitch === undefined ? {} : { letterPitch: key.letterPitch }),
     tone: key.code === "Enter" ? "return" : tone,
     highlighted: key.stack !== undefined || highlighted(key),
   });
@@ -362,58 +363,79 @@ function KeyLayoutPreview({
       aria-hidden="true"
       data-key-layout-preview={kind}
     >
-      {rows.map((row, rowIndex) => (
-        <div
-          key={rowIndex}
-          className="flex min-h-0"
-          style={{ gap: PREVIEW_GAP_PX, flex: `${row.numberRow ? NUMBER_ROW_UNITS : 1} 1 0%` }}
-          data-key-layout-row={row.numberRow ? "number" : rowIndex}
-        >
-          {row.keys.map((key, index) =>
-            key.stack ? (
-              <span
-                key={index}
-                className="flex min-w-0 flex-col"
-                style={{ flex: `${key.weight} 1 0%`, gap: PREVIEW_GAP_PX, ...keySpan(key.rowSpan) }}
-                data-key-stack=""
-                data-row-span={key.rowSpan}
-                data-weight={key.weight}
-              >
-                {key.stack.map((label, at) => (
-                  <span
-                    key={at}
-                    className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
-                    data-key-code={key.code}
-                    data-key-tone={key.tone}
-                    data-highlighted={key.highlighted ? "" : undefined}
-                  >
-                    {label}
-                  </span>
-                ))}
-              </span>
-            ) : key.label ? (
-              <span
-                key={index}
-                className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...key.label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
-                style={{
-                  flex: `${key.weight} 1 0%`,
-                  letterSpacing: letterSpacing(key.label),
-                  ...keySpan(key.rowSpan),
-                }}
-                data-key-code={key.code}
-                data-key-tone={key.tone}
-                data-highlighted={key.highlighted ? "" : undefined}
-                data-row-span={key.rowSpan}
-                data-weight={key.weight}
-              >
-                {key.label}
-              </span>
-            ) : (
-              <span key={index} style={{ flex: `${key.weight} 1 0%` }} data-weight={key.weight} />
-            ),
-          )}
-        </div>
-      ))}
+      {rows.map((row, rowIndex) => {
+        const pitch = row.keys[0]?.letterPitch === true;
+        const total = row.keys.reduce((sum, key) => sum + key.weight, 0);
+        const keyWidth = (key: KeyLayoutPreviewKey): CSSProperties =>
+          pitch
+            ? {
+                flex: "0 0 auto",
+                width: `calc(${(100 * key.weight) / total}% - ${key.label ? PREVIEW_GAP_PX : 0}px)`,
+                marginInline: key.label ? PREVIEW_GAP_PX / 2 : 0,
+              }
+            : { flex: `${key.weight} 1 0%` };
+        return (
+          <div
+            key={rowIndex}
+            className="flex min-h-0"
+            style={{
+              gap: pitch ? 0 : PREVIEW_GAP_PX,
+              flex: `${row.numberRow ? NUMBER_ROW_UNITS : 1} 1 0%`,
+              width: pitch ? `calc(100% + ${PREVIEW_GAP_PX}px)` : undefined,
+              marginLeft: pitch ? -PREVIEW_GAP_PX / 2 : undefined,
+            }}
+            data-key-layout-row={row.numberRow ? "number" : rowIndex}
+          >
+            {row.keys.map((key, index) =>
+              key.stack ? (
+                <span
+                  key={index}
+                  className="flex min-w-0 flex-col"
+                  style={{
+                    flex: `${key.weight} 1 0%`,
+                    gap: PREVIEW_GAP_PX,
+                    ...keySpan(key.rowSpan),
+                  }}
+                  data-key-stack=""
+                  data-row-span={key.rowSpan}
+                  data-weight={key.weight}
+                >
+                  {key.stack.map((label, at) => (
+                    <span
+                      key={at}
+                      className={`flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
+                      data-key-code={key.code}
+                      data-key-tone={key.tone}
+                      data-highlighted={key.highlighted ? "" : undefined}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </span>
+              ) : key.label ? (
+                <span
+                  key={index}
+                  className={`flex min-w-0 items-center justify-center overflow-hidden rounded-[6px] leading-none whitespace-nowrap [box-shadow:0_1px_1px_rgba(0,0,0,0.12)] ${[...key.label].length === 1 ? "text-[15px]" : "text-[12px]"} ${toneClass[key.tone]} ${key.highlighted ? "outline-2 outline-offset-1 outline-accent" : ""}`}
+                  style={{
+                    ...keyWidth(key),
+                    letterSpacing: letterSpacing(key.label),
+                    ...keySpan(key.rowSpan),
+                  }}
+                  data-key-code={key.code}
+                  data-key-tone={key.tone}
+                  data-highlighted={key.highlighted ? "" : undefined}
+                  data-row-span={key.rowSpan}
+                  data-weight={key.weight}
+                >
+                  {key.label}
+                </span>
+              ) : (
+                <span key={index} style={keyWidth(key)} data-weight={key.weight} />
+              ),
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

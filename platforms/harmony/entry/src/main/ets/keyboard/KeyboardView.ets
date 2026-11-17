@@ -79,6 +79,7 @@ import { NineKeyShuangpinFace, nineKeyShuangpinFace, nineKeyShuangpinLabel } fro
 import { NineKeySwipePolicy } from './input/NineKeySwipePolicy';
 import { NineKeyFlick, NineKeyFlickGesture, NineKeyFlickPolicy } from './input/NineKeyFlickPolicy';
 import { FourteenKey, FourteenKeyLayout } from './input/FourteenKeyLayout';
+import { LetterWidthRow } from './faces/LetterWidthRow';
 import { EighteenKeyLayout } from './input/EighteenKeyLayout';
 import {
   FourteenKeyLetterWidthCell,
@@ -237,7 +238,7 @@ interface KeyOptions {
   accentIcon?: boolean;
   /** 键面字重；不设即常规的 400。 */
   fontWeight?: number;
-  /** 双字母键面两个字母之间的字距（em）。 */
+  /** 双字母键面两个字母之间的字距（fp），按字号从 em 比例换算。 */
   letterSpacing?: number;
   /** 触摸区；不设即 `keyHitRegion`，向四周空隙各扩出一半。紧挨的中/英键和回车键用它把两者的分界挪进回车键帽，见 `KeyboardGeometry.RETURN_YIELD_VP`。 */
   hitRegion?: Rectangle[];
@@ -6490,68 +6491,84 @@ struct KeyboardView {
 
   @Builder
   private fourteenKeyLetterRow(rowIndex: number) {
-    Row({ space: this.keySpacing() }) {
-      ForEach(this.fourteenKeyLetterPlan()[rowIndex], (cell: FourteenKeyLetterWidthCell, cellIndex: number) => {
-        if (cell.kind === 'pad' && cell.owner !== null) {
-          this.fourteenKeySpacer(cell.weight, cell.owner)
-        } else if (cell.kind === 'edge') {
-          if (cell.weight > 0) {
-            if (cellIndex === 0) {
-              this.fixedKey({
-                face: this.fourteenKeySeparates() ? '分词' : '符',
-                label: this.fourteenKeySeparates() ? NineKeyLayout.separator().description
-                  : KeyAccessibilityPolicy.symbolPanel(),
-                size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-                fontWeight: FUNCTION_LABEL_WEIGHT,
-                emphasized: false,
-                special: true,
-                width: 0,
-                share: cell.weight,
-                action: () => this.tapFourteenKeySeparator()
-              })
-            } else {
-              this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP, true, cell.weight)
-            }
-          }
-        } else if (cell.key !== null) {
-          this.fourteenKeyButton(cell.key, cell.weight)
+    LetterWidthRow({
+      cells: this.fourteenKeyLetterPlan()[rowIndex],
+      varied: this.fourteenKeyLetterWidths === 'varied',
+      spacing: this.keySpacing(),
+      rowHeight: this.rowHeight(rowIndex),
+      identity: this.faceKey(),
+      content: (cell: FourteenKeyLetterWidthCell, cellIndex: number, share: number): void => {
+        this.fourteenKeyLetterCell(cell, cellIndex, share)
+      }
+    })
+  }
+
+  @Builder
+  private fourteenKeyLetterCell(cell: FourteenKeyLetterWidthCell, cellIndex: number, share: number) {
+    if (cell.kind === 'pad' && cell.owner !== null) {
+      this.fourteenKeySpacer(share, cell.owner)
+    } else if (cell.kind === 'edge') {
+      if (share > 0) {
+        if (cellIndex === 0) {
+          this.fixedKey({
+            face: this.fourteenKeySeparates() ? '分词' : '符',
+            label: this.fourteenKeySeparates() ? NineKeyLayout.separator().description
+              : KeyAccessibilityPolicy.symbolPanel(),
+            size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+            fontWeight: FUNCTION_LABEL_WEIGHT,
+            emphasized: false,
+            special: true,
+            width: 0,
+            share: share,
+            action: () => this.tapFourteenKeySeparator()
+          })
+        } else {
+          this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP, true, share)
         }
-      }, (cell: FourteenKeyLetterWidthCell) => `${cell.kind}:${cell.key?.letters ?? ''}:${cell.weight}:${this.faceKey()}`)
+      }
+    } else if (cell.key !== null) {
+      this.fourteenKeyButton(cell.key, share)
     }
-    .width('100%')
-    .height(this.rowHeight(rowIndex))
   }
 
   @Builder
   private eighteenKeyLetterRow(rowIndex: number) {
-    Row({ space: this.keySpacing() }) {
-      ForEach(this.eighteenKeyLetterPlan()[rowIndex], (cell: FourteenKeyLetterWidthCell, cellIndex: number) => {
-        if (cell.kind === 'pad' && cell.owner !== null) {
-          this.eighteenKeySpacer(cell.weight, cell.owner)
-        } else if (cell.kind === 'edge') {
-          if (cellIndex === 0) {
-            this.fixedKey({
-              face: this.editing.length > 0 ? '分词' : '符',
-              label: this.editing.length > 0 ? NineKeyLayout.separator().description
-                : KeyAccessibilityPolicy.symbolPanel(),
-              size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-              fontWeight: FUNCTION_LABEL_WEIGHT,
-              emphasized: false,
-              special: true,
-              width: 0,
-              share: cell.weight,
-              action: () => this.tapEighteenKeySeparator()
-            })
-          } else {
-            this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP, true, cell.weight)
-          }
-        } else if (cell.key !== null) {
-          this.eighteenKeyButton(cell.key, cell.weight)
-        }
-      }, (cell: FourteenKeyLetterWidthCell) => `${cell.kind}:${cell.key?.letters ?? ''}:${cell.weight}:${this.faceKey()}`)
+    LetterWidthRow({
+      cells: this.eighteenKeyLetterPlan()[rowIndex],
+      varied: this.fourteenKeyLetterWidths === 'varied',
+      spacing: this.keySpacing(),
+      rowHeight: this.rowHeight(rowIndex),
+      identity: this.faceKey(),
+      content: (cell: FourteenKeyLetterWidthCell, cellIndex: number, share: number): void => {
+        this.eighteenKeyLetterCell(cell, cellIndex, share)
+      }
+    })
+  }
+
+  @Builder
+  private eighteenKeyLetterCell(cell: FourteenKeyLetterWidthCell, cellIndex: number, share: number) {
+    if (cell.kind === 'pad' && cell.owner !== null) {
+      this.eighteenKeySpacer(share, cell.owner)
+    } else if (cell.kind === 'edge') {
+      if (cellIndex === 0) {
+        this.fixedKey({
+          face: this.editing.length > 0 ? '分词' : '符',
+          label: this.editing.length > 0 ? NineKeyLayout.separator().description
+            : KeyAccessibilityPolicy.symbolPanel(),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+          fontWeight: FUNCTION_LABEL_WEIGHT,
+          emphasized: false,
+          special: true,
+          width: 0,
+          share: share,
+          action: () => this.tapEighteenKeySeparator()
+        })
+      } else {
+        this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP, true, share)
+      }
+    } else if (cell.key !== null) {
+      this.eighteenKeyButton(cell.key, share)
     }
-    .width('100%')
-    .height(this.rowHeight(rowIndex))
   }
 
   /** 14 键的一个字母键：两个字母的键可以横滑或长按，L、M 只有点按。 */
@@ -6578,7 +6595,7 @@ struct KeyboardView {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
       swipeLetters: key.letters,
-      letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)),
+      letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)) * TOUCH_LETTER_FONT_SIZE,
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
@@ -6773,7 +6790,7 @@ struct KeyboardView {
     return {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
-      letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)),
+      letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)) * TOUCH_LETTER_FONT_SIZE,
       swipeLetters: key.letters,
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
@@ -6800,8 +6817,8 @@ struct KeyboardView {
   }
 
   private usesQuanpinSeparator(): boolean {
-    return !this.quanpinShift && KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
-      this.english, this.symbols, this.localMode);
+    return KeyboardScheme.usesQuanpinSeparator(this.scheme, this.touchDesign(),
+      this.english, this.symbols, this.localMode, this.quanpinShift);
   }
 
   private tapLetterShift(): void {
