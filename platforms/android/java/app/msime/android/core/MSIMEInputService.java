@@ -5188,7 +5188,9 @@ public final class MSIMEInputService extends InputMethodService {
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
-        int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
+        int reserved = CandidateTranslationPolicy.reservedRows(
+            CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
+            CandidateHintRows.rows(this));
         int line = imeCandidates.stripHeightDp(reserved);
         ViewPolicy.setFixedHeight(candidateLine, pixels(line));
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
@@ -10126,9 +10128,17 @@ public final class MSIMEInputService extends InputMethodService {
             return CandidateGlossPolicy.hanjaAnnotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
                 translation,
                 candidateEnglishGloss || candidateTranslationsEnabled);
-        return CandidateGlossPolicy.annotation(chineseOutput(InputViewValuePolicy.textOr(candidate, "annotation", ""), view),
+        // 纠错行的原串不画在候选字下面，改在候选字后面画 *（CandidateCorrectionMarkPolicy）。
+        String annotation = CandidateCorrectionMarkPolicy.visibleAnnotation(
+            InputViewValuePolicy.textOr(candidate, "annotation", ""), candidateCorrected(candidate));
+        return CandidateGlossPolicy.annotation(chineseOutput(annotation, view),
             translation,
             candidateEnglishGloss || candidateTranslationsEnabled);
+    }
+
+    /** 引擎改过这一行的拼写（View JSON 的 `corrected`），候选字后面画 *。 */
+    static boolean candidateCorrected(JSONObject candidate) {
+        return candidate != null && JsonPolicy.strictTrue(candidate.opt(CandidateCorrectionMarkPolicy.CORRECTED_FIELD));
     }
 
     /** 候选释义禁止来源即使因同词候选合并拿到译文，也不能在 Android 的候选条、读屏或菜单里出现。 */
@@ -10347,7 +10357,8 @@ public final class MSIMEInputService extends InputMethodService {
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
         boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
-        button.setText(candidateLabel(number, text, annotation, highlighted, corrected));
+        String word = CandidateCorrectionMarkPolicy.markedWord(text, candidateCorrected(candidate));
+        button.setText(candidateLabel(number, word, annotation, highlighted, corrected));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
