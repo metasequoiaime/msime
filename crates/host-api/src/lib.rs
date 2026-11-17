@@ -202,6 +202,7 @@ pub mod lifecycle;
 mod plugin_tables;
 // 对共享状态目录没有写权限的宿主怎么准备运行时（iOS 键盘没有完全访问，#10945）。
 mod read_only_state;
+mod shared_dictionary_resources;
 // 脚本插件：进程开关、每会话的实例和进程级的模块缓存、熔断。移动端是空壳。
 mod scripts;
 mod voice_capture;
@@ -347,6 +348,7 @@ struct HostSession {
     plugin_tables: plugin_tables::PluginTables,
     /// 按需下载资源包所在的状态目录（HostOptions 的 `preferences_directory`），不是绝对路径时为空。
     state_root: Option<PathBuf>,
+    dictionary_resource_root: Option<PathBuf>,
     /// HostOptions 记录的 `language_dictionaries` 目录：资源包里没有某个词库时退回这里的那份。
     recorded_language_dictionaries: Option<PathBuf>,
     /// 会话打开后有资源包新装好（或被移除），`options` 里的词典路径已经更新，Engine 还要在输入空闲时重建。
@@ -1223,7 +1225,10 @@ impl HostSession {
                 self.keyboard_reranker_source = source;
             }
         }
-        let downloaded = state_root.map(DownloadedDictionaries::new);
+        let downloaded = state_root.map(|root| {
+            DownloadedDictionaries::new(root)
+                .with_resource_root(self.dictionary_resource_root.as_deref())
+        });
         let dictionaries = LanguageDictionaries::resolve(
             downloaded.as_ref(),
             self.recorded_language_dictionaries.as_deref(),
@@ -2155,7 +2160,7 @@ fn japanese_dictionary(downloaded: Option<&DownloadedDictionaries>) -> Option<Pa
     let downloaded = downloaded?;
     downloaded.updated_file("msime-japanese.dat").or_else(|| {
         resource_packs::installed_file(
-            downloaded.root,
+            downloaded.resource_root,
             ResourcePack::Japanese,
             "msime-japanese.dat",
         )
@@ -2172,9 +2177,9 @@ fn wubi_dictionary(
         return None;
     }
     let downloaded = downloaded?;
-    downloaded
-        .updated_file(name)
-        .or_else(|| resource_packs::installed_file(downloaded.root, ResourcePack::Wubi, name))
+    downloaded.updated_file(name).or_else(|| {
+        resource_packs::installed_file(downloaded.resource_root, ResourcePack::Wubi, name)
+    })
 }
 
 /// 五笔方案此时有没有码表可读：本平台的发布包可以不带 `msime-wubi.db`（[`ON_DEMAND_ARTIFACTS`]），资源目录里没有它，宿主也没有交来下载的那份（`wubi_dictionary` 为空）。
@@ -2194,6 +2199,7 @@ pub(crate) fn wubi_dictionary_missing(resources: &Path, wubi_dictionary: &str) -
 /// 它只活在一次解析里，不跨调用保留：下一次聚焦或建会话重新读、重新做全部路径检查，所以设置应用随时换掉的选择记录下一次就会看到，没有要失效的缓存。
 pub(crate) struct DownloadedDictionaries<'a> {
     root: &'a Path,
+    resource_root: &'a Path,
     selection: std::cell::OnceCell<Option<msime_client_providers::dictionary_updates::Selection>>,
     /// 选择记录里桌面词库代次和语言词库代次的目录，校验通过时为 `Some`。
     verified: [std::cell::OnceCell<Option<PathBuf>>; 2],
@@ -2204,6 +2210,7 @@ impl<'a> DownloadedDictionaries<'a> {
     pub(crate) fn new(root: &'a Path) -> Self {
         DownloadedDictionaries {
             root,
+            resource_root: root,
             selection: std::cell::OnceCell::new(),
             verified: Default::default(),
             canonical_root: std::cell::OnceCell::new(),
@@ -2384,6 +2391,9 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    /// 日文、五笔按需资源包的独立根目录；只在内存里由宿主注入。缺省仍从偏好目录读取，不改变用户数据和词库更新的位置。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dictionary_resource_root: Option<String>,
     /// The host draws a half-composed phrase itself: picking a candidate that covers only part of
     /// the input leaves the chosen piece in `view.phrase_prefix` instead of committing it, and the
     /// whole phrase commits at once when the composition ends. Absent means the previous behaviour,
@@ -2568,7 +2578,10 @@ impl HostOptions {
     fn into_engine_options(self) -> EngineOptions {
         // 每个平台都这样查找；桌面宿主按发布包是否省略日文词典和语言词库决定是否从状态目录读取已下载资源。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
-        let downloaded = state_root.as_deref().map(DownloadedDictionaries::new);
+        let resource_root = self.dictionary_resource_root();
+        let downloaded = state_root.as_deref().map(|root| {
+            DownloadedDictionaries::new(root).with_resource_root(resource_root.as_deref())
+        });
         let dictionaries = LanguageDictionaries::resolve(
             downloaded.as_ref(),
             self.language_dictionaries.as_deref().map(Path::new),
@@ -3438,6 +3451,7 @@ fn prepared_host_options(
                 .ok_or("non-UTF-8 state path")?
                 .to_owned(),
         ),
+        dictionary_resource_root: None,
         phrase_preedit: None,
         selection_statistics: None,
         keyboard_reranker: None,

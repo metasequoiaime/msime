@@ -5,12 +5,14 @@ on:
       version: {description: Semantic version (defaults to platforms/windows/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the installer as a windows-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      editions: {description: 发布范围（full 节省签名额度，all 发布全部独立版本）, required: false, default: full, type: choice, options: [full, all]}
       signpath_test: {description: Sign with the SignPath test-signing policy (untrusted test certificate) to exercise the signing jobs; such a run never publishes, required: false, default: false, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build, required: false, default: false, type: boolean}
+      editions: {description: '发布范围：full 或 all；留空时发布用 full，非发布构建用 all', required: false, default: '', type: string}
       signpath_test: {description: Exercise the SignPath test-signing policy, required: false, default: false, type: boolean}
 permissions: {contents: write}
 # 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
@@ -28,6 +30,13 @@ jobs:
         with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: editions
+        env: {SELECTION: "${{ inputs.editions || (inputs.publish && 'full' || 'all') }}"}
+        run: |
+          csv="$(python3 platforms/windows/scripts/edition_windows.py editions --selection "$SELECTION")"
+          matrix="$(python3 platforms/windows/scripts/edition_windows.py editions --selection "$SELECTION" --json)"
+          echo "csv=$csv" >> "$GITHUB_OUTPUT"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - id: version
         shell: pwsh
         env: {REQUESTED: "${{ inputs.version }}"}
@@ -50,6 +59,8 @@ jobs:
           CERTIFICATE_THUMBPRINT: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT }}
         run: bash platforms/windows/scripts/select-release-signing.sh
     outputs:
+      editions: ${{ steps.editions.outputs.csv }}
+      edition_matrix: ${{ steps.editions.outputs.matrix }}
       sha: ${{ steps.commit.outputs.sha }}
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
@@ -203,7 +214,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+        edition: ${{ fromJSON(needs.source.outputs.edition_matrix) }}
     env:
       VCPKG_DISABLE_METRICS: '1'
       # Python on Windows otherwise decodes text as the ANSI code page, and the fetch and packaging scripts read UTF-8 sources.
@@ -384,7 +395,7 @@ jobs:
           name: msime-symbols-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist-symbols/
           if-no-files-found: error
-      # 本项目自己的二进制按版本放进 <edition>/ 目录，由 sign-payload 把六个版本合成一次签名请求，一次发版只需批准两次（这一次和安装包那一次）。认定规则见 SignPath-PackageBinaries.ps1。
+      # 本项目自己的二进制按版本放进 <edition>/ 目录，由 sign-payload 把所选版本合成一次签名请求，一次发版只需批准两次（这一次和安装包那一次）。认定规则见 SignPath-PackageBinaries.ps1。
       - name: Stage first-party binaries for SignPath
         if: needs.source.outputs.signpath == 'true'
         shell: pwsh
@@ -396,7 +407,7 @@ jobs:
           name: msime-signpath-payload-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: ${{ runner.temp }}/signpath-payload/
           if-no-files-found: error
-      # 暂存包交给 package 任务编译安装包：签名要等这个任务结束、六个版本一起提交，所以编译不能留在这里。上传的是 .gitignore 列出的那些暂存内容，加上 msime_setup.iss：Prepare-PackageFiles.ps1 把版本号就地写进了这个受版本控制的文件，package 任务检出的那份还是 0.0.1，不带上它编出的安装包名和版本资源都是 0.0.1。安装包不收 PDB 和 .ilk（msime_setup.iss），符号已经进了上面的符号包，这里不再传。
+      # 暂存包交给 package 任务编译安装包：签名要等这个任务结束、所选版本一起提交，所以编译不能留在这里。上传的是 .gitignore 列出的那些暂存内容，加上 msime_setup.iss：Prepare-PackageFiles.ps1 把版本号就地写进了这个受版本控制的文件，package 任务检出的那份还是 0.0.1，不带上它编出的安装包名和版本资源都是 0.0.1。安装包不收 PDB 和 .ilk（msime_setup.iss），符号已经进了上面的符号包，这里不再传。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msime-staged-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
@@ -414,7 +425,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
-  # 六个版本的本项目二进制合成一次 SignPath 签名请求。SignPath Foundation 的发布签名每个请求都要人工批准，这个任务会一直等到批准或超时。
+  # 所选版本的本项目二进制合成一次 SignPath 签名请求。SignPath Foundation 的发布签名每个请求都要人工批准，这个任务会一直等到批准或超时。
   sign-payload:
     needs: [source, release]
     if: needs.source.outputs.signpath == 'true'
@@ -450,7 +461,7 @@ jobs:
           name: msime-signed-payload-windows-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload-signed/
           if-no-files-found: error
-  # 六个版本串行使用同一签名身份，按 GITHUB_RUN_ID 共享相同文件的签名缓存；构建与安装验证仍留在临时 runner。
+  # 所选版本串行使用同一签名身份，按 GITHUB_RUN_ID 共享相同文件的签名缓存；构建与安装验证仍留在临时 runner。
   package-simplysign:
     needs: [source, release]
     if: needs.source.outputs.simplysign == 'true'
@@ -463,7 +474,7 @@ jobs:
       fail-fast: true
       max-parallel: 1
       matrix:
-        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+        edition: ${{ fromJSON(needs.source.outputs.edition_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -508,7 +519,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+        edition: ${{ fromJSON(needs.source.outputs.edition_matrix) }}
     env:
       PYTHONUTF8: '1'
     steps:
@@ -580,7 +591,7 @@ jobs:
           $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
           if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
           ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION
-  # 六个版本的安装包合成一次 SignPath 签名请求，签好后重算 .sha256，作为一个 msime-windows-signed-<版本> 产物交给下游：它匹配 msime-windows-* 模式，coexistence 和 publish 不用区分签没签名。
+  # 所选版本的安装包合成一次 SignPath 签名请求，签好后重算 .sha256，作为一个 msime-windows-signed-<版本> 产物交给下游：它匹配 msime-windows-* 模式，coexistence 和 publish 不用区分签没签名。
   sign-installers:
     needs: [source, release, package]
     if: ${{ !cancelled() && !failure() && needs.source.outputs.signpath == 'true' }}
@@ -638,7 +649,7 @@ jobs:
   # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full；机器上还伪造了一份 msime-windows 的注册表键和数据目录，没有哪个版本接管或删除它。runner 是一次性的管理员环境。
   coexistence:
     needs: [source, release, package, sign-installers]
-    if: ${{ !cancelled() && !failure() }}
+    if: ${{ !cancelled() && !failure() && contains(needs.source.outputs.editions, ',') }}
     runs-on: depot-windows-2025-8
     timeout-minutes: 60
     steps:
@@ -651,10 +662,10 @@ jobs:
           merge-multiple: true
       - name: Install the editions side by side
         shell: pwsh
-        env: {VERSION: "${{ needs.release.outputs.version }}"}
+        env: {VERSION: "${{ needs.release.outputs.version }}", EDITIONS: "${{ needs.source.outputs.editions }}"}
         run: |
           $installers = @{}
-          foreach ($edition in (python platforms/windows/scripts/edition_windows.py editions).Trim().Split(',')) {
+          foreach ($edition in $env:EDITIONS.Split(',')) {
             $base = (python platforms/windows/scripts/edition_windows.py field --edition $edition installer_base_name).Trim()
             $installers[$edition] = "dist/${base}_v$env:VERSION.exe"
           }
@@ -668,11 +679,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+        edition: ${{ fromJSON(needs.source.outputs.edition_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
-      # 签名时六个安装包在同一个 msime-windows-signed-<版本> 产物里，每个任务取整份、只装自己那个。
+      # SignPath 签名时所选安装包在同一个 msime-windows-signed-<版本> 产物里，每个任务取整份、只装自己那个。
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: msime-windows-${{ needs.source.outputs.signpath == 'true' && 'signed' || matrix.edition }}-${{ needs.release.outputs.version }}
@@ -712,10 +723,10 @@ jobs:
       - name: Publish independent Windows release
         shell: bash
         # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        env: {EDITIONS: "${{ needs.source.outputs.editions }}", GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           # 每个版本的安装程序和符号包都要在，也不能多：少一个就什么都不发，免得版本页上缺了某个版本的包，或者发出去的版本没有符号可查。
-          editions="$(python3 platforms/windows/scripts/edition_windows.py editions)"
+          editions="$EDITIONS"
           IFS=, read -r -a edition_list <<< "$editions"
           for edition in "${edition_list[@]}"; do
             base="$(python3 platforms/windows/scripts/edition_windows.py field --edition "$edition" installer_base_name)"
@@ -738,7 +749,7 @@ jobs:
           stable='^windows-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'windows-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform windows --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
-          # 发布说明开头是从版本表生成的下载指引：六个安装程序各是什么、大多数人该下哪个。
+          # 发布说明只列本次选中的安装程序，下载指引仍从版本表生成。
           prerelease=(); [[ "$PRERELEASE" == true ]] && prerelease=(--prerelease)
           python3 platforms/windows/scripts/edition_windows.py download-guide --editions "$editions" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${prerelease[@]+"${prerelease[@]}"} > release-notes.md
@@ -747,7 +758,7 @@ jobs:
           python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的安装程序、SHA256SUMS 和上面说的 .sha256；符号包放在 windows-symbols（下一步）。重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装程序放在一起的符号包。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Windows ${RELEASE}" release-notes.md dist/*.exe dist/SHA256SUMS dist/*.exe.sha256
-      # 每个发布版本六个版本的符号包都长期留在滚动的 windows-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
+      # 本次选中的各版本符号包都长期留在滚动的 windows-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
       - name: Upload the symbols to windows-symbols
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}"}
         run: bash platforms/windows/scripts/publish-symbols.sh "$VERSION" "$RELEASE" dist/msime-windows-*-symbols.zip

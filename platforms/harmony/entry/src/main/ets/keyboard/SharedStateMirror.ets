@@ -25,6 +25,7 @@ import {
   PublishPlan,
   SharedStateMirrorPolicy,
 } from './SharedStateMirrorPolicy';
+import { SharedDictionaryResourcePolicy } from './SharedDictionaryResourcePolicy';
 import { UserWordsMirrorPolicy } from './UserWordsMirrorPolicy';
 
 /** AppGallery Connect 为「输入法应用内数据共享」签发的 data-group-id，签名 Profile 的 `data-group-ids` 和键盘扩展在 `module.json5` 里声明的 `dataGroupIds` 必须与它一致。 */
@@ -157,6 +158,16 @@ export class SharedStateMirror {
   /** 「我的词条」某一方的发布文件，不管它此刻在不在。它不走上面的清单和指纹：两边的 Rust 直接读写它，见 `UserWordsMirrorPolicy`。 */
   userWordsFile(publisher: MirrorPublisher): string {
     return UserWordsMirrorPolicy.publication(this.groupRoot, publisher);
+  }
+
+  /** 只放不可变的日文和五笔资源，不承载偏好、学习、缓存或统计。 */
+  dictionaryResourceRoot(): string {
+    return SharedDictionaryResourcePolicy.root(this.groupRoot);
+  }
+
+  /** 升级前由设置应用发布的资源包镜像，仅供设置应用无复制收编。 */
+  legacyDictionaryResourceRoot(): string {
+    return `${this.publisherRoot('settings')}/state`;
   }
 
   localPath(entry: MirrorEntry): string {
