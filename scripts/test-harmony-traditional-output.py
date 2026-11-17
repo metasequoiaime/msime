@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Keep HarmonyOS Traditional output on the shared OpenCC s2t converter.
+"""检查鸿蒙中文输出是否接入共享的 OpenCC 转换器。
 
-Every other host converts through `msime_client_simplified_to_traditional`, the phrase-level OpenCC tables compiled into the Rust library, so 头发 becomes 頭髮 and 发展 becomes 發展. ICU's `Simplified-Traditional` transliterator converts one character at a time and cannot tell those apart, so a HarmonyOS keyboard on it commits 頭發 where every other platform commits 頭髮. The node suite cannot see which converter the session passes to `ChineseOutputPolicy`, and the native call cannot run off a device, so this pins the wiring from the C header to the call site.
+其他宿主通过 `msime_client_simplified_to_traditional` 使用 Rust 编译的短语级 OpenCC 表，
+因此「头发」变成「頭髮」、「发展」变成「發展」。ICU 的 `Simplified-Traditional` 转写器
+逐字转换，无法区分这两个「发」，会让鸿蒙键盘提交「頭發」。注音简体输出还通过
+`msime_client_traditional_to_simplified` 走反向表。Node 套件看不到会话传给
+`ChineseOutputPolicy` 的具体转换器，设备外也无法调用 native 函数，因此这里固定从 C 头文件
+到调用点的接线。
 """
 import pathlib
 import re
@@ -35,6 +40,7 @@ def main() -> int:
     policy = POLICY.read_text(encoding="utf-8")
 
     binding = body(native, "static napi_value SimplifiedToTraditional(", "\n}\n")
+    reverse_binding = body(native, "static napi_value TraditionalToSimplified(", "\n}\n")
     convert = body(session, "  private asTraditional(text: string, source: number = -1): string {", "\n  }\n")
 
     required = {
@@ -50,23 +56,24 @@ def main() -> int:
         "session keeps the output policy": "ChineseOutputPolicy.candidateOutput(text, this.traditional," in convert
         and "ChineseOutputPolicy.applies(this.englishMode, this.scheme, this.localMode)" in convert
         and re.search(r"localMode\),\s*source,", convert) is not None,
+        "reverse C ABI declaration": "char *msime_client_traditional_to_simplified(const uint8_t *text, size_t length);" in header,
+        "reverse NAPI call": "msime_client_traditional_to_simplified(" in reverse_binding,
+        "reverse NAPI result released": "return response(env, converted);" in reverse_binding,
+        "reverse NAPI export": 'ENTRY("traditionalToSimplified", TraditionalToSimplified)' in native,
+        "reverse ArkTS declaration": "export const traditionalToSimplified: (text: string) => string | null;" in types,
+        "session uses reverse converter": "client.traditionalToSimplified(value)" in session,
+        "policy has Zhuyin switch": "switchFollowsZhuyin" in policy and "toggledZhuyinSimplified" in policy,
         # 候选栏、平面列表和展开面板都携带来源，防止整行再次转换多语言候选。
         "candidate display converts": session.count("text: this.asTraditional(candidate.text, candidate.source)") == 3,
         "multilingual candidate keeps segment conversion":
         "ChineseOutputPolicy.output(text, traditional, applies && source !== 18, converter)" in policy,
         "commit keeps runtime conversion boundary":
-        "value.commit_context?.script_conversion === false ? commit : this.asTraditional(commit)" in session,
+        "value.commit_context?.script_conversion === false" in session
+        and "!this.characterSetFollowsZhuyin() ? commit : this.asTraditional(commit)" in session,
         # 开关在存储接受新值之后才翻转，随即重发候选，所以被拒绝的写入不改变输出。粤拼下开关走前面的粤拼分支并在这次写入之前返回，那一支的行为由 keyboard-logic.test.ts 的 `toggledCantoneseSimplified` 用例检查。
-        "switch republishes the candidates": re.search(
-            r"toggleCharacterSet\(\): boolean \{\s*"
-            r"(?:if \(this\.characterSetFollowsCantonese\(\)\) \{[^}]*\}\s*)?"
-            r"if \(!this\.writePreference\('traditional_chinese_output', !this\.traditional\)\) \{\s*return this\.traditional;\s*\}\s*"
-            r"this\.traditional = !this\.traditional;\s*"
-            r"(?://[^\n]*\s*)?this\.publishCurrentCandidates\(\);",
-            session,
-        )
-        is not None,
-        # The keyboard's 繁 tile goes through the same switch rather than writing the preference behind the session's back.
+        "switch republishes the candidates": "this.publishCurrentCandidates();" in session
+        and "this.zhuyinSimplified = ChineseOutputPolicy.toggledZhuyinSimplified" in session,
+        # 键盘的「繁」按键必须走同一个会话开关，不能绕过会话直接写偏好。
         "keyboard tile uses the session switch": "this.traditional = KeyboardSession.shared.toggleCharacterSet();" in view,
     }
     problems = [name for name, present in required.items() if not present]
@@ -81,7 +88,7 @@ def main() -> int:
     if problems:
         print("harmony traditional output: missing " + ", ".join(problems), file=sys.stderr)
         return 1
-    print("harmony traditional output: candidates and commits convert through the shared OpenCC s2t tables")
+    print("harmony Chinese output: candidates and commits use the shared OpenCC s2t/t2s tables")
     return 0
 
 

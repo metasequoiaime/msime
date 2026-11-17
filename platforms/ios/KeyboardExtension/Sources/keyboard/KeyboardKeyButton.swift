@@ -4,6 +4,16 @@ import UIKit
 final class KeyboardKeyButton: UIButton {
   static let glossColumns: CGFloat = 3
 
+  /// 删除键的读屏激活不经过触摸按压；显式执行一次，避免伪造松手事件。
+  var onAccessibilityActivate: (() -> Void)?
+
+  override func accessibilityActivate() -> Bool {
+    guard let onAccessibilityActivate else { return super.accessibilityActivate() }
+    guard isEnabled else { return false }
+    onAccessibilityActivate()
+    return true
+  }
+
   static func glossColumnWidth(
     visible: CGFloat, spacing: CGFloat, insets: NSDirectionalEdgeInsets
   ) -> CGFloat {
