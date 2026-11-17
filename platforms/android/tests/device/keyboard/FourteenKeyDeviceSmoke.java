@@ -191,6 +191,7 @@ public final class FourteenKeyDeviceSmoke extends DeviceSmoke {
             await(described(PANEL));
             await(inPanel(described("选择拼音 shu")));
             await(inPanel(described("只显示单字")));
+            NineKeyPanelActionColumnChecks.check(this, this::inPanel);
             stage = "close the three-column panel";
             tap(inPanel(described("收起候选面板")));
             awaitGone(described(PANEL));
