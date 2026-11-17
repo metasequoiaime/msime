@@ -116,6 +116,7 @@
 #include "../src/core/JsonInteger.h"
 #include "../src/clipboard/CloudClipboardRoute.h"
 #include "../src/system/TypingStatistics.h"
+#include "../src/system/TypingKeyPressRequest.h"
 #include "SystemTheme.h"
 #include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
@@ -4226,7 +4227,7 @@ public:
   // 生命周期核心最近一次报告的连击数（msime_client_key 的返回值或派发回复的 feedback），以及按住的那个键：它的自动重复只开新的一轮、不出声不画，见 keyDown。
   std::uint32_t typing_combo_ = 0;
   msime::linux_host::KeyRepeat key_repeat_;
-  // Every key event MSIME receives passes through here before key() routes it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; a raw code below 8 has no evdev key behind it (a synthetic event, such as a panel's typed key).
+  // 在 key() 分派前采集物理键及来源，包含组字和透传。raw code 小于 8 的合成事件不计入。
   void countKeyPress(const fcitx::KeyEvent &event) {
     const auto code = event.rawKey().code();
     if (code < 8) return;
@@ -4247,22 +4248,21 @@ public:
     if (id.empty() || options_path_.empty() || options_path_.front() != '/') return;
     const auto day = msime::linux_host::local_day(std::time(nullptr));
     if (day.empty()) return;
-    flushKeyPresses(key_presses_.add(id, options_path_, day, now));
+    const auto source = msime::linux_host::typing_key_press_source(
+        input_enabled_, view_, [this] { return typingSource(); });
+    flushKeyPresses(key_presses_.add(id, options_path_, day, now, source));
   }
   // Writes the pending key presses now, for FcitxEngine's teardown.
   void flushPendingKeyPresses() { flushKeyPresses(key_presses_.take()); }
-  // Sends one batch to the store's record_keys operation on the calling thread.
+  // 在调用线程上写出一批按键总计和按下时的来源快照。
   static void writeKeyPresses(const msime::linux_host::KeyPressBatch &pending) {
     try {
-      const auto request = Json{
-          {"directory", pending.directory},
-          {"action", Json{{"operation", "record_keys"}, {"day", pending.day}, {"keys", pending.keys}}}}
-                               .dump();
+      const auto request = msime::linux_host::typing_key_press_request(pending).dump();
       if (auto *raw = msime_client_typing_statistics(
               reinterpret_cast<const uint8_t *>(request.data()), request.size()))
         msime::host_api::discard_string(raw);
     } catch (...) {
-      // Statistics are best effort and must never affect typing.
+      // 统计失败不能影响输入。
     }
   }
   // Writes a batch of key press counts on its own thread, as recordTypingStatistics does for commits, or on the loop once the addon is unloading (see ~FcitxEngine).

@@ -247,6 +247,8 @@ parse_aux_typing_statistics(const std::wstring &text) {
 struct AuxTypingKeys {
   std::wstring day;
   std::map<std::wstring, uint64_t> counts;
+  // 空来源属于旧 TIP，只记录总计并由共享库归入未知语言。
+  std::wstring source{};
 };
 inline constexpr std::wstring_view aux_typing_keys_verb = L"TypingKeys";
 // Same bound as the shared store's key ids: the canonical ids are short ASCII names.
@@ -304,7 +306,7 @@ parse_aux_typing_keys(const std::wstring &text) {
     if (separator ? unit != L'-' : (unit < L'0' || unit > L'9'))
       return std::nullopt;
   }
-  AuxTypingKeys keys{std::move(day), {}};
+  AuxTypingKeys keys{std::move(day), {}, {}};
   std::wstring_view rest(text);
   rest.remove_prefix(verb.size() + 12);
   if (rest.empty())

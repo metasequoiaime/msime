@@ -1,6 +1,6 @@
 //! 统计页的派生指标：从 [`TypingStatistics`] 算出概览、习惯、按键和徽章，所有平台读同一份结果。
 //!
-//! 只有 Android 的统计页用这些派生指标。这里只有纯函数：日期由宿主传入，不读时钟，结果只取决于参数。
+//! 这里只有纯函数：日期由宿主传入，不读时钟，结果只取决于参数。
 
 use super::{TypingBreakdown, TypingStatistics, HOURS};
 use serde::{Deserialize, Serialize};
@@ -145,6 +145,8 @@ pub struct TypingSummary {
     pub habits: HabitsSummary,
     pub keys: KeysSummary,
     pub achievements: Vec<AchievementSummary>,
+    /// 截至宿主今天最近 30 个记录日，按日期倒序。
+    pub daily_details: Vec<super::DailyDetailRow>,
 }
 
 /// 16 枚徽章，顺序就是统计页的排列顺序。分组决定奖章的配色，和原型 `proto_script.js` 一致，所以「夜猫子」「早起鸟」和连续天数同组。
@@ -409,6 +411,7 @@ pub fn summarize(
         habits,
         keys,
         achievements,
+        daily_details: super::daily_details::daily_details(statistics, today),
     }
 }
 

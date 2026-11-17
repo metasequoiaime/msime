@@ -68,7 +68,24 @@ public final class TypingStatisticsDocument {
             MapPolicy.copyOrEmpty(detail == null ? null : counts(detail.optJSONObject("sources"))),
             MapPolicy.copyOrEmpty(dailyCharacters),
             MapPolicy.copyOrEmpty(dailySources),
-            MapPolicy.copyOrEmpty(dailyKeys));
+            MapPolicy.copyOrEmpty(dailyKeys), keyLanguages(root.optJSONObject("dailyKeyLanguages")));
+    }
+
+    /** 只解析共享层已分类的映射，不在设置页按当前模式回填历史。 */
+    private static TypingKeyLanguages keyLanguages(JSONObject value) {
+        Map<String, Map<String, Map<String, Long>>> days = new LinkedHashMap<>();
+        if (value != null) for (Iterator<String> keys = value.keys(); keys.hasNext();) {
+            String day = keys.next();
+            JSONObject groups = value.optJSONObject(day);
+            if (groups == null) continue;
+            Map<String, Map<String, Long>> languages = new LinkedHashMap<>();
+            for (TypingKeyLanguages.Language language : TypingKeyLanguages.Language.values()) {
+                Map<String, Long> counts = counts(groups.optJSONObject(language.id()));
+                if (!counts.isEmpty()) languages.put(language.id(), counts);
+            }
+            days.put(day, languages);
+        }
+        return new TypingKeyLanguages(days);
     }
 
     private static Map<String, Long> counts(JSONObject value) {

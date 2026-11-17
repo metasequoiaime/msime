@@ -612,6 +612,9 @@ fn maintenance_busy_during_download_persists_verified_ciphertext_until_idle() {
 #[path = "round/pending.rs"]
 mod pending;
 
+#[path = "round/rate_limit.rs"]
+mod rate_limit;
+
 #[test]
 fn relogin_during_upload_cannot_record_uploaded_or_start_downloading() {
     let pair = Pair::new();

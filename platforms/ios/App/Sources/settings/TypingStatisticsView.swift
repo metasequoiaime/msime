@@ -22,6 +22,7 @@ private struct AuthenticatedTypingStatisticsView: View {
   @State private var tab = Tab.overview
   /// 读者选过之后按键热力图所用的键盘布局；nil 表示跟随当前输入方案。
   @State private var nineKeyChoice: Bool?
+  @State private var keyLanguage = TypingKeyLanguages.Language.all
   /// 用户的「按键布局」：热力图照它画底行和数字行，与键盘上看到的一致。
   @State private var keyStyle = TouchKeyLayoutStyle.mirrored
   @State private var showsDailyDetail = false
@@ -61,7 +62,10 @@ private struct AuthenticatedTypingStatisticsView: View {
     return (0..<7).reversed().compactMap { Calendar.current.date(byAdding: .day, value: -$0, to: today) }
   }
 
-  private var keyHeatmap: TypingKeyHeatmap { TypingKeyHeatmap(counts: statistics.keyCounts(on: weekDates)) }
+  private var keyLanguages: TypingKeyLanguages {
+    TypingKeyLanguages(dailyKeys: statistics.dailyKeys, dailyLanguages: statistics.dailyKeyLanguages,
+                       days: weekDates.map { TypingStatistics.dayKey($0) })
+  }
 
   /// 热力图默认显示的键盘布局：键盘当前方案是九键时用九键。
   private var showsNineKey: Bool {
@@ -311,11 +315,13 @@ private struct AuthenticatedTypingStatisticsView: View {
 
   private func keys(_ summary: TypingSummary) -> some View {
     let keys = summary.keys
-    let heatmap = keyHeatmap
+    let languages = keyLanguages
+    let heatmap = TypingKeyHeatmap(counts: languages.keys(for: keyLanguage))
     let nineKey = showsNineKey
     let perKeyNote = TypingSummaryText.perKeyDelta(keys.perCharacterKeys, keys.previousPerCharacterKeys)
     let methods = TypingSummaryText.methods(summary.habits.breakdown.sources)
     return VStack(alignment: .leading, spacing: 22) {
+      StatisticsKeyLanguagePicker(languages: languages, selection: $keyLanguage)
       StatisticsSection("按键热力图", trailing: {
         StatisticsLayoutSwitch(nineKey: Binding(get: { nineKey }, set: { nineKeyChoice = $0 }))
       }) {
@@ -465,6 +471,7 @@ private struct AuthenticatedTypingStatisticsView: View {
       availability = result.availability
       if let loadedStatistics = result.statistics {
         statistics = loadedStatistics
+        keyLanguage = keyLanguages.resolved(keyLanguage)
         loaded = true
         userWords = result.userWords
       }

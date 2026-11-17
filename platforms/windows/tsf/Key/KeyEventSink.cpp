@@ -2398,7 +2398,21 @@ void CMetasequoiaIME::_NoteKeyPressStatistics(WPARAM wParam, LPARAM lParam)
     {
         return;
     }
-    QueueKeyPressStatistics(keyId);
+    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+    const bool dedicated = Global::DedicatedEnglish.active(GetTickCount64());
+    auto source = msime::windows::TypingSource::Unknown;
+    if (_pThreadMgr)
+    {
+        BOOL open = FALSE;
+        CCompartment compartment(_pThreadMgr, _tfClientId, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE);
+        if (compartment._GetCompartmentBOOL(open) == S_OK)
+        {
+            const auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+            source = host ? host->key_typing_source(scheme, dedicated, open != FALSE)
+                : msime::windows::resolve_typing_source(scheme, false, dedicated || open == FALSE, "none", "xiaohe");
+        }
+    }
+    QueueKeyPressStatistics(keyId, source);
 }
 
 //+---------------------------------------------------------------------------
