@@ -84,24 +84,21 @@ final class ImeNineKeyPanel {
         root.addView(candidateScroll, margined(3));
 
         LinearLayout actions = LayoutPolicy.column(s);
-        LinearLayout utilityRow = LayoutPolicy.row(s);
-        addInlineAction(utilityRow, pressButton("返回", 15, KeyboardKeyRole.ACCENT, "收起候选面板", () -> {
+        Button closeButton = pressButton("返回", 15, KeyboardKeyRole.ACCENT, "收起候选面板", () -> {
             s.closeCandidatePanel();
             s.render();
-        }));
-        addInlineAction(utilityRow, pressButton("⌫", 16, KeyboardKeyRole.ACCENT, "候选面板 删除", this::backspace));
-        addInlineAction(utilityRow, pressButton("重输", 15, KeyboardKeyRole.ACCENT, "候选面板 重输",
+        });
+        addAction(actions, closeButton);
+        addAction(actions, pressButton("⌫", 16, KeyboardKeyRole.ACCENT, "候选面板 删除", this::backspace));
+        addAction(actions, pressButton("重输", 15, KeyboardKeyRole.ACCENT, "候选面板 重输",
             () -> s.command(3)));
-        addAction(actions, utilityRow);
         modeButton = pressButton("", 15, KeyboardKeyRole.ACCENT, "", this::toggleMode);
-        // 两个筛选状态和输入模式放在同一排，确保三个入口都在键盘可视区域内。
-        LinearLayout filterRow = LayoutPolicy.row(s);
         allButton = pressButton("全部", 15, KeyboardKeyRole.ACCENT, "显示全部候选", () -> setSingleCharacter(false));
         singleButton = pressButton("单字", 15, KeyboardKeyRole.ACCENT, "只显示单字", () -> setSingleCharacter(true));
-        addInlineAction(filterRow, modeButton);
-        addInlineAction(filterRow, allButton);
-        addInlineAction(filterRow, singleButton);
-        addAction(actions, filterRow);
+        // 六个功能键各占一行，避免右栏再按三列压缩导致双字键面被截断（#11571）。
+        addAction(actions, modeButton);
+        addAction(actions, allButton);
+        addAction(actions, singleButton);
         root.addView(actions, margined(0.8f));
         ViewPolicy.hide(root);
         return root;
@@ -125,12 +122,6 @@ final class ImeNineKeyPanel {
         LinearLayout.LayoutParams params = LayoutPolicy.weightedWidthParams(1);
         params.setMargins(0, s.pixels(2), 0, s.pixels(2));
         actions.addView(view, params);
-    }
-
-    private void addInlineAction(LinearLayout row, View view) {
-        LinearLayout.LayoutParams params = LayoutPolicy.weightedMatchParentParams(1);
-        params.setMargins(s.pixels(2), 0, s.pixels(2), 0);
-        row.addView(view, params);
     }
 
     private Button pressButton(String label, float sizeSp, KeyboardKeyRole role, String description,
