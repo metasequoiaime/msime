@@ -1,5 +1,7 @@
 # Windows Server 会话适配
 
+命名词库的导入、多选管理与同步边界见[词库分组](../../docs/dictionary-groups.md)。
+
 桌面内置模型的安装、语言选择与离线翻译入口见[桌面离线翻译](../../docs/local-translation.md)。
 
 ## 首次运行引导
@@ -300,6 +302,18 @@ target/windows-boundary/windows-session-smoke /absolute/verified-resources
 ```
 
 Windows 构建时 MSIME_HOST_LIBRARY 应指定同架构 Rust DLL 的导入库，运行时需可找到对应 DLL；Linux 本机边界测试使用 .so。Windows MSVC 的完整构建入口是 `Build-Client.ps1`（见 `Build-Client.md`），MinGW 交叉构建不替代它；两者产出同一组目标。
+
+TSF 激活前的宿主延迟导入有不依赖 Rust 的 MSVC 专项，使用生产加载钩子和导入检查，覆盖完整库、缺库、缺导出、补齐后重试和当前目录诱饵。在 Windows 上运行：
+
+```powershell
+cmake -S platforms/windows/tsf/tests/host_delay_load -B target/windows-full/x64/host-delay-load -A x64
+cmake --build target/windows-full/x64/host-delay-load --config RelWithDebInfo
+ctest --test-dir target/windows-full/x64/host-delay-load -C RelWithDebInfo --output-on-failure
+```
+
+x86 改用 `target/windows-full/x86/host-delay-load` 和 `-A Win32`。PR 的 Windows 原生 CI 对两个架构都实际运行，不用 MinGW 编译结果替代 MSVC 的 SEH 行为。
+
+升级清理使用 `pwsh -File platforms/windows/installer/tests/version-directory-cleanup.ps1` 执行安装器实际拼出的清理命令，以临时 DLL 映射覆盖整组旧依赖的保留与释放后重试，不执行安装。
 
 WER 进程外回调有不依赖 Rust 的专项工程，复用 TSF 工程中的 helper 构建定义。在 Windows 上运行：
 

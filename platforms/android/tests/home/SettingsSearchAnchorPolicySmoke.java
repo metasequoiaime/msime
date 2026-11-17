@@ -60,6 +60,9 @@ public final class SettingsSearchAnchorPolicySmoke {
         check(!SettingsSearchAnchorPolicy.labels("页码", "显示页码"), "a shorter title is a different row");
         check(!SettingsSearchAnchorPolicy.labels(null, "显示页码"), "a view without text is not the row");
         check(!SettingsSearchAnchorPolicy.labels("", ""), "an empty anchor never matches");
+        check(SettingsSearchAnchorPolicy.labels("键盘高度（展开屏）", "键盘高度"), "展开屏高度行接受已有搜索目标");
+        check(SettingsSearchAnchorPolicy.labels("键盘高度", "键盘高度"), "窄屏仍定位原高度行");
+        check(!SettingsSearchAnchorPolicy.labels("键盘高度（其他）", "键盘高度"), "其他标题不能因前缀相同而误命中");
     }
 
     private static void argument() {

@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.content.Context;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.widget.TextView;
 
 /** Shared typography and keycap sizing contract for Android keyboard controls. */
@@ -71,6 +72,7 @@ public final class KeyboardTypographyPolicy {
      */
     public static void normalizeKeyCap(android.widget.TextView key) {
         int horizontal = DimensionPolicy.pixels(key.getContext(), KEY_CAP_HORIZONTAL_PADDING_DP);
+        key.setGravity(Gravity.CENTER);
         ViewPolicy.setHorizontalPadding(key, horizontal);
         ViewPolicy.clearFontPadding(key);
         ViewPolicy.clearMinimumSize(key);

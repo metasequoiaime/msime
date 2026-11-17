@@ -321,11 +321,22 @@ impl MountedReranker {
     }
 }
 
-/// 一页要 `page_ms` 的模型在 `mount` 这样的宿主上是不是延后到停顿：只有停顿时重解的宿主、而且一页超过 [`PAUSE_HOST_KEYSTROKE_PAGE_MS`]。
+/// 一页要 `page_ms` 的模型在 `mount` 这样的宿主上是不是延后到停顿：只有停顿时重解的宿主；手机上还要一页超过 [`PAUSE_HOST_KEYSTROKE_PAGE_MS`]，桌面上一律延后（[`PAUSE_HOST_DEFERS_ON_DESKTOP`]）。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) fn defers_to_pause(mount: RerankerMount, page_ms: f64) -> bool {
-    mount == RerankerMount::KeystrokeOrPause && page_ms > PAUSE_HOST_KEYSTROKE_PAGE_MS
+    mount == RerankerMount::KeystrokeOrPause
+        && (PAUSE_HOST_DEFERS_ON_DESKTOP || page_ms > PAUSE_HOST_KEYSTROKE_PAGE_MS)
 }
+
+/// 桌面上停顿时重解的宿主（写了 `pause_rerank` 的 macOS 输入法）不看一页的自测，模型总是延后到停顿。
+///
+/// 一页自测在桌面上预测不了真实的逐键开销。2026-11-16 在 M 系列 Mac 上用 `rerank_replay`（host-api 的 C 接口，照真实的 macOS 选项，typing-chat-v1 test 220 段、4902 键），6x256 配 32 条一页自测 1.4 ms，挂在按键上整键 p95 9–90 ms、p99 24–235 ms，同样规模的一次图运行耗时相差两百多倍：模型在按键线程上同步跑，机器一忙（编译、模拟器、别的应用）就被成倍放大，桌面预算是整键 p99 ≤ 4 ms。延后到停顿时整键 p95 1.4 ms、p99 3.2 ms，一次停顿重解 p50 14 ms，首选与挂在按键上的差在浮点噪声以内。桌面打字的间隙足够做完重解，所以不必按速度分档。手机仍按一页自测分开：快的手机挂在按键上没有停顿换序。
+#[cfg(feature = "onnx-rerank")]
+const PAUSE_HOST_DEFERS_ON_DESKTOP: bool = cfg!(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", not(target_env = "ohos"))
+));
 
 /// 同 [`keyboard_reranker`]，按 `mount` 决定挂在按键上还是延后到停顿。
 ///
@@ -1052,6 +1063,7 @@ fn load_onnx_reranker(directory: &Path) -> Option<msime_onnx_rerank::OnnxScorer>
 }
 
 pub mod account;
+pub mod ai_candidates;
 pub mod ai_skin;
 pub mod aliyun_translation;
 pub mod android_data;
@@ -1096,6 +1108,7 @@ mod preference_schema_tests;
 
 // Every export has always been reachable at the crate root; the domain split
 // below is for readers, not for callers, so each module is flattened back out.
+pub use ai_candidates::*;
 pub use aliyun_translation::*;
 pub use android_data::*;
 pub use candidate_colors::*;
@@ -1120,3 +1133,6 @@ pub use voice::*;
 pub use windows_handwriting::*;
 #[cfg(windows)]
 pub use windows_voice::*;
+
+mod settings_sync;
+pub use settings_sync::*;

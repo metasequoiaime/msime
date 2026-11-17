@@ -14,7 +14,17 @@ import {
 } from "./touch-keyboard-scheme-helpers";
 import { knownWubiProfile, wubiProfiles, type WubiProfile } from "./wubi-preferences";
 
-const shuangpinSchemes = ["xiaohe", "ziranma", "microsoft", "shoudao"] as const;
+const shuangpinSchemes = [
+  "xiaohe",
+  "ziranma",
+  "microsoft",
+  "shoudao",
+  "smart_abc",
+  "sogou",
+  "jiajia",
+  "ziguang",
+  "guobiao",
+] as const;
 type ShuangpinScheme = (typeof shuangpinSchemes)[number];
 
 const shuangpinNames: Record<ShuangpinScheme, string> = {
@@ -22,6 +32,11 @@ const shuangpinNames: Record<ShuangpinScheme, string> = {
   ziranma: "自然码",
   microsoft: "微软",
   shoudao: "首道",
+  smart_abc: "智能 ABC",
+  sogou: "搜狗",
+  jiajia: "加加",
+  ziguang: "紫光",
+  guobiao: "国标",
 };
 
 function isShuangpin(scheme: TouchKeyboardScheme): scheme is ShuangpinScheme {

@@ -560,9 +560,9 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
 }
 
 #[test]
-fn harmony_requests_quick_phrase_candidates_with_desktop_hosts() {
+fn desktop_and_harmony_request_quick_phrase_candidates() {
     for (platform, expected) in [
-        (HostPlatform::Windows, false),
+        (HostPlatform::Windows, true),
         (HostPlatform::Macos, true),
         (HostPlatform::Linux, true),
         (HostPlatform::Android, false),

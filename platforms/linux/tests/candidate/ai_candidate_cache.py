@@ -97,6 +97,16 @@ class AiCandidateCache(unittest.TestCase):
             self.assertIsNone(self.configured(query()))
         ai.assert_called_once()
 
+    def test_raw_input_and_manual_boundaries_partition_cache(self):
+        first = {**query(), "identity": "0:wangai"}
+        second = {**query(), "identity": "0:wang'ai"}
+        with mock.patch.object(provider, "load_ai_config", return_value=self.config), \
+                mock.patch.object(provider, "ai", return_value=[{"text": "王 AI", "source": 1}]) as ai:
+            self.configured(first)
+            self.configured(second)
+            self.configured(first)
+        self.assertEqual(ai.call_count, 2)
+
     def test_cache_probe_does_not_survive_profile_mismatch(self):
         mismatched = {
             "provider": "other",

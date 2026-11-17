@@ -1339,6 +1339,7 @@ function Save-Window($element, [string]$file) {
         $bitmap.Dispose()
     }
 }
+. (Join-Path $PSScriptRoot 'settings_quick_phrase.ps1')
 try {
     New-Item -ItemType Directory -Force $state | Out-Null
     $env:MSIME_CLIENT_STATE_DIR = $state
@@ -1376,6 +1377,7 @@ try {
         )
         [IO.File]::WriteAllText((Join-Path $state 'clipboard_history.json'), ($entries | ConvertTo-Json -Depth 8))
         $window = Start-SettingsWindow 'settings:input'
+        $window = Assert-QuickPhraseSettings $window
         # 检查窗口真正交给系统的拖动尺寸边界，不能只检查 XAML 内部的最小宽度。
         $limits = [SettingsWindowProbe]::TrackLimits($process.MainWindowHandle)
         if ($limits.MinTrackSize.X -lt 800 -or $limits.MinTrackSize.Y -lt 560) { throw 'Native window minimum size was not applied' }
@@ -1547,6 +1549,12 @@ try {
                         $content = Find-ById $window 'settings-content'
                         foreach ($name in @('二三候选', '自动纠错')) {
                             if (Find-ByName $content $name) { throw "Input page still shows $name" }
+                        }
+                        if ($pair[0] -eq 'selection' -and -not (Find-ByName $content 'Esc 保留已选词')) {
+                            throw 'Input selection tab is missing Esc 保留已选词'
+                        }
+                        if ($pair[0] -eq 'candidates' -and -not (Find-ByName $content '回车学英文词')) {
+                            throw 'Input candidates tab is missing 回车学英文词'
                         }
                         # Vim 模式名单紧跟应用例外，在「中英文」组里，共享偏好 `vim_mode_apps`。
                         if ($pair[0] -eq 'mode' -and -not (Find-ByName $content 'Vim 模式的程序文件名')) { throw 'Input mode tab is missing the Vim mode list' }

@@ -14,6 +14,8 @@ Status: implemented
 
 录屏里候选条底边还有一条细灰线，是 `horizontalCandidateScroll` 默认开着的横向滚动条；同一区域的九键拼音行早就关了滚动条，候选行漏了。它只在浅色底上看得见，所以薄荷那一帧里最明显。
 
+2026-11-16 调查 #11006 时发现同一入口仍无条件应用 `candidate_english_gloss`、`candidate_pronunciation`、`touch_spelling_position` 和 `touch_spelling_editor`。用户关闭释义或拼写编辑器后，换框读到的出厂副本会重新打开，实时偏好随后再关掉。释义开关参与候选区行高计算，因而这次覆盖也会短暂改变工具栏所在区域的高度。`stopSessionState` 还把释义与读音显示开关清零，导致开启这些选项的用户走相反方向的高度变化。这里是代码路径确认，尚未复现报告中的全部现象；数字行滞留和拼音偶尔巨大不能据此认定已解决。
+
 ## Decision
 
 - `applyEditorPreferences` 只在 `live` 时调 `applyCandidateAppearance`。副本路径保留当前的候选条配色和字号，也就是上次真正读到的偏好或启动时按皮肤片段算出的那一份。
@@ -22,6 +24,10 @@ Status: implemented
 - `check-host.sh` 守住：`applyEditorPreferences` 里的 `if (live) applyCandidateAppearance(preferences);`、`onCreate` 片段分支里的 `applyCandidateAppearance(hint);` 及其之前的 `refreshLocalSettings();`、片段键含候选条字段、`candidateHorizontal` 初值为 `true`。
 - 键盘几何按同样的办法处理：`applyEditorPreferences` 只在 `live` 时调 `applyTouchGeometry`；副本路径保留当前几何，只有本地设置里有键高时照旧刷新键高（`heightAdjustmentFrom` 先认本地设置，那份是实时的，设置页改了键高下一个输入框就该生效）。键盘里正在拖动高度时，两条路径都经 `adoptSavedHeightAdjustment` 只改「取消」要回到的值、不动预览，和 `applyPreferencesSnapshot` 一致：应用对同一个输入框 `restartInput` 时会不经 `onFinishInputView` 直接走到这里，原先预览会跳回保存值，按「完成」什么也存不下。片段键加上 `touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_keyboard_height_adjustment`、`touch_voice_shortcut`、`touch_number_keypad_order`，`onCreate` 读到片段时调 `applyTouchGeometry(hint)`。`check-host.sh` 另加一条守卫，覆盖 `if (live) applyTouchGeometry(preferences);`、`applyTouchGeometry(hint);` 和这些片段键；把 `if (live)` 去掉后它会报错。
 - `horizontalCandidateScroll` 关掉横向滚动条，和 `nineKeySpellingScroll` 一致。
+
+- #11006 的四项显示选择由独立的 `ImeCandidateDisplayPreferences` 接入：进框时只接受 `LIVE`，出厂副本不覆盖已有值。会话销毁继续清空资源可用性、读音结果和翻译路由，但保留显示开关；不改出厂默认值和缺字段时的读取规则。
+- 皮肤片段白名单增加这四个字段，冷启动时在实时偏好返回前恢复显示选择。旧片段没有字段时保留字段初值，实时偏好到来后照常更新。缓存仍只保存展示字段，不保存翻译凭据。
+- `CandidateDisplayPreferenceDeviceChecks` 在真实服务实例上覆盖实时选择、会话销毁、完整出厂副本入口、缓存恢复和后续实时修改，并比较副本应用前后的候选区域测量高度。它接入既有工具栏设备套件，由 `check-host.sh` 编译；本轮不执行设备验收，不新增源码 grep。
 
 ## Alternatives considered
 
@@ -32,6 +38,7 @@ Status: implemented
 
 ## Consequences
 
+- **#11006 的收益与限制**：换框和会话销毁不再覆盖候选显示选择；显示设置仍能通过实时偏好更新。缓存多出四项展示字段，旧缓存要等实时偏好返回后才获得它们。本轮只补代码与行为用例并编译设备测试，没有执行设备测试，也没有报告者环境复验，不能把候选区高度稳定的断言写成已经实测通过。
 - **收益**：新输入框里的候选条从第一帧起就是用户的配色和字号，与键盘皮肤一致；实时读取失败时也不再出现出厂薄荷底。
 - **代价**：片段文件多了候选条字段，老片段在下次读到实时偏好时重写一次。老片段没有 `candidate_theme`，按 `follow` 算，用户单独给候选条指定了明暗时，升级后第一次冷启动的第一帧可能与之不符，实时偏好到了即纠正。
 - **未覆盖**：没有在真机上复现验证，只有 `check-host.sh` 的契约守卫与 JVM 冒烟。灰线是滚动条这一点是读代码得出的，没有在设备上对照。

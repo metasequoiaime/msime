@@ -50,11 +50,13 @@ public:
   void stop();
 private:
   static LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
+  bool capture(HWND);
   ClipboardHistory &history_;
   Callback callback_;
   void *window_ = nullptr;
   HANDLE change_event_ = nullptr;
   unsigned long sequence_ = 0;
+  unsigned int capture_attempts_ = 0;
 };
 #endif
 } // namespace msime::windows

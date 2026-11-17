@@ -138,13 +138,18 @@ int main() {
       assert(settings);
       auto decoded = CandidateLayoutSettings::decode(settings->encode());
       assert(decoded.horizontal == horizontal &&
-             decoded.show_preedit == preedit);
+             decoded.show_preedit == preedit && decoded.show_preedit_area);
     }
+    const auto hidden_area = candidate_layout_settings(
+        {{"candidate_preedit_style", "pinyin"}, {"show_candidate_preedit_area", false}});
+    assert(hidden_area && hidden_area->show_preedit && !hidden_area->show_preedit_area);
+    assert(!CandidateLayoutSettings::decode(hidden_area->encode()).show_preedit_area);
   }
   for (auto invalid : {nlohmann::json{{"candidate_layout", "diagonal"}},
                        nlohmann::json{{"candidate_layout", 2}},
                        nlohmann::json{{"candidate_preedit_style", "raw"}},
                        nlohmann::json{{"candidate_preedit_style", nullptr}},
+                       nlohmann::json{{"show_candidate_preedit_area", "false"}},
                        nlohmann::json::array()})
     assert(!candidate_layout_settings(invalid));
   CandidateCardInput input;

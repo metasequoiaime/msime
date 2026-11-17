@@ -5,6 +5,7 @@
 #include "Private.h"
 #include "Globals.h"
 #include "MetasequoiaIME.h"
+#include "../Global/CandidateUiModePolicy.h"
 #include "quick_phrase_cursor_pipe.h"
 #include "QuickPhraseCursorReply.h"
 #include "ipc_negotiation.h"
@@ -32,6 +33,7 @@
 #include "../Utils/PerfTimer.h"
 #include "../HostConfiguration.h"
 #include "../ModulePath.h"
+#include "../TsfHostImports.h"
 // The TSF sources use the Windows SDK max macro under MSVC; the Engine contract calls std::numeric_limits<...>::max(), which that macro would rewrite.
 #pragma push_macro("max")
 #undef max
@@ -1527,6 +1529,9 @@ STDAPI_(ULONG) CMetasequoiaIME::Release()
 
 STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClientId, DWORD dwFlags)
 {
+    const HRESULT hostImports = msime::tsf::LoadHostImports();
+    if (FAILED(hostImports)) return hostImports;
+
     try {
         _crashCapture = std::make_unique<msime::tsf::TsfCrashCapture>();
     } catch (...) {
@@ -1541,6 +1546,17 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
 
     _tfClientId = tfClientId;
     _dwActivateFlags = dwFlags;
+    // TF_TMF_IMMERSIVEMODE 不是 ActivateEx 的输入标志，只能从 ThreadMgr 的运行时状态读取。
+    if (ITfThreadMgrEx *pThreadMgrEx = nullptr;
+        SUCCEEDED(_pThreadMgr->QueryInterface(IID_ITfThreadMgrEx, (void **)&pThreadMgrEx)))
+    {
+        DWORD activeFlags = 0;
+        if (SUCCEEDED(pThreadMgrEx->GetActiveFlags(&activeFlags)))
+        {
+            _dwActivateFlags |= activeFlags & TF_TMF_IMMERSIVEMODE;
+        }
+        pThreadMgrEx->Release();
+    }
     // 进程名要早于下面的游戏候选窗判定。改用 GetModuleFileNameW，不再像 CommonUtils 的 GetCurrentProcessName 那样对自身开一个带 PROCESS_VM_READ 的句柄。
     {
         const std::wstring modulePath = msime::tsf::ReadModulePath(
@@ -1566,7 +1582,8 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
         Global::GameOverlayDecision = std::move(decision);
     }
     // 强制叠加时不报 UILess：ClientActivated 的 keycode 为 0，Server 不锁存 UILess，也不抑制显示。
-    Global::HostUiLessMode = !Global::ForceOverlayCandidate && _IsUiLessMode();
+    Global::HostUiLessMode = Global::ShouldReportHostUiLess(_IsUiLessMode() != FALSE, _IsStoreAppMode() != FALSE,
+                                                            Global::ForceOverlayCandidate);
     Global::CandidateUiLessMode = false;
     if (Global::ForceOverlayCandidate)
     {
@@ -1692,7 +1709,8 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
         goto ExitError;
     }
 
-    Global::CapsLockEnabled.store((GetKeyState(VK_CAPITAL) & 0x0001) != 0, std::memory_order_relaxed);
+    Global::CapsLockEnabled.store(msime::input::caps_lock_enabled_from_key_state(GetKeyState(VK_CAPITAL)),
+                                  std::memory_order_relaxed);
 
     // Apply configured default CN/EN whenever switching back to this IME
     _pCompositionProcessorEngine->InitializeMetasequoiaIMECompartment(pThreadMgr, tfClientId);
@@ -3210,7 +3228,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
         pIME->_ConsumeCandidateContinuationFailure();
         break;
     case WM_ApplyCapsLockEdge:
-        pIME->_ApplyCapsLockEdge((GetKeyState(VK_CAPITAL) & 0x0001) != 0);
+        pIME->_ApplyCapsLockEdge(msime::input::caps_lock_enabled_from_key_state(GetKeyState(VK_CAPITAL)));
         break;
     case WM_HostOnlineCandidates:
         pIME->_DispatchServerText(wParam, FUNCTION_HOST_ONLINE_CANDIDATES);

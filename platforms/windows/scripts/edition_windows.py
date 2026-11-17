@@ -13,7 +13,7 @@ full 和其他版本一样有自己的一组 Windows 身份：名字后缀是 `.
 用法：
 
     edition_windows.py gen [--check]                 # 重新生成上面两个文件；--check 只比较，有差异时以非零状态退出
-    edition_windows.py editions                      # 有 Windows 段的版本 id，逗号分隔，full 在最前
+    edition_windows.py editions [--selection full|all] [--json]  # 默认列出全部 Windows 版本，可选 full 或 JSON 数组
     edition_windows.py field --edition ID KEY        # 打印 Windows 段的字段，或 id、display_name.zh-Hans/en、default_scheme、arm64_host_dll
     edition_windows.py marker --edition ID --output edition.json   # Server 目录里的版本声明，每个版本（包括 full）都写
     edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def [--arm64]
@@ -418,7 +418,9 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     generate = commands.add_parser("gen")
     generate.add_argument("--check", action="store_true")
-    commands.add_parser("editions")
+    editions = commands.add_parser("editions")
+    editions.add_argument("--selection", choices=["full", "all"], default="all")
+    editions.add_argument("--json", action="store_true")
     guide = commands.add_parser("download-guide")
     guide.add_argument("--editions", required=True)
     guide.add_argument("--version", required=True)
@@ -439,7 +441,8 @@ def main() -> int:
     if args.command == "gen":
         return gen(args.check)
     if args.command == "editions":
-        print(",".join(entry["id"] for entry in windows_editions()))
+        selected = [entry["id"] for entry in windows_editions() if args.selection == "all" or entry["id"] == FULL]
+        print(json.dumps(selected) if args.json else ",".join(selected))
         return 0
     if args.command == "download-guide":
         sys.stdout.write(download_guide(args.editions.split(","), args.version, args.download_base, args.prerelease))

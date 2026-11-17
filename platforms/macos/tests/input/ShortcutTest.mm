@@ -65,12 +65,12 @@ static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL
 #import "GlobalVoiceScopeMenuRoutingFixture.h"
 
 static void CheckMenu(NSMenu *menu, id controller) {
-    // "" is a separator and "*" a submenu row, the scheme and the theme, whose action AppKit sets to submenuAction:.
+    // 空串表示分隔线，星号表示方案和主题子菜单，AppKit 将其 action 设为 submenuAction:。
     NSArray<NSString *> *actions = @[
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"toggleTraditionalOutput:", @"toggleFullWidthInput:", @"toggleChinesePunctuation:", @"toggleCandidateTranslations:", @"",
         @"*", @"*", @"",
-        @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:",
+        @"toggleFloatingToolbar:", @"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showDictionaryGroups:", @"showScreenKeyboard:", @"showHandwriting:",
         @"showVoicePanel", @"*", @"", @"showAppearance:", @"showAbout:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
@@ -141,6 +141,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic, copy) NSDictionary *fixtureView;
 @property(nonatomic) NSUInteger settledRerankCalls;
+@property(nonatomic) NSUInteger finishPauseRerankCalls;
+@property(nonatomic) NSUInteger finishCallsAtSelect;
 @property(nonatomic) NSUInteger rawCommitCalls;
 @property(nonatomic) NSUInteger commandCalls;
 @property(nonatomic, copy) NSDictionary *rawTransition;
@@ -213,6 +215,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
     (void)token; (void)accept; (void)error;
     return @{@"status":@"done", @"moved":@NO, @"current":@YES};
 }
+// 空格和组字中的标点上屏前调它；这个会话没有延后到停顿的模型，回答什么都没做。
+- (NSDictionary *)finishPauseRerankWithError:(NSError **)error {
+    (void)error; ++self.finishPauseRerankCalls; return @{@"status":@"none", @"deferred":@NO};
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
@@ -249,6 +255,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 }
 - (NSDictionary *)selectGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error {
     (void)error; ++self.selectCalls; self.selectedGeneration = generation; self.selectedIndex = index;
+    self.finishCallsAtSelect = self.finishPauseRerankCalls;
     [self recordCall:@"select"];
     return nil;
 }
@@ -2054,6 +2061,13 @@ static void TestPairedPunctuationClosesBrace() {
     [controller apply:@{ @"commit": @"a", @"view": idle }];
     assert([client.committed isEqual:@"a}"] && [client.document isEqual:@"{a}"]);
     client.selection = NSMakeRange(2, 0);
+    // 已补右标点时，普通字母也不应同步读取应用文档；按键仍逐个交给会话。
+    const NSUInteger readsBeforeOrdinary = client.documentReads;
+    const NSUInteger asciiBeforeOrdinary = session.asciiCalls;
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null, @"view": idle };
+    for (NSUInteger count = 0; count < 100; ++count) [controller handleEvent:letter client:client];
+    assert(client.documentReads == readsBeforeOrdinary && session.asciiCalls == asciiBeforeOrdinary + 100);
+    session.nextTransition = nil;
     const NSUInteger asciiBeforeStep = session.asciiCalls;
     assert([controller handleEvent:closeBrace client:client]);
     assert(session.asciiCalls == asciiBeforeStep && [client.document isEqual:@"{a}"] && client.selection.location == 3);
@@ -2821,9 +2835,11 @@ static void TestSessionOptions() {
     assert([requested[@"phrase_preedit"] isEqual:@YES]);
     assert([requested[@"quick_phrase_candidates"] isEqual:@YES]);
     assert([requested[@"korean_romaja"] isEqual:@YES]);
-    // 原配置中的字段及嵌套对象保持原样，宿主额外声明三项运行时能力。
+    // 整句联想「增强」的模型延后到停顿，宿主在停顿时分片重解、上屏前做完；丢了这一项模型就回到每个字母键上同步跑。
+    assert([requested[@"pause_rerank"] isEqual:@YES]);
+    // 原配置中的字段及嵌套对象保持原样，宿主额外声明四项运行时能力。
     for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
-    assert(requested.count == file.count + 3);
+    assert(requested.count == file.count + 4);
     // 不修改调用方的字典，原配置仍供其他读取方使用。
     assert(!file[@"phrase_preedit"]);
     assert(!file[@"korean_romaja"]);
@@ -2834,18 +2850,19 @@ static void TestSessionOptions() {
     assert([stale[@"phrase_preedit"] isEqual:@YES]);
     assert([stale[@"quick_phrase_candidates"] isEqual:@YES]);
     assert([stale[@"korean_romaja"] isEqual:@YES]);
+    assert([MSIMESessionOptions(@{@"api_version":@1, @"pause_rerank":@NO}, nil)[@"pause_rerank"] isEqual:@YES]);
 
     // The built-in sound packs live in the bundle, while resources is EngineResources in Application Support, so the host library cannot find them beside it: the bundle's directory is named, unless the options file names one itself.
     NSDictionary *sounds = MSIMESessionOptions(file, @"/synthetic/bundle/Contents/Resources/sound-packs");
     assert([sounds[@"sound_packs"] isEqual:@"/synthetic/bundle/Contents/Resources/sound-packs"]);
-    assert(sounds.count == file.count + 4 && !file[@"sound_packs"]);
+    assert(sounds.count == file.count + 5 && !file[@"sound_packs"]);
     NSDictionary *named = MSIMESessionOptions(@{@"api_version":@1, @"sound_packs":@"/configured/sound-packs"}, @"/synthetic/sound-packs");
     assert([named[@"sound_packs"] isEqual:@"/configured/sound-packs"]);
 
     // 下载词库缺少辅助码时，会话从当前输入法包回退；原始配置继续供旧宿主读取。
     NSDictionary *helpcodes = MSIMESessionOptions(file, nil, @"/synthetic/bundle/Contents/Resources");
     assert([helpcodes[@"helpcode_fallback_resources"] isEqual:@"/synthetic/bundle/Contents/Resources"]);
-    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 4);
+    assert(!file[@"helpcode_fallback_resources"] && helpcodes.count == file.count + 5);
     assert(!MSIMESessionOptions(file, nil, @"relative/resources")[@"helpcode_fallback_resources"]);
     NSDictionary *explicitHelpcodes = MSIMESessionOptions(@{@"helpcode_fallback_resources":@"/configured/resources"},
         nil, @"/synthetic/bundle/Contents/Resources");
@@ -8952,6 +8969,28 @@ static void TestInputSourceModeReset() {
     monitoredSource = nil;
 }
 
+// 输入源通知可能早于或替代 IMK 的 deactivateServer:；切出时必须结束 Engine 上下文，切回首键再重新聚焦。
+static void TestInputSourceSwitchResetsFocusedSession() {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    [controller setValue:@NO forKey:@"focusPending"];
+    MSIMEFocusedController = controller;
+
+    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
+
+    assert(session.focusCalls == 1);
+    assert([session.calls isEqualToArray:@[ @"focus:0" ]]);
+    assert([(NSNumber *)[controller valueForKey:@"focusPending"] boolValue]);
+    NSDictionary *view = [controller valueForKey:@"view"];
+    assert(![view[@"focused"] boolValue]);
+
+    MSIMEFocusedController = nil;
+}
+
 // 系统输入源切换通知先于旧会话清理到达：正在组的字母必须原样上屏，不能被随后重置丢掉。
 static void TestRawCompositionCommitsBeforeInputSourceSwitch() {
     NSString *suite = [@"msime.source-switch-raw." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -8970,6 +9009,14 @@ static void TestRawCompositionCommitsBeforeInputSourceSwitch() {
     MSIMECommitRawCompositionBeforeInputSourceSwitch();
     assert(session.rawCommitCalls == 1 && [client.committed isEqualToString:@"msime"]);
     assert(![[controller valueForKey:@"view"][@"editing_text"] length]);
+    // 同一切出通知先交付原文，再失焦；结束上下文不能吞掉原文或重复提交。
+    MSIMEResetFocusedInputSessionBeforeInputSourceSwitch();
+    assert(([session.calls isEqualToArray:@[
+        [NSString stringWithFormat:@"command:%u", MSIME_COMMIT_RAW], @"focus:0"
+    ]]));
+    assert([(NSNumber *)[controller valueForKey:@"focusPending"] boolValue]);
+    MSIMECommitRawCompositionBeforeInputSourceSwitch();
+    assert(session.rawCommitCalls == 1 && [client.committed isEqualToString:@"msime"]);
     MSIMEFocusedController = nil;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -9504,22 +9551,22 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     TestGlobalVoiceScopeIMKRouting(controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert(menu.numberOfItems == 23);
+    assert(menu.numberOfItems == 24);
     assert([[menu itemAtIndex:12].title isEqual:@"悬浮工具栏"]);
-    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"云词库…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
-    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
+    NSArray<NSString *> *toolTitles = @[@"水杉表情面板…", @"云剪贴板…", @"云词库…", @"词库分组…", @"水杉屏幕键盘…", @"手写输入…", @"开始/结束语音输入"];
+    NSArray<NSString *> *toolActions = @[@"showEmoji:", @"showCloudClipboard:", @"showCloudDictionary:", @"showDictionaryGroups:", @"showScreenKeyboard:", @"showHandwriting:", @"showVoicePanel"];
     for (NSUInteger index = 0; index < toolTitles.count; ++index) {
         NSMenuItem *tool = [menu itemAtIndex:13 + index];
         assert([tool.title isEqual:toolTitles[index]] && tool.action == NSSelectorFromString(toolActions[index]));
     }
-    NSMenuItem *scope = [menu itemAtIndex:19];
+    NSMenuItem *scope = [menu itemAtIndex:20];
     assert([scope.title isEqual:@"语音快捷键范围"] && scope.submenu.numberOfItems == 2);
     for (NSMenuItem *choice in scope.submenu.itemArray) {
         assert(choice.target == controller && choice.action == NSSelectorFromString(@"selectGlobalVoiceScope:"));
     }
-    assert([menu itemAtIndex:20].separatorItem);
-    assert([[menu itemAtIndex:21].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:21].action == @selector(showAppearance:));
-    assert([[menu itemAtIndex:22].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:22].action == @selector(showAbout:));
+    assert([menu itemAtIndex:21].separatorItem);
+    assert([[menu itemAtIndex:22].title isEqual:@"水杉输入法设置…"] && [menu itemAtIndex:22].action == @selector(showAppearance:));
+    assert([[menu itemAtIndex:23].title isEqual:@"关于水杉输入法…"] && [menu itemAtIndex:23].action == @selector(showAbout:));
     // Simplified output is the off state of the one 繁体输出 toggle.
     const BOOL traditionalOutput = appearance.traditionalOutput;
     appearance.traditionalOutput = NO;
@@ -16356,8 +16403,11 @@ int main(int argc, char **argv) {
         // block has already sent one ASCII 'A' through it, so an absolute asciiCalls == 0 here asserts
         // something about another test rather than about this key.
         NSUInteger asciiCallsBeforeKeyboard = session.asciiCalls;
+        // 数字键照用户看到的那一行上屏，不先做停顿重解：重解会把那一行换到别的座位上。
+        const NSUInteger finishesBeforeKeyboard = session.finishPauseRerankCalls;
         assert([controller handleEvent:candidateKey(18, @"1") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        assert(session.finishCallsAtSelect == finishesBeforeKeyboard);
         // Slot 3 has no button in the painted panel. The key is consumed rather than selecting anything or
         // falling through to Engine numeric input, which would type a literal 3 into the composition.
         assert([controller handleEvent:candidateKey(20, @"3") client:client]);
@@ -16373,6 +16423,8 @@ int main(int argc, char **argv) {
         [controller renderCandidates];
         assert([controller handleEvent:candidateKey(49, @" ") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 2 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        // 空格上屏高亮项之前先把停顿重解做完（msime_client_finish_pause_rerank），选的是做完之后画出的那一项。
+        assert(session.finishCallsAtSelect > finishesBeforeKeyboard);
         const NSEventModifierFlags deleteModifiers = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
         NSEvent *(^deleteEvent)(unsigned short, NSEventModifierFlags, BOOL) = ^NSEvent *(unsigned short code, NSEventModifierFlags modifiers, BOOL repeat) {
             return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:modifiers timestamp:0 windowNumber:0 context:nil characters:@"!" charactersIgnoringModifiers:@"!" isARepeat:repeat keyCode:code];
@@ -17530,6 +17582,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestApplicationInputModeRulesFollowSharedDocument(); }
         @autoreleasepool { TestApplicationInputModeRuleEditsKeepDocumentTable(); }
         @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestInputSourceSwitchResetsFocusedSession(); }
         @autoreleasepool { TestRawCompositionCommitsBeforeInputSourceSwitch(); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(NO); }
         @autoreleasepool { TestTemporaryJapaneseLongVowelThroughRealSession(YES); }
