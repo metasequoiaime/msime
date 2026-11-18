@@ -5856,6 +5856,22 @@ group("keeps candidate source badges bounded to known Engine sources", () => {
       JSON.stringify([1, 2, 4]),
     "visible positions map back to Engine indexes",
   );
+  const rows = [
+    { id: { session: 7, generation: 42, index: 10 }, source: 15 },
+    { id: { session: 7, generation: 42, index: 11 }, source: 0 },
+    { id: { session: 7, generation: 42, index: 12 }, source: 2 },
+  ];
+  const visible = CandidatePresentationPolicy.visibleIndices(rows.map((row) => row.source));
+  check(CandidatePresentationPolicy.identityAt(rows, visible, 0, 7)?.index === 11,
+    "隐藏行之后的第二页首个候选仍使用全列表序号");
+  check(CandidatePresentationPolicy.identityAt(rows, visible, 1, 7)?.generation === 42 &&
+    CandidatePresentationPolicy.identityAt(rows, visible, 1, 7)?.index === 12,
+    "每次操作带上选中行的代次和全列表序号");
+  check(CandidatePresentationPolicy.identityAt(rows, visible, 2, 7) === null &&
+    CandidatePresentationPolicy.identityAt(rows, visible, 0, 8) === null &&
+    CandidatePresentationPolicy.identityAt(rows, visible, -1, 7) === null,
+    "越界和不属于当前会话的候选不能提交");
+
 });
 
 group("offers all fixed candidate slots and checks the active one", () => {
