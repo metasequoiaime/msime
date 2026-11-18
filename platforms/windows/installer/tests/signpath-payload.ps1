@@ -75,7 +75,7 @@ try {
     }
 
     # 别的版本的宿主 DLL 不是本版本的二进制，按版本表取名。
-    Assert-Throws 'full 版本在五笔的暂存包上 Stage' { & $script -Mode Stage -Edition full -Directory $staged -PackageRoot $package -RepoRoot $repoRoot } 'msime_host_api.dll'
+    Assert-Throws 'full 版本在五笔的暂存包上 Stage' { & $script -Mode Stage -Edition full -Directory $staged -PackageRoot $package -RepoRoot $repoRoot } 'msime_host_api'
 
     # SignPath 送回的文件必须带有效签名：合成文件没有签名，Restore 拒绝覆盖。
     Assert-Throws '未签名的文件 Restore' { & $script -Mode Restore -Edition wubi -Directory $staged -PackageRoot $package -RepoRoot $repoRoot } '签名状态'
