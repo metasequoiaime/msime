@@ -1,4 +1,7 @@
+import { TouchShuangpinPanel } from './TouchShuangpinPanel';
+import { CustomShuangpinPanel } from './CustomShuangpinPanel';
 import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
+import { KeyboardLetterWidthsPanel } from './KeyboardLetterWidthsPanel';
 import { NineKeyFlickPanel } from './NineKeyFlickPanel';
 import { StatisticsAuthentication } from '../keyboard/settings/StatisticsAuthentication';
 import { ScreenCaptureAuthentication } from '../keyboard/settings/ScreenCaptureAuthentication';
@@ -669,6 +672,13 @@ struct Settings {
   // 隐私政策的授权弹窗。`privacyGranted` 是当前版本是否已同意，从「隐私」页重新打开时弹窗据此多显示一句撤回的说明。
   @State privacyGranted: boolean = false;
   @State private showDictionaryGroups: boolean = false;
+  @State private showKeyboardLetterWidths: boolean = false;
+  @State private keyboardLetterWidthsRefresh: number = 0;
+  @State private showShuangpin: boolean = false;
+  @State private nativeForegroundRevision: number = 0;
+  @State private showCustomShuangpin: boolean = false;
+  @State private customRefresh: number = 0;
+  @State private customBackRequest: number = 0;
   @State private showNineKeyFlick: boolean = false;
   @State private flickRefresh: number = 0;
   // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
@@ -703,6 +713,7 @@ struct Settings {
   private noticeRequest: number = 0;
 
   aboutToAppear(): void {
+    this.privacyGranted = HarmonyPrivacyConsent.networkAllowed();
     this.bridge.attach(this.context);
     this.bridge.uiContext = this.getUIContext();
     this.bridge.onInputMethodPicker = (): void => this.inputMethodDialog.open();
@@ -727,6 +738,9 @@ struct Settings {
     this.bridge.watchSetup();
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
+      this.keyboardLetterWidthsRefresh++;
+      this.nativeForegroundRevision++;
+      this.customRefresh++;
       this.bridge.resumeStatistics();
       this.bridge.syncShared();
       this.bridge.refreshPreferencesIfChanged();
@@ -742,6 +756,7 @@ struct Settings {
       this.bridge.publishShared();
     };
     EntryAbility.onOpenPage = (link: SettingsLinkRequest): void => {
+      if (this.showShuangpin) this.closeShuangpin();
       if (this.showNineKeyFlick) this.closeNineKeyFlick();
       this.bridge.openPage(link);
     };
@@ -772,13 +787,35 @@ struct Settings {
     this.loadNotices();
   }
 
+  private closeShuangpin(): void {
+    this.showShuangpin = false;
+    this.bridge.refreshPreferencesIfChanged(true);
+  }
+
   private closeNineKeyFlick(): void {
     this.showNineKeyFlick = false;
     this.bridge.refreshPreferencesIfChanged(true);
   }
 
+  private closeKeyboardLetterWidths(): void {
+    this.showKeyboardLetterWidths = false;
+    this.bridge.refreshPreferencesIfChanged(true);
+  }
+
   /** 系统返回先退出原生面板，再走已有页面历史；无处可退时交给系统。 */
   onBackPress(): boolean {
+    if (this.showKeyboardLetterWidths) {
+      this.closeKeyboardLetterWidths();
+      return true;
+    }
+    if (this.showShuangpin) {
+      this.closeShuangpin();
+      return true;
+    }
+    if (this.showCustomShuangpin) {
+      this.customBackRequest++;
+      return true;
+    }
     if (this.showNineKeyFlick) {
       this.closeNineKeyFlick();
       return true;
@@ -946,8 +983,10 @@ struct Settings {
     Stack() {
     Column() {
       if (!this.launchCover && !this.privacyRequired) {
-      Row() {
-        Blank()
+      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
+        Button('键盘布局').onClick((): void => { this.showKeyboardLetterWidths = true; })
+        Button('双拼方案').onClick((): void => { this.showShuangpin = true; })
+        Button('自定义双拼').onClick((): void => { this.showCustomShuangpin = true; })
         Button('九键四向滑动').onClick((): void => { this.showNineKeyFlick = true; })
         if (this.privacyGranted) {
           Button('词库分组').onClick((): void => { this.showDictionaryGroups = true; })
@@ -1004,13 +1043,48 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
-    .visibility(this.showDictionaryGroups || this.showNineKeyFlick ? Visibility.None : Visibility.Visible)
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin ? Visibility.None : Visibility.Visible)
+    if (this.showShuangpin) {
+      TouchShuangpinPanel({
+        bridge: {
+          loadPreferences: (): string => this.bridge.loadPreferences(),
+          savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+          plan: (request: string): string => client.touchShuangpinSettings(request)
+        },
+        foregroundRevision: this.nativeForegroundRevision,
+        back: (): void => this.closeShuangpin()
+      })
+    }
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
+    if (this.showCustomShuangpin) {
+      CustomShuangpinPanel({
+        bridge: {
+          load: (): string => this.bridge.loadPreferences(),
+          save: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+          plan: (request: string): string => client.customShuangpinSettings(request)
+        },
+        refresh: this.customRefresh,
+        backRequest: this.customBackRequest,
+        back: (): void => {
+          this.showCustomShuangpin = false;
+          this.bridge.refreshPreferencesIfChanged(true);
+        }
+      })
+    }
     if (this.showNineKeyFlick) {
       NineKeyFlickPanel({
         loadPreferences: (): string => this.bridge.loadPreferences(),
         savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
         refresh: this.flickRefresh,
         back: (): void => this.closeNineKeyFlick()
+      })
+    }
+    if (this.showKeyboardLetterWidths) {
+      KeyboardLetterWidthsPanel({
+        loadPreferences: (): string => this.bridge.loadPreferences(),
+        savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+        refresh: this.keyboardLetterWidthsRefresh,
+        back: (): void => this.closeKeyboardLetterWidths()
       })
     }
     if (this.showDictionaryGroups) {

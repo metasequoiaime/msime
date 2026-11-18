@@ -7,6 +7,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -23,7 +24,7 @@ import java.util.List;
 /**
  * 功能菜单：横向分页的条目，下方页点。每页四列，行数见 {@link #setPhoneLandscape}：手机竖屏和平板三行，手机横屏两行；网格按面板量到的高度排（{@link PagedTileGrid#setPickerFit}），放不下原尺寸时磁贴整体缩小，不让面板竖向滚动。
  *
- * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。条目比 52 dp 矮时（{@link PagedTileGrid#pickerGrid} 缩小了磁贴），图标区、图标、字形框、文字、间距和勾标按同一比例缩小，点按区域仍是整个格子。
+ * <p>条目没有底色：30 dp 图标区与常规字重标签，间距 7 dp，条目高 52 dp。字形条目画方框。开启状态用强调色和图标右下角的勾标表达。磁贴变矮或大字体的完整字形放不下时，图标区、图标、字形框、文字、间距和勾标按同一比例缩小，点按区域仍是整个格子。
  *
  * <p>这个视图**不设置 alpha**：不可用状态的视觉由调用方经 SVC 的 `applyToolCardState` 处理，这里只把状态写进 stateDescription（已开启 / 已关闭 / 不可用）和 `isSelected()`。颜色全部由调用方从皮肤传入。
  */
@@ -178,6 +179,7 @@ public final class FunctionPanelView extends LinearLayout {
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
+        private final Rect labelInk = new Rect();
         private String fittedLabel;
         private String fittedLabelSource;
         private float fittedLabelWidth = Float.NaN;
@@ -230,12 +232,6 @@ public final class FunctionPanelView extends LinearLayout {
             if (changed) invalidate();
         }
 
-        /** 条目比原尺寸矮时的缩放比例：网格按面板高度缩小磁贴（{@link PagedTileGrid#pickerGrid}），条目里的各个尺寸乘同一个比例。 */
-        private float scale() {
-            float full = DimensionPolicy.floatPixels(getContext(), ITEM_HEIGHT_DP);
-            return getHeight() <= 0 || full <= 0 ? 1f : BoundsPolicy.bounded(getHeight() / full, 0f, 1f);
-        }
-
         /** 缩放后的 dp 换成像素。 */
         private float scaled(float dp, float scale) {
             return DimensionPolicy.floatPixels(getContext(), dp) * scale;
@@ -251,14 +247,20 @@ public final class FunctionPanelView extends LinearLayout {
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = ColorPolicy.withAlpha(color,
                 Color.alpha(color) * PRESSED_ALPHA / 255);
-            float scale = scale();
+            configureLabelPaint(1f);
+            Paint.FontMetrics natural = textPaint.getFontMetrics();
+            String labelText = TextPolicy.emptyIfNull(entry.label);
+            textPaint.getTextBounds(labelText, 0, labelText.length(), labelInk);
+            FunctionTileGeometry.Layout layout = FunctionTileGeometry.layout(getHeight(),
+                DimensionPolicy.floatPixels(getContext(), ITEM_HEIGHT_DP),
+                DimensionPolicy.floatPixels(getContext(), ICON_AREA_DP),
+                DimensionPolicy.floatPixels(getContext(), LABEL_GAP_DP),
+                natural.ascent, natural.descent,
+                Math.min(natural.top, labelInk.top), Math.max(natural.bottom, labelInk.bottom));
+            float scale = layout.scale();
             configureLabelPaint(scale);
-            Paint.FontMetrics label = textPaint.getFontMetrics();
-            float labelHeight = label.descent - label.ascent;
             float area = scaled(ICON_AREA_DP, scale);
-            float labelGap = scaled(LABEL_GAP_DP, scale);
-            float total = area + labelGap + labelHeight;
-            float top = BoundsPolicy.nonNegative((getHeight() - total) / 2f);
+            float top = layout.top();
             float centerX = getWidth() / 2f;
             float iconCenterY = top + area / 2f;
             float iconRight;
@@ -294,7 +296,7 @@ public final class FunctionPanelView extends LinearLayout {
             }
             if (on) drawBadge(canvas, iconRight, iconBottom, scale);
             textPaint.setColor(color);
-            float baseline = top + area + labelGap - label.ascent;
+            float baseline = layout.labelBaseline();
             canvas.drawText(fit(entry.label, getWidth()), centerX, baseline, textPaint);
         }
 

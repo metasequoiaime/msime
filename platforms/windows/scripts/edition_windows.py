@@ -16,7 +16,7 @@ full 和其他版本一样有自己的一组 Windows 身份：名字后缀是 `.
     edition_windows.py editions [--selection full|all] [--json]  # 默认列出全部 Windows 版本，可选 full 或 JSON 数组
     edition_windows.py field --edition ID KEY        # 打印 Windows 段的字段，或 id、display_name.zh-Hans/en、default_scheme、arm64_host_dll
     edition_windows.py marker --edition ID --output edition.json   # Server 目录里的版本声明，每个版本（包括 full）都写
-    edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def [--arm64]
+    edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def [--arm64] [--module-name NAME]
                                                      # 按 DLL 的导出表写出改名用的模块定义文件，交给 lib.exe /DEF 或 dlltool 生成同名导入库；--arm64 用 ARM64 宿主的名字（见 arm64_host_dll）
     edition_windows.py download-guide --editions full,wubi,... --version X.Y.Z --download-base URL/ [--prerelease]
                                                      # 发布说明开头的下载指引（release-windows.yml 的 publish 步骤）
@@ -362,10 +362,10 @@ def arm64_host_dll(host_dll: str) -> str:
     return f"{stem}_arm64.{extension}"
 
 
-def host_def(edition_id: str, dll: pathlib.Path, arm64: bool = False) -> str:
+def host_def(edition_id: str, dll: pathlib.Path, arm64: bool = False, module_name: str | None = None) -> str:
     """把 msime-host-api 的 DLL 改成本版本的名字（版本表 `host_dll`，`arm64` 时是 `arm64_host_dll` 的名字）时用的模块定义文件。导出的函数与原 DLL 一个不差，只换模块名；拿它生成的导入库让 TSF DLL、Server 和设置窗口按新名字加载。"""
-    name = edition_entry(edition_id)["platforms"]["windows"]["host_dll"]
-    if arm64:
+    name = module_name or edition_entry(edition_id)["platforms"]["windows"]["host_dll"]
+    if arm64 and module_name is None:
         name = arm64_host_dll(name)
     exports = pe_exports(dll.read_bytes())
     if not exports:
@@ -436,6 +436,7 @@ def main() -> int:
         if name == "host-def":
             command.add_argument("--dll", type=pathlib.Path, required=True)
             command.add_argument("--arm64", action="store_true")
+            command.add_argument("--module-name")
     args = parser.parse_args()
 
     if args.command == "gen":
@@ -451,7 +452,7 @@ def main() -> int:
         print(field(edition_entry(args.edition), args.key))
         return 0
     if args.command == "host-def":
-        args.output.write_text(host_def(args.edition, args.dll, args.arm64), encoding="utf-8", newline="\n")
+        args.output.write_text(host_def(args.edition, args.dll, args.arm64, args.module_name), encoding="utf-8", newline="\n")
         return 0
     if args.command == "marker":
         args.output.write_text(marker(args.edition), encoding="utf-8", newline="\n")

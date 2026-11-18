@@ -43,6 +43,8 @@ jobs:
     # full 和拼音版打瘦包（build-apk.sh 的 MSIME_ANDROID_OMIT_ON_DEMAND）：日文词典、五笔码表、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进 APK，由应用在用户需要时作为资源包下载。日文版的主词库就是日文词典，五笔版的默认方案离不开五笔码表，其余版本没有这些附加资源，照旧按自己的资源锁打包。
     env:
       MSIME_ANDROID_OMIT_ON_DEMAND: "${{ (matrix.edition == 'full' || matrix.edition == 'pinyin') && '1' || '0' }}"
+      # Gradle 对 429、5xx 默认只再试两次（等 1、2 秒），随后在这次构建里停用整个仓库；改成一共六次、从 5 秒起每次翻倍（5、10、20、40、80 秒）。只有 repository 这一组属性管依赖下载的重试，network.retry 那组对 429 不起作用。这是 Gradle 的内部属性，升级 Gradle wrapper 时要核对它们仍然生效，做法见 .agents/notes/implemented/process/2026-11-18-android-gradle-download-retry.md。
+      GRADLE_OPTS: -Dorg.gradle.internal.repository.max.tentatives=6 -Dorg.gradle.internal.repository.initial.backoff=5000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
@@ -80,6 +82,9 @@ jobs:
           set -euo pipefail
           bash platforms/windows/bootstrap-vcpkg.sh
           bash scripts/rustup-install.sh aarch64-linux-android
+      # 先把 AGP 和它的依赖下载好：Maven Central 限流（429）时只重来这一步，不碰下一步才解出的签名密钥。Release Android 0.8.3（run 44252182195）就是五笔版在下一步的 Gradle 配置阶段吃了 429，fail-fast 取消了其余五个版本。
+      - name: Resolve the Gradle build classpath
+        run: bash platforms/android/resolve-gradle-classpath.sh
       - name: Build native Android host
         # 正式版、beta、nightly 和 publish=false 的构建一律用仓库 secrets 里的发布密钥签名（与 platforms/android/scripts/signing.sh 同一规则）：六个版本、各次 nightly 和正式包证书相同，可以互相覆盖安装。每个矩阵 job 自己从 secret 解出密钥放进 $RUNNER_TEMP，用完即删；密钥不经 workflow artifact 或缓存在 job 之间传递。
         env:

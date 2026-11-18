@@ -8891,6 +8891,10 @@ static void TestInputSourceModeReset() {
     MSIMEInputSourceMonitor *monitor = [[MSIMEInputSourceMonitor alloc] initWithCenter:center bundleIdentifier:own
         copySource:CopyMonitoredSource propertyGetter:MonitoredSourceProperty switchedAway:^{ assert(NSThread.isMainThread); ++resets; [prefs resetRememberedInputModes]; }];
     assert(monitor);
+    NSString *logRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"msime-source-log-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:logRoot withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0700} error:nil]);
+    NSString *logPath = [logRoot stringByAppendingPathComponent:@"diagnostic.log"];
+    msime_macos_diagnostic_configure(logRoot.fileSystemRepresentation, true);
     for (NSDictionary *source in @[@{}, @{sourceKey:@42}, @{bundleKey:own}, @{sourceKey:own},
                                    @{sourceKey:[own stringByAppendingString:@".mode"]}]) {
         monitoredSource = source;
@@ -8909,6 +8913,15 @@ static void TestInputSourceModeReset() {
         [center postNotificationName:notification object:nil];
         assert(resets == beforeResets + 1 && !prefs.englishMode && saves == beforeSaves);
     }
+    msime_macos_diagnostic_configure(logRoot.fileSystemRepresentation, false);
+    // Only switches away are written, each naming the source that took over: its input source ID, or the bundle when the source has no ID. Unknown sources and this method's own modes write nothing.
+    NSString *switchLog = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    NSArray<NSString *> *switchLines = [[switchLog componentsSeparatedByString:@"\n"] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    assert(switchLines.count == 3);
+    assert([switchLines[0] hasSuffix:@"] input_source switched_away to=org.example.other-input"]);
+    assert([switchLines[1] hasSuffix:@"] input_source switched_away to=com.apple.keylayout.US"]);
+    assert([switchLines[2] hasSuffix:[@"] input_source switched_away to=" stringByAppendingString:[own stringByAppendingString:@"-other"]]]);
+    [NSFileManager.defaultManager removeItemAtPath:logRoot error:nil];
     prefs.defaultImeMode = @"english";
     prefs.englishMode = NO;
     [center postNotificationName:notification object:nil];

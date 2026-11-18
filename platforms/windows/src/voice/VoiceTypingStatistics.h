@@ -12,11 +12,11 @@ namespace msime::windows {
 inline uint64_t voice_statistics_milliseconds(std::size_t frames,
                                               std::size_t sample_rate) {
   if (sample_rate == 0 ||
-      sample_rate > std::numeric_limits<std::size_t>::max() / 600 ||
-      sample_rate > std::numeric_limits<uint64_t>::max() / 600'000)
+      sample_rate > (std::numeric_limits<std::size_t>::max)() / 600 ||
+      sample_rate > (std::numeric_limits<uint64_t>::max)() / 600'000)
     return 0;
   // 与共享 record_voice 的单次 10 分钟上限一致，先截帧数再乘，避免溢出。
-  return static_cast<uint64_t>(std::min(frames, sample_rate * 600)) * 1000 /
+  return static_cast<uint64_t>((std::min)(frames, sample_rate * 600)) * 1000 /
          sample_rate;
 }
 

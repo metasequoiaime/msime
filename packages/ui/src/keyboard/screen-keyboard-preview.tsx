@@ -349,18 +349,19 @@ export function ScreenKeyboardPreview({
         />
       )}
       {layoutRows.map((row, rowIndex) => {
-        const available = canvasWidth - inset * 2 - keyGap * (row.length - 1);
+        const pitch = row[0]?.letterPitch === true;
+        const available = canvasWidth - inset * 2 + (pitch ? keyGap : -keyGap * (row.length - 1));
         const total = row.reduce((sum, item) => sum + item.weight, 0);
         let x = inset;
         const rowY = rowsTop + rowIndex * (height + rowGap);
         return (
           <g data-keyboard-row={rowIndex} key={rowIndex}>
             {row.map((item, index) => {
-              const width = (available * item.weight) / total;
+              const slot = (available * item.weight) / total;
+              const width = slot - (pitch && item.label ? keyGap : 0);
               const left = x;
-              x += width + keyGap;
-              // An unlabelled entry is the half-key inset that centres the home row, not a key the
-              // user can press: it takes up its width and draws nothing.
+              x += pitch ? slot : width + keyGap;
+              // 占位只推进坐标；宽窄字母排按含键距的份额推进，不额外增加一份间距。
               if (!item.label) return null;
               // 跨两行的键（右侧大回车）高两行加一道行距，下一行在它下面留的是占位。
               const span = item.rowSpan ?? 1;
