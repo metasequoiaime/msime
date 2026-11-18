@@ -53,6 +53,8 @@ export const skinToolbarImageLayout: (request: string) => string;
 export const skinToolbarStylesheet: (request: string) => string;
 /** `{source,directory}` validates and atomically imports a picked skin folder off the UI thread. */
 export const skinImport: (request: string) => Promise<string>;
+/** 复制已打开的目录，原生层先复制 fd，后台逐级校验并暂存。 */
+export const stageSkinFolder: (sourceFd: number, destinationFd: number) => Promise<boolean>;
 /** 皮肤页「制作皮肤」，在工作线程上执行：`{operation:"check",package_id,manifest,files}` 回复扫描会列出的那一项；`{operation:"create",directory,package_id,manifest,files,replace}` 安装并回复 `{id,replaced}`。失败为 `{ok:false,error,detail?}`。 */
 export const candidateSkinEditor: (request: string) => Promise<string>;
 /**
