@@ -12396,14 +12396,14 @@ struct KeyboardView {
   @Builder
   keyboardStack() {
     Stack({ alignContent: Alignment.Top }) {
-      // On a desktop candidate window with a mascot the backdrop starts at the card's top edge: the band above it is transparent, so the mascot stands on the card rather than on a slab of keyboard colour.
+      // 电脑候选卡片自己画背景；触屏键盘的整幅底色和照片不能露在圆角之外。
       Column() {
         this.skinBackdrop()
       }
       .width('100%')
       .height('100%')
-      .opacity(KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.NONE
-        && this.settings.candidateCanvas !== null ? 0 : 1)
+      .opacity(CandidateDecorationLayout.keyboardBackdropVisible(KeyboardFormFactor.isDesktop(),
+        this.desktop === DesktopSurface.NONE) ? 1 : 0)
       .padding({ top: CandidateDecorationLayout.backdropInsetVp(KeyboardFormFactor.isDesktop(),
         this.settings.candidateDecorationImage !== null, this.settings.candidateDecorationTopVp,
         KeyboardMetrics.ROOT_VERTICAL_PADDING_VP) })
