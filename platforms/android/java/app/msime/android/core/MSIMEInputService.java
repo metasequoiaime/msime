@@ -69,6 +69,7 @@ import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
 import java.io.IOException;
@@ -2898,23 +2899,26 @@ public final class MSIMEInputService extends InputMethodService {
      * runtime-options.json 里的偏好是首次安装时写下的出厂默认（见 Bootstrap.prepare），拿它建会话，引擎先按默认方案（全拼 26 键）起来，过一两秒实时偏好重载后才换成用户的方案，九键用户每次都看到键盘从 26 键跳成九键。建会话前在工作线程上读一次实时偏好换进去；读不到时照旧用原来那份。不允许学习的输入框照样把 learning 关掉。
      */
     private EngineStartOptions withLivePreferences(String optionsText, boolean suppressLearning) {
+        JSONObject options = null;
         try {
-            JSONObject options = new JSONObject(optionsText);
+            options = new JSONObject(optionsText);
+            QuickPhrasePreferencePolicy.normalize(options.optJSONObject("preferences"));
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute())
-                return new EngineStartOptions(optionsText, null);
+                return new EngineStartOptions(options.toString(), null);
             // 读实时偏好之前把本机旧的长空格和数字行设置迁进共享偏好，这次会话就按迁移后的底行和数字行画。
             KeyLayoutStyleMigration.migrate(this, directory);
             String response = candidateSkinResolver.read(directory);
             JSONObject envelope = new JSONObject(response);
             JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
-            if (live == null) return new EngineStartOptions(optionsText, null);
+            if (live == null) return new EngineStartOptions(options.toString(), null);
+            QuickPhrasePreferencePolicy.normalize(live);
             if (suppressLearning) live.put("learning", false);
             options.put("preferences", live);
             return new EngineStartOptions(options.toString(), response);
         } catch (JSONException | RuntimeException | LinkageError error) {
-            return new EngineStartOptions(optionsText, null);
+            return new EngineStartOptions(options == null ? optionsText : options.toString(), null);
         }
     }
 
@@ -2932,6 +2936,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // Android 也声明快捷短语混输能力；是否加入普通候选仍由 shared `mixed_input.quick_phrase` 门控。
+            options.put("quick_phrase_candidates", true);
             // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
             options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
@@ -3917,6 +3923,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousAiCandidates = previousAiAssistant != null
             && previousAiAssistant.optBoolean("enabled", false);
         JSONObject accepted = new JSONObject(snapshot.toString());
+        QuickPhrasePreferencePolicy.normalize(accepted.optJSONObject("preferences"));
         long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
         if (revision < 0) throw new JSONException("Invalid preferences revision");
         accepted.put("revision", revision);
