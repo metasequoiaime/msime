@@ -469,6 +469,8 @@ if ! grep -qF 'SharedStateMirror.localFingerprints.fingerprint(' <<< "$fingerpri
   echo "Shared state fingerprints, the focus-time preference revision check and the snapshot queue pass and poll must skip work when nothing changed" >&2
   exit 1
 fi
+# Check scene replacement and late decode handling; the adapter cannot exercise ArkUI rendering.
+node "$here/candidate-live-view-refresh.test.cjs"
 # 候选皮肤位图在候选条放手后停放一份，同一套皮肤不再每个词重新解码；停放规则由 candidate-canvas-lease.test.ts 覆盖。解码器和扩展能力是 ArkTS，这里钉住接线：解码器经 CandidateCanvasLeaseCache 取用和放手，键盘收起、停止输入和销毁时 trim。
 frame_ets="$ets/keyboard/candidate/CandidateCanvasFrame.ets"
 hidden_body=$(sed -n '/^  private readonly keyboardHidden: () => void = (): void => {$/,/^  };$/p' "$ability_ets")
