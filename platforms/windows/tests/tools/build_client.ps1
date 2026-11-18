@@ -345,7 +345,7 @@ try {
     $wubiArm64Library = Join-Path $fixture 'target/windows-wubi/arm64/msime_host_api_wubi_arm64.dll.lib'
     if (@($libraries | Where-Object { $_.Values -contains "/OUT:$wubiArm64Library" -and $_.Values -contains '/MACHINE:ARM64' }).Count -ne 1 -or
         @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_TSF_ARM64X=ARM64' -and $_.Values -contains "-DMSIME_HOST_LIBRARY=$wubiArm64Library" -and $_.Values -contains '-DMSIME_EDITION=wubi' }).Count -ne 1 -or
-        @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_TSF_ARM64X=ARM64EC' -and $_.Values -contains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi.dll.lib')) }).Count -ne 1 -or
+        @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_TSF_ARM64X=ARM64EC' -and $_.Values -contains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi_tip.dll.lib')) -and $_.Values -contains ('-DMSIME_TSF_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi_tip.dll.lib')) }).Count -ne 1 -or
         @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture 'target/windows-wubi/arm64/bin/msime_host_api_wubi_arm64.dll') }).Count -ne 1) {
         throw 'Edition Arm64X TIP build mismatch'
     }
