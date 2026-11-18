@@ -72,6 +72,19 @@ export class CandidateCanvasPolicy {
   static readonly MAX_PIXELS: number = 8000000;
   static readonly ZERO: CandidateCanvasInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
+  /** 当前明暗模式所需的面板与挂件路径；加载和变更检查共用。 */
+  static resourcePaths(spec: CandidateCanvasSpec, dark: boolean): string[] {
+    const paths: string[] = [];
+    if (spec.borderImage !== undefined && spec.borderImage !== null) {
+      const border: CandidateCanvasBorder = spec.borderImage;
+      paths.push(!dark && border.lightSource ? border.lightSource : border.source);
+    }
+    for (const decoration of spec.decorations ?? []) {
+      if (!paths.includes(decoration.image)) paths.push(decoration.image);
+    }
+    return paths;
+  }
+
   static sides(
     values: number[] | null | undefined,
     fallback: CandidateCanvasInsets,
