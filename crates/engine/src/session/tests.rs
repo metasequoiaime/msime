@@ -15944,6 +15944,148 @@ fn wubi_run_mode_switch_keeps_counts() {
     );
 }
 
+/// once 模式：宿主 flush 组字（焦点移动、宿主自行插入文本前的收尾）同样关闭打开的累积段并落库，
+/// 不是只有「下一次五笔上屏」才关闭。
+#[test]
+fn wubi_run_once_mode_learns_when_the_host_flushes_the_composition() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
+    });
+    pick_wubi(&mut session, "abab", "甲乙");
+    pick_wubi(&mut session, "abab", "甲乙");
+    // 段还开着：不计数也不落库。
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+        ),
+        0
+    );
+    session.finish(0);
+    // 学成即清计数（`clear_pick_transition`），journal 里不留 transition 行。
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &fixture.main_db(),
+            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+        ),
+        1
+    );
+}
+
+/// once 模式：回车原文上屏（`CommitRaw`）同样关闭打开的累积段并落库，不是静默丢弃。
+#[test]
+fn wubi_run_once_mode_learns_when_enter_commits_the_raw_input() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
+    });
+    pick_wubi(&mut session, "abab", "甲乙");
+    pick_wubi(&mut session, "abab", "甲乙");
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+        ),
+        0
+    );
+    session.command(Command::CommitRaw);
+    // 学成即清计数（`clear_pick_transition`），journal 里不留 transition 行。
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &fixture.main_db(),
+            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+        ),
+        1
+    );
+}
+
+/// once 模式：会话被丢弃（换窗口、设置变更重建、宿主停用）时关闭打开的累积段再刷队列，
+/// 段不能跟着会话一起无声消失。
+#[test]
+fn wubi_run_once_mode_learns_when_the_session_ends() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Wubi;
+            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
+        });
+        pick_wubi(&mut session, "abab", "甲乙");
+        pick_wubi(&mut session, "abab", "甲乙");
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+            ),
+            0
+        );
+        drop(session);
+    }
+    // 学成即清计数（`clear_pick_transition`），journal 里不留 transition 行。
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &fixture.main_db(),
+            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+        ),
+        1
+    );
+}
+
+/// 凑三次模式：flush 关闭段时照常记一次计数、不满阈值不落库；三次分段（每次会话一段、各自
+/// flush 收尾）攒满即落库。
+#[test]
+fn wubi_run_thrice_mode_counts_partial_runs_closed_by_flush() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    for round in 1..=3 {
+        let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+        pick_wubi(&mut session, "abab", "甲乙");
+        pick_wubi(&mut session, "abab", "甲乙");
+        session.finish(0);
+        // 前两轮只记数不落库；第三轮学成即清计数。
+        let expected = if round == 3 { 0 } else { round };
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+        let expected = if round == 3 { 1 } else { 0 };
+        assert_eq!(
+            count(
+                &fixture.main_db(),
+                "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+    }
+}
+
 /// 置顶模式：学入词在各表的权重是同码已有行最大权重 + 1（86/98 各表独立算）；沉底默认仍是 ≤9 的低权重。
 #[test]
 fn wubi_run_top_placement_outranks_same_code_rows() {

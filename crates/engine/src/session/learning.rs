@@ -657,6 +657,21 @@ impl InputSession {
         }
     }
 
+    /// 组字与会话的关闭点（宿主 flush 组字、回车原文、无选中上屏、光标后编辑、上下文重置、会话
+    /// 丢弃）共用的收尾：打开的段是五笔段（`pieces` 非空且 `canonical_pinyin` 为空，与
+    /// `continues_wubi_run` 的判定一致）就关闭计数，凑满 [`Self::wubi_run_threshold`] 即落库；
+    /// 拼音 pick 原样放回，让调用方维持既有的丢弃语义。重复调用无副作用（段已空时直接返回）。
+    pub(super) fn close_open_wubi_run(&mut self) {
+        let Some(open) = self.chain.last_pick.take() else {
+            return;
+        };
+        if open.pieces.is_empty() || !open.canonical_pinyin.is_empty() {
+            self.chain.last_pick = Some(open);
+            return;
+        }
+        let _ = self.close_wubi_run(&open);
+    }
+
     /// 把一次五笔原生上屏记成累积段的一个片段（`commit.rs` 的 early-return 分支调用）：与上一片段
     /// 间隔 ≤10s、合并 ≤12 字且片段数 <8 就续段；否则先关闭上一段（凑满阈值即落库），再以本片段
     /// 开新段。无论哪条路都把新段写回 `chain.last_pick`。返回需要合并进上屏结果的诊断。
@@ -762,10 +777,12 @@ impl InputSession {
     ) -> Option<String> {
         // Wubi never reaches here with a context: personal_context_applies() admits only quanpin and shuangpin.
         let Some(selected) = selected else {
+            self.close_open_wubi_run();
             self.chain.reset();
             return None;
         };
         if !self.personal_context_applies() || learned_sentence_word {
+            self.close_open_wubi_run();
             self.chain.reset();
             return None;
         }
@@ -780,6 +797,7 @@ impl InputSession {
             sentence = selected.sentence_words.iter().map(String::as_str).collect();
             &sentence
         } else {
+            self.close_open_wubi_run();
             self.chain.reset();
             return None;
         };

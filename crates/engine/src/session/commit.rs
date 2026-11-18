@@ -172,7 +172,9 @@ impl InputSession {
                 result.diagnostic = part.diagnostic;
             }
         }
-        // Hosts flush a composition when focus moves or they insert text themselves, so what follows is rarely the next word of the same phrase.
+        // 宿主在焦点移动或自行插入文本前 flush 组字，后面很少是同一词组的下一个字：先关闭打开的
+        // 五笔累积段（凑满阈值即落库），拼音 pick 的 `last_pick` 照旧丢弃。
+        self.close_open_wubi_run();
         self.chain.last_pick = None;
         result
     }
@@ -342,6 +344,8 @@ impl InputSession {
         };
         let Some(selected) = selected else {
             self.record_context_into(&mut diagnostic, None, false, false);
+            // 无选中上屏（回车交原文等）收尾打开的五笔累积段，再照旧丢弃。
+            self.close_open_wubi_run();
             self.chain.last_pick = None;
             self.reset_composition();
             return committed(text, diagnostic);
@@ -370,6 +374,8 @@ impl InputSession {
                     diagnostic.get_or_insert(run_diagnostic);
                 }
             } else {
+                // 上屏的不构成五笔片段（拼音行等）：先收尾打开的五笔累积段再清。
+                self.close_open_wubi_run();
                 self.chain.last_pick = None;
             }
             self.reset_composition();
