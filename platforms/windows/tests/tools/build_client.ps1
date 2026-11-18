@@ -340,7 +340,7 @@ try {
     $calls = @($global:ClientBuildCalls)
     $definitions = @($calls | Where-Object { $_.Name -eq 'python' -and $_.Values -contains 'host-def' })
     $libraries = @($calls | Where-Object { $_.Name -eq 'lib' })
-    if ($definitions.Count -ne 4 -or $libraries.Count -ne 4) { throw 'Edition host DLL import libraries were not generated for every architecture and TSF variant' }
+    if ($definitions.Count -ne 5 -or $libraries.Count -ne 5) { throw 'Edition host DLL import libraries were not generated for every architecture and TSF variant' }
     # The Arm64X TIP's two halves link the edition's ARM64 and x64 hosts.
     $wubiArm64Library = Join-Path $fixture 'target/windows-wubi/arm64/msime_host_api_wubi_arm64.dll.lib'
     if (@($libraries | Where-Object { $_.Values -contains "/OUT:$wubiArm64Library" -and $_.Values -contains '/MACHINE:ARM64' }).Count -ne 1 -or
