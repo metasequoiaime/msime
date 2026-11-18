@@ -431,6 +431,8 @@ char *msime_client_shuangpin_zero_initials(const uint8_t *profile, size_t length
 char *msime_client_nine_key_shuangpin_layout(const uint8_t *request, size_t length);
 /* 26 键双拼方案在宿主看来的样子。request 是 JSON {"profile":"xiaohe"|"ziranma"|"shoudao"|"microsoft"|"smart_abc"|"custom","table"?:{initials,finals,zero_initials}}。返回值是 {effective,table,problem,keys}；自定义表不能用时按小鹤运行并返回问题，keys 是字母键及其声母/韵母提示。编辑器每改一格都可以调用，不落盘。 */
 char *msime_client_shuangpin_custom_layout(const uint8_t *request, size_t length);
+/* 原生触屏双拼设置，不落盘。请求 {preferences,edition,profile?} 不超过偏好文档上限；返回 {options:[{profile,title,touch_scheme}],profile,preferences}。带 profile 时只显式启用并选中该方案，宿主在刚读到的快照上替换 preferences，按原修订号 CAS 保存。未知方案/版本拒绝。响应用 string_free 释放。 */
+char *msime_client_touch_shuangpin_settings(const uint8_t *request, size_t length);
 
 /** 自定义双拼编辑器的纯偏好事务，不落盘。
  * JSON 请求含 preferences、edition 和 operation（read/check/import/template/use/delete/hints）；

@@ -1,3 +1,4 @@
+import { TouchShuangpinPanel } from './TouchShuangpinPanel';
 import { CustomShuangpinPanel } from './CustomShuangpinPanel';
 import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
 import { KeyboardLetterWidthsPanel } from './KeyboardLetterWidthsPanel';
@@ -673,6 +674,8 @@ struct Settings {
   @State private showDictionaryGroups: boolean = false;
   @State private showKeyboardLetterWidths: boolean = false;
   @State private keyboardLetterWidthsRefresh: number = 0;
+  @State private showShuangpin: boolean = false;
+  @State private nativeForegroundRevision: number = 0;
   @State private showCustomShuangpin: boolean = false;
   @State private customRefresh: number = 0;
   @State private customBackRequest: number = 0;
@@ -710,6 +713,7 @@ struct Settings {
   private noticeRequest: number = 0;
 
   aboutToAppear(): void {
+    this.privacyGranted = HarmonyPrivacyConsent.networkAllowed();
     this.bridge.attach(this.context);
     this.bridge.uiContext = this.getUIContext();
     this.bridge.onInputMethodPicker = (): void => this.inputMethodDialog.open();
@@ -735,6 +739,7 @@ struct Settings {
     this.loadNotices();
     EntryAbility.onActivated = (): void => {
       this.keyboardLetterWidthsRefresh++;
+      this.nativeForegroundRevision++;
       this.customRefresh++;
       this.bridge.resumeStatistics();
       this.bridge.syncShared();
@@ -751,6 +756,7 @@ struct Settings {
       this.bridge.publishShared();
     };
     EntryAbility.onOpenPage = (link: SettingsLinkRequest): void => {
+      if (this.showShuangpin) this.closeShuangpin();
       if (this.showNineKeyFlick) this.closeNineKeyFlick();
       this.bridge.openPage(link);
     };
@@ -781,6 +787,11 @@ struct Settings {
     this.loadNotices();
   }
 
+  private closeShuangpin(): void {
+    this.showShuangpin = false;
+    this.bridge.refreshPreferencesIfChanged(true);
+  }
+
   private closeNineKeyFlick(): void {
     this.showNineKeyFlick = false;
     this.bridge.refreshPreferencesIfChanged(true);
@@ -795,6 +806,10 @@ struct Settings {
   onBackPress(): boolean {
     if (this.showKeyboardLetterWidths) {
       this.closeKeyboardLetterWidths();
+      return true;
+    }
+    if (this.showShuangpin) {
+      this.closeShuangpin();
       return true;
     }
     if (this.showCustomShuangpin) {
@@ -970,6 +985,7 @@ struct Settings {
       if (!this.launchCover && !this.privacyRequired) {
       Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
         Button('键盘布局').onClick((): void => { this.showKeyboardLetterWidths = true; })
+        Button('双拼方案').onClick((): void => { this.showShuangpin = true; })
         Button('自定义双拼').onClick((): void => { this.showCustomShuangpin = true; })
         Button('九键四向滑动').onClick((): void => { this.showNineKeyFlick = true; })
         if (this.privacyGranted) {
@@ -1027,7 +1043,19 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
-    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin ? Visibility.None : Visibility.Visible)
+    if (this.showShuangpin) {
+      TouchShuangpinPanel({
+        bridge: {
+          loadPreferences: (): string => this.bridge.loadPreferences(),
+          savePreferences: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+          plan: (request: string): string => client.touchShuangpinSettings(request)
+        },
+        foregroundRevision: this.nativeForegroundRevision,
+        back: (): void => this.closeShuangpin()
+      })
+    }
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
     if (this.showCustomShuangpin) {
       CustomShuangpinPanel({
         bridge: {
