@@ -96,7 +96,12 @@ try {
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
     # Build-RustOutputs.ps1 先构建 Server 宿主，再构建只给 TSF 使用的静态 CRT 宿主；随后收集 MCP、Tauri、x86 和 ARM64 产物。Build-Client.ps1 再构建 x64、x86 原生目标、语音运行时和 Arm64X TIP。
-    if ($count -ne 48) { throw "Unexpected build stage count: $count" }
+    if ($count -ne 48) {
+        for ($index = 0; $index -lt $count; $index++) {
+            Write-Host ("stage {0}: {1} {2}" -f $index, $global:ClientBuildCalls[$index].Name, ($global:ClientBuildCalls[$index].Values -join ' | '))
+        }
+        throw "Unexpected build stage count: $count"
+    }
     $calls = $global:ClientBuildCalls
     $rust = Join-Path $fixture 'target/windows-rust'
     # x64 Server 宿主链接逐键重排，TSF 另用静态 CRT 且不编入 ONNX Runtime；x86 同样收集静态 CRT 的 TSF 宿主。
