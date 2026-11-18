@@ -357,7 +357,7 @@ traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTrait
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")
 nine_style_body=$(sed -n '/^  private nineKeyFrameStyle(): string {$/,/^  }$/p' "$view")
 design_style_body=$(sed -n '/^  private designRowStyle(styled: StyledFace): string {$/,/^  }$/p' "$view")
-if ! grep -qF 'return EditorPatternPolicy.traitsFor(pattern, inputMethodEngine, inputMethod.TextInputType.MULTILINE);' <<< "$traits_body" \
+if ! grep -qF 'return EditorPatternPolicy.traitsFor(pattern, types, inputMethod.TextInputType.MULTILINE);' <<< "$traits_body" \
   || ! grep -qF 'this.standardRowsField = KeyboardSession.shared.editorKeepsStandardRows();' <<< "$editor_face_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.nineKeyStyle, this.standardRowsField)' <<< "$nine_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.twentySixKeyStyle, this.standardRowsField)' <<< "$design_style_body" \
