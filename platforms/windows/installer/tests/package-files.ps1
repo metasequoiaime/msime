@@ -91,6 +91,8 @@ try {
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
+    Write-Fixture 'windows/build32-release/Release/msime_host_api_tip.dll' 'synthetic x86 TSF host'
+    Write-Fixture 'windows/build64-release/Release/msime_host_api_tip.dll' 'synthetic x64 TSF host'
     Write-Fixture 'windows/build32-release/Release/synthetic-runtime.dll' 'synthetic x86 dependency'
     Write-Fixture 'windows/build64-release/Release/synthetic-runtime.dll' 'synthetic x64 dependency'
     # Build-Client.ps1 的 Arm64X TIP、它的 PDB 和 ARM64 宿主 DLL；宿主 DLL 的 PDB 也留在这里，从不暂存。
@@ -217,6 +219,7 @@ try {
     foreach ($file in @('tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
                          'tsf_dll/32/MetasequoiaImeCrashWer.dll', 'tsf_dll/64/MetasequoiaImeCrashWer.dll',
+                         'tsf_dll/32/msime_host_api_tip.dll', 'tsf_dll/64/msime_host_api_tip.dll',
                          'tsf_dll/arm64/MetasequoiaImeCrashWer.dll',
                          'server_exe/MetasequoiaImeServer.pdb',
                          'server_exe/MetasequoiaImeWatchdog.exe',
@@ -318,7 +321,7 @@ try {
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
     # 发布时 Server 输出目录同时作为 x64 TIP 目录传入，所以自包含的 Windows App SDK 和语音运行时就在 64 位 TIP 旁边。tsf_dll\64 只取 TIP、它的宿主 DLL 和 32 位 TIP 也有的那些依赖；Server 暂存目录去掉 TIP 以及 msime_setup.iss 从 tsf_dll\64 装进 Server 目录的那些文件。
     $sharedOutput = 'server/build-release/bin/Release'
-    $sharedTipFiles = @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'msime_host_api.dll', 'synthetic-runtime.dll')
+    $sharedTipFiles = @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'msime_host_api.dll', 'msime_host_api_tip.dll', 'synthetic-runtime.dll')
     foreach ($name in $sharedTipFiles) {
         Copy-Item (Join-Path $fixture "windows/build64-release/Release/$name") (Join-Path $fixture $sharedOutput)
     }
@@ -326,6 +329,7 @@ try {
     foreach ($name in $serverOnlyFiles) { Write-Fixture "$sharedOutput/$name" "server-only $name" }
     # Build-Client.ps1 把宿主 DLL 的 PDB 留在这个目录里供发布的符号包使用；它从不暂存。
     Write-Fixture "$sharedOutput/msime_host_api.pdb" 'synthetic x64 host symbols'
+    Write-Fixture "$sharedOutput/msime_host_api_tip.pdb" 'synthetic x64 TSF host symbols'
     Write-Fixture "$sharedOutput/MetasequoiaImeCrashWer.pdb" 'synthetic x64 WER symbols'
     $rootNotices = Join-Path $fixture 'THIRD_PARTY_NOTICES.txt'
     [IO.File]::WriteAllText($rootNotices, 'fixture sherpa-onnx ONNX Runtime')
@@ -366,13 +370,16 @@ try {
     $database = Join-Path $installer 'app_data/previous-staging.txt'
     [IO.File]::WriteAllText($database, 'preserved user data')
     foreach ($arch in @('32', '64')) {
-        $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
+    $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
+        $expectedTip = if ($arch -eq '32') { 'synthetic x86 TSF host' } else { 'synthetic x64 TSF host' }
         $packagedHost = Join-Path $installer "tsf_dll/$arch/msime_host_api.dll"
+        $packagedTipHost = Join-Path $installer "tsf_dll/$arch/msime_host_api_tip.dll"
         $expectedDependency = if ($arch -eq '32') { 'synthetic x86 dependency' } else { 'synthetic x64 dependency' }
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/synthetic-runtime.dll")) -ne $expectedDependency) {
             throw 'Full package lost matching runtime dependency'
         }
         if ([IO.File]::ReadAllText($packagedHost) -ne $expected) { throw 'TSF Host DLL architecture mapping mismatch' }
+        if ([IO.File]::ReadAllText($packagedTipHost) -ne $expectedTip) { throw 'Static CRT TSF Host DLL architecture mapping mismatch' }
         $sourceHost = Join-Path $fixture "windows/build$arch-release/Release/msime_host_api.dll"
         Remove-Item -LiteralPath $sourceHost
         foreach ($lightMode in @($false, $true)) {
@@ -384,6 +391,14 @@ try {
                 [IO.File]::ReadAllText($packagedHost) -ne $expected) { throw 'Missing Host DLL damaged previous staging' }
         }
         [IO.File]::WriteAllText($sourceHost, $expected)
+        $sourceTipHost = Join-Path $fixture "windows/build$arch-release/Release/msime_host_api_tip.dll"
+        Remove-Item -LiteralPath $sourceTipHost
+        try {
+            $rejected = $false
+            try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light:$false }
+            catch { $rejected = $_.Exception.Message -match 'msime_host_api_tip.dll' }
+            if (-not $rejected) { throw 'Missing static CRT TSF Host DLL accepted' }
+        } finally { [IO.File]::WriteAllText($sourceTipHost, $expectedTip) }
     }
     $watchdog = Join-Path $fixture 'server/build-release/bin/Release/MetasequoiaImeWatchdog.exe'
     Remove-Item -LiteralPath $watchdog
@@ -416,6 +431,10 @@ try {
         $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/msime_host_api.dll")) -ne $expected) {
             throw 'Light package lost matching TSF Host DLL'
+        }
+        $expectedTip = if ($arch -eq '32') { 'synthetic x86 TSF host' } else { 'synthetic x64 TSF host' }
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/msime_host_api_tip.dll")) -ne $expectedTip) {
+            throw 'Light package lost static CRT TSF Host DLL'
         }
         $expectedDependency = if ($arch -eq '32') { 'synthetic x86 dependency' } else { 'synthetic x64 dependency' }
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$arch/synthetic-runtime.dll")) -ne $expectedDependency) {
@@ -473,7 +492,7 @@ try {
     foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
         $native = Join-Path $fixture "target/windows-full/$($mapping[1])/bin"
         New-Item -ItemType Directory -Force $native | Out-Null
-        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'MetasequoiaImeCrashWer.pdb')) {
+        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'MetasequoiaImeCrashWer.pdb', 'msime_host_api_tip.dll')) {
             Copy-Item (Join-Path $fixture "windows/build$($mapping[0])-release/Release/$name") $native
         }
         [IO.File]::WriteAllText((Join-Path $native 'msime_host_api.dll'), "native $($mapping[1]) host")
@@ -482,6 +501,10 @@ try {
     foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$($mapping[0])/msime_host_api.dll")) -ne "native $($mapping[1]) host") {
             throw 'Native build directory default was not selected'
+        }
+        $expectedTip = if ($mapping[1] -eq 'x86') { 'synthetic x86 TSF host' } else { 'synthetic x64 TSF host' }
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$($mapping[0])/msime_host_api_tip.dll")) -ne $expectedTip) {
+            throw 'Native build directory default lost the static CRT TSF host'
         }
     }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light `
@@ -582,6 +605,8 @@ try {
     }
     Write-Fixture 'windows/build32-release/Release/msime_host_api_wubi.dll' 'synthetic x86 wubi host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_wubi.dll' 'synthetic x64 wubi host'
+    Write-Fixture 'windows/build32-release/Release/msime_host_api_wubi_tip.dll' 'synthetic x86 wubi TSF host'
+    Write-Fixture 'windows/build64-release/Release/msime_host_api_wubi_tip.dll' 'synthetic x64 wubi TSF host'
     $wubiArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-pinyin.db', 'msime-wubi.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db', 'msime-dictionary-manifest.json') })
     Write-Fixture 'resources/editions/wubi.lock.json' (@{
         source_commit = ('a' * 40); artifacts = $wubiArtifacts
@@ -596,7 +621,8 @@ try {
     if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries')) { throw 'Edition without Zhuyin packaged the Zhuyin dictionary' }
     foreach ($arch in @('32', '64')) {
         if (-not (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api_wubi.dll")) -or
-            (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api.dll"))) {
+            (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api.dll")) -or
+            -not (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api_wubi_tip.dll"))) {
             throw "Edition host DLL not packaged under its own name ($arch)"
         }
     }
@@ -613,11 +639,18 @@ try {
     # 越南文版没有中文方案（版本表 features.offline_glosses 为 false）：非英文离线释义不装，即使构建目录里有它们。
     Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese.dll' 'synthetic x86 vietnamese host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese.dll' 'synthetic x64 vietnamese host'
+    Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese_tip.dll' 'synthetic x86 vietnamese TSF host'
+    Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese_tip.dll' 'synthetic x64 vietnamese TSF host'
     $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db', 'msime-dictionary-manifest.json') })
     Write-Fixture 'resources/editions/vietnamese.lock.json' (@{
         source_commit = ('a' * 40); artifacts = $vietnameseArtifacts
     } | ConvertTo-Json -Depth 5)
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition vietnamese
+    foreach ($arch in @('32', '64')) {
+        if (-not (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api_vietnamese_tip.dll"))) {
+            throw "Vietnamese edition missing static CRT TSF host ($arch)"
+        }
+    }
     foreach ($absent in @('server_exe/handwriting', 'server_exe/offline-glosses', 'server_exe/language-dictionaries', 'server_exe/character-glosses', 'server_exe/word-glosses')) {
         if (Test-Path (Join-Path $installer $absent)) { throw "Edition without a Chinese scheme packaged $absent" }
     }

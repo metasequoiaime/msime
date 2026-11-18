@@ -1,5 +1,6 @@
 #include "../settings/DictionaryCollectionsLauncher.h"
 #include "../settings/LocalTranslationLauncher.h"
+#include "../settings/QuickPhraseClearLauncher.h"
 #include "ClientEngine.h"
 #include "../../../common/HostApiString.h"
 #include "../candidates/EmbeddedTranslation.h"
@@ -84,6 +85,7 @@
 #include "../system/LifecycleFeedback.h"
 #include "../system/PanelInputChannel.h"
 #include "../system/TypingStatistics.h"
+#include "../system/TypingKeyPressRequest.h"
 #include "msime_client.h"
 #include <algorithm>
 #include <atomic>
@@ -1557,21 +1559,16 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
   g_object_unref(task);
 }
 
-// Sends one batch to the store's record_keys operation on the calling thread.
+// 在调用线程上写出一批按键总计和按下时的来源快照。
 void write_key_presses(const msime::linux_host::KeyPressBatch &request) {
   try {
-    const auto encoded = Json{
-        {"directory", request.directory},
-        {"action", Json{{"operation", "record_keys"},
-                          {"day", request.day},
-                          {"keys", request.keys}}}}
-                              .dump();
+    const auto encoded = msime::linux_host::typing_key_press_request(request).dump();
     auto *raw = msime_client_typing_statistics(
         reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
     if (raw)
       msime::host_api::discard_string(raw);
   } catch (...) {
-    // Statistics are best effort and must never affect typing.
+    // 统计失败不能影响输入。
   }
 }
 // Key press writes still running on worker threads, which msime_ibus_shutdown_key_presses waits for.
@@ -1604,7 +1601,9 @@ void flush_key_presses(std::optional<msime::linux_host::KeyPressBatch> batch) {
   g_object_unref(task);
 }
 
-// Every key event the engine receives passes through here before the Engine sees it, so the heatmap counts keys the IME consumes for a composition as well as keys it hands back to the application. Only key downs count, once per physical press; keycode 0 is a synthetic event with no physical key behind it. IBus passes no event time, so a repeat that arrives as a release and press pair is told apart by when the events reach the engine.
+msime::linux_host::TypingSource typing_source(const State &s);
+
+// 在引擎处理前记录物理键，包含组字键和透传键。IBus 没有事件时间，沿用到达时间排除合成重复。
 void count_key_press(IBusEngine *engine, guint keycode, guint flags) {
   auto &s = state(engine);
   if (flags & IBUS_RELEASE_MASK) {
@@ -1626,13 +1625,16 @@ void count_key_press(IBusEngine *engine, guint keycode, guint flags) {
   const auto day = msime::linux_host::local_day(std::time(nullptr));
   if (day.empty())
     return;
-  flush_key_presses(s.key_presses.add(id, directory, day, now));
+  const auto source = msime::linux_host::typing_key_press_source(
+      s.input_enabled, s.view, [&s] { return typing_source(s); });
+  flush_key_presses(s.key_presses.add(id, directory, day, now, source));
 }
 
 msime::linux_host::TypingSource typing_source(const State &s) {
-  const auto preferences = configured.value("preferences", Json::object());
-  const auto profile = s.shuangpin_profile_override.value_or(
-      preferences.value("shuangpin_profile", "xiaohe"));
+  const auto preferences = configured.find("preferences");
+  const auto profile = s.shuangpin_profile_override ? *s.shuangpin_profile_override
+      : preferences == configured.end() ? std::string("xiaohe")
+      : preferences->value("shuangpin_profile", std::string("xiaohe"));
   return msime::linux_host::resolve_typing_source(
       s.view.value("scheme", -1), s.view.value("nine_key", false),
       s.english_mode, s.view.value("local_mode", "none"), profile);
@@ -1673,6 +1675,8 @@ bool launch_desktop_panel(const char *panel) {
     return msime::linux_host::launch_dictionary_collections(configured.value("preferences_directory", std::string{}));
   if (panel && std::string_view(panel) == "local-translation")
     return msime::linux_host::launch_local_translation(configured.value("preferences_directory", std::string{}));
+  if (panel && std::string_view(panel) == "quick-phrase-clear")
+    return msime::linux_host::launch_quick_phrase_clear();
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
     command = MSIME_EDITION_SETTINGS_PROGRAM;
@@ -1729,6 +1733,9 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/Settings", "settings", msime::linux_host::menu_label::kSettings, DesktopPanelSlot::Footer},
     {"DesktopTools/About", "about", msime::linux_host::menu_label::kAbout, DesktopPanelSlot::Footer},
     {"DesktopTools/Dictionary", "dictionary", msime::linux_host::menu_label::kDictionary, DesktopPanelSlot::Extra},
+#ifdef MSIME_HAS_QUICK_PHRASE_CLEAR_SETTINGS
+    {"DesktopTools/QuickPhraseClear", "quick-phrase-clear", "清空快捷短语…", DesktopPanelSlot::Extra},
+#endif
     {"DesktopTools/Clipboard", "clipboard", msime::linux_host::menu_label::kLocalClipboard, DesktopPanelSlot::Tools},
     {"DesktopTools/Voice", "voice", msime::linux_host::menu_label::kVoicePanel, DesktopPanelSlot::Tools},
     {"DesktopTools/Help", "help", msime::linux_host::menu_label::kHelp, DesktopPanelSlot::Tools},

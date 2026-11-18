@@ -26,6 +26,7 @@ import {
 } from './UserWordsMirrorPolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyPressBatch, KeyPressFlush } from './KeyIdPolicy';
+import { typingKeyPressRequest, TypingStatisticsKeysRequest } from './TypingKeyPressRequest';
 import { readTypingStatisticsEnabled, writeKeyPresses, writeTypingStatistics } from './TypingStatisticsWriter';
 import { startKeyVibration } from './KeyVibration';
 import taskpool from '@ohos.taskpool';
@@ -346,17 +347,6 @@ interface TypingStatisticsRecordResponse {
   ok: boolean;
   value?: TypingStatisticsRecordValue;
   error?: string;
-}
-
-interface TypingStatisticsKeysAction {
-  operation: string;
-  day: string;
-  keys: Record<string, number>;
-}
-
-interface TypingStatisticsKeysRequest {
-  directory: string;
-  action: TypingStatisticsKeysAction;
 }
 
 interface TypingStatisticsVoiceAction {
@@ -1059,6 +1049,8 @@ interface PreparedPreferences {
   touch_twenty_six_key_style?: string;
   /** 14 键与 18 键底行样式（standard / long_space / emoji）；默认值不写进文档。 */
   touch_fourteen_key_style?: string;
+  /** 14/18 键三排字母格宽度（equal / varied）；缺字段按等宽。 */
+  touch_fourteen_key_letter_widths?: string;
   /** 九键底行样式（standard / comma_period / emoji）；默认值不写进文档。 */
   touch_nine_key_style?: string;
   /** 26/14/18 键字母上方的 1 到 0 数字行；默认关，不写进文档。 */
@@ -1254,6 +1246,8 @@ export interface KeyboardPreferences {
   readonly twentySixKeyStyle: string;
   /** `touch_fourteen_key_style`：14 键与 18 键的底行样式。 */
   readonly fourteenKeyStyle: string;
+  /** `touch_fourteen_key_letter_widths`：14/18 键三排字母格宽度，缺字段按等宽。 */
+  readonly fourteenKeyLetterWidths: string;
   /** `touch_nine_key_style`：九键字母层的底行样式。 */
   readonly nineKeyStyle: string;
   /** `touch_number_row`：26/14/18 键字母上方画 1 到 0。 */
@@ -1655,6 +1649,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     toolbarTools: TouchToolbarPolicy.DEFAULT,
     twentySixKeyStyle: TouchLayoutStylePolicy.STANDARD,
     fourteenKeyStyle: TouchLayoutStylePolicy.STANDARD,
+    fourteenKeyLetterWidths: 'equal',
     nineKeyStyle: TouchLayoutStylePolicy.STANDARD,
     numberRow: false,
     twentySixSymbolFirst: false,
@@ -2113,6 +2108,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       toolbarTools: TouchToolbarPolicy.fromDocument(preferences.harmony_toolbar),
       twentySixKeyStyle: TouchLayoutStylePolicy.twentySixKeyStyle(preferences.touch_twenty_six_key_style),
       fourteenKeyStyle: TouchLayoutStylePolicy.fourteenKeyStyle(preferences.touch_fourteen_key_style),
+      fourteenKeyLetterWidths: preferences.touch_fourteen_key_letter_widths === 'varied' ? 'varied' : 'equal',
       nineKeyStyle: TouchLayoutStylePolicy.nineKeyStyle(preferences.touch_nine_key_style),
       numberRow: preferences.touch_number_row === true,
       twentySixSymbolFirst: preferences.touch_twenty_six_symbol_first === true,
@@ -3363,7 +3359,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       || this.stateDirectory.length === 0) {
       return;
     }
-    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()));
+    const due: KeyPressFlush[] = this.keyPresses.add(id, TypingStatisticsPolicy.day(new Date()), this.typingSource());
     for (const flush of due) {
       this.sendKeyPresses(flush);
     }
@@ -3395,12 +3391,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private sendKeyPresses(flush: KeyPressFlush): void {
     if (this.stateDirectory.length === 0) return;
-    const action: TypingStatisticsKeysAction = {
-      operation: 'record_keys', day: flush.day, keys: flush.keys
-    };
-    const requestDocument: TypingStatisticsKeysRequest = {
-      directory: this.stateDirectory, action: action
-    };
+    const requestDocument: TypingStatisticsKeysRequest = typingKeyPressRequest(this.stateDirectory, flush);
     const generation: number = this.attributeGeneration;
     taskpool.execute(writeKeyPresses, JSON.stringify(requestDocument)).then((response: Object): void => {
       const value: Record<string, Object> = JSON.parse(response as string) as Record<string, Object>;

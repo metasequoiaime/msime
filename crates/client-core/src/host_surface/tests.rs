@@ -565,7 +565,7 @@ fn desktop_and_harmony_request_quick_phrase_candidates() {
         (HostPlatform::Windows, true),
         (HostPlatform::Macos, true),
         (HostPlatform::Linux, true),
-        (HostPlatform::Android, false),
+        (HostPlatform::Android, true),
         (HostPlatform::Ios, false),
         (HostPlatform::Harmony, true),
     ] {

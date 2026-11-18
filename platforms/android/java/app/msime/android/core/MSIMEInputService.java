@@ -69,6 +69,7 @@ import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
 import java.io.IOException;
@@ -1576,14 +1577,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 按键的键位 id（`Backspace`、`Space`、`Enter`…）；没有登记的控件为 null。按键反馈靠它给键分类，不去猜无障碍描述。 */
     String keyIdOf(View key) { return key == null ? null : keyIds.get(key); }
 
-    /**
-     * Count one key press for the heatmap: its id and its local day, nothing else.
-     *
-     * <p>Presses are batched here and written by the worker -- on {@link KeyPressBatch#FLUSH_PRESSES} presses, at the first press of a new day (the old day first, under its own date), when the editor or the keyboard goes away, and otherwise half a minute after the batch opened. The worker's queue is short and every write rewrites the whole document under the file lock, so it never sees a single key.
-     */
+    /** 按下时取得来源，按日、256 次或 30 秒攒批；语言切换不改变已经记下的来源。 */
     void countKey(String id) {
         if (id == null || !imePrivacyGate.countsKeys()) return;
-        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString());
+        KeyPressBatch.Flush previous = keyPresses.add(id, LocalDate.now().toString(), typingSource());
         if (previous != null) writeKeyPresses(previous);
         if (keyPresses.full()) {
             flushKeyPresses();
@@ -1611,13 +1608,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyStatisticsDirectory.isEmpty()) return;
         final String request;
         try {
-            JSONObject keys = new JSONObject();
-            for (java.util.Map.Entry<String, Long> entry : flush.keys().entrySet())
-                keys.put(entry.getKey(), entry.getValue().longValue());
-            request = new JSONObject().put("directory", keyStatisticsDirectory).put("action",
-                new JSONObject().put("operation", "record_keys").put("day", flush.day())
-                    .put("keys", keys))
-                .toString();
+            request = KeyPressRequest.encode(keyStatisticsDirectory, flush);
         } catch (JSONException error) {
             reportTypingStatisticsFailure();
             return;
@@ -2908,23 +2899,26 @@ public final class MSIMEInputService extends InputMethodService {
      * runtime-options.json 里的偏好是首次安装时写下的出厂默认（见 Bootstrap.prepare），拿它建会话，引擎先按默认方案（全拼 26 键）起来，过一两秒实时偏好重载后才换成用户的方案，九键用户每次都看到键盘从 26 键跳成九键。建会话前在工作线程上读一次实时偏好换进去；读不到时照旧用原来那份。不允许学习的输入框照样把 learning 关掉。
      */
     private EngineStartOptions withLivePreferences(String optionsText, boolean suppressLearning) {
+        JSONObject options = null;
         try {
-            JSONObject options = new JSONObject(optionsText);
+            options = new JSONObject(optionsText);
+            QuickPhrasePreferencePolicy.normalize(options.optJSONObject("preferences"));
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute())
-                return new EngineStartOptions(optionsText, null);
+                return new EngineStartOptions(options.toString(), null);
             // 读实时偏好之前把本机旧的长空格和数字行设置迁进共享偏好，这次会话就按迁移后的底行和数字行画。
             KeyLayoutStyleMigration.migrate(this, directory);
             String response = candidateSkinResolver.read(directory);
             JSONObject envelope = new JSONObject(response);
             JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
-            if (live == null) return new EngineStartOptions(optionsText, null);
+            if (live == null) return new EngineStartOptions(options.toString(), null);
+            QuickPhrasePreferencePolicy.normalize(live);
             if (suppressLearning) live.put("learning", false);
             options.put("preferences", live);
             return new EngineStartOptions(options.toString(), response);
         } catch (JSONException | RuntimeException | LinkageError error) {
-            return new EngineStartOptions(optionsText, null);
+            return new EngineStartOptions(options == null ? optionsText : options.toString(), null);
         }
     }
 
@@ -2942,6 +2936,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // Android 也声明快捷短语混输能力；是否加入普通候选仍由 shared `mixed_input.quick_phrase` 门控。
+            options.put("quick_phrase_candidates", true);
             // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
             options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
@@ -3927,6 +3923,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousAiCandidates = previousAiAssistant != null
             && previousAiAssistant.optBoolean("enabled", false);
         JSONObject accepted = new JSONObject(snapshot.toString());
+        QuickPhrasePreferencePolicy.normalize(accepted.optJSONObject("preferences"));
         long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
         if (revision < 0) throw new JSONException("Invalid preferences revision");
         accepted.put("revision", revision);
@@ -4226,7 +4223,14 @@ public final class MSIMEInputService extends InputMethodService {
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
-            throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+            // 某些 WebView/Compose 搜索框能接受候选字上屏，却拒绝同一批次里的剩余组字。
+            // 提交已经成功，继续把这段拼音留在键盘上，避免把引擎视图和展开候选面板一起丢掉。
+            if (bridge.compositionRejectedAfterCommit() && commit != null && !composing.isEmpty()) {
+                editorCompositionSuppressed = true;
+                selectionEcho.invalidate();
+            } else {
+                throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+            }
         }
         view = next;
         // 九键 1 键放进候选条的常用标点只留到下一次转换，下面的 render 画这次转换的候选。
@@ -5198,7 +5202,9 @@ public final class MSIMEInputService extends InputMethodService {
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
-        int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
+        int reserved = CandidateTranslationPolicy.reservedRows(
+            CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
+            CandidateHintRows.rows(this));
         int line = imeCandidates.stripHeightDp(reserved);
         ViewPolicy.setFixedHeight(candidateLine, pixels(line));
         // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
@@ -10136,9 +10142,17 @@ public final class MSIMEInputService extends InputMethodService {
             return CandidateGlossPolicy.hanjaAnnotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
                 translation,
                 candidateEnglishGloss || candidateTranslationsEnabled);
-        return CandidateGlossPolicy.annotation(chineseOutput(InputViewValuePolicy.textOr(candidate, "annotation", ""), view),
+        // 纠错行的原串不画在候选字下面，改在候选字后面画 *（CandidateCorrectionMarkPolicy）。
+        String annotation = CandidateCorrectionMarkPolicy.visibleAnnotation(
+            InputViewValuePolicy.textOr(candidate, "annotation", ""), candidateCorrected(candidate));
+        return CandidateGlossPolicy.annotation(chineseOutput(annotation, view),
             translation,
             candidateEnglishGloss || candidateTranslationsEnabled);
+    }
+
+    /** 引擎改过这一行的拼写（View JSON 的 `corrected`），候选字后面画 *。 */
+    static boolean candidateCorrected(JSONObject candidate) {
+        return candidate != null && JsonPolicy.strictTrue(candidate.opt(CandidateCorrectionMarkPolicy.CORRECTED_FIELD));
     }
 
     /** 候选释义禁止来源即使因同词候选合并拿到译文，也不能在 Android 的候选条、读屏或菜单里出现。 */
@@ -10357,7 +10371,8 @@ public final class MSIMEInputService extends InputMethodService {
         String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
             dedicatedEnglish, visibleSlot);
         boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
-        button.setText(candidateLabel(number, text, annotation, highlighted, corrected));
+        String word = CandidateCorrectionMarkPolicy.markedWord(text, candidateCorrected(candidate));
+        button.setText(candidateLabel(number, word, annotation, highlighted, corrected));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -12788,7 +12803,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean modeLabel = !message.isEmpty();
             spellingHeaderReserved = SpellingEditorPolicy.reserveHeader(spellingEditorEnabled,
                 toolbarScheme(), CandidatePreeditStylePolicy.keepsSpellingOnKeyboard(spellingPosition)
-                    || drawsKeyGrid(displayedTouchLayout(view)), idle,
+                    || SpellingEditorPolicy.keyboardReadingRow(displayedTouchLayout(view)), idle,
                 preedit == null ? "" : preedit.getText(),
                 status == null || idle && !modeLabel ? "" : status.getText(),
                 ViewPolicy.isVisible(exitLocalModeButton) || ViewPolicy.isVisible(hanjaButton));

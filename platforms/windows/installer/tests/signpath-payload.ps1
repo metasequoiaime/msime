@@ -31,7 +31,7 @@ try {
         New-File (Join-Path $package $upstream)
     }
     foreach ($arch in @('32', '64')) {
-        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'msime_host_api_wubi.dll', 'zlib1.dll', 'libcurl.dll', 'fmt.dll')) {
+        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'msime_host_api_wubi.dll', 'msime_host_api_wubi_tip.dll', 'zlib1.dll', 'libcurl.dll', 'fmt.dll')) {
             New-File (Join-Path $package "tsf_dll/$arch/$name")
         }
     }
@@ -45,7 +45,9 @@ try {
         'server_exe/msime-client-settings.exe', 'server_exe/msime-client-prepare.exe', 'server_exe/MSIME.exe',
         'server_exe/msime-client-panels.exe',
         'tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/msime_host_api_wubi.dll',
+        'tsf_dll/32/msime_host_api_wubi_tip.dll',
         'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/msime_host_api_wubi.dll',
+        'tsf_dll/64/msime_host_api_wubi_tip.dll',
         'tsf_dll/32/MetasequoiaImeCrashWer.dll', 'tsf_dll/64/MetasequoiaImeCrashWer.dll',
         'tsf_dll/arm64/MetasequoiaImeCrashWer.dll',
         'tsf_dll/arm64/MetasequoiaImeTsf.dll', 'tsf_dll/arm64/msime_host_api_wubi_arm64.dll'
@@ -73,7 +75,7 @@ try {
     }
 
     # 别的版本的宿主 DLL 不是本版本的二进制，按版本表取名。
-    Assert-Throws 'full 版本在五笔的暂存包上 Stage' { & $script -Mode Stage -Edition full -Directory $staged -PackageRoot $package -RepoRoot $repoRoot } 'msime_host_api.dll'
+    Assert-Throws 'full 版本在五笔的暂存包上 Stage' { & $script -Mode Stage -Edition full -Directory $staged -PackageRoot $package -RepoRoot $repoRoot } 'msime_host_api'
 
     # SignPath 送回的文件必须带有效签名：合成文件没有签名，Restore 拒绝覆盖。
     Assert-Throws '未签名的文件 Restore' { & $script -Mode Restore -Edition wubi -Directory $staged -PackageRoot $package -RepoRoot $repoRoot } '签名状态'

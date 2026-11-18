@@ -1,5 +1,6 @@
 #import "InputSourceRegistration.h"
 #import "InputModeIdentifiers.h"
+#include "../core/DiagnosticLog.h"
 #include <cstring>
 
 @implementation MSIMEInputSourceMonitor {
@@ -45,6 +46,8 @@
     BOOL away = bundle.length ? ![bundle isEqual:_identifier] :
         (identifier.length && ![identifier isEqual:_identifier] &&
          ![identifier hasPrefix:[_identifier stringByAppendingString:@"."]]);
+    // Name the source the system moved to, so a report that the input method keeps switching to another one shows in diagnostic.log which source took over and when; the ID is a state label like the others, and the log replaces control bytes and caps its length.
+    if (away) msime_macos_diagnostic_writef("input_source switched_away to=%s", (identifier.length ? identifier : bundle).UTF8String);
     CFRelease(source);
     if (away) _action();
 }

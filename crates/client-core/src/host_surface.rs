@@ -895,12 +895,13 @@ impl HostCapabilities {
             // 三个桌面宿主都在自己的按键路径上分辨 Caps Lock 的轻点和长按：macOS 用 IOKit 撤回大写锁定，Windows 用 SendInput 再按一次，Linux 在 X11 会话里用 XKB 撤回（Wayland 会话里由合成器持有锁定状态，宿主撤不回，那里轻点照常是大写锁定）。
             caps_lock_language_switch: platform.is_desktop(),
             shift_letter_entry_switch: platform.is_desktop(),
-            // Windows、macOS、Linux 和 HarmonyOS 的宿主建会话时请求 `quick_phrase_candidates`。
+            // Windows、macOS、Linux、Android 和 HarmonyOS 的宿主建会话时请求 `quick_phrase_candidates`。
             quick_phrase_candidates: matches!(
                 platform,
                 HostPlatform::Windows
                     | HostPlatform::Macos
                     | HostPlatform::Linux
+                    | HostPlatform::Android
                     | HostPlatform::Harmony
             ),
             // 三个桌面宿主的候选窗都画「候选编辑：光标后」提示，设置在共享设置页（macOS、Linux）和 Windows 的原生设置里。

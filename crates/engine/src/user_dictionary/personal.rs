@@ -314,6 +314,56 @@ pub fn edit_personal_dictionary_collection_batch_with(
     )
 }
 
+/// 在同一个维护事务中删除所有用户快捷短语。
+///
+/// 逐条调用编辑接口会让一次清空暴露为许多独立提交，任意中途失败都会留下半个词库。
+/// 这里先在事务内读出用户行，再复用单条删除的日志和回执逻辑；任何一行失败都会回滚整次清空。
+pub fn clear_quick_phrases_with(paths: &RuntimePaths, main_dictionary: bool) -> Result<usize> {
+    paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
+    let journal = paths.user(assets::USER_JOURNAL);
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
+    flush_journal(&journal).map_err(|_| failed(CONTEXT_NOT_WRITTEN))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| failed(EDIT_NOT_BEGUN))?;
+
+    let entries = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT key,value,weight FROM personal_journal.user_dictionary_operations \
+                 WHERE dictionary='quick' AND operation='upsert' AND user_inserted=1",
+            )
+            .map_err(|_| failed(DICTIONARY_NOT_READ))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(PersonalDictionaryEntry {
+                    kind: PersonalDictionaryKind::QuickPhrase,
+                    key: row.get(0)?,
+                    value: row.get(1)?,
+                    weight: row.get(2)?,
+                })
+            })
+            .map_err(|_| failed(DICTIONARY_NOT_READ))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|_| failed(DICTIONARY_NOT_READ))?
+    };
+
+    let mut forgotten = Vec::new();
+    for entry in &entries {
+        let applied = apply_normalized_edit(&transaction, Some(entry), None, "", false)?;
+        if let Some(removed) = applied.forgotten {
+            forgotten.extend(removed);
+        }
+    }
+    transaction
+        .commit()
+        .map_err(|_| failed(EDIT_NOT_COMMITTED))?;
+    if !forgotten.is_empty() {
+        forget_journal_rows(&journal, &forgotten);
+    }
+    Ok(entries.len())
+}
+
 fn edit_personal_dictionary_batch_with_limit(
     paths: &RuntimePaths,
     main_dictionary: bool,
@@ -1029,6 +1079,79 @@ mod tests {
             &PersonalDictionaryApplied::AlreadyPresent
         );
         assert!(!has(&paths, &imported));
+    }
+
+    #[test]
+    fn clear_quick_phrases_removes_user_rows_in_one_transaction_and_keeps_bundled_rows() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        sql(
+            &paths.dictionary(assets::MAIN_DICTIONARY),
+            "INSERT INTO quick_parases(key,value,weight) VALUES('builtin','内置',10);",
+        );
+        let first = entry(PersonalDictionaryKind::QuickPhrase, "first", "用户一", 1);
+        let second = entry(PersonalDictionaryKind::QuickPhrase, "second", "用户二", 2);
+        edit_personal_dictionary(&paths, None, Some(&first), "clear-first").unwrap();
+        edit_personal_dictionary(&paths, None, Some(&second), "clear-second").unwrap();
+        assert_eq!(
+            Connection::open(paths.user(assets::USER_JOURNAL))
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='quick' AND operation='upsert' AND user_inserted=1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            2
+        );
+
+        let cleared = clear_quick_phrases_with(&paths, true).unwrap();
+
+        assert_eq!(cleared, 2);
+        assert!(!has(&paths, &first));
+        assert!(!has(&paths, &second));
+        assert_eq!(
+            Connection::open(paths.dictionary(assets::MAIN_DICTIONARY))
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM quick_parases WHERE key='builtin' AND value='内置'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn clear_quick_phrases_rolls_back_when_a_delete_cannot_be_journaled() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = fixture(root.path());
+        let first = entry(PersonalDictionaryKind::QuickPhrase, "first", "用户一", 1);
+        let second = entry(PersonalDictionaryKind::QuickPhrase, "second", "用户二", 2);
+        edit_personal_dictionary(&paths, None, Some(&first), "clear-first").unwrap();
+        edit_personal_dictionary(&paths, None, Some(&second), "clear-second").unwrap();
+        assert_eq!(
+            Connection::open(paths.user(assets::USER_JOURNAL))
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='quick' AND operation='upsert' AND user_inserted=1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            2
+        );
+        sql(
+            &paths.user(assets::USER_JOURNAL),
+            "CREATE TRIGGER reject_clear BEFORE INSERT ON user_dictionary_operations
+             WHEN NEW.operation='delete' AND NEW.key='second'
+             BEGIN SELECT RAISE(ABORT,'synthetic clear failure'); END;",
+        );
+
+        assert!(clear_quick_phrases_with(&paths, true).is_err());
+        assert!(has(&paths, &first));
+        assert!(has(&paths, &second));
     }
 
     #[test]

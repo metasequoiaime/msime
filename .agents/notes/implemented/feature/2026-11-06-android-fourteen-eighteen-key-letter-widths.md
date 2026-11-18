@@ -32,7 +32,7 @@ Status: implemented
 
 ### 双字母键面的字距
 
-`FourteenKeyLayout.faceLetterSpacing(face)` 按键面给出字距（em）：两个大写字母是 `TWO_LETTER_SPACING_EM`（0.15），双拼的 `L;` 是 `L_SEMICOLON_SPACING_EM`（0.08），其余是 0。按键面而不按键判断，预览里拿到的只有键面也能用；别的键盘没有两个大写字母或 `L;` 这样的键面。键盘在 `fourteenLetterKey` 里 `setText` 之后 `setLetterSpacing`，双拼切换让 L 键面在 `L` 和 `L;` 之间变（`updateFourteenKeySeparator`）时一起换；两种宽度下都设，不读宽度偏好。18 键的自适应字号（`setFittedKeyTextSize(12, 22)`）用 TextView 自带的自适应，量宽度时已算进字距，窄键上照样单行。18 键双拼横滑时键面临时换成单个字母，字距留着，单个字母照样居中。
+`FourteenKeyLayout.faceLetterSpacing(face)` 按键面给出字距（em）：两个大写字母是 `TWO_LETTER_SPACING_EM`（0.15），双拼的 `L;` 是 `L_SEMICOLON_SPACING_EM`（0.08），其余是 0。按键面而不按键判断，预览里拿到的只有键面也能用；别的键盘没有两个大写字母或 `L;` 这样的键面。键盘在 `fourteenLetterKey` 里 `setText` 之后 `setLetterSpacing`，双拼切换让 L 键面在 `L` 和 `L;` 之间变（`updateFourteenKeySeparator`）时一起换；两种宽度下都设，不读宽度偏好。14/18 键的字号都是 22 sp，由 `KeyHintButton.setGridFace(true)` 按键宽收（见[尺寸一致性](../bug-fix/2026-11-17-android-grid-key-metrics.md)），量宽度时已算进字距，窄键上照样单行。18 键双拼横滑时键面临时换成单个字母，字距留着，单个字母照样居中。
 
 预览：「按键布局」页的 `KeyLayoutPreview.drawFace` 和皮肤页的 `KeyboardPreview.drawKey` 画键面前给画笔设同样的字距，量宽度缩字号时已算进去；`KeyboardPreview` 的画笔还画候选条文字，画完复原成 0。
 
@@ -52,6 +52,6 @@ Android 没有 14/18 键的热力图，统计页不涉及。
 
 收益：一份排法喂三处画键盘的地方，宽度不会在键盘和预览之间分叉；`equal` 逐格不变，默认的键宽和触摸区域和以前相同。占位格归属是 `KeyboardKeyArea` 上的通用机制，26 键缩进的修复能直接用。字距只在绘制时加，统计和读屏不受影响。
 
-代价：`KeyboardKeyArea` 每次按下多一次子视图类型判断。默认键面多了字距，所有 14/18 键用户更新后都看得到。宽窄时 18 键单字母键的字号由 `setFittedKeyTextSize(12, 22)` 自适应收着，14 键的 L 仍是 22 号字，窄屏上要看真机效果。
+代价：`KeyboardKeyArea` 每次按下多一次子视图类型判断。默认键面多了字距，所有 14/18 键用户更新后都看得到。宽窄时单字母键的字号由 `KeyHintButton` 按各自键宽收，窄屏上要看真机效果。
 
 验证：`FourteenKeyLetterWidthsSmoke` 钉住两种分法的份额（等宽逐格等于原来的份额，宽窄与 #11051 的比例相同、三排份额之和相同、补半键距的个数）；`FourteenKeyLayoutSmoke` 钉住哪些键面有字距、`L;` 用较小的字距、键面字符串不变；`KeyLayoutStylesPolicySmoke`、`KeyboardPreviewLayoutSmoke` 钉住两处预览（等宽与原来逐格相同，宽窄的空白、比例和同种键三行等宽，26 键和九键不受影响，皮肤页预览带着这项、换类型时保留）；`KeyPressAreaDeviceChecks` 在合成按键区上验证占位格和它的外边距归所属的键、没有所属键的占位格不回调；`check-host.sh` 钉住键盘和设置页的接线。API 35、API 28 模拟器上 `KeyPressAreaDeviceChecks`、14 键和 18 键的 `FourteenKeyDeviceSmoke` 通过；API 35 上手动看过两种宽度、14 键和 18 键、全拼和双拼、单手模式的键面，点了宽窄第二排两端的空白（归 A、AS、L）。

@@ -103,6 +103,11 @@ def main() -> int:
 
     require("GetVersionNumbers(" in file_check,
             "VC runtime must use the installer's native file version reader")
+    status = routine(code, "VCRuntimeFileStatus")
+    require("FileExists" in status and "缺失" in status,
+            "VC runtime diagnostics must identify missing DLL files")
+    require("VCRuntimeFileIsCompatible" in status,
+            "VC runtime diagnostics must identify files below the minimum version")
     require("PowerShell" not in installed and "RegistryInstalled" not in installed,
             "VC runtime checking must not launch PowerShell or trust stale registry values")
     for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
@@ -129,6 +134,8 @@ def main() -> int:
         require(url in script, f"missing download page: {url}")
     require("https://aka.ms/vc14/vc_redist.x64.exe" in script,
             "missing latest x64 VC runtime direct link")
+    require("OpenDownloadPage(VCRuntimeDirectDownloadUrl)" in setup,
+            "missing direct VC runtime repair link")
     require(re.search(r"'http://", script) is None,
             "a download page is offered over plain http")
 
