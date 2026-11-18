@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <poll.h>
 #include <atomic>
 #include <memory>
 #include <cmath>
@@ -12,11 +13,27 @@
 
 namespace {
 constexpr uint32_t limit = 4096;
+constexpr int receiveTimeoutMilliseconds = 3000;
+
+static bool WaitForReadable(int fd) {
+    pollfd event{fd, POLLIN, 0};
+    for (;;) {
+        const int result = poll(&event, 1, receiveTimeoutMilliseconds);
+        if (result < 0 && errno == EINTR) continue;
+        return result > 0 && (event.revents & (POLLIN | POLLHUP | POLLERR));
+    }
+}
+
 bool ReadAll(int fd, void *bytes, size_t count) {
     auto *cursor = static_cast<char *>(bytes);
     while (count) {
         const ssize_t n = recv(fd, cursor, count, 0);
         if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Darwin 从非阻塞监听 socket 继承的连接可能在清除标志前先到这里，等待下一段帧数据。
+            if (!WaitForReadable(fd)) return false;
+            continue;
+        }
         if (n <= 0) return false;
         cursor += n; count -= static_cast<size_t>(n);
     }
@@ -90,7 +107,7 @@ struct Submission {
         const int flags = fcntl(fd, F_GETFL, 0);
         if (flags < 0 || fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) != 0) { close(fd); return; }
         fcntl(fd, F_SETFD, FD_CLOEXEC);
-        timeval timeout{3, 0};
+        timeval timeout{receiveTimeoutMilliseconds / 1000, 0};
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         const int noSignal = 1;
@@ -126,7 +143,16 @@ struct Submission {
     NSMutableData *body = [NSMutableData dataWithLength:length];
     if (!ReadAll(fd, body.mutableBytes, length)) return;
     char extra;
-    if (recv(fd, &extra, 1, 0) != 0 || memchr(body.bytes, 0, length)) return;
+    for (;;) {
+        const ssize_t received = recv(fd, &extra, 1, 0);
+        if (received < 0 && errno == EINTR) continue;
+        if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (!WaitForReadable(fd)) return;
+            continue;
+        }
+        if (received != 0 || memchr(body.bytes, 0, length)) return;
+        break;
+    }
     NSString *text = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
     if (!text.length || _stopped.load() || !valid()) return;
     if (_clipboard) {
