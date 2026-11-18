@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import concurrent.futures
 import fcntl
 import hashlib
 import json
@@ -44,6 +45,8 @@ PANEL_RESTORE_LIMIT = 64 * 1024
 # Each registration step is a local D-Bus or dconf round trip; a wedged daemon must not hold up the end of setup.
 COMMAND_TIMEOUT = 10
 DOWNLOAD_TIMEOUT = 60
+# 词库文件彼此独立，最多同时取回三项，缩短首次配置的等待时间；暂存目录仍保证全部校验通过后才发布。
+DOWNLOAD_WORKERS = 3
 FCITX5_INPUT_METHOD = "msime"
 FCITX5_NAME = "水杉输入法"
 IBUS_ENGINE = "msime-linux"
@@ -283,16 +286,22 @@ def download_artifacts(lock: dict, directory: Path) -> None:
     unreachable = [artifact["name"] for artifact in pending if not artifact.get("url")]
     if unreachable:
         raise SystemExit(f"{'、'.join(unreachable)} 在词库锁里没有下载地址，无法取回；请用 --resources 指向一份已备齐的词库目录。")
+    if not pending:
+        return
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=directory.parent) as staging_name:
         staging = Path(staging_name)
-        verified = []
-        for artifact in pending:
+        def download_one(artifact: dict) -> tuple[Path, Path]:
             name = artifact["name"]
             staged = staging / name
-            print(f"下载 {name}")
+            print(f"下载 {name}", flush=True)
             fetch_verified(artifact, staged)
-            verified.append((staged, directory / name))
+            return staged, directory / name
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(DOWNLOAD_WORKERS, len(pending))
+        ) as executor:
+            verified = list(executor.map(download_one, pending))
         for staged, target in verified:
             staged.replace(target)
 

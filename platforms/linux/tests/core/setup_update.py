@@ -363,7 +363,7 @@ def check_setup(harness: Harness) -> None:
     Artifacts.payloads["/b.db"] = served
     assert result.returncode != 0, result
     assert "词库目录未改动" in result.stderr, result.stderr
-    assert Artifacts.requested == ["/a.db", "/b.db"], Artifacts.requested
+    assert sorted(Artifacts.requested) == ["/a.db", "/b.db"], Artifacts.requested
     assert (resources / "a.db").read_bytes() == b"dictionary a, previous release"
     assert (resources / "b.db").read_bytes() == harness.previous_b
     assert sorted(path.name for path in resources.iterdir()) == ["a.db", "b.db"]
