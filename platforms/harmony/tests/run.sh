@@ -11,8 +11,9 @@ fi
 # 强制停止后的首次焦点可能在资源暂存或建面板的 await 期间到达；inputStart 必须先订阅，才能由 pending 留住编辑框而不让键盘首帧失去输入客户端。
 ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 on_create_body=$(sed -n '/^  async onCreate(want: Want): Promise<void> {$/,/^  onDestroy(): void {$/p' "$ability")
-input_start_line=$(grep -nF "engine.on('inputStart', this.started);" <<< "$on_create_body" | head -n 1 | cut -d: -f1)
-first_await_line=$(grep -nE '\bawait\b' <<< "$on_create_body" | head -n 1 | cut -d: -f1)
+# grep 自己停在首条命中，避免 head 提前退出导致 grep 收到 SIGPIPE。
+input_start_line=$(grep -nFm 1 "engine.on('inputStart', this.started);" <<< "$on_create_body" | cut -d: -f1)
+first_await_line=$(grep -nEm 1 '\bawait\b' <<< "$on_create_body" | cut -d: -f1)
 if [[ -z "$input_start_line" || -z "$first_await_line" || "$input_start_line" -ge "$first_await_line" ]]; then
   echo "KeyboardExtensionAbility must subscribe to inputStart before its first asynchronous cold-start step" >&2
   exit 1
@@ -351,19 +352,17 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
-# 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
+# 密码框和只收数字的编辑框里三种键面类型都退回标准底行：会话交给 EditorPatternPolicy 识别类型（具体数字、密码类型到标准底行的行为由 editor-pattern-policy.test.ts 覆盖），视图每次接上编辑框刷新状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
 traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTraits {$/,/^  }$/p' "$session")
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")
 nine_style_body=$(sed -n '/^  private nineKeyFrameStyle(): string {$/,/^  }$/p' "$view")
 design_style_body=$(sed -n '/^  private designRowStyle(styled: StyledFace): string {$/,/^  }$/p' "$view")
-if ! grep -qF 'digits: pattern === inputMethodEngine.PATTERN_NUMBER' <<< "$traits_body" \
-  || ! grep -qF '|| pattern === inputMethodEngine.PATTERN_PHONE' <<< "$traits_body" \
-  || ! grep -qF '|| pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL' <<< "$traits_body" \
+if ! grep -qF 'return EditorPatternPolicy.traitsFor(pattern, inputMethodEngine, inputMethod.TextInputType.MULTILINE);' <<< "$traits_body" \
   || ! grep -qF 'this.standardRowsField = KeyboardSession.shared.editorKeepsStandardRows();' <<< "$editor_face_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.nineKeyStyle, this.standardRowsField)' <<< "$nine_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.twentySixKeyStyle, this.standardRowsField)' <<< "$design_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.fourteenKeyStyle, this.standardRowsField)' <<< "$design_style_body"; then
-  echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor sets digits from PATTERN_NUMBER/PHONE/NUMBER_DECIMAL, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
+  echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor delegates to EditorPatternPolicy, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
   exit 1
 fi
 # 长空格样式把工具条那一行一直留着（符 在上面），看的是这块键盘的中文键面和用户的 26 键样式，不看此刻的中/英：同一块键盘切到英文 26 键时也留着，否则工具栏隐藏时每次切中/英这一行都出没一次，面板高度跟着跳。判定本身在 `TouchLayoutStylePolicy.chineseTwentySixKeyboard`，没有 english 参数，由 touch-layout-styles.test.ts 逐个方案覆盖（中文 26 键停在英文 26 键上仍留着这一行）；视图是 ArkTS，这里钉住接线：工具条、隐藏工具栏时藏工具和冷启动记下的键面都读视图的 `chineseTwentySixKeyboard`，它交给上面那个判定、交过去的键盘状态（`touchKeyboard`）里没有 `this.english`；`chineseTwentySixFace` 是它再加上此刻是中文。
