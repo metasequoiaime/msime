@@ -60,6 +60,7 @@ pub struct CloudDictionaryState {
     previews: Arc<Mutex<HashMap<String, PendingSnapshot>>>,
     /// 上一次处理队列的时间，见 [`RETRY_INTERVAL`]。
     last_process: Arc<Mutex<Option<Instant>>>,
+    pub(super) quick_clear: Arc<Mutex<HashMap<String, super::quick_clear::Pending>>>,
 }
 
 impl CloudDictionaryState {
@@ -72,6 +73,7 @@ impl CloudDictionaryState {
             directory,
             previews: Arc::default(),
             last_process: Arc::default(),
+            quick_clear: Arc::default(),
         }
     }
 }
@@ -100,6 +102,11 @@ pub fn request<A: AccountApi, S: AccountSessionStorage>(
     }
     discard_stale_previews(session, state);
     match request {
+        CloudDictionaryRequest::QuickClearPreview => super::quick_clear::preview(session, state),
+        CloudDictionaryRequest::QuickClearApply { token } => {
+            super::quick_clear::apply(session, state, &token)
+        }
+        CloudDictionaryRequest::QuickClearCancel => super::quick_clear::cancel(state),
         CloudDictionaryRequest::SnapshotPreview => preview(session, state, &options),
         CloudDictionaryRequest::SnapshotEnqueue { token } => {
             enqueue(session, state, &options, &token)
@@ -107,6 +114,9 @@ pub fn request<A: AccountApi, S: AccountSessionStorage>(
         CloudDictionaryRequest::SnapshotStatus => status(session, state, &options),
         CloudDictionaryRequest::SnapshotCancel => cancel(session, state, &options),
         CloudDictionaryRequest::SnapshotExport => export(session, state),
+        CloudDictionaryRequest::SnapshotClearQuickPhrases { text } => {
+            super::quick_phrase::filter_snapshot(&text)
+        }
         CloudDictionaryRequest::SnapshotRestorePreview { text } => {
             restore_preview(session, state, &text)
         }
@@ -431,7 +441,7 @@ fn cancel<A: AccountApi, S: AccountSessionStorage>(
 }
 
 /// 下载完整云端备份交给页面，页面用下载链接保存。
-fn export<A: AccountApi, S: AccountSessionStorage>(
+pub(super) fn export<A: AccountApi, S: AccountSessionStorage>(
     session: &BackendAccountSession<A, S>,
     state: &CloudDictionaryState,
 ) -> Result<Value, &'static str> {
@@ -680,6 +690,9 @@ mod tests {
     struct FakeApi {
         calls: Arc<Mutex<Vec<String>>>,
         snapshot: Option<String>,
+        restore_conflict: std::sync::atomic::AtomicBool,
+        cloud_revision: std::sync::atomic::AtomicI64,
+        restored: Mutex<Vec<u8>>,
     }
 
     impl FakeApi {
@@ -708,8 +721,9 @@ mod tests {
         fn rename(&self, _: &str, _: &str) -> Result<(), AccountError> {
             unreachable!("rename")
         }
-        fn logout(&self, _: &str, _: bool) -> Result<(), AccountError> {
-            unreachable!("logout")
+        fn logout(&self, token: &str, _: bool) -> Result<(), AccountError> {
+            self.record("logout".into(), token);
+            Ok(())
         }
         fn delete_account(&self, _: &str) -> Result<(), AccountError> {
             unreachable!("delete_account")
@@ -749,7 +763,9 @@ mod tests {
                 entries: Vec::new(),
                 has_more: false,
                 offset: 0,
-                revision: 9,
+                revision: self
+                    .cloud_revision
+                    .load(std::sync::atomic::Ordering::SeqCst),
                 normalized: String::new(),
             })
         }
@@ -770,6 +786,13 @@ mod tests {
             token: &str,
         ) -> Result<AccountDictionarySnapshotRestore, AccountError> {
             self.record(format!("restore:{}:{revision}", snapshot.len()), token);
+            if self
+                .restore_conflict
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(AccountError::Conflict);
+            }
+            *self.restored.lock().unwrap() = snapshot.to_vec();
             Ok(AccountDictionarySnapshotRestore {
                 revision: revision + 1,
                 reset: true,
@@ -777,16 +800,18 @@ mod tests {
         }
     }
 
-    struct MemoryStorage(Option<SavedAccountSession>);
+    struct MemoryStorage(Mutex<Option<SavedAccountSession>>);
 
     impl AccountSessionStorage for MemoryStorage {
         fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
-            Ok(self.0.clone())
+            Ok(self.0.lock().unwrap().clone())
         }
-        fn save(&self, _: &SavedAccountSession) -> Result<(), AccountError> {
+        fn save(&self, value: &SavedAccountSession) -> Result<(), AccountError> {
+            *self.0.lock().unwrap() = Some(value.clone());
             Ok(())
         }
         fn clear(&self) -> Result<(), AccountError> {
+            *self.0.lock().unwrap() = None;
             Ok(())
         }
     }
@@ -831,9 +856,21 @@ mod tests {
         let session = BackendAccountSession::new(
             FakeApi {
                 calls: Arc::clone(&calls),
+                cloud_revision: std::sync::atomic::AtomicI64::new(
+                    if snapshot
+                        .as_deref()
+                        .is_some_and(|text| text.contains("synthetic-quick"))
+                    {
+                        7
+                    } else {
+                        9
+                    },
+                ),
                 snapshot,
+                restore_conflict: std::sync::atomic::AtomicBool::new(false),
+                restored: Mutex::new(Vec::new()),
             },
-            MemoryStorage(saved),
+            MemoryStorage(Mutex::new(saved)),
         );
         let directory = tempfile::tempdir().unwrap();
         let state = CloudDictionaryState::new(directory.path().join("dictionary-snapshots"));
@@ -847,6 +884,192 @@ mod tests {
     ) -> Result<Value, &'static str> {
         let action: CloudDictionaryRequest = serde_json::from_value(action).unwrap();
         request(session, state, json!({}), action)
+    }
+
+    fn quick_snapshot() -> String {
+        let body = concat!(
+            r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#,
+            "\n",
+            r#"{"type":"entry","data":{"id":"synthetic-quick","kind":"quick","code":"k","word":"合成短语","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            "\n",
+            r#"{"type":"entry","data":{"id":"synthetic-pinyin","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            "\n",
+            r#"{"type":"overlay","deleted":false,"data":{"id":"synthetic-quick","kind":"quick","code":"k","word":"合成短语","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            "\n",
+            r#"{"type":"overlay","deleted":false,"data":{"id":"synthetic-pinyin","kind":"pinyin","code":"ni","word":"你","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z","user_inserted":true}}"#,
+            "\n",
+        );
+        format!(
+            "{body}{}\n",
+            json!({"type": "footer", "records": 5, "sha256": hex::encode(Sha256::digest(body.as_bytes()))})
+        )
+    }
+
+    #[test]
+    fn native_quick_clear_keeps_snapshot_text_internal_and_uses_the_export_revision() {
+        let (session, calls, state, _directory) =
+            fixture_with(Some(signed_in()), Some(quick_snapshot()));
+        let preview = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_preview"}),
+        )
+        .unwrap();
+        assert_eq!(preview["entries"], 1);
+        assert_eq!(preview["revision"], 7);
+        assert!(preview.get("text").is_none());
+        assert_eq!(*calls.lock().unwrap(), ["snapshot"]);
+        let applied = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_apply", "token": preview["token"]}),
+        )
+        .unwrap();
+        assert_eq!(applied, json!({"cleared": 1, "revision": 8}));
+        let (id, _, generation) = session.credentials_with_generation(None, None).unwrap();
+        let restored = session
+            .authenticated_as(&id, generation, |api, _| {
+                Ok(api.restored.lock().unwrap().clone())
+            })
+            .unwrap();
+        crate::dictionary_snapshot::inspect_snapshot_bytes(&restored).unwrap();
+        let text = String::from_utf8(restored).unwrap();
+        assert!(text.contains("synthetic-pinyin"));
+        assert!(!text.contains("synthetic-quick"));
+        assert!(calls.lock().unwrap()[2].ends_with(":7"));
+        assert_eq!(
+            send(
+                &session,
+                &state,
+                json!({"operation": "quick_clear_apply", "token": preview["token"]})
+            ),
+            Err("snapshot_invalid")
+        );
+    }
+
+    #[test]
+    fn native_quick_clear_cancel_and_an_empty_snapshot_never_write_to_cloud() {
+        let (session, calls, state, _directory) = fixture();
+        let preview = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_preview"}),
+        )
+        .unwrap();
+        assert_eq!(preview["entries"], 0);
+        assert_eq!(
+            send(
+                &session,
+                &state,
+                json!({"operation": "quick_clear_apply", "token": preview["token"]})
+            )
+            .unwrap()["cleared"],
+            0
+        );
+        let preview = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_preview"}),
+        )
+        .unwrap();
+        send(&session, &state, json!({"operation": "quick_clear_cancel"})).unwrap();
+        assert_eq!(
+            send(
+                &session,
+                &state,
+                json!({"operation": "quick_clear_apply", "token": preview["token"]})
+            ),
+            Err("snapshot_invalid")
+        );
+        assert_eq!(*calls.lock().unwrap(), ["snapshot", "snapshot"]);
+    }
+
+    #[test]
+    fn native_quick_clear_rejects_a_concurrent_cloud_write() {
+        let (session, calls, state, _directory) =
+            fixture_with(Some(signed_in()), Some(quick_snapshot()));
+        let preview = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_preview"}),
+        )
+        .unwrap();
+        let (id, _, generation) = session.credentials_with_generation(None, None).unwrap();
+        session
+            .authenticated_as(&id, generation, |api, _| {
+                api.restore_conflict
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            send(
+                &session,
+                &state,
+                json!({"operation": "quick_clear_apply", "token": preview["token"]})
+            ),
+            Err("account_conflict")
+        );
+        assert_eq!(calls.lock().unwrap().len(), 3);
+        let restored = session
+            .authenticated_as(&id, generation, |api, _| {
+                Ok(api.restored.lock().unwrap().clone())
+            })
+            .unwrap();
+        assert!(restored.is_empty());
+    }
+
+    #[test]
+    fn native_quick_clear_detects_an_update_before_upload() {
+        let (session, calls, state, _directory) =
+            fixture_with(Some(signed_in()), Some(quick_snapshot()));
+        let preview = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_preview"}),
+        )
+        .unwrap();
+        let (id, _, generation) = session.credentials_with_generation(None, None).unwrap();
+        session
+            .authenticated_as(&id, generation, |api, _| {
+                api.cloud_revision
+                    .store(8, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            send(
+                &session,
+                &state,
+                json!({"operation": "quick_clear_apply", "token": preview["token"]})
+            ),
+            Err("account_conflict")
+        );
+        assert_eq!(*calls.lock().unwrap(), ["snapshot", "catalog"]);
+    }
+
+    #[test]
+    fn native_quick_clear_cannot_upload_a_preview_after_logout() {
+        let (session, calls, state, _directory) =
+            fixture_with(Some(signed_in()), Some(quick_snapshot()));
+        let preview = send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_preview"}),
+        )
+        .unwrap();
+        session.logout(false).unwrap();
+        assert!(send(
+            &session,
+            &state,
+            json!({"operation": "quick_clear_apply", "token": preview["token"]})
+        )
+        .is_err());
+        assert!(!calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| call.starts_with("restore:")));
     }
 
     #[test]

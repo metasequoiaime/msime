@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use crate::dictionary::DictRow;
 use crate::error::Result;
 use crate::helpcode::{
-    filter_candidates_with_double_helpcodes, filter_candidates_with_single_helpcode,
-    reorder_candidates_with_single_helpcode, HelpcodeKeymap,
+    filter_candidates_with_double_helpcodes_preserving_order,
+    filter_candidates_with_single_helpcode,
+    reorder_candidates_with_single_helpcode_preserving_first, HelpcodeKeymap,
 };
 use crate::lattice::decode::PinnedSpan;
 use crate::paths::RuntimePaths;
@@ -99,11 +100,11 @@ impl QuanpinEngine {
         let empty = HelpcodeKeymap::default();
         let keymap = keymap.unwrap_or(&empty);
         if helpcode_length == 2 {
-            filter_candidates_with_double_helpcodes(rows, codes, keymap)
+            filter_candidates_with_double_helpcodes_preserving_order(rows, codes, keymap)
         } else if request.strict_quanpin_helpcode {
             filter_candidates_with_single_helpcode(rows, codes, keymap)
         } else {
-            reorder_candidates_with_single_helpcode(rows, codes, keymap)
+            reorder_candidates_with_single_helpcode_preserving_first(rows, codes, keymap)
         }
     }
 
@@ -372,6 +373,35 @@ mod tests {
         assert!(!engine.expand_initial_candidates(&request("ni"), &mut rows));
         assert!(engine.expand_initial_candidates(&single, &mut rows));
         assert_eq!(rows.len(), 30);
+    }
+
+    #[test]
+    fn single_helpcode_keeps_the_original_first_match_for_quanpin() {
+        let fixture = Fixture::new();
+        fixture.insert("ni", "你", 8000).insert("ni", "拟", 7000);
+        let keymap = HelpcodeKeymap::from_codes(HashMap::from([
+            ("你".to_string(), "sr".to_string()),
+            ("拟".to_string(), "sx".to_string()),
+        ]));
+        let mut engine = QuanpinEngine::new(&fixture.paths);
+        let rows = engine.query(&request("niS"), Some(&keymap));
+        assert_eq!(words(&rows), ["你", "拟"]);
+    }
+
+    #[test]
+    fn double_helpcode_keeps_the_base_order_for_quanpin() {
+        let fixture = Fixture::new();
+        fixture
+            .insert("ni'hao", "你好", 10_000)
+            .insert("ni'hao", "拟好", 30);
+        let keymap = HelpcodeKeymap::from_codes(HashMap::from([
+            ("你".to_string(), "rx".to_string()),
+            ("拟".to_string(), "ry".to_string()),
+            ("好".to_string(), "nz".to_string()),
+        ]));
+        let mut engine = QuanpinEngine::new(&fixture.paths);
+        let rows = engine.query(&request("nihaoRN"), Some(&keymap));
+        assert_eq!(words(&rows), ["你好", "拟好"]);
     }
 
     /// With the keyboard model loaded the trimmed context is part of the series slot: an online row is read back only under the context it was stored with, and a store lands in the slot of the last query's context. Fails if `query` stops passing the request's context to the dictionary. Needs the keyboard model in `MSIME_EVAL_RESOURCES`.

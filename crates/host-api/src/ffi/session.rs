@@ -64,6 +64,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
     let pause_rerank = options.pause_rerank == Some(true);
     // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
     let state_root = absolute_state_root(options.preferences_directory.as_deref());
+    let dictionary_resource_root = options.dictionary_resource_root();
     let recorded_language_dictionaries = options
         .language_dictionaries
         .as_deref()
@@ -258,6 +259,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
                 sound,
                 plugin_tables,
                 state_root,
+                dictionary_resource_root,
                 recorded_language_dictionaries,
                 resources_pending: false,
                 recorded_sentence_model: sentence_model_path,

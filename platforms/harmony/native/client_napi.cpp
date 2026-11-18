@@ -595,6 +595,10 @@ static napi_value queueRequest(napi_env env, napi_callback_info info, RequestCal
     return promise;
 }
 
+static napi_value ResourcePackAdopt(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_resource_pack_adopt, "MSIME resource pack adoption");
+}
+
 static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
     return queueRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
 }
@@ -2136,6 +2140,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceLocalModelRemove", VoiceLocalModelRemove),
         ENTRY("resourcePacks", ResourcePacks),
         ENTRY("resourcePackInstall", ResourcePackInstall),
+        ENTRY("resourcePackAdopt", ResourcePackAdopt),
         ENTRY("resourcePackCancel", ResourcePackCancel),
         ENTRY("resourcePackRemove", ResourcePackRemove),
         ENTRY("doubaoEncodeFrame", DoubaoEncodeFrame),

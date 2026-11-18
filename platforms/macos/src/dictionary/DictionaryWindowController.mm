@@ -60,6 +60,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
 @property(nonatomic, strong) NSButton *addButton;
 @property(nonatomic, strong) NSButton *editButton;
 @property(nonatomic, strong) NSButton *removeButton;
+@property(nonatomic, strong) NSButton *clearQuickPhrasesButton;
 @property(nonatomic, strong) NSTextField *status;
 @property(nonatomic, copy) NSString *runtimeError;
 @property(nonatomic) NSUInteger refreshGeneration;
@@ -96,6 +97,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
     _addButton = [NSButton buttonWithTitle:@"新增…" target:self action:@selector(addEntry:)];
     _editButton = [NSButton buttonWithTitle:@"编辑…" target:self action:@selector(editEntry:)];
     _removeButton = [NSButton buttonWithTitle:@"删除" target:self action:@selector(removeEntry:)];
+    _clearQuickPhrasesButton = [NSButton buttonWithTitle:@"清空快捷短语" target:self action:@selector(clearQuickPhrases:)];
     _importButton = [NSButton buttonWithTitle:@"导入…" target:self action:@selector(importFile:)];
     _importButton.translatesAutoresizingMaskIntoConstraints = NO;
     _exportButton = [NSButton buttonWithTitle:@"导出…" target:self action:@selector(exportFile:)];
@@ -115,11 +117,11 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
     }
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder; scroll.documentView = _table; scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    NSArray<NSButton *> *buttons = @[_addButton, _editButton, _removeButton, refresh, _importButton, _exportButton];
+    NSArray<NSButton *> *buttons = @[_addButton, _editButton, _removeButton, _clearQuickPhrasesButton, refresh, _importButton, _exportButton];
     for (NSButton *button in buttons) { button.translatesAutoresizingMaskIntoConstraints = NO; button.bezelStyle = NSBezelStyleRounded; }
     _removeButton.hasDestructiveAction = YES;
     [self.window.contentView addSubview:_previous]; [self.window.contentView addSubview:_next]; [self.window.contentView addSubview:_pageLabel]; [self.window.contentView addSubview:_status]; [self.window.contentView addSubview:scroll];
-    NSStackView *toolbar = [NSStackView stackViewWithViews:@[_kind, _format, _addButton, _editButton, _removeButton, refresh, _importButton, _exportButton]];
+    NSStackView *toolbar = [NSStackView stackViewWithViews:@[_kind, _format, _addButton, _editButton, _removeButton, _clearQuickPhrasesButton, refresh, _importButton, _exportButton]];
     toolbar.orientation = NSUserInterfaceLayoutOrientationHorizontal; toolbar.spacing = 8.0; toolbar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.window.contentView addSubview:toolbar];
     [NSLayoutConstraint activateConstraints:@[[toolbar.topAnchor constraintEqualToAnchor:self.window.contentView.topAnchor constant:12], [toolbar.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [toolbar.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [_next.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:8], [_next.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [_previous.topAnchor constraintEqualToAnchor:_next.topAnchor], [_previous.trailingAnchor constraintEqualToAnchor:_next.leadingAnchor constant:-8], [_pageLabel.centerYAnchor constraintEqualToAnchor:_next.centerYAnchor], [_pageLabel.trailingAnchor constraintEqualToAnchor:_previous.leadingAnchor constant:-12], [_status.topAnchor constraintEqualToAnchor:_next.bottomAnchor constant:8], [_status.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [_status.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [scroll.topAnchor constraintEqualToAnchor:_status.bottomAnchor constant:8], [scroll.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [scroll.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [scroll.bottomAnchor constraintEqualToAnchor:self.window.contentView.bottomAnchor constant:-12]]];
@@ -132,6 +134,43 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
     const BOOL selected = self.table.selectedRow >= 0 && self.table.selectedRow < (NSInteger)self.entries.count;
     self.editButton.enabled = selected;
     self.removeButton.enabled = selected;
+    self.clearQuickPhrasesButton.enabled = [[self selectedKind] isEqualToString:@"quick_phrase"] && !self.runtimeError;
+}
+- (void)clearQuickPhrases:(id)sender {
+    (void)sender;
+    if (self.runtimeError || ![[self selectedKind] isEqualToString:@"quick_phrase"]) return;
+    NSAlert *alert = [NSAlert new];
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = @"清空全部快捷短语？";
+    alert.informativeText = @"只会删除本机用户添加的快捷短语，内置短语和其他词库不会改变。此操作无法撤销。";
+    [alert addButtonWithTitle:@"取消"];
+    [alert addButtonWithTitle:@"清空"];
+    alert.buttons[1].hasDestructiveAction = YES;
+    __weak MSIMEDictionaryWindowController *weakSelf = self;
+    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+        if (response != NSAlertSecondButtonReturn) return;
+        MSIMEDictionaryWindowController *controller = weakSelf;
+        if (!controller || ![[controller selectedKind] isEqualToString:@"quick_phrase"]) return;
+        NSUInteger mutationGeneration = controller.refreshGeneration;
+        NSString *mutationKind = [[controller selectedKind] copy];
+        NSDictionary *options = [controller.options copy];
+        NSDictionary *request = @{ @"options": options, @"action": @{ @"operation": @"clear_quick_phrases", @"request_id": NSUUID.UUID.UUIDString } };
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSError *error = nil;
+            NSDictionary *result = MSIMEQuiescedDictionaryRequest(request, &error);
+            NSString *message = nil;
+            if (!result) message = error.localizedDescription ?: @"快捷短语清空失败。";
+            else message = [NSString stringWithFormat:@"已清空 %lu 条快捷短语。", (unsigned long)[result[@"cleared"] unsignedIntegerValue]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                MSIMEDictionaryWindowController *current = weakSelf;
+                if (!current || current.refreshGeneration != mutationGeneration ||
+                    ![[current selectedKind] isEqualToString:mutationKind]) return;
+                [current showMessage:message];
+                current.offset = 0;
+                [current refresh:nil];
+            });
+        });
+    }];
 }
 - (void)showMessage:(NSString *)message {
     self.status.stringValue = message.length ? message : @"操作失败";

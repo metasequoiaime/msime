@@ -316,4 +316,11 @@ public final class CandidateTranslationPolicy {
         int lines = BoundsPolicy.nonNegative(glossLines);
         return hanjaRows ? BoundsPolicy.bounded(lines, 1, Integer.MAX_VALUE) : lines;
     }
+
+    /**
+     * 候选条最终预留的行数：按设置预留的释义行（{@code glossRows}，常驻，空闲与打字同高），和这一页候选里实际出现的提示行（{@code hintRows}：辅助码、五笔编码，只在出现时加高；纠错只在候选字后面画 *，不占行）取大者。开着释义时提示和释义同在已预留的行里，不再多加。
+     */
+    public static int reservedRows(int glossRows, int hintRows) {
+        return Math.max(BoundsPolicy.nonNegative(glossRows), BoundsPolicy.nonNegative(hintRows));
+    }
 }

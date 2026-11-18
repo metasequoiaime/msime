@@ -87,7 +87,7 @@ enum ControlId {
   statistics_enabled = 1800, statistics_privacy, statistics_retention, statistics_upload,
   statistics_upload_notice, statistics_overview, statistics_scope, statistics_chart_kind,
   statistics_chart, statistics_chart_text, statistics_days, statistics_day_detail,
-  statistics_notice, statistics_reset, statistics_calendar, statistics_speed,
+  statistics_notice, statistics_reset, statistics_calendar, statistics_speed, statistics_key_language,
   account_qq_refresh = 1900, account_qq_list, account_qq_code, account_qq_redeem,
   account_qq_remove, account_qq_notice, account_devices_refresh, account_devices_list,
   account_device_detail, account_device_revoke, account_devices_notice,
@@ -111,11 +111,12 @@ enum ControlId {
   dictionary_page, dictionary_previous, dictionary_next, dictionary_entries,
   dictionary_entry_source, dictionary_key, dictionary_value, dictionary_weight,
   dictionary_new, dictionary_save, dictionary_delete, dictionary_format,
-  dictionary_import, dictionary_export, dictionary_reset, dictionary_notice, dictionary_export_all,
+  dictionary_import, dictionary_export, dictionary_reset, dictionary_clear_quick_phrases, dictionary_notice, dictionary_export_all,
   dictionary_sync_open,
   dictionary_groups_open,
   dictionary_updates_enabled = 2250, dictionary_updates_version, dictionary_updates_refresh,
   dictionary_updates_check, dictionary_updates_rollback, dictionary_updates_notice,
+  dictionary_clear_cloud_quick_phrases,
 };
 
 class SettingsWindow {
