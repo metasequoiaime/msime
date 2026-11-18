@@ -842,7 +842,7 @@ struct KeyboardView {
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
   private readonly keyPressedScale: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_SCALE;
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
-  // Candidate images, canvas and layout read this snapshot directly. Replacing it must invalidate their ArkUI nodes.
+  // 候选图片、画布和布局直接读取该快照，替换快照必须使对应 ArkUI 节点失效并重新计算。
   @State private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
   private readonly cursorDrag: SpaceCursorMovement = new SpaceCursorMovement();
   /** 空格键的长按语音、拖动移光标与普通空格之间的判定。 */

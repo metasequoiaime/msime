@@ -1,5 +1,5 @@
-// Check the production view wiring and execute its canvas reload methods.
-// Node cannot verify ArkUI's actual dependency tracking or on-screen pixels.
+// 检查产品视图接线并执行画布的实际重载方法。
+// Node 无法验证 ArkUI 的真实依赖追踪和屏幕像素。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
