@@ -394,3 +394,6 @@ export const doubaoEncodeFrame: (
   payload: ArrayBuffer,
 ) => ArrayBuffer;
 export const doubaoDecodeFrame: (frame: ArrayBuffer) => DoubaoFrameResult | null;
+
+/** 自定义双拼编辑、导入和选择的共享事务。 */
+export const customShuangpinSettings: (request: string) => string;

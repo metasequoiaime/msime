@@ -174,9 +174,13 @@ const highlightedCodes = (dialog: HTMLElement) =>
 
 /** 当前分段里样式胶囊下方的说明；数字键盘一组的组末说明不在分段里，不算。 */
 const note = (dialog: HTMLElement) =>
-  [...dialog.querySelectorAll("[data-key-layout-panel] [data-key-layout-note]")]
-    .filter((node) => !node.closest("[hidden]"))
-    .map((node) => node.textContent);
+  (() => {
+    const describedBy = chipGroup(dialog).getAttribute("aria-describedby") ?? "";
+    return describedBy
+      .split(" ")
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)?.textContent ?? "");
+  })();
 
 const symbolFirstSwitch = (dialog: HTMLElement) =>
   within(dialog).queryByRole("switch", {
