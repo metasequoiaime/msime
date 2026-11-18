@@ -146,9 +146,11 @@ impl StateStore {
             {
                 return Ok(Err(SkipReason::Throttled));
             }
-            state.automatic_after_ms = state
-                .automatic_after_ms
-                .max(now_ms.saturating_add(AUTOMATIC_INTERVAL_MS));
+            if automatic {
+                state.automatic_after_ms = state
+                    .automatic_after_ms
+                    .max(now_ms.saturating_add(AUTOMATIC_INTERVAL_MS));
+            }
             Ok(Ok((state.revision, state.status(login))))
         })
     }

@@ -51,16 +51,14 @@ fn restart_and_clock_rollback_do_not_reset_the_hour_and_manual_bypasses_only_tha
         .reserve_schedule(&login(1), 1001, false)
         .unwrap()
         .is_ok());
-    assert_eq!(
-        store
-            .reserve_schedule(&login(1), 1000 + AUTOMATIC_INTERVAL_MS, true)
-            .unwrap(),
-        Err(SkipReason::Throttled)
-    );
+    assert!(store
+        .reserve_schedule(&login(1), 1000 + AUTOMATIC_INTERVAL_MS, true)
+        .unwrap()
+        .is_ok());
     assert!(store
         .reserve_schedule(&login(1), 1001 + AUTOMATIC_INTERVAL_MS, true)
         .unwrap()
-        .is_ok());
+        .is_err());
 }
 
 #[test]
