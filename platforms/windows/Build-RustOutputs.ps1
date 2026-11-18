@@ -1,7 +1,6 @@
 # Builds the Rust half of the Windows client for one architecture and collects it under fixed names in OutputDirectory/<arch>. None of it depends on the edition (editions rename the host DLL afterwards, Build-Client.ps1), so a release builds it once and hands the result to every edition's Build-Client.ps1 -RustOutputs. Without -RustOutputs, Build-Client.ps1 runs this itself for all three architectures. This script never signs or installs.
 #
-# x64: msime_host_api.dll with its import library and PDB, msime-mcp.exe and its PDB, and the Tauri panel shell as MSIME.exe and MSIME.pdb. The x64 host is built with `onnx-rerank`: the minimal ONNX Runtime static library pinned in resources/onnxruntime-minimal.lock.json (scripts/fetch_onnxruntime.py downloads and verifies it, so Python must be on PATH) is linked into it, and the Server's sessions run 整句联想「增强」's keystroke reranker on it when the installer put rerank-model and rerank-model-small beside the Server. The TIP loads the same DLL but its sessions never mount the reranker (tsf/HostConfiguration.cpp), which is why x86 and arm64, only ever loaded by the TIP, are built without it.
-# x86: the host DLL, import library and PDB, for the 32-bit TIP.
+# x64: msime_host_api.dll with its import library and PDB, the static-CRT TSF-only msime_host_api_tip.dll variant, msime-mcp.exe and its PDB, and the Tauri panel shell as MSIME.exe and MSIME.pdb. The ordinary x64 host is built with `onnx-rerank`: the minimal ONNX Runtime static library pinned in resources/onnxruntime-minimal.lock.json (scripts/fetch_onnxruntime.py downloads and verifies it, so Python must be on PATH) is linked into it, and the Server's sessions run 整句联想「增强」's keystroke reranker on it when the installer put rerank-model and rerank-model-small beside the Server. The TSF-only variant has the static CRT and no optional reranker feature. x86 collects the same two host variants; arm64 keeps its existing static-CRT host.
 # arm64: the host DLL and PDB, with the C runtime linked statically like the TIP, for the native half of the Arm64X TIP. ring assembles its ARM64 code with clang only, so clang must be on PATH.
 [CmdletBinding()]
 param(
@@ -39,6 +38,8 @@ $triple = switch ($Architecture) { 'x64' { 'x86_64-pc-windows-msvc' } 'x86' { 'i
 $output = Join-Path $OutputDirectory $Architecture
 $previousTarget = $env:CARGO_TARGET_DIR
 $previousDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
+$previousX64Flags = $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS
+$previousX86Flags = $env:CARGO_TARGET_I686_PC_WINDOWS_MSVC_RUSTFLAGS
 $previousArm64Flags = $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS
 $previousVersion = $env:MSIME_VERSION
 $previousPlatformBuild = $env:MSIME_PLATFORM_BUILD
@@ -100,9 +101,23 @@ try {
         $desktopPdb = Get-SinglePdb $release @('msime_desktop.pdb', 'msime-desktop.pdb') 'Tauri desktop'
         Invoke-RustBuild cmake @('-E', 'copy_if_different', $desktopPdb, (Join-Path $output 'MSIME.pdb'))
     }
+    if ($Architecture -ne 'arm64') {
+        # TSF 会进入第三方编辑器进程，不能让其中的动态 CRT 与编辑器自己的同名运行库复用。TSF 明确关闭逐键重排，因此这份隔离宿主不编入 ONNX Runtime；Server 和设置窗口继续使用上面的普通宿主。
+        if ($Architecture -eq 'x64') {
+            $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+        } else {
+            $env:CARGO_TARGET_I686_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+        }
+        Invoke-RustBuild cargo @('build', '--locked', '--release', '--target', $triple, '-p', 'msime-host-api')
+        Invoke-RustBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.dll'), (Join-Path $output 'msime_host_api_tip.dll'))
+        Invoke-RustBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.pdb'), (Join-Path $output 'msime_host_api_tip.pdb'))
+        Invoke-RustBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.dll.lib'), (Join-Path $output 'msime_host_api_tip.dll.lib'))
+    }
 } finally {
     $env:CARGO_TARGET_DIR = $previousTarget
     $env:CARGO_PROFILE_RELEASE_DEBUG = $previousDebug
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = $previousX64Flags
+    $env:CARGO_TARGET_I686_PC_WINDOWS_MSVC_RUSTFLAGS = $previousX86Flags
     $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS = $previousArm64Flags
     $env:MSIME_VERSION = $previousVersion
     $env:MSIME_PLATFORM_BUILD = $previousPlatformBuild

@@ -181,12 +181,12 @@ final class ShuangpinTouchDeviceChecks {
             scheme("microsoft");
             t.restartIme();
             editor();
-            t.await(t.described("微软双拼 ing").and(AccessibilityNodeInfo::isVisibleToUser));
+            t.await(t.described("分号，微软双拼 ing").and(AccessibilityNodeInfo::isVisibleToUser));
             geometry(true);
             emit("android-portrait-microsoft");
             t.stage = "shuangpin touch: the ; key carries its touch-down";
             center("b");
-            Rect semicolon = boundsOf(t.described("微软双拼 ing"));
+            Rect semicolon = boundsOf(t.described("分号，微软双拼 ing"));
             touch(semicolon.left + semicolon.width() * 0.2f, semicolon.centerY());
             awaitField("b;");
             clear(2);
@@ -259,7 +259,7 @@ final class ShuangpinTouchDeviceChecks {
                 offsetY = key.exactCenterY() - (float) entry.getDouble(1);
             }
         }
-        if (semicolon) check(boundsOf(t.described("微软双拼 ing")), json.getJSONArray("semicolon"), false, ";",
+        if (semicolon) check(boundsOf(t.described("分号，微软双拼 ing")), json.getJSONArray("semicolon"), false, ";",
             new float[] {offsetX, offsetY});
         return json;
     }

@@ -36,8 +36,8 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
     private static final String RESOLVED = "—";
     /** 本套件把每页候选数定成 6：答案坐第一页最后一格，下标 5。 */
     private static final int PAGE_SIZE = 6;
-    /** 桩服务给出的 AI 候选：不是词库里的词，免得它本来就在列表里而被引擎跳过。 */
-    private static final String ANSWER = "倪浩答案";
+    /** 桩服务给出的 AI 候选：不是词库里的词，免得它本来就在列表里而被引擎跳过；每个字都要能读成 nihao 的切分（ni、hao），否则 #11522 的切分校验会丢掉它。 */
+    private static final String ANSWER = "腻蒿";
 
     @Override protected String successDescription() {
         return "no AI placeholder, an empty answer changes nothing and is not asked again, and a real answer takes the last first-page slot without moving the earlier candidates";

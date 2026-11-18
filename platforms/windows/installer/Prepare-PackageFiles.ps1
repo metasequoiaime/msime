@@ -61,6 +61,7 @@ if ($editionEntry.Count -ne 1) {
     throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识"
 }
 $hostDllName = [string]$editionEntry[0].platforms.windows.host_dll
+$tipHostDllName = [IO.Path]::GetFileNameWithoutExtension($hostDllName) + '_tip.dll'
 $defaultScheme = [string]$editionEntry[0].default_scheme
 # 现代 Windows 包把可选的日文和五笔资源放到共享资源包目录；日文版与五笔版的默认方案必须随包可用，Win7 宿主没有这套资源包入口，继续带完整词库。
 $omitOnDemandNames = @()
@@ -175,6 +176,8 @@ $tsf64WerHelper = Join-Path (Split-Path -Parent $tsf64Release) $werHelperName
 $tsfArm64WerHelper = Join-Path $tsfArm64Directory $werHelperName
 $tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) $hostDllName
 $tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) $hostDllName
+$tsf32TipHost = Join-Path (Split-Path -Parent $tsf32Release) $tipHostDllName
+$tsf64TipHost = Join-Path (Split-Path -Parent $tsf64Release) $tipHostDllName
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $audioSource = Join-Path $PSScriptRoot 'assets\audios'
@@ -231,9 +234,20 @@ foreach ($hostDll in @($tsf32Host) + @($(if ($Windows7Architecture -ne 'x86') { 
         throw "缺少对应架构 TSF 的 $hostDllName"
     }
 }
+if ($Windows7Architecture -eq '') {
+    foreach ($hostDll in @($tsf32TipHost, $tsf64TipHost)) {
+        if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
+            throw "缺少对应架构 TSF 的 $tipHostDllName"
+        }
+    }
+}
 # TIP 的运行时 DLL。x86 输出目录里只有 32 位 TIP 的构建产物、它的宿主 DLL 和 Copy-RuntimeDependencies.ps1 放进去的 vcpkg DLL，所以其中其他 DLL 都是 TIP 的依赖。x64 输出目录与 Server、自包含的 WinUI 设置程序和语音运行时共用，整个复制会在 64 位 TIP 旁边多放一份 Windows App SDK 和 onnxruntime/sherpa；两个前缀装的是同一份 vcpkg 清单，所以 64 位 TIP 取 32 位 TIP 旁边那些名字，每一个都必须在它旁边存在。
 # 别的版本的宿主 DLL 永远不是本版本 TIP 的依赖。
-$editionHostDllNames = @($editionTable.editions | Where-Object { $null -ne $_.platforms.windows } | ForEach-Object { [string]$_.platforms.windows.host_dll })
+$editionHostDllNames = @($editionTable.editions | Where-Object { $null -ne $_.platforms.windows } | ForEach-Object {
+    $name = [string]$_.platforms.windows.host_dll
+    $name
+    [IO.Path]::GetFileNameWithoutExtension($name) + '_tip.dll'
+})
 $tsf32Dependencies = @(); $tsf64Dependencies = @()
 if ($Windows7Architecture -eq '') {
 $tsf32Dependencies = @(
@@ -251,8 +265,9 @@ $tsf64Dependencies = @(
     }
 )
 }
-# 安装器从 tsf_dll\64 那一份把 x64 宿主 DLL 和这些依赖装进 Server 目录，包里只存一份；Server 输出里同名却内容不同的文件会被它悄悄替换，所以在替换任何旧的暂存内容之前就在这里拒绝。
-foreach ($shared in @($(if ($Windows7Architecture -eq 'x86') { $tsf32Host } else { $tsf64Host })) + $tsf64Dependencies) {
+# 安装器从 tsf_dll\64 那一份把 x64 普通宿主、TSF 静态 CRT 宿主和这些依赖装进 Server 目录，包里只存一份；Server 输出里同名却内容不同的文件会被它悄悄替换，所以在替换任何旧的暂存内容之前就在这里拒绝。
+foreach ($shared in @($(if ($Windows7Architecture -eq 'x86') { $tsf32Host } else { $tsf64Host })) +
+    @($(if ($Windows7Architecture -eq '') { $tsf64TipHost })) + $tsf64Dependencies) {
     $serverCopy = Join-Path $serverRelease (Split-Path -Leaf $shared)
     if ((Test-Path -LiteralPath $serverCopy -PathType Leaf) -and
         (Get-FileHash -LiteralPath $serverCopy).Hash -ne (Get-FileHash -LiteralPath $shared).Hash) {
@@ -622,7 +637,9 @@ Get-ChildItem -LiteralPath $targetServer -Recurse -File |
     } |
     Remove-Item -Force
 # CI 里 Server 输出目录同时也是 x64 TIP 的构建目录。TIP 和它的符号暂存在 tsf_dll\64 下，只从版本目录加载；宿主 DLL 和 TIP 的运行时 DLL 也从同一份 tsf_dll\64 进入 Server 目录（msime_setup.iss），所以它们都不重复暂存。Build-Client.ps1 也把宿主 DLL 的 PDB 留在这里；Collect-Symbols.ps1 直接从构建输出取它打进符号包，所以它完全不暂存。
-$sharedRemoval = if ($Windows7Architecture -eq '') { @($hostDllName,'msime_host_api.pdb') + @($tsf64Dependencies | ForEach-Object { Split-Path -Leaf $_ }) } else { @('windows7-runtime-closure.json','windows7-imports.txt','files.txt') }
+$sharedRemoval = if ($Windows7Architecture -eq '') {
+    @($hostDllName, $tipHostDllName, 'msime_host_api.pdb', 'msime_host_api_tip.pdb') + @($tsf64Dependencies | ForEach-Object { Split-Path -Leaf $_ })
+} else { @('windows7-runtime-closure.json','windows7-imports.txt','files.txt') }
 foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $werHelperName, 'MetasequoiaImeCrashWer.pdb') + $sharedRemoval) {
     $staged = Join-Path $targetServer $name
     if (Test-Path -LiteralPath $staged -PathType Leaf) { Remove-Item -LiteralPath $staged -Force }
@@ -651,6 +668,8 @@ Copy-Item -LiteralPath $tsf64Release -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
+Copy-Item -LiteralPath $tsf32TipHost -Destination $targetTsf32 -Force
+Copy-Item -LiteralPath $tsf64TipHost -Destination $targetTsf64 -Force
 # Arm64X TIP 的 ARM64EC 那一半导入 x64 宿主，它由 tsf_dll\64 那一份装进同一个版本目录；这里放 TIP、WER helper 和 ARM64 宿主，均静态链接 C 运行时。
 Copy-Item -LiteralPath $tsfArm64Release, $tsfArm64Pdb, $tsfArm64Host, $tsfArm64WerHelper -Destination $targetTsfArm64 -Force
 # Build-Client 把检查过架构的发布依赖收集到 TIP 旁边；只复制上面列出的那些，绝不复制共用 x64 目录里的其余文件。

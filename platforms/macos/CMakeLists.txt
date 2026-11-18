@@ -1561,7 +1561,7 @@ add_test(
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/entitlements_guard.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/resources/VoiceInput.entitlements"
           "${CMAKE_CURRENT_SOURCE_DIR}/scripts/install.sh")
-add_executable(input-source-registration-test tests/input/InputSourceRegistrationTests.mm src/input/InputSourceRegistration.mm)
+add_executable(input-source-registration-test tests/input/InputSourceRegistrationTests.mm src/input/InputSourceRegistration.mm src/core/DiagnosticLog.cpp)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-source-registration-test PRIVATE "-framework AppKit" "-framework Carbon" "-framework Foundation")
 add_test(NAME input-source-registration COMMAND input-source-registration-test)
