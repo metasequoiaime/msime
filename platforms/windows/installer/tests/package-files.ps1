@@ -492,7 +492,7 @@ try {
     foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
         $native = Join-Path $fixture "target/windows-full/$($mapping[1])/bin"
         New-Item -ItemType Directory -Force $native | Out-Null
-        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'MetasequoiaImeCrashWer.pdb')) {
+        foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'MetasequoiaImeCrashWer.dll', 'MetasequoiaImeCrashWer.pdb', 'msime_host_api_tip.dll')) {
             Copy-Item (Join-Path $fixture "windows/build$($mapping[0])-release/Release/$name") $native
         }
         [IO.File]::WriteAllText((Join-Path $native 'msime_host_api.dll'), "native $($mapping[1]) host")
@@ -501,6 +501,10 @@ try {
     foreach ($mapping in @(@('32', 'x86'), @('64', 'x64'))) {
         if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$($mapping[0])/msime_host_api.dll")) -ne "native $($mapping[1]) host") {
             throw 'Native build directory default was not selected'
+        }
+        $expectedTip = if ($mapping[1] -eq 'x86') { 'synthetic x86 TSF host' } else { 'synthetic x64 TSF host' }
+        if ([IO.File]::ReadAllText((Join-Path $installer "tsf_dll/$($mapping[0])/msime_host_api_tip.dll")) -ne $expectedTip) {
+            throw 'Native build directory default lost the static CRT TSF host'
         }
     }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Light `
