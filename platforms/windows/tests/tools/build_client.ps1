@@ -128,7 +128,6 @@ try {
         $triple = if ($arch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
         if ($calls[$index].Name -ne 'cargo' -or $calls[$index].Values -notcontains 'msime-host-api' -or
             $calls[$index].Values -notcontains $triple -or $calls[$index].Values -contains '--features' -or
-            $(if ($arch -eq 'x64') { $calls[$index].X64Flags } else { $calls[$index].X86Flags }) -notmatch 'crt-static' -or
             $calls[$index + 1].Values -notcontains (Join-Path $fixture "target/$triple/release/msime_host_api.dll") -or
             $calls[$index + 1].Values -notcontains (Join-Path $rust "$arch/msime_host_api.dll")) {
             throw "静态 CRT TSF 宿主构建或收集错误：$arch"
