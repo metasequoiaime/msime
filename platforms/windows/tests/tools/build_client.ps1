@@ -320,7 +320,7 @@ try {
     Remove-Item -LiteralPath $alternateSymbols
     # 不是 full 的版本：输出在 target/windows-<id>，host DLL 按版本表改名，并用 lib /DEF 生成同名导入库给原生目标链接；CMake 和设置窗口工程拿到同一个版本。
     foreach ($arch in @('x86', 'x64')) {
-        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', 'msime_host_api_wubi.dll')) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', 'msime_host_api_wubi.dll', 'msime_host_api_wubi_tip.dll')) {
             Write-PEFixture (Join-Path $fixture "target/windows-wubi/$arch/bin/$dll") $arch dll
         }
     }
