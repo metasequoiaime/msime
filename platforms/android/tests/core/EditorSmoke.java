@@ -208,6 +208,18 @@ public final class EditorSmoke {
         check(EditorPolicy.useEngine(0x80011));
         for (int type : new int[] {2, 3, 0x81, 0x91, 0xe1}) check(!EditorPolicy.useEngine(type));
         check(EditorPolicy.useEngine(0));
+        // #11103: fields with no class still compose, with or without flags: the Douyin live comment box reports 0x20000 (multi-line only). So do classes added after this code.
+        for (int type : new int[] {
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+                InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE,
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES,
+                0x5}) check(EditorPolicy.useEngine(type));
+        // Number, phone and date classes stay out, flags or not; a class-less field carrying a password variation stays out too.
+        for (int type : new int[] {
+                InputType.TYPE_CLASS_DATETIME,
+                InputType.TYPE_CLASS_PHONE | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT,
+                InputType.TYPE_CLASS_NUMBER | InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+                InputType.TYPE_TEXT_VARIATION_PASSWORD}) check(!EditorPolicy.useEngine(type));
         check(EditorPolicy.numberInput(InputType.TYPE_CLASS_NUMBER));
         check(EditorPolicy.numberInput(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD));
         check(EditorPolicy.numberInput(InputType.TYPE_CLASS_PHONE));
