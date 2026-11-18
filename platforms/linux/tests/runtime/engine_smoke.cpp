@@ -2007,6 +2007,15 @@ int main(int argc, char **argv) {
       seen.committed.clear();
       require(key(IBUS_comma) && seen.committed == "，",
               "IBus retained a forwarded digit after the punctuation boundary");
+      seen.committed.clear();
+      auto stale_surrounding = ibus_text_new_from_static_string("stale");
+      g_object_ref_sink(stale_surrounding);
+      IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, stale_surrounding, 0, 0);
+      require(!key('7'), "A forwarded digit with stale surrounding text was consumed");
+      IBUS_ENGINE_GET_CLASS(engine)->set_surrounding_text(engine, stale_surrounding, 0, 0);
+      g_object_unref(stale_surrounding);
+      require(key(IBUS_period) && seen.committed == ".",
+              "IBus did not use forwarded digit context when the cursor position was stale");
       invoke("FocusOut");
     }
     for (const auto *scope : {"app", "global"}) {
