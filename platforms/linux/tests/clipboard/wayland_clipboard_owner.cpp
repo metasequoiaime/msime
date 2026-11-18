@@ -1,6 +1,7 @@
 #include "wlr-data-control-unstable-v1-client-protocol.h"
 #include <wayland-client.h>
 #include <algorithm>
+#include <cerrno>
 #include <csignal>
 #include <cstring>
 #include <iostream>
@@ -32,7 +33,18 @@ void selection(void *, zwlr_data_control_device_v1 *, zwlr_data_control_offer_v1
 void finished(void *, zwlr_data_control_device_v1 *) { std::exit(0); }
 void send(void *, zwlr_data_control_source_v1 *, const char *, int32_t fd) {
   // 本测试只发短合成文本；敏感标记与明文同时提供，不能靠缺文本类型碰巧通过。
-  (void)write(fd, text.data(), text.size());
+  // 开了 _FORTIFY_SOURCE（如 Nix 的默认加固）时 glibc 给 write 标了 warn_unused_result，GCC 不认 (void) 转换，-Werror 下会编不过，所以真正检查返回值。
+  size_t offset = 0;
+  while (offset < text.size()) {
+    const auto count = write(fd, text.data() + offset, text.size() - offset);
+    if (count > 0) {
+      offset += static_cast<size_t>(count);
+    } else if (count < 0 && errno == EINTR) {
+      continue;
+    } else {
+      break;
+    }
+  }
   close(fd);
 }
 void cancelled(void *, zwlr_data_control_source_v1 *) { std::exit(0); }
