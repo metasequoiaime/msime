@@ -24,6 +24,7 @@ Status: implemented
 - 累积窗：与上一次上屏间隔 ≤10s（沿用 `PICK_PAIR_MAX_GAP_SECONDS`）续段；整段 ≤12 字（`MAX_WUBI_RUN_CHARS`）、≤8 片段（`MAX_WUBI_RUN_PIECES`）；超限或间隔超时先「关闭」旧段再开新段。
 - **只在整段关闭时按整段全文计数**，绝不把「中国」「中国共」这类前缀记成词：写 `pick_transitions` 表，哨兵 `previous_key = "wubi-run"`（拼音凑对键全是 `[a-z]` 规范拼音，含连字符的哨兵不冲突）、`key = value = 整段词`。
 - 素材规则：每个片段 = 一次五笔选择上屏的文本（单字或已有词），全汉字；**整段 >4 字时任一片段为单字 → 整段不学**（>4 字的词不允许拿单字当素材，防垃圾组合）；≤4 字不限。单片段段不计数。
+- **关闭点不止「下一次五笔上屏」**（2026-11-18 实机验收补齐）：打开的段在组字与会话的各关闭点由 `close_open_wubi_run` 收尾——宿主 flush 组字（`finish_composition` 尾部，焦点移动/宿主自行插入文本）、回车原文（`commit_raw` 与 `handle_command` 的空组字分支——组字已空时 CommitRaw 到不了 `commit_raw`，直接 `chain.reset()`，这是实机上「打完词停手」最常见的路径）、无选中上屏（`commit_selection` 的 `None` 分支）、material-false 早退、光标后编辑（`consume_caret_prefix`）、个人上下文重置（`record_personal_context` 三处）、会话丢弃（`Session::drop`，关段先于刷盘）。五笔段关闭计数（凑满阈值即落库），拼音 pick 原样放回维持既有语义；caret prefix 只认拼音单元，五笔会话走不到 `consume_caret_prefix` 的取走路径，接线只为防御。
 - 阈值满 → `wubi_learning::learn` 落库 → `engine.reset_cache()` → 清该计数；计数跨会话持久，与拼音凑对同一组诊断码（`PICK_TRANSITION_NOT_PERSISTED`、`PHRASE_NOT_PERSISTED`）。
 
 `wubi_learning::learn` 接收两个新参数：
@@ -51,7 +52,7 @@ CyIME 没有内置五笔，五笔方案从市场下载（`SchemaConfigHelper.kt`
 
 ## Testing
 
-- `cargo test -p msime-engine` 全绿（3188 项）；`wubi_run_*` 系列测试钉住：凑三次落库（86/98 各自编码）、单字拼长词无前缀、>4 字禁单字素材、间隔分段与 12 字/8 片段上限、学习关与墓碑不复活、一次模式首次关闭即落库、模式切换保留计数、置顶模式两表独立高于同码行；既有拼音凑对测试全部仍过。
+- `cargo test -p msime-engine` 全绿（3193 项）；`wubi_run_*` 系列测试钉住：凑三次落库（86/98 各自编码）、单字拼长词无前缀、>4 字禁单字素材、间隔分段与 12 字/8 片段上限、学习关与墓碑不复活、一次模式首次关闭即落库、模式切换保留计数、置顶模式两表独立高于同码行；**关闭时机补齐（2026-11-18）**：once 模式经宿主 flush（`session.finish(0)`）、回车原文（`Command::CommitRaw`）、会话丢弃（Drop）三条路都落库且学成即清计数，凑三次模式分段 flush 攒满计数即落库；既有拼音凑对测试全部仍过。
 - 对称删除：fixture 学入两版后删除，两版行都消失、两版墓碑都在、重放零失败、`learn` 不复活。
 - 偏好管线：缺键按 `thrice`/`bottom` 读、`once`/`top` 往返、非法值按默认读；settings_sync 与 schema 测试、host-api 选项重建测试、edition 版本过滤测试（`wubi_phrase_keys_follow_the_wubi_edition`）。
 - 设置页：`apps/desktop/tests/settings/wubi-phrase-learning.test.tsx` 钉住非五笔方案或学习关闭时不渲染、切换回调写出正确偏好值（6 项全过，apps/desktop 全量 892 个测试文件通过）。
