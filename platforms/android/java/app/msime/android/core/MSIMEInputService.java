@@ -69,6 +69,7 @@ import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
 import java.io.IOException;
@@ -2898,23 +2899,26 @@ public final class MSIMEInputService extends InputMethodService {
      * runtime-options.json 里的偏好是首次安装时写下的出厂默认（见 Bootstrap.prepare），拿它建会话，引擎先按默认方案（全拼 26 键）起来，过一两秒实时偏好重载后才换成用户的方案，九键用户每次都看到键盘从 26 键跳成九键。建会话前在工作线程上读一次实时偏好换进去；读不到时照旧用原来那份。不允许学习的输入框照样把 learning 关掉。
      */
     private EngineStartOptions withLivePreferences(String optionsText, boolean suppressLearning) {
+        JSONObject options = null;
         try {
-            JSONObject options = new JSONObject(optionsText);
+            options = new JSONObject(optionsText);
+            QuickPhrasePreferencePolicy.normalize(options.optJSONObject("preferences"));
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute())
-                return new EngineStartOptions(optionsText, null);
+                return new EngineStartOptions(options.toString(), null);
             // 读实时偏好之前把本机旧的长空格和数字行设置迁进共享偏好，这次会话就按迁移后的底行和数字行画。
             KeyLayoutStyleMigration.migrate(this, directory);
             String response = candidateSkinResolver.read(directory);
             JSONObject envelope = new JSONObject(response);
             JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
-            if (live == null) return new EngineStartOptions(optionsText, null);
+            if (live == null) return new EngineStartOptions(options.toString(), null);
+            QuickPhrasePreferencePolicy.normalize(live);
             if (suppressLearning) live.put("learning", false);
             options.put("preferences", live);
             return new EngineStartOptions(options.toString(), response);
         } catch (JSONException | RuntimeException | LinkageError error) {
-            return new EngineStartOptions(optionsText, null);
+            return new EngineStartOptions(options == null ? optionsText : options.toString(), null);
         }
     }
 
@@ -3919,6 +3923,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousAiCandidates = previousAiAssistant != null
             && previousAiAssistant.optBoolean("enabled", false);
         JSONObject accepted = new JSONObject(snapshot.toString());
+        QuickPhrasePreferencePolicy.normalize(accepted.optJSONObject("preferences"));
         long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
         if (revision < 0) throw new JSONException("Invalid preferences revision");
         accepted.put("revision", revision);

@@ -13,6 +13,7 @@ import app.msime.android.PredictionButtonsPolicy;
 import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
 import app.msime.android.TextPolicy;
+import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -191,9 +192,8 @@ public final class ExpressionPage extends ReloadingDetailPage {
         intelligence.toggle("候选带颜文字", null,
             mixed != null && mixed.optBoolean("kaomoji", false),
             checked -> savePreferences(edit -> mixedInput(edit).put("kaomoji", checked))).help("全拼（26 键或 9 键）、双拼输入时在候选里加入匹配的颜文字，排在同一个词的 emoji 之后").setEnabled(mixedEnabled);
-        // Android 现在声明快捷短语候选能力；缺字段沿共享旧文档规则读作开，新装文档由 client-core 写入关闭。
-        boolean quickPhrase = mixed == null || !mixed.has("quick_phrase")
-            ? true : mixed.optBoolean("quick_phrase", false);
+        // Android 是新接入快捷短语候选能力，旧文档缺字段按关闭处理，新装文档由 client-core 写入关闭。
+        boolean quickPhrase = QuickPhrasePreferencePolicy.enabled(mixed);
         intelligence.toggle("快捷短语混输", null, quickPhrase,
             checked -> savePreferences(edit -> mixedInput(edit).put("quick_phrase", checked)))
             .help("中文候选中加入编码完全匹配的快捷短语；关闭后仍可用 K 模式")
@@ -359,6 +359,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
         if (!mixed.has("minimum_prefix")) mixed.put("minimum_prefix", MIXED_PREFIX_DEFAULT);
         if (!mixed.has("emoji")) mixed.put("emoji", false);
         if (!mixed.has("kaomoji")) mixed.put("kaomoji", false);
+        if (!mixed.has("quick_phrase")) mixed.put("quick_phrase", false);
         return mixed;
     }
 

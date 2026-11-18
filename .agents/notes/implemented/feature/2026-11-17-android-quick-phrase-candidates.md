@@ -10,7 +10,7 @@ Status: implemented
 
 Android 宿主声明 `quick_phrase_candidates`，并在每次建 Engine 会话时请求该能力。共享层继续用宿主能力与 `mixed_input.quick_phrase` 相与，未开启用户开关时不加入普通候选；`quick_phrase_frequency` 继续由共享偏好控制调频。Android 表达页在「智能」组增加「快捷短语混输」和「快捷短语参与调频」两个原生开关，说明收进标题旁的「?」，调频开关在混输关闭时置灰。K 模式入口保留。
 
-缺字段遵循共享旧文档规则：旧偏好缺 `quick_phrase` 时读作开启、`quick_phrase_frequency` 时读作开启；新装文档由共享默认值写出关闭混输、开启调频。这个差异不改共享默认值。
+macOS、Linux 的旧偏好缺 `quick_phrase` 时仍按开启处理，以保持它们接入开关前的行为；Android 是新接入能力，旧 Android 文档缺这个字段时按关闭处理，避免用户原本没有的候选来源突然出现。`quick_phrase_frequency` 在三者缺字段时都按开启处理；新装文档由共享默认值写出关闭混输、开启调频。这个差异不改共享默认值。
 
 ## Alternatives considered
 
