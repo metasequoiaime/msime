@@ -242,7 +242,11 @@ struct FloatingToolbarMenuLayout {
   double scale = 1;
 };
 
-inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<FloatingToolbarMenuItem> &items,
+// 条目类型只要带 label / separator / disabled / checked 就能用（悬浮工具栏的
+// FloatingToolbarMenuItem 与候选右键菜单的 CandidateMenuItem 同构，候选菜单共用这一套布局、
+// 命中与绘制）。
+template <typename Item>
+inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<Item> &items,
                                                               double scale, bool shadow) {
   FloatingToolbarMenuLayout layout;
   layout.scale = scale;
@@ -269,16 +273,18 @@ inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<
 }
 
 // 指针下的那一项，分隔线和不能用的项不算。
+template <typename Item>
 inline std::optional<std::size_t> floating_toolbar_menu_hit(const FloatingToolbarMenuLayout &layout,
-                                                            const std::vector<FloatingToolbarMenuItem> &items, double x,
+                                                            const std::vector<Item> &items, double x,
                                                             double y) {
   for (std::size_t index = 0; index < layout.rows.size() && index < items.size(); ++index)
     if (!items[index].separator && !items[index].disabled && layout.rows[index].contains(x, y)) return index;
   return std::nullopt;
 }
 
+template <typename Item>
 inline void paint_floating_toolbar_menu(cairo_t *cairo, const FloatingToolbarMenuLayout &layout,
-                                        const std::vector<FloatingToolbarMenuItem> &items,
+                                        const std::vector<Item> &items,
                                         std::optional<std::size_t> hovered, const FloatingToolbarColors &colors) {
   const auto &plate = layout.plate;
   if (layout.margin > 0)
