@@ -5,11 +5,15 @@ import android.view.inputmethod.EditorInfo;
 
 public final class EditorPolicy {
     private EditorPolicy() {}
-    /** 文本框都走引擎，只有密码框不走。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 只是「别给输入建议」，不是「不能组字」：Chrome 的地址栏（同时是搜索框）就带着它，排除它会让那里只能打英文字母、切不到中文和日语。 */
+    /**
+     * 除了数字、电话、日期三类和密码框，输入框都走引擎。按类别排除已知的非文字框，而不是只放行 `TYPE_CLASS_TEXT`：没有类别（类别位为 0）的输入框和将来新增的类别都按文字框组字，与其他键盘遇到不认识的类别时退回文字键盘一致。自定义聊天控件常不声明类别：#7755 的直播间弹幕框报整数 `TYPE_NULL`，抖音极速版 41.2.0 的直播评论框报 `0x20000`（只有 `TYPE_TEXT_FLAG_MULTI_LINE`），两者都提供可组字的 InputConnection（`TextView` 只在 inputType 恰为 0 时不给可编辑连接），原来只认恰为 0 的写法让后者落入「直接输入」、中文键变灰（#11103）。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 只是「别给输入建议」，不是「不能组字」：Chrome 的地址栏（同时是搜索框）就带着它，排除它会让那里只能打英文字母、切不到中文和日语。
+     */
     public static boolean useEngine(int type) {
-        // 自定义聊天控件（例如直播间弹幕）常用 TYPE_NULL，但仍提供可组字的 InputConnection；把它当作非文本框会让九键和 26 键都落入「直接输入」而无法输入中文。
-        if (type == 0) return true;
-        if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
+        int typeClass = type & InputType.TYPE_MASK_CLASS;
+        if (typeClass == InputType.TYPE_CLASS_NUMBER
+                || typeClass == InputType.TYPE_CLASS_PHONE
+                || typeClass == InputType.TYPE_CLASS_DATETIME) return false;
+        // 密码 variation 只在文字类别下有定义；没有类别的输入框若带着同样的位，也按密码框不组字。
         int variation = type & InputType.TYPE_MASK_VARIATION;
         return variation != InputType.TYPE_TEXT_VARIATION_PASSWORD
             && variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
