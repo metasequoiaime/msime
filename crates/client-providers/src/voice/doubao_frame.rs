@@ -59,7 +59,7 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
         || frame.len() > MAX_RESPONSE_FRAME_BYTES
         || frame[0] != 0x11
         || (frame[1] >> 4) != 0x09
-        || frame[2] != 0x11
+        || !matches!(frame[2], 0x10 | 0x11)
     {
         return None;
     }
@@ -81,17 +81,24 @@ pub fn decode_json_frame(frame: &[u8]) -> Option<(bool, i32, Vec<u8>)> {
     if size != frame.len() - offset {
         return None;
     }
-    // bufread preserves unread bytes, allowing us to reject concatenated gzip
-    // members or junk inside the declared compressed payload as well.
-    let mut decoder = flate2::bufread::GzDecoder::new(&frame[offset..]);
-    let mut payload = Vec::with_capacity(frame.len().min(INITIAL_RESPONSE_CAPACITY));
-    (&mut decoder)
-        .take((MAX_RESPONSE_PAYLOAD_BYTES + 1) as u64)
-        .read_to_end(&mut payload)
-        .ok()?;
-    if payload.len() > MAX_RESPONSE_PAYLOAD_BYTES || !decoder.into_inner().is_empty() {
-        return None;
-    }
+    let payload = if frame[2] == 0x11 {
+        // bufread 会保留未读取的字节，可借此拒绝拼接的 gzip 成员或声明载荷中的垃圾字节。
+        let mut decoder = flate2::bufread::GzDecoder::new(&frame[offset..]);
+        let mut payload = Vec::with_capacity(frame.len().min(INITIAL_RESPONSE_CAPACITY));
+        (&mut decoder)
+            .take((MAX_RESPONSE_PAYLOAD_BYTES + 1) as u64)
+            .read_to_end(&mut payload)
+            .ok()?;
+        if payload.len() > MAX_RESPONSE_PAYLOAD_BYTES || !decoder.into_inner().is_empty() {
+            return None;
+        }
+        payload
+    } else {
+        if size > MAX_RESPONSE_PAYLOAD_BYTES {
+            return None;
+        }
+        frame[offset..].to_vec()
+    };
     Some(((flags & 0x02) != 0, 0, payload))
 }
 
@@ -171,6 +178,20 @@ mod tests {
     }
 
     #[test]
+    fn response_decoder_accepts_compressed_and_uncompressed_json() {
+        let payload = b"{\"result\":{\"text\":\"synthetic\"}}";
+        let encoded = encode_json_frame(9, 0, 1, payload);
+        let mut compressed = encoded[..4].to_vec();
+        compressed.extend_from_slice(&encoded[8..]);
+        assert_eq!(decode_json_frame(&compressed).unwrap().2, payload);
+
+        let mut uncompressed = vec![0x11, 0x90, 0x10, 0];
+        uncompressed.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        uncompressed.extend_from_slice(payload);
+        assert_eq!(decode_json_frame(&uncompressed).unwrap().2, payload);
+    }
+
+    #[test]
     fn error_decoder_rejects_a_different_protocol_version() {
         let mut error = [0x11, 0xf0, 0x11, 0, 0, 0, 0, 7, 0, 0, 0, 42];
         assert_eq!(decode_error_code(&error), Some(7));
@@ -215,7 +236,7 @@ mod tests {
         final_response[1] |= 2;
         assert!(decode_json_frame(&final_response).unwrap().0);
         let mut invalid = response;
-        invalid[2] = 0x10;
+        invalid[2] = 0x00;
         assert!(decode_json_frame(&invalid).is_none());
     }
 }
