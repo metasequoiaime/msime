@@ -4218,7 +4218,14 @@ public final class MSIMEInputService extends InputMethodService {
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
-            throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+            // 某些 WebView/Compose 搜索框能接受候选字上屏，却拒绝同一批次里的剩余组字。
+            // 提交已经成功，继续把这段拼音留在键盘上，避免把引擎视图和展开候选面板一起丢掉。
+            if (bridge.compositionRejectedAfterCommit() && commit != null && !composing.isEmpty()) {
+                editorCompositionSuppressed = true;
+                selectionEcho.invalidate();
+            } else {
+                throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+            }
         }
         view = next;
         // 九键 1 键放进候选条的常用标点只留到下一次转换，下面的 render 画这次转换的候选。
