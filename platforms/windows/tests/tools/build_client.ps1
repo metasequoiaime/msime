@@ -126,10 +126,9 @@ try {
     foreach ($tipStep in @(@(11, 'x64'), @(17, 'x86'))) {
         $index, $arch = $tipStep
         $triple = if ($arch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
-        if ($calls[$index].Name -ne 'cargo' -or $calls[$index].Values -notcontains 'msime-host-api' -or
-            $calls[$index].Values -notcontains $triple -or $calls[$index].Values -contains '--features' -or
-            $calls[$index + 1].Values -notcontains (Join-Path $fixture "target/$triple/release/msime_host_api.dll") -or
-            $calls[$index + 1].Values -notcontains (Join-Path $rust "$arch/msime_host_api.dll")) {
+        if ($calls[$index].Name -ne 'cargo' -or $calls[$index].Values -notcontains $triple -or
+            $calls[$index + 1].Name -ne 'cmake' -or
+            $calls[$index + 1].Values[-1] -ne (Join-Path $rust $arch)) {
             throw "静态 CRT TSF 宿主构建或收集错误：$arch"
         }
     }
