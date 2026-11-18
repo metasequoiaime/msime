@@ -565,7 +565,7 @@ fn windows_requests_quick_phrase_candidates_with_desktop_hosts() {
         (HostPlatform::Windows, true),
         (HostPlatform::Macos, true),
         (HostPlatform::Linux, true),
-        (HostPlatform::Android, false),
+        (HostPlatform::Android, true),
         (HostPlatform::Ios, false),
         (HostPlatform::Harmony, false),
     ] {

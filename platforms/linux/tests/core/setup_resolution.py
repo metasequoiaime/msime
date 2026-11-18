@@ -9,6 +9,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -178,6 +179,36 @@ def main() -> int:
             setup.fetch = original_fetch
 
     # 查找顺序：显式环境变量优先于安装前缀，随包词库优先于用户自备的那一份。
+    # 三项独立资源必须能同时进入 fetch；屏障在串行实现中会超时。
+    with tempfile.TemporaryDirectory() as name:
+        resources = Path(name) / "resources"
+        resources.mkdir()
+        payload = b"parallel dictionary bytes"
+        checksum = hashlib.sha256(payload).hexdigest()
+        lock = {
+            "artifacts": [
+                {"name": f"part-{index}.db", "sha256": checksum, "size": len(payload),
+                 "url": f"https://example.invalid/part-{index}.db"}
+                for index in range(3)
+            ]
+        }
+        barrier = threading.Barrier(3)
+        original_fetch = setup.fetch
+        original_mirror = setup.MIRROR_PREFIX
+
+        def fetch(url: str, destination: Path, maximum: int) -> None:
+            barrier.wait(timeout=2)
+            destination.write_bytes(payload[:maximum])
+
+        setup.fetch = fetch
+        setup.MIRROR_PREFIX = ""
+        try:
+            setup.download_artifacts(lock, resources)
+        finally:
+            setup.fetch = original_fetch
+            setup.MIRROR_PREFIX = original_mirror
+        assert setup.verify_directory(resources, lock) == []
+
     prefix = Path("/opt/msime")
     os.environ["MSIME_DICTIONARY_LOCK"] = "/tmp/explicit-lock.json"
     candidates = setup.lock_candidates(prefix)
