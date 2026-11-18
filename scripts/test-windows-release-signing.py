@@ -8,6 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "platforms/windows/scripts/select-release-signing.sh"
+WORKFLOW = ROOT / ".github/workflows/release-windows.yml"
 
 
 class SigningPolicyTests(unittest.TestCase):
@@ -55,6 +56,35 @@ class SigningPolicyTests(unittest.TestCase):
 
     def test_unknown_provider_fails(self):
         self.select(success=False, PROVIDER="unknown")
+
+
+class SimplySignArtifactTests(unittest.TestCase):
+    def test_signed_artifact_has_a_unique_name_and_is_selected_explicitly(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        package_simplysign = workflow.split("  package-simplysign:\n", 1)[1].split("  package:\n", 1)[0]
+        self.assertIn(
+            "name: msime-simplysign-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}",
+            package_simplysign,
+        )
+        self.assertNotIn(
+            "name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}",
+            package_simplysign,
+        )
+        package = workflow.split("  package:\n", 1)[1].split("  # 所选版本的安装包合成一次 SignPath", 1)[0]
+        self.assertIn(
+            "name: msime-simplysign-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}",
+            package,
+        )
+        coexistence = workflow.split("  coexistence:\n", 1)[1].split("  # 同一个安装包", 1)[0]
+        self.assertIn("pattern: msime-simplysign-windows-*-${{ needs.release.outputs.version }}", coexistence)
+        self.assertIn("needs.source.outputs.simplysign == 'true'", coexistence)
+        arm64 = workflow.split("  arm64:\n", 1)[1].split("  publish:\n", 1)[0]
+        self.assertIn(
+            "name: msime-simplysign-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}",
+            arm64,
+        )
+        publish = workflow.split("  publish:\n", 1)[1]
+        self.assertIn("pattern: msime-simplysign-windows-*-${{ needs.release.outputs.version }}", publish)
 
 
 if __name__ == "__main__":
