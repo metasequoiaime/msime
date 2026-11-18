@@ -29,6 +29,7 @@ pub mod candidate_document;
 pub use msime_client_base::chinese_conversion;
 pub mod clipboard;
 pub mod cloud;
+pub mod custom_shuangpin_settings;
 pub mod edition;
 #[doc(hidden)]
 pub mod endpoint;

@@ -1,4 +1,5 @@
 import { TouchShuangpinPanel } from './TouchShuangpinPanel';
+import { CustomShuangpinPanel } from './CustomShuangpinPanel';
 import { DictionaryCollectionsPanel } from './DictionaryCollectionsPanel';
 import { KeyboardLetterWidthsPanel } from './KeyboardLetterWidthsPanel';
 import { NineKeyFlickPanel } from './NineKeyFlickPanel';
@@ -675,6 +676,9 @@ struct Settings {
   @State private keyboardLetterWidthsRefresh: number = 0;
   @State private showShuangpin: boolean = false;
   @State private nativeForegroundRevision: number = 0;
+  @State private showCustomShuangpin: boolean = false;
+  @State private customRefresh: number = 0;
+  @State private customBackRequest: number = 0;
   @State private showNineKeyFlick: boolean = false;
   @State private flickRefresh: number = 0;
   // 这一次弹窗是否必须做出选择：首次启动和隐私政策更新后的弹窗不能用返回手势关掉，从「隐私」页重新打开的可以。
@@ -736,6 +740,7 @@ struct Settings {
     EntryAbility.onActivated = (): void => {
       this.keyboardLetterWidthsRefresh++;
       this.nativeForegroundRevision++;
+      this.customRefresh++;
       this.bridge.resumeStatistics();
       this.bridge.syncShared();
       this.bridge.refreshPreferencesIfChanged();
@@ -805,6 +810,10 @@ struct Settings {
     }
     if (this.showShuangpin) {
       this.closeShuangpin();
+      return true;
+    }
+    if (this.showCustomShuangpin) {
+      this.customBackRequest++;
       return true;
     }
     if (this.showNineKeyFlick) {
@@ -974,10 +983,10 @@ struct Settings {
     Stack() {
     Column() {
       if (!this.launchCover && !this.privacyRequired) {
-      Row() {
-        Blank()
+      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
         Button('键盘布局').onClick((): void => { this.showKeyboardLetterWidths = true; })
         Button('双拼方案').onClick((): void => { this.showShuangpin = true; })
+        Button('自定义双拼').onClick((): void => { this.showCustomShuangpin = true; })
         Button('九键四向滑动').onClick((): void => { this.showNineKeyFlick = true; })
         if (this.privacyGranted) {
           Button('词库分组').onClick((): void => { this.showDictionaryGroups = true; })
@@ -1044,6 +1053,22 @@ struct Settings {
         },
         foregroundRevision: this.nativeForegroundRevision,
         back: (): void => this.closeShuangpin()
+      })
+    }
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
+    if (this.showCustomShuangpin) {
+      CustomShuangpinPanel({
+        bridge: {
+          load: (): string => this.bridge.loadPreferences(),
+          save: (revision: number, document: string): string => this.bridge.savePreferences(revision, document),
+          plan: (request: string): string => client.customShuangpinSettings(request)
+        },
+        refresh: this.customRefresh,
+        backRequest: this.customBackRequest,
+        back: (): void => {
+          this.showCustomShuangpin = false;
+          this.bridge.refreshPreferencesIfChanged(true);
+        }
       })
     }
     if (this.showNineKeyFlick) {

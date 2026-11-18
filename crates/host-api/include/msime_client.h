@@ -433,6 +433,13 @@ char *msime_client_nine_key_shuangpin_layout(const uint8_t *request, size_t leng
 char *msime_client_shuangpin_custom_layout(const uint8_t *request, size_t length);
 /* 原生触屏双拼设置，不落盘。请求 {preferences,edition,profile?} 不超过偏好文档上限；返回 {options:[{profile,title,touch_scheme}],profile,preferences}。带 profile 时只显式启用并选中该方案，宿主在刚读到的快照上替换 preferences，按原修订号 CAS 保存。未知方案/版本拒绝。响应用 string_free 释放。 */
 char *msime_client_touch_shuangpin_settings(const uint8_t *request, size_t length);
+
+/** 自定义双拼编辑器的纯偏好事务，不落盘。
+ * JSON 请求含 preferences、edition 和 operation（read/check/import/template/use/delete/hints）；
+ * 按操作附 table、text、profile 或 hints。导入 text 上限 16 KB，整份请求上限 128 KB。
+ * 返回 preferences、原始 draft 与共享 layout；layout.problem 非空时不能保存或导出。
+ */
+char *msime_client_custom_shuangpin_settings(const uint8_t *request, size_t length);
 /* 规范化中文触屏快捷符号：{symbols: string[]}，最多 64 KiB。标准响应 value 为去重的单字素列表，最多十二项；无有效项时返回共享默认值。不落盘，用 string_free 释放。 */
 char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
 

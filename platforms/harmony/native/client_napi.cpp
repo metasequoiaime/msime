@@ -278,6 +278,7 @@ TEXT_ENTRY(NineKeyShuangpinLayout, msime_client_nine_key_shuangpin_layout)
 // 26 键双拼的表、问题和键位提示；请求与 Android、iOS 共用同一份 JSON 契约。
 TEXT_ENTRY(ShuangpinCustomLayout, msime_client_shuangpin_custom_layout)
 TEXT_ENTRY(TouchShuangpinSettings, msime_client_touch_shuangpin_settings)
+TEXT_ENTRY(CustomShuangpinSettings, msime_client_custom_shuangpin_settings)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
 TEXT_ENTRY(SkinToolbarImageLayout, msime_client_skin_toolbar_image_layout)
@@ -1996,6 +1997,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("nineKeyShuangpinLayout", NineKeyShuangpinLayout),
         ENTRY("shuangpinCustomLayout", ShuangpinCustomLayout),
         ENTRY("touchShuangpinSettings", TouchShuangpinSettings),
+        ENTRY("customShuangpinSettings", CustomShuangpinSettings),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarImageLayout", SkinToolbarImageLayout),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),

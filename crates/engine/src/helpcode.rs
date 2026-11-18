@@ -400,6 +400,16 @@ pub fn reorder_candidates_with_single_helpcode(
     reorder_candidates_with_single_helpcode_impl(candidates, help_code, keymap)
 }
 
+/// 全拼的一码辅助码只按命中关系重排，保留原首选在同组命中项中的位置。
+/// 双拼的首选退避规则由 `reorder_candidates_with_single_helpcode` 提供。
+pub fn reorder_candidates_with_single_helpcode_preserving_first(
+    candidates: Vec<WordItem>,
+    help_code: &str,
+    keymap: &HelpcodeKeymap,
+) -> Vec<WordItem> {
+    reorder_candidates_with_single_helpcode_impl(candidates, help_code, keymap)
+}
+
 fn reorder_candidates_with_single_helpcode_impl(
     mut candidates: Vec<WordItem>,
     help_code: &str,
@@ -471,6 +481,19 @@ pub fn filter_candidates_with_double_helpcodes(
     if demote_first && candidates.len() > 1 {
         candidates.rotate_left(1);
     }
+    candidates
+}
+
+/// 全拼的两码辅助码只筛选候选，保持词库原有顺序。
+pub fn filter_candidates_with_double_helpcodes_preserving_order(
+    mut candidates: Vec<WordItem>,
+    help_codes: &str,
+    keymap: &HelpcodeKeymap,
+) -> Vec<WordItem> {
+    if help_codes.len() != 2 {
+        return Vec::new();
+    }
+    candidates.retain(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap));
     candidates
 }
 
