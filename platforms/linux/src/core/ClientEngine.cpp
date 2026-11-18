@@ -17,6 +17,7 @@
 #include "HelpcodePack.h"
 #include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
+#include "CandidateMaintenanceShortcut.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
 #include "CaretEditSuffix.h"
@@ -7739,6 +7740,64 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           id.at("index").get<size_t>()));
     });
     return TRUE;
+  }
+  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+1..5 固定排位、Ctrl+0 取消固定）：
+  // 与面板属性菜单同一组围栏（渲染页归属与代次一致、行 id 归本会话、candidate_dictionary_actions_available），
+  // 动作落在本页渲染里 highlighted 的那一行。高亮行不在或不可维护时按键照常往下走。
+  const auto candidate_maintenance_action =
+      (!release && s.focused && !s.blocked && s.session)
+          ? msime::linux_host::candidate_maintenance_shortcut(key, modifiers)
+          : msime::linux_host::CandidateShortcut{};
+  if (candidate_maintenance_action.kind !=
+      msime::linux_host::CandidateShortcutKind::None) {
+    if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+        s.rendered_candidates.empty() || !s.rendered_view.is_object() ||
+        !s.view.is_object() ||
+        s.rendered_view.value("generation", uint64_t{0}) !=
+            s.view.value("generation", uint64_t{0}))
+      return FALSE;
+    for (const auto &candidate : s.rendered_candidates) {
+      if (!candidate.is_object() || !candidate.value("highlighted", false))
+        continue;
+      const auto &id = candidate.value("id", Json::object());
+      if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
+        return FALSE;
+      const auto source = candidate.value("source", 0);
+      if (!msime::linux_host::candidate_dictionary_actions_available(
+              s.rendered_scheme, source))
+        return FALSE;
+      if (candidate_maintenance_action.kind ==
+              msime::linux_host::CandidateShortcutKind::Remove &&
+          !msime::linux_host::candidate_dictionary_removal_available(
+              s.rendered_scheme, source, candidate.value("text", std::string{})))
+        return FALSE;
+      s.host_shortcut_strokes.insert(host_stroke);
+      const auto generation = id.value("generation", uint64_t{0});
+      const auto index = id.value("index", size_t{0});
+      guarded(engine, "candidate_maintenance_shortcut", [&] {
+        using Kind = msime::linux_host::CandidateShortcutKind;
+        switch (candidate_maintenance_action.kind) {
+        case Kind::Remove:
+          apply(engine, msime_client_remove_candidate(s.session, generation, index));
+          break;
+        case Kind::Pin:
+          apply(engine, msime_client_pin_candidate(s.session, generation, index));
+          break;
+        case Kind::Clear:
+          apply(engine,
+                msime_client_clear_candidate_position(s.session, generation, index));
+          break;
+        case Kind::Fix:
+          apply(engine, msime_client_fix_candidate_position(
+                            s.session, generation, index,
+                            candidate_maintenance_action.position));
+          break;
+        default:
+          break;
+        }
+      });
+      return TRUE;
+    }
   }
   if (modifier(key) &&
       !(s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)))
