@@ -1183,8 +1183,8 @@ final class ImeLayoutRows {
     void showLetterOptions(Button anchor, String input) {
         String lower = input.toLowerCase(java.util.Locale.ROOT);
         String upper = input.toUpperCase(java.util.Locale.ROOT);
-        String hint = LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
-            s.punctuationMarks());
+        String hint = LetterHintTable.face(input, s.dedicatedEnglish, s.japaneseKeyfaces(),
+            s.sendsChinesePunctuation(), s.punctuationMarks());
         java.util.List<String> choices = new java.util.ArrayList<>();
         choices.add(lower);
         if (!upper.equals(lower)) choices.add(upper);
@@ -1292,8 +1292,11 @@ final class ImeLayoutRows {
     private void commitHint(String hint) {
         dismissNineKeyHoldOptions();
         if (hint == null) return;
-        boolean engine = s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint)
-            && s.punctuation(hint.charAt(0));
+        // 日语方案的角标与键面走同一张日文表：表内的 ASCII 标点交给 Engine 上屏，表外按字面上屏，中文标点开关不参与。
+        boolean japanese = s.japaneseKeyfaces();
+        boolean routed = japanese ? LetterHintTable.routesThroughEngine(hint, true)
+            : s.sendsChinesePunctuation() && LetterHintTable.routesThroughEngine(hint, false);
+        boolean engine = routed && s.punctuation(hint.charAt(0));
         if (!engine) commitNineKeyLiteral(hint);
     }
 

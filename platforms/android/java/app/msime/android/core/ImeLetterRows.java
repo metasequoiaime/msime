@@ -260,7 +260,7 @@ final class ImeLetterRows {
             } else {
                 optionsShown[0] = false;
                 showKeyPreview(key, LetterHintTable.face(input, s.dedicatedEnglish,
-                    s.sendsChinesePunctuation(), s.punctuationMarks()));
+                    s.japaneseKeyfaces(), s.sendsChinesePunctuation(), s.punctuationMarks()));
             }
         };
         key.setOnTouchListener((view, event) -> {
@@ -296,7 +296,7 @@ final class ImeLetterRows {
                             key.removeCallbacks(hold);
                             if (keyPreview != null && keyPreviewOwner == key)
                                 keyPreview.setLabel(LetterHintTable.face(input, s.dedicatedEnglish,
-                                    s.sendsChinesePunctuation(), s.punctuationMarks()));
+                                    s.japaneseKeyfaces(), s.sendsChinesePunctuation(), s.punctuationMarks()));
                         } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
                                 && SwipeHintPolicy.swiped(opposite, downY[0], currentY)) {
                             triggered[0] = true;
@@ -920,7 +920,7 @@ final class ImeLetterRows {
             final String key = KeyboardLayout.symbolRowKey(rowKey, tibetanSymbols);
             final String input = key;
             String face = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                ? ChineseSymbolFaces.face(key, s.sendsChinesePunctuation(), s.punctuationMarks())
+                ? s.symbolFace(key)
                 : koreanKeycaps ? KoreanKeyboardLayout.face(key, shifted)
                 : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
                 : LetterKeyFacePolicy.face(key, chineseMode, japanese, localMode, shifted);
@@ -962,8 +962,8 @@ final class ImeLetterRows {
                 s.shuangpinKeyInputs.add(input);
                 // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。「显示字母键角标」关掉时不画；手势按 input 查 LetterHintTable，不读键面，长按和滑动不受影响（#10587）。
                 hintButton.setCornerHint(standardLetters && touchPreference(AndroidLocalSettings.LETTER_CORNER_HINTS)
-                    ? LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
-                        s.punctuationMarks()) : null);
+                    ? LetterHintTable.face(input, s.dedicatedEnglish, s.japaneseKeyfaces(),
+                        s.sendsChinesePunctuation(), s.punctuationMarks()) : null);
                 KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);
                 bindLetterGestures(hintButton, standardLetters ? input : null);
             } else {
