@@ -947,6 +947,12 @@ printf 'export declare const KeyboardLog: any;\nexport declare function describe
 printf 'export declare const HarmonyPrivacyConsent: any;\n' > "$telemetry_check/privacy/HarmonyPrivacyConsent.d.ts"
 "$tsc" --ignoreConfig --noEmit --strict --target es2021 --module commonjs --skipLibCheck \
   "$here/telemetry-typecheck.d.ts" "$telemetry_check/telemetry/Telemetry.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
+toolbar_out="$repo_root/target/harmony-tests/toolbar-drag-runtime"
+rm -rf "$toolbar_out"
+"$tsc" --ignoreConfig --target es2022 --module commonjs --skipLibCheck --outDir "$toolbar_out" \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/ToolbarDragGesture.ts" \
+  "$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/ToolbarMoveQueue.ts"
+MSIME_HARMONY_TOOLBAR_OUT="$toolbar_out" node "$here/toolbar-drag.test.cjs"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 node "$here/dictionary-learning-reset-adapter.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
