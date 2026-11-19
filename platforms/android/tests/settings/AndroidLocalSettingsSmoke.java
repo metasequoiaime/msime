@@ -66,6 +66,18 @@ public final class AndroidLocalSettingsSmoke {
             AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, "down")));
         check("down".equals(explicitDown.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)),
             "saved downward direction survives the new default");
+        check(settings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE) == 14,
+            "swipe distance keeps the old fixed 14 dp by default");
+        check(new AndroidLocalSettings.Snapshot(AndroidLocalSettings.accepted(
+                Map.of(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE, 30))).integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE) == 30,
+            "a saved swipe distance survives a snapshot");
+        for (int invalid : new int[] {12, 15, 50}) {
+            check(!AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE, invalid))
+                    .containsKey(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE),
+                "swipe distance outside 14..48 or off the 2 dp step is dropped: " + invalid);
+        }
+        check(!AndroidLocalSettings.spec(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE).synced,
+            "swipe distance stays local until the server field table lists it");
         check(settings.bool(AndroidLocalSettings.SPACE_CURSOR), "space cursor default");
         check(settings.bool(AndroidLocalSettings.SPACE_VOICE), "space voice default");
         check("none".equals(settings.choice(AndroidLocalSettings.KEY_ANIMATION)), "animation default");

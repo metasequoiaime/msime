@@ -1,9 +1,17 @@
 package app.msime.android;
 
-/** 字母键滑动输入提示字符：从按下点沿设置的方向（`platform.android.swipe_symbols_direction`，下滑或上滑）移动超过 14 dp 时，松手输入该键的提示字符（{@link LetterHintTable}），按键预览也改为显示右上角的键面（中文标点生效时 ( ) " ? ! 显示中文形式，见 {@link LetterHintTable#face}）。长按同样输入提示字符，不受这里的开关和方向影响。 */
+/** 字母键滑动输入提示字符：从按下点沿设置的方向（`platform.android.swipe_symbols_direction`，下滑或上滑）移动超过「滑动距离」（`platform.android.swipe_symbols_distance`，{@link #MIN_THRESHOLD_DP}..{@link #MAX_THRESHOLD_DP} dp，默认 {@link #DEFAULT_THRESHOLD_DP}）时，松手输入该键的提示字符（{@link LetterHintTable}），按键预览也改为显示右上角的键面（中文标点生效时 ( ) " ? ! 显示中文形式，见 {@link LetterHintTable#face}）。长按同样输入提示字符，不受这里的开关、方向和距离影响。 */
 public final class SwipeHintPolicy {
-    /** 滑动判定阈值（dp），严格大于才算。 */
+    /** 滑动判定阈值（dp），严格大于才算：「滑动距离」的出厂值，也是 123 / #+= 层叹号上滑出 0 的固定距离。 */
     public static final float THRESHOLD_DP = 14f;
+    /** 「滑动距离」的下限（dp），等于出厂值 {@link #THRESHOLD_DP}：调到最小就是加这项设置之前的手感。 */
+    public static final int MIN_THRESHOLD_DP = 14;
+    /** 「滑动距离」的出厂值（dp）。 */
+    public static final int DEFAULT_THRESHOLD_DP = MIN_THRESHOLD_DP;
+    /** 「滑动距离」的上限（dp），与「九键 flick 阈值」相同。 */
+    public static final int MAX_THRESHOLD_DP = 48;
+    /** 「滑动距离」的步长（dp）。 */
+    public static final int THRESHOLD_STEP_DP = 2;
     /** 方向设置的取值：下滑。 */
     public static final String DOWN = "down";
     /** 方向设置的取值：上滑。 */
@@ -38,7 +46,7 @@ public final class SwipeHintPolicy {
     }
 
     /**
-     * 同 {@link #swiped(String, float, float)}，阈值由调用方给出：拼音九键的滑动用自己的「九键滑动距离」（{@link NineKeySwipePolicy}），26 键仍用 {@link #THRESHOLD_DP}。
+     * 同 {@link #swiped(String, float, float)}，阈值由调用方给出：26 键和 14/18 键字母键用「滑动距离」，叹号滑出 0 用固定的 {@link #THRESHOLD_DP}。
      *
      * @param thresholdDp 滑动判定阈值（dp），严格大于才算
      */
