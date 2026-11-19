@@ -55,3 +55,9 @@ GRADLE_OPTS: -Dorg.gradle.internal.repository.max.tentatives=6 -Dorg.gradle.inte
 - `scripts/test-android-resolve-gradle-classpath.py` 用合成的 `gradlew` 和 `sleep` 覆盖六种情况：一次成功；429 一次后成功（等 60 秒）；wrapper 的 503 一次后成功；一直 429 时三次后放弃（等 60、120 秒）；403 不重试；其他失败保留退出码且不重试。由 `scripts/run-checks.sh` 自动发现并执行。
 - 复核属性是否生效：起一个对任何请求都回 429 的本地 HTTP 服务，建一个只从它解析一个依赖的小工程，用同一个 Gradle 发行包分别不带和带上面的 `GRADLE_OPTS` 解析，数服务收到的请求。Gradle 9.5.1 上，缺省是三次（0、1、3 秒）；带 `max.tentatives=4`、`initial.backoff=3000` 是四次（0、3、9、21 秒），写进 Gradle 用户目录 `gradle.properties` 的 `systemProp.` 形式结果相同。只设 network.retry 那组时仍是三次（0、1、3 秒），POM 和 JAR 都一样。
 - 在真实工程上，以空的 Gradle 用户目录加上同样的 `GRADLE_OPTS` 跑 `resolve-gradle-classpath.sh`，一次成功。没有在 CI 上真的遇到 429 时跑过，真实效果要看之后的发版和设备作业。
+
+## 2026-11-19 补充：仓库停用后的批量依赖缺失
+
+一次 develop 的 API 28 设备作业中，Maven Central 的瞬态故障没有带出 HTTP 状态码。Gradle 在停用仓库后把同一轮解析中的几十个依赖统一写成 `Could not find` 或 `Could not resolve`，预取脚本因此误判为永久缺依赖并提前退出。
+
+保留单个依赖缺失的立即失败语义。日志同时出现至少五个带 Maven 坐标的缺失项，并且包含 Google Maven 或 Maven Central 的搜索地址时，按仓库元数据暂时不可见处理，重新等待后再跑。新增合成回归覆盖这条路径，单个 `MISSING` 仍不重试。

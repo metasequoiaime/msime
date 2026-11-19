@@ -1495,7 +1495,7 @@ final class ImeLayoutRows {
         int next = JapaneseNineKeyLayout.toggleStep(JapaneseNineKeyLayout.toggleCycle(key), toggleDirection, step);
         String stroke = key.strokes().get(toggleDirection);
         if (stroke.isEmpty()) {
-            s.deleteCodePointBeforeCursor();
+            s.deleteBeforeCursorForReplacement();
         } else {
             for (int index = 0; index < stroke.length(); index++) {
                 if (!s.command(0)) break;

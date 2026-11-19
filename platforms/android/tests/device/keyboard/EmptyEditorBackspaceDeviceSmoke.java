@@ -1,12 +1,15 @@
 package app.msime.android.test;
 
 import android.content.Intent;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
-/** 合成引用由编辑器处理；组字、普通文字、代理对与选区仍只删一次。 */
+/** 光标前的删除交给编辑器（`KEYCODE_DEL`），合成引用、内联对象和字素范围由编辑器处理；组字归引擎、选区由输入法删掉，都只删一次。 */
 public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
     private static final String EDITOR = "msime-test-quote-editor";
     private String product;
@@ -57,22 +60,26 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
         await(status(false, false, 2));
 
         openEditor(false);
+        // 有文字时每次退格编辑器都收到一次按键（del 计数加一），删掉的范围由编辑器决定，引用不受影响。
         stage = "code point backspace preserves surrogate pair";
         setText("甲🙂");
         tap(key("⌫"));
         await(editorText("甲"));
-        await(status(true, true, 0));
+        await(status(true, true, 1));
         tap(key("⌫"));
         await(editorText(""));
-        await(status(true, true, 0));
+        await(status(true, true, 2));
 
+        int deletes = 2;
         for (String cluster : new String[] {"👍🏽", "🇨🇳", "1️⃣", "❤️", "👩‍👩‍👧‍👦", "👨🏽‍💻", "e\u0301"}) {
-            stage = "one backspace removes an entire grapheme";
+            stage = "one backspace removes an entire grapheme " + cluster;
             setText("甲" + cluster + "后");
             select(1 + cluster.length(), 1 + cluster.length());
             tap(key("⌫"));
             await(editorText("甲后"));
-            await(status(true, true, 0));
+            // 以拉丁类组合附加符号结尾的字由输入法按字素直接删（系统 EditText 的按键退格只删附加符号），编辑器收不到按键。
+            if (!cluster.endsWith("\u0301")) deletes++;
+            await(status(true, true, deletes));
         }
 
         stage = "selection deletion does not touch preceding text or quote";
@@ -80,14 +87,14 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
         select(1, 3);
         tap(key("⌫"));
         await(editorText("前后"));
-        await(status(true, true, 0));
+        await(status(true, true, deletes));
 
         stage = "text at cursor start is not deleted";
         setText("甲乙");
         select(0, 0);
         tap(key("⌫"));
         await(editorText("甲乙"));
-        await(status(true, true, 1));
+        await(status(true, true, ++deletes));
 
         openEditor(false, true);
         stage = "private inline objects keep their editor-owned boundary";
@@ -112,14 +119,38 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
         await(editorText("前后"));
         await(status(true, true, 4));
 
+        // 编辑器晚 60 ms 才处理退格按键：退格后 10 ms 按下的 n 必须等编辑器回报删除之后再组字，
+        // 否则 n 先写进去，迟到的退格把它删掉（真机 QQ 里约 40 ms 内的组字 10 次有 8 次这样丢）。
+        openEditor(false, true, 60);
+        for (int round = 1; round <= 3; round++) {
+            stage = "editor-owned backspace settles before the next key, round " + round;
+            setText("前[合成]");
+            Rect backspace = new Rect();
+            Rect letter = new Rect();
+            awaitStableBounds(key("⌫")).getBoundsInScreen(backspace);
+            awaitStableBounds(key("n")).getBoundsInScreen(letter);
+            long at = SystemClock.uptimeMillis();
+            touch(backspace, at, at, MotionEvent.ACTION_DOWN);
+            touch(backspace, at, at + 5, MotionEvent.ACTION_UP);
+            touch(letter, at + 10, at + 10, MotionEvent.ACTION_DOWN);
+            touch(letter, at + 10, at + 15, MotionEvent.ACTION_UP);
+            await(editorText("前n"));
+            await(status(true, true, round));
+            stage = "composition after the settled backspace is still the IME's, round " + round;
+            tap(key("⌫"));
+            await(editorText("前"));
+            await(status(true, true, round));
+        }
+
+        // 读不到光标前的文字也照样交给编辑器：删掉文字之后，空框里的下一次退格由编辑器删掉合成 @。
         openEditor(true);
-        stage = "unavailable preceding text is not treated as empty";
+        stage = "unavailable preceding text still lets the editor decide";
         setText("甲");
         tap(key("⌫"));
         await(editorText(""));
+        await(status(true, true, 1));
         tap(key("⌫"));
-        SystemClock.sleep(300);
-        await(status(true, true, 0));
+        await(status(false, true, 2));
     }
 
     private void openEditor(boolean unavailable) throws java.util.concurrent.TimeoutException {
@@ -127,15 +158,30 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
     }
 
     private void openEditor(boolean unavailable, boolean privateInline) throws java.util.concurrent.TimeoutException {
+        openEditor(unavailable, privateInline, 0);
+    }
+
+    private void openEditor(boolean unavailable, boolean privateInline, int delayKeysMs)
+            throws java.util.concurrent.TimeoutException {
         stage = "quote editor focus";
         Intent intent = new Intent(getTargetContext(), QuoteEditorActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         intent.putExtra("unavailable_before", unavailable);
         intent.putExtra("private_inline", privateInline);
+        intent.putExtra("delay_keys_ms", delayKeysMs);
         startActivitySync(intent);
         tap(field(EDITOR));
         await(key("n"));
         await(status(true, true, 0));
+    }
+
+    /** 真实触摸（坐标注入）：经输入法窗口的触摸分发，按住规则才看得见；无障碍点击直接调按钮，绕过它。异步投递，两次点按的间隔不被 Binder 拉长。 */
+    private void touch(Rect key, long down, long at, int action) {
+        MotionEvent event = MotionEvent.obtain(down, at, action, key.centerX(), key.centerY(), 0);
+        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            if (!automation.injectInputEvent(event, false)) throw new AssertionError("Synthetic touch injection failed");
+        } finally { event.recycle(); }
     }
 
     private Predicate<AccessibilityNodeInfo> editorText(String text) {

@@ -602,7 +602,7 @@ public final class DictionaryCollectionsStore {
         if (code == null) code = "";
         switch (code) {
             case "collections_name_invalid": return "词库名需要 1–32 个字，首尾不能有空格。";
-            case "collections_limit": return "词库数量或词条数已达上限。";
+            case "collections_limit": return "词库数量已达上限。";
             case "collections_source_conflict": return "此分组不能接收该来源，请新建分组导入。";
             case "collections_not_found": return "这个词库已经不在了，列表已刷新。";
             case "builtin_locked": return "内置词库始终启用，不能停用或改名。";

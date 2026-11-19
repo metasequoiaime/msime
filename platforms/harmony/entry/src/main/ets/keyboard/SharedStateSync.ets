@@ -14,6 +14,7 @@ import {
   KEYBOARD_PERSONAL_WORDBOOK_DRAINED_ENTRY,
   KEYBOARD_PERSONAL_WORDBOOK_ENTRY,
   ImportRecord,
+  ManifestEntry,
   MirrorEntry,
   MirrorManifest,
   SETTINGS_ENTRIES,
@@ -138,6 +139,14 @@ export class SharedStateSync {
       KeyboardLog.info(`shared state imported from settings: ${imported.join(', ')}`);
     }
     return imported;
+  }
+
+  /** 键盘轮询时判断设置端的偏好是否仍有待导入，失败的导入不能被轮询状态吞掉。 */
+  static keyboardPreferencesPending(mirror: SharedStateMirror, fullMode: boolean): boolean {
+    const pending: ManifestEntry[] = SharedStateMirrorPolicy.pending(
+      mirror.manifest('settings'), mirror.importRecord('settings'), mirror.manifest('keyboard'),
+      SETTINGS_ENTRIES, fullMode);
+    return pending.some((entry: ManifestEntry): boolean => entry.name === 'preferences');
   }
 
   /** 键盘一侧：完整体验模式下发布。基础访问模式下键盘对共享目录只读，调用方不调用它。 */

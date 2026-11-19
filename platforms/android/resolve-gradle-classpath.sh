@@ -12,6 +12,7 @@ delays=(60 120)
 attempts=$((${#delays[@]} + 1))
 # 依赖解析的失败写成「Received status code 429 from server」；wrapper 下载 Gradle 发行包失败时是 Java 的「Server returned HTTP response code: 503」或套接字异常。
 transient='Received status code (408|429|5[0-9][0-9]) from server|Server returned HTTP response code: (408|429|5[0-9][0-9])|(Read|[Cc]onnect(ion)?) timed out|SocketTimeoutException|Connection reset|UnknownHostException|Temporary failure in name resolution'
+repository_misses='Could not (find|resolve) [^[:space:]]+:[^[:space:]]+:[^[:space:]]+'
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 for ((attempt = 1; attempt <= attempts; attempt++)); do
@@ -20,13 +21,20 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # help 不产出什么，但要先配置根工程，也就要下载并加载构建脚本 classpath 上的全部插件依赖。
   ANDROID_HOME="$android_sdk" "$project/gradlew" --project-dir "$project" --console=plain help 2>&1 | tee "$log" || status=$?
   if ((status == 0)); then exit 0; fi
-  if ! grep -Eq "$transient" "$log"; then
+  transient_match=$(grep -Eom1 "$transient" "$log" || true)
+  missing_count=$(grep -Eoc "$repository_misses" "$log" || true)
+  retry_reason=$transient_match
+  if [[ -z "$retry_reason" ]] && (( missing_count >= 5 )) &&
+     grep -Eq 'https://(repo\.maven\.apache\.org|dl\.google\.com)/' "$log"; then
+    retry_reason="$missing_count Maven dependencies were unavailable"
+  fi
+  if [[ -z "$retry_reason" ]]; then
     echo "Gradle failed with status $status, and not on a download; not retrying" >&2
     exit "$status"
   fi
   if ((attempt == attempts)); then break; fi
   delay=${delays[attempt - 1]}
-  echo "Gradle could not download its build classpath: $(grep -Eom1 "$transient" "$log"); retrying in ${delay}s" >&2
+  echo "Gradle could not download its build classpath: $retry_reason; retrying in ${delay}s" >&2
   sleep "$delay"
 done
 echo "Gradle could not download its build classpath after $attempts attempts" >&2
