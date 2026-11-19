@@ -2,12 +2,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const ts = require(path.join(path.dirname(path.dirname(fs.realpathSync(process.env.MSIME_HARMONY_TSC))), 'lib/typescript.js'));
+const outputRoot = process.env.MSIME_HARMONY_TOOLBAR_OUT;
+if (!outputRoot) {
+  throw new Error('MSIME_HARMONY_TOOLBAR_OUT is required');
+}
 function load(relative) {
-  const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets', relative), 'utf8');
-  const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const compiled = path.join(outputRoot, relative.replace(/\.ts$/, '.js'));
   const module = { exports: {} };
-  vm.runInNewContext(`(function(exports, module) { ${js}\n})(module.exports, module);`, { module });
+  vm.runInNewContext(`(function(exports, module, require) { ${fs.readFileSync(compiled, 'utf8')}\n})(module.exports, module, require);`, { module, require });
   return module.exports;
 }
 const { ToolbarDragGesture } = load('keyboard/ToolbarDragGesture.ts');
