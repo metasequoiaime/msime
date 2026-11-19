@@ -1312,8 +1312,13 @@ impl InputSession {
             return result;
         }
         // Lock 1 forces Chinese, which is what an enabled session does anyway; only lock 2 changes anything here (core-session.md §15.8).
+        // 日语走契约里的日文标点表，键面画什么就上屏什么；中文引号样式、顿号和书名号嵌套都不作用于日语。
         let mark = if self.chinese_punctuation_enabled && self.punctuation_lock != 2 {
-            self.punctuation.translate(value)
+            if self.is_japanese() {
+                crate::punctuation::japanese_mark(value)
+            } else {
+                self.punctuation.translate(value)
+            }
         } else {
             None
         };
