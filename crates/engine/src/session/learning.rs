@@ -23,7 +23,7 @@ use crate::shuangpin::typo_edges::{touch_correction_pairs, CorrectionPair, Learn
 use crate::text::{count_utf8_chars, is_all_han, is_han};
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, LocalInputMode,
-    PersonalDictionaryKind, SchemeType, ShuangpinProfileKind, WordItem, WubiPhraseLearning,
+    PersonalDictionaryKind, SchemeType, ShuangpinProfileKind, WordItem,
 };
 use crate::user_dictionary::journal::is_user_deleted;
 use crate::user_dictionary::picks::{clear_pick_transition, record_pick_transition};
@@ -648,18 +648,9 @@ impl InputSession {
         None
     }
 
-    /// 五笔自造词的关闭阈值：`Thrice` 与拼音凑对同一个 3 次，`Once` 打 1 次就记。两种时机走同一条
-    /// `close_wubi_run` 路径，只有阈值不同。
-    fn wubi_run_threshold(&self) -> i64 {
-        match self.engine.wubi_input_options().wubi_phrase_learning {
-            WubiPhraseLearning::Thrice => PICK_PAIR_WORD_THRESHOLD,
-            WubiPhraseLearning::Once => 1,
-        }
-    }
-
     /// 组字与会话的关闭点（宿主 flush 组字、回车原文、无选中上屏、光标后编辑、上下文重置、会话
     /// 丢弃）共用的收尾：打开的段是五笔段（`pieces` 非空且 `canonical_pinyin` 为空，与
-    /// `continues_wubi_run` 的判定一致）就关闭计数，凑满 [`Self::wubi_run_threshold`] 即落库；
+    /// `continues_wubi_run` 的判定一致）就关闭计数，凑满 `PICK_PAIR_WORD_THRESHOLD` 即落库；
     /// 拼音 pick 原样放回，让调用方维持既有的丢弃语义。重复调用无副作用（段已空时直接返回）。
     pub(super) fn close_open_wubi_run(&mut self) {
         let Some(open) = self.chain.last_pick.take() else {
@@ -720,7 +711,7 @@ impl InputSession {
     }
 
     /// 关闭一个五笔累积段：不足两个片段、超上限、或 >4 字段里混着单字片段的段不计数；否则按整段
-    /// 全文记 `pick_transitions`（哨兵 previous_key），凑满 [`Self::wubi_run_threshold`] 时经
+    /// 全文记 `pick_transitions`（哨兵 previous_key），凑满 `PICK_PAIR_WORD_THRESHOLD`（3 次，与拼音凑对同一个阈值）时经
     /// `wubi_learning::learn` 落库并清计数。日志与落库失败用拼音凑对同一组诊断码；计数留着让下一次
     /// 同段的出现重试。
     pub(super) fn close_wubi_run(&mut self, run: &super::chain::Pick) -> Option<String> {
@@ -741,7 +732,7 @@ impl InputSession {
         ) else {
             return Some(diagnostics::PICK_TRANSITION_NOT_PERSISTED.to_owned());
         };
-        if count < self.wubi_run_threshold() {
+        if count < PICK_PAIR_WORD_THRESHOLD {
             return None;
         }
         let wubi = self.engine.wubi_input_options();

@@ -26,7 +26,7 @@ use msime_client_core::preferences::{
     NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
     TouchShuangpinLayout, TouchWubiLayout, VietnameseInputMethod, VietnamesePreferences,
-    VietnameseToneStyle, WubiPhraseLearning, WubiPhrasePlacement, WubiProfile,
+    VietnameseToneStyle, WubiPhrasePlacement, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -921,7 +921,6 @@ impl HostSession {
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
         options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
-        options.wubi_phrase_learning = wubi_phrase_learning_code(preferences.wubi_phrase_learning);
         options.wubi_phrase_placement =
             wubi_phrase_placement_code(preferences.wubi_phrase_placement);
         // 「候选显示剩余编码」关掉时，引擎也不再给五笔候选附完整码，宿主退回显示注释时就看不到编码（#10790）。
@@ -2015,13 +2014,6 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     }
 }
 
-fn wubi_phrase_learning_code(learning: WubiPhraseLearning) -> u8 {
-    match learning {
-        WubiPhraseLearning::Thrice => 0,
-        WubiPhraseLearning::Once => 1,
-    }
-}
-
 fn wubi_phrase_placement_code(placement: WubiPhrasePlacement) -> u8 {
     match placement {
         WubiPhrasePlacement::Bottom => 0,
@@ -2658,7 +2650,6 @@ impl HostOptions {
             wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
             wubi_reverse_code: self.preferences.wubi_code_hint,
-            wubi_phrase_learning: wubi_phrase_learning_code(self.preferences.wubi_phrase_learning),
             wubi_phrase_placement: wubi_phrase_placement_code(
                 self.preferences.wubi_phrase_placement,
             ),

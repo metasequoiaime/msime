@@ -1569,32 +1569,9 @@ pub struct WubiInputOptions {
     ///
     /// 与混输无关：混输里 `z` 是普通拼音字母，这里它是未知码位。两者都关时 `z` 不进码。
     pub z_wildcard: bool,
-    /// 五笔自造词的时机（`input.wubi_phrase_learning`）：`Thrice` 凑 3 次才记（默认，跨会话计数），
-    /// `Once` 打 1 次就记。两种时机走同一条关闭路径，只有阈值不同。
-    pub wubi_phrase_learning: WubiPhraseLearning,
     /// 五笔自造词落库时的初始权重档（`input.wubi_phrase_placement`）：`Bottom` 沉底（默认，同码
     /// 已有行最小权重 −1，clamp 到 0..=9）、`Top` 置顶（同码已有行最大权重 + 1，各表独立算；之后照常参与调频，不是永远浮顶）。
     pub wubi_phrase_placement: WubiPhrasePlacement,
-}
-
-/// 五笔自造词的时机；缺省 `Thrice`（现状语义）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum WubiPhraseLearning {
-    /// 凑 3 次才记（[`PICK_PAIR_WORD_THRESHOLD`](crate::session::learning::PICK_PAIR_WORD_THRESHOLD)）。
-    #[default]
-    Thrice,
-    /// 打 1 次就记。
-    Once,
-}
-
-impl WubiPhraseLearning {
-    /// `EngineOptions::wubi_phrase_learning` 的编码；不认识的值回退默认（`Thrice`）。
-    pub fn from_u8(value: u8) -> Self {
-        match value {
-            1 => Self::Once,
-            _ => Self::Thrice,
-        }
-    }
 }
 
 /// 五笔自造词落库时的初始权重档；缺省 `Bottom`（现状语义）。
