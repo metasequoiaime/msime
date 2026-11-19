@@ -163,6 +163,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean editorCompositionSuppressed;
     JSONObject view;
     FrameLayout keyboardRoot;
+    /** 同一个根容器，交给编辑器的退格确认前按住新开始的触摸（{@link ImeEditorDelete}）。 */
+    TouchHoldLayout touchHold;
     FrameLayout keyboardSurface;
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
@@ -393,6 +395,8 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.WeakHashMap<JSONObject, Integer> designHashes = new java.util.WeakHashMap<>();
     /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
     final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
+    /** 交给编辑器的退格从发出到确认这一段。 */
+    final ImeEditorDelete editorDelete = new ImeEditorDelete(this);
     private JSONObject localModes = new JSONObject();
     Button moreButton;
     Button schemeButton;
@@ -1673,6 +1677,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 删除键先删选区；普通文字与表情按字素边界删除，空框交给编辑器处理引用。 */
     void deleteCodePointBeforeCursor() {
+        if (editorDelete.queueBehindPending()) return;
         clearQuickDeleteUndo();
         dropDeferredToolbarTaps();
         editorReads.invalidate();
@@ -1681,10 +1686,8 @@ public final class MSIMEInputService extends InputMethodService {
         CharSequence before = EditorBackspaceBoundary.before(connection);
         int length = EditorBackspaceBoundary.length(before);
         if (before != null && (length == 0 || EditorBackspaceBoundary.shouldDelegate(before, length))) {
-            // 空框引用、不完整范围和私有占位交给编辑器；未知长度不猜回声，不保留横滑恢复。
-            selectionEcho.invalidate();
-            imeLetterRows.invalidateBackspaceScrub();
-            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
+            // 空框引用、不完整范围和私有占位交给编辑器；删几个单元由编辑器决定，不保留横滑恢复。
+            editorDelete.send(before);
             return;
         }
         boolean multiplePoints = length > 0
@@ -1704,11 +1707,9 @@ public final class MSIMEInputService extends InputMethodService {
             else selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
-            imeLetterRows.invalidateBackspaceScrub();
-            selectionEcho.invalidate();
             // 部分远程编辑器（例如桌面控制类应用）拒绝 surrounding-text 删除，但仍处理原始退格键。
             // 连接已明确返回失败时才回退，避免普通编辑器重复删除。
-            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
+            editorDelete.send(before);
         }
     }
 
@@ -1885,6 +1886,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         // restart 保留组字也属于新的焦点边界，旧照片和识别回调不能跨过去。
         if (imeOcr != null) imeOcr.close();
+        editorDelete.abandon();
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
@@ -2290,6 +2292,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        editorDelete.abandon();
         imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
@@ -6997,9 +7000,11 @@ public final class MSIMEInputService extends InputMethodService {
                 updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
             };
             main.postDelayed(pendingCompositionMarkerLoss, 100);
+            editorDelete.selectionReported();
             return;
         }
         updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+        editorDelete.selectionReported();
     }
 
     private void updateEditorSelection(int oldStart, int oldEnd, int newStart, int newEnd,
@@ -11145,7 +11150,9 @@ public final class MSIMEInputService extends InputMethodService {
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
         // 这里不再按开关清空历史：进程刚起来时开关还是字段初始值（关），实时偏好还没读到，按它清空会在每次切回本输入法时抹掉整份历史（#5602）。开关关着时由下一次实时读偏好负责清空，见 ClipboardHistoryRetentionPolicy。
-        keyboardRoot = new FrameLayout(this);
+        touchHold = new TouchHoldLayout(this);
+        touchHold.setHold(editorDelete::holding);
+        keyboardRoot = touchHold;
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);

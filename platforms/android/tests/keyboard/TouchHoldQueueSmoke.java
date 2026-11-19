@@ -81,6 +81,25 @@ public final class TouchHoldQueueSmoke {
         check(flushed.get(flushed.size() - 1).serial() == serial - 1);
         check(!full.offer(new Event(MOVE, serial), true));
 
+        // 逐个放行：放出的第一次触摸（退格）又交给了编辑器，放行停在下一次触摸的按下前面；
+        // 放空时还没结束的触摸，之后的事件直接分发。
+        TouchHoldQueue<Event> stepwise = queue();
+        check(stepwise.offer(new Event(DOWN, 1), true));
+        check(stepwise.offer(new Event(UP, 2), true));
+        check(stepwise.offer(new Event(DOWN, 3), true));
+        check(stepwise.nextStartsGesture());
+        check(stepwise.poll().serial() == 1);
+        check(!stepwise.nextStartsGesture());
+        check(stepwise.poll().serial() == 2);
+        check(stepwise.nextStartsGesture());
+        // 还在按住，停在这里；排着的触摸没结束，它的后续事件继续排队。
+        check(stepwise.offer(new Event(MOVE, 4), true));
+        check(stepwise.poll().serial() == 3);
+        check(stepwise.poll().serial() == 4);
+        check(stepwise.poll() == null);
+        check(!stepwise.nextStartsGesture());
+        check(!stepwise.offer(new Event(UP, 5), false));
+
         System.out.println("TouchHoldQueue smoke passed");
     }
 }

@@ -59,6 +59,19 @@ public final class TouchHoldQueue<E> {
         return queued.size() >= MAX_QUEUED;
     }
 
+    /** 下一个排着的事件是一次新触摸的按下：放行到这里时如果又在按住（放出的退格又交给了编辑器），就停在这里，不让后面的触摸抢在那次退格前面。 */
+    public boolean nextStartsGesture() {
+        E next = queued.peek();
+        return next != null && events.action(next) == ACTION_DOWN;
+    }
+
+    /** 逐个放行：交出最早排着的事件，没有时返回 null。队列放空时，还没结束的那次触摸之后的事件不再排队。 */
+    public E poll() {
+        E next = queued.poll();
+        if (queued.isEmpty()) queuingGesture = false;
+        return next;
+    }
+
     /** 放行：按到达顺序交出排着的事件（副本，由调用方分发后回收）。还没结束的那次触摸，之后的事件不再排队。 */
     public List<E> drain() {
         List<E> released = new ArrayList<>(queued);
