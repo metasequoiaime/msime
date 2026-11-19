@@ -20,6 +20,12 @@ CONNECTION_TIMEOUT = "java.net.ConnectException: Connection timed out: repo.mave
 MAVEN_403 = ("Could not GET 'https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.8/asm-9.8.pom'. "
              "Received status code 403 from server: Forbidden")
 MISSING = "Could not find com.example:missing:1.0."
+MAVEN_BURST_MISSING = "\n".join(
+    f"Could not find com.example:missing-{index}:1.0.\n"
+    "  Searched in the following locations: "
+    "https://repo.maven.apache.org/maven2/com/example/missing/1.0/missing.pom"
+    for index in range(5)
+)
 
 
 @unittest.skipUnless(platform.system() in ("Darwin", "Linux"), "仅支持 macOS/Linux 的 bash")
@@ -90,6 +96,10 @@ exit "$code"
         result, calls, sleeps = self.run_script((3, MISSING), (0, "BUILD SUCCESSFUL"))
         self.assertEqual((result.returncode, len(calls), sleeps), (3, 1, []))
         self.assertIn("not retrying", result.stderr)
+
+    def test_many_maven_dependencies_missing_are_retried(self):
+        result, calls, sleeps = self.run_script((1, MAVEN_BURST_MISSING), (0, "BUILD SUCCESSFUL"))
+        self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
 
 
 if __name__ == "__main__":
