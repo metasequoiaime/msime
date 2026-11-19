@@ -15,6 +15,8 @@ public final class SelectionEchoTracker {
     private static final int MAX_PENDING = 16;
     /** 连续按码位删除而回声还没回来时，不确定量最多累计到这么多个单元，再多就不预测。 */
     private static final int MAX_SLACK = 4;
+    /** 交给编辑器的退格（按键事件）最多删掉多少个单元仍然预测：编辑器读得到的范围（`EditorBackspaceBoundary` 读 1024 个单元）再留些余量，整块删掉的应用内对象在这之内。 */
+    private static final int MAX_OPAQUE_SLACK = 4096;
 
     private boolean known;
     private int selectionStart;
@@ -118,6 +120,21 @@ public final class SelectionEchoTracker {
         shiftLeft(1, 2);
     }
 
+    /**
+     * 发 `KEYCODE_DEL` 交给编辑器删光标前的内容：删几个单元由编辑器决定（微信、QQ 的表情和 @ 整块删掉），只知道光标左移 1 到 `maximum` 个单元、删完没有组字区。
+     *
+     * <p>以前这里只能 {@link #invalidate()}，删除的回报要 2–50 ms 才到，这期间开始的组字会被它当成外部移动取消。预期的范围大，外部移动恰好落进去会被当成回声；调用方只在回声等待期间（通常不到 100 ms）保留它，超时就作废。光标不折叠、有组字区或位置未知时不预测；光标在文档开头时编辑器删不了光标前的内容，也不会回报，调用方不该记这条预期。
+     */
+    public void deleteBeforeOpaque(int maximum) {
+        if (!known) return;
+        shiftLeft(1, Math.max(1, Math.min(maximum, selectionStart - slack)), MAX_OPAQUE_SLACK);
+    }
+
+    /** 还有没对上的预期：输入法自己的写入里，至少有一条的回声还没到（或编辑器不会为它回报）。 */
+    public boolean hasPending() {
+        return pendingCount > 0;
+    }
+
     /** 一批写入结束（`endBatchEdit` 或一次单独的写入之后）：把写完后的选区和组字区记成一条待确认的预期。 */
     public void expect() {
         if (!known || !written) return;
@@ -178,9 +195,13 @@ public final class SelectionEchoTracker {
 
     /** 光标左移 `minimum` 到 `maximum` 个单元；有选区、有组字区、可能越过文档开头或不确定量超限时不预测。 */
     private void shiftLeft(int minimum, int maximum) {
+        shiftLeft(minimum, maximum, MAX_SLACK);
+    }
+
+    private void shiftLeft(int minimum, int maximum, int slackLimit) {
         if (!known) return;
         if (selectionStart != selectionEnd || composingStart >= 0
-                || selectionStart - slack - maximum < 0 || slack + maximum - minimum > MAX_SLACK) {
+                || selectionStart - slack - maximum < 0 || slack + maximum - minimum > slackLimit) {
             invalidateCurrentPrediction();
             return;
         }

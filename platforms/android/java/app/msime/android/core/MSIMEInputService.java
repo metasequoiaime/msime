@@ -163,6 +163,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean editorCompositionSuppressed;
     JSONObject view;
     FrameLayout keyboardRoot;
+    /** 同一个根容器，交给编辑器的退格确认前按住新开始的触摸（{@link ImeEditorDelete}）。 */
+    TouchHoldLayout touchHold;
     FrameLayout keyboardSurface;
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
@@ -393,6 +395,8 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.WeakHashMap<JSONObject, Integer> designHashes = new java.util.WeakHashMap<>();
     /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
     final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
+    /** 交给编辑器的退格从发出到确认这一段。 */
+    final ImeEditorDelete editorDelete = new ImeEditorDelete(this);
     private JSONObject localModes = new JSONObject();
     Button moreButton;
     Button schemeButton;
@@ -1671,20 +1675,36 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 删除键先删选区；普通文字与表情按字素边界删除，空框交给编辑器处理引用。 */
+    /** 用户的退格（各布局删除键、表情和符号面板、手写、语音锁定面板）：先删选区，其余交给编辑器（{@link ImeEditorDelete}）。 */
     void deleteCodePointBeforeCursor() {
-        clearQuickDeleteUndo();
+        if (editorDelete.queueBehindPending()) return;
         dropDeferredToolbarTaps();
+        if (!prepareDelete()) return;
+        CharSequence before = EditorBackspaceBoundary.before(connection);
+        if (editorDelete.deletesDirectly(before)) deleteGraphemeBefore(before);
+        else editorDelete.send(before);
+    }
+
+    /** 输入法自己替换刚写下的内容（日文九键连点换假名）：直接按字素删除，紧接着的写入不会和按键事件争先后。 */
+    void deleteBeforeCursorForReplacement() {
+        dropDeferredToolbarTaps();
+        if (!prepareDelete()) return;
+        deleteGraphemeBefore(EditorBackspaceBoundary.before(connection));
+    }
+
+    /** 删除前的共同收尾；有选区时删掉选区并返回 false。 */
+    boolean prepareDelete() {
+        clearQuickDeleteUndo();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
-        if (deleteSelection()) return;
-        CharSequence before = EditorBackspaceBoundary.before(connection);
+        return !deleteSelection();
+    }
+
+    /** 按字素边界直接删光标前的一个字素（读回核实的码位删除）；空框和读不全的范围仍交给编辑器。 */
+    void deleteGraphemeBefore(CharSequence before) {
         int length = EditorBackspaceBoundary.length(before);
-        if (before != null && (length == 0 || EditorBackspaceBoundary.shouldDelegate(before, length))) {
-            // 空框引用、不完整范围和私有占位交给编辑器；未知长度不猜回声，不保留横滑恢复。
-            selectionEcho.invalidate();
-            imeLetterRows.invalidateBackspaceScrub();
-            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
+        if (before != null && length == 0) {
+            editorDelete.send(before);
             return;
         }
         boolean multiplePoints = length > 0
@@ -1704,11 +1724,9 @@ public final class MSIMEInputService extends InputMethodService {
             else selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
-            imeLetterRows.invalidateBackspaceScrub();
-            selectionEcho.invalidate();
             // 部分远程编辑器（例如桌面控制类应用）拒绝 surrounding-text 删除，但仍处理原始退格键。
             // 连接已明确返回失败时才回退，避免普通编辑器重复删除。
-            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
+            editorDelete.send(before);
         }
     }
 
@@ -1885,6 +1903,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         // restart 保留组字也属于新的焦点边界，旧照片和识别回调不能跨过去。
         if (imeOcr != null) imeOcr.close();
+        editorDelete.abandon();
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
@@ -2290,6 +2309,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        editorDelete.abandon();
         imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
@@ -6997,9 +7017,11 @@ public final class MSIMEInputService extends InputMethodService {
                 updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
             };
             main.postDelayed(pendingCompositionMarkerLoss, 100);
+            editorDelete.selectionReported();
             return;
         }
         updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+        editorDelete.selectionReported();
     }
 
     private void updateEditorSelection(int oldStart, int oldEnd, int newStart, int newEnd,
@@ -10737,6 +10759,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void moveBackspaceScrub(BackspaceScrub scrub, int deleted) {
+        if (editorDelete.deferScrub(scrub, deleted)) return;
         if (EditorPolicy.password(editorInputType) || !allowLearning || incognitoEnabled
                 || hasEngineComposition() || handwritingCanvas != null && handwritingCanvas.hasInk()) {
             scrub.invalidate();
@@ -10762,6 +10785,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 快速删除只备份编辑器实际接受的删除；不在密码、不学习或无痕输入框中保存。 */
     void deleteAllBeforeCursor() {
+        if (editorDelete.defer(this::deleteAllBeforeCursor)) return;
         clearQuickDeleteUndo();
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
         if (hasEngineComposition()) discardComposition();
@@ -10824,6 +10848,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 快速删除的可选全框模式：显式选中光标前后读到的整段文字后删除，并保留一次撤回。 */
     void deleteAllInput() {
+        if (editorDelete.defer(this::deleteAllInput)) return;
         clearQuickDeleteUndo();
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
         if (hasEngineComposition()) discardComposition();
@@ -10885,6 +10910,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void undoQuickDelete() {
+        if (editorDelete.defer(this::undoQuickDelete)) return;
         if (!canUndoQuickDelete()) return;
         QuickDeleteUndo snapshot = quickDeleteUndo;
         // 撤回不算新输入，不学习、不写统计；明确拒绝且上下文未变时保留一次重试机会。
@@ -11145,7 +11171,9 @@ public final class MSIMEInputService extends InputMethodService {
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
         // 这里不再按开关清空历史：进程刚起来时开关还是字段初始值（关），实时偏好还没读到，按它清空会在每次切回本输入法时抹掉整份历史（#5602）。开关关着时由下一次实时读偏好负责清空，见 ClipboardHistoryRetentionPolicy。
-        keyboardRoot = new FrameLayout(this);
+        touchHold = new TouchHoldLayout(this);
+        touchHold.setHold(editorDelete::holding);
+        keyboardRoot = touchHold;
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
