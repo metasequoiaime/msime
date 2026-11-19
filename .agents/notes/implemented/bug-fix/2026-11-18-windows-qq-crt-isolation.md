@@ -10,7 +10,7 @@ Windows TSF DLL 会被加载进 QQ、Notepad-- 和其他编辑器的进程。现
 
 为 TSF 单独构建一份静态 CRT 宿主 DLL。x64 TSF 变体关闭 `onnx-rerank`，因为 TSF 会明确把 `keyboard_reranker` 设为关闭，Server 继续使用现有动态 CRT 宿主和 ONNX Runtime。x86 TSF 变体同样使用静态 CRT。TSF 的 CMake 目标通过 `MSIME_TSF_HOST_LIBRARY` 接收这份导入库，Server、设置窗口和原生面板继续使用 `MSIME_HOST_LIBRARY`。现代安装包把两份宿主 DLL 都放进 TSF 版本目录和 Server 目录，按版本名隔离并纳入符号、PE 和安装器测试。Arm64X 的 ARM64EC 半部也改为导入静态 CRT x64 TSF 宿主。
 
-`Build-RustOutputs.ps1` 先保存调用方的 x64、x86 和 ARM64 Rust flags，构建普通宿主后用 `+crt-static` 构建 TSF 宿主并按 `_tip` 名称收集。`edition_windows.py host-def` 支持显式模块名，非 full edition 的静态变体因此得到正确的导入库名称。安装器和 SignPath 入口把普通宿主与 `_tip` 宿主作为同一版本的一组二进制处理。
+`Build-RustOutputs.ps1` 先保存调用方的 x64、x86 和 ARM64 Rust flags，构建普通宿主后用 `+crt-static` 构建 TSF 宿主并按 `_tip` 名称收集。`edition_windows.py host-def` 支持显式模块名，非 full edition 的静态变体因此得到正确的导入库名称；对应的 PDB 文件名也必须按版本表中的宿主 DLL 基名派生，不能把 full edition 的 `msime_host_api_tip.pdb` 写死，否则 pinyin/wubi 等版本的符号收集会在发布前失败。安装器和 SignPath 入口把普通宿主与 `_tip` 宿主作为同一版本的一组二进制处理。
 
 ## Alternatives considered
 
@@ -20,7 +20,7 @@ Windows TSF DLL 会被加载进 QQ、Notepad-- 和其他编辑器的进程。现
 
 ## Testing
 
-Python Windows contract checks、edition schema、release page、release signing 和 staged runtime 测试通过。Build-Client 的 PowerShell 命令探针已覆盖普通宿主、x64/x86 静态 CRT TSF 宿主、Arm64EC 导入、版本 edition 导入库、失败阶段和 Rust flags 恢复。Windows MSVC 构建、安装暂存、签名暂存和 QQ/Notepad-- 真实宿主复测需由 Windows CI 与报告者环境完成。
+Python Windows contract checks、edition schema、release page、release signing 和 staged runtime 测试通过；Nightly 曾暴露非 full edition 符号收集把 `_tip` PDB 文件名写死为 full edition 的问题，修复后按版本表动态派生。Build-Client 的 PowerShell 命令探针已覆盖普通宿主、x64/x86 静态 CRT TSF 宿主、Arm64EC 导入、版本 edition 导入库、失败阶段和 Rust flags 恢复。Windows MSVC 构建、安装暂存、签名暂存和 QQ/Notepad-- 真实宿主复测需由 Windows CI 与报告者环境完成。
 
 ## Consequences
 
