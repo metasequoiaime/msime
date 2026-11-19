@@ -1029,6 +1029,40 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 日语方案的符号层键面与上屏来自同一张日文表：键面画什么，就送对应的 ASCII 键给引擎写出它。
+  func testJapaneseSymbolLayerFacesRouteBackToTheirAsciiKeys() {
+    typealias Input = SymbolLayerLayout.Input
+    XCTAssertEqual(KeyboardViewController.japaneseSymbolFaces, [
+      ",": "、", "\\": "、", ".": "。", "[": "「", "]": "」", "{": "『", "}": "』",
+      "/": "・", "~": "〜", "?": "？", "!": "！", "(": "（", ")": "）", ":": "：", ";": "；",
+    ])
+    XCTAssertEqual(KeyboardViewController.japaneseSymbolFace("@"), "@")
+
+    // 123 / #+= 两页的标点键面都是日文写法。
+    let rows = SymbolLayerLayout.characterRows(more: false, chinese: true, japanese: true)
+    XCTAssertEqual(rows[0], ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
+    XCTAssertEqual(rows[1], ["-", "・", "：", "；", "（", "）", "¥", "@", "「", "」"])
+    XCTAssertEqual(rows[2], ["。", "、", "・", "？", "！"])
+    let moreRows = SymbolLayerLayout.characterRows(more: true, chinese: true, japanese: true)
+    XCTAssertEqual(moreRows[0], ["「", "」", "『", "』", "#", "%", "^", "*", "+", "="])
+    XCTAssertEqual(moreRows[1], ["_", "、", "|", "〜", "『", "』", "€", "&", "・", "…"])
+    // 非日文方案不受影响，japanese 只在 chinese 为真时生效。
+    XCTAssertEqual(SymbolLayerLayout.characterRows(more: false, chinese: true)[1], ["-", "/", "：", "；", "（", "）", "¥", "@", "“", "”"])
+    XCTAssertEqual(SymbolLayerLayout.characterRows(more: false, chinese: false, japanese: true)[2], [".", ",", "?", "!", "…"])
+
+    // 每个日文键面映射回它的 ASCII 键，引擎写出同一个字；标点关闭时按键面原样插入。
+    let faces = ["。": ".", "、": "\\", "・": "/", "？": "?", "！": "!", "「": "[", "」": "]",
+                 "『": "{", "』": "}", "〜": "~", "（": "(", "）": ")", "：": ":", "；": ";"]
+    for (face, key) in faces {
+      XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, japanese: true, chinesePunctuation: true), Input.symbol(key), face)
+      XCTAssertEqual(SymbolLayerLayout.input(for: face, chinese: true, japanese: true, chinesePunctuation: false), Input.literal(face), face)
+    }
+    // 表外的键面（数字、网址符号）与中英文层一致。
+    XCTAssertEqual(SymbolLayerLayout.input(for: "1", chinese: true, japanese: true, chinesePunctuation: true), Input.symbol("1"))
+    XCTAssertEqual(SymbolLayerLayout.input(for: "@", chinese: true, japanese: true, chinesePunctuation: true), Input.symbol("@"))
+    XCTAssertEqual(SymbolLayerLayout.input(for: "…", chinese: true, japanese: true, chinesePunctuation: true), Input.literal("…"))
+  }
+
   /// 设计稿的符号层只剩 #+= 那一页：数字入口画数字九宫格时它不画，#+= 页上除大千注音外所有键面都画它；大千的 #+= 是共享的每排十键符号行。
   func testTheSymbolLayerIsOnlyTheMoreSymbolsPage() {
     XCTAssertTrue(KeyboardViewController.drawsSymbolLayer(symbols: true, numberPad: false, dachen: false))

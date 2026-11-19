@@ -925,6 +925,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 日语方案的符号键面，与引擎标点契约 `policy.json` 的 `japanese` 表逐字一致：键面画什么就上屏什么。`,` 和 `\` 都出读点，中文引号样式、顿号开关和书名号嵌套都不作用于日语。
+  static let japaneseSymbolFaces: [String: String] = [
+    ",": "、", "\\": "、", ".": "。", "[": "「", "]": "」", "{": "『", "}": "』",
+    "/": "・", "~": "〜", "?": "？", "!": "！", "(": "（", ")": "）", ":": "：", ";": "；",
+  ]
+
+  /// 日语方案下 `ascii` 的键面；表里没有的键保持 ASCII（引擎也原样上屏）。
+  static func japaneseSymbolFace(_ ascii: String) -> String {
+    japaneseSymbolFaces[ascii] ?? ascii
+  }
+
   /// 英文模式下标点锁定为中文时，按当前 View 的顿号开关选择发给 Engine 的键。nonisolated：纯函数，SmartPunctuationTests 这类非隔离测试可直接钉住。
   nonisolated static func lockedEnglishPunctuationInput(
     for symbol: String, enumerationCommaBackslash: Bool, enumerationCommaSlash: Bool) -> String? {
@@ -4166,12 +4177,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func typeSymbolLayerKey(row: Int, column: Int) {
     let chinese = symbolLayerIsChinese
     let face = SymbolLayerLayout.characterRows(more: showsMoreSymbols, chinese: chinese,
+                                               japanese: inputScheme.isJapanese,
                                                cornerQuotes: currentCornerQuotes)[row][column]
     typeSymbolLayerFace(face)
   }
 
   private func typeSymbolLayerFace(_ face: String) {
-    switch SymbolLayerLayout.input(for: face, chinese: symbolLayerIsChinese, chinesePunctuation: symbolLayerEngineWritesChinesePunctuation) {
+    switch SymbolLayerLayout.input(for: face, chinese: symbolLayerIsChinese, japanese: inputScheme.isJapanese,
+                                   chinesePunctuation: symbolLayerEngineWritesChinesePunctuation) {
     case .symbol(let key):
       countKeyPress(TypingKeyID.character(key))
       handleSymbol(key)
@@ -4263,6 +4276,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       key.accessibilityLabel = "符号 \(face)"
     }
     let rows = SymbolLayerLayout.characterRows(more: showsMoreSymbols, chinese: symbolLayerIsChinese,
+                                               japanese: inputScheme.isJapanese,
                                                cornerQuotes: currentCornerQuotes)
     for (keys, faces) in zip(symbolLayerKeys, rows) {
       for (key, face) in zip(keys, faces) where key.configuration?.title != face {
@@ -4363,7 +4377,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       guard let self else { return }
       // 统计实际按下的标点键；键面和输出仍由当前方案及标点模式决定。
       countKeyPress(TypingKeyID.quickPunctuation)
-      // 手机 26 键底行上这个键是设计稿的 ，：发逗号键，由 Engine 的标点路由选出标点，与符号行一样。日语画的是 、，发的也是 、（经 `KeyboardPunctuationContext` 换成 `\` 键）：Engine 的日语方案走中文标点表，逗号键写出的是 ，，与键面不符。
+      // 手机 26 键底行上这个键是设计稿的 ，：发逗号键，由 Engine 的标点路由选出标点，与符号行一样。日语画的是 、，发的也是 、（经 `KeyboardPunctuationContext` 换成 `\` 键）：Engine 的日语标点表把 `\` 写成 、，键面与上屏一致。
       handleSymbol(usesCustomQuickPunctuation ? quickPunctuationSymbols[0] : phoneBottomRowShown || nineKeyPunctuationRowShown ? (writesJapaneseComma ? "、" : ",") : quickPunctuationSymbols[0])
     }
     punctuation.configuration?.contentInsets = .zero
@@ -7302,12 +7316,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let japaneseComma = writesJapaneseComma
     for face in symbolKeyFaces where face.key !== quickPunctuationButton
       || ((phoneBottomRowShown || nineKeyPunctuationRowShown) && !usesCustomQuickPunctuation) {
-      let styled = Self.chineseSymbolFace(
+      // 日语方案的符号行和底行标点键都按日文表重画（`,` `\` 出读点、`[` `]` 出直角引号），不再沿用中文引号样式和顿号开关。
+      let styled = japaneseComma ? Self.japaneseSymbolFace(face.ascii) : Self.chineseSymbolFace(
         face.ascii, cornerQuotes: currentCornerQuotes, hollowBrackets: currentHollowBrackets,
         enumerationCommaBackslash: currentEnumerationCommaBackslash,
         enumerationCommaSlash: currentEnumerationCommaSlash) ?? face.chinese
-      let chinese = japaneseComma && face.key === quickPunctuationButton ? "、" : styled
-      let title = sendsChinesePunctuation ? chinese : face.ascii
+      let title = sendsChinesePunctuation ? styled : face.ascii
       guard face.key.configuration?.title != title || face.key.accessibilityLabel != "符号 \(title)" else { continue }
       face.key.configuration?.title = title
       face.key.accessibilityLabel = "符号 \(title)"
@@ -7542,7 +7556,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       if layerCommaButton.isHidden == layerComma { layerCommaButton.isHidden = !layerComma }
       if let key = layerCommaButton as? KeyboardKeyButton {
-        let face = symbolLayerIsChinese ? "，" : ","
+        // 日语方案画读点 `、`，点按时 typeSymbolLayerFace 按日文键面映射回 `\` 交给引擎。
+        let face = writesJapaneseComma ? "、" : symbolLayerIsChinese ? "，" : ","
         if layerComma && key.configuration?.title != face {
           key.configuration?.title = face
           key.accessibilityLabel = "符号 \(face)"

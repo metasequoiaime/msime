@@ -22,12 +22,25 @@ enum SymbolLayerLayout {
   private static let englishNumberSymbols = ["-", "/", ":", ";", "(", ")", "$", "@", "\"", "'"]
   private static let chinesePunctuation = ["。", "，", "、", "？", "！"]
   private static let englishPunctuation = [".", ",", "?", "!", "…"]
+  // 日语方案的键面与引擎 `policy.json` 的 `japanese` 表逐字一致：`,` `\` 出读点、`[` `]` 出直角引号、`{` `}` 出双直角引号、`/` 出中点、`~` 出长音符。
+  private static let japaneseNumberSymbols = ["-", "・", "：", "；", "（", "）", "¥", "@", "「", "」"]
+  private static let japanesePunctuation = ["。", "、", "・", "？", "！"]
+  private static let japaneseMoreSymbolsFirst = ["「", "」", "『", "』", "#", "%", "^", "*", "+", "="]
+  private static let japaneseMoreSymbolsSecond = ["_", "、", "|", "〜", "『", "』", "€", "&", "・", "…"]
   private static let moreSymbolsFirst = ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="]
   private static let chineseMoreSymbolsSecond = ["_", "\\", "|", "~", "《", "》", "€", "&", "·", "…"]
   private static let englishMoreSymbolsSecond = ["_", "\\", "|", "~", "<", ">", "€", "&", "·", "£"]
 
-  /// 一层的字符键，从上到下：两行各十个，然后是层切换键与 ⌫ 之间的五个标点键。`more` 选 #+= 层，`chinese` 选中文版，`cornerQuotes` 让中文 123 层的引号键用直角引号。
-  static func characterRows(more: Bool, chinese: Bool, cornerQuotes: Bool = false) -> [[String]] {
+  /// 一层的字符键，从上到下：两行各十个，然后是层切换键与 ⌫ 之间的五个标点键。`more` 选 #+= 层，`chinese` 选中文版，`japanese` 让中文版改用日文键面，`cornerQuotes` 让中文 123 层的引号键用直角引号。
+  static func characterRows(more: Bool, chinese: Bool, japanese: Bool = false,
+                            cornerQuotes: Bool = false) -> [[String]] {
+    if japanese && chinese {
+      let punctuation = japanesePunctuation
+      if more {
+        return [japaneseMoreSymbolsFirst, japaneseMoreSymbolsSecond, punctuation]
+      }
+      return [numberDigits, japaneseNumberSymbols, punctuation]
+    }
     let punctuation = chinese ? chinesePunctuation : englishPunctuation
     if more {
       return [moreSymbolsFirst, chinese ? chineseMoreSymbolsSecond : englishMoreSymbolsSecond, punctuation]
@@ -70,11 +83,22 @@ enum SymbolLayerLayout {
     ",", ".", "?", "!", ";", ":", "(", ")", "[", "]", "{", "}", "\\", "`", "$", "^", "_", "\"", "'", "<", ">",
   ]
 
-  /// 键面为 `face` 的键怎样写出它。数字一律走符号键路径，这样组字时 1-9 能选候选，韩文、越南文或藏文的组字也会在数字之前结束。英文层上所有 ASCII 符号也走这条路径，没有 ASCII 键能打出的符号（… € · £）直接插入。中文层上 Engine 一对一写出的标点在 `chinesePunctuation`（Engine 此刻写中文标点）时发送对应的 ASCII 键，否则与 Android 设计层一样按键面原样插入，键面与写出的字始终一致；Engine 原样放行的 ASCII 键面（`- / @ # % * + = | ~ &`）保留符号键路径，让网址或拼写符号仍能进入组字；其余的按键面原样插入。
-  static func input(for face: String, chinese: Bool, chinesePunctuation: Bool) -> Input {
+  /// 日语方案的日文键面各自对应的 ASCII 键：键面画什么，就送这个 ASCII 键给引擎写出它。`,` 的读点键面映射到 `\`（引擎同时接受 `,`），顿号开关不改变日语的读点。
+  private static let japaneseLayerKeys: [String: String] = [
+    "。": ".", "、": "\\", "・": "/", "？": "?", "！": "!",
+    "：": ":", "；": ";", "（": "(", "）": ")", "「": "[", "」": "]", "『": "{", "』": "}", "〜": "~",
+  ]
+
+  /// 键面为 `face` 的键怎样写出它。数字一律走符号键路径，这样组字时 1-9 能选候选，韩文、越南文或藏文的组字也会在数字之前结束。英文层上所有 ASCII 符号也走这条路径，没有 ASCII 键能打出的符号（… € · £）直接插入。中文层上 Engine 一对一写出的标点在 `chinesePunctuation`（Engine 此刻写中文标点）时发送对应的 ASCII 键，否则与 Android 设计层一样按键面原样插入，键面与写出的字始终一致；Engine 原样放行的 ASCII 键面（`- / @ # % * + = | ~ &`）保留符号键路径，让网址或拼写符号仍能进入组字；其余的按键面原样插入。`japanese` 时改用日文键面对应的 ASCII 键，规则相同。
+  static func input(for face: String, chinese: Bool, japanese: Bool = false,
+                    chinesePunctuation: Bool) -> Input {
     let ascii = face.unicodeScalars.count == 1 && face.unicodeScalars.allSatisfy { $0.isASCII && $0.value > 0x20 && $0.value < 0x7F }
     if ascii, let scalar = face.unicodeScalars.first, ("0"..."9").contains(scalar) { return .symbol(face) }
     guard chinese else { return ascii ? .symbol(face) : .literal(face) }
+    if japanese {
+      if let key = japaneseLayerKeys[face] { return chinesePunctuation ? .symbol(key) : .literal(face) }
+      return ascii ? .symbol(face) : .literal(face)
+    }
     if let key = chineseLayerKeys[face] { return chinesePunctuation ? .symbol(key) : .literal(face) }
     return ascii && !engineTranslatedKeys.contains(face) ? .symbol(face) : .literal(face)
   }

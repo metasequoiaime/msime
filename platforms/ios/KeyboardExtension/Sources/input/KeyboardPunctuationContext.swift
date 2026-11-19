@@ -4,8 +4,11 @@ enum KeyboardPunctuationContext {
   private static let chineseInputs = [
     "，": ",", "。": ".", "？": "?", "！": "!", "；": ";", "：": ":",
   ]
+  /// 日语方案的标点键面与引擎标点契约 `japanese` 表逐字一致：键面在这里映射回它对应的 ASCII 键，由上屏的引擎写出同一个字。`、` 走 `\`（日语读点与中文顿号开关无关，不走 `enumerationCommaInput`）。
   private static let japaneseInputs = [
-    "。": ".", "？": "?", "！": "!", "「": "[", "」": "]", "・": "/",
+    "、": "\\", "。": ".", "？": "?", "！": "!", "「": "[", "」": "]",
+    "『": "{", "』": "}", "・": "/", "〜": "~", "（": "(", "）": ")",
+    "：": ":", "；": ";",
   ]
 
   static func precedingScalar(_ contextBeforeInput: String?) -> UInt32 {
@@ -27,7 +30,8 @@ enum KeyboardPunctuationContext {
       return symbol
     }
     if asciiMarks { return nil }
-    if symbol == "、" {
+    // 中文的顿号键随 View 的顿号开关；日语的读点固定走 `\`，不随这个开关。
+    if !japanese && symbol == "、" {
       return enumerationCommaInput(backslash: enumerationCommaBackslash, slash: enumerationCommaSlash)
     }
     return (japanese ? japaneseInputs : chineseInputs)[symbol]
