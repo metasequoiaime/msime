@@ -1717,7 +1717,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** 原生面板负责先调整物理尺寸，绘制层随后设置窗口形状。 */
   onToolbarResize: (() => Promise<void>) | undefined = undefined;
   /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
-  onToolbarDragStart: (() => void) | undefined = undefined;
+  onToolbarDragStart: ((position: [number, number] | undefined) => void) | undefined = undefined;
   onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
   /** 设置应用，只有宿主能打开它：启动它所需的 context 归宿主所有。2in1 工具栏的齿轮和手机上的「更多设置」卡片都从这里进入。`page` 是 `SettingsPageLink.PAGES` 之一，用于直接打开对应页面；为 `undefined` 时打开设置首页。`target` 是这一页的子目标（`SettingsPageLink.targets(page)` 之一），没有时为 `undefined`。 */
   onOpenSettings: ((page: string | undefined, requestMicrophone?: boolean, target?: string) => void) | undefined = undefined;
@@ -3524,9 +3524,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.toolbarFontSize(), this.toolbarScale(), this.toolbarSkin, this.toolbarImageScene());
   }
 
-  beginToolbarDrag(): void {
+  beginToolbarDrag(position: [number, number] | undefined): void {
     if (this.onToolbarDragStart !== undefined) {
-      this.onToolbarDragStart();
+      this.onToolbarDragStart(position);
     }
   }
 
