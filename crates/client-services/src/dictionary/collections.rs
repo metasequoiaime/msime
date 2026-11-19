@@ -26,8 +26,6 @@ use uuid::Uuid;
 
 /// 集合目录在偏好目录里的名字。
 pub const DIRECTORY_NAME: &str = "DictionaryCollections";
-/// 每个集合最多的词条数。
-pub const MAX_COLLECTION_ENTRIES: usize = 50_000;
 /// 最多的集合个数。
 pub const MAX_COLLECTIONS: usize = 32;
 /// 集合名最多的字符数。
@@ -595,7 +593,8 @@ impl DictionaryCollectionsStore {
                 HashSet::new()
             }
         };
-        let room = MAX_COLLECTION_ENTRIES.saturating_sub(existing.len());
+        // 集合条数不设单独上限，导入文本和单集合文件仍由字节边界保护。
+        let room = None;
         let (words, mut report) = parse_import(
             request.kind,
             request.format,
@@ -1433,7 +1432,6 @@ fn validate_index(index: &CollectionIndex) -> Result<()> {
         if metadata.id.is_nil()
             || !ids.insert(metadata.id)
             || valid_name(&metadata.name).is_err()
-            || metadata.entry_count > MAX_COLLECTION_ENTRIES
             || !source_valid
         {
             return Err(DictionaryCollectionsError::Corrupt);
@@ -1446,7 +1444,6 @@ fn validate_collection(metadata: &CollectionMetadata, file: &CollectionFile) -> 
     if file.id != metadata.id
         || file.kind != metadata.kind
         || file.entries.len() != metadata.entry_count
-        || file.entries.len() > MAX_COLLECTION_ENTRIES
     {
         return Err(DictionaryCollectionsError::Corrupt);
     }
@@ -1701,9 +1698,6 @@ impl State {
             if !identities.insert(word.identity()) {
                 continue;
             }
-            if entries.len() >= MAX_COLLECTION_ENTRIES {
-                return Err(DictionaryCollectionsError::Limit);
-            }
             if enabled && !elsewhere.contains(&word.identity()) {
                 self.outbox.queue(OutboxKind::Add, id, word.clone());
             }
@@ -1782,14 +1776,14 @@ impl State {
     }
 }
 
-/// 解析一份导入文本，最多收 `room` 条，跳过 `existing` 里已有的和文件里重复的词。
+/// 解析一份导入文本，按可选的 `room` 上限收词，跳过 `existing` 里已有的和文件里重复的词。
 fn parse_import(
     kind: PersonalWordKind,
     format: &str,
     text: &str,
     readings: Option<&dyn HanReadings>,
     existing: &HashSet<String>,
-    room: usize,
+    room: Option<usize>,
 ) -> Result<(Vec<PersonalWord>, CollectionImportReport)> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     if text.is_empty() {
@@ -1909,11 +1903,11 @@ fn parse_rows(
     format: ImportFormat,
     text: &str,
     existing: &HashSet<String>,
-    room: usize,
+    room: Option<usize>,
 ) -> (Vec<PersonalWord>, CollectionImportReport) {
-    let mut words = Vec::with_capacity(room);
+    let mut words = Vec::new();
     let mut report = CollectionImportReport::default();
-    let mut seen = HashSet::with_capacity(room);
+    let mut seen = HashSet::new();
     let mut in_yaml_header = false;
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -1966,7 +1960,7 @@ fn parse_rows(
                 report.duplicates += 1;
                 continue;
             }
-            if words.len() >= room {
+            if room.is_some_and(|limit| words.len() >= limit) {
                 report.truncated = true;
                 return (words, report);
             }
@@ -1980,11 +1974,11 @@ fn parse_hans(
     text: &str,
     readings: &dyn HanReadings,
     existing: &HashSet<String>,
-    room: usize,
+    room: Option<usize>,
 ) -> (Vec<PersonalWord>, CollectionImportReport) {
-    let mut words = Vec::with_capacity(room);
+    let mut words = Vec::new();
     let mut report = CollectionImportReport::default();
-    let mut seen = HashSet::with_capacity(room);
+    let mut seen = HashSet::new();
     for (index, line) in text.lines().enumerate() {
         let value = line.trim();
         if value.is_empty() || value.starts_with('#') {
@@ -2017,7 +2011,7 @@ fn parse_hans(
             report.duplicates += 1;
             continue;
         }
-        if words.len() >= room {
+        if room.is_some_and(|limit| words.len() >= limit) {
             report.truncated = true;
             break;
         }
