@@ -23289,7 +23289,7 @@ fn a_busy_dictionary_sync_preserves_pending_collection_words_for_retry() {
     );
 }
 
-/// Android 和鸿蒙手机经命名词库送细胞词库的字节：一个 8 MiB 的文件经 base64 后连同宿主选项仍在 17 MiB 的请求上限之内，导入成一个集合，达到集合容量后停下并说明。
+/// Android 和鸿蒙手机经命名词库送细胞词库的字节：一个 8 MiB 的文件经 base64 后连同宿主选项仍在 17 MiB 的请求上限之内，导入成一个集合，按字节边界完整保存。
 #[test]
 fn a_cell_dictionary_at_its_size_limit_fits_one_collections_request() {
     use msime_client_services::dictionary::scel::MAX_SCEL_BYTES;
@@ -23329,11 +23329,8 @@ fn a_cell_dictionary_at_its_size_limit_fits_one_collections_request() {
         read(unsafe { msime_client_dictionary_collections(request.as_ptr(), request.len()) });
     assert_eq!(imported["ok"], true, "{}", imported["error"]);
     let report = &imported["value"]["import"];
-    assert_eq!(
-        report["imported"],
-        msime_client_services::dictionary::collections::MAX_COLLECTION_ENTRIES
-    );
-    assert_eq!(report["truncated"], true);
+    assert!(report["imported"].as_u64().unwrap() > 50_000);
+    assert_eq!(report["truncated"], false);
     assert_eq!(report["failed"], 0);
     assert_eq!(
         imported["value"]["collections"][0]["source"],

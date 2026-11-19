@@ -200,7 +200,7 @@ export function collectionFailureMessage(error: unknown): string {
     case "collections_name_invalid":
       return "词库名需要 1–32 个字，首尾不能有空格。";
     case "collections_limit":
-      return "词库数量或词条数已达上限。";
+      return "词库数量已达上限。";
     case "collections_not_found":
       return "这个词库已经不在了，列表已刷新。";
     case "builtin_locked":
