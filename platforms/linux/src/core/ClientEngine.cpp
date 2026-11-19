@@ -17,6 +17,7 @@
 #include "HelpcodePack.h"
 #include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
+#include "CandidateMaintenanceShortcut.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
 #include "CaretEditSuffix.h"
@@ -55,6 +56,8 @@
 #endif
 #include "../overlay/FloatingPanelColors.h"
 #include "../overlay/FloatingToolbarModel.h"
+#include "../candidates/CandidateMenuPlacement.h"
+#include "../candidates/CandidateMenuSurface.h"
 #include "../overlay/ShuangpinKeymapModel.h"
 #ifdef MSIME_LINUX_FLOATING_PANELS
 #include "../overlay/FloatingToolbar.h"
@@ -657,6 +660,11 @@ struct State {
   int wave_overlay_watch_fd = -1;
   // 识别进行中点了确认：这次录音余下的时间里浮条一直收着，结果照常上屏，与 macOS 的 `dismissProcessing` 一样。
   bool wave_overlay_dismissed = false;
+  // 候选右键自绘菜单：IBus 面板没有逐候选菜单接口，自绘弹层显示时监听它的显示连接；
+  // 连不上 X（Xwayland 也不可用）时退回 show_candidate_menu_hint 的提示条。
+  std::unique_ptr<msime::linux_host::CandidateMenuSurface> candidate_menu_surface;
+  guint candidate_menu_watch = 0;
+  gint candidate_menu_watch_fd = -1;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -810,10 +818,21 @@ struct State {
     wave_overlay_watch = 0;
     wave_overlay_watch_fd = -1;
   }
+  // 收起候选右键自绘菜单并停掉它的显示连接监听。显示中的菜单在会话每条出口（focus_out、
+  // reset、render）上收起，与组字一起消失。
+  void release_candidate_menu() {
+    if (candidate_menu_surface && candidate_menu_surface->visible())
+      candidate_menu_surface->hide();
+    if (candidate_menu_watch)
+      g_source_remove(candidate_menu_watch);
+    candidate_menu_watch = 0;
+    candidate_menu_watch_fd = -1;
+  }
   void close() {
     session_chinese_punctuation.reset();
     session_fullwidth.reset();
     session_caps_lock = false;
+    release_candidate_menu();
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -4134,6 +4153,8 @@ void clear(IBusEngine *engine) {
   cancel_candidate_hide(engine);
   hide_shuangpin_keymap();
   auto &s = state(engine);
+  // 会话的每条出口都收起右键自绘菜单（focus_out、禁用、会话重建都经过 clear）。
+  s.release_candidate_menu();
   if (s.translation_candidates_active && s.translation_saved_view.is_object())
     s.view = std::move(s.translation_saved_view);
   s.translation_candidates_active = false;
@@ -4362,6 +4383,8 @@ void hide_wave_overlay(IBusEngine *engine) {
 void render(IBusEngine *engine, const Json &view) {
   sync_shuangpin_keymap(engine, view);
   sync_vocabulary_row(engine);
+  // 每一帧渲染都收起右键自绘菜单：选择动作、翻页或输入变化都会触发渲染，菜单与组字一起消失。
+  state(engine).release_candidate_menu();
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -6738,6 +6761,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     state(engine).host_shortcut_strokes.clear();
+    state(engine).release_candidate_menu();
     // A chord release that never arrives must not swallow the next stroke of the same key.
     state(engine).mode_chord_held = false;
     state(engine).character_set_chord_held = false;
@@ -7740,6 +7764,64 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
+  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+1..5 固定排位、Ctrl+0 取消固定）：
+  // 与面板属性菜单同一组围栏（渲染页归属与代次一致、行 id 归本会话、candidate_dictionary_actions_available），
+  // 动作落在本页渲染里 highlighted 的那一行。高亮行不在或不可维护时按键照常往下走。
+  const auto candidate_maintenance_action =
+      (!release && s.focused && !s.blocked && s.session)
+          ? msime::linux_host::candidate_maintenance_shortcut(key, modifiers)
+          : msime::linux_host::CandidateShortcut{};
+  if (candidate_maintenance_action.kind !=
+      msime::linux_host::CandidateShortcutKind::None) {
+    if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
+        s.rendered_candidates.empty() || !s.rendered_view.is_object() ||
+        !s.view.is_object() ||
+        s.rendered_view.value("generation", uint64_t{0}) !=
+            s.view.value("generation", uint64_t{0}))
+      return FALSE;
+    for (const auto &candidate : s.rendered_candidates) {
+      if (!candidate.is_object() || !candidate.value("highlighted", false))
+        continue;
+      const auto &id = candidate.value("id", Json::object());
+      if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
+        return FALSE;
+      const auto source = candidate.value("source", 0);
+      if (!msime::linux_host::candidate_dictionary_actions_available(
+              s.rendered_scheme, source))
+        return FALSE;
+      if (candidate_maintenance_action.kind ==
+              msime::linux_host::CandidateShortcutKind::Remove &&
+          !msime::linux_host::candidate_dictionary_removal_available(
+              s.rendered_scheme, source, candidate.value("text", std::string{})))
+        return FALSE;
+      s.host_shortcut_strokes.insert(host_stroke);
+      const auto generation = id.value("generation", uint64_t{0});
+      const auto index = id.value("index", size_t{0});
+      guarded(engine, "candidate_maintenance_shortcut", [&] {
+        using Kind = msime::linux_host::CandidateShortcutKind;
+        switch (candidate_maintenance_action.kind) {
+        case Kind::Remove:
+          apply(engine, msime_client_remove_candidate(s.session, generation, index));
+          break;
+        case Kind::Pin:
+          apply(engine, msime_client_pin_candidate(s.session, generation, index));
+          break;
+        case Kind::Clear:
+          apply(engine,
+                msime_client_clear_candidate_position(s.session, generation, index));
+          break;
+        case Kind::Fix:
+          apply(engine, msime_client_fix_candidate_position(
+                            s.session, generation, index,
+                            candidate_maintenance_action.position));
+          break;
+        default:
+          break;
+        }
+      });
+      return TRUE;
+    }
+  }
   if (modifier(key) &&
       !(s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)))
     return FALSE;
@@ -8591,6 +8673,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       command = MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
+      // 右键自绘菜单显示时 Esc 只收菜单，不取消组字（菜单不抢焦点，Esc 仍到引擎这里）。
+      if (state(engine).candidate_menu_surface &&
+          state(engine).candidate_menu_surface->visible()) {
+        state(engine).candidate_menu_surface->hide();
+        handled = true;
+        return;
+      }
       command = MSIME_CANCEL;
       break;
     case IBUS_space:
@@ -8749,6 +8838,103 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std
       },
       notice, nullptr);
 }
+// 候选右键自绘菜单的显示连接监听（显示时才挂，收起时移除），照 sync_wave_overlay_sources 的做法。
+gboolean candidate_menu_events(gint, GIOCondition condition, gpointer data) {
+  auto *source = static_cast<WaveOverlaySource *>(data);
+  if (!source->alive->load())
+    return G_SOURCE_REMOVE;
+  auto &s = state(source->engine);
+  if (!s.candidate_menu_surface || !s.candidate_menu_surface->visible() ||
+      (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL))) {
+    s.release_candidate_menu();
+    return G_SOURCE_REMOVE;
+  }
+  s.candidate_menu_surface->dispatch_events();
+  return G_SOURCE_CONTINUE;
+}
+
+void sync_candidate_menu_watch(IBusEngine *engine) {
+  auto &s = state(engine);
+  const int fd = s.candidate_menu_surface && s.candidate_menu_surface->visible()
+                     ? s.candidate_menu_surface->event_fd()
+                     : -1;
+  if (fd == s.candidate_menu_watch_fd)
+    return;
+  if (s.candidate_menu_watch)
+    g_source_remove(s.candidate_menu_watch);
+  s.candidate_menu_watch = 0;
+  s.candidate_menu_watch_fd = fd;
+  if (fd >= 0)
+    s.candidate_menu_watch = g_unix_fd_add_full(G_PRIORITY_DEFAULT, fd, G_IO_IN,
+                                                candidate_menu_events,
+                                                new WaveOverlaySource{engine, s.alive},
+                                                delete_wave_overlay_source);
+}
+
+// 右键打开自绘菜单：条目可用性由 candidate_menu_items 算，配色与悬浮工具栏同一主题；
+// 连不上 X（Xwayland 也不可用）时退回 show_candidate_menu_hint 的提示条。动作在
+// show 时按本页高亮行的 identity 绑定，回调时核对会话与渲染代次，落进与面板属性
+// 菜单同一组 msime_client_* 命令。
+void show_candidate_menu(IBusEngine *engine, const Json &candidate,
+                         msime::linux_host::CandidateMenuAnchor anchor) {
+  auto &s = state(engine);
+  if (!s.candidate_menu_surface)
+    s.candidate_menu_surface = std::make_unique<msime::linux_host::CandidateMenuSurface>();
+  else if (s.candidate_menu_surface->visible())
+    s.candidate_menu_surface->hide();
+  const auto session = s.session;
+  const auto id = candidate.value("id", Json::object());
+  if (!id.is_object())
+    return;
+  const auto generation = id.value("generation", uint64_t{0});
+  const auto index = id.value("index", size_t{0});
+  auto items = msime::linux_host::candidate_menu_items(
+      candidate.value("text", std::string{}), true,
+      static_cast<uint8_t>(candidate.value("fixed_position", 0)));
+  // 动作表在 move 之前照条目下标存下，命中后按 identity 落命令；分隔线与禁用项不会成为命中。
+  const std::vector<std::pair<msime::linux_host::CandidateMenuCommand, uint8_t>> actions = [&] {
+    std::vector<std::pair<msime::linux_host::CandidateMenuCommand, uint8_t>> result;
+    for (const auto &item : items)
+      result.emplace_back(item.command, item.position);
+    return result;
+  }();
+  const auto shown = s.candidate_menu_surface->show(
+      std::move(items), s.floating_toolbar_colors, anchor,
+      [engine, session, generation, index, actions](std::size_t item_index) {
+        guarded(engine, "candidate_menu_action", [&] {
+          auto &s = state(engine);
+          if (!s.session || s.session != session || s.rendered_session != s.session ||
+              !s.rendered_view.is_object() ||
+              s.rendered_view.value("generation", uint64_t{0}) != generation ||
+              item_index >= actions.size())
+            return;
+          const auto &[command, position] = actions[item_index];
+          using Command = msime::linux_host::CandidateMenuCommand;
+          switch (command) {
+          case Command::PinToTop:
+            apply(engine, msime_client_pin_candidate(s.session, generation, index));
+            break;
+          case Command::FixAtPosition:
+            apply(engine, msime_client_fix_candidate_position(
+                              s.session, generation, index, position));
+            break;
+          case Command::ClearFixedPosition:
+            apply(engine,
+                  msime_client_clear_candidate_position(s.session, generation, index));
+            break;
+          case Command::Remove:
+            apply(engine, msime_client_remove_candidate(s.session, generation, index));
+            break;
+          }
+        });
+      },
+      // 收起后的通知（点外、选择或会话出口 hide）：挂/卸显示连接监听。
+      [engine] { sync_candidate_menu_watch(engine); });
+  if (!shown)
+    return;
+  sync_candidate_menu_watch(engine);
+}
+
 // 指针点选和翻页同样先开启新的一轮（msime_client.h 的顺序契约）：MSIME_KEY_POINTER 不出声、不画。
 void pointer_turn(IBusEngine *engine) {
   auto &s = state(engine);
@@ -8834,7 +9020,27 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       // value() throws on null, guarded swallows the throw, and the whole click disappears into a
       // warning line. The hint has nothing to restore without a view either: its timeout only
       // re-renders while this generation is still the one on screen.
-      if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) && s.rendered_view.is_object())
+      if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) &&
+          s.rendered_view.is_object()) {
+        msime::linux_host::CandidateMenuAnchor anchor;
+        const auto *wayland = std::getenv("WAYLAND_DISPLAY");
+        if (wayland && *wayland) {
+          // Wayland 会话里 Xwayland 根窗口没有真实指针，改用 IBus 上报的光标矩形；
+          // 局部坐标和「还没报光标」的守卫在 candidate_menu_position 里，回退到工作区中下部。
+          anchor.kind = msime::linux_host::CandidateMenuAnchor::Kind::Caret;
+          anchor.x = engine->cursor_area.x;
+          anchor.y = engine->cursor_area.y;
+          anchor.width = engine->cursor_area.width;
+          anchor.height = engine->cursor_area.height;
+        } else {
+          // 纯 X11：右键就在 IBus 面板的候选行上，show() 取本机指针即可。
+          anchor.kind = msime::linux_host::CandidateMenuAnchor::Kind::Pointer;
+          anchor.x = -1;
+          anchor.y = -1;
+        }
+        show_candidate_menu(engine, entry, anchor);
+      }
+      else if (s.rendered_view.is_object())
         show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
     } else {
       pointer_turn(engine);
