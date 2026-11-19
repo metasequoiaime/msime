@@ -948,6 +948,7 @@ printf 'export declare const HarmonyPrivacyConsent: any;\n' > "$telemetry_check/
 "$tsc" --ignoreConfig --noEmit --strict --target es2021 --module commonjs --skipLibCheck \
   "$here/telemetry-typecheck.d.ts" "$telemetry_check/telemetry/Telemetry.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
 node "$here/idle-dictionary-lifecycle.test.cjs"
+node "$here/dictionary-learning-reset-adapter.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
 for source in "$here"/*.test.ts; do
   node "$repo_root/target/harmony-tests/tests/$(basename "${source%.ts}").js"

@@ -1896,7 +1896,7 @@ group("allows reads during composition without restarting the session", () => {
 });
 
 group("opens an exclusive window for idle mutations", () => {
-  for (const operation of ["edit", "import", "retry", "dismiss_failure"]) {
+  for (const operation of ["edit", "import", "retry", "dismiss_failure", "reset"]) {
     const decision = DictionaryMaintenancePolicy.decide(operation, false);
     check(decision.allowed, `${operation} is allowed while idle`);
     check(decision.maintenance, `${operation} is marked as maintenance`);
@@ -1904,7 +1904,7 @@ group("opens an exclusive window for idle mutations", () => {
 });
 
 group("refuses every mutation while composition is active", () => {
-  for (const operation of ["edit", "import", "retry", "dismiss_failure"]) {
+  for (const operation of ["edit", "import", "retry", "dismiss_failure", "reset"]) {
     const decision = DictionaryMaintenancePolicy.decide(operation, true);
     check(!decision.allowed, `${operation} is refused while composing`);
     check(decision.maintenance, `${operation} remains classified as maintenance`);

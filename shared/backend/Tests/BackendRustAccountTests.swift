@@ -223,6 +223,89 @@ final class BackendRustAccountTests: XCTestCase {
     XCTAssertEqual(providers, ["email": true, "phone": false, "google": true])
   }
 
+  func testSignedInLearningResetUsesTheCapturedLoginAndNeverFallsBack() throws {
+    let login: [String: Any] = ["user_id": "synthetic-account", "session_id": "00000000-0000-4000-8000-000000000001"]
+    let options: [String: Any] = ["api_version": 1, "preferences_directory": "/synthetic-state"]
+    FakeAccountRust.replies = [
+      "account.learning_binding": String(decoding: try JSONSerialization.data(withJSONObject: ["ok": true, "value": ["login": login]]), as: UTF8.self),
+      "account.learning_reset_local": #"{"ok":true,"value":{"reset":true,"collections_requeued":2}}"#
+    ]
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    let result = try account.resetLearnedData(options: options) {
+      XCTFail("已登录时不能绕过账号屏障")
+      return ["reset": true]
+    }
+    XCTAssertEqual(result["collections_requeued"] as? Int, 2)
+    let requests = FakeAccountRust.snapshot().requests
+    XCTAssertEqual(requests.count, 2)
+    XCTAssertEqual(requests.map { $0.body["session_store"] as? Int }, [9, 9])
+    let action = try XCTUnwrap(requests.last?.body["action"] as? [String: Any])
+    XCTAssertEqual(action["operation"] as? String, "learning_reset_local")
+    XCTAssertEqual(action["login"] as? NSDictionary, login as NSDictionary)
+    XCTAssertEqual(action["options"] as? NSDictionary, options as NSDictionary)
+  }
+
+  func testOnlyAnExplicitlyAbsentLoginPermitsLocalLearningReset() throws {
+    FakeAccountRust.replies = ["account.learning_binding": #"{"ok":true,"value":{"login":null}}"#]
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    var localCalls = 0
+    let result = try account.resetLearnedData(options: [:]) {
+      localCalls += 1
+      return ["reset": true, "collections_requeued": 3]
+    }
+    XCTAssertEqual(localCalls, 1)
+    XCTAssertEqual(result["collections_requeued"] as? Int, 3)
+    XCTAssertEqual(FakeAccountRust.snapshot().requests.count, 1)
+  }
+
+  func testLearningResetNeverFallsBackAfterStorageFailureOrLoginChange() throws {
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    for code in ["account_storage", "account_cancelled", "learning_busy", "learning_state_unavailable"] {
+      FakeAccountRust.replies = [
+        "account.learning_binding": code == "account_storage"
+          ? #"{"ok":false,"error":"account_storage"}"# : #"{"ok":true,"value":{"login":{"user_id":"synthetic-account","session_id":"00000000-0000-4000-8000-000000000001"}}}"#,
+        "account.learning_reset_local": "{\"ok\":false,\"error\":\"\(code)\"}"
+      ]
+      XCTAssertThrowsError(try account.resetLearnedData(options: [:]) {
+        XCTFail("账号失败不能退回本机清除：\(code)")
+        return ["reset": true]
+      }) {
+        XCTAssertEqual(($0 as? BackendRustClient.Failure)?.code, code)
+      }
+    }
+  }
+
+  func testMalformedLoginDoesNotMeanSignedOut() throws {
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    for value in [#"{}"#, #"{"login":false}"#, #"{"login":1}"#, #"{"login":[]}"#, #"{"login":"synthetic-login"}"#] {
+      FakeAccountRust.replies = ["account.learning_binding": "{\"ok\":true,\"value\":\(value)}"]
+      XCTAssertThrowsError(try account.resetLearnedData(options: [:]) {
+        XCTFail("无效的登录形状不能触发清除")
+        return ["reset": true]
+      }) {
+        XCTAssertEqual(($0 as? BackendRustClient.Failure)?.code, "rust_client_invalid_response")
+      }
+    }
+  }
+
+  func testLearningResetRequiresARealBooleanSuccessFromEitherRoute() throws {
+    let account = BackendRustAccount(client: try XCTUnwrap(BackendRustClient(table: FakeAccountRust.table())), store: 9)
+    for loggedIn in [false, true] {
+      for result in [#"{}"#, #"{"reset":false}"#, #"{"reset":1}"#, #"{"reset":"true"}"#] {
+        FakeAccountRust.replies = [
+          "account.learning_binding": loggedIn
+            ? #"{"ok":true,"value":{"login":{"user_id":"synthetic-account","session_id":"00000000-0000-4000-8000-000000000001"}}}"# : #"{"ok":true,"value":{"login":null}}"#,
+          "account.learning_reset_local": "{\"ok\":true,\"value\":\(result)}"
+        ]
+        XCTAssertThrowsError(try account.resetLearnedData(options: [:]) {
+          try BackendRustAccount.object(Data(result.utf8))
+        }) {
+          XCTAssertEqual(($0 as? BackendRustClient.Failure)?.code, "rust_client_invalid_response")
+        }
+      }
+    }
+  }
+
   func testProfileRejectsMalformedSharedProviderNames() throws {
     let base: [String: Any] = [
       "user": ["id": "synthetic-user", "displayName": "合成账号", "createdAt": "synthetic-date"],

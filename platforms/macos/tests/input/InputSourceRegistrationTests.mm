@@ -341,12 +341,25 @@ int main()
         const void *installedSources[] = {appParentSource, hansModeSource, japaneseModeSource, koreanModeSource, shuangpinModeSource, wubiModeSource};
         sourceList = CFArrayCreate(nullptr, installedSources, 6, nullptr);
         registrationBefore = sourceList;
-        for (const auto &kept : {std::vector<TISInputSourceRef>{hansModeSource}, std::vector<TISInputSourceRef>{wubiModeSource}, std::vector<TISInputSourceRef>{}}) {
+        for (const auto &kept : {std::vector<TISInputSourceRef>{appParentSource, hansModeSource}, std::vector<TISInputSourceRef>{appParentSource, wubiModeSource}, std::vector<TISInputSourceRef>{appParentSource}}) {
             alreadyEnabledSources = kept;
             enabledSources.clear();
             require(RegisterSources(bundleURL, appBundle, CaptureRegistration, CopyInputSources, GetInputSourceProperty, EnableInputSource) == noErr && enabledSources.empty(),
                 "Re-registration restored a mode the user removed.");
         }
+        // 重装保留用户移除的模式，但顶层输入源本身必须仍然启用；注册表里已有一份关闭的副本时要补开它。
+        alreadyEnabledSources = {hansModeSource};
+        enabledSources.clear();
+        require(RegisterSources(bundleURL, appBundle, CaptureRegistration, CopyInputSources, GetInputSourceProperty, EnableInputSource) == noErr &&
+                    enabledSources.size() == 1 && enabledSources[0] == appParentSource,
+                "A disabled top-level input source was not re-enabled.");
+        alreadyEnabledSources = {hansModeSource};
+        enabledSources.clear();
+        rejectedSource = appParentSource;
+        require(RegisterSources(bundleURL, appBundle, CaptureRegistration, CopyInputSources, GetInputSourceProperty, EnableInputSource) == -50 &&
+                    enabledSources.size() == 1 && enabledSources[0] == appParentSource,
+                "A top-level input source enable failure was not preserved.");
+        rejectedSource = nullptr;
         registrationBefore = nullptr;
         alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource};
         enabledSources.clear();

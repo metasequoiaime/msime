@@ -142,23 +142,23 @@ public final class DictionaryCollectionsStore {
     public record ResetReport(int requeued, int pending, boolean collectionsFailed, boolean unsynced) {}
 
     /**
-     * 清除学习记录：`msime_client_dictionary` 的 `reset` 先删掉还没合并的输入记录和输入习惯，再换回随包的工作词库、清空学习日志（调频、置顶、固定位置、选词计数、整句联想、拼写纠错和自造词），并把已启用命名词库的词重新排队；设置、常用语、剪贴板和打字统计不动。
+     * 清除学习记录：已登录时先保存当前登录的学习同步屏障，再复用共享重置；未登录时走本机重置。两条路径都删掉待合并的输入记录和输入习惯，换回随包的工作词库、清空学习日志，并把已启用命名词库的词重新排队；设置、常用语、剪贴板和打字统计不动。
      *
      * <p>重置成功后调云同步的 `dictionary_reset`（{@link SyncSignals#dictionaryReset}）：取消清除之前下载、还在等激活的云端快照，给「个人词库」打待上传标记，下一轮云同步把清除后的这一份整份传上去、替换云端那份（重新排队的词全部写进词库之前不会上传）。重新排队失败时重置照样算成功、照样打标记，提示里说已添加词库的词没能写回。接着趁设置页拿得到维护权，在两秒预算内把重新排队的词写回去，剩下的由键盘空闲时继续。键盘会话开着时 Rust 报忙，什么也不换。
      */
     public static Result<ResetReport> resetLearning(Context context) {
         String options = hostOptions(context);
         if (options.isEmpty()) return Result.failed(failureMessage("unavailable"));
-        final String response;
+        final JSONObject value;
         try {
-            response = NativeClient.dictionary(new JSONObject()
-                .put("options", new JSONObject(options)).put("action", action("reset")).toString());
+            value = AccountLearningReset.reset(context, new JSONObject(options));
+        } catch (AccountStore.Failure error) {
+            return Result.failed(resetFailureMessage(error.code));
         } catch (JSONException | RuntimeException | LinkageError error) {
             return Result.failed(resetFailureMessage(""));
         }
-        JSONObject value = value(response);
-        if (value == null || !JsonPolicy.strictTrue(value.opt("reset"))) {
-            return Result.failed(resetFailureMessage(errorOf(response)));
+        if (!JsonPolicy.strictTrue(value.opt("reset"))) {
+            return Result.failed(resetFailureMessage(""));
         }
         boolean unsynced = !SyncSignals.dictionaryReset(context) && SyncSignals.enabled(context);
         boolean collectionsFailed = value.has("collections_error");
@@ -170,7 +170,7 @@ public final class DictionaryCollectionsStore {
 
     /** 清除学习记录失败时的话：键盘会话开着时 Rust 报 `dictionary maintenance busy`，其余一律按通用失败说。 */
     public static String resetFailureMessage(String error) {
-        if ("dictionary maintenance busy".equals(error)) return ClearLearningCopy.BUSY;
+        if ("dictionary maintenance busy".equals(error) || "learning_busy".equals(error)) return ClearLearningCopy.BUSY;
         return ClearLearningCopy.FAILED;
     }
 
