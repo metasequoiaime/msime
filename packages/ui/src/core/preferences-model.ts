@@ -215,6 +215,8 @@ export type Preferences = PunctuationPreferences &
     nine_key_shuangpin_custom_profile?: ShuangpinCustomProfile;
     /** 五笔用哪一版码表（86、98 或新世纪 `wubixsj`），只在方案为五笔时起作用；缺省为 86。新世纪的选择暂不随账号同步，宿主不导出它。 */
     wubi_profile?: WubiProfile;
+    /** 五笔自造词落库时的初始权重档：`bottom` 沉底（缺省），`top` 置顶（只管入库这一次，之后照常参与调频）；缺字段按 `bottom` 读，等于默认值时文档里没有这一项。 */
+    wubi_phrase_placement?: "bottom" | "top";
     /** 「输入时显示双拼键位提示」。没选过时文档里没有这一项，按关显示；macOS 那时仍沿用本机旧的选择。 */
     shuangpin_keymap_hint?: boolean;
     vietnamese?: VietnamesePreferences;

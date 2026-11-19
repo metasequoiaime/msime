@@ -9,6 +9,7 @@ import type { FrequencyPreferences } from "./frequency-preferences";
 import { ImeModeScopeSection } from "./ime-mode-scope-section";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { LearningSection } from "./learning-section";
+import { WubiPhraseLearningSection } from "./wubi-phrase-learning-section";
 import { MultilingualInputSection } from "./multilingual-input-section";
 import { MixedInputMoreRows, MixedInputSection } from "./mixed-input-section";
 import type { MixedInputPreferences } from "./mixed-input-preferences";
@@ -285,6 +286,12 @@ export function InputSharedSettingsSection({
           {foldIntoMore && candidatesMoreRows}
           {beforeLearning}
           {learningRow}
+          {preferences.scheme === "wubi" && preferences.learning && (
+            <WubiPhraseLearningSection
+              placement={preferences.wubi_phrase_placement}
+              onChange={onPreferencesChange}
+            />
+          )}
           <SwitchRow
             title="回车学英文词"
             description="按回车上屏输入的英文时，把这个单词写入英文词库，之后可作为候选出现。"

@@ -204,6 +204,8 @@ impl InputSession {
         let rest = rest_with_cases.to_ascii_lowercase();
         let mut diagnostic = None;
         self.record_context_into(&mut diagnostic, Some(prefix), false, true);
+        // 光标后固定段落交出后组字结构已变，收尾打开的五笔累积段再照旧丢弃。
+        self.close_open_wubi_run();
         self.chain.last_pick = None;
         self.engine
             .replace_active_raw_input(&rest, &rest_with_cases);

@@ -11765,3 +11765,53 @@ fn global_voice_hotkey_is_opt_in_and_round_trips_without_changing_gestures() {
     assert_eq!(restored.hotkey_ctrl_f9, old.hotkey_ctrl_f9);
     assert_eq!(restored.hotkey_ctrl_win, old.hotkey_ctrl_win);
 }
+
+/// 五笔造词落库位置：缺键按默认读（`bottom`），非默认值写进文档并往返，
+/// 读盘时遇到不认识的取值（更新的版本加的档位）按默认读，不让整份偏好读不了。
+#[test]
+fn wubi_phrase_placement_round_trip_and_fall_back_on_unknown_values() {
+    let defaults = Preferences::default();
+    assert_eq!(defaults.wubi_phrase_placement, WubiPhrasePlacement::Bottom);
+    let document = serde_json::to_value(&defaults).unwrap();
+    assert!(document.get("wubi_phrase_placement").is_none());
+    let restored: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(restored.wubi_phrase_placement, WubiPhrasePlacement::Bottom);
+
+    let changed = Preferences {
+        wubi_phrase_placement: WubiPhrasePlacement::Top,
+        ..Preferences::default()
+    };
+    let restored: Preferences =
+        serde_json::from_value(serde_json::to_value(&changed).unwrap()).unwrap();
+    assert_eq!(restored, changed);
+}
+
+/// 更新的版本写下的落库位置这一版不认识：整份照常读出，这个键按默认读，其余字段不受影响；保存时写回默认。
+#[test]
+fn documents_with_unknown_wubi_phrase_placement_still_load() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    store.save(0, Preferences::default()).unwrap();
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    document["preferences"]["wubi_phrase_placement"] = "floating".into();
+    fs::write(store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+    let loaded = store.load().unwrap();
+    loaded.preferences.validate().unwrap();
+    assert_eq!(
+        loaded.preferences.wubi_phrase_placement,
+        WubiPhrasePlacement::Bottom
+    );
+    let saved = store.save(loaded.revision, loaded.preferences).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+}
+
+/// 造词时机选项已撤回：`wubi_phrase_learning` 不再是能识别的偏好字段，文档里残留的 `once` 读进来后不会被记住，也不会被当作本版本设置写出去；造词固定按默认三次。
+#[test]
+fn wubi_phrase_learning_is_not_a_recognized_preference() {
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document["wubi_phrase_learning"] = "once".into();
+    let parsed: Preferences = serde_json::from_value(document).unwrap();
+    let written = serde_json::to_value(&parsed).unwrap();
+    assert!(written.get("wubi_phrase_learning").is_none());
+}
