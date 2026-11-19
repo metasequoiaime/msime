@@ -140,13 +140,14 @@ try {
     }
     foreach ($arch in @('x64', 'x86')) {
         $first = if ($arch -eq 'x64') { 25 } else { 37 }
+        $tipLibrary = Join-Path $fixture "target/windows-full/$arch/msime_host_api_tip.dll.lib"
         if ($calls[$first + 2].Values[-2] -ne (Join-Path $rust "$arch/msime_host_api.dll") -or
             $calls[$first + 2].Values[-1] -ne (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.dll") -or
             $calls[$first + 3].Values[-1] -ne (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.pdb") -or
             $calls[$first + 4].Values[-1] -ne (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api_tip.dll") -or
             $calls[$first + 5].Values[-1] -ne (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api_tip.pdb") -or
             $calls[$first].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $rust "$arch/msime_host_api.dll.lib")) -or
-            $calls[$first].Values -notcontains ('-DMSIME_TSF_HOST_LIBRARY=' + (Join-Path $rust "$arch/msime_host_api_tip.dll.lib"))) {
+            $calls[$first].Values -notcontains ('-DMSIME_TSF_HOST_LIBRARY=' + $tipLibrary)) {
             throw "Host staging mismatch for $arch"
         }
     }
