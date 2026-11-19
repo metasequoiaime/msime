@@ -2,8 +2,11 @@ import UIKit
 
 /// 系统键盘宿主要求 `inputView` 是 `UIInputView`，键盘自己的布局则放在普通视图里，避免布局引擎跟着系统输入视图泄漏。
 final class KeyboardInputContainerView: UIInputView, UIInputViewAudioFeedback {
+  private var preferredHeight: CGFloat?
+
   init(contentView: UIView) {
     super.init(frame: .zero, inputViewStyle: .keyboard)
+    allowsSelfSizing = true
     contentView.frame = bounds
     contentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     addSubview(contentView)
@@ -14,6 +17,37 @@ final class KeyboardInputContainerView: UIInputView, UIInputViewAudioFeedback {
   }
 
   var enableInputClicksWhenVisible: Bool { KeyboardFeedbackPreference.soundEnabled }
+
+  /// 系统询问的是外层输入视图，内部普通视图的高度约束不能代替这次尺寸协商。
+  func updatePreferredHeight(_ height: CGFloat) {
+    guard height.isFinite, height > 0, preferredHeight != height else { return }
+    preferredHeight = height
+    invalidateIntrinsicContentSize()
+  }
+
+  override var intrinsicContentSize: CGSize {
+    guard let preferredHeight else { return super.intrinsicContentSize }
+    return CGSize(width: UIView.noIntrinsicMetric, height: preferredHeight)
+  }
+
+  override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+    guard let preferredHeight else { return super.systemLayoutSizeFitting(targetSize) }
+    return CGSize(width: targetSize.width, height: preferredHeight)
+  }
+
+  override func systemLayoutSizeFitting(
+    _ targetSize: CGSize, withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+    verticalFittingPriority: UILayoutPriority
+  ) -> CGSize {
+    guard let preferredHeight else {
+      return super.systemLayoutSizeFitting(
+        targetSize, withHorizontalFittingPriority: horizontalFittingPriority,
+        verticalFittingPriority: verticalFittingPriority)
+    }
+    return CGSize(
+      width: targetSize.width,
+      height: verticalFittingPriority == .required ? targetSize.height : preferredHeight)
+  }
 
   /// 控制器释放时先摘掉普通视图，让系统保留下来的输入视图只剩空壳。
   func detachContentView() {
