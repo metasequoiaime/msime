@@ -41,7 +41,8 @@ Status: implemented
 - `cargo test -p msime-engine --lib`：3195 通过 / 0 失败 / 59 忽略；`session::tests::japanese_scheme_commits_japanese_punctuation` 通过（修复前 `left: Some("，") right: Some("、")`，RED→GREEN）。
 - `MSIME_OPENCC_SOURCE_DIR=<缓存> cargo test -p msime-engine-wasm`：63 通过 / 0 失败；`japanese_punctuation_finishes_the_conversion_with_japanese_marks` 通过。
 - 平台行为测试已写但本机缺工具链：Android `ChineseSymbolFacesSmoke`/`LetterHintTableSmoke` 需 JDK、Harmony `japanese-symbol-faces.test.ts` 需 Node、iOS `SmartPunctuationTests`/`NineKeyKeyboardTests` 需 Xcode，均未在本机运行，交给对应平台 CI；不记为已验证。
-- 未做真机、模拟器或真实编辑器操作，不把行为测试当作设备复验。
+- **Linux PC 路径实机验证**：本机把含本 PR 引擎修复的 `libmsime_host_api.so` 装配进 0.17.0 验证 deb（平台代码取 Linux iBus PR 分支，仅本机验证、不进本 PR），在独立 IBus daemon、全新 `state_root` 下用 gi IBus 真实驱动：从五笔方案按 `Ctrl+Shift+J`（`press=True`、`release=True`）切到 `scheme=japanese`，再逐键打字，`,`→`、`、`.`→`。`、`/`→`・`，三个键都被消费且上屏与断言一致（`JP_PUNCT_VERIFY_OK`）。这覆盖了用户报告的完整路径：`Ctrl+Shift+J` 切的是输入方案，切完 `current_scheme_type()` 为 `JapaneseRomaji`，正落在 `is_japanese()` 的判定里。
+- 移动端仍未做真机或模拟器复验；不把平台行为测试当作设备验收。
 
 ## Historical audit
 
@@ -59,4 +60,4 @@ Status: implemented
 
 - **收益**：日语标点键面与上屏共一份契约表，六平台一致；手写本地表与契约由 `generate.py --check` 和引擎契约测试防再漂移。
 - **代价**：`policy.json` 契约版本升到 6；Android/Harmony/iOS 各多一张日文键面表和路由判定，iOS `characterRows`/`input(for:)` 多一个 `japanese` 参数；触屏平台的具体行为待 CI 在各自工具链下确认。
-- **验证**：本机 Rust 与契约检查全绿，平台测试未能运行已如实记录；不声称设备或真实编辑器已验收。
+- **验证**：本机 Rust 与契约检查全绿；Linux PC 上已用真实 IBus 验证 `Ctrl+Shift+J` 切日语后的标点上屏。移动端平台测试未能运行、未做真机或模拟器验收，已如实记录。
