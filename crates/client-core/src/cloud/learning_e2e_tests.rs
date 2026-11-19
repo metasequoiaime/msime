@@ -145,6 +145,21 @@ fn padme_matches_the_reference_and_is_a_fixed_point() {
 // ---- 信封 ----
 
 #[test]
+fn predicted_envelope_size_matches_real_gzip_padding_and_encryption() {
+    let keys = confirmed(1, fixed_key());
+    for length in [0, 1, 127, 256, 1023, 4096, 16384] {
+        let stream: Vec<u8> = (0..length).map(|index| (index * 137) as u8).collect();
+        let expected = blob_envelope_size(&stream).unwrap();
+        let sealed = keys.seal_blob(3, &stream).unwrap();
+        assert_eq!(expected, sealed.len());
+        assert_eq!(
+            keys.open_blob(&keys.device_id(), &sealed).unwrap().stream,
+            stream
+        );
+    }
+}
+
+#[test]
 fn sealed_blobs_round_trip_and_only_open_for_their_device_and_key() {
     let a = confirmed(1, fixed_key());
     let b = confirmed(7, fixed_key());

@@ -315,6 +315,7 @@ pub fn merge_learning_habits(
     )?;
     ensure_schema(&connection)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    super::pin_state::seed_display(&transaction, "main")?;
     let mut merge = LearningHabitsMerge::default();
     {
         let mut bigram = transaction.prepare(
@@ -333,7 +334,7 @@ pub fn merge_learning_habits(
             "INSERT INTO pinyin_autocorrect_suppressions(input,commits,updated_at) VALUES(?1,?2,?3) ON CONFLICT(input) DO UPDATE SET commits=excluded.commits,updated_at=max(updated_at,excluded.updated_at) WHERE excluded.commits>commits",
         )?;
         let mut pin = transaction.prepare(
-            "INSERT OR IGNORE INTO pinned_candidates(context_key,value,updated_at) VALUES(?1,?2,?3)",
+            "INSERT OR IGNORE INTO pinned_candidate_state(context_key,value,updated_at) VALUES(?1,?2,?3)",
         )?;
         let mut count = 0usize;
         for record in records {
@@ -392,6 +393,7 @@ pub fn merge_learning_habits(
         }
     }
     merge.trimmed = trim_to_limits(&transaction)?;
+    super::pin_state::project(&transaction, "main")?;
     transaction.commit()?;
     ngram_store::invalidate_journal(&file);
     Ok(merge)

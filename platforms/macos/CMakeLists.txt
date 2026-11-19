@@ -552,6 +552,7 @@ endif()
 include(ClipboardTests.cmake)
 # 云词库和云剪贴板的 IPC provider 经 Rust（#8201 迁移计划 4e）：Rust 是 tests/core/FakeRustTable.swift 的替身函数表，`-I shared/backend/rust` 只为 C 头文件的类型。
 set(MSIME_BACKEND_RUST_ACCOUNT_SOURCES
+  ../../shared/backend/storage/BackendLearningKeystore.swift
   ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
   ../../shared/backend/account/BackendAnonymousAccount.swift ../../shared/backend/account/BackendRustClient.swift
   ../../shared/backend/account/BackendRustAccount.swift ../../shared/backend/account/BackendRustSessionStore.swift
@@ -604,6 +605,7 @@ add_custom_target(backend-account-swift-test-build ALL DEPENDS "${CMAKE_CURRENT_
 add_test(NAME backend-account-swift COMMAND "${CMAKE_CURRENT_BINARY_DIR}/backend-account-swift-test")
 # 注入会话存储对着真的 Rust 宿主库（#8201 迁移计划 4a）：后端的回调读写临时目录里的 `account-session.json` 和 App Group 文件，Rust 经 `msime_rust_client_linked()` 填的同一张函数表调用。不联网、不碰钥匙串。
 set(MSIME_BACKEND_RUST_STORE_SOURCES
+  ../../shared/backend/storage/BackendLearningKeystore.swift
   ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
   ../../shared/backend/account/BackendAnonymousAccount.swift ../../shared/backend/account/BackendRustClient.swift
   ../../shared/backend/account/BackendRustSessionStore.swift ../../shared/backend/storage/BackendLocalStore.swift
