@@ -57,8 +57,16 @@ public final class LetterHintTable {
     /** 按语言模式取角标，再独立应用中文标点键面；英文模式不转写中文标点。 */
     public static String face(String letter, boolean english, boolean chinesePunctuation,
             ChineseSymbolFaces.Marks marks) {
+        return face(letter, english, false, chinesePunctuation, marks);
+    }
+
+    /** 日语方案的角标键面走日文表，画什么 Engine 就上屏什么；其余方案按中文标点开关转写。 */
+    public static String face(String letter, boolean english, boolean japanese, boolean chinesePunctuation,
+            ChineseSymbolFaces.Marks marks) {
         String hint = hint(letter, english);
-        if (hint == null || english || !chinesePunctuation) return hint;
+        if (hint == null || english) return hint;
+        if (japanese) return ChineseSymbolFaces.japaneseFace(hint);
+        if (!chinesePunctuation) return hint;
         return ChineseSymbolFaces.face(hint, true, marks);
     }
 
@@ -68,8 +76,15 @@ public final class LetterHintTable {
      * @param hint {@link #hint} 的结果
      */
     public static boolean routesThroughEngine(String hint) {
+        return routesThroughEngine(hint, false);
+    }
+
+    /** 日语方案下这个提示是否交给 Engine 标点路由上屏：日文表里有映射的 ASCII 标点才走。 */
+    public static boolean routesThroughEngine(String hint, boolean japanese) {
         if (hint == null || hint.length() != 1 || hint.charAt(0) >= 128) return false;
-        return !ChineseSymbolFaces.face(hint, true).equals(hint);
+        return japanese
+            ? !ChineseSymbolFaces.japaneseFace(hint).equals(hint)
+            : !ChineseSymbolFaces.face(hint, true).equals(hint);
     }
 
     /** 某个字母键是否带提示。 */

@@ -63,6 +63,20 @@ public final class ChineseSymbolFacesSmoke {
             "slash keeps its ASCII face while disabled by default");
         check(ChineseSymbolFaces.face("\\", true, ChineseSymbolFaces.Marks.DEFAULT).equals("、"),
             "the default marks keep backslash as the ideographic comma key");
+        // 日语方案的键面与引擎 policy.json 的 japanese 表逐字一致：键面画什么就上屏什么。
+        check(ChineseSymbolFaces.japaneseFace(",").equals("、")
+                && ChineseSymbolFaces.japaneseFace("\\").equals("、"), "Japanese comma and ideographic comma");
+        check(ChineseSymbolFaces.japaneseFace(".").equals("。"), "Japanese period");
+        check(ChineseSymbolFaces.japaneseFace("[").equals("「")
+                && ChineseSymbolFaces.japaneseFace("]").equals("」"), "Japanese square brackets");
+        check(ChineseSymbolFaces.japaneseFace("{").equals("『")
+                && ChineseSymbolFaces.japaneseFace("}").equals("』"), "Japanese double corner quotes");
+        check(ChineseSymbolFaces.japaneseFace("/").equals("・")
+                && ChineseSymbolFaces.japaneseFace("~").equals("〜"), "Japanese middle dot and long vowel");
+        check(ChineseSymbolFaces.japaneseFace("?").equals("？")
+                && ChineseSymbolFaces.japaneseFace("!").equals("！"), "Japanese full-width question and exclamation");
+        check(ChineseSymbolFaces.japaneseFace("@").equals("@"), "unmapped symbol keeps its face in Japanese");
+        check(ChineseSymbolFaces.japaneseFace(null).isEmpty(), "null face is bounded in Japanese");
         System.out.println("Android Chinese symbol faces: punctuation and language switching passed");
     }
 }
