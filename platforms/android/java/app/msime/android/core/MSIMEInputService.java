@@ -1687,13 +1687,16 @@ public final class MSIMEInputService extends InputMethodService {
             sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
             return;
         }
-        boolean multiplePoints = length > 0
-            && Character.codePointCount(before, before.length() - length, before.length()) > 1;
-        boolean deleted = multiplePoints
+        boolean deleted = length > 0
             ? InputConnectionGuard.deleteSurroundingText(connection, length, 0)
             : InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0);
+        if (length == 0 && deleted) {
+            CharSequence after = EditorBackspaceBoundary.before(connection);
+            if (after != null && before != null && after.length() >= before.length())
+                deleted = InputConnectionGuard.deleteSurroundingText(connection, 1, 0);
+        }
         if (deleted) {
-            if (multiplePoints) imeLetterRows.invalidateBackspaceScrub();
+            if (length == 0) imeLetterRows.invalidateBackspaceScrub();
             else imeLetterRows.recordBackspaceScrubDelete(before);
             if (length > 0) selectionEcho.deleteBefore(length);
             else selectionEcho.deleteCodePointBefore();
