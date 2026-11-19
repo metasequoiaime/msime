@@ -4,17 +4,17 @@ Status: implemented
 
 ## Problem
 
-#11444 报告 QQ、哔哩哔哩输入的组合表情需要多次退格，残留部分在发送后会损坏。Android 普通退格只调用 `deleteSurroundingTextInCodePoints(1, 0)`；一个字素可以含多个码位，代理对完整不等于表情完整。
+#11444 报告 QQ、哔哩哔哩输入的组合表情需要多次退格，残留部分在发送后会损坏。#11666 又报告 NP 管理器对 `deleteSurroundingTextInCodePoints` 返回成功却不改文本，导致普通字符也无法删除。Android 普通退格只调用这个接口；一个字素可以含多个码位，代理对完整不等于表情完整。
 
 ## Decision
 
-普通退格保留选区优先，以 Android ICU 的字符边界确定光标前最后一个完整字素，多码位字素按精确的 UTF-16 长度删除，单码位保留既有删除调用，两者均按已知长度追踪选区回声。读取最多 1024 个 UTF-16 单元，并请求样式；编辑器返回的 `ReplacementSpan` 与待删范围相交时，覆盖完整内联对象。查询截断在对象内部或区域指示符配对上下文缺失时交给编辑器处理退格，不猜测表情文本格式。
+普通退格保留选区优先，以 Android ICU 的字符边界确定光标前最后一个完整字素，已知边界一律按精确的 UTF-16 长度调用 `deleteSurroundingText`，避免自研编辑器对 `deleteSurroundingTextInCodePoints` 虚假返回成功却不改文本。读取最多 1024 个 UTF-16 单元，并请求样式；编辑器返回的 `ReplacementSpan` 与待删范围相交时，覆盖完整内联对象。查询截断在对象内部或区域指示符配对上下文缺失时交给编辑器处理退格，不猜测表情文本格式。未知边界的码位删除若返回成功但前文长度没有减少，再用一个 UTF-16 单元删除兜底。
 
 空框继续发送一对退格事件，读取失败继续既有码位删除；删除被拒绝时只回退一次按键，不同时尝试两种文本删除。多码位字素删除后作废按压内水平恢复快照，因为该快照按码位定位，不能让右滑恢复半个表情。普通单码位文字的水平恢复继续使用原逻辑。
 
 ## Related notes
 
-- [私有内联表情退格](2026-11-14-android-private-inline-backspace.md)部分扩展本文：无样式的 `]` 和 U+FFFC 结尾交由编辑器处理，不自行解析或删除标签文字。
+- [用户退格默认交给编辑器](../feature/2026-11-18-android-backspace-editor-delegation.md)部分取代本文：用户的退格默认发送 `KEYCODE_DEL`（本文否决的备选），字素与内联范围测量只服务拉丁类组合附加符号、不处理按键的编辑器、输入法自己的替换和拒写回退这几处直接删除。原「私有内联表情退格」的 `]`／U+FFFC 委托已由该文取代并删除。
 
 - [选区优先删除](2026-10-09-android-backspace-deletes-selection.md)与[空框删除引用](2026-10-14-android-empty-editor-backspace.md)部分重叠：保留选区和空框分支，本文取代它们对普通非空文本采用单码位删除的决定。
 - [按压内左右滑动恢复](../feature/2026-10-23-android-backspace-scrub.md)部分重叠：水平滑动仍按码位定位，本文仅使普通多码位删除之后的旧快照失效。
@@ -22,6 +22,7 @@ Status: implemented
 
 ## Alternatives considered
 
+- 已知边界仍调用码位删除：接口能表达代理对语义，但部分编辑器会返回成功而不改文本，导致退格静默失效，因此改为按已知 UTF-16 长度删除。
 - 一律发送 `KEYCODE_DEL`：能交给富文本编辑器自己的表情删除规则，但已有网页与远程编辑器并不统一处理合成按键，且无法精确追踪删除回声，因此只用于缺少完整边界或拒写时的回退。
 - 自行枚举 ZWJ、肤色、变体选择符和区域标志：可以在 JVM 上直接测试，但易遗漏其他字素规则和平台 Unicode 更新，采用系统 ICU 并在 Android 28/35 验证。
 
@@ -34,6 +35,7 @@ Status: implemented
 ## Verification
 
 - 新增系统编辑器回归先在 API 35 的旧 APK 上运行，失败于第一个组合表情的一次删除，保留失败日志。
+- #11666 的合成 `InputConnection` 回归覆盖已知字素边界绕过虚假成功的码位删除，以及未知边界在返回成功但前文不变时按 UTF-16 单元兜底。
 - 本分支 arm64 原生宿主与设备测试 APK 构建、ELF 导出及 16 KB 对齐校验通过。
 - API 28 与 API 35 专用模拟器均安装本分支最终 APK；`EmptyEditorBackspaceDeviceSmoke` 和 `InputFailureCategoryDeviceSmoke` 四次运行全部报告 `MSIME_DEVICE_SMOKE_PASSED`。前者从真实系统键盘按钮进入编辑器，后者通过安装产品类加载器核对系统 ICU、内联对象、过长查询、空框和拒写回退。
 - Android JNI 头文件编译、JVM 冒烟、设备套件编译与笔记校验通过。尚未在报告者的应用版本和 HyperOS 上验收，不将合成编辑器写成原报告环境已复现修复。

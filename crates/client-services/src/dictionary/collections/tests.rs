@@ -550,7 +550,7 @@ fn collections_rime_import_retains_thirty_three_thousand_entries_after_reload() 
 }
 
 #[test]
-fn collections_reject_entries_over_the_capacity() {
+fn collections_accept_entries_beyond_the_old_capacity() {
     let fixture = Fixture::new();
     let view = fixture
         .store
@@ -558,23 +558,18 @@ fn collections_reject_entries_over_the_capacity() {
         .unwrap();
     let id = id_of(&view, "满");
     fixture.store.set_enabled(&id, false).unwrap();
-    let words: Vec<_> = (0..MAX_COLLECTION_ENTRIES)
-        .map(|index| english(&letters(index)))
-        .collect();
+    let count = 50_001;
+    let words: Vec<_> = (0..count).map(|index| english(&letters(index))).collect();
     fixture.store.add_words(&id, words).unwrap();
-    assert!(matches!(
-        fixture
-            .store
-            .add_words(&id, vec![english(&letters(MAX_COLLECTION_ENTRIES))]),
-        Err(DictionaryCollectionsError::Limit)
-    ));
-    // 已有的词不占名额。
-    fixture.store.add_words(&id, vec![english("a")]).unwrap();
+    fixture
+        .store
+        .add_words(&id, vec![english(&letters(count))])
+        .unwrap();
     assert_eq!(
         fixture.store.load().unwrap().collections[0].entry_count,
-        MAX_COLLECTION_ENTRIES
+        count + 1
     );
-    // 导入到已满的集合时后面的行不读，并如实说明。
+    // 旧的条数边界不再截断后续导入。
     let view = fixture
         .store
         .import(ImportRequest {
@@ -587,8 +582,8 @@ fn collections_reject_entries_over_the_capacity() {
         })
         .unwrap();
     let report = view.import.unwrap();
-    assert_eq!(report.imported, 0);
-    assert!(report.truncated);
+    assert_eq!(report.imported, 1);
+    assert!(!report.truncated);
 }
 
 #[test]

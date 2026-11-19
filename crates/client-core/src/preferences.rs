@@ -2015,6 +2015,9 @@ pub struct Preferences {
     /// 在 macOS 菜单栏放一个状态项，常驻显示当前输入模式（中/双/五/日……，英文时为「英」），不需要把「英」加成系统输入源。默认关闭；只有 macOS 宿主画它（见 `HostCapabilities::input_mode_status_item`），其他宿主保留这个偏好但不画。
     #[serde(default)]
     pub input_mode_status_item: bool,
+    /// macOS 动态输入模式字典使用方案字形图标。默认及旧文档缺字段时关闭，保留品牌图标；不影响独立状态项。
+    #[serde(default)]
+    pub input_mode_glyph_icons: bool,
     /// 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏（见 `Default`）；已存文档缺这个字段时读成显示，升级沿用原来的样子。
     #[serde(default = "enabled_by_default")]
     pub show_app_logo: bool,
@@ -3657,7 +3660,7 @@ pub struct MixedInputPreferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
-    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（Windows、macOS、Linux）生效；这些宿主此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（Windows、macOS、Linux、HarmonyOS）生效；三个桌面宿主此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase: bool,
@@ -4815,6 +4818,7 @@ impl Default for Preferences {
             input_mode_focus_hud: false,
             input_mode_corner_hud: true,
             input_mode_status_item: false,
+            input_mode_glyph_icons: false,
             show_app_logo: false,
             expand_candidates: false,
             show_candidate_expand_button: true,
@@ -7700,6 +7704,8 @@ fn redact_sensitive_keys(value: &mut serde_json::Value) {
     }
 }
 
+#[cfg(test)]
+mod input_mode_icons;
 #[cfg(test)]
 mod patch_tests;
 #[cfg(test)]

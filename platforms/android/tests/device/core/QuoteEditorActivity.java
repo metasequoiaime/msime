@@ -30,6 +30,8 @@ public final class QuoteEditorActivity extends Activity {
     private int deleteEvents;
     private boolean unavailableBefore;
     private boolean privateInline;
+    /** 大于 0 时编辑器晚这么多毫秒才处理输入法发来的按键事件，模拟繁忙应用里按键通道落后于文字写入（真机 QQ 里退格后约 40 ms 内的组字会被它删掉）。 */
+    private int delayKeysMs;
 
     @SuppressWarnings("deprecation")
     @Override public void onCreate(Bundle state) {
@@ -37,6 +39,7 @@ public final class QuoteEditorActivity extends Activity {
         super.onCreate(state);
         unavailableBefore = getIntent().getBooleanExtra("unavailable_before", false);
         privateInline = getIntent().getBooleanExtra("private_inline", false);
+        delayKeysMs = getIntent().getIntExtra("delay_keys_ms", 0);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
         LinearLayout layout = new LinearLayout(this);
@@ -108,13 +111,19 @@ public final class QuoteEditorActivity extends Activity {
 
         @Override public InputConnection onCreateInputConnection(EditorInfo info) {
             InputConnection connection = super.onCreateInputConnection(info);
-            if ((!unavailableBefore && !privateInline) || connection == null) return connection;
+            if ((!unavailableBefore && !privateInline && delayKeysMs <= 0) || connection == null) return connection;
             return new InputConnectionWrapper(connection, false) {
                 @Override public CharSequence getTextBeforeCursor(int length, int flags) {
                     if (unavailableBefore) return null;
                     CharSequence before = super.getTextBeforeCursor(length, flags);
                     // 模拟编辑器的私有样式不对输入法公开，底层 Editable 仍保留替换范围。
                     return before == null ? null : before.toString();
+                }
+
+                @Override public boolean sendKeyEvent(KeyEvent event) {
+                    if (delayKeysMs <= 0) return super.sendKeyEvent(event);
+                    postDelayed(() -> super.sendKeyEvent(event), delayKeysMs);
+                    return true;
                 }
             };
         }

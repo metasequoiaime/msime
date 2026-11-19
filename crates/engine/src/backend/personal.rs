@@ -160,6 +160,8 @@ fn write_snapshot(journal: &Path, scratch: &Path) -> Result<Snapshot, BackendErr
             }
         }
     }
+    crate::user_dictionary::position_state::seed_display(&transaction, "main", None)
+        .map_err(|_| BackendError::EngineFailure)?;
     transaction
         .commit()
         .map_err(|_| BackendError::EngineFailure)?;

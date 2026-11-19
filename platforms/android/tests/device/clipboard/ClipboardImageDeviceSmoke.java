@@ -1,5 +1,7 @@
 package app.msime.android.test;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
@@ -33,6 +35,9 @@ public final class ClipboardImageDeviceSmoke extends DeviceSmoke {
         long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString());
         File copies = new File(getTargetContext().getCacheDir(), "clipboard-images");
+        ClipboardManager clipboard = getTargetContext().getSystemService(ClipboardManager.class);
+        ClipData savedClip = null;
+        boolean readClip = false;
         try {
             stage = "enable clipboard history";
             JSONObject enabled = new JSONObject().put("format_version", 1).put("revision", revision + 1)
@@ -40,6 +45,8 @@ public final class ClipboardImageDeviceSmoke extends DeviceSmoke {
             publish(preferences, enabled.toString().getBytes(StandardCharsets.UTF_8));
             restartIme();
             openEditor();
+            savedClip = clipboard.getPrimaryClip();
+            readClip = true;
 
             stage = "image editor focus";
             tap(field("msime-test-image"));
@@ -81,7 +88,25 @@ public final class ClipboardImageDeviceSmoke extends DeviceSmoke {
         } finally {
             shellDiscard("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
+            if (readClip) restoreClip(clipboard, savedClip);
         }
+    }
+
+    /**
+     * 合成图片的 content URI 属于测试包，不能留在剪贴板上：之后在产品进程里运行的套件收尾时会把读到的剪贴板放回去，
+     * 产品无权转授这个 URI，`setPrimaryClip` 抛 `SecurityException`（nightly 里紧接着运行的剪贴板容量验收就这样失败）。
+     * 原剪贴板放不回去时（例如它本身就是上一次运行留下的合成图片）改为清空。
+     */
+    private static void restoreClip(ClipboardManager clipboard, ClipData saved) {
+        if (saved != null) {
+            try {
+                clipboard.setPrimaryClip(saved);
+                return;
+            } catch (SecurityException ignored) {
+                // 落到下面清空。
+            }
+        }
+        clipboard.clearPrimaryClip();
     }
 
     /** 等合成编辑器的状态行以 `prefix` 开头，返回整行。 */

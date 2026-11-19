@@ -2039,6 +2039,22 @@ impl AccountApi for BackendAccountClient {
         self.clipboard_e2e(request, access_token)
     }
 
+    fn learning_e2e(
+        &self,
+        request: &HttpRequest,
+        access_token: &str,
+    ) -> Result<HttpResponse, AccountError> {
+        self.learning_e2e(request, access_token)
+    }
+
+    fn learning_blob(
+        &self,
+        request: &super::learning_sync::transport::BlobRequest<'_>,
+        access_token: &str,
+    ) -> Result<super::learning_sync::transport::BlobResponse, AccountError> {
+        self.learning_blob(request, access_token)
+    }
+
     fn set_clipboard_enabled(&self, enabled: bool, access_token: &str) -> Result<(), AccountError> {
         self.set_clipboard_enabled(enabled, access_token)
     }

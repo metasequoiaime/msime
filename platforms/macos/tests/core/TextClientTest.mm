@@ -555,17 +555,21 @@ static void TestTrackedMarkedText() {
     MSIMEApplyTransitionTrackingMarkedText(@{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}},
                                            client, MSIMEInlinePreeditStylePinyin, nil, &hasMarked);
     assert([client.events isEqual:(@[@"marked", @"marked", @"marked", @"commit", @"marked"])] && !hasMarked);
-    // 隐藏行内预编辑仍要向 IMK 发一个空标记，表明这枚按键由输入法接管；否则原始编码会漏到应用。
+    // 隐藏行内预编辑仍要向 IMK 发标记，表明这枚按键由输入法接管；标记是全角空格占位而不是空串，Chromium 把空串当作没有组字，会把退格再交给网页删掉已上屏的字。
     MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"ni", @"caret_position": @2}}, client,
                                            MSIMEInlinePreeditStyleEmpty, nil, &hasMarked);
-    assert(client.events.count == 6 && [client.markedString isEqual:@""] && !hasMarked);
+    assert(client.events.count == 6 && [client.markedString isEqual:@"　"] && client.selection.location == 0 && hasMarked);
+    // 组字被退格删空时清掉占位。
+    MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
+                                           MSIMEInlinePreeditStyleEmpty, nil, &hasMarked);
+    assert(client.events.count == 7 && client.markedString.length == 0 && !hasMarked);
     // 空闲状态没有组字，重复的空清理仍然跳过。
     MSIMEApplyTransitionTrackingMarkedText(@{@"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
                                            MSIMEInlinePreeditStyleEmpty, nil, &hasMarked);
-    assert(client.events.count == 6 && !hasMarked);
+    assert(client.events.count == 7 && !hasMarked);
     // Without tracking nothing is known about the client, and the clear is always sent.
     MSIMEApplyTransitionWithPendingClosing(idle, client, MSIMEInlinePreeditStylePinyin, nil);
-    assert(client.events.count == 7);
+    assert(client.events.count == 8);
 }
 
 static void TestInlinePreeditCaretStyle() {
@@ -751,7 +755,7 @@ int main() {
         MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"paobu",
                                                          @"phrase_prefix": @"海滩", @"caret_position": @5}},
                                              client, MSIMEInlinePreeditStyleEmpty);
-        assert([client.markedString length] == 0);
+        assert([client.markedString isEqual:@"　"] && client.selection.location == 0);
         // A pair held open while a phrase is being assembled: both are tails of the same marked
         // text, and they are on opposite sides of the caret. The closing mark stays last so the
         // user can see what will be closed, and the chosen phrase piece stays first because it is
@@ -841,7 +845,7 @@ int main() {
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStylePinyin);
         assert([client.markedString isEqual:@"bing"] && client.selection.location == 4);
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleEmpty);
-        assert([client.markedString length] == 0 && client.selection.location == 0);
+        assert([client.markedString isEqual:@"　"] && client.selection.location == 0);
         MSIMEApplyTransitionWithPreeditStyle(
             @{ @"view": @{ @"editing_text": @"abc", @"preedit": @"abc", @"caret_position": @0.5 } },
             client, MSIMEInlinePreeditStyleRaw);
