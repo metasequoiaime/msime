@@ -14,7 +14,7 @@ Status: implemented
 
 ## Related notes
 
-- [私有内联表情退格](2026-11-14-android-private-inline-backspace.md)部分扩展本文：无样式的 `]` 和 U+FFFC 结尾交由编辑器处理，不自行解析或删除标签文字。
+- [用户退格默认交给编辑器](../feature/2026-11-18-android-backspace-editor-delegation.md)部分取代本文：用户的退格默认发送 `KEYCODE_DEL`（本文否决的备选），字素与内联范围测量只服务拉丁类组合附加符号、不处理按键的编辑器、输入法自己的替换和拒写回退这几处直接删除。原「私有内联表情退格」的 `]`／U+FFFC 委托已由该文取代并删除。
 
 - [选区优先删除](2026-10-09-android-backspace-deletes-selection.md)与[空框删除引用](2026-10-14-android-empty-editor-backspace.md)部分重叠：保留选区和空框分支，本文取代它们对普通非空文本采用单码位删除的决定。
 - [按压内左右滑动恢复](../feature/2026-10-23-android-backspace-scrub.md)部分重叠：水平滑动仍按码位定位，本文仅使普通多码位删除之后的旧快照失效。
