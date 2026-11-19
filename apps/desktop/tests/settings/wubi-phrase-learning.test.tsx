@@ -35,44 +35,32 @@ function renderSection(preferences: Preferences, onChange = vi.fn()) {
   return onChange;
 }
 
-test("非五笔方案不渲染造词时机与落库位置", () => {
+test("非五笔方案不渲染造词落库位置", () => {
   for (const scheme of ["quanpin", "shuangpin", "cantonese"] as const) {
     renderSection({ ...preferences, scheme });
-    expect(screen.queryByLabelText("五笔造词时机")).toBeNull();
     expect(screen.queryByLabelText("五笔自造词位置")).toBeNull();
     cleanup();
   }
 });
 
-test("学习关着时不渲染造词时机与落库位置", () => {
+test("学习关着时不渲染造词落库位置", () => {
   renderSection({ ...preferences, scheme: "wubi", learning: false });
-  expect(screen.queryByLabelText("五笔造词时机")).toBeNull();
   expect(screen.queryByLabelText("五笔自造词位置")).toBeNull();
 });
 
-test("五笔方案学习开着时渲染两行，缺字段按默认显示", () => {
+test("五笔方案学习开着时渲染落库位置，缺字段按默认显示", () => {
   renderSection({ ...preferences, scheme: "wubi" });
-  const learning = screen.getByLabelText("五笔造词时机") as HTMLSelectElement;
-  const placement = screen.getByLabelText("五笔自造词位置") as HTMLSelectElement;
-  expect(learning.value).toBe("thrice");
-  expect(placement.value).toBe("bottom");
+  expect((screen.getByLabelText("五笔自造词位置") as HTMLSelectElement).value).toBe("bottom");
+  expect(screen.queryByLabelText("五笔造词时机")).toBeNull();
 });
 
-test("读出保存的非默认值", () => {
+test("读出保存的非默认落库位置", () => {
   renderSection({
     ...preferences,
     scheme: "wubi",
-    wubi_phrase_learning: "once",
     wubi_phrase_placement: "top",
   });
-  expect((screen.getByLabelText("五笔造词时机") as HTMLSelectElement).value).toBe("once");
   expect((screen.getByLabelText("五笔自造词位置") as HTMLSelectElement).value).toBe("top");
-});
-
-test("切换时机只更新该字段", () => {
-  const onChange = renderSection({ ...preferences, scheme: "wubi" });
-  fireEvent.change(screen.getByLabelText("五笔造词时机"), { target: { value: "once" } });
-  expect(onChange).toHaveBeenCalledWith({ wubi_phrase_learning: "once" });
 });
 
 test("切换位置只更新该字段", () => {

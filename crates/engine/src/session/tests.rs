@@ -15554,7 +15554,6 @@ fn wubi_run_rejects_single_char_material_over_four_chars() {
     {
         let mut session = fixture.session_with(|options| {
             options.scheme = SchemeType::Wubi;
-            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
         });
         let clock = TestClock::install(&mut session);
         close_wubi_run_round(
@@ -15594,7 +15593,6 @@ fn wubi_run_rejects_single_char_material_over_four_chars() {
     {
         let mut session = fixture.session_with(|options| {
             options.scheme = SchemeType::Wubi;
-            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
         });
         let clock = TestClock::install(&mut session);
         close_wubi_run_round(
@@ -15675,7 +15673,6 @@ fn wubi_run_splits_on_gap_and_caps_length() {
     let fixture = Fixture::new(WUBI_RUN_FIXTURE);
     let mut session = fixture.session_with(|options| {
         options.scheme = SchemeType::Wubi;
-        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
     });
     let clock = TestClock::install(&mut session);
     let pairs = [
@@ -15701,7 +15698,6 @@ fn wubi_run_splits_on_gap_and_caps_length() {
     let fixture = Fixture::new(WUBI_RUN_FIXTURE);
     let mut session = fixture.session_with(|options| {
         options.scheme = SchemeType::Wubi;
-        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
     });
     let clock = TestClock::install(&mut session);
     let seven = [
@@ -15714,10 +15710,18 @@ fn wubi_run_splits_on_gap_and_caps_length() {
         ("abab", "甲乙"),
     ];
     close_wubi_run_round(&mut session, &clock, &seven, ("abab", "甲乙"));
+    // 第 7 个片段超出 12 字上限，前 6 个片段（12 字）先关闭记一次计数；超长段不整段计数。固定三次阈值下这次计数不落库。
     assert_eq!(
         count(
             &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+            "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙丙丁甲乙丙丁甲乙丙丁'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙丙丁甲乙丙丁甲乙丙丁甲乙'"
         ),
         0
     );
@@ -15774,10 +15778,9 @@ fn wubi_run_respects_learning_disabled_and_tombstones() {
         .unwrap();
     let mut session = fixture.session_with(|options| {
         options.scheme = SchemeType::Wubi;
-        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
     });
     let clock = TestClock::install(&mut session);
-    for _ in 0..2 {
+    for _ in 0..3 {
         close_wubi_run_round(
             &mut session,
             &clock,
@@ -15803,232 +15806,6 @@ fn wubi_run_respects_learning_disabled_and_tombstones() {
         count(
             &fixture.journal(),
             "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi' AND value='甲乙甲乙' AND operation='delete'"
-        ),
-        1
-    );
-}
-
-/// `once` 模式：同一段第一次关闭即落库，计数同步清掉；落库前不提前写表。
-#[test]
-fn wubi_run_once_mode_learns_on_first_close() {
-    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Wubi;
-        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
-    });
-    let clock = TestClock::install(&mut session);
-    pick_wubi(&mut session, "abab", "甲乙");
-    pick_wubi(&mut session, "abab", "甲乙");
-    // 段还没关闭：不计数也不落库（计数在段关闭时才写）。
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
-        ),
-        0
-    );
-    clock.advance(Duration::from_secs(15));
-    pick_wubi(&mut session, "abab", "甲乙");
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT weight FROM wubi86 WHERE value='甲乙甲乙' AND key='abab'"
-        ),
-        9
-    );
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-}
-
-/// 凑三次攒下的计数切到一次模式接着用（下一次关闭即落库）；学过切回凑三次，再学被已有行挡住、计数照常清写。
-#[test]
-fn wubi_run_mode_switch_keeps_counts() {
-    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
-    // 凑三次模式关掉一段 → 计数 1。
-    {
-        let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
-        let clock = TestClock::install(&mut session);
-        close_wubi_run_round(
-            &mut session,
-            &clock,
-            &[("abab", "甲乙"), ("abab", "甲乙")],
-            ("abab", "甲乙"),
-        );
-    }
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙甲乙'"
-        ),
-        1
-    );
-    // 切到一次模式：新会话里一段关闭即落库。
-    {
-        let mut session = fixture.session_with(|options| {
-            options.scheme = SchemeType::Wubi;
-            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
-        });
-        let clock = TestClock::install(&mut session);
-        close_wubi_run_round(
-            &mut session,
-            &clock,
-            &[("abab", "甲乙"), ("abab", "甲乙")],
-            ("abab", "甲乙"),
-        );
-    }
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
-        ),
-        1
-    );
-    // 切回凑三次：词已在表里，再凑满也不再写第二行；计数学成即清。
-    {
-        let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
-        let clock = TestClock::install(&mut session);
-        for _ in 0..3 {
-            close_wubi_run_round(
-                &mut session,
-                &clock,
-                &[("abab", "甲乙"), ("abab", "甲乙")],
-                ("abab", "甲乙"),
-            );
-        }
-    }
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
-        ),
-        1
-    );
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-}
-
-/// once 模式：宿主 flush 组字（焦点移动、宿主自行插入文本前的收尾）同样关闭打开的累积段并落库，
-/// 不是只有「下一次五笔上屏」才关闭。
-#[test]
-fn wubi_run_once_mode_learns_when_the_host_flushes_the_composition() {
-    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Wubi;
-        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
-    });
-    pick_wubi(&mut session, "abab", "甲乙");
-    pick_wubi(&mut session, "abab", "甲乙");
-    // 段还开着：不计数也不落库。
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-    session.finish(0);
-    // 学成即清计数（`clear_pick_transition`），journal 里不留 transition 行。
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
-        ),
-        1
-    );
-}
-
-/// once 模式：回车原文上屏（`CommitRaw`）同样关闭打开的累积段并落库，不是静默丢弃。
-#[test]
-fn wubi_run_once_mode_learns_when_enter_commits_the_raw_input() {
-    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
-    let mut session = fixture.session_with(|options| {
-        options.scheme = SchemeType::Wubi;
-        options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
-    });
-    pick_wubi(&mut session, "abab", "甲乙");
-    pick_wubi(&mut session, "abab", "甲乙");
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-    session.command(Command::CommitRaw);
-    // 学成即清计数（`clear_pick_transition`），journal 里不留 transition 行。
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
-        ),
-        1
-    );
-}
-
-/// once 模式：会话被丢弃（换窗口、设置变更重建、宿主停用）时关闭打开的累积段再刷队列，
-/// 段不能跟着会话一起无声消失。
-#[test]
-fn wubi_run_once_mode_learns_when_the_session_ends() {
-    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
-    {
-        let mut session = fixture.session_with(|options| {
-            options.scheme = SchemeType::Wubi;
-            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
-        });
-        pick_wubi(&mut session, "abab", "甲乙");
-        pick_wubi(&mut session, "abab", "甲乙");
-        assert_eq!(
-            count(
-                &fixture.journal(),
-                "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-            ),
-            0
-        );
-        drop(session);
-    }
-    // 学成即清计数（`clear_pick_transition`），journal 里不留 transition 行。
-    assert_eq!(
-        count(
-            &fixture.journal(),
-            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
-        ),
-        0
-    );
-    assert_eq!(
-        count(
-            &fixture.main_db(),
-            "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
         ),
         1
     );
@@ -16066,6 +15843,68 @@ fn wubi_run_thrice_mode_counts_partial_runs_closed_by_flush() {
     }
 }
 
+/// 凑三次模式：回车原文上屏（`CommitRaw`）关闭打开的累积段记一次计数，三次攒满即落库，不是静默丢弃。
+#[test]
+fn wubi_run_thrice_mode_counts_partial_runs_closed_by_commit_raw() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    for round in 1..=3 {
+        let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+        pick_wubi(&mut session, "abab", "甲乙");
+        pick_wubi(&mut session, "abab", "甲乙");
+        session.command(Command::CommitRaw);
+        let expected = if round == 3 { 0 } else { round };
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+        let expected = if round == 3 { 1 } else { 0 };
+        assert_eq!(
+            count(
+                &fixture.main_db(),
+                "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+    }
+}
+
+/// 凑三次模式：会话丢弃（换窗口、设置变更重建、宿主停用）时关闭打开的累积段记一次计数，
+/// 三次攒满即落库，段不跟着会话一起无声消失。
+#[test]
+fn wubi_run_thrice_mode_counts_partial_runs_closed_by_drop() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    for round in 1..=3 {
+        {
+            let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+            pick_wubi(&mut session, "abab", "甲乙");
+            pick_wubi(&mut session, "abab", "甲乙");
+        }
+        let expected = if round == 3 { 0 } else { round };
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+        let expected = if round == 3 { 1 } else { 0 };
+        assert_eq!(
+            count(
+                &fixture.main_db(),
+                "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+    }
+}
+
 /// 置顶模式：学入词在各表的权重是同码已有行最大权重 + 1（86/98 各表独立算）；沉底默认仍是 ≤9 的低权重。
 #[test]
 fn wubi_run_top_placement_outranks_same_code_rows() {
@@ -16074,16 +15913,17 @@ fn wubi_run_top_placement_outranks_same_code_rows() {
     {
         let mut session = fixture.session_with(|options| {
             options.scheme = SchemeType::Wubi;
-            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
             options.wubi.wubi_phrase_placement = crate::types::WubiPhrasePlacement::Top;
         });
         let clock = TestClock::install(&mut session);
-        close_wubi_run_round(
-            &mut session,
-            &clock,
-            &[("abab", "甲乙"), ("abab", "甲乙")],
-            ("abab", "甲乙"),
-        );
+        for _ in 0..3 {
+            close_wubi_run_round(
+                &mut session,
+                &clock,
+                &[("abab", "甲乙"), ("abab", "甲乙")],
+                ("abab", "甲乙"),
+            );
+        }
     }
     assert_eq!(
         count(
@@ -16103,15 +15943,16 @@ fn wubi_run_top_placement_outranks_same_code_rows() {
     {
         let mut session = fixture.session_with(|options| {
             options.scheme = SchemeType::Wubi;
-            options.wubi.wubi_phrase_learning = crate::types::WubiPhraseLearning::Once;
         });
         let clock = TestClock::install(&mut session);
-        close_wubi_run_round(
-            &mut session,
-            &clock,
-            &[("cdcd", "丙丁"), ("cdcd", "丙丁")],
-            ("cdcd", "丙丁"),
-        );
+        for _ in 0..3 {
+            close_wubi_run_round(
+                &mut session,
+                &clock,
+                &[("cdcd", "丙丁"), ("cdcd", "丙丁")],
+                ("cdcd", "丙丁"),
+            );
+        }
     }
     assert_eq!(
         count(

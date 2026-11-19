@@ -288,7 +288,6 @@ export function InputSharedSettingsSection({
           {learningRow}
           {preferences.scheme === "wubi" && preferences.learning && (
             <WubiPhraseLearningSection
-              learning={preferences.wubi_phrase_learning}
               placement={preferences.wubi_phrase_placement}
               onChange={onPreferencesChange}
             />
