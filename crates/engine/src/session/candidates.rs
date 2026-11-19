@@ -615,7 +615,7 @@ impl InputSession {
             return KeyResult::handled()
                 .with_diagnostic(Some(diagnostics::REMOVAL_NOT_PERSISTED.to_owned()));
         }
-        // 学词时 86/98 两版同时插行，删除也要对称：当前版已在上面删掉，其余学过的版本按各自码表
+        // 学词时三版同时插行，删除也要对称：当前版已在上面删掉，其余两版按各自码表
         // 独立推导四码删行并写墓碑。
         if wubi {
             let profile = self.engine.wubi_input_options().profile;
