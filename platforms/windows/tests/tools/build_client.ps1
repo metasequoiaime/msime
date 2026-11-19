@@ -251,19 +251,19 @@ try {
     $global:ClientBuildCalls.Clear()
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -TargetVersion '2026.9.1' -RustOutputs $prebuilt
     $calls = @($global:ClientBuildCalls)
-    if ($calls.Count -ne 26 -or @($calls | Where-Object { $_.Name -in 'cargo', 'pnpm' }).Count -ne 0) { throw 'Build compiled Rust although -RustOutputs was given' }
-    if ($calls[0].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF') { throw 'Prebuilt unsigned package requested UIAccess' }
-    if ($calls[0].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib')) -or
-        $calls[0].Values -notcontains ('-DMSIME_TSF_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api_tip.dll.lib')) -or
-        $calls[2].Values -notcontains (Join-Path $prebuilt 'x64/msime_host_api.dll') -or
-        $calls[4].Values -notcontains (Join-Path $prebuilt 'x64/msime_host_api_tip.dll') -or
-        $calls[6].Values -notcontains (Join-Path $prebuilt 'x64/MSIME.exe') -or
-        $calls[10].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x86/msime_host_api.dll.lib')) -or
-        $calls[10].Values -notcontains ('-DMSIME_TSF_HOST_LIBRARY=' + (Join-Path $prebuilt 'x86/msime_host_api_tip.dll.lib')) -or
-        $calls[12].Values -notcontains (Join-Path $prebuilt 'x86/msime_host_api.dll') -or
-        $calls[14].Values -notcontains (Join-Path $prebuilt 'x86/msime_host_api_tip.dll') -or
-        $calls[18].Values -notcontains (Join-Path $prebuilt 'arm64/msime_host_api.dll') -or
-        $calls[8].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib'))) {
+    if ($calls.Count -ne 30 -or @($calls | Where-Object { $_.Name -in 'cargo', 'pnpm' }).Count -ne 0) { throw 'Build compiled Rust although -RustOutputs was given' }
+    if ($calls[2].Values -notcontains '-DMSIME_SERVER_UIACCESS=OFF' -or
+        $calls[2].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib')) -or
+        $calls[2].Values -notcontains ('-DMSIME_TSF_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-full/x64/msime_host_api_tip.dll.lib')) -or
+        $calls[4].Values -notcontains (Join-Path $prebuilt 'x64/msime_host_api.dll') -or
+        $calls[6].Values -notcontains (Join-Path $prebuilt 'x64/msime_host_api_tip.dll') -or
+        $calls[8].Values -notcontains (Join-Path $prebuilt 'x64/MSIME.exe') -or
+        $calls[14].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x86/msime_host_api.dll.lib')) -or
+        $calls[14].Values -notcontains ('-DMSIME_TSF_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-full/x86/msime_host_api_tip.dll.lib')) -or
+        $calls[16].Values -notcontains (Join-Path $prebuilt 'x86/msime_host_api.dll') -or
+        $calls[18].Values -notcontains (Join-Path $prebuilt 'x86/msime_host_api_tip.dll') -or
+        $calls[22].Values -notcontains (Join-Path $prebuilt 'arm64/msime_host_api.dll') -or
+        $calls[10].Values -notcontains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $prebuilt 'x64/msime_host_api.dll.lib'))) {
         throw 'Build did not take its Rust inputs from -RustOutputs'
     }
     # 同一输出目录从可信签名构建切回普通构建时，OFF 必须显式覆盖旧缓存。
