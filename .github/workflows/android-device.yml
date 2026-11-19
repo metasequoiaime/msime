@@ -226,6 +226,23 @@ jobs:
           name: android-device-api${{ matrix.api }}-voice-empty
           path: target/android/voice-empty-*-api*.png
           if-no-files-found: ignore
+      - name: Collect quick-delete preview screenshots
+        if: always() && env.SERIAL != ''
+        run: |
+          mkdir -p target/android/quick-delete
+          for frame in before held; do
+            for layout in letters nine; do
+              "$ANDROID_SDK_ROOT/platform-tools/adb" -s "$SERIAL" pull \
+                "/sdcard/Android/data/app.msime.android/files/quick-delete-$frame-$layout.png" \
+                target/android/quick-delete/ || true
+            done
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-device-api${{ matrix.api }}-quick-delete
+          path: target/android/quick-delete/
+          if-no-files-found: ignore
       - name: Upload reported trackpad layout
         if: ${{ always() && matrix.smoke == '--trackpad-layout' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
