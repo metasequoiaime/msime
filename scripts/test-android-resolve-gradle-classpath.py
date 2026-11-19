@@ -16,6 +16,7 @@ MAVEN_429 = ("Could not GET 'https://repo.maven.apache.org/maven2/org/ow2/asm/as
              "Received status code 429 from server: Too Many Requests")
 WRAPPER_503 = ("Exception in thread \"main\" java.io.IOException: Server returned HTTP response code: 503 "
                "for URL: https://services.gradle.org/distributions/gradle-9.5.1-bin.zip")
+CONNECTION_TIMEOUT = "java.net.ConnectException: Connection timed out: repo.maven.apache.org"
 MAVEN_403 = ("Could not GET 'https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.8/asm-9.8.pom'. "
              "Received status code 403 from server: Forbidden")
 MISSING = "Could not find com.example:missing:1.0."
@@ -70,6 +71,10 @@ exit "$code"
 
     def test_wrapper_download_error_is_retried(self):
         result, calls, sleeps = self.run_script((1, WRAPPER_503), (0, "BUILD SUCCESSFUL"))
+        self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
+
+    def test_connection_timeout_is_retried(self):
+        result, calls, sleeps = self.run_script((1, CONNECTION_TIMEOUT), (0, "BUILD SUCCESSFUL"))
         self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
 
     def test_persistent_rate_limit_stops_after_three_attempts(self):
