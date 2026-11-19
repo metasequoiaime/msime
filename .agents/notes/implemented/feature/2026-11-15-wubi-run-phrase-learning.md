@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 更新（2026-11-19）：造词写表已改为三版全对称，86/98 方案也写 `wubixsj`，下面「当前方案是新世纪才学」的边界已被翻转。决定、理由与影响面见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)。
+
 ## Problem
 
 拼音有四条自动造词路径（分段连词与整句经 `learn_pick_pair` 和 `pick_transitions` 计数落库、词对凑词、回车学英文词），五笔被全部排除：pick 构造的合取里有 `!self.is_wubi()`（`session/commit.rs:392`），「造词中」组字对五笔候选写死 `can_store: false`（`session/composition.rs:566`），五笔侧只有手动加词和调频。五笔用户想连续打出「哔哩（kxkj）+ 哔哩（kxkj）」之后自动记住「哔哩哔哩」，现在做不到。
@@ -10,7 +12,7 @@ Status: implemented
 
 - **四码顶字手感绝不能动。** 对照 CyIME（librime 内核的安卓输入法）的上游五笔方案（kingzcheung/rime-wubi，README「常见自定义功能 §6 开启自动造词」）：librime 开五笔造词必须注释掉 `max_code_length`（四码上屏）、关掉 `auto_select`（自动上屏）——句子模式和顶字直出在 librime 里是二选一。本仓的方案把造词做成不打断顶字的后台学习，每次选择上屏本身就是一次「片段关闭」，不需要等句子。
 - **学习总开关沿用**「学习（记忆新词）」偏好，不加总门；反查、关闭学习、已有词条、删除记录照旧不学（[五笔反查](../../implemented/feature/2026-10-11-wubi-reverse-lookup.md)已定反查禁学）。
-- **新世纪五笔维持「当前方案是新世纪才学」**，不做新世纪的全对称读写：`wubixsj` 日志行的宽松读取还没有覆盖到足够多的用户，降级安装会拒绝整份日志（[词库数据格式 §6.2](../../../docs/data-formats.md)）。
+- **新世纪五笔维持「当前方案是新世纪才学」**，不做新世纪的全对称读写：`wubixsj` 日志行的宽松读取还没有覆盖到足够多的用户，降级安装会拒绝整份日志（[词库数据格式 §6.2](../../../docs/data-formats.md)）。（本条于 2026-11-19 被翻转，见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)。）
 - **自造词不挤占已有同码候选**是既定设计（[词库持续补全与五笔新词学习](../../implemented/feature/2026-10-18-dictionary-completion.md)立的初始权重规则，[个人词库零权重行](../../implemented/bug-fix/2026-10-30-personal-dictionary-zero-weight-rows.md)复核过 0..9 的边界）。
 
 维护者 2026-11-15 确认自造词落库位置做成选项——默认「沉底」（现状），可选「置顶」，默认值等于现状语义，属于新字段而非翻转出厂值。造词时机选项（默认「凑 3 次才记」/ 可选「打 1 次就记」）于 2026-11-19 撤回，造词固定按默认凑三次，理由见「造词时机选项的撤回」一节。
@@ -31,7 +33,7 @@ Status: implemented
 
 - 位置（`WubiPhrasePlacement`）：`Bottom`（默认，现状——同码已有行最小权重 −1，clamp 0..=9）/ `Top`——**入库时一次性给「各版表内同码已有行最大权重 + 1」**（clamp 到 `MANAGED_WEIGHT_CEILING`，同码无行时给 10，与手动加词默认 `NEW_WORD_WEIGHT` 同级），86/98 各表独立算。不是永远悬浮第一：之后照常参与调频与置顶操作。垃圾词兜底不做时间衰减（见 Alternatives），靠 ≤9/低权重与删除。
 
-删除与学词对称：学词时 86/98 两版同时插行，`wubi_learning.rs` 的 `delete_other_learned_kinds(main_db, user_db, keep, profile, word)` 对除 `keep` 外的版本按各自码表独立推导四码，删行并写墓碑（`operation='delete'`），推导失败的版本跳过（该版本本来也学不进）。`remove_candidate` 的五笔分支在 `delete_dictionary_candidate` 成功后调用。
+删除与学词对称：学词时三版同时插行（2026-11-19 起含新世纪，见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)），`wubi_learning.rs` 的 `delete_other_learned_kinds(main_db, user_db, keep, profile, word)` 对除 `keep` 外的版本按各自码表独立推导四码，删行并写墓碑（`operation='delete'`），推导失败的版本跳过（该版本本来也学不进）。`remove_candidate` 的五笔分支在 `delete_dictionary_candidate` 成功后调用。
 
 一个新设置键：`input.wubi_phrase_placement`（`bottom`/`top`），缺键按默认读，默认时不写进偏好文档（照 `candidate_font_weight` 的 serde 模式）。管线：`client-core/preferences.rs` → `client-services/account/settings_sync.rs`（同步键）→ `client-core/edition.rs`（设置页分组，与 `input.learning` 同组）→ `host-api`（重建会话选项）→ `engine/src/host/options.rs`（`SessionOptions` 字段）。共享设置页「候选与联想」组、「学习」开关之后一行（文件 `wubi-phrase-learning-section.tsx`），说明收进标题旁「?」，仅五笔方案且学习开启时显示。
 
@@ -69,11 +71,11 @@ CyIME 没有内置五笔，五笔方案从市场下载（`SchemaConfigHelper.kt`
 - **>4 字的词也收单字素材**——最强理由：「中国 + 共产党」这类常见组合只能单字拼，禁单字素材会漏掉它。否掉理由：垃圾风险不对称——随手单字连打的碎片组合会在 >4 字段里攒出大词，而 ≤4 字时单字拼词的垃圾空间小得多；真要「中国共产党」可以用置顶模式手动加词，或等它以 ≤4 字词组合出现。维护者确认禁单字素材。
 - **自造词永远首位（持续置顶）**——维护者否决过的方向：自动改写排序会盖过用户手动固定排位，垃圾词也会被顶到第一。本篇的 `Top` 是折中：入库时一次性给高位权重，之后照常参与调频，别的词用得多可以超过它；要钉死第几位用现有的固定排位操作。
 - **拼音凑对机制直接给五笔用**——最强理由：零新机制，`learn_pick_pair` 现成。否掉理由：拼音凑对的语义是「两次整句上屏拼一对词」（两次 pick 的规范拼音连起来），五笔片段是任意词/字序列的拼接，没有「两段拼一对」的词法语义；强行复用会把单字上屏也当成凑对素材，前缀污染防不住。累积窗是同一存储上的不同语义，成本只在新函数。
-- **新世纪五笔的全对称读写**——降级兼容拒绝（[词库数据格式 §6.2](../../../docs/data-formats.md)：不认识 `wubixsj` 的旧引擎把未知行算失败、整份日志拒绝），维持「当前方案是新世纪才学」的单向写入，等宽松读取版本覆盖了足够多用户再议。
+- **新世纪五笔的全对称读写**——降级兼容拒绝（[词库数据格式 §6.2](../../../docs/data-formats.md)：不认识 `wubixsj` 的旧引擎把未知行算失败、整份日志拒绝），维持「当前方案是新世纪才学」的单向写入，等宽松读取版本覆盖了足够多用户再议。（此取舍于 2026-11-19 被翻转，见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)。）
 
 ## Consequences
 
-收益：五笔用户连续打出重复片段后自动积累词库，不打断四码顶字；固定凑三次造词，落库位置给一档选择，默认值等于现状语义，不翻转任何出厂值；删除与学词对称，不再留 86/98 单侧残行。
+收益：五笔用户连续打出重复片段后自动积累词库，不打断四码顶字；固定凑三次造词，落库位置给一档选择，默认值等于现状语义，不翻转任何出厂值；删除与学词对称，不再留任一版的单侧残行。
 
 代价与风险：
 
