@@ -10,7 +10,6 @@ import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy'
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
-import window from '@ohos.window';
 import { ToolbarFocus } from './ToolbarFocus';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
@@ -749,19 +748,15 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       if (!KeyboardFormFactor.isDesktop()) {
         this.panel.show();
       } else {
-        this.followCallingWindow(inputClient);
+        this.followCallingWindow();
       }
     };
 
-  /** 每次绑定编辑器都重新请求显示；全屏窗口仍沿用隐藏工具栏的策略。 */
-  private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
+  /** 每次绑定编辑器都请求显示工具栏，包括全屏窗口。 */
+  private followCallingWindow(): void {
     const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
     if (toolbar === undefined) return;
-    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown,
-      async (): Promise<boolean> => {
-        const info: inputMethodEngine.WindowInfo = await inputClient.getCallingWindowInfo();
-        return info.status === window.WindowStatusType.FULL_SCREEN;
-      });
+    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown);
   }
 
   private readonly keyboardShown: () => void = (): void => {
@@ -1338,7 +1333,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           if (!desktop) {
             this.panel.show();
           } else {
-            this.followCallingWindow(pending);
+            this.followCallingWindow();
           }
         }
       } catch (error) {
