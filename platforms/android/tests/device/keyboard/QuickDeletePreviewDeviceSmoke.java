@@ -93,6 +93,7 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
         Rect key = deleteBounds();
         Rect region = previewRegion(key);
         Bitmap before = capture(region);
+        saveScreenshot(before, layout, "before");
         long down = SystemClock.uptimeMillis();
         touch(down, MotionEvent.ACTION_DOWN, key.centerX(), key.centerY());
         try {
@@ -110,11 +111,7 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
             } while (SystemClock.uptimeMillis() < previewDeadline);
             try {
                 float density = getContext().getResources().getDisplayMetrics().density;
-                try (FileOutputStream output = new FileOutputStream(new File(
-                        getTargetContext().getFilesDir(), layout.contains("9")
-                            ? "quick-delete-held-nine.png" : "quick-delete-held-letters.png"))) {
-                    held.compress(Bitmap.CompressFormat.PNG, 100, output);
-                }
+                saveScreenshot(held, layout, "held");
                 if (changed < 60 * density * density)
                     throw new AssertionError("No visible preview above a stationary held delete key; band="
                         + region.height() / density + "dp; key=" + key.toShortString() + ";length=" + length());
@@ -132,6 +129,17 @@ public final class QuickDeletePreviewDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(250);
         if (released <= 1 || length() != released)
             throw new AssertionError("Release or cancel cleared text or left repeat deletion running");
+    }
+
+    private void saveScreenshot(Bitmap screenshot, String layout, String frame) throws Exception {
+        File directory = getTargetContext().getExternalFilesDir(null);
+        if (directory == null) throw new AssertionError("Screenshot directory unavailable");
+        String suffix = layout.contains("9") ? "nine" : "letters";
+        File output = new File(directory, "quick-delete-" + frame + "-" + suffix + ".png");
+        try (FileOutputStream stream = new FileOutputStream(output)) {
+            if (!screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream))
+                throw new AssertionError("Quick-delete screenshot encoding failed");
+        }
     }
 
     private int changedPixels(Bitmap before, Bitmap after) {
