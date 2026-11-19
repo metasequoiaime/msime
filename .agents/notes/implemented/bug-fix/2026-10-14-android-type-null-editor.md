@@ -18,3 +18,5 @@ Status: implemented
 ## Consequences
 
 TYPE_NULL 自定义控件会多一次引擎启动和资源准备，并依赖其 `InputConnection` 接受组字提交；终端类控件仍可切到英文模式发送字面字符。密码和数字输入框不受影响。JVM `EditorSmoke` 固定了 `TYPE_NULL` 应走引擎的契约。
+
+只认整数 0 不够：抖音直播评论框后来报 `0x20000`（类别为 0、只带多行 flag），同样落入「直接输入」。规则已扩展为按类别排除已知非文字框，见 [没有输入类别的输入框按文字框组字](2026-11-18-android-null-class-editor.md)。

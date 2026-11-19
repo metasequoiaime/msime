@@ -4,10 +4,11 @@ package app.msime.android;
  * 14 键与 18 键字母键一次按压的手势判定（#11063），规则跟 26 键走：
  *
  * <ul>
- *   <li>沿「滑动输入符号」的方向（缺省上滑）纵移严格超过 {@link SwipeHintPolicy#THRESHOLD_DP}，且纵向位移大于横向，松手输入这个键的角标符号（{@link GridLetterHintTable}）；
+ *   <li>沿「滑动输入符号」的方向（缺省上滑）纵移严格超过「滑动距离」（与 26 键共用，{@link SwipeHintPolicy#MIN_THRESHOLD_DP}..{@link SwipeHintPolicy#MAX_THRESHOLD_DP} dp，默认 {@link SwipeHintPolicy#DEFAULT_THRESHOLD_DP}），且纵向位移大于横向，松手输入这个键的角标符号（{@link GridLetterHintTable}）；
  *   <li>反方向同样的纵移，或空闲时长按，打开这个键的字母和符号选项，并可继续拖选；
  *   <li>18 键双拼的两字母键另有横滑限定字母，阈值和方向照旧（{@link EighteenKeySwipePolicy}）；
  *   <li>「滑动输入符号」关闭时两种纵滑都不响应，长按照旧；
+ *   <li>纵移超过 {@link SwipeHintPolicy#THRESHOLD_DP}（「滑动距离」的出厂值，固定）却没触发手势时——关掉了「滑动输入符号」，或调大了「滑动距离」而没滑到——松手仍是这个键的一次点按，即使手指已经移出键帽、按钮自己取消了点击；
  *   <li>组字中（Engine 的 `editing_text` 不空）纵滑和长按都按一次普通点按处理，免得组字时误出符号或先结束组字；横滑限定字母照常可用。上屏后联想不算组字。
  * </ul>
  *
@@ -34,12 +35,13 @@ public final class GridKeyGesturePolicy {
      * 是否已沿 `direction` 构成纵滑。
      *
      * @param direction {@link SwipeHintPolicy#UP} 或 {@link SwipeHintPolicy#DOWN}；null 表示「滑动输入符号」关闭
+     * @param thresholdDp 「滑动距离」（dp），严格大于才算
      * @param dx 相对按下点的横向位移（dp）
      * @param dy 相对按下点的纵向位移（dp，向下为正）
      */
-    public static boolean vertical(String direction, float dx, float dy) {
+    public static boolean vertical(String direction, float thresholdDp, float dx, float dy) {
         if (direction == null || !Float.isFinite(dx) || !Float.isFinite(dy)) return false;
-        return SwipeHintPolicy.swiped(direction, 0f, dy) && Math.abs(dy) > Math.abs(dx);
+        return SwipeHintPolicy.swiped(direction, thresholdDp, 0f, dy) && Math.abs(dy) > Math.abs(dx);
     }
 
     /** 与 `direction` 相反的方向；null 仍是 null。 */
@@ -53,8 +55,9 @@ public final class GridKeyGesturePolicy {
         private final String exactLetters;
         private final boolean hasSymbol;
         private String direction;
+        private float thresholdDp = SwipeHintPolicy.THRESHOLD_DP;
         private boolean tapsOnly;
-        private boolean disabledVerticalSwipe;
+        private boolean verticalTap;
         private int pointer;
         private float downX;
         private float downY;
@@ -74,15 +77,18 @@ public final class GridKeyGesturePolicy {
          * 按下：记下起点和这次按压的设置。
          *
          * @param symbolDirection 「滑动输入符号」的方向；关闭时传 null
+         * @param symbolThresholdDp 「滑动距离」（dp），两个纵向方向共用
          * @param composing 按下这一刻正在组字
          */
-        public void start(int pointerId, float x, float y, String symbolDirection, boolean composing) {
+        public void start(int pointerId, float x, float y, String symbolDirection, float symbolThresholdDp,
+                boolean composing) {
             pointer = pointerId;
             downX = x;
             downY = y;
             direction = symbolDirection;
+            thresholdDp = symbolThresholdDp;
             tapsOnly = composing;
-            disabledVerticalSwipe = false;
+            verticalTap = false;
             mode = Mode.PENDING;
             selected = 0;
         }
@@ -120,13 +126,14 @@ public final class GridKeyGesturePolicy {
             if (letter != 0) {
                 mode = Mode.LETTER;
                 selected = letter;
-            } else if (!tapsOnly && hasSymbol && vertical(direction, dx, dy)) {
+            } else if (!tapsOnly && hasSymbol && vertical(direction, thresholdDp, dx, dy)) {
                 mode = Mode.SYMBOL;
-            } else if (!tapsOnly && vertical(opposite(direction), dx, dy)) {
+            } else if (!tapsOnly && vertical(opposite(direction), thresholdDp, dx, dy)) {
                 mode = Mode.OPTIONS;
-            } else if (direction == null && (vertical(SwipeHintPolicy.UP, dx, dy)
-                    || vertical(SwipeHintPolicy.DOWN, dx, dy))) {
-                disabledVerticalSwipe = true;
+            } else if (vertical(SwipeHintPolicy.UP, SwipeHintPolicy.THRESHOLD_DP, dx, dy)
+                    || vertical(SwipeHintPolicy.DOWN, SwipeHintPolicy.THRESHOLD_DP, dx, dy)) {
+                // 用固定的 14 dp 而不是「滑动距离」：关掉滑动时与加这项设置之前相同；距离调大后没滑到的纵移也算点按，不会因为移出键帽而丢键。
+                verticalTap = true;
             }
             return mode != before;
         }
@@ -153,9 +160,9 @@ public final class GridKeyGesturePolicy {
         public boolean consumed() { return mode != Mode.PENDING; }
 
         /**
-         * 松手时是否要由手势补一次普通点按：组字中或关闭符号滑动后的纵滑，即使位移让按钮取消点击，也仍按一次点按处理。其他空闲按压交给按钮。
+         * 松手时是否要由手势补一次普通点按：组字中的按压，以及纵移超过 14 dp 却没触发手势（关闭符号滑动，或没滑到「滑动距离」）的按压，即使位移让按钮取消点击，也仍按一次点按处理。其他空闲按压交给按钮。
          */
-        public boolean forcesTap() { return mode == Mode.PENDING && (tapsOnly || disabledVerticalSwipe); }
+        public boolean forcesTap() { return mode == Mode.PENDING && (tapsOnly || verticalTap); }
 
         private boolean invalid(int pointerId, int pointers, float x, float y) {
             return pointers != 1 || pointerId != pointer || !Float.isFinite(x) || !Float.isFinite(y);

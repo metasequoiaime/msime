@@ -53,7 +53,7 @@ final class ImeBottomRow {
     void bindCommaSwipe(Button button) {
         final float[] start = new float[2];
         final boolean[] swiped = new boolean[1];
-        // 门槛与字母键滑动输入符号相同（14 dp，严格大于），不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
+        // 门槛是字母键「滑动距离」的出厂值（14 dp，严格大于），不跟那项设置走；不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
         final float threshold = SwipeHintPolicy.THRESHOLD_DP * s.getResources().getDisplayMetrics().density;
         final int longPress = ViewConfiguration.getLongPressTimeout();
         button.setOnTouchListener((ignored, event) -> {

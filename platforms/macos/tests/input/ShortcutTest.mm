@@ -7640,6 +7640,30 @@ static void TestInputModeStatusItem() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 模式字形图标开关（#11521）：默认保留品牌图标，原生设置窗口与共享文档使用同一布尔值。
+static void TestInputModeGlyphIconsPreference() {
+    NSString *suite = [@"msime.mode-glyph-icons." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!prefs.inputModeGlyphIcons);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"input_mode_glyph_icons"] isEqual:@NO]);
+    NSButton *toggle = (id)PreferenceControl(prefs, NSSelectorFromString(@"inputModeGlyphIconsChanged:"));
+    assert(toggle.state == NSControlStateValueOff);
+    toggle.state = NSControlStateValueOn;
+    assert([NSApp sendAction:toggle.action to:toggle.target from:toggle]);
+    assert(prefs.inputModeGlyphIcons);
+    [prefs applySharedCandidatePreferences:@{@"input_mode_glyph_icons": @YES}];
+    assert(prefs.inputModeGlyphIcons);
+    assert([[prefs sharedPreferencesByMerging:@{}][@"input_mode_glyph_icons"] isEqual:@YES]);
+    // 非布尔值不能覆盖当前设置，避免损坏的共享字段误开功能。
+    [prefs applySharedCandidatePreferences:@{@"input_mode_glyph_icons": @"true"}];
+    assert(prefs.inputModeGlyphIcons);
+    [prefs setInputModeGlyphIcons:NO];
+    MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!reopened.inputModeGlyphIcons);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 单按 Caps Lock 切换中英文。合成的时钟、按键状态和撤回大写锁定：单测不能动跑测试那台机器的真实大写锁定。
 static std::int64_t gCapsNow = 0;
 static bool gCapsHeld = false;
@@ -8891,6 +8915,10 @@ static void TestInputSourceModeReset() {
     MSIMEInputSourceMonitor *monitor = [[MSIMEInputSourceMonitor alloc] initWithCenter:center bundleIdentifier:own
         copySource:CopyMonitoredSource propertyGetter:MonitoredSourceProperty switchedAway:^{ assert(NSThread.isMainThread); ++resets; [prefs resetRememberedInputModes]; }];
     assert(monitor);
+    NSString *logRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"msime-source-log-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:logRoot withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0700} error:nil]);
+    NSString *logPath = [logRoot stringByAppendingPathComponent:@"diagnostic.log"];
+    msime_macos_diagnostic_configure(logRoot.fileSystemRepresentation, true);
     for (NSDictionary *source in @[@{}, @{sourceKey:@42}, @{bundleKey:own}, @{sourceKey:own},
                                    @{sourceKey:[own stringByAppendingString:@".mode"]}]) {
         monitoredSource = source;
@@ -8909,6 +8937,15 @@ static void TestInputSourceModeReset() {
         [center postNotificationName:notification object:nil];
         assert(resets == beforeResets + 1 && !prefs.englishMode && saves == beforeSaves);
     }
+    msime_macos_diagnostic_configure(logRoot.fileSystemRepresentation, false);
+    // Only switches away are written, each naming the source that took over: its input source ID, or the bundle when the source has no ID. Unknown sources and this method's own modes write nothing.
+    NSString *switchLog = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+    NSArray<NSString *> *switchLines = [[switchLog componentsSeparatedByString:@"\n"] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    assert(switchLines.count == 3);
+    assert([switchLines[0] hasSuffix:@"] input_source switched_away to=org.example.other-input"]);
+    assert([switchLines[1] hasSuffix:@"] input_source switched_away to=com.apple.keylayout.US"]);
+    assert([switchLines[2] hasSuffix:[@"] input_source switched_away to=" stringByAppendingString:[own stringByAppendingString:@"-other"]]]);
+    [NSFileManager.defaultManager removeItemAtPath:logRoot error:nil];
     prefs.defaultImeMode = @"english";
     prefs.englishMode = NO;
     [center postNotificationName:notification object:nil];
@@ -17598,6 +17635,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
+        @autoreleasepool { TestInputModeGlyphIconsPreference(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey(); }
         // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。

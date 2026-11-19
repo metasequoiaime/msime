@@ -1,6 +1,6 @@
 import XCTest
 
-/// 设置 App「词库 › 学习」的「清除学习记录」：App 经 `msime_client_prepare_host` 拿到键盘那套词库路径，发 `reset`。键盘会话开着时是忙，收起（销毁会话）以后清掉自造词。
+/// 设置 App 先查账号绑定；明确未登录时仍对键盘的真实词库执行本机重置，保留维护忙与自造词清除回归。
 final class ClearLearningTests: XCTestCase {
   @MainActor
   func testTheResetWaitsForTheKeyboardAndThenClearsTheUsersWords() throws {
@@ -8,11 +8,12 @@ final class ClearLearningTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
     let stateRoot = root.appendingPathComponent("EngineState")
+    FakeRust.replies(["account.learning_binding": FakeRust.ok(["login": NSNull()])], signedIn: nil)
     let session = MetasequoiaInputSessionBridge(resources: resources, stateRoot: stateRoot)
     let word = try PersonalWord(kind: .quickPhrase, key: "msimecleared", value: "cleared fixture").validated()
     try session.applyPersonalPrevious(nil, replacement: word.bridgeValue, requestID: UUID().uuidString)
 
-    XCTAssertThrowsError(try MetasequoiaInputSessionBridge.resetLearnedData(resources: resources, stateRoot: stateRoot)) {
+    XCTAssertThrowsError(try IOSAccountLearningReset.reset(resources: resources, stateRoot: stateRoot, account: FakeRust.account)) {
       XCTAssertEqual($0 as? MetasequoiaInputSessionBridge.LearnedDataResetFailure, .busy)
     }
     let options = try XCTUnwrap(JSONSerialization.jsonObject(
@@ -22,9 +23,44 @@ final class ClearLearningTests: XCTestCase {
 
     // 键盘收起时销毁会话、放掉词库。
     XCTAssertTrue(session.suspendDictionarySession())
-    XCTAssertNoThrow(try MetasequoiaInputSessionBridge.resetLearnedData(resources: resources, stateRoot: stateRoot))
+    XCTAssertThrowsError(try IOSAccountLearningReset.reset(resources: resources, stateRoot: stateRoot, account: nil)) {
+      XCTAssertEqual($0 as? MetasequoiaInputSessionBridge.LearnedDataResetFailure, .failed)
+    }
+    let unchanged = try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(options: options, offset: 0))
+    XCTAssertTrue(unchanged.entries.contains(word), "读不了账号时不能执行无屏障清除")
+    XCTAssertNoThrow(try IOSAccountLearningReset.reset(resources: resources, stateRoot: stateRoot, account: FakeRust.account))
     let after = try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(options: options, offset: 0))
     XCTAssertFalse(after.entries.contains(word))
+  }
+
+  func testSignedInResetPreservesTheBusyResultFromTheAccountBarrier() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    FakeRust.replies([
+      "account.learning_binding": FakeRust.ok(["login": ["user_id": "synthetic-account", "session_id": "00000000-0000-4000-8000-000000000001"]]),
+      "account.learning_reset_local": FakeRust.failure("learning_busy")
+    ])
+    XCTAssertThrowsError(try IOSAccountLearningReset.reset(resources: resources, stateRoot: root, account: FakeRust.account)) {
+      XCTAssertEqual($0 as? MetasequoiaInputSessionBridge.LearnedDataResetFailure, .busy)
+    }
+    XCTAssertEqual(FakeRust.calls.map(\.operation), ["learning_binding", "learning_reset_local"])
+  }
+
+  func testSignedInResetKeepsTheCollectionRequeueResult() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
+    for collectionsRequeued in [true, false] {
+      var result: [String: Any] = ["reset": true]
+      if !collectionsRequeued { result["collections_error"] = "synthetic-requeue-failure" }
+      FakeRust.replies([
+        "account.learning_binding": FakeRust.ok(["login": ["user_id": "synthetic-account", "session_id": "00000000-0000-4000-8000-000000000001"]]),
+        "account.learning_reset_local": FakeRust.ok(result)
+      ])
+      XCTAssertEqual(try IOSAccountLearningReset.reset(resources: resources, stateRoot: root, account: FakeRust.account), collectionsRequeued)
+      XCTAssertEqual(FakeRust.calls.map(\.operation), ["learning_binding", "learning_reset_local"])
+    }
   }
 
   @MainActor
@@ -33,6 +69,7 @@ final class ClearLearningTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let resources = try XCTUnwrap(Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true))
     let stateRoot = root.appendingPathComponent("EngineState")
+    FakeRust.replies(["account.learning_binding": FakeRust.ok(["login": NSNull()])], signedIn: nil)
     let session = MetasequoiaInputSessionBridge(resources: resources, stateRoot: stateRoot)
     XCTAssertTrue(session.suspendDictionarySession())
     let optionsData = try MetasequoiaInputSessionBridge.preparedHostOptions(resources: resources, stateRoot: stateRoot)
@@ -42,7 +79,7 @@ final class ClearLearningTests: XCTestCase {
     _ = try DictionaryCollectionsBridge.synchronize(options: optionsData, budget: 2000)
     let before = try PersonalWordPage(bridgeResult: MetasequoiaInputSessionBridge.personalEntries(options: options, offset: 0))
     XCTAssertTrue(before.entries.contains { $0.key == "msimegroup" && $0.value == "合成分组词" })
-    XCTAssertTrue(try MetasequoiaInputSessionBridge.resetLearnedData(resources: resources, stateRoot: stateRoot))
+    XCTAssertTrue(try IOSAccountLearningReset.reset(resources: resources, stateRoot: stateRoot, account: FakeRust.account))
     let groups = try DictionaryCollectionsBridge.request(["operation": "load"], options: optionsData)
     let items = try XCTUnwrap(groups["collections"] as? [[String: Any]])
     XCTAssertEqual(items.first?["name"] as? String, "合成分组")

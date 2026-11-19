@@ -44,6 +44,8 @@ export const dictionaryManifest: (resources: string) => string;
 export const nineKeyShuangpinLayout: (request: string) => string;
 /** 26 键双拼方案的表、问题和字母键提示；请求为 `{profile, table?}`。 */
 export const shuangpinCustomLayout: (request: string) => string;
+/** 共享触屏双拼目录和选择事务，不落盘。 */
+export const touchShuangpinSettings: (request: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
 export const skinResource: (request: string) => string;
 export const skinToolbarImageLayout: (request: string) => string;
@@ -72,6 +74,8 @@ export const savePreferences: (
   snapshot: string,
 ) => string;
 export const dictionary: (request: string) => string;
+/** `{directory,options}`：只清除本机学习并保存账号屏障，不联网；失败不回退到无屏障清除。 */
+export const dictionaryLearningReset: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 /** `{directory,action}`; a `record` action answers `{recorded,milestone}`, where milestone is the commit count just passed while achievements are switched on, else null. */
 export const typingStatistics: (request: string) => string;
@@ -394,3 +398,6 @@ export const doubaoEncodeFrame: (
   payload: ArrayBuffer,
 ) => ArrayBuffer;
 export const doubaoDecodeFrame: (frame: ArrayBuffer) => DoubaoFrameResult | null;
+
+/** 自定义双拼编辑、导入和选择的共享事务。 */
+export const customShuangpinSettings: (request: string) => string;

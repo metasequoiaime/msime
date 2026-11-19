@@ -10,6 +10,9 @@ use msime_client_services::dictionary::import::{
 use msime_client_services::dictionary::is_han_character;
 use serde_json::{json, Value};
 
+mod account_reset;
+pub use account_reset::request_with_account;
+
 /// The largest file text the page imports. The page refuses files over 32 MiB (`MAX_DICTIONARY_FILE_BYTES` in `packages/ui/src/dictionary/dictionary-file.ts`) before reading them, and a file that size decodes to at most 48 MiB of UTF-8, since a two-byte GBK or UTF-16 character becomes three; this is that bound, so a file the page accepted is never refused here. At 60 KiB a request, text this size is at least 820 requests, and more for a file of short lines, since a request also carries at most `import::MAX_ENTRIES` rows. That takes longer than the 30 seconds input sessions stay released, so every request renews the release before it goes: the lease through `QuiescedHosts::run` on Linux and macOS, the Server's DictionaryQuiesce on Windows.
 pub const MAX_IMPORT_TEXT_BYTES: usize = 3 * 16 * 1024 * 1024;
 

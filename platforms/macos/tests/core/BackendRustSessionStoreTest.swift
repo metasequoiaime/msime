@@ -35,9 +35,11 @@ enum BackendRustSessionStoreTest {
       anonymous: .localStore(directory: group, fileName: BackendAnonymousAccount.sessionFileName),
       anonymousIdentity: .localStore(directory: group, fileName: BackendAnonymousAccount.identityFileName),
       accountLock: state.appendingPathComponent("account-refresh.lock"),
-      anonymousLock: group.appendingPathComponent("backend-account-refresh.lock"))
+      anonymousLock: group.appendingPathComponent("backend-account-refresh.lock"),
+      learningKeystore: .ownerOnlyFile(state.appendingPathComponent(BackendRustStoreLayout.learningKeystoreName)))
+    let nativeStore = BackendRustSessionStore(layout: layout, backgroundActivity: nil)
     let id: UInt64
-    switch BackendRustSessionStore(layout: layout, backgroundActivity: nil).register(with: client, clientAgent: "msime-macos/0.52.0 (Mac; macOS 26; edition=full)") {
+    switch nativeStore.register(with: client, clientAgent: "msime-macos/0.52.0 (Mac; macOS 26; edition=full)") {
     case .success(let value): id = value
     case .failure(let failure): return check(false, "register failed: \(failure.code)")
     }
@@ -66,11 +68,21 @@ enum BackendRustSessionStoreTest {
 
     // forget 删掉登录会话和它的密钥串；匿名会话（Swift 存进 App Group 的）留着，access_token 退回它。
     try BackendDesktopSessionFile.writeOwnerOnly(Data("synthetic-keystore\n".utf8), named: BackendDesktopClipboardKeystoreFile.fileName, in: state)
+    let learning = MSIME_CLIENT_SESSION_ITEM_LEARNING_KEYSTORE.rawValue
+    check(nativeStore.save(learning, Data("synthetic-learning".utf8)) == 0, "learning save")
+    check(nativeStore.save(learning, Data("short".utf8)) == 0, "learning replacement")
+    check(nativeStore.save(learning, Data(repeating: 0x61, count: 4097)) == -1, "learning bound")
+    let learningURL = state.appendingPathComponent(BackendRustStoreLayout.learningKeystoreName)
+    let learningBytes = try Data(contentsOf: learningURL)
+    check(learningBytes == Data("short".utf8), "independent learning file")
+    let permissions = try FileManager.default.attributesOfItem(atPath: learningURL.path)[.posixPermissions] as? NSNumber
+    check(permissions?.intValue == 0o600, "learning permissions")
     try BackendLocalStore(fileName: BackendAnonymousAccount.sessionFileName, directory: group).save(session("synthetic-anonymous", token: "e"))
     _ = try await client.call(.account, ["session_store": id, "action": ["operation": "forget"]])
     check(!FileManager.default.fileExists(atPath: state.appendingPathComponent(BackendDesktopSessionFile.fileName).path), "session survived forget")
     check(!FileManager.default.fileExists(atPath: state.appendingPathComponent(BackendDesktopClipboardKeystoreFile.fileName).path),
           "keystore survived forget")
+    check(!FileManager.default.fileExists(atPath: learningURL.path), "learning key survived Rust forget")
     let afterForget = try await status()
     check(afterForget == nil, "still signed in after forget")
     token = try accessToken()

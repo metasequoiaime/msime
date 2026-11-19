@@ -14,6 +14,8 @@ const BUTTON_WIDTH_VP: number = 42;
 const BUTTON_GAP_VP: number = 10.5;
 const EDGE_INSET_VP: number = 10;
 const TOOLBAR_HEIGHT_VP: number = 44;
+const DRAG_HANDLE_WIDTH_VP: number = 22;
+const DIVIDER_WIDTH_VP: number = 1.2;
 /** Every component the shared record names, plus the gear that is never hidden. */
 const MAXIMUM_BUTTONS: number = 9;
 const TOOLBAR_SCALE_VALUES: number[] = [0.75, 1, 1.25, 1.5];
@@ -184,7 +186,9 @@ export class FloatingToolbarLayout {
   /** 宽度随显示出来的按钮个数变。齿轮总在,所以至少是一个。 */
   static widthVp(buttonCount: number): number {
     const count: number = KeyboardGeometry.bounded(buttonCount, 1, MAXIMUM_BUTTONS);
-    return Math.round(2 * EDGE_INSET_VP + count * BUTTON_WIDTH_VP + (count - 1) * BUTTON_GAP_VP);
+    // 拖动区、分隔线和按钮之间均有间距，另外保留少量外边距。
+    return Math.ceil(6 + DRAG_HANDLE_WIDTH_VP + DIVIDER_WIDTH_VP + count * BUTTON_WIDTH_VP
+      + (count + 1) * BUTTON_GAP_VP);
   }
 
   /** Match the Windows toolbar's four supported scale steps. */
@@ -218,6 +222,10 @@ export class FloatingToolbarLayout {
       return TOOLBAR_FONT_SIZE_DEFAULT;
     }
     return value;
+  }
+
+  static dragHandleWidthVp(scale: number = 1): number {
+    return DRAG_HANDLE_WIDTH_VP * FloatingToolbarLayout.scale(scale);
   }
 
   static buttonWidthVp(scale: number = 1): number {

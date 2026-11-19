@@ -33,7 +33,7 @@ Status: implemented
   - 网格开 `setPickerFit` 后，在 `onMeasure` 里按量到的高度算排法，行高和行距向下取整到像素，所以排出来不会比给它的高度高。
   - ScrollView 第一遍不限高量子视图，只有子视图比它矮时才按视口高度再量一遍。所以不限高那一遍网格报最矮的排法（两行、磁贴 44 dp），让第二遍拿到真实高度。
   - LinearLayout 的权重在不限高时还会拿 0 高再量一遍，所以测量只记下排法，行数到 `onLayout` 才生效，页点更新 post 到下一帧，避免一次布局里行数来回翻、反复 requestLayout。
-  - 功能面板的磁贴按拿到的高度自己算比例。输入方式卡片先按原尺寸量内容，再整体 `setScale` 居中。输入方式面板的网格改为拿去页点以外的全部高度（权重 1），选中项所在的页等排版后再算（`revealOnLayout`）。
+  - 功能面板的磁贴按拿到的高度自己算比例。#11545 补上字体内容边界：自绘标签只按 `descent-ascent` 和固定 52 dp 缩放时，大字体或越出该行框的字形即使在原尺寸磁贴上也会被裁底。`FunctionTileGeometry` 用图标、间距和字体 `top/bottom` 与实际标签墨迹的包络决定整体缩放，并用完整字形顶部算标签基线；触控磁贴、行数、页数和 44 dp 下限不变。输入方式卡片先按原尺寸量内容，再整体 `setScale` 居中。输入方式面板的网格改为拿去页点以外的全部高度（权重 1），选中项所在的页等排版后再算（`revealOnLayout`）。
 - **iOS**：`KeyboardPagedGridView.pickerLayout(preferredRows:height:rowHeight:)` 加 `pickerMinTileHeight = 44`。选择面板用 `init(columns:pickerRows:rowHeight:columnGap:sidePadding:)` 建网格，在 `layoutSubviews` 里按滚动区的真实高度排：行数变了就重新分页，并停在原来那页第一个图块所在的页；只是比例变了就原地改行高约束。`KeyboardFunctionTileView` 和输入方式卡片按格子高度自己缩放。皮肤面板仍是固定行数。
 - **鸿蒙**：`FunctionPanelPolicy.pickerGrid(phoneLandscape, gridVp, rowHeightVp)` 返回 `{ rows, scale, rowHeight, rowsGap }`，常数是 `THREE_ROW_GAP_VP`、`TWO_ROW_GAP_VP`、`MIN_TILE_VP`。`PanelTile` 用 `contentScale` 显式缩放各个尺寸。鸿蒙的面板高度本来就精确，不需要测量回调。
 
@@ -58,6 +58,7 @@ Status: implemented
 - **保留「先收行距、再退两行」，只换成真实高度**：能消除溢出，改动也比缩放小。但行距被压到 4–6 dp 时磁贴挤成一团（鸿蒙默认高度下一直是 6 vp），三行和两行之间的跳变点也偏高。用户提的、微信输入法的做法是整体缩小，行距和磁贴保持比例，看起来仍是同一块面板，所以采用缩放。
 - **去掉外层 ScrollView，让面板放不下就裁掉**：没有拖动问题。但「更多」面板的子页（本地输入、AI 回复与润色、世界时钟）需要竖向滚动，而且裁掉磁贴就意味着有入口点不到。
 - **最小磁贴取 40 dp**：安卓 75% 也能保持三行。但 40 dp 低于 iOS 44 pt 和仓库里其他「44 dp 点按目标」的约定，文字缩到 9.6 sp 也偏小。44 是三端都站得住的下限。
+- **大字体时只缩小标签**：能保留图标原尺寸，但图标、间距、勾标和文字不再按同一比例排版；延续整块内容一起缩放，只有原来放不下的字形触发额外收缩。
 
 ## Consequences
 
@@ -74,3 +75,4 @@ Status: implemented
 - 安卓设备：`KeyboardHeightDeviceSmoke` 的 `panel-fit` 检查（`am instrument -e panel-fit true`）逐档写入 75/80/85/90/95/100/110% 的高度，重启输入法后打开两个面板，断言外层 ScrollView 不可滚动、在网格侧边距里竖拖时磁贴不移位、磁贴不矮于 44 dp。完整运行该套件时这个检查也在里面。
 - iOS：`MorePanelFoldTests` 覆盖共享用例、按公式算出的真实键区高度、磁贴缩放和重新分页。
 - 鸿蒙：`tests/keyboard-logic.test.ts` 覆盖共享用例、默认、最矮和最高键区，并遍历全部高度调整和行距组合。
+- #11545：提取旧磁贴公式后，`FunctionTileGeometrySmoke` 在 52 dp 大字体标签底部越界处确定失败；修复后 146 项断言通过，覆盖三种密度、44/46.8/52/84 dp、三档字体尺寸、越出 ascent/descent 的合成墨迹以及常规字体原位置。测试由 Android JVM 冒烟自动发现；未操作设备，Android 16 报告者的字体效果仍未复验。同条报告的主字母问题已由 #11549（`e6b6dc1bee7ff6ae20021bbb3b290f3b164a0352`）合入，见[主字母宽度与工厂字号顺序](2026-11-17-android-key-hint-main-label-width.md)；本次基于该提交，只补它未覆盖的工具磁贴裁切，不覆盖或回退已合并的键帽修复。

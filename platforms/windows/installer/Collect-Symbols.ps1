@@ -19,12 +19,19 @@ Set-StrictMode -Version Latest
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $staging = $PSScriptRoot
 $bin = Join-Path $RepoRoot "target/windows-$Edition"
+$hostDll = [string]((Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json).editions |
+    Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows } |
+    Select-Object -First 1 -ExpandProperty platforms | Select-Object -ExpandProperty windows | Select-Object -ExpandProperty host_dll)
+if ([string]::IsNullOrWhiteSpace($hostDll)) { throw "Edition $Edition has no Windows host DLL" }
+$tipHostPdb = [IO.Path]::ChangeExtension(([IO.Path]::GetFileNameWithoutExtension($hostDll) + '_tip.dll'), '.pdb')
 $layout = [ordered]@{
     'server' = @(Get-ChildItem -LiteralPath (Join-Path $staging 'server_exe') -File -Filter '*.pdb')
     'tsf/x86' = @(Get-Item -LiteralPath (Join-Path $staging 'tsf_dll/32/MetasequoiaImeTsf.pdb'))
     'tsf/x64' = @(Get-Item -LiteralPath (Join-Path $staging 'tsf_dll/64/MetasequoiaImeTsf.pdb'))
     'host/x86' = @(Get-Item -LiteralPath (Join-Path $bin 'x86/bin/msime_host_api.pdb'))
     'host/x64' = @(Get-Item -LiteralPath (Join-Path $bin 'x64/bin/msime_host_api.pdb'))
+    'host-tip/x86' = @(Get-Item -LiteralPath (Join-Path $bin ('x86/bin/' + $tipHostPdb)))
+    'host-tip/x64' = @(Get-Item -LiteralPath (Join-Path $bin ('x64/bin/' + $tipHostPdb)))
     'wer/x86' = @(Get-Item -LiteralPath (Join-Path $bin 'x86/bin/MetasequoiaImeCrashWer.pdb'))
     'wer/x64' = @(Get-Item -LiteralPath (Join-Path $bin 'x64/bin/MetasequoiaImeCrashWer.pdb'))
     'wer/arm64x' = @(Get-Item -LiteralPath (Join-Path $bin 'arm64/bin/MetasequoiaImeCrashWer.pdb'))

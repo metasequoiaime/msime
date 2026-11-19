@@ -39,6 +39,9 @@ public final class EditorSmoke {
             return !rejectVerification;
         }
     }
+    static final class CommitOnlySink extends Sink {
+        @Override public boolean compose(String value) { calls.add("compose-rejected:" + value); return false; }
+    }
     static final class DisconnectedSink implements EditorBridge.Sink {
         public void begin() {}
         public boolean commit(String value) { throw new AssertionError("commit must not run"); }
@@ -60,6 +63,7 @@ public final class EditorSmoke {
         }
     }
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
+    static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
     public static void main(String[] args) {
         // 定位必须等提交已应用，再开始下一段组字；拒写与定位断连不能重复提交。
         EditorBridge cursorBridge = new EditorBridge();
@@ -110,6 +114,16 @@ public final class EditorSmoke {
         sink.calls.clear();
         check(bridge.apply(sink, "你", "hao"));
         check(sink.calls.equals(List.of("begin", "commit:你", "compose:hao", "end")));
+        EditorBridge partialBridge = new EditorBridge();
+        CommitOnlySink partial = new CommitOnlySink();
+        check(!partialBridge.apply(partial, "你", "hao"));
+        check(partialBridge.compositionRejectedAfterCommit(),
+            "a committed candidate followed by a rejected composition is recoverable");
+        partial.calls.clear();
+        check(!partialBridge.apply(partial, null, "好"));
+        check(partial.calls.equals(List.of("begin", "compose-rejected:好", "end")));
+        check(!partialBridge.compositionRejectedAfterCommit(),
+            "a composition-only rejection is not reported as a partial commit");
         sink.calls.clear();
         check(bridge.apply(sink, null, ""));
         check(sink.calls.equals(List.of("begin", "compose:", "finish", "end")));
@@ -194,6 +208,18 @@ public final class EditorSmoke {
         check(EditorPolicy.useEngine(0x80011));
         for (int type : new int[] {2, 3, 0x81, 0x91, 0xe1}) check(!EditorPolicy.useEngine(type));
         check(EditorPolicy.useEngine(0));
+        // #11103: fields with no class still compose, with or without flags: the Douyin live comment box reports 0x20000 (multi-line only). So do classes added after this code.
+        for (int type : new int[] {
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+                InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE,
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES,
+                0x5}) check(EditorPolicy.useEngine(type));
+        // Number, phone and date classes stay out, flags or not; a class-less field carrying a password variation stays out too.
+        for (int type : new int[] {
+                InputType.TYPE_CLASS_DATETIME,
+                InputType.TYPE_CLASS_PHONE | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT,
+                InputType.TYPE_CLASS_NUMBER | InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+                InputType.TYPE_TEXT_VARIATION_PASSWORD}) check(!EditorPolicy.useEngine(type));
         check(EditorPolicy.numberInput(InputType.TYPE_CLASS_NUMBER));
         check(EditorPolicy.numberInput(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD));
         check(EditorPolicy.numberInput(InputType.TYPE_CLASS_PHONE));

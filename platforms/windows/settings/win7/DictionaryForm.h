@@ -1,4 +1,5 @@
 #pragma once
+#include "../LearningResetFeedback.h"
 
 #include "ControlText.h"
 #include "PreferencesStore.h"
@@ -168,6 +169,10 @@ public:
               response->at("cleared").get<double>());
           if (!cleared) { invalid(); return; }
           notice(msime::settings::quick_phrase_clear::success_message(*cleared));
+        } else if (operation == "reset") {
+          notice(std::wstring(response->contains("collections_error")
+              ? msime::settings::learning_reset::collections_pending
+              : msime::settings::learning_reset::completed));
         } else {
           notice(operation == "export_file" || operation == "export_all_file" ? L"词库已导出。" : L"操作已完成。请刷新查看当前词条。");
         }

@@ -176,6 +176,22 @@
        1
       ]
      ]
+    },
+    "fixed_candidate_position_state": {
+     "columns": [
+      "context_key",
+      "entry_key",
+      "value",
+      "position"
+     ],
+     "rows": [
+      [
+       "nine-key:64:",
+       "mi",
+       "米",
+       1
+      ]
+     ]
     }
    }
   },
@@ -917,6 +933,34 @@
        1500,
        "",
        0
+      ]
+     ]
+    },
+    "fixed_candidate_position_state": {
+     "columns": [
+      "context_key",
+      "entry_key",
+      "value",
+      "position"
+     ],
+     "rows": [
+      [
+       "nine-key:64:",
+       "mi",
+       "米",
+       1
+      ]
+     ]
+    },
+    "pinned_candidate_state": {
+     "columns": [
+      "context_key",
+      "value"
+     ],
+     "rows": [
+      [
+       "nine-key:64:",
+       "米"
       ]
      ]
     }

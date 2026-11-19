@@ -63,6 +63,48 @@ struct Fixture {
     }
 };
 
+void learning_capability(Fixture &fixture) {
+    JNIEnv *env = fixture.env;
+    CHECK(!msime::android::session_store_supports_learning(env, fixture.object), "旧对象不声明学习能力");
+    CHECK(!env->ExceptionCheck(), "旧对象不留下异常");
+    jclass legacy_type = env->FindClass("app/msime/android/nativetest/JniCallbacksFixture$LegacyCapability");
+    jobject legacy_object = env->NewObject(legacy_type, env->GetMethodID(legacy_type, "<init>", "()V"));
+    Fixture legacy{env, legacy_type, legacy_object};
+    CHECK(!msime::android::session_store_supports_learning(env, legacy_object), "同名方法不代表声明新能力");
+    CHECK(!env->ExceptionCheck(), "旧代理未处理的新方法不被调用");
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    CHECK(legacy.field("calls") == 0, "旧代理没有收到能力回调");
+    env->DeleteLocalRef(legacy_object);
+    env->DeleteLocalRef(legacy_type);
+    jclass type = env->FindClass("app/msime/android/nativetest/JniCallbacksFixture$LearningCapability");
+    jobject object = env->NewObject(type, env->GetMethodID(type, "<init>", "()V"));
+    Fixture capability{env, type, object};
+    CHECK(!msime::android::session_store_supports_learning(env, object), "能力关闭时不声明");
+    CHECK(!env->ExceptionCheck(), "能力关闭不留下异常");
+    capability.set_boolean("supported", true);
+    CHECK(msime::android::session_store_supports_learning(env, object), "能力开启时声明");
+    CHECK(!env->ExceptionCheck(), "能力开启不留下异常");
+    capability.set_boolean("failing", true);
+    CHECK(!msime::android::session_store_supports_learning(env, object), "能力查询抛异常时拒绝");
+    jthrowable thrown = env->ExceptionOccurred();
+    CHECK(thrown != nullptr, "能力查询异常交回注册调用方");
+    env->ExceptionClear();
+    jobject expected = env->GetObjectField(object, env->GetFieldID(type, "failure", "Ljava/lang/RuntimeException;"));
+    CHECK(env->IsSameObject(thrown, expected), "保留能力查询抛出的原异常");
+    const int before = capability.field("calls");
+    env->Throw(static_cast<jthrowable>(expected));
+    CHECK(!msime::android::session_store_supports_learning(env, object), "已有异常时不查询能力");
+    jthrowable pending = env->ExceptionOccurred();
+    env->ExceptionClear();
+    CHECK(env->IsSameObject(pending, expected), "不清除调用方原有异常");
+    CHECK(capability.field("calls") == before, "已有异常时不调用 Java");
+    env->DeleteLocalRef(pending);
+    env->DeleteLocalRef(expected);
+    env->DeleteLocalRef(thrown);
+    env->DeleteLocalRef(object);
+    env->DeleteLocalRef(type);
+}
+
 void store_on_attached_thread(Fixture &fixture, void *store) {
     JNIEnv *env = fixture.env;
     uint8_t buffer[16];
@@ -220,6 +262,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     fixture.object = env->NewObject(fixture.type, env->GetMethodID(fixture.type, "<init>", "()V"));
+    learning_capability(fixture);
     void *store = msime::android::session_store_create(env, fixture.object);
     CHECK(store != nullptr && !env->ExceptionCheck(), "a store context for the fixture");
     if (store) {

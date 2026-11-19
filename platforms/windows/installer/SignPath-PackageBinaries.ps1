@@ -5,7 +5,7 @@
 .DESCRIPTION
     release-windows.yml 的 SignPath 路径调用这里，是 Sign-PackageBinaries-SimplySign.ps1 的 CI 对应物，但签的范围不同：SignPath Foundation 只允许项目签自己的代码，所以 Windows App SDK、ONNX Runtime、sherpa-onnx 和 vcpkg 构建的 DLL 保持上游发布时的样子，不提交。
 
-    本项目的二进制按两条规则认定：server_exe 下有同名 PDB 的 EXE（Prepare-PackageFiles.ps1 要求除 Windows App SDK 自带的可执行文件以外，每个 Server EXE 都带 PDB，并把 PDB 一起暂存进来，所以有 PDB 就是这次构建编出来的），以及 tsf_dll 下各架构的 TIP、WER helper 和本版本的宿主 DLL（名字取自 shared/contracts/editions.json）。server_exe 里没有本项目的 DLL。
+    本项目的二进制按两条规则认定：server_exe 下有同名 PDB 的 EXE（Prepare-PackageFiles.ps1 要求除 Windows App SDK 自带的可执行文件以外，每个 Server EXE 都带 PDB，并把 PDB 一起暂存进来，所以有 PDB 就是这次构建编出来的），以及 tsf_dll 下各架构的 TIP、WER helper、普通宿主 DLL 和静态 CRT TSF 宿主 DLL（名字取自 shared/contracts/editions.json 加 `_tip` 后缀）。server_exe 里没有本项目的 DLL。
 
     Stage 把这些文件按相对 installer 目录的路径复制到 <Directory>/<Edition>/ 下，各版本的暂存目录合起来就是一次签名请求的 artifact，路径与 signpath/msime-payload.xml 对应。Restore 在编译安装包的 job 里运行，那里的暂存包不带 PDB，所以它不再按 PDB 认定，而是取回 SignPath 为本版本返回的每个文件：签名状态不是 Valid 就失败，TIP、WER helper、宿主 DLL 和几个 Server 入口缺一个也失败，再覆盖暂存包里的原文件。
 
@@ -28,6 +28,7 @@ $editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/
 $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($editionEntry.Count -ne 1) { throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识" }
 $hostDllName = [string]$editionEntry[0].platforms.windows.host_dll
+$tipHostDllName = [IO.Path]::GetFileNameWithoutExtension($hostDllName) + '_tip.dll'
 $arm64HostDllName = [IO.Path]::GetFileNameWithoutExtension($hostDllName) + '_arm64.dll'
 
 $serverDirectory = Join-Path $PackageRoot 'server_exe'
@@ -43,6 +44,7 @@ $required = @(
         "tsf_dll/$arch/MetasequoiaImeTsf.dll"
         "tsf_dll/$arch/MetasequoiaImeCrashWer.dll"
         "tsf_dll/$arch/$hostDllName"
+        "tsf_dll/$arch/$tipHostDllName"
     }
     'tsf_dll/arm64/MetasequoiaImeTsf.dll'
     'tsf_dll/arm64/MetasequoiaImeCrashWer.dll'

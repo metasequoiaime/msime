@@ -104,9 +104,27 @@ int main(int argc, char** argv) {
     // 隔离真实词库读写；只替换 Server 维护通知边界，不联系已安装输入法。
     return theme_data::call(msime_client_dictionary, request).dump();
   };
+  bool reject_account_reset = false, partial_account_reset = false;
+  unsigned account_resets = 0;
+  const auto account_backend = [&](const std::string& body) {
+    assert(GetCurrentThreadId() != ui_thread);
+    auto request = Json::parse(body);
+    assert(request.at("action").at("operation") == "learning_reset_settings");
+    assert(request.at("action").at("options") == options);
+    ++account_resets;
+    if (reject_account_reset) return dictionary_data::failure("dictionary_reset_rejected").dump();
+    // 保留原合成词库和维护通知隔离；共享账号屏障另由真实 C ABI/SQLite 回归验证。
+    auto response = Json::parse(backend(Json{{"options", request.at("action").at("options")},
+        {"action", {{"operation", "reset"}}}}.dump()));
+    if (partial_account_reset && response.value("ok", false)) {
+      response["value"]["collections_requeued"] = nullptr;
+      response["value"]["collections_error"] = "synthetic-collections-failure";
+    }
+    return response.dump();
+  };
   SettingsWindow window([&](HWND, bool save) -> std::optional<std::filesystem::path> {
     ++picks; return cancel_picker ? std::nullopt : std::make_optional(save ? export_path : import_path);
-  }, [&](HWND, const wchar_t* title, const wchar_t* message) { assert(std::wstring_view(title) == L"词库" && message && *message); return allow; }, {}, {}, {}, {}, {}, {}, backend);
+  }, [&](HWND, const wchar_t* title, const wchar_t* message) { assert(std::wstring_view(title) == L"词库" && message && *message); return allow; }, {}, {}, {}, account_backend, {}, {}, backend);
   assert(window.create(GetModuleHandleW(nullptr)));
   const auto host = window.handle(), body = GetDlgItem(host, page_body), idle = GetDlgItem(body, language_switch);
   const auto wait = [&] { pump([&] { return IsWindowEnabled(idle) != FALSE; }); };
@@ -188,8 +206,17 @@ int main(int argc, char** argv) {
   corrupt_list = true; click(dictionary_search);
   assert(!IsWindowEnabled(GetDlgItem(body, dictionary_entries)) && !IsWindowEnabled(GetDlgItem(body, dictionary_delete)));
   corrupt_list = false; click(dictionary_search);
-  allow = false; count = calls.size(); click(dictionary_reset); assert(calls.size() == count);
+  allow = false; count = calls.size(); click(dictionary_reset); assert(calls.size() == count && account_resets == 0);
+  allow = true; reject_account_reset = true; count = calls.size(); click(dictionary_reset);
+  assert(account_resets == 1 && calls.size() == count);
+  assert(text(dictionary_notice).find("失败") != std::string::npos);
+  reject_account_reset = false;
   allow = true; click(dictionary_reset);
+  assert(account_resets == 2);
+  partial_account_reset = true; click(dictionary_reset);
+  assert(text(dictionary_notice).find("已清除学习数据") != std::string::npos);
+  assert(text(dictionary_notice).find("尚未写回") != std::string::npos);
+  partial_account_reset = false;
   assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 0);
   choose(dictionary_kind, local_kind(L"pinyin")); click(dictionary_user_only); set(dictionary_query, L"he"); click(dictionary_search);
   assert(SendMessageW(GetDlgItem(body, dictionary_entries), LB_GETCOUNT, 0, 0) == 1);

@@ -42,8 +42,9 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($editionEntry.Count -ne 1) { throw "Edition $Edition has no Windows identifiers in shared/contracts/editions.json" }
-# 两个版本的 TIP 被同一个应用加载时，按导入表找 msime_host_api.dll 会拿到先加载的那一个，所以不是 full 的版本把它改成自己的名字（版本表 host_dll），并生成同名的导入库给 TSF DLL、Server 和设置窗口链接。
+# 两个版本的 TIP 被同一个应用加载时，按导入表找宿主 DLL 会拿到先加载的那一个，所以不是 full 的版本把普通宿主改成自己的名字（版本表 host_dll），并为 TSF 再生成带 `_tip` 后缀的静态 CRT 宿主导入库；Server、设置窗口和原生面板继续链接普通宿主。
 $hostDll = [string]$editionEntry[0].platforms.windows.host_dll
+$tipHostDll = [IO.Path]::GetFileNameWithoutExtension($hostDll) + '_tip.dll'
 $buildRoot = Join-Path $RepoRoot "target/windows-$Edition"
 foreach ($relative in @('Cargo.toml', 'crates/engine/Cargo.toml',
                          'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
@@ -74,8 +75,9 @@ try {
         $output = Join-Path $buildRoot $arch
         $bin = Join-Path $output 'bin'
         $hostLibrary = Join-Path $release 'msime_host_api.dll.lib'
+        $tipHostLibrary = Join-Path $release 'msime_host_api_tip.dll.lib'
+        New-Item -ItemType Directory -Force -Path $output | Out-Null
         if ($Edition -ne 'full') {
-            New-Item -ItemType Directory -Force -Path $output | Out-Null
             $hostDefinition = Join-Path $output ([IO.Path]::ChangeExtension($hostDll, '.def'))
             Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
                 '--edition', $Edition, '--dll', (Join-Path $release 'msime_host_api.dll'), '--output', $hostDefinition)
@@ -83,11 +85,20 @@ try {
             $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
             Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$hostDefinition", "/OUT:$hostLibrary", "/MACHINE:$machine")
         }
+        # TSF 始终以自己的模块名导入隔离 CRT 的宿主。Rust 产出的导入库从普通宿主复制而来，内部仍记录 `msime_host_api.dll`；所有 edition（包括 full）都要从真实的 TIP DLL 重建它。
+        $tipHostDefinition = Join-Path $output ([IO.Path]::ChangeExtension($tipHostDll, '.def'))
+        Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
+            '--edition', $Edition, '--dll', (Join-Path $release 'msime_host_api_tip.dll'), '--output', $tipHostDefinition,
+            '--module-name', $tipHostDll)
+        $tipHostLibrary = Join-Path $output "$tipHostDll.lib"
+        $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
+        Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$tipHostDefinition", "/OUT:$tipHostLibrary", "/MACHINE:$machine")
         $source = if ($arch -eq 'x64') { 'platforms/windows' } else { 'platforms/windows/tsf' }
         $configure = @('-S', (Join-Path $RepoRoot $source), '-B', $output,
             '-G', $Generator, '-A', $platform,
             "-DCMAKE_PREFIX_PATH=$($env:CMAKE_PREFIX_PATH)",
             "-DMSIME_HOST_LIBRARY=$hostLibrary", "-DMSIME_EDITION=$Edition",
+            "-DMSIME_TSF_HOST_LIBRARY=$tipHostLibrary",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$bin",
             '-DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF')
         if ($arch -eq 'x64') {
@@ -103,8 +114,11 @@ try {
         # 宿主 DLL 的 PDB 保留 DLL 内嵌的文件名；Collect-Symbols.ps1 把它打进符号包。
         Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.dll'), (Join-Path $bin $hostDll))
         Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.pdb'), (Join-Path $bin 'msime_host_api.pdb'))
+        Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api_tip.dll'), (Join-Path $bin $tipHostDll))
+        Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api_tip.pdb'), (Join-Path $bin ([IO.Path]::ChangeExtension($tipHostDll, '.pdb'))))
         if ($arch -eq 'x64') {
             $x64HostLibrary = $hostLibrary
+            $x64TsfHostLibrary = $tipHostLibrary
             # The Rust outputs: the MCP server and the shared Tauri panel shell, each with its PDB under the name the package wants.
             Invoke-ClientBuild cmake (@('-E', 'copy_if_different') +
                 @('msime-mcp.exe', 'msime-mcp.pdb', 'MSIME.exe', 'MSIME.pdb' | ForEach-Object { Join-Path $release $_ }) + @($bin))
@@ -164,11 +178,11 @@ try {
         $passOutput = Join-Path $arm64Output $pass.ToLowerInvariant()
         # The ARM64 pass's own DLL is only an input to the Arm64X link, so it stays in its build tree.
         $passBin = if ($pass -eq 'ARM64EC') { $arm64Bin } else { Join-Path $passOutput 'bin' }
-        $passHost = if ($pass -eq 'ARM64EC') { $x64HostLibrary } else { $arm64HostLibrary }
+        $passHost = if ($pass -eq 'ARM64EC') { $x64TsfHostLibrary } else { $arm64HostLibrary }
         $configure = @('-S', (Join-Path $RepoRoot 'platforms/windows/tsf'), '-B', $passOutput,
             '-G', $Generator, '-A', $pass,
             "-DCMAKE_PREFIX_PATH=$X64Dependencies",
-            "-DMSIME_HOST_LIBRARY=$passHost", "-DMSIME_EDITION=$Edition",
+            "-DMSIME_HOST_LIBRARY=$passHost", "-DMSIME_TSF_HOST_LIBRARY=$passHost", "-DMSIME_EDITION=$Edition",
             "-DMSIME_TSF_ARM64X=$pass", "-DMSIME_TSF_ARM64X_RESPONSE=$arm64Response",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$passBin")
         if ($TargetVersion -ne '') { $configure += "-DMSIME_WINDOWS_VERSION=$TargetVersion" }
@@ -182,7 +196,7 @@ try {
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
         & (Join-Path $PSScriptRoot 'Copy-RuntimeDependencies.ps1') `
             -DependencyPrefix $prefix -Destination $bin -Architecture $arch
-        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', $hostDll)) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeCrashWer.dll', $hostDll, $tipHostDll)) {
             & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture $arch -Kind dll
         }
         if ($arch -eq 'x64') {

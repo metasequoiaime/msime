@@ -32,7 +32,7 @@ Status: implemented
 - **合并后整代可读**：输入记录和习惯合并完后，用 `dictionary_state_revision(staged)` 按后续读取版本的路径验证整代，再允许换入。旧代与云端快照各自合法不代表合并后的总量合法：499,999 条本机选词计数加两条云端用户词会超过 Engine 的 500,000 条上限。超限或整代不可读时按合并失败处理，不发布新一代、不删除旧代。
 - **合并进哪一代**：并进还没换入的新一代，不是换入以后再并回当前这一代。合并失败（磁盘满、I/O 失败）时报 `snapshot learning merge failed`，激活不做，旧的一代原样留着，请求停在 `preparing`，下次空闲再认领重试。
 - **导出和合并的内容**：都复用本地备份的代码，语义也与本地备份恢复相同。
-  - 输入记录：用 `learning_records` 写成一份只有输入记录的快照（与 `queue_learning_merge` 写的待合并文件同一个形状），放在这次准备的私有暂存目录里，再用 `merge_dictionary_state` 并进新一代。它同时改新一代的日志和工作词库。
+  - 输入记录：调权与删除由 Engine 的 `carry_learning_sync_state` 原样搬迁日志及工作词库，保留时间、显示文本、权重和用户来源；完整固定候选连同隐藏身份一起搬迁，槽位冲突仅在显示投影时决胜。同身份已有云端记录时仍保留云端。选词计数继续用 `learning_records` 写成只含 selection 的暂存快照，再由 `merge_dictionary_state` 取大合并。同步层的理由和验证见[输入习惯跨设备同步](../../proposed/feature/2026-10-27-learning-sync-e2e.md)。
   - 输入习惯：用 `habits::export_learning_habits` 导出，`habits::merge_claimed_habits` 合并。
   - 规则是新一代已有的保留新一代，计数取大。所以快照里的用户词以云端为准：本机删过、云端又有的用户词会回来；本机学过调权、云端是用户词的，按用户词算。
 - **读不出来的那一类不并**：旧的一代某一类读不出来（日志或习惯表里有不是 UTF-8 的行等）时，这一类不并，整份换掉，与改动前相同。不让一份坏日志挡住以后每一次下载。输入记录读不出来时，`dictionary_state_revision` 也读不出来，激活在版本核对时就已经失败，所以这条实际只会落在输入习惯上。
@@ -55,9 +55,9 @@ Status: implemented
 - **代价与已知上限**：
   - 激活多一次全量导出和合并，耗时与本机学习记录的多少成正比。这一步在键盘空闲（Android、鸿蒙）或输入会话让出词库（桌面 `QuiescedHosts`）时进行，与本地备份恢复时的合并是同一量级。
   - 合并按本地备份的规则来，有几处损失：
-    - 输入记录的 `updated_at` 变成激活时刻。#10043 第 1 期的 Lamport 时间戳要用真实的 `updated_at`，届时要改成原样保留。
+    - 调权、删除、固定位置与置顶保留真实时间和完整候选；旧格式本地备份仍只带可见固定位置。
     - 选词计数截到 10。
-    - 编码、词或上下文里含换行、制表符的行跳过。
+    - 选词计数的编码、词或上下文里含换行、制表符时仍跳过；调权和固定候选走 Engine 原样搬迁，不再套用快照文本限制。
   - iOS 的「应用到本机」走自己的 Swift 队列，直接调 `msime_client_snapshot_prepare`/`activate`。这条队列只用于云词库应用到本机（请求都绑定账号），所以 `DictionarySnapshotBridge.prepare` 一律在 `PrepareRequest` 里带 `keep_local_learning: true`。iOS 的云同步不同步词库（capabilities 里 `dictionary` 为假），不会走到云同步下载那条路。
   - 只有与所有者推出来的值不同的请求（属于账号却不保留学习、`local-backup` 却保留）才会把 `keepLocalLearning` 写进 `state.json`，被不认识这个字段的旧版本读到会因 `deny_unknown_fields` 报 `snapshot_invalid`。现在没有入队处排这样的请求。以后加这样的入队处，就要接受「排着这种请求时降级」读不出队列。
 

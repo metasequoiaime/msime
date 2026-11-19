@@ -1,5 +1,6 @@
 #import "InputSourceRegistration.h"
 #import "InputModeIdentifiers.h"
+#include "../core/DiagnosticLog.h"
 #include <cstring>
 
 @implementation MSIMEInputSourceMonitor {
@@ -45,6 +46,8 @@
     BOOL away = bundle.length ? ![bundle isEqual:_identifier] :
         (identifier.length && ![identifier isEqual:_identifier] &&
          ![identifier hasPrefix:[_identifier stringByAppendingString:@"."]]);
+    // Name the source the system moved to, so a report that the input method keeps switching to another one shows in diagnostic.log which source took over and when; the ID is a state label like the others, and the log replaces control bytes and caps its length.
+    if (away) msime_macos_diagnostic_writef("input_source switched_away to=%s", (identifier.length ? identifier : bundle).UTF8String);
     CFRelease(source);
     if (away) _action();
 }
@@ -133,7 +136,23 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
     if (status != noErr) return status;
     CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, true);
     if (!sources || CFArrayGetCount(sources) == 0) { if (sources) CFRelease(sources); return fnfErr; }
-    if (previouslyInstalled) { CFRelease(sources); return noErr; }
+    if (previouslyInstalled) {
+        // 重装要保留用户移除的模式，但顶层输入源是输入法本身。重复安装或旧版本登记留下的顶层源可能已经被系统标成关闭，不能因为它仍在注册表里就静默返回。
+        for (CFIndex index = 0; index < CFArrayGetCount(sources); ++index) {
+            TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, index);
+            void *identifier = propertyGetter(source, kTISPropertyInputSourceID);
+            if (!identifier || CFGetTypeID(identifier) != CFStringGetTypeID() ||
+                ![(__bridge NSString *)identifier isEqualToString:bundleIdentifier]) continue;
+            void *isEnabled = propertyGetter(source, kTISPropertyInputSourceIsEnabled);
+            if (!isEnabled || CFGetTypeID(isEnabled) != CFBooleanGetTypeID() ||
+                CFBooleanGetValue((CFBooleanRef)isEnabled)) break;
+            status = enabler(source);
+            if (status != noErr) { CFRelease(sources); return status; }
+            break;
+        }
+        CFRelease(sources);
+        return noErr;
+    }
     // 首次安装只提供主模式，其他模式由用户手动添加，避免一次塞进整个输入菜单。
     NSString *primaryID = [bundleIdentifier stringByAppendingString:@".Hans"];
     BOOL enabled = NO;

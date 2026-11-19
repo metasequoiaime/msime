@@ -69,6 +69,7 @@ import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
 import java.io.IOException;
@@ -162,6 +163,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean editorCompositionSuppressed;
     JSONObject view;
     FrameLayout keyboardRoot;
+    /** 同一个根容器，交给编辑器的退格确认前按住新开始的触摸（{@link ImeEditorDelete}）。 */
+    TouchHoldLayout touchHold;
     FrameLayout keyboardSurface;
     private LinearLayout candidates;
     private LinearLayout verticalCandidates;
@@ -392,6 +395,8 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.WeakHashMap<JSONObject, Integer> designHashes = new java.util.WeakHashMap<>();
     /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
     final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
+    /** 交给编辑器的退格从发出到确认这一段。 */
+    final ImeEditorDelete editorDelete = new ImeEditorDelete(this);
     private JSONObject localModes = new JSONObject();
     Button moreButton;
     Button schemeButton;
@@ -1670,39 +1675,58 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 删除键先删选区；普通文字与表情按字素边界删除，空框交给编辑器处理引用。 */
+    /** 用户的退格（各布局删除键、表情和符号面板、手写、语音锁定面板）：先删选区，其余交给编辑器（{@link ImeEditorDelete}）。 */
     void deleteCodePointBeforeCursor() {
-        clearQuickDeleteUndo();
+        if (editorDelete.queueBehindPending()) return;
         dropDeferredToolbarTaps();
+        if (!prepareDelete()) return;
+        CharSequence before = EditorBackspaceBoundary.before(connection);
+        if (editorDelete.deletesDirectly(before)) deleteGraphemeBefore(before);
+        else editorDelete.send(before);
+    }
+
+    /** 输入法自己替换刚写下的内容（日文九键连点换假名）：直接按字素删除，紧接着的写入不会和按键事件争先后。 */
+    void deleteBeforeCursorForReplacement() {
+        dropDeferredToolbarTaps();
+        if (!prepareDelete()) return;
+        deleteGraphemeBefore(EditorBackspaceBoundary.before(connection));
+    }
+
+    /** 删除前的共同收尾；有选区时删掉选区并返回 false。 */
+    boolean prepareDelete() {
+        clearQuickDeleteUndo();
         editorReads.invalidate();
         pairedPunctuationStack.clear();
-        if (deleteSelection()) return;
-        CharSequence before = EditorBackspaceBoundary.before(connection);
+        return !deleteSelection();
+    }
+
+    /** 按字素边界直接删光标前的一个字素（读回核实的码位删除）；空框和读不全的范围仍交给编辑器。 */
+    void deleteGraphemeBefore(CharSequence before) {
         int length = EditorBackspaceBoundary.length(before);
-        if (before != null && (length == 0 || EditorBackspaceBoundary.shouldDelegate(before, length))) {
-            // 空框引用、不完整范围和私有占位交给编辑器；未知长度不猜回声，不保留横滑恢复。
-            selectionEcho.invalidate();
-            imeLetterRows.invalidateBackspaceScrub();
-            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
+        if (before != null && length == 0) {
+            editorDelete.send(before);
             return;
         }
         boolean multiplePoints = length > 0
             && Character.codePointCount(before, before.length() - length, before.length()) > 1;
-        boolean deleted = multiplePoints
+        boolean deleted = length > 0
             ? InputConnectionGuard.deleteSurroundingText(connection, length, 0)
             : InputConnectionGuard.deleteSurroundingTextInCodePoints(connection, 1, 0);
+        if (length == 0 && deleted) {
+            CharSequence after = EditorBackspaceBoundary.before(connection);
+            if (after != null && before != null && after.length() >= before.length())
+                deleted = InputConnectionGuard.deleteSurroundingText(connection, 1, 0);
+        }
         if (deleted) {
-            if (multiplePoints) imeLetterRows.invalidateBackspaceScrub();
+            if (length == 0 || multiplePoints) imeLetterRows.invalidateBackspaceScrub();
             else imeLetterRows.recordBackspaceScrubDelete(before);
             if (length > 0) selectionEcho.deleteBefore(length);
             else selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
-            imeLetterRows.invalidateBackspaceScrub();
-            selectionEcho.invalidate();
             // 部分远程编辑器（例如桌面控制类应用）拒绝 surrounding-text 删除，但仍处理原始退格键。
             // 连接已明确返回失败时才回退，避免普通编辑器重复删除。
-            sendEditorKeyEvents(KeyEvent.KEYCODE_DEL);
+            editorDelete.send(before);
         }
     }
 
@@ -1879,6 +1903,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         // restart 保留组字也属于新的焦点边界，旧照片和识别回调不能跨过去。
         if (imeOcr != null) imeOcr.close();
+        editorDelete.abandon();
         cancelPendingCompositionMarkerLoss();
         super.onStartInput(info, restarting);
         if (info != null) automaticNumberRow.enterEditor(info.inputType, info.packageName);
@@ -2284,6 +2309,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInput() {
+        editorDelete.abandon();
         imePanels.autoCloudClipboard.active(false);
         operationNotice.cancel();
         spaceCopyNotice.cancel();
@@ -2898,23 +2924,26 @@ public final class MSIMEInputService extends InputMethodService {
      * runtime-options.json 里的偏好是首次安装时写下的出厂默认（见 Bootstrap.prepare），拿它建会话，引擎先按默认方案（全拼 26 键）起来，过一两秒实时偏好重载后才换成用户的方案，九键用户每次都看到键盘从 26 键跳成九键。建会话前在工作线程上读一次实时偏好换进去；读不到时照旧用原来那份。不允许学习的输入框照样把 learning 关掉。
      */
     private EngineStartOptions withLivePreferences(String optionsText, boolean suppressLearning) {
+        JSONObject options = null;
         try {
-            JSONObject options = new JSONObject(optionsText);
+            options = new JSONObject(optionsText);
+            QuickPhrasePreferencePolicy.normalize(options.optJSONObject("preferences"));
             String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute())
-                return new EngineStartOptions(optionsText, null);
+                return new EngineStartOptions(options.toString(), null);
             // 读实时偏好之前把本机旧的长空格和数字行设置迁进共享偏好，这次会话就按迁移后的底行和数字行画。
             KeyLayoutStyleMigration.migrate(this, directory);
             String response = candidateSkinResolver.read(directory);
             JSONObject envelope = new JSONObject(response);
             JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
-            if (live == null) return new EngineStartOptions(optionsText, null);
+            if (live == null) return new EngineStartOptions(options.toString(), null);
+            QuickPhrasePreferencePolicy.normalize(live);
             if (suppressLearning) live.put("learning", false);
             options.put("preferences", live);
             return new EngineStartOptions(options.toString(), response);
         } catch (JSONException | RuntimeException | LinkageError error) {
-            return new EngineStartOptions(optionsText, null);
+            return new EngineStartOptions(options == null ? optionsText : options.toString(), null);
         }
     }
 
@@ -2932,6 +2961,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
             // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
             options.put("phrase_preedit", true);
+            // Android 也声明快捷短语混输能力；是否加入普通候选仍由 shared `mixed_input.quick_phrase` 门控。
+            options.put("quick_phrase_candidates", true);
             // 这个宿主在停顿时调 startSettledRerank（schedulePauseRerank）：跑不进逐键预算的设备上，host-api 把整句联想「增强」的模型延后到停顿时用。
             options.put("pause_rerank", true);
             // 没读到实时偏好时（读取失败、建会话的回退路径、没有偏好目录），选项里的偏好是出厂默认的全拼 26 键副本，九键用户的键盘会先跳回 26 键（#10389）。按上次确认的键面把副本换成九键：引擎从九键网格起来，键面照旧只按引擎视图画，画的九键和引擎一致，网格键能打字。实时偏好随后到达时照常换成用户的真实设置。
@@ -3917,6 +3948,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousAiCandidates = previousAiAssistant != null
             && previousAiAssistant.optBoolean("enabled", false);
         JSONObject accepted = new JSONObject(snapshot.toString());
+        QuickPhrasePreferencePolicy.normalize(accepted.optJSONObject("preferences"));
         long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
         if (revision < 0) throw new JSONException("Invalid preferences revision");
         accepted.put("revision", revision);
@@ -4216,7 +4248,14 @@ public final class MSIMEInputService extends InputMethodService {
         String composing = composingText(next, next.getString("editing_text"), true);
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing, cursorSuffix)) {
-            throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+            // 某些 WebView/Compose 搜索框能接受候选字上屏，却拒绝同一批次里的剩余组字。
+            // 提交已经成功，继续把这段拼音留在键盘上，避免把引擎视图和展开候选面板一起丢掉。
+            if (bridge.compositionRejectedAfterCommit() && commit != null && !composing.isEmpty()) {
+                editorCompositionSuppressed = true;
+                selectionEcho.invalidate();
+            } else {
+                throw new InputFailurePolicy.Failure(InputFailurePolicy.Reason.EDITOR_REJECTED);
+            }
         }
         view = next;
         // 九键 1 键放进候选条的常用标点只留到下一次转换，下面的 render 画这次转换的候选。
@@ -6978,9 +7017,11 @@ public final class MSIMEInputService extends InputMethodService {
                 updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
             };
             main.postDelayed(pendingCompositionMarkerLoss, 100);
+            editorDelete.selectionReported();
             return;
         }
         updateEditorSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
+        editorDelete.selectionReported();
     }
 
     private void updateEditorSelection(int oldStart, int oldEnd, int newStart, int newEnd,
@@ -10718,6 +10759,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void moveBackspaceScrub(BackspaceScrub scrub, int deleted) {
+        if (editorDelete.deferScrub(scrub, deleted)) return;
         if (EditorPolicy.password(editorInputType) || !allowLearning || incognitoEnabled
                 || hasEngineComposition() || handwritingCanvas != null && handwritingCanvas.hasInk()) {
             scrub.invalidate();
@@ -10743,6 +10785,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 快速删除只备份编辑器实际接受的删除；不在密码、不学习或无痕输入框中保存。 */
     void deleteAllBeforeCursor() {
+        if (editorDelete.defer(this::deleteAllBeforeCursor)) return;
         clearQuickDeleteUndo();
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
         if (hasEngineComposition()) discardComposition();
@@ -10805,6 +10848,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 快速删除的可选全框模式：显式选中光标前后读到的整段文字后删除，并保留一次撤回。 */
     void deleteAllInput() {
+        if (editorDelete.defer(this::deleteAllInput)) return;
         clearQuickDeleteUndo();
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
         if (hasEngineComposition()) discardComposition();
@@ -10866,6 +10910,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void undoQuickDelete() {
+        if (editorDelete.defer(this::undoQuickDelete)) return;
         if (!canUndoQuickDelete()) return;
         QuickDeleteUndo snapshot = quickDeleteUndo;
         // 撤回不算新输入，不学习、不写统计；明确拒绝且上下文未变时保留一次重试机会。
@@ -11126,7 +11171,9 @@ public final class MSIMEInputService extends InputMethodService {
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
         // 这里不再按开关清空历史：进程刚起来时开关还是字段初始值（关），实时偏好还没读到，按它清空会在每次切回本输入法时抹掉整份历史（#5602）。开关关着时由下一次实时读偏好负责清空，见 ClipboardHistoryRetentionPolicy。
-        keyboardRoot = new FrameLayout(this);
+        touchHold = new TouchHoldLayout(this);
+        touchHold.setHold(editorDelete::holding);
+        keyboardRoot = touchHold;
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
