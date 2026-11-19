@@ -1,8 +1,11 @@
 package app.msime.android.test;
 
 import android.content.Intent;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.function.Predicate;
 
@@ -112,6 +115,29 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
         await(editorText("前后"));
         await(status(true, true, 4));
 
+        // 编辑器晚 60 ms 才处理退格按键：退格后 10 ms 按下的 n 必须等编辑器回报删除之后再组字，
+        // 否则 n 先写进去，迟到的退格把它删掉（真机 QQ 里约 40 ms 内的组字 10 次有 8 次这样丢）。
+        openEditor(false, true, 60);
+        for (int round = 1; round <= 3; round++) {
+            stage = "editor-owned backspace settles before the next key, round " + round;
+            setText("前[合成]");
+            Rect backspace = new Rect();
+            Rect letter = new Rect();
+            awaitStableBounds(key("⌫")).getBoundsInScreen(backspace);
+            awaitStableBounds(key("n")).getBoundsInScreen(letter);
+            long at = SystemClock.uptimeMillis();
+            touch(backspace, at, at, MotionEvent.ACTION_DOWN);
+            touch(backspace, at, at + 5, MotionEvent.ACTION_UP);
+            touch(letter, at + 10, at + 10, MotionEvent.ACTION_DOWN);
+            touch(letter, at + 10, at + 15, MotionEvent.ACTION_UP);
+            await(editorText("前n"));
+            await(status(true, true, round));
+            stage = "composition after the settled backspace is still the IME's, round " + round;
+            tap(key("⌫"));
+            await(editorText("前"));
+            await(status(true, true, round));
+        }
+
         openEditor(true);
         stage = "unavailable preceding text is not treated as empty";
         setText("甲");
@@ -127,15 +153,30 @@ public final class EmptyEditorBackspaceDeviceSmoke extends DeviceSmoke {
     }
 
     private void openEditor(boolean unavailable, boolean privateInline) throws java.util.concurrent.TimeoutException {
+        openEditor(unavailable, privateInline, 0);
+    }
+
+    private void openEditor(boolean unavailable, boolean privateInline, int delayKeysMs)
+            throws java.util.concurrent.TimeoutException {
         stage = "quote editor focus";
         Intent intent = new Intent(getTargetContext(), QuoteEditorActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         intent.putExtra("unavailable_before", unavailable);
         intent.putExtra("private_inline", privateInline);
+        intent.putExtra("delay_keys_ms", delayKeysMs);
         startActivitySync(intent);
         tap(field(EDITOR));
         await(key("n"));
         await(status(true, true, 0));
+    }
+
+    /** 真实触摸（坐标注入）：经输入法窗口的触摸分发，按住规则才看得见；无障碍点击直接调按钮，绕过它。异步投递，两次点按的间隔不被 Binder 拉长。 */
+    private void touch(Rect key, long down, long at, int action) {
+        MotionEvent event = MotionEvent.obtain(down, at, action, key.centerX(), key.centerY(), 0);
+        event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        try {
+            if (!automation.injectInputEvent(event, false)) throw new AssertionError("Synthetic touch injection failed");
+        } finally { event.recycle(); }
     }
 
     private Predicate<AccessibilityNodeInfo> editorText(String text) {
