@@ -491,6 +491,10 @@ final class ImeLetterRows {
         if (backspaceScrub != null) backspaceScrub.ordinaryDelete(before);
     }
 
+    boolean hasBackspaceScrub() {
+        return backspaceScrub != null && backspaceScrub.available();
+    }
+
     void invalidateBackspaceScrub() {
         if (backspaceScrub != null) backspaceScrub.invalidate();
     }
