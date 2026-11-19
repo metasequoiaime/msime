@@ -104,26 +104,33 @@ void candidate_menu_placement_rules() {
   using A = host::CandidateMenuAnchor;
   const host::WaveOverlayWorkArea work{0, 0, 1920, 1080};
 
-  // 光标在屏幕中间：菜单放光标右方，顶边贴光标顶边。
+  // 光标在屏幕中间：菜单水平居中于光标、整体在光标上方（候选框在光标下方，不再重叠）。
   {
     const A anchor{A::Kind::Caret, 600, 400, 8, 20};
     assert(host::candidate_menu_anchor_usable(anchor, work));
-    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
-    assert(pos.x == 620 && pos.y == 392);
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 504 && pos.y == 88);
   }
 
-  // 光标贴右边缘：右方放不下，翻到光标左方。
+  // 光标贴右边缘：菜单仍水平居中于光标，夹在工作区内（不越界）。
   {
     const A anchor{A::Kind::Caret, 1800, 400, 8, 20};
-    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
-    assert(pos.x == 1588 && pos.y == 392);
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 1704 && pos.y == 88);
+  }
+
+  // 光标贴屏幕顶边：上方放不下，菜单夹在工作区顶部（已知边界，部分越过光标）。
+  {
+    const A anchor{A::Kind::Caret, 600, 40, 8, 20};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 504 && pos.y == 8);
   }
 
   // 光标还没报（全 0）：不可用，回退到工作区中下部，绝不在桌面右上角。
   {
     const A anchor{A::Kind::Caret, 0, 0, 0, 0};
     assert(!host::candidate_menu_anchor_usable(anchor, work));
-    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
     assert(pos.x == 860 && pos.y == 510);
     assert(pos.x > 300 && pos.y > 300);
   }
@@ -132,14 +139,14 @@ void candidate_menu_placement_rules() {
   {
     const A anchor{A::Kind::Caret, 4000, 4000, 8, 20};
     assert(!host::candidate_menu_anchor_usable(anchor, work));
-    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
     assert(pos.x == 860 && pos.y == 510);
   }
 
-  // 指针模式保持原行为：下方放不下翻到上方。
+  // 指针模式（纯 X11）保持原行为：下方放不下翻到上方。
   {
     const A anchor{A::Kind::Pointer, 100, 900, 0, 0};
-    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
     assert(pos.x == 92 && pos.y == 608);
   }
 }

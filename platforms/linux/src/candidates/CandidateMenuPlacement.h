@@ -37,13 +37,14 @@ constexpr bool candidate_menu_anchor_usable(const CandidateMenuAnchor &anchor, W
          anchor.y + anchor.height <= work.y + work.height;
 }
 
-// 菜单左上角位置。光标模式优先放在光标右方（候选窗通常在光标上/下方，侧方不挡候选），
-// 右方放不下翻左方，再放不下放到下方（留出候选窗的估计高度），最后才翻上方；全程夹在
-// 工作区内。锚点不可用时回到工作区水平居中、下沿离底边四分之一处，绝不落在桌面右上角。
-// 指针模式保持原来的「下方放不下翻上方」。
+// 菜单左上角位置。Wayland（光标模式）：候选框由 GNOME Shell 作为合成器 actor 画在
+// 光标下方，X11 菜单无论抬升还是侧移都压不过它；所以菜单水平居中于光标、整体放在
+// 光标上方，与候选框的垂直区间分离，不重叠。IBus 的右键事件不带坐标，这里用光标
+// 矩形近似鼠标位置，多数场景两者很接近。锚点不可用时回到工作区水平居中、下沿离
+// 底边四分之一处，绝不落在桌面右上角。纯 X11（指针模式）保持「下方放不下翻上方」，
+// 那里的候选框和菜单同是 X11 窗口，不存在合成器遮挡。
 constexpr CandidateMenuPosition candidate_menu_position(CandidateMenuAnchor anchor, int menu_width,
                                                         int menu_height, int margin, int gap,
-                                                        int candidate_clearance,
                                                         WaveOverlayWorkArea work) {
   using candidate_menu_detail::clamp;
   const int min_x = work.x + margin;
@@ -63,20 +64,9 @@ constexpr CandidateMenuPosition candidate_menu_position(CandidateMenuAnchor anch
     return {clamp(x, work.x - margin, work.x + work.width - menu_width + margin),
             clamp(y, work.y - margin, work.y + work.height - menu_height + margin)};
   }
-  const int caret_right = anchor.x + anchor.width;
-  const int caret_bottom = anchor.y + anchor.height;
-  const int near_y = clamp(anchor.y - margin, min_y, max_y);
-  const int right_x = caret_right + gap;
-  if (right_x + menu_width <= max_x)
-    return {clamp(right_x, min_x, max_x), near_y};
-  const int left_x = anchor.x - gap - menu_width;
-  if (left_x >= min_x)
-    return {clamp(left_x, min_x, max_x), near_y};
-  const int below_y = caret_bottom + candidate_clearance + gap;
-  if (below_y + menu_height <= max_y)
-    return {clamp(anchor.x - margin, min_x, max_x), below_y};
-  const int above_y = anchor.y - gap - candidate_clearance - menu_height;
-  return {clamp(anchor.x - margin, min_x, max_x), clamp(above_y, min_y, max_y)};
+  const int centered_x = anchor.x + anchor.width / 2 - menu_width / 2;
+  const int above_y = anchor.y - gap - menu_height;
+  return {clamp(centered_x, min_x, max_x), clamp(above_y, min_y, max_y)};
 }
 
 }  // namespace msime::linux_host

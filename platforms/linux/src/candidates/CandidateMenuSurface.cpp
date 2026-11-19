@@ -86,12 +86,9 @@ bool CandidateMenuSurface::show(std::vector<CandidateMenuItem> items,
   const int height = device_ceil(layout_.height, scale_);
   const int margin = device(layout_.margin, scale_);
   const int gap = device(12, scale_);
-  // 宿主拿不到 GNOME Shell 画的候选窗矩形，用双拼键位图同一种估计留出它的高度。
-  const int candidate_clearance = device(60, scale_);
   const auto work =
       x11_overlay_monitor(display_, randr_monitors_, WaveOverlayPosition{anchor.x, anchor.y}).work;
-  const auto position = candidate_menu_position(anchor, width, height, margin, gap,
-                                                candidate_clearance, work);
+  const auto position = candidate_menu_position(anchor, width, height, margin, gap, work);
   window_->place(position.x, position.y, width, height);
   window_->set_input_region({device_rect(layout_.plate, scale_)});
   window_->show();
