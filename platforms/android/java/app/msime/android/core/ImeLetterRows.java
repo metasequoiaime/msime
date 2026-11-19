@@ -290,15 +290,16 @@ final class ImeLetterRows {
                             return false;
                         String direction = s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
                         String opposite = SwipeHintPolicy.UP.equals(direction) ? SwipeHintPolicy.DOWN : SwipeHintPolicy.UP;
+                        float distance = s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE);
                         float currentY = DimensionPolicy.fromPixels(s, event.getY());
-                        if (SwipeHintPolicy.swiped(direction, downY[0], currentY)) {
+                        if (SwipeHintPolicy.swiped(direction, distance, downY[0], currentY)) {
                             triggered[0] = true;
                             key.removeCallbacks(hold);
                             if (keyPreview != null && keyPreviewOwner == key)
                                 keyPreview.setLabel(LetterHintTable.face(input, s.dedicatedEnglish,
                                     s.sendsChinesePunctuation(), s.punctuationMarks()));
                         } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                                && SwipeHintPolicy.swiped(opposite, downY[0], currentY)) {
+                                && SwipeHintPolicy.swiped(opposite, distance, downY[0], currentY)) {
                             triggered[0] = true;
                             optionsShown[0] = true;
                             key.removeCallbacks(hold);
@@ -488,6 +489,10 @@ final class ImeLetterRows {
 
     void recordBackspaceScrubDelete(CharSequence before) {
         if (backspaceScrub != null) backspaceScrub.ordinaryDelete(before);
+    }
+
+    boolean hasBackspaceScrub() {
+        return backspaceScrub != null && backspaceScrub.available();
     }
 
     void invalidateBackspaceScrub() {
@@ -1209,7 +1214,8 @@ final class ImeLetterRows {
                     String direction = touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                         ? s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION) : null;
                     current.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
-                        DimensionPolicy.fromPixels(s, event.getY()), direction, s.hasEngineComposition());
+                        DimensionPolicy.fromPixels(s, event.getY()), direction,
+                        s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE), s.hasEngineComposition());
                     touching[0] = true;
                     // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号或横滑选中字母时气泡换字（gridGesturePreview）。
                     updateKeyPreview(key, event);
@@ -1238,7 +1244,7 @@ final class ImeLetterRows {
                     switch (current.mode()) {
                         case PENDING -> {
                             if (!current.forcesTap()) return false;
-                            // 组字中或关闭符号滑动后的纵滑等价于一次点按，即使位移让按钮取消点击。先取消按钮触摸，避免再补一次点击或长按。
+                            // 组字中的按压、关闭符号滑动后或没滑到「滑动距离」的纵滑都等价于一次点按，即使位移让按钮取消点击。先取消按钮触摸，避免再补一次点击或长按。
                             cancelKeyTouch(key, event);
                             key.performClick();
                             return true;

@@ -10,6 +10,9 @@ namespace msime::android {
 // JNI_OnLoad 里记下的 JavaVM。会话存储的回调可能在 Rust 自己起的线程上发生，那里没有现成的 JNIEnv，只能经它取。
 void remember_java_vm(JavaVM *vm) noexcept;
 
+// 查询可选的学习密钥能力；旧对象缺少方法时返回 false，其他异常保留给注册调用方。
+bool session_store_supports_learning(JNIEnv *env, jobject store) noexcept;
+
 // 为一个有 byte[] load(int)、int save(int, byte[])、int remove(int) 三个方法的 Java 对象（NativeClient.SessionStore）建回调上下文，持有它的全局引用。失败时返回 nullptr，并留下挂起的 Java 异常（NoSuchMethodError 或 OutOfMemoryError）由调用方交还给 Java。成功后上下文归 session_store_release 释放：交给 msime_client_session_store_register 且注册成功以后由 Rust 调用它，注册失败时由调用方自己调用。
 void *session_store_create(JNIEnv *env, jobject store) noexcept;
 

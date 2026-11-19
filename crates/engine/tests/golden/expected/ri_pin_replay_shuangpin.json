@@ -320,6 +320,18 @@
        0
       ]
      ]
+    },
+    "pinned_candidate_state": {
+     "columns": [
+      "context_key",
+      "value"
+     ],
+     "rows": [
+      [
+       "ni'hao",
+       "拟好"
+      ]
+     ]
     }
    }
   },

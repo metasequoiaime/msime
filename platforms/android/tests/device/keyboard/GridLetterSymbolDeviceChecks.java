@@ -15,17 +15,21 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 14/18 键字母键的角标符号（#11063）：用真实触摸验收空闲时沿设定方向滑出符号（中文标点与英文标点、上滑与下滑）、反方向打开选项、关掉「滑动输入符号」后不出符号、组字中纵滑和长按都是点按、上屏后的联想照常出符号。偏好和本机设置都在测试沙盒里改，结束时还原。
+ * 14/18 键字母键的角标符号（#11063）：用真实触摸验收空闲时沿设定方向滑出符号（中文标点与英文标点、上滑与下滑）、反方向打开选项、关掉「滑动输入符号」后不出符号、调大「滑动距离」后短距离纵移是点按、组字中纵滑和长按都是点按、上屏后的联想照常出符号。偏好和本机设置都在测试沙盒里改，结束时还原。
  */
 final class GridLetterSymbolDeviceChecks {
     private static final String PLAIN = "msime-test-plain";
     private static final float SWIPE_DP = 24f;
+    /** 「滑动距离」调到 40 dp 时用的滑动距离。 */
+    private static final float LONG_SWIPE_DP = 48f;
     private final DeviceSmoke t;
     private File preferences;
     private File local;
     private JSONObject base;
     private JSONObject settings;
     private long revision;
+    /** 本机「滑动距离」（dp）；null 表示没写过，按出厂的 14 dp。 */
+    private Integer distance;
 
     private GridLetterSymbolDeviceChecks(DeviceSmoke test) { t = test; }
 
@@ -161,6 +165,27 @@ final class GridLetterSymbolDeviceChecks {
         t.await(t.described("输入 ？"));
         t.tap(t.described("输入 ？"));
         expect("？");
+
+        // 「滑动距离」调到 40：24 dp 的上移是点按，与上面同键的点按读音相同；超过 40 dp 才出符号。
+        distance = 40;
+        configure(true, "up", true, "按键 Q W");
+        t.stage = "fourteen swipe distance 40: a 24 dp drift is a tap";
+        swipe("按键 C V", -SWIPE_DP);
+        assertNoOptions();
+        t.await(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText(tappedReading, node.getText())));
+        expect("");
+        t.tap(t.key("⌫"));
+        awaitGone(t.described("编辑拼写"));
+        t.stage = "fourteen swipe distance 40: the opposite 24 dp drift is a tap too";
+        swipe("按键 C V", SWIPE_DP);
+        assertNoOptions();
+        t.await(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText(tappedReading, node.getText())));
+        t.tap(t.key("⌫"));
+        awaitGone(t.described("编辑拼写"));
+        t.stage = "fourteen swipe distance 40: past 40 dp types the symbol";
+        swipe("按键 C V", -LONG_SWIPE_DP);
+        expect("？");
+        distance = null;
     }
 
     private void eighteen() throws Exception {
@@ -201,6 +226,8 @@ final class GridLetterSymbolDeviceChecks {
         t.publish(preferences, new JSONObject().put("format_version", 1).put("revision", ++revision)
             .put("preferences", base).toString().getBytes(StandardCharsets.UTF_8));
         settings.put("platform.android.swipe_down_symbols", swipes);
+        if (distance == null) settings.remove("platform.android.swipe_symbols_distance");
+        else settings.put("platform.android.swipe_symbols_distance", distance);
         if (direction == null) settings.remove("platform.android.swipe_symbols_direction");
         else settings.put("platform.android.swipe_symbols_direction", direction);
         t.publish(local, new JSONObject().put("version", 1).put("settings", settings)

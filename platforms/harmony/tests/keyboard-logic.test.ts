@@ -1896,7 +1896,7 @@ group("allows reads during composition without restarting the session", () => {
 });
 
 group("opens an exclusive window for idle mutations", () => {
-  for (const operation of ["edit", "import", "retry", "dismiss_failure"]) {
+  for (const operation of ["edit", "import", "retry", "dismiss_failure", "reset"]) {
     const decision = DictionaryMaintenancePolicy.decide(operation, false);
     check(decision.allowed, `${operation} is allowed while idle`);
     check(decision.maintenance, `${operation} is marked as maintenance`);
@@ -1904,7 +1904,7 @@ group("opens an exclusive window for idle mutations", () => {
 });
 
 group("refuses every mutation while composition is active", () => {
-  for (const operation of ["edit", "import", "retry", "dismiss_failure"]) {
+  for (const operation of ["edit", "import", "retry", "dismiss_failure", "reset"]) {
     const decision = DictionaryMaintenancePolicy.decide(operation, true);
     check(!decision.allowed, `${operation} is refused while composing`);
     check(decision.maintenance, `${operation} remains classified as maintenance`);
@@ -5444,10 +5444,12 @@ group("applies Windows toolbar scale and font-size bounds to Harmony geometry", 
   );
   check(FloatingToolbarLayout.buttonWidthVp(1.5) === 63, "button width follows toolbar scale");
   check(FloatingToolbarLayout.heightVp(0.75) === 33, "toolbar height follows toolbar scale");
-  check(
-    FloatingToolbarLayout.widthVp(2) * 1.5 === 172.5,
-    "host width arithmetic remains consistent with scaled content",
-  );
+  for (const scale of [0.75, 1, 1.25, 1.5]) {
+    for (const count of [1, 2, 9]) {
+      const row = FloatingToolbarLayout.dragHandleWidthVp(scale) + 1.2 * scale + count * 42 * scale + (count + 1) * 10.5 * scale;
+      check(FloatingToolbarLayout.widthVp(count) * scale >= row, "window fits the handle, divider, buttons, and gaps");
+    }
+  }
 });
 
 group("shows Japanese input mode in the Harmony toolbar", () => {

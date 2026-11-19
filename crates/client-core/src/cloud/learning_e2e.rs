@@ -241,6 +241,15 @@ fn gzip(stream: &[u8]) -> Vec<u8> {
     encoder.finish().expect("writing into a Vec cannot fail")
 }
 
+/// 按实际 gzip 和 Padmé 计算整个信封的大小，不生成 nonce、不加密。
+/// 返回值可以超过信封上限，供上传方决定是否继续截断调权。
+pub fn blob_envelope_size(stream: &[u8]) -> Result<usize, SealError> {
+    if stream.len() > MAX_STREAM_BYTES {
+        return Err(SealError::TooLarge);
+    }
+    Ok(HEADER_BYTES + padme(4 + gzip(stream).len() as u64) as usize + TAG_BYTES)
+}
+
 /// 解开单个 gzip 成员，后面不能再有任何字节；解压结果超过 [`MAX_STREAM_BYTES`] 时为 `None`。
 fn gunzip(compressed: &[u8]) -> Option<Vec<u8>> {
     gunzip_at_most(compressed, MAX_STREAM_BYTES)

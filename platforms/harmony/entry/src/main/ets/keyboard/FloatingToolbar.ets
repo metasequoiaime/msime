@@ -5,6 +5,8 @@ import { KeyboardSession } from './KeyboardSession';
 import { ToolbarState, ToolbarButton, FloatingToolbarLayout } from './FloatingToolbarLayout';
 import { GlobalTheme } from './skin/GlobalTheme';
 import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
+import { ToolbarDragGesture } from './ToolbarDragGesture';
+import { toolbarWindowPosition } from './ToolbarWindowPosition';
 
 /**
  * The bar that says what mode the keyboard is in and lets it be changed, ported from
@@ -26,6 +28,7 @@ struct FloatingToolbar {
   private shapeGeneration: number = 0;
   private shapeQueue: Promise<void> = Promise.resolve();
   private maskUsed: boolean = false;
+  private readonly dragGesture: ToolbarDragGesture = new ToolbarDragGesture();
   @State state: ToolbarState = FloatingToolbarLayout.idleState();
   @State buttons: ToolbarButton[] = [];
   @State hoveredButton: ToolbarButton | undefined = undefined;
@@ -123,18 +126,26 @@ struct FloatingToolbar {
     // is transparent where nothing is drawn, and a row only covers the buttons it holds.
     Column() {
       Row({ space: FloatingToolbarLayout.buttonGapVp(this.scaleFactor()) }) {
-        Column()
-          .width(2.5 * this.scaleFactor())
-          .height(this.handleHeight())
-          .backgroundColor(this.toolbarSkin.dragHandleColor)
-          .borderRadius(2 * this.scaleFactor())
+        Column() {
+          Column()
+            .width(2.5 * this.scaleFactor())
+            .height(this.handleHeight())
+            .backgroundColor(this.toolbarSkin.dragHandleColor)
+            .borderRadius(2 * this.scaleFactor())
+        }
+          .width(FloatingToolbarLayout.dragHandleWidthVp(this.scaleFactor()))
+          .height(this.toolbarHeight())
+          .justifyContent(FlexAlign.Center)
           .gesture(
             PanGesture({ direction: PanDirection.All, distance: 1 })
-              .onActionStart(() => {
-                KeyboardSession.shared.beginToolbarDrag();
+              .onActionStart((event: GestureEvent) => {
+                this.dragGesture.start(event);
+                const position: [number, number] | undefined = toolbarWindowPosition(this.getUIContext().getWindowName());
+                KeyboardSession.shared.beginToolbarDrag(position);
               })
               .onActionUpdate((event: GestureEvent) => {
-                KeyboardSession.shared.dragToolbar(event.offsetX, event.offsetY);
+                const offset: [number, number] | null = this.dragGesture.update(event);
+                if (offset !== null) KeyboardSession.shared.dragToolbar(offset[0], offset[1]);
               })
           )
         Column()

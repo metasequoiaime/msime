@@ -7,6 +7,7 @@
 pub mod dictionary;
 pub mod dictionary_lookup;
 pub mod glosses;
+pub mod learning_sync;
 pub mod options;
 pub mod session;
 #[cfg(test)]
@@ -48,6 +49,10 @@ pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,
     english_correction_display, english_corrections, english_phonetics, phonetics,
     release_gloss_caches, save_candidate_gloss, PHONETIC_LANGUAGES,
+};
+pub use learning_sync::{
+    advance_learning_sync_clock, carry_learning_sync_clock, carry_learning_sync_state,
+    merge_learning_sync_state, stream_learning_sync_state,
 };
 pub use options::{
     downloaded_wubi_merge_pending, merge_downloaded_wubi_dictionary, open_prepared_options_for,
