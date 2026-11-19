@@ -322,9 +322,17 @@ void MSIMEApplyTransitionWithCommitObserver(NSDictionary *transition, id<MSIMETe
         }];
     }
 #endif
-    // 只有没有组字、没有提交时才跳过清空；隐藏行内预编辑仍要把空标记发给 IMK，
+    // 只有没有组字、没有提交时才跳过清空；隐藏行内预编辑仍要把标记发给 IMK，
     // 否则 IMK 会把宿主没有收到 marked text 的按键重新交给应用，原始编码就会漏出来。
     const BOOL compositionActive = editing.length > 0 || phrase.length > 0 || focus.location != NSNotFound;
+#if TARGET_OS_OSX
+    // 隐藏行内预编辑时组字期间写一个全角空格占位，不写空串：Chromium、Electron 按按键前后有没有非空 marked text 判断输入法是否接管了这枚键，空串算作没有，于是把原始 keydown 交给网页，退格删编码的同时又删掉一个已上屏的字。全角空格沿用鼠须管关闭行内预编辑时的占位，半角字符会让基线跳动。
+    if (!marked.length && compositionActive) {
+        marked = @"　";
+        displayed = marked;
+        caret = 0;
+    }
+#endif
     if (clientHasMarkedText && !*clientHasMarkedText && !marked.length && !compositionActive &&
         ![commit isKindOfClass:NSString.class]) return;
     // Recorded before the write: IMK can service the next key inside it, and that nested write lands in the client after this one, so it must also be the one whose state is left recorded.
