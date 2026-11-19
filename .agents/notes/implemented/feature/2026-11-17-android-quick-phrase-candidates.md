@@ -26,4 +26,3 @@ Android 用户可以在普通拼音候选中使用快捷短语，并控制其调
 
 - `HostCapabilities` 平台矩阵测试把 Android 的 `quick_phrase_candidates` 断言为开启，其他未接入宿主保持关闭。
 - Android 建会话代码请求 `quick_phrase_candidates`，设置页接入两个原生偏好行；完整 quick 和 Android Java 门禁在 PR 上执行。
-
