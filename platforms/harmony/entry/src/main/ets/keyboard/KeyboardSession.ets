@@ -191,6 +191,8 @@ import { SharedStateMirror } from './SharedStateMirror';
 import { SharedDictionaryResources } from './SharedDictionaryResources';
 import { FingerprintCache } from './SharedStateMirrorPolicy';
 import { SharedStateSync } from './SharedStateSync';
+import { SharedStateSyncPolicy } from './input/SharedStateSyncPolicy';
+import { PreferenceSyncPoller } from './PreferenceSyncPoller';
 import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPolicy';
 import { HelpcodeTriggerPolicy, HelpcodeTriggerView } from './input/HelpcodeTriggerPolicy';
 import {
@@ -1441,6 +1443,15 @@ export class KeyboardSession implements HardwareKeyTarget {
   private userWordsPublishMs: number = 0;
   private snapshotOptions: Object | undefined = undefined;
   private snapshotQueueTimer: number = -1;
+  /** 设置页与键盘是两个进程，键盘显示时用轻量清单轮询发现设置端的偏好发布。 */
+  private settingsPreferencesToken: string = '';
+  private sharedPreferencesImported: boolean = false;
+  private readonly preferenceSyncPoller: PreferenceSyncPoller = new PreferenceSyncPoller(
+    (): boolean => this.handle !== 0 && this.inputClient !== undefined && this.idleDictionaryVisible
+      && this.sharedMirror !== null,
+    (): void => this.pollSharedPreferences(),
+    SharedStateSyncPolicy.PREFERENCES_POLL_MS,
+  );
   // 快照队列连续几轮查到待处理请求、为它重建了会话却仍没处理掉，重建后的下一次检查按它退避。
   private snapshotQueueStalls: number = 0;
   // Key press counts for the key heatmap. Nothing is held while statistics are off, which is read from the store on every focus; until the editor's attribute has said what kind of field it is, a press could be a password's, so none is counted.
@@ -1754,6 +1765,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.clipboardCapture.start();
     this.scheduleDictionarySnapshotPoll();
     this.schedulePersonalDictionaryDrain();
+    this.preferenceSyncPoller.start();
   }
 
   /** 键盘收起（系统的 keyboardHide，或 inputStop 时宿主隐藏面板）。面板收起时视图不会销毁，视图靠它停掉键盘内的语音识别。 */
@@ -2484,6 +2496,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   private pauseIdleDictionaryWork(): void {
     this.idleDictionaryVisible = false;
+    this.preferenceSyncPoller.stop();
     this.cancelDictionarySnapshotPoll();
     if (this.personalDictionaryStalls > 0 && this.personalDictionaryTimer >= 0) {
       clearTimeout(this.personalDictionaryTimer);
@@ -2554,6 +2567,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       // 偏好文档没变，但重建改变了视图所画的内容：start() 已读入新的应用主题种子，此后 attach 的比较不会再看到变化；全角/半角是会话状态，新会话回到初始值（Android 的 restartSessionForPrivacy 新建的引擎会话也是如此），视图的全角磁贴若不跟着刷新，就会仍显示开启，再点一次反而打开全角。只让视图重绘，ability 不必重读偏好。
       this.onViewPreferencesReloaded();
     }
+    this.preferenceSyncPoller.start();
   }
 
   /** Tell the view and the ability that what they derive from the preferences has to be read again. */
@@ -2569,7 +2583,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /**
    * Pick up what the settings page saved since this session was built.
    *
-   * The settings page is another process writing the same document. Windows pushes a change to the running server and polls as a fallback (`WM_APPLY_IME_CONFIG`, `TIMER_ID_CONFIG_SYNC`); here the keyboard compares the stored revision each time an editor takes focus, which is the first moment anyone could type with the new settings, and costs one small read rather than a timer. A composition in progress is left alone and the next focus picks the change up.
+   * The settings page is another process writing the same document. The shared manifest poller detects a published change while the keyboard is shown; this revision check is also kept at editor focus as a recovery path. A composition in progress is left alone and the next idle poll or focus picks the change up.
    */
   reloadChangedPreferences(): void {
     if (this.handle === 0 || this.composing() || this.localMode !== 'none') {
@@ -4124,6 +4138,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // 隐私政策的授权也随镜像导入：在设置应用里刚同意或撤回，下一次获得焦点就生效。同意时放行扩展创建时等着的匿名注册和使用统计。
     if (this.stateDirectory.length > 0) HarmonyPrivacyConsent.load(this.stateDirectory);
     this.reloadChangedPreferences();
+    this.preferenceSyncPoller.start();
     // 镜像导入的 `skins` 可能换掉了正在用的包而偏好修订号没动，上面那步不会重新应用外观。会话建好之后键盘只在这里导入皮肤目录（扩展 `onCreate` 的那次在 `start` 之前，`start` 本来就读新包），所以也只在这里查。视图的 reload 钩子按新外观重画。
     if (this.reloadReplacedSkinPackages() && this.onViewPreferencesReloaded !== undefined) {
       this.onViewPreferencesReloaded();
@@ -4206,6 +4221,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     SharedDictionaryResources.removePrivateCopies(this.sharedMirror, this.stateDirectory);
     const fullMode: boolean = this.sharedFullMode();
     const imported: string[] = SharedStateSync.keyboardSync(this.sharedMirror, this.stateDirectory, fullMode);
+    this.sharedPreferencesImported = imported.includes('preferences');
+    if (!SharedStateSync.keyboardPreferencesPending(this.sharedMirror, fullMode)) {
+      this.settingsPreferencesToken = SharedStateSyncPolicy.preferencesToken(
+        this.sharedMirror.manifest('settings'));
+    }
     // 设置应用发布的会话由 Rust 在锁里决定要不要采用；这里排一次让本地状态尽早跟上，云剪贴板这类认证请求自己经 `beforeRequest` 再排一次。基础访问模式下键盘不交换会话。
     if (fullMode) {
       AccountSessionAdoption.adopt(this.sharedMirror, this.stateDirectory, 'settings');
@@ -4225,6 +4245,17 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.userWordsDue = true;
       this.personalDictionarySettled = false;
       this.schedulePersonalDictionaryDrain();
+    }
+  }
+
+  /** 设置应用发布后，在不打断组字的前提下把偏好交给下一次空闲会话。 */
+  private pollSharedPreferences(): void {
+    if (this.composing() || this.localMode !== 'none' || this.sharedMirror === null) return;
+    const current: string = SharedStateSyncPolicy.preferencesToken(this.sharedMirror.manifest('settings'));
+    if (current === this.settingsPreferencesToken) return;
+    this.syncSharedState();
+    if (this.sharedPreferencesImported) {
+      this.reloadChangedPreferences();
     }
   }
 
@@ -4278,6 +4309,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   stop(): void {
+    this.preferenceSyncPoller.stop();
     this.cloudClipboardAutoReceive?.stop();
     this.clipboardCaptureVisible = false;
     this.clipboardCapture.stop();
