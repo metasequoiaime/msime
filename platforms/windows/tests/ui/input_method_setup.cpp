@@ -1,4 +1,4 @@
-#include "InputMethodSetup.h"
+#include "../../settings/InputMethodSetup.h"
 
 #include <cassert>
 
