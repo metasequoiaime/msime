@@ -272,6 +272,40 @@ final class BackendRustSessionStoreTests: XCTestCase {
     XCTAssertEqual(stored, first)
   }
 
+  func testLearningKeychainRemainsIndependentAndRejectsInvalidWrites() throws {
+    let memory = MemoryKeychain()
+    var layout = keychainLayout()
+    layout.learningKeystore = .keychain(service: BackendKeychain.defaultService,
+      account: BackendLearningKeystore.name, accessGroup: "group.synthetic")
+    let store = try registered(BackendRustSessionStore(layout: layout, keychain: memory.calls, backgroundActivity: nil))
+    defer { store.release?(store.context) }
+    let learning = MSIME_CLIENT_SESSION_ITEM_LEARNING_KEYSTORE.rawValue
+    XCTAssertEqual(store.flags, 3)
+    XCTAssertEqual(load(store, learning).0, 0)
+    XCTAssertEqual(save(store, account, Data("synthetic-account".utf8)), 0)
+    XCTAssertEqual(save(store, keystore, Data("synthetic-clipboard".utf8)), 0)
+    let maximum = Data(repeating: 0x61, count: 4096)
+    XCTAssertEqual(save(store, learning, maximum), 0)
+    XCTAssertEqual(load(store, learning).1, maximum)
+    XCTAssertEqual(save(store, learning, Data()), -1)
+    XCTAssertEqual(save(store, learning, Data(repeating: 0x62, count: 4097)), -1)
+    XCTAssertEqual(load(store, learning).1, maximum)
+    XCTAssertEqual(save(store, learning, Data("short".utf8)), 0)
+    XCTAssertEqual(load(store, learning).1, Data("short".utf8))
+    XCTAssertEqual(load(store, learning, capacity: 4).0, -1)
+    memory.copyStatus = errSecInteractionNotAllowed
+    XCTAssertEqual(load(store, learning).0, -1)
+    memory.copyStatus = nil
+    memory.deleteStatus = errSecInteractionNotAllowed
+    XCTAssertEqual(store.remove?(store.context, learning), -1)
+    memory.deleteStatus = nil
+    XCTAssertEqual(store.remove?(store.context, learning), 0)
+    XCTAssertEqual(load(store, learning).0, 0)
+    XCTAssertEqual(load(store, account).1, Data("synthetic-account".utf8))
+    XCTAssertEqual(load(store, keystore).1, Data("synthetic-clipboard".utf8))
+    XCTAssertTrue(memory.deletedGroups.allSatisfy { $0 == nil })
+  }
+
   func testKeychainAbsentIsZeroButUnreadableKeychainIsAFailure() throws {
     let keychain = MemoryKeychain()
     let store = try registered(BackendRustSessionStore(layout: keychainLayout(), keychain: keychain.calls, backgroundActivity: nil))

@@ -34,7 +34,7 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
         if (arguments != null && "true".equals(arguments.getString("english-swipe")))
             return "English symbol swipes in both directions, Unicode hints and cancellation";
         if (arguments != null && "true".equals(arguments.getString("letter-swipe")))
-            return "letter option drag, release/cancel, engine punctuation and swipe direction/disable";
+            return "letter option drag, release/cancel, engine punctuation and swipe direction/distance/disable";
         return "letter hints and comma hold route punctuation once, commit composition and preserve the symbol panel entry";
     }
 
@@ -122,6 +122,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
     private File swipeLocal;
     private JSONObject swipeBase;
     private JSONObject swipeSettings;
+    /** 本机「滑动距离」（dp）；null 表示没写过，按出厂的 14 dp。 */
+    private Integer swipeDistance;
     private long swipeRevision;
 
     /** 配置只写专用模拟器中的产品沙盒，结束时恢复；输入与断言均使用合成值。 */
@@ -216,6 +218,18 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
                 expect("v");
                 assertNoOptions();
             }
+            // 「滑动距离」调到 30：20 dp 的上滑仍输入字母，超过 30 dp 才输入角标。
+            swipeDistance = 30;
+            configureSwipe(true, "up", true, false);
+            stage = "a 20 dp swipe under a 30 dp swipe distance keeps the letter";
+            simpleSwipe("v", "up");
+            expect("v");
+            assertNoOptions();
+            configureSwipe(true, "up", true, false);
+            stage = "a swipe past the 30 dp swipe distance enters the hint";
+            simpleSwipe("v", "up", 36);
+            expect("？");
+            swipeDistance = null;
             configureSwipe(false, "down", true, true);
             stage = "disabled swipes preserve long hold and paired punctuation";
             gestureOption("j", true, "up", "（", false);
@@ -249,6 +263,8 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             .put("preferences", swipeBase).toString().getBytes(StandardCharsets.UTF_8));
         swipeSettings.put("platform.android.swipe_down_symbols", enabled)
             .put("platform.android.swipe_symbols_direction", direction);
+        if (swipeDistance == null) swipeSettings.remove("platform.android.swipe_symbols_distance");
+        else swipeSettings.put("platform.android.swipe_symbols_distance", swipeDistance);
         publish(swipeLocal, new JSONObject().put("version", 1).put("settings", swipeSettings)
             .toString().getBytes(StandardCharsets.UTF_8));
         restartIme();
@@ -343,9 +359,14 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
      * 一次快速滑动。三个事件一起排进输入队列，不逐个等窗口事务：逐个同步注入再各睡 40 ms 时，CI 上慢的模拟器从按下到抬起实际会超过长按时长，关掉滑动时那一下就成了长按、弹出字母选项（运行 40205049019 的「disabled down swipe keeps the letter」）。
      */
     private void simpleSwipe(String letter, String direction) throws Exception {
+        simpleSwipe(letter, direction, 20);
+    }
+
+    /** 同 {@link #simpleSwipe(String, String)}，纵向移动 `distanceDp`。 */
+    private void simpleSwipe(String letter, String direction, float distanceDp) throws Exception {
         Rect keyBounds = bounds(awaitStableBounds(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT))));
         long started = SystemClock.uptimeMillis();
-        float dy = 20 * getTargetContext().getResources().getDisplayMetrics().density;
+        float dy = distanceDp * getTargetContext().getResources().getDisplayMetrics().density;
         float endY = keyBounds.centerY() + ("up".equals(direction) ? -dy : dy);
         MotionEvent[] events = {
             MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY(), 0),

@@ -71,7 +71,7 @@ public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> microsoftKey() {
         return node -> equalsText("app.msime.android", node.getPackageName())
-            && equalsText("微软双拼 ing", node.getContentDescription())
+            && equalsText("分号，微软双拼 ing", node.getContentDescription())
             && node.isClickable() && node.isVisibleToUser();
     }
 

@@ -26,3 +26,7 @@ macOS 把 `tsf_preedit_style=empty` 映射为零长度 marked text。文本桥�
 ## Existing notes audit
 
 检索 `TextClient`、`setMarkedText`、`tsf_preedit_style`、隐藏预编辑和 IMK 焦点切换笔记。[macOS 行内组字显式声明预编辑样式](2026-10-19-macos-inline-preedit-caret.md)持有标记样式和光标位置，不涉及隐藏样式的按键所有权；[macOS 重入文本客户端上屏](2026-10-23-macos-reentrant-text-client-commit.md)持有转换代次和回调重入边界，本次沿用其调用接口，不改代次规则；[停止清理不存在的标记文本](2026-10-23-macos-reentrant-text-client-commit.md)的历史事实已由当前实现保留，本次只扩大“有组字时”的发送条件。
+
+## Superseded
+
+空 marked text 的做法被 [macOS 隐藏行内预编辑用全角空格占位](2026-11-19-macos-hidden-preedit-placeholder.md) 取代：Chromium 与 Electron 把空串当成没有组字，组字期间的退格会删掉已上屏的字。

@@ -6,16 +6,19 @@ import app.msime.android.SwipeHintPolicy;
 public final class GridKeyGesturePolicySmoke {
     private static final String UP = SwipeHintPolicy.UP;
     private static final String DOWN = SwipeHintPolicy.DOWN;
+    private static final float DISTANCE = SwipeHintPolicy.DEFAULT_THRESHOLD_DP;
 
     public static void main(String[] args) {
-        check(GridKeyGesturePolicy.vertical(UP, 0, -14.1f), "上滑严格超过 14 dp");
-        check(!GridKeyGesturePolicy.vertical(UP, 0, -14), "14 dp 以内不算");
-        check(!GridKeyGesturePolicy.vertical(UP, 0, 20), "上滑设置下，下滑不算上滑");
-        check(GridKeyGesturePolicy.vertical(DOWN, 0, 15), "下滑设置");
-        check(!GridKeyGesturePolicy.vertical(UP, 20, -20) && GridKeyGesturePolicy.vertical(UP, 19, -20),
+        check(GridKeyGesturePolicy.vertical(UP, DISTANCE, 0, -14.1f), "上滑严格超过 14 dp");
+        check(!GridKeyGesturePolicy.vertical(UP, DISTANCE, 0, -14), "14 dp 以内不算");
+        check(!GridKeyGesturePolicy.vertical(UP, DISTANCE, 0, 20), "上滑设置下，下滑不算上滑");
+        check(GridKeyGesturePolicy.vertical(DOWN, DISTANCE, 0, 15), "下滑设置");
+        check(!GridKeyGesturePolicy.vertical(UP, DISTANCE, 20, -20) && GridKeyGesturePolicy.vertical(UP, DISTANCE, 19, -20),
             "纵向位移必须大于横向");
-        check(!GridKeyGesturePolicy.vertical(null, 0, -40), "滑动输入符号关闭");
-        check(!GridKeyGesturePolicy.vertical(UP, Float.NaN, -40), "无效坐标");
+        check(!GridKeyGesturePolicy.vertical(null, DISTANCE, 0, -40), "滑动输入符号关闭");
+        check(!GridKeyGesturePolicy.vertical(UP, DISTANCE, Float.NaN, -40), "无效坐标");
+        check(GridKeyGesturePolicy.vertical(UP, 48, 0, -48.1f) && !GridKeyGesturePolicy.vertical(UP, 48, 0, -48),
+            "「滑动距离」调到 48 时要严格超过 48 dp");
         check(DOWN.equals(GridKeyGesturePolicy.opposite(UP)) && UP.equals(GridKeyGesturePolicy.opposite(DOWN))
             && GridKeyGesturePolicy.opposite(null) == null, "反方向");
 
@@ -62,8 +65,31 @@ public final class GridKeyGesturePolicySmoke {
         g.move(1, 1, 100, 60);
         g.cancel();
         check(!g.forcesTap(), "关闭时纵滑被系统取消不输入");
-        g.start(1, 100, 100, UP, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
         check(!g.forcesTap(), "新按压不继承关闭时的纵滑");
+
+        // 「滑动距离」调大：14 dp 出头的快打漂移仍是点按，两个纵向方向都按这个距离。
+        g = gesture(null, UP, 30, false);
+        g.move(1, 1, 100, 90);
+        check(g.mode() == Mode.PENDING && !g.consumed() && !g.forcesTap(), "距离 30 时上移 10 dp 交给按钮");
+        g.move(1, 1, 100, 80);
+        check(g.mode() == Mode.PENDING && !g.consumed() && g.forcesTap(),
+            "距离 30 时上移 20 dp 仍是点按，移出键帽也补一次点按");
+        g.move(1, 1, 100, 69);
+        check(g.mode() == Mode.SYMBOL && !g.forcesTap(), "距离 30 时上移超过 30 dp 出符号");
+        g = gesture(null, UP, 30, false);
+        g.move(1, 1, 100, 120);
+        check(g.mode() == Mode.PENDING && g.forcesTap(), "距离 30 时反向下移 20 dp 不开选项，仍是点按");
+        g.move(1, 1, 100, 131);
+        check(g.mode() == Mode.OPTIONS && !g.forcesTap(), "距离 30 时反向下移超过 30 dp 打开选项");
+        g = gesture(null, null, 30, false);
+        g.move(1, 1, 100, 95);
+        check(!g.forcesTap(), "关闭滑动时 14 dp 以内的纵移交给按钮，与距离无关");
+        g.move(1, 1, 100, 80);
+        check(g.forcesTap(), "关闭滑动时超过 14 dp 的纵移补一次点按，与距离无关");
+        g = gesture("we", UP, 48, false);
+        check(g.move(1, 1, 125.5f, 100) && g.mode() == Mode.LETTER && g.selected() == 'E',
+            "距离只管纵滑，横滑限定字母仍是 24 dp");
 
         // 空闲长按。
         g = gesture(null, UP, false);
@@ -116,7 +142,7 @@ public final class GridKeyGesturePolicySmoke {
 
         // 没有符号的键：只有选项。
         g = new GridKeyGesturePolicy.Gesture(null, false);
-        g.start(1, 100, 100, UP, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
         g.move(1, 1, 100, 60);
         check(g.mode() == Mode.PENDING, "没有符号时上滑不触发");
 
@@ -132,14 +158,19 @@ public final class GridKeyGesturePolicySmoke {
         g = gesture(null, UP, true);
         g.cancel();
         check(g.mode() == Mode.CANCELLED && !g.forcesTap() && !g.hold(), "系统取消不补点按");
-        g.start(1, 100, 100, UP, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
         check(g.mode() == Mode.PENDING && g.selected() == 0 && g.hold(), "新按压不继承取消和组字状态");
         System.out.println("Android 14/18-key letter gestures: passed");
     }
 
     private static GridKeyGesturePolicy.Gesture gesture(String exact, String direction, boolean composing) {
+        return gesture(exact, direction, DISTANCE, composing);
+    }
+
+    private static GridKeyGesturePolicy.Gesture gesture(String exact, String direction, float distance,
+            boolean composing) {
         GridKeyGesturePolicy.Gesture gesture = new GridKeyGesturePolicy.Gesture(exact, true);
-        gesture.start(1, 100, 100, direction, composing);
+        gesture.start(1, 100, 100, direction, distance, composing);
         return gesture;
     }
 

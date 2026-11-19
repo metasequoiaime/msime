@@ -8,6 +8,7 @@ use super::journal::{
     open_dictionary_for_writing, open_journal, pinyin_segments, pinyin_table, write_upsert,
     MISSING_ROW, UNSTORABLE_ENTRY,
 };
+use super::learning_clock::{ranking_timestamp, write_weight_at};
 use super::positions::is_fixed;
 use crate::error::{EngineError, Result};
 use crate::types::{
@@ -258,13 +259,14 @@ pub fn learn_quick_phrase_bypass(
     Ok(transaction.commit()?)
 }
 
-/// J:251-262. Does not check that a row changed: the reference journals the weight either way, and replay then inserts the row.
+/// J:251-262。不要求工作词库已有此行；日志保留权重，之后回放可补回。
 fn update_pinyin_weight(
     main: &Connection,
     journal: &Connection,
     key: &str,
     value: &str,
     weight: i64,
+    timestamp: i64,
 ) -> Result<()> {
     let weight = clamp_managed_weight(weight);
     let table = pinyin_table(key).ok_or_else(|| EngineError::invalid(UNSTORABLE_ENTRY))?;
@@ -272,17 +274,17 @@ fn update_pinyin_weight(
         "UPDATE \"{table}\" SET weight=?1 WHERE key=?2 AND value=?3"
     ))?
     .execute(params![weight, key, value])?;
-    write_upsert(
+    Ok(write_weight_at(
         journal,
         PersonalDictionaryKind::Pinyin,
         key,
         value,
         weight,
-        "",
-    )
+        timestamp,
+    )?)
 }
 
-/// J:264-274. Unlike pinyin, the row must exist before it is journaled.
+/// J:264-274。五笔行必须已存在，才能写日志。
 fn update_wubi_weight(
     main: &Connection,
     journal: &Connection,
@@ -290,6 +292,7 @@ fn update_wubi_weight(
     key: &str,
     value: &str,
     weight: i64,
+    timestamp: i64,
 ) -> Result<()> {
     let weight = clamp_managed_weight(weight);
     let Some(table) = kind.wubi_table() else {
@@ -306,7 +309,9 @@ fn update_wubi_weight(
     if changed == 0 {
         return Err(EngineError::failed(MISSING_ROW));
     }
-    write_upsert(journal, kind, key, value, weight, "")
+    Ok(write_weight_at(
+        journal, kind, key, value, weight, timestamp,
+    )?)
 }
 
 fn update_ranked_weight(
@@ -316,11 +321,12 @@ fn update_ranked_weight(
     key: &str,
     value: &str,
     weight: i64,
+    timestamp: i64,
 ) -> Result<()> {
     if kind.is_wubi() {
-        update_wubi_weight(main, journal, kind, key, value, weight)
+        update_wubi_weight(main, journal, kind, key, value, weight, timestamp)
     } else {
-        update_pinyin_weight(main, journal, key, value, weight)
+        update_pinyin_weight(main, journal, key, value, weight, timestamp)
     }
 }
 
@@ -496,6 +502,15 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     let main_transaction = main.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let weights: Vec<i64> = database_candidates.iter().map(|item| item.weight).collect();
     let plan = plan_weights(&weights, owns_entry_key, target);
+    let timestamp = ranking_timestamp(
+        &transaction,
+        request.kind,
+        request.entry_key,
+        plan.staircase
+            .iter()
+            .map(|(index, _)| database_candidates[*index].word.as_str())
+            .chain(std::iter::once(request.value)),
+    )?;
     for (index, weight) in plan.staircase {
         update_ranked_weight(
             &main_transaction,
@@ -504,6 +519,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
             request.entry_key,
             &database_candidates[index].word,
             weight,
+            timestamp,
         )?;
     }
     update_ranked_weight(
@@ -513,6 +529,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
         request.entry_key,
         request.value,
         plan.selected,
+        timestamp,
     )?;
     reset_selection(&transaction, request)?;
     // The journal commits first: a journal row one step ahead of the dictionary is recoverable by replay, a dictionary weight the journal never saw is lost at the next upgrade. A failed dictionary commit rolls back the dictionary only.

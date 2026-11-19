@@ -2015,6 +2015,9 @@ pub struct Preferences {
     /// 在 macOS 菜单栏放一个状态项，常驻显示当前输入模式（中/双/五/日……，英文时为「英」），不需要把「英」加成系统输入源。默认关闭；只有 macOS 宿主画它（见 `HostCapabilities::input_mode_status_item`），其他宿主保留这个偏好但不画。
     #[serde(default)]
     pub input_mode_status_item: bool,
+    /// macOS 动态输入模式字典使用方案字形图标。默认及旧文档缺字段时关闭，保留品牌图标；不影响独立状态项。
+    #[serde(default)]
+    pub input_mode_glyph_icons: bool,
     /// 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏（见 `Default`）；已存文档缺这个字段时读成显示，升级沿用原来的样子。
     #[serde(default = "enabled_by_default")]
     pub show_app_logo: bool,
@@ -4815,6 +4818,7 @@ impl Default for Preferences {
             input_mode_focus_hud: false,
             input_mode_corner_hud: true,
             input_mode_status_item: false,
+            input_mode_glyph_icons: false,
             show_app_logo: false,
             expand_candidates: false,
             show_candidate_expand_button: true,
@@ -7700,6 +7704,8 @@ fn redact_sensitive_keys(value: &mut serde_json::Value) {
     }
 }
 
+#[cfg(test)]
+mod input_mode_icons;
 #[cfg(test)]
 mod patch_tests;
 #[cfg(test)]

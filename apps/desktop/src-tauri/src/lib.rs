@@ -2087,16 +2087,18 @@ fn start_desktop_preferences_monitor(
 #[tauri::command]
 async fn dictionary_request(
     state: tauri::State<'_, DictionaryHostOptions>,
+    account: tauri::State<'_, desktop_account::AccountState>,
     action: serde_json::Value,
 ) -> Result<serde_json::Value, CommandError> {
     let options = state.inner().clone();
+    let session = Arc::clone(&account.session);
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
-        let request = serde_json::json!({ "options": options, "action": action });
-        // The input hosts are released before a write, an import is batched and a refusal becomes the page's code in the host API, where the native Windows settings window gets the same through msime_client_settings_dictionary. The macOS input method is also told at once over a distributed notification when the release first goes up.
-        msime_host_api::settings_dictionary::request(
-            &request["options"],
-            &request["action"],
+        // 沿用词库维护握手；登录后的清除先持久保存账号屏障，不绕开命名分组重排。
+        msime_host_api::settings_dictionary::request_with_account(
+            &session,
+            &options,
+            &action,
             || {
                 #[cfg(target_os = "macos")]
                 msime_host_macos::quiesce_input_sessions();

@@ -1425,6 +1425,18 @@
        "子"
       ]
      ]
+    },
+    "pinned_candidate_state": {
+     "columns": [
+      "context_key",
+      "value"
+     ],
+     "rows": [
+      [
+       "hao",
+       "子"
+      ]
+     ]
     }
    }
   }

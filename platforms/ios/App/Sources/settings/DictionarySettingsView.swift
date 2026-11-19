@@ -320,7 +320,7 @@ struct DictionarySettingsView: View {
     clearingLearning = true
     defer { clearingLearning = false }
     let outcome: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
-      Result { try MetasequoiaInputSessionBridge.resetLearnedData() }
+      Result { try IOSAccountLearningReset.reset() }
     }.value
     switch outcome {
     case .success(let collectionsRequeued):
