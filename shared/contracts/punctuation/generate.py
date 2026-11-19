@@ -13,10 +13,16 @@ styles = SPEC["styles"]
 corner_quotes = styles["cornerQuotes"]
 hollow_brackets = styles["hollowBrackets"]
 enumeration_comma = SPEC["enumerationComma"]
+japanese = SPEC["japanese"]
 inputs = [entry["input"] for entry in simple + alternating] + [nested["openingInput"], nested["closingInput"]]
-if (SPEC["contractVersion"] != 5 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
+if (SPEC["contractVersion"] != 6 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
         len(set(inputs)) != len(inputs)):
     raise SystemExit("Invalid punctuation contract")
+# 日文表是给日语方案用的另一套键到字的映射，键可以和中文表重复；表内自身不能重复。
+japanese_inputs = [entry["input"] for entry in japanese]
+if (any(len(value) != 1 or not 32 <= ord(value) < 127 for value in japanese_inputs) or
+        len(set(japanese_inputs)) != len(japanese_inputs)):
+    raise SystemExit("Invalid punctuation contract japanese")
 # 样式是同一个键的另一组字，不是新键：直角引号只能替换交替引号的键，空心括号只能替换 simple 里的键，各键至多出现一次。
 alternating_inputs = [entry["input"] for entry in alternating]
 simple_inputs = [entry["input"] for entry in simple]
@@ -62,6 +68,11 @@ lines = [
 lines += [f"    {{{char_literal(entry['input'])}, {json.dumps(entry['output'], ensure_ascii=False)}}}," for entry in simple]
 lines += [
     "}};",
+    f"inline constexpr std::array<Mapping, {len(japanese)}> japanese = {{{{",
+]
+lines += [f"    {{{char_literal(entry['input'])}, {json.dumps(entry['output'], ensure_ascii=False)}}}," for entry in japanese]
+lines += [
+    "}};",
     f"inline constexpr std::array<AlternatingMapping, {len(alternating)}> alternating = {{{{",
 ]
 lines += [
@@ -105,6 +116,12 @@ lines += [
     "constexpr const char *simple_output(char input)",
     "{",
     "    for (const auto &mapping : simple)",
+    "        if (mapping.input == input) return mapping.output;",
+    "    return nullptr;",
+    "}",
+    "constexpr const char *japanese_output(char input)",
+    "{",
+    "    for (const auto &mapping : japanese)",
     "        if (mapping.input == input) return mapping.output;",
     "    return nullptr;",
     "}",
