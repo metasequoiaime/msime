@@ -37,6 +37,12 @@ target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -
 set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
+add_executable(input-mode-icons-test tests/input/InputModeIconsTest.mm)
+target_compile_options(input-mode-icons-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_compile_definitions(input-mode-icons-test PRIVATE MSIME_MACOS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(input-mode-icons-test PROPERTIES OBJCXX_STANDARD 17)
+target_link_libraries(input-mode-icons-test PRIVATE "-framework Foundation")
+add_test(NAME input-mode-icons COMMAND input-mode-icons-test)
 # 菜单栏中/英状态项的图像：切换模式时必须跟着变，又要与系统输入源的模式字形区分开。图像取仓库里的 resources 目录，不往菜单栏放东西。
 add_executable(input-mode-status-item-test tests/input/InputModeStatusItemTest.mm src/input/InputModeStatusItem.mm)
 target_compile_options(input-mode-status-item-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
