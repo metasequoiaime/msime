@@ -53,7 +53,7 @@ bool CandidateMenuSurface::ensure_window() {
 }
 
 bool CandidateMenuSurface::show(std::vector<CandidateMenuItem> items,
-                                const FloatingToolbarColors &colors, int pointer_x, int pointer_y,
+                                const FloatingToolbarColors &colors, CandidateMenuAnchor anchor,
                                 ActionHandler on_action, DismissHandler on_dismiss) {
   if (items.empty())
     return false;
@@ -65,15 +65,17 @@ bool CandidateMenuSurface::show(std::vector<CandidateMenuItem> items,
   on_dismiss_ = std::move(on_dismiss);
   hovered_.reset();
   opened_by_press_ = true;
-  // candidate_clicked 不带坐标：在显示连接上取当前指针位置（根窗口坐标）。
-  if (pointer_x < 0 || pointer_y < 0) {
+  // 只有纯 X11 会话的指针模式才取本机指针：candidate_clicked 不带坐标，指针就在
+  // IBus 面板的候选行上。Wayland 会话传进来的是光标锚点，读 XQueryPointer 只会拿到
+  // Xwayland 根窗口的陈旧角落坐标（child 为 0），那正是菜单跑到桌面右上方的原因。
+  if (anchor.kind == CandidateMenuAnchor::Kind::Pointer && (anchor.x < 0 || anchor.y < 0)) {
     Window root_return = 0, child_return = 0;
-    int root_x = pointer_x, root_y = pointer_y, win_x = 0, win_y = 0;
+    int root_x = anchor.x, root_y = anchor.y, win_x = 0, win_y = 0;
     unsigned int mask = 0;
     if (XQueryPointer(display_, DefaultRootWindow(display_), &root_return, &child_return,
                       &root_x, &root_y, &win_x, &win_y, &mask)) {
-      pointer_x = root_x;
-      pointer_y = root_y;
+      anchor.x = root_x;
+      anchor.y = root_y;
     }
   }
   // 菜单按候选窗的设备缩放画：x11_overlay_scale 从 X 连接读 Xft.dpi 与 GDK_SCALE，
@@ -83,16 +85,14 @@ bool CandidateMenuSurface::show(std::vector<CandidateMenuItem> items,
   const int width = device_ceil(layout_.width, scale_);
   const int height = device_ceil(layout_.height, scale_);
   const int margin = device(layout_.margin, scale_);
-  // 右键菜单从指针处弹出，下面放不下就向上；保持在指针所在显示器的活动工作区里。
+  const int gap = device(12, scale_);
+  // 宿主拿不到 GNOME Shell 画的候选窗矩形，用双拼键位图同一种估计留出它的高度。
+  const int candidate_clearance = device(60, scale_);
   const auto work =
-      x11_overlay_monitor(display_, randr_monitors_, WaveOverlayPosition{pointer_x, pointer_y}).work;
-  int x = pointer_x - margin;
-  int y = pointer_y - margin;
-  if (y + height - margin > work.y + work.height)
-    y = pointer_y - (height - margin);
-  x = std::clamp(x, work.x - margin, std::max(work.x - margin, work.x + work.width - width + margin));
-  y = std::clamp(y, work.y - margin, std::max(work.y - margin, work.y + work.height - height + margin));
-  window_->place(x, y, width, height);
+      x11_overlay_monitor(display_, randr_monitors_, WaveOverlayPosition{anchor.x, anchor.y}).work;
+  const auto position = candidate_menu_position(anchor, width, height, margin, gap,
+                                                candidate_clearance, work);
+  window_->place(position.x, position.y, width, height);
   window_->set_input_region({device_rect(layout_.plate, scale_)});
   window_->show();
   paint_menu();

@@ -56,6 +56,7 @@
 #endif
 #include "../overlay/FloatingPanelColors.h"
 #include "../overlay/FloatingToolbarModel.h"
+#include "../candidates/CandidateMenuPlacement.h"
 #include "../candidates/CandidateMenuSurface.h"
 #include "../overlay/ShuangpinKeymapModel.h"
 #ifdef MSIME_LINUX_FLOATING_PANELS
@@ -8874,7 +8875,8 @@ void sync_candidate_menu_watch(IBusEngine *engine) {
 // 连不上 X（Xwayland 也不可用）时退回 show_candidate_menu_hint 的提示条。动作在
 // show 时按本页高亮行的 identity 绑定，回调时核对会话与渲染代次，落进与面板属性
 // 菜单同一组 msime_client_* 命令。
-void show_candidate_menu(IBusEngine *engine, const Json &candidate, int pointer_x, int pointer_y) {
+void show_candidate_menu(IBusEngine *engine, const Json &candidate,
+                         msime::linux_host::CandidateMenuAnchor anchor) {
   auto &s = state(engine);
   if (!s.candidate_menu_surface)
     s.candidate_menu_surface = std::make_unique<msime::linux_host::CandidateMenuSurface>();
@@ -8897,7 +8899,7 @@ void show_candidate_menu(IBusEngine *engine, const Json &candidate, int pointer_
     return result;
   }();
   const auto shown = s.candidate_menu_surface->show(
-      std::move(items), s.floating_toolbar_colors, pointer_x, pointer_y,
+      std::move(items), s.floating_toolbar_colors, anchor,
       [engine, session, generation, index, actions](std::size_t item_index) {
         guarded(engine, "candidate_menu_action", [&] {
           auto &s = state(engine);
@@ -9019,8 +9021,25 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       // warning line. The hint has nothing to restore without a view either: its timeout only
       // re-renders while this generation is still the one on screen.
       if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) &&
-          s.rendered_view.is_object())
-        show_candidate_menu(engine, entry, -1, -1);
+          s.rendered_view.is_object()) {
+        msime::linux_host::CandidateMenuAnchor anchor;
+        const auto *wayland = std::getenv("WAYLAND_DISPLAY");
+        if (wayland && *wayland) {
+          // Wayland 会话里 Xwayland 根窗口没有真实指针，改用 IBus 上报的光标矩形；
+          // 局部坐标和「还没报光标」的守卫在 candidate_menu_position 里，回退到工作区中下部。
+          anchor.kind = msime::linux_host::CandidateMenuAnchor::Kind::Caret;
+          anchor.x = engine->cursor_area.x;
+          anchor.y = engine->cursor_area.y;
+          anchor.width = engine->cursor_area.width;
+          anchor.height = engine->cursor_area.height;
+        } else {
+          // 纯 X11：右键就在 IBus 面板的候选行上，show() 取本机指针即可。
+          anchor.kind = msime::linux_host::CandidateMenuAnchor::Kind::Pointer;
+          anchor.x = -1;
+          anchor.y = -1;
+        }
+        show_candidate_menu(engine, entry, anchor);
+      }
       else if (s.rendered_view.is_object())
         show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
     } else {

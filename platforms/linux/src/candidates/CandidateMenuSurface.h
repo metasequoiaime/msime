@@ -8,6 +8,7 @@
 #pragma once
 
 #include "../candidates/CandidateMenuItems.h"
+#include "../candidates/CandidateMenuPlacement.h"
 #include "../overlay/FloatingPanelColors.h"
 #include "../overlay/FloatingToolbarPainter.h"
 #include "../overlay/OverlayX11Window.h"
@@ -40,11 +41,12 @@ class CandidateMenuSurface {
   CandidateMenuSurface(const CandidateMenuSurface &) = delete;
   CandidateMenuSurface &operator=(const CandidateMenuSurface &) = delete;
 
-  // 指针坐标是根窗口坐标；candidate_clicked 事件不带坐标，传负值时在显示连接上
-  // XQueryPointer 取当前指针位置（IBus 面板上的右键，指针就在菜单该出现的地方）。
+  // 锚点由调用方按会话类型给：纯 X11 用指针模式（坐标为负时在显示连接上 XQueryPointer），
+  // Wayland 用光标模式（IBus 上报的光标矩形）。Wayland 下绝不读 XQueryPointer：Xwayland
+  // 根窗口跟踪不到合成器管理的指针，只会返回陈旧的屏幕角落坐标，把菜单摆到桌面右上角。
   // 条目为空、连不上显示或建不了窗口时返回 false，菜单不显示。
   bool show(std::vector<CandidateMenuItem> items, const FloatingToolbarColors &colors,
-            int pointer_x, int pointer_y, ActionHandler on_action, DismissHandler on_dismiss);
+            CandidateMenuAnchor anchor, ActionHandler on_action, DismissHandler on_dismiss);
   void hide();
   bool visible() const { return visible_; }
   // 显示中的菜单读指针和 expose 事件所用的显示连接，没有则 -1。

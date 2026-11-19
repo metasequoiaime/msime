@@ -1,3 +1,4 @@
+#include "../src/candidates/CandidateMenuPlacement.h"
 #include "../src/overlay/FloatingPanelColors.h"
 #include "../src/overlay/FloatingToolbar.h"
 #include "../src/overlay/FloatingToolbarModel.h"
@@ -97,6 +98,50 @@ void keymap_rules() {
   assert(host::shuangpin_keymap_measured_clearance(200, 20, 220, 150) == 150);
   assert(host::shuangpin_keymap_measured_clearance(200, 20, 230, 150) == 160);
   assert(host::shuangpin_keymap_measured_clearance(900, 20, 760, 140) == 140);
+}
+
+void candidate_menu_placement_rules() {
+  using A = host::CandidateMenuAnchor;
+  const host::WaveOverlayWorkArea work{0, 0, 1920, 1080};
+
+  // 光标在屏幕中间：菜单放光标右方，顶边贴光标顶边。
+  {
+    const A anchor{A::Kind::Caret, 600, 400, 8, 20};
+    assert(host::candidate_menu_anchor_usable(anchor, work));
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    assert(pos.x == 620 && pos.y == 392);
+  }
+
+  // 光标贴右边缘：右方放不下，翻到光标左方。
+  {
+    const A anchor{A::Kind::Caret, 1800, 400, 8, 20};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    assert(pos.x == 1588 && pos.y == 392);
+  }
+
+  // 光标还没报（全 0）：不可用，回退到工作区中下部，绝不在桌面右上角。
+  {
+    const A anchor{A::Kind::Caret, 0, 0, 0, 0};
+    assert(!host::candidate_menu_anchor_usable(anchor, work));
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    assert(pos.x == 860 && pos.y == 510);
+    assert(pos.x > 300 && pos.y > 300);
+  }
+
+  // 光标在工作区外（坐标不是根窗口坐标）：同样判不可用并回退。
+  {
+    const A anchor{A::Kind::Caret, 4000, 4000, 8, 20};
+    assert(!host::candidate_menu_anchor_usable(anchor, work));
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    assert(pos.x == 860 && pos.y == 510);
+  }
+
+  // 指针模式保持原行为：下方放不下翻到上方。
+  {
+    const A anchor{A::Kind::Pointer, 100, 900, 0, 0};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, 60, work);
+    assert(pos.x == 92 && pos.y == 608);
+  }
 }
 
 void toolbar_config() {
@@ -458,6 +503,7 @@ void controller() {
 }  // namespace
 
 int main() {
+  candidate_menu_placement_rules();
   keymap_rules();
   toolbar_config();
   toolbar_platform();
