@@ -1,4 +1,4 @@
-﻿; Metasequoia IME — Inno Setup script
+; Metasequoia IME — Inno Setup script
 ; 源文件根目录：本脚本所在目录
 ;
 ; 编译方法：
@@ -14,7 +14,7 @@
 ;
 ; 也可以直接运行 .\test.ps1 走完整测试流程。
 ; 只改 TSF / Server 时用 .\test-light.ps1：ISCC /DLightPackage=1，
-; 打出不含词库的轻量包，安装时也不会删本机已有词库。
+; 打出不含词库的轻量包，安装时也不会删本机已有词库（PrepareToInstall 只在完整包里清空 server 目录）。
 ; 本仓库不包含任何预置代码签名证书。
 
 #include "editions.iss"
@@ -1565,9 +1565,10 @@ begin
 #ifndef LightPackage
   { 轻量包不带 app_data，只替换 Server/TSF。完整包先清掉安装包自己的条目，用户配置、皮肤、Server 状态和 helpcodes\custom 里用户自己的辅助码表保留。}
   CleanAppDataExceptUserFiles;
-#endif
+  { 轻量包不暂存 server 目录里的数据（resources 词库、候选释义、词书、粤拼注音笔画词库、重排模型，见 Prepare-PackageFiles.ps1 的 -Light 分支），整个删掉就只剩可执行文件，Server 启动时找不到词库直接退出，TIP 能组字却出不了候选。所以只有完整包先清空 server 目录，轻量包原地覆盖可执行文件和 DLL。}
   TryDeleteTree(ExpandConstant(
     '{autopf}\{#MyEditionInstallDir}\server'));
+#endif
   TryDeleteOldVersionDirs(ExpandConstant(
     '{commonpf32}\{#MyEditionInstallDir}'));
   TryDeleteOldVersionDirs(ExpandConstant(
