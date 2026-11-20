@@ -253,9 +253,12 @@ final class NineKeyKeyboardTests: XCTestCase {
     typealias Key = KeyboardViewController.NineKeyMiddleKey
     XCTAssertEqual(Key.resolve(stroke: false, digits: false), .separator)
     XCTAssertEqual(Key.resolve(stroke: false, digits: true), .period)
+    XCTAssertEqual(Key.resolve(stroke: false, digits: true, periodOnLanguageKey: true), .equals,
+                   "数字页底行的 中/英 键改作句点键时，中间键输入等号")
     XCTAssertEqual(Key.resolve(stroke: true, digits: false), .rewrite)
     XCTAssertEqual(Key.separator.face, "分词")
     XCTAssertEqual(Key.period.face, ".")
+    XCTAssertEqual(Key.equals.face, "=")
     XCTAssertEqual(Key.rewrite.face, "重输")
   }
 
@@ -301,8 +304,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     }.isEmpty)
     XCTAssertTrue(try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "symbolLayerRow0" }).isHidden,
                   "the grid keeps its digits instead of the 123 layer")
-    // 数字层上分词键没有可切分的内容；该键在那里输入句号。
-    XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, ".")
+    // 数字层上底行的 中/英 键改作句点键，分词键改输入等号。
+    XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "=")
+    XCTAssertEqual(try button("bottomLanguageKey", in: controller).configuration?.title, ".")
+    XCTAssertEqual(try button("bottomLanguageKey", in: controller).accessibilityLabel, "句点")
     let zero = try button("nineKeyZero", in: controller)
     XCTAssertFalse(zero.isHidden)
     XCTAssertEqual(zero.configuration?.title, "0")
@@ -321,6 +326,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     })
     XCTAssertTrue(controller.gestureRecognizerShouldBegin(hold))
     XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "分词")
+    XCTAssertNotEqual(try button("bottomLanguageKey", in: controller).configuration?.title, ".", "回到字母层恢复语言键面")
   }
 
   func testLayoutPreferencePreservesActiveComposition() throws {
@@ -942,8 +948,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     for id in ["symbolLayerToggle", "symbolLayerDeleteKey"] {
       XCTAssertEqual(try button(id, in: controller).bounds.width, mark.bounds.width * SymbolLayerLayout.edgeWeight, accuracy: 0.5, id)
     }
-    XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, 52, accuracy: 0.5)
-    XCTAssertEqual(try button("returnKey", in: controller).bounds.height, 52, accuracy: 0.5)
+    XCTAssertEqual(try button("symbolLayerKey0_0", in: controller).bounds.height, 44, accuracy: 0.5)
+    XCTAssertEqual(try button("returnKey", in: controller).bounds.height, 44, accuracy: 0.5)
     XCTAssertTrue(try button("symbolDeleteKey", in: controller).isHidden, "⌫ is in the layer's third row")
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant,
                    KeyboardViewController.defaultKeyboardHeight, "符号层沿用原来的行距和按键高度")
@@ -1260,9 +1266,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(panel.currentPage, 0)
       XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "closeMorePicker" }, "the toolbar row is the menu's only header")
 
-      // 手机竖屏每页 4 × 3 个 52pt 图块，每页一个圆点，当前页圆点宽 16pt。
+      // 手机竖屏每页 4 × 3 个图块（键区按 44pt 键帽算，默认高度下按 `pickerLayout` 略缩到约 50pt，不小于 44pt），每页一个圆点，当前页圆点宽 16pt。
       let tiles = descendants(panel).compactMap { $0 as? KeyboardFunctionTileView }
-      for tile in tiles { XCTAssertEqual(tile.bounds.height, 52, accuracy: 0.5, tile.tool.title) }
+      let tileHeight = tiles.first?.bounds.height ?? 0
+      XCTAssertGreaterThanOrEqual(tileHeight, KeyboardPagedGridView.pickerMinTileHeight - 0.5)
+      XCTAssertLessThanOrEqual(tileHeight, KeyboardFunctionTileView.height + 0.5)
+      for tile in tiles { XCTAssertEqual(tile.bounds.height, tileHeight, accuracy: 0.5, tile.tool.title) }
       let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
       XCTAssertEqual(tiles.filter { page(of: $0, in: scroll) == 0 }.count, min(12, tiles.count))
       XCTAssertEqual(panel.pageCount, (tiles.count + 11) / 12)
@@ -1453,7 +1462,9 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in listed + shownShuangpin {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
-        XCTAssertEqual(card.bounds.height, KeyboardSchemeTileView.height, accuracy: 0.5)
+        // 键区按 44pt 键帽算，默认高度下卡片按 `pickerLayout` 略缩，仍不小于 44pt。
+        XCTAssertGreaterThanOrEqual(card.bounds.height, KeyboardPagedGridView.pickerMinTileHeight - 0.5)
+        XCTAssertLessThanOrEqual(card.bounds.height, KeyboardSchemeTileView.height + 0.5)
       }
       for scheme in withheld {
         XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }, scheme.rawValue)
@@ -1548,8 +1559,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? UIButton)
       XCTAssertEqual(frame(letter).minY, gridTop, accuracy: 0.5, "\(scheme)")
       XCTAssertEqual(frame(try button("returnKey", in: controller)).maxY, nineKeyBottom, accuracy: 0.5, "\(scheme)")
-      // 四排 52pt 键帽、7pt 排距的高度由四排字母键和 11pt 排距填满。
-      XCTAssertEqual(letter.bounds.height, 52, accuracy: 0.5, "\(scheme)")
+      // 九键和英文 26 键同为四排 44pt 键帽，切过去按键区不跳。
+      XCTAssertEqual(letter.bounds.height, 44, accuracy: 0.5, "\(scheme)")
     }
   }
 
@@ -4780,7 +4791,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       for symbol in extras {
         XCTAssertNotNil(descendants(operators).first { $0.accessibilityLabel == "符号 \(symbol)" }, "\(symbol) \(context)")
       }
-      XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, ".", context)
+      XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "=", context)
+      XCTAssertEqual(try button("bottomLanguageKey", in: controller).configuration?.title, ".", context)
       XCTAssertEqual(try button("nineKeyClosingMark", in: controller).configuration?.title, closing, context)
       // 底行：0、空格和中/英都在，长空格的用户在这里也有空格。
       for id in ["nineKeyZero", "spaceKey", "bottomLanguageKey", "returnKey"] {
@@ -4852,7 +4864,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  /// 运算符滚动时保留整排触控高度，符号面板入口固定且能返回数字页。符号栏里的 符 只在借来的数字九宫格上（拼音九键一族的 符 在底行），所以这里从全拼进数字页。
+  /// 左列五项等高排满（`numberPadSidebarItemShare`），运算符可滚动，符号面板入口固定在左列底部且能返回数字页。符号栏里的 符 只在借来的数字九宫格上（拼音九键一族的 符 在底行），所以这里从全拼进数字页。
   func testNumberPadSidebarKeepsLargeKeysAndAFixedSymbolEntry() throws {
     let previous = InputSchemePreference.scheme
     let previousSpacing = KeyboardLayoutPreference.rowSpacing
@@ -4879,22 +4891,26 @@ final class NineKeyKeyboardTests: XCTestCase {
       let digit = try button("nineKey7", in: controller)
       XCTAssertTrue(shown(symbols))
       XCTAssertEqual(symbols.configuration?.title, "符")
-      XCTAssertEqual(symbols.bounds.height, digit.bounds.height, accuracy: 0.5)
-      XCTAssertEqual(symbols.convert(symbols.bounds, to: controller.view).minY,
-                     digit.convert(digit.bounds, to: controller.view).minY, accuracy: 0.5)
+      let sidebar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "nineKeySidebar" })
+      let item = sidebar.bounds.height * KeyboardViewController.numberPadSidebarItemShare
+      XCTAssertEqual(symbols.bounds.height, item, accuracy: 0.5)
+      // 符 在左列底部，与九宫格第三排（7 所在的那一排）底边对齐。
+      XCTAssertEqual(symbols.convert(symbols.bounds, to: controller.view).maxY,
+                     digit.convert(digit.bounds, to: controller.view).maxY, accuracy: 0.5)
       XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height)
       let fixedFrame = symbols.convert(symbols.bounds, to: controller.view)
       for mark in ["+", "-", "*", "/"] {
         let key = try XCTUnwrap(descendants(scroll).first { $0.accessibilityLabel == "运算符 \(mark)" })
-        XCTAssertEqual(key.bounds.height, digit.bounds.height, accuracy: 0.5)
+        XCTAssertEqual(key.bounds.height, item, accuracy: 0.5)
         XCTAssertTrue(scroll.touchesShouldCancel(in: key), "从运算符起滑也必须能滚动，不能误输入符号")
         scroll.scrollRectToVisible(key.convert(key.bounds, to: scroll), animated: false)
-        XCTAssertTrue(scroll.bounds.contains(key.convert(key.bounds, to: scroll)))
+        // 项高是左列高度的五分之一，可能带小数，比较前各收 0.5pt。
+        XCTAssertTrue(scroll.bounds.insetBy(dx: -0.5, dy: -0.5).contains(key.convert(key.bounds, to: scroll).insetBy(dx: 0.5, dy: 0.5)))
         XCTAssertEqual(symbols.convert(symbols.bounds, to: controller.view), fixedFrame)
       }
       let more = try button("numberPadMoreSymbols", in: controller)
       scroll.scrollRectToVisible(more.convert(more.bounds, to: scroll), animated: false)
-      XCTAssertTrue(scroll.bounds.contains(more.convert(more.bounds, to: scroll)))
+      XCTAssertTrue(scroll.bounds.insetBy(dx: -0.5, dy: -0.5).contains(more.convert(more.bounds, to: scroll).insetBy(dx: 0.5, dy: 0.5)))
       symbols.sendActions(for: .primaryActionTriggered)
       XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSymbolPanel" })
       try button("closeSymbolPanel", in: controller).sendActions(for: .primaryActionTriggered)

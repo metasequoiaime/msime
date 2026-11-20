@@ -980,7 +980,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
     var expected = ""
     for (identifier, literal) in [("nineKey1", "1"), ("nineKeyZero", "0"),
-                                  ("nineKeyMiddleKey", "."), ("运算符 +", "+"),
+                                  ("bottomLanguageKey", "."), ("nineKeyMiddleKey", "="), ("运算符 +", "+"),
                                   ("运算符 -", "-"), ("运算符 *", "*"), ("运算符 /", "/")] {
       key("字母 N").tap()
       key("字母 I").tap()
@@ -1041,7 +1041,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         switch character {
         case "0": target = key("nineKeyZero")
         case "1"..."9": target = key("nineKey\(character)")
-        case ".": target = key("nineKeyMiddleKey")
+        case ".": target = key("bottomLanguageKey")
         default: target = app.buttons["运算符 \(character)"]
         }
         revealNumberPadSidebarKey(target, in: app)
