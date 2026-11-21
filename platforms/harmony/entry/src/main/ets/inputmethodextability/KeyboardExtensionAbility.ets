@@ -10,7 +10,7 @@ import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy'
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
-import window from '@ohos.window';
+import { ToolbarFocus } from './ToolbarFocus';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
 import { TouchPanelShape } from '../keyboard/TouchLayoutStylePolicy';
@@ -104,8 +104,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // panel belonging to a newer request.
   private statusPanelGeneration: number = 0;
   private toolbarPosition: [number, number] = [0, 0];
-  // Set while the toolbar is hidden because the focused editor's window fills the screen.
-  private toolbarHiddenForFullscreen: boolean = false;
+  private readonly toolbarFocus: ToolbarFocus = new ToolbarFocus(
+    (error: Object): void => KeyboardLog.error(`toolbar visibility failed: ${describeError(error)}`));
   private toolbarDragOrigin: [number, number] = [0, 0];
   private readonly toolbarMoves: ToolbarMoveQueue = new ToolbarMoveQueue(
     (error: Object): void => KeyboardLog.error(`toolbar would not move: ${describeError(error)}`));
@@ -292,10 +292,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     KeyboardSession.shared.onToolbarResize = undefined;
     KeyboardSession.shared.onToolbarDragStart = undefined;
     KeyboardSession.shared.onToolbarDrag = undefined;
+    this.toolbarFocus.invalidate();
     this.toolbarMoves.detach();
     engine.destroyPanel(this.toolbar);
     this.toolbar = undefined;
-    this.toolbarHiddenForFullscreen = false;
   }
 
   private async openModeBadge(generation: number): Promise<void> {
@@ -753,30 +753,15 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       if (!KeyboardFormFactor.isDesktop()) {
         this.panel.show();
       } else {
-        this.followCallingWindow(inputClient);
+        this.followCallingWindow();
       }
     };
 
-  /**
-   * Keep the floating toolbar off an application that fills the screen, and bring it back when the focus is in a window that does not.
-   *
-   * The Windows host hides its toolbar while the foreground window is fullscreen (`OnWinEvent` in `window_hook.cpp`), so a game or a video is not covered by a bar nobody is using. HarmonyOS tells the keyboard the calling window's status, and only when asked, so it is asked each time an editor takes focus; a window that goes fullscreen while its editor keeps the focus is noticed at the next focus.
-   */
-  private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
+  /** 每次绑定编辑器都请求显示工具栏，包括全屏窗口。 */
+  private followCallingWindow(): void {
     const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
-    if (toolbar === undefined) {
-      return;
-    }
-    inputClient.getCallingWindowInfo().then((info: inputMethodEngine.WindowInfo): Promise<void> | undefined => {
-      const fullscreen: boolean = info.status === window.WindowStatusType.FULL_SCREEN;
-      if (this.toolbar !== toolbar || fullscreen === this.toolbarHiddenForFullscreen) {
-        return undefined;
-      }
-      this.toolbarHiddenForFullscreen = fullscreen;
-      return fullscreen ? toolbar.hide() : toolbar.show();
-    }).catch((error: Object): void => {
-      KeyboardLog.error(`calling window unavailable: ${describeError(error)}`);
-    });
+    if (toolbar === undefined) return;
+    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown);
   }
 
   private readonly keyboardShown: () => void = (): void => {
@@ -792,6 +777,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private readonly stopped: () => void = (): void => {
     // An editor that stops while the panel is still being built must not be attached once it is.
     this.pending = undefined;
+    this.toolbarFocus.invalidate();
     this.backspaceHold.reset();
     this.heldKeys.reset();
     KeyboardSession.shared.detach();
@@ -1345,11 +1331,14 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           + `${this.hud !== undefined ? ', with mode badge' : ''}`);
         // 面板创建完成后，服务创建期间获得焦点的编辑器。
         if (this.pending !== undefined) {
-          KeyboardSession.shared.attach(this.pending);
+          const pending: inputMethodEngine.InputClient = this.pending;
+          KeyboardSession.shared.attach(pending);
           this.pending = undefined;
           this.applyScreenCaptureProtection();
           if (!desktop) {
             this.panel.show();
+          } else {
+            this.followCallingWindow();
           }
         }
       } catch (error) {
