@@ -112,7 +112,7 @@ import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import {
   CandidateGlossLayoutPolicy, CandidateGlossProviderState
 } from './candidate/CandidateGlossLayoutPolicy';
-import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
+import { CandidateIdentity, CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration, CandidateSkinBackground,
   CandidateSkinAlign, CandidateSkinFit, CandidateSkinAnimation
@@ -203,6 +203,7 @@ import { EngineViewNumericFields, EngineViewValuePolicy } from './input/EngineVi
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
 interface Candidate {
+  id: CandidateIdentity;
   text: string;
   highlighted: boolean;
   /** Which part of the Engine produced it; the gloss lookup treats sources differently. */
@@ -5567,9 +5568,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.select(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.select(this.handle, id.generation, id.index));
   }
 
   /** Commit the first or last Han scalar of the highlighted candidate. */
@@ -5578,8 +5579,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     const candidate: Candidate | undefined = this.currentCandidates.find(
       (entry: Candidate): boolean => entry.highlighted);
     if (candidate === undefined) return;
-    const raw: string = client.selectEdge(this.handle, this.generation,
-      this.currentCandidates.indexOf(candidate), edge === CandidateTextEdge.FIRST ? 0 : 1);
+    const id: CandidateIdentity | null = CandidatePresentationPolicy.identityAt(
+      this.currentCandidates, [this.currentCandidates.indexOf(candidate)], 0, this.handle);
+    if (id === null) return;
+    const raw: string = client.selectEdge(this.handle, id.generation,
+      id.index, edge === CandidateTextEdge.FIRST ? 0 : 1);
     let response: Response;
     try {
       response = JSON.parse(raw) as Response;
@@ -5802,8 +5806,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private currentCandidates: Candidate[] = [];
   /** 候选条隐藏内部占位行后，显示序号对应的 Engine 索引。 */
   private visibleCandidateIndices: number[] = [];
-  /** 展开面板隐藏内部占位行后，显示序号对应的 Engine 全量列表索引。 */
-  private expandedCandidateIndices: number[] = [];
+  /** 展开面板隐藏内部占位行后，显示序号对应的引擎候选身份。 */
+  private expandedCandidateIdentities: CandidateIdentity[] = [];
   private translationPage: string[] | null = null;
   private translationHighlight: number = 0;
   private lastView: EngineView | undefined = undefined;
@@ -8939,7 +8943,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * operations index the page rather than this list, so the source does not offer them here either.
    */
   allCandidates(): ExpandedCandidate[] {
-    this.expandedCandidateIndices = [];
+    this.expandedCandidateIdentities = [];
     if (this.handle === 0) {
       return [];
     }
@@ -8966,7 +8970,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         if (!CandidatePresentationPolicy.isVisible(candidate.source)) {
           continue;
         }
-        this.expandedCandidateIndices.push(index);
+        const id: CandidateIdentity | null = CandidatePresentationPolicy.identityAt(
+          response.value.candidates, [index], 0, this.handle);
+        if (id === null || id.generation !== response.value.generation) continue;
+        this.expandedCandidateIdentities.push(id);
         entries.push({
           text: this.asTraditional(candidate.text, candidate.source),
           annotation: CandidateGlossPolicy.annotation(
@@ -8994,6 +9001,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return `${this.handle}:${this.generation}`;
   }
 
+  /** 展开完整列表可能更新引擎代次；收起后重新读取候选条及其身份。 */
+  refreshCandidateView(): void {
+    if (this.handle !== 0) this.applyView(client.view(this.handle));
+  }
+
   /**
    * The candidate-management operations behind a long press: promote it, pin it to the front, let go
    * of a pinned position, or take the entry out of the dictionary altogether.
@@ -9001,6 +9013,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   private engineCandidateIndex(index: number): number {
     return index >= 0 && index < this.visibleCandidateIndices.length
       ? this.visibleCandidateIndices[index] : -1;
+  }
+
+  /** 可见序号属于当前页，引擎身份里的序号属于完整候选列表。 */
+  private pageCandidateIdentity(index: number): CandidateIdentity | null {
+    return CandidatePresentationPolicy.identityAt(
+      this.currentCandidates, this.visibleCandidateIndices, index, this.handle);
   }
 
   /** 候选能不能固定、调序或删除：上屏后联想的候选不属于正在组的字，和 Android 的 `candidateManagementEnabled` 一样不给管理。 */
@@ -9012,9 +9030,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.pinCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.pinCandidate(this.handle, id.generation, id.index));
   }
 
   /** Position 1 is the front of the list, which is what 固定到首位 means. */
@@ -9030,9 +9048,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // ever builds slots 1 to 5, so this throws for nobody; it is here because this is the last point
     // before the slot becomes an argument to the Engine, and a session method is callable by
     // anything in the host.
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.fixCandidatePosition(this.handle, this.generation, actualIndex,
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.fixCandidatePosition(this.handle, id.generation, id.index,
       CandidateManagementAction.validatePosition(position)));
   }
 
@@ -9040,18 +9058,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.clearCandidatePosition(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.clearCandidatePosition(this.handle, id.generation, id.index));
   }
 
   removeCandidate(index: number): void {
     if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.removeCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.removeCandidate(this.handle, id.generation, id.index));
   }
 
   /**
@@ -9088,7 +9106,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardScheme.engineSchemeName(view.scheme), candidate.source)) {
       return false;
     }
-    this.apply(client.removeCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return false;
+    this.apply(client.removeCandidate(this.handle, id.generation, id.index));
     return true;
   }
 
@@ -9097,9 +9117,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return false;
     }
-    const actualIndex: number = this.expandedCandidateIndices[index] ?? -1;
-    if (actualIndex < 0) return false;
-    return this.apply(client.selectAnyCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | undefined = this.expandedCandidateIdentities[index];
+    if (id === undefined || id.session !== this.handle) return false;
+    return this.apply(client.selectAnyCandidate(this.handle, id.generation, id.index));
   }
 
   /** Commit to one reading of the digits typed so far. */

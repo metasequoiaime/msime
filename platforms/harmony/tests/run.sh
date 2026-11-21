@@ -963,6 +963,7 @@ done
 node "$here/telemetry-adapter.test.cjs"
 node "$here/shared-dictionary-resources-adapter.test.cjs"
 node "$here/ai-candidate-response-adapter.test.cjs"
+node "$here/candidate-identity-adapter.test.cjs"
 node "$here/cloud-clipboard-receive-adapter.test.cjs"
 node "$here/nine-key-flick-panel-adapter.test.cjs"
 node "$here/custom-shuangpin-panel-adapter.test.cjs"
