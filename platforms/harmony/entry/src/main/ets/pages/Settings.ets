@@ -48,7 +48,7 @@ import inputMethod from '@ohos.inputMethod';
 import { PreferenceRevisionPolicy } from '../keyboard/input/PreferenceRevisionPolicy';
 import { PreferencesErrorCode } from '../keyboard/settings/PreferencesErrorCode';
 import picker from '@ohos.file.picker';
-import { SkinImportPolicy } from '../keyboard/skin/SkinImportPolicy';
+import { SkinImportFeedback, SkinImportPolicy } from '../keyboard/skin/SkinImportPolicy';
 import {
   PickedEntryKind, PluginFolderScan, PluginImportPolicy, PluginImportRefusal
 } from '../keyboard/settings/PluginImportPolicy';
@@ -1405,18 +1405,19 @@ class SettingsBridge {
    * stylesheet inside one and refuses anything else, so importing a single file would import
    * something the catalog would then decline to list.
    */
-  /**
-   * Starts the skin import and answers at once.
-   *
-   * Like the picker, the page cannot wait for this: a bridge method that returns a Promise never
-   * settles on this platform build, so an awaited import would leave the button reading 正在导入
-   * forever. The panel's own rescan is what shows the result.
-   */
+  /** 同步桥接立即返回，选择器和导入完成后向用户反馈结果。 */
   importSkinFolder(): string {
-    this.runSkinImport().then((): void => {
-      this.schedulePublish();
+    this.runSkinImport().then((raw: string): void => {
+      const reply: TextReply = JSON.parse(raw) as TextReply;
+      const feedback: SkinImportFeedback = SkinImportPolicy.feedback(
+        reply.ok, reply.value, reply.error, this.sharedMirror !== null);
+      if (feedback.publish) this.schedulePublish();
+      if (feedback.message.length > 0) {
+        this.uiContext?.getPromptAction().showToast({ message: feedback.message, duration: 4000 });
+      }
     }).catch((error: Object): void => {
-      KeyboardLog.error(`skin import failed: ${describeError(error)}`);
+      KeyboardLog.error('skin import failed');
+      this.uiContext?.getPromptAction().showToast({ message: '导入皮肤失败', duration: 4000 });
     });
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
   }
@@ -1449,6 +1450,8 @@ class SettingsBridge {
       KeyboardLog.error('skin folder name refused');
       return JSON.stringify({ ok: false, error: '皮肤文件夹名不可用' } as TextReply);
     }
+    const context: common.UIAbilityContext = this.context;
+    const staging: string = `${context.cacheDir}/skin-import/${util.generateRandomUUID(false)}`;
     try {
       const skinsDirectory: string = `${this.stateDirectory}/skins`;
       if (!this.safeDirectory(this.stateDirectory)) {
@@ -1458,16 +1461,59 @@ class SettingsBridge {
       if (!this.safeDirectory(skinsDirectory)) {
         return JSON.stringify({ ok: false, error: '导入失败' });
       }
+      const importRoot: string = `${context.cacheDir}/skin-import`;
+      if (!this.safeDirectory(context.cacheDir)) {
+        return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
+      }
+      if (!fs.accessSync(importRoot)) fs.mkdirSync(importRoot, true);
+      if (!this.safeDirectory(importRoot)) {
+        return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
+      }
+      fs.mkdirSync(staging);
+      if (!this.safeDirectory(staging)) {
+        return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
+      }
+      const source: string = `${staging}/${name}`;
+      try {
+        // 保持选择器给予的 URI 授权；不能转换成路径再遍历。
+        const input: fs.File = fs.openSync(picked[0],
+          fs.OpenMode.READ_ONLY | fs.OpenMode.DIR | fs.OpenMode.NOFOLLOW);
+        try {
+          fs.mkdirSync(source);
+          const output: fs.File = fs.openSync(source,
+            fs.OpenMode.READ_ONLY | fs.OpenMode.DIR | fs.OpenMode.NOFOLLOW);
+          try {
+            if (!await client.stageSkinFolder(input.fd, output.fd)) {
+              return JSON.stringify({ ok: false,
+                error: '无法读取所选文件夹；文件提供方可能不支持目录访问，或皮肤文件超过限制' } as TextReply);
+            }
+          } finally {
+            fs.closeSync(output);
+          }
+        } finally {
+          fs.closeSync(input);
+        }
+      } catch {
+        return JSON.stringify({ ok: false,
+          error: '无法读取所选文件夹；文件提供方可能不支持目录访问，或皮肤文件超过限制' } as TextReply);
+      }
       const reply: string = await client.skinImport(JSON.stringify({
-        source: picked[0], directory: skinsDirectory
+        source: source, directory: skinsDirectory
       }));
       const parsed: Record<string, Object> = JSON.parse(reply) as Record<string, Object>;
       if (parsed['ok'] !== true) {
-        return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
+        const code: string = typeof parsed['error'] === 'string' ? parsed['error'] as string : '';
+        return JSON.stringify({ ok: false, error: SkinImportPolicy.importError(code) } as TextReply);
       }
     } catch (error) {
-      KeyboardLog.error(`skin import failed: ${describeError(error)}`);
+      KeyboardLog.error('skin import failed');
       return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
+    } finally {
+      try {
+        StagedResources.removeDirectory(staging);
+      } catch {
+        KeyboardLog.error('skin import staging not removed');
+      }
     }
     KeyboardLog.info('skin imported');
     return JSON.stringify({ ok: true, value: name, error: '' } as TextReply);

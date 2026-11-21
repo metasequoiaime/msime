@@ -963,6 +963,17 @@ done
 node "$here/telemetry-adapter.test.cjs"
 node "$here/shared-dictionary-resources-adapter.test.cjs"
 node "$here/ai-candidate-response-adapter.test.cjs"
+node "$here/skin-import-adapter.test.cjs"
+node "$here/skin-folder-napi.test.cjs"
+# 固定目录 fd 的递归暂存必须拒绝替换和超限；只使用合成文件。
+skin_test_out="$repo_root/target/harmony-tests/skin-folder-fd"
+mkdir -p "$skin_test_out"
+"${CXX:-c++}" -std=c++17 -O1 -Wall -Wextra -Werror "$here/skin-folder-fd.test.cpp" -o "$skin_test_out/test"
+skin_scratch=$(mktemp -d "$skin_test_out/fixture.XXXXXX")
+trap 'rm -rf "$skin_scratch"' EXIT
+"$skin_test_out/test" "$skin_scratch"
+rm -rf "$skin_scratch"
+trap - EXIT
 node "$here/cloud-clipboard-receive-adapter.test.cjs"
 node "$here/nine-key-flick-panel-adapter.test.cjs"
 node "$here/custom-shuangpin-panel-adapter.test.cjs"
