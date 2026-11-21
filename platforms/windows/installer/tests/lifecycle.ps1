@@ -79,6 +79,12 @@ $serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{autopf}\{
 if ($serverRemoval -lt 0 -or $flatPrepare.IndexOf('StopImeProcesses;') -gt $serverRemoval) {
     throw 'Upgrade removes the server directory before stopping its processes'
 }
+# 轻量包不带 server 目录里的词库和其他数据，删掉整个目录 Server 就起不来；清空 server 目录只能在完整包的分支里。
+$fullOnly = [regex]::Match($flatPrepare, '#ifndef LightPackage (.*?)#endif')
+if (-not $fullOnly.Success -or -not $fullOnly.Groups[1].Value.Contains("TryDeleteTree(ExpandConstant( '{autopf}\{#MyEditionInstallDir}\server'))") -or
+    ($flatPrepare.Replace($fullOnly.Value, '')).Contains("{#MyEditionInstallDir}\server'))")) {
+    throw 'A light package deletes the server directory, including the dictionaries it does not carry'
+}
 
 # ---- the uninstaller removes the data directory it recorded ----
 # DataDir carries uninsdeletevalue, so it is gone by usPostUninstall; reading it there falls back to the default and a custom directory is never removed.
