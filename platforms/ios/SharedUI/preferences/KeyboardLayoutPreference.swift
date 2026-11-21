@@ -15,6 +15,7 @@ enum KeyboardLayoutPreference {
   static let glideTypingKey = "keyboard.gesture.glide"
   static let bilingualGlideKey = "keyboard.gesture.bilingualGlide"
   static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
+  static let backspaceSwipeSpeedKey = "keyboard.gesture.backspaceSwipeSpeed"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
@@ -229,6 +230,26 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: cursorSwipeKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: cursorSwipeKey) }
   }
+  /// 「滑动删除速度」：按住 ⌫ 往左滑删除时的快慢，1 到 10 档，档位越高越快。只存本机 App Group，不进共享文档、不随设置同步（与横滑光标一样）。
+  static let backspaceSwipeSpeedRange: ClosedRange<Int> = 1...10
+  static let backspaceSwipeSpeedDefault = 7
+  static var backspaceSwipeSpeed: Int {
+    get {
+      let stored = defaults.object(forKey: backspaceSwipeSpeedKey) as? Int ?? backspaceSwipeSpeedDefault
+      return min(max(stored, backspaceSwipeSpeedRange.lowerBound), backspaceSwipeSpeedRange.upperBound)
+    }
+    set {
+      defaults.set(min(max(newValue, backspaceSwipeSpeedRange.lowerBound), backspaceSwipeSpeedRange.upperBound),
+                   forKey: backspaceSwipeSpeedKey)
+    }
+  }
+  /// 某一档对应的每删一个要往左滑的距离（pt）：第 1 档 22pt，每高一档少 2pt，第 10 档 4pt；默认第 7 档 10pt。
+  static func backspaceSwipeStep(speed: Int) -> Double {
+    let level = min(max(speed, backspaceSwipeSpeedRange.lowerBound), backspaceSwipeSpeedRange.upperBound)
+    return Double(24 - 2 * level)
+  }
+  /// 键盘横滑删除实际用的每格距离。
+  static var backspaceSwipeStep: Double { backspaceSwipeStep(speed: backspaceSwipeSpeed) }
   /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的「长按空格说话」开关直接读写它；iOS 没有工具栏语音按钮。
   static var spaceVoice: Bool {
     get { defaults.object(forKey: spaceVoiceKey) as? Bool ?? true }
@@ -459,12 +480,12 @@ enum KeyboardHeightPercent {
   /// `touch_keyboard_height_adjustment` 经过校验的取值范围，单位为点。
   static let adjustmentRange: ClosedRange<CGFloat> = -12...48
 
-  /// 竖屏的按键高度：手机按键 52pt，九键的宽键帽保留足够的纵向空间；iPad 按键 54pt（`dc.html` 的 `keyH`）。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
+  /// 竖屏的按键高度：手机按键 44pt，iPad 按键 54pt（`dc.html` 的 `keyH`）。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
   ///
-  /// 手机原是设计稿的 42pt：九键每个键约 105pt 宽，42pt 高看上去是扁的，上面的顶栏又按读音行加候选行留着 56pt，整块键盘头重脚轻。
-  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 52 }
+  /// 手机曾是 52pt（为了九键的宽键帽不显得扁），26 键另收到 44pt 再在键区上下垫回 52pt 的外框。结果整块键盘比系统键盘和其他第三方键盘高出一截，26 键和数字九宫格之间切换时按键区一高一低。现在所有键面统一 44pt，与 26 键原来的键帽一样；觉得矮的用户仍可在「键盘高度」里加高。
+  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 44 }
 
-  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 229pt。
+  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 197pt。
   static func keyBlockHeight(keyHeight: CGFloat, rows: Int, rowSpacing: CGFloat) -> CGFloat {
     max(1, CGFloat(rows) * keyHeight + CGFloat(max(rows - 1, 0)) * rowSpacing)
   }
