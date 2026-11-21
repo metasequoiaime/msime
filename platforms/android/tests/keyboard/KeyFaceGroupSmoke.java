@@ -9,9 +9,12 @@ public final class KeyFaceGroupSmoke {
     private KeyFaceGroupSmoke() { }
 
     private static final class Key implements KeyFaceGroup.Member {
+        final Map<KeyFaceSlot, String> texts = new EnumMap<>(KeyFaceSlot.class);
         int changes;
 
         @Override public void faceParamsChanged() { changes++; }
+
+        @Override public String faceText(KeyFaceSlot slot) { return texts.get(slot); }
     }
 
     public static void main(String[] args) {
@@ -24,6 +27,7 @@ public final class KeyFaceGroupSmoke {
         group.attach(narrow, Set.of(KeyFaceSlot.TOP_RIGHT, KeyFaceSlot.BOTTOM));
         group.attach(plain, Set.of());
         check(group.params() == null, "还没有布局好的键时不应有参数");
+        check(group.measureCount() == 0, "键都还没布局时不应量字");
 
         group.cellChanged(wide, 300, 150);
         KeyFaceParams first = group.params();
@@ -62,6 +66,24 @@ public final class KeyFaceGroupSmoke {
         bare.cellChanged(only, 120, 150);
         check(bare.params().topRight() == null && bare.params().strategy() == KeyFaceTemplate.Strategy.CENTERED,
             "内容域没有角标时不应为它留位置");
+
+        // 键换上内容域里没有的文字：补进内容域、只重量一遍；已有的文字不重量。
+        int measured = group.measureCount();
+        group.include(KeyFaceSlot.TOP_RIGHT, "!");
+        check(group.measureCount() == measured, "内容域已有的文字不应重量");
+        group.include(KeyFaceSlot.MAIN, "WW");
+        check(group.domain().contains(KeyFaceSlot.MAIN, "WW") && group.measureCount() == measured + 1,
+            "新文字应补进内容域并重量一遍");
+        check(group.params().main().sizePx() < small.main().sizePx(), "更宽的主标签补进来后全组应收小字号");
+
+        // 整个换掉内容域时，组里每个键此刻画着的文字并进来。
+        Key hinted = new Key();
+        hinted.texts.put(KeyFaceSlot.BOTTOM, "uang");
+        group.attach(hinted, Set.of(KeyFaceSlot.BOTTOM));
+        check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang"), "放进组里的键的文字应进内容域");
+        group.replace(KeyFaceSolverSmoke.ENVIRONMENT, KeyFaceSolverSmoke.MEASURER, KeyFaceSolverSmoke.domain(true, false));
+        check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong"),
+            "换内容域时应保留键此刻的文字、丢掉不再可能出现的文字");
         System.out.println("KeyFaceGroupSmoke passed");
     }
 

@@ -15,7 +15,7 @@ public final class KeyFaceSolverSmoke {
         KeyFaceTemplate.Strategy.SIDE_BY_SIDE, KeyFaceTemplate.Strategy.STACKED, KeyFaceTemplate.Strategy.SHRINK_MAIN);
     static final KeyFaceEnvironment ENVIRONMENT = new KeyFaceEnvironment(3f, 1f);
 
-    /** 假字体：字宽和墨迹都是字号的固定倍数，W 最宽；墨迹从基线到 0.7 个字号高。 */
+    /** 假字体：字宽和墨迹都是字号的固定倍数，W 最宽；墨迹从基线到 0.7 个字号高，Q 的尾巴挂到基线下 0.2 个字号。 */
     static final KeyFaceMeasurer MEASURER = new KeyFaceMeasurer() {
         @Override public float advance(KeyFaceSlot slot, String text, float sizePx) {
             float width = 0;
@@ -24,7 +24,8 @@ public final class KeyFaceSolverSmoke {
         }
 
         @Override public Ink ink(KeyFaceSlot slot, String text, float sizePx) {
-            return new Ink(0.05f * sizePx, -0.7f * sizePx, advance(slot, text, sizePx) - 0.05f * sizePx, 0);
+            float below = text.contains("Q") ? 0.2f * sizePx : 0;
+            return new Ink(0.05f * sizePx, -0.7f * sizePx, advance(slot, text, sizePx) - 0.05f * sizePx, below);
         }
     };
 
@@ -33,7 +34,7 @@ public final class KeyFaceSolverSmoke {
         slots.put(KeyFaceSlot.MAIN, MAIN);
         if (corner) slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
         if (bottom) slots.put(KeyFaceSlot.BOTTOM, BOTTOM);
-        return new KeyFaceTemplate("smoke", slots, 2, 1, 0, ORDER);
+        return new KeyFaceTemplate("smoke", slots, 2, 1, 0, true, 0.15f, ORDER);
     }
 
     static KeyFaceDomain domain(boolean corner, boolean bottom) {
@@ -57,6 +58,10 @@ public final class KeyFaceSolverSmoke {
         check(near(solve(false, false, ENVIRONMENT, 600, 400).main().sizePx(), 26 * 3), "大键应封顶在最大字号");
         check(near(solve(false, false, new KeyFaceEnvironment(3f, 1.15f), 600, 400).main().sizePx(), 26 * 3 * 1.15f),
             "上下限应跟随字体缩放");
+        // 按大写字母高居中：基线以上的墨迹的中线落在键格中线上，Q 的尾巴往下挂。
+        KeyFaceParams centered = solve(false, false, ENVIRONMENT, 300, 150);
+        float capCenter = centered.main().baseline(150) + centered.main().inkTopPx() / 2f;
+        check(Math.abs(capCenter - 75) < 0.01f, "大写字母应在键格中线上：" + capCenter);
         // 窄键按最宽的字收字号：W 在基准字号下宽 90。
         float narrow = solve(false, false, ENVIRONMENT, 60, 150).main().sizePx();
         check(near(narrow, (60 - 12) * KeyFaceDomain.REFERENCE_PX / 90f), "窄键应按最宽的主标签收字号：" + narrow);
@@ -69,10 +74,21 @@ public final class KeyFaceSolverSmoke {
         // 键太小、主标签会小于最小字号时，先放弃底部提示。
         KeyFaceParams tiny = solve(false, true, ENVIRONMENT, 200, 40);
         check(tiny.bottom() == null, "主标签放不下最小字号时应先放弃底部提示");
-        check(solve(false, true, ENVIRONMENT, 200, 60).bottom() != null, "主标签放得下最小字号时应保留底部提示");
+        check(solve(false, true, ENVIRONMENT, 200, 70).bottom() != null, "主标签放得下最小字号时应保留底部提示");
 
         // 宽键：角标在右上角，居中的主标签碰不到。
         check(solve(true, false, ENVIRONMENT, 300, 150).strategy() == KeyFaceTemplate.Strategy.CENTERED, "宽键应照常居中");
+        // 缩小主标签有上限：居中缩小超过 15% 才能避开时改试别的退让。
+        KeyFaceTemplate shrinkFirst = new KeyFaceTemplate("shrink-first", template(true, false).slots(), 2, 1, 0, true, 0.15f,
+            List.of(KeyFaceTemplate.Strategy.SHRINK_MAIN, KeyFaceTemplate.Strategy.STACKED));
+        for (int width = 60; width <= 330; width += 10) {
+            Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
+            for (KeyFaceSlot slot : shrinkFirst.slots().keySet()) cells.put(slot, new KeyFaceSolver.Cell(width, 150));
+            KeyFaceParams shrunk = KeyFaceSolver.solve(shrinkFirst, domain(true, false).measure(MEASURER, 0), ENVIRONMENT, cells);
+            KeyFaceParams free = solve(false, false, ENVIRONMENT, width, 150);
+            if (shrunk.strategy() == KeyFaceTemplate.Strategy.SHRINK_MAIN)
+                check(shrunk.main().sizePx() >= free.main().sizePx() * 0.85f - 0.01f, "居中缩小超过了上限：" + width);
+        }
 
         // 各种尺寸下：画出来的东西不相碰、不出键格。
         int strategies = 0;

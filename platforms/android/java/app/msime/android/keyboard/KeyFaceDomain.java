@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
@@ -17,13 +18,32 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
     public KeyFaceDomain {
         EnumMap<KeyFaceSlot, List<String>> copy = new EnumMap<>(KeyFaceSlot.class);
         for (Map.Entry<KeyFaceSlot, List<String>> entry : texts.entrySet()) {
-            List<String> values = entry.getValue().stream().filter(text -> text != null && !text.isEmpty()).toList();
-            if (!values.isEmpty()) copy.put(entry.getKey(), values);
+            // Android 9 没有 Stream.toList（API 34 起才有，D8 不补），用普通循环。
+            List<String> values = new ArrayList<>();
+            for (String text : entry.getValue())
+                if (text != null && !text.isEmpty() && !values.contains(text)) values.add(text);
+            if (!values.isEmpty()) copy.put(entry.getKey(), Collections.unmodifiableList(values));
         }
         texts = Collections.unmodifiableMap(copy);
     }
 
     public boolean has(KeyFaceSlot slot) { return texts.containsKey(slot); }
+
+    /** 这个位置的内容域里有没有 {@code text}；空串和 {@code null} 算有（不画就不用留位置）。 */
+    public boolean contains(KeyFaceSlot slot, String text) {
+        return text == null || text.isEmpty() || texts.getOrDefault(slot, List.of()).contains(text);
+    }
+
+    /** 加上一段文字后的内容域。 */
+    public KeyFaceDomain with(KeyFaceSlot slot, String text) {
+        if (contains(slot, text)) return this;
+        EnumMap<KeyFaceSlot, List<String>> copy = new EnumMap<>(KeyFaceSlot.class);
+        copy.putAll(texts);
+        List<String> values = new ArrayList<>(texts.getOrDefault(slot, List.of()));
+        values.add(text);
+        copy.put(slot, values);
+        return new KeyFaceDomain(copy);
+    }
 
     /**
      * 一个位置在 {@link #REFERENCE_PX} 字号下的上界：最宽的排版宽度、最宽的墨迹，以及所有文字墨迹合起来的上沿和下沿（相对基线，上沿为负）。
@@ -41,6 +61,14 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
         public float inkBottom(float sizePx) { return inkBottom * sizePx / REFERENCE_PX; }
 
         public float inkHeight(float sizePx) { return inkHeight() * sizePx / REFERENCE_PX; }
+
+        /**
+         * 竖直居中时要占的高度：按整个墨迹居中时就是墨迹高；按基线以上的墨迹居中（{@link KeyFaceTemplate#capAligned}）时，基线以下的部分挂在居中的那段下面，所以上下各要留出一份。
+         */
+        public float alignedHeight(float sizePx, boolean capAligned) {
+            if (!capAligned) return inkHeight(sizePx);
+            return (-Math.min(inkTop, 0) + 2 * Math.max(inkBottom, 0)) * sizePx / REFERENCE_PX;
+        }
     }
 
     /** 量一遍内容域。{@code pairGapEm} 见 {@link KeyFaceTemplate#pairGapEm}：两个字符的主标签按「左字 + 间距 + 右字」算宽度。 */

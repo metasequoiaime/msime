@@ -1,12 +1,18 @@
 package app.msime.android;
 
 import android.annotation.SuppressLint;
+import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.view.MotionEvent;
 import android.widget.Button;
+import java.util.Set;
 
-/** Matches Apple's key press feedback without changing the button's layout or input timing. */
-public class KeyboardPressButton extends Button {
+/**
+ * Matches Apple's key press feedback without changing the button's layout or input timing.
+ *
+ * <p>放进键组（{@link #setFaceGroup}）的键由 {@link KeyFaceRenderer} 画键面：主标签和提示按键组算好的字号和位置画，TextView 的文字只作节点文字（读屏、统计、按键气泡），不再排版、不再自己画，尺寸照旧由父视图给。没放进键组的键照原来的方式画。
+ */
+public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
     private KeyboardKeyRole role;
     private boolean dispatchingTouch;
     private boolean staleRelease;
@@ -17,9 +23,97 @@ public class KeyboardPressButton extends Button {
     private boolean faceSelected;
     private float faceDensity;
     private Drawable faceDrawable;
+    /** 放进键组后才有；TextView 的构造函数里会先调 {@link #onTextChanged}，那时它还是 null。 */
+    private KeyFaceRenderer keyFace;
+    /** 自己和祖先都可见（{@link #onVisibilityAggregated}）；隐藏的键不算进键组的最小键格。 */
+    private boolean visibleForFace = true;
 
     public KeyboardPressButton(android.content.Context context) {
         super(context);
+    }
+
+    /** 把这个键放进键组（{@code null} 拿出来，回到 TextView 自己排版和绘制）。{@code slots} 是它可能用到的提示位置。 */
+    public void setFaceGroup(KeyFaceGroup group, Set<KeyFaceSlot> slots) {
+        if (keyFace != null) keyFace.group().detach(this);
+        keyFace = group == null ? null : new KeyFaceRenderer(group);
+        if (group != null) {
+            group.attach(this, slots);
+            reportCell();
+        }
+        requestLayout();
+        invalidate();
+    }
+
+    /** 所在的键组；没放进键组时为 {@code null}。 */
+    public KeyFaceGroup faceGroup() { return keyFace == null ? null : keyFace.group(); }
+
+    /** 键组此刻给这个键的参数，设备验收读它；没放进键组或还没布局好时为 {@code null}。 */
+    public KeyFaceParams faceParams() { return keyFace == null ? null : keyFace.group().params(); }
+
+    @Override public String faceText(KeyFaceSlot slot) {
+        return slot == KeyFaceSlot.MAIN ? String.valueOf(getText()) : "";
+    }
+
+    /** 这个位置用的颜色；主标签用皮肤给的文字色，子类给提示的颜色。 */
+    protected int faceColor(KeyFaceSlot slot) { return getCurrentTextColor(); }
+
+    @Override public void faceParamsChanged() {
+        if (keyFace == null) return;
+        keyFace.stale();
+        invalidate();
+    }
+
+    /** 提示的文字变了：内容域里没有就补进键组，下次绘制前重新定位。 */
+    protected final void faceTextChanged(KeyFaceSlot slot, String text) {
+        if (keyFace == null) return;
+        keyFace.group().include(slot, text);
+        keyFace.stale();
+        invalidate();
+    }
+
+    @Override protected void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
+        super.onTextChanged(text, start, lengthBefore, lengthAfter);
+        faceTextChanged(KeyFaceSlot.MAIN, String.valueOf(text));
+    }
+
+    @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        // 键组里的键不按文字量尺寸：父视图给的就是键格，量文字只会白排一遍版。
+        if (keyFace != null && MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY
+                && MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
+            setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec));
+            return;
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    /** 把此刻的键格报给键组；隐藏时报 0，不算进最小键格。 */
+    private void reportCell() {
+        if (keyFace == null) return;
+        keyFace.group().cellChanged(this, visibleForFace ? getWidth() : 0, visibleForFace ? getHeight() : 0);
+    }
+
+    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight);
+        reportCell();
+    }
+
+    @Override public void onVisibilityAggregated(boolean isVisible) {
+        super.onVisibilityAggregated(isVisible);
+        visibleForFace = isVisible;
+        reportCell();
+    }
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        reportCell();
+    }
+
+    @Override protected void onDraw(Canvas canvas) {
+        if (keyFace == null) {
+            super.onDraw(canvas);
+            return;
+        }
+        keyFace.draw(canvas, this);
     }
 
     /** 候选词块可关闭过渡，按压样式与输入时机保持不变。 */
@@ -115,6 +209,7 @@ public class KeyboardPressButton extends Button {
         KeyPressAnimator.cancel(this);
         animate().cancel();
         KeyboardPressFeedback.reset(this);
+        if (keyFace != null) keyFace.group().cellChanged(this, 0, 0);
         super.onDetachedFromWindow();
     }
 
