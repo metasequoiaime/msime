@@ -1,10 +1,10 @@
-# Agent Note: 跟踪平台 issue #9411
+# Agent Note: 跟踪 macOS issue #9411
 
-Status: proposed
+Status: rejected — issue #9411 已由 #9466 修复并关闭，无需单独跟踪。
 
 ## Problem
 
-平台 issue `#9411`（macos）的标题是「[Bug]: 部分应用无法切换到水杉输入法, 因为默认只能安装到~/Library/Input Methods」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+macOS issue #9411 报告：水杉输入法默认只安装到 `~/Library/Input Methods`，微信、Teams、备忘录等应用无法切换到它；手动移到 `/Library/Input Methods` 后可以切换，但设置应用检测不到系统目录的安装，会重复提示安装。该 issue 已于 2026-10-23 由 PR #9466（`fix(macos): 支持系统目录的输入法安装与修复`，正文 `Fixes #9411`）合并后关闭：设置应用同时识别用户目录和系统目录，仅有系统副本时沿用其位置做版本比较、注册和修复，并支持明确选择为所有用户安装，决策记录在 [macOS 同时识别用户与系统输入法安装](../../implemented/bug-fix/2026-10-23-macos-system-input-method-install.md)。本提案是在此之后批量创建的，当时未识别到这条修复关联。
 
 ## Proposal
 
