@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9276
 
-Status: proposed
+Status: rejected — issue #9276 已标记为 #9277 的重复，#9277 已由 #9286 修复并关闭，无需单独跟踪。
 
 ## Problem
 
-平台 issue `#9276`（linux）的标题是「[Bug]: Ctrl+Shift+P快捷键插入宣传文字」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue `#9276` 报告在 Ubuntu 24 上按 `Ctrl+Shift+P` 时，水杉输入法会在输入框插入一段宣传文字，并与 VS Code 命令面板快捷键冲突。该 issue 于 2026-10-22 以重复（duplicate）关闭，对应的原 issue 是同日提交的 `#9277`「删除彩蛋快捷键」。`#9277` 由已合并的 PR `#9286`（`fix(linux): 移除宣传彩蛋快捷键`）修复：删除 IBus 对 `Ctrl+Shift+P` 的特殊处理和按键占用，组合键交还当前应用，宣传功能只保留在工具栏菜单入口。
 
 ## Proposal
 
