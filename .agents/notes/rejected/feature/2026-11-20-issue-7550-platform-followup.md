@@ -1,6 +1,6 @@
 # Agent Note: 跟踪平台 issue #7550
 
-Status: proposed
+Status: rejected — issue #7550 已于 2026-10-12 以 not planned 关闭，维护者改在 #7554 直接落下候选渲染架构审计笔记，不再需要单独的跟踪 PR
 
 ## Problem
 
