@@ -103,6 +103,10 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(tileHeight, KeyboardPagedGridView.pickerMinTileHeight - 0.5)
     XCTAssertLessThanOrEqual(tileHeight, KeyboardFunctionTileView.height + 0.5)
     XCTAssertEqual(KeyboardFunctionTileView.height, 52)
+    // Pin the default: the 201pt panel leaves a 173pt grid (see `testPickerPanelsFitTheRealKeyAreaHeight`), so three rows scale to 52 × 173 / 180 ≈ 50pt.
+    let defaultLayout = KeyboardPagedGridView.pickerLayout(preferredRows: 3, height: 173, rowHeight: KeyboardFunctionTileView.height)
+    XCTAssertEqual(defaultLayout.rows, 3)
+    XCTAssertEqual(tileHeight, defaultLayout.rowHeight, accuracy: 0.5)
   }
 
   /// 三端共用的选择面板排布规则（Android `PagedTileGrid.pickerGrid`、HarmonyOS `FunctionPanelPolicy.pickerGrid` 用同一组向量）：高度够时满尺寸，不够时等比缩小，三行缩到 44pt 以下才改排两行，两行最多缩到 44pt。
