@@ -1,6 +1,14 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 # Upgrade and uninstall contracts in msime_setup.iss: which processes are stopped, which data directory the uninstaller removes, and which permissions the data directory is given. These read the script; they do not install anything.
+
+# The tracked .iss files must keep their UTF-8 BOM. Inno Setup before 6.3 reads a BOM-less script in the system ANSI code page, and the Windows 7 pipeline compiles the committed files with 6.2.2 without passing them through Prepare-PackageFiles.ps1's BOM-restoring rewrite, so the Chinese strings (the Start menu uninstall entry, the [Code] messages, the edition display names) would ship garbled (#10638). package-files.ps1 only checks the copy after that rewrite, and Get-Content drops the BOM, so this reads raw bytes.
+foreach ($iss in 'msime_setup.iss', 'editions.iss') {
+    $issBytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "../$iss"))
+    if ($issBytes.Length -lt 3 -or $issBytes[0] -ne 0xEF -or $issBytes[1] -ne 0xBB -or $issBytes[2] -ne 0xBF) {
+        throw "$iss lost its UTF-8 BOM; Inno Setup 6.2.2 on the Windows 7 pipeline would read its Chinese text in the ANSI code page"
+    }
+}
 $script = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../msime_setup.iss') -Raw -Encoding utf8
 $script = $script -replace '\\\r?\n\s*', ' '
 function Get-Block([string]$Begin, [string]$End) {
