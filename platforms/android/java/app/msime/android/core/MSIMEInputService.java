@@ -4258,6 +4258,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         view = next;
+        schedulePauseRerank();
         // 九键 1 键放进候选条的常用标点只留到下一次转换，下面的 render 画这次转换的候选。
         imeNineKeyQuickPunctuation.clear();
         imeDebugOverlay.showDiagnostic(result.isNull("diagnostic") ? null
@@ -5060,20 +5061,36 @@ public final class MSIMEInputService extends InputMethodService {
         }, () -> session, next -> {
             ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
-        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"));
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"), this::candidatePressed);
 
     private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
         JSONObject result = value(response);
         return new PauseRerankController.Reply<>(InputViewValuePolicy.text(result, "status"),
             NumberPolicy.strictLong(result.opt("token"), 0),
-            InputViewValuePolicy.booleanValue(result, "moved", false), result.optJSONObject("view"));
+            InputViewValuePolicy.booleanValue(result, "moved", false), result.optJSONObject("view"),
+            InputViewValuePolicy.booleanValue(result, "deferred", false));
     }
 
-    private void schedulePauseRerank() {
+    private boolean pauseRerankEligible() {
         JSONArray rows = view == null ? null : view.optJSONArray("candidates");
-        pauseRerank.schedule(view != null && !InputViewValuePolicy.editingText(view).isEmpty()
-            && rows != null && rows.length() >= 2);
+        return view != null && !InputViewValuePolicy.editingText(view).isEmpty()
+            && rows != null && rows.length() >= 2;
     }
+
+    private void schedulePauseRerank() { pauseRerank.schedule(pauseRerankEligible()); }
+
+    /** 读音行点选之后调用，见 {@link PauseRerankController#settleNow}。 */
+    void settlePauseRerankNow() { pauseRerank.settleNow(); }
+
+    /** 有手指按着候选（或它的点击还在排队）。这时候选区不重画（render），停顿重排和在线结果也等到松手：两者都是为了让按下时画出来的那个候选点得中，所以只有这一处判断。 */
+    private boolean candidatePressed() {
+        return candidateTreeHeld(candidateHorizontal ? candidates : verticalCandidates)
+            || candidateTreeHeld(expandedCandidates)
+            || (imeNineKeyPanel != null && candidateTreeHeld(imeNineKeyPanel.root()));
+    }
+
+    private final CandidateHoldGate candidateHold = new CandidateHoldGate(
+        (task, delay) -> main.postDelayed(task, delay), this::candidatePressed);
 
     private void cancelPauseRerank() { pauseRerank.cancel(); }
 
@@ -5162,7 +5179,10 @@ public final class MSIMEInputService extends InputMethodService {
         final java.util.concurrent.atomic.AtomicReference<String> refreshed =
             new java.util.concurrent.atomic.AtomicReference<>();
         final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        main.post(() -> {
+        final java.util.concurrent.atomic.AtomicBoolean abandoned =
+            new java.util.concurrent.atomic.AtomicBoolean();
+        // 在线结果会推进候选代次：手指按着候选时等松手再用，按下时画出来的那个候选才选得中。
+        main.post(() -> candidateHold.runWhenFree(() -> {
             try {
                 if (epoch != onlineEpoch || targetSession != session) return;
                 JSONObject applied = value(call.get());
@@ -5181,9 +5201,12 @@ public final class MSIMEInputService extends InputMethodService {
             } finally {
                 done.countDown();
             }
-        });
+        }, abandoned::get));
         try {
-            if (!done.await(2, TimeUnit.SECONDS)) return null;
+            if (!done.await(2, TimeUnit.SECONDS)) {
+                abandoned.set(true);
+                return null;
+            }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             return null;
@@ -13104,7 +13127,7 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleCandidateTranslations();
         scheduleUserCandidateTranslations();
         scheduleOnlineProviders();
-        schedulePauseRerank();
+        pauseRerank.keep(pauseRerankEligible());
         if (candidates == null) {
             imeStyler.applySkin();
             imeToolbar.styleTopRow();
@@ -13127,9 +13150,7 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         // 手指按在某个候选上时不重画候选条，见 candidateRenderDeferred。这一帧剩下的东西（页码、展开键、
         // 皮肤）也一起跳过；松手后补的那次 render 会把它们一起补上。
-        if (candidateTreeHeld(activeCandidates)
-                || candidateTreeHeld(expandedCandidates)
-                || candidateTreeHeld(imeNineKeyPanel.root())) {
+        if (candidatePressed()) {
             candidateRenderDeferred = true;
             return;
         }
