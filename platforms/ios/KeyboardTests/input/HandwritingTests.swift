@@ -114,17 +114,17 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.scheme, .handwriting)
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
     let writingHeight = KeyboardViewController.keyboardHeight(handwriting: true)
-    // 竖屏手写比其他布局高一排键（52pt）和一道排间距。
+    // 竖屏手写比其他布局高一排键（44pt）和一道排间距。
     XCTAssertEqual(writingHeight - KeyboardViewController.defaultKeyboardHeight,
-                   52 + CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.5)
+                   KeyboardHeightPercent.portraitKeyHeight(tablet: false) + CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.5)
     for width in [320.0, 414.0] {
       let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
       XCTAssertEqual(height.constant, writingHeight)
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height.constant); controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
       XCTAssertFalse(panel.isHidden)
-      // 书写区有四排 52pt 键连同三道排间距那么高（底行的键只有 44pt，省下的 8pt 也归书写区）。
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 4 * 52 + 3 * CGFloat(KeyboardLayoutPreference.rowSpacing))
+      // 书写区有四排 44pt 键连同三道排间距那么高。
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 4 * 44 + 3 * CGFloat(KeyboardLayoutPreference.rowSpacing))
       // 书写卡片铺满键盘宽度，只留键盘本身两侧的内边距；虚线框从卡片边缘内缩 8pt。
       let padding = KeyboardFormFactor.phone.padding
       XCTAssertEqual(panel.canvas.bounds.width, width - padding.leading - padding.trailing, accuracy: 0.5)
@@ -240,7 +240,7 @@ final class HandwritingTests: XCTestCase {
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: writingHeight)
       controller.view.layoutIfNeeded()
       XCTAssertEqual(enter.bounds.height, 44, accuracy: 0.5)
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 229)
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 197)
       toggle.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(panel.isHidden)
       XCTAssertEqual(height.constant, typingHeight)

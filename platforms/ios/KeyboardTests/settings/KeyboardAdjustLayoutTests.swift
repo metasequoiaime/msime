@@ -106,9 +106,9 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     XCTAssertEqual(KeyboardAdjustLayout.draggingLeft(state(), dx: 1000, containerWidth: 1024).placement.widthPercent, 60)
   }
 
-  func testTheTopEdgeChangesTheHeightAndStopsAtTheSharedRange() {
+  func testTheTopEdgeChangesTheHeightAndStopsAtTheRange() {
     XCTAssertEqual(KeyboardAdjustLayout.draggingTop(state(), rise: 10.4).heightAdjustment, 10)
-    XCTAssertEqual(KeyboardAdjustLayout.draggingTop(state(), rise: 500).heightAdjustment, 48)
+    XCTAssertEqual(KeyboardAdjustLayout.draggingTop(state(), rise: 500).heightAdjustment, 80)
     XCTAssertEqual(KeyboardAdjustLayout.draggingTop(state(), rise: -500).heightAdjustment, -12)
     XCTAssertEqual(KeyboardAdjustLayout.draggingTop(state(lift: 30), rise: 5).placement.bottomLift, 30, "the bottom edge stays put")
   }
@@ -131,8 +131,8 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
                    "the lift stops at 160")
     XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 40, lift: 0), rise: -50), state(height: 40, lift: 0),
                    "no lift to give back")
-    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 40, lift: 30), rise: -50), state(height: 48, lift: 22),
-                   "the height reaches 48 first")
+    XCTAssertEqual(KeyboardAdjustLayout.draggingBottom(state(height: 70, lift: 30), rise: -50), state(height: 80, lift: 20),
+                   "the height reaches 80 first")
   }
 
   /// 高度已在下限时往上拖，抬高照样跟着手指增加，高度不再变；一直到 160。
@@ -217,7 +217,7 @@ final class KeyboardAdjustLayoutTests: XCTestCase {
     var session = KeyboardAdjustSession(state: state(), capabilities: .all, containerWidth: 390, keyBlock: 229)
     session.beginDrag()
     session.drag(.top, dx: 0, rise: 200)
-    XCTAssertEqual(session.state.heightAdjustment, 48)
+    XCTAssertEqual(session.state.heightAdjustment, 80)
     session.drag(.top, dx: 0, rise: 10)
     XCTAssertEqual(session.state.heightAdjustment, 10)
     session.endDrag()
