@@ -995,7 +995,7 @@ final class ImeLetterRows {
         if (builtNumberRow) addNumberRow(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             if (block != null) {
                 block.addView(row, LayoutPolicy.weightedWidthParams(1));
             } else {
@@ -1082,7 +1082,7 @@ final class ImeLetterRows {
         // 顶部数字行与 26 键相同：整行铺满键区宽度，画在三行字母块上方，键盘整体高出一行。
         builtNumberRow = s.numberRowDrawn();
         if (builtNumberRow) addNumberRow(rows.size());
-        LinearLayout container = LayoutPolicy.row(s);
+        LinearLayout container = LayoutPolicy.keyRow(s);
         s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
@@ -1096,7 +1096,7 @@ final class ImeLetterRows {
             FourteenKeyLetterWidths.plan(rows, letterWeight, edgeWeight, widths.geometry());
         builtLetterWidths = widths;
         for (int rowIndex = 0; rowIndex < plan.size(); rowIndex++) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                 plan.size(), rowIndex, true));
             letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
@@ -1380,7 +1380,7 @@ final class ImeLetterRows {
      * @param letterRows 字母行数，数字行按其中第一行的份额分摊高度调整
      */
     private void addNumberRow(int letterRows) {
-        LinearLayout row = LayoutPolicy.row(s);
+        LinearLayout row = LayoutPolicy.keyRow(s);
         row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         for (String digit : KeyboardLayout.NUMBER_ROW) {
@@ -1397,7 +1397,7 @@ final class ImeLetterRows {
     /** 第五排与字母数字行使用同一高度角色，切层时保留行高及高度调整。 */
     private void addSymbolExtraRow() {
         builtLayerPunctuation = s.sendsChinesePunctuation();
-        LinearLayout row = LayoutPolicy.row(s);
+        LinearLayout row = LayoutPolicy.keyRow(s);
         row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         // 数字九宫格那一页的括号随九宫格的标点写法：日文没有中文标点开关，也写全角括号。
@@ -1438,7 +1438,7 @@ final class ImeLetterRows {
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation, s.punctuationMarks().cornerQuotes(),
                 builtLayerToolbarEmoji, builtLayerLongSpace, builtLayerSymbolFirst);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。
             boolean bottomRow = rowIndex == rows.size() - 1;
             row.setTag(bottomRow ? MSIMEInputService.KeyboardHeightRole.bottomRow()
