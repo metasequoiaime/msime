@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #6305
 
-Status: proposed
+Status: rejected — issue #6305 已由 #6330 修复并关闭，无需单独跟踪。
 
 ## Problem
 
-平台 issue `#6305`（linux）的标题是「[Bug]: ubuntu 22.04 install error」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue #6305（linux）的标题是「[Bug]: ubuntu 22.04 install error」，提出本提案时它已关闭。提案依据的判断是仓库 PR 索引中没有独立的 `Fixes` 或 `Refs` PR 关联它，这个判断不成立。
+
+issue 报告 Ubuntu 22.04 装不上 `.deb`：包的 Depends 要求 `fcitx5 (>= 5.0.20)`，而 22.04 的 apt 只有 5.0.14。#6330 把 `fcitx5` 从 Depends 移到 Recommends，并在打包时去掉 `dpkg-shlibdeps` 推出的 `libfcitx5*` 依赖，让 22.04 可以安装并走 IBus 宿主；该 PR 以 `Fixes #6305` 合并，issue 于 2026-10-09 关闭，决定记录在 [linux-deb-fcitx5-recommends](../../implemented/bug-fix/2026-10-09-linux-deb-fcitx5-recommends.md)。之后 #6457 把依赖改成 `ibus (>= 1.5.20) | fcitx5 (>= 5.0.20)` 二选一，22.04 仍由 IBus 满足这一项，见 [linux-input-framework-either-dependency](../../implemented/bug-fix/2026-10-09-linux-input-framework-either-dependency.md)。
 
 ## Proposal
 
