@@ -1992,7 +1992,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.skinImagePaths = KeyboardFormFactor.isDesktop()
       ? CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`, packageId, candidateImagePaths)
       : [];
-    // The toolbar state images are read further down by `readToolbarImage`; their paths come from the same catalog entry, so they join this one pre-read snapshot instead of re-statting the whole list after the reads.
+    // 工具栏状态图由后面的 `readToolbarImage` 读取；路径取自同一条皮肤包目录项，因此并入这一份读取前快照，不在读完后重新 stat 整个列表。
     const toolbarImageSpec: ToolbarImageSpec | null = toolbarPackageId === null ? null
       : CandidateSkinCatalogPolicy.package(skinPackages, toolbarPackageId)?.toolbarImage ?? null;
     if (KeyboardFormFactor.isDesktop() && toolbarImageSpec !== null) {
