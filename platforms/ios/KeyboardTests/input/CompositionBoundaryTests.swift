@@ -32,7 +32,7 @@ final class CompositionBoundaryTests: XCTestCase {
 
   func testPolicyCommitsRawLettersExceptWhereTheKeysAreNotLetters() {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .quanpin, boundary: .modeSwitch), .none)
-    for boundary in [CompositionBoundary.modeSwitch, .returnKey] {
+    for boundary in [CompositionBoundary.languageKey, .modeSwitch, .returnKey] {
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: boundary), .commitRaw)
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .wubi, boundary: boundary), .commitRaw)
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .nineKey, boundary: boundary), .finishComposition,
@@ -47,6 +47,21 @@ final class CompositionBoundaryTests: XCTestCase {
                      "Japanese confirms the kana")
     }
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: .deactivate), .finishComposition)
+  }
+
+  func testCantoneseLanguageKeyFinishesConversionBeforeSwitchingToEnglish() {
+    for scheme in [ChineseInputScheme.cantonese, .cantoneseShuangpin] {
+      XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .languageKey,
+        hasCandidates: true), .finishComposition)
+      XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .languageKey),
+        .commitRaw, "没有候选时保留已输入的内容")
+      XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: scheme, boundary: .languageKey),
+        .none)
+      for boundary in [CompositionBoundary.returnKey, .modeSwitch] {
+        XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: boundary,
+          hasCandidates: true), .commitRaw)
+      }
+    }
   }
 
   /// 网址模式里数字和网址符号是 Engine 的输入：符号面板据此把它们作为字符交给会话，而不是选候选或结束组字。
