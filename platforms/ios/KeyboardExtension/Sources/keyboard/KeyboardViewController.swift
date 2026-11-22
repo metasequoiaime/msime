@@ -4357,7 +4357,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     row.addArrangedSubview(period)
     let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.language)
-      self?.toggleInputMode()
+      self?.toggleInputMode(boundary: .languageKey)
     }
     language.configuration?.contentInsets = .zero
     language.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
@@ -5251,12 +5251,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateCandidateStrip(preedit: "", candidates: [])
   }
 
-  private func toggleInputMode(rememberChoice: Bool = true) {
+  private func toggleInputMode(rememberChoice: Bool = true, boundary: CompositionBoundary = .modeSwitch) {
     temporaryEnglishFromScheme = false
     englishCorrectionRejectedPrefix = ""
     // Shift 和片段结束键各自播放按键音；自动切回不再追加一次切换音。
     if rememberChoice { playInputClick() }
-    let snapshot = isChineseMode ? endComposition(at: .modeSwitch) : session.cancel()
+    let snapshot = isChineseMode ? endComposition(at: boundary) : session.cancel()
     render(snapshot)
     isChineseMode.toggle()
     if rememberChoice && !inputContext.isInLatinField {
