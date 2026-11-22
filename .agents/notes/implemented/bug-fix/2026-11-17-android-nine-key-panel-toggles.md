@@ -20,9 +20,9 @@ Android 0.8.0 起，全拼九键、14 键、18 键展开候选的三栏面板（
 
 读屏描述仍说按下去会怎样（「切换到笔画筛选」/「切换到拼音」、「只显示单字」/「显示全部候选」），开没开由选中态报出，不再另设与键面相同的 state description。
 
-五个功能键的字号可缩：`KeyboardTypographyPolicy.setFittedKeyTextSize`，在原字号（⌫ 16 sp，其余 15 sp）和功能键下限 `FUNCTION_KEY_MIN_TEXT_SP`（10 sp）之间。键盘调到最低、横屏或系统字体放大时缩字号而不是切字。左栏的笔画键也走 `pressButton`，不改。
+五个功能键的字号可缩：`KeyboardTypographyPolicy.setFittedKeyTextSize`，在原字号（⌫ 16 sp，其余 15 sp）和功能键下限 `FUNCTION_KEY_MIN_TEXT_SP`（9 sp）之间。键盘调到最低、横屏或系统字体放大时缩字号而不是切字。左栏的笔画键也走 `pressButton`，不改。
 
-设备验收补一道检查 `NineKeyPanelActionColumnChecks`，九键和 14 键打开三栏面板后各跑一次：五个键左右边界一致（同一列，容差 1 px）、自上而下不重叠，宽高都放得下自己的键面（按 10 sp 下限量），两个开关刚打开时键面是「笔画」「单字」且未选中。九键的筛选步骤另外确认开关开着时键面不变、处于选中态。两排三列的旧布局在这道检查上会失败。
+设备验收补一道检查 `NineKeyPanelActionColumnChecks`，九键和 14 键打开三栏面板后各跑一次：五个键左右边界一致（同一列，容差 1 px）、自上而下不重叠，宽高都放得下自己的键面（按 9 sp 下限量），两个开关刚打开时键面是「笔画」「单字」且未选中。九键的筛选步骤另外确认开关开着时键面不变、处于选中态。两排三列的旧布局在这道检查上会失败。
 
 ## Alternatives considered
 
@@ -35,4 +35,4 @@ Android 0.8.0 起，全拼九键、14 键、18 键展开候选的三栏面板（
 
 - 收益：键面完整可读；右栏与 0.7.x、iOS 一样是一列五键；两个筛选用法一致，关着时也看得见能开什么。
 - 代价：与 iOS、鸿蒙的键面文字不同（它们仍随状态换字），对齐是另外的事。
-- 检查用 10 sp 下限和 2 dp 内边距两个常数，与 `KeyboardTypographyPolicy` 手工同步；两处改动时要一起改。
+- 检查用 9 sp 下限和 2 dp 内边距两个常数，与 `KeyboardTypographyPolicy` 手工同步；两处改动时要一起改。

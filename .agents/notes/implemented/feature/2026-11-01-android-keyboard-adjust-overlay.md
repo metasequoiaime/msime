@@ -23,7 +23,7 @@ Status: implemented
 - 整块键盘（工具栏或候选行加按键区）上盖一层黑色、约 45% 不透明（`0x73000000`）的遮罩 `KeyboardAdjustOverlay`，下面的键盘照常画作实时预览，但触摸全被遮罩接走。遮罩四角画皮肤强调色（`skin.accent()`）的直角括号，标出键盘外框。浮动键盘的外框是 12 dp 圆角卡片（`ImeStyler` 按 `FloatingKeyboardPolicy.CORNER_RADIUS_DP` 裁外轮廓），四个括号的拐角改成与卡片同心的圆弧（`KeyboardAdjustOverlay.setCornerRadius`），弧外各留一段直线；直角括号的拐角正好落在被裁掉的地方，验收时浮动键盘四角只剩两段断开的短线。浮动键盘的拖动条在外框里、遮罩下面，四个角都是卡片的圆角，所以四个都弯（鸿蒙的拖动条在遮罩上方，只弯下面两个）。遮罩是外框 `PanelSurface` 的普通子视图，外框按键盘列的底部内边距给它底边距，所以它正好盖住外框，不盖底栏、底部抬高和导航栏那一截；那一截在调整期间同样不接受触摸（`PanelSurface.onInterceptTouchEvent`）。
 - 拖动柄：上沿正中、下沿正中各一个横向把手（三道横线），左右两沿垂直居中各一个竖向把手（两道竖线），都画在外框以内：调整期间输入法窗口铺满，`onComputeInsets` 只把外框的矩形算作可触摸区域，画到框外的柄点不到。浮动键盘调整期间藏起拖动条中间的横条（`FloatingKeyboardBar.setGripShown`，只设 INVISIBLE，这一行的高度不变）：遮罩接走全部触摸、浮动时也没有「移动」，横条拖不动，而上沿柄的三道线正好画在它上面，验收时两组横线叠在一起。
 - 中间一排三个按钮，白色图标加文字：「重置」（逆时针回转箭头）、「移动」（四向箭头）、「确认」（圆圈里的对勾）。图标经 `generate_keyboard_icons.py` 加进 `KeyboardIconPaths`（`ADJUST_RESET`、`ADJUST_MOVE`、`ADJUST_CONFIRM`，Lucide 风格）。按钮的宽度和间距与 iOS、鸿蒙同一条规则（`KeyboardAdjustPolicy.actionRow`）：按钮排在左右两个竖向把手之间，与把手至少隔 4 dp；排得下就按原尺寸 72 dp 宽、间距 28 dp，排不下先把间距收到 4 dp，还不够再把剩下的宽度平分给按钮；左右柄不显示（浮动、单手、分离式、横屏）时去掉它们的占位。最窄的 240 dp 键盘里三个按钮各 56 dp、间距 4 dp。原来是三个固定 60 dp、彼此没有间距的按钮挤在正中，宽键盘上也贴在一起，和 iOS、鸿蒙的排法对不上。
-- 底行和符号、数字层的文字功能键（符、123、中/英、ABC、#+=，以及组词时回车上的「确认」）原来固定 15 sp，键盘收窄到 240 dp 时「123」折成「12」「3」两行。改为 `KeyboardTypographyPolicy.setFunctionKeyTextSize`：只占一行，排得下时仍是 15 sp，键窄时最小缩到 10 sp。
+- 底行和符号、数字层的文字功能键（符、123、中/英、ABC、#+=，以及组词时回车上的「确认」）原来固定 15 sp，键盘收窄到 240 dp 时「123」折成「12」「3」两行。改为 `KeyboardTypographyPolicy.setFunctionKeyTextSize`：只占一行，排得下时仍是 15 sp，键窄时最小缩到 9 sp（原为 10 sp；各键盘按 20 列外框计宽后九键一族的 123 只剩 7/6 份，240 dp、大字体时 10 sp 放不下，见 [各键盘按 20 列外框对齐键边](2026-11-19-android-key-edge-grid.md)）。
 
 ### 每个柄只动自己那条边，对边在屏幕上不动（下沿柄往上拖到高度下限后例外）
 

@@ -1707,6 +1707,10 @@ final class ImeLayoutRows {
     void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
         // 侧列是功能键（123、符、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        // 侧列只占外框的 3/20，键盘收窄或大字体时固定字号的「空白」「改行」会折成两行：和底行功能键一样只占一行、放不下时缩小。
+        if (!(button instanceof KeyboardIconKey))
+            KeyboardTypographyPolicy.setFittedKeyTextSize(button, KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP,
+                KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         column.addView(button, LayoutPolicy.weightedWidthParams(weight));
     }
 
