@@ -9,84 +9,102 @@ function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
+// 模拟系统状态面板：调用窗口是否全屏只影响系统怎么摆放，宿主每次绑定都应请求显示。
+class FakePanel implements FocusToolbarPanel {
+  readonly events: string[] = [];
+  callingWindowFullscreen: boolean = false;
+  async show(): Promise<void> { this.events.push(this.callingWindowFullscreen ? "show:fullscreen" : "show"); }
+  // 不属于 FocusToolbarPanel；留着用来证明全屏时没有走隐藏路径。
+  async hide(): Promise<void> { this.events.push("hide"); }
+}
+
 async function main(): Promise<void> {
-  const events: string[] = [];
   const errors: Object[] = [];
   let current = true;
-  const panel: FocusToolbarPanel = {
-    show: async () => { events.push("show"); },
-    hide: async () => { events.push("hide"); },
-  };
+  const panel = new FakePanel();
   const focus = new ToolbarFocus((error) => errors.push(error));
-  await focus.focus(panel, () => current, async () => false);
-  await focus.focus(panel, () => current, async () => false);
-  check(events.join(",") === "show,show", "每次窗口聚焦均恢复非全屏工具栏，不能依赖本地可见缓存");
-  await focus.focus(panel, () => current, async () => true);
-  check(events.join(",") === "show,show,hide", "全屏窗口继续隐藏工具栏");
-  const old = deferred<boolean>();
-  const oldTask = focus.focus(panel, () => current, () => old.promise);
-  await focus.focus(panel, () => current, async () => false);
-  old.resolve(true);
-  await oldTask;
-  check(events.join(",") === "show,show,hide,show", "过期全屏查询不能隐藏新焦点的工具栏");
-  const stopped = deferred<boolean>();
-  const stoppedTask = focus.focus(panel, () => current, () => stopped.promise);
-  focus.invalidate();
-  stopped.resolve(false);
-  await stoppedTask;
-  check(events.length === 4, "解绑后的迟到查询不能显示工具栏");
-  current = false;
-  await focus.focus(panel, () => current, async () => false);
-  check(events.length === 4, "旧面板不能接收显示请求");
-  current = true;
-  await focus.focus(panel, () => current, async () => { throw new Error("synthetic query failure"); });
-  check(events.length === 5 && events[4] === "show" && errors.length === 1,
-    "窗口状态查询失败时报告并尝试恢复显示");
+  await focus.focus(panel, () => current);
+  await focus.focus(panel, () => current);
+  check(panel.events.join(",") === "show,show", "每次绑定都请求显示，不能依赖本地可见缓存");
+  panel.callingWindowFullscreen = true;
+  await focus.focus(panel, () => current);
+  await focus.focus(panel, () => current);
+  check(panel.events.join(",") === "show,show,show:fullscreen,show:fullscreen", "调用窗口全屏时也显示工具栏，不走隐藏");
+  panel.callingWindowFullscreen = false;
+  await focus.focus(panel, () => current);
+  check(panel.events.join(",") === "show,show,show:fullscreen,show:fullscreen,show", "离开全屏窗口后照常显示");
+  check(!panel.events.includes("hide"), "任何绑定都不能隐藏工具栏");
 
+  current = false;
+  await focus.focus(panel, () => current);
+  check(panel.events.length === 5, "旧面板不能接收显示请求");
+  current = true;
+
+  // 前一个显示还没返回时，排在后面的请求按顺序执行；轮到之前已被取代或废止的请求直接丢弃。
   const release = deferred<void>();
   const operations: string[] = [];
+  let calls = 0;
   const slow: FocusToolbarPanel = {
-    hide: async () => { operations.push("hide:start"); await release.promise; operations.push("hide:end"); },
-    show: async () => { operations.push("show"); },
+    show: async () => {
+      const call = ++calls;
+      operations.push(`show${call}:start`);
+      if (call === 1) await release.promise;
+      operations.push(`show${call}:end`);
+    },
   };
   const serialized = new ToolbarFocus(() => {});
-  const hiding = serialized.focus(slow, () => true, async () => true);
+  const first = serialized.focus(slow, () => true);
   await Promise.resolve();
   await Promise.resolve();
-  const showing = serialized.focus(slow, () => true, async () => false);
+  const superseded = serialized.focus(slow, () => true);
+  const latest = serialized.focus(slow, () => true);
   release.resolve();
-  await Promise.all([hiding, showing]);
-  check(operations.join(",") === "hide:start,hide:end,show", "慢隐藏完成后按新焦点显示，操作不能乱序");
+  await Promise.all([first, superseded, latest]);
+  check(operations.join(",") === "show1:start,show1:end,show2:start,show2:end",
+    "慢显示完成后才执行下一个，被新焦点取代的排队请求丢弃，操作不能乱序");
+
+  const blocked = deferred<void>();
+  let shown = 0;
+  const gate: FocusToolbarPanel = { show: async () => { shown++; if (shown === 1) await blocked.promise; } };
+  const stopping = new ToolbarFocus(() => {});
+  const running = stopping.focus(gate, () => true);
+  await Promise.resolve();
+  await Promise.resolve();
+  const queued = stopping.focus(gate, () => true);
+  stopping.invalidate();
+  blocked.resolve();
+  await Promise.all([running, queued]);
+  check(shown === 1, "解绑后排队中的显示请求不能再执行");
 
   let failures = 0;
+  const flakyEvents: string[] = [];
   const recovering = new ToolbarFocus(() => { failures++; });
   const flaky: FocusToolbarPanel = {
-    show: async () => { if (failures === 0) throw new Error("synthetic panel failure"); events.push("recovered"); },
-    hide: async () => {},
+    show: async () => { if (failures === 0) throw new Error("synthetic panel failure"); flakyEvents.push("recovered"); },
   };
-  await recovering.focus(flaky, () => true, async () => false);
-  await recovering.focus(flaky, () => true, async () => false);
-  check(failures === 1 && events[events.length - 1] === "recovered", "一次系统显示失败后下次聚焦可重试");
+  await recovering.focus(flaky, () => true);
+  await recovering.focus(flaky, () => true);
+  check(failures === 1 && flakyEvents.join(",") === "recovered", "一次系统显示失败后下次绑定可重试");
 
   const placed: string[] = [];
-  const opening: FocusToolbarPanel = {
-    show: async () => { placed.push("show"); },
-    hide: async () => { placed.push("hide"); },
-  };
-  const other: FocusToolbarPanel = { show: async () => { placed.push("other"); }, hide: async () => {} };
+  const opening: FocusToolbarPanel = { show: async () => { placed.push("show"); } };
+  const other: FocusToolbarPanel = { show: async () => { placed.push("other"); } };
   const setup = new ToolbarFocus(() => {});
   setup.beginSetup(opening);
-  await setup.focus(opening, () => true, async () => false);
+  await setup.focus(opening, () => true);
   check(placed.length === 0, "面板尚未调整尺寸和位置时，焦点不能抢先显示它");
-  const queuedQuery = deferred<boolean>();
-  const queued = setup.focus(opening, () => true, () => queuedQuery.promise);
+  const openingRelease = deferred<void>();
+  const busy: FocusToolbarPanel = { show: async () => { await openingRelease.promise; } };
+  const pending = setup.focus(busy, () => true);
+  const queuedOpening = setup.focus(opening, () => true);
   setup.endSetup(other);
-  queuedQuery.resolve(false);
-  await queued;
+  openingRelease.resolve();
+  await Promise.all([pending, queuedOpening]);
   check(placed.length === 0, "其他面板结束准备不能放行仍在准备的面板");
   setup.endSetup(opening);
-  await setup.focus(opening, () => true, async () => false);
+  await setup.focus(opening, () => true);
   check(placed.join(",") === "show", "准备完成后的焦点照常显示");
+  check(errors.length === 0, "正常路径不报告错误");
   console.log("Harmony toolbar focus visibility passed");
 }
 main().catch((error) => { console.error(error); throw error; });

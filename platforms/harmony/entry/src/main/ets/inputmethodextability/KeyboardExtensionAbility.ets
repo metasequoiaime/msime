@@ -10,7 +10,6 @@ import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy'
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
-import window from '@ohos.window';
 import { ToolbarFocus } from './ToolbarFocus';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
@@ -759,23 +758,19 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       if (!KeyboardFormFactor.isDesktop()) {
         this.panel.show();
       } else {
-        this.followCallingWindow(inputClient);
+        this.followCallingWindow();
       }
     };
 
   /**
-   * 全屏应用上不显示悬浮工具栏，焦点每次进入非全屏窗口时再把它请求回来。
+   * 每次绑定编辑器都请求显示悬浮工具栏，调用窗口全屏时也一样。
    *
-   * Windows 宿主在前台窗口全屏时隐藏工具栏（`window_hook.cpp` 的 `OnWinEvent`），游戏或视频不会被没人用的工具栏挡住。HarmonyOS 只在查询时告诉键盘调用窗口的状态，所以每次编辑器获得焦点都查询一次；编辑框保持焦点期间才进入全屏的窗口，要到下一次聚焦才生效。切换窗口时系统可能自行收起状态面板，因此不信任缓存的可见状态，每次绑定都重新请求。
+   * Windows 与 Linux 宿主在前台窗口全屏时隐藏工具栏（Windows 是 `window_hook.cpp` 的 `OnWinEvent`），是为了不让没人在用的工具栏挡住视频或游戏。这里只在有编辑器绑定、也就是用户正在打字时才会走到，那条理由不成立，所以 HarmonyOS 有意不做全屏隐藏，这是维护者确认的平台差异，也是反馈者要的行为。切换窗口时系统可能自行收起状态面板，因此不信任缓存的可见状态，每次绑定都重新请求。
    */
-  private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
+  private followCallingWindow(): void {
     const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
     if (toolbar === undefined) return;
-    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown,
-      async (): Promise<boolean> => {
-        const info: inputMethodEngine.WindowInfo = await inputClient.getCallingWindowInfo();
-        return info.status === window.WindowStatusType.FULL_SCREEN;
-      });
+    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown);
   }
 
   private readonly keyboardShown: () => void = (): void => {
@@ -1345,14 +1340,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           + `${this.hud !== undefined ? ', with mode badge' : ''}`);
         // 面板创建完成后，服务创建期间获得焦点的编辑器。
         if (this.pending !== undefined) {
-          const pending: inputMethodEngine.InputClient = this.pending;
-          KeyboardSession.shared.attach(pending);
+          KeyboardSession.shared.attach(this.pending);
           this.pending = undefined;
           this.applyScreenCaptureProtection();
           if (!desktop) {
             this.panel.show();
           } else {
-            this.followCallingWindow(pending);
+            this.followCallingWindow();
           }
         }
       } catch (error) {

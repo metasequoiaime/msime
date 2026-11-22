@@ -1,7 +1,6 @@
-/** 焦点变化时串行更新系统状态面板，过期的窗口状态不能控制新焦点。 */
+/** 编辑器绑定时串行请求显示系统状态面板，过期的焦点不能再动新焦点的面板。 */
 export interface FocusToolbarPanel {
   show(): Promise<void>;
-  hide(): Promise<void>;
 }
 
 export class ToolbarFocus {
@@ -23,20 +22,12 @@ export class ToolbarFocus {
     if (this.settingUp === panel) this.settingUp = undefined;
   }
 
-  async focus(panel: FocusToolbarPanel, isCurrent: () => boolean,
-              fullscreen: () => Promise<boolean>): Promise<void> {
+  /** 每次绑定都请求显示，不看缓存的可见状态：系统切换窗口时可能自行收起状态面板。排在前面的请求还没完成时，轮到自己前已被新焦点、解绑或换面板取代的请求直接丢弃。 */
+  async focus(panel: FocusToolbarPanel, isCurrent: () => boolean): Promise<void> {
     const version: number = ++this.version;
-    let hide: boolean = false;
-    try {
-      hide = await fullscreen();
-    } catch (error) {
-      // 拿不到窗口状态时仍尝试恢复工具栏，不把未知状态当作全屏。
-      this.report(error as Object);
-    }
-    if (this.stale(version, panel, isCurrent)) return;
     const operation: Promise<void> = this.tail.then(async (): Promise<void> => {
       if (this.stale(version, panel, isCurrent)) return;
-      if (hide) await panel.hide(); else await panel.show();
+      await panel.show();
     });
     this.tail = operation.catch((error: Object): void => { this.report(error); });
     await this.tail;
