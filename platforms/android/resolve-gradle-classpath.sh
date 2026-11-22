@@ -7,8 +7,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Set ANDROID_SDK_ROOT or ANDROID_HOME}}
 project=${MSIME_GRADLE_PROJECT_DIR:-platforms/android/gradle-app}
-# 每次重来前等待的秒数，一共三次尝试。Gradle 自己的退避由 workflow 的 GRADLE_OPTS 放宽（见 release-android.yml），这里接住比那更长的限流。
-delays=(60 120)
+# 每次重来前等待的秒数，一共六次尝试。CI 曾遇到整轮持续超过两分钟的 429；Gradle 自己的退避由 workflow 的 GRADLE_OPTS 放宽（见 release-android.yml），这里接住更长的限流。
+delays=(60 120 240 480 600)
 attempts=$((${#delays[@]} + 1))
 # 依赖解析的失败写成「Received status code 429 from server」；wrapper 下载 Gradle 发行包失败时是 Java 的「Server returned HTTP response code: 503」或套接字异常。
 transient='Received status code (408|429|5[0-9][0-9]) from server|Server returned HTTP response code: (408|429|5[0-9][0-9])|(Read|[Cc]onnect(ion)?) timed out|SocketTimeoutException|Connection reset|UnknownHostException|Temporary failure in name resolution'

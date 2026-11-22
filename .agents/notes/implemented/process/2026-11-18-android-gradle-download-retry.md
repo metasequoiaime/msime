@@ -61,3 +61,10 @@ GRADLE_OPTS: -Dorg.gradle.internal.repository.max.tentatives=6 -Dorg.gradle.inte
 一次 develop 的 API 28 设备作业中，Maven Central 的瞬态故障没有带出 HTTP 状态码。Gradle 在停用仓库后把同一轮解析中的几十个依赖统一写成 `Could not find` 或 `Could not resolve`，预取脚本因此误判为永久缺依赖并提前退出。
 
 保留单个依赖缺失的立即失败语义。日志同时出现至少五个带 Maven 坐标的缺失项，并且包含 Google Maven 或 Maven Central 的搜索地址时，按仓库元数据暂时不可见处理，重新等待后再跑。新增合成回归覆盖这条路径，单个 `MISSING` 仍不重试。
+
+
+## 2026-11-20 补充：持续 429 的重试预算
+
+2026-11-19 的 develop Native Platform CI（run `44582561170`）在 API 35 的 classpath 预取阶段连续收到 Maven Central `429`。Gradle 自己的六次文件重试和脚本此前的三轮整轮重试都没有拿到一次成功，脚本在 `60s + 120s` 后退出；失败日志中 37 个依赖都因同一限流状态不可见。API 28 同一轮未在该步骤失败，说明仍是 runner 出口的瞬态限流，不是项目坐标缺失。
+
+将脚本层整轮预算扩为六次，等待 `60、120、240、480、600` 秒后再放弃。这样仍只对下载类错误重试，单个永久缺依赖、403、脚本错误保持立即失败；总等待上限约 25 分钟，低于 device 作业 120 分钟和 release 作业 45 分钟。合成测试同步覆盖六次尝试和五段退避。
