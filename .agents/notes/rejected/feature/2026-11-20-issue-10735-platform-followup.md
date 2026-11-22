@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #10735
 
-Status: proposed
+Status: rejected — issue #10735 已由 #10778 实现并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#10735`（linux）的标题是「[Feature]: 词库更新后清理历史版本」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#10735`（linux）的标题是「[Feature]: 词库更新后清理历史版本」，反馈词库自动更新后旧版本的词库文件夹一直保留、越积越占磁盘，希望更新后自动清理旧版本，或提供保留版本数的设置、一键清理。
+
+该 issue 已由 PR #10778（2026-11-05 合并，正文 `Fixes #10735`）以 completed 关闭：设置宿主的检查任务回收用不上的工作词库代次（保留本安装包词库锁的、宿主配置记着的、下载版本还留着的，以及仍有会话在用的），Linux 的 `msime-linux-setup --update --download` 在切换成功后删除换下的 `resources-<锁摘要>` 目录。「最多保留多少个版本」的设置项没有加，#10778 正文说明如仍需要另开 issue。下面的跟踪提议是在没找到这条关联时写的。
 
 ## Proposal
 
