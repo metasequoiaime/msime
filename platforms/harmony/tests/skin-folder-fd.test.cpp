@@ -27,7 +27,12 @@ int main(int argc,char **argv) {
   Fd race(open((r+"/race").c_str(),O_RDONLY|O_DIRECTORY)), raceout(open((r+"/raceout").c_str(),O_RDONLY|O_DIRECTORY)); bool fired=false;
   Budget two; bool ok=tree(race.value,raceout.value,0,two,[&](int parent,const char *name){if(!fired&&!strcmp(name,"sub")){fired=true;must(renameat(parent,"sub",parent,"moved")==0,"move");must(symlinkat((r+"/outside").c_str(),parent,"sub")==0,"symlink");}});
   must(fired&&!ok,"directory swap refused");must(access((r+"/raceout/sub/private").c_str(),F_OK)!=0,"outside not copied");
-  must(symlink((r+"/outside").c_str(),(r+"/linksrc/link").c_str())==0,"link setup");Fd links(open((r+"/linksrc").c_str(),O_RDONLY|O_DIRECTORY)),linkout(open((r+"/linkout").c_str(),O_RDONLY|O_DIRECTORY)); Budget three;must(!tree(links.value,linkout.value,0,three,[](int,const char*){}),"link refused");
+  must(symlink((r+"/outside").c_str(),(r+"/linksrc/link").c_str())==0,"link setup");Fd links(open((r+"/linksrc").c_str(),O_RDONLY|O_DIRECTORY)),linkout(open((r+"/linkout").c_str(),O_RDONLY|O_DIRECTORY)); Budget three;
+  put(r+"/linksrc/skin.toml","fixture");
+  must(tree(links.value,linkout.value,0,three,[](int,const char*){}),"link skipped like the shared importer");
+  struct stat linkStat{};
+  must(fstatat(linkout.value,"link",&linkStat,AT_SYMLINK_NOFOLLOW)!=0&&errno==ENOENT,"link not staged");
+  must(access((r+"/linkout/skin.toml").c_str(),F_OK)==0,"files beside link staged");
   put(r+"/filerace/skin.toml","safe");
   Fd filerace(open((r+"/filerace").c_str(),O_RDONLY|O_DIRECTORY));
   Fd fileraceout(open((r+"/fileraceout").c_str(),O_RDONLY|O_DIRECTORY));
@@ -51,8 +56,9 @@ int main(int argc,char **argv) {
   must(!tree(deep.value,deepout.value,0,five,[](int,const char*){}),"depth budget");
   if(mkfifo((r+"/fifo/special").c_str(),0600)==0) {
     Fd fifos(open((r+"/fifo").c_str(),O_RDONLY|O_DIRECTORY)),fifoout(open((r+"/fifoout").c_str(),O_RDONLY|O_DIRECTORY));
-    Budget fifoBudget;must(!tree(fifos.value,fifoout.value,0,fifoBudget,[](int,const char*){}),"FIFO refused");
-    fprintf(stdout,"FIFO refused\n");
+    Budget fifoBudget;must(tree(fifos.value,fifoout.value,0,fifoBudget,[](int,const char*){}),"FIFO skipped");
+    must(access((r+"/fifoout/special").c_str(),F_OK)!=0,"FIFO not staged");
+    fprintf(stdout,"FIFO skipped\n");
   } else {fprintf(stdout,"FIFO test skipped: fixture filesystem forbids FIFO (errno=%d)\n",errno);}
   put(r+"/grow/skin.toml","tiny");
   Fd grow(open((r+"/grow").c_str(),O_RDONLY|O_DIRECTORY)),growout(open((r+"/growout").c_str(),O_RDONLY|O_DIRECTORY));
@@ -67,5 +73,5 @@ int main(int argc,char **argv) {
     must(!tree(src.value,hardout.value,0,four,[](int,const char*){}),"hard link refused");
     fprintf(stdout,"hard link refused\n");
   } else { fprintf(stdout,"hard link test skipped: fixture filesystem disallows hard links (errno=%d)\n",errno); }
-  fprintf(stdout,"pinned openat probe: nested copy, duplicated fd, symlink swap, file growth and depth/size/count budgets passed\n");
+  fprintf(stdout,"pinned openat probe: nested copy, duplicated fd, skipped links, symlink swap, file growth and depth/size/count budgets passed\n");
 }

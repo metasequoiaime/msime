@@ -62,7 +62,8 @@ bool tree(int source, int destination, unsigned depth, Budget &limit, const Hook
         --limit.entries;
         struct stat observed {};
         if (fstatat(source, name, &observed, AT_SYMLINK_NOFOLLOW)) return false;
-        if (!S_ISDIR(observed.st_mode) && !S_ISREG(observed.st_mode)) return false;
+        // Match the shared importer: links and special files are left behind without ever being opened, so nothing is followed.
+        if (!S_ISDIR(observed.st_mode) && !S_ISREG(observed.st_mode)) continue;
 #ifdef MSIME_SKIN_COPY_TESTING
         if (beforeOpen) beforeOpen(source, name);
 #else
