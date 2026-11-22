@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '../entry/src/main/ets/keyboard');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 const policy = read('candidate/CandidateCanvasPolicy.ts').replace(/export /g, '');
 const identity = read('candidate/CandidateSkinPackageIdentity.ts').replace(/export /g, '');
+const toolbarPolicy = read('ToolbarImagePolicy.ts').replace(/^import .*$/gm, '').replace(/export /g, '');
 const source = read('KeyboardSession.ets');
 function method(name) {
   const found = source.match(new RegExp(`^  (?:private )?${name}\\([^]*?^  }`, 'm'));
@@ -17,9 +18,13 @@ function method(name) {
 const applyStart = source.indexOf('  private applyAppearance(preferences: PreparedPreferences): void {');
 const applyEnd = source.indexOf('    // The store validates both', applyStart);
 assert.ok(applyStart >= 0 && applyEnd > applyStart, '找不到外观资源加载段');
-const apply = source.slice(applyStart, applyEnd) +
-  '    this.testSnapshot = { skinImage, backgroundImage, candidateCanvas };\n  }';
-const program = `${policy}\n${identity}\nclass KeyboardSession {\n${method('readCandidateCanvas')}\n${method('reloadReplacedSkinPackages')}\n${apply}\n}`;
+// 工具栏图片在同一个方法的末尾读取，也一并执行，确认它不会在读取后覆盖身份记录。
+const toolbarStart = source.indexOf('    this.toolbarImage = this.readToolbarImage(', applyEnd);
+const toolbarEnd = source.indexOf('    this.toolbarSkin = ', toolbarStart);
+assert.ok(toolbarStart > applyEnd && toolbarEnd > toolbarStart, '找不到工具栏图片加载段');
+const apply = source.slice(applyStart, applyEnd) + source.slice(toolbarStart, toolbarEnd) +
+  '    this.testSnapshot = { skinImage, backgroundImage, candidateCanvas, toolbarImage: this.toolbarImage };\n  }';
+const program = `${policy}\n${identity}\n${toolbarPolicy}\nclass KeyboardSession {\n${method('readCandidateCanvas')}\n${method('readToolbarImage')}\n${method('reloadReplacedSkinPackages')}\n${apply}\n}`;
 const files = new Map();
 const prefix = '/synthetic/skins/sample/';
 function change(name, bytes, revision) {
@@ -39,7 +44,7 @@ const client = {skinResource(document) {
   const item = files.get(prefix + request.relative);
   if (!item) return JSON.stringify({ok:false});
   const bytes = Buffer.from(item.bytes).toString('base64');
-  if (afterRead) { const callback = afterRead; afterRead = null; callback(); }
+  if (afterRead && afterRead.name === request.relative) { const callback = afterRead.run; afterRead = null; callback(); }
   return JSON.stringify({ok:true,value:{contentType:'image/png',bytesBase64:bytes}});
 }};
 const catalog = {
@@ -81,7 +86,7 @@ change('light.png','restored',3);
 assert.equal(session.reloadReplacedSkinPackages(), true);
 assert.equal(Buffer.from(image('light.png'),'base64').toString(),'restored');
 // 加载期间变更，身份必须保持加载前的值，下一次检查才能补读。
-afterRead = () => change('light.png','later change',4);
+afterRead = {name:'light.png', run:() => change('light.png','later change',4)};
 session.applyAppearance(prefs);
 assert.equal(session.reloadReplacedSkinPackages(), true);
 assert.equal(Buffer.from(image('light.png'),'base64').toString(),'later change');
@@ -98,4 +103,29 @@ pkg.canvas=true;
 prefs.custom_theme.candidate_skin=null; session.applyAppearance(prefs);
 assert.equal(session.testSnapshot.candidateCanvas,null);
 assert.equal(session.skinImagePaths.length,0);
-console.log('候选贴图资源：同名更新、缺失恢复、加载竞态和主题切换通过');
+// 带图片工具栏的包：工具栏图与候选贴图共用读取前的同一次身份记录，读取后不再重取。
+const text = base64 => Buffer.from(base64,'base64').toString();
+const toolbar = name => session.testSnapshot.toolbarImage?.resources.find(row => row.relative === name)?.base64;
+prefs.custom_theme.candidate_skin='sample'; prefs.candidate_theme='light';
+change('bar.png','bar one',1);
+change('key.png','key one',1);
+pkg.toolbarImage = {image:'bar.png',imageWidthDip:100,imageHeightDip:20,buttonDefaults:{background:'key.png'},buttons:{}};
+session.applyAppearance(prefs);
+assert.deepEqual(Array.from(session.skinImagePaths),
+  [prefix+'light.png',prefix+'ornament.png',prefix+'bar.png',prefix+'key.png']);
+assert.equal(text(toolbar('bar.png')),'bar one');
+assert.equal(session.reloadReplacedSkinPackages(), false);
+afterRead = {name:'light.png', run:() => change('light.png','toolbar race',5)};
+session.applyAppearance(prefs);
+assert.equal(session.reloadReplacedSkinPackages(), true, '有工具栏图片时，贴图读取期间的变更也要在下次检查时发现');
+assert.equal(text(image('light.png')),'toolbar race');
+afterRead = {name:'key.png', run:() => change('key.png','key changed',2)};
+session.applyAppearance(prefs);
+assert.equal(session.reloadReplacedSkinPackages(), true, '工具栏图片读取期间的变更要在下次检查时发现');
+assert.equal(text(toolbar('key.png')),'key changed');
+assert.equal(session.reloadReplacedSkinPackages(), false);
+desktop=false; session.applyAppearance(prefs);
+assert.equal(session.skinImagePaths.length,0, '触屏模式不检查工具栏图片');
+assert.equal(session.testSnapshot.toolbarImage,null);
+desktop=true;
+console.log('候选贴图资源：同名更新、缺失恢复、加载竞态、工具栏图片和主题切换通过');

@@ -101,7 +101,7 @@ import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
-import { ToolbarImagePolicy, ToolbarImageResources, ToolbarImageScene, ToolbarImageLayoutReply } from './ToolbarImagePolicy';
+import { ToolbarImagePolicy, ToolbarImageResources, ToolbarImageScene, ToolbarImageLayoutReply, ToolbarImageSpec } from './ToolbarImagePolicy';
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
@@ -1992,6 +1992,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.skinImagePaths = KeyboardFormFactor.isDesktop()
       ? CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`, packageId, candidateImagePaths)
       : [];
+    // The toolbar state images are read further down by `readToolbarImage`; their paths come from the same catalog entry, so they join this one pre-read snapshot instead of re-statting the whole list after the reads.
+    const toolbarImageSpec: ToolbarImageSpec | null = toolbarPackageId === null ? null
+      : CandidateSkinCatalogPolicy.package(skinPackages, toolbarPackageId)?.toolbarImage ?? null;
+    if (KeyboardFormFactor.isDesktop() && toolbarImageSpec !== null) {
+      this.skinImagePaths.push(...CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`,
+        toolbarPackageId, ToolbarImagePolicy.paths(toolbarImageSpec)));
+    }
     this.skinImageIdentity = CandidateSkinPackageIdentity.identity(this.skinImagePaths, KeyboardSession.statSkinFile);
     const skinImage: CandidateSkinImage = KeyboardFormFactor.isDesktop() && packageId !== null
       ? this.readCandidateSkinImage(this.stateDirectory, packageId,
@@ -2132,11 +2139,6 @@ export class KeyboardSession implements HardwareKeyTarget {
       toolbarTheme === null ? null : toolbarTheme.candidate, toolbarDark);
     this.toolbarImage = this.readToolbarImage(skinPackages, toolbarPackageId);
     this.toolbarImageRejected = false;
-    if (this.toolbarImage !== null) {
-      this.skinImagePaths.push(...CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`,
-        toolbarPackageId, ToolbarImagePolicy.paths(this.toolbarImage.spec)));
-      this.skinImageIdentity = CandidateSkinPackageIdentity.identity(this.skinImagePaths, KeyboardSession.statSkinFile);
-    }
     this.toolbarSkin = ToolbarSkinPolicy.fromCss(toolbarColors, skinToolbar,
       ToolbarSkinPolicy.withPackage(toolbarColors,
         CandidateSkinCatalogPolicy.toolbar(skinPackages, toolbarPackageId), toolbarDark));
