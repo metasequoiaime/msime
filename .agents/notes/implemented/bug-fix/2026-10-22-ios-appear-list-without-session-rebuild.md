@@ -37,6 +37,8 @@ App 只在用户动作时请求刷新：搜索、翻页、点刷新按钮、编�
 
 行为上有一处差别：原来第二次创建用的是 `options`，而 `viewWillAppear` 里异步的 `reloadSharedPreferences` 常常在 `viewDidAppear` 之前就把新的偏好文档写进了 `options["preferences"]`，于是第二次创建会顺带让不在 `appEditedKeys`、也不经 `applyLearningPreferences` 等调用实时生效的引擎字段在这次出现就生效。现在这类字段在下一次出现、`resumeDictionarySession` 用已更新的 `options` 建会话时生效。这是没开完全访问的用户一直以来的行为（他们根本不走强制同步），也符合 `reloadSharedPreferences` 里「键盘可见时保持会话的引擎配置不变」的设计；原来那种生效靠的是异步读取抢在 `viewDidAppear` 之前完成，本来就不稳定。
 
+异步读取返回时，键盘可能已经收起并释放词库会话。重读把引擎接受或排队的更新记为成功，再推进已读的文档修订号。会话已经释放或引擎拒绝更新时回报失败，保留之前的文档和选项，使下次出现可以重试同一份文档。原来只要磁盘读取成功就回报成功，宿主会把没有到达会话的设置当成已经生效。与 #678 的双拼预编辑回归一并覆盖，CI 同时恢复运行原始按键切换为拼音的用例。
+
 `withDictionaryMaintenance` 原来顺带保证列表时没有组字（组字时直接报「请先结束当前输入再同步个人词库」）。键盘的 `synchronizePersonalDictionary` 自己已经在组字、本地模式时跳过，列表又不碰会话，这层保证不再需要。
 
 队列里有待应用的编辑时，同步仍会为每条编辑销毁、重建会话，和原来一样。
