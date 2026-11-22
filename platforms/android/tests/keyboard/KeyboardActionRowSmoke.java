@@ -54,22 +54,39 @@ public final class KeyboardActionRowSmoke {
     }
 
     public static void main(String[] args) {
-        // 14 键（以及大千注音）的底行：123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9，地球键条件插在 123 之后。
+        // 14 键（以及大千注音）的底行：123 1.5 / ， 1 / 空格 4 / 。 1 / 中 1 / ↵ 1.5，合计 10 份（20 列外框，123、回车各 3 列），地球键条件插在 123 之后、从空格让出。
         List<KeyboardActionRow.DesignEntry> design =
             KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false);
         check(design.equals(List.of(
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.25f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.5f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.COMMA, 1f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SPACE, 4f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.PERIOD, 1f),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1.05f),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.9f))),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.5f))),
             "design row order and weights");
         List<KeyboardActionRow.DesignEntry> withGlobe =
             KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, true);
         check(withGlobe.size() == 7 && withGlobe.get(1).slot() == KeyboardActionRow.DesignSlot.GLOBE
                 && withGlobe.get(5).slot() == KeyboardActionRow.DesignSlot.LANGUAGE,
             "the globe follows 123 only when switching is offered, 中/英 stays next to return");
+        check(withGlobe.get(3).weight() == 3f && Math.abs(total(withGlobe) - KeyboardActionRow.ROW_SHARES) < 1e-6,
+            "the globe's share comes out of the space, the row stays 10 shares");
+        // 每种键面、样式、有无地球键，底行都合计 10 份（手写底行三端共用一组份额，不在此列），九键外框的 符、回车各占一个侧列。
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT,
+                KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
+                KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT})
+            for (TouchKeyStyle.Row style : TouchKeyStyle.Row.values())
+                for (boolean globe : new boolean[] {false, true}) {
+                    List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.designEntries(layout, globe, false, false,
+                        false, style, false, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT);
+                    if (row.isEmpty()) continue;
+                    check(Math.abs(total(row) - KeyboardActionRow.ROW_SHARES) < 1e-4,
+                        "bottom row is 10 shares: layout " + layout + " " + style + " globe " + globe + ": " + row);
+                }
+        check(Math.abs(KeyboardActionRow.DESIGN_NINE_SIDE_WEIGHT - 1.5f) < 1e-6
+                && Math.abs(KeyboardActionRow.DESIGN_NINE_HALF_COLUMN_WEIGHT - 7f / 6f) < 1e-6,
+            "nine-key bottom row: 符 and return one side column (3 of 20), 123 and 中/英 half a grid column");
         List<KeyboardActionRow.DesignEntry> nineKey =
             KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true);
         check(nineKey.get(nineKey.size() - 2).slot() == KeyboardActionRow.DesignSlot.LANGUAGE
@@ -97,9 +114,8 @@ public final class KeyboardActionRowSmoke {
                     KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DesignSlot.RETURN)),
                 "swapping without the globe keeps 符 first, layout " + layout);
             check(KeyboardActionRow.designEntries(layout, true).get(0).equals(new KeyboardActionRow.DesignEntry(
-                    KeyboardActionRow.DesignSlot.SYMBOL_PANEL, KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT))
-                    && KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT == KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT,
-                "符 takes the same share as 中/英");
+                    KeyboardActionRow.DesignSlot.SYMBOL_PANEL, KeyboardActionRow.DESIGN_NINE_SIDE_WEIGHT)),
+                "符 sits under the symbol rail, one side column wide");
         }
         // 26 键标准底行：符号入口在数字入口之后，句号紧挨空格左边、逗号紧挨空格右边；地球键仍紧跟数字入口。
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
@@ -124,7 +140,7 @@ public final class KeyboardActionRowSmoke {
                 if (globe) expectedLong.add(1, KeyboardActionRow.DesignSlot.GLOBE);
                 check(longSlots.equals(expectedLong), "长空格模式将符号移出底行，逗号移到空格左侧");
                 check(longRow.stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
-                    .findFirst().orElseThrow().weight() > KeyboardActionRow.DESIGN_SPACE_WEIGHT,
+                    .findFirst().orElseThrow().weight() > spaceOf(KeyboardActionRow.designEntries(layout, globe)),
                     "长空格模式扩大空格键");
                 check(longSlots.stream().noneMatch(slot -> slot == KeyboardActionRow.DesignSlot.PERIOD)
                     && KeyboardActionRow.designEntries(layout, globe, false, false, true, true)
@@ -132,7 +148,7 @@ public final class KeyboardActionRowSmoke {
                     "长空格底行不放句号键（中文、英文都是），句号由逗号滑动输入");
                 check(KeyboardActionRow.designEntries(layout, globe, true, false, false, true)
                     .stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
-                    .findFirst().orElseThrow().weight() == KeyboardActionRow.DESIGN_LONG_SPACE_WEIGHT,
+                    .findFirst().orElseThrow().weight() == spaceOf(longRow),
                     "交换语言与数字键后仍保持长空格");
             }
         }
@@ -201,10 +217,12 @@ public final class KeyboardActionRowSmoke {
                 List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.designEntries(layout, globe, true);
                 check(swapped.size() == original.size(), "swap preserves key count");
                 int layer = designSlots(layout, globe, false).indexOf(KeyboardActionRow.DesignSlot.LAYER);
+                float languageWeight = original.get(original.size() - 2).weight();
+                float layerWeight = original.get(layer).weight();
                 check(swapped.get(layer).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE,
-                    KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT)), "language takes the number entry's position with its width");
+                    languageWeight)), "language takes the number entry's position with its width");
                 check(swapped.get(swapped.size() - 2).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER,
-                    KeyboardActionRow.DESIGN_LAYER_WEIGHT)), "number entry takes language position with its width");
+                    layerWeight)), "number entry takes language position with its width");
                 for (int index = 0; index < original.size(); index++) {
                     if (index != layer && original.get(index).slot() != KeyboardActionRow.DesignSlot.LANGUAGE)
                         check(swapped.get(index).equals(original.get(index)), "other keys keep position and width");
@@ -433,9 +451,8 @@ public final class KeyboardActionRowSmoke {
                         && row.get(space + 1).equals(new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.COMMA,
                             KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT)),
                     "句号紧挨空格左边、逗号紧挨空格右边，各占 1 份");
-                check(row.get(space).weight() == KeyboardActionRow.DESIGN_SPACE_WEIGHT
-                        - KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT && row.get(space).weight() == 3f,
-                    "句号的一份从空格让出：4 → 3");
+                check(row.get(space).weight() == (globe ? 2f : 3f) && Math.abs(total(row) - KeyboardActionRow.ROW_SHARES) < 1e-6,
+                    "空格占一行 10 份里剩下的：3 份，有地球键时 2 份");
                 // 整行总份额与不放句号的表情键样式（空格 4 份）相同，所以 123、符、逗号、中/英、回车的宽度没有变。
                 List<KeyboardActionRow.DesignEntry> emoji = KeyboardActionRow.designEntries(layout, globe, false, false, false,
                     TouchKeyStyle.Row.EMOJI);
@@ -449,7 +466,7 @@ public final class KeyboardActionRowSmoke {
                         case GLOBE -> KeyboardActionRow.DESIGN_GLOBE_WEIGHT;
                         case SYMBOL_PANEL -> KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT;
                         case PERIOD, COMMA -> KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT;
-                        case SPACE -> KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT;
+                        case SPACE -> globe ? 2f : 3f;
                         case LANGUAGE -> KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT;
                         case RETURN -> KeyboardActionRow.DESIGN_RETURN_WEIGHT;
                         default -> throw new AssertionError("unexpected key on the standard row: " + entry.slot());
@@ -468,7 +485,7 @@ public final class KeyboardActionRowSmoke {
                             .noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
                         style + " 样式不放句号键");
                 check(emoji.stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE).findFirst()
-                        .orElseThrow().weight() == KeyboardActionRow.DESIGN_SPACE_WEIGHT, "表情键样式的空格仍是 4 份");
+                        .orElseThrow().weight() == (globe ? 3f : 4f), "表情键样式的空格 4 份，有地球键时 3 份");
             }
         }
         // 数字九宫格不因字母层多了句号而变：仍是 返回 | 符 | 0 | 中 | 回车，没有逗号句号。
@@ -499,14 +516,14 @@ public final class KeyboardActionRowSmoke {
                 englishTotal += entry.weight();
                 float weight = switch (entry.slot()) {
                     case PERIOD -> KeyboardActionRow.DESIGN_PUNCTUATION_WEIGHT;
-                    case SPACE -> KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT;
+                    case SPACE -> globe ? 2f : 3f;
                     default -> chinese.stream().filter(other -> other.slot() == entry.slot())
                         .findFirst().orElseThrow().weight();
                 };
                 check(entry.weight() == weight, "英文底行其余键与中文同宽：" + entry.slot());
             }
             check(Math.abs(chineseTotal - englishTotal) < 1e-6, "句点那一份从空格让出，整行份额不变");
-            check(KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT == 3f, "英文空格 3 份，与 iOS、HarmonyOS 相同");
+            check(spaceOf(english) == (globe ? 2f : 3f), "英文空格 3 份，有地球键时 2 份");
         }
         // 交换语言键与数字键时，句点和逗号仍贴着空格。
         check(KeyboardActionRow.designEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false, true, false, true).stream()
@@ -551,7 +568,7 @@ public final class KeyboardActionRowSmoke {
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, KeyboardActionRow.DESIGN_LAYER_WEIGHT),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SYMBOL_PANEL,
                     KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.ZERO, KeyboardActionRow.DESIGN_SPACE_WEIGHT),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.ZERO, 5f),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT),
                 new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, KeyboardActionRow.DESIGN_RETURN_WEIGHT))),
             "26-key number pad: back | 符 | 0 | 中 | return");
@@ -583,8 +600,12 @@ public final class KeyboardActionRowSmoke {
                         "one 0 replaces the space: " + label);
                     List<KeyboardActionRow.DesignEntry> nine = KeyboardActionRow.designEntries(
                         KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, swap, true);
-                    check(pad.size() == nine.size() && pad.containsAll(nine),
-                        "only the order changes, every key keeps its nine-key width: " + label);
+                    check(pad.size() == nine.size() && Math.abs(total(pad) - KeyboardActionRow.ROW_SHARES) < 1e-4,
+                        "same keys as the nine-key pad, laid out in the letter row's shares (10 in all): " + label);
+                    for (KeyboardActionRow.DesignEntry entry : pad)
+                        if (entry.slot() == KeyboardActionRow.DesignSlot.LAYER || entry.slot() == KeyboardActionRow.DesignSlot.RETURN)
+                            check(entry.weight() == KeyboardActionRow.DESIGN_LAYER_WEIGHT,
+                                "返回 stays in the 123 cell and return under ⌫ (1.5 shares): " + label);
                 }
                 // 拼音九键一族不变：符 | 九键 |（地球）| 0 | 中/英 | 回车（#9113）。
                 for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
@@ -612,16 +633,17 @@ public final class KeyboardActionRowSmoke {
                 KeyboardActionRow.DesignSlot.SPACE, KeyboardActionRow.DesignSlot.ZERO,
                 KeyboardActionRow.DesignSlot.LANGUAGE, KeyboardActionRow.DesignSlot.RETURN)),
             "shuangpin letters row: 符 | 123 | space | 0 | 中 | return, got " + letters);
-        check(letters.get(2).weight() == KeyboardActionRow.DESIGN_SPACE_WEIGHT
-                && letters.get(3).weight() == KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT,
-            "the shuangpin 0 is as wide as 符 and the space keeps its share");
+        check(letters.get(2).weight() == spaceOf(KeyboardActionRow.designEntries(layout, false))
+                && letters.get(3).weight() == KeyboardActionRow.DESIGN_SHUANGPIN_ZERO_WEIGHT,
+            "the shuangpin 0 adds its own share and the space keeps its share");
         for (TouchKeyStyle.Row style : new TouchKeyStyle.Row[] {TouchKeyStyle.Row.STANDARD,
                 TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI}) {
             List<KeyboardActionRow.DesignEntry> row = KeyboardActionRow.withShuangpinZero(KeyboardActionRow.designEntries(
                 layout, true, false, false, false, style, false, TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT), false);
             for (KeyboardActionRow.DesignEntry entry : row)
                 if (entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
-                    check(entry.weight() >= 2f, "the space keeps at least two shares with " + style);
+                    check(entry.weight() >= KeyboardActionRow.DESIGN_NINE_HALF_COLUMN_WEIGHT - 1e-4f,
+                        "the space keeps at least half a grid column with " + style);
             for (TouchKeyStyle.NumberPadSpace space : TouchKeyStyle.NumberPadSpace.values()) {
                 List<KeyboardActionRow.DesignEntry> digits = KeyboardActionRow.withShuangpinZeroShare(
                     KeyboardActionRow.numberPadEntries(layout, true, false, style, false, space));
@@ -642,6 +664,11 @@ public final class KeyboardActionRowSmoke {
         List<KeyboardActionRow.DesignEntry> noSpace = KeyboardActionRow.designEntries(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, false);
         check(KeyboardActionRow.withShuangpinZero(noSpace, false).equals(noSpace),
             "a row without a space is left alone");
+    }
+
+    private static float spaceOf(List<KeyboardActionRow.DesignEntry> entries) {
+        return entries.stream().filter(entry -> entry.slot() == KeyboardActionRow.DesignSlot.SPACE)
+            .findFirst().orElseThrow().weight();
     }
 
     private static float total(List<KeyboardActionRow.DesignEntry> entries) {

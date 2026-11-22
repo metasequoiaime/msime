@@ -993,7 +993,7 @@ final class ImeLayoutRows {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(tones, key);
         }
-        container.addView(tones, LayoutPolicy.weightedMatchParentParams(0.7f));
+        container.addView(tones, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         LinearLayout grid = LayoutPolicy.column(s);
         for (java.util.List<ZhuyinNineKeyLayout.Key> keys : ZhuyinNineKeyLayout.rows()) {
@@ -1022,7 +1022,7 @@ final class ImeLayoutRows {
         }
         lastRow.addView(marks, LayoutPolicy.weightedMatchParentParams(1));
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(3));
+        container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         // 右列与网格的四行对齐：⌫、中/英、空格、换行。后三个是底栏那几个常驻键，连同它们的手势、图标和「确认」状态一起挪过来。
         LinearLayout actions = LayoutPolicy.column(s);
@@ -1036,7 +1036,7 @@ final class ImeLayoutRows {
         adoptBarKey(actions, s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS) ? s.layerButton : s.languageButton, KeyboardKeyRole.ACCENT);
         adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
         adoptBarKey(actions, s.enterButton, s.imeBottomRow.returnKeyRole());
-        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.8f));
+        container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         // 挂在最后，盖在候选滚动区上面。
         if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
@@ -1765,7 +1765,7 @@ final class ImeLayoutRows {
             addJapaneseSideKey(modeColumn, globe, 1);
         }
         if (swapLanguageNumber) addJapaneseSideKey(modeColumn, language, 1);
-        container.addView(modeColumn, LayoutPolicy.weightedMatchParentParams(0.17f));
+        container.addView(modeColumn, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         LinearLayout grid = LayoutPolicy.column(s);
         java.util.List<JapaneseNineKeyLayout.Key> keys = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
@@ -1785,7 +1785,7 @@ final class ImeLayoutRows {
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(0.64f));
+        container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         LinearLayout side = LayoutPolicy.column(s);
         Runnable deleteAction = this::deleteJapaneseKana;
@@ -1798,7 +1798,7 @@ final class ImeLayoutRows {
         addJapaneseSideKey(side, swapLanguageNumber ? s.japaneseSymbolsKey : language, 1);
         s.japaneseReturnKey = s.keyId(s.keyboardKey("改行", "改行", s::enter), "Enter");
         addJapaneseSideKey(side, s.japaneseReturnKey, 2);
-        container.addView(side, LayoutPolicy.weightedMatchParentParams(0.19f));
+        container.addView(side, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
         s.updateReturnKey();
     }
 

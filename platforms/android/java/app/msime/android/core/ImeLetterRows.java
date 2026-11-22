@@ -1100,7 +1100,6 @@ final class ImeLetterRows {
             row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                 plan.size(), rowIndex, true));
             letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
-            int padHalfGaps = FourteenKeyLetterWidths.padHalfGaps(plan, rowIndex);
             KeyboardSpacer leadingPad = null;
             Button previousKey = null;
             for (FourteenKeyLetterWidths.Cell cell : plan.get(rowIndex)) {
@@ -1115,8 +1114,6 @@ final class ImeLetterRows {
                         KeyboardSpacer pad = new KeyboardSpacer(s);
                         if (previousKey == null) leadingPad = pad;
                         else pad.setOwner(previousKey);
-                        // 补齐这一排少扣的键距，由 ImeStyler 套用键距时按当前键距换成外边距。
-                        pad.setOuterHalfGaps(previousKey == null, padHalfGaps);
                         row.addView(pad, params);
                     }
                     case KEY -> {
