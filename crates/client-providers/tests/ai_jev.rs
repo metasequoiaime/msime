@@ -10,6 +10,7 @@ fn pinyin_request() -> AiSuggestionRequest {
         segmented_pinyin: vec!["shi".into(), "shi".into()],
         context: "方案已经通过，明天开始".into(),
         candidate_limit: 3,
+        sentence_punctuation: false,
     }
 }
 
