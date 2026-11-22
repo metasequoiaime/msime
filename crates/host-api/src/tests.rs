@@ -7,6 +7,7 @@ use super::*;
 mod ai_pinyin_alignment;
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
+mod desktop_helpcode_import;
 mod local_translation;
 mod mobile_clipboard_retention;
 

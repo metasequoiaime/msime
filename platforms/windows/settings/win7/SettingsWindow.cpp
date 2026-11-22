@@ -1468,7 +1468,7 @@ struct SettingsWindow::State {
     const auto clsid = save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog;
     if (FAILED(CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
     const auto finish = [&] { dialog->Release(); return std::optional<std::filesystem::path>{}; };
-    const COMDLG_FILTERSPEC filter{voice_model ? L"本地语音模型文件" : plugin ? L"插件文件" : vocabulary ? L"词表" : save ? L"词库文本" : L"词库文件", voice_model ? L"*.*" : plugin ? L"*.zip" : vocabulary ? L"*.csv;*.txt" : save ? L"*.txt;*.tsv" : L"*.txt;*.tsv;*.yaml;*.yml;*.scel"};
+    const COMDLG_FILTERSPEC filter{voice_model ? L"本地语音模型文件" : plugin ? L"插件压缩包或辅助码表" : vocabulary ? L"词表" : save ? L"词库文本" : L"词库文件", voice_model ? L"*.*" : plugin ? L"*.zip;*.txt" : vocabulary ? L"*.csv;*.txt" : save ? L"*.txt;*.tsv" : L"*.txt;*.tsv;*.yaml;*.yml;*.scel"};
     DWORD options = 0;
     if (FAILED(dialog->GetOptions(&options)) || FAILED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | (save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST))) ||
         FAILED(dialog->SetFileTypes(1, &filter)) || FAILED(dialog->SetTitle(voice_model ? L"添加本地语音模型文件" : plugin ? L"导入插件文件" : vocabulary ? L"导入词表" : save ? L"导出词库" : L"导入词库")) ||
