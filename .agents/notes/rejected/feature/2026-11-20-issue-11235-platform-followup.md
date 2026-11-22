@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #11235
 
-Status: proposed
+Status: rejected — issue #11235 已于 2026-11-11 被维护者以 not planned 关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#11235`（linux）的标题是「[Feature]: 特殊符合录入」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#11235`（linux）的标题是「[Feature]: 特殊符合录入」，由官网需求表单为 Linux 输入法 0.16 创建，诉求是输入汉语句子时能直接录入 ★☆▲△□■℃Ø 这类特殊符号，而不必切换到其他输入法。同一表单在 11 秒前还生成了内容完全相同的 `#11234`，后者被标记为重复关闭。
+
+维护者在 2026-11-11 以 not planned 关闭了 `#11235`，关闭时没有留言；除本跟踪提案对应的 Draft PR 外，没有 PR 以 `Fixes` 或 `Refs` 关联它，也没有修复 PR。
 
 ## Proposal
 
