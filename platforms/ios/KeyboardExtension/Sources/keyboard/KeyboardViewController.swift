@@ -38,7 +38,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 第一次用到时才准备（`viewDidLoad` 一开始），那时 `hasFullAccess` 已经可信：没有完全访问时 App Group 只读，可写的准备第一步就以 EPERM 失败，键盘打不了字（#10945），所以这时选只读的准备。iOS 在用户切换完全访问时结束扩展进程，进程活着时这个值不变。
   ///
   /// 没有完全访问时再实际试写一次共享目录（`MetasequoiaInputSessionBridge.sharedStateIsWritable`），写得进就仍走可写的准备：`hasFullAccess` 只在连上键盘宿主之后才是真值，单元测试的宿主直接创建控制器、从不连上，它恒为 false，而那里的共享目录（取不到 App Group 时是应用自己的 Application Support）是可写的。只看 `hasFullAccess` 时所有用真实控制器的测试都被推到只读路径上。真机没有完全访问时试写被沙盒拒绝，结果与只看 `hasFullAccess` 相同。
-  private lazy var session: MetasequoiaInputSessionBridge = {
+  private(set) lazy var session: MetasequoiaInputSessionBridge = {
     self.sessionPrepared = true
     let writable = self.hasFullAccess || MetasequoiaInputSessionBridge.sharedStateIsWritable()
     return MetasequoiaInputSessionBridge(startsSuspended: true, sharedStateWritable: writable)
@@ -253,7 +253,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 按住空格开始听写时手指的纵坐标，用来判断上滑取消；松手后或读屏开始的听写为 nil。
   private var voiceHoldOriginY: CGFloat?
   /// 手写区：铺满键盘宽度的书写卡片，与 Android 的 rebuildHandwritingRows、HarmonyOS 的 handwritingPad 一致；⌫ 与「重写」在底行（`handwritingRewriteButton`、`handwritingDeleteButton`）。
-  private let handwriting = HandwritingInputView()
+  let handwriting = HandwritingInputView()
   private var handwritingResults: [String] = []
   private var handwritingActionHeight: NSLayoutConstraint?
   private var candidatePanel: KeyboardCandidatePanelView?
@@ -286,7 +286,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = KeyboardToolbarButton(icon: .collapse, accessibilityLabel: "收起键盘")
   /// 每个字母键及其两个提示：`hint` 是沿底边显示的双拼韵母，`corner` 是下滑时输入的符号（`LetterHintTable`），画在右上角。
-  private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel, corner: UILabel)] = []
+  private(set) var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel, corner: UILabel)] = []
   /// 滑行输入（`KeyboardLayoutPreference.glideTyping`）的开关，每次键盘出现时读一次，按键时不再读 App Group。
   private var glideTypingEnabled = false
   private var bilingualGlideEnabled = false
@@ -389,12 +389,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 左侧 ⇧ 的宽度：手机上 44pt，iPad 上按设计稿为 1.4 个键宽。
   private var phoneShiftWidth: NSLayoutConstraint?
   /// 手机键面第三排字母与第一排等宽的约束，以及 ⇧ 与 Z、M 与 ⌫ 之间填空隙的四段占位格（`makeLetterRow`）；iPad 键面停用、隐藏。
-  private var phoneThirdRowLetterWidth: NSLayoutConstraint?
-  private var phoneThirdRowSpacers: [KeyRoutingSpacer] = []
+  var phoneThirdRowLetterWidth: NSLayoutConstraint?
+  var phoneThirdRowSpacers: [KeyRoutingSpacer] = []
   /// 第三排里后面不留键距的那几项：⇧、左边两段占位格、M、右边两段占位格，空隙全由占位格撑开。
-  private var phoneThirdRowTightViews: [UIView] = []
+  var phoneThirdRowTightViews: [UIView] = []
   /// 第三排只在 iPad 键面显示的 ，。 和右 ⇧ 的宽度约束（按字母宽的倍数）。手机键面上这些键隐藏、宽度为 0，约束若仍生效，会把可伸缩空隙旁的字母一起往 0 拉，所以只在 iPad 键面启用（`applyPhoneThirdRowSpacing`）。
-  private var tabletThirdRowWidths: [NSLayoutConstraint] = []
+  private(set) var tabletThirdRowWidths: [NSLayoutConstraint] = []
   private var tabletShiftWidth: NSLayoutConstraint?
   private weak var spaceButton: UIButton?
   private var cursorMovement = SpaceCursorMovement()
@@ -402,13 +402,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var backspaceRepeatTimer: Timer?
   private var backspacePress = BackspacePressState<ObjectIdentifier>()
   /// 按住 ⌫ 横滑删除的进度（`BackspaceSwipeDeletion`）；没有在滑时为 nil。
-  private var backspaceSwipe: BackspaceSwipeDeletion?
+  var backspaceSwipe: BackspaceSwipeDeletion?
   /// 最近一次快照的组码和光标，横滑删组码时从这里取原码。
-  private var lastEditingText = ""
-  private var lastEditingCaret = 0
+  private(set) var lastEditingText = ""
+  private(set) var lastEditingCaret = 0
   private var renderedComposition = false
   private var requiresCandidateSelection = false
-  private var hasComposition: Bool {
+  var hasComposition: Bool {
     get { renderedComposition || hasPendingAsynchronousInput }
     set { renderedComposition = newValue }
   }
@@ -427,10 +427,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidateIdentities: [MetasequoiaCandidateIdentity?] = []
   /// 组字中收到内存警告、引擎缓存还没清，等这次组字结束时清（见 `didReceiveMemoryWarning`）。
   private var engineCacheResetPending = false
-  private var pairedPunctuation = PairedPunctuationStack()
+  var pairedPunctuation = PairedPunctuationStack()
   /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
   private var japaneseConversionIndex: Int?
-  private var isChineseMode = true
+  private(set) var isChineseMode = true
   /// 经功能菜单「手写」进入手写前的方案和中英状态，再点一次这个图块回到它们（#9703）；经其他途径换方案时清掉，那时离开手写按 `InputSchemePreference.handwritingReturn` 取第一个不是手写的方案。
   private var schemeBeforeHandwriting: ChineseInputScheme?
   private var englishBeforeHandwriting = false
@@ -444,7 +444,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preferences?["default_ime_mode"] as? String != "english"
   }
   private var inputContext = KeyboardInputContext()
-  private var inputScheme: ChineseInputScheme = .editionFallback {
+  private(set) var inputScheme: ChineseInputScheme = .editionFallback {
     didSet {
       if (letterGrid(for: oldValue) == nil) != (letterGrid(for: inputScheme) == nil) {
         applyReadingRowPlacement()
@@ -509,7 +509,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 字母键是否按 Shift 给出的大小写交给 Engine（越南语和藏文），而不是把 Shift 当成切到英文。
   private var typesCasedLetters: Bool { isChineseMode && inputScheme.typesCasedLetters && !isInLocalMode }
   /// 正在组的内容是否已经就是正文（韩语音节、注音转换结果、越南语单词、藏文音节），因此回车不是确认而是直接上屏，除非有可选的列表打开着。
-  private var composesInPlace: Bool { isChineseMode && inputScheme.composesInPlace && !isInLocalMode }
+  var composesInPlace: Bool { isChineseMode && inputScheme.composesInPlace && !isInLocalMode }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
@@ -643,7 +643,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var keyPressFlushTimer: Timer?
   private var visiblePreedit = ""
   /// The already-chosen half of a phrase at the front of `visiblePreedit`, which 「候选栏预编辑」 never hides.
-  private var visiblePhrasePrefix = ""
+  private(set) var visiblePhrasePrefix = ""
   /// The spelling with the Engine's caret drawn in, while the user has moved that caret off the end.
   private var visibleCaretSpelling: String?
   /// The spelling the caret can be moved through and where the caret sits in it, while one is being composed; nil for a Japanese reading, whose conversion owns the caret keys.
@@ -703,7 +703,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
   /// 最近一次快照是不是上屏后联想（View 的 `prediction`）。看的是会话的状态，不是候选条：数字键要不要交给会话去选联想，按会话里有没有联想定。
-  private var enginePrediction = false
+  private(set) var enginePrediction = false
   /// 候选条此刻画的就是会话的联想（不是邮箱后缀、英文建议这些键盘自己的列表），关闭键和长按菜单据此决定。
   private var visibleCandidatesArePrediction = false
   private var visibleDiagnostic: String?
@@ -736,7 +736,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// same answer the session would give. Asking the session instead costs a full C ABI round trip
   /// - the whole view serialised to JSON and parsed back - and the keystroke path asked more than
   /// thirty times per key before this.
-  private var isInLocalMode: Bool { !currentLocalMode.isEmpty && currentLocalMode != "none" }
+  var isInLocalMode: Bool { !currentLocalMode.isEmpty && currentLocalMode != "none" }
   /// 拆字模式（Engine 的 `chaizi`）：候选下的注释是读音，不是还要输入的编码。
   private var readsChaizi: Bool { currentLocalMode == "chaizi" }
   private var armedPunctuationRepeat: Any?
@@ -871,11 +871,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var keySoundGain = KeySoundPackPolicy.gain(volume: KeySoundPackPolicy.defaultVolume)
   /// 按键振动的开关和档位都从这一个 App Group 实例读。`KeyboardFeedbackPreference.hapticsEnabled` 这类属性每读一次都新建一个 `UserDefaults`，原来开着振动时按下、松开一次键要建五六个，都压在触摸处理的主线程上。不把值缓存起来：App 的设置页里也有输入框，键盘开着时在那里改振动，下一下按键就要按新的来。
   private let feedbackDefaults = KeyboardFeedbackPreference.defaults
-  private var hapticsEnabled: Bool { KeyboardFeedbackPreference.hapticsEnabled(in: feedbackDefaults) }
-  private var hapticStrength: KeyboardHapticStrength { KeyboardFeedbackPreference.hapticStrength(in: feedbackDefaults) }
+  var hapticsEnabled: Bool { KeyboardFeedbackPreference.hapticsEnabled(in: feedbackDefaults) }
+  var hapticStrength: KeyboardHapticStrength { KeyboardFeedbackPreference.hapticStrength(in: feedbackDefaults) }
   private var feedbackStrength: KeyboardHapticStrength?
   private var feedbackGenerator: UIImpactFeedbackGenerator?
-  private var keyFeedback: UIImpactFeedbackGenerator {
+  var keyFeedback: UIImpactFeedbackGenerator {
     let strength = hapticStrength
     if let feedbackGenerator, feedbackStrength == strength { return feedbackGenerator }
     let generator: UIImpactFeedbackGenerator
@@ -3748,7 +3748,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 中文模式的全拼或双拼 14 键、18 键和五笔 14 键把触摸交给引擎网格；英文模式和本地输入模式画 26 键字母。
-  private var typesLetterGrid: Bool { isChineseMode && usesLetterGrid && !isInLocalMode }
+  var typesLetterGrid: Bool { isChineseMode && usesLetterGrid && !isInLocalMode }
 
   /// 五笔 14 键：组码由五笔方案按组展开码表，没有拼音选择，候选照五笔展开；组码字母（`editing_text`）不显示。
   private var typesWubiGrid: Bool { typesLetterGrid && inputScheme == .wubi }
@@ -3904,55 +3904,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机第三排字母上的 ⇧ 和 ⌫。
   private static let phoneLetterEdgeWidth: CGFloat = 44
-
-  /// 手机键面第三排的七个字母与第一排的字母等宽，与 iOS 系统键盘相同：⇧ 和 ⌫ 仍是 `phoneLetterEdgeWidth`，多出来的宽度不再摊进字母，而是变成 ⇧ 与 Z、M 与 ⌫ 之间的空隙。以前七个字母平分 ⇧、⌫ 之外的整段，390pt 宽的 iPhone 上比第一排宽约 7%。
-  ///
-  /// 每段空隙由两格透明占位（`KeyRoutingSpacer`）撑开，靠外的一格把触摸交给 ⇧ 或 ⌫，靠里的一格交给 Z 或 M，空隙里没有死区；占位格之间和两侧不留键距，空隙的宽度全由它们决定。四格等宽，宽度不小于 0：键盘窄到放不下时（字母等宽约束低于 required）字母让步，照旧平分。
-  private func installPhoneThirdRowSpacers(in row: UIStackView, shift: UIView, letters: [UIView], delete: UIControl) {
-    guard let first = letters.first, let last = letters.last else { return }
-    let spacers = (0..<4).map { _ in KeyRoutingSpacer() }
-    spacers[0].owner = shift as? UIControl
-    spacers[1].owner = first as? UIControl
-    spacers[2].owner = last as? UIControl
-    spacers[3].owner = delete
-    for spacer in spacers {
-      spacer.isAccessibilityElement = false
-      spacer.accessibilityIdentifier = "thirdRowSpacer"
-      spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-      spacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-      spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).isActive = true
-    }
-    row.insertArrangedSubview(spacers[0], at: 1)
-    row.insertArrangedSubview(spacers[1], at: 2)
-    let deleteIndex = row.arrangedSubviews.firstIndex(of: delete) ?? row.arrangedSubviews.count
-    row.insertArrangedSubview(spacers[2], at: deleteIndex)
-    row.insertArrangedSubview(spacers[3], at: deleteIndex + 1)
-    NSLayoutConstraint.activate(spacers.dropFirst().map { $0.widthAnchor.constraint(equalTo: spacers[0].widthAnchor) })
-    if let firstRowLetter = letterButtons.first?.button, firstRowLetter !== first {
-      let match = first.widthAnchor.constraint(equalTo: firstRowLetter.widthAnchor)
-      match.priority = .init(999)
-      phoneThirdRowLetterWidth = match
-    }
-    phoneThirdRowSpacers = spacers
-    phoneThirdRowTightViews = [shift, spacers[0], spacers[1], last, spacers[2], spacers[3]]
-  }
-
-  /// 按键面形态启用或停用第三排的等宽字母和两段空隙：手机键面启用；iPad 键面这一排是 ⇧ | 七个字母 | ，。| ⇧，按 `TabletLetterLayout` 的比例排，占位格隐藏、键距照常。
-  private func applyPhoneThirdRowSpacing(tablet: Bool) {
-    // 先停用不属于这种键面的约束，再启用属于它的。
-    if tablet {
-      phoneThirdRowLetterWidth?.isActive = false
-      NSLayoutConstraint.activate(tabletThirdRowWidths)
-    } else {
-      NSLayoutConstraint.deactivate(tabletThirdRowWidths)
-      phoneThirdRowLetterWidth?.isActive = true
-    }
-    for spacer in phoneThirdRowSpacers where spacer.isHidden != tablet { spacer.isHidden = tablet }
-    guard let row = phoneThirdRowSpacers.first?.superview as? UIStackView else { return }
-    for view in phoneThirdRowTightViews {
-      row.setCustomSpacing(tablet ? UIStackView.spacingUseDefault : 0, after: view)
-    }
-  }
 
   /// 设计稿的字母键面：手机 22pt，iPad 键盘 20pt，固定字号而不跟随动态字体，免得大字设置把字母挤出按键。
   static func letterFontSize(_ formFactor: KeyboardFormFactor) -> CGFloat { formFactor == .tablet ? 20 : 22 }
@@ -4802,7 +4753,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return row
   }
 
-  private func flushDeferredInputSnapshot() {
+  func flushDeferredInputSnapshot() {
     guard let snapshot = deferredInputSnapshot else {
       deferredInputRenderScheduled = false
       return
@@ -4843,7 +4794,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// `touchDown` 是这一键按下时手指在键区里的位置（`KeyboardKeyButton.touchDownLocation`），只有 26 键的字母键和 `;` 的真实触摸才有；它只用于 26 键双拼的纠错计价（`TouchPointPolicy.sendsTouch`），其余情况照常输入这个字符。
-  private func handleCharacter(_ character: String, touchDown: CGPoint? = nil) {
+  func handleCharacter(_ character: String, touchDown: CGPoint? = nil) {
     playInputClick()
     if isChineseMode {
       synchronizeInputSchemePreference()
@@ -4956,7 +4907,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return EnglishSuggestionPolicy.currentWord(before: before)
   }
 
-  private func refreshEnglishSuggestions() {
+  func refreshEnglishSuggestions() {
     let prefix = englishWordBeforeCursor
     if prefix != englishCorrectionRejectedPrefix {
       englishCorrectionRejectedPrefix = ""
@@ -8117,7 +8068,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     cancelBackspacePress()
   }
 
-  private func cancelBackspacePress() {
+  func cancelBackspacePress() {
     stopBackspaceRepeat()
     backspacePress.cancel()
   }
@@ -8126,96 +8077,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     backspaceRepeatTimer?.invalidate()
     backspaceRepeatTimer = nil
     backspacePress.stopRepeating()
-  }
-
-  /// 横滑删除这次删什么：组字时删组码（要能按原样重打回去，见 `BackspaceSwipeDeletion.canRetype`），否则删光标前的文字。手写板上的 ⌫ 撤的是笔迹；韩文、注音、越南文这类就地组字的方案，14/18 键的组码网格、本地模式、已选了一段词的组字，以及笔画和日文，组码重打不回原样，都不接横滑，⌫ 照常点按和长按连删。
-  private func backspaceSwipeUnit() -> BackspaceSwipeDeletion.Unit? {
-    guard handwriting.isHidden else { return nil }
-    if hasComposition {
-      guard isChineseMode, !composesInPlace, !typesLetterGrid, !isInLocalMode, visiblePhrasePrefix.isEmpty,
-            !inputScheme.isStroke, !inputScheme.isJapanese,
-            BackspaceSwipeDeletion.canRetype(composition: lastEditingText, caret: lastEditingCaret) else { return nil }
-      return .composition(original: lastEditingText)
-    }
-    guard let context = textDocumentProxy.documentContextBeforeInput, !context.isEmpty else { return nil }
-    return .text(context: context)
-  }
-
-  /// 按住 ⌫ 横滑：往左每滑一格（`KeyboardLayoutPreference.backspaceSwipeStep`，设置里的「滑动删除速度」）删一个组码或一个字，不松手往右滑把刚删的按原样恢复，松手定下来。
-  @objc private func handleBackspaceSwipe(_ pan: UIPanGestureRecognizer) {
-    switch pan.state {
-    case .began:
-      cancelBackspacePress()
-      session.flushPendingCharacters()
-      flushDeferredInputSnapshot()
-      // 交付挂起的按键之后组字可能变了，重新判断一次；不能滑就让这次手势作废。
-      guard let unit = backspaceSwipeUnit() else {
-        pan.isEnabled = false
-        pan.isEnabled = true
-        return
-      }
-      if case .text = unit { pairedPunctuation.clear() }
-      backspaceSwipe = BackspaceSwipeDeletion(unit: unit, step: KeyboardLayoutPreference.backspaceSwipeStep)
-      if hapticsEnabled { hapticStrength.impact(keyFeedback) }
-      applyBackspaceSwipe(to: pan.translation(in: view).x)
-    case .changed:
-      applyBackspaceSwipe(to: pan.translation(in: view).x)
-    default:
-      if backspaceSwipe != nil && !isChineseMode { refreshEnglishSuggestions() }
-      backspaceSwipe = nil
-    }
-  }
-
-  private func applyBackspaceSwipe(to translation: CGFloat) {
-    guard var swipe = backspaceSwipe else { return }
-    let before = swipe.applied
-    let change = swipe.move(to: Double(translation))
-    backspaceSwipe = swipe
-    guard change != 0 else { return }
-    switch swipe.unit {
-    case .composition:
-      if change > 0 {
-        // 一格删一个音节（与长按 ⌫ 连删相同）。一次跨好几格时只在最后画一次，中间不刷新候选，滑得快也不卡。
-        session.flushPendingCharacters()
-        flushDeferredInputSnapshot()
-        var current = lastEditingText
-        var last: MetasequoiaInputSnapshot?
-        for index in 0..<change {
-          playInputClick(.backspace)
-          let snapshot = session.segmentBackspace()
-          swipe.recordRemoved(before: current, after: snapshot.editingText)
-          current = snapshot.editingText
-          last = snapshot
-          if current.isEmpty {
-            swipe.stop(at: before + index + 1)
-            break
-          }
-        }
-        backspaceSwipe = swipe
-        if let last { render(last) }
-      } else if swipe.restorable {
-        // 按原顺序重打删掉的音节，组字连同候选回到删之前的样子。
-        for _ in 0..<(-change) {
-          guard let code = backspaceSwipe?.popRemovedCode() else { break }
-          for character in code { handleCharacter(String(character)) }
-        }
-      }
-    case .text:
-      if change > 0 {
-        for _ in 0..<change {
-          playInputClick(.backspace)
-          deleteOwnBackward()
-        }
-      } else {
-        // 离光标最远的那个最后删，所以最先插回。
-        for index in stride(from: before - 1, through: swipe.applied, by: -1) {
-          guard let text = swipe.deletedText(at: index) else { continue }
-          playInputClick()
-          textDocumentProxy.insertText(text)
-          noteOwnEdit()
-        }
-      }
-    }
   }
 
   @objc private func repeatBackspaceTimer(_ timer: Timer) {
@@ -8501,7 +8362,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 键盘每次经 `textDocumentProxy` 改动文档之后都记一笔，`textWillChange` 据此认出自己的回声。
-  private func noteOwnEdit() {
+  func noteOwnEdit() {
     ownEditEcho.recordOwnEdit(at: ProcessInfo.processInfo.systemUptime)
     scheduleEmailSuffixRefresh()
   }
@@ -8703,7 +8564,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
-  private func deleteOwnBackward() {
+  func deleteOwnBackward() {
     showInlineComposition("")
     textDocumentProxy.deleteBackward()
     noteOwnEdit()
@@ -11212,7 +11073,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 动作里的按键反馈。这一下所属的按下已经反馈过（`KeyboardKeyButton.releasing`）时不出声，没有经过按下的激活（候选、面板、`sendActions`、读屏）照常出声。
-  private func playInputClick(_ keyClass: KeySoundClass = .standard) {
+  func playInputClick(_ keyClass: KeySoundClass = .standard) {
     guard !KeyboardKeyButton.releasingPressThatFedBack else { return }
     emitKeyFeedback(keyClass)
   }
