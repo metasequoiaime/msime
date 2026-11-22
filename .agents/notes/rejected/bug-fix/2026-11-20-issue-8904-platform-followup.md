@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #8904
 
-Status: proposed
+Status: rejected — issue #8904 已由 #8922 修复并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#8904`（macos）的标题是「[Bug]: 大部分时间不显示英文」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #8904（macOS）报告切换到水杉输入法后，大部分中文候选不显示英文释义，只有极少数简单词能显示。#8922 让 macOS 独立输入法 bundle 随包携带 `character-glosses` 和 `word-glosses`，并作为旧 `EngineResources` 的只读回退，长尾中文候选因此能显示英文释义；该 PR 以 `Fixes #8904` 合并，issue 随之关闭（completed）。
 
 ## Proposal
 
