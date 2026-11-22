@@ -80,9 +80,13 @@ final class GridLetterSymbolDeviceChecks {
         swipe("按键 Q W", -SWIPE_DP);
         swipe("按键 Z X", -SWIPE_DP);
         expect("？：、；~");
-        // 一次触发就锁定：上滑出符号后回到起点仍输入符号。
-        t.stage = "fourteen swipe back to the start keeps the symbol";
+        // 滑回取消（#11822）：上滑出符号后回到起点，松手什么都不输入，也不弹选项；再滑出去又输入符号。
+        t.stage = "fourteen swipe back to the start cancels the symbol";
         swipe("字母 M", -SWIPE_DP, 0);
+        assertNoOptions();
+        expect("？：、；~");
+        t.stage = "fourteen a cancelled swipe types the symbol when it goes out again";
+        swipe("字母 M", -SWIPE_DP, 0, -SWIPE_DP);
         expect("？：、；~/");
 
         t.stage = "fourteen opposite swipe opens the options";

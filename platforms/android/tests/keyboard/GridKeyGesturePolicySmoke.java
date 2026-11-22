@@ -2,7 +2,7 @@ import app.msime.android.GridKeyGesturePolicy;
 import app.msime.android.GridKeyGesturePolicy.Mode;
 import app.msime.android.SwipeHintPolicy;
 
-/** 14/18 键与 26 键字母键的手势（#11063、#11822）：纵滑出符号、反向或长按开选项、18 键双拼横滑限定字母，组字中纵滑和长按都是点按；26 键英文反向不开选项，按大小写写字的方案长按直接出符号。 */
+/** 14/18 键与 26 键字母键的手势（#11063、#11822）：纵滑出符号、反向或长按开选项、18 键双拼横滑限定字母，滑回取消符号，组字中纵滑和长按都是点按；26 键英文反向不开选项，按大小写写字的方案长按直接出符号。 */
 public final class GridKeyGesturePolicySmoke {
     private static final String UP = SwipeHintPolicy.UP;
     private static final String DOWN = SwipeHintPolicy.DOWN;
@@ -22,14 +22,21 @@ public final class GridKeyGesturePolicySmoke {
         check(DOWN.equals(GridKeyGesturePolicy.opposite(UP)) && UP.equals(GridKeyGesturePolicy.opposite(DOWN))
             && GridKeyGesturePolicy.opposite(null) == null, "反方向");
 
-        // 空闲时上滑：锁定为符号，回到起点仍输入符号。
+        // 空闲时上滑出符号；滑回「滑动距离」一半以内取消，再滑出去又出符号（#11822）。
         GridKeyGesturePolicy.Gesture g = gesture(null, UP, false);
         check(!g.move(1, 1, 100, 95) && g.mode() == Mode.PENDING && !g.consumed(), "轻微移动仍是点按");
         check(g.move(1, 1, 100, 80) && g.mode() == Mode.SYMBOL && g.consumed(), "上滑接管为符号");
+        check(!g.move(1, 1, 100, 92) && g.mode() == Mode.SYMBOL, "防抖区内（距离和一半之间）仍是符号");
+        check(!g.move(1, 1, 140, 85) && g.mode() == Mode.SYMBOL, "出符号后横移不取消");
+        check(g.move(1, 1, 100, 100) && g.mode() == Mode.DISARMED && g.consumed(), "滑回起点取消");
+        check(!g.forcesTap() && !g.hold(), "取消后不补点按、不开选项");
+        g.move(1, 1, 100, 140);
+        check(g.mode() == Mode.DISARMED, "取消后反方向滑动不开选项");
+        check(g.move(1, 1, 100, 80) && g.mode() == Mode.SYMBOL, "取消后再滑过距离又出符号");
+        check(!g.hold() && !g.forcesTap(), "符号不补点按、长按不改");
         g.move(1, 1, 100, 100);
-        g.move(1, 1, 140, 100);
-        check(g.mode() == Mode.SYMBOL && !g.hold(), "符号锁定：回中心、横移和长按都不改");
-        check(!g.forcesTap(), "符号不补点按");
+        g.move(1, 2, 100, 100);
+        check(g.mode() == Mode.CANCELLED, "取消状态下多指也取消");
 
         // 反方向打开选项；下滑设置时方向对调。
         g = gesture(null, UP, false);
@@ -77,6 +84,10 @@ public final class GridKeyGesturePolicySmoke {
             "距离 30 时上移 20 dp 仍是点按，移出键帽也补一次点按");
         g.move(1, 1, 100, 69);
         check(g.mode() == Mode.SYMBOL && !g.forcesTap(), "距离 30 时上移超过 30 dp 出符号");
+        g = gesture(null, UP, 30, false);
+        g.move(1, 1, 100, 69);
+        check(!g.move(1, 1, 100, 84) && g.mode() == Mode.SYMBOL && g.move(1, 1, 100, 85)
+            && g.mode() == Mode.DISARMED, "距离 30 时退到 15 dp 以内才取消");
         g = gesture(null, UP, 30, false);
         g.move(1, 1, 100, 120);
         check(g.mode() == Mode.PENDING && g.forcesTap(), "距离 30 时反向下移 20 dp 不开选项，仍是点按");

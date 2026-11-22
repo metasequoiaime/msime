@@ -225,6 +225,22 @@ final class ImeLetterRows {
         if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
     }
 
+    /**
+     * 符号滑动的气泡（#11822，{@link SymbolSwipe}）：滑出符号时显示符号，滑回取消时把字画淡。不看「按键弹出」：关掉时按下不画，滑出符号后才画，这是滑动已触发、还能滑回取消的唯一提示，与长按相同。这个键已有气泡就只换字。
+     *
+     * @param dimmed 已滑回取消，松手不输入
+     */
+    void showSwipePreview(Button key, String label, boolean dimmed) {
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
+        else showKeyPreview(key, label);
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setDimmed(dimmed);
+    }
+
+    /** 收起 `key` 的气泡（符号滑动松手或取消）；气泡已属于别的键时不动。 */
+    void hideSwipePreview(Button key) {
+        hideKeyPreview(key);
+    }
+
     /** 这次触摸的长按和滑动是否按普通点按处理，见 {@link SwipeHintPolicy#tapsOnly}：组字中候选栏可见时是，上屏后联想时不是。 */
     private boolean candidateTapsOnly() {
         return SwipeHintPolicy.tapsOnly(!s.dedicatedEnglish && !s.letterCaseSchemeActive()
@@ -232,7 +248,7 @@ final class ImeLetterRows {
     }
 
     /**
-     * 26 键字母键的手势，判定与 14/18 键共用 {@link GridKeyGesturePolicy}（#11822）：沿「滑动输入符号」的方向纵滑过「滑动距离」、且纵向位移大于横向时松手输入角标；中文反方向同样的纵滑打开选项并可继续拖选，英文和按大小写写字的方案反方向只是一次点按。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，按大小写写字的方案长按直接输入角标；长按不受滑动开关影响。关闭开关停用两种滑动。没触发手势时交给按钮点击；纵移超过 14 dp 却没触发手势（关闭滑动、没滑到「滑动距离」或英文反方向）时，即使位移让按钮取消了点击，松手仍补一次点按。按压按「按键弹出」显示气泡。
+     * 26 键字母键的手势，判定与 14/18 键共用 {@link GridKeyGesturePolicy}（#11822）：沿「滑动输入符号」的方向纵滑过「滑动距离」、且纵向位移大于横向时松手输入角标，滑回「滑动距离」的一半以内取消、松手什么都不输入（{@link SymbolSwipe}），再滑出去又输入角标，气泡跟着显示符号或把它画淡；中文反方向同样的纵滑打开选项并可继续拖选，英文和按大小写写字的方案反方向只是一次点按。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，按大小写写字的方案长按直接输入角标；长按不受滑动开关影响。关闭开关停用两种滑动。没触发手势时交给按钮点击；纵移超过 14 dp 却没触发手势（关闭滑动、没滑到「滑动距离」或英文反方向）时，即使位移让按钮取消了点击，松手仍补一次点按。按压按「按键弹出」显示气泡。
      *
      * <p>候选栏可见（组字中，不含上屏后联想，见 {@link SwipeHintPolicy#tapsOnly}）时长按和滑动都等价于一次点按，按压中途出现候选栏也一样。只跟按下的那根手指：键距外落下的第二根手指会被框架并进这个键，不能因此取消这次按键。
      *
@@ -318,7 +334,9 @@ final class ImeLetterRows {
                     key.setPressed(false);
                     // 滑出符号或长按选项吞掉了这一下，它的按下点不再属于任何一次点击。
                     s.imeTouchPoints.pending.forget(key);
-                    if (mode == GridKeyGesturePolicy.Mode.CANCELLED) return true;
+                    // 多指、换指，或滑出符号后又滑回取消：什么都不输入。
+                    if (mode == GridKeyGesturePolicy.Mode.CANCELLED || mode == GridKeyGesturePolicy.Mode.DISARMED)
+                        return true;
                     if (mode == GridKeyGesturePolicy.Mode.OPTIONS && s.imeLayoutRows.finishLetterOptions(key, event))
                         return true;
                     s.imeKeyFeedback.playFeedback(key);
@@ -339,13 +357,12 @@ final class ImeLetterRows {
         });
     }
 
-    /** 一次移动改变了 26 键字母键的手势：触发时停掉长按计时，气泡换成角标或让位给选项。 */
+    /** 一次移动改变了 26 键字母键的手势：触发时停掉长按计时，气泡换成角标（滑回取消时画淡）或让位给选项。 */
     private void letterGestureChanged(Button key, String input, GridKeyGesturePolicy.Gesture gesture, Runnable hold) {
         if (gesture.consumed()) key.removeCallbacks(hold);
         switch (gesture.mode()) {
-            case SYMBOL -> {
-                if (keyPreview != null && keyPreviewOwner == key) keyPreview.setLabel(letterHintFace(input));
-            }
+            case SYMBOL -> showSwipePreview(key, letterHintFace(input), false);
+            case DISARMED -> showSwipePreview(key, letterHintFace(input), true);
             case OPTIONS -> {
                 hideKeyPreview(key);
                 s.imeLayoutRows.showLetterOptions(key, input);
@@ -1226,7 +1243,7 @@ final class ImeLetterRows {
                         DimensionPolicy.fromPixels(s, event.getY()), direction,
                         s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE), s.hasEngineComposition());
                     touching[0] = true;
-                    // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号或横滑选中字母时气泡换字（gridGesturePreview）。
+                    // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号时气泡换成符号、滑回取消时画淡（showSwipePreview，关掉「按键弹出」时也画），横滑选中字母时换成字母（gridGesturePreview）。
                     updateKeyPreview(key, event);
                     return false;
                 }
@@ -1260,6 +1277,8 @@ final class ImeLetterRows {
                             s.countKey(key);
                             s.imeLayoutRows.commitGridLetterHint(hint);
                         }
+                        // 滑出符号后又滑回取消：什么都不输入。
+                        case DISARMED -> cancelKeyTouch(key, event);
                         case LETTER -> {
                             key.setPressed(false);
                             char selected = current.selected();
@@ -1300,7 +1319,8 @@ final class ImeLetterRows {
             GridKeyGesturePolicy.Gesture gesture, GridKeyGesturePolicy.Mode before, String face, MotionEvent event) {
         if (before == GridKeyGesturePolicy.Mode.PENDING && gesture.consumed()) cancelKeyTouch(key, event);
         switch (gesture.mode()) {
-            case SYMBOL -> gridGesturePreview(key, symbolFace(gridKey, eighteen));
+            case SYMBOL -> showSwipePreview(key, symbolFace(gridKey, eighteen), false);
+            case DISARMED -> showSwipePreview(key, symbolFace(gridKey, eighteen), true);
             case LETTER -> {
                 char selected = gesture.selected();
                 String label = selected == 0 ? face : String.valueOf(selected);
@@ -1320,7 +1340,7 @@ final class ImeLetterRows {
         }
     }
 
-    /** 手势触发后气泡显示滑出的符号或选中的字母：已有气泡就换字，没有时按「按键弹出」画一个，关掉「按键弹出」时不画。 */
+    /** 横滑选中字母后气泡显示这个字母：已有气泡就换字，没有时按「按键弹出」画一个，关掉「按键弹出」时不画。滑出的符号见 {@link #showSwipePreview}。 */
     private void gridGesturePreview(Button key, String label) {
         if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
         else if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, label);
@@ -1560,7 +1580,7 @@ final class ImeLetterRows {
         bindSuperscriptShortcut(key, text);
     }
 
-    /** 123 / #+= 层的叹号：上滑 14 dp 输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
+    /** 123 / #+= 层的叹号：上滑 14 dp 输入 0，长按选择上标或下标 0；轻点仍输入叹号。滑出后可滑回 7 dp 以内取消、松手什么都不输入（#11822，{@link SymbolSwipe}），气泡跟着显示 0 或把它画淡。 */
     void bindSuperscriptShortcut(Button key, String text) {
         if (!SuperscriptShortcutPolicy.applies(text)) return;
         final String direction = SwipeHintPolicy.UP;
@@ -1569,43 +1589,48 @@ final class ImeLetterRows {
             s.imeLayoutRows.showSuperscriptOptions(key);
             return true;
         });
-        final float[] downY = new float[1];
-        final float threshold = SwipeHintPolicy.THRESHOLD_DP;
-        final boolean[] swiped = new boolean[1];
+        final SymbolSwipe swipe = new SymbolSwipe();
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN -> {
-                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
-                    swiped[0] = false;
+                    // 与原来相同：只看纵向位移，不要求纵向为主。
+                    swipe.start(DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()),
+                        direction, SwipeHintPolicy.THRESHOLD_DP, false);
                     return false;
                 }
                 case android.view.MotionEvent.ACTION_MOVE -> {
-                    if (!swiped[0] && SuperscriptShortcutPolicy.swiped(direction, threshold, downY[0],
-                            DimensionPolicy.fromPixels(s, event.getY()))) {
-                        swiped[0] = true;
-                        key.cancelLongPress();
-                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
-                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
-                        key.onTouchEvent(cancel);
-                        cancel.recycle();
+                    boolean engaged = swipe.engaged();
+                    if (swipe.move(DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()))) {
+                        if (!engaged) {
+                            key.cancelLongPress();
+                            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                            key.onTouchEvent(cancel);
+                            cancel.recycle();
+                        }
+                        showSwipePreview(key, SuperscriptShortcutPolicy.ZERO, !swipe.commits());
                     }
-                    return swiped[0];
+                    return swipe.engaged();
                 }
                 case android.view.MotionEvent.ACTION_UP -> {
-                    if (!swiped[0]) return false;
-                    swiped[0] = false;
+                    if (!swipe.engaged()) return false;
+                    boolean commits = swipe.commits();
+                    swipe.reset();
+                    hideSwipePreview(key);
                     key.setPressed(false);
+                    if (!commits) return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
                     s.imeLayoutRows.commitNineKeyLiteral(SuperscriptShortcutPolicy.ZERO);
                     return true;
                 }
                 case android.view.MotionEvent.ACTION_CANCEL -> {
-                    swiped[0] = false;
+                    swipe.reset();
+                    hideSwipePreview(key);
                     key.setPressed(false);
                     return false;
                 }
-                default -> { return swiped[0]; }
+                default -> { return swipe.engaged(); }
             }
         });
     }

@@ -12,7 +12,7 @@ package app.msime.android;
  *   <li>组字中（14/18 键看 Engine 的 `editing_text` 不空，26 键看候选栏，见 {@link SwipeHintPolicy#tapsOnly}；由调用方经 {@link Gesture#start} 和 {@link Gesture#composing} 传入）纵滑和长按都按一次普通点按处理，免得组字时误出符号或先结束组字；横滑限定字母照常可用。上屏后联想不算组字。
  * </ul>
  *
- * <p>先触发的那一种锁定这次按压：纵滑一旦触发，回到起点也仍输入符号；横滑可以反向重选，回到起点不输入。多指、换指和系统取消让这次按压什么都不输入（26 键的调用方只报按下的那根手指，不因多指取消）。纵滑与横滑的条件互斥（纵滑要求 |dy| &gt; |dx|，横滑要求 |dx| &gt; 1.5|dy|），同一次移动不会两者都成立。
+ * <p>先触发的那一种接管这次按压。纵滑出符号后可以滑回取消（#11822，规则见 {@link SymbolSwipe}）：沿设定方向的位移退回「滑动距离」的一半以内就是 {@link Mode#DISARMED}，松手什么都不输入，再滑过「滑动距离」又回到 {@link Mode#SYMBOL}；之后不会再变回点按、选项或横滑。长按直接出的符号（{@link Gesture#holdSymbol}）不能滑回取消。横滑可以反向重选，回到起点不输入。多指、换指和系统取消让这次按压什么都不输入（26 键的调用方只报按下的那根手指，不因多指取消）。纵滑与横滑的条件互斥（纵滑要求 |dy| &gt; |dx|，横滑要求 |dx| &gt; 1.5|dy|），同一次移动不会两者都成立。
  */
 public final class GridKeyGesturePolicy {
     /** 这次按压此刻处在哪一种手势里。 */
@@ -21,6 +21,8 @@ public final class GridKeyGesturePolicy {
         PENDING,
         /** 纵滑已触发，松手输入角标符号。 */
         SYMBOL,
+        /** 纵滑出过符号、又滑回「滑动距离」一半以内：松手什么都不输入；再滑过「滑动距离」回到 {@link #SYMBOL}。 */
+        DISARMED,
         /** 横滑已接管，松手输入 {@link Gesture#selected} 限定的字母（为 0 时不输入）。 */
         LETTER,
         /** 字母和符号选项已打开，后续移动交给选项拖选。 */
@@ -40,8 +42,7 @@ public final class GridKeyGesturePolicy {
      * @param dy 相对按下点的纵向位移（dp，向下为正）
      */
     public static boolean vertical(String direction, float thresholdDp, float dx, float dy) {
-        if (direction == null || !Float.isFinite(dx) || !Float.isFinite(dy)) return false;
-        return SwipeHintPolicy.swiped(direction, thresholdDp, 0f, dy) && Math.abs(dy) > Math.abs(dx);
+        return SymbolSwipe.arms(direction, thresholdDp, dx, dy, true);
     }
 
     /** 与 `direction` 相反的方向；null 仍是 null。 */
@@ -63,6 +64,7 @@ public final class GridKeyGesturePolicy {
         private float downX;
         private float downY;
         private Mode mode = Mode.PENDING;
+        private boolean heldSymbol;
         private char selected;
 
         /**
@@ -101,6 +103,7 @@ public final class GridKeyGesturePolicy {
             tapsOnly = composing;
             verticalTap = false;
             mode = Mode.PENDING;
+            heldSymbol = false;
             selected = 0;
         }
 
@@ -118,9 +121,14 @@ public final class GridKeyGesturePolicy {
         public boolean move(int pointerId, int pointers, float x, float y) {
             Mode before = mode;
             char beforeSelected = selected;
-            if (mode == Mode.CANCELLED || mode == Mode.OPTIONS || mode == Mode.SYMBOL) {
-                // 选项打开后，换指和多指由选项自己的拖选与取消处理。
-                if (mode == Mode.SYMBOL && invalid(pointerId, pointers, x, y)) cancel();
+            if (mode == Mode.CANCELLED || mode == Mode.OPTIONS) return false;
+            if (mode == Mode.SYMBOL || mode == Mode.DISARMED) {
+                // 选项打开后，换指和多指由选项自己的拖选与取消处理；符号这里自己取消。
+                if (invalid(pointerId, pointers, x, y)) cancel();
+                else if (!heldSymbol && mode == Mode.SYMBOL && SymbolSwipe.disarms(direction, thresholdDp, y - downY))
+                    mode = Mode.DISARMED;
+                else if (mode == Mode.DISARMED && vertical(direction, thresholdDp, x - downX, y - downY))
+                    mode = Mode.SYMBOL;
                 return mode != before;
             }
             if (invalid(pointerId, pointers, x, y)) {
@@ -160,6 +168,7 @@ public final class GridKeyGesturePolicy {
         public boolean holdSymbol() {
             if (mode != Mode.PENDING || tapsOnly || !hasSymbol) return false;
             mode = Mode.SYMBOL;
+            heldSymbol = true;
             return true;
         }
 

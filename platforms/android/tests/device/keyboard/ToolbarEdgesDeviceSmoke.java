@@ -291,6 +291,21 @@ public final class ToolbarEdgesDeviceSmoke extends Instrumentation {
                 check(!committed.toString().contains(".") && !committed.toString().contains("。"),
                     "long-space comma tap drift became a period after input-view generation " + generation + ": " + committed);
                 down = android.os.SystemClock.uptimeMillis();
+                // 滑出句号后又滑回起点（#11822）：松手什么都不输入。
+                committed.setLength(0);
+                int[] back = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE,
+                    android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+                int[] backY = {100, 100 - distance, 100, 100};
+                for (int index = 0; index < back.length; index++) {
+                    android.view.MotionEvent event = android.view.MotionEvent.obtain(down, down + index * 20,
+                        back[index], 40, backY[index], 0);
+                    try { comma.dispatchTouchEvent(event); }
+                    finally { event.recycle(); }
+                }
+                check(!committed.toString().contains(".") && !committed.toString().contains("。"),
+                    "long-space comma swipe back to the start still typed a period after input-view generation "
+                        + generation + ": " + committed);
+                down = android.os.SystemClock.uptimeMillis();
             }
         } finally {
             stylesField.set(service, previous);

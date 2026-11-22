@@ -21,8 +21,8 @@ Android 的 14/18 键字母键是普通按键：点按经 `gridKey` 送整组；
 `bindGridLetterGestures` 是每个 14/18 键字母键唯一的触摸监听，判定交给 `GridKeyGesturePolicy`（不依赖 Android）：
 
 - 按下时新建一个 `Gesture`：横滑字母只在双拼 18 键的两字母键上给（`fourteenShuangpin()`，每次按下按当前方案取），方向和距离读 26 键同样的本机设置（`SWIPE_DOWN_SYMBOLS` 关着时传 null，`SWIPE_SYMBOLS_DIRECTION`，`SWIPE_SYMBOLS_DISTANCE`，见 [Android 字母键「滑动距离」](2026-11-18-android-letter-swipe-distance.md)），「组字中」取 `hasEngineComposition()`。按压中途另一根手指开始了组字，之后的事件调用 `composing()`，还没触发的纵滑和长按改按点按处理。
-- 按下时的气泡：本篇落地时只有 18 键双拼的两字母键按「按键弹出」画；之后 [Android 14/18 键字母键按下画气泡](2026-11-08-android-grid-letter-press-bubble.md) 让每个 14/18 键字母键按下都画。纵滑出符号或横滑选中字母时，气泡换成符号或字母（`gridGesturePreview`），同样跟随「按键弹出」。
-- 还没触发手势时监听返回 false，点按、按下态和长按计时都由按钮自己处理；触发后用 `cancelKeyTouch` 给按钮补一个取消，按钮不会再点击或长按。纵滑锁定后键面不变，按键气泡换成符号；横滑时键面和气泡换成选中的字母，与原来相同；反向纵滑打开选项。
+- 按下时的气泡：本篇落地时只有 18 键双拼的两字母键按「按键弹出」画；之后 [Android 14/18 键字母键按下画气泡](2026-11-08-android-grid-letter-press-bubble.md) 让每个 14/18 键字母键按下都画。纵滑出符号或横滑选中字母时，气泡换成符号或字母（`gridGesturePreview`），同样跟随「按键弹出」；#11822 起滑出符号的气泡不看「按键弹出」，滑回取消时画淡，见 [Android 符号滑动可滑回取消](2026-11-22-android-swipe-symbol-cancel.md)。
+- 还没触发手势时监听返回 false，点按、按下态和长按计时都由按钮自己处理；触发后用 `cancelKeyTouch` 给按钮补一个取消，按钮不会再点击或长按。纵滑锁定后键面不变，按键气泡换成符号（#11822 起纵滑出的符号可滑回取消，见 [Android 符号滑动可滑回取消](2026-11-22-android-swipe-symbol-cancel.md)）；横滑时键面和气泡换成选中的字母，与原来相同；反向纵滑打开选项。
 - 长按经按钮的长按回调，读屏的长按动作走同一条：组字中返回 false，按钮松手照常点按这一组；空闲时打开选项。
 - 松手：符号经 `ImeLayoutRows#commitGridLetterHint` 上屏；横滑选中的字母照旧经 `gridKey` 送大写精确标记；选项按 26 键的拖选收尾（`finishLetterOptions`），没拖进去时弹窗留着等点选；组字中没有触发手势的按压、关闭「滑动输入符号」后明确的纵滑、或没滑到「滑动距离」的纵滑，由这里补一次 `performClick`，即使位移让按钮自己取消了点击。只把超过 14 dp（`SwipeHintPolicy.THRESHOLD_DP`，不随「滑动距离」变）、以纵向为主的移动记为补点按；横滑选中字母、长按选项、多指与系统取消仍优先，不重复输入。多指、换指和系统取消什么都不输入。
 - 一次滑出或选项里的选择、横滑都只记这个键一次（`countKey`），与 26 键相同。
