@@ -7123,10 +7123,10 @@ msime::linux_host::FloatingToolbar *floating_toolbar(bool create) {
     msime::linux_host::FloatingToolbar::Options options;
     options.icon_path = MSIME_MODE_BADGE_ICON;
     options.display_name = MSIME_EDITION_DISPLAY_NAME;
-    if (auto file = msime::linux_host::floating_toolbar_position_path(
-            std::getenv("XDG_STATE_HOME"), std::getenv("HOME"), MSIME_EDITION_CLIENT_DIRECTORY))
-      options.position_file = *file;
     const char *wayland = std::getenv("WAYLAND_DISPLAY");
+    if (auto file = msime::linux_host::floating_toolbar_position_path(
+            std::getenv("XDG_STATE_HOME"), std::getenv("HOME"), MSIME_EDITION_CLIENT_DIRECTORY, wayland && *wayland))
+      options.position_file = *file;
     options.hide_on_focus_out = wayland && *wayland;
     options.actions_need_focus = true;
     auto loop = glib_overlay_loop();
