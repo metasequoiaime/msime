@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI 候选的来源标记（样式 whale）：朝左的鲸鱼，尾鳍上扬，眼睛镂空。本仓自绘（CandidateSourceMark），单色，绘制时按候选释义色着色；24×24 画布，与其他来源标记同一套比例。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/white"
+        android:fillType="evenOdd"
+        android:pathData="M2.5,13.5C2.5,9.5 5.8,8 9.5,8C13.5,8 16,10 17.3,12.5L19.2,9.8L18,6Q19.6,6.6 20.6,7.8Q21.6,6.4 23,6L20.8,10.6C19.8,15.5 15.8,18.5 10.5,18.5C5.5,18.5 2.5,16.5 2.5,13.5ZM6.8,11.25C7.32,11.25 7.75,11.68 7.75,12.2C7.75,12.72 7.32,13.15 6.8,13.15C6.28,13.15 5.85,12.72 5.85,12.2C5.85,11.68 6.28,11.25 6.8,11.25Z" />
+</vector>
