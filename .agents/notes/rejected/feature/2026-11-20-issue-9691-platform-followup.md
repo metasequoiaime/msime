@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9691
 
-Status: proposed
+Status: rejected — issue #9691 已由 #9721 实现并以 completed 关闭，无需另建跟踪 PR；实现决定见[五笔 14 键笔记](../../implemented/feature/2026-10-25-wubi-fourteen-key.md)
 
 ## Problem
 
-平台 issue `#9691`（ios）的标题是「[Feature]: iOS下五笔支持14键布局」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#9691`（ios）的标题是「[Feature]: iOS下五笔支持14键布局」，反映 iOS 上 26 键五笔误触较多，希望提供 14 键布局。本提议写成时 issue 已经关闭，提议里「仓库中没有 `Fixes` 或 `Refs` PR 关联它」的判断有误：PR #9721 正文写有 `Fixes #9691`，在 iOS、Android、HarmonyOS 三端为五笔加入 14 键布局，于 2026-10-25 合并，issue 随之以 completed 关闭。
 
 ## Proposal
 
