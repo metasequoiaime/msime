@@ -154,7 +154,7 @@ public final class KeyFaceSolverSmoke {
         KeyFaceParams.Hint corner = params.topRight();
         if (corner != null) {
             KeyFaceDomain.SlotMetrics hint = domain(true, bottom).measure(MEASURER, 0).get(KeyFaceSlot.TOP_RIGHT);
-            float cornerLeft = width - corner.insetPx() - hint.inkWidth(corner.sizePx());
+            float cornerLeft = width - corner.insetXPx() - hint.inkWidth(corner.sizePx());
             float cornerBottom = corner.insetPx() + corner.inkHeight();
             check(inkTop >= cornerBottom + gap - 0.5f || right + gap <= cornerLeft + 0.5f, "主标签压住角标：" + where);
         } else {

@@ -104,7 +104,7 @@ final class KeyFaceRenderer {
         corner = topRight == null ? "" : TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.TOP_RIGHT));
         if (!corner.isEmpty()) {
             KeyFaceMeasurer.Ink ink = measurer.ink(KeyFaceSlot.TOP_RIGHT, corner, topRight.sizePx());
-            cornerX = width - topRight.insetPx() - ink.right();
+            cornerX = width - topRight.insetXPx() - ink.right();
             cornerBaseline = topRight.insetPx() - topRight.inkTopPx();
         }
         KeyFaceParams.Hint under = params.bottom();

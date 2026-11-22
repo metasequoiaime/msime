@@ -642,8 +642,10 @@ final class ImeBottomRow {
         if (numberPad) {
             if (zeroButton() instanceof KeyHintButton hinted) hinted.setHintText("");
             s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
+            s.imeKeyFaces.attachNineDigit(zeroButton(), false);
         } else if (shuangpinZero) {
             s.imeLayoutRows.bindShuangpinZero(zeroButton());
+            s.imeKeyFaces.attachNineDigit(zeroButton(), true);
         }
         syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");

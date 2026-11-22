@@ -37,6 +37,7 @@ final class KeyFaceGroupChecks {
                     for (int height : new int[] {29, 40, 46, 52, 84}) {
                         verifyRow(context, height);
                         verifyFunctions(context, height);
+                        verifyNineKeys(context, height);
                     }
                 }
             } catch (Exception | AssertionError error) { failure.set(error); }
@@ -189,6 +190,70 @@ final class KeyFaceGroupChecks {
         }
     }
 
+    /**
+     * 九键：字母层的键（「ABC」「WXYZ」「分词」，右上角数字）和九键双拼的数字键（底部声韵提示）各一组。右上角数字按模板离上边和右边（12 dp 的设计值随字号缩放），主标签水平居中，墨迹不相碰不出键格，换数字只重画。
+     */
+    private static void verifyNineKeys(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Object letters = product.nineGroup("NINE_LETTERS", "letters", density, scale);
+        Button[] keys = {product.nineKey("ABC", "2", ""), product.nineKey("WXYZ", "9", ""), product.nineKey("分词", "1", "")};
+        for (Button key : keys) {
+            product.joinNine(key, letters, "TOP_RIGHT");
+            layout(key, Math.round(78 * density), height);
+        }
+        Object params = product.params(keys[0]);
+        check(params != null, "九键字母组没有算出参数：" + where);
+        for (Button key : keys) check(product.params(key) == params, "同一组的九键参数不同：" + where);
+        for (Button key : keys) {
+            String at = key.getText() + " " + where;
+            Rect[] ink = draw(key);
+            Rect main = ink[1], corner = ink[0];
+            check(!main.isEmpty() && !corner.isEmpty(), "九键主标签或数字没画出来：" + at);
+            check(Math.abs(main.exactCenterX() - (key.getWidth() / 2f + product.mainShift(params))) <= 2 * density,
+                "九键主标签没有水平居中：" + main + " " + at);
+            check(!Rect.intersects(main, corner), "九键主标签压住数字：" + at);
+            if (product.hintSize(params, "topRight") > 0) {
+                float right = key.getWidth() - corner.right, top = corner.top;
+                check(Math.abs(right - product.hintInset(params, "insetXPx")) <= 2 * density,
+                    "九键数字离右边不对：" + right + " " + at);
+                check(Math.abs(top - product.hintInset(params, "insetPx")) <= 2 * density, "九键数字离上边不对：" + top + " " + at);
+            }
+        }
+        product.setDigit(keys[0], "");
+        product.setDigit(keys[0], "2");
+        check(!keys[0].isLayoutRequested() && product.params(keys[0]) == params, "换数字后请求了重新布局或参数变了：" + where);
+
+        Object shuangpin = product.nineGroup("NINE_DIGITS", "digits", density, scale);
+        Button[] digits = {product.nineKey("2", "", "bpa"), product.nineKey("8", "", "zhuang"), product.nineKey("5", "", "")};
+        for (Button key : digits) {
+            product.joinNine(key, shuangpin, "BOTTOM");
+            layout(key, Math.round(78 * density), height);
+        }
+        Object digitParams = product.params(digits[0]);
+        for (Button key : digits) {
+            String at = key.getText() + " " + where;
+            Rect[] ink = draw(key);
+            check(!ink[1].isEmpty(), "九键双拼数字没画出来：" + at);
+            if (!ink[2].isEmpty()) check(ink[1].bottom <= ink[2].top, "九键双拼数字压住提示：" + at);
+            check(product.params(key) == digitParams, "同一组的九键双拼参数不同：" + where);
+        }
+    }
+
+    /** 画一个键，返回红（右上角）、绿（主标签）、蓝（底部）三种墨迹框。 */
+    private static Rect[] draw(Button key) {
+        Bitmap bitmap = Bitmap.createBitmap(key.getWidth(), key.getHeight(), Bitmap.Config.ARGB_8888);
+        try {
+            Canvas canvas = new Canvas(bitmap);
+            canvas.drawColor(Color.WHITE);
+            key.draw(canvas);
+            return new Rect[] {ink(bitmap, 0), ink(bitmap, 1), ink(bitmap, 2)};
+        } finally { bitmap.recycle(); }
+    }
+
     private static void layout(Button key, int width, int height) {
         key.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
@@ -294,6 +359,58 @@ final class KeyFaceGroupChecks {
         boolean isIcon(Button key) throws Exception {
             Class<?> iconKey = loader.loadClass("app.msime.android.KeyboardIconKey");
             return iconKey.isInstance(key) && !(boolean) iconKey.getMethod("showsText").invoke(key);
+        }
+
+        /** 九键的组：模板 {@code template}，内容域取 {@code NineKeyFaceDomains} 的 {@code domain}（双拼用一张小表），字体同产品的九键。 */
+        Object nineGroup(String template, String domain, float density, float fontScale) throws Exception {
+            Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
+            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
+                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Class<?> domains = loader.loadClass("app.msime.android.NineKeyFaceDomains");
+            Object texts = "letters".equals(domain) ? domains.getMethod("letters").invoke(null)
+                : domains.getMethod("digits").invoke(null);
+            Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
+                .newInstance(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            return loader.loadClass("app.msime.android.KeyFaceGroup")
+                .getConstructor(loader.loadClass("app.msime.android.KeyFaceTemplate"),
+                    loader.loadClass("app.msime.android.KeyFaceEnvironment"),
+                    loader.loadClass("app.msime.android.KeyFaceDomain"),
+                    loader.loadClass("app.msime.android.KeyFaceMeasurer"))
+                .newInstance(spec, environment, texts, measurer);
+        }
+
+        Button nineKey(String label, String digit, String bottom) throws Exception {
+            Class<?> nine = loader.loadClass("app.msime.android.NineKeyDigitButton");
+            Button key = (Button) nine.getConstructor(Context.class).newInstance(context);
+            key.setBackground(null);
+            key.setText(label);
+            key.setTextColor(Color.rgb(0, 200, 0));
+            nine.getMethod("setDigitColor", int.class).invoke(key, Color.rgb(220, 0, 0));
+            hintButton.getMethod("setHintColor", int.class).invoke(key, Color.rgb(0, 0, 220));
+            setDigit(key, digit);
+            setBottom(key, bottom);
+            return key;
+        }
+
+        void setDigit(Button key, String digit) throws Exception {
+            key.getClass().getMethod("setDigitText", String.class).invoke(key, digit);
+        }
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        void joinNine(Button key, Object group, String hintSlot) throws Exception {
+            Set slots = EnumSet.of((Enum) slot(hintSlot));
+            pressButton.getMethod("setFaceGroup", loader.loadClass("app.msime.android.KeyFaceGroup"), Set.class)
+                .invoke(key, group, slots);
+        }
+
+        float hintSize(Object params, String which) throws Exception {
+            Object hint = params.getClass().getMethod(which).invoke(params);
+            return hint == null ? 0 : (float) hint.getClass().getMethod("sizePx").invoke(hint);
+        }
+
+        float hintInset(Object params, String inset) throws Exception {
+            Object hint = params.getClass().getMethod("topRight").invoke(params);
+            return (float) hint.getClass().getMethod(inset).invoke(hint);
         }
 
         Object faceGroup(Button key) throws Exception { return pressButton.getMethod("faceGroup").invoke(key); }

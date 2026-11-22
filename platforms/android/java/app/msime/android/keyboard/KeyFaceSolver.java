@@ -54,7 +54,7 @@ public final class KeyFaceSolver {
         if (corner == null || main == null)
             return params(template, icon, KeyFaceTemplate.Strategy.CENTERED, size, 0, 0, bottomInset, main, null, bottom);
         KeyFaceDomain.SlotMetrics hint = metrics.get(KeyFaceSlot.TOP_RIGHT);
-        float cornerRight = cell.width() - corner.insetPx();
+        float cornerRight = cell.width() - corner.insetXPx();
         float cornerLeft = cornerRight - hint.inkWidth(corner.sizePx());
         float cornerBottom = corner.insetPx() + corner.inkHeight();
         List<KeyFaceTemplate.Strategy> order = new ArrayList<>(template.strategies());
@@ -115,7 +115,8 @@ public final class KeyFaceSolver {
         float limit = slot == KeyFaceSlot.BOTTOM ? cell.width() - 2 * side : cell.width() / 2f;
         float wide = slot == KeyFaceSlot.BOTTOM ? measured.width(size) : measured.inkWidth(size);
         if (wide > limit && wide > 0) size = Math.max(0, size * limit / wide);
-        return new KeyFaceParams.Hint(size, spec.insetEm() * size, measured.inkTop(size), measured.inkBottom(size));
+        return new KeyFaceParams.Hint(size, spec.insetEm() * size, spec.insetXEm() * size, measured.inkTop(size),
+            measured.inkBottom(size));
     }
 
     /** 首选字号收到放得下：最宽的文字不超过 {@code width}，墨迹的高度不超过 {@code height}。内容域没有主标签文字（只画图标的键）时原样返回。 */

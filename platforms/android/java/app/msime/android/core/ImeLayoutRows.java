@@ -709,6 +709,8 @@ final class ImeLayoutRows {
                 }
                 if (digits) bindNumberDigit(keyButton, key.digit() - 1);
                 else bindNineKeyFlick(keyButton, key);
+                if (digits) s.imeKeyFaces.attachNineDigit(keyButton, false);
+                else s.imeKeyFaces.attachNineLetter(keyButton);
                 addNineKey(row, keyButton);
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
@@ -730,6 +732,7 @@ final class ImeLayoutRows {
             // 右侧大回车：⌫ 下面一格在字母层是重输，数字层是按字面上屏的小数点（空格在中列 0 的右边，与 iOS、鸿蒙相同）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行。
             if (digits) addNineKey(actions, nineKeyDecimalKey());
             else addNineKey(actions, nineKeyRewriteKey());
+            if (digits) attachLastNineDigit(actions);
             addTallReturnKey(actions);
             container.addView(actions, LayoutPolicy.weightedMatchParentParams(tallSide));
             hideActionRowForTallReturn();
@@ -738,6 +741,7 @@ final class ImeLayoutRows {
         if (digits) {
             // 小数点按字面上屏；0 由底行提供。
             addNineKey(actions, nineKeyDecimalKey());
+            attachLastNineDigit(actions);
             boolean spaceInColumn = s.numberPadSpace.inRightColumn();
             builtSpaceInColumn = spaceInColumn;
             // 空格在右列：移动原空格键，保留点按、长按语音与光标手势。空格在底行（0 的左边或右边）：这一格放 ！，与 iOS、鸿蒙数字层右列相同。
@@ -758,6 +762,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindNineKeySuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachNineLetter(exclamation);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
@@ -770,7 +775,13 @@ final class ImeLayoutRows {
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachNineDigit(exclamation, false);
         return exclamation;
+    }
+
+    /** 刚放进 {@code column} 的键（数字九宫格右列的小数点）放进九键数字组；侧边数字键盘（ImeSidePad）也用 {@link #nineKeyDecimalKey}，那里不放。 */
+    private void attachLastNineDigit(LinearLayout column) {
+        s.imeKeyFaces.attachNineDigit((Button) column.getChildAt(column.getChildCount() - 1), false);
     }
 
     /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
@@ -862,6 +873,7 @@ final class ImeLayoutRows {
                 digit == '0' ? () -> commitNineKeyLiteral("0") : () -> {});
         }
         s.keyId(key, digit == '0' ? "Nine0" : KeyPressIds.forNineKeyDigit(digit - '0'));
+        s.imeKeyFaces.attachNineDigit(key, true);
         return key;
     }
 

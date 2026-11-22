@@ -37,13 +37,19 @@ public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, flo
     /**
      * 一个位置的字号规则：首选字号随键格高度按 {@code heightRatio} 变化，夹在 {@code minSp} 和 {@code maxSp} 之间（都按键盘的字体缩放换成像素，见 {@link KeyFaceEnvironment}）。
      *
-     * @param insetEm 提示的墨迹离键边多远，按这个位置自己的字号的倍数，所以随字号一起缩放；主标签不用它
+     * @param insetEm 提示的墨迹离上边或下边多远，按这个位置自己的字号的倍数，所以随字号一起缩放；主标签不用它
+     * @param insetXEm 右上角提示的墨迹离右边多远，同样按字号的倍数（九键圆角、胶囊键帽的右上角向内收，数字比字母角标离右边远）
      * @param alpha 绘制时的不透明度（0–255）
      */
-    public record SlotSpec(float heightRatio, float minSp, float maxSp, float insetEm, int alpha) {
+    public record SlotSpec(float heightRatio, float minSp, float maxSp, float insetEm, float insetXEm, int alpha) {
         public SlotSpec {
             if (!(heightRatio > 0) || !(minSp > 0) || maxSp < minSp)
                 throw new IllegalArgumentException("bad slot spec " + heightRatio + " " + minSp + " " + maxSp);
+        }
+
+        /** 离上下边和右边一样远。 */
+        public SlotSpec(float heightRatio, float minSp, float maxSp, float insetEm, int alpha) {
+            this(heightRatio, minSp, maxSp, insetEm, insetEm, alpha);
         }
     }
 

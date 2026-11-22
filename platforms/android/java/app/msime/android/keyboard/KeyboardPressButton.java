@@ -37,7 +37,7 @@ public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
     /**
      * 把这个键放进键组（{@code null} 拿出来，回到 TextView 自己排版和绘制）。{@code slots} 是它可能用到的提示位置。
      *
-     * <p>放进键组时关掉 TextView 的自动字号：键面由键组定字号，自动字号只会在每次换文字时白白试排一遍（离开键组的 ⇧、⌫ 本来就不用自动字号，不用恢复）。
+     * <p>放进键组时关掉 TextView 的自动字号：键面由键组定字号，自动字号只会在每次换文字时白白试排一遍（不恢复：会离开键组的常驻键里，⇧、⌫ 本来就不用自动字号，底行的 0 只出现在数字九宫格和九键双拼的底行，在那里总在键组里）。
      */
     public void setFaceGroup(KeyFaceGroup group, Set<KeyFaceSlot> slots) {
         if (keyFace != null) keyFace.group().detach(this);

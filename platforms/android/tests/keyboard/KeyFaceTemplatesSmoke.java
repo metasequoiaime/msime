@@ -7,6 +7,8 @@ import app.msime.android.KeyFaceSlot;
 import app.msime.android.KeyFaceSolver;
 import app.msime.android.KeyFaceTemplate;
 import app.msime.android.KeyFaceTemplates;
+import app.msime.android.KeyHintButton;
+import app.msime.android.NineKeyDigitButton;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +60,20 @@ public final class KeyFaceTemplatesSmoke {
         check(near(solve(functions, new KeyFaceEnvironment(1, 1), 400, 20).iconPx(), 16), "矮键上的图标不应小于 16 dp");
         check(!functions.capAligned(), "功能键的汉字应按整个墨迹居中");
         check(functions.has(KeyFaceSlot.TOP_RIGHT) && !functions.has(KeyFaceSlot.BOTTOM), "功能键只有右上角提示");
+
+        // 九键：默认键高上字母组 18 sp、数字 22 sp；右上角的数字与字母键角标同字号（10 sp）、离上边 3 dp，离右边 12 dp（圆角键帽向内收）。
+        KeyFaceParams nine = solve(KeyFaceTemplates.NINE_LETTERS, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(nine.main().sizePx(), 18), "九键字母组应为 18 sp：" + nine.main().sizePx());
+        check(near(nine.topRight().sizePx(), KeyHintButton.CORNER_HINT_SP), "九键数字应与字母键角标同字号：" + nine.topRight().sizePx());
+        check(near(nine.topRight().insetPx(), KeyHintButton.CORNER_HINT_TOP_DP), "九键数字离上边应为 3 dp：" + nine.topRight().insetPx());
+        check(near(nine.topRight().insetXPx(), NineKeyDigitButton.DIGIT_HINT_RIGHT_DP),
+            "九键数字离右边应为 12 dp：" + nine.topRight().insetXPx());
+        check(nine.bottom() == null, "九键字母层没有底部提示");
+        KeyFaceParams digits = solve(KeyFaceTemplates.NINE_DIGITS, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(digits.main().sizePx(), 22) && digits.topRight() == null && near(digits.bottom().sizePx(), 9),
+            "九键数字应为 22 sp、没有右上角、底部提示 9 sp：" + digits);
+        check(near(KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetXEm(),
+            KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetEm()), "字母键角标离右边与离上边一样远");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

@@ -32,6 +32,18 @@ public final class KeyFaceTemplates {
     static final KeyFaceTemplate.IconSpec FUNCTION_ICON = new KeyFaceTemplate.IconSpec(
         KeyboardIconKey.ICON_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26);
 
+    /** 拼音九键的字母组（「ABC」…）：设计 18 sp，最小 12 sp，最大 20 sp。 */
+    static final KeyFaceTemplate.SlotSpec NINE_LETTER = slot(18, 12, 20, 0, 255);
+    /** 数字九宫格和九键双拼的数字：设计 22 sp，最小 12 sp，最大 24 sp，与字母键相同。 */
+    static final KeyFaceTemplate.SlotSpec NINE_DIGIT = slot(22, 12, 24, 0, 255);
+    /**
+     * 九键右上角的数字：字号和离上边的距离与字母键角标相同，离右边 1.2 个字号（10 sp 时 12 dp）：九键键帽宽，圆角和胶囊键帽的右上角在顶部向内收得多，数字贴到 0.3 个字号会压在弧线上。
+     */
+    static final KeyFaceTemplate.SlotSpec NINE_CORNER = new KeyFaceTemplate.SlotSpec(
+        KeyHintButton.CORNER_HINT_SP / REFERENCE_KEY_HEIGHT_DP, 8, 12,
+        KeyHintButton.CORNER_HINT_TOP_DP / KeyHintButton.CORNER_HINT_SP,
+        NineKeyDigitButton.DIGIT_HINT_RIGHT_DP / KeyHintButton.CORNER_HINT_SP, 255);
+
     private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> letterSlots() {
         Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
         slots.put(KeyFaceSlot.MAIN, LETTER);
@@ -70,6 +82,23 @@ public final class KeyFaceTemplates {
         Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
         slots.put(KeyFaceSlot.MAIN, FUNCTION_TEXT);
         slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
+        return slots;
+    }
+
+    /** 拼音九键字母层：字母组（1 键组字时是「分词」或「重输」）、右上角长按输入的数字；退让方式与字母键相同。 */
+    public static final KeyFaceTemplate NINE_LETTERS = new KeyFaceTemplate("nine-letters", nineSlots(NINE_LETTER, true, false),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** 数字九宫格和九键双拼的数字键：数字作主标签，九键双拼底部是简短的声韵提示。 */
+    public static final KeyFaceTemplate NINE_DIGITS = new KeyFaceTemplate("nine-digits", nineSlots(NINE_DIGIT, false, true),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> nineSlots(KeyFaceTemplate.SlotSpec main, boolean corner,
+            boolean bottom) {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, main);
+        if (corner) slots.put(KeyFaceSlot.TOP_RIGHT, NINE_CORNER);
+        if (bottom) slots.put(KeyFaceSlot.BOTTOM, BOTTOM);
         return slots;
     }
 }
