@@ -516,7 +516,6 @@ public final class KeyboardActionRow {
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
     }
 
-    /** 这个键面的字母层底行是否以 123 打头；是的话借用数字九宫格时返回键也排在第一格（{@link #numberPadEntries}）。 */
     /**
      * 借给 26 键一族、14/18 键、大千注音和手写的数字九宫格：底行按字母层底行的份额排（{@link #DESIGN_LAYER_WEIGHT} 等），不按九键外框的侧列和半列，所以切到数字层时返回键留在 123 那一格、符、中/英和回车都不动；0 和空格里窄的那个与中/英同宽，宽的那个占剩下的。
      */
@@ -545,6 +544,7 @@ public final class KeyboardActionRow {
         return List.copyOf(laid);
     }
 
+    /** 这个键面的字母层底行是否以 123 打头；是的话借用数字九宫格时返回键也排在第一格（{@link #numberPadEntries}）。 */
     public static boolean numberPadLayerFirst(int sourceLayout) {
         return numberPadLayerFirst(sourceLayout, TouchKeyStyle.Row.STANDARD, false);
     }
