@@ -357,6 +357,8 @@ systemd.user.services.msime-linux-clipboard.wantedBy = [ "graphical-session.targ
 
 **每次发布自动产出、不自动发布。** `release-linux.yml` 的 `distro-sources` job 用 `packaging/make-source-tarballs.sh` 生成上面三个 tarball 和只列它们的 `msime-<版本>-SHA256SUMS`，main 上的发布由 `packaging/publish-sources.sh` 在版本发布页上线之前把它们传到滚动的 `linux-sources` release（预发布、不设为 latest、每个版本一组、长期保留，上传后按 GitHub 记录的摘要核对），不放在版本发布页上；beta 与 alpha 的只留在 workflow artifact 里。发布之后 `package-definitions` job 在同一提交上运行 `packaging/render-definitions.sh <版本> <目录>`，在各发行版的官方容器里渲染出 `rpm/`（`msime.spec`、`msime-rpmlintrc`、`msime-<版本>-1.src.rpm`）、`debian/`（`.dsc` 与 `.debian.tar.xz`）、`arch/`（两个包各自的 `PKGBUILD`、`.SRCINFO`、`msime.install`）和 `gentoo/`（带 Manifest 的完整 overlay），作为构建产物 `msime-package-definitions-linux-<版本>` 上传。版本号只来自 `platforms/linux/version.txt`（或手动触发时填的版本），`.rpm` 的校验值只来自版本发布页的 `SHA256SUMS`，三个 tarball 的只来自 `linux-sources` 上的 `msime-<版本>-SHA256SUMS`；COPR、OBS 与 PPA 的 workflow 用 `packaging/download-sources.sh` 取 tarball，`linux-sources` 上没有这个版本（0.12.1 及更早）时退回它自己的发布页；AUR 的 `msime` 与 Gentoo 的版本 ebuild 还要 GitHub 为 `linux-v<版本>` 标签生成的源码归档，它不是发布资产、不在 `SHA256SUMS` 里，校验值由 `arch/render.py` 与 `ebuild manifest` 下载后现算，GitHub 改变归档的生成方式时这两个包的校验会失败。本地也可以对任何一个已发布的版本跑同一个脚本（需要 docker），`MSIME_DEFINITIONS=arch,gentoo` 只渲染其中几部分。
 
+Fcitx5 下分次上屏中文和英文时，可以运行 `msime config set cross_commit_spacing=true` 自动补上接缝处的空格，用 `msime config set cross_commit_spacing=false` 关闭。它只在编辑器提供光标前文时作用于新文本，已有的「中英文之间加空格」仍独立处理单次上屏。
+
 **上架之后的安装方式：**
 
 ```sh

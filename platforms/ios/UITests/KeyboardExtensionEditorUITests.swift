@@ -106,6 +106,15 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     try select(last)
     expectDocument("香港地有上" + last)
     keepScreenshot("粤语逐段选词-完成", in: editor)
+
+    type("yk")
+    let top = editor.buttons.matching(NSPredicate(format: "label MATCHES %@", "^候选词 1：有(?:，.*)?$")).firstMatch
+    XCTAssertTrue(top.waitForExistence(timeout: 5), "切换前需要存在粤语首选")
+    keepScreenshot("粤语切换英文-组字中", in: editor)
+    language.tap()
+    expectDocument("香港地有上" + last + "有")
+    XCTAssertEqual(language.label, "切换到中文输入")
+    keepScreenshot("粤语切换英文-转换已上屏", in: editor)
   }
 
   /// 自绘输入框（Flutter 一类）的 insertText 只替换选区、不替换标记文本；全拼选词上屏后输入框里只能剩汉字，拼音不能留在前面（#10873）。编辑器是测试宿主里按这条规则写的 `SelectionOnlyInsertEditor`，经真实的跨进程键盘代理写入。
