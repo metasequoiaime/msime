@@ -9,11 +9,7 @@ android_jar="$android_sdk/platforms/android-35/android.jar"
 mkdir -p "$repo_root/target/android"
 build_dir=$(mktemp -d "$repo_root/target/android/editor-build.XXXXXX")
 mkdir -p "$build_dir/classes" "$build_dir/dex"
-sources=()
-while IFS= read -r source; do
-  [[ -z $source || $source == \#* ]] || sources+=("$source")
-done < platforms/android/tests/device/editor-sources.txt
-javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$build_dir/classes" "${sources[@]}"
+bash platforms/android/tests/device/compile-sources.sh "$android_jar" "$build_dir/classes"
 jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 "$tools_dir/d8" --release --min-api 28 --lib "$android_jar" --output "$build_dir/dex" "$build_dir/classes.jar"
 # 设备冒烟读的共享用例（SessionStoreDeviceSmoke 的 android_v2 会话）打进测试包的 assets，设备上没有仓库。
