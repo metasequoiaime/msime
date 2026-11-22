@@ -2133,6 +2133,29 @@ int main(int argc, char **argv) {
       require(press(FcitxKey_comma) && ic.committed == beforePage && state->composingOrCandidates(),
               "启用逗号翻页时应保留既有导航行为");
       press(FcitxKey_Escape);
+
+      state->preferences_["cross_commit_spacing"] = true;
+      const auto spacedCandidate = [&](std::string text, unsigned cursor, unsigned anchor) {
+        ic.committed.clear();
+        ic.surroundingText().setText(text, cursor, anchor);
+        compose();
+        require(press(FcitxKey_space), "跨次空格检查未上屏中文候选");
+        return ic.committed;
+      };
+      require(spacedCandidate("A", 1, 1) == " 你好", "中文候选应与已上屏的英文隔开");
+      require(spacedCandidate("A ", 2, 2) == "你好", "已有空格时不重复插入");
+      require(spacedCandidate("AB", 1, 2) == "你好", "替换选区时保留原样");
+      state->preferences_["cross_commit_spacing_excluded_apps"] = Json::array({"MSIME-TEST"});
+      require(spacedCandidate("A", 1, 1) == "你好", "被排除的应用保留原样");
+      state->preferences_.erase("cross_commit_spacing_excluded_apps");
+      require(state->toggleInputMode(), "跨次空格检查未切换到英文");
+      ic.committed.clear();
+      ic.surroundingText().setText("中", 1, 1);
+      require(press(FcitxKey_a) && ic.committed == " a", "中文后的首个英文键应带空格");
+      ic.surroundingText().setText("中 a", 3, 3);
+      require(!press(FcitxKey_b) && ic.committed == " a", "英文单词后续按键应继续直通");
+      ic.surroundingText().invalidate();
+      require(!press(FcitxKey_c) && ic.committed == " a", "前文不可用时英文键直接交给应用");
       state->close();
       removeFixtureTree(directory);
       std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";
