@@ -15,7 +15,9 @@ Status: implemented
 
 Android 的词库页（`LexiconPage`）和 iOS 的词库页（`DictionarySettingsView`）在「学习」组末尾各加一行「清除学习记录」，点了先弹确认框，确认后在主线程之外清除。
 
-清除走引擎现成的那一条：`msime_client_dictionary` 的 `reset`，独占维护权下换回随包的工作词库和英文词库、清空学习日志——调频、置顶、固定位置、选词计数、最近选词、整句联想、拼写纠错、快捷短语槽位，以及用户自己添加和修改的词（自造词，含用户加的快捷短语）。共享偏好、常用语（`CommonPhrases`）、剪贴板和打字统计不在这些文件里，不动。键盘会话开着时 Rust 报 `dictionary maintenance busy`，什么也不换，页面说「键盘正在使用词库，请收起键盘、稍等几秒再试。」：Android 的键盘在输入框失焦时才销毁会话，之后还会短暂写一次词库；iOS 的键盘扩展收起时就销毁会话（为避开 0xdead10cc）。
+清除主体走引擎现成的那一条：`msime_client_dictionary` 的 `reset`，独占维护权下换回随包的工作词库和英文词库、清空学习日志——调频、置顶、固定位置、选词计数、最近选词、整句联想、拼写纠错、快捷短语槽位，以及用户自己添加和修改的词（自造词，含用户加的快捷短语）。共享偏好、常用语（`CommonPhrases`）、剪贴板和打字统计不在这些文件里，不动。键盘会话开着时 Rust 报 `dictionary maintenance busy`，什么也不换，页面说「键盘正在使用词库，请收起键盘、稍等几秒再试。」：Android 的键盘在输入框失焦时才销毁会话，之后还会短暂写一次词库；iOS 的键盘扩展收起时就销毁会话（为避开 0xdead10cc）。
+
+Android 已登录时经 `AccountLearningReset` 查询当前具体登录，并调用账号的 `learning_reset_local`，先持久保存该账号的学习同步屏障、推进 Engine 时间下限，再在同一维护租约里执行下述清除。只有明确没有登录时才走旧的本机 `reset`；读取登录失败、换号、维护忙或屏障失败不回退旧接口。两条路径均不联网、不刷新令牌。屏障的理由、边界及其余平台接线缺口见[学习同步定案](../../proposed/feature/2026-10-27-learning-sync-e2e.md)。iOS 设置 App 经 `IOSAccountLearningReset` 和 `BackendRustAccount.resetLearnedData` 使用同一规则：先读取当前具体登录，已登录时将捕获的登录和本次解析的宿主选项交给 `learning_reset_local`，只有明确的 `login: null` 才调用原本机重置。缺账号存储、读错登录、重登录、屏障失败或维护忙都不退回无屏障清除；`learning_busy` 沿用现有忙提示。该适配只编进 App 与相应测试，不给键盘扩展新增 Rust 账号依赖。
 
 `reset` 在 host-api 里多做两步，都在同一把维护租约里：
 
@@ -40,7 +42,7 @@ iOS 经 `msime_client_prepare_host` 解析出与键盘相同的词库路径（�
 
 - **在平台代码里先 `reset`、再单独发一个集合动作重新排队。** 最强的理由是不改 `reset` 的契约，Android 自己拼两步就行。没用它：两步之间进程被杀，集合就停在「启用却没有词」的状态，而用户看到的是「已清除」；把重排放进 `reset`、在同一把维护租约里做，宿主只看一个回答。也不能反过来先重排再重置：重排的「加入」若赶在重置之前送进去，会被记成用户原有的词（`preexisting`），之后停用集合删不掉它们。
 - **重排失败时整个 `reset` 报错，让用户再清一次。** 最初就是这样做的。最强的理由是简单：再清一次会把两步都重做。没用它：重置已经做完，报失败时 Android 不打同步标记，用户被告知「失败」而数据其实已经没了；集合索引坏了时每次重试都再清一遍、再报失败，云端一有改动就整份带回旧词。
-- **只清本机、不打云同步标记，界面写明「只清本机」**（`docs/learning-sync.md` 给尚未实现的输入习惯同步定的就是这条）。最强的理由是不会因为一台设备上的操作改掉账号里的数据。没用它：账号的「个人词库」分类是整份快照，不打标记时云端留着旧词，之后任何一次云端改动都会把整份旧词带回本机，等于清除只管到下一次同步；用户在确认框里被明确告知会同步到账号和同账号的其他设备。输入习惯同步实现时另有它自己的重置屏障，与这里无关。
+- **只清本机、不打云同步标记，界面写明「只清本机」**（`docs/learning-sync.md` 给尚未实现的输入习惯同步定的就是这条）。最强的理由是不会因为一台设备上的操作改掉账号里的数据。没用它：账号的「个人词库」分类是整份快照，不打标记时云端留着旧词，之后任何一次云端改动都会把整份旧词带回本机，等于清除只管到下一次同步；用户在确认框里被明确告知会同步到账号和同账号的其他设备。输入习惯同步另有自己的本机重置屏障，Android 已登录的清除现已接入；整份词库快照同步仍按这里的规则打标记。
 - **等激活的快照在 `reset` 里取消，不动同步状态。** 最强的理由是只改一处。没用它：取消以后队列里那份算「没激活就结束了」，同步状态里的 `activation` 还在，下一轮照样按合并把云端旧词并回来；必须连同步状态一起改，而 `msime_client_dictionary` 不知道同步状态目录，所以放进云同步的 `dictionary_reset`。
 - **iOS 只在键盘开了完全访问时显示这一行（键盘往 App Group 写标记）。** 最强的理由是没开完全访问时清除像是没有作用。没用它：两边用的是同一个状态目录，没开完全访问时键盘学到的本来就落不了盘，没有清不到的另一份；而且键盘没开完全访问时写不了 App Group，写下的标记在权限收回后会过期（见 [iOS 统计为零时的完全访问提示](../bug-fix/2026-10-10-ios-statistics-zero-count-full-access.md)）。
 - **鸿蒙照样加入口，只清设置应用那一份。** 最强的理由是三端入口一致（移动端界面改动三端同步落地的惯例）。没用它：键盘的学习记录清不到，确认框的说法会是假的，用户点完以后候选顺序一点没变，比没有入口更糟。
@@ -58,7 +60,7 @@ iOS 经 `msime_client_prepare_host` 解析出与键盘相同的词库路径（�
 
 - client-services：`collections_enabled_words_are_queued_again_after_a_learned_data_reset`（启用的重新排队、停用的不送、重置以后集合的词停用时照常删掉）、`collections_requeue_after_reset_leaves_a_missing_directory_alone`。
 - host-api：`a_learned_data_reset_marked_for_upload_replaces_the_cloud_copy`（真实 Engine 加假后端：清除后不调 `dictionary_reset` 这一轮不上传，调了下一轮上传的快照一个词也没有）、`a_learned_data_reset_keeps_the_words_of_enabled_named_dictionaries`（自造词清掉、启用词库的词写回、写回之前上传被挡住）、`a_learned_data_reset_forgets_a_snapshot_still_waiting_for_activation`（只打标记时云端旧词被并回来，`dictionary_reset` 之后整份上传）、`a_learned_data_reset_reaches_the_other_devices_on_the_account`（两台设备：空快照让另一台停下来问，有词的快照让另一台整份下载）、`a_learned_data_reset_drops_learning_still_waiting_to_be_merged`、`a_learned_data_reset_still_succeeds_when_named_dictionaries_cannot_be_requeued`。
-- Android：`ClearLearningSmoke`（文案和各种结果提示）、`check-host.sh` 钉住页面接线和「`reset` 成功之后才调 `dictionary_reset`」的顺序，Gradle 编译 full 和 pinyin 两个版本的 Java。
-- iOS：`ClearLearningTests`（键盘会话开着时是忙，销毁会话以后清掉自造词；文案）。
+- Android：`ClearLearningSmoke`（文案和各种结果提示）、页面确认和工作线程入口由既有移动端检查覆盖；`check-host.sh` 编译账号适配及页面、运行忙提示冒烟，账号屏障与清除的顺序由 host-api 的真实行为测试覆盖。此前直接拼旧请求的源码 grep/awk 守卫随账号接线删除。Gradle 编译 full 和 pinyin 两个版本的 Java。
+- iOS：`ClearLearningTests` 保留原合成输入与真实 SQLite 路径，确认未登录时键盘会话开着仍报忙、销毁会话后才清除自造词，账号存储缺失不能清除，账号维护忙沿用原提示；共享 Swift 的 `BackendRustAccountTests` 覆盖已登录路由、登录绑定和选项传递、未登录分支、存储/换号/屏障失败不回退、错误形状与严格布尔成功。测试执行结果记录在 PR，不能以适配测试代替真机或完整跨设备同步。
 - `scripts/test-mobile-clear-learning.py`：两端相同的文案逐字一致、两端都先确认再在主线程之外清除、鸿蒙的设置页没有 `resetLearnedData`。
 - 没有在 Android 模拟器和 iOS 模拟器上跑过：本机盘只剩几 GB，编译机经 SSH 起不了模拟器。合并前要在 Android 模拟器上点一次（`AGENTS.md` 对改了文件读写的要求），iOS 的 `ClearLearningTests` 要在模拟器上跑一次。

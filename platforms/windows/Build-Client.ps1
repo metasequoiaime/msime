@@ -76,21 +76,23 @@ try {
         $bin = Join-Path $output 'bin'
         $hostLibrary = Join-Path $release 'msime_host_api.dll.lib'
         $tipHostLibrary = Join-Path $release 'msime_host_api_tip.dll.lib'
+        New-Item -ItemType Directory -Force -Path $output | Out-Null
         if ($Edition -ne 'full') {
-            New-Item -ItemType Directory -Force -Path $output | Out-Null
             $hostDefinition = Join-Path $output ([IO.Path]::ChangeExtension($hostDll, '.def'))
             Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
                 '--edition', $Edition, '--dll', (Join-Path $release 'msime_host_api.dll'), '--output', $hostDefinition)
             $hostLibrary = Join-Path $output "$hostDll.lib"
             $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
             Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$hostDefinition", "/OUT:$hostLibrary", "/MACHINE:$machine")
-            $tipHostDefinition = Join-Path $output ([IO.Path]::ChangeExtension($tipHostDll, '.def'))
-            Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
-                '--edition', $Edition, '--dll', (Join-Path $release 'msime_host_api_tip.dll'), '--output', $tipHostDefinition,
-                '--module-name', $tipHostDll)
-            $tipHostLibrary = Join-Path $output "$tipHostDll.lib"
-            Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$tipHostDefinition", "/OUT:$tipHostLibrary", "/MACHINE:$machine")
         }
+        # TSF 始终以自己的模块名导入隔离 CRT 的宿主。Rust 产出的导入库从普通宿主复制而来，内部仍记录 `msime_host_api.dll`；所有 edition（包括 full）都要从真实的 TIP DLL 重建它。
+        $tipHostDefinition = Join-Path $output ([IO.Path]::ChangeExtension($tipHostDll, '.def'))
+        Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
+            '--edition', $Edition, '--dll', (Join-Path $release 'msime_host_api_tip.dll'), '--output', $tipHostDefinition,
+            '--module-name', $tipHostDll)
+        $tipHostLibrary = Join-Path $output "$tipHostDll.lib"
+        $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
+        Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$tipHostDefinition", "/OUT:$tipHostLibrary", "/MACHINE:$machine")
         $source = if ($arch -eq 'x64') { 'platforms/windows' } else { 'platforms/windows/tsf' }
         $configure = @('-S', (Join-Path $RepoRoot $source), '-B', $output,
             '-G', $Generator, '-A', $platform,

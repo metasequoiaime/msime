@@ -280,6 +280,71 @@ public final class SelectionEchoTrackerSmoke {
         check(counted.expectations() == rendered + 1);
         counted.reset(5, 5);
         check(counted.expectations() == rendered + 1);
+
+        // 交给编辑器的退格：微信里一下删掉一个 7 单元的 `[Smile]`，回声晚到，期间已经开始的组字不能被它取消。
+        SelectionEchoTracker opaque = new SelectionEchoTracker();
+        opaque.reset(20, 20);
+        check(!opaque.hasPending());
+        opaque.deleteBeforeOpaque(20);
+        opaque.expect();
+        check(opaque.hasPending());
+        // 回声没到之前，用户按下了 n：组字从删完的位置开始，按删 1 个单元的最少量记预期。
+        opaque.compose(1);
+        opaque.expect();
+        check(opaque.acknowledge(13, 13, -1, -1));
+        // 对上之后知道删了 7 个，组字的预期随之收窄到 13..14。
+        check(opaque.acknowledge(14, 14, 13, 14));
+        check(!opaque.hasPending());
+        // 之后点到别处仍是外部移动。
+        check(!opaque.acknowledge(3, 3, -1, -1));
+
+        // 删一个 21 单元的 @（QQ 先删结尾空格、再整块删）：连删时下一次退格等上一次的回声到了才发，每次都从对上的位置预测。
+        SelectionEchoTracker mention = new SelectionEchoTracker();
+        mention.reset(30, 30);
+        mention.deleteBeforeOpaque(30);
+        mention.expect();
+        check(mention.acknowledge(29, 29, -1, -1));
+        mention.deleteBeforeOpaque(29);
+        mention.expect();
+        check(mention.acknowledge(8, 8, -1, -1));
+        check(!mention.hasPending());
+
+        // 回报的位置在删除之前、带组字区，或者在删除范围之外，都不是这次退格的回声。
+        SelectionEchoTracker outside = new SelectionEchoTracker();
+        outside.reset(10, 10);
+        outside.deleteBeforeOpaque(4);
+        outside.expect();
+        check(!outside.acknowledge(10, 10, -1, -1));
+        outside.reset(10, 10);
+        outside.deleteBeforeOpaque(4);
+        outside.expect();
+        check(!outside.acknowledge(9, 9, 8, 9));
+        outside.reset(10, 10);
+        outside.deleteBeforeOpaque(4);
+        outside.expect();
+        check(!outside.acknowledge(5, 5, -1, -1));
+
+        // 光标在开头、有选区、有组字区或位置未知时不预测，也不记预期。
+        SelectionEchoTracker unpredictable = new SelectionEchoTracker();
+        unpredictable.reset(0, 0);
+        unpredictable.deleteBeforeOpaque(10);
+        unpredictable.expect();
+        check(!unpredictable.hasPending());
+        unpredictable.reset(3, 6);
+        unpredictable.deleteBeforeOpaque(10);
+        unpredictable.expect();
+        check(!unpredictable.hasPending());
+        unpredictable.reset(6, 6);
+        unpredictable.compose(2);
+        unpredictable.expect();
+        check(unpredictable.acknowledge(8, 8, 6, 8));
+        unpredictable.deleteBeforeOpaque(10);
+        unpredictable.expect();
+        check(!unpredictable.hasPending());
+        unpredictable.reset(-1, -1);
+        unpredictable.deleteBeforeOpaque(10);
+        unpredictable.expect();
+        check(!unpredictable.hasPending());
         System.out.println("SelectionEchoTracker smoke passed");
     }
 }

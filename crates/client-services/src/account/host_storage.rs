@@ -10,6 +10,8 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::PoisonError;
 
+mod learning;
+
 /// 宿主存储里的一项。数值是 C 接口 `msime_client_session_item` 的值。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum SessionStoreItem {
@@ -21,6 +23,8 @@ pub enum SessionStoreItem {
     Anonymous = 3,
     /// 本机匿名账号的身份 `{subject, secret}`；写入是「不存在才写」。
     AnonymousIdentity = 4,
+    /// 学习同步的登录绑定与独立密钥串；仅向显式支持该项的宿主发送。
+    LearningKeystore = 5,
 }
 
 impl SessionStoreItem {
@@ -29,10 +33,10 @@ impl SessionStoreItem {
         self as u32
     }
 
-    /// 宿主为这一项读入的最大字节数：会话和身份是 64 KiB，密钥串是 4 KiB，与文件存储的上限相同。
+    /// 宿主为这一项读入的最大字节数：会话和身份是 64 KiB，两类密钥串各为 4 KiB，与文件存储的上限相同。
     pub fn capacity(self) -> usize {
         match self {
-            Self::ClipboardKeystore => MAX_KEYSTORE_BYTES as usize,
+            Self::ClipboardKeystore | Self::LearningKeystore => MAX_KEYSTORE_BYTES as usize,
             Self::Account | Self::Anonymous | Self::AnonymousIdentity => MAX_SESSION_BYTES as usize,
         }
     }
@@ -48,6 +52,10 @@ pub enum WriteOutcome {
 
 /// 宿主提供的存储原语。实现方只负责字节和跨进程互斥，不解析内容。
 pub trait SessionStoreBackend: Send + Sync + 'static {
+    /// 是否支持独立的学习密钥项。旧宿主默认不支持，绝不收到新项的回调。
+    fn supports_learning_keystore(&self) -> bool {
+        false
+    }
     /// 读一项；不存在时为 `None`。返回的字节数超过 `capacity` 时实现方必须报错，不得截断。
     fn read(
         &self,
@@ -203,13 +211,14 @@ impl AccountSessionStorage for HostSessionStorage {
         }
     }
 
-    /// 账号槽先删会话再删密钥串，两者都试过才报错，与文件存储相同；匿名槽只有会话。
+    /// 账号槽尝试删除会话与已支持的全部密钥项后才报错；匿名槽只有会话。
     fn clear(&self) -> Result<(), AccountError> {
         match self.slot {
             HostSessionSlot::Account => {
                 let session = self.backend.remove(SessionStoreItem::Account);
                 let keystore = self.backend.remove(SessionStoreItem::ClipboardKeystore);
-                session.and(keystore)
+                let learning = self.clear_learning_key();
+                session.and(keystore).and(learning)
             }
             HostSessionSlot::Anonymous => self.backend.remove(SessionStoreItem::Anonymous),
         }
@@ -249,6 +258,14 @@ impl AccountSessionStorage for HostSessionStorage {
 
     fn shared_across_processes(&self) -> bool {
         self.backend.shared_across_processes()
+    }
+
+    fn load_learning_keystore(&self) -> Result<Option<String>, AccountError> {
+        self.read_learning_key()
+    }
+
+    fn save_learning_keystore(&self, value: &str) -> Result<(), AccountError> {
+        self.write_learning_key(value)
     }
 
     fn with_refresh_lock<T>(

@@ -237,7 +237,7 @@ PRAGMA user_version=3;
 
 ### 6.1 模式与版本
 
-每次打开都执行全部 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表，新旧引擎可以交替打开同一个日志。现有用户多是只有前四张表的 v3 日志。一共 13 张表。
+每次打开都执行 `CREATE TABLE IF NOT EXISTS`（`user_dictionary::journal::SCHEMA_SQL`），检查 `user_dictionary_operations` 有没有 `user_inserted` 列、没有就 `ALTER TABLE ... ADD COLUMN`；`position_state::ensure_schema` 在保存点里创建完整固定候选表并迁移旧投影，`pin_state::ensure_schema` 在保存点中迁移置顶的完整比较状态，最后写 `PRAGMA user_version=4`。版本号只写不读：老引擎写回自己的版本号也只是忽略它不认识的表。现有用户多是只有前四张表的 v3 日志。一共 16 张表。新增的完整候选表不改变资源词库的格式版本，旧引擎仍读显示投影；但旧写入方删除、移动已有固定身份不会更新完整表，降级修改后的完整状态不保证兼容。
 
 ### 6.2 `user_dictionary_operations`
 
@@ -280,6 +280,13 @@ CREATE TABLE IF NOT EXISTS fixed_candidate_positions(
     context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,
     position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 5),
     PRIMARY KEY(context_key,entry_key,value),UNIQUE(context_key,position));
+CREATE TABLE fixed_candidate_position_state(
+    context_key TEXT NOT NULL,entry_key TEXT NOT NULL,value TEXT NOT NULL,
+    position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 5),
+    updated_at INTEGER NOT NULL CHECK(updated_at BETWEEN 1 AND 1099511627776),
+    PRIMARY KEY(context_key,entry_key,value));
+CREATE INDEX fixed_candidate_position_slots
+    ON fixed_candidate_position_state(context_key,position,updated_at);
 CREATE TABLE IF NOT EXISTS pick_transitions(
     previous_key TEXT NOT NULL,previous_value TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,
     count INTEGER NOT NULL DEFAULT 0,
@@ -310,6 +317,10 @@ CREATE TABLE IF NOT EXISTS pinned_candidates(
     context_key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL DEFAULT(unixepoch()));
+CREATE TABLE IF NOT EXISTS pinned_candidate_state(
+    context_key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS personal_bigram(
     previous TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL CHECK(count>0),
     PRIMARY KEY(previous,word)) WITHOUT ROWID;
@@ -321,19 +332,31 @@ CREATE TABLE IF NOT EXISTS personal_trigram(
 CREATE INDEX IF NOT EXISTS personal_trigram_word ON personal_trigram(word);
 CREATE TABLE IF NOT EXISTS quick_phrase_slots(
     code TEXT PRIMARY KEY,slot INTEGER NOT NULL CHECK(slot>=0));
+CREATE TABLE IF NOT EXISTS learning_sync_clock(
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    reset_floor INTEGER NOT NULL CHECK(reset_floor BETWEEN 0 AND 1099511627776));
 ```
 
 | 表 | 内容 |
 | --- | --- |
+| `learning_sync_clock` | 本机学习时间下限，至多一行；缺行按零，不写入备份或同步明文；重置与任何快照激活均保留，只能递增 |
 | `personal_dictionary_receipts` | 个人词典编辑请求的回执，按 `request_id` 去重 |
 | `candidate_selection_state` | 调频的选中计数。`context_key` 以 `cantonese:` 开头的是粤语的计数（后接粤拼键），词库快照不收 |
-| `fixed_candidate_positions` | 固定位置（1 到 5） |
+| `fixed_candidate_positions` | 固定位置显示投影（1 到 5），每个上下文的同一槽位只有一行 |
+| `fixed_candidate_position_state` | 完整固定候选，含槽位冲突的隐藏身份与真实时间；首次迁移旧投影行的时间为 1 |
 | `pick_transitions` | 连续选中的两个词，够多次就成词 |
 | `pinyin_typo_counts`、`pinyin_autocorrect_suppressions` | 全拼纠错的学习与按输入关闭纠错 |
 | `shuangpin_typo_counts`、`shuangpin_autocorrect_suppressions` | 双拼的同上，按 `profile` 区分 |
-| `pinned_candidates` | 置顶的候选 |
+| `pinned_candidates` | 置顶显示投影，排除仍有拼音删除记录的词 |
+| `pinned_candidate_state` | 每个上下文按同步全序保留的置顶，包括因删词隐藏的胜者；迁移保留旧时间 |
 | `personal_bigram`、`personal_trigram` | 个人 n-gram 计数 |
 | `quick_phrase_slots` | 快捷短语的位置 |
+
+v1 支持的本机学习写入（调频、删词、个人词编辑、五笔造词、置顶和固定候选）在写入语句中读取 `learning_sync_clock.reset_floor`，`updated_at` 取当前秒数、同一身份旧时间加一与下限加一的最大值，并封顶 2⁴⁰；缺下限时仍至少为 1。同一次调频中实际改写的阶梯行和选中行共用整组时间，未改写行不参与计算。同步应用保留远端时间，旧备份导入的新身份继续用时间 1。这个本机下限不出现在备份或同步明文中，不影响版本哈希；重置空日志、云端或本地快照激活均从本机原日志保留，快照不能降低它，即使选择不保留学习内容也一样。账号持久屏障到该下限的宿主接线尚未完成，不能宣称跨设备重置已生效；相关目标与饱和限制见[输入习惯同步协议](learning-sync.md#时间戳)。
+
+`pinned_candidate_deleted_words` 是删除记录的按词面部分索引，避免每个置顶投影扫描全部学习行。置顶按 `context_key` 保存完整比较状态，删词只清显示投影，隐藏胜者仍参与后续比较、导出和云快照换代。同步结束后，仍有拼音删除记录的词不进入置顶投影；较新调权替换删除记录后重新计算投影。本机显式置顶推进完整状态的时间，取消同时删完整状态和显示行。旧格式备份仍只导出可见置顶；恢复时完整状态优先，避免较旧备份替换隐藏胜者。旧客户端不会维护完整状态，降级删除或替换已有上下文不保证兼容。
+
+完整固定候选按 `(context_key,entry_key,value)` 存储，没有槽位唯一约束。显示投影按槽位中时间较大的候选胜出，平局取 `(entry_key,value)` 字节序较小者；隐藏身份仍参与同步。迁移建表与导入处于同一保存点，失败时连表回滚、下次可重试。本机显式固定仍移除目标槽位的旧候选，取消固定删除对应完整身份，两张表同事务更新。云快照换代保留完整表和学习操作的原始时间，旧格式备份继续只带显示投影，恢复新身份的时间为 1；同步流与冲突规则见[输入习惯同步协议](learning-sync.md)。
 
 ## 7. `msime-bigram.bin` 与 `msime-trigram.bin`（MSNG）
 
@@ -593,4 +616,4 @@ dict-builder 的其他子命令（`places`、`hanja`、`syllable-frequency`）�
 
 - 编进引擎二进制的表（`include_str!`，如 `places.tsv`、`hanja.tsv`、`chaizi*.tsv`、`symbol_groups.tsv`、`syllable_frequency.tsv`）不是运行时文件，它们的来源与许可证见 `docs/third-party.md`。
 - 宿主门面（`host::*`）另外读的离线释义包、英文音标库（`pronunciations/en-phonetic.db`，`user_version=1` 加 `meta.kind='en_phonetic'`）和法日西俄德韩的读音库（`target-pronunciations/<语言>-phonetic.db`，表 `<语言>_phonetics(word, phonetic)`，`user_version=1` 加 `meta.kind='<语言>_phonetic'`，键是维基词典的写法，读音是带斜线或方括号的 IPA，日语是赫本式罗马字，韩语是文化观光部式罗马字）属于产品功能，不在引擎库对外承诺的范围内。
-- 宿主侧的资源包、皮肤、插件、账号与同步数据由各自的模块规定。
+- 宿主侧的资源包、皮肤、插件、账号与同步数据由各自的模块规定；学习同步的持久进度和 `MSLQ1` 密文待合并缓存见[输入习惯同步协议](learning-sync.md#密文待合并缓存)，不属于 Engine 文件内版本。

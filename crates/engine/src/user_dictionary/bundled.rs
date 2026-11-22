@@ -354,7 +354,7 @@ pub fn edit_bundled_dictionary_entry_with(
     // The same rows `record_upsert` and `record_delete` write, so replay repeats the change on a fresh dictionary.
     let journaled = match weight {
         Some(weight) => transaction.execute(
-            "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted) VALUES(?1,?2,?3,'upsert',?4,?5,0) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight,display=excluded.display,user_inserted=0, updated_at=unixepoch()",
+            "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES(?1,?2,?3,'upsert',?4,?5,0,min(max(unixepoch(),COALESCE((SELECT reset_floor FROM personal_journal.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='upsert',weight=excluded.weight,display=excluded.display,user_inserted=0, updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
             params![
                 dictionary,
                 previous.key,
@@ -364,7 +364,7 @@ pub fn edit_bundled_dictionary_entry_with(
             ],
         ),
         None => transaction.execute(
-            "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation) VALUES(?1,?2,?3,'delete') ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='delete',weight=0,display='',updated_at=unixepoch()",
+            "INSERT INTO personal_journal.user_dictionary_operations(dictionary,key,value,operation,updated_at) VALUES(?1,?2,?3,'delete',min(max(unixepoch(),COALESCE((SELECT reset_floor FROM personal_journal.learning_sync_clock WHERE singleton=1),0)+1),1099511627776)) ON CONFLICT(dictionary,key,value) DO UPDATE SET operation='delete',weight=0,display='',updated_at=min(max(excluded.updated_at,min(updated_at,1099511627776)+1),1099511627776)",
             params![dictionary, previous.key, previous.value],
         ),
     };

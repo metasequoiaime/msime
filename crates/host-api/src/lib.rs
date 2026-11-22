@@ -83,6 +83,7 @@ pub mod cloud_sync;
 mod dictionary;
 /// 「我的词条」经 WebDAV 网盘同步的宿主入口，见 `msime_client_dictionary_sync`。公开 [`dictionary_webdav::request_json`]，给直接链接这个 crate 的 Tauri 设置应用用，免得它绕一圈 C ABI。
 pub mod dictionary_webdav;
+mod learning_context;
 /// 设置与可移植主题的 WebDAV 同步宿主入口。
 pub mod settings_webdav;
 /// 同一台设备上两个各有一份个人词库的进程之间交换「我的词条」，见 `msime_client_user_words_mirror`。
@@ -301,7 +302,7 @@ thread_local! {
 struct HostSession {
     runtime: Runtime,
     options: EngineOptions,
-    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（Windows、macOS、Linux 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
+    /// HostOptions 里宿主声明的「快捷短语混进普通候选」能力（Windows、macOS、Linux、HarmonyOS 请求）：偏好重建 `options` 时和 `mixed_input.quick_phrase` 相与；记在会话上是因为 `options` 里那个字段已经和能力与偏好相与过，认不出宿主原来要不要这项能力。
     quick_phrase_candidates_requested: bool,
     /// 原始宿主能力；偏好重建时不能从已经回退的有效布局推断它。
     korean_romaja_requested: bool,

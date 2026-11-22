@@ -23,6 +23,8 @@ RUST = ROOT / "crates/client-core/src/preferences.rs"
 # Rust fields with no control on the settings page, and why.
 RUST_ONLY: dict[str, set[str]] = {
     "Preferences": {
+        # #11521 的模式图标选择等待 macOS 正式原生设置入口；迁移期间不向 React 或冻结的 AppKit 回退设置新增控件。
+        "input_mode_glyph_icons",
         # 阿里云翻译只在 Android 原生翻译设置页提供；packages/ui 不新增设置入口。
         "aliyun_translation",
         # 嵌入式翻译只接三个桌面的原生入口；AGENTS.md 禁止向 React 新增设置，入口随同草稿 PR 接线。

@@ -60,14 +60,26 @@ public final class BackspaceSwipePolicySmoke {
         check(line < topRow - 16f, "arming still needs more travel than revealing");
         BackspaceSwipePolicy.Box tight = BackspaceSwipePolicy.box(980f, topRow, 1060f, 1080f, density);
         check(tight.top() == 8f && tight.bottom() == 64f, "the box is clamped to the surface top");
-        // 工具栏隐藏、没在组字时，第一排删除键贴着覆盖层上沿：框画不出来，上滑手势整个不生效，不能不弹框就直接待命。
-        for (float cramped : new float[] {0f, 4f, 20f, 60f, 95f}) {
+        // 工具栏隐藏、没在组字时，删除键贴着覆盖层上沿：连紧凑框也画不出来时，上滑手势整个不生效。
+        for (float cramped : new float[] {0f, 4f, 20f, 60f}) {
             check(!BackspaceSwipePolicy.available(cramped, density), "no room above the key disables the swipe");
             check(BackspaceSwipePolicy.next(Phase.IDLE, cramped - 16f, cramped, density) == Phase.IDLE,
                 "with no room a swipe past the reveal line does not reveal");
             check(BackspaceSwipePolicy.next(Phase.IDLE, -500f, cramped, density) == Phase.IDLE,
                 "with no room even a long swipe never arms");
         }
+        // 九键删键上移后上方只有 35 dp：仍显示紧凑提示，再明确上移 4 dp 才待命。
+        float compactTop = 70f;
+        check(BackspaceSwipePolicy.available(compactTop, density), "a compact box fits above a top-row key");
+        check(BackspaceSwipePolicy.armLine(compactTop, density) == 46f,
+            "a compact box keeps a second movement step before arming");
+        BackspaceSwipePolicy.Box compact = BackspaceSwipePolicy.box(980f, compactTop, 1060f, 1080f, density);
+        check(compact.top() == 8f && compact.bottom() == 46f,
+            "a compact box stays visible above a top-row key");
+        check(BackspaceSwipePolicy.next(Phase.IDLE, 54f, compactTop, density) == Phase.REVEALED,
+            "the compact box reveals before it arms");
+        check(BackspaceSwipePolicy.next(Phase.REVEALED, 46f, compactTop, density) == Phase.ARMED,
+            "the compact box arms after the second movement");
         // 只要能待命，框就至少 28 dp 高，待命线比弹出线至少再高 8 dp。
         check(BackspaceSwipePolicy.available(96f, density), "48 dp above the key is enough room");
         for (float top = 96f; top <= 400f; top += 0.5f) {

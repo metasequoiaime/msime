@@ -15,6 +15,7 @@ enum KeyboardLayoutPreference {
   static let glideTypingKey = "keyboard.gesture.glide"
   static let bilingualGlideKey = "keyboard.gesture.bilingualGlide"
   static let cursorSwipeKey = "keyboard.gesture.cursorSwipe"
+  static let backspaceSwipeSpeedKey = "keyboard.gesture.backspaceSwipeSpeed"
   static let spaceVoiceKey = "keyboard.gesture.spaceVoice"
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
@@ -63,9 +64,22 @@ enum KeyboardLayoutPreference {
   ///
   /// The extension adds this value after accounting for orientation and candidate rows, so the
   /// same setting remains useful when the candidate surface changes height.
+  ///
+  /// 本机 App Group 里存的是完整的调整量，范围是 `KeyboardHeightPercent.adjustmentRange`（-12...80）；共享文档的 `touch_keyboard_height_adjustment` 只收 -12...48，写文档时截到 48，镜像回来时由 `reconciledHeightAdjustment` 保留本机超出的部分。
   static var heightAdjustment: Double {
-    get { spacing(key: heightAdjustmentKey, fallback: 0, range: -12...48) }
-    set { defaults.set(SharedNumber.clamped(newValue, to: -12...48), forKey: heightAdjustmentKey) }
+    get { spacing(key: heightAdjustmentKey, fallback: 0, range: heightAdjustmentRange) }
+    set { defaults.set(SharedNumber.clamped(newValue, to: heightAdjustmentRange), forKey: heightAdjustmentKey) }
+  }
+  static var heightAdjustmentRange: ClosedRange<Double> {
+    Double(KeyboardHeightPercent.adjustmentRange.lowerBound)...Double(KeyboardHeightPercent.adjustmentRange.upperBound)
+  }
+  static var sharedHeightAdjustmentRange: ClosedRange<Double> {
+    Double(KeyboardHeightPercent.sharedAdjustmentRange.lowerBound)...Double(KeyboardHeightPercent.sharedAdjustmentRange.upperBound)
+  }
+
+  /// 共享文档里的高度与本机存的高度合在一起：本机的值截到文档范围后与文档相同，说明文档就是本机写下去的（超过 48 的部分被截掉了），保留本机的完整值；不同则说明文档在别处改过，以文档为准。
+  static func reconciledHeightAdjustment(document: Double, local: Double) -> Double {
+    SharedNumber.clamped(local, to: sharedHeightAdjustmentRange) == document ? local : document
   }
   /// Whether Tab opens the full candidate panel while composing on the full-size iPad keyboard: the shared `navigation.tab` (Windows `paging_tab`, on by default). Read by the keyboard and edited by the App's iPad section.
   static func tabShowsMoreCandidates(_ preferences: [String: Any]?) -> Bool {
@@ -109,7 +123,7 @@ enum KeyboardLayoutPreference {
     if let spacing = sharedKeySpacing(preferences["touch_key_spacing_tenths"]) { keySpacing = spacing }
     if let spacing = sharedRowSpacing(preferences["touch_row_spacing_tenths"]) { rowSpacing = spacing }
     if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
-      heightAdjustment = adjustment
+      heightAdjustment = reconciledHeightAdjustment(document: adjustment, local: heightAdjustment)
     }
     nineKeyFlickThreshold = sharedNineKeyFlickThreshold(preferences[nineKeyFlickThresholdDocumentKey])
       ?? nineKeyFlickThresholdDefault
@@ -229,6 +243,26 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: cursorSwipeKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: cursorSwipeKey) }
   }
+  /// 「滑动删除速度」：按住 ⌫ 往左滑删除时的快慢，1 到 10 档，档位越高越快。只存本机 App Group，不进共享文档、不随设置同步（与横滑光标一样）。
+  static let backspaceSwipeSpeedRange: ClosedRange<Int> = 1...10
+  static let backspaceSwipeSpeedDefault = 7
+  static var backspaceSwipeSpeed: Int {
+    get {
+      let stored = defaults.object(forKey: backspaceSwipeSpeedKey) as? Int ?? backspaceSwipeSpeedDefault
+      return min(max(stored, backspaceSwipeSpeedRange.lowerBound), backspaceSwipeSpeedRange.upperBound)
+    }
+    set {
+      defaults.set(min(max(newValue, backspaceSwipeSpeedRange.lowerBound), backspaceSwipeSpeedRange.upperBound),
+                   forKey: backspaceSwipeSpeedKey)
+    }
+  }
+  /// 某一档对应的每删一个要往左滑的距离（pt）：第 1 档 22pt，每高一档少 2pt，第 10 档 4pt；默认第 7 档 10pt。
+  static func backspaceSwipeStep(speed: Int) -> Double {
+    let level = min(max(speed, backspaceSwipeSpeedRange.lowerBound), backspaceSwipeSpeedRange.upperBound)
+    return Double(24 - 2 * level)
+  }
+  /// 键盘横滑删除实际用的每格距离。
+  static var backspaceSwipeStep: Double { backspaceSwipeStep(speed: backspaceSwipeSpeed) }
   /// 「长按空格语音输入」：在空格键上按住 450 ms 打开语音面板。默认开，与 Android 的 `platform.android.space_voice` 相同；只存在本机 App Group，不进共享文档，也不随设置同步。「语音输入」页的「长按空格说话」开关直接读写它；iOS 没有工具栏语音按钮。
   static var spaceVoice: Bool {
     get { defaults.object(forKey: spaceVoiceKey) as? Bool ?? true }
@@ -327,7 +361,7 @@ enum KeyboardLayoutPreference {
 
   static func sharedHeightAdjustment(_ value: Any?) -> Double? {
     guard let integer = SharedNumber.strictInt(value) else { return nil }
-    return Double(SharedNumber.clamped(integer, to: -12...48))
+    return Double(SharedNumber.clamped(integer, to: Int(KeyboardHeightPercent.sharedAdjustmentRange.lowerBound)...Int(KeyboardHeightPercent.sharedAdjustmentRange.upperBound)))
   }
 
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
@@ -456,15 +490,18 @@ enum FullWidthInputPolicy {
 
 /// 以百分比表示的「键盘高度」：存储的点数调整量除以默认高度下按键区的高度。键盘的内联调节条和应用的「键盘」页都在这里换算，所以同一个存储值在两处显示为同一个百分比；设置本身仍以点为单位（`touch_keyboard_height_adjustment`）。
 enum KeyboardHeightPercent {
-  /// `touch_keyboard_height_adjustment` 经过校验的取值范围，单位为点。
-  static let adjustmentRange: ClosedRange<CGFloat> = -12...48
+  /// `touch_keyboard_height_adjustment` 经过校验的取值范围，单位为点。它是跨平台、随设置同步的字段（`crates/client-core/src/preferences.rs` 只接受 `-12..=48`），iOS 不改它。
+  static let sharedAdjustmentRange: ClosedRange<CGFloat> = -12...48
 
-  /// 竖屏的按键高度：手机按键 52pt，九键的宽键帽保留足够的纵向空间；iPad 按键 54pt（`dc.html` 的 `keyH`）。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
+  /// iOS 上可调的范围，单位为点。手机键帽从 52pt 降到 44pt 后默认键块矮了 32pt（229pt → 197pt），上限随之放宽 32pt，到 80：手机竖屏最高仍是 197 + 80 = 277pt，与以前 229 + 48 相同，调高过的用户升级后能调回原来的高度。下限不变。超过 48 的部分只存在本机 App Group（`KeyboardLayoutPreference.heightAdjustment`），共享文档里写 48。
+  static let adjustmentRange: ClosedRange<CGFloat> = -12...80
+
+  /// 竖屏的按键高度：手机按键 44pt，iPad 按键 54pt（`dc.html` 的 `keyH`）。键盘高度由它累加而来（`KeyboardFormFactor.keyboardHeight`），所以 100% 画出的正好是这样的按键。
   ///
-  /// 手机原是设计稿的 42pt：九键每个键约 105pt 宽，42pt 高看上去是扁的，上面的顶栏又按读音行加候选行留着 56pt，整块键盘头重脚轻。
-  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 52 }
+  /// 手机曾是 52pt（为了九键的宽键帽不显得扁），26 键另收到 44pt 再在键区上下垫回 52pt 的外框。结果整块键盘比系统键盘和其他第三方键盘高出一截，26 键和数字九宫格之间切换时按键区一高一低。现在所有键面统一 44pt，与 26 键原来的键帽一样；觉得矮的用户仍可在「键盘高度」里加高。
+  static func portraitKeyHeight(tablet: Bool) -> CGFloat { tablet ? 54 : 44 }
 
-  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 229pt。
+  /// 默认高度下的按键区：`rows` 行高为 `keyHeight` 的按键，加上行与行之间的间距。手机竖屏、默认行距 7pt 时为 197pt。
   static func keyBlockHeight(keyHeight: CGFloat, rows: Int, rowSpacing: CGFloat) -> CGFloat {
     max(1, CGFloat(rows) * keyHeight + CGFloat(max(rows - 1, 0)) * rowSpacing)
   }

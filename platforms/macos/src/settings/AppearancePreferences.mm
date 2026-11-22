@@ -83,6 +83,7 @@ static NSString *const LayoutKey = @"MSIMEClientCandidatePanelStyle";
 static NSString *const CandidateFollowCursorKey = @"MSIMEClientCandidateFollowCursor";
 static NSString *const InputModeHUDKey = @"MSIMEClientInputModeHUD";
 static NSString *const InputModeStatusItemKey = @"MSIMEClientInputModeStatusItem";
+static NSString *const InputModeGlyphIconsKey = @"MSIMEClientInputModeGlyphIcons";
 static NSString *const AppLogoKey = @"MSIMEClientAppLogo";
 static NSString *const CandidateStatusKey = @"MSIMEClientCandidateStatus";
 static NSString *const CandidatePageNumberKey = @"MSIMEClientCandidatePageNumber";
@@ -459,6 +460,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         CandidateFollowCursorKey : @"sharedCandidateFollowCursor",
         InputModeHUDKey : @"sharedInputModeHUD",
         InputModeStatusItemKey : @"sharedInputModeStatusItem",
+        InputModeGlyphIconsKey : @"sharedInputModeGlyphIcons",
         AppInputModeRulesKey : @"sharedAppInputModeRules",
         VimModeAppsKey : @"sharedVimModeApps",
         AppLogoKey : @"sharedShowsAppLogo",
@@ -623,6 +625,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             CandidateFollowCursorKey : ^id(MSIMEAppearancePreferences *p) { return @(p.candidateFollowCursor); },
             InputModeHUDKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeHUD); },
             InputModeStatusItemKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeStatusItem); },
+            InputModeGlyphIconsKey : ^id(MSIMEAppearancePreferences *p) { return @(p.inputModeGlyphIcons); },
             AppLogoKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsAppLogo); },
             CandidateStatusKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidateStatus); },
             CandidatePageNumberKey : ^id(MSIMEAppearancePreferences *p) { return @(p.showsCandidatePageNumber); },
@@ -1165,6 +1168,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedCandidateFollowCursor;
     NSNumber *_sharedInputModeHUD;
     NSNumber *_sharedInputModeStatusItem;
+    NSNumber *_sharedInputModeGlyphIcons;
     NSNumber *_sharedShowsCandidateStatus;
     NSNumber *_sharedShowsAppLogo;
     NSNumber *_sharedShowsCandidatePageNumber;
@@ -1178,6 +1182,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_sharedCandidateFontWeight;
     NSSwitch *_inputModeHUDToggle;
     NSSwitch *_inputModeStatusItemToggle;
+    NSSwitch *_inputModeGlyphIconsToggle;
     NSSwitch *_appLogoToggle;
     NSSwitch *_candidatePageNumberToggle;
     NSSwitch *_expandCandidatesToggle;
@@ -1488,6 +1493,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"input_mode_status_item"] = @(self.inputModeStatusItem);
+    merged[@"input_mode_glyph_icons"] = @(self.inputModeGlyphIcons);
     merged[@"show_app_logo"] = @(self.showsAppLogo);
     if ([_defaults objectForKey:CandidateStatusKey] != nil) merged[@"show_candidate_status"] = @(self.showsCandidateStatus);
     merged[@"show_candidate_page_number"] = @(self.showsCandidatePageNumber);
@@ -1921,6 +1927,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)setInputModeStatusItem:(BOOL)value {
     _sharedInputModeStatusItem = nil;
     [_defaults setBool:value forKey:InputModeStatusItemKey];
+    [self preferencesChanged];
+}
+- (BOOL)inputModeGlyphIcons {
+    if (_sharedInputModeGlyphIcons) return _sharedInputModeGlyphIcons.boolValue;
+    return [_defaults boolForKey:InputModeGlyphIconsKey];
+}
+- (void)setInputModeGlyphIcons:(BOOL)value {
+    _sharedInputModeGlyphIcons = nil;
+    [_defaults setBool:value forKey:InputModeGlyphIconsKey];
     [self preferencesChanged];
 }
 - (BOOL)showsCandidateStatus {
@@ -3372,6 +3387,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     if (LocalModeBoolean(inputModeHUD)) _sharedInputModeHUD = inputModeHUD;
     id inputModeStatusItem = preferences[@"input_mode_status_item"];
     if (LocalModeBoolean(inputModeStatusItem)) _sharedInputModeStatusItem = inputModeStatusItem;
+    id inputModeGlyphIcons = preferences[@"input_mode_glyph_icons"];
+    if (LocalModeBoolean(inputModeGlyphIcons)) _sharedInputModeGlyphIcons = inputModeGlyphIcons;
     id appLogo = preferences[@"show_app_logo"];
     if (LocalModeBoolean(appLogo)) _sharedShowsAppLogo = appLogo;
     id candidateStatus = preferences[@"show_candidate_status"];
@@ -3637,6 +3654,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _textColorWell.color = CandidateColor(self.candidateTextColor, [self candidateSkinColorForProperty:@"candidateTextColor"]);
     _inputModeHUDToggle.state = self.inputModeHUD ? NSControlStateValueOn : NSControlStateValueOff;
     _inputModeStatusItemToggle.state = self.inputModeStatusItem ? NSControlStateValueOn : NSControlStateValueOff;
+    _inputModeGlyphIconsToggle.state = self.inputModeGlyphIcons ? NSControlStateValueOn : NSControlStateValueOff;
     _appLogoToggle.state = self.showsAppLogo ? NSControlStateValueOn : NSControlStateValueOff;
     _candidatePageNumberToggle.state = self.showsCandidatePageNumber ? NSControlStateValueOn : NSControlStateValueOff;
     _expandCandidatesToggle.state = self.expandCandidates ? NSControlStateValueOn : NSControlStateValueOff;
@@ -3926,6 +3944,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _candidateThemeButton.action = @selector(candidateThemeChanged:);
     _inputModeHUDToggle = MSIMESettingSwitch(self, @selector(inputModeHUDChanged:), @"切换中英文时显示提示");
     _inputModeStatusItemToggle = MSIMESettingSwitch(self, @selector(inputModeStatusItemChanged:), @"菜单栏显示中/英状态");
+    _inputModeGlyphIconsToggle = MSIMESettingSwitch(self, @selector(inputModeGlyphIconsChanged:), @"使用模式字形图标");
     _appLogoToggle = MSIMESettingSwitch(self, @selector(appLogoChanged:), @"显示水杉 logo");
     _candidatePageNumberToggle = MSIMESettingSwitch(self, @selector(candidatePageNumberChanged:), @"显示页码和翻页按钮");
     _expandCandidatesToggle = MSIMESettingSwitch(self, @selector(expandCandidatesChanged:), @"展开候选");
@@ -4448,6 +4467,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
                   detail:@"在菜单栏常驻显示当前模式：中文时是所用方案，英文时是「英」。不需要把「英」加成输入源。"
                  control:_inputModeStatusItemToggle
                      aka:@[@"状态栏", @"菜单栏图标"]],
+        [self settingRow:@"使用模式字形图标"
+                  detail:@"在系统输入源菜单和切换条中显示「中」「双」「五」等模式字形；关闭后使用水杉品牌图标。"
+                 control:_inputModeGlyphIconsToggle
+                     aka:@[@"输入源图标", @"模式字形", @"切换条"]],
         [self settingRow:@"显示水杉 logo"
                   detail:@"在候选窗和悬浮工具栏左端显示水杉图标。"
                  control:_appLogoToggle
@@ -4523,7 +4546,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _candidateSettingsTabs.selectedSegment = 0;
     _candidateSettingsTabContents = @[
         @[[self sectionHeader:@"布局" keys:@[LayoutKey, PageSizeKey, CandidateFollowCursorKey,
-            InputModeHUDKey, InputModeStatusItemKey, AppLogoKey, CandidatePageNumberKey, ExpandCandidatesKey, CandidateExpandButtonKey]], candidateWindowCard],
+            InputModeHUDKey, InputModeStatusItemKey, InputModeGlyphIconsKey, AppLogoKey, CandidatePageNumberKey, ExpandCandidatesKey, CandidateExpandButtonKey]], candidateWindowCard],
         @[[self sectionHeader:@"字体大小" keys:@[FontFamilyKey, CandidateEnglishFontKey, FallbackFontsKey,
             FontKey, PreeditFontKey, CandidateScaleKey]], fontCard],
         @[[self sectionHeader:@"窗口样式" keys:@[CandidateOpacityKey, CandidateCornerRadiusKey, CandidatePaddingKey]], windowStyleCard,
@@ -6097,6 +6120,7 @@ static NSString *CandidateColorHex(NSColor *color) {
 }
 - (void)inputModeHUDChanged:(NSSwitch *)sender { self.inputModeHUD = sender.state == NSControlStateValueOn; }
 - (void)inputModeStatusItemChanged:(NSSwitch *)sender { self.inputModeStatusItem = sender.state == NSControlStateValueOn; }
+- (void)inputModeGlyphIconsChanged:(NSSwitch *)sender { self.inputModeGlyphIcons = sender.state == NSControlStateValueOn; }
 - (void)appLogoChanged:(NSSwitch *)sender { self.showsAppLogo = sender.state == NSControlStateValueOn; }
 - (void)candidatePageNumberChanged:(NSSwitch *)sender { self.showsCandidatePageNumber = sender.state == NSControlStateValueOn; }
 - (void)expandCandidatesChanged:(NSSwitch *)sender { self.expandCandidates = sender.state == NSControlStateValueOn; }

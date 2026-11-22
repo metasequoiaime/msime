@@ -16,9 +16,16 @@ MAVEN_429 = ("Could not GET 'https://repo.maven.apache.org/maven2/org/ow2/asm/as
              "Received status code 429 from server: Too Many Requests")
 WRAPPER_503 = ("Exception in thread \"main\" java.io.IOException: Server returned HTTP response code: 503 "
                "for URL: https://services.gradle.org/distributions/gradle-9.5.1-bin.zip")
+CONNECTION_TIMEOUT = "java.net.ConnectException: Connection timed out: repo.maven.apache.org"
 MAVEN_403 = ("Could not GET 'https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.8/asm-9.8.pom'. "
              "Received status code 403 from server: Forbidden")
 MISSING = "Could not find com.example:missing:1.0."
+MAVEN_BURST_MISSING = "\n".join(
+    f"Could not find com.example:missing-{index}:1.0.\n"
+    "  Searched in the following locations: "
+    "https://repo.maven.apache.org/maven2/com/example/missing/1.0/missing.pom"
+    for index in range(5)
+)
 
 
 @unittest.skipUnless(platform.system() in ("Darwin", "Linux"), "仅支持 macOS/Linux 的 bash")
@@ -72,10 +79,14 @@ exit "$code"
         result, calls, sleeps = self.run_script((1, WRAPPER_503), (0, "BUILD SUCCESSFUL"))
         self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
 
-    def test_persistent_rate_limit_stops_after_three_attempts(self):
+    def test_connection_timeout_is_retried(self):
+        result, calls, sleeps = self.run_script((1, CONNECTION_TIMEOUT), (0, "BUILD SUCCESSFUL"))
+        self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
+
+    def test_persistent_rate_limit_stops_after_six_attempts(self):
         result, calls, sleeps = self.run_script((1, MAVEN_429))
-        self.assertEqual((result.returncode, len(calls), sleeps), (1, 3, ["60", "120"]))
-        self.assertIn("after 3 attempts", result.stderr)
+        self.assertEqual((result.returncode, len(calls), sleeps), (1, 6, ["60", "120", "240", "480", "600"]))
+        self.assertIn("after 6 attempts", result.stderr)
 
     def test_forbidden_is_not_retried(self):
         result, calls, sleeps = self.run_script((1, MAVEN_403), (0, "BUILD SUCCESSFUL"))
@@ -85,6 +96,10 @@ exit "$code"
         result, calls, sleeps = self.run_script((3, MISSING), (0, "BUILD SUCCESSFUL"))
         self.assertEqual((result.returncode, len(calls), sleeps), (3, 1, []))
         self.assertIn("not retrying", result.stderr)
+
+    def test_many_maven_dependencies_missing_are_retried(self):
+        result, calls, sleeps = self.run_script((1, MAVEN_BURST_MISSING), (0, "BUILD SUCCESSFUL"))
+        self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
 
 
 if __name__ == "__main__":

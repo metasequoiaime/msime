@@ -222,7 +222,7 @@ private enum DeveloperDiagnostics {
     let local: [(UserDefaults, [String])] = [
       (KeyboardLayoutPreference.defaults, [KeyboardLayoutPreference.tabletSplitKey, KeyboardLayoutPreference.tabletFullKeysKey,
                                            KeyboardLayoutPreference.glideTypingKey, KeyboardLayoutPreference.bilingualGlideKey,
-                                           KeyboardLayoutPreference.cursorSwipeKey,
+                                           KeyboardLayoutPreference.cursorSwipeKey, KeyboardLayoutPreference.backspaceSwipeSpeedKey,
                                            KeyboardLayoutPreference.oneHandedKey,
                                            KeyboardLayoutPreference.spaceVoiceKey, KeyboardLayoutPreference.swipeSymbolsKey,
                                            KeyboardLayoutPreference.swipeSymbolsDirectionKey, KeyboardLayoutPreference.letterCornerHintsKey,
