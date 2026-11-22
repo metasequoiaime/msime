@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9425
 
-Status: proposed
+Status: rejected — issue #9425 已由 #9477 实现并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#9425`（macos）的标题是「[Feature]: 增加手动输入辅助码开关」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #9425 请求在 macOS 输入法增加手动输入辅助码开关：按 Tab 之后输入的才是辅助码，Tab 之前严格按双拼两码一音解析，避免微软双拼下「veyige」「uurufa」等输入被误当作辅助码。提出本跟踪提案时认为仓库中没有 `Fixes` 或 `Refs` 关联它的 PR，这一判断有误：#9477（feat(macos): 添加 Tab 手动双拼辅助码）新增默认关闭的「双拼手动辅助码（Tab）」开关，于 2026-10-24 合并，并以 `Fixes #9425` 关闭该 issue。
 
 ## Proposal
 
