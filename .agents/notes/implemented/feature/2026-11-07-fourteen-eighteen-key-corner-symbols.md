@@ -68,7 +68,7 @@ Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-andr
 
 - Android：已实现，见 [Android 14/18 键字母键的角标符号](2026-11-07-android-fourteen-eighteen-key-corner-symbols.md)。#11040 第 2 项的 Android 部分随它一起落地：组字中长按不再先结束组字。
 - iOS：已实现。`FourteenKeyLayout.Key.cornerHint` 按上面两张表提供角标，复用 `KeyboardKeyButton` 的 0.5 秒长按和「滑动输入符号」方向；组字中先结束组字，再经现有标点路由输入，角标显示跟随「显示字母键角标」，18 键双拼横滑与纵滑按方向互斥。验证覆盖键表角标单测；完整 Xcode 与真机验收仍待 iOS 设备环境。
-- 鸿蒙：已实现。`GridLetterHintTable`、`GridKeyGesturePolicy` 和 `GridKeyTouchController` 接入 14/18 键 ArkUI 按键，视图只把触摸、点击和长按转进控制器；角标显示跟随「显示字母键角标」，纵滑沿共享方向输入符号，长按 500 ms 直接输入角标；组字中只有纵滑按点按处理，长按仍先经引擎 `commitRaw` 结束组字再输入，14/18 键全拼和双拼横滑保留精确字母。反向纵滑不弹 Android 字母菜单。关闭滑动输入、隐藏角标不影响长按。长按进入已消费状态，松手及随后点击不重复输入或计数；取消、同一键上的第二根手指、已经接管的横滑或纵滑不再触发长按。按压按手指 id 跟踪，双拇指按在两个键上互不影响（ArkUI 的 `touches` 是全屏所有手指，不拿它的长度判断多指）；`onClick` 与抬手谁先到没有契约，先到的一方按自己的坐标判定并输入，后到的一方不再输入。26 键的原样上屏、字面插入路径保持原样。纯逻辑测试覆盖符号表与状态机，`grid-corner-hold.test.ts` 直接驱动真实控制器，覆盖全部 32 个网格键、空闲/组字、滑动开关、点击先于抬手、抬手才过阈值的横滑、双拇指、同键第二根手指和取消路径。完整 HAP 使用远端 DevEco 工具链验证；签名设备和真实编辑器验收尚缺。
+- 鸿蒙：已实现。`GridLetterHintTable`、`GridKeyGesturePolicy` 和 `GridKeyTouchController` 接入 14/18 键 ArkUI 按键，视图只把触摸、点击和长按转进控制器；角标显示跟随「显示字母键角标」，纵滑沿共享方向输入符号，长按 500 ms 直接输入角标；组字中只有纵滑按点按处理（按下时空闲、按压中途被另一根手指开始组字的也一样，之后的纵滑按点按处理，与 Android `ImeLetterRows` 相同），长按仍先经引擎 `commitRaw` 结束组字再输入，14/18 键全拼和双拼横滑保留精确字母。反向纵滑不弹 Android 字母菜单。关闭滑动输入、隐藏角标不影响长按。长按进入已消费状态，松手及随后点击不重复输入或计数；取消、同一键上的第二根手指、已经接管的横滑或纵滑不再触发长按。按压按手指 id 跟踪，双拇指按在两个键上互不影响（ArkUI 的 `touches` 是全屏所有手指，不拿它的长度判断多指）；`onClick` 与抬手谁先到没有契约，先到的一方按自己的坐标判定并输入，后到的一方不再输入。26 键的原样上屏、字面插入路径保持原样。纯逻辑测试覆盖符号表与状态机，`grid-corner-hold.test.ts` 直接驱动真实控制器，覆盖全部 32 个网格键、空闲/组字、滑动开关、点击先于抬手、抬手才过阈值的横滑、双拇指、同键第二根手指和取消路径。完整 HAP 使用远端 DevEco 工具链验证；签名设备和真实编辑器验收尚缺。
 
 ### 历史笔记审计
 
@@ -78,7 +78,7 @@ Android 的实现见 [Android 14/18 键字母键的角标符号](2026-11-07-andr
 - [网格辅助码](2026-11-04-grid-helpcode.md)：部分重叠。分词键的上滑和「辅」角标不变；「长按字母先发命令 2」在 Android 14/18 键上不再出现（组字中长按是点按），那篇已就地改正。
 - [三端 26 键默认上滑输入角标](2026-10-25-mobile-qwerty-swipe-symbols.md)、[Android 字母滑动选项](../bug-fix/2026-10-21-android-letter-option-gesture-settings.md)、[Android 角标标点路由](2026-10-12-android-letter-hint-chinese-punctuation.md)：部分重叠。方向和开关、反向选项的拖选、中文标点路由照用，不修改。
 - [五笔 14 键](2026-10-25-wubi-fourteen-key.md)、[Android 十八键全拼](2026-10-24-android-eighteen-key-quanpin.md)、[Android 十八键双拼](2026-10-24-android-eighteen-key-shuangpin.md)：部分重叠。它们的长按沿用 14 键规格，经 14 键笔记的说明指到本篇，不另改。
-- iOS、鸿蒙的 14/18 键笔记（[iOS 十八键](2026-10-25-ios-eighteen-key.md)、[鸿蒙 14/18 键](2026-10-25-harmony-fourteen-eighteen-key.md)、[鸿蒙双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md)、[iOS 14/18 键对齐 Android](../bug-fix/2026-11-05-ios-letter-grid-android-parity.md)）：布局、网格门控和横滑边界仍适用；角标接入由本篇状态更新。
+- iOS、鸿蒙的 14/18 键笔记（[iOS 十八键](2026-10-25-ios-eighteen-key.md)、[鸿蒙 14/18 键](2026-10-25-harmony-fourteen-eighteen-key.md)、[鸿蒙双拼 14/18 键](2026-10-25-harmony-fourteen-key-shuangpin.md)、[iOS 14/18 键对齐 Android](../bug-fix/2026-11-05-ios-letter-grid-android-parity.md)）：布局、网格门控和横滑边界仍适用；角标接入由本篇状态更新。两篇鸿蒙笔记里「长按可选确定字母」「长按不再弹出字母」的说法已就地改正为长按输入角标，并链到本篇。
 
 ## 整合横滑规则
 
