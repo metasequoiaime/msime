@@ -9,13 +9,10 @@ function deferred<T>(): { promise: Promise<T>, resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-// 模拟系统状态面板：调用窗口是否全屏只影响系统怎么摆放，宿主每次绑定都应请求显示。
+// 模拟系统状态面板，只记录显示请求。`ToolbarFocus` 不知道调用窗口是否全屏；全屏时也显示、不查询窗口状态是 `followCallingWindow` 的接线，由 toolbar-setup-adapter.test.cjs 执行真实方法覆盖。
 class FakePanel implements FocusToolbarPanel {
   readonly events: string[] = [];
-  callingWindowFullscreen: boolean = false;
-  async show(): Promise<void> { this.events.push(this.callingWindowFullscreen ? "show:fullscreen" : "show"); }
-  // 不属于 FocusToolbarPanel；留着用来证明全屏时没有走隐藏路径。
-  async hide(): Promise<void> { this.events.push("hide"); }
+  async show(): Promise<void> { this.events.push("show"); }
 }
 
 async function main(): Promise<void> {
@@ -26,18 +23,10 @@ async function main(): Promise<void> {
   await focus.focus(panel, () => current);
   await focus.focus(panel, () => current);
   check(panel.events.join(",") === "show,show", "每次绑定都请求显示，不能依赖本地可见缓存");
-  panel.callingWindowFullscreen = true;
-  await focus.focus(panel, () => current);
-  await focus.focus(panel, () => current);
-  check(panel.events.join(",") === "show,show,show:fullscreen,show:fullscreen", "调用窗口全屏时也显示工具栏，不走隐藏");
-  panel.callingWindowFullscreen = false;
-  await focus.focus(panel, () => current);
-  check(panel.events.join(",") === "show,show,show:fullscreen,show:fullscreen,show", "离开全屏窗口后照常显示");
-  check(!panel.events.includes("hide"), "任何绑定都不能隐藏工具栏");
 
   current = false;
   await focus.focus(panel, () => current);
-  check(panel.events.length === 5, "旧面板不能接收显示请求");
+  check(panel.events.length === 2, "旧面板不能接收显示请求");
   current = true;
 
   // 前一个显示还没返回时，排在后面的请求按顺序执行；轮到之前已被取代或废止的请求直接丢弃。
