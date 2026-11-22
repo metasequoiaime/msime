@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9277
 
-Status: proposed
+Status: rejected — issue #9277 已由 #9286 修复并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#9277`（linux）的标题是「[Feature]: 删除彩蛋快捷键」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#9277`（Linux）的标题是「[Feature]: 删除彩蛋快捷键」，来自 QQ 群反馈：在 Ubuntu 24 上按 `Ctrl+Shift+P` 会被 IBus 抢占并向输入框插入一段宣传文字，与 VS Code 命令面板等应用快捷键冲突。这篇提议写成时没有找到关联它的 PR；实际上 PR `#9286`（`fix(linux): 移除宣传彩蛋快捷键`）正文写有 `Fixes #9277`，删除了 IBus 对该组合键的特殊处理、按键占用记录和相关文案，合并后 issue 以 completed 关闭，因此下面的跟踪提议不再执行。
 
 ## Proposal
 
