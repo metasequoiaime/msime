@@ -74,6 +74,11 @@ public final class KeyFaceTemplatesSmoke {
             "九键数字应为 22 sp、没有右上角、底部提示 9 sp：" + digits);
         check(near(KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetXEm(),
             KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetEm()), "字母键角标离右边与离上边一样远");
+        // 数字行：默认键高上 20 sp，没有提示，按大写字母高居中。
+        KeyFaceParams numbers = solve(KeyFaceTemplates.NUMBER_ROW, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(numbers.main().sizePx(), 20) && numbers.topRight() == null && numbers.bottom() == null,
+            "数字行应为 20 sp、没有提示：" + numbers);
+        check(KeyFaceTemplates.NUMBER_ROW.capAligned(), "数字行应按大写字母高居中");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

@@ -32,6 +32,9 @@ public final class KeyFaceTemplates {
     static final KeyFaceTemplate.IconSpec FUNCTION_ICON = new KeyFaceTemplate.IconSpec(
         KeyboardIconKey.ICON_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26);
 
+    /** 数字行的 1–0：设计 20 sp，最小 12 sp，最大 22 sp。 */
+    static final KeyFaceTemplate.SlotSpec NUMBER = slot(20, 12, 22, 0, 255);
+
     /** 拼音九键的字母组（「ABC」…）：设计 18 sp，最小 12 sp，最大 20 sp。 */
     static final KeyFaceTemplate.SlotSpec NINE_LETTER = slot(18, 12, 20, 0, 255);
     /** 数字九宫格和九键双拼的数字：设计 22 sp，最小 12 sp，最大 24 sp，与字母键相同。 */
@@ -84,6 +87,10 @@ public final class KeyFaceTemplates {
         slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
         return slots;
     }
+
+    /** 26 键一族和 14/18 键字母上方的数字行（#6022）：只有主标签，数字按大写字母高居中（数字与大写字母同高）。 */
+    public static final KeyFaceTemplate NUMBER_ROW = new KeyFaceTemplate("number-row", nineSlots(NUMBER, false, false),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
 
     /** 拼音九键字母层：字母组（1 键组字时是「分词」或「重输」）、右上角长按输入的数字；退让方式与字母键相同。 */
     public static final KeyFaceTemplate NINE_LETTERS = new KeyFaceTemplate("nine-letters", nineSlots(NINE_LETTER, true, false),

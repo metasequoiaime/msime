@@ -1416,6 +1416,7 @@ final class ImeLetterRows {
             KeyboardTypographyPolicy.setKeyTextSize(key, 20);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             s.keyId(key, KeyPressIds.forCharacter(input));
+            s.imeKeyFaces.attachNumber(key);
             row.addView(key, LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);

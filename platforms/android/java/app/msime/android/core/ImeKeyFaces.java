@@ -27,6 +27,8 @@ final class ImeKeyFaces {
     private Inputs gridLettersBuilt;
     private KeyFaceGroup functions;
     private Inputs functionsBuilt;
+    private KeyFaceGroup numberRow;
+    private Inputs numberRowBuilt;
     private KeyFaceGroup nineLetters;
     private Inputs nineLettersBuilt;
     private KeyFaceGroup nineDigits;
@@ -48,6 +50,8 @@ final class ImeKeyFaces {
         movableKeys.clear();
         functions = null;
         functionsBuilt = null;
+        numberRow = null;
+        numberRowBuilt = null;
         nineLetters = null;
         nineLettersBuilt = null;
         nineDigits = null;
@@ -87,6 +91,17 @@ final class ImeKeyFaces {
         press.setFaceGroup(functions, corner ? GRID_LETTER_SLOTS : NO_HINTS);
         if (!movableKeys.contains(press)) movableKeys.add(press);
         linkFunctions();
+    }
+
+    /** 字母上方数字行（26 键一族、14/18 键）的一个数字键。 */
+    void attachNumber(android.widget.Button key) {
+        if (!(key instanceof KeyboardPressButton press)) return;
+        if (numberRow == null) {
+            numberRowBuilt = inputs(false);
+            numberRow = new KeyFaceGroup(KeyFaceTemplates.NUMBER_ROW, environment(numberRowBuilt),
+                LetterKeyFaceDomains.numberRow(), measurer(numberRowBuilt));
+        }
+        press.setFaceGroup(numberRow, NO_HINTS);
     }
 
     /** 拼音九键字母层的一个键（九格和右列的 ！）：主标签是字母组，右上角是长按输入的数字。 */
@@ -143,6 +158,13 @@ final class ImeKeyFaces {
             if (!now.equals(functionsBuilt)) {
                 functionsBuilt = now;
                 functions.replace(environment(now), measurer(now), FunctionKeyFaceDomains.functions());
+            }
+        }
+        if (numberRow != null) {
+            Inputs now = inputs(false);
+            if (!now.equals(numberRowBuilt)) {
+                numberRowBuilt = now;
+                numberRow.replace(environment(now), measurer(now), LetterKeyFaceDomains.numberRow());
             }
         }
         if (nineLetters != null) {

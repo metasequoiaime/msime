@@ -4,6 +4,7 @@ import app.msime.android.FourteenKeyLayout;
 import app.msime.android.GridLetterHintTable;
 import app.msime.android.KeyFaceDomain;
 import app.msime.android.KeyFaceSlot;
+import app.msime.android.KeyboardLayout;
 import app.msime.android.LetterHintTable;
 import app.msime.android.LetterKeyFaceDomains;
 import java.util.List;
@@ -52,6 +53,10 @@ public final class LetterKeyFaceDomainsSmoke {
             check(!LetterKeyFaceDomains.gridLetters(eighteen, false, marks).has(KeyFaceSlot.TOP_RIGHT),
                 "关着角标时不应为网格角标留位置");
         }
+        KeyFaceDomain numbers = LetterKeyFaceDomains.numberRow();
+        for (String digit : KeyboardLayout.NUMBER_ROW)
+            check(numbers.contains(KeyFaceSlot.MAIN, digit), "缺数字行的 " + digit);
+        check(!numbers.has(KeyFaceSlot.TOP_RIGHT) && !numbers.has(KeyFaceSlot.BOTTOM), "数字行没有提示");
         System.out.println("LetterKeyFaceDomainsSmoke passed");
     }
 

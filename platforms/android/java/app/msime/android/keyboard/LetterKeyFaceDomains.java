@@ -47,6 +47,13 @@ public final class LetterKeyFaceDomains {
         return domain(faces, hints);
     }
 
+    /** 字母上方的数字行：1–0（{@link KeyboardLayout#NUMBER_ROW}），没有提示。 */
+    public static KeyFaceDomain numberRow() {
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, KeyboardLayout.NUMBER_ROW);
+        return new KeyFaceDomain(texts);
+    }
+
     private static KeyFaceDomain domain(List<String> faces, List<String> hints) {
         Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
         texts.put(KeyFaceSlot.MAIN, faces);

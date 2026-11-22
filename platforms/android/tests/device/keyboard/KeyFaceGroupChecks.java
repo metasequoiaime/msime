@@ -38,6 +38,7 @@ final class KeyFaceGroupChecks {
                         verifyRow(context, height);
                         verifyFunctions(context, height);
                         verifyNineKeys(context, height);
+                        verifyNumberRow(context, height);
                     }
                 }
             } catch (Exception | AssertionError error) { failure.set(error); }
@@ -243,6 +244,37 @@ final class KeyFaceGroupChecks {
         }
     }
 
+    /** 数字行：宽窄不同的数字键用同一份参数，数字水平居中、共用一条基线（数字一样高，墨迹的上下沿对齐），不出键格。 */
+    private static void verifyNumberRow(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Object group = product.group("NUMBER_ROW", "app.msime.android.LetterKeyFaceDomains", "numberRow", Typeface.DEFAULT,
+            density, scale);
+        String[] faces = {"1", "7", "0"};
+        int[] widthsDp = {30, 36, 42};
+        Rect first = null;
+        Object params = null;
+        for (int index = 0; index < faces.length; index++) {
+            Button key = product.plainKey(faces[index]);
+            product.joinFunction(key, group, false);
+            layout(key, Math.round(widthsDp[index] * density), height);
+            if (params == null) params = product.params(key);
+            check(params != null && product.params(key) == params, "数字行参数不同或没算出来：" + where);
+            Rect main = draw(key)[1];
+            String at = faces[index] + " " + where;
+            check(!main.isEmpty() && main.left >= 0 && main.right <= key.getWidth() && main.top >= 0
+                && main.bottom <= key.getHeight(), "数字没画出来或出了键格：" + at);
+            check(Math.abs(main.exactCenterX() - (key.getWidth() / 2f + product.mainShift(params))) <= 2 * density,
+                "数字没有水平居中：" + main + " " + at);
+            if (first == null) first = main;
+            else check(Math.abs(main.top - first.top) <= 2 && Math.abs(main.bottom - first.bottom) <= 2,
+                "数字行的数字不在一条基线上：" + main + " 对 " + first + " " + at);
+        }
+    }
+
     /** 画一个键，返回红（右上角）、绿（主标签）、蓝（底部）三种墨迹框。 */
     private static Rect[] draw(Button key) {
         Bitmap bitmap = Bitmap.createBitmap(key.getWidth(), key.getHeight(), Bitmap.Config.ARGB_8888);
@@ -359,6 +391,23 @@ final class KeyFaceGroupChecks {
         boolean isIcon(Button key) throws Exception {
             Class<?> iconKey = loader.loadClass("app.msime.android.KeyboardIconKey");
             return iconKey.isInstance(key) && !(boolean) iconKey.getMethod("showsText").invoke(key);
+        }
+
+        /** 一个组：模板 {@code template}，内容域取 {@code domainClass} 的无参方法 {@code domainMethod}，主标签用 {@code typeface}。 */
+        Object group(String template, String domainClass, String domainMethod, Typeface typeface, float density,
+                float fontScale) throws Exception {
+            Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
+            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
+                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Object texts = loader.loadClass(domainClass).getMethod(domainMethod).invoke(null);
+            Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
+                .newInstance(typeface);
+            return loader.loadClass("app.msime.android.KeyFaceGroup")
+                .getConstructor(loader.loadClass("app.msime.android.KeyFaceTemplate"),
+                    loader.loadClass("app.msime.android.KeyFaceEnvironment"),
+                    loader.loadClass("app.msime.android.KeyFaceDomain"),
+                    loader.loadClass("app.msime.android.KeyFaceMeasurer"))
+                .newInstance(spec, environment, texts, measurer);
         }
 
         /** 九键的组：模板 {@code template}，内容域取 {@code NineKeyFaceDomains} 的 {@code domain}（双拼用一张小表），字体同产品的九键。 */
