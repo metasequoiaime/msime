@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #10134
 
-Status: proposed
+Status: rejected — issue #10134 已由 #10153 修复并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#10134`（linux）的标题是「[Feature]: 下载卡住了，为0%」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #10134（Linux，0.14.0）报告点「检查词库更新」后下载一直停在 0%，直连、VPN、TUN 模式都一样。原因在共享 Rust 层 `crates/client-providers/src/dictionary_updates.rs`：连接没有数据时要约 30 分钟才换下一个下载源，不能断点续传，不使用设置里填的下载镜像，进度也到不了总量。#10153 已合并（2026-10-29），停滞一分钟内换源，支持 HTTP Range 续传和用户镜像，进度能走到 100%，下载途中关掉自动更新即停止；issue 随之以 completed 关闭，维护者在 issue 下说明了未覆盖的部分（下载源在用户网络里本身的速度，可用镜像或 #9529 的手动下载清单）。决策记录见 [词库更新下载停滞](../../implemented/bug-fix/2026-10-29-dictionary-update-stalled-download.md)。
 
 ## Proposal
 
