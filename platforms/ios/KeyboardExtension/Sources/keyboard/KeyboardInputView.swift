@@ -25,6 +25,13 @@ final class KeyboardInputContainerView: UIInputView, UIInputViewAudioFeedback {
     invalidateIntrinsicContentSize()
   }
 
+  /// 宿主应用退到后台再回来时，即使目标高度没有变化，也要重新触发一次外层尺寸协商。
+  /// UIKit 可能保留退后台前的 `UIInputView` 外框，单纯重复设置同一个高度不会经过上面的更新路径。
+  func refreshPreferredHeight() {
+    guard preferredHeight != nil else { return }
+    invalidateIntrinsicContentSize()
+  }
+
   override var intrinsicContentSize: CGSize {
     guard let preferredHeight else { return super.intrinsicContentSize }
     return CGSize(width: UIView.noIntrinsicMetric, height: preferredHeight)
