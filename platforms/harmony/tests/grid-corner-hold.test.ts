@@ -32,14 +32,17 @@ interface Fixture {
   keys: GridKeyTouchController;
   calls: string[];
   preview: { letter: string };
+  /** 宿主此刻是否在组字；测试中途改它，模拟另一根手指开始组字。 */
+  state: { composing: boolean };
 }
 
 // 真实的 GridKeyTouchController 和 GridKeyGesturePolicy，宿主只记录它被要求做的事。
 function fixture(composing: boolean, swipe = true): Fixture {
   const calls: string[] = [];
   const preview = { letter: "" };
+  const state = { composing };
   const keys = new GridKeyTouchController({
-    composing: (): boolean => composing,
+    composing: (): boolean => state.composing,
     swipeDirection: (): SwipeSymbolsDirection | null => (swipe ? SwipeSymbolsDirection.UP : null),
     exactSwipes: (letters: string): boolean => EighteenKeySwipePolicy.swipeable(letters),
     keyPopup: (): boolean => false,
@@ -67,7 +70,7 @@ function fixture(composing: boolean, swipe = true): Fixture {
       if (letter.length > 0) calls.push(`${eighteen ? "letter" : "fourteen"}:${letter}`);
     },
   });
-  return { keys, calls, preview };
+  return { keys, calls, preview, state };
 }
 
 function point(id: number, x = 100, y = 100): GridKeyPoint {
@@ -130,6 +133,24 @@ for (const clickArrives of [false, true]) {
   keys.up(pair, true, point(1, 100, 80));
   if (clickArrives) keys.click(pair, true, 100, 80);
   same(calls, [keyId(pair, true), "grid:w"], `组字中纵滑 点击=${clickArrives}：只送一次整组，不结束组字`);
+}
+
+// 空闲时按下、另一根手指在按压中途开始组字：之后越过阈值的纵滑（拖动中或只在抬手那一点）仍是点按，不把刚开始的音节原样上屏再接角标。
+for (const thresholdAtLift of [false, true]) {
+  for (const clickFirst of [false, true]) {
+    const { keys, calls, state } = fixture(false);
+    keys.down(pair, true, point(1), RECT);
+    state.composing = true;
+    if (!thresholdAtLift) keys.move(pair, true, [point(1, 100, 80)], RECT);
+    if (clickFirst) keys.click(pair, true, 100, 80);
+    keys.up(pair, true, point(1, 100, 80));
+    if (!clickFirst) keys.click(pair, true, 100, 80);
+    same(
+      calls,
+      [keyId(pair, true), "grid:w"],
+      `按压中途开始组字 抬手才过阈值=${thresholdAtLift} 点击先到=${clickFirst}：纵滑只送一次整组`,
+    );
+  }
 }
 
 // 快速一甩只在抬手那一点越过阈值：点击先到时按点击位置判定为精确字母，抬手不再送整组。

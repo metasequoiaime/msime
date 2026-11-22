@@ -53,7 +53,7 @@ export class GridKeyTouchController {
   down(key: FourteenKey, eighteen: boolean, finger: GridKeyPoint, rect: HintKeyRect): void {
     const current: GridKeyGesturePolicy | undefined = this.gestures.get(key.letters);
     if (current !== undefined && current.secondFinger(finger.id)) {
-      // A second finger on the same key abandons the whole press.
+      // 同一个键上落下第二根手指：整次按压作废。
       current.cancel();
       this.host.endLetter(key.letters);
       return;
@@ -71,6 +71,7 @@ export class GridKeyTouchController {
   move(key: FourteenKey, eighteen: boolean, fingers: GridKeyPoint[], rect: HintKeyRect): void {
     const gesture: GridKeyGesturePolicy | undefined = this.gestures.get(key.letters);
     if (gesture === undefined) return;
+    this.composingSince(gesture);
     for (const finger of fingers) {
       const before: GridKeyGestureMode = gesture.mode();
       const mode: GridKeyGestureMode = gesture.move(finger.id, finger.x, finger.y);
@@ -91,6 +92,7 @@ export class GridKeyTouchController {
     this.host.keyUp(finger.id);
     const gesture: GridKeyGesturePolicy | undefined = this.gestures.get(key.letters);
     if (gesture === undefined) return;
+    this.composingSince(gesture);
     this.commit(key, eighteen, gesture, gesture.up(finger.id, finger.x, finger.y));
   }
 
@@ -107,6 +109,7 @@ export class GridKeyTouchController {
       this.host.tap(key, eighteen);
       return;
     }
+    this.composingSince(gesture);
     const commit: GridKeyCommit = gesture.click(x, y);
     if (commit === GridKeyCommit.LETTER || commit === GridKeyCommit.SYMBOL) {
       this.host.endLetter(key.letters);
@@ -124,6 +127,11 @@ export class GridKeyTouchController {
   /** 触摸下的键被替换或键盘换了方案：丢弃全部按压。 */
   clear(): void {
     this.gestures.clear();
+  }
+
+  /** 按压中途另一根手指开始了组字：还没触发手势时，之后的纵滑按点按处理（Android `ImeLetterRows` 同样在按下之后的每个事件里检查）。 */
+  private composingSince(gesture: GridKeyGesturePolicy): void {
+    if (this.host.composing()) gesture.composing();
   }
 
   private commit(
