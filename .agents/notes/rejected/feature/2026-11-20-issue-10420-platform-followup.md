@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #10420
 
-Status: proposed
+Status: rejected — issue #10420 已由 #10451 修复、#10691 更新词库锁后以 completed 关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#10420`（macos）的标题是「為和爲」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #10420（macos）报告粤语双拼 `wai`（WL）的候选里只有「爲」没有「為」，希望「為」作为高频字排在前面。原因是上游 rime-cantonese 的词频只给「爲」打分，「為」只拿到下限权重 1，又被 200 条的候选读取上限截掉。#10451 让粤语词库构建器按 HKCanCor 改用香港字形，「為」继承原来「爲」的权重排在前面，「爲」保留在其后，「行爲」「因爲」这类词改成「行為」「因為」；#10691 把 `resources/language-dictionaries.lock.json` 更新到包含该修复的 `dict-v2.0.50`，issue 随后以 completed 关闭。
 
 ## Proposal
 
