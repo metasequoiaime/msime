@@ -829,7 +829,7 @@ impl InputSession {
         if self.local_mode == LocalInputMode::None {
             keep_expressive_rows_off_the_lead(&mut mixed);
         }
-        // 放在最后：网址补全不参与固定位置，也不被挪开。光标后编辑里选中网址补全会进入网址模式，同样不加。
+        // 光标后编辑里选中网址补全会进入网址模式，此时不加。
         if !self.caret_edit.active {
             self.insert_url_scheme_completions(&mut mixed);
         }
@@ -854,6 +854,13 @@ impl InputSession {
             }
         }
         self.insert_multilingual_row(&mut mixed);
+        if !self.prefix_active && self.local_mode == LocalInputMode::None {
+            self.queries.apply_quick_phrase_positions(
+                &self.engine.request().raw_input,
+                &mut mixed,
+                |row| self.is_url_completion(row),
+            );
+        }
         mixed
     }
 

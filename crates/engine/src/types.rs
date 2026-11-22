@@ -1497,6 +1497,8 @@ pub struct QuickPhraseEntry {
     pub key: String,
     /// 上屏的文本。
     pub text: String,
+    /// 普通候选中的一基位置；K 模式不采用此字段。
+    pub position: Option<u8>,
 }
 
 /// One name or place of the host's mention list (`@` mode).

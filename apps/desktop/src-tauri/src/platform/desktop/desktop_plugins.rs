@@ -149,7 +149,7 @@ pub async fn plugin_catalog(
     .await
 }
 
-/// Ask the user for a pack folder or `.zip` file with the platform's own dialog, and install it. `None` when the user closes the dialog.
+/// 打开系统文件选择器并安装所选插件；macOS 也可导入 `.txt` 自定义编码表。取消时返回 `None`。
 #[tauri::command]
 pub async fn import_plugin_pack(
     app: tauri::AppHandle,
@@ -163,10 +163,17 @@ pub async fn import_plugin_pack(
         // The dialog runs on the main thread; this worker only waits for the answer.
         let picked = match source {
             PluginImportSource::Folder => dialog.set_title("选择插件文件夹").blocking_pick_folder(),
-            PluginImportSource::Archive => dialog
-                .set_title("选择插件")
-                .add_filter("插件", &["zip"])
-                .blocking_pick_file(),
+            PluginImportSource::Archive => {
+                let extensions: &[&str] = if cfg!(target_os = "macos") {
+                    &["zip", "txt"]
+                } else {
+                    &["zip"]
+                };
+                dialog
+                    .set_title("选择插件")
+                    .add_filter("插件", extensions)
+                    .blocking_pick_file()
+            }
         };
         let Some(picked) = picked else {
             return Ok(None);
@@ -180,6 +187,16 @@ pub async fn import_plugin_pack(
 }
 
 fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFailure> {
+    if cfg!(target_os = "macos")
+        && source
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+        && !source.is_dir()
+    {
+        return Ok(plugins::phrase_table::import_positioned_table(
+            root, source,
+        )?);
+    }
     Ok(plugins::import_from_settings(source, root)?)
 }
 
