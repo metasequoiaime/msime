@@ -139,7 +139,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityLabel("键盘高度")
       .accessibilityValue(heightPercent(height))
       .accessibilityAdjustableAction { direction in
-        height = KeyboardGeometry.clamped(height + (direction == .increment ? 2 : -2), -12, 48)
+        height = SharedNumber.clamped(height + (direction == .increment ? 2 : -2), to: KeyboardLayoutPreference.heightAdjustmentRange)
         save(.height)
       }
   }
@@ -157,7 +157,7 @@ struct KeyboardLayoutSettingsView: View {
       .onChanged { value in
         let base = dragBase ?? snapshot()
         if dragBase == nil { dragBase = base }
-        height = KeyboardGeometry.clamped(base.height - Double(value.translation.height), -12, 48)
+        height = SharedNumber.clamped(base.height - Double(value.translation.height), to: KeyboardLayoutPreference.heightAdjustmentRange)
       }
       .onEnded { _ in
         dragBase = nil
@@ -262,7 +262,7 @@ struct KeyboardLayoutSettingsView: View {
           .accessibilityIdentifier("appPhoneSplitSwitch")
       }
       DesignDivider()
-      sliderRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
+      sliderRow("键盘高度", value: $height, range: KeyboardLayoutPreference.heightAdjustmentRange, identifier: "appKeyboardHeightSlider",
                 field: .height, format: heightPercent)
       DesignDivider()
       sliderRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider", field: .keySpacing)

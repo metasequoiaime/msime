@@ -689,8 +689,9 @@ final class MorePanelFoldTests: XCTestCase {
     // 按 197pt 的按键区换算：(197 - 12) / 197 ≈ 94%，(197 + 48) / 197 ≈ 124%。
     XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock), 94)
     XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock), 124)
-    // 无论调节条要求多少，点数都限制在共享字段的范围内。
-    XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 200, keyBlock: keyBlock), 48)
+    // 无论调节条要求多少，点数都限制在 iOS 的可调范围内，上限 80 对应 (197 + 80) / 197 ≈ 141%。
+    XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 200, keyBlock: keyBlock), 80)
+    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 80, keyBlock: keyBlock), 141)
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 50, keyBlock: keyBlock), -12)
   }
 

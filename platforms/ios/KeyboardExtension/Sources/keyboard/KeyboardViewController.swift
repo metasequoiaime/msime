@@ -6559,9 +6559,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardLayoutPreference.mirrorGeometry(preferences)
     nineKeyFlickThreshold = CGFloat(KeyboardLayoutPreference.nineKeyFlickThreshold)
     // 键盘调整开着时保留正在预览的高度：重读多半是键盘出现时发出、晚到的那一次，不是用户要的改动；离开调整时预览会存下，覆盖文档里的值。
+    // 取 mirrorGeometry 对齐后的 App Group 值，不直接取文档：文档最多 48，本机调到 48 以上的高度在 App Group 里。
     if adjustOverlay == nil,
-       let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
-      sharedKeyboardHeightAdjustment = CGFloat(adjustment)
+       KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) != nil {
+      sharedKeyboardHeightAdjustment = CGFloat(KeyboardLayoutPreference.heightAdjustment)
     }
     KeyboardLayoutPreference.shuangpinKeyHints = KeyboardLayoutPreference.sharedShuangpinKeyHints(in: preferences)
     if shuangpinKeyHintsEnabled != KeyboardLayoutPreference.shuangpinKeyHints {
@@ -10419,7 +10420,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     KeyboardHeightPercent.percent(adjustment: adjustment, keyBlock: keyBlock)
   }
 
-  /// 把按键区百分比换回以整点存储的调整值，限制在共用的 -12…48 范围内。
+  /// 把按键区百分比换回以整点存储的调整值，限制在 `KeyboardHeightPercent.adjustmentRange`（-12…80）内。
   static func heightAdjustment(percent: Int, keyBlock: CGFloat) -> CGFloat {
     KeyboardHeightPercent.adjustment(percent: percent, keyBlock: keyBlock)
   }

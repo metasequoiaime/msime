@@ -821,8 +821,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(height(for: 24), standard + 24, accuracy: 0.5)
     XCTAssertEqual(height(for: -12), standard - 12, accuracy: 0.5)
 
+    XCTAssertEqual(height(for: 80), standard + 80, accuracy: 0.5)
+
     KeyboardLayoutPreference.heightAdjustment = 500
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 48)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 80)
     KeyboardLayoutPreference.heightAdjustment = -500
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -12)
   }
