@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #10595
 
-Status: proposed
+Status: rejected — issue #10595 已由 #10708 实现并以 completed 关闭，无需另开跟踪 PR
 
 ## Problem
 
-平台 issue `#10595`（ios）的标题是「[iOS] 语音标点：接上 voice_input.punctuation_mode」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#10595`（ios）的标题是「[iOS] 语音标点：接上 voice_input.punctuation_mode」：Android 已在 #10599（对应 issue #10558）加入共享偏好 `voice_input.punctuation_mode`，iOS 只有豆包专用的「自动添加标点」，本地模型、系统识别和润色结果里的标点无法按偏好处理。
+
+提议时写的「仓库 PR 索引中没有找到 `Fixes` 或 `Refs` PR 关联它」不成立：PR #10708（feat(ios): 接入语音标点偏好）正文写明 `Fixes #10595`，2026-11-06 合并进 develop，issue 随之以 completed 关闭。#10708 合并时，正文里需要真实语音来源的上屏检查（K1 到 K8、A1 到 A5）仍未勾选。
 
 ## Proposal
 
@@ -23,4 +25,4 @@ Status: proposed
 
 ## Risks
 
-当前 PR 只建立交付跟踪，不宣称已经修复该 issue。未经平台复现的改动可能影响其他宿主或用户设置。
+当前 PR 只建立交付跟踪，不宣称已经修复该 issue。未经平台复现的改动可能影响其他宿主或用户设置。若之后发现 iOS 语音标点在真实识别下与 Android 不一致，应新开 issue，而不是复用这条跟踪记录。
