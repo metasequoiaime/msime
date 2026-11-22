@@ -340,6 +340,9 @@ public final class MSIMEInputService extends InputMethodService {
     /** 拼音显示在候选栏还是输入框（`touch_spelling_position`）；共享偏好缺失或非法时沿用输入框。 */
     String spellingPosition = CandidatePreeditStylePolicy.EDITOR;
     boolean spellingEditorEnabled = true;
+    /** 共享偏好 `candidate_cloud_badge` 与 `candidate_ai_badge_style`，候选的来源标记按它们画（{@link CandidateSourceMark}）。 */
+    boolean candidateCloudBadge = true;
+    String candidateAiBadgeStyle = CandidateSourceMark.ROBOT;
     private boolean spellingHeaderReserved = true;
     CandidateAppearance.Palette candidateAppearance =
         CandidateAppearance.fromSkin(KeyboardSkin.system(false));
@@ -7360,6 +7363,7 @@ public final class MSIMEInputService extends InputMethodService {
         "candidate_font_size", "candidate_preedit_font_size",
         "candidate_scale_percent", "candidate_english_gloss", "candidate_pronunciation",
         "touch_spelling_position", "touch_spelling_editor",
+        CandidateSourceMark.CLOUD_PREFERENCE, CandidateSourceMark.AI_STYLE_PREFERENCE,
         "touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
         "touch_voice_shortcut", ShuangpinKeyHintPolicy.PREFERENCE_KEY, QuanpinSeparatorPolicy.PREFERENCE_KEY,
         TouchKeyStyle.TWENTY_SIX_KEY_PREFERENCE, TouchKeyStyle.FOURTEEN_KEY_PREFERENCE,
@@ -10167,6 +10171,18 @@ public final class MSIMEInputService extends InputMethodService {
         return CandidateSymbolLabel.apply(this, label, prefix.length(), primary.length());
     }
 
+    /** 带来源标记的候选标签：标记画在候选字（和纠错星号）后面、释义行前面，着未纠错时的释义色（{@link CandidateSourceMarkSpan}）。 */
+    CharSequence candidateLabel(String prefix, String text, String annotation, boolean highlighted, boolean corrected,
+                                CandidateSourceMark.Glyph mark) {
+        return CandidateSourceMarkSpan.insert(this, candidateLabel(prefix, text, annotation, highlighted, corrected),
+            prefix.length() + text.length(), mark,
+            CandidateCorrectionMarkPolicy.annotationColour(candidateAppearance, highlighted, false));
+    }
+
+    CandidateSourceMark.Glyph candidateSourceGlyph(int source) {
+        return CandidateSourceMark.glyph(source, candidateCloudBadge, candidateAiBadgeStyle);
+    }
+
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
     void configureCandidateTextLayout(Button button, int lines) {
         // Reserve extra rows only when this candidate actually carries a gloss. A globally enabled translation target is not evidence that every candidate has one; keeping the empty case single-line prevents long candidate words from wrapping inside the chip. Likewise, a second requested language may be unavailable for this particular result; only an actual newline in the rendered label (a second gloss, or a Korean 훈음 row under its Hanja) warrants another row.
@@ -10407,7 +10423,7 @@ public final class MSIMEInputService extends InputMethodService {
         CandidateCanvasAssets canvas = candidateAppearance.canvas();
         if (canvas != null && canvas.banner != null && canvas.banner.candidate() != null) {
             // 来源标注独立于原文，不包含固定图钉，也不猜测原文中的括号后缀。
-            String badge = source == 2 ? "☁️" : source == 3 ? "🤖" : "";
+            String badge = CandidateSourceMark.bannerBadge(source, candidateCloudBadge, candidateAiBadgeStyle);
             candidateDecorationWords.add(new CandidateCanvasAssets.Word(text, badge, highlighted));
         }
         String typed = InputViewValuePolicy.textOr(view, "preedit", "");
@@ -10422,7 +10438,7 @@ public final class MSIMEInputService extends InputMethodService {
             dedicatedEnglish, visibleSlot);
         boolean corrected = CandidateCorrectionMarkPolicy.confident(candidate.opt(CandidateCorrectionMarkPolicy.FIELD));
         String word = CandidateCorrectionMarkPolicy.markedWord(text, candidateCorrected(candidate));
-        button.setText(candidateLabel(number, word, annotation, highlighted, corrected));
+        button.setText(candidateLabel(number, word, annotation, highlighted, corrected, candidateSourceGlyph(source)));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -10437,7 +10453,7 @@ public final class MSIMEInputService extends InputMethodService {
         String description = AiPendingCandidatePolicy.description(source, "候选 " + (visibleSlot + 1) + "：",
             ContactCandidatePolicy.description(source, text),
             candidateAccessibilitySuffix(candidate, typed) + candidatePronunciationAccessibilitySuffix(candidate)
-                + CandidateCorrectionMarkPolicy.accessibilitySuffix(corrected));
+                + CandidateCorrectionMarkPolicy.accessibilitySuffix(corrected) + CandidateSourceMark.spokenSuffix(source));
         JSONObject id = candidate.optJSONObject("id");
         button.setContentDescription(id != null
                 && (candidateManagementEnabled() || candidateGlossInsertionEnabled())
