@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #7694
 
-Status: proposed
+Status: rejected — issue #7694 已由 #6686、#7849、#7934 处理并于 2026-10-15 关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#7694`（linux）的标题是「Crash: std::terminate: nlohmann::json_abi_v3_11_2::detail::type_error 306」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #7694 报告 Linux 0.11.0 的 IBus 宿主崩溃：`std::terminate: nlohmann::json_abi_v3_11_3::detail::type_error 306`，即对 null 视图调用 `value()` 导致 abort。输入模式提示回调的这条路径已由 #6686 修复；#7849 补了真实 GLib 主循环下的原生生命周期回归测试，#7934 在 `process_key` 的快捷键读取处加了视图防护，两者都以 `Refs #7694` 合并（线上样本没有可匹配的 Build ID，栈未能符号化到具体回调），issue 随后于 2026-10-15 以 completed 关闭。#9590 的遥测分析确认这类崩溃在 `linux-v0.12.0` 中已修复。
 
 ## Proposal
 
