@@ -32,6 +32,9 @@ public final class KeyFaceGroup {
         boolean sized() { return width > 0 && height > 0; }
     }
 
+    /** 查表用：最小键格和主标签的上限都相同时参数相同。 */
+    private record Solved(Map<KeyFaceSlot, KeyFaceSolver.Cell> cells, float mainCapPx) { }
+
     private static final int CACHE_SIZE = 8;
 
     private final KeyFaceTemplate template;
@@ -40,8 +43,10 @@ public final class KeyFaceGroup {
     private KeyFaceDomain domain;
     private Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics;
     private final Map<Member, Entry> members = new IdentityHashMap<>();
-    private final Map<Map<KeyFaceSlot, KeyFaceSolver.Cell>, KeyFaceParams> solved =
-        new LinkedHashMap<>(CACHE_SIZE * 2, 0.75f, true);
+    private final Map<Solved, KeyFaceParams> solved = new LinkedHashMap<>(CACHE_SIZE * 2, 0.75f, true);
+    /** 主标签不大过这一组的主标签（{@link #capMainAt}）；没有时不另设上限。 */
+    private KeyFaceGroup leader;
+    private final List<KeyFaceGroup> followers = new ArrayList<>();
     private KeyFaceParams params;
     private int solveCount;
     private int measureCount;
@@ -104,6 +109,17 @@ public final class KeyFaceGroup {
         changed();
     }
 
+    /**
+     * 这一组主标签的首选字号不大过 {@code leader} 此刻的主标签（{@code null} 取消）：功能键的字不比同一副键盘的字母显得更重。{@code leader} 的参数变了，这一组跟着重算；它还没有参数时不设上限。两组各自按自己的键格算，除此之外互不影响。
+     */
+    public void capMainAt(KeyFaceGroup leader) {
+        if (this.leader == leader) return;
+        if (this.leader != null) this.leader.followers.remove(this);
+        this.leader = leader;
+        if (leader != null) leader.followers.add(this);
+        update();
+    }
+
     /** 当前参数；组里还没有布局好的键时为 {@code null}。 */
     public KeyFaceParams params() { return params; }
 
@@ -123,15 +139,17 @@ public final class KeyFaceGroup {
         Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = smallestCells();
         KeyFaceParams next = null;
         if (cells.containsKey(KeyFaceSlot.MAIN)) {
-            next = solved.get(cells);
+            float cap = leader == null || leader.params == null ? Float.POSITIVE_INFINITY : leader.params.main().sizePx();
+            Solved key = new Solved(cells, cap);
+            next = solved.get(key);
             if (next == null) {
                 if (metrics == null) {
                     metrics = domain.measure(measurer, template.pairGapEm());
                     measureCount++;
                 }
-                next = KeyFaceSolver.solve(template, metrics, environment, cells);
+                next = KeyFaceSolver.solve(template, metrics, environment, cells, cap);
                 solveCount++;
-                solved.put(cells, next);
+                solved.put(key, next);
                 if (solved.size() > CACHE_SIZE) solved.remove(solved.keySet().iterator().next());
             }
         }
@@ -139,6 +157,7 @@ public final class KeyFaceGroup {
         params = next;
         List<Member> notify = new ArrayList<>(members.keySet());
         for (Member member : notify) member.faceParamsChanged();
+        for (KeyFaceGroup follower : new ArrayList<>(followers)) follower.update();
     }
 
     /** 每个位置：带这个位置、已经布局好的键里最小的宽和最小的高。 */

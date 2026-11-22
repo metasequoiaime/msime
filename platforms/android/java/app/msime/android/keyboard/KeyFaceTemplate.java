@@ -17,14 +17,21 @@ import java.util.Map;
  * @param capAligned 主标签按基线以上的墨迹（大写字母高）竖直居中，基线以下的部分（Q、分号的尾巴）往下挂，全组共用一条基线；否则按整个墨迹居中（汉字、符号）
  * @param maxShrink {@link Strategy#SHRINK_MAIN} 最多把主标签缩小多少（按放得下时的字号的比例，0.15 即最多缩小 15%）；再小就试下一种退让
  * @param strategies 居中放不下时依次尝试的退让方式；都不行时隐藏提示
+ * @param icon 画图标的键（⌫、⇧）的图标尺寸；{@code null} 表示这类键不画图标
  */
 public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, float sideInsetDp, float gapDp,
-        float pairGapEm, boolean capAligned, float maxShrink, List<Strategy> strategies) {
+        float pairGapEm, boolean capAligned, float maxShrink, List<Strategy> strategies, IconSpec icon) {
 
     public KeyFaceTemplate {
         if (!slots.containsKey(KeyFaceSlot.MAIN)) throw new IllegalArgumentException(name + " has no MAIN slot");
         slots = Collections.unmodifiableMap(new EnumMap<>(slots));
         strategies = List.copyOf(strategies);
+    }
+
+    /** 不画图标的模板。 */
+    public KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, float sideInsetDp, float gapDp,
+            float pairGapEm, boolean capAligned, float maxShrink, List<Strategy> strategies) {
+        this(name, slots, sideInsetDp, gapDp, pairGapEm, capAligned, maxShrink, strategies, null);
     }
 
     /**
@@ -37,6 +44,16 @@ public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, flo
         public SlotSpec {
             if (!(heightRatio > 0) || !(minSp > 0) || maxSp < minSp)
                 throw new IllegalArgumentException("bad slot spec " + heightRatio + " " + minSp + " " + maxSp);
+        }
+    }
+
+    /**
+     * 图标的尺寸规则：边长随键格高度按 {@code heightRatio} 变化，夹在 {@code minDp} 和 {@code maxDp} 之间，再不超过键格的短边（去掉两侧的 {@code sideInsetDp}）。图标不跟字体缩放，与原来的 22 dp 图标一样。
+     */
+    public record IconSpec(float heightRatio, float minDp, float maxDp) {
+        public IconSpec {
+            if (!(heightRatio > 0) || !(minDp > 0) || maxDp < minDp)
+                throw new IllegalArgumentException("bad icon spec " + heightRatio + " " + minDp + " " + maxDp);
         }
     }
 

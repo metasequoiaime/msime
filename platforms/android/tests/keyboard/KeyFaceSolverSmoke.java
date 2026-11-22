@@ -105,11 +105,34 @@ public final class KeyFaceSolverSmoke {
         for (boolean value : seen) if (value) strategies++;
         check(strategies >= 3, "尺寸网格应走到至少三种退让方式，实际 " + strategies);
 
-        // 两个字母的键面按「左字 + 间距 + 右字」算宽度。
+        // 主标签另有上限时首选字号不超过它；不画图标的模板图标边长为 0。
+        Map<KeyFaceSlot, KeyFaceSolver.Cell> wideCells = new EnumMap<>(KeyFaceSlot.class);
+        wideCells.put(KeyFaceSlot.MAIN, new KeyFaceSolver.Cell(300, 150));
+        KeyFaceParams capped = KeyFaceSolver.solve(template(false, false), domain(false, false).measure(MEASURER, 0),
+            ENVIRONMENT, wideCells, 40);
+        check(near(capped.main().sizePx(), 40), "主标签应封顶在给定的上限：" + capped.main().sizePx());
+        check(capped.iconPx() == 0, "不画图标的模板不应有图标边长");
+
+        // 图标边长按键高比例、夹在上下限之间，不跟字体缩放，也不超过键格的短边。
+        KeyFaceTemplate icons = new KeyFaceTemplate("icons", template(false, false).slots(), 2, 1, 0, false, 0.15f, ORDER,
+            new KeyFaceTemplate.IconSpec(0.4f, 16, 26));
+        check(near(icon(icons, ENVIRONMENT, 300, 150), 0.4f * 150), "图标边长应按键高比例");
+        check(near(icon(icons, new KeyFaceEnvironment(3f, 1.15f), 300, 150), 0.4f * 150), "图标不应跟字体缩放");
+        check(near(icon(icons, ENVIRONMENT, 300, 400), 26 * 3), "大键上的图标应封顶");
+        check(near(icon(icons, ENVIRONMENT, 300, 60), 16 * 3), "矮键上的图标不应小于下限");
+        check(near(icon(icons, ENVIRONMENT, 40, 150), 40 - 2 * 6), "窄键上的图标不应超出左右边距");
+
+                // 两个字母的键面按「左字 + 间距 + 右字」算宽度。
         float pair = KeyFaceDomain.mainWidth(MEASURER, "WE", 100, 0.15f);
         check(near(pair, 90 + 15 + 60), "双字母宽度应含间距：" + pair);
         check(near(KeyFaceDomain.mainWidth(MEASURER, "WE", 100, 0), 150), "没有间距时应整串排");
         System.out.println("KeyFaceSolverSmoke passed");
+    }
+
+    private static float icon(KeyFaceTemplate template, KeyFaceEnvironment environment, int width, int height) {
+        Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
+        cells.put(KeyFaceSlot.MAIN, new KeyFaceSolver.Cell(width, height));
+        return KeyFaceSolver.solve(template, domain(false, false).measure(MEASURER, 0), environment, cells).iconPx();
     }
 
     /** 主标签在键格里、不压住提示：按与 {@link KeyFaceParams} 说明相同的绘制规则算出墨迹框再比较。 */

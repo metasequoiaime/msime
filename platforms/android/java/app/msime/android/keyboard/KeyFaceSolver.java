@@ -12,6 +12,7 @@ import java.util.Map;
  * <li>每个位置的首选字号随键格高度变化，和上下限一样跟随键盘的字体缩放，夹在上下限之间；提示按组里带这个位置的最小键格算。</li>
  * <li>主标签按组里最小的键格算，并为内容域里所有可能出现的提示留位置：底部提示在下方占一条，主标签在剩下的区域里按最宽的文字和墨迹的高度收字号。收到最小字号以下时先放弃底部提示。</li>
  * <li>右上角提示与居中的主标签按墨迹（再加模板的间距）判断碰不碰；碰了就按模板的顺序尝试退让，都不行就不画右上角提示。</li>
+ * <li>主标签的首选字号可以另有上限（功能键的字不大过同一副键盘的字母）；图标的边长按键高比例、夹在模板的上下限之间，不跟字体缩放。</li>
  * </ul>
  */
 public final class KeyFaceSolver {
@@ -20,19 +21,27 @@ public final class KeyFaceSolver {
     /** 键格尺寸（像素）。 */
     public record Cell(int width, int height) { }
 
-    /**
-     * @param cells 每个位置按带这个位置的键里最小的宽和最小的高；必须有 {@link KeyFaceSlot#MAIN}
-     */
+    /** 主标签不另设上限，见 {@link #solve(KeyFaceTemplate, Map, KeyFaceEnvironment, Map, float)}。 */
     public static KeyFaceParams solve(KeyFaceTemplate template, Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics,
             KeyFaceEnvironment environment, Map<KeyFaceSlot, Cell> cells) {
+        return solve(template, metrics, environment, cells, Float.POSITIVE_INFINITY);
+    }
+
+    /**
+     * @param cells 每个位置按带这个位置的键里最小的宽和最小的高；必须有 {@link KeyFaceSlot#MAIN}
+     * @param mainCapPx 主标签的首选字号最多多大（像素），例如功能键的字不大过同一副键盘的字母（{@link KeyFaceGroup#capMainAt}）；不限时为正无穷
+     */
+    public static KeyFaceParams solve(KeyFaceTemplate template, Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics,
+            KeyFaceEnvironment environment, Map<KeyFaceSlot, Cell> cells, float mainCapPx) {
         Cell cell = cells.get(KeyFaceSlot.MAIN);
         KeyFaceDomain.SlotMetrics main = metrics.get(KeyFaceSlot.MAIN);
         KeyFaceTemplate.SlotSpec spec = template.slot(KeyFaceSlot.MAIN);
         float side = environment.px(template.sideInsetDp());
         float gap = environment.px(template.gapDp());
         float minimum = environment.sp(spec.minSp());
-        float preferred = clamp(spec.heightRatio() * cell.height() * environment.fontScale(), minimum,
-            environment.sp(spec.maxSp()));
+        float preferred = Math.min(mainCapPx, clamp(spec.heightRatio() * cell.height() * environment.fontScale(),
+            minimum, environment.sp(spec.maxSp())));
+        float icon = icon(template, environment, cell, side);
         KeyFaceParams.Hint bottom = hint(template, metrics, environment, cells, KeyFaceSlot.BOTTOM, side);
         KeyFaceParams.Hint corner = hint(template, metrics, environment, cells, KeyFaceSlot.TOP_RIGHT, side);
         float bottomInset = bottom == null ? 0 : bottom.insetPx() + bottom.inkHeight() + gap;
@@ -43,7 +52,7 @@ public final class KeyFaceSolver {
             size = fit(preferred, main, cell.width() - 2 * side, cell.height(), template.capAligned());
         }
         if (corner == null || main == null)
-            return params(template, KeyFaceTemplate.Strategy.CENTERED, size, 0, 0, bottomInset, main, null, bottom);
+            return params(template, icon, KeyFaceTemplate.Strategy.CENTERED, size, 0, 0, bottomInset, main, null, bottom);
         KeyFaceDomain.SlotMetrics hint = metrics.get(KeyFaceSlot.TOP_RIGHT);
         float cornerRight = cell.width() - corner.insetPx();
         float cornerLeft = cornerRight - hint.inkWidth(corner.sizePx());
@@ -55,13 +64,13 @@ public final class KeyFaceSolver {
                 case CENTERED -> {
                     if (clear(cell, main, size, 0, 0, bottomInset, cornerLeft, cornerBottom, gap,
                             template.capAligned()))
-                        return params(template, strategy, size, 0, 0, bottomInset, main, corner, bottom);
+                        return params(template, icon, strategy, size, 0, 0, bottomInset, main, corner, bottom);
                 }
                 case SIDE_BY_SIDE -> {
                     float right = (cell.width() + main.width(size)) / 2f;
                     float shift = right + gap - cornerLeft;
                     if (cell.width() / 2f - main.width(size) / 2f - shift >= side)
-                        return params(template, strategy, size, -Math.max(0, shift), 0, bottomInset, main, corner,
+                        return params(template, icon, strategy, size, -Math.max(0, shift), 0, bottomInset, main, corner,
                             bottom);
                 }
                 case STACKED -> {
@@ -69,7 +78,7 @@ public final class KeyFaceSolver {
                     float stacked = fit(preferred, main, cell.width() - 2 * side, cell.height() - top - bottomInset,
                         template.capAligned());
                     if (stacked >= minimum)
-                        return params(template, strategy, stacked, 0, top, bottomInset, main, corner, bottom);
+                        return params(template, icon, strategy, stacked, 0, top, bottomInset, main, corner, bottom);
                 }
                 case SHRINK_MAIN -> {
                     boolean capAligned = template.capAligned();
@@ -83,11 +92,11 @@ public final class KeyFaceSolver {
                                 low = middle;
                             else high = middle;
                         }
-                        return params(template, strategy, low, 0, 0, bottomInset, main, corner, bottom);
+                        return params(template, icon, strategy, low, 0, 0, bottomInset, main, corner, bottom);
                     }
                 }
                 case HIDE_HINTS -> {
-                    return params(template, strategy, size, 0, 0, bottomInset, main, null, bottom);
+                    return params(template, icon, strategy, size, 0, 0, bottomInset, main, null, bottom);
                 }
             }
         }
@@ -130,13 +139,22 @@ public final class KeyFaceSolver {
         return inkTop >= cornerBottom + gap || right + gap <= cornerLeft;
     }
 
-    private static KeyFaceParams params(KeyFaceTemplate template, KeyFaceTemplate.Strategy strategy, float size,
-            float shift, float top, float bottomInset, KeyFaceDomain.SlotMetrics main, KeyFaceParams.Hint corner,
-            KeyFaceParams.Hint bottom) {
+    private static KeyFaceParams params(KeyFaceTemplate template, float icon, KeyFaceTemplate.Strategy strategy,
+            float size, float shift, float top, float bottomInset, KeyFaceDomain.SlotMetrics main,
+            KeyFaceParams.Hint corner, KeyFaceParams.Hint bottom) {
         float inkTop = main == null ? 0 : main.inkTop(size);
         float inkBottom = main == null ? 0 : main.inkBottom(size);
         return new KeyFaceParams(strategy,
-            new KeyFaceParams.Main(size, shift, top, bottomInset, inkTop, inkBottom, template.capAligned()), corner, bottom);
+            new KeyFaceParams.Main(size, shift, top, bottomInset, inkTop, inkBottom, template.capAligned()), corner, bottom,
+            icon);
+    }
+
+    /** 图标边长：按键高比例、夹在上下限之间，再不超过键格的短边（去掉两侧边距）；模板不画图标时为 0。 */
+    private static float icon(KeyFaceTemplate template, KeyFaceEnvironment environment, Cell cell, float side) {
+        KeyFaceTemplate.IconSpec spec = template.icon();
+        if (spec == null) return 0;
+        float size = clamp(spec.heightRatio() * cell.height(), environment.px(spec.minDp()), environment.px(spec.maxDp()));
+        return Math.max(0, Math.min(size, Math.min(cell.width() - 2 * side, cell.height())));
     }
 
     private static float clamp(float value, float low, float high) {

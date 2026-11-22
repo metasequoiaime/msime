@@ -1166,6 +1166,7 @@ final class ImeLetterRows {
         KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
         if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ImeGridHelpcodeEntry.bind(s, separator);
+        s.imeKeyFaces.attachFunction(separator, true);
         fourteenSeparatorKey = separator;
         return separator;
     }
@@ -1447,6 +1448,7 @@ final class ImeLetterRows {
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.show(key);
         row.addView(key, index, LayoutPolicy.weightedMatchParentParams(weight));
+        s.imeKeyFaces.attachFunction(key, false);
     }
 
     /**

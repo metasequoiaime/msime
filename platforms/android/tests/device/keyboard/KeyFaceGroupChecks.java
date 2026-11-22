@@ -20,7 +20,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 用产品的键组画字母键：同一组的键用同一份参数（字号、基线、退让方式），主标签、角标和底部提示的墨迹不相碰、不出键格，换提示只重画不重新布局。只比墨迹框和算出的参数，不比像素颜色以外的细节。
+ * 用产品的键组画字母键和键区功能键：同一组的键用同一份参数（字号、基线、退让方式），主标签、角标和底部提示的墨迹不相碰、不出键格，换提示只重画不重新布局；功能键的字不大过字母、和字母落在同一条中线上，图标画在键格中间。只比墨迹框和算出的参数，不比像素颜色以外的细节。
  */
 final class KeyFaceGroupChecks {
     private KeyFaceGroupChecks() { }
@@ -34,7 +34,10 @@ final class KeyFaceGroupChecks {
                     config.fontScale = fontScale;
                     Context context = new ContextThemeWrapper(test.getTargetContext().createConfigurationContext(config),
                         android.R.style.Theme_Material_Light_NoActionBar);
-                    for (int height : new int[] {29, 40, 46, 52, 84}) verifyRow(context, height);
+                    for (int height : new int[] {29, 40, 46, 52, 84}) {
+                        verifyRow(context, height);
+                        verifyFunctions(context, height);
+                    }
                 }
             } catch (Exception | AssertionError error) { failure.set(error); }
         });
@@ -91,6 +94,105 @@ final class KeyFaceGroupChecks {
         check(product.params(first) == params, "去掉提示后参数变了：" + where);
         product.setCorner(first, "2");
         check(!first.isLayoutRequested() && product.params(first) == params, "恢复提示后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * 键区功能键，按真实键盘里的搭配各放一组：26 键的 ⇧（组字时画「分词」）和 ⌫、14/18 键带「辅」的分词键和 ⌫（这两组以一个窄字母键所在的字母组为上限），九键右列的 ⌫ 和重输（还没有字母组，不设上限）。
+     */
+    private static void verifyFunctions(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Button letter = product.letterKey("W", "", "");
+        product.join(letter, product.letterGroup(density, scale));
+        layout(letter, Math.round(30 * density), height);
+
+        Button shift = product.iconKey("SHIFT", "⇧");
+        product.setDrawsText(shift, true);
+        shift.setText("分词");
+        verifyFunctionRow(product, density, scale, height, "26 键 " + where, letter, null,
+            new Button[] {shift, product.iconKey("BACKSPACE", "⌫")}, new int[] {48, 48});
+        // 组字结束：⇧ 换回图标，只重画。
+        product.setDrawsText(shift, false);
+        shift.setText("⇧");
+        check(!shift.isLayoutRequested(), "⇧ 换回图标后请求了重新布局：" + where);
+
+        Button separator = product.letterKey("分词", "", "辅");
+        verifyFunctionRow(product, density, scale, height, "14/18 键 " + where, letter, separator,
+            new Button[] {separator, product.iconKey("BACKSPACE", "⌫")}, new int[] {52, 52});
+        product.setCorner(separator, "");
+        product.setCorner(separator, "辅");
+        check(!separator.isLayoutRequested(), "分词键换角标后请求了重新布局：" + where);
+
+        Button rewrite = product.plainKey("重输");
+        // TextView 可能按过期的排版把内容滚开（键组里的键不走它的测量）；键面要照样画在键格中间。
+        verifyFunctionRow(product, density, scale, height, "九键 " + where, null, null,
+            new Button[] {product.iconKey("BACKSPACE", "⌫"), rewrite}, new int[] {56, 56});
+    }
+
+    /**
+     * 一组功能键：参数相同、字不大过字母组、图标和文字竖直居中、文字按全组的水平偏移居中、不压住角标；TextView 补建了自己的排版之后换文字（连行数都变）也不请求重新布局。
+     *
+     * @param letter 同一副键盘的一个字母键（功能键的字以它的组为上限），九键为 {@code null}
+     * @param cornerKey 带右上角提示的那个键，没有时为 {@code null}
+     */
+    private static void verifyFunctionRow(Product product, float density, float scale, int height, String where,
+            Button letter, Button cornerKey, Button[] keys, int[] widthsDp) throws Exception {
+        Object functions = product.functionGroup(density, scale);
+        if (letter != null) product.capMainAt(functions, product.faceGroup(letter));
+        for (int index = 0; index < keys.length; index++) {
+            keys[index].setLayoutParams(new android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            product.joinFunction(keys[index], functions, keys[index] == cornerKey);
+            layout(keys[index], Math.round(widthsDp[index] * density), height);
+        }
+        Object params = product.params(keys[0]);
+        check(params != null, "功能键组没有算出参数：" + where);
+        for (Button key : keys) check(product.params(key) == params, "同一组的功能键参数不同：" + where);
+        if (letter != null)
+            check(product.mainSize(params) <= product.mainSize(product.params(letter)) + 0.01f,
+                "功能键的字大过了字母：" + product.mainSize(params) + " " + where);
+        for (Button key : keys) {
+            boolean icon = product.isIcon(key);
+            String at = key.getText() + " " + key.getWidth() + "px " + where;
+            if (!icon) key.scrollTo(-Math.round(26 * density), 0);
+            Bitmap bitmap = Bitmap.createBitmap(key.getWidth(), key.getHeight(), Bitmap.Config.ARGB_8888);
+            try {
+                Canvas canvas = new Canvas(bitmap);
+                canvas.drawColor(Color.WHITE);
+                // 父视图画子视图时按它的滚动平移画布，这里照做。
+                canvas.translate(-key.getScrollX(), -key.getScrollY());
+                key.draw(canvas);
+                Rect main = ink(bitmap, 1), corner = ink(bitmap, 0);
+                check(!main.isEmpty(), "功能键没有画出来：" + at);
+                check(main.left >= 0 && main.right <= key.getWidth() && main.top >= 0 && main.bottom <= key.getHeight(),
+                    "功能键面出了键格：" + at);
+                check(Math.abs(main.exactCenterY() - key.getHeight() / 2f) <= 2 * density,
+                    "功能键面没有竖直居中：" + main + " " + at);
+                float offset = icon ? 0 : product.mainShift(params);
+                check(Math.abs(main.exactCenterX() - (key.getWidth() / 2f + offset)) <= 2 * density,
+                    "功能键面没有水平居中：" + main + " 偏移 " + offset + " " + at);
+                if (!corner.isEmpty()) check(!Rect.intersects(main, corner), "主标签压住角标：" + at);
+            } finally { bitmap.recycle(); }
+            key.scrollTo(0, 0);
+            if (icon) continue;
+            // 绘制前 TextView 会补建自己的排版；之后换成两行的文字（TextView 的排版高度跟着变）再换回来，都只重画。
+            // 两行的文字是人为的，它补进内容域后参数可能变，这里只看布局。
+            key.onPreDraw();
+            CharSequence text = key.getText();
+            key.setText(text.subSequence(0, 1) + "\n" + text.subSequence(1, text.length()));
+            check(!key.isLayoutRequested(), "换成两行文字后请求了重新布局：" + at);
+            key.setText(text);
+            check(!key.isLayoutRequested(), "换回文字后请求了重新布局：" + at);
+        }
+    }
+
+    private static void layout(Button key, int width, int height) {
+        key.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        key.layout(0, 0, width, height);
     }
 
     /** 墨迹框：0 红（角标）、1 绿（主标签）、2 蓝（底部提示）。 */
@@ -150,6 +252,63 @@ final class KeyFaceGroupChecks {
                 .newInstance(template, environment, domain, measurer);
         }
 
+        Object functionGroup(float density, float fontScale) throws Exception {
+            Object template = loader.loadClass("app.msime.android.KeyFaceTemplates").getField("FUNCTIONS").get(null);
+            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
+                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Object domain = loader.loadClass("app.msime.android.FunctionKeyFaceDomains").getMethod("functions").invoke(null);
+            Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer")
+                .getConstructor(Typeface.class).newInstance(Typeface.DEFAULT);
+            return loader.loadClass("app.msime.android.KeyFaceGroup")
+                .getConstructor(loader.loadClass("app.msime.android.KeyFaceTemplate"),
+                    loader.loadClass("app.msime.android.KeyFaceEnvironment"),
+                    loader.loadClass("app.msime.android.KeyFaceDomain"),
+                    loader.loadClass("app.msime.android.KeyFaceMeasurer"))
+                .newInstance(template, environment, domain, measurer);
+        }
+
+        void capMainAt(Object group, Object leader) throws Exception {
+            Class<?> type = loader.loadClass("app.msime.android.KeyFaceGroup");
+            type.getMethod("capMainAt", type).invoke(group, leader);
+        }
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        Button iconKey(String kind, String text) throws Exception {
+            Class<?> iconKey = loader.loadClass("app.msime.android.KeyboardIconKey");
+            Class kinds = loader.loadClass("app.msime.android.KeyboardIconKey$Kind");
+            Button key = (Button) iconKey.getConstructor(Context.class, kinds).newInstance(context, Enum.valueOf(kinds, kind));
+            key.setBackground(null);
+            key.setText(text);
+            key.setTextColor(Color.rgb(0, 200, 0));
+            return key;
+        }
+
+        Button plainKey(String text) throws Exception {
+            Button key = (Button) pressButton.getConstructor(Context.class).newInstance(context);
+            key.setBackground(null);
+            key.setText(text);
+            key.setTextColor(Color.rgb(0, 200, 0));
+            return key;
+        }
+
+        boolean isIcon(Button key) throws Exception {
+            Class<?> iconKey = loader.loadClass("app.msime.android.KeyboardIconKey");
+            return iconKey.isInstance(key) && !(boolean) iconKey.getMethod("showsText").invoke(key);
+        }
+
+        Object faceGroup(Button key) throws Exception { return pressButton.getMethod("faceGroup").invoke(key); }
+
+        void setDrawsText(Button key, boolean value) throws Exception {
+            key.getClass().getMethod("setDrawsText", boolean.class).invoke(key, value);
+        }
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        void joinFunction(Button key, Object group, boolean corner) throws Exception {
+            Set slots = corner ? EnumSet.of((Enum) slot("TOP_RIGHT")) : EnumSet.noneOf((Class) slot);
+            pressButton.getMethod("setFaceGroup", loader.loadClass("app.msime.android.KeyFaceGroup"), Set.class)
+                .invoke(key, group, slots);
+        }
+
         Button letterKey(String label, String bottom, String corner) throws Exception {
             Button key = (Button) hintButton.getConstructor(Context.class).newInstance(context);
             key.setBackground(null);
@@ -182,6 +341,11 @@ final class KeyFaceGroupChecks {
         float mainSize(Object params) throws Exception {
             Object main = params.getClass().getMethod("main").invoke(params);
             return (float) main.getClass().getMethod("sizePx").invoke(main);
+        }
+
+        float mainShift(Object params) throws Exception {
+            Object main = params.getClass().getMethod("main").invoke(params);
+            return (float) main.getClass().getMethod("shiftXPx").invoke(main);
         }
 
         boolean hidesBottom(Object params) throws Exception {

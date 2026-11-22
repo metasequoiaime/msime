@@ -725,6 +725,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        s.imeKeyFaces.attachFunction(delete, false);
         if (tallReturn) {
             // 右侧大回车：⌫ 下面一格在字母层是重输，数字层是按字面上屏的小数点（空格在中列 0 的右边，与 iOS、鸿蒙相同）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行。
             if (digits) addNineKey(actions, nineKeyDecimalKey());
@@ -787,6 +788,7 @@ final class ImeLayoutRows {
         });
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachFunction(rewrite, false);
         return rewrite;
     }
 
@@ -928,12 +930,14 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        s.imeKeyFaces.attachFunction(delete, false);
         // 右列和拼音九键一样三等分（⌫、拆分、！）、与三行网格逐行对齐；原来 ⌫ 独占两行，看起来像别的键盘拼进来的。笔画不需要拆分，中间这格是「重输」：丢掉已打的整串笔画。
         Button rewrite = s.keyboardKey("重输", "重新输入笔画", () -> {
             if (s.hasEngineComposition()) s.discardComposition();
         });
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachFunction(rewrite, false);
         addNineKey(actions, rewrite);
         if (tallReturn) {
             // 右侧大回车：！ 去掉，回车占第三行和底行。
@@ -1033,6 +1037,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        s.imeKeyFaces.attachFunction(delete, false);
         adoptBarKey(actions, s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS) ? s.layerButton : s.languageButton, KeyboardKeyRole.ACCENT);
         adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
         adoptBarKey(actions, s.enterButton, s.imeBottomRow.returnKeyRole());

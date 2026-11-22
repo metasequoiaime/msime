@@ -11,6 +11,8 @@ import app.msime.android.KeyboardGeometry;
  * 画描边图标的功能键：⇧（含大写锁定的下划线形）、⌫、↵、123 层的表情键，图标 22 dp，线宽 1.7（viewBox 单位）。
  *
  * <p>节点 text（`⇧`、`⌫`、回车的动作文字）原样保留给无障碍和设备测试，只是不绘制；回车在组词时要显示「确认」，调用方用 {@link #setDrawsText} 切回文字。图标颜色就是按钮的文字颜色，由样式通道按皮肤设置（Shift 激活时 accent）。
+ *
+ * <p>放进键组（{@link #setFaceGroup}）时，图标边长取键组算的 {@link KeyFaceParams#iconPx}，改画文字时文字和右上角提示都按键组的参数画；画图标时主标签位置是空的，`⇧`、`⌫` 这样的节点文字不进键组的内容域。
  */
 public final class KeyboardIconKey extends KeyboardPressButton {
     /** 键上画的图标。 */
@@ -38,7 +40,8 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (cornerHint.equals(next)) return;
         cornerHint = next;
-        invalidate();
+        if (faceGroup() != null) faceTextChanged(KeyFaceSlot.TOP_RIGHT, next);
+        else invalidate();
     }
 
     public String cornerHint() { return cornerHint; }
@@ -56,7 +59,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     public void setDrawsText(boolean value) {
         if (drawsText == value) return;
         drawsText = value;
-        invalidate();
+        mainFaceChanged();
     }
 
     public boolean drawsText() { return drawsText; }
@@ -64,7 +67,21 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     /** 节点 text 落在这组文字里时按文字画（回车组词时的「确认」「確定」），其余时候画图标；调用方只管 setText，不必再切 {@link #setDrawsText}。 */
     public void setTextFaces(java.util.Set<String> faces) {
         textFaces = SetPolicy.copyOrEmpty(faces);
-        invalidate();
+        mainFaceChanged();
+    }
+
+    /** 在图标和文字之间换了：只重新定位、重画。文字由随后的 setText 补进键组（⇧ 先切到文字、再换成「分词」，这时补进去的会是 `⇧`）。 */
+    private void mainFaceChanged() {
+        faceRedraw();
+    }
+
+    /** 画图标时主标签位置是空的；右上角是 {@link #setCornerHint} 的提示。 */
+    @Override public String faceText(KeyFaceSlot slot) {
+        return switch (slot) {
+            case MAIN -> showsText() ? String.valueOf(getText()) : "";
+            case TOP_RIGHT -> cornerHint;
+            default -> "";
+        };
     }
 
     /** 现在是否按文字画。 */
@@ -89,6 +106,17 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     }
 
     @Override protected void onDraw(Canvas canvas) {
+        KeyFaceParams params = faceParams();
+        if (faceGroup() != null) {
+            // 键组画文字和提示；这里只补上图标。
+            if (!showsText() && params != null) {
+                int saved = beginFaceDraw(canvas);
+                drawIcon(canvas, params.iconPx(), getWidth(), getHeight(), 0, 0);
+                canvas.restoreToCount(saved);
+            }
+            super.onDraw(canvas);
+            return;
+        }
         if (showsText()) {
             super.onDraw(canvas);
             drawCornerHint(canvas);
@@ -98,13 +126,17 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         int height = DimensionPolicy.contentHeight(this);
         float size = BoundsPolicy.atMost(DimensionPolicy.shorterSide(width, height),
             DimensionPolicy.floatPixels(getContext(), ICON_DP));
+        drawIcon(canvas, size, width, height, getPaddingLeft(), getPaddingTop());
+        drawCornerHint(canvas);
+    }
+
+    /** 在 {@code left}、{@code top} 起的 {@code width}×{@code height} 区域里居中画边长 {@code size} 的图标，停用时变淡。 */
+    private void drawIcon(Canvas canvas, float size, int width, int height, int left, int top) {
         if (size <= 0) return;
         int color = getCurrentTextColor();
         if (!isEnabled()) color = ColorPolicy.withAlpha(color, 96f / 255f);
-        KeyboardIconPaths.draw(canvas, paint, iconFor(kind),
-            getPaddingLeft() + (width - size) / 2f, getPaddingTop() + (height - size) / 2f,
+        KeyboardIconPaths.draw(canvas, paint, iconFor(kind), left + (width - size) / 2f, top + (height - size) / 2f,
             size, color);
-        drawCornerHint(canvas);
     }
 
     private void drawCornerHint(Canvas canvas) {

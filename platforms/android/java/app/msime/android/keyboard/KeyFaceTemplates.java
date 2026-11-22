@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 键面模板的取值。比例按默认键高上的设计字号定（字母 22 sp、角标 10 sp、双拼提示 9 sp），上下限防止矮键上的字小到认不出、平板和大键上的字无限放大。
+ * 键面模板的取值。比例按默认键高上的设计字号定（字母 22 sp、角标 10 sp、双拼提示 9 sp、功能键文字 15 sp、图标 22 dp），上下限防止矮键上的字小到认不出、平板和大键上的字无限放大。
  *
  * <p>默认键高就是一行键的高度 {@link KeyboardGeometry#KEY_ROW_HEIGHT_DP}（行距另加在行上，键本身 52 dp），不按设计稿里的 {@link KeyboardGeometry#DESIGN_KEY_HEIGHT_DP}：按 46 dp 算时默认键盘上的字整体大了约一成。
  */
@@ -25,6 +25,12 @@ public final class KeyFaceTemplates {
     static final KeyFaceTemplate.SlotSpec CORNER = slot(10, 8, 12, 0.3f, 255);
     /** 底部的双拼提示：设计 9 sp，墨迹离下边 0.25 个字号，稍淡。 */
     static final KeyFaceTemplate.SlotSpec BOTTOM = slot(9, 7, 11, 0.25f, 204);
+
+    /** 功能键（分词、重输）的文字：设计 15 sp，最小 10 sp（与底行功能键一样），最大 17 sp；另外不大过字母（{@link KeyFaceGroup#capMainAt}）。 */
+    static final KeyFaceTemplate.SlotSpec FUNCTION_TEXT = slot(15, 10, 17, 0, 255);
+    /** 功能键的图标（⌫、⇧）：设计 {@link KeyboardIconKey#ICON_DP}，最小 16 dp，最大 26 dp。 */
+    static final KeyFaceTemplate.IconSpec FUNCTION_ICON = new KeyFaceTemplate.IconSpec(
+        KeyboardIconKey.ICON_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26);
 
     private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> letterSlots() {
         Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
@@ -52,4 +58,18 @@ public final class KeyFaceTemplates {
     public static final KeyFaceTemplate GRID_LETTERS = new KeyFaceTemplate("grid-letters", letterSlots(),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, FourteenKeyLayout.TWO_LETTER_SPACING_EM, true,
         LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /**
+     * 键区里的功能键（⇧、⌫、14/18 键的分词键、九键右列的 ⌫ 和重输）：主标签是图标或一两个字，右上角可能有「辅」。汉字按整个墨迹居中，所以和同一排按大写字母高居中的字母落在同一条中线上；退让方式与字母键相同。
+     */
+    public static final KeyFaceTemplate FUNCTIONS = new KeyFaceTemplate("functions", functionSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        FUNCTION_ICON);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> functionSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, FUNCTION_TEXT);
+        slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
+        return slots;
+    }
 }

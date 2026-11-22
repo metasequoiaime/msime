@@ -84,6 +84,31 @@ public final class KeyFaceGroupSmoke {
         group.replace(KeyFaceSolverSmoke.ENVIRONMENT, KeyFaceSolverSmoke.MEASURER, KeyFaceSolverSmoke.domain(true, false));
         check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong"),
             "换内容域时应保留键此刻的文字、丢掉不再可能出现的文字");
+
+        // 主标签以另一组为上限：跟着那一组的参数重算，取消后回到自己的字号。
+        KeyFaceGroup leader = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,
+            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
+        KeyFaceGroup follower = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,
+            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
+        Key letter = new Key();
+        Key function = new Key();
+        leader.attach(letter, Set.of());
+        follower.attach(function, Set.of());
+        follower.cellChanged(function, 300, 150);
+        float own = follower.params().main().sizePx();
+        follower.capMainAt(leader);
+        check(follower.params().main().sizePx() == own, "上限那一组还没有参数时不应设上限");
+        leader.cellChanged(letter, 60, 150);
+        float cap = leader.params().main().sizePx();
+        check(cap < own && KeyFaceSolverSmoke.near(follower.params().main().sizePx(), cap),
+            "上限那一组的参数变了，这一组应跟着按它封顶：" + follower.params().main().sizePx() + " " + cap);
+        int notified = function.changes;
+        leader.cellChanged(letter, 300, 150);
+        check(follower.params().main().sizePx() == own && function.changes == notified + 1,
+            "上限放宽后应回到自己的字号并重画");
+        leader.cellChanged(letter, 60, 150);
+        follower.capMainAt(null);
+        check(follower.params().main().sizePx() == own, "取消上限后应回到自己的字号");
         System.out.println("KeyFaceGroupSmoke passed");
     }
 

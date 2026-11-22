@@ -44,6 +44,20 @@ public final class KeyFaceTemplatesSmoke {
         check(KeyFaceTemplates.LETTERS.pairGapEm() == 0, "26 键字母不应分开画");
         check(KeyFaceTemplates.GRID_LETTERS.pairGapEm() == FourteenKeyLayout.TWO_LETTER_SPACING_EM,
             "14/18 键双字母的间距应与键面字距相同");
+
+        // 功能键：默认键高上文字 15 sp、图标 22 dp；文字随字体缩放、封顶 17 sp，图标不随字体缩放、在 16–26 dp 之间。
+        KeyFaceTemplate functions = KeyFaceTemplates.FUNCTIONS;
+        KeyFaceParams design = solve(functions, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(design.main().sizePx(), 15), "功能键文字应为 15 sp：" + design.main().sizePx());
+        check(near(design.iconPx(), 22), "功能键图标应为 22 dp：" + design.iconPx());
+        KeyFaceParams scaled = solve(functions, new KeyFaceEnvironment(1, 1.15f), 400, 52);
+        check(near(scaled.main().sizePx(), 15 * 1.15f) && near(scaled.iconPx(), 22),
+            "功能键文字应跟随字体缩放、图标不跟：" + scaled.main().sizePx() + " " + scaled.iconPx());
+        KeyFaceParams tall = solve(functions, new KeyFaceEnvironment(1, 1), 400, 400);
+        check(near(tall.main().sizePx(), 17) && near(tall.iconPx(), 26), "大键上的功能键应封顶");
+        check(near(solve(functions, new KeyFaceEnvironment(1, 1), 400, 20).iconPx(), 16), "矮键上的图标不应小于 16 dp");
+        check(!functions.capAligned(), "功能键的汉字应按整个墨迹居中");
+        check(functions.has(KeyFaceSlot.TOP_RIGHT) && !functions.has(KeyFaceSlot.BOTTOM), "功能键只有右上角提示");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

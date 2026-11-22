@@ -27,16 +27,23 @@ public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
     private KeyFaceRenderer keyFace;
     /** 自己和祖先都可见（{@link #onVisibilityAggregated}）；隐藏的键不算进键组的最小键格。 */
     private boolean visibleForFace = true;
+    /** 键组里的键正在换节点文字：这期间 TextView 请求的重新布局只换成重画（{@link #requestLayout}）。 */
+    private boolean settingFaceText;
 
     public KeyboardPressButton(android.content.Context context) {
         super(context);
     }
 
-    /** 把这个键放进键组（{@code null} 拿出来，回到 TextView 自己排版和绘制）。{@code slots} 是它可能用到的提示位置。 */
+    /**
+     * 把这个键放进键组（{@code null} 拿出来，回到 TextView 自己排版和绘制）。{@code slots} 是它可能用到的提示位置。
+     *
+     * <p>放进键组时关掉 TextView 的自动字号：键面由键组定字号，自动字号只会在每次换文字时白白试排一遍（离开键组的 ⇧、⌫ 本来就不用自动字号，不用恢复）。
+     */
     public void setFaceGroup(KeyFaceGroup group, Set<KeyFaceSlot> slots) {
         if (keyFace != null) keyFace.group().detach(this);
         keyFace = group == null ? null : new KeyFaceRenderer(group);
         if (group != null) {
+            if (getAutoSizeTextType() != AUTO_SIZE_TEXT_TYPE_NONE) setAutoSizeTextTypeWithDefaults(AUTO_SIZE_TEXT_TYPE_NONE);
             group.attach(this, slots);
             reportCell();
         }
@@ -63,6 +70,12 @@ public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
         invalidate();
     }
 
+    /** 画法变了而文字没变：放进键组时下次绘制前重新定位；都要重画。 */
+    protected final void faceRedraw() {
+        if (keyFace != null) keyFace.stale();
+        invalidate();
+    }
+
     /** 提示的文字变了：内容域里没有就补进键组，下次绘制前重新定位。 */
     protected final void faceTextChanged(KeyFaceSlot slot, String text) {
         if (keyFace == null) return;
@@ -71,9 +84,34 @@ public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
         invalidate();
     }
 
+    /**
+     * 键组里的键换文字不重新布局：键面不按文字量尺寸，尺寸只由父视图给。TextView 留着一份自己的文字排版（绘制前的 `onPreDraw` 会补建），换文字时按它重排，文字高度一变就请求整个键盘重新布局；这里把这一次请求换成重画。
+     */
+    @Override public void setText(CharSequence text, BufferType type) {
+        if (keyFace == null) {
+            super.setText(text, type);
+            return;
+        }
+        settingFaceText = true;
+        try {
+            super.setText(text, type);
+        } finally {
+            settingFaceText = false;
+        }
+    }
+
+    @Override public void requestLayout() {
+        if (settingFaceText) {
+            invalidate();
+            return;
+        }
+        super.requestLayout();
+    }
+
     @Override protected void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
         super.onTextChanged(text, start, lengthBefore, lengthAfter);
-        faceTextChanged(KeyFaceSlot.MAIN, String.valueOf(text));
+        // 子类的字段在 TextView 的构造函数里还没初始化，那时也还没放进键组。
+        if (keyFace != null) faceTextChanged(KeyFaceSlot.MAIN, faceText(KeyFaceSlot.MAIN));
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -113,7 +151,20 @@ public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
             super.onDraw(canvas);
             return;
         }
+        int saved = beginFaceDraw(canvas);
         keyFace.draw(canvas, this);
+        canvas.restoreToCount(saved);
+    }
+
+    /**
+     * 按键格坐标画键面：抵消 TextView 自己设的滚动。键组里的键不走 TextView 的测量，TextView 留着的文字排版可能还是按旧宽度排的；它在每次绘制前（`onPreDraw`）仍按那份排版把内容滚到「放得下」的位置，画布随之平移，键面就整体偏到一边（九键右列的「重输」在模拟器上偏右约 26 px）。
+     *
+     * @return 交给 {@link Canvas#restoreToCount} 的值
+     */
+    protected final int beginFaceDraw(Canvas canvas) {
+        int saved = canvas.save();
+        canvas.translate(getScrollX(), getScrollY());
+        return saved;
     }
 
     /** 候选词块可关闭过渡，按压样式与输入时机保持不变。 */
