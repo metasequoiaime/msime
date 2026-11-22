@@ -23,6 +23,31 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// 系统编辑器退到后台再回来时，键盘顶栏与按键不能被旧的窗口高度错开（#11780）。
+  func testKeyboardTopRowKeepsItsPositionWhenHostReturnsFromBackground() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app, toolbarTest: true)
+    let toolbarButton = app.buttons["moreShortcut"]
+    let deleteKey = app.buttons["letterDeleteKey"]
+    XCTAssertTrue(toolbarButton.waitForExistence(timeout: 10))
+    XCTAssertTrue(deleteKey.waitForExistence(timeout: 10))
+    let originalGap = deleteKey.frame.minY - toolbarButton.frame.minY
+    let originalToolbarY = toolbarButton.frame.minY
+    keepScreenshot("键盘退后台前", in: app)
+
+    XCUIDevice.shared.press(.home)
+    XCTAssertTrue(app.wait(for: .runningBackground, timeout: 2)
+                  || app.wait(for: .runningBackgroundSuspended, timeout: 6))
+    app.activate()
+
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    XCTAssertTrue(toolbarButton.waitForExistence(timeout: 10), "宿主回到前台后应恢复工具栏")
+    XCTAssertTrue(deleteKey.waitForExistence(timeout: 10))
+    keepScreenshot("键盘回到前台", in: app)
+    XCTAssertEqual(toolbarButton.frame.minY, originalToolbarY, accuracy: 1)
+    XCTAssertEqual(deleteKey.frame.minY - toolbarButton.frame.minY, originalGap, accuracy: 1)
+  }
+
   /// 在系统扩展与独立编辑器之间核对粤语逐段选词，不能只检查引擎返回的提交字段。
   func testCantoneseShuangpinPartialSelectionKeepsCommittedPrefixInSystemEditor() throws {
     let app = XCUIApplication()
