@@ -1,5 +1,5 @@
-/** The dictionary operations that need the Engine's exclusive maintenance window. */
-const MUTATING_OPERATIONS: string[] = ["edit", "import", "retry", "dismiss_failure"];
+/** 需要 Engine 独占维护窗口的词库操作。 */
+const MUTATING_OPERATIONS: string[] = ["edit", "import", "retry", "dismiss_failure", "reset"];
 
 /**
  * The operations that go to the queue instead of the Engine.

@@ -2,7 +2,7 @@
 
 输入习惯同步把一台设备上学到的候选顺序（内置词的调频和阶梯降权、删除记录、置顶、固定位置）带到同一账号的其他设备上。内容在设备上压缩、补齐、加密后才上传，每台设备在服务端有自己的一份密文，服务端只保存不透明的字节，读不到内容。这份文档是服务端（msime-cloud）、Rust 驱动（client-core、engine、client-services、host-api）和各平台客户端共同的契约。设计取舍、分期和被否掉的方案见 [决策笔记](../.agents/notes/proposed/feature/2026-10-27-learning-sync-e2e.md)。
 
-服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。其余部分（Engine 的时间戳与合并、同步轮次、各平台接入）按决策笔记里的分期落地，落地时改动这份文档，不另起一份。
+服务端部分由 msime-cloud 实现，实现中定下的细节（设备与会话同寿命、按设备上限定的限流、传输名额）已写进下文。客户端的密钥串、封装与反向核对、MSL1 信封和管理设备的驱动在 `crates/client-core/src/cloud/learning_e2e.rs`，见「客户端驱动」。Engine 的明文流编解码、完整候选状态的纯合并与显示投影在 `crates/engine/src/user_dictionary/learning_sync/`，`database.rs` 提供真实时间与完整固定候选的只读流出和按同步规则的事务应用。固定位置的完整候选表迁移、本机编辑与备份恢复在 `user_dictionary/position_state.rs`，旧表保留为显示投影，备份格式不变。云快照换代经 `learning_sync/carry.rs` 保留完整固定候选、置顶比较状态及调权、删除的原始时间与权重。账号进度持久化在 `client-services/account/learning_sync/state.rs`，提供观察时间、重置准备、认证代次接纳、合并确认及上传代次计划。本机写入已读取日志持久时间下限，重置和快照激活保留该下限；`client-services/account/learning_sync/round.rs` 已串起显式上传、下载校验及独占维护内的导出和合并；密文待合并及显式空闲认领已接入；账号绑定的显式本机重置已接通，Android、iOS、macOS/Linux、Windows 和 HarmonyOS 的现有清除学习入口均已接线；自动调度及同步管理 UI 仍按决策笔记里的分期落地。显式同步轮次尚无平台入口，不自动发起上传。
 
 ## 与其他同步的关系
 
@@ -123,7 +123,7 @@ UTF-8 的 NDJSON，一行一条记录，顺序固定，同样的学习数据总�
 
 - `weight`：日志里 `operation='upsert'` 且 `user_inserted=0` 的行，即内置词学到的权重，包括阶梯降权写下的那些行。`user_inserted=1` 的行不导出，它们归词库同步。
 - `delete`：日志里全部 `operation='delete'` 的行（删除记录）。
-- `pin`：`pinned_candidates` 的行。
+- `pin`：`pinned_candidate_state` 的完整行，包括删词隐藏的胜者；旧日志从 `pinned_candidates` 读取。
 - `position`：固定位置的完整候选状态，每个 `(context, key, value)` 一条，带 `position` 和必填 `updated_at`。第一期先迁移现有 `fixed_candidate_positions`：旧行的时间戳设为 `1`；新增或移动时按下节更新。候选表只按身份唯一，不能有 `(context, position)` 唯一约束；显示用的 `fixed_candidate_positions` 仍是槽位唯一的投影。被槽位冲突暂时隐藏的候选也导出、计入记录数和上限，摘要与重启恢复不能只读显示投影。备份恢复仍用自己的格式和合并语义；它替换或合并固定位置时必须同步候选状态，不能只改显示表后让旧候选在重算时回来。
 - 排序：`weight` 与 `delete` 按 `(dictionary, key, value)` 混排，然后 `pin` 按 `context`，然后 `position` 按 `(context, key, value)`；字符串按 UTF-8 字节比较。
 - `updated_at` 是这一行在日志里的逻辑修改时间，以 Unix 秒为起点并按下节单调推进，可能超前于实际时钟，不是导出时间。
@@ -132,13 +132,19 @@ UTF-8 的 NDJSON，一行一条记录，顺序固定，同样的学习数据总�
 - 不认识的 `type` 跳过并计数，不让整份失败：第二期在同一版本里加整句联想的记录，旧客户端照样合并它认识的部分。只有不兼容的改动才升 `version`，读到更高的 `version` 时整份跳过，提示升级。
 - 记录数和 `footer.records` 不符、`footer` 之后还有内容、字段缺失或类型不对、数值超出「上限与额度」里的范围（包括 `updated_at`），按解不开处理。
 
+Engine 的 `read_learning_sync` 接受解密后的 `BufRead`，完整校验后一次返回 `LearningSyncRead`；中途 I/O 失败、缺页尾、重复已知字段或格式不合法时，不返回可应用的部分状态。它在读取时限制到 128 MiB 加一个用于检测超限的字节，未知类型、未知词库与重复身份都计入最多 500,000 条的原始记录数。未知词库的已知记录仍校验全部字段并计入 `observed_max`，但不写入状态；未知类型只计入 `skipped`。`write_learning_sync` 按上述固定顺序写确定字节，超限在写到输出之前返回错误；上传层的调权截断、压缩与信封大小处理不在这个 API 内。
+
+`LearningSyncState::combine` 对每个身份保存规则胜者，`position_projection` 才按槽位生成显示视图，后者不修改状态。`after_reset_floor` 过滤远端状态中不高于屏障的所有行，包括未显示候选；调用方必须在独占维护边界内读取当前屏障再应用，不能把这个纯过滤函数当成重置屏障的持久化实现。
+
 ## 时间戳
 
-Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinned_candidates` 或固定位置候选状态的语句，都把 `updated_at` 写成 `min(max(unixepoch(), 旧值 + 1, reset_floor + 1), 2⁴⁰)`；第一次插入没有旧值，取 `min(max(unixepoch(), reset_floor + 1), 2⁴⁰)`。`reset_floor` 是当前账号在本机的重置屏障，没有时为 0，定义见「本机重置屏障」。同一行的时间戳因此单调递增：收到一条带「未来时间」的远端行之后，本机下一次修改这一行仍然比它大，重置后新写的行也高于屏障。合并写入远端行时原样保留它的 `updated_at`。上限 2⁴⁰ 与「上限与额度」一致，保证不会溢出 SQLite 的 64 位整数，也不会写出别的设备拒收的值；碰到之后这一行再改也停在 2⁴⁰，按平局规则比较，不能再保证新修改胜出。屏障已到这个上限时，也不能再保证重置后的新行能通过屏障。
+Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinned_candidate_state` 或固定位置候选状态的语句，都把 `updated_at` 写成 `min(max(unixepoch(), 旧值 + 1, reset_floor + 1), 2⁴⁰)`；第一次插入没有旧值，取 `min(max(unixepoch(), reset_floor + 1), 2⁴⁰)`。`reset_floor` 是当前账号在本机的重置屏障，没有时为 0，定义见「本机重置屏障」。同一行的时间戳因此单调递增：收到一条带「未来时间」的远端行之后，本机下一次修改这一行仍然比它大，重置后新写的行也高于屏障。合并写入远端行时原样保留它的 `updated_at`。上限 2⁴⁰ 与「上限与额度」一致，保证不会溢出 SQLite 的 64 位整数，也不会写出别的设备拒收的值；碰到之后这一行再改也停在 2⁴⁰，按平局规则比较，不能再保证新修改胜出。屏障已到这个上限时，也不能再保证重置后的新行能通过屏障。
 
 未达到上限时，这保证之后的修改能胜出，不保证「真实时间更晚的先胜」：两台设备在各自时钟下几乎同时改同一行时，时钟快的一方胜。
 
-一次调频在同一个事务里写下的一组行（被选中的那一行，加上阶梯降权改写的各行，见 `ranking.rs` 的 `adjust_candidate_ranking`）必须用同一个时间戳：事务先算 `g = max(unixepoch(), 这次要写的各行里已有的最大 updated_at + 1, reset_floor + 1)`，再把 `g` 写进这一组的每一行，`g` 同样封顶 2⁴⁰。逐行各算各的 `max` 不行：一行刚在这一秒里改过、或者刚合并进一条时钟偏快的远端行，它会得到「旧值 + 1」，同组其他行得到「现在」，一组行的时间戳参差不齐，逐行比较时这组就会被拆开，一部分用本机的、一部分用远端的。现在 `adjust_candidate_ranking` 对每一行各调一次 `update_ranked_weight`，Engine 实现 Lamport 时间戳时要把 `g` 传进去。
+当前 Engine 已实现本机逐行递增和整组共用时间，覆盖调频、用户词编辑、内置词编辑、五笔造词、置顶和固定位置；每次 SQL 写入读取日志 `learning_sync_clock.reset_floor`，不依赖宿主缓存的配置。新增行至少为下限加一，旧行递增前先截到上限，避免历史非法大值加一溢出。`advance_learning_sync_clock` 提供在调用方独占维护权内推进下限的入口；该表只属于本机，不导出到备份或同步明文，重置和快照激活均保留，即使不保留学习内容也不能降低下限。账号 `reset_floor` 到此入口已由显式 `learning_reset_local` 接通：持久屏障和时钟推进成功后才清记录。Android 与 iOS 的清除学习入口已使用该账号绑定入口；只有明确未登录才使用旧本机重置。缺账号存储、登录读取失败或重登录时拒绝清除，不能绕过屏障；macOS/Linux 的现有设置命令复用已持有的账号会话，通过 `settings_dictionary::request_with_account` 走同一屏障，并沿用词库释放通知和租约重试；非重置动作不读取账号。Windows WinUI/Win7 原生设置通过 `learning_reset_settings` 复用同一共享实现，集合写回失败时保留已清除事实并显示独立提示；HarmonyOS 的旧重置路径仍未接通账号屏障。
+
+一次调频在同一个事务里写下的一组行（被选中的那一行，加上阶梯降权改写的各行，见 `ranking.rs` 的 `adjust_candidate_ranking`）必须用同一个时间戳：事务先算 `g = max(unixepoch(), 这次要写的各行里已有的最大 updated_at + 1, reset_floor + 1)`，再把 `g` 写进这一组的每一行，`g` 同样封顶 2⁴⁰。逐行各算各的 `max` 不行：一行刚在这一秒里改过、或者刚合并进一条时钟偏快的远端行，它会得到「旧值 + 1」，同组其他行得到「现在」，一组行的时间戳参差不齐，逐行比较时这组就会被拆开，一部分用本机的、一部分用远端的。已接入的 `learning_clock::ranking_timestamp` 在日志 IMMEDIATE 事务里只扫描这次实际改写的身份，预先算出整组时间，再经 `update_ranked_weight` 原样写入；未改写的候选不参与这组时间计算。
 
 ## 合并规则
 
@@ -147,8 +153,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | 数据 | 第一期 | 规则 |
 | --- | --- | --- |
 | `weight` 与 `delete` | 同步 | 按 `(dictionary, key, value)` 比较：`updated_at` 大的胜；相同时 `delete` 胜；都是 `weight` 时 `weight` 大的胜；再相同时 `display` 按字节大的胜。本机这一行 `user_inserted=1` 时从不被远端行覆盖。远端行写进本机时记为 `user_inserted=0`，写法与 `merge_dictionary_state` 相同（先改工作词库，再记日志）。一次调频写下的一组行（含阶梯降权）共用同一个时间戳 `g`（见「时间戳」），所以在两组都写过的行上，`g` 大的那一组整组胜出；两组的 `g` 恰好相等时按上面的平局规则逐行比较，组可能被拆开，这只在两台设备同一秒调同一组时发生，接受 |
-| `delete` 胜出时的副作用 | 同步 | 与本机删词相同：删掉这个词的置顶，删掉包含它的整句联想记录（`removal.rs` 的删词事务）。删除记录必须同步：连续选词造词前会查删除记录，不同步的话对端会把删掉的词又造回来 |
-| `pin` | 同步 | 按 `context` 比较 `updated_at`，大的胜，相同时 `value` 按字节大的胜。26 键取消置顶只发生在删词时，由 `delete` 的副作用带过去。九宫格的置顶和固定到第 1 位也写一条 `pin`（上下文 `nine-key:<数字>:<锁定>`），用户取消那个词的固定或把它挪到别的槽位时删掉本机这一条，和 `position` 的取消固定一样不留删除记录，远端副本以后仍可能把它带回来 |
+| `delete` 胜出时的副作用 | 同步 | 与本机删词相同：隐藏这个词的置顶显示，保留置顶比较状态，删掉包含它的整句联想记录（`removal.rs` 的删词事务）。删除记录必须同步：连续选词造词前会查删除记录，不同步的话对端会把删掉的词又造回来 |
+| `pin` | 同步 | 按 `context` 比较 `updated_at`，大的胜，相同时 `value` 按字节大的胜。完整胜者保存于 `pinned_candidate_state`；显示投影排除仍有拼音删除记录的词，删除与置顶到达次序不改变比较状态，较旧的其他词不能因胜者隐藏而替代它。26 键取消置顶只发生在删词时，由 `delete` 的副作用带过去。九宫格的置顶和固定到第 1 位也写一条 `pin`（上下文 `nine-key:<数字>:<锁定>`），用户取消那个词的固定或把它挪到别的槽位时删掉本机这一条，和 `position` 的取消固定一样不留删除记录，远端副本以后仍可能把它带回来 |
 | `position` | 同步，无删除记录 | 同一 `(context, key, value)` 取 `updated_at` 较大的那条，时间相同取较小的 `position`；本机与远端一视同仁，不用 `INSERT OR IGNORE` 保留本机。将完整候选状态合并并持久化之后，对每个 `(context, position)` 取时间较大的候选，时间相同取 `(key, value)` 字节序较小者，生成显示投影；输家保留在候选表中。合并、投影和重新导出不更新时间戳。取消固定只删除本机对应候选并重算投影，不留删除记录，远端副本以后仍可能把它带回来，第一期不承诺传播取消 |
 | 快捷短语槽位（`quick_phrase_slots`） | 第二期 | 不在任何导出流里，第二期给它加时间戳和删除记录 |
 | 整句联想（`personal_bigram`、`personal_trigram`） | 第二期 | 按设备分槽：每台设备上传自己计数最高的 5 万条；接收方按来源设备另存，读取时本机计数加上远端计数之和；远端合计截到 20 万行；移除设备时删掉它的贡献 |
@@ -171,6 +177,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 后续合并跳过所有 `updated_at <= reset_floor` 的远端行，包含 `position` 和未显示的槽位冲突候选；在重置之前接纳的待合并文件也要在真正应用时重新检查屏障。新写本机行按「时间戳」取至少 `reset_floor + 1`，不能在清空旧行后退回仅用 `unixepoch()`。
 - 例如实际 Unix 秒为 100，本机在同一秒多次修改到逻辑时间 103，并已传给另一台设备。重置必须得到 `F >= 103`，对端重传这条旧行仍被过滤；本机重置后新写的行至少为 104。换钥重传也保留这个区别。
 - 这是对本机已观察逻辑时间的屏障，不是全账号的真实时间分界。离线设备有本机未见过、`updated_at > F` 的旧行时，它仍可在以后合并进来；对端在重置后新写、但 `updated_at <= F` 的行也会被过滤，直到该行在对端的逻辑时间超过屏障。仅凭逐行时间戳无法区分这两种情况，不能承诺「所有重置前的都不回来、所有重置后的都能合并」。界面说明本机重置的这一限制；跨设备协调重置需要另行设计，不在 v1 内。
+
+持久进度文件格式版本为 1，最多 4 MiB：顶层 `version` 和 `accounts`；账号项包含 `observed_max`、`reset_floor`、按密钥与来源设备分组的 `sources`，以及按本机设备分组的 `uploads`。来源进度含 `verified/applied`，上传进度含 `generation/key_id/sha256`。全部字段必填，映射键不能重复，`applied <= verified <= 2⁵³−1`，`reset_floor <= observed_max <= 2⁴⁰`；上传摘要为实际上传明文流的 SHA-256，不保存输入原文。文件损坏、未知版本、字段或范围不合法、超限都返回错误，原文件保留；不会重建为空状态或淘汰旧下限。每次读改写持有独立的 `learning.lock`，替换私有文件后同步目录。调用方只有在持久化成功后才能发布导出、接纳待合并文件或清空学习日志；存储层不代替 Engine 的独占维护权。显式轮次在独占租约内导出观察、更新时钟和合并；远端认证接纳先持久保存进度再发布密文，应用时重新读取屏障。显式本机重置入口已经接通同一边界；Android 和 iOS 已将清除学习动作接到该入口，macOS/Linux 的现有设置命令直接复用同一屏障；Windows 原生设置与 HarmonyOS 的现有重置入口也已接入。
 
 ## 防回滚
 
@@ -221,8 +229,8 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 | 一个账号的设备 | 20 台，满了返回 409 `learning_device_limit` |
 | 明文流记录数 | 500,000 条（不含 header 与 footer） |
 | 解压后的明文流 | 128 MiB |
-| `key` / `value` / `display` / `context` | 512 / 2048 / 2048 / 1024 字节 |
-| `weight` | 1 到 100,000,000 |
+| `key` / `value` / `display` / `context` | 512 / 4096 / 4096 / 1024 字节，保留现有合法快捷短语的完整内容 |
+| `weight` | 0 到 2⁶³−1，沿用 SQLite 的非负整数范围；英文调频可超过手动新建词条的一亿上限，明文数值由 Rust 按整数处理，不经宿主浮点数转换 |
 | `position` | 1 到 5 |
 | `generation`（即 `revision`） | 1 到 2⁵³−1，JSON 里的数字和服务端的 `bigint` 都能精确表示；服务端拒收超出的，返回 400 `invalid_learning_blob` |
 | `updated_at` | 1 到 2⁴⁰（约公元 36812 年），超出的按格式不对处理，见「明文流」 |
@@ -237,6 +245,17 @@ Engine 里每一条在冲突分支里改写 `user_dictionary_operations`、`pinn
 - 先按记录上限丢到不超过 500,000 条，再看明文流和信封大小，超过时继续按同样的顺序丢，直到放得下。截断只由学习数据本身决定，同样的学习数据总是截出同样的明文流，上传前比较的 SHA-256 是截断之后那份的。
 - 只剩 `delete`、`pin`、`position` 仍放不下时这一轮不上传，仍提示 `learning_too_large`，其他设备的照常下载合并。
 - 服务端返回 413 `learning_quota`（账号合计超额）时，本机暂停上传，其他设备的照常下载合并，不靠截断解决。
+
+客户端上传准备在 `client-services/account/learning_sync/upload.rs`：保留 Engine 协议顺序和实际页尾数量，摘要取截断后的完整明文，观察上限显式取完整导出报告，包含省略的行和未知词库的有效时间；小于传入状态或超出时间范围的值拒绝，源状态不变。信封大小由 `client-core::cloud::learning_e2e::blob_envelope_size` 按实际 gzip、Padmé、头部和认证标签计算，不用压缩比估计。记录上限先精确省略最旧调权；字节超限时用确定的二分搜索保留一个已实测合格的前缀省略量，编码次数为对数级。gzip 大小不严格单调，因此不承诺全局最少省略量；不会省略非调权行。准备结果已用于显式同步轮次的加密上传：成功后才保存代次与摘要，413 不阻断下载，限流保留退避秒数后结束本轮。持久待合并已接通，共享持久节流已由下节的调度入口提供；平台生命周期和原生入口仍未接通，不能把低层轮次 API 当成完整产品入口。
+
+## 共享持久调度
+
+`BackendAccountSession::learning_sync_scheduled` 供原生宿主的自动及手动入口使用；它要求已经准备的运行时选项和本机已确认 learning 密钥，不登记设备、建钥或批准设备。平台定时器、生命周期和原生管理 UI 仍须接通，低层 `learning_sync_once` 不替代这个产品入口。
+
+- `learning_schedule_status` 只读当前具体登录的独立授权及限制，不联网、不生成密钥。`learning_set_sync_enabled` 显式修改授权；旧进度缺少 `schedule` 时关闭，重新登录后再次开启。
+- 授权、小时截止时间、服务端退避、上传额度暂停与授权修订写入账号的 `cloud-sync/learning.json`。请求前持久预留一小时，崩溃、重启和关闭后重开都不能绕过；手动仅绕过小时节流。回拨时不提前解除，溢出截止时间不回绕。
+- 429 的退避秒数在检查轮次取消之前持久化，没有秒数时等待 60 秒。上传的 413 只有正文错误码为 `learning_quota` 时暂停上传；其他设备继续下载合并。普通信封大小错误不触发账号额度暂停。`learning_resume_upload` 是用户显式恢复，不清除服务端退避和小时节流。
+- 数据请求前后（包括 401 重试）及本地提交重新核对具体登录、完整密钥和授权修订，关闭再立即开启也使旧轮次失效。旧请求返回时即使已经重新登录，也先将限流与额度限制保存到原账号，再丢弃其数据结果。返回只含 `disabled/throttled/backoff` 跳过原因、截止时间、暂停状态及原轮次报告，不返回持久登录编号、密钥或错误正文。
 
 ## 错误码
 
@@ -288,9 +307,43 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 
 编码是 `v1.<b64(设备私钥)>`；有账号密钥时再接 `.<key_id>.<b64(K_learn)>.<b64(批准者公钥)>.<状态>`，状态是 `confirmed`（本机生成的，或者用户已核对一致）、`unconfirmed`（已解开封装、等用户核对）、`rejected`（用户点了「不一致」，密钥一栏写 `-`，只留编号和批准者）或 `rotated`（本机原来有核对过的密钥，账号换了钥、本机还没被重新允许；密钥一栏写 `-`，只留旧编号和旧批准者，作为回报 `learning_key_rotated` 的标记）。只有 `confirmed` 的密钥能加解密。开头那段私钥就是设备身份，`Keystore::same_identity` 只比这一段。
 
+
+共享账号适配层（`client-services/account/learning_sync/session.rs`）将上述驱动编码作为 `keystore` 字段，与持久登录绑定一起存成 `{ "login": { "user_id", "session_id" }, "keystore" }`。文件存储的 `learning-keystore` 保存这份 JSON，最多 4 KiB；驱动本身仍读写上面的 `v1.` 编码。只使用与当前登录编号相同的密钥，同账号重新登录也生成新设备身份；令牌刷新保留登录编号和密钥。读取、身份冲突比较和保存使用同一把账号刷新锁，存储错误不得回退剪贴板身份。宿主注入存储与 FFI 包装已支持独立的 `LEARNING_KEYSTORE=5` 项，用描述符的 `MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE=2` 位显式声明；原有描述符版本、布局、四项数值与匿名身份只创建语义不变。旧宿主不声明时绝不收到新项的回调，账号退出仍可用；已声明时退出账号尝试删除两个域的密钥后再报告错误。匿名槽和匿名文件包装始终拒绝学习密钥访问，文件与 Host 的 FFI 包装分别转调对应存储。Apple 标准原生布局已提供第五项：macOS 在同一账号目录保存私有文件，iOS 使用同一 Keychain 服务和访问组内独立的 `learning-keystore` account；没有第五项的自定义布局仍不声明能力。Swift 仅在明确 `invalid_session_store` 时清掉新能力位重试一次，复用同一 context 和有效期内的 agent 指针；明确失败释放一次，成功由 Rust 接管，不可解析结果不重试或提前释放。降级后的旧 Rust 删除账号时也尝试清学习项，旧 Swift 会话退出也先清该项、失败保留会话。Android 主进程通过独立适配器提供第五项，使用独立 SharedPreferences 和 AndroidKeyStore alias，AES/GCM 加密、同步提交；严格校验非空 UTF-8 与 4 KiB 上限，不复用剪贴板身份。JNI 只对明确支持的存储设置学习能力位，旧实现默认关闭，能力查询异常拒绝注册；不声明跨进程共享能力，输入进程仍经既有账号 provider。Windows、Linux 与 HarmonyOS 的既有 `directory` 账号路径直接使用共享文件存储，已具备独立学习槽，不需要新增注入式第五项。各平台学习同步生命周期和产品入口仍未接入，不代表六个平台已具备同步入口。能力位只声明存储能力，不开启上传。
+
+### 密文待合并缓存
+
+`cloud-sync/learning-pending/` 仅保存原始 MSL1 信封，不落盘解密的学习流。文件名为 `<binding>.<source>.pending` 或 `.claimed`：source 是 32 位小写十六进制来源设备；binding 是账号、具体登录会话、本机设备和当前已确认密钥编号的 SHA-256，长度前缀和域分隔避免拼接歧义。同账号重新登录也更换绑定，打开新绑定时只清理旧缓存，永不清理 `learning.json` 的观察时间或屏障。
+
+缓存头为 `MSLQ1\0`（6 字节）、尝试次数（1 字节）、代次（8 字节小端），随后是 84 字节至 8 MiB 的原始信封；它是本机格式，不改变 MSL1 网络格式。目录句柄绑定私有文件操作，`queue.lock` 跨进程串行发布、认领和应用，原子替换后同步目录。每来源最多一份已认领和一份更新的待认领密文，最多 20 个来源；满时返回错误，不淘汰进度。
+
+每次应用重新认证信封与完整流，要求代次等于已经持久接纳的 verified，最大逻辑时间已被观察；队列自身不能提高 verified。更新的 verified 使旧认领失效；已 applied 的文件只清缓存。尝试次数在 SQLite 动作前持久写入，重启不清零，同代次重复发布不覆盖旧次数；三次失败后或恢复到已记录三次的认领时放弃该缓存，不推进 applied、不清屏障。下一次网络轮次可以重新下载尚未 applied 的同代次，计数针对一份已入队缓存，不是永久禁止该代次恢复。此入口仍由宿主负责同步授权与空闲调度。
+
 ## 客户端驱动
 
 设备登记、建钥、批准、拒绝、移除、重置、反向核对和关闭由 Rust 的 sans-IO 驱动（`msime_client_core::cloud::learning_e2e`）完成，形状与 [云剪贴板的客户端驱动](cloud-clipboard-e2e.md#客户端驱动) 相同。C ABI 仍是 `msime_client_cloud_clipboard_e2e`（Android 经 JNI、HarmonyOS 经 NAPI 调同一个函数），请求顶层加 `"domain": "learning"`，开始和继续一个操作都要带；不带 `domain` 或为 `"clipboard"` 时是云剪贴板，已有宿主不受影响。桌面端和 client-services 在 Rust 里直接调 `learning_e2e::run`，身份冲突时答 `learning_keystore_conflict`。
+
+
+`BackendAccountSession::learning_operation` 负责账号认证、每次请求的持久登录核对、401 后仅一次刷新重试和密钥保存，`learning_blob_for_login` 为同步轮次提供同样登录绑定的二进制传输。HTTP 路径由 `account/learning_sync/http.rs` 严格限制在本域；上传不经过 JSON，失败保留状态与有限错误正文，二进制传输保留秒数 `Retry-After`。`learning_sync_once` 在此基础上提供显式的数据轮次：核对 ready 与合法元数据，独占导出并保存观察时间，先上传后逐设备解密与完整流校验，独占内重新读取重置屏障并合并，成功后推进 applied。服务端丢失或回滚时重建本机副本；上传超额仍下载；合并失败保留 verified 供同代次重试。请求前后与每次本地提交均重新核对完整密钥串和具体登录，换钥或重新登录取消旧轮次。`learning-round.lock` 只串行网络轮次，不在网络期间持有 Engine 维护租约。下载已认证并完整校验后，先持久保存 verified/observed_max，再原样保存 MSL1 密文；维护权忙时返回 Pending，不推进 applied。`learning_merge_pending` 为不发出数据请求的显式空闲入口，重新认证密文、读取持久进度和重置屏障，在独占维护内更新时钟与合并，成功才推进 applied。网络轮次首次上传之后也处理旧队列；已有队列结果覆盖同来源同代次或更新代次的重复下载，保留本轮 Applied/MergeFailed/Abandoned 的真实结果。初始导出前维护权就忙时仍返回 Busy。自动及手动产品入口使用下述持久调度；平台生命周期和原生入口仍须接通。
+
+账号 C 入口 `msime_client_account` 已提供显式密钥管理，目录与注入存储两种来源共用共享账号适配层。`action:{"operation":"learning_binding"}` 只读本机具体登录，返回 `{login:null}` 或 `{login:{user_id,session_id}}`，旧会话仅补持久编号，不登记设备、不创建密钥、不联网。宿主保存这次绑定，再传 `action:{"operation":"learning_operation","login":绑定,"device_name":"设备名称","request":{"op":"status"}}`；`request` 支持上文八个驱动操作，并严格拒绝未知和缺失字段。此操作可能联网，放在工作线程调用；不返回密钥串、驱动中间状态或访问令牌。同账号重新登录也使旧绑定失效，返回 `account_cancelled`；其他错误原样返回共享账号或驱动错误码。没有学习存储能力的旧注入宿主不会回退到剪贴板槽。密钥管理不隐式启动学习数据轮次。
+
+同一账号 C 入口还提供显式数据与本机重置操作，目录和注入存储使用相同契约：
+
+- `action:{"operation":"learning_sync_once","login":绑定,"device_name":"设备名称","options":运行时选项文档}` 执行一次加密上传、下载与合并，返回 `{uploaded,upload_unchanged,dropped_weights,upload_error,downloads,pending}`。`uploaded` 为本轮上传代次或 `null`；`upload_error` 为可继续下载的上传失败或 `null`，不以部分成功冒充完整上传。此操作可能联网，应在工作线程调用。
+- `action:{"operation":"learning_schedule_status","login":绑定,"options":运行时选项文档}` 只读 `{enabled,automatic_after_ms,retry_after_ms,upload_paused}`，不返回登录编号或授权修订，不登记设备、创建密钥或联网。旧进度缺字段时默认关闭，重新登录须再次开启。
+- `action:{"operation":"learning_set_sync_enabled","login":绑定,"options":运行时选项文档,"enabled":true或false}` 修改独立持久授权，返回上述状态；开启要求 `preferences.learning:true`，关闭不受本机学习开关限制，不调用管理驱动。
+- `action:{"operation":"learning_resume_upload","login":绑定,"options":运行时选项文档}` 显式恢复额度暂停，要求本机学习及独立同步均已开启，返回状态；不清退避及小时限制。
+- `action:{"operation":"learning_cancel_scheduled","login":绑定,"options":运行时选项文档}` 在生命周期结束、切换运行时或本机学习关闭时使旧轮次失效，返回状态；它保留用户的独立开关、小时限制、服务端退避和额度暂停，不联网。
+- `action:{"operation":"learning_sync_scheduled","login":绑定,"device_name":"设备名称","options":运行时选项文档,"automatic":true或false}` 为正式宿主统一执行自动或手动同步。要求本机学习开启，只用已确认的密钥；返回 `{skipped,status,round}`，跳过时 `round:null`、执行时 `skipped:null`。`automatic:false` 只绕过小时节流，不能绕过独立授权、服务端退避及额度暂停。上传暂停时轮次报告额外带 `upload_paused:true`，仍接收远端。此操作可能联网，应在工作线程调用。
+- `action:{"operation":"learning_merge_pending","login":绑定,"options":运行时选项文档}` 返回 `{pending:[报告]}`，只认领和应用已接纳的密文，不联网、不因令牌过期触发刷新。
+- `action:{"operation":"learning_reset_local","login":绑定,"options":运行时选项文档}` 只清本机，不需要 ready 密钥或同步授权、不联网、不刷新过期令牌。先核对具体登录并取得独占维护权，导出本机最大逻辑时间，持久保存覆盖本机、当前时刻和已观察数据的账号屏障，再推进 Engine 时钟并清除本地备份待合并与学习记录。任何前置步骤失败都不清记录，清除失败保留屏障供重试；随后重新排入启用的命名词库。返回沿用旧重置的 `{reset,collections_requeued,collections_error?}`，集合重排失败仍明确返回已重置，不能把它误报为未清除。账号锁顺序与同步一致，密文队列在以后应用时重新读取屏障。
+- `action:{"operation":"learning_reset_settings","options":运行时选项文档}` 供原生设置执行既有清除动作，在共享层读取并绑定本机登录。只有明确未登录时沿用旧清除，账号或屏障读取失败不回退。Windows WinUI/Win7 使用此入口，保留词库维护租约、Server/TIP 释放与重试及 `dictionary_busy` 等旧设置错误码；成功后仍标记 WebDAV 词库变更。此操作不联网、不生成学习密钥，也不启用同步。
+
+`options` 复用 `msime_client_create` 的文档与版本校验，必须提供绝对 `preferences_directory` 和四个绝对运行时路径；兼容 Linux 附带的 `candidate_skin_catalog`。词库内容标识从该会话资源目录对应的完整清单计算，下载代次按已有或保留的清单解析，不随后台最新选择漂移；工作代次必须匹配 `user_data/dictionaries/<清单代次>`，不匹配或选项不合法时返回 `learning_invalid_options`，不生成学习身份、不启动网络。状态、授权、恢复和取消只校验公共的版本、偏好及绝对路径，不依赖词库代次仍然可用，词库换代失败时也能关闭同步；执行数据轮次仍完整校验清单和工作代次。主词库参与规则从版本允许的方案集合取得，调用方不能单独覆盖；`read_only_state:true` 返回 `learning_read_only`，不启动网络或写入。
+
+下载及待合并报告是 `{device_id,generation,outcome,dictionary_mismatch}`。`generation` 仅在信封认证和完整流校验后填写；`outcome` 为 `applied`、`already_applied`、`undecryptable`、`rollback`、`pending`、`merge_failed`、`abandoned` 或 `http`。HTTP 失败另带 `http_status` 及已知时的 `retry_after_seconds`。整轮或上传 HTTP 错误同样使用固定 `learning_http`、`http_status` 与可选秒数；不返回服务端原始错误正文。其他轮次错误使用固定码区分维护忙、待批准、换钥、元数据、进度文件、队列、流与本地存储失败，不序列化底层异常文本。已有账号操作的错误形状保持不变。
+
+产品宿主统一调用持久调度入口：开启、恢复和执行同步时，共享 Host API 检查本机学习开关，关闭时仍允许撤回授权；学习关闭返回 `learning_disabled`，不写入授权、不启动网络。宿主在学习关闭、切换运行时或生命周期结束时须调用 `learning_cancel_scheduled` 取消在途结果，保留用户的独立开关；用户关闭同步时则调用 `learning_set_sync_enabled:false` 撤回授权。低层 `learning_sync_once` 和 `learning_merge_pending` 仍要求调用方检查本机学习和独立同步授权，不可作为绕过产品调度的入口。各平台现有重置动作已接线，原生同步管理入口及生命周期仍须完成。
 
 上传和下载密文不经驱动：同步那一轮用 `Keystore::seal_blob(代次, 明文流)` 写出信封、`Keystore::open_blob(设备编号, 信封)` 解开并核对头部，代次与防回滚下限的比较、合并由调用方做。
 
@@ -324,3 +377,7 @@ learning 域的密钥串与云剪贴板的分开存放，名字是 `learning-key
 - `notice`：`pending` 时的原因，`learning_sas_mismatch`（拒绝过当前这份封装）或 `learning_key_rotated`（本机原来有密钥，账号换了钥，要重新被允许），否则为 `null`。`learning_key_rotated` 一直回报到本机重新拿到密钥（解开新封装或本机建钥、换钥）或关闭为止：密钥串里留着 `rotated` 标记，共用密钥串的设置页、面板和后台同步看到的都一样，不会被先取状态的那个进程用掉。
 - `approved`：只在 `approve` 的结果里有，批准者把 `approved.code` 显示给用户，与新设备的 `confirm.code` 核对。
 - `devices`：公钥与编号对得上的设备，最多 20 台，`code` 是各自的设备核对码。
+
+### HarmonyOS 现有清除入口
+
+`KeyboardSession.dictionary` 的 reset 分支经 `dictionaryLearningReset` 调用受限 C 入口 `msime_client_learning_reset_settings`。请求只接受绝对账号目录 `directory` 与已准备的运行时 `options`，内部固定为本机 reset；通用账号 action 和额外字段都被拒绝。它复用共享账号屏障，不联网、刷新或创建密钥，失败不回退。reset 同样需要维护窗口：组字中拒绝，空闲时释放并恢复会话、英文模式、布局及焦点。这是现有清除动作的接线；原生同步管理入口与自动调度仍未实现，尚不能在产品中发起跨设备同步。

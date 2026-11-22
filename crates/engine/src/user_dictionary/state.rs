@@ -563,6 +563,7 @@ fn build_generation(
             inserted.map_err(|_| invalid_state())?;
         }
     }
+    super::position_state::seed_display(&transaction, "main", None).map_err(|_| invalid_state())?;
     transaction.commit().map_err(|_| invalid_state())?;
     drop(connection);
     prepare_runtime_paths_for(
@@ -706,7 +707,14 @@ pub fn merge_dictionary_state(
                             && bounded(value, MAX_VALUE_BYTES, false)
                             && (1..=5).contains(slot),
                     )?;
-                    if position.execute(params![context, key, value, slot])? == 1 {
+                    let already_present = transaction.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM personal_journal.fixed_candidate_position_state WHERE context_key=?1 AND entry_key=?2 AND value=?3)",
+                        params![context, key, value],
+                        |row| row.get::<_, bool>(0),
+                    )?;
+                    if !already_present
+                        && position.execute(params![context, key, value, slot])? == 1
+                    {
                         merge.positions += 1;
                     } else {
                         merge.kept += 1;
@@ -733,6 +741,7 @@ pub fn merge_dictionary_state(
             }
         }
     }
+    super::position_state::seed_display(&transaction, "personal_journal", None)?;
     transaction.commit()?;
     Ok(merge)
 }
@@ -747,6 +756,17 @@ pub fn carry_dictionary_rows(
     staged: &RuntimePaths,
     main_dictionary: bool,
     kinds: &[PersonalDictionaryKind],
+) -> Result<usize> {
+    carry_dictionary_rows_filtered(active, staged, main_dictionary, kinds, false)
+}
+
+/// `learning_only` 只搬调权和删除；用户词仍由云端快照决定。
+pub(super) fn carry_dictionary_rows_filtered(
+    active: &RuntimePaths,
+    staged: &RuntimePaths,
+    main_dictionary: bool,
+    kinds: &[PersonalDictionaryKind],
+    learning_only: bool,
 ) -> Result<usize> {
     use super::personal::open_edit_connection;
     use rusqlite::OptionalExtension;
@@ -763,10 +783,13 @@ pub fn carry_dictionary_rows(
         let connection = open_database(&source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let mut statement = connection.prepare(
             "SELECT key,value,operation,weight,display,user_inserted,updated_at
-             FROM user_dictionary_operations WHERE dictionary=?1 ORDER BY updated_at,rowid",
+             FROM user_dictionary_operations WHERE dictionary=?1
+             AND (?2=0 OR operation='delete' OR user_inserted=0)
+             AND (?2=0 OR dictionary!='pinyin' OR operation='delete' OR weight>0)
+             ORDER BY updated_at,rowid",
         )?;
         for kind in kinds {
-            let mut cursor = statement.query([kind.journal_name()])?;
+            let mut cursor = statement.query(params![kind.journal_name(), learning_only])?;
             while let Some(row) = cursor.next()? {
                 let operation: String = row.get(2)?;
                 if operation != "upsert" && operation != "delete" {
@@ -842,7 +865,7 @@ pub fn carry_dictionary_rows(
 }
 
 /// 按回放的写法把一行改进工作词库（`transaction` 是 `open_edit_connection` 打开的连接）：编码拼不出表名时 `Ok(false)`，这一代没有那张表时是准备语句报的 no such table（[`missing_table`]）。
-fn apply_entry(
+pub(super) fn apply_entry(
     transaction: &rusqlite::Connection,
     kind: PersonalDictionaryKind,
     key: &[u8],
@@ -932,7 +955,7 @@ pub fn add_cantonese_words(paths: &RuntimePaths, words: &[DictionaryStateRecord]
 }
 
 /// 语句准备时报「没有这张表」：SQLite 对它用通用的 `SQLITE_ERROR`，只能看消息区分。这时语句一条也没执行，跳过这一行不会留下半截修改。
-fn missing_table(error: &rusqlite::Error) -> bool {
+pub(super) fn missing_table(error: &rusqlite::Error) -> bool {
     matches!(
         error,
         rusqlite::Error::SqliteFailure(failure, Some(message))

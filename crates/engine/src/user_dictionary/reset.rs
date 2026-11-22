@@ -100,6 +100,8 @@ fn reset(
         .map_or(0, |elapsed| elapsed.as_nanos())
         .to_string();
     let journal = paths.user(assets::USER_JOURNAL);
+    // 重置会替换整份日志；时间下限属于本机同步屏障，不能随学习行清掉。
+    let reset_floor = super::learning_floor::read_path(&journal)?;
     // 日志是 WAL 时，最近的学习可能还在 `-wal` 里、没并回主文件。先并回并清空 `-wal`：失败回滚或被杀后放回的备份本身就是完整的日志，新日志发布后、旁路文件删掉之前，原名旁边也只剩一个空 `-wal`，套不到新日志上。
     checkpoint_journal(&journal);
     // 词库在前、日志在最后：`swap` 按顺序把 `sources` 配给前面的词库。
@@ -117,13 +119,15 @@ fn reset(
         .collect();
     let journal_temporary = replacements[names.len()].temporary.clone();
 
-    // The empty journal gets its own connection, closed before it is published: a cached one would keep the renamed file open.
+    // 新日志用独立连接，发布前关闭；只保留本机时间下限，不保留学习行。
     let prepared = (|| -> Result<()> {
         let connection = open_database(
             &journal_temporary,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )?;
-        ensure_schema(&connection)
+        ensure_schema(&connection)?;
+        super::learning_floor::advance_in(&connection, "main", reset_floor)?;
+        Ok(())
     })();
     if prepared.is_err() {
         remove_ignoring_errors(&journal_temporary);

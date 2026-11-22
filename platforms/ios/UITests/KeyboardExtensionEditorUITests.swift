@@ -23,6 +23,31 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// 系统编辑器退到后台再回来时，键盘顶栏与按键不能被旧的窗口高度错开（#11780）。
+  func testKeyboardTopRowKeepsItsPositionWhenHostReturnsFromBackground() throws {
+    let app = XCUIApplication()
+    let field = try focusedTryoutKeyboard(app, toolbarTest: true)
+    let toolbarButton = app.buttons["moreShortcut"]
+    let deleteKey = app.buttons["letterDeleteKey"]
+    XCTAssertTrue(toolbarButton.waitForExistence(timeout: 10))
+    XCTAssertTrue(deleteKey.waitForExistence(timeout: 10))
+    let originalGap = deleteKey.frame.minY - toolbarButton.frame.minY
+    let originalToolbarY = toolbarButton.frame.minY
+    keepScreenshot("键盘退后台前", in: app)
+
+    XCUIDevice.shared.press(.home)
+    XCTAssertTrue(app.wait(for: .runningBackground, timeout: 2)
+                  || app.wait(for: .runningBackgroundSuspended, timeout: 6))
+    app.activate()
+
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    XCTAssertTrue(toolbarButton.waitForExistence(timeout: 10), "宿主回到前台后应恢复工具栏")
+    XCTAssertTrue(deleteKey.waitForExistence(timeout: 10))
+    keepScreenshot("键盘回到前台", in: app)
+    XCTAssertEqual(toolbarButton.frame.minY, originalToolbarY, accuracy: 1)
+    XCTAssertEqual(deleteKey.frame.minY - toolbarButton.frame.minY, originalGap, accuracy: 1)
+  }
+
   /// 在系统扩展与独立编辑器之间核对粤语逐段选词，不能只检查引擎返回的提交字段。
   func testCantoneseShuangpinPartialSelectionKeepsCommittedPrefixInSystemEditor() throws {
     let app = XCUIApplication()
@@ -106,6 +131,15 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     try select(last)
     expectDocument("香港地有上" + last)
     keepScreenshot("粤语逐段选词-完成", in: editor)
+
+    type("yk")
+    let top = editor.buttons.matching(NSPredicate(format: "label MATCHES %@", "^候选词 1：有(?:，.*)?$")).firstMatch
+    XCTAssertTrue(top.waitForExistence(timeout: 5), "切换前需要存在粤语首选")
+    keepScreenshot("粤语切换英文-组字中", in: editor)
+    language.tap()
+    expectDocument("香港地有上" + last + "有")
+    XCTAssertEqual(language.label, "切换到中文输入")
+    keepScreenshot("粤语切换英文-转换已上屏", in: editor)
   }
 
   /// 自绘输入框（Flutter 一类）的 insertText 只替换选区、不替换标记文本；全拼选词上屏后输入框里只能剩汉字，拼音不能留在前面（#10873）。编辑器是测试宿主里按这条规则写的 `SelectionOnlyInsertEditor`，经真实的跨进程键盘代理写入。
@@ -980,7 +1014,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     }
     var expected = ""
     for (identifier, literal) in [("nineKey1", "1"), ("nineKeyZero", "0"),
-                                  ("nineKeyMiddleKey", "."), ("运算符 +", "+"),
+                                  ("bottomLanguageKey", "."), ("nineKeyMiddleKey", "="), ("运算符 +", "+"),
                                   ("运算符 -", "-"), ("运算符 *", "*"), ("运算符 /", "/")] {
       key("字母 N").tap()
       key("字母 I").tap()
@@ -1041,7 +1075,7 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
         switch character {
         case "0": target = key("nineKeyZero")
         case "1"..."9": target = key("nineKey\(character)")
-        case ".": target = key("nineKeyMiddleKey")
+        case ".": target = key("bottomLanguageKey")
         default: target = app.buttons["运算符 \(character)"]
         }
         revealNumberPadSidebarKey(target, in: app)

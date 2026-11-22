@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ControlledInput } from "../core/controlled-input";
+import { useCredentialFocus } from "../core/use-credential-focus";
 import { SettingField } from "./setting-field";
 
 export interface PasswordSettingFieldProps {
@@ -20,9 +21,11 @@ export function PasswordSettingField({
   disabled,
   onChange,
 }: PasswordSettingFieldProps) {
+  const { inputRef } = useCredentialFocus(true);
   return (
     <SettingField label={label} description={description}>
       <ControlledInput
+        ref={inputRef}
         aria-label={inputLabel}
         type="password"
         autoComplete="off"

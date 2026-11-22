@@ -1,5 +1,8 @@
 import { FlickThresholdSettings } from "../entry/src/main/ets/keyboard/settings/FlickThresholdSettings";
-import { NineKeyFlick, NineKeyFlickGesture } from "../entry/src/main/ets/keyboard/input/NineKeyFlickPolicy";
+import {
+  NineKeyFlick,
+  NineKeyFlickGesture,
+} from "../entry/src/main/ets/keyboard/input/NineKeyFlickPolicy";
 
 function check(value: boolean, message: string): void {
   if (!value) throw new Error(message);
@@ -13,8 +16,12 @@ interface Snapshot {
 }
 
 function fixture() {
-  let snapshot: Snapshot = { format_version: 1, revision: 4,
-    preferences: { synthetic_other: { keep: true } }, extension: { synthetic: true } };
+  let snapshot: Snapshot = {
+    format_version: 1,
+    revision: 4,
+    preferences: { synthetic_other: { keep: true } },
+    extension: { synthetic: true },
+  };
   let writes = 0;
   let failure = "";
   const load = (): string => JSON.stringify({ ok: true, value: snapshot });
@@ -40,25 +47,40 @@ function fixture() {
     reopen: (): FlickThresholdSettings => new FlickThresholdSettings(load, save),
     current: (): Snapshot => snapshot,
     writes: (): number => writes,
-    fail: (kind: string): void => { failure = kind; },
+    fail: (kind: string): void => {
+      failure = kind;
+    },
   };
 }
 
 {
   const f = fixture();
   const initial = f.store.read();
-  check(initial.ready && initial.threshold === 24 && f.writes() === 0,
-    "首次打开只回读默认值，不把缺字段写成默认值");
+  check(
+    initial.ready && initial.threshold === 24 && f.writes() === 0,
+    "首次打开只回读默认值，不把缺字段写成默认值",
+  );
   for (let value = 14; value <= 48; value += 2) {
     const result = f.store.write(value);
-    check(result.ready && result.threshold === value && result.error === "", "保存所有合法滑块档位");
+    check(
+      result.ready && result.threshold === value && result.error === "",
+      "保存所有合法滑块档位",
+    );
     check(f.reopen().read().threshold === value, "重开原生设置后从共享快照回读");
   }
   f.store.write(24);
-  check(f.current().preferences["touch_nine_key_flick_threshold"] === undefined,
-    "共享层省略默认字段时仍显示 24");
-  check(f.current().format_version === 1 && f.current().extension.synthetic, "保留快照格式及扩展字段");
-  check(JSON.stringify(f.current().preferences["synthetic_other"]) === '{"keep":true}', "不覆盖其他偏好");
+  check(
+    f.current().preferences["touch_nine_key_flick_threshold"] === undefined,
+    "共享层省略默认字段时仍显示 24",
+  );
+  check(
+    f.current().format_version === 1 && f.current().extension.synthetic,
+    "保留快照格式及扩展字段",
+  );
+  check(
+    JSON.stringify(f.current().preferences["synthetic_other"]) === '{"keep":true}',
+    "不覆盖其他偏好",
+  );
 }
 
 {
@@ -75,8 +97,10 @@ function fixture() {
     const saved = f.store.write(value);
     gestures.down("2", 1, 0, 0, "ABC", saved.threshold);
     const direction = gestures.move("2", 1, 0, -20);
-    check(direction === (value === 14 ? NineKeyFlick.FIRST : NineKeyFlick.NONE),
-      "保存后的共享阈值改变下一次手势判定");
+    check(
+      direction === (value === 14 ? NineKeyFlick.FIRST : NineKeyFlick.NONE),
+      "保存后的共享阈值改变下一次手势判定",
+    );
     gestures.up("2", 1);
   }
 }
@@ -97,11 +121,17 @@ for (const kind of ["disk", "conflict"]) {
 for (const value of [-1, 0, 12, 13, 15, 25, 49, 50, 14.5, Number.NaN, Infinity]) {
   const f = fixture();
   const result = f.store.write(value);
-  check(result.error.length > 0 && result.threshold === 24 && f.writes() === 0, "非法值不能传给共享保存入口");
+  check(
+    result.error.length > 0 && result.threshold === 24 && f.writes() === 0,
+    "非法值不能传给共享保存入口",
+  );
 }
 
 for (const reply of [
-  "null", "{", '{"ok":false}', '{"ok":true,"value":null}',
+  "null",
+  "{",
+  '{"ok":false}',
+  '{"ok":true,"value":null}',
   '{"ok":true,"value":{"format_version":2,"revision":1,"preferences":{}}}',
   '{"ok":true,"value":{"format_version":1,"revision":-1,"preferences":{}}}',
   '{"ok":true,"value":{"format_version":1,"revision":1.5,"preferences":{}}}',
@@ -109,7 +139,13 @@ for (const reply of [
   '{"ok":true,"value":{"format_version":1,"revision":1,"preferences":null}}',
 ]) {
   let writes = 0;
-  const store = new FlickThresholdSettings((): string => reply, (): string => { writes++; return reply; });
+  const store = new FlickThresholdSettings(
+    (): string => reply,
+    (): string => {
+      writes++;
+      return reply;
+    },
+  );
   check(!store.read().ready, "无效共享快照禁用滑块");
   check(!store.write(14).ready && writes === 0, "读取失败不能用空设置覆盖文档");
 }

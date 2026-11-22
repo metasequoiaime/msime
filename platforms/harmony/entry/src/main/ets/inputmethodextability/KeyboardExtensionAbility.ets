@@ -50,6 +50,7 @@ import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
 import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
+import { ToolbarMoveQueue } from './ToolbarMoveQueue';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -106,6 +107,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // Set while the toolbar is hidden because the focused editor's window fills the screen.
   private toolbarHiddenForFullscreen: boolean = false;
   private toolbarDragOrigin: [number, number] = [0, 0];
+  private readonly toolbarMoves: ToolbarMoveQueue = new ToolbarMoveQueue(
+    (error: Object): void => KeyboardLog.error(`toolbar would not move: ${describeError(error)}`));
   private screenWidth: number = 0;
   private screenHeight: number = 0;
   private candidateCount: number = 0;
@@ -234,8 +237,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.onToolbarResize = async (): Promise<void> => {
         await this.resizeToolbar(this.density, toolbar);
       };
-      KeyboardSession.shared.onToolbarDragStart = (): void => {
-        this.beginToolbarDrag();
+      KeyboardSession.shared.onToolbarDragStart = (position: [number, number] | undefined): void => {
+        this.beginToolbarDrag(position);
       };
       KeyboardSession.shared.onToolbarDrag = (offsetX: number, offsetY: number): void => {
         this.dragToolbar(offsetX, offsetY);
@@ -264,6 +267,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         }
         return;
       }
+      this.toolbarMoves.attach(toolbar, this.toolbarPosition);
       await toolbar.show();
     } catch (error) {
       KeyboardLog.error(`toolbar unavailable: ${describeError(error)}`);
@@ -271,6 +275,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         && (generation === this.statusPanelGeneration || this.toolbar !== toolbar)) {
         if (this.toolbar === toolbar) {
           this.toolbar = undefined;
+          this.toolbarMoves.detach();
           KeyboardSession.shared.onToolbarResize = undefined;
           KeyboardSession.shared.onToolbarDragStart = undefined;
           KeyboardSession.shared.onToolbarDrag = undefined;
@@ -287,6 +292,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     KeyboardSession.shared.onToolbarResize = undefined;
     KeyboardSession.shared.onToolbarDragStart = undefined;
     KeyboardSession.shared.onToolbarDrag = undefined;
+    this.toolbarMoves.detach();
     engine.destroyPanel(this.toolbar);
     this.toolbar = undefined;
     this.toolbarHiddenForFullscreen = false;
@@ -359,8 +365,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     });
   }
 
-  private beginToolbarDrag(): void {
-    this.toolbarDragOrigin = [this.toolbarPosition[0], this.toolbarPosition[1]];
+  private beginToolbarDrag(position: [number, number] | undefined): void {
+    this.toolbarDragOrigin = position ?? this.toolbarMoves.anchor();
+    if (position !== undefined) this.toolbarMoves.rebase(position);
   }
 
   private dragToolbar(offsetX: number, offsetY: number): void {
@@ -376,9 +383,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.toolbarDragOrigin, [offsetX, offsetY], this.density, this.screenWidth,
       this.screenHeight, width, height);
     this.toolbarPosition = position;
-    this.toolbar.moveTo(position[0], position[1]).catch((error: Object): void => {
-      KeyboardLog.error(`toolbar would not move: ${describeError(error)}`);
-    });
+    this.toolbarMoves.move(position);
   }
 
   /** 存着的浮动键盘开关此刻是否生效（`FloatingKeyboardPolicy.active`）。 */

@@ -80,9 +80,7 @@ test("the import toast says what happened to the rows", () => {
 });
 
 test("client-core failure codes read as sentences, unknown ones as a generic failure", () => {
-  expect(collectionFailureMessage({ code: "collections_limit" })).toBe(
-    "词库数量或词条数已达上限。",
-  );
+  expect(collectionFailureMessage({ code: "collections_limit" })).toBe("词库数量已达上限。");
   expect(collectionFailureMessage({ code: "builtin_locked" })).toBe(
     "内置词库始终启用，不能停用或改名。",
   );

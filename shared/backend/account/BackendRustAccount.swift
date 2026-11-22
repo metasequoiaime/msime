@@ -83,6 +83,29 @@ struct BackendRustAccount: Sendable {
     try await client.call(.account, ["session_store": store, "action": action])
   }
 
+  /// 已登录时由 Rust 在同一维护边界保存账号屏障并清除学习；只有明确没有登录才执行本机清除。调用方必须已在工作线程上。
+  func resetLearnedData(options: [String: Any], local: () throws -> [String: Any]) throws -> [String: Any] {
+    func request(_ action: [String: Any]) throws -> [String: Any] {
+      let bytes = try BackendRustClient.request(["session_store": store, "action": action])
+      return try Self.object(client.callBlocking(.account, bytes).get())
+    }
+    let binding = try request(["operation": "learning_binding"])
+    let result: [String: Any]
+    if binding["login"] is NSNull {
+      result = try local()
+    } else {
+      guard let login = binding["login"] as? [String: Any] else {
+        throw BackendRustClient.Failure.invalidResponse
+      }
+      result = try request(["operation": "learning_reset_local", "login": login, "options": options])
+    }
+    guard let reset = result["reset"] as? NSNumber,
+          CFGetTypeID(reset) == CFBooleanGetTypeID(), reset.boolValue else {
+      throw BackendRustClient.Failure.invalidResponse
+    }
+    return result
+  }
+
   /// `msime_client_account_cloud_clipboard` 的一个 action。`deviceName` 只在本机还没登记端到端加密时发给服务端，给其他设备的设备列表看。
   func cloudClipboard(_ action: [String: Any], deviceName: String?, preferencesDirectory: URL? = nil) async throws -> Data {
     var request: [String: Any] = ["session_store": store, "action": action]

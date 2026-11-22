@@ -63,7 +63,7 @@ class ClearLearningContract(unittest.TestCase):
         self.assertIn("} message: { Text(ClearLearningCopy.confirmMessage) }", page)
         clear = page.split("@MainActor private func clearLearning() async {", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn("await Task.detached(priority: .userInitiated) {", clear)
-        self.assertIn("MetasequoiaInputSessionBridge.resetLearnedData()", clear)
+        self.assertIn("IOSAccountLearningReset.reset()", clear)
         bridge = IOS_BRIDGE.read_text(encoding="utf-8")
         reset = bridge.split("static func resetLearnedData(", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn('callOptions(msimeClientDictionary, ["options": options, "action": ["operation": "reset"]])', reset)
