@@ -7,14 +7,6 @@ enum KeyboardFormFactor: Equatable {
   case phone
   case tablet
 
-  /// 26 键手机竖屏四排字母键的上下补偿留白。
-  static let phoneLetterVerticalPadding: CGFloat = 16
-
-  /// 26 键手机竖屏有 `rows` 排键时，上下各留的补偿空间。五排时多出的一排也要保持 44pt 键帽。
-  static func phoneLetterVerticalPadding(rows: Int) -> CGFloat {
-    CGFloat(rows) * 4
-  }
-
   static func resolve(
     idiom: UIUserInterfaceIdiom, horizontalSizeClass: UIUserInterfaceSizeClass
   ) -> KeyboardFormFactor {
@@ -42,10 +34,10 @@ enum KeyboardFormFactor: Equatable {
 
   /// 默认键盘高度下一排按键的高度。
   ///
-  /// 竖屏用设计稿的按键高度（`KeyboardHeightPercent.portraitKeyHeight`）：手机 52pt、26 键字母页 44pt，iPad 54pt。设计稿没有画横屏键盘，所以横屏沿用以前按系统尺寸做的横屏键盘的按键高度：手机 34pt，其中手写为 40pt，让书写区仍然够用；iPad 为更高的 73pt，和系统键盘一样随更宽的屏幕变大。
+  /// 竖屏用 `KeyboardHeightPercent.portraitKeyHeight`：手机所有键面一律 44pt（26 键、九键、数字九宫格、符号层和手写都一样，切层、切方案时按键区不跳），iPad 54pt。设计稿没有画横屏键盘，所以横屏沿用以前按系统尺寸做的横屏键盘的按键高度：手机 34pt，其中手写为 40pt，让书写区仍然够用；iPad 为更高的 73pt，和系统键盘一样随更宽的屏幕变大。`letterKeys` 只为保持调用方不变，竖屏手机已经不再区分。
   func keyHeight(landscape: Bool, handwriting: Bool, letterKeys: Bool = false) -> CGFloat {
     guard landscape else {
-      return self == .phone && letterKeys ? 44 : KeyboardHeightPercent.portraitKeyHeight(tablet: self == .tablet)
+      return KeyboardHeightPercent.portraitKeyHeight(tablet: self == .tablet)
     }
     switch self {
     case .phone: return handwriting ? 40 : 34
@@ -63,20 +55,15 @@ enum KeyboardFormFactor: Equatable {
   static func handwritingAddsRow(handwriting: Bool, landscape: Bool) -> Bool { handwriting && !landscape }
 
   /// 用户调整之前的键盘高度，按设计稿的结构逐项相加：上边距、顶部那一行、它下面的间隔、各排按键连同排间距，以及下边距。顶部那一行收起（`topRow` 为 0，「显示方式」为隐藏时）时间隔也一起去掉，与 `applyKeyboardMetrics` 把那段间隔设为 0 一致，否则多出的高度会被分给按键，组字开始和结束时按键高度跟着跳。
+  ///
+  /// 以前 26 键的键帽收到 44pt 后仍按 52pt 键帽留着外框，多出的 32pt 垫在键区上下，顶栏下和底行下各空一截，切到数字九宫格时按键又铺满那一截，一高一低。现在手机竖屏所有键面都是 44pt 键帽，外框按实际按键累加，不再补偿。
   func keyboardHeight(topRow: CGFloat, rowSpacing: CGFloat, landscape: Bool, handwriting: Bool,
                       numberRow: Bool = false, letterKeys: Bool = false, phoneNumberRow: Bool = false) -> CGFloat {
     let rows = keyRows(numberRow: numberRow, handwriting: handwriting, landscape: landscape, phoneNumberRow: phoneNumberRow)
     let keyBlock = KeyboardHeightPercent.keyBlockHeight(
       keyHeight: keyHeight(landscape: landscape, handwriting: handwriting, letterKeys: letterKeys),
       rows: rows, rowSpacing: rowSpacing)
-    let standardBlock = KeyboardHeightPercent.keyBlockHeight(
-      keyHeight: keyHeight(landscape: landscape, handwriting: handwriting),
-      rows: rows, rowSpacing: rowSpacing)
-    // 26 键的键帽从 52pt 收紧到 44pt 后，保留原来的键盘外框高度，省下的空间用于键帽高度。
-    let letterHeightCompensation = self == .phone && letterKeys ? standardBlock - keyBlock : 0
-    return padding.top + topRow + (topRow > 0 ? topRowGap : 0)
-      + keyBlock + letterHeightCompensation
-      + padding.bottom
+    return padding.top + topRow + (topRow > 0 ? topRowGap : 0) + keyBlock + padding.bottom
   }
 
   /// Whether the third letter row carries the comma and full-stop keys, as the iPad system keyboard does.

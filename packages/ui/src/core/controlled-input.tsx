@@ -1,7 +1,7 @@
-import type { InputHTMLAttributes } from "react";
+import type { ComponentPropsWithRef } from "react";
 
 export interface ControlledInputProps extends Omit<
-  InputHTMLAttributes<HTMLInputElement>,
+  ComponentPropsWithRef<"input">,
   "value" | "onChange"
 > {
   value: string;
