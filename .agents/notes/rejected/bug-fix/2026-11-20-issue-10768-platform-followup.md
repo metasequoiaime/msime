@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #10768
 
-Status: proposed
+Status: rejected — issue #10768 已由 #10775（`Fixes #10768`）修复并以已完成关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#10768`（ios）的标题是「[Bug]: 按键延迟问题」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #10768「[Bug]: 按键延迟问题」报告 iOS 键盘开启振动后按键不跟手：按下时明显有延迟，快速连按时像同时按下两个键（iPhone SE 3 / iOS 17.7 / 0.53.0）。原因是按键音和振动都在松手时发出。PR #10775 把键盘按键的按键音和振动改到 `.touchDown` 上发出，松手不再重复反馈；该 PR 以 `Fixes #10768` 于 2026-11-04 合并，issue 随之以已完成关闭，决策记录见 [iOS 按键按下即反馈](../../implemented/bug-fix/2026-11-03-ios-key-feedback-on-press.md)。#10775 正文把 iPhone 真机触觉、按键音、VoiceOver 与延迟测量列为待设备轮次的验收项，合并时这些项未勾选。
 
 ## Proposal
 
