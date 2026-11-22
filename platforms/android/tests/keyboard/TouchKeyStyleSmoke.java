@@ -75,7 +75,7 @@ public final class TouchKeyStyleSmoke {
             "a style a face cannot draw falls back to standard");
     }
 
-    /** 哪些键面读哪一类样式：中文 26 键读 26 键样式，英文、韩文和其他语言的 26 键保留标准底行。 */
+    /** 哪些键面读哪一类样式：中文方案的 26 键连同其英文模式读 26 键样式，韩文和其他语言的 26 键保留标准底行。 */
     private static void faces() {
         TouchKeyStyle.Styles styles = new TouchKeyStyle.Styles(TouchKeyStyle.Row.EMOJI, TouchKeyStyle.Row.LONG_SPACE,
             TouchKeyStyle.Row.COMMA_PERIOD);
@@ -83,8 +83,8 @@ public final class TouchKeyStyleSmoke {
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
                 InputSchemeTraits.CANTONESE, -1})
             check(styles.forLayout(standard, scheme, false) == TouchKeyStyle.Row.EMOJI, "Chinese 26 key reads its style " + scheme);
-        check(styles.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.STANDARD,
-            "English 26 key keeps the standard row");
+        check(styles.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.EMOJI,
+            "English mode on a Chinese 26 key reads its style");
         for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN})
             check(styles.forLayout(standard, scheme, false) == TouchKeyStyle.Row.STANDARD, "other languages keep the standard row");
         check(styles.forLayout(KeyboardLayout.KOREAN_LAYOUT, InputSchemeTraits.KOREAN, false) == TouchKeyStyle.Row.STANDARD,
@@ -109,8 +109,8 @@ public final class TouchKeyStyleSmoke {
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
                 InputSchemeTraits.CANTONESE, -1})
             check(longSpace.keepsToolbarRow(standard, scheme), "a Chinese 26 key keyboard keeps the toolbar row " + scheme);
-        // 英文 26 键自己画标准底行，但同一块键盘的工具栏行不随中/英出没。
-        check(longSpace.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.STANDARD
+        // 英文模式沿用同一中文方案的样式，工具栏行也不随中/英出没。
+        check(longSpace.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.LONG_SPACE
             && longSpace.keepsToolbarRow(standard, InputSchemeTraits.QUANPIN), "English on the same keyboard keeps the row");
         for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN})
             check(!longSpace.keepsToolbarRow(standard, scheme), "other languages draw no long space and keep no row " + scheme);
@@ -139,11 +139,13 @@ public final class TouchKeyStyleSmoke {
         check(row(layout, false, TouchKeyStyle.Row.LONG_SPACE)
                 .equals(KeyboardActionRow.designEntries(layout, false, false, false, false, true)),
             "long_space is exactly the earlier Android long-space row");
-        // 英文模式不受样式影响（长空格沿用旧长空格行的写法），宿主对英文一律传标准样式。
-        for (TouchKeyStyle.Row style : List.of(TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI))
-            check(KeyboardActionRow.designEntries(layout, false, false, false, true, style)
-                    .equals(KeyboardActionRow.designEntries(layout, false, false, false, true)),
-                "English 26 key draws the English row whatever the style");
+        // 英文模式沿用中文方案的样式，但键面文字由英文分支绘制。
+        check(KeyboardActionRow.designEntries(layout, false, false, false, true, TouchKeyStyle.Row.COMMA_PERIOD)
+                .equals(entries(LAYER, 1.25f, SYMBOL, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+            "English 26 key keeps comma-period style");
+        check(KeyboardActionRow.designEntries(layout, false, false, false, true, TouchKeyStyle.Row.EMOJI)
+                .equals(entries(LAYER, 1.25f, EMOJI, 1.05f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+            "English 26 key keeps emoji style");
     }
 
     private static void fourteenKeyRows() {

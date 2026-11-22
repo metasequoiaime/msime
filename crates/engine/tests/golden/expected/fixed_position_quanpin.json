@@ -236,6 +236,22 @@
        1
       ]
      ]
+    },
+    "fixed_candidate_position_state": {
+     "columns": [
+      "context_key",
+      "entry_key",
+      "value",
+      "position"
+     ],
+     "rows": [
+      [
+       "ni'hao",
+       "ni'hao",
+       "拟好",
+       1
+      ]
+     ]
     }
    }
   },

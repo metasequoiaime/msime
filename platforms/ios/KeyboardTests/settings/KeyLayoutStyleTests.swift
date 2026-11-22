@@ -232,12 +232,12 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(phone.keyRows(numberRow: false, phoneNumberRow: true), 5)
     XCTAssertEqual(phone.keyRows(numberRow: true), 4)
     XCTAssertEqual(KeyboardFormFactor.tablet.keyRows(numberRow: false, phoneNumberRow: true), 4)
-    // 2 + 50 + 4 + 5 × 52 + 4 × 7 + 4。
-    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, phoneNumberRow: true), 348)
+    // 2 + 50 + 4 + 5 × 44 + 4 × 7 + 4。
+    XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 7, landscape: false, handwriting: false, phoneNumberRow: true), 308)
     XCTAssertEqual(phone.keyboardHeight(topRow: 50, rowSpacing: 11, landscape: false, handwriting: false, letterKeys: true,
-                                        phoneNumberRow: true), 364)
+                                        phoneNumberRow: true), 324)
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: false, numberRow: false, rowSpacing: 7, phoneNumberRow: true),
-                   5 * 52 + 4 * 7)
+                   5 * 44 + 4 * 7)
   }
 
   // MARK: - 键盘
@@ -596,13 +596,12 @@ final class KeyLayoutStyleTests: XCTestCase {
         // 字母键仍是 44pt：多出的留白按五排重算。
         let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" })
         XCTAssertEqual(letter.bounds.height, 44, accuracy: 0.5)
-        // 省下的高度不再整块垫在顶栏和数字行之间：数字行离顶栏是顶栏间隔加 4pt，数字行和 Q 之间是加宽后的排间距。
+        // 键区上下不垫留白：数字行紧接顶栏间隔，数字行和 Q 之间是排间距。
         let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
         let digit = try button("numberRowKey1", in: controller)
         func frame(_ view: UIView) -> CGRect { view.convert(view.bounds, to: controller.view) }
         XCTAssertEqual(frame(digit).minY - frame(strip).maxY,
-                       KeyboardFormFactor.phone.topRowGap
-                         + KeyboardFormFactor.phoneLetterVerticalPadding(rows: 5), accuracy: 0.5)
+                       KeyboardFormFactor.phone.topRowGap, accuracy: 0.5)
         XCTAssertEqual(frame(letter).minY - frame(digit).maxY,
                        CGFloat(KeyboardLayoutPreference.rowSpacing), accuracy: 0.5)
         attach(controller, "26 键 数字行")
@@ -1676,8 +1675,13 @@ final class KeyLayoutStyleTests: XCTestCase {
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try layoutAtRequestedHeight(controller)
     XCTAssertTrue(shown(try button("numberPadSymbolPanelKey", in: controller)))
+    // 左列五项等高排满：+ - * / 和 符 一屏都看得到。
+    let sidebarHeight = try view("nineKeySidebar", in: controller).bounds.height
     XCTAssertEqual(try button("numberPadSymbolPanelKey", in: controller).bounds.height,
-                   try button("nineKeyDelete", in: controller).bounds.height, accuracy: 0.5)
+                   sidebarHeight * KeyboardViewController.numberPadSidebarItemShare, accuracy: 0.5)
+    let operators = try view("numberPadOperatorScroll", in: controller)
+    XCTAssertGreaterThanOrEqual(operators.bounds.height + 0.5,
+                                4 * sidebarHeight * KeyboardViewController.numberPadSidebarItemShare, "four operators fit")
     XCTAssertFalse(shown(try button("symbolPanelKey", in: controller)))
     controller.viewDidDisappear(false)
     // 全拼借用的数字九宫格。
@@ -2142,8 +2146,8 @@ final class KeyLayoutStyleTests: XCTestCase {
       func titles() -> [String?] { stack.arrangedSubviews.map { ($0 as? UIButton)?.configuration?.title } }
       XCTAssertEqual(titles(), ["=", "%", "(", ")", "（）", "#+="], label)
       XCTAssertEqual(stack.arrangedSubviews.last?.accessibilityIdentifier, "numberPadMoreSymbols", label)
-      let delete = try button("nineKeyDelete", in: controller)
-      for key in stack.arrangedSubviews { XCTAssertEqual(key.bounds.height, delete.bounds.height, accuracy: 0.5, label) }
+      let itemHeight = try view("nineKeySidebar", in: controller).bounds.height * KeyboardViewController.numberPadSidebarItemShare
+      for key in stack.arrangedSubviews { XCTAssertEqual(key.bounds.height, itemHeight, accuracy: 0.5, label) }
       XCTAssertEqual(try button("numberPadSidebarSymbol0", in: controller).accessibilityLabel, "符号 =", label)
       XCTAssertTrue(shown(try button("numberPadSidebarSymbol0", in: controller)), label)
       try await restyle(controller, TouchKeyLayoutStyle(), label) { titles().first == "+" }
@@ -2167,7 +2171,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try layoutAtRequestedHeight(controller)
-    for id in ["nineKey1", "nineKeyMiddleKey", "nineKey5", "nineKeyZero"] {
+    // 小数点在底行的 中/英 键上（数字九宫格上它是句点键，右列中间键改输入 =）。
+    for id in ["nineKey1", "bottomLanguageKey", "nineKey5", "nineKeyZero"] {
       try button(id, in: controller).sendActions(for: .primaryActionTriggered)
     }
     try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "运算符 +" && shown($0) } as? UIButton)
@@ -2178,6 +2183,8 @@ final class KeyLayoutStyleTests: XCTestCase {
     closing.sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(document.text.hasPrefix("1.50+!"), document.text)
     XCTAssertFalse(document.text.contains("！"), document.text)
+    // 中/英 键在数字九宫格上是句点键，先回字母层再切回中文。
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
     controller.viewDidDisappear(false)
 
@@ -2288,23 +2295,23 @@ final class KeyLayoutStyleTests: XCTestCase {
       return controller
     }
 
-    // 英文：运算符之后接上 8 个半角符号，#+= 仍在最后；每一项与右列的 ⌫ 同高。
+    // 英文：运算符之后接上 8 个半角符号，#+= 仍在最后；每一项占左列高度的 `numberPadSidebarItemShare`。
     var controller = try openNumberPad(english: true)
     XCTAssertEqual(try titles(controller), ["+", "-", "*", "/"] + extras + ["#+="])
-    let delete = try button("nineKeyDelete", in: controller)
+    let itemHeight = try view("nineKeySidebar", in: controller).bounds.height * KeyboardViewController.numberPadSidebarItemShare
     for symbol in extras {
       let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "符号 \(symbol)" } as? UIButton, symbol)
-      XCTAssertEqual(key.bounds.height, delete.bounds.height, accuracy: 0.5, symbol)
+      XCTAssertEqual(key.bounds.height, itemHeight, accuracy: 0.5, symbol)
       key.sendActions(for: .primaryActionTriggered)
     }
     XCTAssertEqual(document.text, extras.joined(), "typed as drawn, half-width")
     XCTAssertEqual(document.caretMoves, [], "the parentheses are typed one by one, the caret stays at the end")
-    // 切回中文，同一块数字九宫格的左列当场换回四个运算符。
+    // 切回中文：数字九宫格上 中/英 键是句点键，先回字母层切语言，再打开数字九宫格，左列换回四个运算符。
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
-    if !shown(try button("nineKey1", in: controller)) {
-      try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-    }
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try layoutAtRequestedHeight(controller)
+    XCTAssertTrue(shown(try button("nineKey1", in: controller)))
     XCTAssertEqual(try titles(controller), ["+", "-", "*", "/", "#+="], "Chinese adds nothing")
     controller.viewDidDisappear(false)
 

@@ -11,6 +11,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.CandidateSourceMark;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.InputFeatureToggle;
@@ -371,6 +372,10 @@ public final class TypingPage extends ReloadingDetailPage {
         InputFeatureToggle cloud = InputFeatureToggle.CLOUD_CANDIDATES;
         chinese.toggle(cloud.title(), null, preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
             checked -> savePreferences(values -> values.put(cloud.key(), checked))).help("联网获取当前拼写的候选");
+        // 共享偏好 `candidate_cloud_badge`，与 Windows「显示云候选来源角标」同一个字段，缺值按开。
+        chinese.toggle("显示云候选标记", null, preferences.optBoolean(CandidateSourceMark.CLOUD_PREFERENCE, true),
+            checked -> savePreferences(values -> values.put(CandidateSourceMark.CLOUD_PREFERENCE, checked)))
+            .help("关闭后只隐藏云候选后面的标记，候选和选词不变");
         cloudProviderSettings(target, preferences);
         // 临时日语读日文词典；词典没在本机时 host-api 会关掉它，键盘菜单里也置灰，这里给出下载入口。和桌面一样，不会因为它自己去下载。
         if (edition.temporaryJapanese() && !state.packs().contains(KeyboardScheme.JAPANESE_PACK)) {

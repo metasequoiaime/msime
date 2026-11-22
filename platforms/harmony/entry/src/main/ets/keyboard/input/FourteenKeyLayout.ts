@@ -35,9 +35,4 @@ export class FourteenKeyLayout {
   static rows(): FourteenKey[][] {
     return ROWS;
   }
-
-  /** 长按弹出的字母：这一键的两个字母；L、M 只有一个字母，不弹。选中后先结束组字再上屏这个字母，同九键。 */
-  static holdOptions(key: FourteenKey): string[] {
-    return key.letters.length > 1 ? key.letters.split("") : [];
-  }
 }

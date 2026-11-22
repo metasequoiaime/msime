@@ -586,6 +586,8 @@ private:
       else if (operation == "import_file") response = dictionary_data::import_file(dictionary_requests_, options, action, job.file, dictionary_transport_);
       else if (operation == "export_all_file") response = dictionary_data::export_all_file(dictionary_requests_, options, job.file, dictionary_transport_);
       else if (operation == "export_file") response = dictionary_data::export_file(dictionary_requests_, options, action, job.file, dictionary_transport_);
+      else if (operation == "reset") response = call_account(account_request(
+          {{"operation", "learning_reset_settings"}, {"options", options}}));
       else response = dictionary_requests_.call(options, action, dictionary_transport_);
       dictionary_response_ = Json{{"response", response}};
       // 改了「我的词条」（编辑、导入、清除学习数据、清空快捷短语）：配着网盘时让词库同步马上记一次本机改动，与 WinUI 设置和共享页相同；没配时不调。

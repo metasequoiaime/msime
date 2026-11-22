@@ -6,6 +6,8 @@ import { CandidateCanvasPolicy, CandidateCanvasScene } from './candidate/Candida
 import { FloatingToolbarLayout, ToolbarState } from './FloatingToolbarLayout';
 import { ToolbarSkin } from './ToolbarSkinPolicy';
 import { KeyboardSession } from './KeyboardSession';
+import { ToolbarDragGesture } from './ToolbarDragGesture';
+import { toolbarWindowPosition } from './ToolbarWindowPosition';
 
 /** 位图与按钮消费同一份共享矩形；窗口形状包含所有动画帧的 alpha 并集。 */
 @Component
@@ -27,6 +29,7 @@ export struct ToolbarImageCanvas {
   private startedAt: number = 0;
   private visible: boolean = true;
   private ready: boolean = false;
+  private readonly dragGesture: ToolbarDragGesture = new ToolbarDragGesture();
 
   aboutToAppear(): void { this.reload(); }
 
@@ -157,8 +160,15 @@ export struct ToolbarImageCanvas {
       Rect().width(this.scene.spec.imageWidthDip * this.imageScale).height(this.scene.spec.imageHeightDip * this.imageScale)
         .fill('#00000000')
         .gesture(PanGesture({ direction: PanDirection.All, distance: 1 })
-          .onActionStart((): void => KeyboardSession.shared.beginToolbarDrag())
-          .onActionUpdate((event: GestureEvent): void => KeyboardSession.shared.dragToolbar(event.offsetX, event.offsetY)))
+          .onActionStart((event: GestureEvent): void => {
+            this.dragGesture.start(event);
+            const position: [number, number] | undefined = toolbarWindowPosition(this.getUIContext().getWindowName());
+            KeyboardSession.shared.beginToolbarDrag(position);
+          })
+          .onActionUpdate((event: GestureEvent): void => {
+            const offset: [number, number] | null = this.dragGesture.update(event);
+            if (offset !== null) KeyboardSession.shared.dragToolbar(offset[0], offset[1]);
+          }))
       ForEach(this.scene.layout.buttons, (slot: ToolbarImageSlot) => {
         Button({ type: ButtonType.Normal }) {
           Text(this.face(slot)).fontSize(slot.iconSizeDip * this.imageScale)

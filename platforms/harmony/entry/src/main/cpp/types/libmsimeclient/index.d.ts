@@ -74,6 +74,8 @@ export const savePreferences: (
   snapshot: string,
 ) => string;
 export const dictionary: (request: string) => string;
+/** `{directory,options}`：只清除本机学习并保存账号屏障，不联网；失败不回退到无屏障清除。 */
+export const dictionaryLearningReset: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 /** `{directory,action}`; a `record` action answers `{recorded,milestone}`, where milestone is the commit count just passed while achievements are switched on, else null. */
 export const typingStatistics: (request: string) => string;

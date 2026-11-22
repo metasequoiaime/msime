@@ -109,7 +109,8 @@ struct NativeCanvasX11::Impl {
     XWMHints hints{};
     hints.flags = InputHint; hints.input = False;
     XSetWMHints(display, window, &hints);
-    const auto type = XInternAtom(display, "_NET_WM_WINDOW_TYPE_TOOLTIP", False);
+    // 候选窗每次输入都会更新尺寸或位置；POPUP_MENU 不触发 KDE Plasma 5 的 tooltip 淡入淡出特效。
+    const auto type = XInternAtom(display, "_NET_WM_WINDOW_TYPE_POPUP_MENU", False);
     XChangeProperty(display, window, XInternAtom(display, "_NET_WM_WINDOW_TYPE", False),
         XA_ATOM, 32, PropModeReplace, reinterpret_cast<const unsigned char *>(&type), 1);
     // 候选行和首行的按钮可以点，指针在上面时换成手形，与 macOS 候选按钮的 pointingHandCursor 相同。

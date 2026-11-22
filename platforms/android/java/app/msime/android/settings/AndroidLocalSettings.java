@@ -49,6 +49,8 @@ public final class AndroidLocalSettings {
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
     public static final String SWIPE_SYMBOLS_DIRECTION = "platform.android.swipe_symbols_direction";
+    /** 「滑动距离」：26 键和 14/18 键字母键沿设定方向（或反方向）移动超过多少 dp 才算滑动，取值见 {@link SwipeHintPolicy#MIN_THRESHOLD_DP}..{@link SwipeHintPolicy#MAX_THRESHOLD_DP}。只在本机：服务端字段表还没有这个键，同步上传会被过滤掉。 */
+    public static final String SWIPE_SYMBOLS_DISTANCE = "platform.android.swipe_symbols_distance";
     /** 「显示字母键角标」：26 键与 14/18 键字母键右上角画不画角标符号，默认画（#10587、#11063）。只管画不画，长按和「滑动输入符号」照样输入角标。 */
     public static final String LETTER_CORNER_HINTS = "platform.android.letter_corner_hints";
     public static final String SPACE_CURSOR = "platform.android.space_cursor";
@@ -244,6 +246,8 @@ public final class AndroidLocalSettings {
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
         choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.UP, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
+        integer(SWIPE_SYMBOLS_DISTANCE, SwipeHintPolicy.DEFAULT_THRESHOLD_DP, false,
+            SwipeHintPolicy.MIN_THRESHOLD_DP, SwipeHintPolicy.MAX_THRESHOLD_DP, SwipeHintPolicy.THRESHOLD_STEP_DP);
         bool(LETTER_CORNER_HINTS, true, true);
         bool(SPACE_CURSOR, true, true);
         bool(SPACE_VOICE, true, true);

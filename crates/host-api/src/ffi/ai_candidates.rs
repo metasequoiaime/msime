@@ -18,6 +18,7 @@ pub(super) fn suggestion_request(query: &OnlineQuery, limit: u8) -> AiSuggestion
     } else {
         String::new()
     };
+    let sentence_punctuation = cfg!(target_os = "macos") && !english && !input.is_empty();
     AiSuggestionRequest {
         mode: if english {
             AiInputMode::English
@@ -28,6 +29,7 @@ pub(super) fn suggestion_request(query: &OnlineQuery, limit: u8) -> AiSuggestion
         segmented_pinyin: query.pinyin_segments.clone(),
         context: query.ai_context.clone(),
         candidate_limit: limit,
+        sentence_punctuation,
     }
 }
 

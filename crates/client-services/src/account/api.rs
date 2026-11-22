@@ -94,6 +94,24 @@ pub trait AccountApi: Send + Sync + 'static {
         Err(AccountError::Unavailable)
     }
 
+    /// learning 域的设备与密钥请求；HTTP 错误交给端到端加密驱动解释。
+    fn learning_e2e(
+        &self,
+        _request: &crate::cloud::learning_e2e::HttpRequest,
+        _access_token: &str,
+    ) -> Result<crate::cloud::learning_e2e::HttpResponse, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    /// learning 元数据与二进制信封传输，不经过 JSON 字符串转换。
+    fn learning_blob(
+        &self,
+        _request: &super::learning_sync::transport::BlobRequest<'_>,
+        _access_token: &str,
+    ) -> Result<super::learning_sync::transport::BlobResponse, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
     fn set_clipboard_enabled(
         &self,
         _enabled: bool,
@@ -598,6 +616,17 @@ pub trait AccountSessionStorage: Send + Sync + 'static {
 
     /// 原子替换本机的云剪贴板密钥串。驱动每交回一个变化了的值就调用一次，在发出下一个请求之前。调用方先在 [`Self::with_refresh_lock`] 里读一次，存着另一个设备身份时不调用它（`clipboard_e2e::Keystore::other_identity`），这里只管整体替换。
     fn save_clipboard_keystore(&self, _value: &str) -> Result<(), AccountError> {
+        Err(AccountError::Storage)
+    }
+
+    /// learning 独立密钥存储，内容是账号层编码的登录绑定与密钥串，对宿主不透明。
+    /// 未接入该域的宿主拒绝读取，不回退剪贴板身份。
+    fn load_learning_keystore(&self) -> Result<Option<String>, AccountError> {
+        Err(AccountError::Storage)
+    }
+
+    /// 与登录和刷新使用同一把存储锁；退出登录时一并清除。
+    fn save_learning_keystore(&self, _value: &str) -> Result<(), AccountError> {
         Err(AccountError::Storage)
     }
 

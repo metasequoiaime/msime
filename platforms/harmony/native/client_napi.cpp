@@ -284,6 +284,8 @@ TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
 TEXT_ENTRY(SkinToolbarImageLayout, msime_client_skin_toolbar_image_layout)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
+// 固定为不联网的本机清除，不能把通用账号操作暴露成同步请求。
+TEXT_ENTRY(DictionaryLearningReset, msime_client_learning_reset_settings)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalWordbookMerge, msime_client_personal_wordbook_merge)
 TEXT_ENTRY(PersonalWordbookDrain, msime_client_personal_wordbook_drain)
@@ -2007,6 +2009,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("keyboardSkinTrial", KeyboardSkinTrial),
         ENTRY("communityResourceLibrary", CommunityResourceLibrary),
         ENTRY("dictionary", Dictionary),
+        ENTRY("dictionaryLearningReset", DictionaryLearningReset),
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),
         ENTRY("typingStatistics", TypingStatistics),

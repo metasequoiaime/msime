@@ -1345,7 +1345,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiEndpointCheck
     return bounded_request(env, endpoint, kAiEndpointCheckLimit, msime_client_ai_endpoint_check);
 }
 // ---- 账号与云端（#8201）：会话由 Rust 持有，Java 只经 NativeClient.SessionStore 提供字节 ----
-// 注册一份会话存储，Value 是 {session_store: id}。只在主进程里注册一次：布局 0（Native SavedAccountSession，Java 现有的 v2 会话就是它），flags 为 0、不给 lock 和 unlock，因为 SharedPreferences 跨进程不满足 SHARED 的要求（头文件），:ime 进程不注册、经 AccountSessionProvider 取令牌。clientAgent 可以为 null；超过 256 字节、为空或含 NUL 时交给 Rust 以空描述符拒绝（invalid_session_store），免得 Rust 读到 NUL 就停、把截断的那一段当成合法的。
+// 注册一份会话存储，Value 是 {session_store: id}。只在主进程里注册一次：布局 0（Native SavedAccountSession，Java 现有的 v2 会话就是它），只按存储能力声明学习密钥位，不给 lock 和 unlock，因为 SharedPreferences 跨进程不满足 SHARED 的要求（头文件），:ime 进程不注册、经 AccountSessionProvider 取令牌。clientAgent 可以为 null；超过 256 字节、为空或含 NUL 时交给 Rust 以空描述符拒绝（invalid_session_store），免得 Rust 读到 NUL 就停、把截断的那一段当成合法的。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_sessionStoreRegisterRaw(JNIEnv *env, jclass, jobject store, jbyteArray clientAgent) {
     if (!store) return response(env, msime_client_session_store_register(nullptr));
     std::string agent;
@@ -1359,12 +1359,14 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_sessionStoreReg
         if (env->ExceptionCheck()) return nullptr;
         if (agent.find('\0') != std::string::npos) return response(env, msime_client_session_store_register(nullptr));
     }
+    const bool supports_learning = msime::android::session_store_supports_learning(env, store);
+    if (env->ExceptionCheck()) return nullptr;
     void *context = msime::android::session_store_create(env, store);
     if (!context) return nullptr;
     msime_client_session_store descriptor{};
     descriptor.version = MSIME_CLIENT_SESSION_STORE_VERSION;
     descriptor.layout = 0;
-    descriptor.flags = 0;
+    descriptor.flags = supports_learning ? MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE : 0;
     descriptor.client_agent = clientAgent ? agent.c_str() : nullptr;
     descriptor.context = context;
     descriptor.load = msime::android::session_store_load;

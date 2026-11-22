@@ -17,14 +17,17 @@ enum BackendRustStoreLocation: Sendable {
   #endif
 }
 
-/// 一个注入存储的四项各放在哪、两把刷新锁各是哪个文件。锁文件必须与尚未迁移的 Swift 用的是同一个，否则两边互相排斥不了，会拿同一枚刷新令牌各刷新一次，服务端随即吊销整个会话。
+/// 注入存储各项的位置与两把刷新锁。锁文件必须与尚未迁移的 Swift 相同，否则会拿同一枚刷新令牌各刷新一次，服务端随即吊销整个会话。
 struct BackendRustStoreLayout: Sendable {
+  static let learningKeystoreName = BackendLearningKeystore.name
   var account: BackendRustStoreLocation
   var clipboardKeystore: BackendRustStoreLocation
   var anonymous: BackendRustStoreLocation
   var anonymousIdentity: BackendRustStoreLocation
   var accountLock: URL?
   var anonymousLock: URL?
+  /// 没有第五项的自定义宿主保持旧能力，不向 Rust 声明支持学习密钥。
+  var learningKeystore: BackendRustStoreLocation? = nil
 
   /// 本平台现有 Swift 实现用的那几个位置。
   static var standard: BackendRustStoreLayout {
@@ -39,7 +42,8 @@ struct BackendRustStoreLayout: Sendable {
       account: .ownerOnlyFile(directory?.appendingPathComponent(BackendDesktopSessionFile.fileName, isDirectory: false)),
       clipboardKeystore: .ownerOnlyFile(directory?.appendingPathComponent(BackendDesktopClipboardKeystoreFile.fileName, isDirectory: false)),
       anonymous: anonymous, anonymousIdentity: identity,
-      accountLock: BackendDesktopSessionFile.refreshLock.url, anonymousLock: appGroupLock)
+      accountLock: BackendDesktopSessionFile.refreshLock.url, anonymousLock: appGroupLock,
+      learningKeystore: .ownerOnlyFile(directory?.appendingPathComponent(learningKeystoreName, isDirectory: false)))
     #else
     // iOS 的登录会话在钥匙串里，两个 item 共用 App Group 的同一把锁（`BackendAccountSession.defaultRefreshLock`）：同一进程的两个线程会互相等待，最多 20 秒，与现有 Swift 相同。
     let group = BackendKeychain.defaultAccessGroup
@@ -48,7 +52,8 @@ struct BackendRustStoreLayout: Sendable {
       clipboardKeystore: .keychain(service: BackendKeychain.defaultService, account: BackendKeychainClipboardKeystore.account,
                                    accessGroup: group),
       anonymous: anonymous, anonymousIdentity: identity,
-      accountLock: appGroupLock, anonymousLock: appGroupLock)
+      accountLock: appGroupLock, anonymousLock: appGroupLock,
+      learningKeystore: .keychain(service: BackendKeychain.defaultService, account: learningKeystoreName, accessGroup: group))
     #endif
   }
 }
@@ -99,6 +104,7 @@ final class BackendRustSessionStore: @unchecked Sendable {
     case MSIME_CLIENT_SESSION_ITEM_CLIPBOARD_KEYSTORE.rawValue: return layout.clipboardKeystore
     case MSIME_CLIENT_SESSION_ITEM_ANONYMOUS.rawValue: return layout.anonymous
     case MSIME_CLIENT_SESSION_ITEM_ANONYMOUS_IDENTITY.rawValue: return layout.anonymousIdentity
+    case MSIME_CLIENT_SESSION_ITEM_LEARNING_KEYSTORE.rawValue: return layout.learningKeystore
     default: return nil
     }
   }
@@ -152,6 +158,8 @@ final class BackendRustSessionStore: @unchecked Sendable {
   /// `save`：0 是已写入；身份已经存在时不覆盖、返回 1；-1 是失败。
   func save(_ item: UInt32, _ bytes: Data) -> Int32 {
     guard let location = location(item) else { return -1 }
+    if item == MSIME_CLIENT_SESSION_ITEM_LEARNING_KEYSTORE.rawValue,
+       bytes.isEmpty || bytes.count > 4096 { return -1 }
     let createOnly = item == MSIME_CLIENT_SESSION_ITEM_ANONYMOUS_IDENTITY.rawValue
     switch location {
     case let .keychain(service, account, accessGroup):
@@ -182,7 +190,7 @@ final class BackendRustSessionStore: @unchecked Sendable {
     }
   }
 
-  /// `remove`：0 是成功，不存在也算成功；-1 是失败。只删这一项：Rust 清登录会话时会分别删 ACCOUNT 和 CLIPBOARD_KEYSTORE。
+  /// `remove`：0 是成功，不存在也算成功；-1 是失败。只删这一项；支持学习的 Rust 会分别删除三个账号项。
   func remove(_ item: UInt32) -> Int32 {
     guard let location = location(item) else { return -1 }
     switch location {
@@ -258,6 +266,7 @@ final class BackendRustSessionStore: @unchecked Sendable {
     store.version = UInt32(MSIME_CLIENT_SESSION_STORE_VERSION)
     store.layout = 1
     store.flags = MSIME_CLIENT_SESSION_STORE_SHARED
+    if layout.learningKeystore != nil { store.flags |= MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE }
     store.context = context
     store.load = { context, item, buffer, capacity in
       guard let context, let buffer else { return -1 }
@@ -291,15 +300,34 @@ final class BackendRustSessionStore: @unchecked Sendable {
     if let clientAgent {
       result = clientAgent.withCString { agent in
         store.client_agent = agent
-        return client.register(&store)
+        return registerCompatible(&store, with: client)
       }
     } else {
-      result = client.register(&store)
+      result = registerCompatible(&store, with: client)
     }
     // 注册失败时 Rust 没有接管 context，也不会调用 release；回答读不懂时不知道它接管了没有，宁可漏掉这一次 retain，也不在它可能还在用的时候放掉。
     if case .failure(let failure) = result, failure != .invalidResponse {
       Unmanaged<BackendRustSessionStore>.fromOpaque(context).release()
     }
     return result
+  }
+
+  /// 明确拒绝新能力时才降级一次；同一个 context 直到最终结果才决定归属。
+  private func registerCompatible(_ store: inout msime_client_session_store,
+                                  with client: BackendRustClient) -> Result<UInt64, BackendRustClient.Failure> {
+    let first = client.register(&store)
+    guard case .failure(let failure) = first, failure.code == "invalid_session_store",
+          store.flags & MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE != 0 else { return first }
+    store.flags &= ~MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE
+    // 旧 Rust 只删除原有账号项，让它删除账号时也清理新宿主曾经保存的学习密钥。
+    store.remove = { context, item in
+      guard let context else { return -1 }
+      let object = Unmanaged<BackendRustSessionStore>.fromOpaque(context).takeUnretainedValue()
+      let removed = object.remove(item)
+      let learning = item == MSIME_CLIENT_SESSION_ITEM_ACCOUNT.rawValue
+        ? object.remove(MSIME_CLIENT_SESSION_ITEM_LEARNING_KEYSTORE.rawValue) : 0
+      return removed == 0 && learning == 0 ? 0 : -1
+    }
+    return client.register(&store)
   }
 }
