@@ -106,7 +106,8 @@ import { LetterHintTable } from './input/LetterHintTable';
 import { HintKeyRect, LetterHintGesture } from './input/LetterHintGesture';
 import { HelpcodeSwipeGesture } from './input/HelpcodeSwipePolicy';
 import { GridLetterHintTable } from './input/GridLetterHintTable';
-import { GridKeyGestureMode, GridKeyGesturePolicy } from './input/GridKeyGesturePolicy';
+import { GridKeyPoint, GridKeyTouchController } from './input/GridKeyTouchController';
+import { SwipeSymbolsDirection } from './input/SwipeHintPolicy';
 import { KeyPreviewFrame, KeyPreviewLayout } from './KeyPreviewLayout';
 import {
   EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_ICON
@@ -942,10 +943,36 @@ struct KeyboardView {
   private hintHoldTimers: Map<number, number> = new Map<number, number>();
   /** 14/18 键两个字母的键上的横滑。 */
   private eighteenSwipes: EighteenKeySwipeGesture = new EighteenKeySwipeGesture();
-  /** 14/18 键每个键的一次按压状态。 */
-  private gridGestures: Map<string, GridKeyGesturePolicy> = new Map<string, GridKeyGesturePolicy>();
-  /** 组字中位移仍按点按时，抬手补发点按后吞掉 ArkUI 随后的 click。 */
-  private gridTapSwallows: Set<string> = new Set<string>();
+  /** 14/18 键字母键的触摸、点击和长按（`GridKeyTouchController`）。 */
+  private readonly gridKeys: GridKeyTouchController = new GridKeyTouchController({
+    composing: (): boolean => KeyboardSession.shared.composing(),
+    swipeDirection: (): SwipeSymbolsDirection | null =>
+      this.feedback.swipeSymbols ? this.feedback.swipeSymbolsDirection : null,
+    exactSwipes: (letters: string): boolean =>
+      this.swipesEighteenKey() && EighteenKeySwipePolicy.swipeable(letters),
+    keyPopup: (): boolean => this.feedback.keyPopup,
+    keyFace: (key: FourteenKey): string => this.compactKeyFace(key),
+    hintFace: (key: FourteenKey, eighteen: boolean): string | null => GridLetterHintTable.face(key.letters,
+      eighteen, !this.english, this.cornerQuotes, this.hollowBrackets),
+    showPreview: (finger: number, label: string, rect: HintKeyRect): void => this.showKeyPreview(finger, label, rect),
+    hidePreview: (finger: number): void => this.hideKeyPreview(finger),
+    showLetter: (letters: string, letter: string): void => this.showEighteenSwipeFace(letters, letter),
+    endLetter: (letters: string): void => this.endEighteenSwipeFace(letters),
+    keyUp: (finger: number): void => KeyboardSession.shared.keyUp(finger),
+    tap: (key: FourteenKey, eighteen: boolean): void => this.tapGridKey(key, eighteen),
+    typeHint: (key: FourteenKey, eighteen: boolean, hint: string): void => {
+      KeyboardSession.shared.softKeyPress(eighteen
+        ? KeyIdPolicy.eighteenKey(key.letters) : KeyIdPolicy.fourteenKey(key.letters));
+      this.typeGridLetterHint(hint);
+    },
+    typeLetter: (key: FourteenKey, eighteen: boolean, letter: string): void => {
+      if (eighteen) {
+        this.typeEighteenKeyLetter(key, letter);
+      } else {
+        this.typeFourteenKeyLetter(key, letter);
+      }
+    }
+  });
   /** 横滑正选中字母的那个 14/18 键（`FourteenKey.letters`）和选中的大写字母；没有时都为空串。 */
   @State eighteenSwipeKey: string = '';
   @State eighteenSwipeLetter: string = '';
@@ -1995,6 +2022,7 @@ struct KeyboardView {
     this.helpcodeSwipes.clear();
     this.pendingTouches.clear();
     this.eighteenSwipes.clear();
+    this.gridKeys.clear();
     this.eighteenSwipeKey = '';
     this.eighteenSwipeLetter = '';
     this.nineKeyFlicks.clear();
@@ -6605,6 +6633,7 @@ struct KeyboardView {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
       swipeLetters: key.letters,
+      letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)) * TOUCH_LETTER_FONT_SIZE,
       cornerHint: hint ?? undefined,
       showCornerHint: this.feedback.letterCornerHints,
       size: TOUCH_LETTER_FONT_SIZE,
@@ -6634,17 +6663,8 @@ struct KeyboardView {
     .animation({ duration: KEY_PRESS_MS })
     .responseRegion(this.keyHitRegion())
     .onTouch((event: TouchEvent): void => this.gridKeyTouch(key, eighteen, event))
-    .onClick((): void => this.clickGridKey(key, eighteen))
-    .gesture(LongPressGesture({ duration: 500 }).onAction((): void => this.holdGridKey(key, eighteen)))
-  }
-
-  private holdGridKey(key: FourteenKey, eighteen: boolean): void {
-    const hint: string | null = GridLetterHintTable.hint(key.letters, eighteen);
-    const gesture: GridKeyGesturePolicy | undefined = this.gridGestures.get(key.letters);
-    if (hint === null || gesture === undefined || !gesture.hold()) return;
-    KeyboardSession.shared.softKeyPress(eighteen
-      ? KeyIdPolicy.eighteenKey(key.letters) : KeyIdPolicy.fourteenKey(key.letters));
-    this.typeGridLetterHint(hint);
+    .onClick((event: ClickEvent): void => this.gridKeys.click(key, eighteen, event.windowX, event.windowY))
+    .gesture(LongPressGesture({ duration: 500 }).onAction((): void => this.gridKeys.hold(key, eighteen)))
   }
 
   private eighteenKeyOptions(key: FourteenKey, share: number = 1): KeyOptions {
@@ -6879,78 +6899,25 @@ struct KeyboardView {
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
   }
 
+  /** 把 ArkUI 的触摸换成手指坐标交给 `gridKeys`。 */
   private gridKeyTouch(key: FourteenKey, eighteen: boolean, event: TouchEvent): void {
-    const hint: string | null = GridLetterHintTable.hint(key.letters, eighteen);
-    const exact: string | null = this.swipesEighteenKey() && EighteenKeySwipePolicy.swipeable(key.letters)
-      ? key.letters : null;
-    let gesture: GridKeyGesturePolicy | undefined = this.gridGestures.get(key.letters);
-    if (gesture === undefined || event.type === TouchType.Down) {
-      if (event.type === TouchType.Down) this.gridTapSwallows.delete(key.letters);
-      gesture = new GridKeyGesturePolicy(exact, hint !== null);
-      this.gridGestures.set(key.letters, gesture);
-    }
-    if (event.type === TouchType.Down && event.changedTouches.length > 0) {
-      const touch: TouchObject = event.changedTouches[0];
-      gesture.start(touch.id, touch.windowX, touch.windowY,
-        this.feedback.swipeSymbols ? this.feedback.swipeSymbolsDirection : null,
-        KeyboardSession.shared.composing());
-      if (event.touches.length !== 1) gesture.cancel();
-      if (this.feedback.keyPopup) {
-        this.showKeyPreview(touch.id, this.compactKeyFace(key), {
-          left: Number(event.target.area.globalPosition.x ?? 0),
-          top: Number(event.target.area.globalPosition.y ?? 0),
-          width: Number(event.target.area.width), height: Number(event.target.area.height)
-        });
-      }
+    const rect: HintKeyRect = {
+      left: Number(event.target.area.globalPosition.x ?? 0),
+      top: Number(event.target.area.globalPosition.y ?? 0),
+      width: Number(event.target.area.width), height: Number(event.target.area.height)
+    };
+    const changed: TouchObject[] = event.changedTouches;
+    if (event.type === TouchType.Down && changed.length > 0) {
+      this.gridKeys.down(key, eighteen, { id: changed[0].id, x: changed[0].windowX, y: changed[0].windowY }, rect);
     } else if (event.type === TouchType.Move) {
-      const touches: TouchObject[] = event.changedTouches.length > 0 ? event.changedTouches : event.touches;
-      for (const touch of touches) {
-        const before: GridKeyGestureMode = gesture.mode();
-        const mode: GridKeyGestureMode = gesture.move(touch.id, event.touches.length,
-          touch.windowX, touch.windowY);
-        if (mode === GridKeyGestureMode.LETTER) {
-          this.showEighteenSwipeFace(key.letters, gesture.selectedLetter());
-        }
-        if (mode !== before && mode === GridKeyGestureMode.SYMBOL) {
-          const face: string = GridLetterHintTable.face(key.letters, eighteen, !this.english,
-            this.cornerQuotes, this.hollowBrackets) ?? hint ?? '';
-          this.showKeyPreview(touch.id, face, {
-            left: Number(event.target.area.globalPosition.x ?? 0),
-            top: Number(event.target.area.globalPosition.y ?? 0),
-            width: Number(event.target.area.width), height: Number(event.target.area.height)
-          });
-        }
-      }
-    } else if (event.type === TouchType.Up && event.changedTouches.length > 0) {
-      const touch: TouchObject = event.changedTouches[0];
-      const mode: GridKeyGestureMode = gesture.up(touch.id, event.touches.length + 1,
-        touch.windowX, touch.windowY);
-      this.hideKeyPreview(touch.id);
-      this.endEighteenSwipeFace(key.letters);
-      KeyboardSession.shared.keyUp(touch.id);
-      if (mode === GridKeyGestureMode.SYMBOL && hint !== null) {
-        KeyboardSession.shared.softKeyPress(eighteen
-          ? KeyIdPolicy.eighteenKey(key.letters) : KeyIdPolicy.fourteenKey(key.letters));
-        this.typeGridLetterHint(hint);
-      } else if (mode === GridKeyGestureMode.LETTER) {
-        if (eighteen) this.typeEighteenKeyLetter(key, gesture.selectedLetter());
-        else this.typeFourteenKeyLetter(key, gesture.selectedLetter());
-      } else if (gesture.forcesTap()) {
-        this.tapGridKey(key, eighteen);
-        this.gridTapSwallows.add(key.letters);
-      }
+      const moved: TouchObject[] = changed.length > 0 ? changed : event.touches;
+      this.gridKeys.move(key, eighteen,
+        moved.map((touch: TouchObject): GridKeyPoint => ({ id: touch.id, x: touch.windowX, y: touch.windowY })), rect);
+    } else if (event.type === TouchType.Up && changed.length > 0) {
+      this.gridKeys.up(key, eighteen, { id: changed[0].id, x: changed[0].windowX, y: changed[0].windowY });
     } else if (event.type === TouchType.Cancel) {
-      gesture.cancel();
-      this.endEighteenSwipeFace(key.letters);
-      for (const touch of event.changedTouches) this.hideKeyPreview(touch.id);
+      this.gridKeys.cancel(key, changed.map((touch: TouchObject): number => touch.id));
     }
-  }
-
-  private clickGridKey(key: FourteenKey, eighteen: boolean): void {
-    if (this.gridTapSwallows.delete(key.letters)) return;
-    const gesture: GridKeyGesturePolicy | undefined = this.gridGestures.get(key.letters);
-    if (gesture !== undefined && gesture.consumed()) return;
-    this.tapGridKey(key, eighteen);
   }
 
   private usesQuanpinSeparator(): boolean {

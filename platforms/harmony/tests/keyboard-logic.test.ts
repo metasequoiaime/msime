@@ -4298,19 +4298,19 @@ group("14/18 键使用共享角标表和鸿蒙触发规则", () => {
 
   const gesture: GridKeyGesturePolicy = new GridKeyGesturePolicy(null, true);
   gesture.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
-  check(gesture.move(1, 1, 100, 84) === GridKeyGestureMode.SYMBOL, "沿设置方向纵滑输入符号");
+  check(gesture.move(1, 100, 84) === GridKeyGestureMode.SYMBOL, "沿设置方向纵滑输入符号");
   check(gesture.mode() === GridKeyGestureMode.SYMBOL && gesture.consumed(), "符号滑动接管点击");
   gesture.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
-  check(gesture.move(1, 1, 100, 116) === GridKeyGestureMode.PENDING, "反方向纵滑保留点按");
+  check(gesture.move(1, 100, 116) === GridKeyGestureMode.PENDING, "反方向纵滑保留点按");
   gesture.start(1, 100, 100, SwipeSymbolsDirection.UP, true);
-  check(gesture.move(1, 1, 100, 80) === GridKeyGestureMode.PENDING, "组字中纵滑保留普通点按");
+  check(gesture.move(1, 100, 80) === GridKeyGestureMode.PENDING, "组字中纵滑保留普通点按");
   check(gesture.hold() && gesture.mode() === GridKeyGestureMode.HELD, "组字中长按仍输入角标");
   gesture.start(1, 100, 100, null, false);
-  check(gesture.move(1, 1, 100, 80) === GridKeyGestureMode.PENDING, "关闭滑动输入符号后纵滑不响应");
+  check(gesture.move(1, 100, 80) === GridKeyGestureMode.PENDING, "关闭滑动输入符号后纵滑不响应");
   const shuangpinGesture: GridKeyGesturePolicy = new GridKeyGesturePolicy("we", true);
   shuangpinGesture.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
   check(
-    shuangpinGesture.move(1, 1, 130, 100) === GridKeyGestureMode.LETTER,
+    shuangpinGesture.move(1, 130, 100) === GridKeyGestureMode.LETTER,
     "双拼双字母键保留横滑精确选择",
   );
 });
