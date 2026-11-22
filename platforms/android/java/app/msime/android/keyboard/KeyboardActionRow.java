@@ -178,7 +178,7 @@ public final class KeyboardActionRow {
      * 字母层底行按样式（{@link TouchKeyStyle.Row}）排布，每一行的总宽份额与标准底行相同，样式多出的键从空格里让出宽度：
      *
      * <ul>
-     * <li>26 键一族（{@link #usesCommaSecondaryPeriod}）：标准 123 |（地球）| 符 | 。 | 空格 | ， | 中/英 | 回车，句号的一份从空格里让出（{@link #DESIGN_ENGLISH_SPACE_WEIGHT}）；`COMMA_PERIOD` 123 |（地球）| 符 | ， | 空格 | 。 | 中/英 | 回车；`LONG_SPACE` 123 |（地球）| ， | 长空格 | 中/英 | 回车；`EMOJI` 123 |（地球）| 😀 | 空格 | ， | 中/英 | 回车。英文模式（`english`）画的 123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车 与中文标准底行逐键同位置、同宽；英文 26 键总是这一行，宿主对英文一律传 `STANDARD`（{@link TouchKeyStyle.Styles#forLayout}），排在英文分支之前的 `LONG_SPACE` 只在旧的 {@code longSpace} 重载显式传入时才会遇到英文。</li>
+     * <li>26 键一族（{@link #usesCommaSecondaryPeriod}）：标准 123 |（地球）| 符 | 。 | 空格 | ， | 中/英 | 回车，句号的一份从空格里让出（{@link #DESIGN_ENGLISH_SPACE_WEIGHT}）；`COMMA_PERIOD` 123 |（地球）| 符 | ， | 空格 | 。 | 中/英 | 回车；`LONG_SPACE` 123 |（地球）| ， | 长空格 | 中/英 | 回车；`EMOJI` 123 |（地球）| 😀 | 空格 | ， | 中/英 | 回车。英文模式（`english`）把键面文字换成 123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车，但仍按中文方案的样式排布，样式查询由 {@link TouchKeyStyle.Styles#forLayout} 决定。</li>
      * <li>14 键、18 键（大千注音共用这一行，但没有可选样式）：标准 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车；`LONG_SPACE` 123 |（地球）| ， | 长空格 | 中/英 | 回车；`EMOJI` 123 |（地球）| 😀 | 空格 | ， | 中/英 | 回车，😀 取原逗号的宽度，逗号取原句号的宽度。</li>
      * <li>拼音九键与笔画外框：标准 符 | 123 |（地球）| 空格 | 中/英 | 回车；`COMMA_PERIOD` 符 | 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车；`EMOJI` 符 | 123 |（地球）| 😀 | 空格 | 中/英 | 回车。</li>
      * </ul>
@@ -299,7 +299,7 @@ public final class KeyboardActionRow {
         return designEntries(touchLayout, globe, swapLanguageNumber, digits, false);
     }
 
-    /** 同上，{@code english} 是英文模式：26 键字母层画 123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车，与中文标准底行同一排（{@link #baseEntries}）。 */
+    /** 同上，{@code english} 是英文模式：26 键字母层画 123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车，键面文字与中文标准底行对应，排布仍由样式决定（{@link #baseEntries}）。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe,
             boolean swapLanguageNumber, boolean digits, boolean english) {
         return designEntries(touchLayout, globe, swapLanguageNumber, digits, english, false);

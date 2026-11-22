@@ -6263,7 +6263,7 @@ public final class MSIMEInputService extends InputMethodService {
             && bottomRowStyle(layout) == TouchKeyStyle.Row.LONG_SPACE;
     }
 
-    /** 长空格样式让工具栏那一行一直留着（{@link TouchKeyStyle.Styles#keepsToolbarRow}）：看这块键盘中文时的键面，不看此刻的中/英，切换时键盘高度不跳。英文模式下 {@link #displayedTouchLayout} 一律是 26 键，中文键面取最后一次中文时记下的那块（{@link #touchLayoutHint}，只在中文时更新）。数字字段和密码框保留标准底行，不留。 */
+    /** 长空格样式让工具栏那一行一直留着（{@link TouchKeyStyle.Styles#keepsToolbarRow}）：看这块键盘中文时的键面，不看此刻的中/英，切换时键盘高度不跳。英文模式下 {@link #displayedTouchLayout} 一律是 26 键，中文键面取最后一次中文时记下的那块（{@link #touchLayoutHint}，只在中文时更新），样式仍按该中文方案读取。数字字段和密码框保留标准底行，不留。 */
     boolean longSpaceToolbarRowKept() {
         if (directNumberPad() || EditorPolicy.password(editorInputType)) return false;
         int chineseLayout = dedicatedEnglish ? touchLayoutHint() : displayedTouchLayout(view);
