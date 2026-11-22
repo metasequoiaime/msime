@@ -1,6 +1,6 @@
 # Agent Note: 跟踪平台 issue #11129
 
-Status: proposed
+Status: rejected — issue #11129 缺少崩溃报告无法定位，维护者已以 not planned 关闭，不再单独建跟踪 PR。
 
 ## Problem
 
