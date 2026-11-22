@@ -14956,7 +14956,13 @@ private:
                std::wstring(msime::settings::quick_phrase::title),
                std::wstring(msime::settings::quick_phrase::description),
                std::wstring(msime::settings::quick_phrase::preference),
-               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+               msime::settings::quick_phrase::fallback, true, mixed_enabled, true);
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::first_title),
+               std::wstring(msime::settings::quick_phrase::first_description),
+               std::wstring(msime::settings::quick_phrase::first_preference), false, false,
+               mixed_enabled && document_.Boolean(msime::settings::quick_phrase::preference,
+                   msime::settings::quick_phrase::fallback, true));
       // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",

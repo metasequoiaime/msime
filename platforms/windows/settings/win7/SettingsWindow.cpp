@@ -153,7 +153,7 @@ struct CandidateCheck {
   const wchar_t* description;
   bool fallback;
 };
-constexpr std::array<CandidateCheck, 13> candidate_checks{{
+constexpr std::array<CandidateCheck, 15> candidate_checks{{
     {cloud_candidates, "", "cloud_candidates", L"云候选", L"仅将当前正在组的拼写发送给所选云候选服务，不发送已上屏内容、词库或历史。", false},
     {mixed_enabled, "mixed_input", "enabled", L"候选混输", L"关闭后保留各项设置，再开启时恢复。", true},
     {mixed_english, "mixed_input", "english", L"中英混输", L"中文输入时在候选项中补充英文单词。", true},
@@ -161,6 +161,8 @@ constexpr std::array<CandidateCheck, 13> candidate_checks{{
     {mixed_symbols, "mixed_input", "symbols", L"符号混输", L"完整输入符号名称时，在对应词后加入符号，例如「正负」后面是 ±。", true},
     {mixed_kaomoji, "mixed_input", "kaomoji", L"颜文字混输", L"在对应中文词后补充匹配的颜文字，排在同一个词的 emoji 之后。", false},
     {mixed_japanese, "mixed_input", "japanese", L"日文混输（实验）", L"全拼、双拼里完整输入日文罗马字时补充日文候选；词典不在时不生效。", false},
+    {mixed_quick_phrase, "mixed_input", "quick_phrase", L"快捷短语混输", L"在普通候选中加入编码完全匹配的快捷短语。", true},
+    {mixed_quick_phrase_first, "mixed_input", "quick_phrase_first", L"快捷短语置顶", L"完全匹配的快捷短语排在候选最前面，关闭后恢复原来的排序。", false},
     {learn_candidates, "", "learning", L"学习选词习惯", L"根据选词调整候选顺序。", true},
     {next_word_prediction, "", "next_word_prediction", L"上屏后联想", L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示。", false},
     {single_character_only, "", "single_character_only", L"只出单字", L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字。", false},
@@ -1656,6 +1658,10 @@ struct SettingsWindow::State {
       if (field.id == enter_learns_english_word) {
         row_help(enter_learns_english_word_help, field.title, field.description);
         top += 44;
+      } else if (field.id == mixed_quick_phrase || field.id == mixed_quick_phrase_first) {
+        row_help(field.id == mixed_quick_phrase ? mixed_quick_phrase_help : mixed_quick_phrase_first_help,
+                 field.title, field.description);
+        top += 44;
       } else {
         item(L"STATIC", field.description, SS_LEFT, -1, top + 36, 48);
         top += 100;
@@ -1763,6 +1769,8 @@ struct SettingsWindow::State {
     for (const auto& field : candidate_checks)
       if (const auto control = GetDlgItem(body, field.id))
         EnableWindow(control, enabled && (field.id == mixed_enabled || std::string_view(field.group) != "mixed_input" || mixed));
+    EnableWindow(GetDlgItem(body, mixed_quick_phrase_first), enabled && mixed &&
+        snapshot->preferences().at("mixed_input").value("quick_phrase", true));
     EnableWindow(GetDlgItem(body, mixed_first_page_count), enabled && mixed && snapshot &&
         snapshot->preferences().at("mixed_input").at("english").get<bool>());
     // 逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），「本地整句联想」关着时「标准 / 增强」照样可选，与共享设置页、现代设置窗口相同。
@@ -2033,6 +2041,7 @@ struct SettingsWindow::State {
       const auto& group = candidate_group(preferences, field);
       // `caret_edit_suffix`、`next_word_prediction` 关着以及 `enter_learns_english_word` 开着时共享序列化不写它们，缺键读作默认值。
       const bool optional = field.id == mixed_enabled || field.id == mixed_symbols || field.id == mixed_japanese ||
+          field.id == mixed_quick_phrase || field.id == mixed_quick_phrase_first ||
           field.id == caret_edit_suffix || field.id == next_word_prediction || field.id == enter_learns_english_word;
       if (!group.contains(field.field)) {
         if (optional) continue;
