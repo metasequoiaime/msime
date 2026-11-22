@@ -432,6 +432,7 @@ GROUPS = [
     # 字母
     ("xl", "希腊字母小写", letters(0x03B1, 0x03C9)),
     ("xld", "希腊字母大写", letters(0x0391, 0x03A9)),
+    ("ld", "拉丁补充字母", by_name(r"LATIN (CAPITAL|SMALL) LETTER .*", "Latin-1 Supplement")),
     ("ey", "俄文字母小写", letters(0x0430, 0x044F, (0x0451,))),
     ("eyd", "俄文字母大写", letters(0x0410, 0x042F, (0x0401,))),
     ("py", "拼音字母", pinyin(upper=False)),

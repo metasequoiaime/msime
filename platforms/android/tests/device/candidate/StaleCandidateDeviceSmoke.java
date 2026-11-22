@@ -19,8 +19,10 @@ import org.json.JSONObject;
 public final class StaleCandidateDeviceSmoke extends Instrumentation {
     private String stage = "prepare synthetic session";
     private boolean nextWord;
+    private boolean sourceMarks;
     @Override public void onCreate(Bundle arguments) {
         nextWord = arguments != null && "true".equals(arguments.getString("next-word"));
+        sourceMarks = arguments != null && "true".equals(arguments.getString("source-marks"));
         super.onCreate(arguments);
         start();
     }
@@ -59,6 +61,11 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 Method character = nativeType.getMethod("character", long.class, int.class, boolean.class);
                 JSONObject old = value(character.invoke(null, session, (int) 'n', false)).getJSONObject("view");
                 old = value(character.invoke(null, session, (int) 'i', false)).getJSONObject("view");
+                if (sourceMarks) {
+                    // 云候选与 AI 候选的来源标记，复用这个入口（见 CandidateSourceMarkDeviceChecks）。
+                    CandidateSourceMarkDeviceChecks.run(getTargetContext(), loader, type, service, old, next -> stage = next);
+                    return;
+                }
                 JSONObject id = old.getJSONArray("candidates").getJSONObject(0).getJSONObject("id");
                 field(type, "view").set(service, old);
                 Object candidates = field(type, "imeCandidates").get(service);
@@ -181,7 +188,8 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
             }
         });
         result.putString("stream", failure[0] == null
-            ? nextWord ? "MSIME_DEVICE_SMOKE_PASSED: post-commit prediction tap, space and digit selection, letter long-press and corner character, editor echo, external cursor and privacy\n"
+            ? sourceMarks ? "MSIME_DEVICE_SMOKE_PASSED: correction marks, cloud and AI source marks, spoken source, preferences, line height and strip sample\n"
+            : nextWord ? "MSIME_DEVICE_SMOKE_PASSED: post-commit prediction tap, space and digit selection, letter long-press and corner character, editor echo, external cursor and privacy\n"
                 : "MSIME_DEVICE_SMOKE_PASSED: stale menu, expanded button and spelling preserve session without editor writes; fresh candidate commits\n"
             : "MSIME_DEVICE_SMOKE_FAILED: " + stage + " (" + failure[0].getClass().getSimpleName() + ")\n");
         finish(failure[0] == null ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

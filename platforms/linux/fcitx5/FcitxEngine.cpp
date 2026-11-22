@@ -2,6 +2,7 @@
 #include "../src/settings/LocalTranslationLauncher.h"
 #include "../src/settings/QuickPhraseClearLauncher.h"
 #include "../src/core/SettingsSyncWorker.h"
+#include "CrossCommitSpacing.h"
 #include "msime_client.h"
 #include "../../common/HostApiString.h"
 #include "../src/candidates/EmbeddedTranslation.h"
@@ -2780,13 +2781,14 @@ public:
   // `typingStatistics` is false for text the Engine generated rather than the user typed out (the expression, command and mention modes), which the statistics leave out.
   void commitText(const std::string &text,
                   std::optional<msime::linux_host::TypingSource> source = std::nullopt,
-                  bool typingStatistics = true) {
+                  bool typingStatistics = true,
+                  const std::optional<std::string> &spaced = std::nullopt) {
     if (text.empty()) return;
     // 提交前的文档不再描述新光标；先作废，保留同步前端在提交回调内发布的新前文。
     ic_.surroundingText().invalidate();
-    ic_.commitString(text);
+    ic_.commitString(spaced ? *spaced : text);
     if (typingStatistics) recordTypingStatistics(text, source.value_or(typingSource()));
-    rememberSmartPunctuationCommit(text);
+    rememberSmartPunctuationCommit(spaced ? *spaced : text);
   }
   // 「宣传水杉输入法」：先把正在输入的组字上屏，再插入固定的产品介绍（MenuLabels.h 的 kPromotionText），与 IBus 宿主相同。Fcitx5 只从工具栏菜单项进入，不占用 Ctrl+Shift+P：Linux 应用普遍把它用作命令面板或隐私窗口。
   void commitPromotion() {
@@ -3615,7 +3617,8 @@ public:
         last_smart_punctuation_at_ = {};
       }
       commitText(text, std::nullopt,
-                 !context.is_object() || context.value("typing_statistics", true));
+                 !context.is_object() || context.value("typing_statistics", true),
+                 crossCommitText(text, context));
       // 上屏音（或随上屏前进的旋律音符）由生命周期核心在这次派发里出过了，排在按键音之后；隐私字段里核心什么都不出。回复的 feedback 带着上屏之后的打字特效：上屏不计数，只报告连击现在的样子，停顿后断掉的连击就这样让接着画出的辅助行跟着清掉。focus 等不是派发的调用没有它，连击照旧。
       if (const auto effect = msime::linux_host::reply_typing_effect(result); effect && !text.empty())
         typing_combo_ = msime::linux_host::typing_effect_combo(*effect);
@@ -3651,6 +3654,17 @@ public:
       return preceding_characters_with_validated_length<std::vector<std::string>>(
           text, surrounding.cursor(), count, *validatedLength);
     return preceding_characters(text, surrounding.cursor(), count);
+  }
+  std::optional<std::string> crossCommitText(const std::string &text, const Json &context) {
+    if (!preferences_.value("cross_commit_spacing", false) || text.empty() ||
+        !context.is_object() || !ic_.hasFocus() || restricted() || fullwidthOutput() ||
+        !pending_caret_.empty())
+      return std::nullopt;
+    const auto preceding = precedingCharacters(1);
+    if (!preceding || preceding->empty()) return std::nullopt;
+    const auto &scalar = preceding->front();
+    return format_cross_commit(preferences_, ic_.program(), context, text,
+                               fcitx::utf8::getChar(scalar.begin(), scalar.end()));
   }
   bool composingOrCandidates() const {
     return msime::linux_host::view_has_composition(
@@ -9637,11 +9651,23 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         !ic_.hasFocus() || restricted())
       return false;
     const bool keypad = sym >= FcitxKey_KP_Space && sym <= FcitxKey_KP_9;
+    const auto scalar = static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym));
     const auto text = msime::linux_host::english_mode_output(
-        static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym)), keypad,
+        scalar, keypad,
         punctuation_lock_ == 1 || (punctuation_lock_ == 0 && english_chinese_punctuation_),
         fullwidthOutput(), english_punctuation_, viewPunctuationMarks());
-    if (text.empty()) return false;
+    if (text.empty()) {
+      if (!preferences_.value("cross_commit_spacing", false) || keypad ||
+          states.test(fcitx::KeyState::Mod5) || scalar > 0x7f ||
+          !std::isalnum(static_cast<unsigned char>(scalar)))
+        return false;
+      const std::string literal(1, static_cast<char>(scalar));
+      const auto spaced = crossCommitText(literal, Json{
+          {"scheme", typingScheme()}, {"local_mode", "direct_english"}});
+      if (!spaced) return false;
+      commitText(literal, msime::linux_host::TypingSource::English, true, spaced);
+      return true;
+    }
     commitText(text, msime::linux_host::TypingSource::English);
     return true;
   }

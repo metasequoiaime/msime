@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn the_table_follows_its_rules() {
         let groups = groups();
-        assert_eq!(groups.len(), 87, "分组码个数");
+        assert_eq!(groups.len(), 88, "分组码个数");
         let mut codes = HashSet::new();
         let mut symbols = 0;
         for group in groups {
@@ -203,7 +203,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(symbols, 4585, "符号总数");
+        assert_eq!(symbols, 4647, "符号总数");
     }
 
     #[test]

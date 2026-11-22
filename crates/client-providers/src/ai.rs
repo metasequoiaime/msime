@@ -49,6 +49,9 @@ pub struct AiSuggestionRequest {
     pub segmented_pinyin: Vec<String>,
     pub context: String,
     pub candidate_limit: u8,
+    /// 允许全拼候选在语义接缝补中文标点，无需新增拼音段。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sentence_punctuation: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -72,6 +75,8 @@ pub const DEFAULT_TRANSLATION_PROMPT: &str = "你是一个机器翻译服务。�
 
 /// 空白提示词槽位使用的协议；本地推断的切分可调整，用户手动边界必须保留。
 pub const DEFAULT_CANDIDATE_PROMPT: &str = "你是一个中文全拼输入法联想引擎。input 是原始全拼按键（保留手动单引号分隔符），segmented_pinyin 是本地推断的切分，explicit_boundaries 是去掉单引号后用户指定边界的字母偏移。没有 input 时只能沿用本地切分。结合 context 消除音节边界歧义，可以提出其他合法切分，但必须完整覆盖原输入、保留所有手动边界，不得增删字母。\n\n每个中文字符对应一个合法拼音音节，读音必须相符。英文缩写、产品名或技术术语可占用一个或多个连续音节，但字母必须与对应输入区间逐字相同（忽略大小写），允许中英文间有空格，不得凭语义增字、漏字、翻译或改写。例：woxiwangaikeyi 可返回「我希望 AI 可以」，segmentation 为 [\"wo\",\"xi\",\"wang\",\"ai\",\"ke\",\"yi\"]；GitHub 可对应 [\"git\",\"hub\"]。\n\n只输出合法 JSON，不要解释或 Markdown：{\"candidates\":[{\"text\":\"候选内容\",\"segmentation\":[\"每段音节或英文输入区间\"]}]}。按推荐程度排序，不超过 candidate_limit；没有合理结果返回空数组。";
+
+const SENTENCE_PUNCTUATION_PROMPT: &str = "长串全拼可按语义分句，必要时在 text 补中文标点（，。？！；：、）。标点不放进 segmentation，不拆开英文单词，不增删、改写或续写文字。";
 
 /// 英文模式按原始拼写与前文补全、纠错，不将字母拆成拼音。
 pub const DEFAULT_ENGLISH_CANDIDATE_PROMPT: &str = "你是一个英文输入法补全和拼写纠错服务。用户提供 mode=english、原始字母串 input、前文 context 和候选数量 candidate_limit。结合前文返回最可能的完整英文单词，保留合理的大小写，纠正常见拼写错误。不要把字母当作拼音，不翻译成中文，不解释。只输出合法 JSON：{\"candidates\":[{\"text\":\"英文单词\"}]}。按推荐程度降序，数量不超过 candidate_limit；没有合理结果返回空数组。";
@@ -603,6 +608,7 @@ mod tests {
             segmented_pinyin: vec![],
             context: "Synthetic preceding sentence.".into(),
             candidate_limit: ai.candidate_limit,
+            sentence_punctuation: false,
         };
         let descriptor = chat_completion_http_request(&ai, &request)
             .unwrap()
@@ -661,6 +667,7 @@ mod tests {
             segmented_pinyin: vec!["shu".into(), "ru".into()],
             context: String::new(),
             candidate_limit: ai.candidate_limit,
+            sentence_punctuation: false,
         };
         let descriptor = chat_completion_http_request(&ai, &request)
             .unwrap()
@@ -681,6 +688,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 3,
+            sentence_punctuation: false,
         };
         let config = |provider: &str, endpoint: &str, thinking: &str| {
             let mut ai = crate::preferences::Preferences::default().ai_assistant;
@@ -784,6 +792,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 3,
+            sentence_punctuation: false,
         };
         let ark = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
         let thinking = |provider: &str, endpoint: &str, model: &str| {
@@ -877,6 +886,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into(), "hao".into()],
             context: String::new(),
             candidate_limit: 3,
+            sentence_punctuation: false,
         };
         assert_eq!(suggest(&Stub, &request).unwrap().candidates[0].text, "你好");
     }
@@ -888,6 +898,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 0,
+            sentence_punctuation: false,
         };
         assert_eq!(request.validate(), Err(AiError::InvalidLimit));
         request.candidate_limit = 1;
@@ -918,6 +929,7 @@ mod tests {
             segmented_pinyin: vec!["ni\u{0}".into()],
             context: String::new(),
             candidate_limit: 1,
+            sentence_punctuation: false,
         };
         assert_eq!(request.validate(), Err(AiError::InvalidSegments));
         request.segmented_pinyin[0] = "ni".into();
@@ -948,6 +960,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into(), "hao".into()],
             context: "合成上下文\n\"引用\"".into(),
             candidate_limit: 3,
+            sentence_punctuation: false,
         };
         for provider in AI_PROVIDERS {
             let body = chat_completion_body(
@@ -1221,6 +1234,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: 3,
+            sentence_punctuation: false,
         };
         let descriptor = |config: &crate::preferences::AiAssistantPreferences| {
             chat_completion_http_request(config, &request)
@@ -1381,6 +1395,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: config.candidate_limit,
+            sentence_punctuation: false,
         };
         let descriptor = chat_completion_http_request(&config, &request)
             .unwrap()
@@ -1446,6 +1461,7 @@ mod tests {
             segmented_pinyin: vec!["ni".into()],
             context: String::new(),
             candidate_limit: config.candidate_limit,
+            sentence_punctuation: false,
         };
         assert_eq!(
             chat_completion_http_request(&config, &request),

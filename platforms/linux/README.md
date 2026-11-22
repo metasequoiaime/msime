@@ -357,6 +357,8 @@ systemd.user.services.msime-linux-clipboard.wantedBy = [ "graphical-session.targ
 
 **每次发布自动产出、不自动发布。** `release-linux.yml` 的 `distro-sources` job 用 `packaging/make-source-tarballs.sh` 生成上面三个 tarball 和只列它们的 `msime-<版本>-SHA256SUMS`，main 上的发布由 `packaging/publish-sources.sh` 在版本发布页上线之前把它们传到滚动的 `linux-sources` release（预发布、不设为 latest、每个版本一组、长期保留，上传后按 GitHub 记录的摘要核对），不放在版本发布页上；beta 与 alpha 的只留在 workflow artifact 里。发布之后 `package-definitions` job 在同一提交上运行 `packaging/render-definitions.sh <版本> <目录>`，在各发行版的官方容器里渲染出 `rpm/`（`msime.spec`、`msime-rpmlintrc`、`msime-<版本>-1.src.rpm`）、`debian/`（`.dsc` 与 `.debian.tar.xz`）、`arch/`（两个包各自的 `PKGBUILD`、`.SRCINFO`、`msime.install`）和 `gentoo/`（带 Manifest 的完整 overlay），作为构建产物 `msime-package-definitions-linux-<版本>` 上传。版本号只来自 `platforms/linux/version.txt`（或手动触发时填的版本），`.rpm` 的校验值只来自版本发布页的 `SHA256SUMS`，三个 tarball 的只来自 `linux-sources` 上的 `msime-<版本>-SHA256SUMS`；COPR、OBS 与 PPA 的 workflow 用 `packaging/download-sources.sh` 取 tarball，`linux-sources` 上没有这个版本（0.12.1 及更早）时退回它自己的发布页；AUR 的 `msime` 与 Gentoo 的版本 ebuild 还要 GitHub 为 `linux-v<版本>` 标签生成的源码归档，它不是发布资产、不在 `SHA256SUMS` 里，校验值由 `arch/render.py` 与 `ebuild manifest` 下载后现算，GitHub 改变归档的生成方式时这两个包的校验会失败。本地也可以对任何一个已发布的版本跑同一个脚本（需要 docker），`MSIME_DEFINITIONS=arch,gentoo` 只渲染其中几部分。
 
+Fcitx5 下分次上屏中文和英文时，可以运行 `msime config set cross_commit_spacing=true` 自动补上接缝处的空格，用 `msime config set cross_commit_spacing=false` 关闭。它只在编辑器提供光标前文时作用于新文本，已有的「中英文之间加空格」仍独立处理单次上屏。
+
 **上架之后的安装方式：**
 
 ```sh
@@ -752,6 +754,8 @@ Linux 关于页的“输入法宿主日志”对应共享偏好中的 `diagnosti
 Linux 关于页的“检查更新”读取水杉输入法仓库的 GitHub 发行版列表，按「版本与更新」里选的更新通道取最新版本，不复用只发布 Windows 安装程序的 `msime.app/update.json`：稳定版（缺省）只取 `linux-v` 标签下非草稿、非预发布的版本；测试版另外接受标签恰为 `linux-vX.Y.Z-beta` 的预发布；每日构建再接受滚动的 `nightly` 发行版里的 Linux 包（另外请求一次 `releases/tags/nightly`）。同一个版本号可能有好几次构建，所以按版本号和发布 workflow 的运行 ID 比较新旧，结果写明通道，例如「测试版 v0.3.1」「每日构建 v0.3.1（构建 123）」；测试版和每日构建不经包管理器分发，「前往发布页」打开它们自己的 GitHub 发行页。发行页地址必须属于固定的 `metasequoiaime/msime` releases 路径才会显示；仓库尚无 Linux 发行版时显示正常的“暂无可用发行版”状态，网络错误或无效响应才报告检查失败。打开设置窗口时（设置应用启动时，或已在运行的设置进程被叫到前台时；只为面板启动的设置进程不检查），设置应用每天在后台按同样的规则、按偏好里的通道检查一次，与 macOS 输入法的每日检查对应。检查、记录和节流用的是与 Windows 常驻进程共用的 Rust 实现（`msime_client_services::update_check::background`）：上次成功检查和上次尝试的时间、检查用的通道、已提醒过的构建和找到的新版本记在状态目录的 `update-check.json`，成功后未满一天不再联网，连不上时记下尝试时间、六小时后再试，不会每次打开都重试；换了通道以后下一次打开设置窗口立刻重查，旧通道找到的版本不再显示。发现新版本时发一条桌面通知「水杉输入法有新版本 vX」（测试版是「…有新的测试版 vX」，每日构建是「…有新的每日构建 vX（构建 N）」；应用名和图标随本安装包所属的版本，例如五笔版是「水杉五笔」和 `msime-linux-wubi`），正式版的正文说明由安装它的包管理器更新，测试版和每日构建的正文说明要从发行页下载。通知还在、发通知的设置进程也还在时，点通知上的「查看」打开设置的「关于」页；进程退出以后点它不再有反应，从设置窗口打开「关于」页即可。关于页打开时从记录里读出按当前通道找到的新版本直接显示，直到运行的构建追上它；正在后台检查时打开的关于页要重新打开才会看到这次的结果。同一个构建（版本号和运行 ID）只提醒一次。安装包归包管理器管，所以不做应用内安装；检查只在设置应用里进行，Fcitx5 插件和 IBus 宿主都不联网；开发构建不做后台检查。发行版打包时在构建环境里设置 `MSIME_DISABLE_UPDATE_CHECK=1`（编译 `msime-linux-desktop` 时读入），或者用户在运行设置应用的环境里设置它，都会关掉后台检查，关于页的「检查更新」按钮照常可用。更新提示注明软件包未签名，并给出 GitHub 为 `.deb`（没有时为 `.tar.gz`）附件计算的 SHA256 和 `sha256sum <文件名>` 核对命令；GitHub 没有返回该附件的摘要、或同一发行版带有多个架构的包时不显示校验值，改为提示下载发行版里的 `SHA256SUMS`，用 `sha256sum -c SHA256SUMS --ignore-missing` 核对。
 
 ## 输入细节与平台差异
+
+在中文全拼或双拼下，按 `Shift+S` 进入符号模式，再输入分组码并选择候选。用 `wjx` 输入 ★、☆，用 `jh` 输入 ▲、△、□、■，用 `dw` 输入 ℃，用 `ld` 输入 Ø、ø 等拉丁补充字母。
 
 Linux 桌面设置页通过宿主能力显示共享的模糊音配置。总开关首次从关闭切换为开启时，偏好存储会一次性选中 11 条规则；用户之后删减规则、暂时关闭再恢复时保留删减结果，并用内部播种标记避免空规则集被再次填充。规则计算仍由 Engine 完成。
 

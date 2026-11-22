@@ -9944,6 +9944,26 @@ fn symbol_mode_group_jt_gives_arrows() {
     assert!(rows.iter().any(|text| text == "→"), "{rows:?}");
 }
 
+#[test]
+fn symbol_mode_commits_reported_special_characters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (code, characters) in [
+        ("ld", &["Ø", "ø"][..]),
+        ("wjx", &["★", "☆"]),
+        ("jh", &["▲", "△", "□", "■"]),
+        ("dw", &["℃"]),
+        ("oslash", &["⊘"]),
+    ] {
+        for &character in characters {
+            let mut session = fixture.session();
+            assert!(session.character(b'S', true).handled);
+            type_text(&mut session, code);
+            let result = session.select(index_of(&session, character));
+            assert_eq!(result.commit.as_deref(), Some(character), "{code}");
+        }
+    }
+}
+
 /// 符号名 `alpha` 出 α；符号名在分组码之后给，不重复。
 #[test]
 fn symbol_mode_name_alpha_gives_the_letter() {
