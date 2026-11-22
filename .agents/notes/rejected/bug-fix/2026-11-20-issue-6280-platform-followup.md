@@ -4,7 +4,7 @@ Status: rejected — issue #6280 已由 #6359 修复并关闭，无需单独跟�
 
 ## Problem
 
-issue #6280（macOS）报告：首次安装后，系统设置的「添加」对话框里找不到水杉输入法，无法添加，尽管应用已在 `~/Library/Input Methods` 下。原因是一个在本次登录开始时不在输入源列表里的 bundle identifier 要到下次登录才会出现在「添加」对话框里，而安装窗口、设置应用和更新流程的提示会把用户引错方向。#6359（`fix(macos): 首次安装后这次登录看不到输入法时一路提示重新登录`）修正了这条提示链路：新增 `--input-source-registered` 探针，本次登录的输入源注册表里查不到时改报 `login_required`，安装窗口提示注销并重新登录，issue 随该 PR 合并于 2026-10-09 关闭。
+issue #6280（macOS）报告：首次安装后，系统设置的「添加」对话框里找不到水杉输入法，无法添加，尽管应用已在 `~/Library/Input Methods` 下。原因是一个在本次登录开始时不在输入源列表里的 bundle identifier 要到下次登录才会出现在「添加」对话框里，而安装窗口、设置应用和更新流程的提示会把用户引错方向。#6359（`fix(macos): 首次安装后这次登录看不到输入法时一路提示重新登录`）修正了这条提示链路：新增 `--input-source-registered` 探针，本次登录的输入源注册表里查不到时改报 `login_required`，安装窗口提示注销并重新登录，issue 随该 PR 合并于 2026-10-09 关闭。决定记录见 [首次安装后需重新登录](../../implemented/bug-fix/2026-10-09-macos-first-install-login-required.md)。
 
 ## Proposal
 
