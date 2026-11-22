@@ -18,10 +18,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::PoisonError;
 use std::time::Duration;
 
+mod learning;
+
 /// 头文件的 `MSIME_CLIENT_SESSION_STORE_VERSION`。
 const SESSION_STORE_VERSION: u32 = 1;
 /// 头文件的 `MSIME_CLIENT_SESSION_STORE_SHARED`。
 const SESSION_STORE_SHARED: u32 = 1;
+/// 头文件的 `MSIME_CLIENT_SESSION_STORE_LEARNING_KEYSTORE`。
+const SESSION_STORE_LEARNING_KEYSTORE: u32 = 2;
 /// `client_agent` 最多读这么多字节，再往后还没有 NUL 就不合法。
 const MAX_CLIENT_AGENT_BYTES: usize = 256;
 /// id 留在 2^53 以内，JS 和 ArkTS 宿主当普通数字用不会丢精度。
@@ -65,11 +69,16 @@ unsafe impl Send for CallbackBackend {}
 unsafe impl Sync for CallbackBackend {}
 
 impl SessionStoreBackend for CallbackBackend {
+    fn supports_learning_keystore(&self) -> bool {
+        self.store.flags & SESSION_STORE_LEARNING_KEYSTORE != 0
+    }
+
     fn read(
         &self,
         item: SessionStoreItem,
         capacity: usize,
     ) -> Result<Option<Vec<u8>>, AccountError> {
+        self.check_learning_item(item)?;
         let load = self.store.load.ok_or(AccountError::Storage)?;
         let mut buffer = vec![0_u8; capacity];
         // SAFETY: 缓冲区在本次调用期间有效、可写 `capacity` 字节；回调遵守头文件的契约。
@@ -93,6 +102,7 @@ impl SessionStoreBackend for CallbackBackend {
     }
 
     fn write(&self, item: SessionStoreItem, bytes: &[u8]) -> Result<WriteOutcome, AccountError> {
+        self.check_learning_item(item)?;
         let save = self.store.save.ok_or(AccountError::Storage)?;
         // SAFETY: `bytes` 在本次调用期间有效；回调不保留它。
         match unsafe { save(self.store.context, item.raw(), bytes.as_ptr(), bytes.len()) } {
@@ -103,6 +113,7 @@ impl SessionStoreBackend for CallbackBackend {
     }
 
     fn remove(&self, item: SessionStoreItem) -> Result<(), AccountError> {
+        self.check_learning_item(item)?;
         let remove = self.store.remove.ok_or(AccountError::Storage)?;
         // SAFETY: 回调遵守头文件的契约。
         match unsafe { remove(self.store.context, item.raw()) } {
@@ -205,6 +216,14 @@ impl AccountSessionStorage for SessionStorage {
         }
     }
 
+    fn load_learning_keystore(&self) -> Result<Option<String>, AccountError> {
+        self.read_learning_key()
+    }
+
+    fn save_learning_keystore(&self, value: &str) -> Result<(), AccountError> {
+        self.write_learning_key(value)
+    }
+
     fn with_refresh_lock<T>(
         &self,
         body: impl FnOnce() -> Result<T, AccountError>,
@@ -290,7 +309,7 @@ fn register(store: SessionStoreV1) -> Result<Value, String> {
         || store.load.is_none()
         || store.save.is_none()
         || store.remove.is_none()
-        || store.flags & !SESSION_STORE_SHARED != 0
+        || store.flags & !(SESSION_STORE_SHARED | SESSION_STORE_LEARNING_KEYSTORE) != 0
         || (shared && (store.lock.is_none() || store.unlock.is_none()))
     {
         return Err(INVALID_SESSION_STORE.into());
@@ -394,6 +413,7 @@ pub(crate) mod tests {
         pub(crate) items: Mutex<HashMap<u32, Vec<u8>>>,
         pub(crate) loads: AtomicUsize,
         pub(crate) saves: Mutex<Vec<u32>>,
+        pub(crate) removes: Mutex<Vec<u32>>,
         pub(crate) locks: Mutex<Vec<(u32, u64, std::thread::ThreadId)>>,
         pub(crate) unlocks: Mutex<Vec<(u32, u64, std::thread::ThreadId)>>,
         pub(crate) releases: AtomicUsize,
@@ -462,6 +482,7 @@ pub(crate) mod tests {
     }
 
     unsafe extern "C" fn remove(store: *mut c_void, item: u32) -> i32 {
+        context(store).removes.lock().unwrap().push(item);
         context(store).items.lock().unwrap().remove(&item);
         0
     }
@@ -603,7 +624,7 @@ pub(crate) mod tests {
         let changes: [fn(&mut SessionStoreV1); 10] = [
             |d| d.version = 2,
             |d| d.layout = 2,
-            |d| d.flags = 2,
+            |d| d.flags = 4,
             |d| d.load = None,
             |d| d.save = None,
             |d| d.remove = None,

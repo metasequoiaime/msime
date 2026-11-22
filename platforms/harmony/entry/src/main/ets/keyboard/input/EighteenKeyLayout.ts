@@ -21,8 +21,4 @@ export class EighteenKeyLayout {
   static rows(): FourteenKey[][] {
     return EighteenKeyLayout.ROWS;
   }
-
-  static holdOptions(key: FourteenKey): string[] {
-    return key.letters.length > 1 ? key.letters.split("") : [];
-  }
 }

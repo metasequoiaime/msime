@@ -64,6 +64,45 @@ final class KeyboardGeometrySettingsTests: XCTestCase {
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 20)
   }
 
+  /// 手机键帽从 52pt 降到 44pt，默认键块矮了 32pt；可调上限跟着放宽 32pt，以前调到最高的用户升级后仍能回到原来的绝对高度。
+  func testTheHighestPhoneKeyBlockMatchesTheOldMaximum() {
+    let oldKeyBlock = KeyboardHeightPercent.keyBlockHeight(keyHeight: 52, rows: 4, rowSpacing: 7)
+    let keyBlock = KeyboardHeightPercent.portraitKeyBlockHeight(tablet: false, numberRow: false, rowSpacing: 7)
+    XCTAssertEqual(oldKeyBlock, 229)
+    XCTAssertEqual(keyBlock, 197)
+    XCTAssertEqual(KeyboardHeightPercent.sharedAdjustmentRange, -12...48)
+    XCTAssertEqual(KeyboardHeightPercent.adjustmentRange.lowerBound, KeyboardHeightPercent.sharedAdjustmentRange.lowerBound)
+    XCTAssertEqual(keyBlock + KeyboardHeightPercent.adjustmentRange.upperBound,
+                   oldKeyBlock + KeyboardHeightPercent.sharedAdjustmentRange.upperBound, "277pt")
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustmentRange, -12...80)
+  }
+
+  /// 超过 48 的高度共享文档存不下：文档写 48，App Group 留完整值；镜像回来时文档仍是本机截下去的 48 就保留本机值，文档在别处改过就跟文档。
+  func testHeightAboveTheSharedRangeStaysOnThisDevice() throws {
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(heightAdjustment: 80, stateRoot: state))
+    var document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(document["touch_keyboard_height_adjustment"] as? Int, 48)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 80)
+
+    KeyboardLayoutPreference.mirrorGeometry(document)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 80, "the document holds the clamped copy of this value")
+
+    XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(heightAdjustment: 500, stateRoot: state))
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 80)
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["touch_keyboard_height_adjustment"] = 30
+    })
+    document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    KeyboardLayoutPreference.mirrorGeometry(document)
+    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 30, "a change made elsewhere wins")
+
+    XCTAssertEqual(KeyboardLayoutPreference.reconciledHeightAdjustment(document: 48, local: 20), 48)
+    XCTAssertEqual(KeyboardLayoutPreference.reconciledHeightAdjustment(document: 48, local: 64), 64)
+    XCTAssertEqual(KeyboardLayoutPreference.reconciledHeightAdjustment(document: -12, local: -12), -12)
+  }
+
   func testResetClearsTheDocumentOverrides() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(KeyboardLayoutPreference.saveGeometry(

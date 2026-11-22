@@ -927,9 +927,8 @@ fn synthetic_rime_import_throughput() {
         .map(|value| value.parse::<u32>().unwrap())
         .unwrap_or(512);
     assert!(
-        (1..=msime_client_services::dictionary::collections::MAX_COLLECTION_ENTRIES as u32)
-            .contains(&count),
-        "合成测量规模必须落在单个集合的容量内"
+        (1..=1_000_000).contains(&count),
+        "合成测量规模超出测试保护范围"
     );
     let root = tempfile::tempdir().unwrap();
     let options = host_options_with_main_dictionary(root.path());

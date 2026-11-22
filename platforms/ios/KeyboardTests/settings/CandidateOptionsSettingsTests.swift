@@ -104,6 +104,33 @@ final class CandidateOptionsSettingsTests: XCTestCase {
     XCTAssertEqual(spelling(bridge, "ui"), "shi")
   }
 
+  func testReloadRetriesAfterKeyboardSuspendsBeforePreferencesArrive() async throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertNil(bridge.switch(toShuangpinProfile: "xiaohe").diagnosticText)
+    XCTAssertEqual(spelling(bridge, "ui"), "ui")
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["shuangpin_preedit_uses_raw"] = false
+    })
+    let interrupted = expectation(description: "会话释放后读取完成")
+    bridge.reloadSharedPreferences { accepted in
+      XCTAssertFalse(accepted)
+      interrupted.fulfill()
+    }
+    XCTAssertTrue(bridge.suspendDictionarySession())
+    await fulfillment(of: [interrupted], timeout: 15)
+
+    try bridge.resumeDictionarySession()
+    XCTAssertNil(bridge.switch(toShuangpinProfile: "xiaohe").diagnosticText)
+    XCTAssertEqual(spelling(bridge, "ui"), "ui")
+    let retried = expectation(description: "新会话接受同一份文档")
+    bridge.reloadSharedPreferences { accepted in
+      XCTAssertTrue(accepted)
+      retried.fulfill()
+    }
+    await fulfillment(of: [retried], timeout: 15)
+    XCTAssertEqual(spelling(bridge, "ui"), "shi")
+  }
+
   /// 「原始按键按音节分隔」（#10717）reaches the live session too: the raw keys stay, split by syllable.
   func testReloadHandsSeparatedShuangpinPreeditToTheLiveSession() async {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)

@@ -10,6 +10,9 @@ use super::*;
 use std::fs::File;
 use std::path::PathBuf;
 
+#[path = "learning_sync/file_keys.rs"]
+mod learning_file_keys;
+
 /// A session document is a pair of JWTs, a user and an expiry. Anything appreciably larger is not one, and is rejected before it is parsed.
 pub(crate) const MAX_SESSION_BYTES: u64 = 64 * 1024;
 /// Seconds between the Unix epoch and the Foundation reference date, 2001-01-01.
@@ -22,6 +25,8 @@ pub const ACCOUNT_SESSION_FILE: &str = "account-session.json";
 pub const ACCOUNT_REFRESH_LOCK_FILE: &str = "account-refresh.lock";
 /// 云剪贴板的密钥串，与会话文件同目录、同样仅本人可读写。macOS 上输入法和设置应用（Swift）读写同一个文件，内容是密钥串本身（UTF-8，不带换行）。
 pub const CLOUD_CLIPBOARD_KEYSTORE_FILE: &str = "cloud-clipboard-keystore";
+/// learning 域身份，与剪贴板独立，退出登录时删除。
+pub const LEARNING_KEYSTORE_FILE: &str = "learning-keystore";
 /// 密钥串约 130 个字符；明显更大的文件不是这里写的。
 pub(crate) const MAX_KEYSTORE_BYTES: u64 = 4096;
 
@@ -386,12 +391,13 @@ impl AccountSessionStorage for FileAccountSessionStorage {
         save_bytes(self, ACCOUNT_SESSION_FILE, &bytes)
     }
 
-    /// 删除会话，也删除云剪贴板密钥串：退出登录后本机不再保留能解开云端条目的密钥。
+    /// 删除会话与两个独立域的密钥串；每项都尝试后再返回错误。
     fn clear(&self) -> Result<(), AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         let session = self.remove_private(ACCOUNT_SESSION_FILE);
         let keystore = self.remove_private(CLOUD_CLIPBOARD_KEYSTORE_FILE);
-        session.and(keystore)
+        let learning = self.remove_private(LEARNING_KEYSTORE_FILE);
+        session.and(keystore).and(learning)
     }
 
     fn load_clipboard_keystore(&self) -> Result<Option<String>, AccountError> {
@@ -410,6 +416,14 @@ impl AccountSessionStorage for FileAccountSessionStorage {
         }
         self.create_directory()?;
         save_bytes(self, CLOUD_CLIPBOARD_KEYSTORE_FILE, value.as_bytes())
+    }
+
+    fn load_learning_keystore(&self) -> Result<Option<String>, AccountError> {
+        self.read_learning_key()
+    }
+
+    fn save_learning_keystore(&self, value: &str) -> Result<(), AccountError> {
+        self.write_learning_key(value)
     }
 
     fn shared_across_processes(&self) -> bool {

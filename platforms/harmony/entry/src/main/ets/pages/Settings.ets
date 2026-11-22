@@ -1043,7 +1043,7 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
-    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin ? Visibility.None : Visibility.Visible)
+    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
     if (this.showShuangpin) {
       TouchShuangpinPanel({
         bridge: {
@@ -1055,7 +1055,6 @@ struct Settings {
         back: (): void => this.closeShuangpin()
       })
     }
-    .visibility(this.showDictionaryGroups || this.showKeyboardLetterWidths || this.showNineKeyFlick || this.showShuangpin || this.showCustomShuangpin ? Visibility.None : Visibility.Visible)
     if (this.showCustomShuangpin) {
       CustomShuangpinPanel({
         bridge: {

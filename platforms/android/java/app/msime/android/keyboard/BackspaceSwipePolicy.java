@@ -12,14 +12,18 @@ public final class BackspaceSwipePolicy {
     public static final float ARM_DP = 40f;
     /** 框的高度。 */
     public static final float BOX_HEIGHT_DP = 40f;
-    /** 键上方空间不够时（九键的删除键在第一排，上面只有工具栏），框至少保留的高度。 */
+    /** 键上方空间充足时，框至少保留的高度。 */
     public static final float MIN_BOX_HEIGHT_DP = 28f;
+    /** 键上方只剩窄条时仍可显示的紧凑提示框高度。 */
+    public static final float COMPACT_BOX_HEIGHT_DP = 16f;
     /** 提示框至少 160 dp 宽，长按时容易辨认，靠边和窄窗口仍限制在键盘内。 */
     public static final float MIN_BOX_WIDTH_DP = 160f;
     /** 框与覆盖层边缘的最小距离。 */
     public static final float MARGIN_DP = 4f;
     /** 待命线至少比弹出线再高这么多：弹出和待命必须是两步，手指弹出框后还要明确地再往上滑一段才会待命。 */
     public static final float MIN_ARM_TRAVEL_DP = 8f;
+    /** 紧凑提示框仍须把「显示」和「待命」分成两步。 */
+    public static final float COMPACT_MIN_ARM_TRAVEL_DP = 4f;
 
     /** 这一次按压所处的阶段。 */
     public enum Phase {
@@ -46,21 +50,26 @@ public final class BackspaceSwipePolicy {
     private BackspaceSwipePolicy() { }
 
     /**
-     * 这次按压能不能上滑快速删除：键上方要放得下至少 {@link #MIN_BOX_HEIGHT_DP} 高的框，且待命线比弹出线至少高 {@link #MIN_ARM_TRAVEL_DP}。工具栏隐藏、又没在组字时，九键、注音、笔画第一排的删除键几乎贴着覆盖层上沿，框画不出来，若照样判定，手指刚滑出键沿就直接待命、松手删光却从没看到框，所以这时整个上滑手势不生效，删除键照常连删。
+     * 这次按压能不能上滑快速删除：空间充足时按正常框的高度和待命距离判定。九键等布局的删除键贴近覆盖层上沿时，允许使用紧凑框，仍须先越过显示线再越过待命线，避免长按没有任何提示却直接清空。
      *
      * @param keyTop 删除键上沿的 y
      */
     public static boolean available(float keyTop, float density) {
-        return keyTop - (REVEAL_DP + MIN_ARM_TRAVEL_DP) * density
-            >= (MARGIN_DP + MIN_BOX_HEIGHT_DP) * density;
+        float normalTop = (MARGIN_DP + MIN_BOX_HEIGHT_DP + REVEAL_DP + MIN_ARM_TRAVEL_DP) * density;
+        float compactTop = (MARGIN_DP + COMPACT_BOX_HEIGHT_DP + REVEAL_DP + COMPACT_MIN_ARM_TRAVEL_DP) * density;
+        return keyTop >= normalTop || keyTop >= compactTop;
     }
 
     /**
-     * 待命线：手指的 y 小于等于它就待命。通常在键上沿往上 {@link #ARM_DP}；键上方放不下时下移，保证框至少有 {@link #MIN_BOX_HEIGHT_DP} 高，但始终比弹出线高 {@link #MIN_ARM_TRAVEL_DP}。只在 {@link #available} 为真时有意义。
+     * 待命线：手指的 y 小于等于它就待命。空间充足时按正常框计算；紧凑框把待命线放在键上沿上方 12 dp，保留 4 dp 的第二段移动距离。
      *
      * @param keyTop 删除键上沿的 y
      */
     public static float armLine(float keyTop, float density) {
+        float normalTop = (MARGIN_DP + MIN_BOX_HEIGHT_DP + REVEAL_DP + MIN_ARM_TRAVEL_DP) * density;
+        if (keyTop < normalTop) {
+            return keyTop - (REVEAL_DP + COMPACT_MIN_ARM_TRAVEL_DP) * density;
+        }
         float preferred = keyTop - ARM_DP * density;
         float lowest = (MARGIN_DP + MIN_BOX_HEIGHT_DP) * density;
         float highestAllowed = keyTop - (REVEAL_DP + MIN_ARM_TRAVEL_DP) * density;
@@ -68,7 +77,7 @@ public final class BackspaceSwipePolicy {
     }
 
     /**
-     * 框的位置：下沿就是待命线，在删除键上方水平居中（宽度取两个键宽与 {@link #MIN_BOX_WIDTH_DP} 的较大者），整体限制在覆盖层内。
+     * 框的位置：下沿就是待命线，在删除键上方水平居中（宽度取两个键宽与 {@link #MIN_BOX_WIDTH_DP} 的较大者），整体限制在覆盖层内。紧凑模式的上沿仍贴着覆盖层边缘。
      *
      * @param surfaceWidth 覆盖层宽度
      */
@@ -87,7 +96,7 @@ public final class BackspaceSwipePolicy {
     }
 
     /**
-     * 手指移动到 `fingerY` 后的阶段。弹出过的框不会收回：之后只在待命与不待命之间切换。键上方放不下框（{@link #available} 为假）时始终是 {@link Phase#IDLE}。
+     * 手指移动到 `fingerY` 后的阶段。弹出过的框不会收回：之后只在待命与不待命之间切换。键上方连紧凑框也放不下时始终是 {@link Phase#IDLE}。
      *
      * @param current 移动前的阶段
      * @param fingerY 手指的 y

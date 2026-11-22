@@ -108,8 +108,9 @@ struct SettingsView: View {
     let grid = LetterKeyGrid.of(scheme, shuangpinLayout: TouchShuangpinLayoutPreference.layout(in: preferences),
                                 wubiLayout: TouchWubiLayoutPreference.layout(in: preferences))
     let keys = scheme.isMandarinNineKey || scheme == .japaneseNineKey ? "9 键" : grid?.title ?? "26 键"
+    let local = KeyboardLayoutPreference.heightAdjustment
     let height = KeyboardLayoutPreference.sharedHeightAdjustment(preferences?["touch_keyboard_height_adjustment"])
-      ?? KeyboardLayoutPreference.heightAdjustment
+      .map { KeyboardLayoutPreference.reconciledHeightAdjustment(document: $0, local: local) } ?? local
     let language = VoicePolishSettings(preferences).language
     return [
       .input: scheme.shortLabel,

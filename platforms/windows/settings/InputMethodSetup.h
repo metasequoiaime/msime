@@ -32,6 +32,14 @@ struct LayoutOrTipProfile {
 };
 constexpr DWORD layout_or_tip_default = 0x0001;
 constexpr DWORD layout_or_tip_disabled = 0x0002;
+constexpr int input_method_repair_attempts = 3;
+constexpr DWORD input_method_repair_delay_ms = 250;
+
+constexpr bool input_method_repair_succeeded(InputMethodState state) {
+  return state == InputMethodState::ready ||
+         state == InputMethodState::not_default ||
+         state == InputMethodState::unknown;
+}
 
 template <typename Function> inline Function input_dll_function(const char *name) {
   static const HMODULE module = []() -> HMODULE {
@@ -85,13 +93,25 @@ inline bool add_input_method() {
   return install && install(input_method_id, 0) != FALSE;
 }
 
+inline bool repair_input_method() {
+  for (int attempt = 0; attempt < input_method_repair_attempts; ++attempt) {
+    if (add_input_method()) {
+      if (input_method_repair_succeeded(input_method_state()))
+        return true;
+    }
+    if (attempt + 1 < input_method_repair_attempts)
+      Sleep(input_method_repair_delay_ms);
+  }
+  return false;
+}
+
 // 安装器以管理员身份运行，不能直接替当前用户写键盘列表；安装器改为以
 // 原用户身份启动设置宿主，再由这里调用 input.dll。参数必须单独处理，不能
 // 经过设置路由，否则重装后 profile 仍可能只是已注册但未启用。
 inline int run_if_requested(const wchar_t *command) {
   if (!command || std::wcscmp(command, L"--repair-input-method") != 0)
     return -1;
-  return add_input_method() ? 0 : 1;
+  return repair_input_method() ? 0 : 1;
 }
 
 inline bool make_input_method_default() {

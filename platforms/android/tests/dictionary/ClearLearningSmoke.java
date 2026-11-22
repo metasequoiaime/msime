@@ -28,6 +28,8 @@ public final class ClearLearningSmoke {
 
         check(DictionaryCollectionsStore.resetFailureMessage("dictionary maintenance busy").equals("键盘正在使用词库，请收起键盘、稍等几秒再试。"),
             "busy");
+        check(DictionaryCollectionsStore.resetFailureMessage("learning_busy").equals(ClearLearningCopy.BUSY),
+            "账号屏障重置的维护忙沿用现有提示");
         check(DictionaryCollectionsStore.resetFailureMessage("learned-data reset rejected").equals("清除学习记录失败，请稍后重试。"),
             "rejected");
         check(DictionaryCollectionsStore.resetFailureMessage("").equals("清除学习记录失败，请稍后重试。"), "unknown");

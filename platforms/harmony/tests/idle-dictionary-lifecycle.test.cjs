@@ -33,6 +33,7 @@ function harness() {
     localMode: 'none', composing: () => false,
     clipboardCaptureVisible: false,
     clipboardCapture: { start() { clipboardStarts++; } },
+    preferenceSyncPoller: { start() {}, stop() {} },
     restartIdleSession() {
       rebuilds++;
       this.personalDictionaryStalls++;
