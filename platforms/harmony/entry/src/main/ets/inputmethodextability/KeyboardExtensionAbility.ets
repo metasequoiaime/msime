@@ -245,9 +245,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         this.dragToolbar(offsetX, offsetY);
       };
       await this.resizeToolbar(this.density, toolbar);
-      if (this.tornDown || generation !== this.statusPanelGeneration) {
-        // A newer reconciliation may have adopted this panel. Leave it to that call (or
-        // teardown) rather than destroying the panel it now owns.
+      // 更新的一轮 reconcile 可能已接手这块面板（`this.toolbar` 仍是它），但那一轮只调整尺寸、不定位也不显示，准备期间被 `ToolbarFocus` 挡下的焦点也不会重放；所以面板仍归宿主时由这里继续移到右下角并显示，只有面板已被关闭或换掉时才放手。
+      if (this.tornDown || this.toolbar !== toolbar) {
         if (this.toolbar !== toolbar) {
           await engine.destroyPanel(toolbar);
         }
@@ -262,7 +261,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.toolbarPosition = [Math.round(this.screenWidth - width - margin),
         Math.round(this.screenHeight - height - margin * 4)];
       await toolbar.moveTo(this.toolbarPosition[0], this.toolbarPosition[1]);
-      if (this.tornDown || generation !== this.statusPanelGeneration) {
+      if (this.tornDown || this.toolbar !== toolbar) {
         if (this.toolbar !== toolbar) {
           await engine.destroyPanel(toolbar);
         }
