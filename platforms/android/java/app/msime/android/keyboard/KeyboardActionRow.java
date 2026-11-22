@@ -288,6 +288,14 @@ public final class KeyboardActionRow {
             || touchLayout == KeyboardLayout.KOREAN_LAYOUT;
     }
 
+    /** 26 键一族逗号右上角画不画长按句号的角标：只在这一行没有独立句号键时画（长空格、表情键样式）；标准底行空格左边已有句号键，逗号也没有滑动手势，画了只会让人以为能像字母键一样滑出句号，所以不画，长按照旧输入句号。「逗号句号」样式的逗号长按是常用标点菜单，也不画。 */
+    public static boolean commaShowsPeriodHint(int touchLayout, TouchKeyStyle.Row style) {
+        if (!usesCommaSecondaryPeriod(touchLayout) || style == TouchKeyStyle.Row.COMMA_PERIOD) return false;
+        for (DesignEntry entry : baseEntries(touchLayout, false, false, style))
+            if (entry.slot() == DesignSlot.PERIOD) return false;
+        return true;
+    }
+
     /** 可选交换语言键与数字键，键的宽度跟随动作，其它键顺序不变。 */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe, boolean swapLanguageNumber) {
         return designEntries(touchLayout, globe, swapLanguageNumber, false);

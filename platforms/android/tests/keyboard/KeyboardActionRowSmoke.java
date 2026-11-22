@@ -9,6 +9,27 @@ public final class KeyboardActionRowSmoke {
     /**
      * 手写底行：书写区铺满整行，原来它右侧的「重写」和 ⌫ 排在中/英与回车之间，空格让到 2.4、回车让到 1.6；没有 符。原来左侧的 ？ ！ 由逗号、句号长按输入。iOS 与 HarmonyOS 的手写底行相同（scripts/test-mobile-handwriting-pad-parity.py）。
      */
+    /** 26 键一族逗号的句号角标只在这一行没有句号键时画：标准底行空格左边已有句号键，「逗号句号」的逗号长按是菜单，都不画；长空格和表情键样式里逗号是输入句号的唯一入口，照旧画。其他键面没有这个角标。 */
+    private static void commaPeriodHint() {
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
+            for (TouchKeyStyle.Row style : TouchKeyStyle.Row.values()) {
+                boolean hasPeriodKey = KeyboardActionRow.designEntries(layout, false, false, false, false, style)
+                    .stream().anyMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.PERIOD);
+                boolean expected = style == TouchKeyStyle.Row.LONG_SPACE || style == TouchKeyStyle.Row.EMOJI;
+                check(KeyboardActionRow.commaShowsPeriodHint(layout, style) == expected
+                        && expected == !hasPeriodKey,
+                    "逗号的句号角标只在没有句号键的底行画，layout " + layout + " style " + style);
+            }
+        }
+        for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT,
+                KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT}) {
+            for (TouchKeyStyle.Row style : TouchKeyStyle.Row.values()) {
+                check(!KeyboardActionRow.commaShowsPeriodHint(layout, style),
+                    "26 键以外的逗号不画句号角标，layout " + layout + " style " + style);
+            }
+        }
+    }
+
     private static void handwritingRow() {
         int layout = KeyboardLayout.HANDWRITING_LAYOUT;
         check(KeyboardActionRow.designEntries(layout, false).equals(List.of(
@@ -157,6 +178,7 @@ public final class KeyboardActionRowSmoke {
             }
         }
         handwritingRow();
+        commaPeriodHint();
         numberPadFollowsTheSourceRow();
         shuangpinZero();
         check("打开符号面板".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.SYMBOL_PANEL, true)),
