@@ -134,6 +134,38 @@ fn ai_pinyin_alignment_manual_boundary_and_late_answers_remain_guarded() {
 }
 
 #[test]
+fn ai_pinyin_alignment_sentence_punctuation_commits_only_after_selection_on_macos() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = ai_host(dir.path());
+    type_input(handle, "woxiwangaikeyi");
+    let query = read(msime_client_online_query(handle))["value"].clone();
+    let text = "我希望，AI 可以。";
+    let texts = candidates(&query, text, &["wo", "xi", "wang", "ai", "ke", "yi"]);
+    if cfg!(target_os = "macos") {
+        assert_eq!(texts, json!([text]));
+        let result = apply(handle, &query, &texts);
+        assert!(result["value"].get("commit").is_none());
+        let view = &result["value"]["view"];
+        assert_eq!(view["editing_text"], "woxiwangaikeyi");
+        let index = view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|row| row["text"] == text)
+            .unwrap();
+        let selected = read(msime_client_select(
+            handle,
+            view["generation"].as_u64().unwrap(),
+            index,
+        ));
+        assert_eq!(selected["value"]["commit"], text);
+    } else {
+        assert_eq!(texts, json!([]));
+    }
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn ai_pinyin_alignment_protocol_rejects_invalid_buffers_and_inputs() {
     // SAFETY: 空指针和超长声明必须在读取内存之前拒绝。
     assert_eq!(

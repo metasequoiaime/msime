@@ -7,6 +7,8 @@ import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } 
 import { NativeCleanup } from './NativeCleanup';
 import { PauseRerankDiscard } from './PauseRerankDiscard';
 import inputMethodEngine from '@ohos.inputMethodEngine';
+import inputMethod from '@ohos.inputMethod';
+import { EditorPatternPolicy, EditorPatterns } from './input/EditorPatternPolicy';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
@@ -3013,35 +3015,25 @@ export class KeyboardSession implements HardwareKeyTarget {
     return ClipboardHistoryPreferencePolicy.canReadOrWrite(this.clipboardHistoryEnabled);
   }
 
-  /**
-   * Turns the platform's inputPattern into the traits EditorPolicy reasons about.
-   *
-   * The port keeps the platform constants out of EditorPolicy on purpose: they are declared in
-   * @ohos.inputMethodEngine without values, so the numbers belong to the runtime and must not be
-   * guessed. Translating here is what lets the policy stay plain TypeScript and testable.
-   */
+  /** 把运行时提供的编辑框类型转换成不依赖平台的特征。 */
   private static traitsFor(pattern: number): EditorTraits {
-    const password: boolean = pattern === inputMethodEngine.PATTERN_PASSWORD
-      || pattern === inputMethodEngine.PATTERN_PASSWORD_SCREEN_LOCK
-      || pattern === inputMethodEngine.PATTERN_PASSWORD_NUMBER
-      || pattern === inputMethodEngine.PATTERN_NEW_PASSWORD;
-    return {
-      text: pattern === inputMethodEngine.PATTERN_TEXT
-        || pattern === inputMethodEngine.PATTERN_NULL
-        || pattern === inputMethodEngine.PATTERN_EMAIL
-        || pattern === inputMethodEngine.PATTERN_URI
-        || pattern === inputMethodEngine.PATTERN_USER_NAME,
-      password: password,
-      uri: pattern === inputMethodEngine.PATTERN_URI,
-      email: pattern === inputMethodEngine.PATTERN_EMAIL,
-      // A one-time code is typed, not composed, and a user name is not a sentence.
-      noSuggestions: pattern === inputMethodEngine.PATTERN_ONE_TIME_CODE
-        || pattern === inputMethodEngine.PATTERN_USER_NAME,
-      // 只收数字的编辑框，即 Android `EditorPolicy.numberInput` 认的数字与电话号码两类。
-      digits: pattern === inputMethodEngine.PATTERN_NUMBER
-        || pattern === inputMethodEngine.PATTERN_PHONE
-        || pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL
+    // ArkTS 不允许把模块命名空间当对象传递，只提取策略所需的运行时常量。
+    const types: EditorPatterns = {
+      PATTERN_TEXT: inputMethodEngine.PATTERN_TEXT,
+      PATTERN_NULL: inputMethodEngine.PATTERN_NULL,
+      PATTERN_EMAIL: inputMethodEngine.PATTERN_EMAIL,
+      PATTERN_URI: inputMethodEngine.PATTERN_URI,
+      PATTERN_USER_NAME: inputMethodEngine.PATTERN_USER_NAME,
+      PATTERN_PASSWORD: inputMethodEngine.PATTERN_PASSWORD,
+      PATTERN_PASSWORD_SCREEN_LOCK: inputMethodEngine.PATTERN_PASSWORD_SCREEN_LOCK,
+      PATTERN_PASSWORD_NUMBER: inputMethodEngine.PATTERN_PASSWORD_NUMBER,
+      PATTERN_NEW_PASSWORD: inputMethodEngine.PATTERN_NEW_PASSWORD,
+      PATTERN_ONE_TIME_CODE: inputMethodEngine.PATTERN_ONE_TIME_CODE,
+      PATTERN_NUMBER: inputMethodEngine.PATTERN_NUMBER,
+      PATTERN_PHONE: inputMethodEngine.PATTERN_PHONE,
+      PATTERN_NUMBER_DECIMAL: inputMethodEngine.PATTERN_NUMBER_DECIMAL
     };
+    return EditorPatternPolicy.traitsFor(pattern, types, inputMethod.TextInputType.MULTILINE);
   }
 
   /**

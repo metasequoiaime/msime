@@ -25,6 +25,8 @@ struct KeyboardLayoutSettingsView: View {
   @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var bilingualGlide = KeyboardLayoutPreference.bilingualGlide
   @State private var cursorSwipe = KeyboardLayoutPreference.cursorSwipe
+  /// 「滑动删除速度」的档位（1 到 10），滑条用 Double。
+  @State private var backspaceSwipeSpeed = Double(KeyboardLayoutPreference.backspaceSwipeSpeed)
   @State private var swipeSymbols = KeyboardLayoutPreference.swipeSymbols
   @State private var swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
   @State private var letterCornerHints = KeyboardLayoutPreference.letterCornerHints
@@ -139,7 +141,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityLabel("键盘高度")
       .accessibilityValue(heightPercent(height))
       .accessibilityAdjustableAction { direction in
-        height = KeyboardGeometry.clamped(height + (direction == .increment ? 2 : -2), -12, 48)
+        height = SharedNumber.clamped(height + (direction == .increment ? 2 : -2), to: KeyboardLayoutPreference.heightAdjustmentRange)
         save(.height)
       }
   }
@@ -157,7 +159,7 @@ struct KeyboardLayoutSettingsView: View {
       .onChanged { value in
         let base = dragBase ?? snapshot()
         if dragBase == nil { dragBase = base }
-        height = KeyboardGeometry.clamped(base.height - Double(value.translation.height), -12, 48)
+        height = SharedNumber.clamped(base.height - Double(value.translation.height), to: KeyboardLayoutPreference.heightAdjustmentRange)
       }
       .onEnded { _ in
         dragBase = nil
@@ -269,7 +271,7 @@ struct KeyboardLayoutSettingsView: View {
           .accessibilityIdentifier("appPhoneSplitSwitch")
       }
       DesignDivider()
-      sliderRow("键盘高度", value: $height, range: -12...48, identifier: "appKeyboardHeightSlider",
+      sliderRow("键盘高度", value: $height, range: KeyboardLayoutPreference.heightAdjustmentRange, identifier: "appKeyboardHeightSlider",
                 field: .height, format: heightPercent)
       DesignDivider()
       sliderRow("按键间距", value: $keySpacing, range: 3...6, identifier: "appKeySpacingSlider", field: .keySpacing)
@@ -429,6 +431,15 @@ struct KeyboardLayoutSettingsView: View {
                         KeyboardLayoutPreference.cursorSwipe = enabled
                       }))
       .accessibilityIdentifier("appCursorSwipeSwitch")
+      DesignDivider()
+      // 按住 ⌫ 往左滑删除、往右滑恢复；档位越高，滑同样距离删得越多。
+      InlineSliderRow(title: "滑动删除速度", value: $backspaceSwipeSpeed,
+                      range: Double(KeyboardLayoutPreference.backspaceSwipeSpeedRange.lowerBound)...Double(KeyboardLayoutPreference.backspaceSwipeSpeedRange.upperBound),
+                      identifier: "appBackspaceSwipeSpeed",
+                      format: { "\(Int($0)) 档" },
+                      step: 1,
+                      commit: { KeyboardLayoutPreference.backspaceSwipeSpeed = Int(backspaceSwipeSpeed.rounded()) })
+        .accessibilityHint("按住删除键往左滑删除，不松手往右滑恢复；档位越高，滑同样的距离删得越多")
       DesignDivider()
       DesignToggleRow(title: "长按空格语音输入",
                       info: "开启时长按打开语音；关闭后长按并左右移动可定位光标",
@@ -684,6 +695,7 @@ struct KeyboardLayoutSettingsView: View {
     glideTyping = KeyboardLayoutPreference.glideTyping
     bilingualGlide = KeyboardLayoutPreference.bilingualGlide
     cursorSwipe = KeyboardLayoutPreference.cursorSwipe
+    backspaceSwipeSpeed = Double(KeyboardLayoutPreference.backspaceSwipeSpeed)
     swipeSymbols = KeyboardLayoutPreference.swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
     letterCornerHints = KeyboardLayoutPreference.letterCornerHints
