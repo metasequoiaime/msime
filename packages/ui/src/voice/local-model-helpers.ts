@@ -104,6 +104,10 @@ export function localModelImportErrorMessage(error: unknown): string | null {
       return "读取所选文件失败，请确认文件仍在原处、已完整下载到本机后重新选择。";
     case "local_model_checksum_mismatch":
       return "所选文件和模型目录里的校验值不符，可能没下载完整或版本不对，请重新下载后再导入。";
+    case "local_model_size_mismatch":
+      // 导入的文件先按长度认出、整份校验过才走到这里，仍报长度不符只可能是应用内嵌的
+      // 模型数据和目录钉的值对不上（构建机换行转换之类），不是用户能修的网络或文件问题。
+      return "导入失败：应用内置的模型数据不完整，请更新输入法后重试。";
     case "local_model_invalid_archive":
       return "所选的模型压缩包内容不完整或不安全，已丢弃。请重新下载后再导入。";
     case "busy":

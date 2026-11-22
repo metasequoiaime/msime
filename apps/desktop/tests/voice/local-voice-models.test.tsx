@@ -553,6 +553,10 @@ test("import failures have their own wording and fall back to the download ones"
     "重新下载后再导入",
   );
   expect(localModelImportErrorMessage({ code: "local_model_cancelled" })).toBeNull();
+  // 导入的文件按长度认出并整份校验过才可能走到这里，长度不符说的一定是应用内嵌数据，不是网络。
+  expect(localModelImportErrorMessage({ code: "local_model_size_mismatch" })).toBe(
+    "导入失败：应用内置的模型数据不完整，请更新输入法后重试。",
+  );
   expect(localModelImportErrorMessage({ code: "local_model_import_unreadable" })).toContain(
     "读取所选文件失败",
   );
