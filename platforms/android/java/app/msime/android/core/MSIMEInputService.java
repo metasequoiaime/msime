@@ -6338,8 +6338,10 @@ public final class MSIMEInputService extends InputMethodService {
         CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         boolean question = handwritingMarksShown();
         if (quickPunctuationButton instanceof KeyHintButton hintButton) {
+            int layout = imeLetterRows.drawnTouchLayout();
             hintButton.setCornerHint(uriPeriodPrimary() ? "," : commaSecondaryPeriod()
-                ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks())
+                ? (KeyboardActionRow.commaShowsPeriodHint(layout, bottomRowStyle(layout))
+                    ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks()) : "")
                 : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
