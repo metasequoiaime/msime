@@ -139,11 +139,13 @@ public final class TouchKeyStyleSmoke {
         check(row(layout, false, TouchKeyStyle.Row.LONG_SPACE)
                 .equals(KeyboardActionRow.designEntries(layout, false, false, false, false, true)),
             "long_space is exactly the earlier Android long-space row");
-        // 英文模式沿用中文方案的样式，长空格工具栏行仍按中文键面保留。
-        for (TouchKeyStyle.Row style : List.of(TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI))
-            check(KeyboardActionRow.designEntries(layout, false, false, false, true, style)
-                    .equals(KeyboardActionRow.designEntries(layout, false, false, false, true)),
-                "English 26 key draws the English row whatever the style");
+        // 英文模式沿用中文方案的样式，但键面文字由英文分支绘制。
+        check(KeyboardActionRow.designEntries(layout, false, false, false, true, TouchKeyStyle.Row.COMMA_PERIOD)
+                .equals(entries(LAYER, 1.25f, SYMBOL, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+            "English 26 key keeps comma-period style");
+        check(KeyboardActionRow.designEntries(layout, false, false, false, true, TouchKeyStyle.Row.EMOJI)
+                .equals(entries(LAYER, 1.25f, EMOJI, 1.05f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+            "English 26 key keeps emoji style");
     }
 
     private static void fourteenKeyRows() {

@@ -218,17 +218,17 @@ public final class KeyboardActionRow {
             if (style == TouchKeyStyle.Row.LONG_SPACE) {
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_LONG_SPACE_WEIGHT));
-            } else if (!english && style == TouchKeyStyle.Row.COMMA_PERIOD) {
+            } else if (style == TouchKeyStyle.Row.COMMA_PERIOD) {
                 entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_COMMA_PERIOD_SPACE_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
-            } else if (!english && style == TouchKeyStyle.Row.EMOJI) {
+            } else if (style == TouchKeyStyle.Row.EMOJI) {
                 entries.add(new DesignEntry(DesignSlot.EMOJI, DESIGN_EMOJI_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
             } else {
-                // 中文标准底行和英文底行是同一排：切中英文时每个键的位置和宽度都不变。
+                // 中文和英文标准底行使用同一排，切换时每个键的位置和宽度都不变。
                 entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_ENGLISH_SPACE_WEIGHT));
