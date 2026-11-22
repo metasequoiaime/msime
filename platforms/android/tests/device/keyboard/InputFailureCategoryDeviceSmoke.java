@@ -155,6 +155,56 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
             target.set(service, rejectsSurrounding);
             method(type, "deleteCodePointBeforeCursor").invoke(service);
             check(fallbackEvents[0] == 2, "rejected surrounding deletion falls back to one raw backspace");
+            stage = "known boundary bypasses code-point deletion";
+            StringBuilder text = new StringBuilder("synthetic");
+            int[] deletionCalls = new int[2];
+            InputConnection liesAboutCodePoints = (InputConnection) Proxy.newProxyInstance(
+                InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
+                (proxy, call, args) -> switch (call.getName()) {
+                    case "getSelectedText" -> null;
+                    case "getTextBeforeCursor" -> text.toString();
+                    case "deleteSurroundingTextInCodePoints" -> { deletionCalls[0]++; yield true; }
+                    case "deleteSurroundingText" -> {
+                        deletionCalls[1]++;
+                        text.delete(text.length() - (int) args[0], text.length());
+                        yield true;
+                    }
+                    case "sendKeyEvent" -> throw new AssertionError("Unexpected raw backspace fallback");
+                    default -> throw new AssertionError("Unexpected editor operation: " + call.getName());
+                });
+            target.set(service, liesAboutCodePoints);
+            method(type, "deleteCodePointBeforeCursor").invoke(service);
+            check(text.toString().equals("syntheti"),
+                "known grapheme boundary uses UTF-16 deletion");
+            check(deletionCalls[0] == 0 && deletionCalls[1] == 1,
+                "known boundary does not call the code-point API");
+            stage = "unknown boundary recovers from false code-point success";
+            StringBuilder incomplete = new StringBuilder("甲");
+            for (int index = 0; index < 1023; index++) incomplete.append('\u0301');
+            int[] fallbackDeletionCalls = new int[2];
+            InputConnection liesForUnknownBoundary = (InputConnection) Proxy.newProxyInstance(
+                InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
+                (proxy, call, args) -> switch (call.getName()) {
+                    case "getSelectedText" -> null;
+                    case "getTextBeforeCursor" -> incomplete.toString();
+                    case "deleteSurroundingTextInCodePoints" -> {
+                        fallbackDeletionCalls[0]++;
+                        yield true;
+                    }
+                    case "deleteSurroundingText" -> {
+                        fallbackDeletionCalls[1]++;
+                        incomplete.deleteCharAt(incomplete.length() - (int) args[0]);
+                        yield true;
+                    }
+                    case "sendKeyEvent" -> throw new AssertionError("Unexpected raw backspace fallback");
+                    default -> throw new AssertionError("Unexpected editor operation: " + call.getName());
+                });
+            target.set(service, liesForUnknownBoundary);
+            method(type, "deleteCodePointBeforeCursor").invoke(service);
+            check(incomplete.length() == 1023,
+                "unknown boundary falls back to UTF-16 deletion when code-point deletion lies");
+            check(fallbackDeletionCalls[0] == 1 && fallbackDeletionCalls[1] == 1,
+                "unknown boundary verifies a successful code-point deletion");
             target.set(service, disconnected);
             stage = "disconnected email context";
             Field inputType = type.getDeclaredField("editorInputType");

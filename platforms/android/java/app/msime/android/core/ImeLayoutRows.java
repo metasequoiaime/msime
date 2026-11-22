@@ -1495,7 +1495,7 @@ final class ImeLayoutRows {
         int next = JapaneseNineKeyLayout.toggleStep(JapaneseNineKeyLayout.toggleCycle(key), toggleDirection, step);
         String stroke = key.strokes().get(toggleDirection);
         if (stroke.isEmpty()) {
-            s.deleteCodePointBeforeCursor();
+            s.deleteBeforeCursorForReplacement();
         } else {
             for (int index = 0; index < stroke.length(); index++) {
                 if (!s.command(0)) break;
@@ -1834,7 +1834,11 @@ final class ImeLayoutRows {
                 || CandidateGlossPolicy.strictOr(s.view.opt("session"), Long.MIN_VALUE) != session
                 || CandidateGlossPolicy.strictOr(s.view.opt("generation"), Long.MIN_VALUE) != generation)
             return;
-        try { s.apply(s.timedEngineCall(() -> NativeClient.chooseNineKeySpelling(s.session, generation, index))); }
+        try {
+            s.apply(s.timedEngineCall(() -> NativeClient.chooseNineKeySpelling(s.session, generation, index)));
+            // 选读音不是打字：同一帧里先带着延后的模型重解，免得先画出不带模型的顺序、停顿后又换回来。
+            s.settlePauseRerankNow();
+        }
         catch (JSONException | LinkageError error) { s.fail(error); }
     }
 

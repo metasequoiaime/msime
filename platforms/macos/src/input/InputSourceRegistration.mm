@@ -136,7 +136,23 @@ OSStatus MSIMERegisterAndEnableInputSources(NSURL *bundleURL, NSString *bundleId
     if (status != noErr) return status;
     CFArrayRef sources = lister((__bridge CFDictionaryRef)filter, true);
     if (!sources || CFArrayGetCount(sources) == 0) { if (sources) CFRelease(sources); return fnfErr; }
-    if (previouslyInstalled) { CFRelease(sources); return noErr; }
+    if (previouslyInstalled) {
+        // 重装要保留用户移除的模式，但顶层输入源是输入法本身。重复安装或旧版本登记留下的顶层源可能已经被系统标成关闭，不能因为它仍在注册表里就静默返回。
+        for (CFIndex index = 0; index < CFArrayGetCount(sources); ++index) {
+            TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, index);
+            void *identifier = propertyGetter(source, kTISPropertyInputSourceID);
+            if (!identifier || CFGetTypeID(identifier) != CFStringGetTypeID() ||
+                ![(__bridge NSString *)identifier isEqualToString:bundleIdentifier]) continue;
+            void *isEnabled = propertyGetter(source, kTISPropertyInputSourceIsEnabled);
+            if (!isEnabled || CFGetTypeID(isEnabled) != CFBooleanGetTypeID() ||
+                CFBooleanGetValue((CFBooleanRef)isEnabled)) break;
+            status = enabler(source);
+            if (status != noErr) { CFRelease(sources); return status; }
+            break;
+        }
+        CFRelease(sources);
+        return noErr;
+    }
     // 首次安装只提供主模式，其他模式由用户手动添加，避免一次塞进整个输入菜单。
     NSString *primaryID = [bundleIdentifier stringByAppendingString:@".Hans"];
     BOOL enabled = NO;

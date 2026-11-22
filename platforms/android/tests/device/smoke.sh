@@ -356,6 +356,7 @@ fi
 if [[ "$pr" == true ]]; then
   # PR 设备门禁只保留启动、真实输入、键盘绘制和设置入口；十八键由 nightly 完整回归覆盖，剪贴板持久化由风险矩阵和发版覆盖。
   check "Candidate canvas acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidateCanvasDeviceSmoke
+  check "Quick delete preview acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.QuickDeletePreviewDeviceSmoke
   check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
   check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
   # 剪贴板右滑详情只跑这一条短路径；完整分词、滚动和剪贴板操作仍留给 develop、nightly 和发版。
@@ -443,6 +444,8 @@ check "Composition batch acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instru
 check "Stale candidate callback acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke
 # 空闲联想由点选、空格（首条，不另插空格）和本页数字键上屏，越过本页的数字照常输入；自己的选区回声保留候选，外部移动和隐私模式清除候选。
 check "Next word prediction acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke -e next-word true
+# 云候选与 AI 候选的来源标记：标签里的图形、读屏说明、两个偏好和行高（CandidateSourceMarkDeviceChecks）。
+check "Candidate source mark acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke -e source-marks true
 # 横向候选条不展开也能越过分页和分批边界，左右返回后按全局身份选词。
 check "Continuous candidate strip acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e continuous-strip true
 # 从安装产品绘制候选标签，旧系统缺字形时也必须在深浅主题中可见。

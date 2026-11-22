@@ -53,7 +53,7 @@ final class ImeBottomRow {
     void bindCommaSwipe(Button button) {
         final float[] start = new float[2];
         final boolean[] swiped = new boolean[1];
-        // 门槛与字母键滑动输入符号相同（14 dp，严格大于），不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
+        // 门槛是字母键「滑动距离」的出厂值（14 dp，严格大于），不跟那项设置走；不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
         final float threshold = SwipeHintPolicy.THRESHOLD_DP * s.getResources().getDisplayMetrics().density;
         final int longPress = ViewConfiguration.getLongPressTimeout();
         button.setOnTouchListener((ignored, event) -> {
@@ -651,7 +651,7 @@ final class ImeBottomRow {
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         TouchKeyStyle.Row style = s.bottomRowStyle(layout);
-        // 英文 26 键不提供底行样式（一律标准底行），中文选了别的样式时中英切换要重排；中文标准底行与英文底行同一排。
+        // 中文方案的英文模式沿用 26 键底行样式，切换中英时按样式重排；中文标准底行与英文标准底行同一排。
         boolean english = s.dedicatedEnglish;
         // 「符」与「123」互换是键位习惯，密码框和数字字段里也照样互换（样式在那里退回标准底行，标准底行同样有 符）。
         boolean symbolFirst = s.twentySixSymbolFirst;

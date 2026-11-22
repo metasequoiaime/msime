@@ -8,6 +8,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AiEndpointPolicy;
 import app.msime.android.AiPolishConfiguration;
 import app.msime.android.AiProviderSettings;
+import app.msime.android.CandidateSourceMark;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.TextPolicy;
@@ -145,6 +146,11 @@ public final class AiSettingsPage extends ReloadingDetailPage {
             }
             saveAi(next -> next.put("enabled", checked));
         }).help("在键盘上显示 AI 回复与润色");
+        // 共享偏好 `candidate_ai_badge_style`，与 macOS「AI 联想候选徽标样式」同一个字段，未知值按机器人。
+        String badgeStyle = CandidateSourceMark.aiStyle(
+            InputViewValuePolicy.textOr(preferences, CandidateSourceMark.AI_STYLE_PREFERENCE, null));
+        service.nav("AI 候选标记", null, aiBadgeLabel(badgeStyle), () -> pickAiBadgeStyle(badgeStyle))
+            .help("AI 候选后面的标记样式");
         service.help("AI 设计皮肤使用水杉账号服务，请到外观中的「AI 设计皮肤」操作。");
         service.nav("AI 对话", null, null,
             () -> ((HomeActivity) requireActivity()).openChatSecondary(false)).help("在独立页面里对话，同时可以试用键盘");
@@ -207,6 +213,18 @@ public final class AiSettingsPage extends ReloadingDetailPage {
                 () -> saveAi(ai -> AiProviderSettings.switchProvider(ai, entry.id())));
         }
         sheet.show();
+    }
+
+    private void pickAiBadgeStyle(String current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "AI 候选标记", null);
+        for (String style : List.of(CandidateSourceMark.ROBOT, CandidateSourceMark.WHALE))
+            sheet.option(aiBadgeLabel(style), style.equals(current),
+                () -> savePreferences(values -> values.put(CandidateSourceMark.AI_STYLE_PREFERENCE, style)));
+        sheet.show();
+    }
+
+    private static String aiBadgeLabel(String style) {
+        return CandidateSourceMark.WHALE.equals(style) ? "小鲸鱼" : "机器人";
     }
 
     private void pickModel(String current, List<String> models) {

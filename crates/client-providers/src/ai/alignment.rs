@@ -36,6 +36,9 @@ pub fn user_message(request: &AiSuggestionRequest) -> Result<Value, AiError> {
     message["output_format"] = json!("json");
     if request.mode == AiInputMode::Pinyin && !request.input.is_empty() {
         message["explicit_boundaries"] = json!(explicit_boundaries(&request.input));
+        if request.sentence_punctuation {
+            message["punctuation_instruction"] = json!(super::SENTENCE_PUNCTUATION_PROMPT);
+        }
     }
     Ok(message)
 }
@@ -56,6 +59,7 @@ pub fn parse_candidate_response(
     };
     let letters = raw.replace('\'', "").to_ascii_lowercase();
     let boundaries = explicit_boundaries(&raw);
+    let sentence_punctuation = request.sentence_punctuation && !request.input.is_empty();
     super::parse_chat_completion_with(body, request.candidate_limit, |entry, text| {
         let proposed: Vec<String>;
         let segments = if let Some(value) = entry.get("segmentation") {
@@ -67,7 +71,8 @@ pub fn parse_candidate_response(
         } else {
             &request.segmented_pinyin
         };
-        covers_input(segments, &letters, &boundaries) && aligns_text(text, segments, &letters)
+        covers_input(segments, &letters, &boundaries)
+            && aligns_text(text, segments, &letters, sentence_punctuation)
     })
 }
 
@@ -116,10 +121,12 @@ fn canonical(syllable: &str) -> String {
     }
 }
 
-fn aligns_text(text: &str, segments: &[String], letters: &str) -> bool {
+fn aligns_text(text: &str, segments: &[String], letters: &str, sentence_punctuation: bool) -> bool {
     let mut remaining = text.trim();
     let mut index = 0;
     let mut raw_offset = 0;
+    let mut previous_ascii = false;
+    let mut previous_punctuation = false;
     while !remaining.is_empty() {
         if remaining.starts_with(' ') {
             remaining = remaining.trim_start_matches(' ');
@@ -150,8 +157,26 @@ fn aligns_text(text: &str, segments: &[String], letters: &str) -> bool {
                 index += 1;
             }
             remaining = &remaining[length..];
+            previous_ascii = true;
         } else {
             let ch = remaining.chars().next().expect("非空候选片段");
+            remaining = &remaining[ch.len_utf8()..];
+            if matches!(ch, '，' | '。' | '？' | '！' | '；' | '：' | '、') {
+                if !sentence_punctuation
+                    || index == 0
+                    || previous_punctuation
+                    || (previous_ascii
+                        && remaining
+                            .trim_start_matches(' ')
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphabetic))
+                {
+                    return false;
+                }
+                previous_punctuation = true;
+                continue;
+            }
             let Some(segment) = segments.get(index) else {
                 return false;
             };
@@ -163,10 +188,11 @@ fn aligns_text(text: &str, segments: &[String], letters: &str) -> bool {
             }) {
                 return false;
             }
-            remaining = &remaining[ch.len_utf8()..];
             raw_offset += segment.len();
             index += 1;
+            previous_ascii = false;
         }
+        previous_punctuation = false;
     }
     index == segments.len()
 }

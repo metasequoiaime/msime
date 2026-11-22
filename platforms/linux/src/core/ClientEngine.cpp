@@ -543,7 +543,13 @@ struct State {
   // surrounding text 不可用时，只用本会话由输入法自己上屏的末尾文本判断智能标点；任何交给应用的按键、光标移动或删除都会使它失效。
   std::string smart_punctuation_shadow;
   bool smart_punctuation_shadow_valid = false;
+  // 最近一次转发给应用的 ASCII 字母或数字，只保留到紧接着的智能标点，用来覆盖客户端发布的过期光标位置。
+  std::optional<unsigned char> smart_punctuation_passthrough;
+  void forget_smart_punctuation_passthrough() {
+    smart_punctuation_passthrough.reset();
+  }
   void remember_smart_punctuation_commit(const std::string &text) {
+    forget_smart_punctuation_passthrough();
     if (!focused || blocked || private_input) {
       smart_punctuation_shadow.clear();
       smart_punctuation_shadow_valid = false;
@@ -570,12 +576,12 @@ struct State {
       forget_smart_punctuation_shadow();
       return;
     }
-    smart_punctuation_shadow.assign(1, static_cast<char>(key));
-    smart_punctuation_shadow_valid = true;
+    smart_punctuation_passthrough = static_cast<unsigned char>(key);
   }
   void forget_smart_punctuation_shadow() {
     smart_punctuation_shadow.clear();
     smart_punctuation_shadow_valid = false;
+    forget_smart_punctuation_passthrough();
   }
   void erase_smart_punctuation_shadow_last() {
     if (!smart_punctuation_shadow_valid || smart_punctuation_shadow.empty()) {
@@ -2133,6 +2139,10 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
     }
   }
   if (!s.surrounding_valid) {
+    if (s.smart_punctuation_passthrough) {
+      return smart_punctuation_keeps_ascii_after(
+          s, *s.smart_punctuation_passthrough);
+    }
     if (!s.smart_punctuation_shadow_valid || s.smart_punctuation_shadow.empty())
       return false;
     const auto last = static_cast<unsigned char>(s.smart_punctuation_shadow.back());
@@ -2143,10 +2153,14 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
   const auto cursor = surrounding_byte_offset(
       s, std::min(s.surrounding_cursor, s.surrounding_anchor));
   if (cursor == 0)
-    return false;
+    return s.smart_punctuation_passthrough &&
+           smart_punctuation_keeps_ascii_after(s, *s.smart_punctuation_passthrough);
   const auto value = static_cast<unsigned char>(surrounding[cursor - 1]);
   // A UTF-8 continuation byte means the preceding code point is non-ASCII.
-  return smart_punctuation_keeps_ascii_after(s, value);
+  if (is_ascii_alphanumeric(value))
+    return smart_punctuation_keeps_ascii_after(s, value);
+  return s.smart_punctuation_passthrough &&
+         smart_punctuation_keeps_ascii_after(s, *s.smart_punctuation_passthrough);
 }
 bool smart_punctuation_repeat_matches_document(const State &s) {
   if (s.surrounding_valid && s.surrounding_cursor != s.surrounding_anchor)
@@ -5272,8 +5286,11 @@ bool voice_hotkey(const State &s, guint key, guint modifiers) {
 void set_surrounding(IBusEngine *engine, IBusText *text, guint cursor, guint anchor) {
   // Keep platform context available without feeding it into Engine composition.
   auto &s = state(engine);
-  if (text)
-    s.forget_smart_punctuation_shadow();
+  if (text) {
+    s.smart_punctuation_shadow.clear();
+    s.smart_punctuation_shadow_valid = false;
+    // 保留刚转发的字母或数字到下一次智能标点；部分客户端在按键后重复发布旧的 surrounding text。
+  }
   s.surrounding_valid = text != nullptr;
   s.surrounding_text = text && ibus_text_get_text(text) ? ibus_text_get_text(text) : "";
   s.surrounding_cursor = cursor;
@@ -7772,6 +7789,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool locks_caret = commits_on_blur;
   const bool narrow_scheme = korean_scheme || vietnamese_scheme || tibetan_scheme;
   const bool without_host_punctuation = korean_scheme || zhuyin_scheme || vietnamese_scheme || tibetan_scheme;
+  if (!release &&
+      (!s.smart_punctuation_passthrough ||
+       !(modifiers == 0 && is_smart_punctuation_key(key)))) {
+    s.forget_smart_punctuation_passthrough();
+  }
   const auto fullwidth_idle_commit = [&](guint value) {
     if (!s.fullwidth || narrow_scheme || value < 0x21 || value > 0x7e)
       return false;
@@ -8360,6 +8382,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
             kSmartPunctuationRepeatIntervalUs &&
         smart_punctuation_repeat_matches_document(s) &&
         s.view.at("editing_text").get<std::string>().empty()) {
+      s.forget_smart_punctuation_passthrough();
       if (const auto *replacement = smart_punctuation_pair(static_cast<char>(key))) {
         ibus_engine_delete_surrounding_text(engine, -1, 1);
         // The preceding mark was replaced in the editor, not appended.
@@ -8398,6 +8421,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         s.last_smart_punctuation_time = g_get_monotonic_time();
         handled = true;
       }
+      s.forget_smart_punctuation_passthrough();
       return;
     }
     const bool has_composition =

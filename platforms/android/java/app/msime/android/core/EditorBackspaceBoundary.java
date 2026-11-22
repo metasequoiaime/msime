@@ -6,7 +6,7 @@ import android.text.style.ReplacementSpan;
 import android.view.inputmethod.InputConnection;
 import java.util.Locale;
 
-/** 普通退格按系统字素边界删除，编辑器返回的内联表情范围也不能拆开。 */
+/** 直接删除（编辑器不处理退格按键时、输入法替换自己写下的内容时）按系统字素边界删，编辑器返回的内联表情范围也不能拆开。用户的退格默认交给编辑器（`KEYCODE_DEL`），不经这里判断范围。 */
 final class EditorBackspaceBoundary {
     static final int CONTEXT_LENGTH = 1024;
 
@@ -18,13 +18,6 @@ final class EditorBackspaceBoundary {
         // 编辑器可能忽略长度提示；本地仍只处理查询窗口，保留窗口内的样式。
         return value == null || value.length() <= CONTEXT_LENGTH ? value
             : value.subSequence(value.length() - CONTEXT_LENGTH, value.length());
-    }
-
-    /** 占位结尾的私有范围可能没跨进程返回；只发退格，让编辑器决定范围，不解析表情标签。 */
-    static boolean shouldDelegate(CharSequence before, int length) {
-        if (before == null || before.length() == 0 || length != 1) return false;
-        char last = before.charAt(before.length() - 1);
-        return last == ']' || last == '\ufffc';
     }
 
     /** 返回 UTF-16 删除长度；上下文不足时返回 0，交给编辑器自己的退格。 */
