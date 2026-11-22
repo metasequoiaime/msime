@@ -64,6 +64,8 @@ pub struct SessionOptions {
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     /// 十四／十八键组码后可以放下分隔符输入辅助码（[`crate::Session::grid_helpcode`]），默认关；还要 `helpcode` 开着、码表非空。
     pub grid_helpcode: bool,
+    /// 全拼九键的精确拼写模式。
+    pub precise_nine_key: bool,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     /// 0 follows the mode, 1 forces Chinese, 2 forces ASCII.
@@ -150,6 +152,7 @@ impl SessionOptions {
             strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             grid_helpcode: false,
+            precise_nine_key: false,
             chinese_punctuation: true,
             paired_punctuation: true,
             punctuation_lock: 0,

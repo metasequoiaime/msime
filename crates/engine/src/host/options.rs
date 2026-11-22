@@ -100,6 +100,8 @@ pub struct EngineOptions {
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     /// 十四／十八键网格辅助码（`SessionOptions::grid_helpcode`）；宿主按当前方案偏好的 `grid` 填，默认关。
     pub grid_helpcode: bool,
+    /// 全拼九键的精确拼写模式。
+    pub precise_nine_key: bool,
     pub helpcode_schema: String,
     /// 辅助码前导标点；None 保留现有 Shift 加字母。
     pub helpcode_trigger_key: Option<u8>,
@@ -307,6 +309,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
         helpcode_table: None,
@@ -450,6 +453,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,
         shuangpin_helpcode_modes: options.shuangpin_helpcode_modes,
         grid_helpcode: options.grid_helpcode,
+        precise_nine_key: options.precise_nine_key,
         chinese_punctuation: options.chinese_punctuation,
         paired_punctuation: options.paired_punctuation,
         punctuation_lock: i32::from(options.punctuation_lock),
