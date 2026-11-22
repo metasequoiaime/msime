@@ -21,4 +21,4 @@ macOS 和 Linux 由现有系统文件选择器显示 TXT，Windows 的 WinUI 与
 
 - 同名文本按原有的 `custom-` id 规则整包替换。坏表只返回错误，已安装的表仍可用。
 - [移动端单文件导入](2026-10-12-mobile-helpcode-table-import.md) 拥有码表解析和安装规则。[Windows 原生设置选择辅助码插件](2026-10-11-windows-settings-helpcode-packs.md) 拥有方案选择。[状态目录的 `custom/` 表](../bug-fix/2026-11-03-custom-helpcode-tables-in-state-root.md) 继续覆盖既有手工安装。
-- #11566 的快捷短语优先级是候选排序改动，仍待实现。
+- #11566 的快捷短语置顶由[快捷短语偏好](2026-10-22-quick-phrase-preferences.md)中的候选排序规则处理。

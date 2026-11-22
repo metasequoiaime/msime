@@ -138,19 +138,18 @@ test("an edition without temporary Japanese does not list Japanese mixed input",
   expect(screen.getByRole("switch", { name: /^颜文字混输/ })).toBeTruthy();
 });
 
-test("关闭混输总开关也禁用快捷短语、置顶及调频，并保留选择", () => {
+test("关闭混输总开关也禁用快捷短语及调频，并保留两项选择", () => {
   const onChange = vi.fn();
   const stored = Object.freeze({
     ...preferences,
     enabled: false,
     quick_phrase: true,
-    quick_phrase_first: true,
     quick_phrase_frequency: true,
   });
   const view = render(
     <MixedInputMoreRows preferences={stored} quickPhraseCandidates onChange={onChange} />,
   );
-  for (const name of [/^快捷短语混输/, /^快捷短语置顶/, /^快捷短语参与调频/]) {
+  for (const name of [/^快捷短语混输/, /^快捷短语参与调频/]) {
     const control = screen.getByRole("switch", { name }) as HTMLInputElement;
     expect(control.checked).toBe(true);
     expect(control.disabled).toBe(true);
@@ -164,41 +163,37 @@ test("关闭混输总开关也禁用快捷短语、置顶及调频，并保留�
       onChange={onChange}
     />,
   );
-  for (const name of [/^快捷短语混输/, /^快捷短语置顶/, /^快捷短语参与调频/]) {
+  for (const name of [/^快捷短语混输/, /^快捷短语参与调频/]) {
     const control = screen.getByRole("switch", { name }) as HTMLInputElement;
     expect(control.checked).toBe(true);
-    expect(control.disabled).toBe(name.toString().includes("调频"));
+    expect(control.disabled).toBe(false);
   }
 });
 
-test("置顶时关闭调频，关闭置顶后恢复调频", () => {
+test("原生入口打开置顶后，现有调频开关置灰并保留选择", () => {
   const onChange = vi.fn();
-  const preferences = {
-    ...({
-      english: true,
-      minimum_prefix: 5,
-      emoji: false,
-      kaomoji: false,
-      quick_phrase: true,
-      quick_phrase_first: false,
-      quick_phrase_frequency: true,
-    } satisfies MixedInputPreferences),
+  const stored = {
+    ...preferences,
+    quick_phrase: true,
+    quick_phrase_first: true,
+    quick_phrase_frequency: true,
   };
-  const view = render(
-    <MixedInputMoreRows preferences={preferences} quickPhraseCandidates onChange={onChange} />,
+  const { rerender } = render(
+    <MixedInputMoreRows preferences={stored} quickPhraseCandidates onChange={onChange} />,
   );
-  fireEvent.click(screen.getByRole("switch", { name: /^快捷短语置顶/ }));
-  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, quick_phrase_first: true });
-  view.rerender(
+  const frequency = screen.getByRole("switch", { name: /^快捷短语参与调频/ }) as HTMLInputElement;
+  expect(frequency.checked).toBe(true);
+  expect(frequency.disabled).toBe(true);
+  frequency.click();
+  expect(onChange).not.toHaveBeenCalled();
+
+  rerender(
     <MixedInputMoreRows
-      preferences={{ ...preferences, quick_phrase_first: true }}
+      preferences={{ ...stored, quick_phrase_first: false }}
       quickPhraseCandidates
       onChange={onChange}
     />,
   );
-  expect(
-    (screen.getByRole("switch", { name: /^快捷短语参与调频/ }) as HTMLInputElement).disabled,
-  ).toBe(true);
-  fireEvent.click(screen.getByRole("switch", { name: /^快捷短语置顶/ }));
-  expect(onChange).toHaveBeenLastCalledWith({ ...preferences, quick_phrase_first: false });
+  expect(frequency.checked).toBe(true);
+  expect(frequency.disabled).toBe(false);
 });

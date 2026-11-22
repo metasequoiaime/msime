@@ -46,7 +46,6 @@ export function mixedInputControlState(preferences: MixedInputPreferences) {
     firstPageCountDisabled: !enabled || !preferences.english,
     firstPageCount: preferences.first_page_count ?? 1,
     quickPhraseChecked: preferences.quick_phrase ?? true,
-    quickPhraseFirstChecked: preferences.quick_phrase_first ?? false,
     quickPhraseFrequencyChecked: preferences.quick_phrase_frequency ?? true,
   };
 }
