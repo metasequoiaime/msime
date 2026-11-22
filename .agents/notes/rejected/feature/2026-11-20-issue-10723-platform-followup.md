@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #10723
 
-Status: proposed
+Status: rejected — issue #10723 已由 #10788 修复并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#10723`（linux）的标题是「Linux：ibus-engine-smoke 与 fcitx5-native-test 默认分支的语音用例在 CI 里从不运行，且被无关断言挡住」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #10723 报告 Linux 的 `ibus-engine-smoke` 与 `fcitx5-native-test` 不带参数的默认分支（语音按住、取消、组合键等用例所在处）在 CI 里从不运行，手动运行时又会在语音段之前被与语音无关的断言挡住，导致宿主级语音用例改坏也不会变红。
+
+#10724 先补了 Linux 资源集成 job，但资源宿主门禁只跑了两个 `--voice-hotkey` 分支，没有满足 issue 的期望，issue 因此重新打开。#10788（2026-11-04 合并，正文 `Fixes #10723`）让资源宿主门禁真正运行 `ibus-native-context` 和 `fcitx5-native-context`，修正了 Linux 候选拼音行光标缺陷、`typing_statistics::batch_tests` 的测试隔离问题以及多条过时或写错的用例，issue 随之以 completed 关闭。
 
 ## Proposal
 
