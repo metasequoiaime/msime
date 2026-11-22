@@ -14,7 +14,7 @@ Harmony 候选背景图、画布场景、圆角和布局直接从 `KeyboardView.
 
 ## Validation
 
-`candidate-live-view-refresh.test.cjs` 检查快照赋值和接线，并在 Node 中执行真实的画布 reload、dropLease、repaint：旧图迟到不会覆盖新图、清除场景会释放和清空画布。该替身不运行 ArkUI，无法验证状态追踪、图层像素和系统组件更新。未做 HAP 构建或设备测试；既有本地综合版本确认过自定义与导入皮肤，但不能将结果归因于此处单项改动。需在官方包设备上验证更换、删除、重选皮肤及触屏键盘。
+本次的 `@State` 改动在 Node 下没有可执行的行为测试：ArkUI 的依赖追踪只能在设备上验证，按 AGENTS.md 也不再用源码文本断言钉住装饰器。`candidate-canvas-frame-reload.test.cjs` 在 Node 中执行画布已有的 reload、dropLease、repaint：旧图迟到不会覆盖新图、清除场景会释放和清空画布。它覆盖的是本 PR 未修改的画布逻辑，不运行 ArkUI，无法验证状态追踪、图层像素和系统组件更新。未做 HAP 构建或设备测试；既有本地综合版本确认过自定义与导入皮肤，但不能将结果归因于此处单项改动。需在官方包设备上验证更换、删除、重选皮肤及触屏键盘。
 
 ## Alternatives considered
 

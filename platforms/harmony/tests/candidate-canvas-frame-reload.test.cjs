@@ -1,14 +1,12 @@
-// 检查产品视图接线并执行画布的实际重载方法。
-// Node 无法验证 ArkUI 的真实依赖追踪和屏幕像素。
+// 执行候选画布 `CandidateCanvasFrame` 现有的 dropLease、reload、repaint 方法：换场景时释放旧租约，迟到的旧解码不能覆盖新图，清除场景时释放并清空画布。
+// 这里只覆盖画布已有的重载逻辑，不覆盖 `KeyboardView.settings` 的 `@State` 依赖追踪；那一项需要在设备上验收。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { stripTypeScriptTypes } = require('node:module');
 const root = path.resolve(__dirname, '../entry/src/main/ets/keyboard') + path.sep;
-const view = fs.readFileSync(root + 'KeyboardView.ets', 'utf8');
 const frame = fs.readFileSync(root + 'candidate/CandidateCanvasFrame.ets', 'utf8');
-const session = fs.readFileSync(root + 'KeyboardSession.ets', 'utf8');
 
 function method(source, signature) {
   const start = source.indexOf(signature);
@@ -21,14 +19,6 @@ function method(source, signature) {
   }
   throw new Error(`unterminated method ${signature}`);
 }
-assert.match(view, /@State\s+private\s+settings:\s*KeyboardPreferences\s*=/);
-assert.match(method(view, 'private applySettings()'), /this\.settings\s*=\s*KeyboardSession\.shared\.preferences\(\)/);
-assert.match(view, /onViewPreferencesReloaded\s*=\s*\(\):\s*void\s*=>\s*\{\s*[^\n]*\n\s*this\.applySettings\(\)/);
-assert.match(view, /CandidateCanvasFrame\(\{\s*scene:\s*this\.settings\.candidateCanvas/);
-assert.match(view, /Image\(this\.settings\.candidateBackgroundImage/);
-assert.doesNotMatch(view, /this\.settings\.[\w]+\s*=(?!=)/);
-assert.match(method(session, 'private applyAppearance('), /this\.appearance\s*=\s*\{/);
-assert.match(frame, /@Prop\s+@Watch\('reload'\)\s+scene:/);
 
 const resolves = {};
 const released = [];
@@ -75,5 +65,5 @@ Promise.resolve().then(() => {
   assert.deepEqual(released[1], ['new', newLease]);
   assert.deepEqual(ready[1], ['new', false]);
   assert.ok(clearedUnder >= 3 && clearedOver >= 3, 'scene changes clear both canvases');
-  console.log('candidate view wiring and production canvas reload passed (ArkUI runtime not exercised)');
+  console.log('candidate canvas frame reload passed (ArkUI runtime not exercised)');
 }).catch(error => { console.error(error); process.exitCode = 1; });
