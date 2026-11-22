@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9177
 
-Status: proposed
+Status: rejected — issue #9177 已由 #9209 实现并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#9177`（linux）的标题是「[Feature]: Linux 端缺少辅助码触发按键设置」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue `#9177` 报告 Linux 端只能选择辅助码类型，无法设置触发辅助码的按键，导致全拼和双拼都触发不了辅助码。PR `#9209`（「feat(linux): 支持自定义全拼和双拼辅助码触发键」）为 Linux 设置页新增全拼、双拼各自的辅助码触发键，经 IBus、Fcitx5 接通共享引擎，正文写明 `Fixes #9177`，于 2026-10-22 合并，issue 随之以 completed 关闭。本笔记写于关闭之后，误以为没有关联 PR。
 
 ## Proposal
 
