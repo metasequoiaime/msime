@@ -10,6 +10,7 @@ import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy'
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
+import window from '@ohos.window';
 import { ToolbarFocus } from './ToolbarFocus';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
@@ -233,6 +234,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         return;
       }
       this.toolbar = toolbar;
+      this.toolbarFocus.beginSetup(toolbar);
       ScreenCaptureProtection.protectPanel(toolbar, this.screenCaptureProtected(), 'toolbar');
       KeyboardSession.shared.onToolbarResize = async (): Promise<void> => {
         await this.resizeToolbar(this.density, toolbar);
@@ -281,6 +283,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           KeyboardSession.shared.onToolbarDrag = undefined;
         }
         engine.destroyPanel(toolbar);
+      }
+    } finally {
+      if (toolbar !== undefined) {
+        this.toolbarFocus.endSetup(toolbar);
       }
     }
   }
@@ -753,15 +759,23 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       if (!KeyboardFormFactor.isDesktop()) {
         this.panel.show();
       } else {
-        this.followCallingWindow();
+        this.followCallingWindow(inputClient);
       }
     };
 
-  /** 每次绑定编辑器都请求显示工具栏，包括全屏窗口。 */
-  private followCallingWindow(): void {
+  /**
+   * Keep the floating toolbar off an application that fills the screen, and bring it back each time the focus is in a window that does not.
+   *
+   * The Windows host hides its toolbar while the foreground window is fullscreen (`OnWinEvent` in `window_hook.cpp`), so a game or a video is not covered by a bar nobody is using. HarmonyOS tells the keyboard the calling window's status, and only when asked, so it is asked each time an editor takes focus; a window that goes fullscreen while its editor keeps the focus is noticed at the next focus. The system can put the status panel away on its own when windows switch, so no cached visibility is trusted: every bind asks again.
+   */
+  private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
     const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
     if (toolbar === undefined) return;
-    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown);
+    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown,
+      async (): Promise<boolean> => {
+        const info: inputMethodEngine.WindowInfo = await inputClient.getCallingWindowInfo();
+        return info.status === window.WindowStatusType.FULL_SCREEN;
+      });
   }
 
   private readonly keyboardShown: () => void = (): void => {
@@ -1338,7 +1352,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           if (!desktop) {
             this.panel.show();
           } else {
-            this.followCallingWindow();
+            this.followCallingWindow(pending);
           }
         }
       } catch (error) {

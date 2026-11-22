@@ -2006,7 +2006,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 - 现在编辑框每次获得焦点时，都用 `InputClient.getCallingWindowInfo()` 查询所在窗口的状态：`WindowStatusType.FULL_SCREEN` 时隐藏工具栏，焦点回到非全屏窗口时再显示。
 - HarmonyOS 不会主动通知输入法窗口状态的变化，只能在查询时拿到，所以编辑框保持焦点期间才进入全屏的窗口，要到下一次聚焦时才会生效。
-- 工具栏被设置关闭后再重新打开时，隐藏标记会随之清掉，不会把新开的工具栏误当成已隐藏。
+- 宿主不缓存工具栏是否可见：系统切换窗口时可能自行收起状态面板，所以每次聚焦非全屏窗口都重新请求显示，见[编辑器重新聚焦时恢复鸿蒙悬浮工具栏](../.agents/notes/implemented/bug-fix/2026-11-19-harmony-toolbar-refocus.md)。
 - 手机没有悬浮工具栏，这一改动不涉及手机。
 
 ### HarmonyOS 2in1：行内预编辑（`tsf_preedit_style`）
