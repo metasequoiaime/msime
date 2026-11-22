@@ -27,7 +27,7 @@ Android 的 14/18 键字母键是普通按键：点按经 `gridKey` 送整组；
 - 松手：符号经 `ImeLayoutRows#commitGridLetterHint` 上屏；横滑选中的字母照旧经 `gridKey` 送大写精确标记；选项按 26 键的拖选收尾（`finishLetterOptions`），没拖进去时弹窗留着等点选；组字中没有触发手势的按压、关闭「滑动输入符号」后明确的纵滑、或没滑到「滑动距离」的纵滑，由这里补一次 `performClick`，即使位移让按钮自己取消了点击。只把超过 14 dp（`SwipeHintPolicy.THRESHOLD_DP`，不随「滑动距离」变）、以纵向为主的移动记为补点按；横滑选中字母、长按选项、多指与系统取消仍优先，不重复输入。多指、换指和系统取消什么都不输入。
 - 一次滑出或选项里的选择、横滑都只记这个键一次（`countKey`），与 26 键相同。
 
-旧的 `bindEighteenKeySwipe`、`EighteenKeySwipePolicy.Gesture` 和 `FourteenKeyLayout.holdLetters` 被它取代，已删除；`EighteenKeySwipePolicy.letter` 的阈值和方向规则不变，由 `GridKeyGesturePolicy` 调用。26 键的 `bindLetterGestures` 和它的候选栏门控不变。
+旧的 `bindEighteenKeySwipe`、`EighteenKeySwipePolicy.Gesture` 和 `FourteenKeyLayout.holdLetters` 被它取代，已删除；`EighteenKeySwipePolicy.letter` 的阈值和方向规则不变，由 `GridKeyGesturePolicy` 调用。26 键的 `bindLetterGestures` 当时不变，#11822 起也改用 `GridKeyGesturePolicy`，候选栏门控保留，见 [Android 26 键与 14/18 键字母键滑动判定统一](2026-11-22-android-letter-swipe-detection.md)。
 
 ### 选项和上屏
 

@@ -186,6 +186,16 @@ final class GridLetterSymbolDeviceChecks {
         swipe("按键 C V", -LONG_SWIPE_DP);
         expect("？");
         distance = null;
+
+        // 只按移动判定（#11822）：移动只有 4 dp、抬起那一点才跳到 24 dp 时是点按，不出符号。
+        configure(true, "up", true, "按键 Q W");
+        t.stage = "fourteen a jump only at lift-off is a tap";
+        liftJump("按键 C V", -4, -SWIPE_DP);
+        assertNoOptions();
+        t.await(t.described("编辑拼写").and(node -> DeviceSmoke.equalsText(tappedReading, node.getText())));
+        expect("");
+        t.tap(t.key("⌫"));
+        awaitGone(t.described("编辑拼写"));
     }
 
     private void eighteen() throws Exception {
@@ -278,6 +288,29 @@ final class GridLetterSymbolDeviceChecks {
         }
         events[events.length - 1] = MotionEvent.obtain(started, started + 20L * (offsetsDp.length + 1),
             MotionEvent.ACTION_UP, bounds.centerX(), y, 0);
+        try {
+            for (MotionEvent event : events) {
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                if (!t.automation.injectInputEvent(event, false)) throw new AssertionError("触摸事件未送达");
+            }
+        } finally {
+            for (MotionEvent event : events) event.recycle();
+        }
+        t.automation.waitForIdle(300, 3000);
+        t.dropStaleNodes();
+    }
+
+    /** 从键中心按下，纵向移动 `moveDp` 后在 `liftDp` 处抬起（向下为正）：抬指时触点一跳。事件一起排进输入队列，理由见 {@link #swipe}。 */
+    private void liftJump(String description, float moveDp, float liftDp) throws Exception {
+        Rect bounds = bounds(t.awaitStableBounds(t.described(description)));
+        float density = t.getTargetContext().getResources().getDisplayMetrics().density;
+        long started = SystemClock.uptimeMillis();
+        MotionEvent[] events = {
+            MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0),
+            MotionEvent.obtain(started, started + 20, MotionEvent.ACTION_MOVE, bounds.centerX(),
+                bounds.centerY() + moveDp * density, 0),
+            MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_UP, bounds.centerX(),
+                bounds.centerY() + liftDp * density, 0)};
         try {
             for (MotionEvent event : events) {
                 event.setSource(InputDevice.SOURCE_TOUCHSCREEN);

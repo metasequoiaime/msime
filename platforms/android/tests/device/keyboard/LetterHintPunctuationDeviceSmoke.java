@@ -229,7 +229,20 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             stage = "a swipe past the 30 dp swipe distance enters the hint";
             simpleSwipe("v", "up", 36);
             expect("？");
+            // 纵移超过 14 dp 却没滑到「滑动距离」、还移出了键帽：仍是一次点按，不丢键（#11822，与 14/18 键相同）。
+            swipeDistance = 48;
+            configureSwipe(true, "up", true, false);
+            stage = "a 40 dp swipe off the key under a 48 dp distance still types the letter";
+            simpleSwipe("v", "up", 40);
+            expect("v");
+            assertNoOptions();
             swipeDistance = null;
+            // 纵向位移要大于横向（#11822，与 14/18 键相同）：横 16 dp、上 15 dp 的斜移是点按。
+            configureSwipe(true, "up", true, false);
+            stage = "a diagonal move keeps the letter";
+            slantedSwipe("v", 16, -15);
+            expect("v");
+            assertNoOptions();
             configureSwipe(false, "down", true, true);
             stage = "disabled swipes preserve long hold and paired punctuation";
             gestureOption("j", true, "up", "（", false);
@@ -373,6 +386,19 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             MotionEvent.obtain(started, started + 20, MotionEvent.ACTION_MOVE, keyBounds.centerX(), endY, 0),
             MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_UP, keyBounds.centerX(), endY, 0)};
         injectQuickly(events);
+    }
+
+    /** 从 `letter` 键中心斜着移动（横 `dxDp`、纵 `dyDp`，向下为正）后抬起；事件一起排进输入队列，理由见 {@link #simpleSwipe}。 */
+    private void slantedSwipe(String letter, float dxDp, float dyDp) throws Exception {
+        Rect keyBounds = bounds(awaitStableBounds(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT))));
+        long started = SystemClock.uptimeMillis();
+        float density = getTargetContext().getResources().getDisplayMetrics().density;
+        float endX = keyBounds.centerX() + dxDp * density;
+        float endY = keyBounds.centerY() + dyDp * density;
+        injectQuickly(
+            MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY(), 0),
+            MotionEvent.obtain(started, started + 20, MotionEvent.ACTION_MOVE, endX, endY, 0),
+            MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_UP, endX, endY, 0));
     }
 
     /** 把一次手势的全部事件一起排进输入队列再等界面空闲，理由见 {@link #simpleSwipe}。 */

@@ -232,44 +232,48 @@ final class ImeLetterRows {
     }
 
     /**
-     * 字母键按压按「按键弹出」显示气泡。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，长按不受滑动开关影响。滑动输入符号启用时，沿设置方向滑过 14 dp 松手输入角标；中文反方向滑动打开选项并可继续拖选。关闭开关停用两种滑动，未触发手势时照常交给按钮点击。
+     * 26 键字母键的手势，判定与 14/18 键共用 {@link GridKeyGesturePolicy}（#11822）：沿「滑动输入符号」的方向纵滑过「滑动距离」、且纵向位移大于横向时松手输入角标；中文反方向同样的纵滑打开选项并可继续拖选，英文和按大小写写字的方案反方向只是一次点按。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，按大小写写字的方案长按直接输入角标；长按不受滑动开关影响。关闭开关停用两种滑动。没触发手势时交给按钮点击；纵移超过 14 dp 却没触发手势（关闭滑动、没滑到「滑动距离」或英文反方向）时，即使位移让按钮取消了点击，松手仍补一次点按。按压按「按键弹出」显示气泡。
+     *
+     * <p>候选栏可见（组字中，不含上屏后联想，见 {@link SwipeHintPolicy#tapsOnly}）时长按和滑动都等价于一次点按，按压中途出现候选栏也一样。只跟按下的那根手指：键距外落下的第二根手指会被框架并进这个键，不能因此取消这次按键。
      *
      * <p>中文标点生效时（{@link MSIMEInputService#sendsChinesePunctuation}），Engine 会转写的那几个提示（( ) " ? !，见 {@link LetterHintTable#routesThroughEngine}）气泡显示中文键面，松手交给 {@link MSIMEInputService#punctuation}：组字中先按首选结束再接中文标点，智能标点、成对补全和引号交替都照常生效（#7069）。这里不走 `type()`，一次性 Shift 不会被一个标点用掉，与按字面上屏的其他提示一致。中文标点状态在手势触发时读，不在建键时记下，切换中文标点不必为此重建键行。
      *
-     * @param input 键的字母，提示字符按它查 {@link LetterHintTable}
+     * @param input 键的字母，提示字符按它查 {@link LetterHintTable}；null 时这个键没有角标、长按和滑动，只有补点按
      */
     private void bindLetterGestures(Button key, String input) {
         final String hint = LetterHintTable.hint(input);
-        final float[] downY = new float[1];
-        final boolean[] triggered = new boolean[1];
-        final boolean[] optionsShown = new boolean[1];
-        final boolean[] candidateTouch = new boolean[1];
+        final GridKeyGesturePolicy.Gesture[] gesture = {new GridKeyGesturePolicy.Gesture(null, hint != null, false)};
         Runnable hold = () -> {
-            if (triggered[0] || !key.isPressed()) return;
+            GridKeyGesturePolicy.Gesture current = gesture[0];
+            if (current.consumed() || !key.isPressed()) return;
             // 组字中候选栏出现时，长按也交给普通按键点击，避免误打开字母选项；上屏后联想不算组字。
-            if (candidateTapsOnly()) return;
-            triggered[0] = true;
-            optionsShown[0] = true;
+            if (candidateTapsOnly()) {
+                current.composing();
+                return;
+            }
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
-            if (s.dedicatedEnglish) {
+            if (s.dedicatedEnglish || !s.letterCaseSchemeActive()) {
+                if (!current.hold()) return;
                 hideKeyPreview(key);
-                s.imeLayoutRows.showEnglishLetterOptions(key, input);
-            } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
-                hideKeyPreview(key);
-                s.imeLayoutRows.showLetterOptions(key, input);
-            } else {
-                optionsShown[0] = false;
-                showKeyPreview(key, LetterHintTable.face(input, s.dedicatedEnglish,
-                    s.sendsChinesePunctuation(), s.punctuationMarks()));
+                if (s.dedicatedEnglish) s.imeLayoutRows.showEnglishLetterOptions(key, input);
+                else s.imeLayoutRows.showLetterOptions(key, input);
+            } else if (current.holdSymbol()) {
+                showKeyPreview(key, letterHintFace(input));
             }
         };
         key.setOnTouchListener((view, event) -> {
+            GridKeyGesturePolicy.Gesture current = gesture[0];
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
-                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
-                    triggered[0] = false;
-                    optionsShown[0] = false;
-                    candidateTouch[0] = candidateTapsOnly();
+                    // 反方向打开选项只在中文；每次按下按当前状态重建。
+                    boolean chinese = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
+                    current = new GridKeyGesturePolicy.Gesture(null, hint != null, chinese && hint != null);
+                    gesture[0] = current;
+                    String direction = touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
+                        ? s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION) : null;
+                    current.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
+                        DimensionPolicy.fromPixels(s, event.getY()), direction,
+                        s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE), candidateTapsOnly());
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
                     // 气泡读按下这一刻的键面：大小写变化是就地改键面（refreshLetterCase），建键时的键面可能已经过时。
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, key.getText().toString());
@@ -280,51 +284,32 @@ final class ImeLetterRows {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (optionsShown[0]) {
+                    if (current.mode() == GridKeyGesturePolicy.Mode.OPTIONS) {
                         s.imeLayoutRows.moveLetterOptions(key, event);
-                    } else if (hint != null && !triggered[0]) {
-                        boolean candidateVisible = candidateTouch[0] || candidateTapsOnly();
-                        if (candidateVisible) return false;
-                        if (!SwipeHintPolicy.enabled(
-                                touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), false))
-                            return false;
-                        String direction = s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-                        String opposite = SwipeHintPolicy.UP.equals(direction) ? SwipeHintPolicy.DOWN : SwipeHintPolicy.UP;
-                        float distance = s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE);
-                        float currentY = DimensionPolicy.fromPixels(s, event.getY());
-                        if (SwipeHintPolicy.swiped(direction, distance, downY[0], currentY)) {
-                            triggered[0] = true;
-                            key.removeCallbacks(hold);
-                            if (keyPreview != null && keyPreviewOwner == key)
-                                keyPreview.setLabel(LetterHintTable.face(input, s.dedicatedEnglish,
-                                    s.sendsChinesePunctuation(), s.punctuationMarks()));
-                        } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                                && SwipeHintPolicy.swiped(opposite, distance, downY[0], currentY)) {
-                            triggered[0] = true;
-                            optionsShown[0] = true;
-                            key.removeCallbacks(hold);
-                            hideKeyPreview(key);
-                            s.imeLayoutRows.showLetterOptions(key, input);
-                        }
+                        return true;
                     }
-                    return triggered[0];
+                    if (candidateTapsOnly()) current.composing();
+                    // 报的总是按下的那根手指、一根手指：见方法说明。
+                    if (current.move(event.getPointerId(0), 1, DimensionPolicy.fromPixels(s, event.getX()),
+                            DimensionPolicy.fromPixels(s, event.getY())))
+                        letterGestureChanged(key, input, current, hold);
+                    return current.consumed();
                 }
                 case MotionEvent.ACTION_UP -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
-                    if (!triggered[0]) {
-                        // 候选态的长按或滑动必须等价于一次普通点按，即使位移让 Button 自己取消了点击。
-                        boolean candidateVisible = candidateTouch[0] || candidateTapsOnly();
-                        if (candidateVisible) {
-                            // 抬起时离键太远、Button 自己不会点击，这里补的那次点击不带按下点。
-                            if (!TouchPointPolicy.releasedOnKey(event.getX(), event.getY(), key.getWidth(),
-                                    key.getHeight(), ViewConfiguration.get(s).getScaledTouchSlop()))
-                                s.imeTouchPoints.pending.forget(key);
-                            key.performClick();
-                            key.setPressed(false);
-                            return true;
-                        }
-                        return false;
+                    if (candidateTapsOnly()) current.composing();
+                    GridKeyGesturePolicy.Mode mode = current.mode();
+                    if (mode == GridKeyGesturePolicy.Mode.PENDING) {
+                        if (!current.forcesTap()) return false;
+                        // 候选态的长按或滑动、关掉滑动或没滑到「滑动距离」的纵移都等价于一次普通点按，即使位移让 Button 自己取消了点击。
+                        // 抬起时离键太远、Button 自己不会点击，这里补的那次点击不带按下点。
+                        if (!TouchPointPolicy.releasedOnKey(event.getX(), event.getY(), key.getWidth(),
+                                key.getHeight(), ViewConfiguration.get(s).getScaledTouchSlop()))
+                            s.imeTouchPoints.pending.forget(key);
+                        key.performClick();
+                        key.setPressed(false);
+                        return true;
                     }
                     MotionEvent cancel = MotionEvent.obtain(event);
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -333,13 +318,16 @@ final class ImeLetterRows {
                     key.setPressed(false);
                     // 滑出符号或长按选项吞掉了这一下，它的按下点不再属于任何一次点击。
                     s.imeTouchPoints.pending.forget(key);
-                    if (optionsShown[0] && s.imeLayoutRows.finishLetterOptions(key, event)) return true;
+                    if (mode == GridKeyGesturePolicy.Mode.CANCELLED) return true;
+                    if (mode == GridKeyGesturePolicy.Mode.OPTIONS && s.imeLayoutRows.finishLetterOptions(key, event))
+                        return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
-                    if (!optionsShown[0]) s.imeLayoutRows.commitLetterHint(input);
+                    if (mode == GridKeyGesturePolicy.Mode.SYMBOL) s.imeLayoutRows.commitLetterHint(input);
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
+                    current.cancel();
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
                     s.imeTouchPoints.pending.forget(key);
@@ -349,6 +337,27 @@ final class ImeLetterRows {
                 default -> { return false; }
             }
         });
+    }
+
+    /** 一次移动改变了 26 键字母键的手势：触发时停掉长按计时，气泡换成角标或让位给选项。 */
+    private void letterGestureChanged(Button key, String input, GridKeyGesturePolicy.Gesture gesture, Runnable hold) {
+        if (gesture.consumed()) key.removeCallbacks(hold);
+        switch (gesture.mode()) {
+            case SYMBOL -> {
+                if (keyPreview != null && keyPreviewOwner == key) keyPreview.setLabel(letterHintFace(input));
+            }
+            case OPTIONS -> {
+                hideKeyPreview(key);
+                s.imeLayoutRows.showLetterOptions(key, input);
+            }
+            case CANCELLED -> hideKeyPreview(key);
+            default -> { }
+        }
+    }
+
+    /** 26 键角标此刻的键面：中文标点状态在手势触发时读。 */
+    private String letterHintFace(String input) {
+        return LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(), s.punctuationMarks());
     }
 
     /** 第二行的缩进只在 9 键行出现；微软双拼分号或日语长音键占第十格时收起。 */
@@ -1235,11 +1244,7 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_UP -> {
                     touching[0] = false;
                     hideKeyPreview(key);
-                    GridKeyGesturePolicy.Mode before = current.mode();
-                    if (before != GridKeyGesturePolicy.Mode.OPTIONS && current.move(event.getPointerId(0),
-                            event.getPointerCount(), DimensionPolicy.fromPixels(s, event.getX()),
-                            DimensionPolicy.fromPixels(s, event.getY())))
-                        gridGestureChanged(key, gridKey, eighteen, current, before, face[0], event);
+                    // 只按移动判定，抬起那一点不算（与 26 键相同）：抬指时触点常会一跳，单凭它不能触发符号或改选字母。
                     key.setText(face[0]);
                     switch (current.mode()) {
                         case PENDING -> {

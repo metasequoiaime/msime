@@ -2,7 +2,7 @@ import app.msime.android.GridKeyGesturePolicy;
 import app.msime.android.GridKeyGesturePolicy.Mode;
 import app.msime.android.SwipeHintPolicy;
 
-/** 14/18 键字母键的手势（#11063）：纵滑出符号、反向或长按开选项、18 键双拼横滑限定字母，组字中纵滑和长按都是点按。 */
+/** 14/18 键与 26 键字母键的手势（#11063、#11822）：纵滑出符号、反向或长按开选项、18 键双拼横滑限定字母，组字中纵滑和长按都是点按；26 键英文反向不开选项，按大小写写字的方案长按直接出符号。 */
 public final class GridKeyGesturePolicySmoke {
     private static final String UP = SwipeHintPolicy.UP;
     private static final String DOWN = SwipeHintPolicy.DOWN;
@@ -160,7 +160,36 @@ public final class GridKeyGesturePolicySmoke {
         check(g.mode() == Mode.CANCELLED && !g.forcesTap() && !g.hold(), "系统取消不补点按");
         g.start(1, 100, 100, UP, DISTANCE, false);
         check(g.mode() == Mode.PENDING && g.selected() == 0 && g.hold(), "新按压不继承取消和组字状态");
-        System.out.println("Android 14/18-key letter gestures: passed");
+        // 26 键（#11822）：判定同 14/18 键；英文和按大小写写字的方案反方向不开选项，只补点按。
+        g = new GridKeyGesturePolicy.Gesture(null, true, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
+        g.move(1, 1, 100, 120);
+        check(g.mode() == Mode.PENDING && !g.consumed() && g.forcesTap(), "26 键英文反向下滑不开选项，仍补一次点按");
+        g.move(1, 1, 100, 80);
+        check(g.mode() == Mode.SYMBOL, "26 键英文随后上滑仍出符号");
+        g = new GridKeyGesturePolicy.Gesture(null, true, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
+        g.move(1, 1, 120, 80);
+        check(g.mode() == Mode.PENDING && !g.forcesTap(), "26 键斜滑（横向不小于纵向）不出符号，交给按钮");
+        g = new GridKeyGesturePolicy.Gesture(null, true, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
+        check(g.hold() && g.mode() == Mode.OPTIONS, "26 键英文长按照旧打开选项");
+        g = new GridKeyGesturePolicy.Gesture(null, true, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
+        check(g.holdSymbol() && g.mode() == Mode.SYMBOL && g.consumed() && !g.forcesTap(),
+            "按大小写写字的方案长按直接出符号");
+        check(!g.holdSymbol() && !g.hold(), "长按只触发一次");
+        g.move(1, 1, 100, 140);
+        check(g.mode() == Mode.SYMBOL, "长按出的符号不因之后的移动改变");
+        g = new GridKeyGesturePolicy.Gesture(null, true, false);
+        g.start(1, 100, 100, UP, DISTANCE, true);
+        check(!g.holdSymbol() && g.mode() == Mode.PENDING, "候选态长按不出符号");
+        g = new GridKeyGesturePolicy.Gesture(null, false, false);
+        g.start(1, 100, 100, UP, DISTANCE, false);
+        check(!g.holdSymbol(), "没有角标的键长按不出符号");
+        g.move(1, 1, 100, 80);
+        check(g.mode() == Mode.PENDING && g.forcesTap(), "没有角标的 26 键纵移离开键帽仍补一次点按");
+        System.out.println("Android 14/18/26-key letter gestures: passed");
     }
 
     private static GridKeyGesturePolicy.Gesture gesture(String exact, String direction, boolean composing) {

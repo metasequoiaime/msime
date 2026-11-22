@@ -1,18 +1,18 @@
 package app.msime.android;
 
 /**
- * 14 键与 18 键字母键一次按压的手势判定（#11063），规则跟 26 键走：
+ * 14 键、18 键与 26 键字母键一次按压的手势判定（#11063；26 键从 #11822 起也用这一套，判定与 14/18 键相同）：
  *
  * <ul>
  *   <li>沿「滑动输入符号」的方向（缺省上滑）纵移严格超过「滑动距离」（与 26 键共用，{@link SwipeHintPolicy#MIN_THRESHOLD_DP}..{@link SwipeHintPolicy#MAX_THRESHOLD_DP} dp，默认 {@link SwipeHintPolicy#DEFAULT_THRESHOLD_DP}），且纵向位移大于横向，松手输入这个键的角标符号（{@link GridLetterHintTable}）；
- *   <li>反方向同样的纵移，或空闲时长按，打开这个键的字母和符号选项，并可继续拖选；
+ *   <li>反方向同样的纵移，或空闲时长按，打开这个键的字母和符号选项，并可继续拖选；26 键只有中文的反方向打开选项，英文和按大小写写字的方案（越南语、藏文）反方向只是一次点按（{@link Gesture#Gesture(String, boolean, boolean)}），后者的长按直接输入角标（{@link Gesture#holdSymbol}）；
  *   <li>18 键双拼的两字母键另有横滑限定字母，阈值和方向照旧（{@link EighteenKeySwipePolicy}）；
  *   <li>「滑动输入符号」关闭时两种纵滑都不响应，长按照旧；
- *   <li>纵移超过 {@link SwipeHintPolicy#THRESHOLD_DP}（「滑动距离」的出厂值，固定）却没触发手势时——关掉了「滑动输入符号」，或调大了「滑动距离」而没滑到——松手仍是这个键的一次点按，即使手指已经移出键帽、按钮自己取消了点击；
- *   <li>组字中（Engine 的 `editing_text` 不空）纵滑和长按都按一次普通点按处理，免得组字时误出符号或先结束组字；横滑限定字母照常可用。上屏后联想不算组字。
+ *   <li>纵移超过 {@link SwipeHintPolicy#THRESHOLD_DP}（「滑动距离」的出厂值，固定）却没触发手势时——关掉了「滑动输入符号」、调大了「滑动距离」而没滑到，或 26 键反方向不开选项——松手仍是这个键的一次点按，即使手指已经移出键帽、按钮自己取消了点击；
+ *   <li>组字中（14/18 键看 Engine 的 `editing_text` 不空，26 键看候选栏，见 {@link SwipeHintPolicy#tapsOnly}；由调用方经 {@link Gesture#start} 和 {@link Gesture#composing} 传入）纵滑和长按都按一次普通点按处理，免得组字时误出符号或先结束组字；横滑限定字母照常可用。上屏后联想不算组字。
  * </ul>
  *
- * <p>先触发的那一种锁定这次按压：纵滑一旦触发，回到起点也仍输入符号；横滑可以反向重选，回到起点不输入。多指、换指和系统取消让这次按压什么都不输入。纵滑与横滑的条件互斥（纵滑要求 |dy| &gt; |dx|，横滑要求 |dx| &gt; 1.5|dy|），同一次移动不会两者都成立。
+ * <p>先触发的那一种锁定这次按压：纵滑一旦触发，回到起点也仍输入符号；横滑可以反向重选，回到起点不输入。多指、换指和系统取消让这次按压什么都不输入（26 键的调用方只报按下的那根手指，不因多指取消）。纵滑与横滑的条件互斥（纵滑要求 |dy| &gt; |dx|，横滑要求 |dx| &gt; 1.5|dy|），同一次移动不会两者都成立。
  */
 public final class GridKeyGesturePolicy {
     /** 这次按压此刻处在哪一种手势里。 */
@@ -54,6 +54,7 @@ public final class GridKeyGesturePolicy {
     public static final class Gesture {
         private final String exactLetters;
         private final boolean hasSymbol;
+        private final boolean oppositeOptions;
         private String direction;
         private float thresholdDp = SwipeHintPolicy.THRESHOLD_DP;
         private boolean tapsOnly;
@@ -69,8 +70,18 @@ public final class GridKeyGesturePolicy {
          * @param hasSymbol 这个键有角标符号
          */
         public Gesture(String exactLetters, boolean hasSymbol) {
+            this(exactLetters, hasSymbol, true);
+        }
+
+        /**
+         * @param exactLetters 同 {@link #Gesture(String, boolean)}
+         * @param hasSymbol 同 {@link #Gesture(String, boolean)}
+         * @param oppositeOptions 反方向纵滑打开选项（14/18 键、26 键中文）；为 false 时反方向的纵移只是一次点按（26 键英文和按大小写写字的方案）
+         */
+        public Gesture(String exactLetters, boolean hasSymbol, boolean oppositeOptions) {
             this.exactLetters = exactLetters;
             this.hasSymbol = hasSymbol;
+            this.oppositeOptions = oppositeOptions;
         }
 
         /**
@@ -99,7 +110,7 @@ public final class GridKeyGesturePolicy {
         }
 
         /**
-         * 手指移动。
+         * 手指移动。只喂 `ACTION_MOVE`（#11822）：抬起那一点不喂，抬指时触点常会一跳，单凭它不能触发手势。
          *
          * @param pointers 此刻按着的手指数
          * @return 这次移动是否改变了 {@link #mode} 或 {@link #selected}
@@ -128,7 +139,7 @@ public final class GridKeyGesturePolicy {
                 selected = letter;
             } else if (!tapsOnly && hasSymbol && vertical(direction, thresholdDp, dx, dy)) {
                 mode = Mode.SYMBOL;
-            } else if (!tapsOnly && vertical(opposite(direction), thresholdDp, dx, dy)) {
+            } else if (!tapsOnly && oppositeOptions && vertical(opposite(direction), thresholdDp, dx, dy)) {
                 mode = Mode.OPTIONS;
             } else if (vertical(SwipeHintPolicy.UP, SwipeHintPolicy.THRESHOLD_DP, dx, dy)
                     || vertical(SwipeHintPolicy.DOWN, SwipeHintPolicy.THRESHOLD_DP, dx, dy)) {
@@ -142,6 +153,13 @@ public final class GridKeyGesturePolicy {
         public boolean hold() {
             if (mode != Mode.PENDING || tapsOnly) return false;
             mode = Mode.OPTIONS;
+            return true;
+        }
+
+        /** 长按计时到、而这个键的长按直接输入角标（26 键按大小写写字的方案）：空闲且还没触发手势时锁定为符号，返回 true；组字中、已触发其他手势或没有角标时不做事。 */
+        public boolean holdSymbol() {
+            if (mode != Mode.PENDING || tapsOnly || !hasSymbol) return false;
+            mode = Mode.SYMBOL;
             return true;
         }
 
