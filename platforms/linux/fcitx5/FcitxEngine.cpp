@@ -7095,16 +7095,16 @@ public:
     };
     return loop;
   }
-  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。只在纯 X11 开关开着、有上下文接手时才建；Wayland 或没有 X 服务器时沿状态区的「工具栏」子菜单回退。
+  // 整个插件只有一条悬浮工具栏，与 macOS 的 sharedPanel 相同，跟着当前属主（获得焦点的输入上下文）走。有活动输入上下文且开关开启时创建；缺少可用的显示协议时沿状态区的「工具栏」子菜单回退。
   msime::linux_host::FloatingToolbar *floatingToolbar(bool create) {
     if (!floating_toolbar_ && create && !floating_toolbar_unavailable_) {
       msime::linux_host::FloatingToolbar::Options options;
       options.icon_path = MSIME_MODE_BADGE_ICON;
       options.display_name = MSIME_EDITION_DISPLAY_NAME;
-      if (auto file = msime::linux_host::floating_toolbar_position_path(
-              std::getenv("XDG_STATE_HOME"), std::getenv("HOME"), MSIME_EDITION_CLIENT_DIRECTORY))
-        options.position_file = *file;
       const char *wayland = std::getenv("WAYLAND_DISPLAY");
+      if (auto file = msime::linux_host::floating_toolbar_position_path(
+              std::getenv("XDG_STATE_HOME"), std::getenv("HOME"), MSIME_EDITION_CLIENT_DIRECTORY, wayland && *wayland))
+        options.position_file = *file;
       options.hide_on_focus_out = wayland && *wayland;
       auto loop = overlayLoop();
       floating_toolbar_ = msime::linux_host::FloatingToolbar::create(

@@ -235,6 +235,8 @@ void toolbar_geometry() {
          "/state/msime-client/floating-toolbar-position.json");
   assert(host::floating_toolbar_position_path("relative", "/home/user", "msime-client") ==
          "/home/user/.local/state/msime-client/floating-toolbar-position.json");
+  assert(host::floating_toolbar_position_path("/state", "/home/user", "msime-client", true) ==
+         "/state/msime-client/floating-toolbar-wayland-position.json");
   assert(!host::floating_toolbar_position_path(nullptr, nullptr, "msime-client"));
   const auto parsed = host::parse_floating_toolbar_position(host::serialize_floating_toolbar_position({-30, 640}));
   assert(parsed && parsed->x == -30 && parsed->y == 640);

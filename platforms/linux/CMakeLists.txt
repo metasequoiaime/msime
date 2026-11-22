@@ -186,6 +186,10 @@ if(MODE_BADGE_X11_FOUND)
                  src/overlay/FloatingToolbar.cpp src/overlay/FloatingToolbarFactory.cpp
                  src/overlay/FloatingToolbarX11Surface.cpp)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_FLOATING_PANELS)
+  if(MSIME_WAVE_WAYLAND_SURFACE)
+    target_sources(msime-ibus-host PRIVATE src/overlay/FloatingToolbarWaylandSurface.cpp)
+    target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_WAYLAND_TOOLBAR)
+  endif()
   # libX11 1.7 起每条连接可以装自己的退出处理（XSetIOErrorExitHandler）：工具栏和键位图的连接断开时不再让整个引擎退出（见 OverlayX11Window.h 的 open_overlay_display）。legacy 包的 Debian 10 只有 1.6.7，那里照旧。
   if(MODE_BADGE_X11_x11_VERSION VERSION_GREATER_EQUAL 1.7.0)
     set(MSIME_X11_IO_ERROR_EXIT_HANDLER ON)
