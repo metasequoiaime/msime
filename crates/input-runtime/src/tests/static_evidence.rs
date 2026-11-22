@@ -222,6 +222,57 @@ fn static_evidence_ignores_nonreadings_and_keeps_the_nine_reading_budget() {
 }
 
 #[test]
+fn explicit_grid_comparison_limit_can_choose_a_reading_beyond_the_ninth() {
+    struct Scorer(usize);
+
+    impl CandidateScorer for Scorer {
+        fn context_length(&self) -> usize {
+            64
+        }
+
+        fn log_probabilities(&mut self, _: &str, candidates: &[&str]) -> Vec<f32> {
+            candidates
+                .iter()
+                .map(|text| if *text == "癸" { 0.0 } else { -8.0 })
+                .collect()
+        }
+
+        fn sentence_pool(&self) -> usize {
+            32
+        }
+
+        fn grid_comparison_limit(&self) -> usize {
+            self.0
+        }
+    }
+
+    for (limit, expected) in [(0, "甲"), (10, "癸")] {
+        let words = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
+        let mut runtime = Runtime::new(
+            Fixture {
+                words: words.into_iter().map(str::to_owned).collect(),
+                codes: vec!["2".into(); words.len()],
+                sources: vec![LATTICE_SOURCE; words.len()],
+                static_evidence: vec![evidence(-1000, 1); words.len()],
+                ..Fixture::default()
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        runtime.set_key_grid(Some(KeyGrid::NineKey)).unwrap();
+        runtime.set_candidate_scorer(Some(Box::new(Scorer(limit))));
+        runtime
+            .dispatch(Action::Character {
+                value: b'2',
+                shift: false,
+            })
+            .unwrap();
+        assert_eq!(runtime.view().candidates[0].text, expected);
+    }
+}
+
+#[test]
 fn successive_reranks_keep_static_evidence_on_its_engine_row() {
     let mut runtime = Runtime::new(
         Fixture {
