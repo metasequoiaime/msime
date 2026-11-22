@@ -247,7 +247,7 @@ final class KeyboardSymbolPanelView: UIView {
       bottom.leadingAnchor.constraint(equalTo: leadingAnchor),
       bottom.trailingAnchor.constraint(equalTo: trailingAnchor),
       bottom.bottomAnchor.constraint(equalTo: bottomAnchor),
-      bottom.heightAnchor.constraint(equalTo: heightAnchor, multiplier: 0.2),
+      bottom.heightAnchor.constraint(equalToConstant: Self.bottomBarHeight),
     ])
     gridBesideCategories = [
       scroll.leadingAnchor.constraint(equalTo: categoryScroll.trailingAnchor, constant: 1),
@@ -265,6 +265,8 @@ final class KeyboardSymbolPanelView: UIView {
   required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
   private static let columns = 5
+  /// 底部「返回 | 搜索 | 锁定 | ⌫」一栏的高度。以前按面板高度的 20% 算，手机上约 46pt，比符号格还高，显得笨重；固定 40pt，与左列类型按钮同高，省下的高度留给符号格。
+  static let bottomBarHeight: CGFloat = 40
   private static let rowHeight: CGFloat = 46
   private static let categoryHeight: CGFloat = 40
 
@@ -465,6 +467,8 @@ final class KeyboardSymbolPanelView: UIView {
       button.titleLabel?.font = .systemFont(ofSize: 15)
     }
     if let symbol { button.setImage(UIImage(systemName: symbol), for: .normal) }
+    // 图标跟着变矮的底栏缩小；`updateLock` 换图时沿用这个配置。
+    button.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 16, weight: .regular), forImageIn: .normal)
     button.tintColor = skin.keyForeground
     button.setTitleColor(skin.keyForeground, for: .normal)
     button.backgroundColor = skin.keyBackground
