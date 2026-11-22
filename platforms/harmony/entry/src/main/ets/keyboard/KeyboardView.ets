@@ -2718,7 +2718,7 @@ struct KeyboardView {
     }
   }
 
-  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`，或 14/18 键的组码键表。选中后都是先结束组字再上屏（`selectNineKeyHoldOption`）。 */
+  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`。选中后先结束组字再上屏（`selectNineKeyHoldOption`）。14/18 键长按输入角标，不弹字母。 */
   private openKeyHold(options: string[]): void {
     if (options.length === 0 || this.symbols) {
       return;

@@ -3419,16 +3419,6 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
       keys[13].description === "字母 M",
     "读屏说「按键 Q W」，单字母键说「字母 L」",
   );
-  check(
-    FourteenKeyLayout.holdOptions(keys[0]).join(",") === "q,w" &&
-      FourteenKeyLayout.holdOptions(keys[12]).join(",") === "b,n",
-    "长按弹出这一键的两个字母",
-  );
-  check(
-    FourteenKeyLayout.holdOptions(keys[9]).length === 0 &&
-      FourteenKeyLayout.holdOptions(keys[13]).length === 0,
-    "L、M 只有一个字母，长按不弹",
-  );
   for (const key of keys) {
     const id = KeyIdPolicy.fourteenKey(key.letters);
     check(id === `Fourteen${key.label}` && KEY_IDS.includes(id), `${key.label} 记在 ${id} 上`);
@@ -3677,8 +3667,6 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
       `${key.label} 记在 18 键键位`,
     );
   }
-  check(EighteenKeyLayout.holdOptions(keys[1]).join(",") === "w,e", "双字母键长按弹出字母");
-  check(EighteenKeyLayout.holdOptions(keys[0]).length === 0, "单字母键不弹出长按选项");
   check(
     KeyboardScheme.fromPreferences("quanpin", null, "eighteen_key") ===
       KeyboardScheme.QUANPIN_EIGHTEEN_KEY &&
@@ -3719,12 +3707,8 @@ group("14/18 键横滑限定组里的一个字母，与 Android、iOS 同一规�
     .map((key) => key.letters);
   check(
     twoLetterKeys.join(" ") === "we rt io sd fg jk xc bn" &&
-      twoLetterKeys.every(
-        (letters) =>
-          EighteenKeyLayout.holdOptions({ letters, input: "", label: "", description: "" })
-            .length === 2,
-      ),
-    "横滑的键正是有长按字母的那八个双字母键",
+      twoLetterKeys.every((letters) => letters.length === 2),
+    "横滑的键正是那八个双字母键",
   );
   const fourteenTwoLetterKeys = FourteenKeyLayout.rows()
     .flat()
