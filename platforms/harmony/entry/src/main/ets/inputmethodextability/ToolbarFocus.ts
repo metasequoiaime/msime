@@ -7,7 +7,7 @@ export interface FocusToolbarPanel {
 export class ToolbarFocus {
   private version: number = 0;
   private tail: Promise<void> = Promise.resolve();
-  // A panel openToolbar is still sizing and placing; openToolbar shows it itself once it is ready.
+  // `openToolbar` 仍在调整尺寸和位置的面板；准备好后由 `openToolbar` 自己显示。
   private settingUp: FocusToolbarPanel | undefined = undefined;
 
   private readonly report: (error: Object) => void;

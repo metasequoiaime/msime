@@ -31,4 +31,4 @@ Status: implemented
 
 - `platforms/harmony/tests/toolbar-focus.test.ts` 用模拟面板覆盖：重复聚焦、全屏隐藏、旧查询迟到、解绑后的迟到查询、旧面板、查询失败后尝试显示、慢隐藏与后续显示的顺序、显示失败后重试，以及面板准备期间焦点不显示、准备完成后照常显示。
 - `KeyboardExtensionAbility.ets` 里的接线（`inputStart` 与建面板期间的编辑器都走 `followCallingWindow`，解绑和关闭工具栏使代次失效，`openToolbar` 包住 `beginSetup` / `endSetup`）在 node 下编不了，也按仓库约定不再加源码 grep 守卫，目前没有自动测试钉住，靠 HAP 构建和设备验收覆盖。
-- 没有编译 ArkTS HAP，也没有在鸿蒙电脑与真实窗口中验证，不能据合成测试确认设备上的具体故障原因。
+- 本笔记描述的实现（d1412dc4a3：保留全屏隐藏，并加入 `beginSetup` / `endSetup`）尚未编译 ArkTS HAP，也没有在鸿蒙电脑与真实窗口中验证，不能据合成测试确认设备上的具体故障原因。PR 正文里的 HAP 编译和自签测试包 6000 的部分实机检查都基于更早的 f18cf67，那一版全屏时也显示工具栏、没有准备期间的焦点门控，结果不覆盖本实现；自签组合构建 5004、5005 的使用者反馈同样来自不同实现。

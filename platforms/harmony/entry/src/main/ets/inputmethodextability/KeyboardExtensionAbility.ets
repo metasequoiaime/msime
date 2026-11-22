@@ -764,9 +764,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     };
 
   /**
-   * Keep the floating toolbar off an application that fills the screen, and bring it back each time the focus is in a window that does not.
+   * 全屏应用上不显示悬浮工具栏，焦点每次进入非全屏窗口时再把它请求回来。
    *
-   * The Windows host hides its toolbar while the foreground window is fullscreen (`OnWinEvent` in `window_hook.cpp`), so a game or a video is not covered by a bar nobody is using. HarmonyOS tells the keyboard the calling window's status, and only when asked, so it is asked each time an editor takes focus; a window that goes fullscreen while its editor keeps the focus is noticed at the next focus. The system can put the status panel away on its own when windows switch, so no cached visibility is trusted: every bind asks again.
+   * Windows 宿主在前台窗口全屏时隐藏工具栏（`window_hook.cpp` 的 `OnWinEvent`），游戏或视频不会被没人用的工具栏挡住。HarmonyOS 只在查询时告诉键盘调用窗口的状态，所以每次编辑器获得焦点都查询一次；编辑框保持焦点期间才进入全屏的窗口，要到下一次聚焦才生效。切换窗口时系统可能自行收起状态面板，因此不信任缓存的可见状态，每次绑定都重新请求。
    */
   private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
     const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
