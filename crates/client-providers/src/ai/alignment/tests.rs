@@ -7,6 +7,7 @@ fn request(raw: &str, local: &[&str]) -> AiSuggestionRequest {
         segmented_pinyin: local.iter().map(|part| (*part).into()).collect(),
         context: String::new(),
         candidate_limit: 3,
+        sentence_punctuation: false,
     }
 }
 
@@ -48,6 +49,40 @@ fn alternative_segmentation_can_align_chinese_and_an_english_acronym() {
         ),
         vec!["我希望 AI 可以"]
     );
+}
+
+#[test]
+fn optional_punctuation_does_not_consume_pinyin_or_split_english() {
+    let mut request = request(
+        "woxiwangaikeyi",
+        &["wo", "xi", "wang", "a", "i", "ke", "yi"],
+    );
+    let entries = json!([
+        {"text":"，我希望 AI 可以"},
+        {"text":"我希望，，AI 可以。"},
+        {"text":"我希望 A，I 可以。"},
+        {"text":"我很好，AI 可以。"},
+        {"text":"我希望，AI。"},
+        {"text":"我希望，AI 可以。"},
+        {"text":"我希望 AI 可以"}
+    ]);
+    assert_eq!(parse(&request, entries.clone()), ["我希望 AI 可以"]);
+    assert!(user_message(&request)
+        .unwrap()
+        .get("sentence_punctuation")
+        .is_none());
+
+    request.sentence_punctuation = true;
+    assert_eq!(
+        parse(&request, entries),
+        ["我希望，AI 可以。", "我希望 AI 可以"]
+    );
+    let message = user_message(&request).unwrap();
+    assert_eq!(message["sentence_punctuation"], true);
+    assert!(message["punctuation_instruction"]
+        .as_str()
+        .unwrap()
+        .contains("标点不放进 segmentation"));
 }
 
 #[test]
@@ -196,6 +231,7 @@ fn english_spelling_correction_and_generic_reply_parsing_remain_available() {
         segmented_pinyin: vec![],
         context: String::new(),
         candidate_limit: 3,
+        sentence_punctuation: false,
     };
     assert_eq!(
         parse(&request, json!([{"text":"synthetic"}])),
