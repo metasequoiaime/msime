@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #10853
 
-Status: proposed
+Status: rejected — issue #10853 已于 2026-11-10 关闭且没有可用的复现证据，独立 Draft 跟踪 PR 无可承接的内容，仍复现时应重开 issue 补证据后另起修复。
 
 ## Problem
 
-平台 issue `#10853`（macos）的标题是「功能异常」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#10853`（macos）的标题是「功能异常」：在 macOS 0.58.0 上，于水杉设置应用的搜索框输入后右键候选，置顶、固定排位等右键面板无法弹出或立即消失，其他应用不复现。提出本提案时仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+
+该 issue 于 2026-11-10 按 completed 关闭。关闭评论的依据是候选右键菜单已在提交 `161badd326`（#7774，2026-10-14 合入，该 PR 修的是 #7768 的候选窗渲染延迟）改为请求时构建，`platforms/macos/tests/input/ShortcutTest.mm` 覆盖菜单项和候选窗层级，并称报告版本 0.58.0 早于该修复。但 `macos-v0.58.0` 标签已经包含 `161badd326`（自 `macos-v0.55.0` 起的 macOS 发布都包含），报告者也没有在新版本复测，所以这次关闭不能证明报告路径已经修复。
 
 ## Proposal
 
