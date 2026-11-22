@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9821
 
-Status: proposed
+Status: rejected — issue #9821 已由 #9828 修复并以已完成关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#9821`（macos）的标题是「[Bug]: 没有“立即安装”按钮，并且找不到这个输入法」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue `#9821`（macOS）「[Bug]: 没有“立即安装”按钮，并且找不到这个输入法」报告在 macOS 26.5.1 上看不到「立即安装」按钮，也找不到这个输入法。原因是启动检查把输入法安装目录中已经存在但结构损坏的 bundle 当成已有安装，于是不打开首次安装窗口。PR `#9828`（「fix(macos): 损坏输入源保留首次安装入口」，正文 `Fixes #9821`，2026-10-26 合入）让首次安装判定与启动刷新使用同一份 bundle 结构校验，安装目录残留损坏 bundle 时继续显示「立即安装」入口，并补了 Rust 回归测试和决策笔记 [macOS 残留损坏输入法仍显示首次安装入口](../../implemented/bug-fix/2026-10-26-macos-first-install-corrupt-bundle.md)。issue 随该 PR 合入以已完成关闭。本笔记提议时没有查到这条修复，单独跟踪已无必要。
 
 ## Proposal
 
