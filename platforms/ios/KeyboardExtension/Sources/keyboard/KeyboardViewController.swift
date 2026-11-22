@@ -391,7 +391,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 手机键面第三排字母与第一排等宽的约束，以及 ⇧ 与 Z、M 与 ⌫ 之间填空隙的四段占位格（`makeLetterRow`）；iPad 键面停用、隐藏。
   var phoneThirdRowLetterWidth: NSLayoutConstraint?
   var phoneThirdRowSpacers: [KeyRoutingSpacer] = []
-  /// 第三排里后面不留键距的那几项：⇧、左边两段占位格、M、右边两段占位格，空隙全由占位格撑开。
+  /// 第三排里后面不留键距的那几项：左边两段占位格、M、右边靠里的一段占位格。⇧ 之后和 ⌫ 之前照常留键距，空隙再窄也不小于普通键距。
   var phoneThirdRowTightViews: [UIView] = []
   /// 第三排只在 iPad 键面显示的 ，。 和右 ⇧ 的宽度约束（按字母宽的倍数）。手机键面上这些键隐藏、宽度为 0，约束若仍生效，会把可伸缩空隙旁的字母一起往 0 拉，所以只在 iPad 键面启用（`applyPhoneThirdRowSpacing`）。
   private(set) var tabletThirdRowWidths: [NSLayoutConstraint] = []

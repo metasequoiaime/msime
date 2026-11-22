@@ -361,6 +361,17 @@ final class KeyboardFormFactorTests: XCTestCase {
     XCTAssertEqual(phoneZ.minX - phoneShift.maxX, phoneDelete.minX - phoneM.maxX, accuracy: 0.5, "the two gaps are equal")
     XCTAssertGreaterThan(phoneZ.minX - phoneShift.maxX, CGFloat(KeyboardLayoutPreference.keySpacing),
                          "the gap is wider than a key gap")
+    // A phone-form keyboard narrow enough that the spacers collapse to zero (one-handed mode, the iPad floating keyboard) still keeps a key gap between ⇧ and Z and between M and ⌫.
+    phone.view.frame.size.width = 260
+    phone.view.layoutIfNeeded()
+    let narrowShift = try frame(key("shiftButton", in: phone), in: phone)
+    let narrowDelete = try frame(key("letterDeleteKey", in: phone), in: phone)
+    let narrowZ = try frame(letter("z", in: phone), in: phone)
+    let narrowM = try frame(letter("m", in: phone), in: phone)
+    XCTAssertGreaterThanOrEqual(narrowZ.minX - narrowShift.maxX, CGFloat(KeyboardLayoutPreference.keySpacing) - 0.5,
+                                "⇧ never sits closer to Z than a key gap")
+    XCTAssertGreaterThanOrEqual(narrowDelete.minX - narrowM.maxX, CGFloat(KeyboardLayoutPreference.keySpacing) - 0.5,
+                                "M never sits closer to ⌫ than a key gap")
   }
 
   /// Tab 在组字时对应桌面端的 `navigation.tab` 翻页，默认开。
