@@ -1,10 +1,12 @@
 # Agent Note: 跟踪平台 issue #10597
 
-Status: proposed
+Status: rejected — issue #10597 已由 #10710 修复并以 completed 关闭，无需另开跟踪 PR
 
 ## Problem
 
-平台 issue `#10597`（windows、macos、linux）的标题是「[桌面] 语音标点：共享设置页与 Windows、macOS、Linux 接上 voice_input.punctuation_mode」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#10597`（windows、macos、linux）的标题是「[桌面] 语音标点：共享设置页与 Windows、macOS、Linux 接上 voice_input.punctuation_mode」，报告三个桌面宿主不读取共享偏好 `voice_input.punctuation_mode`。
+
+#10710（「feat(desktop): 接入语音标点偏好」，正文写 `Fixes #10597`）在三端最终识别文本（含润色）上屏前按该偏好处理，并在 Windows 原生设置页与 Win7 设置页加了选项；它于 2026-11-06 合并，issue 随之以 completed 关闭。#10710 正文里记着的 macOS、Windows、Linux 真机复验缺口属于该 PR 自己的验收记录。
 
 ## Proposal
 
