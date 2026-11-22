@@ -70,6 +70,7 @@ class FakeToolbar {
     this.events = [];
     this.resizeGate = undefined;
     this.showGate = undefined;
+    this.moveError = undefined;
     this.destroyed = false;
   }
   async setUiContent() {}
@@ -79,7 +80,10 @@ class FakeToolbar {
     this.resizeGate = undefined;
     if (gate !== undefined) await gate.promise;
   }
-  async moveTo(x, y) { this.events.push(`move:${x},${y}`); }
+  async moveTo(x, y) {
+    this.events.push(`move:${x},${y}`);
+    if (this.moveError !== undefined) throw this.moveError;
+  }
   async show() {
     this.events.push("show");
     const gate = this.showGate;
@@ -93,6 +97,7 @@ class FakeToolbar {
 const created = [];
 const errors = [];
 let nextResizeGate;
+let nextMoveError;
 const preferences = { toolbar: true };
 const session = {
   attached: [],
@@ -110,6 +115,8 @@ const engine = {
     const panel = new FakeToolbar();
     panel.resizeGate = nextResizeGate;
     nextResizeGate = undefined;
+    panel.moveError = nextMoveError;
+    nextMoveError = undefined;
     created.push(panel);
     return panel;
   },
@@ -253,6 +260,31 @@ const lowerRight = "move:760,600";
   await until(() => fifth.events.filter((event) => event === "show").length === before + 1, "待绑定的编辑器接上后请求显示工具栏");
 
   assert.deepEqual(errors, [], "正常路径不报告错误");
+
+  // 被更新的一轮 reconcile 接手的面板在定位时失败：和没有并发 reconcile 时一样放手并销毁，而不是留下一块没定位、拖不动的面板；下一轮 reconcile 重新建一块。
+  const failing = host();
+  const failingResize = deferred();
+  nextResizeGate = failingResize;
+  nextMoveError = new Error("moveTo rejected");
+  const failingOpen = failing.reconcileStatusPanels();
+  await until(() => created.length === 6 && created[5].events.length === 1, "会失败的工具栏开始调整尺寸");
+  const broken = created[5];
+  const failingReload = failing.reconcileStatusPanels();
+  failingResize.resolve();
+  await Promise.all([failingOpen, failingReload]);
+  assert.equal(errors.length, 1, "定位失败要报告错误");
+  assert.equal(failing.toolbar, undefined, "定位失败后宿主不再持有被接手的面板");
+  assert.ok(broken.destroyed, "定位失败的被接手面板要销毁");
+  assert.ok(!broken.events.includes("show"), "定位失败的面板不能显示");
+  assert.deepEqual(failing.moves.at(-1), ["detach"], "定位失败后解绑移动队列");
+  failing.started(undefined, "editor-after-failure");
+  await tick();
+  await tick();
+  assert.ok(!broken.events.includes("show"), "定位失败后的焦点不能显示已放弃的面板");
+  await failing.reconcileStatusPanels();
+  const rebuilt = created[6];
+  assert.ok(rebuilt !== undefined && rebuilt.events.includes(lowerRight), "下一轮 reconcile 重新建面板并定位到右下角");
+  assert.equal(failing.toolbar, rebuilt);
   console.log("Harmony toolbar setup adapter passed");
 })().catch((error) => {
   console.error(error);

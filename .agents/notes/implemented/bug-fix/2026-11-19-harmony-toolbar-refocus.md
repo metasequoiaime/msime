@@ -14,6 +14,8 @@ Status: implemented
 
 `openToolbar` 把面板交给 `ToolbarFocus.beginSetup()`，直到调整尺寸、刷新内容、移到右下角并显示之后才在 `finally` 里 `endSetup()`；这段时间里到达的焦点不显示这个面板，由 `openToolbar` 自己的 `show()` 负责首帧，避免面板先出现在系统默认位置再跳到右下角。
 
+`openToolbar` 在每个 await 之后判断是否放手，依据的是面板归属（`this.toolbar !== toolbar`），而不是 reconcile 代次（`generation !== this.statusPanelGeneration`）。设置页在建面板期间再次触发 reconcile 时，更新的一轮看到 `this.toolbar` 已有面板，只调整尺寸、不定位也不显示，准备期间被丢弃的焦点也不会重放；所以只要面板仍归宿主，原来那一轮就继续把它移到右下角、接上移动队列并显示。`catch` 用同一条归属规则：面板仍归宿主就清掉 `this.toolbar`、作废焦点代次、解绑移动队列和回调后销毁，不论代次是否已变，否则被接手的面板定位失败后会留在宿主里、不在右下角也拖不动，而没有并发 reconcile 时同样的失败却会销毁重建。
+
 ## Alternatives considered
 
 - 全屏隐藏（与 Windows/Linux 一致）：每次绑定查询调用窗口，`WindowStatusType.FULL_SCREEN` 时 `hide()`。d1412dc4a3 曾这样实现，未采用：隐藏的理由只适用于没人在打字的场景，而这里总有编辑器绑定；反馈者明确要在全屏时用工具栏，维护者决定鸿蒙保留差异。
@@ -26,9 +28,10 @@ Status: implemented
 - 全屏视频或游戏里一旦有编辑框获得焦点，工具栏就会出现在全屏画面上，直到用户在设置里关掉工具栏；这是有意接受的差异。
 - 若系统的显示调用始终不返回，串行队列会一直等待，之后的焦点请求也无法生效。
 - `openToolbar` 期间到达的焦点被丢弃，首帧完全由 `openToolbar` 决定。
+- 被更新一轮 reconcile 接手的面板由最初那一轮 `openToolbar` 定位并显示；它中途失败时放手并销毁面板，下一轮 reconcile 重新建一块。
 
 ## Verification
 
-- `platforms/harmony/tests/toolbar-focus.test.ts` 用模拟面板覆盖：重复绑定都请求显示、调用窗口全屏时同样显示且不走隐藏、旧面板不接收请求、慢显示与后续请求的顺序及被取代请求的丢弃、解绑后排队请求不执行、显示失败后重试，以及面板准备期间焦点不显示、其他面板结束准备不放行、准备完成后照常显示。去掉 `stale()` 里的 `panel === this.settingUp` 后这个测试失败。
-- `KeyboardExtensionAbility.ets` 里的接线（`inputStart` 与建面板期间的编辑器都走 `followCallingWindow`，解绑和关闭工具栏使代次失效，`openToolbar` 用 `beginSetup` / `finally endSetup` 包住）在 node 下编不了，也按仓库约定不再加源码 grep 守卫，目前没有自动测试钉住，靠 HAP 构建和设备验收覆盖。
-- 设备验证的范围：自签测试包 6000 的 HAP 编译和部分实机检查基于 f18cf67（全屏也显示，但没有准备期间的焦点门控）；自签组合构建 5004、5005 的使用者反馈来自更早的实现。本笔记描述的提交（f18cf67 的全屏策略加上 `beginSetup` / `endSetup` 门控）尚未编译 ArkTS HAP，也没有在鸿蒙电脑与真实窗口中验证，不能据合成测试确认设备上的具体故障原因。
+- `platforms/harmony/tests/toolbar-focus.test.ts` 用模拟面板覆盖 `ToolbarFocus` 本身：重复绑定都请求显示、旧面板不接收请求、慢显示与后续请求的顺序及被取代请求的丢弃、解绑后排队请求不执行、显示失败后重试，以及面板准备期间焦点不显示、其他面板结束准备不放行、准备完成后照常显示。去掉 `stale()` 里的 `panel === this.settingUp` 后这个测试失败。它不知道调用窗口是否全屏，全屏行为由下面的接线测试覆盖。
+- `platforms/harmony/tests/toolbar-setup-adapter.test.cjs`（由 `run.sh` 运行）从 `KeyboardExtensionAbility.ets` 取出真实的 `reconcileStatusPanels`、`openToolbar`、`closeToolbar`、`followCallingWindow`、`started`、`stopped` 和 `onCreate` 里接上待绑定编辑器的那一段，用记录调用的面板替身执行，覆盖：新面板先调整尺寸、移到右下角再显示；调用窗口全屏时每次绑定照常显示，不查询窗口状态、不隐藏；准备期间到达的焦点不抢先显示；被更新一轮 reconcile 接手的面板仍移到右下角、接上移动队列后再显示；被接手的面板定位失败时宿主放手、销毁面板并解绑移动队列，之后的焦点不显示它，下一轮 reconcile 重建；编辑器解绑和关闭工具栏后排队的显示请求不执行；服务创建期间获得焦点的编辑器在面板建好后接上并请求显示。`catch` 仍按 reconcile 代次判断时，定位失败那一条断言失败。
+- 设备验证的范围：自签测试包 6000 的 HAP 编译和部分实机检查基于 f18cf67（全屏也显示，但没有准备期间的焦点门控）；自签组合构建 5004、5005 的使用者反馈来自更早的实现。本笔记描述的提交（f18cf67 的全屏策略加上 `beginSetup` / `endSetup` 门控和按面板归属放手）尚未编译 ArkTS HAP，也没有在鸿蒙电脑与真实窗口中验证，不能据合成测试确认设备上的具体故障原因。

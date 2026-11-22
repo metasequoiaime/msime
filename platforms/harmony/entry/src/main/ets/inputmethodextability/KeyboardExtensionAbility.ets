@@ -271,10 +271,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       await toolbar.show();
     } catch (error) {
       KeyboardLog.error(`toolbar unavailable: ${describeError(error)}`);
-      if (toolbar !== undefined
-        && (generation === this.statusPanelGeneration || this.toolbar !== toolbar)) {
+      // Same ownership rule as the early exits above: a panel a newer reconcile adopted is still this call's to finish, so a failure gives it up too instead of leaving it unplaced and undraggable.
+      if (toolbar !== undefined) {
         if (this.toolbar === toolbar) {
           this.toolbar = undefined;
+          this.toolbarFocus.invalidate();
           this.toolbarMoves.detach();
           KeyboardSession.shared.onToolbarResize = undefined;
           KeyboardSession.shared.onToolbarDragStart = undefined;
