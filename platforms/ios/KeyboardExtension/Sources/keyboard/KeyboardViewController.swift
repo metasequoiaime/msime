@@ -1159,6 +1159,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readGesturePreferences()
     applyOneHanded()
     updateKeyboardLayoutIfNeeded()
+    // 宿主退到后台后可能保留旧的 `UIInputView` 外框。即使目标高度没有变化，也要让 UIKit 在回前台时重新协商一次。
+    keyboardInputContainerView?.refreshPreferredHeight()
     // 隐私模式和输入框都可能在两次出现之间变了，日志开不开要重新判断。
     configureDiagnosticLog()
     DiagnosticLog.shared.write("focus_in \(DiagnosticLog.MemorySample.current().fields)")
@@ -4357,7 +4359,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     row.addArrangedSubview(period)
     let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.language)
-      self?.toggleInputMode()
+      self?.toggleInputMode(boundary: .languageKey)
     }
     language.configuration?.contentInsets = .zero
     language.configuration?.titleTextAttributesTransformer = Self.functionLabelTransformer
@@ -5251,12 +5253,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateCandidateStrip(preedit: "", candidates: [])
   }
 
-  private func toggleInputMode(rememberChoice: Bool = true) {
+  private func toggleInputMode(rememberChoice: Bool = true, boundary: CompositionBoundary = .modeSwitch) {
     temporaryEnglishFromScheme = false
     englishCorrectionRejectedPrefix = ""
     // Shift 和片段结束键各自播放按键音；自动切回不再追加一次切换音。
     if rememberChoice { playInputClick() }
-    let snapshot = isChineseMode ? endComposition(at: .modeSwitch) : session.cancel()
+    let snapshot = isChineseMode ? endComposition(at: boundary) : session.cancel()
     render(snapshot)
     isChineseMode.toggle()
     if rememberChoice && !inputContext.isInLatinField {

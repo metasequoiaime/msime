@@ -1,10 +1,12 @@
-# Agent Note: 跟踪平台 issue #11234
+# Agent Note: 跟踪平台 issue #9397
 
-Status: proposed
+Status: rejected — issue #9397 已在相关修复 #9515、#9561 合入后由维护者以 completed 关闭，无需单独跟踪。
 
 ## Problem
 
-平台 issue `#11234`（linux）的标题是「[Feature]: 特殊符合录入」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #9397 报告 macOS 输入法 v0.54.0 只在微信里显示完整的候选英文释义，WPS、系统浏览器等其他应用里只有零星或没有释义。
+
+维护者排查后合入了两个修复：#9515 按输入框控制器管理账号释义等待页，旧输入框的迟到取消或计时器不再覆盖当前输入框的等待页；#9561 让系统翻译请求检查当前焦点，切换输入框后旧控制器的回调不会覆盖新页，也不会阻止重新请求。两个 PR 都以 `Refs #9397` 关联。维护者在 issue 下说明这两个修复已合入 `develop` 并请报告人在新版本复测，报告人没有再回复，维护者于 2026-10-26 以 completed 关闭 issue。
 
 ## Proposal
 
@@ -17,7 +19,7 @@ Status: proposed
 
 ## Acceptance criteria
 
-- PR 正文关联 `#11234`，并记录该 issue 的平台、复现和验证边界。
+- PR 正文关联 `#9397`，并记录该 issue 的平台、复现和验证边界。
 - 责任路径确认后，在本 PR 或后续同一 issue 的实现切片中加入代码、回归和平台验收。
 - 历史已关闭 issue 也能追溯到对应 PR，不把相邻 PR 当作本 issue 的完成证据。
 
