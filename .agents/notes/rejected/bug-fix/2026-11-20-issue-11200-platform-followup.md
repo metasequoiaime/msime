@@ -1,10 +1,12 @@
-# Agent Note: 跟踪平台 issue #11200
+# Agent Note: 跟踪 macOS issue #11200
 
-Status: proposed
+Status: rejected — issue #11200 已按 #10845 的重复报告关闭，同一 Caps Lock 松键竞态由已合并的 #11246 修复，不再单独跟踪
 
 ## Problem
 
-平台 issue `#11200`（macos）的标题是「功能异常-用CapsLock切换中英」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue `#11200`（macOS 15.7.4，水杉 0.59.1，全拼）报告「单按 Caps Lock 切换中英文」开关无效：已关闭系统「使用中/英键切换到上次使用的拉丁文字输入源」后，轻点 Caps Lock 仍不切换中英文。除本跟踪 PR 外，没有 PR 以 `Fixes` 或 `Refs` 直接关联它。
+
+维护者在 issue 下说明已在代码中复现同一类竞态：Caps Lock 的 `flagsChanged` 松键事件到达时 HID 查询可能仍滞后报告按住，旧路径把轻点交回宿主，表现为只切换大写锁定。修复与合成回归在 PR #11246（`Fixes #10845`）中，于 2026-11-10 合入 `develop`，#10845 随之关闭；维护者随后以 #10845 与本报告同一根因、同一验收路径为由，把 #11200 按重复报告（duplicate）关闭，并请报告者在包含该提交的 nightly 上仍复现时新开 issue。
 
 ## Proposal
 
