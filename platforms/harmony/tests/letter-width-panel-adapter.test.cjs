@@ -118,39 +118,39 @@ assert.equal(page.onBackPress(), true);
 assert.equal(webBack, 1);
 
 const keyboard = fs.readFileSync(path.join(sources, "keyboard/KeyboardView.ets"), "utf8");
+const hints = require(path.join(compiled, "keyboard/input/GridLetterHintTable.js"));
 const { View } = evaluate(
-  `export class View { ${[
-    "fourteenKeyOptions",
-    "eighteenKeyOptions",
-    "compactKeyFace",
-    "compactKeyDescription",
-  ]
+  `export class View { ${["gridKeyFace", "compactKeyFace", "compactKeyDescription"]
     .map((name) => method(keyboard, name))
     .join("\n")} }`,
   {},
   {
     fourteenKeyLetterSpacing: widths.fourteenKeyLetterSpacing,
     TOUCH_LETTER_FONT_SIZE: 28,
+    GridLetterHintTable: hints.GridLetterHintTable,
   },
 );
 const view = new View();
 let taps = 0;
-view.tapFourteenKey = view.tapEighteenKey = () => taps++;
+view.tapGridKey = () => taps++;
+view.feedback = { letterCornerHints: true };
+view.english = false;
+view.cornerQuotes = false;
+view.hollowBrackets = false;
 for (const scheme of ["quanpin", "shuangpin"]) {
   view.scheme = { engineScheme: scheme };
-  for (const make of ["fourteenKeyOptions", "eighteenKeyOptions"]) {
+  for (const eighteen of [false, true]) {
     for (const key of [
       { letters: "qw", label: "QW", description: "按键 Q W" },
       { letters: "l", label: "L", description: "按键 L" },
     ]) {
-      const options = view[make](key, 0.75);
+      const options = view.gridKeyFace(key, eighteen);
       const ratio = key.letters === "qw" ? 0.15 : scheme === "shuangpin" ? 0.08 : 0;
       assert.equal(
         options.letterSpacing,
         ratio * options.size,
         "ArkUI 的 fp 字距按实际字号换算 em",
       );
-      assert.equal(options.share, 0.75);
       assert.equal(options.swipeLetters, key.letters);
       options.action();
     }
