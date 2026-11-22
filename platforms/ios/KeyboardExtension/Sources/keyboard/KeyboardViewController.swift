@@ -1159,6 +1159,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     readGesturePreferences()
     applyOneHanded()
     updateKeyboardLayoutIfNeeded()
+    // 宿主退到后台后可能保留旧的 `UIInputView` 外框。即使目标高度没有变化，也要让 UIKit 在回前台时重新协商一次。
+    keyboardInputContainerView?.refreshPreferredHeight()
     // 隐私模式和输入框都可能在两次出现之间变了，日志开不开要重新判断。
     configureDiagnosticLog()
     DiagnosticLog.shared.write("focus_in \(DiagnosticLog.MemorySample.current().fields)")
