@@ -310,21 +310,9 @@ if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
   exit 1
 fi
-# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；接线在 InputMethodService 和 ImeCandidates 里，JVM 冒烟碰不到，这里钉住：候选条（含固定槽位）的 updateCandidateButton 和展开面板的 expandedCandidateButton 都经 CandidateCorrectionMarkPolicy 读 View JSON 候选上的字段，把结果交给 candidateLabel，并把「，已纠正」接进读屏描述；candidateLabel 是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，并且同一段加且只加一道下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。所有纠错行（`corrected`）的候选字经 markedWord 在后面画 *，两处都要接上。
+# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；候选条和展开面板两条建按钮路径是否真的画出 *、标记色和「，已纠正」，由设备上的 CandidateSourceMarkDeviceChecks（StaleCandidateDeviceSmoke -e source-marks true）在真实按钮上核对。这里只钉 candidateLabel 内部：是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，不加下划线（首选 chip 上候选字本来就是强调色，只换颜色）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。
 service_source="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
-update_body=$(sed -n '/^    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {$/,/^    }$/p' "$service_source")
-expanded_body=$(sed -n '/^    Button expandedCandidateButton(JSONObject candidate) {$/,/^    }$/p' \
-  "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
 label_body=$(sed -n '/^                                        boolean highlighted, boolean corrected) {$/,/^    }$/p' "$service_source")
-for body in "$update_body" "$expanded_body"; do
-  if ! rg -q 'CandidateCorrectionMarkPolicy\.confident\(candidate\.opt\(CandidateCorrectionMarkPolicy\.FIELD\)\)' <<< "$body" \
-    || ! rg -q 'candidateLabel\([^;]*, corrected\)\)' <<< "$body" \
-    || ! rg -q 'CandidateCorrectionMarkPolicy\.accessibilitySuffix\(corrected\)' <<< "$body" \
-    || ! rg -q 'CandidateCorrectionMarkPolicy\.markedWord\(text, (MSIMEInputService\.)?candidateCorrected\(candidate\)\)' <<< "$body"; then
-    echo "Candidate strip and expanded panel must mark a confident shuangpin correction in colour and in the spoken description" >&2
-    exit 1
-  fi
-done
 plain_label_body=$(sed -n '/^                                        boolean highlighted) {$/,/^    }$/p' "$service_source")
 if ! rg -q 'CandidateCorrectionMarkPolicy\.plainLabel\(prefix, annotation, corrected\)' <<< "$label_body" \
   || ! rg -q 'Integer mark = CandidateCorrectionMarkPolicy\.wordMark\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
@@ -2024,14 +2012,8 @@ for smoke in "${smoke_classes[@]}"; do
   fi
 done
 echo "Ran ${#smoke_classes[@]} Android JVM smokes"
-# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；它的源文件清单是手写的，应用类挪进新的辅助类后没人补，曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里按同一份清单只做编译，漏了类就在这一步失败。
-device_sources=()
-while IFS= read -r source; do
-  [[ -z $source || $source == \#* ]] || device_sources+=("$repo_root/$source")
-done < "$repo_root/platforms/android/tests/device/editor-sources.txt"
-mkdir -p "$output_dir/device"
-javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir/device" "${device_sources[@]}"
-echo "Compiled ${#device_sources[@]} Android device-suite sources"
+# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里用打包时同一个脚本只做编译：设备测试引用到的应用类由 javac 自动找来，引用到编不了的类就在这一步失败。
+bash "$repo_root/platforms/android/tests/device/compile-sources.sh" "$android_jar" "$output_dir/device"
 # 设备测试包里编进了 NativeClient，却没有 libmsime_android.so：targetPackage 是测试包自己（app.msime.android.test）的 instrumentation 跑在测试包的进程里，第一次碰到 NativeClient 就是 UnsatisfiedLinkError。要经 JNI 调 Rust 的设备冒烟得以产品包为目标，跑进应用进程，那里的库路径带着应用的原生库（测试包的类排在前面，见 CloudClipboardDriverDeviceSmoke）。BackendAccountSessionDeviceSmoke 的释义用例曾经这样只编译过、一上设备就失败。这里按 jdeps 给出的类引用从每个这样的 instrumentation 往下找，能走到 NativeClient 就失败，并打印那条引用链。
 device_self_targets=$(rg -o -r '$1' 'instrumentation android:name="([^"]+)" android:targetPackage="app\.msime\.android\.test"' \
   "$repo_root/platforms/android/tests/device/AndroidManifest.xml" || true)

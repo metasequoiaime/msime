@@ -59,6 +59,7 @@ public final class CandidateTranslationStoreSmoke {
             retryStore.refresh(List.of("你好"), List.of("en"), 4);
             retryScheduler.runDelayed();
             check(firstRetryCall.await(2, TimeUnit.SECONDS), "first retry request started");
+            retryStore.cancel();
             retryStore.refresh(List.of("你好"), List.of("en"), 4);
             retryScheduler.runDelayed();
             releaseRetryCall.countDown();
@@ -67,6 +68,64 @@ public final class CandidateTranslationStoreSmoke {
         } finally {
             releaseRetryCall.countDown();
             retryWorker.shutdownNow();
+        }
+
+        // 与这一页无关的重绘照样调 refresh：同一页排着时不往后推，正在路上时不作废、不重发。
+        FakeScheduler repeatScheduler = new FakeScheduler();
+        ExecutorService repeatWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger repeatCalls = new AtomicInteger();
+        AtomicInteger repeatArrivals = new AtomicInteger();
+        CountDownLatch repeatStarted = new CountDownLatch(1);
+        CountDownLatch releaseRepeat = new CountDownLatch(1);
+        CandidateTranslationStore repeatStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                repeatCalls.incrementAndGet();
+                repeatStarted.countDown();
+                releaseRepeat.await(2, TimeUnit.SECONDS);
+                return List.of("hello");
+            }, repeatWorker, repeatScheduler, generation -> repeatArrivals.incrementAndGet());
+        try {
+            repeatStore.refresh(List.of("你好"), List.of("en"), 4);
+            Runnable queued = repeatScheduler.delayed.peek();
+            repeatStore.refresh(List.of("你好"), List.of("en"), 4);
+            check(repeatScheduler.delayed.size() == 1 && repeatScheduler.delayed.peek() == queued,
+                "an identical refresh keeps the pending request instead of restarting its delay");
+            repeatScheduler.runDelayed();
+            check(repeatStarted.await(2, TimeUnit.SECONDS), "repeated page request started");
+            repeatStore.refresh(List.of("你好"), List.of("en"), 4);
+            check(repeatScheduler.delayed.isEmpty(), "an identical refresh does not resend a page in flight");
+            releaseRepeat.countDown();
+            repeatWorker.shutdown();
+            check(repeatWorker.awaitTermination(2, TimeUnit.SECONDS), "repeat worker stopped");
+            repeatScheduler.runPosted();
+            check(repeatCalls.get() == 1, "the page was requested once");
+            check("hello".equals(repeatStore.gloss("你好", "en")) && repeatArrivals.get() == 1,
+                "the answer in flight still fills the cache");
+            repeatStore.refresh(List.of("你好"), List.of("en"), 5);
+            check(repeatScheduler.delayed.size() == 1, "a new generation is a new page");
+        } finally {
+            releaseRepeat.countDown();
+            repeatWorker.shutdownNow();
+        }
+
+        FakeScheduler failedScheduler = new FakeScheduler();
+        ExecutorService failedWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger failedCalls = new AtomicInteger();
+        CandidateTranslationStore failedStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                if (failedCalls.incrementAndGet() == 1) throw new java.io.IOException("synthetic failure");
+                return List.of("hello");
+            }, failedWorker, failedScheduler, generation -> { });
+        try {
+            failedStore.refresh(List.of("你好"), List.of("en"), 4);
+            failedScheduler.runDelayed();
+            failedWorker.shutdown();
+            check(failedWorker.awaitTermination(2, TimeUnit.SECONDS), "failed worker stopped");
+            failedScheduler.runPosted();
+            failedStore.refresh(List.of("你好"), List.of("en"), 4);
+            check(failedScheduler.delayed.size() == 1, "a failed page is asked again on the next refresh");
+        } finally {
+            failedWorker.shutdownNow();
         }
 
         FakeScheduler normalizationScheduler = new FakeScheduler();

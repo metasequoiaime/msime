@@ -1,12 +1,17 @@
-# Existing installations only: build/sign/install without replacing dictionaries.
+# 轻量本机一键编译安装：流程与 test.ps1 相同，安装包不带词库和桌面资源。
+#
+# 适用：只改了 TSF、Server 或设置窗口，本机已经装过完整包（词库已在数据目录）。不要用它做首次安装。
+# 依赖前缀的设法、-NoInstall、-RustOutputs 见 test.ps1 和 Invoke-LocalInstall.ps1。
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$X64Dependencies,
-    [Parameter(Mandatory)][string]$X86Dependencies,
-    [Parameter(Mandatory)][string]$NoticesDirectory,
-    [string]$DesktopResourcesDirectory = 'target/desktop-resources',
-    [string]$TargetVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'version.txt') -TotalCount 1).Trim(),
+    [string]$X64Dependencies,
+    [string]$X86Dependencies,
+    [string]$NoticesDirectory,
+    [string]$DesktopResourcesDirectory,
+    [string]$TargetVersion,
     [string]$RepoRoot,
-    [string]$Generator = 'Visual Studio 17 2022'
+    [string]$Generator,
+    [string]$RustOutputs,
+    [switch]$NoInstall
 )
 & (Join-Path $PSScriptRoot 'Invoke-LocalInstall.ps1') @PSBoundParameters -Light

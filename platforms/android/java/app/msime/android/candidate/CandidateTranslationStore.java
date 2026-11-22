@@ -39,6 +39,8 @@ public final class CandidateTranslationStore {
     private final Listener listener;
     private final Map<String, String> cache = new LinkedHashMap<>(MAX_CACHE_ENTRIES, 0.75f, true);
     private Runnable pending;
+    /** 排着的整页请求的签名（与 {@link #signature} 同一口径）；没有排着的请求时为 null。 */
+    private String pendingSignature;
     private String signature;
     private String binding;
     // 主线程写，worker 在逐词请求之间读（见 Service#translate 的 stale），所以是 volatile。
@@ -96,22 +98,33 @@ public final class CandidateTranslationStore {
         refresh(words, target == null ? List.of() : List.of(target), generation);
     }
 
+    /**
+     * 键盘每次重绘都调它。同一页（同样的目标语言、代次和词）已经排着或正在请求时什么都不做：与这一页无关的重绘（释义、读音、在线行到达）不能把排着的请求往后推，也不能作废路上的回答再问一遍。
+     */
     public void refresh(List<String> words, List<String> targets, long generation) {
-        cancel();
-        if (words == null || targets == null || targets.isEmpty()) return;
+        if (words == null || targets == null || targets.isEmpty()) {
+            cancel();
+            return;
+        }
         ArrayList<String> requestedTargets = new ArrayList<>(targets.size());
         for (String target : targets) {
             if (target != null && !target.isEmpty() && !requestedTargets.contains(target))
                 requestedTargets.add(target);
         }
-        if (requestedTargets.isEmpty()) return;
         ArrayList<String> wanted = new ArrayList<>(words.size());
         for (String word : words) {
             if (translatable(word) && !wanted.contains(word)) wanted.add(word);
         }
-        if (wanted.isEmpty()) return;
+        if (requestedTargets.isEmpty() || wanted.isEmpty()) {
+            cancel();
+            return;
+        }
+        String stamp = stamp(requestedTargets, generation, wanted);
+        if (pending != null ? stamp.equals(pendingSignature) : stamp.equals(signature)) return;
+        cancel();
         long epoch = requestEpoch;
         pending = () -> send(wanted, requestedTargets, generation, epoch);
+        pendingSignature = stamp;
         scheduler.postDelayed(pending, QUIET_INTERVAL_MILLIS);
     }
 
@@ -119,6 +132,7 @@ public final class CandidateTranslationStore {
         requestEpoch = requestEpoch == Long.MAX_VALUE ? 0 : requestEpoch + 1;
         if (pending != null) scheduler.removeCallbacks(pending);
         pending = null;
+        pendingSignature = null;
         // Any in-flight request is fenced by the new epoch. Its signature must
         // be released too, otherwise an identical refresh would be deduplicated
         // even though the old response can no longer populate the cache.
@@ -184,9 +198,9 @@ public final class CandidateTranslationStore {
 
     private void send(List<String> words, List<String> targets, long generation, long epoch) {
         pending = null;
+        pendingSignature = null;
         if (epoch != requestEpoch) return;
-        String stamp = "targets=" + signature(targets) + "|generation=" + generation
-            + "|words=" + signature(words);
+        String stamp = stamp(targets, generation, words);
         if (stamp.equals(signature)) return;
         Map<String, ArrayList<String>> requests = new LinkedHashMap<>(targets.size());
         for (String target : targets) {
@@ -210,12 +224,21 @@ public final class CandidateTranslationStore {
                         scheduler.post(() -> absorb(epoch, target, generation, missing, values));
                     } catch (Exception ignored) {
                         // Optional display data must never disturb input or expose response text.
+                        // 问失败的那一页放开签名：下一次重绘照同一页再问，与以前每次重绘都重发时一样会重试。
+                        scheduler.post(() -> {
+                            if (epoch == requestEpoch && stamp.equals(signature)) signature = null;
+                        });
                     }
                 }
             });
         } catch (RuntimeException ignored) {
             // A stopped worker is equivalent to an unavailable optional service.
         }
+    }
+
+    private static String stamp(List<String> targets, long generation, List<String> words) {
+        return "targets=" + signature(targets) + "|generation=" + generation
+            + "|words=" + signature(words);
     }
 
     private static String signature(List<String> values) {
