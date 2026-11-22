@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #7902
 
-Status: proposed
+Status: rejected — issue #7902 已由 #7908 修复并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#7902`（linux）的标题是「[Feature]: 新增 S2TW 的臺灣繁體輸出」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue #7902（Linux）反映繁体输出固定使用 OpenCC `s2t`，臺灣用户打字会得到「喫麪」「裏面」这类字形，希望新增 `s2tw` 臺灣繁體輸出。PR #7908 于 2026-10-14 合并（正文 `Fixes #7902`），为 Linux 加入 `s2tw` 与 `s2twp` 两种繁体变体，issue 随之以 completed 关闭；决策见 [繁体输出变体](../../implemented/feature/2026-10-15-traditional-chinese-variants.md)。
 
 ## Proposal
 
