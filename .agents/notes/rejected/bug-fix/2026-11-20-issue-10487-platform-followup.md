@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #10487
 
-Status: proposed
+Status: rejected — issue #10487 已由 PR #10488 实现并以 completed 关闭，无需另建跟踪 PR。
 
 ## Problem
 
-平台 issue `#10487`（linux）的标题是「[Feature]: 补齐 Linux 原生与辅助进程崩溃采集」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#10487`（linux）的标题是「[Feature]: 补齐 Linux 原生与辅助进程崩溃采集」，要求 Linux 的 IBus、Fcitx5、准备程序、provider、Python、语音和剪贴板辅助进程统一接入共享崩溃记录、持续授权代次与符号身份，是从已关闭未合并的跨平台 PR #10048 中拆出的 Linux 部分。提案时写的「现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它」与事实不符：PR #10488「feat(linux): 补齐原生与辅助进程崩溃采集」正文写有 `Fixes #10487`，于 2026-11-01（UTC）合并，issue 随之以 completed 关闭。
 
 ## Proposal
 
@@ -23,4 +23,4 @@ Status: proposed
 
 ## Risks
 
-当前 PR 只建立交付跟踪，不宣称已经修复该 issue。未经平台复现的改动可能影响其他宿主或用户设置。
+当前 PR 只建立交付跟踪，不宣称已经修复该 issue。未经平台复现的改动可能影响其他宿主或用户设置。PR #10488 合并时在评审评论里把 pve9 上的真实安装包后台收件与符号还原验收列为仍待完成；这部分若发现问题，应另开 issue 处理，而不是复用这条跟踪笔记。
