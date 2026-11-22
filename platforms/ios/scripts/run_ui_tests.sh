@@ -28,14 +28,6 @@ recognition_cases=(
   MSIMESharedTests/HandwritingTests/testCandidateSelectionInsertsOnlyAfterConfirmation
 )
 
-# Two cases fail the first time anything compiles and runs this suite, and both need a product answer rather than a CI one: the space key measures 50pt where the test wants 79.2, and a shuangpin preedit reload is refused. They are tracked in #678.
-#
-# Skipping them is a deliberate trade against "do not skip failing tests". The alternative is leaving `iOS Simulator` as it was -- a required check that reserves a macos-15 runner for 95 minutes to print one line -- until someone answers two layout questions. Roughly three hundred cases start gating the product today instead, and these two are named here rather than commented out of the suite, so removing the skip is a one-line change once #678 is settled.
-known_failures=(
-  MSIMEKeyboardTests/NineKeyKeyboardTests/testKeyLayoutsKeepNineKeyHeight
-  MSIMEKeyboardTests/CandidateOptionsSettingsTests/testReloadHandsShuangpinPreeditToTheLiveSession
-)
-
 if [[ ! -d "$project" ]]; then
   echo "Generated Xcode project not found: $project" >&2
   echo "ci-ios.yml generates it with: xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios" >&2
@@ -100,7 +92,7 @@ for scheme in "${schemes[@]}"; do
   mkdir -p "$(dirname "$result_bundle")"
   # Only MSIMEClientTests contains the handwriting cases; passing -skip-testing for a target a scheme does not build makes xcodebuild fail outright.
   if [[ "$scheme" == MSIMEClientTests ]]; then
-    for case_name in "${recognition_cases[@]}" "${known_failures[@]}"; do
+    for case_name in "${recognition_cases[@]}"; do
       arguments+=(-skip-testing:"$case_name")
     done
   fi
