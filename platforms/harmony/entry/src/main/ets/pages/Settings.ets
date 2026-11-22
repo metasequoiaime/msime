@@ -1417,7 +1417,7 @@ class SettingsBridge {
         this.uiContext?.getPromptAction().showToast({ message: feedback.message, duration: 4000 });
       }
     }).catch((error: Object): void => {
-      KeyboardLog.error('skin import failed');
+      KeyboardLog.error(`skin import failed: ${describeError(error)}`);
       this.uiContext?.getPromptAction().showToast({ message: '导入皮肤失败', duration: 4000 });
     });
     return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
@@ -1485,6 +1485,7 @@ class SettingsBridge {
             fs.OpenMode.READ_ONLY | fs.OpenMode.DIR | fs.OpenMode.NOFOLLOW);
           try {
             if (!await client.stageSkinFolder(input.fd, output.fd)) {
+              KeyboardLog.error('skin folder not staged: native copy refused the folder');
               return JSON.stringify({ ok: false,
                 error: '无法读取所选文件夹；文件提供方可能不支持目录访问，或皮肤文件超过限制' } as TextReply);
             }
@@ -1494,7 +1495,8 @@ class SettingsBridge {
         } finally {
           fs.closeSync(input);
         }
-      } catch {
+      } catch (error) {
+        KeyboardLog.error(`skin folder staging failed: ${describeError(error)}`);
         return JSON.stringify({ ok: false,
           error: '无法读取所选文件夹；文件提供方可能不支持目录访问，或皮肤文件超过限制' } as TextReply);
       }
@@ -1507,7 +1509,7 @@ class SettingsBridge {
         return JSON.stringify({ ok: false, error: SkinImportPolicy.importError(code) } as TextReply);
       }
     } catch (error) {
-      KeyboardLog.error('skin import failed');
+      KeyboardLog.error(`skin import failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
     } finally {
       try {
