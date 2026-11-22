@@ -10,7 +10,9 @@ extension KeyboardViewController {
             BackspaceSwipeDeletion.canRetype(composition: lastEditingText, caret: lastEditingCaret) else { return nil }
       return .composition(original: lastEditingText)
     }
-    guard let context = textDocumentProxy.documentContextBeforeInput, !context.isEmpty else { return nil }
+    // With a selection, the first deleteBackward removes the whole selection rather than the character before it, and swiping back would then insert characters that were never deleted. ⌫ keeps its tap and hold behaviour there.
+    guard textDocumentProxy.selectedText?.isEmpty != false,
+          let context = textDocumentProxy.documentContextBeforeInput, !context.isEmpty else { return nil }
     return .text(context: context)
   }
 
@@ -18,25 +20,40 @@ extension KeyboardViewController {
   @objc func handleBackspaceSwipe(_ pan: UIPanGestureRecognizer) {
     switch pan.state {
     case .began:
-      cancelBackspacePress()
-      session.flushPendingCharacters()
-      flushDeferredInputSnapshot()
-      // 交付挂起的按键之后组字可能变了，重新判断一次；不能滑就让这次手势作废。
-      guard let unit = backspaceSwipeUnit() else {
+      // 不能滑就让这次手势作废。
+      guard beginBackspaceSwipe() else {
         pan.isEnabled = false
         pan.isEnabled = true
         return
       }
-      if case .text = unit { pairedPunctuation.clear() }
-      backspaceSwipe = BackspaceSwipeDeletion(unit: unit, step: KeyboardLayoutPreference.backspaceSwipeStep)
-      if hapticsEnabled { hapticStrength.impact(keyFeedback) }
       applyBackspaceSwipe(to: pan.translation(in: view).x)
     case .changed:
       applyBackspaceSwipe(to: pan.translation(in: view).x)
     default:
-      if backspaceSwipe != nil && !isChineseMode { refreshEnglishSuggestions() }
-      backspaceSwipe = nil
+      endBackspaceSwipe()
     }
+  }
+
+  /// 开始一次横滑：取消这次按压，交付挂起的按键后重新判断删什么（组字可能变了）；没有可删的就返回 false。
+  func beginBackspaceSwipe() -> Bool {
+    cancelBackspacePress()
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
+    guard let unit = backspaceSwipeUnit() else { return false }
+    if case .text = unit {
+      pairedPunctuation.clear()
+      // Deleting committed text goes straight to the host and never reaches the session, and the echo of that edit skips `textWillChange`'s refocus. Clear the after-commit prediction here the way a tap on ⌫ does, so its chips (and digit picks) do not outlive the text they followed.
+      if enginePrediction { render(session.refocus()) }
+    }
+    backspaceSwipe = BackspaceSwipeDeletion(unit: unit, step: KeyboardLayoutPreference.backspaceSwipeStep)
+    if hapticsEnabled { hapticStrength.impact(keyFeedback) }
+    return true
+  }
+
+  /// 松手（或手势被取消）：删掉的就此定下来。
+  func endBackspaceSwipe() {
+    if backspaceSwipe != nil && !isChineseMode { refreshEnglishSuggestions() }
+    backspaceSwipe = nil
   }
 
   func applyBackspaceSwipe(to translation: CGFloat) {
