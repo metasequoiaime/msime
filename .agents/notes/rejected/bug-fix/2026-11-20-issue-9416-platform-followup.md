@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9416
 
-Status: proposed
+Status: rejected — issue #9416 已由 #9373 修复、#9436 补回归后以 completed 关闭，无需单独跟踪。
 
 ## Problem
 
-平台 issue `#9416`（ios）的标题是「[Bug]: ios端双拼辅助码不生效」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+平台 issue `#9416`（ios）的标题是「[Bug]: ios端双拼辅助码不生效」：设置小鹤双拼加自然码辅助码后，输入 `yh` 再加辅助码 `m` 打不出「杨」。提议时写的「仓库 PR 索引中没有 `Fixes` 或 `Refs` PR 关联它」不准确：#9373 在 host-api 中让下载的词库代次回退到随包 `helpcodes/` 辅助码表，修复装过在线词库更新后辅助码表为空的问题；#9436 以 `Refs #9416` 补了 iOS 原生桥接的候选与上屏回归。维护者据此于 2026-10-25 以 completed 关闭该 issue，并约定新版仍能复现时重新打开。
 
 ## Proposal
 
