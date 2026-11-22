@@ -90,6 +90,35 @@ final class BackspaceSwipeGestureTests: XCTestCase {
     XCTAssertNil(controller.backspaceSwipe)
   }
 
+  /// 组字时往左滑一格删一个音节，往回滑把删掉的音节按原样重打，组字回到删之前；全拼和九键（数字组码经 `handleCharacter` 的九键过滤重打）都一样，文档不动。
+  func testSwipingACompositionDeletesBySyllableAndRestoresIt() throws {
+    enableAllInputSchemes()
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    let document = Document(text: "")
+    try attach(document)
+    for (scheme, codes) in [(ChineseInputScheme.quanpin, "nihao"), (.nineKey, "64426")] {
+      InputSchemePreference.scheme = scheme
+      let controller = makeController()
+      defer { controller.viewDidDisappear(false) }
+      for code in codes { controller.handleCharacter(String(code)) }
+      let original = controller.lastEditingText
+      XCTAssertFalse(original.isEmpty, "\(scheme)")
+      let pan = SwipePan()
+      drive(controller, pan, .began, steps: 0)
+      XCTAssertNotNil(controller.backspaceSwipe, "\(scheme): a composition takes the swipe")
+      drive(controller, pan, .changed, steps: 1)
+      let shortened = controller.lastEditingText
+      XCTAssertFalse(shortened.isEmpty, "\(scheme): one step removes one syllable, not the whole composition")
+      XCTAssertLessThan(shortened.count, original.count, "\(scheme)")
+      drive(controller, pan, .changed, steps: 0)
+      XCTAssertEqual(controller.lastEditingText, original, "\(scheme): swiping back retypes what was removed")
+      drive(controller, pan, .ended, steps: 0)
+      XCTAssertEqual(controller.lastEditingText, original, "\(scheme): lifting deletes nothing more")
+      XCTAssertEqual(document.text, "", "\(scheme): composition edits never reach the document")
+    }
+  }
+
   /// 上屏后联想还在时横滑删文字，和点按 ⌫ 一样先清掉联想，免得删掉的字的后续词还留在候选栏上、数字键还按联想选词。
   func testSwipingCommittedTextClearsTheAfterCommitPrediction() throws {
     let document = Document(text: "你好")
