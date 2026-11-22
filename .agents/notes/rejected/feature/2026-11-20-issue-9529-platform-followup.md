@@ -1,10 +1,10 @@
 # Agent Note: 跟踪平台 issue #9529
 
-Status: proposed
+Status: rejected — issue #9529 已由 #9534 实现并关闭，无需单独跟踪
 
 ## Problem
 
-平台 issue `#9529`（linux）的标题是「[Feature]: linux输入法首次启动时词库下载慢」，当前状态为已关闭。现有仓库 PR 索引中没有找到独立的 `Fixes` 或 `Refs` PR 关联它。
+issue `#9529` 反映 Linux 输入法首次启动时词库下载慢，国内镜像超时后改走原地址仍要长时间等待，希望提供下载地址，以便用其他工具下载。PR `#9534`（feat(linux): 首次配置支持手动下载词库）已于 2026-10-24 合并，首次配置页新增「手动下载词库」入口，可查看和复制原地址、国内镜像和保存目录，并列出文件名、大小和 SHA-256；该 PR 以 `Fixes #9529` 关闭了 issue（状态 COMPLETED）。
 
 ## Proposal
 
