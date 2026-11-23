@@ -302,6 +302,11 @@ struct KeyboardLayoutSettingsView: View {
     }
   }
 
+  private var letterSwipeSettingsLabel: some View {
+    DesignNavRowLabel(title: "字母键上下滑",
+                      info: "给每个字母键的上滑、下滑各设一个动作：角标符号、粘贴、复制、撤销、自定义文本等。没单独设的键按上面的方向出角标")
+  }
+
   private var feedbackInfo: String {
     let sound = "按键音需要在系统设置里为水杉输入法打开“允许完全访问”。所选音效由水杉输入法自己播放，跟随静音模式和媒体音量，与正在播放的音乐混音，不受“声音与触感 › 键盘反馈 › 声音”影响；音效还没准备好时用系统按键声。"
     return KeyboardFeedbackPreference.hapticsAvailable ? sound + "振动效果取决于设备与系统支持。" : sound
@@ -374,6 +379,7 @@ struct KeyboardLayoutSettingsView: View {
       DesignDivider()
       DesignSelectRow(title: "滑动方向",
                       info: "没在「字母键上下滑」里单独设置的键，沿这个方向出角标",
+                      enabled: swipeSymbols,
                       options: [DesignOption(title: "上滑", value: KeyboardLayoutPreference.SwipeDirection.up, identifier: "appSwipeSymbolsUp"),
                                 DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown")],
                       selection: Binding(get: { swipeSymbolsDirection }, set: { direction in
@@ -381,16 +387,19 @@ struct KeyboardLayoutSettingsView: View {
                         KeyboardLayoutPreference.swipeSymbolsDirection = direction
                       }),
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
-        .disabled(!swipeSymbols)
       DesignDivider()
       // 每个字母键的上滑、下滑各自可配：没单独设过的方向按上面的「滑动方向」出角标，所以不动这一页的人看到的还是原来的行为。
-      NavigationLink(destination: LetterSwipeSettingsView()) {
-        DesignNavRowLabel(title: "字母键上下滑",
-                          info: "给每个字母键的上滑、下滑各设一个动作：角标符号、粘贴、复制、撤销、自定义文本等。没单独设的键按上面的方向出角标")
+      // 关闭「字母键滑动」时这一行变灰、点不进设置页；但说明仍要能点开，所以灰的时候只画标签、不加 `.disabled`（那会连「?」一起禁用）。
+      if swipeSymbols {
+        NavigationLink(destination: LetterSwipeSettingsView()) {
+          letterSwipeSettingsLabel
+        }
+        .buttonStyle(PressFillButtonStyle())
+        .accessibilityIdentifier("letterSwipeSettingsLink")
+      } else {
+        letterSwipeSettingsLabel
+          .opacity(0.45)
       }
-      .buttonStyle(PressFillButtonStyle())
-      .disabled(!swipeSymbols)
-      .accessibilityIdentifier("letterSwipeSettingsLink")
       DesignDivider()
       // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
       DesignToggleRow(title: "显示字母键角标", info: "26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入",
