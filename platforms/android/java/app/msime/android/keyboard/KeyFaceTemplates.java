@@ -29,8 +29,9 @@ public final class KeyFaceTemplates {
     /** 底部的双拼提示：设计 9 sp，墨迹离下边 0.25 个字号，稍淡。 */
     static final KeyFaceTemplate.SlotSpec BOTTOM = slot(9, 7, 11, 0.25f, 204);
 
-    /** 功能键（分词、重输）的文字：设计 15 sp，最小 10 sp（与底行功能键一样），最大 17 sp；另外不大过字母（{@link KeyFaceGroup#capMainAt}）。 */
-    static final KeyFaceTemplate.SlotSpec FUNCTION_TEXT = slot(15, 10, 17, 0, 255);
+    /** 功能键（分词、重输）的文字：设计 {@link KeyboardTypographyPolicy#FUNCTION_KEY_TEXT_SP}（15 sp），最小 {@link KeyboardTypographyPolicy#FUNCTION_KEY_MIN_TEXT_SP}（9 sp，与底行功能键一样），最大 17 sp；另外不大过字母（{@link KeyFaceGroup#capMainAt}）。 */
+    static final KeyFaceTemplate.SlotSpec FUNCTION_TEXT = slot(KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP,
+        KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 17, 0, 255);
     /** 功能键的图标（⌫、⇧）：设计 {@link KeyboardIconKey#ICON_DP}，最小 16 dp，最大 26 dp。 */
     static final KeyFaceTemplate.IconSpec FUNCTION_ICON = new KeyFaceTemplate.IconSpec(
         KeyboardIconKey.ICON_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26);
@@ -102,6 +103,38 @@ public final class KeyFaceTemplates {
     /** 数字九宫格和九键双拼的数字键：数字作主标签，九键双拼底部是简短的声韵提示。 */
     public static final KeyFaceTemplate NINE_DIGITS = new KeyFaceTemplate("nine-digits", nineSlots(NINE_DIGIT, false, true),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** 九键、笔画和数字九宫格左侧符号栏的一格有多高时用设计字号（dp）：三行键高分成一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 格。 */
+    private static final float SIDE_ROW_REFERENCE_DP = 3 * REFERENCE_KEY_HEIGHT_DP / NineKeySidebarPolicy.VISIBLE_ROWS;
+
+    /** 符号栏的符号：设计 {@link KeyboardTypographyPolicy#NINE_KEY_SIDE_TEXT_SP}（18 sp，原来的固定字号），随格高变化，最小 12 sp；最大也是 18 sp，格子更高时不再放大，与原来一样。 */
+    static final KeyFaceTemplate.SlotSpec SIDE_SYMBOL = new KeyFaceTemplate.SlotSpec(
+        KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP / SIDE_ROW_REFERENCE_DP, 12, KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP,
+        0, 255);
+    /** 符号栏里 ！ 右上角的 0（大回车外框，{@link SuperscriptShortcutPolicy#ZERO}）：在设计格高上与九键右上角的数字同字号、同位置。 */
+    static final KeyFaceTemplate.SlotSpec SIDE_CORNER = new KeyFaceTemplate.SlotSpec(
+        KeyHintButton.CORNER_HINT_SP / SIDE_ROW_REFERENCE_DP, 8, 12,
+        KeyHintButton.CORNER_HINT_TOP_DP / KeyHintButton.CORNER_HINT_SP,
+        NineKeyDigitButton.DIGIT_HINT_RIGHT_DP / KeyHintButton.CORNER_HINT_SP, 255);
+    /**
+     * 全角「，」「。」「、」的墨迹只占字身左下角一小块：按字号的 1.3 倍画、按自己的墨迹居中，再往下挪 0.1 个字号，与原来的 {@link CenteredGlyphSpan} 相同（它把墨迹中点放在行盒中线以下行高的 8%，行高约 1.2 个字号）。
+     */
+    static final KeyFaceTemplate.Glyphs SMALL_PUNCTUATION = new KeyFaceTemplate.Glyphs(
+        Map.of("，", 1.3f, "。", 1.3f, "、", 1.3f), 0.1f);
+
+    /**
+     * 九键、笔画和数字九宫格左侧的符号栏：每格一个符号（表可自定义），按每个符号自己的墨迹居中（{@link KeyFaceTemplate.Glyphs}），字号全栏一个；大回车外框接在末尾的 ！ 右上角印 0。
+     */
+    public static final KeyFaceTemplate SIDE_SYMBOLS = new KeyFaceTemplate("side-symbols", sideSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        SMALL_PUNCTUATION);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> sideSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, SIDE_SYMBOL);
+        slots.put(KeyFaceSlot.TOP_RIGHT, SIDE_CORNER);
+        return slots;
+    }
 
     private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> nineSlots(KeyFaceTemplate.SlotSpec main, boolean corner,
             boolean bottom) {

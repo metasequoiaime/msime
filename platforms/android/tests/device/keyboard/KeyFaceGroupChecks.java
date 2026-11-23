@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.widget.Button;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -43,6 +44,7 @@ final class KeyFaceGroupChecks {
                         verifyFunctions(context, height);
                         verifyNineKeys(context, height);
                         verifyNumberRow(context, height);
+                        verifySideSymbols(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -281,6 +283,59 @@ final class KeyFaceGroupChecks {
             else check(Math.abs(main.top - first.top) <= 2 && Math.abs(main.bottom - first.bottom) <= 2,
                 "数字行的数字不在一条基线上：" + main + " 对 " + first + " " + at);
         }
+    }
+
+    /**
+     * 符号栏：一格是三行键高的五分之一（{@code heightDp} 是一行键高），宽 55 dp。整栏一个组、一个字号（带 0 的 ！ 自己一组，不比整栏大），整栏不左移，每个符号按自己的墨迹居中（「，」「。」「、」不贴底，比中线低 0.1 个字号），不出格子；带 0 的 ！ 的 0 不压住 ！；换符号只重画。
+     */
+    private static void verifySideSymbols(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int width = Math.round(55 * density), height = Math.round(heightDp * 3 / 5f * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        List<String> symbols = List.of("，", "。", "、", "？", "……", "@", "！");
+        Class<?> domains = product.loader.loadClass("app.msime.android.SideColumnKeyFaceDomains");
+        Method domain = domains.getMethod("symbols", List.class, boolean.class);
+        // 与 ImeKeyFaces.beginSideSymbols 相同：整栏一组，带 0 的 ！ 自己一组、以整栏为上限。
+        Object group = product.group("SIDE_SYMBOLS", domain.invoke(null, symbols, false), Typeface.DEFAULT, density, scale);
+        Object cornerGroup = product.group("SIDE_SYMBOLS", domain.invoke(null, List.of("！"), true), Typeface.DEFAULT, density,
+            scale);
+        cornerGroup.getClass().getMethod("capMainAt", cornerGroup.getClass()).invoke(cornerGroup, group);
+        List<Button> keys = new ArrayList<>();
+        for (String symbol : symbols.subList(0, symbols.size() - 1)) {
+            Button key = product.plainKey(symbol);
+            product.joinFunction(key, group, false);
+            keys.add(key);
+        }
+        Button exclamation = product.nineKey("！", "0", "");
+        product.joinNine(exclamation, cornerGroup, "TOP_RIGHT");
+        keys.add(exclamation);
+        for (Button key : keys) layout(key, width, height);
+        Object params = product.params(keys.get(0));
+        check(params != null && product.mainShift(params) == 0, "符号栏没有算出参数或整栏左移了：" + where);
+        Object cornerParams = product.params(exclamation);
+        check(cornerParams != null && product.mainSize(cornerParams) <= product.mainSize(params) + 0.01f,
+            "带 0 的 ！ 不应比整栏的符号大：" + where);
+        float tolerance = density + 1;
+        for (Button key : keys) {
+            String at = key.getText() + " " + where;
+            check(key == exclamation || product.params(key) == params, "同一栏的符号参数不同：" + at);
+            Rect[] ink = draw(key);
+            Rect main = ink[1];
+            check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                "符号没画出来或出了格子：" + main + " " + at);
+            float drop = symbols.indexOf(String.valueOf(key.getText())) < 3 ? 0.1f * product.mainSize(params) : 0;
+            check(Math.abs(main.exactCenterX() - width / 2f - product.mainShift(product.params(key))) <= tolerance
+                && Math.abs(main.exactCenterY() - height / 2f - drop) <= tolerance,
+                "符号没有按自己的墨迹居中：" + main + " 格子 " + width + "x" + height + " " + at);
+            if (key == exclamation && !ink[0].isEmpty()) check(!Rect.intersects(main, ink[0]), "！ 右上角的 0 压住了 ！：" + at);
+        }
+        // 「，」放大 1.3 倍画：墨迹比同字号的「，」高。
+        Rect comma = draw(keys.get(0))[1];
+        check(comma.height() >= 1.15f * product.inkHeight("，", product.mainSize(params)), "「，」没有放大画：" + comma + " " + where);
+        keys.get(3).setText("；");
+        check(!keys.get(3).isLayoutRequested() && product.params(keys.get(3)) == params, "换符号后请求了重新布局或参数变了：" + where);
     }
 
     /**
@@ -533,6 +588,28 @@ final class KeyFaceGroupChecks {
                     loader.loadClass("app.msime.android.KeyFaceDomain"),
                     loader.loadClass("app.msime.android.KeyFaceMeasurer"))
                 .newInstance(spec, environment, texts, measurer);
+        }
+
+        /** 一个组：模板 {@code template}，内容域 {@code domain} 已经建好。 */
+        Object group(String template, Object domain, Typeface typeface, float density, float fontScale) throws Exception {
+            Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
+            Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
+                .newInstance(typeface);
+            return loader.loadClass("app.msime.android.KeyFaceGroup")
+                .getConstructor(loader.loadClass("app.msime.android.KeyFaceTemplate"),
+                    loader.loadClass("app.msime.android.KeyFaceEnvironment"),
+                    loader.loadClass("app.msime.android.KeyFaceDomain"),
+                    loader.loadClass("app.msime.android.KeyFaceMeasurer"))
+                .newInstance(spec, environment(density, fontScale), domain, measurer);
+        }
+
+        /** 默认字体里 {@code text} 在 {@code sizePx} 字号下的墨迹高。 */
+        float inkHeight(String text, float sizePx) {
+            android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            paint.setTextSize(sizePx);
+            Rect bounds = new Rect();
+            paint.getTextBounds(text, 0, text.length(), bounds);
+            return bounds.height();
         }
 
         /** 九键的组：模板 {@code template}，内容域取 {@code NineKeyFaceDomains} 的 {@code domain}（双拼用一张小表），字体同产品的九键。 */

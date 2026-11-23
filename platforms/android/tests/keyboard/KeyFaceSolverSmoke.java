@@ -54,7 +54,62 @@ public final class KeyFaceSolverSmoke {
         return KeyFaceSolver.solve(template, domain(corner, bottom).measure(MEASURER, 0), environment, cells);
     }
 
+    /** 假字体里的全角逗号：墨迹只占字身左下角一小块（基线附近），和其他字差得很远。 */
+    static final KeyFaceMeasurer PUNCTUATION = new KeyFaceMeasurer() {
+        @Override public float advance(KeyFaceSlot slot, String text, float sizePx) { return sizePx; }
+
+        @Override public Ink ink(KeyFaceSlot slot, String text, float sizePx) {
+            if ("，".equals(text)) return new Ink(0.1f * sizePx, -0.15f * sizePx, 0.3f * sizePx, 0.15f * sizePx);
+            if ("……".equals(text)) return new Ink(0.1f * sizePx, -0.45f * sizePx, 1.9f * sizePx, -0.3f * sizePx);
+            return new Ink(0.2f * sizePx, -0.75f * sizePx, 0.8f * sizePx, 0);
+        }
+
+        @Override public float ascent(KeyFaceSlot slot, float sizePx) { return -0.9f * sizePx; }
+    };
+
+    /** 按自己的墨迹居中（KeyFaceTemplate.Glyphs）：字号全组一个，每个字的墨迹中点落在主标签区中点上（登记的字再往下挪 0.1 个字号），放大的字和最宽的字都落在键格里。 */
+    static void glyphCentring() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, MAIN);
+        KeyFaceTemplate.Glyphs glyphs = new KeyFaceTemplate.Glyphs(Map.of("，", 1.3f), 0.1f);
+        KeyFaceTemplate template = new KeyFaceTemplate("glyphs", slots, 2, 1, 0, false, 0.15f, ORDER, null, glyphs);
+        List<String> texts = List.of("，", "？", "……");
+        Map<KeyFaceSlot, List<String>> domainTexts = new EnumMap<>(KeyFaceSlot.class);
+        domainTexts.put(KeyFaceSlot.MAIN, texts);
+        Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics = new KeyFaceDomain(domainTexts).measure(PUNCTUATION, 0, glyphs);
+        KeyFaceDomain.SlotMetrics main = metrics.get(KeyFaceSlot.MAIN);
+        // 最宽的墨迹是 ……（1.8 个字号），最高的是 ？（0.75 个字号）；框以基线为中线。
+        check(near(main.width(), 180) && near(main.inkHeight(), 75) && near(main.inkTop(), -37.5f), "按墨迹量的框不对：" + main);
+        for (int[] cell : new int[][] {{160, 93}, {60, 93}, {160, 40}}) {
+            Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = Map.of(KeyFaceSlot.MAIN, new KeyFaceSolver.Cell(cell[0], cell[1]));
+            KeyFaceParams params = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells);
+            float size = params.main().sizePx();
+            for (String text : texts) {
+                float drawn = size * glyphs.scale(text);
+                KeyFaceMeasurer.Ink ink = PUNCTUATION.ink(KeyFaceSlot.MAIN, text, drawn);
+                float x = params.main().glyphX(cell[0], ink.left(), ink.right());
+                // 与 KeyFaceRenderer 相同：按墨迹居中的基线，登记的字再往下挪。
+                float baseline = params.main().glyphBaseline(cell[1], ink.top(), ink.bottom()) + glyphs.drop(text, size);
+                String where = text + " in " + cell[0] + "x" + cell[1];
+                check(Math.abs(x + (ink.left() + ink.right()) / 2f - cell[0] / 2f) < 0.01f, "墨迹应水平居中：" + where);
+                check(Math.abs(baseline - glyphs.drop(text, size) + (ink.top() + ink.bottom()) / 2f - cell[1] / 2f) < 0.01f,
+                    "墨迹应竖直居中（登记的字再往下挪）：" + where);
+                check(x + ink.left() >= ENVIRONMENT.px(2) - 0.5f && x + ink.right() <= cell[0] - ENVIRONMENT.px(2) + 0.5f
+                    && baseline + ink.top() >= -0.5f && baseline + ink.bottom() <= cell[1] + 0.5f, "墨迹出了键格：" + where);
+            }
+        }
+        // 只有逗号时：放大以后墨迹高 0.39 个字号，往下挪 0.1 个字号，框上下各留 0.195 + 0.1 个字号。
+        check(near(new KeyFaceDomain(Map.of(KeyFaceSlot.MAIN, List.of("，"))).measure(PUNCTUATION, 0, glyphs)
+            .get(KeyFaceSlot.MAIN).inkHeight(), 59), "放大的字应按放大、下移后的墨迹量");
+        check(glyphs.drop("？", 100) == 0, "没登记的字不往下挪");
+        try {
+            new KeyFaceTemplate("bad", slots, 2, 1, 0, true, 0.15f, ORDER, null, glyphs);
+            throw new AssertionError("按自己的墨迹居中的模板不应同时按大写字母高对齐");
+        } catch (IllegalArgumentException expected) { }
+    }
+
     public static void main(String[] args) {
+        glyphCentring();
         // 字号随键高变化，夹在上下限之间。
         check(near(solve(false, false, ENVIRONMENT, 300, 150).main().sizePx(), 0.48f * 150), "首选字号应按键高比例");
         check(near(solve(false, false, ENVIRONMENT, 600, 400).main().sizePx(), 26 * 3), "大键应封顶在最大字号");

@@ -351,6 +351,8 @@ final class ImeLayoutRows {
         int zeroIndex = zeroShortcut ? NineKeySidebarPolicy.appendedExclamationIndex(digits,
             s.nineKeySidebarSymbols, tallReturn) : -1;
         NineKeySymbolRail rail = new NineKeySymbolRail(s, visibleRows);
+        // 整栏一个键组：字号全栏一个，每个符号按自己的墨迹居中，「，」「。」「、」放大画（KeyFaceTemplates.SIDE_SYMBOLS）。
+        s.imeKeyFaces.beginSideSymbols(symbols, zeroIndex >= 0 ? symbols.get(zeroIndex) : null);
         rail.setContentDescription("符号栏，可上下滑动");
         for (int index = 0; index < symbols.size(); index++) {
             String symbol = symbols.get(index);
@@ -376,12 +378,7 @@ final class ImeLayoutRows {
                     return true;
                 });
             }
-            // 「……」这类两个字宽的符号在窄栏里不折行。
-            ViewPolicy.setSingleLine(key);
-            KeyboardTypographyPolicy.setKeyTextSize(key, KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP);
-            // 全角「，」「。」「、」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol) || "、".equals(symbol))
-                CenteredGlyphSpan.apply(key, symbol, 1.3f);
+            s.imeKeyFaces.attachSideSymbol(key, index == zeroIndex);
             // 独立键帽与无键帽底轨按布局区分，避免按钮和整列背景叠加。
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(capped ? KeyboardKeyRole.KEY : KeyboardKeyRole.PLAIN);
@@ -659,13 +656,13 @@ final class ImeLayoutRows {
             Button more = null;
             if (digits) {
                 more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
-                KeyboardTypographyPolicy.setKeyTextSize(more, 14);
+                s.imeKeyFaces.attachFunction(more, false);
             }
             container.addView(tallReturnLeftColumn(sidebar, more), LayoutPolicy.weightedMatchParentParams(tallSide));
         } else if (digits) {
             LinearLayout left = LayoutPolicy.column(s);
             Button more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
-            KeyboardTypographyPolicy.setKeyTextSize(more, 14);
+            s.imeKeyFaces.attachFunction(more, false);
             addNumberPadSidebar(left, sidebar, more);
             container.addView(left, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
         } else container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
@@ -1832,6 +1829,7 @@ final class ImeLayoutRows {
         Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         addJapaneseSideKey(side, delete, 1);
+        s.imeKeyFaces.attachFunction(delete, false);
         s.japaneseSpaceKey = s.keyId(s.keyboardKey("空白", "空白；左右滑动移动光标", s::space), "Space");
         s.imeBottomRow.bindSpaceCursor(s.japaneseSpaceKey);
         addJapaneseSideKey(side, s.japaneseSpaceKey, 1);

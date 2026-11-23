@@ -5,7 +5,7 @@ import android.graphics.Typeface;
 import java.util.Set;
 
 /**
- * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains} 和 {@link FunctionKeyFaceDomains}。
+ * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}、{@link FunctionKeyFaceDomains} 和 {@link SideColumnKeyFaceDomains}。
  *
  * <p>功能键组的字不大过同一副键盘的字母组（{@link KeyFaceGroup#capMainAt}）。⇧、⌫ 和底行的 0 是常驻的键，建键行时会挪到别的地方（123 层、底行），所以清空时先把它们拿出组，放回原处时再放进新组。
  *
@@ -33,6 +33,13 @@ final class ImeKeyFaces {
     private Inputs nineLettersBuilt;
     private KeyFaceGroup nineDigits;
     private Inputs nineDigitsBuilt;
+    private KeyFaceGroup sideSymbols;
+    private Inputs sideSymbolsBuilt;
+    /** 符号栏的内容域：建栏时的表。 */
+    private KeyFaceDomain sideSymbolsDomain;
+    /** 符号栏里带 0 的 ！ 自己一组（{@link #beginSideSymbols}）；这一栏没有时为 {@code null}。 */
+    private KeyFaceGroup sideCorner;
+    private KeyFaceDomain sideCornerDomain;
     /** 放进过组的键里建键行后还会留着用的那些（⇧、⌫、底行的 0 等），清空时拿出组。 */
     private final java.util.List<KeyboardPressButton> movableKeys = new java.util.ArrayList<>();
 
@@ -56,6 +63,11 @@ final class ImeKeyFaces {
         nineLettersBuilt = null;
         nineDigits = null;
         nineDigitsBuilt = null;
+        sideSymbols = null;
+        sideSymbolsBuilt = null;
+        sideSymbolsDomain = null;
+        sideCorner = null;
+        sideCornerDomain = null;
     }
 
     /** 26 键（和同一套字母行的其他语言）字母层的一个字母键。 */
@@ -131,6 +143,32 @@ final class ImeKeyFaces {
         if (!movableKeys.contains(press)) movableKeys.add(press);
     }
 
+    /**
+     * 九键、笔画或数字九宫格左侧符号栏这一次建出来的符号：{@code symbols} 是整栏的表，{@code zeroSymbol} 是右上角印 0 的那一格（大回车外框接在末尾的 ！），没有时为 {@code null}。每次建栏先调这里，再把每一格 {@link #attachSideSymbol} 进来；一副键盘只有一条符号栏。
+     *
+     * <p>带 0 的那一格自己一组，主标签以整栏为上限（{@link KeyFaceGroup#capMainAt}），所以和整栏一样大、不会更大：整栏按最宽的符号（……）的框判断碰不碰右上角，放在一组里时这个框会碰上只有 ！ 才有的 0，整栏都要为它左移或缩小。
+     */
+    void beginSideSymbols(java.util.List<String> symbols, String zeroSymbol) {
+        sideSymbolsBuilt = inputs(false);
+        sideSymbolsDomain = SideColumnKeyFaceDomains.symbols(symbols, false);
+        sideSymbols = new KeyFaceGroup(KeyFaceTemplates.SIDE_SYMBOLS, environment(sideSymbolsBuilt), sideSymbolsDomain,
+            measurer(sideSymbolsBuilt));
+        sideCorner = null;
+        sideCornerDomain = null;
+        if (zeroSymbol == null) return;
+        sideCornerDomain = SideColumnKeyFaceDomains.symbols(java.util.List.of(zeroSymbol), true);
+        sideCorner = new KeyFaceGroup(KeyFaceTemplates.SIDE_SYMBOLS, environment(sideSymbolsBuilt), sideCornerDomain,
+            measurer(sideSymbolsBuilt));
+        sideCorner.capMainAt(sideSymbols);
+    }
+
+    /** 符号栏的一格；{@code corner} 为真时它是右上角印 0 的那一格。 */
+    void attachSideSymbol(android.widget.Button key, boolean corner) {
+        KeyFaceGroup group = corner ? sideCorner : sideSymbols;
+        if (!(key instanceof KeyboardPressButton press) || group == null) return;
+        press.setFaceGroup(group, corner ? GRID_LETTER_SLOTS : NO_HINTS);
+    }
+
     /** 功能键的字以同一副键盘的字母为上限：26 键一族是字母组，14/18 键是网格字母组，拼音九键是九键字母组。 */
     private void linkFunctions() {
         if (functions != null)
@@ -181,6 +219,16 @@ final class ImeKeyFaces {
                 nineDigits.replace(environment(now), nineMeasurer(now), nineDigitDomain(now.variant()));
             }
         }
+        refreshSideSymbols();
+    }
+
+    private void refreshSideSymbols() {
+        if (sideSymbols == null) return;
+        Inputs now = inputs(false);
+        if (now.equals(sideSymbolsBuilt)) return;
+        sideSymbolsBuilt = now;
+        sideSymbols.replace(environment(now), measurer(now), sideSymbolsDomain);
+        if (sideCorner != null) sideCorner.replace(environment(now), measurer(now), sideCornerDomain);
     }
 
     /** 九键的键用 `sans-serif-medium`，等宽皮肤用等宽字体，与样式通道给九键键帽的字体相同（ImeStyler）。 */

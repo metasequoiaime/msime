@@ -18,14 +18,31 @@ import java.util.Map;
  * @param maxShrink {@link Strategy#SHRINK_MAIN} 最多把主标签缩小多少（按放得下时的字号的比例，0.15 即最多缩小 15%）；再小就试下一种退让
  * @param strategies 居中放不下时依次尝试的退让方式；都不行时隐藏提示
  * @param icon 画图标的键（⌫、⇧）的图标尺寸；{@code null} 表示这类键不画图标
+ * @param glyphs 主标签按每个键自己的墨迹居中（符号栏的标点、声调键），见 {@link Glyphs}；{@code null} 表示全组共用一条基线
  */
 public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, float sideInsetDp, float gapDp,
-        float pairGapEm, boolean capAligned, float maxShrink, List<Strategy> strategies, IconSpec icon) {
+        float pairGapEm, boolean capAligned, float maxShrink, List<Strategy> strategies, IconSpec icon, Glyphs glyphs) {
 
     public KeyFaceTemplate {
         if (!slots.containsKey(KeyFaceSlot.MAIN)) throw new IllegalArgumentException(name + " has no MAIN slot");
+        requireGlyphAlignment(name, capAligned, pairGapEm, glyphs);
         slots = Collections.unmodifiableMap(new EnumMap<>(slots));
         strategies = List.copyOf(strategies);
+    }
+
+    /**
+     * 按自己的墨迹居中的模板不按大写字母高对齐、不分开画两个字母。放在静态方法里：Android lint 的 API 检查在 record 紧凑构造函数里遇到带 `||` 的条件会崩（找不到紧凑构造函数的参数表）。
+     */
+    private static void requireGlyphAlignment(String name, boolean capAligned, float pairGapEm, Glyphs glyphs) {
+        if (glyphs == null) return;
+        if (capAligned || pairGapEm > 0)
+            throw new IllegalArgumentException(name + " centres glyphs on their own ink: no cap alignment, no letter pairs");
+    }
+
+    /** 主标签全组共用一条基线的模板。 */
+    public KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, float sideInsetDp, float gapDp,
+            float pairGapEm, boolean capAligned, float maxShrink, List<Strategy> strategies, IconSpec icon) {
+        this(name, slots, sideInsetDp, gapDp, pairGapEm, capAligned, maxShrink, strategies, icon, null);
     }
 
     /** 不画图标的模板。 */
@@ -60,6 +77,30 @@ public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, flo
         public IconSpec {
             if (!(heightRatio > 0) || !(minDp > 0) || maxDp < minDp)
                 throw new IllegalArgumentException("bad icon spec " + heightRatio + " " + minDp + " " + maxDp);
+        }
+    }
+
+    /**
+     * 主标签按每个键自己的墨迹居中（水平、竖直都是），字号仍是全组一个（D6 的例外，只用于标点和声调这类墨迹位置各不相同的键）：全角「，」「。」只占字身左下角一小块，和 ？、…… 共用一条基线时会贴底。{@code scales} 里登记的文字按字号再放大（墨迹很小的标点），并且墨迹中点比主标签区中点低 {@code dropEm} 个字号（设计稿里逗号、句号落在键面中线稍下方，与原来的 {@link CenteredGlyphSpan} 一样）；没登记的按 1 倍、正中。内容域按放大、下移后的墨迹量，所以它们同样放得进键格。
+     */
+    public record Glyphs(Map<String, Float> scales, float dropEm) {
+        public Glyphs {
+            for (Map.Entry<String, Float> entry : scales.entrySet())
+                if (!(entry.getValue() > 0)) throw new IllegalArgumentException("bad glyph scale " + entry);
+            if (dropEm < 0) throw new IllegalArgumentException("bad glyph drop " + dropEm);
+            // 不用 Map.copyOf（API 30 起才有）：D8 为它补的方法会改变设备测试包里合并补丁类的名字，与应用里 R8 留下的同名类相撞（API 35 上测试进程因此崩溃）。
+            scales = Collections.unmodifiableMap(new java.util.HashMap<>(scales));
+        }
+
+        /** {@code text} 画的时候是字号的几倍。 */
+        public float scale(String text) {
+            Float scale = text == null ? null : scales.get(text);
+            return scale == null ? 1f : scale;
+        }
+
+        /** {@code text} 的墨迹中点在字号 {@code sizePx}（组的字号，不乘放大倍数）下比主标签区中点低多少像素。 */
+        public float drop(String text, float sizePx) {
+            return text != null && scales.containsKey(text) ? dropEm * sizePx : 0;
         }
     }
 

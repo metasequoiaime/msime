@@ -8,7 +8,10 @@ import app.msime.android.KeyFaceSolver;
 import app.msime.android.KeyFaceTemplate;
 import app.msime.android.KeyFaceTemplates;
 import app.msime.android.KeyHintButton;
+import app.msime.android.KeyboardGeometry;
+import app.msime.android.KeyboardTypographyPolicy;
 import app.msime.android.NineKeyDigitButton;
+import app.msime.android.NineKeySidebarPolicy;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +88,23 @@ public final class KeyFaceTemplatesSmoke {
         check(near(numbers.main().sizePx(), 20) && numbers.topRight() == null && numbers.bottom() == null,
             "数字行应为 20 sp、没有提示：" + numbers);
         check(KeyFaceTemplates.NUMBER_ROW.capAligned(), "数字行应按大写字母高居中");
+        // 功能键文字最小 9 sp，与底行功能键相同（#11824 把 FUNCTION_KEY_MIN_TEXT_SP 降到了 9）。
+        check(near(functions.slot(KeyFaceSlot.MAIN).minSp(), KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP)
+            && near(KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 9), "功能键文字最小应为 9 sp");
+
+        // 符号栏：一格是三行键高的五分之一时 18 sp（原来的固定字号）、右上角的 0 为 10 sp，格子更高也不超过 18 sp，矮格不小于 12 sp；按每个符号自己的墨迹居中，「，」「。」「、」放大 1.3 倍、低 0.1 个字号。
+        KeyFaceTemplate side = KeyFaceTemplates.SIDE_SYMBOLS;
+        int row = Math.round(3f * KeyboardGeometry.KEY_ROW_HEIGHT_DP / NineKeySidebarPolicy.VISIBLE_ROWS * 10);
+        KeyFaceParams rail = solve(side, new KeyFaceEnvironment(10, 1), 600, row);
+        check(Math.abs(rail.main().sizePx() / 10 - 18) < 0.1f, "设计格高上符号栏应为 18 sp：" + rail.main().sizePx() / 10);
+        check(Math.abs(rail.topRight().sizePx() / 10 - 10) < 0.1f, "符号栏右上角的 0 应为 10 sp：" + rail.topRight().sizePx() / 10);
+        check(near(solve(side, new KeyFaceEnvironment(1, 1), 600, 80).main().sizePx(), 18), "高格上的符号不应超过 18 sp");
+        check(near(solve(side, new KeyFaceEnvironment(1, 1), 600, 10).main().sizePx(), 12), "矮格上的符号不应小于 12 sp");
+        check(!side.capAligned() && side.glyphs() != null, "符号栏应按每个符号自己的墨迹居中");
+        for (String small : List.of("，", "。", "、"))
+            check(near(side.glyphs().scale(small), 1.3f), small + " 应放大 1.3 倍");
+        check(near(side.glyphs().scale("？"), 1) && near(side.glyphs().scale("……"), 1), "其他符号不放大");
+        check(near(side.glyphs().dropEm(), 0.1f), "「，」「。」「、」应比中线低 0.1 个字号");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 
@@ -95,7 +115,7 @@ public final class KeyFaceTemplatesSmoke {
         texts.put(KeyFaceSlot.BOTTOM, List.of("a"));
         Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
         for (KeyFaceSlot slot : KeyFaceSlot.values()) cells.put(slot, new KeyFaceSolver.Cell(width, height));
-        return KeyFaceSolver.solve(template, new KeyFaceDomain(texts).measure(NARROW, template.pairGapEm()), environment, cells);
+        return KeyFaceSolver.solve(template, new KeyFaceDomain(texts).measure(NARROW, template.pairGapEm(), template.glyphs()), environment, cells);
     }
 
     private static boolean near(float actual, float expected) {

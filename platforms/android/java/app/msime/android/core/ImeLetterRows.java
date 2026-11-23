@@ -1582,6 +1582,8 @@ final class ImeLetterRows {
                 key = s.deleteButton;
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
                 if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
+                // 与字母层的 ⌫ 同一个常驻键：建键行时已拿出上一副键盘的组，这里放回功能键组，否则它照旧式自己画。
+                s.imeKeyFaces.attachFunction(key, false);
                 return key;
             }
             case SPACE -> {

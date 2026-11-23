@@ -147,7 +147,7 @@ public final class KeyFaceGroup {
             next = solved.get(key);
             if (next == null) {
                 if (metrics == null) {
-                    metrics = domain.measure(measurer, template.pairGapEm());
+                    metrics = domain.measure(measurer, template.pairGapEm(), template.glyphs());
                     measureCount++;
                 }
                 next = KeyFaceSolver.solve(template, metrics, environment, cells, largest, cap);

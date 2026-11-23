@@ -75,9 +75,26 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
 
     /** 量一遍内容域。{@code pairGapEm} 见 {@link KeyFaceTemplate#pairGapEm}：两个字符的主标签按「左字 + 间距 + 右字」算宽度。 */
     public Map<KeyFaceSlot, SlotMetrics> measure(KeyFaceMeasurer measurer, float pairGapEm) {
+        return measure(measurer, pairGapEm, null);
+    }
+
+    /**
+     * 同上；{@code glyphs} 不为 {@code null} 时主标签按每段文字自己的墨迹居中（{@link KeyFaceTemplate.Glyphs}）：每段按自己的放大倍数量墨迹，宽度取最宽的墨迹，墨迹上下沿以基线为中线、上下各取最高的墨迹的一半（登记的字再加上它往下挪的距离，上下对称地留）。按这个框居中的主标签，是每个键把自己的墨迹居中（再往下挪）后都落得进去的范围，求解器照常用它判断放不放得下、碰不碰提示。
+     */
+    public Map<KeyFaceSlot, SlotMetrics> measure(KeyFaceMeasurer measurer, float pairGapEm, KeyFaceTemplate.Glyphs glyphs) {
         EnumMap<KeyFaceSlot, SlotMetrics> metrics = new EnumMap<>(KeyFaceSlot.class);
         for (Map.Entry<KeyFaceSlot, List<String>> entry : texts.entrySet()) {
             KeyFaceSlot slot = entry.getKey();
+            if (slot == KeyFaceSlot.MAIN && glyphs != null) {
+                float wide = 0, half = 0;
+                for (String text : entry.getValue()) {
+                    KeyFaceMeasurer.Ink ink = measurer.ink(slot, text, REFERENCE_PX * glyphs.scale(text));
+                    wide = Math.max(wide, ink.width());
+                    half = Math.max(half, ink.height() / 2f + glyphs.drop(text, REFERENCE_PX));
+                }
+                metrics.put(slot, new SlotMetrics(wide, wide, -half, half, measurer.ascent(slot, REFERENCE_PX)));
+                continue;
+            }
             float width = 0, inkWidth = 0, inkTop = 0, inkBottom = 0;
             for (String text : entry.getValue()) {
                 KeyFaceMeasurer.Ink ink = measurer.ink(slot, text, REFERENCE_PX);

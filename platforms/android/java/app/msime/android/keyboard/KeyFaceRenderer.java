@@ -6,7 +6,7 @@ import android.graphics.Paint;
 /**
  * 按键组的 {@link KeyFaceParams} 画一个键的键面。每个放进键组的键有一个，记着这个键按当前参数、文字和尺寸算好的位置；参数、文字或尺寸变了才重新定位（量这个键自己的文字），绘制时只画，不量字、不分配对象。
  *
- * <p>绘制规则见 {@link KeyFaceParams}：主标签按排版宽度水平居中（两个字母的键面分开画、中间按模板的间距），竖直方向按内容域墨迹对齐，所以同一组的主标签共用一条基线；右上角提示按文字框靠右上角、在键帽轮廓收进去的地方挪进键帽，底部提示水平居中。
+ * <p>绘制规则见 {@link KeyFaceParams}：主标签按排版宽度水平居中（两个字母的键面分开画、中间按模板的间距），竖直方向按内容域墨迹对齐，所以同一组的主标签共用一条基线（模板要求按每个键自己的墨迹居中时例外，见 {@link KeyFaceTemplate.Glyphs}）；右上角提示按文字框靠右上角、在键帽轮廓收进去的地方挪进键帽，底部提示水平居中。
  */
 final class KeyFaceRenderer {
     private final KeyFaceGroup group;
@@ -17,6 +17,8 @@ final class KeyFaceRenderer {
     private String main = "";
     private String mainFirst = "";
     private String mainSecond = "";
+    /** 主标签画的字号：组的字号，按自己的墨迹居中的模板里再乘这段文字的放大倍数。 */
+    private float mainSize;
     private float mainX;
     private float mainSecondX;
     private float mainBaseline;
@@ -47,7 +49,7 @@ final class KeyFaceRenderer {
         KeyFaceTemplate template = group.template();
         boolean enabled = key.isEnabled();
         if (!main.isEmpty()) {
-            Paint paint = paint(measurer, KeyFaceSlot.MAIN, params.main().sizePx(), key.faceColor(KeyFaceSlot.MAIN),
+            Paint paint = paint(measurer, KeyFaceSlot.MAIN, mainSize, key.faceColor(KeyFaceSlot.MAIN),
                 template, enabled);
             if (mainSecond.isEmpty()) {
                 canvas.drawText(main, mainX, mainBaseline, paint);
@@ -88,8 +90,19 @@ final class KeyFaceRenderer {
         mainFirst = "";
         mainSecond = "";
         float size = params.main().sizePx();
+        mainSize = size;
         float gap = group.template().pairGapEm() * size;
-        if (KeyFaceDomain.pairs(main, group.template().pairGapEm())) {
+        KeyFaceTemplate.Glyphs glyphs = group.template().glyphs();
+        mainBaseline = params.main().baseline(height);
+        if (glyphs != null) {
+            // 按这个键自己的墨迹居中（KeyFaceParams.Main#glyphX、#glyphBaseline），字号再乘这段文字的放大倍数。
+            if (!main.isEmpty()) {
+                mainSize = size * glyphs.scale(main);
+                KeyFaceMeasurer.Ink ink = measurer.ink(KeyFaceSlot.MAIN, main, mainSize);
+                mainX = params.main().glyphX(width, ink.left(), ink.right());
+                mainBaseline = params.main().glyphBaseline(height, ink.top(), ink.bottom()) + glyphs.drop(main, size);
+            }
+        } else if (KeyFaceDomain.pairs(main, group.template().pairGapEm())) {
             mainFirst = main.substring(0, 1);
             mainSecond = main.substring(1);
             float first = measurer.advance(KeyFaceSlot.MAIN, mainFirst, size);
@@ -99,7 +112,6 @@ final class KeyFaceRenderer {
         } else if (!main.isEmpty()) {
             mainX = (width - measurer.advance(KeyFaceSlot.MAIN, main, size)) / 2f + params.main().shiftXPx();
         }
-        mainBaseline = params.main().baseline(height);
         KeyFaceParams.Hint topRight = params.topRight();
         corner = topRight == null ? "" : TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.TOP_RIGHT));
         if (!corner.isEmpty()) {
