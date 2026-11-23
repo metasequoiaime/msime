@@ -1,0 +1,175 @@
+// GNOME Shell 扩展：把 IBus 候选框的真实矩形经 SessionBus 交给输入法宿主；GNOME 会话下
+// 候选右键菜单也由本扩展渲染——合成器 actor 压在所有 X11 客户端窗口之上，宿主自绘浮层
+// 无论怎么设 X11 层级都会被盖住。菜单条目由宿主推送，文案与可用性只在 C++ 侧决定；
+// 点击把完整 action_name 原样交给 IBus panelService.property_activate，由引擎核对身份。
+// ESM 与 gi://Gio 从 Shell 45 起就有。
+import Gio from 'gi://Gio';
+import Clutter from 'gi://Clutter';
+import St from 'gi://St';
+import * as IBusManager from 'resource:///org/gnome/shell/misc/ibusManager.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+
+const IFACE = `
+<node>
+  <interface name="@MSIME_POINTER_BUS_NAME@">
+    <method name="GetCandidateRect">
+      <arg type="i" direction="out" name="x"/>
+      <arg type="i" direction="out" name="y"/>
+      <arg type="i" direction="out" name="width"/>
+      <arg type="i" direction="out" name="height"/>
+    </method>
+    <method name="ShowCandidateMenu">
+      <arg type="s" direction="in" name="token"/>
+      <arg type="s" direction="in" name="identity"/>
+      <arg type="a(ssuy)" direction="in" name="items"/>
+    </method>
+    <method name="HideCandidateMenu">
+      <arg type="s" direction="in" name="token"/>
+    </method>
+  </interface>
+</node>`;
+
+// 与 GnomePointer.cpp 的 kShellMenuFlag* 逐位对应。
+const FLAG_CHECKED = 1;
+const FLAG_DISABLED = 2;
+const FLAG_SEPARATOR = 4;
+
+export default class MsimePointerExtension extends Extension {
+  enable() {
+    this._menu = null;
+    this._sourceActor = null;
+    this._menuToken = '';
+    this._popupForMenu = null;
+    this._popupVisibleId = 0;
+    this._stageButtonId = 0;
+    this._stageKeyId = 0;
+    this._impl = Gio.DBusExportedObject.wrapJSObject(IFACE, this);
+    this._impl.export(Gio.DBus.session, '/org/msime/Pointer');
+    this._owner = Gio.DBus.session.own_name(
+      '@MSIME_POINTER_BUS_NAME@', Gio.BusNameOwnerFlags.NONE, null, null);
+  }
+
+  disable() {
+    this._closeMenu();
+    if (this._owner) {
+      Gio.DBus.session.unown_name(this._owner);
+      this._owner = 0;
+    }
+    if (this._impl) {
+      this._impl.unexport();
+      this._impl = null;
+    }
+  }
+
+  // 候选框是 Shell 的 BoxPointer actor：get_transformed_position() 给出 stage 绝对坐标，
+  // get_size() 给出大小。popup 不可见时返回全 0，宿主据此改在辅助区显示快捷键提示。
+  GetCandidateRect() {
+    const popup = IBusManager.getIBusManager()._candidatePopup;
+    if (!popup || !popup.visible) return [0, 0, 0, 0];
+    const [x, y] = popup.get_transformed_position();
+    const [width, height] = popup.get_size();
+    return [Math.round(x), Math.round(y), Math.round(width), Math.round(height)];
+  }
+
+  // 宿主在右键分支推送完整菜单。items 每项为 [action_name, label, flags, position]，
+  // identity（session/generation/index）随调用传入，信任判断在引擎的 property_activate 里做。
+  ShowCandidateMenu(token, identity, items) {
+    this._closeMenu();
+
+    const popup = IBusManager.getIBusManager()._candidatePopup;
+    if (!popup || !popup.visible) return;
+    const [x, y] = popup.get_transformed_position();
+    const [width, height] = popup.get_size();
+
+    // 透明 sourceActor 放在候选框右边缘，菜单从那里展开；与候选 popup 同处输入面板
+    // group，PopupMenu.open() 会把菜单 actor 提到同级最上方并定位到 sourceActor。
+    const group = global.compositor.get_input_panel_group();
+    const source = new Clutter.Actor({opacity: 0, width: 1, height: 1});
+    source.set_position(Math.round(x + width), Math.round(y));
+    group.add_child(source);
+
+    const menu = new PopupMenu.PopupMenu(source, 0, St.Side.LEFT);
+    group.add_child(menu.actor);  // open() 要求 actor 已有 parent
+
+    for (const [actionName, label, flags] of items) {
+      if (flags & FLAG_SEPARATOR) {
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        continue;
+      }
+      const item = new PopupMenu.PopupMenuItem(label);
+      if (flags & FLAG_CHECKED)
+        item.setOrnament(PopupMenu.Ornament.CHECK);
+      if (flags & FLAG_DISABLED)
+        item.setSensitive(false);
+      item.connect('activate', () => {
+        const panelService = IBusManager.getIBusManager()._panelService;
+        if (panelService)
+          panelService.property_activate(actionName, 0);  // PROP_STATE_UNCHECKED
+        this._closeMenu();
+      });
+      menu.addMenuItem(item);
+    }
+
+    this._menu = menu;
+    this._sourceActor = source;
+    this._menuToken = token;
+    this._popupForMenu = popup;
+
+    // 不用 PopupMenuManager / Main.pushModal：其 modal grab 会让引擎进入 !focused /
+    // blocked，导致 property_activate 拒绝每一次点击。自己接 stage 的 *-event 信号收起
+    // （ClutterStage 只有 button-press-event / key-press-event，没有不带 -event 的同名信号）。
+    this._stageButtonId = global.stage.connect('button-press-event', (stage, event) => {
+      if (!this._menu || !this._menu.actor.contains(stage.get_event_actor(event)))
+        this._closeMenu();
+      return Clutter.EVENT_PROPAGATE;  // 菜单项自己的 activate 还要收到这次按压
+    });
+    this._stageKeyId = global.stage.connect('key-press-event', (_stage, event) => {
+      if (this._menu && event.get_key_symbol() === Clutter.KEY_Escape) {
+        this._closeMenu();
+        // Esc 只收菜单：放它到引擎会被当成 MSIME_CANCEL，连组字一起取消。
+        return Clutter.EVENT_STOP;
+      }
+      return Clutter.EVENT_PROPAGATE;
+    });
+    this._popupVisibleId = popup.connect('notify::visible', () => {
+      if (!popup.visible)
+        this._closeMenu();
+    });
+
+    menu.open();
+  }
+
+  // 只有 token 与当前菜单相同才收起，迟到的收起不会误关新菜单。
+  HideCandidateMenu(token) {
+    if (token === this._menuToken)
+      this._closeMenu();
+  }
+
+  _closeMenu() {
+    if (this._stageButtonId) {
+      global.stage.disconnect(this._stageButtonId);
+      this._stageButtonId = 0;
+    }
+    if (this._stageKeyId) {
+      global.stage.disconnect(this._stageKeyId);
+      this._stageKeyId = 0;
+    }
+    // 用 show 时保存的对象断开，IBusManager 中途换掉 popup 时不会在错实例上留监听。
+    if (this._popupVisibleId && this._popupForMenu) {
+      this._popupForMenu.disconnect(this._popupVisibleId);
+      this._popupVisibleId = 0;
+      this._popupForMenu = null;
+    }
+    if (this._menu) {
+      this._menu.close();
+      this._menu.destroy();
+      this._menu = null;
+    }
+    if (this._sourceActor) {
+      this._sourceActor.destroy();
+      this._sourceActor = null;
+    }
+    this._menuToken = '';
+  }
+}

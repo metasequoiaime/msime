@@ -1,3 +1,4 @@
+#include "../src/candidates/CandidateMenuPlacement.h"
 #include "../src/overlay/FloatingPanelColors.h"
 #include "../src/overlay/FloatingToolbar.h"
 #include "../src/overlay/FloatingToolbarModel.h"
@@ -97,6 +98,68 @@ void keymap_rules() {
   assert(host::shuangpin_keymap_measured_clearance(200, 20, 220, 150) == 150);
   assert(host::shuangpin_keymap_measured_clearance(200, 20, 230, 150) == 160);
   assert(host::shuangpin_keymap_measured_clearance(900, 20, 760, 140) == 140);
+}
+
+void candidate_menu_placement_rules() {
+  using A = host::CandidateMenuAnchor;
+  const host::WaveOverlayWorkArea work{0, 0, 1920, 1080};
+
+  // 纯 X11 指针模式保持原行为：下方放不下翻到上方。
+  {
+    const A anchor{A::Kind::Pointer, 100, 900, 0, 0};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 92 && pos.y == 608);
+  }
+
+  // GNOME 会话拿到候选框矩形：菜单放候选框右侧、垂直与候选框居中，且不与候选框相交。
+  constexpr auto rect = A::Kind::CandidateRect;
+  {
+    const A anchor{rect, 600, 400, 300, 40};
+    assert(host::candidate_menu_anchor_usable(anchor, work));
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 912 && pos.y == 270);
+    // 菜单矩形整段在候选框右侧，水平分离；并完整落在工作区内。
+    assert(pos.x >= anchor.x + anchor.width);
+    assert(pos.x <= 1712 && pos.y >= 8 && pos.y <= 772);
+  }
+
+  // 候选框贴右边缘：右边放不下，翻到候选框左侧，仍与候选框水平分离。
+  {
+    const A anchor{rect, 1600, 400, 300, 40};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 1388 && pos.y == 270);
+    assert(pos.x + 200 <= anchor.x);
+  }
+
+  // 候选框横向占满、在屏幕中部：左右都放不下，退到候选框下方，垂直分离。
+  {
+    const A anchor{rect, 0, 500, 1920, 40};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 860 && pos.y == 552);
+    assert(pos.y >= anchor.y + anchor.height);
+  }
+
+  // 候选框横向占满、贴屏幕底边：左右和下方都放不下，退到候选框上方，垂直分离。
+  {
+    const A anchor{rect, 0, 800, 1920, 40};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 860 && pos.y == 488);
+    assert(pos.y + 300 <= anchor.y);
+  }
+
+  // 候选框矩形无效（全 0、工作区外）：判不可用；定位函数防御性地回退到工作区中下部。
+  {
+    const A zero{rect, 0, 0, 0, 0};
+    assert(!host::candidate_menu_anchor_usable(zero, work));
+    const auto pos = host::candidate_menu_position(zero, 200, 300, 8, 12, work);
+    assert(pos.x == 860 && pos.y == 510);
+  }
+  {
+    const A outside{rect, 4000, 4000, 300, 40};
+    assert(!host::candidate_menu_anchor_usable(outside, work));
+    const auto pos = host::candidate_menu_position(outside, 200, 300, 8, 12, work);
+    assert(pos.x == 860 && pos.y == 510);
+  }
 }
 
 void toolbar_config() {
@@ -460,6 +523,7 @@ void controller() {
 }  // namespace
 
 int main() {
+  candidate_menu_placement_rules();
   keymap_rules();
   toolbar_config();
   toolbar_platform();
