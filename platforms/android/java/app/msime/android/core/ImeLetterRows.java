@@ -859,6 +859,7 @@ final class ImeLetterRows {
         fourteenLKey = null;
         gridLetterButtons.clear();
         gridLetterKeys.clear();
+        s.imeKeyFaces.reset();
         s.keyRows.removeAllViews();
         if (builtSymbolExtraRow) addSymbolExtraRow();
         // 每种键面的数字层都借数字九宫格（日文假名网格也一样），所以排在各键面自己的分支之前；拼音九键的字母层也由这里建。
@@ -988,6 +989,7 @@ final class ImeLetterRows {
                 koreanKeyInputs.add(input);
             } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                 ShuangpinHintButton hintButton = s.shuangpinLetterKey(face, face, input.charAt(0));
+                s.imeKeyFaces.attachLetter(hintButton);
                 keyButton = hintButton;
                 s.shuangpinKeyButtons.add(hintButton);
                 s.shuangpinKeyInputs.add(input);
@@ -1164,6 +1166,7 @@ final class ImeLetterRows {
         KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
         if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ImeGridHelpcodeEntry.bind(s, separator);
+        s.imeKeyFaces.attachFunction(separator, true);
         fourteenSeparatorKey = separator;
         return separator;
     }
@@ -1182,6 +1185,7 @@ final class ImeLetterRows {
         // 14 键和 18 键同一个基准字号：先定 22 sp，再交给 KeyHintButton 按键宽收（setGridFace），角标开关前后都一样。18 键原来只开了自适应字号、没设字号，角标一来就把工厂的 14 sp 记成基准，字母比 14 键小一圈。
         KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
         keyButton.setGridFace(true);
+        s.imeKeyFaces.attachGridLetter(keyButton, eighteen);
         keyButton.setKeyboardRole(KeyboardKeyRole.KEY);
         gridLetterButtons.add(keyButton);
         gridLetterKeys.add(key);
@@ -1202,6 +1206,7 @@ final class ImeLetterRows {
             gridLetterButtons.get(index).setCornerHint(shown ? GridLetterHintTable.face(gridLetterKeys.get(index),
                 gridLettersEighteen, chinese, s.punctuationMarks()) : null);
         }
+        s.imeKeyFaces.refresh();
     }
 
     /**
@@ -1411,6 +1416,7 @@ final class ImeLetterRows {
             KeyboardTypographyPolicy.setKeyTextSize(key, 20);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             s.keyId(key, KeyPressIds.forCharacter(input));
+            s.imeKeyFaces.attachNumber(key);
             row.addView(key, LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);
@@ -1443,6 +1449,7 @@ final class ImeLetterRows {
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.show(key);
         row.addView(key, index, LayoutPolicy.weightedMatchParentParams(weight));
+        s.imeKeyFaces.attachFunction(key, false);
     }
 
     /**

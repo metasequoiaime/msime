@@ -133,6 +133,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeOcr imeOcr;
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
+    ImeKeyFaces imeKeyFaces;
     ImeGlideTyping imeGlideTyping;
     ImeTouchPoints imeTouchPoints;
     ImeBottomRow imeBottomRow;
@@ -2195,6 +2196,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
+        imeKeyFaces = new ImeKeyFaces(this);
         imeGlideTyping = new ImeGlideTyping(this);
         imeTouchPoints = new ImeTouchPoints(this);
         imeBottomRow = new ImeBottomRow(this);
@@ -6381,6 +6383,8 @@ public final class MSIMEInputService extends InputMethodService {
             shuangpinKeyButtons.get(index).setCornerHint(shown
                 ? LetterHintTable.face(input, dedicatedEnglish, chinese, punctuationMarks()) : null);
         }
+        // 角标换完之后再对一遍键组：关掉角标时组里的键已经不画角标，内容域才能把它们去掉。
+        imeKeyFaces.refresh();
     }
 
     private void updateShuangpinKeyHints() {
