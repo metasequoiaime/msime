@@ -1,4 +1,5 @@
 #include "../src/candidates/PairedPunctuation.h"
+#include "../src/candidates/PairedCaretForward.h"
 
 #include <cassert>
 #include <optional>
@@ -136,6 +137,14 @@ int main() {
     text = "(";
     assert(!normalize_punctuation_pair(text, Mode::Bracket) && text == "(");
     assert(!normalize_punctuation_pair(text, Mode::Unpaired));
+  }
+  {
+    // 光标退让的转发：只有 Wayland 且 Shift 还按着才排队，其余立即发。
+    using msime::linux_host::PairedCaretForward;
+    assert((!PairedCaretForward{false, false}.defer()));
+    assert((!PairedCaretForward{false, true}.defer()));
+    assert((!PairedCaretForward{true, false}.defer()));
+    assert((PairedCaretForward{true, true}.defer()));
   }
   return 0;
 }

@@ -76,6 +76,7 @@
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/CandidateTranslationScope.h"
 #include "../candidates/PairedPunctuation.h"
+#include "../candidates/PairedCaretForward.h"
 #include "../candidates/ShuangpinProfileNames.h"
 #include "../candidates/WubiProfileNames.h"
 #include "ClientInputModeMemory.h"
@@ -463,6 +464,8 @@ struct State {
   bool pure_shift_candidate = false;
   bool pure_ctrl_candidate = false;
   bool shift_down = false;
+  // Wayland 下 Shift 还按着时不能转发方向键，排到松开 Shift 再发。
+  std::vector<guint> pending_caret;
   bool ctrl_down = false;
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
@@ -2244,6 +2247,42 @@ bool convert_smart_punctuation_space(IBusEngine *engine) {
   commit_text(engine, replacement);
   return true;
 }
+// 成对标点补全后光标要退回两半之间；IBus 只能转发方向键，且必须给有效扫描码。
+// 扫描码从 us 键位表里查（方向键位置各布局一致），不用调用方标点键的扫描码。
+guint paired_caret_keycode(guint keyval) {
+  IBusKeymap *keymap = ibus_keymap_get("us");
+  if (!keymap) return 0;
+  guint result = 0;
+  for (guint code = 8; code < 256; ++code)
+    if (ibus_keymap_lookup_keysym(keymap, static_cast<guint16>(code), 0) == keyval) {
+      result = code;
+      break;
+    }
+  g_object_unref(keymap);
+  return result;
+}
+// 转发的方向键必须 press 和 release 成对发出。只发 press 会让客户端以为方向键一直按着，
+// 触发自动重复，光标一路冲到行首；Fcitx5 的 forwardCaret 同样成对发送。
+void emit_paired_caret(IBusEngine *engine, guint keyval) {
+  const guint keycode = paired_caret_keycode(keyval);
+  ibus_engine_forward_key_event(engine, keyval, keycode, 0);
+  ibus_engine_forward_key_event(engine, keyval, keycode, IBUS_RELEASE_MASK);
+}
+void forward_paired_caret(IBusEngine *engine, guint keyval, bool shift_held) {
+  const msime::linux_host::PairedCaretForward policy{
+      std::getenv("WAYLAND_DISPLAY") != nullptr, shift_held};
+  if (policy.defer()) {
+    state(engine).pending_caret.push_back(keyval);
+    return;
+  }
+  emit_paired_caret(engine, keyval);
+}
+void flush_paired_caret(IBusEngine *engine) {
+  const auto queued = state(engine).pending_caret;
+  state(engine).pending_caret.clear();
+  for (const guint keyval : queued)
+    emit_paired_caret(engine, keyval);
+}
 bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
   if (msime::linux_host::paired_punctuation_excluded_client(s.focused_client))
@@ -2286,7 +2325,7 @@ bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   s.smart_punctuation_rejected = 0;
   // The paired mark is already in the document. Move over it without sending
   // the user's closing key through Engine, which would insert a duplicate.
-  ibus_engine_forward_key_event(engine, IBUS_Right, 0, 0);
+  forward_paired_caret(engine, IBUS_Right, (flags & IBUS_SHIFT_MASK) != 0);
   return true;
 }
 constexpr gint64 kSmartPunctuationRepeatIntervalUs = 2 * G_USEC_PER_SEC;
@@ -7440,6 +7479,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool repeated_modifier = !release &&
       ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
   if (shift_key) s.shift_down = !release;
+  // Wayland 下排队的方向键在 Shift 松开时补发，避免被应用当成选中文字。
+  if (shift_key && release) flush_paired_caret(engine);
   if (key == IBUS_Control_R) s.right_ctrl_down = !release;
   if (key == IBUS_Control_L) s.left_ctrl_down = !release;
   if (ctrl_key) s.ctrl_down = s.right_ctrl_down || s.left_ctrl_down;
@@ -8341,7 +8382,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (handled)
-        ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
+        forward_paired_caret(engine, IBUS_Left, s.shift_down);
       return;
     }
     if (!without_host_punctuation && s.chinese_punctuation && paired_punctuation_enabled &&
@@ -8369,7 +8410,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (handled)
-        ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
+        forward_paired_caret(engine, IBUS_Left, s.shift_down);
       return;
     }
     // 记下的是一个 ASCII 标点字符，键值是无符号的。char 在此平台有符号，直接比较既
