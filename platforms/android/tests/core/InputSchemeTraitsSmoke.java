@@ -34,6 +34,7 @@ public final class InputSchemeTraitsSmoke {
         table("locksCaret", InputSchemeTraits::locksCaret, Set.of(4, 6, 7, 8));
         table("known", InputSchemeTraits::known, Set.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
         table("letterComposition", InputSchemeTraits::letterComposition, Set.of(4, 7, 8));
+        table("composesKeyLetters", InputSchemeTraits::composesKeyLetters, Set.of(0, 1, 2, 5, 9));
         check(InputSchemeTraits.active(4, InputSchemeTraits.KOREAN, false),
             "matching scheme is active outside dedicated English");
         check(!InputSchemeTraits.active(4, InputSchemeTraits.KOREAN, true),
