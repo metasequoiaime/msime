@@ -29,6 +29,10 @@ struct KeyboardSkinPreview: View {
   var keyLayout: TouchKeyLayoutStyle = TouchKeyLayoutStyle.mirrored
   /// 九键双拼字母层空格后面的 0。
   var nineKeyZero: Bool = false
+  /// 每个字母键的动作徽标（如「下滑·粘贴」），画在键下方；只传被单独改过动作的键，其余键不标。为 nil 时不启用。
+  var letterBadges: [String: String]? = nil
+  /// 点字母键的回调（参数是小写字母）；为 nil 时字母键不可点。仅 26 键字母层生效。
+  var onLetterTap: ((String) -> Void)? = nil
   @Environment(\.colorScheme) private var colorScheme
 
   private func color(_ value: UIColor) -> Color {
@@ -211,11 +215,13 @@ struct KeyboardSkinPreview: View {
     } else {
       VStack(spacing: layout.rowSpacing) {
         if layer.numberRow { numberRow }
-        row(Array("qwertyuiop").map(String.init), hints: letterHints ? Array("1234567890").map(String.init) : [])
-        row(Array("asdfghjkl").map(String.init)).padding(.horizontal, 376 * layout.letterInsetRatio)
+        // 第一行在皮肤页（letterHints）画数字角标 1–0；按键布局页（onLetterTap）画真实角标符号。
+        letterRow(Array("qwertyuiop").map(String.init),
+                  hints: letterHints ? Array("1234567890").map(String.init) : nil)
+        letterRow(Array("asdfghjkl").map(String.init)).padding(.horizontal, 376 * layout.letterInsetRatio)
         HStack(spacing: 5) {
           key("⇧", function: true).frame(width: 38)
-          row(Array("zxcvbnm").map(String.init))
+          letterRow(Array("zxcvbnm").map(String.init))
           key("⌫", function: true).frame(width: 38)
         }
       }.frame(maxHeight: .infinity)
@@ -368,6 +374,47 @@ struct KeyboardSkinPreview: View {
       ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
         key(title, hint: index < hints.count ? hints[index] : nil)
       }
+    }
+  }
+
+  /// 26 键字母行：按键布局页（`onLetterTap` 非 nil）时每个键右上角画真实角标符号（`LetterHintSymbols`）并标动作徽标、
+  /// 可点；否则保持纯展示——皮肤页只给第一行画 `hints` 里的数字角标，其余行不画。
+  private func letterRow(_ titles: [String], hints: [String]? = nil) -> some View {
+    HStack(spacing: 5) {
+      ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
+        let lower = title.lowercased()
+        // 可点（按键布局页）时画真实符号；否则只画显式传入的数字角标，与原来的展示行为一致。
+        let hint: String?
+        if onLetterTap != nil {
+          hint = LetterHintSymbols.hint(for: lower)
+        } else if let hints, index < hints.count {
+          hint = hints[index]
+        } else {
+          hint = nil
+        }
+        let badge = letterBadges?[lower]
+        letterKey(title, hint: hint, badge: badge, letter: lower)
+      }
+    }
+  }
+
+  /// 一个可选的字母键：角标画在右上角，动作徽标叠在键下方，点按回调。徽标和点击都只在提供时才生效。
+  @ViewBuilder
+  private func letterKey(_ title: String, hint: String?, badge: String?, letter: String) -> some View {
+    if let badge, onLetterTap != nil {
+      key(title, hint: hint)
+        .overlay(alignment: .bottom) {
+          Text(badge).font(.system(size: 8)).foregroundStyle(color(skin.secondary))
+            .lineLimit(1).minimumScaleFactor(0.6).padding(.bottom, 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onLetterTap?(letter) }
+    } else if onLetterTap != nil {
+      key(title, hint: hint)
+        .contentShape(Rectangle())
+        .onTapGesture { onLetterTap?(letter) }
+    } else {
+      key(title, hint: hint)
     }
   }
 

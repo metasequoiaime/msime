@@ -189,6 +189,44 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertNotIn(".accessibilityIdentifier(", preview)
 
 
+class LetterSwipePreviewContract(unittest.TestCase):
+    """字母键上下滑：从独立列表页改成点「按键布局」页预览图里的字母键弹出底部 Sheet；默认只标角标，被改过动作的键额外标动作徽标，预览图不画双拼提示。"""
+
+    def setUp(self):
+        self.source = LAYOUT_PAGE.read_text()
+
+    def test_the_list_page_is_gone(self):
+        # 旧的独立「字母键上下滑」列表页和它的行、入口一并删除，交互收进预览图。
+        for old in ("LetterSwipeSettingsView", "LetterSwipeRowView", "letterSwipeSettingsLabel",
+                    'NavigationLink(destination: LetterSwipeSettingsView())'):
+            self.assertNotIn(old, self.source, old)
+
+    def test_preview_keys_tap_opens_the_editor_sheet(self):
+        # 预览图把每键徽标和点击回调交给 KeyboardSkinPreview，点字母键设一个编辑目标。
+        self.assertIn("letterBadges: letterSwipeBadges, onLetterTap:", self.source)
+        self.assertIn(".sheet(item: $editingLetter)", self.source)
+        self.assertIn("LetterSwipeKeyEditorSheet(letter: target.letter)", self.source)
+        self.assertIn("private struct LetterSwipeSheetTarget: Identifiable", self.source)
+        self.assertIn("private struct LetterSwipeKeyEditorSheet: View", self.source)
+
+    def test_keys_tap_only_offered_on_twenty_six_key_with_swipe_on(self):
+        editable = member(self.source, "  private var letterSwipeEditable: Bool {")
+        self.assertIn("swipeSymbols && letterGrid == nil && !nineKey", editable)
+
+    def test_badges_only_mark_customised_keys(self):
+        badges = member(self.source, "  private var letterSwipeBadges: [String: String] {")
+        # 只从「单独存过」的配置取，没改过的键不标。
+        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .up)", badges)
+        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .down)", badges)
+
+    def test_preview_draws_no_shuangpin_hints(self):
+        # 预览图不画双拼键位提示：那是「双拼键位提示」开关自己的预览职责，避免和动作徽标抢空间。
+        # 只钉预览组件传给 KeyboardSkinPreview 的那一段，不含双拼提示相关参数。
+        preview = member(self.source, "  private var preview: some View {")
+        self.assertNotIn("shuangpin", preview.lower())
+        self.assertIn("letterBadges: letterSwipeBadges", preview)
+
+
 class NineKeyFlickSettingsContract(unittest.TestCase):
     """九键 flick 设置：三端共享阈值，数字改由长按输入。"""
 
