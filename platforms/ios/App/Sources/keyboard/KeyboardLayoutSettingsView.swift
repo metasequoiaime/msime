@@ -157,9 +157,12 @@ struct KeyboardLayoutSettingsView: View {
     letterSwipeBadges = badges
   }
 
-  /// 徽标里的动作短名：角标动作直接写符号，其余写动作短名（如「复制」）。
+  /// 徽标里的动作短名：角标动作直接写符号，其余写动作短名（如「复制」）；自定义文本直接写文本内容本身（用户常用它上屏符号），不写「文本」。
   private func badgeAction(_ binding: LetterSwipeBinding, letter: String) -> String {
-    binding.action.shortTitle(symbol: LetterHintSymbols.hint(for: letter))
+    if binding.action == .text, !binding.trimmedText.isEmpty {
+      return binding.trimmedText
+    }
+    return binding.action.shortTitle(symbol: LetterHintSymbols.hint(for: letter))
   }
 
   private var grip: some View {

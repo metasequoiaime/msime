@@ -322,6 +322,17 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertEqual(LetterSwipeAction.cursorLeft.shortTitle(), "左移")
     XCTAssertEqual(LetterSwipeAction.symbol.shortTitle(symbol: "1"), "1")
     XCTAssertEqual(LetterSwipeAction.text.shortTitle(), "文本")
+    // 水杉图标菜单的快捷操作也进了选项，徽标用短名。
+    XCTAssertEqual(LetterSwipeAction.fullWidth.shortTitle(), "全半角")
+    XCTAssertEqual(LetterSwipeAction.chinesePunctuation.shortTitle(), "标点")
+    XCTAssertEqual(LetterSwipeAction.traditional.shortTitle(), "繁简")
+    XCTAssertEqual(LetterSwipeAction.handwriting.shortTitle(), "手写")
+    XCTAssertEqual(LetterSwipeAction.oneHand.shortTitle(), "单手")
+    XCTAssertEqual(LetterSwipeAction.incognito.shortTitle(), "隐私")
+    XCTAssertEqual(LetterSwipeAction.emoji.shortTitle(), "表情")
+    XCTAssertEqual(LetterSwipeAction.aiAssist.shortTitle(), "润色")
+    XCTAssertEqual(LetterSwipeAction.reply.shortTitle(), "回复")
+    XCTAssertEqual(LetterSwipeAction.voiceInput.shortTitle(), "语音")
   }
 
   /// 控制器把每键的上滑、下滑配置交给按键；总开关关掉后两个方向都不接。

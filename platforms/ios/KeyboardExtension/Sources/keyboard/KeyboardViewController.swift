@@ -3288,15 +3288,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       },
       // 隐私模式打开期间停止学习和统计；磁贴保持选中状态来表明这一点。
       KeyboardTool(id: "incognito", title: "隐私模式", face: .icon(.incognito), isToggle: true, selected: incognito) { [weak self] in
-        guard let self else { return }
-        incognito.toggle()
-        KeyboardPrivacyPreference.incognito = incognito
-        clipboardHistoryCapture.discardIfDisallowed()
-        applyLearningPreferences()
-        // 隐私会话立即禁止上屏后联想，运行时当场清掉建议，但设置隐私的接口只回一个布尔值：另取会话此刻的视图重画，候选条上不留旧联想。
-        if incognito && enginePrediction { render(session.currentSnapshot()) }
-        configureDiagnosticLog()
-        updateShortcutButtons()
+        self?.toggleIncognito()
       },
       KeyboardTool(id: "feedback", title: "反馈", face: .icon(.feedback)) { [weak self] in
         self?.openApp(KeyboardAppLauncher.feedbackURL)
@@ -4280,7 +4272,45 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       moveCursorForSwipe(by: -1)
     case .cursorRight:
       moveCursorForSwipe(by: 1)
+    // 水杉图标菜单（更多菜单）里的快捷操作：切换类取反当前状态，调用类打开对应面板。
+    case .fullWidth:
+      setFullWidthInput(!fullWidthInput)
+      updateShortcutButtons()
+    case .chinesePunctuation:
+      setChinesePunctuation(!chinesePunctuation)
+      updateShortcutButtons()
+    case .traditional:
+      toggleCharacterSet()
+    case .handwriting:
+      toggleHandwritingScheme()
+    case .oneHand:
+      setOneHanded(oneHandedMode.toggled(swapSide: false))
+    case .incognito:
+      toggleIncognito()
+    case .emoji:
+      countKeyPress(TypingKeyID.emoji)
+      showEmojiPicker()
+    case .aiAssist:
+      closeKeyboardPicker()
+      showKeyboardAI()
+    case .reply:
+      closeKeyboardPicker()
+      toggleReplyKeyboard()
+    case .voiceInput:
+      startVoiceFromSpace(held: false)
     }
+  }
+
+  /// 切换隐私模式，与更多菜单里的「隐私模式」磁贴同一套：翻转状态、存偏好、关掉不允许的剪贴板采集、刷新学习与候选。
+  private func toggleIncognito() {
+    incognito.toggle()
+    KeyboardPrivacyPreference.incognito = incognito
+    clipboardHistoryCapture.discardIfDisallowed()
+    applyLearningPreferences()
+    // 隐私会话立即禁止上屏后联想，运行时当场清掉建议；设置隐私的接口只回一个布尔值，另取会话此刻的视图重画，候选条上不留旧联想。
+    if incognito && enginePrediction { render(session.currentSnapshot()) }
+    configureDiagnosticLog()
+    updateShortcutButtons()
   }
 
   /// 粘贴、自定义文本这类整段插入：先结束组字，再原样上屏。

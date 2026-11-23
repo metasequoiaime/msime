@@ -563,6 +563,17 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
   case language
   case cursorLeft
   case cursorRight
+  /// 以下对应水杉图标菜单（更多菜单）里的快捷操作，滑动一下即切换或调用。
+  case fullWidth
+  case chinesePunctuation
+  case traditional
+  case handwriting
+  case oneHand
+  case incognito
+  case emoji
+  case aiAssist
+  case reply
+  case voiceInput
 
   /// 设置页和预览气泡上的名字；`symbol` 带上这个键的角标，`nil` 时只写「角标符号」。
   func title(symbol: String? = nil) -> String {
@@ -580,6 +591,16 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
     case .language: "切换中英文"
     case .cursorLeft: "光标左移"
     case .cursorRight: "光标右移"
+    case .fullWidth: "切换全角/半角"
+    case .chinesePunctuation: "切换中文标点"
+    case .traditional: "切换繁简"
+    case .handwriting: "切换手写"
+    case .oneHand: "切换单手模式"
+    case .incognito: "切换隐私模式"
+    case .emoji: "表情"
+    case .aiAssist: "AI 润色"
+    case .reply: "高情商回复"
+    case .voiceInput: "语音输入"
     }
   }
 
@@ -599,6 +620,16 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
     case .language: "中英"
     case .cursorLeft: "左移"
     case .cursorRight: "右移"
+    case .fullWidth: "全半角"
+    case .chinesePunctuation: "标点"
+    case .traditional: "繁简"
+    case .handwriting: "手写"
+    case .oneHand: "单手"
+    case .incognito: "隐私"
+    case .emoji: "表情"
+    case .aiAssist: "润色"
+    case .reply: "回复"
+    case .voiceInput: "语音"
     }
   }
 
