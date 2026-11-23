@@ -247,7 +247,7 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertEqual(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 85)), .up)
     XCTAssertEqual(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 115)), .down)
     XCTAssertNil(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 100)), "没动")
-    XCTAssertNil(LetterSwipePolicy.direction(down: down, current: CGPoint(x: .nan, y: 0)), "非有限值")
+    XCTAssertNil(LetterSwipePolicy.direction(down: down, current: CGPoint(x: CGFloat.nan, y: 0)), "非有限值")
     // 横向为主的斜滑在 14/18 键上不算纵向滑动；26 键没有这条限制。
     let diagonal = CGPoint(x: 160, y: 80)
     XCTAssertNil(LetterSwipePolicy.direction(down: down, current: diagonal, requiresVerticalDominance: true))
