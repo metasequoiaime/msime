@@ -68,6 +68,7 @@ import android.widget.Toast;
 import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
+import app.msime.android.policy.CompositionStopPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -2733,7 +2734,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (!keepSession && session != 0) {
             // 换输入框、切应用时旧会话在主线程上销毁（写出选词和延迟学习），正排在新输入框的键盘弹出前面，单独记下耗时（#9916）。
             long destroyStartedAt = SystemClock.uptimeMillis();
-            try { if (finish && connection != null) apply(NativeClient.command(session, 2)); }
+            int stopCommand = CompositionStopPolicy.command(finish, composesKeyLetters());
+            try {
+                if (stopCommand != CompositionStopPolicy.NO_COMMAND && connection != null)
+                    apply(NativeClient.command(session, stopCommand));
+            }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
@@ -2741,8 +2746,8 @@ public final class MSIMEInputService extends InputMethodService {
             imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_DESTROY,
                 SystemClock.uptimeMillis() - destroyStartedAt);
         }
-        // A Stroke composition still marked here (the session stopped without CommitRaw) is stroke glyphs, not text: remove it rather than finish it into the document.
-        if (connection != null && strokeCompositionMarked()) bridge.discard(sink(typingSource()));
+        // 组字区里是按键本身（拼音、读音字母、笔画字形）时删掉而不是结束：结束组字区会把读音写成正文，用户发出去的就不再是他打的字。
+        if (connection != null && composesKeyLetters()) bridge.discard(sink(typingSource()));
         // 会话停下时不知道编辑器里是否还有组字区（restartInput 前应用常已清空或改写了文字），换成确定读音可能把它插进文档，所以只结束组字区，不写文字。
         else if (connection != null) bridge.abandon(sink(typingSource()));
         if (!keepSession) view = null;
@@ -4336,7 +4341,7 @@ public final class MSIMEInputService extends InputMethodService {
         String settled = composingText(view, editingText, false);
         String marked = ChineseOutputCompositionSync.readMarked(connection, composingStart, composingEnd);
         bridge.finishInPlace(sink(typingSource()), drawn, settled, marked, composingStart, composingEnd,
-            selectionStart, selectionEnd);
+            selectionStart, selectionEnd, composesKeyLetters());
     }
 
     private boolean englishNineKeyActive() {
@@ -5865,6 +5870,17 @@ public final class MSIMEInputService extends InputMethodService {
         return view != null && !InputViewValuePolicy.editingText(view).isEmpty()
             && StrokeInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)
             && !InputViewValuePolicy.booleanValue(view, "nine_key", false);
+    }
+
+    /**
+     * 组字区里写的是按键本身（拼音、双拼码、五笔码、粤拼字母、笔画字形），不是用户写下的字：停下会话、光标被移走时结束组字区，等于把读音当成正文写进输入框（#11831）。九键笔画的组字区里是数字键，不属于这里。
+     */
+    private boolean composesKeyLetters() {
+        if (view == null || dedicatedEnglish) return false;
+        int scheme = InputViewValuePolicy.scheme(view, -1);
+        if (scheme == InputSchemeTraits.STROKE) return strokeCompositionMarked();
+        return !InputViewValuePolicy.editingText(view).isEmpty()
+            && InputSchemeTraits.composesKeyLetters(scheme);
     }
 
     private boolean vietnameseSchemeActive() {
