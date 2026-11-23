@@ -45,11 +45,10 @@ int main() {
   assert(candidate_removal_slot('&', 2) == 0);
   assert(candidate_removal_slot('x', 9) == 7);
   assert(!candidate_removal_slot('&', 0));
-  // Same wording as the Windows candidate menu (置顶, 第 N 位).
-  assert(std::string(msime::linux_host::candidate_pin_label) == "置顶");
-  assert(msime::linux_host::candidate_fix_label(1) == "固定到第 1 位");
-  assert(msime::linux_host::candidate_fix_label(5) == "固定到第 5 位");
-  // macOS 候选操作菜单的另外两项。
-  assert(std::string(msime::linux_host::candidate_clear_fix_label) == "取消固定");
-  assert(std::string(msime::linux_host::candidate_remove_label) == "删除");
+  // 菜单直接标出四项维护快捷键，和设置页速查、右键菜单标注一致。
+  assert(std::string(msime::linux_host::candidate_pin_label) == "置顶 (Ctrl+↑)");
+  assert(msime::linux_host::candidate_fix_label(1) == "固定到第 1 位 (Ctrl+1)");
+  assert(msime::linux_host::candidate_fix_label(5) == "固定到第 5 位 (Ctrl+5)");
+  assert(std::string(msime::linux_host::candidate_clear_fix_label) == "取消固定 (Ctrl+0)");
+  assert(std::string(msime::linux_host::candidate_remove_label) == "删除 (Ctrl+Del)");
 }

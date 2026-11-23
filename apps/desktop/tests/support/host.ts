@@ -64,6 +64,8 @@ export function testHost(
     shuangpin_preedit: macos,
     shuangpin_keymap_hint: macos || windows || linux,
     maintenance_shortcuts: false,
+    // 目前只有 Linux iBus 宿主实现了候选维护四键。
+    candidate_maintenance_shortcuts: linux,
     fullwidth_chord: macos,
     voice_provider_settings: !android,
     voice_stream_preedit: !android,

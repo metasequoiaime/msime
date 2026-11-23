@@ -1337,3 +1337,23 @@ fn custom_helpcode_trigger_is_offered_by_hosts_that_route_spelling_symbols() {
         );
     }
 }
+
+#[test]
+fn candidate_maintenance_shortcuts_are_linux_only() {
+    // 目前只有 Linux iBus 宿主的右键菜单与按键处理实现了这四键；其余宿主没有接入，速查页不列。
+    assert!(
+        HostCapabilities::for_platform(HostPlatform::Linux).candidate_maintenance_shortcuts
+    );
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(
+            !HostCapabilities::for_platform(platform).candidate_maintenance_shortcuts,
+            "{platform:?}"
+        );
+    }
+}

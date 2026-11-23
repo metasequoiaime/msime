@@ -122,3 +122,51 @@ test("desktop folds the reference rows into 按键速查 and drops an empty 候�
   expect(fold?.textContent).toContain("Home / End");
   expect(fold?.textContent).toContain("额外的参考行");
 });
+
+// 候选维护四键由 Linux 宿主实现，速查页按宿主能力列出。
+function maintenanceShortcutRows() {
+  return ["置顶候选", "固定候选到第 1–5 位", "取消固定候选", "删除候选"];
+}
+
+test("candidate maintenance shortcuts are listed with the Ctrl modifier label", () => {
+  render(
+    <CandidateShortcutsSection
+      navigation={navigation}
+      numberRowSelection={false}
+      showNumberRowSelection={false}
+      mobile={false}
+      onNumberRowSelectionChange={vi.fn()}
+      candidateMaintenanceShortcuts
+    />,
+  );
+
+  for (const title of maintenanceShortcutRows()) expect(screen.getByText(title)).toBeTruthy();
+  for (const chord of ["Ctrl+↑", "Ctrl+1–5", "Ctrl+0", "Ctrl+Del"])
+    expect(screen.getByText(chord)).toBeTruthy();
+  expect(screen.queryByText(/⌃⌥⇧/)).toBeNull();
+});
+
+test("hosts without candidate maintenance shortcuts hide the four reference rows", () => {
+  const { rerender } = render(
+    <CandidateShortcutsSection
+      navigation={navigation}
+      numberRowSelection={false}
+      showNumberRowSelection={false}
+      mobile={false}
+      onNumberRowSelectionChange={vi.fn()}
+    />,
+  );
+  for (const title of maintenanceShortcutRows()) expect(screen.queryByText(title)).toBeNull();
+
+  rerender(
+    <CandidateShortcutsSection
+      navigation={navigation}
+      numberRowSelection={false}
+      showNumberRowSelection={false}
+      mobile={false}
+      onNumberRowSelectionChange={vi.fn()}
+      candidateMaintenanceShortcuts={false}
+    />,
+  );
+  for (const title of maintenanceShortcutRows()) expect(screen.queryByText(title)).toBeNull();
+});

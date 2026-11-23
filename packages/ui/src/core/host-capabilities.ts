@@ -111,6 +111,8 @@ export interface HostCapabilities {
   shuangpin_keymap_hint?: boolean;
   /** 宿主响应 Ctrl+Shift+Alt 维护快捷键。 */
   maintenance_shortcuts: boolean;
+  /** 宿主实现了候选维护四键：置顶 Ctrl+↑、固定到第 1–5 位 Ctrl+1..5、取消固定 Ctrl+0、删除候选 Ctrl+Del。目前只有 Linux 声明；速查页据此列出这四行，缺省按不提供处理。 */
+  candidate_maintenance_shortcuts?: boolean;
   /** 宿主保留 Option/Alt+Shift+H 用于切换字符宽度。 */
   fullwidth_chord: boolean;
   /** 宿主按 `keybindings.toggle_*` 认三个切换热键，快捷键页给出录键控件；缺省按不提供处理。 */

@@ -93,12 +93,14 @@ candidate_removal_slot(std::uint32_t key, std::uint32_t keycode) {
 }
 
 // IBus 属性菜单和 Fcitx5 候选、状态区操作共用的候选操作文案与顺序，照 macOS 的「候选操作」菜单（InputController.mm 的 menuForCandidate）：置顶，固定排位（第 1–5 位、取消固定），最后是删除。Linux 的这几处菜单都没有子菜单，所以固定排位平铺成「固定到第 N 位」，把整个动作写全。macOS 的「取消置顶」来自它在本机记的置顶表，Linux 的置顶交给 Engine，没有这份状态可查，所以始终是「置顶」。
-inline constexpr const char *candidate_pin_label = "置顶";
-inline constexpr const char *candidate_clear_fix_label = "取消固定";
-inline constexpr const char *candidate_remove_label = "删除";
+// 右键菜单和 IBus「候选操作」属性菜单都把快捷键直接写在菜单项上，和设置页速查的
+// 文案一致：置顶 Ctrl+↑、固定到第 N 位 Ctrl+N、取消固定 Ctrl+0、删除 Ctrl+Del。
+inline constexpr const char *candidate_pin_label = "置顶 (Ctrl+↑)";
+inline constexpr const char *candidate_clear_fix_label = "取消固定 (Ctrl+0)";
+inline constexpr const char *candidate_remove_label = "删除 (Ctrl+Del)";
 
 inline std::string candidate_fix_label(int slot) {
-  return "固定到第 " + std::to_string(slot) + " 位";
+  return "固定到第 " + std::to_string(slot) + " 位 (Ctrl+" + std::to_string(slot) + ")";
 }
 
 } // namespace msime::linux_host
