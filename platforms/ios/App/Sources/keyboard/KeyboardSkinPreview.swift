@@ -384,14 +384,9 @@ struct KeyboardSkinPreview: View {
       ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
         let lower = title.lowercased()
         // 可点（按键布局页）时画真实符号；否则只画显式传入的数字角标，与原来的展示行为一致。
-        let hint: String?
-        if onLetterTap != nil {
-          hint = LetterHintSymbols.hint(for: lower)
-        } else if let hints, index < hints.count {
-          hint = hints[index]
-        } else {
-          hint = nil
-        }
+        let hint = onLetterTap != nil
+          ? LetterHintSymbols.hint(for: lower)
+          : (hints.flatMap { index < $0.count ? $0[index] : nil })
         let badge = letterBadges?[lower]
         letterKey(title, hint: hint, badge: badge, letter: lower)
       }
