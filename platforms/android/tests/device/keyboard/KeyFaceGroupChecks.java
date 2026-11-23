@@ -45,6 +45,7 @@ final class KeyFaceGroupChecks {
                         verifyNineKeys(context, height);
                         verifyNumberRow(context, height);
                         verifySideSymbols(context, height);
+                        verifyLayer(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -336,6 +337,58 @@ final class KeyFaceGroupChecks {
         check(comma.height() >= 1.15f * product.inkHeight("，", product.mainSize(params)), "「，」没有放大画：" + comma + " " + where);
         keys.get(3).setText("；");
         check(!keys.get(3).isLayoutRequested() && product.params(keys.get(3)) == params, "换符号后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * #+= 层：第一排和其余几排各一组，内容域由放进来的键自己的文字组成。同组一份参数，字符不出键格，成对的括号上下沿对齐（共用一条基线），第一排比其余几排大，换字符只重画。
+     */
+    private static void verifyLayer(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Object empty = product.loader.loadClass("app.msime.android.KeyFaceDomain").getConstructor(Map.class)
+            .newInstance(new HashMap<>());
+        Object top = product.group("LAYER_TOP_ROW", empty, Typeface.DEFAULT, density, scale);
+        Object rest = product.group("LAYER_CHARACTERS", empty, Typeface.DEFAULT, density, scale);
+        String[] topFaces = {"[", "]", "{", "}", "#", "%", "^", "*", "+", "="};
+        String[] restFaces = {"_", "\\", "|", "~", "《", "》", "€", "&", "·", "…", "，", "？"};
+        List<Button> topKeys = new ArrayList<>(), restKeys = new ArrayList<>();
+        for (String face : topFaces) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, top, false);
+            topKeys.add(key);
+        }
+        for (String face : restFaces) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, rest, false);
+            restKeys.add(key);
+        }
+        int width = Math.round(34 * density);
+        for (Button key : topKeys) layout(key, width, height);
+        for (Button key : restKeys) layout(key, width, height);
+        Object topParams = product.params(topKeys.get(0)), restParams = product.params(restKeys.get(0));
+        check(topParams != null && restParams != null, "#+= 层没有算出参数：" + where);
+        check(product.mainSize(topParams) >= product.mainSize(restParams), "#+= 层第一排应不小于其余几排：" + where);
+        Rect open = null;
+        for (List<Button> keys : List.of(topKeys, restKeys)) {
+            Object params = product.params(keys.get(0));
+            for (Button key : keys) {
+                String at = key.getText() + " " + where;
+                check(product.params(key) == params, "#+= 层同一组参数不同：" + at);
+                Rect main = draw(key)[1];
+                check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                    "#+= 层字符没画出来或出了键格：" + main + " " + at);
+                if ("[".contentEquals(key.getText())) open = main;
+                if ("]".contentEquals(key.getText()))
+                    check(open != null && Math.abs(main.top - open.top) <= 2 && Math.abs(main.bottom - open.bottom) <= 2,
+                        "成对的括号不在一条基线上：" + main + " 对 " + open + " " + at);
+            }
+        }
+        restKeys.get(0).setText("-");
+        check(!restKeys.get(0).isLayoutRequested() && product.params(restKeys.get(0)) == restParams,
+            "#+= 层换字符后请求了重新布局或参数变了：" + where);
     }
 
     /**

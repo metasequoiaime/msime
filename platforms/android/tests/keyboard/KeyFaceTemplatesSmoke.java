@@ -105,6 +105,17 @@ public final class KeyFaceTemplatesSmoke {
             check(near(side.glyphs().scale(small), 1.3f), small + " 应放大 1.3 倍");
         check(near(side.glyphs().scale("？"), 1) && near(side.glyphs().scale("……"), 1), "其他符号不放大");
         check(near(side.glyphs().dropEm(), 0.1f), "「，」「。」「、」应比中线低 0.1 个字号");
+        // #+= 层：默认键高上第一排 20 sp、其余 18 sp（原来的固定字号），只有主标签，全排共用一条基线。
+        KeyFaceParams top = solve(KeyFaceTemplates.LAYER_TOP_ROW, new KeyFaceEnvironment(1, 1), 400, 52);
+        KeyFaceParams rest = solve(KeyFaceTemplates.LAYER_CHARACTERS, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(top.main().sizePx(), 20) && near(rest.main().sizePx(), 18), "#+= 层应为 20 / 18 sp：" + top + " " + rest);
+        check(top.topRight() == null && top.bottom() == null && rest.topRight() == null && rest.bottom() == null,
+            "#+= 层没有提示");
+        check(near(solve(KeyFaceTemplates.LAYER_CHARACTERS, new KeyFaceEnvironment(1, 1), 400, 20).main().sizePx(), 12)
+            && near(solve(KeyFaceTemplates.LAYER_TOP_ROW, new KeyFaceEnvironment(1, 1), 400, 400).main().sizePx(), 22),
+            "#+= 层应夹在 12 sp 和最大字号之间");
+        for (KeyFaceTemplate layer : List.of(KeyFaceTemplates.LAYER_TOP_ROW, KeyFaceTemplates.LAYER_CHARACTERS))
+            check(!layer.capAligned() && layer.glyphs() == null, layer.name() + " 应按整个内容域的墨迹共用一条基线");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

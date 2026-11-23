@@ -15,6 +15,8 @@ final class ImeKeyFaces {
     private static final Set<KeyFaceSlot> LETTER_SLOTS = Set.of(KeyFaceSlot.TOP_RIGHT, KeyFaceSlot.BOTTOM);
     private static final Set<KeyFaceSlot> GRID_LETTER_SLOTS = Set.of(KeyFaceSlot.TOP_RIGHT);
     private static final Set<KeyFaceSlot> NO_HINTS = Set.of();
+    /** #+= 层的组一开始的内容域：空的，建这一层时放进来的每个键把自己的文字补进去（{@link KeyFaceGroup#attach}），这一层重建时整组换掉。 */
+    private static final KeyFaceDomain LAYER_DOMAIN = new KeyFaceDomain(java.util.Map.of());
 
     /** 决定内容域、字体和环境的几项；都没变时 {@link #refresh} 什么也不做。 */
     private record Inputs(float density, float fontScale, boolean monospaced, KeyOutline outline, boolean corners,
@@ -33,6 +35,10 @@ final class ImeKeyFaces {
     private Inputs nineLettersBuilt;
     private KeyFaceGroup nineDigits;
     private Inputs nineDigitsBuilt;
+    /** #+= 层的字符键：第一排一组，其余几排（含第五排补充行）一组。内容域由放进来的键自己的文字组成（{@link #LAYER_DOMAIN}）。 */
+    private KeyFaceGroup layerTop;
+    private KeyFaceGroup layerCharacters;
+    private Inputs layerBuilt;
     private KeyFaceGroup sideSymbols;
     private Inputs sideSymbolsBuilt;
     /** 符号栏的内容域：建栏时的表。 */
@@ -63,6 +69,9 @@ final class ImeKeyFaces {
         nineLettersBuilt = null;
         nineDigits = null;
         nineDigitsBuilt = null;
+        layerTop = null;
+        layerCharacters = null;
+        layerBuilt = null;
         sideSymbols = null;
         sideSymbolsBuilt = null;
         sideSymbolsDomain = null;
@@ -143,6 +152,23 @@ final class ImeKeyFaces {
         if (!movableKeys.contains(press)) movableKeys.add(press);
     }
 
+    /** #+= 层的一个字符键；{@code firstRow} 为真时是第一排（字号大一号）。 */
+    void attachLayerCharacter(android.widget.Button key, boolean firstRow) {
+        if (!(key instanceof KeyboardPressButton press)) return;
+        if (layerBuilt == null) layerBuilt = inputs(false);
+        KeyFaceGroup group;
+        if (firstRow) {
+            if (layerTop == null) layerTop = new KeyFaceGroup(KeyFaceTemplates.LAYER_TOP_ROW, environment(layerBuilt),
+                LAYER_DOMAIN, measurer(layerBuilt));
+            group = layerTop;
+        } else {
+            if (layerCharacters == null) layerCharacters = new KeyFaceGroup(KeyFaceTemplates.LAYER_CHARACTERS,
+                environment(layerBuilt), LAYER_DOMAIN, measurer(layerBuilt));
+            group = layerCharacters;
+        }
+        press.setFaceGroup(group, NO_HINTS);
+    }
+
     /**
      * 九键、笔画或数字九宫格左侧符号栏这一次建出来的符号：{@code symbols} 是整栏的表，{@code zeroSymbol} 是右上角印 0 的那一格（大回车外框接在末尾的 ！），没有时为 {@code null}。每次建栏先调这里，再把每一格 {@link #attachSideSymbol} 进来；一副键盘只有一条符号栏。
      *
@@ -220,6 +246,16 @@ final class ImeKeyFaces {
             }
         }
         refreshSideSymbols();
+        refreshLayer();
+    }
+
+    private void refreshLayer() {
+        if (layerBuilt == null) return;
+        Inputs now = inputs(false);
+        if (now.equals(layerBuilt)) return;
+        layerBuilt = now;
+        if (layerTop != null) layerTop.replace(environment(now), measurer(now), LAYER_DOMAIN);
+        if (layerCharacters != null) layerCharacters.replace(environment(now), measurer(now), LAYER_DOMAIN);
     }
 
     private void refreshSideSymbols() {

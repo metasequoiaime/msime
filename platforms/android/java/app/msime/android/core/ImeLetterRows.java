@@ -1529,8 +1529,9 @@ final class ImeLetterRows {
             case CHARACTER -> {
                 key = s.keyboardKey(text, text, numberPad ? () -> s.imeLayoutRows.commitNumberPadText(text)
                     : () -> s.imeLayoutRows.commitNineKeyLiteral(text));
-                KeyboardTypographyPolicy.setKeyTextSize(key, firstRow ? 20 : 18);
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+                // 第一排 20 sp、其余 18 sp 的字号由键组定（KeyFaceTemplates.LAYER_TOP_ROW、LAYER_CHARACTERS）。
+                s.imeKeyFaces.attachLayerCharacter(key, firstRow);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
                 bindSuperscriptShortcut(key, text);
                 return key;
@@ -1600,11 +1601,11 @@ final class ImeLetterRows {
             }
             default -> { return null; }
         }
-        // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp（键窄时一行缩小，同底行的功能键），描述按 §2.8。
+        // 功能键（层切换、返回字母、表情、符号）：功能键底色，字号由功能键组定（同 ⌫，设计 15 sp、键窄时缩小），描述按 §2.8。
         key.setContentDescription(layerKey.description());
-        KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
+        s.imeKeyFaces.attachFunction(key, false);
         return key;
     }
 

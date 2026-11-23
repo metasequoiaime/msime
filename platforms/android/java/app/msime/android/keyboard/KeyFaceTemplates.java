@@ -104,6 +104,27 @@ public final class KeyFaceTemplates {
     public static final KeyFaceTemplate NINE_DIGITS = new KeyFaceTemplate("nine-digits", nineSlots(NINE_DIGIT, false, true),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
 
+    /** #+= 层第一排的符号：设计 20 sp，最小 12 sp，最大 22 sp，与原来的固定 20 sp 和数字行相同。 */
+    static final KeyFaceTemplate.SlotSpec LAYER_TOP = slot(20, 12, 22, 0, 255);
+    /** #+= 层其余几排和第五排补充行的符号：设计 18 sp，最小 12 sp，最大 20 sp。 */
+    static final KeyFaceTemplate.SlotSpec LAYER_CHARACTER = slot(18, 12, 20, 0, 255);
+
+    /**
+     * #+= 层第一排的字符键：只有主标签，全排共用一条基线（按内容域的整个墨迹居中，与原来 TextView 按行盒排的效果一样，下划线、引号仍在各自的高度上，不按自己的墨迹居中）。
+     */
+    public static final KeyFaceTemplate LAYER_TOP_ROW = new KeyFaceTemplate("layer-top-row", mainOnly(LAYER_TOP),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** #+= 层其余几排和第五排补充行的字符键，同 {@link #LAYER_TOP_ROW}，字号小一号。 */
+    public static final KeyFaceTemplate LAYER_CHARACTERS = new KeyFaceTemplate("layer-characters", mainOnly(LAYER_CHARACTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> mainOnly(KeyFaceTemplate.SlotSpec main) {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, main);
+        return slots;
+    }
+
     /** 九键、笔画和数字九宫格左侧符号栏的一格有多高时用设计字号（dp）：三行键高分成一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 格。 */
     private static final float SIDE_ROW_REFERENCE_DP = 3 * REFERENCE_KEY_HEIGHT_DP / NineKeySidebarPolicy.VISIBLE_ROWS;
 
