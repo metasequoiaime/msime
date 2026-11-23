@@ -636,6 +636,8 @@ check "English letter hold acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_inst
 check "English symbol swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-swipe true
 # 按键区按下即反馈（#10757）：直接命中、空隙、回车让位、多指、不可用的键、CANCEL 和滑行接管时回调的键和时机；只用合成的按键区，不经输入法服务。复用选项面板的入口，不增加 instrumentation 数量。
 check "Key press area acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OptionSheetDeviceSmoke -e key-feedback press-area
+# 按键行按格量键宽：真实的 KeyRowLayout 和横向 KeyboardKeyArea 排出的 26 键，每个键在自己的格里，份额之和相同的行同一列的键边落在同一像素上；只用合成的按键行。
+check "Key row edge acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OptionSheetDeviceSmoke -e key-feedback row-edges
 if [[ "$settings" == true ]]; then
   for suite in OptionSheetDeviceSmoke SettingsDeviceSmoke SettingsLifecycleSmoke AccountStorageDeviceSmoke CloudClipboardKeystoreDeviceSmoke CloudClipboardDriverDeviceSmoke CloudClipboardRelayDeviceSmoke; do
     check "Shared settings acceptance failed: $suite" MSIME_DEVICE_SMOKE_PASSED "$adb" -s "$serial" shell am instrument -w "app.msime.android.test/app.msime.android.test.$suite"
