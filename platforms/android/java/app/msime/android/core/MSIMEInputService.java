@@ -263,8 +263,6 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationPackInstalled;
     private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
-    private String candidatePronunciationRequest = "";
-    private long candidatePronunciationEpoch;
     private JSONObject candidatePronunciationSourceView;
     private JSONObject candidatePronunciationSourcePanel;
     private java.util.List<String> candidatePronunciationSourceSuggestions = java.util.List.of();
@@ -1096,9 +1094,23 @@ public final class MSIMEInputService extends InputMethodService {
     final ExecutorService skinDownloadWorker = Executors.newSingleThreadExecutor();
     /** 键盘里常用语的读取和「添加到常用语」都在这条线程上排队（#10086）：`preferencesWorker` 在每个新输入框里先做建会话前的偏好读取和个人词库同步，常用语排在它后面，会话在建时点开的常用语面板要一直显示「正在读取」到会话快建好。读写放在同一条线程上，刚添加的那条在随后打开的面板里一定读得到。 */
     final ExecutorService commonPhrasesWorker = Executors.newSingleThreadExecutor();
-    private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
-        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
-        new ThreadPoolExecutor.DiscardOldestPolicy());
+    /** 整页候选释义和读音都在主线程上查，见 {@link CandidateGlossLookup}、{@link CandidateReadingLookup}。 */
+    private final CandidateGlossLookup candidateGlossLookup = new CandidateGlossLookup((generation, rows, language) -> {
+        JSONArray candidates = new JSONArray();
+        for (CandidateGlossLookup.Row row : rows)
+            candidates.put(new JSONObject().put("text", row.text()).put("source", row.source()));
+        String request = CandidateGlossModel.request(generation, candidates, language);
+        CandidateGlossModel.Result result = CandidateGlossModel.decode(language == null
+            ? NativeClient.candidateGlosses(request, candidateGlossResources)
+            : NativeClient.candidateGlosses(request, candidateGlossResources,
+                candidateGlossStateRoot.isEmpty() ? null : candidateGlossStateRoot));
+        if (result.generation() != generation) throw new IllegalStateException("Stale candidate glosses");
+        return glossMap(result);
+    });
+    private final CandidateReadingLookup candidateReadingLookup = new CandidateReadingLookup(
+        (generation, keys, supplementary) -> CandidatePronunciationModel.decode(
+            NativeClient.candidatePronunciations(CandidatePronunciationModel.request(generation, keys),
+                candidateGlossResources, supplementary), generation));
     private final ExecutorService candidateTranslationWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
@@ -2253,6 +2265,10 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         armFirstFrameWait();
+        // 设置页可能改了自定义译文或装了读音包：记住的释义和读音作废，再在空闲时打开词库。
+        candidateGlossLookup.clear();
+        candidateReadingLookup.clear();
+        warmUpCandidateGlossesWhenIdle();
         hideVoiceEmptyNotice();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
@@ -2504,6 +2520,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onTrimMemory(int level) {
         super.onTrimMemory(level);
         if (!AndroidMemoryPolicy.shouldReleaseProcessCache(level)) return;
+        candidateGlossLookup.clear();
+        candidateReadingLookup.clear();
         try {
             if (session != 0) {
                 // A live session owns its provider until destroy; reset its Engine caches as well
@@ -2584,7 +2602,6 @@ public final class MSIMEInputService extends InputMethodService {
         imeDebugOverlay.shutdown();
         cloudClipboardWorker.shutdownNow();
         skinDownloadWorker.shutdownNow();
-        candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
         englishSuggestionWorker.shutdownNow();
         onlineCandidateWorker.shutdownNow();
@@ -3012,6 +3029,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             String stateRoot = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             candidateGlossStateRoot = new File(stateRoot).isAbsolute() ? stateRoot : "";
+            warmUpCandidateGlossesWhenIdle();
             File parent = new File(candidateGlossResources).getParentFile();
             candidatePronunciationAvailable = candidateGlossResources.length() > 0
                 && ((parent != null && new File(parent, "pronunciations/en-phonetic.db").isFile())
@@ -3612,6 +3630,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void invalidateCandidateGlosses() {
+        candidateGlossLookup.clear();
         candidateGlossEpoch = candidateGlossEpoch == Long.MAX_VALUE ? 0 : candidateGlossEpoch + 1;
         candidateGlossRequestedSession = 0;
         candidateGlossRequestedGeneration = -1;
@@ -3620,8 +3639,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void invalidateCandidatePronunciations() {
-        candidatePronunciationEpoch++;
-        candidatePronunciationRequest = "";
+        candidateReadingLookup.clear();
         candidatePronunciations = java.util.Map.of();
         candidatePronunciationSourceView = null;
         candidatePronunciationSourcePanel = null;
@@ -3681,7 +3699,7 @@ public final class MSIMEInputService extends InputMethodService {
                 ? displayedCandidateSnapshot() : view;
             long generation = strictCandidateLong(snapshot, "generation");
             JSONArray snapshotCandidates = snapshot.optJSONArray("candidates");
-            String request = CandidatePronunciationModel.request(generation,
+            java.util.List<String> keys = CandidatePronunciationModel.keys(
                 snapshotCandidates == null ? new JSONArray() : snapshotCandidates,
                 target, glossVisible, suggestions);
             candidatePronunciationSourceView = view;
@@ -3689,34 +3707,26 @@ public final class MSIMEInputService extends InputMethodService {
             candidatePronunciationSourceSession = session;
             candidatePronunciationSourceSuggestions = java.util.List.copyOf(suggestions);
             candidatePronunciationPreferences = preferencesKey;
-            String signature = session + ":" + request;
-            if (signature.equals(candidatePronunciationRequest)) return;
-            candidatePronunciationRequest = signature;
-            final long requestedSession = session;
-            final long requestedEpoch = candidatePronunciationEpoch;
-            final String resources = candidateGlossResources;
-            final String supplementaryResources = candidatePronunciationPackInstalled
+            String supplementaryResources = candidatePronunciationPackInstalled
                 || candidateTargetPronunciationPackInstalled
                 ? new File(candidateGlossStateRoot, "resource-packs").getAbsolutePath() : "";
-            candidateGlossWorker.execute(() -> {
-                try {
-                    java.util.Map<String, String> readings = CandidatePronunciationModel.decode(
-                        NativeClient.candidatePronunciations(request, resources, supplementaryResources), generation);
-                    main.post(() -> {
-                        if (!candidatePronunciationVisible() || session != requestedSession
-                                || candidatePronunciationEpoch != requestedEpoch || view == null
-                                || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation
-                                || !signature.equals(candidatePronunciationRequest)) return;
-                        candidatePronunciations = readings;
-                        render();
-                    });
-                } catch (JSONException | RuntimeException | LinkageError ignored) {
-                    // 音标只是显示信息，离线表失败时不影响输入，也不记录输入内容。
-                }
-            });
-        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 与释义一样在主线程上、画这一代之前当场查（见 CandidateReadingLookup）：读音和候选、释义同一帧出现。
+            candidateReadingLookup.setRemembering(!learningSuppressed());
+            candidatePronunciations = candidateReadingLookup.readings(generation, keys, supplementaryResources);
+        } catch (Exception | LinkageError ignored) {
             // 输入线程不能因离线音标查询失败而中断。
         }
+    }
+
+    /** 键盘显示、会话建好后的第一个空闲时刻在主线程上打开释义词库，打字时的第一次查询就不用等打开。 */
+    private void warmUpCandidateGlossesWhenIdle() {
+        if (!candidateEnglishGloss || candidateGlossResources.isEmpty()) return;
+        java.util.List<String> languages = candidateOfflineTargets();
+        boolean englishShown = languages.isEmpty() || candidateTranslationTargets.contains("en");
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            candidateGlossLookup.warmUp(englishShown, languages);
+            return false;
+        });
     }
 
     /** The non-English targets with an installed offline dictionary, rechecked whenever the targets, resources or gloss preferences change. */
@@ -4640,26 +4650,25 @@ public final class MSIMEInputService extends InputMethodService {
         if (visible == null || visible.length() == 0) return;
         final long targetSession = session;
         final long targetEpoch = candidateGlossEpoch;
-        final String targetResources = candidateGlossResources;
-        final String targetStateRoot = candidateGlossStateRoot.isEmpty() ? null : candidateGlossStateRoot;
         final java.util.List<String> offlineTargets = candidateOfflineTargets();
         // 目标语言含英语时，随包的英文释义也要记进 candidateOfflineGlosses：合并在线译文时靠它让离线释义优先。只在装了非英文离线词典时才记，没装的用户（默认配置）在线译文会把「你好 hello」这类离线英文释义盖掉。
         final boolean englishTarget = candidateTranslationTargets.contains("en");
-        final String request;
         final long generation;
-        final java.util.Map<String, String> targetRequests =
-            new java.util.LinkedHashMap<>(offlineTargets.size());
+        final java.util.ArrayList<CandidateGlossLookup.Row> rows = new java.util.ArrayList<>();
+        // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
+        final java.util.List<String> targets =
+            "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3
+                ? offlineTargets : java.util.List.of();
         try {
             JSONObject snapshot = displayedCandidateSnapshot();
             generation = strictCandidateLong(snapshot, "generation");
-            request = CandidateGlossModel.request(generation,
-                snapshot.getJSONArray("candidates"));
-            // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
-            if ("none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
-                for (String language : offlineTargets) {
-                    targetRequests.put(language, CandidateGlossModel.request(generation,
-                        snapshot.getJSONArray("candidates"), language));
-                }
+            JSONArray candidates = snapshot.getJSONArray("candidates");
+            if (candidates.length() == 0 || candidates.length() > CandidateGlossModel.MAX_CANDIDATES)
+                throw new JSONException("Invalid candidate gloss rows");
+            for (int index = 0; index < candidates.length(); index++) {
+                JSONObject candidate = candidates.getJSONObject(index);
+                rows.add(new CandidateGlossLookup.Row(CandidateGlossPolicy.strictString(candidate.opt("text")),
+                    (int) CandidateGlossPolicy.strictInteger(candidate.opt("source"))));
             }
         } catch (JSONException | RuntimeException | LinkageError error) {
             candidateGlossRequestedSession = targetSession;
@@ -4670,45 +4679,40 @@ public final class MSIMEInputService extends InputMethodService {
             new CandidateGlossPolicy.Token(targetSession, generation, targetEpoch);
         candidateGlossRequestedSession = targetSession;
         candidateGlossRequestedGeneration = generation;
+        // 在主线程上、画这一代之前当场查（见 CandidateGlossLookup）：释义和候选在同一帧出现，换代时也不会先画出没有释义的一帧；见过的候选不再查。
+        candidateGlossLookup.setRemembering(!learningSuppressed());
         try {
-            candidateGlossWorker.execute(() -> {
-                try {
-                    CandidateGlossModel.Result result = CandidateGlossModel.decode(
-                        NativeClient.candidateGlosses(request, targetResources));
-                    java.util.Map<String, java.util.Map<String, String>> offline = null;
-                    if (!targetRequests.isEmpty() || englishTarget) {
-                        offline = new java.util.HashMap<>(targetRequests.size() + 1);
-                        offline.put("en", glossMap(result));
-                        for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
-                            try {
-                                CandidateGlossModel.Result glosses = CandidateGlossModel.decode(
-                                    NativeClient.candidateGlosses(target.getValue(), targetResources, targetStateRoot));
-                                if (glosses.generation() == generation)
-                                    offline.put(target.getKey(), glossMap(glosses));
-                            } catch (JSONException | RuntimeException | LinkageError error) {
-                                // One missing or unreadable dictionary leaves the other rows intact.
-                            }
-                        }
-                    }
-                    final java.util.Map<String, java.util.Map<String, String>> targetGlosses = offline;
-                    main.post(() -> applyCandidateGlosses(token, result, targetGlosses));
-                } catch (JSONException | RuntimeException | LinkageError error) {
-                    // Display-only lookup failures remain silent and never include candidate text.
-                }
-            });
-        } catch (RuntimeException ignored) {
-            // A stopped or saturated host must not affect input.
+            CandidateGlossLookup.Found found = candidateGlossLookup.lookUp(generation, rows, targets, englishTarget);
+            applyCandidateGlosses(token, found.english(), found.offline());
+        } catch (Exception | LinkageError error) {
+            // Display-only lookup failures remain silent and never include candidate text.
         }
     }
 
+    private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
+            throws JSONException {
+        JSONArray entries = new JSONArray(result.translations());
+        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.getJSONObject(index);
+            glosses.put(entry.getString("text"), entry.getString("translation"));
+        }
+        return glosses;
+    }
+
     private void applyCandidateGlosses(CandidateGlossPolicy.Token token,
-            CandidateGlossModel.Result result,
+            java.util.Map<String, String> english,
             java.util.Map<String, java.util.Map<String, String>> offline) {
         long currentGeneration = view == null ? -1
             : CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
-        if (!candidateEnglishGloss || result.generation() != token.generation()
-                || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
-        String translations = result.translations();
+        if (!candidateEnglishGloss || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
+        // 英文释义只在画得出来时才查（见 CandidateGlossLookup#lookUp）；没查时 offline 一定在，载荷由下面合并出来。
+        String translations;
+        try {
+            translations = english == null ? "[]" : CandidateGlossModel.payload(english);
+        } catch (JSONException error) {
+            return;
+        }
         if (offline != null) {
             candidateOfflineGlosses = offline;
             candidateOfflineGlossSession = token.session();
@@ -4728,10 +4732,10 @@ public final class MSIMEInputService extends InputMethodService {
                 candidateTranslationAppliedGeneration = -1L;
                 userTranslationAppliedGeneration = -1L;
             }
+            // 在 renderViews 开头调用，接下来画的就是带释义的这一份，不再另画一次。
             if (candidatePanelOpen) {
                 candidatePanelSnapshot = currentCandidateSnapshot();
             }
-            render();
         } catch (JSONException | RuntimeException | LinkageError error) {
             // Candidate glosses are optional display state; keep the current Engine view.
         }
@@ -4915,16 +4919,6 @@ public final class MSIMEInputService extends InputMethodService {
         return translations;
     }
 
-    private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
-            throws JSONException {
-        JSONArray entries = new JSONArray(result.translations());
-        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
-        for (int index = 0; index < entries.length(); index++) {
-            JSONObject entry = entries.getJSONObject(index);
-            glosses.put(entry.getString("text"), entry.getString("translation"));
-        }
-        return glosses;
-    }
 
     /**
      * The current online query, or null when there is nothing either provider could answer.
