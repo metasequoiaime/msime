@@ -523,6 +523,174 @@ enum KeyboardHeightPercent {
   }
 }
 
+/// 26 键字母键右上角的角标符号，取自设计稿：q1…p0 / a@ s# d¥ f% g& h* j( k) l" / z~ x… c、 v? b! n- m/。
+/// 键盘画角标、按角标上屏、设置页显示「角标符号 ?」都用这一张表；App 与键盘扩展都编入 SharedUI，所以放在这里。
+/// 与 Android 的 `LetterHintTable` 是同一张表。
+enum LetterHintSymbols {
+  private static let table: [Character: String] = [
+    "q": "1", "w": "2", "e": "3", "r": "4", "t": "5", "y": "6", "u": "7", "i": "8", "o": "9", "p": "0",
+    "a": "@", "s": "#", "d": "¥", "f": "%", "g": "&", "h": "*", "j": "(", "k": ")", "l": "\"",
+    "z": "~", "x": "…", "c": "、", "v": "?", "b": "!", "n": "-", "m": "/",
+  ]
+
+  /// 字母键的角标符号，大小写字母都可传入；不是 26 个 ASCII 字母之一时为 nil。
+  static func hint(for letter: String) -> String? {
+    guard letter.count == 1, let character = letter.first, character.isASCII else { return nil }
+    return table[Character(character.lowercased())]
+  }
+}
+
+/// 字母键一个方向上的滑动动作：26 键每个字母的上滑、下滑各自可配，互不影响。
+/// 未单独配置的方向按「滑动方向」（`KeyboardLayoutPreference.swipeSymbolsDirection`）回落成角标，保持旧行为。
+enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
+  case none
+  case symbol
+  case paste
+  case copy
+  case cut
+  case undo
+  case redo
+  case selectAll
+  case text
+  case clipboard
+  case language
+  case cursorLeft
+  case cursorRight
+
+  /// 设置页和预览气泡上的名字；`symbol` 带上这个键的角标，`nil` 时只写「角标符号」。
+  func title(symbol: String? = nil) -> String {
+    switch self {
+    case .none: "无"
+    case .symbol: symbol.map { "角标符号 \($0)" } ?? "角标符号"
+    case .paste: "粘贴"
+    case .copy: "复制选中文字"
+    case .cut: "剪切选中文字"
+    case .undo: "撤销"
+    case .redo: "重做"
+    case .selectAll: "全选"
+    case .text: "自定义文本"
+    case .clipboard: "剪贴板历史"
+    case .language: "切换中英文"
+    case .cursorLeft: "光标左移"
+    case .cursorRight: "光标右移"
+    }
+  }
+
+  /// 写系统剪贴板的动作要键盘有完全访问；其余动作不需要。
+  var writesPasteboard: Bool { self == .copy || self == .cut }
+  /// 读系统剪贴板的动作要键盘有完全访问。
+  var readsPasteboard: Bool { self == .paste }
+}
+
+/// 一个方向上的一条配置。`text` 只在动作为 `.text` 时使用；为空时这条配置等于「无」。
+struct LetterSwipeBinding: Codable, Equatable {
+  var action: LetterSwipeAction = .none
+  var text: String?
+
+  static let none = LetterSwipeBinding(action: .none, text: nil)
+  static let symbol = LetterSwipeBinding(action: .symbol, text: nil)
+
+  /// 选中的自定义文本，去掉首尾空白和换行后为空就是没有。
+  var trimmedText: String {
+    (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// 这次滑动是否真会做事。选了自定义文本却没填时不算。
+  var isActive: Bool {
+    action != .none && (action != .text || !trimmedText.isEmpty)
+  }
+
+  /// 设置页一行里的短名字。
+  var summary: String {
+    action == .text && isActive ? "文本：\(trimmedText)" : action.title()
+  }
+}
+
+/// 每个字母键上滑、下滑的配置，存本机 App Group（不随设置同步，与「滑动输入符号」一样）。
+/// JSON 形如 `{"v":{"up":{"action":"symbol"},"down":{"action":"paste"}}}`，缺的键、坏的值都回落到默认。
+enum LetterSwipePreference {
+  static let key = "keyboard.gesture.letterSwipeBindings"
+  /// 26 键从上到下的字母顺序，设置页按它排列。
+  static let letters: [String] = "qwertyuiopasdfghjklzxcvbnm".map(String.init)
+  static let upKey = "up"
+  static let downKey = "down"
+
+  static func directionKey(_ direction: KeyboardLayoutPreference.SwipeDirection) -> String {
+    direction == .up ? upKey : downKey
+  }
+
+  /// 全部已存配置；没有配置或解析失败时为空。
+  static var all: [String: [String: LetterSwipeBinding]] {
+    guard let data = KeyboardLayoutPreference.defaults.data(forKey: key),
+          let decoded = try? JSONDecoder().decode([String: [String: LetterSwipeBinding]].self, from: data) else {
+      return [:]
+    }
+    return decoded
+  }
+
+  /// 用户单独存过的那条配置；没存过时为 nil。
+  static func stored(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding? {
+    all[letter.lowercased()]?[directionKey(direction)]
+  }
+
+  /// 实际生效的配置：存过的用它，没存过的按「滑动方向」回落成角标。
+  static func binding(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    if let stored = stored(letter: letter, direction: direction) { return stored }
+    return direction == KeyboardLayoutPreference.swipeSymbolsDirection ? .symbol : .none
+  }
+
+  /// 写入一条配置；`binding` 为 nil 时删掉这一条，回到默认。「无」要照原样存下去才压得住默认的角标，
+  /// 不能当成没配过：用户把上滑改成「无」时，默认回落会让它又变回角标。
+  static func set(_ binding: LetterSwipeBinding?, letter: String, direction: KeyboardLayoutPreference.SwipeDirection) {
+    var table = all
+    let letter = letter.lowercased()
+    var directions = table[letter] ?? [:]
+    if let binding {
+      directions[directionKey(direction)] = binding
+    } else {
+      directions.removeValue(forKey: directionKey(direction))
+    }
+    if directions.isEmpty { table.removeValue(forKey: letter) } else { table[letter] = directions }
+    write(table)
+  }
+
+  /// 恢复一个键的两个方向。
+  static func clear(letter: String) {
+    var table = all
+    table.removeValue(forKey: letter.lowercased())
+    write(table)
+  }
+
+  /// 恢复全部 26 键。
+  static func reset() {
+    KeyboardLayoutPreference.defaults.removeObject(forKey: key)
+  }
+
+  static var hasCustomBindings: Bool { !all.isEmpty }
+
+  /// 键盘读一次配置时用，省得每次手势都解一遍 JSON。
+  static func load() -> [String: [String: LetterSwipeBinding]] { all }
+
+  /// 从已读出的表里取一条，语义与 `binding(letter:direction:)` 相同。
+  static func binding(in table: [String: [String: LetterSwipeBinding]], letter: String,
+                      direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    if let stored = table[letter.lowercased()]?[directionKey(direction)] { return stored }
+    return direction == KeyboardLayoutPreference.swipeSymbolsDirection ? .symbol : .none
+  }
+
+  private static func write(_ table: [String: [String: LetterSwipeBinding]]) {
+    let defaults = KeyboardLayoutPreference.defaults
+    guard !table.isEmpty else {
+      defaults.removeObject(forKey: key)
+      return
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    guard let data = try? encoder.encode(table) else { return }
+    defaults.set(data, forKey: key)
+  }
+}
+
 struct KeyboardGeometry: Equatable {
   let keySpacing: Double
   let rowSpacing: Double

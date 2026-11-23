@@ -365,7 +365,7 @@ struct KeyboardLayoutSettingsView: View {
 
   private var gestureGroup: some View {
     DesignGroup(title: "手势", info: "滑行输入只在全拼 26 键的字母键盘上生效，轻点照常输入单个字母。") {
-      DesignToggleRow(title: "滑动输入符号", info: "沿设定方向滑动输入角标符号，默认上滑；长按字母键始终可以输入",
+      DesignToggleRow(title: "滑动输入符号", info: "总开关：开启后字母键按「滑动方向」和下面的每键设置执行上滑、下滑动作（默认出角标）；关闭后字母键不响应上下滑，长按仍输入角标",
                       isOn: Binding(get: { swipeSymbols }, set: { enabled in
                         swipeSymbols = enabled
                         KeyboardLayoutPreference.swipeSymbols = enabled
@@ -373,6 +373,7 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appSwipeSymbolsSwitch")
       DesignDivider()
       DesignSelectRow(title: "滑动方向",
+                      info: "没在「字母键上下滑」里单独设置的键，沿这个方向出角标",
                       options: [DesignOption(title: "上滑", value: KeyboardLayoutPreference.SwipeDirection.up, identifier: "appSwipeSymbolsUp"),
                                 DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown")],
                       selection: Binding(get: { swipeSymbolsDirection }, set: { direction in
@@ -381,6 +382,15 @@ struct KeyboardLayoutSettingsView: View {
                       }),
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
         .disabled(!swipeSymbols)
+      DesignDivider()
+      // 每个字母键的上滑、下滑各自可配：没单独设过的方向按上面的「滑动方向」出角标，所以不动这一页的人看到的还是原来的行为。
+      NavigationLink(destination: LetterSwipeSettingsView()) {
+        DesignNavRowLabel(title: "字母键上下滑",
+                          info: "给每个字母键的上滑、下滑各设一个动作：角标符号、粘贴、复制、撤销、自定义文本等。没单独设的键按上面的方向出角标")
+      }
+      .buttonStyle(PressFillButtonStyle())
+      .disabled(!swipeSymbols)
+      .accessibilityIdentifier("letterSwipeSettingsLink")
       DesignDivider()
       // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
       DesignToggleRow(title: "显示字母键角标", info: "26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入",
@@ -762,5 +772,170 @@ private enum KeySoundPackPreview {
       guard AudioServicesCreateSystemSoundID(samples.standard as CFURL, &sound) == kAudioServicesNoError else { return }
       AudioServicesPlaySystemSoundWithCompletion(sound) { AudioServicesDisposeSystemSoundID(sound) }
     }
+  }
+}
+
+/// 「字母键上下滑」页：26 键逐行设置上滑、下滑各做什么。
+/// 没单独设过的方向按「滑动方向」回落成角标（`LetterSwipePreference.binding`），所以不动这一页的人看到的仍是原来的行为。
+struct LetterSwipeSettingsView: View {
+  @State private var bindings = LetterSwipePreference.load()
+
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 24) {
+        DesignGroup(title: "每键动作",
+                    info: "点一行改这个键的上滑和下滑；默认沿「滑动方向」出右上角的角标符号，另一个方向不做动作。要整体关闭滑动，回上一页关「滑动输入符号」。") {
+          ForEach(LetterSwipePreference.letters, id: \.self) { letter in
+            NavigationLink(destination: LetterSwipeKeyEditorView(letter: letter)) {
+              LetterSwipeRowView(letter: letter, bindings: bindings)
+            }
+            .buttonStyle(PressFillButtonStyle())
+            .accessibilityIdentifier("letterSwipeKey_\(letter)")
+            if letter != LetterSwipePreference.letters.last { DesignDivider() }
+          }
+        }
+        DesignGroup {
+          Button {
+            LetterSwipePreference.reset()
+            bindings = LetterSwipePreference.load()
+          } label: {
+            Text("全部恢复默认")
+              .font(.system(size: 17))
+              .foregroundStyle(MetasequoiaTheme.accent)
+              .frame(maxWidth: .infinity, minHeight: 52)
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("letterSwipeResetAll")
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 8)
+      .padding(.bottom, 32)
+    }
+    .designCanvasBackground()
+    .navigationTitle("字母键上下滑")
+    .navigationBarTitleDisplayMode(.inline)
+    .reloadOnAppearAndActive { bindings = LetterSwipePreference.load() }
+  }
+}
+
+/// 列表里的一行：字母，右边两行小字写这个键上滑、下滑各是什么。
+private struct LetterSwipeRowView: View {
+  let letter: String
+  let bindings: [String: [String: LetterSwipeBinding]]
+
+  private func summary(_ direction: KeyboardLayoutPreference.SwipeDirection) -> String {
+    LetterSwipePreference.binding(in: bindings, letter: letter, direction: direction).summary
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Text(letter.uppercased())
+        .font(.system(size: 17, weight: .medium))
+        .frame(width: 26, alignment: .leading)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("上滑  \(summary(.up))")
+        Text("下滑  \(summary(.down))")
+      }
+      .font(.system(size: 13))
+      .foregroundStyle(MetasequoiaTheme.sub)
+      .lineLimit(1)
+      .minimumScaleFactor(0.8)
+      Spacer(minLength: 8)
+      DesignChevron()
+    }
+    .padding(.vertical, 10)
+    .padding(.horizontal, 20)
+    .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("\(letter.uppercased()) 键，上滑 \(summary(.up))，下滑 \(summary(.down))")
+  }
+}
+
+/// 一个字母键的编辑页：上滑、下滑各一个动作选择；选「自定义文本」时就地填要上屏的文字。
+/// 每次选择、每次输入立刻写进 App Group，键盘下次出现时生效，不另外放「保存」。
+private struct LetterSwipeKeyEditorView: View {
+  let letter: String
+  @State private var up: LetterSwipeBinding
+  @State private var down: LetterSwipeBinding
+
+  init(letter: String) {
+    self.letter = letter
+    _up = State(initialValue: LetterSwipePreference.binding(letter: letter, direction: .up))
+    _down = State(initialValue: LetterSwipePreference.binding(letter: letter, direction: .down))
+  }
+
+  private var symbol: String? { LetterHintSymbols.hint(for: letter) }
+  private var options: [DesignOption<LetterSwipeAction>] {
+    LetterSwipeAction.allCases.map {
+      DesignOption(title: $0.title(symbol: symbol), value: $0, identifier: "letterSwipeAction_\($0.rawValue)")
+    }
+  }
+
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 24) {
+        DesignGroup(title: "\(letter.uppercased()) 键",
+                    info: "两个方向各一个动作，选「无」表示这个方向不接。按住字母键始终输入角标。") {
+          DesignSelectRow(title: "上滑", options: options, selection: $up.action,
+                          sheetTitle: "上滑动作", identifier: "letterSwipeUpPicker",
+                          onSelect: { action in
+                            up.action = action
+                            LetterSwipePreference.set(up, letter: letter, direction: .up)
+                          })
+          if up.action == .text {
+            DesignDivider()
+            textField($up, direction: .up)
+          }
+          DesignDivider()
+          DesignSelectRow(title: "下滑", options: options, selection: $down.action,
+                          sheetTitle: "下滑动作", identifier: "letterSwipeDownPicker",
+                          onSelect: { action in
+                            down.action = action
+                            LetterSwipePreference.set(down, letter: letter, direction: .down)
+                          })
+          if down.action == .text {
+            DesignDivider()
+            textField($down, direction: .down)
+          }
+        }
+        DesignGroup {
+          Button {
+            LetterSwipePreference.clear(letter: letter)
+            up = LetterSwipePreference.binding(letter: letter, direction: .up)
+            down = LetterSwipePreference.binding(letter: letter, direction: .down)
+          } label: {
+            Text("这个键恢复默认")
+              .font(.system(size: 17))
+              .foregroundStyle(MetasequoiaTheme.accent)
+              .frame(maxWidth: .infinity, minHeight: 52)
+          }
+          .buttonStyle(PressFillButtonStyle())
+          .accessibilityIdentifier("letterSwipeKeyReset")
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 8)
+      .padding(.bottom, 32)
+    }
+    .designCanvasBackground()
+    .navigationTitle("\(letter.uppercased()) 键")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+
+  private func textField(_ binding: Binding<LetterSwipeBinding>,
+                         direction: KeyboardLayoutPreference.SwipeDirection) -> some View {
+    TextField("要上屏的文字", text: Binding(
+      get: { binding.wrappedValue.text ?? "" },
+      set: { text in
+        binding.wrappedValue.text = text
+        LetterSwipePreference.set(binding.wrappedValue, letter: letter, direction: direction)
+      }))
+      .textFieldStyle(.roundedBorder)
+      .autocorrectionDisabled()
+      .padding(.horizontal, 20)
+      .padding(.vertical, 8)
+      .accessibilityLabel("\(direction == .up ? "上滑" : "下滑")自定义文本")
+      .accessibilityIdentifier(direction == .up ? "letterSwipeUpText" : "letterSwipeDownText")
   }
 }
