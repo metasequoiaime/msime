@@ -289,8 +289,10 @@ final class LetterCornerHintTests: XCTestCase {
     LetterSwipePreference.set(LetterSwipeBinding(action: .paste), letter: "v", direction: .down)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .down).action, .paste)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "V", direction: .down).action, .paste, "大小写同一个键")
-    XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .up).action, .none,
-                   "另一个方向仍按「滑动方向」回落")
+    // 此时「滑动方向」已是 .both（上文第 278 行设置），v 的上滑没单独配过，
+    // 所以按 .both 回落成角标，而不是 .none。
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .up).action, .symbol,
+                   "另一个方向仍按「滑动方向」回落成角标")
 
     LetterSwipePreference.set(LetterSwipeBinding(action: .text, text: "hi@example.com"), letter: "v", direction: .up)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .up).trimmedText, "hi@example.com")
