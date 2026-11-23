@@ -31,6 +31,11 @@ public final class CandidateTranslationStore {
     public interface Listener {
         void onArrival(long generation);
     }
+
+    /** worker 上：此刻的账号绑定是不是缓存绑定的那个（{@link CandidateTranslationBinding#holds}）。 */
+    public interface Fence {
+        boolean holds(String bound);
+    }
     public static final long QUIET_INTERVAL_MILLIS = 350;
     private static final int MAX_CACHE_ENTRIES = 256;
     private final Service service;
@@ -47,6 +52,9 @@ public final class CandidateTranslationStore {
     private volatile long requestEpoch;
     // 缓存的代次：clear() 一次加一（换服务、换凭据、换账号都经它）。单独请求（request）只认它，不认 requestEpoch：整页刷新每次都推进 requestEpoch，单独请求不能因此作废。
     private volatile long lineage;
+    // 账号译文的整页请求：发出前、回答到达后各问一次绑定，对不上就不发、不收，并在主线程上通知（用户自己的服务不设）。
+    private Fence fence;
+    private Runnable fenceBroken;
 
     public CandidateTranslationStore(Context context, ExecutorService worker, Handler main,
                                      Listener listener) {
@@ -80,6 +88,12 @@ public final class CandidateTranslationStore {
     }
 
     public boolean hasEntries() { return !cache.isEmpty(); }
+
+    /** 给整页请求加上账号绑定的核对；{@code broken} 在主线程上调用。 */
+    public void fence(Fence fence, Runnable broken) {
+        this.fence = fence;
+        this.fenceBroken = broken;
+    }
 
     /** Bind cached display data to one account session lineage; changing it fences and clears old rows. */
     public boolean bindTo(String nextBinding) {
@@ -212,15 +226,28 @@ public final class CandidateTranslationStore {
         }
         if (requests.isEmpty()) return;
         signature = stamp;
+        final String bound = binding;
+        final Fence check = fence;
+        final Runnable broken = fenceBroken;
         try {
             worker.execute(() -> {
                 BooleanSupplier stale = () -> epoch != requestEpoch;
                 for (Map.Entry<String, ArrayList<String>> request : requests.entrySet()) {
                     if (stale.getAsBoolean()) return;
+                    // 发出前：缓存绑定的账号已经不是当前账号，就不替旧账号发请求。
+                    if (check != null && !check.holds(bound)) {
+                        fenceBroken(epoch, stamp, broken);
+                        return;
+                    }
                     String target = request.getKey();
                     ArrayList<String> missing = request.getValue();
                     try {
                         List<String> values = service.translate(missing, target, stale);
+                        // 回答到达后：请求途中换了账号，这份回答不进旧账号的缓存。
+                        if (check != null && !check.holds(bound)) {
+                            fenceBroken(epoch, stamp, broken);
+                            return;
+                        }
                         scheduler.post(() -> absorb(epoch, target, generation, missing, values));
                     } catch (Exception ignored) {
                         // Optional display data must never disturb input or expose response text.
@@ -234,6 +261,13 @@ public final class CandidateTranslationStore {
         } catch (RuntimeException ignored) {
             // A stopped worker is equivalent to an unavailable optional service.
         }
+    }
+
+    private void fenceBroken(long epoch, String stamp, Runnable broken) {
+        scheduler.post(() -> {
+            if (epoch == requestEpoch && stamp.equals(signature)) signature = null;
+            if (broken != null) broken.run();
+        });
     }
 
     private static String stamp(List<String> targets, long generation, List<String> words) {

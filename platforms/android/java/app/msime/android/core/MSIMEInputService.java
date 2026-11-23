@@ -276,8 +276,8 @@ public final class MSIMEInputService extends InputMethodService {
     // 候选词翻译的范围（`candidate_translation_scope`）。生效时（见 candidateTranslationScopeLimited）账号、用户自己的服务和 AI 只为视图里高亮的那个候选请求，离线释义照旧整页。
     private CandidateTranslationPolicy.Scope candidateTranslationScope = CandidateTranslationPolicy.Scope.HIGHLIGHTED;
     CandidateTranslationStore candidateTranslationStore;
-    private long candidateTranslationBindingEpoch;
-    private long candidateTranslationVerifiedGeneration = -1L;
+    /** 账号译文缓存属于哪个账号：后台核对，核对过的缓存与候选同一帧画出（{@link CandidateTranslationBinding}）。 */
+    private CandidateTranslationBinding candidateTranslationBinding;
     private long candidateTranslationAppliedGeneration = -1L;
     // 候选翻译这一次走哪个服务（含凭据），由 CandidateTranslationPolicy.route 从偏好算出；选的是用户自己的服务（小牛、自定义、腾讯）时，译文由 userTranslationStore 取，它与账号的 candidateTranslationStore 并行、互不复用。路由不可变，变了就整个换掉 userTranslationStore。
     CandidateTranslationRoute candidateTranslationRoute = CandidateTranslationRoute.NONE;
@@ -2268,6 +2268,8 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossLookup.clear();
         candidateReadingLookup.clear();
         warmUpCandidateGlossesWhenIdle();
+        // 键盘显示时账号可能在别处换过：核对完成之前不画缓存里的账号译文（CandidateTranslationBinding）。
+        if (candidateTranslationBinding != null) candidateTranslationBinding.reset();
         hideVoiceEmptyNotice();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
@@ -2732,8 +2734,7 @@ public final class MSIMEInputService extends InputMethodService {
         // image after the user has enabled the privacy gate.
         clipboardImageGeneration++;
         if (!keepSession) {
-            candidateTranslationBindingEpoch++;
-            candidateTranslationVerifiedGeneration = -1L;
+            if (candidateTranslationBinding != null) candidateTranslationBinding.reset();
             candidateTranslationAppliedGeneration = -1L;
             userTranslationAppliedGeneration = -1L;
         }
@@ -3748,51 +3749,39 @@ public final class MSIMEInputService extends InputMethodService {
             candidateTranslationStore = new CandidateTranslationStore(
                 this, candidateTranslationWorker, main,
                 generation -> applyCandidateTranslations(generation));
+            CandidateTranslationStore store = candidateTranslationStore;
+            candidateTranslationBinding = new CandidateTranslationBinding(
+                () -> candidateTranslationBindingKey(SyncSignals.binding(this)),
+                task -> {
+                    try {
+                        candidateTranslationWorker.execute(task);
+                        return true;
+                    } catch (RuntimeException rejected) {
+                        return false;
+                    }
+                },
+                main::post, android.os.SystemClock::uptimeMillis,
+                new CandidateTranslationBinding.Cache() {
+                    @Override public boolean bindTo(String key) { return store.bindTo(key); }
+                    @Override public boolean hasEntries() { return store.hasEntries(); }
+                },
+                this::candidateTranslationBindingChecked);
+            store.fence(candidateTranslationBinding::holds, candidateTranslationBinding::invalidate);
         }
+    }
+
+    /** 账号绑定核对完成：缓存因换账号清空时去掉画面上的账号译文；否则重画一次，这一代的缓存译文和请求由 render 接上。 */
+    private void candidateTranslationBindingChecked(boolean cleared) {
+        candidateTranslationAppliedGeneration = -1L;
+        if (!candidateTranslationAccount || session == 0 || view == null) return;
+        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+        if (cleared && generation >= 0) applyVerifiedCandidateTranslations(generation, true);
+        else render();
     }
 
     static String candidateTranslationBindingKey(SyncSwitch.Binding binding) {
         if (binding == null || binding.accountId() == null) return null;
         return binding.generation() + ":" + binding.accountId();
-    }
-
-    private void verifyCandidateTranslationBinding(long generation,
-            java.util.function.Consumer<Boolean> onVerified) {
-        long epoch = ++candidateTranslationBindingEpoch;
-        long expectedSession = session;
-        candidateTranslationVerifiedGeneration = -1L;
-        try {
-            candidateTranslationWorker.execute(() -> {
-                app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(this);
-                main.post(() -> {
-                    if (epoch != candidateTranslationBindingEpoch || session != expectedSession
-                            || view == null || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation
-                            || candidateTranslationStore == null) return;
-                    // Signed-out users may use the anonymous translation endpoint, but an
-                    // unavailable provider cannot prove which account owns cached rows.
-                    String key = candidateTranslationBindingKey(binding);
-                    String currentKey = candidateTranslationBindingKey(SyncSignals.binding(this));
-                    if (!CandidateTranslationPolicy.acceptsBinding(key, currentKey)) {
-                        boolean hadEntries = candidateTranslationStore.hasEntries();
-                        candidateTranslationStore.bindTo(currentKey);
-                        if (hadEntries) applyVerifiedCandidateTranslations(generation, true);
-                        onVerified.accept(null);
-                        return;
-                    }
-                    boolean hadEntries = candidateTranslationStore.hasEntries();
-                    boolean same = candidateTranslationStore.bindTo(key);
-                    if (!same) candidateTranslationAppliedGeneration = -1L;
-                    candidateTranslationVerifiedGeneration = generation;
-                    if (!same && hadEntries) {
-                        applyVerifiedCandidateTranslations(generation, true);
-                        return;
-                    }
-                    onVerified.accept(same);
-                });
-            });
-        } catch (RuntimeException ignored) {
-            candidateTranslationStore.bindTo(null);
-        }
     }
 
     String chineseOutput(String text, JSONObject context) {
@@ -4772,24 +4761,23 @@ public final class MSIMEInputService extends InputMethodService {
                     InputViewValuePolicy.booleanValue(candidate, "highlighted", false))) continue;
             words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
-        verifyCandidateTranslationBinding(generation, same -> {
-            if (same != null) {
-                candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
-                if (same && candidateTranslationStore.hasEntries()
-                        && candidateTranslationAppliedGeneration != generation)
-                    applyVerifiedCandidateTranslations(generation);
-            }
-        });
+        // 账号绑定在后台核对（CandidateTranslationBinding）：核对过就把缓存里的译文在这一帧画出，只为没见过的词发请求；还没核对过（刚显示键盘、换了输入框）时先不用缓存、不发请求，核对完再画。
+        candidateTranslationBinding.ensureFresh();
+        if (!candidateTranslationBinding.usable()) return;
+        candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
+        if (candidateTranslationStore.hasEntries() && candidateTranslationAppliedGeneration != generation) {
+            // render 在画候选条之前调这里：直接换上带译文的视图，不再嵌套一次 render。
+            JSONObject next = appliedOnlineTranslations(generation, false);
+            candidateTranslationAppliedGeneration = generation;
+            if (next != null) view = next;
+        }
     }
 
     private void applyCandidateTranslations(long generation) {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation) return;
-        verifyCandidateTranslationBinding(generation, same -> {
-            if (same == null) return;
-            if (same) applyVerifiedCandidateTranslations(generation);
-            else scheduleCandidateTranslations();
-        });
+        // 新译文到达：请求前后都核对过绑定（CandidateTranslationStore#fence），缓存可用时直接画上。
+        if (candidateTranslationBinding.usable()) applyVerifiedCandidateTranslations(generation);
     }
 
     private void applyVerifiedCandidateTranslations(long generation) {
@@ -4849,8 +4837,12 @@ public final class MSIMEInputService extends InputMethodService {
             words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         userTranslationStore.refresh(words, candidateTranslationTargets, generation);
-        if (userTranslationStore.hasEntries() && userTranslationAppliedGeneration != generation)
-            applyUserCandidateTranslations(generation);
+        if (userTranslationStore.hasEntries() && userTranslationAppliedGeneration != generation) {
+            // render 在画候选条之前调这里：缓存里的译文直接换上，不再嵌套一次 render（整套重画两遍）。
+            JSONObject next = appliedOnlineTranslations(generation, false);
+            userTranslationAppliedGeneration = generation;
+            if (next != null) view = next;
+        }
     }
 
     private void applyUserCandidateTranslations(long generation) {
@@ -4889,7 +4881,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject highlightedEntry = highlightedSlot < 0 || entries == null ? null : entries.optJSONObject(highlightedSlot);
         String highlightedText = highlightedEntry == null ? null : InputViewValuePolicy.textOr(highlightedEntry, "text", "");
         boolean account = includeAccount && candidateTranslationAccount && candidateTranslationStore != null
-            && candidateTranslationVerifiedGeneration == generation;
+            && candidateTranslationBinding != null && candidateTranslationBinding.usable();
         // 用户自己的服务没有账号绑定要校验，调用方已保证 generation 是当前 view 的这一代。
         CandidateTranslationStore user = includeAccount && !account && candidateTranslationRoute.userService()
             ? userTranslationStore : null;
