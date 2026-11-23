@@ -50,7 +50,7 @@ iOS 26 键的字母键只有一条纵向手势：沿设置里的「滑动方向�
 
 ## Testing
 
-`KeyboardTests/input/LetterCornerHintTests.swift` 覆盖：上下两个方向各自过 14pt 阈值、方向互斥与取位移大者、默认回落到角标、显式「无」不被回落覆盖、控制器把 V 的上下滑动作用到按键上、总开关关掉后两个方向都为空。`BackspaceSwipeDeletionTests.swift` 覆盖 `BackspaceClearSwipe` 的待命与取消阈值、非有限距离、`BackspaceClear` 的分轮与轮次上限。`MorePanelFoldTests.swift` 覆盖品牌键菜单里「双拼键位提示」的顺序、读写共享文档、键面 `contentInsets` 与提示标签随之切换、全拼方案下置灰。
+`KeyboardTests/input/LetterCornerHintTests.swift` 覆盖：上下两个方向各自过 14pt 阈值、方向互斥与取位移大者、默认回落到角标、显式「无」不被回落覆盖、控制器把 V 的上下滑动作用到按键上、总开关关掉后两个方向都为空、`LetterSwipeBinding.summary(symbol:)` 把「角标符号」写成真实符号（无符号回落、带符号带上、其它动作不受影响）。`BackspaceSwipeDeletionTests.swift` 覆盖 `BackspaceClearSwipe` 的待命与取消阈值、非有限距离、`BackspaceClear` 的分轮与轮次上限。`MorePanelFoldTests.swift` 覆盖品牌键菜单里「双拼键位提示」的顺序、读写共享文档、键面 `contentInsets` 与提示标签随之切换、全拼方案下置灰。
 
 本次改动没有编译也没有跑测试：开发机是 Windows，没有 Swift/Xcode 工具链。跑通的只有 `git diff --check`、括号平衡粗检和 `platforms/ios/tests/settings/ProjectConfigurationTests.py`（35 项中 34 项，唯一失败是 release date 脚本需要 `wsl` 的既有环境问题）。需要在 macOS 上 `xcodegen generate` 后跑 `MSIMEKeyboardTests`，并在真机验收：V 下滑粘贴、Q 下滑自定义文本、有选区时下滑复制、⌫ 上滑清空组字与正文、123 上滑进 `#+=`、开双拼提示后字母与角标/提示不重叠、横屏只让下边距。
 

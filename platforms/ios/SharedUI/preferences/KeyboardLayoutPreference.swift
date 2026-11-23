@@ -600,9 +600,9 @@ struct LetterSwipeBinding: Codable, Equatable {
     action != .none && (action != .text || !trimmedText.isEmpty)
   }
 
-  /// 设置页一行里的短名字。
-  var summary: String {
-    action == .text && isActive ? "文本：\(trimmedText)" : action.title()
+  /// 设置页一行里的短名字。`symbol` 传这个键的角标符号，让「角标符号」直接显示成真实的符号（如 Q 键显示「角标符号 1」）。
+  func summary(symbol: String? = nil) -> String {
+    action == .text && isActive ? "文本：\(trimmedText)" : action.title(symbol: symbol)
   }
 }
 

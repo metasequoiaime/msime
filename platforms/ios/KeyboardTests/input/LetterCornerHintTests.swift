@@ -299,6 +299,14 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertNil(LetterSwipePreference.stored(letter: "v", direction: .down))
   }
 
+  /// 列表行把「角标符号」写成真实符号：没给符号时回落成「角标符号」，给了就带上（如 Q 键「角标符号 1」）。
+  func testLetterSwipeSummaryShowsTheRealHintSymbol() {
+    XCTAssertEqual(LetterSwipeBinding(action: .symbol).summary(), "角标符号")
+    XCTAssertEqual(LetterSwipeBinding(action: .symbol).summary(symbol: "1"), "角标符号 1")
+    XCTAssertEqual(LetterSwipeBinding(action: .paste).summary(symbol: "1"), "粘贴")
+    XCTAssertEqual(LetterSwipeBinding(action: .text, text: "hi@example.com").summary(symbol: "1"), "文本：hi@example.com")
+  }
+
   /// 控制器把每键的上滑、下滑配置交给按键；总开关关掉后两个方向都不接。
   func testLetterKeyCarriesBothDirectionsFromThePerKeyTable() throws {
     let defaults = KeyboardLayoutPreference.defaults

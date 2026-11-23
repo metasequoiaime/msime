@@ -833,8 +833,10 @@ private struct LetterSwipeRowView: View {
   let letter: String
   let bindings: [String: [String: LetterSwipeBinding]]
 
+  private var symbol: String? { LetterHintSymbols.hint(for: letter) }
+
   private func summary(_ direction: KeyboardLayoutPreference.SwipeDirection) -> String {
-    LetterSwipePreference.binding(in: bindings, letter: letter, direction: direction).summary
+    LetterSwipePreference.binding(in: bindings, letter: letter, direction: direction).summary(symbol: symbol)
   }
 
   var body: some View {
