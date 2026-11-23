@@ -201,9 +201,7 @@ public final class MSIMEInputService extends InputMethodService {
     final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     long nineKeySpellingGeneration = -1;
-    private long candidateScrollSession = -1;
-    private long candidateScrollGeneration = -1;
-    private int candidateScrollPage = -1;
+    final CandidateScrollAnchor candidateScrollAnchor = new CandidateScrollAnchor();
     Button expandCandidates;
     /** 上屏后联想时展开键左边的关闭键（#10078），显示与否由 {@link PredictionButtonsPolicy} 和 {@link #predictionButtons} 决定。 */
     Button closePrediction;
@@ -4638,6 +4636,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (!sameCandidateVersion(snapshot, next))
                 throw new JSONException("Unexpected candidate generation");
             imeTranslationSenses.followOnlineRefresh(next);
+            markCandidatesLate(next);
             view = next;
         }
         return snapshot;
@@ -5061,6 +5060,9 @@ public final class MSIMEInputService extends InputMethodService {
                 return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
             }
         }, () -> session, next -> {
+            // 和在线结果一样：组字和高亮候选没变时义项页跟过去，不被这次重排关掉。
+            imeTranslationSenses.followOnlineRefresh(next);
+            markCandidatesLate(next);
             ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
         }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"), this::candidatePressed);
@@ -5089,6 +5091,12 @@ public final class MSIMEInputService extends InputMethodService {
         return candidateTreeHeld(candidateHorizontal ? candidates : verticalCandidates)
             || candidateTreeHeld(expandedCandidates)
             || (imeNineKeyPanel != null && candidateTreeHeld(imeNineKeyPanel.root()));
+    }
+
+    /** 不是用户输入引起的换代（停顿重排、在线候选、放出暂扣的尾部）：候选条和竖排候选保持已滚到的位置。 */
+    private void markCandidatesLate(JSONObject next) {
+        candidateScrollAnchor.markLate(CandidateGlossPolicy.strictOr(next.opt("session"), session),
+            CandidateGlossPolicy.strictOr(next.opt("generation"), -1));
     }
 
     private final CandidateHoldGate candidateHold = new CandidateHoldGate(
@@ -5194,6 +5202,7 @@ public final class MSIMEInputService extends InputMethodService {
                         != targetSession) return;
                 // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
                 imeTranslationSenses.followOnlineRefresh(next);
+                markCandidatesLate(next);
                 ImeCandidatePanelRefresh.accept(this, next);
                 render();
                 JSONObject current = onlineQuery(targetSession);
@@ -9904,7 +9913,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private static int strictCandidatePage(JSONObject value, String key) {
+    static int strictCandidatePage(JSONObject value, String key) {
         long page = CandidateGlossPolicy.strictOr(value.opt(key), Long.MIN_VALUE);
         return page < 0 || page > Integer.MAX_VALUE ? -1 : (int) page;
     }
@@ -13303,13 +13312,12 @@ public final class MSIMEInputService extends InputMethodService {
      * A new Engine page must start at its first visible candidate. Keeping the old scroll offset
      * makes a page change look like a reordered or missing candidate list, especially when the
      * previous page had a long sentence at the leading edge. Gloss-only redraws keep the offset
-     * because session/generation/page are unchanged.
+     * because session/generation/page are unchanged, and so do generations the user didn't cause
+     * (pause rerank, online rows, a released tail; see {@link CandidateScrollAnchor}).
      */
     private void resetCandidateScrollIfViewChanged() {
         if (view == null) {
-            candidateScrollSession = -1;
-            candidateScrollGeneration = -1;
-            candidateScrollPage = -1;
+            candidateScrollAnchor.forget();
             if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
             if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
             return;
@@ -13317,11 +13325,7 @@ public final class MSIMEInputService extends InputMethodService {
         long nextSession = CandidateGlossPolicy.strictOr(view.opt("session"), session);
         long nextGeneration = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         int nextPage = strictCandidatePage(view, "page");
-        if (!CandidateScrollPolicy.changed(candidateScrollSession, candidateScrollGeneration,
-                candidateScrollPage, nextSession, nextGeneration, nextPage)) return;
-        candidateScrollSession = nextSession;
-        candidateScrollGeneration = nextGeneration;
-        candidateScrollPage = nextPage;
+        if (!candidateScrollAnchor.moved(nextSession, nextGeneration, nextPage)) return;
         if (horizontalCandidateScroll != null)
             horizontalCandidateScroll.post(() -> horizontalCandidateScroll.scrollTo(0, 0));
         if (verticalCandidateScroll != null)
