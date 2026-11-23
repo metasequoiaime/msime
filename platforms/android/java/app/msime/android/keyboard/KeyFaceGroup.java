@@ -32,8 +32,9 @@ public final class KeyFaceGroup {
         boolean sized() { return width > 0 && height > 0; }
     }
 
-    /** 查表用：最小键格和主标签的上限都相同时参数相同。 */
-    private record Solved(Map<KeyFaceSlot, KeyFaceSolver.Cell> cells, float mainCapPx) { }
+    /** 查表用：最小、最大键格和主标签的上限都相同时参数相同。 */
+    private record Solved(Map<KeyFaceSlot, KeyFaceSolver.Cell> cells, Map<KeyFaceSlot, KeyFaceSolver.Cell> largest,
+            float mainCapPx) { }
 
     private static final int CACHE_SIZE = 8;
 
@@ -136,18 +137,20 @@ public final class KeyFaceGroup {
     }
 
     private void update() {
-        Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = smallestCells();
+        Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = cells(true);
         KeyFaceParams next = null;
         if (cells.containsKey(KeyFaceSlot.MAIN)) {
             float cap = leader == null || leader.params == null ? Float.POSITIVE_INFINITY : leader.params.main().sizePx();
-            Solved key = new Solved(cells, cap);
+            // 最大键格只在轮廓随键宽缩放时影响结果（右上角提示在大键上挪得更远）；没有轮廓时不进表键，免得键宽一变就重算。
+            Map<KeyFaceSlot, KeyFaceSolver.Cell> largest = environment.outline().none() ? cells : cells(false);
+            Solved key = new Solved(cells, largest, cap);
             next = solved.get(key);
             if (next == null) {
                 if (metrics == null) {
                     metrics = domain.measure(measurer, template.pairGapEm());
                     measureCount++;
                 }
-                next = KeyFaceSolver.solve(template, metrics, environment, cells, cap);
+                next = KeyFaceSolver.solve(template, metrics, environment, cells, largest, cap);
                 solveCount++;
                 solved.put(key, next);
                 if (solved.size() > CACHE_SIZE) solved.remove(solved.keySet().iterator().next());
@@ -160,15 +163,16 @@ public final class KeyFaceGroup {
         for (KeyFaceGroup follower : new ArrayList<>(followers)) follower.update();
     }
 
-    /** 每个位置：带这个位置、已经布局好的键里最小的宽和最小的高。 */
-    private Map<KeyFaceSlot, KeyFaceSolver.Cell> smallestCells() {
+    /** 每个位置：带这个位置、已经布局好的键里最小（{@code smallest}）或最大的宽和高。 */
+    private Map<KeyFaceSlot, KeyFaceSolver.Cell> cells(boolean smallest) {
         EnumMap<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
         for (Entry entry : members.values()) {
             if (!entry.sized()) continue;
             for (KeyFaceSlot slot : entry.slots()) {
                 KeyFaceSolver.Cell cell = cells.get(slot);
                 cells.put(slot, cell == null ? new KeyFaceSolver.Cell(entry.width(), entry.height())
-                    : new KeyFaceSolver.Cell(Math.min(cell.width(), entry.width()), Math.min(cell.height(), entry.height())));
+                    : smallest ? new KeyFaceSolver.Cell(Math.min(cell.width(), entry.width()), Math.min(cell.height(), entry.height()))
+                    : new KeyFaceSolver.Cell(Math.max(cell.width(), entry.width()), Math.max(cell.height(), entry.height())));
             }
         }
         return cells;

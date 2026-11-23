@@ -26,6 +26,9 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     private java.util.Set<String> textFaces = java.util.Set.of();
     private final Paint cornerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private String cornerHint = "";
+    /** 键帽轮廓：不在键组里的键（回车）自己画角标时按它挪进键帽（{@link KeyOutline}）。 */
+    private KeyOutline outline = KeyOutline.NONE;
+    private final android.graphics.Rect cornerBounds = new android.graphics.Rect();
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
@@ -139,6 +142,15 @@ public final class KeyboardIconKey extends KeyboardPressButton {
             size, color);
     }
 
+    /** 皮肤的键帽轮廓（{@code ImeStyler} 配键帽时设）；变了才重画。 */
+    public void setKeyOutline(KeyOutline value) {
+        KeyOutline next = value == null ? KeyOutline.NONE : value;
+        if (next.equals(outline)) return;
+        outline = next;
+        invalidate();
+    }
+
+    /** 角标按原来的文字框位置画（右端离右边 5 dp、上行线离上边 3 dp）；键帽轮廓在那里收进去时沿对角线挪进来，挪不进来就不画。 */
     private void drawCornerHint(Canvas canvas) {
         if (cornerHint.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
         float scale = CompactKeyTypography.scale(getContext(), getHeight());
@@ -147,8 +159,16 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
         float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) * scale - metrics.ascent;
-        canvas.drawText(cornerHint,
-            getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) * scale, baseline,
-            cornerPaint);
+        float right = getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) * scale;
+        if (!outline.none()) {
+            cornerPaint.getTextBounds(cornerHint, 0, cornerHint.length(), cornerBounds);
+            float origin = right - cornerPaint.measureText(cornerHint);
+            float offset = outline.spans(getWidth(), getHeight()).cornerOffset(origin + cornerBounds.right,
+                baseline + cornerBounds.top, cornerBounds.width(), cornerBounds.height());
+            if (Float.isNaN(offset)) return;
+            right -= offset;
+            baseline += offset;
+        }
+        canvas.drawText(cornerHint, right, baseline, cornerPaint);
     }
 }

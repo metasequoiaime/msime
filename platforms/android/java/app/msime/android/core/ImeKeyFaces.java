@@ -9,7 +9,7 @@ import java.util.Set;
  *
  * <p>功能键组的字不大过同一副键盘的字母组（{@link KeyFaceGroup#capMainAt}）。⇧、⌫ 和底行的 0 是常驻的键，建键行时会挪到别的地方（123 层、底行），所以清空时先把它们拿出组，放回原处时再放进新组。
  *
- * <p>皮肤字体、字体缩放、角标开关或引号样式变了，{@link #refresh} 在下一次渲染时换掉组的内容域，组里的键随之重画，不重建键行。双拼提示随方案画上时由键自己补进组里（{@link KeyFaceGroup#include}）。
+ * <p>皮肤字体、键帽形状、字体缩放、角标开关或引号样式变了，{@link #refresh} 在下一次渲染时换掉组的环境和内容域，组里的键随之重画，不重建键行。双拼提示随方案画上时由键自己补进组里（{@link KeyFaceGroup#include}）。
  */
 final class ImeKeyFaces {
     private static final Set<KeyFaceSlot> LETTER_SLOTS = Set.of(KeyFaceSlot.TOP_RIGHT, KeyFaceSlot.BOTTOM);
@@ -17,7 +17,7 @@ final class ImeKeyFaces {
     private static final Set<KeyFaceSlot> NO_HINTS = Set.of();
 
     /** 决定内容域、字体和环境的几项；都没变时 {@link #refresh} 什么也不做。 */
-    private record Inputs(float density, float fontScale, boolean monospaced, boolean corners,
+    private record Inputs(float density, float fontScale, boolean monospaced, KeyOutline outline, boolean corners,
             ChineseSymbolFaces.Marks marks, boolean variant) { }
 
     private final MSIMEInputService s;
@@ -196,14 +196,14 @@ final class ImeKeyFaces {
     /** {@code variant} 区分同一类组的两种内容域：14/18 键里是 18 键，九键数字组里是九键双拼。 */
     private Inputs inputs(boolean variant) {
         Configuration configuration = s.getResources().getConfiguration();
-        return new Inputs(s.getResources().getDisplayMetrics().density,
-            KeyboardTypographyPolicy.keyboardFontScale(configuration.fontScale),
-            s.skin != null && s.skin.monospaced(),
+        float density = s.getResources().getDisplayMetrics().density;
+        return new Inputs(density, KeyboardTypographyPolicy.keyboardFontScale(configuration.fontScale),
+            s.skin != null && s.skin.monospaced(), KeyOutline.forSkin(s.skin, density),
             s.localSettings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS), s.punctuationMarks(), variant);
     }
 
     private static KeyFaceEnvironment environment(Inputs inputs) {
-        return new KeyFaceEnvironment(inputs.density(), inputs.fontScale());
+        return new KeyFaceEnvironment(inputs.density(), inputs.fontScale(), inputs.outline());
     }
 
     private static KeyFaceMeasurer measurer(Inputs inputs) {

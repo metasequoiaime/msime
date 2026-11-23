@@ -12,6 +12,9 @@ public interface KeyFaceMeasurer {
     /** {@code text} 在 {@code sizePx} 字号下的墨迹框，相对基线原点（{@code top} 在基线以上，为负）。 */
     Ink ink(KeyFaceSlot slot, String text, float sizePx);
 
+    /** 这个位置的字体在 {@code sizePx} 字号下的上行线（字体度量的 ascent，相对基线，为负）：右上角提示按文字框（上行线、排版宽度）定位，与原来的角标一样。 */
+    float ascent(KeyFaceSlot slot, float sizePx);
+
     /** 墨迹框，像素。 */
     record Ink(float left, float top, float right, float bottom) {
         public float width() { return right - left; }

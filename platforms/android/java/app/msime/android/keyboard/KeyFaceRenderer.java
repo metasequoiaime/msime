@@ -6,7 +6,7 @@ import android.graphics.Paint;
 /**
  * 按键组的 {@link KeyFaceParams} 画一个键的键面。每个放进键组的键有一个，记着这个键按当前参数、文字和尺寸算好的位置；参数、文字或尺寸变了才重新定位（量这个键自己的文字），绘制时只画，不量字、不分配对象。
  *
- * <p>绘制规则见 {@link KeyFaceParams}：主标签按排版宽度水平居中（两个字母的键面分开画、中间按模板的间距），竖直方向按内容域墨迹对齐，所以同一组的主标签共用一条基线；右上角提示按自己的墨迹右沿贴边，底部提示水平居中。
+ * <p>绘制规则见 {@link KeyFaceParams}：主标签按排版宽度水平居中（两个字母的键面分开画、中间按模板的间距），竖直方向按内容域墨迹对齐，所以同一组的主标签共用一条基线；右上角提示按文字框靠右上角、在键帽轮廓收进去的地方挪进键帽，底部提示水平居中。
  */
 final class KeyFaceRenderer {
     private final KeyFaceGroup group;
@@ -103,9 +103,22 @@ final class KeyFaceRenderer {
         KeyFaceParams.Hint topRight = params.topRight();
         corner = topRight == null ? "" : TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.TOP_RIGHT));
         if (!corner.isEmpty()) {
-            KeyFaceMeasurer.Ink ink = measurer.ink(KeyFaceSlot.TOP_RIGHT, corner, topRight.sizePx());
-            cornerX = width - topRight.insetXPx() - ink.right();
-            cornerBaseline = topRight.insetPx() - topRight.inkTopPx();
+            // 按文字框定位（排版宽度的右端、上行线），键帽轮廓在这里收进去时按这个键自己的尺寸沿对角线挪进来，挪不进来就不画。
+            float hintSize = topRight.sizePx();
+            cornerX = width - topRight.insetXPx() - measurer.advance(KeyFaceSlot.TOP_RIGHT, corner, hintSize);
+            cornerBaseline = topRight.topBaseline();
+            KeyOutline outline = group.environment().outline();
+            if (!outline.none()) {
+                KeyFaceMeasurer.Ink ink = measurer.ink(KeyFaceSlot.TOP_RIGHT, corner, hintSize);
+                float offset = outline.spans(width, height).cornerOffset(cornerX + ink.right(), cornerBaseline + ink.top(),
+                    ink.width(), ink.height());
+                if (Float.isNaN(offset)) {
+                    corner = "";
+                } else {
+                    cornerX -= offset;
+                    cornerBaseline += offset;
+                }
+            }
         }
         KeyFaceParams.Hint under = params.bottom();
         bottom = under == null ? "" : TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.BOTTOM));

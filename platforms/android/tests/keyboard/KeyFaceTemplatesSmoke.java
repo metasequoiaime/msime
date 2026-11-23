@@ -24,6 +24,8 @@ public final class KeyFaceTemplatesSmoke {
         @Override public Ink ink(KeyFaceSlot slot, String text, float sizePx) {
             return new Ink(0, -0.5f * sizePx, advance(slot, text, sizePx), 0);
         }
+
+        @Override public float ascent(KeyFaceSlot slot, float sizePx) { return -0.9f * sizePx; }
     };
 
     public static void main(String[] args) {
@@ -32,6 +34,10 @@ public final class KeyFaceTemplatesSmoke {
             check(near(design.main().sizePx(), 22), template.name() + " 默认键高上的字母应为 22 sp：" + design.main().sizePx());
             check(near(design.topRight().sizePx(), 10), template.name() + " 角标应为 10 sp：" + design.topRight().sizePx());
             check(near(design.bottom().sizePx(), 9), template.name() + " 双拼提示应为 9 sp：" + design.bottom().sizePx());
+            // 角标按文字框放在原来的位置：上行线离上边 3 dp，排版宽度的右端离右边 5 dp。
+            check(near(design.topRight().insetPx(), KeyHintButton.CORNER_HINT_TOP_DP)
+                && near(design.topRight().insetXPx(), KeyHintButton.CORNER_HINT_RIGHT_DP),
+                template.name() + " 角标应离上边 3 dp、右边 5 dp：" + design.topRight());
             KeyFaceParams scaled = solve(template, new KeyFaceEnvironment(1, 1.15f), 400, 52);
             check(near(scaled.main().sizePx(), 22 * 1.15f), template.name() + " 应跟随字体缩放：" + scaled.main().sizePx());
             check(near(solve(template, new KeyFaceEnvironment(1, 1), 400, 400).main().sizePx(), 24),
@@ -61,7 +67,7 @@ public final class KeyFaceTemplatesSmoke {
         check(!functions.capAligned(), "功能键的汉字应按整个墨迹居中");
         check(functions.has(KeyFaceSlot.TOP_RIGHT) && !functions.has(KeyFaceSlot.BOTTOM), "功能键只有右上角提示");
 
-        // 九键：默认键高上字母组 18 sp、数字 22 sp；右上角的数字与字母键角标同字号（10 sp）、离上边 3 dp，离右边 12 dp（圆角键帽向内收）。
+        // 九键：默认键高上字母组 18 sp、数字 22 sp；右上角的数字与字母键角标同字号（10 sp）、文字框离上边 3 dp，离右边 12 dp（与原来的九键数字相同）。
         KeyFaceParams nine = solve(KeyFaceTemplates.NINE_LETTERS, new KeyFaceEnvironment(1, 1), 400, 52);
         check(near(nine.main().sizePx(), 18), "九键字母组应为 18 sp：" + nine.main().sizePx());
         check(near(nine.topRight().sizePx(), KeyHintButton.CORNER_HINT_SP), "九键数字应与字母键角标同字号：" + nine.topRight().sizePx());
@@ -72,8 +78,8 @@ public final class KeyFaceTemplatesSmoke {
         KeyFaceParams digits = solve(KeyFaceTemplates.NINE_DIGITS, new KeyFaceEnvironment(1, 1), 400, 52);
         check(near(digits.main().sizePx(), 22) && digits.topRight() == null && near(digits.bottom().sizePx(), 9),
             "九键数字应为 22 sp、没有右上角、底部提示 9 sp：" + digits);
-        check(near(KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetXEm(),
-            KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetEm()), "字母键角标离右边与离上边一样远");
+        check(near(KeyFaceTemplates.LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetEm(),
+            KeyFaceTemplates.NINE_LETTERS.slot(KeyFaceSlot.TOP_RIGHT).insetEm()), "九键数字与字母键角标离上边一样远");
         // 数字行：默认键高上 20 sp，没有提示，按大写字母高居中。
         KeyFaceParams numbers = solve(KeyFaceTemplates.NUMBER_ROW, new KeyFaceEnvironment(1, 1), 400, 52);
         check(near(numbers.main().sizePx(), 20) && numbers.topRight() == null && numbers.bottom() == null,

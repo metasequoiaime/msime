@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.widget.Button;
@@ -18,9 +19,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONObject;
 
 /**
  * 用产品的键组画字母键和键区功能键：同一组的键用同一份参数（字号、基线、退让方式），主标签、角标和底部提示的墨迹不相碰、不出键格，换提示只重画不重新布局；功能键的字不大过字母、和字母落在同一条中线上，图标画在键格中间。只比墨迹框和算出的参数，不比像素颜色以外的细节。
+ *
+ * <p>键帽轮廓：用产品的设计皮肤（胶囊、卵石、票根、圆角，平面和凸起）给字母键、九键和回车配上产品自己的键帽，键面的墨迹一点都不落在键帽面之外（凸起的厚度和边框也算在外面）。
  */
 final class KeyFaceGroupChecks {
     private KeyFaceGroupChecks() { }
@@ -39,6 +43,7 @@ final class KeyFaceGroupChecks {
                         verifyFunctions(context, height);
                         verifyNineKeys(context, height);
                         verifyNumberRow(context, height);
+                        verifyOutlines(context, height);
                     }
                 }
             } catch (Exception | AssertionError error) { failure.set(error); }
@@ -218,10 +223,13 @@ final class KeyFaceGroupChecks {
                 "九键主标签没有水平居中：" + main + " " + at);
             check(!Rect.intersects(main, corner), "九键主标签压住数字：" + at);
             if (product.hintSize(params, "topRight") > 0) {
-                float right = key.getWidth() - corner.right, top = corner.top;
-                check(Math.abs(right - product.hintInset(params, "insetXPx")) <= 2 * density,
-                    "九键数字离右边不对：" + right + " " + at);
-                check(Math.abs(top - product.hintInset(params, "insetPx")) <= 2 * density, "九键数字离上边不对：" + top + " " + at);
+                // 数字按文字框定位：排版宽度的右端离右边 insetX，所以墨迹右沿再往里一个字形的右侧留白（「1」的留白比「8」大得多）；数字的墨迹下沿就是基线。
+                float right = key.getWidth() - corner.right, baseline = corner.bottom;
+                float bearing = product.rightBearing(product.digitText(key), product.hintSize(params, "topRight"));
+                check(Math.abs(right - product.hintInset(params, "insetXPx") - bearing) <= 2 * density,
+                    "九键数字离右边不对：" + right + "（右侧留白 " + bearing + "）" + at);
+                check(Math.abs(baseline - product.hintInset(params, "topBaseline")) <= 2 * density,
+                    "九键数字的基线不对：" + baseline + " " + at);
             }
         }
         product.setDigit(keys[0], "");
@@ -275,6 +283,85 @@ final class KeyFaceGroupChecks {
         }
     }
 
+    /**
+     * 键帽轮廓：每种键形和材质配上产品自己的键帽，字母键（窄到宽，带角标和底部提示）、九键字母和数字（双拼底部提示）、回车（「换行」角标）的墨迹都落在键帽面里。键帽面取键帽画出来的白色部分：凸起材质下方的厚度画得更暗，边框是灰色，都不算。
+     */
+    private static void verifyOutlines(Context context, int heightDp) throws Exception {
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        for (String shape : new String[] {"capsule", "pebble", "ticket", "rounded"}) {
+            for (String material : new String[] {"flat", "raised"}) {
+                Product product = new Product(context);
+                Object skin = product.designedSkin(shape, material);
+                product.outline = product.outlineFor(skin, density);
+                String at = shape + "/" + material + " " + where;
+                Object letters = product.letterGroup(density, scale);
+                String[][] faces = {{"W", "uang", "2"}, {"Q", "iu", "（"}, {"M", "ian", "@"}};
+                int[] widthsDp = {28, 34, 48};
+                for (int index = 0; index < faces.length; index++) {
+                    Button key = product.letterKey(faces[index][0], faces[index][1], faces[index][2]);
+                    product.join(key, letters);
+                    layout(key, Math.round(widthsDp[index] * density), height);
+                    inside(key, product.keyCap(skin, density), faces[index][0] + " " + widthsDp[index] + "dp " + at);
+                }
+                Object nine = product.nineGroup("NINE_LETTERS", "letters", density, scale);
+                for (String[] face : new String[][] {{"WXYZ", "9"}, {"@#", "1"}}) {
+                    Button key = product.nineKey(face[0], face[1], "");
+                    product.joinNine(key, nine, "TOP_RIGHT");
+                    layout(key, Math.round(78 * density), height);
+                    inside(key, product.keyCap(skin, density), face[0] + " " + at);
+                }
+                Object digits = product.nineGroup("NINE_DIGITS", "digits", density, scale);
+                Button digit = product.nineKey("8", "", "zhuang");
+                product.joinNine(digit, digits, "BOTTOM");
+                layout(digit, Math.round(78 * density), height);
+                inside(digit, product.keyCap(skin, density), "九键双拼 " + at);
+                Button enter = product.iconKey("RETURN", "");
+                product.setIconCorner(enter, "换行");
+                product.setKeyOutline(enter, product.outline);
+                layout(enter, Math.round(55 * density), height);
+                inside(enter, product.keyCap(skin, density), "回车 " + at);
+            }
+        }
+    }
+
+    /** 键面的墨迹（不画底色时不透明的像素）都落在键帽面（键帽单独画出来的白色像素）里。 */
+    private static void inside(Button key, Drawable cap, String at) {
+        int width = key.getWidth(), height = key.getHeight();
+        Bitmap shape = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Bitmap face = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        try {
+            cap.setBounds(0, 0, width, height);
+            cap.draw(new Canvas(shape));
+            key.setBackground(null);
+            key.draw(new Canvas(face));
+            int[] capPixels = new int[width * height], facePixels = new int[width * height];
+            shape.getPixels(capPixels, 0, width, 0, 0, width, height);
+            face.getPixels(facePixels, 0, width, 0, 0, width, height);
+            int outside = 0, inked = 0, firstX = -1, firstY = -1;
+            for (int index = 0; index < capPixels.length; index++) {
+                if (Color.alpha(facePixels[index]) < 96) continue;
+                inked++;
+                int pixel = capPixels[index];
+                int red = Color.red(pixel), green = Color.green(pixel), blue = Color.blue(pixel);
+                boolean surface = Color.alpha(pixel) > 200 && red > 205 && Math.abs(red - green) < 12
+                    && Math.abs(green - blue) < 12;
+                if (!surface && outside++ == 0) {
+                    firstX = index % width;
+                    firstY = index / width;
+                }
+            }
+            check(inked > 0, "键面没有画出来：" + at);
+            check(outside == 0, "键面有 " + outside + " 个像素落在键帽外（第一个在 " + firstX + "," + firstY + "，键 " + width + "×"
+                + height + "）：" + at);
+        } finally {
+            shape.recycle();
+            face.recycle();
+        }
+    }
+
     /** 画一个键，返回红（右上角）、绿（主标签）、蓝（底部）三种墨迹框。 */
     private static Rect[] draw(Button key) {
         Bitmap bitmap = Bitmap.createBitmap(key.getWidth(), key.getHeight(), Bitmap.Config.ARGB_8888);
@@ -316,6 +403,47 @@ final class KeyFaceGroupChecks {
         private final Class<?> hintButton;
         private final Class<?> pressButton;
 
+        /** 键组环境里的键帽轮廓；{@code null} 时没有轮廓（只受键格限制）。 */
+        Object outline;
+
+        Object environment(float density, float fontScale) throws Exception {
+            Class<?> type = loader.loadClass("app.msime.android.KeyFaceEnvironment");
+            if (outline == null) return type.getConstructor(float.class, float.class).newInstance(density, fontScale);
+            return type.getConstructor(float.class, float.class, loader.loadClass("app.msime.android.KeyOutline"))
+                .newInstance(density, fontScale, outline);
+        }
+
+        /** 产品的设计皮肤：中性配色，键形 {@code shape}、材质 {@code material}。 */
+        Object designedSkin(String shape, String material) throws Exception {
+            JSONObject design = new JSONObject().put("background", 0xE6EBF0).put("keyBackground", 0xFFFFFF)
+                .put("keyForeground", 0x1F2933).put("accent", 0x2F6FB0).put("actionBackground", 0x2F6FB0)
+                .put("cornerRadius", 18).put("borderWidth", 0.5).put("customBorderColor", 0xB8C2CC).put("shadow", 0.1)
+                .put("keyOpacity", 1).put("keyShape", shape).put("keyMaterial", material);
+            return loader.loadClass("app.msime.android.KeyboardSkin").getMethod("custom", JSONObject.class, boolean.class)
+                .invoke(null, design, false);
+        }
+
+        Object outlineFor(Object skin, float density) throws Exception {
+            Class<?> skinType = loader.loadClass("app.msime.android.KeyboardSkin");
+            return loader.loadClass("app.msime.android.KeyOutline").getMethod("forSkin", skinType, float.class)
+                .invoke(null, skin, density);
+        }
+
+        /** 产品给这个皮肤画的白色键帽。 */
+        Drawable keyCap(Object skin, float density) throws Exception {
+            return (Drawable) loader.loadClass("app.msime.android.KeyboardSkinKeyDrawable")
+                .getConstructor(loader.loadClass("app.msime.android.KeyboardSkin"), int.class, boolean.class, float.class)
+                .newInstance(skin, Color.WHITE, false, density);
+        }
+
+        void setIconCorner(Button key, String text) throws Exception {
+            key.getClass().getMethod("setCornerHint", String.class).invoke(key, text);
+        }
+
+        void setKeyOutline(Button key, Object value) throws Exception {
+            key.getClass().getMethod("setKeyOutline", loader.loadClass("app.msime.android.KeyOutline")).invoke(key, value);
+        }
+
         Product(Context context) throws Exception {
             this.context = context;
             loader = context.getClassLoader();
@@ -329,8 +457,7 @@ final class KeyFaceGroupChecks {
 
         Object letterGroup(float density, float fontScale) throws Exception {
             Object template = loader.loadClass("app.msime.android.KeyFaceTemplates").getField("LETTERS").get(null);
-            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
-                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Object environment = environment(density, fontScale);
             Map<Object, List<String>> texts = new HashMap<>();
             List<String> faces = new ArrayList<>();
             for (char letter = 'A'; letter <= 'Z'; letter++) faces.add(String.valueOf(letter));
@@ -351,8 +478,7 @@ final class KeyFaceGroupChecks {
 
         Object functionGroup(float density, float fontScale) throws Exception {
             Object template = loader.loadClass("app.msime.android.KeyFaceTemplates").getField("FUNCTIONS").get(null);
-            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
-                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Object environment = environment(density, fontScale);
             Object domain = loader.loadClass("app.msime.android.FunctionKeyFaceDomains").getMethod("functions").invoke(null);
             Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer")
                 .getConstructor(Typeface.class).newInstance(Typeface.DEFAULT);
@@ -397,8 +523,7 @@ final class KeyFaceGroupChecks {
         Object group(String template, String domainClass, String domainMethod, Typeface typeface, float density,
                 float fontScale) throws Exception {
             Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
-            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
-                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Object environment = environment(density, fontScale);
             Object texts = loader.loadClass(domainClass).getMethod(domainMethod).invoke(null);
             Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
                 .newInstance(typeface);
@@ -413,8 +538,7 @@ final class KeyFaceGroupChecks {
         /** 九键的组：模板 {@code template}，内容域取 {@code NineKeyFaceDomains} 的 {@code domain}（双拼用一张小表），字体同产品的九键。 */
         Object nineGroup(String template, String domain, float density, float fontScale) throws Exception {
             Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
-            Object environment = loader.loadClass("app.msime.android.KeyFaceEnvironment")
-                .getConstructor(float.class, float.class).newInstance(density, fontScale);
+            Object environment = environment(density, fontScale);
             Class<?> domains = loader.loadClass("app.msime.android.NineKeyFaceDomains");
             Object texts = "letters".equals(domain) ? domains.getMethod("letters").invoke(null)
                 : domains.getMethod("digits").invoke(null);
@@ -439,6 +563,22 @@ final class KeyFaceGroupChecks {
             setDigit(key, digit);
             setBottom(key, bottom);
             return key;
+        }
+
+        /** 九键右上角此刻画的数字（键面的 {@code TOP_RIGHT} 文字）。 */
+        String digitText(Button key) throws Exception {
+            java.lang.reflect.Method method = key.getClass().getMethod("faceText", slot);
+            return String.valueOf(method.invoke(key, slot("TOP_RIGHT")));
+        }
+
+        /** 提示用系统默认字体：{@code text} 在 {@code sizePx} 字号下排版宽度的右端比墨迹右沿多出多少。 */
+        float rightBearing(String text, float sizePx) {
+            android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            paint.setTypeface(Typeface.DEFAULT);
+            paint.setTextSize(sizePx);
+            Rect bounds = new Rect();
+            paint.getTextBounds(text, 0, text.length(), bounds);
+            return paint.measureText(text) - bounds.right;
         }
 
         void setDigit(Button key, String digit) throws Exception {

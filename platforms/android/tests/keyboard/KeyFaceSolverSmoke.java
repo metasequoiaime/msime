@@ -27,6 +27,8 @@ public final class KeyFaceSolverSmoke {
             float below = text.contains("Q") ? 0.2f * sizePx : 0;
             return new Ink(0.05f * sizePx, -0.7f * sizePx, advance(slot, text, sizePx) - 0.05f * sizePx, below);
         }
+
+        @Override public float ascent(KeyFaceSlot slot, float sizePx) { return -0.9f * sizePx; }
     };
 
     static KeyFaceTemplate template(boolean corner, boolean bottom) {
@@ -126,7 +128,63 @@ public final class KeyFaceSolverSmoke {
         float pair = KeyFaceDomain.mainWidth(MEASURER, "WE", 100, 0.15f);
         check(near(pair, 90 + 15 + 60), "双字母宽度应含间距：" + pair);
         check(near(KeyFaceDomain.mainWidth(MEASURER, "WE", 100, 0), 150), "没有间距时应整串排");
+        // 键帽轮廓：各种键形和尺寸下，右上角提示挪进键帽后仍不压住主标签，主标签不出轮廓；凸起键帽的底部提示离开厚度。
+        int moved = 0;
+        for (KeyOutline.Shape shape : KeyOutline.Shape.values()) {
+            for (float depth : new float[] {0, 9}) {
+                KeyOutline outline = new KeyOutline(shape, 30, 3, depth, 6);
+                KeyFaceEnvironment framed = new KeyFaceEnvironment(3f, 1f, outline);
+                for (int width = 60; width <= 330; width += 30) {
+                    for (int height = 120; height <= 240; height += 20) {
+                        for (boolean bottom : new boolean[] {false, true}) {
+                            KeyFaceParams params = solve(true, bottom, framed, width, height);
+                            moved += verifyOutline(params, bottom, outline, width, height);
+                            KeyFaceParams.Hint under = params.bottom();
+                            if (under != null) {
+                                String at = shape + " " + width + "×" + height;
+                                check(under.insetPx() - BOTTOM.insetEm() * under.sizePx() >= depth - 0.01f,
+                                    "凸起键帽的底部提示应离开厚度：" + at);
+                                float hintWidth = domain(true, true).measure(MEASURER, 0).get(KeyFaceSlot.BOTTOM)
+                                    .width(under.sizePx());
+                                float edge = height - under.insetPx();
+                                check(outline.spans(width, height).fits((width - hintWidth) / 2f, edge - under.inkHeight(),
+                                    (width + hintWidth) / 2f, edge), "底部提示出了键帽轮廓：" + at);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        check(moved > 0, "轮廓网格里应有挪进键帽的角标");
         System.out.println("KeyFaceSolverSmoke passed");
+    }
+
+    /** 在轮廓里按绘制规则（与 {@link KeyFaceRenderer} 相同）摆出主标签和挪过的角标，检查都在键帽里、互不相碰；返回角标是否挪过（0 或 1）。 */
+    private static int verifyOutline(KeyFaceParams params, boolean bottom, KeyOutline outline, int width, int height) {
+        String where = outline.shape() + " 深 " + outline.bottomDepthPx() + " " + width + "×" + height
+            + (bottom ? " 带底部提示" : "") + " " + params.strategy();
+        KeyOutline.Spans spans = outline.spans(width, height);
+        Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics = domain(true, bottom).measure(MEASURER, 0);
+        KeyFaceDomain.SlotMetrics main = metrics.get(KeyFaceSlot.MAIN);
+        KeyFaceParams.Main face = params.main();
+        float size = face.sizePx();
+        float left = (width - main.width(size)) / 2f + face.shiftXPx();
+        float right = left + main.width(size);
+        float baseline = face.baseline(height);
+        float inkTop = baseline + face.inkTopPx(), inkBottom = baseline + face.inkBottomPx();
+        check(spans.fits(left, inkTop, right, inkBottom), "主标签出了键帽轮廓：" + where);
+        KeyFaceParams.Hint corner = params.topRight();
+        if (corner == null) return 0;
+        KeyFaceDomain.SlotMetrics hint = metrics.get(KeyFaceSlot.TOP_RIGHT);
+        float boxRight = width - corner.insetXPx(), boxWidth = hint.width(corner.sizePx());
+        float boxTop = corner.topBaseline() + corner.inkTopPx();
+        float offset = spans.cornerOffset(boxRight, boxTop, boxWidth, corner.inkHeight());
+        check(!Float.isNaN(offset), "画出来的角标应放得进键帽：" + where);
+        float gap = ENVIRONMENT.px(1);
+        float cornerLeft = boxRight - boxWidth - offset, cornerBottom = boxTop + corner.inkHeight() + offset;
+        check(inkTop >= cornerBottom + gap - 0.5f || right + gap <= cornerLeft + 0.5f, "挪过的角标压住主标签：" + where);
+        check(inkBottom <= height, "主标签出了键格：" + where);
+        return offset > 0 ? 1 : 0;
     }
 
     private static float icon(KeyFaceTemplate template, KeyFaceEnvironment environment, int width, int height) {
@@ -154,8 +212,8 @@ public final class KeyFaceSolverSmoke {
         KeyFaceParams.Hint corner = params.topRight();
         if (corner != null) {
             KeyFaceDomain.SlotMetrics hint = domain(true, bottom).measure(MEASURER, 0).get(KeyFaceSlot.TOP_RIGHT);
-            float cornerLeft = width - corner.insetXPx() - hint.inkWidth(corner.sizePx());
-            float cornerBottom = corner.insetPx() + corner.inkHeight();
+            float cornerLeft = width - corner.insetXPx() - hint.width(corner.sizePx());
+            float cornerBottom = corner.topBaseline() + corner.inkBottomPx();
             check(inkTop >= cornerBottom + gap - 0.5f || right + gap <= cornerLeft + 0.5f, "主标签压住角标：" + where);
         } else {
             check(params.strategy() == KeyFaceTemplate.Strategy.HIDE_HINTS, "角标只应在隐藏退让时缺席：" + where);

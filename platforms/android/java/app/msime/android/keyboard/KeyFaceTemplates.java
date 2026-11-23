@@ -21,8 +21,11 @@ public final class KeyFaceTemplates {
 
     /** 字母键的主标签：设计 22 sp，最小 12 sp（再小就认不出），最大 24 sp。 */
     static final KeyFaceTemplate.SlotSpec LETTER = slot(22, 12, 24, 0, 255);
-    /** 右上角的符号：设计 10 sp，墨迹离上边、右边 0.3 个字号（10 sp 时 3 dp）。 */
-    static final KeyFaceTemplate.SlotSpec CORNER = slot(10, 8, 12, 0.3f, 255);
+    /** 右上角的符号：设计 10 sp，文字框离上边 0.3、离右边 0.5 个字号（10 sp 时 3 dp、5 dp，与原来的角标同一个位置）。 */
+    static final KeyFaceTemplate.SlotSpec CORNER = new KeyFaceTemplate.SlotSpec(
+        KeyHintButton.CORNER_HINT_SP / REFERENCE_KEY_HEIGHT_DP, 8, 12,
+        KeyHintButton.CORNER_HINT_TOP_DP / KeyHintButton.CORNER_HINT_SP,
+        KeyHintButton.CORNER_HINT_RIGHT_DP / KeyHintButton.CORNER_HINT_SP, 255);
     /** 底部的双拼提示：设计 9 sp，墨迹离下边 0.25 个字号，稍淡。 */
     static final KeyFaceTemplate.SlotSpec BOTTOM = slot(9, 7, 11, 0.25f, 204);
 
@@ -40,7 +43,7 @@ public final class KeyFaceTemplates {
     /** 数字九宫格和九键双拼的数字：设计 22 sp，最小 12 sp，最大 24 sp，与字母键相同。 */
     static final KeyFaceTemplate.SlotSpec NINE_DIGIT = slot(22, 12, 24, 0, 255);
     /**
-     * 九键右上角的数字：字号和离上边的距离与字母键角标相同，离右边 1.2 个字号（10 sp 时 12 dp）：九键键帽宽，圆角和胶囊键帽的右上角在顶部向内收得多，数字贴到 0.3 个字号会压在弧线上。
+     * 九键右上角的数字：字号和文字框离上边的距离与字母键角标相同，离右边 1.2 个字号（10 sp 时 12 dp），与原来的九键数字同一个位置；键帽轮廓在那里收进去时再沿对角线挪进来（{@link KeyOutline}）。
      */
     static final KeyFaceTemplate.SlotSpec NINE_CORNER = new KeyFaceTemplate.SlotSpec(
         KeyHintButton.CORNER_HINT_SP / REFERENCE_KEY_HEIGHT_DP, 8, 12,

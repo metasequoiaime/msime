@@ -37,6 +37,12 @@ public final class PaintKeyFaceMeasurer implements KeyFaceMeasurer {
         return paint.measureText(text);
     }
 
+    @Override public float ascent(KeyFaceSlot slot, float sizePx) {
+        Paint paint = paints.get(slot);
+        paint.setTextSize(sizePx);
+        return paint.ascent();
+    }
+
     @Override public Ink ink(KeyFaceSlot slot, String text, float sizePx) {
         Paint paint = paints.get(slot);
         paint.setTextSize(sizePx);

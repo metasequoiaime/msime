@@ -46,9 +46,9 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
     }
 
     /**
-     * 一个位置在 {@link #REFERENCE_PX} 字号下的上界：最宽的排版宽度、最宽的墨迹，以及所有文字墨迹合起来的上沿和下沿（相对基线，上沿为负）。
+     * 一个位置在 {@link #REFERENCE_PX} 字号下的上界：最宽的排版宽度、最宽的墨迹，所有文字墨迹合起来的上沿和下沿（相对基线，上沿为负），以及字体的上行线（{@link KeyFaceMeasurer#ascent}，为负）。
      */
-    public record SlotMetrics(float width, float inkWidth, float inkTop, float inkBottom) {
+    public record SlotMetrics(float width, float inkWidth, float inkTop, float inkBottom, float ascent) {
         public float inkHeight() { return inkBottom - inkTop; }
 
         /** 按字号 {@code sizePx} 换算的排版宽度。 */
@@ -61,6 +61,8 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
         public float inkBottom(float sizePx) { return inkBottom * sizePx / REFERENCE_PX; }
 
         public float inkHeight(float sizePx) { return inkHeight() * sizePx / REFERENCE_PX; }
+
+        public float ascent(float sizePx) { return ascent * sizePx / REFERENCE_PX; }
 
         /**
          * 竖直居中时要占的高度：按整个墨迹居中时就是墨迹高；按基线以上的墨迹居中（{@link KeyFaceTemplate#capAligned}）时，基线以下的部分挂在居中的那段下面，所以上下各要留出一份。
@@ -86,7 +88,7 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
                 inkTop = Math.min(inkTop, ink.top());
                 inkBottom = Math.max(inkBottom, ink.bottom());
             }
-            metrics.put(slot, new SlotMetrics(width, inkWidth, inkTop, inkBottom));
+            metrics.put(slot, new SlotMetrics(width, inkWidth, inkTop, inkBottom, measurer.ascent(slot, REFERENCE_PX)));
         }
         return metrics;
     }
