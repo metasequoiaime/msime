@@ -277,7 +277,9 @@ final class LetterCornerHintTests: XCTestCase {
     // 显式把上滑改成「无」：存下去，不再回落成角标。
     LetterSwipePreference.set(LetterSwipeBinding(action: .none), letter: "q", direction: .up)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .none)
-    XCTAssertEqual(LetterSwipePreference.stored(letter: "q", direction: .up)?.action, .none)
+    // 这里的期望值必须写全 `LetterSwipeAction.none`：左边是 `LetterSwipeAction?`，裸写 `.none`
+    // 会被解析成 `Optional.none`（即 nil），拿 some(.none) 去和 nil 比，断言必错。
+    XCTAssertEqual(LetterSwipePreference.stored(letter: "q", direction: .up)?.action, LetterSwipeAction.none)
 
     LetterSwipePreference.set(LetterSwipeBinding(action: .paste), letter: "v", direction: .down)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .down).action, .paste)
