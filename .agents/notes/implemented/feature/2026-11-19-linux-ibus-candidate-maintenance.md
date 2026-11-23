@@ -30,6 +30,7 @@ Status: implemented
 - 新增 `linux-gnome-pointer-dbus` 契约测试（目标名沿用）：有 session bus 时起假服务验证矩形读取、候选框不可见（返回全 0）判空、名字释放后返回空；无 bus 时 skip（77）。测试用工作线程调同步助手、主线程泵 D-Bus 事件，否则假服务无法应答。
 - 新增 `CandidateMenuHint.h`：`kCandidateMaintenanceShortcutHint` 常量锁定辅助区域提示文案，`linux-floating-panels-model` 断言四个快捷键都在文案里。
 - 与造词 PR 无代码依赖：本 PR 的平台代码只碰 `platforms/linux/`，另只改共享能力位与设置页速查声明，独立验证、独立 PR。
+- **快捷键提示只写在 iBus 菜单上**：`CandidateActionPolicy.h` 里无后缀的 `candidate_*_label` 恢复成不带快捷键的文案，继续供 Fcitx5 候选菜单与状态区操作使用；新增的 `*_with_shortcut` 只供 iBus「候选操作」属性菜单和右键菜单。最初把共享常量直接改成「置顶 (Ctrl+↑)」等带提示文案，CI 的 `fcitx5-native-context` 随即失败；根因不是测试过期——Fcitx5 没有实现 `CandidateMaintenanceShortcut.h` 这组按键，照搬提示等于在菜单上写出用户按不出的键，和本篇「fcitx5 零行为变化」的范围约定冲突。修的是文案归属，不改旧断言。
 
 ## Verification
 
@@ -44,6 +45,7 @@ Status: implemented
 - **候选框矩形右侧避让（最终方案）验证**：TDD 三个红灯先行。红灯一：`linux-floating-panels-model` 补 `CandidateRect` 定位断言，编译报 `CandidateRect is not a member of Kind`；实现收敛枚举与右→左→下→上避让后绿灯。红灯二：`linux-gnome-pointer-dbus` 改测 `GetCandidateRect` 四 int 出参、全 0 判空、释放名字后返回空，编译报 `ShellCandidateRect` 不存在；实现 `shell_candidate_rect()` 后绿灯（本机有 session bus，实测 0.75s 通过，非 skip）。红灯三：文案测试断言四个快捷键都在提示里，编译报缺 `CandidateMenuHint.h`；建常量头后绿灯。`cmake --build target/linux-ibus -j4` 全量成功，`ctest --output-on-failure` 114 项中 113 项通过，唯一失败的 `linux-ibus-launcher-supervisor`（Python 进程监管测试，与本改动无关）单独重跑通过，属全量并行时序的既有 flaky。扩展 API 依据：解包本机 `/usr/lib/gnome-shell/libshell-51.so` 的 `ibusManager.js` / `ibusCandidatePopup.js`，确认 `getIBusManager()._candidatePopup` 是继承 `BoxPointer` 的 actor，有 `get_transformed_position()` / `get_size()`，`.visible` 表示候选框可见性。
 - **范围影响（静态分析，非真机截图）**：fcitx5 是独立模块 `fcitx5/CMakeLists.txt:89` 的 `msime-fcitx5`，不引用 `CandidateMenuAnchor`/`GnomePointer`/扩展符号；GNOME 下 fcitx5 候选由自身 classicui 绘制（非 Shell actor），右键走 `CandidateAction` 或 X11 原生画布原地替换，零行为变化。KDE 等桌面无本仓自绘候选菜单，本次也不触及。
 - 自绘 X11 弹层的点击、hover、收起交互仍未在真实编辑器里做完整实机验收；菜单定位的 GNOME 真机右侧避让需报告者重新登录启用新扩展后在真实编辑器复验（本机 GNOME Shell 51 无法热加载新装扩展，`Eval`/`ReloadExtension`/`EnableExtension` 均不可用，X11 工具看不到 Shell actor）。不把纯函数单测当整个弹层的前端验收。
+- 文案拆分后的本机验证：`linux-candidate-action-policy`（断言 Fcitx5 共享文案不带快捷键、iBus 文案带快捷键）、`linux-candidate-maintenance-shortcut`、`linux-candidate-menu-items` 三项 ctest 全通过；`platforms/linux/tests/core/fcitx5_contract.py` 通过；`-DMSIME_ENABLE_FCITX5=OFF` 的 CMake 配置下 `msime-ibus-host` 全量编译通过（覆盖改动的 `ClientEngine.cpp` 与 `CandidateMenuItems.h`）。本机没有 Fcitx5 开发包，`fcitx5-native-context` 无法本地重编，留 PR 的 `Linux native host resource integration` job 验收。
 - `git diff --check` 通过。`pnpm run verify-notes` 因本机缺 node 未运行；笔记格式已按校验脚本的约束手工核对。
 
 ## Alternatives considered

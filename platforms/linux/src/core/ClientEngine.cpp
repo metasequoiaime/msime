@@ -3200,11 +3200,11 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     std::vector<std::pair<const char *, std::string>> candidate_commands;
     candidate_commands.reserve(7);
     // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
-    candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label);
+    candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label_with_shortcut);
     for (const char *fix : {"CandidateFix1", "CandidateFix2", "CandidateFix3",
                             "CandidateFix4", "CandidateFix5"})
       candidate_commands.emplace_back(
-          fix, msime::linux_host::candidate_fix_label(fix[12] - '0'));
+          fix, msime::linux_host::candidate_fix_label_with_shortcut(fix[12] - '0'));
     for (const auto &[action, title] : candidate_commands) {
       const auto name = candidate_action_name(action, candidate.at("id"));
       const auto state = g_str_has_prefix(action, "CandidateFix") &&
@@ -3220,7 +3220,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
-        ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label), "",
+        ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label_with_shortcut), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"),
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
@@ -3229,7 +3229,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       const auto remove_name = candidate_action_name("CandidateRemove", candidate.at("id"));
       ibus_prop_list_append(actions, ibus_property_new(
           remove_name.c_str(), PROP_TYPE_NORMAL,
-          ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label), "",
+          ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label_with_shortcut), "",
           ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
     }

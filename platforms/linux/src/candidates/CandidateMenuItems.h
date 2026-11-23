@@ -37,19 +37,20 @@ inline std::vector<CandidateMenuItem> candidate_menu_items(
   std::vector<CandidateMenuItem> items;
   const bool removal = candidate_removal_available(text);
   items.reserve(removal ? 9 : 8);
-  items.push_back(
-      {CandidateMenuCommand::PinToTop, candidate_pin_label, 0, false, false, !actionable});
+  items.push_back({CandidateMenuCommand::PinToTop, candidate_pin_label_with_shortcut, 0, false,
+                   false, !actionable});
   for (std::uint8_t position = 1; position <= 5; ++position) {
     items.push_back(
-        {CandidateMenuCommand::FixAtPosition, candidate_fix_label(position), position,
-         fixed_position == position, false, !actionable});
+        {CandidateMenuCommand::FixAtPosition, candidate_fix_label_with_shortcut(position),
+         position, fixed_position == position, false, !actionable});
   }
   items.push_back({CandidateMenuCommand::ClearFixedPosition, "", 0, false, true, false});
-  items.push_back({CandidateMenuCommand::ClearFixedPosition, candidate_clear_fix_label, 0,
-                   false, false, !actionable || fixed_position == 0});
+  items.push_back({CandidateMenuCommand::ClearFixedPosition,
+                   candidate_clear_fix_label_with_shortcut, 0, false, false,
+                   !actionable || fixed_position == 0});
   if (removal)
-    items.push_back({CandidateMenuCommand::Remove, candidate_remove_label, 0, false, false,
-                     !actionable});
+    items.push_back({CandidateMenuCommand::Remove, candidate_remove_label_with_shortcut, 0,
+                     false, false, !actionable});
   return items;
 }
 
