@@ -86,6 +86,9 @@ struct KeyboardSkinPreview: View {
   /// 14 键第三排两端的功能键宽度，与真实手机键盘保持一致。
   private static let letterGridEdgeWidth: CGFloat = 44
 
+  /// 26 键字母键宽度：第 1 排 10 个字母键在按键区里均分，三排字母键都取这个宽度，与真实键盘一致（第 3 排多出的宽度变成 ⇧/Z、M/⌫ 之间的空隙，而不是把字母键加宽）。键距跟随 `layout.keySpacing`。
+  private var letterKeyWidth: CGFloat { (Self.keysWidth - CGFloat(layout.keySpacing) * 9) / 10 }
+
   /// 工具栏图标和标志只随顶栏缩小、不随它放大。
   private var toolbarContentScale: CGFloat { min(1, stripScale) }
 
@@ -219,11 +222,13 @@ struct KeyboardSkinPreview: View {
         letterRow(Array("qwertyuiop").map(String.init),
                   hints: letterHints ? Array("1234567890").map(String.init) : nil)
         letterRow(Array("asdfghjkl").map(String.init)).padding(.horizontal, 376 * layout.letterInsetRatio)
-        HStack(spacing: 5) {
-          key("⇧", function: true).frame(width: 38)
-          letterRow(Array("zxcvbnm").map(String.init))
-          key("⌫", function: true).frame(width: 38)
-        }
+        HStack(spacing: CGFloat(layout.keySpacing)) {
+          key("⇧", function: true).frame(width: Self.letterGridEdgeWidth)
+          Spacer(minLength: 0)
+          letterRow(Array("zxcvbnm").map(String.init), keyWidth: letterKeyWidth)
+          Spacer(minLength: 0)
+          key("⌫", function: true).frame(width: Self.letterGridEdgeWidth)
+        }.frame(maxWidth: .infinity)
       }.frame(maxHeight: .infinity)
     }
   }
@@ -370,7 +375,7 @@ struct KeyboardSkinPreview: View {
 
   /// 一行等宽按键；`hints` 每个键各有一个时，把角标提示和对应标题配对。
   private func row(_ titles: [String], hints: [String] = []) -> some View {
-    HStack(spacing: 5) {
+    HStack(spacing: CGFloat(layout.keySpacing)) {
       ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
         key(title, hint: index < hints.count ? hints[index] : nil)
       }
@@ -379,8 +384,9 @@ struct KeyboardSkinPreview: View {
 
   /// 26 键字母行：按键布局页（`onLetterTap` 非 nil）时每个键右上角画真实角标符号（`LetterHintSymbols`）并标动作徽标、
   /// 可点；否则保持纯展示——皮肤页只给第一行画 `hints` 里的数字角标，其余行不画。键面字母显示大写，与真实键盘一致。
-  private func letterRow(_ titles: [String], hints: [String]? = nil) -> some View {
-    HStack(spacing: 5) {
+  /// `keyWidth` 给定时每个字母键固定成这个宽度（第 3 排 7 键与第 1 排 10 键等宽），不给定时整行均分。
+  private func letterRow(_ titles: [String], hints: [String]? = nil, keyWidth: CGFloat? = nil) -> some View {
+    HStack(spacing: CGFloat(layout.keySpacing)) {
       ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
         let lower = title.lowercased()
         // 可点（按键布局页）时画真实符号；否则只画显式传入的数字角标，与原来的展示行为一致。
@@ -389,6 +395,7 @@ struct KeyboardSkinPreview: View {
           : (hints.flatMap { index < $0.count ? $0[index] : nil })
         let badge = letterBadges?[lower]
         letterKey(title.uppercased(), hint: hint, badge: badge, letter: lower)
+          .frame(width: keyWidth)
       }
     }
   }

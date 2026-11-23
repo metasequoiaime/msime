@@ -87,8 +87,8 @@ struct KeyboardLayoutSettingsView: View {
     .reloadOnAppearAndActive(readPreferences)
     // 目录要读每个包的清单，放到主线程之外；页面消失时任务随之取消。
     .task { keySoundPacks = await Task.detached(priority: .userInitiated) { Self.installedKeySoundPacks() }.value }
-    // 点预览图字母键 → 底部弹出该键的上滑/下滑设置。
-    .sheet(item: $editingLetter) { target in
+    // 点预览图字母键 → 底部弹出该键的上滑/下滑设置；关闭时重算徽标，预览图立即反映刚才改的动作。
+    .sheet(item: $editingLetter, onDismiss: refreshLetterSwipeBadges) { target in
       LetterSwipeKeyEditorSheet(letter: target.letter)
     }
   }
@@ -139,7 +139,11 @@ struct KeyboardLayoutSettingsView: View {
 
   /// 每个被单独改过上下滑动作的字母键 → 徽标文本；没改过的键不标，预览图保持干净。
   /// 徽标只写动作短名（如「粘贴」），不带「下滑·」前缀；角标动作用真实符号代替。
-  private var letterSwipeBadges: [String: String] {
+  /// 存成 `@State` 而不是计算属性：值读自 UserDefaults，SwiftUI 不会因它变化重渲染，得在改完动作后（Sheet 关闭）手动重算一次。
+  @State private var letterSwipeBadges: [String: String] = [:]
+
+  /// 重读所有字母键的上下滑动作，重算预览图徽标。
+  private func refreshLetterSwipeBadges() {
     var badges: [String: String] = [:]
     for letter in LetterSwipePreference.letters {
       let up = LetterSwipePreference.stored(letter: letter, direction: .up)
@@ -150,7 +154,7 @@ struct KeyboardLayoutSettingsView: View {
       if let down { parts.append(badgeAction(down, letter: letter)) }
       if !parts.isEmpty { badges[letter] = parts.joined(separator: " ") }
     }
-    return badges
+    letterSwipeBadges = badges
   }
 
   /// 徽标里的动作短名：角标动作直接写符号，其余写动作短名（如「复制」）。
@@ -736,6 +740,7 @@ struct KeyboardLayoutSettingsView: View {
     nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
+    refreshLetterSwipeBadges()
   }
 }
 

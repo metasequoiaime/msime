@@ -204,7 +204,7 @@ class LetterSwipePreviewContract(unittest.TestCase):
     def test_preview_keys_tap_opens_the_editor_sheet(self):
         # 预览图把每键徽标和点击回调交给 KeyboardSkinPreview，点字母键设一个编辑目标。
         self.assertIn("letterBadges: letterSwipeBadges, onLetterTap:", self.source)
-        self.assertIn(".sheet(item: $editingLetter)", self.source)
+        self.assertIn(".sheet(item: $editingLetter, onDismiss: refreshLetterSwipeBadges)", self.source)
         self.assertIn("LetterSwipeKeyEditorSheet(letter: target.letter)", self.source)
         self.assertIn("private struct LetterSwipeSheetTarget: Identifiable", self.source)
         self.assertIn("private struct LetterSwipeKeyEditorSheet: View", self.source)
@@ -214,10 +214,15 @@ class LetterSwipePreviewContract(unittest.TestCase):
         self.assertIn("swipeSymbols && letterGrid == nil && !nineKey", editable)
 
     def test_badges_only_mark_customised_keys(self):
-        badges = member(self.source, "  private var letterSwipeBadges: [String: String] {")
+        # 徽标存成 @State，值在改完动作后（Sheet 关闭）由 refreshLetterSwipeBadges 重算，预览图立即刷新。
+        self.assertIn("@State private var letterSwipeBadges: [String: String] = [:]", self.source)
+        refresh = member(self.source, "  private func refreshLetterSwipeBadges() {")
         # 只从「单独存过」的配置取，没改过的键不标。
-        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .up)", badges)
-        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .down)", badges)
+        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .up)", refresh)
+        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .down)", refresh)
+        self.assertIn("letterSwipeBadges = badges", refresh)
+        # Sheet 关闭时重算，预览图立即反映刚才改的动作。
+        self.assertIn("onDismiss: refreshLetterSwipeBadges", self.source)
 
     def test_preview_draws_no_shuangpin_hints(self):
         # 预览图不画双拼键位提示：那是「双拼键位提示」开关自己的预览职责，避免和动作徽标抢空间。
