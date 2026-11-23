@@ -226,6 +226,18 @@ class LetterSwipePreviewContract(unittest.TestCase):
         self.assertNotIn("shuangpin", preview.lower())
         self.assertIn("letterBadges: letterSwipeBadges", preview)
 
+    def test_swipe_direction_offers_up_down_and_both(self):
+        # 「滑动方向」三个选项：上滑、下滑、上滑+下滑（.both）；说明整合了点预览图设动作的提示。
+        group = member(self.source, "  private var gestureGroup: some View {")
+        self.assertIn('DesignOption(title: "上滑"', group)
+        self.assertIn('DesignOption(title: "下滑"', group)
+        self.assertIn('DesignOption(title: "上滑+下滑"', group)
+        self.assertIn("SwipeDirection.both", group)
+        # 点预览图设动作的说明收进「滑动方向」的 info，不再单独占一行。
+        self.assertIn("点上方预览图里的字母键", group)
+        self.assertNotIn("letterSwipeHintRow", self.source)
+        self.assertNotIn('title: "每键上下滑"', self.source)
+
 
 class NineKeyFlickSettingsContract(unittest.TestCase):
     """九键 flick 设置：三端共享阈值，数字改由长按输入。"""

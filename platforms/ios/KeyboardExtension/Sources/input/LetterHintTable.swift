@@ -38,10 +38,15 @@ enum SwipeHintPolicy {
   /// 手指需要移动的距离，必须严格大于这个值。
   static let threshold: CGFloat = 14
 
-  /// 窗口纵坐标向下增大，严格超过所选方向的阈值才接管点按。
+  /// 窗口纵坐标向下增大，严格超过所选方向的阈值才接管点按。`both` 表示上下滑都算。
   static func swiped(direction: KeyboardLayoutPreference.SwipeDirection = .up,
                      downY: CGFloat, currentY: CGFloat) -> Bool {
-    let distance = direction == .up ? downY - currentY : currentY - downY
+    let distance: CGFloat
+    switch direction {
+    case .up: distance = downY - currentY
+    case .down: distance = currentY - downY
+    case .both: distance = abs(currentY - downY)
+    }
     return distance > threshold
   }
 

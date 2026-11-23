@@ -20,7 +20,14 @@ enum KeyboardLayoutPreference {
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
   static let letterCornerHintsKey = "keyboard.gesture.letterCornerHints"
-  enum SwipeDirection: String { case up, down }
+  enum SwipeDirection: String {
+    case up, down, both
+
+    /// 这个偏好下，给定方向是否回落成角标。`both` 时上下滑都算，单选时只算自己。
+    func covers(_ direction: SwipeDirection) -> Bool {
+      self == .both || self == direction
+    }
+  }
   static let nineKeyFlickThresholdDocumentKey = "touch_nine_key_flick_threshold"
   static let nineKeyFlickThresholdKey = "keyboard.gesture.nineKeyFlickThreshold"
   static let nineKeyFlickThresholdDefault: Double = 24
@@ -576,6 +583,25 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
     }
   }
 
+  /// 预览图键面徽标上的短名：只写动作本身，不写方向；`symbol` 直接写角标符号。
+  func shortTitle(symbol: String? = nil) -> String {
+    switch self {
+    case .none: "无"
+    case .symbol: symbol ?? "角标"
+    case .paste: "粘贴"
+    case .copy: "复制"
+    case .cut: "剪切"
+    case .undo: "撤销"
+    case .redo: "重做"
+    case .selectAll: "全选"
+    case .text: "文本"
+    case .clipboard: "剪贴板"
+    case .language: "中英"
+    case .cursorLeft: "左移"
+    case .cursorRight: "右移"
+    }
+  }
+
   /// 写系统剪贴板的动作要键盘有完全访问；其余动作不需要。
   var writesPasteboard: Bool { self == .copy || self == .cut }
   /// 读系统剪贴板的动作要键盘有完全访问。
@@ -636,7 +662,7 @@ enum LetterSwipePreference {
   /// 实际生效的配置：存过的用它，没存过的按「滑动方向」回落成角标。
   static func binding(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
     if let stored = stored(letter: letter, direction: direction) { return stored }
-    return direction == KeyboardLayoutPreference.swipeSymbolsDirection ? .symbol : .none
+    return KeyboardLayoutPreference.swipeSymbolsDirection.covers(direction) ? .symbol : .none
   }
 
   /// 写入一条配置；`binding` 为 nil 时删掉这一条，回到默认。「无」要照原样存下去才压得住默认的角标，
@@ -675,7 +701,7 @@ enum LetterSwipePreference {
   static func binding(in table: [String: [String: LetterSwipeBinding]], letter: String,
                       direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
     if let stored = table[letter.lowercased()]?[directionKey(direction)] { return stored }
-    return direction == KeyboardLayoutPreference.swipeSymbolsDirection ? .symbol : .none
+    return KeyboardLayoutPreference.swipeSymbolsDirection.covers(direction) ? .symbol : .none
   }
 
   private static func write(_ table: [String: [String: LetterSwipeBinding]]) {

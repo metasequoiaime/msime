@@ -42,6 +42,8 @@ iOS 26 键的字母键只有一条纵向手势：沿设置里的「滑动方向�
 
 ## Consequences
 
+- 「滑动方向」从单选（上滑/下滑）扩成三项：上滑、下滑、上滑+下滑（`SwipeDirection.both`）。`both` 时未单独配置的键上下滑都回落成角标；运行时 `letterSwipeBinding`、`LetterSwipePreference.binding` 和 `binding(in:)` 三处的 `direction == swipeSymbolsDirection` 都改成 `swipeSymbolsDirection.covers(direction)`。`SwipeHintPolicy.swiped` 对 `both` 取纵向位移绝对值。
+- 设置页预览图的 26 键字母键显示大写（与真实键盘一致），被改过动作的键下方徽标只用动作短名（`LetterSwipeAction.shortTitle`，如「复制」「剪切」「剪贴板」），不写「下滑·」方向前缀。独立「每键上下滑」提示行删除，点预览图设动作的说明整合进「滑动方向」的 info。
 - 只覆盖 26 键的 a–z。九键、14/18 键、微软双拼的 `;` 仍走原来的单方向角标，没有上下双动作。
 - 「滑动输入符号」关掉后所有字母键上下滑都不接，包括粘贴这类与符号无关的动作；要用只能先把开关打开。这条沿用了原有关闭语义，没有另加总开关。
 - 粘贴、复制、剪切需要键盘开启完全访问；iOS 读取剪贴板可能弹一次系统「允许粘贴」。撤销、重做、全选依赖宿主输入框实现，部分 App 会提示「不支持」。
@@ -50,7 +52,7 @@ iOS 26 键的字母键只有一条纵向手势：沿设置里的「滑动方向�
 
 ## Testing
 
-`KeyboardTests/input/LetterCornerHintTests.swift` 覆盖：上下两个方向各自过 14pt 阈值、方向互斥与取位移大者、默认回落到角标、显式「无」不被回落覆盖、控制器把 V 的上下滑动作用到按键上、总开关关掉后两个方向都为空、`LetterSwipeBinding.summary(symbol:)` 把「角标符号」写成真实符号（无符号回落、带符号带上、其它动作不受影响）。`BackspaceSwipeDeletionTests.swift` 覆盖 `BackspaceClearSwipe` 的待命与取消阈值、非有限距离、`BackspaceClear` 的分轮与轮次上限。`MorePanelFoldTests.swift` 覆盖品牌键菜单里「双拼键位提示」的顺序、读写共享文档、键面 `contentInsets` 与提示标签随之切换、全拼方案下置灰。契约脚本 `test-ios-key-layout-settings.py` 新增 `LetterSwipePreviewContract`：独立列表页已删、预览图字母键点击弹 `LetterSwipeKeyEditorSheet`、可点只在「滑动输入符号」开着且 26 键时、徽标只标单独改过的键、预览图不画双拼提示。
+`KeyboardTests/input/LetterCornerHintTests.swift` 覆盖：上下两个方向各自过 14pt 阈值、方向互斥与取位移大者、默认回落到角标、显式「无」不被回落覆盖、控制器把 V 的上下滑动作用到按键上、总开关关掉后两个方向都为空、`LetterSwipeBinding.summary(symbol:)` 把「角标符号」写成真实符号（无符号回落、带符号带上、其它动作不受影响）、`LetterSwipeAction.shortTitle` 的缩写（复制/剪切/剪贴板/中英/左移等）、`.both` 方向下上下滑都回落成角标。`BackspaceSwipeDeletionTests.swift` 覆盖 `BackspaceClearSwipe` 的待命与取消阈值、非有限距离、`BackspaceClear` 的分轮与轮次上限。`MorePanelFoldTests.swift` 覆盖品牌键菜单里「双拼键位提示」的顺序、读写共享文档、键面 `contentInsets` 与提示标签随之切换、全拼方案下置灰。契约脚本 `test-ios-key-layout-settings.py` 新增 `LetterSwipePreviewContract`：独立列表页已删、预览图字母键点击弹 `LetterSwipeKeyEditorSheet`、可点只在「滑动输入符号」开着且 26 键时、徽标只标单独改过的键、预览图不画双拼提示、滑动方向含「上滑+下滑」三项且说明整合进 info。
 
 本次改动没有编译也没有跑测试：开发机是 Windows，没有 Swift/Xcode 工具链。跑通的只有 `git diff --check`、括号平衡粗检和 `platforms/ios/tests/settings/ProjectConfigurationTests.py`（35 项中 34 项，唯一失败是 release date 脚本需要 `wsl` 的既有环境问题）。需要在 macOS 上 `xcodegen generate` 后跑 `MSIMEKeyboardTests`，并在真机验收：V 下滑粘贴、Q 下滑自定义文本、有选区时下滑复制、⌫ 上滑清空组字与正文、123 上滑进 `#+=`、开双拼提示后字母与角标/提示不重叠、横屏只让下边距；以及本次 UI 重构的点预览图字母键弹设置、改完徽标当场刷新、点击与改键距/行距的拖拽手势不冲突。
 

@@ -138,24 +138,24 @@ struct KeyboardLayoutSettingsView: View {
   private var letterSwipeEditable: Bool { swipeSymbols && letterGrid == nil && !nineKey }
 
   /// 每个被单独改过上下滑动作的字母键 → 徽标文本；没改过的键不标，预览图保持干净。
-  /// 徽标只写方向加动作名（如「下滑·粘贴」），角标动作用真实符号代替「角标符号」四个字。
+  /// 徽标只写动作短名（如「粘贴」），不带「下滑·」前缀；角标动作用真实符号代替。
   private var letterSwipeBadges: [String: String] {
     var badges: [String: String] = [:]
     for letter in LetterSwipePreference.letters {
       let up = LetterSwipePreference.stored(letter: letter, direction: .up)
       let down = LetterSwipePreference.stored(letter: letter, direction: .down)
+      // 上下滑都可能配；有多个时用空格隔开，先上后下。
       var parts: [String] = []
-      if let up { parts.append("上滑·\(badgeAction(up, letter: letter))") }
-      if let down { parts.append("下滑·\(badgeAction(down, letter: letter))") }
+      if let up { parts.append(badgeAction(up, letter: letter)) }
+      if let down { parts.append(badgeAction(down, letter: letter)) }
       if !parts.isEmpty { badges[letter] = parts.joined(separator: " ") }
     }
     return badges
   }
 
-  /// 徽标里的动作名：角标动作直接写符号，其余写动作名。
+  /// 徽标里的动作短名：角标动作直接写符号，其余写动作短名（如「复制」）。
   private func badgeAction(_ binding: LetterSwipeBinding, letter: String) -> String {
-    if binding.action == .symbol { return LetterHintSymbols.hint(for: letter) ?? "角标" }
-    return binding.action.title(symbol: LetterHintSymbols.hint(for: letter))
+    binding.action.shortTitle(symbol: LetterHintSymbols.hint(for: letter))
   }
 
   private var grip: some View {
@@ -404,20 +404,16 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appSwipeSymbolsSwitch")
       DesignDivider()
       DesignSelectRow(title: "滑动方向",
-                      info: "没单独设置动作的键，沿这个方向出角标",
+                      info: "没单独设置动作的键，沿这里的方向出角标。点上方预览图里的字母键，可以给那个键的上滑、下滑各设一个动作；没单独设的方向按这里出角标",
                       enabled: swipeSymbols,
                       options: [DesignOption(title: "上滑", value: KeyboardLayoutPreference.SwipeDirection.up, identifier: "appSwipeSymbolsUp"),
-                                DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown")],
+                                DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown"),
+                                DesignOption(title: "上滑+下滑", value: KeyboardLayoutPreference.SwipeDirection.both, identifier: "appSwipeSymbolsBoth")],
                       selection: Binding(get: { swipeSymbolsDirection }, set: { direction in
                         swipeSymbolsDirection = direction
                         KeyboardLayoutPreference.swipeSymbolsDirection = direction
                       }),
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
-      DesignDivider()
-      // 每个字母键的上滑、下滑各自可配：点上方预览图里的字母键设置，没单独设过的方向按上面的「滑动方向」出角标。
-      DesignNavRowLabel(title: "每键上下滑",
-                        info: "点上方预览图里的字母键，给那个键的上滑、下滑各设一个动作；没单独设的键按「滑动方向」出角标")
-        .accessibilityIdentifier("letterSwipeHintRow")
       DesignDivider()
       // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
       DesignToggleRow(title: "显示字母键角标", info: "26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入",

@@ -378,7 +378,7 @@ struct KeyboardSkinPreview: View {
   }
 
   /// 26 键字母行：按键布局页（`onLetterTap` 非 nil）时每个键右上角画真实角标符号（`LetterHintSymbols`）并标动作徽标、
-  /// 可点；否则保持纯展示——皮肤页只给第一行画 `hints` 里的数字角标，其余行不画。
+  /// 可点；否则保持纯展示——皮肤页只给第一行画 `hints` 里的数字角标，其余行不画。键面字母显示大写，与真实键盘一致。
   private func letterRow(_ titles: [String], hints: [String]? = nil) -> some View {
     HStack(spacing: 5) {
       ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
@@ -388,7 +388,7 @@ struct KeyboardSkinPreview: View {
           ? LetterHintSymbols.hint(for: lower)
           : (hints.flatMap { index < $0.count ? $0[index] : nil })
         let badge = letterBadges?[lower]
-        letterKey(title, hint: hint, badge: badge, letter: lower)
+        letterKey(title.uppercased(), hint: hint, badge: badge, letter: lower)
       }
     }
   }

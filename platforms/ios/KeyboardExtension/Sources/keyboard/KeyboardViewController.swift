@@ -4242,7 +4242,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let stored = letterSwipeBindings[letter.lowercased()]?[LetterSwipePreference.directionKey(direction)] {
       return stored
     }
-    return direction == swipeSymbolsDirection ? .symbol : .none
+    return swipeSymbolsDirection.covers(direction) ? .symbol : .none
   }
 
   /// 26 键字母键上下滑的动作。角标沿用原来的路径，其余动作在这里执行；都先结束组字再动正文。

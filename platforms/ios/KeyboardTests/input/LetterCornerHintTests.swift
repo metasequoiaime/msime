@@ -274,6 +274,11 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .down).action, .symbol)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .none)
 
+    // 「上滑+下滑」：两个方向都回落成角标。
+    KeyboardLayoutPreference.swipeSymbolsDirection = .both
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .symbol)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .down).action, .symbol)
+
     // 显式把上滑改成「无」：存下去，不再回落成角标。
     LetterSwipePreference.set(LetterSwipeBinding(action: .none), letter: "q", direction: .up)
     XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .none)
@@ -305,6 +310,18 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertEqual(LetterSwipeBinding(action: .symbol).summary(symbol: "1"), "角标符号 1")
     XCTAssertEqual(LetterSwipeBinding(action: .paste).summary(symbol: "1"), "粘贴")
     XCTAssertEqual(LetterSwipeBinding(action: .text, text: "hi@example.com").summary(symbol: "1"), "文本：hi@example.com")
+  }
+
+  /// 预览图键面徽标用短名：动作本身，不写方向，长名字压缩（复制选中文字 → 复制）。
+  func testLetterSwipeShortTitleAbbreviatesForBadges() {
+    XCTAssertEqual(LetterSwipeAction.copy.shortTitle(), "复制")
+    XCTAssertEqual(LetterSwipeAction.cut.shortTitle(), "剪切")
+    XCTAssertEqual(LetterSwipeAction.paste.shortTitle(), "粘贴")
+    XCTAssertEqual(LetterSwipeAction.clipboard.shortTitle(), "剪贴板")
+    XCTAssertEqual(LetterSwipeAction.language.shortTitle(), "中英")
+    XCTAssertEqual(LetterSwipeAction.cursorLeft.shortTitle(), "左移")
+    XCTAssertEqual(LetterSwipeAction.symbol.shortTitle(symbol: "1"), "1")
+    XCTAssertEqual(LetterSwipeAction.text.shortTitle(), "文本")
   }
 
   /// 控制器把每键的上滑、下滑配置交给按键；总开关关掉后两个方向都不接。
