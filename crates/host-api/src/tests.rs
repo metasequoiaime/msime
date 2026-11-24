@@ -74,22 +74,6 @@ fn relative_fixture_dir(prefix: &str) -> (tempfile::TempDir, std::path::PathBuf)
 }
 
 #[test]
-fn selection_statistics_use_the_candidate_id_absolute_index() {
-    let action = Action::Select(CandidateId {
-        session: 7,
-        generation: 11,
-        index: 9,
-    });
-    assert_eq!(selected_position(&action), Some(10));
-    let action = Action::SelectAnyCandidate(CandidateId {
-        session: 7,
-        generation: 11,
-        index: 14,
-    });
-    assert_eq!(selected_position(&action), Some(15));
-}
-
-#[test]
 fn multilingual_preference_mapping_filters_unavailable_japanese_and_needs_two_languages() {
     use msime_client_core::preferences::MultilingualLanguage;
     let mut preferences = Preferences::default();
@@ -7940,6 +7924,55 @@ fn commit_candidate_by_position(handle: u64, index: usize) {
     let selected = read(msime_client_select(handle, generation, index));
     assert!(selected["value"]["commit"].is_string(), "{selected}");
 }
+/// 空格选首选是一等选词语路（命令 1 → `SelectHighlighted`），位置统计必须把它记进「第 1 条」。此前位置只认带着候选身份的 `Select`/`SelectAnyCandidate`，空格、回车、标点和五笔顶字都经命令路由，第 1 条于是长期为 0、首选命中率被算成 0%。
+#[test]
+fn space_selection_counts_the_first_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    for _ in 0..3 {
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let committed = read(msime_client_command(handle, 1));
+        assert!(committed["value"]["commit"].is_string(), "{committed}");
+    }
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.ranks[0], 3, "三个首选都该记在第 1 条");
+    assert_eq!(selections.total(), 3);
+    read(msime_client_destroy(handle));
+}
+
+/// 云候选的占位席位（来源 15，「☁」）宿主不画，用户看到的第 2 条坐在引擎第 3 格；统计按引擎座位回算会把它记成第 3 条。
+#[test]
+fn a_hidden_cloud_placeholder_does_not_shift_the_counted_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path());
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    let handle = statistics_test_host(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut view = Value::Null;
+    for byte in b"nihao" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    let page = view["candidates"].as_array().unwrap();
+    assert_eq!(page[1]["text"], "☁", "云请求在途时占位席位坐在引擎第 2 格");
+    let generation = view["generation"].as_u64().unwrap();
+    // 引擎第 3 格是用户看到的第 2 条。
+    let selected = read(msime_client_select(handle, generation, 2));
+    assert!(selected["value"]["commit"].is_string(), "{selected}");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.ranks[1], 1, "第 2 条要记在桶 2，不是桶 3");
+    assert_eq!(selections.ranks[2], 0);
+    assert_eq!(selections.total(), 1);
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn selection_statistics_reach_the_store_at_focus_out() {
     let dir = tempfile::tempdir().unwrap();

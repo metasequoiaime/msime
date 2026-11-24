@@ -113,6 +113,7 @@ fn the_key_path_and_event_derivation_allocate_nothing() {
         selection: Some(SelectionFact {
             seat: 0,
             source: 0,
+            visible_position: Some(1),
             how: SelectionHow::PunctuationFinish,
             outcome: SelectionOutcome::Committed,
         }),

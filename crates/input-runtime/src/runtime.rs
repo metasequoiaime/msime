@@ -2550,9 +2550,29 @@ impl<E: InputEngine> Runtime<E> {
                 .get(seat)
                 .copied()
                 .unwrap_or_default(),
+            visible_position: self.visible_position(seat),
             how,
             outcome,
         })
+    }
+
+    /// 用户看到的 1 基编号：跳过宿主不画的占位席位（云候选的「☁」和已退役的 AI 占位），席位本身是占位时不记。
+    fn visible_position(&self, seat: usize) -> Option<u32> {
+        let placeholder = |source: &u8| {
+            msime_engine::CandidateSource::from_u8(*source)
+                .is_some_and(msime_engine::CandidateSource::is_placeholder_seat)
+        };
+        if placeholder(self.cached.candidate_sources.get(seat).unwrap_or(&0)) {
+            return None;
+        }
+        let before = self
+            .cached
+            .candidate_sources
+            .iter()
+            .take(seat)
+            .filter(|source| !placeholder(source))
+            .count();
+        Some(u32::try_from(before.saturating_add(1)).unwrap_or(u32::MAX))
     }
 
     /// Keep the tail of what was committed, cut on a character boundary, and hand it to the Engine.
