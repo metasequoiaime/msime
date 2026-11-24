@@ -24,4 +24,11 @@ check(JapaneseSymbolFaces.face(":"), "：", "Japanese colon");
 check(JapaneseSymbolFaces.face(";"), "；", "Japanese semicolon");
 check(JapaneseSymbolFaces.face("@"), "@", "unmapped symbol keeps its face");
 
+// 引擎只在中文标点开关开着时写日文标点，关着时写 ASCII，键面要跟着。
+check(String(JapaneseSymbolFaces.active(false, "none", "japanese", true)), "true", "switch on draws Japanese faces");
+check(String(JapaneseSymbolFaces.active(false, "none", "japanese", false)), "false", "switch off draws ASCII faces");
+check(String(JapaneseSymbolFaces.active(true, "none", "japanese", true)), "false", "English draws ASCII faces");
+check(String(JapaneseSymbolFaces.active(false, "calculator", "japanese", true)), "false", "local tool draws ASCII faces");
+check(String(JapaneseSymbolFaces.active(false, "none", "pinyin", true)), "false", "other schemes are not Japanese");
+
 console.log(`Harmony Japanese symbol faces: ${assertions} checks passed`);

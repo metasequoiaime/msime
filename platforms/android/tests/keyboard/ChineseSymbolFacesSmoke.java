@@ -75,6 +75,14 @@ public final class ChineseSymbolFacesSmoke {
                 && ChineseSymbolFaces.japaneseFace("~").equals("〜"), "Japanese middle dot and long vowel");
         check(ChineseSymbolFaces.japaneseFace("?").equals("？")
                 && ChineseSymbolFaces.japaneseFace("!").equals("！"), "Japanese full-width question and exclamation");
+        check(ChineseSymbolFaces.shouldUseJapaneseFaces(false, 3, "none", true),
+            "Japanese scheme with the Chinese punctuation switch on draws Japanese faces");
+        check(!ChineseSymbolFaces.shouldUseJapaneseFaces(false, 3, "none", false),
+            "Japanese scheme with the switch off draws ASCII faces, as the Engine writes ASCII");
+        check(!ChineseSymbolFaces.shouldUseJapaneseFaces(true, 3, "none", true)
+                && !ChineseSymbolFaces.shouldUseJapaneseFaces(false, 3, "calculator", true)
+                && !ChineseSymbolFaces.shouldUseJapaneseFaces(false, 0, "none", true),
+            "English, local tool and non-Japanese schemes never draw Japanese faces");
         check(ChineseSymbolFaces.japaneseFace("@").equals("@"), "unmapped symbol keeps its face in Japanese");
         check(ChineseSymbolFaces.japaneseFace(null).isEmpty(), "null face is bounded in Japanese");
         System.out.println("Android Chinese symbol faces: punctuation and language switching passed");

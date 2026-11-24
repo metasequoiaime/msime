@@ -22,6 +22,11 @@ const FACES: Map<string, string> = new Map<string, string>([
 ]);
 
 export class JapaneseSymbolFaces {
+  /** 日语方案的符号键面是否画日文标点：引擎只在中文标点开关开着时替换标点，关着时写 ASCII，键面也要画 ASCII；英文和本地工具模式同样是 ASCII。 */
+  static active(english: boolean, localMode: string, engineScheme: string, chinesePunctuation: boolean): boolean {
+    return chinesePunctuation && !english && localMode === 'none' && engineScheme === 'japanese';
+  }
+
   /** `symbol` 在日语方案下的键面；没有日文键面时返回 ASCII 本身（引擎同样原样上屏）。 */
   static face(symbol: string): string {
     return FACES.get(symbol) ?? symbol;

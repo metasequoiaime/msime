@@ -6257,11 +6257,11 @@ public final class MSIMEInputService extends InputMethodService {
         return InputViewValuePolicy.punctuationMarks(view);
     }
 
-    /** 键面是否画日文标点：日语方案、非英文、非本地工具模式。与 {@link #numberPadPunctuation()} 同源。 */
+    /** 键面是否画日文标点：日语方案、非英文、非本地工具模式，并且中文标点开关开着（关着时引擎写 ASCII，键面也画 ASCII）。 */
     boolean japaneseKeyfaces() {
-        return !dedicatedEnglish
-            && (view == null ? -1 : InputViewValuePolicy.scheme(view, -1)) == InputSchemeTraits.JAPANESE
-            && "none".equals(view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
+        return ChineseSymbolFaces.shouldUseJapaneseFaces(dedicatedEnglish,
+            view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"), chinesePunctuation);
     }
 
     /**

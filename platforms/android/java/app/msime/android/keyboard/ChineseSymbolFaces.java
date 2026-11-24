@@ -62,6 +62,15 @@ public final class ChineseSymbolFaces {
             && "none".equals(localMode);
     }
 
+    /**
+     * 日语方案的符号键面是否画日文标点。引擎只在中文标点开关开着时才替换标点（`chinese_punctuation_enabled`），开关关着时写出 ASCII，所以键面也只在开关开着时画日文，否则画出来的字和上屏的字对不上。
+     */
+    public static boolean shouldUseJapaneseFaces(boolean dedicatedEnglish, int scheme,
+                                                 String localMode, boolean chinesePunctuation) {
+        return chinesePunctuation && !dedicatedEnglish && scheme == InputSchemeTraits.JAPANESE
+            && "none".equals(localMode);
+    }
+
     /** Returns the key face for the active language; unmapped symbols retain their own face. */
     public static String face(String ascii, boolean chineseMode) {
         return face(ascii, chineseMode, Marks.DEFAULT);

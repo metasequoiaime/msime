@@ -6861,7 +6861,7 @@ struct KeyboardView {
 
   /** 日语方案的标点键面走日文表，与引擎 `policy.json` 的 `japanese` 段一致；本地工具和英文模式仍是 ASCII。 */
   private japanesePunctuationFaces(): boolean {
-    return !this.english && this.localMode === 'none' && this.scheme.engineScheme === 'japanese';
+    return JapaneseSymbolFaces.active(this.english, this.localMode, this.scheme.engineScheme, this.chinesePunctuation);
   }
 
   /** 逗号、句号、问号、叹号等键面：日语取日文表，其余按中文标点开关取中文或 ASCII。 */
