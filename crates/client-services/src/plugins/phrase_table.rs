@@ -117,7 +117,9 @@ pub fn import_positioned_table(
         .and_then(|name| name.to_str())
         .ok_or(PluginError::UnsupportedSource)?;
     let parent = source.parent().ok_or(PluginError::UnsupportedSource)?;
-    let bytes = super::read_file(parent, file_name, MAX_POSITIONED_TABLE_BYTES)?;
+    // A .txt that is gone, a dangling symlink or a non-regular file is an unusable source, the same answer `import_from_settings` gives.
+    let bytes = super::read_file(parent, file_name, MAX_POSITIONED_TABLE_BYTES)
+        .map_err(|_| PluginError::UnsupportedSource)?;
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| PluginError::Invalid("码表须为 UTF-8 文本".into()))?;
     let mut phrases = Vec::new();
@@ -266,6 +268,23 @@ mod import_tests {
         let saved = authoring::load(&root, "phrase_table", &summary.id).unwrap();
         assert_eq!(saved.name, "改名");
         assert_eq!(saved.phrases.unwrap()[0].position, Some(7));
+    }
+
+    #[test]
+    fn missing_or_non_regular_text_source_is_unsupported() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("plugins");
+        assert!(matches!(
+            import_positioned_table(&root, &directory.path().join("missing.txt")),
+            Err(PluginError::UnsupportedSource)
+        ));
+        let folder = directory.path().join("folder.txt");
+        fs::create_dir(&folder).unwrap();
+        assert!(matches!(
+            import_positioned_table(&root, &folder),
+            Err(PluginError::UnsupportedSource)
+        ));
+        assert!(!root.exists());
     }
 
     #[test]

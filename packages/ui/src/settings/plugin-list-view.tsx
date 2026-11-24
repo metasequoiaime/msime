@@ -86,6 +86,8 @@ export interface PluginListViewProps {
   onReorderPlugin?: (source: string, target: string) => void;
   /** 宿主运行脚本插件时的「脚本插件（实验）」分组；不运行时为 null，脚本包和它们的问题行都不列出。 */
   scripts?: PluginListScripts | null;
+  /** 宿主的文件选择器收 .txt 码表（目前只有 macOS）：插件库的导入按钮才写「.zip 或 .txt」。 */
+  positionedTables?: boolean;
 }
 
 /** 我的插件：macOS 使用可筛选的卡片库，其他宿主保留按类型分组的导航列表。 */

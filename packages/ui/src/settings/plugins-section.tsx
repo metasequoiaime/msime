@@ -404,6 +404,7 @@ export function PluginsSection({
             ? { filter: libraryFilter, onFilter: setLibraryFilter }
             : undefined
         }
+        positionedTables={platform === "macos"}
         hasClient={Boolean(client)}
         catalog={listedCatalog}
         unlisted={unlisted}

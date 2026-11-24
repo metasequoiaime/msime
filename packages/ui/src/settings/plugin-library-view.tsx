@@ -168,6 +168,7 @@ export function PluginLibraryView({
   onTogglePack,
   onReorderPlugin,
   scripts,
+  positionedTables,
 }: PluginListViewProps & { library: NonNullable<PluginListViewProps["library"]> }) {
   const installed = catalog.packages.filter((pack) => pack.kind !== "script" || scripts);
   const order = scripts ? [...kindOrder, "script" as const] : kindOrder;
@@ -258,7 +259,7 @@ export function PluginLibraryView({
               <ActionButton
                 action={() => onImport("archive")}
                 disabled={working}
-                label="导入 .zip 或 .txt"
+                label={positionedTables ? "导入 .zip 或 .txt" : "导入 .zip"}
               />
             </SettingsManagerActions>
           )}
