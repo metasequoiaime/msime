@@ -62,6 +62,12 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: hidePunctuationKeyKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: hidePunctuationKeyKey) }
   }
+  /// 隐藏底行的「符」键（符号键盘入口）并把份额并给空格；只作用于手机中文 26 键字母层的「标准」「逗号句号」样式（长空格、表情键没有符键）。符号和数字仍可从 123 进入，也是本机偏好。
+  static let hideSymbolKeyKey = "keyboard.bottom.hideSymbolKey"
+  static var hideSymbolKey: Bool {
+    get { defaults.object(forKey: hideSymbolKeyKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: hideSymbolKeyKey) }
+  }
   static let oneHandedKey = "keyboard.oneHanded"
   /// 单手模式以前只在手机形态的键盘上画（iPhone、iPad 浮动键盘和窄窗口），全宽的 iPad 键盘一律不画；全宽键盘补上单手模式（#10203）之后，升级前存下的值不能直接带过去，否则在浮动键盘上开过单手的人一升级，停靠的全宽键盘就缩成单手块。用户之后每次切换单手模式都会打上这个标记；没有标记时，全宽键盘第一次画单手之前把存下的值改成关闭（`adoptOneHandedOnDockedTablet`）。
   static let oneHandedDockedTabletKey = "keyboard.oneHandedDockedTablet"
@@ -361,7 +367,7 @@ enum KeyboardLayoutPreference {
   }
   static var geometry: KeyboardGeometry {
     KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey,
-                     hidesPunctuation: hidePunctuationKey)
+                     hidesPunctuation: hidePunctuationKey, hidesSymbol: hideSymbolKey)
   }
 
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
@@ -766,6 +772,7 @@ struct KeyboardGeometry: Equatable {
   var centeredLetters: Bool { true }
   var showsBottomLanguage = true
   var hidesPunctuation = false
+  var hidesSymbol = false
   var showsFullKeyboardSymbols: Bool { false }
 
   static func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double {

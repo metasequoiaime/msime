@@ -112,20 +112,21 @@ final class KeyLayoutStyleTests: XCTestCase {
     func row(_ keys: [TouchBottomRowLayout.Key]) -> [String] {
       keys.map { "\($0.slot.rawValue) \(String(format: "%.2f", Double($0.weight)))" }
     }
+    // 26 键和 14/18 键的 123 与回车等宽（1.9 份），两端对称；多出的 0.65 份从空格让出。
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.standard, globe: false)),
-                   ["layer 1.25", "symbols 1.05", "period 1.00", "space 3.00", "comma 1.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "symbols 1.05", "period 1.00", "space 2.35", "comma 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false)),
-                   ["layer 1.25", "symbols 1.05", "comma 1.00", "space 3.00", "period 1.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "symbols 1.05", "comma 1.00", "space 2.35", "period 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.longSpace, globe: false)),
-                   ["layer 1.25", "comma 1.00", "space 5.05", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "comma 1.00", "space 4.40", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.emoji, globe: false)),
-                   ["layer 1.25", "emoji 1.05", "space 4.00", "comma 1.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "emoji 1.05", "space 3.35", "comma 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.letterGrid(.standard, globe: false)),
-                   ["layer 1.25", "comma 1.00", "space 4.00", "period 1.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "comma 1.00", "space 3.35", "period 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.letterGrid(.longSpace, globe: false)),
-                   ["layer 1.25", "comma 1.00", "space 5.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "comma 1.00", "space 4.35", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.letterGrid(.emoji, globe: false)),
-                   ["layer 1.25", "emoji 1.00", "space 4.00", "comma 1.00", "language 1.05", "returnKey 1.90"])
+                   ["layer 1.90", "emoji 1.00", "space 3.35", "comma 1.00", "language 1.05", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKey(.standard, globe: false)),
                    ["symbols 1.05", "layer 1.25", "space 4.20", "language 1.05", "returnKey 1.60"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKey(.commaPeriod, globe: false)),
@@ -134,7 +135,7 @@ final class KeyLayoutStyleTests: XCTestCase {
                    ["symbols 1.05", "layer 1.25", "emoji 1.05", "space 3.15", "language 1.05", "returnKey 1.60"])
     // 地球键跟在 123 后面占 1 份；九键双拼的 0 跟在空格后面；隐藏中/英时它的份额并进空格。
     XCTAssertEqual(row(TouchBottomRowLayout.twentySixKey(.longSpace, globe: true, language: false)),
-                   ["layer 1.25", "globe 1.00", "comma 1.00", "space 6.10", "returnKey 1.90"])
+                   ["layer 1.90", "globe 1.00", "comma 1.00", "space 5.45", "returnKey 1.90"])
     XCTAssertEqual(row(TouchBottomRowLayout.nineKey(.commaPeriod, globe: true, zero: true)),
                    ["symbols 1.05", "layer 1.25", "globe 1.00", "comma 1.00", "space 2.20", "period 1.00", "zero 1.05",
                     "language 1.05", "returnKey 1.60"])
@@ -1018,11 +1019,11 @@ final class KeyLayoutStyleTests: XCTestCase {
 
   /// 隐藏逗号句号（`hidePunctuation`）只作用于中文 26 键的标准、长空格、表情键样式：逗号句号不排进底行、份额并给空格；逗号句号样式本身在空格两侧、不受影响。
   func testTwentySixKeyHidesPunctuation() {
-    // 标准：123 | 符 | 空格 | 中/英 | 回车，逗号句号（各 1 份）被去掉，空格从 3 份涨到 5 份。
+    // 标准：123 | 符 | 空格 | 中/英 | 回车，逗号句号（各 1 份）被去掉，份额并给空格（2.35 + 2 = 4.35 份）。
     let standard = TouchBottomRowLayout.twentySixKey(.standard, globe: false, hidePunctuation: true)
     XCTAssertEqual(standard.map(\.slot), [.layer, .symbols, .space, .language, .returnKey])
     XCTAssertEqual(standard.first { $0.slot == .space }?.weight,
-                   TouchBottomRowLayout.spaceWeight + TouchBottomRowLayout.punctuationWeight)
+                   TouchBottomRowLayout.spaceWeight - Self.layerExtra + TouchBottomRowLayout.punctuationWeight)
     // 长空格：123 | 长空格 | 中/英 | 回车。
     let longSpace = TouchBottomRowLayout.twentySixKey(.longSpace, globe: false, hidePunctuation: true)
     XCTAssertEqual(longSpace.map(\.slot), [.layer, .space, .language, .returnKey])
@@ -1040,6 +1041,61 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style, hidePunctuation: true).map(\.slot),
                    [.layer, .symbols, .space, .language, .returnKey])
   }
+
+  /// 123 加宽到与回车等宽（`letterLayerWeight`）：26 键和 14/18 键的底行两端对称，多出的份额从空格让出，整行总份额不变；九键保持不变。
+  func testLayerKeyIsAsWideAsReturn() {
+    XCTAssertEqual(TouchBottomRowLayout.letterLayerWeight, TouchBottomRowLayout.returnWeight)
+    func layer(_ keys: [TouchBottomRowLayout.Key]) -> CGFloat? { keys.first { $0.slot == .layer }?.weight }
+    func returnKey(_ keys: [TouchBottomRowLayout.Key]) -> CGFloat? { keys.first { $0.slot == .returnKey }?.weight }
+    for style in TouchTwentySixKeyStyle.allCases {
+      let row = TouchBottomRowLayout.twentySixKey(style, globe: false)
+      XCTAssertEqual(layer(row), returnKey(row), style.rawValue)
+    }
+    for style in TouchFourteenKeyStyle.allCases {
+      let row = TouchBottomRowLayout.letterGrid(style, globe: false)
+      XCTAssertEqual(layer(row), returnKey(row), style.rawValue)
+    }
+    // 九键的 123 仍用 1.25 份：九宫格下方的底行更挤，加宽会把空格压得过窄。
+    let nineKey = TouchBottomRowLayout.nineKey(.standard, globe: false)
+    XCTAssertEqual(layer(nineKey), TouchBottomRowLayout.layerWeight)
+    // 互换只换位置、不换份额：123 与回车仍等宽，符 仍是 1.05 份。
+    let swapped = TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(.standard, globe: false))
+    XCTAssertEqual(swapped.map(\.slot), [.symbols, .layer, .period, .space, .comma, .language, .returnKey])
+    XCTAssertEqual(swapped.first?.weight, TouchBottomRowLayout.symbolsWeight)
+    XCTAssertEqual(layer(swapped), TouchBottomRowLayout.letterLayerWeight)
+  }
+
+  /// 隐藏符号键盘（`hideSymbol`）：26 键带 符 的样式把 符 从底行去掉、份额并给空格；没有 符 的长空格和表情键样式原样返回。
+  func testTwentySixKeyHidesSymbol() {
+    let standard = TouchBottomRowLayout.twentySixKey(.standard, globe: false, hideSymbol: true)
+    XCTAssertEqual(standard.map(\.slot), [.layer, .period, .space, .comma, .language, .returnKey])
+    XCTAssertEqual(standard.first { $0.slot == .space }?.weight,
+                   TouchBottomRowLayout.spaceWeight - Self.layerExtra - TouchBottomRowLayout.punctuationWeight
+                     + TouchBottomRowLayout.symbolsWeight)
+    // 逗号句号样式同样有 符，也去掉。
+    XCTAssertEqual(TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false, hideSymbol: true).map(\.slot),
+                   [.layer, .comma, .space, .period, .language, .returnKey])
+    // 长空格和表情键没有 符，不受影响。
+    for style in [TouchTwentySixKeyStyle.longSpace, .emoji] {
+      XCTAssertEqual(TouchBottomRowLayout.twentySixKey(style, globe: false, hideSymbol: true),
+                     TouchBottomRowLayout.twentySixKey(style, globe: false), style.rawValue)
+    }
+    // 隐符键和隐藏逗号句号同时打开：逗号句号、符 都不排进底行，份额都并给空格。
+    XCTAssertEqual(TouchBottomRowLayout.twentySixKey(.standard, globe: false,
+                                                     hidePunctuation: true, hideSymbol: true).map(\.slot),
+                   [.layer, .space, .language, .returnKey])
+    // 预览与键盘同一张表。
+    let style = TouchKeyLayoutStyle(twentySixKey: .standard)
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style, hideSymbol: true).map(\.slot),
+                   [.layer, .period, .space, .comma, .language, .returnKey])
+    // 互换打开时 符 已不在第一位，仍按 slot 去掉。
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(TouchKeyLayoutStyle(twentySixKey: .standard, symbolFirst: true),
+                                                             hideSymbol: true).map(\.slot),
+                   [.layer, .period, .space, .comma, .language, .returnKey])
+  }
+
+  /// `letterLayerWeight` 相对 `layerWeight` 多出的份额，就是底行从空格让出的那一份。
+  private static let layerExtra = TouchBottomRowLayout.letterLayerWeight - TouchBottomRowLayout.layerWeight
 
   /// 打开「符」与「123」互换后，26 键分段的预览底行照键盘把 符 排到 123 左边，并在样式高亮之外再高亮 符 和 123；长空格和表情键样式没有 符，底行和高亮都不变；14/18 键和 9 键不受这个开关影响。
   func testSettingsPreviewFollowsSymbolFirst() {

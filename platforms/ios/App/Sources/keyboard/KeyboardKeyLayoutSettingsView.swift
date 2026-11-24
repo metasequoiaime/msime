@@ -16,6 +16,8 @@ struct KeyboardKeyLayoutSettingsView: View {
   @State private var hidesLanguageKey = KeyboardLayoutPreference.hideLanguageKey
   /// 用户隐藏了逗号句号时预览也不画它们，份额并进空格，与键盘一致。
   @State private var hidesPunctuationKey = KeyboardLayoutPreference.hidePunctuationKey
+  /// 用户隐藏了符号键盘（底行的 符）时预览也不画它，份额并进空格，与键盘一致。
+  @State private var hidesSymbolKey = KeyboardLayoutPreference.hideSymbolKey
   /// 本版本提供哪几类键面，决定分段列哪几类和要不要数字行开关。
   private let offering = TouchKeyLayoutOffering.edition
 
@@ -75,7 +77,7 @@ struct KeyboardKeyLayoutSettingsView: View {
     DesignCard {
       VStack(alignment: .leading, spacing: 14) {
         KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid, language: !hidesLanguageKey,
-                                 hidePunctuation: hidesPunctuationKey)
+                                 hidePunctuation: hidesPunctuationKey, hideSymbol: hidesSymbolKey)
           .padding(.horizontal, 16)
         // 当前样式的说明收进胶囊行末的「?」，没有说明的样式不画。
         HStack(spacing: 0) {
@@ -115,6 +117,15 @@ struct KeyboardKeyLayoutSettingsView: View {
                           KeyboardLayoutPreference.hidePunctuationKey = enabled
                         }))
           .accessibilityIdentifier("keyLayoutHidePunctuationSwitch")
+      }
+      if kind == .twentySixKey && style.twentySixKey.drawsSymbols {
+        DesignDivider()
+        DesignToggleRow(title: TouchKeyLayoutOffering.hideSymbolTitle, info: TouchKeyLayoutOffering.hideSymbolSubtitle,
+                        isOn: Binding(get: { hidesSymbolKey }, set: { enabled in
+                          hidesSymbolKey = enabled
+                          KeyboardLayoutPreference.hideSymbolKey = enabled
+                        }))
+          .accessibilityIdentifier("keyLayoutHideSymbolSwitch")
       }
       if kind == .letterGrid {
         DesignDivider()
@@ -214,6 +225,7 @@ struct KeyboardKeyLayoutSettingsView: View {
     style = TouchKeyLayoutStyle.mirrored
     hidesLanguageKey = KeyboardLayoutPreference.hideLanguageKey
     hidesPunctuationKey = KeyboardLayoutPreference.hidePunctuationKey
+    hidesSymbolKey = KeyboardLayoutPreference.hideSymbolKey
     let current = Self.currentKeyboard(in: document)
     letterGrid = current.grid
     if !kindPicked { kind = offering.initialKind(current: current.kind) }
@@ -238,6 +250,7 @@ private struct KeyLayoutKeyboardPreview: View {
   let letterGrid: LetterKeyGrid
   let language: Bool
   let hidePunctuation: Bool
+  let hideSymbol: Bool
 
   private static let canvasWidth: CGFloat = 390
   private static let canvasHeight: CGFloat = 216
@@ -433,7 +446,7 @@ private struct KeyLayoutKeyboardPreview: View {
   /// 所选样式的底行，取自键盘用的同一张表；与「标准」不同的键标上高亮。
   private var bottomCaps: [Cap] {
     let highlighted = kind.highlightedSlots(style)
-    return kind.bottomRow(style, language: language, hidePunctuation: hidePunctuation).map { key in
+    return kind.bottomRow(style, language: language, hidePunctuation: hidePunctuation, hideSymbol: hideSymbol).map { key in
       Cap(face: Self.face(key.slot), role: Self.role(key.slot), weight: key.weight,
           highlighted: highlighted.contains(key.slot))
     }

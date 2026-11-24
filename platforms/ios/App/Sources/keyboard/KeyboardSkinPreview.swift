@@ -170,11 +170,11 @@ struct KeyboardSkinPreview: View {
       .frame(maxWidth: .infinity).frame(height: Self.homeIndicatorHeight)
   }
 
-  /// 字母层的框架、顶部数字行和底行，按用户在「按键布局」里选的样式（`keyLayout`）和中/英键、逗号句号设置排，与键盘取自同一张表（`KeyboardPreviewLetterLayer`）。
+  /// 字母层的框架、顶部数字行和底行，按用户在「按键布局」里选的样式（`keyLayout`）和中/英键、逗号句号、符号键盘设置排，与键盘取自同一张表（`KeyboardPreviewLetterLayer`）。
   private var letterLayer: KeyboardPreviewLetterLayer {
     KeyboardPreviewLetterLayer(nineKey: nineKey, letterGrid: letterGrid != nil, style: keyLayout,
                                language: layout.showsBottomLanguage, nineKeyZero: nineKeyZero,
-                               hidePunctuation: layout.hidesPunctuation)
+                               hidePunctuation: layout.hidesPunctuation, hideSymbol: layout.hidesSymbol)
   }
 
   /// 带工具栏或不带顶栏的 26 键与 14/18 键缩略图照设计稿画底行键面：空格上是麦克风和方案名，回车是图标；候选行变体和九键写「空格」「换行」。

@@ -556,12 +556,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var numberPadExpandedGridWidths: [NSLayoutConstraint] = []
   /// 123 / #+= 层的底行，以空格键的 6 为基准（`SymbolLayerLayout`）。
   private var layerActionWidths: [NSLayoutConstraint] = []
-  /// 设计稿的手机底行弹性权重，以空格键的 4 为基准：123 1.25、中 1.05、地球键 1、， 1、。 1、回车 1.9。14 键、18 键和大千用这一组；手机 26 键字母层用 `phoneEnglishActionWidths`。
+  /// 设计稿的手机底行弹性权重，以空格键的 4 为基准：123 1.9（与回车等宽，见 `letterLayerWeight`）、中 1.05、地球键 1、， 1、。 1、回车 1.9；123 多出的份额从空格让出，实际基准是 `phoneActionSpaceWeight`。14 键、18 键和大千用这一组；手机 26 键字母层用 `phoneEnglishActionWidths`。
   private var phoneActionWidths: [NSLayoutConstraint] = []
   /// iPad 26 键底行，以空格键的 6.4 为基准（`TabletLetterLayout`）：123 1.5、中 1.2、地球键 1、123 1.5、⌄ 1.2。
   private var tabletActionWidths: [NSLayoutConstraint] = []
   private var phoneExpandedSpaceWidths: [NSLayoutConstraint] = []
-  /// 空格左边带句号的 26 键底行（123 | 符 | 。 | 空格 | ， | 中 | 回车）：中文 26 键标准样式、英文、本地模式，以及日文罗马字、韩文、越南文和藏文的 26 键共用这一组，切中英文时每个键的位置和宽度都不变。句号占 1 份，空格以 `englishPhoneSpaceWeight` 为基准，其余键的份额与 `phoneActionWidths` 相同；隐藏 中/英 时用 expanded 那一组。
+  /// 空格左边带句号的 26 键底行（123 | 符 | 。 | 空格 | ， | 中 | 回车）：中文 26 键标准样式、英文、本地模式，以及日文罗马字、韩文、越南文和藏文的 26 键共用这一组，切中英文时每个键的位置和宽度都不变。句号占 1 份，空格以 `englishPhoneSpaceWeight` 让出 123 加宽那一份后（`englishActionSpaceWeight`）为基准，其余键的份额与 `phoneActionWidths` 相同；隐藏 中/英 时用 expanded 那一组。
   private var phoneEnglishActionWidths: [NSLayoutConstraint] = []
   private var phoneEnglishExpandedSpaceWidths: [NSLayoutConstraint] = []
   /// 手写底行的弹性权重（`handwritingSpaceWeight` 等）；隐藏 中/英 时改用 expanded 那一组，把它的份额交给空格。
@@ -4778,10 +4778,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       weight(globe, SymbolLayerLayout.globeWeight, space: SymbolLayerLayout.spaceWeight, optional: true),
       weight(enter, SymbolLayerLayout.returnWeight, space: SymbolLayerLayout.spaceWeight),
     ]
-    let phoneSpace = Self.phoneSpaceWeight
+    // 123 加宽到与回车等宽（`TouchBottomRowLayout.letterLayerWeight`）后，作为基准的空格相应让出同样多的一份，底行各项的相对比例才与「按键布局」的预览表一致。
+    let phoneSpace = Self.phoneActionSpaceWeight
     phoneActionWidths = [
       weight(nineKeySymbolsButton, 1.05, space: phoneSpace, optional: true),
-      weight(layoutToggle, 1.25, space: phoneSpace),
+      weight(layoutToggle, TouchBottomRowLayout.letterLayerWeight, space: phoneSpace),
       weight(language, 1.05, space: phoneSpace),
       weight(globe, 1, space: phoneSpace, optional: true),
       weight(delete, 1, space: phoneSpace, optional: true),
@@ -4802,12 +4803,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       entries.map { key, value, optional in weight(key, value, space: spaceWeight, optional: optional) }
     }
     phoneExpandedSpaceWidths = expandedWidths(spaceWeight: phoneSpace + 1.05, entries: [
-      (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true), (delete, 1, true),
-      (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
+      (nineKeySymbolsButton, 1.05, true), (layoutToggle, TouchBottomRowLayout.letterLayerWeight, false), (globe, 1, true),
+      (delete, 1, true), (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
-    let englishSpace = Self.englishPhoneSpaceWeight
+    let englishSpace = Self.englishActionSpaceWeight
     let englishEntries: [(UIView, CGFloat, Bool)] = [
-      (nineKeySymbolsButton, 1.05, true), (layoutToggle, 1.25, false), (globe, 1, true),
+      (nineKeySymbolsButton, 1.05, true), (layoutToggle, TouchBottomRowLayout.letterLayerWeight, false), (globe, 1, true),
       (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ]
     phoneEnglishActionWidths = expandedWidths(spaceWeight: englishSpace, entries: englishEntries)
@@ -4843,6 +4844,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 手机 26 键底行上空格键的弹性权重；其他键的权重都相对它来算。
   static let phoneSpaceWeight: CGFloat = 4
+  /// 123 加宽到与回车等宽（`TouchBottomRowLayout.letterLayerWeight`）多出的份额：底行拿空格当基准，这一份从空格让出，所以实际用的空格基准是下面两个。
+  static let actionLayerExtra = TouchBottomRowLayout.letterLayerWeight - TouchBottomRowLayout.layerWeight
+  /// `phoneActionWidths` 等 14/18 键、大千底行实际用的空格基准。
+  static var phoneActionSpaceWeight: CGFloat { phoneSpaceWeight - actionLayerExtra }
+  /// `phoneEnglishActionWidths` 等 26 键字母层底行实际用的空格基准。
+  static var englishActionSpaceWeight: CGFloat { englishPhoneSpaceWeight - actionLayerExtra }
   /// 手机 26 键字母层的底行（中文只在标准样式下）在空格左边放一个句号（份额 1），这一份从空格里让出，123、符、逗号、中/英、回车的份额不变。与 Android `KeyboardActionRow.DESIGN_ENGLISH_SPACE_WEIGHT`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。
   static let englishPhoneSpaceWeight: CGFloat = phoneSpaceWeight - 1
   /// 手写底行 123 |（地球键 1）| ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车 的弹性权重，三个移动端相同（Android `KeyboardActionRow.HANDWRITING_*_WEIGHT`、HarmonyOS `HANDWRITING_*_SHARE`，`scripts/test-mobile-handwriting-pad-parity.py` 比对）。空格从 4 让到 2.4、回车从 1.9 让到 1.6（与九键底行的回车相同），腾出「重写」和 ⌫ 的位置：320pt 宽时 ， 。 约 25pt，与 26 键字母键相当，空格仍放得下麦克风和「手写」。
@@ -7982,9 +7989,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let keyStyle = activeKeyLayoutStyle
     switch style {
     case .phone where letterRows && drawsChineseTwentySixKey
-      && (keyStyle.twentySixKey != .standard || KeyboardLayoutPreference.hidePunctuationKey):
+      && (keyStyle.twentySixKey != .standard || KeyboardLayoutPreference.hidePunctuationKey
+          || KeyboardLayoutPreference.hideSymbolKey):
       let keys = TouchBottomRowLayout.twentySixKey(keyStyle.twentySixKey, globe: globe, language: language,
-                                                   hidePunctuation: KeyboardLayoutPreference.hidePunctuationKey)
+                                                   hidePunctuation: KeyboardLayoutPreference.hidePunctuationKey,
+                                                   hideSymbol: KeyboardLayoutPreference.hideSymbolKey)
       return keyStyle.symbolFirst ? TouchBottomRowLayout.symbolFirst(keys) : keys
     case .phone where letterGrid && keyStyle.fourteenKey != .standard:
       return TouchBottomRowLayout.letterGrid(keyStyle.fourteenKey, globe: globe, language: language)

@@ -113,6 +113,19 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertIn('.accessibilityIdentifier("keyLayoutLanguageLeftSwitch")', card[toggle:])
         self.assertEqual(self.source.count("TouchKeyLayoutOffering.languageLeftTitle"), 1, "one toggle, in the shared card")
 
+    def test_hide_symbol_toggle_only_shows_on_twenty_six_key_styles_that_draw_symbols(self):
+        # 「隐藏符号键盘」只对底行带 符 的 26 键样式有意义（标准和逗号句号），条件和偏好都写在本机。
+        card = member(self.source, "  private func styleCard(")
+        gate = card.index("if kind == .twentySixKey && style.twentySixKey.drawsSymbols {")
+        toggle = card[gate:]
+        self.assertIn("DesignToggleRow(title: TouchKeyLayoutOffering.hideSymbolTitle, info: TouchKeyLayoutOffering.hideSymbolSubtitle,", toggle)
+        self.assertIn("KeyboardLayoutPreference.hideSymbolKey = enabled", toggle)
+        self.assertIn('.accessibilityIdentifier("keyLayoutHideSymbolSwitch")', toggle)
+        self.assertEqual(self.source.count("TouchKeyLayoutOffering.hideSymbolTitle"), 1, "one toggle, 26-key cards with 符")
+        # 预览和读偏好都跟着这个开关走。
+        self.assertIn("hideSymbol: hidesSymbolKey", self.source)
+        self.assertIn("hidesSymbolKey = KeyboardLayoutPreference.hideSymbolKey", self.source)
+
     def test_number_pad_group_uses_the_same_pills_below_the_style_card(self):
         # #10056：「数字键盘」一组有入口就列，在样式卡片和顶部数字行开关之间；选项是同一套等宽胶囊，说明收在组名旁的「?」里，不画预览。
         gate = self.body.index("if offering.offersAnyGroup { numberPadGroup }")

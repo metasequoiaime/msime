@@ -124,7 +124,8 @@ struct KeyboardLayoutSettingsView: View {
       KeyboardSkinPreview(
         skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid,
         layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey,
-                                 hidesPunctuation: KeyboardLayoutPreference.hidePunctuationKey),
+                                 hidesPunctuation: KeyboardLayoutPreference.hidePunctuationKey,
+                                 hidesSymbol: KeyboardLayoutPreference.hideSymbolKey),
         heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero,
         letterBadges: letterSwipeBadges, onLetterTap: letterSwipeEditable ? { editingLetter = LetterSwipeSheetTarget(letter: $0) } : nil
       )
