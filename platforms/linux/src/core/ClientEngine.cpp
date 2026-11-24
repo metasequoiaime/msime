@@ -8715,19 +8715,18 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       command = MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape: {
-      // 右键菜单显示时 Esc 只收菜单，不取消组字：自绘浮层不抢焦点，Esc 仍到引擎这里；
-      // GNOME 扩展菜单已把 Esc 停在 Shell，这里按 token 再兜一次底（扩展失联或事件仍下发）。
+      // 右键菜单显示时 Esc 只收菜单，不取消组字：自绘浮层不抢焦点，Esc 仍到引擎这里。
+      // GNOME 扩展菜单自己在 Shell 里停掉 Esc；token 只记「发过菜单」，点外面或候选框收起时扩展关菜单并不通知宿主，
+      // 所以 token 非空不等于菜单还开着，不能据此吞掉 Esc。这里只顺手收掉残留的 token，Esc 照常取消组字。
       auto &menu_state = state(engine);
-      const bool candidate_menu_visible =
 #ifdef MSIME_LINUX_FLOATING_PANELS
-          (menu_state.candidate_menu_surface && menu_state.candidate_menu_surface->visible()) ||
-#endif
-          !menu_state.candidate_menu_token.empty();
-      if (candidate_menu_visible) {
+      if (menu_state.candidate_menu_surface && menu_state.candidate_menu_surface->visible()) {
         menu_state.release_candidate_menu();
         handled = true;
         return;
       }
+#endif
+      menu_state.release_candidate_menu();
       command = MSIME_CANCEL;
       break;
     }

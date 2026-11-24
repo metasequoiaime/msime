@@ -1049,5 +1049,9 @@ assert (
 )
 assert "result->provider_failed && !recognised_before_punctuation" in ibus_voice
 assert "result->punctuation_mode = punctuation_mode;" in ibus_source
+# Esc 不能把 candidate_menu_token 当作「GNOME 扩展菜单还开着」：扩展点外面或候选框收起时关菜单不回报宿主，token 会残留，据此吞 Esc 会让取消组字要按两次。token 只在 Esc 时顺手收掉。
+ibus_escape = body(ibus, "    case IBUS_Escape: {\n", "      command = MSIME_CANCEL;\n      break;\n    }\n")
+assert "candidate_menu_token" not in ibus_escape
+assert ibus_escape.rstrip().endswith("menu_state.release_candidate_menu();")
 
 print("Fcitx5 addon metadata passed")
