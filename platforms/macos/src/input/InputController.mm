@@ -5161,6 +5161,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     translations.target = self;
     translations.state = _appearance.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:translations];
+    [self addQuickPhrasePriorityToMenu:menu];
     [menu addItem:NSMenuItem.separatorItem];
     // The scheme and the theme are each one choice out of several, so each is a submenu whose row names the current one, the way the system lists an input source's modes. As a radio list under a header the scheme alone took six rows.
     NSString *currentSchemeTitle = nil;

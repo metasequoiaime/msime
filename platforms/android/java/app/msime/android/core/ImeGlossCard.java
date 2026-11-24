@@ -193,7 +193,7 @@ final class ImeGlossCard {
     }
 
     /**
-     * 用户服务的缓存直接读。账号的缓存属于某个账号：在工作线程上取当前绑定，回到主线程再取一次，两次一致、而且 store 正绑在这个账号上（整页的账号路径每一代都会核对并绑定）才读缓存、才单独请求；不一致或还没绑上时卡片不用账号译文，也不替整页改绑定。
+     * 用户服务的缓存直接读。账号的缓存属于某个账号：在工作线程上取当前绑定，回到主线程再取一次，两次一致、而且 store 正绑在这个账号上（整页的账号路径在后台核对并绑定，见 CandidateTranslationBinding）才读缓存、才单独请求；不一致或还没绑上时卡片不用账号译文，也不替整页改绑定。
      */
     private void readCachedOnline(long opened) {
         if (onlineSource == null) return;

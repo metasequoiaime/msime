@@ -21,6 +21,7 @@ final class ShuangpinKeyFaceChecks {
     static void verify(Instrumentation test) throws Exception {
         KeyHintMainLabelChecks.verify(test);
         ShuangpinUniformKeyFaceChecks.verify(test);
+        KeyFaceGroupChecks.verify(test);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         test.runOnMainSync(() -> {
             try {

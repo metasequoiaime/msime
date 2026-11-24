@@ -15,6 +15,7 @@ fn main() {
         cc::Build::new()
             .cpp(true)
             .std("c++17")
+            .flag_if_supported("/utf-8")
             .file("../../platforms/common/CrashRecorder.cpp")
             .compile("msime_mcp_crash");
         if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {

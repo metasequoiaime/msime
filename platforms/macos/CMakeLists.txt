@@ -1557,6 +1557,12 @@ add_test(
           "${MSIME_INFO_PLIST_TEMPLATE}"
           "${MSIME_LOCALIZED_RESOURCES}"
           "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+# 系统的「使用大写锁定键切换 ABC」只认声明了 TICapsLockLanguageSwitchCapable 的输入源；缺键或写成假都静默不生效，用户关掉水杉自己的 Caps Lock 切换后就切不回输入源。
+add_test(
+  NAME info-plist-caps-lock
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_caps_lock.py"
+          "${MSIME_INFO_PLIST_TEMPLATE}")
 add_test(
   NAME entitlements-guard
   COMMAND "${Python3_EXECUTABLE}"

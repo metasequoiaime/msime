@@ -48,6 +48,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private var aiPlaceholders: Set<Int>
   /// 坐了首选的双拼纠错（`confident_correction`）的下标：字和纠错注释用强调色，读屏在末尾念「已纠正」。
   private var confidentCorrections: Set<Int>
+  /// 引擎改过拼写的候选（`corrected`）的下标：候选字后面画 `*`，注释里的原串已经由键盘控制器去掉（#11844）。
+  private var corrections: Set<Int>
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   /// 长按候选块：打开释义卡片（#10915），参数是候选在列表里的位置。与候选条共用：在候选条里能看释义、管理词条的长按，展开列表后不应失效。
@@ -94,6 +96,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
        markers: [[CandidateMarker]] = [], aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [],
+       corrections: Set<Int> = [],
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
        selectedIndex: Int = 0, showsHeader: Bool = true, palette: CandidatePalette? = nil,
        canvas: ExternalCandidateSkin.Canvas? = nil,
@@ -108,6 +111,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
     self.confidentCorrections = confidentCorrections
+    self.corrections = corrections
     self.display = display
     self.onLongPress = onLongPress
     self.onSelect = onSelect
@@ -245,12 +249,14 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
 
   /// 换成另一代候选，面板不关。九键面板里选拼音、退格或筛选之后回到列表开头；只是 AI 行变了（回答插进第一页最后一格、多出来的接在末尾）时 `keepingScrollPosition` 留在原处，不跳回开头（#6888）。
   func reload(candidates: [String], annotations: [KeyboardCandidateAnnotation], markers: [[CandidateMarker]],
-              aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [], keepingScrollPosition: Bool = false) {
+              aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [], corrections: Set<Int> = [],
+              keepingScrollPosition: Bool = false) {
     self.candidates = candidates
     self.annotations = annotations
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
     self.confidentCorrections = confidentCorrections
+    self.corrections = corrections
     count.text = "\(candidates.count) 个候选"
     if !keepingScrollPosition { scrollView.setContentOffset(.zero, animated: false) }
     rebuildChips()
@@ -341,6 +347,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
                         interactive: Bool = true) -> CandidateGridButton {
     let number = index + 1
     let text = display(candidate)
+    let markedText = CandidateCorrectionPolicy.markedWord(text, corrected: corrections.contains(index))
     let annotation = annotations.indices.contains(index) ? annotations[index] : .none
     let marks = markers.indices.contains(index) ? markers[index] : []
     let selected = index == selectedIndex
@@ -354,7 +361,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     paragraph.alignment = .center
     var font = CandidateFontPreference.font(.body, scale: candidateScale, families: candidateFamilies)
     if selected { font = Self.semibold(font) }
-    var title = AttributedString(text, attributes: AttributeContainer([.font: font, .paragraphStyle: paragraph]))
+    var title = AttributedString(markedText, attributes: AttributeContainer([.font: font, .paragraphStyle: paragraph]))
     title += KeyboardViewController.markerRun(marks, color: secondary, scale: candidateScale)
     let titleWidth = ceil(NSAttributedString(title).size().width) + Self.cellInsets.leading + Self.cellInsets.trailing
     let glossLines = annotation.text.isEmpty

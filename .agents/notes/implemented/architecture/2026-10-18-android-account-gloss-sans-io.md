@@ -15,7 +15,7 @@ client-services 早有这个接口的 sans-IO 一半 `msime_client_account_gloss
 - 请求发到 `CloudApi.ORIGIN` 加 Rust 给的路径，头是 `Accept`、固定的 `MSIME/Android`、Bearer 和 `application/json`。服务端回 401 时把被拒的令牌交回 provider 换一枚，换到不同的才用同一份请求体重试一次，第二次 401 不再重试。
 - 状态码、响应体和 `Retry-After` 原样交给 Rust 的 `parse`：2xx 时得到与原文等长的 `[string|null]`，null 由 `CandidateTranslationStore.absorb` 跳过；其余状态码是账号错误码（`AccountStore.Failure`，限流带 `retry_after_seconds`），store 照旧吞掉。
 - 不跟随重定向、30 秒超时、响应最多 256 KiB 不变；超过上限时不交给 Rust（parse 请求要把整个响应体带进 JSON，JNI 那一头的上限是 4 MiB）。
-- 换号以后才到的旧回答只由 store 挡：`MSIMEInputService.verifyCandidateTranslationBinding` 在发请求前和回答到达时各读一次 `SyncSignals.binding`，`CandidateTranslationStore.bindTo` 在绑定变了时清空缓存（`CandidateTranslationStoreSmoke` 覆盖）。客户端自己不再核对账号编号。
+- 换号以后才到的旧回答只由 store 挡：整页请求在 worker 上发出前和回答到达后各读一次 `SyncSignals.binding`（`CandidateTranslationStore.fence`，由 `CandidateTranslationBinding.holds` 比对），`CandidateTranslationStore.bindTo` 在绑定变了时清空缓存（`CandidateTranslationStoreSmoke` 覆盖）。缓存什么时候能画、绑定怎么在后台核对，见 [安卓账号译文与候选同一帧出现](../bug-fix/2026-11-23-android-account-translations-same-frame.md)。客户端自己不再核对账号编号。
 - Java 的解读（`parseResponse`、`parseValues`、`successStatusCode`）和它的 JVM 冒烟 `CandidateTranslationResponseSmoke` 删掉；那几种整页拒绝的情形（`code` 是 200.5 或 true，某一项是 null 或数字）补进 client-services 的 `a_malformed_envelope_fails_the_whole_response`。`NativeClient.accountGloss` 是新的包内入口，JNI 的 `accountGlossRaw` 在 5a 已经导出。
 - `check-host.sh` 守着：Java 里不能出现 `"/v1/translate"`，`BackendTranslationClient` 要调 `NativeClient.accountGloss`。
 

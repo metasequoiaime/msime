@@ -55,7 +55,7 @@ public final class KeyboardTypographyPolicy {
 
     /** 底行功能键（符、123、中/英、组词时回车上的「确认」这类文字键）的字号（sp），键窄时最小缩到 {@link #FUNCTION_KEY_MIN_TEXT_SP}。 */
     public static final float FUNCTION_KEY_TEXT_SP = 15f;
-    public static final float FUNCTION_KEY_MIN_TEXT_SP = 10f;
+    public static final float FUNCTION_KEY_MIN_TEXT_SP = 9f;
 
     /** 底行功能键的字号：只占一行，键窄时缩小。「键盘调整」把键盘收窄到 60% 或 240 dp、单手模式和大字体时键都会变窄，固定字号的「123」会折成「12」「3」两行。 */
     public static void setFunctionKeyTextSize(TextView key) {

@@ -723,6 +723,13 @@ impl QuanpinDictionary {
         });
     }
 
+    pub(crate) fn grid_tail_completions(&self, segments: &[String], key: &str) -> Vec<WordItem> {
+        matched_items(
+            self.database.query_grid_tail_completions(segments, key),
+            key,
+        )
+    }
+
     pub fn find_candidate(&self, key: &str, value: &str) -> Option<WordItem> {
         self.database
             .find_weight(key, value)

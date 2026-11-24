@@ -11,7 +11,20 @@ use super::utils::{
 };
 use super::ShuangpinProfile;
 use crate::pinyin::fuzzy::fuzzy_initial_partners;
-use crate::types::FuzzyPinyinOptions;
+use crate::types::{FuzzyPinyinOptions, QueryRequest};
+
+/// 逐音节直接模式的独立三码（两键音节加一位小写辅码）沿用末尾一码的查询与消耗规则。
+pub(crate) fn standalone_direct_helpcode(request: &QueryRequest) -> bool {
+    let typed = if request.raw_input_with_cases.is_empty() {
+        request.raw_input.as_bytes()
+    } else {
+        request.raw_input_with_cases.as_bytes()
+    };
+    request.shuangpin_helpcode_modes.direct_helpcode
+        && request.raw_input.len() == 3
+        && typed.is_ascii()
+        && matches!(typed, [_, _, helpcode] if helpcode.is_ascii_lowercase())
+}
 
 /// 非法两键只尝试已启用的声母伙伴，保留普通切分与用户手动边界。
 pub(crate) fn fuzzy_initial_spellings(

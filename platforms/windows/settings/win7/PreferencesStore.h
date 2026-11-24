@@ -71,6 +71,8 @@ public:
            change.path == std::vector<std::string>{"mixed_input", "enabled"} ||
            change.path == std::vector<std::string>{"mixed_input", "symbols"} ||
            change.path == std::vector<std::string>{"mixed_input", "japanese"} ||
+           change.path == std::vector<std::string>{"mixed_input", "quick_phrase"} ||
+           change.path == std::vector<std::string>{"mixed_input", "quick_phrase_first"} ||
            change.path == std::vector<std::string>{"local_modes", "chaizi"} ||
            change.path == std::vector<std::string>{"local_modes", "symbol"} ||
            change.path == std::vector<std::string>{"local_modes", "super_jianpin_slash"} ||

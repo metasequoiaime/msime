@@ -100,6 +100,8 @@ pub struct EngineOptions {
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     /// 十四／十八键网格辅助码（`SessionOptions::grid_helpcode`）；宿主按当前方案偏好的 `grid` 填，默认关。
     pub grid_helpcode: bool,
+    /// 全拼九键的精确拼写模式。
+    pub precise_nine_key: bool,
     pub helpcode_schema: String,
     /// 辅助码前导标点；None 保留现有 Shift 加字母。
     pub helpcode_trigger_key: Option<u8>,
@@ -178,6 +180,8 @@ pub struct EngineOptions {
     pub quick_phrase_candidates: bool,
     /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）。
     pub quick_phrase_frequency: bool,
+    /// 用户选择把混输的快捷短语组放在普通候选最前面。
+    pub quick_phrase_first: bool,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
@@ -307,6 +311,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
         helpcode_table: None,
@@ -355,6 +360,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
@@ -450,6 +456,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,
         shuangpin_helpcode_modes: options.shuangpin_helpcode_modes,
         grid_helpcode: options.grid_helpcode,
+        precise_nine_key: options.precise_nine_key,
         chinese_punctuation: options.chinese_punctuation,
         paired_punctuation: options.paired_punctuation,
         punctuation_lock: i32::from(options.punctuation_lock),
@@ -531,6 +538,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         quick_phrase_table: options.quick_phrase_table.clone(),
         quick_phrase_candidates: options.quick_phrase_candidates,
         quick_phrase_frequency: options.quick_phrase_frequency,
+        quick_phrase_first: options.quick_phrase_first,
         chaizi_traditional_output: options.chaizi_traditional_output,
     })
 }

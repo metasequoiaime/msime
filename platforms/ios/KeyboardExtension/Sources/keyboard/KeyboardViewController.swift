@@ -136,6 +136,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let converting: Bool
     let aiPlaceholder: Bool
     let source: Int
+    let corrected: Bool
     let confidentCorrection: Bool
     let styleRevision: UInt64
   }
@@ -692,6 +693,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 音标表装好没有，在应用候选栏布局时重查（`applyCandidateGlossLayout`）；顶栏是否多留一行按它和开关定，打字过程中不变。
   private var candidatePronunciationTableInstalled = false
   private var visibleCandidateAnnotations: [String] = []
+  /// 候选条上每个候选是不是引擎改过拼写的纠错行（View 的 `corrected`），与 `visibleCandidates` 对齐；候选字后面画 `*`。
+  private var visibleCandidateCorrected: [Bool] = []
   private var visibleCandidateSources: [Int] = []
   private var visibleCandidateFixedPositions: [Int] = []
   private var visibleCandidateHighlighted: [Bool] = []
@@ -6716,6 +6719,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         markers: candidatePanelMarkers(snapshot),
         aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
         confidentCorrections: candidatePanelConfidentCorrections(snapshot),
+        corrections: candidatePanelCorrections(snapshot),
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         showsHeader: false, palette: candidatePalette, canvas: candidateCanvasSkin,
         display: { $0 },
@@ -6782,6 +6786,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     defer { if !missing.isEmpty { requestCandidatePronunciations(missing) } }
     return snapshot.entries.map {
       candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
+                               corrected: $0.corrected,
                                source: $0.source, highlighted: $0.highlighted, typed: snapshot.preedit,
                                missingPronunciations: &missing)
     }
@@ -6802,6 +6807,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 网格里哪些格子是坐了首选的双拼纠错，和候选条一样用强调色画、读屏念「已纠正」。
   private func candidatePanelConfidentCorrections(_ snapshot: CandidatePanelSnapshot) -> Set<Int> {
     Set(snapshot.entries.indices.filter { snapshot.entries[$0].confidentCorrection })
+  }
+
+  /// 网格里哪些格子是引擎改过拼写的候选：候选字后面画 `*`，注释里的原串已由 `candidatePanelAnnotation` 去掉。
+  private func candidatePanelCorrections(_ snapshot: CandidatePanelSnapshot) -> Set<Int> {
+    Set(snapshot.entries.indices.filter { snapshot.entries[$0].corrected })
   }
 
   private func makeNineKeyPanelColumns() -> KeyboardNineKeyPanelColumns {
@@ -8687,6 +8697,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                          candidateCodes: visibleValues(snapshot.candidateCodes),
                          candidateGlosses: visibleValues(snapshot.candidateGlosses),
                          candidateAnnotations: visibleValues(snapshot.candidateAnnotations),
+                         candidateCorrected: visibleValues(snapshot.candidateCorrected),
                          candidateSources: visibleValues(snapshot.candidateSources),
                          candidateFixedPositions: visibleValues(snapshot.candidateFixedPositions),
                          candidateHighlighted: visibleValues(snapshot.candidateHighlighted),
@@ -8740,7 +8751,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateCandidateStrip(preedit: String, candidates: [String],
                                     candidateCodes: [String] = [], candidateGlosses: [String] = [],
-                                    candidateAnnotations: [String] = [], candidateSources: [Int] = [],
+                                    candidateAnnotations: [String] = [], candidateCorrected: [Bool] = [],
+                                    candidateSources: [Int] = [],
                                     candidateFixedPositions: [Int] = [], candidateHighlighted: [Bool] = [],
                                     candidateConfidentCorrections: [Bool] = [], candidatePageCount: Int = 0,
                                     candidateEngineIndices: [Int]? = nil,
@@ -8762,6 +8774,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     visibleCandidateCodes = showsEmailSuffixes ? [] : candidateCodes
     visibleCandidateGlosses = showsEmailSuffixes ? [] : candidateGlosses
     visibleCandidateAnnotations = showsEmailSuffixes ? [] : candidateAnnotations
+    visibleCandidateCorrected = showsEmailSuffixes ? [] : candidateCorrected
     visibleCandidateSources = showsEmailSuffixes ? [] : candidateSources
     visibleCandidateFixedPositions = showsEmailSuffixes ? [] : candidateFixedPositions
     visibleCandidateHighlighted = showsEmailSuffixes ? [] : candidateHighlighted
@@ -8845,7 +8858,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // 样式与英文建议的词块相同，只是读作邮箱后缀。
         let inputs = CandidateButtonInputs(
           candidate: page[offset], hint: "", hintSpoken: nil, reading: nil, glosses: [], pronunciation: nil, markers: [],
-          number: offset + 1, converting: false, aiPlaceholder: false, source: -1, confidentCorrection: false,
+          number: offset + 1, converting: false, aiPlaceholder: false, source: -1, corrected: false,
+          confidentCorrection: false,
           styleRevision: candidateButtonStyleRevision)
         if candidateButtonInputs[offset] != inputs {
           updateCandidateButton(chip, candidate: page[offset], hint: "", glosses: [], number: offset + 1, converting: false, source: -1)
@@ -8855,9 +8869,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         continue
       }
       // A Korean Hanja's 훈음 goes on the first line under it rather than after it, so it is not read as part of the candidate.
+      let corrected = visibleCandidateCorrected.indices.contains(offset) && visibleCandidateCorrected[offset]
       let annotation = candidateAnnotation(at: offset)
       let hint = typesKorean ? "" : annotation.text
-      let hintSpoken = readsChaizi ? annotation.accessibilityDescription : nil
+      // 拆字的读音不是还要输入的键，纠错行不画注释时（原串已去掉）也只有读法能把它念出来；画着辅助码或五笔码的纠错行照旧念那段码。
+      let hintSpoken: String? = readsChaizi || (corrected && hint.isEmpty)
+        ? (annotation.accessibilityDescription.isEmpty ? nil : annotation.accessibilityDescription) : nil
       let reading = typesKorean ? annotation.text : nil
       let glosses = candidateGlosses(at: offset)
       let pronunciation = candidatePronunciationLine(at: offset, missing: &missingPronunciations)
@@ -8872,14 +8889,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading, glosses: glosses,
         pronunciation: pronunciation,
         markers: markers, number: offset + 1, converting: japaneseConversionIndex == offset,
-        aiPlaceholder: aiPlaceholder, source: candidateSource, confidentCorrection: confidentCorrection,
+        aiPlaceholder: aiPlaceholder, source: candidateSource, corrected: corrected,
+        confidentCorrection: confidentCorrection,
         styleRevision: candidateButtonStyleRevision)
       guard candidateButtonInputs[offset] != inputs else { continue }
       updateCandidateButton(
         chip, candidate: page[offset], hint: hint, hintSpoken: hintSpoken, reading: reading,
         glosses: glosses, pronunciation: pronunciation, markers: markers, number: offset + 1,
         converting: japaneseConversionIndex == offset,
-        aiPlaceholder: aiPlaceholder, source: candidateSource, confidentCorrection: confidentCorrection)
+        aiPlaceholder: aiPlaceholder, source: candidateSource, corrected: corrected,
+        confidentCorrection: confidentCorrection)
       candidateButtonInputs[offset] = inputs
     }
     updateExpandControl()
@@ -8928,28 +8947,35 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func candidateAnnotation(at index: Int) -> KeyboardCandidateAnnotation {
     let code = visibleCandidateCodes.indices.contains(index) ? visibleCandidateCodes[index] : ""
     let engine = visibleCandidateAnnotations.indices.contains(index) ? visibleCandidateAnnotations[index] : ""
+    let corrected = visibleCandidateCorrected.indices.contains(index) && visibleCandidateCorrected[index]
     let (hint, description) = codeHint(code: code, engine: engine, typed: visiblePreedit,
-                                     candidate: visibleCandidates[index])
-    return hint.isEmpty ? .none : KeyboardCandidateAnnotation(text: hint, accessibilityDescription: description)
+                                     candidate: visibleCandidates[index], corrected: corrected)
+    let annotation = KeyboardCandidateAnnotation(text: hint, accessibilityDescription: description)
+    return annotation.text.isEmpty && annotation.accessibilityDescription.isEmpty ? .none : annotation
   }
 
-  /// The code shown under a candidate: the Wubi keys still to type, or else the Engine's own suffix - the candidate's helpcode when the scheme shows helpcodes, or the spelling a typo correction replaced. The Engine fills its suffix only when there is one to show, so the helpcode setting needs no second check here.
-  private func codeHint(code: String, engine: String, typed: String, candidate: String) -> (String, String) {
-    let engine = BilingualCandidateCaptionPolicy.annotation(engine, candidate: candidate,
+  /// The code shown under a candidate: the Wubi keys still to type, or else the Engine's own suffix - the candidate's helpcode when the scheme shows helpcodes, or the spelling a typo correction replaced. The Engine fills its suffix only when there is one to show, so the helpcode setting needs no second check here. A corrected candidate keeps only the helpcode: the spelling it replaced already sits in the input box and the reading line, and the `*` after the word marks the correction instead; VoiceOver still reads that spelling, as the correction's source rather than keys still to type.
+  private func codeHint(code: String, engine: String, typed: String, candidate: String,
+                        corrected: Bool = false) -> (String, String) {
+    let correction = CandidateCorrectionPolicy.spokenAnnotation(engine, corrected: corrected)
+    let engine = BilingualCandidateCaptionPolicy.annotation(
+      CandidateCorrectionPolicy.visibleAnnotation(engine, corrected: corrected), candidate: candidate,
       enabled: bilingualGlideEnabled && inputScheme == .quanpin)
     let wubi = wubiCodeHint(code: code, typed: typed)
-    if !wubi.isEmpty { return (wubi, "还需输入 \(wubi)") }
+    if !wubi.isEmpty {
+      return (wubi, correction.map { "\($0)，还需输入 \(wubi)" } ?? "还需输入 \(wubi)")
+    }
     // A Hanja carries its 훈음 (meaning and reading) as the Engine's annotation; its code is only the key letters, which is not drawn (msime_client.h).
     if typesKorean { return engine.isEmpty ? ("", "") : (engine, "训音 \(engine)") }
     // 拆字模式里 Engine 的注释是这个字的带调读音（焱 → yàn），找到不会读的字后正要看它，所以不论方案都画，九键进入本地模式后也一样；读音不带括号，原样显示。
     if readsChaizi { return engine.isEmpty ? ("", "") : (engine, "读音 \(engine)") }
     // 全拼、双拼以及五笔候选都可能在这里携带展示注释：前两者是辅助码或纠错提示，五笔是词条反查编码。
     guard !engine.isEmpty, !isInLocalMode,
-          inputScheme == .quanpin || usesShuangpin || inputScheme == .wubi else { return ("", "") }
+          inputScheme == .quanpin || usesShuangpin || inputScheme == .wubi else { return ("", correction ?? "") }
     // The Engine brackets its suffix for desktop windows that append it after the word; here it sits under the word like the Wubi hint, which is bare.
     let bare = engine.hasPrefix("(") && engine.hasSuffix(")") && engine.count > 2
       ? String(engine.dropFirst().dropLast()) : engine
-    return (bare, "编码提示 \(bare)")
+    return (bare, correction.map { "\($0)，编码提示 \(bare)" } ?? "编码提示 \(bare)")
   }
 
   /// 候选条第 `index` 个候选下面的音标行：不显示音标时为 nil；显示时音标还没到或这个词查不到就是空串，那一行照样留着，词块高度不变。
@@ -9046,9 +9072,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func candidatePanelAnnotation(code: String, gloss: String, word: String, engine: String,
+                                        corrected: Bool = false,
                                         source: Int, highlighted: Bool, typed: String,
                                         missingPronunciations: inout [String]) -> KeyboardCandidateAnnotation {
-    let (hint, hintDescription) = codeHint(code: code, engine: engine, typed: typed, candidate: word)
+    let (hint, hintDescription) = codeHint(code: code, engine: engine, typed: typed, candidate: word,
+                                           corrected: corrected)
     let lines = glosses(word: word, offline: gloss, source: source, highlighted: highlighted)
     // 展开网格的格子按内容定高，音标到了才多一行，不预留。
     var pronunciation = ""
@@ -9059,7 +9087,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
                                           missing: &missingPronunciations)
     }
     let text = ([hint] + lines + [pronunciation]).filter { !$0.isEmpty }.joined(separator: "\n")
-    guard !text.isEmpty else { return .none }
+    // 纠错行画面上没有注释（原串已去掉）时仍要留下读法，读屏念「纠错前的拼写」。
+    guard !text.isEmpty || !hintDescription.isEmpty else { return .none }
     let description = ([hintDescription, lines.isEmpty ? "" : "英文释义：\(lines.joined(separator: "，"))",
                         pronunciation.isEmpty ? "" : CandidatePronunciationModel.accessibilityLabel(pronunciation)])
       .filter { !$0.isEmpty }.joined(separator: "，")
@@ -9156,7 +9185,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         candidatePanelSnapshot = snapshot
         panel.reload(candidates: candidatePanelTexts(snapshot), annotations: candidatePanelAnnotations(snapshot),
                      markers: candidatePanelMarkers(snapshot), aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
-                     confidentCorrections: candidatePanelConfidentCorrections(snapshot), keepingScrollPosition: true)
+                     confidentCorrections: candidatePanelConfidentCorrections(snapshot),
+                     corrections: candidatePanelCorrections(snapshot), keepingScrollPosition: true)
         updateNineKeyPanelColumns()
         refreshGlossCard(panelSnapshot: snapshot)
         return
@@ -9169,7 +9199,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       candidatePanelSnapshot = snapshot
       panel.reload(candidates: candidatePanelTexts(snapshot), annotations: candidatePanelAnnotations(snapshot),
                    markers: candidatePanelMarkers(snapshot), aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
-                   confidentCorrections: candidatePanelConfidentCorrections(snapshot))
+                   confidentCorrections: candidatePanelConfidentCorrections(snapshot),
+                   corrections: candidatePanelCorrections(snapshot))
       updateNineKeyPanelColumns()
       return
     }
@@ -9459,9 +9490,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ button: KeyboardKeyButton, candidate: String, hint: String, hintSpoken: String? = nil, reading: String? = nil, glosses: [String],
     pronunciation: String? = nil,
     markers: [CandidateMarker] = [], number: Int, converting: Bool, aiPlaceholder: Bool = false, source: Int = -1,
-    confidentCorrection: Bool = false
+    corrected: Bool = false, confidentCorrection: Bool = false
   ) {
     let display = chineseOutput(candidate, source: source)
+    let markedDisplay = CandidateCorrectionPolicy.markedWord(display, corrected: corrected)
     guard var configuration = button.configuration else { return }
     let skin = KeyboardTheme.current
     let annotationColor = (number == 1 || converting ? candidatePalette?.selectedTranslation : nil) ?? candidatePalette?.secondary ?? skin.secondary
@@ -9520,7 +9552,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         attributes.font = candidateFont
         return attributes
       }
-      configuration.title = display
+      configuration.title = markedDisplay
     } else {
       configuration.titleLineBreakMode = .byWordWrapping
       // The runs below carry their own fonts; a transformer would flatten the gloss lines to the candidate size.
@@ -9528,7 +9560,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let paragraph = NSMutableParagraphStyle()
       paragraph.alignment = .natural
       paragraph.lineBreakMode = .byTruncatingTail
-      var title = AttributedString(display, attributes: AttributeContainer([
+      var title = AttributedString(markedDisplay, attributes: AttributeContainer([
         .font: candidateFont,
         .paragraphStyle: paragraph,
       ]))
@@ -9565,8 +9597,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       pinCandidateWidth(of: button, contentWidth: contentWidth)
       button.layoutIfNeeded()
     }
-    // `hintSpoken` 是注释另有读法时的朗读文字，比如拆字的读音不是还要输入的键。
-    button.accessibilityLabel = annotation.isEmpty
+    // `hintSpoken` 是注释另有读法时的朗读文字，比如拆字的读音不是还要输入的键、纠错前的拼写不是还要输入的键。
+    // 纠错行不画原串，注释可能是空的，这时只能靠 `hintSpoken` 把「纠错前的拼写」念出来。
+    button.accessibilityLabel = annotation.isEmpty && hintSpoken == nil
       ? "候选词 \(number)：\(display)"
       : "候选词 \(number)：\(display)，\(hintSpoken ?? "还需输入 \(annotation)")"
     // A Korean Hanja's 훈음 is its meaning and reading, not keys still to type.

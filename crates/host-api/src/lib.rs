@@ -943,6 +943,7 @@ impl HostSession {
         options.quick_phrase_candidates =
             self.quick_phrase_candidates_requested && preferences.mixed_input.quick_phrase;
         options.quick_phrase_frequency = preferences.mixed_input.quick_phrase_frequency;
+        options.quick_phrase_first = preferences.mixed_input.quick_phrase_first;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
         options.local_date_time_inline = preferences.local_modes.date_time_inline;
@@ -967,6 +968,7 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.strict_quanpin_helpcode = helpcode.strict_filter;
         options.grid_helpcode = helpcode.grid;
+        options.precise_nine_key = preferences.touch_nine_key_precise;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
@@ -2685,6 +2687,7 @@ impl HostOptions {
             quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false)
                 && self.preferences.mixed_input.quick_phrase,
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
+            quick_phrase_first: self.preferences.mixed_input.quick_phrase_first,
             helpcode_table: None,
             helpcode_fallback_resources,
             // 用户自己的辅助码表放在状态根下（`msime_client_core::helpcode::user_helpcode_root`），`resources` 是安装包或词库代次，升级会换掉它。
@@ -2715,6 +2718,7 @@ impl HostOptions {
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
             grid_helpcode: helpcode.grid,
+            precise_nine_key: self.preferences.touch_nine_key_precise,
             helpcode_schema: helpcode.schema.as_str().into(),
             helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(
@@ -4165,15 +4169,18 @@ fn dispatch_value(
             Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
         );
         let pending = session.lifecycle_input(&action, host);
-        // Which row the user reached for, read before dispatching because the view it is
-        // relative to is gone afterwards. Every platform host routes candidate selection
-        // through here, so counting it here covers all of them without a line of platform
-        // code; doing it per host would have meant six chances to forget.
-        let position = selected_position(&action);
-        let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
+        // 效率只在带候选身份的选词上记：它要读被选中那一行的码、文本和来源。空格、回车、标点和五笔顶字经命令路由，派发之前拿不到那条候选，效率仍留给点选和数字键。
+        let efficiency = match &action {
+            Action::Select(_) | Action::SelectAnyCandidate(_) => {
+                session.efficiency_candidate(&action)
+            }
+            _ => None,
+        };
         let result = session.runtime.dispatch(action).map_err(|e| e.to_string());
         // 报错前 runtime 可能已经改了组字，生命周期照样收尾。
         let mut result = session.lifecycle_on_error(pending, result)?;
+        // 选词位置取自派发里记下的选择，而不是动作：空格、回车、标点、五笔顶字和结束组字的选词都经命令路由，动作里没有候选身份；位次本身是用户看到的编号（引擎座位要跳过宿主不画的占位席位）。
+        let facts = session.runtime.facts();
         // Text the Engine generated (a calculator result, a command, a mention) was picked, not typed, and stays out of the statistics the way it stays out of learning.
         let counts_as_typing = result
             .commit_context
@@ -4184,11 +4191,13 @@ fn dispatch_value(
             if let Some(candidate) = efficiency {
                 session.count_efficiency(candidate);
             }
-            if let Some(position) = position {
-                session.count_selection(position);
+            if let Some(position) = facts
+                .selection
+                .and_then(|selection| selection.visible_position)
+            {
+                session.count_selection(position as usize);
             }
         }
-        let facts = session.runtime.facts();
         // 固定标点表返回全角人民币；半角只改本次 `$` 产生的尾巴，候选和短语里的符号保持原文。
         if currency_punctuation
             && result.view.character_width == CharacterWidth::Halfwidth
@@ -4216,22 +4225,6 @@ fn dispatch_value(
         }
         Ok(value)
     })
-}
-
-/// The one-based position of the candidate an action is about, or `None` when it is not about one.
-///
-/// Both selection actions carry the absolute candidate index from the runtime's generation, so
-/// adding a view page offset would double-count candidates after the first page.
-fn selected_position(action: &Action) -> Option<usize> {
-    match action {
-        // Candidate IDs carry the absolute index in the cached generation, even
-        // when the view only shows one page. Adding the page offset here counted
-        // every selection after the first page twice (and pushed it into the
-        // aggregate `beyond` bucket in typing statistics).
-        Action::Select(id) => Some(id.index + 1),
-        Action::SelectAnyCandidate(id) => Some(id.index + 1),
-        _ => None,
-    }
 }
 
 /// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。

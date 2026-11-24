@@ -278,11 +278,13 @@ public final class KeyboardPreview extends View {
             float y = top + r * (rowHeight + gap);
             float total = 0;
             for (KeyLayoutStylesPolicy.Key cell : row) total += cell.weight();
-            // 和键盘的 LinearLayout 一样按份额铺满整行；跨两行的回车画成一整块，被它盖住的格和 18 键的缩进只占宽度。
-            float unit = (w - pad * 2 - gap * (row.size() - 1)) / total;
-            float x = pad;
+            // 和键盘一样先按份额切格（KeyCellEdges），键宽是格宽减一个键距，各行同一列的边对齐；跨两行的回车画成一整块，被它盖住的格和 18 键的缩进只占宽度。
+            float span = w - pad * 2 + gap;
+            float prefix = 0;
             for (KeyLayoutStylesPolicy.Key cell : row) {
-                float width = unit * cell.weight();
+                float x = pad + span * prefix / total;
+                prefix += cell.weight();
+                float width = pad + span * prefix / total - gap - x;
                 if (cell.rows() > 0) {
                     float height = cell.rows() * rowHeight + (cell.rows() - 1) * gap;
                     boolean space = KeyLayoutStylesPolicy.SPACE.equals(cell.id());
@@ -296,7 +298,6 @@ public final class KeyboardPreview extends View {
                             drawKey(canvas, cell, stack.get(index), x, y + index * (item + gap), width, item, radius, s);
                     }
                 }
-                x += width + gap;
             }
         }
         canvas.restoreToCount(saved);

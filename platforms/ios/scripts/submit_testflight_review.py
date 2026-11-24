@@ -12,6 +12,7 @@ per release rather than one per merge.
 """
 import argparse
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -25,8 +26,45 @@ API = "https://api.appstoreconnect.apple.com/v1"
 TOKEN_LIFETIME = 15 * 60
 
 
+# TestFlight 的「What to Test」只显示纯文本，最多 4000 个字符；超出时 App Store Connect 直接拒绝整个请求。
+WHATS_NEW_LIMIT = 4000
+TRUNCATED = "……其余改动见下方链接。"
+
+
 class Failure(RuntimeError):
     pass
+
+
+def testflight_text(markdown: str, footer: str = "") -> str:
+    """把 generate-release-notes.py 的 Markdown 发布说明改写成 TestFlight 能显示的纯文本。
+
+    TestFlight 不渲染 Markdown，`###`、`**`、反引号会原样出现在测试者面前。超出长度时在整行处截断，页脚（完整改动的链接）始终保留。
+    """
+    lines = []
+    for line in markdown.strip().splitlines():
+        line = re.sub(r"^#{1,6}\s+", "", line.rstrip())
+        # 单独成行的粗体是分小组的领域名（「**输入**」），去掉星号后就混进正文了，改用方头括号标出来。
+        line = re.sub(r"^\*\*([^*]+)\*\*(.*)$", lambda m: f"【{m[1]}】{m[2]}" if not m[2].startswith("：") else f"{m[1]}{m[2]}", line)
+        line = line.replace("**", "").replace("`", "")
+        if line or (lines and lines[-1]):
+            lines.append(line)
+    body = "\n".join(lines).strip()
+    tail = f"\n\n{footer.strip()}" if footer.strip() else ""
+    if utf16_length(body + tail) <= WHATS_NEW_LIMIT:
+        return body + tail
+    room = WHATS_NEW_LIMIT - utf16_length(f"\n{TRUNCATED}{tail}")
+    kept: list[str] = []
+    for line in body.splitlines():
+        if utf16_length("\n".join([*kept, line])) > room:
+            break
+        kept.append(line)
+    kept_text = "\n".join(kept).rstrip()
+    return f"{kept_text}\n{TRUNCATED}{tail}"
+
+
+def utf16_length(text: str) -> int:
+    """App Store Connect 按 UTF-16 码元计长度，分组标题里的 🐛 这类 emoji 占两个，按 len() 算会超限。"""
+    return len(text.encode("utf-16-le")) // 2
 
 
 def token(key_id: str, issuer_id: str, key_path: Path) -> str:
@@ -107,6 +145,29 @@ def find_group(auth: str, app_id: str, name: str) -> tuple[str, bool]:
     raise Failure(f"No beta group named {name!r}. Groups: {names or 'none'}")
 
 
+def set_whats_new(auth: str, app_id: str, build_id: str, text: str) -> list[str]:
+    """把这一版改了什么写进 build 的「What to Test」，测试者在 TestFlight 里看到的就是它。
+
+    写进应用的主语言以及每一个已有的测试信息语言：TestFlight 按设备语言挑本地化，只写一种的话，其他语言的设备上还是空的。build 刚处理完时 Apple 可能已经替它建好了某些语言的条目，那些改（PATCH），没有的新建（POST）。
+    """
+    primary = request("GET", f"/apps/{app_id}?fields[apps]=primaryLocale", auth)["data"]["attributes"]["primaryLocale"]
+    app_locales = request("GET", f"/apps/{app_id}/betaAppLocalizations?limit=50", auth)
+    locales = [primary] + sorted({item["attributes"]["locale"] for item in app_locales.get("data", [])} - {primary})
+    existing = {
+        item["attributes"]["locale"]: item["id"]
+        for item in request("GET", f"/builds/{build_id}/betaBuildLocalizations?limit=50", auth).get("data", [])
+    }
+    for locale in locales:
+        if locale in existing:
+            request("PATCH", f"/betaBuildLocalizations/{existing[locale]}", auth,
+                    {"data": {"type": "betaBuildLocalizations", "id": existing[locale], "attributes": {"whatsNew": text}}})
+        else:
+            request("POST", "/betaBuildLocalizations", auth,
+                    {"data": {"type": "betaBuildLocalizations", "attributes": {"locale": locale, "whatsNew": text},
+                              "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}})
+    return locales
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", required=True)
@@ -118,6 +179,9 @@ def main() -> int:
     parser.add_argument("--issuer-id", required=True)
     parser.add_argument("--key-path", required=True, type=Path)
     parser.add_argument("--processing-timeout", type=int, default=45 * 60)
+    parser.add_argument("--whats-new-file", type=Path,
+                        help="Markdown release notes to show testers as the build's What to Test")
+    parser.add_argument("--whats-new-footer", default="", help="Line kept at the end of What to Test, e.g. a compare link")
     arguments = parser.parse_args()
 
     credentials = (arguments.key_id, arguments.issuer_id, arguments.key_path)
@@ -130,6 +194,18 @@ def main() -> int:
     await_processing(credentials, build["id"], deadline)
 
     auth = token(*credentials)
+    # 先写「What to Test」再分发：外部组提交审核时 Apple 一并审这段文字，内部组处理完就已经拿到 build，越早写上测试者越早看到。写不进去不能拦下分发 —— 测试者拿不到 build 比拿到一个没写说明的 build 更糟 —— 但这一步最后要报红，否则说明又会像之前那样悄悄空着。
+    whats_new_error = None
+    if arguments.whats_new_file:
+        try:
+            text = testflight_text(arguments.whats_new_file.read_text(encoding="utf-8"), arguments.whats_new_footer)
+            locales = set_whats_new(auth, arguments.app, build["id"], text)
+            print(f"What to Test set for {', '.join(locales)} ({utf16_length(text)} UTF-16 units)", flush=True)
+        except (Failure, OSError, KeyError) as error:
+            whats_new_error = error
+            print(f"::error::What to Test was not set: {error}", flush=True)
+    status = 1 if whats_new_error else 0
+
     group, internal = find_group(auth, arguments.app, arguments.group)
     if internal:
         # 内部组自动拥有每一个 build,Apple 也不接受把 build 显式加进去:那个 POST 回 422
@@ -143,7 +219,7 @@ def main() -> int:
 
     # 内部组自己就能分发,只有外部测试要过 Apple 的审核。
     if not arguments.submit_review:
-        return 0
+        return status
 
     # Already submitted is the state we want, not a failure: a rerun of a published release should
     # not turn red for finding its own work done.
@@ -154,10 +230,10 @@ def main() -> int:
     except Failure as error:
         if "ENTITY_ERROR" in str(error) or "already" in str(error).lower():
             print("already submitted for beta review", flush=True)
-            return 0
+            return status
         raise
     print("submitted for beta review", flush=True)
-    return 0
+    return status
 
 
 if __name__ == "__main__":

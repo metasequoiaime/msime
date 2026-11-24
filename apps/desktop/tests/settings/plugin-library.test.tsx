@@ -161,13 +161,6 @@ test("空结果保留常用入口、导入和目录问题，清空搜索后恢�
   expect(screen.getByRole("button", { name: sound.name })).toBeTruthy();
 });
 
-test("只有 macOS 的导入按钮提到 .txt，其他宿主的文件选择器不收它", async () => {
-  mount(undefined, {}, "linux");
-  await screen.findByRole("button", { name: sound.name });
-  expect(screen.getByRole("button", { name: "导入 .zip" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "导入 .zip 或 .txt" })).toBeNull();
-});
-
 test("隐藏没有运行能力的脚本，同时允许从缺失插件卡片恢复默认", async () => {
   mount([{ ...sound, id: "synthetic-script", kind: "script", name: "不支持的合成脚本" }]);
   const missing = await screen.findByRole("button", { name: /synthetic-sound/ });

@@ -37,6 +37,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var tabOpensCandidates = true
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   @State private var quanpinShift = KeyboardLayoutPreference.quanpinShift
+  @State private var preciseNineKey = false
   /// 「按键布局」里的顶部数字行决定手机键盘有几排，高度百分比按它算（`heightPercent`）。
   @State private var keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
@@ -59,6 +60,7 @@ struct KeyboardLayoutSettingsView: View {
   /// 一次保存只写用户刚动的那一项，见 `save(_:)`。
   private enum Field { case height, keySpacing, rowSpacing }
   private static let spacingDragScale: Double = 18
+  private static let preciseNineKeyKey = "touch_nine_key_precise"
 
   var body: some View {
     VStack(spacing: 0) {
@@ -233,6 +235,13 @@ struct KeyboardLayoutSettingsView: View {
         }
         .buttonStyle(PressFillButtonStyle())
         .accessibilityIdentifier("keyLayoutSettingsLink")
+      }
+      if Self.offersNineKeyFlick {
+        DesignDivider()
+        DesignToggleRow(title: "九键精确拼写",
+                        info: "全拼九键左列只显示已输入的拼写和首键字母；点字母锁定一键，精确读法排在尾段补全之前。",
+                        isOn: Binding(get: { preciseNineKey }, set: { savePreciseNineKey($0) }))
+          .accessibilityIdentifier("appPreciseNineKeyToggle")
       }
       DesignDivider()
       // 只有双拼方案和粤语双拼的 26 键画键位提示；本版本两者都没有时不列这一行。
@@ -650,6 +659,13 @@ struct KeyboardLayoutSettingsView: View {
     if saveFailed { nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold }
   }
 
+  private func savePreciseNineKey(_ enabled: Bool) {
+    saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0[Self.preciseNineKeyKey] = enabled
+    }
+    if !saveFailed { preciseNineKey = enabled }
+  }
+
   private func saveTab(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
     tabOpensCandidates = saveFailed
@@ -688,6 +704,7 @@ struct KeyboardLayoutSettingsView: View {
     keySoundPack = KeySoundPackPolicy.selectedPack(in: preferences)
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
+    preciseNineKey = preferences[Self.preciseNineKeyKey] as? Bool ?? false
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     oneHandSidePad = TouchOneHandedSidePanel(in: preferences) == .numberPad
     // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。

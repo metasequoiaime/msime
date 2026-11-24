@@ -2,7 +2,7 @@
 
 Status: implemented
 
-「不再放独立句号键」已在 2026-11-12 翻转：26 键一族的标准底行在空格左边放句号，见 [手机 26 键标准底行在空格左边放句号](2026-11-12-twenty-six-key-period-beside-space.md)。逗号长按输入句号仍以本篇为准。
+「不再放独立句号键」已在 2026-11-12 翻转：26 键一族的标准底行在空格左边放句号，见 [手机 26 键标准底行在空格左边放句号](2026-11-12-twenty-six-key-period-beside-space.md)。逗号长按输入句号仍以本篇为准。Android 逗号的句号角标在底行有句号键时不再画，见 [Android 26 键标准底行的逗号不再画误导的句号角标](../bug-fix/2026-11-22-android-comma-period-hint-beside-period-key.md)。
 
 ## Problem
 
