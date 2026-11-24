@@ -15,6 +15,7 @@ GNOME Shell 会话下，右键菜单由随装扩展 `msime-pointer@msime` 用 `P
 - **点击回传复用 IBus 既有通道**：扩展把 `action_name` 原样交给 `IBusManager.getIBusManager()._panelService.property_activate(action_name, 0)`，命中 `ClientEngine::property_activate` 里已有的 `CandidatePin/Remove/Fix/Clear` 分支；该分支按编码里的 session/generation/index 定位候选，并核对 `session`、`rendered_session`、view generation、`dictionary_actions_available`。引擎不新增回调入口，扩展也不内置文案或策略。
 - **收起不碰输入焦点**：不用 `PopupMenuManager` / `Main.pushModal`——它的 modal grab 可能让引擎进入 `!focused` / `blocked`，而 `property_activate` 开头就拒绝这种状态下的点击。改为扩展自己在 `global.stage` 上接 `button-press-event`（点菜单外收起，返回 `EVENT_PROPAGATE` 让菜单项自己的 activate 生效）与 `key-press-event`（Escape 收起并返回 `EVENT_STOP`，不放它到引擎变成 `MSIME_CANCEL` 取消组字），候选 popup 隐藏时收起，`disable()` 时断开全部监听。ClutterStage 只有带 `-event` 后缀的信号名；连不存在的信号在 gjs 里直接抛异常，会让 `ShowCandidateMenu` 在 `menu.open()` 之前中断、菜单完全弹不出来。引擎侧 Esc 分支也按 `candidate_menu_token` 兜底收起，覆盖事件仍下发到引擎的环境。透明 `sourceActor` 放在候选框右边缘，`PopupMenu.open()` 把菜单 actor 提到输入面板 group 同级最上方并定位。
 - **GNOME 下不发布候选动作属性**：`publish_candidate_properties()` 在 GNOME 会话直接 return 是历史保护（大属性树反复重建会让 Shell 冻结），本次不动它。菜单要激活的 `CandidatePin/...` property 在 GNOME 下并未注册；IBus 的 `PropertyActivate` 按名字转发给引擎 vfunc、不查注册表，这是回调链的前提。
+- **扩展取菜单父 actor 与接口名（审查补丁）**：`global.compositor.get_input_panel_group()` 是 GNOME 51 才加进 Mutter 的（Ubuntu 26.04 的 GNOME Shell 50.1 / Mutter 18 的 `MetaCompositor` 只有 `get_window_group`、`get_top_window_group`、`get_feedback_group`），45–50 上调用会抛 TypeError，`ShowCandidateMenu` 返回错误，右键菜单一次都弹不出来。改成取候选 popup 自己的父 actor：51 上就是输入面板 group，45–50 上是 addTopChrome 放进的 uiGroup，菜单始终和候选框同级。另外扩展的接口名用 `@MSIME_POINTER_BUS_NAME@` 按版本生成，`GnomePointer.cpp` 原先把 `kInterface` 写死成 `org.msime.Pointer`，非 full 版本的三条调用都会因接口不存在而失败；改成与总线名同一个宏，几个版本的扩展才能在 Shell 同一条连接、同一个对象路径上各自导出。
 
 ## Verification
 
@@ -36,7 +37,7 @@ GNOME Shell 会话下，右键菜单由随装扩展 `msime-pointer@msime` 用 `P
 ## Consequences
 
 - 收益：菜单和候选框同处合成器层级，不再有遮挡问题；宿主删掉 GNOME 分支的浮层定位、事件泵与显示连接监听，菜单策略仍集中在 C++；`GetCandidateRect()` 保留供兼容与契约测试使用。
-- 代价：新增两个 D-Bus 方法与 C++/JS 两侧必须同步的 `a(ssuy)` 签名；依赖 Shell 内部 API（`IBusManager._panelService`、`_candidatePopup`、`global.compositor.get_input_panel_group()`、`PopupMenu`），45–51 目前一致但升级大版本要回归；未注册 property 激活这一前提已随实机验证确认可用。菜单推送/收起的生产超时从矩形查询的 40ms 提到 200ms，避免 Shell 忙时「调用已执行但引擎拿不到 token」，扩展没装时 `DO_NOT_AUTO_START` 仍立即失败。
+- 代价：新增两个 D-Bus 方法与 C++/JS 两侧必须同步的 `a(ssuy)` 签名；依赖 Shell 内部 API（`IBusManager._panelService`、`_candidatePopup`、`popup.get_parent()`、`PopupMenu`），升级大版本要回归；未注册 property 激活这一前提已随实机验证确认可用。菜单推送/收起的生产超时从矩形查询的 40ms 提到 200ms，避免 Shell 忙时「调用已执行但引擎拿不到 token」，扩展没装时 `DO_NOT_AUTO_START` 仍立即失败。
 - 非 GNOME 会话（纯 X11、KDE 等）的右键菜单行为完全不变；fcitx5 走独立模块，不受影响。
 - 本改动与工作树里既有的 41 项未提交改动同处一个工作树，提交时需按文件清单拆分，避免把成对标点光标等无关 WIP 混进本功能 PR。
 

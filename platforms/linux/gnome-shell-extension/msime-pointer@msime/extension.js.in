@@ -82,9 +82,9 @@ export default class MsimePointerExtension extends Extension {
     const [x, y] = popup.get_transformed_position();
     const [width, height] = popup.get_size();
 
-    // 透明 sourceActor 放在候选框右边缘，菜单从那里展开；与候选 popup 同处输入面板
-    // group，PopupMenu.open() 会把菜单 actor 提到同级最上方并定位到 sourceActor。
-    const group = global.compositor.get_input_panel_group();
+    // 透明 sourceActor 放在候选框右边缘，菜单从那里展开；与候选 popup 放进同一个父 actor，PopupMenu.open() 会把菜单 actor 提到同级最上方并定位到 sourceActor。父 actor 直接取 popup 的：GNOME 51 起候选框在 `global.compositor.get_input_panel_group()` 里，45–50 的 Mutter 没有这个方法（候选框经 addTopChrome 进 uiGroup），直接调用会抛错，菜单在这些版本上一次都弹不出来。
+    const group = popup.get_parent();
+    if (!group) return;
     const source = new Clutter.Actor({opacity: 0, width: 1, height: 1});
     source.set_position(Math.round(x + width), Math.round(y));
     group.add_child(source);

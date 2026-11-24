@@ -11,7 +11,8 @@ namespace {
 #endif
 constexpr char kBusName[] = MSIME_POINTER_BUS_NAME;
 constexpr char kObjectPath[] = "/org/msime/Pointer";
-constexpr char kInterface[] = "org.msime.Pointer";
+// 扩展用同一个版本化的名字声明接口（extension.js.in 的 `@MSIME_POINTER_BUS_NAME@`），几个版本的扩展才能在 Shell 的同一条连接、同一个对象路径上各自导出；这里固定成无后缀名，非 full 版本的调用会因接口不存在而全部失败。
+constexpr char kInterface[] = MSIME_POINTER_BUS_NAME;
 // 右键弹层的定位不能等太久：扩展没装时这次调用尽快失败，调用方改显示快捷键提示。
 constexpr int kTimeoutMs = 40;
 // 菜单要在 Shell 主线程建 PopupMenu 并接监听；40ms 太紧，超时但调用已执行会让引擎侧
