@@ -4807,9 +4807,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (delete, 1, true), (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ])
     let englishSpace = Self.englishActionSpaceWeight
+    // 「符」与「123」互换时这两键连位置带宽度一起换：符 拿 123 的 1.9 份、123 拿 符 的 1.05 份，与 `TouchBottomRowLayout.symbolFirst` 的表一致，切中英文时宽度不跳。
+    let swapSymbolsAndLayer = activeKeyLayoutStyle.symbolFirst
     let englishEntries: [(UIView, CGFloat, Bool)] = [
-      (nineKeySymbolsButton, 1.05, true), (layoutToggle, TouchBottomRowLayout.letterLayerWeight, false), (globe, 1, true),
-      (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
+      (nineKeySymbolsButton, swapSymbolsAndLayer ? TouchBottomRowLayout.letterLayerWeight : 1.05, true),
+      (layoutToggle, swapSymbolsAndLayer ? 1.05 : TouchBottomRowLayout.letterLayerWeight, false),
+      (globe, 1, true), (punctuation, 1, true), (period, 1, true), (enter, 1.9, false),
     ]
     phoneEnglishActionWidths = expandedWidths(spaceWeight: englishSpace, entries: englishEntries)
       + [weight(language, 1.05, space: englishSpace)]
@@ -7989,8 +7992,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let keyStyle = activeKeyLayoutStyle
     switch style {
     case .phone where letterRows && drawsChineseTwentySixKey
-      && (keyStyle.twentySixKey != .standard || KeyboardLayoutPreference.hidePunctuationKey
-          || KeyboardLayoutPreference.hideSymbolKey):
+      && (keyStyle.twentySixKey != .standard || keyStyle.symbolFirst
+          || KeyboardLayoutPreference.hidePunctuationKey || KeyboardLayoutPreference.hideSymbolKey):
       let keys = TouchBottomRowLayout.twentySixKey(keyStyle.twentySixKey, globe: globe, language: language,
                                                    hidePunctuation: KeyboardLayoutPreference.hidePunctuationKey,
                                                    hideSymbol: KeyboardLayoutPreference.hideSymbolKey)

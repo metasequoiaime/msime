@@ -1058,11 +1058,13 @@ final class KeyLayoutStyleTests: XCTestCase {
     // 九键的 123 仍用 1.25 份：九宫格下方的底行更挤，加宽会把空格压得过窄。
     let nineKey = TouchBottomRowLayout.nineKey(.standard, globe: false)
     XCTAssertEqual(layer(nineKey), TouchBottomRowLayout.layerWeight)
-    // 互换只换位置、不换份额：123 与回车仍等宽，符 仍是 1.05 份。
-    let swapped = TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(.standard, globe: false))
+    // 互换连位置带宽度一起换：符 占 123 的 1.9 份（仍与回车等宽），123 占 符 的 1.05 份，两键份额之和与整行总份额都不变。
+    let plain = TouchBottomRowLayout.twentySixKey(.standard, globe: false)
+    let swapped = TouchBottomRowLayout.symbolFirst(plain)
     XCTAssertEqual(swapped.map(\.slot), [.symbols, .layer, .period, .space, .comma, .language, .returnKey])
-    XCTAssertEqual(swapped.first?.weight, TouchBottomRowLayout.symbolsWeight)
-    XCTAssertEqual(layer(swapped), TouchBottomRowLayout.letterLayerWeight)
+    XCTAssertEqual(swapped.first?.weight, TouchBottomRowLayout.letterLayerWeight)
+    XCTAssertEqual(layer(swapped), TouchBottomRowLayout.symbolsWeight)
+    XCTAssertEqual(swapped.reduce(0) { $0 + $1.weight }, plain.reduce(0) { $0 + $1.weight })
   }
 
   /// 隐藏符号键盘（`hideSymbol`）：26 键带 符 的样式把 符 从底行去掉、份额并给空格；没有 符 的长空格和表情键样式原样返回。
@@ -1884,16 +1886,21 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(TouchKeyLayoutStyle(in: document), TouchKeyLayoutStyle(numberPadSpace: .rightColumn))
   }
 
-  /// 表：互换只把 符 挪到 123 左边、份额不变，没有 符 的样式不变；数字层三种空格位置的键序和份额，整行总份额不变。
+  /// 表：互换把 符 挪到 123 左边并连宽度一起换，没有 符 的样式不变；数字层三种空格位置的键序和份额，整行总份额不变。
   func testSymbolFirstAndNumberPadSpaceTables() {
     for style in TouchTwentySixKeyStyle.allCases {
       for globe in [false, true] {
         let row = TouchBottomRowLayout.twentySixKey(style, globe: globe)
         let swapped = TouchBottomRowLayout.symbolFirst(row)
-        XCTAssertEqual(Set(swapped), Set(row), style.rawValue)
-        XCTAssertEqual(swapped.first?.slot, [.standard, .commaPeriod].contains(style) ? .symbols : .layer, style.rawValue)
+        XCTAssertEqual(swapped.reduce(0) { $0 + $1.weight }, row.reduce(0) { $0 + $1.weight }, accuracy: 1e-9, style.rawValue)
         if [.standard, .commaPeriod].contains(style) {
-          XCTAssertEqual(swapped[1].slot, .layer, style.rawValue)
+          XCTAssertEqual(swapped.map(\.slot),
+                         row.map(\.slot).map { $0 == .layer ? .symbols : $0 == .symbols ? .layer : $0 }, style.rawValue)
+          // 宽度跟着换：符 拿 123 那一格的 1.9 份，123 拿 符 的 1.05 份。
+          XCTAssertEqual(swapped.first { $0.slot == .symbols }?.weight,
+                         row.first { $0.slot == .layer }?.weight, style.rawValue)
+          XCTAssertEqual(swapped.first { $0.slot == .layer }?.weight,
+                         row.first { $0.slot == .symbols }?.weight, style.rawValue)
           if globe { XCTAssertEqual(swapped[2].slot, .globe, "the globe stays after 123") }
         } else {
           XCTAssertEqual(swapped, row, "\(style.rawValue) has no 符")
