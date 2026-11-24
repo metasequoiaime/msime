@@ -56,7 +56,7 @@ final class MorePanelFoldTests: XCTestCase {
   /// 先是设计稿里的各项，再是在别处没有位置的 iOS 工具；振动相关的项只在有 Taptic Engine 的设备上出现。
   private var expectedTitles: [String] {
     let haptics = KeyboardFeedbackPreference.hapticsAvailable
-    var titles: [String] = ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘调整", "设置", "按键音"]
+    var titles: [String] = ["全角", "中文标点", "模糊音", "双拼键位提示", "繁体", "手写", "词库", "键盘调整", "设置", "按键音"]
     if haptics { titles.append("振动") }
     // 工具栏不放语音按钮，「语音输入」一直在菜单里。
     titles += ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音输入"]
@@ -367,6 +367,78 @@ final class MorePanelFoldTests: XCTestCase {
     _ = try openMenu(in: controller)
     XCTAssertFalse(try tile("moreCard-模糊音", in: controller).isEnabled)
     XCTAssertEqual(try tile("moreCard-模糊音", in: controller).accessibilityValue, "不可用")
+  }
+
+  /// 工具栏图标菜单里的「双拼键位提示」与设置页的同一行：点一下写成共享文档里的 `touch_shuangpin_key_hints`，
+  /// 双拼 26 键的键面当场画上声母韵母、字母让出底部那一条，再点一下收起。
+  func testShuangpinKeyHintsTileWritesTheSharedSwitch() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    addTeardownBlock {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    selectScheme(.shuangpin)
+    KeyboardLayoutPreference.shuangpinKeyHints = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0[KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] = false
+    })
+
+    let controller = makeController(width: 390)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let q = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? KeyboardKeyButton)
+    XCTAssertTrue(try XCTUnwrap(hint(of: q)).isHidden, "the face starts without hints")
+
+    let panel = try openMenu(in: controller)
+    XCTAssertTrue(try tile("moreCard-双拼键位提示", in: controller).isEnabled)
+    XCTAssertEqual(try tile("moreCard-双拼键位提示", in: controller).accessibilityValue, "已关闭")
+    try tile("moreCard-双拼键位提示", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?[KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] as? Bool,
+                   true, "the switch goes into the document the settings app reads")
+    XCTAssertTrue(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror follows it")
+    XCTAssertEqual(try tile("moreCard-双拼键位提示", in: controller).accessibilityValue, "已开启")
+    XCTAssertNotNil(panel.superview, "a switch keeps the menu open")
+    XCTAssertFalse(try XCTUnwrap(hint(of: q)).isHidden, "the key redraws without waiting for the keyboard to come back")
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 11, "and the letter makes room for the hint")
+
+    try tile("moreCard-双拼键位提示", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?[KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] as? Bool,
+                   false)
+    XCTAssertTrue(try XCTUnwrap(hint(of: q)).isHidden)
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 0)
+  }
+
+  /// 提示只画在双拼 26 键上：全拼、九键、五笔和英文模式下图块变暗但不隐藏，与「模糊音」一样。
+  func testShuangpinKeyHintsTileIsDimmedAwayFromTheShuangpinLetterKeys() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    addTeardownBlock {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    selectScheme(.quanpin)
+    let controller = makeController(width: 390)
+    controller.viewWillAppear(false)
+    _ = try openMenu(in: controller)
+    XCTAssertFalse(try tile("moreCard-双拼键位提示", in: controller).isEnabled)
+    XCTAssertEqual(try tile("moreCard-双拼键位提示", in: controller).accessibilityValue, "不可用")
+  }
+
+  /// 把共享文档里的输入方案设成 `scheme`：键盘出现时按文档对齐方案，只改 defaults 不够。
+  private func selectScheme(_ scheme: ChineseInputScheme) {
+    let written = InputSchemePreference.update { selection in
+      selection.enabled = ChineseInputScheme.allCases
+      selection.scheme = scheme
+    }
+    XCTAssertEqual(written?.scheme, scheme, "测试版本里有 \(scheme.title)，文档才会接受这一次选择")
+  }
+
+  /// 键面底部的双拼提示，即按键里那枚 9pt 的标签。
+  private func hint(of key: UIButton) -> UILabel? {
+    key.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 }
   }
 
   /// 菜单自己的开关把 `fuzzy_pinyin` 同时写入会话和文档：用户选过的规则集保持不变，空的规则集则填满。

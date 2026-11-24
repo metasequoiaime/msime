@@ -2467,13 +2467,15 @@ final class NineKeyKeyboardTests: XCTestCase {
           XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .nineKeyShuangpin, .japaneseNineKey, .stroke].contains(scheme), "\(scheme)")
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
-            // 手机底行按相对空格键的比例分配宽度：， 占一份；26 键底行（中文和其他语言）的空格左边有句号，空格占三份，14/18 键和大千的空格占四份。
+            // 手机底行按相对空格键的比例分配宽度：， 占一份；26 键底行（中文和其他语言）的空格左边有句号，123 与回车等宽后空格占 2.35 份，14/18 键的空格占 3.35 份。
             let space = try button("spaceKey", in: controller)
             let secondary = ![.handwriting, .fourteenKey, .eighteenKey, .zhuyin].contains(scheme)
             if secondary { XCTAssertFalse(try button("bottomPeriodKey", in: controller).isHidden, "\(scheme)") }
-            let spaceWeight = secondary ? KeyboardViewController.englishPhoneSpaceWeight : KeyboardViewController.phoneSpaceWeight
+            let spaceWeight = secondary
+              ? KeyboardViewController.englishActionSpaceWeight : KeyboardViewController.phoneActionSpaceWeight
             XCTAssertEqual(punctuation.bounds.width, space.bounds.width / spaceWeight, accuracy: 0.5, "\(scheme)")
-            XCTAssertGreaterThanOrEqual(space.bounds.width, 79.2)
+            // 123 与回车等宽后 26 键底行的空格比原来窄了 0.65 份（320pt 宽的屏上约 64pt），仍要放得下麦克风和方案名。
+            XCTAssertGreaterThanOrEqual(space.bounds.width, 60)
             XCTAssertEqual(punctuation.menu?.children.count, secondary ? nil : 7)
             XCTAssertEqual((punctuation as? KeyboardKeyButton)?.cornerHint != nil, secondary)
           }
@@ -4024,7 +4026,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     let globe = controller.needsInputModeSwitchKey ? ["inputModeSwitchButton"] : []
     XCTAssertEqual(visible, ["layoutToggleButton"] + globe + ["symbolPanelKey", "bottomPeriodKey", "spaceKey", "quickPunctuationKey", "bottomLanguageKey", "returnKey"])
     let space = try button("spaceKey", in: controller).bounds.width
-    let unit = space / KeyboardViewController.englishPhoneSpaceWeight
+    let unit = space / KeyboardViewController.englishActionSpaceWeight
     XCTAssertEqual(KeyboardViewController.englishPhoneSpaceWeight, KeyboardViewController.phoneSpaceWeight - 1)
     XCTAssertEqual(try button("bottomPeriodKey", in: controller).bounds.width, unit, accuracy: 0.5)
     XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, "。")
@@ -4032,7 +4034,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertEqual(try button("quickPunctuationKey", in: controller).bounds.width, unit, accuracy: 0.5)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
     XCTAssertEqual(try button("symbolPanelKey", in: controller).configuration?.title, "符")
-    XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.25, accuracy: 0.5)
+    XCTAssertEqual(try button("layoutToggleButton", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
     XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
     XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
     // 123 和 中 用 15pt medium 字重。
@@ -4057,8 +4059,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNotNil(comma.onCornerHint)
     XCTAssertEqual(comma.cornerHint, ".")
     XCTAssertFalse(comma.swipesCornerHint)
-    // 逗号仍与 123 保持 1 : 1.25，每一份与中文下相同。
-    let englishUnit = try button("layoutToggleButton", in: controller).bounds.width / 1.25
+    // 逗号仍与 123 保持 1 : 1.9，每一份与中文下相同。
+    let englishUnit = try button("layoutToggleButton", in: controller).bounds.width / TouchBottomRowLayout.letterLayerWeight
     XCTAssertEqual(comma.bounds.width, englishUnit, accuracy: 0.5)
     XCTAssertEqual(englishUnit, unit, accuracy: 0.5)
     XCTAssertEqual(try button("spaceKey", in: controller).bounds.width, space, accuracy: 0.01)
@@ -4127,15 +4129,15 @@ final class NineKeyKeyboardTests: XCTestCase {
         "英文底行的句点紧挨空格左边、逗号紧挨空格右边（\(Int(width))pt）")
       XCTAssertEqual(try button("bottomPeriodKey", in: controller).configuration?.title, ".")
       XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
-      // 句点与逗号同宽，123、符、中、回车保持中文 26 键的份额，空格让出一份。
-      let unit = try button("layoutToggleButton", in: controller).bounds.width / 1.25
+      // 句点与逗号同宽，123、符、中、回车保持中文 26 键的份额（123 与回车等宽），空格让出一份。
+      let unit = try button("layoutToggleButton", in: controller).bounds.width / TouchBottomRowLayout.letterLayerWeight
       XCTAssertEqual(try button("bottomPeriodKey", in: controller).bounds.width, unit, accuracy: 0.5)
       XCTAssertEqual(try button("quickPunctuationKey", in: controller).bounds.width, unit, accuracy: 0.5)
       XCTAssertEqual(try button("symbolPanelKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
       XCTAssertEqual(try button("bottomLanguageKey", in: controller).bounds.width, unit * 1.05, accuracy: 0.5)
       XCTAssertEqual(try button("returnKey", in: controller).bounds.width, unit * 1.9, accuracy: 0.5)
       XCTAssertEqual(try button("spaceKey", in: controller).bounds.width,
-                     unit * (KeyboardViewController.phoneSpaceWeight - 1), accuracy: 0.5)
+                     unit * KeyboardViewController.englishActionSpaceWeight, accuracy: 0.5)
       // 切回中文：句点键收起，26 键中文底行与九键底行恢复原样。
       try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
       window.layoutIfNeeded()
