@@ -479,16 +479,11 @@ final class ImeGlossCard {
         s.editCandidate(id, action);
     }
 
-    /** 候选在当前这一代里的身份：长按那一刻的身份还是当前的就用它；换了一代就在当前候选里按原文找同一个词；找不到为 null。 */
+    /** 候选在当前这一代里的身份：按长按那一刻的候选身份找回；换了代就按同一个词和来源找同一个候选；找不到为 null。 */
     private JSONObject currentId(Target current) {
-        if (s.candidateVersionIsCurrent(current.id())) return current.id();
-        JSONArray candidates = s.view == null ? null : s.view.optJSONArray("candidates");
-        for (int index = 0; candidates != null && index < candidates.length(); index++) {
-            JSONObject candidate = candidates.optJSONObject(index);
-            JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-            if (id != null && current.raw().equals(InputViewValuePolicy.textOr(candidate, "text", ""))
-                    && s.candidateVersionIsCurrent(id)) return id;
-        }
-        return null;
+        JSONObject drawn = s.resolveDrawnCandidate(current.candidate());
+        JSONObject id = drawn == null ? null : drawn.optJSONObject("id");
+        if (id != null && s.candidateVersionIsCurrent(id)) return id;
+        return s.candidateVersionIsCurrent(current.id()) ? current.id() : null;
     }
 }
