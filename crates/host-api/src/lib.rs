@@ -1074,13 +1074,18 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         let desktop_turned_on = preferences.sentence_association.neural_desktop
             && !self.applied.sentence_association.neural_desktop;
+        let desktop_turned_off = !preferences.sentence_association.neural_desktop
+            && self.applied.sentence_association.neural_desktop;
+        if !self.preview && desktop_turned_off {
+            clear_settled_model_diagnostic_dedup();
+        }
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
         self.runtime
             .set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(
                 &preferences,
             ));
-        // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
+        // 逐键重排模型同样跟着开关走，但关闭时直接卸掉：它在每一次按键里运行；预览会话和镜像会话只清本会话的打分器，不释放进程缓存。
         let keyboard = self.keyboard_reranker_allowed
             && keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
         if keyboard != (self.runtime.has_reranker() || self.keyboard_reranker_loading.is_some()) {
@@ -1096,15 +1101,20 @@ impl HostSession {
                 ));
             } else {
                 self.keyboard_reranker_loading = None;
-                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
-                    false,
-                    &options.resources,
-                    options.helpcode_fallback_resources.as_deref(),
-                    self.recorded_rerank_models.as_deref(),
-                    self.plugin_roots.builtin_sounds.as_deref(),
-                    self.state_root.as_deref(),
-                    self.recorded_sentence_model.as_deref(),
-                ));
+                let scorer = if !self.preview && self.keyboard_reranker_allowed {
+                    ffi::keyboard_reranker(
+                        false,
+                        &options.resources,
+                        options.helpcode_fallback_resources.as_deref(),
+                        self.recorded_rerank_models.as_deref(),
+                        self.plugin_roots.builtin_sounds.as_deref(),
+                        self.state_root.as_deref(),
+                        self.recorded_sentence_model.as_deref(),
+                    )
+                } else {
+                    None
+                };
+                self.runtime.set_candidate_scorer(scorer);
             }
             self.keyboard_reranker_source = ffi::onnx_rerank_source(
                 &options.resources,
@@ -2767,7 +2777,17 @@ type SettledModelSlot = Arc<OnceLock<Option<Arc<SentenceModel>>>>;
 /// 后台挂好的逐键重排器：外层 `None` 是还在挂，`Some(None)` 是挂完了但这台设备上没有可挂的（没装模型、超出按键预算、线程起不来）。挂上的那个带着挂在哪里（按键上，或延后到停顿）。打分器只是 `Send`，所以用锁而不是 `OnceLock`。
 type KeyboardRerankerSlot = Arc<Mutex<Option<Option<ffi::MountedReranker>>>>;
 
-/// 在后台线程里挂逐键重排器（[`ffi::keyboard_reranker_for`]，开关开着；`pause` 是宿主会在停顿时重解，见 [`ffi::RerankerMount::KeystrokeOrPause`]），立即返回结果槽。挂上之后还在同一个进程里再挂时共用已加载的那一份，只是第一次慢，见 `keyboard_reranker_loading`。线程起不来时槽里直接是 `Some(None)`，会话照常输入，只是不排序。
+#[cfg(test)]
+thread_local! {
+    static KEYBOARD_RERANKER_THREAD_SPAWNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn keyboard_reranker_thread_spawns() -> usize {
+    KEYBOARD_RERANKER_THREAD_SPAWNS.with(std::cell::Cell::get)
+}
+
+/// 挂逐键重排器（[`ffi::keyboard_reranker_for`]，开关开着；`pause` 是宿主会在停顿时重解，见 [`ffi::RerankerMount::KeystrokeOrPause`]），立即返回结果槽。进程缓存已有结论时（[`ffi::cached_keyboard_reranker_for`]）直接返回预填好的 `Some(scorer)` 槽，不起操作系统线程也不重读磁盘，同时保持建会话后尚未挂进 `runtime` 的契约；首次冷加载仍在后台线程里完成，线程起不来时槽里直接是 `Some(None)`，会话照常输入。
 fn load_keyboard_reranker(
     resources: &str,
     bundle: Option<&str>,
@@ -2777,6 +2797,24 @@ fn load_keyboard_reranker(
     configured: Option<&str>,
     pause: bool,
 ) -> KeyboardRerankerSlot {
+    let mount = if pause {
+        ffi::RerankerMount::KeystrokeOrPause
+    } else {
+        ffi::RerankerMount::Keystroke
+    };
+    if let Some(scorer) = ffi::cached_keyboard_reranker_for(
+        mount,
+        resources,
+        bundle,
+        models,
+        sound_packs,
+        state_root,
+        configured,
+    ) {
+        return Arc::new(Mutex::new(Some(scorer)));
+    }
+    #[cfg(test)]
+    KEYBOARD_RERANKER_THREAD_SPAWNS.with(|spawns| spawns.set(spawns.get() + 1));
     let slot: KeyboardRerankerSlot = Arc::new(Mutex::new(None));
     let resources = resources.to_owned();
     let bundle = bundle.map(str::to_owned);
@@ -2788,11 +2826,6 @@ fn load_keyboard_reranker(
     let spawned = std::thread::Builder::new()
         .name("msime-keyboard-reranker".into())
         .spawn(move || {
-            let mount = if pause {
-                ffi::RerankerMount::KeystrokeOrPause
-            } else {
-                ffi::RerankerMount::Keystroke
-            };
             let scorer = ffi::keyboard_reranker_for(
                 mount,
                 &resources,
@@ -2857,7 +2890,54 @@ pub(crate) fn settled_model_file(
     })
 }
 
-/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
+/// 逐键重排器与落定重排模型最近一次写出的诊断 `(category, detail)`：焦点切换重建会话但模型状态没变时不重复刷屏，状态变化或对应开关关闭后再次打开时重新报告。
+#[derive(Default)]
+struct ModelDiagnosticDedup {
+    keyboard_reranker: Option<(&'static str, String)>,
+    settled_model: Option<(&'static str, String)>,
+}
+
+fn model_diagnostic_dedup() -> std::sync::MutexGuard<'static, ModelDiagnosticDedup> {
+    static DEDUP: OnceLock<Mutex<ModelDiagnosticDedup>> = OnceLock::new();
+    DEDUP
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+pub(crate) fn should_report_keyboard_reranker_diagnostic(
+    category: &'static str,
+    detail: &str,
+) -> bool {
+    let normalized = detail.strip_suffix(" (shared)").unwrap_or(detail);
+    let mut dedup = model_diagnostic_dedup();
+    if dedup
+        .keyboard_reranker
+        .as_ref()
+        .is_some_and(|(last_category, last_detail)| {
+            *last_category == category && last_detail == normalized
+        })
+    {
+        return false;
+    }
+    dedup.keyboard_reranker = Some((category, normalized.to_owned()));
+    true
+}
+
+pub(crate) fn clear_keyboard_reranker_diagnostic_dedup() {
+    model_diagnostic_dedup().keyboard_reranker = None;
+}
+
+fn clear_settled_model_diagnostic_dedup() {
+    model_diagnostic_dedup().settled_model = None;
+}
+
+#[cfg(test)]
+pub(crate) fn reset_model_diagnostic_dedup() {
+    *model_diagnostic_dedup() = ModelDiagnosticDedup::default();
+}
+
+/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写；连续相同的 `(category, detail)` 只报一次，直到状态变化或 `neural_desktop` 关闭后重开。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
 ///
 /// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的 `diagnostic.log` 和 Windows 的 `logs\server.log` 都只记冒号前的类别（写成 `host_api: <类别>`），路径只出现在没登记出口的 Linux stderr 里：
 /// - `settled model attached`：模型已加载并挂在会话上；
@@ -2870,24 +2950,38 @@ pub(crate) fn report_settled_model(
     model: Option<&Path>,
     attached: bool,
 ) {
-    match (model, state_root) {
-        (Some(model), _) if attached => {
-            diagnostics::report("settled model attached", &model.display().to_string())
-        }
-        (Some(model), _) => {
-            diagnostics::report("settled model not loaded", &model.display().to_string())
-        }
-        (None, Some(state_root)) => diagnostics::report(
+    let (category, detail) = match (model, state_root) {
+        (Some(model), _) if attached => ("settled model attached", model.display().to_string()),
+        (Some(model), _) => ("settled model not loaded", model.display().to_string()),
+        (None, Some(state_root)) => (
             "settled model missing",
-            &format!(
+            format!(
                 "no settled-model pack under {}",
                 resource_packs::root(state_root).display()
             ),
         ),
-        (None, None) => diagnostics::report(
+        (None, None) => (
             "settled model missing without state directory",
-            &format!("no absolute preferences_directory; resources {resources}"),
+            format!("no absolute preferences_directory; resources {resources}"),
         ),
+    };
+    let should_report = {
+        let mut dedup = model_diagnostic_dedup();
+        if dedup
+            .settled_model
+            .as_ref()
+            .is_some_and(|(last_category, last_detail)| {
+                *last_category == category && last_detail == &detail
+            })
+        {
+            false
+        } else {
+            dedup.settled_model = Some((category, detail.clone()));
+            true
+        }
+    };
+    if should_report {
+        diagnostics::report(category, &detail);
     }
 }
 
