@@ -367,10 +367,12 @@ struct NativeCanvasX11::Impl {
       if (animation_timer) animation_timer->setEnabled(false);
       return;
     }
-    const auto deadline = fcitx::now(CLOCK_MONOTONIC) + *next * 1000;
+    // 帧延迟至少夹到 1 毫秒，防止样本给出 0 时排入已到期截止时刻导致紧循环。
+    const auto deadline = fcitx::now(CLOCK_MONOTONIC) + std::max<std::uint64_t>(1, *next) * 1000;
     if (!animation_timer) {
       animation_timer = loop.addTimeEvent(CLOCK_MONOTONIC, deadline, 0,
-          [this](fcitx::EventSourceTime *, std::uint64_t) {
+          [this](fcitx::EventSourceTime *timer, std::uint64_t) {
+            timer->setEnabled(false);
             paint();
             return true;
           });
