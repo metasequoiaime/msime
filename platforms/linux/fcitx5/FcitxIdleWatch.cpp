@@ -214,6 +214,11 @@ void FcitxIdleWatch::setActive(bool active) {
   }
 }
 
+bool FcitxIdleWatch::hasArmedTimer() const noexcept {
+  return (debounce_timer_ && debounce_timer_->isEnabled()) ||
+         (fallback_timer_ && fallback_timer_->isEnabled());
+}
+
 void FcitxIdleWatch::rebuildWatches() {
   if (inotify_fd_ < 0) return;
   std::map<std::filesystem::path, WatchedDirSpec> desired;

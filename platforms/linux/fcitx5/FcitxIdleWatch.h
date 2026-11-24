@@ -3,17 +3,19 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace fcitx {
 class EventLoop;
-class EventSourceIO;
-class EventSourceTime;
+struct EventSourceIO;
+struct EventSourceTime;
 } // namespace fcitx
 
 namespace msime::fcitx_host {
@@ -74,6 +76,7 @@ public:
   void setActive(bool active);
   bool isActive() const noexcept { return active_; }
   bool usingFallback() const noexcept { return inotify_fd_ < 0; }
+  bool hasArmedTimer() const noexcept;
 
 private:
   struct WatchedDirSpec {

@@ -35,7 +35,7 @@ void atomicReplaceFile(const std::filesystem::path &path,
 
 void runLoopForUs(fcitx::EventLoop &loop, std::uint64_t duration_us) {
   auto stop = loop.addTimeEvent(
-      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + duration_us, 0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + duration_us, 1,
       [&](fcitx::EventSourceTime *timer, std::uint64_t) {
         timer->setEnabled(false);
         loop.exit();
@@ -49,32 +49,39 @@ int failingInotifyInit(int) {
   return -1;
 }
 
-// 验证真实 `libFcitx5Utils` (`sd-event`) 一次性定时器调 `setEnabled(false)` 只触发一次、不会重装过期截止时刻造成紧循环。
+// 验证真实 `libFcitx5Utils` (`sd-event`) 一次性定时器调 `setEnabled(false)` 只触发一次、不会重装过期截止时刻造成紧循环；
+// 同时覆盖与 `Fcitx5 5.0.21` 兼容的接口（不使用 5.1.x 才引入的 `addPostEvent`）。
 void testOneShotDisarmWithoutSpin() {
   fcitx::EventLoop loop;
   std::uint64_t fires = 0;
-  std::uint64_t post_dispatches = 0;
+  std::uint64_t hud_invocations = 0;
+  bool hud_aux_empty = true;
 
-  auto post = loop.addPostEvent([&](fcitx::EventSource *) {
-    ++post_dispatches;
-    return true;
-  });
   auto oneshot = loop.addTimeEvent(
-      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 2'000, 0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 2'000, 1,
       [&](fcitx::EventSourceTime *timer, std::uint64_t) {
         timer->setEnabled(false);
         ++fires;
+        return true;
+      });
+  // 模拟 `mode_hud_aux_timer_` 提前返回路径：先关闭自身再检查文本状态。
+  auto hud_timer = loop.addTimeEvent(
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 4'000, 1,
+      [&](fcitx::EventSourceTime *timer, std::uint64_t) {
+        timer->setEnabled(false);
+        ++hud_invocations;
+        if (hud_aux_empty) return true;
         return true;
       });
 
   runLoopForUs(loop, 35'000);
   require(fires == 1, "一次性定时器在窗口期内必须只触发一次");
   require(!oneshot->isEnabled(), "一次性定时器触发后必须处于关闭状态");
-  // 窗口内只有一次性定时器与结束定时器两次真实唤醒，不存在 `timerfd` 空转。
-  require(post_dispatches <= 3, "一次性定时器关闭后事件循环不应发生多余唤醒");
+  require(hud_invocations == 1, "提前返回路径上的一次性定时器也必须只触发一次");
+  require(!hud_timer->isEnabled(), "提前返回路径上的一次性定时器触发后必须处于关闭状态");
 }
 
-// 验证 `FcitxIdleWatch` 空闲零唤醒、忽略宿主自写噪声文件、50ms 防抖合并及缺失父目录创建后的监听恢复。
+// 验证 `FcitxIdleWatch` 空闲零武装定时器、忽略宿主自写噪声文件、50ms 防抖合并及缺失父目录创建后的监听恢复。
 void testIdleZeroWakeupAndInotifyDebounce() {
   char pattern[] = "/tmp/msime-fcitx-idle-watch-XXXXXX";
   const char *raw_dir = ::mkdtemp(pattern);
@@ -121,23 +128,18 @@ void testIdleZeroWakeupAndInotifyDebounce() {
   msime::fcitx_host::appendContextWatchPaths(
       cfg, prefs_str, user_data_str, ".msime-dictionary-quiesce", clipboard_str, {});
   watch.configure(cfg);
-
-  std::uint64_t window_posts = 0;
-  auto post = loop.addPostEvent([&](fcitx::EventSource *) {
-    ++window_posts;
-    return true;
-  });
+  require(!watch.hasArmedTimer(), "inotify 就绪后空闲状态不得挂起任何定时器");
 
   // `sd-event` 在 `loop.exit()` 后进入终态不可重入，使用单次长生命周期 `loop.exec()` 按阶段推进验收。
   int phase = 0;
   auto driver = loop.addTimeEvent(
-      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 80'000, 0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 80'000, 1,
       [&](fcitx::EventSourceTime *timer, std::uint64_t) {
         switch (phase++) {
         case 0:
-          // 阶段 0：80 毫秒完全空闲，除本驱动定时器当拍尚未触发 `post` 外无任何唤醒。
+          // 阶段 0：80 毫秒完全空闲，没有外部文件变化也没有武装的内部定时器。
           require(callbacks == 0, "无外部文件变化时不应触发刷新回调");
-          require(window_posts == 0, "空闲期间事件循环不应发生周期性轮询唤醒");
+          require(!watch.hasArmedTimer(), "空闲期间监听器不得挂起任何定时器");
           // 写入宿主自身状态与锁文件，验证不会触发自激唤醒。
           writeFile(runtime_dir / "input-status.json", "{\"active\":true}\n");
           writeFile(runtime_dir / "candidate-panel.json", "{\"host\":\"fcitx5\"}\n");
@@ -150,6 +152,7 @@ void testIdleZeroWakeupAndInotifyDebounce() {
           return true;
         case 1:
           require(callbacks == 0, "宿主自身状态与锁文件不应触发外部刷新回调");
+          require(!watch.hasArmedTimer(), "噪声文件写入后不得武装防抖定时器");
           // 同一突发窗口内连续修改多处受监听目标，验证 50 毫秒防抖合并为单次回调。
           atomicReplaceFile(prefs_dir / "preferences.json", "{\"revision\":1}\n");
           atomicReplaceFile(runtime_options, "{\"preferences\":{}}\n");
@@ -160,14 +163,13 @@ void testIdleZeroWakeupAndInotifyDebounce() {
           return true;
         case 2:
           require(callbacks == 1, "突发外部写入应经 50ms 防抖合并为一次回调");
-          // 当前轮的 `post` 将在本回调返回后计 1 次；随后 80 毫秒内不应再有额外唤醒。
-          window_posts = 0;
+          require(!watch.hasArmedTimer(), "防抖回调完成后必须解除防抖定时器");
           timer->setNextInterval(80'000);
           timer->setOneShot();
           return true;
         case 3:
           require(callbacks == 1, "防抖回调完成后不得重装定时器");
-          require(window_posts <= 1, "防抖回调完成后必须恢复零唤醒空闲");
+          require(!watch.hasArmedTimer(), "空闲窗口内防抖定时器必须持续处于关闭状态");
           // 先前不存在的 `fcitx5/conf/classicui.conf` 建立时应触发回调并迁移监听。
           writeFile(classicui_conf, "Theme=default\n");
           timer->setNextInterval(100'000);
@@ -175,6 +177,7 @@ void testIdleZeroWakeupAndInotifyDebounce() {
           return true;
         case 4:
           require(callbacks == 2, "新建父目录并写出 classicui.conf 应触发回调");
+          require(!watch.hasArmedTimer(), "迁移监听回调完成后不得残留已武装定时器");
           atomicReplaceFile(classicui_conf, "Theme=msime\n");
           atomicReplaceFile(quiesce_lease, "9999999999999\n1 0\n");
           timer->setNextInterval(100'000);
@@ -182,6 +185,7 @@ void testIdleZeroWakeupAndInotifyDebounce() {
           return true;
         case 5:
           require(callbacks == 3, "已迁移目录上的原子替换与词库租约变更应合并触发回调");
+          require(!watch.hasArmedTimer(), "二次触发防抖完成后不得残留已武装定时器");
           watch.setActive(false);
           atomicReplaceFile(prefs_dir / "preferences.json", "{\"revision\":2}\n");
           timer->setNextInterval(90'000);
@@ -189,6 +193,7 @@ void testIdleZeroWakeupAndInotifyDebounce() {
           return true;
         default:
           require(callbacks == 3, "监听器停用后不应再投递回调");
+          require(!watch.hasArmedTimer(), "监听器停用后不得挂起任何定时器");
           timer->setEnabled(false);
           loop.exit();
           return true;
@@ -209,29 +214,24 @@ void testInotifyFailureFallback() {
   msime::fcitx_host::FcitxWatchConfig cfg;
   cfg.files = {"/tmp/msime-synthetic-fallback-options.json"};
   fallback_watch.configure(cfg);
-
-  std::uint64_t idle_posts = 0;
-  auto post = loop.addPostEvent([&](fcitx::EventSource *) {
-    ++idle_posts;
-    return true;
-  });
+  require(fallback_watch.hasArmedTimer(), "回退模式存在监听目标时应启用回退定时器");
 
   std::uint64_t settled = 0;
   int phase = 0;
   auto driver = loop.addTimeEvent(
-      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 55'000, 0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 55'000, 1,
       [&](fcitx::EventSourceTime *timer, std::uint64_t) {
         if (phase++ == 0) {
           require(callbacks >= 2, "inotify 不可用时回退定时器应按间隔触发回调");
           fallback_watch.setActive(false);
+          require(!fallback_watch.hasArmedTimer(), "停用后必须立即关闭回退定时器");
           settled = callbacks;
-          idle_posts = 0;
           timer->setNextInterval(55'000);
           timer->setOneShot();
           return true;
         }
         require(callbacks == settled, "回退模式在无活动上下文停用后不应继续轮询");
-        require(idle_posts <= 1, "停用回退定时器后事件循环必须零额外唤醒");
+        require(!fallback_watch.hasArmedTimer(), "回退定时器停用后不得自行重装");
         timer->setEnabled(false);
         loop.exit();
         return true;

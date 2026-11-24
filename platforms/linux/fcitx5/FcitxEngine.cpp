@@ -642,8 +642,8 @@ public:
     typing_combo_ = 0;
     key_repeat_.reset();
   }
-  ~FcitxState() override { close(); }
-  void close() {
+  ~FcitxState() override { close(false); }
+  void close(bool notify_watch = true) {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
     mode_hud_deferred_update_.cancel();
 #else
@@ -783,7 +783,7 @@ public:
     observed_async_generation_ = 0;
     observed_async_editing_.clear();
     stopOrScheduleAsyncPoll();
-    notifyIdleWatch();
+    if (notify_watch) notifyIdleWatch();
   }
   // 失焦后会话留给托盘菜单时用它代替 close()：托盘读到的勾选和点下的开关都落在这个会话上，到下一次有上下文获得焦点才真正关掉（见 FcitxEngine::holdMenuContext）。除了 releaseFocusResources，还要停掉录音、按失焦结束组字和候选，与 IBus 宿主失焦时一样只取视图：要上屏的组字已由 focus_watch_ 或 Fcitx5 自己提交，留着的话之后的菜单动作会把它当成正在输入的文字再提交一次。
   void leaveFocus() {
@@ -7488,7 +7488,9 @@ public:
            std::chrono::steady_clock::now() >= earliest;
   }
   void syncIdleWatch() {
-    if (shutting_down_) return;
+    // 插件尚未完成构造或处于卸载/反注册阶段时不得重入：避免构造期 `inputMethodEngine`
+    // 递归触发 `AddonManager::addon("msime")`，也避免析构时访问正在反注册的 `factory_`。
+    if (shutting_down_ || !engine_ready_ || !factory_.registered()) return;
     auto watch = buildBaseFcitxWatchConfig(
         initial_config_home_, MSIME_EDITION_CLIENT_DIRECTORY, MSIME_SYSTEM_OPTIONS);
     const auto collect_state = [&](const FcitxState *state) {
@@ -7502,7 +7504,7 @@ public:
     bool any_active = false;
     instance_->inputContextManager().foreach([&](fcitx::InputContext *ic) {
       auto *state = ic->propertyFor(&factory_);
-      if ((ic->hasFocus() && instance_->inputMethodEngine(ic) == this) || state->session_ != 0) {
+      if (state->session_ != 0 || (ic->hasFocus() && instance_->inputMethodEngine(ic) == this)) {
         any_active = true;
         collect_state(state);
       }
@@ -7889,7 +7891,8 @@ public:
           syncIdleWatch();
         });
     listenPanelInput();
-    syncIdleWatch();
+    // 构造阶段先停用文件监听，等 `activate()` 或后续事件再按需启用，防止构造期递归加载插件。
+    idle_watch_.setActive(false);
     // The first probe starts at addon load; stepSystemTheme sets every later interval.
     system_theme_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC), 10000,
@@ -7901,6 +7904,7 @@ public:
 #ifdef MSIME_FCITX5_TELEMETRY
     startTelemetry();
 #endif
+    engine_ready_ = true;
   }
   // Every detached worker runs addon code. Wait for the complete tracker before Fcitx5 can unload
   // the shared object; otherwise a provider reply that outlives this object can jump into unmapped
@@ -8353,6 +8357,7 @@ public:
   }
   fcitx::Instance *instance_;
   std::filesystem::path initial_config_home_;
+  bool engine_ready_ = false;
   bool shutting_down_ = false;
   // 使用运行库版本，旧开发库构建的包在新版 classicui 上也要写磅，避免序号被放大。
   msime::linux_host::CandidateFontSync candidate_font_sync_{
