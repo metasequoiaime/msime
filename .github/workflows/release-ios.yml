@@ -155,10 +155,37 @@ jobs:
           path: target/ios/testflight/msime-ios-*-dsym.zip
           if-no-files-found: warn
           retention-days: 90
+      # 测试者在 TestFlight 里看到的「What to Test」。nightly 从上一个送进 TestFlight 的 iOS nightly 算起（滚动 release nightly 的状态里记着它的源码提交，前一天 iOS 失败时自动累积到今天），这样每天看到的是这一版新改了什么；正式发布和下面「Publish independent iOS release」取同一个起点。生成失败不拦下分发，下一步找不到文件时会报红。
+      - name: Write the TestFlight test notes
+        id: notes
+        if: ${{ inputs.testflight }}
+        continue-on-error: true
+        env: {GH_TOKEN: "${{ github.token }}", PUBLISH: "${{ inputs.publish }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", BUILD_NUMBER: "${{ steps.build-number.outputs.value }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          start=
+          if [[ "$PUBLISH" != true ]]; then
+            state=$(gh release view nightly --repo "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null | awk 'found { print; exit } /^<!-- msime-nightly-state$/ { found = 1 }' || true)
+            start=$(printf '%s' "$state" | jq -r '.platforms.ios.source // empty' 2>/dev/null || true)
+            if [[ -n "$start" ]] && ! git cat-file -e "${start}^{commit}" 2>/dev/null; then start=; fi
+          fi
+          if [[ -z "$start" ]]; then
+            stable='^ios-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+            start=$(git tag --list 'ios-v*' --sort=-v:refname | grep -vxF "ios-v${RELEASE}" | grep -E "$stable" | head -1 || true)
+          fi
+          notes="$RUNNER_TEMP/testflight-notes.md"
+          python3 scripts/generate-release-notes.py --platform ios --version "$RELEASE" --start-tag "$start" --end-ref "$head" --output "$notes"
+          footer="构建 ${BUILD_NUMBER} · 源码 ${head:0:10}"
+          [[ -z "$start" || "$start" == "$head" ]] || footer+=$'\n'"完整改动：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${start:0:12}...${head:0:12}"
+          { echo "file=$notes"; echo "footer<<EOF"; echo "$footer"; echo EOF; } >> "$GITHUB_OUTPUT"
+          cat "$notes"
       - name: Hand the build to its testers
         id: testers
         if: ${{ inputs.testflight }}
         env:
+          NOTES_FILE: ${{ steps.notes.outputs.file || format('{0}/testflight-notes.md', runner.temp) }}
+          NOTES_FOOTER: ${{ steps.notes.outputs.footer }}
           BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
           IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
           IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
@@ -183,6 +210,7 @@ jobs:
           python3 -m pip install --quiet --disable-pip-version-check --break-system-packages 'pyjwt[crypto]==2.10.1'
           python3 platforms/ios/scripts/submit_testflight_review.py \
             --app "$IOS_APP_ID" --build-version "$BUILD_NUMBER" --group "$group" ${review:+$review} \
+            --whats-new-file "$NOTES_FILE" --whats-new-footer "$NOTES_FOOTER" \
             --key-id "$IOS_API_KEY_ID" --issuer-id "$IOS_API_KEY_ISSUER_ID" --key-path "$SIGNING_DIR/AuthKey_${IOS_API_KEY_ID}.p8"
       - name: Remove the signing keychain and keys
         if: ${{ always() && steps.signing.outputs.keychain != '' }}
