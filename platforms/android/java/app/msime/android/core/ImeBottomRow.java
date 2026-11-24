@@ -604,14 +604,12 @@ final class ImeBottomRow {
     /** 句号键的键面、角标和可用状态跟着标点模式与键面走；句号键还没建时不做事。 */
     private void refreshPeriodFace() {
         if (periodButton == null) return;
-        boolean chinesePunctuation = s.sendsChinesePunctuation();
-        String periodFace = KeyboardActionRow.punctuationFace(
-            KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation);
+        String periodFace = s.symbolFace(".");
         boolean exclamation = s.handwritingMarksShown();
         // 句号沿用字体里的大小和基线位置，避免放大居中后看起来像圆圈。
         periodButton.setText(periodFace);
         periodButton.setCornerHint(exclamation
-            ? ChineseSymbolFaces.face("!", chinesePunctuation, s.punctuationMarks()) : "");
+            ? s.symbolFace("!") : "");
         periodButton.setContentDescription("按键 " + periodFace + (exclamation ? "；长按输入叹号" : ""));
         // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
         ViewPolicy.setEnabled(periodButton, s.connection != null);

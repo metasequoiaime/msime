@@ -14473,13 +14473,15 @@ fn punctuation_marks_reach_the_bare_prefix_route() {
     assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("你好『"));
 }
 
+/// 中文标点样式作用于走中文标点表的方案；日语有自己独立的标点表，不在这里（见 `japanese_scheme_commits_japanese_punctuation`）。
 #[test]
 fn punctuation_marks_follow_every_scheme_with_chinese_punctuation() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut japanese = fixture.session_with(|options| options.punctuation_marks = CORNER_HOLLOW);
     japanese.switch_scheme(SchemeType::JapaneseRomaji).unwrap();
-    assert_eq!(japanese.punctuation(b'\'').commit.as_deref(), Some("「"));
-    assert_eq!(japanese.punctuation(b']').commit.as_deref(), Some("〗"));
+    // 弯引号键没有日文映射，交回宿主原样打出；方括号键走日文表的 「」，不受空心括号样式影响。
+    assert!(japanese.punctuation(b'\'').commit.is_none());
+    assert_eq!(japanese.punctuation(b']').commit.as_deref(), Some("」"));
 
     let mut cantonese = fixture.session_with(|options| {
         options.punctuation_marks = CORNER_HOLLOW;
@@ -14498,6 +14500,40 @@ fn punctuation_marks_follow_every_scheme_with_chinese_punctuation() {
     for mark in *b"'\"[]" {
         let idle = korean.punctuation(mark);
         assert!(!idle.handled && idle.commit.is_none());
+    }
+}
+
+/// 日语方案走日文标点表，键面与上屏一致：`,` 是读点、`[` `]` 是直角引号、`/` 是中点，中文引号样式和顿号开关都不改变这些字。
+#[test]
+fn japanese_scheme_commits_japanese_punctuation() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.punctuation_marks = CORNER_HOLLOW;
+        options.scheme = SchemeType::JapaneseRomaji;
+    });
+    let cases = [
+        (b',', "、"),
+        (b'.', "。"),
+        (b'[', "「"),
+        (b']', "」"),
+        (b'{', "『"),
+        (b'}', "』"),
+        (b'/', "・"),
+        (b'~', "〜"),
+        (b'?', "？"),
+        (b'!', "！"),
+        (b'(', "（"),
+        (b')', "）"),
+        (b':', "："),
+        (b';', "；"),
+    ];
+    for (key, mark) in cases {
+        assert_eq!(
+            session.punctuation(key).commit.as_deref(),
+            Some(mark),
+            "key {}",
+            key as char
+        );
     }
 }
 

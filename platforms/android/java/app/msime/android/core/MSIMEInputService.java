@@ -6257,6 +6257,22 @@ public final class MSIMEInputService extends InputMethodService {
         return InputViewValuePolicy.punctuationMarks(view);
     }
 
+    /** 键面是否画日文标点：日语方案、非英文、非本地工具模式，并且中文标点开关开着（关着时引擎写 ASCII，键面也画 ASCII）。 */
+    boolean japaneseKeyfaces() {
+        return ChineseSymbolFaces.shouldUseJapaneseFaces(dedicatedEnglish,
+            view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"), chinesePunctuation);
+    }
+
+    /**
+     * 26 键符号键与底行角标的键面：日语方案走日文标点表，键面画什么 Engine 就上屏什么；其余方案按中文标点开关画中文或半角 ASCII。
+     * 判定与 {@link #numberPadPunctuation()} 同源，字母层符号键、数字九宫格和快捷标点角标画同一套写法。
+     */
+    String symbolFace(String ascii) {
+        return japaneseKeyfaces() ? ChineseSymbolFaces.japaneseFace(ascii)
+            : ChineseSymbolFaces.face(ascii, sendsChinesePunctuation(), punctuationMarks());
+    }
+
     java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
@@ -6354,8 +6370,8 @@ public final class MSIMEInputService extends InputMethodService {
             int layout = imeLetterRows.drawnTouchLayout();
             hintButton.setCornerHint(uriPeriodPrimary() ? "," : commaSecondaryPeriod()
                 ? (KeyboardActionRow.commaShowsPeriodHint(layout, bottomRowStyle(layout))
-                    ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks()) : "")
-                : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
+                    ? symbolFace(".") : "")
+                : question ? symbolFace("?") : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
             + (uriPeriodPrimary() ? "；长按输入逗号" : commaSecondaryPeriod() ? "；长按输入句号"
@@ -6363,10 +6379,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void updateSymbolKeyFaces() {
-        boolean chineseMode = sendsChinesePunctuation();
         for (int index = 0; index < symbolKeyButtons.size(); index++) {
-            String face = ChineseSymbolFaces.face(symbolKeyInputs.get(index), chineseMode,
-                punctuationMarks());
+            String face = symbolFace(symbolKeyInputs.get(index));
             Button button = symbolKeyButtons.get(index);
             button.setText(face);
             button.setContentDescription("按键 " + face);
@@ -6381,7 +6395,7 @@ public final class MSIMEInputService extends InputMethodService {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
             shuangpinKeyButtons.get(index).setCornerHint(shown
-                ? LetterHintTable.face(input, dedicatedEnglish, chinese, punctuationMarks()) : null);
+                ? LetterHintTable.face(input, dedicatedEnglish, japaneseKeyfaces(), chinese, punctuationMarks()) : null);
         }
         // 角标换完之后再对一遍键组：关掉角标时组里的键已经不画角标，内容域才能把它们去掉。
         imeKeyFaces.refresh();

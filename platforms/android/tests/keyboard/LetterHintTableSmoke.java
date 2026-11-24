@@ -66,6 +66,14 @@ public final class LetterHintTableSmoke {
             "non-letters have no face");
         check(!LetterHintTable.routesThroughEngine(null) && !LetterHintTable.routesThroughEngine("")
             && !LetterHintTable.routesThroughEngine("？"), "only single ASCII marks route through the Engine");
+        // 日语方案的角标键面与上屏走同一张日文表，不受中文标点开关和引号样式影响。
+        check("（".equals(LetterHintTable.face("j", false, true, true, corner)), "Japanese j hint uses corner bracket face");
+        check("・".equals(LetterHintTable.face("m", false, true, true, corner)), "Japanese m hint is the middle dot");
+        check("、".equals(LetterHintTable.face("c", false, true, true, corner)), "Japanese c hint stays ideographic comma");
+        check("\"".equals(LetterHintTable.face("l", false, true, true, corner)), "Japanese unmapped hint keeps its face");
+        check(LetterHintTable.routesThroughEngine("(", true)
+                && !LetterHintTable.routesThroughEngine("@", true), "Japanese routes mapped marks through the Engine");
+        check(!LetterHintTable.routesThroughEngine("、", true), "Japanese non-ASCII hints commit literally");
         System.out.println("Android letter hints: q1…p0 / a@…l\" / z~x…c、v?b!n-m/ and Chinese faces （）“？！ passed");
     }
 
