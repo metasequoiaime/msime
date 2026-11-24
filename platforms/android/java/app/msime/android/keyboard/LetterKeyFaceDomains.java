@@ -47,6 +47,28 @@ public final class LetterKeyFaceDomains {
         return domain(faces, hints);
     }
 
+    /** 韩文字母键在不按和按住双辅音时的全部字母（{@link KoreanKeyboardLayout#face}）：按双辅音只重画，不重量。 */
+    public static KeyFaceDomain korean() {
+        List<String> faces = new ArrayList<>();
+        for (char letter = 'a'; letter <= 'z'; letter++) {
+            String key = String.valueOf(letter);
+            faces.add(KoreanKeyboardLayout.face(key, false));
+            faces.add(KoreanKeyboardLayout.face(key, true));
+        }
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, faces);
+        return new KeyFaceDomain(texts);
+    }
+
+    /** 大千字母层的全部注音符号和声调（{@link ZhuyinKeyboardLayout#rows}）。 */
+    public static KeyFaceDomain dachen() {
+        List<String> faces = new ArrayList<>();
+        for (List<String> row : ZhuyinKeyboardLayout.rows()) for (String key : row) faces.add(ZhuyinKeyboardLayout.face(key));
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, faces);
+        return new KeyFaceDomain(texts);
+    }
+
     /** 字母上方的数字行：1–0（{@link KeyboardLayout#NUMBER_ROW}），没有提示。 */
     public static KeyFaceDomain numberRow() {
         Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);

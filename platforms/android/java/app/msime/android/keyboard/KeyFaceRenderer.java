@@ -94,7 +94,7 @@ final class KeyFaceRenderer {
         float gap = group.template().pairGapEm() * size;
         KeyFaceTemplate.Glyphs glyphs = group.template().glyphs();
         mainBaseline = params.main().baseline(height);
-        if (glyphs != null) {
+        if (glyphs != null && glyphs.centres(main)) {
             // 按这个键自己的墨迹居中（KeyFaceParams.Main#glyphX、#glyphBaseline），字号再乘这段文字的放大倍数。
             if (!main.isEmpty()) {
                 mainSize = size * glyphs.scale(main);

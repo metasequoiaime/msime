@@ -104,6 +104,27 @@ public final class KeyFaceTemplates {
     public static final KeyFaceTemplate NINE_DIGITS = new KeyFaceTemplate("nine-digits", nineSlots(NINE_DIGIT, false, true),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
 
+    /**
+     * 韩文的字母键（字母层画两套辅音、元音）：和字母键同字号（设计 22 sp），按整个墨迹居中（字母是方块字形，没有大写字母高可对）。原来是建键的默认 14 sp，比同一套字母行的其他语言小得多。
+     */
+    public static final KeyFaceTemplate KOREAN = new KeyFaceTemplate("korean", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** 大千的声调键：ˊ ˇ ˋ ˙ 只是字身上方一道短笔画，按 1.8 倍画、按自己的墨迹居中，与原来的 {@link CenteredGlyphSpan} 相同；其余注音符号共用一条基线。 */
+    static final KeyFaceTemplate.Glyphs DACHEN_TONES = new KeyFaceTemplate.Glyphs(dachenTones(1.8f), 0.1f, false);
+
+    /** 大千（注音 26 键一族）的字母键：注音符号设计 22 sp（原来 18–22 sp 按键宽缩小），最小 12 sp，按整个墨迹居中；声调键见 {@link #DACHEN_TONES}。 */
+    public static final KeyFaceTemplate DACHEN = new KeyFaceTemplate("dachen", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        DACHEN_TONES);
+
+    private static Map<String, Float> dachenTones(float scale) {
+        Map<String, Float> tones = new java.util.HashMap<>();
+        for (List<String> row : ZhuyinKeyboardLayout.rows())
+            for (String key : row) if (ZhuyinKeyboardLayout.toneKey(key)) tones.put(ZhuyinKeyboardLayout.face(key), scale);
+        return tones;
+    }
+
     /** #+= 层第一排的符号：设计 20 sp，最小 12 sp，最大 22 sp，与原来的固定 20 sp 和数字行相同。 */
     static final KeyFaceTemplate.SlotSpec LAYER_TOP = slot(20, 12, 22, 0, 255);
     /** #+= 层其余几排和第五排补充行的符号：设计 18 sp，最小 12 sp，最大 20 sp。 */

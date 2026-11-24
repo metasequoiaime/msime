@@ -46,6 +46,7 @@ final class KeyFaceGroupChecks {
                         verifyNumberRow(context, height);
                         verifySideSymbols(context, height);
                         verifyLayer(context, height);
+                        verifyScripts(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -389,6 +390,70 @@ final class KeyFaceGroupChecks {
         restKeys.get(0).setText("-");
         check(!restKeys.get(0).isLayoutRequested() && product.params(restKeys.get(0)) == restParams,
             "#+= 层换字符后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * 26 键一族的其他文字：韩文字母（换双辅音只重画）、大千（声调按自己的墨迹居中、放大画，注音符号共用基线）、日文罗马字的 ー（自己一组，不比字母大）。同组一份参数，墨迹不出键格。
+     */
+    private static void verifyScripts(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density), width = Math.round(34 * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        String domains = "app.msime.android.LetterKeyFaceDomains";
+        Object korean = product.group("KOREAN", domains, "korean", Typeface.DEFAULT, density, scale);
+        Object dachen = product.group("DACHEN", domains, "dachen", Typeface.DEFAULT, density, scale);
+        List<Button> keys = new ArrayList<>();
+        for (String jamo : new String[] {"ㅂ", "ㅈ", "ㅏ", "ㅡ"}) {
+            Button key = product.plainKey(jamo);
+            product.joinFunction(key, korean, false);
+            keys.add(key);
+        }
+        Button tone = null;
+        for (String face : new String[] {"ㄅ", "ㄤ", "ˇ", "ㄦ"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, dachen, false);
+            keys.add(key);
+            if ("ˇ".equals(face)) tone = key;
+        }
+        for (Button key : keys) layout(key, width, height);
+        float tolerance = density + 1;
+        for (Button key : keys) {
+            String at = key.getText() + " " + where;
+            Object params = product.params(key);
+            check(params != null && params == product.params(keys.get(key == tone || keys.indexOf(key) >= 4 ? 4 : 0)),
+                "同组参数不同或没算出来：" + at);
+            Rect main = draw(key)[1];
+            check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                "字没画出来或出了键格：" + main + " " + at);
+        }
+        Object toneParams = product.params(tone);
+        Rect toneInk = draw(tone)[1];
+        check(Math.abs(toneInk.exactCenterX() - width / 2f) <= tolerance
+            && Math.abs(toneInk.exactCenterY() - height / 2f - 0.1f * product.mainSize(toneParams)) <= tolerance,
+            "大千声调没有按自己的墨迹居中：" + toneInk + " " + where);
+        check(toneInk.height() >= 1.5f * product.inkHeight("ˇ", product.mainSize(toneParams)), "大千声调没有放大画：" + where);
+        Object koreanParams = product.params(keys.get(0));
+        keys.get(0).setText("ㅃ");
+        check(!keys.get(0).isLayoutRequested() && product.params(keys.get(0)) == koreanParams,
+            "韩文换双辅音后请求了重新布局或参数变了：" + where);
+
+        Object letters = product.letterGroup(density, scale);
+        Button letter = product.plainKey("W");
+        product.joinFunction(letter, letters, false);
+        Object empty = product.loader.loadClass("app.msime.android.KeyFaceDomain").getConstructor(Map.class)
+            .newInstance(new HashMap<>());
+        Object vowel = product.group("LETTERS", empty, Typeface.DEFAULT, density, scale);
+        vowel.getClass().getMethod("capMainAt", vowel.getClass()).invoke(vowel, letters);
+        Button longVowel = product.plainKey("ー");
+        product.joinFunction(longVowel, vowel, false);
+        layout(letter, Math.round(30 * density), height);
+        layout(longVowel, Math.round(30 * density), height);
+        check(product.mainSize(product.params(longVowel)) <= product.mainSize(product.params(letter)) + 0.01f,
+            "ー 不应比字母大：" + where);
+        Rect bar = draw(longVowel)[1];
+        check(!bar.isEmpty() && bar.left >= 0 && bar.right <= longVowel.getWidth(), "ー 没画出来或出了键格：" + bar + " " + where);
     }
 
     /**

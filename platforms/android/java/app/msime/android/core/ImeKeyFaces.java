@@ -35,6 +35,47 @@ final class ImeKeyFaces {
     private Inputs nineLettersBuilt;
     private KeyFaceGroup nineDigits;
     private Inputs nineDigitsBuilt;
+    /**
+     * 内容域固定、只按设置换环境的一组（韩文、大千、日文罗马字的 ー）：第一次放键进来时建，{@link #refresh} 时只比较环境。
+     */
+    private final class FixedGroup {
+        private final KeyFaceTemplate template;
+        private final KeyFaceDomain domain;
+        private KeyFaceGroup group;
+        private Inputs built;
+
+        FixedGroup(KeyFaceTemplate template, KeyFaceDomain domain) {
+            this.template = template;
+            this.domain = domain;
+        }
+
+        KeyFaceGroup group() {
+            if (group == null) {
+                built = inputs(false);
+                group = new KeyFaceGroup(template, environment(built), domain, measurer(built));
+            }
+            return group;
+        }
+
+        void refresh() {
+            if (group == null) return;
+            Inputs now = inputs(false);
+            if (now.equals(built)) return;
+            built = now;
+            group.replace(environment(now), measurer(now), domain);
+        }
+
+        void reset() {
+            group = null;
+            built = null;
+        }
+    }
+
+    private final FixedGroup korean = new FixedGroup(KeyFaceTemplates.KOREAN, LetterKeyFaceDomains.korean());
+    private final FixedGroup dachen = new FixedGroup(KeyFaceTemplates.DACHEN, LetterKeyFaceDomains.dachen());
+    /** 日文罗马字的长音键 ー：自己一组、以字母组为上限，全角的 ー 放进字母组会让窄键上的每个字母都按它缩小。 */
+    private final FixedGroup longVowel = new FixedGroup(KeyFaceTemplates.LETTERS, LAYER_DOMAIN);
+
     /** #+= 层的字符键：第一排一组，其余几排（含第五排补充行）一组。内容域由放进来的键自己的文字组成（{@link #LAYER_DOMAIN}）。 */
     private KeyFaceGroup layerTop;
     private KeyFaceGroup layerCharacters;
@@ -72,6 +113,9 @@ final class ImeKeyFaces {
         layerTop = null;
         layerCharacters = null;
         layerBuilt = null;
+        korean.reset();
+        dachen.reset();
+        longVowel.reset();
         sideSymbols = null;
         sideSymbolsBuilt = null;
         sideSymbolsDomain = null;
@@ -152,6 +196,23 @@ final class ImeKeyFaces {
         if (!movableKeys.contains(press)) movableKeys.add(press);
     }
 
+    /** 韩文字母层的一个字母键。 */
+    void attachKorean(android.widget.Button key) {
+        if (key instanceof KeyboardPressButton press) press.setFaceGroup(korean.group(), NO_HINTS);
+    }
+
+    /** 大千字母层的一个注音或声调键。 */
+    void attachDachen(android.widget.Button key) {
+        if (key instanceof KeyboardPressButton press) press.setFaceGroup(dachen.group(), NO_HINTS);
+    }
+
+    /** 日文罗马字的长音键 ー：主标签以同一副键盘的字母为上限，所以不比字母大。 */
+    void attachLongVowel(android.widget.Button key) {
+        if (!(key instanceof KeyboardPressButton press)) return;
+        press.setFaceGroup(longVowel.group(), NO_HINTS);
+        linkFunctions();
+    }
+
     /** #+= 层的一个字符键；{@code firstRow} 为真时是第一排（字号大一号）。 */
     void attachLayerCharacter(android.widget.Button key, boolean firstRow) {
         if (!(key instanceof KeyboardPressButton press)) return;
@@ -199,6 +260,7 @@ final class ImeKeyFaces {
     private void linkFunctions() {
         if (functions != null)
             functions.capMainAt(letters != null ? letters : gridLetters != null ? gridLetters : nineLetters);
+        if (longVowel.group != null) longVowel.group.capMainAt(letters);
     }
 
     /** 每次渲染时调用：设置、皮肤字体或字体缩放变了就换掉组的内容域；没变时只比较几项。 */
@@ -247,6 +309,9 @@ final class ImeKeyFaces {
         }
         refreshSideSymbols();
         refreshLayer();
+        korean.refresh();
+        dachen.refresh();
+        longVowel.refresh();
     }
 
     private void refreshLayer() {

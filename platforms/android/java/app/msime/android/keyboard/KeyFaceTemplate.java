@@ -81,15 +81,27 @@ public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, flo
     }
 
     /**
-     * 主标签按每个键自己的墨迹居中（水平、竖直都是），字号仍是全组一个（D6 的例外，只用于标点和声调这类墨迹位置各不相同的键）：全角「，」「。」只占字身左下角一小块，和 ？、…… 共用一条基线时会贴底。{@code scales} 里登记的文字按字号再放大（墨迹很小的标点），并且墨迹中点比主标签区中点低 {@code dropEm} 个字号（设计稿里逗号、句号落在键面中线稍下方，与原来的 {@link CenteredGlyphSpan} 一样）；没登记的按 1 倍、正中。内容域按放大、下移后的墨迹量，所以它们同样放得进键格。
+     * 主标签按自己的墨迹居中（水平、竖直都是），字号仍是全组一个（D6 的例外，只用于标点和声调这类墨迹位置各不相同的键）：全角「，」「。」只占字身左下角一小块，声调符号只是字身上方一道短笔画，和别的字共用一条基线时会贴底、飘在上面或小得看不见。
+     *
+     * <p>{@code every} 为真时组里每段文字都按自己的墨迹居中（符号栏）；为假时只有 {@code scales} 里登记的文字这样画，其余的照常共用全组的基线（大千、注音九键的声调键和同一组里的音符键）。登记的文字按字号再放大 {@code scales} 倍，墨迹中点比主标签区中点低 {@code dropEm} 个字号（设计稿里逗号、句号落在键面中线稍下方，与原来的 {@link CenteredGlyphSpan} 一样）；{@code every} 为真时没登记的文字按 1 倍、正中。内容域按放大、下移后的墨迹量，所以它们同样放得进键格。
      */
-    public record Glyphs(Map<String, Float> scales, float dropEm) {
+    public record Glyphs(Map<String, Float> scales, float dropEm, boolean every) {
         public Glyphs {
             for (Map.Entry<String, Float> entry : scales.entrySet())
                 if (!(entry.getValue() > 0)) throw new IllegalArgumentException("bad glyph scale " + entry);
             if (dropEm < 0) throw new IllegalArgumentException("bad glyph drop " + dropEm);
             // 不用 Map.copyOf（API 30 起才有）：D8 为它补的方法会改变设备测试包里合并补丁类的名字，与应用里 R8 留下的同名类相撞（API 35 上测试进程因此崩溃）。
             scales = Collections.unmodifiableMap(new java.util.HashMap<>(scales));
+        }
+
+        /** 每段文字都按自己的墨迹居中。 */
+        public Glyphs(Map<String, Float> scales, float dropEm) {
+            this(scales, dropEm, true);
+        }
+
+        /** {@code text} 是否按自己的墨迹居中。 */
+        public boolean centres(String text) {
+            return every || text != null && scales.containsKey(text);
         }
 
         /** {@code text} 画的时候是字号的几倍。 */

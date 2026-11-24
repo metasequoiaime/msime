@@ -988,19 +988,19 @@ final class ImeLetterRows {
                     && JapaneseRomajiLayout.LONG_VOWEL_INPUT.equals(input)) {
                 keyButton = s.keyboardKey(JapaneseRomajiLayout.LONG_VOWEL_FACE, "长音符 ー",
                     () -> s.character(JapaneseRomajiLayout.LONG_VOWEL_INPUT.charAt(0), false));
-                KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
+                s.imeKeyFaces.attachLongVowel(keyButton);
                 return s.keyId(keyButton, KeyPressIds.forCharacter(input.charAt(0)));
             }
             if (zhuyinKeycaps) {
                 // 键面只显示注音符号；type() 仍发送大千 ASCII 键，由引擎组音与转换。
                 keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
                 keyButton.setContentDescription(ZhuyinKeyboardLayout.accessibilityLabel(key));
-                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 18, 22);
-                if (ZhuyinKeyboardLayout.toneKey(key)) CenteredGlyphSpan.apply(keyButton, face, 1.8f);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
+                // 字号由大千的键组定；声调键按自己的墨迹居中、放大画（KeyFaceTemplates.DACHEN_TONES）。
+                s.imeKeyFaces.attachDachen(keyButton);
             } else if (zhuyinSymbols && ZhuyinKeyboardLayout.claimsSymbol(key)) {
                 // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine. Zhuyin nine-key shares the same Engine scheme, so its #+= page does the same.
                 keyButton = s.keyboardKey(face, face, () -> s.imeLayoutRows.commitNineKeyLiteral(
@@ -1014,6 +1014,8 @@ final class ImeLetterRows {
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
                 koreanKeyButtons.add(keyButton);
                 koreanKeyInputs.add(input);
+                // 和字母键同字号（KeyFaceTemplates.KOREAN）；按双辅音换键面只重画。
+                s.imeKeyFaces.attachKorean(keyButton);
             } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                 ShuangpinHintButton hintButton = s.shuangpinLetterKey(face, face, input.charAt(0));
                 s.imeKeyFaces.attachLetter(hintButton);
@@ -1041,6 +1043,8 @@ final class ImeLetterRows {
             if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
                 s.symbolKeyButtons.add(keyButton);
                 s.symbolKeyInputs.add(input);
+                // 注音（大千、注音九键）的 #+= 共享符号行，与其他键面的 #+= 层同一个字号（KeyFaceTemplates.LAYER_CHARACTERS）。
+                s.imeKeyFaces.attachLayerCharacter(keyButton, false);
             }
             return keyButton;
         };
@@ -1074,7 +1078,7 @@ final class ImeLetterRows {
                 s.microsoftFinalKey = s.keyId(s.shuangpinLetterKey(";", "微软双拼 ing", ';'), "Semicolon");
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
-                KeyboardTypographyPolicy.setKeyTextSize(s.microsoftFinalKey, 22);
+                s.imeKeyFaces.attachLetter((ShuangpinHintButton) s.microsoftFinalKey);
                 row.addView(s.microsoftFinalKey, LayoutPolicy.weightedMatchParentParams(1));
             }
             if (standardLetters && rowIndex == 1) {

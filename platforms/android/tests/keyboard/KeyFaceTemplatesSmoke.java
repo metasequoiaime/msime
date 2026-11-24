@@ -116,6 +116,16 @@ public final class KeyFaceTemplatesSmoke {
             "#+= 层应夹在 12 sp 和最大字号之间");
         for (KeyFaceTemplate layer : List.of(KeyFaceTemplates.LAYER_TOP_ROW, KeyFaceTemplates.LAYER_CHARACTERS))
             check(!layer.capAligned() && layer.glyphs() == null, layer.name() + " 应按整个内容域的墨迹共用一条基线");
+        // 韩文和大千：默认键高上与字母同为 22 sp，按整个墨迹居中；大千的四个声调按 1.8 倍、按自己的墨迹居中，其余注音共用基线。
+        for (KeyFaceTemplate script : List.of(KeyFaceTemplates.KOREAN, KeyFaceTemplates.DACHEN)) {
+            check(near(solve(script, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22), script.name() + " 应为 22 sp");
+            check(!script.capAligned(), script.name() + " 应按整个墨迹居中");
+        }
+        KeyFaceTemplate.Glyphs dachenTones = KeyFaceTemplates.DACHEN.glyphs();
+        check(dachenTones != null && !dachenTones.every() && dachenTones.scales().size() == 4, "大千应登记四个声调：" + dachenTones);
+        for (float toneScale : dachenTones.scales().values()) check(near(toneScale, 1.8f), "大千声调应放大 1.8 倍");
+        check(!dachenTones.centres("ㄅ"), "大千的注音符号不按自己的墨迹居中");
+        check(KeyFaceTemplates.KOREAN.glyphs() == null, "韩文不按自己的墨迹居中");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

@@ -108,8 +108,47 @@ public final class KeyFaceSolverSmoke {
         } catch (IllegalArgumentException expected) { }
     }
 
+    /** 只有登记的字按自己的墨迹居中（KeyFaceTemplate.Glyphs#every 为假）：其余的字与不登记任何字时落在同一条基线上，登记的声调落在主标签区中点再往下挪一点。 */
+    static void registeredGlyphs() {
+        KeyFaceMeasurer tones = new KeyFaceMeasurer() {
+            @Override public float advance(KeyFaceSlot slot, String text, float sizePx) { return sizePx; }
+
+            @Override public Ink ink(KeyFaceSlot slot, String text, float sizePx) {
+                if ("ˊ".equals(text)) return new Ink(0.4f * sizePx, -0.8f * sizePx, 0.6f * sizePx, -0.65f * sizePx);
+                if ("ㄑ".equals(text)) return new Ink(0.1f * sizePx, -0.8f * sizePx, 0.9f * sizePx, 0.1f * sizePx);
+                return new Ink(0.1f * sizePx, -0.7f * sizePx, 0.9f * sizePx, 0);
+            }
+
+            @Override public float ascent(KeyFaceSlot slot, float sizePx) { return -0.9f * sizePx; }
+        };
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, MAIN);
+        KeyFaceTemplate.Glyphs glyphs = new KeyFaceTemplate.Glyphs(Map.of("ˊ", 1.8f), 0.1f, false);
+        KeyFaceTemplate plain = new KeyFaceTemplate("plain", slots, 2, 1, 0, false, 0.15f, ORDER);
+        KeyFaceTemplate mixed = new KeyFaceTemplate("mixed", slots, 2, 1, 0, false, 0.15f, ORDER, null, glyphs);
+        check(!glyphs.centres("ㄅ") && glyphs.centres("ˊ"), "只有登记的字按自己的墨迹居中");
+        Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = Map.of(KeyFaceSlot.MAIN, new KeyFaceSolver.Cell(160, 150));
+        KeyFaceParams without = KeyFaceSolver.solve(plain,
+            new KeyFaceDomain(Map.of(KeyFaceSlot.MAIN, List.of("ㄅ", "ㄑ"))).measure(tones, 0), ENVIRONMENT, cells);
+        KeyFaceParams with = KeyFaceSolver.solve(mixed,
+            new KeyFaceDomain(Map.of(KeyFaceSlot.MAIN, List.of("ㄅ", "ㄑ", "ˊ"))).measure(tones, 0, glyphs), ENVIRONMENT, cells);
+        check(near(with.main().sizePx(), without.main().sizePx()), "声调不大时不改变组的字号：" + with + " " + without);
+        check(near(with.main().baseline(150), without.main().baseline(150)), "其余的字应仍在原来的基线上：" + with + " " + without);
+        float size = with.main().sizePx();
+        KeyFaceMeasurer.Ink ink = tones.ink(KeyFaceSlot.MAIN, "ˊ", size * 1.8f);
+        float baseline = with.main().glyphBaseline(150, ink.top(), ink.bottom()) + glyphs.drop("ˊ", size);
+        float center = (with.main().boxTopPx() + 150 - with.main().boxBottomInsetPx()) / 2f;
+        check(Math.abs(baseline + (ink.top() + ink.bottom()) / 2f - center - 0.1f * size) < 0.01f,
+            "声调应落在主标签区中点再往下 0.1 个字号：" + baseline);
+        // 声调放大后比框高时框跟着长高，仍上下对称于共用基线的字的墨迹中线。
+        KeyFaceDomain.SlotMetrics tall = new KeyFaceDomain(Map.of(KeyFaceSlot.MAIN, List.of("ㄅ", "ˊ")))
+            .measure(tones, 0, new KeyFaceTemplate.Glyphs(Map.of("ˊ", 10f), 0, false)).get(KeyFaceSlot.MAIN);
+        check(near(tall.inkTop() + tall.inkBottom(), -70) && tall.inkHeight() >= 150 - 0.01f, "框应对称于共用基线的墨迹中线：" + tall);
+    }
+
     public static void main(String[] args) {
         glyphCentring();
+        registeredGlyphs();
         // 字号随键高变化，夹在上下限之间。
         check(near(solve(false, false, ENVIRONMENT, 300, 150).main().sizePx(), 0.48f * 150), "首选字号应按键高比例");
         check(near(solve(false, false, ENVIRONMENT, 600, 400).main().sizePx(), 26 * 3), "大键应封顶在最大字号");

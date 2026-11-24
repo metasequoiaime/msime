@@ -57,6 +57,11 @@ public final class LetterKeyFaceDomainsSmoke {
         for (String digit : KeyboardLayout.NUMBER_ROW)
             check(numbers.contains(KeyFaceSlot.MAIN, digit), "缺数字行的 " + digit);
         check(!numbers.has(KeyFaceSlot.TOP_RIGHT) && !numbers.has(KeyFaceSlot.BOTTOM), "数字行没有提示");
+        // 韩文：两套辅音元音都在内容域里（按双辅音只重画）；大千：每个注音符号和声调都在。
+        java.util.List<String> korean = LetterKeyFaceDomains.korean().texts().get(KeyFaceSlot.MAIN);
+        for (String jamo : java.util.List.of("ㅂ", "ㅃ", "ㅈ", "ㅉ", "ㅏ", "ㅡ")) check(korean.contains(jamo), "韩文内容域缺 " + jamo);
+        java.util.List<String> dachen = LetterKeyFaceDomains.dachen().texts().get(KeyFaceSlot.MAIN);
+        for (String face : java.util.List.of("ㄅ", "ㄤ", "ˊ", "ˇ", "ˋ", "˙")) check(dachen.contains(face), "大千内容域缺 " + face);
         System.out.println("LetterKeyFaceDomainsSmoke passed");
     }
 
