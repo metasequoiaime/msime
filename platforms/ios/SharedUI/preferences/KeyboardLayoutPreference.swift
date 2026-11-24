@@ -56,6 +56,12 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: hideLanguageKeyKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: hideLanguageKeyKey) }
   }
+  /// 隐藏底行的逗号句号键，份额并给空格；只作用于手机中文 26 键字母层的「标准」「长空格」「表情键」样式（逗号句号样式本身在空格两侧、不适用）。与「隐藏中/英键」一样是本机偏好，逗号句号仍可通过上下滑、快捷符号等输入。
+  static let hidePunctuationKeyKey = "keyboard.bottom.hidePunctuationKey"
+  static var hidePunctuationKey: Bool {
+    get { defaults.object(forKey: hidePunctuationKeyKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: hidePunctuationKeyKey) }
+  }
   static let oneHandedKey = "keyboard.oneHanded"
   /// 单手模式以前只在手机形态的键盘上画（iPhone、iPad 浮动键盘和窄窗口），全宽的 iPad 键盘一律不画；全宽键盘补上单手模式（#10203）之后，升级前存下的值不能直接带过去，否则在浮动键盘上开过单手的人一升级，停靠的全宽键盘就缩成单手块。用户之后每次切换单手模式都会打上这个标记；没有标记时，全宽键盘第一次画单手之前把存下的值改成关闭（`adoptOneHandedOnDockedTablet`）。
   static let oneHandedDockedTabletKey = "keyboard.oneHandedDockedTablet"
@@ -353,7 +359,10 @@ enum KeyboardLayoutPreference {
     // 先收到一个远大于各项范围的区间再转整数：`Int(Double)` 遇到超出 `Int` 的值（如 1e300）会直接崩掉键盘，而 `KeyboardPlacement` 随后照样把它限制到范围内。
     return Int(SharedNumber.clamped(value.doubleValue, to: -1_000_000...1_000_000).rounded())
   }
-  static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey) }
+  static var geometry: KeyboardGeometry {
+    KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey,
+                     hidesPunctuation: hidePunctuationKey)
+  }
 
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
   static func sharedKeySpacing(_ value: Any?) -> Double? {
@@ -756,6 +765,7 @@ struct KeyboardGeometry: Equatable {
   var letterInsetRatio: Double { 0.05 }
   var centeredLetters: Bool { true }
   var showsBottomLanguage = true
+  var hidesPunctuation = false
   var showsFullKeyboardSymbols: Bool { false }
 
   static func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double {

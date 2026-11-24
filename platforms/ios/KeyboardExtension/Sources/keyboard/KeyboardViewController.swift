@@ -7981,8 +7981,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let globe = needsInputModeSwitchKey
     let keyStyle = activeKeyLayoutStyle
     switch style {
-    case .phone where letterRows && drawsChineseTwentySixKey && keyStyle.twentySixKey != .standard:
-      let keys = TouchBottomRowLayout.twentySixKey(keyStyle.twentySixKey, globe: globe, language: language)
+    case .phone where letterRows && drawsChineseTwentySixKey
+      && (keyStyle.twentySixKey != .standard || KeyboardLayoutPreference.hidePunctuationKey):
+      let keys = TouchBottomRowLayout.twentySixKey(keyStyle.twentySixKey, globe: globe, language: language,
+                                                   hidePunctuation: KeyboardLayoutPreference.hidePunctuationKey)
       return keyStyle.symbolFirst ? TouchBottomRowLayout.symbolFirst(keys) : keys
     case .phone where letterGrid && keyStyle.fourteenKey != .standard:
       return TouchBottomRowLayout.letterGrid(keyStyle.fourteenKey, globe: globe, language: language)

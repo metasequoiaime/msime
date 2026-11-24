@@ -123,7 +123,8 @@ struct KeyboardLayoutSettingsView: View {
       grip
       KeyboardSkinPreview(
         skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid,
-        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
+        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey,
+                                 hidesPunctuation: KeyboardLayoutPreference.hidePunctuationKey),
         heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero,
         letterBadges: letterSwipeBadges, onLetterTap: letterSwipeEditable ? { editingLetter = LetterSwipeSheetTarget(letter: $0) } : nil
       )
@@ -284,12 +285,6 @@ struct KeyboardLayoutSettingsView: View {
       DesignToggleRow(title: "组字时保留 Shift", info: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
                       isOn: Binding(get: { quanpinShift }, set: { saveQuanpinShift($0) }))
         .accessibilityIdentifier("appQuanpinShiftToggle")
-      DesignToggleRow(title: "隐藏中/英键", info: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",
-                      isOn: Binding(get: { hideLanguageKey }, set: { enabled in
-                        hideLanguageKey = enabled
-                        KeyboardLayoutPreference.hideLanguageKey = enabled
-                      }))
-        .accessibilityIdentifier("appHideLanguageKeySwitch")
       // iPhone 横屏的分离式键盘只在 iPhone 上列出；iPad 的开关在「iPad」一组。
       if UIDevice.current.userInterfaceIdiom == .phone {
         DesignToggleRow(title: Self.splitKeyboardTitle, info: Self.phoneSplitKeyboardSubtitle,

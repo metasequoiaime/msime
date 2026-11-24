@@ -1016,6 +1016,31 @@ final class KeyLayoutStyleTests: XCTestCase {
                    TouchBottomRowLayout.twentySixKey(.emoji, globe: false, language: false))
   }
 
+  /// 隐藏逗号句号（`hidePunctuation`）只作用于中文 26 键的标准、长空格、表情键样式：逗号句号不排进底行、份额并给空格；逗号句号样式本身在空格两侧、不受影响。
+  func testTwentySixKeyHidesPunctuation() {
+    // 标准：123 | 符 | 空格 | 中/英 | 回车，逗号句号（各 1 份）被去掉，空格从 3 份涨到 5 份。
+    let standard = TouchBottomRowLayout.twentySixKey(.standard, globe: false, hidePunctuation: true)
+    XCTAssertEqual(standard.map(\.slot), [.layer, .symbols, .space, .language, .returnKey])
+    XCTAssertEqual(standard.first { $0.slot == .space }?.weight,
+                   TouchBottomRowLayout.spaceWeight + TouchBottomRowLayout.punctuationWeight)
+    // 长空格：123 | 长空格 | 中/英 | 回车。
+    let longSpace = TouchBottomRowLayout.twentySixKey(.longSpace, globe: false, hidePunctuation: true)
+    XCTAssertEqual(longSpace.map(\.slot), [.layer, .space, .language, .returnKey])
+    // 表情键：123 | 😀 | 空格 | 中/英 | 回车。
+    let emoji = TouchBottomRowLayout.twentySixKey(.emoji, globe: false, hidePunctuation: true)
+    XCTAssertEqual(emoji.map(\.slot), [.layer, .emoji, .space, .language, .returnKey])
+    // 逗号句号样式不受影响。
+    let commaPeriod = TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false, hidePunctuation: true)
+    XCTAssertEqual(commaPeriod, TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false))
+    // 不开开关时底行不变。
+    XCTAssertEqual(TouchBottomRowLayout.twentySixKey(.standard, globe: false),
+                   TouchBottomRowLayout.twentySixKey(.standard, globe: false, hidePunctuation: false))
+    // 预览的底行与键盘同一张表：隐藏逗号句号时 26 键分段也把逗号句号去掉。
+    let style = TouchKeyLayoutStyle(twentySixKey: .standard)
+    XCTAssertEqual(TouchKeyLayoutKind.twentySixKey.bottomRow(style, hidePunctuation: true).map(\.slot),
+                   [.layer, .symbols, .space, .language, .returnKey])
+  }
+
   /// 打开「符」与「123」互换后，26 键分段的预览底行照键盘把 符 排到 123 左边，并在样式高亮之外再高亮 符 和 123；长空格和表情键样式没有 符，底行和高亮都不变；14/18 键和 9 键不受这个开关影响。
   func testSettingsPreviewFollowsSymbolFirst() {
     for style in TouchTwentySixKeyStyle.allCases {

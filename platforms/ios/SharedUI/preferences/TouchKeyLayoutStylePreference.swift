@@ -359,6 +359,12 @@ struct TouchKeyLayoutOffering: Equatable {
   /// 每个分段的样式卡片里「中/英键放在空格左边」开关的标题和说明，三个分段是同一个偏好。
   static let languageLeftTitle = "中/英键放在空格左边"
   static let languageLeftSubtitle = "中/英 排到空格左边，逗号、句号仍紧挨空格。"
+  /// 26 键分段样式卡片里「隐藏中/英键」开关的标题和说明（与键盘页「布局」组迁移过来的同一个偏好）。
+  static let hideLanguageTitle = "隐藏中/英键"
+  static let hideLanguageSubtitle = "底行不显示中/英键，份额并给空格；中英切换仍在工具栏可用。"
+  /// 26 键分段样式卡片里「隐藏逗号句号」开关的标题和说明；只在标准、长空格、表情键样式下显示。
+  static let hidePunctuationTitle = "隐藏逗号句号"
+  static let hidePunctuationSubtitle = "底行不显示逗号句号键，份额并给空格；逗号句号仍可通过上下滑或快捷符号输入。"
   /// 「数字键盘」一组的标题和组末说明；有入口就列这一组，九宫格数字键盘从各类中文键面都进得去。
   static let numberPadTitle = "数字键盘"
   static let numberPadFooter = "九宫格数字键盘里空格的位置；右侧大回车不受影响。"
@@ -459,12 +465,13 @@ enum TouchKeyLayoutKind: String, CaseIterable, Hashable {
     style.numberRow && self != .nineKey
   }
 
-  /// 预览里这一类在 `style` 下的底行，取自键盘用的同一张表；不画地球键，`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格，与键盘一致。26 键打开「符」与「123」互换时照键盘把 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`），没有 符 的样式不变；中/英键放在空格左边时最后再照键盘重排一次（`TouchBottomRowLayout.languageBeforeSpace`）。
-  func bottomRow(_ style: TouchKeyLayoutStyle, language: Bool = true) -> [TouchBottomRowLayout.Key] {
+  /// 预览里这一类在 `style` 下的底行，取自键盘用的同一张表；不画地球键，`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格，与键盘一致。`hidePunctuation` 时（用户隐藏了逗号句号，仅中文 26 键）逗号句号不排进底行、份额并给空格。26 键打开「符」与「123」互换时照键盘把 符 排到 123 左边（`TouchBottomRowLayout.symbolFirst`），没有 符 的样式不变；中/英键放在空格左边时最后再照键盘重排一次（`TouchBottomRowLayout.languageBeforeSpace`）。
+  func bottomRow(_ style: TouchKeyLayoutStyle, language: Bool = true, hidePunctuation: Bool = false) -> [TouchBottomRowLayout.Key] {
     let keys: [TouchBottomRowLayout.Key]
     switch self {
     case .twentySixKey:
-      let row = TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false, language: language)
+      let row = TouchBottomRowLayout.twentySixKey(style.twentySixKey, globe: false, language: language,
+                                                  hidePunctuation: hidePunctuation)
       keys = style.symbolFirst ? TouchBottomRowLayout.symbolFirst(row) : row
     case .letterGrid: keys = TouchBottomRowLayout.letterGrid(style.fourteenKey, globe: false, language: language)
     case .nineKey: keys = TouchBottomRowLayout.nineKey(style.nineKey, globe: false, language: language)
@@ -521,8 +528,9 @@ struct KeyboardPreviewLetterLayer: Equatable {
   /// 九键右列在九宫格旁的几格（⌫、分词、！），右侧大回车时只剩 ⌫ 和分词。
   let nineKeyControls: [String]
 
-  /// `nineKey` 与 `letterGrid` 是预览画的键面：九键优先，其次 14/18 键，其余是 26 键。`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格。`nineKeyZero` 是九键双拼字母层空格后面的 0。
-  init(nineKey: Bool, letterGrid: Bool, style: TouchKeyLayoutStyle, language: Bool, nineKeyZero: Bool = false) {
+  /// `nineKey` 与 `letterGrid` 是预览画的键面：九键优先，其次 14/18 键，其余是 26 键。`language` 为 false 时（用户隐藏了中/英键）它的份额并进空格；`hidePunctuation` 时（用户隐藏了逗号句号，仅中文 26 键）逗号句号不排进底行、份额并给空格。`nineKeyZero` 是九键双拼字母层空格后面的 0。
+  init(nineKey: Bool, letterGrid: Bool, style: TouchKeyLayoutStyle, language: Bool, nineKeyZero: Bool = false,
+       hidePunctuation: Bool = false) {
     kind = nineKey ? .nineKey : letterGrid ? .letterGrid : .twentySixKey
     numberRow = kind.drawsNumberRow(style)
     if kind == .nineKey {
@@ -530,7 +538,7 @@ struct KeyboardPreviewLetterLayer: Equatable {
       let row = TouchBottomRowLayout.nineKey(style.nineKey, globe: false, zero: nineKeyZero, language: language)
       bottomRow = style.languageKeySide == .left ? TouchBottomRowLayout.languageBeforeSpace(row) : row
     } else {
-      bottomRow = kind.bottomRow(style, language: language)
+      bottomRow = kind.bottomRow(style, language: language, hidePunctuation: hidePunctuation)
     }
     tallReturn = kind == .nineKey && style.nineKey == .tallReturn
     nineKeySidebar = TouchKeyLayoutKind.previewSidebar(style)
@@ -603,8 +611,9 @@ enum TouchBottomRowLayout {
   static let nineKeyReturnWeight: CGFloat = 1.6
   static let zeroWeight: CGFloat = 1.05
 
-  /// 中文 26 键字母层。标准：123 | 符 | 。 | 空格 | ， | 中/英 | 回车，。从空格让出 1 份，与英文 26 键底行相同；逗号句号在空格两侧：， | 空格 | 。，同样是 。从空格让出 1 份；长空格：符 的 1.05 份给空格；表情键：😀 占 符 的位置和份额。
-  static func twentySixKey(_ style: TouchTwentySixKeyStyle, globe: Bool, language: Bool = true) -> [Key] {
+  /// 中文 26 键字母层。标准：123 | 符 | 。 | 空格 | ， | 中/英 | 回车，。从空格让出 1 份，与英文 26 键底行相同；逗号句号在空格两侧：， | 空格 | 。，同样是 。从空格让出 1 份；长空格：符 的 1.05 份给空格；表情键：😀 占 符 的位置和份额。`hidePunctuation` 时（标准、长空格、表情键样式）逗号/句号不排进底行、份额并给空格；逗号句号样式在空格两侧、不受影响。
+  static func twentySixKey(_ style: TouchTwentySixKeyStyle, globe: Bool, language: Bool = true,
+                           hidePunctuation: Bool = false) -> [Key] {
     var keys = [Key(.layer, layerWeight)]
     if globe { keys.append(Key(.globe, globeWeight)) }
     switch style {
@@ -618,6 +627,14 @@ enum TouchBottomRowLayout {
       keys += [Key(.comma, punctuationWeight), Key(.space, spaceWeight + symbolsWeight)]
     case .emoji:
       keys += [Key(.emoji, symbolsWeight), Key(.space, spaceWeight), Key(.comma, punctuationWeight)]
+    }
+    if hidePunctuation && style != .commaPeriod {
+      let removed = keys.filter { $0.slot == .comma || $0.slot == .period }
+      keys = keys.filter { $0.slot != .comma && $0.slot != .period }
+      let removedWeight = removed.reduce(CGFloat(0)) { $0 + $1.weight }
+      if let index = keys.firstIndex(where: { $0.slot == .space }) {
+        keys[index] = Key(.space, keys[index].weight + removedWeight)
+      }
     }
     return finish(keys, language: language, returnWeight: returnWeight)
   }
