@@ -1098,13 +1098,19 @@ impl QuanpinDictionary {
             }
             // Costlier readings go below the whole primary tier, so a frequent dearer correction (gau -> gai, weight 13) never precedes the cheaper one (gau -> gua, weight 10).
             for costlier in &resolution.costlier_corrected_cuts {
-                let rows = self.query_series_with_typos(
-                    raw,
-                    &join_segments(costlier),
-                    costlier,
-                    false,
-                    queried_prefixes.as_mut(),
-                );
+                let costlier_segmentation = join_segments(costlier);
+                let rows = if costlier.len() >= 4 {
+                    // 长句高成本纠错备选排在主纠错与字面回退之后，仅查整串精确词条，不再重复构图解码多条整句。
+                    self.query_single_path(raw, &costlier_segmentation, costlier)
+                } else {
+                    self.query_series_with_typos(
+                        raw,
+                        &costlier_segmentation,
+                        costlier,
+                        false,
+                        queried_prefixes.as_mut(),
+                    )
+                };
                 append_unique_words(&mut result, rows);
             }
             // 全辅音输入是简拼：字面简拼读满全部按键的多字词条排到纠错读法前面，打头的纠错候选最多退到首页最后一个座位，首位永远不让给它（#9903）。

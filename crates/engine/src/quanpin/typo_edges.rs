@@ -68,7 +68,24 @@ impl WeakPositions {
             Self::Heap(weak) => weak.iter().any(|&flag| flag),
         }
     }
+
+    fn only_position(&self, position: usize) -> bool {
+        match self {
+            Self::Bits(bits) => *bits == (1u64 << position),
+            Self::Heap(weak) => {
+                weak.get(position).copied().unwrap_or(false)
+                    && weak
+                        .iter()
+                        .enumerate()
+                        .all(|(index, &flag)| !flag || index == position)
+            }
+        }
+    }
 }
+
+/// 全拼实时输入下围绕弱位置规划的单步音节替换与字母级编辑键预算上限，避免冷查库拖高按键尾延迟。
+const LIVE_TYPO_KEY_BUDGET: usize = 32;
+const LIVE_EDIT_KEY_BUDGET: usize = 32;
 
 /// 按 `TYPO_KEY_BUDGET` 规划跨度键，通过 `span_cache` 查询并缓存空结果，逐行产生纠错边。
 #[cfg(test)]
@@ -96,7 +113,7 @@ pub fn collect_typo_edges(
     lookup_planned_edges(database, span_cache, &planned)
 }
 
-/// 全拼实时输入使用的弱位置聚焦纠错边收集：当 `literal_best` 已完整覆盖全部音节且全部为多字词（无弱位置）时直接跳过；存在弱位置时仅围绕弱位置规划替换与字母级窗口，避免正常打字时对每个流利多字词反复触发冷查库。
+/// 全拼实时输入使用的弱位置聚焦纠错边收集：当 `literal_best` 已完整覆盖全部音节且无弱位置，或仅最后一个多字母音节成单字（正常续打下一词首音节）时直接跳过；其余情况仅围绕弱位置并按实时预算规划替换与字母级窗口。
 pub(crate) fn collect_quanpin_typo_edges(
     database: &PinyinDatabase,
     span_cache: &mut FifoCache<String, Vec<DictRow>>,
@@ -106,14 +123,19 @@ pub(crate) fn collect_quanpin_typo_edges(
     literal_best: &SentencePath,
     autocorrect_types: u32,
 ) -> Vec<TypoEdge> {
-    let (weak, tiled) = weak_positions_tiled(segments.len(), literal_best);
-    if tiled && !weak.any() {
+    let n = segments.len();
+    let (weak, tiled) = weak_positions_tiled(n, literal_best);
+    if tiled && (!weak.any() || (n > 0 && weak.only_position(n - 1) && segments[n - 1].len() > 1)) {
+        // 首次进入纠错边路径（含后台预热 `nihaoma`）即完成只读静态表初始化，避免把 `OnceLock` 冷构表推迟到主线程首次出现弱位置时触发尾延迟毛刺；已初始化后仅一次原子读。
+        let _ = syllable_typos("");
+        let _ = multi_letter_syllable_trie();
         return Vec::new();
     }
     let mut planned = plan_keys_with_scope(
         segments,
         &weak,
         tiled,
+        LIVE_TYPO_KEY_BUDGET,
         autocorrect_types,
         |position| syllable_typos(&segments[position]),
         |position, typo| profile.accepted(&segments[position], &typo.syllable),
@@ -122,6 +144,7 @@ pub(crate) fn collect_quanpin_typo_edges(
         segments,
         &weak,
         tiled,
+        LIVE_EDIT_KEY_BUDGET,
         autocorrect_types,
         edit_cache,
         &mut planned,
@@ -138,6 +161,7 @@ pub const QUANPIN_TYPO_PENALTY_SCALE: f64 = 0.25;
 /// 字母级纠错最多看几个相邻的字面音节。一处乱序、按到邻键、漏按或多按一个字母，打出来的字母常常仍能切成合法音节，却和想打的读法音节数不同（`zai` 打成 `zia` 读成 zi'a）、边界错开（`hen'gao` 打成 `hengwo` 读成 heng'wo）、改动跨过两个音节的边界（`zao'lai` 打成 `zaloai`），或者落在单字母音节上（`qu'na'li` 漏了 n 读成 qu'a'li）。这时整串都是合法拼音，`resolve_series_query` 不会去纠错，一换一的音节替换也表达不了。
 pub const MAX_EDIT_WINDOW_SYLLABLES: usize = 3;
 /// 字母级纠错键在 `TYPO_KEY_BUDGET` 之外单独的预算，一换一的键吃光预算时它们照样能查到。
+#[cfg(test)]
 pub const EDIT_KEY_BUDGET: usize = 128;
 const MAX_EDIT_WINDOW_LETTERS: usize = MAX_EDIT_WINDOW_SYLLABLES * MAX_SYLLABLE_LENGTH + 1;
 
@@ -292,19 +316,28 @@ fn plan_edit_keys(
     planned: &mut Vec<PlannedKey>,
 ) {
     let weak = weak_positions(segments.len(), literal_best);
-    plan_edit_keys_with_scope(segments, &weak, false, autocorrect_types, cache, planned);
+    plan_edit_keys_with_scope(
+        segments,
+        &weak,
+        false,
+        EDIT_KEY_BUDGET,
+        autocorrect_types,
+        cache,
+        planned,
+    );
 }
 
 fn plan_edit_keys_with_scope(
     segments: &[String],
     weak: &WeakPositions,
     weak_only: bool,
+    budget: usize,
     autocorrect_types: u32,
     cache: &mut EditWindowCache,
     planned: &mut Vec<PlannedKey>,
 ) {
     let n = segments.len();
-    if autocorrect_types == 0 || n == 0 {
+    if autocorrect_types == 0 || n == 0 || budget == 0 {
         return;
     }
     // (窗口起点, 终点, 是否含弱位置, 改法)，改法为 `Copy` 值，绝大多数窗口没有改法时不分配。
@@ -425,7 +458,7 @@ fn plan_edit_keys_with_scope(
                     });
                 }
                 added += 1;
-                if added >= EDIT_KEY_BUDGET {
+                if added >= budget {
                     return;
                 }
             }
@@ -683,6 +716,7 @@ fn plan_keys_with<'t>(
         segments,
         &weak,
         false,
+        TYPO_KEY_BUDGET,
         autocorrect_types,
         typos_at,
         accepted,
@@ -693,6 +727,7 @@ fn plan_keys_with_scope<'t>(
     segments: &[String],
     weak: &WeakPositions,
     weak_only: bool,
+    budget: usize,
     autocorrect_types: u32,
     typos_at: impl Fn(usize) -> &'t [SyllableTypo],
     accepted: impl Fn(usize, &SyllableTypo) -> i32,
@@ -705,7 +740,7 @@ fn plan_keys_with_scope<'t>(
     let mut planned = Vec::new();
     let mut variants = Vec::new();
     'positions: for position in positions {
-        if planned.len() >= TYPO_KEY_BUDGET {
+        if planned.len() >= budget {
             break;
         }
         let typos = typos_at(position);
@@ -737,7 +772,7 @@ fn plan_keys_with_scope<'t>(
                         continue;
                     }
                     if planned.is_empty() {
-                        planned = Vec::with_capacity(TYPO_KEY_BUDGET);
+                        planned = Vec::with_capacity(budget);
                     }
                     planned.push(PlannedKey {
                         start,
@@ -745,7 +780,7 @@ fn plan_keys_with_scope<'t>(
                         key,
                         penalty,
                     });
-                    if planned.len() >= TYPO_KEY_BUDGET {
+                    if planned.len() >= budget {
                         break 'positions;
                     }
                 }
@@ -1191,7 +1226,11 @@ mod tests {
             .insert("guan'xi", "关系", 100_000)
             .insert("jin'tian", "今天", 100_000)
             .insert("tian'qi", "天气", 100_000)
-            .insert("jun'tian", "均田", 50_000);
+            .insert("jun'tian", "均田", 50_000)
+            .insert("xian'zai", "现在", 100_000)
+            .insert("cheng'xu", "程序", 100_000)
+            .insert("cheng'xu'yuan", "程序员", 100_000)
+            .insert("xu'yv", "序宇", 50_000);
         let database = PinyinDatabase::open(&fixture.database());
         let profile = PersonalTypoProfile::shared(&fixture.journal());
         let mut span_cache = FifoCache::new(512);
@@ -1212,6 +1251,40 @@ mod tests {
             ALL_TYPES,
         );
         assert!(fluent_edges.is_empty());
+
+        // 仅末尾多字母音节成单字（正常续打下一词首音节）时直接跳过；但末尾单字母韵母拆分（`xian'zi'a`）仍保留纠错。
+        let trailing_multi: Vec<String> = ["cheng", "xu", "yu"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert!(collect_quanpin_typo_edges(
+            &database,
+            &mut span_cache,
+            &mut edit_cache,
+            &profile,
+            &trailing_multi,
+            &path(&["程序", "于"]),
+            ALL_TYPES,
+        )
+        .is_empty());
+
+        let trailing_lone_vowel: Vec<String> =
+            ["xian", "zi", "a"].into_iter().map(str::to_owned).collect();
+        let split_edges = collect_quanpin_typo_edges(
+            &database,
+            &mut span_cache,
+            &mut edit_cache,
+            &profile,
+            &trailing_lone_vowel,
+            &path(&["仙子", "啊"]),
+            ALL_TYPES,
+        );
+        assert!(
+            split_edges
+                .iter()
+                .any(|edge| edge.key == "xian'zai" && edge.value == "现在"),
+            "{split_edges:?}"
+        );
 
         // 存在弱位置时围绕弱位置收集纠错边（如 `mei'gan'xi` -> `guan'xi`）。
         let broken: Vec<String> = ["mei", "gan", "xi"]

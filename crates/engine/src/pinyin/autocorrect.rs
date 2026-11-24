@@ -596,6 +596,25 @@ pub fn looks_like_syllable_with_jianpin_tail(pinyin: &str) -> bool {
     }
     // 全辅音串一个音节也匹配不上，这里有意让它保持可纠错：它可能是 `bqng`（bang）这种按偏了韵母的误触，也可能是 `qjn`、`zhr` 这种多字母简拼（含 zh/ch/sh 简拼单位）。两种读法都留着，先后由词典定：字面简拼读满全部按键的多字词条排在纠错读法前面，见 `quanpin::series::lead_literal_abbreviation_phrases`。
     if position == 0 || bytes.len() - position > 1 {
+        // 贪心最长匹配在 `ren'gong` 这类边界上会误切出 `reng` 而卡住；回退到精确完整拼音切分，保护完整拼音后跟单个声母或 `zh`/`ch`/`sh` 声母前缀的正常输入。
+        if super::segment::is_complete_pinyin_input(pinyin) {
+            return true;
+        }
+        if bytes.len() >= 2
+            && !matches!(
+                bytes[bytes.len() - 1],
+                b'a' | b'e' | b'i' | b'o' | b'u' | b'v'
+            )
+            && super::segment::is_complete_pinyin_input(&pinyin[..pinyin.len() - 1])
+        {
+            return true;
+        }
+        if bytes.len() >= 3
+            && matches!(&bytes[bytes.len() - 2..], b"zh" | b"ch" | b"sh")
+            && super::segment::is_complete_pinyin_input(&pinyin[..pinyin.len() - 2])
+        {
+            return true;
+        }
         return false;
     }
     if position == bytes.len() {
@@ -876,6 +895,14 @@ mod tests {
         assert!(looks_like_syllable_with_jianpin_tail("zheg"));
         assert!(looks_like_syllable_with_jianpin_tail("keneng"));
         assert!(looks_like_syllable_with_jianpin_tail("zher"));
+        assert!(looks_like_syllable_with_jianpin_tail("rengongz"));
+        assert!(looks_like_syllable_with_jianpin_tail("rengongzh"));
+        assert!(looks_like_syllable_with_jianpin_tail("rengongzhin"));
+        assert!(looks_like_syllable_with_jianpin_tail(
+            "womendouzaixuexirengongzhin"
+        ));
+        assert!(looks_like_syllable_with_jianpin_tail("zhegewentihenzh"));
+        assert!(!looks_like_syllable_with_jianpin_tail("hauzh"));
         assert!(!looks_like_syllable_with_jianpin_tail("sahng"));
         assert!(!looks_like_syllable_with_jianpin_tail("shabg"));
         assert!(!looks_like_syllable_with_jianpin_tail("xi'an"));
