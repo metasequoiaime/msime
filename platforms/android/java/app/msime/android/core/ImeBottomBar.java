@@ -222,19 +222,17 @@ final class ImeBottomBar {
             return;
         }
         boolean shown = shown();
-        int bottom = insets.bottom;
-        if (shown) {
-            int margin = KeyboardBottomBarPolicy.barBottomPx(insets.bottom, navigationBottom, gestureBottom);
-            if (bar.getLayoutParams() instanceof FrameLayout.LayoutParams params && params.bottomMargin != margin) {
-                params.bottomMargin = margin;
-                bar.setLayoutParams(params);
-            }
-            bottom = margin + s.pixels(KeyboardBottomBarPolicy.BAR_HEIGHT_DP);
-        }
+        int margin = shown ? KeyboardBottomBarPolicy.barBottomPx(insets.bottom, navigationBottom, gestureBottom) : 0;
         // 底栏计入目标高度，额外空白只抬高键区，覆盖面板同样让出这段内边距；「键盘调整」期间按预览的抬高。
-        bottom += s.pixels(s.keyboardLiftDp(shown));
+        PanelGeometry.BottomInset inset = PanelGeometry.bottomInset(false, insets.bottom, shown, margin,
+            s.pixels(KeyboardBottomBarPolicy.BAR_HEIGHT_DP), s.pixels(s.keyboardLiftDp(shown)));
+        if (shown && bar.getLayoutParams() instanceof FrameLayout.LayoutParams params
+                && params.bottomMargin != inset.barMargin()) {
+            params.bottomMargin = inset.barMargin();
+            bar.setLayoutParams(params);
+        }
         if (bar != null) ViewPolicy.setVisibleIfChanged(bar, shown);
-        ViewPolicy.setPaddingIfChanged(keyboard, insets.left, insets.top, insets.right, bottom);
+        ViewPolicy.setPaddingIfChanged(keyboard, insets.left, insets.top, insets.right, inset.padding());
     }
 
     /** 「键盘调整」打开期间底栏和键区一样只是预览，读屏不进去；关上后交还。 */

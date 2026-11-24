@@ -10,7 +10,7 @@ import android.widget.LinearLayout;
 /**
  * 大屏单手模式空出来那一侧的数字键盘（#10203）：3 列 × 4 行，与电话拨号盘相同（1 2 3 / 4 5 6 / 7 8 9 / . 0 ⌫）。摆在哪、什么时候摆由 {@link ImeFrame#applyOneHanded} 按 {@link OneHandSidePadPolicy#shown} 决定，这里只建面板和面板与侧栏之间的空白。
  *
- * <p>面板是一个独立的 {@link KeyboardKeyArea}：键距是键的外边距，落在键与键之间空隙里的按下交给最近的键，和主键区一样。前三行是一块九宫格高度的键块（{@link MSIMEInputService.KeyboardHeightRole#nineKeyGrid}），第四行是底行高度（{@link MSIMEInputService.KeyboardHeightRole#bottomRow}），两块都按主键区同一套高度角色定高，整块贴着行的底边，于是各行的上下边与主键区的九键网格和底行对齐。键距、行高经 {@link ImeStyler#applySidePadGeometry} 跟着主键区一起重排，配色由换肤时的整树上色带上。
+ * <p>面板是一个独立的 {@link KeyboardKeyArea}：键距是键的外边距，落在键与键之间空隙里的按下交给最近的键，和主键区一样。前三行是一块九宫格高度的键块（{@link KeyboardHeightRole#nineKeyGrid}），第四行是底行高度（{@link KeyboardHeightRole#bottomRow}），两块都按主键区同一套高度角色定高，整块贴着行的底边，于是各行的上下边与主键区的九键网格和底行对齐。键距、行高经 {@link ImeStyler#applySidePadGeometry} 跟着主键区一起重排，配色由换肤时的整树上色带上。
  *
  * <p>数字和 `.` 走数字层的字面上屏（{@link ImeLayoutRows#commitNineKeyLiteral}）：正在组的拼音先原样上屏，再上屏这个字符；⌫ 与九键右列的 ⌫ 同一个动作，带连删。不挂滑行、横滑移动光标、长按选项和上滑角标。
  */
@@ -69,7 +69,7 @@ final class ImeSidePad {
         area.setContentDescription("侧边数字键盘");
 
         LinearLayout grid = LayoutPolicy.column(context);
-        grid.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
+        grid.setTag(KeyboardHeightRole.nineKeyGrid());
         for (String[] digits : DIGIT_ROWS) {
             LinearLayout row = LayoutPolicy.row(context);
             for (String digit : digits) s.imeLayoutRows.addNineKey(row, digitKey(digit));
@@ -78,7 +78,7 @@ final class ImeSidePad {
         area.addView(grid, LayoutPolicy.matchWidthHeightPx(s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         LinearLayout bottom = LayoutPolicy.row(context);
-        bottom.setTag(MSIMEInputService.KeyboardHeightRole.bottomRow());
+        bottom.setTag(KeyboardHeightRole.bottomRow());
         s.imeLayoutRows.addNineKey(bottom, s.imeLayoutRows.nineKeyDecimalKey());
         s.imeLayoutRows.addNineKey(bottom, digitKey("0"));
         Runnable deleteAction = () -> {
