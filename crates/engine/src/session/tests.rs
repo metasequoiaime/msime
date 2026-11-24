@@ -12381,6 +12381,7 @@ INSERT INTO quick_parases VALUES('dh','电话',10);",
     let phrase = |key: &str, text: &str| crate::types::QuickPhraseEntry {
         key: key.into(),
         text: text.into(),
+        position: None,
     };
     let mut session = fixture.session_with(|options| {
         options.quick_phrase_table = vec![phrase("dh", "电话"), phrase("dhhm", "电话号码")];
@@ -12435,6 +12436,7 @@ INSERT INTO quick_parases VALUES('dhx','电话线',30);",
     let phrase = |key: &str, text: &str| crate::types::QuickPhraseEntry {
         key: key.into(),
         text: text.into(),
+        position: None,
     };
     let mut session = fixture.session_with(|options| {
         options.quick_phrase_candidates = true;
@@ -12452,6 +12454,66 @@ INSERT INTO quick_parases VALUES('dhx','电话线',30);",
     let single = words(&session);
     assert!(single.contains(&"地址".to_owned()), "{single:?}");
     assert!(!single.contains(&"电话".to_owned()), "{single:?}");
+}
+
+#[test]
+fn regular_composition_uses_imported_quick_phrase_positions() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200),('ni''hao','nh','拟好',100),\
+('ni''hao','nh','逆好',90),('ni''hao','nh','泥号',80),('ni''hao','nh','溺号',70),\
+('ni''hao','nh','腻号',60);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('nihao','合成短语',10);",
+    );
+    let phrase = |key: &str, text: &str, position| crate::types::QuickPhraseEntry {
+        key: key.into(),
+        text: text.into(),
+        position: Some(position),
+    };
+    let table = vec![
+        phrase("nihao", "か", 7),
+        phrase("nihao", "카", 8),
+        phrase("nihao", "☆", 6),
+        phrase("xq", "か", 98),
+        phrase("xq", "카", 99),
+    ];
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = true;
+        options.quick_phrase_table = table.clone();
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            ..Default::default()
+        };
+    });
+
+    type_text(&mut session, "ni");
+    assert!(!words(&session).iter().any(|row| row == "か"));
+    type_text(&mut session, "hao");
+    assert_eq!(&words(&session)[5..8], ["☆", "か", "카"]);
+    assert_eq!(session.select(6).commit.as_deref(), Some("か"));
+    assert_eq!(
+        crate::user_dictionary::ranking::quick_phrase_slot(session.input.journal_path(), "nihao"),
+        None,
+    );
+    type_text(&mut session, "xq");
+    let rows = words(&session);
+    assert_eq!(&rows[rows.len() - 2..], ["か", "카"]);
+    session.command(Command::Cancel);
+
+    assert!(session.character(b'K', true).handled);
+    type_text(&mut session, "nihao");
+    assert_eq!(words(&session), ["合成短语", "か", "카", "☆"]);
+
+    let mut disabled = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.local_modes.quick_phrase = false;
+        options.quick_phrase_table = table;
+    });
+    type_text(&mut disabled, "nihao");
+    assert!(!words(&disabled).iter().any(|row| row == "か"));
 }
 
 /// 设置页的「快捷短语」开关同时管两种入口：关掉后普通候选里也不出现短语。

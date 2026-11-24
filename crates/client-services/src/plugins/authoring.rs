@@ -71,6 +71,8 @@ impl AuthoredKind {
 pub struct AuthoredPhrase {
     pub key: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<u8>,
 }
 
 /// 指令表的一条。
@@ -165,6 +167,7 @@ pub fn load(root: &Path, kind: &str, id: &str) -> Result<AuthoredPack, PluginErr
                     .map(|row| AuthoredPhrase {
                         key: row.key,
                         text: row.text,
+                        position: row.position,
                     })
                     .collect(),
             );
@@ -237,7 +240,28 @@ pub fn save(root: &Path, pack: &AuthoredPack, replace: bool) -> Result<PluginSum
             Some(id) => id.clone(),
             None => generate_id(root, kind, random_bytes)?,
         };
-        for (name, bytes) in render(pack, &id)? {
+        let mut edited = None;
+        // 旧版和尚未支持位置的原生编辑器只回传编码与文字；保留未改动条目的位置。
+        if replace && kind == PluginKind::PhraseTable {
+            if let Ok(previous) = load(root, kind.as_str(), &id) {
+                let positions: std::collections::HashMap<_, _> = previous
+                    .phrases
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|row| row.position.map(|position| ((row.key, row.text), position)))
+                    .collect();
+                if !positions.is_empty() {
+                    let pack = edited.insert(pack.clone());
+                    for row in pack.phrases.iter_mut().flatten() {
+                        if row.position.is_none() {
+                            row.position =
+                                positions.get(&(row.key.clone(), row.text.clone())).copied();
+                        }
+                    }
+                }
+            }
+        }
+        for (name, bytes) in render(edited.as_ref().unwrap_or(pack), &id)? {
             write_member(
                 staging,
                 name,
@@ -487,10 +511,12 @@ mod tests {
                 AuthoredPhrase {
                     key: "dh".into(),
                     text: "合成电话".into(),
+                    position: Some(7),
                 },
                 AuthoredPhrase {
                     key: "dz".into(),
                     text: "带 \"引号\" 和 \\ 的地址".into(),
+                    position: None,
                 },
             ]),
             ..base(AuthoredKind::PhraseTable)
@@ -689,6 +715,7 @@ mod tests {
             phrases: Some(vec![AuthoredPhrase {
                 key: "DH".into(),
                 text: "电话".into(),
+                position: None,
             }]),
             ..phrases()
         };
@@ -842,6 +869,7 @@ mod tests {
         pack.phrases.as_mut().unwrap().push(AuthoredPhrase {
             key: "bye".into(),
             text: "再见".into(),
+            position: None,
         });
         let saved = save(root.path(), &pack, true).unwrap();
         let PluginContent::PhraseTable(table) = &saved.content else {

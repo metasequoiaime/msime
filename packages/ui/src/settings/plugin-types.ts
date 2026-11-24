@@ -63,7 +63,7 @@ export type PluginSymbolGroup = {
 };
 
 /** 短语表的一行：`client-services::plugins::phrase_table::PhraseRow`。 */
-export type PluginPhrase = { key: string; text: string };
+export type PluginPhrase = { key: string; text: string; position?: number };
 
 /** 设置页插件编辑器能写的四种类型：`client-services::plugins::authoring::AuthoredKind`。 */
 export type AuthoredKind = "phrase_table" | "command_table" | "symbol_set" | "wordbook";
