@@ -14,6 +14,8 @@ IBus 没有直接设置文档光标的接口，宿主原来在一次性 commit �
 
 首轮只把扫描码从 0 改成有效值后，报告者实测光标不再停在右半之后，却变成「连续移动很多下直到行首」。根因是每次转发只发了一个方向键按下事件、没有配对的松开事件：客户端把方向键当成一直按着，触发键盘自动重复，光标一路冲到行首。这是照抄 Fcitx5 时漏掉的一处——它的 `forwardCaret()` 每次都 `forwardKey(Key(sym), false)` 加 `forwardKey(Key(sym), true)` 成对发送。补上：抽出 `emit_paired_caret()`，同一扫描码先发 `state=0` 的按下、再发带 `IBUS_RELEASE_MASK` 的松开；即时转发和 Shift 松开后的补发都走它。
 
+排队还带来一个副作用：Wayland 下按住 Shift 连打 `(` `)` 时，打 `)` 那一刻左移还没发出，文档光标仍在 `）` 之后，`try_skip_paired_closing()` 读到的右侧字符是空的，认不出要跨过的右半，于是再补一个 `）`，松开 Shift 后变成 `（）|）`。改成 `surrounding_following_character()` 计入队列里方向键的净移动（`PairedCaretQueue::net_offset()`），与 Fcitx5 `followingCharacter()` 计入 `pending_caret_` 的做法一致；跨过时排下的 Right 与先前的 Left 一起在松开 Shift 时补发，光标落在 `（）` 之后。
+
 ## Historical audit
 
 - [Windows 组字细节对齐 macOS](../../implemented/feature/2026-10-10-windows-input-compose-mac-parity.md)：成对标点覆盖面与宿主侧光标定位的旧决定；本次不改覆盖面，只修 IBus 转发按键的扫描码与时机。

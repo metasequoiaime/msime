@@ -154,6 +154,13 @@ int main() {
     queue.push(2);
     assert((queue.take() == std::vector<unsigned>{1, 2}));
     assert(queue.empty());
+    // 净移动：左移为负，左右抵消；Shift 按着连打 `(` `)` 排下的是一左一右，逻辑光标回到原处。
+    queue.push(1);
+    assert(queue.net_offset(1) == -1);
+    queue.push(2);
+    assert(queue.net_offset(1) == 0);
+    (void)queue.take();
+    assert(queue.net_offset(1) == 0);
     queue.push(3);
     queue.clear();
     assert(queue.empty() && queue.take().empty());

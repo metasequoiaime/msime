@@ -2194,10 +2194,15 @@ std::optional<std::vector<std::string>> surrounding_preceding_characters(
   return msime::linux_host::preceding_characters_from_byte_offset(
       s.surrounding_text, surrounding_byte_offset(s, s.surrounding_cursor), count);
 }
+// 逻辑光标右侧的字符，计入 Wayland 下还排着没发出的方向键，与 Fcitx5 的 followingCharacter 一致。
 std::optional<std::string> surrounding_following_character(const State &s) {
   if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)
     return std::nullopt;
-  const auto offset = surrounding_byte_offset(s, s.surrounding_cursor);
+  // 成对标点的右半都在 BMP 内，一个方向键在码位和 UTF-16 下都正好是一个单位。
+  const long cursor = static_cast<long>(s.surrounding_cursor) +
+                      s.pending_caret.net_offset(IBUS_Left);
+  if (cursor < 0) return std::nullopt;
+  const auto offset = surrounding_byte_offset(s, static_cast<guint>(cursor));
   if (offset >= s.surrounding_text.size())
     return std::string{};
   const auto *start = s.surrounding_text.c_str() + offset;
@@ -2263,8 +2268,7 @@ guint paired_caret_keycode(guint keyval) {
   g_object_unref(keymap);
   return result;
 }
-// 转发的方向键必须 press 和 release 成对发出。只发 press 会让客户端以为方向键一直按着，
-// 触发自动重复，光标一路冲到行首；Fcitx5 的 forwardCaret 同样成对发送。
+// 转发的方向键必须 press 和 release 成对发出。只发 press 会让客户端以为方向键一直按着，触发自动重复，光标一路冲到行首；Fcitx5 的 forwardCaret 同样成对发送。
 void emit_paired_caret(IBusEngine *engine, guint keyval) {
   const guint keycode = paired_caret_keycode(keyval);
   ibus_engine_forward_key_event(engine, keyval, keycode, 0);
