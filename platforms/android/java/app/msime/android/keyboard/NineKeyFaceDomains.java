@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 九键键组的内容域（见 {@link KeyFaceDomain}）：拼音九键字母层、数字九宫格、九键双拼的数字键和笔画键盘（同一个九键外框）上可能画的全部文字。只取决于传进来的表，不读服务，所以 JVM 冒烟可以直接检查。
+ * 九键键组的内容域（见 {@link KeyFaceDomain}）：拼音九键字母层、数字九宫格、九键双拼的数字键、笔画键盘和注音九键（同一个九键外框）上可能画的全部文字。只取决于传进来的表，不读服务，所以 JVM 冒烟可以直接检查。
  */
 public final class NineKeyFaceDomains {
     private NineKeyFaceDomains() { }
@@ -71,6 +71,38 @@ public final class NineKeyFaceDomains {
     public static KeyFaceDomain strokeKeys() {
         return mainOnly(List.of("@#", "0", ChineseSymbolFaces.face(".", true), ChineseSymbolFaces.face(".", false),
             exclamation()));
+    }
+
+    /** 注音九键左列的五个声调符号。 */
+    public static KeyFaceDomain zhuyinTones() {
+        List<String> faces = new ArrayList<>();
+        for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones()) faces.add(tone.face());
+        return mainOnly(faces);
+    }
+
+    /** 注音九键的音键：1–9 和 0 上的注音符号，底部是各自发送的数字。 */
+    public static KeyFaceDomain zhuyinSounds() {
+        List<ZhuyinNineKeyLayout.Key> keys = new ArrayList<>();
+        for (List<ZhuyinNineKeyLayout.Key> row : ZhuyinNineKeyLayout.rows()) keys.addAll(row);
+        keys.add(ZhuyinNineKeyLayout.zero());
+        List<String> symbols = new ArrayList<>(), digits = new ArrayList<>();
+        for (ZhuyinNineKeyLayout.Key key : keys) {
+            symbols.add(key.symbols());
+            digits.add(String.valueOf(key.digit()));
+        }
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, symbols);
+        texts.put(KeyFaceSlot.BOTTOM, digits);
+        return new KeyFaceDomain(texts);
+    }
+
+    /**
+     * 注音九键最后一行的逗号和句号（中文标点时是「，」「。」）。另含一个注音符号作基线参照：「，」「。」按自己的墨迹居中，内容域里只剩半角的 , . 时它们会被当成全组的墨迹居中，句点就画成了键面正中的一个点；有注音符号在，它们和旁边的音键一样落在文字的基线上。参照只进内容域，不画在哪个键上。
+     */
+    public static KeyFaceDomain zhuyinMarks() {
+        String reference = ZhuyinNineKeyLayout.rows().get(0).get(0).symbols().substring(0, 1);
+        return mainOnly(List.of(ChineseSymbolFaces.face(",", true), ChineseSymbolFaces.face(".", true),
+            ChineseSymbolFaces.face(",", false), ChineseSymbolFaces.face(".", false), reference));
     }
 
     private static KeyFaceDomain mainOnly(List<String> faces) {

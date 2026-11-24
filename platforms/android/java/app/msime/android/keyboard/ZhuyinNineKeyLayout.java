@@ -8,7 +8,7 @@ import java.util.List;
  * <p>The grouping is FIG. 1 of US patent 6,009,444: every one of the 37 bopomofo sits on exactly one key. Like the Dachen keycaps these faces are labels only. A sound key sends its ASCII digit and a tone key the letter the Engine's Zhuyin nine-key editor reads as that tone (z ˉ, x ˊ, c ˇ, v ˋ, b ˙; the bar's Space is the first tone as well), so the Engine decides which legal syllables a digit run spells and converts them; this host keeps no bopomofo table and never opens `msime-zhuyin.db` itself.
  */
 public final class ZhuyinNineKeyLayout {
-    /** One sound key: the digit it sends and the bopomofo printed on it. */
+    /** One sound key: the digit it sends and the bopomofo printed on it; the key prints its bopomofo over its digit. */
     public record Key(int digit, String symbols) {
         /** The ASCII digit this key sends to the Engine. */
         public char input() { return (char) ('0' + digit); }
@@ -48,12 +48,6 @@ public final class ZhuyinNineKeyLayout {
     /** The five tone keys from the first tone to the neutral tone. */
     public static List<Tone> tones() {
         return TONES;
-    }
-
-    /** What a sound key prints: its bopomofo over its digit, e.g. 「ㄅㄆㄇㄈ\n1」. */
-    public static String face(Key key) {
-        if (key == null) throw new IllegalArgumentException("Missing zhuyin nine-key key");
-        return key.symbols() + "\n" + key.digit();
     }
 
     /** Spoken label, e.g. 「注音 1 ㄅㄆㄇㄈ」. */

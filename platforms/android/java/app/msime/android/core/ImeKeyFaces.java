@@ -5,7 +5,7 @@ import android.graphics.Typeface;
 import java.util.Set;
 
 /**
- * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}（含笔画键盘）、{@link FunctionKeyFaceDomains} 和 {@link SideColumnKeyFaceDomains}。
+ * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}（含笔画键盘和注音九键）、{@link FunctionKeyFaceDomains} 和 {@link SideColumnKeyFaceDomains}。
  *
  * <p>功能键组的字不大过同一副键盘的字母组（{@link KeyFaceGroup#capMainAt}）。⇧、⌫ 和底行的 0 是常驻的键，建键行时会挪到别的地方（123 层、底行），所以清空时先把它们拿出组，放回原处时再放进新组。
  *
@@ -36,7 +36,7 @@ final class ImeKeyFaces {
     private KeyFaceGroup nineDigits;
     private Inputs nineDigitsBuilt;
     /**
-     * 内容域固定、只按设置换环境的一组（韩文、大千、日文罗马字的 ー、笔画键盘）：第一次放键进来时建，{@link #refresh} 时只比较环境。
+     * 内容域固定、只按设置换环境的一组（韩文、大千、日文罗马字的 ー、笔画键盘、注音九键）：第一次放键进来时建，{@link #refresh} 时只比较环境。
      */
     private final class FixedGroup {
         private final KeyFaceTemplate template;
@@ -79,6 +79,12 @@ final class ImeKeyFaces {
     private final FixedGroup strokes = new FixedGroup(KeyFaceTemplates.STROKES, NineKeyFaceDomains.strokes());
     /** 笔画键盘的 @#、0、句点和 ！：主标签以笔画组为上限。 */
     private final FixedGroup strokeKeys = new FixedGroup(KeyFaceTemplates.STROKE_KEYS, NineKeyFaceDomains.strokeKeys());
+    /** 注音九键左列的声调键。 */
+    private final FixedGroup zhuyinTones = new FixedGroup(KeyFaceTemplates.ZHUYIN_TONES, NineKeyFaceDomains.zhuyinTones());
+    /** 注音九键的音键：注音符号和底部的数字。 */
+    private final FixedGroup zhuyinSounds = new FixedGroup(KeyFaceTemplates.ZHUYIN_SOUNDS, NineKeyFaceDomains.zhuyinSounds());
+    /** 注音九键最后一行的逗号和句号：主标签以音键组为上限。 */
+    private final FixedGroup zhuyinMarks = new FixedGroup(KeyFaceTemplates.ZHUYIN_MARKS, NineKeyFaceDomains.zhuyinMarks());
 
     /** #+= 层的字符键：第一排一组，其余几排（含第五排补充行）一组。内容域由放进来的键自己的文字组成（{@link #LAYER_DOMAIN}）。 */
     private KeyFaceGroup layerTop;
@@ -122,6 +128,9 @@ final class ImeKeyFaces {
         longVowel.reset();
         strokes.reset();
         strokeKeys.reset();
+        zhuyinTones.reset();
+        zhuyinSounds.reset();
+        zhuyinMarks.reset();
         sideSymbols = null;
         sideSymbolsBuilt = null;
         sideSymbolsDomain = null;
@@ -226,6 +235,25 @@ final class ImeKeyFaces {
         linkFunctions();
     }
 
+    /** 注音九键左列的一个声调键。 */
+    void attachZhuyinTone(android.widget.Button key) {
+        if (key instanceof KeyboardPressButton press) press.setFaceGroup(zhuyinTones.group(), NO_HINTS);
+    }
+
+    /** 注音九键的一个音键（1–9 和 0）：底部画它发送的数字（{@link BottomLabelKey}）。 */
+    void attachZhuyinSound(android.widget.Button key) {
+        if (!(key instanceof KeyboardPressButton press)) return;
+        press.setFaceGroup(zhuyinSounds.group(), Set.of(KeyFaceSlot.BOTTOM));
+        linkFunctions();
+    }
+
+    /** 注音九键最后一行的逗号或句号。 */
+    void attachZhuyinMark(android.widget.Button key) {
+        if (!(key instanceof KeyboardPressButton press)) return;
+        press.setFaceGroup(zhuyinMarks.group(), NO_HINTS);
+        linkFunctions();
+    }
+
     /** #+= 层的一个字符键；{@code firstRow} 为真时是第一排（字号大一号）。 */
     void attachLayerCharacter(android.widget.Button key, boolean firstRow) {
         if (!(key instanceof KeyboardPressButton press)) return;
@@ -275,6 +303,7 @@ final class ImeKeyFaces {
             : nineLetters != null ? nineLetters : strokes.group);
         if (longVowel.group != null) longVowel.group.capMainAt(letters);
         if (strokeKeys.group != null) strokeKeys.group.capMainAt(strokes.group);
+        if (zhuyinMarks.group != null) zhuyinMarks.group.capMainAt(zhuyinSounds.group);
     }
 
     /** 每次渲染时调用：设置、皮肤字体或字体缩放变了就换掉组的内容域；没变时只比较几项。 */
@@ -328,6 +357,9 @@ final class ImeKeyFaces {
         longVowel.refresh();
         strokes.refresh();
         strokeKeys.refresh();
+        zhuyinTones.refresh();
+        zhuyinSounds.refresh();
+        zhuyinMarks.refresh();
     }
 
     private void refreshLayer() {

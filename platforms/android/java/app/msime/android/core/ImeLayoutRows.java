@@ -1002,9 +1002,8 @@ final class ImeLayoutRows {
                     s.character(tone.input(), false);
             }), tone.keyId());
             key.setContentDescription(label);
-            // 声调符号本身只是一道短笔画，按默认字号画出来几乎看不见。
-            KeyboardTypographyPolicy.setKeyTextSize(key, 20);
-            CenteredGlyphSpan.apply(key, tone.face(), 1f);
+            // 声调符号本身只是一道短笔画：声调组按大字号画，每个按自己的墨迹居中（KeyFaceTemplates.ZHUYIN_TONES）。
+            s.imeKeyFaces.attachZhuyinTone(key);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(tones, key);
         }
@@ -1029,9 +1028,8 @@ final class ImeLayoutRows {
         String periodFace = ChineseSymbolFaces.face(".", chinese);
         Button period = s.keyId(s.keyboardKey(periodFace, "句点", this::commitNineKeyPeriod), "Period");
         for (Button key : java.util.List.of(comma, period)) {
-            String face = key == comma ? commaFace : periodFace;
-            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(face) || "。".equals(face)) CenteredGlyphSpan.apply(key, face, 1.3f);
+            // 全角「，」「。」的墨迹只占字身左下角：逗号句号组把它们按自己的墨迹居中、放大画（KeyFaceTemplates.ZHUYIN_MARKS）。
+            s.imeKeyFaces.attachZhuyinMark(key);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(marks, key);
         }
@@ -1114,17 +1112,15 @@ final class ImeLayoutRows {
      */
     private Button zhuyinNineKeySoundKey(ZhuyinNineKeyLayout.Key key) {
         String label = ZhuyinNineKeyLayout.accessibilityLabel(key);
-        String face = ZhuyinNineKeyLayout.face(key);
-        Button button = s.keyId(s.keyboardKey(face, label, () -> {
+        // 注音符号是主标签，发送的数字是底部的小字，字号由音键组定（KeyFaceTemplates.ZHUYIN_SOUNDS）。
+        BottomLabelKey button = s.keyboardKey(new BottomLabelKey(s), key.symbols(), label, () -> {
             if (s.connection != null) s.character(key.input(), false);
-        }), ZhuyinNineKeyLayout.keyId(key));
-        twoLineFace(button, face);
-        int horizontal = s.pixels(2);
-        ViewPolicy.setHorizontalPadding(button, horizontal);
-        ViewPolicy.setMaxLines(button, 2);
-        ViewPolicy.setAutoSizeSp(button, 7, 14, 1);
+        });
+        s.keyId(button, ZhuyinNineKeyLayout.keyId(key));
+        button.setBottomText(String.valueOf(key.digit()));
+        s.imeKeyFaces.attachZhuyinSound(button);
         button.setContentDescription(label);
-        if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+        button.setKeyboardRole(KeyboardKeyRole.KEY);
         return button;
     }
 
@@ -1663,22 +1659,6 @@ final class ImeLayoutRows {
                 }
             }
         });
-    }
-
-    /**
-     * 两行键面：第二行是说明，和第一行同字号时两行装不进一行键高，下半截被裁掉。第二行缩到一半，并去掉上下内边距和字体留白。
-     */
-    static void twoLineFace(Button button, String label) {
-        int lineBreak = label.indexOf('\n');
-        if (lineBreak < 0) {
-            button.setText(label);
-            return;
-        }
-        android.text.SpannableString spanned = new android.text.SpannableString(label);
-        spanned.setSpan(new android.text.style.RelativeSizeSpan(0.5f), lineBreak + 1, label.length(),
-            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        ViewPolicy.clearFontAndVerticalPadding(button);
-        button.setText(spanned);
     }
 
     Button japaneseKey(JapaneseNineKeyLayout.Key key) {

@@ -136,6 +136,21 @@ public final class KeyFaceTemplatesSmoke {
         check(strokePunctuation != null && !strokePunctuation.every() && strokePunctuation.centres("。")
             && near(strokePunctuation.scale("。"), 1.3f) && !strokePunctuation.centres("@#") && !strokePunctuation.centres("！"),
             "笔画键盘只有「。」按自己的墨迹居中、放大 1.3 倍：" + strokePunctuation);
+        // 注音九键：声调在自己的格高（四行键高分五格）上是 20 sp、每个按自己的墨迹居中；音键 14 sp，底部数字 7 sp、与主标签同色；逗号句号 14 sp，只有「，」「。」按自己的墨迹居中。
+        check(near(solve(KeyFaceTemplates.ZHUYIN_TONES, new KeyFaceEnvironment(5, 1), 2000, 208).main().sizePx(), 100),
+            "注音九键声调应为 20 sp");
+        KeyFaceTemplate.Glyphs zhuyinTones = KeyFaceTemplates.ZHUYIN_TONES.glyphs();
+        check(zhuyinTones != null && zhuyinTones.every() && zhuyinTones.scales().size() == 5
+            && near(zhuyinTones.scale("ˇ"), 1f) && near(zhuyinTones.drop("ˇ", 10), 1), "注音九键声调应按自己的墨迹居中、1 倍、往下 0.1 个字号");
+        KeyFaceParams sounds = solve(KeyFaceTemplates.ZHUYIN_SOUNDS, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(sounds.main().sizePx(), 14) && sounds.bottom() != null && near(sounds.bottom().sizePx(), 7),
+            "注音九键音键应为 14 sp、底部数字 7 sp");
+        check(KeyFaceTemplates.ZHUYIN_SOUNDS.slots().get(KeyFaceSlot.BOTTOM).alpha() == 255, "注音九键的数字与注音同色");
+        check(near(solve(KeyFaceTemplates.ZHUYIN_MARKS, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 14),
+            "注音九键逗号句号应为 14 sp");
+        KeyFaceTemplate.Glyphs zhuyinMarks = KeyFaceTemplates.ZHUYIN_MARKS.glyphs();
+        check(zhuyinMarks != null && !zhuyinMarks.every() && zhuyinMarks.centres("，") && zhuyinMarks.centres("。")
+            && !zhuyinMarks.centres(".") && !zhuyinMarks.centres(","), "注音九键只有「，」「。」按自己的墨迹居中");
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

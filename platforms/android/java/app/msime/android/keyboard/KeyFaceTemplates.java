@@ -140,6 +140,48 @@ public final class KeyFaceTemplates {
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
         SMALL_PUNCTUATION_ONLY);
 
+    /** 注音九键左列一个声调键有多高时用设计字号（dp）：四行键高分成五个声调键。 */
+    private static final float ZHUYIN_TONE_REFERENCE_DP =
+        KeyboardHeightPolicy.KEYBOARD_ROW_COUNT * REFERENCE_KEY_HEIGHT_DP / ZhuyinNineKeyLayout.tones().size();
+    /** 注音九键的声调符号：设计 20 sp（原来的固定字号），随格高变化，最小 12 sp，最大 22 sp。 */
+    static final KeyFaceTemplate.SlotSpec ZHUYIN_TONE = new KeyFaceTemplate.SlotSpec(20 / ZHUYIN_TONE_REFERENCE_DP, 12, 22, 0,
+        255);
+
+    /**
+     * 注音九键左列的声调键：ˉ ˊ ˇ ˋ ˙ 只是一道短笔画，每个按自己的墨迹居中、比中线低 0.1 个字号，与原来的 {@link CenteredGlyphSpan}（1 倍）相同。
+     */
+    public static final KeyFaceTemplate ZHUYIN_TONES = new KeyFaceTemplate("zhuyin-tones", mainOnly(ZHUYIN_TONE),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        new KeyFaceTemplate.Glyphs(zhuyinTones(), 0.1f));
+
+    private static Map<String, Float> zhuyinTones() {
+        Map<String, Float> tones = new java.util.HashMap<>();
+        for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones()) tones.put(tone.face(), 1f);
+        return tones;
+    }
+
+    /** 注音九键音键上的一组注音符号：设计 14 sp（原来两行自动缩放的上限），最小 9 sp，最大 16 sp。 */
+    static final KeyFaceTemplate.SlotSpec ZHUYIN_SOUND = slot(14, 9, 16, 0, 255);
+    /** 注音九键音键底部的数字：注音符号的一半（设计 7 sp），颜色与注音符号相同，离下边 0.25 个字号。 */
+    static final KeyFaceTemplate.SlotSpec ZHUYIN_DIGIT = slot(7, 6, 8, 0.25f, 255);
+
+    /** 注音九键的音键（1–9 和 0）：注音符号作主标签、全组共用一条基线，它发送的数字在底部。 */
+    public static final KeyFaceTemplate ZHUYIN_SOUNDS = new KeyFaceTemplate("zhuyin-sounds", zhuyinSoundSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> zhuyinSoundSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = mainOnly(ZHUYIN_SOUND);
+        slots.put(KeyFaceSlot.BOTTOM, ZHUYIN_DIGIT);
+        return slots;
+    }
+
+    /**
+     * 注音九键最后一行的逗号和句号（各占半格）：与注音符号同字号（设计 14 sp），主标签以音键组为上限；「，」「。」按自己的墨迹居中、放大 1.3 倍（{@link #SMALL_PUNCTUATION_ONLY}），与原来相同，半角的 , . 落在文字的基线上。
+     */
+    public static final KeyFaceTemplate ZHUYIN_MARKS = new KeyFaceTemplate("zhuyin-marks", mainOnly(ZHUYIN_SOUND),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        SMALL_PUNCTUATION_ONLY);
+
     /** #+= 层第一排的符号：设计 20 sp，最小 12 sp，最大 22 sp，与原来的固定 20 sp 和数字行相同。 */
     static final KeyFaceTemplate.SlotSpec LAYER_TOP = slot(20, 12, 22, 0, 255);
     /** #+= 层其余几排和第五排补充行的符号：设计 18 sp，最小 12 sp，最大 20 sp。 */

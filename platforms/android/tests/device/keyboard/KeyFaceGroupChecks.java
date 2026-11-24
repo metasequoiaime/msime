@@ -48,6 +48,7 @@ final class KeyFaceGroupChecks {
                         verifyLayer(context, height);
                         verifyScripts(context, height);
                         verifyStroke(context, height);
+                        verifyZhuyinNineKey(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -505,6 +506,104 @@ final class KeyFaceGroupChecks {
         check(periodInk.height() >= 1.15f * product.inkHeight("。", product.mainSize(otherParams)), "「。」没有放大画：" + where);
         period.setText(".");
         check(!period.isLayoutRequested() && product.params(period) == otherParams, "换句点后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * 注音九键：声调一组（每个按自己的墨迹居中，比中线低 0.1 个字号），音键一组（注音在上、发送的数字在底部，两者不相碰、不出键格，换数字只重画），逗号句号一组（不比音键大；「。」按自己的墨迹居中、放大画，半角的 . 落在文字的基线上，不画成键面正中的点）。
+     */
+    private static void verifyZhuyinNineKey(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        String domains = "app.msime.android.NineKeyFaceDomains";
+        float tolerance = density + 1;
+
+        Object tones = product.group("ZHUYIN_TONES", domains, "zhuyinTones", Typeface.DEFAULT, density, scale);
+        int toneWidth = Math.round(60 * density), toneHeight = Math.round(heightDp * 4 / 5f * density);
+        List<Button> toneKeys = new ArrayList<>();
+        for (String face : new String[] {"ˉ", "ˊ", "ˇ", "ˋ", "˙"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, tones, false);
+            layout(key, toneWidth, toneHeight);
+            toneKeys.add(key);
+        }
+        Object toneParams = product.params(toneKeys.get(0));
+        check(toneParams != null, "注音九键声调没有算出参数：" + where);
+        for (Button key : toneKeys) {
+            String at = key.getText() + " " + where;
+            check(product.params(key) == toneParams, "注音九键声调参数不同：" + at);
+            Rect ink = draw(key)[1];
+            check(!ink.isEmpty() && ink.left >= 0 && ink.right <= toneWidth && ink.top >= 0 && ink.bottom <= toneHeight,
+                "声调没画出来或出了键格：" + ink + " " + at);
+            check(Math.abs(ink.exactCenterX() - toneWidth / 2f) <= tolerance
+                && Math.abs(ink.exactCenterY() - toneHeight / 2f - 0.1f * product.mainSize(toneParams)) <= tolerance,
+                "声调没有按自己的墨迹居中：" + ink + " " + at);
+        }
+
+        Object sounds = product.group("ZHUYIN_SOUNDS", domains, "zhuyinSounds", Typeface.DEFAULT, density, scale);
+        Class<?> bottomKey = product.loader.loadClass("app.msime.android.BottomLabelKey");
+        Method setBottom = bottomKey.getMethod("setBottomText", String.class);
+        int width = Math.round(80 * density);
+        List<Button> soundKeys = new ArrayList<>();
+        for (String[] face : new String[][] {{"ㄅㄆㄇㄈ", "1"}, {"ㄓㄔㄕㄖ", "5"}, {"ㄍㄎㄏ", "3"}, {"ㄢㄣㄤㄥ", "0"}}) {
+            Button key = (Button) bottomKey.getConstructor(Context.class).newInstance(context);
+            key.setBackground(null);
+            key.setText(face[0]);
+            key.setTextColor(Color.rgb(0, 200, 0));
+            setBottom.invoke(key, face[1]);
+            product.joinNine(key, sounds, "BOTTOM");
+            layout(key, width, height);
+            soundKeys.add(key);
+        }
+        Object soundParams = product.params(soundKeys.get(0));
+        check(soundParams != null && product.hintSize(soundParams, "bottom") > 0, "注音九键音键没有算出参数或底部数字：" + where);
+        for (Button key : soundKeys) {
+            String at = key.getText() + " " + where;
+            check(product.params(key) == soundParams, "注音九键音键参数不同：" + at);
+            Rect whole = draw(key)[1];
+            check(!whole.isEmpty() && whole.left >= 0 && whole.right <= width && whole.top >= 0 && whole.bottom <= height,
+                "音键没画出来或出了键格：" + whole + " " + at);
+        }
+        // 数字与注音同色：分别只留一样来量墨迹。
+        Button one = soundKeys.get(0);
+        setBottom.invoke(one, "");
+        Rect symbols = draw(one)[1];
+        CharSequence label = one.getText();
+        one.setText("");
+        setBottom.invoke(one, "1");
+        Rect digit = draw(one)[1];
+        one.setText(label);
+        check(!symbols.isEmpty() && !digit.isEmpty() && digit.top > symbols.bottom,
+            "音键的数字没画在注音下面或压住了注音：" + digit + " 对 " + symbols + " " + where);
+        check(Math.abs(digit.exactCenterX() - width / 2f) <= tolerance, "音键的数字没有水平居中：" + digit + " " + where);
+        setBottom.invoke(one, "9");
+        check(!one.isLayoutRequested() && product.params(one) == soundParams, "音键换数字后请求了重新布局或参数变了：" + where);
+
+        Object marks = product.group("ZHUYIN_MARKS", domains, "zhuyinMarks", Typeface.DEFAULT, density, scale);
+        marks.getClass().getMethod("capMainAt", marks.getClass()).invoke(marks, sounds);
+        int half = Math.round(40 * density);
+        Button period = product.plainKey("。");
+        product.joinFunction(period, marks, false);
+        layout(period, half, height);
+        Object markParams = product.params(period);
+        check(markParams != null && product.mainSize(markParams) <= product.mainSize(soundParams) + 0.01f,
+            "注音九键逗号句号没有算出参数或比音键大：" + where);
+        Rect full = draw(period)[1];
+        check(!full.isEmpty() && full.left >= 0 && full.right <= half && full.top >= 0 && full.bottom <= height,
+            "「。」没画出来或出了键格：" + full + " " + where);
+        check(Math.abs(full.exactCenterX() - half / 2f) <= tolerance
+            && Math.abs(full.exactCenterY() - height / 2f - 0.1f * product.mainSize(markParams)) <= tolerance,
+            "注音九键的「。」没有按自己的墨迹居中：" + full + " " + where);
+        // 最小字号上「。」的墨迹只有六七个像素，抗锯齿的边缘浅于取色阈值，量出来少一个像素。
+        check(full.height() + 1 >= 1.15f * product.inkHeight("。", product.mainSize(markParams)),
+            "注音九键的「。」没有放大画：" + full + " 字号 " + product.mainSize(markParams) + " " + where);
+        period.setText(".");
+        check(!period.isLayoutRequested() && product.params(period) == markParams, "换半角句点后请求了重新布局或参数变了：" + where);
+        Rect dot = draw(period)[1];
+        check(!dot.isEmpty() && dot.exactCenterY() >= height / 2f + 0.15f * product.mainSize(markParams),
+            "半角的 . 应落在文字的基线上，不在键面正中：" + dot + " " + where);
     }
 
     /**
