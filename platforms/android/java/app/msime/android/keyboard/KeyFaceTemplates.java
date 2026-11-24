@@ -85,9 +85,25 @@ public final class KeyFaceTemplates {
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
         FUNCTION_ICON);
 
+    /** 日语九键两侧列一格有多高时用设计字号和图标尺寸（dp）：四行键高分成五格。 */
+    private static final float JAPANESE_SIDE_REFERENCE_DP = KeyboardHeightPolicy.KEYBOARD_ROW_COUNT * REFERENCE_KEY_HEIGHT_DP / 5;
+
+    /**
+     * 日语九键的功能键（两侧列的文字键、⌫ 和网格左下角的「小゛゜」）：同 {@link #FUNCTIONS}，只是设计字号和图标尺寸落在侧列一格的高度上。侧列五格分四行键高，组按最矮的键格求字号，用整行键高作参照时字和 ⌫ 都比别的键盘小一圈（15 sp 成了 12 sp）。
+     */
+    public static final KeyFaceTemplate JAPANESE_FUNCTIONS = new KeyFaceTemplate("japanese-functions",
+        functionSlots(new KeyFaceTemplate.SlotSpec(KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP / JAPANESE_SIDE_REFERENCE_DP,
+            KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 17, 0, 255)),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        new KeyFaceTemplate.IconSpec(KeyboardIconKey.ICON_DP / JAPANESE_SIDE_REFERENCE_DP, 16, 26));
+
     private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> functionSlots() {
+        return functionSlots(FUNCTION_TEXT);
+    }
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> functionSlots(KeyFaceTemplate.SlotSpec text) {
         Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
-        slots.put(KeyFaceSlot.MAIN, FUNCTION_TEXT);
+        slots.put(KeyFaceSlot.MAIN, text);
         slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
         return slots;
     }
@@ -181,6 +197,12 @@ public final class KeyFaceTemplates {
     public static final KeyFaceTemplate ZHUYIN_MARKS = new KeyFaceTemplate("zhuyin-marks", mainOnly(ZHUYIN_SOUND),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
         SMALL_PUNCTUATION_ONLY);
+
+    /**
+     * 日语九键网格上的假名键（符号层上是数字）：与字母键同字号（设计 22 sp，原来的固定字号），按整个墨迹居中、全组共用一条基线（「、」仍落在文字的基线上，与原来一样）。矮键盘上随键高缩小，原来固定 22 sp 不缩。
+     */
+    public static final KeyFaceTemplate JAPANESE_KANA = new KeyFaceTemplate("japanese-kana", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
 
     /** #+= 层第一排的符号：设计 20 sp，最小 12 sp，最大 22 sp，与原来的固定 20 sp 和数字行相同。 */
     static final KeyFaceTemplate.SlotSpec LAYER_TOP = slot(20, 12, 22, 0, 255);

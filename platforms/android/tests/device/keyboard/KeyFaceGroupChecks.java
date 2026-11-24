@@ -49,6 +49,7 @@ final class KeyFaceGroupChecks {
                         verifyScripts(context, height);
                         verifyStroke(context, height);
                         verifyZhuyinNineKey(context, height);
+                        verifyJapaneseNineKey(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -604,6 +605,79 @@ final class KeyFaceGroupChecks {
         Rect dot = draw(period)[1];
         check(!dot.isEmpty() && dot.exactCenterY() >= height / 2f + 0.15f * product.mainSize(markParams),
             "半角的 . 应落在文字的基线上，不在键面正中：" + dot + " " + where);
+    }
+
+    /**
+     * 日语九键，按 240 dp 宽的窄键盘（网格一格 56 dp、侧列 36 dp）：假名一组、数字一组，同组一份参数、不出键格；「小゛゜」和侧列的文字键放进功能键组（日语九键的内容域），一行画下、不出键格（原来固定 14 sp 的「小゛゜」在窄键盘加大字体时折成两行），侧列的字和「小゛゜」同一个字号。
+     */
+    private static void verifyJapaneseNineKey(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density), cell = Math.round(56 * density), side = Math.round(36 * density);
+        int sideHeight = Math.round(heightDp * 4 / 5f * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Class<?> nineDomains = product.loader.loadClass("app.msime.android.NineKeyFaceDomains");
+        Method kanaDomain = nineDomains.getMethod("japaneseKana", boolean.class);
+        for (boolean symbols : new boolean[] {false, true}) {
+            Object group = product.group("JAPANESE_KANA", kanaDomain.invoke(null, symbols), Typeface.DEFAULT, density, scale);
+            List<Button> keys = new ArrayList<>();
+            for (String face : symbols ? new String[] {"1", "5", "0", "、"} : new String[] {"あ", "さ", "や", "わ", "、"}) {
+                Button key = product.plainKey(face);
+                product.joinFunction(key, group, false);
+                layout(key, cell, height);
+                keys.add(key);
+            }
+            Object params = product.params(keys.get(0));
+            check(params != null, "日语九键" + (symbols ? "数字" : "假名") + "没有算出参数：" + where);
+            for (Button key : keys) {
+                String at = key.getText() + " " + where;
+                check(product.params(key) == params, "日语九键同一组参数不同：" + at);
+                Rect ink = draw(key)[1];
+                check(!ink.isEmpty() && ink.left >= 0 && ink.right <= cell && ink.top >= 0 && ink.bottom <= height,
+                    "日语九键的字没画出来或出了键格：" + ink + " " + at);
+            }
+        }
+
+        Class<?> functionDomains = product.loader.loadClass("app.msime.android.FunctionKeyFaceDomains");
+        Object functions = product.group("JAPANESE_FUNCTIONS", functionDomains.getMethod("japaneseNineKey").invoke(null),
+            Typeface.DEFAULT, density, scale);
+        Button variants = product.plainKey("小゛゜");
+        product.joinFunction(variants, functions, false);
+        layout(variants, cell, height);
+        List<Button> sideKeys = new ArrayList<>();
+        for (String face : new String[] {"123", "符", "切换", "空白", "英"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, functions, false);
+            layout(key, side, sideHeight);
+            sideKeys.add(key);
+        }
+        Object params = product.params(variants);
+        check(params != null, "日语九键功能键没有算出参数：" + where);
+        // 默认的 411 dp 宽、默认键高上侧列的字不比原来（按键宽缩到 14 sp 封顶）小：设计字号落在侧列一格的高度上。240 dp 宽时侧列只有 36 dp，要放下符号层的「あいう」，全组跟着小，那是一组一个字号的代价。
+        if (heightDp == 52 && context.getResources().getConfiguration().fontScale == 1f) {
+            Object wide = product.group("JAPANESE_FUNCTIONS", functionDomains.getMethod("japaneseNineKey").invoke(null),
+                Typeface.DEFAULT, density, scale);
+            Button space = product.plainKey("空白");
+            product.joinFunction(space, wide, false);
+            layout(space, Math.round(62 * density), sideHeight);
+            check(product.mainSize(product.params(space)) >= 14 * density,
+                "日语九键侧列的字比原来小：" + product.mainSize(product.params(space)) + " " + where);
+        }
+        Rect ink = draw(variants)[1];
+        check(!ink.isEmpty() && ink.left >= 0 && ink.right <= cell && ink.top >= 0 && ink.bottom <= height
+            && ink.height() < 1.6f * product.inkHeight("小", product.mainSize(params)),
+            "「小゛゜」没有一行画在键格里：" + ink + " " + where);
+        for (Button key : sideKeys) {
+            String at = key.getText() + " " + where;
+            check(product.params(key) == params, "日语九键侧列和「小゛゜」字号不同：" + at);
+            Rect text = draw(key)[1];
+            check(!text.isEmpty() && text.left >= 0 && text.right <= side && text.top >= 0 && text.bottom <= sideHeight,
+                "侧列的字没画出来或出了键格：" + text + " " + at);
+        }
+        sideKeys.get(3).setText("変換");
+        check(!sideKeys.get(3).isLayoutRequested() && product.params(sideKeys.get(3)) == params,
+            "空白换成変換后请求了重新布局或参数变了：" + where);
     }
 
     /**

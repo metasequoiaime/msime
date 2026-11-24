@@ -151,6 +151,15 @@ public final class KeyFaceTemplatesSmoke {
         KeyFaceTemplate.Glyphs zhuyinMarks = KeyFaceTemplates.ZHUYIN_MARKS.glyphs();
         check(zhuyinMarks != null && !zhuyinMarks.every() && zhuyinMarks.centres("，") && zhuyinMarks.centres("。")
             && !zhuyinMarks.centres(".") && !zhuyinMarks.centres(","), "注音九键只有「，」「。」按自己的墨迹居中");
+        // 日语九键的假名：与字母同为 22 sp，按整个墨迹共用一条基线。
+        check(near(solve(KeyFaceTemplates.JAPANESE_KANA, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22),
+            "日语九键假名应为 22 sp");
+        check(!KeyFaceTemplates.JAPANESE_KANA.capAligned() && KeyFaceTemplates.JAPANESE_KANA.glyphs() == null,
+            "日语九键假名应按整个墨迹共用一条基线");
+        // 日语九键的功能键：在侧列一格的高度（四行键高分五格）上文字 15 sp、图标 22 dp，与别的键盘整行键高上的功能键相同。
+        KeyFaceParams japaneseSide = solve(KeyFaceTemplates.JAPANESE_FUNCTIONS, new KeyFaceEnvironment(5, 1), 2000, 208);
+        check(near(japaneseSide.main().sizePx(), 5 * KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP)
+            && near(japaneseSide.iconPx(), 5 * 22), "日语九键侧列的功能键应为 15 sp、图标 22 dp：" + japaneseSide);
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

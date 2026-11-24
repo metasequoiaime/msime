@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 九键键组的内容域（见 {@link KeyFaceDomain}）：拼音九键字母层、数字九宫格、九键双拼的数字键、笔画键盘和注音九键（同一个九键外框）上可能画的全部文字。只取决于传进来的表，不读服务，所以 JVM 冒烟可以直接检查。
+ * 九键键组的内容域（见 {@link KeyFaceDomain}）：拼音九键字母层、数字九宫格、九键双拼的数字键、笔画键盘、注音九键和日语九键（同一个九键外框）上可能画的全部文字。只取决于传进来的表，不读服务，所以 JVM 冒烟可以直接检查。
  */
 public final class NineKeyFaceDomains {
     private NineKeyFaceDomains() { }
@@ -103,6 +103,14 @@ public final class NineKeyFaceDomains {
         String reference = ZhuyinNineKeyLayout.rows().get(0).get(0).symbols().substring(0, 1);
         return mainOnly(List.of(ChineseSymbolFaces.face(",", true), ChineseSymbolFaces.face(".", true),
             ChineseSymbolFaces.face(",", false), ChineseSymbolFaces.face(".", false), reference));
+    }
+
+    /** 日语九键网格上的键面：假名层是每个键的第一个假名，符号层（{@code symbols}）是数字；两层各一组，切换层时整副键盘重建。 */
+    public static KeyFaceDomain japaneseKana(boolean symbols) {
+        List<String> faces = new ArrayList<>();
+        for (JapaneseNineKeyLayout.Key key : symbols ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys())
+            faces.add(key.kana().get(0));
+        return mainOnly(faces);
     }
 
     private static KeyFaceDomain mainOnly(List<String> faces) {

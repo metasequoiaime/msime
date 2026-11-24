@@ -5,7 +5,7 @@ import android.graphics.Typeface;
 import java.util.Set;
 
 /**
- * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}（含笔画键盘和注音九键）、{@link FunctionKeyFaceDomains} 和 {@link SideColumnKeyFaceDomains}。
+ * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}（含笔画键盘、注音九键和日语九键）、{@link FunctionKeyFaceDomains} 和 {@link SideColumnKeyFaceDomains}。
  *
  * <p>功能键组的字不大过同一副键盘的字母组（{@link KeyFaceGroup#capMainAt}）。⇧、⌫ 和底行的 0 是常驻的键，建键行时会挪到别的地方（123 层、底行），所以清空时先把它们拿出组，放回原处时再放进新组。
  *
@@ -29,6 +29,8 @@ final class ImeKeyFaces {
     private Inputs gridLettersBuilt;
     private KeyFaceGroup functions;
     private Inputs functionsBuilt;
+    /** 这副键盘是日语九键：功能键组用它自己的模板（{@link KeyFaceTemplates#JAPANESE_FUNCTIONS}）和内容域（{@link FunctionKeyFaceDomains#japaneseNineKey}）。 */
+    private boolean japaneseFunctions;
     private KeyFaceGroup numberRow;
     private Inputs numberRowBuilt;
     private KeyFaceGroup nineLetters;
@@ -36,7 +38,7 @@ final class ImeKeyFaces {
     private KeyFaceGroup nineDigits;
     private Inputs nineDigitsBuilt;
     /**
-     * 内容域固定、只按设置换环境的一组（韩文、大千、日文罗马字的 ー、笔画键盘、注音九键）：第一次放键进来时建，{@link #refresh} 时只比较环境。
+     * 内容域固定、只按设置换环境的一组（韩文、大千、日文罗马字的 ー、笔画键盘、注音九键、日语九键）：第一次放键进来时建，{@link #refresh} 时只比较环境。
      */
     private final class FixedGroup {
         private final KeyFaceTemplate template;
@@ -85,6 +87,9 @@ final class ImeKeyFaces {
     private final FixedGroup zhuyinSounds = new FixedGroup(KeyFaceTemplates.ZHUYIN_SOUNDS, NineKeyFaceDomains.zhuyinSounds());
     /** 注音九键最后一行的逗号和句号：主标签以音键组为上限。 */
     private final FixedGroup zhuyinMarks = new FixedGroup(KeyFaceTemplates.ZHUYIN_MARKS, NineKeyFaceDomains.zhuyinMarks());
+    /** 日语九键网格的假名键，和符号层上的数字键（两层各一组）。 */
+    private final FixedGroup japaneseKana = new FixedGroup(KeyFaceTemplates.JAPANESE_KANA, NineKeyFaceDomains.japaneseKana(false));
+    private final FixedGroup japaneseDigits = new FixedGroup(KeyFaceTemplates.JAPANESE_KANA, NineKeyFaceDomains.japaneseKana(true));
 
     /** #+= 层的字符键：第一排一组，其余几排（含第五排补充行）一组。内容域由放进来的键自己的文字组成（{@link #LAYER_DOMAIN}）。 */
     private KeyFaceGroup layerTop;
@@ -114,6 +119,7 @@ final class ImeKeyFaces {
         movableKeys.clear();
         functions = null;
         functionsBuilt = null;
+        japaneseFunctions = false;
         numberRow = null;
         numberRowBuilt = null;
         nineLetters = null;
@@ -131,6 +137,8 @@ final class ImeKeyFaces {
         zhuyinTones.reset();
         zhuyinSounds.reset();
         zhuyinMarks.reset();
+        japaneseKana.reset();
+        japaneseDigits.reset();
         sideSymbols = null;
         sideSymbolsBuilt = null;
         sideSymbolsDomain = null;
@@ -165,12 +173,21 @@ final class ImeKeyFaces {
         if (!(key instanceof KeyboardPressButton press)) return;
         if (functions == null) {
             functionsBuilt = inputs(false);
-            functions = new KeyFaceGroup(KeyFaceTemplates.FUNCTIONS, environment(functionsBuilt),
-                FunctionKeyFaceDomains.functions(), measurer(functionsBuilt));
+            functions = new KeyFaceGroup(japaneseFunctions ? KeyFaceTemplates.JAPANESE_FUNCTIONS : KeyFaceTemplates.FUNCTIONS,
+                environment(functionsBuilt), functionDomain(), measurer(functionsBuilt));
         }
         press.setFaceGroup(functions, corner ? GRID_LETTER_SLOTS : NO_HINTS);
         if (!movableKeys.contains(press)) movableKeys.add(press);
         linkFunctions();
+    }
+
+    /** 建日语九键之前调用（在放进第一个功能键之前）：功能键组另含日语九键两侧列的文字键和「小゛゜」，字号和图标按侧列一格的高度定。 */
+    void useJapaneseFunctions() {
+        japaneseFunctions = true;
+    }
+
+    private KeyFaceDomain functionDomain() {
+        return japaneseFunctions ? FunctionKeyFaceDomains.japaneseNineKey() : FunctionKeyFaceDomains.functions();
     }
 
     /** 字母上方数字行（26 键一族、14/18 键）的一个数字键。 */
@@ -254,6 +271,13 @@ final class ImeKeyFaces {
         linkFunctions();
     }
 
+    /** 日语九键网格的一个假名键；{@code symbols} 为真时是符号层上的数字键。 */
+    void attachJapaneseKana(android.widget.Button key, boolean symbols) {
+        if (!(key instanceof KeyboardPressButton press)) return;
+        press.setFaceGroup(symbols ? japaneseDigits.group() : japaneseKana.group(), NO_HINTS);
+        linkFunctions();
+    }
+
     /** #+= 层的一个字符键；{@code firstRow} 为真时是第一排（字号大一号）。 */
     void attachLayerCharacter(android.widget.Button key, boolean firstRow) {
         if (!(key instanceof KeyboardPressButton press)) return;
@@ -297,10 +321,11 @@ final class ImeKeyFaces {
         press.setFaceGroup(group, corner ? GRID_LETTER_SLOTS : NO_HINTS);
     }
 
-    /** 功能键的字以同一副键盘的字母为上限：26 键一族是字母组，14/18 键是网格字母组，拼音九键是九键字母组，笔画键盘是笔画组。 */
+    /** 功能键的字以同一副键盘的字母为上限：26 键一族是字母组，14/18 键是网格字母组，拼音九键是九键字母组，笔画键盘是笔画组，日语九键是假名组（符号层是数字组）。 */
     private void linkFunctions() {
         if (functions != null) functions.capMainAt(letters != null ? letters : gridLetters != null ? gridLetters
-            : nineLetters != null ? nineLetters : strokes.group);
+            : nineLetters != null ? nineLetters : strokes.group != null ? strokes.group
+            : japaneseKana.group != null ? japaneseKana.group : japaneseDigits.group);
         if (longVowel.group != null) longVowel.group.capMainAt(letters);
         if (strokeKeys.group != null) strokeKeys.group.capMainAt(strokes.group);
         if (zhuyinMarks.group != null) zhuyinMarks.group.capMainAt(zhuyinSounds.group);
@@ -326,7 +351,7 @@ final class ImeKeyFaces {
             Inputs now = inputs(false);
             if (!now.equals(functionsBuilt)) {
                 functionsBuilt = now;
-                functions.replace(environment(now), measurer(now), FunctionKeyFaceDomains.functions());
+                functions.replace(environment(now), measurer(now), functionDomain());
             }
         }
         if (numberRow != null) {
@@ -360,6 +385,8 @@ final class ImeKeyFaces {
         zhuyinTones.refresh();
         zhuyinSounds.refresh();
         zhuyinMarks.refresh();
+        japaneseKana.refresh();
+        japaneseDigits.refresh();
     }
 
     private void refreshLayer() {

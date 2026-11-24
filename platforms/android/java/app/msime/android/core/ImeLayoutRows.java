@@ -1667,8 +1667,8 @@ final class ImeLayoutRows {
         String label = japaneseKeyLabel(key);
         Button button = s.keyboardKey(label, description,
             () -> tapJapaneseKey(key));
-        ViewPolicy.setSingleLine(button);
-        KeyboardTypographyPolicy.setKeyTextSize(button, 22);
+        // 字号由假名组定（KeyFaceTemplates.JAPANESE_KANA）；符号层上的数字另一组。
+        s.imeKeyFaces.attachJapaneseKana(button, s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS);
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + (s.japaneseToggleInputEnabled ? "，连续轻点依次切换" : "")
             + "；左、上、右、下滑动选择其他假名");
@@ -1695,6 +1695,8 @@ final class ImeLayoutRows {
             symbols ? "括号；长按选择其他括号" : "小假名、浊音和半浊音", () -> {});
         s.japaneseVariantsButton = variants;
         if (variants instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+        // 放进功能键组：一行、放不下时缩小；原来固定 14 sp，窄键盘加大字体时折成两行。
+        s.imeKeyFaces.attachFunction(variants, false);
         // 符号层上轻点直接输入第一个括号，长按才弹出全部括号；假名层不接长按，松手照常切换变体。
         bindFeedbackAction(variants, () -> {
             if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
@@ -1722,10 +1724,13 @@ final class ImeLayoutRows {
     void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
         // 侧列是功能键（123、符、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        // 侧列只占外框的 3/20，键盘收窄或大字体时固定字号的「空白」「改行」会折成两行：和底行功能键一样只占一行、放不下时缩小。
-        if (!(button instanceof KeyboardIconKey))
+        // 侧列只占外框的 3/20，键盘收窄或大字体时固定字号的「空白」「改行」会折成两行。文字键放进功能键组：一行、全组一个字号、放不下时缩小。改行随底行的回车一起迁入，暂时仍按键宽各自缩小；◀ → ⌫ 是图标（⌫ 由调用方放进组）。
+        if (button == s.japaneseReturnKey) {
             KeyboardTypographyPolicy.setFittedKeyTextSize(button, KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP,
                 KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
+        } else if (!(button instanceof KeyboardIconKey)) {
+            s.imeKeyFaces.attachFunction(button, false);
+        }
         column.addView(button, LayoutPolicy.weightedWidthParams(weight));
     }
 
@@ -1751,6 +1756,7 @@ final class ImeLayoutRows {
     }
 
     void rebuildJapaneseNineKeyRows() {
+        s.imeKeyFaces.useJapaneseFunctions();
         LinearLayout container = LayoutPolicy.keyRow(s);
         // 日语九键没有底栏，四行（あ行到わ行加 小゛゜ 那一行）都在这一块里：按三行算高度时每行只剩三十来 dp，假名被裁掉下半截，底栏的位置又空着。
         s.imeStyler.adjustBottomRowBlockHeight(container);

@@ -1,3 +1,4 @@
+import app.msime.android.JapaneseNineKeyLayout;
 import app.msime.android.KeyFaceDomain;
 import app.msime.android.KeyFaceSlot;
 import app.msime.android.NineKeyCompositionActionPolicy;
@@ -9,7 +10,7 @@ import app.msime.android.StrokeKeyboardLayout;
 import app.msime.android.ZhuyinNineKeyLayout;
 import java.util.List;
 
-/** 九键键组的内容域：字母层九格（含 1 键组字时的分词、重输）和右列 ！、右上角数字 0–9；数字九宫格的数字、小数点和 ！ 的写法；九键双拼的数字和表里的简短提示；笔画键盘的笔画和 @#、0、句点、！；注音九键的声调、音键（注音和数字）和逗号句号。 */
+/** 九键键组的内容域：字母层九格（含 1 键组字时的分词、重输）和右列 ！、右上角数字 0–9；数字九宫格的数字、小数点和 ！ 的写法；九键双拼的数字和表里的简短提示；笔画键盘的笔画和 @#、0、句点、！；注音九键的声调、音键（注音和数字）和逗号句号；日语九键两层的键面。 */
 public final class NineKeyFaceDomainsSmoke {
     private NineKeyFaceDomainsSmoke() { }
 
@@ -69,6 +70,13 @@ public final class NineKeyFaceDomainsSmoke {
         for (String face : List.of("，", "。", ",", "."))
             check(marks.contains(KeyFaceSlot.MAIN, face), "注音九键的逗号句号缺 " + face);
         check(marks.contains(KeyFaceSlot.MAIN, "ㄅ"), "注音九键的逗号句号缺基线参照");
+
+        for (boolean symbols : new boolean[] {false, true}) {
+            KeyFaceDomain kana = NineKeyFaceDomains.japaneseKana(symbols);
+            for (JapaneseNineKeyLayout.Key key : symbols ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys())
+                check(kana.contains(KeyFaceSlot.MAIN, key.kana().get(0)), "日语九键缺键面 " + key.kana().get(0));
+        }
+        check(!NineKeyFaceDomains.japaneseKana(false).contains(KeyFaceSlot.MAIN, "1"), "日语九键假名组不应有数字");
         System.out.println("NineKeyFaceDomainsSmoke passed");
     }
 

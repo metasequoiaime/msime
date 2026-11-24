@@ -18,9 +18,23 @@ public final class FunctionKeyFaceDomains {
     static final String NINE_KEY_REWRITE_FACE = "重输";
 
     public static KeyFaceDomain functions() {
-        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
-        texts.put(KeyFaceSlot.MAIN, List.of(SHIFT_SEPARATOR_FACE, FourteenKeyLayout.separatorFace(false),
+        return domain(List.of());
+    }
+
+    /**
+     * 日语九键：除上面这些，还有两侧列的文字键（123，符号层上是「あいう」；符；切换；语言键的「英」「中」；空白，组字时是「変換」）和网格左下角的「小゛゜」（符号层上是「（）」）。只给日语九键用：「小゛゜」三个字比别处的功能键文字宽，放进别的键盘的组会让那里的功能键都按它缩小。语言键轮换到其他语言时写那种语言的字，画上时自己补进键组。
+     */
+    public static KeyFaceDomain japaneseNineKey() {
+        return domain(List.of("123", JapaneseNineKeyLayout.LAYER_TITLE, "符", "切换", "英", "中",
+            JapaneseNineKeyActions.spaceTitle(false), JapaneseNineKeyActions.spaceTitle(true), "小゛゜", "（）"));
+    }
+
+    private static KeyFaceDomain domain(List<String> extra) {
+        List<String> main = new java.util.ArrayList<>(List.of(SHIFT_SEPARATOR_FACE, FourteenKeyLayout.separatorFace(false),
             FourteenKeyLayout.separatorFace(true), NINE_KEY_REWRITE_FACE));
+        main.addAll(extra);
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, main);
         texts.put(KeyFaceSlot.TOP_RIGHT, List.of(GridHelpcodePolicy.cornerHint(true)));
         return new KeyFaceDomain(texts);
     }
