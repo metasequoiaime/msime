@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 namespace msime::linux_host {
 
 // 成对标点补全后要把光标退回两半之间。IBus 没有直接设置文档光标的接口，只能转发方向键。
@@ -11,6 +13,23 @@ struct PairedCaretForward {
   bool shift_held = false;
 
   constexpr bool defer() const { return wayland_session && shift_held; }
+};
+
+// 排队的方向键只对当前焦点有效：换焦点、重置或松开 Shift 时必须清空或取走，不能漏到下一个输入框。
+template <typename Key>
+class PairedCaretQueue {
+ public:
+  void push(Key key) { queued_.push_back(key); }
+  std::vector<Key> take() {
+    std::vector<Key> taken;
+    taken.swap(queued_);
+    return taken;
+  }
+  void clear() { queued_.clear(); }
+  bool empty() const { return queued_.empty(); }
+
+ private:
+  std::vector<Key> queued_;
 };
 
 }  // namespace msime::linux_host

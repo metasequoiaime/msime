@@ -465,7 +465,7 @@ struct State {
   bool pure_ctrl_candidate = false;
   bool shift_down = false;
   // Wayland 下 Shift 还按着时不能转发方向键，排到松开 Shift 再发。
-  std::vector<guint> pending_caret;
+  msime::linux_host::PairedCaretQueue<guint> pending_caret;
   bool ctrl_down = false;
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
@@ -490,6 +490,8 @@ struct State {
     character_set_chord_held = false;
     japanese_chord_held = false;
     host_shortcut_strokes.clear();
+    // 换焦点或重置后，旧输入框排队的方向键不能发到新的输入框。
+    pending_caret.clear();
   }
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
@@ -2272,14 +2274,13 @@ void forward_paired_caret(IBusEngine *engine, guint keyval, bool shift_held) {
   const msime::linux_host::PairedCaretForward policy{
       std::getenv("WAYLAND_DISPLAY") != nullptr, shift_held};
   if (policy.defer()) {
-    state(engine).pending_caret.push_back(keyval);
+    state(engine).pending_caret.push(keyval);
     return;
   }
   emit_paired_caret(engine, keyval);
 }
 void flush_paired_caret(IBusEngine *engine) {
-  const auto queued = state(engine).pending_caret;
-  state(engine).pending_caret.clear();
+  const auto queued = state(engine).pending_caret.take();
   for (const guint keyval : queued)
     emit_paired_caret(engine, keyval);
 }
@@ -7410,6 +7411,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Wayland 下排队的方向键在 Shift 松开时补发，避免被应用当成选中文字；放在所有提前返回之前，免得 Shift 松开被别的分支吞掉后队列残留。
+  if (shift_key && release) flush_paired_caret(engine);
   // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
   if (!release && key == IBUS_Escape && !s.voice_active && s.wave_overlay.failure &&
       s.wave_overlay_visible) {
@@ -7479,8 +7482,6 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool repeated_modifier = !release &&
       ((shift_key && s.shift_down) || (ctrl_key && s.ctrl_down));
   if (shift_key) s.shift_down = !release;
-  // Wayland 下排队的方向键在 Shift 松开时补发，避免被应用当成选中文字。
-  if (shift_key && release) flush_paired_caret(engine);
   if (key == IBUS_Control_R) s.right_ctrl_down = !release;
   if (key == IBUS_Control_L) s.left_ctrl_down = !release;
   if (ctrl_key) s.ctrl_down = s.right_ctrl_down || s.left_ctrl_down;

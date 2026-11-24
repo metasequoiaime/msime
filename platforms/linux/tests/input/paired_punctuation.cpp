@@ -146,5 +146,17 @@ int main() {
     assert((!PairedCaretForward{true, false}.defer()));
     assert((PairedCaretForward{true, true}.defer()));
   }
+  {
+    // 排队的方向键：取走后队列为空；换焦点或重置时清空，不会漏到下一个输入框。
+    msime::linux_host::PairedCaretQueue<unsigned> queue;
+    assert(queue.empty());
+    queue.push(1);
+    queue.push(2);
+    assert((queue.take() == std::vector<unsigned>{1, 2}));
+    assert(queue.empty());
+    queue.push(3);
+    queue.clear();
+    assert(queue.empty() && queue.take().empty());
+  }
   return 0;
 }
