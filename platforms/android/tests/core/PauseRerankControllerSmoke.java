@@ -33,8 +33,10 @@ public final class PauseRerankControllerSmoke {
         int errors;
         boolean failPoll;
         boolean held;
+        boolean panelOpen;
         final PauseRerankController<String> controller = new PauseRerankController<>(queue, this,
-            () -> session, value -> { views.add(value); controllerSchedule(); }, () -> errors++, () -> held);
+            () -> session, value -> { views.add(value); controllerSchedule(); }, () -> errors++, () -> held,
+            () -> panelOpen);
         private void controllerSchedule() { controller.schedule(true); }
         @Override public PauseRerankController.Reply<String> start(long handle) {
             calls.add("start:" + handle);
@@ -262,6 +264,47 @@ public final class PauseRerankControllerSmoke {
         check(host.calls.equals(List.of("start:11", "start:11")), "松手后接续下一片");
         check(host.views.equals(List.of("generation:2", "generation:3")), "接续的一片照常发布");
     }
+    private static void openPanelParksWithoutPolling() {
+        Host host = new Host();
+        host.panelOpen = true;
+        host.reply("done", 0, true, "generation:2");
+        host.controller.schedule(true);
+        host.queue.next();
+        check(host.calls.isEmpty() && host.views.isEmpty(), "面板开着时不起跑");
+        check(host.queue.tasks.isEmpty(), "面板开着时不轮询");
+        host.controller.resume();
+        check(host.queue.tasks.size() == 1, "面板收着时 resume 才排上");
+        host.panelOpen = false;
+        host.queue.next();
+        check(host.calls.equals(List.of("start:11")) && host.views.equals(List.of("generation:2")),
+            "收起后接着起跑并发布");
+        host.controller.resume();
+        check(host.queue.tasks.isEmpty(), "没有停下的步骤时 resume 什么也不做");
+    }
+    private static void openPanelStopsBetweenSlices() {
+        Host host = new Host();
+        host.reply("continue", 0, false, "generation:2");
+        host.reply("done", 0, true, "generation:3");
+        host.controller.schedule(true);
+        host.queue.next();
+        host.panelOpen = true;
+        host.queue.next();
+        check(host.views.equals(List.of("generation:2")) && host.queue.tasks.isEmpty(), "两片之间打开面板时停下");
+        host.panelOpen = false;
+        host.controller.resume();
+        host.queue.drain();
+        check(host.views.equals(List.of("generation:2", "generation:3")), "收起后接续下一片");
+    }
+    private static void typingDropsTheParkedStep() {
+        Host host = new Host();
+        host.panelOpen = true;
+        host.controller.schedule(true);
+        host.queue.next();
+        host.controller.cancel();
+        host.panelOpen = false;
+        host.controller.resume();
+        check(host.queue.tasks.isEmpty() && host.calls.isEmpty(), "取消之后停下的步骤不再接着做");
+    }
     private static void heldCandidateStillReturnsCancelledScore() {
         Host host = new Host();
         host.reply("pending", 77, false, null);
@@ -369,6 +412,9 @@ public final class PauseRerankControllerSmoke {
             PauseRerankControllerSmoke::heldCandidatePostponesThePause,
             PauseRerankControllerSmoke::heldCandidateStopsBetweenSlices,
             PauseRerankControllerSmoke::heldCandidateStillReturnsCancelledScore,
+            PauseRerankControllerSmoke::openPanelParksWithoutPolling,
+            PauseRerankControllerSmoke::openPanelStopsBetweenSlices,
+            PauseRerankControllerSmoke::typingDropsTheParkedStep,
             PauseRerankControllerSmoke::deferredSessionStartsEarly,
             PauseRerankControllerSmoke::deferredFlagBelongsToItsSession,
             PauseRerankControllerSmoke::unrelatedRedrawKeepsTheTimer,
