@@ -8993,9 +8993,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return `${this.handle}:${this.generation}`;
   }
 
-  /** 展开完整列表可能更新引擎代次；收起后重新读取候选条及其身份。 */
+  /** 展开完整列表可能更新引擎代次；收起后只在代次与候选条不一致时重新读取候选条及其身份。收起常发生在 `render` 的 `onChanged` 回调里（选词后组字结束），代次没变时再重画一遍只会重入 `render`、重复排队在线候选和翻译。 */
   refreshCandidateView(): void {
-    if (this.handle !== 0) this.applyView(client.view(this.handle));
+    if (this.handle !== 0 && this.lastView !== undefined && this.lastView.generation !== this.generation) {
+      this.applyView(client.view(this.handle));
+    }
   }
 
   /**

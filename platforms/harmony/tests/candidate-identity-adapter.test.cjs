@@ -58,5 +58,9 @@ page[1].id.session = 8; session.choose(0); assert.equal(calls.length, 0);
 const allRows = [row(0,44,15),row(1,44),row(20,44)];
 assert.equal(session.allCandidates().length, 2);
 session.chooseAny(1); assert.deepEqual(calls.splice(0), [['any',7,44,20]]);
+session.lastView.generation = 42;
 session.refreshCandidateView(); assert.deepEqual(calls.splice(0), [['view',7],['applyView','ok']]);
+// 代次没变（选词后的 render 已经换上新代次）时收起不再重画，避免在 onChanged 里重入 render。
+session.lastView.generation = 44;
+session.refreshCandidateView(); assert.deepEqual(calls.splice(0), []);
 console.log('候选适配器：跨页选择、过滤、管理、展开和收起刷新通过');
