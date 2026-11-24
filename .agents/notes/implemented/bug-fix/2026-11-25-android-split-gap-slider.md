@@ -20,7 +20,7 @@ Status: implemented
 
 于是 720 dp 键区上限从硬规则变成「默认布局规则」：没碰过滑杆的用户手感不变，碰过的用户拿到自己选的比例。
 
-空隙这一项只留在本机、不进账号同步（`ANDROID_LOCAL_SETTINGS` 里只有主开关），所以 `has()` 就是这台设备上「用户真的设过」的准确信号；设置页「恢复默认」把这一项写回 null、键被删掉，720 dp 上限随之回来。
+空隙这一项只留在本机、不进账号同步（`ANDROID_LOCAL_SETTINGS` 里只有主开关），所以 `has()` 就是这台设备上「用户真的设过」的准确信号；开发者选项里的「恢复出厂设置」（`AndroidLocalSettings.restoreDefaults`，它把全部显式值删掉）之后这一项也不存在了，720 dp 上限随之回来。
 
 ## Related notes audit
 
