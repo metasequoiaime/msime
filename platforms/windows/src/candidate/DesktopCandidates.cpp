@@ -268,8 +268,16 @@ struct DesktopCandidates::State {
           if (resolved && !resolved->current()) resolved.reset();
           if (!resolved && GetTickCount64() >= retry_at) {
             retry_at = GetTickCount64() + 500;
-            if (auto desktop = ClientDesktop::resolve(view->lease.transport))
+            std::string reason;
+            if (auto desktop = ClientDesktop::resolve_or_server(view->lease.transport, &reason)) {
+              // 低完整性宿主上拿不到客户端桌面归属时用的是 Server 自己所在的桌面：候选窗可能画在
+              // 别的桌面上，但同一桌面的输入至少看得到它，而不是完全没有候选窗（#11793）。
+              if (desktop->fallback() && GetTickCount64() >= diagnosed_at) {
+                diagnosed_at = GetTickCount64() + 5000;
+                diagnose("Candidate " + reason);
+              }
               resolved = std::make_shared<ClientDesktop>(std::move(*desktop));
+            }
           }
           if (resolved) {
             for (const auto &surface : surfaces)
