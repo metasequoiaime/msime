@@ -15493,7 +15493,7 @@ fn wubi_run_learns_a_two_piece_phrase_after_three_closes() {
     assert_eq!(
         count(
             &fixture.journal(),
-            "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND previous_value='' AND key='甲乙甲乙' AND value='甲乙甲乙'"
+            "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND previous_value='wubi-run' AND key='甲乙甲乙' AND value='甲乙甲乙'"
         ),
         2
     );
@@ -15959,6 +15959,107 @@ fn wubi_run_thrice_mode_counts_partial_runs_closed_by_drop() {
             "round {round}"
         );
     }
+}
+
+/// 打开的累积段后面接一次不构成片段的五笔上屏（这里是非汉字的五笔行）：段照样收尾计数，三次攒满即落库，不随这次上屏无声丢掉。
+#[test]
+fn wubi_run_counts_runs_closed_by_a_non_material_commit() {
+    let fixture = Fixture::new(&format!(
+        "{WUBI_RUN_FIXTURE}INSERT INTO wubi86 VALUES('xyxy','OK',100);"
+    ));
+    for round in 1..=3 {
+        let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+        pick_wubi(&mut session, "abab", "甲乙");
+        pick_wubi(&mut session, "abab", "甲乙");
+        pick_wubi(&mut session, "xyxy", "OK");
+        let expected = if round == 3 { 0 } else { round };
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT coalesce(max(count),0) FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+        let expected = if round == 3 { 1 } else { 0 };
+        assert_eq!(
+            count(
+                &fixture.main_db(),
+                "SELECT count(*) FROM wubi86 WHERE value='甲乙甲乙'"
+            ),
+            expected,
+            "round {round}"
+        );
+    }
+}
+
+/// 组字为空时按退格或向后删除，是在删刚上屏的字：打开的累积段直接丢弃，不计数。
+#[test]
+fn wubi_run_is_discarded_by_deleting_the_committed_text() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    for command in [Command::Backspace, Command::DeleteForward] {
+        let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+        pick_wubi(&mut session, "abab", "甲乙");
+        pick_wubi(&mut session, "abab", "甲乙");
+        session.command(command);
+        drop(session);
+        assert_eq!(
+            count(
+                &fixture.journal(),
+                "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+            ),
+            0,
+            "{command:?}"
+        );
+    }
+}
+
+/// 累积段的计数行要能进本地备份：导出端用 `habit_is_storable` 跳过存不下的行，`previous_value` 留空就会被整行跳过。
+#[test]
+fn wubi_run_counts_are_storable_learning_habits() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    pick_wubi(&mut session, "abab", "甲乙");
+    pick_wubi(&mut session, "abab", "甲乙");
+    session.finish(0);
+    let mut runs = 0;
+    crate::user_dictionary::habits::stream_learning_habits(&fixture.paths(), &mut |habit| {
+        if let crate::user_dictionary::habits::LearningHabit::PickTransition { key, .. } = habit {
+            if key == "甲乙甲乙" {
+                assert!(crate::user_dictionary::habits::habit_is_storable(habit));
+                runs += 1;
+            }
+        }
+        true
+    })
+    .unwrap();
+    assert_eq!(runs, 1);
+}
+
+/// 对称删除另两版失败时，当前版已经删掉并提交：报 `REMOVAL_NOT_PERSISTED`，但候选要照样刷新，删掉的词不能还留在列表里。
+#[test]
+fn wubi_removal_refreshes_candidates_when_other_versions_fail() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    let clock = TestClock::install(&mut session);
+    for _ in 0..3 {
+        close_wubi_run_round(
+            &mut session,
+            &clock,
+            &[("abab", "甲乙"), ("abab", "甲乙")],
+            ("abab", "甲乙"),
+        );
+    }
+    session.command(Command::Cancel);
+    Connection::open(fixture.journal()).unwrap().execute_batch("CREATE TRIGGER reject_other_version BEFORE INSERT ON user_dictionary_operations WHEN NEW.dictionary='wubi98' AND NEW.operation='delete' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();
+    type_text(&mut session, "abab");
+    let index = index_of(&session, "甲乙甲乙");
+    let result = session.remove(index);
+    assert_eq!(
+        result.diagnostic.as_deref(),
+        Some(crate::diagnostics::REMOVAL_NOT_PERSISTED)
+    );
+    assert!(!words(&session).contains(&"甲乙甲乙".to_owned()));
 }
 
 /// 置顶模式：学入词在各表的权重是同码已有行最大权重 + 1（86/98 各表独立算）；沉底默认仍是 ≤9 的低权重。

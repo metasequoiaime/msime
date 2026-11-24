@@ -629,6 +629,8 @@ impl InputSession {
             )
             .is_err()
             {
+                // 当前版已经删掉并提交，照样刷新缓存，不然删掉的词还留在候选里。
+                let _ = self.refresh_after_candidate_change();
                 return KeyResult::handled()
                     .with_diagnostic(Some(diagnostics::REMOVAL_NOT_PERSISTED.to_owned()));
             }

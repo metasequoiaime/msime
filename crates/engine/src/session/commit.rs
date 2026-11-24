@@ -374,7 +374,8 @@ impl InputSession {
                     diagnostic.get_or_insert(run_diagnostic);
                 }
             } else {
-                // 上屏的不构成五笔片段（拼音行等）：先收尾打开的五笔累积段再清。
+                // 上屏的不构成五笔片段（非汉字的五笔行、表情、快捷短语等）：把上面取走的累积段放回去收尾计数再清，直接清会让整段无声丢掉。
+                self.chain.last_pick = open_wubi_run;
                 self.close_open_wubi_run();
                 self.chain.last_pick = None;
             }

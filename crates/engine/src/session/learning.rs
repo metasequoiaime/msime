@@ -46,7 +46,7 @@ pub const PICK_PAIR_MAX_GAP_SECONDS: u64 = 10;
 pub const MAX_WUBI_RUN_CHARS: usize = 12;
 /// 五笔累积段的片段数上限。与字数上限、素材规则叠加兜底：12 字里放不下 8 个多字片段，单字片段又被素材规则限制，8 片段单独触发不到，留着防将来上限改动后段无限变宽。
 pub const MAX_WUBI_RUN_PIECES: usize = 8;
-/// 五笔累积段在 `pick_transitions` 里的 `previous_key` 哨兵。拼音凑对键全是规范拼音（小写字母和 `'`），含连字符的它不会撞。
+/// 五笔累积段在 `pick_transitions` 里的 `previous_key` 与 `previous_value` 哨兵。拼音凑对键全是规范拼音（小写字母和 `'`），含连字符的它不会撞；`previous_value` 也填它而不留空，空串过不了 `habit_is_storable`，本地备份导出时整行会被跳过。
 pub const WUBI_RUN_SENTINEL: &str = "wubi-run";
 
 /// An explicit pick among alternatives says more than accepting a decoded sentence, so it counts twice (IS:1181).
@@ -727,7 +727,7 @@ impl InputSession {
         let Ok(count) = record_pick_transition(
             self.journal_path(),
             WUBI_RUN_SENTINEL,
-            "",
+            WUBI_RUN_SENTINEL,
             &run.word,
             &run.word,
         ) else {
@@ -753,7 +753,7 @@ impl InputSession {
         let _ = clear_pick_transition(
             self.journal_path(),
             WUBI_RUN_SENTINEL,
-            "",
+            WUBI_RUN_SENTINEL,
             &run.word,
             &run.word,
         );

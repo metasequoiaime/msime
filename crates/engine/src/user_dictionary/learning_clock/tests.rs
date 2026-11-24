@@ -1,6 +1,8 @@
 use super::*;
 use crate::paths::RuntimePaths;
-use crate::types::{FrequencyAdjustmentMode, PersonalDictionaryEntry, WubiPhrasePlacement, WubiProfileKind};
+use crate::types::{
+    FrequencyAdjustmentMode, PersonalDictionaryEntry, WubiPhrasePlacement, WubiProfileKind,
+};
 use crate::user_dictionary::bundled::edit_bundled_dictionary_entry;
 use crate::user_dictionary::journal::{
     open_journal, record_user_insert, release_thread_journal, test_support::item,
@@ -152,7 +154,13 @@ fn learned_wubi_phrase_advances_an_existing_journal_identity() {
         .unwrap();
     }
     future(&dir, "abef", "甲乙", FUTURE);
-    assert!(wubi_learning::learn(&paths(&dir), "甲乙", WubiProfileKind::Wubi86, WubiPhrasePlacement::Bottom).unwrap());
+    assert!(wubi_learning::learn(
+        &paths(&dir),
+        "甲乙",
+        WubiProfileKind::Wubi86,
+        WubiPhrasePlacement::Bottom
+    )
+    .unwrap());
     assert_eq!(stamp(&dir, "abef", "甲乙"), FUTURE + 1);
 }
 
@@ -332,7 +340,13 @@ fn attached_journal_edits_deletes_and_wubi_creation_exceed_the_floor() {
     let bundled = entry(PersonalDictionaryKind::English, "bundled", "Bundled", 2);
     edit_bundled_dictionary_entry(&paths, &bundled, None, "").unwrap();
     assert_eq!(stamp(&dir, "bundled", "Bundled"), FUTURE + 2);
-    assert!(wubi_learning::learn(&paths, "甲乙", WubiProfileKind::Wubi86, WubiPhrasePlacement::Bottom).unwrap());
+    assert!(wubi_learning::learn(
+        &paths,
+        "甲乙",
+        WubiProfileKind::Wubi86,
+        WubiPhrasePlacement::Bottom
+    )
+    .unwrap());
     assert_eq!(stamp(&dir, "abef", "甲乙"), FUTURE + 1);
 }
 
