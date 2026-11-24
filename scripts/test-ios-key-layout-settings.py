@@ -256,6 +256,16 @@ class LetterSwipePreviewContract(unittest.TestCase):
         self.assertNotIn("letterSwipeHintRow", self.source)
         self.assertNotIn('title: "每键上下滑"', self.source)
 
+    def test_editor_sheet_opens_half_height(self):
+        # 单手操作：编辑面板以半屏（.medium）打开，拖动指示条可以拉到全屏；填自定义文本时键盘占掉下半屏，
+        # 面板自动升到 .large，输入框不被压在键盘下面，收起键盘再回到半屏。
+        sheet = self.source[self.source.index("private struct LetterSwipeKeyEditorSheet: View"):]
+        self.assertIn("@State private var detent: PresentationDetent = .medium", sheet)
+        self.assertIn(".presentationDetents([.medium, .large], selection: $detent)", sheet)
+        self.assertIn(".presentationDragIndicator(.visible)", sheet)
+        self.assertIn(".onChange(of: typing) { _, focused in detent = focused ? .large : .medium }", sheet)
+        self.assertIn(".focused($typing)", sheet)
+
 
 class NineKeyFlickSettingsContract(unittest.TestCase):
     """九键 flick 设置：三端共享阈值，数字改由长按输入。"""

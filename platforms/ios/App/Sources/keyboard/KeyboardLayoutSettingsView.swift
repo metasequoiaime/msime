@@ -816,6 +816,10 @@ private struct LetterSwipeKeyEditorSheet: View {
   @State private var up: LetterSwipeBinding
   @State private var down: LetterSwipeBinding
   @Environment(\.dismiss) private var dismiss
+  /// 面板停在半屏，单手就能点到两个动作；想填自定义文本时再升到全屏。
+  @State private var detent: PresentationDetent = .medium
+  /// 有输入框在编辑：键盘已经占掉下半屏，面板跟着升到全屏，输入框不会被压在下面。
+  @FocusState private var typing: Bool
 
   init(letter: String) {
     self.letter = letter
@@ -882,6 +886,10 @@ private struct LetterSwipeKeyEditorSheet: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
     }
+    // 半屏打开，拖动指示条把它拉到全屏也行；点开自定义文本时自动升上去，收起键盘再回到半屏。
+    .presentationDetents([.medium, .large], selection: $detent)
+    .presentationDragIndicator(.visible)
+    .onChange(of: typing) { _, focused in detent = focused ? .large : .medium }
   }
 
   private func textField(_ binding: Binding<LetterSwipeBinding>,
@@ -894,6 +902,7 @@ private struct LetterSwipeKeyEditorSheet: View {
       }))
       .textFieldStyle(.roundedBorder)
       .autocorrectionDisabled()
+      .focused($typing)
       .padding(.horizontal, 20)
       .padding(.vertical, 8)
       .accessibilityLabel("\(direction == .up ? "上滑" : "下滑")自定义文本")
