@@ -114,6 +114,8 @@ void same_process(HDESK first, HDESK second) {
   owner.join();
   assert(!resolved->current());
   assert(!ClientDesktop::resolve(ticket(GetCurrentProcessId(), tid)));
+  // 线程退出不是拒绝访问：不退到 Server 桌面。
+  assert(!ClientDesktop::resolve_or_server(ticket(GetCurrentProcessId(), tid)));
 }
 // 低完整性宿主上客户端桌面解析不到时退到 Server 自己所在的桌面（#11793）：句柄就是当前线程的桌面，
 // 能交给新的 UI 线程建窗；票据认证不通过时一律不回落，候选窗不画到任何桌面。

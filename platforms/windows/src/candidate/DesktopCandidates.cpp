@@ -253,6 +253,8 @@ struct DesktopCandidates::State {
       std::shared_ptr<ClientDesktop> resolved;
       std::optional<PipeTicket> transport;
       uint64_t retry_at = 0, diagnosed_at = 0;
+      // 最近一次解析失败的阶段：路由不到任何桌面时随诊断一起写出，区分是票据认证还是桌面解析失败。
+      std::string unresolved_reason;
       // 上一轮等待是被 wake() 叫醒的：这一轮读到的快照立即交给各桌面线程，并叫醒它们绘制。
       bool woken = false;
       while (!failed.load(std::memory_order_acquire) &&
@@ -269,7 +271,9 @@ struct DesktopCandidates::State {
           if (!resolved && GetTickCount64() >= retry_at) {
             retry_at = GetTickCount64() + 500;
             std::string reason;
-            if (auto desktop = ClientDesktop::resolve_or_server(view->lease.transport, &reason)) {
+            auto desktop = ClientDesktop::resolve_or_server(view->lease.transport, &reason);
+            unresolved_reason = desktop ? std::string{} : reason;
+            if (desktop) {
               // 低完整性宿主上拿不到客户端桌面归属时用的是 Server 自己所在的桌面：候选窗可能画在
               // 别的桌面上，但同一桌面的输入至少看得到它，而不是完全没有候选窗（#11793）。
               if (desktop->fallback() && GetTickCount64() >= diagnosed_at) {
@@ -293,7 +297,8 @@ struct DesktopCandidates::State {
           }
           if (!target && GetTickCount64() >= diagnosed_at) {
             diagnosed_at = GetTickCount64() + 5000;
-            diagnose("Candidate desktop routing unavailable");
+            diagnose(unresolved_reason.empty() ? std::string("Candidate desktop routing unavailable")
+                                               : "Candidate desktop routing unavailable: " + unresolved_reason);
           }
         }
         for (const auto &surface : surfaces) {

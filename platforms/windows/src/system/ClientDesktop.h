@@ -91,19 +91,24 @@ public:
     result.fallback_ = true;
     return result;
   }
-  // 优先按票据解析客户端自己的桌面；客户端桌面不可确认（不是票据不可信）时退到 Server 桌面。
-  // 票据本身的核对（线程属于票据声明的进程、仍在运行）照旧，认证不通过时一律返回空。
+  // 优先按票据解析客户端自己的桌面。只有系统拒绝 Server 读取或打开客户端桌面（ERROR_ACCESS_DENIED）、且客户端线程仍在运行时才退到 Server 桌面；票据认证不通过、线程已退出、桌面身份对不上（另一窗口站的同名桌面）一律返回空，不回落。
   static std::optional<ClientDesktop> resolve_or_server(const PipeTicket &ticket, std::string *why = nullptr) {
     auto authenticated = authenticate(ticket, why);
     if (!authenticated)
       return std::nullopt;
-    if (authenticated->attach_desktop(why))
+    bool denied = false;
+    if (authenticated->attach_desktop(why, &denied))
       return authenticated;
+    if (!denied || !authenticated->alive())
+      return std::nullopt;
     auto server = server_desktop();
     if (!server) {
       if (why) *why = "server desktop unavailable";
       return std::nullopt;
     }
+    // 回落后仍持有客户端线程：线程退出时 current() 失效，候选窗不会一直留在 Server 桌面上。
+    server->thread_ = std::exchange(authenticated->thread_, nullptr);
+    server->tid_ = authenticated->tid_;
     if (!why) return server;
     if (!why->empty()) *why += "; ";
     *why += "using the server desktop";
@@ -135,12 +140,11 @@ public:
   ClientDesktop &operator=(const ClientDesktop &) = delete;
   ~ClientDesktop() { close(); }
   HDESK handle() const { return desktop_; }
-  // 回落到 Server 桌面时没有客户端线程要核对。
   bool fallback() const { return fallback_; }
-  // 线程退出或换了桌面时，缓存的归属立即失效；回落到 Server 桌面时句柄开着就一直是 Server 自己那块桌面。
+  // 线程退出或换了桌面时，缓存的归属立即失效；回落到 Server 桌面时句柄就是 Server 自己那块桌面，只要客户端线程（若有）仍在运行就一直有效。
   bool current() const {
     if (fallback_)
-      return desktop_ != nullptr;
+      return desktop_ != nullptr && (!thread_ || alive());
     return alive() && same_desktop_object(GetThreadDesktop(tid_), desktop_);
   }
 
@@ -166,11 +170,12 @@ private:
     return result;
   }
   // 在已认证的线程上解析桌面归属，并打开一个拥有句柄。
-  bool attach_desktop(std::string *why = nullptr) {
+  // denied 只在系统拒绝读取或打开客户端桌面时置真，供 resolve_or_server 判断能否回落。
+  bool attach_desktop(std::string *why = nullptr, bool *denied = nullptr) {
     // GetThreadDesktop 返回借用句柄，不能 CloseDesktop；也不能直接据它跨窗口站绑定线程。
-    const HDESK assigned = GetThreadDesktop(tid_);
     std::string error;
-    desktop_ = open_named(assigned, &error);
+    const HDESK assigned = GetThreadDesktop(tid_);
+    desktop_ = open_named(assigned, &error, denied);
     if (!desktop_) {
       if (why) *why = std::move(error);
       return false;
@@ -188,15 +193,20 @@ private:
     return true;
   }
   // 按名字在当前窗口站打开一个拥有句柄；失败时把阶段和系统错误写给诊断。
-  static HDESK open_named(HDESK assigned, std::string *error = nullptr) {
+  static HDESK open_named(HDESK assigned, std::string *error = nullptr, bool *denied = nullptr) {
     wchar_t name[256]{};
     DWORD needed = 0;
     if (!assigned) {
-      if (error) *error = "desktop query failed";
+      // 调用方紧接在 GetThreadDesktop 之后调用这里，此时的 GetLastError 还是它留下的。
+      const DWORD code = GetLastError();
+      if (denied) *denied = code == ERROR_ACCESS_DENIED;
+      if (error) *error = "desktop query failed, error=" + std::to_string(code);
       return nullptr;
     }
     if (!GetUserObjectInformationW(assigned, UOI_NAME, name, sizeof(name), &needed)) {
-      if (error) *error = "desktop name query failed, error=" + std::to_string(GetLastError());
+      const DWORD code = GetLastError();
+      if (denied) *denied = code == ERROR_ACCESS_DENIED;
+      if (error) *error = "desktop name query failed, error=" + std::to_string(code);
       return nullptr;
     }
     if (!needed || needed > sizeof(name) || !name[0]) {
@@ -204,7 +214,11 @@ private:
       return nullptr;
     }
     const HDESK opened = OpenDesktopW(name, 0, FALSE, kDesktopRights);
-    if (!opened && error) *error = "desktop open failed, error=" + std::to_string(GetLastError());
+    if (!opened) {
+      const DWORD code = GetLastError();
+      if (denied) *denied = code == ERROR_ACCESS_DENIED;
+      if (error) *error = "desktop open failed, error=" + std::to_string(code);
+    }
     return opened;
   }
   ClientDesktop() = default;
