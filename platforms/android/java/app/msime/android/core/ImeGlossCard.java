@@ -237,7 +237,7 @@ final class ImeGlossCard {
         }
     }
 
-    /** 离线释义：开着「候选英文释义」、方案显示释义时，查随包的英文释义，再查装了词典的其他目标语言，与整页的 scheduleCandidateGlosses 同一条通路。 */
+    /** 离线释义：开着「离线释义」、方案显示释义时，查随包的英文释义，再查装了词典的其他目标语言，与整页的 scheduleCandidateGlosses 同一条通路。 */
     private void lookupOffline(long opened) {
         String resources = s.candidateGlossResources;
         if (!s.candidateEnglishGloss || resources.isEmpty() || target == null

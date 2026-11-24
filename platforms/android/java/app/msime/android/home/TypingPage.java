@@ -425,7 +425,8 @@ public final class TypingPage extends ReloadingDetailPage {
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
         String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
-        translation.toggle("离线英文释义", null,
+        // 开关管所有目标语言的离线释义，不只英语；名字与隐私页同一行共用 InputFeatureToggle 的标题。
+        translation.toggle(gloss.title(), null,
             glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); })).help("给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典");
         InputFeatureToggle pronunciation = InputFeatureToggle.CANDIDATE_PRONUNCIATION;
