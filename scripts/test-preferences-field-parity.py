@@ -50,6 +50,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_quanpin_shift",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
+        # 五笔自造词落库位置：共享 Rust 与 host-api 先行，AGENTS.md 禁止向 React 新增设置，入口随各平台原生设置页接入。
+        "wubi_phrase_placement",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。
         "usage_reporting_consent",
         # 候选字重（#10748）：packages/ui 迁移期只修缺陷，控件只在 Windows 原生设置页；macOS 随原生设置迁移再加，期间经 MCP 或偏好文档设置。
