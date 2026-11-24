@@ -1757,7 +1757,12 @@ foreach(msime_test IN LISTS msime_tests)
 endforeach()
 
 # 控制器测试直接包含 InputController.mm，适配器及分组窗口的有界文件读取随共用的 apple-client 链接。
-target_sources(apple-client PRIVATE src/cloud/EmbeddedTranslationBatch.mm src/translation/LocalTranslationWindow.mm src/dictionary/DictionaryCollectionsWindow.mm src/core/BoundedFileReader.mm)
+target_sources(apple-client PRIVATE
+  src/cloud/EmbeddedTranslationBatch.mm
+  src/translation/LocalTranslationWindow.mm
+  src/dictionary/DictionaryCollectionsWindow.mm
+  src/dictionary/DictionaryCollectionWordsSheet.mm
+  src/core/BoundedFileReader.mm)
 
 include(../common/tests/embedded_translation.cmake)
 
