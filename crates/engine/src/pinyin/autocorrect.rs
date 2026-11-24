@@ -1,12 +1,14 @@
 //! Quanpin autocorrect (quanpin.md §7.1-§7.4). The static correction tables are generated at first use rather than ported from `autocorrect_table.h`: each syllable of the intact list yields its one-edit variants under four rules (swap two adjacent letters, replace a letter with a QWERTY neighbour, drop a letter, insert a repeat or neighbour of an adjacent letter), and every variant of three to six letters that is not itself a syllable becomes a `(wrong, correct)` row of that rule's table. These are the rules of the reference build's table generator, which the `GEN` citations below give by line; it left the tree with the C++ engine. A unit test pins the per-type row counts (807 / 4442 / 340 / 11939) and rows against a fixture dumped from that header.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+#[cfg(test)]
+use std::collections::BTreeSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use super::active_helpcode::strip_active_helpcodes;
-use super::syllables::{
-    intact_piece, intact_pinyin_list, is_intact, is_prefix_piece, MAX_SYLLABLE_LENGTH,
-};
+#[cfg(test)]
+use super::syllables::is_intact;
+use super::syllables::{intact_piece, intact_pinyin_list, is_prefix_piece, MAX_SYLLABLE_LENGTH};
 use crate::types::autocorrect_type;
 
 /// Tie-break weights; the corrected-edge count is always the primary key (QUH:73-84).
@@ -90,108 +92,117 @@ fn neighbors(letter: u8) -> &'static [u8] {
     }
 }
 
-fn insertion_letters_capacity(syllable: &[u8], position: usize) -> usize {
-    let mut capacity = 0;
-    if position > 0 {
-        capacity += 1 + neighbors(syllable[position - 1]).len();
+/// 将 2 到 `MAX_SYLLABLE_LENGTH` 个小写 ASCII 字母按 MSB-first 5 bit 打包为 `u32`，与 ASCII 字典序严格同构。
+fn pack_letters(bytes: &[u8]) -> Option<u32> {
+    if !(2..=MAX_SYLLABLE_LENGTH).contains(&bytes.len()) {
+        return None;
     }
-    if position < syllable.len() {
-        capacity += 1 + neighbors(syllable[position]).len();
+    let mut packed = 0u32;
+    for (i, &byte) in bytes.iter().enumerate() {
+        if !byte.is_ascii_lowercase() {
+            return None;
+        }
+        packed |= u32::from(byte - b'a' + 1) << (25 - 5 * i);
     }
-    capacity
+    Some(packed)
 }
 
-/// Every one-edit variant of `syllable` a rule produces, duplicates included (GEN:176-224).
-fn rule_variants(syllable: &[u8], correction_type: u32) -> Vec<Vec<u8>> {
-    let capacity = match correction_type {
-        autocorrect_type::TRANSPOSITION => syllable.len().saturating_sub(1),
-        autocorrect_type::NEIGHBOR => syllable.iter().map(|&letter| neighbors(letter).len()).sum(),
-        autocorrect_type::DELETION => syllable.len(),
-        autocorrect_type::INSERTION => (0..=syllable.len())
-            .map(|position| insertion_letters_capacity(syllable, position))
-            .sum(),
-        _ => 0,
-    };
-    let mut variants = Vec::with_capacity(capacity);
+/// 在栈缓冲区上枚举 `syllable` 经单步编辑规则 `correction_type` 产生的所有变体（含重复项），避免中间堆分配。
+fn for_each_rule_variant(syllable: &[u8], correction_type: u32, mut visit: impl FnMut(&[u8])) {
+    let len = syllable.len();
+    debug_assert!(len <= MAX_SYLLABLE_LENGTH);
+    let mut buf = [0u8; MAX_SYLLABLE_LENGTH + 1];
     match correction_type {
         autocorrect_type::TRANSPOSITION => {
-            for i in 0..syllable.len() - 1 {
-                let mut swapped = syllable.to_vec();
-                swapped.swap(i, i + 1);
-                variants.push(swapped);
+            if len < 2 {
+                return;
+            }
+            buf[..len].copy_from_slice(syllable);
+            for i in 0..len - 1 {
+                buf.swap(i, i + 1);
+                visit(&buf[..len]);
+                buf.swap(i, i + 1);
             }
         }
         autocorrect_type::NEIGHBOR => {
+            buf[..len].copy_from_slice(syllable);
             for (i, &letter) in syllable.iter().enumerate() {
                 for &neighbor in neighbors(letter) {
-                    let mut substituted = syllable.to_vec();
-                    substituted[i] = neighbor;
-                    variants.push(substituted);
+                    buf[i] = neighbor;
+                    visit(&buf[..len]);
                 }
+                buf[i] = letter;
             }
         }
         autocorrect_type::DELETION => {
-            for i in 0..syllable.len() {
-                let mut shortened = syllable.to_vec();
-                shortened.remove(i);
-                variants.push(shortened);
+            if len == 0 {
+                return;
+            }
+            for i in 0..len {
+                buf[..i].copy_from_slice(&syllable[..i]);
+                buf[i..len - 1].copy_from_slice(&syllable[i + 1..]);
+                visit(&buf[..len - 1]);
             }
         }
         autocorrect_type::INSERTION => {
-            // A realistic extra key repeats an adjacent letter or is one of its neighbours; unconstrained insertion would add some 60k mostly implausible keys.
-            for position in 0..=syllable.len() {
-                let mut letters =
-                    Vec::with_capacity(insertion_letters_capacity(syllable, position));
+            // 真实的误触多键通常是重复相邻字母或碰到了相邻键；无约束插入会额外引入约 6 万条低置信错键。
+            for position in 0..=len {
+                buf[..position].copy_from_slice(&syllable[..position]);
+                buf[position + 1..len + 1].copy_from_slice(&syllable[position..]);
                 if position > 0 {
                     let left = syllable[position - 1];
-                    letters.push(left);
-                    letters.extend_from_slice(neighbors(left));
+                    buf[position] = left;
+                    visit(&buf[..len + 1]);
+                    for &neighbor in neighbors(left) {
+                        buf[position] = neighbor;
+                        visit(&buf[..len + 1]);
+                    }
                 }
-                if position < syllable.len() {
+                if position < len {
                     let right = syllable[position];
-                    letters.push(right);
-                    letters.extend_from_slice(neighbors(right));
-                }
-                for letter in letters {
-                    let mut lengthened = syllable.to_vec();
-                    lengthened.insert(position, letter);
-                    variants.push(lengthened);
+                    buf[position] = right;
+                    visit(&buf[..len + 1]);
+                    for &neighbor in neighbors(right) {
+                        buf[position] = neighbor;
+                        visit(&buf[..len + 1]);
+                    }
                 }
             }
         }
         other => panic!("not a single autocorrect type bit: {other}"),
     }
-    variants
 }
 
-/// One table as the generator emits it (GEN:141-171, 270-285): every `(wrong, correct)` pair, sorted. A wrong key keeps every syllable it can come from, for the runtime to settle by word frequency. Two-letter strings are jianpin space and never keys here.
+/// 生成单类纠错规则的排序 `(wrong, correct)` 列表；仅保留三到六字母且非合法音节的错键。
 ///
 /// 读不出来的两字母串另有一张表，见 `two_letter_table`。
+#[cfg(test)]
 fn generate_table(correction_type: u32) -> Vec<(String, String)> {
     let mut pairs = BTreeSet::new();
     for &syllable in intact_pinyin_list() {
         if syllable.len() < 2 {
             continue;
         }
-        for variant in rule_variants(syllable.as_bytes(), correction_type) {
-            if variant == syllable.as_bytes()
+        let syllable_bytes = syllable.as_bytes();
+        for_each_rule_variant(syllable_bytes, correction_type, |variant| {
+            if variant == syllable_bytes
                 || !(3..=MAX_SYLLABLE_LENGTH).contains(&variant.len())
                 || variant.contains(&b'\'')
             {
-                continue;
+                return;
             }
-            let Ok(variant) = String::from_utf8(variant) else {
-                continue;
-            };
-            if !is_intact(&variant) {
-                pairs.insert((variant, syllable.to_owned()));
+            if let Ok(variant_str) = std::str::from_utf8(variant) {
+                if !is_intact(variant_str) {
+                    pairs.insert((variant_str.to_owned(), syllable.to_owned()));
+                }
             }
-        }
+        });
     }
     pairs.into_iter().collect()
 }
 
 /// `(wrong, correct)` rows of one correction type, in the generator's sorted row order, which is the runtime's final tie-break. `correction_type` must be exactly one of the four `autocorrect_type` bits; anything else is a caller bug and panics.
+#[cfg(test)]
 pub fn correction_table(correction_type: u32) -> &'static [(String, String)] {
     static TRANSPOSITION: OnceLock<Vec<(String, String)>> = OnceLock::new();
     static NEIGHBOR: OnceLock<Vec<(String, String)>> = OnceLock::new();
@@ -215,6 +226,7 @@ fn two_letters_readable(letters: &[u8]) -> bool {
 /// 两字母纠错键（#10124）：两字母音节换一个邻键或调换两个字母，得到的串既不是音节、又按简拼和音节前缀都读不出来时，记一行 `(错键, 音节)`。只覆盖邻键和乱序两类，按行序排好。
 ///
 /// 参考生成器只收三到六个字母的错键，因为两字母串属于简拼（`nh`、`zh`、`wd`），把它们当错键会抢走简拼。但 `wi`、`hi`、`ia` 这类串里有 `i`/`u`/`v` 这种不能开始音节的字母，既不是简拼也不是任何音节的前缀，整段输入因此一个读法都没有：`wiaini` 想打 `woaini`，本地候选是空的。这里只收这种读不出来的串，所以不会和简拼争读法；固定参考表的那四张表和它们的行数不变。
+#[cfg(test)]
 fn two_letter_table(correction_type: u32) -> &'static [(String, String)] {
     static TRANSPOSITION: OnceLock<Vec<(String, String)>> = OnceLock::new();
     static NEIGHBOR: OnceLock<Vec<(String, String)>> = OnceLock::new();
@@ -229,25 +241,51 @@ fn two_letter_table(correction_type: u32) -> &'static [(String, String)] {
             if syllable.len() != 2 {
                 continue;
             }
-            for variant in rule_variants(syllable.as_bytes(), correction_type) {
-                if variant.len() != 2 || two_letters_readable(&variant) {
-                    continue;
+            for_each_rule_variant(syllable.as_bytes(), correction_type, |variant| {
+                if variant.len() != 2 || two_letters_readable(variant) {
+                    return;
                 }
-                let Ok(variant) = String::from_utf8(variant) else {
-                    continue;
-                };
-                pairs.insert((variant, syllable.to_owned()));
-            }
+                if let Ok(variant_str) = std::str::from_utf8(variant) {
+                    pairs.insert((variant_str.to_owned(), syllable.to_owned()));
+                }
+            });
         }
         pairs.into_iter().collect()
     })
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CorrectionTarget {
-    syllable: &'static str,
-    /// Every type whose table offers this pair; the cost comes from the enabled subset at query time.
-    type_bits: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CompactTarget {
+    syllable_index: u16,
+    /// 该错键映射所属的全部纠错类型位掩码，查询时按启用的子集取最低权重。
+    type_bits: u8,
+}
+
+impl CompactTarget {
+    fn syllable(self) -> &'static str {
+        intact_pinyin_list()[usize::from(self.syllable_index)]
+    }
+
+    fn type_bits(self) -> u32 {
+        u32::from(self.type_bits)
+    }
+}
+
+/// 扁平 CSR 纠错索引：`keys` 为严格升序的打包错键，`offsets` 切片指向 `targets` 中按权重与表序排好的目标。
+struct CompactCorrectionIndex {
+    keys: Vec<u32>,
+    offsets: Vec<u32>,
+    targets: Vec<CompactTarget>,
+}
+
+impl CompactCorrectionIndex {
+    fn get(&self, piece: &[u8]) -> Option<&[CompactTarget]> {
+        let packed = pack_letters(piece)?;
+        let idx = self.keys.binary_search(&packed).ok()?;
+        let start = self.offsets[idx] as usize;
+        let end = self.offsets[idx + 1] as usize;
+        Some(&self.targets[start..end])
+    }
 }
 
 /// The cheapest weight among the enabled types a pair carries, so switching off a cheaper table lets the surviving one set the cost (QU:585-597).
@@ -265,10 +303,8 @@ fn min_enabled_correction_weight(enabled_bits: u32) -> i32 {
     .unwrap_or(i32::MAX)
 }
 
-/// Returns whether `wrong` is `correct` with one adjacent letter repeated.
-fn is_repeated_insertion(wrong: &str, correct: &str) -> bool {
-    let wrong = wrong.as_bytes();
-    let correct = correct.as_bytes();
+/// 判断字节串 `wrong` 是否由 `correct` 重复某个相邻字母得到。
+fn is_repeated_insertion_bytes(wrong: &[u8], correct: &[u8]) -> bool {
     if wrong.len() != correct.len() + 1 {
         return false;
     }
@@ -280,41 +316,121 @@ fn is_repeated_insertion(wrong: &str, correct: &str) -> bool {
     })
 }
 
-fn correction_weight(wrong: &str, correct: &str, enabled_bits: u32) -> i32 {
-    if enabled_bits & autocorrect_type::INSERTION != 0 && is_repeated_insertion(wrong, correct) {
+/// 判断 `wrong` 是否由 `correct` 重复某个相邻字母得到。
+#[cfg(test)]
+fn is_repeated_insertion(wrong: &str, correct: &str) -> bool {
+    is_repeated_insertion_bytes(wrong.as_bytes(), correct.as_bytes())
+}
+
+fn correction_weight_bytes(wrong: &[u8], correct: &str, enabled_bits: u32) -> i32 {
+    if enabled_bits & autocorrect_type::INSERTION != 0
+        && is_repeated_insertion_bytes(wrong, correct.as_bytes())
+    {
         REPEATED_INSERTION_WEIGHT
     } else {
         min_enabled_correction_weight(enabled_bits)
     }
 }
 
-/// Wrong key to its targets (QU:599-637). The tables are merged in weight order (transposition, deletion, insertion, neighbour), so each target list is weight-sorted with row order breaking ties; a pair two tables share ORs its bits.
-fn correction_index() -> &'static HashMap<&'static str, Vec<CorrectionTarget>> {
-    static INDEX: OnceLock<HashMap<&'static str, Vec<CorrectionTarget>>> = OnceLock::new();
+#[cfg(test)]
+fn correction_weight(wrong: &str, correct: &str, enabled_bits: u32) -> i32 {
+    correction_weight_bytes(wrong.as_bytes(), correct, enabled_bits)
+}
+
+/// 错键到候选目标的紧凑索引（不依赖 `correction_table` / `two_letter_table` 常驻表）；按权重顺序（乱序、漏键、多键、邻键）合并，重复映射按位或合入 `type_bits`。
+fn correction_index() -> &'static CompactCorrectionIndex {
+    static INDEX: OnceLock<CompactCorrectionIndex> = OnceLock::new();
     INDEX.get_or_init(|| {
-        let mut index: HashMap<&'static str, Vec<CorrectionTarget>> = HashMap::new();
-        for type_bit in [
+        let syllables = intact_pinyin_list();
+        let mut per_type: Vec<(u32, u16)> = Vec::with_capacity(16_384);
+        let mut all_rows: Vec<(u32, u8, u16, u8)> = Vec::with_capacity(20_480);
+
+        for (type_rank, type_bit) in [
             autocorrect_type::TRANSPOSITION,
             autocorrect_type::DELETION,
             autocorrect_type::INSERTION,
             autocorrect_type::NEIGHBOR,
-        ] {
-            // 两字母键和三字母以上的键互不重叠，跟在同类表后面并入，每个键的目标仍按权重排好。
-            for (wrong, correct) in correction_table(type_bit)
-                .iter()
-                .chain(two_letter_table(type_bit))
-            {
-                let targets = index.entry(wrong.as_str()).or_default();
-                match targets.iter_mut().find(|target| target.syllable == correct) {
-                    Some(target) => target.type_bits |= type_bit,
-                    None => targets.push(CorrectionTarget {
-                        syllable: correct.as_str(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            per_type.clear();
+            let include_two_letter = matches!(
+                type_bit,
+                autocorrect_type::TRANSPOSITION | autocorrect_type::NEIGHBOR
+            );
+            for (syllable_index, &syllable) in syllables.iter().enumerate() {
+                if syllable.len() < 2 {
+                    continue;
+                }
+                let syllable_bytes = syllable.as_bytes();
+                let syllable_idx =
+                    u16::try_from(syllable_index).expect("音节表条目数不超过 u16::MAX");
+                let collect_two = include_two_letter && syllable.len() == 2;
+                for_each_rule_variant(syllable_bytes, type_bit, |variant| {
+                    if (3..=MAX_SYLLABLE_LENGTH).contains(&variant.len()) {
+                        if variant != syllable_bytes && intact_piece(variant).is_none() {
+                            if let Some(packed) = pack_letters(variant) {
+                                per_type.push((packed, syllable_idx));
+                            }
+                        }
+                    } else if collect_two && variant.len() == 2 && !two_letters_readable(variant) {
+                        if let Some(packed) = pack_letters(variant) {
+                            per_type.push((packed, syllable_idx));
+                        }
+                    }
+                });
+            }
+            per_type.sort_unstable();
+            per_type.dedup();
+            let rank = u8::try_from(type_rank).expect("纠错规则数量固定为 4");
+            let bit = u8::try_from(type_bit).expect("纠错位掩码不超过 u8::MAX");
+            for &(packed, syllable_idx) in &per_type {
+                all_rows.push((packed, rank, syllable_idx, bit));
+            }
+        }
+        drop(per_type);
+
+        // 按 `(packed, type_rank, syllable_idx)` 排序，既使 `keys` 严格有序，又保证单键目标顺序与四张表按权重顺序依次并入完全一致。
+        all_rows
+            .sort_unstable_by_key(|&(packed, rank, syllable_idx, _)| (packed, rank, syllable_idx));
+
+        let mut keys = Vec::with_capacity(16_384);
+        let mut offsets = Vec::with_capacity(16_385);
+        let mut targets: Vec<CompactTarget> = Vec::with_capacity(all_rows.len());
+
+        let mut cursor = 0;
+        while cursor < all_rows.len() {
+            let key = all_rows[cursor].0;
+            let group_start = targets.len();
+            keys.push(key);
+            offsets.push(u32::try_from(group_start).expect("纠错目标数不超过 u32::MAX"));
+            while cursor < all_rows.len() && all_rows[cursor].0 == key {
+                let (_, _, syllable_index, type_bit) = all_rows[cursor];
+                match targets[group_start..]
+                    .iter_mut()
+                    .find(|target| target.syllable_index == syllable_index)
+                {
+                    Some(existing) => existing.type_bits |= type_bit,
+                    None => targets.push(CompactTarget {
+                        syllable_index,
                         type_bits: type_bit,
                     }),
                 }
+                cursor += 1;
             }
         }
-        index
+        offsets.push(u32::try_from(targets.len()).expect("纠错目标数不超过 u32::MAX"));
+        drop(all_rows);
+
+        keys.shrink_to_fit();
+        offsets.shrink_to_fit();
+        targets.shrink_to_fit();
+        CompactCorrectionIndex {
+            keys,
+            offsets,
+            targets,
+        }
     })
 }
 
@@ -509,33 +625,31 @@ pub fn autocorrect_cut_kbest(
         }
         for raw_length in (1..=(length - start).min(MAX_SYLLABLE_LENGTH)).rev() {
             let piece = &bytes[start..start + raw_length];
-            // A legal piece is never also read as a correction key.
+            // 合法音节片段不作为纠错键处理。
             if let Some(syllable) = intact_piece(piece) {
                 search.extend(length, start, raw_length, syllable, false, 0);
                 continue;
             }
-            let Some(piece_text) = std::str::from_utf8(piece).ok() else {
-                continue;
-            };
             // 两字母错键落在输入末尾时，第二个字母若能开始音节（`hauz` 的 `uz`），它更像下一个音节的简拼开头，交给「纠错头 + 简拼尾」去读（hua'z），不读成 ha'zu。
             if raw_length == 2 && start + 2 == length && is_prefix_piece(&piece[1..]) {
                 continue;
             }
-            let Some(targets) = index.get(piece_text) else {
+            let Some(targets) = index.get(piece) else {
                 continue;
             };
             for target in targets {
-                let enabled_bits = autocorrect_types & target.type_bits;
+                let enabled_bits = autocorrect_types & target.type_bits();
                 if enabled_bits == 0 {
                     continue;
                 }
+                let syllable = target.syllable();
                 search.extend(
                     length,
                     start,
                     raw_length,
-                    target.syllable,
+                    syllable,
                     true,
-                    correction_weight(piece_text, target.syllable, enabled_bits),
+                    correction_weight_bytes(piece, syllable, enabled_bits),
                 );
             }
         }
@@ -837,8 +951,8 @@ mod tests {
             INSERTION_WEIGHT
         );
         assert_eq!(min_enabled_correction_weight(NEIGHBOR), NEIGHBOR_WEIGHT);
-        let targets = &correction_index()["ahan"];
-        let syllables: Vec<_> = targets.iter().map(|target| target.syllable).collect();
+        let targets = correction_index().get(b"ahan").expect("ahan targets");
+        let syllables: Vec<_> = targets.iter().map(|target| target.syllable()).collect();
         assert_eq!(syllables[..2], ["shan", "zhan"]);
     }
 
@@ -931,7 +1045,10 @@ mod tests {
         }
         // 简拼和音节前缀照旧不是错键。
         for jianpin in ["nh", "zh", "wd", "sh", "ba", "ne"] {
-            assert!(!correction_index().contains_key(jianpin), "{jianpin}");
+            assert!(
+                correction_index().get(jianpin.as_bytes()).is_none(),
+                "{jianpin}"
+            );
         }
         assert!(two_letter_table(DELETION).is_empty());
         assert!(two_letter_table(INSERTION).is_empty());
@@ -1139,6 +1256,59 @@ mod tests {
         // An active helpcode letter is not part of the key.
         assert_eq!(autocorrect_suppression_key("shangs", "shangS"), "shang");
         assert_eq!(autocorrect_suppression_key("nihc", "nihC"), "nihc");
+    }
+
+    #[test]
+    fn intact_pinyin_list_is_strictly_lexicographically_sorted() {
+        let list = intact_pinyin_list();
+        assert!(
+            list.windows(2).all(|pair| pair[0] < pair[1]),
+            "intact_pinyin_list 必须严格按 ASCII 字典序排列"
+        );
+    }
+
+    #[test]
+    fn compact_index_matches_reference_tables_exhaustively_and_fits_memory_budget() {
+        let mut reference: HashMap<String, Vec<(&'static str, u32)>> = HashMap::new();
+        for type_bit in [TRANSPOSITION, DELETION, INSERTION, NEIGHBOR] {
+            for (wrong, correct) in correction_table(type_bit)
+                .iter()
+                .chain(two_letter_table(type_bit))
+            {
+                let correct_static = intact_piece(correct.as_bytes()).expect("合法音节");
+                let targets = reference.entry(wrong.clone()).or_default();
+                match targets
+                    .iter_mut()
+                    .find(|(syllable, _)| *syllable == correct_static)
+                {
+                    Some((_, bits)) => *bits |= type_bit,
+                    None => targets.push((correct_static, type_bit)),
+                }
+            }
+        }
+
+        let compact = correction_index();
+        assert_eq!(compact.keys.len(), reference.len());
+        assert_eq!(compact.offsets.len(), compact.keys.len() + 1);
+
+        for (wrong, expected_targets) in &reference {
+            let actual = compact
+                .get(wrong.as_bytes())
+                .unwrap_or_else(|| panic!("紧凑索引缺少错键: {wrong}"));
+            let actual_pairs: Vec<(&'static str, u32)> = actual
+                .iter()
+                .map(|target| (target.syllable(), target.type_bits()))
+                .collect();
+            assert_eq!(actual_pairs, *expected_targets, "错键 `{wrong}` 目标不匹配");
+        }
+
+        let backing_bytes = compact.keys.capacity() * std::mem::size_of::<u32>()
+            + compact.offsets.capacity() * std::mem::size_of::<u32>()
+            + compact.targets.capacity() * std::mem::size_of::<CompactTarget>();
+        assert!(
+            backing_bytes < 256 * 1024,
+            "紧凑索引常驻堆内存 {backing_bytes} 字节超出 256 KiB 上限"
+        );
     }
 }
 
