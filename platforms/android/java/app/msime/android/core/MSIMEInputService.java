@@ -10465,9 +10465,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 数字行选词：按画出来的那个候选，不按这一代视图里同一个可见位置的新词（#11816）。 */
     private boolean selectHardwareCandidate(int visibleSlot) {
-        JSONObject drawn = visibleSlot >= 0 && visibleSlot < drawnVisibleCandidates.size()
-            ? drawnVisibleCandidates.get(visibleSlot) : null;
-        JSONObject candidate = resolveDrawnCandidate(drawn);
+        // 这一格没画候选（越界，或候选数组里含不显示的云占位行）：不处理，数字照常交给后面的流程。
+        if (visibleSlot < 0 || visibleSlot >= drawnVisibleCandidates.size()) return false;
+        JSONObject candidate = resolveDrawnCandidate(drawnVisibleCandidates.get(visibleSlot));
         if (candidate == null) {
             // 画着的那一格已经不在列表里：提示并吞掉这一下，不把数字落到编辑器里。
             noticeCandidateStale();
