@@ -564,6 +564,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     int splitKeyboardThresholdDp;
     int splitKeyboardGapPercent;
+    /** 空隙比例是不是用户在设置页显式设过（{@code platform.android.split_keyboard_gap} 在本地设置里存在）；没设过时宽窗口上的 720 dp 键区上限照旧生效（{@link SplitKeyboardPolicy#gapFraction(int, int, boolean)}）。 */
+    boolean splitKeyboardGapExplicit;
     boolean splitKeyboardPortrait;
     /** 本地设置「手机横屏分离式键盘」（#10440）；实际画不画还要看方向、窗口和分离后的键宽，见 {@link #splitKeyboardDrawn}。 */
     boolean splitKeyboardPhoneLandscape;
@@ -3391,6 +3393,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
+        splitKeyboardGapExplicit = localSettings.has(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         splitKeyboardPhoneLandscape = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
@@ -5950,6 +5953,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
+
+    /** 空隙比例是不是用户显式设过，见 {@link #splitKeyboardGapExplicit}。 */
+    boolean splitKeyboardGapExplicit() { return splitKeyboardGapExplicit; }
 
     /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；手机横屏另由本机开关和分离后的键宽决定（{@link SplitKeyboardPolicy#phoneDrawn}，#10440）。每次按当前窗口配置重算。 */
     boolean splitKeyboardDrawn() {
