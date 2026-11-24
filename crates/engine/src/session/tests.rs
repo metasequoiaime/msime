@@ -12516,6 +12516,36 @@ INSERT INTO quick_parases VALUES('nihao','合成短语',10);",
     assert!(!words(&disabled).iter().any(|row| row == "か"));
 }
 
+/// 「快捷短语放最前」只挪没有指定位置的短语组；码表写了位置的行仍按名次摆放。
+#[test]
+fn quick_phrase_first_keeps_imported_positions() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200),('ni''hao','nh','拟好',100),\
+('ni''hao','nh','逆好',90),('ni''hao','nh','泥号',80),('ni''hao','nh','溺号',70),\
+('ni''hao','nh','腻号',60);",
+    );
+    let phrase = |key: &str, text: &str, position| crate::types::QuickPhraseEntry {
+        key: key.into(),
+        text: text.into(),
+        position,
+    };
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_first = true;
+        options.quick_phrase_table = vec![
+            phrase("nihao", "合成短语", None),
+            phrase("nihao", "か", Some(7)),
+            phrase("nihao", "☆", Some(6)),
+        ];
+    });
+
+    type_text(&mut session, "nihao");
+    let rows = words(&session);
+    assert_eq!(rows[0], "合成短语", "{rows:?}");
+    assert_eq!(&rows[5..7], ["☆", "か"], "{rows:?}");
+}
+
 /// 设置页的「快捷短语」开关同时管两种入口：关掉后普通候选里也不出现短语。
 #[test]
 fn the_quick_phrase_switch_also_keeps_phrases_out_of_regular_candidates() {

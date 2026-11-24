@@ -855,19 +855,24 @@ impl InputSession {
             }
         }
         self.insert_multilingual_row(&mut mixed);
-        if !self.prefix_active && self.local_mode == LocalInputMode::None {
-            self.queries.apply_quick_phrase_positions(
-                &self.engine.request().raw_input,
-                &mut mixed,
-                |row| self.is_url_completion(row),
-            );
-        }
+        let code = self.engine.request().raw_input.as_str();
         if self.quick_phrase_first && self.local_mode == LocalInputMode::None {
-            // 最后合并，避免英文首选、固定排位和异步候选的占位拆开快捷短语组。
+            // 最后合并，避免英文首选、固定排位和异步候选的占位拆开快捷短语组。码表写了位置的行不属于这一组，留给下面按名次摆放。
             let phrases: Vec<_> = mixed
-                .extract_if(.., |item| item.source == CandidateSource::QuickPhrase)
+                .extract_if(.., |item| {
+                    item.source == CandidateSource::QuickPhrase
+                        && self
+                            .queries
+                            .quick_phrase_position(code, &item.word)
+                            .is_none()
+                })
                 .collect();
             mixed.splice(..0, phrases);
+        }
+        // 放在「快捷短语放最前」之后：名次按最终列表计算，不被整组前移推开。
+        if !self.prefix_active && self.local_mode == LocalInputMode::None {
+            self.queries
+                .apply_quick_phrase_positions(code, &mut mixed, |row| self.is_url_completion(row));
         }
         mixed
     }
