@@ -98,11 +98,7 @@ final class CandidatePanelRefreshDeviceChecks {
         onMain(() -> {
             stage.accept((online ? "online" : "pause") + " refresh keeps expanded candidate panel");
             field(type, "renderingSuppressed").setBoolean(service, true);
-            method(type, "closeCandidatePanel").invoke(service);
-            method(type, "apply", String.class).invoke(service,
-                call("command", new Class<?>[] {long.class, int.class}, session, 3));
-            for (char letter : "nihao".toCharArray()) method(type, "apply", String.class).invoke(service,
-                call("character", new Class<?>[] {long.class, int.class, boolean.class}, session, (int) letter, false));
+            composePhrase();
             method(type, "openCandidatePanel").invoke(service);
             field(type, "renderingSuppressed").setBoolean(service, false);
             method(type, "render").invoke(service);
@@ -162,6 +158,15 @@ final class CandidatePanelRefreshDeviceChecks {
         });
     }
 
+    /** 清掉上一段组字，打一组新的 `nihao`；开面板由调用方按各自入口决定。 */
+    private void composePhrase() throws Exception {
+        method(type, "closeCandidatePanel").invoke(service);
+        method(type, "apply", String.class).invoke(service,
+            call("command", new Class<?>[] {long.class, int.class}, session, 3));
+        for (char letter : "nihao".toCharArray()) method(type, "apply", String.class).invoke(service,
+            call("character", new Class<?>[] {long.class, int.class, boolean.class}, session, (int) letter, false));
+    }
+
     private void cancelScheduledWork() throws Exception {
         Handler main = (Handler) field(type, "main").get(service);
         main.removeCallbacksAndMessages(null);
@@ -170,6 +175,8 @@ final class CandidatePanelRefreshDeviceChecks {
 
     private void typingInvalidatesPanel() throws Exception {
         stage.accept("typing still invalidates old expanded snapshot");
+        // 上一段的点按把画出来的那个词上屏、组字已经结束，面板打不开；先打一组新字再开面板。
+        composePhrase();
         method(type, "openCandidatePanel", boolean.class).invoke(service, true);
         check(field(type, "candidatePanelOpen").getBoolean(service), "panel opened before typing");
         JSONObject reply = value(call("character", new Class<?>[] {long.class, int.class, boolean.class},
