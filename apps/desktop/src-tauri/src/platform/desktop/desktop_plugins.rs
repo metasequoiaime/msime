@@ -149,7 +149,7 @@ pub async fn plugin_catalog(
     .await
 }
 
-/// Ask the user for a pack folder or `.zip` file with the platform's own dialog, and install it. `None` when the user closes the dialog.
+/// 通过系统选择器导入插件目录、ZIP 包或 TXT 辅助码表。用户取消时返回 `None`。
 #[tauri::command]
 pub async fn import_plugin_pack(
     app: tauri::AppHandle,
@@ -165,7 +165,7 @@ pub async fn import_plugin_pack(
             PluginImportSource::Folder => dialog.set_title("选择插件文件夹").blocking_pick_folder(),
             PluginImportSource::Archive => dialog
                 .set_title("选择插件")
-                .add_filter("插件", &["zip"])
+                .add_filter("插件压缩包或辅助码表", &["zip", "txt"])
                 .blocking_pick_file(),
         };
         let Some(picked) = picked else {

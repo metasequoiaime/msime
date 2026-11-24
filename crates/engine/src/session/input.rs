@@ -66,6 +66,8 @@ pub(super) struct InputSession {
     pub quick_phrase_candidates: bool,
     /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）：追加进普通候选的整组短语有槽位，越过它选普通候选让整组后退、选中组内短语让整组前移。
     pub quick_phrase_frequency: bool,
+    /// 用户选择把混输的快捷短语组放在普通候选最前面。
+    pub quick_phrase_first: bool,
     /// 宿主的每页候选数（`SessionOptions::first_page_rows`），0 归一成 1；快捷短语组调频的后退封顶（首页末位）用它算。
     pub first_page_rows: usize,
     pub clock: Clock,
@@ -198,6 +200,7 @@ impl InputSession {
             queries: CandidateQueries::new(&paths, profile),
             quick_phrase_candidates: options.quick_phrase_candidates,
             quick_phrase_frequency: options.quick_phrase_frequency,
+            quick_phrase_first: options.quick_phrase_first,
             first_page_rows: FirstPageRows::new(options.first_page_rows).get(),
             engine,
             clock: Clock::default(),

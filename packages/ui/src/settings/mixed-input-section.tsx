@@ -121,7 +121,9 @@ export function MixedInputMoreRows({
             title="快捷短语参与调频"
             description="常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移"
             checked={state.quickPhraseFrequencyChecked}
-            disabled={!state.enabled || !state.quickPhraseChecked}
+            disabled={
+              !state.enabled || !state.quickPhraseChecked || preferences.quick_phrase_first === true
+            }
             onChange={(quick_phrase_frequency) =>
               onChange({ ...preferences, quick_phrase_frequency })
             }

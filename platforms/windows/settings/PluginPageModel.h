@@ -735,7 +735,7 @@ inline std::wstring error_message(std::wstring_view code, std::wstring const &de
   if (code == L"plugin_archive")
     return L"压缩包无法读取" + reason + L"。";
   if (code == L"plugin_unsupported_source")
-    return L"只能导入插件文件夹或 .zip 文件。";
+    return L"请选择插件文件夹、ZIP 插件包或 TXT 辅助码表。";
   if (code == L"plugin_reserved")
     return L"这个 id 属于内置插件，不能覆盖或删除。";
   if (code == L"plugin_storage")

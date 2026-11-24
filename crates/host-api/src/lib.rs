@@ -943,6 +943,7 @@ impl HostSession {
         options.quick_phrase_candidates =
             self.quick_phrase_candidates_requested && preferences.mixed_input.quick_phrase;
         options.quick_phrase_frequency = preferences.mixed_input.quick_phrase_frequency;
+        options.quick_phrase_first = preferences.mixed_input.quick_phrase_first;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
         options.local_date_time_inline = preferences.local_modes.date_time_inline;
@@ -2686,6 +2687,7 @@ impl HostOptions {
             quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false)
                 && self.preferences.mixed_input.quick_phrase,
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
+            quick_phrase_first: self.preferences.mixed_input.quick_phrase_first,
             helpcode_table: None,
             helpcode_fallback_resources,
             // 用户自己的辅助码表放在状态根下（`msime_client_core::helpcode::user_helpcode_root`），`resources` 是安装包或词库代次，升级会换掉它。

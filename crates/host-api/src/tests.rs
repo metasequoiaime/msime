@@ -7,6 +7,7 @@ use super::*;
 mod ai_pinyin_alignment;
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
+mod desktop_helpcode_import;
 mod local_translation;
 mod mobile_clipboard_retention;
 
@@ -417,6 +418,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         custom_helpcode_root: None,
@@ -1733,6 +1735,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
             symbols: false,
             quick_phrase: false,
             quick_phrase_frequency: true,
+            quick_phrase_first: false,
         },
         ..Preferences::default()
     };
@@ -5370,6 +5373,7 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
                 symbols: false,
                 quick_phrase: false,
                 quick_phrase_frequency: true,
+                quick_phrase_first: false,
             },
             ..chinese_preferences()
         },
@@ -18836,8 +18840,11 @@ fn the_quick_phrase_candidates_preference_gates_the_host_capability() {
         rusqlite::Connection::open(directory.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
-                 INSERT INTO quick_parases VALUES('dh','电话',10);",
+                "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100);
+                 CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO quick_parases VALUES('nihao','短语甲',20);
+                 INSERT INTO quick_parases VALUES('nihao','短语乙',10);",
             )
             .unwrap();
     }
@@ -18855,13 +18862,24 @@ fn the_quick_phrase_candidates_preference_gates_the_host_capability() {
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
-    let rows = local_mode_candidates(handle, b"dh");
-    assert!(!rows.contains(&"电话".to_owned()), "{rows:?}");
+    let rows = local_mode_candidates(handle, b"nihao");
+    assert!(!rows.contains(&"短语甲".to_owned()), "{rows:?}");
 
     preferences.mixed_input.quick_phrase = true;
     assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
-    let rows = local_mode_candidates(handle, b"dh");
-    assert!(rows.contains(&"电话".to_owned()), "{rows:?}");
+    let rows = local_mode_candidates(handle, b"nihao");
+    assert_eq!(rows.first().map(String::as_str), Some("你好"));
+    assert!(rows.contains(&"短语甲".to_owned()), "{rows:?}");
+
+    preferences.mixed_input.quick_phrase_first = true;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    let prioritized = local_mode_candidates(handle, b"nihao");
+    assert_eq!(prioritized[..3], ["短语甲", "短语乙", "你好"]);
+    assert!(!local_mode_candidates(handle, b"niha").contains(&"短语甲".to_owned()));
+
+    preferences.mixed_input.quick_phrase_first = false;
+    assert_eq!(update(handle, 3, &preferences)["value"]["deferred"], false);
+    assert_eq!(local_mode_candidates(handle, b"nihao"), rows);
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 

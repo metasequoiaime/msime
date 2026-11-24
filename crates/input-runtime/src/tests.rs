@@ -5550,6 +5550,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         custom_helpcode_root: None,

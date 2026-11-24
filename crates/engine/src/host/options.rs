@@ -180,6 +180,8 @@ pub struct EngineOptions {
     pub quick_phrase_candidates: bool,
     /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）。
     pub quick_phrase_frequency: bool,
+    /// 用户选择把混输的快捷短语组放在普通候选最前面。
+    pub quick_phrase_first: bool,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
@@ -358,6 +360,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
@@ -535,6 +538,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         quick_phrase_table: options.quick_phrase_table.clone(),
         quick_phrase_candidates: options.quick_phrase_candidates,
         quick_phrase_frequency: options.quick_phrase_frequency,
+        quick_phrase_first: options.quick_phrase_first,
         chaizi_traditional_output: options.chaizi_traditional_output,
     })
 }
