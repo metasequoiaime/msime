@@ -4079,6 +4079,41 @@ fn shuangpin_direct_helpcode_slash_and_uppercase_endings() {
     assert_ne!(words(&upper_off), ["实"]);
 }
 
+#[test]
+fn standalone_direct_helpcode_works_without_end_direct_mode() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_h VALUES('hao','h','耗',100),('hao','h','好',90);\
+         CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_h VALUES('hao''ne','hn','好呢',10000);",
+    );
+    for enabled in [false, true] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.helpcode = true;
+            options.shuangpin_helpcode_modes = direct_modes(false, false);
+            options.shuangpin_helpcode_modes.direct_helpcode = enabled;
+            options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+                [
+                    ("耗".to_owned(), "xj".to_owned()),
+                    ("好".to_owned(), "nz".to_owned()),
+                ]
+                .into_iter()
+                .collect(),
+            )));
+        });
+        type_text(&mut session, "hcn");
+        if enabled {
+            assert_eq!(words(&session)[0], "好");
+            assert_eq!(session.select(0).commit.as_deref(), Some("好"));
+            assert!(session.snapshot().editing_text.is_empty());
+        } else {
+            assert_eq!(words(&session)[0], "好呢");
+        }
+    }
+}
+
 /// `direct_helpcode` 出厂关：万象式逐音节切分不生效，`tartantab` 不再解出三个
 /// 各带一码的音节；开着时才回到万象式行为。
 #[test]
