@@ -127,6 +127,33 @@ def volcengine_successor_model(successors, endpoint, model):
     return successors.get(model.strip())
 
 
+def probe_chat_body(model, max_tokens=1):
+    """测试配置的对话请求体：`max_tokens` 与思考档位按模型族改写，规则与 `client-providers/src/credential/probe.rs` 一致。
+
+    OpenAI 的 GPT-6 家族不认 `max_tokens`，要 `max_completion_tokens`，并且强制思考；只发 `{"max_tokens": 1}` 时服务直接拒绝，Linux 的配置测试就永远失败（#11833）。gpt-6-luna、gpt-6-sol 用 `reasoning_effort: none`，gpt-6-astra、gpt-6.1-sol 用 `low`；聚合网关的 `openai/gpt-6-sol-2026-10-01` 这类名先去掉最后一个 `/` 前缀再比。glm-5.3 同样只支持 `max_completion_tokens`。其余模型保持原来的 `max_tokens`，探测不为多花的输出预算付钱。
+    """
+    body = {"model": model, "stream": False, "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": "Reply OK"}]}
+    canonical = model.rsplit("/", 1)[-1].strip().lower()
+
+    def is_family(name):
+        return canonical == name or canonical.startswith(name + "-")
+
+    if is_family("gpt-6-luna") or is_family("gpt-6-sol"):
+        effort = "none"
+    elif is_family("gpt-6-astra") or is_family("gpt-6.1-sol"):
+        effort = "low"
+    elif is_family("glm-5.3"):
+        effort = "low"
+    else:
+        effort = None
+    if effort is not None:
+        body.pop("max_tokens", None)
+        body["max_completion_tokens"] = 512
+        body["reasoning_effort"] = effort
+    return body
+
+
 def disables_ark_seed_thinking(provider, endpoint, model):
     """火山方舟上的豆包 Seed 默认开着深度思考，联想、释义和润色这类短请求要显式发 thinking.type = disabled。
 
