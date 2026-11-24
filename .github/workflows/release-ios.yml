@@ -160,7 +160,8 @@ jobs:
         id: notes
         if: ${{ inputs.testflight }}
         continue-on-error: true
-        env: {GH_TOKEN: "${{ github.token }}", PUBLISH: "${{ inputs.publish }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", BUILD_NUMBER: "${{ steps.build-number.outputs.value }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        # 生成器经 gh 读 PR 的作者和关闭的 issue（致谢与「修复 #N」靠它）；这个 workflow 的 github.token 只有 contents 权限读不到 PR，与下面的发布步骤一样优先用 RELEASE_PUBLISH_TOKEN。
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", PUBLISH: "${{ inputs.publish }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", BUILD_NUMBER: "${{ steps.build-number.outputs.value }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           set -euo pipefail
           head=$(git rev-parse HEAD)
@@ -168,7 +169,7 @@ jobs:
           if [[ "$PUBLISH" != true ]]; then
             state=$(gh release view nightly --repo "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null | awk 'found { print; exit } /^<!-- msime-nightly-state$/ { found = 1 }' || true)
             start=$(printf '%s' "$state" | jq -r '.platforms.ios.source // empty' 2>/dev/null || true)
-            if [[ -n "$start" ]] && ! git cat-file -e "${start}^{commit}" 2>/dev/null; then start=; fi
+            [[ "$start" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${start}^{commit}" 2>/dev/null || start=
           fi
           if [[ -z "$start" ]]; then
             stable='^ios-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
@@ -177,7 +178,9 @@ jobs:
           notes="$RUNNER_TEMP/testflight-notes.md"
           python3 scripts/generate-release-notes.py --platform ios --version "$RELEASE" --start-tag "$start" --end-ref "$head" --output "$notes"
           footer="构建 ${BUILD_NUMBER} · 源码 ${head:0:10}"
-          [[ -z "$start" || "$start" == "$head" ]] || footer+=$'\n'"完整改动：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${start:0:12}...${head:0:12}"
+          # 起点可能是标签，链接和比较都用它指向的提交。
+          base=$([[ -n "$start" ]] && git rev-parse "${start}^{commit}" || true)
+          [[ -z "$base" || "$base" == "$head" ]] || footer+=$'\n'"完整改动：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${base:0:12}...${head:0:12}"
           { echo "file=$notes"; echo "footer<<EOF"; echo "$footer"; echo EOF; } >> "$GITHUB_OUTPUT"
           cat "$notes"
       - name: Hand the build to its testers

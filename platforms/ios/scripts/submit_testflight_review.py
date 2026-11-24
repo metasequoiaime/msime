@@ -43,6 +43,8 @@ def testflight_text(markdown: str, footer: str = "") -> str:
     lines = []
     for line in markdown.strip().splitlines():
         line = re.sub(r"^#{1,6}\s+", "", line.rstrip())
+        # 单独成行的粗体是分小组的领域名（「**输入**」），去掉星号后就混进正文了，改用方头括号标出来。
+        line = re.sub(r"^\*\*([^*]+)\*\*(.*)$", lambda m: f"【{m[1]}】{m[2]}" if not m[2].startswith("：") else f"{m[1]}{m[2]}", line)
         line = line.replace("**", "").replace("`", "")
         if line or (lines and lines[-1]):
             lines.append(line)
@@ -198,7 +200,7 @@ def main() -> int:
         try:
             text = testflight_text(arguments.whats_new_file.read_text(encoding="utf-8"), arguments.whats_new_footer)
             locales = set_whats_new(auth, arguments.app, build["id"], text)
-            print(f"What to Test set for {', '.join(locales)} ({len(text)} characters)", flush=True)
+            print(f"What to Test set for {', '.join(locales)} ({utf16_length(text)} UTF-16 units)", flush=True)
         except (Failure, OSError, KeyError) as error:
             whats_new_error = error
             print(f"::error::What to Test was not set: {error}", flush=True)

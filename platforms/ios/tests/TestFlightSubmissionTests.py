@@ -204,9 +204,12 @@ class TestFlightSubmissionTests(unittest.TestCase):
 
     def test_release_notes_become_plain_text_for_testflight(self):
         """TestFlight 不渲染 Markdown，标题井号、粗体星号和反引号都会原样出现在测试者面前。"""
-        markdown = "## v0.54.0-beta 更新内容\n\n### ✨ 新功能\n\n**输入**\n\n- 双拼下按 `Shift+Enter` 上屏全拼 (#1)\n\n\n### 🐛 问题修复\n\n- 修好了 (#2)\n"
+        markdown = ("## v0.54.0-beta 更新内容\n\n### ✨ 新功能\n\n**输入**\n\n- 双拼下按 `Shift+Enter` 上屏全拼 (#1)\n"
+                    "- **中英混合滑行**：同一笔轨迹给中英文候选 (#3)\n\n**新安装的默认配置**（老用户升级不受影响）\n\n\n### 🐛 问题修复\n\n- 修好了 (#2)\n")
         text = self.module.testflight_text(markdown, "完整改动：https://example.test/compare/a...b")
-        self.assertEqual(text, "v0.54.0-beta 更新内容\n\n✨ 新功能\n\n输入\n\n- 双拼下按 Shift+Enter 上屏全拼 (#1)\n\n"
+        # 单独成行的粗体是小组名，用方头括号标出；条目开头的「**名称**：」只去星号。
+        self.assertEqual(text, "v0.54.0-beta 更新内容\n\n✨ 新功能\n\n【输入】\n\n- 双拼下按 Shift+Enter 上屏全拼 (#1)\n"
+                               "- 中英混合滑行：同一笔轨迹给中英文候选 (#3)\n\n【新安装的默认配置】（老用户升级不受影响）\n\n"
                                "🐛 问题修复\n\n- 修好了 (#2)\n\n完整改动：https://example.test/compare/a...b")
 
     def test_long_notes_are_cut_at_a_line_and_keep_the_footer(self):

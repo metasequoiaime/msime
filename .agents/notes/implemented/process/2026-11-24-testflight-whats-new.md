@@ -10,8 +10,8 @@ iOS nightly 每天把一个新构建送进 TestFlight（内部组，版本号已
 
 `release-ios.yml` 在上传 TestFlight 后、分发之前，用 `generate-release-notes.py --platform ios` 生成这一版的说明，`submit_testflight_review.py --whats-new-file` 在构建处理完成后、加入外部组和提交审核之前，把它写进这个构建的 `whatsNew`。
 
-- **起点**：nightly 取滚动 release `nightly` 正文状态里的 `platforms.ios.source`，即上一个送进 TestFlight 的 iOS nightly 的源码提交。整轮 nightly 因别的平台失败时这个字段照样更新；前一天 iOS 失败时它不动，今天的说明自动累积两天的改动。字段缺失或提交不在仓库里时，退回最近的 `ios-v*` 标签。正式发布直接用与「Publish independent iOS release」同一条规则选标签。
-- **格式**：TestFlight 不渲染 Markdown，`testflight_text` 去掉标题井号、粗体星号和反引号；上限 4000 按 UTF-16 码元计（分组标题的 🐛 占两个），超出时在整行处截断，页脚（构建号、源码提交、GitHub compare 链接）始终保留。
+- **起点**：nightly 取滚动 release `nightly` 正文状态里的 `platforms.ios.source`，即上一个送进 TestFlight 的 iOS nightly 的源码提交。整轮 nightly 因别的平台失败时这个字段照样更新；前一天 iOS 失败时它不动，今天的说明自动累积两天的改动。字段缺失、不是 40 位十六进制提交号或提交不在仓库里时，退回最近的 `ios-v*` 标签。正式发布直接用与「Publish independent iOS release」同一条规则选标签。页脚的 compare 链接用起点指向的提交，不用标签名截断。生成器经 `gh` 读 PR 的作者和关闭的 issue，`release-ios.yml` 的 `github.token` 只有 contents 权限读不到 PR，所以和发布步骤一样优先用 `RELEASE_PUBLISH_TOKEN`，否则致谢和「修复 #N」会悄悄丢掉。
+- **格式**：TestFlight 不渲染 Markdown，`testflight_text` 去掉标题井号、粗体星号和反引号，单独成行的粗体小组名改写成「【输入】」；上限 4000 按 UTF-16 码元计（分组标题的 🐛 占两个），超出时在整行处截断，页脚（构建号、源码提交、GitHub compare 链接）始终保留。
 - **语言**：写进应用主语言和每个已有的测试信息语言（`betaAppLocalizations`）；Apple 已替构建建好的语言条目用 PATCH 改，没有的 POST 新建。
 - **失败**：生成步骤 `continue-on-error`；写入失败（文件缺失、API 报错）时打 `::error::`，照常分发和提交审核，最后让这一步以 1 退出。测试者拿不到构建比拿到没写说明的构建更糟，但说明不能再悄悄空着。
 
