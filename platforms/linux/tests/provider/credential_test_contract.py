@@ -344,5 +344,54 @@ class VoiceCredentialTest(unittest.TestCase):
         self.assertNotIn("private detail", result["message"])
 
 
+class ProbeChatBodyTest(unittest.TestCase):
+    """配置测试的请求体按模型族改写，与 desktop 的 probe.rs 同一条规则。"""
+
+    def test_gpt6_families_use_completion_tokens_and_effort(self):
+        for model, effort in (
+                ("gpt-6-luna", "none"),
+                ("openai/gpt-6-sol-2026-10-01", "none"),
+                ("gpt-6-astra", "low"),
+                ("gpt-6.1-sol", "low"),
+                ("GLM-5.3", "low")):
+            with self.subTest(model=model):
+                body = online.probe_chat_body(model)
+                self.assertNotIn("max_tokens", body)
+                self.assertEqual(body["max_completion_tokens"], 512)
+                self.assertEqual(body["reasoning_effort"], effort)
+                self.assertEqual(body["model"], model)
+
+    def test_other_models_keep_the_small_probe_budget(self):
+        for model in ("gpt-6", "gpt-6-mini", "glm-5-3-flash-260828", "doubao-seed-2-0-mini"):
+            with self.subTest(model=model):
+                body = online.probe_chat_body(model)
+                self.assertEqual(body["max_tokens"], 1)
+                self.assertNotIn("max_completion_tokens", body)
+                self.assertNotIn("reasoning_effort", body)
+
+    def test_ai_credential_test_sends_the_adapted_body(self):
+        gpt6 = {"provider": "openai", "endpoint": "https://fixture.invalid/chat",
+                "model": "gpt-6-luna", "token": "fixture-private-token"}
+        with mock.patch.object(online, "load_ai_config", return_value=gpt6), \
+                mock.patch.object(online, "fetch", return_value={"choices": [{"message": {}}]}) as fetch:
+            self.assertTrue(online.ai_credential_test(
+                {"provider": "openai", "endpoint": gpt6["endpoint"], "model": "gpt-6-luna"},
+                Path("/private/ai.json")))
+        body = fetch.call_args.args[2]
+        self.assertNotIn("max_tokens", body)
+        self.assertEqual(body["max_completion_tokens"], 512)
+        self.assertEqual(body["reasoning_effort"], "none")
+
+    def test_voice_polish_probe_sends_the_adapted_body(self):
+        config = {"provider": "openai", "endpoint": "https://fixture.invalid/chat",
+                  "model": "gpt-6-sol", "token": "fixture-private-token"}
+        with mock.patch.object(voice, "polish_request", return_value={"choices": [{"message": {}}]}) as post:
+            self.assertTrue(voice.polish_credential_test(config))
+        body = post.call_args.args[1]
+        self.assertNotIn("max_tokens", body)
+        self.assertEqual(body["max_completion_tokens"], 512)
+        self.assertEqual(body["reasoning_effort"], "none")
+
+
 if __name__ == "__main__":
     unittest.main()
