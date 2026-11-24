@@ -62,8 +62,18 @@ pub fn import(source: &Path, root: &Path) -> Result<PluginSummary, PluginError> 
     import_inner(source, root, true)
 }
 
-/// 有脚本插件授权页的设置宿主用的 `import`：桌面外壳的设置页（macOS、Linux），以及经 `msime_client_plugins` 声明了 `script_page` 的 Windows 原生设置应用。三个桌面平台的 release 构建都运行脚本（与 host-api 的 `msime_client_scripts_enable` 一致），所以接受脚本包，导入后要在授权页上授权才会运行。移动端没有 `script` 这个类型，清单解析时就拒绝。
+/// 桌面设置的文件选择器也能交来一个 `.txt` 辅助码表，由同一个安装流程把它变成插件包。桌面外壳（macOS、Linux）和经 `msime_client_plugins` 声明 `script_page` 的 Windows 原生设置使用这个入口。三个桌面平台的 release 构建都运行脚本（与 host-api 的 `msime_client_scripts_enable` 一致），所以接受脚本包，导入后要在授权页上授权才会运行。移动端没有 `script` 这个类型，清单解析时就拒绝。
 pub fn import_from_settings(source: &Path, root: &Path) -> Result<PluginSummary, PluginError> {
+    if source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case(super::helpcode_pack::TABLE_EXTENSION)
+        })
+        && fs::symlink_metadata(source).is_ok_and(|metadata| metadata.is_file())
+    {
+        return super::helpcode_pack::import_file(root, source);
+    }
     import_inner(source, root, true)
 }
 

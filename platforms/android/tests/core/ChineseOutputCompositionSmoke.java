@@ -55,11 +55,16 @@ public final class ChineseOutputCompositionSmoke {
     }
 
     private static void finish(EditorBridge bridge, Editor editor, String drawn, String settled) {
+        finish(bridge, editor, drawn, settled, false);
+    }
+
+    private static void finish(EditorBridge bridge, Editor editor, String drawn, String settled,
+            boolean keyLetters) {
         String marked = ChineseOutputCompositionSync.markedText(
             new MarkedText(editor.text, editor.composingStart, editor.composingEnd),
             editor.composingStart, editor.composingEnd);
         bridge.finishInPlace(editor, drawn, settled, marked, editor.composingStart, editor.composingEnd,
-            editor.selectionStart, editor.selectionEnd);
+            editor.selectionStart, editor.selectionEnd, keyLetters);
         check(editor.composingStart == -1, "composition is finished");
     }
 
@@ -152,7 +157,7 @@ public final class ChineseOutputCompositionSmoke {
         bridge.refreshComposition(editor, "海灘", "", start, end,
             editor.selectionStart, editor.selectionEnd);
         bridge.finishInPlace(editor, "海灘", "海灘", null, start, end,
-            editor.selectionStart, editor.selectionEnd);
+            editor.selectionStart, editor.selectionEnd, false);
         check(editor.text.equals("前海滩后文") && editor.writes == writes,
             "lost or empty mark never inserts at the caret or overwrites selection");
         check(editor.selectionStart == 0 && editor.selectionEnd == editor.text.length(),
@@ -176,14 +181,37 @@ public final class ChineseOutputCompositionSmoke {
         editor.select(0, 1);
         int writes = editor.writes;
         bridge.finishInPlace(editor, "海灘", "海灘", null, start, end,
-            editor.selectionStart, editor.selectionEnd);
+            editor.selectionStart, editor.selectionEnd, false);
         check(editor.text.equals("前海滩后文") && editor.writes == writes
                 && editor.composingStart == -1 && editor.selectionStart == 0 && editor.selectionEnd == 1,
             "unreadable mark finishes without unverified replacement or selection changes");
         editor = composing(bridge, "n");
         bridge.finishInPlace(editor, "n", "ん", null, editor.composingStart, editor.composingEnd,
-            editor.selectionStart, editor.selectionEnd);
+            editor.selectionStart, editor.selectionEnd, false);
         check(editor.text.equals("前n后文"), "unreadable Japanese mark is not blindly replaced");
+    }
+
+    private static void keyLettersThenCaretOut() {
+        EditorBridge bridge = new EditorBridge();
+        Editor editor = composing(bridge, "nihao");
+        editor.select(0, 0);
+        finish(bridge, editor, "nihao", "nihao", true);
+        check(editor.text.equals("前后文"), "key-letter composition is removed instead of typed out");
+        check(editor.selectionStart == 0 && editor.selectionEnd == 0,
+            "key-letter removal leaves the caret where the editor asked for");
+        editor = composing(bridge, "nihao");
+        editor.select(editor.text.length(), editor.text.length());
+        finish(bridge, editor, "nihao", "nihao", true);
+        check(editor.text.equals("前后文") && editor.selectionStart == 3,
+            "key-letter removal keeps the editor's caret position");
+        editor = composing(bridge, "nihao");
+        editor.text = "前ni后文";
+        editor.composingStart = 1;
+        editor.composingEnd = 3;
+        int writes = editor.writes;
+        finish(bridge, editor, "nihao", "nihao", true);
+        check(editor.text.equals("前ni后文") && editor.writes == writes,
+            "a region this bridge did not write is never deleted");
     }
 
     private static void nonChineseAndUnchanged() {
@@ -224,6 +252,7 @@ public final class ChineseOutputCompositionSmoke {
         lostMark(1, 1);
         unreadableMark();
         nonChineseAndUnchanged();
+        keyLettersThenCaretOut();
         System.out.println("Chinese output mid-composition sync/finish smoke passed");
     }
 }

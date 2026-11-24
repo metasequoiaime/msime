@@ -4834,8 +4834,9 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
             kaomoji: true,
             japanese: false,
             symbols: true,
-            quick_phrase: true,
+            quick_phrase: !cfg!(target_os = "android"),
             quick_phrase_frequency: true,
+            quick_phrase_first: false,
         }
     );
     fs::write(store.path(), &bytes).unwrap();
@@ -4850,6 +4851,7 @@ fn mixed_input_legacy_roundtrip_and_bounds() {
                 symbols: mask & 16 == 0,
                 quick_phrase: true,
                 quick_phrase_frequency: true,
+                quick_phrase_first: false,
                 minimum_prefix: mask % 8 + 1,
                 first_page_count: 1,
             },
@@ -11814,4 +11816,29 @@ fn wubi_phrase_learning_is_not_a_recognized_preference() {
     let parsed: Preferences = serde_json::from_value(document).unwrap();
     let written = serde_json::to_value(&parsed).unwrap();
     assert!(written.get("wubi_phrase_learning").is_none());
+}
+
+#[test]
+fn quick_phrase_priority_round_trips_without_enabling_mixed_input() {
+    let mut mixed = MixedInputPreferences::default();
+    let mut old = serde_json::to_value(&mixed).unwrap();
+    assert!(old.get("quick_phrase_first").is_none());
+    old.as_object_mut().unwrap().remove("quick_phrase");
+    let legacy: MixedInputPreferences = serde_json::from_value(old).unwrap();
+    assert_eq!(legacy.quick_phrase, !cfg!(target_os = "android"));
+    assert!(!legacy.quick_phrase_first);
+
+    mixed.quick_phrase_first = true;
+    for enabled in [false, true] {
+        mixed.quick_phrase = enabled;
+        let saved = serde_json::to_value(&mixed).unwrap();
+        if cfg!(target_os = "android") || !enabled {
+            assert_eq!(saved["quick_phrase"], enabled);
+        }
+        assert_eq!(saved["quick_phrase_first"], true);
+        assert_eq!(
+            serde_json::from_value::<MixedInputPreferences>(saved).unwrap(),
+            mixed
+        );
+    }
 }

@@ -113,7 +113,8 @@ impl InputSession {
 
     /// 快捷短语参与调频（`mixed_input.quick_phrase_frequency`，Windows `utility.quick_phrase_frequency`）：组在普通候选里时，选中组内短语让整组按调频规则前移，越过整组选普通候选让整组后退一格、最多退到首页末位（`learn_quick_phrase_order`，input_session.cpp:1054-1096）。
     fn learn_quick_phrase_order(&mut self, index: usize) -> Option<String> {
-        if !self.quick_phrase_frequency
+        if self.quick_phrase_first
+            || !self.quick_phrase_frequency
             || self.frequency.mode == FrequencyAdjustmentMode::Disabled
             || !self.quick_phrase_candidates
             || self.local_mode != LocalInputMode::None

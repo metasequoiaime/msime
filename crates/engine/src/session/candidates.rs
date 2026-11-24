@@ -136,7 +136,8 @@ impl InputSession {
             {
                 let code = self.engine.request().raw_input.clone();
                 // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时落在首页尾部，普通候选不满一页时接在它们后面。
-                let slot = (self.quick_phrase_frequency
+                let slot = (!self.quick_phrase_first
+                    && self.quick_phrase_frequency
                     && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
                     .then(|| {
                         crate::user_dictionary::ranking::quick_phrase_slot(
@@ -871,6 +872,13 @@ impl InputSession {
             }
         }
         self.insert_multilingual_row(&mut mixed);
+        if self.quick_phrase_first && self.local_mode == LocalInputMode::None {
+            // 最后合并，避免英文首选、固定排位和异步候选的占位拆开快捷短语组。
+            let phrases: Vec<_> = mixed
+                .extract_if(.., |item| item.source == CandidateSource::QuickPhrase)
+                .collect();
+            mixed.splice(..0, phrases);
+        }
         mixed
     }
 

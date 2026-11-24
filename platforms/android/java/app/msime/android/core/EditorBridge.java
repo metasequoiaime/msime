@@ -94,15 +94,21 @@ public final class EditorBridge {
     }
 
     public void finishInPlace(Sink sink, String drawn, String settled, String marked,
-            int composingStart, int composingEnd, int selectionStart, int selectionEnd) {
-        if (composingText == null || !composingText.equals(marked)
-                || drawn.equals(settled) && composingText.equals(settled))
+            int composingStart, int composingEnd, int selectionStart, int selectionEnd,
+            boolean keyLetters) {
+        boolean ours = composingText != null && composingText.equals(marked);
+        // 组字区里是按键本身时结束它就是把拼音、读音字母写成正文：只在本桥写下的那一段上动手，和笔画一样删掉。
+        if (keyLetters && ours) {
+            discard(sink, composingStart, composingEnd, selectionStart, selectionEnd);
+            return;
+        }
+        if (!ours || drawn.equals(settled) && composingText.equals(settled))
             abandon(sink);
         else settle(sink, settled, composingStart, composingEnd, selectionStart, selectionEnd);
     }
 
     /**
-     * Removes the marked composition instead of leaving it in the document, for a composition that is not text the user wrote: Stroke marks its stroke glyphs (一丨丿丶乛＊), and `commits_on_blur` is false, so finishing the region would write those glyphs as real characters. The editor's new selection is put back where the user moved it, shifted left by the removed text when it lies after the region. Without a reported region (composingStart < 0) the region is still removed, which leaves the caret where the composition was rather than corrupting the text.
+     * Removes the marked composition instead of leaving it in the document, for a composition that is not text the user wrote: Stroke marks its stroke glyphs (一丨丿丶乛＊), Quanpin, Shuangpin, Wubi and Cantonese mark the keys themselves, and `commits_on_blur` is false for all of them, so finishing the region would write those glyphs or letters as real characters. The editor's new selection is put back where the user moved it, shifted left by the removed text when it lies after the region. Without a reported region (composingStart < 0) the region is still removed, which leaves the caret where the composition was rather than corrupting the text.
      */
     public void discard(Sink sink, int composingStart, int composingEnd, int selectionStart, int selectionEnd) {
         composing = false;

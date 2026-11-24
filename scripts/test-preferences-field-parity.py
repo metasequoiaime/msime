@@ -48,6 +48,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "android_keyboard_skin_dark",
         # 组字时保留 Shift 只由 Android 与 iOS 的原生键盘设置页提供，其他宿主没有触屏全拼 26 键，React 设置页不显示。
         "touch_quanpin_shift",
+        # 全拼九键精确拼写只在 Android 与 iOS 的原生键盘设置页提供。
+        "touch_nine_key_precise",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
         # 五笔自造词落库位置：共享 Rust 与 host-api 先行，AGENTS.md 禁止向 React 新增设置，入口随各平台原生设置页接入。

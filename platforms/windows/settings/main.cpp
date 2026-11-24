@@ -14956,7 +14956,13 @@ private:
                std::wstring(msime::settings::quick_phrase::title),
                std::wstring(msime::settings::quick_phrase::description),
                std::wstring(msime::settings::quick_phrase::preference),
-               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+               msime::settings::quick_phrase::fallback, true, mixed_enabled, true);
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::first_title),
+               std::wstring(msime::settings::quick_phrase::first_description),
+               std::wstring(msime::settings::quick_phrase::first_preference), false, false,
+               mixed_enabled && document_.Boolean(msime::settings::quick_phrase::preference,
+                   msime::settings::quick_phrase::fallback, true));
       // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
@@ -21210,7 +21216,7 @@ private:
     redraw_plugins();
   }
 
-  // 导入用的系统对话框，与 Tauri 一样分成文件夹和 .zip 两种：系统的对话框只能选文件或只能选文件夹。用户取消或对话框打不开时返回空。
+  // 导入对话框分文件夹与文件两种；文件可选 ZIP 插件包或 TXT 辅助码表。用户取消或对话框打不开时返回空。
   std::optional<std::filesystem::path> pick_plugin_source(bool folder) {
     com_ptr<IFileDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -21222,7 +21228,7 @@ private:
       dialog->SetTitle(L"选择插件文件夹");
       dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
     } else {
-      const COMDLG_FILTERSPEC filter{L"插件", L"*.zip"};
+      const COMDLG_FILTERSPEC filter{L"插件压缩包或辅助码表", L"*.zip;*.txt"};
       dialog->SetFileTypes(1, &filter);
       dialog->SetTitle(L"选择插件");
       dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
@@ -22001,7 +22007,7 @@ private:
     build_plugin_list(page);
   }
 
-  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
+  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip 或 .txt」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
   void build_plugin_list(StackPanel const &page) {
     const auto modes = plugin_table_modes();
     const bool loaded = plugin_catalog_state_ == PluginCatalogState::loaded;
@@ -22083,7 +22089,7 @@ private:
       rows.emplace_back(L"create", create);
     }
     for (bool folder : {true, false}) {
-      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip";
+      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip 或 .txt";
       record(label, L"");
       auto button = button_control(label, [this, folder] { import_plugin_pack(folder); }, !plugins_busy_);
       mark_search_target(label, button);

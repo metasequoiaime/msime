@@ -44,7 +44,7 @@ public final class FourteenKeyLetterWidthsSmoke {
         variedMatchesTheIssue();
         everyLetterKeyIsPlacedOnce();
         unofferedCombinationsStillCompute();
-        padsMakeUpTheMissingKeyGaps();
+        equalLastRowFillsTheFirstRowTotal();
         System.out.println("Android 14/18-key letter widths passed");
     }
 
@@ -69,7 +69,7 @@ public final class FourteenKeyLetterWidthsSmoke {
         check(rejected, "单字母键份额不能超过双字母键");
     }
 
-    /** 默认值不能改变任何人的键盘：等宽逐格等于改动前 `rebuildFourteenKeyRows` 用的份额。 */
+    /** 等宽：前两排逐格等于原来的份额；第三排分词和 ⌫ 与 26 键 ⇧、⌫ 同宽，字母键平分中间，与首排合计相同。 */
     private static void equalKeepsTodaysWeights() {
         List<List<FourteenKeyLetterWidths.Cell>> eighteen = eighteen(FourteenKeyLetterWidths.Mode.EQUAL);
         check(eighteen.stream().map(List::size).toList().equals(List.of(7, 6, 7)), "18 键等宽没有占位格");
@@ -77,14 +77,15 @@ public final class FourteenKeyLetterWidthsSmoke {
             for (FourteenKeyLetterWidths.Cell cell : row) near(cell.weight(), 1f, "18 键等宽每格 1 份");
         List<List<FourteenKeyLetterWidths.Cell>> fourteen = fourteen(FourteenKeyLetterWidths.Mode.EQUAL);
         check(fourteen.stream().map(List::size).toList().equals(List.of(5, 5, 6)), "14 键等宽没有占位格");
-        for (List<FourteenKeyLetterWidths.Cell> row : fourteen) {
-            for (FourteenKeyLetterWidths.Cell cell : row) {
-                float expected = cell.kind() == FourteenKeyLetterWidths.Kind.EDGE
-                    ? KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT : FourteenKeyLayout.LETTER_WEIGHT;
-                near(cell.weight(), expected, "14 键等宽：字母键 2 份、分词和 ⌫ 1.4 份");
+        for (int index = 0; index < fourteen.size(); index++) {
+            boolean last = index == fourteen.size() - 1;
+            for (FourteenKeyLetterWidths.Cell cell : fourteen.get(index)) {
+                float expected = cell.kind() == FourteenKeyLetterWidths.Kind.EDGE ? KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT
+                    : last ? 1.75f : FourteenKeyLayout.LETTER_WEIGHT;
+                near(cell.weight(), expected, "14 键等宽：字母键 2 份（第三排 1.75 份）、分词和 ⌫ 1.5 份");
             }
         }
-        near(share(fourteen.get(2), 0), 1.4f / 10.8f, "14 键等宽分词约占 13%");
+        near(share(fourteen.get(2), 0), 0.15f, "14 键等宽分词占 15%，与 26 键 ⇧ 相同");
     }
 
     /** #11051 正文表格里的比例。 */
@@ -132,15 +133,15 @@ public final class FourteenKeyLetterWidthsSmoke {
             .equals(List.of("a", "sd", "fg", "h", "jk", "l")), "18 键第二排键序不变");
     }
 
-    /** 占位格朝外补的半键距：每排扣掉的键距一样多，三排的单位宽度才相同。 */
-    private static void padsMakeUpTheMissingKeyGaps() {
-        List<List<FourteenKeyLetterWidths.Cell>> eighteen = eighteen(FourteenKeyLetterWidths.Mode.VARIED);
-        check(FourteenKeyLetterWidths.padHalfGaps(eighteen, 0) == 0, "18 键首排没有要补的");
-        check(FourteenKeyLetterWidths.padHalfGaps(eighteen, 1) == 1, "18 键宽窄第二排少一个键，两端各补一个半键距");
-        check(FourteenKeyLetterWidths.padHalfGaps(eighteen, 2) == 0, "18 键第三排五个字母加分词和 ⌫，与首排一样七格");
-        List<List<FourteenKeyLetterWidths.Cell>> fourteen = fourteen(FourteenKeyLetterWidths.Mode.VARIED);
-        check(FourteenKeyLetterWidths.padHalfGaps(fourteen, 1) == 0, "14 键前两排都是五个键，占位格不补");
-        check(FourteenKeyLetterWidths.padHalfGaps(fourteen, 2) == 0, "14 键第三排比首排多一格，不补负数");
+    /** 等宽时第三排的字母键平分分词和 ⌫ 之间的宽度，与首排合计相同，键边对齐（键宽按格量，见 KeyRowLayout，占位格不再补键距）。 */
+    private static void equalLastRowFillsTheFirstRowTotal() {
+        List<List<FourteenKeyLetterWidths.Cell>> fourteen = fourteen(FourteenKeyLetterWidths.Mode.EQUAL);
+        near(FourteenKeyLetterWidths.total(fourteen.get(2)), FourteenKeyLetterWidths.total(fourteen.get(0)), "14 键等宽第三排与首排同宽");
+        near(fourteen.get(2).get(0).weight(), KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT, "14 键分词与 26 键 ⇧ 同宽");
+        near(fourteen.get(2).get(1).weight(), 1.75f, "14 键等宽第三排字母键 1.75 份");
+        List<List<FourteenKeyLetterWidths.Cell>> eighteen = eighteen(FourteenKeyLetterWidths.Mode.EQUAL);
+        near(FourteenKeyLetterWidths.total(eighteen.get(2)), FourteenKeyLetterWidths.total(eighteen.get(0)), "18 键等宽第三排与首排同宽");
+        near(eighteen.get(2).get(1).weight(), 1f, "18 键等宽第三排字母键仍是 1 份");
     }
 
     /** 设置页不列的两种组合照样能算，以后改映射不用动排法。 */

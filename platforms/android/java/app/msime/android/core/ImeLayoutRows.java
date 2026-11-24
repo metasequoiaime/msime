@@ -456,7 +456,7 @@ final class ImeLayoutRows {
      * 右侧大回车外框底行的一格：一个带底行高度角色的容器（{@link MSIMEInputService.KeyboardHeightRole#bottomRow}），与标准外框下方的功能行同高。外框整块按「三行加底行」定高，上面的部分按权重分到剩下的高度，所以符号栏、九宫格和右列上两格与标准外框里的三行一样高。
      */
     private LinearLayout tallReturnBottomCell(boolean horizontal) {
-        LinearLayout cell = horizontal ? LayoutPolicy.row(s) : LayoutPolicy.column(s);
+        LinearLayout cell = horizontal ? LayoutPolicy.keyRow(s) : LayoutPolicy.column(s);
         cell.setTag(MSIMEInputService.KeyboardHeightRole.bottomRow());
         return cell;
     }
@@ -640,7 +640,7 @@ final class ImeLayoutRows {
         builtNineFrame = true;
         builtTallReturn = tallReturn;
         builtSpaceInColumn = null;
-        LinearLayout container = LayoutPolicy.row(s);
+        LinearLayout container = LayoutPolicy.keyRow(s);
         if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
         else container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
@@ -678,7 +678,7 @@ final class ImeLayoutRows {
         builtShuangpinFaces = shuangpin ? s.nineKeyShuangpinFaces() : null;
         if (shuangpin) addShuangpinGrid(grid);
         for (java.util.List<NineKeyLayout.Key> keys : shuangpin ? java.util.List.<java.util.List<NineKeyLayout.Key>>of() : NineKeyLayout.rows()) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             for (NineKeyLayout.Key key : keys) {
                 String description = NineKeyLayout.description(key, digits, composing, s.nineKeyCompositionAction);
                 // 数字层按字面上屏，不把数字交给拼音组码或选词。
@@ -709,6 +709,8 @@ final class ImeLayoutRows {
                 }
                 if (digits) bindNumberDigit(keyButton, key.digit() - 1);
                 else bindNineKeyFlick(keyButton, key);
+                if (digits) s.imeKeyFaces.attachNineDigit(keyButton, false);
+                else s.imeKeyFaces.attachNineLetter(keyButton);
                 addNineKey(row, keyButton);
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
@@ -725,10 +727,12 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        s.imeKeyFaces.attachFunction(delete, false);
         if (tallReturn) {
             // 右侧大回车：⌫ 下面一格在字母层是重输，数字层是按字面上屏的小数点（空格在中列 0 的右边，与 iOS、鸿蒙相同）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行。
             if (digits) addNineKey(actions, nineKeyDecimalKey());
             else addNineKey(actions, nineKeyRewriteKey());
+            if (digits) attachLastNineDigit(actions);
             addTallReturnKey(actions);
             container.addView(actions, LayoutPolicy.weightedMatchParentParams(tallSide));
             hideActionRowForTallReturn();
@@ -737,6 +741,7 @@ final class ImeLayoutRows {
         if (digits) {
             // 小数点按字面上屏；0 由底行提供。
             addNineKey(actions, nineKeyDecimalKey());
+            attachLastNineDigit(actions);
             boolean spaceInColumn = s.numberPadSpace.inRightColumn();
             builtSpaceInColumn = spaceInColumn;
             // 空格在右列：移动原空格键，保留点按、长按语音与光标手势。空格在底行（0 的左边或右边）：这一格放 ！，与 iOS、鸿蒙数字层右列相同。
@@ -757,6 +762,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindNineKeySuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachNineLetter(exclamation);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
@@ -769,7 +775,13 @@ final class ImeLayoutRows {
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachNineDigit(exclamation, false);
         return exclamation;
+    }
+
+    /** 刚放进 {@code column} 的键（数字九宫格右列的小数点）放进九键数字组；侧边数字键盘（ImeSidePad）也用 {@link #nineKeyDecimalKey}，那里不放。 */
+    private void attachLastNineDigit(LinearLayout column) {
+        s.imeKeyFaces.attachNineDigit((Button) column.getChildAt(column.getChildCount() - 1), false);
     }
 
     /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
@@ -787,6 +799,7 @@ final class ImeLayoutRows {
         });
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachFunction(rewrite, false);
         return rewrite;
     }
 
@@ -798,7 +811,7 @@ final class ImeLayoutRows {
     private void addShuangpinGrid(LinearLayout grid) {
         java.util.List<NineKeyShuangpinKeypad.Face> faces = s.nineKeyShuangpinFaces();
         for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             for (NineKeyLayout.Key key : keys) addNineKey(row, shuangpinKey(faces, (char) ('0' + key.digit())));
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
@@ -860,6 +873,7 @@ final class ImeLayoutRows {
                 digit == '0' ? () -> commitNineKeyLiteral("0") : () -> {});
         }
         s.keyId(key, digit == '0' ? "Nine0" : KeyPressIds.forNineKeyDigit(digit - '0'));
+        s.imeKeyFaces.attachNineDigit(key, true);
         return key;
     }
 
@@ -875,7 +889,7 @@ final class ImeLayoutRows {
         builtNineFrame = true;
         builtTallReturn = tallReturn;
         builtSpaceInColumn = null;
-        LinearLayout container = LayoutPolicy.row(s);
+        LinearLayout container = LayoutPolicy.keyRow(s);
         if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
         else s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
@@ -890,7 +904,7 @@ final class ImeLayoutRows {
 
         LinearLayout grid = LayoutPolicy.column(s);
         for (java.util.List<StrokeKeyboardLayout.Key> keys : StrokeKeyboardLayout.rows()) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             for (StrokeKeyboardLayout.Key key : keys) {
                 Button keyButton = s.keyboardKey(StrokeKeyboardLayout.face(key),
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
@@ -905,7 +919,7 @@ final class ImeLayoutRows {
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
-        LinearLayout lastRow = LayoutPolicy.row(s);
+        LinearLayout lastRow = LayoutPolicy.keyRow(s);
         Button symbolsKey = s.keyId(s.keyboardKey("@#", "符号", s.imePanels::showSymbolPanel), KeyPressIds.forNineKeyDigit(1));
         Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
         String periodFace = ChineseSymbolFaces.face(".", s.sendsChinesePunctuation());
@@ -928,12 +942,14 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        s.imeKeyFaces.attachFunction(delete, false);
         // 右列和拼音九键一样三等分（⌫、拆分、！）、与三行网格逐行对齐；原来 ⌫ 独占两行，看起来像别的键盘拼进来的。笔画不需要拆分，中间这格是「重输」：丢掉已打的整串笔画。
         Button rewrite = s.keyboardKey("重输", "重新输入笔画", () -> {
             if (s.hasEngineComposition()) s.discardComposition();
         });
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachFunction(rewrite, false);
         addNineKey(actions, rewrite);
         if (tallReturn) {
             // 右侧大回车：！ 去掉，回车占第三行和底行。
@@ -972,7 +988,7 @@ final class ImeLayoutRows {
      */
     void rebuildZhuyinNineKeyRows() {
         dismissNineKeyHoldOptions();
-        LinearLayout container = LayoutPolicy.row(s);
+        LinearLayout container = LayoutPolicy.keyRow(s);
         // 和日语九键一样不要底栏，四行都在这一块里，总高度是三行九键加一条底栏，与其他九键键盘一样高：四行挤进三行高时键太扁。底栏的 123、中/英、空格、换行挪进两侧的列。
         s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
@@ -993,19 +1009,19 @@ final class ImeLayoutRows {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(tones, key);
         }
-        container.addView(tones, LayoutPolicy.weightedMatchParentParams(0.7f));
+        container.addView(tones, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         LinearLayout grid = LayoutPolicy.column(s);
         for (java.util.List<ZhuyinNineKeyLayout.Key> keys : ZhuyinNineKeyLayout.rows()) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             for (ZhuyinNineKeyLayout.Key key : keys) addNineKey(row, zhuyinNineKeySoundKey(key));
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
         // 最后一行：123（数字与符号层，？！ 和其他符号都在那里）、0（仍在 8 的正下方）、逗号和句号各占半格。
-        LinearLayout lastRow = LayoutPolicy.row(s);
+        LinearLayout lastRow = LayoutPolicy.keyRow(s);
         adoptBarKey(lastRow, s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS) ? s.languageButton : s.layerButton, KeyboardKeyRole.ACCENT);
         addNineKey(lastRow, zhuyinNineKeySoundKey(ZhuyinNineKeyLayout.zero()));
-        LinearLayout marks = LayoutPolicy.row(s);
+        LinearLayout marks = LayoutPolicy.keyRow(s);
         boolean chinese = s.sendsChinesePunctuation();
         String commaFace = ChineseSymbolFaces.face(",", chinese);
         Button comma = s.keyId(s.keyboardKey(commaFace, "逗号", () -> {
@@ -1022,7 +1038,7 @@ final class ImeLayoutRows {
         }
         lastRow.addView(marks, LayoutPolicy.weightedMatchParentParams(1));
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(3));
+        container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         // 右列与网格的四行对齐：⌫、中/英、空格、换行。后三个是底栏那几个常驻键，连同它们的手势、图标和「确认」状态一起挪过来。
         LinearLayout actions = LayoutPolicy.column(s);
@@ -1033,10 +1049,11 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
+        s.imeKeyFaces.attachFunction(delete, false);
         adoptBarKey(actions, s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS) ? s.layerButton : s.languageButton, KeyboardKeyRole.ACCENT);
         adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
         adoptBarKey(actions, s.enterButton, s.imeBottomRow.returnKeyRole());
-        container.addView(actions, LayoutPolicy.weightedMatchParentParams(0.8f));
+        container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         // 挂在最后，盖在候选滚动区上面。
         if (s.candidateViewport != null) attachSpellings(s.candidateViewport, SpellingPlacement.CANDIDATE_ROW);
@@ -1707,6 +1724,10 @@ final class ImeLayoutRows {
     void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
         // 侧列是功能键（123、符、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        // 侧列只占外框的 3/20，键盘收窄或大字体时固定字号的「空白」「改行」会折成两行：和底行功能键一样只占一行、放不下时缩小。
+        if (!(button instanceof KeyboardIconKey))
+            KeyboardTypographyPolicy.setFittedKeyTextSize(button, KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP,
+                KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         column.addView(button, LayoutPolicy.weightedWidthParams(weight));
     }
 
@@ -1732,7 +1753,7 @@ final class ImeLayoutRows {
     }
 
     void rebuildJapaneseNineKeyRows() {
-        LinearLayout container = LayoutPolicy.row(s);
+        LinearLayout container = LayoutPolicy.keyRow(s);
         // 日语九键没有底栏，四行（あ行到わ行加 小゛゜ 那一行）都在这一块里：按三行算高度时每行只剩三十来 dp，假名被裁掉下半截，底栏的位置又空着。
         s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
@@ -1765,13 +1786,13 @@ final class ImeLayoutRows {
             addJapaneseSideKey(modeColumn, globe, 1);
         }
         if (swapLanguageNumber) addJapaneseSideKey(modeColumn, language, 1);
-        container.addView(modeColumn, LayoutPolicy.weightedMatchParentParams(0.17f));
+        container.addView(modeColumn, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
 
         LinearLayout grid = LayoutPolicy.column(s);
         java.util.List<JapaneseNineKeyLayout.Key> keys = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
             ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
         for (int rowIndex = 0; rowIndex < 4; rowIndex++) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             if (rowIndex < 3) {
                 for (int column = 0; column < 3; column++) {
                     int index = rowIndex * 3 + column;
@@ -1785,7 +1806,7 @@ final class ImeLayoutRows {
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
         }
-        container.addView(grid, LayoutPolicy.weightedMatchParentParams(0.64f));
+        container.addView(grid, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.GRID_WEIGHT));
 
         LinearLayout side = LayoutPolicy.column(s);
         Runnable deleteAction = this::deleteJapaneseKana;
@@ -1798,7 +1819,7 @@ final class ImeLayoutRows {
         addJapaneseSideKey(side, swapLanguageNumber ? s.japaneseSymbolsKey : language, 1);
         s.japaneseReturnKey = s.keyId(s.keyboardKey("改行", "改行", s::enter), "Enter");
         addJapaneseSideKey(side, s.japaneseReturnKey, 2);
-        container.addView(side, LayoutPolicy.weightedMatchParentParams(0.19f));
+        container.addView(side, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
         s.updateReturnKey();
     }
 

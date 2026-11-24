@@ -421,12 +421,14 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateGlosses: [String]
   /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, the spelling a typo correction replaced, or a Korean Hanja's 훈음. Never part of the committed text.
   let candidateAnnotations: [String]
+  /// 引擎改过这一行拼写的候选（View 的 `corrected`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此在候选字后面画 `*`，注释里打头的原串（`corrected_from`）不再画在下面；读屏念原串时说的是「纠错前的拼写」，不是还要输入的键。
+  let candidateCorrected: [Bool]
   /// The Engine `CandidateSource` (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; a source of -1 means the row carried none, and a fixed position of zero is a word ranked by use.
   let candidateSources: [Int]
   let candidateFixedPositions: [Int]
   /// 引擎当前页的高亮状态，跟随候选一起过滤与换页。
   let candidateHighlighted: [Bool]
-  /// 引擎按双拼触点首选规则让这一行纠错坐了首选（View 的 `confident_correction`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此用强调色画它，读屏念「已纠正」；纠错前的拼写照旧在 `candidateAnnotations` 里。
+  /// 引擎按双拼触点首选规则让这一行纠错坐了首选（View 的 `confident_correction`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此用强调色画它，读屏念「已纠正」；纠错前的拼写照旧留在 `candidateAnnotations` 里，画不画由 `candidateCorrected` 决定。
   let candidateConfidentCorrections: [Bool]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
@@ -475,7 +477,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidates: [String] = [], candidateCodes: [String] = [],
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
        candidateGlosses: [String] = [],
-       candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
+       candidateAnnotations: [String] = [], candidateCorrected: [Bool] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
        candidateHighlighted: [Bool] = [], candidateConfidentCorrections: [Bool] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
@@ -497,6 +499,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.generation = generation
     self.candidateGlosses = candidateGlosses
     self.candidateAnnotations = candidateAnnotations
+    self.candidateCorrected = candidateCorrected
     self.candidateSources = candidateSources
     self.candidateFixedPositions = candidateFixedPositions
     self.candidateHighlighted = candidateHighlighted
@@ -2471,6 +2474,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       generation: try view["generation"].map { try number($0) },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
+      candidateCorrected: try rows.map { try strictBool($0["corrected"], fallback: false) },
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
       candidateHighlighted: try rows.map { try strictBool($0["highlighted"], fallback: false) },

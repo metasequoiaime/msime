@@ -7,6 +7,7 @@ use super::*;
 mod ai_pinyin_alignment;
 mod bilingual_glide_selection;
 mod deferred_candidate_identity;
+mod desktop_helpcode_import;
 mod local_translation;
 mod mobile_clipboard_retention;
 
@@ -71,22 +72,6 @@ fn relative_fixture_dir(prefix: &str) -> (tempfile::TempDir, std::path::PathBuf)
         }
     }
     panic!("no writable ancestor for a relative-path fixture");
-}
-
-#[test]
-fn selection_statistics_use_the_candidate_id_absolute_index() {
-    let action = Action::Select(CandidateId {
-        session: 7,
-        generation: 11,
-        index: 9,
-    });
-    assert_eq!(selected_position(&action), Some(10));
-    let action = Action::SelectAnyCandidate(CandidateId {
-        session: 7,
-        generation: 11,
-        index: 14,
-    });
-    assert_eq!(selected_position(&action), Some(15));
 }
 
 #[test]
@@ -372,6 +357,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         show_helpcode: false,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -417,6 +403,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         custom_helpcode_root: None,
@@ -1733,6 +1720,7 @@ fn mixed_input_changes_defer_until_composition_ends() {
             symbols: false,
             quick_phrase: false,
             quick_phrase_frequency: true,
+            quick_phrase_first: false,
         },
         ..Preferences::default()
     };
@@ -5394,6 +5382,7 @@ fn nine_key_digits_offer_ranked_english_across_the_host_boundary() {
                 symbols: false,
                 quick_phrase: false,
                 quick_phrase_frequency: true,
+                quick_phrase_first: false,
             },
             ..chinese_preferences()
         },
@@ -7965,6 +7954,55 @@ fn commit_candidate_by_position(handle: u64, index: usize) {
     let selected = read(msime_client_select(handle, generation, index));
     assert!(selected["value"]["commit"].is_string(), "{selected}");
 }
+/// 空格选首选是一等选词语路（命令 1 → `SelectHighlighted`），位置统计必须把它记进「第 1 条」。此前位置只认带着候选身份的 `Select`/`SelectAnyCandidate`，空格、回车、标点和五笔顶字都经命令路由，第 1 条于是长期为 0、首选命中率被算成 0%。
+#[test]
+fn space_selection_counts_the_first_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    for _ in 0..3 {
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let committed = read(msime_client_command(handle, 1));
+        assert!(committed["value"]["commit"].is_string(), "{committed}");
+    }
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.ranks[0], 3, "三个首选都该记在第 1 条");
+    assert_eq!(selections.total(), 3);
+    read(msime_client_destroy(handle));
+}
+
+/// 云候选的占位席位（来源 15，「☁」）宿主不画，用户看到的第 2 条坐在引擎第 3 格；统计按引擎座位回算会把它记成第 3 条。
+#[test]
+fn a_hidden_cloud_placeholder_does_not_shift_the_counted_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path());
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    let handle = statistics_test_host(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut view = Value::Null;
+    for byte in b"nihao" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    let page = view["candidates"].as_array().unwrap();
+    assert_eq!(page[1]["text"], "☁", "云请求在途时占位席位坐在引擎第 2 格");
+    let generation = view["generation"].as_u64().unwrap();
+    // 引擎第 3 格是用户看到的第 2 条。
+    let selected = read(msime_client_select(handle, generation, 2));
+    assert!(selected["value"]["commit"].is_string(), "{selected}");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let selections = store.load().unwrap().selections;
+    assert_eq!(selections.ranks[1], 1, "第 2 条要记在桶 2，不是桶 3");
+    assert_eq!(selections.ranks[2], 0);
+    assert_eq!(selections.total(), 1);
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn selection_statistics_reach_the_store_at_focus_out() {
     let dir = tempfile::tempdir().unwrap();
@@ -18860,8 +18898,11 @@ fn the_quick_phrase_candidates_preference_gates_the_host_capability() {
         rusqlite::Connection::open(directory.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
-                "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
-                 INSERT INTO quick_parases VALUES('dh','电话',10);",
+                "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100);
+                 CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 INSERT INTO quick_parases VALUES('nihao','短语甲',20);
+                 INSERT INTO quick_parases VALUES('nihao','短语乙',10);",
             )
             .unwrap();
     }
@@ -18879,13 +18920,24 @@ fn the_quick_phrase_candidates_preference_gates_the_host_capability() {
     assert_eq!(created["ok"], true, "{created}");
     let handle = created["value"]["session"].as_u64().unwrap();
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
-    let rows = local_mode_candidates(handle, b"dh");
-    assert!(!rows.contains(&"电话".to_owned()), "{rows:?}");
+    let rows = local_mode_candidates(handle, b"nihao");
+    assert!(!rows.contains(&"短语甲".to_owned()), "{rows:?}");
 
     preferences.mixed_input.quick_phrase = true;
     assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
-    let rows = local_mode_candidates(handle, b"dh");
-    assert!(rows.contains(&"电话".to_owned()), "{rows:?}");
+    let rows = local_mode_candidates(handle, b"nihao");
+    assert_eq!(rows.first().map(String::as_str), Some("你好"));
+    assert!(rows.contains(&"短语甲".to_owned()), "{rows:?}");
+
+    preferences.mixed_input.quick_phrase_first = true;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    let prioritized = local_mode_candidates(handle, b"nihao");
+    assert_eq!(prioritized[..3], ["短语甲", "短语乙", "你好"]);
+    assert!(!local_mode_candidates(handle, b"niha").contains(&"短语甲".to_owned()));
+
+    preferences.mixed_input.quick_phrase_first = false;
+    assert_eq!(update(handle, 3, &preferences)["value"]["deferred"], false);
+    assert_eq!(local_mode_candidates(handle, b"nihao"), rows);
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
@@ -23805,6 +23857,7 @@ mod fuzzy_single;
 mod initial_learning;
 mod lifecycle_traces;
 mod plugin_authoring;
+mod precise_nine_key;
 mod quick_phrase_cursor;
 #[cfg(unix)]
 mod read_only_state;

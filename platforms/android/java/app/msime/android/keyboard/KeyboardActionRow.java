@@ -115,7 +115,7 @@ public final class KeyboardActionRow {
         return symbols ? "返回原键盘" : "切换到数字和符号";
     }
 
-    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：14 键和大千注音是 123 1.25 / ， 1 / 空格 4 / 。 1 / 中 1.05 / ↵ 1.9；手写是 123 1.25 / ， 1 / 空格 2.4 / 。 1 / 中 1.05 / 重写 1.25 / ⌫ 1.25 / ↵ 1.6；26 键是 123 / 符 / 。 / 空格 / ， / 中 / ↵，九键外框是 符 / 123 / 空格 / 中 / ↵ ----
+    // ---- 新设计的底行：26 键是 123 / 符 / 。 / 空格 / ， / 中 / ↵，14/18 键和大千注音是 123 / ， / 空格 / 。 / 中 / ↵，九键外框是 符 / 123 / 空格 / 中 / ↵，份额见 ROW_SHARES；手写是 123 1.25 / ， 1 / 空格 2.4 / 。 1 / 中 1.05 / 重写 1.25 / ⌫ 1.25 / ↵ 1.6（三端相同）----
 
     /** 新设计底行的键，按排列顺序；符 在 26 键一族的数字入口之后、九键外框的最左边出现，地球键只在宿主允许切换输入法时插在 123 之后，中/英紧挨在回车左边（手写在两者之间放「重写」和 ⌫）。 */
     public enum DesignSlot { SYMBOL_PANEL, LAYER, GLOBE, EMOJI, COMMA, SPACE, ZERO, PERIOD, LANGUAGE, REWRITE, DELETE, RETURN }
@@ -123,20 +123,24 @@ public final class KeyboardActionRow {
     /** 新设计底行里的一个键与它的宽度份额。 */
     public record DesignEntry(DesignSlot slot, float weight) {}
 
-    /** 26 键一族和九键外框底行 符 的宽度份额，与 中/英 相同（iOS 的这两种底行同样给它 1.05）。 */
-    public static final float DESIGN_SYMBOL_PANEL_WEIGHT = 1.05f;
-    public static final float DESIGN_LAYER_WEIGHT = 1.25f;
-    public static final float DESIGN_LANGUAGE_WEIGHT = 1.05f;
+    /**
+     * 底行各键的宽度份额，单位是一个字母键宽：每一行合计 {@link #ROW_SHARES} 份，即键区 20 列外框里每两列一份。按键行按份额切格（{@link KeyRowLayout}），份额之和相同的行，同一列的键边落在同一像素上，所以底行的键边与上面字母行的键边对齐：123 和回车各 1.5 份（3 列），正好在 26 键第三排的 ⇧、⌫ 下面；其余键各 1 份（2 列），落在第三排字母键的正下方；空格占剩下的（{@link #withSpaceFill}）。键多的底行（地球键）各键仍是 1 份，由空格让出。
+     */
+    public static final float ROW_SHARES = 10f;
+    public static final float DESIGN_SYMBOL_PANEL_WEIGHT = 1f;
+    public static final float DESIGN_LAYER_WEIGHT = 1.5f;
+    public static final float DESIGN_LANGUAGE_WEIGHT = 1f;
     public static final float DESIGN_GLOBE_WEIGHT = 1f;
     public static final float DESIGN_PUNCTUATION_WEIGHT = 1f;
-    public static final float DESIGN_SPACE_WEIGHT = 4f;
-    /** 长空格模式把底行符号键的宽度交给空格键。 */
-    public static final float DESIGN_LONG_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT + DESIGN_SYMBOL_PANEL_WEIGHT;
-    /** 26 键标准底行的空格：中文和英文都在空格左边放句号（{@link #DESIGN_PUNCTUATION_WEIGHT}），这一份从 {@link #DESIGN_SPACE_WEIGHT} 里让出，所以两种语言的底行逐键同位置、同宽，切中英文时没有键移动；常量沿用英文底行先有这个句点时起的名字。iOS `englishPhoneSpaceWeight`、HarmonyOS `ENGLISH_SPACE_SHARE` 相同。 */
-    public static final float DESIGN_ENGLISH_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT - DESIGN_PUNCTUATION_WEIGHT;
-    public static final float DESIGN_RETURN_WEIGHT = 1.9f;
-    /** 新设计第三行 ⇧ 与 ⌫ 的宽度份额。 */
-    public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.4f;
+    public static final float DESIGN_RETURN_WEIGHT = 1.5f;
+    /** 第三排 ⇧ 与 ⌫ 的宽度份额：各 1.5 份（3 列），七个字母键居中，两键的内边与第二排的键边对齐。 */
+    public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.5f;
+    /** 九键外框（{@link NineKeyLayout}：左列 | 九宫格 | 右列）一整行的份额，换算到底行的 {@link #ROW_SHARES} 用。 */
+    private static final float NINE_FRAME = 2 * NineKeyLayout.SIDE_COLUMN_WEIGHT + NineKeyLayout.GRID_WEIGHT;
+    /** 九键外框底行的 符 和回车：各占一个侧列，在符号栏和右列的正下方。 */
+    public static final float DESIGN_NINE_SIDE_WEIGHT = NineKeyLayout.SIDE_COLUMN_WEIGHT * ROW_SHARES / NINE_FRAME;
+    /** 九键外框底行的 123、中/英，以及样式多出的地球键、逗号、句号、😀：各占九宫格半列，键边落在九宫格的列边或列中线上。 */
+    public static final float DESIGN_NINE_HALF_COLUMN_WEIGHT = NineKeyLayout.GRID_WEIGHT / 6 * ROW_SHARES / NINE_FRAME;
 
     /**
      * 手写底行 123 |（地球键 1）| ， | 空格 | 。 | 中 | 重写 | ⌫ | 回车 的宽度份额，iOS（`KeyboardViewController.handwriting*Weight`）与 HarmonyOS（`HANDWRITING_*_SHARE`）相同，由 scripts/test-mobile-handwriting-pad-parity.py 比对。书写区铺满整行后「重写」和 ⌫ 搬进这一行，空格从 4 让到 2.4、回车从 1.9 让到 1.6（与九键底行的回车相同）：360 dp 宽时 ， 。 约 27 dp，与 26 键字母键相当，空格仍画得下麦克风和「手写」。
@@ -163,24 +167,16 @@ public final class KeyboardActionRow {
         return baseEntries(touchLayout, globe, false, TouchKeyStyle.Row.STANDARD);
     }
 
-    /** 26 键表情样式里 😀 占 符 的位置和宽度；九键表情样式的 😀 同宽，从空格里让出。 */
+    /** 26 键表情样式里 😀 占 符 的位置和宽度。 */
     public static final float DESIGN_EMOJI_WEIGHT = DESIGN_SYMBOL_PANEL_WEIGHT;
-    /** 14 键与 18 键的长空格：句号的一份交给空格。 */
-    public static final float DESIGN_FOURTEEN_LONG_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT + DESIGN_PUNCTUATION_WEIGHT;
-    /** 26 键「逗号句号在空格两侧」：句号的一份从空格里让出，其余键宽度不变。 */
-    public static final float DESIGN_COMMA_PERIOD_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT - DESIGN_PUNCTUATION_WEIGHT;
-    /** 九键「底栏带标点」：逗号、句号各从空格里让出一份。 */
-    public static final float DESIGN_NINE_COMMA_PERIOD_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT - 2 * DESIGN_PUNCTUATION_WEIGHT;
-    /** 九键表情样式：😀 的一份从空格里让出。 */
-    public static final float DESIGN_NINE_EMOJI_SPACE_WEIGHT = DESIGN_SPACE_WEIGHT - DESIGN_EMOJI_WEIGHT;
 
     /**
      * 字母层底行按样式（{@link TouchKeyStyle.Row}）排布，每一行的总宽份额与标准底行相同，样式多出的键从空格里让出宽度：
      *
      * <ul>
-     * <li>26 键一族（{@link #usesCommaSecondaryPeriod}）：标准 123 |（地球）| 符 | 。 | 空格 | ， | 中/英 | 回车，句号的一份从空格里让出（{@link #DESIGN_ENGLISH_SPACE_WEIGHT}）；`COMMA_PERIOD` 123 |（地球）| 符 | ， | 空格 | 。 | 中/英 | 回车；`LONG_SPACE` 123 |（地球）| ， | 长空格 | 中/英 | 回车；`EMOJI` 123 |（地球）| 😀 | 空格 | ， | 中/英 | 回车。英文模式（`english`）把键面文字换成 123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车，但仍按中文方案的样式排布，样式查询由 {@link TouchKeyStyle.Styles#forLayout} 决定。</li>
+     * <li>26 键一族（{@link #usesCommaSecondaryPeriod}）：标准 123 |（地球）| 符 | 。 | 空格 | ， | 中/英 | 回车，句号的一份从空格里让出；`COMMA_PERIOD` 123 |（地球）| 符 | ， | 空格 | 。 | 中/英 | 回车；`LONG_SPACE` 123 |（地球）| ， | 长空格 | 中/英 | 回车；`EMOJI` 123 |（地球）| 😀 | 空格 | ， | 中/英 | 回车。英文模式（`english`）把键面文字换成 123 |（地球）| 符 | . | 空格 | , | 中/英 | 回车，但仍按中文方案的样式排布，样式查询由 {@link TouchKeyStyle.Styles#forLayout} 决定。</li>
      * <li>14 键、18 键（大千注音共用这一行，但没有可选样式）：标准 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车；`LONG_SPACE` 123 |（地球）| ， | 长空格 | 中/英 | 回车；`EMOJI` 123 |（地球）| 😀 | 空格 | ， | 中/英 | 回车，😀 取原逗号的宽度，逗号取原句号的宽度。</li>
-     * <li>拼音九键与笔画外框：标准 符 | 123 |（地球）| 空格 | 中/英 | 回车；`COMMA_PERIOD` 符 | 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车；`EMOJI` 符 | 123 |（地球）| 😀 | 空格 | 中/英 | 回车。</li>
+     * <li>拼音九键与笔画外框：符、回车各占一个侧列，123、中/英和多出的键各占九宫格半列（{@link #DESIGN_NINE_HALF_COLUMN_WEIGHT}）。标准 符 | 123 |（地球）| 空格 | 中/英 | 回车；`COMMA_PERIOD` 符 | 123 |（地球）| ， | 空格 | 。 | 中/英 | 回车；`EMOJI` 符 | 123 |（地球）| 😀 | 空格 | 中/英 | 回车。</li>
      * </ul>
      *
      * 某类键面不提供的样式按标准底行画。
@@ -196,42 +192,45 @@ public final class KeyboardActionRow {
         List<DesignEntry> entries = new ArrayList<>(MAX_ROW_ENTRIES + 1);
         if (touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT || touchLayout == KeyboardLayout.STROKE_LAYOUT) {
             // 九键外框以符号键打头；标点在左侧栏里，标准底行不再放逗号。
-            entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
-            entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
-            if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_NINE_SIDE_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_NINE_HALF_COLUMN_WEIGHT));
+            if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_NINE_HALF_COLUMN_WEIGHT));
             switch (style) {
                 case COMMA_PERIOD -> {
-                    entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
-                    entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_NINE_COMMA_PERIOD_SPACE_WEIGHT));
-                    entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_NINE_HALF_COLUMN_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
+                    entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_NINE_HALF_COLUMN_WEIGHT));
                 }
                 case EMOJI -> {
-                    entries.add(new DesignEntry(DesignSlot.EMOJI, DESIGN_EMOJI_WEIGHT));
-                    entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_NINE_EMOJI_SPACE_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.EMOJI, DESIGN_NINE_HALF_COLUMN_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                 }
-                default -> entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
+                default -> entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
             }
+            entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_NINE_HALF_COLUMN_WEIGHT));
+            entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_NINE_SIDE_WEIGHT));
+            return withSpaceFill(entries);
         } else if (usesCommaSecondaryPeriod(touchLayout)) {
             // 26 键把符号入口放在数字入口之后，逗号放在空格右边；标准底行在空格左边另放句号。
             entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
             if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
             if (style == TouchKeyStyle.Row.LONG_SPACE) {
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
-                entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_LONG_SPACE_WEIGHT));
+                entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
             } else if (style == TouchKeyStyle.Row.COMMA_PERIOD) {
                 entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
-                entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_COMMA_PERIOD_SPACE_WEIGHT));
+                entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                 entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
             } else if (style == TouchKeyStyle.Row.EMOJI) {
                 entries.add(new DesignEntry(DesignSlot.EMOJI, DESIGN_EMOJI_WEIGHT));
-                entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
+                entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
             } else {
                 // 中文和英文标准底行使用同一排，切换时每个键的位置和宽度都不变。
                 entries.add(new DesignEntry(DesignSlot.SYMBOL_PANEL, DESIGN_SYMBOL_PANEL_WEIGHT));
                 entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
-                entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_ENGLISH_SPACE_WEIGHT));
+                entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                 entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
             }
         } else {
@@ -241,23 +240,33 @@ public final class KeyboardActionRow {
             switch (style) {
                 case LONG_SPACE -> {
                     entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
-                    entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_FOURTEEN_LONG_SPACE_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                 }
                 case EMOJI -> {
                     entries.add(new DesignEntry(DesignSlot.EMOJI, DESIGN_PUNCTUATION_WEIGHT));
-                    entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                     entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
                 }
                 default -> {
                     entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
-                    entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
+                    entries.add(new DesignEntry(DesignSlot.SPACE, 0f));
                     entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
                 }
             }
         }
         entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_RETURN_WEIGHT));
-        return List.copyOf(entries);
+        return withSpaceFill(entries);
+    }
+
+    /** 空格占这一行剩下的份额：一行合计 {@link #ROW_SHARES}，样式和地球键多出的键都从空格里让出，其余键的位置和宽度不变。 */
+    private static List<DesignEntry> withSpaceFill(List<DesignEntry> entries) {
+        float others = 0f;
+        for (DesignEntry entry : entries) if (entry.slot() != DesignSlot.SPACE) others += entry.weight();
+        List<DesignEntry> laid = new ArrayList<>(entries.size());
+        for (DesignEntry entry : entries)
+            laid.add(entry.slot() == DesignSlot.SPACE ? new DesignEntry(DesignSlot.SPACE, ROW_SHARES - others) : entry);
+        return List.copyOf(laid);
     }
 
     /**
@@ -328,7 +337,7 @@ public final class KeyboardActionRow {
     }
 
     /** 数字层底行里与 0 并排的那个小键（空格或 0）的宽度份额，与中/英同宽；iOS `TouchBottomRowLayout.zeroWeight`、鸿蒙 `NineKeyLayout.ZERO_WEIGHT` 相同。 */
-    public static final float NUMBER_PAD_SMALL_KEY_WEIGHT = DESIGN_LANGUAGE_WEIGHT;
+    public static final float NUMBER_PAD_SMALL_KEY_WEIGHT = DESIGN_NINE_HALF_COLUMN_WEIGHT;
 
     /**
      * 同上，另按两项共享偏好排：
@@ -382,8 +391,8 @@ public final class KeyboardActionRow {
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
     }
 
-    /** 九键双拼字母层底行的 0 的宽度份额，与 符 相同；iOS `TouchBottomRowLayout.zeroWeight` 相同。 */
-    public static final float DESIGN_SHUANGPIN_ZERO_WEIGHT = DESIGN_SYMBOL_PANEL_WEIGHT;
+    /** 九键双拼字母层底行的 0 的宽度份额：九宫格半列，与 123 相同。0 另加一份时这一行比九键外框宽，键边不与外框对齐（底栏带标点时空格让不出这一份）。 */
+    public static final float DESIGN_SHUANGPIN_ZERO_WEIGHT = DESIGN_NINE_HALF_COLUMN_WEIGHT;
 
     /**
      * 九键双拼字母层的底行：在已排好的拼音九键底行（标准、底栏带标点、表情键或右侧大回车的中列）里，紧跟空格加一个 0（{@link DesignSlot#ZERO}，{@link #DESIGN_SHUANGPIN_ZERO_WEIGHT}）。九键双拼的网格只有 1–9 三行，0 在这里，与 iOS `TouchBottomRowLayout.nineKey(zero:)`、鸿蒙相同。
@@ -493,6 +502,9 @@ public final class KeyboardActionRow {
             TouchKeyStyle.Row style, boolean symbolFirst, TouchKeyStyle.NumberPadSpace space, boolean languageLeft) {
         List<DesignEntry> entries = designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false, true, false,
             style, false, space);
+        if (sourceLayout != KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT && sourceLayout != KeyboardLayout.STROKE_LAYOUT
+                && sourceLayout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT && sourceLayout != KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT)
+            entries = inLetterShares(entries);
         if (!entries.isEmpty() && numberPadLayerFirst(sourceLayout, style, symbolFirst)) {
             List<DesignEntry> reordered = new ArrayList<>(entries);
             int symbol = -1;
@@ -510,6 +522,34 @@ public final class KeyboardActionRow {
         }
         if (languageLeft) entries = languageBeforeSpace(entries);
         return swapLanguageNumber ? swapLanguageNumber(entries) : entries;
+    }
+
+    /**
+     * 借给 26 键一族、14/18 键、大千注音和手写的数字九宫格：底行按字母层底行的份额排（{@link #DESIGN_LAYER_WEIGHT} 等），不按九键外框的侧列和半列，所以切到数字层时返回键留在 123 那一格、符、中/英和回车都不动；0 和空格里窄的那个与中/英同宽，宽的那个占剩下的。
+     */
+    private static List<DesignEntry> inLetterShares(List<DesignEntry> entries) {
+        int wide = -1;
+        for (int index = 0; index < entries.size(); index++) {
+            DesignSlot slot = entries.get(index).slot();
+            if ((slot == DesignSlot.ZERO || slot == DesignSlot.SPACE)
+                    && (wide < 0 || entries.get(index).weight() > entries.get(wide).weight())) wide = index;
+        }
+        float others = 0f;
+        List<DesignEntry> laid = new ArrayList<>(entries.size());
+        for (int index = 0; index < entries.size(); index++) {
+            DesignEntry entry = entries.get(index);
+            float weight = switch (entry.slot()) {
+                case LAYER -> DESIGN_LAYER_WEIGHT;
+                case SYMBOL_PANEL -> DESIGN_SYMBOL_PANEL_WEIGHT;
+                case GLOBE -> DESIGN_GLOBE_WEIGHT;
+                case RETURN -> DESIGN_RETURN_WEIGHT;
+                default -> DESIGN_LANGUAGE_WEIGHT;
+            };
+            if (index != wide) others += weight;
+            laid.add(new DesignEntry(entry.slot(), weight));
+        }
+        if (wide >= 0) laid.set(wide, new DesignEntry(laid.get(wide).slot(), ROW_SHARES - others));
+        return List.copyOf(laid);
     }
 
     /** 这个键面的字母层底行是否以 123 打头；是的话借用数字九宫格时返回键也排在第一格（{@link #numberPadEntries}）。 */
@@ -571,8 +611,8 @@ public final class KeyboardActionRow {
         return grid / (2 * tallReturnSideWeight(touchLayout) + grid);
     }
 
-    /** 右侧大回车外框里数字层的空格：0 右边、从 0 里让出、与中/英同宽（1.05），三端相同；小数点在右列 ⌫ 下面。 */
-    public static final float TALL_RETURN_DIGIT_SPACE_WEIGHT = DESIGN_LANGUAGE_WEIGHT;
+    /** 右侧大回车外框里数字层的空格：0 右边、从 0 里让出、与中/英同宽（九宫格半列）；小数点在右列 ⌫ 下面。 */
+    public static final float TALL_RETURN_DIGIT_SPACE_WEIGHT = DESIGN_NINE_HALF_COLUMN_WEIGHT;
 
     /**
      * 右侧大回车外框里九宫格正下方那一行：123 |（地球）| 空格 | 中/英，恰好与九宫格同宽。123、地球键和中/英保持在标准九键底行里的绝对宽度，空格占剩下的宽度；份额的单位与 {@link #designEntries} 相同，总和是标准九键底行（含地球键时连地球键）的总份额乘以九宫格占整行的比例 {@code gridShare}，宿主按九宫格的宽度铺满即可。
@@ -591,14 +631,13 @@ public final class KeyboardActionRow {
             boolean swapLanguageNumber, boolean digits, boolean languageLeft) {
         float total = 0;
         for (DesignEntry entry : designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe)) total += entry.weight();
-        float fixed = DESIGN_LAYER_WEIGHT + (globe ? DESIGN_GLOBE_WEIGHT : 0) + DESIGN_LANGUAGE_WEIGHT
-            + (digits ? TALL_RETURN_DIGIT_SPACE_WEIGHT : 0);
+        float fixed = DESIGN_NINE_HALF_COLUMN_WEIGHT * (globe ? 3 : 2) + (digits ? TALL_RETURN_DIGIT_SPACE_WEIGHT : 0);
         List<DesignEntry> entries = new ArrayList<>(5);
-        entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
-        if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_NINE_HALF_COLUMN_WEIGHT));
+        if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_NINE_HALF_COLUMN_WEIGHT));
         entries.add(new DesignEntry(digits ? DesignSlot.ZERO : DesignSlot.SPACE, total * gridShare - fixed));
         if (digits) entries.add(new DesignEntry(DesignSlot.SPACE, TALL_RETURN_DIGIT_SPACE_WEIGHT));
-        entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_NINE_HALF_COLUMN_WEIGHT));
         List<DesignEntry> laid = languageLeft ? languageBeforeSpace(entries) : List.copyOf(entries);
         // 按键对调 123 与中/英，不按首尾两格：中/英挪到左边后它不在最后一格。
         return swapLanguageNumber ? swapLanguageNumber(laid) : laid;

@@ -28,6 +28,7 @@ public final class OptionSheetDeviceSmoke extends DeviceSmoke {
         return keyFeedback == null ? "animation selection follows saved value, option sheet footer stays above system navigation and settings sheets open at full height"
             : "sound-only".equals(keyFeedback) ? "default key sound pack plays from the app even with system sound effects unloaded"
             : "press-area".equals(keyFeedback) ? "key area reports the pressed key on touch-down and on release, settles after the click, and stays silent for disabled keys, cancels and glide takeover"
+            : "row-edges".equals(keyFeedback) ? "key rows measure each key from its cell, and rows with the same total share their column edges to the pixel"
             : "nine-key preview lifecycle and immediate feedback preferences";
     }
 
@@ -35,6 +36,10 @@ public final class OptionSheetDeviceSmoke extends DeviceSmoke {
     @Override protected void runChecks() throws Exception {
         if ("press-area".equals(keyFeedback)) {
             KeyPressAreaDeviceChecks.run(this);
+            return;
+        }
+        if ("row-edges".equals(keyFeedback)) {
+            KeyRowEdgeDeviceChecks.run(this);
             return;
         }
         if (keyFeedback != null) {
