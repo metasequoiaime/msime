@@ -967,6 +967,7 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.strict_quanpin_helpcode = helpcode.strict_filter;
         options.grid_helpcode = helpcode.grid;
+        options.precise_nine_key = preferences.touch_nine_key_precise;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
@@ -2715,6 +2716,7 @@ impl HostOptions {
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
             grid_helpcode: helpcode.grid,
+            precise_nine_key: self.preferences.touch_nine_key_precise,
             helpcode_schema: helpcode.schema.as_str().into(),
             helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(

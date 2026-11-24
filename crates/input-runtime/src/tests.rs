@@ -5504,6 +5504,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         show_helpcode: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,

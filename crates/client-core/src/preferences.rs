@@ -2198,6 +2198,10 @@ pub struct Preferences {
         skip_serializing_if = "is_default_touch_nine_key_flick_threshold"
     )]
     pub touch_nine_key_flick_threshold: u16,
+    /// 全拼九键的精确拼写模式，默认关闭。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_nine_key_precise: bool,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -4863,6 +4867,7 @@ impl Default for Preferences {
             touch_language_key_side: TouchLanguageKeySide::default(),
             touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
             touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
+            touch_nine_key_precise: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

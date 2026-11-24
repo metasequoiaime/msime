@@ -371,6 +371,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         show_helpcode: false,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -23780,6 +23781,7 @@ mod fuzzy_single;
 mod initial_learning;
 mod lifecycle_traces;
 mod plugin_authoring;
+mod precise_nine_key;
 mod quick_phrase_cursor;
 #[cfg(unix)]
 mod read_only_state;
