@@ -5,9 +5,10 @@ import app.msime.android.NineKeyFaceDomains;
 import app.msime.android.NineKeyLayout;
 import app.msime.android.NineKeyShuangpinKeypad;
 import app.msime.android.NumberPadPunctuation;
+import app.msime.android.StrokeKeyboardLayout;
 import java.util.List;
 
-/** 九键键组的内容域：字母层九格（含 1 键组字时的分词、重输）和右列 ！、右上角数字 0–9；数字九宫格的数字、小数点和 ！ 的写法；九键双拼的数字和表里的简短提示。 */
+/** 九键键组的内容域：字母层九格（含 1 键组字时的分词、重输）和右列 ！、右上角数字 0–9；数字九宫格的数字、小数点和 ！ 的写法；九键双拼的数字和表里的简短提示；笔画键盘的笔画和 @#、0、句点、！。 */
 public final class NineKeyFaceDomainsSmoke {
     private NineKeyFaceDomainsSmoke() { }
 
@@ -43,6 +44,15 @@ public final class NineKeyFaceDomainsSmoke {
             check(shuangpin.contains(KeyFaceSlot.BOTTOM, NineKeyShuangpinKeypad.compactHint(face)),
                 "缺表里的提示 " + NineKeyShuangpinKeypad.compactHint(face));
         check(!shuangpin.has(KeyFaceSlot.TOP_RIGHT), "九键双拼没有右上角");
+
+        KeyFaceDomain strokes = NineKeyFaceDomains.strokes();
+        for (List<StrokeKeyboardLayout.Key> row : StrokeKeyboardLayout.rows())
+            for (StrokeKeyboardLayout.Key key : row)
+                check(strokes.contains(KeyFaceSlot.MAIN, StrokeKeyboardLayout.face(key)), "缺笔画 " + key.name());
+        KeyFaceDomain strokeKeys = NineKeyFaceDomains.strokeKeys();
+        for (String face : List.of("@#", "0", "。", ".", exclamation))
+            check(strokeKeys.contains(KeyFaceSlot.MAIN, face), "笔画键盘的其他键缺 " + face);
+        check(!strokes.has(KeyFaceSlot.TOP_RIGHT) && !strokeKeys.has(KeyFaceSlot.TOP_RIGHT), "笔画键盘没有右上角");
         System.out.println("NineKeyFaceDomainsSmoke passed");
     }
 

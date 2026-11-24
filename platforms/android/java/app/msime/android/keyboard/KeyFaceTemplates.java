@@ -125,6 +125,21 @@ public final class KeyFaceTemplates {
         return tones;
     }
 
+    /** 笔画键盘的笔画键（一丨丿丶乛 和通配 ＊）：设计 22 sp（原来 14–22 sp 按键宽各自缩小），按整个墨迹居中，笔画共用一条基线，与原来按行盒排的位置一样。 */
+    public static final KeyFaceTemplate STROKES = new KeyFaceTemplate("strokes", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** 与其他文字同组的「，」「。」「、」：按 1.3 倍画、按自己的墨迹居中、往下挪 0.1 个字号，同 {@link #SMALL_PUNCTUATION}；其余文字共用全组的基线。 */
+    static final KeyFaceTemplate.Glyphs SMALL_PUNCTUATION_ONLY = new KeyFaceTemplate.Glyphs(
+        Map.of("，", 1.3f, "。", 1.3f, "、", 1.3f), 0.1f, false);
+
+    /**
+     * 笔画键盘的其他键：网格最后一行的 @#、0、句点和右列的 ！。与拼音九键的 @#、！ 同字号（设计 18 sp，{@link #NINE_LETTER}，原来是建键的默认 14 sp），主标签以笔画组为上限；「。」按自己的墨迹居中（{@link #SMALL_PUNCTUATION_ONLY}）。
+     */
+    public static final KeyFaceTemplate STROKE_KEYS = new KeyFaceTemplate("stroke-keys", mainOnly(NINE_LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        SMALL_PUNCTUATION_ONLY);
+
     /** #+= 层第一排的符号：设计 20 sp，最小 12 sp，最大 22 sp，与原来的固定 20 sp 和数字行相同。 */
     static final KeyFaceTemplate.SlotSpec LAYER_TOP = slot(20, 12, 22, 0, 255);
     /** #+= 层其余几排和第五排补充行的符号：设计 18 sp，最小 12 sp，最大 20 sp。 */

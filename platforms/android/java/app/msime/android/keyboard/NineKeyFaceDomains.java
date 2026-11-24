@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 九键键组的内容域（见 {@link KeyFaceDomain}）：拼音九键字母层、数字九宫格和九键双拼的数字键上可能画的全部文字。只取决于传进来的表，不读服务，所以 JVM 冒烟可以直接检查。
+ * 九键键组的内容域（见 {@link KeyFaceDomain}）：拼音九键字母层、数字九宫格、九键双拼的数字键和笔画键盘（同一个九键外框）上可能画的全部文字。只取决于传进来的表，不读服务，所以 JVM 冒烟可以直接检查。
  */
 public final class NineKeyFaceDomains {
     private NineKeyFaceDomains() { }
@@ -56,6 +56,26 @@ public final class NineKeyFaceDomains {
         Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
         texts.put(KeyFaceSlot.MAIN, digits);
         texts.put(KeyFaceSlot.BOTTOM, hints);
+        return new KeyFaceDomain(texts);
+    }
+
+    /** 笔画键盘的笔画键：2×3 网格上的五种笔画和通配键。 */
+    public static KeyFaceDomain strokes() {
+        List<String> faces = new ArrayList<>();
+        for (List<StrokeKeyboardLayout.Key> row : StrokeKeyboardLayout.rows())
+            for (StrokeKeyboardLayout.Key key : row) faces.add(StrokeKeyboardLayout.face(key));
+        return mainOnly(faces);
+    }
+
+    /** 笔画键盘的其他键：网格最后一行的 @#、0、句点（中文标点时是「。」）和右列的 ！。 */
+    public static KeyFaceDomain strokeKeys() {
+        return mainOnly(List.of("@#", "0", ChineseSymbolFaces.face(".", true), ChineseSymbolFaces.face(".", false),
+            exclamation()));
+    }
+
+    private static KeyFaceDomain mainOnly(List<String> faces) {
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, faces);
         return new KeyFaceDomain(texts);
     }
 

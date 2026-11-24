@@ -906,8 +906,8 @@ final class ImeLayoutRows {
                 Button keyButton = s.keyboardKey(StrokeKeyboardLayout.face(key),
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
                 keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
-                // 键面只画笔画符号；矮键或系统大字体时按键帽空间缩小，名称保留在无障碍描述里。
-                KeyboardTypographyPolicy.setFittedKeyTextSize(keyButton, 14, 22);
+                // 键面只画笔画符号，字号由笔画组定（矮键时随键高缩小），名称保留在无障碍描述里。
+                s.imeKeyFaces.attachStroke(keyButton, true);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
                 s.keyId(keyButton, KeyPressIds.forCharacter(key.input()));
@@ -921,9 +921,10 @@ final class ImeLayoutRows {
         Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
         String periodFace = ChineseSymbolFaces.face(".", s.sendsChinesePunctuation());
         Button period = s.keyId(s.keyboardKey(periodFace, "句点", this::commitNineKeyPeriod), "Period");
-        if ("。".equals(periodFace)) CenteredGlyphSpan.apply(period, periodFace, 1.3f);
+        // 和右列的 ！ 一组，与拼音九键的 @#、！ 同字号；「。」按自己的墨迹居中、放大画（KeyFaceTemplates.STROKE_KEYS）。
         for (Button key : java.util.List.of(symbolsKey, zero, period)) {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+            s.imeKeyFaces.attachStroke(key, false);
             addNineKey(lastRow, key);
         }
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
@@ -960,6 +961,7 @@ final class ImeLayoutRows {
         Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeKeyFaces.attachStroke(exclamation, false);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(STROKE_SIDE_WEIGHT));
         updateStrokeWildcardKey();

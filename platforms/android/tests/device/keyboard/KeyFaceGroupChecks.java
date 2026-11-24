@@ -47,6 +47,7 @@ final class KeyFaceGroupChecks {
                         verifySideSymbols(context, height);
                         verifyLayer(context, height);
                         verifyScripts(context, height);
+                        verifyStroke(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -454,6 +455,56 @@ final class KeyFaceGroupChecks {
             "ー 不应比字母大：" + where);
         Rect bar = draw(longVowel)[1];
         check(!bar.isEmpty() && bar.left >= 0 && bar.right <= longVowel.getWidth(), "ー 没画出来或出了键格：" + bar + " " + where);
+    }
+
+    /**
+     * 笔画键盘：笔画一组，@#、0、句点和 ！ 一组、以笔画为上限。同组一份参数，墨迹不出键格；「。」按自己的墨迹居中、放大画；中英文标点换句点只重画。
+     */
+    private static void verifyStroke(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density), width = Math.round(64 * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        String domains = "app.msime.android.NineKeyFaceDomains";
+        Object strokes = product.group("STROKES", domains, "strokes", Typeface.DEFAULT, density, scale);
+        Object others = product.group("STROKE_KEYS", domains, "strokeKeys", Typeface.DEFAULT, density, scale);
+        others.getClass().getMethod("capMainAt", others.getClass()).invoke(others, strokes);
+        List<Button> strokeKeys = new ArrayList<>(), otherKeys = new ArrayList<>();
+        for (String face : new String[] {"一", "丨", "丿", "丶", "乛", "＊"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, strokes, false);
+            strokeKeys.add(key);
+        }
+        for (String face : new String[] {"@#", "0", "。", "！"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, others, false);
+            otherKeys.add(key);
+        }
+        for (Button key : strokeKeys) layout(key, width, height);
+        for (Button key : otherKeys) layout(key, width, height);
+        Object strokeParams = product.params(strokeKeys.get(0)), otherParams = product.params(otherKeys.get(0));
+        check(strokeParams != null && otherParams != null, "笔画键盘没有算出参数：" + where);
+        check(product.mainSize(otherParams) <= product.mainSize(strokeParams) + 0.01f, "@#、0、句点、！ 不应比笔画大：" + where);
+        for (List<Button> keys : List.of(strokeKeys, otherKeys)) {
+            Object params = product.params(keys.get(0));
+            for (Button key : keys) {
+                String at = key.getText() + " " + where;
+                check(product.params(key) == params, "笔画键盘同一组参数不同：" + at);
+                Rect main = draw(key)[1];
+                check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                    "笔画键盘的字没画出来或出了键格：" + main + " " + at);
+            }
+        }
+        Button period = otherKeys.get(2);
+        Rect periodInk = draw(period)[1];
+        float tolerance = density + 1;
+        check(Math.abs(periodInk.exactCenterX() - width / 2f) <= tolerance
+            && Math.abs(periodInk.exactCenterY() - height / 2f - 0.1f * product.mainSize(otherParams)) <= tolerance,
+            "「。」没有按自己的墨迹居中：" + periodInk + " " + where);
+        check(periodInk.height() >= 1.15f * product.inkHeight("。", product.mainSize(otherParams)), "「。」没有放大画：" + where);
+        period.setText(".");
+        check(!period.isLayoutRequested() && product.params(period) == otherParams, "换句点后请求了重新布局或参数变了：" + where);
     }
 
     /**

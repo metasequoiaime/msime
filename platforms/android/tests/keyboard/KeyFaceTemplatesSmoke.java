@@ -126,6 +126,16 @@ public final class KeyFaceTemplatesSmoke {
         for (float toneScale : dachenTones.scales().values()) check(near(toneScale, 1.8f), "大千声调应放大 1.8 倍");
         check(!dachenTones.centres("ㄅ"), "大千的注音符号不按自己的墨迹居中");
         check(KeyFaceTemplates.KOREAN.glyphs() == null, "韩文不按自己的墨迹居中");
+        // 笔画键盘：笔画 22 sp；@#、0、句点和 ！ 与拼音九键的字母组同为 18 sp，只有「。」按自己的墨迹居中。
+        check(near(solve(KeyFaceTemplates.STROKES, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22), "笔画应为 22 sp");
+        check(near(solve(KeyFaceTemplates.STROKE_KEYS, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(),
+            solve(KeyFaceTemplates.NINE_LETTERS, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx()),
+            "笔画键盘的其他键应与拼音九键字母同字号");
+        check(!KeyFaceTemplates.STROKES.capAligned() && KeyFaceTemplates.STROKES.glyphs() == null, "笔画应共用一条基线");
+        KeyFaceTemplate.Glyphs strokePunctuation = KeyFaceTemplates.STROKE_KEYS.glyphs();
+        check(strokePunctuation != null && !strokePunctuation.every() && strokePunctuation.centres("。")
+            && near(strokePunctuation.scale("。"), 1.3f) && !strokePunctuation.centres("@#") && !strokePunctuation.centres("！"),
+            "笔画键盘只有「。」按自己的墨迹居中、放大 1.3 倍：" + strokePunctuation);
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 
