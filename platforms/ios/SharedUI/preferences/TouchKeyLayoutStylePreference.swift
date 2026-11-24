@@ -774,7 +774,7 @@ enum TouchBottomRowLayout {
     return keys
   }
 
-  /// 「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`）：排在 123 后面的 符 挪到 123 左边，两键连位置带宽度一起换 —— 符 占 123 那一格的份额（与回车等宽的 1.9），123 挪到 符 原来的位置、拿它的 1.05，所以最左边仍是那个与回车对称的宽键。两键份额之和不变，整行总份额和空格都不变，地球键仍排在 123 后面。没有 符（长空格、表情键）或 符 已经在前面时原样返回。
+  /// 「26 键「符」与「123」互换」（`touch_twenty_six_symbol_first`）：排在 123 后面的 符 挪进 123 那一格并拿它的份额（与回车等宽的 1.9），123 和它右边的键顺次右移一格，123 拿 符 原来的 1.05 —— 两键连位置带宽度一起换，最左边仍是那个与回车对称的宽键。两键份额之和不变，整行总份额和空格都不变，地球键仍排在 123 后面。没有 符（长空格、表情键）或 符 已经在前面时原样返回。
   static func symbolFirst(_ keys: [Key]) -> [Key] {
     guard let layer = keys.firstIndex(where: { $0.slot == .layer }),
           let symbols = keys.firstIndex(where: { $0.slot == .symbols }), symbols > layer else { return keys }

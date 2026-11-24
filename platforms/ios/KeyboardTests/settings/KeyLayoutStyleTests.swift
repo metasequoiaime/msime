@@ -1071,9 +1071,9 @@ final class KeyLayoutStyleTests: XCTestCase {
   func testTwentySixKeyHidesSymbol() {
     let standard = TouchBottomRowLayout.twentySixKey(.standard, globe: false, hideSymbol: true)
     XCTAssertEqual(standard.map(\.slot), [.layer, .period, .space, .comma, .language, .returnKey])
-    XCTAssertEqual(standard.first { $0.slot == .space }?.weight,
+    XCTAssertEqual(standard.first { $0.slot == .space }?.weight ?? 0,
                    TouchBottomRowLayout.spaceWeight - Self.layerExtra - TouchBottomRowLayout.punctuationWeight
-                     + TouchBottomRowLayout.symbolsWeight)
+                     + TouchBottomRowLayout.symbolsWeight, accuracy: 1e-9)
     // 逗号句号样式同样有 符，也去掉。
     XCTAssertEqual(TouchBottomRowLayout.twentySixKey(.commaPeriod, globe: false, hideSymbol: true).map(\.slot),
                    [.layer, .comma, .space, .period, .language, .returnKey])
@@ -1894,8 +1894,12 @@ final class KeyLayoutStyleTests: XCTestCase {
         let swapped = TouchBottomRowLayout.symbolFirst(row)
         XCTAssertEqual(swapped.reduce(0) { $0 + $1.weight }, row.reduce(0) { $0 + $1.weight }, accuracy: 1e-9, style.rawValue)
         if [.standard, .commaPeriod].contains(style) {
-          XCTAssertEqual(swapped.map(\.slot),
-                         row.map(\.slot).map { $0 == .layer ? .symbols : $0 == .symbols ? .layer : $0 }, style.rawValue)
+          // 符 挪进 123 那一格，123 和它右边的键顺次右移一位：地球键仍排在 123 后面。
+          var expected = row.map(\.slot)
+          let layerIndex = expected.firstIndex(of: .layer)!
+          expected.removeAll { $0 == .symbols }
+          expected.insert(.symbols, at: layerIndex)
+          XCTAssertEqual(swapped.map(\.slot), expected, style.rawValue)
           // 宽度跟着换：符 拿 123 那一格的 1.9 份，123 拿 符 的 1.05 份。
           XCTAssertEqual(swapped.first { $0.slot == .symbols }?.weight,
                          row.first { $0.slot == .layer }?.weight, style.rawValue)
@@ -1931,7 +1935,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     XCTAssertEqual(column[1].weight, 6.3, accuracy: 1e-9, "0 takes the space's, its own and the hidden 中/英's shares")
   }
 
-  /// 真键盘：互换后中文 26 键（标准和逗号句号在空格两侧）与英文 26 键的底行以 符 打头，宽度与不互换时相同；从它进的数字九宫格按九键一族排（符 | 返回），符号栏里不再放第二个 符。
+  /// 真键盘：互换后中文 26 键（标准和逗号句号在空格两侧）与英文 26 键的底行以 符 打头，符 与 123 连位置带宽度一起换（最左边仍是与回车等宽的宽键）；从它进的数字九宫格按九键一族排（符 | 返回），符号栏里不再放第二个 符。
   func testSymbolFirstSwapsTheTwentySixKeyRowAndItsNumberPad() throws {
     select(.quanpin)
     for style in [TouchTwentySixKeyStyle.standard, .commaPeriod] {
@@ -1944,10 +1948,20 @@ final class KeyLayoutStyleTests: XCTestCase {
       let swapped = visibleBottomRow(controller)
       XCTAssertEqual(swapped.map(\.slot), TouchBottomRowLayout.symbolFirst(TouchBottomRowLayout.twentySixKey(
         style, globe: controller.needsInputModeSwitchKey)).map(\.slot), style.rawValue)
+      // 两键连宽度一起换：符 拿 123 与回车等宽的份额，123 拿 符 的 1.05 份，其余键宽度不变。
       for key in plain {
         let width = try XCTUnwrap(swapped.first { $0.slot == key.slot }).width
-        XCTAssertEqual(width, key.width, accuracy: 0.5, "\(style.rawValue) \(key.slot.rawValue) keeps its width")
+        let expected: CGFloat
+        switch key.slot {
+        case .symbols: expected = try XCTUnwrap(plain.first { $0.slot == .layer }).width
+        case .layer: expected = try XCTUnwrap(plain.first { $0.slot == .symbols }).width
+        default: expected = key.width
+        }
+        XCTAssertEqual(width, expected, accuracy: 0.5, "\(style.rawValue) \(key.slot.rawValue)")
       }
+      // 最左边仍是那个与回车对称的宽键。
+      XCTAssertEqual(try XCTUnwrap(swapped.first).width,
+                     try XCTUnwrap(swapped.first { $0.slot == .returnKey }).width, accuracy: 0.5, style.rawValue)
       attach(controller, "26 键 \(style.title) 符与123互换")
       // 数字九宫格：符 和返回键在字母层 符 和 123 那两格。
       try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
