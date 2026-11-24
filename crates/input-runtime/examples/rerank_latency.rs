@@ -282,7 +282,7 @@ fn encode_cases(
     Ok(typed)
 }
 
-/// `--sentence-pool <n>`：照原样打分，只把报给 runtime 的 [`CandidateScorer::sentence_pool`] 换成 `n`，在同一台机器上量引擎多解几条整句、模型多比较几条要多花多少（`--sentence-pool 0` 是不加池时的样子）。
+/// `--sentence-pool <n>`：在 26 键同时调整解码池和比较上限，在键位网格只调整比较上限。0 沿用默认池和九条比较上限。
 struct PoolOverride {
     inner: Box<dyn msime_input_runtime::CandidateScorer>,
     pool: usize,
@@ -303,6 +303,22 @@ impl msime_input_runtime::CandidateScorer for PoolOverride {
 
     fn sentence_pool(&self) -> usize {
         self.pool
+    }
+
+    fn grid_comparison_limit(&self) -> usize {
+        self.pool
+    }
+
+    fn static_evidence_weight(&self) -> f64 {
+        self.inner.static_evidence_weight()
+    }
+
+    fn context_changed(&mut self, context: &str) {
+        self.inner.context_changed(context);
+    }
+
+    fn supersedes_settled_rerank(&self) -> bool {
+        self.inner.supersedes_settled_rerank()
     }
 
     // 不转发就落到默认的 `None`，引擎拼整句时就不让模型打分，量出来的不是宿主上的耗时。

@@ -3157,11 +3157,11 @@ impl<E: InputEngine> Runtime<E> {
             } else {
                 rows
             };
-            // 整池只比较 26 键上引擎多解的读法；键位网格（九宫格、14 键）照九条比较，见 `rerank_pick_within`。
+            // 整池只比较 26 键上引擎多解的读法；键位网格的比较上限独立配置。
             let pool = if snapshot.key_grid.is_none() {
                 reranker.sentence_pool()
             } else {
-                0
+                reranker.grid_comparison_limit()
             };
             rerank_pick_within(
                 reranker.as_mut(),
