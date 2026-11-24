@@ -201,13 +201,13 @@ final class ImeStyler {
         s.imePanels.applyReplyGeometry();
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
-        applyKeyboardHeight(s.keyRows);
+        s.imePanelLayout.applyKeyRows(s.keyRows);
         // 无键帽符号栏的底轨也依赖行距；几何偏好变化后重新套用内缩，保持它与相邻键帽的上下边缘一致。
         s.imeLayoutRows.applySidebarRail();
         // 功能行是键行的兄弟而不是其中一行，按同一网格状态分摊高度；九宫格加高时底行保持默认高度，键帽照样带键距。
         if (s.actionRow != null) {
             applyKeyboardGeometry(s.actionRow);
-            applyKeyboardHeight(s.actionRow);
+            s.imePanelLayout.applyKeyRows(s.actionRow);
             s.actionRow.requestLayout();
         }
         // 设计的键区左右外边距 6 dp 量到键的边缘；键自己带半个键距的外边距，所以容器只补差值。
@@ -230,34 +230,10 @@ final class ImeStyler {
     /** 侧边数字键盘（{@link ImeSidePad}）按主键区的键距、行距、高度角色和左右外边距排一遍。 */
     void applySidePadGeometry(View pad) {
         applyKeyboardGeometry(pad);
-        applyKeyboardHeight(pad);
+        s.imePanelLayout.applyKeyRows(pad);
         ViewPolicy.setHorizontalPaddingPreservingVertical(pad, BoundsPolicy.nonNegative(
             s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths())));
         pad.requestLayout();
-    }
-
-    void applyKeyboardHeight(View node) {
-        applyKeyboardHeight(node, KeyboardHeightPolicy.windowHeightAdjustment(
-            s.touchKeyboardHeightAdjustment, s.getResources().getConfiguration().screenHeightDp));
-    }
-
-    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardHeightPolicy#windowHeightAdjustment}），整棵树用同一个值。 */
-    private void applyKeyboardHeight(View node, int adjustment) {
-        Object tag = node.getTag();
-        if (tag instanceof KeyboardHeightRole role) {
-            int height = PanelGeometry.keyRowPx(role, adjustment, s.imeLayoutRows.nineKeyGridDrawn(),
-                DimensionPolicy.density(s), s.halfSpacingPixels(s.touchRowSpacingTenths));
-            if (node.getLayoutParams() != null) {
-                android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
-                params.height = height;
-                node.setLayoutParams(params);
-            }
-        }
-        if (node instanceof android.view.ViewGroup) {
-            android.view.ViewGroup group = (android.view.ViewGroup) node;
-            for (int index = 0; index < group.getChildCount(); index++)
-                applyKeyboardHeight(group.getChildAt(index), adjustment);
-        }
     }
 
     void adjustFixedHeight(View view, int baseHeight) {

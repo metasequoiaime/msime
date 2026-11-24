@@ -138,6 +138,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeTouchPoints imeTouchPoints;
     ImeBottomRow imeBottomRow;
     ImeBottomBar imeBottomBar;
+    ImePanelLayout imePanelLayout;
     ImeLayoutRows imeLayoutRows;
     ImeStyler imeStyler;
     ImeFrame imeFrame;
@@ -2155,6 +2156,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeTouchPoints = new ImeTouchPoints(this);
         imeBottomRow = new ImeBottomRow(this);
         imeBottomBar = new ImeBottomBar(this);
+        imePanelLayout = new ImePanelLayout(this);
         imeLayoutRows = new ImeLayoutRows(this);
         imeStyler = new ImeStyler(this);
         imeFrame = new ImeFrame(this);
@@ -5252,59 +5254,14 @@ public final class MSIMEInputService extends InputMethodService {
         return candidatePronunciationVisible() ? Math.max(2, lines) : lines;
     }
 
+    /** 顶栏各行的高度由 {@link ImePanelLayout#applyTopBand} 按 {@link PanelGeometry#topBand} 写入。 */
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
         int reserved = CandidateTranslationPolicy.reservedRows(
             CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
             CandidateHintRows.rows(this));
-        // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
-        // 未单独设置工具栏尺寸时继续跟随读音行与候选行，「候选栏大小」调小时工具栏这一行跟着变矮，按钮在 applyShortcutSize 里随行高缩小。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白，不允许工具栏单独比候选栏矮。各部分的算法见 PanelGeometry.topBand。
-        boolean customSize = localSettings != null && localSettings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
-        int sizePercent = customSize ? localSettings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
-        boolean idleRowVisible = ViewPolicy.isVisible(shortcutToolbar)
-            || ViewPolicy.isVisible(recentClipRow)
-            || inlineAutofill != null && inlineAutofill.visible();
-        PanelGeometry.TopBand band = PanelGeometry.topBand(new PanelGeometry.TopBandInputs(
-            readingRowHeight(), ViewPolicy.isVisible(candidateHeader),
-            pixels(imeCandidates.stripHeightDp(reserved)),
-            // 同一状态下「候选栏大小」为 100% 时的设计行高：读音行可见时只取候选行，按钮和图标不因标题出现而改变比例。
-            pixels(CandidateStripHeightPolicy.designHeightDp(reserved)),
-            customSize ? pixels(ToolbarSizePolicy.heightDp(sizePercent)) : 0,
-            idleRowVisible, ViewPolicy.isVisible(candidateLine)));
-        ViewPolicy.setFixedHeight(candidateLine, band.candidateLine());
-        if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, band.readingRow());
-        if (shortcutToolbar != null) ViewPolicy.setFixedHeight(shortcutToolbar, band.idleRow());
-        if (inlineAutofill != null) inlineAutofill.setHeight(band.idleRow());
-        // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
-        if (recentClipRow != null) ViewPolicy.setFixedHeight(recentClipRow, band.idleRow());
-        if (candidateHeightSpacer != null) ViewPolicy.setFixedHeight(candidateHeightSpacer, band.spacer());
-        imeToolbar.applyShortcutSize(sizePercent, customSize, band.idleRow(), band.designRow());
-    }
-
-    private int readingRowHeight() {
-        if (!spellingHeaderReserved) return 0;
-        int design = pixels(ImeToolbar.READING_ROW_DP);
-        if (preedit == null) return design;
-        // 读音行自己的上下内边距（下边就是和候选行之间的 READING_GAP_DP）也算进去，否则字号大时间距被读音挤掉。
-        int headerPadding = candidateHeader == null ? 0
-            : candidateHeader.getPaddingTop() + candidateHeader.getPaddingBottom();
-        int height = readingLabelHeight(preedit, design, headerPadding);
-        // 「清除」等按钮的字号和字体留白可能比读音大；收起时仍预留同一行高，避免输入时键盘跳动。
-        if (candidateHeader != null) for (int index = 0; index < candidateHeader.getChildCount(); index++) {
-            View child = candidateHeader.getChildAt(index);
-            if (child instanceof TextView label)
-                height = Math.max(height, readingLabelHeight(label, design, headerPadding));
-        }
-        return height;
-    }
-
-    private int readingLabelHeight(TextView label, int design, int headerPadding) {
-        Paint.FontMetricsInt metrics = label.getPaint().getFontMetricsInt();
-        int top = label.getIncludeFontPadding() ? metrics.top : metrics.ascent;
-        int bottom = label.getIncludeFontPadding() ? metrics.bottom : metrics.descent;
-        return ReadingRowPolicy.heightPx(design, top, bottom,
-            label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
+        imePanelLayout.applyTopBand(reserved, spellingHeaderReserved, inlineAutofill);
     }
 
     void fail(Throwable error) {

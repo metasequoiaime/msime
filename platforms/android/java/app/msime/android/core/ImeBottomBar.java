@@ -218,7 +218,7 @@ final class ImeBottomBar {
         if (keyboard == null) return;
         if (s.overlayDrawn()) {
             if (bar != null) ViewPolicy.hide(bar);
-            ViewPolicy.setPaddingIfChanged(keyboard, 0, 0, 0, 0);
+            s.imePanelLayout.applyBottomInset(keyboard, bar, false, PanelGeometry.BottomInset.NONE, 0, 0, 0);
             return;
         }
         boolean shown = shown();
@@ -226,13 +226,8 @@ final class ImeBottomBar {
         // 底栏计入目标高度，额外空白只抬高键区，覆盖面板同样让出这段内边距；「键盘调整」期间按预览的抬高。
         PanelGeometry.BottomInset inset = PanelGeometry.bottomInset(false, insets.bottom, shown, margin,
             s.pixels(KeyboardBottomBarPolicy.BAR_HEIGHT_DP), s.pixels(s.keyboardLiftDp(shown)));
-        if (shown && bar.getLayoutParams() instanceof FrameLayout.LayoutParams params
-                && params.bottomMargin != inset.barMargin()) {
-            params.bottomMargin = inset.barMargin();
-            bar.setLayoutParams(params);
-        }
+        s.imePanelLayout.applyBottomInset(keyboard, bar, shown, inset, insets.left, insets.top, insets.right);
         if (bar != null) ViewPolicy.setVisibleIfChanged(bar, shown);
-        ViewPolicy.setPaddingIfChanged(keyboard, insets.left, insets.top, insets.right, inset.padding());
     }
 
     /** 「键盘调整」打开期间底栏和键区一样只是预览，读屏不进去；关上后交还。 */
