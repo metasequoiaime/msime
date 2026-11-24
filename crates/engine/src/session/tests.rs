@@ -778,6 +778,40 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
 }
 
 #[test]
+fn shuangpin_sentence_lattice_uses_enabled_fuzzy_readings() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_w VALUES('wo','w','我',12000);\
+CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_c VALUES('ci','c','次',2000),('chi','ch','吃',15000);\
+CREATE TABLE tbl_1_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_f VALUES('fan','f','饭',9000);\
+CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_c VALUES('chi''fan','chf','吃饭',38000);",
+    );
+    // 小鹤双拼的字面读音是 wo'ci'fan，合成词库只收了「吃饭」，没有整句。
+    for (rules, expected) in [(0, "我次饭"), (crate::types::fuzzy_rule::C_CH, "我吃饭")] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = false;
+            options.personal_context = false;
+            options.fuzzy_pinyin.rules = rules;
+        });
+        type_text(&mut session, "wocifj");
+        let snapshot = session.snapshot();
+        let row = &snapshot.candidates[0];
+        assert_eq!(row.word, expected);
+        assert!(row.sentence_association);
+        assert_eq!(row.fuzzy, rules != 0);
+        if rules != 0 {
+            assert_eq!(row.canonical_pinyin, "wo'chi'fan");
+        }
+        assert_eq!(session.select(0).commit.as_deref(), Some(expected));
+        assert!(session.snapshot().editing_text.is_empty());
+    }
+}
+
+#[test]
 fn quanpin_fuzzy_selection_can_cross_the_literal_candidate_group() {
     let fixture = Fixture::new(
         "CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
