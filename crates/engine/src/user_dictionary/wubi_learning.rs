@@ -143,7 +143,7 @@ pub(crate) fn learn(
 }
 
 /// 对称删除已学的五笔词：三版（[`learned_kinds`]）里除 `keep` 外的版本，按各自
-/// 码表独立推导四码，删行并写墓碑；推导失败的版本本来也学不进，直接跳过。返回删除的行数。
+/// 码表独立推导四码，仅当日志里有该码的学词 upsert 行时删行并写墓碑；推导失败的版本本来也学不进，直接跳过。返回删除的行数。
 /// `profile` 保留在接口里但不再决定删哪版。词库与日志在同一个事务里提交（与 [`learn`] 同一模式）。
 pub(crate) fn delete_other_learned_kinds(
     main_db: &Path,
@@ -174,7 +174,15 @@ pub(crate) fn delete_other_learned_kinds(
         else {
             continue;
         };
-        // 行不存在（这一版本来就没学进）不算错，墓碑照写：这个用户已经删过这个词，之后也不该再学进这一版。
+        // 只动日志里有 `learn` 写入的 upsert 行的版本：随包的原生词即使在另一版里推导码恰好等于它的原生码，也不是学来的，不能连带删除。
+        let learned: bool = transaction.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM {JOURNAL_ALIAS}.user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value=?3 AND operation='upsert' AND user_inserted=1)"),
+            params![kind.journal_name(), code, word],
+            |row| row.get(0),
+        )?;
+        if !learned {
+            continue;
+        }
         let deleted = transaction.execute(
             &format!("DELETE FROM {table} WHERE key=?1 AND value=?2"),
             params![code, word],
@@ -412,11 +420,9 @@ mod tests {
             0
         );
         assert_eq!(
-            db.query_row(
-                "SELECT key FROM wubixsj WHERE value='甲乙'",
-                [],
-                |r| r.get::<_, String>(0)
-            )
+            db.query_row("SELECT key FROM wubixsj WHERE value='甲乙'", [], |r| {
+                r.get::<_, String>(0)
+            })
             .unwrap(),
             "qruv"
         );
@@ -533,11 +539,7 @@ mod tests {
             );
         }
         let log = Connection::open(&journal).unwrap();
-        for (dictionary, key) in [
-            ("wubi", "abef"),
-            ("wubi98", "ijmn"),
-            ("wubixsj", "qruv"),
-        ] {
+        for (dictionary, key) in [("wubi", "abef"), ("wubi98", "ijmn"), ("wubixsj", "qruv")] {
             assert_eq!(
                 log.query_row(
                     "SELECT count(*) FROM user_dictionary_operations WHERE dictionary=?1 AND key=?2 AND value='甲乙' AND operation='delete'",
@@ -642,6 +644,52 @@ mod tests {
                 .unwrap()
                 .query_row(
                     "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi98'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    /// 随包的原生多字词不是学来的：另一版里同码的原生行和日志都不能被连带删除。
+    #[test]
+    fn native_phrases_in_other_versions_are_not_deleted() {
+        let (_directory, paths) = fixture();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        let journal = paths.user(assets::USER_JOURNAL);
+        // 甲乙在 98 里推导码为 ijmn；放一条随包原生行。
+        Connection::open(&main)
+            .unwrap()
+            .execute_batch("INSERT INTO wubi98 VALUES('ijmn','甲乙',50);")
+            .unwrap();
+        assert_eq!(
+            crate::user_dictionary::wubi_learning::delete_other_learned_kinds(
+                &main,
+                &journal,
+                PersonalDictionaryKind::Wubi,
+                WubiProfileKind::Wubi86,
+                "甲乙",
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            Connection::open(&main)
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM wubi98 WHERE key='ijmn' AND value='甲乙'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            Connection::open(&journal)
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM user_dictionary_operations WHERE value='甲乙'",
                     [],
                     |r| r.get::<_, i64>(0)
                 )
