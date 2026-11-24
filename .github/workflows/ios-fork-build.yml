@@ -1,0 +1,186 @@
+name: iOS build (fork)
+
+# 只给个人 fork 用：上游的 ci-ios.yml 跑在上游组织的 Depot runner（depot-macos-26）上，
+# fork 里没有这种 runner，那边的 job 会一直排队。这里换成 GitHub 托管的 macos-26（公开仓库免费），
+# 用镜像默认的 Xcode，步骤照抄 ci-ios.yml 的 `iOS Simulator` job：打包词库、编译 Rust 宿主库、
+# 生成 Xcode 工程、跑 pr 范围的单元测试。不要把这个文件带进给上游的 PR。
+
+on:
+  # 推到 ios- 开头的分支就自动构建。手动触发（workflow_dispatch）只认默认分支上的 workflow 文件，
+  # fork 的默认分支 develop 上没有这个文件，Actions 页就找不到它，所以靠推送来触发。
+  push:
+    branches: ['ios-*']
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "测试范围：pr（单元测试，默认）、build（只编译不跑测试）或 ipa（只打 IPA，不跑测试）"
+        required: false
+        default: pr
+        type: choice
+        options: [pr, build, ipa]
+      skip-voice:
+        description: "跳过依赖 App Group 的语音用例（fork 测试宿主没 entitlement，跑必挂）。仅 pr 范围生效。"
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ios-fork-build-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: iOS Simulator (fork)
+    if: ${{ inputs.scope != 'ipa' }}
+    runs-on: macos-26
+    timeout-minutes: 240
+    env:
+      MSIME_IOS_SKIP_HANDWRITING: '1'
+      CARGO_INCREMENTAL: '0'
+      MSIME_TEST_SCOPE: pr
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with: {persist-credentials: false}
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios || true
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ios-fork
+
+      - name: Install project generator
+        run: brew install xcodegen
+
+      - name: Package iOS dictionary
+        run: |
+          # Rust 缓存会把 target/ 下的词库目录还原成空壳，词库安装程序看到已有目录就拒绝覆盖，所以先清掉再装。
+          rm -rf target/resources
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/stage-resources.sh "$resource_dir"
+
+      - name: Build the iOS host library
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios-sim
+          bash platforms/ios/build-native.sh simulator
+          test -f target/ios/simulator/libmsime_host_api.a
+
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build/ios
+          python3 scripts/fetch_voice_runtime.py --platform ios
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root platforms/ios
+
+      - name: Build only
+        if: ${{ inputs.scope == 'build' }}
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing \
+            -project build/ios/MSIMEClient.xcodeproj \
+            -scheme MSIMEClientTests \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ios-derived \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tail -n 300
+
+      - name: Test native iOS keyboard and settings
+        if: ${{ inputs.scope != 'build' }}
+        timeout-minutes: 180
+        env:
+          # fork 的测试宿主（MSIMEKeyboardTestHost）没签名、没 App Group entitlement，语音用例读共享容器必挂。
+          # push 事件没有 inputs，直接跳过；手动触发时按 skip-voice 输入决定（默认跳过）。
+          # 用三元短路保证结果是字符串：真 → 跳过目标；假 → 空串。
+          MSIME_TEST_SKIP_EXTRA: ${{ (github.event_name == 'push' || inputs.skip-voice == 'true') && 'MSIMEKeyboardTests/SpaceVoicePanelTests' || '' }}
+        run: bash platforms/ios/scripts/run_ui_tests.sh
+
+      - name: Upload iOS test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: build/ios-derived/Logs/Test/*.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # 真机未签名 IPA：沿用上游 build-app.sh 的 device 模式（CODE_SIGNING_ALLOWED=NO），
+  # 再用 ad-hoc 签名把 App Group 权限（group.app.msime.ios）写进主 App 和键盘扩展，
+  # 让 Sideloadly / AltStore 这类工具重签时能带上它；最后打成 Payload/MSIMEApp.app 的 .ipa。
+  # 这个包本身装不上手机，必须先用你的 Apple ID 重签。
+  ipa:
+    name: iOS unsigned IPA (fork)
+    runs-on: macos-26
+    timeout-minutes: 150
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with: {persist-credentials: false}
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ios-fork-device
+
+      - name: Install tools and the device Rust target
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          command -v pod >/dev/null || brew install cocoapods
+          rustup target add aarch64-apple-ios
+
+      - name: Fetch candidate glosses and wordbooks
+        run: |
+          python3 scripts/fetch_offline_glosses.py
+          python3 scripts/fetch_wordbooks.py
+
+      - name: Build the device app (unsigned)
+        run: |
+          set -euo pipefail
+          # Rust 缓存会把 target/ 下的词库目录还原成空壳，词库安装程序看到已有目录就拒绝覆盖，所以先清掉再装。
+          rm -rf target/resources
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/build-app.sh "$resource_dir" device
+
+      - name: Ad-hoc sign with entitlements and package the IPA
+        run: |
+          set -euo pipefail
+          app=target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEApp.app
+          appex="$app/PlugIns/MSIMEKeyboardExtension.appex"
+          test -d "$appex"
+          # 先签里层的 framework / dylib，再签键盘扩展，最后签主 App。
+          find "$app" \( -name '*.framework' -o -name '*.dylib' \) -prune -print0 \
+            | xargs -0 -I{} codesign --force --sign - --timestamp=none {}
+          codesign --force --sign - --timestamp=none \
+            --entitlements platforms/ios/KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements "$appex"
+          codesign --force --sign - --timestamp=none \
+            --entitlements platforms/ios/App/Resources/MSIMEApp.entitlements "$app"
+          entitlements="$(codesign -d --entitlements - "$appex" 2>&1)"
+          grep -q group.app.msime.ios <<< "$entitlements" || { echo "keyboard extension lacks the App Group entitlement" >&2; exit 1; }
+          version="$(tr -d '[:space:]' < platforms/ios/version.txt)"
+          name="msime-ios-${version}-${GITHUB_SHA::7}-unsigned.ipa"
+          mkdir -p dist/Payload
+          ditto "$app" dist/Payload/MSIMEApp.app
+          (cd dist && ditto -c -k --sequesterRsrc --keepParent Payload "$name")
+          ls -lh "dist/$name"
+          echo "IPA_NAME=$name" >> "$GITHUB_ENV"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: msime-ios-unsigned-ipa
+          path: dist/${{ env.IPA_NAME }}
+          retention-days: 14
+          if-no-files-found: error
