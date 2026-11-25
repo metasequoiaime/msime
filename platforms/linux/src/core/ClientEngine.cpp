@@ -9098,13 +9098,12 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
           return;
         }
 #ifdef MSIME_LINUX_FLOATING_PANELS
-        msime::linux_host::CandidateMenuAnchor anchor;
-        // 纯 X11（及其它非 GNOME 会话）：右键就在 IBus 面板的候选行上，show() 取本机
-        // 指针即可；候选框和菜单同是 X11 窗口，不存在合成器遮挡。
-        anchor.kind = msime::linux_host::CandidateMenuAnchor::Kind::Pointer;
-        anchor.x = -1;
-        anchor.y = -1;
-        show_candidate_menu(engine, entry, anchor);
+        // 纯 X11 会话右键就在 IBus 面板的候选行上，show() 取本机指针；KDE Plasma、sway 这类 Wayland 会话里 Xwayland 的指针坐标是陈旧的，改按 IBus 上报的光标矩形摆（CandidateMenuPlacement.h）。
+        const char *wayland = std::getenv("WAYLAND_DISPLAY");
+        show_candidate_menu(engine, entry,
+                            msime::linux_host::candidate_menu_anchor(
+                                wayland && *wayland, engine->cursor_area.x, engine->cursor_area.y,
+                                engine->cursor_area.width, engine->cursor_area.height));
 #else
         if (s.rendered_view.is_object())
           show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
