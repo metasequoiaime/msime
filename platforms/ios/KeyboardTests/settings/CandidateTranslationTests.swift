@@ -824,6 +824,12 @@ final class CandidateTranslationTests: XCTestCase {
                                                    columnWidth: 50, style: .system), 1)
     XCTAssertEqual(KeyboardCandidatePanelView.span(titleWidth: 30, annotated: true, columns: 5,
                                                    columnWidth: 70), 2)
+    // 原地展开的卡片网格右边让出了窄列，列宽下限放宽：375/390pt 五列、430pt 六列、320pt 四列。
+    let inlineWidths = [276.0, 331.0, 346.0, 386.0].map { width -> Int in
+      KeyboardCandidatePanelView.columns(width: width, style: .card,
+                                         minimumCellWidth: KeyboardCandidatePanelView.inlineMinimumCellWidth)
+    }
+    XCTAssertEqual(inlineWidths, [4, 5, 5, 6])
   }
 
   /// 系统样式的面板带右侧窄列，首行候选与下面的格子同一条列线，整屏只有这一个列表。
@@ -891,6 +897,17 @@ final class CandidateTranslationTests: XCTestCase {
     let cardCollection = try XCTUnwrap(collection(card))
     XCTAssertEqual(cardCollection.convert(cardCollection.bounds, to: card).maxX,
                    cardSide.frame.minX, accuracy: 0.5, "卡片样式的网格同样止于窄列左边")
+
+    // 右边那条窄列不该把一屏挤掉一列：375pt 的机器上仍是五列，第六个候选换到第二行。
+    func rowFrame(_ view: UIView, _ number: Int) throws -> CGRect {
+      let button = try XCTUnwrap(chip(view, number))
+      return button.convert(button.bounds, to: cardCollection)
+    }
+    let firstRow = try (1...5).map { try rowFrame(card, $0) }
+    for frame in firstRow {
+      XCTAssertEqual(frame.minY, firstRow[0].minY, accuracy: 0.5, "原地展开的卡片网格默认五列")
+    }
+    XCTAssertGreaterThan(try rowFrame(card, 6).minY, firstRow[0].minY, "第六个候选换到第二行")
 
     // 没传 expandsInPlace 的调用方（标题栏面板、九键三栏）保持原样，不会凭空多出一条窄列。
     let headerPanel = KeyboardCandidatePanelView(

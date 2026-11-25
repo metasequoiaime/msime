@@ -86,8 +86,12 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   /// 删除键上那个滑动手势：键盘控制器把自己的 `backspaceSwipe` 交进来，于是面板里的删除与底部 ⌫ 是同一套——按住往左滑逐格删、往上滑越过待命线松手清空。手势的决定权（起手方向、能不能滑）留在家控制器里，视图只负责挂上去。
   private let deleteSwipeGesture: UIPanGestureRecognizer?
 
-  /// 宽 `width` 的网格有几列：CSS auto-fill 的列数，即按 64pt 列宽、6pt 间隔能放下几列，至少一列。系统样式固定六列。
-  static func columns(width: CGFloat, style: CandidatePanelStylePreference.Style = .card) -> Int {
+  /// 原地展开的卡片网格右边让出了 44pt 的窄列，可用宽度少一条：仍按 64pt 排就只有四列，一屏空得厉害。这里放宽到 58pt——375/390pt 的机器恢复五列，430pt 六列，SE 的 320pt 仍是四列（五列每格才五十来点，放不下两个字）。
+  static let inlineMinimumCellWidth: CGFloat = 58
+
+  /// 宽 `width` 的网格有几列：CSS auto-fill 的列数，即按 `minimumCellWidth` 列宽、6pt 间隔能放下几列，至少一列。系统样式固定六列。
+  static func columns(width: CGFloat, style: CandidatePanelStylePreference.Style = .card,
+                      minimumCellWidth: CGFloat = KeyboardCandidatePanelView.minimumCellWidth) -> Int {
     if style == .system { return systemColumns }
     return max(1, Int((width + cellSpacing) / (minimumCellWidth + cellSpacing)))
   }
@@ -402,7 +406,9 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     let spacing = palette?.layout?.itemGap?.dip(fontSize: CandidateFontPreference.font(.body, scale: candidateScale).pointSize)
       ?? (tight ? Self.systemCellSpacing : Self.cellSpacing)
     let content = max(0, width - padding * 2)
-    let columns = Self.columns(width: content, style: style)
+    // 原地展开的卡片网格右边是窄列，列宽下限跟着放宽，见 `inlineMinimumCellWidth`。
+    let columns = Self.columns(width: content, style: style,
+                               minimumCellWidth: !tight && inlineLayout ? Self.inlineMinimumCellWidth : Self.minimumCellWidth)
     let columnWidth = max(0, (content - spacing * CGFloat(columns - 1)) / CGFloat(columns))
     let spans = candidates.indices.map { index in
       let chip = makeChip(candidate: candidates[index], index: index, reusing: measurementChip, interactive: false)

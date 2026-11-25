@@ -27,6 +27,7 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 - 用显式参数而不是继续按 `style` 推断，是为了不动其它调用方（标题栏面板、九键三栏、二十来个测试构造点）：不传就是原来的布局。
 - 右列的删除键接上底部 ⌫ 的整套滑动手势：控制器在 `showCandidatePanel` 里建一个名字为 `backspaceSwipe` 的 pan 交给面板，面板挂到删除键上。于是横滑逐格删、上滑越过待命线松手清空、往右滑恢复都跟 ⌫ 一样，起手方向与能不能滑仍由 `gestureRecognizerShouldBegin` 和 `handleBackspaceSwipe` 原来那套判断，面板只提供按键。滑动期间 `candidatePanelFollowsSelection` 为真，候选换代时面板原地重建而不是收起（`handlePanelDeleteSwipe`）。
 - 候选栏可下滑展开：`candidateStrip` 上挂一个 pan（`candidateStripSwipeDown`），向下拖过 18pt 就调 `showCandidatePanel()`，等于点一下展开箭头。起手方向在 `gestureRecognizerShouldBegin` 里判（只接向下、纵向为主），与候选列表的横向滚动同时识别；`cancelsTouchesInView` 让手指落在某个候选上往下拖时不会同时把那个候选上屏。一次手势只展开一次。
+- 原地展开的卡片网格列宽下限放宽到 58pt（`inlineMinimumCellWidth`）：右边让出 44pt 的窄列之后，仍按 64pt 一排就只剩四列，一屏空得厉害（真机反馈）。375/390pt 恢复五列、430pt 六列、SE 的 320pt 仍是四列（五列每格五十来点，放不下两个字）。非原地展开的面板（标题栏、九键）不受影响。
 
 ## 不做
 
@@ -38,7 +39,8 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 
 - `CandidateTranslationTests.testTheSystemStyleKeepsSixColumnsOnEveryPhoneWidth`：320/375pt 都是六列，卡片样式仍是 4/5 列；带注释的候选在六列下只占一列、卡片样式仍占两列。
 - `CandidateTranslationTests.testTheSystemStylePanelDrawsOneAlignedListWithTheSideColumn`：网格止于窄列左边，首行六格同一行且等宽，窄列里能找到收起、手写、删除三个按钮，系统样式不画标题栏。
-- `CandidateTranslationTests.testTheCardStyleSharesTheInPlaceLayoutAndKeepsItsOwnChips`：卡片样式展开后同样有窄列、窄列里三个按钮、网格止于窄列左边；卡片格子的底色与圆角跟不原地展开时一致（格子画法没被布局改动带掉），系统样式的格子仍是透明纯文字；没传 `expandsInPlace` 的面板不会凭空多出窄列。
+- `CandidateTranslationTests.testTheCardStyleSharesTheInPlaceLayoutAndKeepsItsOwnChips`：卡片样式展开后同样有窄列、窄列里三个按钮、网格止于窄列左边；375pt 上首行五格同一行、第六个候选换到第二行；卡片格子的底色与圆角跟不原地展开时一致（格子画法没被布局改动带掉），系统样式的格子仍是透明纯文字；没传 `expandsInPlace` 的面板不会凭空多出窄列。
+- `CandidateTranslationTests.testTheSystemStyleKeepsSixColumnsOnEveryPhoneWidth` 里也钉住了原地展开卡片的列数：窄列让出之后的 276/331/346/386pt 分别是 4/5/5/6 列。
 - `CandidateTranslationTests.testThePanelDeleteCarriesTheBackspaceSwipeGesture`：两种样式的删除键都挂着控制器交进来的那个 pan（`backspaceSwipe`），无障碍提示写明横滑删、上滑清空。
 - `scripts/test-ios-key-layout-settings.py` 等契约脚本不受影响，回归全过。
 - 真机第一轮验收提出的三处（同一屏两根滚动条、高亮格与候选条不一致、面板底色比周围深一档）按上面的做法改掉；样式缺省在验收期间临时设为 `system`（`fallbackStyle`），验完改回 `card`。
