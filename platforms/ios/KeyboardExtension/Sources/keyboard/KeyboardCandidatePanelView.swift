@@ -362,7 +362,6 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       layoutGrid(width: available)
     }
     scrollView.layoutIfNeeded()
-    updateScrollIndicator()
   }
 
   private func rebuildChips() {
