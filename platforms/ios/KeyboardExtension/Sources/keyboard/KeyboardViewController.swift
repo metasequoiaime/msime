@@ -259,15 +259,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   let handwriting = HandwritingInputView()
   private var handwritingResults: [String] = []
   private var handwritingActionHeight: NSLayoutConstraint?
-  private var candidatePanel: KeyboardCandidatePanelView?
+  private(set) var candidatePanel: KeyboardCandidatePanelView?
   /// 面板正在显示的那一代候选。选择和长按菜单都按它里面的代次和全局序号找候选；九键面板换代时整份换掉。
   private var candidatePanelSnapshot: CandidatePanelSnapshot?
-  /// 面板里刚选了候选、这次选择的快照正在画：普通网格这时换代也不收起，而是换上新的一代，由 `selectPanelCandidate` 画完后决定面板留不留（#9193）。
-  private var candidatePanelFollowsSelection = false
+  /// 面板自己正在做一步操作（选候选、右列的删除、右列的横滑删除）、这次换代的快照正在画：普通网格这时换代也不收起，而是换上新的一代，由 `selectPanelCandidate` 画完后决定面板留不留（#9193）。
+  var candidatePanelFollowsSelection = false
   /// 全拼九键展开面板的左右两栏；不为 nil 时面板是三栏布局，换代时不关而是重建。
   private var nineKeyPanelColumns: KeyboardNineKeyPanelColumns?
   /// 九键面板左栏正显示笔画键。只是面板自己的状态，收起面板就回到拼音。
   private var nineKeyPanelStrokeMode = false
+  /// 当前面板从候选条那一行的顶边铺起（系统样式的展开）。这一行的内容在面板打开期间清空，面板透明铺上去就是候选栏原地向下展开。
+  private var panelCoversCompositionRow = false
   private var emojiPicker: KeyboardEmojiPickerView?
   private var symbolPanel: KeyboardSymbolPanelView?
   private var nineKeyHoldPopup: UIView?
@@ -310,6 +312,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     pan.delegate = self
     return pan
   }()
+  /// 这一次候选栏下滑还没展开过：一次手势只展开一次（`KeyboardViewController+CandidateStripSwipe.swift`）。
+  var stripSwipeArmed = false
   /// a..z 二十六个字母键，按字母顺序；滑行请求里的键中心按这个顺序给出。
   private var glideLetterKeys: [UIButton] = []
   /// 第二排 L 右边的 `;` 键，微软双拼和粤语双拼显示（`ChineseInputScheme.showsSemicolonFinalKey`）。名字沿用最早只给微软双拼时的叫法，测试按 `microsoftFinalKey` 这个无障碍 id 找它。
@@ -2753,6 +2757,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = Self.stripBackground(KeyboardTheme.current, palette: nil)
+    container.addGestureRecognizer(makeCandidateStripSwipe())
 
     // 读音默认并入候选行，占它最左边的一段（最多三成宽，长了截掉尾部），换来顶栏少一行 14pt；代价是候选少了这一段宽度。全拼 14 键仍单独一行，见 `separateReadingRow`。
     let compositionRow = readingRow
@@ -6960,7 +6965,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     expandCandidatesButton.transform = transform
   }
 
-  private func showCandidatePanel() {
+  func showCandidatePanel() {
     closeKeyboardService()
     closeKeyboardPicker()
     playInputClick()
@@ -6969,6 +6974,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let snapshot = try CandidatePanelSnapshot.decode(allCandidates)
       guard !snapshot.entries.isEmpty else { return }
       let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
+      // 系统样式是候选栏原地向下展开：面板从候选条那一行铺起，那一行的内容清空、面板透明，右侧窄列接手收起、手写、删除。卡片样式（缺省）维持候选条在上、网格在下，现有用户的手感不变：卡片也原地展开会改掉出厂行为，需要单独授权（#11895）。九键三栏面板例外，它装在键区里，候选栏和读音留着。
+      let panelStyle = CandidatePanelStylePreference.style
+      let expandsInPlace = columns == nil && panelStyle == .system
+      let coversCompositionRow = expandsInPlace
+      // 面板右列那个删除键接上底部 ⌫ 的滑动手势：按住往左滑逐格删、往上滑越过待命线松手清空。手势名沿用 `backspaceSwipe`，起手方向与能不能滑仍由 `gestureRecognizerShouldBegin` 和 `handleBackspaceSwipe` 原来那一套判断。
+      let panelDeleteSwipe = UIPanGestureRecognizer(target: self, action: #selector(handlePanelDeleteSwipe(_:)))
+      panelDeleteSwipe.name = "backspaceSwipe"
+      panelDeleteSwipe.maximumNumberOfTouches = 1
+      panelDeleteSwipe.cancelsTouchesInView = true
+      panelDeleteSwipe.delegate = self
       let panel = KeyboardCandidatePanelView(
         candidates: candidatePanelTexts(snapshot), preedit: snapshot.preedit,
         annotations: candidatePanelAnnotations(snapshot),
@@ -6985,13 +7000,28 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           selectPanelCandidate(generation: snapshot.generation, globalIndex: snapshot.entries[index].index)
         },
         onClose: { [weak self] in self?.closeKeyboardPicker() },
+        style: panelStyle,
+        onHandwriting: { [weak self] in
+          guard let self else { return }
+          closeKeyboardPicker()
+          selectInputScheme(.handwriting)
+        },
+        onDelete: { [weak self] in
+          guard let self else { return }
+          // 面板里的删除只是退掉组字里的一个键，跟九键面板的退格一样换一代候选、面板留着；组字退空之后 `refreshCandidatePanelAnnotations` 自己会收起。
+          candidatePanelFollowsSelection = true
+          handleBackspace()
+          candidatePanelFollowsSelection = false
+        },
+        deleteSwipeGesture: panelDeleteSwipe,
+        expandsInPlace: expandsInPlace,
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
       refreshDecorationWords()
       candidatePanelSnapshot = snapshot
       nineKeyPanelColumns = columns
       // 九键三栏面板和普通候选网格一样装在键区：上面的候选栏和读音留着，用户看得到选拼音、筛选之后读音和首选怎么变。
-      installPanel(panel)
+      installPanel(panel, coveringCompositionRow: coversCompositionRow)
       updateExpandRotation()
       updateNineKeyPanelColumns()
       // 收起时候选条只查了自己那一页的释义，网格里其余候选的释义在打开时补查，用的就是上面刚读出的这份完整列表。
@@ -7147,6 +7177,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.removeFromSuperview()
     candidatePanel = nil
     candidatePanelSnapshot = nil
+    // 面板不再盖着候选条那一行，把刚才清空的内容放回去。
+    if panelCoversCompositionRow {
+      panelCoversCompositionRow = false
+      setCompositionRowContentHidden(false)
+    }
     let wasNineKeyPanel = nineKeyPanelColumns != nil
     nineKeyPanelColumns = nil
     nineKeyPanelStrokeMode = false
@@ -8431,11 +8466,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return velocity.x < 0 && backspaceSwipeUnit() != nil
     }
+    if gestureRecognizer.name == Self.candidateStripSwipeName, let pan = gestureRecognizer as? UIPanGestureRecognizer {
+      return candidateStripSwipeShouldBegin(pan)
+    }
     if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesExactLetterGridSwipe }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
     return !cursorMovement.isActive && abs(velocity.x) > abs(velocity.y)
+  }
+
+  /// 候选栏的下滑展开与候选列表的横向滚动是同一次手势里的两件事：往左右拖照常滚，往下拖过阈值就展开。两者并行识别，滚动不被那个手势拦住。
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+    gestureRecognizer.name == Self.candidateStripSwipeName || other.name == Self.candidateStripSwipeName
   }
 
   func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
@@ -9120,6 +9164,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     compositionContainer?.canvasVisible = showsCandidates && candidateCanvasActive
     readingRow.isHidden = !showsCandidates
     candidateContent?.isHidden = !showsCandidates
+    // 系统样式的面板盖着这一行时把内容清空：面板不铺底色，透出的就是这一行原来的底色，展开前后背景一致。
+    setCompositionRowContentHidden(panelCoversCompositionRow && candidatePanel != nil)
     updatePreeditButton()
     // 邮箱后缀不分页：二十个全排在候选条上横向滚动，与 Android 一样。
     refreshDecorationWords()
@@ -10654,7 +10700,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 在键区显示 `panel`：位于顶栏之下、按键之上，面板打开期间按键隐藏，透明面板就不会透出它们。工具栏留在上方且可操作，因为关面板靠的就是它的按钮。
   /// `keepsKeyTouches` 为真时键区只是看不见，按着的手指（按住空格说话）照常收到松开和移动；新的触摸落在面板上。
-  private func installPanel(_ panel: UIView, keepsKeyTouches: Bool = false) {
+  /// `coveringCompositionRow` 为真时面板从候选条那一行的顶边铺起，那一行的内容清空、面板透明，看起来就是候选栏原地向下展开；收起靠面板自己右列顶部的箭头。
+  private func installPanel(_ panel: UIView, keepsKeyTouches: Bool = false, coveringCompositionRow: Bool = false) {
     guard let root = keyboardRoot, let topRow = compositionContainer else { return }
     // 面板替换回复面板的方式与替换按键相同。
     if replyKeyboardShown { closeReplyKeyboard() }
@@ -10663,14 +10710,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(panel)
     NSLayoutConstraint.activate([
-      panel.topAnchor.constraint(equalTo: topRow.bottomAnchor),
+      panel.topAnchor.constraint(equalTo: coveringCompositionRow ? topRow.topAnchor : topRow.bottomAnchor),
       panel.bottomAnchor.constraint(equalTo: root.bottomAnchor),
       panel.leadingAnchor.constraint(equalTo: root.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: root.trailingAnchor),
     ])
+    panelCoversCompositionRow = coveringCompositionRow
+    setCompositionRowContentHidden(coveringCompositionRow)
     setKeyRowsCovered(true, keepsTouches: keepsKeyTouches)
     updateToolbarActiveState()
     UIAccessibility.post(notification: .layoutChanged, argument: panel)
+  }
+
+  /// 清空候选条那一行的内容，只留底色：面板透明铺在它上面时，透出的就是展开前那一行的样子（背景色、候选条自己的底色都不会变）。用 alpha 不用 `isHidden`，行高留在原处，面板的顶边和下面几行的位置都不动。
+  private func setCompositionRowContentHidden(_ hidden: Bool) {
+    candidateContent?.alpha = hidden ? 0 : 1
+    readingRow.alpha = hidden ? 0 : 1
   }
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏和 iPad 单手的侧边数字键盘。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。

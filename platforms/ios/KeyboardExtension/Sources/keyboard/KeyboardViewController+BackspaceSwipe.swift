@@ -24,6 +24,15 @@ extension KeyboardViewController {
     return !(textDocumentProxy.documentContextBeforeInput ?? "").isEmpty
   }
 
+  /// 展开面板右列那个删除键：与底部 ⌫ 共用同一个手势（`handleBackspaceSwipe`），点按仍走 `handleBackspace()`。滑动期间候选跟着换代、面板留着不收起，与在面板里选候选同一条路（`candidatePanelFollowsSelection`）；上滑清空把组字清掉之后，`refreshCandidatePanelAnnotations` 照常收起面板。
+  @objc func handlePanelDeleteSwipe(_ pan: UIPanGestureRecognizer) {
+    switch pan.state {
+    case .began, .changed: candidatePanelFollowsSelection = true
+    default: candidatePanelFollowsSelection = false
+    }
+    handleBackspaceSwipe(pan)
+  }
+
   /// 按住 ⌫ 滑动：向上越过待命线后松手清空（`BackspaceClearSwipe`）；向左每滑一格（`KeyboardLayoutPreference.backspaceSwipeStep`，设置里的「滑动删除速度」）删一个组码或一个字，不松手往右滑把刚删的按原样恢复。起手方向决定这一次是哪种，中途不切换。
   @objc func handleBackspaceSwipe(_ pan: UIPanGestureRecognizer) {
     switch pan.state {
