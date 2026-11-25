@@ -5110,25 +5110,6 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void cancelPauseRerank() { pauseRerank.cancel(); }
 
-    /** 一次在线请求从云候选走到 AI 候选的状态：先在在线 worker 上，交给主线程用过结果后再回到 worker，各步之间不互相等待。 */
-    private static final class OnlineRequest {
-        final long session;
-        final String document;
-        final long epoch;
-        final String signature;
-        boolean cloudComplete;
-        boolean aiComplete;
-        String aiDocument;
-        String aiResolveDocument;
-        OnlineRequest(long session, String document, long epoch, String signature) {
-            this.session = session;
-            this.document = document;
-            this.epoch = epoch;
-            this.signature = signature;
-            this.aiDocument = document;
-        }
-    }
-
     /**
      * 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。
      *
@@ -5136,7 +5117,7 @@ public final class MSIMEInputService extends InputMethodService {
      */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
             String requestSignature) {
-        OnlineRequest request = new OnlineRequest(targetSession, document, epoch, requestSignature);
+        OnlineCandidateRequest request = new OnlineCandidateRequest(targetSession, document, epoch, requestSignature);
         try {
             JSONObject query = new JSONObject(document);
             request.cloudComplete = !requestsCloud(query);
@@ -5164,7 +5145,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 主线程上用过云候选之后：请求还是当前的就把 AI 那一步排回在线 worker。 */
-    private void continueOnlineRequest(OnlineRequest request) {
+    private void continueOnlineRequest(OnlineCandidateRequest request) {
         if (request.epoch != onlineEpoch || request.session != session) return;
         try {
             onlineCandidateWorker.execute(() -> fetchAiCandidates(request));
@@ -5173,7 +5154,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private void fetchAiCandidates(OnlineRequest request) {
+    private void fetchAiCandidates(OnlineCandidateRequest request) {
         try {
             if (request.epoch != onlineEpoch) return;
             JSONObject aiQuery = new JSONObject(request.aiDocument);
@@ -5215,7 +5196,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 一次请求走完（在 worker 或主线程上）：AI 发问了却没有采用任何回答时告诉 Host API，没走完的释放签名重试。 */
-    private void finishOnlineRequest(OnlineRequest request) {
+    private void finishOnlineRequest(OnlineCandidateRequest request) {
         // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
         if (!request.aiComplete && request.aiResolveDocument != null && request.epoch == onlineEpoch) {
             final String resolveDocument = request.aiResolveDocument;
@@ -5249,7 +5230,7 @@ public final class MSIMEInputService extends InputMethodService {
      * <p>{@code source} is the candidate source the result adds (cloud or AI): it waits while the
      * expanded panel is open, and the panel's cue shows it. Null waits only for a held candidate.
      */
-    private void applyOnlineResult(OnlineRequest request, Integer source,
+    private void applyOnlineResult(OnlineCandidateRequest request, Integer source,
             java.util.function.Supplier<String> call, java.util.function.Consumer<String> then) {
         long targetSession = request.session;
         long epoch = request.epoch;

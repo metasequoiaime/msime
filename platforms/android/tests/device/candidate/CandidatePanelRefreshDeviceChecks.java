@@ -127,7 +127,7 @@ final class CandidatePanelRefreshDeviceChecks {
         };
         if (online) {
             String[] refreshed = new String[1];
-            Class<?> requestType = loader().loadClass("app.msime.android.MSIMEInputService$OnlineRequest");
+            Class<?> requestType = loader().loadClass("app.msime.android.OnlineCandidateRequest");
             java.lang.reflect.Constructor<?> create = requestType.getDeclaredConstructor(
                 long.class, String.class, long.class, String.class);
             create.setAccessible(true);
