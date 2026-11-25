@@ -28,6 +28,12 @@ CGFloat Clamp(CGFloat value, CGFloat minimum, CGFloat maximum) {
 
 NSString *MSIMEInputModeHUDText(BOOL englishInputMode) { return englishInputMode ? @"英" : @"中"; }
 
+NSColor *MSIMEInputModeHUDTextColor(NSColor *lightColor, NSColor *darkColor) {
+    return [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
+        return [appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] == NSAppearanceNameDarkAqua ? darkColor : lightColor;
+    }];
+}
+
 BOOL MSIMEInputModeHUDUsableCaretRect(NSRect caretRect) {
     return std::isfinite(NSMinX(caretRect)) && std::isfinite(NSMinY(caretRect)) &&
            std::isfinite(NSMaxX(caretRect)) && std::isfinite(NSMaxY(caretRect)) && NSHeight(caretRect) > 0.0;

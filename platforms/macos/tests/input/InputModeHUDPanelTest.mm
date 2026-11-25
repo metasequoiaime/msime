@@ -69,6 +69,27 @@ int main() {
             Require(CGColorEqualToColor(hud.contentView.layer.backgroundColor, darkSurface.CGColor), "HUD did not draw the dark palette in the toolbar's dark mode");
             [hud applyThemePreferences:@{@"theme" : @"system"}];
             Require(hud.appearance == nil, "HUD did not return to the system appearance");
+            // 换皮肤后字色要跟着换：AppKit 把同名的动态颜色判为相等，`NSTextField` 会沿用旧皮肤的字色，所以提示的文字颜色不具名（#11869）。
+            NSColor *hudLight = [NSColor colorWithSRGBRed:0x1C / 255.0 green:0x25 / 255.0 blue:0x50 / 255.0 alpha:1.0];
+            NSColor *hudDark = [NSColor colorWithSRGBRed:0x0B / 255.0 green:0x0E / 255.0 blue:0x14 / 255.0 alpha:1.0];
+            NSColor *nextLight = [NSColor colorWithSRGBRed:0xF0 / 255.0 green:0xB9 / 255.0 blue:0x0B / 255.0 alpha:1.0];
+            NSColor *nextDark = [NSColor colorWithSRGBRed:0xC9 / 255.0 green:0x9A / 255.0 blue:0x08 / 255.0 alpha:1.0];
+            Require(![MSIMEInputModeHUDTextColor(hudLight, hudDark) isEqual:MSIMEInputModeHUDTextColor(nextLight, nextDark)],
+                "HUD text colours from different skins compare equal");
+            NSAppearance *aqua = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+            NSTextField *hudLabel = [hud valueForKey:@"label"];
+            const auto resolvedRed = [&](void) {
+                __block CGFloat red = -1;
+                [aqua performAsCurrentDrawingAppearance:^{
+                    NSColor *drawn = [hudLabel.textColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+                    red = drawn ? drawn.redComponent : -1;
+                }];
+                return red;
+            };
+            [hud setSurfaceColor:surface borderColor:border textColor:MSIMEInputModeHUDTextColor(hudLight, hudDark)];
+            Require(std::abs(resolvedRed() - 0x1C / 255.0) < 1e-6, "HUD did not draw the first skin's text colour");
+            [hud setSurfaceColor:surface borderColor:border textColor:MSIMEInputModeHUDTextColor(nextLight, nextDark)];
+            Require(std::abs(resolvedRed() - 0xF0 / 255.0) < 1e-6, "HUD kept the previous skin's text colour");
             [hud setSurfaceColor:surface borderColor:border textColor:text];
             [hud showEnglishInputMode:YES nearCaretRect:caret];
             Require([hud.displayedText isEqualToString:@"英"], "English HUD missing");
