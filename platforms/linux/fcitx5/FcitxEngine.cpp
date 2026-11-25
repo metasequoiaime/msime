@@ -142,6 +142,7 @@
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <set>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -7541,6 +7542,25 @@ public:
     });
     syncIdleWatch();
   }
+  // 偏好目录里只有打字统计文档变了（多半是插件自己刚刷新了统计）：只在后台重读统计开关，不重读偏好和服务套接字。设置应用关掉统计时也只改这个文件，关掉后到这里重读之前上屏的字仍可能记进去，与旧的每拍轮询一样只差一个防抖窗口。
+  void onTypingStatisticsChange() {
+    if (shutting_down_) return;
+    std::set<std::string> directories;
+    const auto collect = [&](fcitx::InputContext *ic) {
+      const auto *state = ic->propertyFor(&factory_);
+      if (state->session_ && !state->options_path_.empty()) directories.insert(state->options_path_);
+    };
+    if (auto *held = menu_context_ic_.get()) collect(held);
+    instance_->inputContextManager().foreach([&](fcitx::InputContext *ic) {
+      if (ic->hasFocus()) collect(ic);
+      return true;
+    });
+    for (const auto &directory : directories)
+      (void)detachedJob([directory] {
+        fcitx_typing_statistics.refresh(directory);
+        return Json();
+      });
+  }
   explicit FcitxEngine(fcitx::Instance *instance)
       : instance_(instance), initial_config_home_(resolveFcitxConfigHome()) {
     // 脚本插件在 fcitx5 守护进程里运行（本 addon 是它加载的共享库），在第一个会话之前打开；开发构建和 release 构建一样（msime_client.h）。
@@ -7904,6 +7924,7 @@ public:
 #ifdef MSIME_FCITX5_TELEMETRY
     startTelemetry();
 #endif
+    idle_watch_.setStatisticsCallback([this] { onTypingStatisticsChange(); });
     engine_ready_ = true;
   }
   // Every detached worker runs addon code. Wait for the complete tracker before Fcitx5 can unload

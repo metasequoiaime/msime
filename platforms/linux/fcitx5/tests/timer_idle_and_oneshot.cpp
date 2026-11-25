@@ -114,7 +114,9 @@ void testIdleZeroWakeupAndInotifyDebounce() {
 
   fcitx::EventLoop loop;
   std::uint64_t callbacks = 0;
+  std::uint64_t statistics_callbacks = 0;
   msime::fcitx_host::FcitxIdleWatch watch(loop, [&] { ++callbacks; });
+  watch.setStatisticsCallback([&] { ++statistics_callbacks; });
   require(!watch.usingFallback(), "正常宿主环境应启用 inotify 而非回退定时器");
 
   ::setenv("XDG_CONFIG_HOME", (root / "config").c_str(), 1);
@@ -147,22 +149,28 @@ void testIdleZeroWakeupAndInotifyDebounce() {
           writeFile(prefs_dir / "diagnostic.log", "focus_in\n");
           writeFile(prefs_dir / "preferences.json.lock", "");
           writeFile(user_data_dir / ".msime-dictionary-quiesce.lock", "");
+          // 共享存储写私有文件的方式：先写 `.msime-private-*` 临时文件再改名；落成打字统计文档时只走统计开关回调。
+          writeFile(prefs_dir / ".msime-private-4242-0", "{\"enabled\":true}\n");
+          std::filesystem::rename(prefs_dir / ".msime-private-4242-0", prefs_dir / "typing-statistics.json");
           timer->setNextInterval(80'000);
           timer->setOneShot();
           return true;
         case 1:
-          require(callbacks == 0, "宿主自身状态与锁文件不应触发外部刷新回调");
-          require(!watch.hasArmedTimer(), "噪声文件写入后不得武装防抖定时器");
+          require(callbacks == 0, "宿主自身状态、锁文件、私有临时文件与打字统计文档都不应触发整套刷新回调");
+          require(statistics_callbacks == 1, "打字统计文档改写应经防抖触发一次统计开关回调");
+          require(!watch.hasArmedTimer(), "噪声文件写入后不得残留已武装定时器");
           // 同一突发窗口内连续修改多处受监听目标，验证 50 毫秒防抖合并为单次回调。
           atomicReplaceFile(prefs_dir / "preferences.json", "{\"revision\":1}\n");
           atomicReplaceFile(runtime_options, "{\"preferences\":{}}\n");
           writeFile(runtime_dir / "voice.sock", "");
           writeFile(clipboard_file, "{\"entries\":[]}\n");
+          atomicReplaceFile(prefs_dir / "typing-statistics.json", "{\"enabled\":false}\n");
           timer->setNextInterval(110'000);
           timer->setOneShot();
           return true;
         case 2:
           require(callbacks == 1, "突发外部写入应经 50ms 防抖合并为一次回调");
+          require(statistics_callbacks == 1, "同一窗口里已有整套刷新时不再单独触发统计开关回调");
           require(!watch.hasArmedTimer(), "防抖回调完成后必须解除防抖定时器");
           timer->setNextInterval(80'000);
           timer->setOneShot();

@@ -120,9 +120,14 @@ bool resolveExistingAncestor(const std::filesystem::path &target_dir,
   return false;
 }
 
+// 共享存储写私有文件时先写 `.msime-private-<pid>-<序号>` 再改名成目标文件（`crates/client-base/src/storage.rs` 的 `private_temporary_name`），临时文件自己的创建、写入和移出都不算变化，改名落地时目标文件名上的那条事件才算。
+constexpr std::string_view kPrivateTemporaryPrefix = ".msime-private-";
+// 打字统计文档：插件刷新统计时自己会改写，同时载着统计总开关（`platforms/linux/src/system/TypingStatistics.h` 的 `TypingStatisticsSwitch`）。
+constexpr std::string_view kTypingStatisticsDocument = "typing-statistics.json";
+
 bool isPreferenceNoiseFile(std::string_view name) {
   return name.empty() || name.starts_with("diagnostic.log") ||
-         name.ends_with(".lock");
+         name.ends_with(".lock") || name.starts_with(kPrivateTemporaryPrefix);
 }
 
 bool isWatchedProviderSocket(std::string_view name) {
@@ -203,6 +208,8 @@ void FcitxIdleWatch::setActive(bool active) {
   if (active_ == active) return;
   active_ = active;
   if (!active_) {
+    pending_full_ = false;
+    pending_statistics_ = false;
     if (debounce_timer_) debounce_timer_->setEnabled(false);
     if (fallback_timer_) fallback_timer_->setEnabled(false);
     return;
@@ -289,6 +296,7 @@ void FcitxIdleWatch::handleInotifyReadable() {
   alignas(struct inotify_event) char buffer[4096];
   bool need_rebuild = false;
   bool matched = false;
+  bool statistics = false;
 
   for (;;) {
     const ssize_t bytes = ::read(inotify_fd_, buffer, sizeof(buffer));
@@ -340,7 +348,11 @@ void FcitxIdleWatch::handleInotifyReadable() {
         matched = true;
       }
       if (spec.preference_dir && !isPreferenceNoiseFile(name)) {
-        matched = true;
+        if (name == kTypingStatisticsDocument && statistics_callback_) {
+          statistics = true;
+        } else {
+          matched = true;
+        }
       }
       if (spec.socket_dir && isWatchedProviderSocket(name)) {
         matched = true;
@@ -349,7 +361,10 @@ void FcitxIdleWatch::handleInotifyReadable() {
   }
 
   if (need_rebuild) rebuildWatches();
-  if (matched && active_) armDebounce();
+  if (!active_) return;
+  pending_full_ = pending_full_ || matched;
+  pending_statistics_ = pending_statistics_ || statistics;
+  if (matched || statistics) armDebounce();
 }
 
 void FcitxIdleWatch::armDebounce() {
@@ -360,7 +375,15 @@ void FcitxIdleWatch::armDebounce() {
         [this](fcitx::EventSourceTime *timer, std::uint64_t) {
           // 触发后立即关闭，避免 `sd-event` 时间源在未推进截止时刻时重复触发。
           timer->setEnabled(false);
-          if (active_ && callback_) callback_();
+          const bool full = std::exchange(pending_full_, false);
+          const bool statistics = std::exchange(pending_statistics_, false);
+          if (!active_) return true;
+          // 整套重载本身会重读统计开关，同一个防抖窗口里两种变化都有时只跑整套那一个。
+          if (full) {
+            if (callback_) callback_();
+          } else if (statistics && statistics_callback_) {
+            statistics_callback_();
+          }
           return true;
         });
   } else {

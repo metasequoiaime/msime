@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace fcitx {
@@ -24,7 +25,7 @@ namespace msime::fcitx_host {
 struct FcitxWatchConfig {
   // 精确监听的外部文件路径（如 `runtime-options.json`、`classicui.conf`、词库维护租约、`clipboard_history.json`）。
   std::vector<std::filesystem::path> files;
-  // 偏好目录（监听除 `diagnostic.log` 与 `*.lock` 之外的写入、替换和删除）。
+  // 偏好目录（监听除 `diagnostic.log`、`*.lock` 与私有文件原子写入的临时文件 `.msime-private-*` 之外的写入、替换和删除；`typing-statistics.json` 单独走统计开关回调，见 `FcitxIdleWatch::setStatisticsCallback`）。
   std::vector<std::filesystem::path> preference_dirs;
   // 运行时套接字目录（仅监听除 `panel-input.sock` 之外的 `*.sock` 文件变化）。
   std::vector<std::filesystem::path> socket_dirs;
@@ -73,6 +74,8 @@ public:
   FcitxIdleWatch &operator=(const FcitxIdleWatch &) = delete;
 
   void configure(FcitxWatchConfig config);
+  // 偏好目录里只有 `typing-statistics.json` 变了时改调这个回调，不触发整套偏好重载：插件自己每次刷新打字统计都会改写它，而它同时载着统计总开关，设置应用关掉统计时也只改这一个文件，所以不能直接忽略。没设时按普通外部变化处理。
+  void setStatisticsCallback(Callback callback) { statistics_callback_ = std::move(callback); }
   void setActive(bool active);
   bool isActive() const noexcept { return active_; }
   bool usingFallback() const noexcept { return inotify_fd_ < 0; }
@@ -106,6 +109,9 @@ private:
 
   fcitx::EventLoop &loop_;
   Callback callback_;
+  Callback statistics_callback_;
+  bool pending_full_ = false;
+  bool pending_statistics_ = false;
   std::uint64_t debounce_us_;
   std::uint64_t fallback_interval_us_;
   int inotify_fd_ = -1;
