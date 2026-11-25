@@ -85,7 +85,7 @@ impl Session {
     pub fn new(options: SessionOptions) -> Result<Session> {
         options.paths.validate()?;
         crate::user_dictionary::generation::check_read_only_layout(&options.paths)?;
-        let input = Box::new(InputSession::new(&options)?);
+        let input = InputSession::new(&options)?;
         let mut nine_key = NineKeySession::new(
             &options.paths,
             options.learning,

@@ -161,7 +161,9 @@ pub(super) struct InputSession {
 
 impl InputSession {
     /// Everything `Session::new` applies, in the reference order.
-    pub fn new(options: &SessionOptions) -> Result<Self> {
+    ///
+    /// 直接在堆上构造：`Box::new` 把结构体字面量放进那块分配，调用方不必先在栈上摆一份 16 KiB 的临时值。宿主在小栈的输入线程上激活输入法时（见 `host_options_small_stack`），这份临时值就是压垮线程栈的那一步。
+    pub fn new(options: &SessionOptions) -> Result<Box<Self>> {
         if options
             .helpcode_trigger_key
             .is_some_and(|key| !b";/\\`=".contains(&key))
@@ -196,7 +198,7 @@ impl InputSession {
             options.vietnamese_input_method,
             options.vietnamese_tone_style,
         );
-        let mut session = Self {
+        let mut session = Box::new(Self {
             queries: CandidateQueries::new(&paths, profile),
             quick_phrase_candidates: options.quick_phrase_candidates,
             quick_phrase_frequency: options.quick_phrase_frequency,
@@ -281,7 +283,7 @@ impl InputSession {
             pending_touch: None,
             journal_path: journal,
             paths,
-        };
+        });
 
         // session.cpp:15-29.
         session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
