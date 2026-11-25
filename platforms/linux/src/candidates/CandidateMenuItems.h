@@ -1,8 +1,6 @@
 // 候选右键自绘菜单的条目模型（iBus）。条目文案与顺序照 Windows 的
 // CandidateMenuLayout.h：置顶；固定到第 1..5 位；分隔线；取消固定；删除。
-// 单字行没有「删除」（CandidateActionPolicy.h 的可删除判定）；动作整体不可用时
-// （视图代次过期、会话已换等）全部条目画成禁用、点了不做事。浮层绘制与动作接线
-// 只消费这里的条目表，布局与命中在浮层 surface 里做。
+// 「删除」只在调用方给的 removable 为真时出现：它应当就是 candidate_dictionary_removal_available 的结果，和 Ctrl+Del、「候选操作」属性菜单同一个判定（中文单字不删，英文词库的单字母行可删）。动作整体不可用时（视图代次过期、会话已换等）全部条目画成禁用、点了不做事。浮层绘制与动作接线只消费这里的条目表，布局与命中在浮层 surface 里做。
 
 #pragma once
 
@@ -32,11 +30,9 @@ struct CandidateMenuItem {
 };
 
 inline std::vector<CandidateMenuItem> candidate_menu_items(
-    const std::string &text, bool actionable = true,
-    std::uint8_t fixed_position = 0) {
+    bool removable, bool actionable = true, std::uint8_t fixed_position = 0) {
   std::vector<CandidateMenuItem> items;
-  const bool removal = candidate_removal_available(text);
-  items.reserve(removal ? 9 : 8);
+  items.reserve(removable ? 9 : 8);
   items.push_back({CandidateMenuCommand::PinToTop, candidate_pin_label_with_shortcut, 0, false,
                    false, !actionable});
   for (std::uint8_t position = 1; position <= 5; ++position) {
@@ -48,7 +44,7 @@ inline std::vector<CandidateMenuItem> candidate_menu_items(
   items.push_back({CandidateMenuCommand::ClearFixedPosition,
                    candidate_clear_fix_label_with_shortcut, 0, false, false,
                    !actionable || fixed_position == 0});
-  if (removal)
+  if (removable)
     items.push_back({CandidateMenuCommand::Remove, candidate_remove_label_with_shortcut, 0,
                      false, false, !actionable});
   return items;

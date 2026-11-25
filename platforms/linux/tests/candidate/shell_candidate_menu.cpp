@@ -8,7 +8,7 @@ using namespace msime::linux_host;
 
 int main() {
   // 四项命令映射到可直接回传 property_activate 的完整 action_name。
-  const auto items = candidate_menu_items("甲乙");
+  const auto items = candidate_menu_items(true);
   const auto wire = shell_menu_entries(items, 42, 7, 3);
   assert(wire.size() == items.size());
   assert(wire[0].action_name == "CandidatePin/42/7/3");
@@ -19,18 +19,18 @@ int main() {
   assert(wire[0].label == "置顶 (Ctrl+↑)");
   assert(wire[1].position == 1);
 
-  // 单字候选无删除项。
-  const auto single = shell_menu_entries(candidate_menu_items("字"), 42, 7, 0);
+  // 不可删除的行无删除项。
+  const auto single = shell_menu_entries(candidate_menu_items(false), 42, 7, 0);
   for (const auto &e : single)
     assert(e.action_name.rfind("CandidateRemove", 0) != 0);
 
   // 整体不可用：所有非分隔线项 disabled。
-  const auto off = shell_menu_entries(candidate_menu_items("甲乙", false, 0), 42, 7, 0);
+  const auto off = shell_menu_entries(candidate_menu_items(true, false, 0), 42, 7, 0);
   for (const auto &e : off)
     if (!e.action_name.empty())
       assert((e.flags & kShellMenuFlagDisabled) != 0);
 
   // 固定第 2 位：该项带 checked。
-  const auto fixed = shell_menu_entries(candidate_menu_items("甲乙", true, 2), 42, 7, 0);
+  const auto fixed = shell_menu_entries(candidate_menu_items(true, true, 2), 42, 7, 0);
   assert((fixed[2].flags & kShellMenuFlagChecked) != 0);
 }

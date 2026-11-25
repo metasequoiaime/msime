@@ -34,7 +34,7 @@ CandidateMenuController::ShellCalls calls(FakeShell &shell) {
 }  // namespace
 
 int main() {
-  const auto items = msime::linux_host::candidate_menu_items("甲乙");
+  const auto items = msime::linux_host::candidate_menu_items(true);
   const CandidateMenuController::Target target{42, 7, 3};
 
   // 推给扩展：条目带完整动作名，identity 是 session/generation/index。

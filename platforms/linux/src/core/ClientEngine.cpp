@@ -8890,7 +8890,9 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
           s.rendered_view.is_object()) {
         const auto rendered_generation = s.rendered_view.value("generation", uint64_t{0});
         const auto items = msime::linux_host::candidate_menu_items(
-            entry.value("text", std::string{}), true,
+            msime::linux_host::candidate_dictionary_removal_available(
+                scheme, source, entry.value("text", std::string{})),
+            true,
             static_cast<uint8_t>(entry.value("fixed_position", 0)));
         const msime::linux_host::CandidateMenuController::Target target{s.session, generation,
                                                                        global_index};
