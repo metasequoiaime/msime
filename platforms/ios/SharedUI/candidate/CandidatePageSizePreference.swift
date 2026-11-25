@@ -58,3 +58,27 @@ enum CandidatePanelStylePreference {
     options.first { $0.style == style }?.title ?? options[0].title
   }
 }
+
+/// 卡片样式的展开网格里，每个候选格子底色的不透明度，按百分比存（0–100）。
+///
+/// 格子画得像按键，底色深一点时整屏是一块块方砖；调低之后格子融进键盘背景，只剩文字。100 是原来那套，缺省就是它，老用户升级后看不出变化。系统样式本来就没有格子底，这一项不作用于它。
+enum CandidatePanelChipOpacityPreference {
+  static let key = "candidate.panelChipOpacity"
+  static let defaultPercent = 100
+  static let range = 0...100
+  static let step = 5
+
+  static var defaults: UserDefaults {
+    InputSchemePreference.appGroupDefaults
+  }
+
+  /// 0–1，直接给 `UIColor.withAlphaComponent` 用。
+  static var opacity: CGFloat {
+    CGFloat(clamped(defaults.object(forKey: key) as? Int)) / 100
+  }
+
+  static func clamped(_ value: Int?) -> Int {
+    guard let value, range.contains(value) else { return defaultPercent }
+    return value
+  }
+}

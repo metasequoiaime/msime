@@ -262,7 +262,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePanel: KeyboardCandidatePanelView?
   /// 面板正在显示的那一代候选。选择和长按菜单都按它里面的代次和全局序号找候选；九键面板换代时整份换掉。
   private var candidatePanelSnapshot: CandidatePanelSnapshot?
-  /// 面板里刚选了候选、这次选择的快照正在画：普通网格这时换代也不收起，而是换上新的一代，由 `selectPanelCandidate` 画完后决定面板留不留（#9193）。
+  /// 面板自己正在做一步操作（选候选、右列的删除）、这次换代的快照正在画：普通网格这时换代也不收起，而是换上新的一代，由 `selectPanelCandidate` 画完后决定面板留不留（#9193）。
   private var candidatePanelFollowsSelection = false
   /// 全拼九键展开面板的左右两栏；不为 nil 时面板是三栏布局，换代时不关而是重建。
   private var nineKeyPanelColumns: KeyboardNineKeyPanelColumns?
@@ -6996,7 +6996,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           closeKeyboardPicker()
           selectInputScheme(.handwriting)
         },
-        onDelete: { [weak self] in self?.handleBackspace() },
+        onDelete: { [weak self] in
+          guard let self else { return }
+          // 面板里的删除只是退掉组字里的一个键，跟九键面板的退格一样换一代候选、面板留着；组字退空之后 `refreshCandidatePanelAnnotations` 自己会收起。
+          candidatePanelFollowsSelection = true
+          handleBackspace()
+          candidatePanelFollowsSelection = false
+        },
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
       refreshDecorationWords()

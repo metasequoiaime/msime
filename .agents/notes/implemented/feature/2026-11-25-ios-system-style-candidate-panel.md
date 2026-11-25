@@ -19,7 +19,9 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
   - 格子高度 46pt、间隔 2pt、内边距横向 10/4，一屏正好六行。
 - 面板从候选条那一行铺起：`installPanel(_:keepsKeyTouches:coveringCompositionRow:)` 新增最后这个参数，为真时面板的顶边贴 `compositionContainer.topAnchor` 而不是 `.bottomAnchor`。九键三栏面板不走这条（`opensNineKeyPanel` 时 `columns != nil`，样式不生效）。
 - 被盖住的候选条那一行要清空，面板自己不铺底色（`panelCoversCompositionRow`）。面板铺一块 `skin.background` 是不行的：原生皮肤下键盘底色几乎透明（`nativeBackgroundFillAlpha`，让系统底板透出来），再盖一层就比周围深了一档，真机上能一眼看出展开前后不是同一个背景。所以改成用 `alpha = 0`（不用 `isHidden`，行高留着，面板顶边和下面几行都不动）清空 `candidateContent` 与 `readingRow`，面板留 `.clear`，透出的就是那一行原来的底色；`renderCandidateStrip` 按 `panelCoversCompositionRow && candidatePanel != nil` 复核一次，键盘收起、换面板时不会卡在清空状态。
-- 系统样式在右侧加一窄列（44pt）：顶部收起箭头、中部手写、底部删除，`scrollView.trailing` 锚到它的左边。收起必须有——候选条连同它的展开箭头都被盖住了。手写接 `selectInputScheme(.handwriting)`（先关面板），删除接 `handleBackspace()`，两者都是现有实现。
+- 系统样式在右侧加一窄列（44pt）：顶部收起箭头、中部手写、底部删除，`scrollView.trailing` 锚到它的左边。收起必须有——候选条连同它的展开箭头都被盖住了。手写接 `selectInputScheme(.handwriting)`（先关面板），删除接 `handleBackspace()`，两者都是现有实现。图标用键盘自己的 `KeyboardIcon.handwriting` / `.backspace`（与工具栏、回车键同一套），不换成 SF Symbols——`pencil.tip`、`delete.left` 跟键盘上那个手写、退格长得不一样。
+- 右列的删除只换一代候选，面板不收起：`handleBackspace()` 外面套上 `candidatePanelFollowsSelection`，与面板里选候选同一条路（组字退空之后照样由 `refreshCandidatePanelAnnotations` 收起）。
+- 卡片样式的格子底色可以调：`CandidatePanelChipOpacityPreference`（`candidate.panelChipOpacity`，0–100，缺省 100，即原来那套），设置页在「展开候选样式」下面多一条「候选格子不透明度」，只在卡片样式时出现。`makeChip` 按它给 `skin.keyBackground` 乘 alpha；选中那一格不跟着淡（否则看不出首选），调低之后也不再画按键阴影（半透明按键配实心影子很脏）。系统样式本来没有格子底，不受影响。
 - 滚动条用系统自带的 `UICollectionView` 竖直指示条：本来就在滚动时出现、停下淡出，符合「不常显的细线」。最初自绘了一条 3pt 的，和系统那条同时出现，同一屏两根线；自绘的还落在窄列按钮上，删掉。
 
 ## 不做

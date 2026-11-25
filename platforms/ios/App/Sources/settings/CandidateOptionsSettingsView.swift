@@ -24,6 +24,8 @@ struct CandidateOptionsSettingsView: View {
   private var pageSize = CandidatePageSizePreference.defaultSize
   @AppStorage(CandidatePanelStylePreference.key, store: CandidatePanelStylePreference.defaults)
   private var panelStyleRaw = CandidatePanelStylePreference.fallbackStyle.rawValue
+  @AppStorage(CandidatePanelChipOpacityPreference.key, store: CandidatePanelChipOpacityPreference.defaults)
+  private var chipOpacityPercent = CandidatePanelChipOpacityPreference.defaultPercent
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
@@ -61,6 +63,17 @@ struct CandidateOptionsSettingsView: View {
                           info: "卡片：按键式网格，候选条留在上方。系统样式：六列纯文字，点展开时候选栏原地向下展开",
                           options: CandidatePanelStylePreference.options.map { DesignOption(title: $0.title, value: $0.style) },
                           selection: panelStyle, identifier: "candidatePanelStyle")
+          // 卡片样式的格子画得像按键，底色可以调淡到融进背景；系统样式本来就没有格子底，跟着藏起来。
+          if panelStyle.wrappedValue == .card {
+            DesignDivider()
+            DesignSliderRow(title: "候选格子不透明度",
+                            info: "卡片样式的展开网格里，每个候选格子底色的深浅。选中那一格保持原样",
+                            value: Binding(get: { Double(chipOpacityPercent) },
+                                           set: { chipOpacityPercent = Int($0.rounded()) }),
+                            range: Double(CandidatePanelChipOpacityPreference.range.lowerBound)...Double(CandidatePanelChipOpacityPreference.range.upperBound),
+                            step: Double(CandidatePanelChipOpacityPreference.step),
+                            identifier: "candidatePanelChipOpacity") { "\(Int($0))%" }
+          }
         }
 
         DesignGroup(title: "字体") {

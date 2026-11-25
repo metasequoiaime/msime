@@ -272,13 +272,13 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     return header
   }
 
-  /// 系统样式右侧那一窄列：顶部收起、中部手写、底部删除。滚动条不在这里——它跟着滚动单独画在面板上。
+  /// 系统样式右侧那一窄列：顶部收起、中部手写、底部删除。手写和删除用键盘自己的图标（与工具栏、回车键同一套），不换成系统符号。
   private func makeTrailingColumn(onClose: @escaping () -> Void) -> UIView {
     let column = UIView()
     column.translatesAutoresizingMaskIntoConstraints = false
     column.accessibilityIdentifier = "candidatePanelSideColumn"
     addSubview(column)
-    let close = systemColumnButton(systemName: "chevron.up", label: "收起候选",
+    let close = systemColumnButton(UIImage(systemName: "chevron.up") ?? UIImage(), label: "收起候选",
                                    identifier: "closeCandidatePanel", action: onClose)
     column.addSubview(close)
     NSLayoutConstraint.activate([
@@ -286,7 +286,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       close.centerXAnchor.constraint(equalTo: column.centerXAnchor),
     ])
     if let onHandwriting {
-      let handwriting = systemColumnButton(systemName: "pencil.tip", label: "手写输入",
+      let handwriting = systemColumnButton(KeyboardIcon.handwriting.image(pointSize: 22), label: "手写输入",
                                            identifier: "candidatePanelHandwriting", action: onHandwriting)
       column.addSubview(handwriting)
       NSLayoutConstraint.activate([
@@ -295,7 +295,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       ])
     }
     if let onDelete {
-      let delete = systemColumnButton(systemName: "delete.left", label: "删除",
+      let delete = systemColumnButton(KeyboardIcon.backspace.image(pointSize: 22), label: "删除",
                                       identifier: "candidatePanelDelete", action: onDelete)
       column.addSubview(delete)
       NSLayoutConstraint.activate([
@@ -306,10 +306,10 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     return column
   }
 
-  private func systemColumnButton(systemName: String, label: String, identifier: String,
+  private func systemColumnButton(_ image: UIImage, label: String, identifier: String,
                                   action: @escaping () -> Void) -> UIButton {
     var configuration = UIButton.Configuration.plain()
-    configuration.image = UIImage(systemName: systemName) ?? UIImage(systemName: "circle")
+    configuration.image = image
     configuration.baseForegroundColor = skin.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
     let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
@@ -492,9 +492,12 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     let nativeStyle = palette?.usesKeyboardStyle ?? true
     // 系统样式的格子只有文字，选中时铺候选条首选词块那块底（桌面调色板与候选条同一条取色规则）；卡片样式是按键面和强调色底。
     let systemSelectedFill = palette.map { canvas?.panelLoaded == true ? $0.selected : $0.hover } ?? skin.keyBackground
+    // 卡片样式的格子底按设置里的「候选格子不透明度」调淡，调到 0 就只剩文字。选中那一格不跟着淡，否则调低之后看不出哪个是首选。
+    let chipOpacity = style == .card ? CandidatePanelChipOpacityPreference.opacity : 1
+    let keyFace = skin.keyBackground.withAlphaComponent(skin.keyBackground.cgColor.alpha * chipOpacity)
     let fill = system
       ? (selected ? systemSelectedFill : UIColor.clear)
-      : selected ? palette?.selected ?? skin.accentSoft : nativeStyle ? skin.keyBackground : UIColor.clear
+      : selected ? palette?.selected ?? skin.accentSoft : nativeStyle ? keyFace : UIColor.clear
     configuration.background.backgroundColor = fill
     if selected, !system, let palette, palette.showSelectedBar {
       configuration.background.customView = CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout, fontSize: font.pointSize)
@@ -515,8 +518,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     chip.titleLineHeight = font.lineHeight
     chip.glossLines = glossLines
     chip.titleLineCount = 1 + glossLines
-    // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。
-    chip.drawsKeyShadow = !system && nativeStyle && !selected && skin.hasShadow
+    // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。格子底被调淡之后不再带阴影：半透明的按键投一块实心影子会很脏。
+    chip.drawsKeyShadow = !system && nativeStyle && !selected && skin.hasShadow && chipOpacity > 0.99
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"
