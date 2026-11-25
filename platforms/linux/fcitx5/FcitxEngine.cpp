@@ -4770,10 +4770,11 @@ struct FcitxCandidateDisplay {
   // 「仅当前高亮」时高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，移动高亮时候选窗高度不跳；其他行为 0。
   int reserved_gloss_lines = 0;
 };
-// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。`pronunciation` 是释义各行的读音（FcitxState::candidatePronunciation），没有打开「显示读音」时为空。
+// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。`classicVertical` 是 classicui 画的候选窗是不是竖排：竖排可以把释义放到候选字下面单独一行，横排任何一行变成两行都会让整条候选条变高、那一格的序号掉到第二行（#11821），所以横排把释义接在同一行。`pronunciation` 是释义各行的读音（FcitxState::candidatePronunciation），没有打开「显示读音」时为空。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
                                      const std::string &hanjaGloss, uint32_t variant, std::size_t dimScalars = 0,
-                                     int reservedGlossLines = 0, const std::string &pronunciation = {}) {
+                                     int reservedGlossLines = 0, const std::string &pronunciation = {},
+                                     bool classicVertical = true) {
   FcitxCandidateDisplay display;
   // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12) {
@@ -4812,16 +4813,19 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
     display.translation = candidate.at("translation").get<std::string>();
     display.translation_runs = candidate.value("translation_runs", Json::array());
     if (!display.translation.empty()) display.pronunciation = pronunciation;
-    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。读音在它那一行释义下面单独一行，只供显示。
-    if (!display.translation.empty())
-      row.append("\n" + msime::linux_host::candidate_gloss_readings(display.translation, display.pronunciation).text);
+    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。竖排把释义（和读音）放在候选字下面各自一行；横排放不下第二行，与 IBus 查找表一样接在同一行、以「 · 」隔开（#11821）。只供显示。
+    if (!display.translation.empty()) {
+      const auto readings = msime::linux_host::candidate_gloss_readings(display.translation, display.pronunciation).text;
+      row.append(msime::linux_host::classicui_gloss_inline(classicVertical) ? " · " + readings : "\n" + readings);
+    }
   }
   if (reservedGlossLines > 0 && candidate.value("translation_reserved", false)) {
     display.reserved_gloss_lines = reservedGlossLines;
-    // classicui 按有没有译文变高、没有统一预留：回答还没到时用不上屏的全角空格行占住译文的位置。
-    if (display.translation.empty()) {
+    // classicui 按有没有译文变高、没有统一预留：回答还没到时用不上屏的全角空格行占住译文的位置。横排候选条的高度取整页最高的那一行，这一行会让整条候选条变成两行，所以横排一行都不加（classicui_gloss_placeholder_lines）。
+    const int placeholderLines = msime::linux_host::classicui_gloss_placeholder_lines(classicVertical, reservedGlossLines);
+    if (display.translation.empty() && placeholderLines > 0) {
       std::string placeholder;
-      for (int line = 0; line < reservedGlossLines; ++line) placeholder += "\n\u3000";
+      for (int line = 0; line < placeholderLines; ++line) placeholder += "\n\u3000";
       row.append(placeholder, fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});
     }
   }
@@ -4841,9 +4845,10 @@ class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
                  bool annotations, const std::string &hanjaGloss, uint32_t variant = 0, std::size_t dimScalars = 0,
-                 int reservedGlossLines = 0, const std::string &pronunciation = {})
+                 int reservedGlossLines = 0, const std::string &pronunciation = {},
+                 bool classicVertical = true)
       : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant, dimScalars,
-                                                            reservedGlossLines, pronunciation)) {}
+                                                            reservedGlossLines, pronunciation, classicVertical)) {}
   const FcitxCandidateDisplay &display() const { return display_; }
 private:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, FcitxCandidateDisplay display)
@@ -4967,6 +4972,8 @@ public:
     const auto candidates = msime::linux_host::visible_page(state.view_.at("candidates"));
     const auto caretEdit = msime::linux_host::caret_edit_suffix(state.view_);
     const int reservedGlossLines = state.translationReservedLines();
+    // 横排候选条的高度取整页最高的那一行：横排不加占位行、释义也接在同一行（CandidateTranslationPolicy.h，#11821）。
+    const bool classicVertical = layout_ == fcitx::CandidateLayoutHint::Vertical;
     words_.reserve(candidates.size());
     labels_.reserve(candidates.size());
     for (const auto &candidate : candidates) {
@@ -4975,7 +4982,7 @@ public:
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_,
           msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate), reservedGlossLines,
-          state.candidatePronunciation(candidate)));
+          state.candidatePronunciation(candidate), classicVertical));
       // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
       labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
