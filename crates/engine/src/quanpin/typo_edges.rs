@@ -1,13 +1,14 @@
 //! 全拼词网格的纠错整句边（quanpin.md §10.5，QD:1056–1182）：先查弱位置的合法音节替换，按类型计价并按用户接受次数打折；再对相邻 1 到 3 个字面音节做字母级编辑，规划能重新读成合法音节的词键（`plan_edit_keys`）。
 
+use std::sync::OnceLock;
+
 use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::dictionary::DictRow;
 use crate::lattice::{SentencePath, TypoEdge};
-use crate::pinyin::syllables::{intact_piece, MAX_SYLLABLE_LENGTH};
+use crate::pinyin::syllables::{intact_pinyin_list, MAX_SYLLABLE_LENGTH};
 use crate::pinyin::typos::{
-    autocorrect_bit, base_cost, discounted, keys_adjacent, syllable_typos, SyllableTypo,
-    SyllableTypoKind,
+    autocorrect_bit, base_cost, discounted, syllable_typos, SyllableTypo, SyllableTypoKind,
 };
 use crate::text::count_utf8_chars;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
@@ -96,11 +97,107 @@ pub const MAX_EDIT_WINDOW_SYLLABLES: usize = 3;
 pub const EDIT_KEY_BUDGET: usize = 128;
 const MAX_EDIT_WINDOW_LETTERS: usize = MAX_EDIT_WINDOW_SYLLABLES * MAX_SYLLABLE_LENGTH + 1;
 
-/// 一个窗口的一种字母级改法：改正后的音节和这一处编辑的种类。
-#[derive(Clone, Debug, PartialEq)]
+/// 一个窗口的一种字母级改法：改正后的音节（至多 `MAX_TYPO_SPAN_SYLLABLES` 个，内联避免堆分配）和这一处编辑的种类。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WindowEdit {
-    syllables: Vec<&'static str>,
+    syllables: [&'static str; MAX_TYPO_SPAN_SYLLABLES],
+    len: u8,
     kind: SyllableTypoKind,
+}
+
+impl WindowEdit {
+    fn from_slice(syllables: &[&'static str], kind: SyllableTypoKind) -> Self {
+        debug_assert!(syllables.len() <= MAX_TYPO_SPAN_SYLLABLES);
+        let mut storage = [""; MAX_TYPO_SPAN_SYLLABLES];
+        storage[..syllables.len()].copy_from_slice(syllables);
+        Self {
+            syllables: storage,
+            len: syllables.len() as u8,
+            kind,
+        }
+    }
+
+    fn syllables(&self) -> &[&'static str] {
+        &self.syllables[..usize::from(self.len)]
+    }
+}
+
+/// 按 `keys_adjacent` 预展开的小写字母邻键表，保持 `b'a'..=b'z'` 升序，消除热循环里的行扫描。
+const ADJACENT_KEYS: [&[u8]; 26] = [
+    b"qswz",   // a
+    b"ghnv",   // b
+    b"dfvx",   // c
+    b"cefrsx", // d
+    b"drsw",   // e
+    b"cdgrtv", // f
+    b"bfhtvy", // g
+    b"bgjnuy", // h
+    b"jkou",   // i
+    b"hikmnu", // j
+    b"ijlmo",  // k
+    b"kop",    // l
+    b"jkn",    // m
+    b"bhjm",   // n
+    b"iklp",   // o
+    b"lo",     // p
+    b"aw",     // q
+    b"deft",   // r
+    b"adewxz", // s
+    b"fgry",   // t
+    b"hijy",   // u
+    b"bcfg",   // v
+    b"aeqs",   // w
+    b"cdsz",   // x
+    b"ghtu",   // y
+    b"asx",    // z
+];
+
+fn adjacent_keys(letter: u8) -> &'static [u8] {
+    if letter.is_ascii_lowercase() {
+        ADJACENT_KEYS[usize::from(letter - b'a')]
+    } else {
+        &[]
+    }
+}
+
+struct SyllableTrieNode {
+    next: [u16; 26],
+    syllable: Option<&'static str>,
+}
+
+/// 长度不少于 2 的合法音节前缀树，供 `window_edits` 一次遍历并按无效前缀立即剪枝。
+fn multi_letter_syllable_trie() -> &'static [SyllableTrieNode] {
+    static TRIE: OnceLock<Box<[SyllableTrieNode]>> = OnceLock::new();
+    TRIE.get_or_init(|| {
+        let mut nodes = vec![SyllableTrieNode {
+            next: [0; 26],
+            syllable: None,
+        }];
+        for &syllable in intact_pinyin_list() {
+            if syllable.len() < 2 {
+                continue;
+            }
+            let mut current = 0usize;
+            for &byte in syllable.as_bytes() {
+                debug_assert!(byte.is_ascii_lowercase());
+                let slot = usize::from(byte - b'a');
+                let next = nodes[current].next[slot];
+                if next == 0 {
+                    let index = u16::try_from(nodes.len()).expect("音节前缀树节点超出 u16 范围");
+                    nodes.push(SyllableTrieNode {
+                        next: [0; 26],
+                        syllable: None,
+                    });
+                    nodes[current].next[slot] = index;
+                    current = usize::from(index);
+                } else {
+                    current = usize::from(next);
+                }
+            }
+            nodes[current].syllable = Some(syllable);
+        }
+        nodes.into_boxed_slice()
+    })
 }
 
 /// 窗口的改法只取决于窗口里的字面音节和纠错开关，与上下文无关，所以按它们缓存：键是开关加音节（`15:zi'a`），空结果也存。连续打字时前面的窗口不变，每一键只有末尾几个新窗口要算；不缓存时每一键都把整串的窗口重算一遍，长句里这一步占了按键的大半时间。
@@ -109,6 +206,37 @@ pub const EDIT_WINDOW_CACHE_CAPACITY: usize = 4096;
 /// 缓存键至多是开关的十进制、冒号和 3 个音节（每个至多 6 个字母）加两个分隔符。
 const EDIT_WINDOW_KEY_LENGTH: usize =
     10 + 1 + MAX_EDIT_WINDOW_SYLLABLES * (MAX_SYLLABLE_LENGTH + 1);
+
+/// 在栈缓冲上拼接最多 `MAX_TYPO_SPAN_SYLLABLES` 个音节的带分隔符词键，去重命中时不分配堆内存。
+fn format_edit_span_key<'a>(
+    buf: &'a mut [u8],
+    left: &[String],
+    middle: &[&'static str],
+    right: &[String],
+) -> Option<&'a str> {
+    let mut len = 0usize;
+    let mut first = true;
+    for part in left
+        .iter()
+        .map(String::as_str)
+        .chain(middle.iter().copied())
+        .chain(right.iter().map(String::as_str))
+    {
+        if !first {
+            if len >= buf.len() {
+                return None;
+            }
+            buf[len] = b'\'';
+            len += 1;
+        }
+        first = false;
+        let bytes = part.as_bytes();
+        let slot = buf.get_mut(len..len + bytes.len())?;
+        slot.copy_from_slice(bytes);
+        len += bytes.len();
+    }
+    std::str::from_utf8(&buf[..len]).ok()
+}
 
 /// 规划字母级纠错键：相邻 1 到 3 个字面音节的字母上做一处编辑（调换相邻两个字母、换成邻键、删掉一个字母、补上一个字母），改完的字母能重新切成至多 3 个合法音节、又和字面音节不同时，就是一种改正读法，再向两边补字面音节凑成 2 到 3 个音节的词键（zi'a → xian'zai，heng'wo → hen'gao）。编辑只在窗口内部，窗口两端对齐字面音节的边界，所以边的 `start..end` 是它盖住的字面音节，读法来自词库行，纠错整句带的是改正后的读音。最优字面路径里单独成字的位置（弱位置）所在的窗口先排；同一处的改法按罚分从低到高排，超出 `EDIT_KEY_BUDGET` 的不查。这条边能不能出现在候选里，仍由纠错整句的解码决定。
 fn plan_edit_keys(
@@ -123,7 +251,7 @@ fn plan_edit_keys(
         return;
     }
     let weak = weak_positions(n, literal_best);
-    // (窗口起点, 终点, 是否含弱位置, 改法)，改法从缓存里借用不到（下一个窗口可能要写缓存），所以复制出来；绝大多数窗口没有改法，不分配。
+    // (窗口起点, 终点, 是否含弱位置, 改法)，改法为 `Copy` 值，绝大多数窗口没有改法时不分配。
     let mut readings: Vec<(usize, usize, bool, WindowEdit)> = Vec::new();
     let mut key = [0u8; EDIT_WINDOW_KEY_LENGTH];
     let prefix = {
@@ -146,7 +274,9 @@ fn plan_edit_keys(
     };
     for start in 0..n {
         let mut length = prefix;
+        let mut window_has_weak = false;
         for end in start + 1..=n.min(start + MAX_EDIT_WINDOW_SYLLABLES) {
+            window_has_weak |= weak.get(end - 1);
             let segment = segments[end - 1].as_bytes();
             let separator = usize::from(end > start + 1);
             let Some(slot) = key.get_mut(length + separator..length + separator + segment.len())
@@ -172,8 +302,11 @@ fn plan_edit_keys(
             if edits.is_empty() {
                 continue;
             }
-            let is_weak = (start..end).any(|position| weak.get(position));
-            readings.extend(edits.iter().map(|edit| (start, end, is_weak, edit.clone())));
+            readings.extend(
+                edits
+                    .iter()
+                    .map(|&edit| (start, end, window_has_weak, edit)),
+            );
         }
     }
     if readings.is_empty() {
@@ -182,9 +315,11 @@ fn plan_edit_keys(
     // 弱位置的窗口先查，同等时便宜的改法先查；稳定排序保留窗口从左到右的次序。
     readings.sort_by_key(|(_, _, weak, edit)| (!*weak, edit.kind));
     let mut added = 0;
+    let mut key_buf = [0u8; MAX_TYPO_SPAN_SYLLABLES * (MAX_SYLLABLE_LENGTH + 1)];
     for (start, end, _, edit) in &readings {
         let (start, end) = (*start, *end);
-        let corrected = edit.syllables.len();
+        let edit_syllables = edit.syllables();
+        let corrected = edit_syllables.len();
         let penalty = base_cost(edit.kind);
         for left in 0..=start.min(MAX_TYPO_SPAN_SYLLABLES.saturating_sub(corrected)) {
             let room = MAX_TYPO_SPAN_SYLLABLES.saturating_sub(corrected + left);
@@ -192,25 +327,44 @@ fn plan_edit_keys(
                 if left + corrected + right < MIN_TYPO_SPAN_SYLLABLES {
                     continue;
                 }
-                let key = segments[start - left..start]
-                    .iter()
-                    .map(String::as_str)
-                    .chain(edit.syllables.iter().copied())
-                    .chain(segments[end..end + right].iter().map(String::as_str))
-                    .collect::<Vec<_>>()
-                    .join("'");
                 let (key_start, key_end) = (start - left, end + right);
-                if planned.iter().any(|entry| {
-                    entry.key == key && entry.start == key_start && entry.end == key_end
-                }) {
-                    continue;
+                if let Some(key_str) = format_edit_span_key(
+                    &mut key_buf,
+                    &segments[start - left..start],
+                    edit_syllables,
+                    &segments[end..end + right],
+                ) {
+                    if planned.iter().any(|entry| {
+                        entry.start == key_start && entry.end == key_end && entry.key == key_str
+                    }) {
+                        continue;
+                    }
+                    planned.push(PlannedKey {
+                        start: key_start,
+                        end: key_end,
+                        key: key_str.to_owned(),
+                        penalty,
+                    });
+                } else {
+                    let key = segments[start - left..start]
+                        .iter()
+                        .map(String::as_str)
+                        .chain(edit_syllables.iter().copied())
+                        .chain(segments[end..end + right].iter().map(String::as_str))
+                        .collect::<Vec<_>>()
+                        .join("'");
+                    if planned.iter().any(|entry| {
+                        entry.start == key_start && entry.end == key_end && entry.key == key
+                    }) {
+                        continue;
+                    }
+                    planned.push(PlannedKey {
+                        start: key_start,
+                        end: key_end,
+                        key,
+                        penalty,
+                    });
                 }
-                planned.push(PlannedKey {
-                    start: key_start,
-                    end: key_end,
-                    key,
-                    penalty,
-                });
                 added += 1;
                 if added >= EDIT_KEY_BUDGET {
                     return;
@@ -234,54 +388,48 @@ fn window_edits(literal: &[String], autocorrect_types: u32) -> Vec<WindowEdit> {
         length += segment.len();
     }
     let letters = &window[..length];
+    let max_depth = literal.len().min(MAX_TYPO_SPAN_SYLLABLES);
+    let trie = multi_letter_syllable_trie();
     let mut edits: Vec<WindowEdit> = Vec::new();
     let mut edited = [0u8; MAX_EDIT_WINDOW_LETTERS + 1];
     let mut consider = |text: &[u8], kind: SyllableTypoKind| {
-        for_each_reading(text, |syllables| {
-            // 打错多半把一个音节拆成几个、或者造出单字母音节（zi'a、qu'a'li），改正是把它们合回去、补回去。读法比字面多出音节、或者自己带着单字母音节的，几乎都是邻键和补字母编出来的无意义读法（fa'a、ga'a），查词前就排掉，否则它们挤掉预算、拖慢按键。
-            if syllables.len() > literal.len()
-                || syllables.iter().any(|syllable| syllable.len() == 1)
-            {
-                return;
-            }
+        for_each_reading_bounded(trie, text, max_depth, |syllables| {
+            // 打错多半把一个音节拆成几个、或者造出单字母音节（zi'a、qu'a'li），改正是把它们合回去、补回去。读法比字面多出音节、或者自己带着单字母音节的，已在前缀树与深度上限中排掉。
             if syllables.len() == literal.len()
                 && syllables.iter().zip(literal).all(|(a, b)| *a == b.as_str())
             {
                 return;
             }
-            if edits.iter().any(|edit| edit.syllables == syllables) {
+            if edits.iter().any(|edit| edit.syllables() == syllables) {
                 return;
             }
-            edits.push(WindowEdit {
-                syllables: syllables.to_vec(),
-                kind,
-            });
+            edits.push(WindowEdit::from_slice(syllables, kind));
         });
     };
-    if autocorrect_types & TRANSPOSITION != 0 {
-        for i in 0..length.saturating_sub(1) {
+    if autocorrect_types & TRANSPOSITION != 0 && length >= 2 {
+        edited[..length].copy_from_slice(letters);
+        for i in 0..length - 1 {
             if letters[i] == letters[i + 1] {
                 continue;
             }
-            edited[..length].copy_from_slice(letters);
             edited.swap(i, i + 1);
             consider(&edited[..length], SyllableTypoKind::Transposition);
+            edited.swap(i, i + 1);
         }
     }
-    if autocorrect_types & NEIGHBOR != 0 {
+    if autocorrect_types & NEIGHBOR != 0 && length >= 2 {
+        edited[..length].copy_from_slice(letters);
         for i in 0..length {
-            for key in b'a'..=b'z' {
-                if !keys_adjacent(key, letters[i]) {
-                    continue;
-                }
-                edited[..length].copy_from_slice(letters);
+            let original = letters[i];
+            for &key in adjacent_keys(original) {
                 edited[i] = key;
                 consider(&edited[..length], SyllableTypoKind::Neighbor);
             }
+            edited[i] = original;
         }
     }
     // 多按了一个字母：改正是删掉它。
-    if autocorrect_types & INSERTION != 0 && length > 1 {
+    if autocorrect_types & INSERTION != 0 && length > 2 {
         for i in 0..length {
             edited[..i].copy_from_slice(&letters[..i]);
             edited[i..length - 1].copy_from_slice(&letters[i + 1..]);
@@ -289,12 +437,12 @@ fn window_edits(literal: &[String], autocorrect_types: u32) -> Vec<WindowEdit> {
         }
     }
     // 漏按了一个字母：改正是补上它，漏的可以是任何字母。
-    if autocorrect_types & DELETION != 0 {
+    if autocorrect_types & DELETION != 0 && length >= 1 {
         for i in 0..=length {
+            edited[..i].copy_from_slice(&letters[..i]);
+            edited[i + 1..=length].copy_from_slice(&letters[i..]);
             for key in b'a'..=b'z' {
-                edited[..i].copy_from_slice(&letters[..i]);
                 edited[i] = key;
-                edited[i + 1..=length].copy_from_slice(&letters[i..]);
                 consider(&edited[..=length], SyllableTypoKind::MissingOrExtra);
             }
         }
@@ -302,10 +450,17 @@ fn window_edits(literal: &[String], autocorrect_types: u32) -> Vec<WindowEdit> {
     edits
 }
 
-/// `text` 每一种切成至多 `MAX_TYPO_SPAN_SYLLABLES` 个合法音节的读法。字母串至多十几个，深度至多 3，逐个前缀试就够了，不分配。
-fn for_each_reading(text: &[u8], mut visit: impl FnMut(&[&'static str])) {
+/// `text` 每一种切成至多 `max_depth` 个不少于两字母合法音节的读法；依托前缀树和剩余长度界快速剪枝，不分配。
+fn for_each_reading_bounded(
+    trie: &[SyllableTrieNode],
+    text: &[u8],
+    max_depth: usize,
+    mut visit: impl FnMut(&[&'static str]),
+) {
     fn walk(
+        trie: &[SyllableTrieNode],
         text: &[u8],
+        max_depth: usize,
         stack: &mut [&'static str; MAX_TYPO_SPAN_SYLLABLES],
         depth: usize,
         visit: &mut dyn FnMut(&[&'static str]),
@@ -316,18 +471,36 @@ fn for_each_reading(text: &[u8], mut visit: impl FnMut(&[&'static str])) {
             }
             return;
         }
-        if depth == MAX_TYPO_SPAN_SYLLABLES {
+        let rem_depth = max_depth - depth;
+        if rem_depth == 0 || text.len() < 2 || text.len() > rem_depth * MAX_SYLLABLE_LENGTH {
             return;
         }
-        for length in 1..=MAX_SYLLABLE_LENGTH.min(text.len()) {
-            if let Some(syllable) = intact_piece(&text[..length]) {
-                stack[depth] = syllable;
-                walk(&text[length..], stack, depth + 1, visit);
+        let mut node = 0usize;
+        let max_len = MAX_SYLLABLE_LENGTH.min(text.len());
+        for (pos, &byte) in text[..max_len].iter().enumerate() {
+            if !byte.is_ascii_lowercase() {
+                break;
+            }
+            let next = trie[node].next[usize::from(byte - b'a')];
+            if next == 0 {
+                break;
+            }
+            node = usize::from(next);
+            if let Some(syllable) = trie[node].syllable {
+                let rest = &text[pos + 1..];
+                if rest.is_empty()
+                    || (rem_depth > 1
+                        && rest.len() >= 2
+                        && rest.len() <= (rem_depth - 1) * MAX_SYLLABLE_LENGTH)
+                {
+                    stack[depth] = syllable;
+                    walk(trie, rest, max_depth, stack, depth + 1, visit);
+                }
             }
         }
     }
     let mut stack = [""; MAX_TYPO_SPAN_SYLLABLES];
-    walk(text, &mut stack, 0, &mut visit);
+    walk(trie, text, max_depth, &mut stack, 0, &mut visit);
 }
 
 /// 最优字面路径里单独成字的音节位置；路径没有铺满全部音节时一个也不标。
@@ -441,22 +614,7 @@ fn plan_keys_with<'t>(
 ) -> Vec<PlannedKey> {
     let n = segments.len();
     // A syllable the best literal path spells as a lone character is where a typo most likely broke a phrase, so those positions are tried first. Word widths follow the character counts of the path's words; a path that does not tile the input marks nothing weak.
-    let mut weak = WeakPositions::new(n);
-    let mut covered = 0;
-    for word in &literal_best.words {
-        let width = count_utf8_chars(word);
-        if width == 0 || covered + width > n {
-            covered = n + 1;
-            break;
-        }
-        if width == 1 {
-            weak.set(covered);
-        }
-        covered += width;
-    }
-    if covered != n {
-        weak.clear();
-    }
+    let weak = weak_positions(n, literal_best);
     let positions = (0..n)
         .filter(|&i| weak.get(i))
         .chain((0..n).filter(|&i| !weak.get(i)));
@@ -920,5 +1078,76 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn adjacent_keys_table_matches_keys_adjacent_for_every_letter() {
+        for letter in b'a'..=b'z' {
+            let expected: Vec<u8> = (b'a'..=b'z')
+                .filter(|&candidate| crate::pinyin::typos::keys_adjacent(candidate, letter))
+                .collect();
+            assert_eq!(
+                adjacent_keys(letter),
+                expected.as_slice(),
+                "{}",
+                letter as char
+            );
+        }
+        assert!(adjacent_keys(b'A').is_empty());
+        assert!(adjacent_keys(b'0').is_empty());
+    }
+
+    #[test]
+    fn typo_edges_cover_fluent_tilings_trailing_words_and_weak_positions() {
+        let fixture = crate::quanpin::fixture::Fixture::new();
+        fixture
+            .insert("mei", "没", 1000)
+            .insert("gan", "干", 1000)
+            .insert("xi", "系", 1000)
+            .insert("guan'xi", "关系", 100_000)
+            .insert("jin'tian", "今天", 100_000)
+            .insert("jun'tian", "均田", 50_000)
+            .insert("xian'zai", "现在", 100_000);
+        let database = PinyinDatabase::open(&fixture.database());
+        let profile = PersonalTypoProfile::shared(&fixture.journal());
+        let mut span_cache = FifoCache::new(512);
+        let mut edit_cache = EditWindowCache::new(EDIT_WINDOW_CACHE_CAPACITY);
+        let mut edges = |segments: &[&str], best: &[&str]| {
+            let segments: Vec<String> = segments.iter().map(|s| (*s).to_owned()).collect();
+            collect_typo_edges(
+                &database,
+                &mut span_cache,
+                &mut edit_cache,
+                &profile,
+                &segments,
+                &path(best),
+                ALL_TYPES,
+            )
+        };
+        let has = |edges: &[TypoEdge], key: &str, value: &str| {
+            edges
+                .iter()
+                .any(|edge| edge.key == key && edge.value == value)
+        };
+
+        // 字面最优路径全是多字词（没有弱位置）时，错键后仍是合法拼音的输入照样要规划非弱位置：`jun'tian` 读成「均田」，u/i 邻键仍要给出「今天」。
+        let fluent = edges(&["jun", "tian"], &["均田"]);
+        assert!(has(&fluent, "jin'tian", "今天"), "{fluent:?}");
+
+        // 唯一的弱位置是最后一个多字母音节时，前面的多字词也要规划。
+        let trailing = edges(&["jun", "tian", "xi"], &["均田", "系"]);
+        assert!(has(&trailing, "jin'tian", "今天"), "{trailing:?}");
+
+        // 单字母韵母拆开的音节合回去（`xian'zi'a` -> `xian'zai`）。
+        let split = edges(&["xian", "zi", "a"], &["仙子", "啊"]);
+        assert!(has(&split, "xian'zai", "现在"), "{split:?}");
+
+        // 弱位置上的一换一替换（`mei'gan'xi` -> `guan'xi`）。
+        let broken = edges(&["mei", "gan", "xi"], &["没", "干", "系"]);
+        assert!(has(&broken, "guan'xi", "关系"), "{broken:?}");
+
+        // 路径没有铺满全部音节时按全部位置规划。
+        let untiled = edges(&["jin", "tian"], &[]);
+        assert!(has(&untiled, "jun'tian", "均田"), "{untiled:?}");
     }
 }

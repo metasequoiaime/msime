@@ -710,6 +710,25 @@ pub fn looks_like_syllable_with_jianpin_tail(pinyin: &str) -> bool {
     }
     // 全辅音串一个音节也匹配不上，这里有意让它保持可纠错：它可能是 `bqng`（bang）这种按偏了韵母的误触，也可能是 `qjn`、`zhr` 这种多字母简拼（含 zh/ch/sh 简拼单位）。两种读法都留着，先后由词典定：字面简拼读满全部按键的多字词条排在纠错读法前面，见 `quanpin::series::lead_literal_abbreviation_phrases`。
     if position == 0 || bytes.len() - position > 1 {
+        // 贪心最长匹配在 `ren'gong` 这类边界上会误切出 `reng` 而卡住；回退到精确完整拼音切分，保护完整拼音后跟单个声母或 `zh`/`ch`/`sh` 声母前缀的正常输入。
+        if super::segment::is_complete_pinyin_input(pinyin) {
+            return true;
+        }
+        if bytes.len() >= 2
+            && !matches!(
+                bytes[bytes.len() - 1],
+                b'a' | b'e' | b'i' | b'o' | b'u' | b'v'
+            )
+            && super::segment::is_complete_pinyin_input(&pinyin[..pinyin.len() - 1])
+        {
+            return true;
+        }
+        if bytes.len() >= 3
+            && matches!(&bytes[bytes.len() - 2..], b"zh" | b"ch" | b"sh")
+            && super::segment::is_complete_pinyin_input(&pinyin[..pinyin.len() - 2])
+        {
+            return true;
+        }
         return false;
     }
     if position == bytes.len() {
@@ -990,6 +1009,14 @@ mod tests {
         assert!(looks_like_syllable_with_jianpin_tail("zheg"));
         assert!(looks_like_syllable_with_jianpin_tail("keneng"));
         assert!(looks_like_syllable_with_jianpin_tail("zher"));
+        assert!(looks_like_syllable_with_jianpin_tail("rengongz"));
+        assert!(looks_like_syllable_with_jianpin_tail("rengongzh"));
+        assert!(looks_like_syllable_with_jianpin_tail("rengongzhin"));
+        assert!(looks_like_syllable_with_jianpin_tail(
+            "womendouzaixuexirengongzhin"
+        ));
+        assert!(looks_like_syllable_with_jianpin_tail("zhegewentihenzh"));
+        assert!(!looks_like_syllable_with_jianpin_tail("hauzh"));
         assert!(!looks_like_syllable_with_jianpin_tail("sahng"));
         assert!(!looks_like_syllable_with_jianpin_tail("shabg"));
         assert!(!looks_like_syllable_with_jianpin_tail("xi'an"));
@@ -1003,6 +1030,31 @@ mod tests {
         assert_eq!(cut("zheg", BOTH), "");
         // The insertion key `zher` is in the search space by design; the guard is the dictionary layer's job.
         assert!(autocorrect_cut_detail("zher", INSERTION).is_some());
+    }
+
+    /// 贪心最长匹配卡住、但整串能精确切成完整拼音（或完整拼音后跟一个声母、一个 `zh`/`ch`/`sh`）的输入，按简拼尾保护，不再进入拼写纠错。下面列出这次判定翻转的输入：`rengongzhin` 这类长句是要修的贪心误切，`nihaozh`、`wozh` 这类完整拼音加双字母声母尾以前会被送去纠错，现在同样受保护；`hauzh`、`gau` 这类本身就是错拼的仍然可纠错。
+    #[test]
+    fn jianpin_tail_guard_falls_back_to_the_exact_complete_cut() {
+        let mut mismatches = Vec::new();
+        for (input, guarded) in [
+            ("rengongzhin", true),
+            ("womendouzaixuexirengongzhin", true),
+            ("rengongzh", true),
+            ("nihaozh", true),
+            ("nihaosh", true),
+            ("nihaoch", true),
+            ("wozh", true),
+            ("zhegewentihenzh", true),
+            ("hauzh", false),
+            ("gauzh", false),
+            ("gau", false),
+            ("sahng", false),
+        ] {
+            if looks_like_syllable_with_jianpin_tail(input) != guarded {
+                mismatches.push(input);
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
     }
 
     // test_pinyin.cpp:803-862.
