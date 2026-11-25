@@ -8686,7 +8686,8 @@ void FcitxState::scheduleAsyncPoll() {
           pollAsyncState();
           return true;
         });
-  } else {
+  } else if (!preferences_timer_->isEnabled() || preferences_timer_->time() > deadline) {
+    // 只把截止时间往前挪：`render()` 和按键统计每次视图更新都会调这里，已排好的更早一拍若被推后，连续打字（按键间隔短于 250ms）时轮询会一直等不到，在线候选、翻译、剪贴板等异步结果都卡到停手后才推进。
     preferences_timer_->setTime(deadline);
     preferences_timer_->setOneShot();
   }

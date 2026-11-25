@@ -1390,6 +1390,54 @@ int cloudClipboardResultFencing() {
   return 0;
 }
 
+// 连续打字时每次视图更新都会再调一次 `scheduleAsyncPoll()`；已排好的轮询不能被一直往后推，否则按键间隔短于 250ms 时异步结果永远等不到推进。
+int asyncPollFiresWhileRescheduled() {
+  char temporary[] = "/tmp/msime-fcitx-async-poll-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "创建合成异步轮询测试目录");
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  {
+    char program[] = "msime-async-poll-test";
+    char disabled[] = "--disable=all";
+    char *args[] = {program, disabled, nullptr};
+    fcitx::Instance instance(2, args);
+    instance.initialize();
+    FixtureContext ic(instance.inputContextManager());
+    ic.focusIn();
+    auto &loop = instance.eventLoop();
+    FcitxState state(ic, nullptr, loop, false);
+    // 一个一直没完成的偏好读取让轮询保持有事可做；`pollAsyncState()` 每跑一次都会清掉 `composition_async_dirty_`，以此计数。
+    std::promise<Json> never;
+    state.preferences_job_ = never.get_future().share();
+    int ticks = 0;
+    int polls = 0;
+    // 每 100ms 模拟一次按键：标记视图已变、再排一次轮询，共 1.2 秒。
+    auto typing = loop.addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 100'000, 1000,
+        [&](fcitx::EventSourceTime *timer, uint64_t) {
+          if (ticks > 0 && !state.composition_async_dirty_) ++polls;
+          if (++ticks > 12) {
+            timer->setEnabled(false);
+            loop.exit();
+            return true;
+          }
+          state.composition_async_dirty_ = true;
+          state.scheduleAsyncPoll();
+          timer->setNextInterval(100'000);
+          timer->setOneShot();
+          return true;
+        });
+    loop.exec();
+    require(polls >= 3, "连续按键反复排轮询时，250ms 一拍的异步轮询仍要按时触发");
+    state.preferences_job_ = {};
+    never.set_value(Json());
+  }
+  std::filesystem::remove_all(directory);
+  std::cout << "Fcitx5 连续按键下异步轮询按时触发回归通过\n";
+  return 0;
+}
+
 int candidateRuntimeFontUnits() {
   char pattern[] = "/tmp/msime-font-runtime-XXXXXX";
   const auto *directory = mkdtemp(pattern);
@@ -1422,6 +1470,7 @@ int main(int argc, char **argv) {
   try {
     if (argc == 2 && std::string(argv[1]) == "--font-runtime") return candidateRuntimeFontUnits();
     if (argc == 2 && std::string(argv[1]) == "--cloud-clipboard") return cloudClipboardResultFencing();
+    if (argc == 2 && std::string(argv[1]) == "--async-poll") return asyncPollFiresWhileRescheduled();
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
     if (argc == 2 && std::string(argv[1]) == "--theme-canvas") return candidateThemeCanvas();
 #ifdef MSIME_FCITX5_HINT_FONT
