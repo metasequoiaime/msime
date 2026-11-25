@@ -918,6 +918,31 @@ mod tests {
         assert!(autocorrect_cut_detail("zher", INSERTION).is_some());
     }
 
+    /// 贪心最长匹配卡住、但整串能精确切成完整拼音（或完整拼音后跟一个声母、一个 `zh`/`ch`/`sh`）的输入，按简拼尾保护，不再进入拼写纠错。下面列出这次判定翻转的输入：`rengongzhin` 这类长句是要修的贪心误切，`nihaozh`、`wozh` 这类完整拼音加双字母声母尾以前会被送去纠错，现在同样受保护；`hauzh`、`gau` 这类本身就是错拼的仍然可纠错。
+    #[test]
+    fn jianpin_tail_guard_falls_back_to_the_exact_complete_cut() {
+        let mut mismatches = Vec::new();
+        for (input, guarded) in [
+            ("rengongzhin", true),
+            ("womendouzaixuexirengongzhin", true),
+            ("rengongzh", true),
+            ("nihaozh", true),
+            ("nihaosh", true),
+            ("nihaoch", true),
+            ("wozh", true),
+            ("zhegewentihenzh", true),
+            ("hauzh", false),
+            ("gauzh", false),
+            ("gau", false),
+            ("sahng", false),
+        ] {
+            if looks_like_syllable_with_jianpin_tail(input) != guarded {
+                mismatches.push(input);
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
+
     // test_pinyin.cpp:803-862.
     #[test]
     fn deletion_and_insertion_bits_gate_their_tables() {

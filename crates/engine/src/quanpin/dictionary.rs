@@ -63,7 +63,7 @@ use super::series::{
     AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
     MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
-use super::typo_edges::{collect_quanpin_typo_edges, EditWindowCache, EDIT_WINDOW_CACHE_CAPACITY};
+use super::typo_edges::{collect_typo_edges, EditWindowCache, EDIT_WINDOW_CACHE_CAPACITY};
 
 #[cfg(test)]
 mod marking_buffer_tests;
@@ -1052,38 +1052,13 @@ impl QuanpinDictionary {
         }
         let mut result;
         if resolution.corrected_input {
-            // 输入已经过一层拼写纠错，不再在纠错切分、字面回退与高成本备选上叠加第二层音节错键解码。
-            let share_prefixes = resolution.corrected.len() >= 2
-                && (segments.len() >= 2
-                    || resolution
-                        .costlier_corrected_cuts
-                        .iter()
-                        .any(|cut| cut.len() >= 2));
-            let mut queried_prefixes = share_prefixes.then(HashMap::new);
-            result = self.query_series_with_typos(
-                raw,
-                primary_segmentation,
-                &resolution.corrected,
-                false,
-                queried_prefixes.as_mut(),
-            );
+            // The corrected reading is the primary key, so selection and weight updates land on the right rows; the literal reading stays behind it as a fallback tail.
+            result = self.query_series(raw, primary_segmentation, &resolution.corrected);
             let literal = if segmentation.is_empty() {
                 let literal_segmentation = join_segments(&segments);
-                self.query_series_with_typos(
-                    raw,
-                    &literal_segmentation,
-                    &segments,
-                    false,
-                    queried_prefixes.as_mut(),
-                )
+                self.query_series(raw, &literal_segmentation, &segments)
             } else {
-                self.query_series_with_typos(
-                    raw,
-                    segmentation,
-                    &segments,
-                    false,
-                    queried_prefixes.as_mut(),
-                )
+                self.query_series(raw, segmentation, &segments)
             };
             append_unique_words(&mut result, literal);
             // Same-cost readings of the typo compete with the primary cut on dictionary frequency, and the best keeps a protected slot near the top.
@@ -1098,19 +1073,7 @@ impl QuanpinDictionary {
             }
             // Costlier readings go below the whole primary tier, so a frequent dearer correction (gau -> gai, weight 13) never precedes the cheaper one (gau -> gua, weight 10).
             for costlier in &resolution.costlier_corrected_cuts {
-                let costlier_segmentation = join_segments(costlier);
-                let rows = if costlier.len() >= 4 {
-                    // 长句高成本纠错备选排在主纠错与字面回退之后，仅查整串精确词条，不再重复构图解码多条整句。
-                    self.query_single_path(raw, &costlier_segmentation, costlier)
-                } else {
-                    self.query_series_with_typos(
-                        raw,
-                        &costlier_segmentation,
-                        costlier,
-                        false,
-                        queried_prefixes.as_mut(),
-                    )
-                };
+                let rows = self.query_series(raw, &join_segments(costlier), costlier);
                 append_unique_words(&mut result, rows);
             }
             // 全辅音输入是简拼：字面简拼读满全部按键的多字词条排到纠错读法前面，打头的纠错候选最多退到首页最后一个座位，首位永远不让给它（#9903）。
@@ -1496,7 +1459,7 @@ impl QuanpinDictionary {
         let edit_cache = &mut self.typo_edit_cache;
         let profile = &*self.typo_profile;
         let mut typo_edges = |literal_best: &SentencePath| {
-            collect_quanpin_typo_edges(
+            collect_typo_edges(
                 database,
                 span_cache,
                 edit_cache,
