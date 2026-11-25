@@ -28,6 +28,8 @@ final class CandidatePanelRefreshDeviceChecks {
     private Object service;
     private long session;
     private int editorWrites;
+    /** 最近一次 commitText 写进编辑器的文字。 */
+    private String lastCommit;
 
     private CandidatePanelRefreshDeviceChecks(Instrumentation instrumentation,
             Consumer<String> stage) throws Exception {
@@ -77,6 +79,9 @@ final class CandidatePanelRefreshDeviceChecks {
             (proxy, operation, arguments) -> {
                 if (operation.getName().equals("commitText") || operation.getName().equals("setComposingText"))
                     editorWrites++;
+                if (operation.getName().equals("commitText") && arguments != null && arguments.length > 0
+                        && arguments[0] instanceof CharSequence)
+                    lastCommit = arguments[0].toString();
                 if (operation.getReturnType() == boolean.class) return true;
                 if (operation.getReturnType() == int.class) return 0;
                 return null;
@@ -86,23 +91,21 @@ final class CandidatePanelRefreshDeviceChecks {
 
     private void refresh(boolean online) throws Exception {
         JSONObject[] oldId = new JSONObject[1];
+        String[] oldText = new String[1];
         Button[] oldButton = new Button[1];
         int[] writes = new int[1];
         String[] query = new String[1];
         onMain(() -> {
             stage.accept((online ? "online" : "pause") + " refresh keeps expanded candidate panel");
             field(type, "renderingSuppressed").setBoolean(service, true);
-            method(type, "closeCandidatePanel").invoke(service);
-            method(type, "apply", String.class).invoke(service,
-                call("command", new Class<?>[] {long.class, int.class}, session, 3));
-            for (char letter : "nihao".toCharArray()) method(type, "apply", String.class).invoke(service,
-                call("character", new Class<?>[] {long.class, int.class, boolean.class}, session, (int) letter, false));
+            composePhrase();
             method(type, "openCandidatePanel").invoke(service);
             field(type, "renderingSuppressed").setBoolean(service, false);
             method(type, "render").invoke(service);
             check(field(type, "candidatePanelOpen").getBoolean(service), "panel opened");
             JSONObject snapshot = (JSONObject) field(type, "candidatePanelSnapshot").get(service);
             oldId[0] = snapshot.getJSONArray("candidates").getJSONObject(0).getJSONObject("id");
+            oldText[0] = snapshot.getJSONArray("candidates").getJSONObject(0).getString("text");
             oldButton[0] = candidateButton((View) field(type, "expandedCandidates").get(service));
             check(oldButton[0] != null, "expanded candidate button exists");
             query[0] = value(call("onlineQuery", new Class<?>[] {long.class}, session)).toString();
@@ -140,7 +143,10 @@ final class CandidatePanelRefreshDeviceChecks {
             check(snapshot.getJSONArray("candidates").toString().equals(actual.getJSONArray("candidates").toString()),
                 "fresh candidate identities and order match runtime");
             oldButton[0].performClick();
-            check(editorWrites == writes[0], "refresh and stale callback do not write editor");
+            // 换代以后按文字找回同一个词（#11816）：这一下点的是刷新前画出来的候选，上屏的仍是那个词，
+            // 不是新一张列表里同一个座位上的候选。
+            check(editorWrites > writes[0], "stale callback commits the drawn word");
+            check(oldText[0].equals(lastCommit), "stale callback commits the drawn word, not the new seat");
             check(field(type, "session").getLong(service) == session, "stale callback preserves session");
             method(type, "closeCandidatePanel").invoke(service);
             JSONObject current = (JSONObject) field(type, "view").get(service);
@@ -152,6 +158,15 @@ final class CandidatePanelRefreshDeviceChecks {
         });
     }
 
+    /** 清掉上一段组字，打一组新的 `nihao`；开面板由调用方按各自入口决定。 */
+    private void composePhrase() throws Exception {
+        method(type, "closeCandidatePanel").invoke(service);
+        method(type, "apply", String.class).invoke(service,
+            call("command", new Class<?>[] {long.class, int.class}, session, 3));
+        for (char letter : "nihao".toCharArray()) method(type, "apply", String.class).invoke(service,
+            call("character", new Class<?>[] {long.class, int.class, boolean.class}, session, (int) letter, false));
+    }
+
     private void cancelScheduledWork() throws Exception {
         Handler main = (Handler) field(type, "main").get(service);
         main.removeCallbacksAndMessages(null);
@@ -160,6 +175,8 @@ final class CandidatePanelRefreshDeviceChecks {
 
     private void typingInvalidatesPanel() throws Exception {
         stage.accept("typing still invalidates old expanded snapshot");
+        // 上一段的点按把画出来的那个词上屏、组字已经结束，面板打不开；先打一组新字再开面板。
+        composePhrase();
         method(type, "openCandidatePanel", boolean.class).invoke(service, true);
         check(field(type, "candidatePanelOpen").getBoolean(service), "panel opened before typing");
         JSONObject reply = value(call("character", new Class<?>[] {long.class, int.class, boolean.class},
