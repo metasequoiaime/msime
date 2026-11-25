@@ -121,7 +121,7 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
   }
 }
 
-/// 「键盘工具栏」设置页预览里，品牌键和收起键之间画哪些按钮；nil 表示空闲时不画工具栏内容，只保留顶栏高度。规则与键盘的 `toolbarRowHidden`、`longSpaceToolbarRowKept` 相同。预览画的是中文 26 键，所以 26 键选了「长空格」时 符 跟键盘一样排在品牌键后面，这一行也总要画：显示方式为「隐藏」或可选按钮全关时只剩品牌、符 和收起。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
+/// 「键盘工具栏」设置页预览里，品牌键和收起键之间画哪些按钮；nil 表示空闲时不画工具栏内容，只保留顶栏高度。规则与键盘的 `toolbarRowHidden`、`layoutKeepsToolbarRow` 相同。预览画的是中文 26 键，所以 26 键选了「长空格」时 符 跟键盘一样排在品牌键后面，这一行也总要画：显示方式为「隐藏」或可选按钮全关时只剩品牌、符 和收起。见 .agents/notes/implemented/bug-fix/2026-10-29-keyboard-previews-follow-layout.md。
 enum KeyboardToolbarPreviewRow {
   static func items(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool, hidden: Bool,
                     keyLayout: TouchKeyLayoutStyle) -> [KeyboardPreviewToolbarItem]? {

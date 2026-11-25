@@ -145,6 +145,43 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, writingHeight)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
   }
+  /// 手写底行（123 | ， | 手写 | 。 | 中 | 重写 | ⌫ | 回车）没有方案入口，回 26 键、九键这些布局只能靠顶栏的品牌键打开功能菜单，再点里面的「手写」。所以手写时这一行不收起：显示方式为「隐藏」、可选按钮全关时也留着，只放品牌键和收起键。还没下载中文手写模型时书写区只有一个下载按钮，没有这一行就只能先切英文绕回来。
+  func testHandwritingKeepsTheToolbarRowSoTheBrandMenuCanSwitchBack() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousHidden = TouchToolbarLocalPreference.hidden
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      TouchToolbarLocalPreference.hidden = previousHidden
+    }
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
+    TouchToolbarLocalPreference.hidden = true
+
+    // 九键的顶栏按显示方式「隐藏」收起，只剩高度：这时的品牌键够不着。
+    InputSchemePreference.scheme = .nineKey
+    let letters = KeyboardViewController(); letters.loadViewIfNeeded()
+    letters.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+    letters.view.layoutIfNeeded()
+    XCTAssertTrue(try toolbarBar(in: letters).isHidden)
+
+    // 进了手写，这一行留在原地，品牌键可以点。
+    let controller = try handwritingController(width: 390)
+    let bar = try toolbarBar(in: controller)
+    XCTAssertFalse(bar.isHidden, "手写时顶栏收起就回不到别的布局了")
+    let brand = try control("moreShortcut", in: controller)
+    XCTAssertFalse(brand.isHidden)
+    // 显示方式为「隐藏」，所以中间的可选按钮都不放。
+    XCTAssertTrue(try control("schemeButton", in: controller).isHidden)
+
+    // 品牌键打开的功能菜单里再点「手写」，回到进来前的布局，顶栏也跟着按那个布局收起。
+    brand.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    let tile = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "moreCard-手写" } as? UIControl)
+    tile.sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(InputSchemePreference.scheme, .quanpin, "没有记下进入前的方案时回到启用列表第一个不是手写的方案")
+    XCTAssertTrue(bar.isHidden)
+  }
+
   /// 功能菜单的「手写」再点一次回到进入手写前的布局和中英状态（#9703），不是启用列表里的第一个方案，也不是停在手写上。
   func testHandwritingTileReturnsToTheLayoutItWasOpenedFrom() throws {
     let previous = InputSchemePreference.scheme
@@ -266,6 +303,11 @@ final class HandwritingTests: XCTestCase {
 
   private func control(_ identifier: String, in controller: KeyboardViewController) throws -> UIButton {
     try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == identifier } as? UIButton, identifier)
+  }
+
+  /// 顶栏那一行本身（`shortcutBar`），看它整行是否收起。
+  private func toolbarBar(in controller: KeyboardViewController) throws -> UIView {
+    try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" }, "keyboardShortcutBar")
   }
 
   private func frame(_ view: UIView, in controller: KeyboardViewController) -> CGRect {

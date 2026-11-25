@@ -631,7 +631,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 26 键「长空格」把 符 从底行挪到工具栏，这是工具栏上的入口；`toolbarSymbolsEntryShown` 记着上次排工具栏时它在不在。
   private let symbolsShortcut = UIButton()
   private var toolbarSymbolsEntryShown = false
-  /// 上次排工具栏时这一行是否因长空格留着（`longSpaceToolbarRowKept`）：按这块键盘算，停在英文 26 键上也留着，只是没有 符。
+  /// 上次排工具栏时这一行是否因键面留着（`layoutKeepsToolbarRow`：长空格样式或手写）：按这块键盘算，停在英文 26 键上也留着，只是没有 符。
   private var toolbarRowKept = false
   private let nineKeyContainer = UIStackView()
   private let spellingScrollView = KeyboardSpellingScrollView()
@@ -3181,7 +3181,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
      aiShortcut, characterSetShortcut, fullwidthShortcut, punctuationShortcut, replyShortcut, scriptShortcut]
   }
 
-  /// 空闲时不显示工具栏内容：显示方式为「隐藏」，或者可选按钮一个都没打开，只剩品牌键和收起键，与 Android 的 `toolbarRowHidden` 一致。iOS 保留顶栏高度，组字时候选行在同一位置出现。26 键「长空格」把 符 挪到工具栏后，这一行总要显示（`toolbarRowKept`），同一块键盘切到英文 26 键时也显示品牌和收起，与 Android、鸿蒙相同。
+  /// 空闲时不显示工具栏内容：显示方式为「隐藏」，或者可选按钮一个都没打开，只剩品牌键和收起键，与 Android 的 `toolbarRowHidden` 一致。iOS 保留顶栏高度，组字时候选行在同一位置出现。26 键「长空格」把 符 挪到工具栏后、以及手写时（底行没有方案入口），这一行总要显示（`layoutKeepsToolbarRow`），同一块键盘切到英文 26 键时也显示品牌和收起，与 Android、鸿蒙相同。
   private var toolbarRowHidden: Bool { (toolbarHidden || !toolbarHasTools) && !toolbarRowKept }
 
   /// 工具栏里高亮的按钮：面板已打开的那个图标，以及任何面板、候选网格或回复面板盖住按键时的品牌键。
@@ -4158,9 +4158,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       && !inputScheme.isZhuyin && !inputScheme.isStroke && inputScheme != .handwriting
   }
 
-  /// 长空格样式让工具栏那一行一直显示：看用户的 26 键样式和这块键盘的中文键面（`chineseTwentySixKeyboard`），不看此刻的中/英；切到英文 26 键时 符 不在工具栏上（`longSpaceActive`），这一行照样显示品牌和收起。密码框和只收数字的框退回标准底行，不留。
-  private var longSpaceToolbarRowKept: Bool {
-    activeKeyLayoutStyle.twentySixKey == .longSpace && chineseTwentySixKeyboard
+  /// 工具栏那一行在两种键面下一直显示，显示方式为「隐藏」时也留，只放品牌键和收起键：
+  /// - **长空格样式**：看用户的 26 键样式和这块键盘的中文键面（`chineseTwentySixKeyboard`），不看此刻的中/英；切到英文 26 键时 符 不在工具栏上（`longSpaceActive`），这一行照样显示品牌和收起。密码框和只收数字的框退回标准底行，不留。
+  /// - **手写**：手写底行（`123 | ， | space | 。 | 中 | 重写 | ⌫ | 回车`）没有方案入口，顶栏的品牌键是回到其他布局的唯一入口 —— 功能菜单里再点一次「手写」回到进入前的布局（`toggleHandwritingScheme`）。尤其是还没下载中文手写模型时，书写区只有一个下载按钮，没有这一行就只能切到英文（中/英键）再绕回来。
+  private var layoutKeepsToolbarRow: Bool {
+    (activeKeyLayoutStyle.twentySixKey == .longSpace && chineseTwentySixKeyboard) || handwritingKeepsToolbarRow
+  }
+
+  /// 正停在手写方案上（看方案，不看此刻的中/英，也不看画的是不是 123 / #+= 层）：手写底行没有方案入口，工具栏那一行不能收起来。切到英文时也留着，与长空格的规则一致。
+  private var handwritingKeepsToolbarRow: Bool {
+    inputScheme == .handwriting && !isInLocalMode
   }
 
   /// 26 键选了「长空格」并且正画着中文 26 键（含它的数字九宫格和 #+= 层）：符 移到工具栏，#+= 层的表情或符号入口换成逗号，与 Android 原来的 `longSpaceLayoutActive` 相同。数字入口与其他样式一样是数字九宫格，它自带空格。
@@ -8133,10 +8140,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return constraints
   }
 
-  /// 26 键「长空格」把 符 从底行挪到工具栏（`symbolsShortcut`），与 Android 一样：进出这种键面时重排工具栏，显示方式为「隐藏」时也留着这一行，只放品牌、符号和收起三个按钮；同一块键盘切到英文 26 键时这一行还在，只放品牌和收起（`longSpaceToolbarRowKept`）。
+  /// 26 键「长空格」把 符 从底行挪到工具栏（`symbolsShortcut`），与 Android 一样：进出这种键面时重排工具栏，显示方式为「隐藏」时也留着这一行，只放品牌、符号和收起三个按钮；同一块键盘切到英文 26 键时这一行还在，只放品牌和收起（`layoutKeepsToolbarRow`）。手写进出时同样重排：它的底行没有方案入口，品牌键是回到其他布局的唯一入口。
   private func updateToolbarSymbolsEntry() {
     let shown = longSpaceActive
-    let kept = longSpaceToolbarRowKept
+    let kept = layoutKeepsToolbarRow
     guard shown != toolbarSymbolsEntryShown || kept != toolbarRowKept else { return }
     toolbarSymbolsEntryShown = shown
     toolbarRowKept = kept
