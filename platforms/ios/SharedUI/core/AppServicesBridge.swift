@@ -29,6 +29,16 @@ enum AppServicesBridge {
     return model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("doubao-seed-")
   }
 
+  /// 16 kHz 单声道 16 位 PCM 外面包一层 WAV 头，App 和键盘上传整段录音都用它。
+  static func wav(_ pcm: Data) -> Data {
+    func le32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+    func le16(_ value: UInt16) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+    var wav = Data("RIFF".utf8) + le32(UInt32(36 + pcm.count)) + Data("WAVEfmt ".utf8)
+    wav += le32(16) + le16(1) + le16(1) + le32(16_000) + le32(32_000) + le16(2) + le16(16)
+    wav += Data("data".utf8) + le32(UInt32(pcm.count)) + pcm
+    return wav
+  }
+
   static func transcriptionBody(_ wav: Data, model: String, language: String? = nil) throws -> [String: Any] {
     guard wav.count <= maximumVoiceAudioBytes else {
       throw ServiceFailure(message: "语音文件过大。")

@@ -247,8 +247,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var oneHandedSidePanel: TouchOneHandedSidePanel = .off
   /// 长按空格键时在键区打开的语音面板。
   private var voicePanel: KeyboardVoicePanelView?
-  /// 正在进行的按住说话，录音和识别在后台的主 App 里（`KeyboardVoiceDictation`）。
-  private var voiceDictation: KeyboardVoiceDictation?
+  /// 正在进行的按住说话：录音和识别在后台的主 App 里（`KeyboardVoiceDictation`），或者在键盘里（`KeyboardDirectDictation`）。
+  private var voiceDictation: KeyboardDictation?
+  /// 键盘自己录音用的麦克风，App 发布了联网语音服务时才建（`preparedVoiceMicrophone`）。
+  private var voiceMicrophone: KeyboardMicrophone?
   /// 听写开始时的输入位置；结果回来时位置变了就不直接上屏。
   private var voiceDictationContext: KeyboardDocumentContext?
   /// 听写开始时读到的语音标点（`voice_input.punctuation_mode`，#10595），与 Android 一样在开始聆听时取值，最终结果上屏前按它处理一次。
@@ -1100,6 +1102,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     appearedInWindow = view.window != nil
+    // 发布了联网语音服务时先把麦克风的网页载好，开始说话时不用再等；不录音时麦克风不开。
+    if KeyboardVoiceService.configuration() != nil { _ = preparedVoiceMicrophone() }
     // 到这里键盘已经画出第一帧，视图的位图缓冲和皮肤图片都已分配；`keyboard_built` 之前的几行量不到这部分。
     DiagnosticLog.shared.write("keyboard_shown \(DiagnosticLog.MemorySample.current().fields)")
     // UIKit may publish the document identifier and keyboard type one run-loop turn after the
@@ -6551,7 +6555,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     originY - y > height * voiceCancelFraction
   }
 
-  /// 长按空格说话。键盘扩展不能录音，录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时打开 App 开启它，用户回来再按住空格。`held` 为假时由工具栏、功能菜单或读屏操作开始听写，点「说完了」结束；App 用本地模型识别时还会在出字后停顿「本地停顿时间」那么久自己结束（#10310）。
+  /// 长按空格说话。录音识别由后台的主 App 做（`VoiceSessionService`）：会话开着时在键区显示聆听界面并开始听写，结果回来直接上屏；会话还没开或已经过期时，App 发布了说完整段上传的联网服务（`KeyboardVoiceService`）就在键盘里录音并上传（`KeyboardDirectDictation`），没有发布才打开 App 开启会话，用户回来再按住空格。`held` 为假时由工具栏、功能菜单或读屏操作开始听写，点「说完了」结束；App 用本地模型识别时还会在出字后停顿「本地停顿时间」那么久自己结束（#10310）。
   private func startVoiceFromSpace(held: Bool, originY: CGFloat? = nil) {
     guard hasFullAccess else {
       showDiagnostic("语音输入需要开启键盘的“允许完全访问”。")
@@ -6561,8 +6565,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard voiceInsertionReady else { return }
     closeKeyboardService()
     closeKeyboardPicker()
-    let dictation = KeyboardVoiceDictation()
-    guard dictation.sessionAvailable else {
+    let appDictation = KeyboardVoiceDictation()
+    let dictation: KeyboardDictation
+    if appDictation.sessionAvailable {
+      dictation = appDictation
+    } else if let configuration = KeyboardVoiceService.configuration() {
+      dictation = KeyboardDirectDictation(configuration: configuration, microphone: preparedVoiceMicrophone())
+    } else {
       openVoiceSession()
       return
     }
@@ -6581,6 +6590,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 按着的手指属于空格键，面板盖住键区时不能让这一行停止接收触摸，否则松开和上滑都收不到。
     installPanel(panel, keepsKeyTouches: held)
     dictation.start(held: held)
+  }
+
+  /// 键盘自己录音用的麦克风，第一次用到时挂到键盘视图上、载好网页。
+  private func preparedVoiceMicrophone() -> KeyboardMicrophone {
+    if let voiceMicrophone { return voiceMicrophone }
+    let microphone = KeyboardMicrophone()
+    microphone.attach(to: view)
+    voiceMicrophone = microphone
+    return microphone
   }
 
   /// 打开 App 的语音会话页。打不开时说明原因，不让长按空格看起来毫无反应。

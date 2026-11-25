@@ -129,7 +129,7 @@ struct VoiceSettingsView: View {
     var updated = settings
     updated.language = language
     saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { updated.write(into: &$0) }
-    if saveFailed { reload() } else { settings = updated }
+    if saveFailed { reload() } else { settings = updated; KeyboardVoicePublisher.refresh(settings: updated) }
   }
 
   private func savePunctuation(_ enabled: Bool) {

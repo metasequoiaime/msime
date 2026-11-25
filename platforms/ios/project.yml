@@ -264,6 +264,8 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: 仅在你把 AI 辅助的接口地址设成局域网里的服务（例如电脑上的 LM Studio）时，用来连接这台设备。
+        # 键盘自己录音（KeyboardDirectDictation）时，键盘里的 WebKit 按 App 的麦克风权限采集，用途说明也要写在扩展里。
+        NSMicrophoneUsageDescription: "仅在你开始语音输入时录音：选了联网识别服务时，键盘会把录音直接发送到你配置的服务。"
         NSExtension:
           NSExtensionAttributes:
             IsASCIICapable: true
@@ -289,6 +291,9 @@ targets:
       # The keyboard's 云端 clipboard tab.
       - path: ../../shared/backend/clients/BackendClipboardClient.swift
       - path: App/Services/KeyboardAIService.swift
+      # 键盘自己录音（KeyboardDirectDictation）：读 App 发布的语音服务，电平按 App 的算法算。
+      - path: App/Services/KeyboardVoiceService.swift
+      - path: App/Services/VoiceLevel.swift
       - path: KeyboardExtension/Sources/keyboard/KeyboardServiceFallback.swift
       - path: ../../target/ios/EngineResources
         buildPhase: resources
@@ -404,6 +409,8 @@ targets:
       - path: App/Services/DoubaoVoiceCoordinator.swift
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/KeyboardAIService.swift
+      - path: App/Services/KeyboardVoiceService.swift
+      - path: App/Services/VoiceLevel.swift
       - path: App/Services/IOSResourcePackDownload.swift
       - path: App/Services/SkinCommunityAPI.swift
       - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
@@ -506,6 +513,9 @@ targets:
       - path: App/Services/VoiceLevel.swift
       # 点按开始的本地识别的停顿设置和计时（#10310），VoicePauseTests 直接测它。
       - path: App/Services/VoicePause.swift
+      # 哪些语音服务发布给键盘自己录音，KeyboardVoicePublisherTests 直接测它。
+      - path: App/Services/KeyboardVoicePublisher.swift
+      - path: App/Services/KeyboardVoiceService.swift
       - path: App/Services/BoundedFileReader.swift
       - path: SharedUI/core/AIEndpointPolicy.swift
       - path: SharedUI/core/AppServicesBridge.swift
@@ -564,6 +574,8 @@ targets:
       - path: App/Services/DoubaoVoiceCoordinator.swift
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/KeyboardAIService.swift
+      - path: App/Services/KeyboardVoiceService.swift
+      - path: App/Services/VoiceLevel.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**
