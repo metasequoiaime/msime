@@ -4391,7 +4391,8 @@ public:
   void keySettled(std::uint32_t comboBefore) {
     syncMusic();
     if (typing_combo_ == comboBefore) return;
-    if (view_.is_object() && view_.contains("candidates") && !view_.at("candidates").empty()) {
+    if (view_.is_object() && view_.contains("candidates") &&
+        msime::linux_host::visible_page_size(view_.at("candidates")) > 0) {
       ic_.inputPanel().setAuxDown(fcitx::Text(candidateAux()));
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
@@ -10366,7 +10367,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       using Action = msime::linux_host::JapaneseConversion::Action;
       const auto reading = view_.value("editing_text", std::string{});
       // 日文转换只认看得见的行：云占位席位不占一个候选（CandidateSources.h）。
-      const auto candidates = msime::linux_host::visible_page(view_.at("candidates"));
+      const auto page = view_.at("candidates");
+      const auto candidates = page.is_array() ? msime::linux_host::visible_page(page) : Json::array();
       if (sym == FcitxKey_space) {
         const int first_source = candidates.empty() ? -1 : msime::linux_host::strict_json_value(candidates[0], "source", -1);
         const auto action = japanese_conversion_.space(reading, candidates.size(), first_source);

@@ -7206,7 +7206,7 @@ void sync_shuangpin_keymap([[maybe_unused]] IBusEngine *engine, [[maybe_unused]]
       engine->cursor_area.x, engine->cursor_area.y, engine->cursor_area.width, engine->cursor_area.height,
       msime::linux_host::shuangpin_keymap_candidate_clearance(
           msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences)), 1.0,
-          s.candidate_orientation == IBUS_ORIENTATION_HORIZONTAL, candidates.is_array() ? candidates.size() : 0,
+          s.candidate_orientation == IBUS_ORIENTATION_HORIZONTAL, candidates.is_array() ? msime::linux_host::visible_page_size(candidates) : 0,
           preedit_row),
       // IBus 的候选窗由桌面面板画，宿主拿不到它的矩形，只能按字号估计。
       std::nullopt};
@@ -8593,9 +8593,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         if (action == Action::CommitCandidate) {
           // Select by the identity of the candidate that is on screen, the same fence Space uses
           // below: the live view may already be a generation ahead of what the user is looking at.
-          const auto &candidates = s.view.at("candidates");
+          // 日文转换只认看得见的行：云占位席位不占一个候选（CandidateSources.h）。
+          const auto &page = s.view.at("candidates");
+          const auto candidates =
+              page.is_array() ? msime::linux_host::visible_page(page) : Json::array();
           const auto index = s.japanese_conversion.index();
-          if (candidates.is_array() && index < candidates.size()) {
+          if (index < candidates.size()) {
             const auto &id = candidates[index].value("id", Json::object());
             if (id.is_object() && id.value("session", uint64_t{0}) == s.session) {
               handled = apply(engine, msime_client_select(
@@ -8634,7 +8637,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       // later ones step through it, which is the only way to reach the second candidate.
       if (japanese_composition && has_composition) {
         using Action = msime::linux_host::JapaneseConversion::Action;
-        const auto &candidates = s.view.at("candidates");
+        // 日文转换按看得见的行数步进：云占位席位不占一个候选（CandidateSources.h）。
+        const auto candidates = msime::linux_host::visible_page(s.view.at("candidates"));
         const int first_source = candidates.empty() ? -1 : candidates[0].value("source", -1);
         const auto action =
             s.japanese_conversion.space(japanese_reading, candidates.size(), first_source);
