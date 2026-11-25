@@ -37,7 +37,8 @@ inline CandidateShortcut candidate_maintenance_shortcut(guint key, guint modifie
       action.kind = CandidateShortcutKind::Remove;
     else if (key == IBUS_Up || key == IBUS_KP_Up)
       action.kind = CandidateShortcutKind::Pin;
-    else if (key == IBUS_0 || key == IBUS_KP_0)
+    // 0 键同样按物理键码认（evdev 11），AZERTY 上不按 Shift 时它打出的是 à。
+    else if (keycode == 11 || key == IBUS_0 || key == IBUS_KP_0)
       action.kind = CandidateShortcutKind::Clear;
     return action;
   }

@@ -132,5 +132,9 @@ int main() {
   assert(candidate_maintenance_shortcut(IBUS_Down, control).kind == Kind::None);
   assert(candidate_maintenance_shortcut(IBUS_a, control).kind == Kind::None);
 
+  // Ctrl+0 按物理键码认：AZERTY 上 0 键的按键符号是 agrave。
+  assert(candidate_maintenance_shortcut(IBUS_agrave, control, 11).kind == Kind::Clear);
+  assert(candidate_maintenance_shortcut(IBUS_agrave, control, 0).kind == Kind::None);
+
   shortcut_targets();
 }
