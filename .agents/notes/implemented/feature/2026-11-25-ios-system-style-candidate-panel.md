@@ -42,5 +42,6 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 - `CandidateTranslationTests.testTheCardStyleSharesTheInPlaceLayoutAndKeepsItsOwnChips`：卡片样式展开后同样有窄列、窄列里三个按钮、网格止于窄列左边；375pt 上首行五格同一行、第六个候选换到第二行；卡片格子的底色与圆角跟不原地展开时一致（格子画法没被布局改动带掉），系统样式的格子仍是透明纯文字；没传 `expandsInPlace` 的面板不会凭空多出窄列。
 - `CandidateTranslationTests.testTheSystemStyleKeepsSixColumnsOnEveryPhoneWidth` 里也钉住了原地展开卡片的列数：窄列让出之后的 276/331/346/386pt 分别是 4/5/5/6 列。
 - `CandidateTranslationTests.testThePanelDeleteCarriesTheBackspaceSwipeGesture`：两种样式的删除键都挂着控制器交进来的那个 pan（`backspaceSwipe`），无障碍提示写明横滑删、上滑清空。
+- `NineKeyKeyboardTests.testCandidateChipsAndTheExpandChevron` / `testQuanpinKeepsTheFullCandidatePanel`：这两条上游用例原来断言「网格从候选条下沿展开」。原地展开之后面板顶边就是候选条顶边，候选条那一行的内容清空（alpha 0，行高不变），收起和删除由面板右列接手，所以断言随之改成新的布局，而不是把旧布局放回来。
 - `scripts/test-ios-key-layout-settings.py` 等契约脚本不受影响，回归全过。
 - 真机第一轮验收提出的三处（同一屏两根滚动条、高亮格与候选条不一致、面板底色比周围深一档）按上面的做法改掉；样式缺省在验收期间临时设为 `system`（`fallbackStyle`），验完改回 `card`。
