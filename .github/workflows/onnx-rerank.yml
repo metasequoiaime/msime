@@ -98,7 +98,7 @@ jobs:
           path: |
             target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a
             target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
-          key: onnxruntime-minimal-linux-x86_64-v1.24.4-${{ hashFiles('tools/onnxruntime-minimal/required_operators_and_types.config', 'tools/onnxruntime-minimal/build.sh') }}
+          key: onnxruntime-minimal-linux-x86_64-v1.24.4-probe-${{ hashFiles('tools/onnxruntime-minimal/required_operators_and_types.config', 'tools/onnxruntime-minimal/build.sh') }}
       # PR 和合并提交的第一个父提交比，推送和上一次推送的提交比；手动运行（发布前取附件）、比较的提交取不到时一律当作改了，现编。
       - name: Check whether the minimal ONNX Runtime inputs changed
         id: ort-inputs
