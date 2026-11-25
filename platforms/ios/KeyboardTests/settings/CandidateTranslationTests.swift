@@ -914,6 +914,30 @@ final class CandidateTranslationTests: XCTestCase {
                    accuracy: 0.001, "系统样式的格子仍然只有文字")
   }
 
+  /// 面板右列的删除键接手底部 ⌫ 的滑动手势：同一个手势对象要挂在那个按钮上，才能横滑逐格删、上滑清空。
+  func testThePanelDeleteCarriesTheBackspaceSwipeGesture() throws {
+    func panel(_ style: CandidatePanelStylePreference.Style,
+               swipe: UIPanGestureRecognizer) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: ["测试", "侧视"], preedit: "ceshi", showsHeader: false,
+        display: { $0 }, onSelect: { _ in }, onClose: {},
+        style: style, onHandwriting: {}, onDelete: {}, deleteSwipeGesture: swipe,
+        expandsInPlace: true)
+      view.frame = CGRect(x: 0, y: 0, width: 375, height: 240)
+      view.layoutIfNeeded()
+      return view
+    }
+
+    for style in [CandidatePanelStylePreference.Style.card, .system] {
+      let swipe = UIPanGestureRecognizer(target: nil, action: nil)
+      swipe.name = "backspaceSwipe"
+      let delete = try XCTUnwrap(
+        descendants(panel(style, swipe: swipe)).first { $0.accessibilityIdentifier == "candidatePanelDelete" })
+      XCTAssertTrue(delete.gestureRecognizers?.contains(swipe) == true, "\(style) 的删除键没接上 ⌫ 的手势")
+      XCTAssertEqual(delete.accessibilityHint, "向左滑动连续删除，向上滑动清空输入")
+    }
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

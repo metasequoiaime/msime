@@ -83,6 +83,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private var headerGap: NSLayoutConstraint?
   private let onHandwriting: (() -> Void)?
   private let onDelete: (() -> Void)?
+  /// 删除键上那个滑动手势：键盘控制器把自己的 `backspaceSwipe` 交进来，于是面板里的删除与底部 ⌫ 是同一套——按住往左滑逐格删、往上滑越过待命线松手清空。手势的决定权（起手方向、能不能滑）留在家控制器里，视图只负责挂上去。
+  private let deleteSwipeGesture: UIPanGestureRecognizer?
 
   /// 宽 `width` 的网格有几列：CSS auto-fill 的列数，即按 64pt 列宽、6pt 间隔能放下几列，至少一列。系统样式固定六列。
   static func columns(width: CGFloat, style: CandidatePanelStylePreference.Style = .card) -> Int {
@@ -127,6 +129,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
        style: CandidatePanelStylePreference.Style = .card,
        onHandwriting: (() -> Void)? = nil, onDelete: (() -> Void)? = nil,
+       deleteSwipeGesture: UIPanGestureRecognizer? = nil,
        expandsInPlace: Bool = false,
        columns: (leading: UIView, trailing: UIView)? = nil) {
     self.candidates = candidates
@@ -145,6 +148,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.style = style
     self.onHandwriting = onHandwriting
     self.onDelete = onDelete
+    self.deleteSwipeGesture = deleteSwipeGesture
     self.palette = palette
     self.inlineLayout = expandsInPlace && columns == nil
     super.init(frame: .zero)
@@ -302,6 +306,11 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     if let onDelete {
       let delete = systemColumnButton(KeyboardIcon.backspace.image(pointSize: 22), label: "删除",
                                       identifier: "candidatePanelDelete", action: onDelete)
+      // 与底部 ⌫ 同一个手势：按住横滑逐格删、上滑清空。挂在这里的手势由键盘控制器创建并当代理，面板只出按键。
+      if let deleteSwipeGesture {
+        delete.addGestureRecognizer(deleteSwipeGesture)
+        delete.accessibilityHint = "向左滑动连续删除，向上滑动清空输入"
+      }
       column.addSubview(delete)
       NSLayoutConstraint.activate([
         delete.centerXAnchor.constraint(equalTo: column.centerXAnchor),

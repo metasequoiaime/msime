@@ -262,8 +262,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePanel: KeyboardCandidatePanelView?
   /// 面板正在显示的那一代候选。选择和长按菜单都按它里面的代次和全局序号找候选；九键面板换代时整份换掉。
   private var candidatePanelSnapshot: CandidatePanelSnapshot?
-  /// 面板自己正在做一步操作（选候选、右列的删除）、这次换代的快照正在画：普通网格这时换代也不收起，而是换上新的一代，由 `selectPanelCandidate` 画完后决定面板留不留（#9193）。
-  private var candidatePanelFollowsSelection = false
+  /// 面板自己正在做一步操作（选候选、右列的删除、右列的横滑删除）、这次换代的快照正在画：普通网格这时换代也不收起，而是换上新的一代，由 `selectPanelCandidate` 画完后决定面板留不留（#9193）。
+  var candidatePanelFollowsSelection = false
   /// 全拼九键展开面板的左右两栏；不为 nil 时面板是三栏布局，换代时不关而是重建。
   private var nineKeyPanelColumns: KeyboardNineKeyPanelColumns?
   /// 九键面板左栏正显示笔画键。只是面板自己的状态，收起面板就回到拼音。
@@ -312,6 +312,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     pan.delegate = self
     return pan
   }()
+  /// 候选栏下滑展开的手势名，代理在这个名字上判起手方向。
+  private static let candidateStripSwipeName = "candidateStripSwipeDown"
+  /// 候选栏下滑展开要在纵向上拖过多少点。太短会跟「点一下候选」时的手指抖动混淆，太长又要拖很久才响应。
+  private static let candidateStripSwipeDistance: CGFloat = 18
+  /// 这一次下滑还没展开过：一次手势只展开一次，展开之后接着滑不再重复。
+  private var stripSwipeArmed = false
   /// a..z 二十六个字母键，按字母顺序；滑行请求里的键中心按这个顺序给出。
   private var glideLetterKeys: [UIButton] = []
   /// 第二排 L 右边的 `;` 键，微软双拼和粤语双拼显示（`ChineseInputScheme.showsSemicolonFinalKey`）。名字沿用最早只给微软双拼时的叫法，测试按 `microsoftFinalKey` 这个无障碍 id 找它。
@@ -2755,6 +2761,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = Self.stripBackground(KeyboardTheme.current, palette: nil)
+    // 候选栏下滑展开：横向候选条本来就竖着滚不动，往下拖一段就展开候选列表，等于点一下右边的展开箭头。手势一开始就判过方向（`gestureRecognizerShouldBegin`），这里只等位移越过阈值。
+    let stripSwipe = UIPanGestureRecognizer(target: self, action: #selector(handleCandidateStripSwipeDown(_:)))
+    stripSwipe.name = Self.candidateStripSwipeName
+    stripSwipe.maximumNumberOfTouches = 1
+    // 一旦接手就吃掉这次触摸：手指落在某个候选上往下拖时，不能在展开的同时把那个候选也上屏。
+    stripSwipe.cancelsTouchesInView = true
+    stripSwipe.delegate = self
+    container.addGestureRecognizer(stripSwipe)
 
     // 读音默认并入候选行，占它最左边的一段（最多三成宽，长了截掉尾部），换来顶栏少一行 14pt；代价是候选少了这一段宽度。全拼 14 键仍单独一行，见 `separateReadingRow`。
     let compositionRow = readingRow
@@ -6954,6 +6968,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 候选栏下滑展开：手指在候选条上下拖一段就展开完整列表，等于点一下右边的展开箭头。方向在手势接手时已经判过（`gestureRecognizerShouldBegin`），这里只看位移：纵向下滑越过阈值就展开，一次手势只认一次。
+  @objc private func handleCandidateStripSwipeDown(_ pan: UIPanGestureRecognizer) {
+    switch pan.state {
+    case .began:
+      stripSwipeArmed = true
+    case .changed:
+      guard stripSwipeArmed else { return }
+      let translation = pan.translation(in: view)
+      guard translation.y >= Self.candidateStripSwipeDistance,
+            abs(translation.y) > abs(translation.x) else { return }
+      stripSwipeArmed = false
+      guard candidatePanel == nil else { return }
+      showCandidatePanel()
+    default:
+      stripSwipeArmed = false
+    }
+  }
+
   /// 候选网格关闭时箭头朝下，打开时立即朝上。
   private func updateExpandRotation() {
     let transform: CGAffineTransform = candidatePanel != nil ? CGAffineTransform(rotationAngle: .pi) : .identity
@@ -6975,6 +7007,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let panelStyle = CandidatePanelStylePreference.style
       let expandsInPlace = columns == nil
       let coversCompositionRow = expandsInPlace
+      // 面板右列那个删除键接上底部 ⌫ 的滑动手势：按住往左滑逐格删、往上滑越过待命线松手清空。手势名沿用 `backspaceSwipe`，起手方向与能不能滑仍由 `gestureRecognizerShouldBegin` 和 `handleBackspaceSwipe` 原来那一套判断。
+      let panelDeleteSwipe = UIPanGestureRecognizer(target: self, action: #selector(handlePanelDeleteSwipe(_:)))
+      panelDeleteSwipe.name = "backspaceSwipe"
+      panelDeleteSwipe.maximumNumberOfTouches = 1
+      panelDeleteSwipe.cancelsTouchesInView = true
+      panelDeleteSwipe.delegate = self
       let panel = KeyboardCandidatePanelView(
         candidates: candidatePanelTexts(snapshot), preedit: snapshot.preedit,
         annotations: candidatePanelAnnotations(snapshot),
@@ -7004,6 +7042,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           handleBackspace()
           candidatePanelFollowsSelection = false
         },
+        deleteSwipeGesture: panelDeleteSwipe,
         expandsInPlace: expandsInPlace,
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
@@ -8456,11 +8495,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       return velocity.x < 0 && backspaceSwipeUnit() != nil
     }
+    if gestureRecognizer.name == Self.candidateStripSwipeName, let pan = gestureRecognizer as? UIPanGestureRecognizer {
+      let velocity = pan.velocity(in: view)
+      // 只接向下：横向是候选列表自己在滚动，向上另有用途；面板打开时它盖在候选条上面，本来也碰不到。
+      return candidatePanel == nil && velocity.x.isFinite && velocity.y.isFinite
+        && velocity.y > 0 && abs(velocity.y) > abs(velocity.x)
+    }
     if gestureRecognizer is EighteenKeySwipeGestureRecognizer { return typesExactLetterGridSwipe }
     if gestureRecognizer.name == "nineKeyDigitHold" { return !showsSymbols }
     guard gestureRecognizer.name == "spaceCursorPan", let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
     let velocity = pan.velocity(in: view)
     return !cursorMovement.isActive && abs(velocity.x) > abs(velocity.y)
+  }
+
+  /// 候选栏的下滑展开与候选列表的横向滚动是同一次手势里的两件事：往左右拖照常滚，往下拖过阈值就展开。两者并行识别，滚动不被那个手势拦住。
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+    gestureRecognizer.name == Self.candidateStripSwipeName || other.name == Self.candidateStripSwipeName
   }
 
   func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
