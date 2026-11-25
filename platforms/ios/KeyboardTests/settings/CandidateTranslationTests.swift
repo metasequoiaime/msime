@@ -832,7 +832,7 @@ final class CandidateTranslationTests: XCTestCase {
       candidates: ["测试", "侧视", "侧室", "策士", "测", "策", "策", "侧"],
       preedit: "ceshi",
       display: { $0 }, onSelect: { _ in }, onClose: {},
-      style: .system, onHandwriting: {}, onDelete: {})
+      style: .system, onHandwriting: {}, onDelete: {}, expandsInPlace: true)
     panel.frame = CGRect(x: 0, y: 0, width: 375, height: 260)
     panel.layoutIfNeeded()
 
@@ -857,6 +857,61 @@ final class CandidateTranslationTests: XCTestCase {
     }
     XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelSpelling" },
                  "系统样式不画标题栏，拼写留在候选条上")
+  }
+
+  /// 卡片样式与系统样式共用原地展开的布局：右侧窄列、网格止于那一列；差别只在格子本身，卡片是按键式的面，系统样式只有文字。
+  func testTheCardStyleSharesTheInPlaceLayoutAndKeepsItsOwnChips() throws {
+    func panel(_ style: CandidatePanelStylePreference.Style) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: ["测试", "侧视", "侧室", "策士", "测", "策"],
+        preedit: "ceshi", showsHeader: false,
+        display: { $0 }, onSelect: { _ in }, onClose: {},
+        style: style, onHandwriting: {}, onDelete: {}, expandsInPlace: true)
+      view.frame = CGRect(x: 0, y: 0, width: 375, height: 280)
+      view.layoutIfNeeded()
+      return view
+    }
+    func sideColumn(_ view: UIView) -> UIView? {
+      descendants(view).first { $0.accessibilityIdentifier == "candidatePanelSideColumn" }
+    }
+    func collection(_ view: UIView) -> UICollectionView? {
+      descendants(view).compactMap { $0 as? UICollectionView }.first
+    }
+    func chip(_ view: UIView, _ number: Int) -> UIButton? {
+      descendants(view).first { $0.accessibilityIdentifier == "panelCandidate-\(number)" } as? UIButton
+    }
+
+    let card = panel(.card)
+    let cardSide = try XCTUnwrap(sideColumn(card), "卡片样式展开后也要有右侧窄列")
+    XCTAssertEqual(cardSide.bounds.width,
+                   KeyboardCandidatePanelView.inlineTrailingColumnWidth, accuracy: 0.5)
+    for identifier in ["closeCandidatePanel", "candidatePanelHandwriting", "candidatePanelDelete"] {
+      XCTAssertNotNil(descendants(cardSide).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+    let cardCollection = try XCTUnwrap(collection(card))
+    XCTAssertEqual(cardCollection.convert(cardCollection.bounds, to: card).maxX,
+                   cardSide.frame.minX, accuracy: 0.5, "卡片样式的网格同样止于窄列左边")
+
+    // 没传 expandsInPlace 的调用方（标题栏面板、九键三栏）保持原样，不会凭空多出一条窄列。
+    let headerPanel = KeyboardCandidatePanelView(
+      candidates: ["测试", "侧视", "侧室"], preedit: "ceshi",
+      display: { $0 }, onSelect: { _ in }, onClose: {}, style: .card)
+    headerPanel.frame = CGRect(x: 0, y: 0, width: 375, height: 240)
+    headerPanel.layoutIfNeeded()
+    XCTAssertNil(sideColumn(headerPanel))
+
+    // 卡片格子的画法没跟着布局一起变：与不原地展开时同一套（按键式的面 + 圆角）；系统样式那格仍然只有文字。
+    let cardChip = try XCTUnwrap(chip(card, 2))
+    let plainChip = try XCTUnwrap(chip(headerPanel, 2))
+    XCTAssertEqual(cardChip.configuration?.background.backgroundColor?.cgColor.alpha ?? 0,
+                   plainChip.configuration?.background.backgroundColor?.cgColor.alpha ?? 0,
+                   accuracy: 0.001, "原地展开把卡片格子的底色改了")
+    XCTAssertEqual(cardChip.configuration?.background.cornerRadius ?? 0,
+                   plainChip.configuration?.background.cornerRadius ?? 0,
+                   accuracy: 0.5, "原地展开把卡片格子的圆角改了")
+    let systemChip = try XCTUnwrap(chip(panel(.system), 2))
+    XCTAssertEqual(systemChip.configuration?.background.backgroundColor?.cgColor.alpha ?? 0, 0,
+                   accuracy: 0.001, "系统样式的格子仍然只有文字")
   }
 
   private func descendants(_ view: UIView) -> [UIView] {

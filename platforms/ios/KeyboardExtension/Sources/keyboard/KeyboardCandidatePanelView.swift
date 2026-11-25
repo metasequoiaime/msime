@@ -29,6 +29,8 @@ extension UIColor {
 //
 // 带标题栏时（默认）面板独自盖住整个键盘：顶部是品牌标志、拼写、候选数和收起箭头。不带标题栏时（`showsHeader: false`）面板用满候选条下方的按键区，拼写和收起箭头由候选条保留，不另放底部按钮。
 //
+// 传 `expandsInPlace: true` 时面板改为铺在候选条那一行上，看起来是候选栏原地向下展开：右侧多一条窄列放收起、手写、删除，网格止于那一列，候选条那一行的内容由键盘控制器清空。卡片与系统样式共用这条布局，区别只在格子怎么画（卡片是按键式的面与边框，系统样式是纯文字、选中格照候选条首选块画）。
+//
 // 传入 `columns` 时是全拼九键的三栏面板：左边拼音栏、中间候选网格、右边功能键，同样位于按键区；读音留在上面的候选栏里，所以不画标题栏，返回和退格在右栏里，也不画底栏。
 final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionViewDataSource {
   static let minimumCellWidth: CGFloat = 64
@@ -45,10 +47,12 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   static let systemCellHeight: CGFloat = 46
   static let systemCellSpacing: CGFloat = 2
   static let systemCellInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 4)
-  /// 右侧那一窄列：收起、手写、删除三个按钮竖着排。
-  static let systemTrailingColumnWidth: CGFloat = 44
+  /// 原地展开时右侧那一窄列：收起、手写、删除三个按钮竖着排。卡片与系统样式共用。
+  static let inlineTrailingColumnWidth: CGFloat = 44
 
   private var style: CandidatePanelStylePreference.Style
+  /// 展开后的面板就铺在候选条那一行上，看起来是候选栏原地向下展开。卡片与系统样式共用这条布局，只有格子的画法不同。
+  private let inlineLayout: Bool
 
   private var candidates: [String]
   private let candidateScale: CGFloat
@@ -123,6 +127,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
        style: CandidatePanelStylePreference.Style = .card,
        onHandwriting: (() -> Void)? = nil, onDelete: (() -> Void)? = nil,
+       expandsInPlace: Bool = false,
        columns: (leading: UIView, trailing: UIView)? = nil) {
     self.candidates = candidates
     self.candidateScale = candidateScale
@@ -141,15 +146,15 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.onHandwriting = onHandwriting
     self.onDelete = onDelete
     self.palette = palette
+    self.inlineLayout = expandsInPlace && columns == nil
     super.init(frame: .zero)
     self.canvas = canvas
-    // 系统样式的面板铺在候选条那一行上，候选条里的内容在它打开期间清空（键盘控制器 `panelCoversCompositionRow`），所以面板自己不铺底色：透出的就是候选条那一行原来的底色，展开前后背景不会变。
-    let systemLayout = style == .system && columns == nil
-    minimumContentHeight = systemLayout ? Self.systemCellHeight : Self.cellHeight
+    // 原地展开的面板铺在候选条那一行上，候选条里的内容在它打开期间清空（键盘控制器 `panelCoversCompositionRow`），所以面板自己不铺底色：透出的就是候选条那一行原来的底色，展开前后背景不会变。
+    minimumContentHeight = style == .system && columns == nil ? Self.systemCellHeight : Self.cellHeight
     accessibilityIdentifier = "candidatePanel"
-    // 在按键区里透出键盘自己的背景，与它所替代的按键下方一样。系统样式盖住的那一行内容已经清空，同样什么都不铺。
+    // 在按键区里透出键盘自己的背景，与它所替代的按键下方一样。原地展开时盖住的那一行内容已经清空，同样什么都不铺。
     backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface
-      ?? (systemLayout ? .clear
+      ?? (inlineLayout ? .clear
           : (showsHeader && columns == nil ? skin.keyBackground.withAlphaComponent(0.98) : .clear))
 
     scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -182,13 +187,13 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       rebuildChips()
       return
     }
-    if systemLayout {
+    if inlineLayout {
       let column = makeTrailingColumn(onClose: onClose)
       NSLayoutConstraint.activate([
         column.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
         column.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor),
         column.trailingAnchor.constraint(equalTo: candidateContentGuide.trailingAnchor),
-        column.widthAnchor.constraint(equalToConstant: Self.systemTrailingColumnWidth),
+        column.widthAnchor.constraint(equalToConstant: Self.inlineTrailingColumnWidth),
         scrollView.leadingAnchor.constraint(equalTo: candidateContentGuide.leadingAnchor),
         scrollView.trailingAnchor.constraint(equalTo: column.leadingAnchor),
         scrollView.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
@@ -272,7 +277,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     return header
   }
 
-  /// 系统样式右侧那一窄列：顶部收起、中部手写、底部删除。手写和删除用键盘自己的图标（与工具栏、回车键同一套），不换成系统符号。
+  /// 原地展开时右侧那一窄列：顶部收起、中部手写、底部删除。手写和删除用键盘自己的图标（与工具栏、回车键同一套），不换成系统符号。两种样式共用。
   private func makeTrailingColumn(onClose: @escaping () -> Void) -> UIView {
     let column = UIView()
     column.translatesAutoresizingMaskIntoConstraints = false
@@ -323,9 +328,9 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.palette = palette
     self.canvas = canvas
     headerGap?.constant = canvas?.lineGap ?? 4
-    // 系统样式盖住的候选条那一行内容已经清空，面板自己什么都不铺，展开前后的背景就是同一块。
+    // 原地展开时盖住的候选条那一行内容已经清空，面板自己什么都不铺，展开前后的背景就是同一块。
     backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface
-      ?? (style == .system ? .clear : showsHeader ? skin.keyBackground : .clear)
+      ?? (inlineLayout ? .clear : showsHeader ? skin.keyBackground : .clear)
     rebuildChips()
     setNeedsLayout()
   }

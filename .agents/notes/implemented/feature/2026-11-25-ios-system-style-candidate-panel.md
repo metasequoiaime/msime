@@ -23,6 +23,8 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 - 右列的删除只换一代候选，面板不收起：`handleBackspace()` 外面套上 `candidatePanelFollowsSelection`，与面板里选候选同一条路（组字退空之后照样由 `refreshCandidatePanelAnnotations` 收起）。
 - 卡片样式的格子底色可以调：`CandidatePanelChipOpacityPreference`（`candidate.panelChipOpacity`，0–100，缺省 100，即原来那套），设置页在「展开候选样式」下面多一条「候选格子不透明度」，只在卡片样式时出现。`makeChip` 按它给 `skin.keyBackground` 乘 alpha；选中那一格不跟着淡（否则看不出首选），调低之后也不再画按键阴影（半透明按键配实心影子很脏）。系统样式本来没有格子底，不受影响。
 - 滚动条用系统自带的 `UICollectionView` 竖直指示条：本来就在滚动时出现、停下淡出，符合「不常显的细线」。最初自绘了一条 3pt 的，和系统那条同时出现，同一屏两根线；自绘的还落在窄列按钮上，删掉。
+- 卡片样式后来也改成原地展开（用户要求两种样式统一）：铺排不再按样式推断，改由显式参数 `expandsInPlace` 决定（`inlineLayout = expandsInPlace && columns == nil`），键盘控制器在 `columns == nil` 时传 true。右列窄列、网格止于窄列、候选条那一行清空都是两种样式共用的；差别只剩格子怎么画（卡片：64pt 起自动分列、44pt 行高、6pt 间隔、按键式的底色与阴影、居中；系统：六列、46pt、2pt、纯文字、左对齐）。控制器的 `coversCompositionRow` 同样变成 `columns == nil`，于是卡片样式展开不再出现「上面一条候选栏 + 下面一块网格 + 两个收起箭头」。
+- 用显式参数而不是继续按 `style` 推断，是为了不动其它调用方（标题栏面板、九键三栏、二十来个测试构造点）：不传就是原来的布局。
 
 ## 不做
 
@@ -34,5 +36,6 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 
 - `CandidateTranslationTests.testTheSystemStyleKeepsSixColumnsOnEveryPhoneWidth`：320/375pt 都是六列，卡片样式仍是 4/5 列；带注释的候选在六列下只占一列、卡片样式仍占两列。
 - `CandidateTranslationTests.testTheSystemStylePanelDrawsOneAlignedListWithTheSideColumn`：网格止于窄列左边，首行六格同一行且等宽，窄列里能找到收起、手写、删除三个按钮，系统样式不画标题栏。
+- `CandidateTranslationTests.testTheCardStyleSharesTheInPlaceLayoutAndKeepsItsOwnChips`：卡片样式展开后同样有窄列、窄列里三个按钮、网格止于窄列左边；卡片格子的底色与圆角跟不原地展开时一致（格子画法没被布局改动带掉），系统样式的格子仍是透明纯文字；没传 `expandsInPlace` 的面板不会凭空多出窄列。
 - `scripts/test-ios-key-layout-settings.py` 等契约脚本不受影响，回归全过。
 - 真机第一轮验收提出的三处（同一屏两根滚动条、高亮格与候选条不一致、面板底色比周围深一档）按上面的做法改掉；样式缺省在验收期间临时设为 `system`（`fallbackStyle`），验完改回 `card`。

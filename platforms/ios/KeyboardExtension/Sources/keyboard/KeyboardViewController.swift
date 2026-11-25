@@ -6971,9 +6971,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let snapshot = try CandidatePanelSnapshot.decode(allCandidates)
       guard !snapshot.entries.isEmpty else { return }
       let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
-      // 系统样式：面板从候选条那一行铺起，于是「展开」看起来是候选栏原地向下展开，不再多出一条候选。九键三栏面板不受影响。
+      // 展开就是候选栏原地向下展开：面板从候选条那一行铺起，那一行的内容清空、面板透明，右侧窄列接手收起、手写、删除。卡片与系统样式同一条布局，区别只在格子怎么画。九键三栏面板例外，它装在键区里，候选栏和读音留着。
       let panelStyle = CandidatePanelStylePreference.style
-      let coversCompositionRow = panelStyle == .system && columns == nil
+      let expandsInPlace = columns == nil
+      let coversCompositionRow = expandsInPlace
       let panel = KeyboardCandidatePanelView(
         candidates: candidatePanelTexts(snapshot), preedit: snapshot.preedit,
         annotations: candidatePanelAnnotations(snapshot),
@@ -7003,6 +7004,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           handleBackspace()
           candidatePanelFollowsSelection = false
         },
+        expandsInPlace: expandsInPlace,
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
       refreshDecorationWords()
