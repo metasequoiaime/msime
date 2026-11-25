@@ -43,24 +43,28 @@ fn prefix(connection: &Connection, table: &str, character: char, length: usize) 
     Some(result.to_owned())
 }
 
-/// 造词对三版都写：即使当前是 86/98 方案，也按新世纪单字全码推导并写 `wubixsj` 表和日志行，
-/// 换到新世纪时以前造的词直接可用；降级兼容的取舍见仓库根目录的
-/// `.agents/notes/implemented/feature/2026-11-19-wubi-phrase-learning-all-three-kinds.md`。
-fn learned_kinds() -> &'static [PersonalDictionaryKind] {
-    &[
-        PersonalDictionaryKind::Wubi,
-        PersonalDictionaryKind::Wubi98,
-        PersonalDictionaryKind::WubiXsj,
-    ]
+/// 学的是哪几版：86 和 98 总是一起学；新世纪只在当前方案就是新世纪时学，日志里的 `wubixsj` 行只出自主动选了它的用户（更早的版本不认识这个种类，见 `docs/data-formats.md` §6.2）。
+fn learned_kinds(profile: WubiProfileKind) -> &'static [PersonalDictionaryKind] {
+    match profile {
+        WubiProfileKind::Wubi86 | WubiProfileKind::Wubi98 => {
+            &[PersonalDictionaryKind::Wubi, PersonalDictionaryKind::Wubi98]
+        }
+        WubiProfileKind::WubiXsj => &ALL_KINDS,
+    }
 }
 
-/// 只补缺失词，不覆盖已有编码、权重或删除决定。`profile` 保留在接口里但不再决定写哪版
-/// （三版都学，见 [`learned_kinds`]）；`placement` 决定初始权重档（[`MAX_INITIAL_WEIGHT`] 沉底 / [`TOP_NEW_WORD_WEIGHT`]
-/// 与同码已有行最大权重 + 1 置顶）。返回是否改变了工作词库。
+/// 三版五笔；删除时都要查，因为用户可能在新世纪方案下学过词后又换回 86/98。
+const ALL_KINDS: [PersonalDictionaryKind; 3] = [
+    PersonalDictionaryKind::Wubi,
+    PersonalDictionaryKind::Wubi98,
+    PersonalDictionaryKind::WubiXsj,
+];
+
+/// 只补缺失词，不覆盖已有编码、权重或删除决定。`profile` 是会话当前的五笔版本，决定学不学新世纪（[`learned_kinds`]）；`placement` 决定初始权重档（[`MAX_INITIAL_WEIGHT`] 沉底 / [`TOP_NEW_WORD_WEIGHT`] 与同码已有行最大权重 + 1 置顶）。返回是否改变了工作词库。
 pub(crate) fn learn(
     paths: &RuntimePaths,
     word: &str,
-    _profile: WubiProfileKind,
+    profile: WubiProfileKind,
     placement: WubiPhrasePlacement,
 ) -> Result<bool> {
     if word.chars().count() < 2 || !word.chars().all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
@@ -68,7 +72,7 @@ pub(crate) fn learn(
     }
     let mut connection = open_dictionary_for_writing(&paths.dictionary(assets::MAIN_DICTIONARY))?;
     let mut entries = Vec::new();
-    for &kind in learned_kinds() {
+    for &kind in learned_kinds(profile) {
         let table = kind.wubi_table().expect("五笔表");
         let exists: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
@@ -142,9 +146,7 @@ pub(crate) fn learn(
     Ok(changed)
 }
 
-/// 对称删除已学的五笔词：三版（[`learned_kinds`]）里除 `keep` 外的版本，按各自
-/// 码表独立推导四码，仅当日志里有该码的学词 upsert 行时删行并写墓碑；推导失败的版本本来也学不进，直接跳过。返回删除的行数。
-/// `profile` 保留在接口里但不再决定删哪版。词库与日志在同一个事务里提交（与 [`learn`] 同一模式）。
+/// 对称删除已学的五笔词：三版（[`ALL_KINDS`]）里除 `keep` 外的版本，按各自码表独立推导四码，仅当日志里有该码的学词 upsert 行时删行并写墓碑，所以没学过新世纪的用户不会因删除多出 `wubixsj` 日志行；推导失败的版本本来也学不进，直接跳过。返回删除的行数。`profile` 保留在接口里但不决定删哪版：换过方案的用户在任何一版学过的词都要删干净。词库与日志在同一个事务里提交（与 [`learn`] 同一模式）。
 pub(crate) fn delete_other_learned_kinds(
     main_db: &Path,
     user_db: &Path,
@@ -157,7 +159,7 @@ pub(crate) fn delete_other_learned_kinds(
     attach(&connection, user_db, JOURNAL_ALIAS)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut removed = 0;
-    for &kind in learned_kinds() {
+    for &kind in &ALL_KINDS {
         if kind == keep {
             continue;
         }
@@ -270,9 +272,9 @@ mod tests {
             &paths.dictionary(assets::ENGLISH_DICTIONARY),
         );
         assert_eq!(replay.failed, 0, "{replay:?}");
-        assert_eq!(replay.applied, 3);
+        assert_eq!(replay.applied, 2);
         assert_eq!(
-            Connection::open(&fresh)
+            Connection::open(fresh)
                 .unwrap()
                 .query_row("SELECT key FROM wubi98 WHERE value='甲乙'", [], |r| {
                     r.get::<_, String>(0)
@@ -280,20 +282,11 @@ mod tests {
                 .unwrap(),
             "ijmn"
         );
-        assert_eq!(
-            Connection::open(&fresh)
-                .unwrap()
-                .query_row("SELECT key FROM wubixsj WHERE value='甲乙'", [], |r| {
-                    r.get::<_, String>(0)
-                })
-                .unwrap(),
-            "qruv"
-        );
     }
 
-    /// 造词对三版都学：86、98 方案也写 `wubixsj` 表和日志行，换到新世纪时以前造的词直接可用；旧词库没有新世纪表时只跳过这一版。
+    /// 新世纪只在当前方案是新世纪时学：选着 86 或 98 时日志里不出现 `wubixsj` 行，降级到不认识它的版本也没有影响；选着新世纪时三版都学。
     #[test]
-    fn the_new_century_table_is_learned_in_every_profile() {
+    fn the_new_century_table_is_learned_only_while_it_is_the_active_profile() {
         let count = |paths: &RuntimePaths, sql: &str| -> i64 {
             Connection::open(paths.dictionary(assets::MAIN_DICTIONARY))
                 .unwrap()
@@ -315,25 +308,13 @@ mod tests {
             assert!(learn(&paths, "甲乙", profile, WubiPhrasePlacement::Bottom).unwrap());
             assert_eq!(
                 count(&paths, "SELECT count(*) FROM wubixsj WHERE value='甲乙'"),
-                1,
-                "{profile:?}"
-            );
-            // 新世纪表按自己的单字全码取码（甲 qrst + 乙 uvwx → qruv），不能拿 86 的码充数。
-            assert_eq!(
-                Connection::open(paths.dictionary(assets::MAIN_DICTIONARY))
-                    .unwrap()
-                    .query_row("SELECT key FROM wubixsj WHERE value='甲乙'", [], |r| {
-                        r.get::<_, String>(0)
-                    })
-                    .unwrap(),
-                "qruv",
-                "{profile:?}"
+                0
             );
             assert_eq!(
                 count(&paths, "SELECT count(*) FROM wubi98 WHERE value='甲乙'"),
                 1
             );
-            assert_eq!(journal(&paths), 1, "{profile:?}");
+            assert_eq!(journal(&paths), 0, "{profile:?}");
         }
         let (_directory, paths) = fixture();
         assert!(learn(
@@ -395,8 +376,7 @@ mod tests {
                 [],
             )
             .unwrap();
-        // 86 的已有行与 98 的墓碑都不动；新世纪表没有前置行和墓碑，照常写入。
-        assert!(learn(
+        assert!(!learn(
             &paths,
             "甲乙",
             WubiProfileKind::Wubi86,
@@ -418,13 +398,6 @@ mod tests {
             )
             .unwrap(),
             0
-        );
-        assert_eq!(
-            db.query_row("SELECT key FROM wubixsj WHERE value='甲乙'", [], |r| {
-                r.get::<_, String>(0)
-            })
-            .unwrap(),
-            "qruv"
         );
     }
 
@@ -490,8 +463,7 @@ mod tests {
         }
     }
 
-    /// 对称删除：学词时三版同时插行，删除也要三版都删。先删当前版（显示行 + 墓碑），
-    /// 再走 `delete_other_learned_kinds` 删另两版；重放零失败，`learn` 不复活。
+    /// 对称删除：在新世纪方案下学的词三版都有行，之后换回 86 删除也要三版都删。先删当前版（显示行 + 墓碑），再走 `delete_other_learned_kinds` 删另两版；重放零失败，`learn` 不复活。
     #[test]
     fn deleting_a_wubi_candidate_removes_all_learned_versions() {
         let (_directory, paths) = fixture();
@@ -500,7 +472,7 @@ mod tests {
         assert!(learn(
             &paths,
             "甲乙",
-            WubiProfileKind::Wubi86,
+            WubiProfileKind::WubiXsj,
             WubiPhrasePlacement::Bottom
         )
         .unwrap());
@@ -572,6 +544,51 @@ mod tests {
             &paths.dictionary(assets::ENGLISH_DICTIONARY),
         );
         assert_eq!(replay.failed, 0, "{replay:?}");
+    }
+
+    /// 只在 86 方案下学过的词，删除时不碰新世纪：新世纪表没有它，日志里也不能因此多出 `wubixsj` 墓碑（降级兼容边界，见 `learned_kinds`）。
+    #[test]
+    fn deleting_a_word_learned_outside_the_new_century_profile_leaves_no_new_century_rows() {
+        let (_directory, paths) = fixture();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        let journal = paths.user(assets::USER_JOURNAL);
+        assert!(learn(
+            &paths,
+            "甲乙",
+            WubiProfileKind::Wubi86,
+            WubiPhrasePlacement::Bottom
+        )
+        .unwrap());
+        crate::user_dictionary::removal::delete_dictionary_candidate(
+            &main,
+            &journal,
+            PersonalDictionaryKind::Wubi,
+            "abef",
+            "甲乙",
+        )
+        .unwrap();
+        assert_eq!(
+            delete_other_learned_kinds(
+                &main,
+                &journal,
+                PersonalDictionaryKind::Wubi,
+                WubiProfileKind::Wubi86,
+                "甲乙"
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            Connection::open(&journal)
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
     }
 
     /// 推导不出码的版本学不进也就删不到：无行、无墓碑，也不算失败。

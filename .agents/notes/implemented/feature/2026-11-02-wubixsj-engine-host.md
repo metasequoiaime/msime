@@ -43,8 +43,6 @@ Status: implemented
 
 ### 写日志：只写主动选了新世纪的用户
 
-> 更新（2026-11-19）：造词的写入边界已翻转为三版全对称，86/98 方案也写 `wubixsj`；下面第二条只对调频、删词、手动加词仍然成立。见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)。
-
 `wubixsj` 是已经发布的引擎不认识的日志种类。前一个 PR 以前的版本遇到它会整次回放回滚，降级后输入法就用不了。所以这个种类的行只出自选着新世纪的用户：
 
 - 新世纪方案下的调频、删词、手动加词，本来就按 `WubiProfileKind::dictionary_kind` 记成 `wubixsj`；
@@ -72,7 +70,7 @@ Status: implemented
 
 ## Alternatives considered
 
-- **拼音造词对三版都学。** 这样最简单，换到新世纪时以前造的词也在。不用它，是因为这样每个用拼音造过词的用户，日志里都会有 `wubixsj` 行。前一个 PR 以前的版本读到它会整次回滚，那就成了所有用户都不能降级，而不只是用过新世纪的人。维护者选的是只在当前方案是新世纪时写（第 7 节第 7 条）。代价是：从 86 换到新世纪之后，以前造的词要重新打一遍才有新世纪码。（此取舍于 2026-11-19 被翻转，见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)。）
+- **拼音造词对三版都学。** 这样最简单，换到新世纪时以前造的词也在。不用它，是因为这样每个用拼音造过词的用户，日志里都会有 `wubixsj` 行。前一个 PR 以前的版本读到它会整次回滚，那就成了所有用户都不能降级，而不只是用过新世纪的人。维护者选的是只在当前方案是新世纪时写（第 7 节第 7 条）。代价是：从 86 换到新世纪之后，以前造的词要重新打一遍才有新世纪码。
 - **账号设置照常导出 `wubixsj`。** 选择能跨设备同步，用户省事。不用它，是因为已经发布的 iOS 读到不认识的 `input.wubi_schema` 会拒绝整份账号设置，那台设备从此收不到任何设置。等宽松读取的版本覆盖了足够多的用户再打开（第 8 节）。
 - **云同步上传的快照照常带新世纪的词，交给服务端拒绝。** 不用改导出。不用它，是因为服务端的 `user_dictionary_entries_kind_check` 会让整份上传失败，所有新世纪用户的云词库同步就都断了。
 - **给快照导出加一个显式的「是否本地备份」参数，不借 `include_learning`。** 语义更直。不用它，是因为 `msime_client.h` 已经把 `include_learning` 写成「为真是本地备份、为假是云同步上传」。Android 的 `CloudSync.java` 和 `LocalBackup` 都按这个约定调用。另加参数的话，Java 那边不跟着改，云同步上传就会带上新世纪的词。
@@ -90,7 +88,7 @@ Status: implemented
   - 新世纪的选择、个人词和学习暂时只在本机。快照本地备份带着它们，云同步和 WebDAV 不带；云同步「下载」整份换上云端快照时它们从旧的一代原样带过去。
   - 目前只有 Android 会做带 `include_learning` 的本地备份。桌面和 iOS 没有这样的备份，新世纪的词在那里只在本机日志里。
   - 鸿蒙设置应用和输入法之间的词条互通（`user_words_mirror`）与 WebDAV 共用 `word_kind`，所以也不交换新世纪的词。鸿蒙平台的 PR 放开设置页里的新世纪词库时要单独处理这一条。
-  - 从 86/98 换到新世纪，以前用拼音造的词没有新世纪码。（2026-11-19 起造词三版全写，这条代价不再成立，见 [五笔造词写入改为三版全对称](2026-11-19-wubi-phrase-learning-all-three-kinds.md)；降级代价随之扩大。）
+  - 从 86/98 换到新世纪，以前用拼音造的词没有新世纪码。
   - 用过新世纪的用户降级到宽松读取之前的版本不受支持，发布说明要写明。
 - **还没做的**：
   - 平台界面（设置页、菜单、空格键、查码第三列）在各平台的 PR 里。
@@ -103,7 +101,7 @@ Status: implemented
 在 Mac Studio 上经 `rbuild` 运行。Studio 的 SSH 会话 `ulimit -n` 只有 256，测试命令前加 `ulimit -n 65536`。
 
 - `cargo test -p msime-engine`：全部通过，含以下用例。
-  - `the_new_century_profile_answers_from_its_own_table`：用 fixture 词库建会话，选着新世纪时 `ent` 出「力」、`ler` 出「男」、`ytny` 出「为」、`hgd` 出「上」，86 的码不出；选着 86 时反过来。拼音造「男力」三种方案都写进 `wubixsj`（2026-11-19 起），码是 `leen`。
+  - `the_new_century_profile_answers_from_its_own_table`：用 fixture 词库建会话，选着新世纪时 `ent` 出「力」、`ler` 出「男」、`ytny` 出「为」、`hgd` 出「上」，86 的码不出；选着 86 时反过来。拼音造「男力」只在选着新世纪时写进 `wubixsj`，码是 `leen`。
   - `the_profile_picks_the_table`、`reverse_indexes_are_created_once_for_the_tables_present`。
   - `a_downloaded_wubi_dictionary_is_merged_into_a_generation_prepared_without_one`：已有 86/98 的代次收到带新世纪表的码表后只补第三张表，日志里的新世纪行这时才写进去，再来一次什么也不做。
   - `split_wubi_tables_are_merged_into_the_generation_before_replay`：码表没有新世纪表时，日志里的新世纪行跳过，代次照常就绪。

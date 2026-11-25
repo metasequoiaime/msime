@@ -5092,7 +5092,7 @@ fn composed_words_become_both_wubi_profiles_only_when_learning_is_enabled() {
     }
 }
 
-/// 新世纪五笔读 `wubixsj` 表：同一个字的码与 86 不同（力 86 是 `lt`、新世纪是 `ent`；为 `ylyi` / `ytny`；上 `hhgg` / `hgd`），选着新世纪时出的是新世纪的码，86 的码不再出它；选着 86 时反过来。从拼音造的词三种方案都学进 `wubixsj`。
+/// 新世纪五笔读 `wubixsj` 表：同一个字的码与 86 不同（力 86 是 `lt`、新世纪是 `ent`；为 `ylyi` / `ytny`；上 `hhgg` / `hgd`），选着新世纪时出的是新世纪的码，86 的码不再出它；选着 86 时反过来。从拼音造的词也只在选着新世纪时学进 `wubixsj`。
 #[test]
 fn the_new_century_profile_answers_from_its_own_table() {
     const TABLES: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -5137,11 +5137,10 @@ fn the_new_century_profile_answers_from_its_own_table() {
     assert!(words(&session).is_empty(), "{:?}", words(&session));
     drop(session);
 
-    // 拼音造词：三种方案都写 `wubixsj`，码按新世纪单字全码取（男 ler + 力 ent → leen）。
-    for profile in [
-        crate::WubiProfileKind::Wubi86,
-        crate::WubiProfileKind::Wubi98,
-        crate::WubiProfileKind::WubiXsj,
+    // 拼音造词：选着 86 时不写 `wubixsj`，选着新世纪时写，码按新世纪单字全码取（男 ler + 力 ent → leen）。
+    for (profile, learned) in [
+        (crate::WubiProfileKind::Wubi86, 0),
+        (crate::WubiProfileKind::WubiXsj, 1),
     ] {
         let fixture = Fixture::new(TABLES);
         let mut session = fixture.session_with(|options| {
@@ -5164,7 +5163,7 @@ fn the_new_century_profile_answers_from_its_own_table() {
                 &fixture.main_db(),
                 "SELECT count(*) FROM wubixsj WHERE key='leen' AND value='男力'"
             ),
-            1,
+            learned,
             "{profile:?}"
         );
         assert_eq!(
@@ -5172,7 +5171,7 @@ fn the_new_century_profile_answers_from_its_own_table() {
                 &fixture.journal(),
                 "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubixsj'"
             ),
-            1,
+            learned,
             "{profile:?}"
         );
     }

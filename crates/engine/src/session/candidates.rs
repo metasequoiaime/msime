@@ -616,8 +616,7 @@ impl InputSession {
             return KeyResult::handled()
                 .with_diagnostic(Some(diagnostics::REMOVAL_NOT_PERSISTED.to_owned()));
         }
-        // 学词时三版同时插行，删除也要对称：当前版已在上面删掉，其余两版按各自码表
-        // 独立推导四码删行并写墓碑。
+        // 学词时几版同时插行，删除也要对称：当前版已在上面删掉，其余版本按各自码表独立推导四码，日志里确有学词行的才删行并写墓碑。
         if wubi {
             let profile = self.engine.wubi_input_options().profile;
             if crate::user_dictionary::wubi_learning::delete_other_learned_kinds(
