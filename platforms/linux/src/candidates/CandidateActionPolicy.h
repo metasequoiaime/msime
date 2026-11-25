@@ -102,14 +102,14 @@ inline std::string candidate_fix_label(int slot) {
 }
 
 // 只有 iBus 宿主实现了 CandidateMaintenanceShortcut.h 的 Ctrl+Delete、Ctrl+↑、
-// Ctrl+1..5 和 Ctrl+0，它的「候选操作」属性菜单与右键菜单才把快捷键写在动作名上，
+// Ctrl+Shift+1..5 和 Ctrl+0，它的「候选操作」属性菜单与右键菜单才把快捷键写在动作名上，
 // 和设置页速查一致。Fcitx5 的候选菜单与状态区操作没有这组快捷键，沿用上面的文案。
 inline constexpr const char *candidate_pin_label_with_shortcut = "置顶 (Ctrl+↑)";
 inline constexpr const char *candidate_clear_fix_label_with_shortcut = "取消固定 (Ctrl+0)";
 inline constexpr const char *candidate_remove_label_with_shortcut = "删除 (Ctrl+Del)";
 
 inline std::string candidate_fix_label_with_shortcut(int slot) {
-  return candidate_fix_label(slot) + " (Ctrl+" + std::to_string(slot) + ")";
+  return candidate_fix_label(slot) + " (Ctrl+Shift+" + std::to_string(slot) + ")";
 }
 
 } // namespace msime::linux_host

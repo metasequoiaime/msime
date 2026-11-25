@@ -19,8 +19,8 @@ int main() {
     for (auto position = 1; position <= 5; ++position) {
       assert(items[position].command == Command::FixAtPosition);
       assert(items[position].position == position);
-      assert(items[position].label == "固定到第 " + std::to_string(position) + " 位 (Ctrl+" +
-                                       std::to_string(position) + ")");
+      assert(items[position].label == "固定到第 " + std::to_string(position) +
+                                       " 位 (Ctrl+Shift+" + std::to_string(position) + ")");
       assert(!items[position].checked);
     }
     assert(items[6].separator);

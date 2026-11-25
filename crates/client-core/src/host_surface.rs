@@ -305,7 +305,7 @@ pub struct HostCapabilities {
     /// cache — so a keyboard needs the chords or cannot reach them. Declared rather than inferred
     /// from "draws desktop panels", which is what it used to be read off and is a different fact.
     pub maintenance_shortcuts: bool,
-    /// 宿主实现候选维护四键（置顶 Ctrl+↑、固定到第 1–5 位 Ctrl+1..5、取消固定 Ctrl+0、删除候选 Ctrl+Del）时为真。目前只有 Linux iBus 宿主声明，其余桌面与触屏宿主没有实现；缺省按不提供处理。
+    /// 宿主实现候选维护四键（置顶 Ctrl+↑、固定到第 1–5 位 Ctrl+Shift+1..5、取消固定 Ctrl+0、删除候选 Ctrl+Del）时为真。目前只有 Linux iBus 宿主声明，其余桌面与触屏宿主没有实现；缺省按不提供处理。
     #[serde(default)]
     pub candidate_maintenance_shortcuts: bool,
     /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that

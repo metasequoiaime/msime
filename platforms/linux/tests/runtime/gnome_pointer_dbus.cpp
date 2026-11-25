@@ -160,7 +160,7 @@ int main() {
   // 传入逐项相等，action_name 保持完整的 session/generation/index 编码供原样回传。
   const std::vector<ShellMenuEntry> entries = {
       {"CandidatePin/42/7/3", "置顶 (Ctrl+↑)", 0, 0},
-      {"CandidateFix2/42/7/3", "固定到第 2 位 (Ctrl+2)",
+      {"CandidateFix2/42/7/3", "固定到第 2 位 (Ctrl+Shift+2)",
        msime::linux_host::kShellMenuFlagChecked, 2},
       {"", "", msime::linux_host::kShellMenuFlagSeparator, 0},
   };
@@ -183,6 +183,7 @@ int main() {
     return 5;
   }
   if (std::get<0>(shown.items[1]) != "CandidateFix2/42/7/3" ||
+      std::get<1>(shown.items[1]) != "固定到第 2 位 (Ctrl+Shift+2)" ||
       std::get<2>(shown.items[1]) != msime::linux_host::kShellMenuFlagChecked ||
       std::get<3>(shown.items[1]) != 2) {
     g_bus_unown_name(owner);

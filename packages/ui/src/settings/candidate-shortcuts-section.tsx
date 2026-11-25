@@ -181,7 +181,7 @@ export function CandidateShortcutReference({
       {candidateMaintenanceShortcuts && (
         <>
           <ShortcutRow title="置顶候选" chord="Ctrl+↑" />
-          <ShortcutRow title="固定候选到第 1–5 位" chord="Ctrl+1–5" />
+          <ShortcutRow title="固定候选到第 1–5 位" chord="Ctrl+Shift+1–5" />
           <ShortcutRow title="取消固定候选" chord="Ctrl+0" />
           <ShortcutRow title="删除候选" chord="Ctrl+Del" />
         </>

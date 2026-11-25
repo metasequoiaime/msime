@@ -7799,12 +7799,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
-  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+1..5 固定排位、Ctrl+0 取消固定）：
+  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+Shift+1..5 固定排位、Ctrl+0 取消固定）：
   // 与面板属性菜单同一组围栏（渲染页归属与代次一致、行 id 归本会话、candidate_dictionary_actions_available），
-  // 动作落在本页渲染里 highlighted 的那一行。高亮行不在或不可维护时按键照常往下走：交给后面的组字路径（组字时带 Ctrl 的键先取消或结束组字），不能直接 `return FALSE` 把 Ctrl+1、Ctrl+Delete 这些键在组字还开着时原样交给应用。
+  // 动作落在本页渲染里 highlighted 的那一行。高亮行不在或不可维护时按键照常往下走：交给后面的组字路径（组字时带 Ctrl 的键先取消或结束组字），不能直接 `return FALSE` 把 Ctrl+Delete、Ctrl+Shift+1 这些键在组字还开着时原样交给应用。
   const auto candidate_maintenance_action =
       (!release && s.focused && !s.blocked && s.session)
-          ? msime::linux_host::candidate_maintenance_shortcut(key, modifiers)
+          ? msime::linux_host::candidate_maintenance_shortcut(key, modifiers, keycode)
           : msime::linux_host::CandidateShortcut{};
   const auto run_candidate_maintenance = [&]() -> bool {
     if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||

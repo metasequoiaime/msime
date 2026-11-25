@@ -53,8 +53,10 @@ int main() {
   assert(std::string(msime::linux_host::candidate_remove_label) == "删除");
   // 只有 iBus 宿主实现了这组快捷键，它的属性菜单和右键菜单才把键写在动作名上。
   assert(std::string(msime::linux_host::candidate_pin_label_with_shortcut) == "置顶 (Ctrl+↑)");
-  assert(msime::linux_host::candidate_fix_label_with_shortcut(1) == "固定到第 1 位 (Ctrl+1)");
-  assert(msime::linux_host::candidate_fix_label_with_shortcut(5) == "固定到第 5 位 (Ctrl+5)");
+  assert(msime::linux_host::candidate_fix_label_with_shortcut(1) ==
+         "固定到第 1 位 (Ctrl+Shift+1)");
+  assert(msime::linux_host::candidate_fix_label_with_shortcut(5) ==
+         "固定到第 5 位 (Ctrl+Shift+5)");
   assert(std::string(msime::linux_host::candidate_clear_fix_label_with_shortcut) == "取消固定 (Ctrl+0)");
   assert(std::string(msime::linux_host::candidate_remove_label_with_shortcut) == "删除 (Ctrl+Del)");
 }

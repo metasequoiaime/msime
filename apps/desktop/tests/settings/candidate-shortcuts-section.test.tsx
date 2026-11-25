@@ -141,8 +141,9 @@ test("candidate maintenance shortcuts are listed with the Ctrl modifier label", 
   );
 
   for (const title of maintenanceShortcutRows()) expect(screen.getByText(title)).toBeTruthy();
-  for (const chord of ["Ctrl+↑", "Ctrl+1–5", "Ctrl+0", "Ctrl+Del"])
+  for (const chord of ["Ctrl+↑", "Ctrl+Shift+1–5", "Ctrl+0", "Ctrl+Del"])
     expect(screen.getByText(chord)).toBeTruthy();
+  expect(screen.queryByText("Ctrl+1–5")).toBeNull();
   expect(screen.queryByText(/⌃⌥⇧/)).toBeNull();
 });
 
