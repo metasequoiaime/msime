@@ -5066,7 +5066,8 @@ public final class MSIMEInputService extends InputMethodService {
             markCandidatesLate(next);
             ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
-        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"), this::candidatePressed);
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"), this::candidatePressed,
+        () -> candidatePanelOpen);
 
     private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
         JSONObject result = value(response);
@@ -5100,73 +5101,120 @@ public final class MSIMEInputService extends InputMethodService {
             CandidateGlossPolicy.strictOr(next.opt("generation"), -1));
     }
 
+    /** 手指按着候选时在线结果等松手；展开面板开着时云/AI 候选还要等面板收起或点「刷新」（{@link #releaseHeldCandidates}）。 */
     private final CandidateHoldGate candidateHold = new CandidateHoldGate(
-        (task, delay) -> main.postDelayed(task, delay), this::candidatePressed);
+        (task, delay) -> main.postDelayed(task, delay), this::candidatePressed, () -> candidatePanelOpen);
+    final ImeCandidatePanelCue imeCandidatePanelCue = new ImeCandidatePanelCue(this);
+
+    /** 展开面板开着时在等的云/AI 候选的来源，按到达的先后；面板的提示据此显示。 */
+    java.util.List<Object> heldPanelSources() { return candidateHold.waitingTags(); }
+
+    /** 面板提示上的「刷新」：在等的云/AI 候选现在就用，面板换成新一代、回到顶部。之后再到的照常等。停顿重排不跟着放行，面板收起时再做。 */
+    void releaseHeldCandidates() {
+        candidateHold.release();
+        imeCandidatePanelCue.sync();
+    }
 
     private void cancelPauseRerank() { pauseRerank.cancel(); }
 
-    /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
+    /**
+     * 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。
+     *
+     * <p>云候选回来后交给主线程，worker 不等它用完：手指按着候选或展开面板开着时，结果要等很久才用（{@link #candidateHold}），这段时间 worker 照常处理下一段组字。用过云候选之后，AI 那一步按用过之后的查询再排回 worker（{@link #continueOnlineRequest}）。
+     */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
             String requestSignature) {
-        boolean cloudComplete = false;
-        boolean aiComplete = false;
-        String aiResolveDocument = null;
+        OnlineCandidateRequest request = new OnlineCandidateRequest(targetSession, document, epoch, requestSignature);
         try {
             JSONObject query = new JSONObject(document);
-            cloudComplete = !requestsCloud(query);
-            String aiDocument = document;
+            request.cloudComplete = !requestsCloud(query);
             if (requestsCloud(query)) {
                 JSONObject descriptor = query.optJSONObject("cloud_request");
                 if (descriptor != null) {
                     String body = OnlineCandidateTransport.cloud(descriptor);
                     if (OnlineCandidatePolicy.acceptsCloudBody(body)) {
-                        String refreshed = applyOnlineResult(targetSession, epoch,
-                            () -> NativeClient.applyCloudResponse(targetSession, document, body));
-                        cloudComplete = refreshed != null;
-                        if (refreshed != null) aiDocument = refreshed;
+                        applyOnlineResult(request, CandidateSourceMark.CLOUD_SOURCE,
+                            () -> NativeClient.applyCloudResponse(targetSession, document, body), refreshed -> {
+                                request.cloudComplete = refreshed != null;
+                                if (refreshed != null) request.aiDocument = refreshed;
+                                continueOnlineRequest(request);
+                            });
+                        return;
                     }
                 }
             }
-            if (epoch != onlineEpoch) return;
-            JSONObject aiQuery = new JSONObject(aiDocument);
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 在线候选是可选能力，解析或服务异常交给收尾触发下一次重试。
+            finishOnlineRequest(request);
+            return;
+        }
+        fetchAiCandidates(request);
+    }
+
+    /** 主线程上用过云候选之后：请求还是当前的就把 AI 那一步排回在线 worker。 */
+    private void continueOnlineRequest(OnlineCandidateRequest request) {
+        if (request.epoch != onlineEpoch || request.session != session) return;
+        try {
+            onlineCandidateWorker.execute(() -> fetchAiCandidates(request));
+        } catch (RuntimeException rejected) {
+            finishOnlineRequest(request);
+        }
+    }
+
+    private void fetchAiCandidates(OnlineCandidateRequest request) {
+        try {
+            if (request.epoch != onlineEpoch) return;
+            JSONObject aiQuery = new JSONObject(request.aiDocument);
             JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
             int limit = OnlineCandidatePolicy.aiCandidateLimit(
                 aiAssistant == null ? 0 : NumberPolicy.strictInt(aiAssistant, "candidate_limit", 0));
             if (!requestsAi(aiQuery) || limit == 0) {
-                aiComplete = true;
+                request.aiComplete = true;
+                finishOnlineRequest(request);
                 return;
             }
-            final String queryDocument = aiDocument;
-            aiResolveDocument = aiDocument;
+            final String queryDocument = request.aiDocument;
+            request.aiResolveDocument = queryDocument;
             // 这个组字问过 AI 而没有结果：不再发请求。
-            if (requestSignature.equals(aiResolvedSignature)) return;
-            JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
-                () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
-            if (descriptor == null) return;
-            java.util.List<String> candidates = AiCandidateResponse.parse(
-                OnlineCandidateTransport.ai(descriptor), queryDocument, limit);
-            if (candidates.isEmpty()) return;
+            if (request.signature.equals(aiResolvedSignature)) {
+                finishOnlineRequest(request);
+                return;
+            }
+            JSONObject descriptor = aiRequestDescriptor(onSessionThread(request.session, request.epoch,
+                () -> NativeClient.aiRequestForQuery(request.session, queryDocument)));
+            java.util.List<String> candidates = descriptor == null ? java.util.List.of()
+                : AiCandidateResponse.parse(OnlineCandidateTransport.ai(descriptor), queryDocument, limit);
+            if (candidates.isEmpty()) {
+                finishOnlineRequest(request);
+                return;
+            }
             JSONArray payload = new JSONArray();
             for (String candidate : candidates) payload.put(candidate);
-            final String finalDocument = aiDocument;
-            aiComplete = applyOnlineResult(targetSession, epoch,
+            applyOnlineResult(request, CandidateSourceMark.AI_SOURCE,
                 () -> NativeClient.applyOnlineCandidates(
-                    targetSession, finalDocument, payload.toString(), 1)) != null;
+                    request.session, queryDocument, payload.toString(), 1), refreshed -> {
+                    request.aiComplete = refreshed != null;
+                    finishOnlineRequest(request);
+                });
         } catch (JSONException | RuntimeException | LinkageError ignored) {
-            // 在线候选是可选能力，解析或服务异常交给 finally 触发下一次重试。
-        } finally {
-            // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
-            if (!aiComplete && aiResolveDocument != null && epoch == onlineEpoch) {
-                final String resolveDocument = aiResolveDocument;
-                applyOnlineResult(targetSession, epoch,
-                    () -> NativeClient.resolveOnlineCandidates(targetSession, resolveDocument, 1));
-                // AI 这一边到此为止：只有云候选失败时才释放签名重试，重试也不再问 AI（见 aiResolvedSignature）。
-                aiResolvedSignature = requestSignature;
-                aiComplete = true;
-            }
-            if (!cloudComplete || !aiComplete)
-                releaseOnlineSignatureIfCurrent(requestSignature, epoch, targetSession);
+            // 在线候选是可选能力，解析或服务异常交给收尾触发下一次重试。
+            finishOnlineRequest(request);
         }
+    }
+
+    /** 一次请求走完（在 worker 或主线程上）：AI 发问了却没有采用任何回答时告诉 Host API，没走完的释放签名重试。 */
+    private void finishOnlineRequest(OnlineCandidateRequest request) {
+        // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
+        if (!request.aiComplete && request.aiResolveDocument != null && request.epoch == onlineEpoch) {
+            final String resolveDocument = request.aiResolveDocument;
+            applyOnlineResult(request, null,
+                () -> NativeClient.resolveOnlineCandidates(request.session, resolveDocument, 1), refreshed -> { });
+            // AI 这一边到此为止：只有云候选失败时才释放签名重试，重试也不再问 AI（见 aiResolvedSignature）。
+            aiResolvedSignature = request.signature;
+            request.aiComplete = true;
+        }
+        if (!request.cloudComplete || !request.aiComplete)
+            releaseOnlineSignatureIfCurrent(request.signature, request.epoch, request.session);
     }
 
     private void releaseOnlineSignatureIfCurrent(String requestSignature, long requestEpoch,
@@ -5180,50 +5228,47 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * Hand one provider's result back to Engine on the session thread.
+     * Hand one provider's result back to Engine on the main thread, without waiting for it.
      *
-     * <p>Returns the query document as it stands after a result was applied, so the next provider
-     * can use it, or null when nothing was applied.
+     * <p>{@code then} runs on the main thread with the query document as it stands after a result
+     * was applied, so the next provider can use it, or null when nothing was applied. A request
+     * that is no longer current is dropped without calling {@code then}.
+     *
+     * <p>{@code source} is the candidate source the result adds (cloud or AI): it waits while the
+     * expanded panel is open, and the panel's cue shows it. Null waits only for a held candidate.
      */
-    private String applyOnlineResult(long targetSession, long epoch,
-            java.util.function.Supplier<String> call) {
-        final java.util.concurrent.atomic.AtomicReference<String> refreshed =
-            new java.util.concurrent.atomic.AtomicReference<>();
-        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.atomic.AtomicBoolean abandoned =
-            new java.util.concurrent.atomic.AtomicBoolean();
-        // 在线结果会推进候选代次：手指按着候选时等松手再用，按下时画出来的那个候选才选得中。
-        main.post(() -> candidateHold.runWhenFree(() -> {
+    private void applyOnlineResult(OnlineCandidateRequest request, Integer source,
+            java.util.function.Supplier<String> call, java.util.function.Consumer<String> then) {
+        long targetSession = request.session;
+        long epoch = request.epoch;
+        Runnable apply = () -> {
+            String refreshed = null;
             try {
-                if (epoch != onlineEpoch || targetSession != session) return;
                 JSONObject applied = value(call.get());
-                if (!CandidateGlossPolicy.isApplied(applied.opt("applied"))) return;
-                JSONObject next = applied.getJSONObject("view");
-                if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
-                        != targetSession) return;
-                // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
-                imeTranslationSenses.followOnlineRefresh(next);
-                markCandidatesLate(next);
-                ImeCandidatePanelRefresh.accept(this, next);
-                render();
-                JSONObject current = onlineQuery(targetSession);
-                if (current != null) refreshed.set(current.toString());
+                JSONObject next = CandidateGlossPolicy.isApplied(applied.opt("applied"))
+                    ? applied.getJSONObject("view") : null;
+                if (next != null && CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
+                        == targetSession) {
+                    // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
+                    imeTranslationSenses.followOnlineRefresh(next);
+                    markCandidatesLate(next);
+                    ImeCandidatePanelRefresh.accept(this, next);
+                    render();
+                    JSONObject current = onlineQuery(targetSession);
+                    if (current != null) refreshed = current.toString();
+                }
             } catch (JSONException | RuntimeException | LinkageError error) {
                 // Online candidates are optional; keep the current Engine view.
-            } finally {
-                done.countDown();
             }
-        }, abandoned::get));
-        try {
-            if (!done.await(2, TimeUnit.SECONDS)) {
-                abandoned.set(true);
-                return null;
-            }
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            return null;
-        }
-        return refreshed.get();
+            then.accept(refreshed);
+        };
+        java.util.function.BooleanSupplier stale = () -> epoch != onlineEpoch || targetSession != session;
+        // 在线结果会推进候选代次：手指按着候选时等松手再用，按下时画出来的那个候选才选得中；展开面板开着时云/AI 候选等面板收起或点「刷新」。
+        main.post(() -> {
+            if (source == null) candidateHold.runWhenFree(apply, stale);
+            else candidateHold.runWhenPanelFree(source, apply, stale);
+            imeCandidatePanelCue.sync();
+        });
     }
 
     /** Run a session-bound call on the session thread and return its raw result, or null. */
@@ -11588,6 +11633,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(expandedCandidateCanvas);
         keyboardSurface.addView(expandedCandidateCanvas, LayoutPolicy.frameMatchParentParams());
         keyboardSurface.addView(imeNineKeyPanel.build(), LayoutPolicy.frameMatchParentParams());
+        // 两个候选面板之后加，画在它们上面。
+        keyboardSurface.addView(imeCandidatePanelCue.build(), imeCandidatePanelCue.layoutParams());
         clipboardSurface = new FrameLayout(this);
         ViewPolicy.setBackgroundColor(clipboardSurface, Color.parseColor(skin.background()));
         clipboardSurface.setContentDescription("剪贴板历史");
@@ -11822,6 +11869,7 @@ public final class MSIMEInputService extends InputMethodService {
             textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
+        imeCandidatePanelCue.alignBelow(top);
     }
 
     void showSpaceCopyFailure(String label) {
@@ -12749,6 +12797,12 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         renderViews();
+        // 面板收起了（收起键、选词、打字，各条路径都会画一次）：面板开着时在等的停顿重排和云/AI 候选接着做。
+        if (!candidatePanelOpen) {
+            candidateHold.release();
+            pauseRerank.resume();
+        }
+        imeCandidatePanelCue.sync();
         // 手指按着候选时候选条推迟重画（candidateRenderDeferred），这次不算画完，等松手后补的那次 render 再记。
         if (!candidateRenderDeferred) imeDebugOverlay.onRendered();
     }

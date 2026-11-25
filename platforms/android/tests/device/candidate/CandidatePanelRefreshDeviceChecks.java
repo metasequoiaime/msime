@@ -14,12 +14,17 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.concurrent.ExecutorService;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** 在安装产品的真实会话中推进候选代次，覆盖停顿重排和在线回复两个宿主入口。 */
+/**
+ * 在安装产品的真实会话中推进候选代次，覆盖停顿重排和在线回复两个宿主入口。
+ *
+ * <p>在线回复在面板开着时先等着：面板不换代，提示露出来；点提示（刷新）或收起面板之后才用上。停顿重排的发布入口直接调用，面板开着时不起跑由 PauseRerankControllerSmoke 覆盖。
+ */
 final class CandidatePanelRefreshDeviceChecks {
     private final Instrumentation instrumentation;
     private final Consumer<String> stage;
@@ -44,12 +49,15 @@ final class CandidatePanelRefreshDeviceChecks {
         CandidatePanelRefreshDeviceChecks test = new CandidatePanelRefreshDeviceChecks(instrumentation, stage);
         try {
             test.onMain(test::prepare);
-            for (boolean online : new boolean[] {false, true}) test.refresh(online);
+            for (Mode mode : Mode.values()) test.refresh(mode);
             test.onMain(test::typingInvalidatesPanel);
         } finally {
             test.onMain(test::close);
         }
     }
+
+    /** 停顿发布；在线回复点提示刷新；在线回复收起面板。 */
+    private enum Mode { PAUSE, ONLINE_REFRESH, ONLINE_CLOSE }
 
     private void prepare() throws Exception {
         stage.accept("prepare synthetic async candidate refresh");
@@ -89,14 +97,15 @@ final class CandidatePanelRefreshDeviceChecks {
         field(type, "connection").set(service, connection);
     }
 
-    private void refresh(boolean online) throws Exception {
+    private void refresh(Mode mode) throws Exception {
+        boolean online = mode != Mode.PAUSE;
         JSONObject[] oldId = new JSONObject[1];
         String[] oldText = new String[1];
         Button[] oldButton = new Button[1];
         int[] writes = new int[1];
         String[] query = new String[1];
         onMain(() -> {
-            stage.accept((online ? "online" : "pause") + " refresh keeps expanded candidate panel");
+            stage.accept(mode + " refresh keeps expanded candidate panel");
             field(type, "renderingSuppressed").setBoolean(service, true);
             composePhrase();
             method(type, "openCandidatePanel").invoke(service);
@@ -120,9 +129,44 @@ final class CandidatePanelRefreshDeviceChecks {
             } catch (Exception error) { throw new IllegalStateException(error); }
         };
         if (online) {
-            Object refreshed = method(type, "applyOnlineResult", long.class, long.class, Supplier.class)
-                .invoke(service, session, field(type, "onlineEpoch").getLong(service), result);
-            check(refreshed != null, "online response accepted");
+            String[] refreshed = new String[1];
+            Class<?> requestType = loader().loadClass("app.msime.android.OnlineCandidateRequest");
+            java.lang.reflect.Constructor<?> create = requestType.getDeclaredConstructor(
+                long.class, String.class, long.class, String.class);
+            create.setAccessible(true);
+            Object request = create.newInstance(session, query[0], field(type, "onlineEpoch").getLong(service), "");
+            Consumer<String> then = value -> refreshed[0] = value;
+            method(type, "applyOnlineResult", requestType, Integer.class, Supplier.class, Consumer.class)
+                .invoke(service, request, 2, result, then);
+            onMain(() -> {
+                check(field(type, "candidatePanelOpen").getBoolean(service), "held online rows keep panel open");
+                JSONObject snapshot = (JSONObject) field(type, "candidatePanelSnapshot").get(service);
+                check(snapshot.getLong("generation") == oldId[0].getLong("generation"),
+                    "held online rows do not advance the panel");
+                check(method(type, "heldPanelSources").invoke(service).equals(List.of(2)), "cloud rows are held");
+                View cue = cueView();
+                check(cue.getVisibility() == View.VISIBLE, "held rows show the cue");
+                check(cue.getContentDescription().toString().contains("云候选"), "cue names the held source");
+                if (mode == Mode.ONLINE_REFRESH) check(cue.performClick(), "cue refreshes the panel");
+                else {
+                    method(type, "closeCandidatePanel").invoke(service);
+                    method(type, "render").invoke(service);
+                }
+            });
+            onMain(() -> {
+                check(refreshed[0] != null, "online response accepted after release");
+                check(cueView().getVisibility() != View.VISIBLE, "cue hides once the rows are used");
+            });
+            if (mode == Mode.ONLINE_CLOSE) {
+                onMain(() -> {
+                    cancelScheduledWork();
+                    check(!field(type, "candidatePanelOpen").getBoolean(service), "closed panel stays closed");
+                    JSONObject current = (JSONObject) field(type, "view").get(service);
+                    check(current.getLong("generation") > oldId[0].getLong("generation"),
+                        "rows held by the panel apply when it closes");
+                });
+                return;
+            }
         } else {
             onMain(() -> {
                 JSONObject reply = value(result.get());
@@ -156,6 +200,15 @@ final class CandidatePanelRefreshDeviceChecks {
             check(!field(type, "candidatePanelOpen").getBoolean(service), "refresh does not reopen closed panel");
             cancelScheduledWork();
         });
+    }
+
+    private ClassLoader loader() {
+        return instrumentation.getTargetContext().getClassLoader();
+    }
+
+    private View cueView() throws Exception {
+        Object cue = field(type, "imeCandidatePanelCue").get(service);
+        return (View) field(cue.getClass(), "pill").get(cue);
     }
 
     /** 清掉上一段组字，打一组新的 `nihao`；开面板由调用方按各自入口决定。 */
