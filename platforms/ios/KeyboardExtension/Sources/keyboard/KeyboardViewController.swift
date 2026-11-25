@@ -268,6 +268,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var nineKeyPanelColumns: KeyboardNineKeyPanelColumns?
   /// 九键面板左栏正显示笔画键。只是面板自己的状态，收起面板就回到拼音。
   private var nineKeyPanelStrokeMode = false
+  /// 当前面板从候选条那一行的顶边铺起（系统样式的展开）。这一行的内容在面板打开期间清空，面板透明铺上去就是候选栏原地向下展开。
+  private var panelCoversCompositionRow = false
   private var emojiPicker: KeyboardEmojiPickerView?
   private var symbolPanel: KeyboardSymbolPanelView?
   private var nineKeyHoldPopup: UIView?
@@ -7157,6 +7159,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.removeFromSuperview()
     candidatePanel = nil
     candidatePanelSnapshot = nil
+    // 面板不再盖着候选条那一行，把刚才清空的内容放回去。
+    if panelCoversCompositionRow {
+      panelCoversCompositionRow = false
+      setCompositionRowContentHidden(false)
+    }
     let wasNineKeyPanel = nineKeyPanelColumns != nil
     nineKeyPanelColumns = nil
     nineKeyPanelStrokeMode = false
@@ -9130,6 +9137,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     compositionContainer?.canvasVisible = showsCandidates && candidateCanvasActive
     readingRow.isHidden = !showsCandidates
     candidateContent?.isHidden = !showsCandidates
+    // 系统样式的面板盖着这一行时把内容清空：面板不铺底色，透出的就是这一行原来的底色，展开前后背景一致。
+    setCompositionRowContentHidden(panelCoversCompositionRow && candidatePanel != nil)
     updatePreeditButton()
     // 邮箱后缀不分页：二十个全排在候选条上横向滚动，与 Android 一样。
     refreshDecorationWords()
@@ -10664,7 +10673,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 在键区显示 `panel`：位于顶栏之下、按键之上，面板打开期间按键隐藏，透明面板就不会透出它们。工具栏留在上方且可操作，因为关面板靠的就是它的按钮。
   /// `keepsKeyTouches` 为真时键区只是看不见，按着的手指（按住空格说话）照常收到松开和移动；新的触摸落在面板上。
-  /// `coveringCompositionRow` 为真时面板从候选条那一行的顶边铺起，把候选条整行盖住；系统样式的展开正是候选栏原地向下展开，收起靠面板自己右列顶部的箭头。
+  /// `coveringCompositionRow` 为真时面板从候选条那一行的顶边铺起，那一行的内容清空、面板透明，看起来就是候选栏原地向下展开；收起靠面板自己右列顶部的箭头。
   private func installPanel(_ panel: UIView, keepsKeyTouches: Bool = false, coveringCompositionRow: Bool = false) {
     guard let root = keyboardRoot, let topRow = compositionContainer else { return }
     // 面板替换回复面板的方式与替换按键相同。
@@ -10679,9 +10688,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       panel.leadingAnchor.constraint(equalTo: root.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: root.trailingAnchor),
     ])
+    panelCoversCompositionRow = coveringCompositionRow
+    setCompositionRowContentHidden(coveringCompositionRow)
     setKeyRowsCovered(true, keepsTouches: keepsKeyTouches)
     updateToolbarActiveState()
     UIAccessibility.post(notification: .layoutChanged, argument: panel)
+  }
+
+  /// 清空候选条那一行的内容，只留底色：面板透明铺在它上面时，透出的就是展开前那一行的样子（背景色、候选条自己的底色都不会变）。用 alpha 不用 `isHidden`，行高留在原处，面板的顶边和下面几行的位置都不动。
+  private func setCompositionRowContentHidden(_ hidden: Bool) {
+    candidateContent?.alpha = hidden ? 0 : 1
+    readingRow.alpha = hidden ? 0 : 1
   }
 
   /// 隐藏或恢复顶栏下面的所有行，以及它们旁边的单手模式侧栏和 iPad 单手的侧边数字键盘。这些行保留布局，键盘高度不变；它们只是不再绘制、不再接收触摸。
