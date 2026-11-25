@@ -1,7 +1,4 @@
-// GNOME Shell 扩展：把 IBus 候选框的真实矩形经 SessionBus 交给输入法宿主；GNOME 会话下
-// 候选右键菜单也由本扩展渲染——合成器 actor 压在所有 X11 客户端窗口之上，宿主自绘浮层
-// 无论怎么设 X11 层级都会被盖住。菜单条目由宿主推送，文案与可用性只在 C++ 侧决定；
-// 点击把完整 action_name 原样交给 IBus panelService.property_activate，由引擎核对身份。
+// GNOME Shell 扩展：GNOME 会话下由它渲染水杉输入法的候选右键菜单。候选框是合成器 actor，压在所有 X11 客户端窗口之上，宿主自绘浮层无论怎么设 X11 层级都会被盖住。菜单条目由宿主经 SessionBus 推送，文案与可用性只在 C++ 侧决定；点击把完整 action_name 原样交给 IBus panelService.property_activate，由引擎核对身份。
 // ESM 与 gi://Gio 从 Shell 45 起就有。
 import Gio from 'gi://Gio';
 import Clutter from 'gi://Clutter';
@@ -13,12 +10,6 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 const IFACE = `
 <node>
   <interface name="@MSIME_POINTER_BUS_NAME@">
-    <method name="GetCandidateRect">
-      <arg type="i" direction="out" name="x"/>
-      <arg type="i" direction="out" name="y"/>
-      <arg type="i" direction="out" name="width"/>
-      <arg type="i" direction="out" name="height"/>
-    </method>
     <method name="ShowCandidateMenu">
       <arg type="s" direction="in" name="token"/>
       <arg type="s" direction="in" name="identity"/>
@@ -60,16 +51,6 @@ export default class MsimePointerExtension extends Extension {
       this._impl.unexport();
       this._impl = null;
     }
-  }
-
-  // 候选框是 Shell 的 BoxPointer actor：get_transformed_position() 给出 stage 绝对坐标，
-  // get_size() 给出大小。popup 不可见时返回全 0，宿主据此改在辅助区显示快捷键提示。
-  GetCandidateRect() {
-    const popup = IBusManager.getIBusManager()._candidatePopup;
-    if (!popup || !popup.visible) return [0, 0, 0, 0];
-    const [x, y] = popup.get_transformed_position();
-    const [width, height] = popup.get_size();
-    return [Math.round(x), Math.round(y), Math.round(width), Math.round(height)];
   }
 
   // 宿主在右键分支推送完整菜单。items 每项为 [action_name, label, flags, position]，

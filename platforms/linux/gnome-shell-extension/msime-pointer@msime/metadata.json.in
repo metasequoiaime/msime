@@ -1,7 +1,7 @@
 {
   "uuid": "@MSIME_POINTER_EXTENSION_UUID@",
-  "name": "MSIME Candidate Rect",
-  "description": "向水杉输入法导出 IBus 候选框的屏幕矩形，用于 GNOME 下把候选右键菜单摆在候选框旁边、避开合成器绘制的候选框。",
+  "name": "MSIME Candidate Menu",
+  "description": "在 GNOME 下把水杉输入法的候选右键菜单（置顶、固定排位、取消固定、删除）画在候选框旁边。",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/metasequoiaime/msime",
   "version": 2

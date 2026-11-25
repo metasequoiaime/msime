@@ -72,9 +72,7 @@ bool CandidateMenuSurface::show(std::vector<CandidateMenuItem> items,
   on_dismiss_ = std::move(on_dismiss);
   hovered_.reset();
   opened_by_press_ = true;
-  // 只有非 GNOME 会话的指针模式才取本机指针：candidate_clicked 不带坐标，指针就在
-  // IBus 面板的候选行上。GNOME 会话传进来的是候选框矩形（CandidateRect），读 XQueryPointer
-  // 只会拿到 Xwayland 根窗口的陈旧角落坐标（child 为 0），那正是菜单跑到桌面右上方的原因。
+  // 指针模式才取本机指针：candidate_clicked 不带坐标，指针就在 IBus 面板的候选行上。
   if (anchor.kind == CandidateMenuAnchor::Kind::Pointer && (anchor.x < 0 || anchor.y < 0)) {
     Window root_return = 0, child_return = 0;
     int root_x = anchor.x, root_y = anchor.y, win_x = 0, win_y = 0;

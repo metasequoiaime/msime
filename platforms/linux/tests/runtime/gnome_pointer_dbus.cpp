@@ -1,11 +1,8 @@
-// GNOME Shell 候选框矩形与右键菜单 D-Bus 契约测试：验证助手能读扩展给出的候选框矩形，
-// 候选框不可见（全 0）或扩展不在时返回空；并验证菜单条目能以 a(ssuy) 推给扩展、
-// 收起 token 能原样回传，缺服务时两条菜单调用都快速失败。
+// GNOME Shell 右键菜单 D-Bus 契约测试：菜单条目能以 a(ssuy) 推给扩展、收起 token 能原样回传，缺服务时两条调用都快速失败。
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <optional>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -16,7 +13,6 @@
 #include "GnomePointer.h"
 #include "ShellCandidateMenu.h"
 
-using msime::linux_host::ShellCandidateRect;
 using msime::linux_host::ShellMenuEntry;
 
 namespace {
@@ -24,12 +20,6 @@ constexpr const char kBusName[] = "org.msime.Pointer.Test";
 constexpr const char kObjectPath[] = "/org/msime/Pointer";
 constexpr const char kInterfaceXml[] =
     "<node><interface name='org.msime.Pointer'>"
-    "<method name='GetCandidateRect'>"
-    "<arg type='i' direction='out' name='x'/>"
-    "<arg type='i' direction='out' name='y'/>"
-    "<arg type='i' direction='out' name='width'/>"
-    "<arg type='i' direction='out' name='height'/>"
-    "</method>"
     "<method name='ShowCandidateMenu'>"
     "<arg type='s' direction='in' name='token'/>"
     "<arg type='s' direction='in' name='identity'/>"
@@ -40,7 +30,6 @@ constexpr const char kInterfaceXml[] =
     "</method>"
     "</interface></node>";
 
-ShellCandidateRect served{123, 456, 300, 40};
 bool name_acquired = false;
 
 using ReceivedItem = std::tuple<std::string, std::string, std::uint32_t, std::uint8_t>;
@@ -55,11 +44,6 @@ std::string hidden_token;
 void on_method_call(GDBusConnection *, const gchar *, const gchar *, const gchar *,
                     const gchar *method, GVariant *parameters,
                     GDBusMethodInvocation *invocation, gpointer) {
-  if (g_strcmp0(method, "GetCandidateRect") == 0) {
-    g_dbus_method_invocation_return_value(invocation, g_variant_new("(iiii)", served.x, served.y,
-                                                                   served.width, served.height));
-    return;
-  }
   if (g_strcmp0(method, "ShowCandidateMenu") == 0) {
     ReceivedMenu menu;
     const gchar *token = nullptr;
@@ -135,27 +119,6 @@ int main() {
   }
 
   // 同步助手会阻塞自己所在线程；假服务必须在另一条线程里继续泵事件才能应答。
-  std::optional<ShellCandidateRect> got;
-  std::thread caller([&] { got = msime::linux_host::shell_candidate_rect(kBusName, 2000); });
-  pump_ms(300);
-  caller.join();
-  if (!got || got->x != 123 || got->y != 456 || got->width != 300 || got->height != 40) {
-    g_bus_unown_name(owner);
-    return 1;
-  }
-
-  // 候选框不可见：扩展返回全 0，助手应判为无有效矩形，不把 0 矩形交给定位函数。
-  served = {0, 0, 0, 0};
-  std::optional<ShellCandidateRect> invisible;
-  std::thread invisible_caller(
-      [&] { invisible = msime::linux_host::shell_candidate_rect(kBusName, 2000); });
-  pump_ms(300);
-  invisible_caller.join();
-  if (invisible) {
-    g_bus_unown_name(owner);
-    return 3;
-  }
-
   // 菜单推送：三项 fixture（置顶、固定第 2 位勾选、分隔线），扩展侧收到的字段应与
   // 传入逐项相等，action_name 保持完整的 session/generation/index 编码供原样回传。
   const std::vector<ShellMenuEntry> entries = {
@@ -208,8 +171,6 @@ int main() {
 
   g_bus_unown_name(owner);
   pump_ms(100);  // 给总线一点时间释放名字。
-  const auto missing = msime::linux_host::shell_candidate_rect(kBusName, 40);
-  if (missing) return 2;
   bool show_missing = msime::linux_host::shell_show_candidate_menu(kBusName, "tok-1", "42/7/3",
                                                                    entries, 40);
   bool hide_missing = msime::linux_host::shell_hide_candidate_menu(kBusName, "tok-1", 40);
