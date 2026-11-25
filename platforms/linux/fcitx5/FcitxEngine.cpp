@@ -43,6 +43,7 @@
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
 #include "../src/candidates/CandidateRowText.h"
+#include "../src/candidates/CandidateSources.h"
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
@@ -4961,7 +4962,8 @@ public:
 #ifdef MSIME_FCITX_ACTIONS
     setActionable(this);
 #endif
-    const auto &candidates = state.view_.at("candidates");
+    // 云候选的占位席位（来源 15）选不中，不画也不占序号：它后面每一行的数字和点选都往前挪一位（CandidateSources.h）。
+    const auto candidates = msime::linux_host::visible_page(state.view_.at("candidates"));
     const auto caretEdit = msime::linux_host::caret_edit_suffix(state.view_);
     const int reservedGlossLines = state.translationReservedLines();
     words_.reserve(candidates.size());
@@ -8928,7 +8930,8 @@ void FcitxState::render() {
       // 不能把行内预编辑样式偷偷回退成候选窗顶端的一行；韩文等必须内嵌的方案仍例外。
       ic_.inputPanel().setPreedit(preedit);
   }
-  if (!view_.at("candidates").empty()) {
+  // 整页只剩云占位席位时没有可画的候选，照旧不打开候选窗（CandidateSources.h）。
+  if (msime::linux_host::visible_page_size(view_.at("candidates")) > 0) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
     if (engine_) ic_.inputPanel().setCandidateList(std::make_unique<FcitxPage>(*this, &engine_->factory_));
     ic_.inputPanel().setAuxDown(fcitx::Text(candidateAux()));
@@ -8982,7 +8985,8 @@ bool FcitxState::expandAllowed() const {
       !msime::linux_host::view_is_prediction(view_) &&
       preferences_.value("candidate_layout", std::string("vertical")) == "horizontal" &&
       !translationCandidatesActive() && !msime::linux_host::opened_candidate_list(view_) &&
-      !msime::linux_host::korean_hanja_list_open(view_) && !view_.value("candidates", Json::array()).empty();
+      !msime::linux_host::korean_hanja_list_open(view_) &&
+      msime::linux_host::visible_page_size(view_.value("candidates", Json::array())) > 0;
 }
 
 bool FcitxState::expandOffered() const {
@@ -8998,7 +9002,11 @@ std::vector<Json> FcitxState::expandedEntries() {
     view_ = response(msime_client_view(session_));
     const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
     if (!msime::linux_host::native_canvas_snapshot_current(snapshot, session_, generation)) return entries;
-    for (auto &entry : snapshot.at("candidates")) entries.push_back(std::move(entry));
+    // 展开的网格和卷轴也不给云占位席位一格：它选不中，画出来只是一格空响应（CandidateSources.h）。
+    for (auto &entry : snapshot.at("candidates"))
+      if (msime::linux_host::candidate_source_is_visible(
+              msime::linux_host::strict_json_value(entry, "source", uint64_t{})))
+        entries.push_back(std::move(entry));
   } catch (const std::exception &) {
     entries.clear();
   }
@@ -9018,7 +9026,8 @@ bool FcitxState::openExpanded() {
   const auto before = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
   auto entries = expandedEntries();
   const auto page = view_.value("candidates", Json::array());
-  if (entries.empty() || (style == ExpandStyle::grid && entries.size() <= page.size())) {
+  // 完整候选已经不含占位席位，比较的是看得见的行数，否则占位席位会让「只有这一页」的页面也开网格。
+  if (entries.empty() || (style == ExpandStyle::grid && entries.size() <= msime::linux_host::visible_page_size(page))) {
     // 复制时推进了代次：当前页已经换成重读的那一页，重画让候选列表跟上新的身份。
     if (msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) != before) render();
     return false;
@@ -9410,7 +9419,9 @@ bool FcitxState::renderNativeCanvas() {
 #endif
 
 void FcitxState::maintenance(int operation) {
-  if (!ensure() || view_.value("candidates", Json::array()).empty()) return;
+  if (!ensure() ||
+      msime::linux_host::visible_page_size(view_.value("candidates", Json::array())) == 0)
+    return;
   for (const auto &candidate : view_.at("candidates")) {
     if (!candidate.value("highlighted", false)) continue;
     const auto &id = candidate.at("id");
@@ -9592,7 +9603,7 @@ void FcitxState::renderShuangpinKeymap() {
       msime::linux_host::shuangpin_keymap_candidate_clearance(
           msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences_)), 1.0,
           preferences_.value("candidate_layout", std::string("vertical")) == "horizontal",
-          candidates.is_array() ? candidates.size() : 0, preedit_row),
+          candidates.is_array() ? msime::linux_host::visible_page_size(candidates) : 0, preedit_row),
       std::nullopt};
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
   // 候选窗是插件自己的原生画布时（render 先画它再画键位图）用它真实的矩形，与 macOS 按候选窗几何让开相同；经典界面画的候选窗只能按字号估计。
@@ -9814,12 +9825,15 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Shift, fcitx::KeyState::Super,
         fcitx::KeyState::Hyper, fcitx::KeyState::Meta, fcitx::KeyState::Mod5});
     std::optional<size_t> pick;
+    Json pick_row;
     if (prediction && bare) {
-      const auto &candidates = view_.at("candidates");
+      // 联想的数字也只认看得见的行：云占位席位不占一格（CandidateSources.h）。
+      const auto candidates = msime::linux_host::visible_page(view_.at("candidates"));
       if (sym == FcitxKey_space) {
         for (size_t index = 0; index < candidates.size(); ++index)
-          if (candidates.at(index).value("highlighted", false)) pick = index;
+          if (candidates.at(index).value("highlighted", false)) { pick = index; break; }
         if (!pick && !candidates.empty()) pick = 0;
+        if (pick) pick_row = candidates.at(*pick);
       } else if (preferences_.value("number_row_selection", true)) {
         // 与组字时的数字选词同一套键：数字行按物理键位（XKB 键码 10..19），其余按数字符号和小键盘。
         const auto code = event.rawKey().code();
@@ -9828,14 +9842,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         else if (sym >= FcitxKey_1 && sym <= FcitxKey_9) slot = static_cast<size_t>(sym - FcitxKey_1);
         else if (sym == FcitxKey_0 || sym == FcitxKey_KP_0) slot = size_t{9};
         else if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9) slot = static_cast<size_t>(sym - FcitxKey_KP_1);
-        if (slot && *slot < candidates.size()) pick = slot;
+        if (const auto *candidate = slot ? msime::linux_host::visible_page_candidate(candidates, *slot) : nullptr) {
+          pick = *slot;
+          pick_row = *candidate;
+        }
       }
     }
     switch (msime::linux_host::prediction_key(prediction, bare && sym == FcitxKey_Escape, pick.has_value())) {
     case msime::linux_host::PredictionKey::Route:
       break;
     case msime::linux_host::PredictionKey::Pick: {
-      const auto &id = view_.at("candidates").at(*pick).at("id");
+      const auto &id = pick_row.at("id");
       return apply(msime_client_select(
           session_, msime::linux_host::strict_json_required_integer<uint64_t>(id.at("generation")),
           msime::linux_host::strict_json_required_integer<size_t>(id.at("index"))));
@@ -10215,7 +10232,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const bool picks = msime::linux_host::number_row_picks(
         view_, spelled, event.rawKey().states().test(fcitx::KeyState::Shift), rowCode >= 10 && rowCode <= 19,
         preferences_.value("number_row_selection", true) && !view_.value("nine_key", false) &&
-            !view_.value("candidates", Json::array()).empty());
+            msime::linux_host::visible_page_size(view_.value("candidates", Json::array())) > 0);
     if ((!picks && msime::linux_host::engine_spelling(view_, spelled)) ||
         (spelled == U' ' && !states.test(fcitx::KeyState::Shift) && msime::linux_host::spelling_space(view_)))
       return apply(msime_client_character(session_, static_cast<uint8_t>(spelled),
@@ -10323,7 +10340,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (composing && (!commitsOnBlur() || openedList)) {
     const bool japanese = msime::linux_host::strict_json_value(view_, "scheme", 0u) == 3;
     // The marks among these keys stay punctuation while a Korean Hanja list is open, as they are with no list (core/KoreanHanja.h): the Engine closes the list and writes the Hangul with the mark. Page Up, Page Down and Tab still page.
-    if (!shift && !view_.at("candidates").empty() && !koreanHanjaList) {
+    if (!shift && msime::linux_host::visible_page_size(view_.at("candidates")) > 0 && !koreanHanjaList) {
       if (word_character_enabled_ && !japanese &&
           ((word_character_minus_equal_ && sym == FcitxKey_minus) ||
            (!word_character_minus_equal_ && sym == FcitxKey_bracketleft)))
@@ -10348,7 +10365,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter || sym == FcitxKey_space)) {
       using Action = msime::linux_host::JapaneseConversion::Action;
       const auto reading = view_.value("editing_text", std::string{});
-      const auto &candidates = view_.at("candidates");
+      // 日文转换只认看得见的行：云占位席位不占一个候选（CandidateSources.h）。
+      const auto candidates = msime::linux_host::visible_page(view_.at("candidates"));
       if (sym == FcitxKey_space) {
         const int first_source = candidates.empty() ? -1 : msime::linux_host::strict_json_value(candidates[0], "source", -1);
         const auto action = japanese_conversion_.space(reading, candidates.size(), first_source);
@@ -10435,8 +10453,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         !view_.value("nine_key", false) &&
         preferences_.value("number_row_selection", true)) {
       const size_t index = *number;
-      if (index < view_.at("candidates").size()) {
-        const auto id = view_.at("candidates").at(index).at("id");
+      // 数字按的是看得见的那一格：云占位席位在引擎这一页里仍占一个座位，按页内下标直接取会选到下一行（CandidateSources.h）。
+      if (const auto candidate = msime::linux_host::visible_page_candidate(view_.at("candidates"), index)) {
+        const auto id = candidate->at("id");
         return apply(msime_client_select(
             session_, msime::linux_host::strict_json_required_integer<uint64_t>(id.at("generation")),
             msime::linux_host::strict_json_required_integer<size_t>(id.at("index"))));

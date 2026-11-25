@@ -72,6 +72,7 @@
 #include "../candidates/CandidateScriptAnnotation.h"
 #include "../candidates/CandidateRowText.h"
 #include "../candidates/CandidatePronunciation.h"
+#include "../candidates/CandidateSources.h"
 #include "CharacterSetTogglePolicy.h"
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/CandidateTranslationScope.h"
@@ -4488,7 +4489,9 @@ void render(IBusEngine *engine, const Json &view) {
         (style != "empty" || always_inline) && !text.empty(),
         always_inline ? IBUS_ENGINE_PREEDIT_COMMIT : IBUS_ENGINE_PREEDIT_CLEAR);
   }
-  const auto &candidates = view.at("candidates");
+  // 云候选的占位席位（来源 15）选不中，不画也不占序号：它后面每一行的数字都往前挪一位（CandidateSources.h）。这里画出来的就是这一页看得见的行，`rendered_candidates` 也存这一份，点选、数字键和右键动作都按它。
+  const auto candidates =
+      msime::linux_host::visible_page(view.at("candidates"));
   if (candidates.empty()) {
     auto &s = state(engine);
     const bool had_candidates = s.rendered_candidates.is_array() &&
