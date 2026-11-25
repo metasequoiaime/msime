@@ -205,11 +205,11 @@ public final class CandidateTranslationPolicySmoke {
                 && CandidateTranslationPolicy.Scope.from("every") == highlighted
                 && CandidateTranslationPolicy.Scope.from(Boolean.TRUE) == highlighted,
             "an unknown or non-string scope reads as highlighted");
-        // 设置界面的文案与共享 React 设置页（candidate-translation-options-section.tsx）相同。
+        // 设置界面的文案与共享 React 设置页（candidate-translation-options-section.tsx）相同，只有开关名用 Android 的「离线释义」。
         check(CandidateTranslationPolicy.Scope.TITLE.equals("翻译范围")
                 && highlighted.title().equals("仅当前高亮") && all.title().equals("全部")
                 && CandidateTranslationPolicy.Scope.DESCRIPTION.equals(
-                    "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响"),
+                    "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线释义不受影响"),
             "the scope row says what the shared settings page says");
         check(CandidateTranslationPolicy.scopeLimited(true, highlighted)
                 && !CandidateTranslationPolicy.scopeLimited(false, highlighted)

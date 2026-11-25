@@ -3691,6 +3691,7 @@ pub(super) fn generated_mode_options(root: &Path) -> EngineOptions {
     value.quick_phrase_table = vec![QuickPhraseEntry {
         key: "dh".into(),
         text: "电话".into(),
+        position: None,
     }];
     value
 }

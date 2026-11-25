@@ -129,15 +129,23 @@ impl InputSession {
         }
         let ordered = self.ranking_list();
         let selected = ordered.get(index)?;
-        let group_start = ordered
-            .iter()
-            .position(|item| item.source == CandidateSource::QuickPhrase)?;
+        let uses_learned_slot = |item: &WordItem| {
+            item.source == CandidateSource::QuickPhrase
+                && self
+                    .queries
+                    .quick_phrase_position(&code, &item.word)
+                    .is_none()
+        };
+        let group_start = ordered.iter().position(uses_learned_slot)?;
         let slot = ordered[..group_start]
             .iter()
             .filter(|item| counts_toward_quick_phrase_slot(item))
             .count();
         let journal = self.journal_path().to_owned();
         if selected.source == CandidateSource::QuickPhrase {
+            if !uses_learned_slot(selected) {
+                return None;
+            }
             let first_in_group = index == group_start;
             // 组在首位、选的又是组内第一条：这就是默认上屏的那一个，没有可学的。
             if slot == 0 && first_in_group {

@@ -865,18 +865,12 @@ impl WebHost {
             };
             self.apply(result, number);
         }
-        // 日语不走中文标点表，打日文标点（`japanese_mark`），没有日文形式的原样打出。
-        if self.scheme.is_japanese() {
-            match japanese_mark(byte) {
-                Some(mark) => self.commit(mark.to_owned(), -1),
-                None if finished => self.commit(char::from(byte).to_string(), -1),
-                None => self.type_text(char::from(byte).to_string()),
+        // 网页自己的引号上下文只服务于中文的交替与嵌套；日语标点走引擎的契约表，不经过它。
+        if !self.scheme.is_japanese() {
+            if let Some(mark) = quote_mark(&self.context, byte) {
+                self.commit(mark.to_owned(), -1);
+                return;
             }
-            return;
-        }
-        if let Some(mark) = quote_mark(&self.context, byte) {
-            self.commit(mark.to_owned(), -1);
-            return;
         }
         let result = self.session.punctuation(byte);
         match result.commit {
@@ -1326,27 +1320,6 @@ fn quote_mark(context: &str, key: u8) -> Option<&'static str> {
         }
         _ => None,
     }
-}
-
-/// 日文标点，和日文输入法的默认设置一样：`,` `.` 是 、 。，`[` `]` 是 「 」，`{` `}` 是 『 』，`/` 是 ・，其余几个是全角形式。其他键返回 None，原样打出。
-fn japanese_mark(key: u8) -> Option<&'static str> {
-    Some(match key {
-        b',' => "、",
-        b'.' => "。",
-        b'[' => "「",
-        b']' => "」",
-        b'{' => "『",
-        b'}' => "』",
-        b'/' => "・",
-        b'~' => "〜",
-        b'?' => "？",
-        b'!' => "！",
-        b'(' => "（",
-        b')' => "）",
-        b':' => "：",
-        b';' => "；",
-        _ => return None,
-    })
 }
 
 fn is_han(ch: char) -> bool {

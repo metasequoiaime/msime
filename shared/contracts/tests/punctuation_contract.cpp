@@ -4,8 +4,8 @@
 int main()
 {
     using namespace metasequoia::punctuation_contract;
-    if (version != 5 || simple.size() != 17 || alternating.size() != 2 || corner_quotes.size() != 2 ||
-        hollow_brackets.size() != 2 || enumeration_comma.size() != 2)
+    if (version != 6 || simple.size() != 17 || alternating.size() != 2 || corner_quotes.size() != 2 ||
+        hollow_brackets.size() != 2 || enumeration_comma.size() != 2 || japanese.size() != 15)
         return 1;
     if (!is_supported(',') || !is_supported('"') || !is_supported('<') || !is_supported('_') || is_supported('a'))
         return 1;
@@ -48,6 +48,17 @@ int main()
     if (!comma_backslash || std::string_view(comma_backslash) != "、" || !comma_slash ||
         std::string_view(comma_slash) != "、" || enumeration_comma_output('a') != nullptr ||
         std::string_view(simple_output('\\')) != "、")
+        return 1;
+    // 第 6 版：日文表是日语方案的另一套键到字映射，键可与中文表重复。
+    const auto *jp_comma = japanese_output(',');
+    const auto *jp_period = japanese_output('.');
+    const auto *jp_open = japanese_output('[');
+    const auto *jp_close = japanese_output(']');
+    const auto *jp_slash = japanese_output('/');
+    if (!jp_comma || std::string_view(jp_comma) != "、" || !jp_period ||
+        std::string_view(jp_period) != "。" || !jp_open || std::string_view(jp_open) != "「" ||
+        !jp_close || std::string_view(jp_close) != "」" || !jp_slash ||
+        std::string_view(jp_slash) != "・" || japanese_output('a'))
         return 1;
     if (nested_opening_input != '<' || nested_closing_input != '>' || std::string_view(nested_opening_inner) != "〈")
         return 1;

@@ -12,7 +12,7 @@ iOS 手机竖屏 26 键的键帽是 44pt，键盘外框却按 52pt 键帽算（`
 - 高度上限随键帽放宽 32pt：iOS 的可调范围 `KeyboardHeightPercent.adjustmentRange` 从 -12...48 改为 -12...80，手机竖屏最高仍是 197 + 80 = 277pt，与改前 229 + 48 相同，调高过的用户升级后能调回原来的绝对高度；下限不变。共享文档的 `touch_keyboard_height_adjustment` 是跨平台、随设置同步的字段，client-core 只接受 -12..=48，所以不改它（`KeyboardHeightPercent.sharedAdjustmentRange`）：App Group 的 `keyboard.height.adjustment` 存完整值，写文档时截到 48；文档镜像回 App Group 时，本机值截到 -12...48 后与文档相同就保留本机值，否则说明文档在别处改过，跟文档（`KeyboardLayoutPreference.reconciledHeightAdjustment`）。设置页滑块、步进、键盘调整的上沿柄和百分比换算都改用这个范围，键盘扩展同步文档时取对齐后的 App Group 值。
 - 第三排字母与第一排等宽（宽度约束优先级 999），⇧、⌫ 保持 `phoneLetterEdgeWidth`。多出的宽度变成 ⇧ 与 Z、M 与 ⌫ 之间的空隙，由四格 `KeyRoutingSpacer` 撑开，靠外一格把触摸交给 ⇧ / ⌫，靠里一格交给 Z / M，空隙里没有死区。⇧ 之后、⌫ 之前照常留一个键距，所以键盘窄到占位格缩成 0 时（单手模式、iPad 浮动键盘）空隙也不小于普通键距。主体在 `KeyboardViewController+PhoneThirdRow.swift`。
 - 数字九宫格：左列五项等高排满；底行 中/英 键显示时改为句点键，右列中间键改为 =；隐藏 中/英 键时中间键仍是句点。符号面板底栏固定 40pt。
-- ⌫ 横滑删除：按住 ⌫ 往左滑，每滑一格删一个单位，不松手往右滑按原样恢复，松手定下来。每格距离是 `24 - 2 × 档位` pt，档位 1–10，默认 7（10pt），只存本机 App Group（`KeyboardLayoutPreference.backspaceSwipeSpeed`），不进共享文档。没有组字时按 `Character` 删光标前的文字，恢复时把删掉的字插回；组字时每格调一次 `session.segmentBackspace()`，恢复时把删掉的组码按原顺序经 `handleCharacter` 重打。纯状态在 `BackspaceSwipeDeletion.swift`，控制器逻辑在 `KeyboardViewController+BackspaceSwipe.swift`。
+- ⌫ 横滑删除：按住 ⌫ 往左滑，每滑一格删一个单位，不松手往右滑按原样恢复，松手定下来。每格距离是 `24 - 2 × 档位` pt，档位 1–10，默认 7（10pt），只存本机 App Group（`KeyboardLayoutPreference.backspaceSwipeSpeed`），不进共享文档。没有组字时按 `Character` 删光标前的文字，恢复时把删掉的字插回；组字时每格调一次 `session.segmentBackspace()`，恢复时把删掉的组码按原顺序经 `handleCharacter` 重打。纯状态在 `BackspaceSwipeDeletion.swift`，控制器逻辑在 `KeyboardViewController+BackspaceSwipe.swift`。同一个 pan 的竖直向上分支是上滑清空，与横滑按起手方向分派，见 [iOS 26 键上滑、下滑各一个可配动作](2026-11-23-ios-letter-two-way-swipe-actions.md)。
 
 ## 横滑删除的边界
 

@@ -16,10 +16,29 @@ extension KeyboardViewController {
     return .text(context: context)
   }
 
-  /// 按住 ⌫ 横滑：往左每滑一格（`KeyboardLayoutPreference.backspaceSwipeStep`，设置里的「滑动删除速度」）删一个组码或一个字，不松手往右滑把刚删的按原样恢复，松手定下来。
+  /// 上滑清空能不能开始：手写板上的 ⌫ 撤的是笔迹，不接；有组字时清组字，没有组字时要有可删的正文。有选区时不接——一次 `deleteBackward` 会把整段选区删掉，清空既数不准也收不回来。
+  var canClearBackspace: Bool {
+    guard handwriting.isHidden else { return false }
+    if hasComposition { return true }
+    guard textDocumentProxy.selectedText?.isEmpty != false else { return false }
+    return !(textDocumentProxy.documentContextBeforeInput ?? "").isEmpty
+  }
+
+  /// 按住 ⌫ 滑动：向上越过待命线后松手清空（`BackspaceClearSwipe`）；向左每滑一格（`KeyboardLayoutPreference.backspaceSwipeStep`，设置里的「滑动删除速度」）删一个组码或一个字，不松手往右滑把刚删的按原样恢复。起手方向决定这一次是哪种，中途不切换。
   @objc func handleBackspaceSwipe(_ pan: UIPanGestureRecognizer) {
     switch pan.state {
     case .began:
+      let velocity = pan.velocity(in: view)
+      if abs(velocity.y) > abs(velocity.x) {
+        // 上滑清空：手指越过待命线后松手才清，滑回来就取消。
+        guard beginBackspaceClear() else {
+          pan.isEnabled = false
+          pan.isEnabled = true
+          return
+        }
+        applyBackspaceClear(to: -pan.translation(in: view).y)
+        return
+      }
       // 不能滑就让这次手势作废。
       guard beginBackspaceSwipe() else {
         pan.isEnabled = false
@@ -28,10 +47,66 @@ extension KeyboardViewController {
       }
       applyBackspaceSwipe(to: pan.translation(in: view).x)
     case .changed:
-      applyBackspaceSwipe(to: pan.translation(in: view).x)
+      if backspaceClear != nil {
+        applyBackspaceClear(to: -pan.translation(in: view).y)
+      } else {
+        applyBackspaceSwipe(to: pan.translation(in: view).x)
+      }
     default:
+      if let clear = backspaceClear {
+        // 只有手势正常结束、且此刻仍在待命位才清空；手势被取消或滑回来了都作废。
+        backspaceClear = nil
+        if pan.state == .ended && clear.armed { clearBackspace() }
+        return
+      }
       endBackspaceSwipe()
     }
+  }
+
+  /// 开始一次上滑清空：取消这次按压，交付挂起的按键（组字可能因此变了），没有可清的就返回 false。
+  func beginBackspaceClear() -> Bool {
+    cancelBackspacePress()
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
+    guard canClearBackspace else { return false }
+    backspaceClear = BackspaceClearSwipe()
+    if hapticsEnabled { hapticStrength.impact(keyFeedback) }
+    return true
+  }
+
+  /// 上滑过程中更新待命状态；刚越过待命线时补一次触感，与开始滑动时相同。
+  func applyBackspaceClear(to upward: CGFloat) {
+    guard var clear = backspaceClear else { return }
+    let wasArmed = clear.armed
+    clear.move(upward: upward)
+    backspaceClear = clear
+    if clear.armed && !wasArmed, hapticsEnabled {
+      hapticStrength.impact(keyFeedback)
+    }
+  }
+
+  /// 上滑清空：有组字时只清组码和候选（与 Android `ClearTarget.COMPOSITION` 相同），没有组字时清空光标前的文字。
+  func clearBackspace() {
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
+    playInputClick(.backspace)
+    pairedPunctuation.clear()
+    if hasComposition {
+      render(session.cancel())
+      return
+    }
+    clearDocumentBeforeCursor()
+    if !isChineseMode { refreshEnglishSuggestions() }
+  }
+
+  /// 逐字删掉光标前的全部文字；轮次和每轮字数由 `BackspaceClear` 限制，编辑器不配合时也会停下。
+  func clearDocumentBeforeCursor() {
+    _ = BackspaceClear.clearBeforeCursor(
+      read: { [weak self] in self?.textDocumentProxy.documentContextBeforeInput },
+      deleteOne: { [weak self] in
+        guard let self else { return }
+        self.deleteOwnBackward()
+      })
   }
 
   /// 开始一次横滑：取消这次按压，交付挂起的按键后重新判断删什么（组字可能变了）；没有可删的就返回 false。

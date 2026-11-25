@@ -523,6 +523,7 @@ impl ShuangpinEngine {
             .set_rescoring_context(&request.rescoring_context);
         self.dictionary
             .set_autocorrect_types(request_autocorrect_types(request));
+        self.dictionary.set_fuzzy_pinyin(request.fuzzy_pinyin);
 
         let raw = &request.raw_input;
         if raw.bytes().all(|byte| byte == b'\'') {
