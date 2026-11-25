@@ -69,6 +69,7 @@
 #include "GameProcessList.h"
 #include "HelpcodeModesModel.h"
 #include "HistoryPagination.h"
+#include "InfoTipHost.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
 #include "LearningResetFeedback.h"
@@ -3752,6 +3753,8 @@ private:
 
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
     if (args.WindowActivationState() == WindowActivationState::Deactivated) {
+      // 窗口切走了，点开固定的说明也跟着收起（共享页、iOS 都由窗口失焦收起）；鼠标只是移到别的窗口时窗口不算失活，悬停弹出的气泡仍归 WinUI 管。
+      info_tips_.close();
       flush_pending();
       retry_unsaved_edit();
       return;
@@ -3848,6 +3851,29 @@ private:
     root.AddHandler(UIElement::PointerReleasedEvent(), released, true);
     root.AddHandler(UIElement::PointerCanceledEvent(), released, true);
     root.AddHandler(UIElement::PointerCaptureLostEvent(), released, true);
+    // 点页面别处收起点开的说明。处理函数的参数是根元素而不是点击落点，落点取指针事件的 OriginalSource：控件自己处理过的点击（按钮、开关）也照旧冒到这里。
+    root.AddHandler(UIElement::PointerPressedEvent(),
+                    box_value(PointerEventHandler(
+                        [this](Inspectable const &, PointerRoutedEventArgs const &args) {
+                          info_tips_.close_unless_inside(
+                              info_tips_.contains(args.OriginalSource().try_as<DependencyObject>()));
+                        })),
+                    true);
+  }
+
+  // Esc 收起点开的说明，优先于页面自己的快捷键：说明开着时 Esc 只关它，不交给搜索框清空查询或者关掉对话框。窗口级的 KeyDown 拿不到控件已经处理掉的按键，而对话框在冒出窗口前就把 Esc 处理成了关闭，所以从 Content 上以 handledEventsToo 监听隧道路由的 PreviewKeyDown；问号在自己的 Click 里已经吞掉了空格和回车，Esc 不受影响。
+  void track_keys(UIElement const &root) {
+    using Microsoft::UI::Xaml::Input::KeyEventHandler;
+    using Microsoft::UI::Xaml::Input::KeyRoutedEventArgs;
+    root.AddHandler(UIElement::PreviewKeyDownEvent(),
+                    box_value(KeyEventHandler(
+                        [this](Inspectable const &, KeyRoutedEventArgs const &args) {
+                          if (args.Key() != Windows::System::VirtualKey::Escape || !info_tips_.open())
+                            return;
+                          info_tips_.close();
+                          args.Handled(true);
+                        })),
+                    true);
   }
 
   // ---- Saving ----
@@ -4033,6 +4059,7 @@ private:
     root.Children().Append(navigation_);
 
     track_pointer(root);
+    track_keys(root);
     root.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
       update_intro_size();
     });
@@ -4289,6 +4316,10 @@ private:
     A11y::SetAutomationId(scroll_, L"settings-content");
     scroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
     scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    // 滚动后气泡会脱离它所在的那一行（位置只在打开时量一次），所以一滚就收起，与共享页一样。滚轮滚到卡片上时事件不走正文的滚动区，这里同时听父级的 ViewChanged。
+    scroll_.ViewChanged([this](Inspectable const &, ScrollViewerViewChangedEventArgs const &) {
+      info_tips_.close();
+    });
     view.Content(scroll_);
     return view;
   }
@@ -4622,6 +4653,8 @@ private:
   void render_page_at(double offset) {
     if (!scroll_)
       return;
+    // 整页重画换掉了页面上的问号，旧的气泡要么已经被拆掉，要么还悬在没有问号的屏上（改一项设置后能看到）：重画前先收起点开的那个说明。
+    info_tips_.close();
     // 背单词子页与 macOS 的 `vocabulary` 子页一样，标题栏写它自己的「背单词」。
     toolbar_title_.Text(vocabulary_subpage() ? L"背单词" : page_label(current_page_).title);
     forget_stale_card_previews();
@@ -5041,10 +5074,9 @@ private:
     put(L"ButtonForegroundPressed", palette_.text);
     ToolTipService::SetToolTip(button, tip);
     A11y::SetName(button, hstring(info_tip_name(title, text)));
-    // 从按钮上取回 ToolTip，不在处理函数里捕获它：按钮经 ToolTipService 持有它，再反过来捕获会成环。
-    button.Click([](Inspectable const &sender, RoutedEventArgs const &) {
-      if (auto shown = ToolTipService::GetToolTip(sender.as<DependencyObject>()).try_as<ToolTip>())
-        shown.IsOpen(!shown.IsOpen());
+    // 点按固定或收起，别处的点击、Esc、滚动、换页由 info_tips_ 收起（见 InfoTipHost.h），这里不自己开关。
+    button.Click([this](Inspectable const &sender, RoutedEventArgs const &) {
+      info_tips_.toggle(sender.as<FrameworkElement>());
     });
     return button;
   }
@@ -28334,6 +28366,8 @@ private:
   NavigationView navigation_{nullptr};
   bool mica_ = false;
   ScrollViewer scroll_{nullptr};
+  // 设置页「?」的说明气泡里点开固定的那一颗，收起点见 InfoTipHost.h。
+  msime::settings::ui::InfoTipPins info_tips_{};
   Border preview_host_{nullptr};
   Grid preview_frame_{nullptr};
   Border toolbar_preview_host_{nullptr};

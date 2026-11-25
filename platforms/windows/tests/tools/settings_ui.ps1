@@ -112,6 +112,7 @@ public static class SettingsWindowProbe {
 . (Join-Path $PSScriptRoot 'settings_wheel.ps1')
 . (Join-Path $PSScriptRoot 'settings_snapshot.ps1')
 . (Join-Path $PSScriptRoot 'settings_scheme_resources.ps1')
+. (Join-Path $PSScriptRoot 'settings_info_tip.ps1')
 $programPath = (Resolve-Path -LiteralPath $Program).Path
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $outputPath = (Resolve-Path -LiteralPath $OutputDirectory).Path
@@ -1363,6 +1364,7 @@ try {
     $defaults = [SettingsWindowProbe]::DefaultPreferences() | ConvertFrom-Json
     if (-not $defaults.ok) { throw 'Default preferences could not be loaded' }
     $themes = if ($InputOnly) { @('light') } else { @('light', 'dark') }
+    $infoTipChecked = $false
     foreach ($theme in $themes) {
         $preferences = $defaults.value
         $preferences.theme = $theme
@@ -1795,6 +1797,8 @@ try {
             Assert-PinyinAutocorrect $window $scheme
         }
         Assert-CanvasPreview $window $theme
+        # 「?」气泡的收起交互只在第一轮走一次：每轮要十几次真实鼠标点击，重复两轮只会拖长冒烟测试。
+        if (-not $infoTipChecked) { Assert-InfoTipDismissal $window; $infoTipChecked = $true }
         # 侧栏搜索照 macOS：有查询时页面列表整个换成结果列表，名字匹配的页面排在最前，设置行的第二行（读屏帮助文本）是「页 › 标签 › 分组」；查不到时写「没有匹配的设置」；Esc 清空查询，页面列表回来。
         $search = Find-ById $window 'settings-search'
         $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
