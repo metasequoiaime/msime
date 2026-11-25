@@ -37,6 +37,9 @@ public final class QuickDeleteUndoDeviceSmoke extends DeviceSmoke {
         tap(field(EDITOR));
         stage = "wait for delete key";
         await(key("⌫"));
+        // 全局中英模式会继承前面的套件（EnglishCorrectionDeviceSmoke 结束时停在英文）。英文模式下 `setup` 的 `setText` 重启连接后，输入法把光标前的「X」重新当成正在打的英文词，候选列多出 57 px 的英文词行；按下删除键删掉 X 后这一行收起，输入法窗口在同一次手势里变矮，系统按按下时的窗口位置换算后续坐标，上滑终点在删除键看来低了约 22 dp，够不到待命线，松手不清空。这里按出厂默认先切回中文，和结尾的普通输入回归一致。
+        stage = "start from Chinese mode";
+        selectChineseKeyboard();
         stage = "quick delete leaves following text";
         setup("合成😀内容X尾", 7);
         quickDelete();
