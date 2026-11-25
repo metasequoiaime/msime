@@ -9109,8 +9109,6 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
           show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
 #endif
       }
-      else if (s.rendered_view.is_object())
-        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
     } else {
       pointer_turn(engine);
       apply(engine, msime_client_select(s.session, generation, global_index));
