@@ -6969,6 +6969,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let snapshot = try CandidatePanelSnapshot.decode(allCandidates)
       guard !snapshot.entries.isEmpty else { return }
       let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
+      // 系统样式：面板从候选条那一行铺起，于是「展开」看起来是候选栏原地向下展开，不再多出一条候选。九键三栏面板不受影响。
+      let panelStyle = CandidatePanelStylePreference.style
+      let coversCompositionRow = panelStyle == .system && columns == nil
       let panel = KeyboardCandidatePanelView(
         candidates: candidatePanelTexts(snapshot), preedit: snapshot.preedit,
         annotations: candidatePanelAnnotations(snapshot),
@@ -6985,13 +6988,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           selectPanelCandidate(generation: snapshot.generation, globalIndex: snapshot.entries[index].index)
         },
         onClose: { [weak self] in self?.closeKeyboardPicker() },
+        style: panelStyle,
+        onHandwriting: { [weak self] in
+          guard let self else { return }
+          closeKeyboardPicker()
+          selectInputScheme(.handwriting)
+        },
+        onDelete: { [weak self] in self?.handleBackspace() },
         columns: columns.map { ($0.leading, $0.trailing) })
       candidatePanel = panel
       refreshDecorationWords()
       candidatePanelSnapshot = snapshot
       nineKeyPanelColumns = columns
       // 九键三栏面板和普通候选网格一样装在键区：上面的候选栏和读音留着，用户看得到选拼音、筛选之后读音和首选怎么变。
-      installPanel(panel)
+      installPanel(panel, coveringCompositionRow: coversCompositionRow)
       updateExpandRotation()
       updateNineKeyPanelColumns()
       // 收起时候选条只查了自己那一页的释义，网格里其余候选的释义在打开时补查，用的就是上面刚读出的这份完整列表。
@@ -10654,7 +10664,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   /// 在键区显示 `panel`：位于顶栏之下、按键之上，面板打开期间按键隐藏，透明面板就不会透出它们。工具栏留在上方且可操作，因为关面板靠的就是它的按钮。
   /// `keepsKeyTouches` 为真时键区只是看不见，按着的手指（按住空格说话）照常收到松开和移动；新的触摸落在面板上。
-  private func installPanel(_ panel: UIView, keepsKeyTouches: Bool = false) {
+  /// `coveringCompositionRow` 为真时面板从候选条那一行的顶边铺起，把候选条整行盖住；系统样式的展开正是候选栏原地向下展开，收起靠面板自己右列顶部的箭头。
+  private func installPanel(_ panel: UIView, keepsKeyTouches: Bool = false, coveringCompositionRow: Bool = false) {
     guard let root = keyboardRoot, let topRow = compositionContainer else { return }
     // 面板替换回复面板的方式与替换按键相同。
     if replyKeyboardShown { closeReplyKeyboard() }
@@ -10663,7 +10674,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     panel.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(panel)
     NSLayoutConstraint.activate([
-      panel.topAnchor.constraint(equalTo: topRow.bottomAnchor),
+      panel.topAnchor.constraint(equalTo: coveringCompositionRow ? topRow.topAnchor : topRow.bottomAnchor),
       panel.bottomAnchor.constraint(equalTo: root.bottomAnchor),
       panel.leadingAnchor.constraint(equalTo: root.leadingAnchor),
       panel.trailingAnchor.constraint(equalTo: root.trailingAnchor),

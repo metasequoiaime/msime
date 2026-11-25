@@ -813,6 +813,51 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertNil(CandidateTranslationPreference.secondary)
   }
 
+  /// 系统样式固定六列，卡片样式仍按 64pt 最小列宽自动分列。
+  func testTheSystemStyleKeepsSixColumnsOnEveryPhoneWidth() {
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 320), 4)
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 375), 5)
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 320, style: .system), 6)
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 375, style: .system), 6)
+    // 六列下注释不再把格子撑成两列，否则一页只放得下三个。
+    XCTAssertEqual(KeyboardCandidatePanelView.span(titleWidth: 30, annotated: true, columns: 6,
+                                                   columnWidth: 50, style: .system), 1)
+    XCTAssertEqual(KeyboardCandidatePanelView.span(titleWidth: 30, annotated: true, columns: 5,
+                                                   columnWidth: 70), 2)
+  }
+
+  /// 系统样式的面板带右侧窄列，首行候选与下面的格子同一条列线，整屏只有这一个列表。
+  func testTheSystemStylePanelDrawsOneAlignedListWithTheSideColumn() throws {
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["测试", "侧视", "侧室", "策士", "测", "策", "策", "侧"],
+      preedit: "ceshi", style: .system,
+      display: { $0 }, onSelect: { _ in }, onClose: {}, onHandwriting: {}, onDelete: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 375, height: 260)
+    panel.layoutIfNeeded()
+
+    let side = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelSideColumn" })
+    XCTAssertLessThan(side.bounds.width, 50, "窄列只占一条")
+    let collection = try XCTUnwrap(descendants(panel).compactMap { $0 as? UICollectionView }.first)
+    XCTAssertEqual(collection.convert(collection.bounds, to: panel).maxX, side.frame.minX, accuracy: 0.5,
+                   "网格止于窄列左边")
+
+    let chips = try (1...6).map { index in
+      try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-\(index)" } as? UIButton)
+    }
+    let frames = chips.map { $0.convert($0.bounds, to: collection) }
+    for frame in frames {
+      XCTAssertEqual(frame.minY, frames[0].minY, accuracy: 0.5, "首行六格同一行")
+      XCTAssertEqual(frame.width, frames[0].width, accuracy: 0.5, "六列等宽")
+    }
+
+    // 收起、手写、删除都在窄列里，候选条那一行由面板自己接管。
+    for identifier in ["closeCandidatePanel", "candidatePanelHandwriting", "candidatePanelDelete"] {
+      XCTAssertNotNil(descendants(side).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+    XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelSpelling" },
+                 "系统样式不画标题栏，拼写留在候选条上")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

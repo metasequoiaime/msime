@@ -22,6 +22,8 @@ struct CandidateOptionsSettingsView: View {
   private var cloudCandidates = false
   @AppStorage(CandidatePageSizePreference.key, store: CandidatePageSizePreference.defaults)
   private var pageSize = CandidatePageSizePreference.defaultSize
+  @AppStorage(CandidatePanelStylePreference.key, store: CandidatePanelStylePreference.defaults)
+  private var panelStyleRaw = CandidatePanelStylePreference.Style.card.rawValue
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
@@ -37,6 +39,11 @@ struct CandidateOptionsSettingsView: View {
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
+  private var panelStyle: Binding<CandidatePanelStylePreference.Style> {
+    Binding(get: { CandidatePanelStylePreference.Style(rawValue: panelStyleRaw) ?? .card },
+            set: { panelStyleRaw = $0.rawValue })
+  }
+
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
@@ -48,6 +55,12 @@ struct CandidateOptionsSettingsView: View {
           DesignSliderRow(title: "候选栏大小", info: "候选字和工具栏一起缩放，按键大小不变", value: scaleSlider,
                           range: Double(CandidateFontPreference.scaleRange.lowerBound)...Double(CandidateFontPreference.scaleRange.upperBound),
                           step: Double(CandidateFontPreference.scaleStep), identifier: "candidateScale") { "\(Int($0))%" }
+          DesignDivider()
+          // 展开面板的两种样子：卡片是原来那套按键式网格，系统样式六列铺满键区、候选栏原地向下展开。
+          DesignSelectRow(title: "展开候选样式",
+                          info: "卡片：按键式网格，候选条留在上方。系统样式：六列纯文字，点展开时候选栏原地向下展开",
+                          options: CandidatePanelStylePreference.options.map { DesignOption(title: $0.title, value: $0.style) },
+                          selection: panelStyle, identifier: "candidatePanelStyle")
         }
 
         DesignGroup(title: "字体") {
