@@ -118,8 +118,16 @@ pub fn import_positioned_table(
         .ok_or(PluginError::UnsupportedSource)?;
     let parent = source.parent().ok_or(PluginError::UnsupportedSource)?;
     // A .txt that is gone, a dangling symlink or a non-regular file is an unusable source, the same answer `import_from_settings` gives.
-    let bytes = super::read_file(parent, file_name, MAX_POSITIONED_TABLE_BYTES)
-        .map_err(|_| PluginError::UnsupportedSource)?;
+    if !std::fs::symlink_metadata(source).is_ok_and(|metadata| metadata.is_file()) {
+        return Err(PluginError::UnsupportedSource);
+    }
+    // 普通文件读不出或超过上限时说明原因，不报「只能导入文件夹或 .zip」。
+    let bytes = super::read_file(parent, file_name, MAX_POSITIONED_TABLE_BYTES).map_err(|_| {
+        PluginError::Invalid(format!(
+            "{file_name} 无法读取或超过 {} KiB",
+            MAX_POSITIONED_TABLE_BYTES / 1024
+        ))
+    })?;
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| PluginError::Invalid("码表须为 UTF-8 文本".into()))?;
     let mut phrases = Vec::new();
@@ -284,6 +292,22 @@ mod import_tests {
             import_positioned_table(&root, &folder),
             Err(PluginError::UnsupportedSource)
         ));
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn oversized_text_source_reports_the_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("plugins");
+        let source = directory.path().join("合成.txt");
+        let line = "ka か 7\n";
+        fs::write(
+            &source,
+            line.repeat(MAX_POSITIONED_TABLE_BYTES as usize / line.len() + 1),
+        )
+        .unwrap();
+        assert!(matches!(import_positioned_table(&root, &source),
+            Err(PluginError::Invalid(reason)) if reason.contains("256 KiB")));
         assert!(!root.exists());
     }
 
