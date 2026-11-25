@@ -5613,9 +5613,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         const auto light = [_appearance toolbarSkinForDark:NO];
         const auto dark = [_appearance toolbarSkinForDark:YES];
         MSIMEInputModeHUDPanel *hud = [MSIMEInputModeHUDPanel sharedPanel];
+        // 文字颜色不具名，换皮肤后才替换得进 `NSTextField`（#11869，见 `MSIMEInputModeHUDTextColor`）；底色和边框走图层颜色，不受同名判等影响。
         [hud setSurfaceColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDSurface", light.surface, dark.surface)
                  borderColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDBorder", light.border, dark.border)
-                   textColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDText", light.text, dark.text)];
+                   textColor:MSIMEInputModeHUDTextColor(SkinColor(light.text), SkinColor(dark.text))];
         [hud applySizingPreferences:@{@"show_app_logo": @(_appearance.showsAppLogo)}];
         [hud showText:text announcement:announcement nearCaretRect:caret];
     }
