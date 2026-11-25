@@ -16,7 +16,7 @@ Fcitx5 失焦时关闭 `HostSession`、聚焦时重建（`platforms/linux/fcitx5
 
 - **非输入会话不释放共享模型**：`crates/host-api/src/ffi/session.rs` 的 `create_session` 与 `crates/host-api/src/lib.rs` 的偏好重建里，预览会话和镜像会话只 `runtime.set_candidate_scorer(None)` 清掉自己的打分器；只有允许挂模型的输入会话关掉开关时才调 `keyboard_reranker(false, ...)` 释放进程缓存。
 - **热缓存命中不起线程**：`crates/host-api/src/ffi.rs` 新增 `cached_keyboard_reranker_for`、`OnnxRerankers::attach_cached` 与 `cached_bundled_keyboard_reranker`，只看已加载的重排器、已记下的超限结论和已量过的随包模型；能直接回答时 `load_keyboard_reranker` 返回预先填好的 `KeyboardRerankerSlot`，仍由 `apply_pending` 在输入空闲时换上（[逐键重排器在后台挂，不堵输入线程](2026-11-03-async-keyboard-reranker-attach.md)的契约不变）；还需要读盘或自测时照旧起后台线程。
-- **模型诊断进程级去重**：逐键重排器的 `(category, detail)`（比较时去掉末尾的 `" (shared)"`）与上一行相同时不再写，`RerankerMount::Off` 时清掉记录；落定重排模型按 `(category, detail, 模型文件的大小与修改时间)` 去重，`neural_desktop` 关闭时清掉记录。去重是进程级的：Windows server 和 macOS 输入法这类一个进程服务所有输入框的宿主上，第一个会话之后状态没变的会话不再各写一行。把文件的大小和修改时间放进键里，是因为资源包重装到同一个发布目录时路径不变，只按路径比会把换过的模型也藏掉。
+- **模型诊断进程级去重**：逐键重排器的 `(category, detail)`（比较时去掉末尾的 `" (shared)"`）与上一行相同时不再写，`RerankerMount::Off` 时清掉记录；落定重排模型按 `(category, detail, 模型文件的大小与修改时间)` 去重，`neural_desktop` 关闭时清掉记录。两份记录都按会话的资源目录（HostOptions 的 `resources`）分开记，开关关闭时也只清这个资源目录的那一条，同一进程里资源目录不同的会话互不冲掉对方的记录。去重是进程级的：Windows server 和 macOS 输入法这类一个进程服务所有输入框的宿主上，第一个会话之后状态没变的会话不再各写一行。把文件的大小和修改时间放进键里，是因为资源包重装到同一个发布目录时路径不变，只按路径比会把换过的模型也藏掉。
 
 ## Alternatives considered
 
@@ -32,4 +32,4 @@ Fcitx5 失焦时关闭 `HostSession`、聚焦时重建（`platforms/linux/fcitx5
 - 窗口间切换焦点时，只要模型已在进程缓存里，就不再起后台加载线程、不再重读模型文件，也不再写重复的 `settled model` / `keyboard reranker` 诊断行。
 - 预览会话、镜像会话不再让共享的 ONNX 模型被提前放掉。
 - 诊断行少了：之前每个会话都有一行，现在状态变化时才有一行。排障时看到的是最近一次状态变化，不是每个会话各自的状态。
-- 测试 `crates/host-api/src/tests/model_reload_dedup.rs` 覆盖热缓存预填槽且不起线程、镜像和预览会话不释放缓存、诊断去重、开关重开和同路径换模型后重新报告。为了断言「没有起线程」「没有走 `RerankerMount::Off`」，`load_keyboard_reranker` 和 `keyboard_reranker_for` 里留了 `#[cfg(test)]` 的线程局部计数器：这两件事没有别的可观测结果。
+- 测试 `crates/host-api/src/tests/model_reload_dedup.rs` 覆盖热缓存预填槽且不起线程、镜像和预览会话不释放缓存、诊断去重、开关重开和同路径换模型后重新报告。`SENTENCE_MODELS` 是容量 8 的进程级 LRU，整套 `cargo test -p msime-host-api` 并行跑时别的测试会把这里的随包模型挤出去，下一个会话只好重新起线程；随包模型的两段断言因此在起了线程时重新热身重跑（最多 20 轮），真回归每一轮都会起线程，照样失败。为了断言「没有起线程」「没有走 `RerankerMount::Off`」，`load_keyboard_reranker` 和 `keyboard_reranker_for` 里留了 `#[cfg(test)]` 的线程局部计数器：这两件事没有别的可观测结果。
