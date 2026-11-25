@@ -404,7 +404,30 @@ fn identical_model_diagnostics_are_deduplicated_and_reemitted_on_change_or_toggl
     assert_eq!(read(msime_client_destroy(third_attached))["ok"], true);
     assert_eq!(
         settled_model_lines(settled_root.path()),
-        [missing_line, attached_line.clone(), attached_line]
+        [
+            missing_line.clone(),
+            attached_line.clone(),
+            attached_line.clone()
+        ]
+    );
+
+    // 资源包重装到同一个发布目录：路径不变，文件的修改时间变了，下一个会话重新报告。
+    std::fs::File::options()
+        .write(true)
+        .open(&model)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000))
+        .unwrap();
+    let replaced = create_input_session(settled_root.path(), &desktop_on, json!({}));
+    assert_eq!(read(msime_client_destroy(replaced))["ok"], true);
+    assert_eq!(
+        settled_model_lines(settled_root.path()),
+        [
+            missing_line,
+            attached_line.clone(),
+            attached_line.clone(),
+            attached_line
+        ]
     );
 
     // 2. 逐键重排器（`"(shared)"` 后缀归一化与开关切换）。

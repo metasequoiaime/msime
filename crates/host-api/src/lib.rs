@@ -2894,7 +2894,15 @@ pub(crate) fn settled_model_file(
 #[derive(Default)]
 struct ModelDiagnosticDedup {
     keyboard_reranker: Option<(&'static str, String)>,
-    settled_model: Option<(&'static str, String)>,
+    settled_model: Option<(&'static str, String, ModelFileStamp)>,
+}
+
+/// 模型文件的大小和修改时间：资源包重装到同一个发布目录时路径不变，靠它区分换没换过文件。读不到元数据（文件不在）时为 `None`。
+type ModelFileStamp = Option<(u64, std::time::SystemTime)>;
+
+fn model_file_stamp(path: &Path) -> ModelFileStamp {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
 }
 
 fn model_diagnostic_dedup() -> std::sync::MutexGuard<'static, ModelDiagnosticDedup> {
@@ -2937,7 +2945,7 @@ pub(crate) fn reset_model_diagnostic_dedup() {
     *model_diagnostic_dedup() = ModelDiagnosticDedup::default();
 }
 
-/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写；连续相同的 `(category, detail)` 只报一次，直到状态变化或 `neural_desktop` 关闭后重开。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
+/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。去重是进程级的：类别、细节和模型文件的大小与修改时间（[`model_file_stamp`]）都与上一行相同时不再写，所以 Windows server 和 macOS 输入法这类一个进程服务所有输入框的宿主上，第一个会话之后状态没变的会话不再各写一行；同一路径上换了模型包、状态变化或 `neural_desktop` 关闭后重开时重新写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
 ///
 /// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的 `diagnostic.log` 和 Windows 的 `logs\server.log` 都只记冒号前的类别（写成 `host_api: <类别>`），路径只出现在没登记出口的 Linux stderr 里：
 /// - `settled model attached`：模型已加载并挂在会话上；
@@ -2965,20 +2973,14 @@ pub(crate) fn report_settled_model(
             format!("no absolute preferences_directory; resources {resources}"),
         ),
     };
+    let entry = (category, detail.clone(), model.and_then(model_file_stamp));
     let should_report = {
         let mut dedup = model_diagnostic_dedup();
-        if dedup
-            .settled_model
-            .as_ref()
-            .is_some_and(|(last_category, last_detail)| {
-                *last_category == category && last_detail == &detail
-            })
-        {
-            false
-        } else {
-            dedup.settled_model = Some((category, detail.clone()));
-            true
+        let repeated = dedup.settled_model.as_ref() == Some(&entry);
+        if !repeated {
+            dedup.settled_model = Some(entry);
         }
+        !repeated
     };
     if should_report {
         diagnostics::report(category, &detail);
