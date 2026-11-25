@@ -107,7 +107,7 @@ fn pack_letters(bytes: &[u8]) -> Option<u32> {
     Some(packed)
 }
 
-/// 在栈缓冲区上枚举 `syllable` 经单步编辑规则 `correction_type` 产生的所有变体（含重复项），避免中间堆分配。
+/// 在栈缓冲区上枚举 `syllable` 经单步编辑规则 `correction_type` 产生的所有变体（含重复项），避免中间堆分配（GEN:176-224）。
 fn for_each_rule_variant(syllable: &[u8], correction_type: u32, mut visit: impl FnMut(&[u8])) {
     let len = syllable.len();
     debug_assert!(len <= MAX_SYLLABLE_LENGTH);
@@ -173,7 +173,7 @@ fn for_each_rule_variant(syllable: &[u8], correction_type: u32, mut visit: impl 
     }
 }
 
-/// 生成单类纠错规则的排序 `(wrong, correct)` 列表；仅保留三到六字母且非合法音节的错键。
+/// 按参考生成器的产出方式生成单类纠错规则的排序 `(wrong, correct)` 列表（GEN:141-171, 270-285）；仅保留三到六字母且非合法音节的错键。
 ///
 /// 读不出来的两字母串另有一张表，见 `two_letter_table`。
 #[cfg(test)]
@@ -337,7 +337,7 @@ fn correction_weight(wrong: &str, correct: &str, enabled_bits: u32) -> i32 {
     correction_weight_bytes(wrong.as_bytes(), correct, enabled_bits)
 }
 
-/// 错键到候选目标的紧凑索引（不依赖 `correction_table` / `two_letter_table` 常驻表）；按权重顺序（乱序、漏键、多键、邻键）合并，重复映射按位或合入 `type_bits`。
+/// 错键到候选目标的紧凑索引（QU:599-637，不依赖 `correction_table` / `two_letter_table` 常驻表）；按权重顺序（乱序、漏键、多键、邻键）合并，重复映射按位或合入 `type_bits`。
 fn correction_index() -> &'static CompactCorrectionIndex {
     static INDEX: OnceLock<CompactCorrectionIndex> = OnceLock::new();
     INDEX.get_or_init(|| {
