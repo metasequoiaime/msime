@@ -268,6 +268,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationPackInstalled;
     private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
+    /** 当前这一页候选要为提示多留几行，按页记下（见 {@link CandidateHintRows}）。 */
+    private final CandidateHintRows candidateHintRows = new CandidateHintRows();
     private JSONObject candidatePronunciationSourceView;
     private JSONObject candidatePronunciationSourcePanel;
     private java.util.List<String> candidatePronunciationSourceSuggestions = java.util.List.of();
@@ -5260,7 +5262,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
         int reserved = CandidateTranslationPolicy.reservedRows(
             CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
-            CandidateHintRows.rows(this));
+            candidateHintRows.rows(this, candidatePronunciations, (wubiCodeHint ? 1 : 0)
+                | (candidateEnglishGloss || candidateTranslationsEnabled ? 2 : 0)
+                | (candidatePronunciationVisible() ? 4 : 0) | (koreanHanjaRows() ? 8 : 0)));
         imePanelLayout.applyTopBand(reserved, spellingHeaderReserved, inlineAutofill);
     }
 
