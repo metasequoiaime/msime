@@ -10,7 +10,6 @@ mod deferred_candidate_identity;
 mod desktop_helpcode_import;
 mod local_translation;
 mod mobile_clipboard_retention;
-mod model_reload_dedup;
 
 #[test]
 fn telemetry_test_origin_rejects_before_storage_or_network() {
@@ -19168,7 +19167,6 @@ fn capture_diagnostics() -> impl Drop {
     let serial = DIAGNOSTIC_SINK_SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    reset_model_diagnostic_dedup();
     msime_client_set_diagnostic_sink(Some(capture_diagnostic_line));
     Registered { _serial: serial }
 }

@@ -163,7 +163,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    // 开关开着时逐键重排器在后台挂（缓存已热时直接填入槽中，不起线程），挂好后由 `apply_pending` 在输入空闲时换上，见 `HostSession::keyboard_reranker_loading`；允许挂模型的输入会话关着开关时当场放开进程缓存，预览会话（`SessionUse::Preview`）和镜像会话（`!keyboard_reranker_allowed`）只清掉本会话的打分器，不卸载其他输入会话正在共用的模型。
+    // 开关开着时逐键重排器在后台挂，挂好后由 `apply_pending` 在输入空闲时换上，见 `HostSession::keyboard_reranker_loading`；关着时照旧当场放开。
     let keyboard_reranker_loading = if keyboard_reranker_allowed
         && keyboard_reranker_enabled(&applied.sentence_association, edition)
     {
@@ -176,7 +176,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
             sentence_model_path.as_deref(),
             pause_rerank,
         ))
-    } else if usage == SessionUse::Input && keyboard_reranker_allowed {
+    } else {
         runtime.set_candidate_scorer(keyboard_reranker(
             false,
             &options.resources,
@@ -186,9 +186,6 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
             state_root.as_deref(),
             sentence_model_path.as_deref(),
         ));
-        None
-    } else {
-        runtime.set_candidate_scorer(None);
         None
     };
     let keyboard_reranker_source = crate::ffi::onnx_rerank_source(
