@@ -1013,6 +1013,10 @@ impl InputSession {
                 _ => self.punctuation.clear_quote_undo(),
             }
             // With nothing composed every command is left to the host, which edits the text, moves the caret or inserts a newline, so the chain no longer ends where the host's text does.
+            // 组字已经空了（词刚上屏、宿主随后收尾）也是打开的五笔累积段的关闭点：先关闭计数再重置。退格和向后删除是在删刚上屏的字，这段不是用户要的文字，直接丢弃不计数。
+            if !matches!(command, Command::Backspace | Command::DeleteForward) {
+                self.close_open_wubi_run();
+            }
             self.chain.reset();
             return KeyResult::unhandled();
         }
@@ -2458,6 +2462,8 @@ impl InputSession {
             diagnostic = self.learn_rejected_correction();
         }
         self.reset_composition();
+        // 回车原文上屏同样收尾打开的五笔累积段，不能跟着 `chain.reset()` 一起无声消失。
+        self.close_open_wubi_run();
         self.chain.reset();
         KeyResult::committed(raw).with_diagnostic(diagnostic)
     }

@@ -1576,6 +1576,29 @@ pub struct WubiInputOptions {
     ///
     /// 与混输无关：混输里 `z` 是普通拼音字母，这里它是未知码位。两者都关时 `z` 不进码。
     pub z_wildcard: bool,
+    /// 五笔自造词落库时的初始权重档（`input.wubi_phrase_placement`）：`Bottom` 沉底（默认，同码
+    /// 已有行最小权重 −1，clamp 到 0..=9）、`Top` 置顶（同码已有行最大权重 + 1，各表独立算；之后照常参与调频，不是永远浮顶）。
+    pub wubi_phrase_placement: WubiPhrasePlacement,
+}
+
+/// 五笔自造词落库时的初始权重档；缺省 `Bottom`（现状语义）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WubiPhrasePlacement {
+    /// 沉底：同码已有行最小权重 −1，clamp 到 0..=9。
+    #[default]
+    Bottom,
+    /// 置顶：同码已有行最大权重 + 1（各表独立算），只管入库这一次，之后照常参与调频。
+    Top,
+}
+
+impl WubiPhrasePlacement {
+    /// `EngineOptions::wubi_phrase_placement` 的编码；不认识的值回退默认（`Bottom`）。
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Top,
+            _ => Self::Bottom,
+        }
+    }
 }
 
 /// 在线请求的输入语义；缺省沿用原有的拼音及方案转换路径。

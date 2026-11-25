@@ -16,7 +16,8 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
-    TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    TextConversion, WubiInputOptions, WubiPhrasePlacement, WubiProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{
     downloaded_wubi_pending, merge_downloaded_wubi, open_prepared_runtime_paths_for,
@@ -91,6 +92,8 @@ pub struct EngineOptions {
     pub wubi_profile: u8,
     /// 五笔方案里给五笔原生候选的注释附上完整五笔码（反查码）。只管显示，不影响候选的 `code` 字段，宿主照旧用它算剩余编码。宿主按共享偏好 `wubi_code_hint` 填：用户关掉「候选显示剩余编码」时，五笔候选旁不该再出现五笔码。拼音来的候选（混输拼音和 `z` 引导的临时拼音反查）附的是用拼音查到的五笔码，不是剩余编码，不受它管；`z` 通配查出的五笔候选也不受它管，那里的完整码回答的是 `z` 那一位是什么。默认开。
     pub wubi_reverse_code: bool,
+    /// 五笔自造词落库的初始权重档：0 沉底（`WubiPhrasePlacement::Bottom`），1 置顶（`Top`）；不认识的值按 0 读。
+    pub wubi_phrase_placement: u8,
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
     pub strict_quanpin_helpcode: bool,
@@ -306,6 +309,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         wubi_reverse_code: true,
+        wubi_phrase_placement: 0,
         helpcode: true,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
@@ -526,6 +530,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             mixed_pinyin: options.wubi_mixed_pinyin,
             z_wildcard: options.wubi_z_wildcard,
             profile: wubi_profile,
+            wubi_phrase_placement: WubiPhrasePlacement::from_u8(options.wubi_phrase_placement),
         },
         // 桥接层从没把它交给宿主（api-contract §1a），产品一直按开。
         personal_context: true,

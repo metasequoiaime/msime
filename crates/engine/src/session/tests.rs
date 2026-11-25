@@ -15609,5 +15609,6 @@ mod offensive_placement;
 mod prediction_pool;
 mod raw_commit;
 mod super_jianpin_slash;
+mod wubi_run;
 
 mod cantonese_output;

@@ -1231,6 +1231,9 @@ impl Session {
 /// The C++ registered `PersonalNgramStore::flush_all` with `atexit` (personal_ngram_store.cpp:255), so context learned in the last ~2 s reached the journal when the host quit. Rust runs no destructors for statics and `atexit` needs unsafe, so the session writes its journal's queue as it ends, which hosts do on deactivation and shutdown. A host that can exit without dropping its sessions (macOS `[NSApp terminate:]` runs `exit()`) calls [`crate::flush_personal_learning`] (host-api's `msime_client_flush_all`) or [`crate::shutdown`] from its will-terminate hook instead.
 impl Drop for Session {
     fn drop(&mut self) {
+        // 会话结束是打开的五笔累积段的最后一个关闭点：先关闭计数（凑满阈值即落库），learn 写进
+        // 队列的记录随下面的刷盘一起持久化。
+        self.input.close_open_wubi_run();
         // Nobody is left to report to: a failed write stays queued and flagged in the store, and the next record reports it and schedules another try.
         let _ = flush_journal(&self.journal);
         // A host thread whose sessions are gone (a quiesced IME, a closed window) holds no journal handle.

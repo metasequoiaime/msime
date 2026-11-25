@@ -1808,7 +1808,8 @@ mod tests {
         assert!(crate::user_dictionary::wubi_learning::learn(
             &paths,
             "甲乙",
-            crate::WubiProfileKind::Wubi86
+            crate::WubiProfileKind::Wubi86,
+            crate::types::WubiPhrasePlacement::Bottom
         )
         .unwrap());
         let listed = || {
@@ -1837,7 +1838,8 @@ mod tests {
         assert!(crate::user_dictionary::wubi_learning::learn(
             &paths,
             "甲乙",
-            crate::WubiProfileKind::Wubi86
+            crate::WubiProfileKind::Wubi86,
+            crate::types::WubiPhrasePlacement::Bottom
         )
         .unwrap());
         assert_eq!(listed(), vec![derived.clone()]);
