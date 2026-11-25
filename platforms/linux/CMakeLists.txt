@@ -8,7 +8,7 @@ endif()
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
 include(cmake/Edition.cmake)
-# GNOME Shell 候选框矩形扩展的 UUID 与 D-Bus 名按版本区分：六个版本能同时安装，固定名字会让它们的包争同一组文件。full 保持无后缀，与其它按名字查找的文件一致。
+# GNOME Shell 候选右键菜单扩展的 UUID 与 D-Bus 名按版本区分：六个版本能同时安装，固定名字会让它们的包争同一组文件。full 保持无后缀，与其它按名字查找的文件一致。
 if(MSIME_EDITION_IS_FULL)
   set(MSIME_POINTER_EXTENSION_UUID "msime-pointer@msime")
   set(MSIME_POINTER_BUS_NAME "org.msime.Pointer")
@@ -62,7 +62,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/core" "${CMAKE_CURRENT_SOUR
 set(MSIME_IBUS_MIN_VERSION "1.5.20" CACHE STRING "Oldest IBus the host builds against and the packages depend on")
 set(MSIME_PYTHON_MIN_VERSION "3.9" CACHE STRING "Oldest Python 3 the packages depend on for the installed scripts")
 pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0>=${MSIME_IBUS_MIN_VERSION})
-# GNOME Shell 候选框矩形扩展的 D-Bus 查询：IBus 本身已依赖 gio-2.0，这里显式声明供助手和契约测试链接。
+# GNOME Shell 候选右键菜单扩展的 D-Bus 调用：IBus 本身已依赖 gio-2.0，这里显式声明供助手和契约测试链接。
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
@@ -153,7 +153,7 @@ add_library(msime-ibus-host STATIC
   src/core/ClientEngine.cpp src/system/DiagnosticLog.cpp src/system/ChineseTextConversion.cpp src/system/CapsLockRelease.cpp src/overlay/WaveOverlayIbusSurface.cpp
   src/overlay/WaveOverlaySurfaceFactory.cpp src/candidates/GnomePointer.cpp)
 target_compile_options(msime-ibus-host PRIVATE -Wall -Wextra -Werror)
-# 指针助手查询的扩展 D-Bus 名随版本；契约测试不设这个宏，用默认的无后缀名加注入总线名。
+# 扩展的 D-Bus 名随版本；契约测试不设这个宏，用默认的无后缀名加注入总线名。
 target_compile_definitions(msime-ibus-host PRIVATE MSIME_POINTER_BUS_NAME="${MSIME_POINTER_BUS_NAME}")
 target_include_directories(msime-ibus-host PUBLIC src src/core src/candidates src/clipboard src/providers src/voice src/overlay src/system src/entrypoints ../../crates/host-api/include)
 # ClientEngine.cpp 用到 pthread，由这个库自己公开声明，链接它的可执行文件不必各自补 `Threads::Threads`。glibc 2.34 之前 pthread 不在 libc 里，漏掉就只在 Debian 10 这类旧系统上链接失败（#7849 新加的 ibus-mode-hint-lifecycle 就是这样）。
@@ -851,9 +851,7 @@ endforeach()
 install(PROGRAMS scripts/msime-linux-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-linux-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES scripts/msime_clipboard_cloud.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
-# GNOME Shell 候选框矩形扩展：只随包装、不替用户启用。没启用时宿主拿不到 org.msime.Pointer，
-# 右键候选时在辅助区域显示快捷键提示。GNOME 45 之前用旧扩展格式，这里只装 ESM 版本。UUID 与
-# D-Bus 名按版本生成，full 无后缀；系统按名字查找的这个文件装到系统数据目录，各版本不争同一路径。
+# GNOME Shell 候选右键菜单扩展：只随包装、不替用户启用。没启用时宿主拿不到 org.msime.Pointer，右键候选时在辅助区域显示快捷键提示。GNOME 45 之前用旧扩展格式，这里只装 ESM 版本。UUID 与 D-Bus 名按版本生成，full 无后缀；系统按名字查找的这个文件装到系统数据目录，各版本不争同一路径。
 set(MSIME_POINTER_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/gnome-shell-extension/${MSIME_POINTER_EXTENSION_UUID}")
 file(MAKE_DIRECTORY "${MSIME_POINTER_STAGE_DIR}")
 configure_file(gnome-shell-extension/msime-pointer@msime/metadata.json.in "${MSIME_POINTER_STAGE_DIR}/metadata.json" @ONLY)
@@ -1454,7 +1452,7 @@ if(BUILD_TESTING)
   target_include_directories(linux-floating-panels-model-test PRIVATE src)
   target_link_libraries(linux-floating-panels-model-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-floating-panels-model COMMAND linux-floating-panels-model-test)
-  # GNOME 指针助手：没有会话总线的构建环境跳过（77），有总线时用假服务验证坐标与缺服务回退。
+  # GNOME 扩展菜单的 D-Bus 助手：没有会话总线的构建环境跳过（77），有总线时用假服务验证菜单推送、收起与缺服务时失败。
   add_executable(linux-gnome-pointer-dbus-test tests/runtime/gnome_pointer_dbus.cpp src/candidates/GnomePointer.cpp)
   target_compile_features(linux-gnome-pointer-dbus-test PRIVATE cxx_std_17)
   target_compile_options(linux-gnome-pointer-dbus-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)

@@ -654,7 +654,7 @@ struct State {
   bool mode_hint_after_focus = false;
   uint64_t mode_hint_focus_id = 0;
 #endif
-  // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
+  // 辅助区域的一次性提示（右键菜单弹不出来时的快捷键提示、朗读失败等）。代次用于丢弃过期的恢复回调。
   uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
@@ -1532,7 +1532,7 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   return removed;
 }
 State &state(IBusEngine *engine);
-// 辅助区域的短暂提示，约 1.5 秒后恢复页码；`message` 为空时是右键候选时那句「请在「候选操作」菜单中…」。
+// 辅助区域的短暂提示，约 1.5 秒后恢复页码；`message` 为空时是右键菜单弹不出来时的候选维护快捷键提示。
 void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message = {});
 // Shared by every engine in this process: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch typing_statistics_switch{msime_client_typing_statistics_enabled};
@@ -8852,7 +8852,7 @@ struct CandidateMenuHintNotice {
   uint64_t session;
   uint64_t generation;
 };
-// 辅助区域的一次性提示：朗读失败、加入生词本的结果等。右键候选的操作本身由「候选操作」属性菜单承担，快捷键已标在菜单项上，不再往这里弹提示。
+// 辅助区域的一次性提示，约 1.5 秒后恢复页码：朗读失败、加入生词本的结果等。不带文案时是右键菜单弹不出来（GNOME 扩展没启用、连不上 X）的回退，列出候选维护的四组快捷键（CandidateActionPolicy.h）。
 //
 // 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。这个回调同样没有 `guarded()` 兜底，读 `s.view` 之前先确认它是对象，理由同输入模式提示（#6675）。
 void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message) {
@@ -8863,7 +8863,7 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std
   ibus_engine_update_auxiliary_text(
       engine,
       message.empty()
-          ? ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选")
+          ? ibus_text_new_from_static_string(msime::linux_host::candidate_maintenance_shortcut_hint)
           : ibus_text_new_from_string(message.c_str()),
       TRUE);
   auto *notice = new CandidateMenuHintNotice{engine, s.alive, s.candidate_menu_hint_id,
@@ -8925,10 +8925,10 @@ void sync_candidate_menu_watch(IBusEngine *engine) {
 }
 
 // 右键打开自绘菜单：条目可用性由 candidate_menu_items 算，配色与悬浮工具栏同一主题；
-// 连不上 X（Xwayland 也不可用）时退回 show_candidate_menu_hint 的提示条。动作在
+// 连不上 X（Xwayland 也不可用）时返回 false，调用方退回 show_candidate_menu_hint 的提示条。动作在
 // show 时按本页高亮行的 identity 绑定，回调时核对会话与渲染代次，落进与面板属性
 // 菜单同一组 msime_client_* 命令。
-void show_candidate_menu(IBusEngine *engine, const Json &candidate,
+bool show_candidate_menu(IBusEngine *engine, const Json &candidate,
                          msime::linux_host::CandidateMenuAnchor anchor) {
   auto &s = state(engine);
   if (!s.candidate_menu_surface)
@@ -8938,7 +8938,7 @@ void show_candidate_menu(IBusEngine *engine, const Json &candidate,
   const auto session = s.session;
   const auto id = candidate.value("id", Json::object());
   if (!id.is_object())
-    return;
+    return false;
   const auto generation = id.value("generation", uint64_t{0});
   const auto index = id.value("index", size_t{0});
   auto items = msime::linux_host::candidate_menu_items(
@@ -8984,8 +8984,9 @@ void show_candidate_menu(IBusEngine *engine, const Json &candidate,
       // 收起后的通知（点外、选择或会话出口 hide）：挂/卸显示连接监听。
       [engine] { sync_candidate_menu_watch(engine); });
   if (!shown)
-    return;
+    return false;
   sync_candidate_menu_watch(engine);
+  return true;
 }
 #endif  // MSIME_LINUX_FLOATING_PANELS
 
@@ -9079,7 +9080,7 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
           // GNOME Shell 把候选框画成合成器 actor，压在所有 X11 客户端窗口之上：宿主自绘
           // 浮层躲不开遮挡。改由扩展画菜单；条目（文案、顺序、禁用）仍只来自 C++ 的
           // candidate_menu_items，点击由扩展原样回传 action_name，走 property_activate
-          // 的 session/generation/identity 校验。扩展未启用或超时就不弹菜单，快捷键照用。
+          // 的 session/generation/identity 校验。扩展未启用（随包安装、不替用户启用）或超时就在辅助区域提示快捷键。
           const auto items = msime::linux_host::candidate_menu_items(
               entry.value("text", std::string{}), true,
               static_cast<uint8_t>(entry.value("fixed_position", 0)));
@@ -9092,21 +9093,23 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
                                     "", s.session, generation, global_index)
                                     .substr(1);
           if (!msime::linux_host::shell_show_candidate_menu(token.c_str(), identity.c_str(),
-                                                             wire))
+                                                             wire)) {
+            show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
             return;
+          }
           s.candidate_menu_token = token;
           return;
         }
 #ifdef MSIME_LINUX_FLOATING_PANELS
         // 纯 X11 会话右键就在 IBus 面板的候选行上，show() 取本机指针；KDE Plasma、sway 这类 Wayland 会话里 Xwayland 的指针坐标是陈旧的，改按 IBus 上报的光标矩形摆（CandidateMenuPlacement.h）。
         const char *wayland = std::getenv("WAYLAND_DISPLAY");
-        show_candidate_menu(engine, entry,
-                            msime::linux_host::candidate_menu_anchor(
-                                wayland && *wayland, engine->cursor_area.x, engine->cursor_area.y,
-                                engine->cursor_area.width, engine->cursor_area.height));
-#else
-        if (s.rendered_view.is_object())
+        if (!show_candidate_menu(engine, entry,
+                                 msime::linux_host::candidate_menu_anchor(
+                                     wayland && *wayland, engine->cursor_area.x, engine->cursor_area.y,
+                                     engine->cursor_area.width, engine->cursor_area.height)))
           show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
+#else
+        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
 #endif
       }
     } else {

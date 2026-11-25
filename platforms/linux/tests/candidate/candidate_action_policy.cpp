@@ -59,4 +59,8 @@ int main() {
          "固定到第 5 位 (Ctrl+Shift+5)");
   assert(std::string(msime::linux_host::candidate_clear_fix_label_with_shortcut) == "取消固定 (Ctrl+0)");
   assert(std::string(msime::linux_host::candidate_remove_label_with_shortcut) == "删除 (Ctrl+Del)");
+  // 右键菜单弹不出来时的提示列出全部四组按键。
+  const std::string hint = msime::linux_host::candidate_maintenance_shortcut_hint;
+  for (const char *chord : {"Ctrl+↑", "Ctrl+1–5", "Ctrl+0", "Ctrl+Del"})
+    assert(hint.find(chord) != std::string::npos);
 }
