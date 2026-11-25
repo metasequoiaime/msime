@@ -419,6 +419,7 @@ impl InputSession {
                 word: selected.word.to_string(),
                 committed_at: self.steady_now(),
                 pieces: Vec::new(),
+                overflowed: false,
             });
         // Recording the context has already ended the chain for a commit that does not follow the previous one.
         if opens_composition {

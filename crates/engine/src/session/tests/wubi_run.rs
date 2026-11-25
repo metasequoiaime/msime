@@ -326,13 +326,13 @@ fn wubi_run_splits_on_gap_and_caps_length() {
         ("abab", "甲乙"),
     ];
     close_wubi_run_round(&mut session, &clock, &seven, ("abab", "甲乙"));
-    // 第 7 个片段超出 12 字上限，前 6 个片段（12 字）先关闭记一次计数；超长段不整段计数。固定三次阈值下这次计数不落库。
+    // 第 7 个片段放不下（超出 12 字上限），整段作废：前 6 个片段（12 字）不在上限处切出来计数，超长段也不整段计数。
     assert_eq!(
         count(
             &fixture.journal(),
-            "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙丙丁甲乙丙丁甲乙丙丁'"
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙丙丁甲乙丙丁甲乙丙丁'"
         ),
-        1
+        0
     );
     assert_eq!(
         count(
@@ -347,6 +347,58 @@ fn wubi_run_splits_on_gap_and_caps_length() {
             "SELECT count(*) FROM wubi86 WHERE value='甲乙丙丁甲乙丙丁甲乙丙丁甲乙'"
         ),
         0
+    );
+}
+
+/// 中间没有关闭点地连打超过 12 字，整段作废到下一个关闭点：在上限处截出来的前半段（甲乙丙丁甲乙丙丁甲乙丙丁）和溢出后接着打的片段（甲乙丙丁）都不计数，同样的长句打三遍也学不出在任意位置截断的词；间隔超过 10s 之后的新段照常计数。
+#[test]
+fn wubi_run_overflow_poisons_the_run_until_the_next_close_point() {
+    let fixture = Fixture::new(WUBI_RUN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    let clock = TestClock::install(&mut session);
+    let eight = [
+        ("abab", "甲乙"),
+        ("cdcd", "丙丁"),
+        ("abab", "甲乙"),
+        ("cdcd", "丙丁"),
+        ("abab", "甲乙"),
+        ("cdcd", "丙丁"),
+        ("abab", "甲乙"),
+        ("cdcd", "丙丁"),
+    ];
+    for _ in 0..3 {
+        close_wubi_run_round(&mut session, &clock, &eight, ("abab", "甲乙"));
+    }
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM pick_transitions WHERE previous_key='wubi-run'"
+        ),
+        0
+    );
+    for word in ["甲乙丙丁甲乙丙丁甲乙丙丁", "甲乙丙丁"] {
+        assert_eq!(
+            count(
+                &fixture.main_db(),
+                &format!("SELECT count(*) FROM wubi86 WHERE value='{word}'")
+            ),
+            0,
+            "{word}"
+        );
+    }
+    // 作废只到关闭点为止：间隔超过 10s 后打的新段照常计数。
+    close_wubi_run_round(
+        &mut session,
+        &clock,
+        &[("abab", "甲乙"), ("abab", "甲乙")],
+        ("abab", "甲乙"),
+    );
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count FROM pick_transitions WHERE previous_key='wubi-run' AND key='甲乙甲乙'"
+        ),
+        1
     );
 }
 

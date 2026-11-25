@@ -23,7 +23,7 @@ Status: implemented
 
 - `Pick` 带 `pieces: Vec<u8>`（每片段字数）。拼音 pick 恒为空；五笔段以 `pieces` 非空 + `canonical_pinyin` 为空双标记，与拼音 pick 共用 `chain.last_pick` 不串扰。
 - `commit.rs` 的五笔 early-return 分支（把 `last_pick` 置 None 的那路）在选择满足五笔原生候选、本地模式关、学习开、个人上下文开、全汉字、1..=12 字时调 `note_wubi_pick`，把这次上屏记为一个片段。
-- 累积窗：与上一次上屏间隔 ≤10s（沿用 `PICK_PAIR_MAX_GAP_SECONDS`）续段；整段 ≤12 字（`MAX_WUBI_RUN_CHARS`）、≤8 片段（`MAX_WUBI_RUN_PIECES`）；超限或间隔超时先「关闭」旧段再开新段。
+- 累积窗：与上一次上屏间隔 ≤10s（沿用 `PICK_PAIR_MAX_GAP_SECONDS`）续段；整段 ≤12 字（`MAX_WUBI_RUN_CHARS`）、≤8 片段（`MAX_WUBI_RUN_PIECES`）；间隔超时先「关闭」旧段再开新段；放不下下一片段（超限）时整段作废（`Pick::overflowed`），后续片段继续并进这个作废段，直到下一个关闭点或 >10s 间隔都不计数（2026-11-25 审查改动：原先在上限处关闭并计数前半段，上限落在句子中间，截出来的是半句话）。
 - **只在整段关闭时按整段全文计数**，绝不把「中国」「中国共」这类前缀记成词：写 `pick_transitions` 表，哨兵 `previous_key = previous_value = "wubi-run"`（拼音凑对键全是 `[a-z]` 规范拼音，含连字符的哨兵不冲突；`previous_value` 不留空，空串过不了 `habit_is_storable`，本地备份导出时会整行跳过这些计数，2026-11-24 审查时改正）、`key = value = 整段词`。
 - 素材规则：每个片段 = 一次五笔选择上屏的文本（单字或已有词），全汉字；**整段 >4 字时任一片段为单字 → 整段不学**（>4 字的词不允许拿单字当素材，防垃圾组合）；≤4 字不限。单片段段不计数。
 - **关闭点不止「下一次五笔上屏」**（2026-11-18 实机验收补齐）：打开的段在组字与会话的各关闭点由 `close_open_wubi_run` 收尾——宿主 flush 组字（`finish_composition` 尾部，焦点移动/宿主自行插入文本）、回车原文（`commit_raw` 与 `handle_command` 的空组字分支——组字已空时 CommitRaw 到不了 `commit_raw`，直接 `chain.reset()`，这是实机上「打完词停手」最常见的路径）、无选中上屏（`commit_selection` 的 `None` 分支）、material-false 早退（早退前取走的段要先放回再收尾；2026-11-24 审查前这里直接清掉，段后接一次非汉字五笔行、表情或快捷短语上屏时整段无声丢失）、光标后编辑（`consume_caret_prefix`）、个人上下文重置（`record_personal_context` 三处）、会话丢弃（`Session::drop`，关段先于刷盘）。五笔段关闭计数（凑满阈值即落库），拼音 pick 原样放回维持既有语义。空组字分支里的退格与向后删除不是关闭点：用户在删刚上屏的字，这段不是要留下的文字，直接丢弃不计数（2026-11-24 审查时改正）。caret prefix 只认拼音单元，五笔会话走不到 `consume_caret_prefix` 的取走路径，接线只为防御。

@@ -649,10 +649,7 @@ impl InputSession {
         None
     }
 
-    /// 组字与会话的关闭点（宿主 flush 组字、回车原文、无选中上屏、光标后编辑、上下文重置、会话
-    /// 丢弃）共用的收尾：打开的段是五笔段（`pieces` 非空且 `canonical_pinyin` 为空，与
-    /// `continues_wubi_run` 的判定一致）就关闭计数，凑满 `PICK_PAIR_WORD_THRESHOLD` 即落库；
-    /// 拼音 pick 原样放回，让调用方维持既有的丢弃语义。重复调用无副作用（段已空时直接返回）。
+    /// 组字与会话的关闭点（宿主 flush 组字、回车原文、无选中上屏、光标后编辑、上下文重置、会话丢弃）共用的收尾：打开的段是五笔段（`pieces` 非空且 `canonical_pinyin` 为空，与 `is_wubi_run` 的判定一致）就关闭计数，凑满 `PICK_PAIR_WORD_THRESHOLD` 即落库，已作废的段在这里丢弃；拼音 pick 原样放回，让调用方维持既有的丢弃语义。重复调用无副作用（段已空时直接返回）。
     pub(super) fn close_open_wubi_run(&mut self) {
         let Some(open) = self.chain.last_pick.take() else {
             return;
@@ -664,21 +661,30 @@ impl InputSession {
         let _ = self.close_wubi_run(&open);
     }
 
-    /// 把一次五笔原生上屏记成累积段的一个片段（`commit.rs` 的 early-return 分支调用）：与上一片段
-    /// 间隔 ≤10s、合并 ≤12 字且片段数 <8 就续段；否则先关闭上一段（凑满阈值即落库），再以本片段
-    /// 开新段。无论哪条路都把新段写回 `chain.last_pick`。返回需要合并进上屏结果的诊断。
+    /// 把一次五笔原生上屏记成累积段的一个片段（`commit.rs` 的 early-return 分支调用）：与上一片段间隔 ≤10s 时，合并 ≤12 字且片段数 <8 就续段，放不下就把整段作废（`overflowed`），作废的段继续吞掉后面的片段，直到下一个关闭点或 >10s 的间隔才重新开段；间隔 >10s 时先关闭上一段（凑满阈值即落库），再以本片段开新段。不在上限处切开再计前半段，是因为上限落在句子中间，切出来的前半段是在任意位置截断的半句话，同样的套话打三遍就会被学成词。无论哪条路都把新段写回 `chain.last_pick`。返回需要合并进上屏结果的诊断。
     pub(super) fn note_wubi_pick(&mut self, word: &str, now: Instant) -> Option<String> {
         let open = self.chain.last_pick.take();
         let mut diagnostic = None;
         let run = match open.as_ref() {
-            Some(previous) if Self::continues_wubi_run(previous, word, now) => {
-                let mut pieces = previous.pieces.clone();
-                pieces.push(count_utf8_chars(word) as u8);
-                super::chain::Pick {
-                    canonical_pinyin: String::new(),
-                    word: join_words(&previous.word, word),
-                    committed_at: now,
-                    pieces,
+            Some(previous)
+                if Self::is_wubi_run(previous) && Self::within_wubi_gap(previous, now) =>
+            {
+                if previous.overflowed || !Self::fits_wubi_run(previous, word) {
+                    super::chain::Pick {
+                        committed_at: now,
+                        overflowed: true,
+                        ..previous.clone()
+                    }
+                } else {
+                    let mut pieces = previous.pieces.clone();
+                    pieces.push(count_utf8_chars(word) as u8);
+                    super::chain::Pick {
+                        canonical_pinyin: String::new(),
+                        word: join_words(&previous.word, word),
+                        committed_at: now,
+                        pieces,
+                        overflowed: false,
+                    }
                 }
             }
             Some(previous) => {
@@ -691,14 +697,20 @@ impl InputSession {
         diagnostic
     }
 
-    /// 上一片段能否续进当前段：上一段是五笔段（`pieces` 非空且 `canonical_pinyin` 为空，拼音 pick
-    /// 不可能两者同时成立）、间隔 ≤10s、合并后 ≤12 字且片段数 <8。
-    fn continues_wubi_run(previous: &super::chain::Pick, word: &str, now: Instant) -> bool {
-        !previous.pieces.is_empty()
-            && previous.canonical_pinyin.is_empty()
-            && now.saturating_duration_since(previous.committed_at)
-                <= Duration::from_secs(PICK_PAIR_MAX_GAP_SECONDS)
-            && count_utf8_chars(&previous.word) + count_utf8_chars(word) <= MAX_WUBI_RUN_CHARS
+    /// 打开的 pick 是不是五笔段：`pieces` 非空且 `canonical_pinyin` 为空，拼音 pick 不可能两者同时成立。
+    fn is_wubi_run(previous: &super::chain::Pick) -> bool {
+        !previous.pieces.is_empty() && previous.canonical_pinyin.is_empty()
+    }
+
+    /// 与上一片段的间隔 ≤10s，下一片段仍属于这一段（续进去或让它作废）。
+    fn within_wubi_gap(previous: &super::chain::Pick, now: Instant) -> bool {
+        now.saturating_duration_since(previous.committed_at)
+            <= Duration::from_secs(PICK_PAIR_MAX_GAP_SECONDS)
+    }
+
+    /// 下一片段放得进这一段：合并后 ≤12 字且片段数 <8。
+    fn fits_wubi_run(previous: &super::chain::Pick, word: &str) -> bool {
+        count_utf8_chars(&previous.word) + count_utf8_chars(word) <= MAX_WUBI_RUN_CHARS
             && previous.pieces.len() < MAX_WUBI_RUN_PIECES
     }
 
@@ -708,15 +720,14 @@ impl InputSession {
             word: word.to_owned(),
             committed_at: now,
             pieces: vec![count_utf8_chars(word) as u8],
+            overflowed: false,
         }
     }
 
-    /// 关闭一个五笔累积段：不足两个片段、超上限、或 >4 字段里混着单字片段的段不计数；否则按整段
-    /// 全文记 `pick_transitions`（哨兵 previous_key），凑满 `PICK_PAIR_WORD_THRESHOLD`（3 次，与拼音凑对同一个阈值）时经
-    /// `wubi_learning::learn` 落库并清计数。日志与落库失败用拼音凑对同一组诊断码；计数留着让下一次
-    /// 同段的出现重试。
+    /// 关闭一个五笔累积段：已作废（`overflowed`）、不足两个片段、超上限、或 >4 字段里混着单字片段的段不计数；否则按整段全文记 `pick_transitions`（哨兵 previous_key），凑满 `PICK_PAIR_WORD_THRESHOLD`（3 次，与拼音凑对同一个阈值）时经 `wubi_learning::learn` 落库并清计数。日志与落库失败用拼音凑对同一组诊断码；计数留着让下一次同段的出现重试。
     pub(super) fn close_wubi_run(&mut self, run: &super::chain::Pick) -> Option<String> {
-        if run.pieces.len() < 2
+        if run.overflowed
+            || run.pieces.len() < 2
             || run.pieces.len() > MAX_WUBI_RUN_PIECES
             || count_utf8_chars(&run.word) > MAX_WUBI_RUN_CHARS
             || (count_utf8_chars(&run.word) > MAX_PICK_PAIR_WORD_CHARS

@@ -14,6 +14,8 @@ pub struct Pick {
     pub committed_at: Instant,
     /// 每个片段的字数。拼音 pick 恒空；五笔累积段非空（连同空的 `canonical_pinyin` 一起标记这是五笔段）。
     pub pieces: Vec<u8>,
+    /// 五笔累积段放不下下一片段（超过字数或片段数上限）时作废：此后直到关闭点或 >10s 的间隔都不计数。拼音 pick 恒为 false。
+    pub overflowed: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -77,6 +79,7 @@ mod tests {
             word: "你".to_owned(),
             committed_at: now,
             pieces: Vec::new(),
+            overflowed: false,
         });
         chain.reset();
         assert!(chain.previous.is_none() && chain.earlier.is_none());
