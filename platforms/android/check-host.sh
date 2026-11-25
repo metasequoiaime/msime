@@ -6,6 +6,11 @@ if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) is required by the Android host contract checks" >&2
   exit 1
 fi
+# 下面那一半才是这个宿主的大头：服务、键盘、面板和二十几个策略类都要对着 SDK 的 android.jar 编译，它们的冒烟要在一个桌面 JVM 上跑。只有 JRE 不够，而 macOS 的 `/usr/bin/java` 只是个会打印 "Unable to locate a Java Runtime" 的桩：没有这段前置检查时，第一次 `java` 调用会在几千行之后被 `set -e` 带走，什么也看不到（#11886）。所以在跑一堆检查之前就失败，而不是跑完才失败。
+if ! javac -version >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
+  echo "platforms/android/check-host.sh needs a working JDK (javac and java, not macOS's /usr/bin stubs); add one to PATH, for example PATH=\"\$HOME/opt/openjdk/bin:\$PATH\"" >&2
+  exit 1
+fi
 # 管道下游的 `rg -q` 一律换成它：先把标准输入整个读完，再交给 `rg -q` 判断。`rg -q` 读到第一处命中就退出，上游的 printf、sed 或 rg 若还有没写完的输出，再写就收到 SIGPIPE（`printf: write error: Broken pipe`），在 pipefail 下整条管道返回失败，于是同一份源码时过时不过，取决于上游分几次写、下游何时退出。变量本身直接用 here-string（`rg -q pattern <<< "$var"`），不用经过管道。scripts/test-gate-pipe-early-exit.py 会拦下新写的 `| rg -q`。
 rg_q_stdin() {
   local input
