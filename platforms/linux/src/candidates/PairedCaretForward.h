@@ -1,5 +1,7 @@
 #pragma once
 
+#include <linux/input-event-codes.h>
+
 #include <vector>
 
 namespace msime::linux_host {
@@ -11,6 +13,9 @@ struct PairedCaretForward {
 
   constexpr bool defer() const { return wayland_session && shift_held; }
 };
+
+// 转发方向键用的扫描码。IBus 的 keycode 是 evdev 扫描码，客户端自己再加 8 换成 XKB keycode（`process_key` 收到的也是 evdev 码，见 TypingStatistics.h），所以直接用 `KEY_LEFT`（105）、`KEY_RIGHT`（106）；不再从 IBus 的 us 键位表查，那个文件缺失时会回落到 0，客户端不认，正是这里要修的原始问题。
+constexpr unsigned paired_caret_keycode(bool leftward) { return leftward ? KEY_LEFT : KEY_RIGHT; }
 
 // 排队的方向键只对当前焦点有效：换焦点、重置或松开 Shift 时必须清空或取走，不能漏到下一个输入框。
 template <typename Key>

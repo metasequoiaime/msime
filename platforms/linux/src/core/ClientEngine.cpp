@@ -2254,23 +2254,9 @@ bool convert_smart_punctuation_space(IBusEngine *engine) {
   commit_text(engine, replacement);
   return true;
 }
-// 成对标点补全后光标要退回两半之间；IBus 只能转发方向键，且必须给有效扫描码。
-// 扫描码从 us 键位表里查（方向键位置各布局一致），不用调用方标点键的扫描码。
-guint paired_caret_keycode(guint keyval) {
-  IBusKeymap *keymap = ibus_keymap_get("us");
-  if (!keymap) return 0;
-  guint result = 0;
-  for (guint code = 8; code < 256; ++code)
-    if (ibus_keymap_lookup_keysym(keymap, static_cast<guint16>(code), 0) == keyval) {
-      result = code;
-      break;
-    }
-  g_object_unref(keymap);
-  return result;
-}
 // 转发的方向键必须 press 和 release 成对发出。只发 press 会让客户端以为方向键一直按着，触发自动重复，光标一路冲到行首；Fcitx5 的 forwardCaret 同样成对发送。
 void emit_paired_caret(IBusEngine *engine, guint keyval) {
-  const guint keycode = paired_caret_keycode(keyval);
+  const guint keycode = msime::linux_host::paired_caret_keycode(keyval == IBUS_Left);
   ibus_engine_forward_key_event(engine, keyval, keycode, 0);
   ibus_engine_forward_key_event(engine, keyval, keycode, IBUS_RELEASE_MASK);
 }

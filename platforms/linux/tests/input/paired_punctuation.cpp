@@ -145,6 +145,9 @@ int main() {
     assert((!PairedCaretForward{false, true}.defer()));
     assert((!PairedCaretForward{true, false}.defer()));
     assert((PairedCaretForward{true, true}.defer()));
+    // 转发的方向键用 evdev 扫描码，不依赖 IBus 键位表文件，也不会是客户端不认的 0。
+    static_assert(msime::linux_host::paired_caret_keycode(true) == 105);
+    static_assert(msime::linux_host::paired_caret_keycode(false) == 106);
   }
   {
     // 排队的方向键：取走后队列为空；换焦点或重置时清空，不会漏到下一个输入框。
