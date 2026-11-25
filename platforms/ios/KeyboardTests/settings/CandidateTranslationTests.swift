@@ -830,8 +830,9 @@ final class CandidateTranslationTests: XCTestCase {
   func testTheSystemStylePanelDrawsOneAlignedListWithTheSideColumn() throws {
     let panel = KeyboardCandidatePanelView(
       candidates: ["测试", "侧视", "侧室", "策士", "测", "策", "策", "侧"],
-      preedit: "ceshi", style: .system,
-      display: { $0 }, onSelect: { _ in }, onClose: {}, onHandwriting: {}, onDelete: {})
+      preedit: "ceshi",
+      display: { $0 }, onSelect: { _ in }, onClose: {},
+      style: .system, onHandwriting: {}, onDelete: {})
     panel.frame = CGRect(x: 0, y: 0, width: 375, height: 260)
     panel.layoutIfNeeded()
 
