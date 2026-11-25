@@ -76,7 +76,7 @@ Status: implemented
   - 回放不再用「未知取值算失败」来发现日志里的垃圾种类：日志被写坏、种类成了别的字符串时，现在也只是跳过。
   - 快照的种类校验从五个固定值放宽到名字的形状，iOS 两份 Swift 的旧用例 `"other"` 改成了不合形状的 `"Other-Kind"` 和空串。
 - **已知上限**：
-  - 已经发布且没有宽松读取保护的版本照旧整份拒绝，发布说明应写明：用过新世纪以后，降级到不认识该种类且没有兼容保护的版本不受支持。尚未在真实设备验收降级。2026-11-19 起造词对三版全写（`wubi_learning::learn`），86/98 用户的日志也会出现 `wubixsj` 行，不受降级支持的影响面从少量新世纪用户扩大到所有造词用户，见 [五笔造词写入改为三版全对称](../feature/2026-11-19-wubi-phrase-learning-all-three-kinds.md)。
+  - 已经发布且没有宽松读取保护的版本照旧整份拒绝，发布说明应写明：用过新世纪以后，降级到不认识该种类且没有兼容保护的版本不受支持。尚未在真实设备验收降级。2026-11-19 起造词对三版全写（`wubi_learning::learn`），拼音造词也经它写五笔表，86/98 和只打拼音的用户日志里也会出现 `wubixsj` 行，不受降级支持的影响面从少量新世纪用户扩大到几乎所有造词用户，见 [五笔造词写入改为三版全对称](../feature/2026-11-19-wubi-phrase-learning-all-three-kinds.md)。
   - `state.rs` 读出整份日志状态（`stream_dictionary_state`）时，遇到不认识的种类仍报 `invalid_state`，这次没有放宽。这针对未来本版本仍不认识的种类；当前的 `wubixsj` 已认识，不触发此限制。降级后遇到未知行时，依赖它的功能都会失败，直到升级回去：
     - 词库状态修订号（`dictionary_state_revision`）算不出来。host-api 的快照版本（准备时的 `version`、激活时的 `version_without_access`、空闲时发布给队列的本机版本）都依赖它，所以云同步的上传和下载都停在准备或激活这一步，每一轮都失败。本机的一代原样不动，不丢东西。
     - WebDAV 同步读本机词库（`dictionary_webdav::EngineDictionary::read`）每一轮都报 `LocalError::Unavailable`。鸿蒙设置应用和输入法之间的词条互通（`user_words_mirror`）用的是同一个读法，也停下。
