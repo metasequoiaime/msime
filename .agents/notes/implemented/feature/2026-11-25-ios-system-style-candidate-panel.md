@@ -17,7 +17,7 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
   - `span(...)` 里注释不再把格子撑成两列（六列下每列才五十来点，撑成两列一页只剩三格，与系统的一页六格差太远），注释跟着格子截断；
   - `makeChip` 里格子不画底色、描边、阴影，选中格照候选条首选词块画：同一个底色（`palette.hover` / `skin.keyBackground`）、同一个圆角（`candidateChipRadius` 9pt）、同样的字色（`selectedText` / `candidateAccent`）和半粗体，展开前后高亮不换样子；
   - 格子高度 46pt、间隔 2pt、内边距横向 10/4，一屏正好六行。
-- 面板从候选条那一行铺起：`installPanel(_:keepsKeyTouches:coveringCompositionRow:)` 新增最后这个参数，为真时面板的顶边贴 `compositionContainer.topAnchor` 而不是 `.bottomAnchor`。九键三栏面板不走这条（`opensNineKeyPanel` 时 `columns != nil`，样式不生效）。
+- 面板从候选条那一行铺起：`installPanel(_:keepsKeyTouches:coveringCompositionRow:)` 新增最后这个参数，为真时面板的顶边贴 `compositionContainer.topAnchor` 而不是 `.bottomAnchor`。九键三栏面板不走这条（`opensNineKeyPanel` 时 `columns != nil`，不原地展开；格子仍按所选样式画，系统样式下是纯文字，XR 真机上 14 键已确认）。
 - 被盖住的候选条那一行要清空，面板自己不铺底色（`panelCoversCompositionRow`）。面板铺一块 `skin.background` 是不行的：原生皮肤下键盘底色几乎透明（`nativeBackgroundFillAlpha`，让系统底板透出来），再盖一层就比周围深了一档，真机上能一眼看出展开前后不是同一个背景。所以改成用 `alpha = 0`（不用 `isHidden`，行高留着，面板顶边和下面几行都不动）清空 `candidateContent` 与 `readingRow`，面板留 `.clear`，透出的就是那一行原来的底色；`renderCandidateStrip` 按 `panelCoversCompositionRow && candidatePanel != nil` 复核一次，键盘收起、换面板时不会卡在清空状态。
 - 系统样式在右侧加一窄列（44pt）：顶部收起箭头、中部手写、底部删除，`scrollView.trailing` 锚到它的左边。收起必须有——候选条连同它的展开箭头都被盖住了。手写接 `selectInputScheme(.handwriting)`（先关面板），删除接 `handleBackspace()`，两者都是现有实现。图标用键盘自己的 `KeyboardIcon.handwriting` / `.backspace`（与工具栏、回车键同一套），不换成 SF Symbols——`pencil.tip`、`delete.left` 跟键盘上那个手写、退格长得不一样。
 - 右列的删除只换一代候选，面板不收起：`handleBackspace()` 外面套上 `candidatePanelFollowsSelection`，与面板里选候选同一条路（组字退空之后照样由 `refreshCandidatePanelAnnotations` 收起）。
@@ -38,7 +38,7 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 
 ## 不做
 
-- 九键三栏面板不套系统样式：它需要候选条上的拼音栏和读音，铺到顶会把这两行盖掉。
+- 九键三栏面板（九键、14 键）不原地展开：它需要候选条上的拼音栏和读音，铺到顶会把这两行盖掉。格子的画法照样跟着所选样式走。
 - 顶部不画标题栏（品牌标志、拼写、候选数）。系统的展开没有这一行，用户明确要求去掉；拼写留在候选条上，只是被面板盖住。
 - 候选条本身不改。两处风格不统一是已知取舍：改条会波及所有输入状态，不只展开时。
 

@@ -58,7 +58,7 @@ struct CandidateOptionsSettingsView: View {
                           range: Double(CandidateFontPreference.scaleRange.lowerBound)...Double(CandidateFontPreference.scaleRange.upperBound),
                           step: Double(CandidateFontPreference.scaleStep), identifier: "candidateScale") { "\(Int($0))%" }
           DesignDivider()
-          // 展开面板的两种样子，铺排相同、格子不同：两种都是候选栏原地向下展开，右侧一列收起/手写/删除。
+          // 展开面板的两种样子：卡片（缺省）是候选条在上、按键式格子的网格在下；系统样式是候选栏原地向下展开，六列纯文字，右侧一列收起/手写/删除。九键、14 键这类带拼音栏的三栏面板只换格子画法，不原地展开。
           DesignSelectRow(title: "展开候选样式",
                           info: "卡片：按键式格子，带底色和阴影。系统样式：六列纯文字，与系统拼音一致",
                           options: CandidatePanelStylePreference.options.map { DesignOption(title: $0.title, value: $0.style) },
