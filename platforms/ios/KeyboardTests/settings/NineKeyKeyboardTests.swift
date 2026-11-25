@@ -4363,14 +4363,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanel" })
     controller.view.layoutIfNeeded()
     let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
-    // 展开是候选栏原地向下展开：面板从候选条那一行的顶边铺起，这一行的内容在面板打开期间清空（`setCompositionRowContentHidden`），所以屏幕上只有一块列表、一个收起箭头。
     XCTAssertEqual(panel.convert(panel.bounds, to: controller.view).minY,
-                   strip.convert(strip.bounds, to: controller.view).minY, accuracy: 0.5,
-                   "the grid opens in place over the strip")
-    // 候选条那一行的内容被清空（alpha，不隐藏，行高留在原处），所以面板透出的还是那一行原来的底色。
-    let stripChip = try button("candidate-1", in: controller)
-    XCTAssertEqual(sequence(first: stripChip, next: \.superview).map(\.alpha).min() ?? 1, 0,
-                   "候选条那一行让给了面板")
+                   strip.convert(strip.bounds, to: controller.view).maxY, accuracy: 0.5, "the grid opens under the strip")
     XCTAssertEqual(try button("spaceKey", in: controller).superview?.alpha, 0)
     XCTAssertEqual(atan2(expand.transform.b, expand.transform.a), .pi, accuracy: 0.01)
     XCTAssertTrue(try XCTUnwrap(try button("moreShortcut", in: controller) as? KeyboardBrandMarkButton).isActive)
@@ -4724,12 +4718,9 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.layoutIfNeeded()
     let panel = try XCTUnwrap(candidatePanel(in: controller))
     let strip = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "candidateStrip" })
-    // 候选栏原地向下展开：面板顶边就是候选条顶边，收起和删除由面板右列接手（候选条那一行已经让给它）。
     XCTAssertEqual(panel.convert(panel.bounds, to: controller.view).minY,
-                   strip.convert(strip.bounds, to: controller.view).minY, accuracy: 0.5,
-                   "the grid opens in place over the strip")
-    XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "closeCandidatePanel" })
-    XCTAssertNotNil(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelDelete" })
+                   strip.convert(strip.bounds, to: controller.view).maxY, accuracy: 0.5, "the grid opens under the strip")
+    XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "closeCandidatePanel" })
     XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelBackspace" })
     XCTAssertNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidatePanelBack" })
     let scroll = try XCTUnwrap(panel.subviews.first { $0 is UIScrollView })

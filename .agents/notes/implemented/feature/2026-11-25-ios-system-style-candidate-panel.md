@@ -23,7 +23,7 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 - 右列的删除只换一代候选，面板不收起：`handleBackspace()` 外面套上 `candidatePanelFollowsSelection`，与面板里选候选同一条路（组字退空之后照样由 `refreshCandidatePanelAnnotations` 收起）。
 - 卡片样式的格子底色可以调：`CandidatePanelChipOpacityPreference`（`candidate.panelChipOpacity`，0–100，缺省 100，即原来那套），设置页在「展开候选样式」下面多一条「候选格子不透明度」，只在卡片样式时出现。`makeChip` 按它给 `skin.keyBackground` 乘 alpha；选中那一格不跟着淡（否则看不出首选），调低之后也不再画按键阴影（半透明按键配实心影子很脏）。系统样式本来没有格子底，不受影响。
 - 滚动条用系统自带的 `UICollectionView` 竖直指示条：本来就在滚动时出现、停下淡出，符合「不常显的细线」。最初自绘了一条 3pt 的，和系统那条同时出现，同一屏两根线；自绘的还落在窄列按钮上，删掉。
-- 卡片样式后来也改成原地展开（用户要求两种样式统一）：铺排不再按样式推断，改由显式参数 `expandsInPlace` 决定（`inlineLayout = expandsInPlace && columns == nil`），键盘控制器在 `columns == nil` 时传 true。右列窄列、网格止于窄列、候选条那一行清空都是两种样式共用的；差别只剩格子怎么画（卡片：64pt 起自动分列、44pt 行高、6pt 间隔、按键式的底色与阴影、居中；系统：六列、46pt、2pt、纯文字、左对齐）。控制器的 `coversCompositionRow` 同样变成 `columns == nil`，于是卡片样式展开不再出现「上面一条候选栏 + 下面一块网格 + 两个收起箭头」。
+- 卡片样式后来也改成原地展开（用户要求两种样式统一）：铺排不再按样式推断，改由显式参数 `expandsInPlace` 决定（`inlineLayout = expandsInPlace && columns == nil`），键盘控制器只在系统样式、`columns == nil` 时传 true（审查时改定，见下面「Alternatives considered」第二条）；面板视图本身两种样式都支持原地展开。右列窄列、网格止于窄列、候选条那一行清空都是两种样式共用的；差别只剩格子怎么画（卡片：64pt 起自动分列、44pt 行高、6pt 间隔、按键式的底色与阴影、居中；系统：六列、46pt、2pt、纯文字、左对齐）。控制器的 `coversCompositionRow` 同样变成 `columns == nil`，于是卡片样式展开不再出现「上面一条候选栏 + 下面一块网格 + 两个收起箭头」。
 - 用显式参数而不是继续按 `style` 推断，是为了不动其它调用方（标题栏面板、九键三栏、二十来个测试构造点）：不传就是原来的布局。
 - 右列的删除键接上底部 ⌫ 的整套滑动手势：控制器在 `showCandidatePanel` 里建一个名字为 `backspaceSwipe` 的 pan 交给面板，面板挂到删除键上。于是横滑逐格删、上滑越过待命线松手清空、往右滑恢复都跟 ⌫ 一样，起手方向与能不能滑仍由 `gestureRecognizerShouldBegin` 和 `handleBackspaceSwipe` 原来那套判断，面板只提供按键。滑动期间 `candidatePanelFollowsSelection` 为真，候选换代时面板原地重建而不是收起（`handlePanelDeleteSwipe`）。
 - 候选栏可下滑展开：`candidateStrip` 上挂一个 pan（`candidateStripSwipeDown`），向下拖过 18pt 就调 `showCandidatePanel()`，等于点一下展开箭头。起手方向在 `gestureRecognizerShouldBegin` 里判（只接向下、纵向为主），与候选列表的横向滚动同时识别；`cancelsTouchesInView` 让手指落在某个候选上往下拖时不会同时把那个候选上屏。一次手势只展开一次。
@@ -32,7 +32,7 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 ## Alternatives considered
 
 - 另起一套卡片面板组件，两种样式各一份：网格布局、测量、选中态、长按释义、无障碍标签会整份复制一遍，以后改候选逻辑要同步两处，上游跟进成本翻倍。现有实现本来就是一个类里按样式分支画格子，改成「布局共用、只分支格子画法」更省。
-- 只给系统样式改原地展开，卡片样式保留「候选条在上、网格在下」：改动最小，也不动现有用户的手感，但用户明确要求两种样式统一，展开时上面不再多出一条重复的候选栏。代价是本 PR 改变了卡片样式用户的展开手感，这一条在 PR 正文单列一节请维护者确认。
+- 卡片样式也原地展开（两种样式统一，展开时上面不再多出一条重复的候选栏）：PR 最初这样做。审查（#11895）时撤回：卡片是缺省样式，原地展开会改掉现有用户的展开手感（上面那条候选栏和拼写不再保留，收起只能点右列箭头），按 AGENTS.md 出厂行为的变更要单独授权，这里没有。现在只有系统样式原地展开，卡片维持「候选条在上、网格在下」；要统一只需控制器里去掉 `panelStyle == .system` 这个条件，视图和 `inlineMinimumCellWidth` 都已就绪。
 - 继续按 `style` 推断布局（`style == .system` 时才原地展开）：改卡片样式时要把这个判断再翻一次，还会波及带标题栏的面板、九键三栏这类不传样式的调用方；改用显式 `expandsInPlace`，不传就是原来的布局，二十来个测试构造点一个都不用动。
 - 被盖住的候选条那一行可以铺一块不透明背景把它遮掉，而不是清空内容：原生皮肤下键盘底色几乎透明，再盖一层就比周围深一档，真机上能一眼看出展开前后不是同一个底。见上面 `panelCoversCompositionRow` 那一条。
 
@@ -44,7 +44,7 @@ iOS 的展开候选只有一个样子：64pt 起自动分列的按键式卡片�
 
 ## Consequences
 
-- 卡片样式的展开从「候选条在上、网格在下」变成候选栏原地向下展开：上面那条候选栏（含拼写）不再保留，收起只能点面板右列的箭头。这是本 PR 唯一改变现有用户默认手感的地方，PR 正文单列一节请维护者确认；要退回只需控制器里让 `expandsInPlace` 多认一个 `panelStyle == .system`，其余不动。
+- 卡片样式（缺省）的展开不变，仍是「候选条在上、网格在下」，现有用户看不出变化；原地展开只在用户主动选了系统样式时出现。
 - 新增两个 App Group 键：`candidate.panelStyle`（缺省 `card`）、`candidate.panelChipOpacity`（缺省 100，即原来那套）。缺字段都按原样读，老用户升级后看不出变化，设置页只多一行「展开候选样式」。
 - 展开面板多出右侧 44pt 窄列：原地展开的卡片网格可用宽度少一条，靠 58pt 的列宽下限拿回五列；SE 的 320pt 仍是四列，430pt 六列。
 - 两条上游用例（`testCandidateChipsAndTheExpandChevron`、`testQuanpinKeepsTheFullCandidatePanel`）的布局断言随新规格改写。它们守的不是某个 bug，而是旧布局本身（网格在候选条下沿展开、面板里没有收起键）；改写的理由写在这里与 PR 正文，不是为了让改动通过去关掉回归。
