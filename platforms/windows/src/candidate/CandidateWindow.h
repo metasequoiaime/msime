@@ -259,6 +259,8 @@ private:
   CandidateExpandState expand_;
   std::optional<FocusLease> expand_lease_;
   double expand_viewport_ = 0.0;
+  // 点开「∨」的时刻。候选窗手里那一帧快照还是请求之前读的，它的 expansion_open 仍是 false；这一小段里不据此收起，等 Server 确认（见 candidate_expand_stale）。
+  std::optional<uint64_t> expand_open_requested_at_;
   std::unordered_map<std::string, double> grid_width_cache_;
   // 刚画好的展开区（滚动偏移为 0 的布局）、画时用的偏移（按设备像素取整）、一格滚动的距离和网格里的候选，点击、悬停和读屏都读这些。
   std::optional<CandidateExpandLayout> painted_expand_;

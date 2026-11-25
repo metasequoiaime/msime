@@ -915,14 +915,22 @@ void CandidateWindow::reposition() {
     return;
   }
   // Server 那边已经收起（候选窗关闭过）、焦点换到了别的客户端、改成了竖排，或这一页不能展开（释义页、只能用键盘选的列表）时收起；继续输入时保持展开。
+  // 刚点开「∨」时这一帧还是请求之前读的快照，expansion_open 仍是 false，要等 Server 认下这次展开，最多 candidate_expand_open_grace_millis。
+  const auto now = GetTickCount64();
+  const bool open_request_pending =
+      expand_open_requested_at_ &&
+      now - *expand_open_requested_at_ <= candidate_expand_open_grace_millis;
   if (candidate_expand_stale(
           expand_.expanded, value->expansion_open,
           expand_lease_ && expand_lease_->epoch == value->lease.epoch &&
               expand_lease_->token == value->lease.token &&
               same_ticket(expand_lease_->transport, value->lease.transport),
-          skin_metrics(*value).expand_panel)) {
+          skin_metrics(*value).expand_panel, open_request_pending)) {
     collapse_expansion();
     shown_.reset();
+  } else if (value->expansion_open) {
+    // Server 已经认下这次展开，之后的每一帧都以它的状态为准。
+    expand_open_requested_at_.reset();
   }
   if (finishing_animation_) {
     finishing_animation_ = false;
@@ -2521,6 +2529,7 @@ void CandidateWindow::toggle_expansion() {
     candidate_expand_open(expand_);
     expand_lease_ = painted_->lease;
     expand_viewport_ = 0.0;
+    expand_open_requested_at_ = GetTickCount64();
     if (expansion_)
       expansion_(painted_->lease, true);
   }
@@ -2570,6 +2579,7 @@ void CandidateWindow::collapse_expansion() {
   candidate_expand_collapse(expand_);
   expand_lease_.reset();
   expand_viewport_ = 0.0;
+  expand_open_requested_at_.reset();
   if (expansion_ && lease)
     expansion_(*lease, false);
 }
