@@ -47,4 +47,4 @@ if (idle) { timer->setNextInterval(250000); timer->setOneShot(); return true; }
 - `cmake -S platforms/linux -B target/linux-native -G Ninja -DBUILD_TESTING=ON -DMSIME_ENABLE_FCITX5=ON` 配置通过，`cmake --build` 编出 fcitx5 插件与全部原生目标，`ctest` 为 120/121 通过；唯一失败为 `linux-candidate-native-canvas-chrome` 的像素颜色断言。去掉本次改动后该目标无需重编且仍失败，因此作为本机既有渲染差异记录，不加入已知失败豁免表；平台 CI 的 Linux 原生作业均通过。
 - 手动：装包后连续切换 5 个以上窗口再回到聊天窗口，对比改动前后 fcitx5 的 CPU 与 `syscr`/`syscw` 速率；空转是否复发另记（受上游影响，不作为本次验收条件）。
 
-> 后续演进：该 250 ms 常驻定时器与单次定时器紧循环问题已由[Fcitx5 空闲零轮询、定时器紧循环修复与模型缓存复用](2026-11-24-linux-fcitx5-idle-polling-and-timer-spin.md)进一步收口为按需调度（空闲 0 Hz）加插件级 `FcitxIdleWatch` `inotify` 监听；本篇记录的「失焦且无偏好任务时不跑刷新」原则继续成立。
+> 后续演进：该 250 ms 常驻定时器与单次定时器紧循环问题已由[Fcitx5 空闲零轮询与定时器紧循环修复](2026-11-24-linux-fcitx5-idle-polling-and-timer-spin.md)进一步收口为按需调度（空闲 0 Hz）加插件级 `FcitxIdleWatch` `inotify` 监听；本篇记录的「失焦且无偏好任务时不跑刷新」原则继续成立。
