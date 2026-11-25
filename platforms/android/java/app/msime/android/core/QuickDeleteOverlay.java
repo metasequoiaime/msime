@@ -45,6 +45,14 @@ final class QuickDeleteOverlay extends View {
         return keyLocation[1] - ownLocation[1];
     }
 
+    /**
+     * 指尖在屏幕上的 y 换到本视图坐标系。同一次触摸里不能拿 {@link MotionEvent#getY()} 换算：键盘变高变矮之后，窗口分到输入系统的新位置还没生效，系统按旧位置把屏幕坐标换成窗口坐标，而本视图已经按新布局排好，两者会差出变高或变矮的这段距离。raw 坐标是手指在屏幕上的真实位置，和本视图此刻的位置一致。
+     */
+    float fingerY(float rawY) {
+        frame().getLocationOnScreen(ownLocation);
+        return rawY - ownLocation[1];
+    }
+
     /** 在 `key` 上方显示框；`armed` 为真时画成待命的样子。 */
     void show(View key, boolean armed) {
         show(key, armed, false);

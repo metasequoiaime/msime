@@ -546,8 +546,8 @@ final class ImeLetterRows {
                     s.backspaceClearedComposition = false;
                     backspaceTouchedComposition = s.hasEngineComposition();
                     backspaceUndo = s.canUndoQuickDelete();
-                    backspaceDownX = event.getX();
-                    backspaceDownY = event.getY();
+                    backspaceDownX = event.getRawX();
+                    backspaceDownY = event.getRawY();
                     int[] keyLocation = new int[2];
                     int[] rootLocation = new int[2];
                     button.getLocationOnScreen(keyLocation);
@@ -601,10 +601,10 @@ final class ImeLetterRows {
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     if (s.backspaceRepeatButton != button) return true;
-                    float dx = backspaceDownX - event.getX();
+                    float dx = backspaceDownX - event.getRawX();
                     if (!backspaceHorizontal && backspaceScrub != null && backspaceScrub.available()
                             && backspaceSwipePhase == BackspaceSwipePolicy.Phase.IDLE
-                            && BackspaceScrub.starts(dx, event.getY() - backspaceDownY, DimensionPolicy.density(s))) {
+                            && BackspaceScrub.starts(dx, event.getRawY() - backspaceDownY, DimensionPolicy.density(s))) {
                         backspaceHorizontal = true;
                         backspaceActivation = 8f * DimensionPolicy.density(s);
                         backspaceInitialDeleted = Math.max(1, backspaceScrub.deleted());
@@ -622,24 +622,25 @@ final class ImeLetterRows {
                     if (backspaceUndo) {
                         if (backspaceUndoHeld) {
                             BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.undoPhase(
-                                event.getY(), button.getHeight(), DimensionPolicy.density(s));
+                                fingerYInKey(button, event.getRawY()), button.getHeight(), DimensionPolicy.density(s));
                             if (next != backspaceSwipePhase && next == BackspaceSwipePolicy.Phase.ARMED)
                                 s.imeKeyFeedback.playFeedback(button);
                             backspaceSwipePhase = next;
                             if (s.quickDeleteOverlay != null)
                                 s.quickDeleteOverlay.show(button, next == BackspaceSwipePolicy.Phase.ARMED, true);
                         } else if (event.getX() < 0 || event.getX() >= button.getWidth()
-                                || event.getY() < 0 || event.getY() >= button.getHeight()) {
+                                || fingerYInKey(button, event.getRawY()) < 0
+                                || fingerYInKey(button, event.getRawY()) >= button.getHeight()) {
                             // 未到长按时离开键，取消这次点击；不能顺便删掉备份的位置。
                             stopBackspaceRepeatTask();
                             button.setPressed(false);
                         }
                         return true;
                     }
-                    if (trackBackspaceSwipe(button, event.getY())) return true;
-                    if (event.getX() < 0 || event.getY() < 0
+                    if (trackBackspaceSwipe(button, event.getRawY())) return true;
+                    if (event.getX() < 0 || fingerYInKey(button, event.getRawY()) < 0
                             || event.getX() >= button.getWidth()
-                            || event.getY() >= button.getHeight()) {
+                            || fingerYInKey(button, event.getRawY()) >= button.getHeight()) {
                         // 手指离开键就停止连删，但仍跟踪这次按压：接着往上滑还能弹出快速删除框。
                         stopBackspaceRepeatTask();
                         button.setPressed(false);
@@ -678,15 +679,23 @@ final class ImeLetterRows {
         });
     }
 
+    /** 指尖在删除键坐标系里的位置（键上沿为 0，向下增大）；键盘在手势中途变高变矮时按此刻的布局换算，见 {@link QuickDeleteOverlay#fingerY}。 */
+    private float fingerYInKey(Button button, float rawY) {
+        QuickDeleteOverlay overlay = s.quickDeleteOverlay;
+        return overlay == null ? 0f : overlay.fingerY(rawY) - overlay.keyTop(button);
+    }
+
     /**
      * 按 {@link BackspaceSwipePolicy} 更新上滑阶段并画框；返回 true 表示这次移动已经属于上滑手势（框弹出过）。第一次弹出时停掉连删，进入待命时给一次按键反馈。
+     *
+     * <p>`rawY` 是手指在屏幕上的位置，换算到键盘外框此刻的布局再和删除键比较：手势中途键盘变高变矮时（例如按下即删让英文单词的建议行收起），系统还在按旧的窗口位置换算坐标，直接用它会把指尖判低这一段高度，滑到待命线上方也可能只算弹出、不算待命。
      */
-    private boolean trackBackspaceSwipe(Button button, float yInKey) {
+    private boolean trackBackspaceSwipe(Button button, float rawY) {
         QuickDeleteOverlay overlay = s.quickDeleteOverlay;
         if (overlay == null || button.getWindowToken() == null) return false;
         float keyTop = overlay.keyTop(button);
         BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.next(backspaceSwipePhase,
-            keyTop + yInKey, keyTop, DimensionPolicy.density(s));
+            overlay.fingerY(rawY), keyTop, DimensionPolicy.density(s));
         if (next == BackspaceSwipePolicy.Phase.IDLE) return false;
         BackspaceSwipePolicy.Phase previous = backspaceSwipePhase;
         backspaceSwipePhase = next;
