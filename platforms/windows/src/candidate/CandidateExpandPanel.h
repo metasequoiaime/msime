@@ -1,5 +1,6 @@
 #pragma once
 #include "CandidateCardSize.h"
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 
@@ -300,10 +301,14 @@ inline bool candidate_expand_reveal(CandidateExpandState &state, size_t availabl
   return changed;
 }
 
+// 点开「∨」后等 Server 确认的那一小段。点开时 Server 同步记下这次展开，候选窗下一次读到的快照就会带上 expansion_open；桌面线程每 16 毫秒读一次，250 毫秒足够走过两三帧。超过这一段仍是「没开」就按 Server 的状态收起，不会留下一个开着、下面永远空着的「∧」。
+inline constexpr uint64_t candidate_expand_open_grace_millis = 250;
+
 // 候选窗该不该收起：展开着，而 Server 那边已经不为这个租约开着（候选窗关闭时它先清掉，比候选窗的轮询早；有退出动画时 hide_now 还没跑），或者焦点换了客户端，或者这一页不能展开（竖排、释义页、只能用键盘选的列表、换了皮肤）。
+// server_open 来自候选窗手里那一帧快照，点开之后它还要等到下一帧才为真；pending_open 表示打开请求刚发出、正在等 Server 确认，这一小段里「没开」不作数，否则每次点开都会立刻自己收起。换了客户端或这一页不能展开仍然立刻收起。
 constexpr bool candidate_expand_stale(bool expanded, bool server_open, bool same_lease,
-                                      bool available) {
-  return expanded && (!server_open || !same_lease || !available);
+                                      bool available, bool pending_open = false) {
+  return expanded && (!(server_open || pending_open) || !same_lease || !available);
 }
 // 展开着、这一代的后续候选还没到时，沿用上一帧展开区的高度，卡片不先缩回一行再长回来；列表已经到了（哪怕这一代后面一个候选也没有）就按实际的内容排，返回 0。
 constexpr double candidate_expand_held_viewport(bool expanded, bool list_arrived,

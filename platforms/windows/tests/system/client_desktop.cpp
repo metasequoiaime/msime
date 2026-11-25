@@ -114,6 +114,33 @@ void same_process(HDESK first, HDESK second) {
   owner.join();
   assert(!resolved->current());
   assert(!ClientDesktop::resolve(ticket(GetCurrentProcessId(), tid)));
+  // 线程退出不是拒绝访问：不退到 Server 桌面。
+  assert(!ClientDesktop::resolve_or_server(ticket(GetCurrentProcessId(), tid)));
+}
+// 低完整性宿主上客户端桌面解析不到时退到 Server 自己所在的桌面（#11793）：句柄就是当前线程的桌面，
+// 能交给新的 UI 线程建窗；票据认证不通过时一律不回落，候选窗不画到任何桌面。
+void server_fallback(HDESK first, HDESK second) {
+  const HDESK server = GetThreadDesktop(GetCurrentThreadId());
+  assert(server);
+  auto fallback = ClientDesktop::server_desktop();
+  assert(fallback && fallback->fallback() && fallback->current());
+  assert(same_desktop_object(fallback->handle(), server));
+  assert(!same_desktop_object(fallback->handle(), first));
+  assert(!same_desktop_object(fallback->handle(), second));
+  std::thread ui([&] {
+    assert(SetThreadDesktop(fallback->handle()));
+    assert(same_desktop_object(GetThreadDesktop(GetCurrentThreadId()), server));
+  });
+  ui.join();
+  // 认证通过的票据仍解析客户端自己的桌面，不退到 Server 桌面。
+  auto trusted = ClientDesktop::resolve_or_server(ticket(GetCurrentProcessId(), GetCurrentThreadId()));
+  assert(trusted && !trusted->fallback() && trusted->current());
+  assert(same_desktop_object(trusted->handle(), server));
+  // 没有客户端线程的票据不可信，回落到 Server 桌面也一律返回空。
+  std::string why;
+  assert(!ClientDesktop::resolve_or_server(ticket(GetCurrentProcessId(), 0), &why));
+  assert(why == "ticket without client thread");
+  assert(!ClientDesktop::resolve_or_server(ticket(0, GetCurrentThreadId()), &why));
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
@@ -151,6 +178,7 @@ int wmain(int argc, wchar_t **argv) {
   assert(!ClientDesktop::resolve(ticket(0, GetCurrentThreadId())));
   cross_process(token, first.value);
   same_process(first.value, second.value);
+  server_fallback(first.value, second.value);
   // 多个候选线程共享探针时，每次结果仍绑定本次请求，线程退出也不能等待加载锁。
   std::vector<std::thread> callers;
   for (unsigned index = 0; index < 4; ++index) {

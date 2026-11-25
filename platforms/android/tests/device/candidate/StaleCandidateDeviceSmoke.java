@@ -69,10 +69,12 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                 JSONObject id = old.getJSONArray("candidates").getJSONObject(0).getJSONObject("id");
                 field(type, "view").set(service, old);
                 Object candidates = field(type, "imeCandidates").get(service);
+                // 换代以后按文字找回同一个词：这里换成当前一代一定没有的文字，覆盖「找不到就只提示、不上屏」这一支（#11816）。
+                JSONObject vanished = new JSONObject(old.getJSONArray("candidates").getJSONObject(0).toString());
+                vanished.put("text", "旧候选已不在这一代");
                 Method expanded = candidates.getClass().getDeclaredMethod("expandedCandidateButton", JSONObject.class);
                 expanded.setAccessible(true);
-                Button staleButton = (Button) expanded.invoke(candidates,
-                    old.getJSONArray("candidates").getJSONObject(0));
+                Button staleButton = (Button) expanded.invoke(candidates, vanished);
                 Method newStrip = candidates.getClass().getDeclaredMethod("newStripCandidateButton");
                 newStrip.setAccessible(true);
                 Button staleStrip = (Button) newStrip.invoke(candidates);
@@ -81,8 +83,7 @@ public final class StaleCandidateDeviceSmoke extends Instrumentation {
                     loader.loadClass("app.msime.android.KeyboardPressButton"), JSONObject.class,
                     JSONObject.class, int.class);
                 bindStrip.setAccessible(true);
-                bindStrip.invoke(candidates, staleStrip, old,
-                    old.getJSONArray("candidates").getJSONObject(0), 0);
+                bindStrip.invoke(candidates, staleStrip, old, vanished, 0);
                 JSONObject current = value(character.invoke(null, session, (int) 'h', false)).getJSONObject("view");
                 check(current.getLong("generation") != id.getLong("generation"), "generation advanced");
                 field(type, "session").setLong(service, session);

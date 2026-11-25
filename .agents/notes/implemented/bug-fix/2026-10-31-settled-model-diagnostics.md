@@ -46,3 +46,4 @@ Status: implemented
 - 代价：诊断模块原先只报失败，现在多了一类成功状态行，约定稍有放宽；开着开关时每个会话建立都会写一行 `attached`，IMK 一个文本客户端一个会话，日志开着时行数随打开的输入框增加，但日志是用户主动打开的。
 - 本改动不修任何已复现的缺陷，#10341 在拿到报告者带这些行的日志前保持打开。
 - 相关：[Windows host-api 诊断出口](../feature/2026-10-10-windows-clipboard-privacy-panel-statistics-host-diagnostics.md)、[macOS 诊断日志启动顺序](2026-10-10-macos-diagnostic-startup.md)。
+- 后续演进：会话建立时的这几行改为进程级去重，状态没变的会话不再各写一行，同路径换了模型包时重新写，见[逐键重排器热缓存复用、非输入会话不释放共享模型与模型诊断去重](2026-11-24-host-api-reranker-warm-cache-and-diagnostic-dedup.md)。

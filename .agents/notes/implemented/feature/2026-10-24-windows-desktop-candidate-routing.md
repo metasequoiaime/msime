@@ -14,6 +14,8 @@ Status: implemented
 
 复用现有 `PipeTicket.client = pid << 32 | tid`。高 32 位已经由 `PipePeer` 对过管道对端；`ClientDesktop` 用系统线程对象核对低 32 位的归属与存活，再查询桌面。`GetThreadDesktop` 返回借用句柄，解析器按对象名在 Server 当前窗口站打开一个拥有句柄，并用 `CompareObjectHandles` 比较对象身份，拒绝其他窗口站的同名桌面与无法确认的归属。不增加协议事件、能力位或客户端提供的桌面字符串。
 
+票据认证通过、但客户端桌面解析不到的宿主（Windows 搜索框一类低完整性进程）不再完全没有候选窗：按[低完整性宿主的候选桌面回落](../bug-fix/2026-11-24-windows-low-integrity-candidate-desktop-fallback.md)退到 Server 自己所在的桌面，认证不通过的票据仍不画候选。这条回落是本篇「解析失败不回退」规则的唯一例外。
+
 ## Verified platform constraints
 
 `platforms/windows/experiments/desktop-ownership.ps1` 在 Windows 原生运行时创建两个私有桌面，每个独立线程绑定后创建一个隐藏的标准窗口，通过 `EnumDesktopWindows` 检查窗口互不串入；主线程通过窗口线程 ID 和 `GetThreadDesktop` 查询两者的桌面归属。窗口和桌面在实验结束时销毁，实验不调用 `SwitchDesktop`，不启用或修改真实输入法。
