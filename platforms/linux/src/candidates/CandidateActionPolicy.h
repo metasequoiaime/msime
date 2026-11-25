@@ -114,6 +114,6 @@ inline std::string candidate_fix_label_with_shortcut(int slot) {
 
 // iBus 右键菜单弹不出来时（GNOME 扩展没启用、连不上 X）辅助区域给的提示，四组按键与上面带快捷键的文案一一对应。
 inline constexpr const char *candidate_maintenance_shortcut_hint =
-    "候选维护：Ctrl+↑ 置顶 · Ctrl+1–5 固定 · Ctrl+0 取消固定 · Ctrl+Del 删除";
+    "候选维护：Ctrl+↑ 置顶 · Ctrl+Shift+1–5 固定 · Ctrl+0 取消固定 · Ctrl+Del 删除";
 
 } // namespace msime::linux_host
