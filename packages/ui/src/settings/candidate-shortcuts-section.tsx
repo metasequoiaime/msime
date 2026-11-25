@@ -177,7 +177,7 @@ export function CandidateShortcutReference({
       {/* 桌面三个宿主组字时 Shift+左右按音节移动输入串的光标，高亮停在哪个候选上都一样；触屏宿主的外接键盘没有这个组合键。Windows 和 Linux 的 Ctrl+左右相同，macOS 的 Ctrl+左右默认被系统用来切换桌面，所以这里只列 Shift。 */}
       {!mobile && <ShortcutRow title="按音节移动输入串光标" chord="Shift + ← / →" />}
       <ShortcutRow title="提交原始输入 / 取消输入" chord="Enter / Esc" />
-      {/* Linux 的候选维护四键与右键菜单项一一对应；其余宿主尚未接入，不列。 */}
+      {/* Linux iBus 宿主的候选维护四键与右键菜单项一一对应；Fcitx5 和其余宿主尚未接入，不列。 */}
       {candidateMaintenanceShortcuts && (
         <>
           <ShortcutRow title="置顶候选" chord="Ctrl+↑" />
