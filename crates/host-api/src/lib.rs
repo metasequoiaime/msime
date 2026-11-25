@@ -1077,7 +1077,7 @@ impl HostSession {
         let desktop_turned_off = !preferences.sentence_association.neural_desktop
             && self.applied.sentence_association.neural_desktop;
         if !self.preview && desktop_turned_off {
-            clear_settled_model_diagnostic_dedup();
+            clear_settled_model_diagnostic_dedup(&self.options.resources);
         }
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
@@ -2890,11 +2890,11 @@ pub(crate) fn settled_model_file(
     })
 }
 
-/// 逐键重排器与落定重排模型最近一次写出的诊断 `(category, detail)`：焦点切换重建会话但模型状态没变时不重复刷屏，状态变化或对应开关关闭后再次打开时重新报告。
+/// 逐键重排器与落定重排模型最近一次写出的诊断，按会话的资源目录（HostOptions 的 `resources`）分开记：焦点切换重建会话但模型状态没变时不重复刷屏，状态变化或对应开关关闭后再次打开时重新报告。按资源目录分开，是为了同一进程里资源目录不同的会话（多个版本的宿主、测试里的临时目录）互不把对方的记录冲掉。
 #[derive(Default)]
 struct ModelDiagnosticDedup {
-    keyboard_reranker: Option<(&'static str, String)>,
-    settled_model: Option<(&'static str, String, ModelFileStamp)>,
+    keyboard_reranker: HashMap<String, (&'static str, String)>,
+    settled_model: HashMap<String, (&'static str, String, ModelFileStamp)>,
 }
 
 /// 模型文件的大小和修改时间：资源包重装到同一个发布目录时路径不变，靠它区分换没换过文件。读不到元数据（文件不在）时为 `None`。
@@ -2913,31 +2913,33 @@ fn model_diagnostic_dedup() -> std::sync::MutexGuard<'static, ModelDiagnosticDed
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// 资源目录 `resources` 下的会话这一行逐键重排器诊断要不要写：与上一次写的类别和细节（去掉末尾的 `" (shared)"`）都相同时不写。
 pub(crate) fn should_report_keyboard_reranker_diagnostic(
+    resources: &str,
     category: &'static str,
     detail: &str,
 ) -> bool {
-    let normalized = detail.strip_suffix(" (shared)").unwrap_or(detail);
+    let entry = (
+        category,
+        detail
+            .strip_suffix(" (shared)")
+            .unwrap_or(detail)
+            .to_owned(),
+    );
     let mut dedup = model_diagnostic_dedup();
-    if dedup
-        .keyboard_reranker
-        .as_ref()
-        .is_some_and(|(last_category, last_detail)| {
-            *last_category == category && last_detail == normalized
-        })
-    {
+    if dedup.keyboard_reranker.get(resources) == Some(&entry) {
         return false;
     }
-    dedup.keyboard_reranker = Some((category, normalized.to_owned()));
+    dedup.keyboard_reranker.insert(resources.to_owned(), entry);
     true
 }
 
-pub(crate) fn clear_keyboard_reranker_diagnostic_dedup() {
-    model_diagnostic_dedup().keyboard_reranker = None;
+pub(crate) fn clear_keyboard_reranker_diagnostic_dedup(resources: &str) {
+    model_diagnostic_dedup().keyboard_reranker.remove(resources);
 }
 
-fn clear_settled_model_diagnostic_dedup() {
-    model_diagnostic_dedup().settled_model = None;
+fn clear_settled_model_diagnostic_dedup(resources: &str) {
+    model_diagnostic_dedup().settled_model.remove(resources);
 }
 
 #[cfg(test)]
@@ -2945,7 +2947,7 @@ pub(crate) fn reset_model_diagnostic_dedup() {
     *model_diagnostic_dedup() = ModelDiagnosticDedup::default();
 }
 
-/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。去重是进程级的：类别、细节和模型文件的大小与修改时间（[`model_file_stamp`]）都与上一行相同时不再写，所以 Windows server 和 macOS 输入法这类一个进程服务所有输入框的宿主上，第一个会话之后状态没变的会话不再各写一行；同一路径上换了模型包、状态变化或 `neural_desktop` 关闭后重开时重新写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
+/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。去重是进程级的：同一个资源目录下，类别、细节和模型文件的大小与修改时间（[`model_file_stamp`]）都与上一行相同时不再写，所以 Windows server 和 macOS 输入法这类一个进程服务所有输入框的宿主上，第一个会话之后状态没变的会话不再各写一行；同一路径上换了模型包、状态变化或 `neural_desktop` 关闭后重开时重新写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
 ///
 /// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的 `diagnostic.log` 和 Windows 的 `logs\server.log` 都只记冒号前的类别（写成 `host_api: <类别>`），路径只出现在没登记出口的 Linux stderr 里：
 /// - `settled model attached`：模型已加载并挂在会话上；
@@ -2976,9 +2978,9 @@ pub(crate) fn report_settled_model(
     let entry = (category, detail.clone(), model.and_then(model_file_stamp));
     let should_report = {
         let mut dedup = model_diagnostic_dedup();
-        let repeated = dedup.settled_model.as_ref() == Some(&entry);
+        let repeated = dedup.settled_model.get(resources) == Some(&entry);
         if !repeated {
-            dedup.settled_model = Some(entry);
+            dedup.settled_model.insert(resources.to_owned(), entry);
         }
         !repeated
     };

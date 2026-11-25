@@ -369,7 +369,7 @@ pub(crate) fn keyboard_reranker_for(
         if let Some(root) = root.as_deref() {
             onnx_rerankers().release(root);
         }
-        crate::clear_keyboard_reranker_diagnostic_dedup();
+        crate::clear_keyboard_reranker_diagnostic_dedup(resources);
         return None;
     }
     #[cfg(feature = "onnx-rerank")]
@@ -386,16 +386,17 @@ pub(crate) fn keyboard_reranker_for(
                     Box::new(SharedOnnxScorer::new(attached.scorer));
                 if defers_to_pause(mount, attached.page_ms) {
                     report_keyboard_reranker(
+                        resources,
                         KEYBOARD_RERANKER_AT_PAUSE,
                         &format!("{}: {}", attached.category, attached.detail),
                     );
                     return Some(MountedReranker::Pause(scorer));
                 }
-                report_keyboard_reranker(attached.category, &attached.detail);
+                report_keyboard_reranker(resources, attached.category, &attached.detail);
                 return Some(MountedReranker::Keystroke(scorer));
             }
             OnnxAttach::OverLimit(detail) => {
-                report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
+                report_keyboard_reranker(resources, KEYBOARD_RERANKER_OVER_BUDGET, &detail);
                 return None;
             }
             OnnxAttach::Unavailable => {}
@@ -440,16 +441,17 @@ pub(crate) fn cached_keyboard_reranker_for(
                     Box::new(SharedOnnxScorer::new(attached.scorer));
                 if defers_to_pause(mount, attached.page_ms) {
                     report_keyboard_reranker(
+                        resources,
                         KEYBOARD_RERANKER_AT_PAUSE,
                         &format!("{}: {}", attached.category, attached.detail),
                     );
                     return Some(Some(MountedReranker::Pause(scorer)));
                 }
-                report_keyboard_reranker(attached.category, &attached.detail);
+                report_keyboard_reranker(resources, attached.category, &attached.detail);
                 return Some(Some(MountedReranker::Keystroke(scorer)));
             }
             OnnxAttach::OverLimit(detail) => {
-                report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
+                report_keyboard_reranker(resources, KEYBOARD_RERANKER_OVER_BUDGET, &detail);
                 return Some(None);
             }
             OnnxAttach::Unavailable => {}
@@ -550,7 +552,11 @@ fn cached_bundled_keyboard_reranker(
         cache.get(&path).cloned()?
     };
     let Some(model) = slot.get()?.as_ref() else {
-        report_keyboard_reranker("keyboard reranker missing", &path.display().to_string());
+        report_keyboard_reranker(
+            resources,
+            "keyboard reranker missing",
+            &path.display().to_string(),
+        );
         return Some(None);
     };
     let measured = {
@@ -564,10 +570,10 @@ fn cached_bundled_keyboard_reranker(
         path.display()
     );
     if measured > limit_ms {
-        report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
+        report_keyboard_reranker(resources, KEYBOARD_RERANKER_OVER_BUDGET, &detail);
         return Some(None);
     }
-    report_keyboard_reranker("keyboard reranker bundled model", &detail);
+    report_keyboard_reranker(resources, "keyboard reranker bundled model", &detail);
     Some(Some(Box::new(Reranker::new(Arc::clone(model)))))
 }
 
@@ -579,7 +585,11 @@ pub(crate) fn bundled_keyboard_reranker(
 ) -> Option<Box<dyn msime_input_runtime::CandidateScorer>> {
     let path = sentence_model_path(resources, configured);
     let Some(model) = sentence_model(resources, configured) else {
-        report_keyboard_reranker("keyboard reranker missing", &path.display().to_string());
+        report_keyboard_reranker(
+            resources,
+            "keyboard reranker missing",
+            &path.display().to_string(),
+        );
         return None;
     };
     let measured = bundled_calibration(&path, &model);
@@ -588,16 +598,16 @@ pub(crate) fn bundled_keyboard_reranker(
         path.display()
     );
     if measured > limit_ms {
-        report_keyboard_reranker(KEYBOARD_RERANKER_OVER_BUDGET, &detail);
+        report_keyboard_reranker(resources, KEYBOARD_RERANKER_OVER_BUDGET, &detail);
         return None;
     }
-    report_keyboard_reranker("keyboard reranker bundled model", &detail);
+    report_keyboard_reranker(resources, "keyboard reranker bundled model", &detail);
     Some(Box::new(Reranker::new(model)))
 }
 
-/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`，以及这台设备跑不进逐键预算、没挂的 `keyboard reranker over budget`，和跑不进逐键预算、延后到宿主停顿时才用的 `keyboard reranker at pause`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的那一档打一页的毫秒数和上限（`page … ms, limit … ms`）、给它的整句池（`sentence pool …`）、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写；连续相同的 `(category, detail)`（比较时去掉末尾的 `" (shared)"`）只报一次，直到开关关闭（[`RerankerMount::Off`]）或状态改变。
-fn report_keyboard_reranker(category: &'static str, detail: &str) {
-    if crate::should_report_keyboard_reranker_diagnostic(category, detail) {
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`，以及这台设备跑不进逐键预算、没挂的 `keyboard reranker over budget`，和跑不进逐键预算、延后到宿主停顿时才用的 `keyboard reranker at pause`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的那一档打一页的毫秒数和上限（`page … ms, limit … ms`）、给它的整句池（`sentence pool …`）、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写；同一个资源目录下连续相同的 `(category, detail)`（比较时去掉末尾的 `" (shared)"`）只报一次，直到开关关闭（[`RerankerMount::Off`]）或状态改变。
+fn report_keyboard_reranker(resources: &str, category: &'static str, detail: &str) {
+    if crate::should_report_keyboard_reranker_diagnostic(resources, category, detail) {
         crate::diagnostics::report(category, detail);
     }
 }

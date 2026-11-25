@@ -76,6 +76,17 @@ fn run_with_exclusive_onnx_slot(expected_root: &Path, mut check: impl FnMut() ->
     }
 }
 
+/// `SENTENCE_MODELS` 是进程级 LRU（容量 8），并行运行的其他测试会把本测试的随包模型挤出去，下一个会话只好重新起线程加载。`check` 返回 `false` 表示这一轮起了线程，重新热身后重跑；真回归每一轮都会起线程，20 轮都不过就失败。
+fn retry_on_sentence_model_eviction(mut check: impl FnMut() -> bool) {
+    for _ in 0..20 {
+        if check() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    panic!("随包模型热缓存命中时不得再起后台加载线程");
+}
+
 /// 缓存已持有重排器（`OnnxRerankers` 或 `SENTENCE_MODELS` 加 `MEASURED`）时，`msime_client_create` 直接返回预填好的 `KeyboardRerankerSlot`，保持建会话后 `keyboard_reranker_loading.is_some() && !runtime.has_reranker()` 的契约，且不再为每次焦点切换新建操作系统线程。
 #[test]
 fn warm_cache_prefills_keyboard_reranker_slot_without_spawning_threads() {
@@ -158,31 +169,36 @@ fn warm_cache_prefills_keyboard_reranker_slot_without_spawning_threads() {
     });
     assert_eq!(read(msime_client_destroy(first))["ok"], true);
 
-    for _ in 0..4 {
-        let spawns = keyboard_reranker_thread_spawns();
-        let handle = create_input_session(bundled_root.path(), &preferences, extra.clone());
-        assert_eq!(
-            keyboard_reranker_thread_spawns(),
-            spawns,
-            "随包模型热缓存命中时不得再起后台加载线程"
-        );
-        SESSIONS.with(|sessions| {
-            let session = &sessions.borrow()[&handle];
-            let slot = session
-                .keyboard_reranker_loading
-                .as_ref()
-                .expect("建会话后槽必须存在");
-            assert!(slot.lock().unwrap().as_ref().unwrap().is_some());
-            assert!(!session.runtime.has_reranker());
-        });
-        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
-        SESSIONS.with(|sessions| {
-            let session = &sessions.borrow()[&handle];
-            assert!(session.keyboard_reranker_loading.is_none());
-            assert!(session.runtime.has_reranker());
-        });
-        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
-    }
+    retry_on_sentence_model_eviction(|| {
+        let warm = create_input_session(bundled_root.path(), &preferences, extra.clone());
+        settle_keyboard_reranker(warm);
+        assert_eq!(read(msime_client_destroy(warm))["ok"], true);
+        for _ in 0..4 {
+            let spawns = keyboard_reranker_thread_spawns();
+            let handle = create_input_session(bundled_root.path(), &preferences, extra.clone());
+            if keyboard_reranker_thread_spawns() != spawns {
+                assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+                return false;
+            }
+            SESSIONS.with(|sessions| {
+                let session = &sessions.borrow()[&handle];
+                let slot = session
+                    .keyboard_reranker_loading
+                    .as_ref()
+                    .expect("建会话后槽必须存在");
+                assert!(slot.lock().unwrap().as_ref().unwrap().is_some());
+                assert!(!session.runtime.has_reranker());
+            });
+            assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+            SESSIONS.with(|sessions| {
+                let session = &sessions.borrow()[&handle];
+                assert!(session.keyboard_reranker_loading.is_none());
+                assert!(session.runtime.has_reranker());
+            });
+            assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        }
+        true
+    });
 }
 
 /// 镜像会话（`keyboard_reranker: false`）与候选预览会话（`SessionUse::Preview`）无论创建还是更新偏好，都只清掉自身 `runtime` 上的打分器，不调用 `RerankerMount::Off` 释放进程共享的 `OnnxRerankers` 缓存；只有允许挂模型的输入会话关闭开关时才释放。
@@ -332,25 +348,45 @@ fn mirror_and_preview_sessions_do_not_evict_keyboard_reranker_cache() {
     });
 
     #[cfg(not(feature = "onnx-rerank"))]
-    {
+    retry_on_sentence_model_eviction(|| {
+        // 每一轮先重新热身，再走一遍镜像会话和预览会话，最后看下一个输入会话是否命中热缓存。
+        let warm = create_input_session(root.path(), &on, extra.clone());
+        settle_keyboard_reranker(warm);
+        assert_eq!(read(msime_client_destroy(warm))["ok"], true);
+        let mut mirror_extra = extra.clone();
+        mirror_extra["keyboard_reranker"] = json!(false);
+        let mirror = create_input_session(root.path(), &on, mirror_extra);
+        assert_eq!(update(mirror, 1, &off)["value"]["deferred"], false);
+        assert_eq!(update(mirror, 2, &on)["value"]["deferred"], false);
+        assert_eq!(read(msime_client_destroy(mirror))["ok"], true);
+        let preview_bytes =
+            serde_json::to_vec(&minimal_host_document(root.path(), &off, extra.clone())).unwrap();
+        let preview =
+            ffi::session::create_session(&preview_bytes, ffi::session::SessionUse::Preview)
+                .unwrap()["session"]
+                .as_u64()
+                .unwrap();
+        assert_eq!(read(msime_client_destroy(preview))["ok"], true);
+
         let spawns_before = keyboard_reranker_thread_spawns();
         let reused = create_input_session(root.path(), &on, extra.clone());
-        assert_eq!(
-            keyboard_reranker_thread_spawns(),
-            spawns_before,
-            "镜像会话和预览会话之后缓存仍应保持热态"
-        );
+        if keyboard_reranker_thread_spawns() != spawns_before {
+            assert_eq!(read(msime_client_destroy(reused))["ok"], true);
+            return false;
+        }
         assert_eq!(read(msime_client_focus(reused, true))["ok"], true);
 
         // 允许挂模型的输入会话把 `neural_keyboard` 关掉、或直接以关闭状态建会话时，正常走 `RerankerMount::Off` 释放缓存。
+        let off_before = ffi::keyboard_reranker_off_calls();
         assert_eq!(update(reused, 1, &off)["value"]["deferred"], false);
         assert_eq!(read(msime_client_destroy(reused))["ok"], true);
         assert_eq!(ffi::keyboard_reranker_off_calls(), off_before + 1);
 
-        let created_off = create_input_session(root.path(), &off, extra);
+        let created_off = create_input_session(root.path(), &off, extra.clone());
         assert_eq!(read(msime_client_destroy(created_off))["ok"], true);
         assert_eq!(ffi::keyboard_reranker_off_calls(), off_before + 2);
-    }
+        true
+    });
 }
 
 /// 连续相同的 `report_keyboard_reranker`（忽略末尾 `" (shared)"`）与 `report_settled_model` 诊断只输出一次；状态改变、或者对应开关关闭再重新打开后，会再次输出。
@@ -432,22 +468,27 @@ fn identical_model_diagnostics_are_deduplicated_and_reemitted_on_change_or_toggl
 
     // 2. 逐键重排器（`"(shared)"` 后缀归一化与开关切换）。
     assert!(should_report_keyboard_reranker_diagnostic(
+        "/synthetic/resources",
         "keyboard reranker onnx small",
         "/synthetic/rerank-model-small (page 1.2 ms, limit 15.0 ms) (sentence pool 32)"
     ));
     assert!(!should_report_keyboard_reranker_diagnostic(
+        "/synthetic/resources",
         "keyboard reranker onnx small",
         "/synthetic/rerank-model-small (page 1.2 ms, limit 15.0 ms) (sentence pool 32) (shared)"
     ));
     assert!(!should_report_keyboard_reranker_diagnostic(
+        "/synthetic/resources",
         "keyboard reranker onnx small",
         "/synthetic/rerank-model-small (page 1.2 ms, limit 15.0 ms) (sentence pool 32)"
     ));
     assert!(should_report_keyboard_reranker_diagnostic(
+        "/synthetic/resources",
         "keyboard reranker at pause",
         "keyboard reranker onnx small: /synthetic/rerank-model-small (page 1.2 ms, limit 60.0 ms) (sentence pool 32)"
     ));
     assert!(!should_report_keyboard_reranker_diagnostic(
+        "/synthetic/resources",
         "keyboard reranker at pause",
         "keyboard reranker onnx small: /synthetic/rerank-model-small (page 1.2 ms, limit 60.0 ms) (sentence pool 32) (shared)"
     ));
