@@ -132,6 +132,78 @@ impl CandidateQueries {
         self.quick_phrase_table = usable_quick_phrase_table(table);
     }
 
+    pub(crate) fn quick_phrase_position(&self, code: &str, text: &str) -> Option<usize> {
+        let start = self
+            .quick_phrase_table
+            .partition_point(|entry| entry.key.as_str() < code);
+        self.quick_phrase_table[start..]
+            .iter()
+            .take_while(|entry| entry.key == code)
+            .find(|entry| entry.text == text)
+            .and_then(|entry| entry.position.map(usize::from))
+    }
+
+    /// 按码表位置摆放快捷短语；同一名次保留候选次序，空出来的名次就近收拢。
+    pub(crate) fn apply_quick_phrase_positions(
+        &self,
+        code: &str,
+        candidates: &mut Vec<WordItem>,
+        is_url_completion: impl Fn(&WordItem) -> bool,
+    ) {
+        if self.quick_phrase_table.is_empty() {
+            return;
+        }
+        let positioned = |row: &WordItem| {
+            if row.source == CandidateSource::QuickPhrase && row.fixed_position == 0 {
+                self.quick_phrase_position(code, &row.word)
+            } else {
+                None
+            }
+        };
+        if !candidates.iter().any(|row| positioned(row).is_some()) {
+            return;
+        }
+        let reserved = |row: &WordItem| {
+            row.fixed_position > 0
+                || row.source.takes_online_seat()
+                || row.source == CandidateSource::Contact
+                || is_url_completion(row)
+        };
+        let mut ordinary = Vec::new();
+        let mut positions = Vec::new();
+        let mut moved = Vec::new();
+        let mut slots: Vec<_> = candidates
+            .drain(..)
+            .enumerate()
+            .map(|(index, row)| {
+                if reserved(&row) {
+                    return Some(row);
+                }
+                positions.push(index);
+                if let Some(position) = positioned(&row) {
+                    moved.push((position - 1, row));
+                } else {
+                    ordinary.push(row);
+                }
+                None
+            })
+            .collect();
+        moved.sort_by_key(|(position, _)| *position);
+        let mut next = 0;
+        for (position, row) in moved {
+            let index = positions
+                .partition_point(|&index| index < position)
+                .max(next)
+                .min(ordinary.len());
+            ordinary.insert(index, row);
+            next = index + 1;
+        }
+        for (index, row) in positions.into_iter().zip(ordinary) {
+            slots[index] = Some(row);
+        }
+        candidates.extend(slots.into_iter().flatten());
+    }
+
     /// 普通组字的编码恰好是某条快捷短语的编码时，把短语并进候选：`slot` 为 `Some(n)` 时插在第 n 个计位候选之后（`quick_phrase_slots` 学下来的位置）；为 `None`（`quick_phrase_frequency` 关着或还没有学习记录）时按 `first_page_rows`（宿主每页候选数）落在首页尾部，规则见 [`default_quick_phrase_slot`]。只认整个编码，不按前缀匹配（见 [`query_exact_quick_phrases`]）。
     pub fn insert_quick_phrase_candidates(
         &self,
@@ -157,8 +229,12 @@ impl CandidateQueries {
                     .any(|existing| existing.word == candidate.word)
             })
             .collect();
+        let unpositioned = phrases
+            .iter()
+            .filter(|row| self.quick_phrase_position(code, &row.word).is_none())
+            .count();
         let slot =
-            slot.or_else(|| default_quick_phrase_slot(candidates, phrases.len(), first_page_rows));
+            slot.or_else(|| default_quick_phrase_slot(candidates, unpositioned, first_page_rows));
         let Some(slot) = slot else {
             candidates.extend(phrases);
             return;

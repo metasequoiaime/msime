@@ -32,7 +32,7 @@ public final class CandidateTranslationPolicy {
         public static final String KEY = "candidate_translation_scope";
         /** 设置界面的行标题和说明，与共享 React 设置页（`candidate-translation-options-section.tsx`）相同。 */
         public static final String TITLE = "翻译范围";
-        public static final String DESCRIPTION = "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线英文释义不受影响";
+        public static final String DESCRIPTION = "仅当前高亮：只翻译高亮的候选，高亮移动时译文跟着走；离线释义不受影响";
 
         private final String id;
         private final String title;

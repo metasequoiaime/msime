@@ -149,7 +149,7 @@ pub async fn plugin_catalog(
     .await
 }
 
-/// Ask the user for a pack folder or `.zip` file with the platform's own dialog, and install it. `None` when the user closes the dialog.
+/// 通过系统选择器导入插件目录、ZIP 包或 TXT 码表（辅助码表；macOS 还有带候选位置的快捷短语码表）。用户取消时返回 `None`。
 #[tauri::command]
 pub async fn import_plugin_pack(
     app: tauri::AppHandle,
@@ -165,7 +165,7 @@ pub async fn import_plugin_pack(
             PluginImportSource::Folder => dialog.set_title("选择插件文件夹").blocking_pick_folder(),
             PluginImportSource::Archive => dialog
                 .set_title("选择插件")
-                .add_filter("插件", &["zip"])
+                .add_filter("插件压缩包或码表", &["zip", "txt"])
                 .blocking_pick_file(),
         };
         let Some(picked) = picked else {
@@ -180,7 +180,32 @@ pub async fn import_plugin_pack(
 }
 
 fn import_pack_at(source: &Path, root: &Path) -> Result<PluginSummary, PluginFailure> {
+    if cfg!(target_os = "macos")
+        && source
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+        && !source.is_dir()
+        && !looks_like_helpcode_table(source)
+    {
+        return Ok(plugins::phrase_table::import_positioned_table(
+            root, source,
+        )?);
+    }
     Ok(plugins::import_from_settings(source, root)?)
+}
+
+/// `.txt` 的第一条有效行是 `<字>=<码>`（中间没有空白）就是辅助码表；带候选位置的快捷短语码表每行是「编码 文字 位置」，必含空白。读不到文件时按短语码表走，由它报不支持的来源。
+fn looks_like_helpcode_table(source: &Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    let Ok(file) = std::fs::File::open(source) else {
+        return false;
+    };
+    BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .map(|line| line.trim_start_matches('\u{feff}').trim().to_owned())
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .is_some_and(|line| line.contains('=') && !line.contains(char::is_whitespace))
 }
 
 /// 删除一个已安装的包。内置音效包不能删除；官方包的 id 只删掉留在插件目录里的导入副本（client-services 的 `remove`）。

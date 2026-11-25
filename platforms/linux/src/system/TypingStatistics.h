@@ -432,6 +432,13 @@ public:
       return std::nullopt;
     return take();
   }
+  // 距离当前待写批次满 `kFlushAgeMicroseconds` 的剩余微秒数；无待写按键时返回空，已到期时返回 0。
+  std::optional<uint64_t> flush_delay_microseconds(int64_t now_microseconds) const {
+    if (presses_ == 0) return std::nullopt;
+    const int64_t elapsed = now_microseconds - started_microseconds_;
+    if (elapsed >= kFlushAgeMicroseconds) return uint64_t{0};
+    return static_cast<uint64_t>(kFlushAgeMicroseconds - elapsed);
+  }
   uint64_t pending() const { return presses_; }
 
 private:

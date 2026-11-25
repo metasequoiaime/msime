@@ -33,6 +33,7 @@ public:
       const auto reply = call(msime_client_dictionary_collections, {{"options", options}, {"action", action}});
       if (!reply.value("ok", false)) return Json{{"error", reply.value("error", std::string("unavailable"))}};
       Json result{{"view", reply.at("value")}};
+      if (action.at("operation") == "list_words") return result;
       if (reply.at("value").contains("import")) result["import"] = reply.at("value").at("import");
       const auto drained = drain(options);
       result.update(drained);

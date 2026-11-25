@@ -185,6 +185,10 @@ public final class MSIMEInputService extends InputMethodService {
     boolean candidateRenderDeferred;
     /** 候选触摸保护延续到框架排队的点击之后；每次按下用独立标记，旧松开不能清掉下一次按下。 */
     private final java.util.Map<View, Object> candidateTouches = new java.util.WeakHashMap<>();
+    /** 复用或就地换内容的候选按钮各自画的是哪一个候选；点按、长按都按它选词（#11816）。 */
+    private final java.util.Map<View, JSONObject> drawnCandidates = new java.util.WeakHashMap<>();
+    /** 数字行选词对应的、画出来的那些候选，按可见顺序；换代换了视图但还没重画时不选到新词（#11816）。 */
+    private final java.util.List<JSONObject> drawnVisibleCandidates = new java.util.ArrayList<>();
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
@@ -564,6 +568,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     int splitKeyboardThresholdDp;
     int splitKeyboardGapPercent;
+    /** 空隙比例是不是用户在设置页显式设过（{@code platform.android.split_keyboard_gap} 在本地设置里存在）；没设过时宽窗口上的 720 dp 键区上限照旧生效（{@link SplitKeyboardPolicy#gapFraction(int, int, boolean)}）。 */
+    boolean splitKeyboardGapExplicit;
     boolean splitKeyboardPortrait;
     /** 本地设置「手机横屏分离式键盘」（#10440）；实际画不画还要看方向、窗口和分离后的键宽，见 {@link #splitKeyboardDrawn}。 */
     boolean splitKeyboardPhoneLandscape;
@@ -3391,6 +3397,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
+        splitKeyboardGapExplicit = localSettings.has(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         splitKeyboardPhoneLandscape = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
@@ -5996,6 +6003,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
 
+    /** 空隙比例是不是用户显式设过，见 {@link #splitKeyboardGapExplicit}。 */
+    boolean splitKeyboardGapExplicit() { return splitKeyboardGapExplicit; }
+
     /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；手机横屏另由本机开关和分离后的键宽决定（{@link SplitKeyboardPolicy#phoneDrawn}，#10440）。每次按当前窗口配置重算。 */
     boolean splitKeyboardDrawn() {
         // 浮动键盘是一块窄面板，不分成两半。
@@ -6302,6 +6312,22 @@ public final class MSIMEInputService extends InputMethodService {
         return InputViewValuePolicy.punctuationMarks(view);
     }
 
+    /** 键面是否画日文标点：日语方案、非英文、非本地工具模式，并且中文标点开关开着（关着时引擎写 ASCII，键面也画 ASCII）。 */
+    boolean japaneseKeyfaces() {
+        return ChineseSymbolFaces.shouldUseJapaneseFaces(dedicatedEnglish,
+            view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"), chinesePunctuation);
+    }
+
+    /**
+     * 26 键符号键与底行角标的键面：日语方案走日文标点表，键面画什么 Engine 就上屏什么；其余方案按中文标点开关画中文或半角 ASCII。
+     * 判定与 {@link #numberPadPunctuation()} 同源，字母层符号键、数字九宫格和快捷标点角标画同一套写法。
+     */
+    String symbolFace(String ascii) {
+        return japaneseKeyfaces() ? ChineseSymbolFaces.japaneseFace(ascii)
+            : ChineseSymbolFaces.face(ascii, sendsChinesePunctuation(), punctuationMarks());
+    }
+
     java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
@@ -6399,8 +6425,8 @@ public final class MSIMEInputService extends InputMethodService {
             int layout = imeLetterRows.drawnTouchLayout();
             hintButton.setCornerHint(uriPeriodPrimary() ? "," : commaSecondaryPeriod()
                 ? (KeyboardActionRow.commaShowsPeriodHint(layout, bottomRowStyle(layout))
-                    ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks()) : "")
-                : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
+                    ? symbolFace(".") : "")
+                : question ? symbolFace("?") : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
             + (uriPeriodPrimary() ? "；长按输入逗号" : commaSecondaryPeriod() ? "；长按输入句号"
@@ -6408,10 +6434,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void updateSymbolKeyFaces() {
-        boolean chineseMode = sendsChinesePunctuation();
         for (int index = 0; index < symbolKeyButtons.size(); index++) {
-            String face = ChineseSymbolFaces.face(symbolKeyInputs.get(index), chineseMode,
-                punctuationMarks());
+            String face = symbolFace(symbolKeyInputs.get(index));
             Button button = symbolKeyButtons.get(index);
             button.setText(face);
             button.setContentDescription("按键 " + face);
@@ -6426,7 +6450,7 @@ public final class MSIMEInputService extends InputMethodService {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
             shuangpinKeyButtons.get(index).setCornerHint(shown
-                ? LetterHintTable.face(input, dedicatedEnglish, chinese, punctuationMarks()) : null);
+                ? LetterHintTable.face(input, dedicatedEnglish, japaneseKeyfaces(), chinese, punctuationMarks()) : null);
         }
         // 角标换完之后再对一遍键组：关掉角标时组里的键已经不画角标，内容域才能把它们去掉。
         imeKeyFaces.refresh();
@@ -10409,15 +10433,63 @@ public final class MSIMEInputService extends InputMethodService {
         return entries == null ? null : entries.optJSONObject(slot);
     }
 
-    void selectVisibleCandidate(Button button, int slot) {
-        finishPendingCompositionMarkerLoss();
-        JSONObject candidate = visibleCandidate(slot);
-        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+    /** 候选身份里能当绑定用的那几项；没有身份的候选（占位行）不参与绑定。 */
+    private static CandidateBindingPolicy.Drawn drawnIdentity(JSONObject candidate) {
+        if (candidate == null) return null;
+        JSONObject id = candidate.optJSONObject("id");
+        if (id == null) return null;
+        return new CandidateBindingPolicy.Drawn(
+            CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE),
+            CandidateGlossPolicy.strictOr(id.opt("generation"), Long.MIN_VALUE),
+            CandidateGlossPolicy.strictOr(id.opt("index"), Long.MIN_VALUE),
+            InputViewValuePolicy.textOr(candidate, "text", ""),
+            InputViewValuePolicy.integer(candidate, "source", -1));
+    }
+
+    /** 与 {@link #drawnIdentity} 一一对应的列表；解析不了的项占住位置，索引与候选数组一致。 */
+    private static java.util.List<CandidateBindingPolicy.Drawn> drawnIdentities(JSONArray candidates) {
+        if (candidates == null) return java.util.List.of();
+        java.util.List<CandidateBindingPolicy.Drawn> list =
+            new java.util.ArrayList<>(candidates.length());
+        for (int slot = 0; slot < candidates.length(); slot++)
+            list.add(drawnIdentity(candidates.optJSONObject(slot)));
+        return list;
+    }
+
+    /** 画出来的候选还在眼前这一代里，返回那一代里对应的候选；不在列表里时返回 null。 */
+    JSONObject resolveDrawnCandidate(JSONObject drawn) {
+        CandidateBindingPolicy.Drawn identity = drawnIdentity(drawn);
+        if (identity == null || session == 0 || identity.session() != session) return null;
+        if (view != null && CandidateBindingPolicy.sameGeneration(identity, session,
+                CandidateGlossPolicy.strictOr(view.opt("generation"), Long.MIN_VALUE)))
+            return drawn;
+        try {
+            // 换了一代：按同一个词和来源找回。候选条当前放出来的这一段、或展开面板的整代就是这一代的列表。
+            JSONArray entries = displayedCandidateSnapshot().optJSONArray("candidates");
+            int slot = CandidateBindingPolicy.find(drawnIdentities(entries), identity);
+            return slot == CandidateBindingPolicy.MISSING ? null : entries.optJSONObject(slot);
+        } catch (JSONException | LinkageError error) {
+            fail(error);
+            return null;
+        }
+    }
+
+    /** 画出来的候选已经不在列表里：提示用户重新选择，不静默丢弃。 */
+    void noticeCandidateStale() { notice(CandidateBindingPolicy.STALE); }
+
+    /** 这个按钮画的是哪个候选。 */
+    JSONObject drawnCandidate(View button) { return drawnCandidates.get(button); }
+
+    /** 点按候选条或竖排候选举词：按画出来的那个候选，不按按钮当时的位置（#11816）。 */
+    void selectVisibleCandidate(Button button) {
+        JSONObject candidate = resolveDrawnCandidate(drawnCandidate(button));
+        if (candidate == null) { noticeCandidateStale(); return; }
+        JSONObject id = candidate.optJSONObject("id");
         if (id == null) return;
         imeKeyFeedback.playFeedback(button);
         if (session == 0
-                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
-            return;
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session) return;
+        finishPendingCompositionMarkerLoss();
         candidatePanelOpen = false;
         try {
             apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
@@ -10425,14 +10497,15 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
-    /** 触屏完整候选使用全局下标，沿用普通选词的编辑器状态收尾。 */
+    /** 触屏完整候选使用全局下标，沿用普通选词的编辑器状态收尾；按画出来的那个候选选词（#11816）。 */
     void selectStripCandidate(Button button, JSONObject candidate) {
-        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-        if (!candidateVersionIsCurrent(id)) return;
-        finishPendingCompositionMarkerLoss();
-        int source = InputViewValuePolicy.integer(candidate, "source", -1);
-        if (!candidateVersionIsCurrent(id) || AiPendingCandidatePolicy.isPlaceholder(source)
+        JSONObject drawn = resolveDrawnCandidate(candidate);
+        if (drawn == null) { noticeCandidateStale(); return; }
+        JSONObject id = drawn.optJSONObject("id");
+        int source = InputViewValuePolicy.integer(drawn, "source", -1);
+        if (id == null || AiPendingCandidatePolicy.isPlaceholder(source)
                 || AiPendingCandidatePolicy.isCloudPending(source)) return;
+        finishPendingCompositionMarkerLoss();
         imeKeyFeedback.playFeedback(button);
         closeCandidatePanel();
         try {
@@ -10441,14 +10514,21 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
-    private boolean selectHardwareCandidate(int slot) {
-        finishPendingCompositionMarkerLoss();
-        int actualSlot = visibleCandidateSlot(slot);
-        JSONObject candidate = visibleCandidate(actualSlot);
-        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+    /** 数字行选词：按画出来的那个候选，不按这一代视图里同一个可见位置的新词（#11816）。 */
+    private boolean selectHardwareCandidate(int visibleSlot) {
+        // 这一格没画候选（越界，或候选数组里含不显示的云占位行）：不处理，数字照常交给后面的流程。
+        if (visibleSlot < 0 || visibleSlot >= drawnVisibleCandidates.size()) return false;
+        JSONObject candidate = resolveDrawnCandidate(drawnVisibleCandidates.get(visibleSlot));
+        if (candidate == null) {
+            // 画着的那一格已经不在列表里：提示并吞掉这一下，不把数字落到编辑器里。
+            noticeCandidateStale();
+            return true;
+        }
+        JSONObject id = candidate.optJSONObject("id");
         if (id == null || session == 0
                 || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
             return false;
+        finishPendingCompositionMarkerLoss();
         candidatePanelOpen = false;
         try {
             apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
@@ -10477,6 +10557,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
+        // 按钮会复用、内容就地换：先记下这一次画的是哪个候选，点按和长按按它选词（#11816）。
+        drawnCandidates.put(button, candidate);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
             InputViewValuePolicy.integer(candidate, "source", -1));
@@ -13317,6 +13399,14 @@ public final class MSIMEInputService extends InputMethodService {
             for (Button button : candidateButtons) ViewPolicy.hide(button);
         }
         if (hasDiagnostic) closeCandidatePanel();
+        // 数字行选词绑定画出来的这一批：换代换了视图但还没有重画时，数字键不选到那一格的新词（#11816）。
+        drawnVisibleCandidates.clear();
+        if (entries != null) for (int slot = 0; slot < entries.length(); slot++) {
+            JSONObject candidate = entries.optJSONObject(slot);
+            if (candidate == null || !AiPendingCandidatePolicy.isVisible(
+                    InputViewValuePolicy.integer(candidate, "source", -1))) continue;
+            drawnVisibleCandidates.add(candidate);
+        }
         resetCandidateScrollIfViewChanged();
         imeCandidates.renderExpandedCandidates();
         if (ViewPolicy.isVisible(moreToolsScroll))

@@ -13,6 +13,7 @@ public final class SplitKeyboardPolicySmoke {
         whenSplitApplies();
         portraitOverride();
         configurableBounds();
+        explicitGapOnWideScreens();
         whichLayoutsSplit();
         gapWidth();
         responsiveGapWidth();
@@ -51,7 +52,22 @@ public final class SplitKeyboardPolicySmoke {
         check(SplitKeyboardPolicy.gapFraction(0, 10) == 0.10f, "minimum configured gap");
         check(SplitKeyboardPolicy.gapFraction(0, 50) == 0.40f, "maximum configured gap");
         close(SplitKeyboardPolicy.gapWeight(10f, 0f, 0, 10), 10f / 9f, "configured ten percent gap");
-        check(SplitKeyboardPolicy.gapFraction(1200, 10) >= 0.399f, "wide screen keeps key area usable");
+        check(SplitKeyboardPolicy.gapFraction(1200, 10, false) >= 0.399f, "untouched wide screen keeps key area usable");
+    }
+
+    /** #11812：设置页设过的空隙在任何窗口宽度上都按用户选的画；没设过时宽窗口沿用 720 dp 键区上限。 */
+    private static void explicitGapOnWideScreens() {
+        for (int width : new int[] {960, 1200, 1600, 2400}) {
+            for (int percent : new int[] {10, 25, 40}) {
+                float fraction = SplitKeyboardPolicy.gapFraction(width, percent, true);
+                close(fraction, percent / 100f, "the setting wins at " + width + " dp, " + percent + "%");
+                float gap = SplitKeyboardPolicy.gapWeight(10f, 0f, width, percent, true);
+                close(10f / (10f + gap), 1f - fraction, "explicit gap share at " + width + " dp, " + percent + "%");
+            }
+            close(SplitKeyboardPolicy.gapFraction(width, 25, false),
+                Math.max(.25f, 1f - 720f / width), "untouched window keeps the key area usable at " + width + " dp");
+        }
+        close(SplitKeyboardPolicy.gapFraction(-1, 10, true), .10f, "explicit gap with unknown width");
     }
 
     private static void whichLayoutsSplit() {

@@ -70,6 +70,11 @@ impl CandidateSource {
         self == Self::CloudPending
     }
 
+    /// 宿主不画的占位席位：云候选的占位行（固定云候选位置用的「☁」）和已退役的 AI 占位行。桌面端和移动端画候选、编号时都跳过它们，见 `SelectionFact::visible_position`。
+    pub fn is_placeholder_seat(self) -> bool {
+        matches!(self, Self::AiPending | Self::CloudPending)
+    }
+
     /// AI 行：AI 候选和已退役的占位行。
     pub fn holds_ai_seat(self) -> bool {
         matches!(self, Self::AiSuggestion | Self::AiPending)
@@ -1497,6 +1502,8 @@ pub struct QuickPhraseEntry {
     pub key: String,
     /// 上屏的文本。
     pub text: String,
+    /// 普通候选中的一基位置；K 模式不采用此字段。
+    pub position: Option<u8>,
 }
 
 /// One name or place of the host's mention list (`@` mode).

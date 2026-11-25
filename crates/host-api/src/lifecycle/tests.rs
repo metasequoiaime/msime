@@ -39,6 +39,7 @@ fn picked(how: SelectionHow, outcome: SelectionOutcome) -> DispatchFacts {
         selection: Some(SelectionFact {
             seat: 0,
             source: 0,
+            visible_position: Some(1),
             how,
             outcome,
         }),
@@ -118,6 +119,7 @@ fn a_pick_that_ends_the_composition_runs_the_whole_commit_sequence() {
             LifecycleEvent::CandidateSelected(SelectionFact {
                 seat: 0,
                 source: 0,
+                visible_position: Some(1),
                 how: SelectionHow::Highlighted,
                 outcome: SelectionOutcome::Committed,
             }),

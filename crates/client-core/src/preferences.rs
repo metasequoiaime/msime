@@ -2198,6 +2198,10 @@ pub struct Preferences {
         skip_serializing_if = "is_default_touch_nine_key_flick_threshold"
     )]
     pub touch_nine_key_flick_threshold: u16,
+    /// 全拼九键的精确拼写模式，默认关闭。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_nine_key_precise: bool,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -3660,14 +3664,21 @@ pub struct MixedInputPreferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
-    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（Windows、macOS、Linux、HarmonyOS）生效；三个桌面宿主此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确匹配时加入短语。三个桌面宿主以前无条件混入，旧文档缺键读作开；Android 旧文档缺键读作关，开关的两种取值都要明确保存。各宿主的新装默认关。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
-    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    #[serde(
+        default = "legacy_quick_phrase_mixed_input",
+        skip_serializing_if = "omit_quick_phrase_mixed_input"
+    )]
     pub quick_phrase: bool,
     /// 快捷短语参与调频（Windows `utility.quick_phrase_frequency`，出厂开）：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。默认开，与 Windows 出厂一致；只在混输打开时起作用，缺这个键的旧文档读作开。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase_frequency: bool,
+    /// 把普通候选里编码完全匹配的快捷短语组放到最前。默认关，缺字段沿用原有落位。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub quick_phrase_first: bool,
 }
 
 impl Default for MixedInputPreferences {
@@ -3683,8 +3694,17 @@ impl Default for MixedInputPreferences {
             symbols: true,
             quick_phrase: false,
             quick_phrase_frequency: true,
+            quick_phrase_first: false,
         }
     }
+}
+
+fn legacy_quick_phrase_mixed_input() -> bool {
+    !cfg!(target_os = "android")
+}
+
+fn omit_quick_phrase_mixed_input(value: &bool) -> bool {
+    legacy_quick_phrase_mixed_input() && *value
 }
 
 /// 中文状态下首页默认展示的英文候选数（Windows `cn_en_mixed_input_first_page_count` 的出厂值）。
@@ -4863,6 +4883,7 @@ impl Default for Preferences {
             touch_language_key_side: TouchLanguageKeySide::default(),
             touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
             touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
+            touch_nine_key_precise: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),

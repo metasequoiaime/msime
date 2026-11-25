@@ -49,11 +49,13 @@ use crate::quanpin::series::fold_reading;
 use crate::text::last_characters;
 use crate::touch::{KeyGeometry, KeyTouch, TouchTuning};
 use crate::types::{
-    CandidateSource, SentenceAssociationOptions, ShuangpinProfileKind, SyllableHelpcode, WordItem,
+    CandidateSource, FuzzyPinyinOptions, SentenceAssociationOptions, ShuangpinProfileKind,
+    SyllableHelpcode, WordItem,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 
+mod fuzzy_lattice;
 mod mixed_initials;
 mod short_words;
 mod syllable_helpcode_order;
@@ -107,6 +109,7 @@ pub struct ShuangpinDictionary {
     collocation_db: Option<Arc<crate::lattice::octagram::GramDb>>,
     sentence_alternatives: bool,
     sentence_association: SentenceAssociationOptions,
+    fuzzy_pinyin: FuzzyPinyinOptions,
     rescoring_context: String,
     /// `generate` answers per key (`_cached_buffer`).
     rows_cache: FifoCache<String, Vec<WordItem>>,
@@ -177,6 +180,7 @@ impl ShuangpinDictionary {
             collocation_db: None,
             sentence_alternatives: false,
             sentence_association: SentenceAssociationOptions::default(),
+            fuzzy_pinyin: FuzzyPinyinOptions::default(),
             rescoring_context: String::new(),
             rows_cache: FifoCache::new(CACHE_CAPACITY),
             series_cache: FifoCache::new(CACHE_CAPACITY),
@@ -642,7 +646,19 @@ impl ShuangpinDictionary {
             );
             return;
         }
-        let mut lookup = |span: &[String]| database.query_lattice_span(span, span_limit);
+        // 已有整词时沿用词条来源、调频和纠错整句的座位；词网格只补词库没有收录的整句。
+        let fuzzy_pinyin = if self.fuzzy_pinyin.rules != 0
+            && segments.len() >= 2
+            && has_only_complete_pinyin_segments(segments)
+            && whole_sentence_insert_position(candidates, segments) == 0
+            && !fuzzy_lattice::has_whole_word(database, segments, self.fuzzy_pinyin)
+        {
+            self.fuzzy_pinyin
+        } else {
+            FuzzyPinyinOptions::default()
+        };
+        let mut lookup =
+            |span: &[String]| fuzzy_lattice::lookup(database, span, span_limit, fuzzy_pinyin);
         let codes = typo_codes(self.autocorrect_types, segments, segmentation, rows_key);
         let types = self.autocorrect_types;
         let profile = self.profile;
@@ -706,6 +722,11 @@ impl ShuangpinDictionary {
             &self.rescoring_context,
             true,
         );
+        if fuzzy_pinyin.rules != 0 {
+            for row in candidates.iter_mut().filter(|row| row.sentence_association) {
+                row.fuzzy = !fuzzy_lattice::follows_typed_reading(&row.canonical_pinyin, segments);
+            }
+        }
         // 纠错整句默认不抢首选：一律排在全码词条和整句块之后，只作为一个可选的改正。只有带触点、触点支持而且明显比字面整句好的那一行按首选规则坐第一位（`confident`）。
         let Some(typo) = typo else {
             return;
@@ -1029,6 +1050,17 @@ impl ShuangpinDictionary {
             return;
         }
         self.autocorrect_types = types;
+        self.clear_series_caches();
+    }
+
+    pub(crate) fn set_fuzzy_pinyin(&mut self, options: FuzzyPinyinOptions) {
+        if self.fuzzy_pinyin != options {
+            self.fuzzy_pinyin = options;
+            self.clear_series_caches();
+        }
+    }
+
+    fn clear_series_caches(&mut self) {
         self.series_cache.clear();
         self.single_helpcode_cache.clear();
         self.reversed_single_helpcode_cache.clear();

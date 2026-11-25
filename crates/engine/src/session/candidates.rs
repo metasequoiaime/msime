@@ -136,7 +136,8 @@ impl InputSession {
             {
                 let code = self.engine.request().raw_input.clone();
                 // 调频开着时整组按学下来的槽位放；没有记录（或调频关掉）时落在首页尾部，普通候选不满一页时接在它们后面。
-                let slot = (self.quick_phrase_frequency
+                let slot = (!self.quick_phrase_first
+                    && self.quick_phrase_frequency
                     && self.frequency.mode != FrequencyAdjustmentMode::Disabled)
                     .then(|| {
                         crate::user_dictionary::ranking::quick_phrase_slot(
@@ -829,7 +830,7 @@ impl InputSession {
         if self.local_mode == LocalInputMode::None {
             keep_expressive_rows_off_the_lead(&mut mixed);
         }
-        // 放在最后：网址补全不参与固定位置，也不被挪开。光标后编辑里选中网址补全会进入网址模式，同样不加。
+        // 光标后编辑里选中网址补全会进入网址模式，此时不加。
         if !self.caret_edit.active {
             self.insert_url_scheme_completions(&mut mixed);
         }
@@ -854,6 +855,25 @@ impl InputSession {
             }
         }
         self.insert_multilingual_row(&mut mixed);
+        let code = self.engine.request().raw_input.as_str();
+        if self.quick_phrase_first && self.local_mode == LocalInputMode::None {
+            // 最后合并，避免英文首选、固定排位和异步候选的占位拆开快捷短语组。码表写了位置的行不属于这一组，留给下面按名次摆放。
+            let phrases: Vec<_> = mixed
+                .extract_if(.., |item| {
+                    item.source == CandidateSource::QuickPhrase
+                        && self
+                            .queries
+                            .quick_phrase_position(code, &item.word)
+                            .is_none()
+                })
+                .collect();
+            mixed.splice(..0, phrases);
+        }
+        // 放在「快捷短语放最前」之后：名次按最终列表计算，不被整组前移推开。
+        if !self.prefix_active && self.local_mode == LocalInputMode::None {
+            self.queries
+                .apply_quick_phrase_positions(code, &mut mixed, |row| self.is_url_completion(row));
+        }
         mixed
     }
 
