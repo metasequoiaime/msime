@@ -74,6 +74,18 @@ int main(void)
         assert([preferences applyCloudSettingsSnapshot:cloud]);
         assert(!preferences.wubiAutoCommitUnique);
         MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+        // 五笔自造词位置沿用共享偏好契约，缺字段按 bottom 读取，设置后可发布并从共享文档恢复。
+        preferences = FreshPreferences(&defaults, &suite);
+        assert([preferences.wubiPhrasePlacement isEqual:@"bottom"]);
+        preferences.wubiPhrasePlacement = @"top";
+        assert([preferences.wubiPhrasePlacement isEqual:@"top"]);
+        assert([[preferences sharedPreferencesByMerging:@{}][@"wubi_phrase_placement"] isEqual:@"top"]);
+        [preferences applySharedInputPreferences:@{@"wubi_phrase_placement": @"bottom"}];
+        assert([preferences.wubiPhrasePlacement isEqual:@"bottom"]);
+        [preferences applySharedInputPreferences:@{@"wubi_phrase_placement": @"unknown"}];
+        assert([preferences.wubiPhrasePlacement isEqual:@"bottom"]);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;
 }

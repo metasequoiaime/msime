@@ -97,6 +97,11 @@ static NSString *const ShuangpinPreeditKey = @"MSIMEClientShuangpinPreeditUsesRa
 static NSString *const WubiProfileKey = @"MSIMEClientWubiProfile";
 /// 认识的五笔版本原样返回，其余（缺省、未知字符串、非字符串）返回 nil。
 static NSString *MSIMEKnownWubiProfile(id value) { return [value isKindOfClass:NSString.class] && msime::mac::IsWubiProfile([value UTF8String] ?: "") ? value : nil; }
+/// 五笔自造词入库位置只接受共享偏好契约规定的两个值。
+static NSString *const WubiPhrasePlacementKey = @"MSIMEClientWubiPhrasePlacement";
+static NSString *MSIMEKnownWubiPhrasePlacement(id value) {
+    return [value isKindOfClass:NSString.class] && ([value isEqual:@"bottom"] || [value isEqual:@"top"]) ? value : nil;
+}
 static NSString *const LocalModesKey = @"MSIMEClientLocalModes";
 /// 「Shift+字母进入快捷模式」总开关和各模式开关存在同一张表里（共享文档的 `local_modes.shift_letter_entry`），缺省同样是开；设置窗口把它单独放在模式网格上方。
 static NSString *const ShiftLetterEntryMode = @"shift_letter_entry";
@@ -474,6 +479,7 @@ static NSDictionary<NSString *, NSString *> *SharedOverrideProperties() {
         KeymapKey : @"sharedShuangpinKeymap",
         WubiProfileKey : @"sharedWubiProfile",
         WubiMixedPinyinKey : @"sharedWubiMixedPinyin",
+        WubiPhrasePlacementKey : @"sharedWubiPhrasePlacement",
         WubiKey : @"sharedWubiAutoCommitUnique",
         WubiZWildcardKey : @"sharedWubiZWildcard",
         WubiFifthCodeTopCommitKey : @"sharedWubiFifthCodeTopCommit",
@@ -578,6 +584,7 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             KeymapKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinKeymap); },
             WubiKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiAutoCommitUnique); },
             WubiMixedPinyinKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiMixedPinyinEnabled); },
+            WubiPhrasePlacementKey : ^id(MSIMEAppearancePreferences *p) { return p.wubiPhrasePlacement ?: @"bottom"; },
             WubiZWildcardKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiZWildcard); },
             WubiFifthCodeTopCommitKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiFifthCodeTopCommit); },
             SentenceAssociationNeuralDesktopKey : ^id(MSIMEAppearancePreferences *p) { return @(p.sentenceAssociationNeuralDesktop); },
@@ -1052,6 +1059,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSTextField *_inputModeHintLabel;
     NSPopUpButton *_shuangpinSchemeButton;
     NSPopUpButton *_wubiSchemeButton;
+    NSPopUpButton *_wubiPhrasePlacementButton;
     NSTextField *_versionLabel;
     NSTextField *_automaticUpdateLabel;
     NSButton *_updatePageButton;
@@ -1248,6 +1256,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *_sharedWubiProfile;
     NSTextField *_wubiProfileLabel;
     NSNumber *_sharedWubiMixedPinyin;
+    NSString *_sharedWubiPhrasePlacement;
     NSNumber *_sharedWubiAutoCommitUnique;
     NSString *_sharedInlinePreeditStyle;
     NSMutableDictionary *_sharedLocalModes;
@@ -1509,6 +1518,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         merged[@"shuangpin_keymap_hint"] = @(self.shuangpinKeymap);
     merged[@"wubi_profile"] = self.wubiProfile;
     merged[@"wubi_mixed_pinyin"] = @(self.wubiMixedPinyinEnabled);
+    if (_sharedInputPreferencesApplied || [_defaults objectForKey:WubiPhrasePlacementKey] != nil)
+        merged[@"wubi_phrase_placement"] = self.wubiPhrasePlacement;
     merged[@"wubi_auto_commit_unique"] = @(self.wubiAutoCommitUnique);
     merged[@"wubi_z_wildcard"] = @(self.wubiZWildcard);
     merged[@"wubi_fifth_code_top_commit"] = @(self.wubiFifthCodeTopCommit);
@@ -2217,6 +2228,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     [_defaults setBool:value forKey:WubiMixedPinyinKey];
     [self preferencesChanged];
 }
+- (NSString *)wubiPhrasePlacement {
+    return MSIMEKnownWubiPhrasePlacement(_sharedWubiPhrasePlacement ?: [_defaults stringForKey:WubiPhrasePlacementKey]) ?: @"bottom";
+}
+- (void)setWubiPhrasePlacement:(NSString *)value {
+    value = MSIMEKnownWubiPhrasePlacement(value) ?: @"bottom";
+    _sharedWubiPhrasePlacement = nil;
+    [_defaults setObject:value forKey:WubiPhrasePlacementKey];
+    [self preferencesChanged];
+}
 - (BOOL)wubiZWildcard {
     if (_sharedWubiZWildcard) return _sharedWubiZWildcard.boolValue;
     return [_defaults boolForKey:WubiZWildcardKey];
@@ -2393,6 +2413,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id profile = preferences[@"shuangpin_profile"];
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
+    id wubiPhrasePlacement = preferences[@"wubi_phrase_placement"];
     id wubiAutoCommitUnique = preferences[@"wubi_auto_commit_unique"];
     id wubiZWildcard = preferences[@"wubi_z_wildcard"];
     id wubiFifthCodeTopCommit = preferences[@"wubi_fifth_code_top_commit"];
@@ -2408,6 +2429,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _sharedShuangpinKeymap = LocalModeBoolean(keymap) ? keymap : nil;
     if (_sharedShuangpinKeymap) [_defaults removeObjectForKey:KeymapKey];
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
+    _sharedWubiPhrasePlacement = MSIMEKnownWubiPhrasePlacement(wubiPhrasePlacement);
+    [_defaults removeObjectForKey:WubiPhrasePlacementKey];
     if (LocalModeBoolean(wubiAutoCommitUnique)) {
         _sharedWubiAutoCommitUnique = wubiAutoCommitUnique;
         // 文档里的 false 只可能来自新语义下的选择：升级时把旧的原生 NO 合并进文档之前 getter 已经读作开，而共享设置页（macOS 上的主要入口）只写文档、不写原生标记。这里也认作本机已经采纳新语义，免得下一次套用云快照时把用户关掉的开关又当历史缺省恢复成开。
@@ -3646,6 +3669,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     const std::size_t wubiProfile = msime::mac::WubiProfileIndex(self.wubiProfile.UTF8String);
     [_wubiSchemeButton selectItemAtIndex:(NSInteger)wubiProfile];
     _wubiProfileLabel.stringValue = @(msime::mac::kWubiProfileNames[wubiProfile].profileTitle);
+    [_wubiPhrasePlacementButton selectItemAtIndex:[self.wubiPhrasePlacement isEqual:@"top"] ? 1 : 0];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
     [_fontButton selectItemAtIndex:self.fontSize - 12];
     _englishFontFamilyControl.stringValue = self.candidateEnglishFont ?: @"";
@@ -3728,6 +3752,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         // configuring the scheme that is actually in use.
         @[ @(scheme == 1), @[_shuangpinSchemeButton] ],
         @[ @(scheme == 2), @[_wubiSchemeButton] ],
+        @[ @(scheme == 2 && learning), @[_wubiPhrasePlacementButton] ],
         // 模糊音和两项全拼纠错只作用于全拼、双拼和五笔的候选：日语、韩语、粤拼、注音和越南文对 Engine 的 `supports_fuzzy`、`supports_autocorrect` 回答 false，韩语的候选只有当前音节的汉字，任何拼写规则都够不着。refresh_candidates（crates/engine/src/ime/mod.rs）不论方案都把这三项放进查询请求，只有全拼和双拼引擎会读出来（crates/engine/src/quanpin/engine.rs、crates/engine/src/shuangpin/engine.rs），日语 provider 从不看。五笔自己的码表同样不理它们，仍然保留，是因为「五笔拼音混输」打开时同一个方法会对同一串字母再建一个带着这三项的全拼请求，不论五笔码表答不答得上，把全拼候选接在五笔候选之后，所以在五笔下它们决定混输列出哪些拼音候选。
         @[ @(scheme <= 2), @[_fuzzyPinyinToggle, _transpositionToggle, _neighborToggle] ],
         @[ @(self.fuzzyPinyinEnabled && scheme <= 2), _fuzzyPinyinRuleButtons.allValues ],
@@ -4108,6 +4133,11 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     _wubiZWildcardToggle = MSIMESettingSwitch(self, @selector(wubiZWildcardChanged:), @"z 键通配");
     _wubiFifthCodeTopCommitToggle =
         MSIMESettingSwitch(self, @selector(wubiFifthCodeTopCommitChanged:), @"第五码将首选上屏");
+    _wubiPhrasePlacementButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_wubiPhrasePlacementButton addItemsWithTitles:@[@"同码词后", @"同码词前"]];
+    _wubiPhrasePlacementButton.accessibilityLabel = @"自造词位置";
+    _wubiPhrasePlacementButton.target = self;
+    _wubiPhrasePlacementButton.action = @selector(wubiPhrasePlacementChanged:);
     _sentenceNeuralDesktopToggle =
         MSIMESettingSwitch(self, @selector(sentenceNeuralDesktopChanged:), @"桌面神经联想");
     _sentenceShowNextOnDuplicateToggle =
@@ -4306,6 +4336,10 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         [self settingRow:@"第五码将首选上屏"
                   detail:@"完整四码后再敲字母时上屏首选，该字母留作下一组开头。"
                  control:_wubiFifthCodeTopCommitToggle],
+        [self settingRow:@"自造词位置"
+                  detail:@"新造的五笔词放在同码已有词之前或之后。"
+                 control:_wubiPhrasePlacementButton
+                     aka:@[@"同码词后", @"同码词前"]],
     ], 0.0);
     _wubiCard.accessibilityLabel = @"五笔选项卡片";
 
@@ -4319,7 +4353,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         [self sectionHeader:@"应用例外" keys:@[AppInputModeRulesKey, VimModeAppsKey]], appRuleCard,
         [self sectionHeader:@"中文输入方案"
                        keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey, WubiProfileKey,
-                              WubiMixedPinyinKey, WubiZWildcardKey, WubiFifthCodeTopCommitKey, HelpcodeOptionsKey,
+                              WubiMixedPinyinKey, WubiPhrasePlacementKey, WubiZWildcardKey, WubiFifthCodeTopCommitKey, HelpcodeOptionsKey,
                               QuanpinHelpcodeKey, ShuangpinHelpcodeKey]],
         schemeCard, _quanpinCard, _shuangpinCard, _wubiCard,
     ]];
@@ -5458,6 +5492,9 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 - (void)wubiZWildcardChanged:(NSSwitch *)sender { self.wubiZWildcard = sender.state == NSControlStateValueOn; }
 - (void)wubiFifthCodeTopCommitChanged:(NSSwitch *)sender {
     self.wubiFifthCodeTopCommit = sender.state == NSControlStateValueOn;
+}
+- (void)wubiPhrasePlacementChanged:(NSPopUpButton *)sender {
+    self.wubiPhrasePlacement = sender.indexOfSelectedItem == 1 ? @"top" : @"bottom";
 }
 - (void)sentenceNeuralDesktopChanged:(NSSwitch *)sender {
     self.sentenceAssociationNeuralDesktop = sender.state == NSControlStateValueOn;

@@ -77,6 +77,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *wubiProfile;
 /// Allow Pinyin fallback when a Wubi code has no Wubi candidates.
 @property(nonatomic) BOOL wubiMixedPinyinEnabled;
+/// 五笔自造词入库位置：`bottom`（同码已有词之后，缺省）或 `top`（同码已有词之前）。
+@property(nonatomic, copy) NSString *wubiPhrasePlacement;
 /// Shared inline composition display: raw keys, formatted pinyin, or hidden.
 @property(nonatomic, readonly) MSIMEInlinePreeditStyle inlinePreeditStyle;
 @property(nonatomic) NSUInteger fontSize;

@@ -62,6 +62,7 @@ CyIME 没有内置五笔，五笔方案从市场下载（`SchemaConfigHelper.kt`
 - 对称删除：fixture 学入两版后删除，两版行都消失、两版墓碑都在、重放零失败、`learn` 不复活。
 - 偏好管线：落库位置缺键按 `bottom` 读、`top` 往返、非法值按默认读；造词时机字段已撤回（`wubi_phrase_learning_is_not_a_recognized_preference` 钉住文档残留键不再被写成设置）；settings_sync 与 schema 测试、host-api 选项重建测试、edition 版本过滤测试（`wubi_phrase_placement_key_follows_the_wubi_edition`）。
 - 设置页：`apps/desktop/tests/settings/wubi-phrase-learning.test.tsx` 钉住非五笔方案或学习关闭时不渲染落库位置、只渲染「五笔自造词位置」一行、切换回调写出正确偏好值。
+- macOS 回退设置窗口也提供同一字段：共享文档有值时优先读取并清掉旧的本机暂存值，缺字段或非法值按 `bottom` 读；控件只在五笔方案且学习打开时可用，选择后经 `sharedPreferencesByMerging:` 发布为 `wubi_phrase_placement`。Linux 仍随原生设置迁移补入口，其他平台入口不在本次 PR 内。
 - 实机验收（Ubuntu 26.10 + iBus，维护者）随 PR 验收：固定凑三次——哔哩哔哩打 3 次后四码直出、排位沉底；切置顶模式——新词出现在同码候选前列；切回沉底确认回到现状。
 
 ## Alternatives considered
