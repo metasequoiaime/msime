@@ -17,7 +17,6 @@
 #include "HelpcodePack.h"
 #include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
-#include "CandidateMaintenanceShortcut.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
 #include "CaretEditSuffix.h"
@@ -56,11 +55,10 @@
 #endif
 #include "../overlay/FloatingPanelColors.h"
 #include "../overlay/FloatingToolbarModel.h"
-#include "../candidates/CandidateMenuPlacement.h"
-#include "../candidates/GnomePointer.h"
+#include "../candidates/CandidateMenuController.h"
+#include "../candidates/CandidateShortcutAction.h"
 #include "../overlay/ShuangpinKeymapModel.h"
 #ifdef MSIME_LINUX_FLOATING_PANELS
-#include "../candidates/CandidateMenuSurface.h"
 #include "../overlay/FloatingToolbar.h"
 #include "../overlay/ShuangpinKeymapX11Surface.h"
 #endif
@@ -70,7 +68,6 @@
 #include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
 #include "../candidates/CandidateActionName.h"
-#include "../candidates/ShellCandidateMenu.h"
 #include "../candidates/PersonalWordbook.h"
 #include "../candidates/ReadAloud.h"
 #include "../candidates/CandidateLocalModeLabels.h"
@@ -669,15 +666,8 @@ struct State {
   int wave_overlay_watch_fd = -1;
   // 识别进行中点了确认：这次录音余下的时间里浮条一直收着，结果照常上屏，与 macOS 的 `dismissProcessing` 一样。
   bool wave_overlay_dismissed = false;
-#ifdef MSIME_LINUX_FLOATING_PANELS
-  // 候选右键自绘菜单：IBus 面板没有逐候选菜单接口，自绘弹层显示时监听它的显示连接；
-  // 连不上 X（Xwayland 也不可用）时退回 show_candidate_menu_hint 的提示条。
-  std::unique_ptr<msime::linux_host::CandidateMenuSurface> candidate_menu_surface;
-  guint candidate_menu_watch = 0;
-  gint candidate_menu_watch_fd = -1;
-#endif
-  // GNOME 会话下菜单由扩展渲染；记下推送时的 token，会话出口按它收起扩展里的菜单。
-  std::string candidate_menu_token;
+  // 候选右键菜单（CandidateMenuController.h）：IBus 面板没有逐候选菜单接口，GNOME Shell 会话由随装扩展画，其余会话由宿主自绘；弹不出来时退回 show_candidate_menu_hint 的快捷键提示。
+  msime::linux_host::CandidateMenuController candidate_menu;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -831,30 +821,11 @@ struct State {
     wave_overlay_watch = 0;
     wave_overlay_watch_fd = -1;
   }
-  // 收起候选右键菜单并停掉显示连接监听。显示中的菜单在会话每条出口（focus_out、reset、render）
-  // 上收起，与组字一起消失。GNOME 会话的菜单由扩展渲染（D-Bus token），没有 X11 浮层时也要收起。
-  void release_candidate_menu() {
-#ifdef MSIME_LINUX_FLOATING_PANELS
-    if (candidate_menu_surface && candidate_menu_surface->visible())
-      candidate_menu_surface->hide();
-#endif
-    if (!candidate_menu_token.empty()) {
-      // GNOME 菜单由扩展画；按 token 收起，扩展只关匹配的那一轮，迟到的收起不误关新菜单。
-      msime::linux_host::shell_hide_candidate_menu(candidate_menu_token.c_str());
-      candidate_menu_token.clear();
-    }
-#ifdef MSIME_LINUX_FLOATING_PANELS
-    if (candidate_menu_watch)
-      g_source_remove(candidate_menu_watch);
-    candidate_menu_watch = 0;
-    candidate_menu_watch_fd = -1;
-#endif
-  }
   void close() {
     session_chinese_punctuation.reset();
     session_fullwidth.reset();
     session_caps_lock = false;
-    release_candidate_menu();
+    candidate_menu.release();
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -4186,7 +4157,7 @@ void clear(IBusEngine *engine) {
   hide_shuangpin_keymap();
   auto &s = state(engine);
   // 会话的每条出口都收起右键自绘菜单（focus_out、禁用、会话重建都经过 clear）。
-  s.release_candidate_menu();
+  s.candidate_menu.release();
   if (s.translation_candidates_active && s.translation_saved_view.is_object())
     s.view = std::move(s.translation_saved_view);
   s.translation_candidates_active = false;
@@ -4416,7 +4387,7 @@ void render(IBusEngine *engine, const Json &view) {
   sync_shuangpin_keymap(engine, view);
   sync_vocabulary_row(engine);
   // 每一帧渲染都收起右键自绘菜单：选择动作、翻页或输入变化都会触发渲染，菜单与组字一起消失。
-  state(engine).release_candidate_menu();
+  state(engine).candidate_menu.release();
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -6796,7 +6767,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     state(engine).host_shortcut_strokes.clear();
-    state(engine).release_candidate_menu();
+    state(engine).candidate_menu.release();
     // A chord release that never arrives must not swallow the next stroke of the same key.
     state(engine).mode_chord_held = false;
     state(engine).character_set_chord_held = false;
@@ -7799,68 +7770,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     });
     return TRUE;
   }
-  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+Shift+1..5 固定排位、Ctrl+0 取消固定）：
-  // 与面板属性菜单同一组围栏（渲染页归属与代次一致、行 id 归本会话、candidate_dictionary_actions_available），
-  // 动作落在本页渲染里 highlighted 的那一行。高亮行不在或不可维护时按键照常往下走：交给后面的组字路径（组字时带 Ctrl 的键先取消或结束组字），不能直接 `return FALSE` 把 Ctrl+Delete、Ctrl+Shift+1 这些键在组字还开着时原样交给应用。
-  const auto candidate_maintenance_action =
-      (!release && s.focused && !s.blocked && s.session)
-          ? msime::linux_host::candidate_maintenance_shortcut(key, modifiers, keycode)
-          : msime::linux_host::CandidateShortcut{};
-  const auto run_candidate_maintenance = [&]() -> bool {
-    if (s.rendered_session != s.session || !s.rendered_candidates.is_array() ||
-        s.rendered_candidates.empty() || !s.rendered_view.is_object() ||
-        !s.view.is_object() ||
-        s.rendered_view.value("generation", uint64_t{0}) !=
-            s.view.value("generation", uint64_t{0}))
-      return false;
-    for (const auto &candidate : s.rendered_candidates) {
-      if (!candidate.is_object() || !candidate.value("highlighted", false))
-        continue;
-      const auto &id = candidate.value("id", Json::object());
-      if (!id.is_object() || id.value("session", uint64_t{0}) != s.session)
-        return false;
-      const auto source = candidate.value("source", 0);
-      if (!msime::linux_host::candidate_dictionary_actions_available(
-              s.rendered_scheme, source))
-        return false;
-      if (candidate_maintenance_action.kind ==
-              msime::linux_host::CandidateShortcutKind::Remove &&
-          !msime::linux_host::candidate_dictionary_removal_available(
-              s.rendered_scheme, source, candidate.value("text", std::string{})))
-        return false;
+  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+Shift+1..5 固定排位、Ctrl+0 取消固定）落在本页高亮的那一行，围栏与分派和「候选操作」属性菜单是同一条路（CandidateShortcutAction.h、property_activate）。围栏不通过时按键照常往下走、交给后面的组字路径（带 Ctrl 的键先取消或结束组字），不能 `return FALSE` 把这些键在组字还开着时原样交给应用。
+  if (!release && s.focused && !s.blocked) {
+    if (const auto action = msime::linux_host::candidate_shortcut_action(
+            s.rendered_view, s.view, s.rendered_candidates, s.session, s.rendered_session,
+            s.rendered_scheme, msime::linux_host::candidate_maintenance_shortcut(key, modifiers, keycode))) {
       s.host_shortcut_strokes.insert(host_stroke);
-      const auto generation = id.value("generation", uint64_t{0});
-      const auto index = id.value("index", size_t{0});
-      guarded(engine, "candidate_maintenance_shortcut", [&] {
-        using Kind = msime::linux_host::CandidateShortcutKind;
-        switch (candidate_maintenance_action.kind) {
-        case Kind::Remove:
-          apply(engine, msime_client_remove_candidate(s.session, generation, index));
-          break;
-        case Kind::Pin:
-          apply(engine, msime_client_pin_candidate(s.session, generation, index));
-          break;
-        case Kind::Clear:
-          apply(engine,
-                msime_client_clear_candidate_position(s.session, generation, index));
-          break;
-        case Kind::Fix:
-          apply(engine, msime_client_fix_candidate_position(
-                            s.session, generation, index,
-                            candidate_maintenance_action.position));
-          break;
-        default:
-          break;
-        }
-      });
-      return true;
+      property_activate(engine, action->c_str(), PROP_STATE_UNCHECKED);
+      return TRUE;
     }
-    return false;
-  };
-  if (candidate_maintenance_action.kind !=
-          msime::linux_host::CandidateShortcutKind::None &&
-      run_candidate_maintenance())
-    return TRUE;
+  }
   if (modifier(key) &&
       !(s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)))
     return FALSE;
@@ -8718,22 +8637,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       }
       command = MSIME_COMMIT_RAW;
       break;
-    case IBUS_Escape: {
-      // 右键菜单显示时 Esc 只收菜单，不取消组字：自绘浮层不抢焦点，Esc 仍到引擎这里。
-      // GNOME 扩展菜单自己在 Shell 里停掉 Esc；token 只记「发过菜单」，点外面或候选框收起时扩展关菜单并不通知宿主，
-      // 所以 token 非空不等于菜单还开着，不能据此吞掉 Esc。这里只顺手收掉残留的 token，Esc 照常取消组字。
-      auto &menu_state = state(engine);
-#ifdef MSIME_LINUX_FLOATING_PANELS
-      if (menu_state.candidate_menu_surface && menu_state.candidate_menu_surface->visible()) {
-        menu_state.release_candidate_menu();
+    case IBUS_Escape:
+      // 自绘右键菜单显示着时 Esc 只收菜单；否则照常取消组字（CandidateMenuController::consume_escape）。
+      if (state(engine).candidate_menu.consume_escape()) {
         handled = true;
         return;
       }
-#endif
-      menu_state.release_candidate_menu();
       command = MSIME_CANCEL;
       break;
-    }
     case IBUS_space:
       if (modifiers == 0 && convert_smart_punctuation_space(engine)) {
         handled = true;
@@ -8890,105 +8801,6 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std
       },
       notice, nullptr);
 }
-#ifdef MSIME_LINUX_FLOATING_PANELS
-// 候选右键自绘菜单的显示连接监听（显示时才挂，收起时移除），照 sync_wave_overlay_sources 的做法。
-gboolean candidate_menu_events(gint, GIOCondition condition, gpointer data) {
-  auto *source = static_cast<WaveOverlaySource *>(data);
-  if (!source->alive->load())
-    return G_SOURCE_REMOVE;
-  auto &s = state(source->engine);
-  if (!s.candidate_menu_surface || !s.candidate_menu_surface->visible() ||
-      (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL))) {
-    s.release_candidate_menu();
-    return G_SOURCE_REMOVE;
-  }
-  s.candidate_menu_surface->dispatch_events();
-  return G_SOURCE_CONTINUE;
-}
-
-void sync_candidate_menu_watch(IBusEngine *engine) {
-  auto &s = state(engine);
-  const int fd = s.candidate_menu_surface && s.candidate_menu_surface->visible()
-                     ? s.candidate_menu_surface->event_fd()
-                     : -1;
-  if (fd == s.candidate_menu_watch_fd)
-    return;
-  if (s.candidate_menu_watch)
-    g_source_remove(s.candidate_menu_watch);
-  s.candidate_menu_watch = 0;
-  s.candidate_menu_watch_fd = fd;
-  if (fd >= 0)
-    s.candidate_menu_watch = g_unix_fd_add_full(G_PRIORITY_DEFAULT, fd, G_IO_IN,
-                                                candidate_menu_events,
-                                                new WaveOverlaySource{engine, s.alive},
-                                                delete_wave_overlay_source);
-}
-
-// 右键打开自绘菜单：条目可用性由 candidate_menu_items 算，配色与悬浮工具栏同一主题；
-// 连不上 X（Xwayland 也不可用）时返回 false，调用方退回 show_candidate_menu_hint 的提示条。动作在
-// show 时按本页高亮行的 identity 绑定，回调时核对会话与渲染代次，落进与面板属性
-// 菜单同一组 msime_client_* 命令。
-bool show_candidate_menu(IBusEngine *engine, const Json &candidate,
-                         msime::linux_host::CandidateMenuAnchor anchor) {
-  auto &s = state(engine);
-  if (!s.candidate_menu_surface)
-    s.candidate_menu_surface = std::make_unique<msime::linux_host::CandidateMenuSurface>();
-  else if (s.candidate_menu_surface->visible())
-    s.candidate_menu_surface->hide();
-  const auto session = s.session;
-  const auto id = candidate.value("id", Json::object());
-  if (!id.is_object())
-    return false;
-  const auto generation = id.value("generation", uint64_t{0});
-  const auto index = id.value("index", size_t{0});
-  auto items = msime::linux_host::candidate_menu_items(
-      candidate.value("text", std::string{}), true,
-      static_cast<uint8_t>(candidate.value("fixed_position", 0)));
-  // 动作表在 move 之前照条目下标存下，命中后按 identity 落命令；分隔线与禁用项不会成为命中。
-  const std::vector<std::pair<msime::linux_host::CandidateMenuCommand, uint8_t>> actions = [&] {
-    std::vector<std::pair<msime::linux_host::CandidateMenuCommand, uint8_t>> result;
-    for (const auto &item : items)
-      result.emplace_back(item.command, item.position);
-    return result;
-  }();
-  const auto shown = s.candidate_menu_surface->show(
-      std::move(items), s.floating_toolbar_colors, anchor,
-      [engine, session, generation, index, actions](std::size_t item_index) {
-        guarded(engine, "candidate_menu_action", [&] {
-          auto &s = state(engine);
-          if (!s.session || s.session != session || s.rendered_session != s.session ||
-              !s.rendered_view.is_object() ||
-              s.rendered_view.value("generation", uint64_t{0}) != generation ||
-              item_index >= actions.size())
-            return;
-          const auto &[command, position] = actions[item_index];
-          using Command = msime::linux_host::CandidateMenuCommand;
-          switch (command) {
-          case Command::PinToTop:
-            apply(engine, msime_client_pin_candidate(s.session, generation, index));
-            break;
-          case Command::FixAtPosition:
-            apply(engine, msime_client_fix_candidate_position(
-                              s.session, generation, index, position));
-            break;
-          case Command::ClearFixedPosition:
-            apply(engine,
-                  msime_client_clear_candidate_position(s.session, generation, index));
-            break;
-          case Command::Remove:
-            apply(engine, msime_client_remove_candidate(s.session, generation, index));
-            break;
-          }
-        });
-      },
-      // 收起后的通知（点外、选择或会话出口 hide）：挂/卸显示连接监听。
-      [engine] { sync_candidate_menu_watch(engine); });
-  if (!shown)
-    return false;
-  sync_candidate_menu_watch(engine);
-  return true;
-}
-#endif  // MSIME_LINUX_FLOATING_PANELS
 
 // 指针点选和翻页同样先开启新的一轮（msime_client.h 的顺序契约）：MSIME_KEY_POINTER 不出声、不画。
 void pointer_turn(IBusEngine *engine) {
@@ -9076,41 +8888,28 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       // warning line. The flyout needs a rendered view to anchor to.
       if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) &&
           s.rendered_view.is_object()) {
-        if (candidate_panel_is_gnome_shell()) {
-          // GNOME Shell 把候选框画成合成器 actor，压在所有 X11 客户端窗口之上：宿主自绘
-          // 浮层躲不开遮挡。改由扩展画菜单；条目（文案、顺序、禁用）仍只来自 C++ 的
-          // candidate_menu_items，点击由扩展原样回传 action_name，走 property_activate
-          // 的 session/generation/identity 校验。扩展未启用（随包安装、不替用户启用）或超时就在辅助区域提示快捷键。
-          const auto items = msime::linux_host::candidate_menu_items(
-              entry.value("text", std::string{}), true,
-              static_cast<uint8_t>(entry.value("fixed_position", 0)));
-          const auto wire = msime::linux_host::shell_menu_entries(
-              items, s.session, generation, global_index);
-          const auto token =
-              std::to_string(next_client_token.fetch_add(1, std::memory_order_relaxed));
-          // session/generation/index 前缀只作展示层一致性信息，信任根仍是回调侧的校验。
-          const auto identity = msime::linux_host::candidate_action_name(
-                                    "", s.session, generation, global_index)
-                                    .substr(1);
-          if (!msime::linux_host::shell_show_candidate_menu(token.c_str(), identity.c_str(),
-                                                             wire)) {
-            show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
-            return;
-          }
-          s.candidate_menu_token = token;
-          return;
-        }
-#ifdef MSIME_LINUX_FLOATING_PANELS
-        // 纯 X11 会话右键就在 IBus 面板的候选行上，show() 取本机指针；KDE Plasma、sway 这类 Wayland 会话里 Xwayland 的指针坐标是陈旧的，改按 IBus 上报的光标矩形摆（CandidateMenuPlacement.h）。
+        const auto rendered_generation = s.rendered_view.value("generation", uint64_t{0});
+        const auto items = msime::linux_host::candidate_menu_items(
+            entry.value("text", std::string{}), true,
+            static_cast<uint8_t>(entry.value("fixed_position", 0)));
+        const msime::linux_host::CandidateMenuController::Target target{s.session, generation,
+                                                                       global_index};
+        // GNOME Shell 把候选框画成合成器 actor，压在所有 X11 客户端窗口之上，宿主自绘浮层躲不开，改由扩展画；其余会话自绘，纯 X11 跟随指针，KDE Plasma、sway 这类 Wayland 会话里 Xwayland 的指针坐标是陈旧的，改按 IBus 上报的光标矩形摆（CandidateMenuPlacement.h）。两条路的点击都回到 property_activate 核对身份。
         const char *wayland = std::getenv("WAYLAND_DISPLAY");
-        if (!show_candidate_menu(engine, entry,
-                                 msime::linux_host::candidate_menu_anchor(
-                                     wayland && *wayland, engine->cursor_area.x, engine->cursor_area.y,
-                                     engine->cursor_area.width, engine->cursor_area.height)))
-          show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
-#else
-        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
-#endif
+        const bool shown =
+            candidate_panel_is_gnome_shell()
+                ? s.candidate_menu.show_in_shell(items, target)
+                : s.candidate_menu.show_overlay(
+                      items, target, s.floating_toolbar_colors,
+                      msime::linux_host::candidate_menu_anchor(
+                          wayland && *wayland, engine->cursor_area.x, engine->cursor_area.y,
+                          engine->cursor_area.width, engine->cursor_area.height),
+                      [engine](const std::string &action) {
+                        property_activate(engine, action.c_str(), PROP_STATE_UNCHECKED);
+                      });
+        // 扩展没启用（随包安装、不替用户启用）、超时或连不上 X 时，在辅助区域提示快捷键。
+        if (!shown)
+          show_candidate_menu_hint(engine, rendered_generation);
       }
     } else {
       pointer_turn(engine);

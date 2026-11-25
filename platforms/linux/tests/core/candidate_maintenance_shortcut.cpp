@@ -1,10 +1,54 @@
-// 候选维护快捷键的解析：Ctrl+Delete 删除候选、Ctrl+↑ 置顶、Ctrl+0 取消固定，
-// Ctrl+Shift+1..5 固定到第 1..5 位（Ctrl+1..5 让给别的快捷键）。修饰键必须恰当；
-// 其余键一律不动作。
+// 候选维护快捷键的解析：Ctrl+Delete 删除候选、Ctrl+↑ 置顶、Ctrl+0 取消固定，Ctrl+Shift+1..5 固定到第 1..5 位（Ctrl+1..5 让给别的快捷键）。修饰键必须恰当；其余键一律不动作。以及按键落到哪一行（CandidateShortcutAction.h）：本页高亮行的动作名，围栏不通过时为空、按键照常往下走。
 
+#include "../../src/candidates/CandidateShortcutAction.h"
 #include "../../src/core/CandidateMaintenanceShortcut.h"
 
 #include <cassert>
+
+namespace {
+
+using Json = nlohmann::json;
+using msime::linux_host::candidate_shortcut_action;
+using msime::linux_host::CandidateShortcut;
+using msime::linux_host::CandidateShortcutKind;
+
+Json row(const char *text, bool highlighted, int source = 0, std::uint64_t session = 42) {
+  return {{"text", text}, {"highlighted", highlighted}, {"source", source},
+          {"id", {{"session", session}, {"generation", 7}, {"index", highlighted ? 3 : 2}}}};
+}
+
+void shortcut_targets() {
+  const Json view{{"generation", 7}};
+  const Json page = Json::array({row("甲乙", false), row("丙丁", true)});
+  const auto act = [&](CandidateShortcut shortcut, const Json &rows = Json(),
+                       std::uint64_t scheme = 0, const Json &rendered = Json(),
+                       std::uint64_t rendered_session = 42) {
+    return candidate_shortcut_action(rendered.is_null() ? view : rendered, view,
+                                     rows.is_null() ? page : rows, 42, rendered_session, scheme,
+                                     shortcut);
+  };
+  // 动作落在高亮的那一行，编码成 property_activate 认得的完整动作名。
+  assert(act({CandidateShortcutKind::Pin, 0}) == "CandidatePin/42/7/3");
+  assert(act({CandidateShortcutKind::Remove, 0}) == "CandidateRemove/42/7/3");
+  assert(act({CandidateShortcutKind::Clear, 0}) == "CandidateClear/42/7/3");
+  assert(act({CandidateShortcutKind::Fix, 2}) == "CandidateFix2/42/7/3");
+  // 不是快捷键、没有高亮行、代次过期、渲染页不归本会话、行 id 不归本会话：都为空，按键照常往下走。
+  assert(!act({}));
+  assert(!act({CandidateShortcutKind::Pin, 0}, Json::array({row("甲乙", false)})));
+  assert(!act({CandidateShortcutKind::Pin, 0}, Json(), 0, Json{{"generation", 6}}));
+  assert(!act({CandidateShortcutKind::Pin, 0}, Json(), 0, Json(), 41));
+  assert(!act({CandidateShortcutKind::Pin, 0}, Json::array({row("丙丁", true, 0, 41)})));
+  // 不学习的方案（日语等）和动态候选（云、AI、表情）不可维护。
+  assert(!act({CandidateShortcutKind::Pin, 0}, Json(), 3));
+  assert(!act({CandidateShortcutKind::Pin, 0}, Json::array({row("丙丁", true, 2)})));
+  // 删除另有可删除判定：中文单字不删，英文词库的单字母行可删，其余动作不受它影响。
+  assert(!act({CandidateShortcutKind::Remove, 0}, Json::array({row("丙", true)})));
+  assert(act({CandidateShortcutKind::Pin, 0}, Json::array({row("丙", true)})) == "CandidatePin/42/7/3");
+  assert(act({CandidateShortcutKind::Remove, 0}, Json::array({row("a", true, 4)})) ==
+         "CandidateRemove/42/7/3");
+}
+
+}  // namespace
 
 int main() {
   using msime::linux_host::candidate_maintenance_shortcut;
@@ -87,4 +131,6 @@ int main() {
   assert(candidate_maintenance_shortcut(IBUS_Right, control).kind == Kind::None);
   assert(candidate_maintenance_shortcut(IBUS_Down, control).kind == Kind::None);
   assert(candidate_maintenance_shortcut(IBUS_a, control).kind == Kind::None);
+
+  shortcut_targets();
 }

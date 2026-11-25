@@ -151,7 +151,7 @@ endif()
 msime_edition_host_library(MSIME_HOST_LIBRARY)
 add_library(msime-ibus-host STATIC
   src/core/ClientEngine.cpp src/system/DiagnosticLog.cpp src/system/ChineseTextConversion.cpp src/system/CapsLockRelease.cpp src/overlay/WaveOverlayIbusSurface.cpp
-  src/overlay/WaveOverlaySurfaceFactory.cpp src/candidates/GnomePointer.cpp)
+  src/overlay/WaveOverlaySurfaceFactory.cpp src/candidates/GnomePointer.cpp src/candidates/CandidateMenuController.cpp)
 target_compile_options(msime-ibus-host PRIVATE -Wall -Wextra -Werror)
 # 扩展的 D-Bus 名随版本；契约测试不设这个宏，用默认的无后缀名加注入总线名。
 target_compile_definitions(msime-ibus-host PRIVATE MSIME_POINTER_BUS_NAME="${MSIME_POINTER_BUS_NAME}")
@@ -495,7 +495,7 @@ if(BUILD_TESTING)
   add_executable(linux-candidate-maintenance-shortcut-test tests/core/candidate_maintenance_shortcut.cpp)
   target_compile_options(linux-candidate-maintenance-shortcut-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-candidate-maintenance-shortcut-test PRIVATE src)
-  target_link_libraries(linux-candidate-maintenance-shortcut-test PRIVATE PkgConfig::IBUS)
+  target_link_libraries(linux-candidate-maintenance-shortcut-test PRIVATE PkgConfig::IBUS nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-maintenance-shortcut COMMAND linux-candidate-maintenance-shortcut-test)
   add_executable(linux-candidate-menu-items-test tests/candidate/candidate_menu_items.cpp)
   target_compile_options(linux-candidate-menu-items-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
@@ -1460,6 +1460,13 @@ if(BUILD_TESTING)
   target_link_libraries(linux-gnome-pointer-dbus-test PRIVATE PkgConfig::GIO)
   add_test(NAME linux-gnome-pointer-dbus COMMAND linux-gnome-pointer-dbus-test)
   set_tests_properties(linux-gnome-pointer-dbus PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 20)
+  # 候选右键菜单的收起与 Esc：注入假的扩展调用，不需要会话总线，也不画 X11 浮层。
+  add_executable(linux-candidate-menu-controller-test tests/candidate/candidate_menu_controller.cpp
+                 src/candidates/CandidateMenuController.cpp src/candidates/GnomePointer.cpp)
+  target_compile_options(linux-candidate-menu-controller-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-candidate-menu-controller-test PRIVATE src)
+  target_link_libraries(linux-candidate-menu-controller-test PRIVATE PkgConfig::GIO nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-menu-controller COMMAND linux-candidate-menu-controller-test)
   if(MODE_BADGE_X11_FOUND)
     # 用真实的 cairo 与 pango 画一遍键位图、工具栏、菜单和提示。
     add_executable(linux-floating-panels-render-test tests/runtime/floating_panels_render.cpp)
