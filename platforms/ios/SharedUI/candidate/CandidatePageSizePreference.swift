@@ -41,11 +41,8 @@ enum CandidatePanelStylePreference {
 
   static let options: [(style: Style, title: String)] = [(.card, "卡片"), (.system, "系统样式")]
 
-  /// 没有任何存值时用的样式。
-  ///
-  /// 【临时】改成 `.system` 只为真机验收：未签名安装的包拿不到 App Group，设置页写的那份键盘读不到，切换样式看不到效果。
-  /// 验收完改回 `.card`，让老用户升级后维持原来的样子。
-  static let fallbackStyle: Style = .system
+  /// 没有任何存值时用的样式：卡片，老用户升级后维持原来的样子。真机验收期间曾临时改成 `.system`（未签名安装的包拿不到 App Group，设置页写的那份键盘读不到），验收完已改回。
+  static let fallbackStyle: Style = .card
 
   static var defaults: UserDefaults {
     InputSchemePreference.appGroupDefaults
