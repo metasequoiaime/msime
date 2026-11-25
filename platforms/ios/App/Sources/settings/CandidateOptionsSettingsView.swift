@@ -23,7 +23,7 @@ struct CandidateOptionsSettingsView: View {
   @AppStorage(CandidatePageSizePreference.key, store: CandidatePageSizePreference.defaults)
   private var pageSize = CandidatePageSizePreference.defaultSize
   @AppStorage(CandidatePanelStylePreference.key, store: CandidatePanelStylePreference.defaults)
-  private var panelStyleRaw = CandidatePanelStylePreference.Style.card.rawValue
+  private var panelStyleRaw = CandidatePanelStylePreference.fallbackStyle.rawValue
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
@@ -40,7 +40,7 @@ struct CandidateOptionsSettingsView: View {
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
   private var panelStyle: Binding<CandidatePanelStylePreference.Style> {
-    Binding(get: { CandidatePanelStylePreference.Style(rawValue: panelStyleRaw) ?? .card },
+    Binding(get: { CandidatePanelStylePreference.Style(rawValue: panelStyleRaw) ?? CandidatePanelStylePreference.fallbackStyle },
             set: { panelStyleRaw = $0.rawValue })
   }
 
