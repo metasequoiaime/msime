@@ -4032,9 +4032,10 @@ public:
     if (!pairedPunctuationEnabled()) return false;
     const auto typed = fcitx::Key::keySymToUTF8(sym);
     if (typed.size() != 1) return false;
+    const bool japanese = msime::linux_host::japanese_punctuation(view_);
     const auto closing =
         msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput(), paired_tracker_,
-                                                  viewPunctuationMarks().corner_quotes);
+                                                  viewPunctuationMarks().corner_quotes, japanese);
     if (!closing) return false;
     using Modifier = msime::linux_host::PairedPunctuationModifier;
     std::uint32_t modifiers = 0;

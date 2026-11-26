@@ -384,6 +384,7 @@ int main(int argc, char **argv) {
                                   std::string(argv[2]) == "--caps-lock" ||
                                   std::string(argv[2]) == "--app-rules" ||
                                   std::string(argv[2]) == "--japanese-toggle" ||
+                                  std::string(argv[2]) == "--japanese-paired" ||
                                   std::string(argv[2]) == "--chaizi" ||
                                   std::string(argv[2]) == "--online-socket-switch" ||
                                   std::string(argv[2]) == "--stale-candidate-click" ||
@@ -1428,6 +1429,83 @@ int main(int argc, char **argv) {
       invoke("Disable");
       finish();
       std::cout << "IBus Ctrl+Shift+J Japanese toggle, repeat, English modes and hot-reload passed\n";
+      return 0;
+    }
+    // 日语方案的成对标点：`[` `{` 按日文表出「」/『』，宿主补另一半后才退光标；`<` 不在日文表里，全角回退只上屏 ＜，不能把光标退到它前面。
+    if (argc == 3 && std::string(argv[2]) == "--japanese-paired") {
+      auto japanese_options = options;
+      japanese_options["preferences"]["scheme"] = "japanese";
+      japanese_options["preferences"]["character_width"] = "fullwidth";
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+      msime_ibus_configure(japanese_options.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      require(wait_until([&] { return seen.input_enabled; }), "Japanese paired test does not start enabled");
+      const auto caret_pair = [&](guint keyval) {
+        int press = 0;
+        int release = 0;
+        for (const auto &forwarded : seen.forwarded) {
+          if (forwarded.keyval != keyval) continue;
+          if ((forwarded.state & IBUS_RELEASE_MASK) != 0)
+            ++release;
+          else
+            ++press;
+        }
+        return press == 1 && release == 1;
+      };
+      for (const auto &[keyval, expected] : {
+               std::pair<guint, const char *>{'[', "「」"},
+               std::pair<guint, const char *>{'{', "『』"}}) {
+        invoke("Reset");
+        seen.committed.clear();
+        seen.forwarded.clear();
+        require(key(keyval), "Japanese paired key was not consumed");
+        require(wait_until([&] {
+                  return seen.committed == expected && caret_pair(IBUS_Left);
+                }),
+                ("Japanese pair or caret mismatch: committed=[" + seen.committed + "]").c_str());
+      }
+      const auto editor_holds = [&](const char *value, guint cursor) {
+        auto text = ibus_text_new_from_string(value);
+        g_object_ref_sink(text);
+        invoke("SetSurroundingText",
+               g_variant_new("(vuu)", ibus_serializable_serialize(IBUS_SERIALIZABLE(text)),
+                             cursor, cursor));
+        g_object_unref(text);
+      };
+      for (const auto &[open_key, close_key] : {
+               std::pair<guint, guint>{'[', ']'}, std::pair<guint, guint>{'{', '}'}}) {
+        invoke("Reset");
+        seen.committed.clear();
+        seen.forwarded.clear();
+        require(key(open_key) && wait_until([&] { return caret_pair(IBUS_Left); }),
+                "Japanese pair was not inserted before the closing key");
+        const auto committed_pair = seen.committed;
+        // 宿主退光标后文档里是完整一对，光标夹在中间；跨过右半要先看到文档里的右半。
+        editor_holds(committed_pair.c_str(), 1);
+        seen.forwarded.clear();
+        require(key(close_key) && wait_until([&] { return caret_pair(IBUS_Right); }),
+                "Japanese closing key did not step over the paired mark");
+        require(seen.committed == committed_pair,
+                "Japanese closing key inserted another mark instead of stepping over");
+      }
+      invoke("Reset");
+      seen.committed.clear();
+      seen.forwarded.clear();
+      require(key('<'), "Unmapped Japanese punctuation key was not consumed");
+      require(wait_until([&] { return seen.committed == "＜"; }),
+              ("Fullwidth fallback did not commit ＜: committed=[" + seen.committed + "]").c_str());
+      for (int attempt = 0; attempt < 20; ++attempt) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(seen.forwarded.empty(),
+              "Unpaired fullwidth punctuation moved the caret before the committed mark");
+      invoke("Disable");
+      finish();
+      std::cout << "IBus Japanese paired punctuation and caret forwarding passed\n";
       return 0;
     }
     // 拆字反查在桌面默认关：偏好里没有这个键时 Shift+C 留给应用。从快捷模式菜单打开后 Shift+C 进入，跟在部件后面的 ' 由 Engine 列进 spelling_symbols，IBus 把它当字符交给 Engine 当部件分隔符；空格上屏首行。再关掉又交给应用。

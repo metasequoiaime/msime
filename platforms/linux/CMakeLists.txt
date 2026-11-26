@@ -400,6 +400,9 @@ if(BUILD_TESTING)
     add_test(NAME ibus-japanese-toggle
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
     set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
+    add_test(NAME ibus-japanese-paired
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-paired)
+    set_tests_properties(ibus-japanese-paired PROPERTIES TIMEOUT 60)
     add_test(NAME ibus-chaizi
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --chaizi)
     set_tests_properties(ibus-chaizi PROPERTIES TIMEOUT 60)
