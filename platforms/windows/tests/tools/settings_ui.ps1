@@ -306,6 +306,44 @@ function Assert-NativeInput($window, [IntPtr]$handle) {
         [SettingsWindowProbe]::SetCursorPos($cursor.X, $cursor.Y) | Out-Null
     }
 }
+# 内容页行数超过一屏时会虚拟化，滚出视口的行不在 UIA 树里；展开、收起下拉框后重画还会把滚动位置带回顶部。先直接取，取不到或在视口外再滚正文按 20% 一档找，仍然没有就返回 $null 交给调用方判空。$find 收一个 content 元素，返回它下面第一个匹配的子元素。
+function Find-ScrolledElement($window, [scriptblock]$find, [int]$seconds = 10) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
+    do {
+        try {
+            $content = Find-ById $window 'settings-content'
+            if ($content) {
+                $control = & $find $content
+                if ($control -and -not $control.Current.IsOffscreen) { return $control }
+                $pattern = $null
+                if ($content.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern) -and $pattern.Current.VerticallyScrollable) {
+                    foreach ($percent in @(0, 20, 40, 60, 80, 100)) {
+                        $pattern.SetScrollPercent(-1, $percent)
+                        Start-Sleep -Milliseconds 200
+                        $control = & $find $content
+                        if ($control -and -not $control.Current.IsOffscreen) { return $control }
+                    }
+                }
+            }
+        } catch [System.Windows.Automation.ElementNotAvailableException] {
+            # 页面重建时旧节点会失效，下一轮重新取。
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $null
+}
+function Find-ScrolledControl($window, [string]$id, [int]$seconds = 10) {
+    return Find-ScrolledElement $window { param($content) Find-ById $content $id } $seconds
+}
+# 只给没有 AutomationId、只能按读屏名称取的控件用（例如标题为「学习选词习惯」的开关）。
+function Find-ScrolledNamedToggle($window, [string]$name) {
+    return Find-ScrolledElement $window {
+        param($content)
+        $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
+        $toggleCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
+        $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition($nameCondition, $toggleCondition)))
+    }
+}
 function Find-ByName($parent, [string]$name) {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)
     return $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
@@ -740,7 +778,8 @@ function Assert-CandidatePageSize($window, [string]$screenshotPrefix) {
     Write-Host '候选数量滑块、右侧数值、保存及切页恢复验证通过'
 }
 function Select-ComboChoice($window, [string]$id, [string]$label) {
-    $combo = Find-ById $window $id
+    # 展开的列表收起后，内容页可能把刚滚到的行虚拟化掉；按需滚回同一行再取。
+    $combo = Find-ScrolledControl $window $id
     if (-not $combo) { throw "Missing combo: $id" }
     $combo.SetFocus()
     $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
@@ -2160,16 +2199,8 @@ try {
     }
     # 五笔自造词位置（#11863）：与「学习选词习惯」同组，只在五笔方案且学习开启时出现。切到「候选与联想」，默认不写进偏好；选「同码词前」读回 top，再把学习关掉确认整行不再生成、开回来又出现。
     Select-PageTab $window 'input-tab-candidates' '学习选词习惯'
-    $content = Find-ById $window 'settings-content'
-    $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
-    $placement = $null
-    foreach ($percent in @(0, 20, 40, 60, 80, 100)) {
-        if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, $percent) }
-        Start-Sleep -Milliseconds 300
-        $placement = Find-ById $window 'wubi-phrase-placement'
-        if ($placement -and -not $placement.Current.IsOffscreen) { break }
-    }
-    if (-not $placement -or $placement.Current.IsOffscreen) { throw 'Wubi phrase placement selector is outside the window' }
+    $placement = Find-ScrolledControl $window 'wubi-phrase-placement'
+    if (-not $placement) { throw 'Wubi phrase placement selector is outside the window' }
     $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
     if ($saved.preferences.PSObject.Properties['wubi_phrase_placement']) { throw 'Wubi phrase placement must be omitted at the default bottom' }
     Save-Window $window 'wubi-phrase-placement.png'
@@ -2195,10 +2226,8 @@ try {
     if (!$field -or $field.Value -ne 'top') { throw 'Wubi phrase placement was not saved: top' }
     # 关掉学习后这一行不再生成，开回来又出现。
     foreach ($expected in @($false, $true)) {
-        $content = Find-ById $window 'settings-content'
-        $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '学习选词习惯')
-        $toggleCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
-        $learning = $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition($nameCondition, $toggleCondition)))
+        # 切页、保存都会重画正文；开关和它的位置行可能已经被虚拟化，按需滚回来。
+        $learning = Find-ScrolledNamedToggle $window '学习选词习惯'
         if (-not $learning) { throw 'Missing 学习选词习惯 switch' }
         $learning.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -2210,7 +2239,8 @@ try {
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         do {
             Start-Sleep -Milliseconds 200
-            $placement = Find-ById $window 'wubi-phrase-placement'
+            # 出现时要确认它真的排进了正文（不是被虚拟化掉）；消失时整棵树里都不该再有它。
+            $placement = if ($expected) { Find-ScrolledControl $window 'wubi-phrase-placement' 2 } else { Find-ById $window 'wubi-phrase-placement' }
             $settled = if ($expected) { $null -ne $placement } else { $null -eq $placement }
         } while (-not $settled -and [DateTime]::UtcNow -lt $deadline)
         if ($expected -and -not $placement) { throw 'Wubi phrase placement did not return after learning was on again' }
