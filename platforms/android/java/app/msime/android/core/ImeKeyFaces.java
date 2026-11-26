@@ -2,14 +2,15 @@ package app.msime.android;
 
 import android.content.res.Configuration;
 import android.graphics.Typeface;
+import app.msime.android.core.InputViewValuePolicy;
 import java.util.Set;
 
 /**
- * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}（含笔画键盘、注音九键和日语九键）、{@link FunctionKeyFaceDomains} 和 {@link SideColumnKeyFaceDomains}。
+ * 当前这副键盘的键组（{@link KeyFaceGroup}）：建键行时清空，字母键、九键的键和键区功能键放进行里时放进对应的组。只读服务里的设置、把键放进组，排版规则在 {@code KeyFace*} 模型里，内容域在 {@link LetterKeyFaceDomains}、{@link NineKeyFaceDomains}（含笔画键盘、注音九键和日语九键）、{@link KeyFaceSpecs} 和 {@link SideColumnKeyFaceDomains}，都按这副键盘的 {@link KeyFaceLayout} 列出。键面会变的键（⇧、14/18 键的分词键、九键的 1 键、日语九键的几个侧列键）由 {@link #show} 按它们的 {@link KeyFaceSpec} 设上文字或图标。
  *
  * <p>功能键组的字不大过同一副键盘的字母组（{@link KeyFaceGroup#capMainAt}）。⇧、⌫ 和底行的 0 是常驻的键，建键行时会挪到别的地方（123 层、底行），所以清空时先把它们拿出组，放回原处时再放进新组。
  *
- * <p>皮肤字体、键帽形状、字体缩放、角标开关或引号样式变了，{@link #refresh} 在下一次渲染时换掉组的环境和内容域，组里的键随之重画，不重建键行。双拼提示随方案画上时由键自己补进组里（{@link KeyFaceGroup#include}）。
+ * <p>皮肤字体、键帽形状、字体缩放或 {@link KeyFaceLayout} 里的设置（角标开关、引号样式、双拼提示表……）变了，{@link #refresh} 在下一次渲染时换掉组的环境和内容域，组里的键随之重画，不重建键行。键画上列表里没有的字是列表漏了（{@link KeyFaceGroup#include}），记一行日志。
  */
 final class ImeKeyFaces {
     private static final Set<KeyFaceSlot> LETTER_SLOTS = Set.of(KeyFaceSlot.TOP_RIGHT, KeyFaceSlot.BOTTOM);
@@ -19,8 +20,12 @@ final class ImeKeyFaces {
     private static final KeyFaceDomain LAYER_DOMAIN = new KeyFaceDomain(java.util.Map.of());
 
     /** 决定内容域、字体和环境的几项；都没变时 {@link #refresh} 什么也不做。 */
-    private record Inputs(float density, float fontScale, boolean monospaced, KeyOutline outline, boolean corners,
-            ChineseSymbolFaces.Marks marks, boolean variant) { }
+    private record Inputs(float density, float fontScale, boolean monospaced, KeyOutline outline, KeyFaceLayout layout,
+            boolean variant) {
+        Inputs withVariant(boolean value) {
+            return value == variant ? this : new Inputs(density, fontScale, monospaced, outline, layout, value);
+        }
+    }
 
     private final MSIMEInputService s;
     private KeyFaceGroup letters;
@@ -29,7 +34,7 @@ final class ImeKeyFaces {
     private Inputs gridLettersBuilt;
     private KeyFaceGroup functions;
     private Inputs functionsBuilt;
-    /** 这副键盘是日语九键：功能键组用它自己的模板（{@link KeyFaceTemplates#JAPANESE_FUNCTIONS}）和内容域（{@link FunctionKeyFaceDomains#japaneseNineKey}）。 */
+    /** 这副键盘是日语九键：功能键组用它自己的模板（{@link KeyFaceTemplates#JAPANESE_FUNCTIONS}），内容域另含日语九键侧列和左下角的文字键（{@link KeyFaceSpecs#functionTexts}）。 */
     private boolean japaneseFunctions;
     private KeyFaceGroup numberRow;
     private Inputs numberRowBuilt;
@@ -59,9 +64,8 @@ final class ImeKeyFaces {
             return group;
         }
 
-        void refresh() {
+        void refresh(Inputs now) {
             if (group == null) return;
-            Inputs now = inputs(false);
             if (now.equals(built)) return;
             built = now;
             group.replace(environment(now), measurer(now), domain);
@@ -105,8 +109,15 @@ final class ImeKeyFaces {
     /** 放进过组的键里建键行后还会留着用的那些（⇧、⌫、底行的 0 等），清空时拿出组。 */
     private final java.util.List<KeyboardPressButton> movableKeys = new java.util.ArrayList<>();
 
+    /** 已经记过日志的漏网文字（键组模板名、位置、文字），每种只记一次。 */
+    private final Set<String> strays = new java.util.HashSet<>();
+
     ImeKeyFaces(MSIMEInputService s) {
         this.s = s;
+        KeyFaceGroup.setStrayListener((group, slot, text) -> {
+            if (strays.add(group.template().name() + " " + slot + " " + text))
+                ImeLog.w("key face list misses " + group.template().name() + " " + slot + " 「" + text + "」");
+        });
     }
 
     /** 建键行之前调用：上一副键盘的组不再用，新键放进新组。 */
@@ -170,15 +181,44 @@ final class ImeKeyFaces {
 
     /** 键区里的一个功能键（⇧、⌫、分词键、九键右列的重输）；{@code corner} 为真时它可能画右上角提示（14/18 键分词键的「辅」）。不是 {@link KeyboardPressButton} 的键照旧自己画。 */
     void attachFunction(android.widget.Button key, boolean corner) {
+        attachFunction(key, corner, null);
+    }
+
+    /** 键面会变的功能键：按 {@code spec} 放进组（它的全部状态已经在组的内容域里），随即按此刻的状态设上键面，常驻的键（⇧）不会带着上一副键盘的字进来。 */
+    void attachFunction(android.widget.Button key, KeyFaceSpec<?> spec) {
+        attachFunction(key, spec.drawsCorner(), spec);
+    }
+
+    private void attachFunction(android.widget.Button key, boolean corner, KeyFaceSpec<?> spec) {
         if (!(key instanceof KeyboardPressButton press)) return;
         if (functions == null) {
             functionsBuilt = inputs(false);
             functions = new KeyFaceGroup(japaneseFunctions ? KeyFaceTemplates.JAPANESE_FUNCTIONS : KeyFaceTemplates.FUNCTIONS,
-                environment(functionsBuilt), functionDomain(), measurer(functionsBuilt));
+                environment(functionsBuilt), functionDomain(functionsBuilt), measurer(functionsBuilt));
         }
-        press.setFaceGroup(functions, corner ? GRID_LETTER_SLOTS : NO_HINTS);
+        press.setFaceGroup(functions, corner ? GRID_LETTER_SLOTS : NO_HINTS, spec == null);
+        if (spec != null) show(key, spec);
         if (!movableKeys.contains(press)) movableKeys.add(press);
         linkFunctions();
+    }
+
+    /**
+     * 按 {@code spec} 和此刻的状态设上键面：画文字的键换上这段字（节点文字随之换），画图标的键（{@link KeyboardIconKey}）换图标；{@link KeyFaceSpec#drawsCorner} 时连右上角一起设。渲染时调用，代替各处自己写字。
+     */
+    void show(android.widget.Button key, KeyFaceSpec<?> spec) {
+        if (key == null) return;
+        KeyFace face = spec.face(layout(), live());
+        if (key instanceof KeyboardIconKey icon) {
+            icon.setFace(face);
+            return;
+        }
+        if (face.text() != null && !face.text().contentEquals(key.getText())) key.setText(face.text());
+        if (spec.drawsCorner() && key instanceof KeyHintButton hint) hint.setCornerHint(face.corner());
+    }
+
+    /** 建键时的文字：{@code spec} 此刻的状态写的字（画图标时为空串）。 */
+    String text(KeyFaceSpec<?> spec) {
+        return spec.face(layout(), live()).mainText();
     }
 
     /** 建日语九键之前调用（在放进第一个功能键之前）：功能键组另含日语九键两侧列的文字键和「小゛゜」，字号和图标按侧列一格的高度定。 */
@@ -186,8 +226,8 @@ final class ImeKeyFaces {
         japaneseFunctions = true;
     }
 
-    private KeyFaceDomain functionDomain() {
-        return japaneseFunctions ? FunctionKeyFaceDomains.japaneseNineKey() : FunctionKeyFaceDomains.functions();
+    private static KeyFaceDomain functionDomain(Inputs inputs) {
+        return KeyFaceSpecs.functionDomain(inputs.layout());
     }
 
     /** 字母上方数字行（26 键一族、14/18 键）的一个数字键。 */
@@ -207,7 +247,7 @@ final class ImeKeyFaces {
         if (nineLetters == null) {
             nineLettersBuilt = inputs(false);
             nineLetters = new KeyFaceGroup(KeyFaceTemplates.NINE_LETTERS, environment(nineLettersBuilt),
-                NineKeyFaceDomains.letters(), nineMeasurer(nineLettersBuilt));
+                NineKeyFaceDomains.letters(nineLettersBuilt.layout()), nineMeasurer(nineLettersBuilt));
         }
         press.setFaceGroup(nineLetters, GRID_LETTER_SLOTS);
         linkFunctions();
@@ -333,74 +373,74 @@ final class ImeKeyFaces {
 
     /** 每次渲染时调用：设置、皮肤字体或字体缩放变了就换掉组的内容域；没变时只比较几项。 */
     void refresh() {
+        // 每次渲染都会走到这里（一次渲染几回）：KeyFaceLayout 只读一次，各组拿它比较。
+        Inputs base = inputs(false);
         if (letters != null) {
-            Inputs now = inputs(false);
+            Inputs now = base;
             if (!now.equals(lettersBuilt)) {
                 lettersBuilt = now;
                 letters.replace(environment(now), measurer(now), letterDomain(now));
             }
         }
         if (gridLetters != null) {
-            Inputs now = inputs(gridLettersBuilt.variant());
+            Inputs now = base.withVariant(gridLettersBuilt.variant());
             if (!now.equals(gridLettersBuilt)) {
                 gridLettersBuilt = now;
                 gridLetters.replace(environment(now), measurer(now), gridLetterDomain(now));
             }
         }
         if (functions != null) {
-            Inputs now = inputs(false);
+            Inputs now = base;
             if (!now.equals(functionsBuilt)) {
                 functionsBuilt = now;
-                functions.replace(environment(now), measurer(now), functionDomain());
+                functions.replace(environment(now), measurer(now), functionDomain(now));
             }
         }
         if (numberRow != null) {
-            Inputs now = inputs(false);
+            Inputs now = base;
             if (!now.equals(numberRowBuilt)) {
                 numberRowBuilt = now;
                 numberRow.replace(environment(now), measurer(now), LetterKeyFaceDomains.numberRow());
             }
         }
         if (nineLetters != null) {
-            Inputs now = inputs(false);
+            Inputs now = base;
             if (!now.equals(nineLettersBuilt)) {
                 nineLettersBuilt = now;
-                nineLetters.replace(environment(now), nineMeasurer(now), NineKeyFaceDomains.letters());
+                nineLetters.replace(environment(now), nineMeasurer(now), NineKeyFaceDomains.letters(now.layout()));
             }
         }
         if (nineDigits != null) {
-            Inputs now = inputs(nineDigitsBuilt.variant());
+            Inputs now = base.withVariant(nineDigitsBuilt.variant());
             if (!now.equals(nineDigitsBuilt)) {
                 nineDigitsBuilt = now;
                 nineDigits.replace(environment(now), nineMeasurer(now), nineDigitDomain(now.variant()));
             }
         }
-        refreshSideSymbols();
-        refreshLayer();
-        korean.refresh();
-        dachen.refresh();
-        longVowel.refresh();
-        strokes.refresh();
-        strokeKeys.refresh();
-        zhuyinTones.refresh();
-        zhuyinSounds.refresh();
-        zhuyinMarks.refresh();
-        japaneseKana.refresh();
-        japaneseDigits.refresh();
+        refreshSideSymbols(base);
+        refreshLayer(base);
+        korean.refresh(base);
+        dachen.refresh(base);
+        longVowel.refresh(base);
+        strokes.refresh(base);
+        strokeKeys.refresh(base);
+        zhuyinTones.refresh(base);
+        zhuyinSounds.refresh(base);
+        zhuyinMarks.refresh(base);
+        japaneseKana.refresh(base);
+        japaneseDigits.refresh(base);
     }
 
-    private void refreshLayer() {
+    private void refreshLayer(Inputs now) {
         if (layerBuilt == null) return;
-        Inputs now = inputs(false);
         if (now.equals(layerBuilt)) return;
         layerBuilt = now;
         if (layerTop != null) layerTop.replace(environment(now), measurer(now), LAYER_DOMAIN);
         if (layerCharacters != null) layerCharacters.replace(environment(now), measurer(now), LAYER_DOMAIN);
     }
 
-    private void refreshSideSymbols() {
+    private void refreshSideSymbols(Inputs now) {
         if (sideSymbols == null) return;
-        Inputs now = inputs(false);
         if (now.equals(sideSymbolsBuilt)) return;
         sideSymbolsBuilt = now;
         sideSymbols.replace(environment(now), measurer(now), sideSymbolsDomain);
@@ -422,8 +462,26 @@ final class ImeKeyFaces {
         Configuration configuration = s.getResources().getConfiguration();
         float density = s.getResources().getDisplayMetrics().density;
         return new Inputs(density, KeyboardTypographyPolicy.keyboardFontScale(configuration.fontScale),
-            s.skin != null && s.skin.monospaced(), KeyOutline.forSkin(s.skin, density),
-            s.localSettings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS), s.punctuationMarks(), variant);
+            s.skin != null && s.skin.monospaced(), KeyOutline.forSkin(s.skin, density), layout(), variant);
+    }
+
+    /** 这副键盘的 {@link KeyFaceLayout}：显示的触屏布局和决定键面能画哪些字的设置。 */
+    KeyFaceLayout layout() {
+        java.util.List<String> hints = new java.util.ArrayList<>();
+        if (s.shuangpinKeyHintsEnabled && s.shuangpinHints != null)
+            for (String hint : s.shuangpinHints.values()) if (hint != null && !hint.isEmpty() && !hints.contains(hint)) hints.add(hint);
+        return new KeyFaceLayout(s.displayedTouchLayout(s.view), s.quanpinShiftEnabled, s.nineKeyCompositionAction,
+            s.localSettings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS), s.punctuationMarks(),
+            s.localSettings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE), s.visibleSchemes, hints);
+    }
+
+    /** 此刻随打字、切层变化的几项（{@link KeyFaceLive}）。 */
+    KeyFaceLive live() {
+        String localMode = s.view == null ? "none" : InputViewValuePolicy.textOr(s.view, "local_mode", "none");
+        return new KeyFaceLive(s.hasEngineComposition(), s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS, s.dedicatedEnglish,
+            s.session != 0 && s.view != null && !s.dedicatedEnglish && !EditorPolicy.password(s.editorInputType),
+            "none".equals(localMode), s.letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK,
+            ImeGridHelpcodeEntry.available(s), s.view == null ? -1 : InputViewValuePolicy.scheme(s.view, -1), s.selectedScheme);
     }
 
     private static KeyFaceEnvironment environment(Inputs inputs) {
@@ -435,10 +493,10 @@ final class ImeKeyFaces {
     }
 
     private static KeyFaceDomain letterDomain(Inputs inputs) {
-        return LetterKeyFaceDomains.letters(inputs.corners(), inputs.marks());
+        return LetterKeyFaceDomains.letters(inputs.layout());
     }
 
     private static KeyFaceDomain gridLetterDomain(Inputs inputs) {
-        return LetterKeyFaceDomains.gridLetters(inputs.variant(), inputs.corners(), inputs.marks());
+        return LetterKeyFaceDomains.gridLetters(inputs.variant(), inputs.layout());
     }
 }

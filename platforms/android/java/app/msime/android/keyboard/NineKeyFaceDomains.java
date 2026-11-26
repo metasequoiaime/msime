@@ -12,19 +12,19 @@ public final class NineKeyFaceDomains {
     private NineKeyFaceDomains() { }
 
     /**
-     * 拼音九键字母层：九格的键面（1 键空闲时是「@#」，组字时按设置是「分词」或「重输」）、右列的 ！，右上角是长按输入的数字 1–9 和 ！ 上滑滑出的 0。
+     * 拼音九键字母层：九格的键面（1 键空闲时是「@#」，组字时按 {@code layout} 的设置是「分词」或「重输」）、右列的 ！，右上角是长按输入的数字 1–9 和 ！ 上滑滑出的 0。
      */
-    public static KeyFaceDomain letters() {
+    public static KeyFaceDomain letters(KeyFaceLayout layout) {
         List<String> faces = new ArrayList<>();
         List<String> digits = new ArrayList<>();
         for (List<NineKeyLayout.Key> row : NineKeyLayout.rows()) {
             for (NineKeyLayout.Key key : row) {
                 faces.add(NineKeyLayout.face(key, false));
-                for (String action : List.of(NineKeyCompositionActionPolicy.SEPARATE, NineKeyCompositionActionPolicy.REWRITE))
-                    faces.add(NineKeyLayout.face(key, false, true, action));
                 digits.add(NineKeyLayout.digitInput(key));
             }
         }
+        // 1 键随组字换的字只按设置选的那一个（分词或重输），见 KeyFaceSpecs.NINE_ONE。
+        faces.addAll(KeyFaceSpecs.NINE_ONE.texts(layout, KeyFaceSlot.MAIN));
         faces.add(exclamation());
         digits.add(SuperscriptShortcutPolicy.ZERO);
         Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);

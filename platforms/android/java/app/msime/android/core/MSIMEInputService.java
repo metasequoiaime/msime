@@ -359,10 +359,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 工具栏语音按钮，来自共享偏好 `touch_voice_shortcut`，缺省为关；在「键盘 → 工具栏」打开「语音」或键盘内打开「顶部语音入口」时为真（#10142）；「语音输入 → 启动方式」选「无」会关掉它，选「工具栏/长按空格」不改它（#10309）。 */
     boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
-    private boolean shuangpinKeyHintsEnabled = false;
+    boolean shuangpinKeyHintsEnabled = false;
 
     /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为开。 */
-    private boolean quanpinShiftEnabled = true;
+    boolean quanpinShiftEnabled = true;
     /** 上屏后联想时候选栏右端的按键样式，来自共享偏好 `next_word_prediction_buttons`，缺省为现有的只有展开键。 */
     private PredictionButtonsPolicy.Style predictionButtons = PredictionButtonsPolicy.Style.EXPAND_ONLY;
     /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
@@ -593,7 +593,7 @@ public final class MSIMEInputService extends InputMethodService {
         new java.util.ArrayList<>(27);
     final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
     private String shuangpinHintsRequest = "";
-    private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
+    java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
     final AppEdition edition = AppEdition.current();
     /** 空闲时候选栏左侧显示的产品名，取自本版本的应用名（full 是「水杉输入法」，五笔版是「水杉五笔」）。 */
@@ -664,7 +664,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button japaneseSpaceKey;
     Button japaneseReturnKey;
     Button japaneseSymbolsKey;
-    /** 日语 9 键左列的中英键，键面写这一下要切到的语言（{@link #japaneseLanguageKeyLabel}）。 */
+    /** 日语 9 键左列的中英键，键面写这一下要切到的语言（{@link KeyFaceSpecs#LANGUAGE}）。 */
     Button japaneseLanguageKey;
     Button japaneseVariantsButton;
     private Integer japaneseConversionIndex;
@@ -6416,6 +6416,8 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
         }
+        // 提示表换了：先按新表换掉字母组的内容域（KeyFaceLayout#shuangpinHints），再画上新提示。
+        imeKeyFaces.refresh();
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             ShuangpinHintButton button = shuangpinKeyButtons.get(index);
             String input = shuangpinKeyInputs.get(index);
@@ -6473,11 +6475,6 @@ public final class MSIMEInputService extends InputMethodService {
         if (target.kind() == LanguageKeyCyclePolicy.Kind.BUSY) return;
         if (target.kind() == LanguageKeyCyclePolicy.Kind.SCHEME) selectKeyboardScheme(target.scheme());
         else toggleInputLanguage();
-    }
-
-    /** 日语 9 键的语言键键面与共用中英键一致，显示当前输入语言状态。 */
-    String japaneseLanguageKeyLabel() {
-        return LanguageKeyCyclePolicy.label(languageKeyCycles(), selectedScheme, dedicatedEnglish, visibleSchemes);
     }
 
     String japaneseLanguageKeyDescription() {
@@ -6726,17 +6723,17 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (japaneseSpaceKey != null) {
-            japaneseSpaceKey.setText(spaceKeyTitle());
+            imeKeyFaces.show(japaneseSpaceKey, KeyFaceSpecs.JAPANESE_SPACE);
             japaneseSpaceKey.setContentDescription(spaceKeyDescription());
         }
         if (japaneseLanguageKey != null) {
             // 要切到哪里取决于已启用的方案、轮换设置和最近的中文入口。换输入框时这些先回到出厂副本、再由后台读到的偏好补上；只在建键盘时写一次的话，键盘若在补上之前建好，键面就停在「英」、读屏也念切到英文，和点下去时按当前状态实际切到的地方对不上。每次重画都按当前状态重写。
-            japaneseLanguageKey.setText(japaneseLanguageKeyLabel());
+            imeKeyFaces.show(japaneseLanguageKey, KeyFaceSpecs.LANGUAGE);
             japaneseLanguageKey.setContentDescription("按键 " + japaneseLanguageKeyDescription());
         }
         if (japaneseSymbolsKey != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-            japaneseSymbolsKey.setText(symbols ? "あいう" : "123");
+            imeKeyFaces.show(japaneseSymbolsKey, KeyFaceSpecs.JAPANESE_LAYER);
             japaneseSymbolsKey.setContentDescription(symbols
                 ? "切换到假名" : "切换到数字和符号");
         }
@@ -13113,7 +13110,9 @@ public final class MSIMEInputService extends InputMethodService {
                 || (!keepsOwnGrid && keyboardLayer != KeyboardLayout.Layer.LETTERS));
             boolean separator = usesQuanpinSeparator();
             imeLetterRows.updateShiftKeyIdentity(separator);
-            shiftButton.setText(separator ? "分词" : letterCase.keyText());
+            // 画 ⇧ 的图标还是「分词」由键面规格定（KeyFaceSpecs.SHIFT）；画图标时节点文字是读屏和统计用的大小写符号，先换回图标再设，免得把它当成键面的字。
+            imeKeyFaces.show(shiftButton, KeyFaceSpecs.SHIFT);
+            if (!separator) shiftButton.setText(letterCase.keyText());
             ViewPolicy.setSelected(shiftButton, !separator && letterCase.usesUppercase());
             shiftButton.setActivated(!separator && letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
             // The final applySkin() traversal styles this attached button once.

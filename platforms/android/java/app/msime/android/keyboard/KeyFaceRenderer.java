@@ -87,6 +87,8 @@ final class KeyFaceRenderer {
         preparedWidth = width;
         preparedHeight = height;
         main = TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.MAIN));
+        // 键组换了列表（ImeKeyFaces.refresh）而键还画着列表外的字、之后又没换字时，这里才发现：照样补进组（记作漏网，见 KeyFaceGroup#include），下一帧按补过的参数画。
+        group.include(KeyFaceSlot.MAIN, main);
         mainFirst = "";
         mainSecond = "";
         float size = params.main().sizePx();
@@ -114,6 +116,7 @@ final class KeyFaceRenderer {
         }
         KeyFaceParams.Hint topRight = params.topRight();
         corner = topRight == null ? "" : TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.TOP_RIGHT));
+        group.include(KeyFaceSlot.TOP_RIGHT, corner);
         if (!corner.isEmpty()) {
             // 按文字框定位（排版宽度的右端、上行线），键帽轮廓在这里收进去时按这个键自己的尺寸沿对角线挪进来，挪不进来就不画。
             float hintSize = topRight.sizePx();
@@ -134,6 +137,7 @@ final class KeyFaceRenderer {
         }
         KeyFaceParams.Hint under = params.bottom();
         bottom = under == null ? "" : TextPolicy.emptyIfNull(key.faceText(KeyFaceSlot.BOTTOM));
+        group.include(KeyFaceSlot.BOTTOM, bottom);
         if (!bottom.isEmpty()) {
             bottomX = (width - measurer.advance(KeyFaceSlot.BOTTOM, bottom, under.sizePx())) / 2f;
             bottomBaseline = height - under.insetPx() - under.inkBottomPx();

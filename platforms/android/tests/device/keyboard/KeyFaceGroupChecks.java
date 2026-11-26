@@ -124,17 +124,16 @@ final class KeyFaceGroupChecks {
         layout(letter, Math.round(30 * density), height);
 
         Button shift = product.iconKey("SHIFT", "⇧");
-        product.setDrawsText(shift, true);
-        shift.setText("分词");
-        verifyFunctionRow(product, density, scale, height, "26 键 " + where, letter, null,
+        product.setTextFace(shift, "分词");
+        verifyFunctionRow(product, density, scale, height, "26 键 " + where, 0, letter, null,
             new Button[] {shift, product.iconKey("BACKSPACE", "⌫")}, new int[] {48, 48});
         // 组字结束：⇧ 换回图标，只重画。
-        product.setDrawsText(shift, false);
+        product.setIconFace(shift, "SHIFT");
         shift.setText("⇧");
         check(!shift.isLayoutRequested(), "⇧ 换回图标后请求了重新布局：" + where);
 
         Button separator = product.letterKey("分词", "", "辅");
-        verifyFunctionRow(product, density, scale, height, "14/18 键 " + where, letter, separator,
+        verifyFunctionRow(product, density, scale, height, "14/18 键 " + where, 8, letter, separator,
             new Button[] {separator, product.iconKey("BACKSPACE", "⌫")}, new int[] {52, 52});
         product.setCorner(separator, "");
         product.setCorner(separator, "辅");
@@ -142,19 +141,20 @@ final class KeyFaceGroupChecks {
 
         Button rewrite = product.plainKey("重输");
         // TextView 可能按过期的排版把内容滚开（键组里的键不走它的测量）；键面要照样画在键格中间。
-        verifyFunctionRow(product, density, scale, height, "九键 " + where, null, null,
+        verifyFunctionRow(product, density, scale, height, "九键 " + where, 1, null, null,
             new Button[] {product.iconKey("BACKSPACE", "⌫"), rewrite}, new int[] {56, 56});
     }
 
     /**
      * 一组功能键：参数相同、字不大过字母组、图标和文字竖直居中、文字按全组的水平偏移居中、不压住角标；TextView 补建了自己的排版之后换文字（连行数都变）也不请求重新布局。
      *
+     * @param touchLayout 这副键盘的触屏布局（{@code KeyboardLayout} 的常量），功能键组按它列内容域
      * @param letter 同一副键盘的一个字母键（功能键的字以它的组为上限），九键为 {@code null}
      * @param cornerKey 带右上角提示的那个键，没有时为 {@code null}
      */
     private static void verifyFunctionRow(Product product, float density, float scale, int height, String where,
-            Button letter, Button cornerKey, Button[] keys, int[] widthsDp) throws Exception {
-        Object functions = product.functionGroup(density, scale);
+            int touchLayout, Button letter, Button cornerKey, Button[] keys, int[] widthsDp) throws Exception {
+        Object functions = product.functionGroup(density, scale, touchLayout);
         if (letter != null) product.capMainAt(functions, product.faceGroup(letter));
         for (int index = 0; index < keys.length; index++) {
             keys[index].setLayoutParams(new android.view.ViewGroup.LayoutParams(
@@ -639,8 +639,7 @@ final class KeyFaceGroupChecks {
             }
         }
 
-        Class<?> functionDomains = product.loader.loadClass("app.msime.android.FunctionKeyFaceDomains");
-        Object functions = product.group("JAPANESE_FUNCTIONS", functionDomains.getMethod("japaneseNineKey").invoke(null),
+        Object functions = product.group("JAPANESE_FUNCTIONS", product.functionDomain(2),
             Typeface.DEFAULT, density, scale);
         Button variants = product.plainKey("小゛゜");
         product.joinFunction(variants, functions, false);
@@ -656,7 +655,7 @@ final class KeyFaceGroupChecks {
         check(params != null, "日语九键功能键没有算出参数：" + where);
         // 默认的 411 dp 宽、默认键高上侧列的字不比原来（按键宽缩到 14 sp 封顶）小：设计字号落在侧列一格的高度上。240 dp 宽时侧列只有 36 dp，要放下符号层的「あいう」，全组跟着小，那是一组一个字号的代价。
         if (heightDp == 52 && context.getResources().getConfiguration().fontScale == 1f) {
-            Object wide = product.group("JAPANESE_FUNCTIONS", functionDomains.getMethod("japaneseNineKey").invoke(null),
+            Object wide = product.group("JAPANESE_FUNCTIONS", product.functionDomain(2),
                 Typeface.DEFAULT, density, scale);
             Button space = product.plainKey("空白");
             product.joinFunction(space, wide, false);
@@ -873,10 +872,24 @@ final class KeyFaceGroupChecks {
                 .newInstance(template, environment, domain, measurer);
         }
 
-        Object functionGroup(float density, float fontScale) throws Exception {
+        /** 触屏布局 {@code touchLayout} 上键区功能键组的内容域（{@code KeyFaceSpecs.functionDomain}），按全拼可分词、默认设置。 */
+        Object functionDomain(int touchLayout) throws Exception {
+            return loader.loadClass("app.msime.android.KeyFaceSpecs")
+                .getMethod("functionDomain", loader.loadClass("app.msime.android.KeyFaceLayout")).invoke(null, layout(touchLayout));
+        }
+
+        /** 触屏布局 {@code touchLayout} 的 {@code KeyFaceLayout}：全拼可分词、九键 1 键组字时分词，其余按默认设置。 */
+        Object layout(int touchLayout) throws Exception {
+            Class<?> layoutType = loader.loadClass("app.msime.android.KeyFaceLayout");
+            Object marks = loader.loadClass("app.msime.android.ChineseSymbolFaces$Marks").getField("DEFAULT").get(null);
+            return layoutType.getConstructors()[0].newInstance(touchLayout, false, "separate", false, marks, false,
+                List.of(), List.of());
+        }
+
+        Object functionGroup(float density, float fontScale, int touchLayout) throws Exception {
             Object template = loader.loadClass("app.msime.android.KeyFaceTemplates").getField("FUNCTIONS").get(null);
             Object environment = environment(density, fontScale);
-            Object domain = loader.loadClass("app.msime.android.FunctionKeyFaceDomains").getMethod("functions").invoke(null);
+            Object domain = functionDomain(touchLayout);
             Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer")
                 .getConstructor(Typeface.class).newInstance(Typeface.DEFAULT);
             return loader.loadClass("app.msime.android.KeyFaceGroup")
@@ -959,8 +972,8 @@ final class KeyFaceGroupChecks {
             Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
             Object environment = environment(density, fontScale);
             Class<?> domains = loader.loadClass("app.msime.android.NineKeyFaceDomains");
-            Object texts = "letters".equals(domain) ? domains.getMethod("letters").invoke(null)
-                : domains.getMethod("digits").invoke(null);
+            Object texts = "letters".equals(domain) ? domains.getMethod("letters", loader.loadClass(
+                "app.msime.android.KeyFaceLayout")).invoke(null, layout(1)) : domains.getMethod("digits").invoke(null);
             Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
                 .newInstance(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             return loader.loadClass("app.msime.android.KeyFaceGroup")
@@ -1023,8 +1036,19 @@ final class KeyFaceGroupChecks {
 
         Object faceGroup(Button key) throws Exception { return pressButton.getMethod("faceGroup").invoke(key); }
 
-        void setDrawsText(Button key, boolean value) throws Exception {
-            key.getClass().getMethod("setDrawsText", boolean.class).invoke(key, value);
+        /** 按键面规格画文字（{@code KeyboardIconKey.setFace}）。 */
+        void setTextFace(Button key, String text) throws Exception {
+            Class<?> faceType = loader.loadClass("app.msime.android.KeyFace");
+            key.getClass().getMethod("setFace", faceType).invoke(key, faceType.getMethod("text", String.class).invoke(null, text));
+        }
+
+        /** 按键面规格画图标 {@code kind}（{@code KeyboardIconKey.Kind} 的名字）。 */
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        void setIconFace(Button key, String kind) throws Exception {
+            Class<?> faceType = loader.loadClass("app.msime.android.KeyFace");
+            Class kindType = loader.loadClass("app.msime.android.KeyboardIconKey$Kind");
+            key.getClass().getMethod("setFace", faceType).invoke(key,
+                faceType.getMethod("icon", kindType).invoke(null, Enum.valueOf(kindType, kind)));
         }
 
         @SuppressWarnings({"unchecked", "rawtypes"})

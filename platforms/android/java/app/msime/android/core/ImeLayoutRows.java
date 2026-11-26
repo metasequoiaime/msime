@@ -1152,9 +1152,9 @@ final class ImeLayoutRows {
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         NineKeyLayout.Key key = NineKeyLayout.rows().get(0).get(0);
         boolean composing = s.hasEngineComposition();
-        String face = NineKeyLayout.face(key, digits, composing, s.nineKeyCompositionAction);
-        if (face.contentEquals(s.nineKeySymbolKey.getText())) return;
-        s.nineKeySymbolKey.setText(face);
+        CharSequence before = s.nineKeySymbolKey.getText();
+        s.imeKeyFaces.show(s.nineKeySymbolKey, KeyFaceSpecs.NINE_ONE);
+        if (before != null && before.toString().contentEquals(s.nineKeySymbolKey.getText())) return;
         s.nineKeySymbolKey.setContentDescription("按键 " + NineKeyLayout.description(key, digits, composing, s.nineKeyCompositionAction)
             + (digits || s.nineKeyShuangpinDrawn() ? "" : "；长按输入 1"));
     }
@@ -1691,12 +1691,12 @@ final class ImeLayoutRows {
 
     Button japaneseVariantsKey() {
         boolean symbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-        Button variants = s.keyboardKey(symbols ? "（）" : "小゛゜",
+        Button variants = s.keyboardKey(s.imeKeyFaces.text(KeyFaceSpecs.JAPANESE_VARIANTS),
             symbols ? "括号；长按选择其他括号" : "小假名、浊音和半浊音", () -> {});
         s.japaneseVariantsButton = variants;
         if (variants instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
         // 放进功能键组：一行、放不下时缩小；原来固定 14 sp，窄键盘加大字体时折成两行。
-        s.imeKeyFaces.attachFunction(variants, false);
+        s.imeKeyFaces.attachFunction(variants, KeyFaceSpecs.JAPANESE_VARIANTS);
         // 符号层上轻点直接输入第一个括号，长按才弹出全部括号；假名层不接长按，松手照常切换变体。
         bindFeedbackAction(variants, () -> {
             if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
@@ -1728,6 +1728,12 @@ final class ImeLayoutRows {
         if (button == s.japaneseReturnKey) {
             KeyboardTypographyPolicy.setFittedKeyTextSize(button, KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP,
                 KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
+        } else if (button == s.japaneseSpaceKey) {
+            s.imeKeyFaces.attachFunction(button, KeyFaceSpecs.JAPANESE_SPACE);
+        } else if (button == s.japaneseLanguageKey) {
+            s.imeKeyFaces.attachFunction(button, KeyFaceSpecs.LANGUAGE);
+        } else if (button == s.japaneseSymbolsKey) {
+            s.imeKeyFaces.attachFunction(button, KeyFaceSpecs.JAPANESE_LAYER);
         } else if (!(button instanceof KeyboardIconKey)) {
             s.imeKeyFaces.attachFunction(button, false);
         }
@@ -1764,7 +1770,7 @@ final class ImeLayoutRows {
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardHeightPolicy.KEYBOARD_ROW_COUNT)));
 
         LinearLayout modeColumn = LayoutPolicy.column(s);
-        s.japaneseSymbolsKey = s.keyId(s.keyboardKey("123", "切换到数字和符号", () -> {
+        s.japaneseSymbolsKey = s.keyId(s.keyboardKey(s.imeKeyFaces.text(KeyFaceSpecs.JAPANESE_LAYER), "切换到数字和符号", () -> {
             s.keyboardLayer = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                 ? KeyboardLayout.Layer.LETTERS : KeyboardLayout.Layer.SYMBOLS;
             s.imeLetterRows.rebuildKeyRows();
@@ -1777,7 +1783,7 @@ final class ImeLayoutRows {
             "结束连点切换，开始下一个假名；没有组字时光标右移", this::advanceJapaneseToggle), 1);
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         // 打开「中英键轮换其他语言」时这个键也按轮换走（日语之后是下一种其他语言或回到中文），键面写它要切到的语言；否则从日语只能到英文、英文再轮回日语，回不到中文。它和新设计底行一样放在空格与回车之间。
-        Button language = s.keyId(s.keyboardKey(s.japaneseLanguageKeyLabel(), s.japaneseLanguageKeyDescription(),
+        Button language = s.keyId(s.keyboardKey(s.imeKeyFaces.text(KeyFaceSpecs.LANGUAGE), s.japaneseLanguageKeyDescription(),
             s::languageKeyTapped), "SoftLanguage");
         s.bindInputMethodPicker(language);
         s.japaneseLanguageKey = language;
@@ -1818,7 +1824,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         addJapaneseSideKey(side, delete, 1);
         s.imeKeyFaces.attachFunction(delete, false);
-        s.japaneseSpaceKey = s.keyId(s.keyboardKey("空白", "空白；左右滑动移动光标", s::space), "Space");
+        s.japaneseSpaceKey = s.keyId(s.keyboardKey(s.imeKeyFaces.text(KeyFaceSpecs.JAPANESE_SPACE), "空白；左右滑动移动光标", s::space), "Space");
         s.imeBottomRow.bindSpaceCursor(s.japaneseSpaceKey);
         addJapaneseSideKey(side, s.japaneseSpaceKey, 1);
         addJapaneseSideKey(side, swapLanguageNumber ? s.japaneseSymbolsKey : language, 1);

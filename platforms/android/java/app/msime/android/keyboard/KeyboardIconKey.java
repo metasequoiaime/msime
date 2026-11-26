@@ -10,7 +10,7 @@ import app.msime.android.KeyboardGeometry;
 /**
  * 画描边图标的功能键：⇧（含大写锁定的下划线形）、⌫、↵、123 层的表情键，图标 22 dp，线宽 1.7（viewBox 单位）。
  *
- * <p>节点 text（`⇧`、`⌫`、回车的动作文字）原样保留给无障碍和设备测试，只是不绘制；回车在组词时要显示「确认」，调用方用 {@link #setDrawsText} 切回文字。图标颜色就是按钮的文字颜色，由样式通道按皮肤设置（Shift 激活时 accent）。
+ * <p>节点 text（`⇧`、`⌫`、回车的动作文字）原样保留给无障碍和设备测试，只是不绘制；回车在组词时要显示「确认」（{@link #setTextFaces}），⇧ 在 26 键全拼组字时写「分词」（{@link #setFace}）。图标颜色就是按钮的文字颜色，由样式通道按皮肤设置（Shift 激活时 accent）。
  *
  * <p>放进键组（{@link #setFaceGroup}）时，图标边长取键组算的 {@link KeyFaceParams#iconPx}，改画文字时文字和右上角提示都按键组的参数画；画图标时主标签位置是空的，`⇧`、`⌫` 这样的节点文字不进键组的内容域。
  */
@@ -58,22 +58,30 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         invalidate();
     }
 
-    /** 为真时按普通按钮画文字（回车组词时的「确认」），为假时画图标。 */
-    public void setDrawsText(boolean value) {
-        if (drawsText == value) return;
-        drawsText = value;
-        mainFaceChanged();
+    /**
+     * 按 {@link KeyFaceSpec} 给的键面画（⇧ 的图标或「分词」）：画文字时节点文字也换成这段字，画图标时节点文字（`⇧` 这类读屏和统计用的字）由调用方另设。先换节点文字、再切到画文字，所以切换途中不会把 `⇧` 当成键面的字补进键组。
+     */
+    public void setFace(KeyFace face) {
+        if (face.text() != null && !face.text().contentEquals(getText())) setText(face.text());
+        if (face.icon() != null) setKind(face.icon());
+        boolean text = face.text() != null;
+        if (drawsText != text) {
+            drawsText = text;
+            if (faceGroup() != null) faceTextChanged(KeyFaceSlot.MAIN, faceText(KeyFaceSlot.MAIN));
+            else invalidate();
+        }
+        setCornerHint(face.corner());
     }
 
     public boolean drawsText() { return drawsText; }
 
-    /** 节点 text 落在这组文字里时按文字画（回车组词时的「确认」「確定」），其余时候画图标；调用方只管 setText，不必再切 {@link #setDrawsText}。 */
+    /** 节点 text 落在这组文字里时按文字画（回车组词时的「确认」「確定」），其余时候画图标；调用方只管 setText。 */
     public void setTextFaces(java.util.Set<String> faces) {
         textFaces = SetPolicy.copyOrEmpty(faces);
         mainFaceChanged();
     }
 
-    /** 在图标和文字之间换了：只重新定位、重画。文字由随后的 setText 补进键组（⇧ 先切到文字、再换成「分词」，这时补进去的会是 `⇧`）。 */
+    /** 在图标和文字之间换了：只重新定位、重画。 */
     private void mainFaceChanged() {
         faceRedraw();
     }

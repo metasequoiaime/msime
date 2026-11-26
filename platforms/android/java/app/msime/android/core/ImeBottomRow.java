@@ -229,7 +229,7 @@ final class ImeBottomRow {
         syncSplitSpace();
         if (s.japaneseSpaceKey != null && s.japaneseSpaceKey != s.spaceButton) {
             s.japaneseSpaceKey.setPressed(false);
-            s.japaneseSpaceKey.setText(s.spaceKeyTitle());
+            s.imeKeyFaces.show(s.japaneseSpaceKey, KeyFaceSpecs.JAPANESE_SPACE);
             s.japaneseSpaceKey.setContentDescription(s.spaceKeyDescription());
         }
     }

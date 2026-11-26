@@ -308,7 +308,8 @@ public final class KeyHeatmapLayoutSmoke {
             "the keyboard still records space and return under the ids the heatmap draws");
         check(bottomRow.contains("emojiButton = s.keyId(icon, \"SoftEmoji\")"),
             "the emoji style's 😀 records SoftEmoji, the id the heatmap draws for it");
-        check(service.contains("shiftButton.setText(separator ? \"分词\"")
+        check(service.contains("imeKeyFaces.show(shiftButton, KeyFaceSpecs.SHIFT);")
+            && read("keyboard/KeyFaceSpecs.java").contains("SEPARATOR_FACE = \"分词\";")
             && letterRows.contains("String id = separator ? \"Quote\" : \"ShiftLeft\";"),
             "the 全拼 case key is still 分词 recording Quote, ⇧ recording ShiftLeft otherwise");
         check(layoutRows.contains("weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT)")

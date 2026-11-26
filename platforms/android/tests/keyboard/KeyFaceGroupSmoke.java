@@ -67,23 +67,31 @@ public final class KeyFaceGroupSmoke {
         check(bare.params().topRight() == null && bare.params().strategy() == KeyFaceTemplate.Strategy.CENTERED,
             "内容域没有角标时不应为它留位置");
 
-        // 键换上内容域里没有的文字：补进内容域、只重量一遍；已有的文字不重量。
+        // 键换上内容域里没有的文字是列表漏了：照样补进内容域、只重量一遍，并记一次漏网；已有的文字不重量、不记。
         int measured = group.measureCount();
+        int strays = KeyFaceGroup.strayCount();
         group.include(KeyFaceSlot.TOP_RIGHT, "!");
-        check(group.measureCount() == measured, "内容域已有的文字不应重量");
+        check(group.measureCount() == measured && KeyFaceGroup.strayCount() == strays, "内容域已有的文字不应重量，也不算漏网");
         group.include(KeyFaceSlot.MAIN, "WW");
         check(group.domain().contains(KeyFaceSlot.MAIN, "WW") && group.measureCount() == measured + 1,
             "新文字应补进内容域并重量一遍");
+        check(KeyFaceGroup.strayCount() == strays + 1, "列表里没有的文字应记一次漏网");
         check(group.params().main().sizePx() < small.main().sizePx(), "更宽的主标签补进来后全组应收小字号");
 
-        // 整个换掉内容域时，组里每个键此刻画着的文字并进来。
+        // 整个换掉内容域时，文字固定的键放进来时的文字并进来；键面由规格给出的键此刻画着的字不并（可能是上一副键盘留下的）。
         Key hinted = new Key();
         hinted.texts.put(KeyFaceSlot.BOTTOM, "uang");
         group.attach(hinted, Set.of(KeyFaceSlot.BOTTOM));
         check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang"), "放进组里的键的文字应进内容域");
+        Key stateful = new Key();
+        stateful.texts.put(KeyFaceSlot.MAIN, "WWWW");
+        group.attach(stateful, Set.of(), false);
+        check(!group.domain().contains(KeyFaceSlot.MAIN, "WWWW"), "键面由规格给出的键放进来时不应并进它此刻的字");
+        hinted.texts.put(KeyFaceSlot.BOTTOM, "iong");
         group.replace(KeyFaceSolverSmoke.ENVIRONMENT, KeyFaceSolverSmoke.MEASURER, KeyFaceSolverSmoke.domain(true, false));
-        check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong"),
-            "换内容域时应保留键此刻的文字、丢掉不再可能出现的文字");
+        check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong")
+            && !group.domain().contains(KeyFaceSlot.BOTTOM, "iong") && !group.domain().contains(KeyFaceSlot.MAIN, "WWWW"),
+            "换内容域时应保留文字固定的键放进来时的文字，丢掉不再可能出现的文字和键此刻画着的字");
 
         // 主标签以另一组为上限：跟着那一组的参数重算，取消后回到自己的字号。
         KeyFaceGroup leader = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,

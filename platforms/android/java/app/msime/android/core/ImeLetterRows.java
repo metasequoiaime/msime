@@ -151,7 +151,7 @@ final class ImeLetterRows {
         if (shiftSource != null) s.keyId(shiftSource, id);
         if (s.shiftButton != null) s.keyId(s.shiftButton, id);
         if (s.shiftButton instanceof KeyboardIconKey key) {
-            key.setDrawsText(separator);
+            // 画图标还是「分词」由 ⇧ 的键面规格定（ImeKeyFaces#show、KeyFaceSpecs.SHIFT）。
             KeyboardTypographyPolicy.setKeyTextSize(key,
                 separator ? 14 : KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
         }
@@ -1197,7 +1197,7 @@ final class ImeLetterRows {
         KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
         if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ImeGridHelpcodeEntry.bind(s, separator);
-        s.imeKeyFaces.attachFunction(separator, true);
+        s.imeKeyFaces.attachFunction(separator, KeyFaceSpecs.FOURTEEN_SEPARATOR);
         fourteenSeparatorKey = separator;
         return separator;
     }
@@ -1419,17 +1419,11 @@ final class ImeLetterRows {
             }
         }
         if (fourteenSeparatorKey == null) return;
-        boolean composing = separatesSyllables();
-        boolean helpcode = ImeGridHelpcodeEntry.available(s);
-        if (fourteenSeparatorKey instanceof KeyHintButton hint)
-            hint.setCornerHint(GridHelpcodePolicy.cornerHint(helpcode));
-        String face = FourteenKeyLayout.separatorFace(composing);
+        s.imeKeyFaces.show(fourteenSeparatorKey, KeyFaceSpecs.FOURTEEN_SEPARATOR);
         String description = "按键 " + GridHelpcodePolicy.separatorDescription(
-            FourteenKeyLayout.separatorDescription(composing), helpcode);
-        if (face.contentEquals(fourteenSeparatorKey.getText())
-                && description.equals(String.valueOf(fourteenSeparatorKey.getContentDescription()))) return;
-        fourteenSeparatorKey.setText(face);
-        fourteenSeparatorKey.setContentDescription(description);
+            FourteenKeyLayout.separatorDescription(separatesSyllables()), ImeGridHelpcodeEntry.available(s));
+        if (!description.equals(String.valueOf(fourteenSeparatorKey.getContentDescription())))
+            fourteenSeparatorKey.setContentDescription(description);
     }
 
     /**
@@ -1480,7 +1474,8 @@ final class ImeLetterRows {
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.show(key);
         row.addView(key, index, LayoutPolicy.weightedMatchParentParams(weight));
-        s.imeKeyFaces.attachFunction(key, false);
+        if (key == s.shiftButton) s.imeKeyFaces.attachFunction(key, KeyFaceSpecs.SHIFT);
+        else s.imeKeyFaces.attachFunction(key, false);
     }
 
     /**

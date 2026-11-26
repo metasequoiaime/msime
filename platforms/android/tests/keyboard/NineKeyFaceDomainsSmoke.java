@@ -1,6 +1,9 @@
+import app.msime.android.ChineseSymbolFaces;
 import app.msime.android.JapaneseNineKeyLayout;
 import app.msime.android.KeyFaceDomain;
+import app.msime.android.KeyFaceLayout;
 import app.msime.android.KeyFaceSlot;
+import app.msime.android.KeyboardLayout;
 import app.msime.android.NineKeyCompositionActionPolicy;
 import app.msime.android.NineKeyFaceDomains;
 import app.msime.android.NineKeyLayout;
@@ -15,14 +18,17 @@ public final class NineKeyFaceDomainsSmoke {
     private NineKeyFaceDomainsSmoke() { }
 
     public static void main(String[] args) {
-        KeyFaceDomain letters = NineKeyFaceDomains.letters();
+        KeyFaceDomain letters = NineKeyFaceDomains.letters(layout(NineKeyCompositionActionPolicy.SEPARATE));
+        KeyFaceDomain rewriting = NineKeyFaceDomains.letters(layout(NineKeyCompositionActionPolicy.REWRITE));
+        // 1 键组字时只换成设置选的那一个：选「分词」时没有「重输」，反过来也一样。
+        check(letters.contains(KeyFaceSlot.MAIN, "分词") && !letters.contains(KeyFaceSlot.MAIN, "重输"), "选分词时 1 键不应列出重输");
+        check(rewriting.contains(KeyFaceSlot.MAIN, "重输") && !rewriting.contains(KeyFaceSlot.MAIN, "分词"), "选重输时 1 键不应列出分词");
         KeyFaceDomain digits = NineKeyFaceDomains.digits();
         for (List<NineKeyLayout.Key> row : NineKeyLayout.rows()) {
             for (NineKeyLayout.Key key : row) {
                 check(letters.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, false)), "缺九键键面 " + NineKeyLayout.face(key, false));
-                for (String action : List.of(NineKeyCompositionActionPolicy.SEPARATE, NineKeyCompositionActionPolicy.REWRITE))
-                    check(letters.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, false, true, action)),
-                        "缺组字时的键面 " + NineKeyLayout.face(key, false, true, action));
+                check(letters.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, false, true, NineKeyCompositionActionPolicy.SEPARATE)),
+                    "缺组字时的键面 " + NineKeyLayout.face(key, false, true, NineKeyCompositionActionPolicy.SEPARATE));
                 check(letters.contains(KeyFaceSlot.TOP_RIGHT, NineKeyLayout.digitInput(key)), "缺右上角数字 " + key.digit());
                 check(digits.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, true)), "缺数字键面 " + key.digit());
             }
@@ -78,6 +84,11 @@ public final class NineKeyFaceDomainsSmoke {
         }
         check(!NineKeyFaceDomains.japaneseKana(false).contains(KeyFaceSlot.MAIN, "1"), "日语九键假名组不应有数字");
         System.out.println("NineKeyFaceDomainsSmoke passed");
+    }
+
+    private static KeyFaceLayout layout(String action) {
+        return new KeyFaceLayout(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, action, false, ChineseSymbolFaces.Marks.DEFAULT,
+            false, List.of(), List.of());
     }
 
     private static void check(boolean condition, String message) {

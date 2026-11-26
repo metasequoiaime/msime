@@ -351,12 +351,10 @@ final class ImeStyler {
     }
 
     /**
-     * 新设计的 Shift：键帽始终是功能键底色；开启（一次性或锁定）时换成字母键底色、图标 accent，不再铺实心 accent。锁定时图标换成带下划线的大写锁定形。
+     * 新设计的 Shift：键帽始终是功能键底色；开启（一次性或锁定）时换成字母键底色、图标 accent，不再铺实心 accent。锁定时换成带下划线的大写锁定形，由 ⇧ 的键面规格定（{@link KeyFaceSpecs#SHIFT}）。
      */
     private void styleShiftKey(KeyboardIconKey key, KeyboardSkin target) {
         boolean on = key.isSelected();
-        key.setKind(s.letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK
-            ? KeyboardIconKey.Kind.CAPS_LOCK : KeyboardIconKey.Kind.SHIFT);
         String background = on ? target.keyBackground() : target.functionBackground();
         String foreground = on ? target.accent() : target.functionForeground();
         float density = DimensionPolicy.density(s);
