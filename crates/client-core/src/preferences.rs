@@ -5052,6 +5052,8 @@ pub enum FuzzyPinyinRule {
     IanIang,
     #[serde(rename = "uan-uang")]
     UanUang,
+    #[serde(rename = "un-ong")]
+    UnOng,
 }
 
 impl FuzzyPinyinRule {
@@ -5068,6 +5070,7 @@ impl FuzzyPinyinRule {
             Self::InIng => 1 << 8,
             Self::IanIang => 1 << 9,
             Self::UanUang => 1 << 10,
+            Self::UnOng => 1 << 11,
         }
     }
 }
@@ -6930,6 +6933,7 @@ impl PreferencesStore {
                 FuzzyPinyinRule::InIng,
                 FuzzyPinyinRule::IanIang,
                 FuzzyPinyinRule::UanUang,
+                FuzzyPinyinRule::UnOng,
             ]
             .into_iter()
             .collect();

@@ -978,7 +978,7 @@ int main() {
   saved = store.load();
   assert(saved.snapshot->revision() == before_fuzzy + 1);
   assert(saved.snapshot->preferences().at("fuzzy_pinyin").at("seeded") == true);
-  assert(saved.snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 11);
+  assert(saved.snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 12);
   click(fuzzy_rule_first);
   click(fuzzy_enabled);
   assert(!IsWindowEnabled(GetDlgItem(body, fuzzy_rule_first)));

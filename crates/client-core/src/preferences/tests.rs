@@ -3405,7 +3405,7 @@ fn fuzzy_pinyin_first_enable_seeds_once_and_preserves_pruned_rules() {
     first.fuzzy_pinyin.enabled = true;
     let first = store.save(disabled.revision, first).unwrap();
     assert!(first.preferences.fuzzy_pinyin.seeded);
-    assert_eq!(first.preferences.fuzzy_pinyin.rules.len(), 11);
+    assert_eq!(first.preferences.fuzzy_pinyin.rules.len(), 12);
 
     let mut pruned = first.preferences.clone();
     pruned.fuzzy_pinyin.rules = [FuzzyPinyinRule::ZZh].into_iter().collect();
