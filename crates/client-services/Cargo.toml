@@ -34,7 +34,8 @@ base64 = "0.23"
 uuid = { workspace = true, features = ["serde", "v4"] }
 # `formatting` for the strftime placeholders a command-table pack's templates are checked against, the same the Engine expands them with. `parsing` 用来按 RFC 3339 读服务端和崩溃记录里的时间：诊断上传把崩溃记录的 `at` 解析后重新格式化成服务端认的形状，「我的设备」和 AI 皮肤任务的时间也按它校验。不引入新的 crate。
 time = { workspace = true, features = ["formatting", "parsing"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls", "system-proxy"] }
+# `gzip` 让发布列表在传输时压缩：GitHub 对 `releases?per_page=100` 在不带 `Accept-Encoding` 时回 2.8 MB 未压缩 JSON，压缩后约 460 KB。host 上的慢网（大陆网络实测未压缩要 47–63 秒）否则必然撞上请求超时。
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "gzip", "json", "multipart", "rustls-tls", "system-proxy"] }
 # 云剪贴板的 WebDAV 后端读 PROPFIND 的多状态响应（`clipboard_webdav`）。维护者同意引入；锁文件里已经有这一版（plist 用的）。只用基础的事件读取，不开 serde 特性。
 quick-xml = "0.42"
 # Plugin packs picked as a .zip archive. Only the flate2 deflate backend: stored and deflated members are what every archiver writes, and flate2 is already here.
@@ -57,6 +58,10 @@ flate2 = "1"
 # 脚本插件（`kind = "script"`）只在桌面存在：macOS、Windows 和非 ohos 的 Linux。清单解析和导入时用它校验模块（只编译，不执行）；移动端和 wasm32 上不引用它，`PluginKind::Script` 也不存在。
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 msime-script-runtime = { path = "../script-runtime" }
+
+# 桌面端在 Mozilla 根之外再信任系统证书库：机器上装了企业/代理 CA（常见做法是把 `*.github.com` 用 hosts 指到本地代理，证书由自签 CA 签发）时，更新检查、云候选和 AI 仍然能连出去。根是并集，webpki 的 Mozilla 根照旧在，系统库读不到时只是少一份来源。移动端与 ohos 不挂这一项，仍只认 Mozilla 根（那里没有「系统里另装 CA」的等价做法）。
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["fs", "process"] }

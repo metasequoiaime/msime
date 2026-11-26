@@ -4,6 +4,8 @@
 //!
 //! 各宿主的设置界面都调用 [`check_for_update`]：Tauri 外壳经由它的 `update_check` 命令，原生 Windows 设置窗口和 HarmonyOS 页面经由 `msime_client_update_check`。结果怎么向用户说明（未签名警告、可复制的校验命令、镜像链接）仍由各界面自己决定。
 //!
+//! 请求只走 HTTPS，跟用户配置的网络代理（`proxy` 模块）走，响应按 gzip 传输。证书信任在桌面端（Windows、macOS）是「Mozilla 根 + 系统证书库」的并集（见 `Cargo.toml` 的 target 表）：机器上装了企业 CA，或者用 hosts 把 `*.github.com` 指到本地代理、证书由系统库里已有的自签 CA 签发时，更新检查仍然能连出去。移动端与 ohos 没有这一项，仍只认 Mozilla 根。
+//!
 //! 请求可以带更新通道（[`UpdateChannel`]）：稳定版只认正式发布；测试版另外接受 tag 为 `<platform>-vX.Y.Z-beta.N`（`N` 从 1 起）或旧式 `<platform>-vX.Y.Z-beta` 的预发布（在 main 上推送的测试版 tag，见 `scripts/release-ref.py`；以前分支上发的 `-alpha` 和其他预发布不算）；每日构建再接受滚动的 `nightly` 发布，从它正文末尾的 `msime-nightly-state` 里取本平台的版本号、运行 ID 和附件（见 `scripts/publish-nightly.py`）。同一版本号可能有好几次构建（beta 之后发正式版、每天的 nightly），所以比较的是（版本号，发布 workflow 的运行 ID）：正式版和测试版的运行 ID 写在发布正文的 `msime-build` 隐藏标记里（`scripts/release-build-marker.py`），本程序自己的运行 ID 是构建时的 `MSIME_BUILD_RUN`（[`BUILD_RUN`]）。
 //!
 //! 后台定期检查、记录和提醒在 [`background`]。
@@ -32,9 +34,11 @@ const NIGHTLY_STATE_MARKER: &str = "<!-- msime-nightly-state\n";
 const BUILD_MARKER: &str = "<!-- msime-build ";
 /// 构建本程序的发布 workflow 的运行 ID：发布 workflow（nightly 复用它们）在编译 Rust 时把 `MSIME_BUILD_RUN` 设成 `github.run_id`。本机和 CI 的测试构建、发行版从源码编的包没有它，为 `None`。
 pub const BUILD_RUN: Option<u64> = parse_build_run(option_env!("MSIME_BUILD_RUN"));
-/// 一次检查最多等 GitHub 多久，超时即报告不可用。
-pub const TIMEOUT: Duration = Duration::from_secs(10);
-/// 一页 100 个发布连同说明和资产，大小在几 MB。
+/// 建立连接（DNS、TCP、TLS）最多等多久。慢网和本机代理下握手本身就可能要几秒。
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// 一次请求的总预算，含读完响应体。发布列表压缩后约 460 KB，慢网上 30 秒足够。原来这里是一个 10 秒的单一超时：GitHub 在数据没压缩时要传 2.8 MB，大陆网络实测 47–63 秒，慢网下必然被吞成「检查失败」。
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// 一页 100 个发布连同说明和资产，未压缩约 2.8 MB。传输走 gzip 时 [`fetch`] 按解压后的字节数用这个上界截断，压缩炸弹不会比未压缩的响应多占内存。
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 /// GitHub 的 REST API 会拒绝不带 User-Agent 的请求。
 const USER_AGENT: &str = "msime-client";
@@ -118,7 +122,7 @@ pub enum UpdateCheckError {
     Unavailable,
 }
 
-/// 拉取发布列表（每日构建通道另外取 nightly 发布），把其中 `request.platform` 在请求通道里的最新发布与当前运行的构建比较。会在网络上阻塞，每个请求最多 [`TIMEOUT`]，不要在 UI 线程或输入线程上调用。
+/// 拉取发布列表（每日构建通道另外取 nightly 发布），把其中 `request.platform` 在请求通道里的最新发布与当前运行的构建比较。会在网络上阻塞，每个请求的连接最多 [`CONNECT_TIMEOUT`]、整体最多 [`REQUEST_TIMEOUT`]，不要在 UI 线程或输入线程上调用。
 pub fn check_for_update(request: &UpdateCheckRequest) -> Result<UpdateCheck, UpdateCheckError> {
     let (_, channel) = validate_request(request)?;
     let client = http_client()?;
@@ -204,10 +208,14 @@ fn parse_release_list(bytes: &[u8]) -> Result<Vec<Value>, UpdateCheckError> {
 }
 
 fn http_client() -> Result<reqwest::blocking::Client, UpdateCheckError> {
-    // 版本列表在 GitHub（https 公网）；按用户的网络代理设置走。
+    // 版本列表在 GitHub（https 公网）；按用户的网络代理设置走。连接超时和整体超时分开：握手慢不代表读不完，
+    // 而一个总超时会在慢网上把「只是慢」变成「功能不可用」。桌面端（见 Cargo.toml 的 target 表）在 Mozilla 根
+    // 之外还信任系统证书库，本机装了企业/代理 CA 的机器也能连出去；`gzip` 由 reqwest 自动加 `Accept-Encoding`
+    // 并在读响应体时解压，列表从 2.8 MB 降到约 460 KB。
     crate::proxy::configure_blocking(reqwest::blocking::Client::builder())
         .map_err(|_| UpdateCheckError::Unavailable)?
-        .timeout(TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
         .user_agent(USER_AGENT)
         .build()
         .map_err(|_| UpdateCheckError::Unavailable)
