@@ -1,4 +1,5 @@
 #include "../src/candidates/PairedPunctuation.h"
+#include "../src/candidates/PairedCaretForward.h"
 
 #include <cassert>
 #include <optional>
@@ -136,6 +137,36 @@ int main() {
     text = "(";
     assert(!normalize_punctuation_pair(text, Mode::Bracket) && text == "(");
     assert(!normalize_punctuation_pair(text, Mode::Unpaired));
+  }
+  {
+    // 光标退让的转发：只有 Wayland 且 Shift 还按着才排队，其余立即发。
+    using msime::linux_host::PairedCaretForward;
+    assert((!PairedCaretForward{false, false}.defer()));
+    assert((!PairedCaretForward{false, true}.defer()));
+    assert((!PairedCaretForward{true, false}.defer()));
+    assert((PairedCaretForward{true, true}.defer()));
+    // 转发的方向键用 evdev 扫描码，不依赖 IBus 键位表文件，也不会是客户端不认的 0。
+    static_assert(msime::linux_host::paired_caret_keycode(true) == 105);
+    static_assert(msime::linux_host::paired_caret_keycode(false) == 106);
+  }
+  {
+    // 排队的方向键：取走后队列为空；换焦点或重置时清空，不会漏到下一个输入框。
+    msime::linux_host::PairedCaretQueue<unsigned> queue;
+    assert(queue.empty());
+    queue.push(1);
+    queue.push(2);
+    assert((queue.take() == std::vector<unsigned>{1, 2}));
+    assert(queue.empty());
+    // 净移动：左移为负，左右抵消；Shift 按着连打 `(` `)` 排下的是一左一右，逻辑光标回到原处。
+    queue.push(1);
+    assert(queue.net_offset(1) == -1);
+    queue.push(2);
+    assert(queue.net_offset(1) == 0);
+    (void)queue.take();
+    assert(queue.net_offset(1) == 0);
+    queue.push(3);
+    queue.clear();
+    assert(queue.empty() && queue.take().empty());
   }
   return 0;
 }
