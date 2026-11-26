@@ -324,8 +324,11 @@ private struct KeyLayoutKeyboardPreview: View {
   private var twentySixKeyRows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] {
     let firstRowCount = CGFloat(TypingKeyHeatmap.twentySixKeyLetterRows[0].count)
     let letterWidth = (Self.width - Self.keyGap * (firstRowCount - 1)) / firstRowCount
-    return TypingKeyHeatmap.twentySixKeyLetterRows.enumerated().map { index, cells in
-      var caps = cells.map { Self.cap($0, separator: .symbol("shift")) }
+    // 逐行赋值而不是在一个闭包里返回元组：这段原样放在 `enumerated().map { … }` 里时，Release 的整模块优化下类型推导预算不够，Xcode 26.3 会报 "unable to type-check this expression in reasonable time"（#11912）。
+    var rows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] = []
+    rows.reserveCapacity(TypingKeyHeatmap.twentySixKeyLetterRows.count)
+    for (index, cells) in TypingKeyHeatmap.twentySixKeyLetterRows.enumerated() {
+      var caps: [Cap] = cells.map { Self.cap($0, separator: .symbol("shift")) }
       if index == 2 {
         // 两端换成 44pt 的分词键和 ⌫、中间七个字母用第一排的宽度，插入两个透明占位后这一排是 11 个元素、10 个键距，余下的宽度两边均分。
         caps = caps.map { cap in
@@ -333,13 +336,15 @@ private struct KeyLayoutKeyboardPreview: View {
           cap.fixed = cap.role == .function ? Self.letterGridEdgeWidth : letterWidth
           return cap
         }
-        let sliver = max(0, (Self.width - Self.letterGridEdgeWidth * 2 - letterWidth * 7
-                             - Self.keyGap * CGFloat(cells.count + 1)) / 2)
+        let sliver: CGFloat = max(0, (Self.width - Self.letterGridEdgeWidth * 2 - letterWidth * 7
+                                      - Self.keyGap * CGFloat(cells.count + 1)) / 2)
         caps.insert(Cap(face: .text(""), fixed: sliver, spacer: true), at: 1)
         caps.insert(Cap(face: .text(""), fixed: sliver, spacer: true), at: caps.count - 1)
       }
-      return (caps, index == 1 ? Self.width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset) : 0, nil)
+      let inset: CGFloat = index == 1 ? Self.width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset) : 0
+      rows.append((caps: caps, inset: inset, unit: nil))
     }
+    return rows
   }
 
   /// 14 键：每排等宽，第二排不缩进；第三排两端是 符 和 ⌫，各固定 44pt。预览画的是空闲时的键盘，全拼、双拼的这个键只在组字时才换成「分词」，五笔一直是 符，与 Android、鸿蒙的预览相同。
