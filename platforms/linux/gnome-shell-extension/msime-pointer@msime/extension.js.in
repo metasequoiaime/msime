@@ -1,7 +1,9 @@
 // GNOME Shell 扩展：GNOME 会话下由它渲染水杉输入法的候选右键菜单。候选框是合成器 actor，压在所有 X11 客户端窗口之上，宿主自绘浮层无论怎么设 X11 层级都会被盖住。菜单条目由宿主经 SessionBus 推送，文案与可用性只在 C++ 侧决定；点击把完整 action_name 原样交给 IBus panelService.property_activate，由引擎核对身份。
 // ESM 与 gi://Gio 从 Shell 45 起就有。
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
+import Meta from 'gi://Meta';
 import St from 'gi://St';
 import * as IBusManager from 'resource:///org/gnome/shell/misc/ibusManager.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -35,6 +37,9 @@ export default class MsimePointerExtension extends Extension {
     this._popupVisibleId = 0;
     this._stageButtonId = 0;
     this._stageKeyId = 0;
+    this._sourceAllocationId = 0;
+    this._openLaterId = 0;
+    this._closeIdleId = 0;
     this._impl = Gio.DBusExportedObject.wrapJSObject(IFACE, this);
     this._impl.export(Gio.DBus.session, '/org/msime/Pointer');
     this._owner = Gio.DBus.session.own_name(
@@ -42,6 +47,10 @@ export default class MsimePointerExtension extends Extension {
   }
 
   disable() {
+    if (this._closeIdleId) {
+      GLib.source_remove(this._closeIdleId);
+      this._closeIdleId = 0;
+    }
     this._closeMenu();
     if (this._owner) {
       Gio.DBus.session.unown_name(this._owner);
@@ -71,7 +80,9 @@ export default class MsimePointerExtension extends Extension {
     group.add_child(source);
 
     const menu = new PopupMenu.PopupMenu(source, 0, St.Side.LEFT);
-    group.add_child(menu.actor);  // open() 要求 actor 已有 parent
+    // open() 要求 actor 已有 parent；先藏起来，和 Shell 自己的菜单一样等 open() 再显示，否则 BoxPointer 还没定位就以 (0,0) 参与布局。
+    group.add_child(menu.actor);
+    menu.actor.hide();
 
     for (const [actionName, label, flags] of items) {
       if (flags & FLAG_SEPARATOR) {
@@ -83,11 +94,12 @@ export default class MsimePointerExtension extends Extension {
         item.setOrnament(PopupMenu.Ornament.CHECK);
       if (flags & FLAG_DISABLED)
         item.setSensitive(false);
+      // 回调里只回传动作，不在这里销毁菜单：PopupMenu 在 activate 之后自己会 itemActivated() 收起菜单，而菜单项的 ClickGesture 在 activate 返回后还要改它的 :active 样式，同步 destroy 会让 Shell 访问已销毁的菜单项、每点一次留一条「has been already disposed」的 Gjs-CRITICAL。销毁推迟到 idle，并核对当时的 token，这期间宿主已经推来新菜单或按 token 收起过时不会误关。
       item.connect('activate', () => {
         const panelService = IBusManager.getIBusManager()._panelService;
         if (panelService)
           panelService.property_activate(actionName, 0);  // PROP_STATE_UNCHECKED
-        this._closeMenu();
+        this._closeMenuWhenIdle(token);
       });
       menu.addMenuItem(item);
     }
@@ -97,18 +109,16 @@ export default class MsimePointerExtension extends Extension {
     this._menuToken = token;
     this._popupForMenu = popup;
 
-    // 不用 PopupMenuManager / Main.pushModal：其 modal grab 会让引擎进入 !focused /
-    // blocked，导致 property_activate 拒绝每一次点击。自己接 stage 的 *-event 信号收起
-    // （ClutterStage 只有 button-press-event / key-press-event，没有不带 -event 的同名信号）。
+    // 不用 PopupMenuManager / Main.pushModal：其 modal grab 会让引擎进入 !focused / blocked，导致 property_activate 拒绝每一次点击。自己接 stage 的 *-event 信号收起（ClutterStage 只有 button-press-event / key-press-event，没有不带 -event 的同名信号）。
     this._stageButtonId = global.stage.connect('button-press-event', (stage, event) => {
       if (!this._menu || !this._menu.actor.contains(stage.get_event_actor(event)))
         this._closeMenu();
       return Clutter.EVENT_PROPAGATE;  // 菜单项自己的 activate 还要收到这次按压
     });
     this._stageKeyId = global.stage.connect('key-press-event', (_stage, event) => {
+      // 这个处理只在键盘焦点落在 Shell 自己的 actor 上时才起作用。GNOME Wayland 下编辑器有焦点时，按键由 Mutter 直接交给 Wayland 客户端和输入法，不经过 stage 的事件传递，Esc 走不到这里，而是由引擎处理：引擎按 token 收起菜单并照常取消组字（CandidateMenuController::consume_escape）。
       if (this._menu && event.get_key_symbol() === Clutter.KEY_Escape) {
         this._closeMenu();
-        // Esc 只收菜单：放它到引擎会被当成 MSIME_CANCEL，连组字一起取消。
         return Clutter.EVENT_STOP;
       }
       return Clutter.EVENT_PROPAGATE;
@@ -118,7 +128,21 @@ export default class MsimePointerExtension extends Extension {
         this._closeMenu();
     });
 
-    menu.open();
+    // 透明锚点刚加进父 actor、还没分配过尺寸时就 open()，BoxPointer 首次布局在 _reposition 里读到锚点非有限的 get_transformed_extents()/get_allocation_box()（它只判断锚点 mapped，不判断 has_allocation），算出 NaN 的原点，Clutter 报 `clutter_actor_set_allocation_internal: assertion '!isnan…' failed`，边框和内容区分配成 -2147483648。所以等锚点拿到分配后，在下一帧重绘前再打开。
+    if (source.has_allocation()) {
+      menu.open();
+    } else {
+      this._sourceAllocationId = source.connect('notify::allocation', () => {
+        source.disconnect(this._sourceAllocationId);
+        this._sourceAllocationId = 0;
+        this._openLaterId = global.compositor.get_laters().add(Meta.LaterType.BEFORE_REDRAW, () => {
+          this._openLaterId = 0;
+          if (this._menu === menu)
+            menu.open();
+          return GLib.SOURCE_REMOVE;
+        });
+      });
+    }
   }
 
   // 只有 token 与当前菜单相同才收起，迟到的收起不会误关新菜单。
@@ -127,7 +151,26 @@ export default class MsimePointerExtension extends Extension {
       this._closeMenu();
   }
 
+  _closeMenuWhenIdle(token) {
+    if (this._closeIdleId)
+      GLib.source_remove(this._closeIdleId);
+    this._closeIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+      this._closeIdleId = 0;
+      if (token === this._menuToken)
+        this._closeMenu();
+      return GLib.SOURCE_REMOVE;
+    });
+  }
+
   _closeMenu() {
+    if (this._openLaterId) {
+      global.compositor.get_laters().remove(this._openLaterId);
+      this._openLaterId = 0;
+    }
+    if (this._sourceAllocationId && this._sourceActor) {
+      this._sourceActor.disconnect(this._sourceAllocationId);
+      this._sourceAllocationId = 0;
+    }
     if (this._stageButtonId) {
       global.stage.disconnect(this._stageButtonId);
       this._stageButtonId = 0;
