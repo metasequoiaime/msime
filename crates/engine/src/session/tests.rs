@@ -379,6 +379,8 @@ INSERT INTO tbl_2_f VALUES('fan''gan','fg','反感',100);",
 /// One directory standing in for all four runtime roots, as the reference session tests used.
 struct Fixture {
     directory: tempfile::TempDir,
+    /// 单独放打包词库的资源根；缺省和代次目录相同，只有需要区分打包原值与学习后工作值时才设置。
+    bundle: Option<PathBuf>,
 }
 
 fn prediction_fixture() -> Fixture {
@@ -612,7 +614,21 @@ impl Fixture {
         let helpcodes = directory.path().join("helpcodes");
         std::fs::create_dir_all(&helpcodes).expect("helpcode directory");
         std::fs::write(helpcodes.join("helpcode.txt"), "你=ab\n拟=cd\n好=ef\n").expect("helpcodes");
-        Self { directory }
+        Self {
+            directory,
+            bundle: None,
+        }
+    }
+
+    /// 在资源根单独放一份 `msime-wubi.db`，模拟发布包里未被学习改写的打包码表。
+    fn with_wubi_bundle(mut self, sql: &str) -> Self {
+        let resources = self.path().join("bundle");
+        std::fs::create_dir_all(&resources).expect("bundle directory");
+        Connection::open(resources.join(assets::WUBI_DICTIONARY))
+            .and_then(|connection| connection.execute_batch(sql))
+            .expect("fixture msime-wubi.db");
+        self.bundle = Some(resources);
+        self
     }
 
     fn with_english(self, sql: &str) -> Self {
@@ -631,7 +647,7 @@ impl Fixture {
     fn paths(&self) -> RuntimePaths {
         let root = self.path().to_path_buf();
         RuntimePaths {
-            resources: root.clone(),
+            resources: self.bundle.clone().unwrap_or_else(|| root.clone()),
             user_data: root.clone(),
             cache: root.clone(),
             dictionaries: root,
@@ -4294,6 +4310,37 @@ fn a_rebuilt_session_corrects_with_its_new_profile() {
 }
 
 // ---- wubi mixed routing (overlays.md §3.3) ----
+
+/// 同一词面在简码和全码各有一行：固定后显示行的编码换成全码，取消仍须作用于同一词面。
+const WUBI_DUPLICATE_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('aa','式',20),('aad','式',11);";
+
+#[test]
+fn canceling_a_fixed_wubi_row_still_works_when_its_code_changes_after_the_move() {
+    let fixture = Fixture::new(WUBI_DUPLICATE_FIXTURE).with_wubi_bundle(WUBI_DUPLICATE_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    type_text(&mut session, "aa");
+    assert_eq!(words(&session), vec!["式".to_owned(), "式".to_owned()]);
+
+    assert!(session.fix_position(index_of(&session, "式"), 2).handled);
+    let fixed = session
+        .snapshot()
+        .candidates
+        .iter()
+        .position(|item| item.fixed_position == 2)
+        .expect("被固定的那一行仍在候选里");
+    assert_eq!(session.snapshot().candidates[fixed].word.as_str(), "式");
+
+    assert!(session.clear_position(fixed).handled);
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM fixed_candidate_positions"
+        ),
+        0,
+        "重排后显示的编码可能从简码变成全码，取消仍须作用于同一词面"
+    );
+}
 
 fn wubi_mixed(fixture: &Fixture) -> Session {
     let mut session = fixture.session_with(|options| {
