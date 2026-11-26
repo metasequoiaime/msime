@@ -2028,7 +2028,7 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _capsLockTapReleasedSawStaleCapsLock;
     // 收到关闭边沿后，下一次打开边沿是新的物理按键；关闭边沿本身仍需把旧标记留给紧随其后的字母事件。
     BOOL _capsLockTapReleasedSawExplicitOff;
-    // 用单按 Shift 切到英文时，英文键面保持大写，带 Shift 的组合键交还应用。
+    // 打开 `keybindings.shift_tap_uppercase_english` 后单按 Shift 从中文切到英文时为真，英文状态下的 a–z 输出大写；任何其它改变中英文的入口都清掉它。
     BOOL _uppercaseEnglishMode;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
@@ -4981,10 +4981,6 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 //
 // Commit first, then switch: switching rebuilds the input session, and the other order loses the letters still being composed. setEnglishInputMode: finishes any composition of its own, which is a no-op once this has run.
 - (void)toggleInputModeFromModifierTap {
-    [self toggleInputModeFromModifierTapUppercase:NO];
-}
-
-- (void)toggleInputModeFromModifierTapUppercase:(BOOL)uppercase {
     if ([self applyTrilingualCycleIfEnabled]) return;
     if ([_view[@"editing_text"] length] && _session && _activeClient) {
         // 单按修饰键是一次物理按下，却不经过 handleEvent: 的按下报告（它只看 keyDown）。派发前按指针开一轮：不出按键音，与以前一样；原样上屏的提交音照常由核心出。
@@ -4992,10 +4988,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
         if (raw) [self apply:raw];
     }
-    const BOOL enteringEnglish = !_appearance.englishMode;
-    [self setEnglishInputMode:enteringEnglish uppercase:(enteringEnglish && uppercase) showHUD:YES];
-    // 同步系统输入源时可能再次经普通入口回写英文状态，恢复本次 Shift 轻点的大小写语义。
-    _uppercaseEnglishMode = enteringEnglish && uppercase && _appearance.englishMode;
+    [self setEnglishInputMode:!_appearance.englishMode];
 }
 
 // 组合键在循环关闭时保留原来的取消组字规则；轻点修饰键单独保留原文提交规则。
@@ -5540,14 +5533,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 
 - (void)setEnglishInputMode:(BOOL)enabled {
-    [self setEnglishInputMode:enabled uppercase:NO showHUD:YES];
+    [self setEnglishInputMode:enabled showHUD:YES];
 }
 - (void)setEnglishInputMode:(BOOL)enabled showHUD:(BOOL)showHUD {
-    [self setEnglishInputMode:enabled uppercase:NO showHUD:showHUD];
-}
-- (void)setEnglishInputMode:(BOOL)enabled uppercase:(BOOL)uppercase showHUD:(BOOL)showHUD {
     [self ensureAppearance];
-    _uppercaseEnglishMode = enabled && uppercase;
+    // 菜单、系统输入源报告、应用规则等入口都经过这里，进出英文都回到普通英文；单按 Shift 在切换完成后再按需打开大写。
+    _uppercaseEnglishMode = NO;
     if (enabled) [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     const BOOL changed = _appearance.englishMode != enabled;
     if (changed && _managedEnglishComposition && ![self setManagedEnglishEnabled:NO]) return;
@@ -5781,6 +5772,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
+    _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
     state.selecting = true;
@@ -5843,6 +5835,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];
     if (!view) { if (error) NSBeep(); return; }
     _managedEnglishComposition = NO;
+    _uppercaseEnglishMode = NO;
     _appearance.englishMode = NO;
     [self syncSystemInputModeForClient:_activeClient];
     [self apply:@{@"view":view}];
@@ -6725,6 +6718,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
     NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
+    _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // 系统可能仍在从强制 ASCII 的应用恢复输入源；离开激活调用栈后再核对实际模式，避免重复选择把它退回 U.S.（#8993）。
     [self scheduleSystemInputModeSyncForClient:sender];
@@ -8214,6 +8208,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self invalidateSmartPunctuationShadow];
         NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
         [self applyInitialHostPreferencesFromSnapshot:initialHostSnapshot];
+        _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         // 所有权交接不依赖显示开关：关闭时也接管并隐藏旧控制器的常驻工具栏。
         _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
@@ -8270,9 +8265,10 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         const BOOL shiftTap = event.type == NSEventTypeFlagsChanged && (event.keyCode == 56 || event.keyCode == 60);
+        const BOOL wasEnglish = _appearance.englishMode;
         [self toggleInputModeFromModifierTap];
-        // 保持旧方法的动态分派，测试替身和其它宿主入口仍能观察这次切换。
-        if (shiftTap) _uppercaseEnglishMode = _appearance.englishMode;
+        // 只有打开 `keybindings.shift_tap_uppercase_english` 且这次单按 Shift 真的从中文切到英文，才进入大写英文；Control、Caps Lock 轻点和其它入口保持普通英文。
+        _uppercaseEnglishMode = shiftTap && _appearance.shiftTapUppercaseEnglish && !wasEnglish && _appearance.englishMode;
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
@@ -8420,16 +8416,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (_appearance.englishMode && ![self quickPhraseModeActive] && (!_managedEnglishComposition || managedLiteralKey)) {
         const NSEventModifierFlags competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
                                                 NSEventModifierFlagCommand;
-        // Shift 轻点进入的大写英文模式把带 Shift 的组合键留给应用，避免游戏快捷键被当成英文字符上屏。
-        if (_uppercaseEnglishMode && (event.modifierFlags & NSEventModifierFlagShift) &&
-            !(event.modifierFlags & competing)) return NO;
         if (!(event.modifierFlags & competing) && event.characters.length == 1) {
             const BOOL keypad = (event.modifierFlags & NSEventModifierFlagNumericPad) != 0 || event.keyCode == 65;
             const BOOL chinese = [_appearance.punctuationLock isEqual:@"chinese"] ||
                 ([_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
             unichar character = [event.characters characterAtIndex:0];
-            if (_uppercaseEnglishMode && character >= 'a' && character <= 'z')
-                character = (unichar)(character - ('a' - 'A'));
+            // 大写英文模式只改 a–z，标点、数字和小键盘照常经下面的中文标点与全角规则。
+            const BOOL uppercasedLetter = _uppercaseEnglishMode && character >= 'a' && character <= 'z';
+            if (uppercasedLetter) character = (unichar)(character - ('a' - 'A'));
             const BOOL capsLockTapReleasedLetterEvent = capsLockTapReleasedForEvent &&
                 event.type == NSEventTypeKeyDown && !(event.modifierFlags & NSEventModifierFlagShift) &&
                 ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'));
@@ -8458,8 +8452,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                     @"context":[self directEnglishSpacingContext]}][@"enabled"] isEqual:@YES];
             const BOOL asciiLetterOrDigit = (character >= 'a' && character <= 'z') ||
                 (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
-            if ((spacingEnabled && asciiLetterOrDigit) ||
-                (capsLockTapReleasedForEvent && !_uppercaseEnglishMode && !(event.modifierFlags & NSEventModifierFlagShift) &&
+            // 大写字母不能交还应用：应用收到的是原始的小写按键。
+            if ((spacingEnabled && asciiLetterOrDigit) || uppercasedLetter ||
+                (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
                  character >= 'a' && character <= 'z')) {
                 [self writeDirectEnglishText:[NSString stringWithCharacters:&character length:1]
                                       client:(id<MSIMETextClient>)sender];
