@@ -147,6 +147,21 @@ final class ImePanelLayout {
     }
 
     /**
+     * 面板上方的透明高度：写成面板的上外边距，按内容包裹高度的根视图和窗口随之加高（{@link PanelGeometry#headroomPx}）。整个停靠期间不变，只在窗口铺满（API 28、浮动、编辑预览、「键盘调整」）时为 0。
+     *
+     * @param params 面板这次要套上的布局参数
+     */
+    void applyHeadroom(FrameLayout.LayoutParams params) {
+        params.topMargin = PanelGeometry.headroomPx(s.headroomWindow(), DimensionPolicy.density(s));
+    }
+
+    /** 面板上方此刻留着的透明高度（像素），没有时为 0。 */
+    int headroomPx() {
+        return s.keyboardSurface != null && s.keyboardSurface.getLayoutParams() instanceof FrameLayout.LayoutParams params
+            ? params.topMargin : 0;
+    }
+
+    /**
      * 键盘列的底部留白和键盘底栏的底边距。左右和上边仍是系统栏的 inset；浮动时四边都不留。
      *
      * @param keyboard 键盘的竖向一列

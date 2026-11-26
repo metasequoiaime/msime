@@ -1400,8 +1400,8 @@ final class ImeLayoutRows {
         int height = options.getMeasuredHeight();
         int x = Math.max(rootPosition[0], Math.min(anchorPosition[0] + (anchor.getWidth() - width) / 2,
             rootPosition[0] + s.keyboardRoot.getWidth() - width));
-        // API 28 子窗口仍受 IME 父窗口裁剪；空间不足时向键区内展开，保证每个选项可见可点。
-        int y = Math.max(rootPosition[1], Math.min(anchorPosition[1] - height - s.pixels(6),
+        // API 28 子窗口仍受 IME 父窗口裁剪；空间不足时向键区内展开，保证每个选项可见可点。停靠在 29+ 时根视图上方多出的透明高度不算，上限仍是面板上沿。
+        int y = Math.max(rootPosition[1] + s.imePanelLayout.headroomPx(), Math.min(anchorPosition[1] - height - s.pixels(6),
             rootPosition[1] + s.keyboardRoot.getHeight() - height));
         // showAtLocation 的坐标相对 IME 父窗口；按锚点换算偏移，避免把屏幕坐标重复加上窗口原点。
         popup.showAsDropDown(anchor, x - anchorPosition[0],

@@ -487,7 +487,8 @@ final class ImeStyler {
         boolean floating = s.overlayDrawn();
         int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
         // 「键盘调整」打开期间窗口铺满（#10025），与 API 28 一样只在键区所在的底部横带画键盘底色：上方透明露出应用，平板居中键区两侧仍是键盘底色。
-        if (s.stableDockedWindow() || s.keyboardAdjustActive) {
+        // 停靠在 29+ 时面板上方多了一段透明高度（MSIMEInputService.headroomWindow），同样只在面板这一横条画底色。
+        if (s.stableDockedWindow() || s.keyboardAdjustActive || s.headroomWindow()) {
             dockedBackground.setColor(color(s.skin.background()));
             ViewPolicy.setBackground(s.keyboardRoot, dockedBackground);
             s.keyboardRoot.invalidate();
@@ -646,6 +647,7 @@ final class ImeStyler {
                 : s.stableDockedWindow() || s.keyboardAdjustActive ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        s.imePanelLayout.applyHeadroom(params);
         s.keyboardSurface.setLayoutParams(params);
         ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(10));
     }
