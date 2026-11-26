@@ -155,12 +155,6 @@ final class ImePanelLayout {
         params.topMargin = PanelGeometry.headroomPx(s.headroomWindow(), DimensionPolicy.density(s));
     }
 
-    /** 面板上方此刻留着的透明高度（像素），没有时为 0。 */
-    int headroomPx() {
-        return s.keyboardSurface != null && s.keyboardSurface.getLayoutParams() instanceof FrameLayout.LayoutParams params
-            ? params.topMargin : 0;
-    }
-
     /**
      * 键盘列的底部留白和键盘底栏的底边距。左右和上边仍是系统栏的 inset；浮动时四边都不留。
      *

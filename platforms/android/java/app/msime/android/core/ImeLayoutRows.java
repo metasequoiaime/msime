@@ -1400,15 +1400,31 @@ final class ImeLayoutRows {
         int height = options.getMeasuredHeight();
         int x = Math.max(rootPosition[0], Math.min(anchorPosition[0] + (anchor.getWidth() - width) / 2,
             rootPosition[0] + s.keyboardRoot.getWidth() - width));
-        // API 28 子窗口仍受 IME 父窗口裁剪；空间不足时向键区内展开，保证每个选项可见可点。停靠在 29+ 时根视图上方多出的透明高度不算，上限仍是面板上沿。
-        int y = Math.max(rootPosition[1] + s.imePanelLayout.headroomPx(), Math.min(anchorPosition[1] - height - s.pixels(6),
-            rootPosition[1] + s.keyboardRoot.getHeight() - height));
+        // 弹窗是自己的子窗口，画在键盘之上：顶排键的选项照常浮在键的上方、伸出面板上沿，只在屏幕可用区的上沿（状态栏、刘海之下）停住，不再压回键区盖住按键；API 29 及以下子窗口被输入法窗口裁剪，那里还停在窗口上沿（KeyOptionsPlacement.limit）。
+        int[] windowPosition = new int[2];
+        anchor.getRootView().getLocationOnScreen(windowPosition);
+        int y = KeyOptionsPlacement.top(anchorPosition[1], height, s.pixels(6),
+            KeyOptionsPlacement.limit(screenSafeTop(anchor), windowPosition[1], android.os.Build.VERSION.SDK_INT),
+            rootPosition[1] + s.keyboardRoot.getHeight());
         // showAtLocation 的坐标相对 IME 父窗口；按锚点换算偏移，避免把屏幕坐标重复加上窗口原点。
         popup.showAsDropDown(anchor, x - anchorPosition[0],
             y - anchorPosition[1] - anchor.getHeight());
         // 弹窗是独立的窗口，「防止截屏」要单独给它加 FLAG_SECURE（#10098）。
         ScreenCaptureProtection.apply(popup);
         return options;
+    }
+
+    /** 屏幕可用区的上沿（屏幕坐标）：可见显示区的上沿，和全屏窗口（API 28、浮动键盘）收到的系统栏、刘海让位里较低的那个。 */
+    private static int screenSafeTop(View view) {
+        android.graphics.Rect visible = new android.graphics.Rect();
+        view.getWindowVisibleDisplayFrame(visible);
+        int top = Math.max(0, visible.top);
+        android.view.WindowInsets insets = view.getRootWindowInsets();
+        if (insets != null) {
+            top = Math.max(top, WindowLayout.systemBars(insets).top);
+            if (insets.getDisplayCutout() != null) top = Math.max(top, insets.getDisplayCutout().getSafeInsetTop());
+        }
+        return top;
     }
 
     private void clearLetterOptions() {
