@@ -243,7 +243,7 @@ assert (
 assert "read_aloud_available() &&\n      msime::read_aloud::text_for(item.text(), item.display().translation)" in menu_actions
 ibus_actions = body(ibus_source, "IBusProperty *candidate_actions(IBusEngine *engine) {")
 assert (
-    ibus_actions.index("candidate_remove_label")
+    ibus_actions.index("candidate_remove_label_with_shortcut")
     < ibus_actions.index('"CandidateReadAloud"')
     < ibus_actions.index('"CandidatePersonalWordbook"')
 )
@@ -392,13 +392,13 @@ assert (
     'DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")'
     in cmake
 )
-# IBus 候选属性菜单用共享文案（置顶、固定到第 N 位、取消固定、删除），按 macOS「候选操作」菜单的顺序排列，并从 CandidateFixN 动作名取格位。
-assert "msime::linux_host::candidate_pin_label" in ibus_source
-assert "candidate_fix_label(fix[12] - '0')" in ibus_source
-assert "ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label)" in ibus_source
+# IBus 候选属性菜单用带快捷键提示的文案（置顶 Ctrl+↑、固定到第 N 位 Ctrl+Shift+N、取消固定 Ctrl+0、删除 Ctrl+Del），按 macOS「候选操作」菜单的顺序排列，并从 CandidateFixN 动作名取格位。Fcitx5 没有这组快捷键，仍用不带提示的共享文案。
+assert "msime::linux_host::candidate_pin_label_with_shortcut" in ibus_source
+assert "candidate_fix_label_with_shortcut(fix[12] - '0')" in ibus_source
+assert "ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label_with_shortcut)" in ibus_source
 assert (
-    ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label)")
-    < ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label)")
+    ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label_with_shortcut)")
+    < ibus_source.index("ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label_with_shortcut)")
 )
 assert '"删除候选"' not in ibus_source
 assert '"固定候选"' not in ibus_source

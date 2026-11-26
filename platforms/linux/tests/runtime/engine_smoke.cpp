@@ -1,3 +1,4 @@
+#include "../src/candidates/CandidateActionPolicy.h"
 #include "../src/core/ClientEngine.h"
 #include "../src/core/NextWordPrediction.h"
 #include "../../../common/HostApiString.h"
@@ -4705,7 +4706,7 @@ int main(int argc, char **argv) {
                   .c_str());
     }
     invoke("Reset");
-    // Right-click is the Windows context menu, which changes nothing until an action is picked. IBus has no per-candidate menu, so the click leaves the user dictionary alone and points at the 候选操作 menu instead of pinning. The old pin raised the row's weight, so a dictionary row paged past the top would have come first on the retyped page.
+    // Right-click is the Windows context menu, which changes nothing until an action is picked. IBus has no per-candidate menu; without the GNOME extension or an X connection (as here) the menu cannot open, so the click leaves the user dictionary alone and the auxiliary line lists the candidate maintenance shortcuts instead of pinning. The old pin raised the row's weight, so a dictionary row paged past the top would have come first on the retyped page.
     {
       phrase();
       const auto baseline = seen.candidates;
@@ -4717,7 +4718,7 @@ int main(int argc, char **argv) {
       invoke("CandidateClicked", g_variant_new("(uuu)", static_cast<guint>(target), 3, 0));
       require(seen.candidates == page_before && seen.committed == committed_before &&
                   seen.preedit == "nihao" && seen.lookup_visible &&
-                  seen.auxiliary.find("候选操作") != std::string::npos,
+                  seen.auxiliary == msime::linux_host::candidate_maintenance_shortcut_hint,
               ("Right-click changed the composition or showed no menu hint: aux=[" +
                seen.auxiliary + "]")
                   .c_str());

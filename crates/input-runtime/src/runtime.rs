@@ -3373,6 +3373,65 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = found.unwrap_or(page_start).min(visible - 1);
     }
 
+    /// 维护动作发出前，从用户看到的快照里记下目标行的身份。
+    fn maintenance_target(
+        &self,
+        action: &Action,
+    ) -> Option<(String, String, Option<u8>, usize, u8)> {
+        let (id, position) = match action {
+            Action::FixCandidatePosition(id, position) => (id, *position),
+            Action::ClearCandidatePosition(id) => (id, 0),
+            _ => return None,
+        };
+        self.cached.candidates.get(id.index).map(|text| {
+            (
+                text.clone(),
+                self.cached
+                    .candidate_codes
+                    .get(id.index)
+                    .cloned()
+                    .unwrap_or_default(),
+                self.cached.candidate_sources.get(id.index).copied(),
+                id.index,
+                position,
+            )
+        })
+    }
+
+    /// 固定与取消会立刻重排候选，高亮必须跟着被操作的那一行，否则下一次 Ctrl+0 落在旧座位的别的词上。
+    /// 只在这两个维护动作之后调用；异步刷新仍走原来的分页规则，不能在这里一并放开。
+    fn follow_maintenance_target(&mut self, target: (String, String, Option<u8>, usize, u8)) {
+        let (text, code, source, seat, position) = target;
+        let visible = self.visible_len();
+        let found = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                *index < visible
+                    && candidate.as_str() == text
+                    && if position > 0 {
+                        // 固定后的目标槽位只有一个主人；文字相同但编码换了行也是同一条。
+                        self.cached.candidate_positions.get(*index).copied() == Some(position)
+                    } else {
+                        self.cached.candidate_codes.get(*index).map(String::as_str)
+                            == Some(code.as_str())
+                            && source.is_none_or(|expected| {
+                                self.cached.candidate_sources.get(*index) == Some(&expected)
+                            })
+                    }
+            })
+            .min_by_key(|(index, _)| index.abs_diff(seat))
+            .map(|(index, _)| index);
+        if let Some(index) = found {
+            if index != self.highlighted {
+                self.highlighted = index;
+                self.bump_candidates_epoch();
+            }
+        }
+    }
+
     /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
     ///
     /// 延后到停顿的打分器（[`Self::set_deferred_scorer`]）也算：它只是不在每个字母键上跑，上屏时排一池联想仍是一次性的开销。不算的话，桌面把模型延后之后上屏后联想就不再按模型排，比挂在按键上时差。手机上延后的那一档只做过挂不挂的自测、不报在预算之内，照旧不排。
@@ -3881,6 +3940,8 @@ impl<E: InputEngine> Runtime<E> {
                 ));
             }
         }
+        // 快照在 refresh 之前还是用户看到的那一份，先记下被维护的那一行。
+        let maintenance_target = self.maintenance_target(&action);
         self.advance()?;
         let filled_current_page =
             matches!(action, Action::NextPage) && self.expand_for_next_page()?;
@@ -4323,6 +4384,9 @@ impl<E: InputEngine> Runtime<E> {
             || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
         let refresh = self.refresh();
+        if let Some(target) = maintenance_target {
+            self.follow_maintenance_target(target);
+        }
         self.settle_jianpin_slash(slash_from, slash_undo);
         let mut result = result?;
         if let Err(error) = refresh {
