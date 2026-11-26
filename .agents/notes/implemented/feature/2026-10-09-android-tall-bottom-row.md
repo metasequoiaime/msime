@@ -14,7 +14,7 @@ Status: implemented
 
 - 新增本地设置 `platform.android.tall_bottom_row`，布尔，默认关，只在本机（服务端同步字段表没有这个键），入口在设置「键盘」页「布局」里，紧挨「键盘底栏」，设置搜索能搜到。默认关时所有高度与原来完全相同。
 - 底栏高度集中到 `KeyboardGeometry.bottomRowHeightDp(tall)` 和 `bottomRowSpacings(tall)`：关时 46 dp、不加行距；开时 56 dp 并像键行一样加一份行距，键帽和上面的键一样高。两种都不分摊高度调整，保留「功能行固定高度」的约定。
-- 用到底栏高度的三处都按它算，开关一变，各布局的总高仍然一致：功能行（`actionRow`）和 123 / #+= 层自带的底栏挂 `KeyboardHeightRole.bottomRow()`；日语九键、注音九键没有单独的底栏，四行装在一个块里，块挂 `KeyboardHeightRole.threeRowsWithBottomRow()`，在三行键之外加上底栏那一份。高度在 `ImeStyler.applyKeyboardHeight` 套用几何时按当前设置算，功能行原来不经过这一步，现在也经过。
+- 用到底栏高度的三处都按它算，开关一变，各布局的总高仍然一致：功能行（`actionRow`）和 123 / #+= 层自带的底栏挂 `KeyboardHeightRole.bottomRow()`；日语九键、注音九键没有单独的底栏，四行装在一个块里，块挂 `KeyboardHeightRole.threeRowsWithBottomRow()`，在三行键之外加上底栏那一份。高度在 `ImePanelLayout.applyKeyRows` 套用几何时按当前设置算（算式在 `PanelGeometry.keyRowPx`），功能行原来不经过这一步，现在也经过。
 - `applyLocalSettings` 读到这一项变了且键盘视图已建好时，立刻重新套一次几何，设置页改完下一次弹出键盘就生效。
 
 ## Alternatives considered
