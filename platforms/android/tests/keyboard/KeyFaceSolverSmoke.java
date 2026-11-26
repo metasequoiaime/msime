@@ -146,9 +146,77 @@ public final class KeyFaceSolverSmoke {
         check(near(tall.inkTop() + tall.inkBottom(), -70) && tall.inkHeight() >= 150 - 0.01f, "框应对称于共用基线的墨迹中线：" + tall);
     }
 
+    /** 画图标、能带角标的模板：图标设计 22 dp（52 dp 键高上），16–26 dp。 */
+    static KeyFaceTemplate iconTemplate() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, MAIN);
+        slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
+        return new KeyFaceTemplate("icons", slots, 2, 1, 0, false, 0.15f, ORDER,
+            new KeyFaceTemplate.IconSpec(22f / 52f, 16, 26));
+    }
+
+    /**
+     * 图标与文字并列的一维（KeyFaceSolver.Icons）：边长按画图标的键的键格算、不大过上限；带角标的图标键里图标和角标墨迹隔开，碰上时缩小，缩到下限仍碰就不画角标。不给图标这一维时结果与原来相同。
+     */
+    static void iconDimension() {
+        KeyFaceTemplate template = iconTemplate();
+        Map<KeyFaceSlot, List<String>> texts = new EnumMap<>(KeyFaceSlot.class);
+        texts.put(KeyFaceSlot.MAIN, List.of("A"));
+        texts.put(KeyFaceSlot.TOP_RIGHT, List.of("WWWW"));
+        Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics = new KeyFaceDomain(texts).measure(MEASURER, 0);
+        boolean shrank = false, hid = false;
+        for (int width = 60; width <= 240; width += 12) {
+            for (int height = 90; height <= 240; height += 15) {
+                Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
+                KeyFaceSolver.Cell cell = new KeyFaceSolver.Cell(width, height);
+                for (KeyFaceSlot slot : template.slots().keySet()) cells.put(slot, cell);
+                KeyFaceParams plain = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells, cells, Float.POSITIVE_INFINITY);
+                KeyFaceParams none = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells, cells, Float.POSITIVE_INFINITY,
+                    KeyFaceSolver.Icons.NONE);
+                check(plain.equals(none), "不给图标这一维时结果应与原来相同：" + width + "×" + height);
+                KeyFaceParams cornered = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells, cells,
+                    Float.POSITIVE_INFINITY, new KeyFaceSolver.Icons(cell, cell, Float.POSITIVE_INFINITY));
+                String where = width + "×" + height;
+                check(cornered.iconPx() <= plain.iconPx(), "核对角标后图标只会变小：" + where);
+                check(cornered.main().equals(plain.main()), "核对图标不应改变文字：" + where);
+                KeyFaceParams.Hint corner = cornered.topRight();
+                if (corner == null) {
+                    if (plain.topRight() != null) hid = true;
+                    continue;
+                }
+                if (cornered.iconPx() < plain.iconPx()) shrank = true;
+                // 按绘制规则：图标在键格里居中；角标按文字框靠右上角，墨迹按最宽的角标算。
+                float icon = cornered.iconPx();
+                float cornerLeft = width - corner.insetXPx() - metrics.get(KeyFaceSlot.TOP_RIGHT).width(corner.sizePx());
+                float cornerBottom = corner.topBaseline() + corner.inkBottomPx();
+                float gap = ENVIRONMENT.px(1);
+                check((height - icon) / 2f >= cornerBottom + gap - 0.01f || (width + icon) / 2f + gap <= cornerLeft + 0.01f,
+                    "图标压住了角标：" + where + " icon=" + icon);
+            }
+        }
+        check(shrank, "应有键格里图标缩小来让开角标");
+        check(hid, "应有键格里图标缩到下限仍碰、不画角标");
+
+        // 上限：另一组的图标边长。
+        Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
+        KeyFaceSolver.Cell cell = new KeyFaceSolver.Cell(156, 156);
+        for (KeyFaceSlot slot : template.slots().keySet()) cells.put(slot, cell);
+        KeyFaceParams capped = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells, cells, Float.POSITIVE_INFINITY,
+            new KeyFaceSolver.Icons(null, null, 50f));
+        check(capped.iconPx() <= 50f, "图标应不大过上限：" + capped.iconPx());
+        // 键格：画图标的键比画字的键宽时，图标按画图标的键算，不被窄的文字键压小。
+        KeyFaceSolver.Cell narrow = new KeyFaceSolver.Cell(48, 156);
+        for (KeyFaceSlot slot : template.slots().keySet()) cells.put(slot, narrow);
+        float byText = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells, cells, Float.POSITIVE_INFINITY).iconPx();
+        float byIcons = KeyFaceSolver.solve(template, metrics, ENVIRONMENT, cells, cells, Float.POSITIVE_INFINITY,
+            new KeyFaceSolver.Icons(new KeyFaceSolver.Cell(156, 156), null, Float.POSITIVE_INFINITY)).iconPx();
+        check(byIcons > byText, "图标应按画图标的键的键格算：" + byIcons + " " + byText);
+    }
+
     public static void main(String[] args) {
         glyphCentring();
         registeredGlyphs();
+        iconDimension();
         // 字号随键高变化，夹在上下限之间。
         check(near(solve(false, false, ENVIRONMENT, 300, 150).main().sizePx(), 0.48f * 150), "首选字号应按键高比例");
         check(near(solve(false, false, ENVIRONMENT, 600, 400).main().sizePx(), 26 * 3), "大键应封顶在最大字号");

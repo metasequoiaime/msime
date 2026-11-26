@@ -86,6 +86,9 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         faceRedraw();
     }
 
+    /** 这类键画图标（此刻也许画着文字）：键组按它们的键格算图标边长。 */
+    @Override public boolean drawsIcons() { return true; }
+
     /** 画图标时主标签位置是空的；右上角是 {@link #setCornerHint} 的提示。 */
     @Override public String faceText(KeyFaceSlot slot) {
         return switch (slot) {

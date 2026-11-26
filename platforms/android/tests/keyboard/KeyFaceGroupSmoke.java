@@ -17,6 +17,15 @@ public final class KeyFaceGroupSmoke {
         @Override public String faceText(KeyFaceSlot slot) { return texts.get(slot); }
     }
 
+    /** 画图标的键（⌫、⇧ 这类）。 */
+    private static final class IconKey implements KeyFaceGroup.Member {
+        @Override public void faceParamsChanged() { }
+
+        @Override public String faceText(KeyFaceSlot slot) { return ""; }
+
+        @Override public boolean drawsIcons() { return true; }
+    }
+
     public static void main(String[] args) {
         KeyFaceGroup group = new KeyFaceGroup(KeyFaceSolverSmoke.template(true, true), KeyFaceSolverSmoke.ENVIRONMENT,
             KeyFaceSolverSmoke.domain(true, true), KeyFaceSolverSmoke.MEASURER);
@@ -92,6 +101,33 @@ public final class KeyFaceGroupSmoke {
         check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong")
             && !group.domain().contains(KeyFaceSlot.BOTTOM, "iong") && !group.domain().contains(KeyFaceSlot.MAIN, "WWWW"),
             "换内容域时应保留文字固定的键放进来时的文字，丢掉不再可能出现的文字和键此刻画着的字");
+
+        // 图标这一维：图标按画图标的键的键格算（窄的文字键不压小它），并且不大过领头组的图标。
+        KeyFaceGroup icons = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
+            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
+        Key word = new Key();
+        IconKey delete = new IconKey();
+        icons.attach(word, Set.of());
+        icons.attach(delete, Set.of());
+        icons.cellChanged(word, 48, 156);
+        icons.cellChanged(delete, 156, 156);
+        float iconWide = icons.params().iconPx();
+        KeyFaceGroup textOnly = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
+            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
+        Key alone = new Key();
+        textOnly.attach(alone, Set.of());
+        textOnly.cellChanged(alone, 48, 156);
+        check(iconWide > textOnly.params().iconPx(), "图标应按画图标的键算，不被窄的文字键压小");
+        KeyFaceGroup iconLeader = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
+            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
+        IconKey shortKey = new IconKey();
+        iconLeader.attach(shortKey, Set.of());
+        iconLeader.cellChanged(shortKey, 120, 90);
+        icons.capMainAt(iconLeader);
+        check(icons.params().iconPx() <= iconLeader.params().iconPx() && iconLeader.params().iconPx() < iconWide,
+            "图标应不大过领头组的图标：" + icons.params().iconPx() + " " + iconLeader.params().iconPx());
+        icons.capMainAt(null);
+        check(icons.params().iconPx() == iconWide, "取消上限后图标应回到自己的边长");
 
         // 主标签以另一组为上限：跟着那一组的参数重算，取消后回到自己的字号。
         KeyFaceGroup leader = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,

@@ -26,10 +26,13 @@ public final class KeyFaceGroup {
 
         /** 这个键此刻在 {@code slot} 上画的文字；不画时为空串或 {@code null}。 */
         String faceText(KeyFaceSlot slot);
+
+        /** 这个键会在主标签的位置画图标（⌫、⇧、↵ 这类键，此刻画的也许是文字）：图标的边长按这些键的键格算，与文字分开（{@link KeyFaceSolver.Icons}）。 */
+        default boolean drawsIcons() { return false; }
     }
 
     /** {@code fixed} 是文字固定的键放进来时每个位置的文字（{@link #attach(Member, Set, boolean)}），状态由 {@link KeyFaceSpec} 给出的键为 {@code null}。 */
-    private record Entry(Set<KeyFaceSlot> slots, int width, int height, Map<KeyFaceSlot, String> fixed) {
+    private record Entry(Set<KeyFaceSlot> slots, int width, int height, Map<KeyFaceSlot, String> fixed, boolean icons) {
         boolean sized() { return width > 0 && height > 0; }
     }
 
@@ -41,9 +44,9 @@ public final class KeyFaceGroup {
     private static StrayListener strayListener;
     private static int strays;
 
-    /** 查表用：最小、最大键格和主标签的上限都相同时参数相同。 */
+    /** 查表用：最小、最大键格、主标签的上限和图标这一维都相同时参数相同。 */
     private record Solved(Map<KeyFaceSlot, KeyFaceSolver.Cell> cells, Map<KeyFaceSlot, KeyFaceSolver.Cell> largest,
-            float mainCapPx) { }
+            float mainCapPx, KeyFaceSolver.Icons icons) { }
 
     private static final int CACHE_SIZE = 8;
 
@@ -100,7 +103,7 @@ public final class KeyFaceGroup {
             }
         }
         members.put(member, new Entry(Collections.unmodifiableSet(used),
-            previous == null ? 0 : previous.width(), previous == null ? 0 : previous.height(), fixed));
+            previous == null ? 0 : previous.width(), previous == null ? 0 : previous.height(), fixed, member.drawsIcons()));
         KeyFaceDomain grown = fixed == null ? domain : with(domain, fixed);
         boolean grew = grown != domain;
         domain = grown;
@@ -117,7 +120,7 @@ public final class KeyFaceGroup {
     public void cellChanged(Member member, int width, int height) {
         Entry entry = members.get(member);
         if (entry == null || entry.width() == width && entry.height() == height) return;
-        members.put(member, new Entry(entry.slots(), width, height, entry.fixed()));
+        members.put(member, new Entry(entry.slots(), width, height, entry.fixed(), entry.icons()));
         update();
     }
 
@@ -156,7 +159,7 @@ public final class KeyFaceGroup {
     }
 
     /**
-     * 这一组主标签的首选字号不大过 {@code leader} 此刻的主标签（{@code null} 取消）：功能键的字不比同一副键盘的字母显得更重。{@code leader} 的参数变了，这一组跟着重算；它还没有参数时不设上限。两组各自按自己的键格算，除此之外互不影响。
+     * 这一组主标签的首选字号不大过 {@code leader} 此刻的主标签（{@code null} 取消）：功能键的字不比同一副键盘的字母显得更重。{@code leader} 画图标时，这一组的图标也不大过它的图标（文字和图标是并列的两维，各按各的上限）。{@code leader} 的参数变了，这一组跟着重算；它还没有参数时不设上限。两组各自按自己的键格算，除此之外互不影响。
      */
     public void capMainAt(KeyFaceGroup leader) {
         if (this.leader == leader) return;
@@ -186,16 +189,20 @@ public final class KeyFaceGroup {
         KeyFaceParams next = null;
         if (cells.containsKey(KeyFaceSlot.MAIN)) {
             float cap = leader == null || leader.params == null ? Float.POSITIVE_INFINITY : leader.params.main().sizePx();
+            // 图标与文字并列：上限取领头组的图标（它画图标时），键格取画图标的键。
+            float iconCap = leader == null || leader.params == null || leader.params.iconPx() <= 0 ? Float.POSITIVE_INFINITY
+                : leader.params.iconPx();
+            KeyFaceSolver.Icons icons = new KeyFaceSolver.Icons(iconCell(false), iconCell(true), iconCap);
             // 最大键格只在轮廓随键宽缩放时影响结果（右上角提示在大键上挪得更远）；没有轮廓时不进表键，免得键宽一变就重算。
             Map<KeyFaceSlot, KeyFaceSolver.Cell> largest = environment.outline().none() ? cells : cells(false);
-            Solved key = new Solved(cells, largest, cap);
+            Solved key = new Solved(cells, largest, cap, icons);
             next = solved.get(key);
             if (next == null) {
                 if (metrics == null) {
                     metrics = domain.measure(measurer, template.pairGapEm(), template.glyphs());
                     measureCount++;
                 }
-                next = KeyFaceSolver.solve(template, metrics, environment, cells, largest, cap);
+                next = KeyFaceSolver.solve(template, metrics, environment, cells, largest, cap, icons);
                 solveCount++;
                 solved.put(key, next);
                 if (solved.size() > CACHE_SIZE) solved.remove(solved.keySet().iterator().next());
@@ -206,6 +213,17 @@ public final class KeyFaceGroup {
         List<Member> notify = new ArrayList<>(members.keySet());
         for (Member member : notify) member.faceParamsChanged();
         for (KeyFaceGroup follower : new ArrayList<>(followers)) follower.update();
+    }
+
+    /** 画图标的、已经布局好的键里最小的宽和高（{@code corner} 为真时只算带右上角提示的）；没有时为 {@code null}。 */
+    private KeyFaceSolver.Cell iconCell(boolean corner) {
+        int width = Integer.MAX_VALUE, height = Integer.MAX_VALUE;
+        for (Entry entry : members.values()) {
+            if (!entry.sized() || !entry.icons() || corner && !entry.slots().contains(KeyFaceSlot.TOP_RIGHT)) continue;
+            width = Math.min(width, entry.width());
+            height = Math.min(height, entry.height());
+        }
+        return width == Integer.MAX_VALUE ? null : new KeyFaceSolver.Cell(width, height);
     }
 
     /** 每个位置：带这个位置、已经布局好的键里最小（{@code smallest}）或最大的宽和高。 */
