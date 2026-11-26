@@ -23,7 +23,7 @@ Status: implemented
 
 **纠错候选画 *，不另起一行。** 纠错行（View JSON `corrected`）的候选字后面画 `*`，与 Windows、macOS、Linux 候选窗相同；引擎放进注释的原串不再画在候选字下面（`CandidateCorrectionMarkPolicy.visibleAnnotation`）。辅助码（以「(」开头）和五笔方案里跟在原串后面的五笔码照旧画。读屏描述照旧念「，提示：原串」，坐上首选的触点纠错照旧补「，已纠正」。
 
-**提示出现时候选行才加高。** `CandidateHintRows.rows(service)` 数当前这一页候选（引擎 `View.candidates`，含屏幕外的）里提示最多占几行，`CandidateTranslationPolicy.reservedRows(glossRows, hintRows)` 与按设置预留的释义行取大者，交给 `CandidateStripSizing` 量高度。没有提示时保持 32 dp；横向滑动候选不改变高度，因为看的是整页。
+**提示出现时候选行才加高。** `CandidateHintRows.rows(service, readings, flags)` 数当前这一页候选（引擎 `View.candidates`，含屏幕外的）里提示最多占几行，`CandidateTranslationPolicy.reservedRows(glossRows, hintRows)` 与按设置预留的释义行取大者，交给 `CandidateStripSizing` 量高度。没有提示时保持 32 dp；横向滑动候选不改变高度，因为看的是整页。同一页、同样的开关下只数一次（[面板高度集中](../architecture/2026-11-24-android-panel-geometry.md)）。
 
 **按键提示排版按输入缓存，不用 TextView 自动字号。** `KeyHintButton.updateHintInsets` 按输入（尺寸、键面、提示、字号、字体、字距）记下算好的内边距和主标签字号，每个键记最近几份；只设真的变了的值。字号由 `fittedSize` 按 TextView 自动字号的同一判定（最小 1 px、步长 1 px，单行排得下，行高不超过内容区）一次算出，再直接设字号；26 个字母和角标的宽度上界（`KeyHintWidthPolicy.letterBounds`）按画笔全键盘共用一份。排版规则不变：#11432 的紧凑键上角标参与主字排版，#11549 的角标不占主字位置。
 

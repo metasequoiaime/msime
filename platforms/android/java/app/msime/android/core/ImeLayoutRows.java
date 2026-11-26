@@ -453,11 +453,11 @@ final class ImeLayoutRows {
     private static final float STROKE_GRID_WEIGHT = StrokeKeyboardLayout.GRID_WEIGHT;
 
     /**
-     * 右侧大回车外框底行的一格：一个带底行高度角色的容器（{@link MSIMEInputService.KeyboardHeightRole#bottomRow}），与标准外框下方的功能行同高。外框整块按「三行加底行」定高，上面的部分按权重分到剩下的高度，所以符号栏、九宫格和右列上两格与标准外框里的三行一样高。
+     * 右侧大回车外框底行的一格：一个带底行高度角色的容器（{@link KeyboardHeightRole#bottomRow}），与标准外框下方的功能行同高。外框整块按「三行加底行」定高，上面的部分按权重分到剩下的高度，所以符号栏、九宫格和右列上两格与标准外框里的三行一样高。
      */
     private LinearLayout tallReturnBottomCell(boolean horizontal) {
         LinearLayout cell = horizontal ? LayoutPolicy.keyRow(s) : LayoutPolicy.column(s);
-        cell.setTag(MSIMEInputService.KeyboardHeightRole.bottomRow());
+        cell.setTag(KeyboardHeightRole.bottomRow());
         return cell;
     }
 
@@ -642,7 +642,7 @@ final class ImeLayoutRows {
         builtSpaceInColumn = null;
         LinearLayout container = LayoutPolicy.keyRow(s);
         if (tallReturn) s.imeStyler.adjustBottomRowBlockHeight(container);
-        else container.setTag(MSIMEInputService.KeyboardHeightRole.nineKeyGrid());
+        else container.setTag(KeyboardHeightRole.nineKeyGrid());
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * (tallReturn ? KeyboardHeightPolicy.KEYBOARD_ROW_COUNT : 3))));
 

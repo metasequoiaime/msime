@@ -546,8 +546,8 @@ final class ImeLetterRows {
                     s.backspaceClearedComposition = false;
                     backspaceTouchedComposition = s.hasEngineComposition();
                     backspaceUndo = s.canUndoQuickDelete();
-                    backspaceDownX = event.getX();
-                    backspaceDownY = event.getY();
+                    backspaceDownX = event.getRawX();
+                    backspaceDownY = event.getRawY();
                     int[] keyLocation = new int[2];
                     int[] rootLocation = new int[2];
                     button.getLocationOnScreen(keyLocation);
@@ -601,10 +601,10 @@ final class ImeLetterRows {
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     if (s.backspaceRepeatButton != button) return true;
-                    float dx = backspaceDownX - event.getX();
+                    float dx = backspaceDownX - event.getRawX();
                     if (!backspaceHorizontal && backspaceScrub != null && backspaceScrub.available()
                             && backspaceSwipePhase == BackspaceSwipePolicy.Phase.IDLE
-                            && BackspaceScrub.starts(dx, event.getY() - backspaceDownY, DimensionPolicy.density(s))) {
+                            && BackspaceScrub.starts(dx, event.getRawY() - backspaceDownY, DimensionPolicy.density(s))) {
                         backspaceHorizontal = true;
                         backspaceActivation = 8f * DimensionPolicy.density(s);
                         backspaceInitialDeleted = Math.max(1, backspaceScrub.deleted());
@@ -622,24 +622,25 @@ final class ImeLetterRows {
                     if (backspaceUndo) {
                         if (backspaceUndoHeld) {
                             BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.undoPhase(
-                                event.getY(), button.getHeight(), DimensionPolicy.density(s));
+                                fingerYInKey(button, event.getRawY()), button.getHeight(), DimensionPolicy.density(s));
                             if (next != backspaceSwipePhase && next == BackspaceSwipePolicy.Phase.ARMED)
                                 s.imeKeyFeedback.playFeedback(button);
                             backspaceSwipePhase = next;
                             if (s.quickDeleteOverlay != null)
                                 s.quickDeleteOverlay.show(button, next == BackspaceSwipePolicy.Phase.ARMED, true);
                         } else if (event.getX() < 0 || event.getX() >= button.getWidth()
-                                || event.getY() < 0 || event.getY() >= button.getHeight()) {
+                                || fingerYInKey(button, event.getRawY()) < 0
+                                || fingerYInKey(button, event.getRawY()) >= button.getHeight()) {
                             // 未到长按时离开键，取消这次点击；不能顺便删掉备份的位置。
                             stopBackspaceRepeatTask();
                             button.setPressed(false);
                         }
                         return true;
                     }
-                    if (trackBackspaceSwipe(button, event.getY())) return true;
-                    if (event.getX() < 0 || event.getY() < 0
+                    if (trackBackspaceSwipe(button, event.getRawY())) return true;
+                    if (event.getX() < 0 || fingerYInKey(button, event.getRawY()) < 0
                             || event.getX() >= button.getWidth()
-                            || event.getY() >= button.getHeight()) {
+                            || fingerYInKey(button, event.getRawY()) >= button.getHeight()) {
                         // 手指离开键就停止连删，但仍跟踪这次按压：接着往上滑还能弹出快速删除框。
                         stopBackspaceRepeatTask();
                         button.setPressed(false);
@@ -678,15 +679,24 @@ final class ImeLetterRows {
         });
     }
 
+    /** 指尖在删除键布局坐标系里的位置（键上沿为 0，向下增大）；键盘在手势中途变高变矮时按此刻的布局换算（{@link QuickDeleteOverlay#fingerY}），并按{@link BackspaceSwipePolicy#fingerYInKey}撤掉按住时键自己的缩小。 */
+    private float fingerYInKey(Button button, float rawY) {
+        QuickDeleteOverlay overlay = s.quickDeleteOverlay;
+        return overlay == null ? 0f : BackspaceSwipePolicy.fingerYInKey(
+            overlay.fingerY(rawY), overlay.keyTop(button), button.getScaleY());
+    }
+
     /**
      * 按 {@link BackspaceSwipePolicy} 更新上滑阶段并画框；返回 true 表示这次移动已经属于上滑手势（框弹出过）。第一次弹出时停掉连删，进入待命时给一次按键反馈。
+     *
+     * <p>`rawY` 是手指在屏幕上的位置，换算到键盘外框此刻的布局再和删除键比较：手势中途键盘变高变矮时（例如按下即删让英文单词的建议行收起），系统还在按旧的窗口位置换算坐标，直接用它会把指尖判低这一段高度，滑到待命线上方也可能只算弹出、不算待命。
      */
-    private boolean trackBackspaceSwipe(Button button, float yInKey) {
+    private boolean trackBackspaceSwipe(Button button, float rawY) {
         QuickDeleteOverlay overlay = s.quickDeleteOverlay;
         if (overlay == null || button.getWindowToken() == null) return false;
         float keyTop = overlay.keyTop(button);
         BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.next(backspaceSwipePhase,
-            keyTop + yInKey, keyTop, DimensionPolicy.density(s));
+            overlay.fingerY(rawY), keyTop, DimensionPolicy.density(s));
         if (next == BackspaceSwipePolicy.Phase.IDLE) return false;
         BackspaceSwipePolicy.Phase previous = backspaceSwipePhase;
         backspaceSwipePhase = next;
@@ -1037,7 +1047,7 @@ final class ImeLetterRows {
             if (block != null) {
                 block.addView(row, LayoutPolicy.weightedWidthParams(1));
             } else {
-                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+                row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             }
@@ -1135,7 +1145,7 @@ final class ImeLetterRows {
         builtLetterWidths = widths;
         for (int rowIndex = 0; rowIndex < plan.size(); rowIndex++) {
             LinearLayout row = LayoutPolicy.keyRow(s);
-            row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+            row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                 plan.size(), rowIndex, true));
             letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
             KeyboardSpacer leadingPad = null;
@@ -1418,7 +1428,7 @@ final class ImeLetterRows {
      */
     private void addNumberRow(int letterRows) {
         LinearLayout row = LayoutPolicy.keyRow(s);
-        row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
+        row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         for (String digit : KeyboardLayout.NUMBER_ROW) {
             char input = digit.charAt(0);
@@ -1436,7 +1446,7 @@ final class ImeLetterRows {
     private void addSymbolExtraRow() {
         builtLayerPunctuation = s.sendsChinesePunctuation();
         LinearLayout row = LayoutPolicy.keyRow(s);
-        row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
+        row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         // 数字九宫格那一页的括号随九宫格的标点写法：日文没有中文标点开关，也写全角括号。
         boolean numberPad = numberPadDrawn();
@@ -1480,8 +1490,8 @@ final class ImeLetterRows {
             LinearLayout row = LayoutPolicy.keyRow(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。
             boolean bottomRow = rowIndex == rows.size() - 1;
-            row.setTag(bottomRow ? MSIMEInputService.KeyboardHeightRole.bottomRow()
-                : new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+            row.setTag(bottomRow ? KeyboardHeightRole.bottomRow()
+                : new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
             s.keyRows.addView(row, bottomRow
                 ? LayoutPolicy.matchWidthHeightPx(s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP))

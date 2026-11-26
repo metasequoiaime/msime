@@ -201,13 +201,13 @@ final class ImeStyler {
         s.imePanels.applyReplyGeometry();
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
-        applyKeyboardHeight(s.keyRows);
+        s.imePanelLayout.applyKeyRows(s.keyRows);
         // 无键帽符号栏的底轨也依赖行距；几何偏好变化后重新套用内缩，保持它与相邻键帽的上下边缘一致。
         s.imeLayoutRows.applySidebarRail();
         // 功能行是键行的兄弟而不是其中一行，按同一网格状态分摊高度；九宫格加高时底行保持默认高度，键帽照样带键距。
         if (s.actionRow != null) {
             applyKeyboardGeometry(s.actionRow);
-            applyKeyboardHeight(s.actionRow);
+            s.imePanelLayout.applyKeyRows(s.actionRow);
             s.actionRow.requestLayout();
         }
         // 设计的键区左右外边距 6 dp 量到键的边缘；键自己带半个键距的外边距，所以容器只补差值。
@@ -230,49 +230,14 @@ final class ImeStyler {
     /** 侧边数字键盘（{@link ImeSidePad}）按主键区的键距、行距、高度角色和左右外边距排一遍。 */
     void applySidePadGeometry(View pad) {
         applyKeyboardGeometry(pad);
-        applyKeyboardHeight(pad);
+        s.imePanelLayout.applyKeyRows(pad);
         ViewPolicy.setHorizontalPaddingPreservingVertical(pad, BoundsPolicy.nonNegative(
             s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths())));
         pad.requestLayout();
     }
 
-    void applyKeyboardHeight(View node) {
-        applyKeyboardHeight(node, KeyboardHeightPolicy.windowHeightAdjustment(
-            s.touchKeyboardHeightAdjustment, s.getResources().getConfiguration().screenHeightDp));
-    }
-
-    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardHeightPolicy#windowHeightAdjustment}），整棵树用同一个值。 */
-    private void applyKeyboardHeight(View node, int adjustment) {
-        Object tag = node.getTag();
-        if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
-            MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
-            // 九宫格加高只扩大上方键区，其余布局及缩小量仍四行均分；总高始终为四行默认键高加整份调整。
-            boolean nineKeyGrid = s.imeLayoutRows.nineKeyGridDrawn()
-                && (role.bottomRow || role.nineKeyGrid);
-            int heightDp;
-            if (role.bottomRow) {
-                heightDp = role.baseHeight + KeyboardHeightPolicy.bottomRowAdjustment(adjustment, nineKeyGrid);
-            } else {
-                int share = role.withBottomRow ? adjustment : KeyboardHeightPolicy.keyRowsAdjustment(adjustment, nineKeyGrid);
-                heightDp = KeyboardHeightPolicy.adjustedRowHeight(role.baseHeight, share, role.rowCount, role.rowIndex);
-            }
-            int height = s.pixels(heightDp);
-            height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * role.rowSpacings;
-            if (node.getLayoutParams() != null) {
-                android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
-                params.height = height;
-                node.setLayoutParams(params);
-            }
-        }
-        if (node instanceof android.view.ViewGroup) {
-            android.view.ViewGroup group = (android.view.ViewGroup) node;
-            for (int index = 0; index < group.getChildCount(); index++)
-                applyKeyboardHeight(group.getChildAt(index), adjustment);
-        }
-    }
-
     void adjustFixedHeight(View view, int baseHeight) {
-        view.setTag(new MSIMEInputService.KeyboardHeightRole(baseHeight, 1, 0, false));
+        view.setTag(new KeyboardHeightRole(baseHeight, 1, 0, false));
     }
 
     /**
@@ -284,13 +249,13 @@ final class ImeStyler {
 
     /** 占 {@code rows} 行键高的整块（九键网格连同侧栏），分摊底行以外的键盘高度调整，并按行数加上行距。 */
     void adjustRowBlockHeight(View view, int rows) {
-        view.setTag(new MSIMEInputService.KeyboardHeightRole(
+        view.setTag(new KeyboardHeightRole(
             KeyboardGeometry.KEY_ROW_HEIGHT_DP * rows, 1, 0, rows));
     }
 
     /** 连同底行位置一起占用的整块（日语九键、注音九键没有底行，四行都在块里）：四行键高、四份行距，拿整份键盘高度调整，与其他布局总高相同。 */
     void adjustBottomRowBlockHeight(View view) {
-        view.setTag(MSIMEInputService.KeyboardHeightRole.threeRowsWithBottomRow());
+        view.setTag(KeyboardHeightRole.threeRowsWithBottomRow());
     }
 
     void styleButton(Button button, boolean action) { styleButton(button, action, s.skin); }

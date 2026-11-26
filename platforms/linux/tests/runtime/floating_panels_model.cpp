@@ -1,3 +1,4 @@
+#include "../src/candidates/CandidateMenuPlacement.h"
 #include "../src/overlay/FloatingPanelColors.h"
 #include "../src/overlay/FloatingToolbar.h"
 #include "../src/overlay/FloatingToolbarModel.h"
@@ -97,6 +98,53 @@ void keymap_rules() {
   assert(host::shuangpin_keymap_measured_clearance(200, 20, 220, 150) == 150);
   assert(host::shuangpin_keymap_measured_clearance(200, 20, 230, 150) == 160);
   assert(host::shuangpin_keymap_measured_clearance(900, 20, 760, 140) == 140);
+}
+
+void candidate_menu_placement_rules() {
+  using A = host::CandidateMenuAnchor;
+  const host::WaveOverlayWorkArea work{0, 0, 1920, 1080};
+
+  // 纯 X11 指针模式保持原行为：下方放不下翻到上方。
+  {
+    const A anchor{A::Kind::Pointer, 100, 900, 0, 0};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 92 && pos.y == 608);
+  }
+
+  // 选锚点：纯 X11 用指针（坐标留给 show 现取），Wayland 会话用 IBus 上报的光标矩形。
+  {
+    const auto x11 = host::candidate_menu_anchor(false, 600, 400, 8, 20);
+    assert(x11.kind == A::Kind::Pointer && x11.x < 0 && x11.y < 0);
+    const auto wayland = host::candidate_menu_anchor(true, 600, 400, 8, 20);
+    assert(wayland.kind == A::Kind::Cursor && wayland.x == 600 && wayland.y == 400 &&
+           wayland.width == 8 && wayland.height == 20);
+  }
+
+  constexpr auto cursor = A::Kind::Cursor;
+  // 光标模式：菜单水平居中于光标、整段在光标上方，和光标下方的候选框错开。
+  {
+    const A anchor{cursor, 600, 400, 8, 20};
+    const auto pos = host::candidate_menu_position(anchor, 142, 233, 8, 12, work);
+    assert(pos.x == 600 + 8 / 2 - 142 / 2 && pos.y == 400 - 12 - 233);
+    assert(pos.y + 233 <= anchor.y);
+  }
+  // 光标贴右边缘：仍按光标居中，但夹回工作区里。
+  {
+    const A anchor{cursor, 1910, 400, 8, 20};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 1920 - 8 - 200 && pos.y == 88);
+  }
+  // 光标贴顶边：上方放不下，夹到工作区顶部（已知边界，菜单可能盖住光标）。
+  {
+    const A anchor{cursor, 600, 20, 8, 20};
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.y == 8);
+  }
+  // 光标没报（全 0）或落在工作区外（Wayland 原生客户端的表面局部坐标之类）：回到工作区中下部，绝不落在右上角。
+  for (const A anchor : {A{cursor, 0, 0, 0, 0}, A{cursor, 4000, 4000, 8, 20}}) {
+    const auto pos = host::candidate_menu_position(anchor, 200, 300, 8, 12, work);
+    assert(pos.x == 860 && pos.y == 510);
+  }
 }
 
 void toolbar_config() {
@@ -460,6 +508,7 @@ void controller() {
 }  // namespace
 
 int main() {
+  candidate_menu_placement_rules();
   keymap_rules();
   toolbar_config();
   toolbar_platform();
