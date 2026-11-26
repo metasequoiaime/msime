@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 use super::editing::quanpin_raw_boundaries;
 use super::{Clock, HelpcodeTrigger, Session, SessionOptions};
@@ -379,6 +379,8 @@ INSERT INTO tbl_2_f VALUES('fan''gan','fg','反感',100);",
 /// One directory standing in for all four runtime roots, as the reference session tests used.
 struct Fixture {
     directory: tempfile::TempDir,
+    /// 单独放打包词库的资源根；缺省和代次目录相同，只有需要区分打包原值与学习后工作值时才设置。
+    bundle: Option<PathBuf>,
 }
 
 fn prediction_fixture() -> Fixture {
@@ -612,7 +614,21 @@ impl Fixture {
         let helpcodes = directory.path().join("helpcodes");
         std::fs::create_dir_all(&helpcodes).expect("helpcode directory");
         std::fs::write(helpcodes.join("helpcode.txt"), "你=ab\n拟=cd\n好=ef\n").expect("helpcodes");
-        Self { directory }
+        Self {
+            directory,
+            bundle: None,
+        }
+    }
+
+    /// 在资源根单独放一份 `msime-wubi.db`，模拟发布包里未被学习改写的打包码表。
+    fn with_wubi_bundle(mut self, sql: &str) -> Self {
+        let resources = self.path().join("bundle");
+        std::fs::create_dir_all(&resources).expect("bundle directory");
+        Connection::open(resources.join(assets::WUBI_DICTIONARY))
+            .and_then(|connection| connection.execute_batch(sql))
+            .expect("fixture msime-wubi.db");
+        self.bundle = Some(resources);
+        self
     }
 
     fn with_english(self, sql: &str) -> Self {
@@ -631,7 +647,7 @@ impl Fixture {
     fn paths(&self) -> RuntimePaths {
         let root = self.path().to_path_buf();
         RuntimePaths {
-            resources: root.clone(),
+            resources: self.bundle.clone().unwrap_or_else(|| root.clone()),
             user_data: root.clone(),
             cache: root.clone(),
             dictionaries: root,
@@ -4363,6 +4379,139 @@ fn a_rebuilt_session_corrects_with_its_new_profile() {
 }
 
 // ---- wubi mixed routing (overlays.md §3.3) ----
+
+/// 简码与全码指向同一个字：原词库两行都保留；只有历史学习把全码那行提前才算异常。
+const WUBI_DUPLICATE_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('aa','式',20),('aad','式',11);";
+
+fn log_wubi_learning(fixture: &Fixture, code: &str, word: &str, weight: i64) {
+    let journal = crate::user_dictionary::journal::open_journal(&fixture.journal()).unwrap();
+    journal
+        .execute(
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,updated_at) \
+             VALUES('wubi',?1,?2,'upsert',?3,'',100)",
+            params![code, word, weight],
+        )
+        .unwrap();
+}
+
+fn learned_wubi_duplicate_fixture() -> Fixture {
+    let fixture = Fixture::new(WUBI_DUPLICATE_FIXTURE).with_wubi_bundle(WUBI_DUPLICATE_FIXTURE);
+    Connection::open(fixture.main_db())
+        .unwrap()
+        .execute(
+            "UPDATE wubi86 SET weight=530 WHERE key='aad' AND value='式'",
+            [],
+        )
+        .unwrap();
+    log_wubi_learning(&fixture, "aad", "式", 530);
+    fixture
+}
+
+#[test]
+fn a_learned_long_wubi_code_is_reset_without_hiding_the_original_row() {
+    let fixture = learned_wubi_duplicate_fixture();
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    type_text(&mut session, "aa");
+    assert_eq!(
+        words(&session),
+        vec!["式".to_owned(), "式".to_owned()],
+        "原词库自带的简码与全码都保留: {:?}",
+        words(&session)
+    );
+    assert_eq!(
+        count(
+            &fixture.main_db(),
+            "SELECT weight FROM wubi86 WHERE key='aad' AND value='式'"
+        ),
+        11,
+        "工作库里的历史学习加权应回退到打包原值"
+    );
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT weight FROM user_dictionary_operations WHERE dictionary='wubi' AND key='aad' AND value='式'"
+        ),
+        11,
+        "日志里的历史学习记录应回退到打包原值"
+    );
+}
+
+#[test]
+fn selecting_a_wubi_word_present_at_another_code_records_no_learning() {
+    let fixture = Fixture::new(WUBI_DUPLICATE_FIXTURE).with_wubi_bundle(WUBI_DUPLICATE_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut session, "aa");
+    assert_eq!(
+        words(&session),
+        vec!["式".to_owned(), "式".to_owned()],
+        "两个编码的字都在候选里: {:?}",
+        words(&session)
+    );
+    assert_eq!(session.select(1).commit.as_deref(), Some("式"));
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi' AND value='式'"
+        ),
+        0,
+        "同词已在别的码上存在时不再记一条学习加权"
+    );
+}
+
+#[test]
+fn selecting_a_wubi_phrase_present_at_another_code_records_no_learning() {
+    const PHRASE_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('aa','工工',20),('aad','工工',11);";
+    let fixture = Fixture::new(PHRASE_FIXTURE).with_wubi_bundle(PHRASE_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.frequency.mode = FrequencyAdjustmentMode::Promote;
+    });
+    type_text(&mut session, "aa");
+    assert_eq!(session.select(1).commit.as_deref(), Some("工工"));
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi' AND value='工工'"
+        ),
+        0,
+        "词组同样按词面判断重复"
+    );
+}
+
+#[test]
+fn a_user_inserted_duplicate_wubi_row_keeps_its_weight() {
+    let fixture = Fixture::new(WUBI_DUPLICATE_FIXTURE).with_wubi_bundle(WUBI_DUPLICATE_FIXTURE);
+    Connection::open(fixture.main_db())
+        .unwrap()
+        .execute(
+            "UPDATE wubi86 SET weight=530 WHERE key='aad' AND value='式'",
+            [],
+        )
+        .unwrap();
+    let journal = crate::user_dictionary::journal::open_journal(&fixture.journal()).unwrap();
+    journal
+        .execute(
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,updated_at,user_inserted) \
+             VALUES('wubi','aad','式','upsert',530,'',100,1)",
+            [],
+        )
+        .unwrap();
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    type_text(&mut session, "aa");
+    assert_eq!(
+        count(
+            &fixture.main_db(),
+            "SELECT weight FROM wubi86 WHERE key='aad' AND value='式'"
+        ),
+        530,
+        "用户自己加入的词库行不参与历史加权回退"
+    );
+}
 
 fn wubi_mixed(fixture: &Fixture) -> Session {
     let mut session = fixture.session_with(|options| {

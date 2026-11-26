@@ -290,6 +290,19 @@ impl InputSession {
             context_key = self.engine.request().segmentation.clone();
         }
         let wubi_row = wubi && !super_jianpin;
+        // 五笔按字形编码，简码和全码指向同一个词时词库本来就各有一行；自学习再给另一条
+        // 记加权只会把重复行提前。显式置顶仍照旧生效，这里只挡自动调频。
+        if wubi_row && !force_top {
+            let profile = self.engine.wubi_input_options().profile;
+            if crate::user_dictionary::wubi_duplicate_learning::has_duplicate_code(
+                &self.paths,
+                profile,
+                &selected.pinyin,
+                &selected.word,
+            ) {
+                return None;
+            }
+        }
         let entry_key = if wubi_row {
             selected.pinyin.as_str()
         } else if selected.canonical_pinyin.is_empty() {

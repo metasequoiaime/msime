@@ -329,6 +329,13 @@ impl InputSession {
                 composer.warm_up_in_background();
             }
         }
+        if options.enabled_schemes.contains(SchemeType::Wubi) {
+            crate::user_dictionary::wubi_duplicate_learning::reset_all_duplicate_learning(
+                &session.paths,
+                &session.journal_path,
+                options.wubi.profile,
+            );
+        }
         session.set_wubi_input_options(options.wubi);
         session.set_personal_context_enabled(options.personal_context);
 

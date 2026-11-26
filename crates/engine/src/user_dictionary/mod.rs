@@ -21,4 +21,5 @@ pub mod replay;
 pub mod reset;
 pub mod state;
 pub mod typo_profile;
+pub(crate) mod wubi_duplicate_learning;
 pub(crate) mod wubi_learning;
