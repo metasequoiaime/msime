@@ -14966,7 +14966,7 @@ private:
               change([&](PreferencesDocument &doc) { doc.SetString(L"wubi_phrase_placement", value); }, false);
             });
         A11y::SetAutomationId(placement_combo, L"wubi-phrase-placement");
-        add_row(candidates, 0xE8AB, L"自造词位置",
+        add_row(candidates, 0xE8CB, L"自造词位置",
                 L"新造的五笔词排在同码已有词之后（默认，等于现状）还是之前；入库这一次之后照常参与调频。",
                 placement_combo);
       }
