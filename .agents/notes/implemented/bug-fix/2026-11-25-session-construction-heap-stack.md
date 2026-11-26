@@ -59,7 +59,7 @@ let mut session = Box::new(Self { /* … */ });
 
 - 建会话在栈上的占用降了一档，`host_options_small_stack` 把新预算钉住：以后谁再往构造链上放大结构体临时值，本机门禁直接红，而不是等宿主在小栈线程上崩。
 - 改了 `InputSession::new` 的返回类型（`Result<Self>` → `Result<Box<Self>>`）。它是 crate 内部的 `pub` 方法、只有 `session::Session::new` 一个调用点，外部 crate 拿不到。
-- 剩下的 49 KiB / 40 KiB 帧仍在，比这次的 141 KiB 总账小得多；如果以后有宿主的线程栈比 Unreal 那条还小，还得继续收 `create_session`。
+- 剩下的 49 KiB / 40 KiB 帧仍在，比这次的 141 KiB 总账小得多。但 Unreal 那条线程的整条栈只有约 86 KiB，这条链（110 KiB）在那边仍旧放不下，建会话后来改成在剩余栈不够时切到自己的栈上跑，见 [建会话在宿主的小栈线程上切到自己的栈](2026-11-27-session-creation-grows-stack.md)。
 
 ## Testing
 
