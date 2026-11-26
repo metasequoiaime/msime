@@ -45,6 +45,11 @@ public final class KeyboardKeyPreview extends View {
         ViewPolicy.hide(this);
     }
 
+    /** 气泡视图连上下阴影边距的高度（dp），即它在父容器里占的高度。 */
+    public static float outerHeightDp() {
+        return HEIGHT_DP + SHADOW_MARGIN_DP * 2;
+    }
+
     /** 气泡宽度：键宽的 138%，权重大于 1.2 的键 150%。 */
     public static float bubbleWidth(float keyWidth, float weight) {
         return keyWidth * (weight > 1.2f ? 1.5f : 1.38f);

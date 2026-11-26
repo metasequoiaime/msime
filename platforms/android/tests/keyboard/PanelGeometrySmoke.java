@@ -1,7 +1,10 @@
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardHeightPolicy;
 import app.msime.android.KeyboardHeightRole;
+import app.msime.android.KeyboardKeyPreview;
+import app.msime.android.KeyboardTypographyPolicy;
 import app.msime.android.PanelGeometry;
+import app.msime.android.ReadingRowPolicy;
 
 public final class PanelGeometrySmoke {
     private static void check(boolean value, String message) {
@@ -22,6 +25,7 @@ public final class PanelGeometrySmoke {
         topBand();
         keyRows();
         bottomInset();
+        headroom();
     }
 
     /** 顶栏，按 1 倍密度写成 dp 数，便于和设计稿对照。 */
@@ -147,5 +151,18 @@ public final class PanelGeometrySmoke {
         equal(bar.padding(), 60, "bar and the gesture area below it replace the system inset");
         equal(bar.barMargin(), 20, "bar sits above the gesture area");
         equal(PanelGeometry.bottomInset(false, 0, true, 20, 40, 12).padding(), 72, "lift goes on top of the bar");
+    }
+
+    /** 面板上方的透明高度装得下顶排键的气泡和最大字号的读音条，而且只在按内容包裹高度的窗口里留。 */
+    private static void headroom() {
+        // 气泡连上下阴影边距整个放进去，不只是露出面板的那一截：顶排键离面板上沿的距离随顶栏变。
+        check(PanelGeometry.HEADROOM_DP >= KeyboardKeyPreview.outerHeightDp(),
+            "headroom holds the key preview bubble with its shadow margins");
+        // 读音条：「预编辑字号」最大 32、系统字体放到封顶的 1.15 倍，按 1.5 倍字号的行高（常见字体约 1.2 倍）加读音和候选行之间的 3 dp 估算，宽松地装得下。
+        float readingSp = ReadingRowPolicy.textSizeSp(32) * KeyboardTypographyPolicy.MAX_KEYBOARD_FONT_SCALE;
+        check(PanelGeometry.HEADROOM_DP >= readingSp * 1.5f + 3f, "headroom holds the reading strip at its largest");
+        equal(PanelGeometry.headroomPx(true, 1f), 80, "wrap-content window gets 80 dp");
+        equal(PanelGeometry.headroomPx(true, 2.625f), 210, "80 dp at 420 dpi");
+        equal(PanelGeometry.headroomPx(false, 2.625f), 0, "full-height windows get none");
     }
 }
