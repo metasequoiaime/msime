@@ -7442,6 +7442,10 @@ static void TestModifierTaps() {
     assert(prefs.englishMode && [client.committed isEqual:@"测试"]);
 
     // Shift 轻点进入的大写英文模式直接输出大写字母，并把带 Shift 的快捷键交给应用。
+    prefs.englishMode = YES;
+    [controller setValue:@YES forKey:@"uppercaseEnglishMode"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    [controller setValue:[HiddenCandidatePanel new] forKey:@"panel"];
     const NSUInteger committedBeforeUppercase = client.committed.length;
     assert([controller handleEvent:ModeKey(0, 0, NO) client:client]);
     assert(client.committed.length == committedBeforeUppercase + 1 && [client.committed hasSuffix:@"A"]);
