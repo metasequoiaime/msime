@@ -8270,8 +8270,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         const BOOL shiftTap = event.type == NSEventTypeFlagsChanged && (event.keyCode == 56 || event.keyCode == 60);
-        if (shiftTap) [self toggleInputModeFromModifierTapUppercase:YES];
-        else [self toggleInputModeFromModifierTap];
+        [self toggleInputModeFromModifierTap];
+        // 保持旧方法的动态分派，测试替身和其它宿主入口仍能观察这次切换。
+        if (shiftTap) _uppercaseEnglishMode = _appearance.englishMode;
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
