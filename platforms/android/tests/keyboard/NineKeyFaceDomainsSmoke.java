@@ -88,7 +88,7 @@ public final class NineKeyFaceDomainsSmoke {
 
     private static KeyFaceLayout layout(String action) {
         return new KeyFaceLayout(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, action, false, ChineseSymbolFaces.Marks.DEFAULT,
-            false, List.of(), List.of());
+            false, List.of(), List.of(), false);
     }
 
     private static void check(boolean condition, String message) {

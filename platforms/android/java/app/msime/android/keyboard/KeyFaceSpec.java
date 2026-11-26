@@ -30,6 +30,11 @@ public interface KeyFaceSpec<S> {
         return false;
     }
 
+    /** 画图标时由规格定图标种类；为假时只切换画文字还是画图标，图标种类由键自己管（回车在剪贴板模式里换图标）。 */
+    default boolean ownsIconKind() {
+        return true;
+    }
+
     /** 此刻画什么。 */
     default KeyFace face(KeyFaceLayout layout, KeyFaceLive live) {
         return face(state(layout, live));

@@ -55,14 +55,44 @@ final class ImeKeyFaces {
         });
     }
 
-    /** 建键行之前调用：上一副键盘的组不再用，新键放进新组。 */
+    /** 建键行之前调用：上一副键盘的组不再用，新键放进新组。底行的组（{@link KeyFaceRole#persistent}）留着，它们的键建键行之后还在用，只是上限要等新键盘的字母组建好再连上。 */
     void reset() {
         for (KeyboardPressButton key : movableKeys) if (key.faceGroup() != null) key.setFaceGroup(null, NO_HINTS);
         movableKeys.clear();
-        groups.clear();
+        groups.keySet().removeIf(role -> !role.persistent());
         japaneseFunctions = false;
         sideSymbolsDomain = ATTACHED_TEXTS;
         sideCornerDomain = ATTACHED_TEXTS;
+        link();
+    }
+
+    /** 换了一套控件（{@link ImeBottomRow#ensureFaces} 新建了空格、回车）：底行的组作废，下次排布时放进新组。 */
+    void resetBottomRow() {
+        groups.keySet().removeIf(KeyFaceRole::persistent);
+    }
+
+    /**
+     * 底行的一个常驻键放进它自己的组（每个键一个角色）；已经在里面时只按此刻的状态重设键面。每次排布都经过这里：{@link ImeBottomRow#placeKey}、右侧大回车外框和注音九键两列挪键、#+= 层把空格和回车挪进自己的最后一行。地球键自己画（按键高缩放的描边地球），不放进组；底行的 0 由九键数字组放（{@link KeyFaceRole#NINE_DIGITS}）。
+     */
+    void attachBottomRow(android.widget.Button key, KeyboardActionRow.DesignSlot slot) {
+        switch (slot) {
+            case GLOBE, ZERO -> { }
+            case COMMA -> attach(key, KeyFaceRole.BOTTOM_COMMA);
+            case PERIOD -> attach(key, KeyFaceRole.BOTTOM_PERIOD);
+            case SPACE -> attach(key, KeyFaceRole.BOTTOM_SPACE);
+            case RETURN -> attach(key, KeyFaceRole.RETURN, KeyFaceRole.RETURN.slots(), KeyFaceSpecs.RETURN);
+            case SYMBOL_PANEL -> attach(key, KeyFaceRole.BOTTOM_SYMBOL_PANEL, NO_HINTS, KeyFaceSpecs.SYMBOL_PANEL);
+            case LANGUAGE -> attach(key, KeyFaceRole.BOTTOM_LANGUAGE, NO_HINTS, KeyFaceSpecs.LANGUAGE);
+            case REWRITE -> attach(key, KeyFaceRole.BOTTOM_REWRITE);
+            case EMOJI -> attach(key, KeyFaceRole.BOTTOM_EMOJI);
+            case DELETE -> attach(key, KeyFaceRole.BOTTOM_DELETE);
+            default -> attach(key, KeyFaceRole.BOTTOM_LAYER, NO_HINTS, KeyFaceSpecs.LAYER);
+        }
+    }
+
+    /** 右侧大回车外框里的回车（同一个回车键，挪回功能行时 {@link #attachBottomRow} 再放回普通回车组）。 */
+    void attachTallReturn(android.widget.Button key) {
+        attach(key, KeyFaceRole.TALL_RETURN, KeyFaceRole.TALL_RETURN.slots(), KeyFaceSpecs.RETURN);
     }
 
     /** 这副键盘上已经建了的组，按角色（设备检查读它，核对键格和漏网的字）。 */
@@ -107,7 +137,7 @@ final class ImeKeyFaces {
         if (key == null) return;
         KeyFace face = spec.face(layout(), live());
         if (key instanceof KeyboardIconKey icon) {
-            icon.setFace(face);
+            icon.setFace(face, spec.ownsIconKind());
             return;
         }
         if (face.text() != null && !face.text().contentEquals(key.getText())) key.setText(face.text());
@@ -186,7 +216,14 @@ final class ImeKeyFaces {
             case JAPANESE_DIGITS -> NineKeyFaceDomains.japaneseKana(true);
             case SIDE_SYMBOLS -> sideSymbolsDomain;
             case SIDE_CORNER -> sideCornerDomain;
-            case LONG_VOWEL, LAYER_TOP, LAYER_CHARACTERS -> ATTACHED_TEXTS;
+            case LONG_VOWEL, LAYER_TOP, LAYER_CHARACTERS, BOTTOM_REWRITE, BOTTOM_EMOJI, BOTTOM_DELETE -> ATTACHED_TEXTS;
+            case BOTTOM_SYMBOL_PANEL -> KeyFaceSpecs.domain(KeyFaceSpecs.SYMBOL_PANEL, layout);
+            case BOTTOM_LAYER -> KeyFaceSpecs.domain(KeyFaceSpecs.LAYER, layout);
+            case BOTTOM_LANGUAGE -> KeyFaceSpecs.domain(KeyFaceSpecs.LANGUAGE, layout);
+            case RETURN, TALL_RETURN -> KeyFaceSpecs.domain(KeyFaceSpecs.RETURN, layout);
+            case BOTTOM_COMMA -> BottomRowKeyFaceDomains.comma();
+            case BOTTOM_PERIOD -> BottomRowKeyFaceDomains.period();
+            case BOTTOM_SPACE -> BottomRowKeyFaceDomains.space();
         };
     }
 
@@ -216,7 +253,7 @@ final class ImeKeyFaces {
             for (String hint : s.shuangpinHints.values()) if (hint != null && !hint.isEmpty() && !hints.contains(hint)) hints.add(hint);
         return new KeyFaceLayout(s.displayedTouchLayout(s.view), s.quanpinShiftEnabled, s.nineKeyCompositionAction,
             s.localSettings.bool(AndroidLocalSettings.LETTER_CORNER_HINTS), s.punctuationMarks(),
-            s.localSettings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE), s.visibleSchemes, hints);
+            s.localSettings.bool(AndroidLocalSettings.LANGUAGE_KEY_CYCLE), s.visibleSchemes, hints, s.nineKeyShuangpinDrawn());
     }
 
     /** 此刻随打字、切层变化的几项（{@link KeyFaceLive}）。 */
@@ -225,7 +262,10 @@ final class ImeKeyFaces {
         return new KeyFaceLive(s.hasEngineComposition(), s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS, s.dedicatedEnglish,
             s.session != 0 && s.view != null && !s.dedicatedEnglish && !EditorPolicy.password(s.editorInputType),
             "none".equals(localMode), s.letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK,
-            ImeGridHelpcodeEntry.available(s), s.view == null ? -1 : InputViewValuePolicy.scheme(s.view, -1), s.selectedScheme);
+            ImeGridHelpcodeEntry.available(s), s.view == null ? -1 : InputViewValuePolicy.scheme(s.view, -1), s.selectedScheme,
+            s.imeLetterRows.numberPadDrawn(), s.imeLetterRows.sharedSymbolRowsDrawn(),
+            KeyboardLayout.chineseFace(s.view == null ? -1 : InputViewValuePolicy.scheme(s.view, -1), s.dedicatedEnglish),
+            s.japaneseSchemeActive(), s.returnKeyConfirms(), s.returnHoldCommitsTranslation(), s.returnHoldInsertsNewline());
     }
 
     private static KeyFaceEnvironment environment(Inputs inputs) {
@@ -234,6 +274,8 @@ final class ImeKeyFaces {
 
     /** 九键的键用 `sans-serif-medium`（{@link KeyFaceRole#nineKeyTypeface}），等宽皮肤用等宽字体，与样式通道给键帽的字体相同（ImeStyler）。 */
     private static KeyFaceMeasurer measurer(KeyFaceRole role, Inputs inputs) {
+        if (role.bold())
+            return new PaintKeyFaceMeasurer(Typeface.create(inputs.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT, Typeface.BOLD));
         if (inputs.monospaced()) return new PaintKeyFaceMeasurer(Typeface.MONOSPACE);
         return new PaintKeyFaceMeasurer(role.nineKeyTypeface() ? Typeface.create("sans-serif-medium", Typeface.NORMAL)
             : Typeface.DEFAULT);

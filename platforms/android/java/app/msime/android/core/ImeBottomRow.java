@@ -105,8 +105,11 @@ final class ImeBottomRow {
         return s.localSettings.bool(key);
     }
 
-    /** 把 SVC 建的空格、回车换成画图标的键（每次 onCreateInputView 新建控件后各换一次）。 */
+    /** 把 SVC 建的空格、回车换成画图标的键（每次 onCreateInputView 新建控件后各换一次）；换了的话底行的键组跟着作废（{@link ImeKeyFaces#resetBottomRow}）。 */
     void ensureFaces() {
+        if ((s.spaceButton != null && !(s.spaceButton instanceof SpaceKeyFace))
+                || (s.enterButton != null && !(s.enterButton instanceof KeyboardIconKey)))
+            s.imeKeyFaces.resetBottomRow();
         if (s.spaceButton != null && !(s.spaceButton instanceof SpaceKeyFace)) {
             Button original = s.spaceButton;
             SpaceKeyFace face = forwardFace(original, new SpaceKeyFace(s), "Space");
@@ -119,9 +122,7 @@ final class ImeBottomRow {
             Button original = s.enterButton;
             KeyboardIconKey key = forwardFace(original,
                 new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN), "Enter");
-            // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
-            key.setTextFaces(java.util.Set.of("确认", "確定"));
-            KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
+            // 组词时写「确认」（日语「確定」，粗体，字号由回车的键组定），其他时候画 ↵：由回车的键面规格设（KeyFaceSpecs.RETURN）。
             ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
@@ -247,6 +248,7 @@ final class ImeBottomRow {
         }
         splitSpace.setKeyboardRole(KeyboardKeyRole.KEY);
         s.imeStyler.styleButton(splitSpace, KeyboardKeyRole.KEY, s.skin);
+        s.imeKeyFaces.attachBottomRow(splitSpace, KeyboardActionRow.DesignSlot.SPACE);
         syncSplitSpace();
         return splitSpace;
     }
@@ -548,7 +550,6 @@ final class ImeBottomRow {
                 return true;
             });
             periodButton = s.keyId(period, "Period");
-            KeyboardTypographyPolicy.setKeyTextSize(periodButton, 22);
         }
         return periodButton;
     }
@@ -574,7 +575,7 @@ final class ImeBottomRow {
     }
 
     /**
-     * 把底行的一个常驻键（{@link #actionRowKey}）挂进 {@code parent}：先从原来的父视图摘下，再按功能行的规矩给角色、键帽、样式和字号。功能行自己用它，右侧大回车外框（{@link ImeLayoutRows#rebuildNineKeyRows}）把 符、123、空格、中/英、回车挂进外框时也用它，两处画出来的键一样。
+     * 把底行的一个常驻键（{@link #actionRowKey}）挂进 {@code parent}：先从原来的父视图摘下，再按功能行的规矩给角色、键帽和样式，放进它的键组（字号由键组定，{@link ImeKeyFaces#attachBottomRow}）。功能行自己用它，右侧大回车外框（{@link ImeLayoutRows#rebuildNineKeyRows}）把 符、123、空格、中/英、回车挂进外框时也用它，两处画出来的键一样。
      */
     void placeKey(LinearLayout parent, KeyboardActionRow.DesignSlot slot, Button key, LinearLayout.LayoutParams params) {
         if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
@@ -587,10 +588,9 @@ final class ImeBottomRow {
         // 符、123、中/英、逗号由通用的 button() 建出来，没有经过键帽工厂；放进底行时才知道它们是键帽。
         KeyboardTypographyPolicy.normalizeKeyCap(key);
         s.imeStyler.styleButton(key, role, s.skin);
-        if (slot == KeyboardActionRow.DesignSlot.COMMA)
-            KeyboardTypographyPolicy.setKeyTextSize(key, 22);
-        else if (role == KeyboardKeyRole.ACCENT)
-            KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
+        // 地球键自己按键高画描边地球，不进键组；它的文字不画，字号只是沿用原来的写法。
+        if (slot == KeyboardActionRow.DesignSlot.GLOBE) KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
+        s.imeKeyFaces.attachBottomRow(key, slot);
         ViewPolicy.show(key);
         parent.addView(key, params);
     }

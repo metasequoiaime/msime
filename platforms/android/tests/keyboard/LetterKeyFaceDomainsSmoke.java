@@ -80,7 +80,7 @@ public final class LetterKeyFaceDomainsSmoke {
 
     private static KeyFaceLayout layout(boolean corners, ChineseSymbolFaces.Marks marks, List<String> hints) {
         return new KeyFaceLayout(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true, NineKeyCompositionActionPolicy.SEPARATE, corners,
-            marks, false, List.of(), hints);
+            marks, false, List.of(), hints, false);
     }
 
     private static void check(boolean condition, String message) {

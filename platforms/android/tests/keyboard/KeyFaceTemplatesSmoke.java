@@ -160,6 +160,22 @@ public final class KeyFaceTemplatesSmoke {
         KeyFaceParams japaneseSide = solve(KeyFaceTemplates.JAPANESE_FUNCTIONS, new KeyFaceEnvironment(5, 1), 2000, 208);
         check(near(japaneseSide.main().sizePx(), 5 * KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP)
             && near(japaneseSide.iconPx(), 5 * 22), "日语九键侧列的功能键应为 15 sp、图标 22 dp：" + japaneseSide);
+        // 底行：逗号、句号 22 sp，逗号的每段文字都按 1.3 倍、按自己的墨迹居中，句号不；空格短名 13 sp、麦克风 22 dp；回车 15 sp、↵ 22 dp、角标稍淡；右侧大回车在两行高上同样是 15 sp / 22 dp。
+        for (KeyFaceTemplate punctuation : List.of(KeyFaceTemplates.BOTTOM_COMMA, KeyFaceTemplates.BOTTOM_PERIOD))
+            check(near(solve(punctuation, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22), punctuation.name() + " 应为 22 sp");
+        KeyFaceTemplate.Glyphs commaGlyphs = KeyFaceTemplates.BOTTOM_COMMA.glyphs();
+        check(commaGlyphs != null && commaGlyphs.every() && near(commaGlyphs.scale("，"), 1.3f) && near(commaGlyphs.scale("."), 1.3f),
+            "底行逗号的每段文字都应按墨迹居中、放大 1.3 倍");
+        check(KeyFaceTemplates.BOTTOM_PERIOD.glyphs() == null, "底行句号不按自己的墨迹居中");
+        KeyFaceParams space = solve(KeyFaceTemplates.SPACE, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(space.main().sizePx(), 13) && near(space.iconPx(), 22), "空格应为 13 sp、麦克风 22 dp：" + space);
+        KeyFaceParams enter = solve(KeyFaceTemplates.RETURN, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(enter.main().sizePx(), KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP) && near(enter.iconPx(), 22),
+            "回车应为 15 sp、↵ 22 dp：" + enter);
+        check(KeyFaceTemplates.RETURN.slots().get(KeyFaceSlot.TOP_RIGHT).alpha() == 204, "回车的角标应稍淡");
+        KeyFaceParams tallReturn = solve(KeyFaceTemplates.TALL_RETURN, new KeyFaceEnvironment(1, 1), 400, 104);
+        check(near(tallReturn.main().sizePx(), KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP) && near(tallReturn.iconPx(), 22),
+            "右侧大回车在两行高上应为 15 sp、↵ 22 dp：" + tallReturn);
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 

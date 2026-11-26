@@ -17,10 +17,11 @@ import java.util.List;
  * @param languageCycles 「中英键轮换其他语言」开着
  * @param schemes 可选的方案（{@code visibleSchemes}）：轮换时语言键画其中其他语言的字（{@link KeyboardScheme#glyph}）
  * @param shuangpinHints 当前双拼方案每个字母键的提示（空表示没有）
+ * @param nineKeyShuangpin 拼音九键画的是九键双拼（底行的「符」组字时换成「分词」）
  */
 public record KeyFaceLayout(int touchLayout, boolean quanpinShift, String nineKeyAction, boolean corners,
         ChineseSymbolFaces.Marks marks, boolean languageCycles, List<KeyboardScheme> schemes,
-        List<String> shuangpinHints) {
+        List<String> shuangpinHints, boolean nineKeyShuangpin) {
     public KeyFaceLayout {
         nineKeyAction = NineKeyCompositionActionPolicy.normalize(nineKeyAction);
         schemes = Collections.unmodifiableList(new ArrayList<>(schemes == null ? List.of() : schemes));

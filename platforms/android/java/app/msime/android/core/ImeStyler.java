@@ -327,8 +327,6 @@ final class ImeStyler {
             }
             if (press != null) press.rememberFace(target, role, selected, density);
         }
-        // 不在键组里的图标键（回车）自己画角标，按同一个键帽轮廓挪进键帽；键组里的键从键组的环境拿轮廓（ImeKeyFaces）。
-        if (button instanceof KeyboardIconKey icon) icon.setKeyOutline(KeyOutline.forSkin(target, density));
         ViewPolicy.setTextColor(button, color(foreground));
         if (button instanceof KeyHintButton hintButton) {
             hintButton.setHintColor(color(target.accent()));

@@ -13,7 +13,7 @@ public final class KeyFaceSpecs {
     public enum Shift { SHIFT, CAPS_LOCK, SEPARATOR }
 
     /** 26 键全拼的 ⇧ 换成的字。 */
-    public static final String SEPARATOR_FACE = "分词";
+    public static final String SEPARATOR_FACE = FourteenKeyLayout.separatorFace(true);
 
     public static final KeyFaceSpec<Shift> SHIFT = new KeyFaceSpec<>() {
         @Override public List<Shift> states(KeyFaceLayout layout) {
@@ -128,7 +128,7 @@ public final class KeyFaceSpecs {
         @Override public boolean on(KeyFaceLayout layout) { return layout.japaneseNineKey(); }
     };
 
-    /** 语言键（日语九键左列；底行的中/英随底行迁入）：「中」「英」，打开「中英键轮换其他语言」时还有可选方案里其他语言的字（{@link LanguageKeyCyclePolicy#label}）。 */
+    /** 语言键（底行的中/英、日语九键左列）：「中」「英」，打开「中英键轮换其他语言」时还有可选方案里其他语言的字（{@link LanguageKeyCyclePolicy#label}）。 */
     public static final KeyFaceSpec<String> LANGUAGE = new TextSpec() {
         @Override public List<String> states(KeyFaceLayout layout) {
             List<String> faces = new ArrayList<>(List.of("中", "英"));
@@ -142,19 +142,105 @@ public final class KeyFaceSpecs {
         @Override public String state(KeyFaceLayout layout, KeyFaceLive live) {
             return LanguageKeyCyclePolicy.label(layout.languageCycles(), live.selected(), live.english(), layout.schemes());
         }
+    };
+
+    /** 日语九键右列的回车：「改行」，组字时「確定」（{@link JapaneseNineKeyActions#returnTitle}）。 */
+    public static final KeyFaceSpec<String> JAPANESE_RETURN = new TextSpec() {
+        @Override public List<String> states(KeyFaceLayout layout) {
+            return List.of(JapaneseNineKeyActions.returnTitle(false), JapaneseNineKeyActions.returnTitle(true));
+        }
+
+        @Override public String state(KeyFaceLayout layout, KeyFaceLive live) {
+            return JapaneseNineKeyActions.returnTitle(live.returnConfirms());
+        }
 
         @Override public boolean on(KeyFaceLayout layout) { return layout.japaneseNineKey(); }
     };
 
+    /** 底行的符键：「符」打开符号面板；九键双拼字母层组字时换成「分词」（与 14/18 键第三排左端同一对字，{@link FourteenKeyLayout#separatorFace}）。 */
+    public static final KeyFaceSpec<String> SYMBOL_PANEL = new TextSpec() {
+        @Override public List<String> states(KeyFaceLayout layout) {
+            return layout.nineKeyShuangpin()
+                ? List.of(FourteenKeyLayout.separatorFace(false), FourteenKeyLayout.separatorFace(true))
+                : List.of(FourteenKeyLayout.separatorFace(false));
+        }
+
+        @Override public String state(KeyFaceLayout layout, KeyFaceLive live) {
+            return FourteenKeyLayout.separatorFace(layout.nineKeyShuangpin() && !live.symbols() && live.composing());
+        }
+    };
+
+    /** 底行的 123 键：字母层「123」，符号层或数字九宫格上写回到的那块键面（{@link KeyboardActionRow#layerTitle(int, boolean, boolean)}），注音共用的 #+= 行上回到数字层写「123」。只列这副键盘的层标题。 */
+    public static final KeyFaceSpec<String> LAYER = new TextSpec() {
+        @Override public List<String> states(KeyFaceLayout layout) {
+            int touch = layout.touchLayout();
+            return distinct(KeyboardActionRow.layerTitle(touch, false), KeyboardActionRow.layerTitle(touch, true),
+                KeyboardActionRow.layerTitle(touch, true, true));
+        }
+
+        @Override public String state(KeyFaceLayout layout, KeyFaceLive live) {
+            int touch = layout.touchLayout();
+            if (live.sharedSymbolRows()) return KeyboardActionRow.layerTitle(touch, false);
+            return KeyboardActionRow.layerTitle(touch, live.symbols(),
+                live.symbols() && live.numberPad() && live.chineseFace());
+        }
+    };
+
+    /** 回车组字时的字：中文「确认」、日语「確定」。 */
+    public static final String CONFIRM_FACE = "确认";
+    public static final String JAPANESE_CONFIRM_FACE = "確定";
+
+    /**
+     * 底行的回车（右侧大回车是同一个键）：空闲时画图标（↵，剪贴板模式另换图标，所以这里不定图标种类），组字时写「确认」（日语「確定」）；长按能上屏译文时右上角「译」，能换行时「换行」。
+     */
+    public static final KeyFaceSpec<KeyFace> RETURN = new KeyFaceSpec<>() {
+        @Override public List<KeyFace> states(KeyFaceLayout layout) {
+            List<KeyFace> faces = new ArrayList<>();
+            KeyFace icon = KeyFace.icon(KeyboardIconKey.Kind.RETURN);
+            faces.add(icon);
+            faces.add(icon.withCorner(HOLD_NEWLINE));
+            for (String text : List.of(CONFIRM_FACE, JAPANESE_CONFIRM_FACE))
+                for (String corner : List.of("", HOLD_TRANSLATION, HOLD_NEWLINE)) faces.add(KeyFace.text(text).withCorner(corner));
+            return faces;
+        }
+
+        @Override public KeyFace state(KeyFaceLayout layout, KeyFaceLive live) {
+            KeyFace main = live.returnConfirms() ? KeyFace.text(live.japanese() ? JAPANESE_CONFIRM_FACE : CONFIRM_FACE)
+                : KeyFace.icon(KeyboardIconKey.Kind.RETURN);
+            return main.withCorner(live.returnConfirms() && live.translationHold() ? HOLD_TRANSLATION
+                : live.newlineHold() ? HOLD_NEWLINE : "");
+        }
+
+        @Override public KeyFace face(KeyFace state) { return state; }
+
+        @Override public boolean drawsCorner() { return true; }
+
+        @Override public boolean ownsIconKind() { return false; }
+    };
+
+    /** 回车右上角：长按上屏译文、长按换行。 */
+    public static final String HOLD_TRANSLATION = "译";
+    public static final String HOLD_NEWLINE = "换行";
+
     /** 键区功能键组在 {@code layout} 上能画的文字（{@code slot} 位置）：⇧、14/18 键的分词键，日语九键再加两侧列和左下角会变的文字键。⌫ 等图标不占文字；「重输」「符」「切换」这类文字固定的键放进组时自己的文字并进来（{@link KeyFaceGroup#attach}）。 */
     public static List<String> functionTexts(KeyFaceLayout layout, KeyFaceSlot slot) {
+        List<KeyFaceSpec<?>> specs = new ArrayList<>(List.of(SHIFT, FOURTEEN_SEPARATOR));
+        // 日语九键侧列的语言键在功能键组里；别的键盘的语言键在底行，自己一组。
+        if (layout.japaneseNineKey())
+            specs.addAll(List.of(JAPANESE_LAYER, JAPANESE_VARIANTS, JAPANESE_SPACE, JAPANESE_RETURN, LANGUAGE));
         List<String> texts = new ArrayList<>();
-        for (KeyFaceSpec<?> spec : List.of(SHIFT, FOURTEEN_SEPARATOR, JAPANESE_LAYER, JAPANESE_VARIANTS,
-                JAPANESE_SPACE, LANGUAGE)) {
+        for (KeyFaceSpec<?> spec : specs) {
             if (!spec.on(layout)) continue;
             for (String text : spec.texts(layout, slot)) if (!texts.contains(text)) texts.add(text);
         }
         return texts;
+    }
+
+    /** {@code spec} 在 {@code layout} 上的内容域：主标签和右上角各按它的全部状态。底行的键每个一组，内容域就是它自己的规格。 */
+    public static KeyFaceDomain domain(KeyFaceSpec<?> spec, KeyFaceLayout layout) {
+        java.util.Map<KeyFaceSlot, List<String>> texts = new java.util.EnumMap<>(KeyFaceSlot.class);
+        for (KeyFaceSlot slot : new KeyFaceSlot[] {KeyFaceSlot.MAIN, KeyFaceSlot.TOP_RIGHT}) texts.put(slot, spec.texts(layout, slot));
+        return new KeyFaceDomain(texts);
     }
 
     /** 键区功能键组在 {@code layout} 上的内容域：主标签和右上角各按 {@link #functionTexts}。 */

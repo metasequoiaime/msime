@@ -108,6 +108,67 @@ public final class KeyFaceTemplates {
         return slots;
     }
 
+    // ---- 底行（功能行，以及挪进右侧大回车外框、注音九键两列、#+= 层最后一行的同一批常驻键）----
+
+    /**
+     * 底行的逗号键：与字母同字号（设计 22 sp，原来的固定字号），右上角是长按输入的标点；它画的每段文字都按 1.3 倍、按自己的墨迹居中、比中线低 0.1 个字号，与原来每次渲染套的 {@link CenteredGlyphSpan} 相同（全角「，」原样居中时只剩键底一个小点）。
+     */
+    public static final KeyFaceTemplate BOTTOM_COMMA = new KeyFaceTemplate("bottom-comma", letterCornerSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        new KeyFaceTemplate.Glyphs(Map.of("，", 1.3f, ",", 1.3f, ".", 1.3f, "、", 1.3f), 0.1f));
+
+    /**
+     * 底行的句号键：设计 22 sp，主标签以逗号键为上限；句号沿用字体里的大小和基线位置（按内容域里汉字参照的墨迹居中，见 {@link BottomRowKeyFaceDomains#period}），放大居中会像圆圈。手写底行右上角是叹号。
+     */
+    public static final KeyFaceTemplate BOTTOM_PERIOD = new KeyFaceTemplate("bottom-period", letterCornerSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> letterCornerSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = mainOnly(LETTER);
+        slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
+        return slots;
+    }
+
+    /** 空格键的方案短名：设计 {@link SpaceKeyFace#LABEL_SP}（13 sp，原来的固定字号），最小 9 sp，最大 15 sp。 */
+    static final KeyFaceTemplate.SlotSpec SPACE_LABEL = slot(SpaceKeyFace.LABEL_SP, 9, 15, 0, 255);
+
+    /**
+     * 空格键：{@link SpaceKeyFace} 自己画麦克风、短名和数字页的 ␣，字号和图标尺寸取这一组算的参数（短名的主标签字号，麦克风和 ␣ 的图标边长，设计 22 dp），所以随键高和字体缩放变，原来固定 13 sp / 22 dp。
+     */
+    public static final KeyFaceTemplate SPACE = new KeyFaceTemplate("space", mainOnly(SPACE_LABEL),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        new KeyFaceTemplate.IconSpec(SpaceKeyFace.MIC_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26));
+
+    /**
+     * 回车键：空闲画 ↵（图标，与 ⌫ 同为设计 22 dp），组字时画粗体的「确认」「確定」（与功能键文字同为设计 15 sp，以底行的功能键为上限），右上角是「译」或「换行」：字号和位置与字母键角标相同，颜色取键面文字色、稍淡（与原来回车自己画的角标一样）。
+     */
+    public static final KeyFaceTemplate RETURN = new KeyFaceTemplate("return", returnSlots(REFERENCE_KEY_HEIGHT_DP),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        returnIcon(REFERENCE_KEY_HEIGHT_DP));
+
+    /** 右侧大回车占两行键高。 */
+    private static final float TALL_RETURN_REFERENCE_DP = 2 * REFERENCE_KEY_HEIGHT_DP;
+    /** 右侧大回车：同 {@link #RETURN}，设计字号、角标和图标都落在两行键高上，所以 ↵ 和同一列的 ⌫ 一样大（原来是同一个回车键，在两行高的键上 ↵ 仍是 22 dp）；字以拼音九键右列的功能键为上限。 */
+    public static final KeyFaceTemplate TALL_RETURN = new KeyFaceTemplate("tall-return", returnSlots(TALL_RETURN_REFERENCE_DP),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        returnIcon(TALL_RETURN_REFERENCE_DP));
+
+    /** 回车的 ↵：与 ⌫ 同为设计 22 dp，墨迹的上沿和右沿按 ↵ 的路径（{@link KeyboardIconPaths#RETURN_INK_TOP}），核对「换行」时按墨迹算。 */
+    private static KeyFaceTemplate.IconSpec returnIcon(float referenceDp) {
+        return new KeyFaceTemplate.IconSpec(KeyboardIconKey.ICON_DP / referenceDp, 16, 26,
+            KeyboardIconPaths.RETURN_INK_TOP / KeyboardIconPaths.VIEWBOX, KeyboardIconPaths.RETURN_INK_RIGHT / KeyboardIconPaths.VIEWBOX);
+    }
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> returnSlots(float referenceDp) {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, new KeyFaceTemplate.SlotSpec(KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP / referenceDp,
+            KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 17, 0, 255));
+        slots.put(KeyFaceSlot.TOP_RIGHT, new KeyFaceTemplate.SlotSpec(KeyHintButton.CORNER_HINT_SP / referenceDp, 8, 12,
+            KeyHintButton.CORNER_HINT_TOP_DP / KeyHintButton.CORNER_HINT_SP,
+            KeyHintButton.CORNER_HINT_RIGHT_DP / KeyHintButton.CORNER_HINT_SP, 204));
+        return slots;
+    }
+
     /** 26 键一族和 14/18 键字母上方的数字行（#6022）：只有主标签，数字按大写字母高居中（数字与大写字母同高）。 */
     public static final KeyFaceTemplate NUMBER_ROW = new KeyFaceTemplate("number-row", nineSlots(NUMBER, false, false),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);

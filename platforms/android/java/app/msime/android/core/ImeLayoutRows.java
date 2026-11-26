@@ -534,6 +534,8 @@ final class ImeLayoutRows {
         LinearLayout cell = LayoutPolicy.column(s);
         s.imeBottomRow.placeKey(cell, KeyboardActionRow.DesignSlot.RETURN, s.enterButton,
             LayoutPolicy.weightedCrossAxisFillParams(false, 1));
+        // 跨两行的回车另一组：↵ 和同一列的 ⌫ 一样大，字以这一列的功能键为上限（KeyFaceTemplates.TALL_RETURN）。
+        s.imeKeyFaces.attachTallReturn(s.enterButton);
         actions.addView(cell, LayoutPolicy.weightedWidthParams(weight));
     }
 
@@ -814,9 +816,10 @@ final class ImeLayoutRows {
         }
     }
 
-    /** 九键双拼字母层此刻要不要把底行的 符 当「分词」：正在组字。九键双拼的 1 是组码键，分词借 符 的位置，与 14 键第三排左端的「符/分词」同一个做法；空闲时它照旧打开符号面板。 */
+    /** 九键双拼字母层此刻要不要把底行的 符 当「分词」：正在组字。九键双拼的 1 是组码键，分词借 符 的位置，与 14 键第三排左端的「符/分词」同一个做法；空闲时它照旧打开符号面板。判断在符键的键面规格里（KeyFaceSpecs.SYMBOL_PANEL），点按、读屏和键面用同一个。 */
     boolean shuangpinSeparatorShown() {
-        return s.keyboardLayer == KeyboardLayout.Layer.LETTERS && s.nineKeyShuangpinDrawn() && s.hasEngineComposition();
+        return FourteenKeyLayout.separatorFace(true).equals(
+            KeyFaceSpecs.SYMBOL_PANEL.state(s.imeKeyFaces.layout(), s.imeKeyFaces.live()));
     }
 
     /** 底行 符 的点按：九键双拼组字时把 ' 送给引擎（在已打的数字末尾定一个音节分界，8 分词 4 是 zh 和 g 两个声母），其余时候打开符号面板。 */
@@ -825,14 +828,13 @@ final class ImeLayoutRows {
         else s.imePanels.showSymbolPanel();
     }
 
-    /** 底行 符 的键面跟着组字状态在「符」和「分词」之间换，render 时调用；只有九键双拼字母层会换成「分词」，离开后换回。 */
+    /** 底行 符 的键面跟着组字状态在「符」和「分词」之间换，render 时调用；只有九键双拼字母层会换成「分词」，离开后换回（KeyFaceSpecs.SYMBOL_PANEL）。 */
     private void updateSymbolPanelSeparator() {
         Button key = s.symbolPanelButton;
         if (key == null) return;
-        boolean split = shuangpinSeparatorShown();
-        String face = split ? "分词" : "符";
-        if (face.contentEquals(key.getText())) return;
-        key.setText(face);
+        CharSequence before = key.getText();
+        s.imeKeyFaces.show(key, KeyFaceSpecs.SYMBOL_PANEL);
+        if (before != null && before.toString().contentEquals(key.getText())) return;
         key.setContentDescription(symbolPanelContentDescription());
     }
 
@@ -968,14 +970,16 @@ final class ImeLayoutRows {
     }
 
     /**
-     * 把底栏的一个常驻键（123、中/英、空格、换行）挂进本布局的一列：先从原来的父视图摘下，按底栏同样的规矩给角色、样式和字号。没有底栏的布局（注音九键）切走时，{@link ImeBottomRow#updateActionRow} 会把它们收回底栏。
+     * 把底栏的一个常驻键（123、中/英、空格、换行）挂进本布局的一列：先从原来的父视图摘下，按底栏同样的规矩给角色和样式，放进底栏同一个键组（字号由组定）。没有底栏的布局（注音九键）切走时，{@link ImeBottomRow#updateActionRow} 会把它们收回底栏。
      */
     private void adoptBarKey(LinearLayout parent, Button key, KeyboardKeyRole role) {
         if (key == null) return;
         if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
         s.imeStyler.styleButton(key, role, s.skin);
-        if (role == KeyboardKeyRole.ACCENT) KeyboardTypographyPolicy.setFunctionKeyTextSize(key);
+        s.imeKeyFaces.attachBottomRow(key, key == s.spaceButton ? KeyboardActionRow.DesignSlot.SPACE
+            : key == s.enterButton ? KeyboardActionRow.DesignSlot.RETURN
+            : key == s.languageButton ? KeyboardActionRow.DesignSlot.LANGUAGE : KeyboardActionRow.DesignSlot.LAYER);
         ViewPolicy.show(key);
         addNineKey(parent, key);
     }
@@ -1724,10 +1728,9 @@ final class ImeLayoutRows {
     void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
         // 侧列是功能键（123、符、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        // 侧列只占外框的 3/20，键盘收窄或大字体时固定字号的「空白」「改行」会折成两行。文字键放进功能键组：一行、全组一个字号、放不下时缩小。改行随底行的回车一起迁入，暂时仍按键宽各自缩小；◀ → ⌫ 是图标（⌫ 由调用方放进组）。
+        // 侧列只占外框的 3/20，键盘收窄或大字体时固定字号的「空白」「改行」会折成两行。文字键（含改行）放进功能键组：一行、全组一个字号、放不下时缩小；键面会变的几个按各自的键面规格放进去。◀ → ⌫ 是图标（⌫ 由调用方放进组）。
         if (button == s.japaneseReturnKey) {
-            KeyboardTypographyPolicy.setFittedKeyTextSize(button, KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP,
-                KeyboardTypographyPolicy.DEFAULT_KEY_TEXT_SP);
+            s.imeKeyFaces.attachFunction(button, KeyFaceSpecs.JAPANESE_RETURN);
         } else if (button == s.japaneseSpaceKey) {
             s.imeKeyFaces.attachFunction(button, KeyFaceSpecs.JAPANESE_SPACE);
         } else if (button == s.japaneseLanguageKey) {

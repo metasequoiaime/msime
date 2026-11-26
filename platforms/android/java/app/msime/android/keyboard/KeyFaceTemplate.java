@@ -71,12 +71,17 @@ public record KeyFaceTemplate(String name, Map<KeyFaceSlot, SlotSpec> slots, flo
     }
 
     /**
-     * 图标的尺寸规则：边长随键格高度按 {@code heightRatio} 变化，夹在 {@code minDp} 和 {@code maxDp} 之间，再不超过键格的短边（去掉两侧的 {@code sideInsetDp}）。图标不跟字体缩放，与原来的 22 dp 图标一样。
+     * 图标的尺寸规则：边长随键格高度按 {@code heightRatio} 变化，夹在 {@code minDp} 和 {@code maxDp} 之间，再不超过键格的短边（去掉两侧的 {@code sideInsetDp}）。图标不跟字体缩放，与原来的 22 dp 图标一样。{@code inkTop}、{@code inkRight} 是图标墨迹的上沿和右沿在方框里的位置（按边长的比例）：图标和右上角提示隔不隔得开按墨迹算，不按整个方框（↵ 的墨迹离方框右上角还有一截，正是「换行」的位置）。
      */
-    public record IconSpec(float heightRatio, float minDp, float maxDp) {
+    public record IconSpec(float heightRatio, float minDp, float maxDp, float inkTop, float inkRight) {
         public IconSpec {
-            if (!(heightRatio > 0) || !(minDp > 0) || maxDp < minDp)
+            if (!(heightRatio > 0) || !(minDp > 0) || maxDp < minDp || inkTop < 0 || inkTop >= .5f || inkRight <= .5f || inkRight > 1)
                 throw new IllegalArgumentException("bad icon spec " + heightRatio + " " + minDp + " " + maxDp);
+        }
+
+        /** 图标墨迹占满整个方框（核对右上角提示时按整个方框算）。 */
+        public IconSpec(float heightRatio, float minDp, float maxDp) {
+            this(heightRatio, minDp, maxDp, 0, 1);
         }
     }
 

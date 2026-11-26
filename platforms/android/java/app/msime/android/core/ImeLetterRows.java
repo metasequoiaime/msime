@@ -1590,12 +1590,15 @@ final class ImeLetterRows {
                 key = s.spaceButton;
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.KEY, s.skin);
+                // 与功能行同一个空格键、同一个组（字号和麦克风尺寸由组定）。
+                if (key != null) s.imeKeyFaces.attachBottomRow(key, KeyboardActionRow.DesignSlot.SPACE);
                 return key;
             }
             case RETURN -> {
                 key = s.enterButton;
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.RETURN);
                 if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
+                if (key != null) s.imeKeyFaces.attachBottomRow(key, KeyboardActionRow.DesignSlot.RETURN);
                 return key;
             }
             default -> { return null; }

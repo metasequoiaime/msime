@@ -59,33 +59,38 @@ final class KeyFaceLayoutChecks {
         Activity activity = test.startActivitySync(new Intent().setClassName(test.getTargetContext(),
             "app.msime.android.home.HomeActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         AtomicReference<Throwable> failure = new AtomicReference<>();
+        // 每种状态单独在主线程上跑一次，中间把主线程让出来：一次跑完一百多种状态会挡住输入事件，被系统判成无响应。
+        FrameLayout[] holder = new FrameLayout[1];
+        int[] strays = new int[1];
         try {
-            test.runOnMainSync(() -> {
-                try {
-                    FrameLayout holder = create(activity);
-                    int strays = strayCount();
-                    for (String[] layout : LAYOUTS) {
-                        for (int widthDp : WIDTHS_DP) {
-                            for (String state : new String[] {"空闲", "组字", "123 层"}) {
-                                String where = layout[0] + " " + widthDp + "dp " + state;
-                                JSONObject view = new JSONObject(layout[1]);
-                                if (state.equals("组字")) view.put("editing_text", "a");
-                                show(holder, view, widthDp, state.equals("123 层"));
-                                int now = strayCount();
-                                if (now != strays) problems.add(where + "：" + (now - strays) + " 段字不在键组的内容域里（见 logcat 的 key face list misses）");
-                                strays = now;
-                                inspect(where);
-                            }
-                        }
-                    }
-                } catch (Exception | AssertionError error) {
-                    failure.set(error);
-                } finally {
-                    if (service != null) destroy();
-                }
+            onMain(failure, () -> {
+                holder[0] = create(activity);
+                strays[0] = strayCount();
             });
+            for (String[] layout : LAYOUTS) {
+                for (int widthDp : WIDTHS_DP) {
+                    for (String state : new String[] {"空闲", "组字", "123 层"}) {
+                        if (failure.get() != null) break;
+                        onMain(failure, () -> {
+                            String where = layout[0] + " " + widthDp + "dp " + state;
+                            JSONObject view = new JSONObject(layout[1]);
+                            if (state.equals("组字")) view.put("editing_text", "a");
+                            show(holder[0], view, widthDp, state.equals("123 层"));
+                            int now = strayCount();
+                            if (now != strays[0])
+                                problems.add(where + "：" + (now - strays[0]) + " 段字不在键组的内容域里（见 logcat 的 key face list misses）");
+                            strays[0] = now;
+                            inspect(where);
+                        });
+                    }
+                }
+            }
         } finally {
+            test.runOnMainSync(() -> { if (service != null) destroy(); });
             test.runOnMainSync(activity::finish);
+            // 等这个界面真的关掉、失焦事件派完再返回：随后的检查会长时间占着主线程，失焦事件排在后面超过 5 秒就被判成无响应。
+            for (int waited = 0; waited < 50 && !activity.isDestroyed(); waited++) Thread.sleep(100);
+            test.waitForIdleSync();
         }
         if (failure.get() != null) throw new AssertionError("键组布局检查没跑完：" + failure.get(), failure.get());
         for (Map.Entry<String, float[]> entry : spreads.entrySet())
@@ -95,6 +100,16 @@ final class KeyFaceLayoutChecks {
             List<String> shown = problems.subList(0, Math.min(problems.size(), 25));
             throw new AssertionError(problems.size() + " 处键组问题：" + String.join("；", shown));
         }
+    }
+
+    private interface Step { void run() throws Exception; }
+
+    /** 在主线程上跑一步，出错时记下第一个错误。 */
+    private void onMain(AtomicReference<Throwable> failure, Step step) {
+        test.runOnMainSync(() -> {
+            try { step.run(); }
+            catch (Exception | AssertionError error) { if (failure.get() == null) failure.set(error); }
+        });
     }
 
     /** 新建一个离屏输入法服务，键盘放进一个可改宽度的容器。 */

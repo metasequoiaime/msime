@@ -11,6 +11,8 @@ import android.graphics.Paint;
  * <p>数字页（{@link #setNumberPadFace}）的空格只有一个功能键宽，主标改画空格符号 ␣，颜色取本键的文字色（数字页这一格按普通键着色，是皮肤的键前景色，不是 ⌫ 那样的功能键前景色）；麦克风缩到右上角作次要提示，和九键角标数字一样取皮肤的提示色、停用时同样调暗，也只在开着长按空格语音时画（#10059）。只画麦克风会让人以为这是点一下就说话的语音键。
  *
  * <p>节点 text 仍是「空格」（§2.8），只是不绘制；键帽背景照常由样式通道设置。麦克风与短名的颜色由调用方从皮肤取后传入。
+ *
+ * <p>放进空格键组（{@link KeyFaceTemplates#SPACE}）后，短名的字号取组算的主标签字号，麦克风和 ␣ 的边长取组算的图标边长（右上角的小麦克风按同样的比例缩放），随键高和字体缩放变；还没布局好或不在组里时按上面的固定尺寸。键面仍由这里自己画：麦克风挨着短名、短名放不下时按字截短、手势中的临时文字，键组的绘制不管这些。
  */
 public final class SpaceKeyFace extends KeyboardPressButton {
     public static final float MIC_DP = 22f;
@@ -129,6 +131,23 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         invalidate();
     }
 
+    /** 键组的内容域只放参照短名（{@link BottomRowKeyFaceDomains#SPACE_LABEL_REFERENCE}）：节点 text「空格」和实际的短名都不画进组的量算里，短名放不下时自己截短。 */
+    @Override public String faceText(KeyFaceSlot slot) {
+        return slot == KeyFaceSlot.MAIN ? BottomRowKeyFaceDomains.SPACE_LABEL_REFERENCE : "";
+    }
+
+    /** 短名的字号（px）：键组算的，没有时是固定的 {@link #LABEL_SP}。 */
+    private float labelPx() {
+        KeyFaceParams params = faceParams();
+        return params != null ? params.main().sizePx() : KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP);
+    }
+
+    /** 麦克风和 ␣ 的边长（px）：键组算的，没有时是 {@code fallbackDp}。 */
+    private float iconPx(float fallbackDp) {
+        KeyFaceParams params = faceParams();
+        return params != null && params.iconPx() > 0 ? params.iconPx() : DimensionPolicy.floatPixels(getContext(), fallbackDp);
+    }
+
     /** 键面内容总宽：麦克风、间距与短名，供居中计算；纯算术，冒烟可测。 */
     public static float contentWidth(float micPx, float gapPx, float labelPx) {
         if (labelPx <= 0) return micPx;
@@ -143,11 +162,10 @@ public final class SpaceKeyFace extends KeyboardPressButton {
             drawNumberPadFace(canvas);
             return;
         }
-        ViewPolicy.setTextSize(label, KeyboardTypographyPolicy.keySp(getContext(), LABEL_SP));
+        ViewPolicy.setTextSize(label, labelPx());
         label.setColor(faceColor);
         boolean overlay = !transientLabel.isEmpty();
-        float mic = (showsMic && !overlay)
-            ? BoundsPolicy.atMost(DimensionPolicy.floatPixels(getContext(), MIC_DP), getHeight()) : 0f;
+        float mic = (showsMic && !overlay) ? BoundsPolicy.atMost(iconPx(MIC_DP), getHeight()) : 0f;
         float gap = DimensionPolicy.floatPixels(getContext(), GAP_DP);
         float available = getWidth() - mic - gap - DimensionPolicy.floatPixels(getContext(), 8);
         String text = overlay ? transientLabel : schemeLabel;
@@ -155,7 +173,8 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         int separator = text.lastIndexOf(" · ");
         if (!overlay && separator >= 0 && label.measureText(text) > available)
             text = text.substring(separator + 3);
-        while (!text.isEmpty() && label.measureText(text) > available && text.length() > 1) {
+        // 截到放得下为止；有麦克风时连一个字都放不下就只画麦克风（注音九键右列的空格在 240 dp 宽的键盘上只有约 29 dp，原来留下的一个字画出了键格）。没有麦克风时至少留一个字，空格不会是空白的。
+        while (!text.isEmpty() && label.measureText(text) > available && (text.length() > 1 || mic > 0)) {
             text = text.substring(0, text.length() - 1);
         }
         float textWidth = text.isEmpty() ? 0f : label.measureText(text);
@@ -175,14 +194,14 @@ public final class SpaceKeyFace extends KeyboardPressButton {
 
     /** 数字页键面：居中画 ␣（本键文字色）；开着长按空格语音时在右上角画小麦克风，颜色与透明度同 {@link NineKeyDigitButton} 的角标数字，位置与九键角标数字（{@link KeyHintButton#CORNER_HINT_TOP_DP}、{@link KeyHintButton#CORNER_HINT_RIGHT_DP}）对齐。 */
     private void drawNumberPadFace(Canvas canvas) {
-        float glyph = BoundsPolicy.atMost(DimensionPolicy.floatPixels(getContext(), NUMBER_PAD_GLYPH_DP),
-            DimensionPolicy.shorterSide(getWidth(), getHeight()));
+        float glyph = BoundsPolicy.atMost(iconPx(NUMBER_PAD_GLYPH_DP), DimensionPolicy.shorterSide(getWidth(), getHeight()));
         int color = getCurrentTextColor();
         if (!isEnabled()) color = ColorPolicy.withAlpha(color, 96f / 255f);
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.SPACE_BAR, (getWidth() - glyph) / 2f,
             (getHeight() - glyph) / 2f, glyph, color);
         if (!showsMic) return;
-        float mic = DimensionPolicy.floatPixels(getContext(), NUMBER_PAD_MIC_DP);
+        // 角上的小麦克风与 ␣ 同比例缩放（设计 14 dp 对 22 dp）。
+        float mic = iconPx(NUMBER_PAD_GLYPH_DP) * NUMBER_PAD_MIC_DP / NUMBER_PAD_GLYPH_DP;
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC,
             getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) - mic,
             DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP), mic,

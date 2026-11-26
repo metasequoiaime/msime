@@ -12,7 +12,16 @@ package app.msime.android;
  * @param helpcode 14/18 键此刻能用网格辅助码（视图的 {@code grid_helpcode_available}）
  * @param engineScheme 引擎方案号（{@link InputSchemeTraits}），没有视图时为 -1
  * @param selected 选中的触屏方案；没有时为 {@code null}
+ * @param numberPad 画的是数字九宫格
+ * @param sharedSymbolRows 画的是注音（大千、注音九键）共用的 #+= 符号行
+ * @param chineseFace 中文键面（{@link KeyboardLayout#chineseFace}）：借来的数字九宫格上返回键写「返回」
+ * @param japanese 日语方案在用（回车组字时写「確定」）
+ * @param returnConfirms 回车此刻是「确认」：有组字、且不是字母组合方案在拼（{@code returnKeyConfirms}）
+ * @param translationHold 长按回车能上屏译文（角标「译」）
+ * @param newlineHold 长按回车能换行（角标「换行」）
  */
 public record KeyFaceLive(boolean composing, boolean symbols, boolean english, boolean chineseSession,
-        boolean localModeNone, boolean capsLock, boolean helpcode, int engineScheme, KeyboardScheme selected) {
+        boolean localModeNone, boolean capsLock, boolean helpcode, int engineScheme, KeyboardScheme selected,
+        boolean numberPad, boolean sharedSymbolRows, boolean chineseFace, boolean japanese, boolean returnConfirms,
+        boolean translationHold, boolean newlineHold) {
 }

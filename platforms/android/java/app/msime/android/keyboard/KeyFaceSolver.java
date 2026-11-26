@@ -274,8 +274,9 @@ public final class KeyFaceSolver {
             }
         }
         float gap = environment.px(template.gapDp());
-        // 居中的图标边长 s：上沿 (h - s) / 2 不高于提示下沿加间距，或右沿 (w + s) / 2 不越过提示左沿减间距。
-        float clear = Math.max(cell.height() - 2 * (cornerBottom + gap), 2 * (cornerLeft - gap) - cell.width());
+        // 居中的图标边长 s，墨迹上沿 h/2 - s(1/2 - inkTop) 不高于提示下沿加间距，或墨迹右沿 w/2 + s(inkRight - 1/2) 不越过提示左沿减间距。
+        float clear = Math.max((cell.height() / 2f - cornerBottom - gap) / (.5f - spec.inkTop()),
+            (cornerLeft - gap - cell.width() / 2f) / (spec.inkRight() - .5f));
         if (params.iconPx() <= clear) return params;
         float floor = Math.min(params.iconPx(), environment.px(spec.minDp()));
         if (clear >= floor)

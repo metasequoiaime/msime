@@ -10,8 +10,10 @@ import app.msime.android.KeyboardIconKey;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.NineKeyCompositionActionPolicy;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -22,7 +24,7 @@ public final class KeyFaceSpecsSmoke {
 
     private static final List<KeyFaceSpec<?>> SPECS = List.of(KeyFaceSpecs.SHIFT, KeyFaceSpecs.FOURTEEN_SEPARATOR,
         KeyFaceSpecs.NINE_ONE, KeyFaceSpecs.JAPANESE_LAYER, KeyFaceSpecs.JAPANESE_VARIANTS, KeyFaceSpecs.JAPANESE_SPACE,
-        KeyFaceSpecs.LANGUAGE);
+        KeyFaceSpecs.JAPANESE_RETURN, KeyFaceSpecs.LANGUAGE, KeyFaceSpecs.SYMBOL_PANEL, KeyFaceSpecs.LAYER, KeyFaceSpecs.RETURN);
 
     public static void main(String[] args) {
         List<KeyFaceLayout> layouts = layouts();
@@ -57,6 +59,21 @@ public final class KeyFaceSpecsSmoke {
         check(KeyFaceSpecs.LANGUAGE.texts(japanese, KeyFaceSlot.MAIN).equals(List.of("中", "英")), "不轮换时语言键只有中、英");
         check(KeyFaceSpecs.LANGUAGE.texts(cycling, KeyFaceSlot.MAIN).equals(List.of("中", "英", "あ", "한")),
             "轮换时语言键应加上可选的其他语言：" + KeyFaceSpecs.LANGUAGE.texts(cycling, KeyFaceSlot.MAIN));
+        // 底行：符键只在九键双拼上列「分词」（26 键上与中/英一样只为「符」留位置）；123 键只列这副键盘的层标题。
+        check(KeyFaceSpecs.SYMBOL_PANEL.texts(standard, KeyFaceSlot.MAIN).equals(List.of("符")), "26 键的符键只应有「符」");
+        KeyFaceLayout shuangpinNine = new KeyFaceLayout(1, false, NineKeyCompositionActionPolicy.SEPARATE, true,
+            ChineseSymbolFaces.Marks.DEFAULT, false, List.of(), List.of(), true);
+        check(KeyFaceSpecs.SYMBOL_PANEL.texts(shuangpinNine, KeyFaceSlot.MAIN).equals(List.of("符", "分词")),
+            "九键双拼的符键应有「符」「分词」");
+        check(!KeyFaceSpecs.LAYER.texts(standard, KeyFaceSlot.MAIN).contains("あいう"), "26 键的 123 键不应有「あいう」");
+        check(KeyFaceSpecs.LAYER.texts(standard, KeyFaceSlot.MAIN).contains("123")
+            && KeyFaceSpecs.LAYER.texts(standard, KeyFaceSlot.MAIN).contains("返回"), "26 键的 123 键缺 123 或返回");
+        check(KeyFaceSpecs.LAYER.texts(japanese, KeyFaceSlot.MAIN).contains("あいう"), "日语九键的 123 键缺「あいう」");
+        // 回车：组字时的两种字、两种角标；画图标时不占文字。
+        check(KeyFaceSpecs.RETURN.texts(standard, KeyFaceSlot.MAIN).equals(List.of("确认", "確定")), "回车的字应是确认、確定");
+        check(KeyFaceSpecs.RETURN.texts(standard, KeyFaceSlot.TOP_RIGHT).equals(List.of("换行", "译")), "回车的角标应是换行、译");
+        // 底行的语言键不进 26 键的功能键组。
+        check(!KeyFaceSpecs.functionTexts(standard, KeyFaceSlot.MAIN).contains("中"), "26 键的功能键组不应有中/英");
         // 画图标的状态不进内容域。
         check(KeyFace.icon(KeyboardIconKey.Kind.SHIFT).mainText().isEmpty(), "图标不占文字");
         System.out.println("KeyFaceSpecsSmoke passed");
@@ -80,36 +97,64 @@ public final class KeyFaceSpecsSmoke {
         }
     }
 
+    /** 每种触屏布局一个基准，再各改一项设置（全拼 Shift、九键 1 键的动作、中英键轮换和全部方案、九键双拼）。 */
     private static List<KeyFaceLayout> layouts() {
         List<KeyFaceLayout> layouts = new ArrayList<>();
-        List<List<KeyboardScheme>> schemeSets = List.of(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE),
-            List.of(KeyboardScheme.values()));
-        for (int touchLayout = 0; touchLayout <= 9; touchLayout++)
-            for (boolean shift : new boolean[] {false, true})
-                for (String action : List.of(NineKeyCompositionActionPolicy.SEPARATE, NineKeyCompositionActionPolicy.REWRITE))
-                    for (boolean cycles : new boolean[] {false, true})
-                        for (List<KeyboardScheme> schemes : schemeSets)
-                            layouts.add(layout(touchLayout, shift, action, cycles, schemes));
+        List<KeyboardScheme> chinese = List.of(KeyboardScheme.QUANPIN, KeyboardScheme.XIAOHE);
+        List<KeyboardScheme> all = List.of(KeyboardScheme.values());
+        String separate = NineKeyCompositionActionPolicy.SEPARATE;
+        for (int touchLayout = 0; touchLayout <= 9; touchLayout++) {
+            layouts.add(layout(touchLayout, false, separate, false, chinese, false));
+            layouts.add(layout(touchLayout, true, separate, false, chinese, false));
+            layouts.add(layout(touchLayout, false, NineKeyCompositionActionPolicy.REWRITE, false, chinese, false));
+            layouts.add(layout(touchLayout, false, separate, false, all, false));
+            layouts.add(layout(touchLayout, false, separate, true, all, false));
+            layouts.add(layout(touchLayout, false, separate, false, chinese, true));
+        }
         return layouts;
     }
 
+    private static final Map<List<KeyboardScheme>, List<KeyFaceLive>> LIVES = new HashMap<>();
+
     /** 这副键盘上可能的每种此刻状态：选中的方案只取这副键盘可选的（或没有）。 */
     private static List<KeyFaceLive> lives(KeyFaceLayout layout) {
-        List<KeyboardScheme> selected = new ArrayList<>(layout.schemes());
+        return LIVES.computeIfAbsent(layout.schemes(), KeyFaceSpecsSmoke::lives);
+    }
+
+    /** 选中的方案取这副键盘可选的里有代表性的几个（没有、全拼、双拼）和每种其他语言（语言键轮换时画它们的字）。 */
+    private static List<KeyFaceLive> lives(List<KeyboardScheme> schemes) {
+        List<KeyboardScheme> selected = new ArrayList<>();
         selected.add(null);
+        for (KeyboardScheme scheme : schemes)
+            if (scheme == KeyboardScheme.QUANPIN || scheme == KeyboardScheme.XIAOHE || scheme.otherLanguage()) selected.add(scheme);
         List<KeyFaceLive> lives = new ArrayList<>();
-        for (int bits = 0; bits < 128; bits++)
-            for (int scheme : new int[] {-1, 0, InputSchemeTraits.WUBI})
-                for (KeyboardScheme chosen : selected)
-                    lives.add(new KeyFaceLive((bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0, (bits & 8) != 0,
-                        (bits & 16) != 0, (bits & 32) != 0, (bits & 64) != 0, scheme, chosen));
+        // 14 个开关：组字、符号层、英文、中文会话、无临时模式、锁定大写、辅助码、数字九宫格、注音共用行、中文键面、日语、回车确认、长按译文、长按换行。
+        // 全部开关的组合各走一遍（不选方案）；选中的方案和引擎方案只和前五个开关（组字、符号层、英文、中文会话、无临时模式）组合，它们只和这几个开关一起起作用。
+        for (int bits = 0; bits < 1 << 14; bits++) lives.add(live(bits, -1, null));
+        for (int bits = 0; bits < 1 << 5; bits++)
+            for (int scheme : new int[] {-1, InputSchemeTraits.WUBI})
+                for (KeyboardScheme chosen : selected) lives.add(live(bits, scheme, chosen));
         return lives;
     }
 
     private static KeyFaceLayout layout(int touchLayout, boolean shift, String action, boolean cycles,
             List<KeyboardScheme> schemes) {
+        return layout(touchLayout, shift, action, cycles, schemes, false);
+    }
+
+    private static KeyFaceLayout layout(int touchLayout, boolean shift, String action, boolean cycles,
+            List<KeyboardScheme> schemes, boolean shuangpin) {
         return new KeyFaceLayout(touchLayout, shift, action, true, ChineseSymbolFaces.Marks.DEFAULT, cycles, schemes,
-            List.of());
+            List.of(), shuangpin);
+    }
+
+    private static KeyFaceLive live(int bits, int scheme, KeyboardScheme chosen) {
+        return new KeyFaceLive(bit(bits, 0), bit(bits, 1), bit(bits, 2), bit(bits, 3), bit(bits, 4), bit(bits, 5), bit(bits, 6),
+            scheme, chosen, bit(bits, 7), bit(bits, 8), bit(bits, 9), bit(bits, 10), bit(bits, 11), bit(bits, 12), bit(bits, 13));
+    }
+
+    private static boolean bit(int bits, int index) {
+        return (bits & (1 << index)) != 0;
     }
 
     private static void check(boolean condition, String message) {

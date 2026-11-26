@@ -57,7 +57,31 @@ public enum KeyFaceRole {
     /** 九键、笔画和数字九宫格左侧的符号栏。 */
     SIDE_SYMBOLS(KeyFaceTemplates.SIDE_SYMBOLS, Set.of(), null),
     /** 符号栏末尾右上角印 0 的 ！（大回车外框）：自己一组，整栏按最宽的符号判断碰不碰角标时不用为它让位。 */
-    SIDE_CORNER(KeyFaceTemplates.SIDE_SYMBOLS, Set.of(KeyFaceSlot.TOP_RIGHT), null);
+    SIDE_CORNER(KeyFaceTemplates.SIDE_SYMBOLS, Set.of(KeyFaceSlot.TOP_RIGHT), null),
+
+    // 底行（功能行，以及挪进右侧大回车外框、注音九键两列、#+= 层最后一行的同一批常驻键）：键宽各不相同、能画的字也各不相同，每个键各按自己的字定字号，所以每个键一个角色、一组。这些键在建键行之后还留着用，组不随建键行清空（persistent）。
+    /** 符键：「符」，九键双拼组字时「分词」（{@link KeyFaceSpecs#SYMBOL_PANEL}）。 */
+    BOTTOM_SYMBOL_PANEL(KeyFaceTemplates.FUNCTIONS, Set.of(), null),
+    /** 123 键和这副键盘的层标题（{@link KeyFaceSpecs#LAYER}）。 */
+    BOTTOM_LAYER(KeyFaceTemplates.FUNCTIONS, Set.of(), null),
+    /** 中/英键（{@link KeyFaceSpecs#LANGUAGE}）。 */
+    BOTTOM_LANGUAGE(KeyFaceTemplates.FUNCTIONS, Set.of(), null),
+    /** 手写底行的「重写」。 */
+    BOTTOM_REWRITE(KeyFaceTemplates.FUNCTIONS, Set.of(), null),
+    /** 底行的 😀。 */
+    BOTTOM_EMOJI(KeyFaceTemplates.FUNCTIONS, Set.of(), null),
+    /** 手写底行的 ⌫。 */
+    BOTTOM_DELETE(KeyFaceTemplates.FUNCTIONS, Set.of(), null),
+    /** 底行的逗号键，右上角是长按输入的标点。 */
+    BOTTOM_COMMA(KeyFaceTemplates.BOTTOM_COMMA, Set.of(KeyFaceSlot.TOP_RIGHT), null),
+    /** 底行的句号键，手写底行右上角是长按输入的叹号。 */
+    BOTTOM_PERIOD(KeyFaceTemplates.BOTTOM_PERIOD, Set.of(KeyFaceSlot.TOP_RIGHT), null),
+    /** 空格：方案短名和麦克风由 {@link SpaceKeyFace} 自己画，字号和图标边长取这一组。 */
+    BOTTOM_SPACE(KeyFaceTemplates.SPACE, Set.of(), null),
+    /** 回车（{@link KeyFaceSpecs#RETURN}）。 */
+    RETURN(KeyFaceTemplates.RETURN, Set.of(KeyFaceSlot.TOP_RIGHT), null),
+    /** 右侧大回车外框里的同一个回车：设计尺寸落在两行键高上，字以同一列的功能键为上限。 */
+    TALL_RETURN(KeyFaceTemplates.TALL_RETURN, Set.of(KeyFaceSlot.TOP_RIGHT), null);
 
     private final KeyFaceTemplate template;
     private final Set<KeyFaceSlot> slots;
@@ -89,6 +113,10 @@ public enum KeyFaceRole {
             case STROKE_KEYS -> List.of(STROKES);
             case ZHUYIN_MARKS -> List.of(ZHUYIN_SOUNDS);
             case SIDE_CORNER -> List.of(SIDE_SYMBOLS);
+            case BOTTOM_SYMBOL_PANEL, BOTTOM_LAYER, BOTTOM_LANGUAGE, BOTTOM_REWRITE, BOTTOM_EMOJI, BOTTOM_DELETE, RETURN ->
+                KEYBOARD_LETTERS;
+            case BOTTOM_PERIOD -> List.of(BOTTOM_COMMA);
+            case TALL_RETURN -> List.of(FUNCTIONS);
             default -> List.of();
         };
     }
@@ -96,6 +124,16 @@ public enum KeyFaceRole {
     /** 九键的键用 `sans-serif-medium`（等宽皮肤用等宽字体），与样式通道给九键键帽的字体相同。 */
     public boolean nineKeyTypeface() {
         return this == NINE_LETTERS || this == NINE_DIGITS || this == NINE_SHUANGPIN;
+    }
+
+    /** 底行的角色：组不随建键行清空，换了一套控件时才作废（{@code ImeKeyFaces.resetBottomRow}）。 */
+    public boolean persistent() {
+        return ordinal() >= BOTTOM_SYMBOL_PANEL.ordinal();
+    }
+
+    /** 主标签用粗体（回车的「确认」）。 */
+    public boolean bold() {
+        return this == RETURN || this == TALL_RETURN;
     }
 
     /** 建键行后还会挪到别处继续用的键（⇧、⌫、底行的 0）放进的角色：建键行时先把它们拿出组。 */
