@@ -14970,7 +14970,7 @@ private:
                 L"新造的五笔词排在同码已有词之后（默认，等于现状）还是之前；入库这一次之后照常参与调频。",
                 placement_combo);
       }
-      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，在学习开关和自造词位置之后。
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
                L"next_word_prediction", false);
