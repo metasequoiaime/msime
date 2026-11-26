@@ -1786,9 +1786,8 @@ fn fuzzy_candidates_do_not_allocate_the_full_path_budget_up_front() {
 fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     let fixture = fuzzy_fixture();
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);
-    // 保持这条分配回归测试的路径集合稳定，新增规则有自己的规则行为测试。
     let options = FuzzyPinyinOptions {
-        rules: fuzzy_rule::ALL & !fuzzy_rule::UN_ONG,
+        rules: fuzzy_rule::ALL,
     };
     let _ = dictionary.fuzzy_candidates("zong'guo", options);
     dictionary.fuzzy_cache.clear();
@@ -1801,7 +1800,8 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.fuzzy_candidates("zong'guo", options);
     });
-    assert_eq!(skipped, 12, "两个前缀展开路径要申请的次数");
+    // un-ong 让 zong 多出 zun 一条展开路径，路径数随之翻倍。
+    assert_eq!(skipped, 24, "两个前缀展开路径要申请的次数");
     assert_eq!(
         allocations, 7,
         "模糊候选重复复制了读音、文字字段或查询键: {allocations}"

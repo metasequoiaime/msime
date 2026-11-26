@@ -982,9 +982,9 @@ int main() {
   click(fuzzy_rule_first);
   click(fuzzy_enabled);
   assert(!IsWindowEnabled(GetDlgItem(body, fuzzy_rule_first)));
-  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 10);
+  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 11);
   click(fuzzy_enabled);
-  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 10);
+  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 11);
   saved = store.load();
   click(fuzzy_reset);
   assert(reset_confirmations == 1 && store.load().snapshot->revision() == saved.snapshot->revision());
