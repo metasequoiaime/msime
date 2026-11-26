@@ -204,6 +204,7 @@ enum Fuzzy {
     InIng,
     IanIang,
     UanUang,
+    UnOng,
 }
 
 impl Fuzzy {
@@ -220,6 +221,7 @@ impl Fuzzy {
             Self::InIng => fuzzy_rule::IN_ING,
             Self::IanIang => fuzzy_rule::IAN_IANG,
             Self::UanUang => fuzzy_rule::UAN_UANG,
+            Self::UnOng => fuzzy_rule::UN_ONG,
         }
     }
 }

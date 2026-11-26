@@ -364,6 +364,7 @@ static NSArray<NSArray<NSString *> *> *FuzzyPinyinRuleControls() {
         @[@"n-l", @"n / l"], @[@"f-h", @"f / h"], @[@"r-l", @"r / l"],
         @[@"an-ang", @"an / ang"], @[@"en-eng", @"en / eng"], @[@"in-ing", @"in / ing"],
         @[@"ian-iang", @"ian / iang"], @[@"uan-uang", @"uan / uang"],
+        @[@"un-ong", @"un / ong"],
     ];
 }
 static BOOL ValidFuzzyPinyinRules(id value) {

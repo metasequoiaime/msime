@@ -897,8 +897,9 @@ pub mod fuzzy_rule {
     pub const IN_ING: u32 = 1 << 8;
     pub const IAN_IANG: u32 = 1 << 9;
     pub const UAN_UANG: u32 = 1 << 10;
+    pub const UN_ONG: u32 = 1 << 11;
     /// Every defined rule; the host masks its preference with this.
-    pub const ALL: u32 = 0x7ff;
+    pub const ALL: u32 = 0xfff;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

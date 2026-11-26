@@ -174,7 +174,7 @@ struct FuzzyRule {
 };
 
 // 模糊音规则按四个小标题分组，顺序与共享页 `fuzzyPinyinGroups` 相同。
-inline constexpr std::array<FuzzyRule, 11> fuzzy_rules{{
+inline constexpr std::array<FuzzyRule, 12> fuzzy_rules{{
     {L"平翘舌", L"z-zh", L"z ↔ zh"},
     {L"平翘舌", L"c-ch", L"c ↔ ch"},
     {L"平翘舌", L"s-sh", L"s ↔ sh"},
@@ -186,6 +186,7 @@ inline constexpr std::array<FuzzyRule, 11> fuzzy_rules{{
     {L"前后鼻音", L"in-ing", L"in ↔ ing"},
     {L"其他韵母", L"ian-iang", L"ian ↔ iang"},
     {L"其他韵母", L"uan-uang", L"uan ↔ uang"},
+    {L"其他韵母", L"un-ong", L"un ↔ ong"},
 }};
 
 struct PagingKeys {
