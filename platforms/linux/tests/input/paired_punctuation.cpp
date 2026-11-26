@@ -48,6 +48,15 @@ int main() {
   assert(paired_closing_for_key('}', true, tracker, false) == "」");
   assert(tracker.consume(*paired_closing_for_key('}', true, tracker, false), "」", true));
   assert(tracker.empty());
+  // 日语方案的 `[` 出「、`{` 出『：补完后按 `]`/`}` 要跨过刚补的右半，不再插入一个。
+  tracker.push("」");
+  assert(paired_closing_for_key(']', false, tracker, false) == "」");
+  assert(tracker.consume(*paired_closing_for_key(']', false, tracker, false), "」", true));
+  assert(tracker.empty());
+  tracker.push("』");
+  assert(paired_closing_for_key('}', false, tracker, false) == "』");
+  assert(tracker.consume(*paired_closing_for_key('}', false, tracker, false), "』", true));
+  assert(tracker.empty());
   assert(!paired_closing_for_key(',', false, tracker, false));
   // 弯引号样式下 `{` 你好 `'`：`'` 出的是‘’，不能跨过 `{` 补出的」；consume 不符就清空栈，`'` 照常开一对新的。
   tracker.push("」");
@@ -109,6 +118,13 @@ int main() {
     assert(paired_closing_from_text(text) == std::optional<std::string>("」"));
     text = "你好「";
     assert(normalize_punctuation_pair(text, Mode::Brace) && text == "你好「」");
+    // 日语方案的 `[` 出「、`{` 出『，宿主按末尾实际落地的字补另一半。
+    text = "你好「";
+    assert(normalize_punctuation_pair(text, Mode::Bracket) && text == "你好「」");
+    assert(paired_closing_from_text(text) == std::optional<std::string>("」"));
+    text = "『";
+    assert(normalize_punctuation_pair(text, Mode::Brace) && text == "『』");
+    assert(paired_closing_from_text(text) == std::optional<std::string>("』"));
     // `}` 出的」不是 `{` 的前半个，不补。
     text = "」";
     assert(!normalize_punctuation_pair(text, Mode::Brace) && text == "」");

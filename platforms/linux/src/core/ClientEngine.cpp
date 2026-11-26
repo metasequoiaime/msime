@@ -2376,6 +2376,7 @@ Json prefer_online_translations(const Json &glosses, const Json &online) {
 }
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::Unpaired,
+           bool *pair_inserted = nullptr,
            std::optional<std::string> space_convert_preceding = std::nullopt,
            char space_convert_key = 0);
 void render(IBusEngine *engine, const Json &view);
@@ -4744,8 +4745,9 @@ bool commit_translation_candidate(IBusEngine *engine, size_t index) {
   return true;
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
-           std::optional<std::string> space_convert_preceding,
+           bool *pair_inserted, std::optional<std::string> space_convert_preceding,
            char space_convert_key) {
+  if (pair_inserted) *pair_inserted = false;
   auto result = response(raw);
   const auto &commit = result.at("commit");
   if (commit.is_string()) {
@@ -4762,6 +4764,7 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode,
     const auto space_convert_mark =
         space_convert_ascii == 0 ? std::string{} : text;
     const bool inserted_pair = normalize_punctuation_pair(text, pair_mode);
+    if (pair_inserted) *pair_inserted = inserted_pair;
     if (s.smart_punctuation && text.size() == 1 &&
         smart_punctuation_pair(text.front())) {
       s.last_smart_punctuation = text.front();
@@ -8370,12 +8373,14 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       const auto pair_mode = key == IBUS_quotedbl
                                  ? PunctuationPairMode::DoubleQuote
                                  : PunctuationPairMode::SingleQuote;
+      bool pair_inserted = false;
       handled = apply(engine, msime_client_punctuation(
                                    s.session, static_cast<uint8_t>(key)),
-                               pair_mode);
+                               pair_mode, &pair_inserted);
       if (!handled)
         handled = fullwidth_idle_commit(key);
-      if (handled)
+      // 只有确实补进右半边时才退光标；引擎没补成（例如全角回退只上屏一个符号）时把光标留在符号之后。
+      if (handled && pair_inserted)
         forward_paired_caret(engine, IBUS_Left, s.shift_down);
       return;
     }
@@ -8385,11 +8390,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       const auto pair_mode = key == '{' ? PunctuationPairMode::Brace
                                         : PunctuationPairMode::Bracket;
       // `{` 和其他成对键一样交给引擎的中文标点表：中文标点下出「（契约第 5 版），由 Brace 模式补」。
+      bool pair_inserted = false;
       const bool engine_handled = apply(
           engine, msime_client_punctuation(s.session, static_cast<uint8_t>(key)),
-          pair_mode);
+          pair_mode, &pair_inserted);
       handled = engine_handled;
-      if (engine_handled && key == '<')
+      if (engine_handled && pair_inserted && key == '<')
         (void)response(msime_client_balance_paired_punctuation_after_auto_close(
             s.session, static_cast<uint8_t>(key)));
       // 引擎没有处理（专用英文空闲时写 ASCII 标点、交回宿主）时保留原来的花括号成对补全。
@@ -8399,11 +8405,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           text = fullwidth_text(std::move(text));
         commit_text(engine, text);
         s.paired_tracker.push(s.fullwidth ? "｝" : "}");
+        pair_inserted = true;
         handled = true;
       }
       if (!handled)
         handled = fullwidth_idle_commit(key);
-      if (handled)
+      if (handled && pair_inserted)
         forward_paired_caret(engine, IBUS_Left, s.shift_down);
       return;
     }
@@ -8565,7 +8572,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       handled = apply(
           engine,
           msime_client_punctuation(s.session, static_cast<uint8_t>(ascii)),
-          PunctuationPairMode::Unpaired, std::move(space_convert_preceding),
+          PunctuationPairMode::Unpaired, nullptr, std::move(space_convert_preceding),
           ascii);
       if (!handled)
         handled = fullwidth_idle_commit(key);

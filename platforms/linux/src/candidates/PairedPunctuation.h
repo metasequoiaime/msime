@@ -89,9 +89,13 @@ inline std::optional<std::string> paired_closing_for_key(
     case '"': return either("”", "』");
     case '\'': return corner_quotes ? either("’", "」") : std::string("’");
     case ')': return std::string("）");
-    case ']': return either("】", "〗");
-    // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。
+    case ']':
+      // 日语方案下 `]` 本身就是 `」`（中文下才是 `】`/`〖`），栈顶是刚补的 `」` 时优先跨过它。
+      if (tracker.matches("」")) return std::string("」");
+      return either("】", "〗");
+    // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；日语方案下 `{` 出『，`}` 跨过』；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。
     case '}':
+      if (tracker.matches("』")) return std::string("』");
       if (tracker.matches("」")) return std::string("」");
       return fullwidth ? std::string("｝") : std::string("}");
     case '>': return std::string("〉");
@@ -105,7 +109,10 @@ inline const char *paired_punctuation_closing(std::string_view text) {
            {"【", "】"},
            {"〖", "〗"},
            {"《", "》"},
-           {"〈", "〉"}}) {
+           {"〈", "〉"},
+           // 日语方案的 `[` 出「、`{` 出『，两个宿主都按提交末尾实际落地的字补另一半。
+           {"「", "」"},
+           {"『", "』"}}) {
     if (text.size() >= opening.size() &&
         text.compare(text.size() - opening.size(), opening.size(), opening) == 0)
       return closing;
@@ -124,8 +131,8 @@ inline bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mo
   if (mode == PunctuationPairMode::Unpaired)
     return false;
   if (mode == PunctuationPairMode::Brace) {
-    if (text.size() >= 3 && text.compare(text.size() - 3, 3, "「") == 0) {
-      text += "」";
+    if (const auto *closing = paired_punctuation_closing(text)) {
+      text += closing;
       return true;
     }
     if (!text.empty() && text.back() == '{') {
