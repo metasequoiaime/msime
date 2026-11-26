@@ -2158,6 +2158,65 @@ try {
         Save-Window $window 'wubi-lookup-wubixsj.png'
         Write-Host 'New century Wubi: selected, saved and looked up in its own column'
     }
+    # 五笔自造词位置（#11863）：与「学习选词习惯」同组，只在五笔方案且学习开启时出现。切到「候选与联想」，默认不写进偏好；选「同码词前」读回 top，再把学习关掉确认整行不再生成、开回来又出现。
+    Select-PageTab $window 'input-tab-candidates' '学习选词习惯'
+    $content = Find-ById $window 'settings-content'
+    $scroll = $content.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
+    $placement = $null
+    foreach ($percent in @(0, 20, 40, 60, 80, 100)) {
+        if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, $percent) }
+        Start-Sleep -Milliseconds 300
+        $placement = Find-ById $window 'wubi-phrase-placement'
+        if ($placement -and -not $placement.Current.IsOffscreen) { break }
+    }
+    if (-not $placement -or $placement.Current.IsOffscreen) { throw 'Wubi phrase placement selector is outside the window' }
+    $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
+    if ($saved.preferences.PSObject.Properties['wubi_phrase_placement']) { throw 'Wubi phrase placement must be omitted at the default bottom' }
+    Save-Window $window 'wubi-phrase-placement.png'
+    $placement.SetFocus()
+    $placement.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    $itemCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $placements = @($placement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $itemCondition) | ForEach-Object { $_.Current.Name })
+    } while ($placements.Count -lt 2 -and [DateTime]::UtcNow -lt $deadline)
+    if (($placements -join '|') -ne '同码词后|同码词前') { throw "Wubi phrase placements are wrong: $($placements -join ', ')" }
+    Start-Sleep -Milliseconds 300
+    Save-Window $window 'wubi-phrase-placement-options.png'
+    $placement.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
+    Select-ComboChoice $window 'wubi-phrase-placement' '同码词前'
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
+        $field = $saved.preferences.PSObject.Properties['wubi_phrase_placement']
+    } while ((!$field -or $field.Value -ne 'top') -and [DateTime]::UtcNow -lt $deadline)
+    if (!$field -or $field.Value -ne 'top') { throw 'Wubi phrase placement was not saved: top' }
+    # 关掉学习后这一行不再生成，开回来又出现。
+    foreach ($expected in @($false, $true)) {
+        $content = Find-ById $window 'settings-content'
+        $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '学习选词习惯')
+        $toggleCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty, $true)
+        $learning = $content.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition($nameCondition, $toggleCondition)))
+        if (-not $learning) { throw 'Missing 学习选词习惯 switch' }
+        $learning.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $saved = (Read-SettingsSnapshotText (Join-Path $state 'preferences.json')) | ConvertFrom-Json
+        } while ($saved.preferences.learning -ne $expected -and [DateTime]::UtcNow -lt $deadline)
+        if ($saved.preferences.learning -ne $expected) { throw "学习选词习惯 was not saved as $expected" }
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 200
+            $placement = Find-ById $window 'wubi-phrase-placement'
+            $settled = if ($expected) { $null -ne $placement } else { $null -eq $placement }
+        } while (-not $settled -and [DateTime]::UtcNow -lt $deadline)
+        if ($expected -and -not $placement) { throw 'Wubi phrase placement did not return after learning was on again' }
+        if (-not $expected -and $placement) { throw 'Wubi phrase placement stayed after learning was off' }
+    }
+    Write-Host 'Wubi phrase placement: default omitted, top saved, hidden with learning off'
     $process.CloseMainWindow() | Out-Null
     if (-not $process.WaitForExit(10000)) { throw 'Settings window failed to close' }
     if ($process.ExitCode -ne 0) { throw "Settings exited with $($process.ExitCode)" }

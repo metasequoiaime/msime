@@ -14951,6 +14951,25 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
+      // 五笔自造词入库位置（共享偏好 `wubi_phrase_placement`）：默认「同码词后」等于没有这个选项时的现状。造词本身受学习开关控制，所以只在五笔方案且学习开启时出现，与学习开关同组。选项取值和文字在 InputSettingsModel.h 的 `wubi_phrase_placements`，Win7 设置用同一张表。
+      if (ism::wubi_phrase_placement_offered(
+              document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W) == L"wubi",
+              document_.Boolean(L"learning", true))) {
+        const auto stored_placement = document_.String(L"wubi_phrase_placement", L"bottom");
+        std::vector<Option> placements;
+        for (auto const &placement : ism::wubi_phrase_placements)
+          placements.push_back({std::wstring(placement.id), std::wstring(placement.label)});
+        auto placement_combo = select_control(
+            L"自造词位置", std::move(placements),
+            std::wstring(ism::wubi_phrase_placement_id(stored_placement)),
+            [this](std::wstring const &value) {
+              change([&](PreferencesDocument &doc) { doc.SetString(L"wubi_phrase_placement", value); }, false);
+            });
+        A11y::SetAutomationId(placement_combo, L"wubi-phrase-placement");
+        add_row(candidates, 0xE8AB, L"自造词位置",
+                L"新造的五笔词排在同码已有词之后（默认，等于现状）还是之前；入库这一次之后照常参与调频。",
+                placement_combo);
+      }
       // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
