@@ -13961,6 +13961,45 @@ INSERT INTO kaomoji_catalog VALUES('(•̀ᴗ•́)و','mei guo'),('(ﾟДﾟ≡
     )));
 }
 
+// ---- 拆不成音节的输入只剩表情行，云占位席位不占首位（#11896） ----
+
+/// `gi`、`wi` 这类拆不成合法音节的字母串走中英混输，本地没有可用的词时候选里只剩 emoji 行；云候选开着时引擎在第二格留一个占位席位（`CloudPending`）。Windows 候选窗不画这一行，席位坐到首位时整页一个高亮行也没有，`candidate_presentation` 抛出 `Invalid candidate highlight`，Server 在输入队列上停机（#11896）。引擎侧的兜底规则不能把席位或 AI 行提到首位。
+#[test]
+fn an_expressive_only_list_keeps_the_cloud_seat_off_the_lead() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_g VALUES('guan','g','关',300);",
+    );
+    Connection::open(fixture.path().join(assets::OTHER_DICTIONARY))
+        .and_then(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);\
+INSERT INTO emoji_pinyin VALUES('gift','🎁',10),('giraffe','🦒',20),('girl','👧',30);\
+CREATE TABLE emoji(emoji TEXT PRIMARY KEY,keywords TEXT);\
+INSERT INTO emoji VALUES('🎁','礼物 present'),('🦒','长颈鹿 animal'),('👧','女孩 person');",
+            )
+        })
+        .expect("fixture msime-others.db");
+    let mut session = fixture.session_with(|options| {
+        options.expressive.emoji_candidates = true;
+    });
+    session.set_cloud_candidates_enabled(true);
+    type_text(&mut session, "gi");
+    let snapshot = session.snapshot();
+    let seat = snapshot
+        .candidate_sources
+        .iter()
+        .position(|source| *source == CandidateSource::CloudPending)
+        .expect("a cloud seat");
+    assert_ne!(seat, 0, "{:?}", words(&session));
+    assert_eq!(
+        snapshot.candidate_sources[0],
+        CandidateSource::Emoji,
+        "{:?}",
+        words(&session)
+    );
+}
+
 // ---- 打拼音出符号（local/symbol_candidates.rs） ----
 
 /// 正负（zheng'fu）排在 政府 后面；大于 供部分选择后再选符号；派（pai）可以由 pa 加辅助码 I 拼出。

@@ -842,7 +842,7 @@ fn place_symbol_rows(list: &mut Vec<WordItem>, mut symbols: Vec<SymbolRow>) {
 
 /// 混排的 emoji、颜文字和符号行（来源 `Emoji`、`Kaomoji`）总跟在一个词后面，混排时不占首位；但混排之后列表还会变：只出单字筛掉了多字的名称词，固定位置把名称词挪到了后面，接在它后面的行就顶到了首位，空格会直接上屏它（W#842）。这一步在列表定型后补救：首位是这些行时，把后面第一个能挪的词提到首位，它前面的这些行各往后挪一位，填上它空出来的位置。
 ///
-/// 能挪的词是没有固定位置、也不坐在线座位（云候选、AI）的行，前面夹着的固定词和在线行原地不动；没有这样的词时退而取第一个词。整个列表都是这些行时不动。
+/// 能挪的词是没有固定位置、也不坐在线座位（云候选、AI）的行，前面夹着的固定词和在线行原地不动；没有这样的词时退而取第一个普通词（固定位置的词也算），仍然不碰在线行（占位席位不能被选中，Windows 候选窗也不画它，见 #11896）。整个列表都是这些行、或只剩在线行时不动。
 pub(crate) fn keep_expressive_rows_off_the_lead(list: &mut [WordItem]) {
     let expressive = |item: &WordItem| {
         matches!(
@@ -858,7 +858,12 @@ pub(crate) fn keep_expressive_rows_off_the_lead(list: &mut [WordItem]) {
         .position(|item| {
             !expressive(item) && item.fixed_position == 0 && !item.source.takes_online_seat()
         })
-        .or_else(|| list.iter().position(|item| !expressive(item)))
+        .or_else(|| {
+            // 没有能挪的词时退而取第一个非表情行；在线行（云候选、AI 行和它们的占位席位）仍然原地不动。
+            // 占位席位不是词，也选不中，Windows 候选窗还不画它，把它提到首位会让整页一个高亮行也没有（#11896）。
+            list.iter()
+                .position(|item| !expressive(item) && !item.source.takes_online_seat())
+        })
     else {
         return;
     };
@@ -2542,6 +2547,34 @@ mod tests {
         let mut list = vec![row(">", CandidateSource::Emoji), fixed];
         keep_expressive_rows_off_the_lead(&mut list);
         assert_eq!(words(&list), vec!["大于", ">"]);
+    }
+
+    /// #11896：拆不成音节的输入（`gi`、`wi`）只剩 emoji 行，云候选开着时引擎在第二格留一个占位席位。席位和 AI 行都不是词，也不能被选中；退而取第一个词的那一步以前会把席位提到首位，而 Windows 候选窗不画这一行，于是整页一个高亮行也没有（`Invalid candidate highlight`），Server 在输入队列上停机。没有可挪的词时就留在原样。
+    #[test]
+    fn online_seats_never_take_the_lead_from_expressive_rows() {
+        for seat in [
+            CandidateSource::CloudPending,
+            CandidateSource::AiPending,
+            CandidateSource::CloudSuggestion,
+            CandidateSource::AiSuggestion,
+        ] {
+            let mut list = vec![
+                row("🎁", CandidateSource::Emoji),
+                row("☁", seat),
+                row("🧡", CandidateSource::Emoji),
+            ];
+            keep_expressive_rows_off_the_lead(&mut list);
+            assert_eq!(words(&list), vec!["🎁", "☁", "🧡"], "{seat:?}");
+        }
+        // 席位前面没有词、后面有词时，提到首位的仍是那个词，席位跟着表情行往后挪。
+        let mut list = vec![
+            row("🎁", CandidateSource::Emoji),
+            row("☁", CandidateSource::CloudPending),
+            row("鸡", CandidateSource::Database),
+            row("🧡", CandidateSource::Emoji),
+        ];
+        keep_expressive_rows_off_the_lead(&mut list);
+        assert_eq!(words(&list), vec!["鸡", "☁", "🎁", "🧡"]);
     }
 
     #[test]
