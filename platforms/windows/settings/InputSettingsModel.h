@@ -57,6 +57,37 @@ inline std::size_t wubi_profile_index(std::wstring_view id) {
   return 0;
 }
 
+struct WubiPhrasePlacement {
+  // `wubi_phrase_placement` 偏好的取值。
+  std::wstring_view id;
+  std::wstring_view label;
+};
+
+// 五笔自造词的入库位置，顺序和取值与共享偏好的 `WubiPhrasePlacement`（`client-core/preferences.rs`）相同：`bottom` 排在库中同码已有词之后（默认，等于没有这个选项时的行为），`top` 排在它们之前；只管入库这一次，之后照常参与调频。
+inline constexpr std::array<WubiPhrasePlacement, 2> wubi_phrase_placements{{
+    {L"bottom", L"同码词后"},
+    {L"top", L"同码词前"},
+}};
+
+// 下拉框选中的档：缺省和不认识的取值都按 `bottom`，与共享偏好读到不认识的值时一样。
+inline std::wstring_view wubi_phrase_placement_id(std::wstring_view stored) {
+  return stored == L"top" ? stored : L"bottom";
+}
+
+// 存储的档在 `wubi_phrase_placements` 里的位置，供下拉框直接选中。
+inline std::size_t wubi_phrase_placement_index(std::wstring_view stored) {
+  const auto id = wubi_phrase_placement_id(stored);
+  for (std::size_t index = 0; index < wubi_phrase_placements.size(); ++index)
+    if (wubi_phrase_placements[index].id == id)
+      return index;
+  return 0;
+}
+
+// 「自造词位置」这一行只在五笔方案、并且学习选词习惯开着时出现：造词本身受学习开关控制，关掉学习时它不会被用到。
+inline bool wubi_phrase_placement_offered(bool wubi_scheme, bool learning) {
+  return wubi_scheme && learning;
+}
+
 // 五笔选词键的一个键：一个英文标点，即 ASCII 的 ! 到 /、: 到 @、[ 到 `、{ 到 ~（共享页的正则 `^[!-/:-@[-`{-~]$`）。
 inline bool wubi_candidate_key(std::wstring_view key) {
   if (key.size() != 1)
