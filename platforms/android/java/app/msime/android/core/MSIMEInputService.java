@@ -139,6 +139,8 @@ public final class MSIMEInputService extends InputMethodService {
     ImeBottomRow imeBottomRow;
     ImeBottomBar imeBottomBar;
     ImePanelLayout imePanelLayout;
+    /** 输入法窗口里画在面板之上的层，见 {@link ImeOverlayHost}。 */
+    ImeOverlayHost imeOverlayHost;
     ImeLayoutRows imeLayoutRows;
     ImeStyler imeStyler;
     ImeFrame imeFrame;
@@ -2153,6 +2155,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
+        imeOverlayHost = new ImeOverlayHost(this);
         imeKeyFaces = new ImeKeyFaces(this);
         imeGlideTyping = new ImeGlideTyping(this);
         imeTouchPoints = new ImeTouchPoints(this);
@@ -11256,6 +11259,7 @@ public final class MSIMEInputService extends InputMethodService {
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
+        imeOverlayHost.attach(keyboardRoot);
         keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (keyboardAdjustActive && !overlayDrawn()
@@ -11291,7 +11295,7 @@ public final class MSIMEInputService extends InputMethodService {
         quickDeleteOverlay = new QuickDeleteOverlay(this);
         keyboardSurface.addView(quickDeleteOverlay, LayoutPolicy.frameMatchParentParams());
         surface.fullBleed.add(quickDeleteOverlay);
-        // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
+        // 按键反馈的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。滑行轨迹和按下的抬起效果画在这里；按键气泡量位置时以它为准，画在面板之上的 KEY_PREVIEW 层里（ImeOverlayHost）。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
         surface.fullBleed.add(imeLetterRows.keyPreviewLayer);
@@ -12185,6 +12189,13 @@ public final class MSIMEInputService extends InputMethodService {
         return android.os.Build.VERSION.SDK_INT == 28;
     }
 
+    /**
+     * 输入法窗口此刻按内容包裹高度：停靠在 API 29+，不在编辑预览和「键盘调整」里。这时面板上方多留 {@link PanelGeometry#HEADROOM_DP} 的透明高度，按键气泡这类画在面板之上的层才不被窗口上沿截掉；{@link #onComputeInsets} 把应用的内容区和可触摸区域的上沿都放在面板上沿，这段不占应用的空间，点上去落到应用。与 {@link #applyFloatingLayout} 里铺满窗口的条件互补。
+     */
+    boolean headroomWindow() {
+        return !stableDockedWindow() && !overlayDrawn() && !editorPreviewExpanded() && !keyboardAdjustActive;
+    }
+
     /** 两种编辑预览各自持有透明父窗口，只有最后一个结束时才恢复停靠窗口。 */
     boolean editorPreviewExpanded() {
         return clipboardPreviewExpanded || textTrackpadPreviewExpanded;
@@ -12291,6 +12302,13 @@ public final class MSIMEInputService extends InputMethodService {
      */
     @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
         super.onComputeInsets(outInsets);
+        // 停靠在 29+：窗口在面板上方多了一段透明高度。应用的边界和可见区上沿都放在面板上沿，可触摸区域沿用系统默认的「可见区上沿以下」，所以和没有这段时一样：面板这一横条整宽可点，上方那段点上去落到应用。
+        if (headroomWindow() && keyboardSurface != null) {
+            keyboardSurface.getLocationInWindow(floatingLocation);
+            outInsets.contentTopInsets = floatingLocation[1];
+            outInsets.visibleTopInsets = floatingLocation[1];
+            return;
+        }
         // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
         // 候选栏、剪贴板预览和文本编辑放大条共用同一块输入区；停靠键盘只在稳定布局后参与 inset 计算。
         if ((!overlayDrawn() && !clipboardPreviewExpanded && !editorPreviewExpanded()

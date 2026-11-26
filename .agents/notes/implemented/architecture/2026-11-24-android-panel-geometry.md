@@ -19,7 +19,8 @@ Android 键盘面板的高度没有一处算出来，是三处分别写进视图
 - `PanelGeometry` 是纯类，只做整数运算，不读视图、不读输入法服务：
   - `topBand(TopBandInputs)`：顶栏各行和补齐空白；
   - `keyRowPx(role, adjustmentDp, nineKeyGridDrawn, density, halfSpacingPx)`：键区一行或一块；
-  - `bottomInset(…)`：底部内边距和底栏的底边距。
+  - `bottomInset(…)`：底部内边距和底栏的底边距；
+  - `headroomPx(…)`：API 29+ 停靠时面板上方的透明高度（`HEADROOM_DP`，见[面板之上的层](2026-11-26-android-panel-overlay-layers.md)）。
 
   数值和原来三处完全相同，`tests/keyboard/PanelGeometrySmoke.java` 钉住：各状态的顶栏、全部高度调整范围内 26 键、九宫格和带底行整块的键区总高、底栏和浮动时的底部留白。
 - `KeyboardHeightRole` 从 `MSIMEInputService` 的内部类移到 `keyboard/`，内容不变。
@@ -40,7 +41,7 @@ Android 键盘面板的高度没有一处算出来，是三处分别写进视图
   - 工具栏打开的面板（功能、候选展开、表情、符号、剪贴板等）的顶边由 `alignOverlaysBelowTopRow` 跟着顶栏实测的底边，`post` 出去，晚一帧；
   - `PanelSurface.onMeasure` 改写非 `fullBleed` 子视图的底边距；
   - `diagnosticView` 按内容包裹高度，显示时替换读音行，不在模型里；
-  - 浮动拖动条和 `keyboardSurface` 自身的尺寸由 `ImeStyler.applyKeyboardSurfaceGeometry` 写。
+  - 浮动拖动条和 `keyboardSurface` 自身的尺寸由 `ImeStyler.applyKeyboardSurfaceGeometry` 写；面板上方的透明高度（面板的上外边距）由它在套布局参数时调 `ImePanelLayout.applyHeadroom` 写。
 
 ## Alternatives considered
 

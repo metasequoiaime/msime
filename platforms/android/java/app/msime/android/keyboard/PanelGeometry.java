@@ -6,7 +6,22 @@ package app.msime.android;
  * <p>面板 = 浮动拖动条 + 顶栏 + 键区 + 底部留白。量字形、读设置和系统栏这些事由调用方做完，把结果以像素交进来；这里只做整数运算，所以同一组输入总得到同一组高度，JVM 冒烟可以逐个布局钉住。
  */
 public final class PanelGeometry {
+    /**
+     * 停靠在 API 29+ 时，输入法窗口在面板上方多留的透明高度（dp）。顶排键的气泡连上下阴影边距是 78 dp，浮在面板上沿的读音条在最大字号下约 33 dp，取整到 80。这段不算进应用的内容区，也不在可触摸区域里。
+     */
+    public static final int HEADROOM_DP = 80;
+
     private PanelGeometry() { }
+
+    /**
+     * 面板上方的透明高度（像素）。只有停靠时按内容包裹高度的窗口（API 29+）才留；API 28 的停靠窗口、浮动键盘、跟随光标的候选栏、编辑预览和「键盘调整」时窗口本来就铺满，不再多留。
+     *
+     * @param wrapContentWindow 输入法窗口此刻按内容包裹高度
+     * @param density 屏幕密度
+     */
+    public static int headroomPx(boolean wrapContentWindow, float density) {
+        return wrapContentWindow ? DimensionPolicy.pixels(HEADROOM_DP, density) : 0;
+    }
 
     /**
      * 顶栏的输入，全部是像素。
