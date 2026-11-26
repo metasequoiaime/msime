@@ -29,6 +29,10 @@ TOKEN_LIFETIME = 15 * 60
 # TestFlight 的「What to Test」只显示纯文本，最多 4000 个字符；超出时 App Store Connect 直接拒绝整个请求。
 WHATS_NEW_LIMIT = 4000
 TRUNCATED = "……其余改动见下方链接。"
+# App Store Connect 不接受的字符：2026-11-26 的 nightly 在 whatsNew 上报 `Text for whatsNew contains invalid characters:'[⚡, 🔧, 🐞, ✨, 🙏]'`，正是发布说明分组标题开头的 emoji。分组符号（含变体选择符、零宽连接符和键帽组合符）在正文里也一并去掉，TestFlight 只显示纯文字。
+EMOJI = re.compile(
+    "[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE00-\uFE0F\u200D\u20E3]"
+)
 
 
 class Failure(RuntimeError):
@@ -38,7 +42,7 @@ class Failure(RuntimeError):
 def testflight_text(markdown: str, footer: str = "") -> str:
     """把 generate-release-notes.py 的 Markdown 发布说明改写成 TestFlight 能显示的纯文本。
 
-    TestFlight 不渲染 Markdown，`###`、`**`、反引号会原样出现在测试者面前。超出长度时在整行处截断，页脚（完整改动的链接）始终保留。
+    TestFlight 不渲染 Markdown，`###`、`**`、反引号会原样出现在测试者面前。超出长度时在整行处截断，页脚（完整改动的链接）始终保留。emoji 在 App Store Connect 那边是非法字符，长度也按去掉之后的文本算。
     """
     lines = []
     for line in markdown.strip().splitlines():
@@ -46,6 +50,10 @@ def testflight_text(markdown: str, footer: str = "") -> str:
         # 单独成行的粗体是分小组的领域名（「**输入**」），去掉星号后就混进正文了，改用方头括号标出来。
         line = re.sub(r"^\*\*([^*]+)\*\*(.*)$", lambda m: f"【{m[1]}】{m[2]}" if not m[2].startswith("：") else f"{m[1]}{m[2]}", line)
         line = line.replace("**", "").replace("`", "")
+        line = EMOJI.sub("", line)
+        # 组标题开头的 emoji 去掉后会剩一个前导空格；正文里 emoji 两边也常各留一个。
+        line = re.sub(r"^ +", "", line)
+        line = re.sub(r" {2,}", " ", line)
         if line or (lines and lines[-1]):
             lines.append(line)
     body = "\n".join(lines).strip()
@@ -63,7 +71,7 @@ def testflight_text(markdown: str, footer: str = "") -> str:
 
 
 def utf16_length(text: str) -> int:
-    """App Store Connect 按 UTF-16 码元计长度，分组标题里的 🐛 这类 emoji 占两个，按 len() 算会超限。"""
+    """App Store Connect 按 UTF-16 码元计长度；emoji 已在 testflight_text 里去掉，生僻字这类非 BMP 字符仍占两个，按 len() 算会超限。"""
     return len(text.encode("utf-16-le")) // 2
 
 
