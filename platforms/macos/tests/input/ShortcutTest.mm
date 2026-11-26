@@ -7441,6 +7441,14 @@ static void TestModifierTaps() {
     assert([controller handleEvent:up client:client]);
     assert(prefs.englishMode && [client.committed isEqual:@"测试"]);
 
+    // Shift 轻点进入的大写英文模式直接输出大写字母，并把带 Shift 的快捷键交给应用。
+    const NSUInteger committedBeforeUppercase = client.committed.length;
+    assert([controller handleEvent:ModeKey(0, 0, NO) client:client]);
+    assert(client.committed.length == committedBeforeUppercase + 1 && [client.committed hasSuffix:@"A"]);
+    const NSUInteger committedBeforeShortcut = client.committed.length;
+    assert(![controller handleEvent:ModeKey(0, NSEventModifierFlagShift, NO) client:client]);
+    assert(client.committed.length == committedBeforeShortcut);
+
     // With letters still being composed the tap sends those letters out, not the highlighted candidate.
     // That is the whole point of reaching for Shift mid-word: a name, a command or an acronym the
     // dictionary does not carry leaves as what was typed. The composition is committed before the switch,

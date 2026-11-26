@@ -2028,6 +2028,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _capsLockTapReleasedSawStaleCapsLock;
     // 收到关闭边沿后，下一次打开边沿是新的物理按键；关闭边沿本身仍需把旧标记留给紧随其后的字母事件。
     BOOL _capsLockTapReleasedSawExplicitOff;
+    // 用单按 Shift 切到英文时，英文键面保持大写，带 Shift 的组合键交还应用。
+    BOOL _uppercaseEnglishMode;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
     NSTimer *_voiceHoldPollTimer;
@@ -4986,7 +4988,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
         if (raw) [self apply:raw];
     }
-    [self setEnglishInputMode:!_appearance.englishMode];
+    [self setEnglishInputMode:!_appearance.englishMode uppercase:!_appearance.englishMode showHUD:YES];
 }
 
 // 组合键在循环关闭时保留原来的取消组字规则；轻点修饰键单独保留原文提交规则。
@@ -5531,10 +5533,14 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 
 - (void)setEnglishInputMode:(BOOL)enabled {
-    [self setEnglishInputMode:enabled showHUD:YES];
+    [self setEnglishInputMode:enabled uppercase:NO showHUD:YES];
 }
 - (void)setEnglishInputMode:(BOOL)enabled showHUD:(BOOL)showHUD {
+    [self setEnglishInputMode:enabled uppercase:NO showHUD:showHUD];
+}
+- (void)setEnglishInputMode:(BOOL)enabled uppercase:(BOOL)uppercase showHUD:(BOOL)showHUD {
     [self ensureAppearance];
+    _uppercaseEnglishMode = enabled && uppercase;
     if (enabled) [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     const BOOL changed = _appearance.englishMode != enabled;
     if (changed && _managedEnglishComposition && ![self setManagedEnglishEnabled:NO]) return;
@@ -8404,15 +8410,20 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (_appearance.englishMode && ![self quickPhraseModeActive] && (!_managedEnglishComposition || managedLiteralKey)) {
         const NSEventModifierFlags competing = NSEventModifierFlagControl | NSEventModifierFlagOption |
                                                 NSEventModifierFlagCommand;
+        // Shift 轻点进入的大写英文模式把带 Shift 的组合键留给应用，避免游戏快捷键被当成英文字符上屏。
+        if (_uppercaseEnglishMode && (event.modifierFlags & NSEventModifierFlagShift) &&
+            !(event.modifierFlags & competing)) return NO;
         if (!(event.modifierFlags & competing) && event.characters.length == 1) {
             const BOOL keypad = (event.modifierFlags & NSEventModifierFlagNumericPad) != 0 || event.keyCode == 65;
             const BOOL chinese = [_appearance.punctuationLock isEqual:@"chinese"] ||
                 ([_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
             unichar character = [event.characters characterAtIndex:0];
+            if (_uppercaseEnglishMode && character >= 'a' && character <= 'z')
+                character = (unichar)(character - ('a' - 'A'));
             const BOOL capsLockTapReleasedLetterEvent = capsLockTapReleasedForEvent &&
                 event.type == NSEventTypeKeyDown && !(event.modifierFlags & NSEventModifierFlagShift) &&
                 ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'));
-            if (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
+            if (!_uppercaseEnglishMode && capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
                 character >= 'A' && character <= 'Z') character = (unichar)(character + ('a' - 'A'));
             const std::string output = msime::input::english_mode_output(
                 character, keypad, chinese, _appearance.runtimeFullWidthInput, _englishPunctuation,
@@ -8438,7 +8449,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             const BOOL asciiLetterOrDigit = (character >= 'a' && character <= 'z') ||
                 (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
             if ((spacingEnabled && asciiLetterOrDigit) ||
-                (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
+                (capsLockTapReleasedForEvent && !_uppercaseEnglishMode && !(event.modifierFlags & NSEventModifierFlagShift) &&
                  character >= 'a' && character <= 'z')) {
                 [self writeDirectEnglishText:[NSString stringWithCharacters:&character length:1]
                                       client:(id<MSIMETextClient>)sender];
