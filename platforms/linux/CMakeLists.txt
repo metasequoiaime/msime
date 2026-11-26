@@ -1462,7 +1462,7 @@ if(BUILD_TESTING)
   target_compile_features(linux-gnome-pointer-dbus-test PRIVATE cxx_std_17)
   target_compile_options(linux-gnome-pointer-dbus-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-gnome-pointer-dbus-test PRIVATE src/candidates)
-  target_link_libraries(linux-gnome-pointer-dbus-test PRIVATE PkgConfig::GIO)
+  target_link_libraries(linux-gnome-pointer-dbus-test PRIVATE PkgConfig::GIO Threads::Threads)
   add_test(NAME linux-gnome-pointer-dbus COMMAND linux-gnome-pointer-dbus-test)
   set_tests_properties(linux-gnome-pointer-dbus PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 20)
   # 候选右键菜单的收起与 Esc：注入假的扩展调用，不需要会话总线，也不画 X11 浮层。
