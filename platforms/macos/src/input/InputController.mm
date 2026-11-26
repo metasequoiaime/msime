@@ -4988,7 +4988,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
         if (raw) [self apply:raw];
     }
-    [self setEnglishInputMode:!_appearance.englishMode uppercase:!_appearance.englishMode showHUD:YES];
+    const BOOL enteringEnglish = !_appearance.englishMode;
+    [self setEnglishInputMode:enteringEnglish uppercase:enteringEnglish showHUD:YES];
+    // 同步系统输入源时可能再次经普通入口回写英文状态，恢复本次 Shift 轻点的大小写语义。
+    _uppercaseEnglishMode = enteringEnglish && _appearance.englishMode;
 }
 
 // 组合键在循环关闭时保留原来的取消组字规则；轻点修饰键单独保留原文提交规则。
