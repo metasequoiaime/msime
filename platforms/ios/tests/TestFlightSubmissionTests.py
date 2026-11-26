@@ -207,10 +207,17 @@ class TestFlightSubmissionTests(unittest.TestCase):
         markdown = ("## v0.54.0-beta 更新内容\n\n### ✨ 新功能\n\n**输入**\n\n- 双拼下按 `Shift+Enter` 上屏全拼 (#1)\n"
                     "- **中英混合滑行**：同一笔轨迹给中英文候选 (#3)\n\n**新安装的默认配置**（老用户升级不受影响）\n\n\n### 🐛 问题修复\n\n- 修好了 (#2)\n")
         text = self.module.testflight_text(markdown, "完整改动：https://example.test/compare/a...b")
-        # 单独成行的粗体是小组名，用方头括号标出；条目开头的「**名称**：」只去星号。
-        self.assertEqual(text, "v0.54.0-beta 更新内容\n\n✨ 新功能\n\n【输入】\n\n- 双拼下按 Shift+Enter 上屏全拼 (#1)\n"
+        # 单独成行的粗体是小组名，用方头括号标出；条目开头的「**名称**：」只去星号。App Store Connect 不接受 emoji，分组标题里的要一起去掉。
+        self.assertEqual(text, "v0.54.0-beta 更新内容\n\n新功能\n\n【输入】\n\n- 双拼下按 Shift+Enter 上屏全拼 (#1)\n"
                                "- 中英混合滑行：同一笔轨迹给中英文候选 (#3)\n\n【新安装的默认配置】（老用户升级不受影响）\n\n"
-                               "🐛 问题修复\n\n- 修好了 (#2)\n\n完整改动：https://example.test/compare/a...b")
+                               "问题修复\n\n- 修好了 (#2)\n\n完整改动：https://example.test/compare/a...b")
+
+    def test_emoji_are_removed_before_app_store_sees_the_text(self):
+        """App Store Connect 的 whatsNew 不接受 emoji（2026-11-26 nightly 的 ⚡、🔧、🐞、✨、🙏）。"""
+        markdown = "## v1 更新内容\n\n### 🙏 感谢\n\n- 感谢 @someone 的 🙂 报告 (#1)\n"
+        text = self.module.testflight_text(markdown)
+        self.assertEqual(text, "v1 更新内容\n\n感谢\n\n- 感谢 @someone 的 报告 (#1)")
+        self.assertIsNone(self.module.EMOJI.search(text))
 
     def test_long_notes_are_cut_at_a_line_and_keep_the_footer(self):
         """超过 4000 个 UTF-16 码元 App Store Connect 拒绝整个请求；截在整行上，链接留着让测试者看全。"""
