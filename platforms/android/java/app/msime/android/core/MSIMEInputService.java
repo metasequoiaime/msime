@@ -138,6 +138,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeTouchPoints imeTouchPoints;
     ImeBottomRow imeBottomRow;
     ImeBottomBar imeBottomBar;
+    ImePanelLayout imePanelLayout;
     ImeLayoutRows imeLayoutRows;
     ImeStyler imeStyler;
     ImeFrame imeFrame;
@@ -267,6 +268,8 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationPackInstalled;
     private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
+    /** 当前这一页候选要为提示多留几行，按页记下（见 {@link CandidateHintRows}）。 */
+    private final CandidateHintRows candidateHintRows = new CandidateHintRows();
     private JSONObject candidatePronunciationSourceView;
     private JSONObject candidatePronunciationSourcePanel;
     private java.util.List<String> candidatePronunciationSourceSuggestions = java.util.List.of();
@@ -910,58 +913,6 @@ public final class MSIMEInputService extends InputMethodService {
     boolean touchGeometrySaving;
     private boolean skinSaving;
     boolean traditionalOutputSaving;
-    static final class KeyboardHeightRole {
-        final int baseHeight;
-        final int rowCount;
-        final int rowIndex;
-        final boolean includesRowSpacing;
-        /** 要加上的行距份数：一行键加一份；一个占三行的九键块加三份。 */
-        final int rowSpacings;
-        /** 底行（功能行、123 / #+= 层自带的底行）：和一行键同高、带一份行距，分到四行均分后底行的那一份调整（{@link KeyboardGeometry#bottomRowAdjustment}）。 */
-        final boolean bottomRow;
-        /** 整块里还包着底行（日语九键、注音九键没有单独的底行，四行都在块里）：`baseHeight` 已经是四行，块拿整份调整。其余的键行和键块分摊底行以外的那部分（{@link KeyboardGeometry#keyRowsAdjustment}）。 */
-        final boolean withBottomRow;
-        /** 九宫格主体；上方补充数字行仍按原字母行分摊，避免切层改变总高。 */
-        final boolean nineKeyGrid;
-
-        KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex,
-                           boolean includesRowSpacing) {
-            this(baseHeight, rowCount, rowIndex, includesRowSpacing ? 1 : 0);
-        }
-
-        KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex, int rowSpacings) {
-            this(baseHeight, rowCount, rowIndex, rowSpacings, false, false, false);
-        }
-
-        private KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex, int rowSpacings,
-                                   boolean bottomRow, boolean withBottomRow, boolean nineKeyGrid) {
-            this.baseHeight = baseHeight;
-            this.rowCount = rowCount;
-            this.rowIndex = rowIndex;
-            this.includesRowSpacing = rowSpacings > 0;
-            this.rowSpacings = rowSpacings;
-            this.bottomRow = bottomRow;
-            this.withBottomRow = withBottomRow;
-            this.nineKeyGrid = nineKeyGrid;
-        }
-
-        /** 底行这一行。 */
-        static KeyboardHeightRole bottomRow() {
-            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 1, 0, 1, true, false, false);
-        }
-
-        /** 九宫格三行外框，单独标记以免上方的补充符号行跟着加高。 */
-        static KeyboardHeightRole nineKeyGrid() {
-            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3,
-                1, 0, 3, false, false, true);
-        }
-
-        /** 三行键加底行的整块：四行键高、四份行距，拿整份高度调整，总高和三行键加一条底行的布局相同。 */
-        static KeyboardHeightRole threeRowsWithBottomRow() {
-            return new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP * KeyboardHeightPolicy.KEYBOARD_ROW_COUNT,
-                1, 0, KeyboardHeightPolicy.KEYBOARD_ROW_COUNT, false, true, false);
-        }
-    }
     private ScrollView voiceResultScroll;
     LinearLayout voiceResultPanel;
     private VoiceResultStore voiceResultStore;
@@ -2207,6 +2158,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeTouchPoints = new ImeTouchPoints(this);
         imeBottomRow = new ImeBottomRow(this);
         imeBottomBar = new ImeBottomBar(this);
+        imePanelLayout = new ImePanelLayout(this);
         imeLayoutRows = new ImeLayoutRows(this);
         imeStyler = new ImeStyler(this);
         imeFrame = new ImeFrame(this);
@@ -5304,72 +5256,16 @@ public final class MSIMEInputService extends InputMethodService {
         return candidatePronunciationVisible() ? Math.max(2, lines) : lines;
     }
 
+    /** 顶栏各行的高度由 {@link ImePanelLayout#applyTopBand} 按 {@link PanelGeometry#topBand} 写入。 */
     void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 只为启用的释义行预留空间，同时按实际字形保证候选不会裁切。
         int reserved = CandidateTranslationPolicy.reservedRows(
             CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()),
-            CandidateHintRows.rows(this));
-        int line = imeCandidates.stripHeightDp(reserved);
-        ViewPolicy.setFixedHeight(candidateLine, pixels(line));
-        // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加上和候选行之间的间距加高，见 ReadingRowPolicy。
-        int readingRow = readingRowHeight();
-        if (candidateHeader != null) ViewPolicy.setFixedHeight(candidateHeader, readingRow);
-        // 未单独设置工具栏尺寸时继续跟随读音行与候选行，「候选栏大小」调小时工具栏这一行跟着变矮，按钮在 applyShortcutSize 里随行高缩小。显式尺寸按固定基准计算，两种状态中较矮的一侧补齐顶部空白，不允许工具栏单独比候选栏矮。
-        boolean idleHeader = ViewPolicy.isVisible(candidateHeader);
-        int composingHeight = readingRow + pixels(line);
-        boolean customSize = localSettings != null && localSettings.has(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT);
-        int sizePercent = customSize ? localSettings.integer(AndroidLocalSettings.TOOLBAR_SIZE_PERCENT) : 100;
-        int targetIdleHeight = customSize
-            ? pixels(ToolbarSizePolicy.heightDp(sizePercent))
-            : composingHeight;
-        int idleHeight = customSize
-            ? ToolbarSizePolicy.stableHeight(targetIdleHeight, composingHeight)
-            : targetIdleHeight;
-        int idleRowHeight = idleHeight - (idleHeader ? readingRow : 0);
-        if (shortcutToolbar != null) ViewPolicy.setFixedHeight(shortcutToolbar, idleRowHeight);
-        if (inlineAutofill != null) inlineAutofill.setHeight(idleRowHeight);
-        // 「最近复制」占的是工具栏那一行的位置，同高，出现和消失时键盘不跳。
-        if (recentClipRow != null) ViewPolicy.setFixedHeight(recentClipRow, idleRowHeight);
-        if (candidateHeightSpacer != null) {
-            boolean idleRowVisible = ViewPolicy.isVisible(shortcutToolbar)
-                || ViewPolicy.isVisible(recentClipRow)
-                || inlineAutofill != null && inlineAutofill.visible();
-            int spacer = customSize && idleRowVisible
-                ? ToolbarSizePolicy.idleSpacerPx(idleHeight, composingHeight)
-                : customSize && ViewPolicy.isVisible(candidateLine)
-                    ? ToolbarSizePolicy.composingSpacerPx(idleHeight, composingHeight) : 0;
-            ViewPolicy.setFixedHeight(candidateHeightSpacer, spacer);
-        }
-        // 同一状态下「候选栏大小」为 100% 时的设计行高：读音行可见时只取候选行，按钮和图标不因标题出现而改变比例。
-        int designLine = pixels(CandidateStripHeightPolicy.designHeightDp(reserved));
-        int designRowHeight = idleHeader ? designLine : readingRow + designLine;
-        imeToolbar.applyShortcutSize(sizePercent, customSize, idleRowHeight, designRowHeight);
-    }
-
-    private int readingRowHeight() {
-        if (!spellingHeaderReserved) return 0;
-        int design = pixels(ImeToolbar.READING_ROW_DP);
-        if (preedit == null) return design;
-        // 读音行自己的上下内边距（下边就是和候选行之间的 READING_GAP_DP）也算进去，否则字号大时间距被读音挤掉。
-        int headerPadding = candidateHeader == null ? 0
-            : candidateHeader.getPaddingTop() + candidateHeader.getPaddingBottom();
-        int height = readingLabelHeight(preedit, design, headerPadding);
-        // 「清除」等按钮的字号和字体留白可能比读音大；收起时仍预留同一行高，避免输入时键盘跳动。
-        if (candidateHeader != null) for (int index = 0; index < candidateHeader.getChildCount(); index++) {
-            View child = candidateHeader.getChildAt(index);
-            if (child instanceof TextView label)
-                height = Math.max(height, readingLabelHeight(label, design, headerPadding));
-        }
-        return height;
-    }
-
-    private int readingLabelHeight(TextView label, int design, int headerPadding) {
-        Paint.FontMetricsInt metrics = label.getPaint().getFontMetricsInt();
-        int top = label.getIncludeFontPadding() ? metrics.top : metrics.ascent;
-        int bottom = label.getIncludeFontPadding() ? metrics.bottom : metrics.descent;
-        return ReadingRowPolicy.heightPx(design, top, bottom,
-            label.getCompoundPaddingTop() + label.getCompoundPaddingBottom() + headerPadding);
+            candidateHintRows.rows(this, candidatePronunciations, (wubiCodeHint ? 1 : 0)
+                | (candidateEnglishGloss || candidateTranslationsEnabled ? 2 : 0)
+                | (candidatePronunciationVisible() ? 4 : 0) | (koreanHanjaRows() ? 8 : 0)));
+        imePanelLayout.applyTopBand(reserved, spellingHeaderReserved, inlineAutofill);
     }
 
     void fail(Throwable error) {

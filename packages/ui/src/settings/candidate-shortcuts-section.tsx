@@ -30,6 +30,8 @@ export interface CandidateShortcutsSectionProps {
   extraReference?: ReactNode;
   /** 桌面将速查放进独立标签时，这里只保留可编辑的候选操作。 */
   showReference?: boolean;
+  /** 宿主实现了候选维护四键时，速查页才列出它们；缺省按不提供处理。 */
+  candidateMaintenanceShortcuts?: boolean;
 }
 
 /** 设计稿中的行内按钮：胶囊形，使用平台的按钮 token，13px 文字。 */
@@ -49,6 +51,7 @@ export function CandidateShortcutsSection({
   paging,
   extraReference,
   showReference = true,
+  candidateMaintenanceShortcuts = false,
 }: CandidateShortcutsSectionProps) {
   const numberRowSwitch = showNumberRowSelection && (
     <SwitchRow
@@ -68,6 +71,7 @@ export function CandidateShortcutsSection({
       wordCharacter={wordCharacter}
       numberRowSelection={numberRowSelection}
       mobile={mobile}
+      candidateMaintenanceShortcuts={candidateMaintenanceShortcuts}
     />
   );
   if (harmonyPhone) {
@@ -118,9 +122,14 @@ export function CandidateShortcutReference({
   wordCharacter,
   numberRowSelection,
   mobile,
+  candidateMaintenanceShortcuts = false,
 }: Pick<
   CandidateShortcutsSectionProps,
-  "navigation" | "wordCharacter" | "numberRowSelection" | "mobile"
+  | "navigation"
+  | "wordCharacter"
+  | "numberRowSelection"
+  | "mobile"
+  | "candidateMaintenanceShortcuts"
 >) {
   const effectiveNavigation = navigationWithDefaults(navigation);
   const paging = enabledPagingShortcuts(effectiveNavigation);
@@ -168,6 +177,15 @@ export function CandidateShortcutReference({
       {/* 桌面三个宿主组字时 Shift+左右按音节移动输入串的光标，高亮停在哪个候选上都一样；触屏宿主的外接键盘没有这个组合键。Windows 和 Linux 的 Ctrl+左右相同，macOS 的 Ctrl+左右默认被系统用来切换桌面，所以这里只列 Shift。 */}
       {!mobile && <ShortcutRow title="按音节移动输入串光标" chord="Shift + ← / →" />}
       <ShortcutRow title="提交原始输入 / 取消输入" chord="Enter / Esc" />
+      {/* Linux iBus 宿主的候选维护四键与右键菜单项一一对应；Fcitx5 和其余宿主尚未接入，不列。 */}
+      {candidateMaintenanceShortcuts && (
+        <>
+          <ShortcutRow title="置顶候选" chord="Ctrl+↑" />
+          <ShortcutRow title="固定候选到第 1–5 位" chord="Ctrl+Shift+1–5" />
+          <ShortcutRow title="取消固定候选" chord="Ctrl+0" />
+          <ShortcutRow title="删除候选" chord="Ctrl+Del" />
+        </>
+      )}
     </>
   );
 }

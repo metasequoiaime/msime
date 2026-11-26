@@ -5093,6 +5093,73 @@ fn invalid_fixed_position_keeps_the_current_candidate_selectable() {
     let selected = runtime.dispatch(Action::Select(id)).unwrap();
     assert_eq!(selected.commit.as_deref(), Some("candidate-0"));
 }
+/// 固定到后面的槽位会把被操作的行挪走；高亮必须跟着它，下一次取消才会删同一条。
+#[test]
+fn fixing_a_candidate_to_a_later_slot_keeps_it_highlighted_and_cancel_acts_on_it() {
+    for position in 2..=5u8 {
+        let directory = tempfile::tempdir().unwrap();
+        let mut options = real_engine_options(directory.path());
+        options.learning = true;
+        let database = std::path::Path::new(&options.dictionaries).join("msime-pinyin.db");
+        rusqlite::Connection::open(database)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO tbl_1_n VALUES('neng','n','恁',100),('neng','n','能',50),\
+                 ('neng','n','嫩',10),('neng','n','内',5),('neng','n','那',1);",
+            )
+            .unwrap();
+        let engine = msime_engine::host::Session::new(&options).unwrap();
+        let mut runtime = Runtime::new(engine, 5).unwrap();
+        runtime.focus(true).unwrap();
+        type_characters(&mut runtime, "neng");
+
+        let before = runtime.view();
+        let target = before
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == "恁")
+            .expect("合成词库里有「恁」");
+        assert!(
+            target.id.index + 1 < usize::from(position),
+            "起始位置不在目标槽位之后，移动才可观察"
+        );
+        let id = target.id;
+        drop(before);
+
+        runtime
+            .dispatch(Action::FixCandidatePosition(id, position))
+            .unwrap();
+        let fixed = runtime.view();
+        let moved = fixed
+            .candidates
+            .iter()
+            .find(|candidate| candidate.text == "恁")
+            .expect("固定后仍在候选里");
+        assert_eq!(
+            moved.id.index + 1,
+            usize::from(position),
+            "固定到第 {position} 位后应坐在对应行"
+        );
+        assert_eq!(moved.fixed_position, position);
+        assert!(moved.highlighted, "被固定的那一行应保持高亮");
+        let clear_id = moved.id;
+        drop(fixed);
+
+        runtime
+            .dispatch(Action::ClearCandidatePosition(clear_id))
+            .unwrap();
+        let cleared = runtime.view();
+        assert!(
+            cleared
+                .candidates
+                .iter()
+                .all(|candidate| candidate.fixed_position == 0),
+            "第 {position} 位取消固定必须作用于同一行"
+        );
+    }
+}
+
 #[test]
 fn focus_changes_end_the_engine_context() {
     let mut runtime = runtime();

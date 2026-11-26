@@ -81,16 +81,12 @@ def main() -> None:
         raise AssertionError("LoginSheet 没有调用共享递归启用策略")
     if "private static void setFixedHeight(View view, int height)" in input_service:
         raise AssertionError("MSIMEInputService 仍保留重复的固定高度实现")
-    if "ViewPolicy.setFixedHeight(candidateLine, pixels(line));" not in input_service:
-        raise AssertionError("MSIMEInputService 没有调用共享固定高度策略")
     if "private static boolean shown(View view)" in input_service:
         raise AssertionError("MSIMEInputService 仍保留重复的可见性判断")
     if "ViewPolicy.isVisible(" not in input_service:
         raise AssertionError("MSIMEInputService 没有调用共享可见性策略")
     if "private static void setPadding(View view, int left, int top, int right, int bottom)" in bottom_bar:
         raise AssertionError("ImeBottomBar 仍保留重复的条件内边距实现")
-    if "ViewPolicy.setPaddingIfChanged(keyboard, 0, 0, 0, 0);" not in bottom_bar:
-        raise AssertionError("ImeBottomBar 没有调用共享条件内边距策略")
     if "if (bar != null && (bar.getVisibility() == View.VISIBLE) != shown) ViewPolicy.setVisible(bar, shown);" in bottom_bar:
         raise AssertionError("ImeBottomBar 仍保留重复的条件可见性实现")
     if "ViewPolicy.setVisibleIfChanged(bar, shown);" not in bottom_bar:

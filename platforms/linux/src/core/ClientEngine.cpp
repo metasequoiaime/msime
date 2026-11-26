@@ -55,6 +55,8 @@
 #endif
 #include "../overlay/FloatingPanelColors.h"
 #include "../overlay/FloatingToolbarModel.h"
+#include "../candidates/CandidateMenuController.h"
+#include "../candidates/CandidateShortcutAction.h"
 #include "../overlay/ShuangpinKeymapModel.h"
 #ifdef MSIME_LINUX_FLOATING_PANELS
 #include "../overlay/FloatingToolbar.h"
@@ -65,6 +67,7 @@
 #include "../candidates/CandidateFontPolicy.h"
 #include "../candidates/PanelRestoreRecord.h"
 #include "../candidates/CandidateActionPolicy.h"
+#include "../candidates/CandidateActionName.h"
 #include "../candidates/PersonalWordbook.h"
 #include "../candidates/ReadAloud.h"
 #include "../candidates/CandidateLocalModeLabels.h"
@@ -77,6 +80,7 @@
 #include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/CandidateTranslationScope.h"
 #include "../candidates/PairedPunctuation.h"
+#include "../candidates/PairedCaretForward.h"
 #include "../candidates/ShuangpinProfileNames.h"
 #include "../candidates/WubiProfileNames.h"
 #include "ClientInputModeMemory.h"
@@ -464,6 +468,8 @@ struct State {
   bool pure_shift_candidate = false;
   bool pure_ctrl_candidate = false;
   bool shift_down = false;
+  // Wayland 下 Shift 还按着时不能转发方向键，排到松开 Shift 再发。
+  msime::linux_host::PairedCaretQueue<guint> pending_caret;
   bool ctrl_down = false;
   bool right_ctrl_down = false;
   bool left_ctrl_down = false;
@@ -488,6 +494,8 @@ struct State {
     character_set_chord_held = false;
     japanese_chord_held = false;
     host_shortcut_strokes.clear();
+    // 换焦点或重置后，旧输入框排队的方向键不能发到新的输入框。
+    pending_caret.clear();
   }
   bool mode_shift_enabled = true;
   bool mode_ctrl_enabled = false;
@@ -649,7 +657,7 @@ struct State {
   bool mode_hint_after_focus = false;
   uint64_t mode_hint_focus_id = 0;
 #endif
-  // 右键候选提示：辅助区域短暂指向「候选操作」菜单。代次用于丢弃过期的恢复回调。
+  // 辅助区域的一次性提示（右键菜单弹不出来时的快捷键提示、朗读失败等）。代次用于丢弃过期的恢复回调。
   uint64_t candidate_menu_hint_id = 0;
   std::string voice_preedit;
   std::string voice_transcript;
@@ -664,6 +672,8 @@ struct State {
   int wave_overlay_watch_fd = -1;
   // 识别进行中点了确认：这次录音余下的时间里浮条一直收着，结果照常上屏，与 macOS 的 `dismissProcessing` 一样。
   bool wave_overlay_dismissed = false;
+  // 候选右键菜单（CandidateMenuController.h）：IBus 面板没有逐候选菜单接口，GNOME Shell 会话由随装扩展画，其余会话由宿主自绘；弹不出来时退回 show_candidate_menu_hint 的快捷键提示。
+  msime::linux_host::CandidateMenuController candidate_menu;
   std::shared_ptr<std::atomic_bool> alive =
       std::make_shared<std::atomic_bool>(true);
   std::vector<std::string> clipboard_items_cache;
@@ -821,6 +831,7 @@ struct State {
     session_chinese_punctuation.reset();
     session_fullwidth.reset();
     session_caps_lock = false;
+    candidate_menu.release();
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -1498,7 +1509,7 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   return removed;
 }
 State &state(IBusEngine *engine);
-// 辅助区域的短暂提示，约 1.5 秒后恢复页码；`message` 为空时是右键候选时那句「请在「候选操作」菜单中…」。
+// 辅助区域的短暂提示，约 1.5 秒后恢复页码；`message` 为空时是右键菜单弹不出来时的候选维护快捷键提示。
 void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message = {});
 // Shared by every engine in this process: the statistics store is one per preferences directory, not one per input context.
 msime::linux_host::TypingStatisticsSwitch typing_statistics_switch{msime_client_typing_statistics_enabled};
@@ -2190,10 +2201,15 @@ std::optional<std::vector<std::string>> surrounding_preceding_characters(
   return msime::linux_host::preceding_characters_from_byte_offset(
       s.surrounding_text, surrounding_byte_offset(s, s.surrounding_cursor), count);
 }
+// 逻辑光标右侧的字符，计入 Wayland 下还排着没发出的方向键，与 Fcitx5 的 followingCharacter 一致。
 std::optional<std::string> surrounding_following_character(const State &s) {
   if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)
     return std::nullopt;
-  const auto offset = surrounding_byte_offset(s, s.surrounding_cursor);
+  // 成对标点的右半都在 BMP 内，一个方向键在码位和 UTF-16 下都正好是一个单位。
+  const long cursor = static_cast<long>(s.surrounding_cursor) +
+                      s.pending_caret.net_offset(IBUS_Left);
+  if (cursor < 0) return std::nullopt;
+  const auto offset = surrounding_byte_offset(s, static_cast<guint>(cursor));
   if (offset >= s.surrounding_text.size())
     return std::string{};
   const auto *start = s.surrounding_text.c_str() + offset;
@@ -2245,6 +2261,26 @@ bool convert_smart_punctuation_space(IBusEngine *engine) {
   commit_text(engine, replacement);
   return true;
 }
+// 转发的方向键必须 press 和 release 成对发出。只发 press 会让客户端以为方向键一直按着，触发自动重复，光标一路冲到行首；Fcitx5 的 forwardCaret 同样成对发送。
+void emit_paired_caret(IBusEngine *engine, guint keyval) {
+  const guint keycode = msime::linux_host::paired_caret_keycode(keyval == IBUS_Left);
+  ibus_engine_forward_key_event(engine, keyval, keycode, 0);
+  ibus_engine_forward_key_event(engine, keyval, keycode, IBUS_RELEASE_MASK);
+}
+void forward_paired_caret(IBusEngine *engine, guint keyval, bool shift_held) {
+  const msime::linux_host::PairedCaretForward policy{
+      std::getenv("WAYLAND_DISPLAY") != nullptr, shift_held};
+  if (policy.defer()) {
+    state(engine).pending_caret.push(keyval);
+    return;
+  }
+  emit_paired_caret(engine, keyval);
+}
+void flush_paired_caret(IBusEngine *engine) {
+  const auto queued = state(engine).pending_caret.take();
+  for (const guint keyval : queued)
+    emit_paired_caret(engine, keyval);
+}
 bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
   if (msime::linux_host::paired_punctuation_excluded_client(s.focused_client))
@@ -2287,7 +2323,7 @@ bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   s.smart_punctuation_rejected = 0;
   // The paired mark is already in the document. Move over it without sending
   // the user's closing key through Engine, which would insert a duplicate.
-  ibus_engine_forward_key_event(engine, IBUS_Right, 0, 0);
+  forward_paired_caret(engine, IBUS_Right, (flags & IBUS_SHIFT_MASK) != 0);
   return true;
 }
 constexpr gint64 kSmartPunctuationRepeatIntervalUs = 2 * G_USEC_PER_SEC;
@@ -3074,9 +3110,11 @@ std::string displayed_candidate_gloss(const State &s, const Json &candidate) {
   return translation.size() <= 4096 ? translation : std::string{};
 }
 std::string candidate_action_name(const char *action, const Json &id) {
-  return std::string(action) + "/" + std::to_string(id.at("session").get<uint64_t>()) +
-         "/" + std::to_string(id.at("generation").get<uint64_t>()) +
-         "/" + std::to_string(id.at("index").get<size_t>());
+  // 与 GNOME Shell 扩展共用同一份编码（CandidateActionName.h），保证扩展回传的
+  // action_name 能被这里的 property_activate 分支按身份核对并分发。
+  return msime::linux_host::candidate_action_name(
+      action, id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
+      id.at("index").get<size_t>());
 }
 std::string nine_key_spelling_action_name(uint64_t session, uint64_t generation,
                                           size_t index) {
@@ -3164,11 +3202,11 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     std::vector<std::pair<const char *, std::string>> candidate_commands;
     candidate_commands.reserve(7);
     // 顺序照 macOS 的「候选操作」菜单：置顶、固定排位（第 1–5 位、取消固定）、删除（CandidateActionPolicy.h）。
-    candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label);
+    candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label_with_shortcut);
     for (const char *fix : {"CandidateFix1", "CandidateFix2", "CandidateFix3",
                             "CandidateFix4", "CandidateFix5"})
       candidate_commands.emplace_back(
-          fix, msime::linux_host::candidate_fix_label(fix[12] - '0'));
+          fix, msime::linux_host::candidate_fix_label_with_shortcut(fix[12] - '0'));
     for (const auto &[action, title] : candidate_commands) {
       const auto name = candidate_action_name(action, candidate.at("id"));
       const auto state = g_str_has_prefix(action, "CandidateFix") &&
@@ -3184,7 +3222,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     const auto clear_name = candidate_action_name("CandidateClear", candidate.at("id"));
     ibus_prop_list_append(actions, ibus_property_new(
         clear_name.c_str(), PROP_TYPE_NORMAL,
-        ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label), "",
+        ibus_text_new_from_static_string(msime::linux_host::candidate_clear_fix_label_with_shortcut), "",
         ibus_text_new_from_static_string("取消当前候选的位置固定"),
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
@@ -3193,7 +3231,7 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
       const auto remove_name = candidate_action_name("CandidateRemove", candidate.at("id"));
       ibus_prop_list_append(actions, ibus_property_new(
           remove_name.c_str(), PROP_TYPE_NORMAL,
-          ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label), "",
+          ibus_text_new_from_static_string(msime::linux_host::candidate_remove_label_with_shortcut), "",
           ibus_text_new_from_static_string("操作当前页候选"), actions_available, TRUE,
           PROP_STATE_UNCHECKED, nullptr));
     }
@@ -4149,6 +4187,8 @@ void clear(IBusEngine *engine) {
   cancel_candidate_hide(engine);
   hide_shuangpin_keymap();
   auto &s = state(engine);
+  // 会话的每条出口都收起右键自绘菜单（focus_out、禁用、会话重建都经过 clear）。
+  s.candidate_menu.release();
   if (s.translation_candidates_active && s.translation_saved_view.is_object())
     s.view = std::move(s.translation_saved_view);
   s.translation_candidates_active = false;
@@ -4377,6 +4417,8 @@ void hide_wave_overlay(IBusEngine *engine) {
 void render(IBusEngine *engine, const Json &view) {
   sync_shuangpin_keymap(engine, view);
   sync_vocabulary_row(engine);
+  // 每一帧渲染都收起右键自绘菜单：选择动作、翻页或输入变化都会触发渲染，菜单与组字一起消失。
+  state(engine).candidate_menu.release();
   const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
@@ -6758,6 +6800,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
 void reset(IBusEngine *engine) {
   guarded(engine, "reset", [&] {
     state(engine).host_shortcut_strokes.clear();
+    state(engine).candidate_menu.release();
     // A chord release that never arrives must not swallow the next stroke of the same key.
     state(engine).mode_chord_held = false;
     state(engine).character_set_chord_held = false;
@@ -7374,6 +7417,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   const bool shift_key = key == IBUS_Shift_L || key == IBUS_Shift_R;
   const bool ctrl_key = key == IBUS_Control_L || key == IBUS_Control_R;
   const bool release = (flags & IBUS_RELEASE_MASK) != 0;
+  // Wayland 下排队的方向键在 Shift 松开时补发，避免被应用当成选中文字；放在所有提前返回之前，免得 Shift 松开被别的分支吞掉后队列残留。
+  if (shift_key && release) flush_paired_caret(engine);
   // Esc 收起语音失败提示，与 macOS 一样，这个键照常交给编辑器或当前组字。
   if (!release && key == IBUS_Escape && !s.voice_active && s.wave_overlay.failure &&
       s.wave_overlay_visible) {
@@ -7759,6 +7804,16 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           id.at("index").get<size_t>()));
     });
     return TRUE;
+  }
+  // 候选维护快捷键（Ctrl+Delete 删除高亮、Ctrl+↑ 置顶、Ctrl+Shift+1..5 固定排位、Ctrl+0 取消固定）落在本页高亮的那一行，围栏与分派和「候选操作」属性菜单是同一条路（CandidateShortcutAction.h、property_activate）。围栏不通过时按键照常往下走、交给后面的组字路径（带 Ctrl 的键先取消或结束组字），不能 `return FALSE` 把这些键在组字还开着时原样交给应用。
+  if (!release && s.focused && !s.blocked) {
+    if (const auto action = msime::linux_host::candidate_shortcut_action(
+            s.rendered_view, s.view, s.rendered_candidates, s.session, s.rendered_session,
+            s.rendered_scheme, msime::linux_host::candidate_maintenance_shortcut(key, modifiers, keycode))) {
+      s.host_shortcut_strokes.insert(host_stroke);
+      property_activate(engine, action->c_str(), PROP_STATE_UNCHECKED);
+      return TRUE;
+    }
   }
   if (modifier(key) &&
       !(s.voice_enabled && !s.voice_provider_socket.empty() && voice_hotkey(s, key, modifiers)))
@@ -8344,7 +8399,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (handled)
-        ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
+        forward_paired_caret(engine, IBUS_Left, s.shift_down);
       return;
     }
     if (!without_host_punctuation && s.chinese_punctuation && paired_punctuation_enabled &&
@@ -8372,7 +8427,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (handled)
-        ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
+        forward_paired_caret(engine, IBUS_Left, s.shift_down);
       return;
     }
     // 记下的是一个 ASCII 标点字符，键值是无符号的。char 在此平台有符号，直接比较既
@@ -8621,6 +8676,11 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       command = MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
+      // 自绘右键菜单显示着时 Esc 只收菜单；否则照常取消组字（CandidateMenuController::consume_escape）。
+      if (state(engine).candidate_menu.consume_escape()) {
+        handled = true;
+        return;
+      }
       command = MSIME_CANCEL;
       break;
     case IBUS_space:
@@ -8742,7 +8802,7 @@ struct CandidateMenuHintNotice {
   uint64_t session;
   uint64_t generation;
 };
-// 右键候选：Windows 弹出候选右键菜单（固定、固定排位、删除），选定之前不改动词典。IBus 没有逐个候选的右键菜单接口，「候选操作」属性菜单就是这里的对应物，所以右键只在辅助区域提示去那里操作，约 1.5 秒后恢复页码。
+// 辅助区域的一次性提示，约 1.5 秒后恢复页码：朗读失败、加入生词本的结果等。不带文案时是右键菜单弹不出来（GNOME 扩展没启用、连不上 X）的回退，列出候选维护的四组快捷键（CandidateActionPolicy.h）。
 //
 // 恢复前确认辅助区域仍属于这条提示：期间任何重绘都已换上新的页码，只有同一会话、同一代次仍在显示时才重绘一次。这个回调同样没有 `guarded()` 兜底，读 `s.view` 之前先确认它是对象，理由同输入模式提示（#6675）。
 void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std::string &message) {
@@ -8753,7 +8813,7 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std
   ibus_engine_update_auxiliary_text(
       engine,
       message.empty()
-          ? ibus_text_new_from_static_string("请在「候选操作」菜单中固定、调整排位或删除候选")
+          ? ibus_text_new_from_static_string(msime::linux_host::candidate_maintenance_shortcut_hint)
           : ibus_text_new_from_string(message.c_str()),
       TRUE);
   auto *notice = new CandidateMenuHintNotice{engine, s.alive, s.candidate_menu_hint_id,
@@ -8780,6 +8840,7 @@ void show_candidate_menu_hint(IBusEngine *engine, uint64_t generation, const std
       },
       notice, nullptr);
 }
+
 // 指针点选和翻页同样先开启新的一轮（msime_client.h 的顺序契约）：MSIME_KEY_POINTER 不出声、不画。
 void pointer_turn(IBusEngine *engine) {
   auto &s = state(engine);
@@ -8863,10 +8924,34 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       // The fences above establish the candidate, not the view it was rendered from, and
       // rendered_view is null until the first render and again after every session rebuild.
       // value() throws on null, guarded swallows the throw, and the whole click disappears into a
-      // warning line. The hint has nothing to restore without a view either: its timeout only
-      // re-renders while this generation is still the one on screen.
-      if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) && s.rendered_view.is_object())
-        show_candidate_menu_hint(engine, s.rendered_view.value("generation", uint64_t{0}));
+      // warning line. The flyout needs a rendered view to anchor to.
+      if (msime::linux_host::candidate_dictionary_actions_available(scheme, source) &&
+          s.rendered_view.is_object()) {
+        const auto rendered_generation = s.rendered_view.value("generation", uint64_t{0});
+        const auto items = msime::linux_host::candidate_menu_items(
+            msime::linux_host::candidate_dictionary_removal_available(
+                scheme, source, entry.value("text", std::string{})),
+            true,
+            static_cast<uint8_t>(entry.value("fixed_position", 0)));
+        const msime::linux_host::CandidateMenuController::Target target{s.session, generation,
+                                                                       global_index};
+        // GNOME Shell 把候选框画成合成器 actor，压在所有 X11 客户端窗口之上，宿主自绘浮层躲不开，改由扩展画；其余会话自绘，纯 X11 跟随指针，KDE Plasma、sway 这类 Wayland 会话里 Xwayland 的指针坐标是陈旧的，改按 IBus 上报的光标矩形摆（CandidateMenuPlacement.h）。两条路的点击都回到 property_activate 核对身份。
+        const char *wayland = std::getenv("WAYLAND_DISPLAY");
+        const bool shown =
+            candidate_panel_is_gnome_shell()
+                ? s.candidate_menu.show_in_shell(items, target)
+                : s.candidate_menu.show_overlay(
+                      items, target, s.floating_toolbar_colors,
+                      msime::linux_host::candidate_menu_anchor(
+                          wayland && *wayland, engine->cursor_area.x, engine->cursor_area.y,
+                          engine->cursor_area.width, engine->cursor_area.height),
+                      [engine](const std::string &action) {
+                        property_activate(engine, action.c_str(), PROP_STATE_UNCHECKED);
+                      });
+        // 扩展没启用（随包安装、不替用户启用）、超时或连不上 X 时，在辅助区域提示快捷键。
+        if (!shown)
+          show_candidate_menu_hint(engine, rendered_generation);
+      }
     } else {
       pointer_turn(engine);
       apply(engine, msime_client_select(s.session, generation, global_index));

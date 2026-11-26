@@ -59,6 +59,7 @@ export function ShortcutSettingsPage() {
       fullwidthChord={fullwidthChord}
       windows={windowsPlatform}
       capsLockLanguageSwitch={host?.caps_lock_language_switch ?? false}
+      candidateMaintenanceShortcuts={host?.candidate_maintenance_shortcuts ?? false}
       japaneseToggle={offersJapaneseToggle(host)}
       trilingualCycle={offersTrilingualCycle(host)}
       // 速查列出实际生效的翻页键：宿主把 Tab 和 PageUp/PageDown 固定为开时，不管文档里存的值。
