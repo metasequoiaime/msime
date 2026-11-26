@@ -4956,7 +4956,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _capsLockTapReleasedSawStaleCapsLock = NO;
     _capsLockTapReleasedSawExplicitOff = NO;
     [self adoptCapsLockState:NO];
-    [self toggleInputModeFromModifierTapUppercase:NO];
+    [self toggleInputModeFromModifierTap];
 }
 // 定时器调用，测试也直接调用它来推进合成的时钟和按键状态。
 - (void)pollCapsLockTap {
@@ -8270,7 +8270,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
         const BOOL shiftTap = event.type == NSEventTypeFlagsChanged && (event.keyCode == 56 || event.keyCode == 60);
-        [self toggleInputModeFromModifierTapUppercase:shiftTap];
+        if (shiftTap) [self toggleInputModeFromModifierTapUppercase:YES];
+        else [self toggleInputModeFromModifierTap];
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
