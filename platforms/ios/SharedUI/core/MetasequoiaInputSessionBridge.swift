@@ -1741,7 +1741,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   @discardableResult func setFuzzyPinyinRules(_ rules: UInt32) -> Bool {
-    let names = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
+    let names = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang", "un-ong"]
     let applied = updatePreferences { prefs in
       prefs["fuzzy_pinyin"] = ["enabled": rules != 0, "seeded": true,
                                 "rules": names.enumerated().compactMap { rules & (1 << $0.offset) == 0 ? nil : $0.element }]

@@ -197,7 +197,7 @@ msime_engine_string_free(dictionaries);
 | `punctuation` | `chinese`、`paired`、`lock`（`follow`、`chinese`、`ascii`） |
 | `learning`、`personal_context` | 学习词频与用户词、学习词序与搭配 |
 | `next_word_prediction` | 上屏后联想，缺省关；`MSIME_ENGINE_OPTION_PREDICTION_ALLOWED` 是它的即时门禁 |
-| `fuzzy_pinyin` | 模糊音规则：`z_zh`、`c_ch`、`s_sh`、`n_l`、`f_h`、`r_l`、`an_ang`、`en_eng`、`in_ing`、`ian_iang`、`uan_uang` |
+| `fuzzy_pinyin` | 模糊音规则：`z_zh`、`c_ch`、`s_sh`、`n_l`、`f_h`、`r_l`、`an_ang`、`en_eng`、`in_ing`、`ian_iang`、`uan_uang`、`un_ong` |
 | `autocorrect` | 全拼纠错：`transposition`、`neighbor`、`deletion`、`insertion` |
 | `english` | `mixed_candidates`（中文里混入英文单词）、`minimum_prefix`（1–8）、`first_page_count`（1–3）、1.1 起还有 `learn_on_enter`（回车学英文词的总开关，缺省 true：只学专用英文里打的词）、`learn_typed_spellings_on_enter`（缺省 false；打开后回车也把临时英文的字母和拼不成完整音节的拼音学成英文词，九宫格组字、整句改字、计算等生成文本的模式和网址不学，这是 msime 自己的策略） |
 | `first_page_rows` | 每页候选数，1–255 |

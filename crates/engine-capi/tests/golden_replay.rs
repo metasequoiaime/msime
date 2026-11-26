@@ -607,7 +607,7 @@ fn local_modes_json(modes: &LocalModeOptions) -> Value {
 /// `punctuation.lock` by `SessionOptions::punctuation_lock`.
 const PUNCTUATION_LOCKS: [&str; 3] = ["follow", "chinese", "ascii"];
 
-const FUZZY_RULES: [(u32, &str); 11] = [
+const FUZZY_RULES: [(u32, &str); 12] = [
     (fuzzy_rule::Z_ZH, "z_zh"),
     (fuzzy_rule::C_CH, "c_ch"),
     (fuzzy_rule::S_SH, "s_sh"),
@@ -619,6 +619,7 @@ const FUZZY_RULES: [(u32, &str); 11] = [
     (fuzzy_rule::IN_ING, "in_ing"),
     (fuzzy_rule::IAN_IANG, "ian_iang"),
     (fuzzy_rule::UAN_UANG, "uan_uang"),
+    (fuzzy_rule::UN_ONG, "un_ong"),
 ];
 
 const AUTOCORRECT_TYPES: [(u32, &str); 4] = [
@@ -1617,7 +1618,7 @@ fn options_the_json_cannot_carry_skip_the_scenario_by_name() {
         "option sentence_alternatives (not in the options JSON)"
     );
     let mut options = reference_options();
-    apply_options(&mut options, &json!({"fuzzy_pinyin_rules": 0x800}));
+    apply_options(&mut options, &json!({"fuzzy_pinyin_rules": 0x1000}));
     assert_eq!(
         capi_options(&options).unwrap_err(),
         "option fuzzy_pinyin (not in the options JSON)"

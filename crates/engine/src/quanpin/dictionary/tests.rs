@@ -1786,8 +1786,9 @@ fn fuzzy_candidates_do_not_allocate_the_full_path_budget_up_front() {
 fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     let fixture = fuzzy_fixture();
     let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    // 保持这条分配回归测试的路径集合稳定，新增规则有自己的规则行为测试。
     let options = FuzzyPinyinOptions {
-        rules: fuzzy_rule::ALL,
+        rules: fuzzy_rule::ALL & !fuzzy_rule::UN_ONG,
     };
     let _ = dictionary.fuzzy_candidates("zong'guo", options);
     dictionary.fuzzy_cache.clear();

@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-新增稳定规则标识 `un-ong`，分配 Engine 位 11，并接入共享偏好枚举、首次启用种子规则、macOS 原生模糊音列表和 Engine 双向扩展。缺字段仍按既有偏好默认规则处理，已有用户的显式规则集合不被静默改写。
+新增稳定规则标识 `un-ong`，分配 Engine 位 11，并接入共享偏好枚举、首次启用种子规则、macOS、Windows、Android、iOS 与共享设置页，并加入 Engine 双向扩展。缺字段仍按既有偏好默认规则处理，已有用户的显式规则集合不被静默改写。
 
 ## Alternatives considered
 
@@ -17,4 +17,4 @@ Status: implemented
 
 ## Consequences
 
-共享 Rust、Engine 和 macOS 设置页使用同一个规则标识。开启全部规则的首次种子集合从 11 项变为 12 项，旧文档中没有新规则时保持原有选择，新增规则只有用户明确选择或首次启用时才生效。
+共享 Rust、Engine 和各平台设置页使用同一个规则标识。开启全部规则的首次种子集合从 11 项变为 12 项，旧文档中没有新规则时保持原有选择，新增规则只有用户明确选择或首次启用时才生效。
