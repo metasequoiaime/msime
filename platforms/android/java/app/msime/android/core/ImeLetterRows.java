@@ -679,10 +679,11 @@ final class ImeLetterRows {
         });
     }
 
-    /** 指尖在删除键坐标系里的位置（键上沿为 0，向下增大）；键盘在手势中途变高变矮时按此刻的布局换算，见 {@link QuickDeleteOverlay#fingerY}。 */
+    /** 指尖在删除键布局坐标系里的位置（键上沿为 0，向下增大）；键盘在手势中途变高变矮时按此刻的布局换算（{@link QuickDeleteOverlay#fingerY}），并按{@link BackspaceSwipePolicy#fingerYInKey}撤掉按住时键自己的缩小。 */
     private float fingerYInKey(Button button, float rawY) {
         QuickDeleteOverlay overlay = s.quickDeleteOverlay;
-        return overlay == null ? 0f : overlay.fingerY(rawY) - overlay.keyTop(button);
+        return overlay == null ? 0f : BackspaceSwipePolicy.fingerYInKey(
+            overlay.fingerY(rawY), overlay.keyTop(button), button.getScaleY());
     }
 
     /**
