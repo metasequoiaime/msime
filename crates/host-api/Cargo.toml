@@ -32,6 +32,8 @@ tempfile.workspace = true
 sha2.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 libc.workspace = true
+# 建会话在宿主的小栈线程上切到一块自己的栈（`ffi::session::create_session`）：TSF 激活回调里那条线程只剩几十 KiB，装不下构造链（#11893）。
+stacker = "0.1.25"
 # 按键重排的 ONNX Runtime 模型后端，`onnx-rerank` 特性打开时才编：要链接按模型算子清单精简构建的 ONNX Runtime（`ORT_LIB_LOCATION`），见 `crates/onnx-rerank`。
 msime-onnx-rerank = { path = "../onnx-rerank", features = ["runtime"], optional = true }
 
