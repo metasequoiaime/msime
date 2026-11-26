@@ -68,7 +68,10 @@ RUST_ONLY: dict[str, set[str]] = {
         "settings_sync_webdav",
 
     },
-    "KeybindingPreferences": set(),
+    "KeybindingPreferences": {
+        # 单按 Shift 进入大写英文（#11846）只由 macOS 宿主读取；packages/ui 迁移期只修缺陷、不加新设置，冻结的 AppKit 回退窗口也不加控件，界面随 macOS 原生设置迁移接入。
+        "shift_tap_uppercase_english",
+    },
     "LocalModePreferences": {
         # 组字后按 / 转超级简拼（#10860）只在 Windows 与 iOS 的原生设置页提供开关；packages/ui 只修缺陷、不加新设置，macOS、Linux、HarmonyOS 按默认开，等原生设置迁移时补上。
         "super_jianpin_slash",
