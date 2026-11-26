@@ -4980,6 +4980,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 // A tap during a composition sends out the letters that were typed, not the highlighted candidate. Reaching for Shift mid-word is how a word the dictionary does not carry - a name, a command, an acronym - gets out without losing what was already typed; finishing the composition instead commits the Chinese candidate, which is the opposite of what was asked for.
 //
 // Commit first, then switch: switching rebuilds the input session, and the other order loses the letters still being composed. setEnglishInputMode: finishes any composition of its own, which is a no-op once this has run.
+- (void)toggleInputModeFromModifierTap {
+    [self toggleInputModeFromModifierTapUppercase:NO];
+}
+
 - (void)toggleInputModeFromModifierTapUppercase:(BOOL)uppercase {
     if ([self applyTrilingualCycleIfEnabled]) return;
     if ([_view[@"editing_text"] length] && _session && _activeClient) {
