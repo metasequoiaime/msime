@@ -2302,9 +2302,10 @@ bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   if (flags & IBUS_MOD5_MASK)
     paired_modifiers |= static_cast<std::uint32_t>(
         msime::linux_host::PairedPunctuationModifier::Mod5);
+  const bool japanese = msime::linux_host::japanese_punctuation(s.view);
   const auto closing = msime::linux_host::paired_closing_for_key(
       static_cast<char>(key), s.fullwidth, s.paired_tracker,
-      view_punctuation_marks(s.view).corner_quotes);
+      view_punctuation_marks(s.view).corner_quotes, japanese);
   if (!closing) return false;
   const auto following = surrounding_following_character(s);
   const bool modifiers_allowed =

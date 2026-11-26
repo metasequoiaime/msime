@@ -36,48 +36,64 @@ int main() {
   assert(tracker.size() == PairedPunctuationTracker::kMaxDepth);
 
   tracker.clear();
-  assert(paired_closing_for_key('"', false, tracker, false) == "”");
-  assert(paired_closing_for_key('\'', false, tracker, false) == "’");
-  assert(paired_closing_for_key(')', false, tracker, false) == "）");
-  assert(paired_closing_for_key(']', false, tracker, false) == "】");
-  assert(paired_closing_for_key('}', false, tracker, false) == "}");
-  assert(paired_closing_for_key('}', true, tracker, false) == "｝");
+  assert(paired_closing_for_key('"', false, tracker, false, false) == "”");
+  assert(paired_closing_for_key('\'', false, tracker, false, false) == "’");
+  assert(paired_closing_for_key(')', false, tracker, false, false) == "）");
+  assert(paired_closing_for_key(']', false, tracker, false, false) == "】");
+  assert(paired_closing_for_key('}', false, tracker, false, false) == "}");
+  assert(paired_closing_for_key('}', true, tracker, false, false) == "｝");
   // 契约第 5 版：中文标点下 `{` 补出的是」，栈顶是」时 `}` 跨过它，全角开关不影响。
   tracker.push("」");
-  assert(paired_closing_for_key('}', false, tracker, false) == "」");
-  assert(paired_closing_for_key('}', true, tracker, false) == "」");
-  assert(tracker.consume(*paired_closing_for_key('}', true, tracker, false), "」", true));
+  assert(paired_closing_for_key('}', false, tracker, false, false) == "」");
+  assert(paired_closing_for_key('}', true, tracker, false, false) == "」");
+  assert(tracker.consume(*paired_closing_for_key('}', true, tracker, false, false), "」", true));
   assert(tracker.empty());
   // 日语方案的 `[` 出「、`{` 出『：补完后按 `]`/`}` 要跨过刚补的右半，不再插入一个。
   tracker.push("」");
-  assert(paired_closing_for_key(']', false, tracker, false) == "」");
-  assert(tracker.consume(*paired_closing_for_key(']', false, tracker, false), "」", true));
+  assert(paired_closing_for_key(']', false, tracker, false, true) == "」");
+  assert(tracker.consume(*paired_closing_for_key(']', false, tracker, false, true), "」", true));
   assert(tracker.empty());
   tracker.push("』");
-  assert(paired_closing_for_key('}', false, tracker, false) == "』");
-  assert(tracker.consume(*paired_closing_for_key('}', false, tracker, false), "』", true));
+  assert(paired_closing_for_key('}', false, tracker, false, true) == "』");
+  assert(tracker.consume(*paired_closing_for_key('}', false, tracker, false, true), "』", true));
   assert(tracker.empty());
-  assert(!paired_closing_for_key(',', false, tracker, false));
+  // 日语下 `[` 补出的」不被 `}`（日文是』）或引号键跨过；引号键在日文表里走全角回退，与」』对不上。
+  tracker.push("」");
+  assert(paired_closing_for_key('}', false, tracker, false, true) == "}");
+  assert(paired_closing_for_key('\'', false, tracker, true, true) == "’");
+  tracker.clear();
+  tracker.push("』");
+  assert(paired_closing_for_key('"', false, tracker, true, true) == "”");
+  tracker.clear();
+  // 中文下 `{` 补出的」只由 `}` 跨过：`]` 照常出】、〗，`}` 不认』。
+  tracker.push("」");
+  assert(paired_closing_for_key(']', false, tracker, false, false) == "】");
+  assert(paired_closing_for_key(']', false, tracker, true, false) == "】");
+  tracker.clear();
+  tracker.push("』");
+  assert(paired_closing_for_key('}', false, tracker, false, false) == "}");
+  tracker.clear();
+  assert(!paired_closing_for_key(',', false, tracker, false, false));
   // 弯引号样式下 `{` 你好 `'`：`'` 出的是‘’，不能跨过 `{` 补出的」；consume 不符就清空栈，`'` 照常开一对新的。
   tracker.push("」");
-  assert(paired_closing_for_key('\'', false, tracker, false) == "’");
-  assert(!tracker.consume(*paired_closing_for_key('\'', false, tracker, false), "」", true));
+  assert(paired_closing_for_key('\'', false, tracker, false, false) == "’");
+  assert(!tracker.consume(*paired_closing_for_key('\'', false, tracker, false, false), "」", true));
   assert(tracker.empty());
   // 直角引号与空心括号：栈顶是这个键的另一组后半个时跨过它。
   tracker.push("」");
-  assert(paired_closing_for_key('\'', false, tracker, true) == "」");
-  assert(paired_closing_for_key('"', false, tracker, true) == "”");
+  assert(paired_closing_for_key('\'', false, tracker, true, false) == "」");
+  assert(paired_closing_for_key('"', false, tracker, true, false) == "”");
   tracker.push("』");
-  assert(paired_closing_for_key('"', false, tracker, true) == "』");
+  assert(paired_closing_for_key('"', false, tracker, true, false) == "』");
   tracker.push("〗");
-  assert(paired_closing_for_key(']', false, tracker, true) == "〗");
+  assert(paired_closing_for_key(']', false, tracker, true, false) == "〗");
   assert(tracker.consume("〗", "〗", true));
-  assert(tracker.consume(*paired_closing_for_key('"', false, tracker, true), "』", true));
-  assert(tracker.consume(*paired_closing_for_key('\'', false, tracker, true), "」", true));
+  assert(tracker.consume(*paired_closing_for_key('"', false, tracker, true, false), "』", true));
+  assert(tracker.consume(*paired_closing_for_key('\'', false, tracker, true, false), "」", true));
   assert(tracker.empty());
   // 直角引号样式下栈顶是‘’那一组（样式在一对开着时换掉）仍跨过’。
   tracker.push("’");
-  assert(paired_closing_for_key('\'', false, tracker, true) == "’");
+  assert(paired_closing_for_key('\'', false, tracker, true, false) == "’");
   tracker.clear();
   for (std::size_t index = 0; index < PairedPunctuationTracker::kMaxDepth + 3;
        ++index)
