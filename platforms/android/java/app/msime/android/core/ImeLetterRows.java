@@ -990,7 +990,7 @@ final class ImeLetterRows {
                     () -> s.character(JapaneseRomajiLayout.LONG_VOWEL_INPUT.charAt(0), false));
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
-                s.imeKeyFaces.attachLongVowel(keyButton);
+                s.imeKeyFaces.attach(keyButton, KeyFaceRole.LONG_VOWEL);
                 return s.keyId(keyButton, KeyPressIds.forCharacter(input.charAt(0)));
             }
             if (zhuyinKeycaps) {
@@ -1000,7 +1000,7 @@ final class ImeLetterRows {
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
                 // 字号由大千的键组定；声调键按自己的墨迹居中、放大画（KeyFaceTemplates.DACHEN_TONES）。
-                s.imeKeyFaces.attachDachen(keyButton);
+                s.imeKeyFaces.attach(keyButton, KeyFaceRole.DACHEN);
             } else if (zhuyinSymbols && ZhuyinKeyboardLayout.claimsSymbol(key)) {
                 // Dachen reads these digits and marks as bopomofo and tone keys, so the symbol page writes what its key shows instead of handing the key to the Engine. Zhuyin nine-key shares the same Engine scheme, so its #+= page does the same.
                 keyButton = s.keyboardKey(face, face, () -> s.imeLayoutRows.commitNineKeyLiteral(
@@ -1015,10 +1015,10 @@ final class ImeLetterRows {
                 koreanKeyButtons.add(keyButton);
                 koreanKeyInputs.add(input);
                 // 和字母键同字号（KeyFaceTemplates.KOREAN）；按双辅音换键面只重画。
-                s.imeKeyFaces.attachKorean(keyButton);
+                s.imeKeyFaces.attach(keyButton, KeyFaceRole.KOREAN);
             } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                 ShuangpinHintButton hintButton = s.shuangpinLetterKey(face, face, input.charAt(0));
-                s.imeKeyFaces.attachLetter(hintButton);
+                s.imeKeyFaces.attach(hintButton, KeyFaceRole.LETTERS);
                 keyButton = hintButton;
                 s.shuangpinKeyButtons.add(hintButton);
                 s.shuangpinKeyInputs.add(input);
@@ -1044,7 +1044,7 @@ final class ImeLetterRows {
                 s.symbolKeyButtons.add(keyButton);
                 s.symbolKeyInputs.add(input);
                 // 注音（大千、注音九键）的 #+= 共享符号行，与其他键面的 #+= 层同一个字号（KeyFaceTemplates.LAYER_CHARACTERS）。
-                s.imeKeyFaces.attachLayerCharacter(keyButton, false);
+                s.imeKeyFaces.attach(keyButton, KeyFaceRole.LAYER_CHARACTERS);
             }
             return keyButton;
         };
@@ -1078,7 +1078,7 @@ final class ImeLetterRows {
                 s.microsoftFinalKey = s.keyId(s.shuangpinLetterKey(";", "微软双拼 ing", ';'), "Semicolon");
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
-                s.imeKeyFaces.attachLetter((ShuangpinHintButton) s.microsoftFinalKey);
+                s.imeKeyFaces.attach((ShuangpinHintButton) s.microsoftFinalKey, KeyFaceRole.LETTERS);
                 row.addView(s.microsoftFinalKey, LayoutPolicy.weightedMatchParentParams(1));
             }
             if (standardLetters && rowIndex == 1) {
@@ -1216,7 +1216,7 @@ final class ImeLetterRows {
         // 14 键和 18 键同一个基准字号：先定 22 sp，再交给 KeyHintButton 按键宽收（setGridFace），角标开关前后都一样。18 键原来只开了自适应字号、没设字号，角标一来就把工厂的 14 sp 记成基准，字母比 14 键小一圈。
         KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
         keyButton.setGridFace(true);
-        s.imeKeyFaces.attachGridLetter(keyButton, eighteen);
+        s.imeKeyFaces.attach(keyButton, eighteen ? KeyFaceRole.EIGHTEEN_LETTERS : KeyFaceRole.FOURTEEN_LETTERS);
         keyButton.setKeyboardRole(KeyboardKeyRole.KEY);
         gridLetterButtons.add(keyButton);
         gridLetterKeys.add(key);
@@ -1441,7 +1441,7 @@ final class ImeLetterRows {
             KeyboardTypographyPolicy.setKeyTextSize(key, 20);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             s.keyId(key, KeyPressIds.forCharacter(input));
-            s.imeKeyFaces.attachNumber(key);
+            s.imeKeyFaces.attach(key, KeyFaceRole.NUMBER_ROW);
             row.addView(key, LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);
@@ -1475,7 +1475,7 @@ final class ImeLetterRows {
         ViewPolicy.show(key);
         row.addView(key, index, LayoutPolicy.weightedMatchParentParams(weight));
         if (key == s.shiftButton) s.imeKeyFaces.attachFunction(key, KeyFaceSpecs.SHIFT);
-        else s.imeKeyFaces.attachFunction(key, false);
+        else s.imeKeyFaces.attachFunction(key);
     }
 
     /**
@@ -1530,7 +1530,7 @@ final class ImeLetterRows {
                     : () -> s.imeLayoutRows.commitNineKeyLiteral(text));
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 // 第一排 20 sp、其余 18 sp 的字号由键组定（KeyFaceTemplates.LAYER_TOP_ROW、LAYER_CHARACTERS）。
-                s.imeKeyFaces.attachLayerCharacter(key, firstRow);
+                s.imeKeyFaces.attach(key, firstRow ? KeyFaceRole.LAYER_TOP : KeyFaceRole.LAYER_CHARACTERS);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
                 bindSuperscriptShortcut(key, text);
                 return key;
@@ -1583,7 +1583,7 @@ final class ImeLetterRows {
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
                 if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
                 // 与字母层的 ⌫ 同一个常驻键：建键行时已拿出上一副键盘的组，这里放回功能键组，否则它照旧式自己画。
-                s.imeKeyFaces.attachFunction(key, false);
+                s.imeKeyFaces.attachFunction(key);
                 return key;
             }
             case SPACE -> {
@@ -1604,7 +1604,7 @@ final class ImeLetterRows {
         key.setContentDescription(layerKey.description());
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
-        s.imeKeyFaces.attachFunction(key, false);
+        s.imeKeyFaces.attachFunction(key);
         return key;
     }
 

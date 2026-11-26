@@ -169,6 +169,29 @@ public final class KeyFaceGroup {
         update();
     }
 
+    /**
+     * 组里键格差多少：已经布局好的键里最宽和最窄之比、最高和最矮之比（{@code {宽, 高}}，一样大时都是 1，没有布局好的键时都是 0）。全组按最小的键格定参数，差得多时大键上的字显得小，所以作用相同的键应当一样大（{@link KeyFaceRole#mixedWidths}，设备检查核对）。
+     */
+    public float[] spread() {
+        int[] range = cellRange();
+        if (range[1] == 0) return new float[] {0, 0};
+        return new float[] {range[1] / (float) range[0], range[3] / (float) range[2]};
+    }
+
+    /** 已经布局好的键里最窄、最宽、最矮、最高的键格（像素，{@code {最窄, 最宽, 最矮, 最高}}）；没有时都是 0。 */
+    public int[] cellRange() {
+        int minWidth = Integer.MAX_VALUE, maxWidth = 0, minHeight = Integer.MAX_VALUE, maxHeight = 0;
+        for (Entry entry : members.values()) {
+            if (!entry.sized()) continue;
+            minWidth = Math.min(minWidth, entry.width());
+            maxWidth = Math.max(maxWidth, entry.width());
+            minHeight = Math.min(minHeight, entry.height());
+            maxHeight = Math.max(maxHeight, entry.height());
+        }
+        if (maxWidth == 0) return new int[4];
+        return new int[] {minWidth, maxWidth, minHeight, maxHeight};
+    }
+
     /** 当前参数；组里还没有布局好的键时为 {@code null}。 */
     public KeyFaceParams params() { return params; }
 

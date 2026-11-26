@@ -102,6 +102,20 @@ public final class KeyFaceGroupSmoke {
             && !group.domain().contains(KeyFaceSlot.BOTTOM, "iong") && !group.domain().contains(KeyFaceSlot.MAIN, "WWWW"),
             "换内容域时应保留文字固定的键放进来时的文字，丢掉不再可能出现的文字和键此刻画着的字");
 
+        // 键格差多少：最宽和最窄、最高和最矮之比；拿下来的键不算。
+        KeyFaceGroup spread = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,
+            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
+        Key narrowKey = new Key(), wideKey = new Key();
+        check(spread.spread()[0] == 0, "没有布局好的键时键格差应为 0");
+        spread.attach(narrowKey, Set.of());
+        spread.attach(wideKey, Set.of());
+        spread.cellChanged(narrowKey, 100, 150);
+        spread.cellChanged(wideKey, 160, 150);
+        check(KeyFaceSolverSmoke.near(spread.spread()[0], 1.6f) && KeyFaceSolverSmoke.near(spread.spread()[1], 1f),
+            "键格差应是 1.6 宽、1 高：" + spread.spread()[0]);
+        spread.detach(wideKey);
+        check(KeyFaceSolverSmoke.near(spread.spread()[0], 1f), "拿下来的键不应算进键格差");
+
         // 图标这一维：图标按画图标的键的键格算（窄的文字键不压小它），并且不大过领头组的图标。
         KeyFaceGroup icons = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
             KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);

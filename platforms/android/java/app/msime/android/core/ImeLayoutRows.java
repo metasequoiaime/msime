@@ -378,7 +378,7 @@ final class ImeLayoutRows {
                     return true;
                 });
             }
-            s.imeKeyFaces.attachSideSymbol(key, index == zeroIndex);
+            s.imeKeyFaces.attach(key, index == zeroIndex ? KeyFaceRole.SIDE_CORNER : KeyFaceRole.SIDE_SYMBOLS);
             // 独立键帽与无键帽底轨按布局区分，避免按钮和整列背景叠加。
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(capped ? KeyboardKeyRole.KEY : KeyboardKeyRole.PLAIN);
@@ -656,13 +656,13 @@ final class ImeLayoutRows {
             Button more = null;
             if (digits) {
                 more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
-                s.imeKeyFaces.attachFunction(more, false);
+                s.imeKeyFaces.attachFunction(more);
             }
             container.addView(tallReturnLeftColumn(sidebar, more), LayoutPolicy.weightedMatchParentParams(tallSide));
         } else if (digits) {
             LinearLayout left = LayoutPolicy.column(s);
             Button more = s.keyId(s.keyboardKey("#+=", "切换到更多符号", s.imeLetterRows::showMoreSymbols), "SoftLayer");
-            s.imeKeyFaces.attachFunction(more, false);
+            s.imeKeyFaces.attachFunction(more);
             addNumberPadSidebar(left, sidebar, more);
             container.addView(left, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
         } else container.addView(sidebar, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
@@ -706,8 +706,8 @@ final class ImeLayoutRows {
                 }
                 if (digits) bindNumberDigit(keyButton, key.digit() - 1);
                 else bindNineKeyFlick(keyButton, key);
-                if (digits) s.imeKeyFaces.attachNineDigit(keyButton, false);
-                else s.imeKeyFaces.attachNineLetter(keyButton);
+                if (digits) s.imeKeyFaces.attach(keyButton, KeyFaceRole.NINE_DIGITS);
+                else s.imeKeyFaces.attach(keyButton, KeyFaceRole.NINE_LETTERS);
                 addNineKey(row, keyButton);
             }
             grid.addView(row, LayoutPolicy.weightedWidthParams(1));
@@ -724,7 +724,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        s.imeKeyFaces.attachFunction(delete, false);
+        s.imeKeyFaces.attachFunction(delete);
         if (tallReturn) {
             // 右侧大回车：⌫ 下面一格在字母层是重输，数字层是按字面上屏的小数点（空格在中列 0 的右边，与 iOS、鸿蒙相同）。右列原来最下面的 ！ 去掉，接到符号栏默认表的末尾。回车占第三行和底行。
             if (digits) addNineKey(actions, nineKeyDecimalKey());
@@ -759,7 +759,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindNineKeySuperscriptShortcut(exclamation, last);
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        s.imeKeyFaces.attachNineLetter(exclamation);
+        s.imeKeyFaces.attach(exclamation, KeyFaceRole.NINE_LETTERS);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT));
     }
@@ -772,13 +772,13 @@ final class ImeLayoutRows {
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         KeyboardTypographyPolicy.setKeyTextSize(exclamation, KeyboardTypographyPolicy.NINE_KEY_LABEL_TEXT_SP);
         exclamation.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        s.imeKeyFaces.attachNineDigit(exclamation, false);
+        s.imeKeyFaces.attach(exclamation, KeyFaceRole.NINE_DIGITS);
         return exclamation;
     }
 
     /** 刚放进 {@code column} 的键（数字九宫格右列的小数点）放进九键数字组；侧边数字键盘（ImeSidePad）也用 {@link #nineKeyDecimalKey}，那里不放。 */
     private void attachLastNineDigit(LinearLayout column) {
-        s.imeKeyFaces.attachNineDigit((Button) column.getChildAt(column.getChildCount() - 1), false);
+        s.imeKeyFaces.attach((Button) column.getChildAt(column.getChildCount() - 1), KeyFaceRole.NINE_DIGITS);
     }
 
     /** 数字层右列的小数点：按字面上屏 `.`，记 `Period`；标准外框和右侧大回车外框都放在 ⌫ 下面，大屏单手的侧边数字键盘（ImeSidePad）放在底行最左。 */
@@ -796,7 +796,7 @@ final class ImeLayoutRows {
         });
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        s.imeKeyFaces.attachFunction(rewrite, false);
+        s.imeKeyFaces.attachFunction(rewrite);
         return rewrite;
     }
 
@@ -870,7 +870,7 @@ final class ImeLayoutRows {
                 digit == '0' ? () -> commitNineKeyLiteral("0") : () -> {});
         }
         s.keyId(key, digit == '0' ? "Nine0" : KeyPressIds.forNineKeyDigit(digit - '0'));
-        s.imeKeyFaces.attachNineDigit(key, true);
+        s.imeKeyFaces.attach(key, KeyFaceRole.NINE_SHUANGPIN);
         return key;
     }
 
@@ -907,7 +907,7 @@ final class ImeLayoutRows {
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
                 keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
                 // 键面只画笔画符号，字号由笔画组定（矮键时随键高缩小），名称保留在无障碍描述里。
-                s.imeKeyFaces.attachStroke(keyButton, true);
+                s.imeKeyFaces.attach(keyButton, KeyFaceRole.STROKES);
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
                 s.keyId(keyButton, KeyPressIds.forCharacter(key.input()));
@@ -924,7 +924,7 @@ final class ImeLayoutRows {
         // 和右列的 ！ 一组，与拼音九键的 @#、！ 同字号；「。」按自己的墨迹居中、放大画（KeyFaceTemplates.STROKE_KEYS）。
         for (Button key : java.util.List.of(symbolsKey, zero, period)) {
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
-            s.imeKeyFaces.attachStroke(key, false);
+            s.imeKeyFaces.attach(key, KeyFaceRole.STROKE_KEYS);
             addNineKey(lastRow, key);
         }
         grid.addView(lastRow, LayoutPolicy.weightedWidthParams(1));
@@ -940,14 +940,14 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        s.imeKeyFaces.attachFunction(delete, false);
+        s.imeKeyFaces.attachFunction(delete);
         // 右列和拼音九键一样三等分（⌫、拆分、！）、与三行网格逐行对齐；原来 ⌫ 独占两行，看起来像别的键盘拼进来的。笔画不需要拆分，中间这格是「重输」：丢掉已打的整串笔画。
         Button rewrite = s.keyboardKey("重输", "重新输入笔画", () -> {
             if (s.hasEngineComposition()) s.discardComposition();
         });
         KeyboardTypographyPolicy.setKeyTextSize(rewrite, KeyboardTypographyPolicy.NINE_KEY_ACTION_TEXT_SP);
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        s.imeKeyFaces.attachFunction(rewrite, false);
+        s.imeKeyFaces.attachFunction(rewrite);
         addNineKey(actions, rewrite);
         if (tallReturn) {
             // 右侧大回车：！ 去掉，回车占第三行和底行。
@@ -961,7 +961,7 @@ final class ImeLayoutRows {
         Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
         if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        s.imeKeyFaces.attachStroke(exclamation, false);
+        s.imeKeyFaces.attach(exclamation, KeyFaceRole.STROKE_KEYS);
         addNineKey(actions, exclamation);
         container.addView(actions, LayoutPolicy.weightedMatchParentParams(STROKE_SIDE_WEIGHT));
         updateStrokeWildcardKey();
@@ -1003,7 +1003,7 @@ final class ImeLayoutRows {
             }), tone.keyId());
             key.setContentDescription(label);
             // 声调符号本身只是一道短笔画：声调组按大字号画，每个按自己的墨迹居中（KeyFaceTemplates.ZHUYIN_TONES）。
-            s.imeKeyFaces.attachZhuyinTone(key);
+            s.imeKeyFaces.attach(key, KeyFaceRole.ZHUYIN_TONES);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(tones, key);
         }
@@ -1029,7 +1029,7 @@ final class ImeLayoutRows {
         Button period = s.keyId(s.keyboardKey(periodFace, "句点", this::commitNineKeyPeriod), "Period");
         for (Button key : java.util.List.of(comma, period)) {
             // 全角「，」「。」的墨迹只占字身左下角：逗号句号组把它们按自己的墨迹居中、放大画（KeyFaceTemplates.ZHUYIN_MARKS）。
-            s.imeKeyFaces.attachZhuyinMark(key);
+            s.imeKeyFaces.attach(key, KeyFaceRole.ZHUYIN_MARKS);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(marks, key);
         }
@@ -1046,7 +1046,7 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        s.imeKeyFaces.attachFunction(delete, false);
+        s.imeKeyFaces.attachFunction(delete);
         adoptBarKey(actions, s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS) ? s.layerButton : s.languageButton, KeyboardKeyRole.ACCENT);
         adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
         adoptBarKey(actions, s.enterButton, s.imeBottomRow.returnKeyRole());
@@ -1118,7 +1118,7 @@ final class ImeLayoutRows {
         });
         s.keyId(button, ZhuyinNineKeyLayout.keyId(key));
         button.setBottomText(String.valueOf(key.digit()));
-        s.imeKeyFaces.attachZhuyinSound(button);
+        s.imeKeyFaces.attach(button, KeyFaceRole.ZHUYIN_SOUNDS);
         button.setContentDescription(label);
         button.setKeyboardRole(KeyboardKeyRole.KEY);
         return button;
@@ -1668,7 +1668,7 @@ final class ImeLayoutRows {
         Button button = s.keyboardKey(label, description,
             () -> tapJapaneseKey(key));
         // 字号由假名组定（KeyFaceTemplates.JAPANESE_KANA）；符号层上的数字另一组。
-        s.imeKeyFaces.attachJapaneseKana(button, s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS);
+        s.imeKeyFaces.attach(button, s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS ? KeyFaceRole.JAPANESE_DIGITS : KeyFaceRole.JAPANESE_KANA);
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + (s.japaneseToggleInputEnabled ? "，连续轻点依次切换" : "")
             + "；左、上、右、下滑动选择其他假名");
@@ -1735,7 +1735,7 @@ final class ImeLayoutRows {
         } else if (button == s.japaneseSymbolsKey) {
             s.imeKeyFaces.attachFunction(button, KeyFaceSpecs.JAPANESE_LAYER);
         } else if (!(button instanceof KeyboardIconKey)) {
-            s.imeKeyFaces.attachFunction(button, false);
+            s.imeKeyFaces.attachFunction(button);
         }
         column.addView(button, LayoutPolicy.weightedWidthParams(weight));
     }
@@ -1823,7 +1823,7 @@ final class ImeLayoutRows {
         Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         addJapaneseSideKey(side, delete, 1);
-        s.imeKeyFaces.attachFunction(delete, false);
+        s.imeKeyFaces.attachFunction(delete);
         s.japaneseSpaceKey = s.keyId(s.keyboardKey(s.imeKeyFaces.text(KeyFaceSpecs.JAPANESE_SPACE), "空白；左右滑动移动光标", s::space), "Space");
         s.imeBottomRow.bindSpaceCursor(s.japaneseSpaceKey);
         addJapaneseSideKey(side, s.japaneseSpaceKey, 1);
