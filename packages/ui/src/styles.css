@@ -1585,13 +1585,10 @@
     stroke-linejoin: round;
   }
 }
+/* 位置、宽度和最大高度由 font-family-input.tsx 按字段在视口里的位置写在行内（`position: fixed`）。 */
 @utility font-family-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  right: 0;
-  left: 0;
-  max-height: 240px;
+  z-index: 100;
+  box-sizing: border-box;
   overflow: auto;
   padding: 4px;
   border: 1px solid var(--dropdown-menu-border);

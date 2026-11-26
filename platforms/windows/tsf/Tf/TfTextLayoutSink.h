@@ -37,6 +37,13 @@ class CTfTextLayoutSink : public ITfTextLayoutSink
         _hasValidAnchor = true;
     }
 
+    // 这个 layout 会话（同一次组字）是否已经量到过可用锚点。按键路径据此决定空 extent 是
+    // 「先收起、等排版完成」还是「把窗口留在上次的位置」。
+    bool _HasValidAnchor() const
+    {
+        return _hasValidAnchor;
+    }
+
     virtual VOID _LayoutChangeNotification(_In_ RECT *lpRect) = 0;
     virtual VOID _LayoutDestroyNotification() = 0;
     // 等待延迟清理的 presenter 已经脱离组字，但 sink 要到析构时才注销：它的 layout 回调不能再写 Global::Point，否则会把组字结束后的复位改回旧位置，或盖掉同一次按键里新组字的锚点。

@@ -68,6 +68,7 @@ import android.widget.Toast;
 import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
+import app.msime.android.policy.CompositionStopPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import app.msime.android.policy.QuickPhrasePreferencePolicy;
 import app.msime.android.core.InputViewValuePolicy;
@@ -132,6 +133,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeOcr imeOcr;
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
+    ImeKeyFaces imeKeyFaces;
     ImeGlideTyping imeGlideTyping;
     ImeTouchPoints imeTouchPoints;
     ImeBottomRow imeBottomRow;
@@ -183,6 +185,10 @@ public final class MSIMEInputService extends InputMethodService {
     boolean candidateRenderDeferred;
     /** 候选触摸保护延续到框架排队的点击之后；每次按下用独立标记，旧松开不能清掉下一次按下。 */
     private final java.util.Map<View, Object> candidateTouches = new java.util.WeakHashMap<>();
+    /** 复用或就地换内容的候选按钮各自画的是哪一个候选；点按、长按都按它选词（#11816）。 */
+    private final java.util.Map<View, JSONObject> drawnCandidates = new java.util.WeakHashMap<>();
+    /** 数字行选词对应的、画出来的那些候选，按可见顺序；换代换了视图但还没重画时不选到新词（#11816）。 */
+    private final java.util.List<JSONObject> drawnVisibleCandidates = new java.util.ArrayList<>();
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
@@ -200,9 +206,7 @@ public final class MSIMEInputService extends InputMethodService {
     final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     long nineKeySpellingGeneration = -1;
-    private long candidateScrollSession = -1;
-    private long candidateScrollGeneration = -1;
-    private int candidateScrollPage = -1;
+    final CandidateScrollAnchor candidateScrollAnchor = new CandidateScrollAnchor();
     Button expandCandidates;
     /** 上屏后联想时展开键左边的关闭键（#10078），显示与否由 {@link PredictionButtonsPolicy} 和 {@link #predictionButtons} 决定。 */
     Button closePrediction;
@@ -263,8 +267,6 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidatePronunciationPackInstalled;
     private boolean candidateTargetPronunciationPackInstalled;
     private java.util.Map<String, String> candidatePronunciations = java.util.Map.of();
-    private String candidatePronunciationRequest = "";
-    private long candidatePronunciationEpoch;
     private JSONObject candidatePronunciationSourceView;
     private JSONObject candidatePronunciationSourcePanel;
     private java.util.List<String> candidatePronunciationSourceSuggestions = java.util.List.of();
@@ -279,8 +281,8 @@ public final class MSIMEInputService extends InputMethodService {
     // 候选词翻译的范围（`candidate_translation_scope`）。生效时（见 candidateTranslationScopeLimited）账号、用户自己的服务和 AI 只为视图里高亮的那个候选请求，离线释义照旧整页。
     private CandidateTranslationPolicy.Scope candidateTranslationScope = CandidateTranslationPolicy.Scope.HIGHLIGHTED;
     CandidateTranslationStore candidateTranslationStore;
-    private long candidateTranslationBindingEpoch;
-    private long candidateTranslationVerifiedGeneration = -1L;
+    /** 账号译文缓存属于哪个账号：后台核对，核对过的缓存与候选同一帧画出（{@link CandidateTranslationBinding}）。 */
+    private CandidateTranslationBinding candidateTranslationBinding;
     private long candidateTranslationAppliedGeneration = -1L;
     // 候选翻译这一次走哪个服务（含凭据），由 CandidateTranslationPolicy.route 从偏好算出；选的是用户自己的服务（小牛、自定义、腾讯）时，译文由 userTranslationStore 取，它与账号的 candidateTranslationStore 并行、互不复用。路由不可变，变了就整个换掉 userTranslationStore。
     CandidateTranslationRoute candidateTranslationRoute = CandidateTranslationRoute.NONE;
@@ -566,6 +568,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean splitKeyboardEnabled;
     int splitKeyboardThresholdDp;
     int splitKeyboardGapPercent;
+    /** 空隙比例是不是用户在设置页显式设过（{@code platform.android.split_keyboard_gap} 在本地设置里存在）；没设过时宽窗口上的 720 dp 键区上限照旧生效（{@link SplitKeyboardPolicy#gapFraction(int, int, boolean)}）。 */
+    boolean splitKeyboardGapExplicit;
     boolean splitKeyboardPortrait;
     /** 本地设置「手机横屏分离式键盘」（#10440）；实际画不画还要看方向、窗口和分离后的键宽，见 {@link #splitKeyboardDrawn}。 */
     boolean splitKeyboardPhoneLandscape;
@@ -1096,9 +1100,23 @@ public final class MSIMEInputService extends InputMethodService {
     final ExecutorService skinDownloadWorker = Executors.newSingleThreadExecutor();
     /** 键盘里常用语的读取和「添加到常用语」都在这条线程上排队（#10086）：`preferencesWorker` 在每个新输入框里先做建会话前的偏好读取和个人词库同步，常用语排在它后面，会话在建时点开的常用语面板要一直显示「正在读取」到会话快建好。读写放在同一条线程上，刚添加的那条在随后打开的面板里一定读得到。 */
     final ExecutorService commonPhrasesWorker = Executors.newSingleThreadExecutor();
-    private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
-        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
-        new ThreadPoolExecutor.DiscardOldestPolicy());
+    /** 整页候选释义和读音都在主线程上查，见 {@link CandidateGlossLookup}、{@link CandidateReadingLookup}。 */
+    private final CandidateGlossLookup candidateGlossLookup = new CandidateGlossLookup((generation, rows, language) -> {
+        JSONArray candidates = new JSONArray();
+        for (CandidateGlossLookup.Row row : rows)
+            candidates.put(new JSONObject().put("text", row.text()).put("source", row.source()));
+        String request = CandidateGlossModel.request(generation, candidates, language);
+        CandidateGlossModel.Result result = CandidateGlossModel.decode(language == null
+            ? NativeClient.candidateGlosses(request, candidateGlossResources)
+            : NativeClient.candidateGlosses(request, candidateGlossResources,
+                candidateGlossStateRoot.isEmpty() ? null : candidateGlossStateRoot));
+        if (result.generation() != generation) throw new IllegalStateException("Stale candidate glosses");
+        return glossMap(result);
+    });
+    private final CandidateReadingLookup candidateReadingLookup = new CandidateReadingLookup(
+        (generation, keys, supplementary) -> CandidatePronunciationModel.decode(
+            NativeClient.candidatePronunciations(CandidatePronunciationModel.request(generation, keys),
+                candidateGlossResources, supplementary), generation));
     private final ExecutorService candidateTranslationWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
@@ -2184,6 +2202,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
+        imeKeyFaces = new ImeKeyFaces(this);
         imeGlideTyping = new ImeGlideTyping(this);
         imeTouchPoints = new ImeTouchPoints(this);
         imeBottomRow = new ImeBottomRow(this);
@@ -2253,6 +2272,12 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         armFirstFrameWait();
+        // 设置页可能改了自定义译文或装了读音包：记住的释义和读音作废，再在空闲时打开词库。
+        candidateGlossLookup.clear();
+        candidateReadingLookup.clear();
+        warmUpCandidateGlossesWhenIdle();
+        // 键盘显示时账号可能在别处换过：核对完成之前不画缓存里的账号译文（CandidateTranslationBinding）。
+        if (candidateTranslationBinding != null) candidateTranslationBinding.reset();
         hideVoiceEmptyNotice();
         // 反馈必须在第一下按键前生效，不能被延迟刷新的组字保护跳过。
         loadFeedbackPreferences();
@@ -2504,6 +2529,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onTrimMemory(int level) {
         super.onTrimMemory(level);
         if (!AndroidMemoryPolicy.shouldReleaseProcessCache(level)) return;
+        candidateGlossLookup.clear();
+        candidateReadingLookup.clear();
         try {
             if (session != 0) {
                 // A live session owns its provider until destroy; reset its Engine caches as well
@@ -2584,7 +2611,6 @@ public final class MSIMEInputService extends InputMethodService {
         imeDebugOverlay.shutdown();
         cloudClipboardWorker.shutdownNow();
         skinDownloadWorker.shutdownNow();
-        candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
         englishSuggestionWorker.shutdownNow();
         onlineCandidateWorker.shutdownNow();
@@ -2716,8 +2742,7 @@ public final class MSIMEInputService extends InputMethodService {
         // image after the user has enabled the privacy gate.
         clipboardImageGeneration++;
         if (!keepSession) {
-            candidateTranslationBindingEpoch++;
-            candidateTranslationVerifiedGeneration = -1L;
+            if (candidateTranslationBinding != null) candidateTranslationBinding.reset();
             candidateTranslationAppliedGeneration = -1L;
             userTranslationAppliedGeneration = -1L;
         }
@@ -2733,7 +2758,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (!keepSession && session != 0) {
             // 换输入框、切应用时旧会话在主线程上销毁（写出选词和延迟学习），正排在新输入框的键盘弹出前面，单独记下耗时（#9916）。
             long destroyStartedAt = SystemClock.uptimeMillis();
-            try { if (finish && connection != null) apply(NativeClient.command(session, 2)); }
+            int stopCommand = CompositionStopPolicy.command(finish, composesKeyLetters());
+            try {
+                if (stopCommand != CompositionStopPolicy.NO_COMMAND && connection != null)
+                    apply(NativeClient.command(session, stopCommand));
+            }
             catch (Exception | LinkageError ignored) { /* Never log editor text or native responses. */ }
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
@@ -2741,8 +2770,8 @@ public final class MSIMEInputService extends InputMethodService {
             imeDebugOverlay.recordPerf(DiagnosticEventKind.ENGINE_SESSION_DESTROY,
                 SystemClock.uptimeMillis() - destroyStartedAt);
         }
-        // A Stroke composition still marked here (the session stopped without CommitRaw) is stroke glyphs, not text: remove it rather than finish it into the document.
-        if (connection != null && strokeCompositionMarked()) bridge.discard(sink(typingSource()));
+        // 组字区里是按键本身（拼音、读音字母、笔画字形）时删掉而不是结束：结束组字区会把读音写成正文，用户发出去的就不再是他打的字。
+        if (connection != null && composesKeyLetters()) bridge.discard(sink(typingSource()));
         // 会话停下时不知道编辑器里是否还有组字区（restartInput 前应用常已清空或改写了文字），换成确定读音可能把它插进文档，所以只结束组字区，不写文字。
         else if (connection != null) bridge.abandon(sink(typingSource()));
         if (!keepSession) view = null;
@@ -3012,6 +3041,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             String stateRoot = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             candidateGlossStateRoot = new File(stateRoot).isAbsolute() ? stateRoot : "";
+            warmUpCandidateGlossesWhenIdle();
             File parent = new File(candidateGlossResources).getParentFile();
             candidatePronunciationAvailable = candidateGlossResources.length() > 0
                 && ((parent != null && new File(parent, "pronunciations/en-phonetic.db").isFile())
@@ -3367,6 +3397,7 @@ public final class MSIMEInputService extends InputMethodService {
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         splitKeyboardThresholdDp = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_THRESHOLD);
         splitKeyboardGapPercent = localSettings.integer(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
+        splitKeyboardGapExplicit = localSettings.has(AndroidLocalSettings.SPLIT_KEYBOARD_GAP);
         splitKeyboardPhoneLandscape = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD_PHONE_LANDSCAPE);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
         if (incognitoEnabled) clearQuickDeleteUndo();
@@ -3612,6 +3643,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void invalidateCandidateGlosses() {
+        candidateGlossLookup.clear();
         candidateGlossEpoch = candidateGlossEpoch == Long.MAX_VALUE ? 0 : candidateGlossEpoch + 1;
         candidateGlossRequestedSession = 0;
         candidateGlossRequestedGeneration = -1;
@@ -3620,8 +3652,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void invalidateCandidatePronunciations() {
-        candidatePronunciationEpoch++;
-        candidatePronunciationRequest = "";
+        candidateReadingLookup.clear();
         candidatePronunciations = java.util.Map.of();
         candidatePronunciationSourceView = null;
         candidatePronunciationSourcePanel = null;
@@ -3681,7 +3712,7 @@ public final class MSIMEInputService extends InputMethodService {
                 ? displayedCandidateSnapshot() : view;
             long generation = strictCandidateLong(snapshot, "generation");
             JSONArray snapshotCandidates = snapshot.optJSONArray("candidates");
-            String request = CandidatePronunciationModel.request(generation,
+            java.util.List<String> keys = CandidatePronunciationModel.keys(
                 snapshotCandidates == null ? new JSONArray() : snapshotCandidates,
                 target, glossVisible, suggestions);
             candidatePronunciationSourceView = view;
@@ -3689,34 +3720,26 @@ public final class MSIMEInputService extends InputMethodService {
             candidatePronunciationSourceSession = session;
             candidatePronunciationSourceSuggestions = java.util.List.copyOf(suggestions);
             candidatePronunciationPreferences = preferencesKey;
-            String signature = session + ":" + request;
-            if (signature.equals(candidatePronunciationRequest)) return;
-            candidatePronunciationRequest = signature;
-            final long requestedSession = session;
-            final long requestedEpoch = candidatePronunciationEpoch;
-            final String resources = candidateGlossResources;
-            final String supplementaryResources = candidatePronunciationPackInstalled
+            String supplementaryResources = candidatePronunciationPackInstalled
                 || candidateTargetPronunciationPackInstalled
                 ? new File(candidateGlossStateRoot, "resource-packs").getAbsolutePath() : "";
-            candidateGlossWorker.execute(() -> {
-                try {
-                    java.util.Map<String, String> readings = CandidatePronunciationModel.decode(
-                        NativeClient.candidatePronunciations(request, resources, supplementaryResources), generation);
-                    main.post(() -> {
-                        if (!candidatePronunciationVisible() || session != requestedSession
-                                || candidatePronunciationEpoch != requestedEpoch || view == null
-                                || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation
-                                || !signature.equals(candidatePronunciationRequest)) return;
-                        candidatePronunciations = readings;
-                        render();
-                    });
-                } catch (JSONException | RuntimeException | LinkageError ignored) {
-                    // 音标只是显示信息，离线表失败时不影响输入，也不记录输入内容。
-                }
-            });
-        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 与释义一样在主线程上、画这一代之前当场查（见 CandidateReadingLookup）：读音和候选、释义同一帧出现。
+            candidateReadingLookup.setRemembering(!learningSuppressed());
+            candidatePronunciations = candidateReadingLookup.readings(generation, keys, supplementaryResources);
+        } catch (Exception | LinkageError ignored) {
             // 输入线程不能因离线音标查询失败而中断。
         }
+    }
+
+    /** 键盘显示、会话建好后的第一个空闲时刻在主线程上打开释义词库，打字时的第一次查询就不用等打开。 */
+    private void warmUpCandidateGlossesWhenIdle() {
+        if (!candidateEnglishGloss || candidateGlossResources.isEmpty()) return;
+        java.util.List<String> languages = candidateOfflineTargets();
+        boolean englishShown = languages.isEmpty() || candidateTranslationTargets.contains("en");
+        android.os.Looper.myQueue().addIdleHandler(() -> {
+            candidateGlossLookup.warmUp(englishShown, languages);
+            return false;
+        });
     }
 
     /** The non-English targets with an installed offline dictionary, rechecked whenever the targets, resources or gloss preferences change. */
@@ -3735,51 +3758,39 @@ public final class MSIMEInputService extends InputMethodService {
             candidateTranslationStore = new CandidateTranslationStore(
                 this, candidateTranslationWorker, main,
                 generation -> applyCandidateTranslations(generation));
+            CandidateTranslationStore store = candidateTranslationStore;
+            candidateTranslationBinding = new CandidateTranslationBinding(
+                () -> candidateTranslationBindingKey(SyncSignals.binding(this)),
+                task -> {
+                    try {
+                        candidateTranslationWorker.execute(task);
+                        return true;
+                    } catch (RuntimeException rejected) {
+                        return false;
+                    }
+                },
+                main::post, android.os.SystemClock::uptimeMillis,
+                new CandidateTranslationBinding.Cache() {
+                    @Override public boolean bindTo(String key) { return store.bindTo(key); }
+                    @Override public boolean hasEntries() { return store.hasEntries(); }
+                },
+                this::candidateTranslationBindingChecked);
+            store.fence(candidateTranslationBinding::holds, candidateTranslationBinding::invalidate);
         }
+    }
+
+    /** 账号绑定核对完成：缓存因换账号清空时去掉画面上的账号译文；否则重画一次，这一代的缓存译文和请求由 render 接上。 */
+    private void candidateTranslationBindingChecked(boolean cleared) {
+        candidateTranslationAppliedGeneration = -1L;
+        if (!candidateTranslationAccount || session == 0 || view == null) return;
+        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+        if (cleared && generation >= 0) applyVerifiedCandidateTranslations(generation, true);
+        else render();
     }
 
     static String candidateTranslationBindingKey(SyncSwitch.Binding binding) {
         if (binding == null || binding.accountId() == null) return null;
         return binding.generation() + ":" + binding.accountId();
-    }
-
-    private void verifyCandidateTranslationBinding(long generation,
-            java.util.function.Consumer<Boolean> onVerified) {
-        long epoch = ++candidateTranslationBindingEpoch;
-        long expectedSession = session;
-        candidateTranslationVerifiedGeneration = -1L;
-        try {
-            candidateTranslationWorker.execute(() -> {
-                app.msime.android.SyncSwitch.Binding binding = SyncSignals.binding(this);
-                main.post(() -> {
-                    if (epoch != candidateTranslationBindingEpoch || session != expectedSession
-                            || view == null || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation
-                            || candidateTranslationStore == null) return;
-                    // Signed-out users may use the anonymous translation endpoint, but an
-                    // unavailable provider cannot prove which account owns cached rows.
-                    String key = candidateTranslationBindingKey(binding);
-                    String currentKey = candidateTranslationBindingKey(SyncSignals.binding(this));
-                    if (!CandidateTranslationPolicy.acceptsBinding(key, currentKey)) {
-                        boolean hadEntries = candidateTranslationStore.hasEntries();
-                        candidateTranslationStore.bindTo(currentKey);
-                        if (hadEntries) applyVerifiedCandidateTranslations(generation, true);
-                        onVerified.accept(null);
-                        return;
-                    }
-                    boolean hadEntries = candidateTranslationStore.hasEntries();
-                    boolean same = candidateTranslationStore.bindTo(key);
-                    if (!same) candidateTranslationAppliedGeneration = -1L;
-                    candidateTranslationVerifiedGeneration = generation;
-                    if (!same && hadEntries) {
-                        applyVerifiedCandidateTranslations(generation, true);
-                        return;
-                    }
-                    onVerified.accept(same);
-                });
-            });
-        } catch (RuntimeException ignored) {
-            candidateTranslationStore.bindTo(null);
-        }
     }
 
     String chineseOutput(String text, JSONObject context) {
@@ -4336,7 +4347,7 @@ public final class MSIMEInputService extends InputMethodService {
         String settled = composingText(view, editingText, false);
         String marked = ChineseOutputCompositionSync.readMarked(connection, composingStart, composingEnd);
         bridge.finishInPlace(sink(typingSource()), drawn, settled, marked, composingStart, composingEnd,
-            selectionStart, selectionEnd);
+            selectionStart, selectionEnd, composesKeyLetters());
     }
 
     private boolean englishNineKeyActive() {
@@ -4623,6 +4634,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (!sameCandidateVersion(snapshot, next))
                 throw new JSONException("Unexpected candidate generation");
             imeTranslationSenses.followOnlineRefresh(next);
+            markCandidatesLate(next);
             view = next;
         }
         return snapshot;
@@ -4640,26 +4652,25 @@ public final class MSIMEInputService extends InputMethodService {
         if (visible == null || visible.length() == 0) return;
         final long targetSession = session;
         final long targetEpoch = candidateGlossEpoch;
-        final String targetResources = candidateGlossResources;
-        final String targetStateRoot = candidateGlossStateRoot.isEmpty() ? null : candidateGlossStateRoot;
         final java.util.List<String> offlineTargets = candidateOfflineTargets();
         // 目标语言含英语时，随包的英文释义也要记进 candidateOfflineGlosses：合并在线译文时靠它让离线释义优先。只在装了非英文离线词典时才记，没装的用户（默认配置）在线译文会把「你好 hello」这类离线英文释义盖掉。
         final boolean englishTarget = candidateTranslationTargets.contains("en");
-        final String request;
         final long generation;
-        final java.util.Map<String, String> targetRequests =
-            new java.util.LinkedHashMap<>(offlineTargets.size());
+        final java.util.ArrayList<CandidateGlossLookup.Row> rows = new java.util.ArrayList<>();
+        // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
+        final java.util.List<String> targets =
+            "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3
+                ? offlineTargets : java.util.List.of();
         try {
             JSONObject snapshot = displayedCandidateSnapshot();
             generation = strictCandidateLong(snapshot, "generation");
-            request = CandidateGlossModel.request(generation,
-                snapshot.getJSONArray("candidates"));
-            // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
-            if ("none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
-                for (String language : offlineTargets) {
-                    targetRequests.put(language, CandidateGlossModel.request(generation,
-                        snapshot.getJSONArray("candidates"), language));
-                }
+            JSONArray candidates = snapshot.getJSONArray("candidates");
+            if (candidates.length() == 0 || candidates.length() > CandidateGlossModel.MAX_CANDIDATES)
+                throw new JSONException("Invalid candidate gloss rows");
+            for (int index = 0; index < candidates.length(); index++) {
+                JSONObject candidate = candidates.getJSONObject(index);
+                rows.add(new CandidateGlossLookup.Row(CandidateGlossPolicy.strictString(candidate.opt("text")),
+                    (int) CandidateGlossPolicy.strictInteger(candidate.opt("source"))));
             }
         } catch (JSONException | RuntimeException | LinkageError error) {
             candidateGlossRequestedSession = targetSession;
@@ -4670,45 +4681,40 @@ public final class MSIMEInputService extends InputMethodService {
             new CandidateGlossPolicy.Token(targetSession, generation, targetEpoch);
         candidateGlossRequestedSession = targetSession;
         candidateGlossRequestedGeneration = generation;
+        // 在主线程上、画这一代之前当场查（见 CandidateGlossLookup）：释义和候选在同一帧出现，换代时也不会先画出没有释义的一帧；见过的候选不再查。
+        candidateGlossLookup.setRemembering(!learningSuppressed());
         try {
-            candidateGlossWorker.execute(() -> {
-                try {
-                    CandidateGlossModel.Result result = CandidateGlossModel.decode(
-                        NativeClient.candidateGlosses(request, targetResources));
-                    java.util.Map<String, java.util.Map<String, String>> offline = null;
-                    if (!targetRequests.isEmpty() || englishTarget) {
-                        offline = new java.util.HashMap<>(targetRequests.size() + 1);
-                        offline.put("en", glossMap(result));
-                        for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
-                            try {
-                                CandidateGlossModel.Result glosses = CandidateGlossModel.decode(
-                                    NativeClient.candidateGlosses(target.getValue(), targetResources, targetStateRoot));
-                                if (glosses.generation() == generation)
-                                    offline.put(target.getKey(), glossMap(glosses));
-                            } catch (JSONException | RuntimeException | LinkageError error) {
-                                // One missing or unreadable dictionary leaves the other rows intact.
-                            }
-                        }
-                    }
-                    final java.util.Map<String, java.util.Map<String, String>> targetGlosses = offline;
-                    main.post(() -> applyCandidateGlosses(token, result, targetGlosses));
-                } catch (JSONException | RuntimeException | LinkageError error) {
-                    // Display-only lookup failures remain silent and never include candidate text.
-                }
-            });
-        } catch (RuntimeException ignored) {
-            // A stopped or saturated host must not affect input.
+            CandidateGlossLookup.Found found = candidateGlossLookup.lookUp(generation, rows, targets, englishTarget);
+            applyCandidateGlosses(token, found.english(), found.offline());
+        } catch (Exception | LinkageError error) {
+            // Display-only lookup failures remain silent and never include candidate text.
         }
     }
 
+    private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
+            throws JSONException {
+        JSONArray entries = new JSONArray(result.translations());
+        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
+        for (int index = 0; index < entries.length(); index++) {
+            JSONObject entry = entries.getJSONObject(index);
+            glosses.put(entry.getString("text"), entry.getString("translation"));
+        }
+        return glosses;
+    }
+
     private void applyCandidateGlosses(CandidateGlossPolicy.Token token,
-            CandidateGlossModel.Result result,
+            java.util.Map<String, String> english,
             java.util.Map<String, java.util.Map<String, String>> offline) {
         long currentGeneration = view == null ? -1
             : CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
-        if (!candidateEnglishGloss || result.generation() != token.generation()
-                || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
-        String translations = result.translations();
+        if (!candidateEnglishGloss || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
+        // 英文释义只在画得出来时才查（见 CandidateGlossLookup#lookUp）；没查时 offline 一定在，载荷由下面合并出来。
+        String translations;
+        try {
+            translations = english == null ? "[]" : CandidateGlossModel.payload(english);
+        } catch (JSONException error) {
+            return;
+        }
         if (offline != null) {
             candidateOfflineGlosses = offline;
             candidateOfflineGlossSession = token.session();
@@ -4728,10 +4734,10 @@ public final class MSIMEInputService extends InputMethodService {
                 candidateTranslationAppliedGeneration = -1L;
                 userTranslationAppliedGeneration = -1L;
             }
+            // 在 renderViews 开头调用，接下来画的就是带释义的这一份，不再另画一次。
             if (candidatePanelOpen) {
                 candidatePanelSnapshot = currentCandidateSnapshot();
             }
-            render();
         } catch (JSONException | RuntimeException | LinkageError error) {
             // Candidate glosses are optional display state; keep the current Engine view.
         }
@@ -4764,24 +4770,23 @@ public final class MSIMEInputService extends InputMethodService {
                     InputViewValuePolicy.booleanValue(candidate, "highlighted", false))) continue;
             words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
-        verifyCandidateTranslationBinding(generation, same -> {
-            if (same != null) {
-                candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
-                if (same && candidateTranslationStore.hasEntries()
-                        && candidateTranslationAppliedGeneration != generation)
-                    applyVerifiedCandidateTranslations(generation);
-            }
-        });
+        // 账号绑定在后台核对（CandidateTranslationBinding）：核对过就把缓存里的译文在这一帧画出，只为没见过的词发请求；还没核对过（刚显示键盘、换了输入框）时先不用缓存、不发请求，核对完再画。
+        candidateTranslationBinding.ensureFresh();
+        if (!candidateTranslationBinding.usable()) return;
+        candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
+        if (candidateTranslationStore.hasEntries() && candidateTranslationAppliedGeneration != generation) {
+            // render 在画候选条之前调这里：直接换上带译文的视图，不再嵌套一次 render。
+            JSONObject next = appliedOnlineTranslations(generation, false);
+            candidateTranslationAppliedGeneration = generation;
+            if (next != null) view = next;
+        }
     }
 
     private void applyCandidateTranslations(long generation) {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation) return;
-        verifyCandidateTranslationBinding(generation, same -> {
-            if (same == null) return;
-            if (same) applyVerifiedCandidateTranslations(generation);
-            else scheduleCandidateTranslations();
-        });
+        // 新译文到达：请求前后都核对过绑定（CandidateTranslationStore#fence），缓存可用时直接画上。
+        if (candidateTranslationBinding.usable()) applyVerifiedCandidateTranslations(generation);
     }
 
     private void applyVerifiedCandidateTranslations(long generation) {
@@ -4841,8 +4846,12 @@ public final class MSIMEInputService extends InputMethodService {
             words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         userTranslationStore.refresh(words, candidateTranslationTargets, generation);
-        if (userTranslationStore.hasEntries() && userTranslationAppliedGeneration != generation)
-            applyUserCandidateTranslations(generation);
+        if (userTranslationStore.hasEntries() && userTranslationAppliedGeneration != generation) {
+            // render 在画候选条之前调这里：缓存里的译文直接换上，不再嵌套一次 render（整套重画两遍）。
+            JSONObject next = appliedOnlineTranslations(generation, false);
+            userTranslationAppliedGeneration = generation;
+            if (next != null) view = next;
+        }
     }
 
     private void applyUserCandidateTranslations(long generation) {
@@ -4881,7 +4890,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject highlightedEntry = highlightedSlot < 0 || entries == null ? null : entries.optJSONObject(highlightedSlot);
         String highlightedText = highlightedEntry == null ? null : InputViewValuePolicy.textOr(highlightedEntry, "text", "");
         boolean account = includeAccount && candidateTranslationAccount && candidateTranslationStore != null
-            && candidateTranslationVerifiedGeneration == generation;
+            && candidateTranslationBinding != null && candidateTranslationBinding.usable();
         // 用户自己的服务没有账号绑定要校验，调用方已保证 generation 是当前 view 的这一代。
         CandidateTranslationStore user = includeAccount && !account && candidateTranslationRoute.userService()
             ? userTranslationStore : null;
@@ -4915,16 +4924,6 @@ public final class MSIMEInputService extends InputMethodService {
         return translations;
     }
 
-    private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
-            throws JSONException {
-        JSONArray entries = new JSONArray(result.translations());
-        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
-        for (int index = 0; index < entries.length(); index++) {
-            JSONObject entry = entries.getJSONObject(index);
-            glosses.put(entry.getString("text"), entry.getString("translation"));
-        }
-        return glosses;
-    }
 
     /**
      * The current online query, or null when there is nothing either provider could answer.
@@ -5062,9 +5061,13 @@ public final class MSIMEInputService extends InputMethodService {
                 return pauseRerankReply(NativeClient.pollSettledRerank(handle, token, accept));
             }
         }, () -> session, next -> {
+            // 和在线结果一样：组字和高亮候选没变时义项页跟过去，不被这次重排关掉。
+            imeTranslationSenses.followOnlineRefresh(next);
+            markCandidatesLate(next);
             ImeCandidatePanelRefresh.accept(this, next);
             if (!renderingSuppressed) render();
-        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"), this::candidatePressed);
+        }, () -> android.util.Log.w("MSIMEHost", "Pause rerank failed"), this::candidatePressed,
+        () -> candidatePanelOpen);
 
     private PauseRerankController.Reply<JSONObject> pauseRerankReply(String response) throws JSONException {
         JSONObject result = value(response);
@@ -5092,73 +5095,126 @@ public final class MSIMEInputService extends InputMethodService {
             || (imeNineKeyPanel != null && candidateTreeHeld(imeNineKeyPanel.root()));
     }
 
+    /** 不是用户输入引起的换代（停顿重排、在线候选、放出暂扣的尾部）：候选条和竖排候选保持已滚到的位置。 */
+    private void markCandidatesLate(JSONObject next) {
+        candidateScrollAnchor.markLate(CandidateGlossPolicy.strictOr(next.opt("session"), session),
+            CandidateGlossPolicy.strictOr(next.opt("generation"), -1));
+    }
+
+    /** 手指按着候选时在线结果等松手；展开面板开着时云/AI 候选还要等面板收起或点「刷新」（{@link #releaseHeldCandidates}）。 */
     private final CandidateHoldGate candidateHold = new CandidateHoldGate(
-        (task, delay) -> main.postDelayed(task, delay), this::candidatePressed);
+        (task, delay) -> main.postDelayed(task, delay), this::candidatePressed, () -> candidatePanelOpen);
+    final ImeCandidatePanelCue imeCandidatePanelCue = new ImeCandidatePanelCue(this);
+
+    /** 展开面板开着时在等的云/AI 候选的来源，按到达的先后；面板的提示据此显示。 */
+    java.util.List<Object> heldPanelSources() { return candidateHold.waitingTags(); }
+
+    /** 面板提示上的「刷新」：在等的云/AI 候选现在就用，面板换成新一代、回到顶部。之后再到的照常等。停顿重排不跟着放行，面板收起时再做。 */
+    void releaseHeldCandidates() {
+        candidateHold.release();
+        imeCandidatePanelCue.sync();
+    }
 
     private void cancelPauseRerank() { pauseRerank.cancel(); }
 
-    /** 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。 */
+    /**
+     * 在线 worker 执行网络请求；失败时释放仍属于本请求的签名。
+     *
+     * <p>云候选回来后交给主线程，worker 不等它用完：手指按着候选或展开面板开着时，结果要等很久才用（{@link #candidateHold}），这段时间 worker 照常处理下一段组字。用过云候选之后，AI 那一步按用过之后的查询再排回 worker（{@link #continueOnlineRequest}）。
+     */
     private void fetchOnlineCandidates(long targetSession, String document, long epoch,
             String requestSignature) {
-        boolean cloudComplete = false;
-        boolean aiComplete = false;
-        String aiResolveDocument = null;
+        OnlineCandidateRequest request = new OnlineCandidateRequest(targetSession, document, epoch, requestSignature);
         try {
             JSONObject query = new JSONObject(document);
-            cloudComplete = !requestsCloud(query);
-            String aiDocument = document;
+            request.cloudComplete = !requestsCloud(query);
             if (requestsCloud(query)) {
                 JSONObject descriptor = query.optJSONObject("cloud_request");
                 if (descriptor != null) {
                     String body = OnlineCandidateTransport.cloud(descriptor);
                     if (OnlineCandidatePolicy.acceptsCloudBody(body)) {
-                        String refreshed = applyOnlineResult(targetSession, epoch,
-                            () -> NativeClient.applyCloudResponse(targetSession, document, body));
-                        cloudComplete = refreshed != null;
-                        if (refreshed != null) aiDocument = refreshed;
+                        applyOnlineResult(request, CandidateSourceMark.CLOUD_SOURCE,
+                            () -> NativeClient.applyCloudResponse(targetSession, document, body), refreshed -> {
+                                request.cloudComplete = refreshed != null;
+                                if (refreshed != null) request.aiDocument = refreshed;
+                                continueOnlineRequest(request);
+                            });
+                        return;
                     }
                 }
             }
-            if (epoch != onlineEpoch) return;
-            JSONObject aiQuery = new JSONObject(aiDocument);
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // 在线候选是可选能力，解析或服务异常交给收尾触发下一次重试。
+            finishOnlineRequest(request);
+            return;
+        }
+        fetchAiCandidates(request);
+    }
+
+    /** 主线程上用过云候选之后：请求还是当前的就把 AI 那一步排回在线 worker。 */
+    private void continueOnlineRequest(OnlineCandidateRequest request) {
+        if (request.epoch != onlineEpoch || request.session != session) return;
+        try {
+            onlineCandidateWorker.execute(() -> fetchAiCandidates(request));
+        } catch (RuntimeException rejected) {
+            finishOnlineRequest(request);
+        }
+    }
+
+    private void fetchAiCandidates(OnlineCandidateRequest request) {
+        try {
+            if (request.epoch != onlineEpoch) return;
+            JSONObject aiQuery = new JSONObject(request.aiDocument);
             JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
             int limit = OnlineCandidatePolicy.aiCandidateLimit(
                 aiAssistant == null ? 0 : NumberPolicy.strictInt(aiAssistant, "candidate_limit", 0));
             if (!requestsAi(aiQuery) || limit == 0) {
-                aiComplete = true;
+                request.aiComplete = true;
+                finishOnlineRequest(request);
                 return;
             }
-            final String queryDocument = aiDocument;
-            aiResolveDocument = aiDocument;
+            final String queryDocument = request.aiDocument;
+            request.aiResolveDocument = queryDocument;
             // 这个组字问过 AI 而没有结果：不再发请求。
-            if (requestSignature.equals(aiResolvedSignature)) return;
-            JSONObject descriptor = aiRequestDescriptor(onSessionThread(targetSession, epoch,
-                () -> NativeClient.aiRequestForQuery(targetSession, queryDocument)));
-            if (descriptor == null) return;
-            java.util.List<String> candidates = AiCandidateResponse.parse(
-                OnlineCandidateTransport.ai(descriptor), queryDocument, limit);
-            if (candidates.isEmpty()) return;
+            if (request.signature.equals(aiResolvedSignature)) {
+                finishOnlineRequest(request);
+                return;
+            }
+            JSONObject descriptor = aiRequestDescriptor(onSessionThread(request.session, request.epoch,
+                () -> NativeClient.aiRequestForQuery(request.session, queryDocument)));
+            java.util.List<String> candidates = descriptor == null ? java.util.List.of()
+                : AiCandidateResponse.parse(OnlineCandidateTransport.ai(descriptor), queryDocument, limit);
+            if (candidates.isEmpty()) {
+                finishOnlineRequest(request);
+                return;
+            }
             JSONArray payload = new JSONArray();
             for (String candidate : candidates) payload.put(candidate);
-            final String finalDocument = aiDocument;
-            aiComplete = applyOnlineResult(targetSession, epoch,
+            applyOnlineResult(request, CandidateSourceMark.AI_SOURCE,
                 () -> NativeClient.applyOnlineCandidates(
-                    targetSession, finalDocument, payload.toString(), 1)) != null;
+                    request.session, queryDocument, payload.toString(), 1), refreshed -> {
+                    request.aiComplete = refreshed != null;
+                    finishOnlineRequest(request);
+                });
         } catch (JSONException | RuntimeException | LinkageError ignored) {
-            // 在线候选是可选能力，解析或服务异常交给 finally 触发下一次重试。
-        } finally {
-            // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
-            if (!aiComplete && aiResolveDocument != null && epoch == onlineEpoch) {
-                final String resolveDocument = aiResolveDocument;
-                applyOnlineResult(targetSession, epoch,
-                    () -> NativeClient.resolveOnlineCandidates(targetSession, resolveDocument, 1));
-                // AI 这一边到此为止：只有云候选失败时才释放签名重试，重试也不再问 AI（见 aiResolvedSignature）。
-                aiResolvedSignature = requestSignature;
-                aiComplete = true;
-            }
-            if (!cloudComplete || !aiComplete)
-                releaseOnlineSignatureIfCurrent(requestSignature, epoch, targetSession);
+            // 在线候选是可选能力，解析或服务异常交给收尾触发下一次重试。
+            finishOnlineRequest(request);
         }
+    }
+
+    /** 一次请求走完（在 worker 或主线程上）：AI 发问了却没有采用任何回答时告诉 Host API，没走完的释放签名重试。 */
+    private void finishOnlineRequest(OnlineCandidateRequest request) {
+        // AI 发问了却没有采用任何回答（请求发不出去、失败、空回答、被拒）：告诉 Host API 这次没有回答。共享内核已经不放 AI 占位行，这个调用答 applied:false、不改候选列表；调用和接口留着不变（#6888）。
+        if (!request.aiComplete && request.aiResolveDocument != null && request.epoch == onlineEpoch) {
+            final String resolveDocument = request.aiResolveDocument;
+            applyOnlineResult(request, null,
+                () -> NativeClient.resolveOnlineCandidates(request.session, resolveDocument, 1), refreshed -> { });
+            // AI 这一边到此为止：只有云候选失败时才释放签名重试，重试也不再问 AI（见 aiResolvedSignature）。
+            aiResolvedSignature = request.signature;
+            request.aiComplete = true;
+        }
+        if (!request.cloudComplete || !request.aiComplete)
+            releaseOnlineSignatureIfCurrent(request.signature, request.epoch, request.session);
     }
 
     private void releaseOnlineSignatureIfCurrent(String requestSignature, long requestEpoch,
@@ -5172,49 +5228,47 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * Hand one provider's result back to Engine on the session thread.
+     * Hand one provider's result back to Engine on the main thread, without waiting for it.
      *
-     * <p>Returns the query document as it stands after a result was applied, so the next provider
-     * can use it, or null when nothing was applied.
+     * <p>{@code then} runs on the main thread with the query document as it stands after a result
+     * was applied, so the next provider can use it, or null when nothing was applied. A request
+     * that is no longer current is dropped without calling {@code then}.
+     *
+     * <p>{@code source} is the candidate source the result adds (cloud or AI): it waits while the
+     * expanded panel is open, and the panel's cue shows it. Null waits only for a held candidate.
      */
-    private String applyOnlineResult(long targetSession, long epoch,
-            java.util.function.Supplier<String> call) {
-        final java.util.concurrent.atomic.AtomicReference<String> refreshed =
-            new java.util.concurrent.atomic.AtomicReference<>();
-        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.atomic.AtomicBoolean abandoned =
-            new java.util.concurrent.atomic.AtomicBoolean();
-        // 在线结果会推进候选代次：手指按着候选时等松手再用，按下时画出来的那个候选才选得中。
-        main.post(() -> candidateHold.runWhenFree(() -> {
+    private void applyOnlineResult(OnlineCandidateRequest request, Integer source,
+            java.util.function.Supplier<String> call, java.util.function.Consumer<String> then) {
+        long targetSession = request.session;
+        long epoch = request.epoch;
+        Runnable apply = () -> {
+            String refreshed = null;
             try {
-                if (epoch != onlineEpoch || targetSession != session) return;
                 JSONObject applied = value(call.get());
-                if (!CandidateGlossPolicy.isApplied(applied.opt("applied"))) return;
-                JSONObject next = applied.getJSONObject("view");
-                if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
-                        != targetSession) return;
-                // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
-                imeTranslationSenses.followOnlineRefresh(next);
-                ImeCandidatePanelRefresh.accept(this, next);
-                render();
-                JSONObject current = onlineQuery(targetSession);
-                if (current != null) refreshed.set(current.toString());
+                JSONObject next = CandidateGlossPolicy.isApplied(applied.opt("applied"))
+                    ? applied.getJSONObject("view") : null;
+                if (next != null && CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
+                        == targetSession) {
+                    // 在线结果会推进 generation：组字和高亮候选没变时义项页跟过去，不让它被这次刷新关掉。
+                    imeTranslationSenses.followOnlineRefresh(next);
+                    markCandidatesLate(next);
+                    ImeCandidatePanelRefresh.accept(this, next);
+                    render();
+                    JSONObject current = onlineQuery(targetSession);
+                    if (current != null) refreshed = current.toString();
+                }
             } catch (JSONException | RuntimeException | LinkageError error) {
                 // Online candidates are optional; keep the current Engine view.
-            } finally {
-                done.countDown();
             }
-        }, abandoned::get));
-        try {
-            if (!done.await(2, TimeUnit.SECONDS)) {
-                abandoned.set(true);
-                return null;
-            }
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            return null;
-        }
-        return refreshed.get();
+            then.accept(refreshed);
+        };
+        java.util.function.BooleanSupplier stale = () -> epoch != onlineEpoch || targetSession != session;
+        // 在线结果会推进候选代次：手指按着候选时等松手再用，按下时画出来的那个候选才选得中；展开面板开着时云/AI 候选等面板收起或点「刷新」。
+        main.post(() -> {
+            if (source == null) candidateHold.runWhenFree(apply, stale);
+            else candidateHold.runWhenPanelFree(source, apply, stale);
+            imeCandidatePanelCue.sync();
+        });
     }
 
     /** Run a session-bound call on the session thread and return its raw result, or null. */
@@ -5867,6 +5921,17 @@ public final class MSIMEInputService extends InputMethodService {
             && !InputViewValuePolicy.booleanValue(view, "nine_key", false);
     }
 
+    /**
+     * 组字区里写的是按键本身（拼音、双拼码、五笔码、粤拼字母、笔画字形），不是用户写下的字：停下会话、光标被移走时结束组字区，等于把读音当成正文写进输入框（#11831）。九键笔画的组字区里是数字键，不属于这里。
+     */
+    private boolean composesKeyLetters() {
+        if (view == null || dedicatedEnglish) return false;
+        int scheme = InputViewValuePolicy.scheme(view, -1);
+        if (scheme == InputSchemeTraits.STROKE) return strokeCompositionMarked();
+        return !InputViewValuePolicy.editingText(view).isEmpty()
+            && InputSchemeTraits.composesKeyLetters(scheme);
+    }
+
     private boolean vietnameseSchemeActive() {
         return view != null
             && VietnameseInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish);
@@ -5937,6 +6002,9 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     int splitKeyboardGapPercent() { return splitKeyboardGapPercent; }
+
+    /** 空隙比例是不是用户显式设过，见 {@link #splitKeyboardGapExplicit}。 */
+    boolean splitKeyboardGapExplicit() { return splitKeyboardGapExplicit; }
 
     /** 分离主开关开启、大屏，且方向符合偏好时，26 键一族或韩文键盘分离（{@link SplitKeyboardPolicy#drawn}）；手机横屏另由本机开关和分离后的键宽决定（{@link SplitKeyboardPolicy#phoneDrawn}，#10440）。每次按当前窗口配置重算。 */
     boolean splitKeyboardDrawn() {
@@ -6244,6 +6312,22 @@ public final class MSIMEInputService extends InputMethodService {
         return InputViewValuePolicy.punctuationMarks(view);
     }
 
+    /** 键面是否画日文标点：日语方案、非英文、非本地工具模式，并且中文标点开关开着（关着时引擎写 ASCII，键面也画 ASCII）。 */
+    boolean japaneseKeyfaces() {
+        return ChineseSymbolFaces.shouldUseJapaneseFaces(dedicatedEnglish,
+            view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"), chinesePunctuation);
+    }
+
+    /**
+     * 26 键符号键与底行角标的键面：日语方案走日文标点表，键面画什么 Engine 就上屏什么；其余方案按中文标点开关画中文或半角 ASCII。
+     * 判定与 {@link #numberPadPunctuation()} 同源，字母层符号键、数字九宫格和快捷标点角标画同一套写法。
+     */
+    String symbolFace(String ascii) {
+        return japaneseKeyfaces() ? ChineseSymbolFaces.japaneseFace(ascii)
+            : ChineseSymbolFaces.face(ascii, sendsChinesePunctuation(), punctuationMarks());
+    }
+
     java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
@@ -6341,8 +6425,8 @@ public final class MSIMEInputService extends InputMethodService {
             int layout = imeLetterRows.drawnTouchLayout();
             hintButton.setCornerHint(uriPeriodPrimary() ? "," : commaSecondaryPeriod()
                 ? (KeyboardActionRow.commaShowsPeriodHint(layout, bottomRowStyle(layout))
-                    ? ChineseSymbolFaces.face(".", sendsChinesePunctuation(), punctuationMarks()) : "")
-                : question ? ChineseSymbolFaces.face("?", sendsChinesePunctuation(), punctuationMarks()) : "");
+                    ? symbolFace(".") : "")
+                : question ? symbolFace("?") : "");
         }
         quickPunctuationButton.setContentDescription("常用标点：" + face
             + (uriPeriodPrimary() ? "；长按输入逗号" : commaSecondaryPeriod() ? "；长按输入句号"
@@ -6350,10 +6434,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void updateSymbolKeyFaces() {
-        boolean chineseMode = sendsChinesePunctuation();
         for (int index = 0; index < symbolKeyButtons.size(); index++) {
-            String face = ChineseSymbolFaces.face(symbolKeyInputs.get(index), chineseMode,
-                punctuationMarks());
+            String face = symbolFace(symbolKeyInputs.get(index));
             Button button = symbolKeyButtons.get(index);
             button.setText(face);
             button.setContentDescription("按键 " + face);
@@ -6368,8 +6450,10 @@ public final class MSIMEInputService extends InputMethodService {
             String input = shuangpinKeyInputs.get(index);
             if (";".equals(input)) continue;
             shuangpinKeyButtons.get(index).setCornerHint(shown
-                ? LetterHintTable.face(input, dedicatedEnglish, chinese, punctuationMarks()) : null);
+                ? LetterHintTable.face(input, dedicatedEnglish, japaneseKeyfaces(), chinese, punctuationMarks()) : null);
         }
+        // 角标换完之后再对一遍键组：关掉角标时组里的键已经不画角标，内容域才能把它们去掉。
+        imeKeyFaces.refresh();
     }
 
     private void updateShuangpinKeyHints() {
@@ -9894,7 +9978,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    private static int strictCandidatePage(JSONObject value, String key) {
+    static int strictCandidatePage(JSONObject value, String key) {
         long page = CandidateGlossPolicy.strictOr(value.opt(key), Long.MIN_VALUE);
         return page < 0 || page > Integer.MAX_VALUE ? -1 : (int) page;
     }
@@ -10349,15 +10433,63 @@ public final class MSIMEInputService extends InputMethodService {
         return entries == null ? null : entries.optJSONObject(slot);
     }
 
-    void selectVisibleCandidate(Button button, int slot) {
-        finishPendingCompositionMarkerLoss();
-        JSONObject candidate = visibleCandidate(slot);
-        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+    /** 候选身份里能当绑定用的那几项；没有身份的候选（占位行）不参与绑定。 */
+    private static CandidateBindingPolicy.Drawn drawnIdentity(JSONObject candidate) {
+        if (candidate == null) return null;
+        JSONObject id = candidate.optJSONObject("id");
+        if (id == null) return null;
+        return new CandidateBindingPolicy.Drawn(
+            CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE),
+            CandidateGlossPolicy.strictOr(id.opt("generation"), Long.MIN_VALUE),
+            CandidateGlossPolicy.strictOr(id.opt("index"), Long.MIN_VALUE),
+            InputViewValuePolicy.textOr(candidate, "text", ""),
+            InputViewValuePolicy.integer(candidate, "source", -1));
+    }
+
+    /** 与 {@link #drawnIdentity} 一一对应的列表；解析不了的项占住位置，索引与候选数组一致。 */
+    private static java.util.List<CandidateBindingPolicy.Drawn> drawnIdentities(JSONArray candidates) {
+        if (candidates == null) return java.util.List.of();
+        java.util.List<CandidateBindingPolicy.Drawn> list =
+            new java.util.ArrayList<>(candidates.length());
+        for (int slot = 0; slot < candidates.length(); slot++)
+            list.add(drawnIdentity(candidates.optJSONObject(slot)));
+        return list;
+    }
+
+    /** 画出来的候选还在眼前这一代里，返回那一代里对应的候选；不在列表里时返回 null。 */
+    JSONObject resolveDrawnCandidate(JSONObject drawn) {
+        CandidateBindingPolicy.Drawn identity = drawnIdentity(drawn);
+        if (identity == null || session == 0 || identity.session() != session) return null;
+        if (view != null && CandidateBindingPolicy.sameGeneration(identity, session,
+                CandidateGlossPolicy.strictOr(view.opt("generation"), Long.MIN_VALUE)))
+            return drawn;
+        try {
+            // 换了一代：按同一个词和来源找回。候选条当前放出来的这一段、或展开面板的整代就是这一代的列表。
+            JSONArray entries = displayedCandidateSnapshot().optJSONArray("candidates");
+            int slot = CandidateBindingPolicy.find(drawnIdentities(entries), identity);
+            return slot == CandidateBindingPolicy.MISSING ? null : entries.optJSONObject(slot);
+        } catch (JSONException | LinkageError error) {
+            fail(error);
+            return null;
+        }
+    }
+
+    /** 画出来的候选已经不在列表里：提示用户重新选择，不静默丢弃。 */
+    void noticeCandidateStale() { notice(CandidateBindingPolicy.STALE); }
+
+    /** 这个按钮画的是哪个候选。 */
+    JSONObject drawnCandidate(View button) { return drawnCandidates.get(button); }
+
+    /** 点按候选条或竖排候选举词：按画出来的那个候选，不按按钮当时的位置（#11816）。 */
+    void selectVisibleCandidate(Button button) {
+        JSONObject candidate = resolveDrawnCandidate(drawnCandidate(button));
+        if (candidate == null) { noticeCandidateStale(); return; }
+        JSONObject id = candidate.optJSONObject("id");
         if (id == null) return;
         imeKeyFeedback.playFeedback(button);
         if (session == 0
-                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
-            return;
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session) return;
+        finishPendingCompositionMarkerLoss();
         candidatePanelOpen = false;
         try {
             apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
@@ -10365,14 +10497,15 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
-    /** 触屏完整候选使用全局下标，沿用普通选词的编辑器状态收尾。 */
+    /** 触屏完整候选使用全局下标，沿用普通选词的编辑器状态收尾；按画出来的那个候选选词（#11816）。 */
     void selectStripCandidate(Button button, JSONObject candidate) {
-        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-        if (!candidateVersionIsCurrent(id)) return;
-        finishPendingCompositionMarkerLoss();
-        int source = InputViewValuePolicy.integer(candidate, "source", -1);
-        if (!candidateVersionIsCurrent(id) || AiPendingCandidatePolicy.isPlaceholder(source)
+        JSONObject drawn = resolveDrawnCandidate(candidate);
+        if (drawn == null) { noticeCandidateStale(); return; }
+        JSONObject id = drawn.optJSONObject("id");
+        int source = InputViewValuePolicy.integer(drawn, "source", -1);
+        if (id == null || AiPendingCandidatePolicy.isPlaceholder(source)
                 || AiPendingCandidatePolicy.isCloudPending(source)) return;
+        finishPendingCompositionMarkerLoss();
         imeKeyFeedback.playFeedback(button);
         closeCandidatePanel();
         try {
@@ -10381,14 +10514,21 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | LinkageError error) { fail(error); }
     }
 
-    private boolean selectHardwareCandidate(int slot) {
-        finishPendingCompositionMarkerLoss();
-        int actualSlot = visibleCandidateSlot(slot);
-        JSONObject candidate = visibleCandidate(actualSlot);
-        JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
+    /** 数字行选词：按画出来的那个候选，不按这一代视图里同一个可见位置的新词（#11816）。 */
+    private boolean selectHardwareCandidate(int visibleSlot) {
+        // 这一格没画候选（越界，或候选数组里含不显示的云占位行）：不处理，数字照常交给后面的流程。
+        if (visibleSlot < 0 || visibleSlot >= drawnVisibleCandidates.size()) return false;
+        JSONObject candidate = resolveDrawnCandidate(drawnVisibleCandidates.get(visibleSlot));
+        if (candidate == null) {
+            // 画着的那一格已经不在列表里：提示并吞掉这一下，不把数字落到编辑器里。
+            noticeCandidateStale();
+            return true;
+        }
+        JSONObject id = candidate.optJSONObject("id");
         if (id == null || session == 0
                 || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
             return false;
+        finishPendingCompositionMarkerLoss();
         candidatePanelOpen = false;
         try {
             apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
@@ -10417,6 +10557,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {
+        // 按钮会复用、内容就地换：先记下这一次画的是哪个候选，点按和长按按它选词（#11816）。
+        drawnCandidates.put(button, candidate);
         int source = InputViewValuePolicy.integer(candidate, "source", -1);
         String text = chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view,
             InputViewValuePolicy.integer(candidate, "source", -1));
@@ -11491,6 +11633,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.hide(expandedCandidateCanvas);
         keyboardSurface.addView(expandedCandidateCanvas, LayoutPolicy.frameMatchParentParams());
         keyboardSurface.addView(imeNineKeyPanel.build(), LayoutPolicy.frameMatchParentParams());
+        // 两个候选面板之后加，画在它们上面。
+        keyboardSurface.addView(imeCandidatePanelCue.build(), imeCandidatePanelCue.layoutParams());
         clipboardSurface = new FrameLayout(this);
         ViewPolicy.setBackgroundColor(clipboardSurface, Color.parseColor(skin.background()));
         clipboardSurface.setContentDescription("剪贴板历史");
@@ -11725,6 +11869,7 @@ public final class MSIMEInputService extends InputMethodService {
             textEditPanel.post(() -> textEditPanel.setLayoutParams(params));
         }
         imeGlossCard.alignBelow(top);
+        imeCandidatePanelCue.alignBelow(top);
     }
 
     void showSpaceCopyFailure(String label) {
@@ -12652,6 +12797,12 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         renderViews();
+        // 面板收起了（收起键、选词、打字，各条路径都会画一次）：面板开着时在等的停顿重排和云/AI 候选接着做。
+        if (!candidatePanelOpen) {
+            candidateHold.release();
+            pauseRerank.resume();
+        }
+        imeCandidatePanelCue.sync();
         // 手指按着候选时候选条推迟重画（candidateRenderDeferred），这次不算画完，等松手后补的那次 render 再记。
         if (!candidateRenderDeferred) imeDebugOverlay.onRendered();
     }
@@ -13248,6 +13399,14 @@ public final class MSIMEInputService extends InputMethodService {
             for (Button button : candidateButtons) ViewPolicy.hide(button);
         }
         if (hasDiagnostic) closeCandidatePanel();
+        // 数字行选词绑定画出来的这一批：换代换了视图但还没有重画时，数字键不选到那一格的新词（#11816）。
+        drawnVisibleCandidates.clear();
+        if (entries != null) for (int slot = 0; slot < entries.length(); slot++) {
+            JSONObject candidate = entries.optJSONObject(slot);
+            if (candidate == null || !AiPendingCandidatePolicy.isVisible(
+                    InputViewValuePolicy.integer(candidate, "source", -1))) continue;
+            drawnVisibleCandidates.add(candidate);
+        }
         resetCandidateScrollIfViewChanged();
         imeCandidates.renderExpandedCandidates();
         if (ViewPolicy.isVisible(moreToolsScroll))
@@ -13293,13 +13452,12 @@ public final class MSIMEInputService extends InputMethodService {
      * A new Engine page must start at its first visible candidate. Keeping the old scroll offset
      * makes a page change look like a reordered or missing candidate list, especially when the
      * previous page had a long sentence at the leading edge. Gloss-only redraws keep the offset
-     * because session/generation/page are unchanged.
+     * because session/generation/page are unchanged, and so do generations the user didn't cause
+     * (pause rerank, online rows, a released tail; see {@link CandidateScrollAnchor}).
      */
     private void resetCandidateScrollIfViewChanged() {
         if (view == null) {
-            candidateScrollSession = -1;
-            candidateScrollGeneration = -1;
-            candidateScrollPage = -1;
+            candidateScrollAnchor.forget();
             if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
             if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
             return;
@@ -13307,11 +13465,7 @@ public final class MSIMEInputService extends InputMethodService {
         long nextSession = CandidateGlossPolicy.strictOr(view.opt("session"), session);
         long nextGeneration = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         int nextPage = strictCandidatePage(view, "page");
-        if (!CandidateScrollPolicy.changed(candidateScrollSession, candidateScrollGeneration,
-                candidateScrollPage, nextSession, nextGeneration, nextPage)) return;
-        candidateScrollSession = nextSession;
-        candidateScrollGeneration = nextGeneration;
-        candidateScrollPage = nextPage;
+        if (!candidateScrollAnchor.moved(nextSession, nextGeneration, nextPage)) return;
         if (horizontalCandidateScroll != null)
             horizontalCandidateScroll.post(() -> horizontalCandidateScroll.scrollTo(0, 0));
         if (verticalCandidateScroll != null)

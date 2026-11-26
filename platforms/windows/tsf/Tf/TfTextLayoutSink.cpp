@@ -264,16 +264,11 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
 
     hr = pContextView->GetTextExt(_tfEditCookie, _pRangeComposition, lpRect, &isClipped);
 
-    // TS_E_NOLAYOUT means "the host has not laid this range out yet, ask again",
-    // not "the caret is gone". Chromium-based hosts (Electron apps, browsers)
-    // answer it routinely while their renderer is behind, and far more often
-    // while the machine is busy. Adopting the off-screen sentinel here parks the
-    // candidate window at INVALID_Y for one frame and the next measurement pulls
-    // it back — that is the flicker seen under load. Report the failure so the
-    // caller keeps the anchor it already has; TF_LC_CHANGE delivers the real
-    // position as soon as layout completes. Only do this once this layout
-    // session has produced a good anchor, so composition start still falls back
-    // to the sentinel rather than reusing a stale one from another document.
+    // TS_E_NOLAYOUT 的意思是「宿主还没给这一段排版，再问一次」，不是「光标没了」。Chromium 系宿主
+    // （Electron 应用、浏览器）在它的渲染进程落后时经常这样答，机器忙的时候更多。在这里改用屏幕外的
+    // 哨兵值，会把候选窗在 INVALID_Y 上一帧，下一次测量再拉回来 —— 那正是负载下的闪烁。返回失败，
+    // 让调用方保留已有的锚点；宿主排好版之后 TF_LC_CHANGE 会送来真实位置。只在这个 layout 会话已经
+    // 量到过一个好锚点之后这么做，组字开始仍要退回哨兵，而不是沿用另一个文档里的旧位置。
     if (hr == TS_E_NOLAYOUT && _hasValidAnchor)
     {
         pContextView->Release();
@@ -290,11 +285,37 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
         lpRect->left = 0;
         lpRect->bottom = Global::INVALID_Y;
         *lpAnchor = {0, Global::INVALID_Y};
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] extent query failed hr=0x{:08X} has_range={} anchor_valid={}",
+                                              static_cast<unsigned>(hr), _pRangeComposition != nullptr ? 1 : 0,
+                                              _hasValidAnchor ? 1 : 0));
+        }
     }
     else if (isClipped && lpRect && (lpRect->right <= lpRect->left || lpRect->bottom <= lpRect->top))
     {
         // Office often reports isClipped=TRUE with a still-usable rect; only reject
         // degenerate clipped extents that would anchor the candidate off-screen.
+        if (_hasValidAnchor)
+        {
+            // 组字开始之后量到空 extent，同样只是一段还没排好版的文字（Firefox 的 textarea 在内部
+            // 滚动、换行时就这样答），不是光标消失。把窗口留在上一次量到的位置，而不是打哨兵值把候选
+            // 收起：收起之后要等这个会话里再有一次成功测量才回来，持续输入时可能整段都不显示。
+            pContextView->Release();
+            if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+            {
+                QueueTsfDiagnosticLog(fmt::format(
+                    L"[candidate-layout] kept last anchor across empty clipped extent rect={},{},{},{}",
+                    lpRect->left, lpRect->top, lpRect->right, lpRect->bottom));
+            }
+            return E_FAIL;
+        }
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(
+                L"[candidate-layout] empty clipped extent before any usable anchor, hid rect={},{},{},{}",
+                lpRect->left, lpRect->top, lpRect->right, lpRect->bottom));
+        }
         lpRect->left = 0;
         lpRect->bottom = Global::INVALID_Y;
         *lpAnchor = {0, Global::INVALID_Y};

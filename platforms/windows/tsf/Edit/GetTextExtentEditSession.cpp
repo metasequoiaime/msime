@@ -54,8 +54,27 @@ STDAPI CGetTextExtentEditSession::DoEditSession(TfEditCookie ec)
         // Office may set isClipped with a usable rect; ignore only empty extents.
         if (isClipped && (rc.right <= rc.left || rc.bottom <= rc.top))
         {
+            if (_pTfTextLayoutSink->_HasValidAnchor())
+            {
+                // 同一次组字里已经量到过锚点，这次量到空 extent（Firefox 在 textarea 内部滚动、
+                // 换行时就这样答）只是这一段还没排好版。保留当前锚点，不清成哨兵值：清掉之后
+                // 候选要等这个会话里再有一次成功测量才回来，持续输入时可能整段都不显示。
+                if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+                {
+                    QueueTsfDiagnosticLog(fmt::format(
+                        L"[candidate-layout] per-key empty clipped extent, kept anchor y={} rect={},{},{},{}",
+                        Global::Point[1], rc.left, rc.top, rc.right, rc.bottom));
+                }
+                return S_OK;
+            }
             Global::Point[0] = 0;
             Global::Point[1] = Global::INVALID_Y;
+            if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+            {
+                QueueTsfDiagnosticLog(fmt::format(
+                    L"[candidate-layout] per-key empty clipped extent, no usable anchor yet, hid rect={},{},{},{}",
+                    rc.left, rc.top, rc.right, rc.bottom));
+            }
             return S_OK;
         }
 
@@ -82,6 +101,13 @@ STDAPI CGetTextExtentEditSession::DoEditSession(TfEditCookie ec)
             _pTfTextLayoutSink->_LayoutChangeNotification(&rc);
             layoutChangeElapsedMs = layoutChangeTimer.ElapsedMs();
         }
+    }
+    else if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        // 失败时不写锚点，沿用上一次量到的位置；这一行只为区分「测量失败」和「量到空 extent」。
+        QueueTsfDiagnosticLog(
+            fmt::format(L"[candidate-layout] per-key extent query failed hr=0x{:08X} clipped={} rect={},{},{},{}",
+                        static_cast<unsigned>(hr), isClipped ? 1 : 0, rc.left, rc.top, rc.right, rc.bottom));
     }
 
     return S_OK;

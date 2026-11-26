@@ -5161,6 +5161,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     translations.target = self;
     translations.state = _appearance.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:translations];
+    [self addQuickPhrasePriorityToMenu:menu];
     [menu addItem:NSMenuItem.separatorItem];
     // The scheme and the theme are each one choice out of several, so each is a submenu whose row names the current one, the way the system lists an input source's modes. As a radio list under a header the scheme alone took six rows.
     NSString *currentSchemeTitle = nil;
@@ -5612,9 +5613,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         const auto light = [_appearance toolbarSkinForDark:NO];
         const auto dark = [_appearance toolbarSkinForDark:YES];
         MSIMEInputModeHUDPanel *hud = [MSIMEInputModeHUDPanel sharedPanel];
+        // 文字颜色不具名，换皮肤后才替换得进 `NSTextField`（#11869，见 `MSIMEInputModeHUDTextColor`）；底色和边框走图层颜色，不受同名判等影响。
         [hud setSurfaceColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDSurface", light.surface, dark.surface)
                  borderColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDBorder", light.border, dark.border)
-                   textColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDText", light.text, dark.text)];
+                   textColor:MSIMEInputModeHUDTextColor(SkinColor(light.text), SkinColor(dark.text))];
         [hud applySizingPreferences:@{@"show_app_logo": @(_appearance.showsAppLogo)}];
         [hud showText:text announcement:announcement nearCaretRect:caret];
     }

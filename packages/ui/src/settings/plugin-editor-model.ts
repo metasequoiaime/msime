@@ -150,7 +150,7 @@ export function draftFromPack(pack: AuthoredPack): AuthoringDraft {
     license: pack.license,
     author: pack.author ?? "",
     description: pack.description ?? "",
-    phrases: (pack.phrases ?? []).map((row) => ({ key: row.key, text: row.text })),
+    phrases: (pack.phrases ?? []).map((row) => ({ ...row })),
     commands: (pack.commands ?? []).map((row) => ({
       trigger: row.trigger,
       title: row.title,
@@ -202,7 +202,7 @@ export function packFromDraft(draft: AuthoringDraft): AuthoredPack {
     case "phrase_table":
       pack.phrases = draft.phrases
         .filter((row) => !isBlankPhrase(row))
-        .map((row) => ({ key: row.key.trim(), text: row.text.trim() }));
+        .map((row) => ({ ...row, key: row.key.trim(), text: row.text.trim() }));
       break;
     case "command_table":
       pack.commands = draft.commands

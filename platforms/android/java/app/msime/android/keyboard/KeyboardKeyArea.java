@@ -22,7 +22,9 @@ import java.util.function.Predicate;
  *
  * <p>装了 {@link PressListener} 时，每根手指按下落在一个可用的键或它的空隙里，就在把按下交给键之前回调 {@link PressListener#pressed}：按键音和振动在这里给出，不等点击（#10757，规则见 {@link KeyPressFeedbackPolicy}）。这根手指抬起时，在把抬起交给键之前回调 {@link PressListener#releasing}。两次回调返回的令牌都在事件交给键之后，经 `post` 排在框架投递的点击后面交还给 {@link PressListener#settled}。整次触摸被取消或被滑行接管时不再回调抬起。
  *
- * <p>这里不改布局也不改绘制，画面和以前逐像素相同：只在 `ACTION_DOWN` / `ACTION_POINTER_DOWN` 落在某个键的外边距里、又没有落在任何键或其它可点击视图上时，把这一个指针的按下坐标挪进那个键的边缘（挪动距离就是空隙宽度），再交给 `LinearLayout` 照常分发。这个挪动量按指针 id 记下，之后同一个指针的 MOVE、POINTER_UP、UP、CANCEL（连同其中的历史采样）都挪同样的距离，直到它抬起。键看到的是从键内起点出发的真实位移：删除键按出界就取消的判断没有容差，空格的光标拖动和日文九键的滑动都从按下点量位移，坐标不能在按下之后跳回空隙里。
+ * <p>横向的按键区（底部功能行）按格量宽度，与按键行（{@link KeyRowLayout}）同一套量法：各键按权重切格，键宽是格宽减去外边距，所以底行的键边与上面各行同一列的边落在同一像素上。纵向的按键区照 `LinearLayout` 原样排。
+ *
+ * <p>空隙里的按下怎么交给键，不改布局也不改绘制：只在 `ACTION_DOWN` / `ACTION_POINTER_DOWN` 落在某个键的外边距里、又没有落在任何键或其它可点击视图上时，把这一个指针的按下坐标挪进那个键的边缘（挪动距离就是空隙宽度），再交给 `LinearLayout` 照常分发。这个挪动量按指针 id 记下，之后同一个指针的 MOVE、POINTER_UP、UP、CANCEL（连同其中的历史采样）都挪同样的距离，直到它抬起。键看到的是从键内起点出发的真实位移：删除键按出界就取消的判断没有容差，空格的光标拖动和日文九键的滑动都从按下点量位移，坐标不能在按下之后跳回空隙里。
  */
 public final class KeyboardKeyArea extends LinearLayout {
     /** `MotionEvent` 的指针 id 不超过 31，按 id 直接下标。 */
@@ -111,6 +113,16 @@ public final class KeyboardKeyArea extends LinearLayout {
         yieldingKey = yielding;
         yieldReceiver = receiver;
         yieldWidth = yielding == null || receiver == null ? 0f : widthPx;
+    }
+
+    @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        KeyRowLayout.measureCells(this);
+    }
+
+    @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        KeyRowLayout.layoutCells(this);
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {

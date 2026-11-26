@@ -113,6 +113,19 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertIn('.accessibilityIdentifier("keyLayoutLanguageLeftSwitch")', card[toggle:])
         self.assertEqual(self.source.count("TouchKeyLayoutOffering.languageLeftTitle"), 1, "one toggle, in the shared card")
 
+    def test_hide_symbol_toggle_only_shows_on_twenty_six_key_styles_that_draw_symbols(self):
+        # 「隐藏符号键盘」只对底行带 符 的 26 键样式有意义（标准和逗号句号），条件和偏好都写在本机。
+        card = member(self.source, "  private func styleCard(")
+        gate = card.index("if kind == .twentySixKey && style.twentySixKey.drawsSymbols {")
+        toggle = card[gate:]
+        self.assertIn("DesignToggleRow(title: TouchKeyLayoutOffering.hideSymbolTitle, info: TouchKeyLayoutOffering.hideSymbolSubtitle,", toggle)
+        self.assertIn("KeyboardLayoutPreference.hideSymbolKey = enabled", toggle)
+        self.assertIn('.accessibilityIdentifier("keyLayoutHideSymbolSwitch")', toggle)
+        self.assertEqual(self.source.count("TouchKeyLayoutOffering.hideSymbolTitle"), 1, "one toggle, 26-key cards with 符")
+        # 预览和读偏好都跟着这个开关走。
+        self.assertIn("hideSymbol: hidesSymbolKey", self.source)
+        self.assertIn("hidesSymbolKey = KeyboardLayoutPreference.hideSymbolKey", self.source)
+
     def test_number_pad_group_uses_the_same_pills_below_the_style_card(self):
         # #10056：「数字键盘」一组有入口就列，在样式卡片和顶部数字行开关之间；选项是同一套等宽胶囊，说明收在组名旁的「?」里，不画预览。
         gate = self.body.index("if offering.offersAnyGroup { numberPadGroup }")
@@ -187,6 +200,71 @@ class KeyLayoutSettingsContract(unittest.TestCase):
         self.assertIn(".accessibilityHidden(true)", body)
         # 加了标识的子元素会重新出现在读屏和 UI 测试的树里，预览里不给任何键标识。
         self.assertNotIn(".accessibilityIdentifier(", preview)
+
+
+class LetterSwipePreviewContract(unittest.TestCase):
+    """字母键上下滑：从独立列表页改成点「按键布局」页预览图里的字母键弹出底部 Sheet；默认只标角标，被改过动作的键额外标动作徽标，预览图不画双拼提示。"""
+
+    def setUp(self):
+        self.source = LAYOUT_PAGE.read_text()
+
+    def test_the_list_page_is_gone(self):
+        # 旧的独立「字母键上下滑」列表页和它的行、入口一并删除，交互收进预览图。
+        for old in ("LetterSwipeSettingsView", "LetterSwipeRowView", "letterSwipeSettingsLabel",
+                    'NavigationLink(destination: LetterSwipeSettingsView())'):
+            self.assertNotIn(old, self.source, old)
+
+    def test_preview_keys_tap_opens_the_editor_sheet(self):
+        # 预览图把每键徽标和点击回调交给 KeyboardSkinPreview，点字母键设一个编辑目标。
+        self.assertIn("letterBadges: letterSwipeBadges, onLetterTap:", self.source)
+        self.assertIn(".sheet(item: $editingLetter, onDismiss: refreshLetterSwipeBadges)", self.source)
+        self.assertIn("LetterSwipeKeyEditorSheet(letter: target.letter)", self.source)
+        self.assertIn("private struct LetterSwipeSheetTarget: Identifiable", self.source)
+        self.assertIn("private struct LetterSwipeKeyEditorSheet: View", self.source)
+
+    def test_keys_tap_only_offered_on_twenty_six_key_with_swipe_on(self):
+        editable = member(self.source, "  private var letterSwipeEditable: Bool {")
+        self.assertIn("swipeSymbols && letterGrid == nil && !nineKey", editable)
+
+    def test_badges_only_mark_customised_keys(self):
+        # 徽标存成 @State，值在改完动作后（Sheet 关闭）由 refreshLetterSwipeBadges 重算，预览图立即刷新。
+        self.assertIn("@State private var letterSwipeBadges: [String: String] = [:]", self.source)
+        refresh = member(self.source, "  private func refreshLetterSwipeBadges() {")
+        # 只从「单独存过」的配置取，没改过的键不标。
+        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .up)", refresh)
+        self.assertIn("LetterSwipePreference.stored(letter: letter, direction: .down)", refresh)
+        self.assertIn("letterSwipeBadges = badges", refresh)
+        # Sheet 关闭时重算，预览图立即反映刚才改的动作。
+        self.assertIn("onDismiss: refreshLetterSwipeBadges", self.source)
+
+    def test_preview_draws_no_shuangpin_hints(self):
+        # 预览图不画双拼键位提示：那是「双拼键位提示」开关自己的预览职责，避免和动作徽标抢空间。
+        # 只钉预览组件传给 KeyboardSkinPreview 的那一段，不含双拼提示相关参数。
+        preview = member(self.source, "  private var preview: some View {")
+        self.assertNotIn("shuangpin", preview.lower())
+        self.assertIn("letterBadges: letterSwipeBadges", preview)
+
+    def test_swipe_direction_offers_up_down_and_both(self):
+        # 「滑动方向」三个选项：上滑、下滑、上滑+下滑（.both）；说明整合了点预览图设动作的提示。
+        group = member(self.source, "  private var gestureGroup: some View {")
+        self.assertIn('DesignOption(title: "上滑"', group)
+        self.assertIn('DesignOption(title: "下滑"', group)
+        self.assertIn('DesignOption(title: "上滑+下滑"', group)
+        self.assertIn("SwipeDirection.both", group)
+        # 点预览图设动作的说明收进「滑动方向」的 info，不再单独占一行。
+        self.assertIn("点上方预览图里的字母键", group)
+        self.assertNotIn("letterSwipeHintRow", self.source)
+        self.assertNotIn('title: "每键上下滑"', self.source)
+
+    def test_editor_sheet_opens_half_height(self):
+        # 单手操作：编辑面板以半屏（.medium）打开，拖动指示条可以拉到全屏；填自定义文本时键盘占掉下半屏，
+        # 面板自动升到 .large，输入框不被压在键盘下面，收起键盘再回到半屏。
+        sheet = self.source[self.source.index("private struct LetterSwipeKeyEditorSheet: View"):]
+        self.assertIn("@State private var detent: PresentationDetent = .medium", sheet)
+        self.assertIn(".presentationDetents([.medium, .large], selection: $detent)", sheet)
+        self.assertIn(".presentationDragIndicator(.visible)", sheet)
+        self.assertIn(".onChange(of: typing) { _, focused in detent = focused ? .large : .medium }", sheet)
+        self.assertIn(".focused($typing)", sheet)
 
 
 class NineKeyFlickSettingsContract(unittest.TestCase):

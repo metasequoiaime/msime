@@ -20,6 +20,9 @@ scope=${MSIME_TEST_SCOPE:-pr}
 shard=${MSIME_TEST_SHARD:-}
 derived_data=${MSIME_IOS_DERIVED_DATA:-build/ios-derived}
 project=${MSIME_IOS_PROJECT:-build/ios/MSIMEClient.xcodeproj}
+# 调用方可再补一批 -skip-testing 目标（空格分隔）。上游 CI 不设这个变量，行为不变；fork 用它跳过
+# 依赖 App Group entitlement 的语音用例——fork 的测试宿主没签名、没 entitlement，跑这些必挂。
+extra_skip=${MSIME_TEST_SKIP_EXTRA:-}
 
 # The three cases that assert on real ink: the SDK ships no simulator slice for arm64, so only the Intel job can link them. This list is the single definition of that line -- the unit scopes skip exactly these, the handwriting scope runs exactly these, so the two cannot drift apart.
 recognition_cases=(
@@ -93,6 +96,10 @@ for scheme in "${schemes[@]}"; do
   # Only MSIMEClientTests contains the handwriting cases; passing -skip-testing for a target a scheme does not build makes xcodebuild fail outright.
   if [[ "$scheme" == MSIMEClientTests ]]; then
     for case_name in "${recognition_cases[@]}"; do
+      arguments+=(-skip-testing:"$case_name")
+    done
+    # 调用方（fork workflow）通过 MSIME_TEST_SKIP_EXTRA 补的额外跳过目标，也只属于这个 scheme。
+    for case_name in $extra_skip; do
       arguments+=(-skip-testing:"$case_name")
     done
   fi

@@ -992,7 +992,7 @@ assert "if (request->then) start_translation_task(engine, TranslationTask(*reque
 assert 'query.erase("gloss_query");' in body(ibus_source, "void translate_sentence(IBusEngine *engine) {", "\n}\n")
 assert "next_translation_scope_highlighted != translation_scope_highlighted" in ibus_source
 assert "translation_answers.clear();" in ibus_source
-# 绘制侧：视图的 translation_reserved 交给 candidateDisplay，原生画布按 reserved_gloss_lines 给高亮行留释义高度，classicui 用不上屏的占位行留住它。
+# 绘制侧：视图的 translation_reserved 交给 candidateDisplay，原生画布按 reserved_gloss_lines 给高亮行留释义高度；classicui 只有竖排用不上屏的占位行留住它，横排候选条的高度取整页最高的一行、释义也接在同一行（#11821，classicui_gloss_placeholder_lines / classicui_gloss_inline）。
 fcitx_display = body(source, "FcitxCandidateDisplay candidateDisplay(const Json &candidate,", "\n}\n")
 assert 'candidate.value("translation_reserved", false)' in fcitx_display
 assert "fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit}" in fcitx_display

@@ -14,6 +14,10 @@ struct KeyboardKeyLayoutSettingsView: View {
   @State private var letterGrid: LetterKeyGrid
   /// 用户隐藏了中/英键时预览也不画它，份额并进空格，与键盘一致。
   @State private var hidesLanguageKey = KeyboardLayoutPreference.hideLanguageKey
+  /// 用户隐藏了逗号句号时预览也不画它们，份额并进空格，与键盘一致。
+  @State private var hidesPunctuationKey = KeyboardLayoutPreference.hidePunctuationKey
+  /// 用户隐藏了符号键盘（底行的 符）时预览也不画它，份额并进空格，与键盘一致。
+  @State private var hidesSymbolKey = KeyboardLayoutPreference.hideSymbolKey
   /// 本版本提供哪几类键面，决定分段列哪几类和要不要数字行开关。
   private let offering = TouchKeyLayoutOffering.edition
 
@@ -72,7 +76,8 @@ struct KeyboardKeyLayoutSettingsView: View {
   private func styleCard(_ kind: TouchKeyLayoutKind) -> some View {
     DesignCard {
       VStack(alignment: .leading, spacing: 14) {
-        KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid, language: !hidesLanguageKey)
+        KeyLayoutKeyboardPreview(kind: kind, style: style, letterGrid: letterGrid, language: !hidesLanguageKey,
+                                 hidePunctuation: hidesPunctuationKey, hideSymbol: hidesSymbolKey)
           .padding(.horizontal, 16)
         // 当前样式的说明收进胶囊行末的「?」，没有说明的样式不画。
         HStack(spacing: 0) {
@@ -97,6 +102,31 @@ struct KeyboardKeyLayoutSettingsView: View {
                       isOn: Binding(get: { style.languageKeySide == .left },
                                     set: { save(TouchKeyLayoutStyle.save(languageKeySide: $0 ? .left : .right)) }))
         .accessibilityIdentifier("keyLayoutLanguageLeftSwitch")
+      DesignDivider()
+      DesignToggleRow(title: TouchKeyLayoutOffering.hideLanguageTitle, info: TouchKeyLayoutOffering.hideLanguageSubtitle,
+                      isOn: Binding(get: { hidesLanguageKey }, set: { enabled in
+                        hidesLanguageKey = enabled
+                        KeyboardLayoutPreference.hideLanguageKey = enabled
+                      }))
+        .accessibilityIdentifier("keyLayoutHideLanguageSwitch")
+      if kind == .twentySixKey && style.twentySixKey != .commaPeriod {
+        DesignDivider()
+        DesignToggleRow(title: TouchKeyLayoutOffering.hidePunctuationTitle, info: TouchKeyLayoutOffering.hidePunctuationSubtitle,
+                        isOn: Binding(get: { hidesPunctuationKey }, set: { enabled in
+                          hidesPunctuationKey = enabled
+                          KeyboardLayoutPreference.hidePunctuationKey = enabled
+                        }))
+          .accessibilityIdentifier("keyLayoutHidePunctuationSwitch")
+      }
+      if kind == .twentySixKey && style.twentySixKey.drawsSymbols {
+        DesignDivider()
+        DesignToggleRow(title: TouchKeyLayoutOffering.hideSymbolTitle, info: TouchKeyLayoutOffering.hideSymbolSubtitle,
+                        isOn: Binding(get: { hidesSymbolKey }, set: { enabled in
+                          hidesSymbolKey = enabled
+                          KeyboardLayoutPreference.hideSymbolKey = enabled
+                        }))
+          .accessibilityIdentifier("keyLayoutHideSymbolSwitch")
+      }
       if kind == .letterGrid {
         DesignDivider()
         DesignGroup(title: "字母键宽度", info: TouchFourteenKeyLetterWidths.note) {
@@ -194,6 +224,8 @@ struct KeyboardKeyLayoutSettingsView: View {
     TouchKeyLayoutStyle.mirror(document)
     style = TouchKeyLayoutStyle.mirrored
     hidesLanguageKey = KeyboardLayoutPreference.hideLanguageKey
+    hidesPunctuationKey = KeyboardLayoutPreference.hidePunctuationKey
+    hidesSymbolKey = KeyboardLayoutPreference.hideSymbolKey
     let current = Self.currentKeyboard(in: document)
     letterGrid = current.grid
     if !kindPicked { kind = offering.initialKind(current: current.kind) }
@@ -217,6 +249,8 @@ private struct KeyLayoutKeyboardPreview: View {
   let style: TouchKeyLayoutStyle
   let letterGrid: LetterKeyGrid
   let language: Bool
+  let hidePunctuation: Bool
+  let hideSymbol: Bool
 
   private static let canvasWidth: CGFloat = 390
   private static let canvasHeight: CGFloat = 216
@@ -225,7 +259,7 @@ private struct KeyLayoutKeyboardPreview: View {
   private static let rowGap: CGFloat = 6
   /// 九键的符号栏、九宫格和右列之间的间距，与键盘的 `nineKeyContainer.spacing` 相同。
   private static let nineKeyColumnGap: CGFloat = 6
-  /// 14 键第三排两端的「符」和 ⌫ 在手机上固定 44pt（键盘的 `phoneLetterEdgeWidth`）；画布与 390pt 宽的手机同宽，照抄这个宽度。
+  /// 26 键第三排的分词键与 ⌫、14 键第三排两端的「符」和 ⌫ 在手机上固定 44pt（键盘的 `phoneLetterEdgeWidth`）；画布与 390pt 宽的手机同宽，照抄这个宽度。
   private static let letterGridEdgeWidth: CGFloat = 44
   private static let keyRadius: CGFloat = 6
   /// 键排得下的宽度和高度：画布减去四周的留边。
@@ -248,6 +282,8 @@ private struct KeyLayoutKeyboardPreview: View {
     var fixed: CGFloat?
     var highlighted = false
     var kerning: CGFloat = 0
+    /// 不画键的空隙。键盘 26 键第三排的 ⇧ 与 Z、M 与 ⌫ 之间各有一段占位格，预览用透明宽度表示。
+    var spacer = false
   }
 
   var body: some View {
@@ -284,11 +320,25 @@ private struct KeyLayoutKeyboardPreview: View {
     }
   }
 
-  /// 26 键的三排字母取热力图的同一张表：第二排两侧各缩进本行宽度的 5%，第三排两端是 ⇧ 和 ⌫。
+  /// 26 键的三排字母取热力图的同一张表：第二排两侧各缩进本行宽度的 5%。第三排与键盘相同——七个字母与第一排等宽，两端的分词键和 ⌫ 固定 44pt，多出来的宽度成为两侧的空隙（键盘上是 ⇧ 与 Z、M 与 ⌫ 之间的占位格），不摊进字母，所以第三排的字母与前两排一样宽。
   private var twentySixKeyRows: [(caps: [Cap], inset: CGFloat, unit: CGFloat?)] {
-    TypingKeyHeatmap.twentySixKeyLetterRows.enumerated().map { index, cells in
-      (cells.map { Self.cap($0, separator: .symbol("shift")) },
-       index == 1 ? Self.width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset) : 0, nil)
+    let firstRowCount = CGFloat(TypingKeyHeatmap.twentySixKeyLetterRows[0].count)
+    let letterWidth = (Self.width - Self.keyGap * (firstRowCount - 1)) / firstRowCount
+    return TypingKeyHeatmap.twentySixKeyLetterRows.enumerated().map { index, cells in
+      var caps = cells.map { Self.cap($0, separator: .symbol("shift")) }
+      if index == 2 {
+        // 两端换成 44pt 的分词键和 ⌫、中间七个字母用第一排的宽度，插入两个透明占位后这一排是 11 个元素、10 个键距，余下的宽度两边均分。
+        caps = caps.map { cap in
+          var cap = cap
+          cap.fixed = cap.role == .function ? Self.letterGridEdgeWidth : letterWidth
+          return cap
+        }
+        let sliver = max(0, (Self.width - Self.letterGridEdgeWidth * 2 - letterWidth * 7
+                             - Self.keyGap * CGFloat(cells.count + 1)) / 2)
+        caps.insert(Cap(face: .text(""), fixed: sliver, spacer: true), at: 1)
+        caps.insert(Cap(face: .text(""), fixed: sliver, spacer: true), at: caps.count - 1)
+      }
+      return (caps, index == 1 ? Self.width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset) : 0, nil)
     }
   }
 
@@ -412,7 +462,7 @@ private struct KeyLayoutKeyboardPreview: View {
   /// 所选样式的底行，取自键盘用的同一张表；与「标准」不同的键标上高亮。
   private var bottomCaps: [Cap] {
     let highlighted = kind.highlightedSlots(style)
-    return kind.bottomRow(style, language: language).map { key in
+    return kind.bottomRow(style, language: language, hidePunctuation: hidePunctuation, hideSymbol: hideSymbol).map { key in
       Cap(face: Self.face(key.slot), role: Self.role(key.slot), weight: key.weight,
           highlighted: highlighted.contains(key.slot))
     }
@@ -427,7 +477,11 @@ private struct KeyLayoutKeyboardPreview: View {
     let autoUnit = weights > 0 ? max(available - fixed, 0) / weights : 0
     return HStack(spacing: Self.keyGap) {
       ForEach(Array(caps.enumerated()), id: \.offset) { _, cap in
-        key(cap).frame(width: cap.fixed ?? (unit ?? autoUnit) * cap.weight)
+        if cap.spacer {
+          Color.clear.frame(width: cap.fixed ?? 0)
+        } else {
+          key(cap).frame(width: cap.fixed ?? (unit ?? autoUnit) * cap.weight)
+        }
       }
     }
     .frame(width: width)

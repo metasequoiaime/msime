@@ -43,6 +43,7 @@
 #include "../src/candidates/CandidatePanelStatus.h"
 #include "../src/candidates/CandidateScriptAnnotation.h"
 #include "../src/candidates/CandidateRowText.h"
+#include "../src/candidates/CandidateSources.h"
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
@@ -118,6 +119,7 @@
 #include "../src/clipboard/CloudClipboardRoute.h"
 #include "../src/system/TypingStatistics.h"
 #include "../src/system/TypingKeyPressRequest.h"
+#include "FcitxIdleWatch.h"
 #include "SystemTheme.h"
 #include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
@@ -141,6 +143,7 @@
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <set>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -605,35 +608,20 @@ public:
   {
     wave_overlay_surface_ = create_fcitx_wave_overlay_surface(
         [this](msime::linux_host::WaveOverlayModel::Action action) { handleVoiceOverlayAction(action); });
-    preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
-        10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
-          // 焦点不在这里、也没有会话时这一批刷新无事可做：失焦时 close() 已经放掉会话、
-          // 写完按键统计、收起浮层，剩下的读取只对活着的会话有意义。而 Fcitx5 会为进过的
-          // 每个输入框各留一份 FcitxState 和它自己的这一拍，照旧每拍跑一遍，成本随今天点过
-          // 的窗口数线性叠加：每一拍都要经宿主 ABI 读偏好与 provider 套接字（各是一次 JSON），
-          // 还会把 UI 更新推给前端。跳到下一拍，只留下保存重试这类真正需要跑完的任务。
-          const bool idle = !ic_.hasFocus() && !session_ && !preferences_job_.valid() &&
-                            !preferences_save_job_.valid();
-          if (idle) {
-            timer->setNextInterval(250000);
-            timer->setOneShot();
-            return true;
-          }
-          refreshDictionaryQuiesce();
-          refreshProviderSockets();
-          refreshPreferences();
-          refreshOnline();
-          refreshTranslations();
-          refreshClipboard();
-          refreshCloudClipboard();
-          refreshEmoji();
-          refreshVoice();
-          flushKeyPresses(key_presses_.take_due(static_cast<int64_t>(fcitx::now(CLOCK_MONOTONIC))));
-          timer->setNextInterval(250000);
-          timer->setOneShot();
-          return true;
-        });
+    // 不在构造时无条件启动 `preferences_timer_`：外部配置变化交由全插件共用的 `FcitxIdleWatch` 驱动，
+    // 本上下文只在异步任务、防抖、按键批次刷新或主题重试存在时由 `scheduleAsyncPoll()` 按需唤醒。
   }
+  bool hasActiveAsyncPollWork() const;
+  void scheduleAsyncPoll();
+  void stopOrScheduleAsyncPoll() {
+    if (!preferences_job_.valid() && !preferences_save_job_.valid()) {
+      if (preferences_timer_) preferences_timer_->setEnabled(false);
+    } else {
+      scheduleAsyncPoll();
+    }
+  }
+  void pollAsyncState();
+  void notifyIdleWatch();
   void cancelModifierTaps() {
     // 旧手势的松开可能落在别的窗口；清除按住状态，但迟到的松开仍算取消的手势。
     shift_in_combination_ = shift_in_combination_ || shift_down_;
@@ -656,10 +644,14 @@ public:
     typing_combo_ = 0;
     key_repeat_.reset();
   }
-  ~FcitxState() override { close(); }
-  void close() {
+  ~FcitxState() override { close(false); }
+  void close(bool notify_watch = true) {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
     mode_hud_deferred_update_.cancel();
+#else
+    mode_hud_aux_id_++;
+    mode_hud_aux_timer_.reset();
+    mode_hud_aux_text_.clear();
 #endif
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     if (native_canvas_) native_canvas_->hide();
@@ -685,18 +677,22 @@ public:
     paired_tracker_.clear();
     pending_caret_.clear();
     caret_forward_event_.reset();
+    caret_forward_deadline_ = 0;
     session_fullwidth_ = false;
     japanese_conversion_.reset();
     backspace_hold_.reset();
     maintenance_reload_held_ = false;
     toggle_chord_held_ = FcitxKey_None;
     preferences_job_session_ = 0;
+    preferences_job_ = {};
+    preferences_reload_pending_ = false;
     preferences_snapshot_ = Json();
     // A failed status-bar save outlives the focus change, as the IBus host keeps its failed menu save; settle one still in flight so the retry records whether it landed.
     waitForPreferenceSave();
     online_socket_.clear();
     online_query_.clear();
     online_job_session_ = 0;
+    online_debounce_pending_ = false;
     invalidateOnlineRequests();
     online_due_ = {};
     ai_due_ = {};
@@ -706,6 +702,7 @@ public:
     ++clipboard_generation_;
     clipboard_items_.clear();
     clipboard_loading_ = false;
+    clipboard_reload_pending_ = false;
     clipboard_job_ = {};
     clipboard_mutation_job_ = {};
     cloud_clipboard_socket_.clear();
@@ -774,6 +771,8 @@ public:
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
     voice_loading_ = false;
+    voice_failure_visible_ = false;
+    voice_failure_timer_.reset();
     chinese_punctuation_ = true;
     paired_punctuation_ = true;
     translation_candidates_active_ = false;
@@ -781,10 +780,32 @@ public:
     translation_options_.clear();
     translation_page_ = 0;
     translation_cursor_ = 0;
+    composition_async_dirty_ = false;
+    observed_async_session_ = 0;
+    observed_async_generation_ = 0;
+    observed_async_editing_.clear();
+    stopOrScheduleAsyncPoll();
+    if (notify_watch) notifyIdleWatch();
   }
   // 失焦后会话留给托盘菜单时用它代替 close()：托盘读到的勾选和点下的开关都落在这个会话上，到下一次有上下文获得焦点才真正关掉（见 FcitxEngine::holdMenuContext）。除了 releaseFocusResources，还要停掉录音、按失焦结束组字和候选，与 IBus 宿主失焦时一样只取视图：要上屏的组字已由 focus_watch_ 或 Fcitx5 自己提交，留着的话之后的菜单动作会把它当成正在输入的文字再提交一次。
   void leaveFocus() {
-    if (!session_) return;
+#ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
+    mode_hud_deferred_update_.cancel();
+#else
+    mode_hud_aux_id_++;
+    mode_hud_aux_timer_.reset();
+    mode_hud_aux_text_.clear();
+#endif
+    pending_caret_.clear();
+    caret_forward_event_.reset();
+    caret_forward_deadline_ = 0;
+    composition_async_dirty_ = false;
+    online_debounce_pending_ = false;
+    translation_pending_.clear();
+    if (!session_) {
+      stopOrScheduleAsyncPoll();
+      return;
+    }
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
     // 失焦收起展开的候选（网格或卷轴），候选窗立即撤下。
     discardExpanded();
@@ -796,6 +817,7 @@ public:
       auto result = response(focusSession(false));
       view_ = result.contains("view") ? result.at("view") : result;
     }
+    stopOrScheduleAsyncPoll();
   }
   // 菜单动作能否作用到这个上下文：有焦点，或者它是失焦后托盘仍然指向的那一个。FcitxEngine 在这里只是前向声明，定义在它之后。
   bool menuTarget() const;
@@ -812,11 +834,13 @@ public:
     discardExpanded();
     if (native_canvas_) native_canvas_->hide();
 #endif
+    composition_async_dirty_ = false;
     hideShuangpinKeymap();
     ic_.inputPanel().reset();
     ic_.updatePreedit();
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     refreshModeIndicator();
+    scheduleAsyncPoll();
   }
   // 方案在菜单里的名字（MenuLabels.h）：双拼带当前键位方案，五笔带码表版本，与 macOS 一致。
   std::string schemeMenuTitle(std::string_view scheme) const {
@@ -1262,6 +1286,10 @@ public:
       ++clipboard_generation_;
       clipboard_items_.clear();
       clipboard_loading_ = false;
+      clipboard_reload_pending_ = false;
+      scheduleAsyncPoll();
+    } else {
+      requestClipboardReload();
     }
     return true;
   }
@@ -1385,6 +1413,7 @@ public:
       try { return savePreference(request); }
       catch (...) { return Json::object(); }
     });
+    scheduleAsyncPoll();
   }
   bool retryPreferenceSave() {
     if (preferences_save_job_.valid()) {
@@ -1808,6 +1837,7 @@ public:
   void invalidateOnlineRequests() {
     ++online_epoch_;
     online_query_.clear();
+    online_debounce_pending_ = false;
     for (auto &query : online_dispatched_queries_) query.clear();
     for (auto &slot : online_slots_) {
       // Provider workers are detached and their results are fenced by the
@@ -2106,17 +2136,37 @@ public:
     const auto chosen = preferences_snapshot_.is_object() &&
         candidateThemeSelectionChanged(preferences_snapshot_.at("preferences"));
     syncCandidatePanelTheme(chosen);
+    if (preferences_.value("clipboard_history", false)) requestClipboardReload();
+    notifyIdleWatch();
+    scheduleAsyncPoll();
     return true;
   }
-  void refreshPreferences() {
+  void requestPreferencesReload() {
+    if (!session_ || options_path_.empty() || !ic_.hasFocus() || restricted()) return;
+    if (preferences_job_.valid() || preferences_save_job_.valid()) {
+      preferences_reload_pending_ = true;
+      scheduleAsyncPoll();
+      return;
+    }
+    preferences_reload_pending_ = false;
+    refreshPreferences(true);
+  }
+  void refreshPreferences(bool startNewRead = true) {
     try {
       if (preferences_save_job_.valid()) {
-        if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (preferences_save_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+          scheduleAsyncPoll();
+          return;
+        }
         waitForPreferenceSave();
+        preferences_reload_pending_ = true;
       }
       retryCandidatePanelSettings();
       if (preferences_job_.valid()) {
-        if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+          scheduleAsyncPoll();
+          return;
+        }
         auto snapshot = preferences_job_.get();
         preferences_job_ = {};
         if (session_ && session_ == preferences_job_session_ && ic_.hasFocus() &&
@@ -2213,15 +2263,25 @@ public:
           }
         }
       }
-      if (!session_ || options_path_.empty() || !ic_.hasFocus() || restricted()) return;
+      if (!startNewRead && !preferences_reload_pending_) {
+        scheduleAsyncPoll();
+        return;
+      }
+      preferences_reload_pending_ = false;
+      if (!session_ || options_path_.empty() || !ic_.hasFocus() || restricted()) {
+        scheduleAsyncPoll();
+        return;
+      }
       preferences_job_session_ = session_;
       preferences_job_ = detachedJob([directory = options_path_] {
         fcitx_typing_statistics.refresh(directory);
         return response(msime_client_try_load_preferences(
             reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
       });
+      scheduleAsyncPoll();
     } catch (...) {
       // Keep the active settings on malformed or concurrently written files.
+      scheduleAsyncPoll();
     }
   }
   void refreshProviderSockets() {
@@ -2241,6 +2301,7 @@ public:
         preferences_job_ = {};
         preferences_save_job_ = {};
         preferences_save_retry_.reset();
+        preferences_reload_pending_ = true;
       }
       candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
       candidate_skin_document_ = options.value("candidate_skin_catalog", Json());
@@ -2265,6 +2326,7 @@ public:
         clipboard_job_ = {};
         clipboard_mutation_job_ = {};
         clipboard_path_ = std::move(nextClipboard);
+        clipboard_reload_pending_ = preferences_.value("clipboard_history", false);
       }
       updateCloudClipboardRoute(options);
       auto nextVoice = providerSocket(options, "voice_provider_socket",
@@ -2285,11 +2347,15 @@ public:
         translation_socket_ = std::move(nextTranslation);
         clearCandidateTranslations();
       }
+      notifyIdleWatch();
+      scheduleAsyncPoll();
     } catch (...) {
       // Keep the active provider endpoints when options are being atomically replaced.
+      scheduleAsyncPoll();
     }
   }
   void refreshOnline() {
+    online_debounce_pending_ = false;
     try {
       for (uint8_t source = 0; source < 2; ++source) {
         auto &slot = online_slots_[source];
@@ -2323,17 +2389,27 @@ public:
       if (session_ && ic_.hasFocus() && !restricted() &&
           (online_socket_.empty() || privateInput())) {
         resolveAiSeatWithoutProvider();
+        scheduleAsyncPoll();
         return;
       }
-      if (!session_ || online_socket_.empty() || privateInput() || !ic_.hasFocus() || restricted()) return;
+      if (!session_ || online_socket_.empty() || privateInput() || !ic_.hasFocus() || restricted()) {
+        scheduleAsyncPoll();
+        return;
+      }
       const auto query = response(msime_client_online_query(session_));
-      if (!query.is_object()) return;
+      if (!query.is_object()) {
+        scheduleAsyncPoll();
+        return;
+      }
       const bool cloud = query.value("cloud_eligible", false) &&
                          query.value("cloud_candidates", true);
       const auto aiConfig = query.value("ai_assistant", Json::object());
       const bool ai = query.value("ai_eligible", false) &&
                       aiConfig.is_object() && aiConfig.value("enabled", false);
-      if (!cloud && !ai) return;
+      if (!cloud && !ai) {
+        scheduleAsyncPoll();
+        return;
+      }
       const auto encoded = query.dump();
       const auto now = std::chrono::steady_clock::now();
       const bool changed = encoded != online_query_;
@@ -2347,10 +2423,18 @@ public:
         const bool enabled = source == 0 ? cloud : ai;
         auto &slot = online_slots_[source];
         // shortcut: 同查询失败后等输入或配置变化再试；需要后台恢复时改为有界退避。
-        if (!enabled || slot.job.valid() || encoded == online_dispatched_queries_[source]) continue;
+        if (!enabled || encoded == online_dispatched_queries_[source]) continue;
+        if (slot.job.valid()) {
+          if (slot.cache_only) online_debounce_pending_ = true;
+          continue;
+        }
         // AI 缓存探测立即显示旧答案；它不占用防抖后网络刷新的分发记录。
         const bool cacheOnly = source == 1 && changed;
-        if (!cacheOnly && now < (source == 0 ? online_due_ : ai_due_)) continue;
+        if (!cacheOnly && now < (source == 0 ? online_due_ : ai_due_)) {
+          online_debounce_pending_ = true;
+          continue;
+        }
+        if (cacheOnly) online_debounce_pending_ = true;
         auto providerQuery = query;
         if (source == 0) {
           providerQuery.erase("ai_assistant");
@@ -2375,8 +2459,11 @@ public:
             });
         if (!cacheOnly) online_dispatched_queries_[source] = encoded;
       }
+      scheduleAsyncPoll();
     } catch (...) {
       online_query_.clear();
+      online_debounce_pending_ = false;
+      scheduleAsyncPoll();
     }
   }
   // A non-English target whose offline dictionary is installed. The user's own translator outranks that dictionary, so after it answers the provider is asked about every candidate and its answers replace the dictionary's (prefer_online_glosses).
@@ -2424,6 +2511,7 @@ public:
         result["answered"] = result.contains("translations");
         return result;
       });
+      scheduleAsyncPoll();
       return;
     }
     // 离线词典查询里的候选取自这份查询：「仅当前高亮」时主查询只有高亮那一个候选，不能换成视图的整页。
@@ -2528,6 +2616,7 @@ public:
                       {"pronunciations", std::move(pronunciations)},
                       {"_socket", fence}};
         });
+    scheduleAsyncPoll();
   }
   static Json sentenceTranslationQuery(Json query, const std::string &text,
                                        const std::string &target_language) {
@@ -2571,7 +2660,10 @@ public:
       const auto encodedQuery = query.is_object() ? query.dump() : std::string{};
       embedded_translation_.observe(query.is_object() ? std::to_string(query.value("generation", uint64_t{0})) : std::string{});
       if (translation_job_.valid()) {
-        if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+          scheduleAsyncPoll();
+          return;
+        }
         auto result = translation_job_.get();
         translation_job_ = {};
         const bool request_is_current = translation_job_epoch_ == translation_epoch_;
@@ -2619,21 +2711,27 @@ public:
           translation_manual_sentence_ = false;
         }
       }
-      if (!query.is_object()) { translation_pending_.clear(); return; }
-      if (encodedQuery == translation_query_) return;
+      if (!query.is_object()) { translation_pending_.clear(); scheduleAsyncPoll(); return; }
+      if (encodedQuery == translation_query_) { translation_pending_.clear(); scheduleAsyncPoll(); return; }
       if (encodedQuery != translation_pending_) {
         translation_pending_ = encodedQuery;
         translation_due_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        scheduleAsyncPoll();
         return;
       }
-      if (std::chrono::steady_clock::now() < translation_due_) return;
+      if (std::chrono::steady_clock::now() < translation_due_) { scheduleAsyncPoll(); return; }
+      translation_pending_.clear();
       // 「仅当前高亮」：有 gloss_query 时先查整页离线释义（只读本机词典，很快），查完再发只有高亮那一个候选的主查询（CandidateTranslationScope.h）；范围是「全部」时没有 gloss_query，主查询就是整份查询。
       const auto parts = msime::linux_host::split_translation_query(query);
       if (parts.gloss.is_object())
         startTranslation(parts.gloss, translationOffline(parts.gloss), Json::array(), false, encodedQuery, true);
       else
         startPrimaryTranslation(parts.main, encodedQuery);
-    } catch (...) { /* Never expose candidate text or provider credentials in errors. */ }
+      scheduleAsyncPoll();
+    } catch (...) {
+      // 错误路径绝不暴露候选文本或翻译服务凭据。
+      scheduleAsyncPoll();
+    }
   }
   // 要不要先查离线词典：英文离线释义开着，或目标语言装了离线词典；/fy 从不查。
   bool translationOffline(const Json &query) const {
@@ -2695,17 +2793,36 @@ public:
            msime::linux_host::command_translation_query(
                view_.value("local_mode", std::string("none")), query.value("sentence", false));
   }
-  void refreshClipboard() {
+  void requestClipboardReload() {
+    if (!preferences_.value("clipboard_history", false) || clipboard_path_.empty() ||
+        restricted() || privateInput() || !ic_.hasFocus())
+      return;
+    if (clipboard_loading_ || clipboard_job_.valid() || clipboard_mutation_job_.valid()) {
+      clipboard_reload_pending_ = true;
+      scheduleAsyncPoll();
+      return;
+    }
+    clipboard_reload_pending_ = false;
+    refreshClipboard(true);
+  }
+  void refreshClipboard(bool startNewRead = true) {
     try {
       if (clipboard_mutation_job_.valid()) {
-        if (clipboard_mutation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (clipboard_mutation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+          scheduleAsyncPoll();
+          return;
+        }
         clipboard_mutation_job_.get();
         clipboard_mutation_job_ = {};
         clipboard_items_.clear();
         clipboard_loading_ = false;
+        clipboard_reload_pending_ = true;
       }
       if (clipboard_job_.valid()) {
-        if (clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+          scheduleAsyncPoll();
+          return;
+        }
         auto result = clipboard_job_.get();
         clipboard_job_ = {};
         clipboard_loading_ = false;
@@ -2719,9 +2836,19 @@ public:
         if (clipboard_loading_ || !clipboard_items_.empty()) ++clipboard_generation_;
         clipboard_items_.clear();
         clipboard_loading_ = false;
+        clipboard_reload_pending_ = false;
+        scheduleAsyncPoll();
         return;
       }
-      if (clipboard_loading_ || clipboard_path_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return;
+      if (!startNewRead && !clipboard_reload_pending_) {
+        scheduleAsyncPoll();
+        return;
+      }
+      clipboard_reload_pending_ = false;
+      if (clipboard_loading_ || clipboard_path_.empty() || restricted() || privateInput() || !ic_.hasFocus()) {
+        scheduleAsyncPoll();
+        return;
+      }
       clipboard_loading_ = true;
       const auto path = clipboard_path_;
       const auto generation = clipboard_generation_;
@@ -2733,7 +2860,8 @@ public:
         raw["_generation"] = generation;
         return raw;
       });
-    } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
+      scheduleAsyncPoll();
+    } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); scheduleAsyncPoll(); }
   }
   msime::linux_host::TypingSource typingSource() const {
     const auto profile = preferences_.value("shuangpin_profile", std::string("xiaohe"));
@@ -2860,6 +2988,7 @@ public:
           reinterpret_cast<const uint8_t *>(request.data()), request.size()));
       return raw.is_object() ? raw : Json::object();
     });
+    scheduleAsyncPoll();
     return true;
   }
   bool clearClipboard() {
@@ -2883,6 +3012,7 @@ public:
       }
       return result;
     });
+    scheduleAsyncPoll();
     return true;
   }
   void invalidateCloudClipboard() {
@@ -2966,6 +3096,7 @@ public:
       raw["_generation"] = generation;
       return raw;
     });
+    scheduleAsyncPoll();
     return false;
   }
   bool requestCloudClipboard() { return pasteCloudClipboard(); }
@@ -3063,6 +3194,7 @@ public:
       result["_generation"] = generation;
       return result;
     });
+    scheduleAsyncPoll();
     return true;
   }
   bool beginEmojiSearch() {
@@ -3157,6 +3289,7 @@ public:
         result["_category"] = category;
         return result;
       });
+      scheduleAsyncPoll();
       return false;
     }
     emoji_group_index_ = (emoji_group_index_ + 1) % (count + 1);
@@ -3211,8 +3344,13 @@ public:
               self->wave_overlay_surface_->update(self->wave_overlay_);
             }
             if (self->wave_overlay_frame_timer_.get() == timer) {
-              timer->setNextInterval(interval);
-              timer->setOneShot();
+              if (self->wave_overlay_surface_ && self->wave_overlay_visible_ &&
+                  self->wave_overlay_.animates()) {
+                timer->setNextInterval(interval);
+                timer->setOneShot();
+              } else {
+                timer->setEnabled(false);
+              }
             }
             return true;
           });
@@ -3220,6 +3358,10 @@ public:
       wave_overlay_frame_timer_.reset();
       // 下一段波形从圆点开始，与 macOS 在动画停止时复位波形条一样。
       wave_overlay_.levels.fill(0.0f);
+    } else if (animate && wave_overlay_frame_timer_ && !wave_overlay_frame_timer_->isEnabled()) {
+      constexpr uint64_t interval = msime::linux_host::kWaveOverlayFrameMilliseconds * 1000;
+      wave_overlay_frame_timer_->setNextInterval(interval);
+      wave_overlay_frame_timer_->setOneShot();
     }
     const int fd = shown ? surface->event_fd() : -1;
     if (fd != wave_overlay_io_fd_) {
@@ -3311,7 +3453,8 @@ public:
     }
     voice_failure_timer_ = loop_->addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + uint64_t{msime::linux_host::kWaveOverlayFailureMilliseconds} * 1000, 0,
-        [this, id](fcitx::EventSourceTime *, uint64_t) {
+        [this, id](fcitx::EventSourceTime *timer, uint64_t) {
+          timer->setEnabled(false);
           if (voice_loading_ || voice_failure_id_ != id) return true;
           dismissVoiceFailure();
           return true;
@@ -3320,6 +3463,7 @@ public:
   void dismissVoiceFailure() {
     if (!voice_failure_visible_) return;
     voice_failure_visible_ = false;
+    voice_failure_timer_.reset();
     hideVoiceOverlay();
     wave_overlay_.reset();
     if (ic_.inputPanel().auxUp().toString() == voice_failure_message_) {
@@ -3523,6 +3667,7 @@ public:
       const auto result = document.at("value");
       return result.is_object() ? result : Json{{"provider_error", std::string{}}};
     });
+    scheduleAsyncPoll();
     return true;
   }
   bool stopVoice() {
@@ -3578,6 +3723,7 @@ public:
     render();
     ic_.inputPanel().setAuxUp(fcitx::Text());
     ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    scheduleAsyncPoll();
     return true;
   }
   bool apply(char *raw,
@@ -3830,27 +3976,43 @@ public:
     if (std::string_view(ic_.frontend()).find("wayland") == 0 && caretShiftHeld().value_or(caret_shift_)) {
       pending_caret_.push_back(sym);
 #ifdef MSIME_FCITX5_XKB_STATE_MASK
+      constexpr uint64_t kCaretPollIntervalUs = 1000;
+      constexpr uint64_t kCaretPollMaxUs = 2'000'000;
+      const uint64_t now = fcitx::now(CLOCK_MONOTONIC);
+      caret_forward_deadline_ = now + kCaretPollMaxUs;
       if (!caret_forward_event_) {
-        caret_forward_event_ = loop_->addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC), 0,
-            [this](fcitx::EventSourceTime *timer, uint64_t) {
+        caret_forward_event_ = loop_->addTimeEvent(CLOCK_MONOTONIC, now + kCaretPollIntervalUs, 0,
+            [this](fcitx::EventSourceTime *timer, uint64_t tick) {
               if (!ic_.hasFocus() || restricted() || privateInput()) {
                 pending_caret_.clear();
-              } else if (const auto shift = caretShiftHeld()) {
-                if (*shift) {
-                  // 松开按键与 modifiers 更新会跨轮到达；只轮询状态，不按固定延时盲发。
-                  timer->setNextInterval(1000);
-                  timer->setOneShot();
-                } else {
+                caret_forward_deadline_ = 0;
+                timer->setEnabled(false);
+                return true;
+              }
+              if (const auto shift = caretShiftHeld()) {
+                if (!*shift) {
+                  caret_forward_deadline_ = 0;
+                  timer->setEnabled(false);
                   flushPendingCaret();
+                  return true;
+                }
+                if (tick < caret_forward_deadline_ &&
+                    fcitx::now(CLOCK_MONOTONIC) < caret_forward_deadline_) {
+                  // 松开按键与修饰状态更新会跨轮到达；在 2 秒上限内按 1 毫秒轮询状态，不按固定延时盲发。
+                  timer->setNextInterval(kCaretPollIntervalUs);
+                  timer->setOneShot();
+                  return true;
                 }
               }
-              // 无可回读状态时停止轮询，交给下一次无 Shift 按键处理。
+              // 无可回读状态或超过 2 秒上限时停止轮询，交给下一次无 Shift 按键处理。
+              caret_forward_deadline_ = 0;
+              timer->setEnabled(false);
               return true;
             });
       } else {
-        caret_forward_event_->setNextInterval(1000);
+        caret_forward_event_->setTime(now + kCaretPollIntervalUs);
+        caret_forward_event_->setOneShot();
       }
-      caret_forward_event_->setOneShot();
 #endif
       return;
     }
@@ -4229,7 +4391,8 @@ public:
   void keySettled(std::uint32_t comboBefore) {
     syncMusic();
     if (typing_combo_ == comboBefore) return;
-    if (view_.is_object() && view_.contains("candidates") && !view_.at("candidates").empty()) {
+    if (view_.is_object() && view_.contains("candidates") &&
+        msime::linux_host::visible_page_size(view_.at("candidates")) > 0) {
       ic_.inputPanel().setAuxDown(fcitx::Text(candidateAux()));
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
@@ -4265,6 +4428,7 @@ public:
     const auto source = msime::linux_host::typing_key_press_source(
         input_enabled_, view_, [this] { return typingSource(); });
     flushKeyPresses(key_presses_.add(id, options_path_, day, now, source));
+    scheduleAsyncPoll();
   }
   // Writes the pending key presses now, for FcitxEngine's teardown.
   void flushPendingKeyPresses() { flushKeyPresses(key_presses_.take()); }
@@ -4343,10 +4507,15 @@ public:
   std::optional<std::chrono::steady_clock::time_point> candidate_theme_refresh_at_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
+  bool preferences_reload_pending_ = false;
   std::shared_future<Json> preferences_job_;
   std::shared_future<Json> preferences_save_job_;
   std::optional<PendingPreferenceSave> preferences_save_retry_;
   std::unique_ptr<fcitx::EventSourceTime> preferences_timer_;
+  bool composition_async_dirty_ = false;
+  uint64_t observed_async_session_ = 0;
+  uint64_t observed_async_generation_ = 0;
+  std::string observed_async_editing_;
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
   bool private_ = false;
@@ -4372,6 +4541,7 @@ public:
   bool caret_shift_ = false;
   std::vector<fcitx::KeySym> pending_caret_;
   std::unique_ptr<fcitx::EventSourceTime> caret_forward_event_;
+  uint64_t caret_forward_deadline_ = 0;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
   msime::linux_host::BackspaceHoldPolicy backspace_hold_;
@@ -4417,6 +4587,7 @@ public:
   // 不会向 AI 发问时（没有在线服务、私密输入框）最近一次告诉 Host API 没有 AI 回答的查询，避免每个定时周期都再说一遍。
   std::string ai_resolved_query_;
   uint64_t online_epoch_ = 0;
+  bool online_debounce_pending_ = false;
   std::chrono::steady_clock::time_point online_due_{};
   std::chrono::steady_clock::time_point ai_due_{};
   std::string translation_query_, translation_pending_, translation_socket_;
@@ -4435,6 +4606,7 @@ public:
   Json clipboard_items_ = Json::array();
   uint64_t clipboard_generation_ = 0;
   bool clipboard_loading_ = false;
+  bool clipboard_reload_pending_ = false;
   std::shared_future<Json> clipboard_job_;
   std::shared_future<Json> clipboard_mutation_job_;
   std::string cloud_clipboard_socket_;
@@ -4598,10 +4770,11 @@ struct FcitxCandidateDisplay {
   // 「仅当前高亮」时高亮这一行（视图的 translation_reserved）一直留出的释义行数，回答还没到也留，移动高亮时候选窗高度不跳；其他行为 0。
   int reserved_gloss_lines = 0;
 };
-// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。`pronunciation` 是释义各行的读音（FcitxState::candidatePronunciation），没有打开「显示读音」时为空。
+// `variant` 是繁体变体的编号，只在 `traditional` 为真时用到；`dimScalars` 是光标后编辑要画淡的字数（caret_edit_dim_scalars），不是首选时为 0。`reservedGlossLines` 是候选窗为还没到的释义预留的行数（FcitxState::translationReservedLines），只给视图标了 translation_reserved 的那一行。`classicVertical` 是 classicui 画的候选窗是不是竖排：竖排可以把释义放到候选字下面单独一行，横排任何一行变成两行都会让整条候选条变高、那一格的序号掉到第二行（#11821），所以横排把释义接在同一行。`pronunciation` 是释义各行的读音（FcitxState::candidatePronunciation），没有打开「显示读音」时为空。
 FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, bool annotations,
                                      const std::string &hanjaGloss, uint32_t variant, std::size_t dimScalars = 0,
-                                     int reservedGlossLines = 0, const std::string &pronunciation = {}) {
+                                     int reservedGlossLines = 0, const std::string &pronunciation = {},
+                                     bool classicVertical = true) {
   FcitxCandidateDisplay display;
   // Engine 候选来源 12 是 AI 占位行（「…」或「—」）：Fcitx5 的文本格式没有颜色，用斜体表示它是次要的，并标明不上屏（#6888）。共享内核已经不再产出这种行（AI 回答到达时直接插在第一页最后一格），这里的处理留着，旧的库或数据里出现时仍按占位行对待。
   if (msime::linux_host::strict_json_value(candidate, "source", uint64_t{}) == 12) {
@@ -4640,16 +4813,19 @@ FcitxCandidateDisplay candidateDisplay(const Json &candidate, bool traditional, 
     display.translation = candidate.at("translation").get<std::string>();
     display.translation_runs = candidate.value("translation_runs", Json::array());
     if (!display.translation.empty()) display.pronunciation = pronunciation;
-    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。读音在它那一行释义下面单独一行，只供显示。
-    if (!display.translation.empty())
-      row.append("\n" + msime::linux_host::candidate_gloss_readings(display.translation, display.pronunciation).text);
+    // classicui 按换行测量整项高度与点击区域；原生画布仍消费未加工的独立译文。竖排把释义（和读音）放在候选字下面各自一行；横排放不下第二行，与 IBus 查找表一样接在同一行、以「 · 」隔开（#11821）。只供显示。
+    if (!display.translation.empty()) {
+      const auto readings = msime::linux_host::candidate_gloss_readings(display.translation, display.pronunciation).text;
+      row.append(msime::linux_host::classicui_gloss_inline(classicVertical) ? " · " + readings : "\n" + readings);
+    }
   }
   if (reservedGlossLines > 0 && candidate.value("translation_reserved", false)) {
     display.reserved_gloss_lines = reservedGlossLines;
-    // classicui 按有没有译文变高、没有统一预留：回答还没到时用不上屏的全角空格行占住译文的位置。
-    if (display.translation.empty()) {
+    // classicui 按有没有译文变高、没有统一预留：回答还没到时用不上屏的全角空格行占住译文的位置。横排候选条的高度取整页最高的那一行，这一行会让整条候选条变成两行，所以横排一行都不加（classicui_gloss_placeholder_lines）。
+    const int placeholderLines = msime::linux_host::classicui_gloss_placeholder_lines(classicVertical, reservedGlossLines);
+    if (display.translation.empty() && placeholderLines > 0) {
       std::string placeholder;
-      for (int line = 0; line < reservedGlossLines; ++line) placeholder += "\n\u3000";
+      for (int line = 0; line < placeholderLines; ++line) placeholder += "\n\u3000";
       row.append(placeholder, fcitx::TextFormatFlags{fcitx::TextFormatFlag::DontCommit});
     }
   }
@@ -4669,9 +4845,10 @@ class FcitxCandidate : public fcitx::CandidateWord {
 public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
                  bool annotations, const std::string &hanjaGloss, uint32_t variant = 0, std::size_t dimScalars = 0,
-                 int reservedGlossLines = 0, const std::string &pronunciation = {})
+                 int reservedGlossLines = 0, const std::string &pronunciation = {},
+                 bool classicVertical = true)
       : FcitxCandidate(factory, candidate, candidateDisplay(candidate, traditional, annotations, hanjaGloss, variant, dimScalars,
-                                                            reservedGlossLines, pronunciation)) {}
+                                                            reservedGlossLines, pronunciation, classicVertical)) {}
   const FcitxCandidateDisplay &display() const { return display_; }
 private:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, FcitxCandidateDisplay display)
@@ -4791,9 +4968,12 @@ public:
 #ifdef MSIME_FCITX_ACTIONS
     setActionable(this);
 #endif
-    const auto &candidates = state.view_.at("candidates");
+    // 云候选的占位席位（来源 15）选不中，不画也不占序号：它后面每一行的数字和点选都往前挪一位（CandidateSources.h）。
+    const auto candidates = msime::linux_host::visible_page(state.view_.at("candidates"));
     const auto caretEdit = msime::linux_host::caret_edit_suffix(state.view_);
     const int reservedGlossLines = state.translationReservedLines();
+    // 横排候选条的高度取整页最高的那一行：横排不加占位行、释义也接在同一行（CandidateTranslationPolicy.h，#11821）。
+    const bool classicVertical = layout_ == fcitx::CandidateLayoutHint::Vertical;
     words_.reserve(candidates.size());
     labels_.reserve(candidates.size());
     for (const auto &candidate : candidates) {
@@ -4802,7 +4982,7 @@ public:
           factory, candidate, state.traditionalApplies(), annotations,
           msime::linux_host::korean_hanja_gloss(state.view_, candidate), state.traditional_variant_,
           msime::linux_host::caret_edit_dim_scalars(caretEdit, candidate), reservedGlossLines,
-          state.candidatePronunciation(candidate)));
+          state.candidatePronunciation(candidate), classicVertical));
       // 序号与选它的数字键一致：第十个由 0 键选，标 0。macOS 的序号不带句点，按 0.8 倍字号画、与候选隔 1.5pt；classicui 序号与候选之间没有间距，留一个空格代替，字号由主题的 LabelTextSizeFactor 缩到 80%。
       labels_.emplace_back(msime::linux_host::candidate_index_label(words_.size() - 1) + " ");
     }
@@ -6725,6 +6905,7 @@ public:
       native_canvas_owned_ = false;
 #endif
       candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
+      candidate_theme_retry_at_ = std::chrono::steady_clock::time_point::max();
       hint_text_width_ = 0;
       hint_inputs_ = FcitxHintInputs{};
       return was_applied;
@@ -6744,6 +6925,7 @@ public:
       native_canvas_owned_ = false;
 #endif
       candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
+      candidate_theme_retry_at_ = std::chrono::steady_clock::time_point::max();
       hint_text_width_ = 0;
       hint_inputs_ = FcitxHintInputs{};
       return was_applied;
@@ -7286,6 +7468,7 @@ public:
       } catch (const OptionsNotConfigured &) { notConfigured(*state, false); }
       catch (...) { unavailable(*state); }
     }
+    syncIdleWatch();
   }
   // Reached through the Fcitx5 controller's ReloadAddonConfig for this addon, which is what the settings page's restart button sends. Fcitx5's own ReloadConfig (fcitx5-remote -r) reloads only the global configuration and never calls addons.
   void reloadConfig() override { resetSessions(); }
@@ -7302,7 +7485,94 @@ public:
     classicui_wheel_paging_ = *enabled;
   }
   bool candidateWheelPagingPending() const { return candidate_wheel_paging_sync_.pending(); }
-  explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
+  std::optional<uint64_t> nextCandidateRetryDelayUs() const {
+    const auto earliest = std::min(candidate_theme_retry_at_, candidate_canvas_retry_at_);
+    if (earliest == std::chrono::steady_clock::time_point::max()) return std::nullopt;
+    const auto now = std::chrono::steady_clock::now();
+    if (earliest <= now) return uint64_t{1000};
+    const auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(earliest - now).count();
+    return static_cast<uint64_t>(std::max<int64_t>(1000, remaining));
+  }
+  bool candidateRetryDue() const {
+    const auto earliest = std::min(candidate_theme_retry_at_, candidate_canvas_retry_at_);
+    return earliest != std::chrono::steady_clock::time_point::max() &&
+           std::chrono::steady_clock::now() >= earliest;
+  }
+  void syncIdleWatch() {
+    // 插件尚未完成构造或处于卸载/反注册阶段时不得重入：避免构造期 `inputMethodEngine`
+    // 递归触发 `AddonManager::addon("msime")`，也避免析构时访问正在反注册的 `factory_`。
+    if (shutting_down_ || !engine_ready_ || !factory_.registered()) return;
+    auto watch = buildBaseFcitxWatchConfig(
+        initial_config_home_, MSIME_EDITION_CLIENT_DIRECTORY, MSIME_SYSTEM_OPTIONS);
+    const auto collect_state = [&](const FcitxState *state) {
+      if (!state) return;
+      appendContextWatchPaths(
+          watch, state->options_path_, state->dictionary_user_data_,
+          msime::linux_host::kDictionaryQuiesceLeaseName, state->clipboard_path_,
+          {&state->voice_socket_, &state->online_socket_,
+           &state->translation_socket_, &state->cloud_clipboard_socket_});
+    };
+    bool any_active = false;
+    instance_->inputContextManager().foreach([&](fcitx::InputContext *ic) {
+      auto *state = ic->propertyFor(&factory_);
+      if (state->session_ != 0 || (ic->hasFocus() && instance_->inputMethodEngine(ic) == this)) {
+        any_active = true;
+        collect_state(state);
+      }
+      return true;
+    });
+    if (auto *held = menu_context_ic_.get()) {
+      any_active = true;
+      collect_state(held->propertyFor(&factory_));
+    }
+    idle_watch_.configure(std::move(watch));
+    idle_watch_.setActive(any_active);
+  }
+  void onExternalChange() {
+    if (shutting_down_) return;
+    if (auto *held = menu_context_ic_.get()) {
+      auto *state = held->propertyFor(&factory_);
+      if (state->session_ && !held->hasFocus()) {
+        state->refreshDictionaryQuiesce();
+        state->scheduleAsyncPoll();
+      }
+    }
+    instance_->inputContextManager().foreach([this](fcitx::InputContext *ic) {
+      if (!ic->hasFocus()) return true;
+      auto *state = ic->propertyFor(&factory_);
+      if (state->session_) state->refreshDictionaryQuiesce();
+      if (state->session_) {
+        state->refreshProviderSockets();
+        state->requestPreferencesReload();
+        if (state->preferences_.value("clipboard_history", false))
+          state->requestClipboardReload();
+        state->scheduleAsyncPoll();
+      }
+      return true;
+    });
+    syncIdleWatch();
+  }
+  // 偏好目录里只有打字统计文档变了（多半是插件自己刚刷新了统计）：只在后台重读统计开关，不重读偏好和服务套接字。设置应用关掉统计时也只改这个文件，关掉后到这里重读之前上屏的字仍可能记进去，与旧的每拍轮询一样只差一个防抖窗口。
+  void onTypingStatisticsChange() {
+    if (shutting_down_) return;
+    std::set<std::string> directories;
+    const auto collect = [&](fcitx::InputContext *ic) {
+      const auto *state = ic->propertyFor(&factory_);
+      if (state->session_ && !state->options_path_.empty()) directories.insert(state->options_path_);
+    };
+    if (auto *held = menu_context_ic_.get()) collect(held);
+    instance_->inputContextManager().foreach([&](fcitx::InputContext *ic) {
+      if (ic->hasFocus()) collect(ic);
+      return true;
+    });
+    for (const auto &directory : directories)
+      (void)detachedJob([directory] {
+        fcitx_typing_statistics.refresh(directory);
+        return Json();
+      });
+  }
+  explicit FcitxEngine(fcitx::Instance *instance)
+      : instance_(instance), initial_config_home_(resolveFcitxConfigHome()) {
     // 脚本插件在 fcitx5 守护进程里运行（本 addon 是它加载的共享库），在第一个会话之前打开；开发构建和 release 构建一样（msime_client.h）。
     msime_client_scripts_enable(true);
     // A library Fcitx5 kept loaded across an earlier engine's teardown keeps its globals; this engine writes off the loop again.
@@ -7630,6 +7900,7 @@ public:
           // 会话不在这里关：随后的 deactivate 把它留给托盘菜单，到下一次有上下文获得焦点再关（见 holdMenuContext）。
           try { state->leaveFocus(); } catch (...) { state->close(); }
           state->clearPanel();
+          syncIdleWatch();
         });
     // Any focused context counts, whichever input method it uses: the panels type through Fcitx5 itself once this addon is loaded.
     panel_focus_watch_ = instance->watchEvent(
@@ -7647,8 +7918,11 @@ public:
 #endif
           ++panel_input_generation_;
           listenPanelInput();
+          syncIdleWatch();
         });
     listenPanelInput();
+    // 构造阶段先停用文件监听，等 `activate()` 或后续事件再按需启用，防止构造期递归加载插件。
+    idle_watch_.setActive(false);
     // The first probe starts at addon load; stepSystemTheme sets every later interval.
     system_theme_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC), 10000,
@@ -7660,6 +7934,8 @@ public:
 #ifdef MSIME_FCITX5_TELEMETRY
     startTelemetry();
 #endif
+    idle_watch_.setStatisticsCallback([this] { onTypingStatisticsChange(); });
+    engine_ready_ = true;
   }
   // Every detached worker runs addon code. Wait for the complete tracker before Fcitx5 can unload
   // the shared object; otherwise a provider reply that outlives this object can jump into unmapped
@@ -7667,6 +7943,8 @@ public:
   // have stopped accepting events, instead of risking execution after dlclose.
   // The key press counts get the same care: every context's pending batch is written here, synchronously, and so is any a context still flushes when the factory destroys it; batches already handed to a thread (contexts Fcitx5 destroyed before unloading the addon) are waited for. A store write takes milliseconds; the bound only keeps a wedged store from holding the exit.
   ~FcitxEngine() override {
+    shutting_down_ = true;
+    idle_watch_.setActive(false);
     fcitx_key_presses_shutting_down = true;
     instance_->inputContextManager().foreach([this](fcitx::InputContext *ic) {
       ic->propertyFor(&factory_)->flushPendingKeyPresses();
@@ -7876,6 +8154,7 @@ public:
     // 悬浮工具栏的属主交给这个上下文（获得焦点或切换到本输入法），与 macOS 的 activateServer: 相同。
     state->syncFloatingToolbar(true);
     state->publishInputStatus(true);
+    syncIdleWatch();
     noticeReplacedAddon(*state);
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -7913,6 +8192,7 @@ public:
     }
 #endif
     state->publishInputStatus(false);
+    syncIdleWatch();
   }
   // Fcitx5 的托盘（SNI/dbusmenu）列的是最近聚焦的上下文的状态动作，点下去也作用于它；在 Hyprland 上的 noctalia、waybar 等桌面，点托盘本身就让应用失焦。所以失焦的上下文留着会话，托盘读到的勾选是它真实的状态，点下的开关作用于它的会话并照常保存。同一时间只留一个，到有上下文获得焦点时交出（releaseMenuContext）。只往有焦点的输入框里写的入口——语音、候选维护、剪贴板、云剪贴板、表情——这时点了也没有地方落，先从状态区拿掉，获得焦点时 activate 再放回。
   void holdMenuContext(fcitx::InputContext *ic) {
@@ -7922,6 +8202,7 @@ public:
     // 失焦了，只往有焦点的输入框里写的那几项（focusOnlyActions 与语音项，以及「工具栏」子菜单里的语音和宣传）随之拿掉，顺带刷新状态区。
     rebuildToolbarMenu(ic);
     arrangeStatusArea(ic);
+    syncIdleWatch();
   }
   // 读一次今日待复习，记在这个上下文上，syncVocabularyEntry 和菜单里的文字都用它。只在获得焦点和失焦留给托盘时调（Hyprland 这类桌面上点托盘本身就让应用失焦，这时读到的才是用户点开托盘时的数）：要取进度文件锁、解析选中的一本书，在 Fcitx5 的主线程上同步进行，所以不放在按键或刷新状态区的路径上；从没开过背单词时不取锁也不读书。那两个时刻都没有在组字，受限（密码框）的上下文不列这一行。
   void refreshVocabularyDue(fcitx::InputContext *ic) {
@@ -7997,6 +8278,7 @@ public:
       held->statusArea().clearGroup(fcitx::StatusGroup::InputMethod);
       held->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
     }
+    syncIdleWatch();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -8007,6 +8289,7 @@ public:
     state->toggle_chord_held_ = FcitxKey_None;
     state->pending_caret_.clear();
     state->caret_forward_event_.reset();
+    state->caret_forward_deadline_ = 0;
     // 自己上屏之后客户端回头送来的 reset 是上屏的回声，不是光标移动，联想留着（NextWordPrediction.h）。
     if (state->prediction_echo_.keeps(msime::linux_host::view_is_prediction(state->view_),
                                       FcitxState::monotonicMs()))
@@ -8104,6 +8387,9 @@ public:
     fcitx::startProcess({guide, "--host", "fcitx5"});
   }
   fcitx::Instance *instance_;
+  std::filesystem::path initial_config_home_;
+  bool engine_ready_ = false;
+  bool shutting_down_ = false;
   // 使用运行库版本，旧开发库构建的包在新版 classicui 上也要写磅，避免序号被放大。
   msime::linux_host::CandidateFontSync candidate_font_sync_{
       msime::linux_host::fcitx_candidate_font_unit(fcitx::Instance::version())};
@@ -8127,7 +8413,7 @@ public:
   std::chrono::steady_clock::time_point candidate_canvas_retry_at_ = std::chrono::steady_clock::time_point::max();
   // 还没接管成功时，上一次尝试所见的主题输入与经典界面落盘的选择；写主题失败时到 candidate_theme_retry_at_ 再试一次，其他情况要等它们变化。
   std::string candidate_theme_attempt_;
-  std::chrono::steady_clock::time_point candidate_theme_retry_at_;
+  std::chrono::steady_clock::time_point candidate_theme_retry_at_ = std::chrono::steady_clock::time_point::max();
   static constexpr auto kCandidateThemeRetry = std::chrono::seconds(10);
   // 提示要撑到的文本宽度（逻辑单位），写主题时算好；0 表示不加宽。
   int hint_text_width_ = 0;
@@ -8174,6 +8460,8 @@ public:
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   // 失焦后留给托盘菜单的那个上下文，见 holdMenuContext；上下文销毁时自动失效。
   fcitx::TrackableObjectReference<fcitx::InputContext> menu_context_ic_;
+  // 声明在 `factory_` 与 `menu_context_ic_` 之后，析构时先关闭文件监听与防抖定时器。
+  FcitxIdleWatch idle_watch_{instance_->eventLoop(), [this] { onExternalChange(); }};
   // Declared in this order so the event sources go before the socket and the connections they serve.
   msime::linux_host::PanelInputSocket panel_input_socket_;
   msime::linux_host::PanelInputBroker panel_input_broker_;
@@ -8374,6 +8662,96 @@ bool FcitxState::menuTarget() const {
   return ic_.hasFocus() || (engine_ && engine_->menu_context_ic_.get() == &ic_);
 }
 
+void FcitxState::notifyIdleWatch() {
+  if (engine_ && !engine_->shutting_down_) engine_->syncIdleWatch();
+}
+
+bool FcitxState::hasActiveAsyncPollWork() const {
+  if (preferences_job_.valid() || preferences_save_job_.valid()) return true;
+  if (!session_ || !ic_.hasFocus() || restricted()) return false;
+  return preferences_reload_pending_ ||
+         clipboard_reload_pending_ ||
+         composition_async_dirty_ ||
+         online_debounce_pending_ ||
+         online_slots_[0].job.valid() ||
+         online_slots_[1].job.valid() ||
+         translation_job_.valid() ||
+         (!translation_pending_.empty() && translation_pending_ != translation_query_) ||
+         clipboard_job_.valid() ||
+         clipboard_mutation_job_.valid() ||
+         cloud_clipboard_job_.valid() ||
+         emoji_job_.valid() ||
+         emoji_groups_job_.valid() ||
+         voice_loading_ ||
+         voice_job_.valid() ||
+         candidate_theme_refresh_at_.has_value();
+}
+
+void FcitxState::scheduleAsyncPoll() {
+  if (!loop_) return;
+  constexpr uint64_t kAsyncPollIntervalUs = 250'000;
+  std::optional<uint64_t> delay_us;
+  const uint64_t now_us = fcitx::now(CLOCK_MONOTONIC);
+  if (hasActiveAsyncPollWork()) {
+    delay_us = kAsyncPollIntervalUs;
+  } else if (session_ && ic_.hasFocus() && !restricted()) {
+    if (const auto flush_delay = key_presses_.flush_delay_microseconds(static_cast<int64_t>(now_us))) {
+      delay_us = std::max<uint64_t>(1000, *flush_delay);
+    }
+    if (engine_) {
+      if (const auto retry_delay = engine_->nextCandidateRetryDelayUs()) {
+        delay_us = delay_us ? std::min(*delay_us, *retry_delay) : *retry_delay;
+      }
+    }
+  }
+  if (!delay_us) {
+    if (preferences_timer_) preferences_timer_->setEnabled(false);
+    return;
+  }
+  const uint64_t deadline = now_us + *delay_us;
+  if (!preferences_timer_) {
+    preferences_timer_ = loop_->addTimeEvent(
+        CLOCK_MONOTONIC, deadline, 10000,
+        [this](fcitx::EventSourceTime *timer, uint64_t) {
+          timer->setEnabled(false);
+          pollAsyncState();
+          return true;
+        });
+  } else if (!preferences_timer_->isEnabled() || preferences_timer_->time() > deadline) {
+    // 只把截止时间往前挪：`render()` 和按键统计每次视图更新都会调这里，已排好的更早一拍若被推后，连续打字（按键间隔短于 250ms）时轮询会一直等不到，在线候选、翻译、剪贴板等异步结果都卡到停手后才推进。
+    preferences_timer_->setTime(deadline);
+    preferences_timer_->setOneShot();
+  }
+}
+
+void FcitxState::pollAsyncState() {
+  const bool active = session_ && ic_.hasFocus() && !restricted();
+  if (!active && !preferences_job_.valid() && !preferences_save_job_.valid()) {
+    scheduleAsyncPoll();
+    return;
+  }
+  composition_async_dirty_ = false;
+  if (session_ && view_.is_object()) {
+    observed_async_session_ = session_;
+    observed_async_generation_ = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
+    observed_async_editing_ = view_.value("editing_text", std::string{});
+  }
+  refreshDictionaryQuiesce();
+  if (active && (candidate_theme_refresh_at_ || (engine_ && engine_->candidateRetryDue())))
+    syncCandidatePanelTheme(false);
+  refreshPreferences(false);
+  if (active) {
+    refreshOnline();
+    refreshTranslations();
+    refreshClipboard(false);
+    refreshCloudClipboard();
+    refreshEmoji();
+    refreshVoice();
+    flushKeyPresses(key_presses_.take_due(static_cast<int64_t>(fcitx::now(CLOCK_MONOTONIC))));
+  }
+  scheduleAsyncPoll();
+}
+
 // Defined here rather than in the class body because FcitxEngine is only forward-declared there, and the voice action it owns cannot be named until the definition above.
 void FcitxState::syncVoiceAction() {
   if (!engine_) return;
@@ -8428,6 +8806,7 @@ void FcitxState::syncCandidatePanelTheme(bool chosen) {
       ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   if (engine_) engine_->publishCandidatePanelStatus();
+  scheduleAsyncPoll();
 }
 
 void FcitxState::refreshThemeMenu() {
@@ -8559,7 +8938,8 @@ void FcitxState::render() {
       // 不能把行内预编辑样式偷偷回退成候选窗顶端的一行；韩文等必须内嵌的方案仍例外。
       ic_.inputPanel().setPreedit(preedit);
   }
-  if (!view_.at("candidates").empty()) {
+  // 整页只剩云占位席位时没有可画的候选，照旧不打开候选窗（CandidateSources.h）。
+  if (msime::linux_host::visible_page_size(view_.at("candidates")) > 0) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
     if (engine_) ic_.inputPanel().setCandidateList(std::make_unique<FcitxPage>(*this, &engine_->factory_));
     ic_.inputPanel().setAuxDown(fcitx::Text(candidateAux()));
@@ -8574,6 +8954,17 @@ void FcitxState::render() {
   renderShuangpinKeymap();
   ic_.updatePreedit();
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  if (session_ && ic_.hasFocus() && !restricted() && composingOrCandidates()) {
+    const auto current_generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
+    if (session_ != observed_async_session_ ||
+        current_generation != observed_async_generation_ ||
+        editing != observed_async_editing_) {
+      composition_async_dirty_ = true;
+    }
+  } else {
+    composition_async_dirty_ = false;
+  }
+  scheduleAsyncPoll();
 }
 
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
@@ -8602,7 +8993,8 @@ bool FcitxState::expandAllowed() const {
       !msime::linux_host::view_is_prediction(view_) &&
       preferences_.value("candidate_layout", std::string("vertical")) == "horizontal" &&
       !translationCandidatesActive() && !msime::linux_host::opened_candidate_list(view_) &&
-      !msime::linux_host::korean_hanja_list_open(view_) && !view_.value("candidates", Json::array()).empty();
+      !msime::linux_host::korean_hanja_list_open(view_) &&
+      msime::linux_host::visible_page_size(view_.value("candidates", Json::array())) > 0;
 }
 
 bool FcitxState::expandOffered() const {
@@ -8618,7 +9010,11 @@ std::vector<Json> FcitxState::expandedEntries() {
     view_ = response(msime_client_view(session_));
     const auto generation = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
     if (!msime::linux_host::native_canvas_snapshot_current(snapshot, session_, generation)) return entries;
-    for (auto &entry : snapshot.at("candidates")) entries.push_back(std::move(entry));
+    // 展开的网格和卷轴也不给云占位席位一格：它选不中，画出来只是一格空响应（CandidateSources.h）。
+    for (auto &entry : snapshot.at("candidates"))
+      if (msime::linux_host::candidate_source_is_visible(
+              msime::linux_host::strict_json_value(entry, "source", uint64_t{})))
+        entries.push_back(std::move(entry));
   } catch (const std::exception &) {
     entries.clear();
   }
@@ -8638,7 +9034,8 @@ bool FcitxState::openExpanded() {
   const auto before = msime::linux_host::strict_json_value(view_, "generation", uint64_t{});
   auto entries = expandedEntries();
   const auto page = view_.value("candidates", Json::array());
-  if (entries.empty() || (style == ExpandStyle::grid && entries.size() <= page.size())) {
+  // 完整候选已经不含占位席位，比较的是看得见的行数，否则占位席位会让「只有这一页」的页面也开网格。
+  if (entries.empty() || (style == ExpandStyle::grid && entries.size() <= msime::linux_host::visible_page_size(page))) {
     // 复制时推进了代次：当前页已经换成重读的那一页，重画让候选列表跟上新的身份。
     if (msime::linux_host::strict_json_value(view_, "generation", uint64_t{}) != before) render();
     return false;
@@ -9030,7 +9427,9 @@ bool FcitxState::renderNativeCanvas() {
 #endif
 
 void FcitxState::maintenance(int operation) {
-  if (!ensure() || view_.value("candidates", Json::array()).empty()) return;
+  if (!ensure() ||
+      msime::linux_host::visible_page_size(view_.value("candidates", Json::array())) == 0)
+    return;
   for (const auto &candidate : view_.at("candidates")) {
     if (!candidate.value("highlighted", false)) continue;
     const auto &id = candidate.at("id");
@@ -9133,7 +9532,8 @@ void FcitxState::showInputModeHud([[maybe_unused]] ModeHudTrigger trigger) {
   mode_hud_aux_timer_ = loop_->addTimeEvent(
       CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 600000, 0,
       [this, id](fcitx::EventSourceTime *timer, uint64_t) {
-        timer->setOneShot();
+        // `sd-event` 一次性时间源在不推进截止时刻时调 `setOneShot()` 会重装过期时间戳并紧循环，触发后显式关闭。
+        timer->setEnabled(false);
         if (id != mode_hud_aux_id_ || mode_hud_aux_text_.empty()) return true;
         if (!msime::linux_host::view_is_composing(view_) &&
             ic_.inputPanel().auxUp().toString() == mode_hud_aux_text_) {
@@ -9211,7 +9611,7 @@ void FcitxState::renderShuangpinKeymap() {
       msime::linux_host::shuangpin_keymap_candidate_clearance(
           msime::linux_host::scaled_candidate_font_size(msime::linux_host::read_candidate_font(preferences_)), 1.0,
           preferences_.value("candidate_layout", std::string("vertical")) == "horizontal",
-          candidates.is_array() ? candidates.size() : 0, preedit_row),
+          candidates.is_array() ? msime::linux_host::visible_page_size(candidates) : 0, preedit_row),
       std::nullopt};
 #ifdef MSIME_FCITX5_NATIVE_CANVAS
   // 候选窗是插件自己的原生画布时（render 先画它再画键位图）用它真实的矩形，与 macOS 按候选窗几何让开相同；经典界面画的候选窗只能按字号估计。
@@ -9261,6 +9661,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (!caret_shift_ && !isShiftKey(event)) {
     // 下一按键可能与松开事件同批到达；先回移，再处理输入，避免文字落在闭标点外。
     caret_forward_event_.reset();
+    caret_forward_deadline_ = 0;
     flushPendingCaret();
   }
   if (sym == FcitxKey_BackSpace && event.isRelease()) {
@@ -9432,12 +9833,15 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Shift, fcitx::KeyState::Super,
         fcitx::KeyState::Hyper, fcitx::KeyState::Meta, fcitx::KeyState::Mod5});
     std::optional<size_t> pick;
+    Json pick_row;
     if (prediction && bare) {
-      const auto &candidates = view_.at("candidates");
+      // 联想的数字也只认看得见的行：云占位席位不占一格（CandidateSources.h）。
+      const auto candidates = msime::linux_host::visible_page(view_.at("candidates"));
       if (sym == FcitxKey_space) {
         for (size_t index = 0; index < candidates.size(); ++index)
-          if (candidates.at(index).value("highlighted", false)) pick = index;
+          if (candidates.at(index).value("highlighted", false)) { pick = index; break; }
         if (!pick && !candidates.empty()) pick = 0;
+        if (pick) pick_row = candidates.at(*pick);
       } else if (preferences_.value("number_row_selection", true)) {
         // 与组字时的数字选词同一套键：数字行按物理键位（XKB 键码 10..19），其余按数字符号和小键盘。
         const auto code = event.rawKey().code();
@@ -9446,14 +9850,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         else if (sym >= FcitxKey_1 && sym <= FcitxKey_9) slot = static_cast<size_t>(sym - FcitxKey_1);
         else if (sym == FcitxKey_0 || sym == FcitxKey_KP_0) slot = size_t{9};
         else if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9) slot = static_cast<size_t>(sym - FcitxKey_KP_1);
-        if (slot && *slot < candidates.size()) pick = slot;
+        if (const auto *candidate = slot ? msime::linux_host::visible_page_candidate(candidates, *slot) : nullptr) {
+          pick = *slot;
+          pick_row = *candidate;
+        }
       }
     }
     switch (msime::linux_host::prediction_key(prediction, bare && sym == FcitxKey_Escape, pick.has_value())) {
     case msime::linux_host::PredictionKey::Route:
       break;
     case msime::linux_host::PredictionKey::Pick: {
-      const auto &id = view_.at("candidates").at(*pick).at("id");
+      const auto &id = pick_row.at("id");
       return apply(msime_client_select(
           session_, msime::linux_host::strict_json_required_integer<uint64_t>(id.at("generation")),
           msime::linux_host::strict_json_required_integer<size_t>(id.at("index"))));
@@ -9833,7 +10240,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     const bool picks = msime::linux_host::number_row_picks(
         view_, spelled, event.rawKey().states().test(fcitx::KeyState::Shift), rowCode >= 10 && rowCode <= 19,
         preferences_.value("number_row_selection", true) && !view_.value("nine_key", false) &&
-            !view_.value("candidates", Json::array()).empty());
+            msime::linux_host::visible_page_size(view_.value("candidates", Json::array())) > 0);
     if ((!picks && msime::linux_host::engine_spelling(view_, spelled)) ||
         (spelled == U' ' && !states.test(fcitx::KeyState::Shift) && msime::linux_host::spelling_space(view_)))
       return apply(msime_client_character(session_, static_cast<uint8_t>(spelled),
@@ -9941,7 +10348,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (composing && (!commitsOnBlur() || openedList)) {
     const bool japanese = msime::linux_host::strict_json_value(view_, "scheme", 0u) == 3;
     // The marks among these keys stay punctuation while a Korean Hanja list is open, as they are with no list (core/KoreanHanja.h): the Engine closes the list and writes the Hangul with the mark. Page Up, Page Down and Tab still page.
-    if (!shift && !view_.at("candidates").empty() && !koreanHanjaList) {
+    if (!shift && msime::linux_host::visible_page_size(view_.at("candidates")) > 0 && !koreanHanjaList) {
       if (word_character_enabled_ && !japanese &&
           ((word_character_minus_equal_ && sym == FcitxKey_minus) ||
            (!word_character_minus_equal_ && sym == FcitxKey_bracketleft)))
@@ -9966,7 +10373,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter || sym == FcitxKey_space)) {
       using Action = msime::linux_host::JapaneseConversion::Action;
       const auto reading = view_.value("editing_text", std::string{});
-      const auto &candidates = view_.at("candidates");
+      // 日文转换只认看得见的行：云占位席位不占一个候选（CandidateSources.h）。
+      const auto page = view_.at("candidates");
+      const auto candidates = page.is_array() ? msime::linux_host::visible_page(page) : Json::array();
       if (sym == FcitxKey_space) {
         const int first_source = candidates.empty() ? -1 : msime::linux_host::strict_json_value(candidates[0], "source", -1);
         const auto action = japanese_conversion_.space(reading, candidates.size(), first_source);
@@ -10053,8 +10462,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         !view_.value("nine_key", false) &&
         preferences_.value("number_row_selection", true)) {
       const size_t index = *number;
-      if (index < view_.at("candidates").size()) {
-        const auto id = view_.at("candidates").at(index).at("id");
+      // 数字按的是看得见的那一格：云占位席位在引擎这一页里仍占一个座位，按页内下标直接取会选到下一行（CandidateSources.h）。
+      if (const auto candidate = msime::linux_host::visible_page_candidate(view_.at("candidates"), index)) {
+        const auto id = candidate->at("id");
         return apply(msime_client_select(
             session_, msime::linux_host::strict_json_required_integer<uint64_t>(id.at("generation")),
             msime::linux_host::strict_json_required_integer<size_t>(id.at("index"))));

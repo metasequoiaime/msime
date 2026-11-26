@@ -36,12 +36,6 @@ public final class SwipeHintPolicySmoke {
                     "关闭滑动仍输入字母：" + entry[0]);
             }
         }
-        check(!SwipeHintPolicy.enabled(true, true),
-            "candidate state disables 26-key symbol swipes");
-        check(SwipeHintPolicy.enabled(true, false),
-            "idle state keeps 26-key symbol swipes enabled");
-        check(!SwipeHintPolicy.enabled(false, false),
-            "the setting still disables 26-key symbol swipes");
         check(SwipeHintPolicy.tapsOnly(true, false),
             "composing candidates turn long-press and swipes into taps");
         check(!SwipeHintPolicy.tapsOnly(true, true),

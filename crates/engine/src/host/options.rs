@@ -16,7 +16,8 @@ use crate::types::{
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
     MixedExpressiveOptions, PluginCommand, QuickPhraseEntry, SchemeSet, SchemeType,
     SentenceAssociationOptions, ShuangpinCustomTable, ShuangpinHelpcodeModes, ShuangpinProfileKind,
-    TextConversion, WubiInputOptions, WubiProfileKind, DEFAULT_FIRST_PAGE_ROWS,
+    TextConversion, WubiInputOptions, WubiPhrasePlacement, WubiProfileKind,
+    DEFAULT_FIRST_PAGE_ROWS,
 };
 use crate::user_dictionary::generation::{
     downloaded_wubi_pending, merge_downloaded_wubi, open_prepared_runtime_paths_for,
@@ -91,6 +92,8 @@ pub struct EngineOptions {
     pub wubi_profile: u8,
     /// 五笔方案里给五笔原生候选的注释附上完整五笔码（反查码）。只管显示，不影响候选的 `code` 字段，宿主照旧用它算剩余编码。宿主按共享偏好 `wubi_code_hint` 填：用户关掉「候选显示剩余编码」时，五笔候选旁不该再出现五笔码。拼音来的候选（混输拼音和 `z` 引导的临时拼音反查）附的是用拼音查到的五笔码，不是剩余编码，不受它管；`z` 通配查出的五笔候选也不受它管，那里的完整码回答的是 `z` 那一位是什么。默认开。
     pub wubi_reverse_code: bool,
+    /// 五笔自造词落库的初始权重档：0 沉底（`WubiPhrasePlacement::Bottom`），1 置顶（`Top`）；不认识的值按 0 读。
+    pub wubi_phrase_placement: u8,
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
     pub strict_quanpin_helpcode: bool,
@@ -100,6 +103,8 @@ pub struct EngineOptions {
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     /// 十四／十八键网格辅助码（`SessionOptions::grid_helpcode`）；宿主按当前方案偏好的 `grid` 填，默认关。
     pub grid_helpcode: bool,
+    /// 全拼九键的精确拼写模式。
+    pub precise_nine_key: bool,
     pub helpcode_schema: String,
     /// 辅助码前导标点；None 保留现有 Shift 加字母。
     pub helpcode_trigger_key: Option<u8>,
@@ -178,6 +183,8 @@ pub struct EngineOptions {
     pub quick_phrase_candidates: bool,
     /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）。
     pub quick_phrase_frequency: bool,
+    /// 用户选择把混输的快捷短语组放在普通候选最前面。
+    pub quick_phrase_first: bool,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
@@ -302,11 +309,13 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         wubi_z_wildcard: false,
         wubi_profile: WubiProfileKind::Wubi86 as u8,
         wubi_reverse_code: true,
+        wubi_phrase_placement: 0,
         helpcode: true,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".to_owned(),
         helpcode_trigger_key: None,
         helpcode_table: None,
@@ -355,6 +364,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
@@ -450,6 +460,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,
         shuangpin_helpcode_modes: options.shuangpin_helpcode_modes,
         grid_helpcode: options.grid_helpcode,
+        precise_nine_key: options.precise_nine_key,
         chinese_punctuation: options.chinese_punctuation,
         paired_punctuation: options.paired_punctuation,
         punctuation_lock: i32::from(options.punctuation_lock),
@@ -519,6 +530,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             mixed_pinyin: options.wubi_mixed_pinyin,
             z_wildcard: options.wubi_z_wildcard,
             profile: wubi_profile,
+            wubi_phrase_placement: WubiPhrasePlacement::from_u8(options.wubi_phrase_placement),
         },
         // 桥接层从没把它交给宿主（api-contract §1a），产品一直按开。
         personal_context: true,
@@ -531,6 +543,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         quick_phrase_table: options.quick_phrase_table.clone(),
         quick_phrase_candidates: options.quick_phrase_candidates,
         quick_phrase_frequency: options.quick_phrase_frequency,
+        quick_phrase_first: options.quick_phrase_first,
         chaizi_traditional_output: options.chaizi_traditional_output,
     })
 }

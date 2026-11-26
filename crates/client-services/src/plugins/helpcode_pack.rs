@@ -172,6 +172,18 @@ struct ImportedTable {
     table: &'static str,
 }
 
+/// 桌面宿主给出文件路径，按普通文件和原始字节上限读取，随后与移动端共用同一个导入器。
+pub(super) fn import_file(root: &Path, source: &Path) -> Result<PluginSummary, PluginError> {
+    let name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or(PluginError::UnsupportedSource)?;
+    let parent = source.parent().ok_or(PluginError::UnsupportedSource)?;
+    let bytes = read_file(parent, name, MAX_TABLE_BYTES)
+        .map_err(|_| PluginError::Invalid(format!("{name} 无法读取或超过 1 MiB")))?;
+    import_table(root, name, &bytes)
+}
+
 /// 把用户选的单个 `.txt` 码表装成辅助码表包，返回 `scan` 现在列出的样子。`file_name` 是宿主拿到的文件名（只用于报错、显示名和 id，不当路径用；为空时按 `table.txt`），`bytes` 是文件的原始字节。
 ///
 /// - 码表按模块文档的严格规则校验，不合格时返回 `PluginError::Invalid`，原因带文件名和行号。

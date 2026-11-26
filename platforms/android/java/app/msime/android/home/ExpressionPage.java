@@ -198,11 +198,16 @@ public final class ExpressionPage extends ReloadingDetailPage {
             checked -> savePreferences(edit -> mixedInput(edit).put("quick_phrase", checked)))
             .help("中文候选中加入编码完全匹配的快捷短语；关闭后仍可用 K 模式")
             .setEnabled(mixedEnabled);
+        boolean quickPhraseFirst = mixed != null && mixed.optBoolean("quick_phrase_first", false);
+        intelligence.toggle("快捷短语置顶", null, quickPhraseFirst,
+            checked -> savePreferences(edit -> mixedInput(edit).put("quick_phrase_first", checked)))
+            .help("让完全匹配的快捷短语排在候选最前面，关闭后恢复原来的排序")
+            .setEnabled(mixedEnabled && quickPhrase);
         boolean quickPhraseFrequency = mixed == null || mixed.optBoolean("quick_phrase_frequency", true);
         intelligence.toggle("快捷短语参与调频", null, quickPhraseFrequency,
             checked -> savePreferences(edit -> mixedInput(edit).put("quick_phrase_frequency", checked)))
             .help("按选择记录调整快捷短语组在候选中的位置；关闭后固定在首页末位")
-            .setEnabled(mixedEnabled && quickPhrase);
+            .setEnabled(mixedEnabled && quickPhrase && !quickPhraseFirst);
 
     }
 

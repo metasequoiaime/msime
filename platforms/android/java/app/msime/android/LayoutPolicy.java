@@ -22,6 +22,11 @@ public final class LayoutPolicy {
         return ViewPolicy.newRow(context);
     }
 
+    /** Create a horizontal row of keys whose children are measured from their weights as cells ({@link KeyRowLayout}). */
+    public static LinearLayout keyRow(Context context) {
+        return new KeyRowLayout(context);
+    }
+
     /** Create linear layout parameters from density-independent dimensions. */
     public static LinearLayout.LayoutParams linearParams(Context context, float widthDp, float heightDp) {
         return new LinearLayout.LayoutParams(DimensionPolicy.pixels(context, widthDp),

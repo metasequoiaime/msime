@@ -813,6 +813,148 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertNil(CandidateTranslationPreference.secondary)
   }
 
+  /// 系统样式固定六列，卡片样式仍按 64pt 最小列宽自动分列。
+  func testTheSystemStyleKeepsSixColumnsOnEveryPhoneWidth() {
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 320), 4)
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 375), 5)
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 320, style: .system), 6)
+    XCTAssertEqual(KeyboardCandidatePanelView.columns(width: 375, style: .system), 6)
+    // 六列下注释不再把格子撑成两列，否则一页只放得下三个。
+    XCTAssertEqual(KeyboardCandidatePanelView.span(titleWidth: 30, annotated: true, columns: 6,
+                                                   columnWidth: 50, style: .system), 1)
+    XCTAssertEqual(KeyboardCandidatePanelView.span(titleWidth: 30, annotated: true, columns: 5,
+                                                   columnWidth: 70), 2)
+    // 原地展开的卡片网格右边让出了窄列，列宽下限放宽：375/390pt 五列、430pt 六列、320pt 四列。
+    let inlineWidths = [276.0, 331.0, 346.0, 386.0].map { width -> Int in
+      KeyboardCandidatePanelView.columns(width: width, style: .card,
+                                         minimumCellWidth: KeyboardCandidatePanelView.inlineMinimumCellWidth)
+    }
+    XCTAssertEqual(inlineWidths, [4, 5, 5, 6])
+  }
+
+  /// 系统样式的面板带右侧窄列，首行候选与下面的格子同一条列线，整屏只有这一个列表。
+  func testTheSystemStylePanelDrawsOneAlignedListWithTheSideColumn() throws {
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["测试", "侧视", "侧室", "策士", "测", "策", "策", "侧"],
+      preedit: "ceshi",
+      display: { $0 }, onSelect: { _ in }, onClose: {},
+      style: .system, onHandwriting: {}, onDelete: {}, expandsInPlace: true)
+    panel.frame = CGRect(x: 0, y: 0, width: 375, height: 260)
+    panel.layoutIfNeeded()
+
+    let side = try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelSideColumn" })
+    XCTAssertLessThan(side.bounds.width, 50, "窄列只占一条")
+    let collection = try XCTUnwrap(descendants(panel).compactMap { $0 as? UICollectionView }.first)
+    XCTAssertEqual(collection.convert(collection.bounds, to: panel).maxX, side.frame.minX, accuracy: 0.5,
+                   "网格止于窄列左边")
+
+    let chips = try (1...6).map { index in
+      try XCTUnwrap(descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-\(index)" } as? UIButton)
+    }
+    let frames = chips.map { $0.convert($0.bounds, to: collection) }
+    for frame in frames {
+      XCTAssertEqual(frame.minY, frames[0].minY, accuracy: 0.5, "首行六格同一行")
+      XCTAssertEqual(frame.width, frames[0].width, accuracy: 0.5, "六列等宽")
+    }
+
+    // 收起、手写、删除都在窄列里，候选条那一行由面板自己接管。
+    for identifier in ["closeCandidatePanel", "candidatePanelHandwriting", "candidatePanelDelete"] {
+      XCTAssertNotNil(descendants(side).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+    XCTAssertNil(descendants(panel).first { $0.accessibilityIdentifier == "candidatePanelSpelling" },
+                 "系统样式不画标题栏，拼写留在候选条上")
+  }
+
+  /// 卡片样式与系统样式共用原地展开的布局：右侧窄列、网格止于那一列；差别只在格子本身，卡片是按键式的面，系统样式只有文字。
+  func testTheCardStyleSharesTheInPlaceLayoutAndKeepsItsOwnChips() throws {
+    func panel(_ style: CandidatePanelStylePreference.Style) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: ["测试", "侧视", "侧室", "策士", "测", "策"],
+        preedit: "ceshi", showsHeader: false,
+        display: { $0 }, onSelect: { _ in }, onClose: {},
+        style: style, onHandwriting: {}, onDelete: {}, expandsInPlace: true)
+      view.frame = CGRect(x: 0, y: 0, width: 375, height: 280)
+      view.layoutIfNeeded()
+      return view
+    }
+    func sideColumn(_ view: UIView) -> UIView? {
+      descendants(view).first { $0.accessibilityIdentifier == "candidatePanelSideColumn" }
+    }
+    func collection(_ view: UIView) -> UICollectionView? {
+      descendants(view).compactMap { $0 as? UICollectionView }.first
+    }
+    func chip(_ view: UIView, _ number: Int) -> UIButton? {
+      descendants(view).first { $0.accessibilityIdentifier == "panelCandidate-\(number)" } as? UIButton
+    }
+
+    let card = panel(.card)
+    let cardSide = try XCTUnwrap(sideColumn(card), "卡片样式展开后也要有右侧窄列")
+    XCTAssertEqual(cardSide.bounds.width,
+                   KeyboardCandidatePanelView.inlineTrailingColumnWidth, accuracy: 0.5)
+    for identifier in ["closeCandidatePanel", "candidatePanelHandwriting", "candidatePanelDelete"] {
+      XCTAssertNotNil(descendants(cardSide).first { $0.accessibilityIdentifier == identifier }, identifier)
+    }
+    let cardCollection = try XCTUnwrap(collection(card))
+    XCTAssertEqual(cardCollection.convert(cardCollection.bounds, to: card).maxX,
+                   cardSide.frame.minX, accuracy: 0.5, "卡片样式的网格同样止于窄列左边")
+
+    // 右边那条窄列不该把一屏挤掉一列：375pt 的机器上仍是五列，第六个候选换到第二行。
+    func rowFrame(_ view: UIView, _ number: Int) throws -> CGRect {
+      let button = try XCTUnwrap(chip(view, number))
+      return button.convert(button.bounds, to: cardCollection)
+    }
+    let firstRow = try (1...5).map { try rowFrame(card, $0) }
+    for frame in firstRow {
+      XCTAssertEqual(frame.minY, firstRow[0].minY, accuracy: 0.5, "原地展开的卡片网格默认五列")
+    }
+    XCTAssertGreaterThan(try rowFrame(card, 6).minY, firstRow[0].minY, "第六个候选换到第二行")
+
+    // 没传 expandsInPlace 的调用方（标题栏面板、九键三栏）保持原样，不会凭空多出一条窄列。
+    let headerPanel = KeyboardCandidatePanelView(
+      candidates: ["测试", "侧视", "侧室"], preedit: "ceshi",
+      display: { $0 }, onSelect: { _ in }, onClose: {}, style: .card)
+    headerPanel.frame = CGRect(x: 0, y: 0, width: 375, height: 240)
+    headerPanel.layoutIfNeeded()
+    XCTAssertNil(sideColumn(headerPanel))
+
+    // 卡片格子的画法没跟着布局一起变：与不原地展开时同一套（按键式的面 + 圆角）；系统样式那格仍然只有文字。
+    let cardChip = try XCTUnwrap(chip(card, 2))
+    let plainChip = try XCTUnwrap(chip(headerPanel, 2))
+    XCTAssertEqual(cardChip.configuration?.background.backgroundColor?.cgColor.alpha ?? 0,
+                   plainChip.configuration?.background.backgroundColor?.cgColor.alpha ?? 0,
+                   accuracy: 0.001, "原地展开把卡片格子的底色改了")
+    XCTAssertEqual(cardChip.configuration?.background.cornerRadius ?? 0,
+                   plainChip.configuration?.background.cornerRadius ?? 0,
+                   accuracy: 0.5, "原地展开把卡片格子的圆角改了")
+    let systemChip = try XCTUnwrap(chip(panel(.system), 2))
+    XCTAssertEqual(systemChip.configuration?.background.backgroundColor?.cgColor.alpha ?? 0, 0,
+                   accuracy: 0.001, "系统样式的格子仍然只有文字")
+  }
+
+  /// 面板右列的删除键接手底部 ⌫ 的滑动手势：同一个手势对象要挂在那个按钮上，才能横滑逐格删、上滑清空。
+  func testThePanelDeleteCarriesTheBackspaceSwipeGesture() throws {
+    func panel(_ style: CandidatePanelStylePreference.Style,
+               swipe: UIPanGestureRecognizer) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: ["测试", "侧视"], preedit: "ceshi", showsHeader: false,
+        display: { $0 }, onSelect: { _ in }, onClose: {},
+        style: style, onHandwriting: {}, onDelete: {}, deleteSwipeGesture: swipe,
+        expandsInPlace: true)
+      view.frame = CGRect(x: 0, y: 0, width: 375, height: 240)
+      view.layoutIfNeeded()
+      return view
+    }
+
+    for style in [CandidatePanelStylePreference.Style.card, .system] {
+      let swipe = UIPanGestureRecognizer(target: nil, action: nil)
+      swipe.name = "backspaceSwipe"
+      let delete = try XCTUnwrap(
+        descendants(panel(style, swipe: swipe)).first { $0.accessibilityIdentifier == "candidatePanelDelete" })
+      XCTAssertTrue(delete.gestureRecognizers?.contains(swipe) == true, "\(style) 的删除键没接上 ⌫ 的手势")
+      XCTAssertEqual(delete.accessibilityHint, "向左滑动连续删除，向上滑动清空输入")
+    }
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
