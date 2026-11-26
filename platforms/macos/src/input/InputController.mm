@@ -4956,7 +4956,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     _capsLockTapReleasedSawStaleCapsLock = NO;
     _capsLockTapReleasedSawExplicitOff = NO;
     [self adoptCapsLockState:NO];
-    [self toggleInputModeFromModifierTap];
+    [self toggleInputModeFromModifierTapUppercase:NO];
 }
 // 定时器调用，测试也直接调用它来推进合成的时钟和按键状态。
 - (void)pollCapsLockTap {
@@ -4980,7 +4980,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 // A tap during a composition sends out the letters that were typed, not the highlighted candidate. Reaching for Shift mid-word is how a word the dictionary does not carry - a name, a command, an acronym - gets out without losing what was already typed; finishing the composition instead commits the Chinese candidate, which is the opposite of what was asked for.
 //
 // Commit first, then switch: switching rebuilds the input session, and the other order loses the letters still being composed. setEnglishInputMode: finishes any composition of its own, which is a no-op once this has run.
-- (void)toggleInputModeFromModifierTap {
+- (void)toggleInputModeFromModifierTapUppercase:(BOOL)uppercase {
     if ([self applyTrilingualCycleIfEnabled]) return;
     if ([_view[@"editing_text"] length] && _session && _activeClient) {
         // 单按修饰键是一次物理按下，却不经过 handleEvent: 的按下报告（它只看 keyDown）。派发前按指针开一轮：不出按键音，与以前一样；原样上屏的提交音照常由核心出。
@@ -4989,9 +4989,9 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         if (raw) [self apply:raw];
     }
     const BOOL enteringEnglish = !_appearance.englishMode;
-    [self setEnglishInputMode:enteringEnglish uppercase:enteringEnglish showHUD:YES];
+    [self setEnglishInputMode:enteringEnglish uppercase:(enteringEnglish && uppercase) showHUD:YES];
     // 同步系统输入源时可能再次经普通入口回写英文状态，恢复本次 Shift 轻点的大小写语义。
-    _uppercaseEnglishMode = enteringEnglish && _appearance.englishMode;
+    _uppercaseEnglishMode = enteringEnglish && uppercase && _appearance.englishMode;
 }
 
 // 组合键在循环关闭时保留原来的取消组字规则；轻点修饰键单独保留原文提交规则。
@@ -8265,7 +8265,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self syncVoiceHoldPoll];
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
-        [self toggleInputModeFromModifierTap];
+        const BOOL shiftTap = event.type == NSEventTypeFlagsChanged && (event.keyCode == 56 || event.keyCode == 60);
+        [self toggleInputModeFromModifierTapUppercase:shiftTap];
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
