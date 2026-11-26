@@ -139,6 +139,8 @@ public final class MSIMEInputService extends InputMethodService {
     ImeBottomRow imeBottomRow;
     ImeBottomBar imeBottomBar;
     ImePanelLayout imePanelLayout;
+    /** 输入法窗口里画在面板之上的层，见 {@link ImeOverlayHost}。 */
+    ImeOverlayHost imeOverlayHost;
     ImeLayoutRows imeLayoutRows;
     ImeStyler imeStyler;
     ImeFrame imeFrame;
@@ -2153,6 +2155,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeOcr = new ImeOcr(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
+        imeOverlayHost = new ImeOverlayHost(this);
         imeKeyFaces = new ImeKeyFaces(this);
         imeGlideTyping = new ImeGlideTyping(this);
         imeTouchPoints = new ImeTouchPoints(this);
@@ -11256,6 +11259,7 @@ public final class MSIMEInputService extends InputMethodService {
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
+        imeOverlayHost.attach(keyboardRoot);
         keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (keyboardAdjustActive && !overlayDrawn()
@@ -11291,7 +11295,7 @@ public final class MSIMEInputService extends InputMethodService {
         quickDeleteOverlay = new QuickDeleteOverlay(this);
         keyboardSurface.addView(quickDeleteOverlay, LayoutPolicy.frameMatchParentParams());
         surface.fullBleed.add(quickDeleteOverlay);
-        // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
+        // 按键反馈的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。滑行轨迹和按下的抬起效果画在这里；按键气泡量位置时以它为准，画在面板之上的 KEY_PREVIEW 层里（ImeOverlayHost）。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
         surface.fullBleed.add(imeLetterRows.keyPreviewLayer);

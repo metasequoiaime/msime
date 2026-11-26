@@ -632,7 +632,7 @@ final class ImeStyler {
             s.keyboardSurface.setLayoutParams(LayoutPolicy.frameParamsPx(
                 s.pixels(FloatingKeyboardPolicy.widthDp(configuration.screenWidthDp)),
                 FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT));
-            ViewPolicy.setElevation(s.keyboardSurface, s.pixels(10));
+            ViewPolicy.setElevation(s.keyboardSurface, s.pixels(ImeOverlayHost.PANEL_ELEVATION_DP));
             s.keyboardSurface.setOutlineProvider(floatingOutline);
             s.keyboardSurface.setClipToOutline(true);
             return;
@@ -649,6 +649,6 @@ final class ImeStyler {
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         s.imePanelLayout.applyHeadroom(params);
         s.keyboardSurface.setLayoutParams(params);
-        ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(10));
+        ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(ImeOverlayHost.PANEL_ELEVATION_DP));
     }
 }

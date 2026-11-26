@@ -26,7 +26,7 @@ final class ImeLetterRows {
         this.s = s;
     }
 
-    /** 按键气泡的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。 */
+    /** 按键反馈的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。滑行轨迹和按下的抬起效果画在这里，气泡的位置也按它算。 */
     FrameLayout keyPreviewLayer;
     private KeyboardKeyPreview keyPreview;
     private KeyboardSkin keyPreviewSkin;
@@ -34,6 +34,7 @@ final class ImeLetterRows {
     private int keyPreviewForeground;
     private final int[] keyPreviewKeyLocation = new int[2];
     private final int[] keyPreviewLayerLocation = new int[2];
+    private final int[] keyPreviewHostLocation = new int[2];
     /** 气泡当前跟随的键；多指交替时只有它的松手才收起气泡。 */
     private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
@@ -167,12 +168,14 @@ final class ImeLetterRows {
         return key;
     }
 
-    /** 按键气泡；第一次用时加进覆盖层。 */
+    /** 按键气泡；第一次用时加进面板之上的 KEY_PREVIEW 层，顶排键的气泡伸出面板上沿也不被截掉。 */
     private KeyboardKeyPreview keyPreview() {
         if (keyPreviewLayer == null) return null;
-        if (keyPreview == null || keyPreview.getParent() != keyPreviewLayer) {
+        FrameLayout host = s.imeOverlayHost.layer(OverlayLayer.KEY_PREVIEW);
+        if (host == null) return null;
+        if (keyPreview == null || keyPreview.getParent() != host) {
             keyPreview = new KeyboardKeyPreview(s);
-            keyPreviewLayer.addView(keyPreview, LayoutPolicy.frameWrapParams());
+            host.addView(keyPreview, LayoutPolicy.frameWrapParams());
         }
         return keyPreview;
     }
@@ -194,9 +197,13 @@ final class ImeLetterRows {
         keyPreviewLayer.getLocationInWindow(keyPreviewLayerLocation);
         float weight = key.getLayoutParams() instanceof LinearLayout.LayoutParams params
             ? params.weight : 1f;
+        // 位置和左右夹边照旧按面板里的覆盖层算（气泡不伸出面板左右两侧），再平移到 KEY_PREVIEW 层的坐标里。
         preview.show(label, keyPreviewKeyLocation[0] - keyPreviewLayerLocation[0],
             keyPreviewKeyLocation[1] - keyPreviewLayerLocation[1], key.getWidth(), weight,
             keyPreviewLayer.getWidth());
+        ((View) preview.getParent()).getLocationInWindow(keyPreviewHostLocation);
+        preview.setTranslationX(preview.getTranslationX() + keyPreviewLayerLocation[0] - keyPreviewHostLocation[0]);
+        preview.setTranslationY(preview.getTranslationY() + keyPreviewLayerLocation[1] - keyPreviewHostLocation[1]);
         keyPreviewOwner = key;
     }
 
