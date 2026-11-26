@@ -80,19 +80,27 @@ class PairedPunctuationTracker {
 // 这个键能跨过的后半个。引号和方头括号有两组字（quote_style、bracket_style），样式可能在一对还开着时换掉，所以按 tracker 栈顶挑：栈顶是其中之一就给它，否则给缺省那个，consume 会照旧清空栈。`'` 例外：」也是 `{` 补出的（契约第 5 版），弯引号样式下 `'` 出的是‘’，不能拿它去跨过 `{` 那一对的」，所以只在 View 报告直角引号样式（corner_quotes）时才认」，与 Windows 按当前样式解析出的字判断一致。
 inline std::optional<std::string> paired_closing_for_key(
     char key, bool fullwidth, const PairedPunctuationTracker &tracker,
-    bool corner_quotes) {
+    bool corner_quotes, bool japanese) {
   const auto either = [&tracker](const char *first,
                                  const char *second) -> std::string {
     return tracker.matches(second) ? second : first;
   };
   switch (key) {
-    case '"': return either("”", "』");
-    case '\'': return corner_quotes ? either("’", "」") : std::string("’");
+    // 日文标点表没有引号键（走全角回退），不能拿它去跨过 `[` / `{` 补出的」』。
+    case '"': return japanese ? std::string("”") : either("”", "』");
+    case '\'': return !japanese && corner_quotes ? either("’", "」") : std::string("’");
     case ')': return std::string("）");
-    case ']': return either("】", "〗");
-    // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。
+    case ']':
+      // 日语（方案或临时日文）下 `]` 本身就是 `」`，栈顶是刚补的 `」` 时跨过它；中文下 `]` 是 `】`/`〖`，栈顶的」是 `{` 补出的，不能被 `]` 跨过。
+      if (japanese && tracker.matches("」")) return std::string("」");
+      return either("】", "〗");
+    // 中文标点下 `{` 出「、补」（契约第 5 版），`}` 跨过」；日语方案下 `{` 出『，`}` 跨过』；引擎写 ASCII 标点时（专用英文）`{` 仍补 `{}`/`｛｝`，那时跨过的是花括号。
     case '}':
-      if (tracker.matches("」")) return std::string("」");
+      if (japanese) {
+        if (tracker.matches("』")) return std::string("』");
+      } else if (tracker.matches("」")) {
+        return std::string("」");
+      }
       return fullwidth ? std::string("｝") : std::string("}");
     case '>': return std::string("〉");
     default: return std::nullopt;
@@ -105,7 +113,10 @@ inline const char *paired_punctuation_closing(std::string_view text) {
            {"【", "】"},
            {"〖", "〗"},
            {"《", "》"},
-           {"〈", "〉"}}) {
+           {"〈", "〉"},
+           // 日语方案的 `[` 出「、`{` 出『，两个宿主都按提交末尾实际落地的字补另一半。
+           {"「", "」"},
+           {"『", "』"}}) {
     if (text.size() >= opening.size() &&
         text.compare(text.size() - opening.size(), opening.size(), opening) == 0)
       return closing;
@@ -124,8 +135,8 @@ inline bool normalize_punctuation_pair(std::string &text, PunctuationPairMode mo
   if (mode == PunctuationPairMode::Unpaired)
     return false;
   if (mode == PunctuationPairMode::Brace) {
-    if (text.size() >= 3 && text.compare(text.size() - 3, 3, "「") == 0) {
-      text += "」";
+    if (const auto *closing = paired_punctuation_closing(text)) {
+      text += closing;
       return true;
     }
     if (!text.empty() && text.back() == '{') {
