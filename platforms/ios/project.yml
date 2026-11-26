@@ -75,7 +75,7 @@ targets:
         # 界面只有中文，所以界面里内嵌的系统控件（Sign in with Apple、`ContentUnavailableView.search`、系统弹出面板）也要请求中文；不声明本地化时，不管设备语言是什么，它们都会回落到英文的开发区域。
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
-        # 按住空格说话：键盘扩展不能录音，App 在后台保持录音会话，替键盘录音识别（App/Services/VoiceSessionService.swift）。会话空闲 5 分钟自动关闭。
+        # 按住空格说话：App 在后台保持录音会话，替键盘录音识别（App/Services/VoiceSessionService.swift），说完整段上传的联网服务由键盘自己录音（KeyboardDirectDictation）。会话空闲 1 分钟自动关闭。
         UIBackgroundModes: [audio]
         NSFaceIDUsageDescription: 验证身份以查看打字统计
     sources:

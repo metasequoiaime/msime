@@ -45,5 +45,7 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>仅在你把 AI 辅助的接口地址设成局域网里的服务（例如电脑上的 LM Studio）时，用来连接这台设备。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>仅在你开始语音输入时录音：选了联网识别服务时，键盘会把录音直接发送到你配置的服务。</string>
 </dict>
 </plist>
