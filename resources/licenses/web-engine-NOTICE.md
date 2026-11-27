@@ -3283,8 +3283,8 @@ Note
 | `hybrid-array` | 0.4.15 | MIT OR Apache-2.0 | L06、L30 |
 | `indexmap` | 2.14.2 | Apache-2.0 OR MIT | L04、L31 |
 | `itoa` | 1.0.18 | MIT OR Apache-2.0 | L32、L22 |
-| `jiff` | 0.2.38 | Unlicense OR MIT | L01、L02、L03 |
-| `jiff-core` | 0.1.0 | Unlicense OR MIT | L01、L02、L03 |
+| `jiff` | 0.2.46 | Unlicense OR MIT | L01、L02、L03 |
+| `jiff-core` | 0.1.8 | Unlicense OR MIT | L01、L02、L03 |
 | `jiff-tzdb` | 0.1.9 | Unlicense OR MIT | L01、L02、L03 |
 | `jiff-tzdb-platform` | 0.1.3 | Unlicense OR MIT | L01、L02、L03 |
 | `js-sys` | 0.3.105 | MIT OR Apache-2.0 | L04、L08 |
@@ -3342,7 +3342,7 @@ Note
 
 ### L01（COPYING）
 
-用于：`aho-corasick` 1.1.5、`jiff` 0.2.38、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
+用于：`aho-corasick` 1.1.5、`jiff` 0.2.46、`jiff-core` 0.1.8、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
 
 ````text
 This project is dual-licensed under the Unlicense and MIT licenses.
@@ -3352,7 +3352,7 @@ You may use this code under the terms of either license.
 
 ### L02（LICENSE-MIT）
 
-用于：`aho-corasick` 1.1.5、`jiff` 0.2.38、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
+用于：`aho-corasick` 1.1.5、`jiff` 0.2.46、`jiff-core` 0.1.8、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
 
 ````text
 The MIT License (MIT)
@@ -3380,7 +3380,7 @@ THE SOFTWARE.
 
 ### L03（UNLICENSE）
 
-用于：`aho-corasick` 1.1.5、`jiff` 0.2.38、`jiff-core` 0.1.0、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
+用于：`aho-corasick` 1.1.5、`jiff` 0.2.46、`jiff-core` 0.1.8、`jiff-tzdb` 0.1.9、`jiff-tzdb-platform` 0.1.3、`memchr` 2.8.3
 
 ````text
 This is free and unencumbered software released into the public domain.
