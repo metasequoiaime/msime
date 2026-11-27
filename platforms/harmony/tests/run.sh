@@ -964,6 +964,7 @@ done
 node "$here/telemetry-adapter.test.cjs"
 node "$here/shared-dictionary-resources-adapter.test.cjs"
 node "$here/ai-candidate-response-adapter.test.cjs"
+node "$here/candidate-canvas-reload-adapter.test.cjs"
 node "$here/skin-import-adapter.test.cjs"
 node "$here/skin-folder-napi.test.cjs"
 # 固定目录 fd 的递归暂存必须拒绝替换和超限；只使用合成文件。

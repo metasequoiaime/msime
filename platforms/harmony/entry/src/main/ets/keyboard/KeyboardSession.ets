@@ -104,7 +104,7 @@ import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
-import { ToolbarImagePolicy, ToolbarImageResources, ToolbarImageScene, ToolbarImageLayoutReply } from './ToolbarImagePolicy';
+import { ToolbarImagePolicy, ToolbarImageResources, ToolbarImageScene, ToolbarImageLayoutReply, ToolbarImageSpec } from './ToolbarImagePolicy';
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
@@ -1904,13 +1904,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private readCandidateCanvas(packages: CandidateSkinPackage[], id: string | null, dark: boolean): CandidateCanvasScene | null {
     const entry: CandidateSkinPackage | null = id === null ? null : CandidateSkinCatalogPolicy.package(packages, id);
     if (entry === null || entry.canvas !== true || id === null) return null;
-    const paths: string[] = [];
-    if (entry.borderImage !== undefined && entry.borderImage !== null) {
-      paths.push(!dark && entry.borderImage.lightSource ? entry.borderImage.lightSource : entry.borderImage.source);
-    }
-    for (const decoration of entry.decorations ?? []) {
-      if (!paths.includes(decoration.image)) paths.push(decoration.image);
-    }
+    const paths: string[] = CandidateCanvasPolicy.resourcePaths(entry, dark);
     const resources: CandidateCanvasResource[] = [];
     let remainingBytes: number = 16 * 1024 * 1024;
     for (const relative of paths) {
@@ -2003,12 +1997,31 @@ export class KeyboardSession implements HardwareKeyTarget {
     const skinToolbar: string | null = toolbarPackageId === null ? null
       : this.readCandidateSkinToolbar(this.stateDirectory, toolbarPackageId,
         CandidateSkinCatalogPolicy.toolbarStylesheet(skinPackages, toolbarPackageId));
+    const skinBackground: CandidateSkinBackground | null = packageId === null
+      ? null : CandidateSkinCatalogPolicy.background(skinPackages, packageId);
+    const canvasPackage: CandidateSkinPackage | null = packageId === null ? null
+      : CandidateSkinCatalogPolicy.package(skinPackages, packageId);
+    // 先记录将要读取的图片身份；读取期间被修改时，下次检查仍能发现。
+    const candidateImagePaths: (string | null)[] = [skinDecoration === null ? null : skinDecoration.relative,
+      skinBackground === null ? null : skinBackground.relative];
+    if (canvasPackage !== null && canvasPackage.canvas === true) {
+      candidateImagePaths.push(...CandidateCanvasPolicy.resourcePaths(canvasPackage, candidateDark));
+    }
+    this.skinImagePaths = KeyboardFormFactor.isDesktop()
+      ? CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`, packageId, candidateImagePaths)
+      : [];
+    // 工具栏状态图由后面的 `readToolbarImage` 读取；路径取自同一条皮肤包目录项，因此并入这一份读取前快照，不在读完后重新 stat 整个列表。
+    const toolbarImageSpec: ToolbarImageSpec | null = toolbarPackageId === null ? null
+      : CandidateSkinCatalogPolicy.package(skinPackages, toolbarPackageId)?.toolbarImage ?? null;
+    if (KeyboardFormFactor.isDesktop() && toolbarImageSpec !== null) {
+      this.skinImagePaths.push(...CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`,
+        toolbarPackageId, ToolbarImagePolicy.paths(toolbarImageSpec)));
+    }
+    this.skinImageIdentity = CandidateSkinPackageIdentity.identity(this.skinImagePaths, KeyboardSession.statSkinFile);
     const skinImage: CandidateSkinImage = KeyboardFormFactor.isDesktop() && packageId !== null
       ? this.readCandidateSkinImage(this.stateDirectory, packageId,
         skinDecoration === null ? null : skinDecoration.relative)
       : NO_CANDIDATE_SKIN_IMAGE;
-    const skinBackground: CandidateSkinBackground | null = packageId === null
-      ? null : CandidateSkinCatalogPolicy.background(skinPackages, packageId);
     const candidateAnimation: CandidateSkinAnimation = packageId === null
       ? { enter: 'none', exit: 'none', selection: 'none', durationMs: 0, staggerMs: 0 }
       : CandidateSkinCatalogPolicy.animation(skinPackages, packageId);
@@ -2017,13 +2030,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       ? this.readCandidateSkinImage(this.stateDirectory, packageId,
         skinBackground === null ? null : skinBackground.relative)
       : NO_CANDIDATE_SKIN_IMAGE;
-    // 读完之后取刚读的两张图的身份：包目录 inode 不变、只原地改写了图片时靠它们发现。触屏键盘不画这两张图，不取。
-    this.skinImagePaths = KeyboardFormFactor.isDesktop()
-      ? CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`, packageId,
-        [skinDecoration === null ? null : skinDecoration.relative,
-          skinBackground === null ? null : skinBackground.relative])
-      : [];
-    this.skinImageIdentity = CandidateSkinPackageIdentity.identity(this.skinImagePaths, KeyboardSession.statSkinFile);
+    const candidateCanvas: CandidateCanvasScene | null = this.readCandidateCanvas(skinPackages, packageId, candidateDark);
     // The store validates both to the shared bounds; an out-of-range value from an older or foreign document is ignored rather than drawn.
     const userRadius: number | null | undefined = preferences.candidate_corner_radius;
     const userRadiusValid: boolean =
@@ -2054,7 +2061,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       candidateCornerRadiusVp: candidateRadius,
       candidateCornerRadiusUser: userRadiusValid,
       candidateBackgroundImage: backgroundImage.image,
-      candidateCanvas: this.readCandidateCanvas(skinPackages, packageId, candidateDark),
+      candidateCanvas: candidateCanvas,
       candidateSkinLayout: candidateTheme?.candidate_layout ?? null,
       candidateBackgroundFit: skinBackground === null ? 'cover' : skinBackground.fit,
       candidateBackgroundOpacity: skinBackground === null ? 1 : skinBackground.opacity,
@@ -2150,11 +2157,6 @@ export class KeyboardSession implements HardwareKeyTarget {
       toolbarTheme === null ? null : toolbarTheme.candidate, toolbarDark);
     this.toolbarImage = this.readToolbarImage(skinPackages, toolbarPackageId);
     this.toolbarImageRejected = false;
-    if (this.toolbarImage !== null) {
-      this.skinImagePaths.push(...CandidateSkinPackageIdentity.imagePaths(`${this.stateDirectory}/skins`,
-        toolbarPackageId, ToolbarImagePolicy.paths(this.toolbarImage.spec)));
-      this.skinImageIdentity = CandidateSkinPackageIdentity.identity(this.skinImagePaths, KeyboardSession.statSkinFile);
-    }
     this.toolbarSkin = ToolbarSkinPolicy.fromCss(toolbarColors, skinToolbar,
       ToolbarSkinPolicy.withPackage(toolbarColors,
         CandidateSkinCatalogPolicy.toolbar(skinPackages, toolbarPackageId), toolbarDark));
