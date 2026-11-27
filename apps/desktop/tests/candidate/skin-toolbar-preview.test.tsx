@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { SkinToolbarPreview } from "../../../../packages/ui/src/skin/skin-toolbar-preview";
 import { utilityCss } from "../support/utility-css";
+import { computedCssValue } from "../support/css-value";
 
 const css = utilityCss("skin-card-preview");
 import type { FloatingToolbarPreferences } from "@msime/ui";
@@ -100,10 +101,10 @@ test("toolbar preview contains upstream static icons without scripts, IDs or hos
   }
 });
 
-// jsdom does not substitute custom properties, so the computed value is the declaration itself: a package's `--msime-toolbar-background`, falling back to the upstream colour.
+// The surface is a package's `--msime-toolbar-background`, falling back to the upstream colour when the package leaves it unset.
 test.each([
-  ["dark", "var(--msime-toolbar-background, #1a1a1a)"],
-  ["light", "var(--msime-toolbar-background, #ffffff)"],
+  ["dark", "#1a1a1a"],
+  ["light", "#ffffff"],
 ])("%s toolbar uses the upstream palette", (appearance, surface) => {
   const mounted = render(
     <>
@@ -113,8 +114,13 @@ test.each([
       </div>
     </>,
   );
-  expect(getComputedStyle(mounted.container.querySelector(".status-bar")!).backgroundColor).toBe(
-    surface,
+  const bar = mounted.container.querySelector<HTMLElement>(".status-bar")!;
+  expect(getComputedStyle(bar).backgroundColor).toBe(computedCssValue("background-color", surface));
+  mounted.container
+    .querySelector<HTMLElement>(".skin-card-preview")!
+    .style.setProperty("--msime-toolbar-background", "#123456");
+  expect(getComputedStyle(bar).backgroundColor).toBe(
+    computedCssValue("background-color", "#123456"),
   );
   expect(
     getComputedStyle(mounted.container.querySelector(".ftb-preview-host")!).pointerEvents,
