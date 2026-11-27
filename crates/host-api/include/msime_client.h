@@ -453,6 +453,8 @@ char *msime_client_touch_shuangpin_settings(const uint8_t *request, size_t lengt
 char *msime_client_custom_shuangpin_settings(const uint8_t *request, size_t length);
 /* 规范化中文触屏快捷符号：{symbols: string[]}，最多 64 KiB。标准响应 value 为去重的单字素列表，最多十二项；无有效项时返回共享默认值。不落盘，用 string_free 释放。 */
 char *msime_client_touch_quick_symbols(const uint8_t *value, size_t length);
+/* 规范化「输入后返回主键盘」的符号列表：{symbols: string[]}，最多 64 KiB。标准响应 value 为去重的单字素列表，最多十二项；无有效项时返回空列表，表示关闭。不落盘，用 string_free 释放。 */
+char *msime_client_touch_return_symbols(const uint8_t *value, size_t length);
 
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.

@@ -125,10 +125,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  /// 全键盘字母层（26/14/18 键）的隐藏中/英开关：空格吃掉语言键的份额，回车宽度不变。九键外框和数字页豁免这个开关，另见 `testHiddenLanguageKeyDoesNotAffectNineKeyFrameOrNumberPad`。
   func testHidingLanguageKeyExpandsSpaceAndReloadsAcrossPhoneLayouts() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
-    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .eighteenKey, .nineKey] {
+    for scheme in [ChineseInputScheme.quanpin, .fourteenKey, .eighteenKey] {
       InputSchemePreference.scheme = scheme
       for width in [320.0, 414.0] {
         KeyboardLayoutPreference.hideLanguageKey = false
@@ -172,6 +173,62 @@ final class NineKeyKeyboardTests: XCTestCase {
         controller.view.layoutIfNeeded()
         XCTAssertFalse(language.isHidden)
         XCTAssertEqual(space.bounds.width, originalSpace.width, accuracy: 0.5)
+      }
+    }
+  }
+
+  /// 「隐藏中/英键」的生效范围（用户确认）：全拼 26、双拼 26、14/18 键等全键盘字母层照常隐藏；
+  /// 「123」数字页和「全拼 9 键」豁免。数字页的中/英 键改作句点、右列中间键是 =；藏掉它会丢掉
+  /// 小数点输入、空格被拉宽、中间键退回 .（用户反馈的显示异常）。
+  func testHiddenLanguageKeyDoesNotAffectNineKeyFrameOrNumberPad() throws {
+    let previousScheme = InputSchemePreference.scheme
+    // 双拼 26 键要显式设成 26 键布局：它默认取 26，但测试宿主可能残留别的选择。
+    let previousShuangpinLayout = TouchShuangpinLayoutPreference.layout
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      TouchShuangpinLayoutPreference.layout = previousShuangpinLayout
+      KeyboardLayoutPreference.hideLanguageKey = false
+    }
+    TouchShuangpinLayoutPreference.layout = .twentySixKey
+    // 每个方案先量开关关闭时的字母层/数字层空格宽度，再验证开关打开后豁免层不变。
+    typealias Widths = (letter: CGFloat, digits: CGFloat)
+    var baseline: [ChineseInputScheme: Widths] = [:]
+    // nineKey = 全拼 9 键（九键外框，豁免）；quanpin / shuangpin = 全拼/双拼 26 键（全键盘字母层，照常隐藏）。
+    for scheme in [ChineseInputScheme.nineKey, .quanpin, .shuangpin] {
+      InputSchemePreference.scheme = scheme
+      for hidden in [false, true] {
+        KeyboardLayoutPreference.hideLanguageKey = hidden
+        let controller = KeyboardViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: KeyboardViewController.defaultKeyboardHeight)
+        controller.viewWillAppear(false)
+        controller.view.layoutIfNeeded()
+        let label = "\(scheme.rawValue) hidesLanguage=\(hidden)"
+        // 字母层：九键外框豁免、中/英 键始终在；全拼/双拼 26 键是全键盘字母层，照开关隐藏。
+        let letterLanguage = try button("bottomLanguageKey", in: controller)
+        XCTAssertEqual(letterLanguage.isHidden, scheme != .nineKey && hidden, "字母层 \(label)")
+        let letterSpaceWidth = try button("spaceKey", in: controller).bounds.width
+        // 数字层：不论方案、不论开关，中/英 键都改作句点键，右列中间键是 =。
+        try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+        controller.view.layoutIfNeeded()
+        let numberLanguage = try button("bottomLanguageKey", in: controller)
+        XCTAssertFalse(numberLanguage.isHidden, "数字层 \(label)")
+        XCTAssertEqual(numberLanguage.configuration?.title, ".", "数字层 \(label)")
+        XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "=", "数字层 \(label)")
+        let numberSpaceWidth = try button("spaceKey", in: controller).bounds.width
+        if !hidden {
+          baseline[scheme] = Widths(letter: letterSpaceWidth, digits: numberSpaceWidth)
+        } else {
+          // 数字层（九键自己的和全拼/双拼借来的）都豁免：空格宽度开关前后不变。
+          XCTAssertEqual(numberSpaceWidth, baseline[scheme]?.digits ?? -1, accuracy: 1, "数字层空格 \(label)")
+          // 字母层只有九键外框豁免；全拼/双拼 26 键是全键盘字母层，空格本就该被拉宽。
+          if scheme == .nineKey {
+            XCTAssertEqual(letterSpaceWidth, baseline[scheme]?.letter ?? -1, accuracy: 1, "九键字母层空格 \(label)")
+          } else {
+            XCTAssertGreaterThan(letterSpaceWidth, baseline[scheme]?.letter ?? -1, "全键盘字母层空格被拉宽 \(label)")
+          }
+        }
+        controller.viewDidDisappear(false)
       }
     }
   }
@@ -4234,13 +4291,15 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertNil(space.configuration?.image)
     let zeroWidth = zero.bounds.width
     let spaceWidth = space.bounds.width
-    // 隐藏中/英时它的份额并进 0，空格宽度不变。
+    // 数字层豁免隐藏中/英开关：语言键仍在、印句点，0 和空格宽度都不变。
     KeyboardLayoutPreference.hideLanguageKey = true
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     controller.view.layoutIfNeeded()
-    XCTAssertTrue(try button("bottomLanguageKey", in: controller).isHidden)
-    XCTAssertGreaterThan(zero.bounds.width, zeroWidth)
+    let numberLanguage = try button("bottomLanguageKey", in: controller)
+    XCTAssertFalse(numberLanguage.isHidden)
+    XCTAssertEqual(numberLanguage.configuration?.title, ".")
+    XCTAssertEqual(zero.bounds.width, zeroWidth, accuracy: 1)
     XCTAssertEqual(space.bounds.width, spaceWidth, accuracy: 1)
     KeyboardLayoutPreference.hideLanguageKey = false
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)

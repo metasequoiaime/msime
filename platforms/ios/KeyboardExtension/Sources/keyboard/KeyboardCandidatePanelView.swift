@@ -25,7 +25,7 @@ extension UIColor {
 //
 // 候选条一次显示九个，箭头一次翻九个，所以像 `yi` 这样返回 351 个候选的查询，末尾要点三十九下才能到。没人会翻到那里，看起来就像词库里没有这个词。这里改为一次显示整个列表。
 //
-// 网格就是设计稿的 `repeat(auto-fill, minmax(64px, 1fr))`，间隔 6pt、内边距 2pt：在不窄于 64pt 的前提下放尽可能多的等宽列，44pt 的格子画得像按键。比一列宽的候选按自身文字所需占多列，带注释的候选至少占两列，让翻译或标记行保持可读（Android 出于同样原因把这个列表排成换行布局）。占几列只取决于候选本身，与注释文字无关，所以晚到的注释不会改变页面尺寸。
+// 网格就是设计稿的 `repeat(auto-fill, minmax(64px, 1fr))`，间隔 6pt、内边距 2pt：在不窄于 64pt 的前提下放尽可能多的等宽列，44pt 的格子画得像按键。比一列宽的候选按自身文字所需占多列，带注释的候选至少占两列，让翻译或标记行保持可读（Android 出于同样原因把这个列表排成换行布局）。系统样式例外：短释义仍只占一列以保住一页六格，只有释义单行放不进一列时才补到两列——一行的高度取该行最高的格子，让长释义挤在一列里换行会把整行抬高。占几列只取决于候选文字和释义的单行宽度，与注释到没到无关，所以晚到的注释不会改变页面尺寸。
 //
 // 带标题栏时（默认）面板独自盖住整个键盘：顶部是品牌标志、拼写、候选数和收起箭头。不带标题栏时（`showsHeader: false`）面板用满候选条下方的按键区，拼写和收起箭头由候选条保留，不另放底部按钮。
 //
@@ -44,9 +44,10 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   /// 系统样式的固定列数：系统的拼音面板在 375pt 宽的机器上就是六列。
   static let systemColumns = 6
   /// 系统样式的格子高度与间隔。格子只有字，所以比按键式的 44pt 高一点、间隔小一点，一屏正好六行。
+  /// 上下各 4pt：候选一行加释义一行正好放进 46pt，长释义在格子里截断而不换行，首块边框高度才不会因释义长短而变。
   static let systemCellHeight: CGFloat = 46
   static let systemCellSpacing: CGFloat = 2
-  static let systemCellInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 4)
+  static let systemCellInsets = NSDirectionalEdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 4)
   /// 原地展开时右侧那一窄列：收起、手写、删除三个按钮竖着排。卡片与系统样式共用。
   static let inlineTrailingColumnWidth: CGFloat = 44
 
@@ -98,11 +99,20 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
 
   /// 一个候选占几列：足够容纳 `titleWidth`（第一行宽度加上格子内边距），带注释时至少两列，且不超过一行的总列数。
   ///
-  /// 系统样式例外：那里的格子只按候选本身的宽度跨列，注释不再撑宽。六列下每列才五十来点，注释撑成两列会让一页只剩三格，与系统的一页六格差太远；注释改成跟着格子截断。
+  /// 系统样式下短释义仍只占一列（六列一页才放得下六个词）；只有释义单行放不进一列时才补到两列：
+  /// 一行的高度取该行最高的格子，硬把长释义挤在一列里换行会把整行抬高，还会把释义截成多行。
+  /// `glossWidth` 是释义最长一行的宽度，`horizontalInsets` 是格子左右内边距之和。
   static func span(titleWidth: CGFloat, annotated: Bool, columns: Int, columnWidth: CGFloat,
-                   style: CandidatePanelStylePreference.Style = .card) -> Int {
+                   style: CandidatePanelStylePreference.Style = .card,
+                   glossWidth: CGFloat = 0, horizontalInsets: CGFloat = 0) -> Int {
     let needed = columnWidth > 0 ? Int(((titleWidth + cellSpacing) / (columnWidth + cellSpacing)).rounded(.up)) : 1
-    let annotatedMinimum = style == .system ? 1 : annotatedSpan
+    let annotatedMinimum: Int
+    if style == .system {
+      let available = max(0, columnWidth - horizontalInsets)
+      annotatedMinimum = annotated && glossWidth > available ? annotatedSpan : 1
+    } else {
+      annotatedMinimum = annotatedSpan
+    }
     return min(columns, max(needed, annotated ? annotatedMinimum : 1, 1))
   }
 
@@ -410,10 +420,13 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     let columns = Self.columns(width: content, style: style,
                                minimumCellWidth: !tight && inlineLayout ? Self.inlineMinimumCellWidth : Self.minimumCellWidth)
     let columnWidth = max(0, (content - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+    let spanInsets = style == .system ? Self.systemCellInsets : Self.cellInsets
     let spans = candidates.indices.map { index in
       let chip = makeChip(candidate: candidates[index], index: index, reusing: measurementChip, interactive: false)
       return Self.span(titleWidth: chip.titleWidth, annotated: chip.glossLines > 0,
-                       columns: columns, columnWidth: columnWidth, style: style)
+                       columns: columns, columnWidth: columnWidth, style: style,
+                       glossWidth: chip.glossWidth,
+                       horizontalInsets: spanInsets.leading + spanInsets.trailing)
     }
     let cells = Self.place(spans: spans, columns: columns)
     var frames = [CGRect](repeating: .zero, count: candidates.count)
@@ -452,9 +465,12 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     let verticalInsets = style == .system ? Self.systemCellInsets : Self.cellInsets
     let insets = verticalInsets.top + verticalInsets.bottom
     let lines = chip.titleLineHeight + CGFloat(chip.glossLines) * UIFont.preferredFont(forTextStyle: .caption2).lineHeight
+    if style == .system {
+      // 系统样式按行数定高，不拿字串量出来的高度抬高整行：中文候选下的英文释义和英文候选下的中文释义都是一行，首块边框就该一样高。
+      return ceil(max(Self.systemCellHeight, insets + lines + 2))
+    }
     let measured = chip.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-    let minimum = style == .system ? Self.systemCellHeight : Self.cellHeight
-    return ceil(max(minimum, insets + lines + 2, chip.glossLines > 0 ? measured : 0))
+    return ceil(max(Self.cellHeight, insets + lines + 2, chip.glossLines > 0 ? measured : 0))
   }
 
   private func makeChip(candidate: String, index: Int, reusing chip: CandidateGridButton,
@@ -481,12 +497,18 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     var title = AttributedString(markedText, attributes: AttributeContainer([.font: font, .paragraphStyle: paragraph]))
     title += KeyboardViewController.markerRun(marks, color: secondary, scale: candidateScale)
     let titleWidth = ceil(NSAttributedString(title).size().width) + insets.leading + insets.trailing
-    let glossLines = annotation.text.isEmpty
-      ? 0 : annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
+    let glossTextLines: [Substring] = annotation.text.isEmpty
+      ? [] : annotation.text.split(separator: "\n", omittingEmptySubsequences: false)
+    let glossLines = glossTextLines.count
+    let captionFont = UIFont.preferredFont(forTextStyle: .caption2)
+    // 与候选条同一套量法：取最长一行的宽度，系统样式据此判断要不要给释义多一列（见 `span`）。
+    let glossWidth = glossTextLines.map {
+      ceil((String($0) as NSString).size(withAttributes: [.font: captionFont]).width)
+    }.max() ?? 0
     if glossLines > 0 {
-      for line in annotation.text.split(separator: "\n", omittingEmptySubsequences: false) {
+      for line in glossTextLines {
         title += AttributedString("\n" + String(line), attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
+          .font: captionFont, .paragraphStyle: paragraph,
           .foregroundColor: annotationColor,
         ]))
       }
@@ -529,6 +551,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     // 格子随单元格复用，被手指按过的格子再套用 configuration 时 UIKit 会给标题挂 0.25s 的淡入淡出（`CATransition` fade），面板重新载入后新旧两个词叠着渐变。候选按 #10330 立即呈现，换字放在不带动画的块里做完；只用来量尺寸的格子不上屏，不必立即布局。
     UIView.performWithoutAnimation {
       chip.configuration = configuration
+      // 套用 configuration 会重建标题标签，这里立即钉住行数：系统样式的长释义因此被截在一行内，不会换行把首块边框撑高。测量用的格子也要钉住，否则量出来的高度是上一次复用留下的行数。
+      chip.titleLabel?.numberOfLines = 1 + glossLines
       if interactive { chip.layoutIfNeeded() }
     }
     chip.configurationUpdateHandler = { button in
@@ -536,6 +560,7 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     }
     chip.titleWidth = titleWidth
     chip.titleLineHeight = font.lineHeight
+    chip.glossWidth = glossWidth
     chip.glossLines = glossLines
     chip.titleLineCount = 1 + glossLines
     // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。格子底被调淡之后不再带阴影：半透明的按键投一块实心影子会很脏。
@@ -646,6 +671,8 @@ private final class CandidateGridButton: UIButton {
   /// 第一行加上格子内边距后的宽度，决定占几列。
   var titleWidth: CGFloat = 0
   var titleLineHeight: CGFloat = 0
+  /// 释义最长一行的宽度（不含格子内边距）。系统样式据此决定长释义要不要跨两列，避免换行抬高整行。
+  var glossWidth: CGFloat = 0
   var glossLines = 0
   var drawsKeyShadow = false {
     didSet { updateShadow() }

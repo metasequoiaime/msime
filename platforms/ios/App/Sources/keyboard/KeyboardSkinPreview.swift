@@ -33,6 +33,9 @@ struct KeyboardSkinPreview: View {
   var letterBadges: [String: String]? = nil
   /// 点字母键的回调（参数是小写字母）；为 nil 时字母键不可点。仅 26 键字母层生效。
   var onLetterTap: ((String) -> Void)? = nil
+  /// 点底行键的回调（空格、中/英、符、表情、回车、逗号、句号）；为 nil 时底行不可点。
+  /// 键盘页用它让「点预览图里的空格」直接打开空格的上滑/下滑设置，与点字母键同一套。
+  var onBottomKeyTap: ((TouchBottomRowLayout.Slot) -> Void)? = nil
   @Environment(\.colorScheme) private var colorScheme
 
   private func color(_ value: UIColor) -> Color {
@@ -330,7 +333,19 @@ struct KeyboardSkinPreview: View {
     let total = keys.reduce(0) { $0 + $1.weight }
     let unit = total > 0 ? max(width - spacing * CGFloat(max(keys.count - 1, 0)), 0) / total : 0
     return HStack(spacing: spacing) {
-      ForEach(Array(keys.enumerated()), id: \.offset) { _, key in bottomKey(key.slot).frame(width: unit * key.weight) }
+      ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+        // 键盘页让底行也可点（`onBottomKeyTap`）：点空格就打开空格的上滑/下滑设置。其余页面不装手势，保持纯展示。
+        Group {
+          if let onBottomKeyTap {
+            bottomKey(key.slot)
+              .contentShape(Rectangle())
+              .onTapGesture { onBottomKeyTap(key.slot) }
+          } else {
+            bottomKey(key.slot)
+          }
+        }
+        .frame(width: unit * key.weight)
+      }
     }
     .frame(height: Self.bottomRowHeight)
   }

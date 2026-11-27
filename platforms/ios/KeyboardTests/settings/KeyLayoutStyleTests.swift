@@ -541,7 +541,7 @@ final class KeyLayoutStyleTests: XCTestCase {
     }
   }
 
-  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；隐藏中/英时它的份额给空格。数字层不跟样式，按 `TouchBottomRowLayout.nineKeyDigits` 排。右侧大回车换的是整个外框，见 `testTallReturnFrame`。
+  /// 九键各样式，笔画沿用九键外框也跟着九键的样式；九键双拼字母层的 0 跟在空格后面；九键外框对「隐藏中/英键」豁免，语言键始终在。数字层不跟样式，按 `TouchBottomRowLayout.nineKeyDigits` 排，同样豁免隐藏开关，中/英 键在数字层印句点。右侧大回车换的是整个外框，见 `testTallReturnFrame`。
   func testNineKeyStylesDrawTheTable() throws {
     for scheme in [ChineseInputScheme.nineKey, .nineKeyShuangpin, .stroke] {
       select(scheme)
@@ -552,9 +552,11 @@ final class KeyLayoutStyleTests: XCTestCase {
           KeyboardLayoutPreference.hideLanguageKey = hidesLanguage
           XCTAssertTrue(write(TouchKeyLayoutStyle(nineKey: style)))
           let controller = keyboard()
+          // 九键字母层豁免隐藏开关：语言键无论开关都在。
           try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKey(
-            style, globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage),
+            style, globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: true),
                               "\(scheme.rawValue) \(style.rawValue) hidesLanguage=\(hidesLanguage)")
+          XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
           if scheme == .nineKey && !hidesLanguage { attach(controller, "9 键 \(style.title)") }
           if style == .commaPeriod {
             // ， 与手机底行一样跟随标点：中文标点时印 ，，长按仍是常用标点菜单。
@@ -563,11 +565,16 @@ final class KeyLayoutStyleTests: XCTestCase {
             XCTAssertNotNil(comma.menu)
           }
           // 数字层不跟样式：符 | 九键 | 0 | 空格 | 中 | 回车，符 和切换键与字母层同一格（#10061），没有 ， 和 。。
+          // 数字层同样豁免隐藏开关：中/英 键仍在，印句点，右列中间键是 =。
           try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
           controller.view.layoutIfNeeded()
           try assertBottomRow(controller, matches: TouchBottomRowLayout.nineKeyDigits(
-            globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage),
+            globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: true),
                               "\(scheme.rawValue) \(style.rawValue) digits hidesLanguage=\(hidesLanguage)")
+          let languageKey = try button("bottomLanguageKey", in: controller)
+          XCTAssertFalse(languageKey.isHidden)
+          XCTAssertEqual(languageKey.configuration?.title, ".")
+          XCTAssertEqual(try button("nineKeyMiddleKey", in: controller).configuration?.title, "=")
           XCTAssertFalse(shown(try button("quickPunctuationKey", in: controller)), "\(scheme.rawValue) \(style.rawValue)")
           XCTAssertFalse(shown(try button("bottomPeriodKey", in: controller)))
           XCTAssertFalse(shown(try button("layerEmojiKey", in: controller)))
@@ -1523,7 +1530,7 @@ final class KeyLayoutStyleTests: XCTestCase {
 
   // MARK: - 右侧大回车
 
-  /// 九键「右侧大回车」的外框：符 在符号栏正下方、与符号栏同宽；123 到 中/英 这几格正好在九宫格下方、与它左右对齐，空格占剩下的宽度；右列是 ⌫ 和中间键，回车从第三格伸到底行、两倍高中间无缝，底行原来回车的位置留给它；右列的 ！ 让出位置，接到符号栏末尾。九键双拼和笔画用同一个外框，九键双拼的 0 照旧跟在空格后面；隐藏中/英时空格变宽。
+  /// 九键「右侧大回车」的外框：符 在符号栏正下方、与符号栏同宽；123 到 中/英 这几格正好在九宫格下方、与它左右对齐，空格占剩下的宽度；右列是 ⌫ 和中间键，回车从第三格伸到底行、两倍高中间无缝，底行原来回车的位置留给它；右列的 ！ 让出位置，接到符号栏末尾。九键双拼和笔画用同一个外框，九键双拼的 0 照旧跟在空格后面；九键外框豁免隐藏开关，中/英 键始终在、空格不变宽。
   func testTallReturnFrame() async throws {
     // 拼音九键标准底行上量到的键宽，按是否隐藏中/英记。九键双拼的标准底行多一个 0，右侧大回车仍按拼音九键那一行定宽，所以拿拼音九键量到的比。
     var pinyinStandard: [Bool: [String: CGFloat]] = [:]
@@ -1543,7 +1550,7 @@ final class KeyLayoutStyleTests: XCTestCase {
         try await restyle(controller, TouchKeyLayoutStyle(nineKey: .tallReturn), label) { self.shown(tall) }
         try assertTallReturnFrame(controller, digits: false, standard: standard, label)
         XCTAssertEqual(visibleBottomRow(controller).map(\.slot), TouchBottomRowLayout.nineKeyTallReturn(
-          globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: !hidesLanguage).map(\.slot), label)
+          globe: controller.needsInputModeSwitchKey, zero: scheme == .nineKeyShuangpin, language: true).map(\.slot), label)
         if scheme != .nineKeyShuangpin {
           XCTAssertFalse(shown(try button("nineKeyZero", in: controller)), label)
         }
@@ -1633,7 +1640,9 @@ final class KeyLayoutStyleTests: XCTestCase {
       let tall = try button("tallReturnKey", in: controller)
       let slot = frame(try view("tallReturnSlot", in: controller))
       let tallFrame = frame(tall)
-      let left = try button(hidesLanguage ? "spaceKey" : "bottomLanguageKey", in: controller)
+      // 九键外框豁免隐藏开关：回车左边的键始终是 中/英。
+      let left = try button("bottomLanguageKey", in: controller)
+      XCTAssertFalse(left.isHidden, label)
       let middle = try button("nineKeyMiddleKey", in: controller)
       let nine = try button("nineKey9", in: controller)
       let closing = frame(try button("nineKeyClosingMark", in: controller))

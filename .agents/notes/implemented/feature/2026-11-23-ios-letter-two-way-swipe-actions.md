@@ -10,17 +10,20 @@ iOS 26 键的字母键只有一条纵向手势：沿设置里的「滑动方向�
 
 ## Decision
 
-- 每个字母键（a–z）有上滑、下滑两条独立配置。模型是 `LetterSwipeAction`（无、角标符号、粘贴、复制选中文字、剪切选中文字、撤销、重做、全选、自定义文本、剪贴板历史、切换中英文、光标左移、光标右移）与 `LetterSwipeBinding`（动作 + 可选的自定义文本），都放在 `SharedUI/preferences/KeyboardLayoutPreference.swift`，App 与键盘扩展共用。
+- 每个字母键（a–z）有上滑、下滑两条独立配置。模型是 `LetterSwipeAction`（无、角标符号、粘贴、复制选中文字、剪切选中文字、撤销、重做、全选、自定义文本、剪贴板历史、切换中英文、光标左移、光标右移、切换到 123 键盘、切换到 #+= 键盘、打开符号面板（符）、常用语）与 `LetterSwipeBinding`（动作 + 可选的自定义文本），都放在 `SharedUI/preferences/KeyboardLayoutPreference.swift`，App 与键盘扩展共用。
 - 存本机 App Group 的 JSON `keyboard.gesture.letterSwipeBindings`，不写共享文档、不随账号同步，与「滑动输入符号」「滑动方向」一致：这些是手感偏好，跟着设备走。
 - 没配置过的方向按 `KeyboardLayoutPreference.swipeSymbolsDirection` 回落成该键的角标，另一方向不接。所以升级后不动设置的人看到的仍是原来的单向行为。显式选「无」存成一条 `action=none` 而不是删键：删掉就又落回角标，用户关不掉单个方向。
 - 角标表从键盘扩展的 `LetterHintTable` 移到 SharedUI 的 `LetterHintSymbols`（`LetterHintTable.hint` 转发），设置页才能把它显示成「角标符号 ?」。表本身仍与 Android 的 `LetterHintTable` 逐条相同。
-- 手势在 `KeyboardKeyButton`：`swipeActions` 由控制器按方向给出动作，`onSwipeAction` 回传。判定用 `LetterSwipePolicy.direction`，阈值 14pt 与角标相同，先过阈值的方向锁住这次触摸，之后手指再动也不改判；预览气泡显示该方向的符号或动作名，松手才执行。长按仍是角标，不受这套配置影响。总开关沿用「滑动输入符号」：关掉后两个方向都不接。
+- 手势在 `KeyboardKeyButton`：`swipeActions` 由控制器按方向给出动作，`onSwipeAction` 回传。判定用 `LetterSwipePolicy.direction`，阈值 14pt 与角标相同，先过阈值的方向锁住这次触摸，之后手指再动也不改判；预览气泡显示该方向的符号或动作名，松手才执行。长按当时仍是角标，不受这套配置影响（后来由 [字母键长按弹出选项](2026-11-27-ios-letter-hold-options.md) 改成弹出选项，滑动路径不变）。总开关沿用「滑动输入符号」：关掉后两个方向都不接。
 - 原有的单方向路径保留给「长空格」逗号（上下都出句号）和 14/18 键字母键，它们不进 `LetterSwipePreference`。
-- 动作执行在 `KeyboardViewController.performLetterSwipeAction`：粘贴读 `UIPasteboard` 后结束组字再上屏；复制、剪切写剪贴板；剪切在组字中拒绝（组码和正文会错位）；撤销、重做走宿主的 `undoManager`；全选走运行时探测的 `selectAll:`；光标移动按一个字符调 `adjustTextPosition`。做不到时 `showDiagnostic` 提示，不静默失败。
+- 动作执行在 `KeyboardViewController.performLetterSwipeAction`：粘贴读 `UIPasteboard` 后结束组字再上屏；复制、剪切写剪贴板；剪切在组字中拒绝（组码和正文会错位）；撤销、重做走宿主的 `undoManager`；全选按四档回退（见下）；光标移动按一个字符调 `adjustTextPosition`。做不到时 `showDiagnostic` 提示，不静默失败。
+- 四个切键盘的动作与对应的键同一条路径，不按当前层取反：123 置 `showsSymbols`、清 `showsMoreSymbols`（`showKeyboardLayer(numberPad: true)`），#+= 两个都置上（大千注音是共享符号行），符 调 `showSymbolPanel()`，常用语调 `showPhrasesPanel()`。前两个记一次 `TypingKeyID.layer`，符 记一次 `.symbol`，与点那些键的计数一致；常用语沿用工具栏入口，不计数。
+- 滑动预览气泡改用 `shortTitle`（`复制选中文字` → `复制`）：气泡宽度只有按键的 1.38 倍，完整名字会被压到最小字号仍显示不全。角标仍显示真实符号，没开「显示字母键角标」时气泡不出现，与原来一样。
 - 设置入口在「键盘 → 布局」页的预览图：点预览图里的字母键，底部弹出该键的上滑、下滑两个动作选择器（`LetterSwipeKeyEditorSheet`），选「自定义文本」时就地输入，支持单键恢复默认。选完立刻写 App Group，没有「保存」。预览图默认只给字母键画右上角真实角标符号，被单独改过动作的键再在下方标动作徽标（如「下滑·粘贴」），不画双拼键位提示。原来的独立「字母键上下滑」列表页已删除。
 - 123 键（手机底行 `layoutToggle` 与 iPad 底行 `tabletLayer`）加上向上 `UISwipeGestureRecognizer`：上滑直接置 `showsSymbols`、`showsMoreSymbols` 进 `#+=` 页，跳过数字九宫格。点击仍进数字九宫格，长按仍打开符号面板。
 - 双拼键位提示开启时，字母键的上、下各让出一条 11pt 提示行：底部是声母韵母提示，顶部是右上角角标。只让下边距时字母整体上移 5.5pt，22pt 字母的字顶会钻进 10pt 角标里（角标距上边 3pt、字底约 12.5pt）。上下各让 11pt 后字母仍在按键中心。手机横屏键高只有 34pt，让出两条只剩 12pt，那里仍只让下边距（`letterKeyFitsTwoHintBands`）。方向进了 `LetterCaseInputs`，`viewDidLayoutSubviews` 里转屏会补一次 `updateLetterCaseControls`。
 - 工具栏品牌键菜单新增「双拼键位提示」图块，与设置页那一行改的是同一个 `touch_shuangpin_key_hints`：写共享文档成功才重画键面，写不进去时提示并保持原值。只在中文模式的 26 键双拼（含粤语双拼）上可点。
+- 键面底部再补一条**下滑动作提示**：字母键的下滑配了别的动作（不是「无」，也不是角标——符号已经画在右上角）时，底部那行写动作的 `shortTitle`（如「复制」「123」「左移」）。开关是 `KeyboardLayoutPreference.letterSwipeHint`（本机 App Group，默认开），放在「键盘 → 手势」里紧跟「显示字母键角标」；「滑动输入符号」关着时不画，因为下滑本身不生效。这一行与「双拼键位提示」共用同一个 `KeyboardBottomHintLabel`，双拼提示画出来时以它为准、下滑短名让位；`cornerBand` 与 `contentInsets.bottom` 都按最终那行文本算，没有提示就不占位。在设置里换过某个键的配置后，`letterSwipeRevision` 让 `LetterCaseInputs` 变化，切回键盘时已画好的键面跟着重画。
 
 ## ⌫ 上滑清空
 
@@ -46,13 +49,16 @@ iOS 26 键的字母键只有一条纵向手势：沿设置里的「滑动方向�
 - 设置页预览图的 26 键字母键显示大写（与真实键盘一致），被改过动作的键下方徽标只用动作短名（`LetterSwipeAction.shortTitle`，如「复制」「剪切」「剪贴板」），不写「下滑·」方向前缀。独立「每键上下滑」提示行删除，点预览图设动作的说明整合进「滑动方向」的 info。
 - 只覆盖 26 键的 a–z。九键、14/18 键、微软双拼的 `;` 仍走原来的单方向角标，没有上下双动作。
 - 「滑动输入符号」关掉后所有字母键上下滑都不接，包括粘贴这类与符号无关的动作；要用只能先把开关打开。这条沿用了原有关闭语义，没有另加总开关。
-- 粘贴、复制、剪切需要键盘开启完全访问；iOS 读取剪贴板可能弹一次系统「允许粘贴」。撤销、重做、全选依赖宿主输入框实现，部分 App 会提示「不支持」。
+- 粘贴、复制、剪切需要键盘开启完全访问；iOS 读取剪贴板可能弹一次系统「允许粘贴」。撤销、重做依赖宿主的 `undoManager`。
+- **全选在 iOS 上没有公开接口**：Apple 的自定义键盘指南写明文本选择由使用键盘的宿主 App 控制，`UITextDocumentProxy` 只有只读的 `selectedText`。现在按四档回退（`selectAllDocumentText`）：① 代理对象实际实现了 `UITextInput` 时直接写 `selectedTextRange`，写完读 `selectedText` 验证；② 把 `selectAll:` 按 `responds(to:)`、`canPerformAction` 两条路转给宿主；③ 组字重绘——删掉正文，用 `setMarkedText` 把全文写回并全选组字区，宿主画成选中态，随后输入会替换整段；受 `SelectAllPolicy` 限制（≤500 字、光标已在末尾），因为要逐字删除，且正文会变成组字、宿主撤销记录断在这里；④ 只把全文记进 `fullSelectionBuffer`，紧接的复制、剪切用它顶替选区，用前先比对输入框里的文字还是不是同一份。剪切在没有选区时走 `deleteWholeDocument` 真正删空。
+- 已知残余风险：③ 依赖宿主对组字的处理，个别编辑器不认组字时会退回②之后的提示；重绘后撤销不到删除前。
+- 下滑动作提示与双拼键位提示共用底部一行，两者不会同时出现：双拼方案开着「双拼键位提示」时看不到下滑短名，设置页 info 已写明。提示只写动作短名，不写自定义文本内容（「文本」这类短名信息量有限，但换行或截断更难读）。
 - 配置不随账号同步。换设备后要重配。
 - 三端行为进一步分叉：Android 反方向打开字母选项面板，鸿蒙只有单方向，iOS 现在是可自定义的双向动作。共享 Rust 层没有新增字段。
 
 ## Testing
 
-`KeyboardTests/input/LetterCornerHintTests.swift` 覆盖：上下两个方向各自过 14pt 阈值、方向互斥与取位移大者、默认回落到角标、显式「无」不被回落覆盖、控制器把 V 的上下滑动作用到按键上、总开关关掉后两个方向都为空、`LetterSwipeBinding.summary(symbol:)` 把「角标符号」写成真实符号（无符号回落、带符号带上、其它动作不受影响）、`LetterSwipeAction.shortTitle` 的缩写（复制/剪切/剪贴板/中英/左移等）、`.both` 方向下上下滑都回落成角标。`BackspaceSwipeDeletionTests.swift` 覆盖 `BackspaceClearSwipe` 的待命与取消阈值、非有限距离、`BackspaceClear` 的分轮与轮次上限。`MorePanelFoldTests.swift` 覆盖品牌键菜单里「双拼键位提示」的顺序、读写共享文档、键面 `contentInsets` 与提示标签随之切换、全拼方案下置灰。契约脚本 `test-ios-key-layout-settings.py` 新增 `LetterSwipePreviewContract`：独立列表页已删、预览图字母键点击弹 `LetterSwipeKeyEditorSheet`、可点只在「滑动输入符号」开着且 26 键时、徽标只标单独改过的键、预览图不画双拼提示、滑动方向含「上滑+下滑」三项且说明整合进 info。
+`KeyboardTests/input/LetterCornerHintTests.swift` 覆盖：上下两个方向各自过 14pt 阈值、方向互斥与取位移大者、默认回落到角标、显式「无」不被回落覆盖、控制器把 V 的上下滑动作用到按键上、总开关关掉后两个方向都为空、`LetterSwipeBinding.summary(symbol:)` 把「角标符号」写成真实符号（无符号回落、带符号带上、其它动作不受影响）、`LetterSwipeAction.shortTitle` 的缩写（复制/剪切/剪贴板/中英/左移/123/#+=/符/短语等，以及四个切键盘动作的完整名字）、滑动到 123 与 #+= 时数字九宫格的显隐、`SelectAllPolicy.canRemark` 对短文本/光标位置/字数上限的判定、`.both` 方向下上下滑都回落成角标。`testSwipeActionHintWritesTheDownwardsActionName` 覆盖下滑短名的显示（粘贴、123）、未配方向不占位、关掉开关只收提示不关手势；`testShuangpinHintWinsOverTheSwipeActionHint` 覆盖双拼提示优先、关掉双拼提示后换回下滑短名。`BackspaceSwipeDeletionTests.swift` 覆盖 `BackspaceClearSwipe` 的待命与取消阈值、非有限距离、`BackspaceClear` 的分轮与轮次上限。`MorePanelFoldTests.swift` 覆盖品牌键菜单里「双拼键位提示」的顺序、读写共享文档、键面 `contentInsets` 与提示标签随之切换、全拼方案下置灰。契约脚本 `test-ios-key-layout-settings.py` 新增 `LetterSwipePreviewContract`：独立列表页已删、预览图字母键点击弹 `LetterSwipeKeyEditorSheet`、可点只在「滑动输入符号」开着且 26 键时、徽标只标单独改过的键、预览图不画双拼提示、滑动方向含「上滑+下滑」三项且说明整合进 info。
 
 本次改动没有编译也没有跑测试：开发机是 Windows，没有 Swift/Xcode 工具链。跑通的只有 `git diff --check`、括号平衡粗检和 `platforms/ios/tests/settings/ProjectConfigurationTests.py`（35 项中 34 项，唯一失败是 release date 脚本需要 `wsl` 的既有环境问题）。需要在 macOS 上 `xcodegen generate` 后跑 `MSIMEKeyboardTests`，并在真机验收：V 下滑粘贴、Q 下滑自定义文本、有选区时下滑复制、⌫ 上滑清空组字与正文、123 上滑进 `#+=`、开双拼提示后字母与角标/提示不重叠、横屏只让下边距；以及本次 UI 重构的点预览图字母键弹设置、改完徽标当场刷新、点击与改键距/行距的拖拽手势不冲突。
 

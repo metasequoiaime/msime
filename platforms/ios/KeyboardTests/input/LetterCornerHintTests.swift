@@ -11,6 +11,11 @@ final class LetterCornerHintTests: XCTestCase {
 
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
 
+  /// 自己和每一层父视图都没被隐藏，才算画在屏幕上。
+  private func shown(_ view: UIView) -> Bool {
+    sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden }
+  }
+
   private func button(_ identifier: String, in controller: UIViewController) throws -> UIButton {
     try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == identifier } as? UIButton,
                   "No button with accessibility identifier \(identifier).")
@@ -190,7 +195,7 @@ final class LetterCornerHintTests: XCTestCase {
                    "the composition was committed before the symbol, not extended by it")
   }
 
-  /// 「滑动输入符号」关掉后字母键不再响应滑动，长按仍输入角标（与 Android 一致）；键盘再次出现时读到新值。
+  /// 「滑动输入符号」关掉后字母键不再响应滑动，长按选项照常（长按与滑动互不依赖）；键盘再次出现时读到新值。
   func testSwipeSymbolsSwitchReachesTheLetterKeys() throws {
     let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
     addTeardownBlock {
@@ -201,7 +206,11 @@ final class LetterCornerHintTests: XCTestCase {
     let controller = makeController(.quanpin)
     let q = try key(labelled: "字母 Q", in: controller)
     XCTAssertFalse(q.swipesCornerHint)
-    XCTAssertEqual(q.cornerHint, "1", "the hold still types the corner symbol")
+    XCTAssertEqual(q.cornerHint, "1", "the corner symbol stays on the key face")
+    // Q 默认没有声调，长按不再弹选项；换 E 验证长按与滑动开关互不依赖。
+    XCTAssertEqual(q.holdOptions?().count ?? 0, 0)
+    let e = try key(labelled: "字母 E", in: controller)
+    XCTAssertNotNil(e.holdOptions?().first, "long press does not depend on the swipe switch")
     KeyboardLayoutPreference.swipeSymbols = true
     controller.viewWillAppear(false)
     XCTAssertTrue(q.swipesCornerHint)
@@ -322,8 +331,20 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertEqual(LetterSwipeAction.clipboard.shortTitle(), "剪贴板")
     XCTAssertEqual(LetterSwipeAction.language.shortTitle(), "中英")
     XCTAssertEqual(LetterSwipeAction.cursorLeft.shortTitle(), "左移")
+    // 空格上滑默认动作：名字里写清「候选译文」，徽标只写「译文」。
+    XCTAssertEqual(LetterSwipeAction.commitTranslation.shortTitle(), "译文")
+    XCTAssertEqual(LetterSwipeAction.commitTranslation.title(), "上屏候选译文")
     XCTAssertEqual(LetterSwipeAction.symbol.shortTitle(symbol: "1"), "1")
     XCTAssertEqual(LetterSwipeAction.text.shortTitle(), "文本")
+    // 切别的键盘的四个动作：气泡与徽标都放不下「切换到 123 键盘」这样的完整名字，只写键面或面板的短名。
+    XCTAssertEqual(LetterSwipeAction.numberPad.shortTitle(), "123")
+    XCTAssertEqual(LetterSwipeAction.moreSymbols.shortTitle(), "#+=")
+    XCTAssertEqual(LetterSwipeAction.symbolPanel.shortTitle(), "符")
+    XCTAssertEqual(LetterSwipeAction.phrases.shortTitle(), "短语")
+    XCTAssertEqual(LetterSwipeAction.numberPad.title(), "切换到 123 键盘")
+    XCTAssertEqual(LetterSwipeAction.moreSymbols.title(), "切换到 #+= 键盘")
+    XCTAssertEqual(LetterSwipeAction.symbolPanel.title(), "打开符号面板（符）")
+    XCTAssertEqual(LetterSwipeAction.phrases.title(), "常用语")
     // 水杉图标菜单的快捷操作也进了选项，徽标用短名。
     XCTAssertEqual(LetterSwipeAction.fullWidth.shortTitle(), "全半角")
     XCTAssertEqual(LetterSwipeAction.chinesePunctuation.shortTitle(), "标点")
@@ -367,5 +388,355 @@ final class LetterCornerHintTests: XCTestCase {
     controller.viewWillAppear(false)
     XCTAssertNil(v.swipeActions?(.up), "总开关关着时两个方向都不接")
     XCTAssertNil(v.swipeActions?(.down))
+  }
+
+  /// 滑动可以切到别的键盘：滑到 123 打开数字九宫格，再滑到 #+= 进符号页，不按当前层取反。
+  func testSwipeSwitchesToNumberPadAndMoreSymbols() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let storedTable = defaults.data(forKey: LetterSwipePreference.key)
+    let storedSymbols = defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
+    let storedDirection = defaults.string(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey)
+    addTeardownBlock {
+      if let storedTable { defaults.set(storedTable, forKey: LetterSwipePreference.key) }
+      else { defaults.removeObject(forKey: LetterSwipePreference.key) }
+      if let storedSymbols { defaults.set(storedSymbols, forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      if let storedDirection { defaults.set(storedDirection, forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+    }
+    LetterSwipePreference.reset()
+    KeyboardLayoutPreference.swipeSymbols = true
+    KeyboardLayoutPreference.swipeSymbolsDirection = .up
+    LetterSwipePreference.set(LetterSwipeBinding(action: .numberPad), letter: "v", direction: .down)
+    LetterSwipePreference.set(LetterSwipeBinding(action: .moreSymbols), letter: "v", direction: .up)
+
+    let controller = makeController(.quanpin)
+    controller.viewWillAppear(false)
+    let v = try key(labelled: "字母 V", in: controller)
+    XCTAssertEqual(v.swipeActions?(.down), .numberPad)
+    XCTAssertEqual(v.swipeActions?(.up), .moreSymbols)
+
+    v.onSwipeAction?(.numberPad, .down)
+    controller.view.layoutIfNeeded()
+    XCTAssertTrue(shown(try button("numberPadSymbolPanelKey", in: controller)), "下滑到 123 画数字九宫格")
+
+    v.onSwipeAction?(.moreSymbols, .up)
+    controller.view.layoutIfNeeded()
+    XCTAssertFalse(shown(try button("numberPadSymbolPanelKey", in: controller)), "上滑到 #+= 离开数字九宫格")
+  }
+
+  /// 全选的组字重绘只对短文本、且光标已在末尾时做：光标后还有内容时挪不到真正的末尾，删不干净；
+  /// 长文逐字删除太慢，改走「只记全文」那一档。
+  func testSelectAllOnlyRemarksShortTextWithCursorAtTheEnd() {
+    XCTAssertTrue(SelectAllPolicy.canRemark(documentLength: 12, caretAtEnd: true))
+    XCTAssertTrue(SelectAllPolicy.canRemark(documentLength: SelectAllPolicy.remarkLimit, caretAtEnd: true))
+    XCTAssertFalse(SelectAllPolicy.canRemark(documentLength: 0, caretAtEnd: true), "空输入框没什么可选的")
+    XCTAssertFalse(SelectAllPolicy.canRemark(documentLength: SelectAllPolicy.remarkLimit + 1, caretAtEnd: true))
+    XCTAssertFalse(SelectAllPolicy.canRemark(documentLength: 12, caretAtEnd: false))
+  }
+
+  // MARK: - 下滑动作提示
+
+  /// 字母键底部的短行：这个键下滑配了动作（粘贴、123 等）就写动作短名；没配、回落成角标或只靠上滑时不写。
+  /// 开关关掉后那一行收回，下滑本身照旧执行。
+  func testSwipeActionHintWritesTheDownwardsActionName() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let storedTable = defaults.data(forKey: LetterSwipePreference.key)
+    let storedSymbols = defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
+    let storedDirection = defaults.string(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey)
+    let storedSwipeHint = defaults.object(forKey: KeyboardLayoutPreference.letterSwipeHintKey)
+    addTeardownBlock {
+      if let storedTable { defaults.set(storedTable, forKey: LetterSwipePreference.key) }
+      else { defaults.removeObject(forKey: LetterSwipePreference.key) }
+      if let storedSymbols { defaults.set(storedSymbols, forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      if let storedDirection { defaults.set(storedDirection, forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      if let storedSwipeHint { defaults.set(storedSwipeHint, forKey: KeyboardLayoutPreference.letterSwipeHintKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.letterSwipeHintKey) }
+    }
+    LetterSwipePreference.reset()
+    KeyboardLayoutPreference.swipeSymbols = true
+    KeyboardLayoutPreference.swipeSymbolsDirection = .up
+    KeyboardLayoutPreference.letterSwipeHint = true
+    LetterSwipePreference.set(LetterSwipeBinding(action: .paste), letter: "v", direction: .down)
+    LetterSwipePreference.set(LetterSwipeBinding(action: .numberPad), letter: "b", direction: .down)
+
+    let controller = makeController(.quanpin)
+    controller.viewWillAppear(false)
+    let v = try key(labelled: "字母 V", in: controller)
+    XCTAssertEqual(try bottomHint(of: v).text, "粘贴")
+    XCTAssertFalse(try bottomHint(of: v).isHidden)
+    XCTAssertEqual(try bottomHint(of: try key(labelled: "字母 B", in: controller)).text, "123")
+    // Q 没配下滑：默认方向是上滑，下滑不接，底部那行留空。
+    let q = try key(labelled: "字母 Q", in: controller)
+    XCTAssertTrue(try bottomHint(of: q).isHidden)
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 0, "没有底部提示就不让位")
+
+    KeyboardLayoutPreference.letterSwipeHint = false
+    controller.viewWillAppear(false)
+    XCTAssertTrue(try bottomHint(of: v).isHidden, "关掉开关只收起提示")
+    XCTAssertEqual(v.swipeActions?(.down), .paste, "下滑本身照旧")
+    XCTAssertEqual(v.configuration?.contentInsets.bottom, 0)
+  }
+
+  /// 双拼键位提示和下滑动作提示占同一行：双拼提示在时以它为准，不叠字；关掉双拼提示后下滑短名才出现。
+  func testShuangpinHintWinsOverTheSwipeActionHint() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let storedTable = defaults.data(forKey: LetterSwipePreference.key)
+    let storedSymbols = defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
+    let storedDirection = defaults.string(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey)
+    let storedSwipeHint = defaults.object(forKey: KeyboardLayoutPreference.letterSwipeHintKey)
+    let storedShuangpin = defaults.object(forKey: KeyboardLayoutPreference.shuangpinKeyHintsKey)
+    let previousScheme = InputSchemePreference.scheme
+    addTeardownBlock {
+      if let storedTable { defaults.set(storedTable, forKey: LetterSwipePreference.key) }
+      else { defaults.removeObject(forKey: LetterSwipePreference.key) }
+      if let storedSymbols { defaults.set(storedSymbols, forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      if let storedDirection { defaults.set(storedDirection, forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      if let storedSwipeHint { defaults.set(storedSwipeHint, forKey: KeyboardLayoutPreference.letterSwipeHintKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.letterSwipeHintKey) }
+      if let storedShuangpin { defaults.set(storedShuangpin, forKey: KeyboardLayoutPreference.shuangpinKeyHintsKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.shuangpinKeyHintsKey) }
+      InputSchemePreference.scheme = previousScheme
+    }
+    LetterSwipePreference.reset()
+    KeyboardLayoutPreference.swipeSymbols = true
+    KeyboardLayoutPreference.swipeSymbolsDirection = .up
+    KeyboardLayoutPreference.letterSwipeHint = true
+    LetterSwipePreference.set(LetterSwipeBinding(action: .paste), letter: "v", direction: .down)
+
+    // 双拼提示开关改的是共享文档（`touch_shuangpin_key_hints`），键盘出现时按文档重读，所以两段都走同一条路：
+    // 先写文档再建控制器。只改 App Group 里的镜像不够——`viewWillAppear` 会用文档里的值盖回去。
+    let storedDocumentHint = MetasequoiaInputSessionBridge.loadSharedPreferences()?[
+      KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] as? Bool
+    addTeardownBlock {
+      KeyboardLayoutPreference.saveShuangpinKeyHints(storedDocumentHint ?? KeyboardLayoutPreference.shuangpinKeyHints)
+    }
+
+    XCTAssertTrue(KeyboardLayoutPreference.saveShuangpinKeyHints(true))
+    let withHint = makeController(.shuangpin)
+    withHint.viewWillAppear(false)
+    let hint = try bottomHint(of: try key(labelled: "字母 V", in: withHint))
+    XCTAssertFalse(hint.isHidden)
+    XCTAssertNotEqual(hint.text, "粘贴", "双拼提示在时下滑短名让位")
+
+    XCTAssertTrue(KeyboardLayoutPreference.saveShuangpinKeyHints(false))
+    let withoutHint = makeController(.shuangpin)
+    withoutHint.viewWillAppear(false)
+    XCTAssertEqual(try bottomHint(of: try key(labelled: "字母 V", in: withoutHint)).text, "粘贴",
+                   "关掉双拼提示后换回下滑短名")
+  }
+
+  // MARK: - 底行按键上下滑
+
+  /// 底行按键默认只有空格上滑上屏候选译文，其余都是「无」；显式存的「无」要压住默认，清掉之后又回到默认。
+  func testBottomKeySwipeDefaultsAndStoredBindings() {
+    let defaults = KeyboardLayoutPreference.defaults
+    let stored = defaults.data(forKey: BottomKeySwipePreference.key)
+    addTeardownBlock {
+      if let stored { defaults.set(stored, forKey: BottomKeySwipePreference.key) }
+      else { defaults.removeObject(forKey: BottomKeySwipePreference.key) }
+    }
+    BottomKeySwipePreference.reset()
+    XCTAssertEqual(BottomKeySwipePreference.binding(key: .space, direction: .up).action, .commitTranslation)
+    XCTAssertEqual(BottomKeySwipePreference.binding(key: .space, direction: .down).action, .none)
+    for key in [BottomKeySwipeKey.language, .symbols, .emoji, .enter, .punctuation, .period] {
+      XCTAssertEqual(BottomKeySwipePreference.binding(key: key, direction: .up).action, .none, key.rawValue)
+      XCTAssertEqual(BottomKeySwipePreference.binding(key: key, direction: .down).action, .none, key.rawValue)
+    }
+
+    // 空格上滑改成「无」：存下去，不再回落成译文。
+    BottomKeySwipePreference.set(LetterSwipeBinding(action: .none), key: .space, direction: .up)
+    XCTAssertEqual(BottomKeySwipePreference.binding(key: .space, direction: .up).action, .none)
+    XCTAssertEqual(BottomKeySwipePreference.stored(key: .space, direction: .up)?.action, LetterSwipeAction.none)
+
+    // 选了自定义文本却没填：这条配置不算数。
+    BottomKeySwipePreference.set(LetterSwipeBinding(action: .text, text: "  "), key: .enter, direction: .down)
+    XCTAssertFalse(BottomKeySwipePreference.binding(key: .enter, direction: .down).isActive)
+    BottomKeySwipePreference.set(LetterSwipeBinding(action: .paste), key: .punctuation, direction: .down)
+    XCTAssertEqual(BottomKeySwipePreference.binding(key: .punctuation, direction: .down).action, .paste)
+
+    BottomKeySwipePreference.clear(key: .space)
+    XCTAssertEqual(BottomKeySwipePreference.binding(key: .space, direction: .up).action, .commitTranslation,
+                   "恢复默认后空格上滑又是译文")
+    BottomKeySwipePreference.clear(key: .punctuation)
+    XCTAssertNil(BottomKeySwipePreference.stored(key: .punctuation, direction: .down))
+  }
+
+  /// 空格键挂上调好的上下滑：上滑默认是「上屏候选译文」，下滑不接；底行不跟字母键的「滑动输入符号」总开关。
+  func testSpaceKeyCarriesTheTranslationSwipe() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let storedTable = defaults.data(forKey: BottomKeySwipePreference.key)
+    let storedSymbols = defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
+    addTeardownBlock {
+      if let storedTable { defaults.set(storedTable, forKey: BottomKeySwipePreference.key) }
+      else { defaults.removeObject(forKey: BottomKeySwipePreference.key) }
+      if let storedSymbols { defaults.set(storedSymbols, forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+    }
+    BottomKeySwipePreference.reset()
+    KeyboardLayoutPreference.swipeSymbols = false
+
+    let controller = makeController(.quanpin)
+    controller.viewWillAppear(false)
+    let space = try XCTUnwrap(try button("spaceKey", in: controller) as? KeyboardKeyButton)
+    XCTAssertEqual(space.swipeActions?(.up), .commitTranslation, "总开关关着时底行照常")
+    XCTAssertNil(space.swipeActions?(.down), "下滑默认不接")
+    XCTAssertNotNil(space.onSwipeAction)
+
+    BottomKeySwipePreference.set(LetterSwipeBinding(action: .none), key: .space, direction: .up)
+    controller.viewWillAppear(false)
+    let reset = try XCTUnwrap(try button("spaceKey", in: controller) as? KeyboardKeyButton)
+    XCTAssertNil(reset.swipeActions?(.up), "存了「无」之后上滑不接")
+  }
+
+  /// 键面底部那行提示：9pt 的 `KeyboardBottomHintLabel`，与 10pt 的右上角标分开。
+  private func bottomHint(of key: UIButton) throws -> UILabel {
+    try XCTUnwrap(key.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 },
+                  "No bottom hint label on this key.")
+  }
+
+  // MARK: - 长按选项
+
+  /// 默认只列拼音声调：中文 a/e/i/o/u 各四个，英文同表、另含 ê 与 v/n/m；字母本身、角标和上下标不再列。
+  func testLetterHoldDefaultsFollowTheLanguage() {
+    XCTAssertEqual(LetterHoldPreference.defaults(letter: "e", chinese: true, shifted: false),
+                   ["ē", "é", "ě", "è"])
+    XCTAssertEqual(LetterHoldPreference.defaults(letter: "e", chinese: true, shifted: true),
+                   ["ē", "é", "ě", "è"], "声调不随大小写变")
+    XCTAssertEqual(LetterHoldPreference.defaults(letter: "q", chinese: true, shifted: false), [],
+                   "q 没有声调，默认不弹，长按回到角标")
+    let english = LetterHoldPreference.defaults(letter: "e", chinese: false, shifted: false)
+    XCTAssertEqual(english, ["ê", "ē", "é", "ě", "è"], "英文比中文多一个 ê")
+    XCTAssertEqual(LetterHoldPreference.defaults(letter: "v", chinese: true, shifted: false), [],
+                   "中文只给 a/e/i/o/u 的声调")
+    XCTAssertEqual(LetterHoldPreference.defaults(letter: "v", chinese: false, shifted: false),
+                   ["ü", "ǖ", "ǘ", "ǚ", "ǜ"])
+    XCTAssertEqual(LetterHoldPreference.defaults(letter: "1", chinese: true, shifted: false), [])
+  }
+
+  /// 逐键自定义覆盖默认；空数组是「这个键不弹」，与缺键（跟随默认）分开。
+  func testLetterHoldOptionsStoreCustomListsAndEmptyMeansNoPopup() {
+    let defaults = KeyboardLayoutPreference.defaults
+    let stored = defaults.object(forKey: LetterHoldPreference.key)
+    let storedEnabled = defaults.object(forKey: LetterHoldPreference.enabledKey)
+    addTeardownBlock {
+      if let stored { defaults.set(stored, forKey: LetterHoldPreference.key) }
+      else { defaults.removeObject(forKey: LetterHoldPreference.key) }
+      if let storedEnabled { defaults.set(storedEnabled, forKey: LetterHoldPreference.enabledKey) }
+      else { defaults.removeObject(forKey: LetterHoldPreference.enabledKey) }
+    }
+    LetterHoldPreference.reset()
+    LetterHoldPreference.enabled = true
+
+    XCTAssertEqual(LetterHoldPreference.options(letter: "E", chinese: true, shifted: false),
+                   ["ē", "é", "ě", "è"], "没配过时用默认，大小写字母都认")
+    LetterHoldPreference.set(["ā", "ā", "ab", " ", "😀", "1"], letter: "e")
+    XCTAssertEqual(LetterHoldPreference.stored(letter: "E"), ["ā", "😀", "1"], "单字素、去重、过滤")
+    XCTAssertEqual(LetterHoldPreference.options(letter: "e", chinese: false, shifted: false),
+                   ["ā", "😀", "1"], "配过之后不再跟语言变")
+
+    LetterHoldPreference.set([], letter: "e")
+    XCTAssertEqual(LetterHoldPreference.options(letter: "e", chinese: true, shifted: false), [],
+                   "空数组是「不弹」，不能回落成默认")
+
+    LetterHoldPreference.clear(letter: "e")
+    XCTAssertNil(LetterHoldPreference.stored(letter: "e"))
+    LetterHoldPreference.enabled = false
+    XCTAssertEqual(LetterHoldPreference.options(letter: "e", chinese: true, shifted: false), [],
+                   "总开关关掉后长按回到输入角标")
+  }
+
+  /// 手指到哪项就高亮哪项：按气泡里按钮的真实中心取最近项，并列取靠前的。
+  func testHoldOptionHighlightPicksTheNearestRealButtonCenter() {
+    let centers: [CGFloat] = [10, 50, 90, 130]
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 10, centers: centers), 0)
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 29, centers: centers), 0, "靠前一项更近")
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 31, centers: centers), 1, "过中点换到后一项")
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 30, centers: centers), 0, "正中间取靠前项")
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 130, centers: centers), 3)
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 999, centers: centers), 3, "越界仍取最近的中心")
+    XCTAssertEqual(KeyboardHoldOptionsLayout.nearestIndex(to: 50, centers: []), 0)
+  }
+
+  /// 字母键长按弹出后高亮离按下手指最近的选项，按住左右滑动按真实按钮位置换高亮、松手上屏该项；九键长按不接这套。
+  func testLetterHoldOptionsHighlightAndSlideToCommit() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let stored = defaults.object(forKey: LetterHoldPreference.key)
+    let storedEnabled = defaults.object(forKey: LetterHoldPreference.enabledKey)
+    addTeardownBlock {
+      if let stored { defaults.set(stored, forKey: LetterHoldPreference.key) }
+      else { defaults.removeObject(forKey: LetterHoldPreference.key) }
+      if let storedEnabled { defaults.set(storedEnabled, forKey: LetterHoldPreference.enabledKey) }
+      else { defaults.removeObject(forKey: LetterHoldPreference.enabledKey) }
+    }
+    LetterHoldPreference.reset()
+    LetterHoldPreference.enabled = true
+
+    let controller = makeController(.quanpin)
+    let e = try key(labelled: "字母 E", in: controller)
+    let options = try XCTUnwrap(e.holdOptions?())
+    e.onHoldOptions?(options)
+
+    let buttons = ["ē", "é", "ě", "è"].compactMap { option in
+      nodes(controller.view).first { $0.accessibilityIdentifier == "letterHoldOption-\(option)" } as? UIButton
+    }
+    XCTAssertEqual(buttons.count, 4)
+    let coordinateView = try XCTUnwrap(e.superview)
+    func fingerX(_ index: Int) -> CGFloat {
+      let button = buttons[index]
+      return button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: coordinateView).x
+    }
+    XCTAssertNotNil(e.onHoldOptionHighlight, "字母键接上滑动高亮")
+    XCTAssertNotNil(e.onHoldOptionCommit, "字母键接上松手提交")
+
+    // 按下位置靠近第二项：弹出时高亮第二项，而不是固定第一项。
+    e.onHoldOptionHighlight?(CGPoint(x: fingerX(1), y: 0))
+    XCTAssertFalse(buttons[0].accessibilityTraits.contains(.selected))
+    XCTAssertTrue(buttons[1].accessibilityTraits.contains(.selected), "默认高亮离手指最近的选项")
+
+    // 手指滑到第四项：按真实按钮位置换高亮，第二项取消。
+    e.onHoldOptionHighlight?(CGPoint(x: fingerX(3), y: 0))
+    XCTAssertFalse(buttons[1].accessibilityTraits.contains(.selected))
+    XCTAssertTrue(buttons[3].accessibilityTraits.contains(.selected))
+
+    // 松手提交当前高亮项后气泡收起。
+    e.onHoldOptionCommit?()
+    XCTAssertNil(nodes(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
+  }
+
+  /// 26 键字母键带着长按选项和弹窗接线；中文 e 弹四项声调，弹窗里有对应的按钮。
+  func testLetterKeyLongPressShowsItsOptions() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let stored = defaults.object(forKey: LetterHoldPreference.key)
+    let storedEnabled = defaults.object(forKey: LetterHoldPreference.enabledKey)
+    addTeardownBlock {
+      if let stored { defaults.set(stored, forKey: LetterHoldPreference.key) }
+      else { defaults.removeObject(forKey: LetterHoldPreference.key) }
+      if let storedEnabled { defaults.set(storedEnabled, forKey: LetterHoldPreference.enabledKey) }
+      else { defaults.removeObject(forKey: LetterHoldPreference.enabledKey) }
+    }
+    LetterHoldPreference.reset()
+    LetterHoldPreference.enabled = true
+
+    let controller = makeController(.quanpin)
+    let e = try key(labelled: "字母 E", in: controller)
+    let options = try XCTUnwrap(e.holdOptions?(), "字母键要带上长按选项")
+    XCTAssertEqual(options, ["ē", "é", "ě", "è"])
+    XCTAssertNotNil(e.onHoldOptions)
+    XCTAssertEqual(e.accessibilityCustomActions?.first?.name, "显示长按选项", "读屏也要能打开同一份选项")
+
+    e.onHoldOptions?(options)
+    let popup = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldOptions" })
+    XCTAssertNotNil(nodes(popup).first { $0.accessibilityIdentifier == "letterHoldOption-é" },
+                    "弹窗按选项建按钮")
+    XCTAssertNotNil(nodes(controller.view).first { $0.accessibilityIdentifier == "nineKeyHoldBackdrop" })
+
+    // 设成空列表之后这个键不弹，按键自己回到「长按输入角标」。
+    LetterHoldPreference.set([], letter: "e")
+    XCTAssertEqual(e.holdOptions?(), [])
   }
 }

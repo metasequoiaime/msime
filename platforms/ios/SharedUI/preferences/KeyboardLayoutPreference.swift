@@ -4,6 +4,9 @@ import CoreFoundation
 @_silgen_name("msime_client_touch_quick_symbols")
 private func msimeClientTouchQuickSymbols(_ value: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("msime_client_touch_return_symbols")
+private func msimeClientTouchReturnSymbols(_ value: UnsafePointer<UInt8>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+
 enum KeyboardLayoutPreference {
   static var defaults: UserDefaults { InputSchemePreference.appGroupDefaults }
   static let keySpacingKey = "keyboard.spacing.keys"
@@ -20,6 +23,7 @@ enum KeyboardLayoutPreference {
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
   static let letterCornerHintsKey = "keyboard.gesture.letterCornerHints"
+  static let letterSwipeHintKey = "keyboard.gesture.letterSwipeHint"
   enum SwipeDirection: String {
     case up, down, both
 
@@ -51,6 +55,7 @@ enum KeyboardLayoutPreference {
   }
   static let quickPunctuationSymbolsKey = "keyboard.quickPunctuationSymbols"
   static var defaultQuickPunctuationSymbols: [String] { normalizeQuickPunctuationSymbols([]) }
+  static let returnToLettersSymbolsKey = "keyboard.symbolReturn.symbols"
   static let hideLanguageKeyKey = "keyboard.bottom.hideLanguageKey"
   static var hideLanguageKey: Bool {
     get { defaults.object(forKey: hideLanguageKeyKey) as? Bool ?? false }
@@ -134,11 +139,14 @@ enum KeyboardLayoutPreference {
     return true
   }
 
-  /// 把共享文档里的几何与快捷符号镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；九键 flick 阈值缺键或不合规时是默认 24（client-core 保存时不写默认值，缺键就是 24）；键盘和设置页每次出现都按文档对齐。文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不镜像它。
+  /// 把共享文档里的几何、快捷符号与「返回主键盘符号」的清单镜像到 App Group。缺少几何项时保持原值，快捷符号缺省时采用共享默认；九键 flick 阈值缺键或不合规时是默认 24（client-core 保存时不写默认值，缺键就是 24）；键盘和设置页每次出现都按文档对齐。文档里的 `touch_voice_shortcut` 是 Android 的工具栏语音按钮，iOS 工具栏不放语音按钮，不镜像它。
   static func mirrorGeometry(_ preferences: [String: Any]?) {
     guard let preferences else { return }
     defaults.set(normalizeQuickPunctuationSymbols(preferences["touch_quick_punctuation_symbols"] as? [String] ?? []),
                  forKey: quickPunctuationSymbolsKey)
+    // 「输入后返回主键盘符号」按文档镜像；共享层空列表不写进文档，缺键与显式清空都当关闭，这里统一写成空数组。
+    defaults.set(normalizeReturnToLettersSymbols(preferences["touch_return_to_letters_symbols"] as? [String] ?? []),
+                 forKey: returnToLettersSymbolsKey)
     if let spacing = sharedKeySpacing(preferences["touch_key_spacing_tenths"]) { keySpacing = spacing }
     if let spacing = sharedRowSpacing(preferences["touch_row_spacing_tenths"]) { rowSpacing = spacing }
     if let adjustment = sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
@@ -219,7 +227,7 @@ enum KeyboardLayoutPreference {
   static func resetGeometry(stateRoot: URL? = nil) -> Bool {
     let written = MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot) { preferences in
       for key in ["touch_key_spacing_tenths", "touch_row_spacing_tenths", "touch_keyboard_height_adjustment",
-                  "touch_quick_punctuation_symbols"] {
+                  "touch_quick_punctuation_symbols", "touch_return_to_letters_symbols"] {
         preferences.removeValue(forKey: key)
       }
     }
@@ -227,6 +235,7 @@ enum KeyboardLayoutPreference {
     resetToDefaults()
     // 「横屏分离式键盘」和间距、高度在 App 的同一页，一起恢复成默认（关）。键盘里的间距面板也调 `resetToDefaults`，那里不显示这个开关，所以不放进上面的列表，免得在键盘里点「恢复默认」把分离式键盘悄悄关掉。
     defaults.removeObject(forKey: quickPunctuationSymbolsKey)
+    defaults.removeObject(forKey: returnToLettersSymbolsKey)
     defaults.removeObject(forKey: tabletSplitKey)
     defaults.removeObject(forKey: phoneLandscapeSplitKey)
     defaults.removeObject(forKey: hideLanguageKeyKey)
@@ -297,6 +306,13 @@ enum KeyboardLayoutPreference {
     get { defaults.object(forKey: letterCornerHintsKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: letterCornerHintsKey) }
   }
+  /// 「显示下滑动作提示」：26 键字母键底部用短名标出这个键下滑会做什么，例如「复制」「123」「左移」。
+  /// 只在「滑动输入符号」开着、而且这个键的下滑真的做了别的动作（不是「无」也不是角标，角标已经画在右上角）时才画。
+  /// 「双拼键位提示」占着同一行，那条提示出现时以它为准。默认开；只存在本机 App Group，与「显示字母键角标」一样不随设置同步。
+  static var letterSwipeHint: Bool {
+    get { defaults.object(forKey: letterSwipeHintKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: letterSwipeHintKey) }
+  }
   /// 三端 26 键默认上滑输入角标，保留用户明确选择的下滑方向；只保存在本机 App Group。
   static var swipeSymbolsDirection: SwipeDirection {
     get { SwipeDirection(rawValue: defaults.string(forKey: swipeSymbolsDirectionKey) ?? "") ?? .up }
@@ -325,6 +341,38 @@ enum KeyboardLayoutPreference {
   /// 文本框按字素收集选项，规范化规则留在共享层。
   static func quickPunctuationSymbols(from text: String) -> [String] {
     normalizeQuickPunctuationSymbols(text.map(String.init))
+  }
+
+  /// 「输入后返回主键盘符号」的符号：在「符」「#+=」等符号键盘上写出这些符号后自动回到字母键盘。空列表（缺省）就是关闭。
+  /// App Group 只缓存共享文档的这一项，规范化与「留空保持为空」的规则都在共享层（`normalize_return_to_letters_symbols`）。
+  static var returnToLettersSymbols: [String] {
+    normalizeReturnToLettersSymbols(defaults.array(forKey: returnToLettersSymbolsKey) as? [String] ?? [])
+  }
+
+  /// 键盘里逐键判定用的清单：打开键盘时 `mirrorGeometry` 已写进规范化后的值，判定不再走一遍共享层的 JSON 往返。
+  static var cachedReturnToLettersSymbols: [String] {
+    defaults.array(forKey: returnToLettersSymbolsKey) as? [String] ?? []
+  }
+
+  @discardableResult
+  static func saveReturnToLettersSymbols(_ symbols: [String], stateRoot: URL? = nil) -> Bool {
+    let normalized = normalizeReturnToLettersSymbols(symbols)
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
+      // 空数组也要写进文档：清空就是关闭，缺键会被当成「还没配过」而回落成默认清单。
+      document["touch_return_to_letters_symbols"] = normalized
+    }) else { return false }
+    defaults.set(normalized, forKey: returnToLettersSymbolsKey)
+    return true
+  }
+
+  /// 桥不可用时按空列表处理：宁可这项功能不生效，也不要拿一份猜出来的清单去切键盘。
+  static func normalizeReturnToLettersSymbols(_ symbols: [String]) -> [String] {
+    ClientRequestEnvelope.call(msimeClientTouchReturnSymbols, ["symbols": symbols]) as? [String] ?? []
+  }
+
+  /// 文本框按字素收集选项，规范化规则留在共享层。
+  static func returnToLettersSymbols(from text: String) -> [String] {
+    normalizeReturnToLettersSymbols(text.map(String.init))
   }
   /// 「单手模式」：手机键盘的按键收窄到 85% 并靠向一侧，另一侧是「换到另一侧」和「退出单手」组成的一列。默认关闭；它只存在本设备的 App Group 里，不进共享文档，iOS 的设置同步也不携带它；Android 的 `platform.android.one_handed` 会同步。无法识别的存储值按关闭处理。
   static var oneHanded: KeyboardOneHandedMode {
@@ -578,6 +626,14 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
   case language
   case cursorLeft
   case cursorRight
+  /// 上屏当前高亮候选下的译文：第一目标语言的第一条义项，不是候选原文。没有候选或还没有译文时什么也不做。
+  case commitTranslation
+  /// 直接切到别的键盘：123 数字九宫格、#+= 符号页、符（分类符号面板）、常用语面板。
+  /// 与点底行的 123、#+= 层的 符、工具栏的常用语走同一条路径，只是不必先回到那一层。
+  case numberPad
+  case moreSymbols
+  case symbolPanel
+  case phrases
   /// 以下对应水杉图标菜单（更多菜单）里的快捷操作，滑动一下即切换或调用。
   case fullWidth
   case chinesePunctuation
@@ -606,6 +662,11 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
     case .language: "切换中英文"
     case .cursorLeft: "光标左移"
     case .cursorRight: "光标右移"
+    case .commitTranslation: "上屏候选译文"
+    case .numberPad: "切换到 123 键盘"
+    case .moreSymbols: "切换到 #+= 键盘"
+    case .symbolPanel: "打开符号面板（符）"
+    case .phrases: "常用语"
     case .fullWidth: "切换全角/半角"
     case .chinesePunctuation: "切换中文标点"
     case .traditional: "切换繁简"
@@ -635,6 +696,11 @@ enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
     case .language: "中英"
     case .cursorLeft: "左移"
     case .cursorRight: "右移"
+    case .commitTranslation: "译文"
+    case .numberPad: "123"
+    case .moreSymbols: "#+="
+    case .symbolPanel: "符"
+    case .phrases: "短语"
     case .fullWidth: "全半角"
     case .chinesePunctuation: "标点"
     case .traditional: "繁简"
@@ -705,9 +771,14 @@ enum LetterSwipePreference {
     all[letter.lowercased()]?[directionKey(direction)]
   }
 
+  /// 用户存过的那条配置；没存过时为 nil。
+  static func configured(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding? {
+    stored(letter: letter, direction: direction)
+  }
+
   /// 实际生效的配置：存过的用它，没存过的按「滑动方向」回落成角标。
   static func binding(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
-    if let stored = stored(letter: letter, direction: direction) { return stored }
+    if let chosen = configured(letter: letter, direction: direction) { return chosen }
     return KeyboardLayoutPreference.swipeSymbolsDirection.covers(direction) ? .symbol : .none
   }
 
@@ -748,6 +819,225 @@ enum LetterSwipePreference {
                       direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
     if let stored = table[letter.lowercased()]?[directionKey(direction)] { return stored }
     return KeyboardLayoutPreference.swipeSymbolsDirection.covers(direction) ? .symbol : .none
+  }
+
+  private static func write(_ table: [String: [String: LetterSwipeBinding]]) {
+    let defaults = KeyboardLayoutPreference.defaults
+    guard !table.isEmpty else {
+      defaults.removeObject(forKey: key)
+      return
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    guard let data = try? encoder.encode(table) else { return }
+    defaults.set(data, forKey: key)
+  }
+}
+
+/// 26 键字母键长按弹出的选项：按住半秒列出这个键能输入的字符，点一项上屏。
+///
+/// 默认只列拼音声调（中文 a/e/i/o/u 各四个；英文同表，另含 ê 与 v、n、m 的音调），字母本身、大写、角标和上下标
+/// 不再列进去——它们短按、Shift 或上滑就能输入。没有声调的键默认不弹，长按回落到「输入角标」。逐键自定义存本机 App Group，
+/// JSON 形如 `{"e":["ē","é","ě","è"]}`；**空数组是「这个键不弹」**（长按回到输入角标），与缺键（跟随默认）不同。
+enum LetterHoldPreference {
+  static let key = "keyboard.gesture.letterHoldOptions"
+  /// 总开关；关闭后长按回到原来「直接输入角标」。
+  static let enabledKey = "keyboard.gesture.letterHoldOptionsEnabled"
+  /// 一个键最多列几项：两行五列，再多会盖住半个键盘。
+  static let maximumCount = 10
+
+  static var enabled: Bool {
+    get { KeyboardLayoutPreference.defaults.object(forKey: enabledKey) as? Bool ?? true }
+    set { KeyboardLayoutPreference.defaults.set(newValue, forKey: enabledKey) }
+  }
+
+  /// 全部已存选项；没有配置或解析失败时为空。
+  static var all: [String: [String]] {
+    guard let data = KeyboardLayoutPreference.defaults.data(forKey: key),
+          let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else {
+      return [:]
+    }
+    return decoded
+  }
+
+  /// 用户给这个键存过的选项；没存过时为 nil（跟随默认）。空数组表示这个键不弹，长按回到输入角标。
+  static func stored(letter: String) -> [String]? {
+    all[letter.lowercased()]
+  }
+
+  /// 这个键长按实际要弹的选项；空表示不弹，按键回落到「长按输入角标」。
+  static func options(letter: String, chinese: Bool, shifted: Bool) -> [String] {
+    guard enabled else { return [] }
+    if let stored = stored(letter: letter) { return normalize(stored) }
+    return defaults(letter: letter, chinese: chinese, shifted: shifted)
+  }
+
+  /// 没有自定义时的默认选项：**只列拼音声调**。
+  ///
+  /// 字母本身、大写、角标和上下标不再列进来——那些短按、Shift 或上滑就能输入，弹窗里再放一遍只是把声调挤到后面。
+  /// 中文只给 a/e/i/o/u 的四个声调；英文用同一张表，另含 ê 与 v、n、m 的音调。没有声调的键（q、w、b…）返回空，
+  /// 长按回落到「输入角标」。`shifted` 保留在签名里给调用方，默认清单不再分大小写。
+  static func defaults(letter: String, chinese: Bool, shifted: Bool) -> [String] {
+    let lower = letter.lowercased()
+    guard lower.count == 1, let character = lower.first else { return [] }
+    guard let tones = chinese ? mandarinTones[character] : extendedTones[character] else { return [] }
+    return normalize(tones.map(String.init))
+  }
+
+  /// 单字素、去重、最多 `maximumCount` 项；空白和控制字符丢掉。组合 emoji 算一个字素。
+  static func normalize(_ options: [String]) -> [String] {
+    var normalized: [String] = []
+    for option in options {
+      let value = option.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard value.count == 1,
+            !value.unicodeScalars.contains(where: {
+              CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0)
+            }),
+            !normalized.contains(value) else { continue }
+      normalized.append(value)
+      if normalized.count == maximumCount { break }
+    }
+    return normalized
+  }
+
+  /// 写入一个键的选项；空数组照原样存下去表示「不弹」，不能被当成没配过。
+  static func set(_ options: [String], letter: String) {
+    var table = all
+    table[letter.lowercased()] = normalize(options)
+    write(table)
+  }
+
+  /// 恢复一个键的默认选项。
+  static func clear(letter: String) {
+    var table = all
+    table.removeValue(forKey: letter.lowercased())
+    write(table)
+  }
+
+  /// 恢复全部 26 键。
+  static func reset() {
+    KeyboardLayoutPreference.defaults.removeObject(forKey: key)
+  }
+
+  static var hasCustomOptions: Bool { !all.isEmpty }
+
+  /// 中文模式只给 a/e/i/o/u 的四个声调；用户没要求 ü、n、m。
+  private static let mandarinTones: [Character: String] = [
+    "a": "āáǎà", "e": "ēéěè", "i": "īíǐì", "o": "ōóǒò", "u": "ūúǔù",
+  ]
+
+  /// 英文模式与 Android 的 `EnglishLetterHoldPolicy` 同一张表：e 多一个 ê，v 给 ü，n/m 给声调。
+  private static let extendedTones: [Character: String] = [
+    "a": "āáǎà", "e": "êēéěè", "i": "īíǐì", "o": "ōóǒò", "u": "ūúǔù",
+    "v": "üǖǘǚǜ", "n": "ńňǹ", "m": "ḿ",
+  ]
+
+  private static func write(_ table: [String: [String]]) {
+    let defaults = KeyboardLayoutPreference.defaults
+    guard !table.isEmpty else {
+      defaults.removeObject(forKey: key)
+      return
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    guard let data = try? encoder.encode(table) else { return }
+    defaults.set(data, forKey: key)
+  }
+}
+
+/// 底行那些按键的上滑、下滑配置。与 26 键字母不同，这些键本来就没有上下滑动作，
+/// 所以默认全是「无」，只有一个例外：空格上滑上屏当前候选下的译文。
+/// 123 / ABC 键（上滑已打开 #+=）、⌫（上滑清空）、地球键（交给系统的键盘切换）不在这张表里。
+enum BottomKeySwipeKey: String, CaseIterable, Identifiable {
+  case space
+  case language
+  case symbols
+  case emoji
+  case enter
+  case punctuation
+  case period
+
+  var id: String { rawValue }
+
+  /// 设置页那一行的标题。
+  var title: String {
+    switch self {
+    case .space: "空格键"
+    case .language: "中/英键"
+    case .symbols: "符号键（符）"
+    case .emoji: "表情键"
+    case .enter: "回车键"
+    case .punctuation: "常用标点键"
+    case .period: "句号键"
+    }
+  }
+}
+
+/// 每个底行按键上滑、下滑的配置，存本机 App Group（不随设置同步，与字母键的逐键动作一样）。
+/// JSON 形如 `{"space":{"up":{"action":"commitTranslation"}}}`；缺的键、坏的值都回落到默认。
+enum BottomKeySwipePreference {
+  static let key = "keyboard.gesture.bottomKeySwipeBindings"
+
+  /// 全部已存配置；没有配置或解析失败时为空。
+  static var all: [String: [String: LetterSwipeBinding]] {
+    guard let data = KeyboardLayoutPreference.defaults.data(forKey: key),
+          let decoded = try? JSONDecoder().decode([String: [String: LetterSwipeBinding]].self, from: data) else {
+      return [:]
+    }
+    return decoded
+  }
+
+  /// 用户单独存过的那条配置；没存过时为 nil。
+  static func stored(key: BottomKeySwipeKey, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding? {
+    all[key.rawValue]?[LetterSwipePreference.directionKey(direction)]
+  }
+
+  /// 出厂默认：空格上滑上屏候选译文，其余键、其余方向都是「无」。
+  static func defaultBinding(key: BottomKeySwipeKey,
+                             direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    key == .space && direction == .up ? LetterSwipeBinding(action: .commitTranslation) : .none
+  }
+
+  /// 实际生效的配置：存过的用它，没存过的按出厂默认。
+  static func binding(key: BottomKeySwipeKey,
+                      direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    stored(key: key, direction: direction) ?? defaultBinding(key: key, direction: direction)
+  }
+
+  /// 写入一条配置；`binding` 为 nil 时删掉这一条，回到出厂默认。
+  /// 空格上滑的「无」要照原样存下去才压得住默认的「上屏译文」，不能当成没配过。
+  static func set(_ binding: LetterSwipeBinding?, key: BottomKeySwipeKey,
+                  direction: KeyboardLayoutPreference.SwipeDirection) {
+    var table = all
+    var directions = table[key.rawValue] ?? [:]
+    if let binding {
+      directions[LetterSwipePreference.directionKey(direction)] = binding
+    } else {
+      directions.removeValue(forKey: LetterSwipePreference.directionKey(direction))
+    }
+    if directions.isEmpty { table.removeValue(forKey: key.rawValue) } else { table[key.rawValue] = directions }
+    write(table)
+  }
+
+  /// 恢复一个键的两个方向。
+  static func clear(key: BottomKeySwipeKey) {
+    var table = all
+    table.removeValue(forKey: key.rawValue)
+    write(table)
+  }
+
+  /// 恢复全部底行按键。
+  static func reset() {
+    KeyboardLayoutPreference.defaults.removeObject(forKey: key)
+  }
+
+  /// 键盘读一次配置时用，省得每次手势都解一遍 JSON。
+  static func load() -> [String: [String: LetterSwipeBinding]] { all }
+
+  /// 从已读出的表里取一条，语义与 `binding(key:direction:)` 相同。
+  static func binding(in table: [String: [String: LetterSwipeBinding]], key: BottomKeySwipeKey,
+                      direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    table[key.rawValue]?[LetterSwipePreference.directionKey(direction)] ?? defaultBinding(key: key, direction: direction)
   }
 
   private static func write(_ table: [String: [String: LetterSwipeBinding]]) {

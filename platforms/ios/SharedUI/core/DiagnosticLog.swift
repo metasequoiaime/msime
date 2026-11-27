@@ -130,6 +130,17 @@ extension DiagnosticLog {
   struct MemorySample: Equatable {
     let footprint: UInt64
     let available: UInt64
+    /// 启动以来的峰值物理占用，取 `task_vm_info.ledger_phys_footprint_peak`；取不到时为 0。
+    ///
+    /// 日志行里不写它（行内字段保持 `mem=`、`avail=` 两项，老日志的解析不用改），只有双击品牌键弹出的
+    /// 读数气泡（`KeyboardMemoryBubble`）显示峰值：键盘进程一活好几天，内存警告前后的高水位比当前值更能说明问题。
+    let peak: UInt64
+
+    init(footprint: UInt64, available: UInt64, peak: UInt64 = 0) {
+      self.footprint = footprint
+      self.available = available
+      self.peak = peak
+    }
 
     static func current() -> MemorySample {
       var info = task_vm_info_data_t()
@@ -140,7 +151,8 @@ extension DiagnosticLog {
         }
       }
       return MemorySample(footprint: result == KERN_SUCCESS ? info.phys_footprint : 0,
-                          available: UInt64(os_proc_available_memory()))
+                          available: UInt64(os_proc_available_memory()),
+                          peak: result == KERN_SUCCESS ? UInt64(max(0, info.ledger_phys_footprint_peak)) : 0)
     }
 
     /// 字节数向下取整到 MiB。

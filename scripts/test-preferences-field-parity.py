@@ -37,6 +37,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "keyboard_reranker_migrated",
         # 快捷符号当前只有 iOS 原生设置页提供编辑，其他宿主保留共享字段，不在 React 设置页重复增加入口。
         "touch_quick_punctuation_symbols",
+        # 「输入后返回主键盘」只在 iOS 原生键盘页提供编辑，其他宿主没有这组符号页，React 设置页不显示。
+        "touch_return_to_letters_symbols",
         # 日语九键连点切换只在 Android 原生输入设置页提供，其他宿主保留共享字段，React 设置页不显示。
         "touch_japanese_toggle_input",
         # 文本编辑触控板仅由 Android 原生设置页呈现，其他宿主保留文档字段，不在 React 页提供无效入口。

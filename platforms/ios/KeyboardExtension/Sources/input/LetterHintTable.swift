@@ -183,3 +183,18 @@ struct NineKeySwipeTracker: Equatable {
     return gesture
   }
 }
+
+/// 「全选」在 iOS 上只能退而求其次：真正的高亮要把正文改成组字再全选组字区，得先逐字删掉原文再写回，
+/// 长文会很慢，宿主的撤销记录也会断在这里。所以只有短文本、而且光标已经在末尾（光标后还有内容时，
+/// 一次 `adjustTextPosition` 挪不到真正的末尾，删除范围不可信）才做重绘，其余只把全文记进缓存，
+/// 让紧接的复制、剪切仍然可用。
+///
+/// 重绘之前还会先把文字读一遍：宿主不支持组字时 `setMarkedText` 只会原样插回，读回来对不上就退回缓存方案。
+enum SelectAllPolicy {
+  /// 组字重绘的字数上限。
+  static let remarkLimit = 500
+
+  static func canRemark(documentLength: Int, caretAtEnd: Bool) -> Bool {
+    caretAtEnd && documentLength > 0 && documentLength <= remarkLimit
+  }
+}

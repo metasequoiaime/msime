@@ -121,6 +121,76 @@ final class KeyboardMemoryTests: XCTestCase {
     XCTAssertTrue(line.hasPrefix("keyboard_loaded full_access=1 idiom=phone "))
   }
 
+  // MARK: - 双击品牌键的内存读数气泡
+
+  /// 一行三个读数：占用、余量、峰值，都带一位小数；系统没给余量时写「未知」，峰值不会比占用小。
+  func testMemoryBubbleReadsOutFootprintAvailableAndPeak() {
+    XCTAssertEqual(
+      KeyboardMemoryBubble.text(for: DiagnosticLog.MemorySample(
+        footprint: 41 * 1024 * 1024 + 200_000, available: 12 * 1024 * 1024, peak: 48 * 1024 * 1024)),
+      "占用 41.2 MiB · 余量 12.0 MiB · 峰值 48.0 MiB")
+    XCTAssertEqual(
+      KeyboardMemoryBubble.text(for: DiagnosticLog.MemorySample(footprint: 0, available: 0)),
+      "占用 0.0 MiB · 余量 未知 · 峰值 0.0 MiB")
+    // 系统取不到峰值（`ledger_phys_footprint_peak` 读失败）时按当前占用算。
+    XCTAssertEqual(
+      KeyboardMemoryBubble.text(for: DiagnosticLog.MemorySample(
+        footprint: 3 * 1024 * 1024, available: 1024, peak: 0)),
+      "占用 3.0 MiB · 余量 0.0 MiB · 峰值 3.0 MiB")
+    XCTAssertEqual(KeyboardMemoryBubble.mebibytes(1024 * 512), "0.5 MiB")
+    XCTAssertEqual(KeyboardMemoryBubble.mebibytes(1000), "0.0 MiB")
+  }
+
+  /// 到点自己消失，点气泡外那一下也消失；两者都只回调一次 `onDismiss`。
+  func testMemoryBubbleDismissesOnTimeoutAndOutsideTap() {
+    let container = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 300))
+    var dismissed = 0
+    // 关掉动画，淡出不占时间，两条路径都只等 0.2 秒。
+    UIView.setAnimationsEnabled(false)
+    defer { UIView.setAnimationsEnabled(true) }
+
+    let tapped = KeyboardMemoryBubble(sample: DiagnosticLog.MemorySample(footprint: 1, available: 1),
+                                      autoDismissAfter: 60)
+    tapped.onDismiss = { dismissed += 1 }
+    container.addSubview(tapped)
+    tapped.catcher.sendActions(for: .touchDown)
+    // 摘掉视图那一步在淡出的完成回调里，等它跑完再断言，不赌它是不是同步。
+    let tappedOut = expectation(description: "bubble dismisses on an outside tap")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { tappedOut.fulfill() }
+    wait(for: [tappedOut], timeout: 2)
+    XCTAssertEqual(dismissed, 1)
+    XCTAssertNil(tapped.superview)
+    // 再关一次什么也不做。
+    tapped.dismiss()
+    XCTAssertEqual(dismissed, 1)
+
+    let timed = KeyboardMemoryBubble(sample: DiagnosticLog.MemorySample(footprint: 1, available: 1),
+                                     autoDismissAfter: 0.05)
+    timed.onDismiss = { dismissed += 1 }
+    container.addSubview(timed)
+    let timedOut = expectation(description: "bubble dismisses itself")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { timedOut.fulfill() }
+    wait(for: [timedOut], timeout: 2)
+    XCTAssertEqual(dismissed, 2)
+    XCTAssertNil(timed.superview)
+  }
+
+  /// 品牌键上挂着双击识别器，长按那条路（编辑工具栏）不受影响。两个识别器都显式关掉 `delaysTouchesEnded`：
+  /// UIKit 默认是 true，会扣住按钮抬手等双击判定，单击菜单因此慢两百多毫秒（用户实测反馈）。
+  func testBrandKeyCarriesTheDoubleTap() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    let logo = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "moreShortcut" })
+    let gestures = logo.gestureRecognizers ?? []
+    let taps = gestures.compactMap { $0 as? UITapGestureRecognizer }
+    let doubleTap = try XCTUnwrap(taps.first { $0.numberOfTapsRequired == 2 && $0.name == "brandDoubleTap" })
+    XCTAssertFalse(doubleTap.delaysTouchesEnded, "单击菜单不能等双击判定")
+    XCTAssertFalse(doubleTap.delaysTouchesBegan)
+    let hold = try XCTUnwrap(gestures.first { $0.name == "toolbarEditorHold" })
+    XCTAssertFalse(hold.delaysTouchesEnded, "长按也不能扣住单击的抬手")
+  }
+
   // MARK: - 内存警告与组字
 
   /// 点候选条上的第 `number` 个词块（从 1 数起）。
