@@ -247,6 +247,7 @@ fn quick_phrase_session(
     options.quick_phrase_table = vec![crate::types::QuickPhraseEntry {
         key: raw.into(),
         text: "合成快捷短语".into(),
+        position: None,
     }];
     options.frequency = crate::FrequencyAdjustmentOptions {
         mode,

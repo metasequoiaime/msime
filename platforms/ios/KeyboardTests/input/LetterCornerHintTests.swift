@@ -103,6 +103,74 @@ final class LetterCornerHintTests: XCTestCase {
     XCTAssertEqual(cornerLabel(of: q)?.isHidden, true)
   }
 
+  /// 双拼键位提示和右上角的上滑符号同时画着时，字母上下各让出一条提示行的 11pt：只让下边距的话，
+  /// 22pt 字母会在 44pt 键上整体上移 5.5pt，字顶从 14.2 抬到 8.7，钻进 10pt 角标的字底（约 12.5）。
+  func testShuangpinHintKeepsTheLetterClearOfTheCornerSymbol() throws {
+    let q = try shuangpinLetterKey()
+    let hint = try XCTUnwrap(q.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 })
+    XCTAssertFalse(hint.isHidden, "the double-pinyin hint is drawn")
+    XCTAssertEqual(try XCTUnwrap(cornerLabel(of: q)).isHidden, false)
+
+    XCTAssertEqual(q.configuration?.contentInsets.top, 11)
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 11, "上下一样多，字母仍落在按键中心")
+
+    // 字顶在角标字底之下：角标距上边 3pt，10pt 字体的字底就是基线（上边到 ascent）。
+    let letter = UIFont.systemFont(ofSize: KeyboardViewController.letterFontSize(.phone))
+    let capTop = q.bounds.height / 2 - letter.capHeight / 2
+    let corner = try XCTUnwrap(cornerLabel(of: q)?.font)
+    XCTAssertGreaterThan(capTop, 3 + corner.ascender, "字母压进了右上角的上滑符号")
+  }
+
+  /// 角标关掉（或本来就没有）时不占那一条：字母只为底部的双拼提示让位，不留一段空白的上边距。
+  func testTheCornerBandGoesAwayWithTheCornerSymbol() throws {
+    let q = try shuangpinLetterKey(cornerHints: false)
+    XCTAssertEqual(try XCTUnwrap(cornerLabel(of: q)).isHidden, true)
+    XCTAssertEqual(q.configuration?.contentInsets.top, 0)
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 11)
+  }
+
+  /// 手机横屏的键只有 34pt：上下都让 11pt 只剩 12pt，22pt 字母会被挤到下面那条提示上，
+  /// 所以那里仍然只让下边距。
+  func testPhoneLandscapeKeepsOnlyTheBottomHintBand() throws {
+    let storedHints = KeyboardLayoutPreference.shuangpinKeyHints
+    let storedCorner = KeyboardLayoutPreference.letterCornerHints
+    let previousScheme = InputSchemePreference.scheme
+    addTeardownBlock {
+      KeyboardLayoutPreference.shuangpinKeyHints = storedHints
+      KeyboardLayoutPreference.letterCornerHints = storedCorner
+      InputSchemePreference.scheme = previousScheme
+    }
+    KeyboardLayoutPreference.shuangpinKeyHints = true
+    KeyboardLayoutPreference.letterCornerHints = true
+    InputSchemePreference.scheme = .shuangpin
+    let controller = KeyboardViewController()
+    controller.traitOverrides.verticalSizeClass = .compact
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 844, height: 200)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    let q = try key(labelled: "字母 Q", in: controller)
+    XCTAssertEqual(q.configuration?.contentInsets.top, 0)
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 11)
+  }
+
+  /// 双拼方案下字母键带着引擎给的键位提示、角标按开关画：返回 Q 键。
+  private func shuangpinLetterKey(cornerHints: Bool = true) throws -> KeyboardKeyButton {
+    let storedHints = KeyboardLayoutPreference.shuangpinKeyHints
+    let storedCorner = KeyboardLayoutPreference.letterCornerHints
+    addTeardownBlock {
+      KeyboardLayoutPreference.shuangpinKeyHints = storedHints
+      KeyboardLayoutPreference.letterCornerHints = storedCorner
+    }
+    KeyboardLayoutPreference.shuangpinKeyHints = true
+    KeyboardLayoutPreference.letterCornerHints = cornerHints
+    let controller = makeController(.shuangpin)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    return try key(labelled: "字母 Q", in: controller)
+  }
+
   func testCornerSymbolFinishesTheCompositionInsteadOfJoiningIt() throws {
     let controller = makeController(.quanpin)
     controller.viewWillAppear(false)
@@ -168,5 +236,136 @@ final class LetterCornerHintTests: XCTestCase {
     controller.viewWillAppear(false)
     XCTAssertEqual(cornerLabel(of: q)?.isHidden, true)
     XCTAssertEqual(q.cornerHint, "1")
+  }
+
+  // MARK: - 每键上下滑
+
+  /// 字母键两个方向各判一次：严格超过 14pt 才算，方向互斥；14/18 键还要求纵向占优。
+  func testLetterSwipeDirectionPicksUpOrDown() {
+    let down = CGPoint(x: 100, y: 100)
+    XCTAssertNil(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 86)), "14pt 不算")
+    XCTAssertEqual(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 85)), .up)
+    XCTAssertEqual(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 115)), .down)
+    XCTAssertNil(LetterSwipePolicy.direction(down: down, current: CGPoint(x: 100, y: 100)), "没动")
+    XCTAssertNil(LetterSwipePolicy.direction(down: down, current: CGPoint(x: CGFloat.nan, y: 0)), "非有限值")
+    // 横向为主的斜滑在 14/18 键上不算纵向滑动；26 键没有这条限制。
+    let diagonal = CGPoint(x: 160, y: 80)
+    XCTAssertNil(LetterSwipePolicy.direction(down: down, current: diagonal, requiresVerticalDominance: true))
+    XCTAssertEqual(LetterSwipePolicy.direction(down: down, current: diagonal), .up)
+  }
+
+  /// 没单独配置的键按「滑动方向」回落：那个方向是角标，另一边不接；显式存下的「无」要压住默认。
+  func testLetterSwipeBindingsFallBackToTheDirectionSetting() {
+    let defaults = KeyboardLayoutPreference.defaults
+    let name = LetterSwipePreference.key
+    let storedDirection = defaults.string(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey)
+    let storedTable = defaults.data(forKey: name)
+    addTeardownBlock {
+      if let storedDirection { defaults.set(storedDirection, forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      if let storedTable { defaults.set(storedTable, forKey: name) } else { defaults.removeObject(forKey: name) }
+    }
+    LetterSwipePreference.reset()
+    KeyboardLayoutPreference.swipeSymbolsDirection = .up
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .symbol)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .down).action, .none)
+
+    KeyboardLayoutPreference.swipeSymbolsDirection = .down
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .down).action, .symbol)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .none)
+
+    // 「上滑+下滑」：两个方向都回落成角标。
+    KeyboardLayoutPreference.swipeSymbolsDirection = .both
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .symbol)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .down).action, .symbol)
+
+    // 显式把上滑改成「无」：存下去，不再回落成角标。
+    LetterSwipePreference.set(LetterSwipeBinding(action: .none), letter: "q", direction: .up)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "q", direction: .up).action, .none)
+    // 这里的期望值必须写全 `LetterSwipeAction.none`：左边是 `LetterSwipeAction?`，裸写 `.none`
+    // 会被解析成 `Optional.none`（即 nil），拿 some(.none) 去和 nil 比，断言必错。
+    XCTAssertEqual(LetterSwipePreference.stored(letter: "q", direction: .up)?.action, LetterSwipeAction.none)
+
+    LetterSwipePreference.set(LetterSwipeBinding(action: .paste), letter: "v", direction: .down)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .down).action, .paste)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "V", direction: .down).action, .paste, "大小写同一个键")
+    // 此时「滑动方向」已是 .both（上文第 278 行设置），v 的上滑没单独配过，
+    // 所以按 .both 回落成角标，而不是 .none。
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .up).action, .symbol,
+                   "另一个方向仍按「滑动方向」回落成角标")
+
+    LetterSwipePreference.set(LetterSwipeBinding(action: .text, text: "hi@example.com"), letter: "v", direction: .up)
+    XCTAssertEqual(LetterSwipePreference.binding(letter: "v", direction: .up).trimmedText, "hi@example.com")
+    XCTAssertTrue(LetterSwipePreference.binding(letter: "v", direction: .up).isActive)
+
+    // 选了自定义文本却没填：这条配置不算数，滑动不做事。
+    LetterSwipePreference.set(LetterSwipeBinding(action: .text, text: "   "), letter: "v", direction: .up)
+    XCTAssertFalse(LetterSwipePreference.binding(letter: "v", direction: .up).isActive)
+
+    LetterSwipePreference.clear(letter: "v")
+    XCTAssertNil(LetterSwipePreference.stored(letter: "v", direction: .down))
+  }
+
+  /// 列表行把「角标符号」写成真实符号：没给符号时回落成「角标符号」，给了就带上（如 Q 键「角标符号 1」）。
+  func testLetterSwipeSummaryShowsTheRealHintSymbol() {
+    XCTAssertEqual(LetterSwipeBinding(action: .symbol).summary(), "角标符号")
+    XCTAssertEqual(LetterSwipeBinding(action: .symbol).summary(symbol: "1"), "角标符号 1")
+    XCTAssertEqual(LetterSwipeBinding(action: .paste).summary(symbol: "1"), "粘贴")
+    XCTAssertEqual(LetterSwipeBinding(action: .text, text: "hi@example.com").summary(symbol: "1"), "文本：hi@example.com")
+  }
+
+  /// 预览图键面徽标用短名：动作本身，不写方向，长名字压缩（复制选中文字 → 复制）。
+  func testLetterSwipeShortTitleAbbreviatesForBadges() {
+    XCTAssertEqual(LetterSwipeAction.copy.shortTitle(), "复制")
+    XCTAssertEqual(LetterSwipeAction.cut.shortTitle(), "剪切")
+    XCTAssertEqual(LetterSwipeAction.paste.shortTitle(), "粘贴")
+    XCTAssertEqual(LetterSwipeAction.clipboard.shortTitle(), "剪贴板")
+    XCTAssertEqual(LetterSwipeAction.language.shortTitle(), "中英")
+    XCTAssertEqual(LetterSwipeAction.cursorLeft.shortTitle(), "左移")
+    XCTAssertEqual(LetterSwipeAction.symbol.shortTitle(symbol: "1"), "1")
+    XCTAssertEqual(LetterSwipeAction.text.shortTitle(), "文本")
+    // 水杉图标菜单的快捷操作也进了选项，徽标用短名。
+    XCTAssertEqual(LetterSwipeAction.fullWidth.shortTitle(), "全半角")
+    XCTAssertEqual(LetterSwipeAction.chinesePunctuation.shortTitle(), "标点")
+    XCTAssertEqual(LetterSwipeAction.traditional.shortTitle(), "繁简")
+    XCTAssertEqual(LetterSwipeAction.handwriting.shortTitle(), "手写")
+    XCTAssertEqual(LetterSwipeAction.oneHand.shortTitle(), "单手")
+    XCTAssertEqual(LetterSwipeAction.incognito.shortTitle(), "隐私")
+    XCTAssertEqual(LetterSwipeAction.emoji.shortTitle(), "表情")
+    XCTAssertEqual(LetterSwipeAction.aiAssist.shortTitle(), "润色")
+    XCTAssertEqual(LetterSwipeAction.reply.shortTitle(), "回复")
+    XCTAssertEqual(LetterSwipeAction.voiceInput.shortTitle(), "语音")
+  }
+
+  /// 控制器把每键的上滑、下滑配置交给按键；总开关关掉后两个方向都不接。
+  func testLetterKeyCarriesBothDirectionsFromThePerKeyTable() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let storedTable = defaults.data(forKey: LetterSwipePreference.key)
+    let storedSymbols = defaults.object(forKey: KeyboardLayoutPreference.swipeSymbolsKey)
+    let storedDirection = defaults.string(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey)
+    addTeardownBlock {
+      if let storedTable { defaults.set(storedTable, forKey: LetterSwipePreference.key) }
+      else { defaults.removeObject(forKey: LetterSwipePreference.key) }
+      if let storedSymbols { defaults.set(storedSymbols, forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsKey) }
+      if let storedDirection { defaults.set(storedDirection, forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+      else { defaults.removeObject(forKey: KeyboardLayoutPreference.swipeSymbolsDirectionKey) }
+    }
+    LetterSwipePreference.reset()
+    KeyboardLayoutPreference.swipeSymbolsDirection = .up
+    KeyboardLayoutPreference.swipeSymbols = true
+    LetterSwipePreference.set(LetterSwipeBinding(action: .paste), letter: "v", direction: .down)
+
+    let controller = makeController(.quanpin)
+    controller.viewWillAppear(false)
+    let v = try key(labelled: "字母 V", in: controller)
+    XCTAssertEqual(v.swipeActions?(.up), .symbol)
+    XCTAssertEqual(v.swipeActions?(.down), .paste)
+    XCTAssertNotNil(v.onSwipeAction)
+
+    KeyboardLayoutPreference.swipeSymbols = false
+    controller.viewWillAppear(false)
+    XCTAssertNil(v.swipeActions?(.up), "总开关关着时两个方向都不接")
+    XCTAssertNil(v.swipeActions?(.down))
   }
 }

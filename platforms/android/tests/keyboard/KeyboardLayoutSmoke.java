@@ -1,4 +1,5 @@
 import app.msime.android.InputSchemeTraits;
+import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardLayout;
 import app.msime.android.LetterKeyFacePolicy;
@@ -112,7 +113,16 @@ public final class KeyboardLayoutSmoke {
             && bottom.get(2).kind() == KeyboardLayout.LayerKeyKind.PUNCTUATION_TOGGLE);
         float total = 0;
         for (KeyboardLayout.LayerKey key : bottom) total += key.weight();
-        check(Math.abs(total - 10.2f) < 1e-4);
+        check(Math.abs(total - KeyboardActionRow.ROW_SHARES) < 1e-4);
+        // 三排符号和底行都合计 10 份，与字母层同一套份额：#+= 和 ⌫ 在 ⇧、⌫ 的位置，返回在 123 的位置、回车在 ⌫ 下面。
+        for (List<KeyboardLayout.LayerKey> row : number) {
+            float sum = 0;
+            for (KeyboardLayout.LayerKey key : row) sum += key.weight();
+            check(Math.abs(sum - KeyboardActionRow.ROW_SHARES) < 1e-4);
+        }
+        check(number.get(2).get(0).weight() == KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT
+            && bottom.get(0).weight() == KeyboardActionRow.DESIGN_LAYER_WEIGHT
+            && bottom.get(4).weight() == KeyboardActionRow.DESIGN_RETURN_WEIGHT);
         // 直角引号样式下中文 123 层的两个引号键是「」，其余不变；中文标点关着时仍是英文版。
         List<List<KeyboardLayout.LayerKey>> corner = KeyboardLayout.numberLayer(true, true, true);
         check(texts(corner.get(1)).equals(List.of("-", "/", "：", "；", "（", "）", "¥", "@", "「", "」")));

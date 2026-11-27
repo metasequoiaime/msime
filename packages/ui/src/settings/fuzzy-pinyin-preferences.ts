@@ -32,6 +32,7 @@ export const fuzzyPinyinGroups: [string, [string, string][]][] = [
     [
       ["ian-iang", "ian ↔ iang"],
       ["uan-uang", "uan ↔ uang"],
+      ["un-ong", "un ↔ ong"],
     ],
   ],
 ];

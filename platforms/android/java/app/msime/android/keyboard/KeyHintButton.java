@@ -90,6 +90,11 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (hintText.equals(next)) return;
         hintText = next;
+        // 键组里的键：内容域早已为提示留了位置，换提示只重画（见 KeyFaceGroup）。
+        if (faceGroup() != null) {
+            faceTextChanged(KeyFaceSlot.BOTTOM, next);
+            return;
+        }
         updateHintInsets();
         invalidate();
     }
@@ -105,6 +110,10 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = TextPolicy.emptyIfNull(value);
         if (cornerHint.equals(next)) return;
         cornerHint = next;
+        if (faceGroup() != null) {
+            faceTextChanged(KeyFaceSlot.TOP_RIGHT, next);
+            return;
+        }
         updateHintInsets();
         invalidate();
     }
@@ -115,12 +124,17 @@ public class KeyHintButton extends KeyboardPressButton {
     public final void setGridFace(boolean value) {
         if (gridFace == value) return;
         gridFace = value;
+        if (faceGroup() != null) return;
         updateHintInsets();
         invalidate();
     }
 
     /** 带提示的键面字号由 {@link #updateHintInsets(int, int)} 按键收过；工厂随后指定的字号记成新的基准，再按它重收。 */
     @Override public void setTextSize(int unit, float size) {
+        if (faceGroup() != null) {
+            super.setTextSize(unit, size);
+            return;
+        }
         if (unhintedTextSize > 0) {
             unhintedTextSize = TypedValue.applyDimension(unit, size,
                 getResources().getDisplayMetrics());
@@ -136,6 +150,10 @@ public class KeyHintButton extends KeyboardPressButton {
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (faceGroup() != null) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            return;
+        }
         int width = MeasureSpec.getSize(widthMeasureSpec);
         int height = MeasureSpec.getSize(heightMeasureSpec);
         if ((!hintText.isEmpty() || !cornerHint.isEmpty() || gridFace) && (hintWidth != width || hintHeight != height))
@@ -286,6 +304,25 @@ public class KeyHintButton extends KeyboardPressButton {
 
     public final String cornerHint() { return cornerHint; }
 
+    /** 底部的双拼提示；不画时为空串。 */
+    public final String hintText() { return hintText; }
+
+    @Override public String faceText(KeyFaceSlot slot) {
+        return switch (slot) {
+            case TOP_RIGHT -> cornerHint;
+            case BOTTOM -> hintText;
+            default -> super.faceText(slot);
+        };
+    }
+
+    @Override protected int faceColor(KeyFaceSlot slot) {
+        return switch (slot) {
+            case TOP_RIGHT -> cornerHintColor;
+            case BOTTOM -> hintColor;
+            default -> super.faceColor(slot);
+        };
+    }
+
     public final void setCornerHintColor(int color) {
         if (cornerHintColor == color) return;
         cornerHintColor = color;
@@ -294,7 +331,8 @@ public class KeyHintButton extends KeyboardPressButton {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (getWidth() <= 0 || getHeight() <= 0) return;
+        // 键组里的键：提示也由 KeyFaceRenderer 画。
+        if (faceGroup() != null || getWidth() <= 0 || getHeight() <= 0) return;
         if (!cornerHint.isEmpty()) drawCornerHint(canvas);
         if (!hintText.isEmpty()) drawBottomHint(canvas);
     }

@@ -30,7 +30,7 @@ struct KeyboardVoiceView: View {
                 .font(.caption).foregroundStyle(.secondary)
             } else {
               Text("请在水杉 App 的“语音设置”中录音识别，点击“发送到键盘”，再返回这里插入。")
-              Text("iOS 键盘不能直接录音。结果只保留最新一条，10 分钟内有效。")
+              Text("结果只保留最新一条，10 分钟内有效。")
                 .font(.footnote).foregroundStyle(.secondary)
             }
           }

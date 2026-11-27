@@ -39,31 +39,46 @@ void session_cases(const std::string &options, bool japanese) {
   std::string raw, error;
   require(msime::tsf::create_host_session(tip, options, "", &error), "TIP create");
   require(tip.focus(true, &raw, &error), "TIP focus");
+  // 中文方案的标点表里只有间隔号，`~`、`/` 交回宿主按全半角投影；日语方案走契约的日文标点表（#11839，
+  // `shared/contracts/punctuation/policy.json` 的 `japanese`），`~` 出「〜」、`/` 出「・」，表里没有的反引号仍交回宿主。
+  struct PunctuationCase {
+    uint8_t key;
+    const char *projected;  // 全角状态下宿主投影出的字面标点
+    const char *chinese;    // 中文方案上屏的字，nullptr 表示交回宿主
+    const char *japanese;   // 日语方案上屏的字，nullptr 表示交回宿主
+  };
+  const PunctuationCase punctuation[] = {
+      {'~', "～", nullptr, "〜"},
+      {'`', "｀", "·", nullptr},
+      {'/', "／", nullptr, "・"},
+  };
   for (bool fullwidth : {false, true, false}) {
     phase = "set width";
     server.set_character_width(1, fullwidth);
     require(tip.character_width(fullwidth, &raw, &error), "TIP width update");
     require(server.view().at("character_width") == (fullwidth ? "Fullwidth" : "Halfwidth"), "Server width view");
-    // 无中文映射的标点由宿主投影宽度；中文间隔号保持原有语义。
-    for (auto symbol : {std::pair<uint8_t, const char *>{'~', "～"}, {'`', "·"}, {'/', "／"}}) {
+    for (const auto &symbol : punctuation) {
       FanyImeNamedpipeData packet{};
       packet.client_id = 42;
       packet.event_type = FanyImePipeEventType::KeyEvent;
       packet.request_id = 2;
-      packet.wch = symbol.first;
-      packet.keycode = symbol.first == '/' ? 0xBF : 0xC0;
-      packet.modifiers_down = symbol.first == '~' ? 1u : 0u;
+      packet.wch = symbol.key;
+      packet.keycode = symbol.key == '/' ? 0xBF : 0xC0;
+      packet.modifiers_down = symbol.key == '~' ? 1u : 0u;
       phase = "punctuation";
       auto committed = server.punctuation(packet, 1).transition.at("commit");
-      const std::string expected = symbol.first == '`' ? "·" : fullwidth ? symbol.second : std::string(1, static_cast<char>(symbol.first));
-      require(tip.punctuation(symbol.first, &raw, &error), "TIP punctuation");
-      if (symbol.first != '`') {
-        // 无中文映射时共享会话让宿主输出字面标点，预取路径必须另行投影宽度。
-        require(committed.is_null() && tip_result(raw).at("commit").is_null(), "unmapped punctuation stays with host");
-        require((fullwidth ? fullwidth_ascii_text(std::string(1, static_cast<char>(symbol.first))) : expected) == expected, "prefetched punctuation width");
-      } else {
+      const char *chosen = japanese ? symbol.japanese : symbol.chinese;
+      require(tip.punctuation(symbol.key, &raw, &error), "TIP punctuation");
+      if (chosen != nullptr) {
+        const std::string expected(chosen);
         require(committed == expected, "Server punctuation width");
         require(tip_result(raw).at("commit") == expected, "TIP punctuation width");
+      } else {
+        // 无映射时共享会话让宿主输出字面标点，预取路径必须另行投影宽度。
+        require(committed.is_null() && tip_result(raw).at("commit").is_null(), "unmapped punctuation stays with host");
+        const std::string literal(1, static_cast<char>(symbol.key));
+        const std::string expected = fullwidth ? symbol.projected : literal;
+        require((fullwidth ? fullwidth_ascii_text(literal) : literal) == expected, "prefetched punctuation width");
       }
     }
     phase = "letters";
@@ -141,10 +156,11 @@ int main() {
       require(msime::tsf::create_host_session(tip, options.dump(), "", &error, true), "command TIP create");
       require(tip.focus(true, &raw, &error), "command TIP focus");
       require(tip.character('/', false, &raw, &error), "command slash character");
-      // 日文不进入命令模式，符号交给已测过的宿主预取路径；中文回车提交命令原文。
+      // 日文不进入命令模式，`/` 由契约日文表上屏；中文回车提交命令原文。
       if (japanese) {
-        require(!tip_result(raw).at("handled").get<bool>() && tip_result(raw).at("commit").is_null(),
-                "Japanese slash remains host punctuation");
+        // 日语没有命令模式，`/` 走契约日文表直接上屏读点，不再交回宿主。
+        require(tip_result(raw).at("handled").get<bool>() && tip_result(raw).at("commit") == "・",
+                "Japanese slash commits its contracted mark");
       } else {
         require(tip.command(MSIME_COMMIT_RAW, &raw, &error), "command slash raw");
         require(tip_result(raw).at("commit") == "／", "command slash fullwidth");

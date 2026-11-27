@@ -2550,9 +2550,29 @@ impl<E: InputEngine> Runtime<E> {
                 .get(seat)
                 .copied()
                 .unwrap_or_default(),
+            visible_position: self.visible_position(seat),
             how,
             outcome,
         })
+    }
+
+    /// 用户看到的 1 基编号：跳过宿主不画的占位席位（云候选的「☁」和已退役的 AI 占位），席位本身是占位时不记。
+    fn visible_position(&self, seat: usize) -> Option<u32> {
+        let placeholder = |source: &u8| {
+            msime_engine::CandidateSource::from_u8(*source)
+                .is_some_and(msime_engine::CandidateSource::is_placeholder_seat)
+        };
+        if placeholder(self.cached.candidate_sources.get(seat).unwrap_or(&0)) {
+            return None;
+        }
+        let before = self
+            .cached
+            .candidate_sources
+            .iter()
+            .take(seat)
+            .filter(|source| !placeholder(source))
+            .count();
+        Some(u32::try_from(before.saturating_add(1)).unwrap_or(u32::MAX))
     }
 
     /// Keep the tail of what was committed, cut on a character boundary, and hand it to the Engine.
@@ -3157,11 +3177,11 @@ impl<E: InputEngine> Runtime<E> {
             } else {
                 rows
             };
-            // 整池只比较 26 键上引擎多解的读法；键位网格（九宫格、14 键）照九条比较，见 `rerank_pick_within`。
+            // 整池只比较 26 键上引擎多解的读法；键位网格的比较上限独立配置。
             let pool = if snapshot.key_grid.is_none() {
                 reranker.sentence_pool()
             } else {
-                0
+                reranker.grid_comparison_limit()
             };
             rerank_pick_within(
                 reranker.as_mut(),
@@ -3351,6 +3371,65 @@ impl<E: InputEngine> Runtime<E> {
             .min_by_key(|(index, _)| index.abs_diff(previous_highlight))
             .map(|(index, _)| index);
         self.highlighted = found.unwrap_or(page_start).min(visible - 1);
+    }
+
+    /// 维护动作发出前，从用户看到的快照里记下目标行的身份。
+    fn maintenance_target(
+        &self,
+        action: &Action,
+    ) -> Option<(String, String, Option<u8>, usize, u8)> {
+        let (id, position) = match action {
+            Action::FixCandidatePosition(id, position) => (id, *position),
+            Action::ClearCandidatePosition(id) => (id, 0),
+            _ => return None,
+        };
+        self.cached.candidates.get(id.index).map(|text| {
+            (
+                text.clone(),
+                self.cached
+                    .candidate_codes
+                    .get(id.index)
+                    .cloned()
+                    .unwrap_or_default(),
+                self.cached.candidate_sources.get(id.index).copied(),
+                id.index,
+                position,
+            )
+        })
+    }
+
+    /// 固定与取消会立刻重排候选，高亮必须跟着被操作的那一行，否则下一次 Ctrl+0 落在旧座位的别的词上。
+    /// 只在这两个维护动作之后调用；异步刷新仍走原来的分页规则，不能在这里一并放开。
+    fn follow_maintenance_target(&mut self, target: (String, String, Option<u8>, usize, u8)) {
+        let (text, code, source, seat, position) = target;
+        let visible = self.visible_len();
+        let found = self
+            .cached
+            .candidates
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                *index < visible
+                    && candidate.as_str() == text
+                    && if position > 0 {
+                        // 固定后的目标槽位只有一个主人；文字相同但编码换了行也是同一条。
+                        self.cached.candidate_positions.get(*index).copied() == Some(position)
+                    } else {
+                        self.cached.candidate_codes.get(*index).map(String::as_str)
+                            == Some(code.as_str())
+                            && source.is_none_or(|expected| {
+                                self.cached.candidate_sources.get(*index) == Some(&expected)
+                            })
+                    }
+            })
+            .min_by_key(|(index, _)| index.abs_diff(seat))
+            .map(|(index, _)| index);
+        if let Some(index) = found {
+            if index != self.highlighted {
+                self.highlighted = index;
+                self.bump_candidates_epoch();
+            }
+        }
     }
 
     /// 挂着的逐键打分器在上屏时同步排一池联想仍在逐键预算之内（[`CandidateScorer::scores_prediction_pool_within_keystroke_budget`]）。引擎的联想候选池按它开关。
@@ -3861,6 +3940,8 @@ impl<E: InputEngine> Runtime<E> {
                 ));
             }
         }
+        // 快照在 refresh 之前还是用户看到的那一份，先记下被维护的那一行。
+        let maintenance_target = self.maintenance_target(&action);
         self.advance()?;
         let filled_current_page =
             matches!(action, Action::NextPage) && self.expand_for_next_page()?;
@@ -4303,6 +4384,9 @@ impl<E: InputEngine> Runtime<E> {
             || self.wubi_should_auto_commit(character_action);
         let commit_context = needs_commit_context.then(|| self.output_context());
         let refresh = self.refresh();
+        if let Some(target) = maintenance_target {
+            self.follow_maintenance_target(target);
+        }
         self.settle_jianpin_slash(slash_from, slash_undo);
         let mut result = result?;
         if let Err(error) = refresh {

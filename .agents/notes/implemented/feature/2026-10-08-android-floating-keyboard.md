@@ -16,6 +16,8 @@ Status: implemented
 
 API 28 的停靠父窗口边界由[Android 9 窗口 insets 修复](../../implemented/bug-fix/2026-10-24-android-api28-ime-window-insets.md)部分取代：该系统从首次显示起固定全高、键区包裹内容贴底，避免预览扩窗先采用旧 insets 导致编辑器失焦；其他系统继续恢复原停靠窗口高度。全高窗口状态与浮动表面状态独立比较，切换浮动时仍重新应用几何。
 
+API 29+ 的停靠窗口由[面板之上的层](../architecture/2026-11-26-android-panel-overlay-layers.md)部分取代：仍按内容包裹高度，但在面板上方多出固定 80 dp 的透明一段，应用边界改由 `onComputeInsets` 放在面板上沿；不铺满，下面「一直让窗口铺满」的取舍仍成立。
+
 ## Alternatives considered
 
 - **另开一个悬浮窗（`TYPE_APPLICATION_OVERLAY`）画键盘**：位置不受输入法窗口约束，拖动更自由；但要「显示在其他应用上层」权限，输入法窗口与悬浮窗之间还得同步焦点、显示与隐藏，系统切换输入法时悬浮窗不会自动消失。在输入法窗口里铺满再收窄触摸区域，不要额外权限，生命周期跟着输入法走。

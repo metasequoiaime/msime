@@ -160,6 +160,25 @@ fn display_projection_preserves_hidden_candidates_across_reopen_and_cancel() {
 }
 
 #[test]
+fn moving_a_word_to_another_slot_leaves_one_fixed_record_and_cancel_removes_it() {
+    let dir = Dir::new();
+    let file = dir.journal();
+    set_fixed_position(&file, "synthetic", "aa", "甲", 1).unwrap();
+    set_fixed_position(&file, "synthetic", "aad", "甲", 3).unwrap();
+    release_thread_journal();
+    {
+        let connection = open_journal(&file).unwrap();
+        assert_eq!(rows(&connection), [("aad".into(), "甲".into(), 3)]);
+        assert_eq!(count(&connection, "fixed_candidate_position_state"), 1);
+    }
+    clear_fixed_position(&file, "synthetic", "aad", "甲").unwrap();
+    release_thread_journal();
+    let connection = open_journal(&file).unwrap();
+    assert!(rows(&connection).is_empty());
+    assert_eq!(count(&connection, "fixed_candidate_position_state"), 0);
+}
+
+#[test]
 fn moving_a_future_dated_candidate_advances_its_clock_and_caps_it() {
     let dir = Dir::new();
     let file = dir.journal();

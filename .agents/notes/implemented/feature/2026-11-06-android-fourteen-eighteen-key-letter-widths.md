@@ -24,7 +24,7 @@ Status: implemented
 
 ### 补齐少扣的键距
 
-字母键、分词和 ⌫ 都带左右两个半键距的外边距，`LinearLayout` 先从行宽里扣掉外边距再按份额分。18 键宽窄第二排比首排少一个键，也就少扣一个键距，单位宽度会比首排大一点。两端的占位格各朝外补 `FourteenKeyLetterWidths.padHalfGaps` 个半键距（18 键是 1；14 键前两排键数相同，是 0）。占位格自己记着朝哪边补几个（`KeyboardSpacer#setOuterHalfGaps`），`ImeStyler.applyKeyboardGeometry(View)` 本来就逐个视图套用键距，走到占位格时按当前键距换成外边距（上下不留），键距就地变化时跟着变；键行里不另外记占位格。补出的外边距也归所属的键，屏幕边上这条不会变成死区。
+按键行改成按格量键宽之后（[Android 各键盘按 20 列外框对齐键边](2026-11-19-android-key-edge-grid.md)），每个键的宽度是自己那一格减去外边距，各排扣掉的键距一样多，不再需要补。原来让占位格朝外补半键距的做法（`KeyboardSpacer#setOuterHalfGaps`、`FourteenKeyLetterWidths.padHalfGaps`，由 `ImeStyler.applyKeyboardGeometry(View)` 换成外边距）已删去。占位格仍归所属的键，屏幕边上那一格不是死区。等宽第三排的分词和 ⌫ 改与 26 键的 ⇧、⌫ 同宽，字母键平分中间。
 
 ### 读取和重排
 
@@ -54,4 +54,4 @@ Android 没有 14/18 键的热力图，统计页不涉及。
 
 代价：`KeyboardKeyArea` 每次按下多一次子视图类型判断。默认键面多了字距，所有 14/18 键用户更新后都看得到。宽窄时单字母键的字号由 `KeyHintButton` 按各自键宽收，窄屏上要看真机效果。
 
-验证：`FourteenKeyLetterWidthsSmoke` 钉住两种分法的份额（等宽逐格等于原来的份额，宽窄与 #11051 的比例相同、三排份额之和相同、补半键距的个数）；`FourteenKeyLayoutSmoke` 钉住哪些键面有字距、`L;` 用较小的字距、键面字符串不变；`KeyLayoutStylesPolicySmoke`、`KeyboardPreviewLayoutSmoke` 钉住两处预览（等宽与原来逐格相同，宽窄的空白、比例和同种键三行等宽，26 键和九键不受影响，皮肤页预览带着这项、换类型时保留）；`KeyPressAreaDeviceChecks` 在合成按键区上验证占位格和它的外边距归所属的键、没有所属键的占位格不回调；`check-host.sh` 钉住键盘和设置页的接线。API 35、API 28 模拟器上 `KeyPressAreaDeviceChecks`、14 键和 18 键的 `FourteenKeyDeviceSmoke` 通过；API 35 上手动看过两种宽度、14 键和 18 键、全拼和双拼、单手模式的键面，点了宽窄第二排两端的空白（归 A、AS、L）。
+验证：`FourteenKeyLetterWidthsSmoke` 钉住两种分法的份额（等宽前两排逐格等于原来的份额、第三排与首排同宽，宽窄与 #11051 的比例相同、三排份额之和相同）；`FourteenKeyLayoutSmoke` 钉住哪些键面有字距、`L;` 用较小的字距、键面字符串不变；`KeyLayoutStylesPolicySmoke`、`KeyboardPreviewLayoutSmoke` 钉住两处预览（等宽与原来逐格相同，宽窄的空白、比例和同种键三行等宽，26 键和九键不受影响，皮肤页预览带着这项、换类型时保留）；`KeyPressAreaDeviceChecks` 在合成按键区上验证占位格和它的外边距归所属的键、没有所属键的占位格不回调；`check-host.sh` 钉住键盘和设置页的接线。API 35、API 28 模拟器上 `KeyPressAreaDeviceChecks`、14 键和 18 键的 `FourteenKeyDeviceSmoke` 通过；API 35 上手动看过两种宽度、14 键和 18 键、全拼和双拼、单手模式的键面，点了宽窄第二排两端的空白（归 A、AS、L）。

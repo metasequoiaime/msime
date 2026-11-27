@@ -344,7 +344,7 @@ CREATE TABLE IF NOT EXISTS learning_sync_clock(
 | `candidate_selection_state` | 调频的选中计数。`context_key` 以 `cantonese:` 开头的是粤语的计数（后接粤拼键），词库快照不收 |
 | `fixed_candidate_positions` | 固定位置显示投影（1 到 5），每个上下文的同一槽位只有一行 |
 | `fixed_candidate_position_state` | 完整固定候选，含槽位冲突的隐藏身份与真实时间；首次迁移旧投影行的时间为 1 |
-| `pick_transitions` | 连续选中的两个词，够多次就成词 |
+| `pick_transitions` | 连续选中的两个词，够多次就成词。`previous_key` 与 `previous_value` 都是 `wubi-run` 的行是五笔连续上屏的累积段计数，`key` 与 `value` 都是整段文字（2 到 12 个汉字），够三次由 `wubi_learning` 落库后删掉 |
 | `pinyin_typo_counts`、`pinyin_autocorrect_suppressions` | 全拼纠错的学习与按输入关闭纠错 |
 | `shuangpin_typo_counts`、`shuangpin_autocorrect_suppressions` | 双拼的同上，按 `profile` 区分 |
 | `pinned_candidates` | 置顶显示投影，排除仍有拼音删除记录的词 |

@@ -74,7 +74,7 @@ macOS 26 及以上在没有选择任何服务时（候选翻译开启，小牛�
 - `local`：设备上的识别模型，`asr_model_path` 是一个绝对路径，指向设置页下载的 sherpa-onnx 模型目录（包含 `msime-model.json`）。不需要 Token，也没有端点。
 - `system`：调用操作系统自带的识别（macOS / iOS / HarmonyOS），数据流向由操作系统决定。macOS 与 iOS 26 起使用 SpeechAnalyzer（设备端）；更早的系统在识别器支持时设置 `requiresOnDeviceRecognition`，不支持时由系统决定是否上传。
 
-选择云端服务时，发送的是录制的音频。代码在 `crates/client-providers/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。
+选择云端服务时，发送的是录制的音频。代码在 `crates/client-providers/src/credential/asr.rs`，服务选择逻辑在 `crates/client-core/src/preferences.rs`。iOS 上选了说完整段上传的云端服务（豆包以外）且没开识别后润色时，键盘扩展自己录音，把录音直接发给这个服务，不经过 App，也不经过水杉服务器；服务地址、模型和密钥由 App 共享给键盘，密钥放在以 App Group 为访问组的钥匙串里，与键盘里的 AI 辅助相同。
 
 **本地模型**全程在设备上运行：录音、识别结果和热词都不离开设备，识别期间不发出任何网络请求。macOS 与 Linux 的输入法进程不自己加载模型，而是拉起本机的 `msime-voice-local` 辅助进程，经标准输入输出交换音频和文本（协议见 `shared/voice/README.md`），不经过网络套接字；Windows 在本机的 `msime-client-server` 进程内识别，Android、iOS 与 HarmonyOS 在应用进程内识别。热词取自你的个人词库（只取用户自己添加的拼音词条），在本机交给识别器，或在识别后于本机做近音替换（`crates/client-providers/src/voice/hotwords.rs`）。
 

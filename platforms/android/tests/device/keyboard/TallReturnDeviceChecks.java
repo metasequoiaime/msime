@@ -18,7 +18,7 @@ import org.json.JSONObject;
  *
  * <p>量真实键帽，核对外框是一整块（没有单独的功能行）、符 在符号栏正下方且同宽、九宫格下方的 123 | 空格 | 中 与九宫格左右对齐、右列自上而下 ⌫ 重输 回车且回车从第三行顶边画到底行底边、右列不再有 ！ 而符号栏里有 ！；符号栏的 ！ 接过右列 ！ 的手势，上滑输入 0、长按选上标 ⁰；点回车落在底行那一段时照样换行。数字层照同一外框（与 iOS、鸿蒙相同）：符 和切换键横向位置不变，0 在空格的位置、右边是与中/英同宽的空格，小数点在右列重输的位置，回车仍两倍高，点数字、小数点、空格按字面上屏。然后换回标准样式，功能行回来、右列的 ！ 回来，标准底行的 123 和中/英与大回车外框里的同宽。
  *
- * <p>另外两种键面各量一遍：九键双拼的网格有四行，⌫ 仍占网格前两行、重输在第三行，回车从第四行的顶边画到底行的底边；笔画外框是 0.9 / 3 / 0.9 的三列，符 与符号栏同宽、九宫格下方那一行与笔画网格左右对齐、回车从第三行画到底行，切到它借的数字九宫格时 符、切换键和回车留在原处（数字层按笔画外框的份额画，不按九键的）。结束后恢复原偏好。
+ * <p>另外两种键面各量一遍：九键双拼的网格有四行，⌫ 仍占网格前两行、重输在第三行，回车从第四行的顶边画到底行的底边；笔画外框与拼音九键同为 3 | 14 | 3，符 与符号栏同宽、九宫格下方那一行与笔画网格左右对齐、回车从第三行画到底行，切到它借的数字九宫格时 符、切换键和回车留在原处（数字层按笔画外框画）。结束后恢复原偏好。
  */
 final class TallReturnDeviceChecks {
     private final DeviceSmoke t;
@@ -282,7 +282,7 @@ final class TallReturnDeviceChecks {
             throw new AssertionError("九键双拼：右侧大回车的右列不应再有 ！");
     }
 
-    /** 笔画：0.9 / 3 / 0.9 的外框，字母层与它借的数字九宫格是同一个外框，切层时 符、切换键和回车不动。 */
+    /** 笔画：3 | 14 | 3 的外框（与拼音九键相同），字母层与它借的数字九宫格是同一个外框，切层时 符、切换键和回车不动。 */
     private void strokeFrame(File preferences, JSONObject values) throws Exception {
         t.stage = "tall-return stroke frame";
         switchTo(preferences, values, t.described("笔画 横"));
@@ -318,10 +318,11 @@ final class TallReturnDeviceChecks {
             throw new AssertionError("笔画：右列自上而下应是 ⌫、重输、回车");
         if (Math.abs(enter.top - thirdRow.top) > tolerance || Math.abs(enter.bottom - symbol.bottom) > tolerance)
             throw new AssertionError("笔画：回车应从网格第三行的顶边画到底行的底边：回车 " + enter + "，第三行 " + thirdRow + "，底行 " + symbol);
-        // 0.9 / 3 / 0.9：左列比拼音九键的 3 / 14 / 3 宽（18.75% 对 15%），按外框整宽量。
+        // 3 | 14 | 3：左列的格（键宽加一个键距）占外框整格的 15%，与拼音九键相同。
+        int gap = topLeft.left - sidebar.right;
         int frameWidth = enter.right - symbol.left;
-        if (Math.abs(sidebar.width() - frameWidth * 0.1875f) > 2 * tolerance)
-            throw new AssertionError("笔画：左列应占外框的 18.75%：" + sidebar.width() + " / " + frameWidth);
+        if (Math.abs(sidebar.width() + gap - (frameWidth + gap) * 0.15f) > tolerance)
+            throw new AssertionError("笔画：左列应占外框的 15%：" + sidebar.width() + " + " + gap + " / " + frameWidth);
         if (findVisible(t.key("！").and(node -> boundsOf(node).left >= delete.left - tolerance)) != null)
             throw new AssertionError("笔画：右侧大回车的右列不应再有 ！");
         Rect exclamation = bounds(t.key("！"));

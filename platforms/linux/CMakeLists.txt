@@ -8,6 +8,14 @@ endif()
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
 include(cmake/Edition.cmake)
+# GNOME Shell 候选右键菜单扩展的 UUID 与 D-Bus 名按版本区分：六个版本能同时安装，固定名字会让它们的包争同一组文件。full 保持无后缀，与其它按名字查找的文件一致。
+if(MSIME_EDITION_IS_FULL)
+  set(MSIME_POINTER_EXTENSION_UUID "msime-pointer@msime")
+  set(MSIME_POINTER_BUS_NAME "org.msime.Pointer")
+else()
+  set(MSIME_POINTER_EXTENSION_UUID "msime-pointer-${MSIME_EDITION}@msime")
+  set(MSIME_POINTER_BUS_NAME "org.msime.Pointer.${MSIME_EDITION}")
+endif()
 # The user units msime-linux-setup can enable. The CMake uninstall and the Debian maintainer scripts all stop them, so the list is defined once here; each socket precedes its service so stopping in this order does not activate the service again. The maintainer scripts restart only the services: sockets run no program.
 # 单元名以版本的包名开头（full 是 msime-linux），几个版本的用户服务可以同时启用。
 set(MSIME_USER_UNITS ${MSIME_EDITION_PACKAGE}-online.socket ${MSIME_EDITION_PACKAGE}-online.service ${MSIME_EDITION_PACKAGE}-voice.socket
@@ -54,6 +62,8 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/core" "${CMAKE_CURRENT_SOUR
 set(MSIME_IBUS_MIN_VERSION "1.5.20" CACHE STRING "Oldest IBus the host builds against and the packages depend on")
 set(MSIME_PYTHON_MIN_VERSION "3.9" CACHE STRING "Oldest Python 3 the packages depend on for the installed scripts")
 pkg_check_modules(IBUS REQUIRED IMPORTED_TARGET ibus-1.0>=${MSIME_IBUS_MIN_VERSION})
+# GNOME Shell 候选右键菜单扩展的 D-Bus 调用：IBus 本身已依赖 gio-2.0，这里显式声明供助手和契约测试链接。
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 find_package(nlohmann_json 3.11 REQUIRED)
 # Optional on Wayland-only systems; the monitor retains bounded polling.
@@ -141,12 +151,14 @@ endif()
 msime_edition_host_library(MSIME_HOST_LIBRARY)
 add_library(msime-ibus-host STATIC
   src/core/ClientEngine.cpp src/system/DiagnosticLog.cpp src/system/ChineseTextConversion.cpp src/system/CapsLockRelease.cpp src/overlay/WaveOverlayIbusSurface.cpp
-  src/overlay/WaveOverlaySurfaceFactory.cpp)
+  src/overlay/WaveOverlaySurfaceFactory.cpp src/candidates/GnomePointer.cpp src/candidates/CandidateMenuController.cpp)
 target_compile_options(msime-ibus-host PRIVATE -Wall -Wextra -Werror)
+# 扩展的 D-Bus 名随版本；契约测试不设这个宏，用默认的无后缀名加注入总线名。
+target_compile_definitions(msime-ibus-host PRIVATE MSIME_POINTER_BUS_NAME="${MSIME_POINTER_BUS_NAME}")
 target_include_directories(msime-ibus-host PUBLIC src src/core src/candidates src/clipboard src/providers src/voice src/overlay src/system src/entrypoints ../../crates/host-api/include)
 # ClientEngine.cpp 用到 pthread，由这个库自己公开声明，链接它的可执行文件不必各自补 `Threads::Threads`。glibc 2.34 之前 pthread 不在 libc 里，漏掉就只在 Debian 10 这类旧系统上链接失败（#7849 新加的 ibus-mode-hint-lifecycle 就是这样）。
 find_package(Threads REQUIRED)
-target_link_libraries(msime-ibus-host PUBLIC PkgConfig::IBUS PkgConfig::XKBCOMMON ${CMAKE_DL_LIBS} nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
+target_link_libraries(msime-ibus-host PUBLIC PkgConfig::IBUS PkgConfig::GIO PkgConfig::XKBCOMMON ${CMAKE_DL_LIBS} nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
 if(X11_SURFACE_FOUND)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_HAS_X11_SURFACE)
   target_link_libraries(msime-ibus-host PUBLIC PkgConfig::X11_SURFACE)
@@ -184,8 +196,13 @@ if(MODE_BADGE_X11_FOUND)
   # 悬浮工具栏和双拼键位图与徽章用同一套 X11、cairo 和 pango：没有它们时宿主只有菜单里的「工具栏」子菜单，也不画键位图。
   target_sources(msime-ibus-host PRIVATE src/overlay/OverlayX11Window.cpp src/overlay/ShuangpinKeymapX11Surface.cpp
                  src/overlay/FloatingToolbar.cpp src/overlay/FloatingToolbarFactory.cpp
-                 src/overlay/FloatingToolbarX11Surface.cpp)
+                 src/overlay/FloatingToolbarX11Surface.cpp
+                 src/candidates/CandidateMenuSurface.cpp)
   target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_FLOATING_PANELS)
+  if(MSIME_WAVE_WAYLAND_SURFACE)
+    target_sources(msime-ibus-host PRIVATE src/overlay/FloatingToolbarWaylandSurface.cpp)
+    target_compile_definitions(msime-ibus-host PRIVATE MSIME_LINUX_WAYLAND_TOOLBAR)
+  endif()
   # libX11 1.7 起每条连接可以装自己的退出处理（XSetIOErrorExitHandler）：工具栏和键位图的连接断开时不再让整个引擎退出（见 OverlayX11Window.h 的 open_overlay_display）。legacy 包的 Debian 10 只有 1.6.7，那里照旧。
   if(MODE_BADGE_X11_x11_VERSION VERSION_GREATER_EQUAL 1.7.0)
     set(MSIME_X11_IO_ERROR_EXIT_HANDLER ON)
@@ -383,6 +400,9 @@ if(BUILD_TESTING)
     add_test(NAME ibus-japanese-toggle
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-toggle)
     set_tests_properties(ibus-japanese-toggle PROPERTIES TIMEOUT 60)
+    add_test(NAME ibus-japanese-paired
+      COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --japanese-paired)
+    set_tests_properties(ibus-japanese-paired PROPERTIES TIMEOUT 60)
     add_test(NAME ibus-chaizi
       COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --chaizi)
     set_tests_properties(ibus-chaizi PROPERTIES TIMEOUT 60)
@@ -475,6 +495,19 @@ if(BUILD_TESTING)
   target_compile_options(linux-candidate-action-policy-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-candidate-action-policy-test PRIVATE src)
   add_test(NAME linux-candidate-action-policy COMMAND linux-candidate-action-policy-test)
+  add_executable(linux-candidate-maintenance-shortcut-test tests/core/candidate_maintenance_shortcut.cpp)
+  target_compile_options(linux-candidate-maintenance-shortcut-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-candidate-maintenance-shortcut-test PRIVATE src)
+  target_link_libraries(linux-candidate-maintenance-shortcut-test PRIVATE PkgConfig::IBUS nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-maintenance-shortcut COMMAND linux-candidate-maintenance-shortcut-test)
+  add_executable(linux-candidate-menu-items-test tests/candidate/candidate_menu_items.cpp)
+  target_compile_options(linux-candidate-menu-items-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-candidate-menu-items-test PRIVATE src)
+  add_test(NAME linux-candidate-menu-items COMMAND linux-candidate-menu-items-test)
+  add_executable(linux-shell-candidate-menu-test tests/candidate/shell_candidate_menu.cpp)
+  target_compile_options(linux-shell-candidate-menu-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-shell-candidate-menu-test PRIVATE src)
+  add_test(NAME linux-shell-candidate-menu COMMAND linux-shell-candidate-menu-test)
   add_executable(linux-candidate-local-mode-labels-test tests/candidate/candidate_local_mode_labels.cpp)
   target_compile_options(linux-candidate-local-mode-labels-test PRIVATE -Wall -Wextra -Werror)
   target_include_directories(linux-candidate-local-mode-labels-test PRIVATE src)
@@ -511,6 +544,11 @@ if(BUILD_TESTING)
   target_compile_options(linux-candidate-row-text-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-candidate-row-text-test PRIVATE src)
   add_test(NAME linux-candidate-row-text COMMAND linux-candidate-row-text-test)
+  add_executable(linux-candidate-sources-test tests/candidate/candidate_sources.cpp)
+  target_compile_options(linux-candidate-sources-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-candidate-sources-test PRIVATE src)
+  target_link_libraries(linux-candidate-sources-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-sources COMMAND linux-candidate-sources-test)
   add_executable(linux-candidate-script-annotation-test tests/candidate/candidate_script_annotation.cpp)
   target_compile_options(linux-candidate-script-annotation-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
   target_include_directories(linux-candidate-script-annotation-test PRIVATE src)
@@ -821,6 +859,13 @@ endforeach()
 install(PROGRAMS scripts/msime-linux-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-linux-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES scripts/msime_clipboard_cloud.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# GNOME Shell 候选右键菜单扩展：只随包装、不替用户启用。没启用时宿主拿不到 org.msime.Pointer，右键候选时在辅助区域显示快捷键提示。GNOME 45 之前用旧扩展格式，这里只装 ESM 版本。UUID 与 D-Bus 名按版本生成，full 无后缀；系统按名字查找的这个文件装到系统数据目录，各版本不争同一路径。
+set(MSIME_POINTER_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/gnome-shell-extension/${MSIME_POINTER_EXTENSION_UUID}")
+file(MAKE_DIRECTORY "${MSIME_POINTER_STAGE_DIR}")
+configure_file(gnome-shell-extension/msime-pointer@msime/metadata.json.in "${MSIME_POINTER_STAGE_DIR}/metadata.json" @ONLY)
+configure_file(gnome-shell-extension/msime-pointer@msime/extension.js.in "${MSIME_POINTER_STAGE_DIR}/extension.js" @ONLY)
+install(FILES "${MSIME_POINTER_STAGE_DIR}/metadata.json" "${MSIME_POINTER_STAGE_DIR}/extension.js"
+        DESTINATION "${MSIME_SYSTEM_DATADIR}/gnome-shell/extensions/${MSIME_POINTER_EXTENSION_UUID}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来。词库锁无条件随装，它是这个入口据以校验和取回的依据——它此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
 # 命令名以版本的包名开头（full 仍是 msime-linux-setup）；随装的词库锁是本版本的锁（full 是 desktop-dictionary.lock.json 本身，其他版本是 resources/editions/<id>.lock.json），装成同一个文件名，msime-linux-setup 据它校验和取回本版本的词库。
 msime_edition_source(MSIME_SETUP_SOURCE scripts/msime-linux-setup)
@@ -1415,6 +1460,21 @@ if(BUILD_TESTING)
   target_include_directories(linux-floating-panels-model-test PRIVATE src)
   target_link_libraries(linux-floating-panels-model-test PRIVATE nlohmann_json::nlohmann_json)
   add_test(NAME linux-floating-panels-model COMMAND linux-floating-panels-model-test)
+  # GNOME 扩展菜单的 D-Bus 助手：没有会话总线的构建环境跳过（77），有总线时用假服务验证菜单推送、收起与缺服务时失败。
+  add_executable(linux-gnome-pointer-dbus-test tests/runtime/gnome_pointer_dbus.cpp src/candidates/GnomePointer.cpp)
+  target_compile_features(linux-gnome-pointer-dbus-test PRIVATE cxx_std_17)
+  target_compile_options(linux-gnome-pointer-dbus-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-gnome-pointer-dbus-test PRIVATE src/candidates)
+  target_link_libraries(linux-gnome-pointer-dbus-test PRIVATE PkgConfig::GIO Threads::Threads)
+  add_test(NAME linux-gnome-pointer-dbus COMMAND linux-gnome-pointer-dbus-test)
+  set_tests_properties(linux-gnome-pointer-dbus PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 20)
+  # 候选右键菜单的收起与 Esc：注入假的扩展调用，不需要会话总线，也不画 X11 浮层。
+  add_executable(linux-candidate-menu-controller-test tests/candidate/candidate_menu_controller.cpp
+                 src/candidates/CandidateMenuController.cpp src/candidates/GnomePointer.cpp)
+  target_compile_options(linux-candidate-menu-controller-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_include_directories(linux-candidate-menu-controller-test PRIVATE src)
+  target_link_libraries(linux-candidate-menu-controller-test PRIVATE PkgConfig::GIO nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-menu-controller COMMAND linux-candidate-menu-controller-test)
   if(MODE_BADGE_X11_FOUND)
     # 用真实的 cairo 与 pango 画一遍键位图、工具栏、菜单和提示。
     add_executable(linux-floating-panels-render-test tests/runtime/floating_panels_render.cpp)

@@ -34,3 +34,5 @@ Status: implemented
 数字 1 的提示与长按入口，以及九键底行 0 的字形规则见 [手机九键保留符号入口的数字 1](../bug-fix/2026-10-13-mobile-nine-key-one-hint.md)。这里的键位布局不变。
 
 iOS 默认仍沿用本篇排列，可选隐藏中/英并扩大空格，见 [iOS 可隐藏底行中英键并扩大空格](2026-10-15-ios-hide-language-key.md)。
+
+Android 的底行份额后来改为一行合计 10 份（123 和回车各 1.5 份，在 ⇧、⌫ 下面），见 [Android 各键盘按 20 列外框对齐键边](2026-11-19-android-key-edge-grid.md)；键序仍按本篇。

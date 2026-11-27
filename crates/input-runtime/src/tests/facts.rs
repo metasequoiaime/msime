@@ -227,6 +227,8 @@ fn fact(seat: u32, source: u8, how: SelectionHow, outcome: SelectionOutcome) -> 
     SelectionFact {
         seat,
         source,
+        // 这些用例的候选都是宿主画得出来的行（没有占位席位），可见位置就是座位加一。
+        visible_position: Some(seat + 1),
         how,
         outcome,
     }
@@ -234,6 +236,37 @@ fn fact(seat: u32, source: u8, how: SelectionHow, outcome: SelectionOutcome) -> 
 
 fn selection<E: InputEngine>(runtime: &Runtime<E>) -> Option<SelectionFact> {
     runtime.facts().selection
+}
+
+#[test]
+fn placeholder_seats_do_not_shift_the_visible_position() {
+    // 引擎第 2 格是宿主不画的云占位（「☁」，来源 15），用户看到的第 2 条坐在引擎第 3 格。
+    let mut runtime = focused(FactEngine {
+        words: vec!["你好".into(), "☁".into(), "拟好".into()],
+        sources: vec![0, 15, 0],
+        ..FactEngine::default()
+    });
+    type_keys(&mut runtime, b"ni");
+    let id = runtime.view().candidates[2].id;
+    let done = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(done.commit.as_deref(), Some("拟好"));
+    let recorded = selection(&runtime).unwrap();
+    assert_eq!(recorded.seat, 2, "座位仍是引擎里的下标");
+    assert_eq!(recorded.visible_position, Some(2), "位次按用户看到的编号");
+
+    // 占位席位自己不是一行候选，选中它不记位次。
+    let mut runtime = focused(FactEngine {
+        words: vec!["你好".into(), "☁".into(), "拟好".into()],
+        sources: vec![0, 15, 0],
+        ..FactEngine::default()
+    });
+    type_keys(&mut runtime, b"ni");
+    let id = runtime.view().candidates[1].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(
+        selection(&runtime).map(|fact| fact.visible_position),
+        Some(None)
+    );
 }
 
 #[test]

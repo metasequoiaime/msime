@@ -122,6 +122,12 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                     default -> method(type, operation).invoke(service);
                 }
             }
+            // 用户的退格交给编辑器（#11659）后，发出的 `KEYCODE_DEL` 在编辑器回报选区或 100 ms 超时之前算未确认，期间的下一次退格排在它后面。本测试在主线程上连续换连接，等不到超时；换连接时按产品换输入框的做法（`onStartInput` / `onFinishInput` 里的 `editorDelete.abandon()`）放弃上一个连接上在路上的退格，每个阶段都从没有退格在路上开始。
+            Field editorDeleteField = type.getDeclaredField("editorDelete");
+            editorDeleteField.setAccessible(true);
+            Object editorDelete = editorDeleteField.get(service);
+            Method abandon = method(editorDelete.getClass(), "abandon");
+            Method replace = method(type, "deleteBeforeCursorForReplacement");
             stage = "editor disconnects after an empty context read";
             int[] keyEvents = new int[1];
             InputConnection emptyThenDisconnected = (InputConnection) Proxy.newProxyInstance(
@@ -135,6 +141,7 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                     }
                     default -> throw new AssertionError("Unexpected editor operation");
                 });
+            abandon.invoke(editorDelete);
             target.set(service, emptyThenDisconnected);
             method(type, "deleteCodePointBeforeCursor").invoke(service);
             check(keyEvents[0] == 2, "empty editor sends one guarded down/up pair");
@@ -152,8 +159,10 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                     }
                     default -> throw new AssertionError("Unexpected editor operation: " + call.getName());
                 });
+            // 用户的普通退格现在直接发按键，不再先试 surrounding-text 删除；拒写后回退一次按键这条路只剩直接删除的入口会走到，这里用输入法自己替换内容的入口（日文九键连点换假名）。
+            abandon.invoke(editorDelete);
             target.set(service, rejectsSurrounding);
-            method(type, "deleteCodePointBeforeCursor").invoke(service);
+            replace.invoke(service);
             check(fallbackEvents[0] == 2, "rejected surrounding deletion falls back to one raw backspace");
             stage = "known boundary bypasses code-point deletion";
             StringBuilder text = new StringBuilder("synthetic");
@@ -172,39 +181,37 @@ public final class InputFailureCategoryDeviceSmoke extends Instrumentation {
                     case "sendKeyEvent" -> throw new AssertionError("Unexpected raw backspace fallback");
                     default -> throw new AssertionError("Unexpected editor operation: " + call.getName());
                 });
+            // #11666：已知边界的直接删除不能依赖会虚假返回成功的码位删除接口；入口同上。
+            abandon.invoke(editorDelete);
             target.set(service, liesAboutCodePoints);
-            method(type, "deleteCodePointBeforeCursor").invoke(service);
+            replace.invoke(service);
             check(text.toString().equals("syntheti"),
                 "known grapheme boundary uses UTF-16 deletion");
             check(deletionCalls[0] == 0 && deletionCalls[1] == 1,
                 "known boundary does not call the code-point API");
-            stage = "unknown boundary recovers from false code-point success";
+            stage = "truncated grapheme context hands the backspace to the editor";
+            // 查询窗口截断在字素中间时边界未知，`deleteGraphemeBefore` 不猜删除长度，交给编辑器自己的退格（见 2026-11-14 字素退格笔记）。以拉丁类组合附加符号结尾，走的是用户退格里唯一直接删除的例外，所以这一路也覆盖了例外在边界未知时的回退。
             StringBuilder incomplete = new StringBuilder("甲");
             for (int index = 0; index < 1023; index++) incomplete.append('\u0301');
-            int[] fallbackDeletionCalls = new int[2];
-            InputConnection liesForUnknownBoundary = (InputConnection) Proxy.newProxyInstance(
+            int[] truncatedEvents = new int[1];
+            InputConnection truncatedContext = (InputConnection) Proxy.newProxyInstance(
                 InputConnection.class.getClassLoader(), new Class<?>[] {InputConnection.class},
                 (proxy, call, args) -> switch (call.getName()) {
                     case "getSelectedText" -> null;
                     case "getTextBeforeCursor" -> incomplete.toString();
-                    case "deleteSurroundingTextInCodePoints" -> {
-                        fallbackDeletionCalls[0]++;
+                    case "deleteSurroundingText", "deleteSurroundingTextInCodePoints" ->
+                        throw new AssertionError("Unexpected direct deletion of an unknown boundary");
+                    case "sendKeyEvent" -> {
+                        truncatedEvents[0]++;
                         yield true;
                     }
-                    case "deleteSurroundingText" -> {
-                        fallbackDeletionCalls[1]++;
-                        incomplete.deleteCharAt(incomplete.length() - (int) args[0]);
-                        yield true;
-                    }
-                    case "sendKeyEvent" -> throw new AssertionError("Unexpected raw backspace fallback");
                     default -> throw new AssertionError("Unexpected editor operation: " + call.getName());
                 });
-            target.set(service, liesForUnknownBoundary);
+            abandon.invoke(editorDelete);
+            target.set(service, truncatedContext);
             method(type, "deleteCodePointBeforeCursor").invoke(service);
-            check(incomplete.length() == 1023,
-                "unknown boundary falls back to UTF-16 deletion when code-point deletion lies");
-            check(fallbackDeletionCalls[0] == 1 && fallbackDeletionCalls[1] == 1,
-                "unknown boundary verifies a successful code-point deletion");
+            check(truncatedEvents[0] == 2, "unknown boundary sends one raw backspace");
+            abandon.invoke(editorDelete);
             target.set(service, disconnected);
             stage = "disconnected email context";
             Field inputType = type.getDeclaredField("editorInputType");

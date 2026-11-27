@@ -2028,6 +2028,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _capsLockTapReleasedSawStaleCapsLock;
     // 收到关闭边沿后，下一次打开边沿是新的物理按键；关闭边沿本身仍需把旧标记留给紧随其后的字母事件。
     BOOL _capsLockTapReleasedSawExplicitOff;
+    // 打开 `keybindings.shift_tap_uppercase_english` 后单按 Shift 从中文切到英文时为真，英文状态下的 a–z 输出大写；任何其它改变中英文的入口都清掉它。
+    BOOL _uppercaseEnglishMode;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
     NSTimer *_voiceHoldPollTimer;
@@ -5161,6 +5163,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     translations.target = self;
     translations.state = _appearance.candidateTranslations ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:translations];
+    [self addQuickPhrasePriorityToMenu:menu];
     [menu addItem:NSMenuItem.separatorItem];
     // The scheme and the theme are each one choice out of several, so each is a submenu whose row names the current one, the way the system lists an input source's modes. As a radio list under a header the scheme alone took six rows.
     NSString *currentSchemeTitle = nil;
@@ -5534,6 +5537,8 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)setEnglishInputMode:(BOOL)enabled showHUD:(BOOL)showHUD {
     [self ensureAppearance];
+    // 菜单、系统输入源报告、应用规则等入口都经过这里，进出英文都回到普通英文；单按 Shift 在切换完成后再按需打开大写。
+    _uppercaseEnglishMode = NO;
     if (enabled) [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     const BOOL changed = _appearance.englishMode != enabled;
     if (changed && _managedEnglishComposition && ![self setManagedEnglishEnabled:NO]) return;
@@ -5612,9 +5617,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         const auto light = [_appearance toolbarSkinForDark:NO];
         const auto dark = [_appearance toolbarSkinForDark:YES];
         MSIMEInputModeHUDPanel *hud = [MSIMEInputModeHUDPanel sharedPanel];
+        // 文字颜色不具名，换皮肤后才替换得进 `NSTextField`（#11869，见 `MSIMEInputModeHUDTextColor`）；底色和边框走图层颜色，不受同名判等影响。
         [hud setSurfaceColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDSurface", light.surface, dark.surface)
                  borderColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDBorder", light.border, dark.border)
-                   textColor:MSIMEThemedSkinColor(@"MSIMEInputModeHUDText", light.text, dark.text)];
+                   textColor:MSIMEInputModeHUDTextColor(SkinColor(light.text), SkinColor(dark.text))];
         [hud applySizingPreferences:@{@"show_app_logo": @(_appearance.showsAppLogo)}];
         [hud showText:text announcement:announcement nearCaretRect:caret];
     }
@@ -5766,6 +5772,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
+    _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
     state.selecting = true;
@@ -5828,6 +5835,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     NSDictionary *view = [_session setDedicatedEnglishEnabled:enabled error:&error];
     if (!view) { if (error) NSBeep(); return; }
     _managedEnglishComposition = NO;
+    _uppercaseEnglishMode = NO;
     _appearance.englishMode = NO;
     [self syncSystemInputModeForClient:_activeClient];
     [self apply:@{@"view":view}];
@@ -6710,6 +6718,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
     NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
+    _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // 系统可能仍在从强制 ASCII 的应用恢复输入源；离开激活调用栈后再核对实际模式，避免重复选择把它退回 U.S.（#8993）。
     [self scheduleSystemInputModeSyncForClient:sender];
@@ -8199,6 +8208,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self invalidateSmartPunctuationShadow];
         NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
         [self applyInitialHostPreferencesFromSnapshot:initialHostSnapshot];
+        _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         // 所有权交接不依赖显示开关：关闭时也接管并隐藏旧控制器的常驻工具栏。
         _toolbar = [MSIMEFloatingToolbarPanel sharedPanel];
@@ -8254,7 +8264,11 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self syncVoiceHoldPoll];
     if (voiceShortcut.consumed) return YES;
     if ([self observeModifierTap:event client:sender]) {
+        const BOOL shiftTap = event.type == NSEventTypeFlagsChanged && (event.keyCode == 56 || event.keyCode == 60);
+        const BOOL wasEnglish = _appearance.englishMode;
         [self toggleInputModeFromModifierTap];
+        // 只有打开 `keybindings.shift_tap_uppercase_english` 且这次单按 Shift 真的从中文切到英文，才进入大写英文；Control、Caps Lock 轻点和其它入口保持普通英文。
+        _uppercaseEnglishMode = shiftTap && _appearance.shiftTapUppercaseEnglish && !wasEnglish && _appearance.englishMode;
         return YES;
     }
     if (event.type != NSEventTypeKeyDown) return NO;
@@ -8407,10 +8421,13 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
             const BOOL chinese = [_appearance.punctuationLock isEqual:@"chinese"] ||
                 ([_appearance.punctuationLock isEqual:@"follow"] && _appearance.runtimeChinesePunctuation);
             unichar character = [event.characters characterAtIndex:0];
+            // 大写英文模式只改 a–z，标点、数字和小键盘照常经下面的中文标点与全角规则。
+            const BOOL uppercasedLetter = _uppercaseEnglishMode && character >= 'a' && character <= 'z';
+            if (uppercasedLetter) character = (unichar)(character - ('a' - 'A'));
             const BOOL capsLockTapReleasedLetterEvent = capsLockTapReleasedForEvent &&
                 event.type == NSEventTypeKeyDown && !(event.modifierFlags & NSEventModifierFlagShift) &&
                 ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'));
-            if (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
+            if (!_uppercaseEnglishMode && capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
                 character >= 'A' && character <= 'Z') character = (unichar)(character + ('a' - 'A'));
             const std::string output = msime::input::english_mode_output(
                 character, keypad, chinese, _appearance.runtimeFullWidthInput, _englishPunctuation,
@@ -8435,7 +8452,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                     @"context":[self directEnglishSpacingContext]}][@"enabled"] isEqual:@YES];
             const BOOL asciiLetterOrDigit = (character >= 'a' && character <= 'z') ||
                 (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
-            if ((spacingEnabled && asciiLetterOrDigit) ||
+            // 大写字母不能交还应用：应用收到的是原始的小写按键。
+            if ((spacingEnabled && asciiLetterOrDigit) || uppercasedLetter ||
                 (capsLockTapReleasedForEvent && !(event.modifierFlags & NSEventModifierFlagShift) &&
                  character >= 'a' && character <= 'z')) {
                 [self writeDirectEnglishText:[NSString stringWithCharacters:&character length:1]

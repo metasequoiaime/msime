@@ -7,7 +7,7 @@ package app.msime.android;
  *
  * <p>手机横屏另有一个分支（#10440）：本地设置 `platform.android.split_keyboard_phone_landscape` 打开（默认关、不随账号同步，免得手机继承平板上的开启状态）、横屏、`smallestScreenWidthDp` 低于分离启用宽度，并且按键盘实际可用宽度算出的分离后第一排字母键不窄于 {@link #PHONE_MIN_LETTER_KEY_WIDTH_DP}（{@link #phoneActive}）。可用宽度由调用方给出键盘列扣掉左右系统栏内边距之后的宽度，分屏、侧边导航栏和刘海留白都算在里面，不按屏幕宽度猜（iPhone 上按屏幕宽度判断在真机上从不生效，见 #10342）。手机分离不走大屏的 720 dp 居中外框：{@link KeyboardFormFactorPolicy#surfaceWidthDp} 在分离时总是铺满。
  *
- * <p>每一行都是「不分离时的那一行，整体最多占键盘宽度的 75%，宽窗口里原始键区合计不超过 720 dp，在中间某个键的边界上断开，左右两段各自贴到键盘两侧」。中间至少空出的 25% 是一个不属于任何键的占位视图，键与键之间原有的宽度比例、第二行的半键缩进都原样保留，所以第二行的断口比第一行偏右半个键，就像整副键盘从中间掰开。断点取使左段份额最接近整行一半的键边界；两个边界一样接近时（奇数个等宽键）多出来的那个键归左边。底行的空格键不在键边界上断，而是拆成两个空格键，分别放在两半的内侧，左边那个的宽度让空隙正好居中。
+ * <p>每一行都是「不分离时的那一行，整体最多占键盘宽度的 75%，宽窗口里原始键区合计不超过 720 dp，在中间某个键的边界上断开，左右两段各自贴到键盘两侧」。中间至少空出的 25% 是一个不属于任何键的占位视图，键与键之间原有的宽度比例、第二行的半键缩进都原样保留，所以第二行的断口比第一行偏右半个键，就像整副键盘从中间掰开。断点取使左段份额最接近整行一半的键边界；两个边界一样接近时（奇数个等宽键）多出来的那个键归左边。底行的空格键不在键边界上断，而是拆成两个空格键，分别放在两半的内侧，左边那个的宽度让空隙正好居中。空出的比例由本地设置 `platform.android.split_keyboard_gap` 决定；用户在设置页设过这一项时以它为准，键区在很宽的窗口上可以超过 720 dp，没设过时按默认值加 720 dp 键区上限（{@link #gapFraction(int, int, boolean)}）。
  *
  * <p>字母层的第二、三行在右半边内侧重复左半边最内侧的那个字母（#6022）：a–l 行是 asdfg | ghjkl，⇧ zxcvbnm ⌫ 是 ⇧zxcv | vbnm⌫，双手握持时两边拇指都够得着 G、V，双拼也更顺手。重复的键从空隙里占一个键宽（{@link #gapWeight(float, float)}），所以三行的键宽不变，这两行的空隙比第一行窄一个键；两段的份额恰好相等（第二行 0.5 + 5 对 5 + 0.5，第三行 ⇧ + 4 对 4 + ⌫），空隙仍在正中。只有重复之后两段正好相等时才重复（{@link #duplicatesInnerKey}）：微软双拼显示第十个键 `;` 时第二行没有半键缩进，asdfg | hjkl; 本来就是五对五，再重复 G 右边就多出一个键、空隙偏开半个键，所以这一行不重复。第一行 qwert | yuiop 本来左右各五个，不重复；数字行、123 / #+= 层也不重复。
  */
@@ -123,14 +123,21 @@ public final class SplitKeyboardPolicy {
 
     /** 当前窗口的中缝比例：小平板保持原比例，大平板把增加的宽度留在中间。 */
     public static float gapFraction(int availableWidthDp) {
-        if (availableWidthDp <= 0) return GAP_FRACTION;
-        return Math.max(GAP_FRACTION, 1f - (float) MAX_KEY_AREA_WIDTH_DP / availableWidthDp);
+        return gapFraction(availableWidthDp, DEFAULT_GAP_PERCENT, false);
     }
 
-    /** 按用户选择的空隙比例，并保留大屏布局为键区留出的最低比例。 */
+    /** 没在设置页改过空隙时，按默认值和 {@link #gapFraction(int, int, boolean)} 算中缝。 */
     public static float gapFraction(int availableWidthDp, int gapPercent) {
-        float configured = BoundsPolicy.bounded(gapPercent, MIN_GAP_PERCENT, MAX_GAP_PERCENT) / 100f;
-        return Math.max(configured, availableWidthDp <= 0 ? 0f
+        return gapFraction(availableWidthDp, gapPercent, false);
+    }
+
+    /**
+     * 按用户选择的空隙比例算中缝。{@code explicit} 为真表示用户在设置页设过这一项（{@code platform.android.split_keyboard_gap} 在本地设置文件里显式存在），这时以用户选的值为准：屏幕越宽键区可以越过 {@link #MAX_KEY_AREA_WIDTH_DP}，空隙不再被下限抬高，滑杆才在宽窗口上也有用（#11812）。没设过时保持原规则：默认值之外再保证两侧键区合计不超过 720 dp，多出的宽度留在中间。
+     */
+    public static float gapFraction(int availableWidthDp, int gapPercent, boolean explicit) {
+        float chosen = BoundsPolicy.bounded(gapPercent, MIN_GAP_PERCENT, MAX_GAP_PERCENT) / 100f;
+        if (explicit) return chosen;
+        return Math.max(chosen, availableWidthDp <= 0 ? 0f
             : 1f - (float) MAX_KEY_AREA_WIDTH_DP / availableWidthDp);
     }
 
@@ -142,7 +149,13 @@ public final class SplitKeyboardPolicy {
     }
 
     public static float gapWeight(float rowWeight, float duplicateWeight, int availableWidthDp, int gapPercent) {
-        float gap = gapFraction(availableWidthDp, gapPercent);
+        return gapWeight(rowWeight, duplicateWeight, availableWidthDp, gapPercent, false);
+    }
+
+    /** 同上，{@code explicit} 的含义见 {@link #gapFraction(int, int, boolean)}。 */
+    public static float gapWeight(float rowWeight, float duplicateWeight, int availableWidthDp, int gapPercent,
+                                  boolean explicit) {
+        float gap = gapFraction(availableWidthDp, gapPercent, explicit);
         return BoundsPolicy.nonNegative(BoundsPolicy.nonNegative(rowWeight) * gap / (1f - gap)
             - BoundsPolicy.nonNegative(duplicateWeight));
     }

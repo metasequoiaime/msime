@@ -53,6 +53,22 @@ public final class BackspaceSwipePolicySmoke {
         check(narrow.left() == 8f && narrow.right() == 112f,
             "a narrow keyboard uses the available width without overflowing");
 
+        // 撤回下滑：键下沿 16 dp 处待命。
+        check(BackspaceSwipePolicy.undoPhase(168f, 137f, 2f) == Phase.REVEALED,
+            "a 16 dp slide below the key stays revealed until the line");
+        check(BackspaceSwipePolicy.undoPhase(169f, 137f, 2f) == Phase.ARMED,
+            "crossing 16 dp below the key arms the undo");
+        // 按住时键缩到 0.94（KeyboardPressFeedback），变换后的上沿比布局上沿低；用例把指尖送到布局键下沿
+        // 18 dp（137 + 18 * 2.65 = 184.7 px），屏上到变换后上沿只剩 173.6 px，直接相减会停在待命线前。
+        check(BackspaceSwipePolicy.undoPhase(173.6f, 137f, 2.65f) == Phase.REVEALED,
+            "measured from the pressed top, 18 dp looks shorter than the undo line");
+        check(Math.abs(BackspaceSwipePolicy.fingerYInKey(403f + 173.6f, 403f, 0.94f) - 173.6f / 0.94f) < 0.01f,
+            "the press scale is undone before measuring");
+        check(BackspaceSwipePolicy.undoPhase(184.7f, 137f, 2.65f) == Phase.ARMED,
+            "undoing the press scale puts 18 dp back past the undo line");
+        check(BackspaceSwipePolicy.fingerYInKey(580f, 403f, 1f) == 177f,
+            "a key that is not pressed keeps the measured distance");
+
         // 九键的删除键在第一排，上面只有约 50 dp 的工具栏：框缩到至少 28 dp，待命线仍在弹出线之上。
         float topRow = 100f;
         float line = BackspaceSwipePolicy.armLine(topRow, density);

@@ -240,6 +240,45 @@ HRESULT CTfTextLayoutSink::_UnadviseTextLayoutSink()
 }
 
 /**
+ * 组字范围量不到时按光标范围再量一次。
+ *
+ * Firefox 系 textarea 对整段组字常常答 `TS_E_NOLAYOUT` 或「isClipped + 空矩形」，对折叠到光标的空范围一般
+ * 会给真实的行高；#11787 的日记里每段组字开始时都是前者，而光标明明就在框里可见。宽度为 0 是光标范围的
+ * 正常样子，所以只要求上下边界有效。返回 false 时 `lpRect` 不动，调用方照旧收起候选窗。
+ */
+static bool GetCaretTextExtent(_In_ ITfContext *pContext, _In_ ITfContextView *pContextView, TfEditCookie ec,
+                               _In_ ITfRange *pRangeComposition, _Out_ RECT *lpRect)
+{
+    if (pContext == nullptr || pContextView == nullptr || pRangeComposition == nullptr || lpRect == nullptr)
+    {
+        return false;
+    }
+    // 不用 ITfRange::Clone：Windows SDK 的签名是 `Clone(ec, ppClone)`，MinGW 的 msctf.h 少了编辑 cookie，
+    // 照它的声明调用会把 vtable 上的参数错位。改用两边签名一致的路径：从文档起点取一个范围，再把终点移到
+    // 组字末尾、折叠成空范围。
+    ITfRange *pCaretRange = nullptr;
+    if (FAILED(pContext->GetStart(ec, &pCaretRange)) || pCaretRange == nullptr)
+    {
+        return false;
+    }
+    bool usable = false;
+    if (SUCCEEDED(pCaretRange->ShiftEndToRange(ec, pRangeComposition, TF_ANCHOR_END)) &&
+        SUCCEEDED(pCaretRange->Collapse(ec, TF_ANCHOR_END)))
+    {
+        RECT caretRect = {0, 0, 0, 0};
+        BOOL caretClipped = TRUE;
+        if (SUCCEEDED(pContextView->GetTextExt(ec, pCaretRange, &caretRect, &caretClipped)) &&
+            caretRect.bottom > caretRect.top)
+        {
+            *lpRect = caretRect;
+            usable = true;
+        }
+    }
+    pCaretRange->Release();
+    return usable;
+}
+
+/**
  * @brief 获取 caret 的坐标
  *
  * 本质上是通过 _pContextView->GetTextExt 获取 caret 坐标，
@@ -262,18 +301,34 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
         return hr;
     }
 
+    // 组字开始量不到坐标就收起候选窗是既有的约定，但宿主可能只是没给整段组字排版（Firefox 的 textarea
+    // 一直这样答），而光标处是排好版的。先按光标范围量一次：量到了就把这次组字当作已有锚点，后面每键的
+    // 空 extent 都会留在它上面；量不到才退回屏幕外的哨兵值。
+    auto caretFallback = [&](const wchar_t *reason) -> bool {
+        RECT caretRect = {0, 0, 0, 0};
+        if (!GetCaretTextExtent(_pContextDocument, pContextView, _tfEditCookie, _pRangeComposition, &caretRect))
+        {
+            return false;
+        }
+        *lpRect = caretRect;
+        *lpAnchor = GetPhysicalTextAnchor(pContextView, caretRect);
+        _hasValidAnchor = true;
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] caret range anchor={},{} after {}", lpAnchor->x,
+                                              lpAnchor->y, reason));
+        }
+        pContextView->Release();
+        return true;
+    };
+
     hr = pContextView->GetTextExt(_tfEditCookie, _pRangeComposition, lpRect, &isClipped);
 
-    // TS_E_NOLAYOUT means "the host has not laid this range out yet, ask again",
-    // not "the caret is gone". Chromium-based hosts (Electron apps, browsers)
-    // answer it routinely while their renderer is behind, and far more often
-    // while the machine is busy. Adopting the off-screen sentinel here parks the
-    // candidate window at INVALID_Y for one frame and the next measurement pulls
-    // it back — that is the flicker seen under load. Report the failure so the
-    // caller keeps the anchor it already has; TF_LC_CHANGE delivers the real
-    // position as soon as layout completes. Only do this once this layout
-    // session has produced a good anchor, so composition start still falls back
-    // to the sentinel rather than reusing a stale one from another document.
+    // TS_E_NOLAYOUT 的意思是「宿主还没给这一段排版，再问一次」，不是「光标没了」。Chromium 系宿主
+    // （Electron 应用、浏览器）在它的渲染进程落后时经常这样答，机器忙的时候更多。在这里改用屏幕外的
+    // 哨兵值，会把候选窗在 INVALID_Y 上一帧，下一次测量再拉回来 —— 那正是负载下的闪烁。返回失败，
+    // 让调用方保留已有的锚点；宿主排好版之后 TF_LC_CHANGE 会送来真实位置。只在这个 layout 会话已经
+    // 量到过一个好锚点之后这么做，组字开始仍要退回哨兵，而不是沿用另一个文档里的旧位置。
     if (hr == TS_E_NOLAYOUT && _hasValidAnchor)
     {
         pContextView->Release();
@@ -286,15 +341,49 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
 
     if (FAILED(hr))
     {
+        if (!_hasValidAnchor && caretFallback(L"a failed composition range measure"))
+        {
+            return S_OK;
+        }
         // Set default value to make sure the window is hidden by moving it out of the screen
         lpRect->left = 0;
         lpRect->bottom = Global::INVALID_Y;
         *lpAnchor = {0, Global::INVALID_Y};
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] extent query failed hr=0x{:08X} has_range={} anchor_valid={}",
+                                              static_cast<unsigned>(hr), _pRangeComposition != nullptr ? 1 : 0,
+                                              _hasValidAnchor ? 1 : 0));
+        }
     }
     else if (isClipped && lpRect && (lpRect->right <= lpRect->left || lpRect->bottom <= lpRect->top))
     {
         // Office often reports isClipped=TRUE with a still-usable rect; only reject
         // degenerate clipped extents that would anchor the candidate off-screen.
+        if (_hasValidAnchor)
+        {
+            // 组字开始之后量到空 extent，同样只是一段还没排好版的文字（Firefox 的 textarea 在内部
+            // 滚动、换行时就这样答），不是光标消失。把窗口留在上一次量到的位置，而不是打哨兵值把候选
+            // 收起：收起之后要等这个会话里再有一次成功测量才回来，持续输入时可能整段都不显示。
+            pContextView->Release();
+            if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+            {
+                QueueTsfDiagnosticLog(fmt::format(
+                    L"[candidate-layout] kept last anchor across empty clipped extent rect={},{},{},{}",
+                    lpRect->left, lpRect->top, lpRect->right, lpRect->bottom));
+            }
+            return E_FAIL;
+        }
+        if (caretFallback(L"an empty clipped composition range extent"))
+        {
+            return S_OK;
+        }
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(
+                L"[candidate-layout] empty clipped extent before any usable anchor, hid rect={},{},{},{}",
+                lpRect->left, lpRect->top, lpRect->right, lpRect->bottom));
+        }
         lpRect->left = 0;
         lpRect->bottom = Global::INVALID_Y;
         *lpAnchor = {0, Global::INVALID_Y};

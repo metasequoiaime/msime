@@ -69,6 +69,7 @@
 #include "GameProcessList.h"
 #include "HelpcodeModesModel.h"
 #include "HistoryPagination.h"
+#include "InfoTipHost.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
 #include "LearningResetFeedback.h"
@@ -3752,6 +3753,8 @@ private:
 
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
     if (args.WindowActivationState() == WindowActivationState::Deactivated) {
+      // 窗口切走了，点开固定的说明也跟着收起（共享页、iOS 都由窗口失焦收起）；鼠标只是移到别的窗口时窗口不算失活，悬停弹出的气泡仍归 WinUI 管。
+      info_tips_.close();
       flush_pending();
       retry_unsaved_edit();
       return;
@@ -3848,6 +3851,29 @@ private:
     root.AddHandler(UIElement::PointerReleasedEvent(), released, true);
     root.AddHandler(UIElement::PointerCanceledEvent(), released, true);
     root.AddHandler(UIElement::PointerCaptureLostEvent(), released, true);
+    // 点页面别处收起点开的说明。处理函数的参数是根元素而不是点击落点，落点取指针事件的 OriginalSource：控件自己处理过的点击（按钮、开关）也照旧冒到这里。
+    root.AddHandler(UIElement::PointerPressedEvent(),
+                    box_value(PointerEventHandler(
+                        [this](Inspectable const &, PointerRoutedEventArgs const &args) {
+                          info_tips_.close_unless_inside(
+                              info_tips_.contains(args.OriginalSource().try_as<DependencyObject>()));
+                        })),
+                    true);
+  }
+
+  // Esc 收起点开的说明，优先于页面自己的快捷键：说明开着时 Esc 只关它，不交给搜索框清空查询或者关掉对话框。窗口级的 KeyDown 拿不到控件已经处理掉的按键，而对话框在冒出窗口前就把 Esc 处理成了关闭，所以从 Content 上以 handledEventsToo 监听隧道路由的 PreviewKeyDown；问号在自己的 Click 里已经吞掉了空格和回车，Esc 不受影响。
+  void track_keys(UIElement const &root) {
+    using Microsoft::UI::Xaml::Input::KeyEventHandler;
+    using Microsoft::UI::Xaml::Input::KeyRoutedEventArgs;
+    root.AddHandler(UIElement::PreviewKeyDownEvent(),
+                    box_value(KeyEventHandler(
+                        [this](Inspectable const &, KeyRoutedEventArgs const &args) {
+                          if (args.Key() != Windows::System::VirtualKey::Escape || !info_tips_.open())
+                            return;
+                          info_tips_.close();
+                          args.Handled(true);
+                        })),
+                    true);
   }
 
   // ---- Saving ----
@@ -4033,6 +4059,7 @@ private:
     root.Children().Append(navigation_);
 
     track_pointer(root);
+    track_keys(root);
     root.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
       update_intro_size();
     });
@@ -4289,6 +4316,10 @@ private:
     A11y::SetAutomationId(scroll_, L"settings-content");
     scroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
     scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    // 滚动后气泡会脱离它所在的那一行（位置只在打开时量一次），所以一滚就收起，与共享页一样。滚轮滚到卡片上时事件不走正文的滚动区，这里同时听父级的 ViewChanged。
+    scroll_.ViewChanged([this](Inspectable const &, ScrollViewerViewChangedEventArgs const &) {
+      info_tips_.close();
+    });
     view.Content(scroll_);
     return view;
   }
@@ -4622,6 +4653,8 @@ private:
   void render_page_at(double offset) {
     if (!scroll_)
       return;
+    // 整页重画换掉了页面上的问号，旧的气泡要么已经被拆掉，要么还悬在没有问号的屏上（改一项设置后能看到）：重画前先收起点开的那个说明。
+    info_tips_.close();
     // 背单词子页与 macOS 的 `vocabulary` 子页一样，标题栏写它自己的「背单词」。
     toolbar_title_.Text(vocabulary_subpage() ? L"背单词" : page_label(current_page_).title);
     forget_stale_card_previews();
@@ -5041,10 +5074,9 @@ private:
     put(L"ButtonForegroundPressed", palette_.text);
     ToolTipService::SetToolTip(button, tip);
     A11y::SetName(button, hstring(info_tip_name(title, text)));
-    // 从按钮上取回 ToolTip，不在处理函数里捕获它：按钮经 ToolTipService 持有它，再反过来捕获会成环。
-    button.Click([](Inspectable const &sender, RoutedEventArgs const &) {
-      if (auto shown = ToolTipService::GetToolTip(sender.as<DependencyObject>()).try_as<ToolTip>())
-        shown.IsOpen(!shown.IsOpen());
+    // 点按固定或收起，别处的点击、Esc、滚动、换页由 info_tips_ 收起（见 InfoTipHost.h），这里不自己开关。
+    button.Click([this](Inspectable const &sender, RoutedEventArgs const &) {
+      info_tips_.toggle(sender.as<FrameworkElement>());
     });
     return button;
   }
@@ -14919,7 +14951,26 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
-      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      // 五笔自造词入库位置（共享偏好 `wubi_phrase_placement`）：默认「同码词后」等于没有这个选项时的现状。造词本身受学习开关控制，所以只在五笔方案且学习开启时出现，与学习开关同组。选项取值和文字在 InputSettingsModel.h 的 `wubi_phrase_placements`，Win7 设置用同一张表。
+      if (ism::wubi_phrase_placement_offered(
+              document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W) == L"wubi",
+              document_.Boolean(L"learning", true))) {
+        const auto stored_placement = document_.String(L"wubi_phrase_placement", L"bottom");
+        std::vector<Option> placements;
+        for (auto const &placement : ism::wubi_phrase_placements)
+          placements.push_back({std::wstring(placement.id), std::wstring(placement.label)});
+        auto placement_combo = select_control(
+            L"自造词位置", std::move(placements),
+            std::wstring(ism::wubi_phrase_placement_id(stored_placement)),
+            [this](std::wstring const &value) {
+              change([&](PreferencesDocument &doc) { doc.SetString(L"wubi_phrase_placement", value); }, false);
+            });
+        A11y::SetAutomationId(placement_combo, L"wubi-phrase-placement");
+        add_row(candidates, 0xE8CB, L"自造词位置",
+                L"新造的五笔词排在同码已有词之后（默认，等于现状）还是之前；入库这一次之后照常参与调频。",
+                placement_combo);
+      }
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，在学习开关和自造词位置之后。
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
                L"next_word_prediction", false);
@@ -14956,7 +15007,13 @@ private:
                std::wstring(msime::settings::quick_phrase::title),
                std::wstring(msime::settings::quick_phrase::description),
                std::wstring(msime::settings::quick_phrase::preference),
-               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+               msime::settings::quick_phrase::fallback, true, mixed_enabled, true);
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::first_title),
+               std::wstring(msime::settings::quick_phrase::first_description),
+               std::wstring(msime::settings::quick_phrase::first_preference), false, false,
+               mixed_enabled && document_.Boolean(msime::settings::quick_phrase::preference,
+                   msime::settings::quick_phrase::fallback, true));
       // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
@@ -21210,7 +21267,7 @@ private:
     redraw_plugins();
   }
 
-  // 导入用的系统对话框，与 Tauri 一样分成文件夹和 .zip 两种：系统的对话框只能选文件或只能选文件夹。用户取消或对话框打不开时返回空。
+  // 导入对话框分文件夹与文件两种；文件可选 ZIP 插件包或 TXT 辅助码表。用户取消或对话框打不开时返回空。
   std::optional<std::filesystem::path> pick_plugin_source(bool folder) {
     com_ptr<IFileDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -21222,7 +21279,7 @@ private:
       dialog->SetTitle(L"选择插件文件夹");
       dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
     } else {
-      const COMDLG_FILTERSPEC filter{L"插件", L"*.zip"};
+      const COMDLG_FILTERSPEC filter{L"插件压缩包或辅助码表", L"*.zip;*.txt"};
       dialog->SetFileTypes(1, &filter);
       dialog->SetTitle(L"选择插件");
       dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
@@ -22001,7 +22058,7 @@ private:
     build_plugin_list(page);
   }
 
-  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
+  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip 或 .txt」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
   void build_plugin_list(StackPanel const &page) {
     const auto modes = plugin_table_modes();
     const bool loaded = plugin_catalog_state_ == PluginCatalogState::loaded;
@@ -22083,7 +22140,7 @@ private:
       rows.emplace_back(L"create", create);
     }
     for (bool folder : {true, false}) {
-      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip";
+      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip 或 .txt";
       record(label, L"");
       auto button = button_control(label, [this, folder] { import_plugin_pack(folder); }, !plugins_busy_);
       mark_search_target(label, button);
@@ -28328,6 +28385,8 @@ private:
   NavigationView navigation_{nullptr};
   bool mica_ = false;
   ScrollViewer scroll_{nullptr};
+  // 设置页「?」的说明气泡里点开固定的那一颗，收起点见 InfoTipHost.h。
+  msime::settings::ui::InfoTipPins info_tips_{};
   Border preview_host_{nullptr};
   Grid preview_frame_{nullptr};
   Border toolbar_preview_host_{nullptr};

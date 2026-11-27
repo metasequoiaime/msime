@@ -1539,6 +1539,7 @@ fn quick_phrase_cursor_is_invalidated_only_when_a_script_changes_the_body() {
             options.quick_phrase_table = vec![msime_engine::QuickPhraseEntry {
                 key: "ab".into(),
                 text: "title:\"${cursor}\"".into(),
+                position: None,
             }];
             session
                 .runtime

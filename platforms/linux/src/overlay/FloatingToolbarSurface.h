@@ -11,7 +11,7 @@
 
 namespace msime::linux_host {
 
-// 悬浮工具栏的显示后端。FloatingToolbar 管什么时候显示、空闲隐藏和位置记忆，后端只管把工具栏、菜单和提示画出来并报告指针做了什么。现在只有纯 X11 后端（FloatingToolbarX11Surface）；Wayland 会话拿不到后端时宿主只有菜单里的「工具栏」子菜单。
+// 悬浮工具栏的显示后端。FloatingToolbar 管什么时候显示、空闲隐藏和位置记忆，后端只管把工具栏、菜单和提示画出来并报告指针做了什么。支持纯 X11 与原生 Wayland layer-shell；没有可用后端时宿主使用「工具栏」子菜单。
 class FloatingToolbarSurface {
  public:
   struct Callbacks {
@@ -19,7 +19,7 @@ class FloatingToolbarSurface {
     std::function<void(FloatingToolbarAction, const std::string &argument)> action;
     // 指针在工具栏或它的菜单上按下、拖动：与 macOS 的 sendEvent: 一样算一次输入，重新计空闲时间。
     std::function<void()> interacted;
-    // 拖完松手，工具栏本体左上角的新位置（根窗口的设备像素）。
+    // 拖完松手，工具栏本体左上角的新位置（X11 为根坐标，Wayland 为右下边距）。
     std::function<void(WaveOverlayPosition)> moved;
     // 前台窗口或它的状态变了，是否全屏需要重新判断。
     std::function<void()> focus_changed;

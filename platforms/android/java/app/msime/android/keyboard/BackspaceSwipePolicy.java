@@ -119,6 +119,16 @@ public final class BackspaceSwipePolicy {
         return fingerY >= keyBottom + 16f * density ? Phase.ARMED : Phase.REVEALED;
     }
 
+    /**
+     * 指尖在删除键布局坐标系里的位置：`fingerY` 是屏幕坐标换到覆盖层坐标系的结果，`keyTop` 是键上沿在同一坐标系里的位置（两者都按此刻的布局读）。
+     *
+     * <p>按住时键会缩到 0.94（{@code KeyboardPressFeedback}），变换后的上沿比布局上沿低，直接相减会把指尖算得离键下沿更近约 2 dp，下滑撤回在 16 dp 的待命线上就差这一点。按缩放系数换回布局坐标，也就是按下事件里 {@code getY()} 给出的那个位置；没有缩放（1）时不变。
+     */
+    public static float fingerYInKey(float fingerY, float keyTop, float scale) {
+        float offset = fingerY - keyTop;
+        return scale > 0f ? offset / scale : offset;
+    }
+
     /** 撤回框放在键下方；最后一排空间不足时贴住键区底部，仍须明确下滑才执行。 */
     public static Box undoBox(float left, float top, float right, float bottom,
                               float width, float height, float density) {
