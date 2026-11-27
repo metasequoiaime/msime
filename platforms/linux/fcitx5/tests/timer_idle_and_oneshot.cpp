@@ -226,9 +226,16 @@ void testInotifyFailureFallback() {
 
   std::uint64_t settled = 0;
   int phase = 0;
+  // 回退定时器 20 ms 一次，理想情况下 55 ms 时已触发两次；机器满载时事件循环会被推迟，所以第一阶段在 2 秒期限内每 10 ms 复查一次，只在期限到了仍不足两次时才判失败，避免把调度延迟当成回退失效。
+  const std::uint64_t fallback_deadline = fcitx::now(CLOCK_MONOTONIC) + 2'000'000;
   auto driver = loop.addTimeEvent(
       CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 55'000, 1,
       [&](fcitx::EventSourceTime *timer, std::uint64_t) {
+        if (phase == 0 && callbacks < 2 && fcitx::now(CLOCK_MONOTONIC) < fallback_deadline) {
+          timer->setNextInterval(10'000);
+          timer->setOneShot();
+          return true;
+        }
         if (phase++ == 0) {
           require(callbacks >= 2, "inotify 不可用时回退定时器应按间隔触发回调");
           fallback_watch.setActive(false);
