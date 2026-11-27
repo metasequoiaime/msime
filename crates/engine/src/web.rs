@@ -2,24 +2,28 @@
 //!
 //! 这是网页引擎（`msime-engine-wasm`）的产品胶水，不在引擎文档化的 API 里。
 
-use rusqlite::ffi::{MemVfsUtil, WasmOsCallback};
+use rusqlite::ffi::vfs::memvfs::MemVfsUtil;
+use rusqlite::ffi::vfs::transfer::DbTransfer;
+use rusqlite::ffi::vfs::VfsFilesManager;
 
-fn vfs() -> MemVfsUtil<WasmOsCallback> {
-    MemVfsUtil::<WasmOsCallback>::new()
+/// The memory VFS that sqlite-wasm-rs installs as the default from `sqlite3_os_init`; looking it up runs SQLite's automatic initialization first.
+fn vfs() -> Result<MemVfsUtil, String> {
+    // SAFETY: wasm32-unknown-unknown here is single-threaded (SQLite is built with SQLITE_THREADSAFE=0 and the engine runs in one Worker), so the lookup and every later SQLite call stay on the thread that installed the memory VFS, and nothing else registers VFSes concurrently.
+    #[allow(unsafe_code)]
+    let vfs = unsafe { MemVfsUtil::get() };
+    vfs.map_err(|error| error.to_string())
 }
 
-/// 已存在同名库时先 delete_db 再 import_db
+/// 已存在同名库时先删掉再导入
 pub fn import_database(path: &str, bytes: &[u8]) -> Result<(), String> {
-    let vfs = vfs();
-    if vfs.exists(path) {
-        vfs.delete_db(path);
-    }
+    let vfs = vfs()?;
+    let Ok(_) = vfs.remove(path);
     vfs.import_db(path, bytes)
         .map_err(|error| error.to_string())
 }
 
 /// 删除内存 VFS 里的词库；调用前须关闭所有打开它的连接。库不存在时什么也不做。
 pub fn delete_database(path: &str) -> Result<(), String> {
-    vfs().delete_db(path);
+    let Ok(_) = vfs()?.remove(path);
     Ok(())
 }

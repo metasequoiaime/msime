@@ -51,8 +51,10 @@ rustix = { workspace = true, features = ["fs"] }
 winapi-util = "0.1.11"
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-# web.rs 通过 rusqlite::ffi::MemVfsUtil 导入词库，依赖这个 feature
+# web.rs 通过 rusqlite::ffi::vfs::memvfs::MemVfsUtil 导入词库，依赖这个 feature
 rusqlite = { workspace = true, features = ["bundled", "backup", "ffi-sqlite-wasm-rs"] }
+# SQLite 在 wasm 上要的睡眠、随机数、时钟和本地时间由宿主以 C ABI 符号（`rust_sqlite_wasm_host_*`）提供；sqlite-wasm-rs 0.6 起这些实现放在默认关闭的 `wasm-bindgen` feature 里，rusqlite 不替我们打开，不开的话 wasm 会带着未解析的 `env` 导入、浏览器里实例化失败。版本跟 rusqlite 0.43 要求的 `>=0.6.3, <0.7` 一致，这里只为打开这个 feature，不直接调用它。
+sqlite-wasm-rs = { version = "0.6.3", default-features = false, features = ["wasm-bindgen"] }
 
 [dev-dependencies]
 # 片假名逐字符转换的旧行为对照，固定版本以免测试基线漂移。
