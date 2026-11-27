@@ -11,6 +11,7 @@ const actions: InputSourceStartupStatus["action"][] = [
   "installed",
   "updated",
   "up_to_date",
+  "migration_recommended",
   "not_installed",
   "login_required",
   "authorization_required",
@@ -69,6 +70,11 @@ test("只有装好且范围为当前用户时才算用户目录安装，旧宿�
     ...overrides,
   });
   expect(inputSourceInstalledForUserOnly(status({ installation_scope: "user" }))).toBe(true);
+  expect(
+    inputSourceInstalledForUserOnly(
+      status({ action: "migration_recommended", installation_scope: "user" }),
+    ),
+  ).toBe(true);
   expect(inputSourceInstalledForUserOnly(status({ installation_scope: "system" }))).toBe(false);
   expect(inputSourceInstalledForUserOnly(status({}))).toBe(false);
   expect(

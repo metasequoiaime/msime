@@ -111,3 +111,24 @@ test("系统安装待授权更新时指向主动修复，不误报重复安装�
   expect(banner.textContent).not.toContain("多了一份");
   expect(screen.queryByRole("button", { name: "打开键盘设置" })).toBeNull();
 });
+
+test("用户目录安装指向「迁移」，不引导添加", () => {
+  render(
+    <InputSourceStartupNotice
+      status={{
+        ...installed,
+        action: "migration_recommended",
+        enabled: false,
+        installation_scope: "user",
+      }}
+      onOpenSettings={vi.fn()}
+      onDismiss={vi.fn()}
+      onError={vi.fn()}
+    />,
+  );
+  const banner = screen.getByRole("status", { name: "水杉输入法安装状态" });
+  expect(banner.textContent).toContain("水杉输入法装在当前用户的目录里");
+  expect(banner.textContent).toContain("「维护与诊断」页的「输入法服务」中点「迁移」");
+  expect(banner.textContent).not.toContain("简体中文");
+  expect(screen.queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});

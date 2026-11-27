@@ -4,6 +4,7 @@ export type InputSourceStartupStatus = {
     | "installed"
     | "updated"
     | "up_to_date"
+    | "migration_recommended"
     | "not_installed"
     | "login_required"
     | "authorization_required"
@@ -26,11 +27,11 @@ export function inputSourceNeedsAdding(status: InputSourceStartupStatus | null):
   );
 }
 
-/** 生效的那份装在用户目录：安全输入期间 macOS 会停用它（见 platforms/macos/README.md）。旧宿主不报范围时不下结论。 */
+/** 生效的那份装在用户目录：安全输入期间 macOS 会停用它（见 platforms/macos/README.md）。启动检查对它报 `migration_recommended`，修复后的结果仍报安装、更新或当前版本。旧宿主不报范围时不下结论。 */
 export function inputSourceInstalledForUserOnly(status: InputSourceStartupStatus | null): boolean {
   return (
     status?.installation_scope === "user" &&
-    ["installed", "updated", "up_to_date"].includes(status.action)
+    ["installed", "updated", "up_to_date", "migration_recommended"].includes(status.action)
   );
 }
 

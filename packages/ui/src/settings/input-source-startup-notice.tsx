@@ -58,6 +58,10 @@ export function InputSourceStartupNotice({
     title = "系统安装需要授权更新";
     detail =
       "请在「维护与诊断」页的「输入法服务」中点「修复」，确认管理员授权后更新所有用户的输入法。";
+  } else if (status.action === "migration_recommended") {
+    title = "水杉输入法装在当前用户的目录里";
+    detail =
+      "输入密码等安全输入期间，macOS 会停用装在用户目录的输入法，它会在输入法菜单里变灰。请在「维护与诊断」页的「输入法服务」中点「迁移」，确认管理员授权后迁移到系统目录；输入法列表、词库和偏好都保留。";
   } else if (status.action === "cancelled") {
     title = "已取消管理员授权";
     detail = "输入法安装未完成。需要时可在「维护与诊断」页的「输入法服务」中点「修复」重试。";

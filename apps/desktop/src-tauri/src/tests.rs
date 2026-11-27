@@ -887,6 +887,31 @@ fn macos_repair_install_fails_only_when_the_install_breaks() {
     assert!(super::repair_install_result(&Err(InstallError::InvalidBundle)).is_err());
 }
 
+// 启动检查发现生效的那份装在用户目录时，安装、更新和当前版本都改报建议迁移；系统目录、范围未知和其余结果照旧。
+#[cfg(target_os = "macos")]
+#[test]
+fn startup_check_recommends_migrating_a_user_directory_install() {
+    use super::macos_input_source::InstallationScope;
+    let action = super::startup_action_for_scope;
+    for done in ["installed", "updated", "up_to_date"] {
+        assert_eq!(
+            action(done, Some(InstallationScope::User)),
+            "migration_recommended"
+        );
+        assert_eq!(action(done, Some(InstallationScope::System)), done);
+        assert_eq!(action(done, None), done);
+    }
+    for other in [
+        "not_installed",
+        "login_required",
+        "authorization_required",
+        "cancelled",
+        "failed",
+    ] {
+        assert_eq!(action(other, Some(InstallationScope::User)), other);
+    }
+}
+
 #[test]
 fn on_device_translation_downloadable_keeps_only_choosable_targets() {
     // `defaults read` prints a string value followed by a newline.

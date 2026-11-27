@@ -2858,7 +2858,7 @@ fn finish_input_source_repair(
 #[cfg(target_os = "macos")]
 #[derive(Debug, Clone, serde::Serialize)]
 struct InputSourceStartupStatus {
-    /// 安装、更新、当前版本、待安装、等待登录、待授权、取消或失败。
+    /// 安装、更新、当前版本、建议迁移到系统目录、待安装、等待登录、待授权、取消或失败。
     action: &'static str,
     /// 请求时输入源是否在系统设置列表中，读不到时为 None。
     enabled: Option<bool>,
@@ -2933,6 +2933,7 @@ fn run_input_source_startup(
         resource_directory,
         macos_input_source::ensure_current(resource_directory, defer_first_install),
     )?;
+    status.action = startup_action_for_scope(status.action, status.installation_scope);
     // 输入法本身是最新的，但系统安装的更新助手没装或者旧了：它只在管理员授权的安装里更换，所以和系统副本待更新一样提示授权修复。
     if status.action == "up_to_date"
         && status.installation_scope == Some(macos_input_source::InstallationScope::System)
@@ -2941,6 +2942,21 @@ fn run_input_source_startup(
         status.action = "authorization_required";
     }
     Some(status)
+}
+
+/// 启动检查发现生效的那份装在 `~/Library/Input Methods` 时，把安装、更新和当前版本改报 `migration_recommended`：macOS 只把 `/Library/Input Methods` 里的第三方输入法算作安全输入源，用户目录里的那份在安全输入期间会在输入法菜单里变灰（见 .agents/notes/implemented/bug-fix/2026-11-16-macos-system-directory-install-and-updater.md）。已有的用户副本不自动迁移，设置页据此提示用户到「维护与诊断 › 输入法服务」里点「迁移」。只改启动检查：修复、迁移和首次安装窗口的结果仍报实际做了什么。
+#[cfg(target_os = "macos")]
+fn startup_action_for_scope(
+    action: &'static str,
+    scope: Option<macos_input_source::InstallationScope>,
+) -> &'static str {
+    if scope == Some(macos_input_source::InstallationScope::User)
+        && matches!(action, "installed" | "updated" | "up_to_date")
+    {
+        "migration_recommended"
+    } else {
+        action
+    }
 }
 
 #[cfg(target_os = "macos")]
