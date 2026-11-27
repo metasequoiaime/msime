@@ -63,6 +63,29 @@ remote_tags() {
   git ls-remote --tags "$remote" "refs/tags/$1*" | awk '{ name = $2; sub("^refs/tags/", "", name); if (sub("\\^\\{\\}$", "", name)) peeled[name] = $1; else plain[name] = $1 } END { for (name in plain) print name, (name in peeled ? peeled[name] : plain[name]) }'
 }
 
+# 组织的 windows-signing runner 组只让白名单里的 workflow@ref 用签名机，而白名单只收已经存在的具体 ref，不认 windows-v* 这样的通配，也不能不写 ref（API 直接 400）。所以每推一个 windows-v tag，就把 release-windows.yml@refs/tags/<tag> 加进去：签名 job 要等编译 job 跑完才排队，推完再加来得及。名单只留 main 和最近 5 个 windows tag；已删除的 ref（例如 develop）必须去掉，否则 API 校验整份名单时会拒绝更新。需要 gh 有 admin:org 权限；加不上时 tag 已经推了，按提示手动加完，再用 gh run rerun --failed 重跑签名那一步。
+signing_group_id=3
+# RELEASE_PR_GH 只给测试用：scripts/test-release-pr-tag.py 换成一个记录调用的假 gh，不碰真的组织设置。
+gh_cmd=${RELEASE_PR_GH:-gh}
+allow_windows_signing() {
+  local entry="metasequoiaime/msime/.github/workflows/release-windows.yml@refs/tags/$1" current body
+  if ! current=$("$gh_cmd" api "orgs/metasequoiaime/actions/runner-groups/$signing_group_id" --jq '.selected_workflows' 2>/dev/null); then
+    echo "读不到 windows-signing runner 组（gh 需要 admin:org）：手动把 $entry 加进组织设置 → Actions → Runner groups → windows-signing 的 workflow 白名单" >&2
+    return 1
+  fi
+  body=$(jq -c --arg e "$entry" '
+    def tagged: test("@refs/tags/windows-v");
+    (map(select(endswith("@refs/heads/main")))) as $main
+    | ((map(select(tagged)) - [$e]) + [$e]) as $tags
+    | {restricted_to_workflows: true, selected_workflows: ($main + $tags[-5:])}' <<<"$current")
+  if "$gh_cmd" api -X PATCH "orgs/metasequoiaime/actions/runner-groups/$signing_group_id" --input - >/dev/null <<<"$body"; then
+    echo "已放行 Windows 签名：$entry"
+  else
+    echo "没能把 $entry 加进 windows-signing 的白名单：手动加上，否则签名 job 拿不到 runner" >&2
+    return 1
+  fi
+}
+
 if [ "$mode" = tag ]; then
   [ ${#args[@]} -gt 0 ] || { echo "用法：scripts/release-pr.sh --tag [--pr <编号> | --ref <提交>] [--beta <N|bare>] <平台> ..." >&2; exit 2; }
   [ -z "$pr" ] || [ -z "$ref" ] || { echo "--pr 和 --ref 只能给一个" >&2; exit 2; }
@@ -114,6 +137,7 @@ if [ "$mode" = tag ]; then
   for tag in "${tags[@]}"; do
     git push "$remote" "refs/tags/$tag"
     echo "已推送 $tag：gh run list --workflow release-${tag%%-v*}.yml --limit 1"
+    case "$tag" in windows-v*) allow_windows_signing "$tag" ;; esac
   done
   exit 0
 fi
