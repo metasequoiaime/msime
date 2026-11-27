@@ -12,7 +12,7 @@ Status: implemented
 
 宿主只在本应用包含 feed、公钥与 Sparkle 框架时向共享页面提供原生检查更新能力；关于页优先调用它，由 Sparkle 完成检查、下载、验签、安装和重启。不带 feed 的开发构建保留官网入口。框架在运行时从应用的 `Contents/Frameworks` 加载，Rust 开发编译不新增 Sparkle SDK 路径依赖，也不把更新能力扩散到 Windows、Linux 或移动端。
 
-设置应用的 `CFBundleVersion` 与内嵌输入法一致，保证跨版本构建号单调递增。打包工具从已暂存的输入法读取 feed、公钥和构建号；两份 appcast 和两份归档都由现有私钥签名，正式发布时同时核对和上传。设置应用只在用户主动检查时启动更新器，避免多个共享面板进程各自检查更新；输入法保留原来的后台检查策略。此改动不触发发布，不生成新产品密钥。
+设置应用的 `CFBundleVersion` 与内嵌输入法一致，保证跨版本构建号单调递增。打包工具从已暂存的输入法读取 feed、公钥和构建号；两份 appcast 和两份归档都由现有私钥签名，正式发布时同时核对和上传。设置应用默认只在用户主动检查时启动更新器，避免多个共享面板进程各自检查更新；输入法保留原来的后台检查策略。用户打开偏好 `update_auto_download` 后，由设置窗口的主实例在后台检查并下载，见[设置应用在后台检查并下载更新包](2026-11-27-macos-settings-background-update-download.md)。此改动不触发发布，不生成新产品密钥。
 
 设置应用读哪个通道的 appcast 由[macOS 的更新通道](2026-10-25-macos-update-channels.md)决定：Info.plist 里仍是稳定版的 `appcast-settings-<edition>.xml`，用户选了测试版或每日构建时，每次检查改读同目录下的 `appcast-settings-beta-<edition>.xml` 或 `appcast-settings-nightly-<edition>.xml`。
 

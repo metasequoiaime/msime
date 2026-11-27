@@ -48,7 +48,7 @@ def configure(app: Path, input_method: Path, edition: str) -> bool:
         shutil.copytree(framework, destination, symlinks=True)
         settings.update({key: native[key] for key in UPDATE_KEYS if key in native})
         settings["SUFeedURL"] = urlunsplit(feed._replace(path=feed.path[:-len(expected)] + f"appcast-settings-{edition}.xml"))
-        # 只在用户主动检查时启动设置应用的更新器，输入法仍保持原来的后台更新策略。
+        # 包里默认不在后台检查：用户在偏好 update_auto_download 里打开后，设置应用的主实例才在运行时让 Sparkle 后台检查和下载（crates/host-macos/native/updater.mm），安装仍要用户点；输入法仍保持原来的后台更新策略。
         settings["SUEnableAutomaticChecks"] = False
         settings["SUAutomaticallyUpdate"] = False
     metadata.write_bytes(plistlib.dumps(settings, sort_keys=False))

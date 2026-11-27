@@ -89,6 +89,71 @@ pub async fn application_update_check(
     }
 }
 
+// ---- macOS 设置应用的后台下载 ----
+//
+// 偏好 `update_auto_download` 打开时，设置应用的 Sparkle 按偏好 `update_channel` 每天在后台检查一次，下载新版本并提示用户安装；安装仍由用户在 Sparkle 的提示里点，经过管理员授权，不在下次启动时自动安装（#11681 的维护者决定，见 `msime_host_macos::configure_settings_background_updates`）。只有设置窗口的主实例（`macos_settings_launch`，单实例）交给 Sparkle，面板进程从不打开它，同时开着几个面板也只有一处在检查。macOS 的设置进程随窗口关闭而退出，所以后台检查只在设置窗口开着时进行。开发构建、构建时或运行时设置了 `MSIME_DISABLE_UPDATE_CHECK` 时按关闭处理。偏好变化由偏好监视（`desktop_preferences_monitor`）每次轮询时交到这里，只在选择变了时才回主线程改 Sparkle。
+
+/// 本进程是不是设置窗口的主实例，由启动时设上。
+#[cfg(target_os = "macos")]
+static MACOS_BACKGROUND_UPDATE_OWNER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 设置窗口的主实例启动时调用一次：从此偏好监视把后台下载的选择交给 Sparkle。
+#[cfg(target_os = "macos")]
+pub(crate) fn own_macos_background_updates() {
+    MACOS_BACKGROUND_UPDATE_OWNER.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// 偏好里后台下载的选择：开没开、跟哪个通道。`disabled` 是这个进程是否关掉了后台检查（见 `background::automatic_checks_disabled`），关掉时一律按关闭。
+#[cfg(any(target_os = "macos", test))]
+fn background_download_choice(
+    preferences: &msime_client_core::preferences::Preferences,
+    disabled: bool,
+) -> (msime_client_core::preferences::UpdateChannel, bool) {
+    (
+        preferences.update_channel,
+        preferences.update_auto_download && !disabled,
+    )
+}
+
+/// 和上次交给 Sparkle 的选择不同时记下并返回新的选择；相同时返回 `None`，偏好监视每次轮询不必都回主线程。第一次总是返回。
+#[cfg(any(target_os = "macos", test))]
+fn changed_background_download_choice(
+    last: &mut Option<(msime_client_core::preferences::UpdateChannel, bool)>,
+    choice: (msime_client_core::preferences::UpdateChannel, bool),
+) -> Option<(msime_client_core::preferences::UpdateChannel, bool)> {
+    if *last == Some(choice) {
+        return None;
+    }
+    *last = Some(choice);
+    Some(choice)
+}
+
+/// 偏好监视每次读到偏好时调用：本进程是设置窗口的主实例、且选择和上次不同时，回主线程交给 Sparkle。
+#[cfg(target_os = "macos")]
+pub(crate) fn sync_macos_background_updates<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    preferences: &msime_client_core::preferences::Preferences,
+) {
+    use msime_client_services::update_check::background;
+    use std::sync::Mutex;
+    static APPLIED: Mutex<Option<(msime_client_core::preferences::UpdateChannel, bool)>> =
+        Mutex::new(None);
+    if !MACOS_BACKGROUND_UPDATE_OWNER.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
+    let choice = background_download_choice(preferences, background::automatic_checks_disabled());
+    let Some((channel, enabled)) = changed_background_download_choice(
+        &mut APPLIED.lock().unwrap_or_else(|poison| poison.into_inner()),
+        choice,
+    ) else {
+        return;
+    };
+    let _ = app.run_on_main_thread(move || {
+        msime_host_macos::configure_settings_background_updates(channel.as_str(), enabled);
+    });
+}
+
 // ---- Linux 后台更新检查 ----
 //
 // macOS 的输入法每天在后台检查一次、静默下载并在切换输入源时安装；Linux 的安装包归包管理器管（deb、rpm、AUR、OBS、nix），不能在应用里安装，所以这里只做检查和提醒：打开设置窗口时（启动时或把已在运行的设置进程叫到前台时；只为面板启动的设置进程不检查）调用共享的后台检查（`msime_client_services::update_check::background`），通道按偏好 `update_channel`。多久问一次、连不上时多久再试、换了通道立刻重查、同一个构建（版本号和运行 ID）只提醒一次，都由共享层决定，记录是状态目录下的 `update-check.json`。这里只负责 Linux 自己的部分：发现该提醒的新版本时发一条桌面通知，点通知上的「查看」打开设置的「关于」页，关于页直接显示找到的新版本；发通知的那个进程退出以后再打开关于页也能看到，直到运行的构建追上它或换了通道。「查看」只在发通知的进程还在时有效（它要等 notify-send 退出才知道点了哪个动作），之后从设置窗口打开「关于」页即可。检查在设置应用里跑，不在 Fcitx5 插件或 IBus 宿主里联网。开发构建、构建时或运行时设置了 `MSIME_DISABLE_UPDATE_CHECK` 时不做后台检查（见 `background::automatic_checks_disabled`），关于页的「检查更新」按钮照常可用。请求的内容与「检查更新」按钮相同，见 PRIVACY.md「资源与更新下载」。
@@ -329,6 +394,56 @@ mod tests {
             channel,
             build_run,
         }
+    }
+
+    #[test]
+    fn background_download_follows_the_preference_and_its_channel() {
+        use msime_client_core::preferences::Preferences;
+        // 默认关闭（#11681）。
+        assert_eq!(
+            background_download_choice(&Preferences::default(), false),
+            (UpdateChannel::Stable, false)
+        );
+        let enabled = Preferences {
+            update_auto_download: true,
+            update_channel: UpdateChannel::Beta,
+            ..Preferences::default()
+        };
+        assert_eq!(
+            background_download_choice(&enabled, false),
+            (UpdateChannel::Beta, true)
+        );
+        // 开发构建或设置了 MSIME_DISABLE_UPDATE_CHECK 时不在后台下载。
+        assert_eq!(
+            background_download_choice(&enabled, true),
+            (UpdateChannel::Beta, false)
+        );
+    }
+
+    #[test]
+    fn sparkle_only_hears_about_a_changed_choice() {
+        let mut last = None;
+        // 第一次总是交出去，关闭也一样。
+        assert_eq!(
+            changed_background_download_choice(&mut last, (UpdateChannel::Stable, false)),
+            Some((UpdateChannel::Stable, false))
+        );
+        assert_eq!(
+            changed_background_download_choice(&mut last, (UpdateChannel::Stable, false)),
+            None
+        );
+        assert_eq!(
+            changed_background_download_choice(&mut last, (UpdateChannel::Stable, true)),
+            Some((UpdateChannel::Stable, true))
+        );
+        assert_eq!(
+            changed_background_download_choice(&mut last, (UpdateChannel::Nightly, true)),
+            Some((UpdateChannel::Nightly, true))
+        );
+        assert_eq!(
+            changed_background_download_choice(&mut last, (UpdateChannel::Nightly, true)),
+            None
+        );
     }
 
     #[test]

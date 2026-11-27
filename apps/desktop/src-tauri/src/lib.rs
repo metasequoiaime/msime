@@ -5165,6 +5165,11 @@ pub fn run() {
                 }
             };
             let preferences = Arc::new(PreferencesStore::new(&directory));
+            // 只有设置窗口的主实例在后台下载设置应用的更新（偏好 update_auto_download），面板进程不碰 Sparkle；之后由偏好监视交给 Sparkle，见 `update_check` 的 macOS 一节。
+            #[cfg(target_os = "macos")]
+            if macos_settings_launch(requested_surface_route()) {
+                update_check::own_macos_background_updates();
+            }
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             platform::desktop::desktop_crash_reporting::start(app.handle(), Arc::clone(&preferences));
             let clipboard_limit = preferences
