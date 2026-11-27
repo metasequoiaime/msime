@@ -178,6 +178,19 @@ pub fn linux_native_canvas_renderer(document: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 运行中的 Linux 宿主是 iBus（状态文件的 `{"host": "ibus", ...}`，每次启动都写，见 platforms/linux 的 `publish_candidate_panel_status`）。候选维护四键只在 iBus 宿主里实现，Fcitx5 没有，所以 `candidate_maintenance_shortcuts` 不按平台给，由这份报告决定。
+pub fn linux_ibus_host(document: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(document)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("host")
+                .and_then(|host| host.as_str())
+                .map(|host| host == "ibus")
+        })
+        .unwrap_or(false)
+}
+
 /// What the surrounding host can actually do. The shared UI renders from this
 /// rather than guessing from `navigator.userAgent`, which previously hid working
 /// controls on Windows and macOS and left 打字统计 dead on every desktop.
@@ -305,6 +318,9 @@ pub struct HostCapabilities {
     /// cache — so a keyboard needs the chords or cannot reach them. Declared rather than inferred
     /// from "draws desktop panels", which is what it used to be read off and is a different fact.
     pub maintenance_shortcuts: bool,
+    /// 宿主实现候选维护四键（置顶 Ctrl+↑、固定到第 1–5 位 Ctrl+Shift+1..5、取消固定 Ctrl+0、删除候选 Ctrl+Del）时为真。只有 Linux 的 iBus 宿主实现：同一个 Linux 设置应用也服务 Fcitx5，所以不按平台给，由运行中的宿主报告后经 `apply_linux_ibus_host` 打开；其余桌面与触屏宿主没有实现。缺省按不提供处理。
+    #[serde(default)]
+    pub candidate_maintenance_shortcuts: bool,
     /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that
     /// gives it back to the application belongs on its settings page.
     pub fullwidth_chord: bool,
@@ -555,6 +571,14 @@ impl HostCapabilities {
         self.expand_candidates = true;
         self.candidate_preedit_font = true;
         self.candidate_selection_appearance = true;
+    }
+
+    /// 运行中的 Linux 宿主报告自己是 iBus（[`linux_ibus_host`]）时，速查页列出它实现的候选维护四键。
+    pub fn apply_linux_ibus_host(&mut self) {
+        if self.platform != HostPlatform::Linux {
+            return;
+        }
+        self.candidate_maintenance_shortcuts = true;
     }
 
     /// Capabilities as they stand today for each shipped host. Slices that add a
@@ -811,6 +835,8 @@ impl HostCapabilities {
             // Harmony reaches this through its form-factor projection of `panel_windows`, which
             // the page still consults, so it is not named here and its behaviour is unchanged.
             maintenance_shortcuts: platform.is_desktop() || platform == HostPlatform::Android,
+            // 只有 Linux 的 iBus 宿主实现了这四键，Fcitx5 没有：由运行中的宿主报告（`apply_linux_ibus_host`），不按平台给。其余桌面尚未接入，触屏宿主靠长按手势。
+            candidate_maintenance_shortcuts: false,
             // macOS 从上线起就占用这个组合键；Android 宿主的 Alt+Shift+H 读同一个偏好；Windows 的 TSF 在中文模式下同样认 Alt+Shift+H。其他宿主不绑定它。
             fullwidth_chord: matches!(
                 platform,

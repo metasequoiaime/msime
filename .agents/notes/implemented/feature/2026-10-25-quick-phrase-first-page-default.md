@@ -21,6 +21,8 @@ Status: implemented
 
 页大小来自 host-api：`EngineOptions.first_page_rows = host_page_size(page_size_override 或 candidate_page_size)`，偏好变更重建选项时跟着变，和全拼补全词、英文首页席位用的是同一个值。K 模式（`Shift+K`）只列快捷短语，不经过这条路径。
 
+[#11792](https://github.com/metasequoiaime/msime/issues/11792) 的自定义码表给插件短语加可选的 `position`。macOS 的现有插件选择器接收 UTF-8 文本「编码 文字 位置」，把三列按普通插件校验后原子安装；文件名作为包名，启用仍经现有开关。普通组字按完整编码取行，有位置的行按最终列表的名次放进空槽，同名次按原次序，不够时向前收拢。手动固定、在线占位、网址补全和联系人优先保留原槽。只有未指定位置的短语参与整组调频；「快捷短语放最前」也只把未指定位置的组挪到最前，指定位置的行在这之后按名次摆放。K 模式继续用原来次序。重复导入会新建包，用户可禁用或删除旧包。
+
 目前请求 `quick_phrase_candidates` 的只有 macOS（`InputController.mm`）和 Linux 的两个宿主（`ClientEngine.cpp`、`FcitxEngine.cpp`）；Windows、iOS、Android、HarmonyOS 不声明这项能力，行为不变。
 
 ## Alternatives considered
@@ -37,5 +39,6 @@ Status: implemented
 - 英文、emoji、云候选占位（`☁`，开着云候选时在第 2 格）、联系人和固定位置的行不计位，它们排在短语前面时短语会被推后同样的格数，最坏落到第二页开头；学习槽位一直有同样的近似。
 - 旧版本在 Halve 或 Linear 调频下从末尾学出来的槽位可能在首页之外，这些记录照旧生效，不做迁移；默认的 Promote 从末尾学出来的槽位是 4，在首页内。
 - 验证：`crates/engine/src/session/tests.rs` 用合成的小鹤 `zj` 词库（83 个普通候选）覆盖每页 5、6、9 个的默认落位、学习前移与后退封顶、多条短语、不满一页和 K 模式，前四类在改动前失败。
+- 自定义位置的测试用合成短语覆盖第 6–8 位、候选不足、整码、K 模式和调频记录，插件侧覆盖导入语法、坏行整包拒收和编辑保留位置。
 
 快捷短语的 `${cursor}` 展开与上屏后缀契约见[光标定位笔记](../../implemented/feature/2026-10-31-quick-phrase-cursor.md)；不改变本文原有决定。

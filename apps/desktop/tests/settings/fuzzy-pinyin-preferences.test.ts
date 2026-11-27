@@ -30,6 +30,7 @@ test.each([undefined, false])(
         "in-ing",
         "ian-iang",
         "uan-uang",
+        "un-ong",
       ],
       seeded: true,
     });

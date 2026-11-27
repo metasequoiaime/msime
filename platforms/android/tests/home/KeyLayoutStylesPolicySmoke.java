@@ -192,9 +192,9 @@ public final class KeyLayoutStylesPolicySmoke {
         check(faces(fourteen.get(2)).equals(List.of("符", "ZX", "CV", "BN", "M", "⌫")), "14-key third row is 符 … ⌫");
         for (int index = 0; index < 3; index++)
             check(near(sum(fourteen.get(index)), 1f), "14-key letters fill row " + index);
-        // 14 键第三行：符 和 ⌫ 1.4 份，字母键两份，换算到整行里比例不变。
+        // 14 键等宽第三行：符 和 ⌫ 与 26 键的 ⇧、⌫ 同宽（1.5 份），字母键平分中间（1.75 份），换算到整行里比例不变。
         List<Key> third = fourteen.get(2);
-        check(near(third.get(0).weight() / third.get(1).weight(), 1.4f / 2f), "14-key edge keys keep 1.4 : 2");
+        check(near(third.get(0).weight() / third.get(1).weight(), 1.5f / 1.75f), "14-key edge keys keep 1.5 : 1.75");
         for (Row style : Kind.FOURTEEN.rows) {
             List<List<Key>> rows = KeyLayoutStylesPolicy.keyboard(Kind.FOURTEEN, style, false, false);
             sameEntries(rows.get(3), KeyboardActionRow.designEntries(KeyboardLayout.FOURTEEN_KEY_LAYOUT, false, false, false, false, style),

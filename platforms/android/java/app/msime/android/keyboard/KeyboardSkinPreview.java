@@ -258,9 +258,18 @@ public final class KeyboardSkinPreview extends View {
         {"⇧", "z", "x", "c", "v", "b", "n", "m", "⌫"},
         {"123", "，", "", "。", "中", "↵"},
     };
+    /** 与键盘相同的份额：每行 10 份，第二排两端各缩进半份，⇧/⌫、123、回车各 1.5 份，空格占剩下的（{@link KeyboardActionRow#ROW_SHARES}）。 */
+    private static final float MINI_EDGE = KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
+    /** 底行的 ， 和 。 各 1 份（一个字母键宽）。 */
+    private static final float MINI_SPACE = KeyboardActionRow.ROW_SHARES - KeyboardActionRow.DESIGN_LAYER_WEIGHT
+        - 2 - KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT - KeyboardActionRow.DESIGN_RETURN_WEIGHT;
     private static final float[][] MINI_WEIGHTS = {
-        null, null, {1.4f, 1, 1, 1, 1, 1, 1, 1, 1.4f}, {1.25f, 1, 4, 1, 1.05f, 1.9f},
+        null, null, {MINI_EDGE, 1, 1, 1, 1, 1, 1, 1, MINI_EDGE},
+        {KeyboardActionRow.DESIGN_LAYER_WEIGHT, 1, MINI_SPACE, 1, KeyboardActionRow.DESIGN_LANGUAGE_WEIGHT,
+            KeyboardActionRow.DESIGN_RETURN_WEIGHT},
     };
+    /** 第二排两端的缩进（份）。 */
+    private static final float MINI_INDENT = .5f;
 
     /**
      * 在 bounds 上按 MINI_WIDTH 等比缩放画 MiniKb 的工具栏、键区和指示条。尺寸都是设计的虚拟像素：内边距 3、工具栏 50、工具栏与键区间距 8、行高 43、行距 11、键距 6、键角 5、键帽底部 1 px 阴影。
@@ -313,13 +322,16 @@ public final class KeyboardSkinPreview extends View {
         for (int row = 0; row < MINI_ROWS.length; row++) {
             String[] line = MINI_ROWS[row];
             float[] weights = MINI_WEIGHTS[row];
-            float inset = row == 1 ? (MINI_WIDTH - 6f) * .05f : 0f;
-            float width = MINI_WIDTH - 6f - inset * 2f - 6f * (line.length - 1);
-            float total = 0;
+            // 和键盘一样先按份额切格（整行宽，含缩进），再从每格两边各扣半个键距（3）。
+            float indent = row == 1 ? MINI_INDENT : 0f;
+            float total = indent * 2f;
             for (int index = 0; index < line.length; index++) total += weights == null ? 1f : weights[index];
-            float x = 3f + inset;
+            float prefix = indent;
             for (int index = 0; index < line.length; index++) {
-                float keyWidth = width * (weights == null ? 1f : weights[index]) / total;
+                float cellLeft = MINI_WIDTH * prefix / total;
+                prefix += weights == null ? 1f : weights[index];
+                float x = cellLeft + 3f;
+                float keyWidth = MINI_WIDTH * prefix / total - 3f - x;
                 String face = line[index];
                 boolean letter = face.length() == 1 && LETTER_HINTS.contains(face);
                 boolean enter = "↵".equals(face);
@@ -345,7 +357,6 @@ public final class KeyboardSkinPreview extends View {
                     text.setFakeBoldText(false);
                     canvas.drawText(HINTS[LETTER_HINTS.indexOf(face)], rect.right - 5f, rect.top + 13f, text);
                 }
-                x += keyWidth + 6f;
             }
             top += 43f + 11f;
         }

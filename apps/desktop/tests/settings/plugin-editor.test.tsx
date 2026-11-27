@@ -15,10 +15,26 @@ import {
   type PluginPackage,
   type PluginPreferences,
 } from "@msime/ui";
+import { draftFromPack } from "../../../../packages/ui/src/settings/plugin-editor-model";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+test("重新保存导入的短语表时保留候选位置", () => {
+  const draft = draftFromPack({
+    kind: "phrase_table",
+    id: "custom",
+    name: "合成",
+    version: "1.0.0",
+    license: "NOASSERTION",
+    author: null,
+    description: null,
+    phrases: [{ key: "ka", text: "か", position: 7 }],
+  });
+  draft.phrases[0].text = "カ";
+  expect(packFromDraft(draft).phrases).toEqual([{ key: "ka", text: "カ", position: 7 }]);
 });
 
 const base = {

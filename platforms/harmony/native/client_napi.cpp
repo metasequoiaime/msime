@@ -2,6 +2,7 @@
 #include "../../common/HostApiString.h"
 #include "../../common/CrashRecorder.h"
 #include "key_sound_render.h"
+#include "skin_folder_copy.h"
 #include <hilog/log.h>
 #include <napi/native_api.h>
 #include <zlib.h>
@@ -595,6 +596,69 @@ static napi_value queueRequest(napi_env env, napi_callback_info info, RequestCal
         napi_delete_async_work(env, work->work);
         delete work;
         return invalid(env, "Unable to queue request worker");
+    }
+    return promise;
+}
+
+// 目录 fd 在同步入口复制；选择器授权和原 File 对象的生命周期不影响工作线程。
+struct SkinFolderWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    int source = -1;
+    int destination = -1;
+    bool copied = false;
+    ~SkinFolderWork() {
+        if (source >= 0) close(source);
+        if (destination >= 0) close(destination);
+    }
+};
+
+static void executeSkinFolder(napi_env, void *data) {
+    auto *work = static_cast<SkinFolderWork *>(data);
+    work->copied = copySkinFolderByFd(work->source, work->destination);
+}
+
+static void completeSkinFolder(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<SkinFolderWork *>(data);
+    napi_value value = nullptr;
+    if (status == napi_ok && napi_get_boolean(env, work->copied, &value) == napi_ok) {
+        napi_resolve_deferred(env, work->deferred, value);
+    } else {
+        rejectWith(env, work->deferred, "Skin folder staging failed");
+    }
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value StageSkinFolder(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    int32_t source = -1;
+    int32_t destination = -1;
+    if (!arguments(env, info, 2, argv) || !argumentInt32(env, argv[0], source)
+            || !argumentInt32(env, argv[1], destination) || source < 0 || destination < 0) {
+        return invalid(env, "Expected source and destination directory descriptors");
+    }
+    auto *work = new SkinFolderWork();
+    work->source = fcntl(source, F_DUPFD_CLOEXEC, 0);
+    work->destination = fcntl(destination, F_DUPFD_CLOEXEC, 0);
+    if (work->source < 0 || work->destination < 0) {
+        delete work;
+        return invalid(env, "Cannot retain directory descriptors");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, "MSIME skin folder staging", NAPI_AUTO_LENGTH,
+                &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeSkinFolder,
+                completeSkinFolder, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create skin folder worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue skin folder worker");
     }
     return promise;
 }
@@ -2004,6 +2068,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("skinToolbarImageLayout", SkinToolbarImageLayout),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
         ENTRY("skinImport", SkinImport),
+        ENTRY("stageSkinFolder", StageSkinFolder),
         ENTRY("candidateSkinEditor", CandidateSkinEditor),
         ENTRY("customSkinLibrary", CustomSkinLibrary),
         ENTRY("keyboardSkinTrial", KeyboardSkinTrial),

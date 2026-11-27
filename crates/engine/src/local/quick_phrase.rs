@@ -144,6 +144,9 @@ fn usable_entry(entry: &QuickPhraseEntry) -> bool {
         && !entry.text.trim().is_empty()
         && entry.text.encode_utf16().count() <= TEXT_UTF16_LIMIT
         && !entry.text.chars().any(char::is_control)
+        && entry
+            .position
+            .is_none_or(|position| (1..=RESULT_LIMIT).contains(&usize::from(position)))
 }
 
 /// K 模式的结果：先是数据库行（内置与用户自己的，顺序不变），再接上编码以 `prefix` 开头的宿主短语行；文本已经出现过的跳过，总数不超过 `RESULT_LIMIT`。数据库不可用时照样给出宿主短语行，并保留原来的诊断。`table` 必须先经过 [`usable_quick_phrase_table`]。
@@ -295,6 +298,7 @@ mod tests {
         QuickPhraseEntry {
             key: key.into(),
             text: text.into(),
+            position: None,
         }
     }
 

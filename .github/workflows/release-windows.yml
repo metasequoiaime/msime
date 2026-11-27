@@ -445,7 +445,7 @@ jobs:
           name: msime-signpath-request-payload-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload/
           if-no-files-found: error
-      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+      - uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
         with:
           api-token: ${{ secrets.SIGNPATH_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -611,7 +611,7 @@ jobs:
           name: msime-signpath-request-installers-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/installers/*.exe
           if-no-files-found: error
-      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+      - uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
         with:
           api-token: ${{ secrets.SIGNPATH_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}

@@ -37,11 +37,14 @@ struct KeyboardLayoutSettingsView: View {
   @State private var tabOpensCandidates = true
   @State private var shuangpinKeyHints = KeyboardLayoutPreference.shuangpinKeyHints
   @State private var quanpinShift = KeyboardLayoutPreference.quanpinShift
+  @State private var preciseNineKey = false
   /// 「按键布局」里的顶部数字行决定手机键盘有几排，高度百分比按它算（`heightPercent`）。
   @State private var keyLayoutStyle = TouchKeyLayoutStyle.mirrored
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
   @State private var saveFailed = false
+  /// 点预览图字母键后要编辑上下滑动作的字母；非 nil 时弹出设置 Sheet。
+  @State private var editingLetter: LetterSwipeSheetTarget? = nil
   @AppStorage(KeyboardFeedbackPreference.soundKey, store: KeyboardFeedbackPreference.defaults)
   private var soundEnabled = true
   @AppStorage(KeyboardFeedbackPreference.hapticsKey, store: KeyboardFeedbackPreference.defaults)
@@ -59,6 +62,7 @@ struct KeyboardLayoutSettingsView: View {
   /// 一次保存只写用户刚动的那一项，见 `save(_:)`。
   private enum Field { case height, keySpacing, rowSpacing }
   private static let spacingDragScale: Double = 18
+  private static let preciseNineKeyKey = "touch_nine_key_precise"
 
   var body: some View {
     VStack(spacing: 0) {
@@ -85,6 +89,10 @@ struct KeyboardLayoutSettingsView: View {
     .reloadOnAppearAndActive(readPreferences)
     // 目录要读每个包的清单，放到主线程之外；页面消失时任务随之取消。
     .task { keySoundPacks = await Task.detached(priority: .userInitiated) { Self.installedKeySoundPacks() }.value }
+    // 点预览图字母键 → 底部弹出该键的上滑/下滑设置；关闭时重算徽标，预览图立即反映刚才改的动作。
+    .sheet(item: $editingLetter, onDismiss: refreshLetterSwipeBadges) { target in
+      LetterSwipeKeyEditorSheet(letter: target.letter)
+    }
   }
 
   // MARK: - 预览
@@ -117,14 +125,48 @@ struct KeyboardLayoutSettingsView: View {
       grip
       KeyboardSkinPreview(
         skin: skin, nineKey: face.nineKey, letterGrid: face.letterGrid,
-        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey),
-        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero
+        layout: KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey,
+                                 hidesPunctuation: KeyboardLayoutPreference.hidePunctuationKey,
+                                 hidesSymbol: KeyboardLayoutPreference.hideSymbolKey),
+        heightAdjustment: height, keyLayout: previewKeyLayout, nineKeyZero: face.nineKeyZero,
+        letterBadges: letterSwipeBadges, onLetterTap: letterSwipeEditable ? { editingLetter = LetterSwipeSheetTarget(letter: $0) } : nil
       )
       .gesture(spacingDrag)
       .accessibilityIdentifier("keyboardLayoutPreview")
       Text(dragHint).font(.caption2).foregroundStyle(MetasequoiaTheme.sub)
     }
     .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 8)
+  }
+
+  /// 预览图字母键可点（「滑动输入符号」开着且停在 26 键时）；其它布局或关掉滑动时不点。
+  private var letterSwipeEditable: Bool { swipeSymbols && letterGrid == nil && !nineKey }
+
+  /// 每个被单独改过上下滑动作的字母键 → 徽标文本；没改过的键不标，预览图保持干净。
+  /// 徽标只写动作短名（如「粘贴」），不带「下滑·」前缀；角标动作用真实符号代替。
+  /// 存成 `@State` 而不是计算属性：值读自 UserDefaults，SwiftUI 不会因它变化重渲染，得在改完动作后（Sheet 关闭）手动重算一次。
+  @State private var letterSwipeBadges: [String: String] = [:]
+
+  /// 重读所有字母键的上下滑动作，重算预览图徽标。
+  private func refreshLetterSwipeBadges() {
+    var badges: [String: String] = [:]
+    for letter in LetterSwipePreference.letters {
+      let up = LetterSwipePreference.stored(letter: letter, direction: .up)
+      let down = LetterSwipePreference.stored(letter: letter, direction: .down)
+      // 上下滑都可能配；有多个时用空格隔开，先上后下。
+      var parts: [String] = []
+      if let up { parts.append(badgeAction(up, letter: letter)) }
+      if let down { parts.append(badgeAction(down, letter: letter)) }
+      if !parts.isEmpty { badges[letter] = parts.joined(separator: " ") }
+    }
+    letterSwipeBadges = badges
+  }
+
+  /// 徽标里的动作短名：角标动作直接写符号，其余写动作短名（如「复制」）；自定义文本直接写文本内容本身（用户常用它上屏符号），不写「文本」。
+  private func badgeAction(_ binding: LetterSwipeBinding, letter: String) -> String {
+    if binding.action == .text, !binding.trimmedText.isEmpty {
+      return binding.trimmedText
+    }
+    return binding.action.shortTitle(symbol: LetterHintSymbols.hint(for: letter))
   }
 
   private var grip: some View {
@@ -234,6 +276,13 @@ struct KeyboardLayoutSettingsView: View {
         .buttonStyle(PressFillButtonStyle())
         .accessibilityIdentifier("keyLayoutSettingsLink")
       }
+      if Self.offersNineKeyFlick {
+        DesignDivider()
+        DesignToggleRow(title: "九键精确拼写",
+                        info: "全拼九键左列只显示已输入的拼写和首键字母；点字母锁定一键，精确读法排在尾段补全之前。",
+                        isOn: Binding(get: { preciseNineKey }, set: { savePreciseNineKey($0) }))
+          .accessibilityIdentifier("appPreciseNineKeyToggle")
+      }
       DesignDivider()
       // 只有双拼方案和粤语双拼的 26 键画键位提示；本版本两者都没有时不列这一行。
       if ChineseInputScheme.shuangpin.isOfferedByEdition || ChineseInputScheme.cantoneseShuangpin.isOfferedByEdition {
@@ -246,12 +295,6 @@ struct KeyboardLayoutSettingsView: View {
       DesignToggleRow(title: "组字时保留 Shift", info: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
                       isOn: Binding(get: { quanpinShift }, set: { saveQuanpinShift($0) }))
         .accessibilityIdentifier("appQuanpinShiftToggle")
-      DesignToggleRow(title: "隐藏中/英键", info: "加宽底行空格键；中英文仍可在工具栏的输入方式中切换",
-                      isOn: Binding(get: { hideLanguageKey }, set: { enabled in
-                        hideLanguageKey = enabled
-                        KeyboardLayoutPreference.hideLanguageKey = enabled
-                      }))
-        .accessibilityIdentifier("appHideLanguageKeySwitch")
       // iPhone 横屏的分离式键盘只在 iPhone 上列出；iPad 的开关在「iPad」一组。
       if UIDevice.current.userInterfaceIdiom == .phone {
         DesignToggleRow(title: Self.splitKeyboardTitle, info: Self.phoneSplitKeyboardSubtitle,
@@ -365,7 +408,7 @@ struct KeyboardLayoutSettingsView: View {
 
   private var gestureGroup: some View {
     DesignGroup(title: "手势", info: "滑行输入只在全拼 26 键的字母键盘上生效，轻点照常输入单个字母。") {
-      DesignToggleRow(title: "滑动输入符号", info: "沿设定方向滑动输入角标符号，默认上滑；长按字母键始终可以输入",
+      DesignToggleRow(title: "滑动输入符号", info: "总开关：开启后字母键按「滑动方向」和下面的每键设置执行上滑、下滑动作（默认出角标）；关闭后字母键不响应上下滑，长按仍输入角标",
                       isOn: Binding(get: { swipeSymbols }, set: { enabled in
                         swipeSymbols = enabled
                         KeyboardLayoutPreference.swipeSymbols = enabled
@@ -373,14 +416,16 @@ struct KeyboardLayoutSettingsView: View {
       .accessibilityIdentifier("appSwipeSymbolsSwitch")
       DesignDivider()
       DesignSelectRow(title: "滑动方向",
+                      info: "没单独设置动作的键，沿这里的方向出角标。点上方预览图里的字母键，可以给那个键的上滑、下滑各设一个动作；没单独设的方向按这里出角标",
+                      enabled: swipeSymbols,
                       options: [DesignOption(title: "上滑", value: KeyboardLayoutPreference.SwipeDirection.up, identifier: "appSwipeSymbolsUp"),
-                                DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown")],
+                                DesignOption(title: "下滑", value: KeyboardLayoutPreference.SwipeDirection.down, identifier: "appSwipeSymbolsDown"),
+                                DesignOption(title: "上滑+下滑", value: KeyboardLayoutPreference.SwipeDirection.both, identifier: "appSwipeSymbolsBoth")],
                       selection: Binding(get: { swipeSymbolsDirection }, set: { direction in
                         swipeSymbolsDirection = direction
                         KeyboardLayoutPreference.swipeSymbolsDirection = direction
                       }),
                       sheetTitle: "滑动方向", identifier: "appSwipeSymbolsDirection")
-        .disabled(!swipeSymbols)
       DesignDivider()
       // 只管画不画，不跟着「滑动输入符号」置灰：关掉滑动后长按仍输入角标，键面上的角标仍有用（#10587）。
       DesignToggleRow(title: "显示字母键角标", info: "26 键字母键右上角显示长按或滑动输入的符号；关闭后只是不显示，长按和滑动照样输入",
@@ -650,6 +695,13 @@ struct KeyboardLayoutSettingsView: View {
     if saveFailed { nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold }
   }
 
+  private func savePreciseNineKey(_ enabled: Bool) {
+    saveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0[Self.preciseNineKeyKey] = enabled
+    }
+    if !saveFailed { preciseNineKey = enabled }
+  }
+
   private func saveTab(_ enabled: Bool) {
     saveFailed = !KeyboardLayoutPreference.saveTabShowsMoreCandidates(enabled)
     tabOpensCandidates = saveFailed
@@ -688,6 +740,7 @@ struct KeyboardLayoutSettingsView: View {
     keySoundPack = KeySoundPackPolicy.selectedPack(in: preferences)
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences else { return }
+    preciseNineKey = preferences[Self.preciseNineKeyKey] as? Bool ?? false
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
     oneHandSidePad = TouchOneHandedSidePanel(in: preferences) == .numberPad
     // 文档是权威：先抄进 App Group，再从 App Group 读回页面，两边才是同一个值。
@@ -703,6 +756,7 @@ struct KeyboardLayoutSettingsView: View {
     nineKeyFlickThreshold = KeyboardLayoutPreference.nineKeyFlickThreshold
     TouchKeyLayoutStyle.mirror(preferences)
     keyLayoutStyle = TouchKeyLayoutStyle.mirrored
+    refreshLetterSwipeBadges()
   }
 }
 
@@ -762,5 +816,113 @@ private enum KeySoundPackPreview {
       guard AudioServicesCreateSystemSoundID(samples.standard as CFURL, &sound) == kAudioServicesNoError else { return }
       AudioServicesPlaySystemSoundWithCompletion(sound) { AudioServicesDisposeSystemSoundID(sound) }
     }
+  }
+}
+
+/// 点预览图字母键后弹出的底部 Sheet 的标识：一个小写字母，满足 `.sheet(item:)` 的 `Identifiable`。
+private struct LetterSwipeSheetTarget: Identifiable {
+  let letter: String
+  var id: String { letter }
+}
+
+/// 一个字母键的编辑页：上滑、下滑各一个动作选择；选「自定义文本」时就地填要上屏的文字。
+/// 每次选择、每次输入立刻写进 App Group，键盘下次出现时生效，不另外放「保存」。
+/// 作为底部 Sheet 弹出（点预览图字母键进入），不再是独立的导航页。
+private struct LetterSwipeKeyEditorSheet: View {
+  let letter: String
+  @State private var up: LetterSwipeBinding
+  @State private var down: LetterSwipeBinding
+  @Environment(\.dismiss) private var dismiss
+  /// 面板停在半屏，单手就能点到两个动作；想填自定义文本时再升到全屏。
+  @State private var detent: PresentationDetent = .medium
+  /// 有输入框在编辑：键盘已经占掉下半屏，面板跟着升到全屏，输入框不会被压在下面。
+  @FocusState private var typing: Bool
+
+  init(letter: String) {
+    self.letter = letter
+    _up = State(initialValue: LetterSwipePreference.binding(letter: letter, direction: .up))
+    _down = State(initialValue: LetterSwipePreference.binding(letter: letter, direction: .down))
+  }
+
+  private var symbol: String? { LetterHintSymbols.hint(for: letter) }
+  private var options: [DesignOption<LetterSwipeAction>] {
+    LetterSwipeAction.allCases.map {
+      DesignOption(title: $0.title(symbol: symbol), value: $0, identifier: "letterSwipeAction_\($0.rawValue)")
+    }
+  }
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(spacing: 24) {
+          DesignGroup(title: "\(letter.uppercased()) 键",
+                      info: "两个方向各一个动作，选「无」表示这个方向不接。按住字母键始终输入角标。") {
+            DesignSelectRow(title: "上滑", options: options, selection: $up.action,
+                            sheetTitle: "上滑动作", identifier: "letterSwipeUpPicker",
+                            onSelect: { action in
+                              up.action = action
+                              LetterSwipePreference.set(up, letter: letter, direction: .up)
+                            })
+            if up.action == .text {
+              DesignDivider()
+              textField($up, direction: .up)
+            }
+            DesignDivider()
+            DesignSelectRow(title: "下滑", options: options, selection: $down.action,
+                            sheetTitle: "下滑动作", identifier: "letterSwipeDownPicker",
+                            onSelect: { action in
+                              down.action = action
+                              LetterSwipePreference.set(down, letter: letter, direction: .down)
+                            })
+            if down.action == .text {
+              DesignDivider()
+              textField($down, direction: .down)
+            }
+          }
+          DesignGroup {
+            Button {
+              LetterSwipePreference.clear(letter: letter)
+              up = LetterSwipePreference.binding(letter: letter, direction: .up)
+              down = LetterSwipePreference.binding(letter: letter, direction: .down)
+            } label: {
+              Text("这个键恢复默认")
+                .font(.system(size: 17))
+                .foregroundStyle(MetasequoiaTheme.accent)
+                .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(PressFillButtonStyle())
+            .accessibilityIdentifier("letterSwipeKeyReset")
+          }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 32)
+      }
+      .designCanvasBackground()
+      .navigationTitle("\(letter.uppercased()) 键")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
+    }
+    // 半屏打开，拖动指示条把它拉到全屏也行；点开自定义文本时自动升上去，收起键盘再回到半屏。
+    .presentationDetents([.medium, .large], selection: $detent)
+    .presentationDragIndicator(.visible)
+    .onChange(of: typing) { _, focused in detent = focused ? .large : .medium }
+  }
+
+  private func textField(_ binding: Binding<LetterSwipeBinding>,
+                         direction: KeyboardLayoutPreference.SwipeDirection) -> some View {
+    TextField("要上屏的文字", text: Binding(
+      get: { binding.wrappedValue.text ?? "" },
+      set: { text in
+        binding.wrappedValue.text = text
+        LetterSwipePreference.set(binding.wrappedValue, letter: letter, direction: direction)
+      }))
+      .textFieldStyle(.roundedBorder)
+      .autocorrectionDisabled()
+      .focused($typing)
+      .padding(.horizontal, 20)
+      .padding(.vertical, 8)
+      .accessibilityLabel("\(direction == .up ? "上滑" : "下滑")自定义文本")
+      .accessibilityIdentifier(direction == .up ? "letterSwipeUpText" : "letterSwipeDownText")
   }
 }

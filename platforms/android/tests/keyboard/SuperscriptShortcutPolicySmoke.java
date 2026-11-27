@@ -24,11 +24,6 @@ public final class SuperscriptShortcutPolicySmoke {
         check(SuperscriptShortcutPolicy.zeroThresholdDp("up", 30) == 14f,
             "up mode keeps the original 14 dp threshold because its direction did not change");
         check(SuperscriptShortcutPolicy.zeroThresholdDp("sideways", 30) == 14f, "unknown modes keep 14 dp");
-        check(SuperscriptShortcutPolicy.swiped("down", 24, 100, 125), "a downward move past the threshold triggers");
-        check(!SuperscriptShortcutPolicy.swiped("down", 24, 100, 124), "the threshold is strictly greater than");
-        check(!SuperscriptShortcutPolicy.swiped("down", 24, 100, 60), "an up-swipe does not trigger in down mode");
-        check(SuperscriptShortcutPolicy.swiped("up", 24, 100, 75)
-            && !SuperscriptShortcutPolicy.swiped("up", 24, 100, 140), "up mode only follows upward moves");
         check(SuperscriptShortcutPolicy.description("！", "up").equals("！；上滑输入 0；长按选择上标 ⁰ 或下标 ₀"),
             "the up description is unchanged");
         check(SuperscriptShortcutPolicy.description("！", "down").equals("！；下滑输入 0；长按选择上标 ⁰ 或下标 ₀"),

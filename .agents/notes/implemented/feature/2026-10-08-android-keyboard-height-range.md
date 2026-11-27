@@ -19,7 +19,7 @@ Status: implemented
 
 - 百分比范围是 50%–170%，存为 dp 调整量 −92…129（`KeyboardHeightPolicy.MAX_HEIGHT_PERCENT` / `MAX_DESIGN_HEIGHT_ADJUSTMENT_DP`，`AndroidLocalSettings.HEIGHT_ADJUSTMENT_MAX` 引用同一常量），仍只在本地设置 `platform.android.keyboard_height_adjustment`，共享偏好的 −12…48 不变。
 - `adjustedRowHeight` 按设计范围钳制，设置里的每一档都画出来。
-- 130%（55 dp）以内在任何窗口里照画；更高的部分由 `KeyboardGeometry.windowHeightAdjustment` 封顶到窗口高度（`Configuration.screenHeightDp`）的 17%，且不低于 55 dp：约 800 dp 高的竖屏手机能用满 170%，窗口较矮时按比例封顶。封顶只影响绘制，存着的值不变，旋转回来自动恢复。`ImeStyler.applyKeyboardHeight` 整棵树用同一个封顶后的值。
+- 130%（55 dp）以内在任何窗口里照画；更高的部分由 `KeyboardGeometry.windowHeightAdjustment` 封顶到窗口高度（`Configuration.screenHeightDp`）的 17%，且不低于 55 dp：约 800 dp 高的竖屏手机能用满 170%，窗口较矮时按比例封顶。封顶只影响绘制，存着的值不变，旋转回来自动恢复。`ImePanelLayout.applyKeyRows` 整棵树用同一个封顶后的值。
 - 内联高度条的说明是「上下拖动调整 · N% · H px」，H 是键盘外框（`keyboardSurface`）此刻的布局高度，由外框的布局回调传给 `InlineHeightBar.setHeightPixels`，拖动预览、旋转和封顶都会反映出来；说明比拖动柄宽时整体缩小字号。
 - 123 / #+= 层的底栏不挂高度角色，与功能行一样固定 46 dp。
 

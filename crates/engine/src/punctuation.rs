@@ -34,6 +34,33 @@ const HOLLOW_BRACKETS: [(u8, &str); 2] = [(b'[', "〖"), (b']', "〗")];
 /// `policy.json` 第 4 版的 `enumerationComma`：可被偏好关掉的顿号键。`\` 同时在 `SIMPLE` 里（第 1 版起的无条件映射，`translate` 按开关拦它）；`/` 只在这一段，开关没打开时它是普通字符。
 const ENUMERATION_COMMA: [(u8, &str); 2] = [(b'\\', "、"), (b'/', "、")];
 
+/// `policy.json` 的 `japanese`：日语方案的固定标点表。`,` 是罗马字键面的逗号，``\`` 是各平台快捷标点里顿号键送出的 ASCII 键，两者都出读点；它不交替、不嵌套，也不受引号样式与顿号开关影响。
+const JAPANESE: [(u8, &str); 15] = [
+    (b',', "、"),
+    (b'\\', "、"),
+    (b'.', "。"),
+    (b'[', "「"),
+    (b']', "」"),
+    (b'{', "『"),
+    (b'}', "』"),
+    (b'/', "・"),
+    (b'~', "〜"),
+    (b'?', "？"),
+    (b'!', "！"),
+    (b'(', "（"),
+    (b')', "）"),
+    (b':', "："),
+    (b';', "；"),
+];
+
+/// 日语标点：按 `policy.json` 的 `japanese` 直接取字，没有映射的键交回宿主原样打出。
+pub fn japanese_mark(key: u8) -> Option<&'static str> {
+    JAPANESE
+        .iter()
+        .find(|(input, _)| *input == key)
+        .map(|(_, output)| *output)
+}
+
 /// 引号键出哪一组字。`Corner` 下 `'` 出「」、`"` 出『』，按键对应，不按语义对应。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum QuoteMarks {
@@ -240,7 +267,7 @@ mod tests {
             "../../../shared/contracts/punctuation/policy.json"
         ))
         .expect("policy.json");
-        assert_eq!(spec["contractVersion"], 5);
+        assert_eq!(spec["contractVersion"], 6);
         let simple = spec["simple"].as_array().expect("simple");
         assert_eq!(simple.len(), SIMPLE.len());
         for ((input, output), row) in SIMPLE.iter().zip(simple) {
@@ -249,6 +276,16 @@ mod tests {
                 Some(&[*input][..])
             );
             assert_eq!(row["output"], *output);
+        }
+        let japanese = spec["japanese"].as_array().expect("japanese");
+        assert_eq!(japanese.len(), JAPANESE.len());
+        for ((input, output), row) in JAPANESE.iter().zip(japanese) {
+            assert_eq!(
+                row["input"].as_str().map(str::as_bytes),
+                Some(&[*input][..])
+            );
+            assert_eq!(row["output"], *output);
+            assert_eq!(japanese_mark(*input), Some(*output));
         }
         let alternating = spec["alternating"].as_array().expect("alternating");
         assert_eq!(alternating.len(), 2);
@@ -316,6 +353,12 @@ mod tests {
         for (input, output) in SIMPLE {
             let row = format!("{{{}, \"{output}\"}}", literal(input));
             assert!(header.contains(&row), "policy.h lacks {row}");
+        }
+        assert!(header.contains(&format!("std::array<Mapping, {}> japanese", JAPANESE.len())));
+        assert!(header.contains("japanese_output(char input)"));
+        for (input, output) in JAPANESE {
+            let row = format!("{{{}, \"{output}\"}}", literal(input));
+            assert!(header.contains(&row), "policy.h lacks japanese {row}");
         }
         for (input, (opening, closing)) in [
             (b'"', DOUBLE_QUOTE),

@@ -978,13 +978,13 @@ int main() {
   saved = store.load();
   assert(saved.snapshot->revision() == before_fuzzy + 1);
   assert(saved.snapshot->preferences().at("fuzzy_pinyin").at("seeded") == true);
-  assert(saved.snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 11);
+  assert(saved.snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 12);
   click(fuzzy_rule_first);
   click(fuzzy_enabled);
   assert(!IsWindowEnabled(GetDlgItem(body, fuzzy_rule_first)));
-  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 10);
+  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 11);
   click(fuzzy_enabled);
-  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 10);
+  assert(store.load().snapshot->preferences().at("fuzzy_pinyin").at("rules").size() == 11);
   saved = store.load();
   click(fuzzy_reset);
   assert(reset_confirmations == 1 && store.load().snapshot->revision() == saved.snapshot->revision());
@@ -1255,6 +1255,43 @@ int main() {
     click(scheme_wubi_selection);
     assert(!IsWindowEnabled(GetDlgItem(body, scheme_wubi_second)));
     assert(store.load().snapshot->preferences().at("wubi_candidate_selection").at("second_key") == "'");
+    // 五笔自造词位置：与学习开关同组，只在五笔方案且学习开启时出现。先放进学习和一份已经存的置顶值，重画后这一行才在。
+    const bool learning_before = store.load().snapshot->preferences().at("learning").get<bool>();
+    saved = store.load();
+    const auto placement_seed = store.save(*saved.snapshot,
+        {{{"learning"}, true}, {{"wubi_phrase_placement"}, "top"}});
+    assert(placement_seed.outcome == Outcome::saved);
+    SendMessageW(host, WM_COMMAND, MAKEWPARAM(reload_settings, BN_CLICKED), 0);
+    pump_until([&] { return IsWindowEnabled(language) != FALSE; });
+    select_tab(L"候选与联想");
+    assert((GetWindowLongPtrW(GetDlgItem(body, wubi_phrase_placement), GWL_STYLE) & WS_VISIBLE) != 0);
+    assert(IsWindowEnabled(GetDlgItem(body, wubi_phrase_placement)));
+    assert(SendMessageW(GetDlgItem(body, wubi_phrase_placement), CB_GETCOUNT, 0, 0) == 2);
+    // 存着 top 时选中「同码词前」；选回「同码词后」按缺省处理，文档里不留下这一项。
+    assert(SendMessageW(GetDlgItem(body, wubi_phrase_placement), CB_GETCURSEL, 0, 0) == 1);
+    select_value(wubi_phrase_placement, 0);
+    assert(!store.load().snapshot->preferences().contains("wubi_phrase_placement"));
+    select_value(wubi_phrase_placement, 1);
+    assert(store.load().snapshot->preferences().at("wubi_phrase_placement") == "top");
+    // 关掉学习：这一行和「?」一起收起来，页面高度缩短，后面的行跟着上移。
+    RECT next_before{};
+    GetWindowRect(GetDlgItem(body, enter_learns_english_word), &next_before);
+    click(learn_candidates);
+    pump_until([&] { return (GetWindowLongPtrW(GetDlgItem(body, wubi_phrase_placement), GWL_STYLE) & WS_VISIBLE) == 0; });
+    assert(store.load().snapshot->preferences().at("learning") == false);
+    assert((GetWindowLongPtrW(GetDlgItem(body, wubi_phrase_placement_help), GWL_STYLE) & WS_VISIBLE) == 0);
+    assert(!IsWindowEnabled(GetDlgItem(body, wubi_phrase_placement)));
+    RECT next_after{};
+    GetWindowRect(GetDlgItem(body, enter_learns_english_word), &next_after);
+    assert(next_after.top < next_before.top);
+    // 还原学习开关，下面的用例照旧。
+    saved = store.load();
+    const auto learning_restore = store.save(*saved.snapshot,
+        {{{"learning"}, learning_before}, {{"wubi_phrase_placement"}, "bottom"}});
+    assert(learning_restore.outcome == Outcome::saved);
+    SendMessageW(host, WM_COMMAND, MAKEWPARAM(reload_settings, BN_CLICKED), 0);
+    pump_until([&] { return IsWindowEnabled(language) != FALSE; });
+    select_tab(L"输入方案");
   }
   // 粤语双拼是粤拼方案下的选项：只在粤拼下可选，选回粤拼后文档按默认值处理。
   if (offered("cantonese")) {

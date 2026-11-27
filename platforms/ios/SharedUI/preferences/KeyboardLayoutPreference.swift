@@ -20,7 +20,14 @@ enum KeyboardLayoutPreference {
   static let swipeSymbolsKey = "keyboard.gesture.swipeSymbols"
   static let swipeSymbolsDirectionKey = "keyboard.gesture.swipeSymbolsDirection"
   static let letterCornerHintsKey = "keyboard.gesture.letterCornerHints"
-  enum SwipeDirection: String { case up, down }
+  enum SwipeDirection: String {
+    case up, down, both
+
+    /// 这个偏好下，给定方向是否回落成角标。`both` 时上下滑都算，单选时只算自己。
+    func covers(_ direction: SwipeDirection) -> Bool {
+      self == .both || self == direction
+    }
+  }
   static let nineKeyFlickThresholdDocumentKey = "touch_nine_key_flick_threshold"
   static let nineKeyFlickThresholdKey = "keyboard.gesture.nineKeyFlickThreshold"
   static let nineKeyFlickThresholdDefault: Double = 24
@@ -48,6 +55,18 @@ enum KeyboardLayoutPreference {
   static var hideLanguageKey: Bool {
     get { defaults.object(forKey: hideLanguageKeyKey) as? Bool ?? false }
     set { defaults.set(newValue, forKey: hideLanguageKeyKey) }
+  }
+  /// 隐藏底行的逗号句号键，份额并给空格；只作用于手机中文 26 键字母层的「标准」「长空格」「表情键」样式（逗号句号样式本身在空格两侧、不适用）。与「隐藏中/英键」一样是本机偏好，逗号句号仍可通过上下滑、快捷符号等输入。
+  static let hidePunctuationKeyKey = "keyboard.bottom.hidePunctuationKey"
+  static var hidePunctuationKey: Bool {
+    get { defaults.object(forKey: hidePunctuationKeyKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: hidePunctuationKeyKey) }
+  }
+  /// 隐藏底行的「符」键（符号键盘入口）并把份额并给空格；只作用于手机中文 26 键字母层的「标准」「逗号句号」样式（长空格、表情键没有符键）。符号和数字仍可从 123 进入，也是本机偏好。
+  static let hideSymbolKeyKey = "keyboard.bottom.hideSymbolKey"
+  static var hideSymbolKey: Bool {
+    get { defaults.object(forKey: hideSymbolKeyKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: hideSymbolKeyKey) }
   }
   static let oneHandedKey = "keyboard.oneHanded"
   /// 单手模式以前只在手机形态的键盘上画（iPhone、iPad 浮动键盘和窄窗口），全宽的 iPad 键盘一律不画；全宽键盘补上单手模式（#10203）之后，升级前存下的值不能直接带过去，否则在浮动键盘上开过单手的人一升级，停靠的全宽键盘就缩成单手块。用户之后每次切换单手模式都会打上这个标记；没有标记时，全宽键盘第一次画单手之前把存下的值改成关闭（`adoptOneHandedOnDockedTablet`）。
@@ -346,7 +365,10 @@ enum KeyboardLayoutPreference {
     // 先收到一个远大于各项范围的区间再转整数：`Int(Double)` 遇到超出 `Int` 的值（如 1e300）会直接崩掉键盘，而 `KeyboardPlacement` 随后照样把它限制到范围内。
     return Int(SharedNumber.clamped(value.doubleValue, to: -1_000_000...1_000_000).rounded())
   }
-  static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey) }
+  static var geometry: KeyboardGeometry {
+    KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing, showsBottomLanguage: !hideLanguageKey,
+                     hidesPunctuation: hidePunctuationKey, hidesSymbol: hideSymbolKey)
+  }
 
   /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
   static func sharedKeySpacing(_ value: Any?) -> Double? {
@@ -523,6 +545,224 @@ enum KeyboardHeightPercent {
   }
 }
 
+/// 26 键字母键右上角的角标符号，取自设计稿：q1…p0 / a@ s# d¥ f% g& h* j( k) l" / z~ x… c、 v? b! n- m/。
+/// 键盘画角标、按角标上屏、设置页显示「角标符号 ?」都用这一张表；App 与键盘扩展都编入 SharedUI，所以放在这里。
+/// 与 Android 的 `LetterHintTable` 是同一张表。
+enum LetterHintSymbols {
+  private static let table: [Character: String] = [
+    "q": "1", "w": "2", "e": "3", "r": "4", "t": "5", "y": "6", "u": "7", "i": "8", "o": "9", "p": "0",
+    "a": "@", "s": "#", "d": "¥", "f": "%", "g": "&", "h": "*", "j": "(", "k": ")", "l": "\"",
+    "z": "~", "x": "…", "c": "、", "v": "?", "b": "!", "n": "-", "m": "/",
+  ]
+
+  /// 字母键的角标符号，大小写字母都可传入；不是 26 个 ASCII 字母之一时为 nil。
+  static func hint(for letter: String) -> String? {
+    guard letter.count == 1, let character = letter.first, character.isASCII else { return nil }
+    return table[Character(character.lowercased())]
+  }
+}
+
+/// 字母键一个方向上的滑动动作：26 键每个字母的上滑、下滑各自可配，互不影响。
+/// 未单独配置的方向按「滑动方向」（`KeyboardLayoutPreference.swipeSymbolsDirection`）回落成角标，保持旧行为。
+enum LetterSwipeAction: String, CaseIterable, Codable, Hashable {
+  case none
+  case symbol
+  case paste
+  case copy
+  case cut
+  case undo
+  case redo
+  case selectAll
+  case text
+  case clipboard
+  case language
+  case cursorLeft
+  case cursorRight
+  /// 以下对应水杉图标菜单（更多菜单）里的快捷操作，滑动一下即切换或调用。
+  case fullWidth
+  case chinesePunctuation
+  case traditional
+  case handwriting
+  case oneHand
+  case incognito
+  case emoji
+  case aiAssist
+  case reply
+  case voiceInput
+
+  /// 设置页和预览气泡上的名字；`symbol` 带上这个键的角标，`nil` 时只写「角标符号」。
+  func title(symbol: String? = nil) -> String {
+    switch self {
+    case .none: "无"
+    case .symbol: symbol.map { "角标符号 \($0)" } ?? "角标符号"
+    case .paste: "粘贴"
+    case .copy: "复制选中文字"
+    case .cut: "剪切选中文字"
+    case .undo: "撤销"
+    case .redo: "重做"
+    case .selectAll: "全选"
+    case .text: "自定义文本"
+    case .clipboard: "剪贴板历史"
+    case .language: "切换中英文"
+    case .cursorLeft: "光标左移"
+    case .cursorRight: "光标右移"
+    case .fullWidth: "切换全角/半角"
+    case .chinesePunctuation: "切换中文标点"
+    case .traditional: "切换繁简"
+    case .handwriting: "切换手写"
+    case .oneHand: "切换单手模式"
+    case .incognito: "切换隐私模式"
+    case .emoji: "表情"
+    case .aiAssist: "AI 润色"
+    case .reply: "高情商回复"
+    case .voiceInput: "语音输入"
+    }
+  }
+
+  /// 预览图键面徽标上的短名：只写动作本身，不写方向；`symbol` 直接写角标符号。
+  func shortTitle(symbol: String? = nil) -> String {
+    switch self {
+    case .none: "无"
+    case .symbol: symbol ?? "角标"
+    case .paste: "粘贴"
+    case .copy: "复制"
+    case .cut: "剪切"
+    case .undo: "撤销"
+    case .redo: "重做"
+    case .selectAll: "全选"
+    case .text: "文本"
+    case .clipboard: "剪贴板"
+    case .language: "中英"
+    case .cursorLeft: "左移"
+    case .cursorRight: "右移"
+    case .fullWidth: "全半角"
+    case .chinesePunctuation: "标点"
+    case .traditional: "繁简"
+    case .handwriting: "手写"
+    case .oneHand: "单手"
+    case .incognito: "隐私"
+    case .emoji: "表情"
+    case .aiAssist: "润色"
+    case .reply: "回复"
+    case .voiceInput: "语音"
+    }
+  }
+
+  /// 写系统剪贴板的动作要键盘有完全访问；其余动作不需要。
+  var writesPasteboard: Bool { self == .copy || self == .cut }
+  /// 读系统剪贴板的动作要键盘有完全访问。
+  var readsPasteboard: Bool { self == .paste }
+}
+
+/// 一个方向上的一条配置。`text` 只在动作为 `.text` 时使用；为空时这条配置等于「无」。
+struct LetterSwipeBinding: Codable, Equatable {
+  var action: LetterSwipeAction = .none
+  var text: String?
+
+  static let none = LetterSwipeBinding(action: .none, text: nil)
+  static let symbol = LetterSwipeBinding(action: .symbol, text: nil)
+
+  /// 选中的自定义文本，去掉首尾空白和换行后为空就是没有。
+  var trimmedText: String {
+    (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// 这次滑动是否真会做事。选了自定义文本却没填时不算。
+  var isActive: Bool {
+    action != .none && (action != .text || !trimmedText.isEmpty)
+  }
+
+  /// 设置页一行里的短名字。`symbol` 传这个键的角标符号，让「角标符号」直接显示成真实的符号（如 Q 键显示「角标符号 1」）。
+  func summary(symbol: String? = nil) -> String {
+    action == .text && isActive ? "文本：\(trimmedText)" : action.title(symbol: symbol)
+  }
+}
+
+/// 每个字母键上滑、下滑的配置，存本机 App Group（不随设置同步，与「滑动输入符号」一样）。
+/// JSON 形如 `{"v":{"up":{"action":"symbol"},"down":{"action":"paste"}}}`，缺的键、坏的值都回落到默认。
+enum LetterSwipePreference {
+  static let key = "keyboard.gesture.letterSwipeBindings"
+  /// 26 键从上到下的字母顺序，设置页按它排列。
+  static let letters: [String] = "qwertyuiopasdfghjklzxcvbnm".map(String.init)
+  static let upKey = "up"
+  static let downKey = "down"
+
+  static func directionKey(_ direction: KeyboardLayoutPreference.SwipeDirection) -> String {
+    direction == .up ? upKey : downKey
+  }
+
+  /// 全部已存配置；没有配置或解析失败时为空。
+  static var all: [String: [String: LetterSwipeBinding]] {
+    guard let data = KeyboardLayoutPreference.defaults.data(forKey: key),
+          let decoded = try? JSONDecoder().decode([String: [String: LetterSwipeBinding]].self, from: data) else {
+      return [:]
+    }
+    return decoded
+  }
+
+  /// 用户单独存过的那条配置；没存过时为 nil。
+  static func stored(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding? {
+    all[letter.lowercased()]?[directionKey(direction)]
+  }
+
+  /// 实际生效的配置：存过的用它，没存过的按「滑动方向」回落成角标。
+  static func binding(letter: String, direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    if let stored = stored(letter: letter, direction: direction) { return stored }
+    return KeyboardLayoutPreference.swipeSymbolsDirection.covers(direction) ? .symbol : .none
+  }
+
+  /// 写入一条配置；`binding` 为 nil 时删掉这一条，回到默认。「无」要照原样存下去才压得住默认的角标，
+  /// 不能当成没配过：用户把上滑改成「无」时，默认回落会让它又变回角标。
+  static func set(_ binding: LetterSwipeBinding?, letter: String, direction: KeyboardLayoutPreference.SwipeDirection) {
+    var table = all
+    let letter = letter.lowercased()
+    var directions = table[letter] ?? [:]
+    if let binding {
+      directions[directionKey(direction)] = binding
+    } else {
+      directions.removeValue(forKey: directionKey(direction))
+    }
+    if directions.isEmpty { table.removeValue(forKey: letter) } else { table[letter] = directions }
+    write(table)
+  }
+
+  /// 恢复一个键的两个方向。
+  static func clear(letter: String) {
+    var table = all
+    table.removeValue(forKey: letter.lowercased())
+    write(table)
+  }
+
+  /// 恢复全部 26 键。
+  static func reset() {
+    KeyboardLayoutPreference.defaults.removeObject(forKey: key)
+  }
+
+  static var hasCustomBindings: Bool { !all.isEmpty }
+
+  /// 键盘读一次配置时用，省得每次手势都解一遍 JSON。
+  static func load() -> [String: [String: LetterSwipeBinding]] { all }
+
+  /// 从已读出的表里取一条，语义与 `binding(letter:direction:)` 相同。
+  static func binding(in table: [String: [String: LetterSwipeBinding]], letter: String,
+                      direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    if let stored = table[letter.lowercased()]?[directionKey(direction)] { return stored }
+    return KeyboardLayoutPreference.swipeSymbolsDirection.covers(direction) ? .symbol : .none
+  }
+
+  private static func write(_ table: [String: [String: LetterSwipeBinding]]) {
+    let defaults = KeyboardLayoutPreference.defaults
+    guard !table.isEmpty else {
+      defaults.removeObject(forKey: key)
+      return
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    guard let data = try? encoder.encode(table) else { return }
+    defaults.set(data, forKey: key)
+  }
+}
+
 struct KeyboardGeometry: Equatable {
   let keySpacing: Double
   let rowSpacing: Double
@@ -531,6 +771,8 @@ struct KeyboardGeometry: Equatable {
   var letterInsetRatio: Double { 0.05 }
   var centeredLetters: Bool { true }
   var showsBottomLanguage = true
+  var hidesPunctuation = false
+  var hidesSymbol = false
   var showsFullKeyboardSymbols: Bool { false }
 
   static func clamped(_ value: Double, _ lower: Double, _ upper: Double) -> Double {

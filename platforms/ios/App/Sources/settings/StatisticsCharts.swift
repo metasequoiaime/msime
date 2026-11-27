@@ -408,6 +408,8 @@ struct StatisticsKeyboardHeatmap: View {
   private static let rowGap: CGFloat = 6
 
   private var keyHeight: CGFloat { nineKey ? 52 : 44 }
+  /// 26 键第三排的 ⇧ 和 ⌫ 在手机上固定 44pt（键盘的 `phoneLetterEdgeWidth`）。
+  private static let thirdRowEdgeWidth: CGFloat = 44
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -450,13 +452,25 @@ struct StatisticsKeyboardHeatmap: View {
     if reduceMotion { withAnimation(.easeOut(duration: 0.2)) { appeared = true } } else { appeared = true }
   }
 
-  /// 一排里的键按 `Cell.width` 分摊扣掉键缝和两侧缩进之后的宽度，与键盘的约束同比例。
-  private func keyRow(_ cells: [TypingKeyHeatmap.Cell], width: CGFloat, inset: CGFloat = 0, firstOrder: Int) -> some View {
+  /// 一排里的键按 `Cell.width` 分摊扣掉键缝和两侧缩进之后的宽度，与键盘的约束同比例。`letterUnit` 与 `edge` 只给 26 键第三排：七个字母跟第一排等宽、两端固定 44pt，余下的宽度成为两侧空隙（键盘上是 ⇧ 与 Z、M 与 ⌫ 之间的占位格），不摊进字母。
+  private func keyRow(_ cells: [TypingKeyHeatmap.Cell], width: CGFloat, inset: CGFloat = 0, firstOrder: Int,
+                      letterUnit: CGFloat? = nil, edge: CGFloat? = nil) -> some View {
     let weights = cells.reduce(0) { $0 + $1.width }
     let unit = (width - inset * 2 - Self.gap * CGFloat(cells.count - 1)) / CGFloat(weights)
+    let sliver: CGFloat = {
+      guard let letterUnit, let edge, cells.count > 2 else { return 0 }
+      return max(0, (width - edge * 2 - letterUnit * CGFloat(cells.count - 2)
+                     - Self.gap * CGFloat(cells.count + 1)) / 2)
+    }()
+    func keyWidth(_ cell: TypingKeyHeatmap.Cell, at column: Int) -> CGFloat {
+      guard let letterUnit, let edge else { return unit * CGFloat(cell.width) }
+      return column == 0 || column == cells.count - 1 ? edge : letterUnit
+    }
     return HStack(spacing: Self.gap) {
       ForEach(Array(cells.enumerated()), id: \.offset) { column, cell in
-        key(cell, order: firstOrder + column).frame(width: unit * CGFloat(cell.width), height: keyHeight)
+        if sliver > 0, column == 1 { Color.clear.frame(width: sliver) }
+        key(cell, order: firstOrder + column).frame(width: keyWidth(cell, at: column), height: keyHeight)
+        if sliver > 0, column == cells.count - 1 { Color.clear.frame(width: sliver) }
       }
     }
     .padding(.horizontal, inset)
@@ -467,10 +481,17 @@ struct StatisticsKeyboardHeatmap: View {
     let rows = TypingKeyHeatmap.letterRows(for: style)
     let inset = width * CGFloat(TypingKeyHeatmap.keyboardMiddleRowInset)
     let middle = TypingKeyHeatmap.middleLetterRow(for: style)
+    // 26 键第三排照键盘排：七个字母与第一排等宽，⇧ 和 ⌫ 固定 44pt，多出来的宽度变成两侧空隙。
+    let thirdRow = middle + 1
+    let firstRow = middle >= 1 ? rows[middle - 1] : []
+    let letterUnit = firstRow.isEmpty ? nil
+      : (width - Self.gap * CGFloat(firstRow.count - 1)) / CGFloat(firstRow.count)
     return VStack(spacing: Self.rowGap) {
       ForEach(rows.indices, id: \.self) { index in
         keyRow(rows[index], width: width, inset: index == middle ? inset : 0,
-            firstOrder: rows.prefix(index).reduce(0) { $0 + $1.count })
+            firstOrder: rows.prefix(index).reduce(0) { $0 + $1.count },
+            letterUnit: index == thirdRow ? letterUnit : nil,
+            edge: index == thirdRow ? Self.thirdRowEdgeWidth : nil)
       }
     }
   }

@@ -5,6 +5,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *MSIMEInputModeHUDText(BOOL englishInputMode);
+/// 提示文字的颜色，按浅色、深色外观各自解析。不给颜色命名：AppKit 把同名的动态颜色判为相等，换皮肤后 `NSTextField` 会沿用旧皮肤的字色（#11869）。
+FOUNDATION_EXPORT NSColor *MSIMEInputModeHUDTextColor(NSColor *lightColor, NSColor *darkColor);
 FOUNDATION_EXPORT BOOL MSIMEInputModeHUDUsableCaretRect(NSRect caretRect);
 FOUNDATION_EXPORT NSRect MSIMEInputModeHUDFrame(NSRect caretRect, NSSize panelSize, NSRect visibleFrame);
 

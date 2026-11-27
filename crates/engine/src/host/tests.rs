@@ -43,12 +43,14 @@ fn options(root: &Path) -> EngineOptions {
         wubi_mixed_pinyin: false,
         wubi_z_wildcard: false,
         wubi_reverse_code: true,
+        wubi_phrase_placement: 0,
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
+        precise_nine_key: false,
         helpcode_schema: "ziranma".into(),
         helpcode_trigger_key: None,
         chinese_punctuation: true,
@@ -94,6 +96,7 @@ fn options(root: &Path) -> EngineOptions {
         quick_phrase_table: Vec::new(),
         quick_phrase_candidates: false,
         quick_phrase_frequency: true,
+        quick_phrase_first: false,
         helpcode_table: None,
         helpcode_fallback_resources: None,
         custom_helpcode_root: None,
@@ -3688,6 +3691,7 @@ pub(super) fn generated_mode_options(root: &Path) -> EngineOptions {
     value.quick_phrase_table = vec![QuickPhraseEntry {
         key: "dh".into(),
         text: "电话".into(),
+        position: None,
     }];
     value
 }

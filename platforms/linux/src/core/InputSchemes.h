@@ -44,6 +44,14 @@ inline int view_scheme(const nlohmann::json &view) {
   return scheme != view.end() && scheme->is_number_integer() ? static_cast<int>(scheme->get<int64_t>()) : -1;
 }
 
+// Japanese punctuation is in force: the Japanese scheme, or the temporary Japanese (R) local mode in any scheme. The paired-punctuation skip reads it, since 」』 on the tracker come from `[` `{` there but from `{` and the corner quotes in Chinese.
+inline bool japanese_punctuation(const nlohmann::json &view) {
+  if (view_scheme(view) == scheme::Japanese) return true;
+  if (!view.is_object()) return false;
+  const auto mode = view.find("local_mode");
+  return mode != view.end() && mode->is_string() && mode->get_ref<const std::string &>() == "temporary_japanese";
+}
+
 // The view's own scheme rules hold: outside the dedicated English mode and outside every local mode, which keep their own rules in every scheme (msime_client.h). Returns the scheme number then, -1 otherwise.
 inline int scheme_rules(const nlohmann::json &view) {
   const int scheme = view_scheme(view);

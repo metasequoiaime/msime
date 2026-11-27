@@ -26,7 +26,7 @@ use msime_client_core::preferences::{
     NineKeyShuangpinProfile, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinCustomProfile, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
     TouchShuangpinLayout, TouchWubiLayout, VietnameseInputMethod, VietnamesePreferences,
-    VietnameseToneStyle, WubiProfile,
+    VietnameseToneStyle, WubiPhrasePlacement, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -921,6 +921,8 @@ impl HostSession {
         options.wubi_mixed_pinyin = preferences.wubi_mixed_pinyin;
         options.wubi_z_wildcard = preferences.wubi_z_wildcard;
         options.wubi_profile = wubi_profile_code(preferences.wubi_profile);
+        options.wubi_phrase_placement =
+            wubi_phrase_placement_code(preferences.wubi_phrase_placement);
         // 「候选显示剩余编码」关掉时，引擎也不再给五笔候选附完整码，宿主退回显示注释时就看不到编码（#10790）。
         options.wubi_reverse_code = preferences.wubi_code_hint;
         options.frequency_mode = preferences.frequency.mode.as_str().into();
@@ -943,6 +945,7 @@ impl HostSession {
         options.quick_phrase_candidates =
             self.quick_phrase_candidates_requested && preferences.mixed_input.quick_phrase;
         options.quick_phrase_frequency = preferences.mixed_input.quick_phrase_frequency;
+        options.quick_phrase_first = preferences.mixed_input.quick_phrase_first;
         options.local_unicode = preferences.local_modes.unicode;
         options.local_date_time = preferences.local_modes.date_time;
         options.local_date_time_inline = preferences.local_modes.date_time_inline;
@@ -967,6 +970,7 @@ impl HostSession {
         options.helpcode = helpcode.enabled;
         options.strict_quanpin_helpcode = helpcode.strict_filter;
         options.grid_helpcode = helpcode.grid;
+        options.precise_nine_key = preferences.touch_nine_key_precise;
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         options.helpcode_trigger_key = helpcode.trigger_key.bytes().next();
@@ -1072,13 +1076,18 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         let desktop_turned_on = preferences.sentence_association.neural_desktop
             && !self.applied.sentence_association.neural_desktop;
+        let desktop_turned_off = !preferences.sentence_association.neural_desktop
+            && self.applied.sentence_association.neural_desktop;
+        if !self.preview && desktop_turned_off {
+            clear_settled_model_diagnostic_dedup(&self.options.resources);
+        }
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
         self.runtime
             .set_punctuation_marks(msime_client_core::punctuation::punctuation_marks(
                 &preferences,
             ));
-        // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
+        // 逐键重排模型同样跟着开关走，但关闭时直接卸掉：它在每一次按键里运行；预览会话和镜像会话只清本会话的打分器，不释放进程缓存。
         let keyboard = self.keyboard_reranker_allowed
             && keyboard_reranker_enabled(&preferences.sentence_association, self.edition);
         if keyboard != (self.runtime.has_reranker() || self.keyboard_reranker_loading.is_some()) {
@@ -1094,15 +1103,20 @@ impl HostSession {
                 ));
             } else {
                 self.keyboard_reranker_loading = None;
-                self.runtime.set_candidate_scorer(ffi::keyboard_reranker(
-                    false,
-                    &options.resources,
-                    options.helpcode_fallback_resources.as_deref(),
-                    self.recorded_rerank_models.as_deref(),
-                    self.plugin_roots.builtin_sounds.as_deref(),
-                    self.state_root.as_deref(),
-                    self.recorded_sentence_model.as_deref(),
-                ));
+                let scorer = if !self.preview && self.keyboard_reranker_allowed {
+                    ffi::keyboard_reranker(
+                        false,
+                        &options.resources,
+                        options.helpcode_fallback_resources.as_deref(),
+                        self.recorded_rerank_models.as_deref(),
+                        self.plugin_roots.builtin_sounds.as_deref(),
+                        self.state_root.as_deref(),
+                        self.recorded_sentence_model.as_deref(),
+                    )
+                } else {
+                    None
+                };
+                self.runtime.set_candidate_scorer(scorer);
             }
             self.keyboard_reranker_source = ffi::onnx_rerank_source(
                 &options.resources,
@@ -2012,6 +2026,13 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     }
 }
 
+fn wubi_phrase_placement_code(placement: WubiPhrasePlacement) -> u8 {
+    match placement {
+        WubiPhrasePlacement::Bottom => 0,
+        WubiPhrasePlacement::Top => 1,
+    }
+}
+
 /// 交给 Engine 的 `enabled_schemes`：本版本提供的方案，版本带临时日文时再加上它要切到的日文方案。full 提供全部方案，得到的就是 [`SchemeSet::ALL`]，Engine 照旧构造全部 provider。
 fn engine_schemes(edition: &Edition) -> SchemeSet {
     let offered = offered_input_schemes(edition)
@@ -2641,6 +2662,9 @@ impl HostOptions {
             wubi_z_wildcard: self.preferences.wubi_z_wildcard,
             wubi_profile: wubi_profile_code(self.preferences.wubi_profile),
             wubi_reverse_code: self.preferences.wubi_code_hint,
+            wubi_phrase_placement: wubi_phrase_placement_code(
+                self.preferences.wubi_phrase_placement,
+            ),
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
             frequency_trigger_count: self.preferences.frequency.trigger_count,
             frequency_linear_step: self.preferences.frequency.linear_step,
@@ -2685,6 +2709,7 @@ impl HostOptions {
             quick_phrase_candidates: self.quick_phrase_candidates.unwrap_or(false)
                 && self.preferences.mixed_input.quick_phrase,
             quick_phrase_frequency: self.preferences.mixed_input.quick_phrase_frequency,
+            quick_phrase_first: self.preferences.mixed_input.quick_phrase_first,
             helpcode_table: None,
             helpcode_fallback_resources,
             // 用户自己的辅助码表放在状态根下（`msime_client_core::helpcode::user_helpcode_root`），`resources` 是安装包或词库代次，升级会换掉它。
@@ -2715,6 +2740,7 @@ impl HostOptions {
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
             grid_helpcode: helpcode.grid,
+            precise_nine_key: self.preferences.touch_nine_key_precise,
             helpcode_schema: helpcode.schema.as_str().into(),
             helpcode_trigger_key: helpcode.trigger_key.bytes().next(),
             chinese_punctuation: engine_chinese_punctuation(
@@ -2763,7 +2789,17 @@ type SettledModelSlot = Arc<OnceLock<Option<Arc<SentenceModel>>>>;
 /// 后台挂好的逐键重排器：外层 `None` 是还在挂，`Some(None)` 是挂完了但这台设备上没有可挂的（没装模型、超出按键预算、线程起不来）。挂上的那个带着挂在哪里（按键上，或延后到停顿）。打分器只是 `Send`，所以用锁而不是 `OnceLock`。
 type KeyboardRerankerSlot = Arc<Mutex<Option<Option<ffi::MountedReranker>>>>;
 
-/// 在后台线程里挂逐键重排器（[`ffi::keyboard_reranker_for`]，开关开着；`pause` 是宿主会在停顿时重解，见 [`ffi::RerankerMount::KeystrokeOrPause`]），立即返回结果槽。挂上之后还在同一个进程里再挂时共用已加载的那一份，只是第一次慢，见 `keyboard_reranker_loading`。线程起不来时槽里直接是 `Some(None)`，会话照常输入，只是不排序。
+#[cfg(test)]
+thread_local! {
+    static KEYBOARD_RERANKER_THREAD_SPAWNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn keyboard_reranker_thread_spawns() -> usize {
+    KEYBOARD_RERANKER_THREAD_SPAWNS.with(std::cell::Cell::get)
+}
+
+/// 挂逐键重排器（[`ffi::keyboard_reranker_for`]，开关开着；`pause` 是宿主会在停顿时重解，见 [`ffi::RerankerMount::KeystrokeOrPause`]），立即返回结果槽。进程缓存已有结论时（[`ffi::cached_keyboard_reranker_for`]）直接返回预填好的 `Some(scorer)` 槽，不起操作系统线程也不重读磁盘，同时保持建会话后尚未挂进 `runtime` 的契约；首次冷加载仍在后台线程里完成，线程起不来时槽里直接是 `Some(None)`，会话照常输入。
 fn load_keyboard_reranker(
     resources: &str,
     bundle: Option<&str>,
@@ -2773,6 +2809,24 @@ fn load_keyboard_reranker(
     configured: Option<&str>,
     pause: bool,
 ) -> KeyboardRerankerSlot {
+    let mount = if pause {
+        ffi::RerankerMount::KeystrokeOrPause
+    } else {
+        ffi::RerankerMount::Keystroke
+    };
+    if let Some(scorer) = ffi::cached_keyboard_reranker_for(
+        mount,
+        resources,
+        bundle,
+        models,
+        sound_packs,
+        state_root,
+        configured,
+    ) {
+        return Arc::new(Mutex::new(Some(scorer)));
+    }
+    #[cfg(test)]
+    KEYBOARD_RERANKER_THREAD_SPAWNS.with(|spawns| spawns.set(spawns.get() + 1));
     let slot: KeyboardRerankerSlot = Arc::new(Mutex::new(None));
     let resources = resources.to_owned();
     let bundle = bundle.map(str::to_owned);
@@ -2784,11 +2838,6 @@ fn load_keyboard_reranker(
     let spawned = std::thread::Builder::new()
         .name("msime-keyboard-reranker".into())
         .spawn(move || {
-            let mount = if pause {
-                ffi::RerankerMount::KeystrokeOrPause
-            } else {
-                ffi::RerankerMount::Keystroke
-            };
             let scorer = ffi::keyboard_reranker_for(
                 mount,
                 &resources,
@@ -2853,7 +2902,64 @@ pub(crate) fn settled_model_file(
     })
 }
 
-/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
+/// 逐键重排器与落定重排模型最近一次写出的诊断，按会话的资源目录（HostOptions 的 `resources`）分开记：焦点切换重建会话但模型状态没变时不重复刷屏，状态变化或对应开关关闭后再次打开时重新报告。按资源目录分开，是为了同一进程里资源目录不同的会话（多个版本的宿主、测试里的临时目录）互不把对方的记录冲掉。
+#[derive(Default)]
+struct ModelDiagnosticDedup {
+    keyboard_reranker: HashMap<String, (&'static str, String)>,
+    settled_model: HashMap<String, (&'static str, String, ModelFileStamp)>,
+}
+
+/// 模型文件的大小和修改时间：资源包重装到同一个发布目录时路径不变，靠它区分换没换过文件。读不到元数据（文件不在）时为 `None`。
+type ModelFileStamp = Option<(u64, std::time::SystemTime)>;
+
+fn model_file_stamp(path: &Path) -> ModelFileStamp {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
+}
+
+fn model_diagnostic_dedup() -> std::sync::MutexGuard<'static, ModelDiagnosticDedup> {
+    static DEDUP: OnceLock<Mutex<ModelDiagnosticDedup>> = OnceLock::new();
+    DEDUP
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 资源目录 `resources` 下的会话这一行逐键重排器诊断要不要写：与上一次写的类别和细节（去掉末尾的 `" (shared)"`）都相同时不写。
+pub(crate) fn should_report_keyboard_reranker_diagnostic(
+    resources: &str,
+    category: &'static str,
+    detail: &str,
+) -> bool {
+    let entry = (
+        category,
+        detail
+            .strip_suffix(" (shared)")
+            .unwrap_or(detail)
+            .to_owned(),
+    );
+    let mut dedup = model_diagnostic_dedup();
+    if dedup.keyboard_reranker.get(resources) == Some(&entry) {
+        return false;
+    }
+    dedup.keyboard_reranker.insert(resources.to_owned(), entry);
+    true
+}
+
+pub(crate) fn clear_keyboard_reranker_diagnostic_dedup(resources: &str) {
+    model_diagnostic_dedup().keyboard_reranker.remove(resources);
+}
+
+fn clear_settled_model_diagnostic_dedup(resources: &str) {
+    model_diagnostic_dedup().settled_model.remove(resources);
+}
+
+#[cfg(test)]
+pub(crate) fn reset_model_diagnostic_dedup() {
+    *model_diagnostic_dedup() = ModelDiagnosticDedup::default();
+}
+
+/// 把会话的落定重排模型接上了没有写进诊断日志：会话建立时、开关打开时和模型文件变了（资源包装好或移除）换上之后各一行，按键和评分路径上不写。去重是进程级的：同一个资源目录下，类别、细节和模型文件的大小与修改时间（[`model_file_stamp`]）都与上一行相同时不再写，所以 Windows server 和 macOS 输入法这类一个进程服务所有输入框的宿主上，第一个会话之后状态没变的会话不再各写一行；同一路径上换了模型包、状态变化或 `neural_desktop` 关闭后重开时重新写。只在「桌面神经联想」开着时由调用方报告，关着的用户不会看到这些行。
 ///
 /// 没有这几行时，「没装模型」「装了但会话没拿到状态目录」「装了但读不了」在日志里一模一样，都是什么也没有（#10341）。macOS 的 `diagnostic.log` 和 Windows 的 `logs\server.log` 都只记冒号前的类别（写成 `host_api: <类别>`），路径只出现在没登记出口的 Linux stderr 里：
 /// - `settled model attached`：模型已加载并挂在会话上；
@@ -2866,24 +2972,32 @@ pub(crate) fn report_settled_model(
     model: Option<&Path>,
     attached: bool,
 ) {
-    match (model, state_root) {
-        (Some(model), _) if attached => {
-            diagnostics::report("settled model attached", &model.display().to_string())
-        }
-        (Some(model), _) => {
-            diagnostics::report("settled model not loaded", &model.display().to_string())
-        }
-        (None, Some(state_root)) => diagnostics::report(
+    let (category, detail) = match (model, state_root) {
+        (Some(model), _) if attached => ("settled model attached", model.display().to_string()),
+        (Some(model), _) => ("settled model not loaded", model.display().to_string()),
+        (None, Some(state_root)) => (
             "settled model missing",
-            &format!(
+            format!(
                 "no settled-model pack under {}",
                 resource_packs::root(state_root).display()
             ),
         ),
-        (None, None) => diagnostics::report(
+        (None, None) => (
             "settled model missing without state directory",
-            &format!("no absolute preferences_directory; resources {resources}"),
+            format!("no absolute preferences_directory; resources {resources}"),
         ),
+    };
+    let entry = (category, detail.clone(), model.and_then(model_file_stamp));
+    let should_report = {
+        let mut dedup = model_diagnostic_dedup();
+        let repeated = dedup.settled_model.get(resources) == Some(&entry);
+        if !repeated {
+            dedup.settled_model.insert(resources.to_owned(), entry);
+        }
+        !repeated
+    };
+    if should_report {
+        diagnostics::report(category, &detail);
     }
 }
 
@@ -4165,15 +4279,18 @@ fn dispatch_value(
             Action::Character { value: b'$', .. } | Action::Punctuation(b'$')
         );
         let pending = session.lifecycle_input(&action, host);
-        // Which row the user reached for, read before dispatching because the view it is
-        // relative to is gone afterwards. Every platform host routes candidate selection
-        // through here, so counting it here covers all of them without a line of platform
-        // code; doing it per host would have meant six chances to forget.
-        let position = selected_position(&action);
-        let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
+        // 效率只在带候选身份的选词上记：它要读被选中那一行的码、文本和来源。空格、回车、标点和五笔顶字经命令路由，派发之前拿不到那条候选，效率仍留给点选和数字键。
+        let efficiency = match &action {
+            Action::Select(_) | Action::SelectAnyCandidate(_) => {
+                session.efficiency_candidate(&action)
+            }
+            _ => None,
+        };
         let result = session.runtime.dispatch(action).map_err(|e| e.to_string());
         // 报错前 runtime 可能已经改了组字，生命周期照样收尾。
         let mut result = session.lifecycle_on_error(pending, result)?;
+        // 选词位置取自派发里记下的选择，而不是动作：空格、回车、标点、五笔顶字和结束组字的选词都经命令路由，动作里没有候选身份；位次本身是用户看到的编号（引擎座位要跳过宿主不画的占位席位）。
+        let facts = session.runtime.facts();
         // Text the Engine generated (a calculator result, a command, a mention) was picked, not typed, and stays out of the statistics the way it stays out of learning.
         let counts_as_typing = result
             .commit_context
@@ -4184,11 +4301,13 @@ fn dispatch_value(
             if let Some(candidate) = efficiency {
                 session.count_efficiency(candidate);
             }
-            if let Some(position) = position {
-                session.count_selection(position);
+            if let Some(position) = facts
+                .selection
+                .and_then(|selection| selection.visible_position)
+            {
+                session.count_selection(position as usize);
             }
         }
-        let facts = session.runtime.facts();
         // 固定标点表返回全角人民币；半角只改本次 `$` 产生的尾巴，候选和短语里的符号保持原文。
         if currency_punctuation
             && result.view.character_width == CharacterWidth::Halfwidth
@@ -4216,22 +4335,6 @@ fn dispatch_value(
         }
         Ok(value)
     })
-}
-
-/// The one-based position of the candidate an action is about, or `None` when it is not about one.
-///
-/// Both selection actions carry the absolute candidate index from the runtime's generation, so
-/// adding a view page offset would double-count candidates after the first page.
-fn selected_position(action: &Action) -> Option<usize> {
-    match action {
-        // Candidate IDs carry the absolute index in the cached generation, even
-        // when the view only shows one page. Adding the page offset here counted
-        // every selection after the first page twice (and pushed it into the
-        // aggregate `beyond` bucket in typing statistics).
-        Action::Select(id) => Some(id.index + 1),
-        Action::SelectAnyCandidate(id) => Some(id.index + 1),
-        _ => None,
-    }
 }
 
 /// Android 宿主在隐私模式和不学习的输入框里、鸿蒙和 iOS 宿主在隐私模式里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。
