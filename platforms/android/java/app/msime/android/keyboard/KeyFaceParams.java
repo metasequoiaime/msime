@@ -17,18 +17,6 @@ public record KeyFaceParams(KeyFaceTemplate.Strategy strategy, Main main, Hint t
             float below = capAligned ? Math.min(inkBottomPx, 0) : inkBottomPx;
             return center - (inkTopPx + below) / 2f;
         }
-
-        /**
-         * 按自己的墨迹居中的主标签（{@link KeyFaceTemplate.Glyphs}）：墨迹框（相对基线原点，{@code inkTop} 为负）的中点落在主标签区的中点上时的基线。内容域的框上下对称于主标签区的中线（{@link KeyFaceDomain#measure}），中线在共用基线之上 {@code -(inkTopPx + inkBottomPx) / 2}。
-         */
-        public float glyphBaseline(int cellHeight, float inkTop, float inkBottom) {
-            return baseline(cellHeight) + (inkTopPx + inkBottomPx) / 2f - (inkTop + inkBottom) / 2f;
-        }
-
-        /** 同上，水平方向：墨迹框（相对画字的起点）的中点落在键格中线再偏 {@code shiftXPx} 上时的起点。 */
-        public float glyphX(int cellWidth, float inkLeft, float inkRight) {
-            return cellWidth / 2f - (inkLeft + inkRight) / 2f + shiftXPx;
-        }
     }
 
     /** 一处提示：字号、离上边或下边的距离、离右边的距离（右上角提示用）、内容域墨迹相对基线的上下沿，以及字体的上行线（相对基线，为负）。 */

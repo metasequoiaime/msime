@@ -17,15 +17,6 @@ public final class KeyFaceGroupSmoke {
         @Override public String faceText(KeyFaceSlot slot) { return texts.get(slot); }
     }
 
-    /** 画图标的键（⌫、⇧ 这类）。 */
-    private static final class IconKey implements KeyFaceGroup.Member {
-        @Override public void faceParamsChanged() { }
-
-        @Override public String faceText(KeyFaceSlot slot) { return ""; }
-
-        @Override public boolean drawsIcons() { return true; }
-    }
-
     public static void main(String[] args) {
         KeyFaceGroup group = new KeyFaceGroup(KeyFaceSolverSmoke.template(true, true), KeyFaceSolverSmoke.ENVIRONMENT,
             KeyFaceSolverSmoke.domain(true, true), KeyFaceSolverSmoke.MEASURER);
@@ -76,72 +67,23 @@ public final class KeyFaceGroupSmoke {
         check(bare.params().topRight() == null && bare.params().strategy() == KeyFaceTemplate.Strategy.CENTERED,
             "内容域没有角标时不应为它留位置");
 
-        // 键换上内容域里没有的文字是列表漏了：照样补进内容域、只重量一遍，并记一次漏网；已有的文字不重量、不记。
+        // 键换上内容域里没有的文字：补进内容域、只重量一遍；已有的文字不重量。
         int measured = group.measureCount();
-        int strays = KeyFaceGroup.strayCount();
         group.include(KeyFaceSlot.TOP_RIGHT, "!");
-        check(group.measureCount() == measured && KeyFaceGroup.strayCount() == strays, "内容域已有的文字不应重量，也不算漏网");
+        check(group.measureCount() == measured, "内容域已有的文字不应重量");
         group.include(KeyFaceSlot.MAIN, "WW");
         check(group.domain().contains(KeyFaceSlot.MAIN, "WW") && group.measureCount() == measured + 1,
             "新文字应补进内容域并重量一遍");
-        check(KeyFaceGroup.strayCount() == strays + 1, "列表里没有的文字应记一次漏网");
         check(group.params().main().sizePx() < small.main().sizePx(), "更宽的主标签补进来后全组应收小字号");
 
-        // 整个换掉内容域时，文字固定的键放进来时的文字并进来；键面由规格给出的键此刻画着的字不并（可能是上一副键盘留下的）。
+        // 整个换掉内容域时，组里每个键此刻画着的文字并进来。
         Key hinted = new Key();
         hinted.texts.put(KeyFaceSlot.BOTTOM, "uang");
         group.attach(hinted, Set.of(KeyFaceSlot.BOTTOM));
         check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang"), "放进组里的键的文字应进内容域");
-        Key stateful = new Key();
-        stateful.texts.put(KeyFaceSlot.MAIN, "WWWW");
-        group.attach(stateful, Set.of(), false);
-        check(!group.domain().contains(KeyFaceSlot.MAIN, "WWWW"), "键面由规格给出的键放进来时不应并进它此刻的字");
-        hinted.texts.put(KeyFaceSlot.BOTTOM, "iong");
         group.replace(KeyFaceSolverSmoke.ENVIRONMENT, KeyFaceSolverSmoke.MEASURER, KeyFaceSolverSmoke.domain(true, false));
-        check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong")
-            && !group.domain().contains(KeyFaceSlot.BOTTOM, "iong") && !group.domain().contains(KeyFaceSlot.MAIN, "WWWW"),
-            "换内容域时应保留文字固定的键放进来时的文字，丢掉不再可能出现的文字和键此刻画着的字");
-
-        // 键格差多少：最宽和最窄、最高和最矮之比；拿下来的键不算。
-        KeyFaceGroup spread = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,
-            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
-        Key narrowKey = new Key(), wideKey = new Key();
-        check(spread.spread()[0] == 0, "没有布局好的键时键格差应为 0");
-        spread.attach(narrowKey, Set.of());
-        spread.attach(wideKey, Set.of());
-        spread.cellChanged(narrowKey, 100, 150);
-        spread.cellChanged(wideKey, 160, 150);
-        check(KeyFaceSolverSmoke.near(spread.spread()[0], 1.6f) && KeyFaceSolverSmoke.near(spread.spread()[1], 1f),
-            "键格差应是 1.6 宽、1 高：" + spread.spread()[0]);
-        spread.detach(wideKey);
-        check(KeyFaceSolverSmoke.near(spread.spread()[0], 1f), "拿下来的键不应算进键格差");
-
-        // 图标这一维：图标按画图标的键的键格算（窄的文字键不压小它），并且不大过领头组的图标。
-        KeyFaceGroup icons = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
-            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
-        Key word = new Key();
-        IconKey delete = new IconKey();
-        icons.attach(word, Set.of());
-        icons.attach(delete, Set.of());
-        icons.cellChanged(word, 48, 156);
-        icons.cellChanged(delete, 156, 156);
-        float iconWide = icons.params().iconPx();
-        KeyFaceGroup textOnly = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
-            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
-        Key alone = new Key();
-        textOnly.attach(alone, Set.of());
-        textOnly.cellChanged(alone, 48, 156);
-        check(iconWide > textOnly.params().iconPx(), "图标应按画图标的键算，不被窄的文字键压小");
-        KeyFaceGroup iconLeader = new KeyFaceGroup(KeyFaceSolverSmoke.iconTemplate(), KeyFaceSolverSmoke.ENVIRONMENT,
-            KeyFaceSolverSmoke.domain(false, false), KeyFaceSolverSmoke.MEASURER);
-        IconKey shortKey = new IconKey();
-        iconLeader.attach(shortKey, Set.of());
-        iconLeader.cellChanged(shortKey, 120, 90);
-        icons.capMainAt(iconLeader);
-        check(icons.params().iconPx() <= iconLeader.params().iconPx() && iconLeader.params().iconPx() < iconWide,
-            "图标应不大过领头组的图标：" + icons.params().iconPx() + " " + iconLeader.params().iconPx());
-        icons.capMainAt(null);
-        check(icons.params().iconPx() == iconWide, "取消上限后图标应回到自己的边长");
+        check(group.domain().contains(KeyFaceSlot.BOTTOM, "uang") && !group.domain().contains(KeyFaceSlot.BOTTOM, "ong"),
+            "换内容域时应保留键此刻的文字、丢掉不再可能出现的文字");
 
         // 主标签以另一组为上限：跟着那一组的参数重算，取消后回到自己的字号。
         KeyFaceGroup leader = new KeyFaceGroup(KeyFaceSolverSmoke.template(false, false), KeyFaceSolverSmoke.ENVIRONMENT,

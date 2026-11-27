@@ -1,34 +1,25 @@
-import app.msime.android.ChineseSymbolFaces;
-import app.msime.android.JapaneseNineKeyLayout;
 import app.msime.android.KeyFaceDomain;
-import app.msime.android.KeyFaceLayout;
 import app.msime.android.KeyFaceSlot;
-import app.msime.android.KeyboardLayout;
 import app.msime.android.NineKeyCompositionActionPolicy;
 import app.msime.android.NineKeyFaceDomains;
 import app.msime.android.NineKeyLayout;
 import app.msime.android.NineKeyShuangpinKeypad;
 import app.msime.android.NumberPadPunctuation;
-import app.msime.android.StrokeKeyboardLayout;
-import app.msime.android.ZhuyinNineKeyLayout;
 import java.util.List;
 
-/** 九键键组的内容域：字母层九格（含 1 键组字时的分词、重输）和右列 ！、右上角数字 0–9；数字九宫格的数字、小数点和 ！ 的写法；九键双拼的数字和表里的简短提示；笔画键盘的笔画和 @#、0、句点、！；注音九键的声调、音键（注音和数字）和逗号句号；日语九键两层的键面。 */
+/** 九键键组的内容域：字母层九格（含 1 键组字时的分词、重输）和右列 ！、右上角数字 0–9；数字九宫格的数字、小数点和 ！ 的写法；九键双拼的数字和表里的简短提示。 */
 public final class NineKeyFaceDomainsSmoke {
     private NineKeyFaceDomainsSmoke() { }
 
     public static void main(String[] args) {
-        KeyFaceDomain letters = NineKeyFaceDomains.letters(layout(NineKeyCompositionActionPolicy.SEPARATE));
-        KeyFaceDomain rewriting = NineKeyFaceDomains.letters(layout(NineKeyCompositionActionPolicy.REWRITE));
-        // 1 键组字时只换成设置选的那一个：选「分词」时没有「重输」，反过来也一样。
-        check(letters.contains(KeyFaceSlot.MAIN, "分词") && !letters.contains(KeyFaceSlot.MAIN, "重输"), "选分词时 1 键不应列出重输");
-        check(rewriting.contains(KeyFaceSlot.MAIN, "重输") && !rewriting.contains(KeyFaceSlot.MAIN, "分词"), "选重输时 1 键不应列出分词");
+        KeyFaceDomain letters = NineKeyFaceDomains.letters();
         KeyFaceDomain digits = NineKeyFaceDomains.digits();
         for (List<NineKeyLayout.Key> row : NineKeyLayout.rows()) {
             for (NineKeyLayout.Key key : row) {
                 check(letters.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, false)), "缺九键键面 " + NineKeyLayout.face(key, false));
-                check(letters.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, false, true, NineKeyCompositionActionPolicy.SEPARATE)),
-                    "缺组字时的键面 " + NineKeyLayout.face(key, false, true, NineKeyCompositionActionPolicy.SEPARATE));
+                for (String action : List.of(NineKeyCompositionActionPolicy.SEPARATE, NineKeyCompositionActionPolicy.REWRITE))
+                    check(letters.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, false, true, action)),
+                        "缺组字时的键面 " + NineKeyLayout.face(key, false, true, action));
                 check(letters.contains(KeyFaceSlot.TOP_RIGHT, NineKeyLayout.digitInput(key)), "缺右上角数字 " + key.digit());
                 check(digits.contains(KeyFaceSlot.MAIN, NineKeyLayout.face(key, true)), "缺数字键面 " + key.digit());
             }
@@ -52,43 +43,7 @@ public final class NineKeyFaceDomainsSmoke {
             check(shuangpin.contains(KeyFaceSlot.BOTTOM, NineKeyShuangpinKeypad.compactHint(face)),
                 "缺表里的提示 " + NineKeyShuangpinKeypad.compactHint(face));
         check(!shuangpin.has(KeyFaceSlot.TOP_RIGHT), "九键双拼没有右上角");
-
-        KeyFaceDomain strokes = NineKeyFaceDomains.strokes();
-        for (List<StrokeKeyboardLayout.Key> row : StrokeKeyboardLayout.rows())
-            for (StrokeKeyboardLayout.Key key : row)
-                check(strokes.contains(KeyFaceSlot.MAIN, StrokeKeyboardLayout.face(key)), "缺笔画 " + key.name());
-        KeyFaceDomain strokeKeys = NineKeyFaceDomains.strokeKeys();
-        for (String face : List.of("@#", "0", "。", ".", exclamation))
-            check(strokeKeys.contains(KeyFaceSlot.MAIN, face), "笔画键盘的其他键缺 " + face);
-        check(!strokes.has(KeyFaceSlot.TOP_RIGHT) && !strokeKeys.has(KeyFaceSlot.TOP_RIGHT), "笔画键盘没有右上角");
-
-        KeyFaceDomain tones = NineKeyFaceDomains.zhuyinTones();
-        for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones())
-            check(tones.contains(KeyFaceSlot.MAIN, tone.face()), "缺注音声调 " + tone.label());
-        KeyFaceDomain sounds = NineKeyFaceDomains.zhuyinSounds();
-        List<ZhuyinNineKeyLayout.Key> soundKeys = new java.util.ArrayList<>();
-        for (List<ZhuyinNineKeyLayout.Key> row : ZhuyinNineKeyLayout.rows()) soundKeys.addAll(row);
-        soundKeys.add(ZhuyinNineKeyLayout.zero());
-        for (ZhuyinNineKeyLayout.Key key : soundKeys)
-            check(sounds.contains(KeyFaceSlot.MAIN, key.symbols()) && sounds.contains(KeyFaceSlot.BOTTOM, String.valueOf(key.digit())),
-                "缺注音音键 " + key.digit());
-        KeyFaceDomain marks = NineKeyFaceDomains.zhuyinMarks();
-        for (String face : List.of("，", "。", ",", "."))
-            check(marks.contains(KeyFaceSlot.MAIN, face), "注音九键的逗号句号缺 " + face);
-        check(marks.contains(KeyFaceSlot.MAIN, "ㄅ"), "注音九键的逗号句号缺基线参照");
-
-        for (boolean symbols : new boolean[] {false, true}) {
-            KeyFaceDomain kana = NineKeyFaceDomains.japaneseKana(symbols);
-            for (JapaneseNineKeyLayout.Key key : symbols ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys())
-                check(kana.contains(KeyFaceSlot.MAIN, key.kana().get(0)), "日语九键缺键面 " + key.kana().get(0));
-        }
-        check(!NineKeyFaceDomains.japaneseKana(false).contains(KeyFaceSlot.MAIN, "1"), "日语九键假名组不应有数字");
         System.out.println("NineKeyFaceDomainsSmoke passed");
-    }
-
-    private static KeyFaceLayout layout(String action) {
-        return new KeyFaceLayout(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, action, false, ChineseSymbolFaces.Marks.DEFAULT,
-            false, List.of(), List.of(), false);
     }
 
     private static void check(boolean condition, String message) {

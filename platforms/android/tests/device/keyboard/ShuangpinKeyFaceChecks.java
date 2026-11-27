@@ -21,8 +21,6 @@ final class ShuangpinKeyFaceChecks {
     static void verify(Instrumentation test) throws Exception {
         KeyHintMainLabelChecks.verify(test);
         ShuangpinUniformKeyFaceChecks.verify(test);
-        // 先看真实键盘上的组（漏网的字按前后计数差算），再跑会有意换上列表外的字的合成键。
-        KeyFaceLayoutChecks.verify(test);
         KeyFaceGroupChecks.verify(test);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         test.runOnMainSync(() -> {

@@ -40,9 +40,8 @@ public final class ZhuyinNineKeyLayoutSmoke {
         check(total == 37 && bopomofo.size() == 37, "all 37 bopomofo, each on exactly one key");
 
         ZhuyinNineKeyLayout.Key one = rows.get(0).get(0);
-        check("ㄅㄆㄇㄈ".equals(one.symbols()) && one.digit() == 1, "a key prints its bopomofo over its digit");
-        check("ㄢㄣㄤㄥ".equals(ZhuyinNineKeyLayout.zero().symbols()) && ZhuyinNineKeyLayout.zero().digit() == 0,
-            "0 prints its finals");
+        check("ㄅㄆㄇㄈ\n1".equals(ZhuyinNineKeyLayout.face(one)), "a key prints its bopomofo over its digit");
+        check("ㄢㄣㄤㄥ\n0".equals(ZhuyinNineKeyLayout.face(ZhuyinNineKeyLayout.zero())), "0 prints its finals");
         check("注音 1 ㄅㄆㄇㄈ".equals(ZhuyinNineKeyLayout.accessibilityLabel(one)), "spoken label names digit and group");
         for (ZhuyinNineKeyLayout.Key key : keys) {
             String id = ZhuyinNineKeyLayout.keyId(key);
@@ -70,7 +69,7 @@ public final class ZhuyinNineKeyLayoutSmoke {
         check("注".equals(ZhuyinNineKeyLayout.LAYER_TITLE), "the symbol page returns to 注");
 
         boolean rejected = false;
-        try { ZhuyinNineKeyLayout.accessibilityLabel((ZhuyinNineKeyLayout.Key) null); } catch (IllegalArgumentException expected) { rejected = true; }
+        try { ZhuyinNineKeyLayout.face(null); } catch (IllegalArgumentException expected) { rejected = true; }
         check(rejected, "a missing key is a programming error");
         System.out.println("Android Zhuyin nine-key: patent grouping, faces, digits, tone letters, and key ids passed");
     }

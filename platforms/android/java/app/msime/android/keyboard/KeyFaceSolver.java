@@ -22,14 +22,6 @@ public final class KeyFaceSolver {
     /** 键格尺寸（像素）。 */
     public record Cell(int width, int height) { }
 
-    /**
-     * 图标这一维（与文字并列、各算各的）：{@code cell} 是组里画图标的键中最小的键格，图标边长按它算（{@code null} 时按主标签的键格）；{@code cornerCell} 是画图标又带右上角提示的键中最小的键格，图标要和提示的墨迹隔开，碰上时缩小，缩到下限仍碰就不画提示（{@code null} 时不查）；{@code capPx} 是图标边长的上限（另一组图标的边长，见 {@link KeyFaceGroup#capMainAt}），不限时为正无穷。
-     */
-    public record Icons(Cell cell, Cell cornerCell, float capPx) {
-        /** 组里没有分开记画图标的键：图标按主标签的键格算，不查角标，不另设上限。 */
-        public static final Icons NONE = new Icons(null, null, Float.POSITIVE_INFINITY);
-    }
-
     /** 主标签要让出的轮廓按它在键格中线上下各占多少个字号的几行算。 */
     private static final float MAIN_BAND_EM = 0.4f;
 
@@ -53,22 +45,6 @@ public final class KeyFaceSolver {
     public static KeyFaceParams solve(KeyFaceTemplate template, Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics,
             KeyFaceEnvironment environment, Map<KeyFaceSlot, Cell> cells, Map<KeyFaceSlot, Cell> largest,
             float mainCapPx) {
-        return solve(template, metrics, environment, cells, largest, mainCapPx, Icons.NONE);
-    }
-
-    /**
-     * 同上，另按 {@code icons} 算图标：边长按画图标的键的最小键格、不大过 {@code icons.capPx}；带右上角提示的图标键再和提示隔开（{@link Icons}）。文字照常按上面的规则，图标只在最后核对，不改变文字的退让方式，除非图标缩到下限仍碰上提示，那时与文字放不下时一样不画提示。
-     */
-    public static KeyFaceParams solve(KeyFaceTemplate template, Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics,
-            KeyFaceEnvironment environment, Map<KeyFaceSlot, Cell> cells, Map<KeyFaceSlot, Cell> largest,
-            float mainCapPx, Icons icons) {
-        KeyFaceParams solved = solveText(template, metrics, environment, cells, largest, mainCapPx, icons);
-        return clearIcon(template, metrics, environment, solved, icons);
-    }
-
-    private static KeyFaceParams solveText(KeyFaceTemplate template, Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics,
-            KeyFaceEnvironment environment, Map<KeyFaceSlot, Cell> cells, Map<KeyFaceSlot, Cell> largest,
-            float mainCapPx, Icons icons) {
         Cell cell = cells.get(KeyFaceSlot.MAIN);
         KeyOutline outline = environment.outline();
         KeyFaceDomain.SlotMetrics main = metrics.get(KeyFaceSlot.MAIN);
@@ -78,7 +54,7 @@ public final class KeyFaceSolver {
         float minimum = environment.sp(spec.minSp());
         float preferred = Math.min(mainCapPx, clamp(spec.heightRatio() * cell.height() * environment.fontScale(),
             minimum, environment.sp(spec.maxSp())));
-        float icon = Math.min(icon(template, environment, icons.cell() == null ? cell : icons.cell(), side), icons.capPx());
+        float icon = icon(template, environment, cell, side);
         // 主标签两侧至少让出模板的边距，轮廓在主标签那几行收进来更多时让出更多（票根的缺口、胶囊的两头）。
         float band = preferred * MAIN_BAND_EM;
         float mainSide = Math.max(side, outline.none() ? 0
@@ -251,37 +227,6 @@ public final class KeyFaceSolver {
             size *= 0.97f;
         }
         return size;
-    }
-
-    /**
-     * 画图标又带右上角提示的键：图标（在键格里居中的正方形）与提示的墨迹至少隔开模板的间距，上下或左右隔开都行。碰上时把图标缩到刚好隔开，不小于模板的下限；到下限还碰就不画提示（{@link KeyFaceTemplate.Strategy#HIDE_HINTS}）。键帽轮廓让提示沿对角线挪进来时按挪过的位置算。
-     */
-    private static KeyFaceParams clearIcon(KeyFaceTemplate template, Map<KeyFaceSlot, KeyFaceDomain.SlotMetrics> metrics,
-            KeyFaceEnvironment environment, KeyFaceParams params, Icons icons) {
-        KeyFaceParams.Hint corner = params.topRight();
-        Cell cell = icons.cornerCell();
-        KeyFaceTemplate.IconSpec spec = template.icon();
-        if (cell == null || corner == null || spec == null || params.iconPx() <= 0) return params;
-        float hintWidth = metrics.get(KeyFaceSlot.TOP_RIGHT).width(corner.sizePx());
-        float cornerLeft = cell.width() - corner.insetXPx() - hintWidth;
-        float cornerBottom = corner.topBaseline() + corner.inkBottomPx();
-        KeyOutline outline = environment.outline();
-        if (!outline.none()) {
-            float offset = cornerOffset(outline, cell, corner, corner.topBaseline() + corner.inkTopPx(), hintWidth);
-            if (!Float.isNaN(offset)) {
-                cornerLeft -= offset;
-                cornerBottom += offset;
-            }
-        }
-        float gap = environment.px(template.gapDp());
-        // 居中的图标边长 s，墨迹上沿 h/2 - s(1/2 - inkTop) 不高于提示下沿加间距，或墨迹右沿 w/2 + s(inkRight - 1/2) 不越过提示左沿减间距。
-        float clear = Math.max((cell.height() / 2f - cornerBottom - gap) / (.5f - spec.inkTop()),
-            (cornerLeft - gap - cell.width() / 2f) / (spec.inkRight() - .5f));
-        if (params.iconPx() <= clear) return params;
-        float floor = Math.min(params.iconPx(), environment.px(spec.minDp()));
-        if (clear >= floor)
-            return new KeyFaceParams(params.strategy(), params.main(), corner, params.bottom(), clear);
-        return new KeyFaceParams(KeyFaceTemplate.Strategy.HIDE_HINTS, params.main(), null, params.bottom(), params.iconPx());
     }
 
     /** 图标边长：按键高比例、夹在上下限之间，再不超过键格的短边（去掉两侧边距）；模板不画图标时为 0。 */

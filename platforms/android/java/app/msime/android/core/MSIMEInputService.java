@@ -359,10 +359,10 @@ public final class MSIMEInputService extends InputMethodService {
     /** 工具栏语音按钮，来自共享偏好 `touch_voice_shortcut`，缺省为关；在「键盘 → 工具栏」打开「语音」或键盘内打开「顶部语音入口」时为真（#10142）；「语音输入 → 启动方式」选「无」会关掉它，选「工具栏/长按空格」不改它（#10309）。 */
     boolean touchVoiceShortcutEnabled;
     /** 26 键双拼的字母键画不画声母/韵母提示，来自共享偏好 `touch_shuangpin_key_hints`，缺省为关。 */
-    boolean shuangpinKeyHintsEnabled = false;
+    private boolean shuangpinKeyHintsEnabled = false;
 
     /** 全拼 26 键组字时 ⇧ 保留（臂辅助码）而不换成「分词」，来自共享偏好 `touch_quanpin_shift`，缺省为开。 */
-    boolean quanpinShiftEnabled = true;
+    private boolean quanpinShiftEnabled = true;
     /** 上屏后联想时候选栏右端的按键样式，来自共享偏好 `next_word_prediction_buttons`，缺省为现有的只有展开键。 */
     private PredictionButtonsPolicy.Style predictionButtons = PredictionButtonsPolicy.Style.EXPAND_ONLY;
     /** 26 键、14/18 键与九键各自的底行样式，来自共享偏好 `touch_*_key_style`，缺省都是标准底行。 */
@@ -593,7 +593,7 @@ public final class MSIMEInputService extends InputMethodService {
         new java.util.ArrayList<>(27);
     final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
     private String shuangpinHintsRequest = "";
-    java.util.Map<String, String> shuangpinHints = java.util.Map.of();
+    private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
     final AppEdition edition = AppEdition.current();
     /** 空闲时候选栏左侧显示的产品名，取自本版本的应用名（full 是「水杉输入法」，五笔版是「水杉五笔」）。 */
@@ -664,7 +664,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button japaneseSpaceKey;
     Button japaneseReturnKey;
     Button japaneseSymbolsKey;
-    /** 日语 9 键左列的中英键，键面写这一下要切到的语言（{@link KeyFaceSpecs#LANGUAGE}）。 */
+    /** 日语 9 键左列的中英键，键面写这一下要切到的语言（{@link #japaneseLanguageKeyLabel}）。 */
     Button japaneseLanguageKey;
     Button japaneseVariantsButton;
     private Integer japaneseConversionIndex;
@@ -6317,10 +6317,8 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.setVisible(quickPunctuationButton, visible);
         if (!visible) return;
         String face = entries.get(0).face();
-        // 按墨迹居中放大画（全角「，」原样居中时只剩键底一个小点）：放进底行的逗号键组后由组画（KeyFaceTemplates.BOTTOM_COMMA），组外照旧套 span。
-        if (quickPunctuationButton instanceof KeyboardPressButton press && press.faceGroup() != null)
-            quickPunctuationButton.setText(face);
-        else CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
+        // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
+        CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         boolean question = handwritingMarksShown();
         if (quickPunctuationButton instanceof KeyHintButton hintButton) {
             int layout = imeLetterRows.drawnTouchLayout();
@@ -6418,8 +6416,6 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
         }
-        // 提示表换了：先按新表换掉字母组的内容域（KeyFaceLayout#shuangpinHints），再画上新提示。
-        imeKeyFaces.refresh();
         for (int index = 0; index < shuangpinKeyButtons.size(); index++) {
             ShuangpinHintButton button = shuangpinKeyButtons.get(index);
             String input = shuangpinKeyInputs.get(index);
@@ -6477,6 +6473,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (target.kind() == LanguageKeyCyclePolicy.Kind.BUSY) return;
         if (target.kind() == LanguageKeyCyclePolicy.Kind.SCHEME) selectKeyboardScheme(target.scheme());
         else toggleInputLanguage();
+    }
+
+    /** 日语 9 键的语言键键面与共用中英键一致，显示当前输入语言状态。 */
+    String japaneseLanguageKeyLabel() {
+        return LanguageKeyCyclePolicy.label(languageKeyCycles(), selectedScheme, dedicatedEnglish, visibleSchemes);
     }
 
     String japaneseLanguageKeyDescription() {
@@ -6695,18 +6696,18 @@ public final class MSIMEInputService extends InputMethodService {
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
         boolean composing = returnKeyConfirms();
         String title = ReturnKeyAction.title(action, disabled);
+        // The shared design turns 换行 into an accent-filled 确认 while a composition is open,
+        // because that is what the key does then: it commits the reading instead of a newline.
+        String shownTitle = composing ? (japaneseSchemeActive() ? "確定" : "确认") : title;
         // 长按「确认」能上屏译文时角上标「译」（#6792），没有实体键盘的人也看得到 Ctrl+Enter 的那条路。
         boolean translationHold = composing && returnHoldCommitsTranslation();
         boolean newlineHold = returnHoldInsertsNewline();
         if (enterButton != null) {
-            // The shared design turns 换行 into an accent-filled 确认 while a composition is open,
-            // because that is what the key does then: it commits the reading instead of a newline.
-            // 写「确认」（日语「確定」）还是画 ↵、角标「译」「换行」由回车的键面规格定（KeyFaceSpecs.RETURN）；先设键面，画图标时节点文字是动作名（读屏、统计）。
-            imeKeyFaces.show(enterButton, KeyFaceSpecs.RETURN);
-            if (!composing) enterButton.setText(title);
-            String shownTitle = String.valueOf(enterButton.getText());
+            enterButton.setText(shownTitle);
             enterButton.setContentDescription(translationHold ? shownTitle + "；长按上屏译文"
                 : newlineHold ? shownTitle + "；长按换行" : shownTitle);
+            if (enterButton instanceof KeyboardIconKey icon)
+                icon.setCornerHint(translationHold ? "译" : newlineHold ? "换行" : "");
             KeyboardKeyRole role = imeBottomRow.returnKeyRole();
             if (enterButton instanceof KeyboardPressButton press && press.keyboardRole() != role) {
                 press.setKeyboardRole(role);
@@ -6714,8 +6715,9 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (japaneseReturnKey != null) {
-            imeKeyFaces.show(japaneseReturnKey, KeyFaceSpecs.JAPANESE_RETURN);
-            japaneseReturnKey.setContentDescription(japaneseReturnKey.getText());
+            String japaneseTitle = JapaneseNineKeyActions.returnTitle(composing);
+            japaneseReturnKey.setText(japaneseTitle);
+            japaneseReturnKey.setContentDescription(japaneseTitle);
             // 与其他布局底栏的回车同一个角色，配色才一致。
             KeyboardKeyRole role = imeBottomRow.returnKeyRole();
             if (japaneseReturnKey instanceof KeyboardPressButton press && press.keyboardRole() != role) {
@@ -6724,17 +6726,17 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (japaneseSpaceKey != null) {
-            imeKeyFaces.show(japaneseSpaceKey, KeyFaceSpecs.JAPANESE_SPACE);
+            japaneseSpaceKey.setText(spaceKeyTitle());
             japaneseSpaceKey.setContentDescription(spaceKeyDescription());
         }
         if (japaneseLanguageKey != null) {
             // 要切到哪里取决于已启用的方案、轮换设置和最近的中文入口。换输入框时这些先回到出厂副本、再由后台读到的偏好补上；只在建键盘时写一次的话，键盘若在补上之前建好，键面就停在「英」、读屏也念切到英文，和点下去时按当前状态实际切到的地方对不上。每次重画都按当前状态重写。
-            imeKeyFaces.show(japaneseLanguageKey, KeyFaceSpecs.LANGUAGE);
+            japaneseLanguageKey.setText(japaneseLanguageKeyLabel());
             japaneseLanguageKey.setContentDescription("按键 " + japaneseLanguageKeyDescription());
         }
         if (japaneseSymbolsKey != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-            imeKeyFaces.show(japaneseSymbolsKey, KeyFaceSpecs.JAPANESE_LAYER);
+            japaneseSymbolsKey.setText(symbols ? "あいう" : "123");
             japaneseSymbolsKey.setContentDescription(symbols
                 ? "切换到假名" : "切换到数字和符号");
         }
@@ -10068,13 +10070,13 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 长按组字中的「确认」能不能上屏译文（{@link HardwareTranslationCommitPolicy#marksReturnKey}）：键角标「译」、读屏的长按动作都看它。 */
-    boolean returnHoldCommitsTranslation() {
+    private boolean returnHoldCommitsTranslation() {
         TranslationTarget target = translationTarget();
         return HardwareTranslationCommitPolicy.marksReturnKey(target.eligible(), target.senses().size());
     }
 
     /** 空闲时提供字面换行；组字中的长按仍归确认或译文上屏，不能覆盖尚未确认的组字。 */
-    boolean returnHoldInsertsNewline() {
+    private boolean returnHoldInsertsNewline() {
         return ReturnKeyHoldPolicy.insertsNewline(
             connection != null, hasEngineComposition(), returnKeyConfirms());
     }
@@ -11411,8 +11413,7 @@ public final class MSIMEInputService extends InputMethodService {
         });
         shiftButton.setContentDescription("切换到英文大写");
         keyId(shiftButton, "ShiftLeft");
-        // 键面在第一次渲染时换成「中」「英」或轮换到的语言；先画「中」，不把「中/英」带进键组的内容域（键组会按它缩小）。
-        languageButton = keyId(button(controls, "中", this::toggleInputLanguage), "SoftLanguage");
+        languageButton = keyId(button(controls, "中/英", this::toggleInputLanguage), "SoftLanguage");
         languageButton.setContentDescription("切换中英文");
         // 没有会话、也没有会话在建时（密码框、数字框、启动失败）这个键仍可用（长按要能打开输入法选择框），但点按切不了中英：不给按键反馈、也不记一次按键，免得点上去有声有振动却什么也没发生。会话还在建时点按照常生效（#10086），见 ToolbarReadinessPolicy.languageTap。
         languageButton.setOnClickListener(ignored -> {
@@ -13082,9 +13083,13 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (layerButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-            // 数字九宫格上的返回键印进来之前那块键面的名字；中文键面借来时印「返回」。注音的共享符号行（#+= 页）上它回到数字九宫格，印 123、描述与设计稿 #+= 层的 123 相同。印什么由 123 键的键面规格定（KeyFaceSpecs.LAYER）。
+            int layerLayout = displayedTouchLayout(view);
+            // 数字九宫格上的返回键印进来之前那块键面的名字；中文键面借来时印「返回」。注音的共享符号行（#+= 页）上它回到数字九宫格，印 123、描述与设计稿 #+= 层的 123 相同。
             boolean sharedSymbolRows = imeLetterRows.sharedSymbolRowsDrawn();
-            imeKeyFaces.show(layerButton, KeyFaceSpecs.LAYER);
+            layerButton.setText(sharedSymbolRows ? KeyboardActionRow.layerTitle(layerLayout, false)
+                : KeyboardActionRow.layerTitle(layerLayout, symbols,
+                    symbols && imeLetterRows.numberPadDrawn() && KeyboardLayout.chineseFace(
+                        view == null ? -1 : InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)));
             layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols && !sharedSymbolRows));
         }
         if (symbolPanelButton != null) {
@@ -13108,9 +13113,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || (!keepsOwnGrid && keyboardLayer != KeyboardLayout.Layer.LETTERS));
             boolean separator = usesQuanpinSeparator();
             imeLetterRows.updateShiftKeyIdentity(separator);
-            // 画 ⇧ 的图标还是「分词」由键面规格定（KeyFaceSpecs.SHIFT）；画图标时节点文字是读屏和统计用的大小写符号，先换回图标再设，免得把它当成键面的字。
-            imeKeyFaces.show(shiftButton, KeyFaceSpecs.SHIFT);
-            if (!separator) shiftButton.setText(letterCase.keyText());
+            shiftButton.setText(separator ? "分词" : letterCase.keyText());
             ViewPolicy.setSelected(shiftButton, !separator && letterCase.usesUppercase());
             shiftButton.setActivated(!separator && letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
             // The final applySkin() traversal styles this attached button once.
@@ -13125,7 +13128,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (languageButton != null) {
             boolean cycles = languageKeyCycles();
-            imeKeyFaces.show(languageButton, KeyFaceSpecs.LANGUAGE);
+            languageButton.setText(LanguageKeyCyclePolicy.label(cycles, selectedScheme, dedicatedEnglish, visibleSchemes));
             // 没有会话也没有会话在建（密码框、数字框）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，只把它画淡、读屏念成「暂不可用」，点按在点击监听里直接忽略。会话还在建时点按照常生效，不画淡（#10086）。
             boolean canToggle = ToolbarReadinessPolicy.languageKeyActive(toolbarSession());
             ViewPolicy.setEnabled(languageButton, true);

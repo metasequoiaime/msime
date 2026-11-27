@@ -75,20 +75,9 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
 
     /** 量一遍内容域。{@code pairGapEm} 见 {@link KeyFaceTemplate#pairGapEm}：两个字符的主标签按「左字 + 间距 + 右字」算宽度。 */
     public Map<KeyFaceSlot, SlotMetrics> measure(KeyFaceMeasurer measurer, float pairGapEm) {
-        return measure(measurer, pairGapEm, null);
-    }
-
-    /**
-     * 同上；{@code glyphs} 不为 {@code null} 时主标签里有按自己的墨迹居中的文字（{@link KeyFaceTemplate.Glyphs}），框见 {@link #glyphMetrics}，求解器照常用它判断放不放得下、碰不碰提示。
-     */
-    public Map<KeyFaceSlot, SlotMetrics> measure(KeyFaceMeasurer measurer, float pairGapEm, KeyFaceTemplate.Glyphs glyphs) {
         EnumMap<KeyFaceSlot, SlotMetrics> metrics = new EnumMap<>(KeyFaceSlot.class);
         for (Map.Entry<KeyFaceSlot, List<String>> entry : texts.entrySet()) {
             KeyFaceSlot slot = entry.getKey();
-            if (slot == KeyFaceSlot.MAIN && glyphs != null) {
-                metrics.put(slot, glyphMetrics(measurer, entry.getValue(), pairGapEm, glyphs));
-                continue;
-            }
             float width = 0, inkWidth = 0, inkTop = 0, inkBottom = 0;
             for (String text : entry.getValue()) {
                 KeyFaceMeasurer.Ink ink = measurer.ink(slot, text, REFERENCE_PX);
@@ -102,32 +91,6 @@ public record KeyFaceDomain(Map<KeyFaceSlot, List<String>> texts) {
             metrics.put(slot, new SlotMetrics(width, inkWidth, inkTop, inkBottom, measurer.ascent(slot, REFERENCE_PX)));
         }
         return metrics;
-    }
-
-    /**
-     * 主标签里有按自己的墨迹居中的文字时的上界。共用基线的文字照常量（排版宽度、墨迹合起来的上下沿），它们的墨迹中线 {@code c} 就是主标签区中线所在的高度；按墨迹居中的文字以 {@code c} 为中线、上下各占自己墨迹高的一半再加往下挪的距离。框取两者的并，并且上下对称于 {@code c}，所以按框居中时共用基线的文字落在原来的位置，按墨迹居中的文字都放得进去。全部按墨迹居中时 {@code c} 是基线。
-     */
-    private static SlotMetrics glyphMetrics(KeyFaceMeasurer measurer, List<String> texts, float pairGapEm,
-            KeyFaceTemplate.Glyphs glyphs) {
-        float width = 0, inkWidth = 0, top = Float.POSITIVE_INFINITY, bottom = Float.NEGATIVE_INFINITY, half = 0;
-        for (String text : texts) {
-            if (glyphs.centres(text)) continue;
-            KeyFaceMeasurer.Ink ink = measurer.ink(KeyFaceSlot.MAIN, text, REFERENCE_PX);
-            width = Math.max(width, mainWidth(measurer, text, REFERENCE_PX, pairGapEm));
-            inkWidth = Math.max(inkWidth, ink.width());
-            top = Math.min(top, ink.top());
-            bottom = Math.max(bottom, ink.bottom());
-        }
-        float center = top > bottom ? 0 : (top + bottom) / 2f;
-        if (top <= bottom) half = (bottom - top) / 2f;
-        for (String text : texts) {
-            if (!glyphs.centres(text)) continue;
-            KeyFaceMeasurer.Ink ink = measurer.ink(KeyFaceSlot.MAIN, text, REFERENCE_PX * glyphs.scale(text));
-            width = Math.max(width, ink.width());
-            inkWidth = Math.max(inkWidth, ink.width());
-            half = Math.max(half, ink.height() / 2f + glyphs.drop(text, REFERENCE_PX));
-        }
-        return new SlotMetrics(width, inkWidth, center - half, center + half, measurer.ascent(KeyFaceSlot.MAIN, REFERENCE_PX));
     }
 
     /** 主标签的排版宽度：两个字符且模板给了间距时按「左字 + 间距 + 右字」，否则整串。绘制用同一规则。 */

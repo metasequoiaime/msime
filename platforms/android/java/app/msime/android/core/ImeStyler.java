@@ -327,6 +327,8 @@ final class ImeStyler {
             }
             if (press != null) press.rememberFace(target, role, selected, density);
         }
+        // 不在键组里的图标键（回车）自己画角标，按同一个键帽轮廓挪进键帽；键组里的键从键组的环境拿轮廓（ImeKeyFaces）。
+        if (button instanceof KeyboardIconKey icon) icon.setKeyOutline(KeyOutline.forSkin(target, density));
         ViewPolicy.setTextColor(button, color(foreground));
         if (button instanceof KeyHintButton hintButton) {
             hintButton.setHintColor(color(target.accent()));
@@ -349,10 +351,12 @@ final class ImeStyler {
     }
 
     /**
-     * 新设计的 Shift：键帽始终是功能键底色；开启（一次性或锁定）时换成字母键底色、图标 accent，不再铺实心 accent。锁定时换成带下划线的大写锁定形，由 ⇧ 的键面规格定（{@link KeyFaceSpecs#SHIFT}）。
+     * 新设计的 Shift：键帽始终是功能键底色；开启（一次性或锁定）时换成字母键底色、图标 accent，不再铺实心 accent。锁定时图标换成带下划线的大写锁定形。
      */
     private void styleShiftKey(KeyboardIconKey key, KeyboardSkin target) {
         boolean on = key.isSelected();
+        key.setKind(s.letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK
+            ? KeyboardIconKey.Kind.CAPS_LOCK : KeyboardIconKey.Kind.SHIFT);
         String background = on ? target.keyBackground() : target.functionBackground();
         String foreground = on ? target.accent() : target.functionForeground();
         float density = DimensionPolicy.density(s);

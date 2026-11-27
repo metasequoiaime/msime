@@ -10,7 +10,7 @@ import app.msime.android.KeyboardGeometry;
 /**
  * 画描边图标的功能键：⇧（含大写锁定的下划线形）、⌫、↵、123 层的表情键，图标 22 dp，线宽 1.7（viewBox 单位）。
  *
- * <p>节点 text（`⇧`、`⌫`、回车的动作文字）原样保留给无障碍和设备测试，只是不绘制；回车组词时的「确认」、⇧ 在 26 键全拼组字时的「分词」由键面规格设上（{@link #setFace}）。图标颜色就是按钮的文字颜色，由样式通道按皮肤设置（Shift 激活时 accent）。
+ * <p>节点 text（`⇧`、`⌫`、回车的动作文字）原样保留给无障碍和设备测试，只是不绘制；回车在组词时要显示「确认」，调用方用 {@link #setDrawsText} 切回文字。图标颜色就是按钮的文字颜色，由样式通道按皮肤设置（Shift 激活时 accent）。
  *
  * <p>放进键组（{@link #setFaceGroup}）时，图标边长取键组算的 {@link KeyFaceParams#iconPx}，改画文字时文字和右上角提示都按键组的参数画；画图标时主标签位置是空的，`⇧`、`⌫` 这样的节点文字不进键组的内容域。
  */
@@ -23,21 +23,28 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Kind kind;
     private boolean drawsText;
+    private java.util.Set<String> textFaces = java.util.Set.of();
+    private final Paint cornerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private String cornerHint = "";
+    /** 键帽轮廓：不在键组里的键（回车）自己画角标时按它挪进键帽（{@link KeyOutline}）。 */
+    private KeyOutline outline = KeyOutline.NONE;
+    private final android.graphics.Rect cornerBounds = new android.graphics.Rect();
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
         KeyboardTypographyPolicy.normalizeKeyCap(this);
         this.kind = kind;
         ViewPolicy.setAllCapsFalse(this);
+        cornerPaint.setTextAlign(Paint.Align.RIGHT);
     }
 
-    /** 右上角的提示（回车长按能上屏译文时标「译」，长按换行时标「换行」），由键组按它的右上角位置画（{@link KeyFaceTemplates#RETURN}）；空串或 {@code null} 表示不画。只绘制、不进节点 text。不在键组里的键不画它。 */
+    /** 右上角的提示（组字中的「确认」长按能上屏译文时标「译」），字号和位置与字母键的角标相同（{@link KeyHintButton}），颜色取键面文字色；空串或 {@code null} 表示不画。只绘制、不进节点 text。 */
     public void setCornerHint(String value) {
         String next = TextPolicy.emptyIfNull(value);
         if (cornerHint.equals(next)) return;
         cornerHint = next;
         if (faceGroup() != null) faceTextChanged(KeyFaceSlot.TOP_RIGHT, next);
+        else invalidate();
     }
 
     public String cornerHint() { return cornerHint; }
@@ -51,30 +58,25 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         invalidate();
     }
 
-    /**
-     * 按 {@link KeyFaceSpec} 给的键面画（⇧ 的图标或「分词」）：画文字时节点文字也换成这段字，画图标时节点文字（`⇧` 这类读屏和统计用的字）由调用方另设。先换节点文字、再切到画文字，所以切换途中不会把 `⇧` 当成键面的字补进键组。
-     */
-    public void setFace(KeyFace face) {
-        setFace(face, true);
-    }
-
-    /** 同上；{@code iconKind} 为假时画图标只切回图标、不换图标种类（回车在剪贴板模式里自己换图标，{@link KeyFaceSpec#ownsIconKind}）。 */
-    public void setFace(KeyFace face, boolean iconKind) {
-        if (face.text() != null && !face.text().contentEquals(getText())) setText(face.text());
-        if (face.icon() != null && iconKind) setKind(face.icon());
-        boolean text = face.text() != null;
-        if (drawsText != text) {
-            drawsText = text;
-            if (faceGroup() != null) faceTextChanged(KeyFaceSlot.MAIN, faceText(KeyFaceSlot.MAIN));
-            else invalidate();
-        }
-        setCornerHint(face.corner());
+    /** 为真时按普通按钮画文字（回车组词时的「确认」），为假时画图标。 */
+    public void setDrawsText(boolean value) {
+        if (drawsText == value) return;
+        drawsText = value;
+        mainFaceChanged();
     }
 
     public boolean drawsText() { return drawsText; }
 
-    /** 这类键画图标（此刻也许画着文字）：键组按它们的键格算图标边长。 */
-    @Override public boolean drawsIcons() { return true; }
+    /** 节点 text 落在这组文字里时按文字画（回车组词时的「确认」「確定」），其余时候画图标；调用方只管 setText，不必再切 {@link #setDrawsText}。 */
+    public void setTextFaces(java.util.Set<String> faces) {
+        textFaces = SetPolicy.copyOrEmpty(faces);
+        mainFaceChanged();
+    }
+
+    /** 在图标和文字之间换了：只重新定位、重画。文字由随后的 setText 补进键组（⇧ 先切到文字、再换成「分词」，这时补进去的会是 `⇧`）。 */
+    private void mainFaceChanged() {
+        faceRedraw();
+    }
 
     /** 画图标时主标签位置是空的；右上角是 {@link #setCornerHint} 的提示。 */
     @Override public String faceText(KeyFaceSlot slot) {
@@ -87,7 +89,8 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     /** 现在是否按文字画。 */
     public boolean showsText() {
-        return drawsText;
+        CharSequence text = getText();
+        return drawsText || (text != null && textFaces.contains(text.toString()));
     }
 
     /** {@link Kind} 对应的生成图标。 */
@@ -119,6 +122,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         }
         if (showsText()) {
             super.onDraw(canvas);
+            drawCornerHint(canvas);
             return;
         }
         int width = DimensionPolicy.contentWidth(this);
@@ -126,6 +130,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         float size = BoundsPolicy.atMost(DimensionPolicy.shorterSide(width, height),
             DimensionPolicy.floatPixels(getContext(), ICON_DP));
         drawIcon(canvas, size, width, height, getPaddingLeft(), getPaddingTop());
+        drawCornerHint(canvas);
     }
 
     /** 在 {@code left}、{@code top} 起的 {@code width}×{@code height} 区域里居中画边长 {@code size} 的图标，停用时变淡。 */
@@ -135,5 +140,35 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         if (!isEnabled()) color = ColorPolicy.withAlpha(color, 96f / 255f);
         KeyboardIconPaths.draw(canvas, paint, iconFor(kind), left + (width - size) / 2f, top + (height - size) / 2f,
             size, color);
+    }
+
+    /** 皮肤的键帽轮廓（{@code ImeStyler} 配键帽时设）；变了才重画。 */
+    public void setKeyOutline(KeyOutline value) {
+        KeyOutline next = value == null ? KeyOutline.NONE : value;
+        if (next.equals(outline)) return;
+        outline = next;
+        invalidate();
+    }
+
+    /** 角标按原来的文字框位置画（右端离右边 5 dp、上行线离上边 3 dp）；键帽轮廓在那里收进去时沿对角线挪进来，挪不进来就不画。 */
+    private void drawCornerHint(Canvas canvas) {
+        if (cornerHint.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
+        float scale = CompactKeyTypography.scale(getContext(), getHeight());
+        ViewPolicy.setTextSize(cornerPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP) * scale);
+        cornerPaint.setColor(getCurrentTextColor());
+        cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
+        Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
+        float baseline = DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_TOP_DP) * scale - metrics.ascent;
+        float right = getWidth() - DimensionPolicy.floatPixels(getContext(), KeyHintButton.CORNER_HINT_RIGHT_DP) * scale;
+        if (!outline.none()) {
+            cornerPaint.getTextBounds(cornerHint, 0, cornerHint.length(), cornerBounds);
+            float origin = right - cornerPaint.measureText(cornerHint);
+            float offset = outline.spans(getWidth(), getHeight()).cornerOffset(origin + cornerBounds.right,
+                baseline + cornerBounds.top, cornerBounds.width(), cornerBounds.height());
+            if (Float.isNaN(offset)) return;
+            right -= offset;
+            baseline += offset;
+        }
+        canvas.drawText(cornerHint, right, baseline, cornerPaint);
     }
 }

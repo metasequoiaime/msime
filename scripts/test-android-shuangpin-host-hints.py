@@ -48,7 +48,6 @@ public final class HostHintsSmoke {
         void setContentDescription(String value) { }
     }
     static final class Color { static int parseColor(String value) { return 0; } }
-    static final class ImeKeyFaces { void refresh() { } }
     static final class Skin { String accent() { return "#123456"; } }
     static final class LetterCase { boolean usesUppercase() { return false; } }
     static final class LetterKeyFacePolicy {
@@ -73,7 +72,6 @@ public final class HostHintsSmoke {
     JSONObject preferencesSnapshot=null;
     Map<String,String> shuangpinHints=Map.of();
     Skin skin=new Skin();
-    ImeKeyFaces imeKeyFaces=new ImeKeyFaces();
     LetterCase letterCase=new LetterCase();
     List<ShuangpinHintButton> shuangpinKeyButtons=List.of(new ShuangpinHintButton());
     List<String> shuangpinKeyInputs=List.of("i");

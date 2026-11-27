@@ -504,10 +504,6 @@ public final class KeyboardIconPaths {
         p.lineTo(11.5f, 14.5f);
     }
 
-    /** ↵ 墨迹的上沿和右沿（viewBox 单位，含半个线宽）：下面 {@link #appendReturn} 的最高点 y = 6、最右点 x = 19。回车的键面模板按它判断 ↵ 碰不碰右上角的「换行」。 */
-    public static final float RETURN_INK_TOP = 6f - 1.7f / 2;
-    public static final float RETURN_INK_RIGHT = 19f + 1.7f / 2;
-
     private static void appendReturn(Path p) {
         p.moveTo(19f, 6f);
         p.lineTo(19f, 11.5f);
