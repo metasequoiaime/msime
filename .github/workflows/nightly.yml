@@ -23,11 +23,11 @@ jobs:
       publish: false
     secrets: inherit
 
-  # 瘦包体积预警：任一版本越过 build-apk.sh 的预警线时开或更新一张 apk-size issue（各版本体积、两条线、较上次的变化），全部回到线下时关闭。数据是 release-android.yml 每个版本上传的 android-apk-size-<版本>，超过上限而失败的版本也有。只在 develop 上维护这张单，从其他分支手动触发的 nightly 不碰它。
+  # 瘦包体积预警：任一版本越过 build-apk.sh 的预警线时开或更新一张 apk-size issue（各版本体积、两条线、较上次的变化），全部回到线下时关闭。数据是 release-android.yml 每个版本上传的 android-apk-size-<版本>，超过上限而失败的版本也有。只在 main 上维护这张单，从其他分支手动触发的 nightly 不碰它。
   android-size:
     name: Android APK size watch
     needs: android
-    if: ${{ !cancelled() && github.ref == 'refs/heads/develop' && github.repository == 'metasequoiaime/msime' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.repository == 'metasequoiaime/msime' }}
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -73,7 +73,7 @@ jobs:
       prerelease: true
       publish: false
       # 不传 build_number；复用 workflow 由所构建提交的时间算出九位以内的构建号，没有新提交的日子编出的是同一个构建。
-      # 这次构建的 Sparkle 更新发到每日构建通道：输入法和设置应用里选了「每日构建」的用户读 macos-appcast 上的 appcast-nightly-*（见 release-macos.yml 的「Update the Sparkle appcasts」）。只有跑在 develop 上（定时触发总是如此）时才更新它，从其他分支手动触发只产出 workflow artifact。
+      # 这次构建的 Sparkle 更新发到每日构建通道：输入法和设置应用里选了「每日构建」的用户读 macos-appcast 上的 appcast-nightly-*（见 release-macos.yml 的「Update the Sparkle appcasts」）。只有跑在 main 上（定时触发总是如此）时才更新它，从其他分支手动触发只产出 workflow artifact。
       appcast_channel: nightly
     secrets: inherit
 

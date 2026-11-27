@@ -2,7 +2,7 @@ import { releasesPageUrl } from "./app-resources";
 
 export type Version = { display: string; parts: number[] };
 
-/** 桌面应用检查更新跟的发布通道（偏好 `update_channel`，见 `crates/client-core/src/preferences.rs` 的 `UpdateChannel`）：稳定版只认正式发布，测试版另外接受 develop 发出的 `-beta` 预发布，每日构建再接受滚动的 `nightly` 发布。 */
+/** 桌面应用检查更新跟的发布通道（偏好 `update_channel`，见 `crates/client-core/src/preferences.rs` 的 `UpdateChannel`）：稳定版只认正式发布，测试版另外接受 main 上 `-beta.N` 标签发出的预发布，每日构建再接受滚动的 `nightly` 发布。 */
 export type UpdateChannel = "stable" | "beta" | "nightly";
 
 /** 设置页向宿主发出的请求：本平台的发布 tag 前缀、当前运行的版本号，以及宿主报告了时的版本 id 和架构；提供通道选择的宿主（macOS、Linux）还带上偏好里的通道，不带时宿主按稳定版检查。 */

@@ -8,7 +8,7 @@ name: Cargo audit
 # 什么都没关系：一条早上刚公布的 RustSec 公告会让每个 PR 同时变红，冻结全仓库的合并。所以它不挂在
 # 每个 PR 上，也不做必需检查。它在三种情况下跑：
 #   - 改到 Cargo.lock 或 .cargo/audit.toml 的 PR：给作者关于这次锁变更或忽略策略变更的反馈；
-  #   - 推送到 main：发布信号；
+  #   - 改到 Cargo.lock 或 .cargo/audit.toml 的提交推送到 main：所有改动都直接合进 main，这是合入后的那一次记录；
   #   - 每日定时：对新公告做全量监测。
 on:
   pull_request:

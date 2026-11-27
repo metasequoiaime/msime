@@ -1,18 +1,20 @@
 name: Release macOS
+# 发版就是在 main 上推 macos-vX.Y.Z（正式版）或 macos-vX.Y.Z-beta.N（测试版，prerelease，Sparkle 测试版通道）tag（AGENTS.md「发版」）。推 tag 的运行没有输入，各输入取默认值。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['macos-v*']
   workflow_dispatch:
     inputs:
-      version: {description: Semantic version (defaults to platforms/macos/version.txt), required: false, type: string}
+      version: {description: Semantic version (defaults to platforms/macos/version.txt; on a tag it must equal the tag's version), required: false, type: string}
       build_number: {description: 唯一的 macOS bundle 构建号（缺省由所构建提交的时间算出）, required: false, type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as a macos-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      publish: {description: Publish when the ref is a macos-v tag (a run on any other ref only uploads workflow artifacts), required: false, default: true, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
       build_number: {description: 唯一的 macOS bundle 构建号, required: false, default: '', type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build, required: false, default: false, type: boolean}
-      # nightly.yml 传 nightly：这次构建的 Sparkle 更新发到每日构建通道的 appcast。留空时按分支：develop 是测试版（beta），其他分支是稳定版（stable）的文件名，是否上传见下面的「Resolve independent macOS version」。
+      prerelease: {description: Unused; a release is a prerelease exactly when its tag is -beta.N. Kept so existing callers stay valid, required: false, default: false, type: boolean}
+      publish: {description: Publish when the caller runs on a macos-v tag, required: false, default: false, type: boolean}
+      # nightly.yml 传 nightly：这次构建的 Sparkle 更新发到每日构建通道的 appcast。留空时按 tag：-beta.N 是测试版（beta），其余是稳定版（stable）的文件名，是否上传见下面的「Resolve independent macOS version」。
       appcast_channel: {description: 'Sparkle 更新通道：nightly，或留空按分支决定', required: false, default: '', type: string}
 permissions: {contents: write}
 # 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
@@ -72,7 +74,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
       # 缓存只为加速，装不上或起不来都不该让发版失败：安装步骤失败时继续，只有 sccache 服务真正启动了才把 RUSTC_WRAPPER 写进环境，否则照常不带缓存编译。读写缓存出错时 sccache 按未命中处理，照样编译。
-      # 缓存的可见范围由 GitHub 决定：在 main 上的发布读 main 和默认分支 develop 写的条目，PR 写的条目它看不到，所以 PR 里的改动污染不到发布用的缓存。条目的键是 rustc 的全部输入（编译器版本、参数、源文件和依赖产物的哈希），命中时拿到的就是同样输入编出的同一份产物。
+      # 缓存的可见范围由 GitHub 决定：推 tag 的发布读这个 tag 和默认分支 main 写的条目，PR 写的条目它看不到，所以 PR 里的改动污染不到发布用的缓存。条目的键是 rustc 的全部输入（编译器版本、参数、源文件和依赖产物的哈希），命中时拿到的就是同样输入编出的同一份产物。
       - name: Install sccache
         id: sccache
         continue-on-error: true
@@ -85,13 +87,19 @@ jobs:
           else
             echo "::warning::sccache did not start; the Rust build runs without the compile cache"
           fi
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release name and title carry the tag's -beta.N, if any, and a beta is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta.N releases and the background check notifies about them, so a beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel. scripts/release-ref.py checks a macos-v tag against the version file and origin/main before anything is built; a run on any other ref only builds.
       - id: version
         name: Resolve independent macOS version
-        env: {REQUESTED: "${{ inputs.version }}", REQUESTED_BUILD_NUMBER: "${{ inputs.build_number }}", REQUESTED_APPCAST_CHANNEL: "${{ inputs.appcast_channel }}", PUBLISH: "${{ inputs.publish }}", PRERELEASE_INPUT: "${{ inputs.prerelease }}"}
+        env: {REQUESTED: "${{ inputs.version }}", REQUESTED_BUILD_NUMBER: "${{ inputs.build_number }}", REQUESTED_APPCAST_CHANNEL: "${{ inputs.appcast_channel }}", PUBLISH_INPUT: "${{ inputs.publish }}"}
         run: |
-          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/macos/version.txt)}"
+          set -euo pipefail
+          # release-ref.py appends version, release, tag, prerelease and publish to GITHUB_OUTPUT itself; the steps below read the version as value.
+          resolved="$(python3 scripts/release-ref.py --prefix macos-v --version-file platforms/macos/version.txt --requested "$REQUESTED")"
+          version="$(sed -n 's/^version=//p' <<< "$resolved")"
+          # 包名、Info.plist 和 Sparkle 更新包的文件名只用不带后缀的 X.Y.Z。
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          publish="$(sed -n 's/^publish=//p' <<< "$resolved")"
+          prerelease="$(sed -n 's/^prerelease=//p' <<< "$resolved")"
           build_number="$REQUESTED_BUILD_NUMBER"
           # 缺省构建号是所构建提交的提交时间距 2026-01-01T00:00:00Z（Unix 时间 1767225600）的分钟数，九位数够用到 3900 年之后。CFBundleVersion 把它放在版本号之后（CMakeLists.txt），Sparkle 按它判断同一版本号的几个构建谁新：用时间而不是运行 ID，测试版、每日构建和正式版之间就按代码的先后排序，同一个提交重跑得到同一个构建号；运行 ID 对 999999999 取模约两个月回绕一次，回绕后的新构建会被 Sparkle 当成降级拒装。
           if [[ -z "$build_number" ]]; then
@@ -105,22 +113,21 @@ jobs:
           [[ "$build_number" =~ ^[1-9][0-9]{0,8}$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
-          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
-          # Sparkle 更新通道（与偏好 update_channel 同名）决定 package-release.sh 产出的 appcast 和更新包文件名。发到 macos-appcast 的只有三种：main 上的正式版发布（stable，与引入通道之前相同）、develop 上的测试版发布（beta）和 develop 上 nightly.yml 的每日构建（nightly）；alpha、从其他分支手动跑的每日构建和不发布的构建只留在 workflow artifact 里。
+          # Sparkle 更新通道（与偏好 update_channel 同名）决定 package-release.sh 产出的 appcast 和更新包文件名。发到 macos-appcast 的只有三种：正式版 tag 的发布（stable，与引入通道之前相同）、-beta.N tag 的发布（beta）和 main 上 nightly.yml 的每日构建（nightly）；从其他分支手动跑的每日构建和不发布的构建只留在 workflow artifact 里。
           channel="$REQUESTED_APPCAST_CHANNEL"
           if [[ -z "$channel" ]]; then
-            if [[ "$GITHUB_REF_NAME" == develop ]]; then channel=beta; else channel=stable; fi
+            if [[ "$prerelease" == true ]]; then channel=beta; else channel=stable; fi
           fi
           if [[ ! "$channel" =~ ^(stable|beta|nightly)$ ]]; then
             echo "::error::appcast_channel must be nightly or empty, not '$channel'"
             exit 1
           fi
           feed_publish=false
-          if [[ "$channel" == stable && "$PUBLISH" == true && "$PRERELEASE_INPUT" != true && "$GITHUB_REF_NAME" == main ]]; then feed_publish=true; fi
-          if [[ "$channel" == beta && "$PUBLISH" == true && "$GITHUB_REF_NAME" == develop ]]; then feed_publish=true; fi
-          # 每日构建也只从 develop 推出去：nightly.yml 可以从任意分支手动触发，从功能分支跑一次本来只是想看包能不能编出来，却会让选了每日构建的用户被 Sparkle 静默装上未合并的代码；功能分支的提交通常比 develop 新，「不退回更旧构建」的守卫拦不住。定时触发跑在默认分支 develop 上。
-          if [[ "$channel" == nightly && "$GITHUB_REF_NAME" == develop ]]; then feed_publish=true; fi
-          if [[ "$channel" == nightly && "$feed_publish" != true ]]; then echo "::notice::每日构建运行在 $GITHUB_REF_NAME 而不是 develop，不更新 macos-appcast 上的每日构建 appcast"; fi
+          if [[ "$channel" == stable && "$publish" == true && "$prerelease" != true ]]; then feed_publish=true; fi
+          if [[ "$channel" == beta && "$publish" == true && "$prerelease" == true ]]; then feed_publish=true; fi
+          # 每日构建也只从 main 推出去：nightly.yml 可以从任意分支手动触发，从功能分支跑一次本来只是想看包能不能编出来，却会让选了每日构建的用户被 Sparkle 静默装上未合并的代码；功能分支的提交通常比 main 新，「不退回更旧构建」的守卫拦不住。定时触发跑在默认分支 main 上。
+          if [[ "$channel" == nightly && "$GITHUB_REF" == refs/heads/main ]]; then feed_publish=true; fi
+          if [[ "$channel" == nightly && "$feed_publish" != true ]]; then echo "::notice::每日构建运行在 $GITHUB_REF 而不是 main，不更新 macos-appcast 上的每日构建 appcast"; fi
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "feed_publish=$feed_publish" >> "$GITHUB_OUTPUT"
       - name: Install dependencies
@@ -279,20 +286,20 @@ jobs:
           name: msime-macos-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
-      # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+      # Only a run on a release tag that scripts/release-ref.py accepted publishes, and the release goes on that tag's commit (git rev-parse HEAD); a build of any other ref stays a workflow artifact.
       - name: Publish independent macOS release
-        if: ${{ inputs.publish }}
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        # The release goes on the pushed tag; the workflow never creates one. RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) publishes it, falling back to GITHUB_TOKEN without the secret, as on a fork. scripts/publish-release.sh never writes the tag ref, not even on a re-run: a ref update made with this token raises a tag push event and would start a second release run.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ steps.version.outputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="macos-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
-          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          # The pushed tag already exists, and a re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta.N one at the latest release of either kind.
           stable='^macos-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
-          # 发布说明开头是从版本表生成的下载指引：六个安装包各是什么、大多数人该下哪个。Homebrew 只在 main 的正式版之后更新，其他发布不列 brew 命令。
-          homebrew=(); [[ "$PRERELEASE" != true && "$GITHUB_REF_NAME" == main ]] && homebrew=(--homebrew)
+          # 发布说明开头是从版本表生成的下载指引：六个安装包各是什么、大多数人该下哪个。Homebrew 只在正式版之后更新，测试版不列 brew 命令。
+          homebrew=(); [[ "$PRERELEASE" != true ]] && homebrew=(--homebrew)
           python3 platforms/macos/scripts/edition_bundle.py download-guide --editions "$MACOS_EDITIONS" --version "$VERSION" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${homebrew[@]+"${homebrew[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
@@ -300,13 +307,13 @@ jobs:
           python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的 pkg 和 SHA256SUMS。Sparkle 更新包随 appcast 放在 macos-appcast（下面的「Update the Sparkle appcasts」），dSYM 放在 macos-symbols（下一步）。重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产：不要用这个工作流重跑 0.56.x 及以前发 DMG 的版本，那会删掉它们的 DMG，外链全部 404。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.pkg dist/SHA256SUMS
-      # 每个发布版本的 dSYM 都长期留在滚动的 macos-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
+      # 每个发布版本的 dSYM 都长期留在滚动的 macos-symbols release 上，文件名带发布名（测试版带 -beta.N 后缀，免得覆盖同一版本号的正式版）。
       - name: Upload the dSYM to macos-symbols
-        if: ${{ inputs.publish }}
+        if: ${{ steps.version.outputs.publish == 'true' }}
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}"}
         run: bash platforms/macos/scripts/publish-dsym.sh "dist/msime-macos-${VERSION}-dsym.zip" "msime-macos-${RELEASE}-dsym.zip"
-      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，稳定版的写进各自的 SUFeedURL，测试版和每日构建的由输入法和设置应用按用户选的更新通道从 SUFeedURL 推出（platforms/macos/src/core/UpdateChannelFeed.h）；它们指向的更新 zip 也放在那里，不进版本发布页。三种运行会更新它（见「Resolve independent macOS version」的 feed_publish）：main 上的正式版写稳定版的 appcast，与引入通道之前相同；develop 上的测试版发布写 appcast-beta-*；develop 上 nightly.yml 的每日构建写 appcast-nightly-*（从其他分支手动跑的不写）。alpha 不推给任何人，它的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，再把它复制到构建更旧的更宽通道（正式版也进测试版和每日构建，测试版也进每日构建），最后删掉这个通道不再被任何 appcast 指向的旧 zip；同一通道已发布的 appcast 构建更高时停下，免得重跑旧版本的发布把它退回去，已经是同一个构建时不再传 zip 和本通道的 appcast，只补上更宽通道里还缺的或更旧的 appcast（上一次运行可能在那一步失败）。
-      # 每日构建这一步失败（例如 develop 上手工推送的提交时间偏早、构建号比已发布的小，被上面的守卫拦下）不让 macOS 的 nightly 作业失败：那会让 nightly.yml 跳过这个平台的每日构建下载，比 appcast 停在上一次更糟。
+      # 输入法与完整设置应用的 appcast 都放在固定的 macos-appcast release，稳定版的写进各自的 SUFeedURL，测试版和每日构建的由输入法和设置应用按用户选的更新通道从 SUFeedURL 推出（platforms/macos/src/core/UpdateChannelFeed.h）；它们指向的更新 zip 也放在那里，不进版本发布页。三种运行会更新它（见「Resolve independent macOS version」的 feed_publish）：正式版 tag 的发布写稳定版的 appcast，与引入通道之前相同；-beta.N tag 的发布写 appcast-beta-*；main 上 nightly.yml 的每日构建写 appcast-nightly-*（从其他分支手动跑的不写）。不发布的构建不推给任何人，它的更新 zip 只留在 workflow artifact 里。publish-sparkle-feed.sh 先传 zip 并按公开地址下载核对，确认都下得到之后才传 appcast，再把它复制到构建更旧的更宽通道（正式版也进测试版和每日构建，测试版也进每日构建），最后删掉这个通道不再被任何 appcast 指向的旧 zip；同一通道已发布的 appcast 构建更高时停下，免得重跑旧版本的发布把它退回去，已经是同一个构建时不再传 zip 和本通道的 appcast，只补上更宽通道里还缺的或更旧的 appcast（上一次运行可能在那一步失败）。
+      # 每日构建这一步失败（例如 main 上手工推送的提交时间偏早、构建号比已发布的小，被上面的守卫拦下）不让 macOS 的 nightly 作业失败：那会让 nightly.yml 跳过这个平台的每日构建下载，比 appcast 停在上一次更糟。
       - name: Update the Sparkle appcasts
         if: ${{ steps.version.outputs.feed_publish == 'true' }}
         continue-on-error: ${{ steps.version.outputs.channel == 'nightly' }}
@@ -320,9 +327,9 @@ jobs:
             exit 0
           fi
           bash platforms/macos/scripts/publish-sparkle-feed.sh dist "$VERSION" "$CHANNEL"
-      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the package itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。cask 用 pkg 段安装，brew 以 sudo 跑 installer，所以安装和升级要管理员密码。
+      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (every -beta.N tag) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the package itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。cask 用 pkg 段安装，brew 以 sudo 跑 installer，所以安装和升级要管理员密码。
       - name: Update the Homebrew casks
-        if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}
+        if: ${{ steps.version.outputs.publish == 'true' && steps.version.outputs.prerelease != 'true' }}
         env: {GH_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}", VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail

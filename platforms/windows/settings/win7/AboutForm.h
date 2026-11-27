@@ -117,7 +117,7 @@ public:
     else if (id == submit_feedback) { refresh_report(); action.link = feedback_issue_url(feedback_issues_url, selected_kind(), report_); }
     else if (id == github) action.link = std::wstring(feedback_issues_url);
     else if (id == telegram) action.link = std::wstring(feedback_telegram_url);
-    else if (id == license) action.link = L"https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
+    else if (id == license) action.link = L"https://github.com/metasequoiaime/msime/blob/main/LICENSE";
     else if (id == privacy) action.link = L"https://msime.app/privacy/";
     else if (id == notices) action.notices = true;
     else if (id == cantonese_shuangpin_repository) action.link = std::wstring(cantonese_shuangpin_scheme_repository);

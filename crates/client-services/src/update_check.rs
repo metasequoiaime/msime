@@ -4,7 +4,7 @@
 //!
 //! 各宿主的设置界面都调用 [`check_for_update`]：Tauri 外壳经由它的 `update_check` 命令，原生 Windows 设置窗口和 HarmonyOS 页面经由 `msime_client_update_check`。结果怎么向用户说明（未签名警告、可复制的校验命令、镜像链接）仍由各界面自己决定。
 //!
-//! 请求可以带更新通道（[`UpdateChannel`]）：稳定版只认正式发布；测试版另外接受 tag 恰为 `<platform>-vX.Y.Z-beta` 的预发布（develop 发出的，`-alpha` 不算）；每日构建再接受滚动的 `nightly` 发布，从它正文末尾的 `msime-nightly-state` 里取本平台的版本号、运行 ID 和附件（见 `scripts/publish-nightly.py`）。同一版本号可能有好几次构建（beta 之后发正式版、每天的 nightly），所以比较的是（版本号，发布 workflow 的运行 ID）：正式版和测试版的运行 ID 写在发布正文的 `msime-build` 隐藏标记里（`scripts/release-build-marker.py`），本程序自己的运行 ID 是构建时的 `MSIME_BUILD_RUN`（[`BUILD_RUN`]）。
+//! 请求可以带更新通道（[`UpdateChannel`]）：稳定版只认正式发布；测试版另外接受 tag 为 `<platform>-vX.Y.Z-beta.N`（`N` 从 1 起）或旧式 `<platform>-vX.Y.Z-beta` 的预发布（在 main 上推送的测试版 tag，见 `scripts/release-ref.py`；以前分支上发的 `-alpha` 和其他预发布不算）；每日构建再接受滚动的 `nightly` 发布，从它正文末尾的 `msime-nightly-state` 里取本平台的版本号、运行 ID 和附件（见 `scripts/publish-nightly.py`）。同一版本号可能有好几次构建（beta 之后发正式版、每天的 nightly），所以比较的是（版本号，发布 workflow 的运行 ID）：正式版和测试版的运行 ID 写在发布正文的 `msime-build` 隐藏标记里（`scripts/release-build-marker.py`），本程序自己的运行 ID 是构建时的 `MSIME_BUILD_RUN`（[`BUILD_RUN`]）。
 //!
 //! 后台定期检查、记录和提醒在 [`background`]。
 
@@ -58,7 +58,7 @@ pub struct ReleaseUpdate {
     pub installer_sha256: Option<String>,
     /// Linux 和 Windows 的发布 workflow 发布的是未签名安装包，因此为 `Some(false)`；不清楚的平台为 `None`。
     pub signed: Option<bool>,
-    /// 这个发布属于哪个通道：正式发布 `stable`，`-beta` 预发布 `beta`，滚动的 nightly 发布 `nightly`。以前写下的记录没有这一项，按 `stable` 读。
+    /// 这个发布属于哪个通道：正式发布 `stable`，`-beta.N`（或旧式 `-beta`）预发布 `beta`，滚动的 nightly 发布 `nightly`。以前写下的记录没有这一项，按 `stable` 读。
     #[serde(default)]
     pub channel: UpdateChannel,
     /// 构建它的发布 workflow 运行 ID：正式版和测试版取发布正文的 `msime-build` 标记，每日构建取 nightly 状态里本平台的 `run`。没有标记的旧发布为 `None`。
@@ -315,7 +315,7 @@ pub fn select_platform_release(
 /// 仓库发布列表中 `platform` 在 `channel` 里最新的构建，按（版本号，运行 ID）取最大，两者都相同时取列表里靠前（较新发布）的那个。草稿一律不提供。
 ///
 /// - 稳定版：只认正式发布，与 [`select_platform_release`] 相同。
-/// - 测试版：另外接受 tag 恰为 `<platform>-vX.Y.Z-beta` 的预发布；`-alpha` 和其他预发布不算。
+/// - 测试版：另外接受 tag 为 `<platform>-vX.Y.Z-beta.N` 或旧式 `<platform>-vX.Y.Z-beta` 的预发布；`-alpha` 和其他预发布不算。同一版本号的几个测试版和随后的正式版按运行 ID 排先后。
 /// - 每日构建：再接受滚动的 `nightly` 发布里本平台带版本号的那一项（正文末尾的 `msime-nightly-state` 状态块）。
 ///
 /// `windows7` 只有正式发布，调用方应先按 [`UpdateCheckRequest::effective_channel`] 把它的通道换成稳定版；这里对它也不接受任何预发布。
@@ -447,13 +447,19 @@ fn platform_installer(
     }
 }
 
-/// tag 恰为 `vX.Y.Z-beta`（去掉平台前缀以后）：develop 发出的测试版。
+/// tag（去掉平台前缀以后）为 `vX.Y.Z-beta.N` 或旧式 `vX.Y.Z-beta`：在 main 上推送的测试版 tag。`N` 是不带前导零的正整数，与 `scripts/release-ref.py` 接受的相同。
 fn is_beta_tag(tag: &str) -> bool {
-    tag.strip_suffix("-beta")
-        .and_then(|version| version.strip_prefix('v'))
-        .is_some_and(|version| {
-            parse_version(version).is_some_and(|parsed| parsed.display == version)
-        })
+    let Some((version, number)) = tag
+        .strip_prefix('v')
+        .and_then(|rest| rest.split_once("-beta"))
+    else {
+        return false;
+    };
+    let numbered = number.is_empty()
+        || number.strip_prefix('.').is_some_and(|n| {
+            !n.is_empty() && !n.starts_with('0') && n.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    numbered && parse_version(version).is_some_and(|parsed| parsed.display == version)
 }
 
 fn is_nightly_release(release: &Value) -> bool {

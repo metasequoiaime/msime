@@ -7,7 +7,7 @@ namespace {
 NSString *const kIssuesURL = @"https://github.com/metasequoiaime/msime/issues";
 NSString *const kTelegramURL = @"https://t.me/msimegroup";
 NSString *const kWebsiteURL = @"https://msime.app/";
-NSString *const kLicenseURL = @"https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
+NSString *const kLicenseURL = @"https://github.com/metasequoiaime/msime/blob/main/LICENSE";
 NSString *const kPrivacyURL = @"https://msime.app/privacy/";
 NSString *const kQQGroup = @"829919142";
 

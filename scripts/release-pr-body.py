@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""为发布 PR 生成预算内的提交摘要，完整历史保留在固定提交的对比链接中。"""
+"""为版本号 PR（scripts/release-pr.sh）生成预算内的提交摘要：从这个平台上一个发版 tag 到 main 的提交，完整历史保留在固定提交的对比链接中。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def render_body(prefix: str, subjects: Iterable[str], commit_count: int, compare
         return prefix + f"<details><summary>{summary}</summary>\n\n" + rows + "\n" + suffix
 
     if len(compose().encode("utf-8")) > BODY_BYTE_BUDGET:
-        raise ValueError("发布 PR 的版本表和合并说明已超过正文预算，未推送分支")
+        raise ValueError("版本号 PR 的版本表和发布说明已超过正文预算，未推送分支")
     for subject in subjects:
         if len(selected) == MAX_COMMITS:
             break
@@ -40,16 +40,16 @@ def main() -> int:
     parser.add_argument("--prefix-file", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--since", required=True)
-    parser.add_argument("--develop", required=True)
+    parser.add_argument("--head", required=True)
     parser.add_argument("--commit-count", type=int, required=True)
     parser.add_argument("--repo-url", required=True)
     args = parser.parse_args()
     subjects = subprocess.check_output(
         ["git", "log", "--first-parent", f"--max-count={MAX_COMMITS}", "--encoding=UTF-8", "--format=%s",
-         f"{args.since}..{args.develop}"],
+         f"{args.since}..{args.head}"],
         encoding="utf-8",
     ).splitlines()
-    compare_url = f"{args.repo_url.rstrip('/')}/compare/{args.since}...{args.develop}"
+    compare_url = f"{args.repo_url.rstrip('/')}/compare/{args.since}...{args.head}"
     try:
         body = render_body(args.prefix_file.read_text(encoding="utf-8"), subjects,
                            args.commit_count, compare_url)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把一个 macOS 版本的 Sparkle 更新包和 appcast 发布到滚动的 macos-appcast release。release-macos.yml 在 main 的正式版（stable）、develop 的测试版（beta）和 nightly.yml 的每日构建（nightly）之后调用它，relocate-sparkle-archives.sh 迁移旧版本时也调用它。
+# 把一个 macOS 版本的 Sparkle 更新包和 appcast 发布到滚动的 macos-appcast release。release-macos.yml 在正式版标签（stable）、`-beta.N` 测试版标签（beta）的发布和 nightly.yml 的每日构建（nightly）之后调用它，relocate-sparkle-archives.sh 迁移旧版本时也调用它。
 #
 # 顺序就是安全性：先在本地核对 appcast 签名、更新包长度与签名和 sparkle-SHA256SUMS，再确认不会把已发布的 appcast 退回更旧的构建；然后先传更新包、按 appcast 里的公开地址下载回来核对摘要，确认都下得到之后才传 appcast，下载回来比对；再把 appcast 复制到构建更旧（或还没有 appcast）的更宽通道，并用在线的稳定版 appcast 补齐其他版本还不存在的更宽通道 feed；最后删掉 macos-appcast 上属于这个通道、不再被任何 appcast 指向的旧更新包。任何一步失败都停下，已经在线的 appcast 和它指向的更新包保持原样。本通道的 appcast 已经都是这个构建时（重跑、或每日构建没有新提交的日子）跳过上传，但仍做后两步：上一次运行可能在复制到更宽通道时失败，重跑要能补上。
 #
@@ -67,7 +67,7 @@ cmp -s "$scratch/archives" "$scratch/summed" || { diff "$scratch/archives" "$scr
 # ---- 不退回更旧的构建 ----
 if ! gh release view "$tag" >/dev/null 2>&1; then
   gh release create "$tag" --prerelease --latest=false --title "macOS Sparkle appcasts" \
-    --notes "macOS 输入法与完整设置应用的 Sparkle appcast：每个发行版本各有 appcast-<edition>.xml 和 appcast-settings-<edition>.xml（正式版，由 main 上的正式发布更新），以及测试版的 appcast-beta-<edition>.xml、appcast-settings-beta-<edition>.xml（develop 的测试版发布）和每日构建的 appcast-nightly-<edition>.xml、appcast-settings-nightly-<edition>.xml（每日构建），更宽的通道也收到更窄通道里更新的构建；它们指向的更新包也放在这里，只保留仍被引用的，摘要见 sparkle-SHA256SUMS（正式版）、sparkle-SHA256SUMS-beta 和 sparkle-SHA256SUMS-nightly，按更新包名里的通道查。"
+    --notes "macOS 输入法与完整设置应用的 Sparkle appcast：每个发行版本各有 appcast-<edition>.xml 和 appcast-settings-<edition>.xml（正式版，由正式版标签的发布更新），以及测试版的 appcast-beta-<edition>.xml、appcast-settings-beta-<edition>.xml（`-beta.N` 标签的测试版发布）和每日构建的 appcast-nightly-<edition>.xml、appcast-settings-nightly-<edition>.xml（每日构建），更宽的通道也收到更窄通道里更新的构建；它们指向的更新包也放在这里，只保留仍被引用的，摘要见 sparkle-SHA256SUMS（正式版）、sparkle-SHA256SUMS-beta 和 sparkle-SHA256SUMS-nightly，按更新包名里的通道查。"
 fi
 gh release view "$tag" --json assets --jq '.assets[].name' > "$scratch/published"
 mkdir -p "$scratch/current"

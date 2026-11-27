@@ -1,6 +1,6 @@
 name: CI (documentation)
 
-# The other half of the paths-ignore that ci.yml, ci-macos.yml and ci-ios.yml share. GitHub leaves a required status check that never reports in "Expected" and refuses the merge exactly as if it had failed -- the same trap quality.yml documents for a required job that skips -- so a workflow skipped by path filtering cannot satisfy main and develop's protection on its own. This workflow reports the same check names for those paths: the quality and contract checks run for real because they are cheap and run on Linux, and the three macOS and iOS checks answer without taking a runner.
+# The other half of the paths-ignore that ci.yml, ci-macos.yml and ci-ios.yml share. GitHub leaves a required status check that never reports in "Expected" and refuses the merge exactly as if it had failed -- the same trap quality.yml documents for a required job that skips -- so a workflow skipped by path filtering cannot satisfy main's protection on its own. This workflow reports the same check names for those paths: the quality and contract checks run for real because they are cheap and run on Linux, and the three macOS and iOS checks answer without taking a runner.
 #
 # 四份路径表必须一致：本文件的 paths 与 ci.yml、ci-macos.yml、ci-ios.yml 的 paths-ignore。
 # scripts/test-ci-path-filters.py 在 Core CI 和本工作流的 contracts 作业中核对这项约束。
@@ -14,7 +14,6 @@ on:
       - docs/readme/*.md
   push:
     branches:
-      - develop
       - main
     paths:
       - PRIVACY.md

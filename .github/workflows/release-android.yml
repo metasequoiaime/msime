@@ -1,25 +1,27 @@
 name: Release Android
+# 发版就是在 main 上推 android-vX.Y.Z（正式版）或 android-vX.Y.Z-beta.N（测试版，prerelease）tag（AGENTS.md「发版」）；scripts/release-ref.py 在 source job 里核对 tag 与 platforms/android/version.txt 一致、提交在 origin/main 上，再决定发布名和是否发布。推 tag 的运行没有输入，下面各输入取默认值。在别的 ref 上手动触发只构建、上传 workflow artifact；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['android-v*']
   workflow_dispatch:
     inputs:
       full_device_tests: {description: 执行完整设备回归；nightly 开启，普通发布使用短冒烟, required: false, default: false, type: boolean}
-      version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      version: {description: Semantic version (defaults to platforms/android/version.txt; on a tag it must equal the tag's version), required: false, type: string}
+      publish: {description: Publish when the ref is an android-v tag (a run on any other ref only uploads workflow artifacts), required: false, default: true, type: boolean}
       play_track: {description: 正式版的 AAB 上传到哪条 Google Play 轨道（beta 是开放测试，alpha 是封闭测试）；none 只留 workflow artifact，Play 上第一个包要手动上传时用它, required: false, default: beta, type: choice, options: [none, internal, alpha, beta, production]}
       play_status: {description: 在 Play 上建成的版本状态：draft 要有人在 Play Console 里点发布，completed 直接推给这条轨道的用户（应用还没通过过审核时 Play 只接受 draft）, required: false, default: draft, type: choice, options: [draft, completed]}
   workflow_call:
     inputs:
       full_device_tests: {description: 执行完整设备回归；nightly 开启，普通发布使用短冒烟, required: false, default: false, type: boolean}
       version: {description: Semantic version, required: false, default: '', type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build, required: false, default: false, type: boolean}
+      prerelease: {description: Unused; a release is a prerelease exactly when its tag is -beta.N. Kept so existing callers stay valid, required: false, default: false, type: boolean}
+      publish: {description: Publish when the caller runs on an android-v tag, required: false, default: false, type: boolean}
       play_track: {description: Google Play track for the final release bundle (none skips the upload), required: false, default: none, type: string}
       play_status: {description: Status of the Google Play release (draft or completed), required: false, default: draft, type: string}
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
-  # Resolves the dispatched commit up front, so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # Resolves the commit and the release up front, so every edition and the publish job (release target, release notes) use the same source and version even if a branch moves during the run.
   source:
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
@@ -28,8 +30,17 @@ jobs:
         with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # The packages keep the plain X.Y.Z (versionName takes nothing else); the release name and title carry the tag's -beta.N, and a beta is always published as a prerelease, which the stable update channel skips. A run on anything but an android-v tag only builds.
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}", PUBLISH_INPUT: "${{ inputs.publish }}"}
+        run: python3 scripts/release-ref.py --prefix android-v --version-file platforms/android/version.txt --requested "$REQUESTED"
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      publish: ${{ steps.version.outputs.publish }}
   # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 与引入版本之前相同，已安装的应用照常原地升级；APK 名是 msime-android.apk（各版本是 msime-android-<id>.apk）。
   release:
     needs: source
@@ -48,14 +59,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}", EDITION: "${{ matrix.edition }}", PUBLISH: "${{ inputs.publish }}"}
+        env: {VERSION: "${{ needs.source.outputs.version }}", EDITION: "${{ matrix.edition }}", PUBLISH: "${{ needs.source.outputs.publish }}", PRERELEASE: "${{ needs.source.outputs.prerelease }}"}
         run: |
-          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/android/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
-          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
-          # 只有发布的正式版另打一份给 Google Play 的 AAB（只有 full 上架 Play）。beta、alpha 的 versionCode 与随后的正式版相同，Play 不接受重复的 versionCode，所以它们不进 Play。
-          if [[ "$EDITION" == full && "$PUBLISH" == true && -z "$suffix" ]]; then echo "bundle=true" >> "$GITHUB_OUTPUT"; else echo "bundle=false" >> "$GITHUB_OUTPUT"; fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          # 只有发布的正式版另打一份给 Google Play 的 AAB（只有 full 上架 Play）。测试版的 versionCode 与随后的正式版相同，Play 不接受重复的 versionCode，所以它不进 Play。
+          if [[ "$EDITION" == full && "$PUBLISH" == true && "$PRERELEASE" != true ]]; then echo "bundle=true" >> "$GITHUB_OUTPUT"; else echo "bundle=false" >> "$GITHUB_OUTPUT"; fi
       # build-apk.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads.
       # build-apk.sh packs target/offline-glosses when it is there. full 和拼音版的瘦包改为按需下载离线释义，只有其余版本还要取；粤拼、注音和笔画词库原先只有 full 随包，现在也按需下载，没有版本再需要它们，所以不再取。
@@ -131,7 +140,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: 长期保存发布构建的原生符号
-        if: ${{ inputs.publish }}
+        if: ${{ needs.source.outputs.publish == 'true' }}
         env: {GH_TOKEN: "${{ github.token }}"}
         run: bash scripts/publish-crash-symbols.sh android target/android-symbols/*.zip
       # 超过上限而失败的构建也上传它的体积报告，所以条件是没被取消且报告存在。名字不以 msime-android- 开头，理由同下。
@@ -151,7 +160,6 @@ jobs:
           if-no-files-found: error
     outputs:
       version: ${{ steps.version.outputs.value }}
-      release: ${{ steps.version.outputs.release }}
   # 发布前在模拟器上装同一个提交打出的包跑一遍（API 28 和 35），不过就不发。0.3.0 编译、lint 全绿，装到设备上却准备不了词库。这里用开发密钥另打 x86_64 包，不接触发版密钥。
   device:
     needs: source
@@ -162,8 +170,8 @@ jobs:
         ${{ inputs.full_device_tests && '[{"api": 28, "smoke": "--core"}, {"api": 35, "smoke": ""}]' || '[{"api": 28, "smoke": "--release"}, {"api": 35, "smoke": "--release"}]' }}
   publish:
     needs: [source, release, device]
-    # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
-    if: inputs.publish
+    # Only a run on an android-v tag that release-ref.py accepted publishes; a build of any other ref stays a workflow artifact.
+    if: needs.source.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -175,8 +183,8 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Publish independent Android release
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        # The release goes on the pushed tag; the workflow never creates one. RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) publishes it, falling back to GITHUB_TOKEN without the secret, as on a fork. scripts/publish-release.sh never writes the tag ref, not even on a re-run: a ref update made with this token raises a tag push event and would start a second release run.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.source.outputs.version }}", RELEASE: "${{ needs.source.outputs.release }}", PRERELEASE: "${{ needs.source.outputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           # 每个版本的 APK 都要在，也不能多：少一个就不发，免得版本页上缺了某个版本的包。
           editions="$(python3 platforms/android/scripts/edition_android.py editions)"
@@ -192,9 +200,8 @@ jobs:
           # 0.2.0 到 0.4.2 的应用内更新只认与 APK 同名的 <apk>.sha256，地址按新版本自己的 tag 拼（releases/download/<tag>/<apk>.sha256），缺了就拒绝更新；滚动 release 接不住这个地址，所以每个 APK 仍附一行 sha256sum 输出，什么时候撤掉由维护者看读 SHA256SUMS 的安装够多了再定，见 .agents/notes/implemented/process/2026-10-20-android-release-page-sha256sums.md。
           (cd dist && for apk in *.apk; do sha256sum "$apk" > "$apk.sha256"; done)
           tag="android-v${RELEASE}"
-          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
-          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
-          stable='^android-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          # The pushed tag already exists, and a re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta.N one at the latest release of either kind.
+          stable='^android-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$PRERELEASE" != true ]] || stable=.
           start=$(git tag --list 'android-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform android --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
           # 发布说明开头是从版本表生成的下载指引：六个 APK 各是什么、大多数人该下哪个。
@@ -206,7 +213,7 @@ jobs:
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/SHA256SUMS dist/*.apk.sha256
   pgyer:
     needs: [source, release, device, publish]
-    if: inputs.publish
+    if: needs.source.outputs.publish == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -251,10 +258,10 @@ jobs:
         if: steps.pgyer.outcome == 'success'
         run: |
           echo "${{ matrix.edition }}: ${{ steps.pgyer.outputs.appBuildURL }}" >> "$GITHUB_STEP_SUMMARY"
-  # 把正式版的 AAB 传到 Google Play（只有 full 上架）。排在 GitHub 发布之后：发布页是权威的版本，它没发出去就不往 Play 传。条件与 release job 里打 AAB 的条件相同（发布的、不带后缀的正式版），另加选了轨道。
+  # 把正式版的 AAB 传到 Google Play（只有 full 上架）。排在 GitHub 发布之后：发布页是权威的版本，它没发出去就不往 Play 传。条件与 release job 里打 AAB 的条件相同（发布的、不带 -beta 的正式版），另加选了轨道；推 tag 的运行没有输入，轨道取仓库变量 ANDROID_TAG_PLAY_TRACK（none、internal、alpha、beta、production），没设时与状态一样取手动触发时的默认值 beta、draft；第一次上架那次要 none 时，推 tag 前设好这个变量，用完删掉。
   play:
     needs: [source, release, publish]
-    if: inputs.publish && inputs.play_track != 'none' && needs.release.outputs.release == needs.release.outputs.version
+    if: needs.source.outputs.publish == 'true' && needs.source.outputs.prerelease != 'true' && (inputs.play_track || vars.ANDROID_TAG_PLAY_TRACK || 'beta') != 'none'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -268,8 +275,8 @@ jobs:
         # GOOGLE_PLAY_SERVICE_ACCOUNT_JSON 是 Google Cloud 里一个 service account 的 JSON 密钥，这个账号要在 Play Console 的「用户和权限」里有这个应用的发布权限。依赖装进临时 venv：runner 的系统 Python 是 externally-managed（PEP 668）。
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}"
-          TRACK: "${{ inputs.play_track }}"
-          STATUS: "${{ inputs.play_status }}"
+          TRACK: "${{ inputs.play_track || vars.ANDROID_TAG_PLAY_TRACK || 'beta' }}"
+          STATUS: "${{ inputs.play_status || 'draft' }}"
           VERSION: "${{ needs.release.outputs.version }}"
         run: |
           set -euo pipefail

@@ -1,14 +1,16 @@
 name: Release msime-engine-capi
 
-# 把引擎的 C 接口（crates/engine-capi，crates.io 上的 msime-engine-capi）编成预编译归档，连同最小的全拼、双拼数据包发成 msime-engine-capi-vX.Y.Z release，别的输入法下载就能用，不必克隆仓库、装 Rust 和 cargo-c，也不必自己去凑词库。版本取 crates/engine-capi/Cargo.toml：先经普通 PR 改好版本号合进 develop，再在 develop 或 main 上手动运行并勾选 publish。
+# 把引擎的 C 接口（crates/engine-capi，crates.io 上的 msime-engine-capi）编成预编译归档，连同最小的全拼、双拼数据包发成 msime-engine-capi-vX.Y.Z release，别的输入法下载就能用，不必克隆仓库、装 Rust 和 cargo-c，也不必自己去凑词库。版本取 crates/engine-capi/Cargo.toml：先经普通 PR 改好版本号合进 main，再在那个提交上推 msime-engine-capi-vX.Y.Z tag（AGENTS.md「发版」）；同一个 tag 也让 release-engine-crates.yml 把这个版本发到 crates.io。
 #
 # 归档三个：Linux x86_64（glibc，在 Ubuntu 22.04 上构建，需要的 glibc 版本由下面的检查卡住）、macOS universal（arm64 和 x86_64 用 lipo 合成一份，macOS 11 起）、Windows x86_64 MSVC。每个都是 cargo cinstall --release 装出的头文件、共享库与静态库和 .pc，加上许可证、第三方声明和源码位置，由 crates/engine-capi/packaging/package.sh 打包；打完之后解到别的目录，用 crates/engine-capi/tests/c-example.sh --prefix 编译 C 示例并在夹具词库上运行（macOS 上两个架构各跑一遍），过不了的归档不会上传。数据包由 crates/engine-capi/packaging/data-pack.py 按 resources/desktop-dictionary.lock.json 下载并逐个校验，之后 smoke 作业照 README 的「快速上手」，用 pkg-config 和 cc 把 Linux 归档里的示例编出来，在数据包上打字上屏。
 #
-# 改了这个 workflow 或 crates/engine-capi 的 PR 上照样跑全部构建、打包、数据包和 smoke，产物作为 workflow artifact 上传，不建 release，所以 PR 自己的 CI 就证明发布流程能走通。只有手动运行并勾选 publish 才建 release：只能在 develop 或 main 上，同一个 tag 已经存在时失败（发出去的 release 不替换，要修正就改版本号再发）。release 从不标为 latest，仓库的「最新发布」留给应用；tag 以 msime-engine-capi-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本。
+# 改了这个 workflow 或 crates/engine-capi 的 PR 上照样跑全部构建、打包、数据包和 smoke，产物作为 workflow artifact 上传，不建 release，所以 PR 自己的 CI 就证明发布流程能走通。只有 msime-engine-capi-v tag 的运行才建 release，建在这个 tag 上：scripts/release-ref.py 先核对 tag 的版本号等于 Cargo.toml 的、被打 tag 的提交在 origin/main 上，只接受正式版；这个 tag 已经有 release 时失败（发出去的 release 不替换，要修正就改版本号再发）。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。release 从不标为 latest，仓库的「最新发布」留给应用；tag 以 msime-engine-capi-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本。
 on:
+  push:
+    tags: ['msime-engine-capi-v*']
   workflow_dispatch:
     inputs:
-      publish: {description: "Create the msime-engine-capi-vX.Y.Z release with the archives and the data pack (otherwise they are only uploaded as workflow artifacts)", required: false, default: false, type: boolean}
+      publish: {description: "Create the release of the msime-engine-capi-v tag the run is on, with the archives and the data pack (a run on any other ref only uploads workflow artifacts)", required: false, default: true, type: boolean}
   pull_request:
     paths:
       - .github/workflows/release-engine-capi.yml
@@ -21,30 +23,32 @@ concurrency:
   group: ${{ github.event_name == 'pull_request' && format('release-engine-capi-pr-{0}', github.event.pull_request.number) || 'release-engine-capi' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # 先定下版本号；勾了 publish 时拒绝别的分支和已经存在的 tag，几秒内就失败，不用等构建跑完。
+  # 先定下版本号和发不发布；tag 不对或已经有 release 时几秒内就失败，不用等构建跑完。
   version:
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.resolve.outputs.version }}
+      publish: ${{ steps.resolve.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
       - id: resolve
         env:
-          PUBLISH: "${{ github.event_name == 'workflow_dispatch' && inputs.publish }}"
-          BRANCH: "${{ github.ref_name }}"
+          PUBLISH_INPUT: "${{ inputs.publish }}"
+          GH_TOKEN: "${{ github.token }}"
         run: |
           set -euo pipefail
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("crates/engine-capi/Cargo.toml", "rb"))["package"]["version"])')
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected msime-engine-capi version '$version'" >&2; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [[ "$PUBLISH" == true ]]; then
-            case "$BRANCH" in develop|main) ;; *) echo "msime-engine-capi is released from develop or main only, not '$BRANCH'" >&2; exit 1 ;; esac
-            if [[ -n "$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" "msime-engine-capi-v$version")" ]]; then
-              echo "msime-engine-capi-v$version already exists; releases are never replaced, bump the version in crates/engine-capi/Cargo.toml" >&2
-              exit 1
-            fi
+          # release-ref.py appends version, release, tag, prerelease and publish to GITHUB_OUTPUT itself.
+          publish="$(python3 scripts/release-ref.py --prefix msime-engine-capi-v --tree-version "$version" --stable-only | sed -n 's/^publish=//p')"
+          if [[ "$publish" == true ]]; then
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/msime-engine-capi-v${version}")
+            case "$code" in
+              404) ;;
+              200) echo "msime-engine-capi-v$version already has a release; releases are never replaced, bump the version in crates/engine-capi/Cargo.toml" >&2; exit 1 ;;
+              *) echo "GitHub answered $code for the msime-engine-capi-v$version release" >&2; exit 1 ;;
+            esac
           fi
           echo "msime-engine-capi $version"
 
@@ -225,7 +229,7 @@ jobs:
           ./example "${data%/}" "$PWD/user" "$PWD/cache"
 
   release:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    if: ${{ needs.version.outputs.publish == 'true' }}
     needs: [version, build, data, smoke]
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 15
@@ -259,4 +263,5 @@ jobs:
             echo
             echo "库的代码是 MPL-2.0，链接进去的第三方 crate 和编进引擎的数据表保留各自的许可证（归档里的 LICENSE、licenses/、THIRD_PARTY_NOTICES.txt 和 SOURCE.txt）。用法从 [README 的「快速上手」](https://github.com/metasequoiaime/msime/blob/${SHA}/crates/engine-capi/README.md#快速上手) 开始。校验值在 SHA256SUMS。"
           } > "$notes"
-          gh release create "msime-engine-capi-v${VERSION}" "${assets[@]}" SHA256SUMS --target "${SHA}" --title "msime-engine-capi ${VERSION}" --notes-file "$notes" --latest=false
+          # The release goes on the pushed tag; --verify-tag refuses to create a tag that is not there.
+          gh release create "msime-engine-capi-v${VERSION}" "${assets[@]}" SHA256SUMS --verify-tag --title "msime-engine-capi ${VERSION}" --notes-file "$notes" --latest=false

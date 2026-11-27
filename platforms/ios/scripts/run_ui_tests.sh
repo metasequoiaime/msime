@@ -4,7 +4,7 @@ set -euo pipefail
 # The runner ci-ios.yml calls for the three iOS jobs. It reads its scope from the environment rather than from arguments because all three jobs invoke it the same way and differ only in what they set.
 #
 #   MSIME_TEST_SCOPE=pr           the unit suites, minus the cases that need ML Kit  (job: iOS Simulator)
-#   MSIME_TEST_SCOPE=all          same, on the pull request that promotes develop to main
+#   MSIME_TEST_SCOPE=all          same, on every run that is not a pull request (pushes to main, dispatches)
 #   MSIME_TEST_SCOPE=handwriting  only the cases that need ML Kit                    (job: iOS Handwriting)
 #   MSIME_TEST_SHARD=heavy        the interface suite                                (job: iOS Simulator (settings and skins))
 #   MSIME_TEST_SHARD=rest|<empty> everything the heavy shard does not take

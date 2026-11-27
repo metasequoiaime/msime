@@ -32,9 +32,9 @@ $env:CERTUM_TOKEN = [Net.NetworkCredential]::new('', $code).Password
 
 ### CI 自动签名发布
 
-`Release Windows` 保留手动触发。仓库变量 `WINDOWS_SIGNING_PROVIDER=simplysign` 选择自动签名；`WINDOWS_SSIGN_SHA256` 固定签名机上 `ssign.exe` 的 SHA-256，`WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT` 固定发布证书的 SHA-1 指纹。只允许从 `main` 或 `develop` 勾选 `publish`，其他分支明确拒绝，不退回未签名发布；`publish=false` 的构建和 nightly 保持不签名，`signpath_test` 仍只走 SignPath 测试证书且不发布。
+`Release Windows` 由推送到 `main` 上的 `windows-v*` tag 触发，也保留手动触发。仓库变量 `WINDOWS_SIGNING_PROVIDER=simplysign` 选择自动签名；`WINDOWS_SSIGN_SHA256` 固定签名机上 `ssign.exe` 的 SHA-256，`WINDOWS_SIGNING_CERTIFICATE_THUMBPRINT` 固定发布证书的 SHA-1 指纹。只有发版 tag（推送的，或手动触发时选中的已有 tag）会签名并发布，在分支上手动触发只构建、不签名，不退回未签名发布；nightly 保持不签名，`signpath_test` 仍只走 SignPath 测试证书且不发布。
 
-专用 runner 属于 `windows-signing` 组织分组，分组只授权本仓库，以及 `metasequoiaime/msime/.github/workflows/release-windows.yml@refs/heads/main` 和 `@refs/heads/develop`。runner 必须以保存凭据的同一个 Windows 用户运行，安装 `pwsh`、Python、Git、Windows SDK 和 Inno Setup（含简体中文语言文件）。目前预装客户端路径是 `C:/Program Files/msime-tools/ssign/v0.1.8/ssign.exe`；版本升级时同步入口路径、核对上游发布摘要并更新仓库变量。
+专用 runner 属于 `windows-signing` 组织分组，分组只授权本仓库的 `metasequoiaime/msime/.github/workflows/release-windows.yml` 在发版 tag 上运行（tag 触发时 workflow 引用是 `@refs/tags/windows-v<版本>`；改成 tag 触发之前授权的是 `@refs/heads/main` 和 `@refs/heads/develop`，组织设置要随之改）。runner 必须以保存凭据的同一个 Windows 用户运行，安装 `pwsh`、Python、Git、Windows SDK 和 Inno Setup（含简体中文语言文件）。目前预装客户端路径是 `C:/Program Files/msime-tools/ssign/v0.1.8/ssign.exe`；版本升级时同步入口路径、核对上游发布摘要并更新仓库变量。
 
 `Invoke-CiSimplySign.ps1` 从该用户的 `%LOCALAPPDATA%/CertumAutomation/credential.dpapi` 读取用 DPAPI CurrentUser 加密的完整 `otpauth://` URI，验证 Certum、SHA256、6 位和 30 秒配置，只把邮箱与 seed 放进当前签名进程环境，退出时清除。它复用 `Sign-StagedPackage-SimplySign.ps1` 完成包内签名、编译安装器、外层签名、可信时间戳与证书指纹检查。已有有效上游签名保留，已有无效签名拒绝覆盖；临时登录缓存和签名暂存包在结束时清理。
 

@@ -1,6 +1,6 @@
 # {{id}}
 
-水杉输入法的桌面脚本插件（`kind = "script"`），由 `msime-pack new --hook {{hook}}` 生成。{{summary}}规则、能力和限制见 msime 仓库 docs/plugins.md 的「脚本插件」一节：https://github.com/metasequoiaime/msime/blob/develop/docs/plugins.md
+水杉输入法的桌面脚本插件（`kind = "script"`），由 `msime-pack new --hook {{hook}}` 生成。{{summary}}规则、能力和限制见 msime 仓库 docs/plugins.md 的「脚本插件」一节：https://github.com/metasequoiaime/msime/blob/main/docs/plugins.md
 
 ## 文件
 

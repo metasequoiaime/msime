@@ -4,7 +4,7 @@ name: ONNX rerank backend
 on:
   push:
     branches:
-      - develop
+      - main
     paths:
       - crates/onnx-rerank/**
       - crates/engine/src/ordering.rs
@@ -90,7 +90,7 @@ jobs:
       # 不链接原生库也能做的那一半：ort-sys 没找到 ONNX Runtime 时把报错推迟到链接，clippy 照常类型检查开着特性的全部代码（含测试和 rerank_latency 示例）。
       - name: Clippy with the ONNX backend features
         run: cargo clippy --locked -p msime-onnx-rerank -p msime-input-runtime -p msime-host-api --all-targets --features msime-onnx-rerank/runtime,msime-input-runtime/onnx-rerank,msime-host-api/onnx-rerank -- -D warnings
-      # Depot 的缓存按发起运行的仓库隔开：fork 来的 PR 读不到本仓库 develop 和同仓库 PR 存下的条目，每个 fork 第一次跑都不命中（2026-11-07 tianzecn、11-12 nooobkevin 的第一次运行都是现编后存进各自那一份，之后才命中）。不命中时现编要从 GitHub 拉 microsoft/onnxruntime，这个仓库在 2026-11-12 到 11-19 之间开始在 GitHub 上返回 404（git 报 `could not read Username`），fork 的 PR 因此全红。所以只在这次真改了算子清单或构建脚本时才现编，别的时候按锁下载发布的库：那正是各平台发布包链接的那一份，锁里的算子清单摘要由 scripts/test-fetch-onnxruntime.py 核对过。
+      # Depot 的缓存按发起运行的仓库隔开：fork 来的 PR 读不到本仓库 main 和同仓库 PR 存下的条目，每个 fork 第一次跑都不命中（2026-11-07 tianzecn、11-12 nooobkevin 的第一次运行都是现编后存进各自那一份，之后才命中）。不命中时现编要从 GitHub 拉 microsoft/onnxruntime，这个仓库在 2026-11-12 到 11-19 之间开始在 GitHub 上返回 404（git 报 `could not read Username`），fork 的 PR 因此全红。所以只在这次真改了算子清单或构建脚本时才现编，别的时候按锁下载发布的库：那正是各平台发布包链接的那一份，锁里的算子清单摘要由 scripts/test-fetch-onnxruntime.py 核对过。
       - name: Restore the minimal ONNX Runtime
         id: ort-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

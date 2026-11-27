@@ -27,7 +27,7 @@ def payload(line):
 
 class MarkerTests(unittest.TestCase):
     def test_channel_follows_the_release_suffix(self):
-        for release, channel in (("1.2.3", "stable"), ("1.2.3-beta", "beta"), ("1.2.3-alpha", "alpha")):
+        for release, channel in (("1.2.3", "stable"), ("1.2.3-beta.1", "beta"), ("1.2.3-beta.12", "beta"), ("1.2.3-beta", "beta")):
             self.assertEqual(payload(MARKER.marker(release, SHA, "38812345678")),
                              {"run": 38812345678, "source": SHA, "channel": channel})
 
@@ -38,17 +38,18 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(json.loads(line[start:line.index(" -->", start)])["run"], 7)
 
     def test_bad_arguments_are_refused(self):
-        for release, source, run in (("1.2", SHA, "1"), ("1.2.3-rc", SHA, "1"), ("1.2.3", SHA[:-1], "1"),
+        for release, source, run in (("1.2", SHA, "1"), ("1.2.3-rc", SHA, "1"), ("1.2.3-alpha", SHA, "1"), ("1.2.3-beta.0", SHA, "1"),
+                                     ("1.2.3-beta.", SHA, "1"), ("1.2.3", SHA[:-1], "1"),
                                      ("1.2.3", SHA.upper(), "1"), ("1.2.3", SHA, "0"), ("1.2.3", SHA, "-1"),
                                      ("1.2.3", SHA, ""), ("1.2.3", SHA, "1" * 20)):
             with self.assertRaises(ValueError, msg=(release, source, run)):
                 MARKER.marker(release, source, run)
 
     def test_command_line_appends_a_separated_line_or_nothing(self):
-        done = subprocess.run([sys.executable, str(SCRIPT), "1.2.3-beta", SHA, "99"],
+        done = subprocess.run([sys.executable, str(SCRIPT), "1.2.3-beta.2", SHA, "99"],
                               capture_output=True, text=True, check=False)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(done.stdout, "\n" + MARKER.marker("1.2.3-beta", SHA, "99") + "\n")
+        self.assertEqual(done.stdout, "\n" + MARKER.marker("1.2.3-beta.2", SHA, "99") + "\n")
         failed = subprocess.run([sys.executable, str(SCRIPT), "1.2.3", SHA, "abc"],
                                 capture_output=True, text=True, check=False)
         self.assertNotEqual(failed.returncode, 0)

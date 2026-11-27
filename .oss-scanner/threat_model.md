@@ -36,4 +36,4 @@ Treat these as untrusted:
 
 - Known failing tests listed in `scripts/known-failures.txt` are not vulnerabilities.
 - Synthetic test credentials and fixture addresses in the repository are intentional.
-- Please send reports and proposed patches against the `develop` branch.
+- Please send reports and proposed patches against the `main` branch.

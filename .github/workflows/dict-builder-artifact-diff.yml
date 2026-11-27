@@ -1,12 +1,12 @@
 name: Dictionary builder artifact diff
 
-# 词库构建器（crates/dict-builder 及它读的 msime 输入）的改动没有别的门禁：它合进 develop 后，会跟着下一次与它无关的词库数据推送一起发布成新的 dict-v。这里在改动进 develop 之前，用同一份 msime-dictionary 数据分别以 PR 的构建器和基准构建器各构建一次全部产物，再由 scripts/dict_artifact_diff.py 逐文件、逐表比较，报告写进作业摘要、上传为 artifact，同仓库的 PR 上还会更新一条评论。
+# 词库构建器（crates/dict-builder 及它读的 msime 输入）的改动没有别的门禁：它合进 main 后，会跟着下一次与它无关的词库数据推送一起发布成新的 dict-v。这里在改动进 main 之前，用同一份 msime-dictionary 数据分别以 PR 的构建器和基准构建器各构建一次全部产物，再由 scripts/dict_artifact_diff.py 逐文件、逐表比较，报告写进作业摘要、上传为 artifact，同仓库的 PR 上还会更新一条评论。
 #
 # 报告只是信息：只有新构建器编不过或构建失败才算失败。PR 打了 `expect-no-artifact-change` 标签（手动运行时勾选 expect_no_change）时，任何内容差异都算失败，适合声明「不改产物」的重构。标签在运行时读取，不靠事件里的快照：打上或去掉标签之后重跑这个作业即可，不用另推提交。标签事件本身不触发运行，因为 pr-triage 的 labeler 每次推送都会打标签，那样每次都会多出一个被跳过的运行盖住上一次的结果。
 #
-# 基准：PR 是合并提交的第一个父提交（即 PR 要合入的 develop），推送是推送前的 develop，手动运行是本次提交与 base_ref 的合并基点。词库数据默认取 msime-dictionary 的 main 在运行时的提交，两次构建用同一个检出，所以差异只来自构建器；该提交写在报告开头。基准构建器构建失败（例如 main 的数据已经要求新构建器）时不比较，只在报告里说明；声明不改产物时这也算失败，因为没法确认。
+# 基准：PR 是合并提交的第一个父提交（即 PR 要合入的 main），推送是推送前的 main，手动运行是本次提交与 base_ref 的合并基点。词库数据默认取 msime-dictionary 的 main 在运行时的提交，两次构建用同一个检出，所以差异只来自构建器；该提交写在报告开头。基准构建器构建失败（例如 main 的数据已经要求新构建器）时不比较，只在报告里说明；声明不改产物时这也算失败，因为没法确认。
 #
-# 触发路径是构建器读的全部 msime 输入：crates/dict-builder、它直接用到的引擎文件（scripts/test-dict-artifact-diff.py 检查 crates/dict-builder/src 里每个 msime_engine 引用都落在这份清单里）、工作区的 Cargo.lock / Cargo.toml / rust-toolchain.toml、源数据锁、构建器复制进产物的四份许可证，以及本 workflow 和比较脚本。只有 Cargo.lock 变了时先比较两边构建器的依赖树，相同就不构建。合进 develop 后的运行由 ci-red-tracker 跟踪：它红了说明 develop 的构建器（下一次词库发布默认用的那个）构建不出当前 main 的数据。
+# 触发路径是构建器读的全部 msime 输入：crates/dict-builder、它直接用到的引擎文件（scripts/test-dict-artifact-diff.py 检查 crates/dict-builder/src 里每个 msime_engine 引用都落在这份清单里）、工作区的 Cargo.lock / Cargo.toml / rust-toolchain.toml、源数据锁、构建器复制进产物的四份许可证，以及本 workflow 和比较脚本。只有 Cargo.lock 变了时先比较两边构建器的依赖树，相同就不构建。合进 main 后的运行由 ci-red-tracker 跟踪：它红了说明 msime main 上的构建器（下一次词库发布默认用的那个）构建不出当前 main 的数据。
 on:
   pull_request:
     paths:
@@ -33,10 +33,10 @@ on:
       - resources/licenses/scowl-aspell6-en-Copyright.txt
       - scripts/dict_artifact_diff.py
       - .github/workflows/dict-builder-artifact-diff.yml
-  # 合进 develop 后再跑一次：记下这次合并让产物变了什么，也让 PR 能复用 develop 作用域里的源数据缓存（PR 自己存的缓存别的 PR 读不到）。
+  # 合进 main 后再跑一次：记下这次合并让产物变了什么，也让 PR 能复用 main 作用域里的源数据缓存（PR 自己存的缓存别的 PR 读不到）。
   push:
     branches:
-      - develop
+      - main
     paths:
       - crates/dict-builder/**
       - crates/engine/src/assets.rs
@@ -66,7 +66,7 @@ on:
       base_ref:
         description: "基准构建器：取本次运行的提交与这个 msime 分支、标签或提交的合并基点（两者相同时取上一个提交）"
         required: false
-        default: develop
+        default: main
         type: string
       dictionary_ref:
         description: "构建用的 msime-dictionary 分支、标签或提交"
@@ -130,7 +130,7 @@ jobs:
               fi
               ;;
             *)
-              ref="${BASE_REF:-develop}"
+              ref="${BASE_REF:-main}"
               target="$(git rev-parse --verify --quiet "origin/$ref^{commit}" || git rev-parse --verify "$ref^{commit}")"
               base_sha="$(git merge-base "$target" HEAD)"
               [[ "$base_sha" != "$head_sha" ]] || base_sha="$(git rev-parse HEAD^1)"
