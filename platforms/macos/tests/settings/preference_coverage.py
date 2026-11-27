@@ -45,6 +45,7 @@ NOT_APPLICABLE = {
     "input_mode_corner_hud": "仅 Linux 的 IBus 与 Fcitx5 在无法定位光标时使用屏幕角落徽章；共享设置页只在 Linux 显示此项，macOS 没有对应角落提示",
     "input_mode_focus_hud": "仅 Linux 的 IBus 与 Fcitx5 在聚焦输入框时显示模式提示；共享设置页只在 Linux 显示此项，macOS 没有聚焦提示入口",
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
+    "update_auto_download": "设置应用自己的后台更新开关：由 `apps/desktop/src-tauri/src/update_check.rs` 的 `sync_macos_background_updates` 交给 `crates/host-macos` 里设置进程的 Sparkle 更新器；输入法进程不检查也不下载更新，所以宿主源码里读不到它",
     # macOS 的这些界面一律跟随颜色模式（HostCapabilities 的 surface_themes_follow），设置页不给这几行；固定明暗的主题由 InputController 钉住传给面板的 `theme`。
     "toolbar_theme": "the floating toolbar and the mode badge follow the colour mode on macOS (surface_themes_follow)",
     "menu_theme": "the input menu and the candidate context menu follow the colour mode on macOS (surface_themes_follow)",
