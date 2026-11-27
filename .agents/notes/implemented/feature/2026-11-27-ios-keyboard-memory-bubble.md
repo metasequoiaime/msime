@@ -29,7 +29,12 @@ Status: implemented
 - **把读数写进诊断日志、让 App 显示**：未签名包没有 App Group，这条链路断在写文件那一步。
 - **一直显示在候选栏角落**：占位置，而且每次重画都要采样；调试信息默认不出现更合适。
 
-## 验证
+## Consequences
+
+- 收益：未签名测试包不靠 App Group 也能当场看到键盘的内存占用与余量，真机验收不再依赖 Instruments 或诊断日志链路；峰值字段只进气泡、不进日志，老日志解析与既有字段断言都不用动。
+- 代价：双击品牌键时菜单会先闪一下再收掉（单击不延迟换来的手感取舍）；气泡盖住整块键盘 3 秒，期间按键不响应，点外面那一击只用来关气泡。
+
+## Verification
 
 - `KeyboardTests/settings/KeyboardMemoryTests.swift`：气泡文字三个读数（含余量未知、峰值取不到、`mebibytes` 取整）、3 秒自动消失与点外面消失各一次回调、品牌键上挂着 `brandDoubleTap` 且 `toolbarEditorHold` 还在。
 - 本机没有 Xcode，Swift 未在本地编译；靠 `ios-*` 分支的 fork CI 编译并跑 XCTest。
