@@ -1235,3 +1235,62 @@ fn an_update_without_the_new_fields_still_reads() {
         nightly
     );
 }
+
+/// 只回一份 gzip 压缩的 JSON，并把收到的请求头留在 `request` 里。测的是「请求要求压缩、响应被解压后读出来」，
+/// 也就是慢网上把 2.8 MB 的发布列表降到约 460 KB 的那条路径。
+fn serve_gzip_json(body: &[u8], request: std::sync::Arc<std::sync::Mutex<String>>) -> String {
+    use std::io::{Read as _, Write as _};
+
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(body).unwrap();
+    let compressed = encoder.finish().unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "http://127.0.0.1:{}/releases",
+        listener.local_addr().unwrap().port()
+    );
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0u8; 4096];
+        let read = stream.read(&mut buffer).unwrap_or(0);
+        *request.lock().unwrap() = String::from_utf8_lossy(&buffer[..read]).into_owned();
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            compressed.len()
+        );
+        let _ = stream.write_all(head.as_bytes());
+        let _ = stream.write_all(&compressed);
+        let _ = stream.flush();
+    });
+    url
+}
+
+#[test]
+fn a_gzip_encoded_release_list_is_asked_for_and_decompressed() {
+    let list = serde_json::to_vec(&[windows_release()]).unwrap();
+    let request = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let url = serve_gzip_json(&list, request.clone());
+    // 这里自建客户端而不走 `http_client()`：后者按用户偏好可能挂上系统代理，本地回环地址在带代理的环境里会连不上。
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .user_agent(USER_AGENT)
+        .build()
+        .unwrap();
+    let bytes = fetch(&client, &url)
+        .expect("the compressed response reads")
+        .expect("a 200 is not a 404");
+    assert_eq!(bytes, list);
+    let request = request.lock().unwrap().to_lowercase();
+    assert!(
+        request.contains("accept-encoding:") && request.contains("gzip"),
+        "the client must ask for compression, got: {request}"
+    );
+}
+
+#[test]
+fn the_update_client_builds_with_the_system_root_store() {
+    // 桌面端把系统证书库并进 Mozilla 根（见 Cargo.toml 的 target 表）。系统库里一条可用证书都读不到时
+    // reqwest 会让 build() 失败，这条测试在 CI 的 macOS/Windows 上就是那条路径的验证。
+    http_client().expect("the update client builds");
+}
