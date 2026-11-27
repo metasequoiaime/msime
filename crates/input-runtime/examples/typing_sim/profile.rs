@@ -79,6 +79,7 @@ fn product_mobile(options: &mut EngineOptions) {
     // 普通候选追加快捷短语只在 macOS 桌面宿主打开。
     options.quick_phrase_candidates = false;
     options.quick_phrase_frequency = preferences.mixed_input.quick_phrase_frequency;
+    options.quick_phrase_first = preferences.mixed_input.quick_phrase_first;
     let local = &preferences.local_modes;
     options.local_unicode = local.unicode;
     options.local_date_time = local.date_time;

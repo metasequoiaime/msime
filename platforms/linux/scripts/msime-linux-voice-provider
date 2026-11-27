@@ -28,7 +28,8 @@ import uuid
 import wave
 
 from msime_provider_runtime import (
-    StoppableUnixStreamServer, disables_ark_seed_thinking, open_server, volcengine_successor_model,
+    StoppableUnixStreamServer, disables_ark_seed_thinking, open_server, probe_chat_body,
+    volcengine_successor_model,
 )
 import msime_crash_capture
 from msime_voice_doubao import normalize_doubao_auth_mode
@@ -1173,8 +1174,7 @@ def doubao_credential_test(config, options):
 
 
 def polish_credential_test(config):
-    body = {"model": config["model"], "stream": False, "max_tokens": 1,
-            "messages": [{"role": "user", "content": "Reply OK"}]}
+    body = probe_chat_body(config["model"], max_tokens=1)
     if config["provider"] == "siliconflow":
         body["enable_thinking"] = False
     elif config["provider"] == "deepseek" or disables_ark_seed_thinking(

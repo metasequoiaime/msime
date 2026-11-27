@@ -318,6 +318,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
     "in-ing",
     "ian-iang",
     "uan-uang",
+    "un-ong",
   ]) {
     expect(
       (screen.getByRole("checkbox", { name: `模糊音规则 ${id}` }) as HTMLInputElement).checked,
@@ -342,6 +343,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
           "in-ing",
           "ian-iang",
           "uan-uang",
+          "un-ong",
         ],
         seeded: true,
       },

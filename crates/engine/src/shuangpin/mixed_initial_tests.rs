@@ -102,3 +102,41 @@ fn mixed_initial_sentence_filters_helpcodes_before_decoding() {
     let rows = engine.query(&typed, Some(&codes));
     assert_eq!(words(&rows)[0], "你好测科工具");
 }
+
+// #11766 的复现：7 个声母、没有任何完整音节。旧版有 Google 整句，Rust 侧只把带完整音节的
+// 混输交给词网格，纯声母串一条整句边都没有，首选退回 `mtt` 前缀组的三字词。
+const PURE_INITIAL_FIXTURE: &str =
+    "CREATE TABLE tbl_2_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+     INSERT INTO tbl_2_m VALUES('ming''tian','mt','明天',9000);\
+     CREATE TABLE tbl_2_t(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+     INSERT INTO tbl_2_t VALUES('tian''qi','tq','天气',9000);\
+     CREATE TABLE tbl_3_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+     INSERT INTO tbl_3_z VALUES('zen''me''yang','zmy','怎么样',9000);";
+
+#[test]
+fn pure_initial_string_decodes_the_whole_sentence() {
+    let fixture = Fixture::new(PURE_INITIAL_FIXTURE);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let candidate_pinyin = "ming'tian'tian'qi'zen'me'yang";
+    for typed in ["mttqzmy", "m't't'q'z'm'y", "mttqizmy"] {
+        let rows = engine.query(&request(typed, false), None);
+        assert_eq!(words(&rows)[0], "明天天气怎么样", "{typed}");
+        assert_eq!(rows[0].canonical_pinyin, candidate_pinyin, "{typed}");
+        assert!(rows[0].sentence_association, "{typed}");
+        assert_eq!(rows[0].word.chars().count(), 7, "{typed}");
+    }
+}
+
+#[test]
+fn pure_initial_strings_obey_the_lattice_switch() {
+    let fixture = Fixture::new(PURE_INITIAL_FIXTURE);
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let mut typed = request("mttqzmy", false);
+    typed.sentence_association.word_lattice = false;
+    assert!(!engine
+        .query(&typed, None)
+        .iter()
+        .any(|row| row.sentence_association));
+    typed.sentence_association.word_lattice = true;
+    assert_eq!(words(&engine.query(&typed, None))[0], "明天天气怎么样");
+}

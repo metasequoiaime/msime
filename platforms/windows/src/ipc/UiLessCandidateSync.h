@@ -3,6 +3,7 @@
 #include "ReplyCodec.h"
 #include "ReplyComposer.h"
 #include "ipc_negotiation.h"
+#include "../../common/CandidateSources.h"
 
 namespace msime::windows {
 // 只在输入队列上使用。记住已确认送达的 UI-less
@@ -38,6 +39,9 @@ public:
     size_t highlighted = 0;
     bool found = false;
     for (const auto &item : view.at("candidates")) {
+      // UI-less 宿主自己画候选页，页里只有文字，没有来源，所以这里必须先按候选窗同一条规则剔除云的占位席位（「☁」）：它在游戏宿主里被画成缺字方框，还占掉一个编号，而数字键经 Server 只数看得见的行——按 2 上屏的是宿主画出来的第 3 行。高亮停在占位席位上时不发这一帧，宿主的最旧一页保持不变，离开后自然恢复。
+      if (!candidate_source_is_visible(item.value("source", 0u)))
+        continue;
       if (item.at("highlighted").get<bool>()) {
         if (found)
           return std::nullopt;

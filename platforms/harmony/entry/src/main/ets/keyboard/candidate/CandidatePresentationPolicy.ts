@@ -1,3 +1,14 @@
+/** 引擎候选的身份：index 是跨页绝对序号，不是当前页上显示的序号。 */
+export interface CandidateIdentity {
+  session: number;
+  generation: number;
+  index: number;
+}
+
+export interface IdentifiedCandidate {
+  id: CandidateIdentity;
+}
+
 /** Small, host-neutral pieces of the Windows candidate presentation contract. */
 export class CandidatePresentationPolicy {
   /** Engine `CandidateSource::CloudPending`，只供宿主内部等待云候选，不能作为候选显示。 */
@@ -27,5 +38,17 @@ export class CandidatePresentationPolicy {
       }
     }
     return indices;
+  }
+
+  /** 将可见候选的位置映射为用户实际看到的候选身份。 */
+  static identityAt(candidates: IdentifiedCandidate[], visibleIndices: number[], slot: number,
+    session: number): CandidateIdentity | null {
+    if (!Number.isSafeInteger(slot) || slot < 0 || slot >= visibleIndices.length) return null;
+    const candidate: IdentifiedCandidate | undefined = candidates[visibleIndices[slot]];
+    const id: CandidateIdentity | undefined = candidate?.id;
+    if (id === undefined || id === null || id.session !== session
+      || !Number.isSafeInteger(id.generation) || id.generation < 0
+      || !Number.isSafeInteger(id.index) || id.index < 0) return null;
+    return id;
   }
 }

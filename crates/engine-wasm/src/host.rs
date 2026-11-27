@@ -17,7 +17,7 @@ use msime_engine::{
     Command, EnglishInputOptions, FrequencyAdjustmentOptions, FuzzyPinyinOptions, HelpcodeKeymap,
     KeyResult, LocalInputMode, LocalModeOptions, MixedExpressiveOptions, RuntimePaths, SchemeType,
     SentenceAssociationOptions, Session, SessionOptions, SessionSnapshot, SharedKeymap,
-    ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
+    ShuangpinProfileKind, WubiInputOptions, WubiPhrasePlacement, WubiProfileKind,
 };
 
 /// 上文最多保留的字节数，和 `Runtime::remember_commit` 一样：引擎的查询拒绝更长的上文，超长时整次查询失效而不是截断。
@@ -865,18 +865,12 @@ impl WebHost {
             };
             self.apply(result, number);
         }
-        // 日语不走中文标点表，打日文标点（`japanese_mark`），没有日文形式的原样打出。
-        if self.scheme.is_japanese() {
-            match japanese_mark(byte) {
-                Some(mark) => self.commit(mark.to_owned(), -1),
-                None if finished => self.commit(char::from(byte).to_string(), -1),
-                None => self.type_text(char::from(byte).to_string()),
+        // 网页自己的引号上下文只服务于中文的交替与嵌套；日语标点走引擎的契约表，不经过它。
+        if !self.scheme.is_japanese() {
+            if let Some(mark) = quote_mark(&self.context, byte) {
+                self.commit(mark.to_owned(), -1);
+                return;
             }
-            return;
-        }
-        if let Some(mark) = quote_mark(&self.context, byte) {
-            self.commit(mark.to_owned(), -1);
-            return;
         }
         let result = self.session.punctuation(byte);
         match result.commit {
@@ -1328,27 +1322,6 @@ fn quote_mark(context: &str, key: u8) -> Option<&'static str> {
     }
 }
 
-/// 日文标点，和日文输入法的默认设置一样：`,` `.` 是 、 。，`[` `]` 是 「 」，`{` `}` 是 『 』，`/` 是 ・，其余几个是全角形式。其他键返回 None，原样打出。
-fn japanese_mark(key: u8) -> Option<&'static str> {
-    Some(match key {
-        b',' => "、",
-        b'.' => "。",
-        b'[' => "「",
-        b']' => "」",
-        b'{' => "『",
-        b'}' => "』",
-        b'/' => "・",
-        b'~' => "〜",
-        b'?' => "？",
-        b'!' => "！",
-        b'(' => "（",
-        b')' => "）",
-        b':' => "：",
-        b';' => "；",
-        _ => return None,
-    })
-}
-
 fn is_han(ch: char) -> bool {
     matches!(ch,
         '\u{3400}'..='\u{4DBF}'
@@ -1375,6 +1348,7 @@ fn session_options(scheme: Scheme, paths: RuntimePaths) -> SessionOptions {
         mixed_pinyin: false,
         z_wildcard: false,
         profile: WubiProfileKind::Wubi86,
+        wubi_phrase_placement: WubiPhrasePlacement::default(),
     };
     // 学习、个人上文（它会起一个在 wasm 上 panic 的落盘线程）、辅助码、所有本地模式（日期时间模式在 wasm 上读本地时间会 panic）、混输英文、模糊音和纠错都关掉，和测出 40.9% 的评测配置一致（D15）。辅助码只是默认关掉，页面可以用 `WebHost::set_helpcode` 打开。
     options.learning = false;

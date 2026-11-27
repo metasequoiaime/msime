@@ -23,7 +23,14 @@ public final class CandidatePronunciationModel {
             boolean glossVisible, java.util.List<String> englishSuggestions) throws JSONException {
         if (generation < 0 || candidates == null || candidates.length() > 4096)
             throw new IllegalArgumentException("Invalid pronunciation candidates");
-        JSONArray items = new JSONArray();
+        return request(generation, keys(candidates, target, glossVisible, englishSuggestions));
+    }
+
+    /** 这些候选和建议要查读音的键（{@link CandidatePronunciationPolicy#key}），按先后、去重。 */
+    public static java.util.List<String> keys(JSONArray candidates, String target,
+            boolean glossVisible, java.util.List<String> englishSuggestions) {
+        if (candidates == null || candidates.length() > 4096)
+            throw new IllegalArgumentException("Invalid pronunciation candidates");
         java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
         for (int index = 0; index < candidates.length(); index++) {
             JSONObject candidate = candidates.optJSONObject(index);
@@ -39,6 +46,14 @@ public final class CandidatePronunciationModel {
             String key = CandidatePronunciationPolicy.lookupText(suggestion, "", "en");
             if (!key.isEmpty() && TextPolicy.utf8Length(key) <= 4096) keys.add(key);
         }
+        return new java.util.ArrayList<>(keys);
+    }
+
+    /** 只查这些键（已按 {@link #keys} 算好、去过重）。 */
+    public static String request(long generation, java.util.List<String> keys) throws JSONException {
+        if (generation < 0 || keys.size() > 8192)
+            throw new IllegalArgumentException("Invalid pronunciation keys");
+        JSONArray items = new JSONArray();
         for (String key : keys) {
             int cut = key.indexOf('\n');
             items.put(new JSONObject().put("text", key.substring(cut + 1)).put("language", key.substring(0, cut)));

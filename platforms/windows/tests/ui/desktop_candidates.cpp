@@ -70,6 +70,13 @@ struct Client {
     assert(CloseDesktop(desktop));
   }
 };
+// 只数本线程所在桌面上的候选窗：票据认证不通过时不能退到 Server 桌面画候选（#11793）。
+unsigned candidate_windows_here() {
+  Probe probe;
+  assert(EnumDesktopWindows(GetThreadDesktop(GetCurrentThreadId()), CountCandidateWindows,
+      reinterpret_cast<LPARAM>(&probe)));
+  return probe.total;
+}
 template <class Check> void wait_for(Check check, DesktopCandidates &router, const char *stage,
     const std::function<void()> &diagnose = {}) {
   const auto deadline = GetTickCount64() + 15000;
@@ -201,7 +208,8 @@ int main() {
   busy.store(false);
   show(first, 3);
   wait_for([&] { return first.visible.load() == 1 && !second.visible.load() && rendered.load() == 3; }, router, "return to first desktop");
-  // 无法认证的新客户端不能沿用原桌面的帧。
+  // 无法认证的新客户端不能沿用原桌面的帧，也不能退到 Server 桌面改画一份。
+  const unsigned server_windows = candidate_windows_here();
   {
     std::lock_guard lock(mutex);
     source = frame(first, 4);
@@ -209,6 +217,7 @@ int main() {
     current.store(4);
   }
   wait_for([&] { return !first.visible.load() && !second.visible.load(); }, router, "unresolved owner");
+  assert(candidate_windows_here() == server_windows);
   show(first, 5);
   wait_for([&] { return first.visible.load() == 1 && rendered.load() == 5; }, router, "return after unresolved owner");
   router.stop();

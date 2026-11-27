@@ -1,6 +1,6 @@
 import Foundation
 
-/// 主 App 后台语音会话的状态，由 App 写、键盘读。键盘扩展不能录音，按住空格说话时由在后台保持录音会话的主 App 录音识别，键盘只显示状态并上屏（与 Android 的 `ImeVoiceEntry` 同一套交互）。录音和凭据不进这个文件，只有识别出的文字。
+/// 主 App 后台语音会话的状态，由 App 写、键盘读。按住空格说话时由在后台保持录音会话的主 App 录音识别（说完整段上传的联网服务由键盘自己录音，见 `KeyboardDirectDictation`），键盘只显示状态并上屏（与 Android 的 `ImeVoiceEntry` 同一套交互）。录音和凭据不进这个文件，只有识别出的文字。
 struct VoiceSessionState: Codable, Equatable, Sendable {
   enum Phase: String, Codable, Sendable {
     /// 会话开着、没有在听写。

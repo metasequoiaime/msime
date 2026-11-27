@@ -155,7 +155,7 @@ test("空结果保留常用入口、导入和目录问题，清空搜索后恢�
   expect(
     within(screen.getByRole("region", { name: "无法载入的插件" })).getByText(/synthetic-broken/),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "导入 .zip" }));
+  fireEvent.click(screen.getByRole("button", { name: "导入 .zip 或 .txt" }));
   await waitFor(() => expect(client.importPack).toHaveBeenCalledWith("archive"));
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
   expect(screen.getByRole("button", { name: sound.name })).toBeTruthy();

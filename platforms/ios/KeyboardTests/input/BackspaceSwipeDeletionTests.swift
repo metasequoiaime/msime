@@ -76,3 +76,48 @@ final class BackspaceSwipeDeletionTests: XCTestCase {
     XCTAssertFalse(BackspaceSwipeDeletion.canRetype(composition: "かな", caret: 2))
   }
 }
+
+/// 删除键上滑清空：滑过待命线才待命，滑回来取消；清空按轮次删掉光标前的文字。
+final class BackspaceClearSwipeTests: XCTestCase {
+  func testArmOnlyAfterPassingThreshold() {
+    var swipe = BackspaceClearSwipe()
+    XCTAssertFalse(swipe.move(upward: 0))
+    XCTAssertFalse(swipe.move(upward: BackspaceClearSwipe.armDistance - 0.1))
+    XCTAssertTrue(swipe.move(upward: BackspaceClearSwipe.armDistance), "刚好滑到待命线就待命")
+    XCTAssertTrue(swipe.move(upward: 20), "待命后停在中间仍保持")
+  }
+
+  func testSlidingBackCancelsBeforeRelease() {
+    var swipe = BackspaceClearSwipe()
+    XCTAssertTrue(swipe.move(upward: 80))
+    XCTAssertTrue(swipe.move(upward: BackspaceClearSwipe.cancelDistance))
+    XCTAssertFalse(swipe.move(upward: BackspaceClearSwipe.cancelDistance - 0.1), "滑回取消线以内取消待命")
+    XCTAssertFalse(swipe.armed)
+  }
+
+  func testNonFiniteDistanceKeepsState() {
+    var swipe = BackspaceClearSwipe()
+    XCTAssertFalse(swipe.move(upward: .nan))
+    XCTAssertTrue(swipe.move(upward: 80))
+    XCTAssertTrue(swipe.move(upward: .infinity))
+    XCTAssertTrue(swipe.armed)
+  }
+
+  func testClearDeletesWholeContext() {
+    var remaining = String(repeating: "字", count: 5000)
+    let deleted = BackspaceClear.clearBeforeCursor(
+      read: { remaining.isEmpty ? nil : remaining },
+      deleteOne: { remaining.removeLast() })
+    XCTAssertEqual(deleted, 5000)
+    XCTAssertTrue(remaining.isEmpty)
+  }
+
+  func testClearStopsAtRoundLimit() {
+    var reads = 0
+    let deleted = BackspaceClear.clearBeforeCursor(
+      read: { reads += 1; return "abc" },
+      deleteOne: {})
+    XCTAssertEqual(reads, BackspaceClear.maxRounds, "编辑器不配合删除时仍会停下")
+    XCTAssertEqual(deleted, 3 * BackspaceClear.maxRounds)
+  }
+}

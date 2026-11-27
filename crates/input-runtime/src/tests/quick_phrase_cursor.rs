@@ -6,6 +6,7 @@ fn phrase_runtime(root: &std::path::Path, phrase: &str, mixed: bool) -> Runtime 
     options.quick_phrase_table = vec![msime_engine::QuickPhraseEntry {
         key: "ab".into(),
         text: phrase.into(),
+        position: None,
     }];
     let mut runtime = Runtime::new(msime_engine::host::Session::new(&options).unwrap(), 6).unwrap();
     runtime.focus(true).unwrap();

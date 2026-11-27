@@ -15,6 +15,8 @@ export type MixedInputPreferences = {
   quick_phrase?: boolean;
   /** 快捷短语参与调频：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。后加的可选成员，缺键读作开，只在混输打开时起作用。 */
   quick_phrase_frequency?: boolean;
+  /** 快捷短语置顶。后加的可选成员，缺键读作关，只在混输打开时起作用。 */
+  quick_phrase_first?: boolean;
 };
 
 export const defaultMixedInput: MixedInputPreferences = {

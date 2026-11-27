@@ -3,7 +3,7 @@ import AudioToolbox
 import Foundation
 import UIKit
 
-/// 按住空格说话的后台语音会话。iOS 键盘扩展不能录音，所以键盘第一次长按空格时打开本应用，由这里打开录音会话并让音频引擎一直运行，App 因此能在后台保持（`UIBackgroundModes: audio`）；用户回到原应用后，键盘经 `VoiceSessionChannel` 发「开始 / 停止 / 取消」，这里把那一段麦克风音频交给识别器，再把实时文字和结果写回去，由键盘上屏。空闲 `VoiceSessionChannel.idleLifetime` 后自动关闭会话，状态栏的麦克风标记随之消失。
+/// 按住空格说话的后台语音会话，替键盘录它自己录不了的：本地模型、系统识别、豆包，以及打开了识别后润色时（说完整段上传的联网服务由键盘自己录音，见 `KeyboardDirectDictation`）。键盘第一次长按空格时打开本应用，由这里打开录音会话并让音频引擎一直运行，App 因此能在后台保持（`UIBackgroundModes: audio`）；用户回到原应用后，键盘经 `VoiceSessionChannel` 发「开始 / 停止 / 取消」，这里把那一段麦克风音频交给识别器，再把实时文字和结果写回去，由键盘上屏。空闲 `VoiceSessionChannel.idleLifetime` 后自动关闭会话，状态栏的麦克风标记随之消失。
 ///
 /// 没有在听写时引擎采到的音频直接丢掉，不落盘也不识别。
 @MainActor

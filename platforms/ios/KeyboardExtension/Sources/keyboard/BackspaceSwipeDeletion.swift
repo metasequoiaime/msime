@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// 按住 ⌫ 横滑删除：按住不放往左滑，滑多远删多少；不松手再往右滑，刚删掉的按原样一个个恢复；松手才算定下来。
@@ -76,5 +77,54 @@ struct BackspaceSwipeDeletion: Equatable {
   static func canRetype(composition: String, caret: Int) -> Bool {
     !composition.isEmpty && caret == composition.count
       && composition.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "'") }
+  }
+}
+
+/// 删除键上滑清空：按住 ⌫ 往上滑过 `armDistance` 后待命，这时松手清掉正在输入的组码和候选；没有组字时清空光标前的文字。待命后滑回 `cancelDistance` 以内取消，再松手什么也不做。
+///
+/// 横滑删除仍由 `BackspaceSwipeDeletion` 负责。两者共用删除键上的同一个 pan，按起手方向分开（`KeyboardViewController.handleBackspaceSwipe`）：竖直向上是清空，向左是逐格删除。这个类型只管上滑到了哪个阶段，真正去清空由键盘控制器做。
+struct BackspaceClearSwipe: Equatable {
+  /// 手指离按下点往上这么远才待命（pt）。与 Android `BackspaceSwipePolicy.ARM_DP` 相同：点按删除时手指轻微上移不会清空。
+  static let armDistance: CGFloat = 40
+  /// 待命后滑回到这个距离以内就取消待命，避免滑回来时还停在待命状态误清。
+  static let cancelDistance: CGFloat = 16
+
+  /// 手指此刻是不是已经滑到待命位置。
+  private(set) var armed = false
+
+  /// 手指往上移动 `upward`（正数）之后的待命状态：滑过 `armDistance` 待命，滑回 `cancelDistance` 以内取消，中间保持原状。距离不是有限数时保持原状。
+  @discardableResult
+  mutating func move(upward: CGFloat) -> Bool {
+    guard upward.isFinite else { return armed }
+    if upward >= Self.armDistance {
+      armed = true
+    } else if upward < Self.cancelDistance {
+      armed = false
+    }
+    return armed
+  }
+}
+
+/// 清空光标前的文字。`UITextDocumentProxy` 没有按范围删除的接口，只能一个一个 `deleteBackward`；每轮先读光标前的一段，再按读到的字数逐个删，读到空或满轮数就停。
+enum BackspaceClear {
+  /// 每轮最多读、删的字数，与 Android `BackspaceSwipePolicy.CLEAR_CHUNK` 相同。
+  static let chunk = 4096
+  /// 最多删几轮（约二十六万字），编辑器不配合时也会停下。
+  static let maxRounds = 64
+
+  /// 反复读光标前的文字并逐字删掉，返回删掉的字数。读、删两个操作由调用方给出，便于回归测试。
+  @discardableResult
+  static func clearBeforeCursor(read: () -> String?, deleteOne: () -> Void) -> Int {
+    var deleted = 0
+    for _ in 0..<maxRounds {
+      guard let context = read(), !context.isEmpty else { break }
+      let count = min(context.count, chunk)
+      guard count > 0 else { break }
+      for _ in 0..<count {
+        deleteOne()
+        deleted += 1
+      }
+    }
+    return deleted
   }
 }

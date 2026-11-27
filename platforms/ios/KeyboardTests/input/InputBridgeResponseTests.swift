@@ -110,6 +110,8 @@ final class InputBridgeResponseTests: XCTestCase {
     XCTAssertEqual(snapshot.candidates, ["我们今天去公园", "我们今天去公", "我们"])
     XCTAssertEqual(snapshot.candidateConfidentCorrections, [true, false, false])
     XCTAssertEqual(snapshot.candidateAnnotations.first, "(womfjbtnqugsyr)", "纠错前的拼写照旧作为注释")
+    XCTAssertEqual(snapshot.candidateCorrected, [true, true, false], "`corrected` 逐行对齐，缺省按未纠错读")
+    XCTAssertEqual(snapshot.replacingCommit("，").candidateCorrected, [true, true, false], "换上屏文字时留着")
     XCTAssertEqual(snapshot.replacingCommit("，").candidateConfidentCorrections, [true, false, false])
     let visible = CandidateMarker.visibleIndices(sources: snapshot.candidateSources)
     XCTAssertEqual(visible.map { snapshot.candidateConfidentCorrections[$0] }, [true, false, false])

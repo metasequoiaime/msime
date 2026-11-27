@@ -14,6 +14,11 @@ import android.graphics.drawable.Drawable;
 
 /** Draws Apple's custom key shapes and flat, raised, glass or paper materials. */
 public final class KeyboardSkinKeyDrawable extends Drawable {
+    /** 键帽面离键格四边的内缩（dp）。键面排版按同一个数算轮廓（{@link KeyOutline#forSkin}）。 */
+    static final float FACE_INSET_DP = 1;
+    /** 凸起材质在键帽面下方占的厚度（dp）。 */
+    static final float RAISED_DEPTH_DP = 3;
+
     private final KeyboardSkin skin;
     private final int fillColor;
     private final boolean action;
@@ -22,7 +27,8 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
     private final Paint overlay = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path shapePath = new Path();
     private final RectF shapeBounds = new RectF();
-    private final RectF notchBounds = new RectF();
+    private final RectF arcBounds = new RectF();
+    private final RectF roundBounds = new RectF();
     private final RectF faceBounds = new RectF();
     private final RectF gradientBounds = new RectF();
     private final Path shinePath = new Path();
@@ -38,61 +44,50 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
         this.action = action;
         this.density = density;
         borderColor = Color.parseColor(skin.borderColor());
+        outline = KeyOutline.forSkin(skin, density);
     }
+
+    /** 键形由 {@link KeyOutline} 描出，键面排版用同一份描述判断墨迹是否还在键帽里。 */
+    private final KeyOutline outline;
+    private final KeyOutline.PathSink pathSink = new KeyOutline.PathSink() {
+        @Override public void moveTo(float x, float y) { shapePath.moveTo(x, y); }
+
+        @Override public void lineTo(float x, float y) { shapePath.lineTo(x, y); }
+
+        @Override public void cubicTo(float x1, float y1, float x2, float y2, float x3, float y3) {
+            shapePath.cubicTo(x1, y1, x2, y2, x3, y3);
+        }
+
+        @Override public void arcTo(float left, float top, float right, float bottom, float start, float sweep) {
+            arcBounds.set(left, top, right, bottom);
+            shapePath.arcTo(arcBounds, start, sweep);
+        }
+
+        @Override public void roundRect(float left, float top, float right, float bottom, float radiusX,
+                float radiusY) {
+            roundBounds.set(left, top, right, bottom);
+            shapePath.addRoundRect(roundBounds, radiusX, radiusY, Path.Direction.CW);
+        }
+
+        @Override public void close() { shapePath.close(); }
+    };
 
     private float dp(double value) { return DimensionPolicy.floatPixels(value, density); }
 
     private Path path(RectF rect) {
         if (shapeValid && shapeBounds.equals(rect)) return shapePath;
         shapePath.reset();
-        switch (skin.keyShape()) {
-            case "capsule" -> shapePath.addRoundRect(rect, rect.height() / 2, rect.height() / 2,
-                Path.Direction.CW);
-            case "pebble" -> {
-                float x = rect.left, y = rect.top, width = rect.width(), height = rect.height();
-                shapePath.moveTo(x + width * .35f, y);
-                shapePath.cubicTo(x + width * .83f, y, x + width, y + height * .04f,
-                    x + width, y + height * .3f);
-                shapePath.cubicTo(x + width, y + height * .85f, x + width * .9f, y + height,
-                    x + width * .68f, y + height);
-                shapePath.cubicTo(x + width * .18f, y + height, x, y + height * .97f,
-                    x, y + height * .7f);
-                shapePath.cubicTo(x, y + height * .2f, x + width * .06f, y,
-                    x + width * .35f, y);
-                shapePath.close();
-            }
-            case "ticket" -> {
-                float notch = DimensionPolicy.shorterSide(rect.width(), rect.height()) * .12f;
-                shapePath.moveTo(rect.left, rect.top);
-                shapePath.lineTo(rect.right, rect.top);
-                shapePath.lineTo(rect.right, rect.centerY() - notch);
-                notchBounds.set(rect.right - notch, rect.centerY() - notch,
-                    rect.right + notch, rect.centerY() + notch);
-                shapePath.arcTo(notchBounds, -90, -180);
-                shapePath.lineTo(rect.right, rect.bottom);
-                shapePath.lineTo(rect.left, rect.bottom);
-                shapePath.lineTo(rect.left, rect.centerY() + notch);
-                notchBounds.set(rect.left - notch, rect.centerY() - notch,
-                    rect.left + notch, rect.centerY() + notch);
-                shapePath.arcTo(notchBounds, 90, -180);
-                shapePath.close();
-            }
-            default -> {
-                float radius = BoundsPolicy.atMost(dp(skin.cornerRadius()),
-                    DimensionPolicy.shorterSide(rect.width(), rect.height()) / 2);
-                shapePath.addRoundRect(rect, radius, radius, Path.Direction.CW);
-            }
-        }
+        outline.trace(rect.left, rect.top, rect.right, rect.bottom, pathSink);
         shapeBounds.set(rect);
         shapeValid = true;
         return shapePath;
     }
 
     @Override public void draw(Canvas canvas) {
-        float depth = "raised".equals(skin.keyMaterial()) ? dp(3) : 0;
+        float depth = "raised".equals(skin.keyMaterial()) ? dp(RAISED_DEPTH_DP) : 0;
         faceBounds.set(getBounds());
         RectF face = faceBounds;
-        face.inset(dp(1), dp(1));
+        face.inset(dp(FACE_INSET_DP), dp(FACE_INSET_DP));
         face.bottom -= depth;
         Path shape = path(face);
         int opacity = action ? alpha : (int) Math.round(alpha * skin.keyOpacity());

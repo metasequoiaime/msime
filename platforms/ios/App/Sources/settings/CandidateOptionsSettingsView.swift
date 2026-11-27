@@ -22,6 +22,10 @@ struct CandidateOptionsSettingsView: View {
   private var cloudCandidates = false
   @AppStorage(CandidatePageSizePreference.key, store: CandidatePageSizePreference.defaults)
   private var pageSize = CandidatePageSizePreference.defaultSize
+  @AppStorage(CandidatePanelStylePreference.key, store: CandidatePanelStylePreference.defaults)
+  private var panelStyleRaw = CandidatePanelStylePreference.fallbackStyle.rawValue
+  @AppStorage(CandidatePanelChipOpacityPreference.key, store: CandidatePanelChipOpacityPreference.defaults)
+  private var chipOpacityPercent = CandidatePanelChipOpacityPreference.defaultPercent
   @AppStorage(EnglishSuggestionsPreference.enabledKey, store: EnglishSuggestionsPreference.defaults)
   private var englishSuggestions = true
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
@@ -37,6 +41,11 @@ struct CandidateOptionsSettingsView: View {
   /// A docked iPad keyboard has room for larger candidates than a phone strip; the keyboard applies the same limits when it draws.
   private let tablet = UIDevice.current.userInterfaceIdiom == .pad
 
+  private var panelStyle: Binding<CandidatePanelStylePreference.Style> {
+    Binding(get: { CandidatePanelStylePreference.Style(rawValue: panelStyleRaw) ?? CandidatePanelStylePreference.fallbackStyle },
+            set: { panelStyleRaw = $0.rawValue })
+  }
+
   var body: some View {
     ScrollView {
       VStack(spacing: 28) {
@@ -48,6 +57,23 @@ struct CandidateOptionsSettingsView: View {
           DesignSliderRow(title: "候选栏大小", info: "候选字和工具栏一起缩放，按键大小不变", value: scaleSlider,
                           range: Double(CandidateFontPreference.scaleRange.lowerBound)...Double(CandidateFontPreference.scaleRange.upperBound),
                           step: Double(CandidateFontPreference.scaleStep), identifier: "candidateScale") { "\(Int($0))%" }
+          DesignDivider()
+          // 展开面板的两种样子：卡片（缺省）是候选条在上、按键式格子的网格在下；系统样式是候选栏原地向下展开，六列纯文字，右侧一列收起/手写/删除。九键、14 键这类带拼音栏的三栏面板只换格子画法，不原地展开。
+          DesignSelectRow(title: "展开候选样式",
+                          info: "卡片：按键式格子，带底色和阴影。系统样式：六列纯文字，与系统拼音一致",
+                          options: CandidatePanelStylePreference.options.map { DesignOption(title: $0.title, value: $0.style) },
+                          selection: panelStyle, identifier: "candidatePanelStyle")
+          // 卡片样式的格子画得像按键，底色可以调淡到融进背景；系统样式本来就没有格子底，跟着藏起来。
+          if panelStyle.wrappedValue == .card {
+            DesignDivider()
+            DesignSliderRow(title: "候选格子不透明度",
+                            info: "卡片样式的展开网格里，每个候选格子底色的深浅。选中那一格保持原样",
+                            value: Binding(get: { Double(chipOpacityPercent) },
+                                           set: { chipOpacityPercent = Int($0.rounded()) }),
+                            range: Double(CandidatePanelChipOpacityPreference.range.lowerBound)...Double(CandidatePanelChipOpacityPreference.range.upperBound),
+                            step: Double(CandidatePanelChipOpacityPreference.step),
+                            identifier: "candidatePanelChipOpacity") { "\(Int($0))%" }
+          }
         }
 
         DesignGroup(title: "字体") {

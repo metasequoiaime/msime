@@ -13,7 +13,7 @@ public final class FuzzyPinyinPage extends ReloadingDetailPage {
         {{"平翘舌"}, {"z-zh", "z ↔ zh"}, {"c-ch", "c ↔ ch"}, {"s-sh", "s ↔ sh"}},
         {{"声母"}, {"n-l", "n ↔ l"}, {"f-h", "f ↔ h"}, {"r-l", "r ↔ l"}},
         {{"前后鼻音"}, {"an-ang", "an ↔ ang"}, {"en-eng", "en ↔ eng"}, {"in-ing", "in ↔ ing"}},
-        {{"其他韵母"}, {"ian-iang", "ian ↔ iang"}, {"uan-uang", "uan ↔ uang"}},
+        {{"其他韵母"}, {"ian-iang", "ian ↔ iang"}, {"uan-uang", "uan ↔ uang"}, {"un-ong", "un ↔ ong"}},
     };
 
     @Override protected void reload() {
