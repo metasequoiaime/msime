@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """release-pr.sh --tag 的契约：每个发版 tag 单独推一次（GitHub 对一次推上来超过三个的 tag 不产生 push 事件，发布工作流一个都不会启动），推上去的是附注 tag；--beta bare 打不带编号的 -beta；Android 同一个 X.Y.Z 只打一个测试版 tag。用一个带 pre-receive 钩子的本地裸仓库当远端，记下每次推送带了几个 ref。"""
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/release-pr.sh"
 PLATFORMS = ["android", "ios", "macos", "linux", "windows"]
+FAKE_GH = """#!/bin/sh
+# Stands in for gh in allow_windows_signing: GET prints the current allowlist, PATCH records the new body.
+case "$*" in
+  *"-X PATCH"*) cat >> "$GH_LOG" ;;
+  *) printf '%s\\n' "$GH_CURRENT" ;;
+esac
+"""
+WORKFLOW = "metasequoiaime/msime/.github/workflows/release-windows.yml"
 HOOK = """#!/bin/sh
 count=0
 while read -r old new ref; do count=$((count + 1)); done
@@ -35,7 +44,13 @@ class ReleasePrTagTests(unittest.TestCase):
             "GIT_COMMITTER_NAME": "Release Test",
             "GIT_COMMITTER_EMAIL": "release-test@example.invalid",
             "PUSH_LOG": str(self.log),
+            "GH_LOG": str(self.tmp / "gh.log"),
+            "GH_CURRENT": json.dumps([f"{WORKFLOW}@refs/heads/develop", f"{WORKFLOW}@refs/heads/main"] + [f"{WORKFLOW}@refs/tags/windows-v0.{n}.0" for n in range(1, 7)]),
         }
+        fake_gh = self.tmp / "fake-gh"
+        fake_gh.write_text(FAKE_GH)
+        fake_gh.chmod(0o755)
+        self.env["RELEASE_PR_GH"] = str(fake_gh)
         self.remote = self.tmp / "remote.git"
         self.work = self.tmp / "work"
         self.git("init", "--quiet", "--bare", str(self.remote), cwd=self.tmp)
@@ -69,6 +84,16 @@ class ReleasePrTagTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text().split(), ["1"] * len(PLATFORMS))
         self.assertEqual(self.remote_tags(), sorted(f"{platform}-v1.0.0 tag" for platform in PLATFORMS))
+
+    def test_windows_tag_is_added_to_the_signing_allowlist(self) -> None:
+        result = self.release("windows", "linux")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bodies = [json.loads(line) for line in (self.tmp / "gh.log").read_text().splitlines()]
+        self.assertEqual(len(bodies), 1, "only the windows tag touches the runner group")
+        self.assertTrue(bodies[0]["restricted_to_workflows"])
+        refs = [entry.split("@", 1)[1] for entry in bodies[0]["selected_workflows"]]
+        # main stays, the deleted develop ref is dropped (the API rejects a list naming a missing ref), only the five newest tags are kept.
+        self.assertEqual(refs, ["refs/heads/main"] + [f"refs/tags/windows-v0.{n}.0" for n in range(3, 7)] + ["refs/tags/windows-v1.0.0"])
 
     def test_bare_beta_and_numbered_beta(self) -> None:
         result = self.release("--beta", "bare", "linux")
