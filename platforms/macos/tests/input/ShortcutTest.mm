@@ -7436,7 +7436,14 @@ static void TestLeftOptionHoldOpensSymbolPanel() {
     auto release = [&] {
         return [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 58, 0, NSProcessInfo.processInfo.systemUptime) client:client];
     };
-    auto settle = [] { [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]]; };
+    // 到期计时器已经过点，跑一小段 run loop 就该触发；负向用例只能等一段固定时间。
+    auto settle = [] { [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]]; };
+    // 正向用例等到面板真的打开：慢机器上主队列里排着别的测试留下的工作，固定一小段不够。
+    auto waitForPanel = [&](NSUInteger calls) {
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+        while (controller.paletteCalls < calls && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    };
 
     // 出厂默认关：按住多久都只是把事件交给应用。
     assert(!prefs.symbolPanelLeftOptionHold);
@@ -7448,7 +7455,7 @@ static void TestLeftOptionHoldOpensSymbolPanel() {
     assert(prefs.symbolPanelLeftOptionHold);
     // 按满：按下交给应用，先上屏组字再开面板，松开被吞掉，下一次松开不再吞。
     assert(!press());
-    settle();
+    waitForPanel(1);
     assert(controller.paletteCalls == 1 && [client.committed isEqual:@"你"]);
     assert(release());
     assert(!release());
@@ -7466,16 +7473,10 @@ static void TestLeftOptionHoldOpensSymbolPanel() {
     settle();
     assert(controller.paletteCalls == 1 && !release());
 
-    // 带着 Command 按下左 Option：组合键。右 Option 从不触发。
+    // 带着 Command 按下左 Option：组合键。右 Option 归语音按住说话，由 LeftOptionHoldTest 覆盖。
     assert(!press(leftOption | NSEventModifierFlagCommand));
     settle();
     assert(controller.paletteCalls == 1 && !release());
-    gLeftOptionSessionFlags = NSEventModifierFlagOption | NX_DEVICERALTKEYMASK;
-    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 61, NSEventModifierFlagOption | NX_DEVICERALTKEYMASK, NSProcessInfo.processInfo.systemUptime - 1.0) client:client]);
-    settle();
-    assert(controller.paletteCalls == 1);
-    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 61, 0, NSProcessInfo.processInfo.systemUptime) client:client]);
-    gLeftOptionSessionFlags = (CGEventFlags)leftOption;
 
     // 安全输入期间不生效。
     controller.secureInput = YES;
@@ -15683,6 +15684,7 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--left-option-hold") { TestLeftOptionHoldOpensSymbolPanel(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--voice-preference-restore") { TestVoicePreferenceRestore(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-conflicts") { TestGlobalVoiceConflicts(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-polling") { TestGlobalVoicePolling(); return 0; }
