@@ -1107,6 +1107,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedShiftTapShortcut;
     BOOL _sharedShiftTapRequiresEditable;
     BOOL _sharedShiftTapUppercaseEnglish;
+    BOOL _sharedSymbolPanelLeftOptionHold;
     NSNumber *_sharedControlTapShortcut;
     NSNumber *_sharedCapsLockTapShortcut;
     NSNumber *_sharedTrilingualCycle;
@@ -2310,6 +2311,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     // 新开关没有旧版偏好回退；移除字段也应恢复默认关闭。
     _sharedShiftTapRequiresEditable = NO;
     _sharedShiftTapUppercaseEnglish = NO;
+    _sharedSymbolPanelLeftOptionHold = NO;
     if ([keys isKindOfClass:NSDictionary.class]) {
         // 中日英循环切换：缺键读作关，和共享偏好的默认值（对齐旧版 Windows 出厂值）一致。
         id cycle = keys[@"trilingual_cycle"];
@@ -2318,6 +2320,8 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
         if (LocalModeBoolean(editable)) _sharedShiftTapRequiresEditable = [editable boolValue];
         id uppercase = keys[@"shift_tap_uppercase_english"];
         if (LocalModeBoolean(uppercase)) _sharedShiftTapUppercaseEnglish = [uppercase boolValue];
+        id symbolPanelHold = keys[@"symbol_panel_left_option_hold"];
+        if (LocalModeBoolean(symbolPanelHold)) _sharedSymbolPanelLeftOptionHold = [symbolPanelHold boolValue];
         id shift = keys[@"switch_language_shift"];
         if (LocalModeBoolean(shift)) {
             // The shared Tauri setting reaches both native Shift routes.
@@ -2799,6 +2803,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
 }
 - (BOOL)shiftTapRequiresEditable { return _sharedShiftTapRequiresEditable; }
 - (BOOL)shiftTapUppercaseEnglish { return _sharedShiftTapUppercaseEnglish; }
+- (BOOL)symbolPanelLeftOptionHold { return _sharedSymbolPanelLeftOptionHold; }
 - (void)setShiftTapShortcut:(BOOL)value {
     _sharedInputModeShortcut = nil;
     _sharedShiftTapShortcut = nil;

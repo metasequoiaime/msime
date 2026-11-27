@@ -71,6 +71,8 @@ RUST_ONLY: dict[str, set[str]] = {
     "KeybindingPreferences": {
         # 单按 Shift 进入大写英文（#11846）只由 macOS 宿主读取；packages/ui 迁移期只修缺陷、不加新设置，冻结的 AppKit 回退窗口也不加控件，界面随 macOS 原生设置迁移接入。
         "shift_tap_uppercase_english",
+        # 长按左 Option 打开符号面板（#11859）同样只由 macOS 宿主读取，界面随 macOS 原生设置迁移接入。
+        "symbol_panel_left_option_hold",
     },
     "LocalModePreferences": {
         # 组字后按 / 转超级简拼（#10860）只在 Windows 与 iOS 的原生设置页提供开关；packages/ui 只修缺陷、不加新设置，macOS、Linux、HarmonyOS 按默认开，等原生设置迁移时补上。

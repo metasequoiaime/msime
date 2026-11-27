@@ -4082,6 +4082,9 @@ pub struct KeybindingPreferences {
     /// macOS 单按 Shift 从中文切到英文后，本次英文状态里的字母直接输出大写，再次切换或从其它入口改变中英文时恢复普通英文。默认关闭，缺字段的旧文档读成关闭；只有 macOS 宿主读它，界面随 macOS 原生设置迁移接入。
     #[serde(default)]
     pub shift_tap_uppercase_english: bool,
+    /// macOS 按住左 Option 约 400 毫秒（期间没有别的键或修饰键）打开表情与符号面板；右 Option 不受影响，短按和组合键照常交给应用，安全输入期间不生效。默认关闭，缺字段的旧文档读成关闭；只有 macOS 宿主读它，界面随 macOS 原生设置迁移接入。
+    #[serde(default)]
+    pub symbol_panel_left_option_hold: bool,
     #[serde(default)]
     pub switch_language_ctrl: bool,
     /// Linux 已默认处理这个组合键；关闭时交还应用，不改输入法框架的全局绑定。
@@ -4419,6 +4422,7 @@ impl Default for KeybindingPreferences {
             switch_language_shift: true,
             switch_language_shift_requires_editable: false,
             shift_tap_uppercase_english: false,
+            symbol_panel_left_option_hold: false,
             switch_language_ctrl: false,
             switch_language_ctrl_space: true,
             switch_language_ctrl_alt_space: true,

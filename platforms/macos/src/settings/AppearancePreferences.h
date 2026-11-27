@@ -152,6 +152,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, readonly) BOOL shiftTapRequiresEditable;
 /// 单按 Shift 从中文切到英文后字母输出大写（共享偏好 `keybindings.shift_tap_uppercase_english`），缺省为关。只读共享文档，没有本机回退键。
 @property(nonatomic, readonly) BOOL shiftTapUppercaseEnglish;
+/// 按住左 Option 约 400 毫秒打开表情与符号面板（共享偏好 `keybindings.symbol_panel_left_option_hold`），缺省为关。只读共享文档，没有本机回退键。
+@property(nonatomic, readonly) BOOL symbolPanelLeftOptionHold;
 @property(nonatomic) BOOL controlTapShortcut;
 /// 单按 Caps Lock 切换中英文（共享偏好 `keybindings.switch_language_caps_lock`），缺省为关。
 @property(nonatomic) BOOL capsLockTapShortcut;
