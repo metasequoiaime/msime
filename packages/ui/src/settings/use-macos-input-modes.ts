@@ -9,6 +9,7 @@ import {
   groupMacosInputModeEntries,
   INPUT_MODE_RECHECK_MS,
   INPUT_MODE_RECHECK_WINDOW_MS,
+  macosInputModeEntryForScheme,
   missingMacosInputModeEntries,
   type MacosInputModeEntry,
   type MacosInputModeGroup,
@@ -102,10 +103,11 @@ export function useMacosInputModes(options: UseMacosInputModesOptions): MacosInp
     );
   };
   const missing = enabled ? missingMacosInputModeEntries(enabled, inputSchemes, edition) : [];
+  const currentMode = macosInputModeEntryForScheme(scheme, edition).mode;
   return {
     enabled,
     missing,
-    current: missing.find((entry) => entry.scheme === scheme),
+    current: missing.find((entry) => entry.mode === currentMode),
     groups: groupMacosInputModeEntries(missing),
     opening,
     refresh,

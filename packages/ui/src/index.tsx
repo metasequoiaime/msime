@@ -295,6 +295,7 @@ export {
 export {
   macosInputModeEntries,
   macosInputModeEntriesFor,
+  macosInputModeEntryForScheme,
   macosInputModeProductName,
   missingMacosInputModeEntries,
   groupMacosInputModeEntries,

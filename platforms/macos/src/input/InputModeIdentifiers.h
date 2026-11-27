@@ -318,7 +318,7 @@ static inline BOOL MSIMEReportReturnsToLeftInputMode(const MSIMESystemInputModeS
     return switchedIn && (state.left == nil || [reported isEqualToString:state.left]);
 }
 
-// 切进后报告的入口确知就是离开时的那一个。这样的报告不论是哪个入口都不改方案：只加了「水杉双拼」一个入口、又在设置里把方案改成全拼的人，菜单栏只能停在「双」上，每次从别的输入源切回来系统都报告「双」，以前这份报告把方案改回双拼，设置里选的全拼留不住。离开时的入口未知（进程刚启动）时不算，那时报告的 双、五、日 等仍选各自的方案。
+// 切进后报告的入口确知就是离开时的那一个。这样的报告不论是哪个入口都不改方案：只加了「水杉双拼」一个入口、又在设置里把方案改成全拼的人，菜单栏只能停在「双」上，每次从别的输入源切回来系统都报告「双」，以前这份报告把方案改回双拼，设置里选的全拼留不住。离开时的入口未知（进程刚启动）时不算，那时报告的 双、五、日 等仍选各自的方案；只有方案自己的入口不在系统列表里、报告的是唯一可选的中文入口时例外，见 MSIMEReportIsOnlyChineseEntryIn。
 static inline BOOL MSIMEReportRepeatsLeftInputMode(const MSIMESystemInputModeState &state, BOOL switchedIn, NSString *reported) {
     return switchedIn && state.left != nil && [reported isEqualToString:state.left];
 }
@@ -338,6 +338,20 @@ using MSIMEInputModeAvailability = BOOL (*)(NSString *identifier);
 static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState &state, NSString *selected) {
     if (state.selecting || !MSIMEIsInputModeID(selected)) return NO;
     state.current = [selected copy];
+    return YES;
+}
+
+// 设置里存的方案自己的入口不在系统的输入法列表里，而报告的入口是本 bundle 唯一一个可选的中文入口时，这份报告不是用户在入口之间做的选择：用户想用水杉就只能落在它上面。只加了「水杉双拼」、在设置里选了全拼的人，每次重新登录、更新后切进来系统都报告「双」，`left` 这时还不知道（MSIMEReportRepeatsLeftInputMode 管不到），以前这份报告把方案改成双拼（#11911）。这样的报告不改方案，以设置里存的方案为准。系统里还有别的中文入口可选（例如同时加了「五」），或者报告的是 日、한、越、藏 这类换语言的入口，报告仍是用户的选择。读不到列表、或列表里还没有被报告的那个入口时不算，照旧按报告走。`info` 是本版本 bundle 的 Info.plist，用来按 MSIMEInputModeIDForSchemeIn 找方案自己的入口。
+static inline BOOL MSIMEReportIsOnlyChineseEntryIn(NSDictionary *info, NSString *scheme, NSString *reported,
+                                                   MSIMEInputModeAvailability available) {
+    if (!available || !MSIMEIsInputModeID(reported)) return NO;
+    NSArray<NSString *> *chinese = @[ MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID,
+                                      MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEStrokeInputModeID ];
+    if (![chinese containsObject:reported] || !available(reported)) return NO;
+    NSString *own = MSIMEInputModeIDForSchemeIn(info, scheme);
+    if ([own isEqualToString:reported] || available(own)) return NO;
+    for (NSString *mode in chinese)
+        if (![mode isEqualToString:reported] && available(mode)) return NO;
     return YES;
 }
 

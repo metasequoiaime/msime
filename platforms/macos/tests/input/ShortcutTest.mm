@@ -3216,6 +3216,66 @@ static void TestSwitchBackKeepsShuangpin() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// 系统输入法列表里只有测试指定的那几个入口，模拟用户只加了「水杉双拼」之类的情形。
+static NSSet<NSString *> *ListedInputModes = nil;
+@interface ListedModesController : ModeController
+@end
+@implementation ListedModesController
+- (MSIMEInputModeAvailability)inputModeAvailability {
+    return +[](NSString *identifier) -> BOOL { return [ListedInputModes containsObject:identifier]; };
+}
+@end
+
+// #11911：系统输入法列表里只加了「水杉双拼」（和「水杉英文」），设置里选的是全拼。重新登录、更新后切进来时系统只能落在「双」上，离开时的入口还不知道，以前这份报告把方案改成双拼；它不是用户的选择，方案留在全拼，菜单栏也不去选一个列表里没有的「中」。在英文和中文之间来回之后再报告「双」也一样。列表里还有别的中文入口时，选「双」仍是用户的选择。
+static void TestOnlyListedShuangpinKeepsSavedScheme() {
+    NSString *suite = [@"msime.only-shuangpin." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    appearance.inputModeStatusItem = NO;
+    ListedModesController *controller = [ListedModesController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:[ShortcutSession new] forKey:@"session"];
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+    MSIMEFocusedController = controller;
+    auto freshProcess = [&](NSArray<NSString *> *listed) -> ModeSelectingClient * {
+        ListedInputModes = [NSSet setWithArray:listed];
+        appearance.inputScheme = @"quanpin";
+        appearance.englishMode = NO;
+        ForgetSystemInputMode();
+        ModeSelectingClient *client = [ModeSelectingClient new];
+        [controller setValue:client forKey:@"activeClient"];
+        return client;
+    };
+
+    ModeSelectingClient *client = freshProcess(@[MSIMEShuangpinInputModeID, MSIMEEnglishInputModeID]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"] && !appearance.englishMode);
+    assert(client.selectedModes.count == 0);
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
+
+    // 切到「英」再从输入菜单选回「双」：仍是唯一的中文入口，方案不动。
+    [controller systemDidReportInputMode:MSIMEEnglishInputModeID client:client];
+    assert(appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"]);
+
+    // 「双」和「五」都在列表里：选「双」是用户在两个入口之间挑的，方案改成双拼。
+    client = freshProcess(@[MSIMEShuangpinInputModeID, MSIMEWubiInputModeID, MSIMEEnglishInputModeID]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+
+    // 「中」在列表里：选「双」同样是用户的选择。
+    client = freshProcess(@[MSIMEChineseInputModeID, MSIMEShuangpinInputModeID]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+
+    MSIMEFocusedController = nil;
+    ListedInputModes = nil;
+    ForgetSystemInputMode();
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 @interface SwitchInModeClient : ModeSelectingClient
 @property(nonatomic, copy) NSString *bundleIdentifier;
 @end
@@ -17786,6 +17846,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestConsecutiveUppercaseGoesToTheClient(appearance); }
         @autoreleasepool { TestSystemInputModeReport(appearance); }
         @autoreleasepool { TestSwitchBackKeepsShuangpin(); }
+        @autoreleasepool { TestOnlyListedShuangpinKeepsSavedScheme(); }
         @autoreleasepool { TestSwitchInReportKeepsStartingEnglish(); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestRestoredInputModeActivation(); }
