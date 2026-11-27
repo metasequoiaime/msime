@@ -795,7 +795,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
           cargo build --locked -p msime-host-api -j 2
           if ($LASTEXITCODE -ne 0) { throw 'Settings host library build failed' }
-          # 真实系统编辑器的主线程可能只有 512 KiB 栈；运行完整默认配置的 C ABI 回归。
+          # 宿主的输入线程栈没有下限：Unreal 编辑器建窗激活输入法的那条线程只有约 88 KiB（#11893），运行完整默认配置的 C ABI 回归，按 96 KiB 的线程栈钉住建会话。
           cargo test --locked -p msime-host-api --test host_options_small_stack -j 2
           if ($LASTEXITCODE -ne 0) { throw 'Small-stack host options regression failed' }
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"

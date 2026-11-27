@@ -30,7 +30,7 @@ fn destroy(session: u64) -> serde_json::Value {
 }
 
 #[test]
-fn prepared_options_fit_a_192_kib_thread_stack() {
+fn session_creation_fits_a_96_kib_thread_stack() {
     const CHILD: &str = "MSIME_HOST_OPTIONS_SMALL_STACK_CHILD";
     const COMPLETE: &str = "HOST_OPTIONS_SMALL_STACK_OK";
     if std::env::var_os(CHILD).is_none() {
@@ -38,7 +38,7 @@ fn prepared_options_fit_a_192_kib_thread_stack() {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "prepared_options_fit_a_192_kib_thread_stack",
+                "session_creation_fits_a_96_kib_thread_stack",
                 "--nocapture",
             ])
             .env(CHILD, "1")
@@ -54,7 +54,7 @@ fn prepared_options_fit_a_192_kib_thread_stack() {
         return;
     }
 
-    // 记事本的主线程栈是 512 KiB，系统与 TSF 调用链在下面还要占掉一截；Unreal 编辑器在建窗时激活输入法的那条线程更小，`#11893` 里 141 KiB 的建会话帧就把剩下的栈吃到不足一层 42 KiB 的 `InputSession`。预算收到 192 KiB：既留下那半条链，又钉住建会话不许再把大结构体摊在栈上。
+    // 96 KiB 就是 Unreal 编辑器建窗那条线程的整条栈（#11893 的两个 dmp 里 RSP 到栈顶是 85,704–86,536 字节），构造链自己就要 110 KiB，宿主还在上面压着 MSCTF、user32 的十几 KiB。这条测试钉的是：建会话在这么小的线程栈上也要跑得通，靠的是 `ffi::session::create_session` 在剩余栈不够时切到自己的栈上，而不是靠不断削帧。
     let defaults = serde_json::to_value(Preferences::default()).unwrap();
     let document = json!({
         "api_version": 999,
@@ -90,7 +90,7 @@ fn prepared_options_fit_a_192_kib_thread_stack() {
         valid[field] = json!(root.path().join(directory));
     }
     std::thread::Builder::new()
-        .stack_size(192 * 1024)
+        .stack_size(96 * 1024)
         .spawn(move || {
             // API 版本在完整配置解析后检查；用拒绝路径避免访问真实词库和用户目录。
             assert_eq!(
