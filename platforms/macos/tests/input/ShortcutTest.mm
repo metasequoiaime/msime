@@ -374,6 +374,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 // Plays secure event input, which is window-server state a test cannot turn on. Left at NO it also keeps a test from inheriting the machine's state: a locked screen or another process's password field turns it on for everyone.
 @property(nonatomic) BOOL secureInput;
 @property(nonatomic) NSUInteger paletteCalls;
+// 打开系统字符检视器那一刻客户端已上屏的文字，用来断言先上屏组字、再开面板。
+@property(nonatomic, copy) NSString *committedAtPalette;
 @property(nonatomic) NSUInteger screenKeyboardCalls;
 @property(nonatomic) NSUInteger restartCalls;
 @property(nonatomic) NSUInteger terminationCalls;
@@ -622,7 +624,11 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
     if ([self valueForKey:@"session"]) [super prepareSession];
 }
 - (BOOL)secureEventInputActive { return self.secureInput; }
-- (void)showSystemCharacterPalette { ++self.paletteCalls; }
+- (void)showSystemCharacterPalette {
+    ++self.paletteCalls;
+    id client = [self valueForKey:@"activeClient"];
+    self.committedAtPalette = [client respondsToSelector:@selector(committed)] ? [client committed] : nil;
+}
 - (void)showScreenKeyboard:(id)sender { (void)sender; ++self.screenKeyboardCalls; }
 - (void)restartCurrentInputMethod { ++self.restartCalls; }
 - (void)terminateCurrentInputMethod { ++self.terminationCalls; }
@@ -7456,7 +7462,8 @@ static void TestLeftOptionHoldOpensSymbolPanel() {
     // 按满：按下交给应用，先上屏组字再开面板，松开被吞掉，下一次松开不再吞。
     assert(!press());
     waitForPanel(1);
-    assert(controller.paletteCalls == 1 && [client.committed isEqual:@"你"]);
+    // 开面板的那一刻「你」已经上屏：顺序是先上屏、后开面板。
+    assert(controller.paletteCalls == 1 && [controller.committedAtPalette isEqual:@"你"] && [client.committed isEqual:@"你"]);
     assert(release());
     assert(!release());
 
